@@ -93,7 +93,7 @@ function stripPreamble(raw: string): string {
 }
 
 /** Causalité, synthèse, arbitrage : ce que seul un raisonnement cher sait faire. */
-const DEEP = /\b(pourquoi|comment ca se fait|comment on en est|explique moi pourquoi|analyse|analyser|compare|comparer|synthese|synthetise|strategie|strategique|recommande|recommandation|que penses tu|ton avis|si on|et si|scenario|simule|arbitre|contradiction|risque|risques|impact|consequences|qu est ce que j ai rate|ce que j ai rate|qu est ce qui m echappe|bilan|fais le point|faut il)\b/;
+const DEEP = /\b(pourquoi|comment ca se fait|comment on en est|explique moi pourquoi|analyse|analyser|compare|comparer|synthese|synthetise|strategie|strategique|recommande|recommandation|que penses tu|ton avis|si on|et si|scenario|simule|arbitre|contradiction|risque|risques|impact|consequences|qu est ce que j ai rate|ce que j ai rate|qu est ce qui m echappe|bilan|fais le point|faut il|fais le tour|audite|audit complet|passe en revue|tour d horizon|etat des lieux|panorama|vue d ensemble|creuse|investigue|enquete|diagnostique|remonte la piste)\b/;
 
 /**
  * L'IMPÉRATIF DE RECHERCHE — testé AVANT le raisonnement.
@@ -163,6 +163,36 @@ const DOMAIN_SIGNALS: [Domain, RegExp][] = [
  * réellement présentes en base (`ctx.knownEntities`) restent prioritaires — elles, elles savent.
  */
 const DCI_STEM = /\b[a-z]{4,}(vir|nib|mab|ximab|zumab|prazole|sartan|statine|statin|cycline|micine|oxacine|floxacine|pril|olol|azepam|parine|tidine|triptan|cilline|penem|conazole|caine|dipine|glitazone|gliptine|setron)\b/;
+
+/**
+ * TOUS LES DOMAINES QUE LA PHRASE TOUCHE, dans l'ordre où ils apparaissent.
+ *
+ * `detectDomain` (au singulier, ci-dessous) réduit ce même calcul à UN domaine parce que le
+ * routage doit trancher. Le résolveur d'outils, lui, a besoin de la liste entière : « le contrat
+ * Sofradis et le budget qui va avec » touche LEGAL et FINANCE, et ne charger que le premier
+ * rendrait la moitié de la demande impossible à servir.
+ *
+ * L'ordre est celui de la phrase, et il est significatif : en français le sujet précède ses
+ * compléments, donc le premier domaine est le domaine PRINCIPAL. Le résolveur s'en sert pour
+ * décider ce qu'il garde en premier quand le budget serre.
+ */
+export function detectDomains(text: string, known: RouterContext["knownEntities"] = []): Domain[] {
+  const hits: { domain: Domain; at: number }[] = DOMAIN_SIGNALS
+    .map(([domain, re]) => ({ domain, at: text.search(re) }))
+    .filter((h) => h.at >= 0);
+  for (const e of known ?? []) {
+    const at = text.indexOf(normalizeUtterance(e.name));
+    if (at >= 0 && normalizeUtterance(e.name).length >= 3) hits.push({ domain: e.domain, at });
+  }
+  const dci = text.search(DCI_STEM);
+  if (dci >= 0) hits.push({ domain: "REGULATORY" as Domain, at: dci });
+
+  const vus = new Set<Domain>();
+  return hits
+    .sort((a, b) => a.at - b.at)
+    .filter((h) => (vus.has(h.domain) ? false : (vus.add(h.domain), true)))
+    .map((h) => h.domain);
+}
 
 function detectDomain(text: string, known: RouterContext["knownEntities"] = []): { domain: Domain; confidence: number } {
   const hits = DOMAIN_SIGNALS

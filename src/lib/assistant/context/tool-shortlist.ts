@@ -156,6 +156,136 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
  * des transverses dont l'absence ne se rattrape pas au tour suivant.
  * Un mauvais aiguillage coûte alors un tour de plus, jamais un « je ne peux pas ».
  */
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES 82 OUTILS QUI ÉCHAPPAIENT AU CLASSEMENT — et pourquoi la liste courte ne raccourcissait pas.
+ *
+ * Le classement ci-dessus ne couvrait que `POWER_TOOLS` (79). Les 82 autres — lectures de base,
+ * écritures, outils super-admin, et les 30 schémas d'opérations par domaine — n'y figuraient pas.
+ * Or la règle de sécurité est « un outil NON classé est CONSERVÉ » : ces 82 passaient donc
+ * TOUJOURS, quelle que soit la question.
+ *
+ * D'où le chiffre qu'on a mesuré en corrigeant l'incident HTTP 400 : 161 outils réduits à 106.
+ * La réduction ne portait que sur les 55 outils de pouvoir hors domaine ; les deux tiers de la
+ * liste étaient intouchables par construction. « Bonjour » embarquait encore 106 schémas.
+ *
+ * La règle de sécurité était bonne — elle penche du bon côté, et elle reste. Ce qu'il manquait,
+ * c'est de ne plus avoir besoin d'elle : un classement COMPLET rend l'échappatoire inutile au
+ * lieu de la rendre dangereuse. Le test de parité, élargi, échoue désormais si un seul outil du
+ * périmètre réel n'est pas classé.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export const TOOL_DOMAINS_RESTE: Record<string, Domain[]> = {
+  // ── Lectures de base ────────────────────────────────────────────────────────────────────
+  search_people: ["DIRECTORY", "HR"],
+  search_doctors: ["DIRECTORY"],
+  search_products: ["REGULATORY"],
+  search_events: ["CALENDAR"],
+  list_emails: ["MAIL"],
+  read_email: ["MAIL"],
+  read_workflow: ["ADMIN"],
+  my_overview: ["GENERAL"],
+  list_my_tasks: ["MISSION"],
+  list_my_requests: ["MISSION"],
+  find_available_actions: ["GENERAL"],
+  export_excel: ["GENERAL"],
+
+  // ── Administration de la plateforme ─────────────────────────────────────────────────────
+  list_accounts: ["ADMIN"],
+  read_platform_settings: ["ADMIN"],
+  update_platform_setting: ["ADMIN"],
+  set_account_active: ["ADMIN"],
+  set_account_role: ["ADMIN"],
+  configure_workflow: ["ADMIN"],
+  manage_custom_field: ["ADMIN"],
+  advance_workflow: ["ADMIN"],
+  create_admin_request: ["ADMIN"],
+  delete_record: ["ADMIN"],
+  restore_record: ["ADMIN"],
+  purge_record: ["ADMIN"],
+  create_notification: ["GENERAL"],
+
+  // ── Réglementaire ───────────────────────────────────────────────────────────────────────
+  update_regulatory_product: ["REGULATORY"],
+  assign_regulatory_responsible: ["REGULATORY", "HR"],
+  set_regulatory_step: ["REGULATORY"],
+  request_regulatory_status_update: ["REGULATORY"],
+  set_products_company: ["REGULATORY", "ADMIN"],
+  create_dossier: ["REGULATORY"],
+  create_hospital: ["REGULATORY"],
+  update_hospital: ["REGULATORY"],
+
+  // ── Messagerie ──────────────────────────────────────────────────────────────────────────
+  send_message: ["MAIL"],
+  send_email: ["MAIL"],
+
+  // ── Agenda et événements ────────────────────────────────────────────────────────────────
+  create_calendar_event: ["CALENDAR"],
+  update_calendar_event: ["CALENDAR"],
+  create_event_request: ["CALENDAR", "MISSION"],
+  create_congress_request: ["CALENDAR", "MISSION"],
+
+  // ── Missions, tâches, demandes ──────────────────────────────────────────────────────────
+  create_task: ["MISSION"],
+  update_task: ["MISSION"],
+  update_request: ["MISSION"],
+  create_promo_material_request: ["MISSION"],
+
+  // ── Finances ────────────────────────────────────────────────────────────────────────────
+  decide_payment: ["FINANCE"],
+  request_treasury_update: ["FINANCE"],
+  create_sponsoring_request: ["FINANCE", "MISSION"],
+
+  // ── RH ──────────────────────────────────────────────────────────────────────────────────
+  create_hr_request: ["HR", "MISSION"],
+  update_salary: ["HR"],
+
+  // ── Juridique ───────────────────────────────────────────────────────────────────────────
+  create_legal_document: ["LEGAL"],
+  update_legal_document: ["LEGAL"],
+
+  // ── Transverses assumés — ils ne relèvent d'aucun domaine et servent partout ────────────
+  bulk_action: ["GENERAL"],
+  action_plan: ["GENERAL"],
+
+  // ── LES 30 SCHÉMAS D'OPÉRATIONS PAR DOMAINE ────────────────────────────────────────────
+  // Leur nom porte le domaine, mais un classement DÉDUIT du nom serait faux le jour où l'un
+  // d'eux sera renommé sans que la carte le suive. On l'écrit, et le test le vérifie.
+  drive_operation: ["DRIVE"],
+  task_operation: ["MISSION"],
+  finance_operation: ["FINANCE"],
+  regulatory_operation: ["REGULATORY"],
+  hr_operation: ["HR"],
+  messaging_operation: ["MAIL"],
+  meeting_operation: ["CALENDAR"],
+  mail_operation: ["MAIL"],
+  legal_operation: ["LEGAL"],
+  org_operation: ["ADMIN", "HR"],
+  adpro_operation: ["MISSION"],
+  event_operation: ["CALENDAR"],
+  consulting_operation: ["MISSION"],
+  care_operation: ["REGULATORY"],
+  promo_operation: ["MISSION"],
+  medical_info_operation: ["REGULATORY"],
+  bd_operation: ["DIRECTORY"],
+  dossier_operation: ["REGULATORY"],
+  directive_operation: ["ADMIN"],
+  support_operation: ["ADMIN"],
+  validation_operation: ["MISSION"],
+  field_report_operation: ["DIRECTORY"],
+  supply_operation: ["REGULATORY"],
+  planning_operation: ["CALENDAR"],
+  request_operation: ["MISSION"],
+  medical_operation: ["REGULATORY"],
+  stock_operation: ["REGULATORY"],
+  pch_operation: ["REGULATORY"],
+  sales_operation: ["DIRECTORY"],
+  logistics_operation: ["REGULATORY"],
+};
+
+/** Le classement COMPLET — c'est celui-ci que le résolveur consulte. */
+export const TOOL_DOMAINS_ALL: Record<string, Domain[]> = { ...TOOL_DOMAINS, ...TOOL_DOMAINS_RESTE };
+
 export const ALWAYS_ON = ["search_everything", "inspect_record", "resolve_person", "remember"] as const;
 
 /**
@@ -165,7 +295,7 @@ export const ALWAYS_ON = ["search_everything", "inspect_record", "resolve_person
  * demande l'état d'ensemble, la chronologie et les contradictions. Les restreindre à un domaine
  * serait l'erreur symétrique de celle qu'on corrige.
  */
-const EXECUTIVE = [
+export const EXECUTIVE = [
   "company_state", "ceo_attention", "executive_brief", "executive_alerts",
   "what_changed", "time_travel", "investigate_event", "process_insights", "simulate_scenario",
 ];

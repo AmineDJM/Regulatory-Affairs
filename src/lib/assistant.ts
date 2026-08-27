@@ -92,6 +92,7 @@ import { recordShadow } from "@/lib/assistant/context/shadow";
 // ne fait que l'appliquer.
 import { decideRollout, recordOutcome, type RolloutDecision } from "@/lib/assistant/context/rollout";
 import { shortlistTools, fitToolBudget, DISCOVERY_TOOL } from "@/lib/assistant/context/tool-shortlist";
+import { resolveTools } from "@/lib/assistant/context/tool-resolver";
 // L'ESPACE DE TRAVAIL GÉNÉRATIF : la sortie d'une source canonique traduite en blocs TYPÉS.
 // Le modèle n'écrit aucun balisage — c'est ce qui empêche l'écran de redevenir un vidage de JSON.
 import { composeWorkspace } from "@/lib/assistant/workspace/compose";
@@ -1754,6 +1755,25 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
 ];
 
 const WRITE_TOOL_NAMES = new Set([...WRITE_TOOLS, ...SUPERADMIN_WRITE_TOOLS].map((t) => t.name));
+
+/**
+ * CE QUI ÉCRIT, DU POINT DE VUE DU RÉSOLVEUR D'OUTILS.
+ *
+ * Plus large que `WRITE_TOOL_NAMES` d'UNE chose : les 30 schémas d'opérations par domaine
+ * (`drive_operation`, `regulatory_operation`…). Ils écrivent — leur nom le dit et leur
+ * `buildProposal` les traite comme tels — mais ils ne figurent pas dans `WRITE_TOOL_NAMES`.
+ *
+ * DEUX ENSEMBLES PLUTÔT QU'UN, ET C'EST DÉLIBÉRÉ. `WRITE_TOOL_NAMES` gouverne l'interception
+ * des écritures et la validation des étapes d'un plan : l'élargir changerait ces deux
+ * comportements en même temps que le choix des outils, sans que rien ne le mesure. Le résolveur
+ * n'a besoin que de savoir quoi NE PAS DÉCRIRE à une simple question ; il obtient son propre
+ * ensemble, et la question de savoir si les outils de domaine devraient rejoindre l'autre est
+ * laissée ouverte plutôt que tranchée par effet de bord.
+ */
+export const RESOLVER_WRITE_NAMES: ReadonlySet<string> = new Set([
+  ...WRITE_TOOL_NAMES,
+  ...DOMAIN_TOOL_DEFS.map((t) => t.name),
+]);
 
 /**
  * LA LISTE COMPLÈTE DES OUTILS D'UNE PERSONNE — une seule définition, trois consommateurs.
@@ -4610,12 +4630,16 @@ async function runAssistantImpl(
   const rollout = decideRollout(question, { userId: user.id, ctx: { modality: opts.origin === "voice" ? "voice" : "text" } });
   // `tools` est MUTABLE : la découverte (`list_more_tools`) peut rouvrir un domaine en cours de
   // boucle, et c'est ce qui rend la liste courte réversible plutôt qu'amputante.
-  // LE PLAFOND DE L'API PASSE AVANT LE CANARY — voir `fitToolBudget`. Le mode d'exécution ne
-  // change pas (LEGACY reste LEGACY, avec ses gardes) : seule la liste de schémas est réduite,
-  // et de façon réversible, parce que 161 outils valaient un HTTP 400 et donc zéro réponse.
-  let tools = rollout.mode === "SHORTLIST"
-    ? (shortlistTools(allTools, rollout.route) as typeof allTools)
-    : (fitToolBudget(allTools, rollout.route) as typeof allTools);
+  // ── LE RÉSOLVEUR D'OUTILS ────────────────────────────────────────────────────────────────
+  // On n'envoie plus « ce qui tient » mais « ce que la demande peut appeler » : niveau A/B/C et
+  // domaines cités décident. Mesuré sur vingt demandes types : une salutation part avec 0 schéma
+  // au lieu de 161, un A avec 10 à 14, un B avec 11 à 30, un C avec 39 à 40.
+  //
+  // Les deux garde-fous restent DERRIÈRE, et c'est volontaire : `fitToolBudget` puis `capTools`
+  // ne se déclenchent plus en fonctionnement normal, mais un filet qu'on retire parce qu'il ne
+  // sert plus est un filet qu'on regrettera au prochain lot d'outils.
+  const resolved = resolveTools(allTools, question, rollout.route, { ecritures: RESOLVER_WRITE_NAMES });
+  let tools = fitToolBudget(resolved.tools, rollout.route) as typeof allTools;
   const trace: string[] = [];
   // Ce que la boucle appelle VRAIMENT — la seule vérité contre laquelle comparer la liste courte.
   const usedTools: string[] = [];
@@ -4915,12 +4939,16 @@ async function runAssistantStreamImpl(
   // (§22 : « Voice est une modalité, pas un deuxième cerveau »).
   const turnStartedAt = Date.now();
   const rollout = decideRollout(question, { userId: user.id, ctx: { modality: opts.origin === "voice" ? "voice" : "text" } });
-  // LE PLAFOND DE L'API PASSE AVANT LE CANARY — voir `fitToolBudget`. Le mode d'exécution ne
-  // change pas (LEGACY reste LEGACY, avec ses gardes) : seule la liste de schémas est réduite,
-  // et de façon réversible, parce que 161 outils valaient un HTTP 400 et donc zéro réponse.
-  let tools = rollout.mode === "SHORTLIST"
-    ? (shortlistTools(allTools, rollout.route) as typeof allTools)
-    : (fitToolBudget(allTools, rollout.route) as typeof allTools);
+  // ── LE RÉSOLVEUR D'OUTILS ────────────────────────────────────────────────────────────────
+  // On n'envoie plus « ce qui tient » mais « ce que la demande peut appeler » : niveau A/B/C et
+  // domaines cités décident. Mesuré sur vingt demandes types : une salutation part avec 0 schéma
+  // au lieu de 161, un A avec 10 à 14, un B avec 11 à 30, un C avec 39 à 40.
+  //
+  // Les deux garde-fous restent DERRIÈRE, et c'est volontaire : `fitToolBudget` puis `capTools`
+  // ne se déclenchent plus en fonctionnement normal, mais un filet qu'on retire parce qu'il ne
+  // sert plus est un filet qu'on regrettera au prochain lot d'outils.
+  const resolved = resolveTools(allTools, question, rollout.route, { ecritures: RESOLVER_WRITE_NAMES });
+  let tools = fitToolBudget(resolved.tools, rollout.route) as typeof allTools;
   const trace: string[] = [];
   const usedTools: string[] = [];
   let discoveryCalls = 0;
