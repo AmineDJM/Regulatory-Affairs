@@ -53,6 +53,15 @@ export interface WorkspacePerson {
   poste?: string | null;
   departement?: string | null;
   entite?: string | null;
+  /**
+   * LA PHOTO — une ROUTE DE L'ERP, jamais une URL externe.
+   *
+   * Même règle que pour les documents : la route revérifie les droits à chaque requête, donc un
+   * lien recopié ailleurs n'ouvre rien. Un visage rend une fiche reconnaissable d'un coup d'œil
+   * là où deux initiales demandent de lire ; quand la photo manque, les initiales prennent le
+   * relais et la fiche ne change pas de forme pour autant.
+   */
+  photo?: string | null;
   coordonnees: WorkspaceEndpoint[];
   /** « Active », « Congé », « Sortie » — l'état du compte, quand il est connu. */
   statut?: { label: string; ton: "neutre" | "succes" | "attention" | "alerte" } | null;
@@ -131,6 +140,20 @@ export interface WorkspaceEvent {
  * ne plus avoir à retrouver soi-même la référence exacte de la demande à trancher.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+/**
+ * LE PICTOGRAMME D'UN GESTE — vocabulaire FERMÉ, choisi par le serveur.
+ *
+ * Une rangée de quatre boutons gris se relit mot à mot ; les mêmes avec un pictogramme se
+ * reconnaissent à la forme. On ne le devine donc pas depuis le libellé — un verbe français mal
+ * découpé donnerait l'icône d'un autre geste, et c'est la pire des aides. Le serveur, lui, sait
+ * ce que l'action FAIT au moment où il la rédige.
+ *
+ * La liste reste courte exprès : un pictogramme par famille de geste, pas un par bouton.
+ */
+export type WorkspaceActionIcon =
+  | "voir" | "email" | "tache" | "modifier" | "apercu"
+  | "envoyer" | "escalade" | "planifier" | "relancer" | "valider";
+
 export interface WorkspaceAction {
   /** Ce qui s'écrit sur le bouton — deux mots, à l'impératif. */
   libelle: string;
@@ -138,6 +161,8 @@ export interface WorkspaceAction {
   phrase: string;
   /** « danger » pour un refus ou une suppression : la couleur dit ce que le geste fait. */
   ton?: "primaire" | "danger";
+  /** Le pictogramme, quand il aide. Absent ⇒ bouton texte, ce qui reste parfaitement lisible. */
+  icone?: WorkspaceActionIcon;
 }
 
 export interface WorkspaceItem {
@@ -153,6 +178,14 @@ export interface WorkspaceItem {
 export interface WorkspaceField {
   label: string;
   value: string;
+  /**
+   * QUAND LA VALEUR EST QUELQU'UN. « Responsable : Raihana Benkaci » se lit deux fois plus vite
+   * avec son visage à côté — c'est la ligne que le PDG cherche en premier sur un dossier bloqué.
+   * Le nom reste le texte de la valeur ; ceci ne fait qu'ajouter le visage.
+   */
+  avatar?: { nom: string; photo?: string | null } | null;
+  /** Un ton porte un seuil franchi : un retard de quatre jours ne se lit pas en noir. */
+  ton?: "neutre" | "attention" | "alerte" | "succes";
 }
 
 /**
@@ -198,6 +231,8 @@ export interface WorkspaceDoc {
   /** Ce que le document EST, en une ligne : « Contrat — Kwality, échéance 31/12/2026 ». */
   soustitre?: string | null;
   taille?: string | null;
+  /** La date de la pièce, déjà mise en forme. « 320 ko · 18/08/2025 » situe le document. */
+  date?: string | null;
   pages?: number | null;
   /** Le contenu d'un tableur, prêt à s'afficher. */
   feuille?: { columns: WorkspaceColumn[]; rows: Record<string, string>[]; total: number } | null;

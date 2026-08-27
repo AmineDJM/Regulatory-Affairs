@@ -937,3 +937,103 @@
   font-size: 12.5px;
   font-weight: 500;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════
+   L'ÉCHELLE DES VISAGES, LES GESTES À PICTOGRAMME, ET LE MESSAGE À COLONNE.
+   Ces règles viennent APRÈS les précédentes à dessein : à spécificité égale, la dernière
+   gagne, et c'est ainsi qu'un `.chief-avatar-s` l'emporte sur la taille héritée d'un contexte.
+   ══════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Visages ───────────────────────────────────────────────────────────────────────────────
+   Trois échelles MÉTIER, pas trois tailles décoratives : un portrait sur la fiche d'une
+   personne, un jeton dans une liste, une vignette dans un champ. */
+.chief-avatar.chief-avatar-s { width: 28px; height: 28px; font-size: 10.5px; }
+.chief-avatar.chief-avatar-m { width: 42px; height: 42px; font-size: 13px; }
+.chief-avatar.chief-avatar-l { width: 78px; height: 78px; font-size: 24px; }
+.chief-avatar-photo { object-fit: cover; background-color: hsl(var(--chief-surface-hover, 220 30% 93%)); }
+
+/* Une fiche seule mérite un nom qu'on lit de loin — c'est le titre réel de la carte. */
+.chief-profile:not(.chief-profile-compact) .chief-profile-id { gap: 18px; }
+.chief-profile:not(.chief-profile-compact) .chief-profile-name { font-size: 21px; letter-spacing: -0.02em; }
+.chief-profile:not(.chief-profile-compact) .chief-profile-role { margin: 3px 0 10px; font-size: 13px; }
+
+/* ── Coordonnées empilées ─────────────────────────────────────────────────────────────────
+   Le pictogramme du canal distingue une adresse d'un numéro AVANT la lecture. */
+.chief-endpoints-stack { flex-direction: column; align-items: flex-start; gap: 4px; }
+.chief-endpoint-line { border-color: transparent; background: none; padding-left: 0; padding-right: 6px; }
+.chief-endpoint-line:hover { border-color: transparent; background-color: hsl(var(--chief-surface-hover, 220 30% 93%) / 0.6); }
+.chief-endpoint-icon {
+  width: 14px; height: 14px; flex-shrink: 0;
+  color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+}
+
+/* ── Pictogramme d'un geste ───────────────────────────────────────────────────────────── */
+.chief-action-icon { width: 14px; height: 14px; flex-shrink: 0; }
+.chief-action { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ── Un champ qui désigne quelqu'un ───────────────────────────────────────────────────── */
+.chief-field-person { display: inline-flex; align-items: center; gap: 8px; }
+.chief-field-person .chief-avatar { width: 22px; height: 22px; font-size: 9px; }
+
+/* ── En-tête de section avec sa sortie ────────────────────────────────────────────────── */
+.chief-dossier-section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.chief-section-link {
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: hsl(var(--chief-accent, 245 72% 58%));
+  text-decoration: none;
+}
+.chief-section-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ── Message prêt : enveloppe à gauche, gestes en colonne à droite ────────────────────────
+   Le geste d'envoi est le plus engageant de l'écran. En colonne à hauteur du corps, il ne se
+   confond ni avec « relire » ni avec « modifier » — ce qu'une rangée en pied de carte, elle,
+   permettait parfaitement. */
+.chief-email { display: flex; align-items: flex-start; gap: 16px; }
+.chief-email-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px; flex-shrink: 0;
+  border-radius: 10px;
+  background-color: hsl(var(--chief-surface-hover, 220 30% 93%));
+  color: hsl(var(--chief-text-secondary, 220 12% 42%));
+}
+.chief-email-icon svg { width: 20px; height: 20px; }
+.chief-email-main { flex: 1 1 auto; }
+.chief-email-side { flex-shrink: 0; width: 172px; }
+.chief-email-side .chief-actions { flex-direction: column; align-items: stretch; gap: 6px; }
+.chief-email-side .chief-action { justify-content: center; width: 100%; }
+
+@media (max-width: 720px) {
+  /* Sous 720 px, la colonne de gestes passe SOUS le message : à 172 px de large elle
+     étranglerait le corps du mail, qui est précisément ce qu'on est venu relire. */
+  .chief-email { flex-wrap: wrap; }
+  .chief-email-side { width: 100%; }
+  .chief-email-side .chief-actions { flex-direction: row; flex-wrap: wrap; }
+  .chief-email-side .chief-action { width: auto; }
+  .chief-avatar.chief-avatar-l { width: 60px; height: 60px; font-size: 19px; }
+}
+
+/* ── Ton d'une valeur de champ ─────────────────────────────────────────────────────────────
+   `.chief-field dd` (0,1,1) l'emportait sur `.chief-tone-alerte` (0,1,0) : un retard marqué
+   « alerte » par le serveur s'affichait en noir. La capture l'a montré, pas le test — c'est
+   exactement la collision de spécificité contre laquelle l'en-tête de cette feuille met en
+   garde. On monte donc à (0,2,1), sans toucher aux tons génériques. */
+.chief-field dd.chief-tone-succes { color: hsl(var(--chief-success, 152 55% 38%)); font-weight: 600; }
+.chief-field dd.chief-tone-attention { color: hsl(var(--chief-warning, 35 90% 45%)); font-weight: 600; }
+.chief-field dd.chief-tone-alerte { color: hsl(var(--chief-danger, 0 65% 52%)); font-weight: 600; }
+
+/* ── Le geste principal d'un message ───────────────────────────────────────────────────────
+   AILLEURS, le primaire reste teinté : un bouton plein promettrait une exécution immédiate,
+   et ces boutons n'exécutent pas — ils écrivent une phrase. Cette règle-ci est CONTEXTUELLE
+   et ne vaut que dans la colonne d'un message, où trois gestes se classent (modifier, relire,
+   envoyer) et où le rang doit se voir sans être lu. La carte de confirmation canonique reste
+   entre le clic et le départ du message : la hiérarchie change, la garantie non. */
+.chief-email-side .chief-action-primary {
+  border-color: hsl(var(--chief-accent, 245 72% 58%));
+  background-color: hsl(var(--chief-accent, 245 72% 58%));
+  color: #fff;
+}
+.chief-email-side .chief-action-primary:hover { background-color: hsl(var(--chief-accent, 245 72% 58%) / 0.9); }
+.chief-email-side .chief-action-primary:disabled { opacity: 0.6; }

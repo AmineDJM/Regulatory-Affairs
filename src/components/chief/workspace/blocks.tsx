@@ -2,8 +2,12 @@
 
 import * as React from "react";
 import Link from "next/link";
+import {
+  Eye, Mail, CheckSquare, Pencil, ScanLine, Send, CircleAlert, CalendarClock, BellRing, Check,
+  Phone, MessageCircle,
+} from "lucide-react";
 import type {
-  WorkspaceAction, WorkspaceBlock, WorkspaceComposition, WorkspaceDoc,
+  WorkspaceAction, WorkspaceActionIcon, WorkspaceBlock, WorkspaceComposition, WorkspaceDoc,
   WorkspaceEndpoint, WorkspaceGauge, WorkspacePerson, WorkspaceStep,
 } from "@/lib/assistant/workspace/protocol";
 // La feuille voyage AVEC le composant : les blocs s'affichent aussi dans la page Assistant de
@@ -46,6 +50,24 @@ export function WorkspaceAskProvider(
   return <AskContext.Provider value={ask}>{children}</AskContext.Provider>;
 }
 
+/**
+ * LE PICTOGRAMME D'UN GESTE. Une rangée de quatre boutons gris se relit mot à mot ; les mêmes
+ * avec une forme se reconnaissent avant d'être lus. Le vocabulaire est fermé côté protocole,
+ * donc ce tableau est exhaustif par construction — une icône inconnue n'existe pas.
+ */
+const ACTION_ICON: Record<WorkspaceActionIcon, React.ComponentType<{ className?: string }>> = {
+  voir: Eye,
+  email: Mail,
+  tache: CheckSquare,
+  modifier: Pencil,
+  apercu: ScanLine,
+  envoyer: Send,
+  escalade: CircleAlert,
+  planifier: CalendarClock,
+  relancer: BellRing,
+  valider: Check,
+};
+
 function ActionRow({ actions, footer = false }: { actions: WorkspaceAction[]; footer?: boolean }) {
   const ask = React.useContext(AskContext);
   // Un tour est en cours dès qu'on a cliqué : re-cliquer enverrait la phrase deux fois, et
@@ -56,18 +78,22 @@ function ActionRow({ actions, footer = false }: { actions: WorkspaceAction[]; fo
   if (!ask) return null;
   return (
     <div className={footer ? "chief-actions chief-block-actions" : "chief-actions"}>
-      {actions.map((a) => (
-        <button
-          key={a.phrase}
-          type="button"
-          className={`chief-action${a.ton === "danger" ? " chief-action-danger" : a.ton === "primaire" ? " chief-action-primary" : ""}`}
-          disabled={sent !== null}
-          onClick={() => { setSent(a.phrase); ask(a.phrase); }}
-          title={a.phrase}
-        >
-          {sent === a.phrase ? "Envoyé…" : a.libelle}
-        </button>
-      ))}
+      {actions.map((a) => {
+        const Icon = a.icone ? ACTION_ICON[a.icone] : null;
+        return (
+          <button
+            key={a.phrase}
+            type="button"
+            className={`chief-action${a.ton === "danger" ? " chief-action-danger" : a.ton === "primaire" ? " chief-action-primary" : ""}`}
+            disabled={sent !== null}
+            onClick={() => { setSent(a.phrase); ask(a.phrase); }}
+            title={a.phrase}
+          >
+            {Icon ? <Icon className="chief-action-icon" /> : null}
+            {sent === a.phrase ? "Envoyé…" : a.libelle}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -100,9 +126,19 @@ function Chip({ label, ton }: { label: string; ton?: "neutre" | "succes" | "atte
   return <span className={`chief-chip${ton && ton !== "neutre" ? ` chief-chip-${ton}` : ""}`}>{label}</span>;
 }
 
-/** Une adresse se copie plus souvent qu'elle ne se lit. Le clic la met dans le presse-papier. */
-function Endpoint({ e }: { e: WorkspaceEndpoint }) {
+const CANAL_ICON = { "e-mail": Mail, "téléphone": Phone, WhatsApp: MessageCircle } as const;
+
+/**
+ * Une adresse se copie plus souvent qu'elle ne se lit. Le clic la met dans le presse-papier.
+ *
+ * `ligne` change la DISPOSITION, pas la nature : sur une fiche unique, les coordonnées
+ * s'empilent avec le pictogramme de leur canal — on distingue alors une adresse d'un numéro
+ * sans lire, ce qui est exactement ce qu'on fait quand on cherche « comment la joindre ».
+ * Côte à côte dans une liste de six personnes, ce serait au contraire du bruit.
+ */
+function Endpoint({ e, ligne = false }: { e: WorkspaceEndpoint; ligne?: boolean }) {
   const [copied, setCopied] = React.useState(false);
+  const Icon = CANAL_ICON[e.canal] ?? Mail;
   const copy = React.useCallback(() => {
     navigator.clipboard?.writeText(e.valeur).then(
       () => { setCopied(true); window.setTimeout(() => setCopied(false), 1400); },
@@ -111,7 +147,13 @@ function Endpoint({ e }: { e: WorkspaceEndpoint }) {
   }, [e.valeur]);
 
   return (
-    <button type="button" onClick={copy} className="chief-endpoint" title="Copier">
+    <button
+      type="button"
+      onClick={copy}
+      className={ligne ? "chief-endpoint chief-endpoint-line" : "chief-endpoint"}
+      title="Copier"
+    >
+      {ligne ? <Icon className="chief-endpoint-icon" aria-hidden /> : null}
       <span className="chief-endpoint-value">{e.valeur}</span>
       {/* LA PROVENANCE SE DIT TOUJOURS. Une adresse « déduite » qu'on présente comme un fait
           est la façon la plus simple d'envoyer un contrat à la mauvaise personne. */}
@@ -145,9 +187,37 @@ function PersonLines({ p, hideName = false }: { p: WorkspacePerson; hideName?: b
 // ── Un rendu par type de bloc ─────────────────────────────────────────────────────────────
 
 /** Les initiales, quand il n'y a pas de photo — deux lettres valent mieux qu'une silhouette. */
-function Initials({ name }: { name: string }) {
-  const letters = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
-  return <span className="chief-avatar" aria-hidden>{letters || "?"}</span>;
+/**
+ * LE VISAGE D'UNE PERSONNE — sa photo, ou ses initiales.
+ *
+ * La photo est servie par une route de l'ERP qui revérifie les droits ; si elle échoue (droit
+ * retiré, fichier disparu), on retombe sur les initiales SANS que la fiche change de forme.
+ * C'est le point important : la mise en page ne doit pas sauter selon qu'un visage existe ou
+ * non, sinon la même carte se lit différemment d'une personne à l'autre.
+ *
+ * `taille` porte l'échelle métier, pas des pixels : la fiche d'une personne mérite un grand
+ * portrait, une ligne de participants n'en a pas besoin.
+ */
+function Avatar(
+  { nom, photo, taille = "m" }: { nom: string; photo?: string | null; taille?: "s" | "m" | "l" },
+) {
+  const [ko, setKo] = React.useState(false);
+  const letters = nom.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
+  const cls = `chief-avatar chief-avatar-${taille}`;
+  if (photo && !ko) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- route ERP dynamique, pas un asset
+      <img
+        src={photo}
+        alt=""
+        aria-hidden
+        className={`${cls} chief-avatar-photo`}
+        onError={() => setKo(true)}
+        loading="lazy"
+      />
+    );
+  }
+  return <span className={cls} aria-hidden>{letters || "?"}</span>;
 }
 
 /**
@@ -165,7 +235,7 @@ function PersonCard({ p, standalone }: { p: WorkspacePerson; standalone: boolean
   return (
     <div className={standalone ? "chief-profile" : "chief-profile chief-profile-compact"}>
       <div className="chief-profile-id">
-        <Initials name={p.nom} />
+        <Avatar nom={p.nom} photo={p.photo} taille={standalone ? "l" : "m"} />
         <div className="chief-profile-head">
           <p className="chief-profile-name">
             {p.href ? <Link href={p.href} className="chief-link-plain">{p.nom}</Link> : p.nom}
@@ -173,8 +243,8 @@ function PersonCard({ p, standalone }: { p: WorkspacePerson; standalone: boolean
           </p>
           {sub ? <p className="chief-profile-role">{sub}</p> : null}
           {p.coordonnees.length > 0 ? (
-            <div className="chief-endpoints">
-              {p.coordonnees.map((e, j) => <Endpoint key={`${e.valeur}-${j}`} e={e} />)}
+            <div className={standalone ? "chief-endpoints chief-endpoints-stack" : "chief-endpoints"}>
+              {p.coordonnees.map((e, j) => <Endpoint key={`${e.valeur}-${j}`} e={e} ligne={standalone} />)}
             </div>
           ) : (
             <p className="chief-block-empty">Aucune coordonnée enregistrée.</p>
@@ -518,7 +588,17 @@ function DossierBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "dossier" }> }
               {b.fields.map((f, i) => (
                 <div key={`${f.label}-${i}`} className="chief-field">
                   <dt>{f.label}</dt>
-                  <dd>{f.value}</dd>
+                  {/* UN CHAMP QUI DÉSIGNE QUELQU'UN PORTE SON VISAGE. « Responsable : Raihana »
+                      est la ligne qu'on cherche en premier sur un dossier bloqué ; avec la
+                      photo, elle se trouve sans être lue. */}
+                  <dd className={f.ton && f.ton !== "neutre" ? `chief-tone-${f.ton}` : undefined}>
+                    {f.avatar ? (
+                      <span className="chief-field-person">
+                        <Avatar nom={f.avatar.nom} photo={f.avatar.photo} taille="s" />
+                        {f.value}
+                      </span>
+                    ) : f.value}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -543,7 +623,11 @@ function DossierBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "dossier" }> }
                   <Link href={d.href} className="chief-doc-tile">
                     <span className={`chief-doc-badge chief-doc-${d.type}`}>{extLabel(d)}</span>
                     <span className="chief-doc-tile-name">{d.nom}</span>
-                    {d.taille ? <span className="chief-doc-tile-meta">{d.taille}</span> : null}
+                    {/* Taille ET date : « 320 ko » dit le poids, « 18/08 » dit si la pièce est
+                        celle qu'on attend. Sur un dossier en retard, la seconde compte plus. */}
+                    {d.taille || d.date ? (
+                      <span className="chief-doc-tile-meta">{[d.taille, d.date].filter(Boolean).join(" · ")}</span>
+                    ) : null}
                   </Link>
                 </li>
               ))}
@@ -553,11 +637,16 @@ function DossierBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "dossier" }> }
 
         {b.participants?.length ? (
           <div className="chief-dossier-section">
-            <p className="chief-dossier-section-title">Participants ({b.participants.length})</p>
+            {/* « Voir tout » n'apparaît QUE s'il y a un écran où aller. Un lien mort sous une
+                liste tronquée est pire que la troncature elle-même : il promet le reste. */}
+            <p className="chief-dossier-section-title">
+              Participants ({b.participants.length})
+              {b.href ? <Link href={b.href} className="chief-section-link">Voir tout</Link> : null}
+            </p>
             <ul className="chief-list chief-participants">
               {b.participants.map((p, i) => (
                 <li key={`${p.nom}-${i}`} className="chief-participant">
-                  <Initials name={p.nom} />
+                  <Avatar nom={p.nom} photo={p.photo} taille="s" />
                   <span className="chief-participant-id">
                     <span className="chief-participant-name">{p.nom}</span>
                     {p.poste ? <span className="chief-participant-role">{p.poste}</span> : null}
@@ -623,8 +712,12 @@ function Stepper({ steps }: { steps: WorkspaceStep[] }) {
 function EmailBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "email" }> }) {
   const sent = b.statut === "envoye";
   return (
-    <Card title={b.title} hideHead actions={sent ? undefined : b.actions}>
+    // LES GESTES MONTENT À CÔTÉ DU MESSAGE, ils ne restent pas en pied de carte. C'est le seul
+    // bloc où le geste principal — envoyer — est aussi le plus engageant : le poser à hauteur
+    // du corps, en colonne, le rend impossible à confondre avec « relire » ou « modifier ».
+    <Card title={b.title} hideHead>
       <div className={`chief-email${sent ? " chief-email-sent" : ""}`}>
+        <span className="chief-email-icon" aria-hidden><Mail /></span>
         <div className="chief-email-main">
           <dl className="chief-email-head">
             <div><dt>À</dt><dd>{b.a.join(", ")}</dd></div>
@@ -638,6 +731,9 @@ function EmailBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "email" }> }) {
             </p>
           ) : null}
         </div>
+        {!sent && b.actions?.length ? (
+          <div className="chief-email-side"><ActionRow actions={b.actions} /></div>
+        ) : null}
       </div>
       {sent ? (
         <p className="chief-email-status">

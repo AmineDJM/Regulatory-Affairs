@@ -3,7 +3,7 @@ import {
   type WorkspaceAction, type WorkspaceBlock, type WorkspaceComposition, type WorkspaceDoc,
   type WorkspaceEndpoint, type WorkspaceEvent, type WorkspaceField, type WorkspaceGauge,
   type WorkspaceItem, type WorkspaceMail, type WorkspacePerson, type WorkspaceColumn,
-  type WorkspaceRow, type WorkspaceMetric, type WorkspaceStep,
+  type WorkspaceRow, type WorkspaceMetric, type WorkspaceStep, type WorkspaceActionIcon,
 } from "./protocol";
 
 /**
@@ -195,6 +195,10 @@ function fromCalendar(list: unknown[]): WorkspaceBlock[] {
  * reste de ce fichier. Une action sans libellé ou sans phrase ne s'affiche pas — un bouton muet,
  * ou un bouton qui n'envoie rien, sont deux façons de trahir la confiance qu'on lui accorde.
  */
+const ACTION_ICONS = new Set<string>([
+  "voir", "email", "tache", "modifier", "apercu", "envoyer", "escalade", "planifier", "relancer", "valider",
+]);
+
 function actionsOf(v: unknown, max: number = WORKSPACE_LIMITS.itemActions): WorkspaceAction[] {
   const out: WorkspaceAction[] = [];
   for (const a of arr(v)) {
@@ -203,7 +207,14 @@ function actionsOf(v: unknown, max: number = WORKSPACE_LIMITS.itemActions): Work
     const phrase = s(a.phrase) ?? s(a.prompt);
     if (!libelle || !phrase) continue;
     const ton = s(a.ton);
-    out.push({ libelle, phrase, ...(ton === "danger" || ton === "primaire" ? { ton } : {}) });
+    // Le pictogramme vient d'un vocabulaire FERMÉ : un mot inconnu ne devient pas une icône au
+    // hasard, il disparaît — et le bouton reste un bouton texte, parfaitement lisible.
+    const icone = s(a.icone);
+    out.push({
+      libelle, phrase,
+      ...(ton === "danger" || ton === "primaire" ? { ton } : {}),
+      ...(icone && ACTION_ICONS.has(icone) ? { icone: icone as WorkspaceActionIcon } : {}),
+    });
     if (out.length >= max) break;
   }
   return out;
@@ -536,9 +547,14 @@ function readPerson(v: unknown): WorkspacePerson | null {
   if (!nom) return null;
   const statutLabel = clip(s(isObj(v.statut) ? v.statut.label : v.statut), 24);
   const metriques = readMetrics(v.metriques);
+  // La photo suit la règle des documents : une route de l'ERP, qui revérifie les droits. Une URL
+  // externe est ÉCARTÉE — elle ferait fuiter la consultation vers un tiers, et afficherait un
+  // visage que l'ERP n'a pas validé.
+  const photo = s(v.photo) ?? s(v.avatar);
   return {
     nom,
     poste: s(v.poste), departement: s(v.departement), entite: s(v.entite),
+    ...(photo && isInternalHref(photo) ? { photo } : {}),
     coordonnees: endpointsOf(v.coordonnees),
     ...(statutLabel ? { statut: { label: statutLabel, ton: tonOf(isObj(v.statut) ? v.statut.ton : null, "neutre")! } } : {}),
     ...(metriques.length ? { metriques } : {}),
@@ -588,6 +604,7 @@ function readBlock(v: unknown): WorkspaceBlock | null {
         ...(s(d.mime) ? { mime: s(d.mime) } : {}),
         ...(s(d.soustitre) ? { soustitre: clip(s(d.soustitre), 120) } : {}),
         ...(s(d.taille) ? { taille: s(d.taille) } : {}),
+        ...(s(d.date) ? { date: s(d.date) } : {}),
         ...(num(d.pages) !== null ? { pages: num(d.pages) as number } : {}),
         ...(feuille ? { feuille } : {}),
       });
@@ -628,7 +645,16 @@ function readBlock(v: unknown): WorkspaceBlock | null {
       const label = clip(s(f.label) ?? s(f.libelle), 40);
       const value = clip(s(f.value) ?? s(f.valeur), WORKSPACE_LIMITS.snippetChars);
       if (!label || !value) continue;
-      fields.push({ label, value });
+      // Un champ qui DÉSIGNE quelqu'un porte son visage. La photo suit la même règle que
+      // partout ailleurs : route interne, sinon on garde le nom seul.
+      const av = isObj(f.avatar) ? f.avatar : null;
+      const avNom = av ? clip(s(av.nom) ?? s(av.name), 80) : null;
+      const avPhoto = av ? s(av.photo) : null;
+      fields.push({
+        label, value,
+        ...(avNom ? { avatar: { nom: avNom, ...(avPhoto && isInternalHref(avPhoto) ? { photo: avPhoto } : {}) } } : {}),
+        ...(tonOf(f.ton) ? { ton: tonOf(f.ton) } : {}),
+      });
       if (fields.length >= WORKSPACE_LIMITS.recordFields) break;
     }
 
@@ -653,6 +679,7 @@ function readBlock(v: unknown): WorkspaceBlock | null {
         nom, href,
         type: (type && DOC_KINDS.has(type) ? type : "autre") as WorkspaceDoc["type"],
         ...(s(d.taille) ? { taille: s(d.taille) } : {}),
+        ...(s(d.date) ? { date: s(d.date) } : {}),
         ...(s(d.soustitre) ? { soustitre: clip(s(d.soustitre), 60) } : {}),
       });
       if (docs.length >= WORKSPACE_LIMITS.docs + 3) break;
