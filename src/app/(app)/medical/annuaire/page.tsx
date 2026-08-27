@@ -125,7 +125,15 @@ export default async function AnnuairePage({ searchParams }: { searchParams?: { 
           ? (await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }))
           : []}
       />
-      <AnnuaireGrid rows={rows} canEdit={canEdit} canImport={canImport} canDelete={canDelete} specialties={specialties} />
+      <AnnuaireGrid
+        rows={rows} canEdit={canEdit} canImport={canImport} canDelete={canDelete} specialties={specialties}
+        directoryId={openDirectoryId}
+        directoryName={
+          openDirectoryId
+            ? `« ${visibleDirectoryRows.find((d) => d.id === openDirectoryId)?.name ?? "cet annuaire"} »`
+            : "l'annuaire général"
+        }
+      />
     </div>
   );
 }

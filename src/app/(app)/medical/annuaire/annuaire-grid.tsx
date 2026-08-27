@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { normalizeHeader } from "@/lib/medical/directory-sheet";
 import { ANNUAIRE_COLUMNS, annuaireCell, type AnnuaireRow, type AnnuaireColumn } from "@/lib/medical/directory-grid";
-import { importDirectorySheet, saveDirectoryCell, addDirectoryDoctor, deleteDirectoryDoctors } from "@/lib/actions/medical-directory-actions";
+import { importDirectorySheet, previewDirectorySheet, saveDirectoryCell, addDirectoryDoctor, deleteDirectoryDoctors } from "@/lib/actions/medical-directory-actions";
+import type { HeaderProposal, TargetColumn } from "@/lib/medical/directory-mapping";
+import { ImportMappingSheet } from "./import-mapping-sheet";
 
 /**
  * L'ANNUAIRE COMME UNE VRAIE FEUILLE — modifiable en place, exportable, vue par spécialité.
@@ -193,9 +195,17 @@ function GridTable({
 }
 
 export function AnnuaireGrid({
-  rows, canEdit, canImport, canDelete, specialties,
+  rows, canEdit, canImport, canDelete, specialties, directoryId, directoryName,
 }: {
   rows: AnnuaireRow[]; canEdit: boolean; canImport: boolean; canDelete: boolean; specialties: string[];
+  /**
+   * L'ANNUAIRE OUVERT — `null` = l'annuaire général.
+   *
+   * Il MANQUAIT, et c'était tout le défaut : la grille ne savait pas dans quel annuaire elle
+   * travaillait, l'import partait donc sans destination et atterrissait dans le général.
+   */
+  directoryId: string | null;
+  directoryName: string;
 }) {
   const router = useRouter();
   // SÉLECTION MULTIPLE — un annuaire se nettoie par lots (doublons d'import, cabinet fermé).
@@ -213,6 +223,10 @@ export function AnnuaireGrid({
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  // Le fichier lu, en attente que la correspondance soit tranchée.
+  const [pending, setPending] = React.useState<
+    { file: File; proposals: HeaderProposal[]; targets: TargetColumn[]; rowCount: number } | null
+  >(null);
 
   // Chaque ligne, mise à plat une fois, pour une recherche qui porte sur ce qu'on VOIT
   // (« Professeur », « Alger », « Très haut »), pas sur les codes internes.
@@ -237,10 +251,31 @@ export function AnnuaireGrid({
     });
   }, [bySpecialty, filtered]);
 
-  const runImport = (file: File) => {
+  // ÉTAPE 1 — on LIT le fichier et on propose une correspondance. Rien n'est écrit.
+  const runPreview = (file: File) => {
     const fd = new FormData();
     fd.set("file", file);
+    if (directoryId) fd.set("directoryId", directoryId);
     setBusy(true); setMsg(null);
+    void previewDirectorySheet(fd).then((r) => {
+      setBusy(false);
+      if (!r.ok || !r.preview) {
+        setMsg({ ok: false, text: r.error ?? "Lecture impossible." });
+        if (fileRef.current) fileRef.current.value = "";
+        return;
+      }
+      setPending({ file, ...r.preview });
+    });
+  };
+
+  // ÉTAPE 2 — la correspondance validée à l'écran part avec le fichier.
+  const runImport = (file: File, mapping: (string | null)[]) => {
+    const fd = new FormData();
+    fd.set("file", file);
+    // LA DESTINATION. Son absence était le bug : sans elle, tout finissait dans le général.
+    if (directoryId) fd.set("directoryId", directoryId);
+    fd.set("mapping", JSON.stringify(mapping));
+    setBusy(true); setMsg(null); setPending(null);
     void importDirectorySheet(fd).then((r) => {
       setBusy(false);
       setMsg({ ok: r.ok, text: r.ok ? (r.message ?? "Annuaire importé.") : (r.error ?? "Import impossible.") });
@@ -251,6 +286,20 @@ export function AnnuaireGrid({
 
   return (
     <div className="space-y-3">
+      {/* L'ÉTAPE QUI MANQUAIT : on montre ce qu'on a compris AVANT d'écrire quoi que ce soit. */}
+      {pending && (
+        <ImportMappingSheet
+          fileName={pending.file.name}
+          directoryName={directoryName}
+          rowCount={pending.rowCount}
+          proposals={pending.proposals}
+          targets={pending.targets}
+          busy={busy}
+          onCancel={() => { setPending(null); if (fileRef.current) fileRef.current.value = ""; }}
+          onConfirm={(mapping) => runImport(pending.file, mapping)}
+        />
+      )}
+
       <datalist id={SPECIALTY_LIST_ID}>
         {specialties.map((s) => <option key={s} value={s} />)}
       </datalist>
@@ -294,7 +343,7 @@ export function AnnuaireGrid({
             <>
               <input
                 ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) runImport(f); }}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) runPreview(f); }}
               />
               <Button size="sm" variant="outline" disabled={busy} onClick={() => fileRef.current?.click()}>
                 {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Importer

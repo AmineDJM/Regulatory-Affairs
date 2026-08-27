@@ -873,6 +873,9 @@ G("médical & annuaires (médecins, visites, spécialités, annuaires praticiens
   "medical-directory-actions:deleteDirectoryDoctors", "medical-directory-crud-actions:createMedicalDirectory",
   "medical-directory-crud-actions:updateMedicalDirectory", "medical-directory-crud-actions:deleteMedicalDirectory",
   "medical-directory-crud-actions:moveDoctorsToDirectory", "medical-directory-crud-actions:setDirectoryAccess",
+  // Les colonnes propres à un annuaire : Adam ne les pilote pas encore, comme le reste du groupe.
+  "medical-directory-crud-actions:createDirectoryColumn", "medical-directory-crud-actions:updateDirectoryColumn",
+  "medical-directory-crud-actions:deleteDirectoryColumn",
   "medical-info-actions:requestDocument", "medical-info-actions:cancelDocRequest",
   "medical-info-actions:fulfillDocRequest", "medical-info-actions:recordAuthorityDeclaration",
   "medical-info-actions:validateDeclaration", "medical-info-actions:validateDeclarationByDirection",
@@ -980,6 +983,9 @@ G("cockpit Adventum (seuils de risque) & maintenance profonde de la base", [
 
 // ── EXCLUDED : pas un travail d'assistant — raison donnée, pas un oubli. ──
 const X = (note: string, keys: string[]) => classify("EXCLUDED", note, keys);
+X("APERÇU AVANT ÉCRITURE : une étape d'ÉCRAN, sans effet. Elle lit un classeur et propose une correspondance de colonnes à valider à la main. Adam, lui, importe par la reconnaissance automatique (`importDirectorySheet` sans correspondance) : il n'a personne pour trancher, et une confirmation qu'aucun humain ne lit n'est pas une confirmation.", [
+  "medical-directory-actions:previewDirectorySheet",
+]);
 // NB : `admin-actions:createUser` a quitté cette liste — le besoin « créer un compte » est
 // couvert par `org_operation:create_account_invite` (lien d'invitation : la personne définit
 // SON mot de passe ; rien ne transite par la conversation) via la reclassification catalogue.

@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { Priority, SegmentLevel } from "@prisma/client";
+import { Prisma, type Priority, type SegmentLevel } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -15,6 +15,11 @@ import { inferWilayas } from "@/lib/medical/wilaya-ai";
 import {
   isAnnuaireField, validateAnnuaireValue, composeDoctorName, type AnnuaireField,
 } from "@/lib/medical/directory-grid";
+import {
+  proposeMapping, validateMapping, applyMapping, targetsFor,
+  canonicalHeaderRow, toCanonicalRow,
+  type HeaderProposal, type TargetColumn, type ColumnKind,
+} from "@/lib/medical/directory-mapping";
 import type { ActionResult } from "@/lib/actions/types";
 
 /**
@@ -28,9 +33,22 @@ import type { ActionResult } from "@/lib/actions/types";
  * lignes il a laissées de côté, ni quelle colonne il n'a pas su lire, produit un annuaire
  * incomplet dont plus personne ne se méfie ensuite.
  *
+ * ── L'ANNUAIRE DE DESTINATION — le défaut le plus coûteux de cette action ────────────────
+ *
+ * Elle ne lisait PAS `directoryId`. On créait « Annuaire des infectiologues », on l'ouvrait, on
+ * importait — et les fiches partaient dans l'annuaire général, parce que rien dans toute la
+ * chaîne (écran, action, écriture) ne portait la destination. L'annuaire visé restait vide et
+ * l'annuaire commun se remplissait de trois cents infectiologues. Corrigé aux trois étages.
+ *
  * DOUBLONS : un praticien déjà présent (même nom, même établissement) est MIS À JOUR, pas
  * recréé. Réimporter un fichier corrigé est le geste normal — et il ne doit pas doubler
- * l'annuaire.
+ * l'annuaire. Le rapprochement se fait DANS L'ANNUAIRE VISÉ : un homonyme rangé ailleurs
+ * n'est pas le même dossier de travail, et le mettre à jour depuis un autre import
+ * modifierait la liste de quelqu'un d'autre sans que personne le demande.
+ *
+ * CORRESPONDANCE : `mapping` (facultatif) impose colonne par colonne ce que l'écran a validé.
+ * Absent, on retombe sur la reconnaissance automatique — c'est le chemin de l'assistant et des
+ * imports en lot, qui n'ont personne pour trancher.
  */
 export async function importDirectorySheet(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -39,6 +57,28 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choisissez un fichier Excel ou CSV." };
 
+  // L'ANNUAIRE VISÉ. Vide = l'annuaire général, qui reste un choix légitime — mais un choix,
+  // désormais, et non le seul aboutissement possible.
+  const directoryId = String(formData.get("directoryId") ?? "").trim() || null;
+  let directoryName = "l'annuaire général";
+  if (directoryId) {
+    const dir = await prisma.medicalDirectory.findUnique({
+      where: { id: directoryId },
+      select: { id: true, name: true, createdById: true, access: { select: { userId: true } } },
+    });
+    if (!dir) return { ok: false, error: "Annuaire de destination introuvable." };
+
+    // LA MÊME RÈGLE QUE POUR LE LIRE, littéralement recopiée de l'écran (`page.tsx`). Écrire une
+    // seconde version « équivalente » est le moyen le plus sûr de les voir diverger : on
+    // corrigerait un jour l'une des deux, et l'écriture ouvrirait ce que la lecture ferme.
+    const privileged = user.role === "SUPER_ADMIN" || hasGlobalView(user.role);
+    const peutOuvrir =
+      privileged || dir.access.length === 0 || dir.createdById === user.id
+      || dir.access.some((a) => a.userId === user.id);
+    if (!peutOuvrir) return { ok: false, error: "Cet annuaire est réservé à des personnes désignées." };
+    directoryName = `« ${dir.name} »`;
+  }
+
   let sheet: unknown[][];
   try {
     sheet = readDirectoryWorkbook(Buffer.from(await file.arrayBuffer()));
@@ -46,6 +86,32 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
     return { ok: false, error: "Fichier illisible : attendu un classeur Excel (.xlsx, .xls) ou un CSV." };
   }
   if (sheet.length < 2) return { ok: false, error: "Le fichier ne contient aucune ligne sous l'en-tête." };
+
+  // LA CORRESPONDANCE CHOISIE À L'ÉCRAN, quand il y en a une. On reconstruit alors une feuille
+  // canonique (une colonne par champ, nommée comme notre export) que le parseur existant sait
+  // déjà lire : la reconnaissance des grades, secteurs et wilayas n'existe qu'en un exemplaire.
+  const mappingRaw = String(formData.get("mapping") ?? "").trim();
+  let customByRow: Record<string, string>[] = [];
+  if (mappingRaw) {
+    let mapping: (string | null)[];
+    try {
+      mapping = JSON.parse(mappingRaw) as (string | null)[];
+    } catch {
+      return { ok: false, error: "Correspondance des colonnes illisible." };
+    }
+    const problemes = validateMapping(mapping);
+    if (problemes.length > 0) return { ok: false, error: problemes[0].message };
+
+    const corps = sheet.slice(1);
+    const canoniques: unknown[][] = [canonicalHeaderRow()];
+    customByRow = [];
+    for (const ligne of corps) {
+      const { standard, custom } = applyMapping(ligne, mapping);
+      canoniques.push(toCanonicalRow(standard));
+      customByRow.push(custom);
+    }
+    sheet = canoniques;
+  }
 
   const parsed = parseDirectorySheet(sheet);
   if (parsed.rows.length === 0) {
@@ -89,8 +155,12 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
 
   // On relit les fiches existantes portant l'un des noms du fichier : c'est la seule façon de
   // reconnaître un doublon sans charger tout l'annuaire.
+  //
+  // LE RAPPROCHEMENT EST CANTONNÉ À L'ANNUAIRE VISÉ. Sans ce filtre, importer « Dr Benali » dans
+  // l'annuaire des infectiologues METTAIT À JOUR le « Dr Benali » de l'annuaire des cardiologues
+  // — c'est-à-dire modifiait la liste de quelqu'un d'autre, et n'en créait aucune dans la sienne.
   const existing = await prisma.medicalDoctor.findMany({
-    where: { name: { in: [...new Set(parsed.rows.map((r) => r.name))] } },
+    where: { name: { in: [...new Set(parsed.rows.map((r) => r.name))] }, directoryId },
     select: { id: true, name: true, institution: true },
   });
   const existingByKey = new Map(existing.map((d) => [key(d), d.id]));
@@ -123,13 +193,34 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
   let created = 0;
   let updated = 0;
   for (const row of parsed.rows) {
+    // LES VALEURS SUR MESURE, retrouvées par l'INDICE DE LA LIGNE DU FICHIER. Les apparier par
+    // position dans le résultat aurait donné à chaque praticien les valeurs de son voisin dès
+    // qu'une ligne vide ou sans nom traverse le fichier — sans qu'aucune erreur ne s'affiche.
+    const sur = customByRow[row.sourceIndex];
+    const custom = sur && Object.keys(sur).length > 0 ? sur : null;
+
     const id = existingByKey.get(key(row));
     if (id) {
-      await prisma.medicalDoctor.update({ where: { id }, data: { ...dataOf(row), updatedById: user.id } });
+      // On FUSIONNE les colonnes sur mesure au lieu de remplacer le JSON : un fichier qui ne
+      // porte que deux colonnes ne doit pas effacer les huit autres déjà saisies à la main.
+      let fusion: Prisma.InputJsonObject | undefined;
+      if (custom) {
+        const avant = await prisma.medicalDoctor.findUnique({ where: { id }, select: { custom: true } });
+        const base = (avant?.custom ?? {}) as Prisma.InputJsonObject;
+        fusion = { ...base, ...custom };
+      }
+      await prisma.medicalDoctor.update({
+        where: { id },
+        data: { ...dataOf(row), ...(fusion ? { custom: fusion } : {}), updatedById: user.id },
+      });
       updated += 1;
     } else {
       const doc = await prisma.medicalDoctor.create({
-        data: { name: row.name, companyId, ...dataOf(row), createdById: user.id, updatedById: user.id },
+        data: {
+          name: row.name, companyId, directoryId, ...dataOf(row),
+          ...(custom ? { custom } : {}),
+          createdById: user.id, updatedById: user.id,
+        },
         select: { id: true, name: true, institution: true },
       });
       // Un même fichier peut lister deux fois la même personne : la seconde occurrence doit
@@ -139,19 +230,73 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
     }
   }
 
-  const unknownCols = parsed.unknown.map((u) => u.header);
+  // Avec une correspondance explicite, il n'y a plus de « colonne non reconnue » : ce qui n'est
+  // pas rattaché l'a été SCIEMMENT. Ne le rapporter que sur le chemin automatique évite un
+  // avertissement qui inquiète pour une décision qu'on vient de prendre soi-même.
+  const unknownCols = mappingRaw ? [] : parsed.unknown.map((u) => u.header);
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Promotion médicale",
-    summary: `Import de l'annuaire — ${created} créé(s), ${updated} mis à jour, ${parsed.skipped} ignoré(s)${aiFilled > 0 ? ` · ${aiFilled} wilaya(s) déduite(s) par l'assistant` : ""}${unknownCols.length ? ` · colonnes non reconnues : ${unknownCols.join(", ")}` : ""}`,
+    summary: `Import dans ${directoryName} — ${created} créé(s), ${updated} mis à jour, ${parsed.skipped} ignoré(s)${aiFilled > 0 ? ` · ${aiFilled} wilaya(s) déduite(s) par l'assistant` : ""}${unknownCols.length ? ` · colonnes non reconnues : ${unknownCols.join(", ")}` : ""}`,
   });
 
   revalidatePath("/medical");
   revalidatePath("/medical/annuaire");
 
-  const parts = [`${created} fiche(s) créée(s)`, `${updated} mise(s) à jour`];
+  // LA DESTINATION EST DITE. C'est ce qui manquait pour s'apercevoir du défaut : le message
+  // annonçait « 312 fiches créées » sans jamais nommer l'annuaire, donc sans jamais contredire
+  // ce qu'on croyait avoir fait.
+  const parts = [`${created} fiche(s) créée(s)`, `${updated} mise(s) à jour`, `dans ${directoryName}`];
   if (parsed.skipped > 0) parts.push(`${parsed.skipped} ligne(s) sans nom ignorée(s)`);
   if (unknownCols.length) parts.push(`colonne(s) non reconnue(s) : ${unknownCols.join(", ")}`);
   return { ok: true, message: parts.join(" · ") };
+}
+
+/**
+ * L'APERÇU AVANT IMPORT — ce que le fichier contient, et ce qu'on propose d'en faire.
+ *
+ * Rien n'est écrit ici. On lit le classeur, on propose une correspondance colonne par colonne
+ * avec son ORIGINE (exact / alias / rien), et on rend trois valeurs d'exemple par colonne pour
+ * qu'on puisse juger sans rouvrir le fichier à côté.
+ *
+ * C'est l'étape qui manquait : jusqu'ici, une colonne que la reconnaissance ne connaissait pas
+ * était annoncée dans le message de fin — après l'écriture — et son contenu était perdu.
+ */
+export async function previewDirectorySheet(formData: FormData): Promise<
+  ActionResult & { preview?: { proposals: HeaderProposal[]; targets: TargetColumn[]; rowCount: number } }
+> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé à alimenter l'annuaire." };
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choisissez un fichier Excel ou CSV." };
+
+  let sheet: unknown[][];
+  try {
+    sheet = readDirectoryWorkbook(Buffer.from(await file.arrayBuffer()));
+  } catch {
+    return { ok: false, error: "Fichier illisible : attendu un classeur Excel (.xlsx, .xls) ou un CSV." };
+  }
+  if (sheet.length < 2) return { ok: false, error: "Le fichier ne contient aucune ligne sous l'en-tête." };
+
+  const directoryId = String(formData.get("directoryId") ?? "").trim() || null;
+  const colonnes = directoryId
+    ? await prisma.medicalDirectoryColumn.findMany({
+        where: { directoryId },
+        orderBy: { position: "asc" },
+        select: { key: true, label: true, kind: true, options: true },
+      })
+    : [];
+
+  const custom = colonnes.map((c) => ({ ...c, kind: c.kind as ColumnKind }));
+  const corps = sheet.slice(1);
+  return {
+    ok: true,
+    preview: {
+      proposals: proposeMapping(sheet[0], corps, custom),
+      targets: targetsFor(custom),
+      rowCount: corps.filter((r) => r.some((c) => String(c ?? "").trim())).length,
+    },
+  };
 }
 
 /** L'échelle de potentiel tient à jour l'ancien champ de priorité (lecteurs hérités). */

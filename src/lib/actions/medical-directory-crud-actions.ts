@@ -6,6 +6,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { getMyCompanies } from "@/lib/company";
+import { uniqueColumnKey } from "@/lib/medical/directory-mapping";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 /**
@@ -179,4 +180,110 @@ export async function setDirectoryAccess(formData: FormData): Promise<ActionResu
   });
   revalidatePath(PATH);
   return { ok: true, message: known.length ? `Accès réglé — ${known.length} personne(s).` : "Restriction levée : ouvert à tout le module." };
+}
+
+// ───────────────────── LES COLONNES PROPRES À UN ANNUAIRE ─────────────────────
+
+/**
+ * AJOUTER UNE COLONNE — ce que le tronc commun ne prévoit pas.
+ *
+ * Un annuaire d'infectiologues veut « Dernier congrès » ; un fichier de pharmaciens veut
+ * « Numéro d'officine ». Les mettre au tronc commun les imposerait à tous les annuaires, et la
+ * grille finirait avec quarante colonnes vides pour tout le monde.
+ *
+ * La CLÉ est calculée ici et FIGÉE : c'est elle qui indexe la valeur dans `MedicalDoctor.custom`.
+ * Renommer le libellé plus tard ne doit jamais perdre ce qui a déjà été saisi.
+ */
+export async function createDirectoryColumn(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
+
+  const directoryId = fdStr(formData, "directoryId");
+  const label = fdStr(formData, "label");
+  if (!directoryId) return { ok: false, error: "Colonne à ajouter : annuaire non précisé." };
+  if (!label) return { ok: false, error: "Donnez un nom à la colonne." };
+
+  const dir = await prisma.medicalDirectory.findUnique({ where: { id: directoryId }, select: { name: true } });
+  if (!dir) return { ok: false, error: "Annuaire introuvable." };
+
+  const kindRaw = fdStr(formData, "kind") || "TEXT";
+  const kind = ["TEXT", "NUMBER", "DATE", "CHOICE"].includes(kindRaw) ? kindRaw : "TEXT";
+  const options = kind === "CHOICE" ? fdStr(formData, "options") : null;
+  if (kind === "CHOICE" && !options) return { ok: false, error: "Une colonne à choix a besoin de ses options." };
+
+  const existantes = await prisma.medicalDirectoryColumn.findMany({
+    where: { directoryId }, select: { key: true, position: true },
+  });
+  const key = uniqueColumnKey(label, existantes.map((c) => c.key));
+  const position = existantes.reduce((m, c) => Math.max(m, c.position), -1) + 1;
+
+  await prisma.medicalDirectoryColumn.create({
+    data: { directoryId, key, label, kind, options, position, createdById: user.id },
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Annuaire", entityType: "DOCTOR", entityId: directoryId,
+    summary: `Annuaire « ${dir.name} » — colonne « ${label} » ajoutée`,
+  });
+  revalidatePath(PATH);
+  return { ok: true, message: `Colonne « ${label} » ajoutée.` };
+}
+
+/**
+ * RENOMMER OU RETYPER UNE COLONNE. La `key` n'est JAMAIS touchée — c'est tout l'intérêt de
+ * l'avoir figée : le libellé est de l'affichage, la clé est l'identité des valeurs déjà saisies.
+ */
+export async function updateDirectoryColumn(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
+
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Colonne introuvable." };
+  const col = await prisma.medicalDirectoryColumn.findUnique({
+    where: { id }, select: { label: true, directoryId: true, kind: true },
+  });
+  if (!col) return { ok: false, error: "Colonne introuvable." };
+
+  const label = fdStr(formData, "label") || col.label;
+  const kindRaw = fdStr(formData, "kind") || col.kind;
+  const kind = ["TEXT", "NUMBER", "DATE", "CHOICE"].includes(kindRaw) ? kindRaw : col.kind;
+  const options = kind === "CHOICE" ? fdStr(formData, "options") || null : null;
+
+  await prisma.medicalDirectoryColumn.update({ where: { id }, data: { label, kind, options } });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Annuaire", entityType: "DOCTOR", entityId: col.directoryId,
+    summary: `Colonne « ${col.label} »${label !== col.label ? ` renommée « ${label} »` : " modifiée"}`,
+  });
+  revalidatePath(PATH);
+  return { ok: true, message: "Colonne modifiée." };
+}
+
+/**
+ * SUPPRIMER UNE COLONNE — la définition seulement.
+ *
+ * LES VALEURS DÉJÀ SAISIES RESTENT dans `MedicalDoctor.custom`, et c'est délibéré. Balayer des
+ * centaines de fiches pour effacer un champ est long, irréversible, et surtout : la suppression
+ * est le plus souvent une erreur de manipulation. La colonne disparaît de la grille ; la recréer
+ * sous le même libellé retrouve la même clé, donc les mêmes valeurs.
+ *
+ * Le prix de ce choix est nommé plutôt que caché : du JSON orphelin subsiste. Il ne s'affiche
+ * nulle part, ne se recherche nulle part, et ne pèse rien à côté d'une donnée perdue pour de bon.
+ */
+export async function deleteDirectoryColumn(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
+
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Colonne introuvable." };
+  const col = await prisma.medicalDirectoryColumn.findUnique({
+    where: { id }, select: { label: true, directoryId: true },
+  });
+  if (!col) return { ok: false, error: "Colonne introuvable." };
+
+  await prisma.medicalDirectoryColumn.delete({ where: { id } });
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Annuaire", entityType: "DOCTOR", entityId: col.directoryId,
+    summary: `Colonne « ${col.label} » retirée de la grille (valeurs conservées)`,
+  });
+  revalidatePath(PATH);
+  return { ok: true, message: `Colonne « ${col.label} » retirée. Les valeurs saisies sont conservées.` };
 }

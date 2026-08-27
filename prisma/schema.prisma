@@ -3353,8 +3353,40 @@ model MedicalDirectory {
   /// seul défaut sûr pour l'existant. Nommer quelqu'un FERME l'annuaire à tous les autres (hors
   /// vue globale) : même règle que les lecteurs désignés de Legal.
   access  MedicalDirectoryAccess[]
+  /// SES COLONNES EN PLUS des colonnes communes. Vide = l'annuaire n'a que le tronc commun.
+  columns MedicalDirectoryColumn[]
 
   @@index([companyId])
+}
+
+/// UNE COLONNE PROPRE À UN ANNUAIRE — ce que le tronc commun ne prévoit pas.
+///
+/// Un annuaire d'infectiologues veut « Dernier congrès » ; un fichier de pharmaciens veut
+/// « Numéro d'officine ». Ajouter ces champs au tronc commun les imposerait à tous les
+/// annuaires, et la grille finirait avec quarante colonnes vides pour tout le monde.
+///
+/// LA VALEUR VIT DANS `MedicalDoctor.custom` (JSON), pas dans une colonne SQL : on ne migre pas
+/// la base parce qu'un délégué ajoute un champ. La `key` est FIGÉE à la création et sert de clé
+/// dans ce JSON — renommer le libellé ne doit jamais perdre les valeurs déjà saisies.
+model MedicalDirectoryColumn {
+  id          String           @id @default(cuid())
+  directoryId String
+  directory   MedicalDirectory @relation(fields: [directoryId], references: [id], onDelete: Cascade)
+  /// Clé technique STABLE dans `MedicalDoctor.custom`. Dérivée du libellé à la création, puis
+  /// jamais modifiée : c'est ce qui rend le renommage sans danger.
+  key         String
+  label       String
+  /// TEXT | NUMBER | DATE | CHOICE — le type dit comment la cellule se saisit et se valide.
+  kind        String           @default("TEXT")
+  /// Pour CHOICE seulement : les options, séparées par `|`.
+  options     String?
+  position    Int              @default(0)
+  createdById String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([directoryId, key])
+  @@index([directoryId])
 }
 
 /// UN ACCÈS DÉSIGNÉ à un annuaire de praticiens. Supprimer l'annuaire emporte ses accès.

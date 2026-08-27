@@ -7,6 +7,7 @@ import { addDirectoryDoctor, saveDirectoryCell, deleteDirectoryDoctors } from "@
 import {
   createMedicalDirectory, updateMedicalDirectory, deleteMedicalDirectory,
   moveDoctorsToDirectory, setDirectoryAccess,
+  createDirectoryColumn, updateDirectoryColumn, deleteDirectoryColumn,
 } from "@/lib/actions/medical-directory-crud-actions";
 import {
   createDelegatePlan, updateDelegatePlan, deleteDelegatePlan, duplicateDelegatePlan,
@@ -65,6 +66,27 @@ const resolveDirectory = (raw: string) =>
   resolveOne(raw, "l'annuaire (champ « directory »)",
     (q) => prisma.medicalDirectory.findMany({ where: { name: { contains: q, mode: "insensitive" } }, select: { id: true, name: true }, take: 6 }),
     (d) => d.name);
+
+/**
+ * UNE COLONNE PROPRE À UN ANNUAIRE, retrouvée par son libellé.
+ *
+ * L'annuaire est demandé D'ABORD : deux annuaires peuvent avoir une colonne « Statut », et
+ * modifier celle du mauvais annuaire ne produit aucune erreur — juste une grille fausse ailleurs.
+ */
+async function resolveDirectoryColumn(directoryRaw: string, columnRaw: string) {
+  const dir = await resolveDirectory(directoryRaw);
+  if ("error" in dir) return dir;
+  if (!columnRaw) return { error: "Précisez la colonne (champ « column »)." };
+  const found = await prisma.medicalDirectoryColumn.findMany({
+    where: { directoryId: dir.id, label: { contains: columnRaw, mode: "insensitive" } },
+    select: { id: true, label: true }, take: 6,
+  });
+  if (found.length === 0) return { error: `Aucune colonne « ${columnRaw} » dans l'annuaire « ${dir.name} ».` };
+  if (found.length > 1) {
+    return { error: `Plusieurs colonnes correspondent à « ${columnRaw} » : ${found.map((c) => c.label).join(", ")}. Précisez.` };
+  }
+  return { id: found[0].id, label: found[0].label, directoryName: dir.name };
+}
 
 const resolveResearch = (raw: string) =>
   resolveOne(raw, "l'étude de marché (champ « research » — son titre)",
@@ -595,6 +617,82 @@ export const MEDICAL_OPS_IMPL: Record<string, OpImpl> = {
       };
     },
     execute: (args) => runFd(deleteMedicalDirectory, args, "La suppression de l'annuaire a été refusée.", { revalidate: ["/medical"] }),
+  },
+
+  // ── LES COLONNES PROPRES À UN ANNUAIRE ────────────────────────────────────────────────
+  // Le tronc commun ne prévoit pas « Dernier congrès » ni « Numéro d'officine ». Les ajouter au
+  // tronc les imposerait à TOUS les annuaires ; ces trois gestes les tiennent annuaire par
+  // annuaire. La valeur vit dans `MedicalDoctor.custom` — aucune migration pour un champ de plus.
+
+  create_directory_column: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const dir = await resolveDirectory(opStr(input, "directory"));
+      if ("error" in dir) return dir;
+      const label = opStr(input, "label") || opStr(input, "name");
+      if (!label) return { error: "Précisez le nom de la colonne (champ « label »)." };
+      const kindRaw = (opStr(input, "kind") || "TEXT").toUpperCase();
+      const kind = ["TEXT", "NUMBER", "DATE", "CHOICE"].includes(kindRaw) ? kindRaw : "TEXT";
+      const options = opStr(input, "options");
+      if (kind === "CHOICE" && !options) {
+        return { error: "Une colonne à choix a besoin de ses options (champ « options », séparées par |)." };
+      }
+      return {
+        title: `Ajouter la colonne « ${label} » à l'annuaire « ${dir.name} »`,
+        fields: fieldsOf([
+          ["Annuaire", dir.name], ["Colonne", label], ["Type", kind],
+          ["Options", kind === "CHOICE" ? options : null],
+        ]),
+        warnings: ["La colonne n'existe que dans CET annuaire — les autres ne la voient pas."],
+        args: { directoryId: dir.id, label, kind, ...(options ? { options } : {}) },
+        successMessage: `Colonne « ${label} » ajoutée.`,
+        link: "/medical/annuaire", revalidate: ["/medical"],
+      };
+    },
+    execute: (args) => runFd(createDirectoryColumn, args, "L'ajout de la colonne a été refusé.", { revalidate: ["/medical"] }),
+  },
+
+  update_directory_column: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const col = await resolveDirectoryColumn(opStr(input, "directory"), opStr(input, "column") || opStr(input, "label"));
+      if ("error" in col) return col;
+      const newLabel = opStr(input, "newName") || opStr(input, "newLabel");
+      const kindRaw = opStr(input, "kind").toUpperCase();
+      const kind = ["TEXT", "NUMBER", "DATE", "CHOICE"].includes(kindRaw) ? kindRaw : "";
+      const options = opStr(input, "options");
+      if (!newLabel && !kind && !options) return { error: "Rien à changer : donnez newName, kind et/ou options." };
+      return {
+        title: `Modifier la colonne « ${col.label} »`,
+        fields: fieldsOf([
+          ["Annuaire", col.directoryName],
+          ["Colonne", newLabel ? `${col.label} → ${newLabel}` : col.label],
+          ["Type", kind || null], ["Options", options || null],
+        ]),
+        warnings: ["Renommer NE PERD PAS les valeurs déjà saisies : la clé technique reste la même."],
+        args: { id: col.id, ...(newLabel ? { label: newLabel } : {}), ...(kind ? { kind } : {}), ...(options ? { options } : {}) },
+        successMessage: `Colonne « ${newLabel || col.label} » modifiée.`,
+        revalidate: ["/medical"],
+      };
+    },
+    execute: (args) => runFd(updateDirectoryColumn, args, "La modification de la colonne a été refusée.", { revalidate: ["/medical"] }),
+  },
+
+  delete_directory_column: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const col = await resolveDirectoryColumn(opStr(input, "directory"), opStr(input, "column") || opStr(input, "label"));
+      if ("error" in col) return col;
+      return {
+        title: `Retirer la colonne « ${col.label} » de l'annuaire « ${col.directoryName} »`,
+        fields: [{ label: "Annuaire", value: col.directoryName }, { label: "Colonne", value: col.label }],
+        warnings: [
+          "La colonne disparaît de la grille. LES VALEURS DÉJÀ SAISIES SONT CONSERVÉES : recréer "
+          + "la colonne sous le même nom les retrouve.",
+        ],
+        args: { id: col.id },
+        successMessage: `Colonne « ${col.label} » retirée (valeurs conservées).`,
+        revalidate: ["/medical"],
+      };
+    },
+    execute: (args) => runFd(deleteDirectoryColumn, args, "Le retrait de la colonne a été refusé.", { revalidate: ["/medical"] }),
   },
 
   move_doctors_to_directory: {

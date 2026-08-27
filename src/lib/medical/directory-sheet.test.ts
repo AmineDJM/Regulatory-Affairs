@@ -106,6 +106,9 @@ describe("Restructurer une ligne à NOTRE format", () => {
       phone: "0550 11 22 33", email: null,
       influence: "VERY_HIGH", potential: "MEDIUM", affinity: "MEDIUM",
       targetProducts: null, delegate: null, comments: null,
+      // La ligne du FICHIER d'où elle vient : les lignes vides et les lignes sans nom décalent
+      // le résultat, si bien que le i-ème rendu n'est presque jamais la i-ème ligne lue.
+      sourceIndex: 0,
     });
   });
 
@@ -116,6 +119,27 @@ describe("Restructurer une ligne à NOTRE format", () => {
   it("REFUSE une ligne sans nom — une fiche sans nom n'est pas une fiche", () => {
     expect(parseDirectoryRow(["", "Pr", "Cardio"], mapping)).toBeNull();
     expect(parseDirectoryRow(["   ", "Pr"], mapping)).toBeNull();
+  });
+
+  it("chaque ligne rendue sait de QUELLE ligne du fichier elle vient", () => {
+    // LE PIÈGE QUE CE CHAMP FERME. Les lignes vides sont sautées et les lignes sans nom écartées :
+    // le 2ᵉ résultat vient donc de la 4ᵉ ligne du fichier. Les colonnes sur mesure, elles, sont
+    // lues sur le fichier BRUT — les apparier par position aurait donné à chaque praticien les
+    // valeurs de son voisin, sans qu'aucune erreur ne s'affiche.
+    const feuille = [
+      headers,
+      ["MOUFFOK Amina", "Professeur", "Cardiologie", "CHU Mustapha", "Alger", "", ""], // ligne 0
+      ["", "", "", "", "", "", ""],                                                    // ligne 1 — vide
+      ["", "Pr", "Cardio", "", "", "", ""],                                            // ligne 2 — sans nom
+      ["BENALI Karim", "Résident", "Infectiologie", "EHS El Kettar", "Alger", "", ""],  // ligne 3
+    ];
+    const parsed = parseDirectorySheet(feuille);
+
+    expect(parsed.rows.map((r) => r.name)).toEqual(["MOUFFOK Amina", "BENALI Karim"]);
+    // Si l'indice était celui du RÉSULTAT, on lirait [0, 1] — et le second praticien recevrait
+    // les colonnes sur mesure de la ligne vide.
+    expect(parsed.rows.map((r) => r.sourceIndex)).toEqual([0, 3]);
+    expect(parsed.skipped).toBe(1); // la ligne vide n'est pas un rejet ; celle sans nom l'est
   });
 });
 

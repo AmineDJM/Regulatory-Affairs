@@ -220,6 +220,16 @@ export interface DirectoryImportRow {
   targetProducts: string | null;
   delegate: string | null;
   comments: string | null;
+  /**
+   * LA LIGNE DU FICHIER D'OÙ ELLE VIENT — 0 = la première ligne sous l'en-tête.
+   *
+   * Sans elle, on ne peut PAS rapprocher une ligne rendue de la ligne d'origine : les lignes
+   * vides sont sautées en silence et les lignes sans nom sont écartées, si bien que le i-ème
+   * résultat n'est presque jamais la i-ème ligne du fichier. Les colonnes sur mesure, elles,
+   * sont lues sur le fichier brut — les apparier par position aurait donné à chaque praticien
+   * les valeurs de son voisin, sans qu'aucune erreur ne s'affiche.
+   */
+  sourceIndex: number;
 }
 
 const orNull = (v: string): string | null => (v ? v : null);
@@ -233,6 +243,7 @@ const orNull = (v: string): string | null => (v ? v : null);
 export function parseDirectoryRow(
   values: readonly unknown[],
   mapping: readonly (DirectoryField | null)[],
+  sourceIndex = 0,
 ): DirectoryImportRow | null {
   const get = (field: DirectoryField): string => {
     const i = mapping.indexOf(field);
@@ -278,6 +289,7 @@ export function parseDirectoryRow(
     targetProducts: orNull(get("targetProducts")),
     delegate: orNull(get("delegate")),
     comments: orNull(get("comments")),
+    sourceIndex,
   };
 }
 
@@ -297,12 +309,14 @@ export function parseDirectorySheet(rows: readonly (readonly unknown[])[]): {
   const { mapping, matched, unknown } = mapHeaderRow(rows[0]);
   const out: DirectoryImportRow[] = [];
   let skipped = 0;
-  for (const raw of rows.slice(1)) {
-    if (raw.every((c) => tidy(c) === "")) continue; // ligne vide : ce n'est pas un rejet
-    const parsed = parseDirectoryRow(raw, mapping);
+  // L'INDICE EST CELUI DU FICHIER, pas celui du résultat : les lignes vides sautées et les
+  // lignes sans nom écartées décalent les deux dès la première anomalie.
+  rows.slice(1).forEach((raw, sourceIndex) => {
+    if (raw.every((c) => tidy(c) === "")) return; // ligne vide : ce n'est pas un rejet
+    const parsed = parseDirectoryRow(raw, mapping, sourceIndex);
     if (parsed) out.push(parsed);
     else skipped += 1;
-  }
+  });
   return { rows: out, skipped, matched, unknown };
 }
 
