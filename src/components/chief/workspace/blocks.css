@@ -1037,3 +1037,48 @@
 }
 .chief-email-side .chief-action-primary:hover { background-color: hsl(var(--chief-accent, 245 72% 58%) / 0.9); }
 .chief-email-side .chief-action-primary:disabled { opacity: 0.6; }
+
+/* ── Modifier une valeur sur place ─────────────────────────────────────────────────────────
+   Le crayon reste DISCRET tant qu'on ne survole pas : une fiche criblée d'icônes d'édition se
+   lit comme un formulaire, alors qu'on vient d'abord pour LIRE. Il apparaît au survol et au
+   focus clavier — jamais seulement au survol, sans quoi il n'existerait pas sans souris. */
+.chief-editable { display: inline-flex; align-items: center; gap: 6px; }
+.chief-edit-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0;
+  border: none; border-radius: 5px;
+  background: none; cursor: pointer;
+  color: hsl(var(--chief-text-tertiary, 220 10% 58%));
+  opacity: 0; transition: opacity 120ms ease, background-color 120ms ease;
+}
+.chief-editable:hover .chief-edit-btn,
+.chief-edit-btn:focus-visible { opacity: 1; }
+.chief-edit-btn:hover { background-color: hsl(var(--chief-surface-hover, 220 30% 93%)); color: hsl(var(--chief-accent, 245 72% 58%)); }
+.chief-edit-icon { width: 12px; height: 12px; }
+
+.chief-edit-open { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.chief-edit-input {
+  min-width: 0; max-width: 220px;
+  padding: 3px 8px;
+  font: inherit; font-size: 13px;
+  border: 1px solid hsl(var(--chief-accent, 245 72% 58%) / 0.45);
+  border-radius: 6px;
+  background-color: hsl(var(--chief-surface, 0 0% 100%));
+  color: hsl(var(--chief-text, 220 40% 13%));
+}
+.chief-edit-input:focus { outline: 2px solid hsl(var(--chief-accent, 245 72% 58%) / 0.35); outline-offset: 1px; }
+.chief-edit-ok, .chief-edit-cancel {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0;
+  border: 1px solid hsl(var(--chief-border, 218 22% 89%));
+  border-radius: 6px; cursor: pointer;
+  background-color: hsl(var(--chief-surface, 0 0% 100%));
+  color: hsl(var(--chief-text-secondary, 220 12% 42%));
+  font-size: 14px; line-height: 1;
+}
+.chief-edit-ok { border-color: hsl(var(--chief-accent, 245 72% 58%) / 0.4); color: hsl(var(--chief-accent, 245 72% 58%)); }
+.chief-edit-ok:hover, .chief-edit-cancel:hover { background-color: hsl(var(--chief-surface-hover, 220 30% 93%)); }
+.chief-edit-help { font-size: 11px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); }
+/* « Demandé », pas « fait » : la modification part en conversation et attend sa confirmation.
+   Écrire « Modifié » ici serait un mensonge d'une seconde, et le pire endroit pour mentir. */
+.chief-field-sent { font-size: 12.5px; font-style: italic; color: hsl(var(--chief-accent, 245 72% 58%)); }

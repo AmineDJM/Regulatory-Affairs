@@ -195,6 +195,30 @@ function fromCalendar(list: unknown[]): WorkspaceBlock[] {
  * reste de ce fichier. Une action sans libellé ou sans phrase ne s'affiche pas — un bouton muet,
  * ou un bouton qui n'envoie rien, sont deux façons de trahir la confiance qu'on lui accorde.
  */
+const EDIT_TYPES = new Set(["texte", "choix", "date", "nombre"]);
+
+/**
+ * UN CHAMP MODIFIABLE, RELU COMME TOUT LE RESTE.
+ *
+ * La règle qui compte : `phrase` DOIT contenir `%s`. Sans lui, la valeur saisie n'irait nulle
+ * part et le bouton enverrait une phrase figée — c'est-à-dire modifierait autre chose que ce
+ * que l'utilisateur croit. On écarte alors l'édition et le champ reste en lecture seule, ce
+ * qui est le repli sûr.
+ */
+function readEditable(v: unknown): WorkspaceField["editable"] | null {
+  if (!isObj(v)) return null;
+  const phrase = s(v.phrase);
+  const type = s(v.type);
+  if (!phrase || !phrase.includes("%s") || !type || !EDIT_TYPES.has(type)) return null;
+  const options = strings(v.options, 24);
+  return {
+    phrase,
+    type: type as "texte" | "choix" | "date" | "nombre",
+    ...(options.length ? { options } : {}),
+    ...(s(v.aide) ? { aide: clip(s(v.aide), 60) } : {}),
+  };
+}
+
 const ACTION_ICONS = new Set<string>([
   "voir", "email", "tache", "modifier", "apercu", "envoyer", "escalade", "planifier", "relancer", "valider",
 ]);
@@ -654,6 +678,7 @@ function readBlock(v: unknown): WorkspaceBlock | null {
         label, value,
         ...(avNom ? { avatar: { nom: avNom, ...(avPhoto && isInternalHref(avPhoto) ? { photo: avPhoto } : {}) } } : {}),
         ...(tonOf(f.ton) ? { ton: tonOf(f.ton) } : {}),
+        ...(readEditable(f.editable) ? { editable: readEditable(f.editable) } : {}),
       });
       if (fields.length >= WORKSPACE_LIMITS.recordFields) break;
     }

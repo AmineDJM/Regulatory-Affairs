@@ -186,6 +186,30 @@ export interface WorkspaceField {
   avatar?: { nom: string; photo?: string | null } | null;
   /** Un ton porte un seuil franchi : un retard de quatre jours ne se lit pas en noir. */
   ton?: "neutre" | "attention" | "alerte" | "succes";
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * CE CHAMP SE MODIFIE SUR PLACE — sans ouvrir son module, et SANS nouvelle porte d'écriture.
+   *
+   * Le point crucial est le second. Éditer ne fait PAS un appel d'écriture depuis l'écran :
+   * la nouvelle valeur est injectée dans `phrase` à la place de `%s`, et cette phrase part
+   * dans la conversation exactement comme si le PDG l'avait tapée. Elle emprunte donc la
+   * porte unique des mutations — proposition, carte de confirmation, action canonique, RBAC
+   * revérifié, audit, idempotence — et pas un raccourci que ce fichier aurait ouvert.
+   *
+   * C'est ce qui rend l'édition généralisable sans risque : ajouter un champ modifiable
+   * n'ajoute aucun chemin d'écriture, donc rien de nouveau à sécuriser.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  editable?: {
+    /** La phrase, rédigée par le SERVEUR, où `%s` marque la place de la nouvelle valeur. */
+    phrase: string;
+    /** Ce que la valeur EST — décide du contrôle affiché, jamais de ce qui est autorisé. */
+    type: "texte" | "choix" | "date" | "nombre";
+    /** `choix` uniquement : les valeurs proposées. Le serveur revalide de toute façon. */
+    options?: string[];
+    /** Un mot d'aide sous le contrôle (« en jours », « format 31/12/2026 »). */
+    aide?: string | null;
+  } | null;
 }
 
 /**

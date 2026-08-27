@@ -244,6 +244,28 @@ test.describe("Adam — les cinq scénarios d'acceptation (§22)", () => {
     await expect(lead.locator('[data-testid="scenario-actions"]')).toHaveCount(1);
   });
 
+  test("un champ se MODIFIE sur place — et n'écrit rien tant que rien n'est confirmé", async ({ page }) => {
+    // Le crayon n'apparaît qu'au survol : une capture ne peut donc pas le prouver, seul un test
+    // qui MANIPULE le fait. C'est aussi ce qui justifie ce test plutôt qu'une revue visuelle.
+    const sc = page.locator('[data-scenario="3"]');
+    const champ = sc.locator(".chief-field").filter({ hasText: "Étape courante" });
+    const crayon = champ.locator(".chief-edit-btn");
+    await expect(crayon).toHaveCount(1);
+
+    await crayon.click();
+    // Un champ à choix fermé rend une liste, pas une saisie libre : on ne peut pas inventer
+    // une étape qui n'existe pas dans le circuit.
+    const select = champ.locator("select.chief-edit-input");
+    await expect(select).toHaveCount(1);
+    await expect(select.locator("option")).toHaveCount(5);
+
+    // Renoncer laisse la valeur EXACTEMENT où elle était. Une édition abandonnée ne doit
+    // jamais laisser de trace — sinon on ne saurait plus ce qui a été demandé.
+    await champ.locator(".chief-edit-cancel").click();
+    await expect(champ).toContainText("Réponse aux questions");
+    await expect(champ.locator("select.chief-edit-input")).toHaveCount(0);
+  });
+
   test("AUCUN nom d'outil n'atteint l'écran", async ({ page }) => {
     // §18 : des états métier, pas « calling tool #7 ». On cherche les noms réels des outils.
     const body = (await page.locator('[data-testid="scenarios"]').innerText()).toLowerCase();

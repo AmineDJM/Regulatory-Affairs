@@ -150,11 +150,24 @@ export const SCENARIOS: Scenario[] = [
             badge: { label: "Bloqué depuis 2 jours", ton: "alerte" },
             alerte: { label: "L'ANPP demande un complément de stabilité — aucune réponse envoyée", ton: "alerte" },
             fields: [
-              { label: "Responsable", value: "Démo Benkaci", avatar: { nom: "Démo Benkaci" } },
-              { label: "Étape courante", value: "Réponse aux questions" },
+              {
+                label: "Responsable", value: "Démo Benkaci", avatar: { nom: "Démo Benkaci" },
+                editable: { phrase: "Réassigne le dossier DEMO-2026-018 à %s", type: "texte" },
+              },
+              {
+                label: "Étape courante", value: "Réponse aux questions",
+                editable: {
+                  phrase: "Passe le dossier DEMO-2026-018 à l'étape « %s »",
+                  type: "choix",
+                  options: ["Dépôt", "Recevabilité", "Réponse aux questions", "Décision", "Enregistrement"],
+                },
+              },
               { label: "Retard", value: "4 jours", ton: "alerte" },
               { label: "Dernière évolution", value: "25/08/2026" },
-              { label: "Prochaine échéance", value: "10/09/2026" },
+              {
+                label: "Prochaine échéance", value: "10/09/2026",
+                editable: { phrase: "Change l'échéance de DEMO-2026-018 au %s", type: "date", aide: "la date visée" },
+              },
             ],
             steps: [
               { label: "Dépôt", etat: "fait" },

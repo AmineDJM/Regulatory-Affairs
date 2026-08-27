@@ -582,3 +582,64 @@ describe("trancher depuis la conversation", () => {
     expect(b.items[0].actions).toHaveLength(2);
   });
 });
+
+describe("modifier un champ depuis la conversation", () => {
+  const dossier = (field: Record<string, unknown>) => composeWorkspace("inspect_record", J({
+    _blocs: [{
+      kind: "dossier", title: "REG-2026-041",
+      fields: [{ label: "Responsable", value: "Benkaci", ...field }],
+    }],
+  }));
+
+  const champ = (c: ReturnType<typeof composeWorkspace>) => {
+    const b = c?.blocks[0];
+    if (b?.kind !== "dossier") throw new Error("dossier attendu");
+    return b.fields[0];
+  };
+
+  it("un champ modifiable porte sa phrase, son type et ses options", () => {
+    const f = champ(dossier({
+      editable: {
+        phrase: "Passe REG-2026-041 à l'étape « %s »",
+        type: "choix",
+        options: ["Dépôt", "Décision"],
+      },
+    }));
+    expect(f.editable?.phrase).toBe("Passe REG-2026-041 à l'étape « %s »");
+    expect(f.editable?.type).toBe("choix");
+    expect(f.editable?.options).toEqual(["Dépôt", "Décision"]);
+  });
+
+  it("SANS `%s`, l'édition est REFUSÉE — le champ retombe en lecture seule", () => {
+    // LA RÈGLE QUI COMPTE. Une phrase sans emplacement n'emporte pas la valeur saisie : le
+    // bouton enverrait une phrase FIGÉE, donc modifierait autre chose que ce que la personne
+    // vient de taper. Mieux vaut un champ non modifiable qu'un champ qui change autre chose.
+    const f = champ(dossier({ editable: { phrase: "Réassigne le dossier", type: "texte" } }));
+    expect(f.editable).toBeUndefined();
+    expect(f.value).toBe("Benkaci");
+  });
+
+  it("un type d'édition inconnu est écarté — la liste est FERMÉE", () => {
+    for (const type of ["fichier", "html", "script", ""]) {
+      expect(champ(dossier({ editable: { phrase: "Change en %s", type } })).editable).toBeUndefined();
+    }
+  });
+
+  it("une édition sans phrase, ou pas un objet, ne casse rien", () => {
+    expect(champ(dossier({ editable: { type: "texte" } })).editable).toBeUndefined();
+    expect(champ(dossier({ editable: "oui" })).editable).toBeUndefined();
+    expect(champ(dossier({})).editable).toBeUndefined();
+  });
+
+  it("les options sont bornées et l'aide écourtée — une liste de mille choix n'est pas un choix", () => {
+    const f = champ(dossier({
+      editable: {
+        phrase: "Change en %s", type: "choix",
+        options: Array.from({ length: 60 }, (_, i) => `opt-${i}`),
+        aide: "x".repeat(200),
+      },
+    }));
+    expect(f.editable?.options?.length).toBeLessThanOrEqual(24);
+    expect((f.editable?.aide ?? "").length).toBeLessThanOrEqual(60);
+  });
+});

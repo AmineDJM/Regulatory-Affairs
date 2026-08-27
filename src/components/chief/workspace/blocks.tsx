@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import type {
   WorkspaceAction, WorkspaceActionIcon, WorkspaceBlock, WorkspaceComposition, WorkspaceDoc,
-  WorkspaceEndpoint, WorkspaceGauge, WorkspacePerson, WorkspaceStep,
+  WorkspaceEndpoint, WorkspaceField, WorkspaceGauge, WorkspacePerson, WorkspaceStep,
 } from "@/lib/assistant/workspace/protocol";
 // La feuille voyage AVEC le composant : les blocs s'affichent aussi dans la page Assistant de
 // l'ERP, qui ne charge pas `chief.css`. Elle porte ses propres valeurs de repli.
@@ -118,6 +118,87 @@ function Card(
           flottante dont on se demande sur quoi elle agit. */}
       {actions?.length ? <ActionRow actions={actions} footer /> : null}
     </section>
+  );
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * MODIFIER UNE VALEUR SUR PLACE — et pourquoi cela n'ouvre AUCUNE porte d'écriture.
+ *
+ * Le contrôle ci-dessous n'appelle aucune API. Il compose la phrase du serveur avec la valeur
+ * saisie et l'envoie dans la conversation, exactement comme les boutons d'action. La
+ * modification traverse donc la porte unique — proposition, carte de confirmation, action
+ * canonique, RBAC revérifié, audit — et le PDG voit ce qu'il va changer AVANT que cela change.
+ *
+ * Conséquence directe : rendre un champ modifiable ne coûte rien en sécurité. C'est ce qui
+ * permet d'en ouvrir beaucoup sans multiplier les chemins à protéger.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+function EditableValue({ f, children }: { f: WorkspaceField; children: React.ReactNode }) {
+  const ask = React.useContext(AskContext);
+  const [open, setOpen] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const [sent, setSent] = React.useState(false);
+
+  // Sans fournisseur, le champ reste en lecture seule : un crayon qui n'écrit nulle part
+  // serait une promesse vide, et c'est précisément ce que ce produit refuse.
+  if (!f.editable || !ask) return <>{children}</>;
+  const ed = f.editable;
+
+  const commit = () => {
+    const v = draft.trim();
+    if (!v || v === f.value) { setOpen(false); return; }
+    setSent(true);
+    setOpen(false);
+    ask(ed.phrase.replace("%s", v));
+  };
+
+  if (sent) return <span className="chief-field-sent">Modification demandée…</span>;
+
+  if (!open) {
+    return (
+      <span className="chief-editable">
+        {children}
+        <button
+          type="button"
+          className="chief-edit-btn"
+          onClick={() => { setDraft(f.value); setOpen(true); }}
+          title={`Modifier « ${f.label} »`}
+          aria-label={`Modifier ${f.label}`}
+        >
+          <Pencil className="chief-edit-icon" aria-hidden />
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <span className="chief-edit-open">
+      {ed.type === "choix" && ed.options?.length ? (
+        <select className="chief-edit-input" value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus>
+          {ed.options.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : (
+        <input
+          className="chief-edit-input"
+          type={ed.type === "date" ? "date" : ed.type === "nombre" ? "number" : "text"}
+          value={draft}
+          autoFocus
+          onChange={(e) => setDraft(e.target.value)}
+          // Entrée valide, Échap renonce : au clavier, on ne doit jamais être coincé dans
+          // un champ ouvert par erreur.
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commit(); }
+            if (e.key === "Escape") { e.preventDefault(); setOpen(false); }
+          }}
+        />
+      )}
+      <button type="button" className="chief-edit-ok" onClick={commit} title="Demander la modification">
+        <Check className="chief-edit-icon" aria-hidden />
+      </button>
+      <button type="button" className="chief-edit-cancel" onClick={() => setOpen(false)} title="Renoncer">×</button>
+      {ed.aide ? <span className="chief-edit-help">{ed.aide}</span> : null}
+    </span>
   );
 }
 
@@ -475,7 +556,7 @@ function RecordBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "record" }> }) 
         {b.fields.map((f, i) => (
           <div key={`${f.label}-${i}`} className="chief-field">
             <dt>{f.label}</dt>
-            <dd>{f.value}</dd>
+            <dd><EditableValue f={f}>{f.value}</EditableValue></dd>
           </div>
         ))}
       </dl>
@@ -592,12 +673,14 @@ function DossierBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "dossier" }> }
                       est la ligne qu'on cherche en premier sur un dossier bloqué ; avec la
                       photo, elle se trouve sans être lue. */}
                   <dd className={f.ton && f.ton !== "neutre" ? `chief-tone-${f.ton}` : undefined}>
-                    {f.avatar ? (
-                      <span className="chief-field-person">
-                        <Avatar nom={f.avatar.nom} photo={f.avatar.photo} taille="s" />
-                        {f.value}
-                      </span>
-                    ) : f.value}
+                    <EditableValue f={f}>
+                      {f.avatar ? (
+                        <span className="chief-field-person">
+                          <Avatar nom={f.avatar.nom} photo={f.avatar.photo} taille="s" />
+                          {f.value}
+                        </span>
+                      ) : f.value}
+                    </EditableValue>
                   </dd>
                 </div>
               ))}
