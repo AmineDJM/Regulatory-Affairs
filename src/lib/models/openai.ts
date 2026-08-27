@@ -174,6 +174,44 @@ export function toBlocks(msg: OaMessage | undefined): ModelBlock[] {
   return blocks;
 }
 
+/**
+ * LE PLAFOND D'OUTILS DE L'API — une contrainte du fournisseur, pas un réglage.
+ *
+ * OpenAI refuse une requête portant plus de 128 outils, avec un 400 :
+ * « Invalid 'tools': array too long. Expected an array with maximum length 128 ».
+ *
+ * ── CE QUE CE PLAFOND A COÛTÉ ────────────────────────────────────────────────────────────
+ *
+ * Rien ne le vérifiait. La liste complète d'un Super Admin en compte 161 (11 lecture + 79
+ * pouvoirs + 1 export + 2 + 9 super-admin + 29 écriture + 30 domaines), et le chemin LEGACY —
+ * qui reçoit 80 % des lectures et LA TOTALITÉ des mutations — l'envoyait telle quelle. Adam
+ * répondait « Erreur IA (HTTP 400) » à « Hello ». Pas dans un cas limite : dans le cas courant.
+ *
+ * ── POURQUOI LA GARDE EST ICI ────────────────────────────────────────────────────────────
+ *
+ * Parce que c'est ici qu'on parle OpenAI. Une limite du fournisseur se fait respecter à la
+ * frontière du fournisseur, sinon chaque appelant doit s'en souvenir — et il suffit qu'un seul
+ * l'oublie pour que la production tombe. C'est un FILET, pas la solution : couper la liste fait
+ * perdre des capacités en silence, donc l'appelant doit réduire AVANT, de façon réversible
+ * (voir `shortlistTools`, que la découverte peut rouvrir en cours de boucle).
+ *
+ * La coupe garde les PREMIERS : l'ordre de la liste est significatif pour le modèle, et les
+ * outils de lecture et de pouvoir sont assemblés avant les schémas de domaine.
+ */
+export const MAX_TOOLS_PER_CALL = 128;
+
+/** Applique le plafond en le DISANT. Un dépassement est un défaut d'assemblage, pas un détail. */
+export function capTools<T extends { name: string }>(tools: T[]): T[] {
+  if (tools.length <= MAX_TOOLS_PER_CALL) return tools;
+  const perdus = tools.slice(MAX_TOOLS_PER_CALL).map((t) => t.name);
+  console.error(
+    `[models] ${tools.length} outils demandés, plafond ${MAX_TOOLS_PER_CALL} — `
+    + `${perdus.length} écartés à la frontière : ${perdus.join(", ")}. `
+    + "L'appelant aurait dû réduire la liste lui-même (liste courte réversible).",
+  );
+  return tools.slice(0, MAX_TOOLS_PER_CALL);
+}
+
 /** Le corps de la requête. Séparé de l'envoi pour être testable sans réseau. */
 export function buildBody(
   binding: ModelBinding,
@@ -189,7 +227,7 @@ export function buildBody(
     ...(opts.temperature != null ? { temperature: opts.temperature } : {}),
     ...(opts.tools?.length
       ? {
-          tools: opts.tools.map((t) => ({
+          tools: capTools(opts.tools).map((t) => ({
             type: "function",
             function: { name: t.name, description: t.description, parameters: t.parameters },
           })),

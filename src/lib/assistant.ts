@@ -91,7 +91,7 @@ import { recordShadow } from "@/lib/assistant/context/shadow";
 // canary, TOUTES les mutations sur le chemin prouvé. La politique vit dans `rollout.ts` ; ici on
 // ne fait que l'appliquer.
 import { decideRollout, recordOutcome, type RolloutDecision } from "@/lib/assistant/context/rollout";
-import { shortlistTools, DISCOVERY_TOOL } from "@/lib/assistant/context/tool-shortlist";
+import { shortlistTools, fitToolBudget, DISCOVERY_TOOL } from "@/lib/assistant/context/tool-shortlist";
 // L'ESPACE DE TRAVAIL GÉNÉRATIF : la sortie d'une source canonique traduite en blocs TYPÉS.
 // Le modèle n'écrit aucun balisage — c'est ce qui empêche l'écran de redevenir un vidage de JSON.
 import { composeWorkspace } from "@/lib/assistant/workspace/compose";
@@ -4610,9 +4610,12 @@ async function runAssistantImpl(
   const rollout = decideRollout(question, { userId: user.id, ctx: { modality: opts.origin === "voice" ? "voice" : "text" } });
   // `tools` est MUTABLE : la découverte (`list_more_tools`) peut rouvrir un domaine en cours de
   // boucle, et c'est ce qui rend la liste courte réversible plutôt qu'amputante.
+  // LE PLAFOND DE L'API PASSE AVANT LE CANARY — voir `fitToolBudget`. Le mode d'exécution ne
+  // change pas (LEGACY reste LEGACY, avec ses gardes) : seule la liste de schémas est réduite,
+  // et de façon réversible, parce que 161 outils valaient un HTTP 400 et donc zéro réponse.
   let tools = rollout.mode === "SHORTLIST"
     ? (shortlistTools(allTools, rollout.route) as typeof allTools)
-    : allTools;
+    : (fitToolBudget(allTools, rollout.route) as typeof allTools);
   const trace: string[] = [];
   // Ce que la boucle appelle VRAIMENT — la seule vérité contre laquelle comparer la liste courte.
   const usedTools: string[] = [];
@@ -4912,9 +4915,12 @@ async function runAssistantStreamImpl(
   // (§22 : « Voice est une modalité, pas un deuxième cerveau »).
   const turnStartedAt = Date.now();
   const rollout = decideRollout(question, { userId: user.id, ctx: { modality: opts.origin === "voice" ? "voice" : "text" } });
+  // LE PLAFOND DE L'API PASSE AVANT LE CANARY — voir `fitToolBudget`. Le mode d'exécution ne
+  // change pas (LEGACY reste LEGACY, avec ses gardes) : seule la liste de schémas est réduite,
+  // et de façon réversible, parce que 161 outils valaient un HTTP 400 et donc zéro réponse.
   let tools = rollout.mode === "SHORTLIST"
     ? (shortlistTools(allTools, rollout.route) as typeof allTools)
-    : allTools;
+    : (fitToolBudget(allTools, rollout.route) as typeof allTools);
   const trace: string[] = [];
   const usedTools: string[] = [];
   let discoveryCalls = 0;

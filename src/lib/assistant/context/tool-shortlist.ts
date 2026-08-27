@@ -1,4 +1,5 @@
 import type { Domain, QueryRoute } from "./router";
+import { MAX_TOOLS_PER_CALL } from "@/lib/models/openai";
 
 /**
  * NE PAS DÉCRIRE 77 OUTILS POUR RÉPONDRE « OUI, TROIS MAILS » (§23, §24).
@@ -231,4 +232,46 @@ export function shortlistTools<T extends { name: string }>(
   const names = new Set(shortlistNames(route));
   const kept = tools.filter((t) => names.has(t.name) || !(t.name in TOOL_DOMAINS));
   return [...kept, DISCOVERY_TOOL];
+}
+
+/**
+ * FAIT ENTRER LA LISTE DANS LE PLAFOND DE L'API — sans amputer définitivement.
+ *
+ * ── LE DÉFAUT QUE CETTE FONCTION FERME ───────────────────────────────────────────────────
+ *
+ * La liste courte est un CANARY à 20 % : le reste des lectures, et la totalité des mutations,
+ * partent sur LEGACY avec la liste complète. Or la liste complète d'un Super Admin compte 161
+ * outils, et OpenAI en refuse plus de 128. Adam répondait donc « Erreur IA (HTTP 400) » à
+ * « Hello » — pas dans un cas limite, dans le cas courant.
+ *
+ * ── POURQUOI ÇA N'EST PAS « FORCER LE CANARY » ───────────────────────────────────────────
+ *
+ * Le canary arbitre ce qu'on PRÉFÈRE ; le plafond dit ce qui est POSSIBLE. Quand la liste
+ * complète est impossible, le choix n'est pas « liste courte ou liste complète » — il est
+ * « liste courte ou 400 ». Un 400 ne retire pas quelques outils : il retire la réponse.
+ *
+ * L'autorisation citée dans `rollout.ts` porte sur le CHEMIN d'exécution (quel code décide,
+ * quelles gardes s'appliquent) — et ce chemin n'est pas touché ici : le mode reste LEGACY, avec
+ * ses droits, son approbation, son audit et son idempotence. Seule la liste de schémas envoyée
+ * au modèle est réduite.
+ *
+ * ── POURQUOI LA LISTE COURTE PLUTÔT QU'UNE COUPE ─────────────────────────────────────────
+ *
+ * Parce qu'elle est RÉVERSIBLE : `list_more_tools` rouvre un domaine en cours de boucle. Couper
+ * les 33 derniers outils les rendrait inatteignables pour le tour entier, sans que le modèle
+ * puisse même savoir qu'ils existent. La coupe reste, à la frontière du fournisseur, en dernier
+ * recours et en le disant (`capTools`).
+ */
+export function fitToolBudget<T extends { name: string }>(
+  tools: T[],
+  route: Pick<QueryRoute, "route" | "domain">,
+  max = MAX_TOOLS_PER_CALL,
+): (T | typeof DISCOVERY_TOOL)[] {
+  if (tools.length <= max) return tools;
+  const court = shortlistTools(tools, route);
+  console.warn(
+    `[assistant] ${tools.length} outils dépassent le plafond de ${max} — repli sur la liste `
+    + `courte (${court.length}), réversible par découverte. Domaine : ${route.domain}.`,
+  );
+  return court;
 }
