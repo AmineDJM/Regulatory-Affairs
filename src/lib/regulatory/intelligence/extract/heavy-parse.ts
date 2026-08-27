@@ -82,7 +82,19 @@ export async function parseHeavyInWorker(kind: HeavyKind, buffer: Buffer): Promi
 /** Implémentations EN LIGNE (thread principal) — repli et petits fichiers. */
 async function parseInline(kind: HeavyKind, buffer: Buffer): Promise<string> {
   if (kind === "pdf") {
-    const mod = (await import("pdf-parse")) as unknown as { default: (b: Buffer | Uint8Array) => Promise<{ text?: string }> };
+    // IMPORT PROFOND, comme dans le worker — et pour la même raison, qui a fini par mordre ici.
+    //
+    // L'index de `pdf-parse` embarque un harnais de démonstration : quand il se croit exécuté
+    // directement, il tente d'ouvrir `./test/data/05-versions-space.pdf`, qui n'existe pas chez
+    // nous. Le worker évitait déjà le piège par un import profond ; le chemin EN LIGNE, lui,
+    // importait l'index — et comme le worker ne sert qu'au-delà de 100 Mo, tout PDF ordinaire
+    // passait par le chemin piégé.
+    //
+    // Invisible dans le serveur Next.js, où l'empaquetage rend le harnais inactif. Fatal partout
+    // ailleurs : scripts, tâches de fond, ingestion de connaissance — c'est-à-dire précisément
+    // là où les documents arrivent. Constaté en montant le banc d'ingestion, pas en relisant.
+    const mod = (await import("pdf-parse/lib/pdf-parse.js")) as unknown as
+      { default: (b: Buffer | Uint8Array) => Promise<{ text?: string }> };
     // Uint8Array et non Buffer : le pdf.js embarqué par pdf-parse emprunte, face à un Buffer Node,
     // un chemin de récupération qui refuse des PDF pourtant valides (« bad XRef entry ») — constaté
     // sur nos propres PDF générés, lus sans peine par le même pdf.js en Uint8Array.

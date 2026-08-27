@@ -5,7 +5,11 @@ import { lunaEmbed, callLuna, lunaConfigured, EMBED_DIMS } from "@/lib/openai-lu
 import { type KnowledgeMeta } from "./contract";
 import { setStage } from "./ingest";
 import { documentDateOf, detectLanguage, extractDates, extractAmounts } from "./facts";
+import { fold } from "./text";
 import { linkEntitiesForItem } from "./entities/link";
+import { decideRoute } from "./route";
+import { driveBytes } from "./sources/drive";
+import { rasterizePages } from "@/lib/storage/raster";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -156,17 +160,142 @@ export async function stageEmbed(itemId: string): Promise<boolean> {
  * `ocr_unreliable`, `image_source`…). Il ne relit jamais un document dont le texte est déjà bon —
  * ce serait payer un modèle pour confirmer ce que le parseur a déjà dit.
  *
- * ── CE QUI N'EST PAS ENCORE BRANCHÉ, ET POURQUOI C'EST ÉCRIT ─────────────────────────────
+ * ── CE QUI EST ENVOYÉ, ET CE QUI NE L'EST PAS ────────────────────────────────────────────
  *
- * La RASTÉRISATION (transformer la page N d'un PDF en image) n'existe pas dans cette couche. Le
- * pipeline CTD la possède, mais elle y est liée à son propre découpage en lots. La brancher
- * proprement est un lot à part entière ; l'appeler à moitié ici produirait des pages muettes que
- * l'on croirait lues. L'étage rend donc `false` — « rien à faire » — plutôt que d'échouer en
- * boucle et de remplir la boîte morte d'un problème qui n'en est pas un.
+ * Une IMAGE part telle quelle : il n'y a rien à découper. Un PDF ne part JAMAIS en entier — on
+ * rastérise les pages que `decideRoute` a désignées, et elles seules. C'est la règle §8, et
+ * c'est là que se joue le coût : un dossier de 150 pages dont 3 sont illisibles doit coûter 3
+ * pages, pas 150.
+ *
+ * ── CE QUI SE PASSE DU TEXTE DÉJÀ LU ─────────────────────────────────────────────────────
+ *
+ * Le texte natif n'est jamais écrasé : la lecture visuelle s'AJOUTE, préfixée par son rang de
+ * page. Un document partiellement lisible garde donc ce que le parseur avait compris — et l'on
+ * peut toujours distinguer ce qui vient du fichier de ce qui vient d'un modèle, ce que
+ * `extractedBy` enregistre.
  */
+const VISION_SCHEMA = {
+  name: "lecture_page",
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["pages", "confiance"],
+    properties: {
+      pages: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["page", "texte"],
+          properties: {
+            page: { type: "number", description: "Le rang de la page, tel qu'il a été fourni." },
+            texte: { type: "string", description: "Le texte LU sur l'image, sans rien ajouter." },
+          },
+        },
+      },
+      confiance: {
+        type: "number",
+        description: "0 à 1 — à quel point la lecture est sûre. Une page floue vaut moins de 0,5.",
+      },
+    },
+  },
+} as const;
+
+const VISION_SYSTEM =
+  "Tu TRANSCRIS ce que tu vois sur des pages de documents administratifs et réglementaires. "
+  + "Tu ne résumes pas, tu ne complètes pas, tu n'interprètes pas : tu rends le texte tel qu'il "
+  + "est écrit, y compris les en-têtes, les références et les tableaux (en lignes lisibles). "
+  + "Si une page est illisible, rends une chaîne vide pour cette page plutôt que d'inventer. "
+  + "Ce qui est transcrit sera cité comme un fait de l'entreprise : une invention devient un "
+  + "mensonge opposable.";
+
+/** Au-delà, ce n'est plus un rattrapage de pages : c'est une analyse, et elle a son propre lot. */
+const VISION_MAX_PAGES = 8;
+
 export async function stageVision(itemId: string): Promise<boolean> {
-  void itemId;
-  return false;
+  if (!lunaConfigured()) return false;
+
+  const item = await prisma.knowledgeItem.findUnique({
+    where: { id: itemId },
+    select: { id: true, sourceType: true, sourceId: true, text: true, meta: true },
+  });
+  if (!item) return false;
+  // Seul le Drive porte des octets relisibles. Un courriel ou une tâche n'a pas de page à
+  // regarder — et prétendre le contraire ferait tourner cet étage pour rien à chaque passage.
+  if (item.sourceType !== "drive_file" && item.sourceType !== "attachment") return false;
+
+  const src = await driveBytes(item.sourceId);
+  if (!src) return false;
+
+  // On REDÉCIDE ici plutôt que de relire une décision prise à l'ingestion : entre les deux, le
+  // texte a pu être réparé par un autre étage. Redécider rend l'étage idempotent et évite de
+  // payer une lecture visuelle pour un document devenu lisible entre-temps.
+  const route = decideRoute({
+    mime: src.mime,
+    nativeText: item.text ?? "",
+    structured: false,
+  });
+  if (route.use !== "luna") return false;
+
+  const isImage = src.mime.startsWith("image/");
+  const images: { buffer: Buffer; mime?: string }[] = [];
+  const rangs: number[] = [];
+
+  if (isImage) {
+    images.push({ buffer: src.buffer, mime: src.mime });
+    rangs.push(1);
+  } else {
+    // `route.pages` porte des ÉTIQUETTES (« 4 », « 12 »), pas des nombres : c'est ce qui permet
+    // de désigner une diapositive ou une feuille. Ici on ne sait rastériser que des rangs, donc
+    // on convertit et on écarte ce qui n'en est pas un — plutôt que de rendre la page 0.
+    const rangsVoulus = route.pages
+      .map((p) => Number.parseInt(String(p), 10))
+      .filter((n) => Number.isFinite(n) && n >= 1);
+    const pages = (rangsVoulus.length ? rangsVoulus : [1]).slice(0, VISION_MAX_PAGES);
+    const rendered = await rasterizePages(src.buffer, pages, { cap: VISION_MAX_PAGES });
+    for (const r of rendered) { images.push({ buffer: r.png, mime: "image/png" }); rangs.push(r.page); }
+  }
+  // Rien à regarder — un PDF vide ou une rastérisation entièrement en échec. On ne relance pas :
+  // ce n'est pas une panne, c'est un document dont on ne peut rien tirer.
+  if (images.length === 0) return false;
+
+  const reply = await callLuna<{ pages?: { page?: number; texte?: string }[]; confiance?: number }>({
+    system: VISION_SYSTEM,
+    user:
+      `${images.length} page(s) fournie(s), dans l'ordre des rangs ${rangs.join(", ")}.\n`
+      + `Document : « ${src.name} ».\n`
+      + "Rends le texte de chaque page.",
+    images,
+    jsonSchema: VISION_SCHEMA,
+    maxOutputTokens: 8000,
+  });
+  if (!reply.ok || !reply.data) return false;
+
+  const lues = (reply.data.pages ?? [])
+    .map((p, i) => ({ page: Number(p?.page) || rangs[i] || i + 1, texte: (p?.texte ?? "").trim() }))
+    .filter((p) => p.texte.length > 0)
+    .sort((a, b) => a.page - b.page);
+  if (lues.length === 0) return false;
+
+  const ajout = lues.map((p) => `[page ${p.page}]\n${p.texte}`).join("\n\n");
+  const base = (item.text ?? "").trim();
+  const fusion = base ? `${base}\n\n${ajout}` : ajout;
+
+  const confiance = typeof reply.data.confiance === "number" ? reply.data.confiance : null;
+
+  await prisma.knowledgeItem.update({
+    where: { id: itemId },
+    data: {
+      text: fusion,
+      textFold: fold(fusion),
+      // `extractedBy` dit D'OÙ vient le texte. Sans lui, on ne saurait plus distinguer ce que le
+      // fichier contenait de ce qu'un modèle a cru y lire — et §23 exige de pouvoir répondre
+      // « d'où vient cette information ? ».
+      extractedBy: base ? "hybride" : "luna_vision",
+      ...(confiance !== null ? { confidence: confiance } : {}),
+    },
+  });
+  return true;
 }
 
 // ──────────────────────────────────── enrich ────────────────────────────────────

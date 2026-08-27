@@ -353,7 +353,7 @@ export async function readFigures(input: ReadFiguresInput): Promise<FigureReport
       // qui permet d'examiner un dossier de plusieurs milliers de pages sans exploser la mémoire.
       let pending: { buffer: Buffer; mime?: string }[] = [];
       let offset = 0;
-      const total = await rasterizePdfStream(input.buffer, maxPages, async (png) => {
+      const { total } = await rasterizePdfStream(input.buffer, async (png) => {
         if (stopped) return;
         pending.push({ buffer: png, mime: "image/png" });
         pagesRead++;
@@ -364,7 +364,7 @@ export async function readFigures(input: ReadFiguresInput): Promise<FigureReport
           offset += batch.length;
           if (!ok) stopped = stopped ?? "Analyse interrompue.";
         }
-      });
+      }, { maxPages });
       if (!stopped && pending.length > 0) await flush(pending, offset);
       if (total === 0) return { observations, defects, pagesRead: 0, costUsd, ok: true };
     } else {

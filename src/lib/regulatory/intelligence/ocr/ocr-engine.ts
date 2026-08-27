@@ -1,4 +1,8 @@
 import { buildPagedContent } from "../extract/pages";
+// La rastérisation est de l'INFRASTRUCTURE de fichiers, pas une règle du Regulatory :
+// elle vit dans la couche partagée, d'où l'ingestion de connaissance peut aussi la lire.
+import { rasterizePdfStream as rasterizeShared } from "@/lib/storage/raster";
+export { rasterizePdfStream } from "@/lib/storage/raster";
 import { ensureLangData, ocrCacheDir, defaultOcrLangs } from "./lang-data";
 import { mistralOcrConfigured, mistralOcrDocument, mistralOcrEligible } from "./mistral-ocr";
 import { applyAiRescue, type RescueContext } from "./vision-ocr";
@@ -64,62 +68,10 @@ export function canOcr(ext: string): boolean {
  */
 export async function rasterizePdf(buffer: Buffer, maxPages: number): Promise<{ pages: Buffer[]; total: number; failedPages: number }> {
   const pages: Buffer[] = [];
-  let failedPages = 0;
-  const total = await rasterizePdfStream(buffer, maxPages, async (png) => { pages.push(png); }, () => { failedPages++; });
-  return { pages, total, failedPages };
+  const { total, failed } = await rasterizeShared(buffer, async (png) => { pages.push(png); }, { maxPages, scale: RASTER_SCALE });
+  return { pages, total, failedPages: failed.length };
 }
 
-/**
- * RASTÉRISATION EN FLUX — la clé des dossiers volumineux.
- *
- * La version qui accumulait `Buffer[]` gardait TOUTES les pages en mémoire : à ~1,5 Mo la page
- * rendue, un dossier de 15 000 pages demandait des dizaines de gigaoctets. C'est ce qui imposait
- * un plafond de 25 pages — un plafond qui faisait passer un dossier lu à 3 % pour un dossier lu.
- *
- * Ici, chaque page est rendue, remise à l'appelant, puis **relâchée immédiatement**. La mémoire
- * ne dépend plus du nombre de pages, seulement de la plus grande d'entre elles — et le nombre de
- * pages devient illimité.
- *
- * `onPage` est attendu (`await`) avant de rendre la suivante : c'est ce qui garantit qu'on ne
- * fabrique pas les pages plus vite qu'on ne les consomme, sinon la file d'attente reconstituerait
- * exactement le tas qu'on vient de supprimer.
- *
- * ROBUSTE PAR PAGE : une page corrompue est signalée et sautée, jamais fatale au document.
- * Renvoie le nombre TOTAL de pages du document (pas le nombre de pages traitées).
- */
-export async function rasterizePdfStream(
-  buffer: Buffer,
-  maxPages: number,
-  onPage: (png: Buffer, index: number) => Promise<void>,
-  onFailure?: (index: number) => void,
-): Promise<number> {
-  const mupdf = await import("mupdf");
-  const doc = mupdf.Document.openDocument(new Uint8Array(buffer), "application/pdf");
-  const total = doc.countPages();
-  // `maxPages <= 0` ⇒ tout le document.
-  const limit = maxPages > 0 ? Math.min(total, maxPages) : total;
-  try {
-    for (let i = 0; i < limit; i++) {
-      let png: Buffer | null = null;
-      try {
-        const page = doc.loadPage(i);
-        const pix = page.toPixmap(mupdf.Matrix.scale(RASTER_SCALE, RASTER_SCALE), mupdf.ColorSpace.DeviceRGB, false);
-        png = Buffer.from(pix.asPNG());
-        pix.destroy?.();
-        page.destroy?.();
-      } catch (err) {
-        onFailure?.(i);
-        console.error("[reg-ocr] page non rastérisée", i + 1, err instanceof Error ? err.message : err);
-        continue;
-      }
-      await onPage(png, i);
-      png = null; // relâche explicite : la page suivante ne doit pas cohabiter avec celle-ci
-    }
-  } finally {
-    doc.destroy?.();
-  }
-  return total;
-}
 
 /**
  * Pré-traitement image (auto-rotation, niveaux de gris, normalisation, netteté, borne de taille).
@@ -226,7 +178,16 @@ async function ocrWithTesseract(input: { ext: string; buffer: Buffer; langs?: st
 
   try {
     if (ext === "pdf") {
-      total = await rasterizePdfStream(input.buffer, maxPages, recognizeOne, () => { failedPages++; });
+      // `recognizeOne` compte les pages à partir de 0 et rajoute 1 pour l'affichage ; la couche
+      // partagée, elle, rend le rang tel qu'un humain le lit. On convertit ici, une seule fois —
+      // un décalage d'un rang ferait citer la mauvaise page comme preuve.
+      const out = await rasterizeShared(
+        input.buffer,
+        async (png, page) => recognizeOne(png, page - 1),
+        { maxPages, scale: RASTER_SCALE },
+      );
+      total = out.total;
+      failedPages = out.failed.length;
     } else {
       await recognizeOne(input.buffer, 0);
     }

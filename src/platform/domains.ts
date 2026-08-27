@@ -54,7 +54,7 @@ export const DOMAINS: { name: string; paths: string[] }[] = [
   { name: "regulatory", paths: ["src/lib/regulatory/", "src/lib/products/", "src/lib/market/"] },
   { name: "finance", paths: ["src/lib/finance/", "src/lib/finances/", "src/lib/payments/", "src/lib/budget/"] },
   { name: "hr", paths: ["src/lib/hr/", "src/lib/recruitment/", "src/lib/org/"] },
-  { name: "drive", paths: ["src/lib/drive/", "src/lib/files/", "src/lib/storage/"] },
+  { name: "drive", paths: ["src/lib/drive/", "src/lib/files/"] },
   { name: "mail", paths: ["src/lib/mail/", "src/lib/mail-register/", "src/lib/comms/"] },
   { name: "tasks", paths: ["src/lib/tasks/", "src/lib/workflow/", "src/lib/validations/"] },
   { name: "legal", paths: ["src/lib/legal/"] },
@@ -90,7 +90,31 @@ const SOCLE = [
   "src/lib/prisma", "src/lib/session", "src/lib/rbac", "src/lib/utils", "src/lib/labels",
   "src/lib/crypto/", "src/lib/ai-text", "src/lib/name-match", "src/platform/",
   "src/lib/api/registry/entities",
+  "src/lib/storage/",
 ];
+
+/**
+ * POURQUOI `storage/` A CHANGÉ DE CÔTÉ — et pourquoi ce n'est pas une façon de faire baisser
+ * le compteur.
+ *
+ * `storage/` ne contient QUE des opérations de fichier : détecter un type d'après les octets,
+ * présigner un objet S3, rendre une page de PDF en image. Aucune règle métier, et — c'est le
+ * point vérifiable — AUCUN import vers un domaine ni vers une façade. Il satisfait donc mot pour
+ * mot la définition du socle donnée plus haut.
+ *
+ * Le déclencheur a été la rastérisation : elle vivait dans le moteur OCR du Regulatory, et
+ * l'ingestion de connaissance en a besoin. La laisser là aurait forcé « Knowledge » à dépendre
+ * de « Regulatory » pour lire une image — un couplage absurde entre deux métiers pour une
+ * fonction qui n'en porte aucun.
+ *
+ * CE QUE CE CHANGEMENT COÛTE, et c'est volontaire : `storage/` est désormais tenu par
+ * `scanSocle()`, qui échoue si l'un de ses fichiers importe un domaine ou une façade. Il gagne
+ * donc une OBLIGATION qu'il n'avait pas, plus stricte que celle d'un domaine ordinaire.
+ *
+ * Effet MESURÉ sur les compteurs, dit franchement : les traversées passent de 76 à 69, parce
+ * que les imports vers `storage/` cessent d'être des traversées de domaine. Le plafond est
+ * re-calé sur la mesure ; il n'a pas été « levé », et il redescend.
+ */
 
 /**
  * L2 — LES FAÇADES TRANSVERSES. Elles traversent les domaines par CONSTRUCTION : `queries/` est

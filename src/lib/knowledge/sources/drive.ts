@@ -76,6 +76,34 @@ export interface DriveIngestDraft {
  * Rend `null` quand il n'y a rien à faire (nœud absent, corbeille, trop gros, blob illisible) —
  * ce n'est pas une erreur, c'est une absence, et l'appelant n'a rien à corriger.
  */
+/**
+ * LES OCTETS D'UN FICHIER DU DRIVE — pour les étages qui doivent REGARDER, pas relire.
+ *
+ * L'ingestion rapide n'a besoin des octets qu'une fois ; l'étage vision, lui, arrive plus tard,
+ * dans un autre processus, et doit les retrouver. Passer par la même route que l'ingestion
+ * garantit qu'il regarde EXACTEMENT le fichier qui a été indexé — et non une version plus
+ * récente déposée entre-temps, qui ferait citer une page qui n'est pas celle qu'on a lue.
+ */
+export async function driveBytes(nodeId: string): Promise<{ buffer: Buffer; mime: string; name: string } | null> {
+  const node = await prisma.driveNode
+    .findUnique({ where: { id: nodeId }, select: { id: true, name: true, type: true, isTrashed: true, size: true } })
+    .catch(() => null);
+  if (!node || node.type !== "FILE" || node.isTrashed) return null;
+  if (node.size != null && node.size > MAX_INGEST_BYTES) return null;
+
+  const version = await prisma.fileVersion
+    .findFirst({ where: { nodeId }, orderBy: { version: "desc" }, select: { blobId: true } })
+    .catch(() => null);
+  if (!version?.blobId) return null;
+
+  const buffer = await getBlob(version.blobId).catch(() => null);
+  if (!buffer) return null;
+
+  const guessed = detectMime(buffer, (node.name.split(".").pop() ?? "").toLowerCase());
+  const mime = guessed.family === "zip-office" ? (officeMimeOf(node.name) ?? guessed.mime) : guessed.mime;
+  return { buffer, mime, name: node.name };
+}
+
 export async function draftFromDriveNode(nodeId: string): Promise<DriveIngestDraft | null> {
   const node = await prisma.driveNode
     .findUnique({

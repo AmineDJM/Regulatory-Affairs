@@ -12,7 +12,7 @@ import { scanDomains, formatDomains, cycleEdges, DOMAINS } from "./domains";
  * « progressivement » : un demi-cycle n'existe pas. Ils sont à zéro AUJOURD'HUI, donc on exige
  * zéro, sans plafond et sans indulgence.
  *
- * CLIQUETS — traversées inter-domaines (76) et fuites vers un fournisseur (42). Les mettre à
+ * CLIQUETS — traversées inter-domaines (69) et fuites vers un fournisseur (42). Les mettre à
  * zéro d'un coup exigerait la « réécriture aveugle » que la mission proscrit. On empêche donc
  * de GROSSIR, et on fait baisser lot après lot. Le produit marche à tout instant.
  *
@@ -37,13 +37,13 @@ import { scanDomains, formatDomains, cycleEdges, DOMAINS } from "./domains";
  * ⚠ CES DEUX PLAFONDS NE DOIVENT JAMAIS AUGMENTER. Voir ci-dessus : les baisser est un progrès,
  * les monter est un aveu.
  *
- * 76 et non 75 : `queries/general-means-budget.ts` a rejoint son domaine (`general-means/
- * budget-targets.ts`) — c'était de la règle métier rangée dans la couche de lecture. L'échange
- * est délibéré : une inversion de couche disparaît, une traversée de type apparaît
- * (`general-means → finance`, pour le seul type `BudgetTarget`). Une inversion coûte plus cher
- * qu'une traversée : elle rend la couche façade impossible à retirer.
+ * 69 : `src/lib/storage/` a rejoint le SOCLE (voir `domains.ts`). Ce n'est pas une remise à
+ * zéro déguisée — c'est une reclassification VÉRIFIÉE : ces fichiers n'importent aucun domaine
+ * ni aucune façade, et `scanSocle()` les tient désormais à cette obligation, plus stricte que
+ * celle d'un domaine ordinaire. Le chiffre est descendu de 76 à 69 parce que des traversées ont
+ * cessé d'exister, pas parce qu'on a cessé de les compter.
  */
-const CROSSING_CEILING = 76;
+const CROSSING_CEILING = 69;
 const PROVIDER_CEILING = 42;
 
 const report = scanDomains(process.cwd());
