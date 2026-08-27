@@ -16,6 +16,7 @@ import { runKnowledgeSweep, enqueueBacklogs, enqueueStalled, refreshEntityIndex 
 import { runScheduledWorkflows } from "@/lib/scheduler/runner";
 import { registerBuiltinWorkflows } from "@/lib/scheduler/handlers";
 import { runAdamInboxSweep } from "@/lib/google/gmail/reconcile";
+import { balayerMissions } from "@/platform/in-process/missions/sweep";
 
 /**
  * Tâches périodiques **sans cron externe** : déclenchées (au plus une fois par minute,
@@ -131,6 +132,19 @@ export async function runScheduledJobs(): Promise<void> {
     // erreur — personne ne s'en apercevrait. Sans connexion Google, c'est un no-op.
     // Débrayages : suspension du traitement entrant (réglages), ou connexion en pause.
     await runAdamInboxSweep().catch((e) => console.error("[scheduled] balayage ADAM echoue", e));
+
+    // LES MISSIONS DURABLES — le seul balayage de cette liste qui produise des EFFETS.
+    //
+    // Il est ici, et non parmi les traitements planifiés, parce que ceux-ci déclarent
+    // `mutates: false` en toutes lettres : y ranger l'avancement d'une mission ferait du
+    // planificateur un contournement de la politique d'approbation. Ici, chaque effet passe par
+    // le chemin canonique — RBAC, intent, reçu, idempotence — et une mission qui attend un
+    // accord n'avance pas d'un pouce tant que personne n'a cliqué.
+    //
+    // C'est CE balayage qui tient la promesse « la mission continue même si vous fermez
+    // l'application ». Sans lui, elle s'arrêterait à la fin de la requête qui l'a lancée.
+    // Débrayage : MISSIONS_SWEEP=off.
+    await balayerMissions().catch((e) => console.error("[scheduled] balayage des missions échoué", e));
 
   } catch (err) {
     console.error("[scheduled] run failed", err);

@@ -98,7 +98,71 @@ export interface PlannedStep {
   /** Le rôle de modèle demandé pour un WORKER. Jamais un nom de modèle (§11). */
   modelRole?: "cheap" | "standard" | "strong";
   maxAttempts?: number;
+
+  /**
+   * ── CE QUE LE PLANNER RÉEL AJOUTE (§2) ────────────────────────────────────────────────
+   *
+   * Les champs ci-dessous sont OPTIONNELS parce que le compilateur sait s'en passer : ils
+   * enrichissent l'exécution, ils ne la conditionnent pas. Les rendre obligatoires aurait
+   * cassé les plans écrits à la main dans les tests de forme du compilateur — lesquels
+   * doivent continuer à tester le compilateur, pas la richesse du planner.
+   */
+
+  /**
+   * CE QU'UN WORKER DOIT RENDRE. Un JSON Schema, imposé au fournisseur (sortie structurée
+   * stricte). Sans lui, un WORKER rend de la prose et l'étape suivante doit la deviner.
+   */
+  expectedOutputSchema?: Record<string, unknown>;
+  /**
+   * À QUELLE CONDITION CETTE ÉTAPE EST FINIE — en français, vérifiable.
+   *
+   * Ce n'est pas une consigne au modèle : c'est ce que le contrôle qualité et le juge liront.
+   * « Le fichier existe et porte 33 lignes » se vérifie ; « le travail est bien fait » non.
+   */
+  completionCondition?: string;
+  /** L'effet ATTENDU par le planner. Le registre reste l'autorité — voir `compile.ts`. */
+  effectClass?: string;
+  /** La réflexion que cette étape demande, pour choisir le rôle de modèle (§4). */
+  reasoningRequirement?: "NONE" | "LIGHT" | "HEAVY";
+  retryPolicy?: {
+    maxAttempts?: number;
+    /** Attente entre deux essais, en secondes. Bornée par le moteur. */
+    backoffSeconds?: number;
+  };
+  /** Le planner PROPOSE une approbation ; la politique en décide (§31). */
+  approvalRequirement?: "NONE" | "NORMAL" | "SENSITIVE" | "CRITICAL";
 }
+
+/** Un axe de travail : le regroupement lisible des étapes (§2). */
+export interface PlannedWorkstream {
+  id: string;
+  title: string;
+  /** Ce que cet axe doit produire, en une phrase. */
+  outcome?: string;
+}
+
+/** Un livrable attendu (§2 / §20) — le fichier qui prouve que la mission a produit quelque chose. */
+export interface PlannedArtifact {
+  key: string;
+  /** XLSX, DOCX, PDF, PPTX, CSV, ZIP — validé par le moteur d'artefacts, pas ici. */
+  format: string;
+  title: string;
+  /** L'étape qui le produit. */
+  fromStep?: string;
+}
+
+/** La stratégie d'accord : un accord pour un lot cohérent, jamais quatre-vingt-dix-neuf (§32). */
+export const APPROVAL_STRATEGIES = [
+  /** Aucune approbation : la mission ne produit aucun effet externe. */
+  "NONE",
+  /** Un accord unique, portant sur un périmètre résumé et figé par empreinte. */
+  "BUNDLE",
+  /** Un accord par classe d'effet — les envois d'un côté, les écritures financières de l'autre. */
+  "PER_EFFECT_CLASS",
+  /** Un accord par étape. Réservé aux effets irréversibles isolés. */
+  "PER_STEP",
+] as const;
+export type ApprovalStrategy = (typeof APPROVAL_STRATEGIES)[number];
 
 /**
  * LE PLAN, TEL QUE LE PLANNER LE REND.
@@ -113,6 +177,22 @@ export interface MissionPlan {
   complexity: Complexity;
   scale: Scale;
   steps: PlannedStep[];
+  /**
+   * ── LA CARTE DU PLAN (§2) ─────────────────────────────────────────────────────────────
+   *
+   * Optionnels, et pour une raison précise : le compilateur n'en a pas besoin pour valider une
+   * forme. Les rendre obligatoires aurait forcé chaque plan écrit à la main dans les tests de
+   * COMPILATION à porter quatre champs sans rapport avec ce qu'ils testent — c'est-à-dire à
+   * rendre les tests moins lisibles pour satisfaire un type.
+   *
+   * Ils ne sont pas décoratifs pour autant : `expectedArtifacts` est ce que le contrôle qualité
+   * exige de trouver en base, et `completionCriteria` est ce que le juge lit.
+   */
+  workstreams?: PlannedWorkstream[];
+  expectedArtifacts?: PlannedArtifact[];
+  approvalStrategy?: ApprovalStrategy;
+  /** La règle ARITHMÉTIQUE de fin : ce qu'il faut compter, et à quoi le comparer. */
+  completionCriteria?: string;
   /** Ce que le planner n'a PAS su faire avec les capacités disponibles (§6). */
   gaps?: string[];
   /** Pourquoi ce plan, en deux phrases. Sert à la relecture humaine, pas à l'exécution. */

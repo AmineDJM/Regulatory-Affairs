@@ -105,6 +105,7 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
 
   // ── Missions, engagements, rappels ──────────────────────────────────────────────────────
   mission_status: ["MISSION"],
+  run_mission: ["MISSION"],
   mission_create: ["MISSION"],
   mission_consolidate: ["MISSION"],
   mission_nudge_candidates: ["MISSION"],

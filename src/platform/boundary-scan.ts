@@ -52,6 +52,22 @@ export const ADAM_PATHS = [
  * LE PONT AUTORISÉ — le seul endroit d'Adam qui a le droit de connaître l'ERP.
  *
  * Un pont, pas une passoire : s'il y en avait deux, il n'y en aurait bientôt plus aucun.
+ *
+ * ── CE QU'IL CONTIENT, ET POURQUOI CES DEUX CHOSES-LÀ ────────────────────────────────────
+ *
+ *   `adapter.ts`  — les lectures et écritures de l'ERP répondant au CONTRAT de plateforme ;
+ *   `missions/`   — le COMPOSEUR du Mission Runtime, qui remplit ses ports.
+ *
+ * Le second est arrivé après coup, et sa place a été décidée par ce cliquet-ci. Écrit dans
+ * `src/lib/assistant/missions/`, il ajoutait vingt-cinq franchissements d'un coup — il importe
+ * par nature `missions/` (une façade de l'ERP) et Prisma. La tentation était de relever le
+ * plafond ; le remède correct était de reconnaître ce qu'est ce code : un module d'Adam dont le
+ * travail EST de connaître l'ERP, exactement comme l'adaptateur. C'est la définition du pont.
+ *
+ * La propriété qu'on protège reste vraie : arracher Adam, c'est supprimer `src/lib/assistant/`,
+ * `src/lib/models/` et `src/platform/in-process/`. Le Mission Runtime, lui, reste debout — un
+ * cron ou un webhook peut faire tourner une mission sans conversation, à condition de composer
+ * ses ports, ce que ce dossier montre comment faire.
  */
 export const BRIDGE_PATHS = ["src/platform/in-process/"] as const;
 

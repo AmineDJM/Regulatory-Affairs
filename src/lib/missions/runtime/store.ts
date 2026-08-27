@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { CompiledMission, CompiledStep } from "@/lib/missions/compiler/compile";
+import type { CompiledMission, CompiledStep, StepSpec } from "@/lib/missions/compiler/compile";
 import { MissionState, StepState, assertTransition } from "@/lib/missions/runtime/state";
 
 /**
@@ -47,6 +47,12 @@ export interface EtatMission {
   acceptance: string[];
   goalRaw: string;
   objective: string;
+  /**
+   * LA CARTE DU PLAN telle que le planificateur l'a rendue : axes, livrables attendus,
+   * stratégie d'accord, critère arithmétique de fin. Lue par le contrôle qualité (qui vérifie
+   * que les livrables annoncés existent) et par le juge (qui lit le critère de fin).
+   */
+  planMeta: Record<string, unknown>;
   steps: EtatEtape[];
 }
 
@@ -69,6 +75,8 @@ export interface EtatEtape {
   waitFor: Record<string, unknown> | null;
   /** { from, path, as } — non nul quand l'étape est un MODÈLE à démultiplier (§10). */
   forEach: { from: string; path: string; as: string } | null;
+  /** Ce que le MOTEUR doit savoir pour exécuter l'étape — schéma de sortie, condition de fin. */
+  spec: StepSpec | null;
   needsIdempotencyKey: boolean;
   planVersion: number;
   dependsOn: string[];
@@ -119,6 +127,7 @@ export async function materialiser(
     scale: compiled.scale,
     maxConcurrency: opts.maxConcurrency ?? 6,
     parentMissionId: opts.parentMissionId ?? null,
+    planMeta: compiled.planMeta as never,
   };
 
   const mission = opts.missionId
@@ -150,6 +159,7 @@ export async function materialiser(
         maxAttempts: s.maxAttempts,
         waitFor: (s.waitFor ?? undefined) as never,
         forEach: (s.forEach ?? undefined) as never,
+        spec: (s.spec ?? undefined) as never,
         needsIdempotencyKey: s.needsIdempotencyKey,
         planVersion: version,
         status: "PENDING",
@@ -182,6 +192,7 @@ export async function materialiser(
         maxAttempts: s.maxAttempts,
         waitFor: (s.waitFor ?? undefined) as never,
         forEach: (s.forEach ?? undefined) as never,
+        spec: (s.spec ?? undefined) as never,
         needsIdempotencyKey: s.needsIdempotencyKey,
         planVersion: version,
       },
@@ -237,6 +248,7 @@ export async function chargerEtat(missionId: string): Promise<EtatMission | null
     acceptance: asStrings(m.acceptance),
     goalRaw: m.goalRaw ?? m.objective,
     objective: m.objective,
+    planMeta: asObj(m.planMeta),
     steps: m.steps.map((s) => ({
       id: s.id,
       key: s.key,
@@ -255,6 +267,7 @@ export async function chargerEtat(missionId: string): Promise<EtatMission | null
       errorKind: s.errorKind,
       waitFor: s.waitFor ? asObj(s.waitFor) : null,
       forEach: lireEventail(s.forEach),
+      spec: s.spec ? (asObj(s.spec) as StepSpec) : null,
       needsIdempotencyKey: s.needsIdempotencyKey,
       planVersion: s.planVersion,
       dependsOn: s.deps.map((d) => d.dependsOn.key),

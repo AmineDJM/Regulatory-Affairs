@@ -100,6 +100,18 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // d'une mission d'autrui n'ouvre rien. Exiger un droit de module fermerait à quelqu'un
       // l'état d'une mission qu'Adam a pourtant menée pour lui.
       "mission_status",
+      // run_mission : N'ACCORDE RIEN, et c'est structurel plutôt que déclaratif.
+      //
+      // Le catalogue offert au planificateur est `assistantToolsFor(user)` — littéralement la
+      // liste de CETTE personne, calculée par le même code que la conversation. Le compilateur
+      // refuse toute capacité qui n'y est pas (`FORBIDDEN_CAPABILITY`), et chaque effet passe
+      // ensuite par `performAction`, qui revérifie le droit. Un compte sans aucun droit lance
+      // donc une mission qui ne peut rien faire — et le dira, plutôt que d'échouer en silence.
+      //
+      // Poser un garde de module ici demanderait de choisir LEQUEL : une mission est transverse
+      // par nature. Le choisir serait arbitraire, et fermerait à quelqu'un la seule façon de
+      // faire durer un travail que la conversation lui permet déjà de faire en une fois.
+      "run_mission",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

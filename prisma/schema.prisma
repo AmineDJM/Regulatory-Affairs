@@ -793,9 +793,18 @@ model AssistantActionIntent {
   proposedAt    DateTime  @default(now())
   decidedAt     DateTime?
   executedAt    DateTime?
+  /// LA CLÉ D'IDEMPOTENCE (§15) — unique EN BASE, donc garantie par la base et non par la
+  /// discipline de l'appelant. Elle protège le cas que la réclamation atomique ne couvre pas :
+  /// une mission qui meurt ENTRE la création de l'intent et son exécution, et dont la reprise
+  /// ignorerait l'existence du premier. Reste `null` pour les actions de conversation.
+  idempotencyKey String?  @unique
+  /// La mission qui a produit cette action, quand il y en a une. Sert à l'historique et à
+  /// l'écran : « quelle action a produit ce reçu ? » se répond sans parcourir tous les intents.
+  missionId     String?
 
   @@index([userId, proposedAt])
   @@index([userId, status])
+  @@index([missionId])
 }
 
 model AssistantMemoryItem {
@@ -9358,7 +9367,12 @@ model Mission {
   startedAt     DateTime?
   /// Limite OPÉRATIONNELLE de parallélisme, jamais une limite d'architecture (§4).
   maxConcurrency Int        @default(6)
+  /// LA CARTE DU PLAN telle que le planificateur l'a rendue : axes de travail, livrables
+  /// attendus, stratégie d'accord, critère arithmétique de fin. Lue par le contrôle qualité et
+  /// par le juge — quatre informations qui naissent ensemble et dont aucune ne s'interroge seule.
+  planMeta      Json        @default("{}")
 
+  artifacts    MissionArtifact[]
   participants MissionParticipant[]
   events       MissionEvent[]
   emails       EmailRecord[]
@@ -9416,6 +9430,11 @@ model MissionStep {
   forEach    Json?
   /// Décidé par le compilateur sur le plan APPROUVÉ, jamais recalculé à l'exécution.
   needsIdempotencyKey Boolean @default(false)
+  /// CE QUE L'ÉTAPE ATTEND — schéma de sortie d'un worker, condition d'achèvement, exigence de
+  /// raisonnement, niveau d'accord proposé, format d'artefact. Séparé de `input` À DESSEIN :
+  /// `input` est ce que l'humain approuve et ce que la capacité reçoit ; y glisser une directive
+  /// de moteur rendrait le payload stocké différent du payload approuvé.
+  spec       Json?
   planVersion Int    @default(1)
   startedAt   DateTime?
   completedAt DateTime?
@@ -9425,6 +9444,7 @@ model MissionStep {
   deps       MissionStepDep[] @relation("StepDeps")
   dependents MissionStepDep[] @relation("StepDependents")
   workerRuns MissionWorkerRun[]
+  artifacts  MissionArtifact[]
 
   @@unique([missionId, key])
   @@unique([idempotencyKey])
@@ -9477,6 +9497,47 @@ model MissionWorkerRun {
 
   @@index([missionId, status])
   @@index([stepId])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// UN FICHIER PRODUIT PAR UNE MISSION — et la preuve qu'il a été contrôlé (§20-22).
+///
+/// POURQUOI CE MODÈLE N'EST PAS `AssistantArtifact`. Celui-ci porte la spec d'un livrable de
+/// CONVERSATION : un propriétaire, des formats, des fichiers déposés. Il ignore la mission,
+/// l'étape et — surtout — le VERDICT du contrôle. Or c'est exactement ce verdict qui fait qu'un
+/// artefact peut servir de preuve d'achèvement : un classeur qui ne s'ouvre pas, dont les totaux
+/// ne se réconcilient pas ou dont un graphique pointe dans le vide ne prouve rien du tout.
+///
+/// `status` n'a donc pas de valeur « produit » : un fichier est BUILT (fabriqué) ou VERIFIED
+/// (fabriqué ET contrôlé). Seul VERIFIED compte pour conclure.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model MissionArtifact {
+  id          String       @id @default(cuid())
+  missionId   String
+  mission     Mission      @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  stepId      String?
+  step        MissionStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  /// La clé du livrable dans le plan — unique par mission, pour qu'une reprise REMPLACE.
+  key         String
+  title       String
+  /// XLSX | DOCX | PDF | PPTX | CSV | ZIP
+  format      String
+  fileName    String
+  byteSize    Int          @default(0)
+  sha256      String?
+  /// Le nœud Drive où le fichier a été déposé. `null` tant qu'il n'est pas rangé.
+  driveNodeId String?
+  /// La spec structurée qui l'a produit — re-générer repart toujours d'elle.
+  spec        Json         @default("{}")
+  /// PENDING | BUILT | VERIFIED | REJECTED
+  status      String       @default("PENDING")
+  /// Ce que le contrôle a réellement vérifié, point par point.
+  qaReport    Json?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([missionId, key])
+  @@index([missionId, status])
 }
 
 /// ═══════════════════════════════════════════════════════════════════════════════════════════

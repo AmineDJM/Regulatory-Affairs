@@ -305,4 +305,107 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
       });
     },
   },
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * LANCER UNE MISSION — la porte par laquelle une demande devient un PROGRAMME.
+   *
+   * ── QUAND ADAM DOIT L'UTILISER, ET QUAND IL NE DOIT PAS ────────────────────────────────
+   *
+   * Une demande ordinaire — « envoie un mail à Alla », « où en est le dossier X » — se traite
+   * DIRECTEMENT : les outils existent, le geste est connu, une mission n'ajouterait qu'une
+   * indirection et une latence. Le critère est la RÉPÉTITION ou la DURÉE : plusieurs actions
+   * enchaînées, un éventail sur une liste de personnes, une attente d'événement, un livrable à
+   * produire. C'est là qu'un DAG durable vaut mieux qu'une boucle de conversation, parce qu'il
+   * survit à la fermeture de l'application.
+   *
+   * ── CE QUE CET OUTIL N'ACCORDE PAS ────────────────────────────────────────────────────
+   *
+   * Rien. Le catalogue offert au planificateur est `assistantToolsFor(user)` — exactement la
+   * liste de CETTE personne. Chaque effet passe ensuite par le chemin canonique, avec RBAC,
+   * intent, reçu, idempotence et approbation. Une mission ne peut donc rien faire que la
+   * conversation ne puisse faire ; elle le fait plus longtemps, et sans rester connectée.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  {
+    def: {
+      name: "run_mission",
+      description:
+        "LANCE UNE MISSION DURABLE quand la demande dépasse une action isolée : plusieurs étapes enchaînées, "
+        + "un même geste répété pour chaque personne d'une liste, une attente de réponse ou d'événement, "
+        + "un fichier à produire, ou un travail qui doit continuer après la fermeture de l'application. "
+        + "Adam PLANIFIE (un modèle propose un plan), le COMPILATEUR le valide (capacités réelles, droits, "
+        + "cardinalité), puis un moteur durable l'exécute — reprise après panne, idempotence, contrôle qualité, "
+        + "et vérification que l'objectif est réellement atteint. "
+        + "NE PAS l'utiliser pour une action unique dont tu connais déjà le geste : fais-la directement. "
+        + "DÉFINITION : une mission est un GRAPHE d'étapes persistées, pas une boucle de conversation — "
+        + "elle survit à la fermeture de l'application, reprend après une panne à l'étape exacte où elle "
+        + "s'était arrêtée, et ne conclut QUE si le contrôle arithmétique passe ET qu'un juge a vérifié les "
+        + "critères d'acceptation. Un envoi déjà parti n'est jamais renvoyé (clé d'idempotence). "
+        + "Passe l'objectif EN ENTIER, mot pour mot, y compris les contraintes énoncées.",
+      input_schema: {
+        type: "object",
+        properties: {
+          objectif: {
+            type: "string",
+            description: "La demande complète, telle que la personne l'a formulée. Ne la résume pas.",
+          },
+          contraintes: {
+            type: "array",
+            items: { type: "string" },
+            description: "Les contraintes explicites (« pas avant vendredi », « sans mettre en copie »).",
+          },
+          titre: { type: "string", description: "Un titre court pour l'écran. Facultatif." },
+        },
+        required: ["objectif"],
+      },
+    },
+    // OUVERTE PAR DESSEIN — et cela n'accorde rien : voir l'en-tête. Le périmètre d'une mission
+    // est le périmètre de la personne, calculé par le même code que la conversation.
+    allowed: () => true,
+    label: "Mission lancée",
+    run: async (input, user) => {
+      const objectif = str(input, "objectif");
+      if (!objectif) return "Il manque l'objectif de la mission.";
+      const contraintes = Array.isArray(input.contraintes)
+        ? (input.contraintes as unknown[]).filter((c): c is string => typeof c === "string")
+        : [];
+
+      // IMPORT DIFFÉRÉ : le composeur importe le registre d'outils, qui importe ce fichier.
+      // Un import statique fermerait le cycle et casserait le chargement du module.
+      const { lancerMission } = await import("@/platform/in-process/missions/runtime");
+      const r = await lancerMission(user, objectif, {
+        titre: str(input, "titre") || undefined,
+        contexte: { contraintes },
+      });
+
+      if (!r.ok) {
+        return JSON.stringify({
+          lancee: false,
+          raison: r.error,
+          refus: r.refus?.map((i) => `${i.code} — ${i.message}`) ?? [],
+          message: "La mission n'a PAS été lancée. Rien n'a été exécuté.",
+        });
+      }
+
+      return JSON.stringify({
+        lancee: true,
+        missionId: r.missionId,
+        titre: r.titre,
+        etapes: r.etapes,
+        complexite: r.complexite,
+        echelle: r.echelle,
+        approbationRequise: r.approbation
+          ? { niveau: r.approbation.niveau, resume: r.approbation.resume }
+          : null,
+        // CE QUE LE PLANIFICATEUR N'A PAS SU FAIRE, dit franchement plutôt que masqué.
+        limites: r.gaps,
+        message: r.approbation
+          ? "Mission créée. Elle attend votre accord avant de produire ses effets."
+          : "Mission créée et lancée. Elle continue même si vous fermez l'application.",
+        _blocsDecoratifs: true,
+        _blocs: [{ kind: "mission", missionId: r.missionId, blockId: `mission:${r.missionId}` }],
+      });
+    },
+  },
 ];

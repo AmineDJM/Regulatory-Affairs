@@ -117,3 +117,78 @@ export interface Clock {
 }
 
 export const systemClock: Clock = { now: () => new Date() };
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE RAISONNEUR — l'UNIQUE couture par laquelle le runtime parle à un modèle.
+ *
+ * ── POURQUOI UN SEUL PORT POUR CINQ USAGES ───────────────────────────────────────────────
+ *
+ * Le planificateur, les workers, le juge d'objectif, le contrôle qualité sémantique et le
+ * compacteur de mémoire ont tous besoin de la même chose : « voici un contexte, rends-moi un
+ * objet conforme à CE schéma ». En faire cinq ports aurait produit cinq interfaces à câbler,
+ * cinq faux à écrire dans les tests, et cinq occasions d'en oublier un — c'est-à-dire
+ * exactement le « moteur en pièces détachées » que la mission proscrit.
+ *
+ * La LOGIQUE de chacun (le prompt, le schéma, la validation, la réparation, le refus) vit dans
+ * son module et s'exécute pour de vrai ; seule la traversée du réseau passe par ici.
+ *
+ * ── POURQUOI CE PORT PLUTÔT QU'UN IMPORT DE LA PASSERELLE ────────────────────────────────
+ *
+ * `src/lib/models/` est déclaré du côté d'ADAM par le cliquet de frontière (voir
+ * `boundary-scan.ts` : « c'est littéralement son cerveau »). Le Mission Runtime, lui, est une
+ * façade de l'ERP. L'importer créerait une dépendance ERP → Adam — le couplage INVERSE, celui
+ * qu'aucun compteur ne regarde et qui rend Adam indéracinable.
+ *
+ * L'implémentation réelle vit donc dans `src/lib/assistant/missions/reasoner.ts`, du bon côté
+ * de la frontière, et le composeur la fournit. Ce n'est PAS un port fantôme : elle existe, elle
+ * appelle la vraie passerelle, et c'est elle qui tourne en production.
+ *
+ * ── CE QUE LE PORT GARANTIT, ET CE QU'IL NE GARANTIT PAS ─────────────────────────────────
+ *
+ * Il garantit que la réponse est du JSON CONFORME au schéma (sortie structurée stricte imposée
+ * au fournisseur), ou `ok: false`. Il ne garantit pas que le contenu soit JUSTE — c'est le
+ * travail du compilateur, du contrôle qualité et du juge, qui sont du code.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface ReasonRequest {
+  /** Un rôle métier (`MissionModelRole`), jamais un nom de modèle (§4). */
+  role: string;
+  /** Nom du schéma, transmis au fournisseur et repris dans la trace. */
+  schemaName: string;
+  /** JSON Schema STRICT. Le fournisseur l'impose ; on ne re-parse pas de la prose. */
+  schema: Record<string, unknown>;
+  /** Consigne de cadrage. Jamais de secret, jamais de contenu confidentiel superflu. */
+  system?: string;
+  prompt: string;
+  /** Borne haute de la réponse VISIBLE (la réflexion a son propre budget, côté passerelle). */
+  maxOutputTokens?: number;
+  /** À quoi sert cet appel — pour la télémétrie. Jamais le contenu, juste l'intention. */
+  purpose: string;
+}
+
+export interface ReasonUsage {
+  inputTokens: number;
+  outputTokens: number;
+  /** Le modèle réellement servi, tel que le fournisseur l'a rapporté. */
+  model: string;
+}
+
+export interface ReasonResult<T> {
+  ok: boolean;
+  data: T | null;
+  error?: string;
+  /**
+   * Ce que le fournisseur a réellement facturé. `null` = NON MESURÉ — jamais zéro, jamais une
+   * estimation plausible (§78 : un tableau de bord qui affiche un chiffre inventé fait prendre
+   * de vraies décisions sur des faux chiffres).
+   */
+  usage: ReasonUsage | null;
+  latencyMs: number;
+}
+
+export interface Reasoner {
+  /** Faux quand aucune clé de fournisseur n'est présente. Se DIT, ne se contourne pas. */
+  configured(): boolean;
+  reason<T>(req: ReasonRequest): Promise<ReasonResult<T>>;
+}

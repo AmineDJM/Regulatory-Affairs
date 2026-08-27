@@ -9,6 +9,7 @@ import {
   PlannedStep,
   Scale,
 } from "@/lib/missions/planner/contract";
+import type { ApprovalStrategy, PlannedArtifact, PlannedWorkstream } from "@/lib/missions/planner/contract";
 import { EFFECT_RANK, Effect, effetMaximal } from "@/lib/missions/registry/capability-meta";
 import type { CapabilityCatalog, MissionActor } from "@/lib/missions/ports";
 import { layout } from "@/lib/missions/compiler/graph";
@@ -64,8 +65,33 @@ export interface CompiledStep {
   modelRole: "cheap" | "standard" | "strong" | null;
   forEach: { from: string; path: string; as: string } | null;
   waitFor: PlannedStep["waitFor"] | null;
+  /**
+   * LA SPÉCIFICATION D'EXÉCUTION — à côté de `input`, jamais dedans.
+   *
+   * `input` est le payload : ce que l'humain approuve, ce que la capacité reçoit. `spec` est ce
+   * que le MOTEUR doit savoir pour exécuter l'étape correctement — quel schéma de sortie exiger
+   * d'un worker, à quelle condition l'étape est finie, quel niveau de réflexion elle demande.
+   * Mélanger les deux ferait diverger le payload stocké du payload approuvé.
+   */
+  spec: StepSpec | null;
   /** La vague d'exécution : les étapes de même vague partent ensemble. */
   wave: number;
+}
+
+/** Ce que le moteur lit pour exécuter une étape — produit par le planner, figé à la compilation. */
+export interface StepSpec {
+  /** Le JSON Schema qu'un WORKER doit respecter. Imposé au fournisseur, pas espéré. */
+  expectedOutputSchema?: Record<string, unknown>;
+  /** La condition VÉRIFIABLE d'achèvement, en français. Lue par le contrôle qualité et le juge. */
+  completionCondition?: string;
+  /** La réflexion demandée — choisit le rôle de modèle (§4). */
+  reasoningRequirement?: "NONE" | "LIGHT" | "HEAVY";
+  /** Le niveau d'accord PROPOSÉ par le planner. La politique tranche ensuite. */
+  approvalRequirement?: "NONE" | "NORMAL" | "SENSITIVE" | "CRITICAL";
+  /** Pour une étape ARTIFACT : quel livrable elle produit. */
+  artifactKey?: string;
+  artifactFormat?: string;
+  artifactTitle?: string;
 }
 
 export interface CompiledMission {
@@ -81,6 +107,19 @@ export interface CompiledMission {
   capabilities: string[];
   depth: number;
   gaps: string[];
+  /**
+   * LA CARTE DU PLAN — axes, livrables attendus, stratégie d'accord, critère de fin.
+   *
+   * Le compilateur ne la VALIDE pas : ce sont des intentions, pas des instructions exécutables.
+   * Il la TRANSPORTE, parce que le contrôle qualité et le juge en ont besoin et qu'ils lisent
+   * la mission, pas le plan d'origine.
+   */
+  planMeta: {
+    workstreams: PlannedWorkstream[];
+    expectedArtifacts: PlannedArtifact[];
+    approvalStrategy: ApprovalStrategy;
+    completionCriteria: string | null;
+  };
 }
 
 export type CompileResult =
@@ -117,6 +156,22 @@ const issue = (code: string, stepKey: string | null, message: string): CompileIs
   if (!ERREURS.has(code)) throw new Error(`code de refus inconnu : ${code}`);
   return { code: code as CompileIssue["code"], stepKey, message };
 };
+
+/**
+ * LA SPÉCIFICATION D'UNE ÉTAPE, extraite du plan.
+ *
+ * Rend `null` quand il n'y a rien à dire : une colonne JSON pleine de `{}` coûte de la place et
+ * fait croire, à la relecture, qu'une information a été perdue. `null` dit « rien n'a été
+ * demandé », ce qui est vrai et différent.
+ */
+function specDe(s: PlannedStep): StepSpec | null {
+  const spec: StepSpec = {};
+  if (s.expectedOutputSchema) spec.expectedOutputSchema = s.expectedOutputSchema;
+  if (s.completionCondition) spec.completionCondition = s.completionCondition;
+  if (s.reasoningRequirement) spec.reasoningRequirement = s.reasoningRequirement;
+  if (s.approvalRequirement) spec.approvalRequirement = s.approvalRequirement;
+  return Object.keys(spec).length > 0 ? spec : null;
+}
 
 /**
  * LA FORME ATTENDUE PAR TYPE DE NŒUD.
@@ -316,6 +371,7 @@ export function compile(
       modelRole: nodeType === "WORKER" ? (s.modelRole ?? "standard") : null,
       forEach: s.forEach ?? null,
       waitFor: s.waitFor ?? null,
+      spec: specDe(s),
       wave: 0,
     });
   }
@@ -357,6 +413,12 @@ export function compile(
       capabilities: [...new Set(compiled.map((c) => c.capability).filter((x): x is string => Boolean(x)))].sort(),
       depth: g.depth,
       gaps: plan.gaps ?? [],
+      planMeta: {
+        workstreams: plan.workstreams ?? [],
+        expectedArtifacts: plan.expectedArtifacts ?? [],
+        approvalStrategy: plan.approvalStrategy ?? "BUNDLE",
+        completionCriteria: plan.completionCriteria ?? null,
+      },
     },
   };
 }

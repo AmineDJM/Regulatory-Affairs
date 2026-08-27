@@ -522,9 +522,9 @@ async function ecrireSortie(
 async function deployerEventail(
   etat: EtatMission,
   step: EtatEtape,
-  spec: { from: string; path: string; as: string },
+  eventail: { from: string; path: string; as: string },
 ): Promise<number> {
-  const { from, path, as } = spec;
+  const { from, path, as } = eventail;
   const source = etat.steps.find((s) => s.key === from);
 
   const collection = source ? lire(source.result, path) : undefined;
@@ -568,6 +568,9 @@ async function deployerEventail(
         // compte — la première écriture de ce fichier le faisait, et les trente-trois clés
         // arrivaient nulles.
         needsIdempotencyKey: step.needsIdempotencyKey,
+        // ET DE LA SPÉCIFICATION, pour la même raison : c'est la fille qui appelle le modèle,
+        // donc c'est elle qui doit porter le schéma de sortie exigé et sa condition de fin.
+        spec: (step.spec ?? undefined) as never,
         planVersion: step.planVersion,
         status: "PENDING",
       },
