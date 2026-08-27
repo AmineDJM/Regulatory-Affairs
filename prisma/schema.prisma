@@ -829,11 +829,22 @@ model ExecutiveCommitment {
   /// OPEN | DONE | BROKEN | CANCELLED
   status        String    @default("OPEN")
   evidence      String?
+  /// LA MISSION QUI L'A CRÉÉ — sans ce lien, une réponse de Redouane ne peut pas réveiller la
+  /// bonne branche du DAG (§86, §103).
+  missionId     String?
+  mission       Mission?  @relation("MissionCommitments", fields: [missionId], references: [id], onDelete: SetNull)
+  stepKey       String?
+  /// L'identité canonique de l'engageant, quand il en a une. `who` reste le libellé libre :
+  /// beaucoup d'engageants (fournisseurs, partenaires) n'ont pas de compte.
+  personId      String?
+  lastNudgeAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@index([ownerId, status])
   @@index([dueAt])
+  @@index([missionId])
+  @@index([personId, status])
 }
 
 /// REGISTRE DES LIVRABLES fabriqués par l'assistant (rapports Word, classeurs Excel,
@@ -1104,6 +1115,7 @@ model User {
   mailConnection   MailConnection?   @relation("UserMailConnection")
   googleConnection GoogleConnection? @relation("UserGoogleConnection")
   missions         Mission[]         @relation("UserMissions")
+  operationalTemplates OperationalTemplate[] @relation("UserOperationalTemplates")
 
   // Information médicale (déclaration réglementaire)
   medicalInfoDeclarations MedicalInfoDeclaration[] @relation("MedicalInfoPharmacist")
@@ -9217,6 +9229,7 @@ model OutboundMailIntent {
 
 /// L'ÉTAT D'UNE MISSION — une demande du PDG qui SURVIT à un tour de conversation.
 enum MissionStatus {
+  /// ─── Missions de COORDINATION (historique) ───
   DRAFT
   ACTIVE
   WAITING
@@ -9226,6 +9239,19 @@ enum MissionStatus {
   READY_TO_SEND
   COMPLETED
   CANCELLED
+  /// ─── Missions d'EXÉCUTION (Mission Runtime) ───
+  /// Les valeurs historiques ne sont pas renommées : des lignes réelles les portent, et les
+  /// renommer aurait cassé des missions en cours pour un gain cosmétique. `Mission.kind`
+  /// distingue les deux familles sans les séparer en deux tables.
+  PLANNING
+  READY
+  AWAITING_APPROVAL
+  RUNNING
+  WAITING_EVENT
+  WAITING_INPUT
+  WAITING_DEPENDENCY
+  RETRYING
+  FAILED
 }
 
 /// UNE MISSION — la coordination humaine, tenue dans le temps.
@@ -9259,13 +9285,215 @@ model Mission {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
+  /// COORDINATION (poursuivre des humains) | RUNTIME (exécuter un DAG durable).
+  kind        String        @default("COORDINATION")
+  /// L'objectif tel que le PDG l'a formulé, MOT POUR MOT. `objective` est la reformulation ;
+  /// c'est le brut qui fait foi quand on juge si l'objectif est atteint (§20).
+  goalRaw     String?       @db.Text
+  /// Les critères d'acceptation, produits par le planner et VÉRIFIÉS avant COMPLETED.
+  acceptance  Json          @default("[]")
+  /// Les deux axes INDÉPENDANTS (§1) : A|B|C pour le raisonnement, S|M|L|XL|MASSIVE pour l'échelle.
+  complexity  String?
+  scale       String?
+  /// Incrémentée à chaque replan. Une étape d'un plan périmé n'est pas supprimée : elle est
+  /// marquée — l'historique d'une mission compte autant que son état.
+  planVersion Int           @default(1)
+  parentMissionId String?
+  parentMission   Mission?  @relation("SubMissions", fields: [parentMissionId], references: [id], onDelete: SetNull)
+  subMissions     Mission[] @relation("SubMissions")
+  /// `null` = pas encore évalué, ce qui n'est PAS `false`.
+  goalSatisfied Boolean?
+  qaPassed      Boolean?
+  goalVerdict   String?     @db.Text
+  /// Observabilité (§54) — ce que la mission a réellement coûté.
+  modelCalls    Int         @default(0)
+  toolCalls     Int         @default(0)
+  tokensIn      Int         @default(0)
+  tokensOut     Int         @default(0)
+  costUsd       Float       @default(0)
+  startedAt     DateTime?
+  /// Limite OPÉRATIONNELLE de parallélisme, jamais une limite d'architecture (§4).
+  maxConcurrency Int        @default(6)
+
   participants MissionParticipant[]
   events       MissionEvent[]
   emails       EmailRecord[]
   intents      OutboundMailIntent[]
+  steps        MissionStep[]
+  workerRuns   MissionWorkerRun[]
+  approvals    MissionApproval[]
+  commitments2 ExecutiveCommitment[] @relation("MissionCommitments")
 
   @@index([ownerId, status])
   @@index([status, updatedAt])
+  @@index([kind, status])
+  @@index([parentMissionId])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// UNE ÉTAPE — le nœud du DAG, ET le point de reprise.
+///
+/// Il n'y a pas de table de checkpoints : une étape TERMINÉE, avec son reçu, EST le checkpoint.
+/// Au redémarrage on relit les étapes, et celles qui portent un reçu ne sont pas rejouées —
+/// c'est ce qui empêche de renvoyer 72 e-mails après un crash à la 73ᵉ.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model MissionStep {
+  id         String  @id @default(cuid())
+  missionId  String
+  mission    Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  /// Le regroupement logique — sert à l'affichage ET au replan ciblé.
+  workstream String  @default("default")
+  /// La clé STABLE dans le plan : c'est elle que les dépendances désignent, et c'est elle qui
+  /// rend la compilation RÉ-ENTRANTE (recompiler ne duplique pas, il retrouve).
+  key        String
+  title      String
+  /// La capacité appelée. `null` pour un nœud de contrôle (attente, jonction).
+  capability String?
+  /// CAPABILITY | WORKER | WAIT_EVENT | WAIT_INPUT | APPROVAL | QA | ARTIFACT | JOIN
+  nodeType   String  @default("CAPABILITY")
+  input      Json    @default("{}")
+  /// PENDING | READY | RUNNING | DONE | FAILED | SKIPPED | WAITING | CANCELLED
+  status     String  @default("PENDING")
+  attempt    Int     @default(0)
+  maxAttempts Int    @default(3)
+  /// LA CLÉ D'IDEMPOTENCE (§15) — unique en base, donc garantie par la base et non par la
+  /// discipline de l'appelant.
+  idempotencyKey String?
+  result     Json?
+  receipt    String?
+  error      String?
+  /// La CAUSE classée de l'échec (§75) : c'est elle qui choisit la stratégie de récupération.
+  errorKind  String?
+  /// Ce que l'étape attend quand elle attend : { type, from, entity, until }.
+  waitFor    Json?
+  planVersion Int    @default(1)
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  deps       MissionStepDep[] @relation("StepDeps")
+  dependents MissionStepDep[] @relation("StepDependents")
+  workerRuns MissionWorkerRun[]
+
+  @@unique([missionId, key])
+  @@unique([idempotencyKey])
+  @@index([missionId, status])
+  @@index([status])
+}
+
+/// Une ARÊTE du DAG. `dependsOn` doit être TERMINÉE pour que `step` devienne exécutable.
+model MissionStepDep {
+  id          String      @id @default(cuid())
+  stepId      String
+  step        MissionStep @relation("StepDeps", fields: [stepId], references: [id], onDelete: Cascade)
+  dependsOnId String
+  dependsOn   MissionStep @relation("StepDependents", fields: [dependsOnId], references: [id], onDelete: Cascade)
+
+  @@unique([stepId, dependsOnId])
+  @@index([dependsOnId])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// UN WORKER ÉPHÉMÈRE — pas un agent qui discute (§9).
+///
+/// Il reçoit un objectif, des entrées et une liste FERMÉE de capacités ; il rend un résultat
+/// structuré et se termine. Sa trace vit ici pour l'observabilité et la reprise — jamais pour
+/// qu'un autre worker vienne lui parler.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model MissionWorkerRun {
+  id        String       @id @default(cuid())
+  missionId String
+  mission   Mission      @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  stepId    String?
+  step      MissionStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  objective String       @db.Text
+  /// Le RÔLE de modèle demandé, jamais un nom de modèle : la politique traduit, et elle peut
+  /// changer sans toucher au métier (§11).
+  modelRole String       @default("standard")
+  modelUsed String?
+  allowed   String[]     @default([])
+  input     Json         @default("{}")
+  output    Json?
+  /// RUNNING | DONE | FAILED | TIMEOUT | CANCELLED
+  status    String       @default("RUNNING")
+  error     String?
+  tokensIn  Int          @default(0)
+  tokensOut Int          @default(0)
+  costUsd   Float        @default(0)
+  startedAt DateTime     @default(now())
+  endedAt   DateTime?
+
+  @@index([missionId, status])
+  @@index([stepId])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// L'APPROBATION D'UN PÉRIMÈTRE — une confirmation pour toute une mission (§32).
+///
+/// `scopeHash` la rend IMMUABLE (§33) : si le périmètre change matériellement — destinataire,
+/// montant, action externe ajoutée — le hash ne correspond plus et la partie modifiée redemande
+/// son accord. On ne réutilise pas `AssistantActionIntent` : celui-ci autorise UNE action et
+/// porte son reçu ; ceci autorise un ENSEMBLE décrit par un hash. Les confondre rendrait l'un
+/// des deux faux.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model MissionApproval {
+  id          String   @id @default(cuid())
+  missionId   String
+  mission     Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  scope       String
+  summary     String   @db.Text
+  scopeHash   String
+  /// Les clés d'étapes couvertes : ce que l'approbation débloque, et rien d'autre.
+  stepKeys    String[] @default([])
+  /// NORMAL | SENSITIVE | CRITICAL
+  level       String   @default("NORMAL")
+  /// PENDING | GRANTED | REFUSED | EXPIRED | SUPERSEDED
+  status      String   @default("PENDING")
+  decidedById String?
+  decidedAt   DateTime?
+  /// Un ÉCHANTILLON de ce qui sera fait — pour inspecter sans tout dérouler.
+  sample      Json?
+  createdAt   DateTime @default(now())
+
+  @@index([missionId, status])
+  @@index([status])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// UN MODÈLE OPÉRATIONNEL — le vrai fichier de l'entreprise, pas un format inventé (§81).
+///
+/// `state` empêche la promotion silencieuse (§82) : ce qu'Adam a OBSERVÉ n'est pas ce qu'un
+/// humain a APPROUVÉ, et seul l'approuvé fait autorité. Un seul approuvé par type et par
+/// propriétaire — c'est la règle qui empêche « trois formats historiques » de redevenir trois
+/// vérités concurrentes.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model OperationalTemplate {
+  id                  String   @id @default(cuid())
+  ownerId             String
+  owner               User     @relation("UserOperationalTemplates", fields: [ownerId], references: [id], onDelete: Cascade)
+  /// PURCHASE_ORDER | INVOICE | QUOTATION | PAYMENT_REQUEST | REGULATORY_LETTER | CONTRACT | …
+  type                String
+  name                String
+  /// OBSERVED | CANDIDATE | APPROVED | DEPRECATED
+  state               String   @default("OBSERVED")
+  /// Le fichier de référence dans le Drive — jamais une copie de son contenu ici.
+  driveNodeId         String?
+  fileName            String?
+  fileHash            String?
+  /// Ce que l'analyse a compris du fichier : champs, cellules, règles de numérotation.
+  structure           Json     @default("{}")
+  rules               Json     @default("{}")
+  destinationFolderId String?
+  approvedById        String?
+  approvedAt          DateTime?
+  usageCount          Int      @default(0)
+  lastUsedAt          DateTime?
+  note                String?  @db.Text
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([ownerId, type, state])
 }
 
 /// QUI est attendu dans une mission — interne (compte ERP) ou externe (adresse).

@@ -122,8 +122,19 @@ const SOCLE = [
  * plusieurs métiers reviendrait à leur reprocher d'exister.
  *
  * Ce qui est surveillé, c'est le SENS : un domaine ne remonte pas vers une façade (`domainToFacade`).
+ *
+ * ── POURQUOI `missions/` EST UNE FAÇADE ET NON UN MORCEAU D'ADAM ─────────────────────────
+ *
+ * Le Mission Runtime exécute un graphe d'étapes durables : il persiste, ordonnance, reprend
+ * après une panne, pose des idempotences et compte des reçus. Rien là-dedans n'est propre à
+ * l'assistant — un cron, une route HTTP ou un webhook doivent pouvoir faire tourner une mission
+ * sans passer par une conversation.
+ *
+ * Il n'importe donc JAMAIS `assistant/` : les capacités lui arrivent par un port que l'appelant
+ * fournit (`missions/ports.ts`). C'est ce qui le maintient au niveau des façades — et ce qui
+ * rend l'inversion visible ici même le jour où quelqu'un tenterait l'inverse.
  */
-const FACADES = ["src/lib/queries/", "src/lib/api/", "src/lib/links/"];
+const FACADES = ["src/lib/queries/", "src/lib/api/", "src/lib/links/", "src/lib/missions/"];
 
 /**
  * LE PONT ADAM ↔ ERP — le seul fichier de `src/platform/` autorisé à connaître l'ERP, par

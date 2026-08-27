@@ -277,6 +277,15 @@ export async function findMissionForInbound(opts: {
   return participant ? { missionId: participant.missionId, via: "participant" } : null;
 }
 
+/**
+ * LES LIBELLÉS DES DEUX FAMILLES DE MISSIONS.
+ *
+ * Les neuf premiers décrivent une mission de COORDINATION : Adam poursuit des humains et
+ * attend leurs réponses. Les suivants décrivent une mission d'EXÉCUTION, qui fait tourner un
+ * graphe d'étapes. La table est unique parce que l'enum l'est — mais les mots, eux, disent
+ * bien deux choses différentes : « en attente de réponses » et « en attente d'un événement »
+ * ne se vivent pas pareil pour celui qui lit l'écran.
+ */
 export const MISSION_STATUS_LABEL: Record<MissionStatus, string> = {
   DRAFT: "brouillon",
   ACTIVE: "en cours",
@@ -287,4 +296,13 @@ export const MISSION_STATUS_LABEL: Record<MissionStatus, string> = {
   READY_TO_SEND: "prête à envoyer",
   COMPLETED: "terminée",
   CANCELLED: "annulée",
+  PLANNING: "en cours de planification",
+  READY: "prête à démarrer",
+  AWAITING_APPROVAL: "attend votre accord",
+  RUNNING: "en exécution",
+  WAITING_EVENT: "en attente d'un événement",
+  WAITING_INPUT: "attend un élément de votre part",
+  WAITING_DEPENDENCY: "attend qu'une étape amont se termine",
+  RETRYING: "nouvelle tentative en cours",
+  FAILED: "en échec",
 };
