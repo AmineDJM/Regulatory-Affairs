@@ -3240,6 +3240,55 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### LE PRODUIT DEVIENT UNE ENTITÉ — clé étrangère au lieu de ressemblance de libellé (2026-08)
+
+**Le problème.** Un même produit s'écrivait différemment dans six modules — dossier
+réglementaire, profil promotion, étude BD, ligne de marché PCH, vente, dépense Ad&Pro — et rien
+ne les reliait. « Combien rapporte le produit X ? » demandait donc à Adam d'appeler cinq outils
+puis de rapprocher les libellés AU JUGÉ. Un rapprochement au jugé finit toujours par confondre
+un 40 mg et un 100 mg, et le chiffre d'affaires se présente en réunion sous le mauvais nom.
+
+**Ce qui a été posé, en neuf lots.**
+
+| Lot | Ce qu'il apporte | Fichiers |
+|---|---|---|
+| 1 · Entité canonique | `Product` + `ProductAlias`, clé d'identité unique portée par la BASE. Un produit peut exister AVANT son dossier réglementaire. Les trois modèles existants deviennent des PROFILS (`productId` nullable) — rien n'est supprimé. | `src/lib/products/identity.ts`, `resolve.ts` |
+| 1b · Traversées | `ProductAssignment` (qui porte quoi, depuis quand, pour quelle quotité), `MedicalVisitProduct`, `AdProProductAllocation`, `PchTenderLine.productId`, `Sale.productId` / `tenderLineId`. | `prisma/schema.prisma` |
+| 2 · Lectures 360 | `produit360` et `pch360` — une lecture au lieu de six allers-retours. | `src/lib/queries/product-360.ts`, `pch-360.ts` |
+| 3 · Registre d'événements | L'audit ALIMENTE le registre : un point d'émission au lieu de cinq cents. Liste blanche stricte — tout n'est pas un fait. | `src/lib/events/from-audit.ts` |
+| 4 · Couche sémantique | 13 métriques nommées, chacune avec sa DÉFINITION écrite, qui voyage avec la valeur. | `src/lib/metrics/catalog.ts`, `src/lib/queries/metrics.ts` |
+| 5 · Capacités métier | `product_economics`, `pch_market_status` — entrées par le CONTRAT de plateforme. | `src/lib/assistant/business-capabilities.ts` |
+| 6 · Surfaces | Les capacités atteignables à la VOIX comme au texte. | `capability-surface.ts` |
+| 7 · Graphe d'entreprise | Traverser des arêtes DÉCLARÉES, pas chercher du texte. Pas de Neo4j : le graphe, c'est le schéma. | `src/lib/queries/graph.ts` |
+| 8 · Migration Adam | La doctrine dit de PRÉFÉRER la capacité — sinon elle n'économise rien. | `executive-tools.ts` |
+| 9 · Banc de mesure | Les chiffres ci-dessous, et ce qui NE se mesure pas ici. | `architecture-evals.test.ts` |
+
+**Les chiffres, mesurés et non estimés.**
+
+| Mesure | Avant | Après |
+|---|---|---|
+| Outils envoyés au modèle par mission | 164 (registre complet) | **15** |
+| Jetons de schéma par tour | 56 459 | **~3 000** (−94 %) |
+| Coût de la capacité vs la séquence remplacée | 2 369 jetons (5 outils) | **262 jetons** (−89 %) |
+| Appels d'outil, 3 missions réelles | 11 | **3** |
+| Rapprochement produit | ressemblance de libellé | **clé étrangère** |
+
+**Les quatre règles qui tiennent l'ensemble.**
+
+1. **Un mot, un calcul.** « Chiffre d'affaires » désigne cinq montants (attribué, commandé,
+   livré, facturé, encaissé). Chacun porte son nom et sa définition ; aucun n'est additionné à
+   un autre. Le double compte bon de commande / vente est fermé et testé.
+2. **Zéro n'est pas « on ne sait pas ».** Une donnée manquante rend `null` AVEC sa raison.
+   Jamais zéro, jamais une estimation, jamais un prorata inventé.
+3. **On ne traverse que des arêtes déclarées.** Une relation que personne n'a posée n'apparaît
+   nulle part — c'est ce qui sépare une traversée (vraie) d'une recherche (probable).
+4. **L'ambiguïté se pose à l'humain.** Deux dosages d'une molécule sont deux produits : la
+   lecture rend la QUESTION, elle ne tranche pas.
+
+**Ce qui ne se mesure qu'en production** (clé OpenAI requise) : appels modèle réellement émis,
+jetons de raisonnement, latence, tours utilisateur. Les bornes existent dans le code ; les
+nombres doivent venir des journaux.
+
 ### L'ARCHITECTURE DEVIENT MESURABLE — quatre couches, zéro cycle, et des chiffres qui ne mentent pas (2026-08)
 
 Le code était un monolithe, mais pas un monolithe MODULAIRE. Ce lot le rend
