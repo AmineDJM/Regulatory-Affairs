@@ -187,10 +187,16 @@ const WHY: Record<KnowledgeRoute, string> = {
  * marqueur est presque toujours une demande d'état (« Regulatory ? », « Amine »), et lui répondre
  * par une enquête coûterait cher pour paraître confus.
  */
-export function routeKnowledge(question: string): RouteDecision {
-  const q = fold(question).replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+export function routeKnowledge(question_: string): RouteDecision {
+  // Les MARQUEURS sont écrits en latin ; la normalisation ci-dessous les sert. Mais elle ne doit
+  // pas faire disparaître la question elle-même : réduite à `[a-z0-9]`, une question en arabe
+  // devenait VIDE, et le routeur répondait « rien à chercher » à un courrier de l'ANPP. On
+  // normalise donc pour la reconnaissance des marqueurs, et on juge la vacuité sur le texte
+  // d'origine, qui est le seul à savoir s'il y avait quelque chose à lire.
+  const q = fold(question_).replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  const brut = fold(question_).replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\s+/g, " ").trim();
 
-  if (!q) {
+  if (!brut) {
     return {
       route: "ERP_ONLY",
       scope: SCOPES.ERP_ONLY,
@@ -225,13 +231,49 @@ export function routeKnowledge(question: string): RouteDecision {
   }
 
   if (scores.size === 0) {
-    return {
-      route: "ERP_ONLY",
-      scope: SCOPES.ERP_ONLY,
-      why: "Aucun marqueur : traitée comme une demande d'état, la plus fréquente et la moins chère.",
-      signals: [],
-      confidence: 0.2,
-    };
+    // ── AUCUN MARQUEUR. Deux situations très différentes se cachaient ici sous une seule règle.
+    //
+    // « Regulatory », « Amine », « budget 2026 » : un terme jeté dans la barre. C'est de la
+    // NAVIGATION, la réponse est un état, et ouvrir les documents ne servirait à rien.
+    //
+    // « Quelle est la contre-indication rénale de la metformine ? » : une question entière, bien
+    // formée, dont la réponse ne peut vivre que dans un écrit. Elle tombait dans le même trou.
+    //
+    // MESURÉ, PAS SUPPOSÉ. Le commentaire d'origine disait que la demande d'état est « la plus
+    // fréquente » — une hypothèse jamais vérifiée. Sur les 25 questions à réponse connue du banc,
+    // le routeur en a écarté 23 avant toute recherche, dont 17 dont la réponse était indexée au
+    // rang #1 ou #2. L'absence de marqueur ne prouve rien ; la traiter comme une preuve coûtait
+    // la réponse.
+    //
+    // CE QUE ÇA COÛTE, puisque c'est la seule objection sérieuse : une requête lexicale bornée
+    // par l'index trigramme, mesurée à 5 ms de médiane sur le corpus d'essai. Aucun jeton, aucun
+    // vecteur, aucun modèle — la doctrine interdit de payer un MODÈLE pour ce que le code sait
+    // faire ; elle n'a jamais demandé d'économiser cinq millisecondes au prix de la bonne réponse.
+    const interrogatif = /\b(quel|quelle|quels|quelles|comment|pourquoi|combien|qui|ou|quand|est ce que|y a t il|what|how|why|who|when|where|which)\b/.test(q);
+    const motsPleins = brut.split(" ").filter((w) => w.length >= 3).length;
+    // HORS DE L'ALPHABET LATIN, la table de marqueurs est AVEUGLE : elle est écrite en français
+    // et en anglais. Une question en arabe ne déclenchera jamais rien, non parce qu'elle porte
+    // sur un état, mais parce qu'on ne sait pas la lire. Conclure « c'est dans une colonne »
+    // reviendrait à transformer notre propre angle mort en certitude sur la question de
+    // quelqu'un d'autre. On ouvre donc les deux côtés, ce qui est la seule position honnête.
+    const horsLatin = q.length === 0 && brut.length > 0;
+    const question = (interrogatif || /\?|؟/.test(question_) || horsLatin) && motsPleins >= 3;
+
+    return question
+      ? {
+        route: "ERP_AND_RAG",
+        scope: SCOPES.ERP_AND_RAG,
+        why: "Question entière sans marqueur : l'état et les écrits partent ensemble — rien ne dit que la réponse est dans une colonne.",
+        signals: ["question-sans-marqueur"],
+        confidence: 0.2,
+      }
+      : {
+        route: "ERP_ONLY",
+        scope: SCOPES.ERP_ONLY,
+        why: "Aucun marqueur et pas de question formée : de la navigation, traitée comme une demande d'état, la moins chère.",
+        signals: [],
+        confidence: 0.2,
+      };
   }
 
   const ranked = [...scores.entries()].sort(

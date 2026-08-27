@@ -2,9 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { retrieve, toContext } from "./retrieve";
 import { cacheClear } from "./rerank";
-import { contentHash } from "./text";
+import { contentHash, fold } from "./text";
 import { ingestFast } from "./ingest";
-import type { AccessFilter } from "./retrieval";
+import { lexicalTerms, type AccessFilter } from "./retrieval";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -155,5 +155,30 @@ describe("le cache", () => {
     const other = await retrieve({ question: q, companyId: "societe-B" }, seeAll);
     // Servir à l'un ce qui a été calculé pour l'autre serait une fuite, pas une optimisation.
     expect(other.cached).toBe(false);
+  });
+});
+
+describe("termes lexicaux — la recherche ne doit pas être aveugle hors du latin", () => {
+  it("une question en arabe produit des termes cherchables", () => {
+    // Le découpage sur `[^a-z0-9]` jetait TOUS les mots arabes : zéro terme, donc aucune requête
+    // lexicale, donc zéro résultat. Mesuré sur le corpus d'essai : la seule question arabe
+    // rappelait 0 document sur 43, dont un qui portait la réponse.
+    const termes = lexicalTerms(fold("ما هو أجل تقديم الوثائق التكميلية"));
+    expect(termes.length).toBeGreaterThan(0);
+
+    // L'INVARIANT QUI COMPTE, et il n'est pas « le mot ressort tel quel ». `fold` décompose et
+    // retire des marques, donc « الوثائق » ne se retrouve pas à l'identique dans les termes — et
+    // c'est SANS IMPORTANCE, parce que le texte indexé (`textFold`) subit exactement la même
+    // transformation. Ce qu'il faut vérifier est donc l'accord des deux côtés : un terme issu de
+    // la question doit être une sous-chaîne du document replié. C'est cet accord qui fait
+    // qu'une recherche trouve, pas la fidélité de l'orthographe.
+    const documentReplie = fold("يرجى تقديم الوثائق التكميلية في أجل ستين يوما");
+    expect(termes.some((t) => documentReplie.includes(t))).toBe(true);
+  });
+
+  it("le français continue de se découper comme avant", () => {
+    const termes = lexicalTerms(fold("quelle est la pénalité de retard du contrat ?"));
+    expect(termes).toContain("penalite");
+    expect(termes).not.toContain("est"); // trop court, et mot vide
   });
 });

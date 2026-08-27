@@ -293,7 +293,12 @@ const LEXICAL_STOPWORDS = new Set([
 ]);
 
 export function lexicalTerms(folded: string, max = 4): string[] {
-  const words = folded.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !LEXICAL_STOPWORDS.has(w));
+  // DÉCOUPAGE UNICODE, ET NON `[^a-z0-9]`. La classe latine paraissait suffisante — tout le
+  // français y entre. Elle jetait en réalité l'INTÉGRALITÉ d'une question écrite en arabe : plus
+  // aucun terme, donc aucune requête lexicale, donc zéro résultat. Chez Adventum, l'ANPP écrit en
+  // arabe ; une recherche muette sur sa langue n'est pas une limite acceptable. Constaté en
+  // mesurant le corpus, sur la seule question arabe du banc — elle rappelait 0 document.
+  const words = folded.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3 && !LEXICAL_STOPWORDS.has(w));
   // Les plus LONGS d'abord : « pénalité » restreint bien plus que « retard ». Au-delà de quatre
   // termes, chaque mot supplémentaire coûte un parcours d'index et ne retire presque rien.
   return [...new Set(words)].sort((a, b) => b.length - a.length).slice(0, max);

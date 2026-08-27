@@ -248,3 +248,56 @@ describe("le holdout — le taux qui compte", () => {
     for (const h of HOLDOUT) expect(trainSet.has(h.q), `« ${h.q} » est dans les deux`).toBe(false);
   });
 });
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * CE QUE LE BANC D'INGESTION A TROUVÉ — et qui ne doit plus jamais revenir.
+ *
+ * Ces trois tests ne viennent pas d'une relecture : ils viennent d'un corpus de 43 fichiers
+ * ingéré pour de vrai, puis de 25 questions à réponse connue posées au système complet. Le
+ * rappel bout en bout était de 2 sur 25 — alors que l'index, interrogé directement, en trouvait
+ * 19. L'écart était entièrement dû au routage.
+ *
+ * `scripts/bench/knowledge-bench.ts` rejoue la mesure ; ces tests en figent les conclusions.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("routage — les défauts que la mesure a trouvés", () => {
+  it("une QUESTION entière sans marqueur ouvre aussi les documents", () => {
+    // 17 questions du banc avaient leur réponse indexée au rang #1 ou #2 et n'étaient jamais
+    // rendues : le routeur les traitait comme des demandes d'état sur la seule foi de l'absence
+    // de marqueur. L'absence de marqueur n'est pas une preuve.
+    for (const q of [
+      "Quelle est la contre-indication rénale de la metformine ?",
+      "Quelle est la fourchette salariale du poste de pharmacien assurance qualité ?",
+      "What was the median progression-free survival in the pivotal trial?",
+    ]) {
+      const d = routeKnowledge(q);
+      expect(d.scope.documents, `« ${q} » n'ouvre pas les documents`).toBe(true);
+      expect(d.signals).toContain("question-sans-marqueur");
+    }
+  });
+
+  it("un TERME jeté dans la barre reste une demande d'état", () => {
+    // Le pendant du test précédent, et ce qui l'empêche de dégénérer en « tout chercher ».
+    // « Regulatory » est de la navigation : ouvrir les documents ne rendrait rien d'utile.
+    for (const q of ["Regulatory", "Amine", "budget 2026"]) {
+      const d = routeKnowledge(q);
+      expect(d.scope.documents, `« ${q} » ne devrait pas ouvrir les documents`).toBe(false);
+    }
+  });
+
+  it("une question en arabe n'est pas prise pour une question vide", () => {
+    // LE DÉFAUT LE PLUS GRAVE DES TROIS, et le plus silencieux. La normalisation réduisait la
+    // question à `[a-z0-9]` : une question en arabe devenait une chaîne VIDE, et le routeur
+    // répondait « rien à chercher ». Chez Adventum, l'ANPP écrit en arabe.
+    const d = routeKnowledge("ما هو أجل تقديم الوثائق التكميلية");
+    expect(d.why).not.toContain("Question vide");
+    expect(d.scope.documents).toBe(true);
+  });
+
+  it("une question réellement vide reste vide", () => {
+    // Le correctif ci-dessus ne doit pas faire disparaître le cas qu'il traverse.
+    expect(routeKnowledge("   ").why).toContain("Question vide");
+    expect(routeKnowledge("!!! ???").why).toContain("Question vide");
+  });
+});
