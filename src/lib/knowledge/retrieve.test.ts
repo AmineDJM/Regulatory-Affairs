@@ -131,6 +131,24 @@ describe("le cache", () => {
     expect(second.hits.map((h) => h.itemId)).toEqual(first.hits.map((h) => h.itemId));
   });
 
+  it("un appel servi par le cache ne rapporte PAS le temps de recherche de l'appel d'origine", async () => {
+    // LE DÉFAUT QUE CE TEST FERME. Le cache renvoyait les temps d'étage mémorisés en ne
+    // recalculant que le total : un appel de 0,2 ms annonçait 54 ms de recherche, et le total
+    // tombait donc SOUS son propre étage. Une courbe de latence bâtie là-dessus aurait facturé
+    // la recherche à chaque relecture du cache — exactement l'inverse de ce qu'on veut voir.
+    const q = { question: "Que dit le contrat sur la pénalité de retard ?", companyId: "cache-timings" };
+    const first = await retrieve(q, seeAll);
+    expect(first.cached).toBe(false);
+
+    const second = await retrieve(q, seeAll);
+    expect(second.cached).toBe(true);
+    expect(second.timings.searchMs, "un appel caché n'a rien cherché").toBe(0);
+    expect(second.timings.rerankMs, "un appel caché n'a rien reclassé").toBe(0);
+    // L'invariant qui rend la mesure lisible : le total contient ses étages, toujours.
+    const etages = second.timings.routeMs + second.timings.searchMs + second.timings.rerankMs;
+    expect(second.timings.totalMs).toBeGreaterThanOrEqual(etages - 0.001);
+  });
+
   it("un périmètre différent ne réutilise PAS le cache", async () => {
     const q = "Que dit le contrat sur la pénalité de retard ?";
     await retrieve({ question: q, companyId: "societe-A" }, seeAll);

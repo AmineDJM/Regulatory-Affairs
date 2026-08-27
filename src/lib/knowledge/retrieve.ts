@@ -85,7 +85,18 @@ export async function retrieve(input: RetrieveInput, canSee: AccessFilter): Prom
     (input.sourceTypes ?? []).join(","), input.docType, input.asOf?.toISOString(), budget,
   ]);
   const hit = cacheGet<RetrieveResult>(key);
-  if (hit) return { ...hit, cached: true, timings: { ...hit.timings, totalMs: performance.now() - t0 } };
+  if (hit) {
+    // LES TEMPS DÉCRIVENT CET APPEL-CI, PAS CELUI QUI A REMPLI LE CACHE. Garder le `searchMs`
+    // d'origine faisait rapporter une recherche qui n'a pas eu lieu : le total tombait SOUS son
+    // propre étage (54 ms de recherche pour un appel de 0,2 ms), et une courbe de latence
+    // construite là-dessus aurait compté ce coût à chaque relecture du cache. On ne mesure que
+    // ce qu'on vient de faire — routage compris, puisqu'il est bien recalculé.
+    return {
+      ...hit,
+      cached: true,
+      timings: { routeMs, searchMs: 0, rerankMs: 0, totalMs: performance.now() - t0 },
+    };
+  }
 
   try {
     // ── ÉTAGE 3. LE RAPPEL. On demande large — mais borné par `afterHybrid`, pas par le nombre
