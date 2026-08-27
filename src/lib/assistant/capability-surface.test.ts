@@ -3,6 +3,7 @@ import type { CurrentUser } from "@/lib/session";
 import type { EffectiveAccess, Module, Action } from "@/lib/rbac";
 import { MODULES, ACTIONS } from "@/lib/rbac";
 import { assistantToolsFor, RESOLVER_WRITE_NAMES } from "@/lib/assistant";
+import { BUSINESS_CAPABILITIES } from "./business-capabilities";
 import {
   capabilitiesFor, capabilityDoctrine, hasCapability, isDirectOn,
   voiceDirectNames, VOICE_DIRECT_WRITES,
@@ -114,5 +115,47 @@ describe("la doctrine injectée dans les instructions vocales", () => {
     for (const nom of VOICE_DIRECT_WRITES) {
       if (!hasCapability(ro, nom)) expect(texte).not.toContain(nom);
     }
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES CAPACITÉS TRANSVERSES NE S'OUVRENT QU'À LA VUE GLOBALE.
+ *
+ * Ce test est né d'un audit hostile de mon propre travail, et il ferme une fuite RÉELLE :
+ * `product_economics` rend le chiffre d'affaires encaissé, la créance ouverte et le coût humain
+ * analytique d'un produit. Il était gardé par `REGULATORY:VIEW` — ce qu'a n'importe quel
+ * assistant réglementaire. La séquence d'outils qu'il remplace, elle, était gardée outil par
+ * outil : en la condensant, on avait condensé les portes.
+ *
+ * Et le cloisonnement par entité ne peut pas y être tenu : le `Principal` du contrat ne porte
+ * pas les sociétés de l'appelant. Une capacité qui agrège sur toute la base ne peut donc
+ * s'ouvrir qu'à qui voit déjà toute la base.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("les capacités métier — la porte est la VUE GLOBALE, pas un module", () => {
+  const avecRole = (role: string, modules: string[]): CurrentUser => ({
+    id: "u", name: "T", email: "t@t.dz", role,
+    access: {
+      modules: new Map(modules.map((m) => [m, { scope: "OWN", actions: new Set(["VIEW"]) }])),
+      companies: ["c1"], allCompanies: false,
+    },
+  } as unknown as CurrentUser);
+
+  const noms = (u: CurrentUser) => BUSINESS_CAPABILITIES.filter((c) => c.allowed(u)).map((c) => c.def.name);
+
+  it("un assistant réglementaire N'ACCÈDE PAS à l'économie d'un produit", () => {
+    const u = avecRole("REGULATORY_ASSISTANT", ["REGULATORY", "WORKSPACE"]);
+    expect(noms(u)).toEqual([]);
+  });
+
+  it("un rôle PCH sans vue globale n'accède ni au marché ni à l'histoire", () => {
+    const u = avecRole("SALES", ["PCH", "WORKSPACE"]);
+    expect(noms(u)).toEqual([]);
+  });
+
+  it("le Super Admin accède aux trois", () => {
+    const u = avecRole("SUPER_ADMIN", ["REGULATORY", "PCH", "FINANCES", "RH", "WORKSPACE"]);
+    expect(noms(u).sort()).toEqual(["business_story", "pch_market_status", "product_economics"]);
   });
 });

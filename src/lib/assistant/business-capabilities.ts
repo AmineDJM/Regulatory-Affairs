@@ -38,6 +38,26 @@ import { inProcessPlatform, principalOf } from "@/platform/in-process/adapter";
  * Il pose une question métier et reçoit une vue. Le jour où Adam devient un service à part, ces
  * deux capacités partent sans une ligne à changer.
  *
+ * ── LA PORTE : VUE GLOBALE, ET PAS UN MODULE ─────────────────────────────────────────────
+ *
+ * Première version : `REGULATORY:VIEW` pour l'économie d'un produit, `PCH:VIEW` pour l'état
+ * d'un marché. Ça paraissait juste — chaque capacité gardée par le module dont elle parle.
+ *
+ * C'était FAUX, et l'audit hostile l'a montré. Ces capacités ne parlent pas d'un module : elles
+ * TRAVERSENT. `product_economics` rend le chiffre d'affaires encaissé, la créance ouverte, le
+ * coût humain analytique et l'investissement promotionnel — c'est-à-dire de la finance et de la
+ * RH — à quiconque possède `REGULATORY:VIEW`, ce qu'a n'importe quel assistant réglementaire.
+ * La séquence d'outils qu'elles remplacent, elle, était gardée outil par outil : chacun refusait
+ * ce que l'appelant n'avait pas le droit de lire. En la condensant, on avait condensé les portes.
+ *
+ * Et le CLOISONNEMENT PAR ENTITÉ ne peut pas non plus être tenu ici : le `Principal` du contrat
+ * ne porte pas les sociétés de l'appelant, à dessein — Adam ne raisonne pas sur le RBAC. Une
+ * capacité qui agrège sur toute la base ne peut donc s'ouvrir qu'à qui voit déjà toute la base.
+ *
+ * La porte est donc la VUE GLOBALE (PDG, Super Admin, direction), plus le module concerné comme
+ * plancher. C'est plus restrictif que ce que la mission demandait, et c'est volontaire : §45 dit
+ * qu'Adam est un outil de direction. Un employé garde ses écrans métier, qui sont cloisonnés.
+ *
  * ── LE NOM DES OUTILS ────────────────────────────────────────────────────────────────────
  *
  * Les capacités ont été spécifiées en `product.getEconomics`, `pch.getMarketStatus`. Le point
@@ -48,6 +68,19 @@ import { inProcessPlatform, principalOf } from "@/platform/in-process/adapter";
 
 const str = (input: Record<string, unknown>, key: string): string =>
   typeof input[key] === "string" ? (input[key] as string).trim() : "";
+
+/**
+ * QUI PEUT INTERROGER UNE VUE TRANSVERSE.
+ *
+ * Vue globale OU Super Admin, ET le module concerné. Le module seul ne suffit pas : ces
+ * capacités agrègent finance, RH et réglementaire en une réponse, et aucune d'elles ne sait
+ * cloisonner par entité — le contrat ne transporte pas les sociétés de l'appelant.
+ */
+const vueTransverse = (u: Parameters<PowerTool["allowed"]>[0], module: string): boolean => {
+  const p = principalOf(u);
+  const global = p.capabilities.has("platform:global-view") || p.capabilities.has("platform:super-admin");
+  return global && p.capabilities.has(`${module}:VIEW`);
+};
 
 export const BUSINESS_CAPABILITIES: PowerTool[] = [
   // ───────────────────────── L'ÉCONOMIE D'UN PRODUIT ─────────────────────────
@@ -73,7 +106,7 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
     },
     // LES DROITS RESTENT CEUX DE L'ERP. La capacité ne crée aucun accès : elle compose des
     // lectures que l'appelant pouvait déjà faire, et le contrat revérifie de son côté.
-    allowed: (u) => principalOf(u).capabilities.has("REGULATORY:VIEW"),
+    allowed: (u) => vueTransverse(u, "REGULATORY"),
     label: "Économie d'un produit",
     run: async (input, user) => {
       const mention = str(input, "produit");
@@ -83,7 +116,9 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
       if (r.kind !== "product.economics") return "Réponse inattendue de la plateforme.";
       // La question remonte TELLE QUELLE : elle est déjà rédigée pour être lue à l'humain.
       if (!r.data) return r.question ?? "Produit introuvable.";
-      return JSON.stringify(r.data);
+      // La vue 360 est un RANGEMENT des champs qui suivent — métriques, portefeuille, marchés,
+      // ventes, limites. Le modèle a les faits ; l'écran a la mise en forme.
+      return JSON.stringify({ ...r.data, _blocsDecoratifs: true });
     },
   },
 
@@ -106,7 +141,7 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
         required: ["marche"],
       },
     },
-    allowed: (u) => principalOf(u).capabilities.has("PCH:VIEW"),
+    allowed: (u) => vueTransverse(u, "PCH"),
     label: "État d'un marché PCH",
     run: async (input, user) => {
       const reference = str(input, "marche");
@@ -115,7 +150,7 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
       const r = await inProcessPlatform.query(principalOf(user), { kind: "pch.market-status", reference });
       if (r.kind !== "pch.market-status") return "Réponse inattendue de la plateforme.";
       if (!r.data) return r.question ?? "Marché introuvable.";
-      return JSON.stringify(r.data);
+      return JSON.stringify({ ...r.data, _blocsDecoratifs: true });
     },
   },
 
@@ -157,7 +192,10 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
     },
     // Une histoire d'affaire traverse marchés, contrats et paiements : la voir suppose la vue
     // PCH, qui est la porte d'entrée de ces objets. La plateforme revérifie de son côté.
-    allowed: (u) => principalOf(u).capabilities.has("PCH:VIEW"),
+    // L'ANCRE PEUT ÊTRE UN MARCHÉ **OU** UN PRODUIT, et la frise d'un produit montre ses
+    // dossiers réglementaires. L'un des deux modules suffit donc — sous vue globale, qui reste
+    // la vraie porte.
+    allowed: (u) => vueTransverse(u, "PCH") || vueTransverse(u, "REGULATORY"),
     label: "Histoire d'une affaire",
     run: async (input, user) => {
       const ancre = str(input, "affaire");
@@ -176,6 +214,10 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
         jalons: st.events.length,
         kpis: st.kpis,
         limites: st.limites,
+        // TOUT CE DONT LE MODÈLE A BESOIN EST CI-DESSUS : le titre, le nombre de jalons, les
+        // KPI et les limites. La frise, elle, est de l'affichage — quatre-vingts jalons avec
+        // leurs pièces et leurs participants qu'il n'utiliserait pas. Ce drapeau l'en dispense.
+        _blocsDecoratifs: true,
         _blocs: [{
           kind: "story",
           title: st.titre,

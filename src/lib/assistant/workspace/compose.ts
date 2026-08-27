@@ -574,30 +574,38 @@ export function composeWorkspace(tool: string, raw: string): WorkspaceCompositio
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * CE QUE LE MODÈLE N'A PAS BESOIN DE LIRE.
+ * CE QUE LE MODÈLE N'A PAS BESOIN DE LIRE — et pourquoi il faut le DÉCLARER.
  *
- * `_blocs` est la charge d'AFFICHAGE : couleurs, pictogrammes, identifiants de jalons, chemins
- * de pièces jointes, libellés de boutons. Le composeur la lit, l'écran la rend — et le modèle,
- * lui, la recevait aussi, mot pour mot, sans jamais s'en servir : il répond en français à partir
- * des faits qui figurent DÉJÀ dans le reste de la réponse.
+ * `_blocs` porte la charge d'AFFICHAGE : identifiants de jalons, chemins de pièces, libellés de
+ * boutons, couleurs. Sur une histoire d'affaire de quatre-vingts jalons, elle dépasse le reste
+ * d'un ordre de grandeur — et le modèle la recevait mot pour mot sans jamais s'en servir.
  *
- * Sur une histoire d'affaire, cette charge dépasse largement le reste : quatre-vingts jalons
- * avec leurs métriques, leurs participants et leurs pièces. La faire lire au modèle, c'est payer
- * un texte qu'il ne lira pas — et allonger d'autant le temps avant le premier mot.
+ * ── LA PREMIÈRE VERSION ÉTAIT FAUSSE, ET C'ÉTAIT GRAVE ───────────────────────────────────
  *
- * ── CE QUI EST PRÉSERVÉ ──────────────────────────────────────────────────────────────────
+ * Elle retirait `_blocs` de TOUTE sortie. L'audit hostile a trouvé deux régressions réelles :
  *
- * On ne retire que `_blocs`, et seulement quand la réponse est un objet. Une sortie que le
- * composeur n'a pas su lire n'est jamais amputée : le repli, c'est la chaîne d'origine, intacte.
- * Les outils qui portent l'information UNIQUEMENT dans `_blocs` n'existent pas — la convention
- * en place (`show-tools`, `directory-tools`) est déjà « le modèle lit court, `_blocs` affiche ».
+ *   • le BROUILLON D'E-MAIL — `corps` n'existe QUE dans le bloc. Après le retrait, « raccourcis
+ *     le deuxième paragraphe » devenait impossible : le modèle ne voyait plus le message ;
+ *   • le TABLEAU SUR MESURE — les lignes n'existent QUE dans le bloc. « Lequel a le plus gros
+ *     montant ? » n'avait plus de réponse, alors que la question porte sur ce qui est à l'écran.
+ *
+ * Échanger des jetons contre des FAITS est le pire marché possible : l'économie se voit dans un
+ * tableau de mesures, la perte se voit six mois plus tard dans une réponse fausse.
+ *
+ * ── LA RÈGLE TENUE DEPUIS : L'OUTIL DÉCLARE, ET LE DÉFAUT EST DE GARDER ──────────────────
+ *
+ * Seule une sortie marquée `_blocsDecoratifs: true` est allégée. L'outil qui pose ce drapeau
+ * affirme que TOUT ce dont le modèle a besoin figure ailleurs dans la même réponse. Sans le
+ * drapeau, rien n'est retiré — un outil écrit demain par quelqu'un qui n'a pas lu ceci ne perd
+ * donc aucune donnée par inadvertance.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 export function stripDisplayPayload(raw: string): string {
   const data = parse(raw);
-  if (data === null || Array.isArray(data) || !("_blocs" in data)) return raw;
-  const { _blocs, ...reste } = data;
-  void _blocs;
+  if (data === null || Array.isArray(data)) return raw;
+  if (data._blocsDecoratifs !== true || !("_blocs" in data)) return raw;
+  const { _blocs, _blocsDecoratifs, ...reste } = data;
+  void _blocs; void _blocsDecoratifs;
   return JSON.stringify(reste);
 }
 

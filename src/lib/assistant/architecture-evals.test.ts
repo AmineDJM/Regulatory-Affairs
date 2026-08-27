@@ -255,6 +255,7 @@ describe("banc d'architecture — la charge d'affichage retirée du contexte", (
       kpis: [{ valeur: "1,24 Md", label: "Attribué" }, { valeur: "612 M", label: "Encaissé" }],
       limites: ["La date de soumission est déduite de la date de publication."],
       _blocs: [{ kind: "story", title: "Marché DEMO-AO-2024", events }],
+      _blocsDecoratifs: true,
     });
 
     const avant = jetons(sortie);
@@ -272,6 +273,18 @@ describe("banc d'architecture — la charge d'affichage retirée du contexte", (
     const nu = JSON.stringify({ effectif: 33, perimetre: "Adventum + Pharmagène" });
     expect(stripDisplayPayload(nu)).toBe(nu);
     expect(stripDisplayPayload("pas du JSON du tout")).toBe("pas du JSON du tout");
+  });
+
+  it("SANS DÉCLARATION, rien n'est retiré — c'est la garde de la régression trouvée en audit", () => {
+    // Le brouillon d'e-mail porte son CORPS dans le bloc, et nulle part ailleurs. La première
+    // version allégeait toute sortie : « raccourcis le deuxième paragraphe » devenait alors
+    // impossible, le modèle ne voyant plus le message qu'il venait d'écrire.
+    const brouillon = JSON.stringify({
+      intentId: "i-1", etat: "AWAITING_APPROVAL", destinataires: ["x@y.dz"], objet: "Relance",
+      _blocs: [{ kind: "email", title: "Message", a: ["x@y.dz"], objet: "Relance", corps: "Bonjour…", statut: "brouillon" }],
+    });
+    expect(stripDisplayPayload(brouillon)).toBe(brouillon);
+    expect(stripDisplayPayload(brouillon)).toContain("corps");
   });
 });
 
