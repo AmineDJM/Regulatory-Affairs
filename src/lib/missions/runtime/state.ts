@@ -124,7 +124,10 @@ export type StepState = (typeof STEP_STATES)[number];
 export const STEP_TRANSITIONS: Record<StepState, readonly StepState[]> = {
   PENDING: ["READY", "SKIPPED", "CANCELLED"],
   READY: ["RUNNING", "WAITING", "SKIPPED", "CANCELLED"],
-  RUNNING: ["DONE", "FAILED", "WAITING", "CANCELLED"],
+  // `SKIPPED` depuis `RUNNING` couvre l'étape qui DÉMARRE puis constate qu'elle n'a rien à
+  // faire — un contrôle qualité sans contrôleur branché, par exemple. C'est distinct de `DONE` :
+  // marquer « fait » un contrôle qui n'a pas eu lieu serait un mensonge de journal.
+  RUNNING: ["DONE", "FAILED", "WAITING", "SKIPPED", "CANCELLED"],
   WAITING: ["READY", "RUNNING", "FAILED", "SKIPPED", "CANCELLED"],
   // UNE ÉTAPE ÉCHOUÉE PEUT REPARTIR — c'est le retry, et c'est ce qui rend le DAG robuste.
   FAILED: ["READY", "RUNNING", "SKIPPED", "CANCELLED"],
@@ -204,7 +207,11 @@ export function deduireEtat(steps: readonly StepSnapshot[]): MissionState {
   if (attente.length > 0) {
     if (attente.some((s) => s.nodeType === "APPROVAL")) return "AWAITING_APPROVAL";
     if (attente.some((s) => s.nodeType === "WAIT_INPUT")) return "WAITING_INPUT";
-    return "WAITING_EVENT";
+    if (attente.some((s) => s.nodeType === "WAIT_EVENT")) return "WAITING_EVENT";
+    // TOUTE AUTRE ATTENTE EST UNE ATTENTE DE DÉPENDANCE — typiquement un éventail déployé qui
+    // attend ses trente-trois filles. La ranger dans « attente d'événement » ferait chercher un
+    // événement qui n'existe pas, et pousserait une notification que personne ne peut résoudre.
+    return "WAITING_DEPENDENCY";
   }
 
   // 4. Des étapes attendent leurs dépendances, mais aucune n'est prête : le DAG est coincé.

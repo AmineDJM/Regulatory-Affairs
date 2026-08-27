@@ -9366,6 +9366,12 @@ model MissionStep {
   errorKind  String?
   /// Ce que l'étape attend quand elle attend : { type, from, entity, until }.
   waitFor    Json?
+  /// L'EXPANSION EN ÉVENTAIL : { from, path, as }. Une propriété de l'ÉTAPE, pas de son payload —
+  /// `input` est ce que l'humain approuve et ce que la capacité reçoit ; y glisser une directive
+  /// de moteur rendrait le payload stocké différent du payload approuvé.
+  forEach    Json?
+  /// Décidé par le compilateur sur le plan APPROUVÉ, jamais recalculé à l'exécution.
+  needsIdempotencyKey Boolean @default(false)
   planVersion Int    @default(1)
   startedAt   DateTime?
   completedAt DateTime?
@@ -9379,6 +9385,7 @@ model MissionStep {
   @@unique([missionId, key])
   @@unique([idempotencyKey])
   @@index([missionId, status])
+  @@index([missionId, workstream])
   @@index([status])
 }
 

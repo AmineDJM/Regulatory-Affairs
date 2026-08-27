@@ -67,6 +67,9 @@ export interface EtatEtape {
   error: string | null;
   errorKind: string | null;
   waitFor: Record<string, unknown> | null;
+  /** { from, path, as } — non nul quand l'étape est un MODÈLE à démultiplier (§10). */
+  forEach: { from: string; path: string; as: string } | null;
+  needsIdempotencyKey: boolean;
   planVersion: number;
   dependsOn: string[];
 }
@@ -76,6 +79,21 @@ const asObj = (v: unknown): Record<string, unknown> =>
 
 const asStrings = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+
+/**
+ * L'éventail relu depuis la base — RETYPÉ, jamais cru sur parole.
+ *
+ * Un JSON en base peut avoir été écrit par une version antérieure du code. Un `from` manquant
+ * ferait chercher la collection dans une étape nommée « undefined » ; mieux vaut n'y voir aucun
+ * éventail et laisser l'étape s'exécuter normalement.
+ */
+function lireEventail(v: unknown): { from: string; path: string; as: string } | null {
+  const o = asObj(v);
+  const from = typeof o.from === "string" ? o.from : "";
+  const path = typeof o.path === "string" ? o.path : "";
+  const as = typeof o.as === "string" ? o.as : "";
+  return from && path && as ? { from, path, as } : null;
+}
 
 /**
  * ÉCRIT LE PLAN COMPILÉ EN BASE, et rend l'identifiant de la mission.
@@ -131,6 +149,8 @@ export async function materialiser(
         input: s.input as never,
         maxAttempts: s.maxAttempts,
         waitFor: (s.waitFor ?? undefined) as never,
+        forEach: (s.forEach ?? undefined) as never,
+        needsIdempotencyKey: s.needsIdempotencyKey,
         planVersion: version,
         status: "PENDING",
       },
@@ -161,6 +181,8 @@ export async function materialiser(
         input: s.input as never,
         maxAttempts: s.maxAttempts,
         waitFor: (s.waitFor ?? undefined) as never,
+        forEach: (s.forEach ?? undefined) as never,
+        needsIdempotencyKey: s.needsIdempotencyKey,
         planVersion: version,
       },
     });
@@ -193,7 +215,16 @@ export async function materialiser(
 export async function chargerEtat(missionId: string): Promise<EtatMission | null> {
   const m = await prisma.mission.findUnique({
     where: { id: missionId },
-    include: { steps: { include: { deps: { include: { dependsOn: { select: { key: true } } } } } } },
+    include: {
+      steps: {
+        include: { deps: { include: { dependsOn: { select: { key: true } } } } },
+        // L'ORDRE EST STABLE, ET C'EST NÉCESSAIRE : sans lui, Postgres rend les étapes dans
+        // l'ordre où il les trouve, qui change avec les mises à jour. L'écran de mission
+        // réordonnerait ses lignes à chaque rafraîchissement, et un test comparant une liste
+        // d'étapes échouerait un jour sur deux sans qu'aucun code ait bougé.
+        orderBy: [{ createdAt: "asc" }, { key: "asc" }],
+      },
+    },
   });
   if (!m) return null;
 
@@ -223,6 +254,8 @@ export async function chargerEtat(missionId: string): Promise<EtatMission | null
       error: s.error,
       errorKind: s.errorKind,
       waitFor: s.waitFor ? asObj(s.waitFor) : null,
+      forEach: lireEventail(s.forEach),
+      needsIdempotencyKey: s.needsIdempotencyKey,
       planVersion: s.planVersion,
       dependsOn: s.deps.map((d) => d.dependsOn.key),
     })),
