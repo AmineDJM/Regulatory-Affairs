@@ -6,6 +6,7 @@ import { contentHash, clip, looksLikePlainText } from "../text";
 import { chunkText, chunkUnits, renumber } from "../chunk";
 import { decideRoute } from "../route";
 import { parsePptx, pptxToText } from "../parsers/pptx";
+import { parseWorkbook, parseCsv, chunksFromTables, tablesToText } from "../parsers/sheet";
 import type { KnowledgeChunkDraft } from "../contract";
 import type { IngestInput } from "../ingest";
 
@@ -42,6 +43,16 @@ function heavyKindOf(mime: string): HeavyKind | null {
   if (mime.includes("wordprocessingml")) return "docx";
   if (mime.includes("spreadsheetml")) return "xlsx";
   return null;
+}
+
+/**
+ * UN CSV SE RECONNAÎT À SON NOM, et c'est assumé : son contenu est du texte brut, indiscernable
+ * d'une note libre par les octets seuls. Se tromper coûte peu — un fichier mal nommé sera lu
+ * comme du texte, ce qui reste correct.
+ */
+function isCsvName(name: string): boolean {
+  const ext = (name.split(".").pop() ?? "").toLowerCase();
+  return ext === "csv" || ext === "tsv";
 }
 
 /** Une extension seule ne prouve rien, mais elle départage les archives ZIP Office. */
@@ -108,11 +119,36 @@ export async function draftFromDriveNode(nodeId: string): Promise<DriveIngestDra
     );
     unreadablePages = deck.visualSlides;
     parserFailed = deck.slides.length === 0;
+  } else if (mime.includes("spreadsheetml")) {
+    // §6 — UN TABLEAU SE LIT COMME UN TABLEAU. `heavyText` sait déjà aplatir un xlsx en CSV, ce
+    // qui suffit à chercher un mot et ne suffit pas à répondre « quel est le prix de X ? » : une
+    // fois aplati, « 4 500 » n'est plus le prix de rien. Ici chaque ligne redevient une
+    // association `colonne: valeur`, et la ligne 42 de la feuille « Tarifs » devient citable.
+    const tables = await parseWorkbook(buffer);
+    if (tables.length) {
+      text = tablesToText(tables);
+      chunks = chunksFromTables(tables);
+    } else {
+      // Aucune structure reconnue (feuille de mise en page, cellules fusionnées partout) : on
+      // retombe sur le texte à plat plutôt que de ne rien rendre.
+      text = await heavyText("xlsx", buffer).catch(() => "");
+      chunks = text ? chunkText(text) : [];
+      parserFailed = !text;
+    }
   } else {
     const kind = heavyKindOf(mime);
     if (kind) {
       text = await heavyText(kind, buffer).catch(() => "");
       parserFailed = !text;
+    } else if (isCsvName(node.name) && looksLikePlainText(buffer)) {
+      // LE CSV EST UN TABLEAU, lui aussi — et il n'a pas plus de signature que le texte brut.
+      const table = parseCsv(buffer.toString("utf8"), node.name);
+      if (table) {
+        text = tablesToText([table]);
+        chunks = chunksFromTables([table]);
+      } else {
+        text = buffer.toString("utf8");
+      }
     } else if (mime.startsWith("text/") || mime === "application/json") {
       text = buffer.toString("utf8");
     } else if (guessed.family === "unknown" && looksLikePlainText(buffer)) {
@@ -123,7 +159,7 @@ export async function draftFromDriveNode(nodeId: string): Promise<DriveIngestDra
       // doctrine interdit. Défaut trouvé en mesurant une ingestion réelle, pas en relisant le code.
       text = buffer.toString("utf8");
     }
-    chunks = text ? chunkText(text) : [];
+    if (!chunks.length) chunks = text ? chunkText(text) : [];
   }
 
   // LA DÉCISION DE ROUTAGE. Elle ne déclenche rien ici : elle DIT ce qu'il faudrait faire, et

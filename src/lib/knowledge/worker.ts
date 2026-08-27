@@ -4,6 +4,7 @@ import type { JobKind, KnowledgeSourceType } from "./contract";
 import { claimNext, completeJob, failJob, requeueStale, queueHealth } from "./queue";
 import { ingestFast, setStage } from "./ingest";
 import { draftFromDriveNode } from "./sources/drive";
+import { draftFromEmail, enqueueEmailBacklog } from "./sources/email";
 import { stageClassify, stageEntities, stageEmbed, stageEnrich, stageVision } from "./stages";
 
 /**
@@ -144,6 +145,16 @@ async function handleParse(payload: Record<string, unknown> | null): Promise<boo
     return r !== null;
   }
 
+  if (sourceType === "email") {
+    const input = await draftFromEmail(sourceId);
+    if (!input) return false; // message vide ou supprimé : une absence, pas une erreur
+    const r = await ingestFast(input);
+    if (r && r.outcome !== "unchanged") {
+      console.info("[knowledge] ingested", { sourceType, sourceId, outcome: r.outcome, version: r.version, by: "metadata" });
+    }
+    return r !== null;
+  }
+
   // Les autres sources se brancheront ici, une par une, sans rien changer au reste.
   return false;
 }
@@ -202,6 +213,14 @@ export async function enqueueDriveBacklog(limit = 20): Promise<number> {
  * traitement l'est pour une vraie raison — un scan sans couche texte — et c'est à la vision d'en
  * décider, pas à ce rattrapage.
  */
+export async function enqueueBacklogs(limit = 20): Promise<{ drive: number; email: number }> {
+  const [drive, email] = await Promise.all([
+    enqueueDriveBacklog(limit).catch(() => 0),
+    knowledgeWorkerEnabled() ? enqueueEmailBacklog(limit).catch(() => 0) : Promise.resolve(0),
+  ]);
+  return { drive, email };
+}
+
 export async function enqueueStalled(limit = 20): Promise<number> {
   if (!knowledgeWorkerEnabled()) return 0;
   try {

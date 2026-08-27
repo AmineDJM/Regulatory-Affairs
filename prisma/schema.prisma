@@ -1148,6 +1148,7 @@ model User {
   directoryAccess            MedicalDirectoryAccess[] @relation("MedicalDirectoryAccessUser")
   assistantReminders         AssistantReminder[]      @relation("AssistantReminderUser")
   assistantRemindersTargeted AssistantReminder[]      @relation("AssistantReminderTarget")
+  scheduledWorkflows         ScheduledWorkflow[]      @relation("ScheduledWorkflowOwner")
   assistantMemoryItems       AssistantMemoryItem[]    @relation("AssistantMemoryItems")
   executiveDecisions         ExecutiveDecision[]      @relation("ExecutiveDecisions")
   executiveCommitments       ExecutiveCommitment[]    @relation("ExecutiveCommitments")
@@ -9563,4 +9564,88 @@ model KnowledgeAlias {
 
   @@unique([entityId, aliasFold])
   @@index([aliasFold])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// LE PLANIFICATEUR PERSISTANT (§9) — « tous les dimanches, fais-moi le point Regulatory ».
+///
+/// ── CE QUE C'EST, ET CE QUE CE N'EST PAS ─────────────────────────────────────────────────
+///
+/// Un travail RÉCURRENT qui produit quelque chose : un rapport, une synthèse, un balayage. Ce
+/// n'est PAS un rappel (`AssistantReminder`), qui notifie une personne à une échéance et n'exécute
+/// rien. Les deux coexistent parce qu'ils répondent à deux besoins différents : « préviens-moi »
+/// et « fais-le ».
+///
+/// ── LA GARDE QUI NE SE NÉGOCIE PAS ───────────────────────────────────────────────────────
+///
+/// Une planification NE PEUT PAS contourner une approbation. Elle exécute des traitements de
+/// LECTURE et produit des livrables ; tout ce qui muterait l'ERP ou enverrait un e-mail passe par
+/// le chemin canonique, avec sa confirmation humaine. C'est écrit dans le registre des
+/// traitements (`scheduler/registry.ts`), et un test le gèle : une planification est un
+/// déclencheur, jamais une dérogation.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model ScheduledWorkflow {
+  id String @id @default(cuid())
+
+  /// Ce que l'utilisateur lit dans la liste — « Point Regulatory du dimanche ».
+  name String
+  /// LE TRAITEMENT à déclencher. Une clé du registre, jamais du code libre : une planification
+  /// qui porterait son propre code serait une porte d'exécution arbitraire dans la base.
+  kind String
+  /// Les paramètres du traitement (destinataire du rapport, périmètre…).
+  payload Json?
+
+  /// HOURLY | DAILY | WEEKLY | MONTHLY — et rien d'autre : une grammaire cron complète dans un
+  /// champ texte est illisible par l'utilisateur qui la relit trois mois plus tard.
+  recurrence String
+  /// L'heure locale d'exécution (0-23), heure d'Alger. Ignorée pour HOURLY.
+  hourLocal  Int    @default(7)
+  /// Jour de la semaine (0 = dimanche) pour WEEKLY ; jour du mois pour MONTHLY.
+  dayOfWeek  Int?
+  dayOfMonth Int?
+
+  /// ACTIVE | PAUSED. Une planification en pause garde son historique et sa prochaine échéance :
+  /// la reprendre ne doit pas effacer ce qu'elle a déjà fait.
+  status String @default("ACTIVE")
+
+  /// La prochaine échéance, en UTC. C'est ELLE qu'on interroge — pas une expression à réévaluer
+  /// à chaque passage, ce qui coûterait un calcul par planification et par minute.
+  nextRunAt DateTime
+  lastRunAt DateTime?
+  /// Verrou d'exécution : un passage la prend, les autres passent leur chemin.
+  claimedAt DateTime?
+
+  /// Qui l'a créée, et pour qui elle tourne. Le propriétaire détermine le PÉRIMÈTRE de lecture :
+  /// une planification ne voit jamais plus que la personne au nom de qui elle s'exécute.
+  ownerId     String
+  owner       User    @relation("ScheduledWorkflowOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdById String?
+
+  runs WorkflowRun[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, nextRunAt])
+  @@index([ownerId])
+}
+
+/// L'HISTORIQUE. Sans lui, « ça n'a pas tourné » et « ça a tourné et n'a rien trouvé » sont
+/// indiscernables — et c'est exactement la question qu'on se pose quand un rapport n'arrive pas.
+model WorkflowRun {
+  id         String            @id @default(cuid())
+  workflowId String
+  workflow   ScheduledWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  /// OK | FAILED | SKIPPED
+  status     String    @default("OK")
+  /// Ce que le traitement a produit, en une ligne lisible.
+  summary    String?
+  error      String?
+  /// Durée en millisecondes — pour voir une dérive avant qu'elle ne devienne une panne.
+  ms         Int?
+
+  @@index([workflowId, startedAt])
 }
