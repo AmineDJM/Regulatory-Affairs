@@ -47,6 +47,25 @@ export const DEFAULT_MODELS: Record<ModelRole, string> = {
   bulk: "gpt-5.6-luna",
 };
 
+/**
+ * LES FAMILLES QUI RAISONNENT — connaissance de MODÈLE, donc elle vit ici.
+ *
+ * Chez elles, `reasoning` n'est pas un paramètre décoratif : c'est une étape de génération, et
+ * `/v1/chat/completions` ne sait pas la combiner avec des outils. C'est `protocol.ts` qui en tire
+ * la conséquence ; ce fichier se contente de savoir QUELS modèles sont concernés — comme il sait
+ * déjà lesquels servent quel rôle et à quel prix.
+ *
+ * Reconnu par PRÉFIXE, pas par liste exacte : `gpt-5.6-terra`, `gpt-5.6-terra-2026-03-01` et le
+ * prochain suffixe de date doivent tous être couverts. Une liste exacte oblige à penser à la
+ * mettre à jour le jour d'un déploiement — c'est-à-dire le jour où on y pense le moins.
+ */
+const FAMILLES_RAISONNEMENT = ["gpt-5", "o1", "o3", "o4"];
+
+export function isReasoningModel(model: string): boolean {
+  const m = (model ?? "").trim().toLowerCase();
+  return FAMILLES_RAISONNEMENT.some((f) => m.startsWith(f));
+}
+
 /** Effort de raisonnement par défaut, par rôle. */
 export const DEFAULT_REASONING: Record<ModelRole, ReasoningEffort> = {
   realtime: "none",

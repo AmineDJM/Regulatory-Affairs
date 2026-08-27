@@ -145,6 +145,14 @@ export interface ModelReply {
   blocks: ModelBlock[];
   usage: ModelUsage;
   error?: string;
+  /**
+   * L'IDENTIFIANT DE LA RÉPONSE, quand le protocole en rend un (Responses).
+   *
+   * Il n'est utile qu'à une chose : le rendre en `previousResponseId` au tour suivant pour
+   * reprendre sans réexpédier tout l'historique. Absent partout ailleurs — et son absence n'est
+   * pas une panne, c'est un protocole qui ne chaîne pas.
+   */
+  responseId?: string;
 }
 
 export interface ModelCallOptions {
@@ -167,6 +175,14 @@ export interface ModelCallOptions {
    * réintroduit exactement le couplage que les rôles suppriment.
    */
   modelOverride?: string;
+  /**
+   * REPRENDRE LA RÉPONSE PRÉCÉDENTE plutôt que de renvoyer tout l'historique (Responses).
+   *
+   * Économise des jetons sur une conversation longue — et demande que le fournisseur ait
+   * CONSERVÉ le tour précédent. C'est pourquoi c'est un choix de l'appelant et pas un défaut :
+   * voir `openai-responses.ts`, qui n'entrepose rien tant que personne ne l'a demandé.
+   */
+  previousResponseId?: string;
 }
 
 /** Le texte concaténé des blocs `text` — ce dont l'appelant a besoin neuf fois sur dix. */

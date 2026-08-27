@@ -7,8 +7,11 @@ import {
 } from "./contract";
 import { bindingFor } from "./registry";
 import { callOpenAi, streamOpenAi } from "./openai";
+import { callOpenAiResponses, streamOpenAiResponses } from "./openai-responses";
+import { protocolFor, protocolViolation } from "./protocol";
 import { callAnthropic, streamAnthropic } from "./anthropic";
 import { recordModelCall } from "./telemetry";
+import { emptyUsage } from "./contract";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -28,8 +31,37 @@ import { recordModelCall } from "./telemetry";
  * Elle ne décide pas QUOI faire, ne boucle pas sur les outils, n'exécute aucune action métier.
  * Elle transporte. La boucle d'agent est au-dessus ; l'exécution réelle est ailleurs encore, et
  * c'est du code — pas un modèle.
+ *
+ * ── LE QUATRIÈME TRAVAIL, AJOUTÉ APRÈS UN HTTP 400 EN PRODUCTION ─────────────────────────
+ *
+ * 4. choisir le PROTOCOLE — par quelle porte OpenAI on parle.
+ *
+ * Il est ici pour la même raison que le point 3 : c'est le seul passage obligé. Tant que
+ * l'adaptateur était unique, la question ne se posait pas et ne se testait donc pas. Terra qui
+ * raisonne et qui outille n'existe pas sur `/v1/chat/completions` ; l'apprendre par un 400 chez
+ * l'utilisateur est le symptôme d'une décision que personne ne prenait.
+ *
+ * La règle vit dans `protocol.ts`, isolée et vérifiable sans réseau. La passerelle l'applique et
+ * REFUSE un appel qui la violerait, plutôt que de l'envoyer voir.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+
+/**
+ * L'appel refusé AVANT le réseau. Rendu sous forme de `ModelReply` et non levé : la boucle
+ * d'agent sait déjà lire un `ok: false`, elle ne sait pas rattraper une exception sans perdre
+ * l'usage déjà consommé.
+ */
+function refus(binding: ReturnType<typeof bindingFor>, motif: string): ModelReply {
+  console.error(`[models] appel refusé — ${motif}`);
+  return {
+    ok: false,
+    configured: true,
+    stop: "error",
+    blocks: [],
+    usage: emptyUsage(binding.role, binding.model, binding.provider),
+    error: `Protocole incompatible : ${motif}`,
+  };
+}
 
 export async function callModel(
   role: ModelRole,
@@ -37,9 +69,20 @@ export async function callModel(
   opts: ModelCallOptions = {},
 ): Promise<ModelReply> {
   const binding = bindingFor(role);
+
+  if (binding.provider === "anthropic") {
+    const reply = await callAnthropic(binding, turns, opts);
+    recordModelCall(reply.usage);
+    return reply;
+  }
+
+  const protocol = protocolFor(binding, opts);
+  const violation = protocolViolation(binding, opts, protocol);
+  if (violation) return refus(binding, violation);
+
   const reply =
-    binding.provider === "anthropic"
-      ? await callAnthropic(binding, turns, opts)
+    protocol === "responses"
+      ? await callOpenAiResponses(binding, turns, opts)
       : await callOpenAi(binding, turns, opts);
   recordModelCall(reply.usage);
   return reply;
@@ -52,9 +95,20 @@ export async function streamModel(
   onText: (chunk: string) => void,
 ): Promise<ModelReply> {
   const binding = bindingFor(role);
+
+  if (binding.provider === "anthropic") {
+    const reply = await streamAnthropic(binding, turns, opts, onText);
+    recordModelCall(reply.usage);
+    return reply;
+  }
+
+  const protocol = protocolFor(binding, opts);
+  const violation = protocolViolation(binding, opts, protocol);
+  if (violation) return refus(binding, violation);
+
   const reply =
-    binding.provider === "anthropic"
-      ? await streamAnthropic(binding, turns, opts, onText)
+    protocol === "responses"
+      ? await streamOpenAiResponses(binding, turns, opts, onText)
       : await streamOpenAi(binding, turns, opts, onText);
   recordModelCall(reply.usage);
   return reply;
@@ -99,6 +153,8 @@ export async function askModelJson<T>(
 }
 
 export { bindingFor, allBindings, roleConfigured, activeProvider } from "./registry";
+export { protocolFor, protocolViolation, needsResponses, isReasoningModel } from "./protocol";
+export type { WireProtocol } from "./protocol";
 export type {
   ModelBlock,
   ModelCallOptions,

@@ -271,7 +271,6 @@ export async function callOpenAi(
 
   let lastError = "Appel au modèle impossible (réseau).";
   let droppedTemperature = false;
-  let droppedReasoning = false;
   let grewBudget = false;
   const MAX_ATTEMPTS = 3;
 
@@ -325,19 +324,34 @@ export async function callOpenAi(
       const raw = await res.text().catch(() => "");
       lastError = providerErrorMessage(res.status, raw);
 
-      // PARAMÈTRES REFUSÉS PAR LE MODÈLE. Un 400 sur `temperature` ou `reasoning_effort` n'est
-      // pas une panne : c'est un modèle qui ne connaît pas ce réglage. On le retire et on rejoue
-      // — sinon un rôle entier tombe pour un paramètre optionnel.
+      // PARAMÈTRE REFUSÉ PAR LE MODÈLE. Un 400 sur `temperature` n'est pas une panne : c'est un
+      // modèle qui ne connaît pas ce réglage. On le retire et on rejoue — sinon un rôle entier
+      // tombe pour un paramètre optionnel.
       if (res.status === 400 && !droppedTemperature && mentionsUnsupportedTemperature(raw)) {
         droppedTemperature = true;
         delete body.temperature;
         continue;
       }
-      if (res.status === 400 && !droppedReasoning && raw.toLowerCase().includes("reasoning_effort")) {
-        droppedReasoning = true;
-        delete body.reasoning_effort;
-        continue;
-      }
+
+      // ── CE QUI SE TROUVAIT ICI, ET POURQUOI IL A ÉTÉ RETIRÉ ──────────────────────────────
+      //
+      // Un second rattrapage retirait `reasoning_effort` dès qu'un 400 le mentionnait. L'idée
+      // paraissait symétrique de celle du dessus ; elle ne l'était pas.
+      //
+      // Le message qui a fait tomber la production le mentionne :
+      //
+      //   « Function tools with reasoning_effort are not supported for gpt-5.6-terra in
+      //     /v1/chat/completions. To use function tools, use /v1/responses OU set
+      //     reasoning_effort to 'none'. »
+      //
+      // Le rattrapage prenait donc la seconde branche du OU — silencieusement. Quand il
+      // réussissait, Adam rendait une réponse RAISONNÉE MOINS QUE DEMANDÉ sans que rien ne
+      // l'indique, sur les demandes de niveau C, celles-là mêmes qui ne valent que par le
+      // raisonnement. Une panne visible aurait été moins coûteuse qu'une réponse dégradée qui
+      // a l'air d'avoir marché.
+      //
+      // La bonne branche du OU est la PREMIÈRE : changer de porte. C'est ce que fait désormais
+      // `protocol.ts`, avant l'appel plutôt qu'après l'échec.
 
       console.error("[models] openai error", binding.role, binding.model, res.status, raw.slice(0, 300));
       if (!isRetryableStatus(res.status) || attempt === MAX_ATTEMPTS) break;
