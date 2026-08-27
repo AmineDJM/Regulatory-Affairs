@@ -1391,6 +1391,9 @@ export const ADMIN_TABS: NavTab[] = [
   { module: "ADMIN", label: "Coût IA & audit Regulatory", href: "/admin/regulatory-ia" },
   { module: "ADMIN", label: "Score d'adoption", href: "/admin/adoption" },
   { module: "ADMIN", label: "Diagnostic", href: "/admin/diagnostic" },
+  // La couche de connaissance tourne en fond, donc invisible par construction : sans cet écran,
+  // une file qui s'engorge ou une dérive vers les modèles chers se découvre sur une facture.
+  { module: "ADMIN", label: "Couche de connaissance", href: "/admin/connaissance" },
   { module: "ADMIN", label: "Test Center", href: "/admin/test-center" },
 ];
 
