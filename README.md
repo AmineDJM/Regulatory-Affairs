@@ -3240,6 +3240,56 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### LA CONVERSATION DEVIENT L'INTERFACE — story, vues 360, gestes sans modèle (2026-08)
+
+**Le problème.** Adam savait afficher un tableau, une fiche, un dossier. Il ne savait pas
+RACONTER. « Retrace-moi l'AONIO 2023 » n'avait qu'une réponse possible : de la prose, écrite par
+le modèle à partir de faits qu'il devait aller chercher un par un. Une chronologie inventée est
+indétectable — elle a l'air d'une chronologie.
+
+Et chaque bouton de l'espace de travail écrivait une PHRASE, qui repartait au modèle, qui devait
+comprendre l'intention et retrouver l'outil que le serveur connaissait déjà quand il a dessiné
+le bouton. Un aller-retour complet pour retrouver ce qu'on savait au départ.
+
+**Ce qui a été fait.**
+
+| Lot | Contenu |
+| --- | --- |
+| 1 | Protocole v2 : `entityRef`, `state`, `certitude` sur tout bloc ; cinq blocs — `story`, `entity360`, `comparison`, `mission`, `alerte` |
+| 1 | `src/lib/queries/story.ts` — la frise reconstituée depuis la base, jamais par le modèle |
+| 1 | Capacité `business_story` via le contrat (`business.story`) ; relecteurs dans `compose-godmode.ts` |
+| 2 | §23 — un bouton porte son `intent` : registre FERMÉ, LECTURES seules, zéro appel au modèle |
+| 2 | Vues 360 produit / marché composées côté ERP, là où les types existent (`e360-blocks.ts`) |
+| 3 | §22 — `elaguerFil` : une identité, une seule carte. Le brouillon devient l'envoi, il ne s'empile pas |
+| 3 | Mesures au banc d'architecture : jetons de schéma évités, charge d'affichage retirée |
+| 4 | Audit hostile : porte des capacités transverses corrigée, retrait de jetons rendu opt-in |
+
+**Les chiffres mesurés** (déterministes, sans clé — `architecture-evals.test.ts`) :
+
+| Mesure | Valeur |
+| --- | --- |
+| Registre complet | 165 outils · 56 732 jetons de schéma |
+| Tour évité par geste direct | 3 163 à 9 440 jetons selon la capacité |
+| Séquence de zoom complète | 33 429 jetons + 5 appels modèle évités |
+| Charge d'affichage — story 40 jalons | 4 972 → 52 jetons (− 99 %) |
+| Charge d'affichage — vue produit | 1 349 → 420 jetons (− 69 %) |
+
+**Les quatre règles qui restent.**
+
+1. **La frise vient de la base.** Ce qui est DÉDUIT le dit (`certitude`), ce qui MANQUE s'affiche
+   comme un trou — c'est précisément ce qu'on cherche en retraçant une affaire.
+2. **Un bouton ne mute jamais sans confirmation.** Le registre des gestes directs ne contient que
+   des lectures ; les mutations gardent la phrase, donc la proposition, la carte et l'audit.
+3. **On n'échange pas des jetons contre des faits.** Le retrait de la charge d'affichage est
+   OPT-IN : sans `_blocsDecoratifs`, rien n'est retiré.
+4. **Une capacité qui traverse les modules s'ouvre à la vue globale**, pas au module dont elle
+   porte le nom — sinon on condense les portes en même temps que la séquence.
+
+**Ce que les captures ont trouvé et qu'aucun test vert n'aurait montré** : la story cachait ses
+jalons manquants derrière un pli ; des valeurs d'énumération anglaises (`PAID`, `WON`) arrivaient
+à l'écran ; la provenance (`PchTenderLine`) était permanente sur téléphone faute de survol ; une
+erreur de mission disait quoi faire sans permettre de le faire.
+
 ### LE PRODUIT DEVIENT UNE ENTITÉ — clé étrangère au lieu de ressemblance de libellé (2026-08)
 
 **Le problème.** Un même produit s'écrivait différemment dans six modules — dossier
