@@ -133,7 +133,16 @@ export type PlatformQuery =
    * dossier porteur. Laissée dans un outil d'Adam, elle aurait franchi la frontière sept fois.
    * Ici, c'est l'ERP qui ouvre le fichier — Adam ne reçoit qu'une vue, et un lien qui revérifie.
    */
-  | { kind: "document.show"; driveNodeId?: string; documentId?: string; name?: string };
+  | { kind: "document.show"; driveNodeId?: string; documentId?: string; name?: string }
+  /**
+   * CHERCHE DANS LE CONTENU des documents indexés — pas dans leurs titres.
+   *
+   * Ajoutée au contrat plutôt que branchée en direct, et c'est le test de frontière qui l'a
+   * exigé : « le besoin est vraiment nouveau → l'ajouter au CONTRAT, ce qui est une décision
+   * explicite ». Adam demande une recherche ; il ne sait pas qu'il existe un index, un routeur,
+   * un reclassement — et il n'a pas à le savoir pour poser la question.
+   */
+  | { kind: "document.search"; question: string; limit?: number };
 
 export type PlatformQueryResult =
   | { kind: "person.search" | "person.list"; people: readonly PersonView[]; total: number }
@@ -147,7 +156,19 @@ export type PlatformQueryResult =
    * fichier de ce nom » appellent deux réactions différentes, et les confondre en un `null`
    * ferait dire à Adam « je n'ai rien trouvé » là où il aurait fallu dire « je n'ai pas le droit ».
    */
-  | { kind: "document.show"; document: DocumentView | null; refusal?: string };
+  | { kind: "document.show"; document: DocumentView | null; refusal?: string }
+  | { kind: "document.search"; extracts: readonly DocumentExtract[]; examined: number };
+
+/** Un extrait de document, avec de quoi le CITER — sans quoi il ne vaut rien. */
+export interface DocumentExtract {
+  /** Le document d'où il vient. */
+  document: string | null;
+  /** Où il se trouve dedans — « page 3 », « Feuille Tarifs », « Diapositive 7 ». */
+  at: string | null;
+  text: string;
+  /** Ce qui l'a fait remonter — un classement qu'on ne peut pas relire ne se corrige pas. */
+  because: readonly string[];
+}
 
 /** Le contenu d'un tableur, déjà lu — c'est ce qui permet de relire un export avant l'envoi. */
 export interface DocumentSheet {

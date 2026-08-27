@@ -123,7 +123,10 @@ describe("la garde d'accès", () => {
 
 describe("le cache", () => {
   it("la seconde fois vient du cache, et le dit", async () => {
-    const q = { question: "Que dit le contrat sur la pénalité de retard ?" };
+    // `scopeKey` EST OBLIGATOIRE POUR QUE LE CACHE EXISTE, et ce test l'exerçait sans le savoir
+    // avec une clé partagée entre toutes les identités. La réponse calculée pour l'un pouvait
+    // donc être resservie à l'autre, filtre d'accès non consulté — mesuré, pas supposé.
+    const q = { question: "Que dit le contrat sur la pénalité de retard ?", scopeKey: "essai-cache" };
     const first = await retrieve(q, seeAll);
     expect(first.cached).toBe(false);
     const second = await retrieve(q, seeAll);
@@ -136,7 +139,7 @@ describe("le cache", () => {
     // recalculant que le total : un appel de 0,2 ms annonçait 54 ms de recherche, et le total
     // tombait donc SOUS son propre étage. Une courbe de latence bâtie là-dessus aurait facturé
     // la recherche à chaque relecture du cache — exactement l'inverse de ce qu'on veut voir.
-    const q = { question: "Que dit le contrat sur la pénalité de retard ?", companyId: "cache-timings" };
+    const q = { question: "Que dit le contrat sur la pénalité de retard ?", companyId: "cache-timings", scopeKey: "essai-timings" };
     const first = await retrieve(q, seeAll);
     expect(first.cached).toBe(false);
 

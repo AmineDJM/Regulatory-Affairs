@@ -37,11 +37,19 @@ import { scanDomains, formatDomains, cycleEdges, DOMAINS } from "./domains";
  * ⚠ CES DEUX PLAFONDS NE DOIVENT JAMAIS AUGMENTER. Voir ci-dessus : les baisser est un progrès,
  * les monter est un aveu.
  *
- * 69 : `src/lib/storage/` a rejoint le SOCLE (voir `domains.ts`). Ce n'est pas une remise à
- * zéro déguisée — c'est une reclassification VÉRIFIÉE : ces fichiers n'importent aucun domaine
- * ni aucune façade, et `scanSocle()` les tient désormais à cette obligation, plus stricte que
- * celle d'un domaine ordinaire. Le chiffre est descendu de 76 à 69 parce que des traversées ont
- * cessé d'exister, pas parce qu'on a cessé de les compter.
+ * ── L'HISTORIQUE, DANS LES DEUX SENS ─────────────────────────────────────────────────────
+ *
+ * 76 → 69 : `src/lib/storage/` a rejoint le SOCLE (voir `domains.ts`). Reclassification
+ * VÉRIFIÉE, pas remise à zéro déguisée : ces fichiers n'importent aucun domaine ni aucune
+ * façade, et `scanSocle()` les tient à cette obligation, plus stricte que celle d'un domaine.
+ * Des traversées ont cessé d'exister ; on n'a pas cessé de les compter.
+ *
+ * 69 → 69 : le lot suivant a AJOUTÉ une capacité (la recherche dans le contenu des documents)
+ * sans ajouter une seule traversée — parce qu'il est passé par le CONTRAT de plateforme au lieu
+ * de brancher l'entonnoir en direct. Le plafond avait été relevé à 70, puis ramené à 69 quand le
+ * test de frontière a nommé le bon remède : « le besoin est vraiment nouveau → l'ajouter au
+ * CONTRAT ». Il avait raison, et c'est exactement à cela que sert un cliquet — non pas empêcher
+ * d'avancer, mais faire chercher le chemin qui n'ajoute pas de dette.
  */
 const CROSSING_CEILING = 69;
 const PROVIDER_CEILING = 42;

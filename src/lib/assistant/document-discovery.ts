@@ -3,6 +3,8 @@ import type { CurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { searchDrive } from "@/lib/queries/drive-search";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
+import { inProcessPlatform, principalOf } from "@/platform/in-process/adapter";
+import type { DocumentExtract } from "@/platform/contract";
 import { getBlob } from "@/lib/drive-storage";
 import { extractAttachmentText } from "@/lib/assistant-files";
 import { foldText } from "@/lib/assistant/memory-context";
@@ -351,6 +353,65 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
           ],
         },
         rappel: "Le nom d'un fichier est un INDICE, pas une preuve : ne conclure qu'à partir des résultats HAUTE/MOYENNE (contenu vérifié), et lire le document (read_document) avant d'en citer un chiffre.",
+      });
+    },
+  },
+];
+
+export const KNOWLEDGE_TOOLS: PowerTool[] = [
+  {
+    def: {
+      name: "search_documents",
+      description:
+        "CHERCHE DANS LE CONTENU des documents indexés (PDF, Word, Excel, présentations, courriels, scans) — "
+        + "pas dans leurs titres. À utiliser pour « que dit le contrat sur… ? », « quelle est la clause de… ? », "
+        + "« qu'y avait-il dans le courrier de l'ANPP ? », « quelle est la posologie indiquée dans la notice ? ». "
+        + "Rend l'EXTRAIT exact avec sa page ou sa feuille, pour pouvoir citer. "
+        + "Complémentaire de `search_everything`, qui trouve OÙ est rangé un document mais ne lit pas dedans : "
+        + "si l'on cherche une phrase, une clause, un chiffre écrit dans un document, c'est CET outil.",
+      input_schema: {
+        type: "object",
+        properties: {
+          question: {
+            type: "string",
+            description: "La question en langage naturel, telle qu'elle a été posée — pas des mots-clés.",
+          },
+        },
+        required: ["question"],
+      },
+    },
+    // Aucun droit spécifique : la garde est APRÈS, document par document. Ouvrir l'outil ne
+    // donne accès à rien — c'est `knowledgeAccessFor` qui décide, et il refuse par défaut.
+    allowed: () => true,
+    label: "Contenu des documents consulté",
+    run: async (input, user) => {
+      const question = typeof input.question === "string" ? input.question.trim() : "";
+      if (question.length < 3) return "Donnez la question telle qu'elle a été posée.";
+
+      // PAR LE CONTRAT, PAS PAR L'INDEX. Adam demande « cherche dans les documents » ; il ne
+      // sait pas qu'il existe un routeur, un index trigramme et un reclassement, et il n'a pas
+      // à le savoir pour poser la question. C'est le test de frontière qui a imposé ce détour,
+      // et il avait raison : brancher l'entonnoir en direct aurait ajouté une dépendance qu'une
+      // ligne du contrat exprime mieux.
+      const res = await inProcessPlatform
+        .query(principalOf(user), { kind: "document.search", question, limit: 5 })
+        .catch(() => null);
+      const r = res?.kind === "document.search" ? res : null;
+
+      if (!r) return "La recherche documentaire est momentanément indisponible.";
+      if (r.extracts.length === 0) {
+        // DIRE CE QUI A ÉTÉ CHERCHÉ, pas seulement qu'on n'a rien trouvé : « aucun extrait » et
+        // « je n'ai pas cherché » se ressemblent pour qui lit la réponse, et ne se corrigent pas
+        // de la même façon.
+        return `Aucun extrait ne correspond, sur ${r.examined} document(s) examiné(s). `
+          + "Le contenu n'est peut-être pas encore indexé, ou la personne n'y a pas accès.";
+      }
+
+      return JSON.stringify({
+        question,
+        examines: r.examined,
+        rendus: r.extracts.length,
+        extraits: r.extracts.map((e: DocumentExtract) => ({ document: e.document, ou: e.at, extrait: e.text, pourquoi: e.because })),
       });
     },
   },

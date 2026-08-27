@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { userCan, MODULES, ACTIONS, hasGlobalView, type Module, type Action } from "@/lib/rbac";
+import { resolveDriveAccess } from "@/lib/drive";
+import { retrieve, type AccessFilter } from "@/lib/knowledge/retrieve";
+import { userCan, MODULES, ACTIONS, hasGlobalView, type Module, type Action, type SessionUser } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
 import { findPeople } from "@/lib/directory/resolve";
 import { DirectoryChannel } from "@prisma/client";
@@ -61,6 +63,10 @@ export function principalOf(user: CurrentUser): Principal {
   }
   if (hasGlobalView(user)) capabilities.add("platform:global-view");
   if (user.role === "SUPER_ADMIN") capabilities.add("platform:super-admin");
+  // LA PORTÉE DU DRIVE, portée explicitement. `resolveDriveAccess` la consulte, et la déduire
+  // de « vue globale » serait une approximation : deux notions voisines qui ne coïncident pas
+  // forcément, et dont l'écart se paierait en documents indûment rendus ou indûment cachés.
+  if (user.access.modules.get("DRIVE")?.scope === "ALL") capabilities.add("DRIVE:scope-all");
 
   return {
     id: user.id,
@@ -179,6 +185,9 @@ async function runQuery(principal: Principal, q: PlatformQuery): Promise<Platfor
 
     case "document.show":
       return showDocument(q);
+
+    case "document.search":
+      return searchDocuments(principal, q.question, q.limit ?? 5);
 
     case "record.get":
     case "record.search":
@@ -387,3 +396,93 @@ export const inProcessPlatform: PlatformPort = {
     return busSubscribe(handler);
   },
 };
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// CHERCHER DANS LE CONTENU — l'entonnoir de connaissance, derrière le contrat
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+/** Au-delà, on ne résout plus les droits un par un : la latence deviendrait le sujet. */
+const MAX_A_FILTRER = 40;
+/** Par paquets — une résolution à la fois, quarante nœuds coûteraient une seconde. */
+const PAR_PAQUET = 8;
+
+/**
+ * QUI A LE DROIT DE VOIR QUOI — à partir de la garde CANONIQUE du Drive.
+ *
+ * ── LA RÈGLE : CE QU'ON NE SAIT PAS VÉRIFIER, ON LE REFUSE ──────────────────────────────
+ *
+ * L'index accepte quinze types de source. Le Drive est le seul dont la garde de lecture soit
+ * ici traduisible sans deviner. Pour les autres — une pièce RH, un courrier restreint, un
+ * contrat à lecteurs nommés — laisser passer « par défaut » ferait fuir par la recherche ce
+ * que l'écran protège.
+ *
+ * Le refus par défaut coûte une capacité : un document légitime n'est pas rendu tant que sa
+ * garde n'est pas écrite ici. C'est le bon côté du compromis — une capacité manquante se voit
+ * et se réclame ; une fuite ne se voit pas.
+ */
+/**
+ * LE STRICT NÉCESSAIRE POUR INTERROGER LA GARDE DU DRIVE — l'inverse exact de `principalOf`
+ * pour les trois seuls champs que `resolveDriveAccess` lit : l'identifiant, le rôle, et la
+ * portée du module Drive.
+ *
+ * On RECONSTRUIT plutôt que de transporter un `CurrentUser` : le contrat ne fait circuler qu'un
+ * `Principal`, et lui glisser un objet de session le rendrait indissociable de cette
+ * implémentation-ci. La reconstruction est fidèle parce que chacun de ces trois champs est
+ * explicitement encodé dans le `Principal` — aucun n'est deviné.
+ */
+function driveUserOf(principal: Principal): SessionUser {
+  const modules = new Map<Module, { actions: Set<Action>; scope?: string }>();
+  if (principal.capabilities.has("DRIVE:scope-all")) {
+    modules.set("DRIVE" as Module, { actions: new Set<Action>(), scope: "ALL" });
+  }
+  return {
+    id: principal.id,
+    role: principal.role,
+    access: { modules, rowGrants: [], secondaryRole: null, role: principal.role },
+  } as unknown as SessionUser;
+}
+
+function accessFilterFor(principal: Principal): AccessFilter {
+  return async (items) => {
+    const autorises = new Set<string>();
+    if (principal.capabilities.has("platform:super-admin")) {
+      for (const i of items) autorises.add(i.itemId);
+      return autorises;
+    }
+    const user = driveUserOf(principal);
+    const drive = items.filter((i) => i.sourceType === "drive_file").slice(0, MAX_A_FILTRER);
+    for (let i = 0; i < drive.length; i += PAR_PAQUET) {
+      const paquet = drive.slice(i, i + PAR_PAQUET);
+      const niveaux = await Promise.all(
+        paquet.map((it) => resolveDriveAccess(user, it.sourceId).catch(() => "NONE" as const)),
+      );
+      paquet.forEach((it, k) => { if (niveaux[k] !== "NONE") autorises.add(it.itemId); });
+    }
+    return autorises;
+  };
+}
+
+async function searchDocuments(principal: Principal, question: string, limit: number): Promise<PlatformQueryResult> {
+  const r = await retrieve(
+    // `force` : la demande de fouiller les documents est EXPLICITE — c'est la lecture qu'on
+    // vient de nous réclamer. Le routeur, qui sert à éviter une recherche que personne n'a
+    // demandée, n'a rien à opposer ici.
+    // `scopeKey` : l'identité du demandeur entre dans la clé de cache. Sans elle, la réponse
+    // calculée pour quelqu'un d'autre serait resservie — filtre d'accès compris, c'est-à-dire
+    // non compris. Vérifié : le Super Admin cherchait, l'employé recevait ses extraits.
+    { question, force: true, limit, scopeKey: principal.id },
+    accessFilterFor(principal),
+  ).catch(() => null);
+
+  if (!r) return { kind: "document.search", extracts: [], examined: 0 };
+  return {
+    kind: "document.search",
+    examined: r.funnel.recalled,
+    extracts: r.hits.map((h) => ({
+      document: h.title ?? null,
+      at: h.label ?? h.locator ?? null,
+      text: h.snippet.slice(0, 600),
+      because: h.because,
+    })),
+  };
+}

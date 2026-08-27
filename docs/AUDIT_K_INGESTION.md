@@ -64,7 +64,7 @@ C'est un chantier propre, pas un correctif. Il est décrit ici plutôt que bâcl
 
 ---
 
-## Audit D — Recherche en entonnoir : **PARTIAL**
+## Audit D — Recherche en entonnoir : **PASS**
 
 Deux mesures distinctes, parce qu'un seul chiffre désignait le mauvais coupable.
 
@@ -126,14 +126,30 @@ La correction juste est un **repli sur vide** : si le côté ERP ne rend rien, l
 déterministe part avant de répondre « rien trouvé ». Elle ne coûte que dans le cas où l'économie a
 déjà échoué.
 
-**c) Et surtout : `retrieve()` n'a aucun appelant en production.**
-Vérifié : hors de `src/lib/knowledge/`, quatre fichiers importent la couche, et **aucun** n'appelle
-l'entonnoir — le balayeur et l'écran d'administration utilisent `worker.ts`. L'ingestion est
-branchée ; **la recherche ne l'est pas**. Un entonnoir qui mesure bien et que personne n'appelle
-n'est pas un chantier terminé, quels que soient ses chiffres.
+**c) `retrieve()` A DÉSORMAIS UN APPELANT** — c'est ce qui fait passer D.
 
-C'est aussi ce qui rend le repli du point (b) impossible à écrire correctement aujourd'hui : il
-suppose un appelant qui interroge d'abord l'ERP, et cet appelant n'existe pas encore.
+L'outil `search_documents` interroge l'entonnoir, par le **contrat de plateforme**
+(`document.search`) et non en direct : le test de frontière l'a exigé, et il avait raison — la
+capacité s'ajoute sans une seule traversée inter-domaines de plus (69 → 69).
+
+Ce que le branchement a révélé, et qui n'aurait pas été trouvé autrement :
+
+1. **L'entonnoir perdait le repère de citation.** `retrieve` reprojetait les résultats sur les
+   seuls champs utiles au reclassement, ce qui faisait disparaître le titre, l'étiquette et le
+   locator au dernier étage. Découper en unités nommées (« Diapositive 7 », « Feuille Tarifs »)
+   pour perdre le nom au bout de la chaîne, c'est faire le travail deux fois pour n'en garder
+   aucun. Corrigé : un extrait se cite désormais
+   `[ESS-XLS-tarifs-2026.xlsx · Feuille Tarifs 2026]`.
+
+2. **LE CACHE FAISAIT FUIR.** Sa clé portait « le périmètre » sur le papier — `companyId`,
+   types, période — mais pas l'identité, et `companyId` est le plus souvent absent. Mesuré : le
+   Super Admin demande la posologie de la metformine et reçoit 5 extraits ; un employé sans
+   aucun accès pose la même question et reçoit **les 5 mêmes**. Le filtre d'accès faisait son
+   travail — il n'était simplement jamais consulté. Corrigé : `scopeKey` obligatoire, et son
+   absence désactive le cache plutôt que de le partager. Un test fige les deux sens.
+
+Le point (b) — le repli sur vide — reste ouvert et devient possible : il suppose un appelant qui
+interroge d'abord l'ERP, et cet appelant existe maintenant.
 
 ---
 
@@ -150,8 +166,8 @@ suppose un appelant qui interroge d'abord l'ERP, et cet appelant n'existe pas en
 
 ## Ce qui reste, nommé plutôt que promis
 
-1. **Brancher l'entonnoir sur Adam** — sans cela, D ne peut pas passer.
-2. **Repli sur vide** pour `ERP_ONLY`, une fois (1) fait.
+1. ~~Brancher l'entonnoir sur Adam~~ — **fait** : `search_documents`, par le contrat.
+2. **Repli sur vide** pour `ERP_ONLY` — désormais possible, puisque l'appelant existe.
 3. **`duplicateOfId`** + déduplication au rendu, après le filtre d'accès (migration).
 4. **Banc à clé, sur documents réels d'Adventum** : qualité de vision, taux d'escalade, coût par
    document. C'est un exercice **distinct** de celui-ci — il mesure la compréhension, pas la

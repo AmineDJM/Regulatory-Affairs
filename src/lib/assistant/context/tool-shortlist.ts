@@ -34,6 +34,10 @@ import { MAX_TOOLS_PER_CALL } from "@/lib/models/openai";
 /** Le classement. Un outil peut servir plusieurs domaines — « gmail_prepare_mail » en est un. */
 export const TOOL_DOMAINS: Record<string, Domain[]> = {
   // ── Messagerie ──────────────────────────────────────────────────────────────────────────
+  // La recherche DANS le contenu — transverse par nature : un contrat, une notice et un
+  // courriel se lisent avec le même outil.
+  search_documents: ["GENERAL"],
+
   gmail_search: ["MAIL"],
   gmail_read_thread: ["MAIL"],
   gmail_pending_mail: ["MAIL"],
@@ -286,7 +290,14 @@ export const TOOL_DOMAINS_RESTE: Record<string, Domain[]> = {
 /** Le classement COMPLET — c'est celui-ci que le résolveur consulte. */
 export const TOOL_DOMAINS_ALL: Record<string, Domain[]> = { ...TOOL_DOMAINS, ...TOOL_DOMAINS_RESTE };
 
-export const ALWAYS_ON = ["search_everything", "inspect_record", "resolve_person", "remember"] as const;
+export const ALWAYS_ON = [
+  "search_everything", "inspect_record", "resolve_person", "remember",
+  // AJOUTÉ AU SOCLE, et ce n'est pas une facilité. `search_everything` trouve OÙ un document est
+  // rangé ; elle ne lit rien dedans. Avoir l'une sans l'autre laissait la question « que dit le
+  // contrat sur… ? » sans aucun moyen d'aboutir — quel que soit le domaine détecté, et alors
+  // même que la réponse était indexée. Une asymétrie de ce genre ne se répare pas par domaine.
+  "search_documents",
+] as const;
 
 /**
  * LES OUTILS DE HAUTEUR — pour les questions qui traversent l'entreprise.

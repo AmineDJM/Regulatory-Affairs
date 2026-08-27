@@ -64,6 +64,13 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
     // strict par `user.id` : chacun ne lit que SES intentions et leurs reçus).
     // Tout le reste doit refuser un compte sans aucun droit.
     const openByDesign = new Set([
+      // `search_documents` : MÊME RAISON QUE `search_everything`, et elle est structurelle.
+      // Ouvrir l'outil ne donne accès à RIEN : chaque extrait passe ensuite par
+      // `knowledgeAccessFor`, qui résout la garde du Drive document par document et REFUSE toute
+      // source dont la garde n'est pas écrite. Exiger en plus un droit de module fermerait la
+      // recherche à des gens qui ont pourtant accès aux fichiers — une protection qui ne protège
+      // rien et retire une capacité.
+      "search_documents",
       "search_everything", "list_pending_decisions",
       "remember", "list_memories", "forget_memory", "recall_conversation",
       "action_history", "episodic_recall",

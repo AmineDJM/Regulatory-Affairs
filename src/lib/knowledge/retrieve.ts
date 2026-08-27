@@ -1,5 +1,14 @@
 import { routeKnowledge, documentBudget, type RouteDecision } from "./router";
 import { search, type AccessFilter, type SearchHit, type SearchQuery } from "./retrieval";
+
+/**
+ * LE TYPE DU FILTRE, RÉEXPORTÉ PAR LA PORTE QUI L'EXIGE.
+ *
+ * `AccessFilter` est le second paramètre de `retrieve`. Obliger l'appelant à ouvrir un second
+ * module pour nommer un argument qu'on lui réclame est une couture qui ne sert personne — et,
+ * concrètement, une dépendance de plus entre deux domaines pour un simple type.
+ */
+export type { AccessFilter };
 import { rerank, FUNNEL, cacheGet, cacheSet, cacheKey, type RerankedHit } from "./rerank";
 
 /**
@@ -38,6 +47,46 @@ export interface RetrieveInput {
   entityIds?: string[];
   /** Forcer un plafond plus bas que celui de la route. Jamais plus haut. */
   limit?: number;
+  /**
+   * L'IDENTITÉ DU PÉRIMÈTRE — sans elle, PAS DE CACHE. Ce n'est pas une option de réglage.
+   *
+   * ── LA FUITE QUE CE CHAMP FERME ────────────────────────────────────────────────────────
+   *
+   * La clé de cache portait `companyId`, `sourceTypes`, `docType`, `asOf` et le budget. Le
+   * commentaire d'origine affirmait qu'elle portait « le PÉRIMÈTRE » — c'était vrai sur le
+   * papier et faux en pratique : `companyId` est le plus souvent absent, et le FILTRE D'ACCÈS,
+   * lui, n'entrait pas du tout dans la clé. Deux personnes posant la même question tombaient
+   * donc sur la même entrée.
+   *
+   * MESURÉ, en branchant le premier appelant réel : le Super Admin demande « la posologie de la
+   * metformine » et reçoit 5 extraits ; un employé qui n'a accès à AUCUN de ces documents pose
+   * la même question juste après et reçoit les 5 mêmes. Le filtre avait bien fait son travail —
+   * il n'a simplement jamais été consulté, puisque la réponse venait du cache.
+   *
+   * ── POURQUOI « ABSENT = PAS DE CACHE » PLUTÔT QU'UNE VALEUR PAR DÉFAUT ────────────────
+   *
+   * Parce qu'une valeur par défaut serait partagée, donc exactement la fuite qu'on ferme. Un
+   * appelant qui oublie ce champ perd de la vitesse ; un appelant qui hérite d'un défaut
+   * partagé perd le cloisonnement. La sanction de l'oubli doit tomber du bon côté.
+   */
+  scopeKey?: string;
+  /**
+   * L'APPELANT DEMANDE EXPRESSÉMENT LES DOCUMENTS — le verdict du routeur devient un AVIS.
+   *
+   * ── POURQUOI CETTE PORTE EXISTE ────────────────────────────────────────────────────────
+   *
+   * Le routage sert à ÉVITER une recherche inutile quand personne ne l'a demandée. Il n'a rien
+   * à dire quand quelqu'un la demande explicitement : un appelant dont la fonction ENTIÈRE est
+   * de fouiller les documents ne peut pas se voir répondre « la réponse est dans une colonne ».
+   *
+   * Mesuré : sur 25 questions à réponse connue, le routeur en écartait 9 avant toute recherche,
+   * dont 8 dont la réponse était indexée au rang #1 ou #2. Pour l'écran ou pour Adam qui
+   * interroge l'ERP d'abord, ce refus est une économie. Pour un outil « cherche dans les
+   * documents », c'est un refus de faire son travail.
+   *
+   * Le cache et les plafonds continuent de s'appliquer : on ne saute que le VETO, pas les bornes.
+   */
+  force?: boolean;
 }
 
 export interface RetrieveResult {
@@ -73,18 +122,24 @@ export async function retrieve(input: RetrieveInput, canSee: AccessFilter): Prom
 
   // ── ÉTAGE 1. La route dit que la réponse est dans une colonne. On s'arrête, et c'est ici que
   //    le système gagne le plus : zéro octet lu, zéro vecteur comparé, zéro jeton dépensé.
-  if (!route.scope.documents) return empty(true);
+  //    Sauf si l'appelant a explicitement demandé les documents — voir `force`.
+  if (!route.scope.documents && !input.force) return empty(true);
 
-  const budget = Math.min(input.limit ?? Number.MAX_SAFE_INTEGER, documentBudget(route.route));
+  // Un appel FORCÉ mérite le budget d'une vraie recherche documentaire : la route qui l'a écarté
+  // ne lui en accorde aucun, et hériter de son zéro reviendrait à refuser autrement.
+  const budgetRoute = route.scope.documents ? documentBudget(route.route) : FUNNEL.afterRerank;
+  const budget = Math.min(input.limit ?? Number.MAX_SAFE_INTEGER, budgetRoute);
   if (budget <= 0) return empty(true);
 
   // ── ÉTAGE 2. Le cache. La clé porte le PÉRIMÈTRE : deux personnes n'ont pas droit aux mêmes
   //    documents, et servir à l'une ce qui a été calculé pour l'autre serait une fuite.
-  const key = cacheKey([
-    "retrieve", input.question.trim().toLowerCase(), input.companyId,
-    (input.sourceTypes ?? []).join(","), input.docType, input.asOf?.toISOString(), budget,
-  ]);
-  const hit = cacheGet<RetrieveResult>(key);
+  const key = input.scopeKey
+    ? cacheKey([
+      "retrieve", input.scopeKey, input.question.trim().toLowerCase(), input.companyId,
+      (input.sourceTypes ?? []).join(","), input.docType, input.asOf?.toISOString(), budget,
+    ])
+    : null;
+  const hit = key ? cacheGet<RetrieveResult>(key) : null;
   if (hit) {
     // LES TEMPS DÉCRIVENT CET APPEL-CI, PAS CELUI QUI A REMPLI LE CACHE. Garder le `searchMs`
     // d'origine faisait rapporter une recherche qui n'a pas eu lieu : le total tombait SOUS son
@@ -118,6 +173,14 @@ export async function retrieve(input: RetrieveInput, canSee: AccessFilter): Prom
     // ── ÉTAGE 4. LE RECLASSEMENT. De trente à cinq, avec diversité, fraîcheur et autorité.
     const tRerank = performance.now();
     const hits = rerank(
+      // ON PASSE AUSSI CE QUI NE SERT PAS À NOTER. Cette projection ne gardait que les champs
+      // dont le reclassement a besoin — ce qui semblait propre et faisait disparaître le TITRE,
+      // l'ÉTIQUETTE et le REPÈRE au dernier étage de l'entonnoir. Résultat : `retrieve` rendait
+      // des extraits impossibles à CITER, alors que le découpage en unités nommées
+      // (« Diapositive 7 », « Feuille Tarifs », « page 3 ») n'existe que pour ça.
+      //
+      // Découper en unités nommées pour perdre le nom au bout de la chaîne, c'est faire le
+      // travail deux fois pour n'en garder aucun. Constaté en branchant le premier appelant réel.
       recalled.map((h) => ({
         itemId: h.itemId,
         snippet: h.snippet,
@@ -125,6 +188,9 @@ export async function retrieve(input: RetrieveInput, canSee: AccessFilter): Prom
         matchedBy: h.matchedBy,
         documentDate: h.documentDate,
         sourceType: h.sourceType,
+        title: h.title,
+        label: h.label,
+        locator: h.locator,
       })),
       input.question,
       { queryEntityIds: input.entityIds, limit: budget },
@@ -136,7 +202,7 @@ export async function retrieve(input: RetrieveInput, canSee: AccessFilter): Prom
       funnel: { recalled: recalled.length, reranked: Math.min(recalled.length, FUNNEL.afterHybrid), kept: hits.length },
       timings: { routeMs, searchMs, rerankMs, totalMs: performance.now() - t0 },
     };
-    cacheSet(key, out);
+    if (key) cacheSet(key, out);
     return out;
   } catch (err) {
     console.error("[knowledge] retrieve failed", err);

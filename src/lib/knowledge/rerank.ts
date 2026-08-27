@@ -43,6 +43,22 @@ export interface Rerankable {
   sourceType?: string | null;
   /** Les entités que ce document CITE, si le graphe les connaît. */
   entityIds?: string[];
+  /**
+   * OÙ SE TROUVE L'EXTRAIT DANS LE DOCUMENT — « page 3 », « Feuille Tarifs », « Diapositive 7 ».
+   *
+   * Le reclassement ne s'en sert PAS pour noter, et c'est voulu : un extrait n'est pas meilleur
+   * parce qu'il est page 3. Il les transporte, simplement, parce que l'appelant en a besoin et
+   * que l'entonnoir est le seul endroit par lequel ils passent.
+   *
+   * Sans ce passage, tout le travail de découpage étiqueté était perdu au dernier étage :
+   * `search` produisait « Diapositive 7 », le reclassement le jetait, et l'appelant recevait un
+   * extrait impossible à CITER. Découper en unités nommées pour perdre le nom au bout de la
+   * chaîne, c'est faire le travail deux fois pour ne rien en garder.
+   */
+  label?: string | null;
+  locator?: string | null;
+  /** Le titre du document — même raison : il traverse, il ne note pas. */
+  title?: string | null;
 }
 
 export interface RerankOptions {

@@ -7,10 +7,11 @@ import { getRhData, getLeavesToDecide } from "@/lib/queries/hr";
 import { getActionCenter } from "@/lib/queries/action-center";
 import { EXECUTIVE_TOOLS } from "@/lib/assistant/executive-tools";
 import { EXECUTIVE_READ_TOOLS } from "@/lib/assistant/executive-read-tools";
+
 import { EXECUTIVE_BRIEF_TOOLS } from "@/lib/assistant/executive-brief-tools";
 import { MEMORY_TOOLS } from "@/lib/assistant/memory-tools";
 import { THREE_SIXTY_TOOLS } from "@/lib/assistant/three-sixty";
-import { DOCUMENT_DISCOVERY_TOOLS } from "@/lib/assistant/document-discovery";
+import { DOCUMENT_DISCOVERY_TOOLS, KNOWLEDGE_TOOLS } from "@/lib/assistant/document-discovery";
 import { WHAT_IF_TOOLS } from "@/lib/assistant/what-if";
 import { DELIVERABLE_TOOLS } from "@/lib/assistant/deliverables";
 import { CORPUS_TOOLS } from "@/lib/assistant/corpus-tools";
@@ -317,6 +318,7 @@ export const POWER_TOOLS: PowerTool[] = [
   // Les LECTURES TRANSVERSES (recherche fédérée, calendrier, stocks, hôpitaux, paie, courriers,
   // agrégats financiers) — chacune ouverte par le DROIT de l'écran correspondant.
   ...EXECUTIVE_READ_TOOLS,
+  // La recherche DANS le contenu — le pendant de `search_everything`, qui n'en lit aucun.
   // Le PILOTAGE PROACTIF : signaux d'alerte, point exécutif, rapport consolidé (.docx → Drive).
   ...EXECUTIVE_BRIEF_TOOLS,
   // MÉMOIRE, DÉCISIONS, ENGAGEMENTS : les registres PERSONNELS (mémoire typée, archives de
@@ -338,6 +340,8 @@ export const POWER_TOOLS: PowerTool[] = [
   // La DÉCOUVERTE DOCUMENTAIRE en Drive « sale » : nom + index textuel progressif + lecture
   // bornée de vérification — le nom d'un fichier est un indice, pas une preuve.
   ...DOCUMENT_DISCOVERY_TOOLS,
+  // La recherche DANS le contenu — le pendant de `search_everything`, qui n'en lit aucun.
+  ...KNOWLEDGE_TOOLS,
   // SIMULATION (jamais mutative), ÉTAT CONSOLIDÉ de l'entreprise, tri de l'ATTENTION du PDG.
   ...WHAT_IF_TOOLS,
   // LIVRABLES UNIVERSELS : vrais .docx/.xlsx/.pptx depuis UNE spec (cohérence par construction),
