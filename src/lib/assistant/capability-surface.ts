@@ -118,6 +118,13 @@ export const VOICE_DIRECT_READS: readonly string[] = [
   // mail » est UNE seule intention en deux temps. Résoudre la personne par délégation puis
   // écrire en direct ferait payer un aller-retour d'orchestrateur pour une adresse.
   "search_people",
+  // LES CAPACITÉS MÉTIER, annoncées à la voix pour la raison qui gouverne cette liste : la voix
+  // paie chaque outil en latence, donc n'y entre que ce qui en FAIT ÉCONOMISER. Ces deux-là sont
+  // le cas le plus net du registre — « combien rapporte le produit X ? » passait par cinq
+  // outils, dont une délégation à l'orchestrateur ; elle en demande UN. Les retirer d'ici
+  // rendrait la voix plus lente, pas plus légère.
+  "product_economics",
+  "pch_market_status",
 ] as const;
 
 /** Les noms annoncés directement à la voix — lectures puis écritures, l'ordre est significatif. */
