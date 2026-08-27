@@ -7,6 +7,7 @@ import { findPeople } from "@/lib/directory/resolve";
 import { estAmbigu, produit360 } from "@/lib/queries/product-360";
 import { pch360 } from "@/lib/queries/pch-360";
 import { metriquesMarche, metriquesProduit } from "@/lib/queries/metrics";
+import { voisinageMarche, voisinageProduit } from "@/lib/queries/graph";
 import { DirectoryChannel } from "@prisma/client";
 import { subscribe as busSubscribe } from "../event-bus";
 import {
@@ -533,11 +534,21 @@ async function economieProduit(mention: string): Promise<PlatformQueryResult> {
     };
   }
 
-  const mesures = await metriquesProduit(vue.produit.id);
+  // LA TRAVERSÉE EN MÊME TEMPS QUE LES MÉTRIQUES : « qu'est-ce qui touche ce produit » et
+  // « combien rapporte-t-il » sont deux moitiés de la même question, et les séparer en deux
+  // outils ferait payer un aller-retour pour une réponse que la base rend d'un coup.
+  const [mesures, graphe] = await Promise.all([
+    metriquesProduit(vue.produit.id),
+    voisinageProduit(vue.produit.id),
+  ]);
   return {
     kind: "product.economics",
     data: {
       metriques: mesures?.metriques ?? [],
+      // CE QUI EST RATTACHÉ, en une ligne par relation. Un produit à zéro vente mais douze
+      // lignes de marché dit immédiatement où regarder — et `horsGraphe` dit ce que la
+      // traversée NE voit pas, pour qu'une arête vide ne se lise pas « il n'y a rien ».
+      graphe: graphe ? { aretes: graphe.aretes, totalVoisins: graphe.totalVoisins, horsGraphe: graphe.horsGraphe } : null,
       produit: vue.produit,
       periode: mesures?.periode ?? null,
       // Seules les affectations EN COURS : un portefeuille clos l'an dernier ne dit rien de qui
@@ -576,11 +587,15 @@ async function etatMarche(reference: string): Promise<PlatformQueryResult> {
     };
   }
 
-  const mesures = await metriquesMarche(vue.marche.id);
+  const [mesures, graphe] = await Promise.all([
+    metriquesMarche(vue.marche.id),
+    voisinageMarche(vue.marche.id),
+  ]);
   return {
     kind: "pch.market-status",
     data: {
       metriques: mesures?.metriques ?? [],
+      graphe: graphe ? { aretes: graphe.aretes, totalVoisins: graphe.totalVoisins, horsGraphe: graphe.horsGraphe } : null,
       marche: vue.marche,
       montants: vue.montants,
       caution: vue.caution,

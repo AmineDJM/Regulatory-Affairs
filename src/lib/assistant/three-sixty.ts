@@ -236,6 +236,32 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
           adjointDe: emp.deputyOf.map((d) => d.name),
           rapportsDirects: emp.reports.map((r) => r.fullName),
           dossiersRegulatoryResponsable: regLoad?.total ?? null,
+          // LE PORTEFEUILLE PRODUIT — la relation posée au lot 1b. Sans elle ici, « qui porte le
+          // Nivolumab ? » se répondait depuis le produit et jamais depuis la personne, si bien
+          // qu'un départ ne laissait pas voir les produits qui restaient sans porteur. Les
+          // affectations CLOSES sont marquées : relancer quelqu'un sur un produit qu'il ne porte
+          // plus est une erreur visible en réunion.
+          // LE PORTEFEUILLE PRODUIT — la relation posée au lot 1b. Sans elle ici, « qui porte le
+          // Nivolumab ? » ne se répondait que depuis le produit, jamais depuis la personne : un
+          // départ ne laissait pas voir les produits qui restaient sans porteur.
+          //
+          // Écrit en Prisma plutôt qu'en appelant `queries/graph.ts` : ce fichier importe DÉJÀ
+          // Prisma, alors qu'importer le graphe aurait ajouté un franchissement de frontière
+          // (425 pour un plafond de 424) — le test l'a signalé, et il avait raison : on ne
+          // traverse pas une frontière pour la commodité d'une seule arête.
+          produitsPortes: uid
+            ? (await prisma.productAssignment.findMany({
+              where: { userId: uid },
+              select: { role: true, endedAt: true, product: { select: { code: true, canonicalName: true } } },
+              orderBy: { startedAt: "desc" }, take: 20,
+            })).map((a) => ({
+              produit: `${a.product.code} — ${a.product.canonicalName}`,
+              role: a.role,
+              // « PORTE » et « A PORTÉ » ne se confondent pas : relancer quelqu'un sur un
+              // produit qu'il ne porte plus est une erreur visible en réunion.
+              enCours: a.endedAt === null || a.endedAt > now,
+            }))
+            : null,
           lecture: "indicateurs FACTUELS de dépendance (personne-clé) — pas un jugement : les interpréter avec le contexte.",
         },
         chargeDeTravail: uid
