@@ -39,12 +39,30 @@ export interface FaitObserve {
   missionId?: string | null;
 }
 
-const norm = (s: string): string => s.trim().toLowerCase();
+export const norm = (s: string): string => s.trim().toLowerCase();
+
+/**
+ * « CE TEXTE DÉSIGNE-T-IL CETTE PERSONNE ? »
+ *
+ * Égalité exacte, ou inclusion à partir de quatre caractères. Le seuil n'est pas arbitraire :
+ * en dessous, « ali » se retrouve dans « natalie@… » et l'on réveille la mauvaise personne.
+ */
+export function designe(attendu: string, candidats: readonly string[]): boolean {
+  const a = norm(attendu);
+  if (a === "") return false;
+  if (candidats.includes(a)) return true;
+  return a.length >= 4 && candidats.some((c) => c.includes(a));
+}
 
 /** Les champs d'une charge utile susceptibles de porter l'émetteur. Explicites, pas devinés. */
 const CHAMPS_EMETTEUR = ["from", "fromAddress", "senderEmail", "sender", "email", "personId", "employeeId", "userId"];
 
-function emetteurs(fait: FaitObserve): string[] {
+/**
+ * LES ÉMETTEURS PLAUSIBLES D'UN FAIT — exporté, parce que les ENGAGEMENTS posent exactement la
+ * même question (« ce fait vient-il de la personne qui avait promis ? ») et qu'une seconde
+ * implémentation divergerait le jour où l'on ajoute un champ ici et pas là.
+ */
+export function emetteurs(fait: FaitObserve): string[] {
   const out: string[] = [];
   if (fait.actorId) out.push(fait.actorId);
   const p = fait.payload;
@@ -57,7 +75,8 @@ function emetteurs(fait: FaitObserve): string[] {
   return out.map(norm);
 }
 
-function references(fait: FaitObserve): string[] {
+/** Les entités touchées par un fait. Exporté pour la même raison que `emetteurs`. */
+export function references(fait: FaitObserve): string[] {
   const out: string[] = [...(fait.relatedRefs ?? [])];
   if (fait.entityType && fait.entityId) out.push(`${fait.entityType}:${fait.entityId}`);
   return out.map(norm);
@@ -79,13 +98,7 @@ export function correspond(attente: Attente, fait: FaitObserve): boolean {
   if (!attente.event || norm(attente.event) !== norm(fait.type)) return false;
 
   // 2. L'ÉMETTEUR, quand il est demandé.
-  if (attente.from) {
-    const attendu = norm(attente.from);
-    const candidats = emetteurs(fait);
-    const exact = candidats.includes(attendu);
-    const partiel = attendu.length >= 4 && candidats.some((c) => c.includes(attendu));
-    if (!exact && !partiel) return false;
-  }
+  if (attente.from && !designe(attente.from, emetteurs(fait))) return false;
 
   // 3. L'ENTITÉ, quand elle est demandée.
   if (attente.entity) {

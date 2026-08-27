@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma, EntityType } from "@prisma/client";
 import { EXPECTED_EVENTS, matchEvent, type BusinessEventLike, type TaskLike } from "@/lib/tasks/evidence";
 import { reveillerMissions } from "@/lib/missions/events/router";
+import { satisfaireEngagements } from "@/lib/missions/commitments/satisfy";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -81,6 +82,21 @@ export async function recordEvent(input: RecordEventInput): Promise<string | nul
       missionId: input.missionId ?? null,
     }).catch((err) => {
       console.error("[events] réveil de mission impossible", evt.type, err);
+    });
+
+    // LA TROISIÈME CONSÉQUENCE : les promesses tenues (§86). Redouane dépose son contrat, et
+    // l'engagement se ferme tout seul — sans quoi Adam le relancerait trois jours plus tard
+    // pour une chose déjà faite, ce qui est la façon la plus rapide de perdre sa crédibilité.
+    await satisfaireEngagements({
+      type: evt.type,
+      actorId: evt.actorId,
+      entityType: evt.entityType,
+      entityId: evt.entityId,
+      relatedRefs: input.relatedRefs ?? [],
+      payload: input.payload,
+      missionId: input.missionId ?? null,
+    }).catch((err) => {
+      console.error("[events] satisfaction d'engagement impossible", evt.type, err);
     });
 
     return evt.id;
