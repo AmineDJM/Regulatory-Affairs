@@ -33,6 +33,19 @@ export const REALTIME_VOICE_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-re
 /** L'URL d'échange SDP (WebRTC) de l'API Realtime — le client la reçoit du serveur. */
 export const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
+/**
+ * LA LANGUE DE LA SESSION — française, et STICKY.
+ *
+ * Elle est posée à DEUX endroits, et il faut les deux : sur le modèle de transcription (qui
+ * sinon devine la langue à chaque segment et bascule sur une phrase courte ou mêlée d'anglais
+ * métier) et dans les consignes (qui gouvernent ce que le modèle RÉPOND). Corriger l'un sans
+ * l'autre laisse la dérive : le transcript anglais entraîne la réponse anglaise, quelle que
+ * soit la consigne.
+ *
+ * Surchargeable par variable d'environnement — l'entreprise est algérienne, pas monolingue.
+ */
+export const VOICE_LANGUAGE = (process.env.ADAM_VOICE_LANGUAGE || "fr").trim();
+
 /** Les voix proposées ; « marin » par défaut (posée, exécutive). Liste blanche stricte. */
 export const REALTIME_VOICES = ["marin", "cedar", "alloy", "ash", "coral", "echo", "sage", "shimmer", "verse"] as const;
 
@@ -158,7 +171,10 @@ CONSIGNES VOCALES — tu es EN LIGNE, à l'oral, avec ton interlocuteur :
   conversation est CONTINUE, y compris ce qui s'est dit en mode texte avant l'appel.
 - Ne salue pas à chaque tour, ne te présente pas : la conversation est déjà engagée.
 - Tu n'es PAS un assistant textuel : tu es l'interface VOCALE de My Chief of Staff — tu entends
-  et tu parles. Français par défaut ; comprends l'arabe et l'anglais mêlés au français.
+  et tu parles.
+- LANGUE : tu réponds en FRANÇAIS pour tout l'appel, même si l'arabe ou l'anglais s'y mêlent.
+  Un résultat d'outil, un nom de champ ou une consigne interne en anglais sont des DONNÉES, pas
+  la langue de la conversation. Tu n'en changes que si on te le demande explicitement.
 - Un MONTANT dans une action se répète clairement avant confirmation (« 14 millions 800 mille
   dinars »). Un nom ambigu se lève en une question courte (« Nesrine B. ou Nesrine K. ? ») —
   seulement si le doute est réel.
@@ -295,7 +311,21 @@ export async function createVoiceSessionGrant(
       audio: {
         input: {
           // Transcription PARALLÈLE de ce que dit l'utilisateur — l'UI et l'historique en vivent.
-          transcription: { model: process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe" },
+          //
+          // ── `language: "fr"` — LA CORRECTION DÉTERMINISTE DE LA DÉRIVE EN ANGLAIS ────────
+          //
+          // Sans indication, le modèle de transcription DEVINE la langue à chaque segment. Sur
+          // une phrase courte, bruitée, ou mêlée d'anglais métier (« le CTD », « le workflow »),
+          // il bascule — et une fois le transcript anglais posé dans la conversation, le modèle
+          // vocal répond en anglais. La dérive observée en production ne venait donc pas d'un
+          // manque de consigne : elle venait de l'ÉTAGE EN DESSOUS de la consigne.
+          //
+          // Une consigne de prompt ne peut pas corriger cela — elle arrive trop tard, après que
+          // le transcript a menti sur la langue. Le paramètre, lui, ferme la question.
+          transcription: {
+            model: process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe",
+            language: VOICE_LANGUAGE,
+          },
           // Détection de tour PILOTÉE PAR L'ENVIRONNEMENT (semantic_vad par défaut, server_vad
           // tunable pour le benchmark). `interrupt_response` est FAUX par défaut : le premier
           // speech-start bruité ne tue plus la réponse — le client CONFIRME le barge-in

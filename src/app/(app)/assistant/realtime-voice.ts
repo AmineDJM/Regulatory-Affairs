@@ -48,6 +48,7 @@
 
 import {
   bargeInDecision, isNoiseTranscript, deliveryWatchdogAction, deliveryFallbackText,
+  stuckTurnAction, STUCK_TURN_TICK_MS,
   BARGE_IN_SUSTAIN_MS, DELIVERY_WATCHDOG_TICK_MS, DELIVERY_WATCHDOG_GRACE_MS,
 } from "@/lib/assistant/voice-tuning";
 import { parseRetryAfter, isRateLimitStatus } from "@/lib/assistant/voice-cooldown";
@@ -96,7 +97,16 @@ export interface VoiceProviderCallbacks {
       | "pending_turn_created" | "pending_turn_ready" | "pending_turn_delivered"
       | "silent_completion_detected" | "watchdog_recovered" | "delivery_failed"
       // Hygiène des événements : périmés ignorés, réponse fantôme annulée avant d'avoir parlé.
-      | "stale_event_ignored" | "phantom_response_cancelled",
+      | "stale_event_ignored" | "phantom_response_cancelled"
+      // ── LA FRISE D'UN TOUR, horodatée ────────────────────────────────────────────────
+      // Six bornes, dans l'ordre où elles tombent. Elles ne servent à rien isolées et
+      // répondent ensemble à la seule question qui compte quand un appel « rame » : OÙ le
+      // temps est-il passé ? « Adam est lent » n'est pas un diagnostic ; « 2,4 s entre la fin
+      // de ma phrase et le premier son, dont 1,9 s dans l'outil » en est un.
+      | "user_speech_ended" | "response_started" | "first_audio"
+      | "tool_started" | "tool_completed" | "response_completed"
+      // Le tour perdu — celui qui obligeait le PDG à dire « Alors ? ».
+      | "turn_watchdog_recovered" | "turn_stuck_surfaced",
     value?: number,
   ) => void;
 }
@@ -207,14 +217,46 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
   private alive = false;
   private muted = false;
 
-  // Appariement des tours : la transcription utilisateur peut arriver APRÈS le début (voire la
-  // fin) de la réponse — on garde les deux moitiés et on émet le tour quand elles sont là.
+  // ── UN `response.id` = UN SEUL TOUR ADAM ──────────────────────────────────────────────
+  //
+  // LA PANNE, telle qu'elle s'affichait au PDG :
+  //
+  //     Adam 13:49  D'accord, je vais
+  //     Adam 13:49  (vide)
+  //     Adam 13:49  D'accord, je vais consulter l'annuaire de l'entreprise…
+  //
+  // Trois messages pour UNE réponse. La cause tenait en une ligne : le tour était émis depuis
+  // l'événement de TRANSCRIPTION UTILISATEUR (`…transcription.completed`), c'est-à-dire au
+  // milieu des deltas de l'assistant. Il partait donc avec un texte PARTIEL, remettait
+  // `assistantText` à zéro, et la suite des deltas repartait dans un second tour — dont la
+  // moitié utilisateur, déjà consommée, devenait « (intervention vocale) ».
+  //
+  // Le tour appartient désormais à la RÉPONSE, et à elle seule : ouvert par `response.created`,
+  // fermé UNE fois par `response.done`. `emittedTurns` interdit structurellement le doublon,
+  // quel que soit l'ordre d'arrivée des événements.
   private userText = "";
   private assistantText = "";
+  /** La réponse qui POSSÈDE le texte en cours d'accumulation. */
+  private turnResponseId: string | null = null;
+  /** Les réponses dont le tour est DÉJÀ parti — le verrou anti-doublon. */
+  private emittedTurns = new Set<string>();
+  /** Un tour clos qui attend encore sa moitié utilisateur (transcription en retard). */
+  private awaitingUserHalf: { responseId: string; assistant: string; isDelivery: boolean } | null = null;
   private turnTimer: ReturnType<typeof setTimeout> | null = null;
   private firstAudioAt: number | null = null;
   /** Le tour en cours est une RESTITUTION spontanée (résultat d'analyse) — pas une intervention. */
   private turnIsDelivery = false;
+
+  // ── LA GARDE DU TOUR BLOQUÉ ───────────────────────────────────────────────────────────
+  // Le watchdog de RESTITUTION ne s'arme que lorsqu'un résultat d'outil attend. Un tour perdu
+  // SANS outil — le « Alors ? » du compte rendu — n'était couvert par rien.
+  private stuckTimer: ReturnType<typeof setInterval> | null = null;
+  /** Le tour attend-il quelque chose ? Un BOOLÉEN explicite — pas un horodatage détourné :
+   *  `awaitingSince > 0` marchait par accident (l'horloge n'est jamais à zéro en vrai) et
+   *  rendait la garde intestable, donc invérifiable. Un drapeau qui se lit se teste. */
+  private awaiting = false;
+  private awaitingSince = 0;
+  private stuckAttempts = 0;
 
   // ── PROPRIÉTÉ DE LA RÉPONSE ──
   // La réponse active est identifiée (response.created → response.done), jamais devinée : les
@@ -406,7 +448,12 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
           // Signal soutenu (haut-parleur muet) qui se termine : vraie prise de parole.
           this.confirmBargeIn(sustained);
         }
+        // LA BORNE DE DÉPART DE TOUTE MESURE DE LATENCE VÉCUE : l'instant où l'utilisateur se
+        // tait. Tout ce qu'on mesure ensuite (premier son, outils, fin de réponse) se compte
+        // à partir d'ici — pas à partir de l'envoi d'une requête, que l'utilisateur ne vit pas.
+        cb.onMetric?.("user_speech_ended", performance.now());
         this.setState("THINKING");
+        this.markAwaiting();
         break;
       }
 
@@ -443,7 +490,11 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
           }
           this.userText = t;
           cb.onUserTranscript(this.userText, true);
-          this.maybeEmitTurn();
+          // ON N'ÉMET PLUS DE TOUR ICI. C'ÉTAIT LE DÉFAUT : émettre depuis la transcription
+          // utilisateur coupait la réponse en cours en deux messages, la moitié utilisateur
+          // partant avec le premier. On ne fait que RENSEIGNER la moitié utilisateur ; si un
+          // tour clos l'attendait, il part maintenant.
+          this.userHalfArrived();
         }
         break;
 
@@ -452,6 +503,15 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
         this.activeResponseId = e.response?.id ?? "r-inconnue";
         this.activeResponseSpoke = false;
         this.responseCreatePending = false;
+        // LE TOUR S'OUVRE ICI, et il appartient à CETTE réponse. Le texte accumulé pour une
+        // réponse précédente n'a rien à faire dans celui-ci : le vider est ce qui garantit
+        // qu'un tour ne récupère jamais la fin du précédent.
+        if (this.turnResponseId !== this.activeResponseId) {
+          this.turnResponseId = this.activeResponseId;
+          this.assistantText = "";
+        }
+        this.stuckAttempts = 0;
+        cb.onMetric?.("response_started", performance.now());
         // La réponse qui démarre — la nôtre OU une auto-créée par la VAD — EST la réponse
         // attendue : l'intention en attente est absorbée (pas de réponse surnuméraire après).
         this.pendingResponseCreate = false;
@@ -471,6 +531,12 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
         if (this.isStaleResponseEvent(e.response_id)) { cb.onMetric?.("stale_event_ignored"); break; }
         if (e.delta) {
           this.activeResponseSpoke = true;
+          // DU TEXTE PROUVE QUE LE TOUR VIT, autant que du son. Ne désarmer la garde que sur
+          // `output_audio_buffer.started` la laissait relancer une réponse qui avait déjà
+          // commencé à répondre — une relance par-dessus une réponse en cours, c'est-à-dire
+          // exactement le bégaiement qu'une garde de silence doit éviter de fabriquer.
+          this.clearAwaiting();
+          this.stuckAttempts = 0;
           this.assistantText += e.delta;
           cb.onAssistantTranscript(this.assistantText, false);
         }
@@ -499,6 +565,15 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
         if (e.response_id && this.cancelledResponseIds.has(e.response_id)) { cb.onMetric?.("stale_event_ignored"); break; }
         this.audioStartedAt = performance.now();
         this.activeResponseSpoke = true;
+        // LE SON EST LA PREUVE QUE LE TOUR VIT. Toute garde de blocage s'éteint ici, et pas
+        // avant : `response.created` ne prouve rien (le compte rendu montre des réponses
+        // créées qui n'ont jamais produit un mot).
+        this.clearAwaiting();
+        this.stuckAttempts = 0;
+        // `first_audio` à CHAQUE tour ; `first_audio_out` reste le tout premier de la session
+        // (deux questions différentes : « ce tour a-t-il été rapide ? » et « l'appel a-t-il
+        // démarré vite ? »). Les confondre, c'était ne pouvoir répondre ni à l'une ni à l'autre.
+        cb.onMetric?.("first_audio", this.audioStartedAt);
         if (this.firstAudioAt === null) {
           this.firstAudioAt = performance.now();
           cb.onMetric?.("first_audio_out", this.firstAudioAt);
@@ -520,6 +595,12 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
         let args: Record<string, unknown> = {};
         try { args = e.arguments ? (JSON.parse(e.arguments) as Record<string, unknown>) : {}; } catch { /* args illisibles */ }
         cb.onMetric?.("tool_call");
+        const toolStartedAt = performance.now();
+        cb.onMetric?.("tool_started", toolStartedAt);
+        // UN OUTIL QUI TOURNE, C'EST UN TOUR QUI VIT. La garde du tour bloqué ne doit pas
+        // relancer une réponse pendant qu'on interroge la base : ce serait couper le travail
+        // en cours pour cause de silence — un silence qui a une raison.
+        this.clearAwaiting();
         // L'OBLIGATION naît ICI : ce call_id a désormais un propriétaire de réponse. Elle ne
         // s'éteindra qu'une fois le résultat RESTITUÉ (ou persisté au fil en dernier recours).
         this.deliveries.set(callId, {
@@ -543,6 +624,9 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
             // L'échec se DIT — jamais un silence : il suit le même chemin de restitution.
             output = "L'outil a échoué (réseau) — le dire simplement, ne rien inventer.";
           }
+          // La DURÉE de l'outil, pas son horodatage : c'est elle qui dit si la lenteur vient
+          // de l'ERP ou du modèle, et c'est la première question qu'on se pose.
+          cb.onMetric?.("tool_completed", Math.max(0, Math.round(performance.now() - toolStartedAt)));
           this.completeDelivery(callId, output, uiReply);
         })();
         break;
@@ -556,16 +640,17 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
         const wasCancelled = this.cancelledResponseIds.has(rid) || status === "cancelled";
         if (this.activeResponseId !== null && e.response?.id && e.response.id !== this.activeResponseId) {
           // done d'une réponse déjà remplacée dans notre suivi : régler ses obligations, sans
-          // toucher à la réponse active actuelle.
+          // toucher à la réponse active actuelle NI au tour en cours (qui appartient à l'autre).
           this.settleDeliveries(rid, status, false);
           break;
         }
         this.activeResponseId = null;
         this.settleDeliveries(rid, status, this.activeResponseSpoke && !wasCancelled);
-        // Fin de réponse : si elle portait du texte parlé, le tour se clôt (la transcription
-        // utilisateur peut être en retard de quelques centaines de ms — on lui laisse 3 s).
+        cb.onMetric?.("response_completed", performance.now());
+        // Fin de réponse : le tour de CETTE réponse se clôt — une fois, et une seule.
         if (this._state === "THINKING") this.setState("LISTENING");
-        this.maybeEmitTurn(true);
+        this.closeTurn(rid);
+        this.turnResponseId = null;
         // Un résultat arrivé PENDANT cette réponse attendait son tour : maintenant.
         if (this.pendingResponseCreate) {
           this.pendingResponseCreate = false;
@@ -683,6 +768,66 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
     this.responseCreatePending = true;
     this.responseCreateSentAt = performance.now();
     this.send({ type: "response.create" });
+    // Un create envoyé est une PROMESSE de réponse. La garde vérifie qu'elle est tenue.
+    this.markAwaiting();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // LE TOUR BLOQUÉ — la garde qui supprime le « Alors ? »
+  //
+  // Distincte du watchdog de RESTITUTION, et il faut les deux : celui-là ne s'arme que
+  // lorsqu'un résultat d'outil attend d'être dit. Le compte rendu de production montre des
+  // silences SANS outil en jeu — un `response.create` perdu, une réponse créée qui ne produit
+  // jamais de son. Rien ne les couvrait, et c'est l'utilisateur qui faisait le watchdog.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Le tour attend quelque chose : armer la garde et démarrer le chronomètre. */
+  private markAwaiting(): void {
+    this.awaiting = true;
+    this.awaitingSince = performance.now();
+    if (this.stuckTimer || !this.alive) return;
+    this.stuckTimer = setInterval(() => this.stuckTick(), STUCK_TURN_TICK_MS);
+  }
+
+  /** Le tour vit (audio, outil en cours, réponse créée) : la garde n'a plus lieu d'être. */
+  private clearAwaiting(): void {
+    this.awaiting = false;
+    this.awaitingSince = 0;
+    if (this.stuckTimer) { clearInterval(this.stuckTimer); this.stuckTimer = null; }
+  }
+
+  private stuckTick(): void {
+    if (!this.alive) { this.clearAwaiting(); return; }
+    const action = stuckTurnAction({
+      awaiting: this.awaiting,
+      silentForMs: this.awaiting ? performance.now() - this.awaitingSince : 0,
+      activeResponse: this.activeResponseId !== null,
+      userSpeaking: this._state === "USER_SPEAKING" || this.bargeWindow !== null,
+      audioPlaying: this.audioStartedAt !== null,
+      attempts: this.stuckAttempts,
+    });
+
+    if (action === "wait") return;
+
+    if (action === "surface") {
+      // On a relancé le maximum de fois. INSISTER ne répare plus rien — et un bégaiement
+      // facturé est pire qu'un silence expliqué. On le DIT, une fois.
+      this.clearAwaiting();
+      this.opts.callbacks.onMetric?.("turn_stuck_surfaced", this.stuckAttempts);
+      this.opts.callbacks.onError(
+        "La réponse ne vient pas. Reformulez votre demande, ou raccrochez et rappelez.",
+        "TURN_STUCK",
+      );
+      return;
+    }
+
+    // `revive` : personne ne parle, rien ne vit, le délai est passé. Le create s'est perdu.
+    this.stuckAttempts += 1;
+    this.awaitingSince = performance.now();
+    this.opts.callbacks.onMetric?.("turn_watchdog_recovered", this.stuckAttempts);
+    this.responseCreatePending = true;
+    this.responseCreateSentAt = performance.now();
+    this.send({ type: "response.create" });
   }
 
   /** La garde déterministe de rattrapage — tourne SEULEMENT quand une restitution est due. */
@@ -746,24 +891,68 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
     this.stopWatchdogIfIdle();
   }
 
-  /** Émet le tour quand les DEUX moitiés sont là — ou après un délai de grâce côté réponse. */
-  private maybeEmitTurn(fromResponseDone = false): void {
-    const emit = () => {
-      if (!this.assistantText) return;
-      // Une RESTITUTION spontanée n'est pas une « intervention vocale » : le fil dit ce qui
-      // s'est réellement passé (l'assistant a repris la parole pour livrer un résultat).
-      const userHalf = this.userText || (this.turnIsDelivery ? "(restitution d'une analyse terminée)" : "(intervention vocale)");
-      const turn = { user: userHalf, assistant: this.assistantText };
-      this.userText = "";
-      this.assistantText = "";
-      this.turnIsDelivery = false;
-      this.opts.callbacks.onTurnComplete(turn);
-    };
+  /**
+   * FERME LE TOUR D'UNE RÉPONSE — exactement une fois.
+   *
+   * Appelé UNIQUEMENT depuis `response.done` (et depuis le délai de grâce). Jamais depuis un
+   * événement de transcription : c'est précisément ce qui découpait une réponse en trois
+   * messages. Le tour ne se ferme que sur la fin de ce qui l'a ouvert.
+   */
+  private closeTurn(responseId: string): void {
+    // LE VERROU. Deux `response.done` pour le même id (renvoi, réémission, done d'une réponse
+    // déjà remplacée) ne produisent qu'un seul tour.
+    if (this.emittedTurns.has(responseId)) return;
+    const texte = this.assistantText.trim();
+    if (!texte) return; // une réponse muette n'est pas un tour — elle est traitée ailleurs
+
+    if (this.userText) {
+      this.emitTurn(responseId, texte, this.turnIsDelivery);
+      return;
+    }
+    // Réponse finie, transcription utilisateur pas encore arrivée : 3 s de grâce, et le tour
+    // reste IDENTIFIÉ pendant l'attente — un second `done` ne peut pas le doubler.
+    this.awaitingUserHalf = { responseId, assistant: texte, isDelivery: this.turnIsDelivery };
+    if (this.turnTimer) clearTimeout(this.turnTimer);
+    this.turnTimer = setTimeout(() => {
+      const en = this.awaitingUserHalf;
+      this.awaitingUserHalf = null;
+      this.turnTimer = null;
+      if (en) this.emitTurn(en.responseId, en.assistant, en.isDelivery);
+    }, 3_000);
+  }
+
+  /** L'émission proprement dite — le seul endroit qui appelle `onTurnComplete`. */
+  private emitTurn(responseId: string, assistant: string, isDelivery: boolean): void {
+    if (this.emittedTurns.has(responseId)) return;
+    this.rememberEmitted(responseId);
+    // Une RESTITUTION spontanée n'est pas une « intervention vocale » : le fil dit ce qui
+    // s'est réellement passé (l'assistant a repris la parole pour livrer un résultat).
+    const userHalf = this.userText || (isDelivery ? "(restitution d'une analyse terminée)" : "(intervention vocale)");
+    this.userText = "";
+    this.assistantText = "";
+    this.turnIsDelivery = false;
+    this.opts.callbacks.onTurnComplete({ user: userHalf, assistant });
+  }
+
+  /** Mémoire bornée des tours émis — l'oubli d'un id très ancien est sans conséquence. */
+  private rememberEmitted(responseId: string): void {
+    this.emittedTurns.add(responseId);
+    if (this.emittedTurns.size > 32) {
+      const first = this.emittedTurns.values().next().value;
+      if (first !== undefined) this.emittedTurns.delete(first);
+    }
+  }
+
+  /**
+   * LA MOITIÉ UTILISATEUR EST ARRIVÉE. Si un tour l'attendait, il part MAINTENANT — sans
+   * attendre les 3 s : c'est le cas normal, et l'attente se verrait à l'écran.
+   */
+  private userHalfArrived(): void {
+    const en = this.awaitingUserHalf;
+    if (!en) return;
+    this.awaitingUserHalf = null;
     if (this.turnTimer) { clearTimeout(this.turnTimer); this.turnTimer = null; }
-    if (!this.assistantText) return;
-    if (this.userText || !fromResponseDone) { emit(); return; }
-    // Réponse finie mais transcription utilisateur pas encore arrivée : 3 s de grâce.
-    this.turnTimer = setTimeout(emit, 3_000);
+    this.emitTurn(en.responseId, en.assistant, en.isDelivery);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -844,6 +1033,7 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
     this.send({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: t }] } });
     this.requestResponse();
     this.setState("THINKING");
+    this.markAwaiting();
   }
 
   sendContext(text: string): void {
@@ -862,6 +1052,9 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
     this.send({ type: "response.cancel" });
     this.send({ type: "output_audio_buffer.clear" });
     if (this._state === "ASSISTANT_SPEAKING" || this._state === "THINKING") this.setState("LISTENING");
+    // Couper VOLONTAIREMENT n'est pas un tour bloqué : la garde ne doit pas relancer ce que
+    // l'utilisateur vient d'arrêter.
+    this.clearAwaiting();
   }
 
   setMuted(muted: boolean): void {
@@ -874,6 +1067,7 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
     if (this.turnTimer) { clearTimeout(this.turnTimer); this.turnTimer = null; }
     this.clearBargeWindow();
     if (this.watchdogTimer) { clearInterval(this.watchdogTimer); this.watchdogTimer = null; }
+    this.clearAwaiting();
     // Des résultats PRÊTS jamais restitués au raccrochage : ils rejoignent le fil — pas perdus.
     for (const d of this.deliveries.values()) {
       if (d.state !== "WAITING_TOOL" && d.resultText) this.opts.persistOrphanResult?.(d.resultText);

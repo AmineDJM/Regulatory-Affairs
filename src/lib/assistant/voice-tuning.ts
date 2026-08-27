@@ -167,3 +167,72 @@ export function buildTurnDetection(env: Record<string, string | undefined> = pro
     : "auto";
   return { type: "semantic_vad", eagerness, create_response: true, interrupt_response: interrupt };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// LE TOUR BLOQUÉ — la garde qui manquait, et ce qu'elle n'a PAS le droit de faire.
+//
+// ── LA PANNE ─────────────────────────────────────────────────────────────────────────────
+//
+// Compte rendu réel : « Allez, qu'est-ce que tu fais là ? », « Hello, est-ce que tu m'entends ? »,
+// « Alors ? ». Le PDG doit RELANCER Adam pour obtenir une réponse. Ce n'est pas de la lenteur :
+// c'est un tour qui n'existe plus. Un `response.create` s'est perdu (canal, collision avec la
+// VAD serveur), ou une réponse a été créée sans jamais produire un son.
+//
+// Le watchdog de RESTITUTION existait déjà — mais il ne s'arme que lorsqu'un résultat d'outil
+// attend d'être restitué. Un tour bloqué SANS outil n'était couvert par rien.
+//
+// ── CE QU'IL N'A PAS LE DROIT DE FAIRE ───────────────────────────────────────────────────
+//
+// Parler par-dessus l'utilisateur, et relancer indéfiniment. Une garde qui envoie un
+// `response.create` toutes les deux secondes ne répare pas un silence : elle fabrique un
+// bégaiement, et elle le facture. D'où : jamais pendant que l'utilisateur parle, jamais si une
+// réponse vit déjà, et un nombre d'essais BORNÉ après quoi on le DIT plutôt que d'insister.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Combien de temps un tour peut rester muet avant qu'on le considère perdu.
+ *
+ * 4 s : au-dessus du temps de réflexion normal d'un tour vocal (le premier son arrive
+ * typiquement entre 300 ms et 1,5 s), en dessous du seuil où un humain relance de lui-même —
+ * ce qui est précisément ce qu'on cherche à lui épargner.
+ */
+export const STUCK_TURN_MS = 4_000;
+
+/** Cadence de la garde. Assez lâche pour ne rien coûter, assez serrée pour rattraper à temps. */
+export const STUCK_TURN_TICK_MS = 800;
+
+/** Au-delà, insister ne répare plus rien : on le DIT à l'utilisateur. */
+export const STUCK_TURN_MAX_ATTEMPTS = 2;
+
+export type StuckTurnAction = "revive" | "wait" | "surface";
+
+/**
+ * UN TOUR EST-IL BLOQUÉ, et que faire ?
+ *
+ * Pure et déterministe — donc vérifiable sans navigateur, sans WebRTC et sans réseau, ce qui
+ * est le seul moyen d'éprouver une garde dont le déclenchement est justement l'exception.
+ *
+ *   • `wait`    — rien d'anormal : quelqu'un parle, une réponse vit, ou le délai n'est pas
+ *                 écoulé. C'est la réponse dans l'immense majorité des ticks.
+ *   • `revive`  — le tour est dû, personne ne parle, rien ne vit : relancer une réponse.
+ *   • `surface` — on a déjà relancé le maximum de fois. Le dire, plutôt que de boucler.
+ */
+export function stuckTurnAction(s: {
+  /** Le tour attend-il quelque chose ? (état THINKING, ou un `response.create` envoyé) */
+  awaiting: boolean;
+  /** Depuis combien de temps rien n'est arrivé — ni `response.created`, ni audio. */
+  silentForMs: number;
+  /** Une réponse vit-elle déjà ? Alors ce n'est pas un blocage, c'est une réflexion. */
+  activeResponse: boolean;
+  /** L'utilisateur parle-t-il ? On ne relance JAMAIS par-dessus lui. */
+  userSpeaking: boolean;
+  /** Le haut-parleur joue-t-il ? Alors le tour vit, quoi qu'en dise l'horloge. */
+  audioPlaying: boolean;
+  attempts: number;
+}): StuckTurnAction {
+  if (!s.awaiting) return "wait";
+  if (s.activeResponse || s.audioPlaying || s.userSpeaking) return "wait";
+  if (s.silentForMs < STUCK_TURN_MS) return "wait";
+  if (s.attempts >= STUCK_TURN_MAX_ATTEMPTS) return "surface";
+  return "revive";
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   bargeInDecision, isNoiseTranscript, buildTurnDetection, deliveryWatchdogAction, deliveryFallbackText,
   BARGE_IN_SUSTAIN_MS, BARGE_IN_NOISE_MS, DELIVERY_WATCHDOG_GRACE_MS, DELIVERY_MAX_ATTEMPTS,
+  stuckTurnAction, STUCK_TURN_MS, STUCK_TURN_MAX_ATTEMPTS,
 } from "./voice-tuning";
 
 /**
@@ -127,5 +128,43 @@ describe("buildTurnDetection — VAD pilotée par l'environnement, benchmarkable
 
   it("OPENAI_VOICE_INTERRUPT=server rend l'interruption au serveur (pour le benchmark A/B)", () => {
     expect(buildTurnDetection({ OPENAI_VOICE_INTERRUPT: "server" })).toMatchObject({ interrupt_response: true });
+  });
+});
+
+describe("la garde du tour bloqué — le « Alors ? » du compte rendu", () => {
+  const base = {
+    awaiting: true, silentForMs: 10_000, activeResponse: false,
+    userSpeaking: false, audioPlaying: false, attempts: 0,
+  };
+
+  it("relance un tour muet dont personne ne s'occupe", () => {
+    expect(stuckTurnAction(base)).toBe("revive");
+  });
+
+  it("ne relance JAMAIS par-dessus l'utilisateur qui parle", () => {
+    // Le pire défaut possible d'une telle garde : couper la parole pour cause de silence.
+    expect(stuckTurnAction({ ...base, userSpeaking: true })).toBe("wait");
+  });
+
+  it("ne relance pas ce qui vit déjà — réponse active ou haut-parleur en train de jouer", () => {
+    expect(stuckTurnAction({ ...base, activeResponse: true })).toBe("wait");
+    expect(stuckTurnAction({ ...base, audioPlaying: true })).toBe("wait");
+  });
+
+  it("laisse au tour normal le temps d'arriver", () => {
+    // Un premier son tombe typiquement entre 300 ms et 1,5 s : relancer avant, ce serait
+    // fabriquer un bégaiement à chaque tour rapide.
+    expect(stuckTurnAction({ ...base, silentForMs: 1_200 })).toBe("wait");
+    expect(stuckTurnAction({ ...base, silentForMs: STUCK_TURN_MS - 1 })).toBe("wait");
+    expect(stuckTurnAction({ ...base, silentForMs: STUCK_TURN_MS })).toBe("revive");
+  });
+
+  it("n'insiste pas indéfiniment : au bout du compte, il le DIT", () => {
+    expect(stuckTurnAction({ ...base, attempts: STUCK_TURN_MAX_ATTEMPTS })).toBe("surface");
+    expect(stuckTurnAction({ ...base, attempts: STUCK_TURN_MAX_ATTEMPTS + 5 })).toBe("surface");
+  });
+
+  it("ne fait rien quand le tour n'attend rien", () => {
+    expect(stuckTurnAction({ ...base, awaiting: false, silentForMs: 999_999 })).toBe("wait");
   });
 });
