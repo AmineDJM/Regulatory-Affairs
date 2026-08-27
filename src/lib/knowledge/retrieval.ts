@@ -110,10 +110,30 @@ export async function search(q: SearchQuery, canSee: AccessFilter): Promise<Sear
     : [];
 
   // ── LEXICAL. Sur la colonne REPLIÉE, servie par l'index trigramme.
+  //
+  // LE DÉFAUT QUE CE DÉCOUPAGE CORRIGE. La requête entière servait de motif `contains` : « que
+  // dit le contrat sur la pénalité de retard ? » n'est une sous-chaîne d'AUCUN document, donc
+  // l'étage lexical ne rendait jamais rien dès que la question faisait plus d'un mot. Autant dire
+  // qu'il ne servait qu'aux recherches d'un seul terme. On cherche désormais les MOTS
+  // DISCRIMINANTS, et un morceau qui les contient TOUS remonte — c'est la conjonction qui fait la
+  // précision, l'index trigramme qui fait la vitesse.
   const folded = fold(needle);
-  const lexical = needle
+  const terms = lexicalTerms(folded);
+  const lexical = terms.length
     ? await prisma.knowledgeChunk.findMany({
-        where: { textFold: { contains: folded }, item: where },
+        where: { AND: terms.map((t) => ({ textFold: { contains: t } })), item: where },
+        take: limit * OVERFETCH,
+        orderBy: { item: { documentDate: "desc" } },
+        select: { ord: true, label: true, locator: true, text: true, item: { select: SELECT_ITEM } },
+      })
+    : [];
+
+  // ── LEXICAL ÉLARGI. Si la conjonction ne rend rien, on retente sur les mots les plus
+  //    DISCRIMINANTS pris séparément. Rendre trop vaut mieux que rendre rien : le reclassement
+  //    coupera, alors qu'une liste vide ne se rattrape pas.
+  const lexicalLoose = !lexical.length && terms.length > 1
+    ? await prisma.knowledgeChunk.findMany({
+        where: { OR: longestTerms(terms).map((t) => ({ textFold: { contains: t } })), item: where },
         take: limit * OVERFETCH,
         orderBy: { item: { documentDate: "desc" } },
         select: { ord: true, label: true, locator: true, text: true, item: { select: SELECT_ITEM } },
@@ -140,7 +160,18 @@ export async function search(q: SearchQuery, canSee: AccessFilter): Promise<Sear
     add(hitOf(c.item, {
       matchedBy: "lexical",
       score: 0.6,
-      snippet: excerpt(c.text, folded),
+      snippet: excerpt(c.text, terms[0] ?? folded),
+      locator: c.locator,
+      label: c.label,
+    }));
+  }
+  for (const c of lexicalLoose) {
+    // Score plus bas : un morceau qui contient UN des mots demandés est un candidat, pas une
+    // réponse. Le distinguer évite qu'un repli élargi passe pour une correspondance franche.
+    add(hitOf(c.item, {
+      matchedBy: "lexical",
+      score: 0.45,
+      snippet: excerpt(c.text, longestTerms(terms)[0] ?? folded),
       locator: c.locator,
       label: c.label,
     }));
@@ -244,6 +275,33 @@ export function cosine(a: number[], b: number[]): number {
   for (let i = 0; i < a.length; i += 1) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
   if (na === 0 || nb === 0) return 0;
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+/**
+ * LES MOTS QUI DISCRIMINENT DANS UNE REQUÊTE.
+ *
+ * On écarte les mots-outils du français et tout ce qui fait moins de trois lettres : ils sont
+ * présents dans presque tous les documents, donc leur conjonction ne restreint rien tout en
+ * coûtant un parcours d'index par mot. Ce qui reste est ce que l'utilisateur cherche vraiment.
+ */
+const LEXICAL_STOPWORDS = new Set([
+  "que", "qui", "quoi", "quel", "quelle", "quels", "quelles", "est", "sont", "ete", "etre",
+  "dit", "dire", "sur", "dans", "avec", "sans", "pour", "par", "des", "les", "une", "aux",
+  "cette", "cet", "ces", "son", "sa", "ses", "leur", "leurs", "nos", "notre", "vos", "votre",
+  "plus", "moins", "tout", "tous", "toute", "toutes", "fait", "faire", "avoir", "the", "and",
+  "what", "does", "with", "from", "this", "that",
+]);
+
+export function lexicalTerms(folded: string, max = 4): string[] {
+  const words = folded.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !LEXICAL_STOPWORDS.has(w));
+  // Les plus LONGS d'abord : « pénalité » restreint bien plus que « retard ». Au-delà de quatre
+  // termes, chaque mot supplémentaire coûte un parcours d'index et ne retire presque rien.
+  return [...new Set(words)].sort((a, b) => b.length - a.length).slice(0, max);
+}
+
+/** Les deux mots les plus longs — le repli élargi, quand la conjonction n'a rien rendu. */
+export function longestTerms(terms: string[]): string[] {
+  return terms.slice(0, 2);
 }
 
 const SELECT_ITEM = {
