@@ -81,11 +81,24 @@ export async function ingestFast(input: IngestInput): Promise<IngestResult | nul
   try {
     const existing = await prisma.knowledgeItem.findUnique({
       where: { sourceType_sourceId: { sourceType: input.sourceType, sourceId: input.sourceId } },
-      select: { id: true, contentHash: true, version: true, stage: true },
+      select: { id: true, contentHash: true, version: true, stage: true, text: true },
     });
 
+    // ── LE CONTENU EST LE MÊME, MAIS NOUS SAVONS MIEUX LE LIRE QU'AVANT.
+    //
+    // L'empreinte désigne le CONTENU du fichier, pas la qualité de notre extraction. Quand un
+    // parseur s'améliore — ou qu'un défaut est corrigé — les documents déjà ingérés gardent
+    // sinon leur extraction ratée POUR TOUJOURS : leur empreinte n'a pas bougé, donc le
+    // dédoublonnage les protège de la correction même. C'est arrivé pour de vrai (les fichiers
+    // texte partaient en vision faute d'être reconnus).
+    //
+    // La règle est donc étroite et sûre : on ne retraite QUE si l'ancien passage n'avait produit
+    // AUCUN texte et que le nouveau en produit. Jamais l'inverse — une extraction qui régresse ne
+    // doit pas pouvoir effacer une extraction qui marchait.
+    const healed = Boolean(existing && !existing.text && input.text);
+
     // ── RIEN N'A CHANGÉ. Le cas le plus fréquent d'un balayage, et le seul qui doit coûter zéro.
-    if (existing && existing.contentHash === input.contentHash) {
+    if (existing && existing.contentHash === input.contentHash && !healed) {
       return {
         itemId: existing.id,
         outcome: "unchanged",
@@ -126,6 +139,17 @@ export async function ingestFast(input: IngestInput): Promise<IngestResult | nul
       itemId = created.id;
       version = created.version;
       outcome = "created";
+    } else if (healed && existing.contentHash === input.contentHash) {
+      // ── MÊME CONTENU, MEILLEURE LECTURE. On MET À JOUR sur place, sans ouvrir de version.
+      //
+      // Une version dirait « le document a changé le 27 août » — ce serait faux : c'est notre
+      // lecture qui a changé, pas le document. Inventer une version ici polluerait l'historique
+      // avec un événement qui n'a jamais eu lieu, et « quelle était la situation en mars ? »
+      // deviendrait faux pour un motif purement technique.
+      await prisma.knowledgeItem.update({ where: { id: existing.id }, data: base });
+      itemId = existing.id;
+      version = existing.version;
+      outcome = "updated";
     } else {
       // ── LE CONTENU A CHANGÉ → NOUVELLE VERSION.
       //

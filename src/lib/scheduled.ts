@@ -12,7 +12,7 @@ import { runPettyCashRechargeReminders } from "@/lib/actions/petty-cash-actions"
 import { runLegalExpirySweep } from "@/lib/legal/expiry-sweep";
 import { runAssistantReminders } from "@/lib/assistant/reminders";
 import { runDriveIngestionSweep } from "@/lib/assistant/drive-ingestion";
-import { runKnowledgeSweep, enqueueDriveBacklog } from "@/lib/knowledge/worker";
+import { runKnowledgeSweep, enqueueDriveBacklog, enqueueStalled, refreshEntityIndex } from "@/lib/knowledge/worker";
 import { runAdamInboxSweep } from "@/lib/google/gmail/reconcile";
 
 /**
@@ -110,7 +110,11 @@ export async function runScheduledJobs(): Promise<void> {
     // prix du service rendu à ceux qui utilisent l'ERP serait un mauvais échange. Si un passage
     // ne finit pas son lot, le suivant reprend là où il en était — rien n'est perdu, et
     // personne n'attend.
+    await refreshEntityIndex().catch(() => undefined);
     await enqueueDriveBacklog().catch(() => 0);
+    // Les documents restés muets repassent doucement : un parseur qui s'améliore doit pouvoir
+    // rattraper ce qu'il n'avait pas su lire, sinon la correction n'atteint jamais l'existant.
+    await enqueueStalled(5).catch(() => 0);
     await runKnowledgeSweep().catch(() => undefined);
     // LE BATTEMENT D'ADAM — sans navigateur ouvert, sans que le PDG demande quoi que ce soit.
     // Trois gestes : garder l'oreille (renouveler la veille Gmail AVANT expiration), rattraper

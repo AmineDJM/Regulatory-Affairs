@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
 import { detectMime } from "@/lib/regulatory/intelligence/extract/mime";
 import { heavyText, type HeavyKind } from "@/lib/regulatory/intelligence/extract/heavy-parse";
-import { contentHash, clip } from "../text";
+import { contentHash, clip, looksLikePlainText } from "../text";
 import { chunkText, chunkUnits, renumber } from "../chunk";
 import { decideRoute } from "../route";
 import { parsePptx, pptxToText } from "../parsers/pptx";
@@ -114,6 +114,13 @@ export async function draftFromDriveNode(nodeId: string): Promise<DriveIngestDra
       text = await heavyText(kind, buffer).catch(() => "");
       parserFailed = !text;
     } else if (mime.startsWith("text/") || mime === "application/json") {
+      text = buffer.toString("utf8");
+    } else if (guessed.family === "unknown" && looksLikePlainText(buffer)) {
+      // LE TEXTE BRUT N'A PAS DE SIGNATURE. Un `.txt`, un `.csv`, un `.md` ou un `.json` sort de
+      // `detectMime` en `unknown`, et ne correspond à aucun `text/…`. Sans ce cas, il ne
+      // produisait AUCUN texte — et le routage, voyant un document muet, l'envoyait à la vision.
+      // Payer un modèle multimodal pour lire ce que `toString()` lit est exactement ce que la
+      // doctrine interdit. Défaut trouvé en mesurant une ingestion réelle, pas en relisant le code.
       text = buffer.toString("utf8");
     }
     chunks = text ? chunkText(text) : [];

@@ -75,6 +75,13 @@ const NEUTRAL = new Set([
   // que les deux fournisseurs puissent l'utiliser sans se tirer l'un l'autre. Il satisfait le
   // critère ci-dessus mot pour mot ; il n'apprend rien à Adam sur l'ERP.
   "src/lib/ai-text",
+  // `name-match` rapproche deux noms écrits par des humains : repli d'accents, initiales,
+  // recouvrement de jetons, distance d'édition. Des mathématiques de chaînes — sans état, sans
+  // base, sans règle métier, et son en-tête interdit explicitement d'y coder le moindre nom
+  // d'entreprise ou de molécule. Il est ici parce que la couche de connaissance de l'ERP en a
+  // besoin AUTANT qu'Adam : le laisser dans `assistant/` aurait forcé l'ERP à importer « du
+  // Adam », c'est-à-dire le couplage inverse — celui qu'on ne voit pas venir.
+  "src/lib/name-match",
 ]);
 
 export interface Violation {
@@ -106,6 +113,16 @@ function walk(dir: string, out: string[] = []): string[] {
 const IMPORT_RE = /(?:^|\n)\s*import\s+(?:type\s+)?(?:[\s\S]*?)\s*from\s*["']([^"']+)["']/g;
 /** `await import("…")` — un import paresseux traverse la frontière tout autant. */
 const DYNAMIC_RE = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
+/**
+ * `export { x } from "…"` — une RÉEXPORTATION traverse exactement comme un import : le module
+ * cible entre dans le bundle, et le fichier d'Adam en dépend pour compiler.
+ *
+ * Ce cas manquait. Il n'avait jamais servi à contourner quoi que ce soit — la première
+ * réexportation traversante de tout le périmètre est arrivée en même temps que ce correctif — mais
+ * un cliquet dont on connaît le trou ne vaut rien : il ne mesure plus la dette, il mesure la
+ * discipline de ceux qui savent où est le trou.
+ */
+const REEXPORT_RE = /(?:^|\n)\s*export\s+(?:type\s+)?(?:\*|\{[\s\S]*?\})\s*(?:as\s+\w+\s*)?from\s*["']([^"']+)["']/g;
 
 /**
  * Parcourt le périmètre d'Adam et rend tout ce qui traverse vers l'ERP.
@@ -133,6 +150,7 @@ export function scanBoundary(root = process.cwd()): BoundaryReport {
       const specs: string[] = [];
       for (const m of src.matchAll(IMPORT_RE)) specs.push(m[1]);
       for (const m of src.matchAll(DYNAMIC_RE)) specs.push(m[1]);
+      for (const m of src.matchAll(REEXPORT_RE)) specs.push(m[1]);
 
       for (const spec of specs) {
         // `@prisma/client` est la dépendance la plus profonde à l'ERP : le schéma lui-même.

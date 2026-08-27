@@ -9495,3 +9495,72 @@ model KnowledgeLink {
   @@index([toType, toId])
   @@index([predicate])
 }
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// LE RÉFÉRENTIEL D'ENTITÉS — « de quoi parle-t-on, exactement ? »
+///
+/// UNE entité = une chose du monde réel dont l'entreprise parle : une personne, une société, un
+/// fournisseur, un produit, une molécule. Elle porte un nom CANONIQUE et autant d'ALIAS que la
+/// réalité en produit — raison sociale, nom commercial, DCI, référence, acronyme, faute de frappe.
+///
+/// D'OÙ VIENNENT LES ALIAS. De l'ERP lui-même, jamais d'un dictionnaire écrit à la main. Que
+/// « Keytruda » soit du pembrolizumab, ce n'est pas une connaissance que ce code doit posséder :
+/// c'est écrit dans `RegulatoryProduct` (`brandName` d'un côté, `dci` de l'autre), et la
+/// projection se contente de le LIRE. Un dictionnaire codé en dur serait faux le lendemain, et
+/// muet sur les produits d'Adventum — exactement ceux qui comptent.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model KnowledgeEntity {
+  id String @id @default(cuid())
+
+  /// La FAMILLE : person | company | supplier | product | molecule | organization.
+  kind String
+
+  /// LA CLÉ D'IDENTITÉ, déterministe — c'est elle qui rend la projection idempotente.
+  /// Avec une fiche ERP : « kind:refType:refId ». Sans : « kind:name:<nom replié> ».
+  /// Une contrainte d'unicité sur (kind, refType, refId) n'aurait PAS marché : Postgres tient
+  /// deux NULL pour distincts, donc toute entité sans fiche se serait dupliquée à chaque passage.
+  key String @unique
+
+  /// La fiche ERP d'origine, quand il y en a une. Permet de rebondir de l'entité vers l'objet.
+  refType String?
+  refId   String?
+
+  canonicalName String
+  nameFold      String
+
+  /// Cloisonnement : l'entité juridique à laquelle la chose appartient, quand c'est vrai.
+  companyId String?
+
+  isActive Boolean @default(true)
+
+  aliases KnowledgeAlias[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind, nameFold])
+  @@index([refType, refId])
+  @@index([companyId])
+}
+
+/// UNE GRAPHIE d'une entité. La provenance (`source`) n'est pas décorative : sans elle, on ne
+/// peut pas retirer un mauvais alias sans risquer d'en retirer un bon, et un alias DÉRIVÉ
+/// (des initiales calculées) devient indiscernable d'une raison sociale lue en base.
+model KnowledgeAlias {
+  id       String          @id @default(cuid())
+  entityId String
+  entity   KnowledgeEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  alias     String
+  aliasFold String
+
+  /// « erp:<colonne> » = lu dans une vraie colonne ; « derived » = calculé ; « user » = saisi.
+  source String
+  /// Combien cette graphie identifie l'entité. Un acronyme dérivé pèse moins qu'un nom déposé.
+  weight Float @default(1)
+
+  createdAt DateTime @default(now())
+
+  @@unique([entityId, aliasFold])
+  @@index([aliasFold])
+}

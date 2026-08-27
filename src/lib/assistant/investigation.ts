@@ -3,7 +3,7 @@ import type { CurrentUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { ensureNodeIndexed } from "@/lib/assistant/document-discovery";
-import { DOC_KIND_LABEL, type DocKind } from "@/lib/assistant/drive-classify";
+import { DOC_KIND_LABEL, type DocKind } from "@/platform/doc-kind";
 import { orgTokens, rankOrgCandidates } from "@/lib/assistant/entity-normalize";
 import type { PowerTool } from "@/lib/assistant/power-tools";
 

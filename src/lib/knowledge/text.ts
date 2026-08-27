@@ -89,3 +89,49 @@ export function clip(text: string, max: number): string {
   const lastSpace = cut.lastIndexOf(" ");
   return (lastSpace > max * 0.8 ? cut.slice(0, lastSpace) : cut).trimEnd();
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * EST-CE DU TEXTE BRUT ? — la question que la détection par signature ne peut pas poser.
+ *
+ * ── LE DÉFAUT QUE CETTE FONCTION CORRIGE ─────────────────────────────────────────────────
+ *
+ * Un PDF commence par `%PDF`, un ZIP par `PK`, un PNG par son entête. Le texte brut, lui, n'a
+ * AUCUNE signature — il commence par son premier mot. `detectMime` le range donc, à juste titre,
+ * dans `unknown`. Mais l'adaptateur Drive ne testait que `mime.startsWith("text/")` : un
+ * `.txt`, un `.csv` ou un `.md` ne produisait aucun texte, et le routage — voyant un document
+ * sans texte — l'envoyait à la VISION.
+ *
+ * C'est-à-dire : payer un modèle multimodal pour lire un fichier que `Buffer.toString()` lit
+ * parfaitement. L'exact contraire de la doctrine §2. Le défaut a été trouvé en mesurant
+ * l'ingestion réelle, pas en relisant le code — d'où le banc.
+ *
+ * ── COMMENT ON TRANCHE ───────────────────────────────────────────────────────────────────
+ *
+ * Un OCTET NUL suffit à dire non : aucun encodage textuel utilisé ici n'en produit, et tous les
+ * formats binaires en sont truffés. Ensuite on décode en UTF-8 et on compte les caractères de
+ * remplacement : un binaire mal décodé en produit massivement, un texte accentué français aucun.
+ * Deux tests, aucun réglage arbitraire, et un verdict reproductible.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function looksLikePlainText(buffer: Buffer, sampleBytes = 4096): boolean {
+  if (buffer.length === 0) return false;
+  const sample = buffer.subarray(0, Math.min(sampleBytes, buffer.length));
+
+  // 1. L'octet nul — le test le plus court et le plus sûr.
+  if (sample.includes(0)) return false;
+
+  // 2. Les caractères de contrôle qui n'existent pas dans un texte (on garde \t, \n, \r, \f).
+  let control = 0;
+  for (const b of sample) {
+    if (b < 0x09 || (b > 0x0d && b < 0x20)) control += 1;
+  }
+  if (control > sample.length * 0.01) return false;
+
+  // 3. Le décodage UTF-8. Un binaire produit des « caractères de remplacement » en quantité ; un
+  //    texte français accentué n'en produit aucun. On tolère un résidu, car la fenêtre peut
+  //    couper un caractère multi-octets en deux — sur exactement une frontière, jamais partout.
+  const decoded = sample.toString("utf8");
+  const replacements = (decoded.match(/�/g) ?? []).length;
+  return replacements <= 2;
+}

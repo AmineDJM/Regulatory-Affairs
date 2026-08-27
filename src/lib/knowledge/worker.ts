@@ -1,8 +1,10 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { JobKind, KnowledgeSourceType } from "./contract";
 import { claimNext, completeJob, failJob, requeueStale, queueHealth } from "./queue";
 import { ingestFast, setStage } from "./ingest";
 import { draftFromDriveNode } from "./sources/drive";
+import { stageClassify, stageEntities, stageEmbed, stageEnrich, stageVision } from "./stages";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -23,13 +25,13 @@ import { draftFromDriveNode } from "./sources/drive";
  * l'enrichissement n'était qu'un bonus. C'est la promesse de la dernière consigne — « si ça
  * finit tant mieux, sinon l'ingestion continue sans que l'utilisateur le sache ».
  *
- * ── CE QUI N'EST PAS ENCORE BRANCHÉ, ET POURQUOI C'EST DIT ───────────────────────────────
+ * ── CE QUI EST BRANCHÉ, ET CE QUI NE L'EST PAS ───────────────────────────────────────────
  *
- * `vision`, `classify`, `entities`, `embed` et `enrich` ont leur place dans la file, leur
- * priorité, leurs réessais et leur boîte morte — mais leurs traitements ne sont pas encore
- * écrits. Ils sont donc marqués TERMINÉS SANS TRAVAIL plutôt que laissés à échouer en boucle :
- * une file qui accumule des morts sur des étages non construits masquerait les VRAIES pannes.
- * Le jour où un étage est écrit, il se branche ici et rien d'autre ne bouge.
+ * `parse`, `classify`, `entities`, `embed` et `enrich` font un vrai travail (voir `stages.ts`).
+ * `vision` reste marqué TERMINÉ SANS TRAVAIL : la rastérisation des pages n'existe pas encore
+ * dans cette couche, et un étage qui échouerait en boucle remplirait la boîte morte de faux
+ * problèmes — ce qui masquerait les VRAIES pannes. La distinction « rien à faire » / « fait »
+ * est justement là pour que cet écart se voie dans l'observabilité au lieu de se deviner.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -98,14 +100,20 @@ async function handle(kind: JobKind, itemId: string | null, payload: Record<stri
     case "parse":
       return handleParse(payload);
 
-    // ── Étages prévus, pas encore écrits. Voir l'en-tête : on ne les laisse pas mourir en
-    //    boucle, ce qui remplirait la boîte morte de faux problèmes.
-    case "vision":
+    // Les étages d'enrichissement travaillent tous sur un élément DÉJÀ ingéré : sans `itemId`,
+    // il n'y a rien à enrichir, et c'est une absence, pas une erreur.
     case "classify":
+      return itemId ? stageClassify(itemId) : false;
     case "entities":
+      return itemId ? stageEntities(itemId) : false;
     case "embed":
+      return itemId ? stageEmbed(itemId) : false;
     case "enrich":
-      return false;
+      return itemId ? stageEnrich(itemId) : false;
+
+    // Pas encore branché — voir l'en-tête et `stageVision`.
+    case "vision":
+      return itemId ? stageVision(itemId) : false;
 
     default:
       return false;
@@ -182,16 +190,100 @@ export async function enqueueDriveBacklog(limit = 20): Promise<number> {
   }
 }
 
+/**
+ * LES DOCUMENTS RESTÉS MUETS — ceux dont on n'a jamais tiré une ligne de texte.
+ *
+ * Le rattrapage normal ne les voit pas : ils EXISTENT déjà dans la couche, donc `enqueueDriveBacklog`
+ * les considère traités. Et leur empreinte n'ayant pas changé, un `parse` rejoué concluait
+ * « inchangé » — ce qui les enfermait dans leur échec, y compris après la correction du défaut qui
+ * l'avait causé. (`ingestFast` sait désormais reconnaître ce cas : même contenu, meilleure lecture.)
+ *
+ * On les repasse donc doucement, par petits paquets. Un document qui reste muet après ce
+ * traitement l'est pour une vraie raison — un scan sans couche texte — et c'est à la vision d'en
+ * décider, pas à ce rattrapage.
+ */
+export async function enqueueStalled(limit = 20): Promise<number> {
+  if (!knowledgeWorkerEnabled()) return 0;
+  try {
+    const stalled = await prisma.knowledgeItem.findMany({
+      where: { text: null, isCurrent: true, stage: { in: ["RECEIVED", "FAILED"] } },
+      orderBy: { updatedAt: "asc" }, // les plus anciennement touchés d'abord : personne ne les repasse
+      take: limit,
+      select: { sourceType: true, sourceId: true, updatedAt: true },
+    });
+    if (!stalled.length) return 0;
+
+    const { enqueue } = await import("./queue");
+    let queued = 0;
+    for (const s of stalled) {
+      const id = await enqueue({
+        kind: "parse",
+        payload: { sourceType: s.sourceType, sourceId: s.sourceId },
+        // La clé de dédoublonnage porte l'HORODATAGE : sans lui, un document repassé une fois ne
+        // pourrait plus jamais l'être, la clé restant à vie dans la file.
+        dedupeKey: `reparse:${s.sourceType}:${s.sourceId}:${s.updatedAt.getTime()}`,
+      });
+      if (id) queued += 1;
+    }
+    return queued;
+  } catch (err) {
+    console.error("[knowledge] stalled requeue failed", err);
+    return 0;
+  }
+}
+
+/**
+ * LE RÉFÉRENTIEL D'ENTITÉS, RAFRAÎCHI — mais pas à chaque minute.
+ *
+ * La projection relit toutes les fiches de l'ERP (produits, sociétés, fournisseurs, personnes).
+ * C'est peu coûteux à l'échelle d'Adventum, mais assez pour ne pas mériter de tourner soixante
+ * fois par heure alors qu'un nom de société change trois fois par an. Un intervalle explicite
+ * vaut mieux qu'un balayage discret qui consomme sans qu'on sache pourquoi.
+ *
+ * Le repère de temps vit en MÉMOIRE, ce qui est assumé : un redémarrage refait une projection de
+ * plus, et une projection de plus est idempotente et sans effet visible. Persister ce repère
+ * coûterait une table pour éviter une dépense qui n'est pas un problème.
+ */
+const ENTITY_REFRESH_MS = 6 * 60 * 60 * 1000; // 6 h
+let lastEntityRefresh = 0;
+
+export async function refreshEntityIndex(force = false): Promise<boolean> {
+  if (!knowledgeWorkerEnabled()) return false;
+  const now = Date.now();
+  if (!force && now - lastEntityRefresh < ENTITY_REFRESH_MS) return false;
+  lastEntityRefresh = now;
+  try {
+    const { projectEntities } = await import("./entities/project");
+    await projectEntities();
+    return true;
+  } catch (err) {
+    console.error("[knowledge] entity projection failed", err);
+    return false;
+  }
+}
+
 /** L'état de la couche, pour l'écran d'observabilité (§26). */
 export async function knowledgeHealth() {
-  const [queue, byStage, total] = await Promise.all([
+  const [queue, byStage, byExtraction, total, entities, aliases, links, chunks, embedded] = await Promise.all([
     queueHealth(),
     prisma.knowledgeItem.groupBy({ by: ["stage"], _count: { _all: true } }).catch(() => []),
+    // La RÉPARTITION PAR MOYEN est le tableau de bord de la doctrine §2 : une dérive vers le haut
+    // de l'échelle (moins de `native`, plus de `luna`) se voit ici, avant d'apparaître sur une
+    // facture — et c'est la seule façon de vérifier que « le code d'abord » tient dans le temps.
+    prisma.knowledgeItem.groupBy({ by: ["extractedBy"], _count: { _all: true } }).catch(() => []),
     prisma.knowledgeItem.count().catch(() => 0),
+    prisma.knowledgeEntity.count().catch(() => 0),
+    prisma.knowledgeAlias.count().catch(() => 0),
+    prisma.knowledgeLink.count().catch(() => 0),
+    prisma.knowledgeChunk.count().catch(() => 0),
+    prisma.knowledgeChunk.count({ where: { NOT: { embedding: { equals: Prisma.DbNull } } } }).catch(() => 0),
   ]);
   return {
     queue,
     total,
     byStage: Object.fromEntries(byStage.map((r) => [r.stage, r._count._all])),
+    byExtraction: Object.fromEntries(byExtraction.map((r) => [r.extractedBy ?? "inconnu", r._count._all])),
+    entities: { entities, aliases, links },
+    chunks: { total: chunks, embedded },
   };
 }

@@ -9,7 +9,7 @@ import { embedDriveBacklog } from "@/lib/assistant/semantic-drive";
  * jamais ouvert ET mal nommé restait invisible à la recherche par contenu. Désormais une tâche
  * planifiée ingère le Drive PAR PETITS PAQUETS (un paquet par passage, jamais plus — le même
  * régime que l'arriéré d'embeddings) : extraction native, classification déterministe
- * (drive-classify), et index-témoin pour les fichiers illisibles (on ne re-tente pas un scan
+ * (platform/doc-kind), et index-témoin pour les fichiers illisibles (on ne re-tente pas un scan
  * mort à chaque passage).
  *
  * SÉCURITÉ : l'ingestion STOCKE sans lire les droits — c'est la RECHERCHE qui revérifie l'ACL

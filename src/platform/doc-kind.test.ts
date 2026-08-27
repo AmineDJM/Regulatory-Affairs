@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyDocument, DOC_KIND_LABEL } from "./drive-classify";
+import { classifyDocument, DOC_KIND_LABEL } from "./doc-kind";
 
 /**
  * CLASSIFICATION DOCUMENTAIRE — le nom est un INDICE (1 pt), le contenu est la PREUVE (3 pts).

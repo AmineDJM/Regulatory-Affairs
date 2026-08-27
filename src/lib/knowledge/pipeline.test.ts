@@ -332,3 +332,46 @@ describe("§21 — la file ne fait jamais le même travail deux fois", () => {
     expect(h.dead).toBeGreaterThanOrEqual(0);
   });
 });
+
+// ─────────────── Quand notre lecture s'améliore, l'existant doit pouvoir en profiter ───────────────
+
+describe("auto-réparation — même contenu, meilleure lecture", () => {
+  it("un élément resté MUET est retraité quand l'extraction rend enfin du texte", async () => {
+    const hash = contentHash("un contenu dont le parseur ne savait rien tirer");
+    const base = { sourceType: "drive_file" as const, sourceId: src("guerison"), contentHash: hash };
+
+    // Premier passage : le parseur échoue, aucun texte. C'est exactement l'état des documents
+    // que le défaut « texte brut non reconnu » avait laissés derrière lui.
+    const first = await ingestFast({ ...base, title: "note.txt", text: null });
+    expect(first!.stage).toBe("RECEIVED");
+
+    // Second passage, MÊME empreinte : le parseur sait maintenant lire. Sans la règle
+    // d'auto-réparation, le dédoublonnage protégerait le document de sa propre correction.
+    const second = await ingestFast({
+      ...base,
+      title: "note.txt",
+      text: "Objet : demande de congés. Merci d'avance.",
+      chunks: [{ kind: "whole" as const, ord: 0, text: "Objet : demande de congés." }],
+    });
+    expect(second!.outcome).toBe("updated");
+    expect(second!.stage).toBe("INDEXED");
+
+    // Mise à jour SUR PLACE, sans version : le document n'a pas changé, notre lecture si.
+    // Inventer une version écrirait dans l'histoire un événement qui n'a jamais eu lieu.
+    expect(second!.version).toBe(first!.version);
+    expect(second!.itemId).toBe(first!.itemId);
+  });
+
+  it("une extraction qui RÉGRESSE ne peut pas effacer une extraction qui marchait", async () => {
+    const hash = contentHash("contenu lisible dès le premier passage");
+    const base = { sourceType: "drive_file" as const, sourceId: src("pas-de-regression"), contentHash: hash };
+
+    await ingestFast({ ...base, text: "Un texte parfaitement lisible et suffisamment long." });
+    const back = await ingestFast({ ...base, text: null });
+
+    // Rien ne bouge : la règle est étroite, et elle ne va que dans le sens du progrès.
+    expect(back!.outcome).toBe("unchanged");
+    const item = await prisma.knowledgeItem.findUnique({ where: { id: back!.itemId }, select: { text: true } });
+    expect(item!.text).toBeTruthy();
+  });
+});

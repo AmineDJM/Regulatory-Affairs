@@ -5,7 +5,7 @@ import {
   advances, isRetrievable, verdictOf, backoffMs, JOB_PRIORITY,
   CONFIDENCE_ACCEPT, CONFIDENCE_VERIFY, type IngestStage,
 } from "./contract";
-import { fold, contentHash, recordHash, textLooksUsable, ocrLooksBroken, clip } from "./text";
+import { fold, contentHash, recordHash, textLooksUsable, ocrLooksBroken, clip , looksLikePlainText } from "./text";
 import { decideRoute, selectVisionPages, shouldEscalate, acceptsIntoStructuredField, highestUsed, MAX_VISION_PAGES } from "./route";
 import { chunkText, chunkUnits, chunkTable, MAX_CHUNK_CHARS, MIN_CHUNK_CHARS } from "./chunk";
 import { parsePptx, textFromSlideXml, slideNumber, pptxToText } from "./parsers/pptx";
@@ -424,5 +424,33 @@ describe("la couche appartient à l'ERP, pas à Adam", () => {
   it("le contrat n'importe rien — c'est ce qui le rend portable", () => {
     const src = fs.readFileSync("src/lib/knowledge/contract.ts", "utf8");
     expect([...src.matchAll(/(?:^|\n)\s*import\s/g)].length).toBe(0);
+  });
+});
+
+// ─────────────────────────── Le texte brut, qui n'a pas de signature ───────────────────────────
+
+describe("§2 — ne jamais payer un modèle pour ce que le code lit", () => {
+  it("reconnaît du texte brut, accents français compris", () => {
+    expect(looksLikePlainText(Buffer.from("Objet : demande de congés\nMerci d'avance.", "utf8"))).toBe(true);
+    expect(looksLikePlainText(Buffer.from("nom;prenom;wilaya\nDupont;Amine;16", "utf8"))).toBe(true);
+  });
+
+  it("refuse un binaire — un seul octet nul suffit", () => {
+    expect(looksLikePlainText(Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x41, 0x42]))).toBe(false);
+  });
+
+  it("refuse un flot d'octets de contrôle, même sans octet nul", () => {
+    expect(looksLikePlainText(Buffer.from(Array.from({ length: 200 }, () => 0x01)))).toBe(false);
+  });
+
+  it("refuse un tampon vide plutôt que de le déclarer lisible", () => {
+    expect(looksLikePlainText(Buffer.alloc(0))).toBe(false);
+  });
+
+  it("ne se laisse pas piéger par un caractère multi-octets coupé en fin de fenêtre", () => {
+    // La fenêtre d'échantillon peut trancher un « é » en deux. UNE frontière, jamais partout —
+    // c'est pourquoi on tolère un résidu au lieu d'exiger zéro.
+    const buf = Buffer.from("é".repeat(3000), "utf8");
+    expect(looksLikePlainText(buf, 101)).toBe(true);
   });
 });

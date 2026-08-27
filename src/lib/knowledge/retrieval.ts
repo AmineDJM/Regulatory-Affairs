@@ -1,4 +1,6 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { lunaEmbed, lunaConfigured, EMBED_DIMS } from "@/lib/openai-luna";
 import type { KnowledgeMeta, KnowledgeSourceType, RelationPredicate } from "./contract";
 import { fold } from "./text";
 
@@ -27,10 +29,12 @@ import { fold } from "./text";
  * ── CE QUE CETTE COUCHE NE FAIT PAS ENCORE ───────────────────────────────────────────────
  *
  * pgvector n'est pas disponible sur cette infrastructure (vérifié, pas supposé) : la recherche
- * par le SENS reste celle du produit — vecteurs en JSONB, cosinus en mémoire — et n'est pas
- * rebranchée ici. La recherche hybride ci-dessous combine donc l'EXACT, le LEXICAL et les
- * MÉTADONNÉES ; l'étage sémantique a sa place réservée et son point d'entrée, rien de plus.
- * Prétendre le contraire donnerait un rappel supérieur sur le papier et identique en vrai.
+ * par le SENS reste celle du produit — vecteurs en JSONB, cosinus en mémoire.
+ *
+ * La recherche est donc HYBRIDE à quatre étages : EXACT, LEXICAL, SÉMANTIQUE, MÉTADONNÉES. Le
+ * sémantique n'entre en jeu que si les vecteurs existent ET que la question est assez longue pour
+ * porter une intention — sur « BC 2026 », le lexical est meilleur ET gratuit. Sans clé OpenAI,
+ * l'étage se retire silencieusement : la recherche est alors dégradée, jamais cassée.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -60,7 +64,7 @@ export interface SearchHit {
   documentDate: Date | null;
   version: number;
   /** Ce qui a fait remonter ce résultat — l'utilisateur a le droit de le savoir. */
-  matchedBy: "exact" | "lexical" | "metadata";
+  matchedBy: "exact" | "lexical" | "semantic" | "metadata";
   score: number;
 }
 
@@ -116,6 +120,9 @@ export async function search(q: SearchQuery, canSee: AccessFilter): Promise<Sear
       })
     : [];
 
+  // ── SÉMANTIQUE. Le SENS, quand la question en porte un et que les vecteurs existent.
+  const semantic = needle.length >= SEMANTIC_MIN_QUERY ? await semanticChunks(needle, where, limit * OVERFETCH) : [];
+
   // ── MÉTADONNÉES SEULES. Sans texte, la question porte sur un TYPE ou une période.
   const byMeta = !needle
     ? await prisma.knowledgeItem.findMany({ where, take: limit * OVERFETCH, orderBy: { documentDate: "desc" }, select: SELECT_ITEM })
@@ -138,6 +145,18 @@ export async function search(q: SearchQuery, canSee: AccessFilter): Promise<Sear
       label: c.label,
     }));
   }
+  for (const s of semantic) {
+    // Le score sémantique est BORNÉ SOUS le lexical : une correspondance de mots exacts est une
+    // preuve, une proximité de vecteurs est une ressemblance. Les mettre à égalité ferait passer
+    // un document « qui parle du même sujet » devant celui qui contient le mot demandé.
+    add(hitOf(s.item, {
+      matchedBy: "semantic",
+      score: 0.35 + s.similarity * 0.2,
+      snippet: s.text.slice(0, 300),
+      locator: s.locator,
+      label: s.label,
+    }));
+  }
   for (const it of byMeta) add(hitOf(it, { matchedBy: "metadata", score: 0.3, snippet: it.text?.slice(0, 300) ?? "" }));
 
   const all = [...hits.values()].sort((a, b) => b.score - a.score || (b.documentDate?.getTime() ?? 0) - (a.documentDate?.getTime() ?? 0));
@@ -145,6 +164,86 @@ export async function search(q: SearchQuery, canSee: AccessFilter): Promise<Sear
   // ── LA GARDE. Rien ne sort d'ici sans être passé par elle.
   const allowed = await canSee(all.map((h) => ({ itemId: h.itemId, sourceType: h.sourceType, sourceId: h.sourceId })));
   return all.filter((h) => allowed.has(h.itemId)).slice(0, limit);
+}
+
+/**
+ * SOUS CETTE LONGUEUR, LA QUESTION N'A PAS DE SENS À CHERCHER.
+ *
+ * « BC 2026 » ou « ANPP » sont des MOTS, pas des intentions : le lexical les trouve mieux, tout de
+ * suite, et sans encoder la question. Encoder à tout prix coûterait un appel par recherche pour
+ * dégrader le classement.
+ */
+const SEMANTIC_MIN_QUERY = 12;
+
+/** Au-delà, le cosinus en mémoire coûte plus que le rappel qu'il rapporte. */
+const SEMANTIC_SCAN_CAP = 4_000;
+
+/** En dessous, deux textes ne « parlent » pas du même sujet : ils se ressemblent par hasard. */
+const SEMANTIC_MIN_SIMILARITY = 0.28;
+
+interface SemanticChunk {
+  item: ItemRow;
+  text: string;
+  label: string | null;
+  locator: string | null;
+  similarity: number;
+}
+
+/**
+ * LE RAPPROCHEMENT PAR LE SENS.
+ *
+ * pgvector n'est pas disponible sur cette infrastructure (vérifié via `pg_available_extensions`,
+ * pas supposé) : les vecteurs vivent en JSONB et le cosinus se calcule ICI, en mémoire. C'est le
+ * même compromis que le corpus CTD et l'index Drive, et il tient tant que le nombre de morceaux
+ * candidats reste borné — d'où `SEMANTIC_SCAN_CAP`, qui est une limite ASSUMÉE et non un oubli.
+ *
+ * Le pré-filtre `where` fait le gros du travail : on ne balaie jamais tout l'index, seulement les
+ * morceaux des documents que la question concerne déjà (type, entité, période).
+ */
+async function semanticChunks(needle: string, where: object, take: number): Promise<SemanticChunk[]> {
+  if (!lunaConfigured()) return [];
+
+  const encoded = await lunaEmbed([needle], EMBED_DIMS).catch(() => null);
+  const query = encoded?.[0];
+  if (!query) return []; // service indisponible : on se retire, la recherche continue sans nous
+
+  const rows = await prisma.knowledgeChunk
+    .findMany({
+      where: { item: where, NOT: { embedding: { equals: Prisma.DbNull } } },
+      take: SEMANTIC_SCAN_CAP,
+      select: { text: true, label: true, locator: true, embedding: true, item: { select: SELECT_ITEM } },
+    })
+    .catch(() => []);
+
+  const scored: SemanticChunk[] = [];
+  for (const r of rows) {
+    const vec = r.embedding;
+    if (!Array.isArray(vec) || vec.length !== query.length) continue;
+    const similarity = cosine(query, vec as number[]);
+    if (similarity < SEMANTIC_MIN_SIMILARITY) continue;
+    scored.push({ item: r.item, text: r.text, label: r.label, locator: r.locator, similarity });
+  }
+
+  // Un document peut avoir vingt morceaux proches ; seul le MEILLEUR le représente, sinon il
+  // occuperait toute la page de résultats à lui seul.
+  const best = new Map<string, SemanticChunk>();
+  for (const s of scored) {
+    const prev = best.get(s.item.id);
+    if (!prev || s.similarity > prev.similarity) best.set(s.item.id, s);
+  }
+  return [...best.values()].sort((a, b) => b.similarity - a.similarity).slice(0, take);
+}
+
+/**
+ * LE COSINUS. Les vecteurs de l'encodeur sont déjà normés, mais on divise quand même par les
+ * normes : le jour où un vecteur vient d'ailleurs, la formule reste juste au lieu de rendre
+ * discrètement des scores supérieurs à 1.
+ */
+export function cosine(a: number[], b: number[]): number {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i += 1) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  if (na === 0 || nb === 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
 const SELECT_ITEM = {

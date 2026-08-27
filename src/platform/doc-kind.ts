@@ -1,6 +1,18 @@
 /**
  * CLASSIFICATION DOCUMENTAIRE DÉTERMINISTE — le Drive « sale » se comprend par le CONTENU.
  *
+ * ── POURQUOI CE FICHIER VIT DANS `platform/` ─────────────────────────────────────────────
+ *
+ * « De quelle nature est ce document ? » est une question que l'ERP et Adam se posent tous les
+ * deux, et à laquelle ils doivent répondre PAREIL — un écran Drive qui affiche « Facture » et un
+ * assistant qui dit « Devis » du même fichier est une incohérence que l'utilisateur constate
+ * avant nous. C'est donc un VOCABULAIRE PARTAGÉ, exactement ce que `platform/` héberge.
+ *
+ * Il était rangé dans `assistant/`, où seule Adam pouvait s'en servir ; la couche de connaissance
+ * de l'ERP en a désormais besoin. Le déplacer ici plutôt que de le dupliquer garde UNE seule
+ * table de signaux à corriger le jour où un format change. Le fichier n'importe RIEN, ce qui
+ * satisfait la règle de `platform/` : la frontière ne dépend de personne.
+ *
  * Règle : LE NOM EST UN INDICE, LE CONTENU EST LA PREUVE — un indice de nom vaut 1 point, une
  * preuve de contenu en vaut 3. Classifieur PUR (aucun appel réseau, aucun modèle) : il tourne
  * à chaque indexation (lecture ou ingestion planifiée) sans coût, et ses verdicts sont

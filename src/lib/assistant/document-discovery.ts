@@ -7,7 +7,7 @@ import { getBlob } from "@/lib/drive-storage";
 import { extractAttachmentText } from "@/lib/assistant-files";
 import { foldText } from "@/lib/assistant/memory-context";
 import { driveSemanticCandidates } from "@/lib/assistant/semantic-drive";
-import { classifyDocument, DOC_KIND_LABEL, type DocKind } from "@/lib/assistant/drive-classify";
+import { classifyDocument, DOC_KIND_LABEL, type DocKind } from "@/platform/doc-kind";
 
 /**
  * DÉCOUVERTE DOCUMENTAIRE EN DRIVE « SALE » — retrouver un document que son NOM ne trahit pas.
