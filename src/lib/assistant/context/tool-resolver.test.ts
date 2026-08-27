@@ -170,6 +170,31 @@ describe("résolveur — ce qu'il garde, et ce qu'il refuse de perdre", () => {
     expect(r.domains).toContain("CALENDAR");
   });
 
+  it("une demande transverse relie TOUTES les sources qu'elle nomme", () => {
+    // « Regarde les mails + les dossiers + les tâches et dis-moi ce qui bloque » : trois sources
+    // demandées, et il en manquait UNE. `create_task`, `list_my_tasks`, `update_task` et
+    // `task_operation` étaient bien classés MISSION — mais le mot « tâche » ne figurait dans aucun
+    // signal de domaine, donc la phrase ne menait à aucun de ces outils. Une omission de
+    // vocabulaire, invisible en lisant le code : chaque moitié était juste.
+    const q = "Regarde les derniers mails, les dossiers Regulatory et les tâches de Raihana, et dis-moi ce qui bloque";
+    const r = resoudre(q);
+    for (const d of ["MAIL", "REGULATORY", "MISSION"]) {
+      expect(r.domains, `${d} non relié — la mission partira sans ses outils`).toContain(d);
+    }
+    // Et le niveau suit : croiser trois sources pour trouver un point d'arrêt, c'est découvrir.
+    expect(r.level).toBe("C");
+  });
+
+  it("plusieurs GESTES NOMMÉS restent un B, même en touchant quatre domaines", () => {
+    // LE CONTRE-EXEMPLE QUI A INVALIDÉ UNE PREMIÈRE VERSION DE CE CODE. Elle disait « trois
+    // domaines ou plus = C » et faisait passer le cas transverse — mais la phrase ci-dessous en
+    // touche QUATRE et reste un B : les deux gestes sont nommés, il n'y a rien à découvrir.
+    // `triage.ts` l'écrit noir sur blanc — « le NOMBRE D'ACTIONS ne définit PAS la complexité ».
+    const r = resoudre("Prépare un mail à l'ANPP et mets une relance dans l'agenda vendredi");
+    expect(r.domains.length).toBeGreaterThanOrEqual(3);
+    expect(r.level, "compter les domaines au lieu des gestes fait remonter un B en C").toBe("B");
+  });
+
   it("aucun domaine reconnu ne veut PAS dire demande étroite", () => {
     // La faute symétrique de celle corrigée le même jour dans le routeur de connaissance :
     // l'absence de signal prise pour un signal d'absence. « Audite l'ensemble des demandes

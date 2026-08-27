@@ -92,8 +92,20 @@ function stripPreamble(raw: string): string {
   return cleaned.length > 0 ? cleaned : (raw ?? "").trim();
 }
 
-/** Causalité, synthèse, arbitrage : ce que seul un raisonnement cher sait faire. */
-const DEEP = /\b(pourquoi|comment ca se fait|comment on en est|explique moi pourquoi|analyse|analyser|compare|comparer|synthese|synthetise|strategie|strategique|recommande|recommandation|que penses tu|ton avis|si on|et si|scenario|simule|arbitre|contradiction|risque|risques|impact|consequences|qu est ce que j ai rate|ce que j ai rate|qu est ce qui m echappe|bilan|fais le point|faut il|fais le tour|audite|audit complet|passe en revue|tour d horizon|etat des lieux|panorama|vue d ensemble|creuse|investigue|enquete|diagnostique|remonte la piste)\b/;
+/**
+ * Causalité, synthèse, arbitrage : ce que seul un raisonnement cher sait faire.
+ *
+ * « CE QUI BLOQUE » MANQUAIT, et c'est la façon la plus courante de demander une cause. La liste
+ * connaissait « pourquoi », « diagnostique », « remonte la piste » — mais « dis-moi ce qui bloque »
+ * n'était reconnu par AUCUNE porte : la phrase tombait jusqu'au chemin généraliste. Mesuré sur le
+ * scénario transverse (« Regarde les derniers mails, les dossiers Regulatory et les tâches de
+ * Raihana, et dis-moi ce qui bloque ») : classée en lecture, alors que rapprocher trois sources
+ * pour trouver un point d'arrêt est la définition même du C dans `triage.ts`.
+ *
+ * La porte 3 (l'ordre qui mute) reste AVANT celle-ci : « débloque le dossier » est un geste, pas
+ * une question. Seule la forme interrogative « ce qui bloque » arrive jusqu'ici.
+ */
+const DEEP = /\b(pourquoi|comment ca se fait|comment on en est|explique moi pourquoi|analyse|analyser|compare|comparer|synthese|synthetise|strategie|strategique|recommande|recommandation|que penses tu|ton avis|si on|et si|scenario|simule|arbitre|contradiction|risque|risques|impact|consequences|qu est ce que j ai rate|ce que j ai rate|qu est ce qui m echappe|ce qui bloque|ce qui coince|ce qui cloche|ce qui traine|ce qui ne va pas|ou ca bloque|ou ca coince|point de blocage|points de blocage|bilan|fais le point|faut il|fais le tour|audite|audit complet|passe en revue|tour d horizon|etat des lieux|panorama|vue d ensemble|creuse|investigue|enquete|diagnostique|remonte la piste)\b/;
 
 /**
  * L'IMPÉRATIF DE RECHERCHE — testé AVANT le raisonnement.
@@ -144,7 +156,12 @@ const DOMAIN_SIGNALS: [Domain, RegExp][] = [
   ["HR", /\b(salarie|salaries|employe|employes|conge|conges|la paie|fiche de paie|bulletin de paie|salaire|recrute|recruter|recrutement|embauche|embaucher|effectif|equipe|departement|contrat de travail)\b/],
   ["DRIVE", /\b(drive|document|documents|fichier|fichiers|piece jointe|dossier partage|pdf|excel|word|powerpoint|presentation|appel d offres)\b/],
   ["LEGAL", /\b(contrat|contrats|bon de commande|bons de commande|juridique|legal|clause|avenant|renouvele|renouvellement|courrier|courriers)\b/],
-  ["MISSION", /\b(mission|missions|engagement|engagements|promesse|en attente de|waiting|relance|suivi)\b/],
+  // « TÂCHE » MANQUAIT, et c'est le mot le plus courant pour la chose. `create_task`,
+  // `list_my_tasks`, `update_task` et `task_operation` sont tous classés MISSION — mais la
+  // phrase « les tâches de Raihana » ne menait à AUCUN domaine, donc à aucun de ces outils.
+  // Trouvé en mesurant le scénario transverse : sur trois sources demandées, deux étaient
+  // reliées et les tâches manquaient. Une omission de vocabulaire, pas de conception.
+  ["MISSION", /\b(mission|missions|tache|taches|todo|to do|a faire|engagement|engagements|promesse|en attente de|waiting|relance|suivi)\b/],
   ["DIRECTORY", /\b(annuaire|coordonnees|adresse de|numero de|telephone de|contact|contacts|joindre|joins|contacter)\b/],
   ["ADMIN", /\b(compte|comptes|role|roles|droit|droits|permission|permissions|parametre|parametres|module|modules|circuit|circuits)\b/],
 ];

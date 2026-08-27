@@ -102,6 +102,29 @@ describe("les formes que la mission nomme", () => {
     expect(r.domain).toBe("REGULATORY");
   });
 
+  it("« ce qui bloque » est une question de CAUSE, au même titre que « pourquoi »", () => {
+    // Trouvé en mesurant le scénario transverse. La phrase ne déclenchait AUCUNE porte : ni
+    // l'ordre (« regarde » ne mute rien), ni l'impératif de recherche, ni le raisonnement — elle
+    // tombait jusqu'au chemin généraliste, et Adam repartait en simple lecture pour une demande
+    // dont tout le travail est de rapprocher trois sources.
+    const r = routeQuery("Regarde les derniers mails, les dossiers Regulatory et les tâches de Raihana, et dis-moi ce qui bloque");
+    expect(r.route).toBe("DEEP_REASONING");
+    expect(r.tier).toBe("DEEP");
+  });
+
+  it("« ce qui bloque » ne déborde pas sur les gestes ni sur les lectures nommées", () => {
+    // La contrepartie du test précédent : élargir une porte de raisonnement coûte cher si elle
+    // avale ce qui n'a rien à découvrir. Ce qui est figé ici, c'est que ces deux formes ne
+    // basculent PAS dans le raisonnement profond.
+    //
+    // NOTE — « débloque » n'est pas dans la liste des verbes qui mutent, et sort donc en
+    // HYBRID_RETRIEVAL plutôt qu'en ACTION. C'est un manque ANTÉRIEUR et distinct (le verbe
+    // n'y a jamais figuré), constaté en écrivant ce test ; il n'est pas corrigé ici pour ne pas
+    // mêler deux sujets dans un même correctif.
+    expect(routeQuery("Débloque le dossier Pembrolizumab").route).not.toBe("DEEP_REASONING");
+    expect(routeQuery("Dis-moi le statut du dossier Pembrolizumab").route).toBe("FAST_DETERMINISTIC");
+  });
+
   it("« Qui gère Nintedanib ? » interroge la base, il ne fouille pas (§10)", () => {
     const r = routeQuery("Qui gère Nintedanib ?");
     expect(r.route).toBe("STRUCTURED_QUERY");

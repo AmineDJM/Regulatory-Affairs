@@ -121,6 +121,15 @@ export function estSansDemande(question: string): boolean {
  */
 export function classifyRequest(question: string, route: Pick<QueryRoute, "route" | "confidence">): RequestLevel {
   if (estSansDemande(question)) return "AUCUN";
+
+  // ON NE COMPTE PAS. Une version de ce code faisait « trois domaines cités = C », et le scénario
+  // transverse passait — mais « Prépare un mail à l'ANPP et mets une relance dans l'agenda
+  // vendredi » en touche QUATRE (MAIL, REGULATORY, MISSION, CALENDAR) et reste un B : les deux
+  // gestes sont nommés, il n'y a rien à découvrir. `triage.ts` le dit en toutes lettres — « le
+  // NOMBRE D'ACTIONS ne définit PAS la complexité » — et compter les domaines au lieu des actions
+  // ne fait que déplacer la faute. Le vrai critère reste la CONNAISSANCE DU PLAN, et c'est le
+  // routeur qui la porte : une demande qui ne nomme pas son geste doit être reconnue par lui
+  // (porte DEEP), pas rattrapée ici par un décompte.
   switch (route.route) {
     // Le code a déjà choisi l'outil et l'exécutera lui-même : le modèle ne fait que formuler.
     case "FAST_DETERMINISTIC": return "A";
