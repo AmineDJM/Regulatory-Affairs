@@ -8,6 +8,9 @@ import {
   EtatEtape, EtatMission, chargerEtat, cleIdempotence, compter, journaliser, transitionner,
 } from "@/lib/missions/runtime/store";
 import { entreeIteration, identiteIteration, lire } from "@/lib/missions/runtime/interpolate";
+import {
+  aReparer, controlerQualite, evaluerObjectif, type EtapeObservee, type JugeObjectif,
+} from "@/lib/missions/goal/evaluate";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -73,6 +76,12 @@ export interface EngineDeps {
   runner: CapabilityRunner;
   handlers?: StepHandlers;
   clock?: Clock;
+  /**
+   * LE JUGE DE L'OBJECTIF (§20). Facultatif — et son absence a une conséquence ASSUMÉE : sans
+   * lui, la mission n'est jamais déclarée atteinte. Le moteur ne conclut pas faute de juge ; il
+   * s'arrête en disant que le travail est fait mais que personne ne l'a vérifié.
+   */
+  juge?: JugeObjectif;
   /** Borne le nombre de tours d'un même appel — protège d'un graphe pathologique, pas du volume. */
   maxTours?: number;
 }
@@ -134,7 +143,10 @@ export async function avancer(
     if (pretes.length === 0) {
       const resolues = await resoudreEventails(frais);
       if (resolues === 0 && relancees === 0) {
-        res.status = await synchroniserEtat(missionId, frais);
+        // PLUS RIEN NE PEUT AVANCER. C'est le moment — et le seul — où la question « est-ce
+        // fini ? » a un sens. Elle est posée à part, parce qu'y répondre n'est pas exécuter.
+        const fin = await conclure(missionId, frais, deps);
+        res.status = fin;
         res.enPause = true;
         return res;
       }
@@ -614,6 +626,70 @@ async function resoudreEventails(etat: EtatMission): Promise<number> {
     resolus += 1;
   }
   return resolus;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA CONCLUSION — §20 et §22, au seul endroit où elles peuvent s'appliquer.
+ *
+ * ── POURQUOI CE N'EST PAS DANS `deduireEtat` ─────────────────────────────────────────────
+ *
+ * Parce que déduire est une lecture, et conclure une DÉCISION. `deduireEtat` dit ce que font
+ * les étapes ; il ne peut pas dire si l'objectif est atteint — cela demande de compter des
+ * reçus et, souvent, de juger un contenu. Les mêler ferait qu'une simple relecture d'état
+ * conclurait une mission.
+ *
+ * ── LES TROIS ISSUES, ET CE QU'ELLES SIGNIFIENT ──────────────────────────────────────────
+ *
+ *   COMPLETED — le compte est bon ET l'objectif est jugé atteint. Les deux, jamais l'un.
+ *   PARTIAL   — le travail s'est arrêté avec un manque IDENTIFIÉ. Ce n'est pas une fin : le
+ *               moteur sait quoi réparer, et la mission reste ouverte.
+ *   l'état déduit — tout le reste. Notamment : tout est vert, mais personne n'a vérifié.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function conclure(
+  missionId: string,
+  etat: EtatMission,
+  deps: EngineDeps,
+): Promise<MissionState> {
+  const observees: EtapeObservee[] = etat.steps.map((s) => ({
+    key: s.key, title: s.title, status: s.status, nodeType: s.nodeType,
+    receipt: s.receipt, attempt: s.attempt, maxAttempts: s.maxAttempts, result: s.result,
+  }));
+
+  const encoreEnCours = observees.some((s) => !STEP_TERMINAL.has(s.status)
+    && !(s.status === "FAILED" && s.attempt >= s.maxAttempts));
+  if (encoreEnCours) return synchroniserEtat(missionId, etat);
+
+  const qa = controlerQualite(observees);
+  const verdict = await evaluerObjectif({
+    objectif: etat.goalRaw,
+    criteres: etat.acceptance,
+    steps: observees,
+    juge: deps.juge,
+  });
+
+  await prisma.mission.update({
+    where: { id: missionId },
+    data: { qaPassed: qa.ok, goalSatisfied: verdict.satisfait, goalVerdict: verdict.raison },
+  });
+  await journaliser(missionId, verdict.satisfait ? "GOAL_SATISFIED" : "GOAL_UNSATISFIED",
+    `${qa.resume} ${verdict.raison}`,
+    { qa: qa.ok, attendus: qa.attendus, faits: qa.faits, aReparer: aReparer(qa) });
+
+  if (verdict.satisfait) {
+    await transitionner(missionId, "RUNNING", "vérification de l'objectif");
+    await transitionner(missionId, "COMPLETED", verdict.raison);
+    return "COMPLETED";
+  }
+
+  if (!qa.ok && qa.manquants.length > 0) {
+    await transitionner(missionId, "RUNNING", "bilan");
+    await transitionner(missionId, "PARTIAL", qa.resume);
+    return "PARTIAL";
+  }
+
+  return synchroniserEtat(missionId, etat);
 }
 
 /** Recale l'état de la mission sur celui de ses étapes — la déduction fait foi (§37). */

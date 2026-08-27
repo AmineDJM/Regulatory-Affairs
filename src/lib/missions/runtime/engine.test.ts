@@ -486,6 +486,88 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     expect(kinds).toContain("STEP_DONE");
   });
 
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * §20 — LA CONCLUSION. « Plus rien à faire » n'est pas « objectif atteint ».
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("tout vert SANS JUGE : la mission ne se déclare PAS terminée", async () => {
+    const t = traceur();
+    const id = await creerMission([
+      { key: "a", title: "A", capability: "directory_list" },
+      { key: "b", title: "B", capability: "inspect_record", dependsOn: ["a"] },
+    ], "sans juge");
+
+    const r = await avancer(id, actor, { runner: t.runner });
+    expect(r.executees).toBe(2);
+    expect(r.status).not.toBe("COMPLETED");
+
+    const m = await prisma.mission.findUnique({
+      where: { id }, select: { qaPassed: true, goalSatisfied: true, goalVerdict: true },
+    });
+    // Le contrôle arithmétique PASSE — on ne le cache pas. C'est la VÉRIFICATION qui manque.
+    expect(m!.qaPassed).toBe(true);
+    expect(m!.goalSatisfied).toBe(false);
+    expect(m!.goalVerdict).toMatch(/aucun juge/);
+  });
+
+  it("tout vert ET un juge convaincu : la mission conclut, et seulement alors", async () => {
+    const t = traceur();
+    const id = await creerMission([
+      { key: "a", title: "A", capability: "directory_list" },
+    ], "avec juge");
+
+    const r = await avancer(id, actor, {
+      runner: t.runner,
+      juge: { juger: async () => ({ satisfait: true, raison: "la liste demandée a été produite" }) },
+    });
+    expect(r.status).toBe("COMPLETED");
+    const m = await prisma.mission.findUnique({
+      where: { id }, select: { status: true, goalSatisfied: true, closedAt: true },
+    });
+    expect(m!.status).toBe("COMPLETED");
+    expect(m!.goalSatisfied).toBe(true);
+    expect(m!.closedAt).not.toBeNull();
+  });
+
+  it("§76 — un juge qui dit NON empêche de conclure, même tout vert", async () => {
+    const t = traceur();
+    const id = await creerMission([
+      { key: "a", title: "A", capability: "directory_list" },
+    ], "juge défavorable");
+
+    const r = await avancer(id, actor, {
+      runner: t.runner,
+      juge: { juger: async () => ({ satisfait: false, raison: "la liste ne couvre pas l'entité demandée" }) },
+    });
+    expect(r.status).not.toBe("COMPLETED");
+    const m = await prisma.mission.findUnique({ where: { id }, select: { goalVerdict: true } });
+    expect(m!.goalVerdict).toMatch(/ne couvre pas l'entité/);
+  });
+
+  it("un manque IDENTIFIÉ rend la mission PARTIELLE — et le journal dit quoi réparer", async () => {
+    const t = traceur({
+      echouer: (c) => (c.stepKey === "b" ? { kind: "CAPABILITY_FAILURE", message: "cassé", retryable: false } : null),
+    });
+    const id = await creerMission([
+      { key: "a", title: "A", capability: "directory_list" },
+      { key: "b", title: "B", capability: "employee_360" },
+    ], "manque identifié");
+
+    const r = await avancer(id, actor, {
+      runner: t.runner,
+      juge: { juger: async () => ({ satisfait: true, raison: "tout va bien" }) },
+    });
+    // LE JUGE A BEAU DIRE OUI : l'arithmétique dit non, et elle a le dernier mot.
+    expect(r.status).toBe("PARTIAL");
+
+    const evt = await prisma.missionEvent.findFirst({
+      where: { missionId: id, kind: "GOAL_UNSATISFIED" },
+    });
+    expect(evt).not.toBeNull();
+    expect((evt!.detail as { aReparer: string[] }).aReparer).toEqual(["b"]);
+  });
+
   it("relancer le moteur sur une mission terminée ne fait rien", async () => {
     const t = traceur();
     const id = await creerMission([{ key: "a", title: "A", capability: "directory_list" }], "déjà finie");
