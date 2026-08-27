@@ -1,4 +1,4 @@
-import { isReasoningModel } from "./registry";
+import { capabilityFor, isReasoningModel } from "./capabilities";
 import type { ModelBinding, ModelCallOptions, ModelProvider } from "./contract";
 
 /**
@@ -38,15 +38,24 @@ import type { ModelBinding, ModelCallOptions, ModelProvider } from "./contract";
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-/** Les deux portes OpenAI hors temps réel. Le temps réel a la sienne et ne passe pas par ici. */
-export type WireProtocol = "responses" | "chat_completions";
+/**
+ * LES PORTES — définies une seule fois, dans le registre des capacités.
+ *
+ * Elles y sont trois (`realtime` comprise) parce qu'une fiche de modèle doit pouvoir déclarer
+ * « je ne me parle QUE en temps réel » : c'est ce qui empêche structurellement le temps réel de
+ * traverser le constructeur Responses. La passerelle textuelle, elle, n'en emprunte que deux.
+ */
+export type { WireProtocol } from "./capabilities";
+
+/** Les deux portes qu'un appel TEXTUEL peut emprunter. */
+export type TextProtocol = "responses" | "chat_completions";
 
 /**
- * QUELS modèles raisonnent est une connaissance de MODÈLE : elle vit dans le registre, seul
- * endroit du produit où un nom de modèle est écrit (un test le vérifie). Ce fichier décide
- * seulement ce qu'il FAUT EN FAIRE. Réexporté ici parce que c'est le vocabulaire du protocole.
+ * QUELS modèles raisonnent est une connaissance de MODÈLE : elle vit dans le REGISTRE DES
+ * CAPACITÉS, qui est désormais la source unique. Ce fichier décide seulement ce qu'il FAUT EN
+ * FAIRE. Réexporté ici parce que c'est le vocabulaire du protocole.
  */
-export { isReasoningModel } from "./registry";
+export { isReasoningModel } from "./capabilities";
 
 /**
  * LA COMBINAISON INTERDITE, nommée une fois pour toutes.
@@ -61,8 +70,19 @@ export function needsResponses(binding: ModelBinding, opts: ModelCallOptions): b
   return isReasoningModel(model) && effort !== "none" && Boolean(opts.tools?.length);
 }
 
+/**
+ * LA PORTE PAR DÉFAUT D'UN MODÈLE, telle que sa fiche la déclare.
+ *
+ * C'est le registre qui sait — pas ce fichier. Terra et Luna ne déclarent que `responses` ; le
+ * temps réel ne déclare que `realtime`, ce qui l'empêche STRUCTURELLEMENT de traverser le
+ * constructeur Responses.
+ */
+export function defaultProtocolOf(model: string) {
+  return capabilityFor(model).protocols[0] ?? "responses";
+}
+
 /** Le protocole demandé par l'environnement, quand il en demande un. */
-function protocoleDemande(): WireProtocol | null {
+function protocoleDemande(): TextProtocol | null {
   const raw = (process.env.ADAM_OPENAI_PROTOCOL ?? "").trim().toLowerCase();
   if (raw === "chat_completions") return "chat_completions";
   if (raw === "responses") return "responses";
@@ -76,7 +96,7 @@ function protocoleDemande(): WireProtocol | null {
  * ont besoin. Maintenir deux moteurs OpenAI, c'est écrire deux fois chaque correctif et n'en
  * vérifier qu'un ; le second finit toujours par diverger, et c'est celui qui casse.
  */
-export function protocolFor(binding: ModelBinding, opts: ModelCallOptions = {}): WireProtocol {
+export function protocolFor(binding: ModelBinding, opts: ModelCallOptions = {}): TextProtocol {
   const demande = protocoleDemande();
 
   // LA MARCHE ARRIÈRE NE REJOUE PAS LA PANNE. Voir l'en-tête : on refuse, et on le DIT.
@@ -106,7 +126,7 @@ export function protocolFor(binding: ModelBinding, opts: ModelCallOptions = {}):
 export function protocolViolation(
   binding: ModelBinding,
   opts: ModelCallOptions,
-  protocol: WireProtocol,
+  protocol: TextProtocol,
 ): string | null {
   if (protocol === "chat_completions" && needsResponses(binding, opts)) {
     const effort = opts.reasoning ?? binding.reasoning;

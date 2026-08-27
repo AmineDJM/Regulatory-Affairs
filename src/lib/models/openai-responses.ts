@@ -1,6 +1,8 @@
 import { sanitizeForModel } from "@/lib/ai-text";
-import { mentionsUnsupportedTemperature, providerErrorMessage, isRetryableStatus } from "./errors";
+import { providerErrorMessage, isRetryableStatus } from "./errors";
+import { createHash } from "node:crypto";
 import { capTools } from "./openai";
+import { supportsParam, type ParamName } from "./capabilities";
 import {
   type ModelBinding,
   type ModelBlock,
@@ -152,53 +154,123 @@ export function toResponsesInput(turns: ModelTurn[]): RespInputItem[] {
 }
 
 /**
- * LE CORPS DE LA REQUÊTE. Séparé de l'envoi pour être vérifiable sans réseau — c'est ce qui
- * permet de figer par un test la forme exacte qui a manqué en production.
+ * LE CORPS DE LA REQUÊTE — construit CHAMP PAR CHAMP, contre la fiche du modèle.
+ *
+ * ── POURQUOI CE N'EST PLUS UN OBJET LITTÉRAL ─────────────────────────────────────────────
+ *
+ * Avant, on écrivait l'objet complet et on espérait. C'est ainsi qu'y sont entrés
+ * `reasoning_effort` sur la mauvaise porte, puis `temperature` sur un modèle qui le refuse :
+ * rien, dans la forme du code, ne demandait « ce modèle-là accepte-t-il ce champ-là ? ».
+ *
+ * `poser()` pose cette question à chaque champ. Un paramètre absent de la liste blanche de
+ * `capabilities.ts` n'est pas construit — donc jamais envoyé, donc jamais refusé. C'est une
+ * garantie STRUCTURELLE, pas une vigilance : on ne peut plus ajouter un champ interdit sans
+ * modifier d'abord le registre.
+ *
+ * ── CE QUI N'EST PLUS ENVOYÉ, ET CE QUI LE REMPLACE ──────────────────────────────────────
+ *
+ * `temperature`, `top_p`, `logprobs`, `top_logprobs` : SUPPRIMÉS, pas neutralisés. Terra les
+ * refuse. Et l'on n'en a pas besoin — la précision d'Adam vient de l'effort de raisonnement, des
+ * consignes, des sorties structurées, des outils typés, des données de l'ERP et de la validation
+ * côté serveur. Régler la concision se fait désormais par `text.verbosity`, qui est le réglage
+ * prévu pour ça et ne touche ni à la justesse ni au raisonnement.
  */
 export function buildResponsesBody(
   binding: ModelBinding,
   turns: ModelTurn[],
   opts: ModelCallOptions,
 ): Record<string, unknown> {
+  const model = opts.modelOverride || binding.model;
   const reasoning = opts.reasoning ?? binding.reasoning;
   const chainage = Boolean(opts.previousResponseId);
 
-  return {
-    model: opts.modelOverride || binding.model,
+  const body: Record<string, unknown> = {
+    model,
     input: toResponsesInput(turns),
-    ...(opts.system ? { instructions: sanitizeForModel(opts.system) } : {}),
-    max_output_tokens: opts.maxOutputTokens ?? 2000,
-    reasoning: { effort: reasoning },
-    // Voir l'en-tête : on n'entrepose rien chez le fournisseur sans l'avoir demandé.
-    store: chainage,
-    ...(chainage ? { previous_response_id: opts.previousResponseId } : {}),
-    ...(opts.temperature != null ? { temperature: opts.temperature } : {}),
-    ...(opts.tools?.length
-      ? {
-          // La fonction n'est plus emboîtée : `{type, name, description, parameters}` à plat.
-          tools: capTools(opts.tools).map((t) => ({
-            type: "function",
-            name: t.name,
-            description: t.description,
-            parameters: t.parameters,
-          })),
-          // Plusieurs outils indépendants dans une seule réponse — la boucle les exécute de front.
-          parallel_tool_calls: true,
-        }
-      : {}),
-    ...(opts.jsonSchema
-      ? {
-          text: {
-            format: {
-              type: "json_schema",
-              name: opts.jsonSchema.name,
-              schema: opts.jsonSchema.schema,
-              strict: true,
-            },
-          },
-        }
-      : {}),
   };
+  if (opts.system) body.instructions = sanitizeForModel(opts.system);
+
+  /** Pose un champ SI et seulement si la fiche du modèle l'autorise. */
+  const poser = (param: ParamName, cle: string, valeur: unknown): void => {
+    if (valeur === undefined || valeur === null) return;
+    if (!supportsParam(model, param)) return;
+    body[cle] = valeur;
+  };
+
+  poser("reasoning", "reasoning", { effort: reasoning });
+  poser("maxOutputTokens", "max_output_tokens", opts.maxOutputTokens ?? budgetParDefaut(reasoning));
+  // Voir l'en-tête : on n'entrepose rien chez le fournisseur sans l'avoir demandé.
+  poser("store", "store", chainage);
+  if (chainage) poser("previousResponseId", "previous_response_id", opts.previousResponseId);
+
+  if (opts.verbosity) poser("textVerbosity", "text", { verbosity: opts.verbosity });
+  if (opts.jsonSchema) {
+    // `text.format` et `text.verbosity` partagent le même objet : les poser séparément ferait
+    // perdre le premier posé. On fusionne plutôt que d'écraser.
+    const texte = (body.text as Record<string, unknown> | undefined) ?? {};
+    poser("textFormat", "text", {
+      ...texte,
+      format: { type: "json_schema", name: opts.jsonSchema.name, schema: opts.jsonSchema.schema, strict: true },
+    });
+  }
+
+  if (opts.tools?.length) {
+    // La fonction n'est plus emboîtée : `{type, name, description, parameters}` à plat.
+    poser("tools", "tools", capTools(opts.tools).map((t) => ({
+      type: "function",
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    })));
+    poser("toolChoice", "tool_choice", opts.toolChoice ?? "auto");
+    // Plusieurs outils indépendants dans une seule réponse — la boucle les exécute de front.
+    poser("parallelToolCalls", "parallel_tool_calls", true);
+  }
+
+  poser("safetyIdentifier", "safety_identifier", opts.safetyIdentifier);
+  poser("promptCacheKey", "prompt_cache_key", opts.promptCacheKey);
+  poser("include", "include", opts.include?.length ? opts.include : undefined);
+
+  return body;
+}
+
+/**
+ * LE BUDGET DE SORTIE PAR DÉFAUT — et pourquoi il dépend de l'effort.
+ *
+ * `max_output_tokens` couvre AUSSI les jetons de raisonnement. Un plafond calibré pour la seule
+ * réponse est donc englouti par la réflexion : le modèle pense, épuise son budget, et rend une
+ * réponse VIDE avec `status: "incomplete"`. Le symptôme n'est pas « réponse courte », c'est
+ * « pas de réponse » — et il devient « JSON invalide » deux couches plus loin, sans que rien ne
+ * nomme la cause.
+ *
+ * 2000 convenait à une réponse sans raisonnement ; il ne convient pas à un Terra medium. Le
+ * budget suit donc l'effort demandé, et l'appelant peut toujours le fixer lui-même.
+ */
+function budgetParDefaut(effort: string): number {
+  switch (effort) {
+    case "none": return 2000;
+    case "low": return 4000;
+    case "medium": return 8000;
+    default: return 16000; // high, xhigh, max — la réflexion domine largement la réponse
+  }
+}
+
+/**
+ * L'IDENTIFIANT DE SÛRETÉ — un condensat, jamais l'identité.
+ *
+ * OpenAI s'en sert pour repérer les abus, et il sort de l'entreprise à chaque appel. Y mettre une
+ * adresse e-mail exporterait l'annuaire d'Adventum un tour de conversation à la fois, pour une
+ * fonction qui n'a besoin que de STABILITÉ : le même utilisateur doit produire le même jeton,
+ * sans qu'on puisse remonter de ce jeton à la personne.
+ *
+ * Un sel d'installation (`ADAM_SAFETY_SALT`) empêche qu'un condensat nu, comparé à un
+ * dictionnaire d'identifiants, redevienne une identité.
+ */
+export function safetyIdentifierFor(userId: string): string | undefined {
+  const id = (userId ?? "").trim();
+  if (!id) return undefined;
+  const sel = (process.env.ADAM_SAFETY_SALT ?? "adam").trim();
+  return createHash("sha256").update(`${sel}:${id}`).digest("hex").slice(0, 32);
 }
 
 // ─────────────────────────────── Sortie : Responses → neutre ───────────────────────────────
@@ -329,7 +401,6 @@ export async function callOpenAiResponses(
   const body = buildResponsesBody(binding, turns, opts);
 
   let lastError = "Appel au modèle impossible (réseau).";
-  let droppedTemperature = false;
   let grewBudget = false;
   const MAX_ATTEMPTS = 3;
 
@@ -385,17 +456,25 @@ export async function callOpenAiResponses(
       const raw = await res.text().catch(() => "");
       lastError = providerErrorMessage(res.status, raw);
 
-      // Un modèle qui refuse `temperature` n'est pas une panne : on retire et on rejoue.
+      // ── AUCUN RATTRAPAGE DE PARAMÈTRE ICI, ET C'EST LE POINT DE TOUT LE CHANTIER ────────
       //
-      // IL N'Y A PAS D'ÉQUIVALENT POUR `reasoning`, ET C'EST DÉLIBÉRÉ. L'autre porte retirait
-      // `reasoning_effort` dès qu'un 400 le mentionnait — ce qui, sur l'erreur même qui a
-      // motivé cette migration, dégradait silencieusement un Terra medium en Terra par défaut.
-      // Une réponse rendue avec moins de réflexion que demandée, sans que personne le sache,
-      // est pire qu'une erreur : elle a l'air d'avoir marché.
-      if (res.status === 400 && !droppedTemperature && mentionsUnsupportedTemperature(raw)) {
-        droppedTemperature = true;
-        delete body.temperature;
-        continue;
+      // Il y en avait deux : un pour `reasoning_effort`, un pour `temperature`. Chacun retirait
+      // le champ fautif et rejouait. Chacun paraissait raisonnable seul ; ensemble, ils
+      // formaient une méthode — envoyer au hasard, puis retirer ce qu'OpenAI refuse — et cette
+      // méthode ne converge jamais. Elle produit un troisième 400, puis un quatrième.
+      //
+      // Désormais, un paramètre interdit n'est PAS construit (`buildResponsesBody` interroge
+      // `capabilities.ts` champ par champ). Il n'y a donc plus rien à retirer.
+      //
+      // Si un 400 « unsupported parameter » revient malgré tout, c'est une VRAIE nouvelle :
+      // OpenAI a changé sa contrainte, et il manque une ligne au registre. On veut le voir, pas
+      // le contourner — d'où l'avertissement explicite plutôt qu'un `delete` silencieux.
+      if (res.status === 400 && /unsupported parameter|not supported with this model/i.test(raw)) {
+        console.error(
+          `[models] CONTRAINTE FOURNISSEUR INCONNUE pour ${binding.model} : ${raw.slice(0, 200)}\n`
+          + "  → il manque une entrée dans src/lib/models/capabilities.ts. "
+          + "NE PAS corriger en retirant le champ à la volée : la contrainte doit être connue AVANT le réseau.",
+        );
       }
 
       console.error("[models] openai responses error", binding.role, binding.model, res.status, raw.slice(0, 300));

@@ -53,8 +53,22 @@ export const MODEL_ROLES: readonly ModelRole[] = ["realtime", "orchestrator", "w
 /**
  * L'EFFORT DE RAISONNEMENT demandé. `none` n'est pas « bête » : c'est « ne réfléchis pas avant de
  * répondre », ce qui est exactement ce qu'on veut d'un worker qui extrait trente dates.
+ *
+ * SIX VALEURS, et non quatre. GPT-5.6 accepte `xhigh` et `max` en plus des quatre historiques ;
+ * les omettre revenait à interdire dans notre code ce que le fournisseur autorise. Quels efforts
+ * un MODÈLE donné accepte réellement est une autre question, et elle se pose dans
+ * `capabilities.ts` : ce type dit ce qui est exprimable, la fiche dit ce qui est acceptable.
  */
-export type ReasoningEffort = "none" | "low" | "medium" | "high";
+export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
+
+/**
+ * LA LONGUEUR ET LE STYLE de la réponse — le remplaçant LÉGITIME de `temperature`.
+ *
+ * On a longtemps réglé « fais court » avec une température basse. C'était un détournement : la
+ * température règle le hasard, pas la concision. GPT-5.6 offre le réglage direct, et il n'a
+ * aucun des inconvénients de l'autre — il ne touche ni à la justesse ni au raisonnement.
+ */
+export type Verbosity = "low" | "medium" | "high";
 
 /** Le fournisseur qui sert un rôle. Le second existe pour pouvoir REVENIR, pas pour hésiter. */
 export type ModelProvider = "openai" | "anthropic";
@@ -162,6 +176,28 @@ export interface ModelCallOptions {
   temperature?: number;
   /** Surcharge ponctuelle de l'effort du rôle. À n'utiliser que si le rôle ne suffit pas. */
   reasoning?: ReasoningEffort;
+  /**
+   * La concision demandée. Surcharge celle du rôle — une lecture opérationnelle veut `low`,
+   * une synthèse analytique peut mériter `medium`.
+   */
+  verbosity?: Verbosity;
+  /**
+   * COMMENT LE MODÈLE CHOISIT D'APPELER UN OUTIL. `auto` par défaut, et c'est presque toujours
+   * le bon : forcer un outil précis fait passer à côté des tours où il ne faut en appeler aucun.
+   */
+  toolChoice?: "auto" | "none" | "required";
+  /**
+   * IDENTIFIANT DE SÛRETÉ, transmis au fournisseur pour la détection d'abus.
+   *
+   * DOIT ÊTRE UN CONDENSAT, jamais une adresse e-mail ni rien d'identifiant en clair : ce champ
+   * sort de l'entreprise à chaque appel, et sa raison d'être ne justifie pas d'exporter l'état
+   * civil de qui que ce soit. `safetyIdentifierFor` s'en charge.
+   */
+  safetyIdentifier?: string;
+  /** Clé de cache de prompt — regroupe les appels qui partagent le même contexte stable. */
+  promptCacheKey?: string;
+  /** Éléments supplémentaires demandés dans la réponse (ex. le raisonnement chiffré). */
+  include?: string[];
   timeoutMs?: number;
   /** Forcer une sortie JSON conforme à un schéma. */
   jsonSchema?: { name: string; schema: Record<string, unknown> };

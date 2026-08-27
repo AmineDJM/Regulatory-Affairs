@@ -9,6 +9,8 @@ import { bindingFor } from "./registry";
 import { callOpenAi, streamOpenAi } from "./openai";
 import { callOpenAiResponses, streamOpenAiResponses } from "./openai-responses";
 import { protocolFor, protocolViolation } from "./protocol";
+import { validateModelRequest, describeRequest, type ModelRequestShape } from "./capabilities";
+import { DEFAULT_VERBOSITY } from "./registry";
 import { callAnthropic, streamAnthropic } from "./anthropic";
 import { recordModelCall } from "./telemetry";
 import { emptyUsage } from "./contract";
@@ -63,6 +65,74 @@ function refus(binding: ReturnType<typeof bindingFor>, motif: string): ModelRepl
   };
 }
 
+/**
+ * TOUT CE QU'ON DÉCIDE AVANT DE TOUCHER AU RÉSEAU — porte, réglages du rôle, contrôle local.
+ *
+ * ── POURQUOI CETTE FONCTION EXISTE ───────────────────────────────────────────────────────
+ *
+ * Deux HTTP 400 sont partis de cette couche : `reasoning_effort` sur la mauvaise porte, puis
+ * `temperature` sur un modèle qui le refuse. Dans les deux cas, la question « ce modèle-là
+ * accepte-t-il cela ? » n'était posée nulle part avant l'envoi — elle était posée par OpenAI,
+ * après, sous forme d'erreur. Elle se pose désormais ICI, et une seule fois.
+ *
+ * Elle ne CORRIGE rien : elle refuse. Corriger en silence est exactement ce qu'on vient de
+ * retirer du produit. En marche normale elle ne trouve d'ailleurs jamais rien, puisque le
+ * constructeur ne fabrique pas de champ interdit — elle est là pour le jour où quelqu'un
+ * contournera le constructeur.
+ */
+function preparerOpenAi(
+  binding: ReturnType<typeof bindingFor>,
+  opts: ModelCallOptions,
+  stream = false,
+): { protocol: "responses" | "chat_completions"; opts: ModelCallOptions } | { error: string } {
+  const protocol = protocolFor(binding, opts);
+  const violation = protocolViolation(binding, opts, protocol);
+  if (violation) return { error: violation };
+
+  // LES RÉGLAGES DU RÔLE, appliqués ici plutôt que dans l'adaptateur : c'est la passerelle qui
+  // connaît les rôles. La concision remplace la température — et elle est réglée par rôle, pas
+  // devinée appel par appel.
+  const enrichi: ModelCallOptions = {
+    ...opts,
+    verbosity: opts.verbosity ?? DEFAULT_VERBOSITY[binding.role],
+  };
+
+  const model = enrichi.modelOverride || binding.model;
+  const forme: ModelRequestShape = {
+    model,
+    protocol,
+    reasoning: enrichi.reasoning ?? binding.reasoning,
+    toolCount: enrichi.tools?.length ?? 0,
+    params: {
+      reasoning: { effort: enrichi.reasoning ?? binding.reasoning },
+      textVerbosity: enrichi.verbosity,
+      textFormat: enrichi.jsonSchema,
+      maxOutputTokens: enrichi.maxOutputTokens ?? null,
+      tools: enrichi.tools?.length ? enrichi.tools : undefined,
+      toolChoice: enrichi.tools?.length ? (enrichi.toolChoice ?? "auto") : undefined,
+      parallelToolCalls: enrichi.tools?.length ? true : undefined,
+      store: Boolean(enrichi.previousResponseId),
+      previousResponseId: enrichi.previousResponseId,
+      include: enrichi.include?.length ? enrichi.include : undefined,
+      stream: stream || undefined,
+      promptCacheKey: enrichi.promptCacheKey,
+      safetyIdentifier: enrichi.safetyIdentifier,
+      // `temperature` n'est PAS listé ici, et c'est le point : le contrat ne le porte plus, la
+      // passerelle ne le transmet plus, le constructeur ne le fabrique plus.
+    },
+  };
+
+  const problemes = validateModelRequest(forme);
+  if (problemes.length > 0) return { error: problemes[0].message };
+
+  if (process.env.ADAM_MODEL_DEBUG === "1") {
+    // Journal EXPURGÉ : la forme de l'appel, jamais son contenu. Voir `describeRequest`.
+    console.info("[models] requête", JSON.stringify(describeRequest(forme)));
+  }
+
+  return { protocol, opts: enrichi };
+}
+
 export async function callModel(
   role: ModelRole,
   turns: ModelTurn[],
@@ -76,14 +146,13 @@ export async function callModel(
     return reply;
   }
 
-  const protocol = protocolFor(binding, opts);
-  const violation = protocolViolation(binding, opts, protocol);
-  if (violation) return refus(binding, violation);
+  const prepare = preparerOpenAi(binding, opts);
+  if ("error" in prepare) return refus(binding, prepare.error);
 
   const reply =
-    protocol === "responses"
-      ? await callOpenAiResponses(binding, turns, opts)
-      : await callOpenAi(binding, turns, opts);
+    prepare.protocol === "responses"
+      ? await callOpenAiResponses(binding, turns, prepare.opts)
+      : await callOpenAi(binding, turns, prepare.opts);
   recordModelCall(reply.usage);
   return reply;
 }
@@ -102,14 +171,13 @@ export async function streamModel(
     return reply;
   }
 
-  const protocol = protocolFor(binding, opts);
-  const violation = protocolViolation(binding, opts, protocol);
-  if (violation) return refus(binding, violation);
+  const prepare = preparerOpenAi(binding, opts, true);
+  if ("error" in prepare) return refus(binding, prepare.error);
 
   const reply =
-    protocol === "responses"
-      ? await streamOpenAiResponses(binding, turns, opts, onText)
-      : await streamOpenAi(binding, turns, opts, onText);
+    prepare.protocol === "responses"
+      ? await streamOpenAiResponses(binding, turns, prepare.opts, onText)
+      : await streamOpenAi(binding, turns, prepare.opts, onText);
   recordModelCall(reply.usage);
   return reply;
 }

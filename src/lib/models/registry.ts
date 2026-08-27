@@ -3,6 +3,7 @@ import {
   type ModelProvider,
   type ModelRole,
   type ReasoningEffort,
+  type Verbosity,
   MODEL_ROLES,
 } from "./contract";
 
@@ -48,23 +49,25 @@ export const DEFAULT_MODELS: Record<ModelRole, string> = {
 };
 
 /**
- * LES FAMILLES QUI RAISONNENT — connaissance de MODÈLE, donc elle vit ici.
- *
- * Chez elles, `reasoning` n'est pas un paramètre décoratif : c'est une étape de génération, et
- * `/v1/chat/completions` ne sait pas la combiner avec des outils. C'est `protocol.ts` qui en tire
- * la conséquence ; ce fichier se contente de savoir QUELS modèles sont concernés — comme il sait
- * déjà lesquels servent quel rôle et à quel prix.
- *
- * Reconnu par PRÉFIXE, pas par liste exacte : `gpt-5.6-terra`, `gpt-5.6-terra-2026-03-01` et le
- * prochain suffixe de date doivent tous être couverts. Une liste exacte oblige à penser à la
- * mettre à jour le jour d'un déploiement — c'est-à-dire le jour où on y pense le moins.
+ * QUELS MODÈLES RAISONNENT a déménagé dans `capabilities.ts`, avec le reste de leurs capacités.
+ * Ce fichier dit QUI TRAVAILLE POUR QUI (rôle → modèle, effort, tarif) ; le registre des
+ * capacités dit CE QUE CHAQUE MODÈLE ACCEPTE. Les deux questions sont distinctes, et les avoir
+ * mêlées est ce qui a permis d'envoyer `temperature` à un modèle qui le refuse.
  */
-const FAMILLES_RAISONNEMENT = ["gpt-5", "o1", "o3", "o4"];
 
-export function isReasoningModel(model: string): boolean {
-  const m = (model ?? "").trim().toLowerCase();
-  return FAMILLES_RAISONNEMENT.some((f) => m.startsWith(f));
-}
+/**
+ * LA CONCISION PAR RÔLE — le remplaçant de `temperature`, réglé là où vivent déjà les rôles.
+ *
+ * Adam converse et doit être rapide : les réponses opérationnelles partent en `low`.
+ * L'orchestrateur, lui, produit des synthèses qu'on lit pour décider — `medium` lui laisse la
+ * place d'expliquer sans le pousser au bavardage.
+ */
+export const DEFAULT_VERBOSITY: Record<ModelRole, Verbosity> = {
+  realtime: "low",
+  orchestrator: "medium",
+  worker: "low",
+  bulk: "low",
+};
 
 /** Effort de raisonnement par défaut, par rôle. */
 export const DEFAULT_REASONING: Record<ModelRole, ReasoningEffort> = {
@@ -99,7 +102,7 @@ const num = (k: string): number | null => {
   return Number.isFinite(n) && n >= 0 ? n : null;
 };
 
-const REASONINGS: ReasoningEffort[] = ["none", "low", "medium", "high"];
+const REASONINGS: ReasoningEffort[] = ["none", "low", "medium", "high", "xhigh", "max"];
 
 function readReasoning(role: ModelRole): ReasoningEffort {
   const raw = env(`ADAM_REASONING_${role.toUpperCase()}`).toLowerCase();

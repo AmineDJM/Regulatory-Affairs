@@ -86,11 +86,25 @@ describe("portabilité — `src/lib/models/` est ce qu'Adam emporte avec lui", (
     expect([...src.matchAll(/(?:^|\n)\s*import\s/g)].length).toBe(0);
   });
 
-  it("aucun nom de modèle n'est écrit ailleurs que dans le registre", () => {
+  it("aucun nom de modèle n'est écrit ailleurs que dans le registre ou le registre des capacités", () => {
     // Un identifiant de modèle en dur au milieu d'une boucle d'agent est exactement ce qui rend
     // un changement de modèle impossible sans relire tout le produit.
+    //
+    // DEUX FICHIERS ONT LE DROIT DE NOMMER UN MODÈLE, et ils répondent à deux questions
+    // différentes :
+    //
+    //   • `registry.ts`     — QUI TRAVAILLE POUR QUI (rôle → modèle, effort, tarif). Se change
+    //                         en exploitation, par variable d'environnement.
+    //   • `capabilities.ts` — CE QUE CHAQUE MODÈLE ACCEPTE. Une fiche de capacités est par
+    //                         nature INDEXÉE PAR MODÈLE : la clé EST le nom. L'en écarter
+    //                         reviendrait à ne plus pouvoir dire « Terra refuse temperature ».
+    //
+    // Cette seconde entrée a été ouverte le jour où un HTTP 400 (`temperature` non supporté) a
+    // montré qu'on n'avait NULLE PART où écrire cette connaissance. Le cliquet garde tous les
+    // autres fichiers : c'est une exception nommée, pas un assouplissement.
+    const AUTORISES = ["registry.ts", "capabilities.ts"];
     const offenders = files
-      .filter((f) => !f.endsWith("registry.ts"))
+      .filter((f) => !AUTORISES.some((a) => f.endsWith(a)))
       .filter((f) => /["'](gpt-|claude-)[a-z0-9.\-]+["']/.test(fs.readFileSync(f, "utf8")));
     expect(offenders).toEqual([]);
   });
