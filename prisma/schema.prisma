@@ -1162,6 +1162,7 @@ model User {
   paymentCentreMessages      PaymentCentreMessage[]
   sessionEvents              SessionEvent[]
   businessEvents             BusinessEvent[]          @relation("BusinessEventActor")
+  productAliases             ProductAlias[]           @relation("ProductAliasAuthor")
 
   @@index([role])
   @@index([departmentId])
@@ -1387,6 +1388,7 @@ model Company {
   medicalDirectories      MedicalDirectory[]
   companyContacts         CompanyContact[]
   DirectoryEntry          DirectoryEntry[]
+  products                Product[]
 
   @@index([isActive])
 }
@@ -1579,8 +1581,12 @@ model RegulatoryProduct {
   /// LE CATALOGUE DE RÉFÉRENCE : les autres modules rattachent LEUR produit à celui-ci plutôt que
   /// de retaper la molécule à leur façon. Le rattachement reste facultatif — beaucoup de produits
   /// à l'étude n'ont pas encore de dossier — et il est toujours confirmé par une personne.
-  bdProducts    BdProduct[]    @relation("BdProductDossier")
-  promoProducts PromoProduct[] @relation("PromoProductDossier")
+  bdProducts       BdProduct[]    @relation("BdProductDossier")
+  promoProducts    PromoProduct[] @relation("PromoProductDossier")
+  /// LE PRODUIT CANONIQUE dont ce dossier est le profil réglementaire. NULLABLE : un dossier
+  /// importé sans rapprochement sûr reste sans produit plutôt que rattaché au mauvais.
+  productId        String?
+  canonicalProduct Product?       @relation("ProductRegulatoryProfile", fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([priority])
@@ -3654,10 +3660,14 @@ model BdProduct {
   rangeId String
   range   BdRange @relation(fields: [rangeId], references: [id], onDelete: Cascade)
 
-  createdById String?
-  updatedById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdById      String?
+  updatedById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  /// LE PRODUIT CANONIQUE. C'est ICI que le besoin se voit le mieux : un produit à l'étude
+  /// n'a pas de dossier, et doit pourtant avoir une identité.
+  productId        String?
+  canonicalProduct Product? @relation("ProductBdProfile", fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([rangeId])
 }
@@ -7645,8 +7655,12 @@ model PromoProduct {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
-  forecasts   ProductForecast[]
-  assignments PromotionAssignment[]
+  forecasts        ProductForecast[]
+  assignments      PromotionAssignment[]
+  /// LE PRODUIT CANONIQUE. Coexiste avec `regulatoryProductId` : le premier dit QUEL produit,
+  /// le second QUEL dossier — un produit promu peut ne pas encore en avoir.
+  productId        String?
+  canonicalProduct Product?              @relation("ProductPromoProfile", fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([businessUnitId])
 }
@@ -9751,4 +9765,99 @@ model BusinessEvent {
   @@index([entityType, entityId])
   @@index([correlationId])
   @@index([occurredAt])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// LE PRODUIT CANONIQUE — l'identité, et rien d'autre.
+///
+/// ── POURQUOI CE MODÈLE EXISTE ALORS QUE `RegulatoryProduct` EST DÉJÀ RICHE ────────────────
+///
+/// Une contrainte métier tranche : **un produit doit pouvoir exister AVANT son enregistrement**.
+/// Un `BdProduct` en `sourcing: TO_STUDY` n'a légitimement aucun dossier — c'est d'ailleurs
+/// pourquoi son `regulatoryProductId` est nullable depuis l'origine. Faire du dossier l'identité,
+/// c'était refuser une identité à tout produit à l'étude, et donc rendre impossible de suivre un
+/// produit depuis sa veille jusqu'à sa vente.
+///
+/// ── CE QU'IL PORTE, ET CE QU'IL NE PORTE PAS ─────────────────────────────────────────────
+///
+/// Le TUPLE D'IDENTITÉ seul (DCI, dosage, forme, conditionnement, canal, entité). Pas une copie
+/// des quarante champs du dossier : deux sources pour la même donnée, c'est une divergence
+/// programmée. Le dossier garde les siens — il porte ce qui a été DÉPOSÉ à l'ANPP, coquille
+/// comprise, et cela ne se corrige plus une fois soumis. `Product` porte ce que l'entreprise
+/// reconnaît comme LE produit. Les aligner de force obligerait un jour à falsifier l'un des deux.
+///
+/// ── LES PROFILS ──────────────────────────────────────────────────────────────────────────
+///
+/// `RegulatoryProduct`, `PromoProduct`, `BdProduct` deviennent des PROFILS : chacun garde sa vie,
+/// ses champs et ses écrans, et gagne un `productId` NULLABLE. Aucun n'est détruit, aucun écran
+/// ne change. Le lien se pose par backfill déterministe, et reste vide quand le rapprochement
+/// n'est pas sûr.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model Product {
+  id            String @id @default(cuid())
+  /// Référence lisible — PRD-AAAA-NNN. C'est ce qu'on dicte, ce qu'on cite, ce qui résout en
+  /// premier dans la résolution d'entité.
+  code          String @unique
+  /// Le nom sous lequel l'entreprise le connaît (« Nivolumab 100 mg »).
+  canonicalName String
+
+  // ── Le tuple d'identité ────────────────────────────────────────────────────────────────
+  dci        String
+  dosage     String?
+  dosageUnit String?
+  /// Forme galénique, normalisée par `market/galenic.ts` — le même vocabulaire que l'analyse
+  /// de marché, pour qu'un produit et sa ligne IQVIA se rapprochent sans traduction.
+  form       String?
+  /// À dosage et forme identiques, c'est LUI qui distingue deux produits : une boîte de 28 et
+  /// une boîte de 56 sont deux enregistrements distincts.
+  packaging  String?
+
+  /// LA CLÉ CANONIQUE calculée depuis le tuple (voir `src/lib/products/identity.ts`). Unique :
+  /// c'est la base qui garantit qu'on ne crée pas deux fois le même produit, pas la vigilance
+  /// de l'appelant.
+  identityKey String @unique
+
+  channel   ProductChannel @default(BOTH) // Ville / Hôpital / les deux
+  companyId String?
+  company   Company?       @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  /// Où en est le produit dans sa VIE — distinct du statut réglementaire du dossier.
+  /// STUDY : à l'étude · REGISTERED : enregistré · MARKETED : commercialisé · DISCONTINUED.
+  lifecycle String @default("STUDY")
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  aliases            ProductAlias[]
+  regulatoryProfiles RegulatoryProduct[] @relation("ProductRegulatoryProfile")
+  promoProfiles      PromoProduct[]      @relation("ProductPromoProfile")
+  bdProfiles         BdProduct[]         @relation("ProductBdProfile")
+
+  @@index([dci])
+  @@index([companyId])
+  @@index([lifecycle])
+}
+
+/// LES AUTRES NOMS D'UN PRODUIT — « Nivo », « Opdivo », le nom du marché PCH, celui d'IQVIA.
+///
+/// Un alias est une DÉCISION HUMAINE, pas une mesure : c'est pour cela qu'il porte qui l'a posé.
+/// La résolution le place au deuxième rang, juste après la référence explicite et AVANT tout
+/// rapprochement calculé — quelqu'un a tranché, on ne recalcule pas par-dessus.
+model ProductAlias {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// Le libellé tel qu'il s'écrit — affiché tel quel.
+  label       String
+  /// Sa forme normalisée, qui sert d'index. Unique : deux produits ne peuvent pas revendiquer
+  /// le même alias, et la base le refuse plutôt que de laisser une ambiguïté s'installer.
+  key         String   @unique
+  /// D'où il vient : MANUAL, PCH_TENDER, IQVIA, IMPORT…
+  source      String   @default("MANUAL")
+  createdById String?
+  createdBy   User?    @relation("ProductAliasAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([productId])
 }
