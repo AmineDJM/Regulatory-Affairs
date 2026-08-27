@@ -650,6 +650,57 @@ function EmailBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "email" }> }) {
   );
 }
 
+/**
+ * UNE PLANIFICATION (§11) — l'objet, pas la promesse.
+ *
+ * Quand Adam dit « c'est noté, chaque lundi », la seule preuve que quelque chose existe est cette
+ * carte : une cadence en toutes lettres, la prochaine exécution, l'état, et les derniers passages.
+ * Sans elle, l'utilisateur devrait CROIRE qu'une planification a été créée — et découvrirait
+ * trois semaines plus tard qu'elle n'avait jamais tourné.
+ */
+function PlanificationBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "planification" }> }) {
+  const paused = b.etat === "en-pause";
+  return (
+    <Card title={b.title} actions={b.actions}>
+      <dl className="chief-fields">
+        <div><dt>Cadence</dt><dd>{b.cadence}</dd></div>
+        <div>
+          <dt>Prochaine exécution</dt>
+          {/* Une planification en pause n'a pas de « prochaine exécution » : l'afficher quand même
+              ferait attendre un rapport qui ne viendra pas. */}
+          <dd>{paused ? "— (en pause)" : b.prochaine}</dd>
+        </div>
+        <div><dt>Déclenche</dt><dd>{b.traitement}</dd></div>
+        <div>
+          <dt>État</dt>
+          <dd className={paused ? "chief-tone-attention" : "chief-tone-succes"}>
+            {paused ? "En pause" : "Active"}
+          </dd>
+        </div>
+      </dl>
+      {b.passages?.length ? (
+        <ol className="chief-timeline">
+          {b.passages.slice(0, 3).map((r, i) => (
+            <li key={`${r.date}-${i}`} className="chief-timeline-step">
+              <span className="chief-timeline-date">{r.date}</span>
+              <div>
+                {/* « Sans effet » n'est PAS un échec : confondre les deux ferait passer une base à
+                    jour pour une panne, et c'est justement la question qu'on se pose ici. */}
+                <p className="chief-timeline-label">
+                  {r.resultat === "ok" ? "Exécutée" : r.resultat === "sans-effet" ? "Rien à faire" : "En échec"}
+                </p>
+                {r.detail ? <p className="chief-timeline-detail">{r.detail}</p> : null}
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="chief-block-note">Jamais encore exécutée.</p>
+      )}
+    </Card>
+  );
+}
+
 function TimelineBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "timeline" }> }) {
   return (
     <Card title={b.title}>
@@ -817,8 +868,35 @@ const RENDERERS: { [K in WorkspaceBlock["kind"]]: (p: { b: Extract<WorkspaceBloc
   progress: ProgressBlock,
   document: DocumentBlock,
   dossier: DossierBlock,
+  planification: PlanificationBlock,
   email: EmailBlock,
 };
+
+/**
+ * UN SEUL BLOC.
+ *
+ * Extrait de `WorkspaceBlocks` pour que le rangement par TOUR puisse placer chaque objet lui-même
+ * — et surtout glisser les gestes qui le concernent JUSTE EN DESSOUS (§14). Tant que le rendu ne
+ * savait dessiner qu'une composition entière, le bouton de confirmation ne pouvait pas suivre son
+ * objet : il finissait en bas de page, loin de la chose qu'il confirme.
+ */
+export function WorkspaceOneBlock({ b }: { b: WorkspaceBlock }) {
+  switch (b.kind) {
+    case "people": return <PeopleBlock b={b} />;
+    case "directory": return <DirectoryBlock b={b} />;
+    case "mail": return <MailBlock b={b} />;
+    case "agenda": return <AgendaBlock b={b} />;
+    case "queue": return <QueueBlock b={b} />;
+    case "record": return <RecordBlock b={b} />;
+    case "table": return <TableBlock b={b} />;
+    case "timeline": return <TimelineBlock b={b} />;
+    case "progress": return <ProgressBlock b={b} />;
+    case "document": return <DocumentBlock b={b} />;
+    case "dossier": return <DossierBlock b={b} />;
+    case "planification": return <PlanificationBlock b={b} />;
+    case "email": return <EmailBlock b={b} />;
+  }
+}
 
 export function WorkspaceBlocks({ composition }: { composition: WorkspaceComposition }) {
   if (composition.blocks.length === 0) return null;
@@ -839,6 +917,7 @@ export function WorkspaceBlocks({ composition }: { composition: WorkspaceComposi
           case "progress": return <ProgressBlock key={i} b={b} />;
           case "document": return <DocumentBlock key={i} b={b} />;
           case "dossier": return <DossierBlock key={i} b={b} />;
+          case "planification": return <PlanificationBlock key={i} b={b} />;
           case "email": return <EmailBlock key={i} b={b} />;
         }
       })}

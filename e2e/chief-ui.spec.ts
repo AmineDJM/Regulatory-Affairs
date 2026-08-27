@@ -189,3 +189,119 @@ test.describe("Adam — les objets métier dans le fil", () => {
     }
   });
 });
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * §22 — LES CINQ SCÉNARIOS D'ACCEPTATION.
+ *
+ * « PASS uniquement si les scénarios sont visuellement ET fonctionnellement différents d'un
+ * simple chatbot. » Ce qui suit vérifie précisément ce qu'une capture ne prouve pas seule : que
+ * l'objet passe AVANT la prose, que le geste vit SOUS son objet, qu'aucun nom d'outil n'apparaît,
+ * et qu'une mission de cinq actions ne demande qu'UNE confirmation.
+ *
+ * Les captures, elles, servent la revue visuelle — et elles sont produites ici aussi.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+test.describe("Adam — les cinq scénarios d'acceptation (§22)", () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page);
+    await page.goto("/chief-of-staff?apercu=blocs");
+    await page.waitForSelector('[data-testid="scenarios"]', { timeout: 20_000 });
+  });
+
+  test("les cinq scénarios sont rendus comme des espaces de travail", async ({ page }) => {
+    for (let i = 1; i <= 5; i += 1) {
+      const sc = page.locator(`[data-scenario="${i}"]`);
+      await expect(sc, `scénario ${i} absent`).toBeVisible();
+      // Un espace de travail, pas une bulle : le rangement a produit un objet de tête.
+      await expect(sc.locator('[data-testid="turn-lead"]'), `scénario ${i} sans objet de tête`).toHaveCount(1);
+    }
+  });
+
+  test("l'OBJET passe avant la prose — dans le DOM, pas seulement à l'œil", async ({ page }) => {
+    // Le reproche n°1 fait au chantier précédent. On le vérifie par la POSITION VERTICALE réelle :
+    // une assertion sur l'ordre du DOM se contournerait avec un `order` CSS.
+    for (let i = 1; i <= 5; i += 1) {
+      const sc = page.locator(`[data-scenario="${i}"]`);
+      const synth = sc.locator('[data-testid="turn-synthesis"]');
+      if ((await synth.count()) === 0) continue;
+      const lead = await sc.locator('[data-testid="turn-lead"]').boundingBox();
+      const prose = await synth.boundingBox();
+      expect(lead, `scénario ${i}`).not.toBeNull();
+      expect(prose, `scénario ${i}`).not.toBeNull();
+      expect(lead!.y, `scénario ${i} : la prose passe avant l'objet`).toBeLessThan(prose!.y);
+    }
+  });
+
+  test("le GESTE vit sous son objet, jamais en bas de page", async ({ page }) => {
+    // Scénario 2 : « Envoie Regulatory à Amine » — le message, sa pièce jointe, et le geste.
+    const sc = page.locator('[data-scenario="2"]');
+    const lead = sc.locator('[data-testid="turn-lead"]');
+    await expect(lead).toContainText("Situation Regulatory");
+    await expect(lead).toContainText("Regulatory_27-08-2026.xlsx");
+    // Le geste est DANS le même cadre que le message : c'est structurel, pas une proximité
+    // visuelle qui se défait dès qu'un bloc s'allonge.
+    await expect(lead.locator('[data-testid="scenario-actions"]')).toHaveCount(1);
+  });
+
+  test("AUCUN nom d'outil n'atteint l'écran", async ({ page }) => {
+    // §18 : des états métier, pas « calling tool #7 ». On cherche les noms réels des outils.
+    const body = (await page.locator('[data-testid="scenarios"]').innerText()).toLowerCase();
+    for (const leak of ["gmail_search", "inspect_record", "list_pending_decisions", "directory_lookup", "domain_op", "prepare_email"]) {
+      expect(body, `« ${leak} » ne doit jamais s'afficher`).not.toContain(leak);
+    }
+    // …et les phases métier, elles, sont bien là.
+    await expect(page.locator('[data-scenario="2"] [data-testid="turn-phases"]')).toContainText("Préparation du message");
+  });
+
+  test("une mission de CINQ actions ne demande qu'UNE confirmation", async ({ page }) => {
+    // §10 : « une mission cohérente = une confirmation ». Scénario 5.
+    const sc = page.locator('[data-scenario="5"]');
+    const bundle = sc.locator('[data-testid="scenario-bundle"]');
+    await expect(bundle).toHaveCount(1);
+    await expect(bundle).toContainText("5 actions");
+    await expect(bundle).toContainText("une seule confirmation");
+  });
+
+  test("une planification devient un OBJET, pas une promesse", async ({ page }) => {
+    // §11 : sans cette carte, la seule preuve qu'une planification existe serait la phrase
+    // d'Adam qui dit l'avoir créée — c'est-à-dire aucune preuve.
+    const sc = page.locator('[data-scenario="4"] [data-testid="turn-lead"]');
+    await expect(sc).toContainText("Tous les lundis à 07 h");
+    await expect(sc).toContainText("lundi 31/08/2026");
+    await expect(sc).toContainText("Active");
+  });
+
+  test("captures des cinq scénarios, aux quatre tailles exigées", async ({ page }) => {
+    test.slow();
+    const sizes = [
+      { name: "1920", width: 1920, height: 1080 },
+      { name: "1440", width: 1440, height: 900 },
+      { name: "430", width: 430, height: 932 },
+      { name: "390", width: 390, height: 844 },
+    ];
+    for (const vp of sizes) {
+      // Hauteur généreuse : on veut la planche ENTIÈRE sur une image, pas son premier écran.
+      await page.setViewportSize({ width: vp.width, height: Math.max(vp.height, 3200) });
+      await page.goto("/chief-of-staff?apercu=blocs");
+      await page.waitForSelector('[data-testid="scenarios"]', { timeout: 20_000 });
+      for (let i = 1; i <= 5; i += 1) {
+        await page.locator(`[data-scenario="${i}"]`).screenshot({
+          path: `e2e-screenshots/scenario-${i}-${vp.name}.png`,
+        });
+      }
+    }
+  });
+
+  test("aucun défilement latéral sur les scénarios, à aucune taille", async ({ page }) => {
+    for (const w of [1920, 1440, 430, 390, 360]) {
+      await page.setViewportSize({ width: w, height: 900 });
+      await page.goto("/chief-of-staff?apercu=blocs");
+      await page.waitForSelector('[data-testid="scenarios"]', { timeout: 20_000 });
+      const overflow = await page.evaluate(() =>
+        document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow, `débordement de ${overflow}px à ${w}px`).toBeLessThanOrEqual(1);
+    }
+  });
+});

@@ -3,6 +3,9 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { WorkspaceBlocks, WorkspaceAskProvider } from "./blocks";
+import { TurnWorkspaceView } from "./turn-workspace";
+import { SCENARIOS } from "./scenarios";
+import { composeTurn } from "@/lib/assistant/workspace/turn";
 import type { WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
 
 /**
@@ -254,12 +257,62 @@ export function BlockPreviewPlanche() {
           Planche de rendu — valeurs de démonstration, hors production.
         </p>
         <WorkspaceAskProvider ask={ask}>
+          {/*
+            ── LES CINQ SCÉNARIOS D'ACCEPTATION (§22) ─────────────────────────────────────
+            Ils passent par `composeTurn` puis `TurnWorkspaceView`, exactement comme la
+            production. Ce qui est photographié ici EST le rendu réel : si l'objet ne passait pas
+            avant la prose, ou si le bouton n'atterrissait pas sous son objet, cela se verrait ici
+            avant de se voir chez le PDG.
+          */}
+          <div className="flex flex-col gap-12" data-testid="scenarios">
+            {SCENARIOS.map((sc, i) => {
+              const turn = composeTurn({
+                compositions: sc.compositions,
+                proposals: sc.proposals ?? null,
+                trace: sc.trace ?? null,
+                reply: sc.reply ?? null,
+              });
+              return (
+                <section key={sc.question} data-scenario={String(i + 1)}>
+                  <p className="chief-user-turn mb-1 inline-block">{sc.question}</p>
+                  <p className="mb-3 text-[11.5px]" style={{ color: "hsl(var(--chief-text-tertiary))" }}>
+                    Attendu — {sc.attendu}
+                  </p>
+                  <TurnWorkspaceView
+                    turn={turn}
+                    renderProposals={(idx) => (
+                      // La planche montre les gestes comme des LIGNES, pas comme des cartes de
+                      // confirmation : elle ne peut rien exécuter, et un bouton « Confirmer » qui
+                      // ne confirmerait rien serait un mensonge d'interface.
+                      <div className="chief-preview-actions" data-testid="scenario-actions">
+                        {idx.map((n) => {
+                          const pr = sc.proposals?.[n];
+                          return pr ? <span key={n} className="chief-chip">{pr.title}</span> : null;
+                        })}
+                      </div>
+                    )}
+                    renderBundle={() => (
+                      <div className="chief-preview-bundle" data-testid="scenario-bundle">
+                        {turn.pending} actions préparées — une seule confirmation.
+                      </div>
+                    )}
+                  />
+                </section>
+              );
+            })}
+          </div>
+
+          {/* ── LE CATALOGUE DES BLOCS. Il reste : c'est la revue par TYPE, complémentaire de
+                 la revue par SCÉNARIO ci-dessus. ─────────────────────────────────────────── */}
+          <h2 className="mb-4 mt-14 text-[13px] font-semibold" style={{ color: "hsl(var(--chief-text-secondary))" }}>
+            Catalogue des blocs
+          </h2>
           <div className="flex flex-col gap-10">
             {PLANCHE.map((p) => (
               <section key={p.titre} data-planche={p.composition.blocks[0].kind}>
-                <h2 className="mb-2 text-[13px] font-semibold" style={{ color: "hsl(var(--chief-text-secondary))" }}>
+                <h3 className="mb-2 text-[13px] font-semibold" style={{ color: "hsl(var(--chief-text-secondary))" }}>
                   {p.titre}
-                </h2>
+                </h3>
                 <WorkspaceBlocks composition={p.composition} />
               </section>
             ))}

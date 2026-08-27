@@ -775,3 +775,165 @@
   .chief-block { animation: none; }
   .chief-endpoint { transition: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   L'ESPACE DE TRAVAIL D'UN TOUR (§13–§22).
+
+   PEU DE COULEURS, BEAUCOUP DE HIÉRARCHIE — §19. Rien ici n'est décoratif : chaque écart, chaque
+   graisse et le seul filet vertical existent pour dire ce qu'il faut lire d'abord. Un design « IA
+   flashy » ferait exactement l'inverse : il attirerait l'œil vers la décoration.
+   ═══════════════════════════════════════════════════════════════════════════════════════════ */
+
+.chief-turn-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* ── LES PHASES MÉTIER ──────────────────────────────────────────────────────────────────── */
+
+.chief-phases {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chief-phase {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 1.4;
+  /* Les étapes ACCOMPLIES s'effacent : elles rassurent, elles n'informent plus. */
+  color: hsl(var(--muted-foreground));
+}
+
+.chief-phase[data-state="running"] {
+  color: hsl(var(--foreground));
+  font-weight: 500;
+}
+
+.chief-phase-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.chief-phase-spin { animation: chief-phase-rotate 0.9s linear infinite; }
+
+@keyframes chief-phase-rotate { to { transform: rotate(360deg); } }
+
+/* Une animation qui tourne sans fin est une gêne pour qui la ressent comme telle. */
+@media (prefers-reduced-motion: reduce) {
+  .chief-phase-spin { animation: none; }
+}
+
+/* ── UN OBJET ET SES GESTES ─────────────────────────────────────────────────────────────── */
+
+.chief-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/*
+  LE FILET DE TÊTE. Le seul ornement de tout l'espace, et il porte une information : « c'est ici
+  qu'il faut regarder ». Deux pixels suffisent — un fond coloré crierait la même chose en
+  fatiguant l'œil sur toute la hauteur du bloc.
+*/
+/*
+  LE FILET RESTE DANS LE FLUX. Une première version le sortait par une marge négative pour ne pas
+  décaler le bloc ; il se faisait alors couper à la capture, et surtout il débordait du conteneur
+  sur les écrans étroits. Il vit désormais À L'INTÉRIEUR : le repère est toujours visible, quel
+  que soit le cadrage — et un repère qu'on ne voit pas ne repère rien.
+*/
+.chief-slot-lead {
+  border-left: 2px solid hsl(var(--chief-accent, 245 72% 58%) / 0.55);
+  padding-left: 12px;
+}
+
+@media (max-width: 640px) {
+  .chief-slot-lead { padding-left: 9px; }
+}
+
+/*
+  LES GESTES, SOUS LEUR OBJET. Le décalage les rattache visuellement au bloc du dessus — c'est ce
+  qui empêche de les lire comme une barre d'outils flottante appartenant à toute la page.
+*/
+.chief-slot-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* ── LE REPLI (§16 — divulgation progressive) ───────────────────────────────────────────── */
+
+.chief-unfold {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 5px 10px;
+  border: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+  border-radius: 8px;
+  background: transparent;
+  font-size: 12.5px;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.chief-unfold:hover {
+  background-color: hsl(var(--secondary));
+  color: hsl(var(--foreground));
+}
+
+/* ── LA SYNTHÈSE ────────────────────────────────────────────────────────────────────────── */
+
+/*
+  ELLE VIENT EN DERNIER, ET ELLE EST PLUS PETITE QUE L'OBJET. C'est la traduction typographique de
+  §13 : l'objet porte la décision, la phrase l'accompagne. Lui donner la même taille remettrait la
+  prose au centre — le défaut exact du chantier précédent.
+*/
+.chief-synthesis {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: hsl(var(--muted-foreground));
+  white-space: pre-wrap;
+}
+
+/* ── LA PLANCHE DE RENDU. Hors production : elle montre les gestes SANS pouvoir les exécuter. ── */
+
+/*
+  LES GESTES DE LA PLANCHE. Ils ressemblent à des boutons DÉSACTIVÉS, et c'est exact : la planche
+  ne peut rien exécuter. Les rendre plats en ferait des légendes, et la revue visuelle jugerait
+  une mise en page qui n'est pas celle de la production — où ce sont de vraies cartes d'action.
+*/
+.chief-preview-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.chief-preview-actions .chief-chip {
+  border: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%));
+  border-radius: 8px;
+  padding: 5px 10px;
+  background-color: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+  font-weight: 500;
+}
+
+.chief-preview-bundle {
+  padding: 7px 11px;
+  border: 1px solid hsl(var(--chief-accent, 245 72% 58%) / 0.32);
+  border-radius: 10px;
+  background-color: hsl(var(--chief-accent-surface, 245 100% 98%));
+  color: hsl(var(--chief-accent, 245 72% 58%));
+  font-size: 12.5px;
+  font-weight: 500;
+}

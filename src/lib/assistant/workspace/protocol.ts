@@ -260,6 +260,28 @@ export type WorkspaceBlock =
    * affiche l'heure. La même carte traverse les deux états, elle ne se duplique pas — c'est ce
    * qui évite la file de brouillons concurrents corrigée en amont.
    */
+  /**
+   * UNE PLANIFICATION — « chaque lundi, relance Regulatory ».
+   *
+   * §11 exige que cela devienne un objet RÉEL et non une mémoire de conversation. La carte le
+   * montre : la cadence en toutes lettres, la prochaine exécution, l'état, et les derniers
+   * passages. Sans elle, la seule preuve qu'une planification existe serait la phrase d'Adam qui
+   * dit l'avoir créée — c'est-à-dire aucune preuve.
+   */
+  | {
+      kind: "planification";
+      title: string;
+      /** La cadence en français vérifiable : « Tous les lundis à 07 h ». */
+      cadence: string;
+      prochaine: string;
+      etat: "active" | "en-pause";
+      /** Ce que la planification déclenche, en clair. */
+      traitement: string;
+      /** Les derniers passages, le plus récent d'abord. Vide = jamais encore exécutée. */
+      passages?: { date: string; resultat: "ok" | "sans-effet" | "echec"; detail?: string | null }[];
+      href?: string | null;
+      actions?: WorkspaceAction[];
+    }
   | {
       kind: "email";
       title: string;

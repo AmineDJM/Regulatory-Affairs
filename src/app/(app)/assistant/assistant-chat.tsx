@@ -21,6 +21,8 @@ import { decideDisplay } from "@/lib/assistant/voice/transcript-hygiene";
 import type { ProposedAction, AssistantActionPayload, ChatTurn, AssistantResult, AssistantStreamEvent } from "@/lib/assistant";
 import type { WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
 import { WorkspaceBlocks, WorkspaceAskProvider } from "@/components/chief/workspace/blocks";
+import { TurnWorkspaceView } from "@/components/chief/workspace/turn-workspace";
+import { composeTurn, isWorkspaceTurn, phasesOf } from "@/lib/assistant/workspace/turn";
 import { matchesConfirmText } from "@/lib/assistant/confirm";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import type { ThreadSummary } from "@/lib/assistant-memory";
@@ -728,14 +730,21 @@ export function AssistantChat({
           <div className="flex gap-3">
             <Avatar />
             <div className="min-w-0 flex-1 space-y-1.5">
+              {/* §18 — LA LATENCE PERÇUE. Des ÉTATS MÉTIER pendant que la mission tourne
+                  (« Préparation du message »), jamais la liste des outils appelés. La dernière
+                  phase reste marquée EN COURS tant que le tour n'est pas rendu : c'est ce qui
+                  distingue « ça avance » de « ça a fini ». */}
               {streaming && streaming.trace.length > 0 && (
-                <ul className="space-y-0.5">
-                  {streaming.trace.map((t) => (
-                    <li key={t} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <CheckCircle2 className="h-3 w-3 text-success" /> {t}
+                <ol className="chief-phases" data-testid="streaming-phases">
+                  {phasesOf(streaming.trace, false).map((ph, i) => (
+                    <li key={`${ph.label}-${i}`} className="chief-phase" data-state={ph.state}>
+                      {ph.state === "running"
+                        ? <Loader2 className="chief-phase-icon chief-phase-spin" aria-hidden />
+                        : <CheckCircle2 className="chief-phase-icon" aria-hidden />}
+                      <span>{ph.label}</span>
                     </li>
                   ))}
-                </ul>
+                </ol>
               )}
               {streaming?.text ? (
                 <p className={`whitespace-pre-wrap leading-relaxed ${canvas ? "chief-turn-text" : "text-[0.9375rem]"}`}>
@@ -1047,6 +1056,101 @@ function ThreadRail({
   );
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UN TOUR D'ADAM — l'objet d'abord, son geste dessous, la synthèse ensuite.
+ *
+ * Ce composant remplace l'empilement historique (pastilles d'outils → prose → blocs → cartes de
+ * confirmation détachées) par le rangement décidé dans `lib/assistant/workspace/turn.ts`. Il ne
+ * décide rien lui-même : il place ce que le rangement a trié, et il INJECTE les cartes d'action
+ * là où elles appartiennent — sous l'objet qu'elles engagent.
+ *
+ * Le repli sur une bulle de texte reste possible, et c'est voulu : « Il est 15 h » n'est pas un
+ * espace de travail, et l'encadrer comme tel ferait chercher un bouton qui n'existe pas.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+function AdamTurn({
+  msg, text, onConfirm, onCancel, onConfirmAll, bubble = false,
+}: {
+  msg: Msg;
+  text: string;
+  onConfirm: (id: number, index: number, payload: AssistantActionPayload, intentId?: string, confirmTyped?: string) => void;
+  onCancel: (id: number, index: number, intentId?: string) => void;
+  onConfirmAll: (msg: Msg) => void;
+  bubble?: boolean;
+}) {
+  const proposals = msg.proposals ?? [];
+  const states = msg.actionStates ?? [];
+
+  const turn = composeTurn({
+    compositions: msg.workspace ?? null,
+    proposals: proposals.map((p, i) => ({
+      kind: p.payload.kind,
+      title: p.title,
+      state: (states[i] ?? "pending") as "pending" | "done" | "failed" | "cancelled",
+      level: p.level,
+    })),
+    trace: msg.trace ?? null,
+    reply: text,
+  });
+
+  const cards = (indexes: number[]) =>
+    indexes.map((i) => {
+      const p = proposals[i];
+      if (!p) return null;
+      return (
+        <ActionCard
+          key={i}
+          proposal={p}
+          state={states[i] ?? "pending"}
+          result={msg.actionResults?.[i]}
+          link={msg.actionLinks?.[i]}
+          onConfirm={(confirmTyped) => onConfirm(msg.id, i, p.payload, p.intentId, confirmTyped)}
+          onCancel={() => onCancel(msg.id, i, p.intentId)}
+        />
+      );
+    });
+
+  // ── LE REPLI VERBAL. Aucun objet à montrer : on rend la phrase, et les éventuelles cartes.
+  if (!isWorkspaceTurn(turn)) {
+    return (
+      <>
+        {text ? (
+          bubble ? (
+            <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-secondary px-4 py-2.5 text-sm leading-relaxed">
+              <LinkifiedText text={text} />
+            </div>
+          ) : (
+            <p className="chief-turn-text whitespace-pre-wrap"><LinkifiedText text={text} /></p>
+          )
+        ) : null}
+        {cards(proposals.map((_, i) => i))}
+      </>
+    );
+  }
+
+  return (
+    <TurnWorkspaceView
+      turn={turn}
+      renderProposals={cards}
+      renderSynthesis={(t) => <LinkifiedText text={t} />}
+      renderBundle={() => (
+        // §10 — UNE MISSION COHÉRENTE, UNE CONFIRMATION. Le bandeau se place APRÈS l'objet de
+        // tête : on comprend d'abord CE QU'ON confirme, on confirme ensuite.
+        <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-accent/30 px-3 py-2 text-sm" data-testid="turn-bundle">
+          <Sparkles className="h-4 w-4 shrink-0 text-primary" />
+          <span className="flex-1">
+            {turn.pending} actions préparées — elles forment une seule mission.
+          </span>
+          <Button size="sm" onClick={() => onConfirmAll(msg)}>
+            <CheckCircle2 className="h-4 w-4" /> Tout confirmer
+          </Button>
+        </div>
+      )}
+    />
+  );
+}
+
 function Avatar() {
   return (
     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-purple-500 text-primary-foreground">
@@ -1172,41 +1276,13 @@ function MessageBubble({
             <span className="chief-turn-author">Adam</span>
             {turnTime(msg.at) ? <span className="chief-turn-time">{turnTime(msg.at)}</span> : null}
           </div>
-          {msg.trace && msg.trace.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {msg.trace.map((t) => (
-                <span key={t} className="chief-trace-chip">
-                  <Search className="h-3 w-3" /> {t}
-                </span>
-              ))}
-            </div>
-          )}
-          {assistantDisplay.show && (
-            <p className="chief-turn-text whitespace-pre-wrap">
-              <LinkifiedText text={cleanReply(assistantDisplay.text)} />
-            </p>
-          )}
-          {msg.workspace?.map((c, i) => <WorkspaceBlocks key={`${c.source}-${i}`} composition={c} />)}
-          {msg.proposals && msg.proposals.length > 1 && (msg.actionStates ?? []).filter((st) => st === "pending").length > 1 && (
-            <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-accent/30 px-3 py-2 text-sm">
-              <Sparkles className="h-4 w-4 shrink-0 text-primary" />
-              <span className="flex-1">{msg.proposals.length} actions proposées — chacune se confirme, ou toutes d&apos;un coup.</span>
-              <Button size="sm" onClick={() => onConfirmAll(msg)}>
-                <CheckCircle2 className="h-4 w-4" /> Tout confirmer
-              </Button>
-            </div>
-          )}
-          {msg.proposals?.map((p, i) => (
-            <ActionCard
-              key={i}
-              proposal={p}
-              state={msg.actionStates?.[i] ?? "pending"}
-              result={msg.actionResults?.[i]}
-              link={msg.actionLinks?.[i]}
-              onConfirm={(confirmTyped) => onConfirm(msg.id, i, p.payload, p.intentId, confirmTyped)}
-              onCancel={() => onCancel(msg.id, i, p.intentId)}
-            />
-          ))}
+          <AdamTurn
+            msg={msg}
+            text={assistantDisplay.show ? cleanReply(assistantDisplay.text) : ""}
+            onConfirm={onConfirm}
+            onCancel={onCancel}
+            onConfirmAll={onConfirmAll}
+          />
         </div>
       </div>
     );
@@ -1216,43 +1292,17 @@ function MessageBubble({
     <div className="flex gap-2.5">
       <Avatar />
       <div className="min-w-0 max-w-[85%] space-y-2">
-        {msg.trace && msg.trace.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {msg.trace.map((t) => (
-              <span key={t} className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[0.6875rem] text-muted-foreground">
-                <Search className="h-3 w-3" /> {t}
-              </span>
-            ))}
-          </div>
-        )}
-        {assistantDisplay.show && (
-          <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-secondary px-4 py-2.5 text-sm leading-relaxed">
-            <LinkifiedText text={cleanReply(assistantDisplay.text)} />
-          </div>
-        )}
         {/* L'ESPACE DE TRAVAIL DE CE TOUR. Il reste attaché au message : remonter dans la
-            conversation redonne le tableau au lieu d'un texte qui y fait référence. */}
-        {msg.workspace?.map((c, i) => <WorkspaceBlocks key={`${c.source}-${i}`} composition={c} />)}
-        {msg.proposals && msg.proposals.length > 1 && (msg.actionStates ?? []).filter((s) => s === "pending").length > 1 && (
-          <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-accent/30 px-3 py-2 text-sm">
-            <Sparkles className="h-4 w-4 shrink-0 text-primary" />
-            <span className="flex-1">{msg.proposals.length} actions proposées — chacune se confirme, ou toutes d&apos;un coup.</span>
-            <Button size="sm" onClick={() => onConfirmAll(msg)}>
-              <CheckCircle2 className="h-4 w-4" /> Tout confirmer
-            </Button>
-          </div>
-        )}
-        {msg.proposals?.map((p, i) => (
-          <ActionCard
-            key={i}
-            proposal={p}
-            state={msg.actionStates?.[i] ?? "pending"}
-            result={msg.actionResults?.[i]}
-            link={msg.actionLinks?.[i]}
-            onConfirm={(confirmTyped) => onConfirm(msg.id, i, p.payload, p.intentId, confirmTyped)}
-            onCancel={() => onCancel(msg.id, i, p.intentId)}
-          />
-        ))}
+            conversation redonne l'objet au lieu d'un texte qui y fait référence. */}
+        <AdamTurn
+          msg={msg}
+          text={assistantDisplay.show ? cleanReply(assistantDisplay.text) : ""}
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+          onConfirmAll={onConfirmAll}
+          bubble
+        />
+
       </div>
     </div>
   );
