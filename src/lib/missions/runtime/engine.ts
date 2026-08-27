@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import type { CapabilityRunner, Clock, MissionActor } from "@/lib/missions/ports";
+import type { CapabilityCatalog, CapabilityRunner, Clock, MissionActor } from "@/lib/missions/ports";
+import { verifierAvantAgir } from "@/lib/missions/agent/principal";
 import { systemClock } from "@/lib/missions/ports";
 import {
   MissionState, STEP_TERMINAL, StepState, assertStepTransition, deduireEtat,
@@ -74,6 +75,15 @@ export interface StepHandlers {
 
 export interface EngineDeps {
   runner: CapabilityRunner;
+  /**
+   * LE CATALOGUE, pour la SECONDE vérification de politique (§29).
+   *
+   * Facultatif, et son absence a une conséquence dite : sans lui, seul le compilateur garde
+   * l'interdit d'auto-escalade. Le fournir ajoute une garde au moment d'agir, qui couvre les
+   * étapes arrivées AUTREMENT que par un plan compilé — une reprise, une réparation, une
+   * insertion directe. C'est le seul contrôle volontairement dupliqué du runtime.
+   */
+  catalog?: CapabilityCatalog;
   handlers?: StepHandlers;
   clock?: Clock;
   /**
@@ -378,6 +388,19 @@ async function executerCapacite(ctx: StepContext, deps: EngineDeps): Promise<Ste
   const { step, mission, actor } = ctx;
   if (!step.capability) {
     return { status: "FAILED", error: "étape CAPABILITY sans capacité", errorKind: "INVALID_STEP", retryable: false };
+  }
+
+  // ── §29 : L'INTERDIT D'AUTO-ESCALADE, VÉRIFIÉ UNE SECONDE FOIS ────────────────────────
+  //
+  // Le compilateur l'a déjà refusé. Cette garde-ci couvre le cas où l'étape n'est PAS venue
+  // d'un plan compilé : une reprise, une réparation, ou une ligne insérée directement en base.
+  // Une garde qui ne vit qu'à un seul endroit protège tant que personne n'ouvre un second
+  // chemin ; celle-ci protège aussi le second chemin.
+  if (deps.catalog?.has(step.capability)) {
+    const v = verifierAvantAgir(step.capability, deps.catalog.meta(step.capability).effect, actor);
+    if (!v.ok) {
+      return { status: "FAILED", error: v.raison, errorKind: "MISSING_PERMISSION", retryable: false };
+    }
   }
 
   const cle = step.idempotencyKey
