@@ -64,11 +64,11 @@ function objet(properties: Record<string, unknown>, description?: string) {
 
 const PAIRE_ENTREE = objet(
   {
-    key: str("Le nom du champ attendu par la capacité (« to », « subject », « body »)."),
-    kind: enumOf(INPUT_KINDS, "TEXT pour du texte, NUMBER, BOOLEAN, ou JSON pour une liste/objet écrit en JSON."),
+    key: str("Le nom du champ attendu (« to », « subject »)."),
+    kind: enumOf(INPUT_KINDS, "JSON pour une liste ou un objet écrit en JSON."),
     value: str(
-      "La valeur, TOUJOURS écrite en texte. Pour référencer la sortie d'une étape précédente, " +
-        "utiliser {{cle_etape.chemin}} ; pour la valeur courante d'un éventail, {{alias.champ}}.",
+      "La valeur, TOUJOURS en texte. Sortie d'une étape : {{cle_etape.chemin}} ; "
+        + "valeur courante d'un éventail : {{alias.champ}}.",
     ),
   },
   "Un champ d'entrée. Les objets libres n'existent pas : on décrit, le code reconstruit.",
@@ -83,45 +83,195 @@ const CHAMP_SORTIE = objet(
   "Un champ du résultat attendu d'un WORKER.",
 );
 
-const ETAPE = objet({
-  key: str(
-    "Identité STABLE et lisible de l'étape (« liste:salaries », « email:voeux »). " +
-      "Jamais un numéro : un numéro change au moindre replan et casse toutes les dépendances.",
-  ),
-  title: str("Ce que fait l'étape, en français, à l'infinitif ou à l'impératif."),
-  workstream: nullableStr("L'identifiant de l'axe de travail auquel cette étape appartient."),
-  nodeType: enumOf(NODE_TYPES, "CAPABILITY appelle une capacité ; WORKER fait réfléchir un modèle ; WAIT_EVENT attend un fait ; WAIT_INPUT attend une personne ; APPROVAL demande un accord ; QA contrôle ; ARTIFACT fabrique un fichier ; JOIN attend ses dépendances."),
-  capability: nullableStr("Le nom EXACT d'une capacité de la liste fournie. Obligatoire si nodeType vaut CAPABILITY, null sinon. Ne jamais inventer un nom."),
-  inputs: { type: "array", items: PAIRE_ENTREE, description: "Les champs d'entrée. Liste vide si l'étape n'en prend pas." },
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'ÉTAPE, EN VARIANTES — parce qu'un appel de capacité n'a rien à dire d'une attente.
+ *
+ * ── CE QUE LA MESURE A MONTRÉ ────────────────────────────────────────────────────────────
+ *
+ * Un run réel a chiffré le coût de l'étape unique : 265 jetons de SORTIE VISIBLE par étape,
+ * sur des plans de 8 à 15 étapes, pour un planificateur qui pesait 79 % du temps total. Le
+ * schéma imposait 21 champs obligatoires à CHAQUE étape — le mode strict exige que tous soient
+ * écrits — dont huit valaient `null` dans une étape CAPABILITY ordinaire : les cinq `wait*` et
+ * les trois `forEach*`. Le modèle écrivait donc, pour chaque appel de capacité, cinq champs
+ * d'attente d'événement et trois champs d'éventail, tous vides.
+ *
+ * ── LA CORRECTION, ET SA SEULE VRAIE DIFFICULTÉ ──────────────────────────────────────────
+ *
+ * Le sous-ensemble strict admet `anyOf` imbriqué. Une étape est donc décrite par la variante
+ * de son `nodeType`, discriminée par un `const` : une CAPABILITY porte `capability`, `inputs`
+ * et son éventail ; une WAIT_EVENT porte ce qu'elle attend ; une JOIN ne porte que le tronc
+ * commun. Personne n'écrit plus les champs d'un autre type.
+ *
+ * La difficulté n'est pas d'écrire les variantes, c'est de ne rien PERDRE : un champ oublié
+ * dans une variante devient un champ que le planificateur ne peut plus exprimer, et le manque
+ * ne se verrait qu'à l'exécution. `schema.test.ts` compare donc l'union des variantes au
+ * vocabulaire du contrat, champ par champ.
+ *
+ * ── CE QUI RESTE COMMUN, ET POURQUOI ─────────────────────────────────────────────────────
+ *
+ * Cinq champs valent pour TOUTE étape et ne peuvent pas descendre dans une variante sans être
+ * recopiés huit fois : l'identité (`key`, `title`), la place dans le graphe (`workstream`,
+ * `dependsOn`) et la condition de fin (`completionCondition`), qui est ce que le contrôle
+ * qualité relit — une étape sans elle serait invérifiable, quel que soit son type.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/**
+ * LE TRONC COMMUN — ce qu'une étape est, indépendamment de ce qu'elle fait.
+ *
+ * ── LES DESCRIPTIONS SONT COURTES ICI, ET C'EST MESURÉ ───────────────────────────────────
+ *
+ * Ces cinq champs sont recopiés dans les HUIT variantes : chaque mot y est payé huit fois, en
+ * jetons d'ENTRÉE, à chaque appel de planification. La première écriture des variantes portait
+ * les descriptions longues du schéma unique et faisait passer le schéma de 2 113 à 4 711
+ * jetons — on avait gagné 24 % en sortie pour en perdre 2 600 en entrée.
+ *
+ * Le raisonnement derrière chaque règle (« jamais un numéro : un numéro change au moindre
+ * replan ») vit dans la CONSIGNE, envoyée UNE fois et mise en cache par le fournisseur. Le
+ * schéma, lui, dit le format. C'est le bon partage : l'un explique, l'autre contraint.
+ */
+const COMMUN = {
+  key: str("Identité stable et lisible (« liste:salaries »), jamais un numéro."),
+  title: str("Ce que fait l'étape, en français."),
+  workstream: nullableStr("L'axe de travail, ou null."),
   dependsOn: {
     type: "array",
     items: { type: "string" },
-    description: "Les clés des étapes qui doivent être TERMINÉES avant celle-ci.",
+    description: "Les clés des étapes à terminer AVANT celle-ci.",
   },
-  forEachFrom: nullableStr("Pour une étape répétée : la clé de l'étape amont qui produit la collection. null sinon."),
-  forEachPath: nullableStr("Le chemin de la collection dans la sortie de cette étape (« salaries »). null sinon."),
-  forEachAs: nullableStr("Le nom sous lequel chaque élément est injecté (« salarie »). null sinon."),
-  waitEvent: nullableStr("Pour WAIT_EVENT : le type de fait attendu (par ex. EMAIL_RECEIVED). null sinon."),
-  waitFrom: nullableStr("De qui l'on attend le fait (nom, identifiant ou adresse). null sinon."),
-  waitEntity: nullableStr("L'entité concernée, en TYPE:id. null sinon."),
-  waitAsk: nullableStr("Pour WAIT_INPUT : ce qu'on demande à la personne, en français. null sinon."),
-  waitWithinDays: { type: ["integer", "null"], description: "Délai indicatif en jours au-delà duquel relancer. null sinon." },
+  completionCondition: str("La condition VÉRIFIABLE de fin. « 33 reçus », pas « bien fait »."),
+};
+
+/**
+ * LE DISCRIMINANT — un `enum` à une seule valeur.
+ *
+ * Sans description : elle ne dirait que ce que la valeur dit déjà, et serait payée huit fois.
+ */
+const typeConst = (n: string) => ({ type: "string", enum: [n] });
+
+/**
+ * L'ÉVENTAIL, EN UN SEUL CHAMP AU LIEU DE TROIS.
+ *
+ * Trois chaînes nullables obligeaient à écrire trois `null` sur chaque étape non répétée. Un
+ * objet nullable en écrit un — et rend impossible l'état incohérent « deux champs sur trois »,
+ * que le code devait auparavant détecter à la reconstruction.
+ */
+const EVENTAIL = {
+  type: ["object", "null"],
+  description: "Pour une étape RÉPÉTÉE sur une collection. null sinon.",
+  properties: {
+    from: str("La clé de l'étape amont qui produit la collection."),
+    path: str("Le chemin de la collection dans sa sortie (« salaries »)."),
+    as: str("Le nom sous lequel chaque élément est injecté (« salarie »)."),
+  },
+  required: ["from", "path", "as"],
+  additionalProperties: false,
+};
+
+const ENTREES = {
+  type: "array",
+  items: PAIRE_ENTREE,
+  description: "Les champs d'entrée. Liste vide si aucun.",
+};
+
+const MAX_ESSAIS = { type: ["integer", "null"], description: "Essais avant échec, ou null." };
+
+// Le niveau d'accord PROPOSÉ : la politique de la maison tranche ensuite, et proposer NONE ne
+// dispense de rien. Le dire dans la CONSIGNE plutôt qu'ici, où c'est payé deux fois.
+const APPROBATION = enumOf(["NONE", "NORMAL", "SENSITIVE", "CRITICAL"], "Le niveau d'accord proposé.");
+
+const DELAI = { type: ["integer", "null"], description: "Jours avant relance, ou null." };
+
+/** Un appel de capacité — le cas courant, et le plus fréquent de loin. */
+const ETAPE_CAPABILITY = objet({
+  ...COMMUN,
+  nodeType: typeConst("CAPABILITY"),
+  capability: str("Le nom EXACT d'une capacité de la liste fournie. Ne jamais inventer un nom."),
+  inputs: ENTREES,
+  forEach: EVENTAIL,
+  approvalRequirement: APPROBATION,
+  maxAttempts: MAX_ESSAIS,
+});
+
+/** Un travail de modèle : rédiger, résumer, classer. Sortie structurée, jamais du texte libre. */
+const ETAPE_WORKER = objet({
+  ...COMMUN,
+  nodeType: typeConst("WORKER"),
+  inputs: ENTREES,
+  forEach: EVENTAIL,
   outputFields: {
     type: "array",
     items: CHAMP_SORTIE,
-    description: "Pour un WORKER : les champs EXACTS attendus en retour. Liste vide pour les autres types.",
+    description: "Les champs EXACTS attendus en retour. Au moins un.",
   },
-  completionCondition: str("À quelle condition VÉRIFIABLE cette étape est finie. « 33 destinataires ont un reçu », pas « le travail est bien fait »."),
   reasoningRequirement: enumOf(
     ["NONE", "LIGHT", "HEAVY"],
     "NONE = extraire/classer/reformuler ; LIGHT = rédiger court ; HEAVY = arbitrer, juger, rédiger ce qu'on signe.",
   ),
-  approvalRequirement: enumOf(
-    ["NONE", "NORMAL", "SENSITIVE", "CRITICAL"],
-    "Le niveau d'accord PROPOSÉ. La politique de la maison tranche ensuite : proposer NONE ne dispense de rien.",
-  ),
-  maxAttempts: { type: ["integer", "null"], description: "Nombre d'essais avant échec. null pour la valeur par défaut." },
+  maxAttempts: MAX_ESSAIS,
 });
+
+/** Une attente d'ÉVÉNEMENT métier : la mission dort sans consommer de modèle. */
+const ETAPE_WAIT_EVENT = objet({
+  ...COMMUN,
+  nodeType: typeConst("WAIT_EVENT"),
+  waitEvent: str("Le type de fait attendu (par ex. EMAIL_RECEIVED)."),
+  waitFrom: nullableStr("De qui l'on attend le fait (nom, identifiant ou adresse). null si indifférent."),
+  waitEntity: nullableStr("L'entité concernée, en TYPE:id. null sinon."),
+  waitWithinDays: DELAI,
+});
+
+/** Une attente d'une PERSONNE qui doit fournir quelque chose. */
+const ETAPE_WAIT_INPUT = objet({
+  ...COMMUN,
+  nodeType: typeConst("WAIT_INPUT"),
+  waitAsk: str("Ce qu'on demande à la personne, en français."),
+  waitFrom: nullableStr("À qui on le demande. null si le propriétaire de la mission."),
+  waitWithinDays: DELAI,
+});
+
+/** Une porte d'approbation. */
+const ETAPE_APPROVAL = objet({
+  ...COMMUN,
+  nodeType: typeConst("APPROVAL"),
+  approvalRequirement: APPROBATION,
+});
+
+/**
+ * LES NŒUDS DE STRUCTURE — QA et JOIN, réunis parce qu'ils ont la MÊME forme.
+ *
+ * Un contrôle compte, une jonction attend : ni l'un ni l'autre ne porte de capacité, d'entrée
+ * ou d'attente. Leur donner deux variantes recopierait le tronc commun une huitième fois pour
+ * une distinction que le seul `nodeType` exprime déjà.
+ */
+const ETAPE_STRUCTURE = objet({
+  ...COMMUN,
+  nodeType: enumOf(["QA", "JOIN"], "QA contrôle et compte ; JOIN attend ses dépendances."),
+});
+
+/** La production d'un fichier : le modèle décrit, le code fabrique. */
+const ETAPE_ARTIFACT = objet({
+  ...COMMUN,
+  nodeType: typeConst("ARTIFACT"),
+  inputs: ENTREES,
+});
+
+const ETAPE = {
+  description:
+    "Une étape. Choisis la forme qui correspond à son nodeType : n'écris que les champs de ce type.",
+  anyOf: [
+    ETAPE_CAPABILITY, ETAPE_WORKER, ETAPE_WAIT_EVENT, ETAPE_WAIT_INPUT,
+    ETAPE_APPROVAL, ETAPE_STRUCTURE, ETAPE_ARTIFACT,
+  ],
+};
+
+/** Les variantes, exposées pour que le banc puisse vérifier qu'aucun champ n'a été perdu. */
+export const VARIANTES_ETAPE: Record<string, Record<string, unknown>> = {
+  CAPABILITY: ETAPE_CAPABILITY, WORKER: ETAPE_WORKER, WAIT_EVENT: ETAPE_WAIT_EVENT,
+  WAIT_INPUT: ETAPE_WAIT_INPUT, APPROVAL: ETAPE_APPROVAL, STRUCTURE: ETAPE_STRUCTURE,
+  ARTIFACT: ETAPE_ARTIFACT,
+};
 
 const AXE = objet({
   id: str("Identifiant court de l'axe (« voeux », « classement-drive »)."),

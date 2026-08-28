@@ -18,10 +18,25 @@
  * ── CE QU'IL VÉRIFIE, ET RIEN D'AUTRE ───────────────────────────────────────────────────
  *
  * Le sous-ensemble de JSON Schema que le mode strict autorise : type, enum, required,
- * additionalProperties: false, items, et les types nullables écrits `["string","null"]`. Il ne
- * gère ni `$ref`, ni `oneOf`, ni les bornes numériques — parce que le mode strict ne les
+ * additionalProperties: false, items, `anyOf`, et les types nullables écrits `["string","null"]`.
+ * Il ne gère ni `$ref`, ni `oneOf`, ni les bornes numériques — parce que le mode strict ne les
  * autorise pas non plus, et prétendre les gérer inviterait à écrire des schémas qui ne
  * passeraient pas chez le fournisseur.
+ *
+ * ── `anyOf` A ÉTÉ AJOUTÉ, ET LA DISTINCTION AVEC `oneOf` EST LOAD-BEARING ────────────────
+ *
+ * Le sous-ensemble strict admet `anyOf` (imbriqué, jamais à la racine) et refuse `oneOf`. Les
+ * deux se ressemblent assez pour qu'on les confonde, et se confondre ici produirait exactement
+ * ce que l'en-tête ci-dessus interdit : un schéma qui passe nos tests et que le fournisseur
+ * rejette. `anyOf` est donc géré ; `oneOf` reste absent, volontairement.
+ *
+ * ── COMMENT UNE VARIANTE EST CHOISIE, ET POURQUOI CE N'EST PAS « LA PREMIÈRE QUI PASSE » ──
+ *
+ * On retient la variante qui produit le MOINS d'écarts. Sur des variantes discriminées par un
+ * `const` (`nodeType`), cela revient à choisir la bonne : les autres échouent d'emblée sur le
+ * discriminant. Mais quand AUCUNE ne passe, ce choix change tout pour le lecteur — il reçoit
+ * les écarts de la variante la plus proche (« il manque `capability` ») au lieu du cumul de
+ * toutes (« il manque capability, waitEvent, waitAsk, outputFields… »), qui ne désigne rien.
  *
  * ── LE SECOND USAGE, ET IL COMPTE AUTANT ────────────────────────────────────────────────
  *
@@ -61,6 +76,19 @@ const accepte = (attendu: string, reel: string): boolean =>
 export function verifierSchema(valeur: unknown, schema: Record<string, unknown>, chemin = ""): EcartSchema[] {
   const ecarts: EcartSchema[] = [];
   const ici = (probleme: string) => ecarts.push({ chemin, probleme });
+
+  // ── LES VARIANTES : on retient la PLUS PROCHE, pas la première ────────────────────
+  if (Array.isArray(schema.anyOf)) {
+    const variantes = schema.anyOf as Record<string, unknown>[];
+    if (variantes.length === 0) return [{ chemin, probleme: "anyOf vide" }];
+    let meilleure = verifierSchema(valeur, variantes[0], chemin);
+    for (const v of variantes.slice(1)) {
+      if (meilleure.length === 0) break;
+      const essai = verifierSchema(valeur, v, chemin);
+      if (essai.length < meilleure.length) meilleure = essai;
+    }
+    return meilleure;
+  }
 
   const attendus = Array.isArray(schema.type)
     ? (schema.type as string[])

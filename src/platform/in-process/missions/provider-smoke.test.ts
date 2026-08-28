@@ -5,7 +5,7 @@ import type { CurrentUser } from "@/lib/session";
 import { EFFECT_RANK } from "@/lib/missions/registry/capability-meta";
 import { catalogueDe, acteurDe } from "@/platform/in-process/missions/catalog";
 import { lancerMission } from "@/platform/in-process/missions/runtime";
-import { RaisonneurScripte, pour } from "@/platform/in-process/missions/fake-reasoner";
+import { RaisonneurScripte, planScripte, pour } from "@/platform/in-process/missions/fake-reasoner";
 import { MAILLONS, MAILLONS_FOURNISSEUR, MAILLONS_MISSION, type Chaine, type Maillon } from "@/platform/in-process/missions/provider-smoke";
 
 /**
@@ -165,7 +165,7 @@ suite("lecture seule — une absence d'outil, pas une consigne", () => {
    * écrite.
    */
   it("un plan qui demande une ÉCRITURE est refusé à la compilation sous lecture seule", async () => {
-    const planAvecEcriture = {
+    const planAvecEcriture = planScripte({
       goal: "Prévenir les salariés du point d'étape.",
       reasoningComplexity: "B",
       executionScale: "S",
@@ -189,7 +189,7 @@ suite("lecture seule — une absence d'outil, pas une consigne", () => {
       completionCriteria: "Le message est parti.",
       gaps: [],
       rationale: "Un seul envoi, un seul accord.",
-    };
+    });
 
     const cerveau = new RaisonneurScripte([
       pour("mission.plan", () => ({ ok: true, data: planAvecEcriture })),

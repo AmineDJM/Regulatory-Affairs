@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, type EffectiveAccess } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
 import { lancerMission, avancerMission } from "@/platform/in-process/missions/runtime";
-import { RaisonneurScripte, pour } from "@/platform/in-process/missions/fake-reasoner";
+import { RaisonneurScripte, pour, planScripte } from "@/platform/in-process/missions/fake-reasoner";
 import { decider } from "@/lib/missions/approval/gate";
 import { chargerEtat } from "@/lib/missions/runtime/store";
 import { vueMission } from "@/lib/missions/view/workspace";
@@ -115,7 +115,7 @@ suite("BOUT EN BOUT — d'une phrase à une mission terminée", () => {
    * reconstruire. Les `null` explicites, les listes de champs et les valeurs d'énumérés sont
    * exactement ce qu'impose le mode strict.
    */
-  const planBrut = (avecArtefact: boolean) => ({
+  const planBrut = (avecArtefact: boolean) => (planScripte({
     goal: "Écrire individuellement à chaque salarié actif sur la messagerie ERP, puis attendre les contrats de Redouane.",
     reasoningComplexity: "B",
     executionScale: "M",
@@ -205,7 +205,7 @@ suite("BOUT EN BOUT — d'une phrase à une mission terminée", () => {
     completionCriteria: "Un message abouti par salarié actif de la liste.",
     gaps: [],
     rationale: "Lire d'abord la liste, demander un seul accord, puis déployer un message par personne.",
-  });
+  }));
 
   /**
    * LE VERDICT DU JUGE — et la vérification que le juge a VU ce qu'on lui demande de citer.

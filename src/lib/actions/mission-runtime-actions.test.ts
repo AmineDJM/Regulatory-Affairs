@@ -38,7 +38,7 @@ vi.mock("@/lib/session", () => ({ requireUser: async () => ACTEUR }));
 const { prisma } = await import("@/lib/prisma");
 const { getAccess } = await import("@/lib/rbac");
 const { lancerMission } = await import("@/platform/in-process/missions/runtime");
-const { RaisonneurScripte, pour } = await import("@/platform/in-process/missions/fake-reasoner");
+const { RaisonneurScripte, pour, planScripte } = await import("@/platform/in-process/missions/fake-reasoner");
 const { missionsAFaireAvancer } = await import("@/lib/missions/events/router");
 const { vueMission } = await import("@/lib/missions/view/workspace");
 const { compile } = await import("@/lib/missions/compiler/compile");
@@ -62,7 +62,7 @@ let companyId = "";
 
 /** Le plan brut, tel qu'un fournisseur en mode strict le rendrait. */
 function planBrut() {
-  return {
+  return planScripte({
     goal: "Écrire à chaque salarié du service, puis me demander la pièce manquante.",
     reasoningComplexity: "B",
     executionScale: "S",
@@ -124,7 +124,7 @@ function planBrut() {
     completionCriteria: "Un message par salarié, et la référence reçue.",
     gaps: [],
     rationale: "Lire, demander un accord, écrire, puis demander la pièce.",
-  };
+  });
 }
 
 const cerveau = () => new RaisonneurScripte([pour("mission.plan", () => ({ ok: true, data: planBrut() }))]);

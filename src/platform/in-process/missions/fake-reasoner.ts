@@ -1,5 +1,6 @@
 import type { Reasoner, ReasonRequest, ReasonResult } from "@/lib/missions/ports";
 import { resumerEcarts, verifierSchema } from "@/lib/missions/planner/validate";
+import { VARIANTES_ETAPE } from "@/lib/missions/planner/schema";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -95,3 +96,76 @@ export class RaisonneurScripte implements Reasoner {
 /** Un script qui ne répond qu'à un usage donné. */
 export const pour = (purpose: string, f: (req: ReasonRequest, n: number) => ReponseScriptee): Script =>
   (req, n) => (req.purpose === purpose ? f(req, n) : undefined);
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UN PLAN SCRIPTÉ, MIS À LA FORME EXACTE DE SA VARIANTE.
+ *
+ * ── POURQUOI CE HELPER EXISTE ────────────────────────────────────────────────────────────
+ *
+ * Le schéma d'étape est passé d'une forme unique à vingt-et-un champs à sept variantes
+ * discriminées par `nodeType` : une CAPABILITY ne porte plus les cinq champs d'attente, une
+ * JOIN ne porte que le tronc commun. Le mode strict INTERDISANT les champs en trop, un plan de
+ * banc écrit à l'ancienne devient une réponse qu'aucun fournisseur ne produirait — et
+ * `verifierSchema` le refuse, à raison.
+ *
+ * Réécrire trente objets d'étape à la main aurait marché une fois, puis aurait dérivé au premier
+ * champ ajouté. Ce helper prend la description NATURELLE d'une étape — tout ce qu'on veut dire —
+ * et n'en garde que ce que sa variante autorise. Les bancs disent l'intention ; la forme suit.
+ *
+ * Il ne rend pas les tests plus permissifs : ce qu'il produit passe par le MÊME
+ * `verifierSchema` que la production, et un champ manquant tombe toujours.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** Ce qu'une variante accepte, dérivé du schéma lui-même — jamais d'une liste recopiée. */
+function champsDe(nodeType: string): Set<string> {
+  for (const v of Object.values(VARIANTES_ETAPE)) {
+    const props = (v.properties ?? {}) as Record<string, Record<string, unknown>>;
+    const types = (props.nodeType?.enum ?? []) as string[];
+    if (types.includes(nodeType)) return new Set(Object.keys(props));
+  }
+  return new Set<string>();
+}
+
+/** Les valeurs par défaut d'un champ, quand le banc ne l'a pas dit et que la variante l'exige. */
+const DEFAUTS: Record<string, unknown> = {
+  workstream: null, dependsOn: [], inputs: [], forEach: null, outputFields: [],
+  approvalRequirement: "NONE", reasoningRequirement: "NONE", maxAttempts: null,
+  waitFrom: null, waitEntity: null, waitWithinDays: null,
+};
+
+type EtapeLibre = Record<string, unknown>;
+
+/**
+ * NORMALISE UN PLAN SCRIPTÉ. Chaque étape est ramenée à sa variante, champ par champ.
+ *
+ * L'éventail accepte les deux écritures — l'objet `forEach` et les trois anciennes chaînes —
+ * pour qu'un banc écrit avant le découpage reste lisible sans être réécrit ligne à ligne.
+ */
+export function planScripte<T extends { steps?: unknown[] }>(plan: T): T {
+  const etapes = ((plan.steps ?? []) as EtapeLibre[]);
+  return {
+    ...plan,
+    steps: etapes.map((brute) => {
+      const nodeType = String(brute.nodeType ?? "CAPABILITY");
+      const permis = champsDe(nodeType);
+      const source: EtapeLibre = { ...brute };
+
+      // Les trois anciennes chaînes deviennent l'objet — ou `null` si elles étaient vides.
+      if (permis.has("forEach") && source.forEach === undefined) {
+        source.forEach = source.forEachFrom && source.forEachPath && source.forEachAs
+          ? { from: source.forEachFrom, path: source.forEachPath, as: source.forEachAs }
+          : null;
+      }
+
+      const sortie: EtapeLibre = {};
+      for (const champ of permis) {
+        sortie[champ] = source[champ] !== undefined
+          ? source[champ]
+          : (champ in DEFAUTS ? DEFAUTS[champ] : null);
+      }
+      return sortie;
+    }),
+  };
+}
