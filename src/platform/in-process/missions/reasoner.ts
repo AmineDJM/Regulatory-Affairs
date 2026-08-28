@@ -2,6 +2,7 @@ import { callModel } from "@/lib/models/gateway";
 import { textOf, type ModelRole } from "@/lib/models/contract";
 import type { Reasoner, ReasonRequest, ReasonResult } from "@/lib/missions/ports";
 import { MISSION_MODEL_ROLES, type MissionModelRole } from "@/lib/missions/model/roles";
+import { resumerEcarts, verifierSchema } from "@/lib/missions/planner/validate";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -134,7 +135,22 @@ export class RaisonneurReel implements Reasoner {
     }
 
     try {
-      return { ok: true, data: JSON.parse(brut) as T, usage, latencyMs };
+      const objet = JSON.parse(brut) as T;
+      // LA CONFORMITÉ EST VÉRIFIÉE, PAS SUPPOSÉE. Le mode strict la garantit — tant qu'il est
+      // réellement actif. Ce dépôt a déjà découvert deux fois un paramètre parti sans effet
+      // par une erreur en production ; le contrôle est ici pour que la troisième fois se voie
+      // ici plutôt que trois étapes plus loin, sur un champ manquant devenu `undefined`.
+      const ecarts = verifierSchema(objet, req.schema);
+      if (ecarts.length > 0) {
+        return {
+          ok: false,
+          data: null,
+          error: `réponse non conforme au schéma « ${req.schemaName} » — ${resumerEcarts(ecarts)}`,
+          usage,
+          latencyMs,
+        };
+      }
+      return { ok: true, data: objet, usage, latencyMs };
     } catch {
       // ON NE RÉPARE PAS. Le schéma étant imposé, une réponse non analysable signale un vrai
       // problème (troncature, modèle mal configuré) ; la rafistoler masquerait la panne et

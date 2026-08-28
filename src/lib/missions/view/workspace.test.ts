@@ -27,7 +27,7 @@ let ownerId = "";
 let autreId = "";
 let actor: MissionActor;
 
-const CONNUES = ["directory_list", "inspect_record", "send_erp_message"];
+const CONNUES = ["directory_list", "inspect_record", "send_message"];
 const catalogue: CapabilityCatalog = {
   has: (n) => CONNUES.includes(n),
   allowed: () => true,
@@ -80,7 +80,7 @@ suite("l'écran d'une mission", () => {
     const id = await creer([
       { key: "liste", title: "Lister", capability: "directory_list" },
       {
-        key: "msg", title: "Message", capability: "send_erp_message",
+        key: "msg", title: "Message", capability: "send_message",
         forEach: { from: "liste", path: "gens", as: "g" }, input: { to: "{{g.id}}" },
       },
     ], "éventail affiché");
@@ -116,7 +116,7 @@ suite("l'écran d'une mission", () => {
     const id = await creer([
       { key: "liste", title: "Lister", capability: "directory_list" },
       {
-        key: "vide", title: "Vide", capability: "send_erp_message",
+        key: "vide", title: "Vide", capability: "send_message",
         forEach: { from: "liste", path: "inexistant", as: "g" }, input: { to: "{{g.id}}" },
       },
     ], "étape sautée");
@@ -129,7 +129,7 @@ suite("l'écran d'une mission", () => {
 
   it("§47 — le REÇU d'une étape est montré : c'est ce qui rend « c'est parti » vérifiable", async () => {
     const id = await creer([
-      { key: "a", title: "Envoi", capability: "send_erp_message", input: { to: "x" } },
+      { key: "a", title: "Envoi", capability: "send_message", input: { to: "x" } },
     ], "reçu visible");
     await avancer(id, actor, traceur());
     await prisma.missionStep.updateMany({
@@ -192,7 +192,7 @@ suite("l'écran d'une mission", () => {
     const id = await creer([
       { key: "liste", title: "Lister", capability: "directory_list" },
       {
-        key: "msg", title: "Message", capability: "send_erp_message",
+        key: "msg", title: "Message", capability: "send_message",
         forEach: { from: "liste", path: "gens", as: "g" }, input: { to: "{{g.id}}" },
       },
       { key: "fin", title: "Fin", nodeType: "APPROVAL", dependsOn: ["msg"] },

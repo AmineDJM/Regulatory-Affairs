@@ -53,7 +53,7 @@ describe("§29 — l'auto-escalade est structurellement impossible", () => {
   });
 
   it("l'agent garde toutes ses capacités métier", () => {
-    const metier = ["send_prepared_mail", "employee_360", "directory_list", "create_task_request", "prepare_mail"];
+    const metier = ["send_email", "employee_360", "directory_list", "create_task", "gmail_prepare_mail"];
     for (const c of metier) {
       expect(refusPourActeur(c, "EXTERNAL_COMMUNICATION", adam), `« ${c} » refusée à tort`).toBeNull();
     }

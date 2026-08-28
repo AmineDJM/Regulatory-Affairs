@@ -56,7 +56,7 @@ describe("l'identité de l'agent (pure)", () => {
 
   it("les capacités métier restent ouvertes à l'agent", () => {
     const adam = agentPour({ initiatedBy: "u1", executedBy: "u1", label: "le PDG" });
-    for (const c of ["send_prepared_mail", "employee_360", "directory_list", "create_task_request"]) {
+    for (const c of ["send_email", "employee_360", "directory_list", "create_task"]) {
       expect(verifierAvantAgir(c, "EXTERNAL_COMMUNICATION", adam).ok, c).toBe(true);
     }
   });
@@ -171,7 +171,7 @@ suite("§29-30 — la garde au moment d'agir, et la double signature", () => {
 
     await tracerAction({
       mandat: { initiatedBy: ownerId, executedBy: ownerId, label: "le PDG" },
-      missionId: id, stepKey: "a", capability: "send_prepared_mail", receipt: "MSG-77",
+      missionId: id, stepKey: "a", capability: "send_email", receipt: "MSG-77",
     });
 
     const traces = await tracesPour(ownerId, id);
@@ -180,7 +180,7 @@ suite("§29-30 — la garde au moment d'agir, et la double signature", () => {
     expect(d.initiatedBy).toBe(ownerId);
     expect(d.executedBy).toBe(`${ADAM_AGENT_NAME}:${ownerId}`);
     expect(d.missionId).toBe(id);
-    expect(d.capability).toBe("send_prepared_mail");
+    expect(d.capability).toBe("send_email");
     expect(d.receipt).toBe("MSG-77");
     expect(traces[0].summary).toMatch(/demandé par le PDG, exécuté par Adam/);
   }, 60_000);

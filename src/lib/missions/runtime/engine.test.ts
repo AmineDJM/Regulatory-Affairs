@@ -47,7 +47,7 @@ function traceur(options: {
 
 const CONNUES = [
   "directory_list", "employee_360", "read_hr_overview", "inspect_record",
-  "prepare_mail", "send_prepared_mail", "send_erp_message", "notify_person",
+  "gmail_prepare_mail", "send_email", "send_message", "create_admin_request",
 ];
 
 const catalogue: CapabilityCatalog = {
@@ -137,7 +137,7 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     const id = await creerMission([
       { key: "liste", title: "Lister l'effectif", capability: "directory_list" },
       {
-        key: "voeux", title: "Vœux", capability: "send_erp_message",
+        key: "voeux", title: "Vœux", capability: "send_message",
         forEach: { from: "liste", path: "employes", as: "e" },
         input: { to: "{{e.id}}", corps: "Bonne année {{e.prenom}}" },
       },
@@ -146,7 +146,7 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     const r = await avancer(id, actor, { runner: t.runner });
     expect(r.deployees).toBe(33);
 
-    const envois = t.appels.filter((a) => a.capability === "send_erp_message");
+    const envois = t.appels.filter((a) => a.capability === "send_message");
     expect(envois).toHaveLength(33);
 
     // 1. CHACUN A REÇU LE SIEN, ET UN SEUL.
@@ -177,7 +177,7 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     const id = await creerMission([
       { key: "liste", title: "Lister", capability: "directory_list" },
       {
-        key: "msg", title: "Msg", capability: "send_erp_message",
+        key: "msg", title: "Msg", capability: "send_message",
         forEach: { from: "liste", path: "employes", as: "e" }, input: { to: "{{e.id}}" },
       },
     ], "éventail vide");
@@ -196,7 +196,7 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     const id = await creerMission([
       { key: "liste", title: "Lister", capability: "directory_list" },
       {
-        key: "msg", title: "Msg", capability: "send_erp_message",
+        key: "msg", title: "Msg", capability: "send_message",
         forEach: { from: "liste", path: "employes", as: "e" }, input: { to: "{{e.id}}" },
       },
     ], "éventail incompatible");
@@ -216,7 +216,7 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
   it("un processus tué à 40 % ne rejoue AUCUNE des étapes déjà faites", async () => {
     const t = traceur();
     const steps: PlannedStep[] = Array.from({ length: 10 }, (_, i) => ({
-      key: `s${i}`, title: `S${i}`, capability: "send_erp_message",
+      key: `s${i}`, title: `S${i}`, capability: "send_message",
       input: { to: `p${i}` },
       dependsOn: i === 0 ? [] : [`s${i - 1}`],
     }));
@@ -252,14 +252,14 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
   it("une étape TUÉE EN PLEIN VOL est reprise avec la MÊME clé d'idempotence", async () => {
     const t = traceur();
     const id = await creerMission([
-      { key: "envoi", title: "Envoi", capability: "send_erp_message", input: { to: "alla" } },
+      { key: "envoi", title: "Envoi", capability: "send_message", input: { to: "alla" } },
     ], "clé conservée à la reprise");
 
     // Le processus meurt pendant l'appel : l'étape reste « en cours », la clé est déjà posée.
     await avancer(id, actor, { runner: t.runner, maxTours: 0 });
     await prisma.missionStep.updateMany({
       where: { missionId: id, key: "envoi" },
-      data: { status: "RUNNING", idempotencyKey: `${id}|envoi|send_erp_message|alla`, startedAt: new Date(Date.now() - BAIL_MS - 1000) },
+      data: { status: "RUNNING", idempotencyKey: `${id}|envoi|send_message|alla`, startedAt: new Date(Date.now() - BAIL_MS - 1000) },
     });
 
     const t2 = traceur();
@@ -267,7 +267,7 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     expect(t2.appels).toHaveLength(1);
     // LA MÊME CLÉ REPART. C'est elle qui permet au chemin canonique de reconnaître un envoi
     // déjà parti et de rendre son reçu au lieu d'en produire un second.
-    expect(t2.appels[0].idempotencyKey).toBe(`${id}|envoi|send_erp_message|alla`);
+    expect(t2.appels[0].idempotencyKey).toBe(`${id}|envoi|send_message|alla`);
   });
 
   it("reprend une étape laissée EN COURS par un processus mort", async () => {
@@ -338,7 +338,7 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     const t = traceur();
     const id = await creerMission([
       { key: "porte", title: "Approbation", nodeType: "APPROVAL" },
-      { key: "envoi", title: "Envoi", capability: "send_erp_message", input: { to: "x" }, dependsOn: ["porte"] },
+      { key: "envoi", title: "Envoi", capability: "send_message", input: { to: "x" }, dependsOn: ["porte"] },
       { key: "b1", title: "B1", capability: "directory_list" },
       { key: "b2", title: "B2", capability: "employee_360", dependsOn: ["b1"] },
     ], "deux branches");
@@ -360,11 +360,11 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     const t = traceur();
     const id = await creerMission([
       { key: "porte", title: "Approbation", nodeType: "APPROVAL" },
-      { key: "envoi", title: "Envoi", capability: "send_prepared_mail", input: { to: "a@x.dz" }, dependsOn: ["porte"] },
+      { key: "envoi", title: "Envoi", capability: "send_email", input: { to: "a@x.dz" }, dependsOn: ["porte"] },
     ], "porte fermée par défaut");
 
     await avancer(id, actor, { runner: t.runner });
-    expect(t.appels.filter((a) => a.capability === "send_prepared_mail")).toHaveLength(0);
+    expect(t.appels.filter((a) => a.capability === "send_email")).toHaveLength(0);
   });
 
   it("une porte accordée laisse passer la suite", async () => {
@@ -374,11 +374,11 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     };
     const id = await creerMission([
       { key: "porte", title: "Approbation", nodeType: "APPROVAL" },
-      { key: "envoi", title: "Envoi", capability: "send_prepared_mail", input: { to: "a@x.dz" }, dependsOn: ["porte"] },
+      { key: "envoi", title: "Envoi", capability: "send_email", input: { to: "a@x.dz" }, dependsOn: ["porte"] },
     ], "porte accordée");
 
     await avancer(id, actor, { runner: t.runner, handlers });
-    expect(t.appels.filter((a) => a.capability === "send_prepared_mail")).toHaveLength(1);
+    expect(t.appels.filter((a) => a.capability === "send_email")).toHaveLength(1);
   });
 
   it("§16 — une attente d'événement met la mission en sommeil sans consommer d'appel", async () => {
@@ -433,7 +433,7 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     const id = await creerMission([
       { key: "liste", title: "Lister", capability: "directory_list" },
       {
-        key: "msg", title: "Msg", capability: "send_erp_message",
+        key: "msg", title: "Msg", capability: "send_message",
         forEach: { from: "liste", path: "gens", as: "g" }, input: { to: "{{g.id}}" },
       },
     ], "éventail partiel");
@@ -583,7 +583,7 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
   it("une recompilation du MÊME plan ne duplique aucune étape et n'en rejoue aucune", async () => {
     const t = traceur();
     const steps: PlannedStep[] = [
-      { key: "a", title: "A", capability: "send_erp_message", input: { to: "x" } },
+      { key: "a", title: "A", capability: "send_message", input: { to: "x" } },
       { key: "b", title: "B", capability: "inspect_record", dependsOn: ["a"] },
     ];
     const id = await creerMission(steps, "replan");

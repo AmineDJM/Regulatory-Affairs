@@ -33,12 +33,24 @@ import { capabilityMeta, type CapabilityMeta } from "@/lib/missions/registry/cap
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-/** La première phrase d'une description d'outil — c'est tout ce que le planner a besoin de lire. */
-function resumer(description: string): string {
-  const propre = description.replace(/\s+/g, " ").trim();
-  const fin = propre.search(/\.\s/);
-  const phrase = fin > 0 ? propre.slice(0, fin + 1) : propre;
-  return phrase.slice(0, 220);
+/**
+ * LE RÉSUMÉ D'UNE CAPACITÉ — court, mais pas AMPUTÉ.
+ *
+ * La première écriture coupait à la première phrase. Sur `directory_list`, dont le libellé est
+ * « Liste de l'annuaire », le résumé devenait ces quatre mots — et le résolveur, qui confronte
+ * la demande à ce texte, lui donnait un score de ZÉRO sur « envoie un message à chaque
+ * SALARIÉ ». La capacité qui produit la liste des gens était invisible au planner de la mission
+ * la plus courante du produit.
+ *
+ * On garde donc deux cent vingt caractères, coupés sur un mot, en commençant par le libellé
+ * (qui dit CE QUE C'EST) suivi de la description (qui dit QUAND s'en servir).
+ */
+function resumer(texte: string): string {
+  const propre = texte.replace(/\s+/g, " ").trim();
+  if (propre.length <= 220) return propre;
+  const coupe = propre.slice(0, 220);
+  const espace = coupe.lastIndexOf(" ");
+  return `${espace > 120 ? coupe.slice(0, espace) : coupe}…`;
 }
 
 const estEcriture = (n: string): boolean => RESOLVER_WRITE_NAMES.has(n);

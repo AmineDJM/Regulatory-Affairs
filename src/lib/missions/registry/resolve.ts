@@ -52,6 +52,16 @@ const VIDES = new Set([
  * français vers du français.
  */
 const SYNONYMES: Record<string, string[]> = {
+  // « chacun », « individuellement », « un par un » disent une LISTE : c'est la capacité qui
+  // ÉNUMÈRE qu'il faut montrer au planner, pas seulement celle qui envoie. Sans ces entrées, une
+  // mission d'envoi individuel recevait de quoi écrire et rien pour savoir à qui.
+  chacun: ["liste", "list", "individuel"],
+  chacune: ["liste", "list", "individuel"],
+  individuellement: ["liste", "list", "individuel"],
+  individuel: ["liste", "list"],
+  individuels: ["liste", "list"],
+  liste: ["liste", "list"],
+  lister: ["liste", "list"],
   voeux: ["email", "message", "envoi"],
   bonne: ["email"],
   annee: ["email"],
@@ -167,6 +177,8 @@ export interface ResolutionOptions {
   parDomaine?: number;
   /** Des capacités que l'appelant sait indispensables (une reprise, un replan ciblé). */
   imposees?: readonly string[];
+  /** Combien de domaines participent au tourniquet. Au-delà, la sélection se dilue. */
+  maxDomaines?: number;
 }
 
 export interface Resolution {
@@ -216,37 +228,71 @@ export function resoudreCapacites(
   // LES DOMAINES RETENUS : ceux des capacités qui ont réellement marqué. Si rien ne marque —
   // une demande formulée dans des mots qu'aucune capacité n'emploie — on ne devine pas : on
   // prend les mieux classées, et `gaps` dira au planner ce qu'il n'a pas trouvé.
-  const domaines: string[] = [];
+  // LES DOMAINES SONT CLASSÉS PAR LEUR MEILLEUR SCORE, et bornés. Sans borne, une demande qui
+  // effleure douze domaines donne à chacun une part égale du tourniquet : le domaine central
+  // n'obtient qu'une capacité, et onze domaines sans rapport en obtiennent une aussi.
+  const meilleurParDomaine = new Map<string, number>();
   for (const n of pertinentes) {
-    if (!domaines.includes(n.b.domain)) domaines.push(n.b.domain);
+    meilleurParDomaine.set(n.b.domain, Math.max(meilleurParDomaine.get(n.b.domain) ?? 0, n.score));
   }
+  const domaines = [...meilleurParDomaine.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, opts.maxDomaines ?? 5)
+    .map(([d]) => d);
 
   const retenues = new Map<string, CapabilityBrief>();
-  const ajouter = (b: CapabilityBrief) => {
-    if (!retenues.has(b.id) && retenues.size < limite) retenues.set(b.id, b);
+  const ajouter = (b: CapabilityBrief): boolean => {
+    if (retenues.has(b.id) || retenues.size >= limite) return false;
+    retenues.set(b.id, b);
+    return true;
   };
 
   for (const nom of opts.imposees ?? []) {
     const b = toutes.find((x) => x.id === nom);
     if (b) ajouter(b);
   }
-  for (const n of pertinentes) ajouter(n.b);
 
-  // LE PLANCHER PAR DOMAINE — compléter les domaines déjà retenus avec leurs capacités les
-  // mieux classées, même à score nul : c'est là que vivent les lectures qui alimentent l'action.
-  for (const d of domaines) {
-    let compte = [...retenues.values()].filter((b) => b.domain === d).length;
-    if (compte >= parDomaine) continue;
-    for (const n of notes) {
-      if (compte >= parDomaine || retenues.size >= limite) break;
-      if (n.b.domain !== d || retenues.has(n.b.id)) continue;
-      ajouter(n.b);
-      compte += 1;
+  // ── LA SÉLECTION EST UN TOURNIQUET ENTRE DOMAINES, PAS UN CLASSEMENT GLOBAL ──────────
+  //
+  // La première écriture prenait simplement les mieux classées. Sur cent soixante-cinq outils,
+  // « envoie un message à chaque salarié » remplissait ses vingt-huit places avec des capacités
+  // de MESSAGERIE — et `directory_list`, qui produit la liste sans laquelle il n'y a personne à
+  // qui écrire, arrivait vingt-neuvième. Le planner recevait de quoi envoyer et rien pour savoir
+  // à qui : le plan qui en sort est cohérent et inexécutable.
+  //
+  // Le tourniquet garantit qu'un domaine PERTINENT est représenté avant qu'un autre domaine
+  // pertinent ne prenne une deuxième, troisième et quatrième place.
+  const classees = new Map<string, { b: CapabilityBrief; score: number }[]>();
+  for (const n of notes) {
+    classees.set(n.b.domain, [...(classees.get(n.b.domain) ?? []), n]);
+  }
+
+  // Le tourniquet ne prend que le PLANCHER par domaine ; le reste des places revient au
+  // classement global. Sans cette borne, cinq domaines se partageraient les vingt-huit places à
+  // parts égales, et la cinquième capacité d'un domaine marginal passerait devant la deuxième du
+  // domaine central.
+  for (let rang = 0; rang < parDomaine && retenues.size < limite; rang++) {
+    for (const d of domaines) {
+      if (retenues.size >= limite) break;
+      const liste = classees.get(d) ?? [];
+      // Au premier tour on prend la meilleure de chaque domaine pertinent ; aux tours suivants
+      // on complète. Le PLANCHER (`parDomaine`) autorise à prendre une capacité qui n'a rien
+      // marqué : c'est là que vivent les lectures qui alimentent l'action — `directory_list` ne
+      // parle pas de « bonne année », et c'est pourtant elle qui donne la liste des gens.
+      const candidate = liste.find((n) => !retenues.has(n.b.id));
+      if (candidate) ajouter(candidate.b);
     }
   }
 
-  // Rien n'a marqué : on montre les mieux classées plutôt que rien. Un planner sans capacité
-  // ne produit pas un plan honnête, il produit un plan vide.
+  // Il reste des places : on les donne aux mieux classées, tous domaines confondus.
+  for (const n of pertinentes) {
+    if (retenues.size >= limite) break;
+    ajouter(n.b);
+  }
+
+  // Rien n'a marqué — une demande formulée dans des mots qu'aucune capacité n'emploie. On montre
+  // les mieux classées plutôt que rien : un planner sans capacité ne produit pas un plan honnête,
+  // il produit un plan vide.
   if (retenues.size === 0) for (const n of notes.slice(0, limite)) ajouter(n.b);
 
   const capacites = [...retenues.values()];

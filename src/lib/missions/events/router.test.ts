@@ -26,7 +26,7 @@ const TAG = `__mrouter__${Date.now()}`;
 let ownerId = "";
 let actor: MissionActor;
 
-const CONNUES = ["directory_list", "inspect_record", "send_erp_message", "notify_person"];
+const CONNUES = ["directory_list", "inspect_record", "send_message", "create_admin_request"];
 const catalogue: CapabilityCatalog = {
   has: (n) => CONNUES.includes(n),
   allowed: () => true,
@@ -58,7 +58,7 @@ async function creerMission(steps: PlannedStep[], titre: string) {
 
 /** La mission canonique du §28 : demander, attendre, poursuivre. */
 const PLAN_ATTENTE: PlannedStep[] = [
-  { key: "demande", title: "Demander le contrat", capability: "send_erp_message", input: { to: "redouane" } },
+  { key: "demande", title: "Demander le contrat", capability: "send_message", input: { to: "redouane" } },
   {
     key: "attente", title: "Réponse de Redouane", nodeType: "WAIT_EVENT", dependsOn: ["demande"],
     waitFor: { event: "DOCUMENT_UPLOADED", from: "redouane", withinDays: 5 },

@@ -91,7 +91,10 @@ export function entreeIteration(
  */
 export function identiteIteration(element: unknown, index: number): string {
   if (element === null || typeof element !== "object") return String(element ?? index);
-  for (const champ of ["id", "employeeId", "userId", "email", "reference", "key"]) {
+  // L'ordre est celui de la STABILITÉ décroissante : un identifiant ne change jamais, une
+  // adresse rarement, un nom parfois. Le nom figure quand même — il vaut infiniment mieux qu'un
+  // index, qui, lui, change à chaque relecture de la liste dans un ordre différent.
+  for (const champ of ["id", "employeeId", "userId", "email", "reference", "key", "nom", "name", "fullName"]) {
     const v = lire(element, champ);
     if (typeof v === "string" && v.trim() !== "") return v.trim();
     if (typeof v === "number") return String(v);

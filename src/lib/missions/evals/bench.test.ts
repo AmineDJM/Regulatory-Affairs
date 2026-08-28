@@ -50,7 +50,7 @@ const TAG = `__bench__${Date.now()}`;
 let ownerId = "";
 let actor: MissionActor;
 
-const CONNUES = ["directory_list", "inspect_record", "employee_360", "send_erp_message", "send_prepared_mail"];
+const CONNUES = ["directory_list", "inspect_record", "employee_360", "send_message", "send_email"];
 const catalogue: CapabilityCatalog = {
   has: (n) => CONNUES.includes(n),
   allowed: () => true,
@@ -188,7 +188,7 @@ suite("BANC D'ESSAI — Mission Runtime", () => {
     const { id } = await creer([
       { key: "liste", title: "Lister", capability: "directory_list" },
       {
-        key: "msg", title: "Message", capability: "send_erp_message",
+        key: "msg", title: "Message", capability: "send_message",
         forEach: { from: "liste", path: "gens", as: "g" }, input: { to: "{{g.id}}" },
       },
     ], "éventail massif");
@@ -197,7 +197,7 @@ suite("BANC D'ESSAI — Mission Runtime", () => {
     KPI.etapesExecutees += r.executees;
     expect(r.deployees).toBe(120);
 
-    const envois = t.appels.filter((a) => a.capability === "send_erp_message");
+    const envois = t.appels.filter((a) => a.capability === "send_message");
     expect(envois).toHaveLength(120);
     // ISOLATION : 120 destinataires distincts, 120 clés d'idempotence distinctes.
     expect(new Set(envois.map((a) => a.input.to)).size).toBe(120);
@@ -210,7 +210,7 @@ suite("BANC D'ESSAI — Mission Runtime", () => {
     const t = traceur();
     const { id, mission } = await creer([
       { key: "porte", title: "Accord", nodeType: "APPROVAL" },
-      { key: "envoi", title: "Envoi", capability: "send_prepared_mail", input: { to: "a@x.dz" }, dependsOn: ["porte"] },
+      { key: "envoi", title: "Envoi", capability: "send_email", input: { to: "a@x.dz" }, dependsOn: ["porte"] },
     ], "approbation");
     const p = perimetre(mission)!;
 
@@ -255,7 +255,7 @@ suite("BANC D'ESSAI — Mission Runtime", () => {
     KPI.scenarios += 1;
     const t = traceur();
     const steps: PlannedStep[] = Array.from({ length: 10 }, (_, i) => ({
-      key: `s${i}`, title: `S${i}`, capability: "send_erp_message", input: { to: `p${i}` },
+      key: `s${i}`, title: `S${i}`, capability: "send_message", input: { to: `p${i}` },
       dependsOn: i === 0 ? [] : [`s${i - 1}`],
     }));
     const { id } = await creer(steps, "coupure à 40 %");
@@ -454,7 +454,7 @@ suite("BANC D'ESSAI — Mission Runtime", () => {
     const plan: MissionPlan = {
       objective: "vœux", acceptance: ["chacun a reçu"], complexity: "B", scale: "MASSIVE",
       steps: [{
-        key: "voeux", title: "Vœux", capability: "send_prepared_mail",
+        key: "voeux", title: "Vœux", capability: "send_email",
         input: { to: Array.from({ length: 33 }, (_, i) => `p${i}@x.dz`) },
       }],
     };

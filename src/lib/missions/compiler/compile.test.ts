@@ -16,8 +16,8 @@ import { capabilityMeta } from "@/lib/missions/registry/capability-meta";
  */
 function catalogue(interdites: string[] = []): CapabilityCatalog {
   const connues = [
-    "directory_list", "employee_360", "read_hr_overview", "prepare_mail",
-    "send_prepared_mail", "send_erp_message", "notify_person", "inspect_record",
+    "directory_list", "employee_360", "read_hr_overview", "gmail_prepare_mail",
+    "send_email", "send_message", "create_admin_request", "inspect_record",
   ];
   return {
     has: (n) => connues.includes(n),
@@ -128,7 +128,7 @@ describe("compilateur — cardinalité (§26)", () => {
   it("REFUSE trente-trois destinataires dans une seule étape d'envoi", () => {
     const r = compile(plan([
       {
-        key: "voeux", title: "Vœux", capability: "send_prepared_mail",
+        key: "voeux", title: "Vœux", capability: "send_email",
         input: { to: Array.from({ length: 33 }, (_, i) => `p${i}@adventum.dz`) },
       },
     ]), catalogue(), pdg);
@@ -138,7 +138,7 @@ describe("compilateur — cardinalité (§26)", () => {
 
   it("REFUSE aussi la liste déguisée en chaîne « a@x, b@x »", () => {
     const r = compile(plan([
-      { key: "voeux", title: "Vœux", capability: "send_prepared_mail", input: { to: "a@x.dz, b@x.dz" } },
+      { key: "voeux", title: "Vœux", capability: "send_email", input: { to: "a@x.dz, b@x.dz" } },
     ]), catalogue(), pdg);
     expect(codes(r)).toContain("CARDINALITY");
   });
@@ -146,7 +146,7 @@ describe("compilateur — cardinalité (§26)", () => {
   it("REFUSE une copie carbone même quand le destinataire principal est unique", () => {
     const r = compile(plan([
       {
-        key: "voeux", title: "Vœux", capability: "send_prepared_mail",
+        key: "voeux", title: "Vœux", capability: "send_email",
         input: { to: "a@x.dz", cc: ["b@x.dz", "c@x.dz"] },
       },
     ]), catalogue(), pdg);
@@ -157,7 +157,7 @@ describe("compilateur — cardinalité (§26)", () => {
     const r = compile(plan([
       { key: "liste", title: "Lister", capability: "directory_list" },
       {
-        key: "voeux", title: "Vœux", capability: "send_prepared_mail",
+        key: "voeux", title: "Vœux", capability: "send_email",
         forEach: { from: "liste", path: "employes", as: "employe" },
         input: { to: "{{employe.email}}" },
       },
@@ -169,7 +169,7 @@ describe("compilateur — cardinalité (§26)", () => {
     const r = compile(plan([
       { key: "liste", title: "Lister", capability: "directory_list" },
       {
-        key: "voeux", title: "Vœux", capability: "send_prepared_mail",
+        key: "voeux", title: "Vœux", capability: "send_email",
         forEach: { from: "liste", path: "employes", as: "employe" },
         input: { to: ["a@x.dz", "b@x.dz"] },
       },
@@ -186,7 +186,7 @@ describe("compilateur — cardinalité (§26)", () => {
 
   it("laisse passer un envoi à UN seul destinataire", () => {
     const r = compile(plan([
-      { key: "un", title: "Un", capability: "send_prepared_mail", input: { to: "alla@adventum.dz" } },
+      { key: "un", title: "Un", capability: "send_email", input: { to: "alla@adventum.dz" } },
     ]), catalogue(), pdg);
     expect(r.ok).toBe(true);
   });
@@ -197,7 +197,7 @@ describe("compilateur — éventail (§10)", () => {
     const r = compile(plan([
       { key: "liste", title: "Lister", capability: "directory_list" },
       {
-        key: "msg", title: "Messages", capability: "send_erp_message",
+        key: "msg", title: "Messages", capability: "send_message",
         forEach: { from: "liste", path: "employes", as: "e" },
       },
     ]), catalogue(), pdg);
@@ -209,7 +209,7 @@ describe("compilateur — éventail (§10)", () => {
 
   it("refuse un éventail dont la source n'existe pas", () => {
     const r = compile(plan([
-      { key: "msg", title: "M", capability: "send_erp_message", forEach: { from: "nulle-part", path: "x", as: "e" } },
+      { key: "msg", title: "M", capability: "send_message", forEach: { from: "nulle-part", path: "x", as: "e" } },
     ]), catalogue(), pdg);
     expect(codes(r)).toContain("UNKNOWN_FANOUT_SOURCE");
   });
@@ -218,7 +218,7 @@ describe("compilateur — éventail (§10)", () => {
     // `msg` prétend lire la sortie de `apres`, qui dépend de `msg`. La dépendance implicite rend
     // l'impossibilité visible sous sa vraie forme : un cycle, pas une source manquante.
     const r = compile(plan([
-      { key: "msg", title: "M", capability: "send_erp_message", forEach: { from: "apres", path: "x", as: "e" } },
+      { key: "msg", title: "M", capability: "send_message", forEach: { from: "apres", path: "x", as: "e" } },
       { key: "apres", title: "A", capability: "directory_list", dependsOn: ["msg"] },
     ]), catalogue(), pdg);
     expect(codes(r)).toContain("CYCLE");
@@ -300,7 +300,7 @@ describe("compilateur — effets, idempotence, approbation", () => {
 
   it("un envoi externe exige une approbation et une clé d'idempotence", () => {
     const r = compile(plan([
-      { key: "m", title: "M", capability: "send_prepared_mail", input: { to: "a@x.dz" } },
+      { key: "m", title: "M", capability: "send_email", input: { to: "a@x.dz" } },
     ]), catalogue(), pdg);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -317,8 +317,8 @@ describe("compilateur — effets, idempotence, approbation", () => {
   it("l'effet maximal est celui de la pire étape, pas la moyenne", () => {
     const r = compile(plan([
       { key: "a", title: "A", capability: "directory_list" },
-      { key: "b", title: "B", capability: "send_erp_message", dependsOn: ["a"], input: { to: "x" } },
-      { key: "c", title: "C", capability: "send_prepared_mail", dependsOn: ["a"], input: { to: "x@y.dz" } },
+      { key: "b", title: "B", capability: "send_message", dependsOn: ["a"], input: { to: "x" } },
+      { key: "c", title: "C", capability: "send_email", dependsOn: ["a"], input: { to: "x@y.dz" } },
     ]), catalogue(), pdg);
     expect(r.ok && r.mission.maxEffect).toBe("EXTERNAL_COMMUNICATION");
   });

@@ -13,6 +13,8 @@ import { demanderApprobation, porteApprobation, prevenir } from "@/lib/missions/
 import { agentPour } from "@/lib/missions/agent/principal";
 import { CONCURRENCE_PAR_ECHELLE } from "@/lib/missions/model/roles";
 import type { CompileIssue } from "@/lib/missions/planner/contract";
+import type { Reasoner } from "@/lib/missions/ports";
+import type { ArtifactSink } from "@/lib/missions/artifacts/build";
 import { acteurDe, catalogueDe } from "@/platform/in-process/missions/catalog";
 import { raisonneur } from "@/platform/in-process/missions/reasoner";
 import { ExecutantReel } from "@/platform/in-process/missions/runner";
@@ -56,6 +58,14 @@ export interface AssemblageMission {
   juge: JugeReel;
 }
 
+export interface OptionsAssemblage {
+  complexite?: "A" | "B" | "C";
+  /** Le raisonneur. Par défaut le VRAI, qui appelle la passerelle modèle. */
+  reasoner?: Reasoner;
+  /** Où déposer les livrables. Par défaut le Drive. */
+  sink?: ArtifactSink;
+}
+
 /**
  * ASSEMBLE LE MOTEUR POUR UNE PERSONNE.
  *
@@ -63,19 +73,24 @@ export interface AssemblageMission {
  * structurel d'auto-escalade (`policy/guard.ts`). La personne reste l'initiatrice, et ses
  * droits restent la borne — l'agent ne peut jamais faire PLUS qu'elle, seulement moins.
  */
-export function assembler(user: CurrentUser, opts: { complexite?: "A" | "B" | "C" } = {}): AssemblageMission {
+export function assembler(user: CurrentUser, opts: OptionsAssemblage = {}): AssemblageMission {
   const catalogue = catalogueDe(user);
   const runner = new ExecutantReel(user);
-  const juge = new JugeReel(raisonneur, opts.complexite ?? "B");
+  // LE RAISONNEUR EST INJECTABLE, et le défaut est le VRAI. Ce n'est pas une couture pour les
+  // tests : c'est la seule dépendance du composeur qui traverse le réseau, donc la seule qu'un
+  // banc d'essai puisse vouloir remplacer sans rien changer d'autre. Tout le reste — catalogue,
+  // exécutant, dépôt, moteur, contrôle, juge — reste celui de la production, y compris sous test.
+  const cerveau = opts.reasoner ?? raisonneur;
+  const juge = new JugeReel(cerveau, opts.complexite ?? "B");
 
   const deps: EngineDeps = {
     runner,
     catalog: catalogue,
     juge,
     handlers: {
-      WORKER: (ctx) => executerWorker(ctx, { reasoner: raisonneur }),
+      WORKER: (ctx) => executerWorker(ctx, { reasoner: cerveau }),
       QA: (ctx) => controleQualite(ctx),
-      ARTIFACT: (ctx) => executerArtefact(ctx, { reasoner: raisonneur, sink: depotDrive }),
+      ARTIFACT: (ctx) => executerArtefact(ctx, { reasoner: cerveau, sink: opts.sink ?? depotDrive }),
       APPROVAL: porteApprobation(null, ""),
     },
   };
@@ -110,7 +125,7 @@ async function controleQualite(ctx: StepContext): Promise<StepOutcome> {
   };
 }
 
-export interface LancementOptions {
+export interface LancementOptions extends OptionsAssemblage {
   /** Le contexte que l'appelant connaît : contraintes, working set, mémoire, politiques. */
   contexte?: ContextePlanification;
   /** Un titre pour l'écran. Déduit de l'objectif s'il est absent. */
@@ -159,12 +174,13 @@ export async function lancerMission(
 ): Promise<ResultatLancement> {
   const catalogue = catalogueDe(user);
   const acteur = acteurDe(user);
+  const cerveau = opts.reasoner ?? raisonneur;
   const contexte: ContextePlanification = {
     aujourdhui: new Date().toLocaleDateString("fr-FR"),
     ...opts.contexte,
   };
 
-  let plan = await planifier(objectif, catalogue, acteur, raisonneur, { contexte });
+  let plan = await planifier(objectif, catalogue, acteur, cerveau, { contexte });
   if (!plan.ok) return { ok: false, error: plan.error, metriques: plan.metriques };
 
   // L'ACTEUR DE COMPILATION EST L'AGENT : c'est lui qui exécutera, donc c'est SA politique qui
@@ -174,7 +190,7 @@ export async function lancerMission(
   let compile1 = compile(plan.plan, catalogue, agent);
 
   if (!compile1.ok) {
-    const secondEssai = await planifier(objectif, catalogue, acteur, raisonneur, {
+    const secondEssai = await planifier(objectif, catalogue, acteur, cerveau, {
       contexte: { ...contexte, refusPrecedent: compile1.issues.map((i) => `[${i.code}] ${i.stepKey ?? "plan"} : ${i.message}`) },
     });
     if (!secondEssai.ok) {
@@ -226,7 +242,7 @@ export async function lancerMission(
   }
 
   if (opts.demarrer !== false) {
-    await avancerMission(user, missionId, { complexite: mission.complexity });
+    await avancerMission(user, missionId, { ...opts, complexite: mission.complexity });
   }
 
   return {
@@ -252,7 +268,7 @@ export async function lancerMission(
 export async function avancerMission(
   user: CurrentUser,
   missionId: string,
-  opts: { complexite?: "A" | "B" | "C"; maxTours?: number } = {},
+  opts: OptionsAssemblage & { maxTours?: number } = {},
 ) {
   const proprietaire = await prisma.mission.findFirst({
     where: { id: missionId, ownerId: user.id },
@@ -264,6 +280,7 @@ export async function avancerMission(
   if (!proprietaire) return null;
 
   const { deps } = assembler(user, {
+    ...opts,
     complexite: opts.complexite ?? (proprietaire.complexity as "A" | "B" | "C" | null) ?? "B",
   });
   const agent = agentPour({ initiatedBy: user.id, executedBy: user.id, label: user.name });

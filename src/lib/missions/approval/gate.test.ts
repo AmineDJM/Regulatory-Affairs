@@ -27,7 +27,7 @@ const TAG = `__mappr__${Date.now()}`;
 let ownerId = "";
 let actor: MissionActor;
 
-const CONNUES = ["directory_list", "inspect_record", "send_erp_message", "send_prepared_mail"];
+const CONNUES = ["directory_list", "inspect_record", "send_message", "send_email"];
 const catalogue: CapabilityCatalog = {
   has: (n) => CONNUES.includes(n),
   allowed: () => true,
@@ -61,7 +61,7 @@ const PLAN_VOEUX: PlannedStep[] = [
   { key: "liste", title: "Lister l'effectif", capability: "directory_list" },
   { key: "porte", title: "Votre accord", nodeType: "APPROVAL", dependsOn: ["liste"] },
   {
-    key: "voeux", title: "Vœux", capability: "send_erp_message", dependsOn: ["porte"],
+    key: "voeux", title: "Vœux", capability: "send_message", dependsOn: ["porte"],
     forEach: { from: "liste", path: "employes", as: "e" },
     input: { to: "{{e.id}}", corps: "Bonne année {{e.prenom}}" },
   },
@@ -94,7 +94,7 @@ suite("Mission Runtime — la porte d'approbation", () => {
       handlers: { APPROVAL: porteApprobation(p, "Vœux 2026") },
     });
     expect(r1.status).toBe("AWAITING_APPROVAL");
-    expect(t.appels.filter((a) => a.capability === "send_erp_message")).toHaveLength(0);
+    expect(t.appels.filter((a) => a.capability === "send_message")).toHaveLength(0);
 
     // La demande existe, une seule fois, et le PDG a été prévenu.
     const attente = await approbationsEnAttente(ownerId);
@@ -112,7 +112,7 @@ suite("Mission Runtime — la porte d'approbation", () => {
     // ── DEUXIÈME TOUR SANS ACCORD : toujours rien ─────────────────────────────────────
     const t2 = traceur();
     await avancer(id, actor, { runner: t2.runner, handlers: { APPROVAL: porteApprobation(p, "Vœux 2026") } });
-    expect(t2.appels.filter((a) => a.capability === "send_erp_message")).toHaveLength(0);
+    expect(t2.appels.filter((a) => a.capability === "send_message")).toHaveLength(0);
     // Et la demande n'a PAS été dupliquée — sinon le PDG recevrait une alerte par tour.
     expect((await approbationsEnAttente(ownerId)).filter((a) => a.missionId === id)).toHaveLength(1);
 
@@ -121,7 +121,7 @@ suite("Mission Runtime — la porte d'approbation", () => {
 
     const t3 = traceur();
     await avancer(id, actor, { runner: t3.runner, handlers: { APPROVAL: porteApprobation(p, "Vœux 2026") } });
-    const envois = t3.appels.filter((a) => a.capability === "send_erp_message");
+    const envois = t3.appels.filter((a) => a.capability === "send_message");
     expect(envois).toHaveLength(33);
     expect(new Set(envois.map((a) => a.input.to)).size).toBe(33);
 
@@ -133,7 +133,7 @@ suite("Mission Runtime — la porte d'approbation", () => {
   it("un refus arrête la branche DÉFINITIVEMENT, sans réessayer", async () => {
     const m = compiler([
       { key: "porte", title: "Accord", nodeType: "APPROVAL" },
-      { key: "envoi", title: "Envoi", capability: "send_prepared_mail", input: { to: "a@x.dz" }, dependsOn: ["porte"] },
+      { key: "envoi", title: "Envoi", capability: "send_email", input: { to: "a@x.dz" }, dependsOn: ["porte"] },
     ], "refus");
     const p = perimetre(m)!;
     const id = await materialiser(m, { ownerId, title: "Refusée", goalRaw: "refus" });
@@ -158,7 +158,7 @@ suite("Mission Runtime — la porte d'approbation", () => {
   it("une décision ne se prend qu'UNE fois", async () => {
     const m = compiler([
       { key: "porte", title: "Accord", nodeType: "APPROVAL" },
-      { key: "e", title: "E", capability: "send_erp_message", input: { to: "x" }, dependsOn: ["porte"] },
+      { key: "e", title: "E", capability: "send_message", input: { to: "x" }, dependsOn: ["porte"] },
     ], "double décision");
     const p = perimetre(m)!;
     const id = await materialiser(m, { ownerId, title: "Double", goalRaw: "double" });
@@ -173,14 +173,14 @@ suite("Mission Runtime — la porte d'approbation", () => {
 
   it("§33 — un périmètre MODIFIÉ périme la demande en attente et en ouvre une neuve", async () => {
     const initial = compiler([
-      { key: "e", title: "E", capability: "send_prepared_mail", input: { to: "alla@x.dz", corps: "Prime" } },
+      { key: "e", title: "E", capability: "send_email", input: { to: "alla@x.dz", corps: "Prime" } },
     ], "changement de périmètre");
     const id = await materialiser(initial, { ownerId, title: "Périmètre", goalRaw: "périmètre" });
     const premiere = await demanderApprobation(id, perimetre(initial)!, ownerId, "Périmètre");
 
     // Le corps change : ce n'est plus la même mission derrière le même plan.
     const modifie = compiler([
-      { key: "e", title: "E", capability: "send_prepared_mail", input: { to: "alla@x.dz", corps: "Gel des salaires" } },
+      { key: "e", title: "E", capability: "send_email", input: { to: "alla@x.dz", corps: "Gel des salaires" } },
     ], "changement de périmètre");
     const seconde = await demanderApprobation(id, perimetre(modifie)!, ownerId, "Périmètre");
 
@@ -194,7 +194,7 @@ suite("Mission Runtime — la porte d'approbation", () => {
 
   it("un périmètre INCHANGÉ retrouve la demande existante au lieu d'en créer une seconde", async () => {
     const m = compiler([
-      { key: "e", title: "E", capability: "send_erp_message", input: { to: "p1" } },
+      { key: "e", title: "E", capability: "send_message", input: { to: "p1" } },
     ], "périmètre stable");
     const id = await materialiser(m, { ownerId, title: "Stable", goalRaw: "stable" });
     const a = await demanderApprobation(id, perimetre(m)!, ownerId, "Stable");

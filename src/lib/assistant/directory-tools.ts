@@ -185,6 +185,12 @@ export const DIRECTORY_TOOLS: PowerTool[] = [
           const phones = (e.directoryEntry?.endpoints ?? []).filter((p) => p.channel !== DirectoryChannel.EMAIL).map((p) => p.value);
           if (e.phone && !phones.includes(e.phone)) phones.push(e.phone);
           return {
+            // L'IDENTITÉ CANONIQUE D'ABORD (§28). Elle était SÉLECTIONNÉE et jamais rendue :
+            // tout ce qui consommait cette liste devait donc désigner les gens par leur NOM, y
+            // compris le déploiement en éventail d'une mission — qui retombait alors sur
+            // l'INDEX de la ligne. Une liste relue dans un ordre différent faisait glisser
+            // « message#7 » d'une personne à une autre, sans qu'aucune erreur n'apparaisse.
+            id: e.id,
             nom: e.fullName,
             poste: e.position,
             departement: e.department,

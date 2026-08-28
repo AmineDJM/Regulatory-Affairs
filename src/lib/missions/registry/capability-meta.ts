@@ -116,16 +116,32 @@ export const DECLARED: Record<string, Omit<CapabilityMeta, "id" | "declared">> =
   read_calendar: { domain: "calendar", effect: "READ", idempotent: true, batchable: false, latency: "LOW", confirmation: "NEVER" },
   list_pending_decisions: { domain: "tasks", effect: "READ", idempotent: true, batchable: false, latency: "LOW", confirmation: "NEVER" },
 
-  // ─────────── Communications ───────────
+  // ─────────── Communications et écritures ───────────
   //
-  // `idempotent: false` est la VÉRITÉ de l'outil : rappeler `prepare_mail` deux fois prépare
-  // deux brouillons. C'est le moteur qui rend l'ÉTAPE idempotente, en posant une clé unique
-  // autour de l'appel. Confondre les deux ferait croire qu'un retry est sans danger.
-  prepare_mail: { domain: "mail", effect: "PREPARE", idempotent: false, batchable: true, latency: "MEDIUM", confirmation: "NEVER" },
-  send_prepared_mail: { domain: "mail", effect: "EXTERNAL_COMMUNICATION", idempotent: false, batchable: true, latency: "MEDIUM", confirmation: "POLICY_ENGINE" },
-  send_erp_message: { domain: "messaging", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
-  notify_person: { domain: "notifications", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
-  create_task_request: { domain: "tasks", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
+  // ── CES NOMS SONT CEUX DU REGISTRE RÉEL, ET C'EST UNE CORRECTION ───────────────────────
+  //
+  // La première version de cette table nommait `prepare_mail`, `send_erp_message`,
+  // `notify_person` et `create_task_request` : des noms PLAUSIBLES, écrits d'après l'intention,
+  // et qui n'existaient nulle part. Rien ne tombait — `capabilityMeta` dérive prudemment un nom
+  // inconnu — mais la dérivation prudente rend `batchable: false`, ce qui aurait fait REFUSER
+  // par le compilateur le déploiement en éventail de la mission la plus banale du produit
+  // (« écris à chaque salarié »), avec un message parlant d'une capacité qui n'existe pas.
+  //
+  // `catalog.test.ts` interdit désormais qu'une capacité déclarée ici n'ait pas d'outil réel.
+  //
+  // `idempotent: false` est la VÉRITÉ de ces outils : rappeler `send_message` deux fois envoie
+  // deux messages. C'est le MOTEUR qui rend l'ÉTAPE idempotente, en posant une clé unique autour
+  // de l'appel. Confondre les deux ferait croire qu'un rejeu est sans danger.
+  gmail_prepare_mail: { domain: "mail", effect: "PREPARE", idempotent: false, batchable: true, latency: "MEDIUM", confirmation: "NEVER" },
+  send_email: { domain: "mail", effect: "EXTERNAL_COMMUNICATION", idempotent: false, batchable: true, latency: "MEDIUM", confirmation: "POLICY_ENGINE" },
+  send_message: { domain: "messaging", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
+  create_task: { domain: "tasks", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
+  create_admin_request: { domain: "tasks", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
+  create_calendar_event: { domain: "calendar", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
+  search_people: { domain: "directory", effect: "READ", idempotent: true, batchable: true, latency: "LOW", confirmation: "NEVER" },
+  search_drive: { domain: "drive", effect: "READ", idempotent: true, batchable: true, latency: "MEDIUM", confirmation: "NEVER" },
+  read_document: { domain: "drive", effect: "READ", idempotent: true, batchable: true, latency: "MEDIUM", confirmation: "NEVER" },
+  create_report: { domain: "office", effect: "PREPARE", idempotent: false, batchable: false, latency: "HIGH", confirmation: "NEVER" },
 };
 
 /**
@@ -135,6 +151,43 @@ export const DECLARED: Record<string, Omit<CapabilityMeta, "id" | "declared">> =
  * destructif, `send_*` communique, `create_*` / `update_*` écrivent. Elle n'est utilisée que
  * lorsque rien n'a été déclaré, et elle ne peut que RENFORCER la garde, jamais l'affaiblir.
  */
+/**
+ * LE DOMAINE D'UNE CAPACITÉ NON DÉCLARÉE, DÉDUIT DE SON NOM.
+ *
+ * ── POURQUOI « inconnu » NE POUVAIT PAS RESTER ──────────────────────────────────────────
+ *
+ * Le résolveur (§3) sélectionne les capacités en TOURNIQUET entre domaines, pour garantir qu'un
+ * domaine pertinent soit représenté. Tant que les cent quarante capacités non déclarées
+ * partageaient le domaine « inconnu », ce domaine unique raflait une part entière du tourniquet
+ * et y déversait n'importe quoi — `update_hospital` et `update_salary` se retrouvaient devant le
+ * planner d'une mission de messagerie.
+ *
+ * La déduction ci-dessous est grossière et le restera : elle sert à REGROUPER, pas à décider.
+ * Aucune garde ne s'appuie dessus — l'effet, lui, continue d'être dérivé prudemment.
+ */
+export function domaineDeduit(name: string): string {
+  const n = name.toLowerCase();
+  const table: [RegExp, string][] = [
+    [/mail|email|gmail|courriel/, "mail"],
+    [/message|messaging|notification|notify/, "messaging"],
+    [/drive|document|file|folder|piece/, "drive"],
+    [/employee|employe|hr|rh|salary|salaire|paie|payroll|conge|leave|recruit/, "hr"],
+    [/task|tache|request|demande|todo|reminder|rappel|workflow|validation/, "tasks"],
+    [/regulatory|dossier|ctd|anpp|product|produit|molecule/, "regulatory"],
+    [/pch|tender|marche|hospital|hopital|stock/, "pch"],
+    [/finance|payment|paiement|invoice|facture|budget|treasury|tresorerie|expense/, "finance"],
+    [/legal|contract|contrat|courrier/, "legal"],
+    [/calendar|agenda|meeting|reunion|slot/, "calendar"],
+    [/directory|annuaire|person|people|contact|medecin|doctor/, "directory"],
+    [/promo|adpro|ad_pro|event|sponsor|congress/, "adpro"],
+    [/report|export|excel|docx|pptx|pdf|deliverable|livrable/, "office"],
+    [/account|user|role|permission|admin|setting|parametre/, "platform"],
+    [/search|inspect|find|read|list|show/, "platform"],
+  ];
+  for (const [motif, domaine] of table) if (motif.test(n)) return domaine;
+  return "autre";
+}
+
 const PREFIXES: { test: (n: string) => boolean; effect: Effect }[] = [
   { test: (n) => n.startsWith("delete_") || n.includes("_delete") || n.startsWith("purge_"), effect: "DESTRUCTIVE" },
   { test: (n) => n.startsWith("send_") || n.startsWith("email_") || n.startsWith("mail_"), effect: "EXTERNAL_COMMUNICATION" },
@@ -173,7 +226,7 @@ export function capabilityMeta(name: string, estEcriture?: (n: string) => boolea
   const lecture = EFFECT_RANK[effect] <= EFFECT_RANK.ANALYZE;
   return {
     id: name,
-    domain: "inconnu",
+    domain: domaineDeduit(name),
     effect,
     idempotent: lecture,
     batchable: lecture,
