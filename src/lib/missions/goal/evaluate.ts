@@ -182,6 +182,50 @@ export function compteRendu(
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'EMPREINTE DE CE QUE LE JUGE LIT — pour ne jamais rejuger deux fois la même chose.
+ *
+ * ── LE GASPILLAGE QU'ELLE FERME ──────────────────────────────────────────────────────────
+ *
+ * `conclure()` s'exécute chaque fois que le moteur n'a plus rien à faire. Or le moteur passe
+ * par là plusieurs fois pour une seule mission : un humain relance depuis l'écran, une
+ * replanification n'ajoute finalement rien, le battement repasse. À chaque passage, le juge
+ * relisait un compte rendu RIGOUREUSEMENT IDENTIQUE et rendait le même verdict — pour dix à
+ * soixante-dix secondes de modèle, mesurées, et un jeu de jetons payé une seconde fois.
+ *
+ * ── POURQUOI UNE EMPREINTE PLUTÔT QU'UN DRAPEAU « DÉJÀ JUGÉ » ────────────────────────────
+ *
+ * Un drapeau dirait « on a jugé cette mission », ce qui est faux dès qu'une étape bouge : le
+ * verdict d'hier ne vaut plus pour l'exécution d'aujourd'hui, et le réutiliser ferait conclure
+ * sur des faits périmés. L'empreinte porte EXACTEMENT les trois entrées que le juge lit —
+ * l'objectif, les critères, le compte rendu — donc elle change dès que l'un des trois change,
+ * et elle ne change jamais quand aucun n'a changé. C'est la seule forme sous laquelle réutiliser
+ * un verdict n'est pas un raccourci mais une identité.
+ *
+ * ── POURQUOI UN HACHAGE ÉCRIT ICI PLUTÔT QUE `crypto` ────────────────────────────────────
+ *
+ * `src/lib/missions/` est une façade que des composants clients atteignent par leurs imports ;
+ * `client-bundle-guard.test.ts` fait tomber la suite dès qu'un module de ce côté-là tire un
+ * module de plateforme. FNV-1a tient en six lignes, n'importe rien, et l'usage n'est pas
+ * cryptographique : on compare deux exécutions du même moteur, pas des signatures.
+ */
+export function empreinteExecution(
+  objectif: string,
+  criteres: readonly string[],
+  resumeExecution: string,
+): string {
+  const source = `${objectif} ${criteres.join(" ")} ${resumeExecution}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < source.length; i++) {
+    h ^= source.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  // Une seconde passe sur la longueur : deux comptes rendus de tailles différentes qui
+  // entreraient en collision sur 32 bits se sépareraient ici.
+  return `${h.toString(16).padStart(8, "0")}-${source.length.toString(16)}`;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
  * LA SATISFACTION DE L'OBJECTIF.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
@@ -192,6 +236,21 @@ export interface VerdictObjectif {
   raison: string;
   /** Les critères d'acceptation qui n'ont pas de preuve. */
   sansPreuve: string[];
+  /**
+   * L'empreinte de ce qui a été jugé. `null` quand on n'est pas allé jusqu'à juger — la mission
+   * travaille encore, le contrôle arithmétique a refusé, ou il n'y a pas de critères.
+   */
+  empreinte?: string | null;
+  /** Vrai quand le verdict vient d'un jugement ANTÉRIEUR identique : aucun modèle n'a été appelé. */
+  reutilise?: boolean;
+}
+
+/** Un verdict déjà rendu, relu du journal canonique par l'appelant. */
+export interface JugementAnterieur {
+  empreinte: string;
+  satisfait: boolean;
+  raison: string;
+  sansPreuve?: readonly string[];
 }
 
 /**
@@ -218,17 +277,25 @@ export interface JugeObjectif {
  *   2. Le contrôle qualité passe-t-il ? Sinon, c'est NON — et aucun avis ne le renverse.
  *   3. Y a-t-il des critères d'acceptation ? Sans critères, on ne peut PAS conclure « oui » :
  *      on rendrait un satisfecit sans avoir rien vérifié.
- *   4. Alors seulement, on demande un avis. Et en son absence, la réponse est NON.
+ *   4. A-t-on DÉJÀ jugé exactement ce compte rendu ? Alors le verdict est connu, et le
+ *      redemander coûterait un appel de modèle pour réapprendre ce qui est écrit au journal.
+ *   5. Alors seulement, on demande un avis. Et en son absence, la réponse est NON.
  *
- * Le point 4 est celui qui coûte le plus cher à rater : un juge indisponible (pas de clé, panne
+ * Le point 5 est celui qui coûte le plus cher à rater : un juge indisponible (pas de clé, panne
  * du fournisseur) ne doit JAMAIS produire un « oui » par défaut. Un moteur qui conclut parce
  * qu'il n'a pas pu vérifier est pire qu'un moteur qui ne conclut pas.
+ *
+ * Le point 4 ne relâche rien : l'empreinte couvre les trois entrées du juge et RIEN d'autre, si
+ * bien qu'une seule étape qui bouge la fait changer. Réutiliser n'est donc pas « faire
+ * confiance à hier », c'est constater qu'on reposerait mot pour mot la même question.
  */
 export async function evaluerObjectif(opts: {
   objectif: string;
   criteres: readonly string[];
   steps: readonly EtapeObservee[];
   juge?: JugeObjectif;
+  /** Le dernier verdict rendu sur cette mission, relu du journal. */
+  anterieur?: JugementAnterieur | null;
 }): Promise<VerdictObjectif> {
   const tousFinis = opts.steps.length > 0
     && opts.steps.every((s) => STEP_TERMINAL.has(s.status)
@@ -255,11 +322,33 @@ export async function evaluerObjectif(opts: {
     };
   }
 
+  // LE COMPTE RENDU COMPLET, avec les CLÉS D'ÉTAPES — sans elles, le juge n'a rien à citer et
+  // `normaliser` ramène chaque critère à NON_DÉMONTRÉ. Voir l'en-tête de `compteRendu`.
+  const resumeExecution = compteRendu(opts.steps, qa);
+  const empreinte = empreinteExecution(opts.objectif, opts.criteres, resumeExecution);
+
   if (!opts.juge) {
     return {
-      satisfait: false, avisModele: null, sansPreuve: [...opts.criteres],
+      satisfait: false, avisModele: null, sansPreuve: [...opts.criteres], empreinte,
       raison: `Toutes les étapes ont abouti (${qa.resume}), mais aucun juge n'a vérifié les `
         + `critères d'acceptation. La mission n'est pas déclarée atteinte pour autant.`,
+    };
+  }
+
+  // ── ON A DÉJÀ JUGÉ EXACTEMENT CELA ────────────────────────────────────────────────────
+  //
+  // Même objectif, mêmes critères, même compte rendu, au caractère près. Rappeler le juge
+  // reviendrait à lui reposer la question mot pour mot pour obtenir la même réponse.
+  if (opts.anterieur && opts.anterieur.empreinte === empreinte) {
+    return {
+      satisfait: opts.anterieur.satisfait,
+      // `avisModele` reste le jugement d'un modèle : c'en est un, rendu plus tôt. Le dire `null`
+      // ferait croire que personne n'a jugé, ce qui est précisément la confusion que §10 refuse.
+      avisModele: opts.anterieur.satisfait,
+      raison: opts.anterieur.raison,
+      sansPreuve: [...(opts.anterieur.sansPreuve ?? [])],
+      empreinte,
+      reutilise: true,
     };
   }
 
@@ -267,21 +356,21 @@ export async function evaluerObjectif(opts: {
     const avis = await opts.juge.juger({
       objectif: opts.objectif,
       criteres: opts.criteres,
-      // LE COMPTE RENDU COMPLET, avec les CLÉS D'ÉTAPES — sans elles, le juge n'a rien à citer
-      // et `normaliser` ramène chaque critère à NON_DÉMONTRÉ. Voir l'en-tête de `compteRendu`.
-      resumeExecution: compteRendu(opts.steps, qa),
+      resumeExecution,
     });
     return {
       satisfait: avis.satisfait,
       avisModele: avis.satisfait,
       raison: avis.raison,
       sansPreuve: avis.sansPreuve ?? [],
+      empreinte,
     };
   } catch (e) {
     // UN JUGE QUI TOMBE NE VAUT PAS UN OUI. C'est la ligne qui empêche une panne de fournisseur
-    // de se transformer en mission déclarée réussie.
+    // de se transformer en mission déclarée réussie. On ne rend PAS d'empreinte : rien n'a été
+    // jugé, et en enregistrer une ferait sauter le vrai jugement au passage suivant.
     return {
-      satisfait: false, avisModele: null, sansPreuve: [...opts.criteres],
+      satisfait: false, avisModele: null, sansPreuve: [...opts.criteres], empreinte: null,
       raison: `L'évaluation de l'objectif n'a pas pu être faite (${e instanceof Error ? e.message : "erreur"}). `
         + `Le travail est terminé, mais rien ne confirme qu'il répond à la demande.`,
     };

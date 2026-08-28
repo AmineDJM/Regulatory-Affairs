@@ -122,6 +122,10 @@ export class RaisonneurReel implements Reasoner {
           inputTokens: reply.usage.inputTokens,
           outputTokens: reply.usage.outputTokens,
           model: reply.usage.model,
+          // La passerelle les distingue déjà ; le port les jetait. Un plan à 6 563 jetons de
+          // sortie restait alors inexplicable — schéma trop lourd, ou réflexion trop longue ?
+          reasoningTokens: reply.usage.reasoningTokens,
+          cachedInputTokens: reply.usage.cachedInputTokens,
         }
       : null;
 

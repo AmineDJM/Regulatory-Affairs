@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { aReparer, controlerQualite, evaluerObjectif, type EtapeObservee, type JugeObjectif } from "./evaluate";
+import {
+  aReparer, controlerQualite, empreinteExecution, evaluerObjectif,
+  type EtapeObservee, type JugeObjectif,
+} from "./evaluate";
 import {
   CERTITUDES, ECHELLE, ERROR_KINDS, estFinPossible, presenter, prochaineStrategie,
   rejouable, utilisablePourAgir,
@@ -162,6 +165,110 @@ describe("satisfaction de l'objectif", () => {
     });
     expect(v.satisfait).toBe(false);
     expect(v.raison).toMatch(/ne parle pas du sujet/);
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * ON NE REJUGE PAS DEUX FOIS EXACTEMENT LA MÊME CHOSE.
+ *
+ * ── LA MESURE QUI A PRODUIT CE BLOC ──────────────────────────────────────────────────────
+ *
+ * `conclure()` tourne chaque fois que le moteur n'a plus rien à faire, et le moteur y repasse
+ * plusieurs fois pour une seule mission : un humain relance depuis l'écran, une replanification
+ * n'ajoute finalement rien, le battement revient. Le juge relisait alors un compte rendu
+ * rigoureusement identique — dix à soixante-dix secondes de modèle, mesurées, pour réapprendre
+ * une phrase déjà écrite au journal.
+ *
+ * ── CE QUE CES TESTS INTERDISENT, DANS LES DEUX SENS ─────────────────────────────────────
+ *
+ * Qu'on rappelle le juge quand rien n'a bougé — et, bien plus important, qu'on RÉUTILISE un
+ * verdict quand quelque chose a bougé. Le second sens est celui qui coûterait cher : une
+ * mission conclue sur les faits d'hier.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("l'empreinte du jugement", () => {
+  /** Un juge qui COMPTE ses appels : c'est le compteur qui prouve, pas le verdict. */
+  const jugeCompteur = () => {
+    const etat = { appels: 0 };
+    const j: JugeObjectif = {
+      juger: async () => {
+        etat.appels += 1;
+        return { satisfait: false, raison: "un critère sans preuve" };
+      },
+    };
+    return { juge: j, etat };
+  };
+
+  const steps = [etape("a", "DONE"), etape("b", "DONE")];
+
+  it("elle ne dépend QUE des trois entrées du juge — et change dès que l'une bouge", () => {
+    const base = empreinteExecution("o", ["c"], "compte rendu");
+    expect(empreinteExecution("o", ["c"], "compte rendu")).toBe(base);
+    expect(empreinteExecution("autre objectif", ["c"], "compte rendu")).not.toBe(base);
+    expect(empreinteExecution("o", ["c", "c2"], "compte rendu")).not.toBe(base);
+    expect(empreinteExecution("o", ["c"], "compte rendu différent")).not.toBe(base);
+  });
+
+  it("un verdict ANTÉRIEUR identique est réutilisé — le juge n'est pas rappelé", async () => {
+    const { juge, etat } = jugeCompteur();
+    const premier = await evaluerObjectif({ objectif: "o", criteres: ["c"], steps, juge });
+    expect(etat.appels).toBe(1);
+    expect(premier.empreinte).toBeTruthy();
+    expect(premier.reutilise).toBeFalsy();
+
+    const second = await evaluerObjectif({
+      objectif: "o", criteres: ["c"], steps, juge,
+      anterieur: { empreinte: premier.empreinte!, satisfait: false, raison: premier.raison },
+    });
+    // LE COMPTEUR EST LA PREUVE : aucun appel de modèle n'a eu lieu.
+    expect(etat.appels).toBe(1);
+    expect(second.reutilise).toBe(true);
+    expect(second.satisfait).toBe(false);
+    expect(second.raison).toBe(premier.raison);
+    // Et `avisModele` reste un avis de modèle : c'en est un, rendu plus tôt. Le mettre à `null`
+    // ferait croire que personne n'a jugé — exactement la confusion que §20 refuse.
+    expect(second.avisModele).toBe(false);
+  });
+
+  it("UNE ÉTAPE QUI BOUGE ROUVRE LE JUGEMENT — c'est le sens qui coûterait cher", async () => {
+    const { juge, etat } = jugeCompteur();
+    const premier = await evaluerObjectif({ objectif: "o", criteres: ["c"], steps, juge });
+    expect(etat.appels).toBe(1);
+
+    // Le verdict d'hier est présenté, mais l'exécution a changé : une étape de plus a abouti.
+    const second = await evaluerObjectif({
+      objectif: "o", criteres: ["c"],
+      steps: [...steps, etape("c", "DONE")],
+      juge,
+      anterieur: { empreinte: premier.empreinte!, satisfait: true, raison: "atteint hier" },
+    });
+    expect(etat.appels).toBe(2);
+    expect(second.reutilise).toBeFalsy();
+    expect(second.raison).not.toMatch(/hier/);
+  });
+
+  it("un juge qui TOMBE ne laisse AUCUNE empreinte — sinon la panne se figerait en verdict", async () => {
+    const casse: JugeObjectif = { juger: async () => { throw new Error("fournisseur indisponible"); } };
+    const v = await evaluerObjectif({ objectif: "o", criteres: ["c"], steps, juge: casse });
+    // Sans cette ligne, l'appelant enregistrerait une empreinte pour un jugement qui n'a pas eu
+    // lieu, et le passage suivant réutiliserait un « non » de panne au lieu de rejuger.
+    expect(v.empreinte).toBeNull();
+    expect(v.satisfait).toBe(false);
+  });
+
+  it("le verdict antérieur ne sert JAMAIS de raccourci aux contrôles qui le précèdent", async () => {
+    const { juge, etat } = jugeCompteur();
+    // Une étape en échec : le contrôle arithmétique refuse AVANT que l'empreinte n'existe.
+    const v = await evaluerObjectif({
+      objectif: "o", criteres: ["c"],
+      steps: [etape("a", "DONE"), etape("b", "FAILED")],
+      juge,
+      anterieur: { empreinte: "peu importe", satisfait: true, raison: "atteint" },
+    });
+    expect(v.satisfait).toBe(false);
+    expect(v.raison).toMatch(/contrôle ne passe pas/);
+    expect(etat.appels).toBe(0);
   });
 });
 

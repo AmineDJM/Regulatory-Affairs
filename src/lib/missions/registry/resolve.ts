@@ -179,6 +179,17 @@ export interface ResolutionOptions {
   imposees?: readonly string[];
   /** Combien de domaines participent au tourniquet. Au-delà, la sélection se dilue. */
   maxDomaines?: number;
+  /**
+   * LE SEUIL DE PERTINENCE, en fraction du meilleur score.
+   *
+   * Il ne s'applique qu'au REMPLISSAGE des places restantes, après le tourniquet par domaine.
+   * Relatif et non absolu : une demande écrite avec les mots du catalogue marque haut partout,
+   * une demande orale marque bas partout, et un seuil fixe trancherait au mauvais endroit dans
+   * l'un des deux cas.
+   */
+  seuilRelatif?: number;
+  /** Le plancher absolu — en dessous, un seul mot commun ne fait pas une pertinence. */
+  seuilMinimum?: number;
 }
 
 export interface Resolution {
@@ -284,9 +295,33 @@ export function resoudreCapacites(
     }
   }
 
-  // Il reste des places : on les donne aux mieux classées, tous domaines confondus.
+  /**
+   * ── LE SEUIL DE PERTINENCE — ce qui reste des places ne se donne pas au premier venu ────
+   *
+   * Cette boucle remplissait jusqu'à la limite tout ce qui marquait ne serait-ce qu'UN point.
+   * Un run réel l'a chiffré : 28 capacités montrées au planner, 3 à 5 réellement retenues dans
+   * le plan compilé, pour 9 095 caractères de résumés — de l'ordre de 2 300 jetons dans CHAQUE
+   * prompt de planification, dont les entrées mesuraient 4 200 à 5 100. Près de la moitié du
+   * prompt décrivait des outils que le plan n'a pas utilisés.
+   *
+   * Le coût n'est pas que financier. Vingt-trois capacités hors sujet sont vingt-trois pistes
+   * qu'un modèle examine avant de les écarter — et c'est du temps de réflexion, donc de la
+   * latence, sur le maillon le plus lent de la chaîne.
+   *
+   * ── POURQUOI CE SEUIL NE CACHE PAS UNE CAPACITÉ UTILE ───────────────────────────────────
+   *
+   * Il ne s'applique QU'À CETTE BOUCLE. Les capacités imposées sont déjà entrées ; le
+   * tourniquet par domaine, qui est la vraie garde — celle qui fait passer `directory_list`
+   * devant la cinquième capacité de messagerie — a déjà rempli son plancher AVANT. Ce qu'on
+   * coupe ici, c'est la QUEUE : ce qui a effleuré un mot de la demande sans jamais la
+   * concerner. Un score relatif plutôt qu'absolu, parce qu'une demande formulée avec les mots
+   * exacts du catalogue marque haut partout, et une demande orale marque bas partout.
+   */
+  const meilleur = pertinentes[0]?.score ?? 0;
+  const seuil = Math.max(opts.seuilMinimum ?? 2, meilleur * (opts.seuilRelatif ?? 0.25));
   for (const n of pertinentes) {
     if (retenues.size >= limite) break;
+    if (n.score < seuil) break; // `pertinentes` est trié : tout ce qui suit est plus faible.
     ajouter(n.b);
   }
 

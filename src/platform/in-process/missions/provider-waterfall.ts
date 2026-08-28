@@ -51,6 +51,15 @@ export interface AppelModele {
   modele: string | null;
   jetonsEntree: number | null;
   jetonsSortie: number | null;
+  /**
+   * LES JETONS DE RÉFLEXION — comptés DANS `jetonsSortie`, invisibles dans la réponse.
+   *
+   * C'est la mesure qui manquait pour expliquer un plan à 6 563 jetons de sortie alors que son
+   * JSON en pèse ~2 500 : la différence est du raisonnement, pas de la verbosité de schéma. Sans
+   * ce champ, on aurait allégé le schéma et découvert ensuite qu'il pesait un cinquième du total.
+   */
+  jetonsReflexion: number | null;
+  jetonsCaches: number | null;
   ok: boolean;
   erreur: string | null;
 }
@@ -107,6 +116,8 @@ export class RaisonneurInstrumente implements Reasoner {
       modele: r.usage?.model ?? null,
       jetonsEntree: r.usage?.inputTokens ?? null,
       jetonsSortie: r.usage?.outputTokens ?? null,
+      jetonsReflexion: r.usage?.reasoningTokens ?? null,
+      jetonsCaches: r.usage?.cachedInputTokens ?? null,
       ok: r.ok,
       erreur: r.ok ? null : r.error ?? "échec",
     });
@@ -236,6 +247,38 @@ export async function cascade(
   };
 }
 
+/**
+ * LA SYNTHÈSE PAR TYPE D'APPEL — la ligne que le rapport avant/après compare.
+ *
+ * Trois familles, parce que ce sont trois leviers différents : le PLANNER se réduit en montrant
+ * moins de capacités et en évitant les replans, le WORKER se réduit en parallélisant, le JUDGE
+ * se réduit en ne rejugeant pas ce qui n'a pas bougé. Les agréger en « appels de modèle »
+ * cacherait lequel des trois a bougé.
+ */
+export function parFamille(appels: AppelModele[]): {
+  famille: string; n: number; totalMs: number; entree: number; sortie: number; reflexion: number | null;
+}[] {
+  const cle = (a: AppelModele) =>
+    a.purpose.includes("plan") ? "PLANNER"
+    : a.purpose.includes("judge") ? "JUDGE"
+    : a.purpose.includes("worker") ? "WORKER"
+    : "AUTRE";
+  const groupes = new Map<string, AppelModele[]>();
+  for (const a of appels) groupes.set(cle(a), [...(groupes.get(cle(a)) ?? []), a]);
+  return [...groupes.entries()].map(([famille, xs]) => {
+    const mesures = xs.map((x) => x.jetonsReflexion).filter((x): x is number => x !== null);
+    return {
+      famille, n: xs.length,
+      totalMs: xs.reduce((s, x) => s + x.latenceMs, 0),
+      entree: xs.reduce((s, x) => s + (x.jetonsEntree ?? 0), 0),
+      sortie: xs.reduce((s, x) => s + (x.jetonsSortie ?? 0), 0),
+      // `null` quand le fournisseur n'a rien distingué — jamais zéro, qui voudrait dire
+      // « il n'a pas réfléchi » au lieu de « on ne sait pas ».
+      reflexion: mesures.length ? mesures.reduce((s, x) => s + x, 0) : null,
+    };
+  }).sort((a, b) => b.totalMs - a.totalMs);
+}
+
 /** La cascade, rendue pour un humain qui cherche où sont passées les secondes. */
 export function rendreCascade(c: Cascade): string[] {
   const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${n}ms`);
@@ -249,8 +292,21 @@ export function rendreCascade(c: Cascade): string[] {
     `  parallélisme entre appels    ${c.parallelisme ? "OUI" : "NON — tous séquentiels"}`,
     `  appels sans effet            ${c.appelsSansEffet}`,
     "",
+    "  PAR FAMILLE D'APPEL — les trois leviers, séparés",
+    "  famille    n      durée   jetons entrée   jetons sortie   dont réflexion",
+    ...parFamille(c.appels).map((f) => "  " + [
+      f.famille.padEnd(10),
+      String(f.n).padStart(2),
+      ms(f.totalMs).padStart(9),
+      String(f.entree).padStart(14),
+      String(f.sortie).padStart(15),
+      (f.reflexion === null
+        ? "NON MESURÉ"
+        : `${f.reflexion} (${Math.round((f.reflexion / Math.max(1, f.sortie)) * 100)} %)`).padStart(16),
+    ].join(" ")),
+    "",
     "  APPELS DE MODÈLE (ordre d'émission)",
-    "  seq  purpose                  rôle              début      durée    jetons e/s   schéma",
+    "  seq  purpose                  rôle              début      durée    jetons e/s   réflexion   schéma",
     ...c.appels.map((a) => "  " + [
       String(a.seq).padEnd(4),
       a.purpose.slice(0, 24).padEnd(25),
@@ -258,6 +314,9 @@ export function rendreCascade(c: Cascade): string[] {
       ms(a.debutMs).padStart(8),
       ms(a.latenceMs).padStart(8),
       `${a.jetonsEntree ?? "—"}/${a.jetonsSortie ?? "—"}`.padStart(12),
+      (a.jetonsReflexion !== null
+        ? `${a.jetonsReflexion} (${Math.round((a.jetonsReflexion / Math.max(1, a.jetonsSortie ?? 1)) * 100)} %)`
+        : "—").padStart(11),
       String(a.schemaChars).padStart(8),
     ].join(" ")),
     "",

@@ -172,6 +172,20 @@ export interface ReasonUsage {
   outputTokens: number;
   /** Le modèle réellement servi, tel que le fournisseur l'a rapporté. */
   model: string;
+  /**
+   * LES JETONS DE RÉFLEXION, quand le fournisseur les distingue.
+   *
+   * Ils sont COMPTÉS DANS `outputTokens` mais n'apparaissent pas dans la réponse. Sans eux, un
+   * plan à 6 563 jetons de sortie pour un JSON qui en pèse 2 500 est un mystère : on ne sait
+   * pas s'il faut alléger le schéma ou revoir l'effort de réflexion. Un run réel a posé
+   * exactement cette question, et il n'y avait pas de champ pour y répondre.
+   *
+   * `undefined` = le fournisseur ne les a pas distingués. Jamais zéro par défaut : zéro
+   * signifierait « il n'a pas réfléchi », ce qui est une affirmation, pas une absence de mesure.
+   */
+  reasoningTokens?: number;
+  /** Les jetons d'entrée servis depuis le cache du fournisseur — ils ne coûtent pas pareil. */
+  cachedInputTokens?: number;
 }
 
 export interface ReasonResult<T> {

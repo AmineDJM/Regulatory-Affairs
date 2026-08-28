@@ -10,7 +10,8 @@ import {
 } from "@/lib/missions/runtime/store";
 import { entreeIteration, identiteIteration, lire } from "@/lib/missions/runtime/interpolate";
 import {
-  aReparer, controlerQualite, evaluerObjectif, type EtapeObservee, type JugeObjectif,
+  aReparer, controlerQualite, evaluerObjectif,
+  type EtapeObservee, type JugeObjectif, type JugementAnterieur,
 } from "@/lib/missions/goal/evaluate";
 import { attenduDe, evaluerResultat } from "@/lib/missions/recovery/evaluate";
 import { ERROR_KINDS, utilisablePourAgir, type ErrorKind } from "@/lib/missions/recovery/strategy";
@@ -799,6 +800,51 @@ async function resoudreEventails(etat: EtatMission): Promise<number> {
  *   l'état déduit — tout le reste. Notamment : tout est vert, mais personne n'a vérifié.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+/**
+ * LE DERNIER JUGEMENT RENDU SUR CETTE MISSION — relu du JOURNAL, pas d'une table à part.
+ *
+ * ── POURQUOI LE JOURNAL, ET POURQUOI SEULEMENT LUI ───────────────────────────────────────
+ *
+ * `MissionEvent` est déjà le registre des faits de la mission (§17 : pas de second registre). Le
+ * verdict et son empreinte y sont écrits ensemble, dans la même ligne, par la même écriture :
+ * ils ne peuvent donc pas diverger. Une colonne supplémentaire sur `Mission` aurait dit la même
+ * chose une seconde fois — et le jour où l'une des deux écritures échouerait, on aurait une
+ * empreinte sans verdict, ou l'inverse.
+ *
+ * ── CE QUE RETOURNE `null`, ET CE QUE ÇA DÉCLENCHE ───────────────────────────────────────
+ *
+ * Aucun jugement antérieur, ou un jugement sans empreinte (une ligne écrite avant que cette
+ * mécanique n'existe) : on rend `null`, et le juge est appelé normalement. Le défaut est donc
+ * TOUJOURS de rejuger — jamais de conclure sans preuve.
+ */
+async function dernierJugement(missionId: string): Promise<JugementAnterieur | null> {
+  const e = await prisma.missionEvent.findFirst({
+    where: { missionId, kind: { in: ["GOAL_SATISFIED", "GOAL_UNSATISFIED"] } },
+    orderBy: { at: "desc" },
+    select: { kind: true, detail: true },
+  }).catch(() => null);
+  if (!e) return null;
+
+  const detail = (e.detail ?? null) as { empreinteJugement?: unknown } | null;
+  const empreinte = typeof detail?.empreinteJugement === "string" ? detail.empreinteJugement : null;
+  if (!empreinte) return null;
+
+  // LE VERDICT VIENT DU MODÈLE `Mission`, PAS DU RÉSUMÉ DE LA LIGNE. Le résumé concatène le
+  // contrôle arithmétique et la phrase du juge ; le rendre tel quel doublerait le compte rendu
+  // à chaque réutilisation. `goalVerdict` porte exactement la phrase du juge.
+  const m = await prisma.mission.findUnique({
+    where: { id: missionId },
+    select: { goalSatisfied: true, goalVerdict: true },
+  }).catch(() => null);
+  if (!m || m.goalVerdict === null) return null;
+
+  return {
+    empreinte,
+    satisfait: m.goalSatisfied === true && e.kind === "GOAL_SATISFIED",
+    raison: m.goalVerdict,
+  };
+}
+
 export async function conclure(
   missionId: string,
   etat: EtatMission,
@@ -819,15 +865,26 @@ export async function conclure(
     criteres: etat.acceptance,
     steps: observees,
     juge: deps.juge,
+    anterieur: await dernierJugement(missionId),
   });
 
   await prisma.mission.update({
     where: { id: missionId },
     data: { qaPassed: qa.ok, goalSatisfied: verdict.satisfait, goalVerdict: verdict.raison },
   });
-  await journaliser(missionId, verdict.satisfait ? "GOAL_SATISFIED" : "GOAL_UNSATISFIED",
-    `${qa.resume} ${verdict.raison}`,
-    { qa: qa.ok, attendus: qa.attendus, faits: qa.faits, aReparer: aReparer(qa) });
+  // ON N'ÉCRIT PAS DEUX FOIS LA MÊME LIGNE. Un verdict réutilisé n'apprend rien au journal : la
+  // ligne existe déjà, à l'identique, et la répéter rendrait le fil illisible tout en laissant
+  // croire qu'un second jugement a eu lieu. Les transitions, elles, suivent leur cours.
+  if (!verdict.reutilise) {
+    await journaliser(missionId, verdict.satisfait ? "GOAL_SATISFIED" : "GOAL_UNSATISFIED",
+      `${qa.resume} ${verdict.raison}`,
+      {
+        qa: qa.ok, attendus: qa.attendus, faits: qa.faits, aReparer: aReparer(qa),
+        // L'EMPREINTE EST CE QUI REND LE JUGEMENT REJOUABLE SANS ÊTRE REFAIT. Elle vit dans le
+        // journal canonique (§17 : pas de second registre) et nulle part ailleurs.
+        ...(verdict.empreinte ? { empreinteJugement: verdict.empreinte } : {}),
+      });
+  }
 
   if (verdict.satisfait) {
     await transitionner(missionId, "RUNNING", "vérification de l'objectif");
