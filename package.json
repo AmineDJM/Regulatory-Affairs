@@ -2,7 +2,7 @@
   "name": "amd-internal-os",
   "version": "0.1.0",
   "private": true,
-  "description": "AMD Internal OS — lightweight internal ERP for Adventum Pharma",
+  "description": "AMD Internal OS \u2014 lightweight internal ERP for Adventum Pharma",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
@@ -27,7 +27,9 @@
     "autotest": "tsx scripts/auto-test/run.ts",
     "autotest:live": "tsx scripts/auto-test/run.ts --live",
     "test:e2e": "playwright test",
-    "adam:boundary": "tsx scripts/adam-boundary.ts"
+    "adam:boundary": "tsx scripts/adam-boundary.ts",
+    "office:bench": "tsx scripts/bench/office-bench.ts",
+    "office:sabotage": "tsx scripts/bench/office-sabotage.ts"
   },
   "prisma": {
     "seed": "tsx prisma/bootstrap.ts"

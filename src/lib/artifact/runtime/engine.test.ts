@@ -231,6 +231,12 @@ describe("continuité, idempotence et reprise", () => {
     // Le double clic. Sans idempotence, il supprimerait « C ».
     const deux = await editer(ctx, sid, cmd, { operationId: "op-42" });
     expect(deux.ok).toBe(false);
+    // LA VUE RENVOYÉE IMMÉDIATEMENT compte autant que l'état relu ensuite : c'est elle qui
+    // s'affiche. Un moteur qui applique puis rejette laisserait « A » seul à l'écran tout en
+    // répondant « déjà fait », et la relecture d'après le corrigerait sans que personne ne voie
+    // rien — jusqu'à la sauvegarde. Cette assertion manquait ; un sabotage l'a montré.
+    expect((deux.vue!.contenu as VueDocx).blocs.map((b) => b.texte)).toEqual(["A", "C"]);
+    expect(deux.vue!.revision).toBe(1);
     expect((await vueDeSession(ctx, sid))!.historique).toHaveLength(1);
     expect(((await vueDeSession(ctx, sid))!.contenu as VueDocx).blocs.map((b) => b.texte)).toEqual(["A", "C"]);
   });

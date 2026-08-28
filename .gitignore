@@ -61,3 +61,4 @@ e2e-screenshots/
 
 # Sorties du banc de connaissance (fichiers d'essai régénérables à la demande)
 scripts/bench/tmp/
+.e2e-office.json

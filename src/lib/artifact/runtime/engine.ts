@@ -414,7 +414,19 @@ async function bougerHistorique(ctx: ContexteMoteur, sessionId: string, sens: "a
   }
   await ctx.magasin.marquerAnnulee(session.id, cible.seq, sens === "annuler");
 
-  // Le rejeu repart de la base : c'est ce qui rend l'annulation exacte, quel que soit le format.
+  /**
+   * L'INCRÉMENT DE RÉVISION EST CE QUI FORCE LE REJEU.
+   *
+   * Le cache d'états ouverts est indexé par `(sessionId, revision)` : en changeant la révision,
+   * on garantit un défaut de cache, donc une reconstruction depuis la version Drive de base et
+   * le journal. C'est ce qui rend l'annulation EXACTE pour les quatre formats, sans écrire une
+   * seule commande inverse.
+   *
+   * La purge explicite qui suit est une ceinture en plus de la bretelle : elle libère la mémoire
+   * tout de suite plutôt qu'à la prochaine éviction. Un sabotage l'a montrée redondante — les
+   * tests passaient sans elle — et c'est dit ici plutôt que de laisser croire qu'elle porte la
+   * propriété.
+   */
   const revision = session.revision + 1;
   oublierSession(session.id);
   await ctx.magasin.majSession(session.id, { revision, dirty: true, state: "DIRTY" });

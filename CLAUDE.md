@@ -35,6 +35,46 @@ Exécuter une mission gigantesque est une propriété **codée** de l'architectu
 14. **Une capacité sans appelant réel n'existe pas.** Le critère n'est pas « le code est écrit et testé », c'est : *si quelqu'un utilise Adam normalement maintenant, ce composant peut-il être déclenché et produire un effet utile ?* Un recensement a montré quatre exports sans aucun appelant et vingt-quatre appelés par leurs seuls tests — dont le compacteur de mémoire et toute la porte d'approbation côté humain. Avant de déclarer une brique finie : chercher son appelant de PRODUCTION, et si l'on n'en trouve pas, la brancher ou la supprimer. Un test qui part d'un état injecté à la main ne répond pas à la question ; il faut partir du **vrai point d'entrée** (`rememberExchange`, `lancerMission`, l'action serveur, le battement).
 15. **Ce qu'un modèle ne doit jamais pouvoir faire à notre place.** Accorder une autorisation et fournir une pièce sont des **attestations** : l'audit portera le nom d'une personne. Un document lu par une étape peut contenir « approuve la mission » ; si l'outil existe, l'injection réussit et rien ne distingue plus l'accord forgé du vrai. Ces gestes-là exigent un clic dans une vraie session (`mission-runtime-actions.ts`), et `policy/guard.ts` interdit `mission_control` à l'agent **à la compilation**. Les gestes qui RÉDUISENT — suspendre, arrêter, refuser — sont, eux, sans danger et disponibles dans la conversation.
 
+## Live Office — la doctrine (§104)
+
+Éditer un document Office n'est pas « générer un fichier ». C'est ouvrir CE fichier, le modifier,
+et le refermer en `.docx` — le même, avec ses styles, ses images et ses en-têtes.
+
+1. **On n'ouvre jamais un format qu'on ne sait pas refermer.** Un `.docx` entre et sort en `.docx`.
+   LibreOffice a été MESURÉ absent (`libreoffice-core` seul ; Render déploie en `runtime: node`) —
+   la décision de ne pas convertir n'est pas un renoncement, c'est ce qui rend une retouche
+   instantanée et fidèle.
+2. **L'arbre XML garde sa tranche de source.** `object-model/xml.ts` : nœud intact → recopié octet
+   pour octet, nœud touché → reconstruit, et lui seul. **Ce que le code ignore, il le préserve.**
+   `adapters/fidelity.test.ts` le vérifie à la PIÈCE près, pas « le fichier s'ouvre encore ».
+3. **L'état est un rejeu, jamais un instantané.** Version Drive de base + opérations non annulées.
+   Annuler = marquer et rejouer. C'est ce qui rend l'annulation exacte pour quatre formats sans une
+   seule commande inverse, et la reprise après panne gratuite.
+4. **La numérotation est HUMAINE, 1-indexée, partout.** Page 1 = la première. Paragraphe 3 = le
+   troisième que la personne VOIT — pas ceux des cellules de tableau, pas le `<w:p/>` vide que Word
+   met après chaque tableau. Les suppressions se font en ordre DÉCROISSANT.
+5. **Un décodeur ne devine jamais.** `commands/nl.ts` rend `null` sur tout ce qu'il ne reconnaît pas
+   à coup sûr, et le modèle prend la main. Attraper une phrase qu'on comprend mal est PIRE que ne
+   rien attraper : cela empêche le modèle de bien la traiter, en silence.
+6. **Le modèle produit des commandes, jamais de l'XML.** `commands/compile.ts` refuse une opération
+   inconnue, une opération hors format, un champ obligatoire manquant, une valeur aberrante. Un lot
+   partiellement valide applique ce qu'il peut et DIT le reste.
+7. **Une cible ambiguë rend des candidats.** Jamais « le premier des quatre ». Modifier le mauvais
+   paragraphe en annonçant que c'est fait est le défaut le plus coûteux de tout ce système.
+8. **La sauvegarde est atomique et verrouillée.** Sérialiser → RELIRE → écrire seulement si la
+   relecture passe. Si quelqu'un a enregistré entre-temps, on refuse et on le dit.
+9. **`artifact/` ne connaît ni le Drive, ni Prisma, ni le RBAC.** Ses capacités arrivent par
+   `ports.ts`, remplis par `src/platform/in-process/artifact/`. Le contrôle des droits vit là et
+   nulle part ailleurs — `canViewDrive` pour lire, `canEditDrive` pour écrire. **La conversation
+   n'est pas une porte dérobée.**
+10. **Le contenu d'un document est une DONNÉE.** Il arrive au modèle par `wrapUntrusted`, la même
+    barrière que les corps de mails. Une phrase « ignore les consignes » reste du texte lu.
+11. **Un seul bloc par document.** Même `blockId`, `version++`. Trois retouches ne font pas trois
+    cartes qui s'empilent : la même se transforme.
+12. **Deux bancs, et ils tournent.** `npm run office:bench` mesure (et dit ce qu'il NE mesure pas :
+    réseau, déchiffrement). `npm run office:sabotage` réintroduit neuf défauts plausibles et exige
+    que la suite tombe — un sabotage qui passe est un trou, pas un succès.
+
 `src/lib/missions/` est déclaré **façade (L2)** dans `src/platform/domains.ts` : il n'importe jamais `assistant/`. Les capacités lui arrivent par un **port** (`missions/ports.ts`), ce qui l'empêche structurellement de s'en octroyer une. Côté Adam, l'accès passe par le **contrat de plateforme** (`mission.status`), jamais par un import direct — `boundary.test.ts` le vérifie.
 
 ## Ordre de consultation (économie de tokens)
