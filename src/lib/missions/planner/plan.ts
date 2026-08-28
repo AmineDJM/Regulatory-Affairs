@@ -87,6 +87,15 @@ export interface MetriquesPlanification {
   plannerSchemaTokens: number;
   /** §3 — le poids du contexte envoyé, hors schéma. */
   plannerContextTokens: number;
+  /**
+   * LE POIDS EN CARACTÈRES DES RÉSUMÉS RÉELLEMENT ENVOYÉS.
+   *
+   * Le relevé du diagnostic affichait ici le poids du CATALOGUE COMPLET — 9 095 caractères,
+   * rigoureusement identiques sur trois scénarios qui montraient pourtant 21, 16 et 15 capacités.
+   * Le chiffre était donc constant par construction, ce qui rendait toute réduction du catalogue
+   * invisible dans l'instrument censé la mesurer.
+   */
+  plannerCatalogueChars: number;
   /** Le catalogue complet, pour que le ratio soit lisible. */
   capacitesAutorisees: number;
   jetonsEvites: number;
@@ -315,13 +324,15 @@ export async function planifier(
 ): Promise<ResultatPlanification> {
   const resolution = resoudreCapacites(objectif, catalogue, acteur, opts);
   const ctx = opts.contexte ?? {};
-  const contexte = composerContexte(objectif, listerPourPlanner(resolution.capacites), ctx);
+  const liste = listerPourPlanner(resolution.capacites);
+  const contexte = composerContexte(objectif, liste, ctx);
   const role = opts.role ?? rolePourPlanification("B");
 
   const metriquesBase = {
     plannerCapabilitiesExposed: resolution.metriques.plannerCapabilitiesExposed,
     plannerSchemaTokens: tailleSchemaJetons(),
     plannerContextTokens: estimerJetons(contexte) + estimerJetons(CONSIGNE),
+    plannerCatalogueChars: liste.length,
     capacitesAutorisees: resolution.metriques.capacitesAutorisees,
     jetonsEvites: resolution.metriques.jetonsEvites,
     domaines: resolution.domaines,

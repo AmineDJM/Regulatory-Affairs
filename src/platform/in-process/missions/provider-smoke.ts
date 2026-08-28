@@ -135,8 +135,17 @@ export interface ResultatSmoke {
   raison: string | null;
   cleDisponible: boolean;
   modele: string | null;
+  /**
+   * LES JETONS DE TOUS LES APPELS DU DIAGNOSTIC — pas seulement ceux des trois planifications
+   * initiales, comme c'était le cas jusqu'à un run qui a montré l'écart : 11 521 annoncés en
+   * entrée pour 52 463 facturés.
+   */
   jetonsEntree: number;
   jetonsSortie: number;
+  /** `null` quand aucun appel n'a distingué la réflexion — jamais zéro, qui serait une affirmation. */
+  jetonsReflexion: number | null;
+  /** Combien d'appels de modèle le diagnostic entier a émis, toutes familles confondues. */
+  appelsModele: number;
   capacitesOuvertes: number | null;
   scenarios: ResultatMission[];
   latenceTotaleMs: number;
@@ -409,14 +418,16 @@ async function jouer(
   if (etat?.qaPassed === true && etat?.goalSatisfied === true) chaine.QA_GOAL_SATISFACTION = "PASS";
 
   const catalogue = catalogueDe(user, { effetMax: PLAFOND });
-  const briefs = catalogue.brief(acteurDe(user));
   const utilisees = new Set(etapes.map((e) => e.capability).filter(Boolean) as string[]).size;
   // LA DURÉE EST CELLE DE CE SCÉNARIO, pas le temps écoulé depuis le début du diagnostic :
   // le troisième affichait 232 s alors qu'il n'en avait consommé que 35.
   r.cascade = await cascade(r.missionId, instrument, sc.genre, debutScenario, Date.now() - debutScenario, {
     ouvertes: catalogue.taille,
     montreesAuPlanner: m?.plannerCapabilitiesExposed ?? null,
-    resumeChars: briefs.reduce((n, b) => n + b.summary.length + b.id.length, 0),
+    // CE QUI A ÉTÉ ENVOYÉ, pas ce qui aurait pu l'être. On mesurait ici le catalogue OUVERT :
+    // 9 095 caractères affichés sur les trois scénarios, y compris celui qui n'en montrait que
+    // quinze — l'instrument masquait exactement ce qu'il devait mesurer.
+    resumeChars: m?.plannerCatalogueChars ?? null,
     utilisees,
     exposeesInutiles: m?.plannerCapabilitiesExposed != null ? Math.max(0, m.plannerCapabilitiesExposed - utilisees) : null,
   });
@@ -436,7 +447,8 @@ export async function smokeFournisseur(user: CurrentUser): Promise<ResultatSmoke
     providerProven: false, missionE2eProven: false,
     premierEchecFournisseur: null, premierEchecMission: null, raison: null,
     cleDisponible: Boolean((process.env.OPENAI_API_KEY ?? "").trim()),
-    modele: null, jetonsEntree: 0, jetonsSortie: 0, capacitesOuvertes: null,
+    modele: null, jetonsEntree: 0, jetonsSortie: 0, jetonsReflexion: null, appelsModele: 0,
+    capacitesOuvertes: null,
     scenarios: [], latenceTotaleMs: 0,
   };
 
@@ -464,10 +476,18 @@ export async function smokeFournisseur(user: CurrentUser): Promise<ResultatSmoke
     // métier plus exigeant que les autres n'efface pas ce que les précédents ont établi.
     for (const [k, v] of Object.entries(partiel)) if (v === "PASS") chaine[k as Maillon] = "PASS";
     out.modele ??= metriques.modele;
-    out.jetonsEntree += metriques.entree;
-    out.jetonsSortie += metriques.sortie;
     out.capacitesOuvertes ??= metriques.ouvertes;
   }
+
+  // LES JETONS SE LISENT SUR L'INSTRUMENT, PAS SUR LES PLANIFICATIONS. La boucle ci-dessus
+  // additionnait `metriques.entree` — c'est-à-dire l'usage rendu par `lancerMission`, donc le
+  // SEUL appel de planification initiale de chaque scénario. Un run réel a chiffré l'écart :
+  // 11 521 jetons d'entrée annoncés pour 52 463 réellement facturés sur vingt appels.
+  const tous = instrument.jetons();
+  out.jetonsEntree = tous.entree;
+  out.jetonsSortie = tous.sortie;
+  out.jetonsReflexion = tous.reflexion;
+  out.appelsModele = instrument.appels.length;
 
   const r = finir();
   if (!r.missionE2eProven && r.providerProven) {
@@ -499,7 +519,9 @@ export function rendreTexte(r: ResultatSmoke): string {
     "── Mesures globales ─────────────────────────────────────",
     `  OPENAI_API_KEY présente      ${r.cleDisponible ? "oui" : "NON"}`,
     `  modèle (rendu par l'API)     ${val(r.modele)}`,
-    `  jetons entrée / sortie       ${r.jetonsEntree} / ${r.jetonsSortie}`,
+    `  appels de modèle             ${r.appelsModele}`,
+    `  jetons entrée / sortie       ${r.jetonsEntree} / ${r.jetonsSortie}`
+    + (r.jetonsReflexion !== null ? `  (dont ${r.jetonsReflexion} de réflexion en sortie)` : ""),
     `  capacités ouvertes (plafond) ${val(r.capacitesOuvertes)}`,
     `  latence totale               ${ms(r.latenceTotaleMs)}`,
     "",

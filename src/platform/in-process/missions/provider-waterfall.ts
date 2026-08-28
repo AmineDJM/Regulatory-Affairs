@@ -143,6 +143,29 @@ export class RaisonneurInstrumente implements Reasoner {
     const tries = [...(scenario ? this.pour(scenario) : this.appels)].sort((a, b) => a.debutMs - b.debutMs);
     return tries.some((a, i) => i > 0 && a.debutMs < tries[i - 1].finMs);
   }
+
+  /**
+   * LES JETONS DE TOUS LES APPELS — et le mot « tous » est la correction.
+   *
+   * Le relevé global additionnait `metriques.usage` des trois `lancerMission`, c'est-à-dire les
+   * trois SEULS appels de planification initiale, sous une étiquette qui disait « jetons entrée /
+   * sortie » du diagnostic entier. Un run réel a montré l'écart : 11 521 annoncés en entrée pour
+   * 52 463 réellement facturés — un facteur quatre et demi, dans le sens rassurant.
+   *
+   * §78 : un tableau de bord qui affiche un chiffre inventé fait prendre de vraies décisions sur
+   * de faux chiffres. Ici la décision est « où faut-il optimiser » ; la fausser revient à
+   * optimiser le mauvais maillon.
+   */
+  jetons(scenario?: string): { entree: number; sortie: number; reflexion: number | null } {
+    const xs = scenario ? this.pour(scenario) : this.appels;
+    const mesures = xs.filter((a) => a.jetonsReflexion !== null);
+    return {
+      entree: xs.reduce((s, a) => s + (a.jetonsEntree ?? 0), 0),
+      sortie: xs.reduce((s, a) => s + (a.jetonsSortie ?? 0), 0),
+      // `null` si AUCUN appel n'a distingué la réflexion : zéro affirmerait qu'il n'y en a pas eu.
+      reflexion: mesures.length === 0 ? null : mesures.reduce((s, a) => s + (a.jetonsReflexion ?? 0), 0),
+    };
+  }
 }
 
 export interface Phase {
