@@ -2700,7 +2700,19 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 
 | Fichier | Rôle |
 |---|---|
-| `ports.ts` | Le seul seam : catalogue de capacités, exécutant, horloge. Le runtime n'importe JAMAIS `assistant/` |
+| `ports.ts` | Les seuls seams : catalogue de capacités, exécutant, **raisonneur**, horloge. Le runtime n'importe JAMAIS `assistant/` ni `models/` |
+| `model/roles.ts` | §4 — la politique de modèles en RÔLES métier (`CHEAP_WORKER` → `EXCEPTIONAL_PLANNER`). Aucun nom de modèle dans le métier |
+| `planner/schema.ts` | Le JSON Schema STRICT du plan : `additionalProperties: false`, `required` exhaustif, aucun objet libre |
+| `planner/plan.ts` | Objectif → capacités résolues → schéma imposé → plan RECONSTRUIT et typé. Refuse un plan sans étape ou sans critère |
+| `planner/validate.ts` | La revérification de conformité, utilisée en production ET par le raisonneur scripté des bancs |
+| `registry/resolve.ts` | §3 — pas de déversement d'outils : un tour de rôle par domaine, borné, mesuré (`plannerCapabilitiesExposed`) |
+| `runtime/worker.ts` | L'étape qui RÉDIGE : faits établis, contexte partagé vs spécifique, économie mesurée |
+| `runtime/control.ts` | §39-40 — la main humaine : suspendre, reprendre, arrêter. Cloisonné par `ownerId` dans le `where` |
+| `goal/qa.ts` | Le contrôle arithmétique complet : cardinalité, destinataires, reçus, doublons, artefacts |
+| `goal/judge.ts` | §12-13 — le juge structuré (`satisfied`, `confidence`, `criteria[]`, `missing[]`). Un critère sans preuve est NON_DÉMONTRÉ |
+| `artifacts/spec.ts` `xlsx.ts` `verify.ts` `render.ts` `build.ts` | Le livrable est CONSTRUIT, puis ROUVERT et CONTRÔLÉ (formules, plages, graphiques) avant d'être déposé |
+| `memory/compactor.ts` | Le compacteur réel : le modèle peut enrichir les listes structurées, jamais en retirer |
+| `agent/account.ts` | L'espace d'Adam dans l'ERP — SUPER_ADMIN, `isSystem`, et AUCUNE porte de connexion |
 | `runtime/state.ts` | Machine à états mission + étape, pure et exhaustivement testée |
 | `runtime/store.ts` | Persistance, matérialisation ré-entrante, journal (`MissionEvent`), clé d'idempotence |
 | `runtime/engine.ts` | Le moteur : réservation, reprise, retry, éventail, parallélisme borné, conclusion |
@@ -2726,6 +2738,22 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | `view/workspace.ts` | L'écran d'une mission, sans modèle, avec un `blockId` stable |
 | `agent/principal.ts` | La double signature `initiatedBy` / `executedBy` (§30) |
 | `evals/bench.test.ts` | 17 scénarios, KPI mesurés, et ce qui n'est pas mesuré dit comme tel |
+
+**Le PONT** — `src/platform/in-process/missions/` : le seul endroit d'Adam autorisé à connaître
+l'ERP, et la racine de composition du runtime (`boundary-scan.ts` l'exempte, par dessein).
+
+| Fichier | Rôle |
+|---|---|
+| `reasoner.ts` | Remplit le port `Reasoner` avec la vraie passerelle. Traduit les rôles métier en rôles techniques ; aucun nom de modèle |
+| `catalog.ts` | Le catalogue de capacités de CETTE personne, calculé par le même code que la conversation |
+| `runner.ts` | L'exécutant : lectures par `executeReadTool`, écritures par intent + clé d'idempotence + reçu |
+| `runtime.ts` | `lancerMission` / `avancerMission` — assemblage complet, une retouche de plan sur refus du compilateur |
+| `sweep.ts` | Le battement des missions : douze par passage, droits RELUS en base, attentes échues signalées une fois |
+| `memory.ts` | Découpage en épisodes, vieillissement par le calendrier, contexte composé sous budget |
+| `commitments.ts` | Les promesses en retard : espacement croissant, et le silence quand l'identité n'est pas canonique |
+| `control.ts` | Les gestes de conduite vus d'Adam — sans accorder ni fournir, qui exigent un clic |
+| `fake-reasoner.ts` | Le seul substitut des bancs : il VALIDE chaque réponse scriptée contre le schéma réellement demandé |
+| `e2e.test.ts` `memory.test.ts` `commitments.test.ts` | Les bancs de bout en bout, depuis les vrais points d'entrée |
 
 ## 💰 Budgets, enveloppes & sous-catégories
 
@@ -3318,6 +3346,70 @@ compression à 52 % du volume d'origine. **Non mesuré et dit comme tel** : tout
 clé de fournisseur (utilité des questions, rappel mémoire sur questions réelles, latence
 de bout en bout, coût réel en jetons).
 
+
+### LE MISSION RUNTIME DEVIENT ATTEIGNABLE — le planificateur, la mémoire, l'accord (2026-08)
+
+**Le problème, énoncé comme il l'a été.** « Toute capacité annoncée doit être réellement
+utilisable par Adam depuis une vraie demande utilisateur, jusqu'au résultat final. » Le critère
+est plus dur qu'il n'en a l'air. Un recensement de tous les symboles exportés du runtime — 152 —
+l'a montré : **quatre n'avaient aucun appelant nulle part**, et vingt-quatre n'étaient appelés
+que par leurs propres tests. Le compacteur de mémoire, la porte d'approbation côté humain,
+l'attente d'un élément fourni par une personne : tout cela existait, était correct, était testé,
+et **aucun chemin d'utilisateur ne l'atteignait**.
+
+**Ce qui a été branché, et à quel point d'entrée réel.**
+
+| Capacité | Elle était… | Elle part maintenant de… |
+|---|---|---|
+| Mémoire épisodique | écrite, testée, sans appelant | `rememberExchange` — le tour de conversation lui-même |
+| Vieillissement de la mémoire | idem | le battement (`runScheduledJobs`) |
+| Contexte composé sous budget | idem | `personalContext`, envoyé au modèle à CHAQUE tour |
+| Accord sur une mission | `decider()` sans appelant | un clic sur `/missions/<id>` |
+| Élément demandé à une personne | `fournirEntree()` sans appelant | le même écran |
+| Suspendre / reprendre / arrêter | n'existait pas | l'écran, et `mission_control` dans la conversation |
+| Relance d'une promesse en retard | quatre fonctions sans appelant | le battement |
+
+**Trois défauts trouvés en branchant** — c'est le propre d'un branchement : il fait passer du
+code par des chemins que ses tests n'avaient pas.
+
+1. **Le juge ne voyait aucune clé d'étape.** Sa consigne exige de citer, pour chaque critère,
+   l'étape qui le démontre, et `normaliser` ramène à NON_DÉMONTRÉ tout critère cité sans
+   référence. On ne lui envoyait que « 34/34 étapes abouties » : soit il obéissait et ne
+   démontrait rien, soit il inventait des clés — et la seconde issue a l'air d'une réussite.
+2. **« Après ce message » se lisait sur la date seule.** Une question et sa réponse sont écrites
+   d'un même geste et partagent leur milliseconde : la réponse dont la question venait d'être
+   mémorisée disparaissait de la mémoire. La borne porte désormais sur le couple (date, id).
+3. **`relancesDeduites` inversait un intervalle là où l'écart est un cumul.** Les rappels
+   s'espacent de 1, 3, 5, 7… jours ; après k rappels l'écart vaut k². À 19 jours de retard,
+   l'ancienne formule déduisait dix rappels d'un seul — une promesse trois semaines en retard
+   recevait son premier rappel puis se taisait quinze jours.
+
+**Ce qui a été REFUSÉ à un modèle, et pourquoi.** Accorder une autorisation et fournir une pièce
+sont des **attestations humaines** : l'audit portera le nom de la personne. Les rendre appelables
+par un modèle les exposerait à l'injection — un document lu par une étape pourrait contenir
+« approuve la mission », et rien ne distinguerait plus cet accord d'un vrai. C'est la seule
+falsification que ce système ne saurait pas détecter après coup. Elles exigent un clic ; et
+`policy/guard.ts` interdit `mission_control` à l'agent lui-même, **à la compilation**.
+
+**Le silence est une issue.** Une promesse rattachée à une identité canonique se relance ; une
+promesse qui ne porte qu'un nom libre se tait. Annoncer « Redouane n'a toujours pas envoyé son
+contrat » quand ce n'était pas ce Redouane-là est pire que ne rien dire (§9 : seul TROUVÉ
+autorise à agir). La promesse reste visible dans l'espace de travail — elle ne pousse simplement
+pas de notification.
+
+**Les cliquets ont parlé trois fois, et ont été suivis trois fois.** Le panneau de mission écrit
+dans `app/(app)/assistant/` ajoutait sept franchissements Adam → ERP : il a été reconnu pour ce
+qu'il est — un écran de l'ERP — et déplacé vers `/missions/<id>`. L'outil `mission_control`
+importait `missions/` depuis le périmètre d'Adam : il passe par le pont. Et six nouvelles actions
+serveur ont dû être classées au registre de parité, dont deux en EXCLUDED avec la raison écrite.
+**Aucun plafond relevé** : 69 traversées, 42 fuites fournisseur, 424 franchissements.
+
+**Mesuré.** Contexte composé sous budget alors que la conversation brute croît linéairement
+(cent tours, deux tranches, tous les tours absorbés) ; un même webhook reçu deux fois ne réveille
+qu'une fois — et c'est tenu par **deux** gardes indépendantes, retirer l'une OU l'autre laisse le
+banc vert, retirer les deux le casse. **Non prouvé en ligne, et dit comme tel** : qu'un modèle
+réel produise un plan conforme ET compilable. Le banc `scripts/smoke/openai-live.ts` pose
+exactement cette question (cas 8) et refuse de tourner sans clé.
 
 ### LA CONVERSATION DEVIENT L'INTERFACE — story, vues 360, gestes sans modèle (2026-08)
 

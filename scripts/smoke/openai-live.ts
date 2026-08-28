@@ -9,6 +9,10 @@ import { describeRequest } from "@/lib/models/capabilities";
 import { outputBudget } from "@/lib/models/budget";
 import { textOf, toolCallsOf, type ModelToolDef, type ModelTurn, type ModelUsage } from "@/lib/models/contract";
 import { MODULES, ACTIONS, type Module, type Action } from "@/lib/rbac";
+import { planifier } from "@/lib/missions/planner/plan";
+import { compile } from "@/lib/missions/compiler/compile";
+import { raisonneur } from "@/platform/in-process/missions/reasoner";
+import { catalogueDe, acteurDe } from "@/platform/in-process/missions/catalog";
 import type { CurrentUser } from "@/lib/session";
 
 /**
@@ -253,6 +257,61 @@ async function test6(): Promise<void> {
   }
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE PLANIFICATEUR DE MISSIONS, EN LIGNE (§51-52) — la seule question que les bancs ne
+ * peuvent pas trancher.
+ *
+ * ── CE QUE LE BANC HORS LIGNE PROUVE, ET CE QU'IL NE PROUVE PAS ─────────────────────────
+ *
+ * `e2e.test.ts` fait tourner la chaîne entière — résolveur, contexte, schéma strict,
+ * reconstruction, compilateur, moteur, éventail, contrôle, juge — avec un raisonneur SCRIPTÉ.
+ * Il prouve que la mécanique tient. Il ne peut PAS prouver qu'un vrai modèle, à qui l'on donne
+ * ce schéma et ce catalogue, rend un plan conforme ET compilable. Cette question-là exige une
+ * clé, et sans clé l'état honnête du produit reste « NON PROUVÉ EN LIGNE ».
+ *
+ * ── CE QUI EST VÉRIFIÉ, ET POURQUOI CHAQUE POINT ────────────────────────────────────────
+ *
+ *   conformité   `RaisonneurReel` revalide la réponse contre le schéma demandé avec le code de
+ *                production. Un `strict: true` parti sans effet se verrait ICI.
+ *   substance    au moins une étape et au moins un critère d'acceptation. Un plan vide est
+ *                syntaxiquement parfait et opérationnellement nul.
+ *   COMPILATION  le juge de vérité. Une capacité inventée, une capacité interdite à l'acteur,
+ *                un cycle, une cardinalité fausse : le compilateur refuse, et c'est exactement
+ *                ce qu'on veut savoir d'un modèle réel.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+async function test7Plan(): Promise<void> {
+  const user = superAdmin();
+  const catalogue = catalogueDe(user);
+  const objectif =
+    "Écris individuellement à chaque salarié actif du service Regulatory sur la messagerie interne "
+    + "pour leur demander l'état de leur dossier, puis attends leurs réponses et fais-moi un "
+    + "récapitulatif en tableau.";
+
+  const r = await planifier(objectif, catalogue, acteurDe(user), raisonneur, {});
+
+  if (!r.ok) {
+    verdict("8. planificateur de missions (schéma strict)", false, `ÉCHEC : ${r.error}`);
+    return;
+  }
+
+  const plan = r.plan;
+  const c = compile(plan, catalogue, acteurDe(user));
+  const refus = c.ok ? [] : c.issues.map((i) => `${i.code} ${i.message}`);
+
+  verdict(
+    "8. planificateur de missions (schéma strict → compilateur)",
+    plan.steps.length > 0 && plan.acceptance.length > 0 && c.ok,
+    c.ok
+      ? `${plan.steps.length} étapes · ${plan.acceptance.length} critère(s) · complexité ${plan.complexity}`
+        + ` · échelle ${plan.scale} · COMPILÉ (${c.mission.steps.length} nœuds, effet max ${c.mission.maxEffect})`
+        + ` · ${r.metriques.plannerCapabilitiesExposed} capacités exposées`
+        + ` / schéma ${r.metriques.plannerSchemaTokens} jetons / contexte ${r.metriques.plannerContextTokens} jetons`
+      : `plan rendu mais REFUSÉ à la compilation : ${refus.slice(0, 3).join(" | ")}`,
+  );
+}
+
 async function testStream(): Promise<void> {
   let morceaux = 0;
   const r = await streamModel("orchestrator", [
@@ -260,7 +319,7 @@ async function testStream(): Promise<void> {
   ], {}, () => { morceaux++; });
 
   verdict(
-    "7. streaming (bonus)",
+    "9. streaming (bonus)",
     r.ok && textOf(r.blocks).length > 0 && budgetOk(r.usage),
     r.ok ? `${morceaux} fragment(s) reçu(s) · ${usageOf(r.usage)}` : `ÉCHEC : ${r.error}`,
   );
@@ -298,6 +357,7 @@ async function main(): Promise<void> {
   await test4();
   await test5();
   await test6();
+  await test7Plan();
   await testStream();
 
   console.log(`\n${reussis} réussi(s) · ${echoues} échec(s)`);

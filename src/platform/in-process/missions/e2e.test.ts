@@ -308,12 +308,31 @@ suite("BOUT EN BOUT — d'une phrase à une mission terminée", () => {
     // LE FAIT PASSE PAR LE REGISTRE CANONIQUE, avec sa VRAIE forme. Un objet approximatif
     // « accepté » par un `as never` produirait un événement de type `undefined` : la mission
     // ne se réveillerait pas, et le banc mesurerait un réveil qui n'a pas eu lieu.
-    await recordEvent({
+    const fait = {
       type: "DOCUMENT_RECEIVED",
-      sourceDomain: "DRIVE",
+      sourceDomain: "DRIVE" as const,
       payload: { from: "Redouane Belkacem", documents: ["CDI-2026-014"] },
       missionId: r.missionId,
+    };
+    await recordEvent(fait);
+
+    // ── §69 : LE MÊME WEBHOOK, DEUX FOIS ────────────────────────────────────────────
+    //
+    // Un fournisseur qui n'a pas reçu notre 200 renvoie. C'est la situation NORMALE, pas
+    // l'exception, et elle doit être sans effet.
+    //
+    // DEUX GARDES INDÉPENDANTES le tiennent, et chacune suffit à elle seule : la file des
+    // attentes ne rend que les étapes `WAITING`, et la mise à jour est conditionnée au même
+    // état (`updateMany` puis `count !== 1`). C'est mesuré : retirer l'une OU l'autre laisse ce
+    // cas vert, retirer les DEUX le fait passer à deux réveils. La redondance est voulue — le
+    // second passage arrive par le réseau, à un instant qu'on ne choisit pas, et une course
+    // entre deux webhooks simultanés ne serait arrêtée que par la condition en base.
+    await recordEvent(fait);
+
+    const reveils = await prisma.missionEvent.count({
+      where: { missionId: r.missionId, kind: "EVENT_WAKE" },
     });
+    expect(reveils, "un même fait reçu deux fois ne réveille qu'UNE fois").toBe(1);
 
     await avancerMission(pdg, r.missionId, { reasoner: cerveau });
     etat = await chargerEtat(r.missionId);
