@@ -4602,6 +4602,7 @@ model DriveNode {
   @@index([ownerId])
   @@index([isTrashed])
   @@index([spaceId])
+  mentions    EntityMention[]
 }
 
 /// Catégorie / espace PARTAGÉ du Drive (ex. « Promotion Médicale »), présenté comme un onglet
@@ -4695,11 +4696,36 @@ model DriveTextIndex {
   /// Vecteur sémantique (512d, JSONB — pgvector indisponible sur cette infra) : la recherche
   /// par le SENS quand le lexical ne trouve pas. Null = pas encore vectorisé.
   embedding Json?
+  /// Estampille d'extraction des MENTIONS d'entités (fabric F4). Null = jamais extrait —
+  /// le balayage de rattrapage s'appuie dessus, et une date permet de ré-extraire après un
+  /// changement de dictionnaire sans booléen à trois états.
+  mentionsAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
   @@index([updatedAt])
   @@index([docKind])
+}
+
+/// LIEN PERSISTÉ document ↔ entité canonique (fabric F4). Extrait à l'INGESTION par
+/// dictionnaire déterministe — « tout ce qui est relié à X » devient une lecture d'index, et
+/// les ALIAS se franchissent (un document qui ne dit que « Keytruda » est lié au produit dont
+/// la DCI est « pembrolizumab », parce que l'entité canonique porte les deux noms).
+model EntityMention {
+  id          String    @id @default(cuid())
+  nodeId      String
+  node        DriveNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  /// PRODUIT | PERSONNE | ORGANISATION — le vocabulaire du registre des sources.
+  entityType  String
+  /// L'identifiant CANONIQUE (RegulatoryProduct.id, Employee.id…) — jamais un libellé.
+  entityId    String
+  /// Le libellé au moment de l'extraction, pour l'affichage sans jointure.
+  entityLabel String
+  occurrences Int       @default(1)
+  createdAt   DateTime  @default(now())
+
+  @@unique([nodeId, entityType, entityId])
+  @@index([entityType, entityId])
 }
 
 /// Partage d'un nœud avec un utilisateur précis (droits VIEW/EDIT).

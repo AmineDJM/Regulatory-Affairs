@@ -10,7 +10,7 @@ import { extractAttachmentText } from "@/lib/assistant-files";
 import { foldText } from "@/lib/assistant/memory-context";
 import { driveSemanticCandidates } from "@/lib/assistant/semantic-drive";
 import { classifyDocument, DOC_KIND_LABEL, type DocKind } from "@/platform/doc-kind";
-import { chercherContenu } from "@/lib/fabric/text-search";
+import { chercherContenu, enregistrerMentions, resoudreEntitesDe, documentsLies } from "@/lib/fabric";
 
 /**
  * DÉCOUVERTE DOCUMENTAIRE EN DRIVE « SALE » — retrouver un document que son NOM ne trahit pas.
@@ -48,11 +48,16 @@ export async function indexDriveNodeText(nodeId: string, versionId: string, text
   try {
     const capped = text.slice(0, INDEX_TEXT_CAP);
     const docKind = classifyDocument(name ?? "", capped);
+    const fold = foldText(capped);
     await prisma.driveTextIndex.upsert({
       where: { nodeId },
-      create: { nodeId, versionId, text: capped, textFold: foldText(capped), note: note ?? null, docKind },
-      update: { versionId, text: capped, textFold: foldText(capped), note: note ?? null, docKind },
+      create: { nodeId, versionId, text: capped, textFold: fold, note: note ?? null, docKind },
+      update: { versionId, text: capped, textFold: fold, note: note ?? null, docKind },
     });
+    // LES MENTIONS D'ENTITÉS S'EXTRAIENT ICI (fabric F4) — au même moment que la
+    // classification, pour la même raison : le travail se paie quand l'information ENTRE,
+    // plus jamais à la question. Meilleur-effort, comme le reste de l'indexation.
+    await enregistrerMentions(nodeId, fold).catch(() => undefined);
   } catch (err) {
     console.error("[assistant] indexDriveNodeText failed", err);
   }
@@ -124,6 +129,8 @@ interface Finding {
   matchedInContent: number;
   /** Similarité cosinus quand le candidat vient du niveau SÉMANTIQUE (repli). */
   semScore?: number;
+  /** Le libellé de l'entité canonique qui LIE ce document à la requête (fabric F4). */
+  entiteLiee?: string;
   excerpt?: string;
   note?: string | null;
   docKind?: string | null;
@@ -242,6 +249,39 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
         findings.set(hit.nodeId, f);
       }
 
+      /**
+       * 2-ter) LIENS D'ENTITÉS (fabric F4) — LE FRANCHISSEMENT D'ALIAS.
+       *
+       * Si la requête nomme une entité CANONIQUE (« Keytruda », « pembrolizumab » — deux noms,
+       * un seul produit), les documents LIÉS à cette entité par les mentions extraites à
+       * l'ingestion deviennent des candidats — y compris ceux qui ne portent AUCUN terme de la
+       * requête, parce qu'ils ne citent que l'autre nom. C'est le cas qu'aucune recherche
+       * texte ne peut couvrir, et c'est exactement ce que le lien persistant achète.
+       * L'ACL reste revérifiée nœud par nœud, comme partout.
+       */
+      const entitesResolues = await resoudreEntitesDe(query);
+      for (const ent of entitesResolues.slice(0, 3)) {
+        const lies = await documentsLies(ent.type, ent.id, { limit: 8 });
+        if (lies.length === 0) continue;
+        const rows = await prisma.driveTextIndex.findMany({
+          where: { nodeId: { in: lies.map((l) => l.nodeId) }, ...kindWhere },
+          select: { nodeId: true, text: true, note: true, docKind: true },
+        });
+        for (const hit of rows) {
+          if (!canViewDrive(await resolveDriveAccess(user, hit.nodeId))) continue;
+          const node = await prisma.driveNode.findUnique({ where: { id: hit.nodeId }, select: { name: true, isTrashed: true } });
+          if (!node || node.isTrashed) continue;
+          const f = findings.get(hit.nodeId) ?? { nodeId: hit.nodeId, nom: node.name, matchedInName: countMatches(foldText(node.name), tokens), matchedInContent: 0, contentChecked: false };
+          f.matchedInContent = Math.max(f.matchedInContent, countMatches(foldText(hit.text), tokens));
+          f.entiteLiee = f.entiteLiee ?? ent.label;
+          f.excerpt = f.excerpt ?? excerptAround(hit.text, tokens) ?? hit.text.slice(0, 180).trim();
+          f.contentChecked = true;
+          f.note = hit.note;
+          f.docKind = hit.docKind;
+          findings.set(hit.nodeId, f);
+        }
+      }
+
       // 2-bis) NIVEAU SÉMANTIQUE (repli) — quand AUCUN candidat FORT par le contenu n'existe
       //    (un OR faible sur un mot banal ne suffit pas), les vecteurs cherchent par le SENS
       //    (« durée de conservation » ↔ « shelf life »). Jamais bloquant : sans clé / sans
@@ -325,14 +365,21 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
         .map((f) => {
           const confiance = f.matchedInContent >= need
             ? "HAUTE"
-            : f.matchedInContent >= 1
-              ? "MOYENNE"
-              : f.semScore
-                ? "SENS (similarité sémantique — vérifier par lecture avant de citer)"
-                : "FAIBLE";
+            : f.entiteLiee
+              // Le document peut ne porter AUCUN terme de la requête : il est lié par
+              // l'ENTITÉ (l'autre nom du même produit). C'est une preuve de LIEN, pas de
+              // pertinence — le libellé le dit, et la lecture tranche.
+              ? `ENTITÉ (lié à « ${f.entiteLiee} » — alias franchi par l'entité canonique)`
+              : f.matchedInContent >= 1
+                ? "MOYENNE"
+                : f.semScore
+                  ? "SENS (similarité sémantique — vérifier par lecture avant de citer)"
+                  : "FAIBLE";
           return { ...f, confiance };
         })
-        .sort((a, b) => (b.matchedInContent - a.matchedInContent) || ((b.semScore ?? 0) - (a.semScore ?? 0)) || (b.matchedInName - a.matchedInName))
+        .sort((a, b) => (b.matchedInContent - a.matchedInContent)
+          || ((b.entiteLiee ? 1 : 0) - (a.entiteLiee ? 1 : 0))
+          || ((b.semScore ?? 0) - (a.semScore ?? 0)) || (b.matchedInName - a.matchedInName))
         .slice(0, 12);
 
       const total = await prisma.driveTextIndex.count();
@@ -347,6 +394,7 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
           typeDetecte: f.docKind && f.docKind !== "unknown" ? DOC_KIND_LABEL[f.docKind as DocKind] ?? f.docKind : undefined,
           preuve: f.excerpt ?? (f.confiance === "FAIBLE" ? "correspondance sur le NOM seulement — contenu non vérifiable" : undefined),
           termesDansContenu: `${f.matchedInContent}/${tokens.length}`,
+          entiteLiee: f.entiteLiee,
           note: f.note ?? undefined,
         })),
         illisibles: unreadable || undefined,
@@ -355,6 +403,7 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
           sourcesInterrogees: [
             "noms de fichiers du Drive (périmètre ACL)",
             "contenu des fichiers indexés",
+            "liens d'entités canoniques (mentions extraites à l'ingestion — les alias se franchissent)",
             ...(semanticUsed ? ["similarité SÉMANTIQUE (repli — le lexical n'avait rien par le contenu)"] : []),
             "lecture de vérification bornée des meilleurs candidats",
           ],

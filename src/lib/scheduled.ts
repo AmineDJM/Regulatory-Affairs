@@ -12,6 +12,7 @@ import { runPettyCashRechargeReminders } from "@/lib/actions/petty-cash-actions"
 import { runLegalExpirySweep } from "@/lib/legal/expiry-sweep";
 import { runAssistantReminders } from "@/lib/assistant/reminders";
 import { runDriveIngestionSweep } from "@/lib/assistant/drive-ingestion";
+import { balayerMentions } from "@/lib/fabric";
 import { runKnowledgeSweep, enqueueBacklogs, enqueueStalled, refreshEntityIndex } from "@/lib/knowledge/worker";
 import { runScheduledWorkflows } from "@/lib/scheduler/runner";
 import { registerBuiltinWorkflows } from "@/lib/scheduler/handlers";
@@ -108,6 +109,10 @@ export async function runScheduledJobs(): Promise<void> {
     // un document mal nommé jamais ouvert devient trouvable par son CONTENU. L'ACL se
     // revérifie à la recherche, nœud par nœud. Débrayage : ASSISTANT_DRIVE_INGESTION=off.
     await runDriveIngestionSweep().catch(() => undefined);
+    // Mentions d'entités (fabric F4) : le RATTRAPAGE des fichiers indexés AVANT que
+    // l'extraction existe. Les nouveaux fichiers sont extraits à l'ingestion même ; ce
+    // balayage borné vide le reste-à-faire (`mentionsAt: null`), un lot par passage.
+    await balayerMentions().catch(() => undefined);
 
     // LA COUCHE DE CONNAISSANCE — elle avance à son rythme, derrière tout le reste.
     //
