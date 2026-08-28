@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
+import { peutSeConnecter } from "@/lib/missions/agent/account";
 import { z } from "zod";
 import { authConfig } from "./auth.config";
 import { prisma } from "./lib/prisma";
@@ -48,8 +49,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           where: { email: { equals: email, mode: "insensitive" } },
           orderBy: { createdAt: "asc" },
         });
-        if (!user || !user.isActive) {
-          // On compte aussi les tentatives sur des comptes inexistants/inactifs
+        // UN COMPTE SYSTÈME NE SE CONNECTE JAMAIS — refusé AVANT toute comparaison.
+        //
+        // Adam, l'agent principal, existe dans l'ERP avec le rôle SUPER_ADMIN : il a des
+        // missions, des livrables, un journal. Ce qu'il n'a pas, c'est une porte d'entrée. Un
+        // compte auquel on peut se connecter est un compte qu'on peut PRENDRE — et le prendre
+        // donnerait les pleins pouvoirs sans passer par le plan compilé, l'approbation, le reçu
+        // et la double signature. Le refus est ici, en premier, et non dans une convention de
+        // nommage : voir `missions/agent/account.ts`.
+        if (!user || !peutSeConnecter(user)) {
+          // On compte aussi les tentatives sur des comptes inexistants/inactifs/système
           // (anti credential-stuffing, anti-énumération).
           await recordFailure(emailKey, ip);
           return null;

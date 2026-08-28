@@ -1039,6 +1039,17 @@ model User {
   tokenVersion       Int     @default(0)
   mustChangePassword Boolean @default(false)
 
+  /// COMPTE SYSTÈME — Adam, l'agent principal. Il EXISTE dans l'ERP (missions, livrables,
+  /// messages, journal, rôle SUPER_ADMIN) et ne peut PAS s'y connecter : `authorize()` refuse
+  /// un compte système avant même de comparer un mot de passe, et les opérations de compte
+  /// refusent de le prendre pour cible.
+  ///
+  /// C'est ce qui réconcilie « donne-lui les accès complets » et « pas de compte humain avec un
+  /// mot de passe que l'agent peut manipuler » : la présence sans la porte d'entrée. Adam agit
+  /// par le Mission Runtime, sous double signature (qui a demandé / qui a exécuté), avec les
+  /// mêmes approbations et le même audit que l'écran.
+  isSystem           Boolean @default(false)
+
   // Onboarding guidé : déclenché à la création d'un compte ou redéclenché par le
   // Super Admin (« demander le setup à la prochaine connexion »). Vérifié à chaud
   // (lecture BDD) par le layout, jamais via le JWT — pas de re-login nécessaire.

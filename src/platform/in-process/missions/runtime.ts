@@ -11,6 +11,7 @@ import { JugeReel } from "@/lib/missions/goal/judge";
 import { perimetre } from "@/lib/missions/approval/scope";
 import { demanderApprobation, porteApprobation, prevenir } from "@/lib/missions/approval/gate";
 import { agentPour } from "@/lib/missions/agent/principal";
+import { assurerCompteAgent } from "@/lib/missions/agent/account";
 import { CONCURRENCE_PAR_ECHELLE } from "@/lib/missions/model/roles";
 import type { CompileIssue } from "@/lib/missions/planner/contract";
 import type { Reasoner } from "@/lib/missions/ports";
@@ -172,6 +173,14 @@ export async function lancerMission(
   objectif: string,
   opts: LancementOptions = {},
 ): Promise<ResultatLancement> {
+  // L'ESPACE D'ADAM EXISTE AVANT SA PREMIÈRE MISSION, et se répare s'il a dérivé. Appelé ici
+  // plutôt qu'au démarrage : c'est le seul point par lequel une mission commence, et une
+  // réparation qui ne tourne qu'au démarrage ne corrige rien entre deux déploiements.
+  const espace = await assurerCompteAgent();
+  if (espace && espace.corrections.length > 0) {
+    console.warn(`[agent] espace d'Adam réaligné : ${espace.corrections.join(" ; ")}`);
+  }
+
   const catalogue = catalogueDe(user);
   const acteur = acteurDe(user);
   const cerveau = opts.reasoner ?? raisonneur;

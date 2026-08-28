@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { ROLE_LABELS } from "@/lib/labels";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { REFUS_COMPTE_SYSTEME } from "@/lib/missions/agent/account";
 
 const AVATAR_COLORS = ["#2563eb", "#7c3aed", "#0891b2", "#059669", "#d97706", "#dc2626", "#db2777"];
 
@@ -62,6 +63,11 @@ export async function toggleUserActive(formData: FormData): Promise<ActionResult
 
   const u = await prisma.user.findUnique({ where: { id } });
   if (!u) return { ok: false, error: "Introuvable." };
+  // LE COMPTE SYSTÈME NE SE DÉSACTIVE PAS DEPUIS UN ÉCRAN. Le désactiver ne « mettrait pas Adam
+  // en pause » : cela arrêterait le moteur qui tient les missions en cours, y compris celles
+  // qui attendent une réponse humaine — sans que personne ne l'apprenne. La suspension d'Adam
+  // passe par le débrayage prévu (`MISSIONS_SWEEP=off`), qui laisse l'état intact.
+  if (u.isSystem) return { ok: false, error: REFUS_COMPTE_SYSTEME };
   await prisma.user.update({ where: { id }, data: { isActive: !u.isActive } });
   await recordAudit({
     actorId: admin.id, action: "UPDATE", module: "Administration",
@@ -81,6 +87,10 @@ export async function updateUserRole(formData: FormData): Promise<ActionResult> 
 
   const u = await prisma.user.findUnique({ where: { id } });
   if (!u) return { ok: false, error: "Introuvable." };
+  // LE RÔLE DU COMPTE SYSTÈME NE SE CHANGE PAS. Le baisser désarmerait silencieusement toutes
+  // les missions en cours ; le laisser modifiable ouvrirait un chemin d'escalade qui contourne
+  // `policy/guard.ts` — il suffirait de demander à quelqu'un d'autre de cliquer.
+  if (u.isSystem) return { ok: false, error: REFUS_COMPTE_SYSTEME };
   await prisma.user.update({ where: { id }, data: { role } });
   await recordAudit({
     actorId: admin.id, action: "UPDATE", module: "Administration",
