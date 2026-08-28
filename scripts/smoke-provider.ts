@@ -124,3 +124,7 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+
+// Portée de MODULE : ce script n'a que des imports dynamiques ; sans cette ligne il vit
+// dans la portée globale et son `main` percute celui de tout autre script global.
+export {};

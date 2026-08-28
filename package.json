@@ -31,7 +31,8 @@
     "office:bench": "tsx scripts/bench/office-bench.ts",
     "office:sabotage": "tsx scripts/bench/office-sabotage.ts",
     "audit:reachability": "tsx scripts/audit-runtime-reachability.ts",
-    "adam:smoke:provider": "tsx scripts/smoke-provider.ts"
+    "adam:smoke:provider": "tsx scripts/smoke-provider.ts",
+    "fabric:bench": "tsx scripts/fabric-bench.ts"
   },
   "prisma": {
     "seed": "tsx prisma/bootstrap.ts"

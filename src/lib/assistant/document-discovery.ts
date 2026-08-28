@@ -10,6 +10,7 @@ import { extractAttachmentText } from "@/lib/assistant-files";
 import { foldText } from "@/lib/assistant/memory-context";
 import { driveSemanticCandidates } from "@/lib/assistant/semantic-drive";
 import { classifyDocument, DOC_KIND_LABEL, type DocKind } from "@/platform/doc-kind";
+import { chercherContenu } from "@/lib/fabric/text-search";
 
 /**
  * DÉCOUVERTE DOCUMENTAIRE EN DRIVE « SALE » — retrouver un document que son NOM ne trahit pas.
@@ -201,24 +202,30 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
         }
       }
 
-      // 2) INDEX TEXTUEL — les fichiers déjà lus dont le CONTENU porte tous les termes
-      //    (repli : au moins un terme si la conjonction ne donne rien). Droit revérifié nœud
-      //    par nœud AVANT toute exploitation.
+      /**
+       * 2) INDEX TEXTUEL — les fichiers déjà lus dont le CONTENU porte les termes.
+       *
+       * ── LA FABRIC A REMPLACÉ LE SCAN (F2) ─────────────────────────────────────────────
+       *
+       * Ce bloc faisait deux `findMany` en `contains` sur `textFold` — un LIKE '%…%' sans
+       * index, donc un parcours du corpus ENTIER à chaque question, le seul endroit où la
+       * latence croissait linéairement avec le nombre de documents. `chercherContenu` passe
+       * par l'index FTS (mots, classés, préfixes) et retombe sur le LIKE — désormais servi
+       * par l'index trigramme — en le DISANT. La politique de l'entonnoir ne change pas :
+       * mêmes candidats AND-puis-OR, et le droit reste revérifié NŒUD PAR NŒUD ci-dessous,
+       * AVANT toute exploitation — un index n'est jamais une porte dérobée.
+       */
       const kindWhere = kindFilter ? { docKind: kindFilter } : {};
-      const indexed = await prisma.driveTextIndex.findMany({
-        where: { AND: tokens.map((t) => ({ textFold: { contains: t } })), ...kindWhere },
+      const contenu = await chercherContenu("drive", tokens, { limit: 15, docKind: kindFilter ?? null });
+      const indexed = contenu.candidats.length === 0 ? [] : await prisma.driveTextIndex.findMany({
+        where: { nodeId: { in: contenu.candidats.map((c) => c.id) } },
         select: { nodeId: true, text: true, note: true, docKind: true },
-        orderBy: { updatedAt: "desc" },
-        take: 15,
       });
-      const indexedFallback = indexed.length > 0 ? [] : await prisma.driveTextIndex.findMany({
-        where: { OR: tokens.map((t) => ({ textFold: { contains: t } })), ...kindWhere },
-        select: { nodeId: true, text: true, note: true, docKind: true },
-        orderBy: { updatedAt: "desc" },
-        take: 10,
-      });
+      // L'ordre du RANG est conservé : `findMany(in:)` rend dans un ordre quelconque.
+      const rangDe = new Map(contenu.candidats.map((c, i) => [c.id, i]));
+      indexed.sort((a, b) => (rangDe.get(a.nodeId) ?? 99) - (rangDe.get(b.nodeId) ?? 99));
       const semanticByNode = new Map<string, number>();
-      for (const hit of [...indexed, ...indexedFallback]) {
+      for (const hit of indexed) {
         if (!canViewDrive(await resolveDriveAccess(user, hit.nodeId))) continue; // jamais le contenu d'autrui
         const node = await prisma.driveNode.findUnique({ where: { id: hit.nodeId }, select: { name: true, isTrashed: true } });
         if (!node || node.isTrashed) continue;
