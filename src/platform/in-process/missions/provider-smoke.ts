@@ -232,6 +232,19 @@ export async function scenarios(): Promise<Scenario[]> {
 const estEcriture = (n: string): boolean => RESOLVER_WRITE_NAMES.has(n);
 
 /**
+ * L'EFFET D'UN NŒUD SANS CAPACITÉ — la même table que le compilateur, et c'est voulu.
+ *
+ * Un ARTIFACT produit un fichier : c'est `PREPARE`, au-dessus du plafond de lecture. Tout le
+ * reste — attente, jonction, contrôle, approbation — ne fait que constater, donc `READ`. Un
+ * WORKER appelle un modèle et n'écrit rien dans l'ERP : `ANALYZE`.
+ */
+function effetDuNoeud(nodeType: string): Effect {
+  if (nodeType === "ARTIFACT") return "PREPARE";
+  if (nodeType === "WORKER") return "ANALYZE";
+  return "READ";
+}
+
+/**
  * MÈNE LA MISSION À UN ÉTAT RÉELLEMENT STABLE, avec le mécanisme canonique et lui seul.
  *
  * ── CE QUE CETTE FONCTION NE FAIT PAS ────────────────────────────────────────────────────
@@ -366,20 +379,36 @@ async function jouer(
   r.etapesCompilees = lancement.etapes;
 
   const etapes = await prisma.missionStep.findMany({
-    where: { missionId: r.missionId }, select: { capability: true },
+    where: { missionId: r.missionId }, select: { capability: true, nodeType: true },
   });
   if (etapes.length > 0) chaine.MISSION_PERSISTED = "PASS";
 
   // ── LE PLAFOND, VÉRIFIÉ SUR CE QUI EST ÉCRIT ───────────────────────────────────────────
   const plafond = EFFECT_RANK[PLAFOND];
   let max: Effect = "READ";
+  /**
+   * ── LE FAUX VERT QUE CE BLOC CORRIGE ───────────────────────────────────────────────────
+   *
+   * `if (!e.capability) continue;` sautait TOUTES les étapes sans capacité. Or un nœud ARTIFACT
+   * n'en porte pas — et il fabrique un fichier. Résultat, sur un run réel : le rapport affichait
+   * `READ_ONLY_EXECUTION PASS` pendant que deux missions écrivaient de vrais XLSX dans le Drive
+   * de production, retrouvés ensuite par le run SUIVANT, qui en concluait que la molécule
+   * « inexistante » existait. Un banc qui ne voit pas l'effet qu'il prétend interdire ne mesure
+   * pas une garantie : il en fabrique l'apparence (§78).
+   *
+   * L'effet est donc relevé pour CHAQUE étape, capacité ou non — un ARTIFACT vaut `PREPARE`,
+   * exactement comme le compilateur le calcule.
+   */
   for (const e of etapes) {
-    if (!e.capability) continue;
-    const eff = capabilityMeta(e.capability, estEcriture).effect;
+    const eff = e.capability
+      ? capabilityMeta(e.capability, estEcriture).effect
+      : effetDuNoeud(e.nodeType);
     if (EFFECT_RANK[eff] > EFFECT_RANK[max]) max = eff;
-    if (EFFECT_RANK[eff] > plafond) r.capacitesHorsPlafond.push(`${e.capability} (${eff})`);
+    if (EFFECT_RANK[eff] > plafond) {
+      r.capacitesHorsPlafond.push(`${e.capability ?? e.nodeType} (${eff})`);
+    }
   }
-  r.effetMaxObserve = etapes.some((e) => e.capability) ? max : null;
+  r.effetMaxObserve = etapes.length > 0 ? max : null;
   if (r.capacitesHorsPlafond.length > 0) {
     r.motifArret = `défaut de garde : ${r.capacitesHorsPlafond.join(", ")} dépasse ${PLAFOND} — exécution refusée`;
     return { r, chaine, metriques };

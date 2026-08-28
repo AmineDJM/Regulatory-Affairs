@@ -212,6 +212,15 @@ export const COMPILE_ERRORS = [
   "UNKNOWN_CAPABILITY",
   /** L'appelant n'a pas le droit d'appeler cette capacité. */
   "FORBIDDEN_CAPABILITY",
+  /**
+   * L'ÉTAPE PRODUIT PLUS QUE LE PLAFOND DE LA MISSION.
+   *
+   * Distinct de `FORBIDDEN_CAPABILITY` parce que la cause l'est : là, une capacité n'est pas
+   * ouverte à l'acteur ; ici, l'étape produit un effet trop fort — et elle peut le faire SANS
+   * capacité, comme un nœud ARTIFACT qui fabrique un fichier. Un run Render a montré cette
+   * porte ouverte pendant que le rapport annonçait « lecture seule ».
+   */
+  "FORBIDDEN_EFFECT",
   /** Une dépendance désigne une clé d'étape qui n'existe pas. */
   "UNKNOWN_DEPENDENCY",
   /** Deux étapes portent la même clé. */

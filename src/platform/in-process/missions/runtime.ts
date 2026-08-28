@@ -219,7 +219,16 @@ export async function lancerMission(
   // doit refuser une étape d'auto-escalade. Compiler sous l'identité humaine laisserait passer
   // une étape que l'agent n'a pas le droit d'exécuter, et l'échec arriverait à l'exécution.
   const agent = agentPour({ initiatedBy: user.id, executedBy: user.id, label: user.name });
-  let compile1 = compile(plan.plan, catalogue, agent);
+  /**
+   * LE PLAFOND SUIT LA MISSION JUSQU'AU COMPILATEUR.
+   *
+   * `lectureSeule` plafonnait le CATALOGUE, donc les capacités — et rien d'autre. Un nœud
+   * ARTIFACT, qui n'a pas de capacité, passait au travers et écrivait un fichier dans le Drive
+   * pendant que le rapport annonçait « lecture seule ». Le plafond porte maintenant sur l'effet
+   * de l'étape, quelle que soit sa nature.
+   */
+  const plafond = opts.lectureSeule ? { effetMax: "ANALYZE" as const } : {};
+  let compile1 = compile(plan.plan, catalogue, agent, plafond);
 
   if (!compile1.ok) {
     const secondEssai = await planifier(objectif, catalogue, acteur, cerveau, {
@@ -229,7 +238,7 @@ export async function lancerMission(
       return { ok: false, error: secondEssai.error, refus: compile1.issues, metriques: secondEssai.metriques };
     }
     plan = secondEssai;
-    compile1 = compile(plan.plan, catalogue, agent);
+    compile1 = compile(plan.plan, catalogue, agent, plafond);
     if (!compile1.ok) {
       return {
         ok: false,
@@ -483,6 +492,10 @@ export async function replanifierMission(
   // déjà fait ; lui refuser ensuite d'en dépendre serait lui reprocher d'avoir écouté.
   const c = compile(plan.plan, catalogue, agent, {
     acquises: new Set(etat.steps.filter((s) => s.status === "DONE" || s.status === "SKIPPED").map((s) => s.key)),
+    // LE PLAFOND SURVIT AU REPLAN. Sans cette ligne, une mission plafonnée en lecture
+    // retrouverait le droit d'écrire à la deuxième version de son plan — une porte dérobée qui
+    // ne s'ouvrirait qu'après un échec, donc au pire moment.
+    ...(opts.lectureSeule ? { effetMax: "ANALYZE" as const } : {}),
   });
   if (!c.ok) {
     return {

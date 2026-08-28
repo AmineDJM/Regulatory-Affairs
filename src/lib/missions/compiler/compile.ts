@@ -226,6 +226,15 @@ const FORMES: Record<NodeType, { capacite: "requise" | "interdite"; attente: "re
  * message d'origine.
  */
 export interface OptionsCompilation {
+  /**
+   * LE PLAFOND D'EFFET DE LA MISSION.
+   *
+   * Absent = aucun plafond, et c'est le cas courant : la politique et le catalogue tranchent.
+   * Présent, il REFUSE À LA COMPILATION toute étape qui produirait davantage — y compris un
+   * nœud sans capacité, comme un ARTIFACT qui fabrique un fichier. C'est cette dernière porte
+   * qu'un run Render a trouvée ouverte alors que le rapport annonçait « lecture seule ».
+   */
+  effetMax?: Effect;
   /** Les clés d'étapes déjà présentes ET abouties dans la mission (plans antérieurs). */
   acquises?: ReadonlySet<string>;
 }
@@ -340,6 +349,36 @@ export function compile(
       effect = "PREPARE";
     } else if (nodeType === "APPROVAL" || nodeType === "QA" || nodeType === "JOIN") {
       effect = "READ";
+    }
+
+    /**
+     * ── LE PLAFOND D'EFFET S'APPLIQUE À L'ÉTAPE, PAS SEULEMENT À LA CAPACITÉ ───────────
+     *
+     * LE FAUX VERT QUE CE BLOC FERME. Un run Render a lancé les trois scénarios en lecture
+     * seule, et le rapport a affiché `READ_ONLY_EXECUTION PASS` — pendant que deux missions
+     * écrivaient de vrais fichiers XLSX dans le Drive de production :
+     *
+     *     ARTIFACT · « Vérification Zorbamyxine-K7 » (XLSX, 12 Ko) fabriqué et contrôlé.
+     *
+     * Le plafond `ANALYZE` était bien posé, mais il ne filtrait QUE LE CATALOGUE, donc que les
+     * étapes portant une `capability`. Un nœud ARTIFACT n'en porte pas : il produit un fichier
+     * sans passer par le catalogue, et personne ne comparait son effet au plafond. Le plan
+     * compilait en annonçant lui-même « effet maximal PREPARE », au-dessus du plafond, et le
+     * compilateur l'acceptait — il CALCULAIT `maxEffect` sans jamais s'en servir.
+     *
+     * Le contrôle porte donc désormais sur l'EFFET de l'étape, quelle que soit sa nature. C'est
+     * la seule formulation qui ne laisse pas de porte : un effet est un effet, qu'il vienne
+     * d'une capacité déclarée ou d'un nœud qui fabrique.
+     *
+     * CONSÉQUENCE MESURÉE, ET ELLE EST BONNE. Les fichiers laissés par les runs précédents
+     * étaient retrouvés par le run suivant : « il n'existe rien sur cette molécule » devenait
+     * faux à cause du banc lui-même. Fermer le trou assainit le scénario par la même occasion.
+     */
+    if (opts.effetMax && EFFECT_RANK[effect] > EFFECT_RANK[opts.effetMax]) {
+      issues.push(issue("FORBIDDEN_EFFECT", s.key,
+        `« ${s.title} » porte l'effet ${effect}, au-dessus du plafond ${opts.effetMax} de cette `
+        + `mission. Un nœud ${nodeType} produit un effet même sans capacité déclarée : le plafond `
+        + `porte sur ce qui SORT, pas sur la façon dont l'étape est écrite.`));
     }
 
     // ── L'ÉVENTAIL ────────────────────────────────────────────────────────────────────

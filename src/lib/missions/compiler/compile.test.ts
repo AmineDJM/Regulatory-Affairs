@@ -498,3 +498,65 @@ describe("dépendance vers un plan antérieur", () => {
     expect(codes(r)).toContain("UNKNOWN_DEPENDENCY");
   });
 });
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE PLAFOND D'EFFET — et le faux vert qu'il ferme.
+ *
+ * ── LE RUN QUI A PRODUIT CES TESTS ───────────────────────────────────────────────────────
+ *
+ * Render, trois scénarios lancés en LECTURE SEULE. Le rapport a affiché :
+ *
+ *     READ_ONLY_EXECUTION      PASS
+ *
+ * …pendant que deux missions écrivaient de vrais fichiers dans le Drive de production :
+ *
+ *     ARTIFACT · « Vérification Zorbamyxine-K7 » (XLSX, 12 Ko) fabriqué et contrôlé.
+ *
+ * Le plafond `ANALYZE` était bien posé. Il ne filtrait que le CATALOGUE, donc que les étapes
+ * portant une capacité. Un nœud ARTIFACT n'en porte pas : il fabrique un fichier sans passer
+ * par le catalogue. Le compilateur CALCULAIT pourtant `maxEffect: PREPARE` et l'affichait dans
+ * le journal — il ne s'en servait simplement jamais.
+ *
+ * Et le défaut se propageait : les fichiers laissés par un run étaient retrouvés par le
+ * suivant, qui en concluait que la molécule « inexistante » existait. Le banc corrompait son
+ * propre scénario.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("le plafond d'effet porte sur l'ÉTAPE, pas seulement sur la capacité", () => {
+  it("un ARTIFACT est REFUSÉ sous plafond de lecture — il fabrique, donc il produit un effet", () => {
+    const r = compile(plan([
+      { key: "fichier", title: "Produire le rapport", nodeType: "ARTIFACT" },
+    ]), catalogue(), pdg, { effetMax: "ANALYZE" });
+    expect(r.ok).toBe(false);
+    expect(codes(r)).toContain("FORBIDDEN_EFFECT");
+  });
+
+  it("LE CONTRE-EXEMPLE : sans plafond, le même ARTIFACT compile", () => {
+    // Sans lui, ce banc passerait aussi si le compilateur s'était mis à refuser tous les
+    // artefacts — on vérifierait alors une panne, pas une garde.
+    const r = compile(plan([
+      { key: "fichier", title: "Produire le rapport", nodeType: "ARTIFACT" },
+    ]), catalogue(), pdg);
+    expect(r.ok, JSON.stringify(r.ok ? [] : r.issues)).toBe(true);
+  });
+
+  it("une LECTURE passe sous le même plafond — le plafond trie, il n'interdit pas tout", () => {
+    const r = compile(plan([
+      { key: "lire", title: "Lire l'annuaire", capability: "directory_list" },
+    ]), catalogue(), pdg, { effetMax: "ANALYZE" });
+    expect(r.ok, JSON.stringify(r.ok ? [] : r.issues)).toBe(true);
+  });
+
+  it("le refus NOMME l'effet, le plafond et la nature du nœud", () => {
+    // Un refus qui dirait « non » sans dire quoi ferait replanifier à l'aveugle — et un run
+    // réel a montré ce que coûtent des replanifications qui ne savent pas ce qu'elles corrigent.
+    const r = compile(plan([
+      { key: "fichier", title: "Produire le rapport", nodeType: "ARTIFACT" },
+    ]), catalogue(), pdg, { effetMax: "ANALYZE" });
+    const msg = r.ok ? "" : r.issues.map((i) => i.message).join(" ");
+    expect(msg).toContain("PREPARE");
+    expect(msg).toContain("ANALYZE");
+    expect(msg).toContain("ARTIFACT");
+  });
+});
