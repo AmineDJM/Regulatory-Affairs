@@ -1229,6 +1229,7 @@ model User {
   executiveDecisions         ExecutiveDecision[]      @relation("ExecutiveDecisions")
   executiveCommitments       ExecutiveCommitment[]    @relation("ExecutiveCommitments")
   assistantArtifacts         AssistantArtifact[]      @relation("AssistantArtifacts")
+  artifactSessions           ArtifactSession[]        @relation("ArtifactSessions")
   assistantActionIntents     AssistantActionIntent[]  @relation("AssistantActionIntents")
   userInvites                UserInvite[]             @relation("UserInvites")
   adProItemDecisions         AdProItemDecision[]      @relation("AdProItemDecider")
@@ -4591,6 +4592,8 @@ model DriveNode {
   messageRefs MessageAttachment[] @relation("MessageDriveRef")
   mailPieces  MailEntryPiece[]    @relation("MailPieceDriveNode")
   textIndex   DriveTextIndex?
+  /// Les sessions Live Office ouvertes sur ce fichier (§3).
+  artifactSessions ArtifactSession[] @relation("ArtifactSessions")
   createdById String?
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
@@ -10328,4 +10331,100 @@ model AdProProductAllocation {
 
   @@unique([itemId, productId])
   @@index([productId])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// LIVE OFFICE — un document OUVERT dans le workspace d'Adam (§3).
+///
+/// Une session survit aux tours de conversation : « affiche-moi le contrat », puis « centre le
+/// titre », puis « annule », puis « sauvegarde » visent tous LE MÊME document ouvert. Sans cette
+/// ligne en base, chaque phrase repartirait de zéro et « annule » n'aurait rien à annuler.
+///
+/// ── CE QUE CETTE TABLE NE STOCKE PAS : LE DOCUMENT ─────────────────────────────────────
+///
+/// L'état courant est `baseVersion` du Drive PLUS les opérations non annulées du journal.
+/// Rejouer coûte quelques millisecondes sur des adaptateurs déterministes, et cela évite
+/// d'écrire un instantané par frappe — sur un PPTX de 8 Mo, vingt retouches feraient 160 Mo.
+/// C'est aussi la reprise après panne (§80) : rien à reconstruire, tout est déjà écrit.
+enum ArtifactSessionState {
+  OPENING
+  OPEN
+  EDITING
+  DIRTY
+  SAVING
+  SAVED
+  FAILED
+  CLOSED
+}
+
+model ArtifactSession {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("ArtifactSessions", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Le fil Adam où le workspace s'affiche — null quand la session vient du Drive.
+  threadId String?
+  /// §64 : le MÊME bloc de conversation est mis à jour, jamais un troisième s'empile.
+  blockId  String
+
+  /// Le fichier ouvert, dans le Drive.
+  nodeId      String
+  node        DriveNode @relation("ArtifactSessions", fields: [nodeId], references: [id], onDelete: Cascade)
+  /// La version Drive sur laquelle les opérations sont rejouées.
+  baseVersion Int
+  name        String
+  format      String
+
+  state    ArtifactSessionState @default(OPENING)
+  /// Incrémenté à chaque commande appliquée — c'est la « version » que voit le workspace (§64).
+  revision Int                  @default(0)
+  dirty    Boolean              @default(false)
+  /// Dernière version Drive écrite depuis cette session (null tant qu'on n'a pas sauvegardé).
+  savedVersion Int?
+  lastError    String?
+
+  /// Working set (§4) : où la personne regarde. `activeSelection` porte les identifiants cliqués.
+  activePage      Int?
+  activeSlide     Int?
+  activeSheet     String?
+  activeSelection Json?
+
+  openedAt   DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  closedAt   DateTime?
+
+  operations ArtifactOperation[]
+
+  @@index([userId, state, updatedAt])
+  @@index([nodeId])
+  @@index([threadId])
+}
+
+/// LE JOURNAL DES OPÉRATIONS (§18) — ce qui rend l'annulation réelle et la reprise gratuite.
+///
+/// `operationId` est fourni par l'appelant et rend l'application IDEMPOTENTE : un double clic,
+/// un retry réseau ou un rejeu de file ne centre pas le titre deux fois.
+model ArtifactOperation {
+  id        String          @id @default(cuid())
+  sessionId String
+  session   ArtifactSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  /// Clé d'idempotence. Deux appels de même clé sur la même session = une seule application.
+  operationId   String
+  seq           Int
+  beforeVersion Int
+  afterVersion  Int
+  /// La commande IR appliquée — jamais de l'XML, jamais du texte libre.
+  command       Json
+  /// Ce que la personne lit : « ¶1 Contrat… → centré. »
+  summary       String
+
+  actorId    String
+  actorLabel String
+  /// Une opération annulée reste EN BASE : c'est ce qui permet de la rétablir (§18).
+  undone     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@unique([sessionId, operationId])
+  @@index([sessionId, seq])
 }

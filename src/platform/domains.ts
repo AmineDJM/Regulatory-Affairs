@@ -65,7 +65,11 @@ export const DOMAINS: { name: string; paths: string[] }[] = [
   { name: "directory", paths: ["src/lib/directory/", "src/lib/contacts/", "src/lib/medical/"] },
   { name: "adpro", paths: ["src/lib/ad-pro/", "src/lib/promo/", "src/lib/promo-material/"] },
   { name: "general-means", paths: ["src/lib/general-means/"] },
-  { name: "office", paths: ["src/lib/office/", "src/lib/pdf/"] },
+  // `artifact/` est le LIVE OFFICE : ouvrir, éditer et versionner un Word, un Excel, un
+  // PowerPoint ou un PDF. C'est le même métier que `office/` (bureautique) et il est déclaré
+  // ici pour être MESURÉ comme les autres — il ne doit importer aucun autre domaine, et ses
+  // capacités lui arrivent par un port (`artifact/ports.ts`), rempli par le pont.
+  { name: "office", paths: ["src/lib/office/", "src/lib/pdf/", "src/lib/artifact/"] },
 ];
 
 /**
