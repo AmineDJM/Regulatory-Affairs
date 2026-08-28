@@ -30,7 +30,7 @@ import { commande, cibleIndex, cibleRole } from "@/lib/artifact/commands/ir";
 import { decoder, estAccord } from "@/lib/artifact/commands/nl";
 import type { VueDocx, VuePdf } from "@/lib/artifact/render/view";
 import {
-  annuler, editer, fermer, oublierSession, ouvrir, retablir, sauvegarder, viser, vueDeSession,
+  annuler, comparerDepuis, editer, fermer, oublierSession, ouvrir, retablir, sauvegarder, viser, vueDeSession,
   type ContexteMoteur,
 } from "@/lib/artifact/runtime/engine";
 import { magasinMemoire, portsMemoire, type DriveFaux } from "@/lib/artifact/runtime/fakes";
@@ -403,5 +403,81 @@ describe("working set, enregistrer sous, fermeture", () => {
     ]);
     // §77 — le journal porte le RÉSUMÉ, jamais le contenu du document.
     expect(drive.audit.every((a) => !a.detail.includes("Article"))).toBe(true);
+  });
+});
+
+/**
+ * § 52 — « QU'EST-CE QUE TU AS CHANGÉ ? »
+ *
+ * La question se pose quand on doute. Y répondre depuis le journal reviendrait à redire ce
+ * qu'on a DEMANDÉ ; ces cas vérifient qu'on répond depuis ce que le document PORTE — y compris
+ * quand les deux divergent, ce qui est exactement le cas intéressant.
+ */
+describe("§52 — comparer, et dire ce qui a VRAIMENT changé", () => {
+  it("part de la version d'ouverture et constate les modifications non enregistrées", async () => {
+    await contexteAvec([{
+      nodeId: "n1", nom: "Contrat.docx",
+      octets: await docxDeParagraphes(["Contrat Consulting Mouffok", "Article 1 — Objet", "Article 2 — Durée"]),
+    }]);
+    const sid = (await ouvrir(ctx, { nodeId: "n1" })).vue!.sessionId;
+
+    // Rien n'a bougé : la comparaison doit le DIRE, pas inventer un changement.
+    const avant = await comparerDepuis(ctx, sid);
+    expect(avant.ok).toBe(true);
+    expect(avant.changements).toEqual([]);
+
+    await editer(ctx, sid, [
+      commande("docx.align", { cible: cibleRole("titre"), alignement: "center" }),
+      commande("docx.supprimer_paragraphe", { cible: cibleIndex(3) }),
+    ]);
+
+    const apres = await comparerDepuis(ctx, sid);
+    expect(apres.ok).toBe(true);
+    const natures = apres.changements.map((c) => c.nature);
+    expect(natures).toContain("forme");
+    expect(natures).toContain("suppression");
+    // Le résumé se lit à voix haute — c'est ce qu'Adam répond.
+    expect(apres.resume).toMatch(/suppression/i);
+  });
+
+  it("une ANNULATION se voit dans la comparaison — elle ne laisse pas de trace fantôme", async () => {
+    await contexteAvec([{ nodeId: "n1", nom: "Note.docx", octets: await docxDeParagraphes(["A", "B", "C"]) }]);
+    const sid = (await ouvrir(ctx, { nodeId: "n1" })).vue!.sessionId;
+    await editer(ctx, sid, [commande("docx.supprimer_paragraphe", { cible: cibleIndex(2) })]);
+    await annuler(ctx, sid);
+
+    // Le JOURNAL porte encore l'opération (annulée) ; le DOCUMENT, lui, est revenu à l'origine.
+    // C'est précisément ce que « raconter » aurait raté.
+    const c = await comparerDepuis(ctx, sid);
+    expect(c.changements).toEqual([]);
+  });
+
+  it("après enregistrement, comparer À LA VERSION D'ORIGINE reste possible", async () => {
+    await contexteAvec([{ nodeId: "n1", nom: "Note.docx", octets: await docxDeParagraphes(["A", "B"]) }]);
+    const sid = (await ouvrir(ctx, { nodeId: "n1" })).vue!.sessionId;
+    await editer(ctx, sid, [commande("docx.texte", { cible: cibleIndex(1), texte: "A modifié" })]);
+    const s = await sauvegarder(ctx, sid);
+    expect(s.ok).toBe(true);
+
+    const c = await comparerDepuis(ctx, sid, 1);
+    expect(c.ok).toBe(true);
+    expect(c.changements.some((x) => x.nature === "texte" && x.apres?.includes("A modifié"))).toBe(true);
+  });
+
+  it("une version inexistante est REFUSÉE clairement, pas comparée à du vide", async () => {
+    await contexteAvec([{ nodeId: "n1", nom: "Note.docx", octets: await docxDeParagraphes(["A"]) }]);
+    const sid = (await ouvrir(ctx, { nodeId: "n1" })).vue!.sessionId;
+    const c = await comparerDepuis(ctx, sid, 99);
+    expect(c.ok).toBe(false);
+    expect(c.motif).toMatch(/version 99/);
+  });
+
+  it("« qu'est-ce que tu as changé ? » est décodé SANS modèle (§30)", () => {
+    const ctxD = { format: "DOCX" as const, derniereCible: [], activePage: null, activeSlide: null, activeSheet: null };
+    expect(decoder("Qu'est-ce que tu as changé ?", ctxD)).toEqual({ genre: "comparer", depuis: null });
+    expect(decoder("Montre-moi les changements", ctxD)).toEqual({ genre: "comparer", depuis: null });
+    expect(decoder("Compare avec la v3", ctxD)).toEqual({ genre: "comparer", depuis: 3 });
+    // Et ce qui n'est PAS la question ne doit pas l'être : le décodeur laisse passer au modèle.
+    expect(decoder("Change le titre en Contrat 2026", ctxD)).not.toMatchObject({ genre: "comparer" });
   });
 });

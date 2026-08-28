@@ -63,6 +63,11 @@ test.describe("Live Office — Word", () => {
     await expect(titre).toContainText("Contrat Consulting Mouffok");
     const paragraphesAvant = await page.locator(".artifact-bloc").count();
 
+    // LES RANGS DE LA MARGE DISENT DE QUOI ILS SONT LE RANG. Paragraphes, tableaux et images
+    // sont numérotés séparément : sans la lettre, le tableau qui suit le 5ᵉ paragraphe
+    // afficherait « 1 » sous « 5 », et « supprime le 1 » deviendrait indécidable.
+    await expect(page.locator(".artifact-rang")).toHaveText(["1", "2", "3", "4", "5", "T1"]);
+
     await page.setViewportSize(BUREAU);
     await page.screenshot({ path: "e2e-screenshots/office-docx-avant-bureau.png", fullPage: false });
 
@@ -92,6 +97,17 @@ test.describe("Live Office — Word", () => {
     // Le document est « sale » : le bandeau le dit, et le bouton Enregistrer est actif.
     await expect(page.locator(".artifact-etat-sale")).toBeVisible();
     await expect(page.getByRole("button", { name: "Enregistrer" })).toBeEnabled();
+
+    // ── « Qu'est-ce que tu as changé ? » (§52) ──────────────────────────────────────
+    //
+    // La réponse est CONSTATÉE entre la version d'ouverture et l'état affiché — et c'est ce
+    // qui se vérifie ici : la suppression vient d'être annulée, donc elle ne doit PAS être
+    // annoncée, alors que le journal la porte encore (annulée). Une réponse tirée du journal
+    // dirait « j'ai supprimé un paragraphe » ; le document, lui, les a tous.
+    await instruire(page, "Qu'est-ce que tu as changé ?");
+    const bilan = page.locator(".artifact-message");
+    await expect(bilan).toContainText(/mise[s]? en forme/);
+    await expect(bilan).not.toContainText(/suppression/);
   });
 
   test("le workspace tient sur un téléphone", async ({ page }) => {

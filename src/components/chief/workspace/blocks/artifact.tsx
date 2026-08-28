@@ -309,11 +309,27 @@ function SceneDocx({ contenu, zoom, surbrillance, onCliquer }: {
   );
 }
 
+/**
+ * Le rang affiché dans la marge — et la LETTRE qui dit de quoi c'est le rang.
+ *
+ * Paragraphes, tableaux et images sont numérotés SÉPARÉMENT : « supprime le 3ᵉ paragraphe » et
+ * « le tableau 1 » ne comptent pas la même chose. Une marge qui n'afficherait que des chiffres
+ * les empilerait dans une seule colonne — « 1 2 3 4 » puis « 1 » pour le tableau qui suit —, et
+ * la personne qui les lit à voix haute n'aurait aucun moyen de savoir de quel « 1 » elle parle.
+ *
+ * Le préfixe rend l'espace de numérotation visible : `T1` est le premier tableau, `I1` la
+ * première image, `3` le troisième paragraphe. C'est ce que §17 demande — que le numéro affiché
+ * soit celui qu'on prononce.
+ */
 function BlocDocx({ b, actif, onCliquer }: { b: BlocVue; actif: boolean; onCliquer: (id: string) => void }) {
   const classe = `artifact-bloc${actif ? " artifact-bloc-actif" : ""}`;
+  const prefixe = b.type === "tableau" ? "T" : b.type === "image" ? "I" : "";
+  const quoi = b.type === "tableau" ? "Tableau" : b.type === "image" ? "Image" : "Paragraphe";
   // Le rang s'affiche dans la marge : c'est ainsi que « supprime le troisième paragraphe »
   // devient vérifiable À L'ŒIL, avant d'être exécuté.
-  const rang = <span className="artifact-rang" aria-hidden="true">{b.index}</span>;
+  const rang = (
+    <span className="artifact-rang" aria-hidden="true" title={`${quoi} ${b.index}`}>{prefixe}{b.index}</span>
+  );
 
   if (b.type === "tableau") {
     return (

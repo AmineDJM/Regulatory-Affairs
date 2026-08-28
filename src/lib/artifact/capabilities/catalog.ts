@@ -19,6 +19,22 @@
 
 import { OPS } from "@/lib/artifact/commands/ir";
 
+/**
+ * LA LISTE EST UN ENGAGEMENT, PAS UN CATALOGUE D'INTENTIONS.
+ *
+ * `capabilities.test.ts` exige de CHAQUE entrée un point d'entrée nommé, réellement exporté.
+ * Une capacité qu'on ne peut pas déclencher n'a donc pas le droit de figurer ici — c'est la
+ * seule façon d'empêcher la liste de devenir une promesse que le code ne tient pas.
+ *
+ * ── CE QUI N'Y EST PAS, ET POURQUOI ─────────────────────────────────────────────────────
+ *
+ * `artifact.export` y a figuré, et en a été RETIRÉ. Il annonçait « exporter en PDF » : pour
+ * un Word, un Excel ou un PowerPoint, cela suppose un moteur de rendu bureautique
+ * (LibreOffice), absent de l'image de déploiement — et impossible à y ajouter, le service
+ * tournant en `runtime: node` sans couche système. Ce qui existe vraiment — la rastérisation
+ * d'une page PDF — est le rendu interne du workspace, pas un export : rien ne se télécharge.
+ * Mieux vaut une liste plus courte et vraie qu'une entrée qui échoue à l'usage.
+ */
 export const CAPACITES_ARTEFACT = [
   "artifact.open",
   "artifact.inspect",
@@ -27,7 +43,6 @@ export const CAPACITES_ARTEFACT = [
   "artifact.redo",
   "artifact.save",
   "artifact.save_as",
-  "artifact.export",
   "artifact.compare",
   "artifact.close",
 ] as const;
@@ -43,7 +58,6 @@ export const LIBELLE_CAPACITE: Record<CapaciteArtefact, string> = {
   "artifact.redo": "Rétablir la modification annulée",
   "artifact.save": "Enregistrer une nouvelle version dans le Drive",
   "artifact.save_as": "Enregistrer sous un nouveau nom, sans toucher à l'original",
-  "artifact.export": "Exporter le document ouvert (PDF, images de pages)",
   "artifact.compare": "Comparer deux versions et dire ce qui a changé",
   "artifact.close": "Fermer le document ouvert",
 };

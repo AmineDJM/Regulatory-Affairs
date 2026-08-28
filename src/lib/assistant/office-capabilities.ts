@@ -134,10 +134,13 @@ export const OFFICE_TOOLS: PowerTool[] = [
     def: {
       name: "artifact_control",
       description:
-        "ANNULE, RÉTABLIT, ENREGISTRE ou FERME le document ouvert. "
+        "ANNULE, RÉTABLIT, ENREGISTRE, COMPARE ou FERME le document ouvert. "
         + "« annuler » défait la dernière modification et elle seule ; « retablir » la remet ; "
         + "« enregistrer » crée une NOUVELLE VERSION dans le Drive (l'ancienne reste ouvrable) ; "
         + "« enregistrer_sous » crée un fichier séparé et laisse l'original intact ; « fermer » referme. "
+        + "« comparer » répond à « qu'est-ce que tu as changé ? » : il CONSTATE les différences entre "
+        + "l'état actuel et une version antérieure. Utilise-le au lieu de répondre de mémoire — c'est "
+        + "précisément la question qu'on pose quand on doute de ce qui a été fait. "
         + "« Sauvegarde » est une intention EXPLICITE : n'ajoute pas de « êtes-vous sûr ? ». "
         + "La seule question à poser est celle que l'outil te rendra si quelqu'un d'autre a enregistré "
         + "pendant que la personne travaillait.",
@@ -145,15 +148,16 @@ export const OFFICE_TOOLS: PowerTool[] = [
         type: "object",
         properties: {
           sessionId: { type: "string", description: "La session. Vide = le dernier document ouvert." },
-          geste: { type: "string", enum: ["annuler", "retablir", "enregistrer", "enregistrer_sous", "fermer"] },
+          geste: { type: "string", enum: ["annuler", "retablir", "enregistrer", "enregistrer_sous", "comparer", "fermer"] },
           nom: { type: "string", description: "Pour « enregistrer_sous » : le nom du nouveau fichier." },
+          depuis: { type: "integer", description: "Pour « comparer » : le numéro de version de départ. Vide = celle sur laquelle le document a été ouvert." },
           forcer: { type: "boolean", description: "Enregistrer par-dessus une version écrite entre-temps — seulement si la personne l'a demandé." },
         },
         required: ["geste"],
       },
     },
     allowed: () => true,
-    label: "Bureautique — annuler / enregistrer",
+    label: "Bureautique — annuler / enregistrer / comparer",
     run: async (input, user) => {
       const office = await import("@/platform/in-process/artifact/office");
       const session = await office.sessionVisee(user, str(input, "sessionId") || null);
@@ -167,6 +171,18 @@ export const OFFICE_TOOLS: PowerTool[] = [
         return JSON.stringify({
           fait: r.ok, message: r.ok ? r.effets[0]?.resume : r.motif,
           _blocsDecoratifs: true, _blocs: r.vue ? [blocArtefact(r.vue)] : [],
+        });
+      }
+      if (geste === "comparer") {
+        // On rend les changements CONSTATÉS, pas un récit. Le modèle n'a qu'à les mettre en
+        // phrase : c'est la différence entre « j'ai centré le titre » (ce qu'il croit avoir
+        // demandé) et « ¶1 : alignement gauche → centré » (ce que le document porte).
+        const depuis = typeof input.depuis === "number" ? input.depuis : undefined;
+        const c = await office.comparerDocument(u, session.id, depuis);
+        return JSON.stringify({
+          fait: c.ok,
+          message: c.ok ? c.resume : c.motif,
+          changements: c.changements.map((x) => ({ objet: x.objet, quoi: x.quoi, avant: x.avant, apres: x.apres })),
         });
       }
       if (geste === "fermer") {

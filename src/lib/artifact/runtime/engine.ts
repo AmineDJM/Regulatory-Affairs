@@ -37,6 +37,7 @@ import type { DocumentOuvert, EffetCommande } from "@/lib/artifact/adapters/cont
 import { adaptateurPour, mimeDe } from "@/lib/artifact/adapters/registry";
 import { controlerVisuel, proportionsInitiales } from "@/lib/artifact/qa/checks";
 import { vueDuModele, type VueArtefact } from "@/lib/artifact/render/view";
+import { comparer, type Comparaison } from "@/lib/artifact/versions/diff";
 import type { PortsArtefact } from "@/lib/artifact/ports";
 import { mesurer, type Chrono } from "@/lib/artifact/observability/timing";
 
@@ -577,6 +578,43 @@ export async function viser(
   const fusion = { ...session, ...champs };
   const etat = await etatCourant(ctx, fusion);
   return { ok: true, effets: [], motif: null, vue: await construireVue(ctx, fusion, etat), chrono: chrono.fin("aim") };
+}
+
+/**
+ * « QU'EST-CE QUE TU AS CHANGÉ ? » (§52) — la réponse CONSTATÉE, pas racontée.
+ *
+ * ── POURQUOI PAS SIMPLEMENT RELIRE LE JOURNAL ───────────────────────────────────────────
+ *
+ * `resumeDesModifications` redit ce qu'on a DEMANDÉ ; c'est ce que le workspace affiche sous
+ * la barre, et c'est la bonne chose à cet endroit. Mais entre la version d'origine et l'état
+ * courant, une opération a pu être rejouée sans effet (sa cible avait disparu), et le journal
+ * l'annoncerait quand même. Ici on relit la version de base, on la compare au modèle courant,
+ * et on rend ce qui DIFFÈRE réellement.
+ *
+ * ── DEUX BORNES, PAS TROIS ──────────────────────────────────────────────────────────────
+ *
+ * `depuis` permet de choisir la version de départ : sans elle, la comparaison part de la
+ * version sur laquelle la session s'est ouverte (« depuis que je l'ai ouvert ») ; avec elle,
+ * de n'importe quelle version du Drive (« par rapport à la v3 »). Le point d'arrivée est
+ * toujours l'état COURANT, y compris non sauvegardé — c'est celui qu'on a sous les yeux.
+ */
+export async function comparerDepuis(
+  ctx: ContexteMoteur,
+  sessionId: string,
+  depuis?: number,
+): Promise<Comparaison> {
+  const session = await ctx.magasin.lire(sessionId, ctx.acteur.id);
+  if (!session) return { ok: false, motif: "Aucun document ouvert sous cette référence.", changements: [], resume: "" };
+
+  const version = depuis ?? session.baseVersion;
+  const octets = await ctx.ports.documents.lire(ctx.acteur.id, session.nodeId, version);
+  if (!octets) {
+    return { ok: false, motif: `La version ${version} de « ${session.name} » est introuvable.`, changements: [], resume: "" };
+  }
+
+  const origine = await adaptateurPour(session.format).ouvrir(octets);
+  const etat = await etatCourant(ctx, session);
+  return comparer(origine.modele(), etat.doc.modele());
 }
 
 /** L'état complet d'une session, tel que le workspace le dessine. */

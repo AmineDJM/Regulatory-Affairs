@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
@@ -25,6 +26,16 @@ export const E2E = {
   docxName: "__e2e__ Contrat Consulting Mouffok.docx",
   pdfName: "__e2e__ Dossier ANPP.pdf",
   pdfPages: 10,
+  /**
+   * LE SECRET DE SESSION DU RUN E2E — et la raison pour laquelle il est ici.
+   *
+   * `drive-storage.ts` DÉRIVE la clé de chiffrement des blobs de ce secret quand
+   * `DRIVE_ENCRYPTION_KEY` n'est pas posée. Si le seed et le serveur n'ont pas le même, le seed
+   * chiffre avec une clé et le serveur déchiffre avec une autre : « Unsupported state or unable
+   * to authenticate data ». C'est exactement ce qui est arrivé, et la seule protection sûre est
+   * qu'il n'existe qu'UNE source — celle-ci, lue par `playwright.config.ts` ET par le seed.
+   */
+  authSecret: process.env.NEXTAUTH_SECRET ?? "e2e-secret-local-only",
 } as const;
 
 export default async function globalSetup(): Promise<void> {
@@ -79,52 +90,22 @@ export default async function globalSetup(): Promise<void> {
     }
     // ── LE DÉCOR DU LIVE OFFICE ────────────────────────────────────────────────────
     //
-    // De VRAIS fichiers, fabriqués par les mêmes fonctions que la production (`fixtures.ts`),
-    // déposés dans le Drive du testeur avec un blob chiffré et une version — c'est-à-dire par
-    // le chemin normal. Un `.docx` bricolé à la main ne prouverait rien : il n'a ni styles,
-    // ni sectPr, donc il ne peut pas révéler les défauts qui cassent les vrais fichiers.
+    // Délégué à `scripts/e2e/office-seed.ts`, lancé sous `tsx` : le chargeur TypeScript de
+    // Playwright n'honore pas les alias `@/`, et le seed doit utiliser EXACTEMENT le code de
+    // production (`putBlob`, `fixtures.ts`) plutôt qu'une copie réécrite en chemins relatifs.
     //
-    // Les identifiants de nœud sont écrits dans `.e2e-office.json` : la spec les relit, parce
-    // qu'un identifiant `cuid()` ne peut pas être une constante.
-    const { docxDeParagraphes, pdfNumerote } = await import("../src/lib/artifact/adapters/fixtures");
-    const { putBlob } = await import("../src/lib/drive-storage");
-
-    await prisma.driveNode.deleteMany({ where: { name: { startsWith: "__e2e__ " }, type: "FILE" } });
-    await prisma.driveNode.deleteMany({ where: { name: E2E.officeFolder } });
-    const dossier = await prisma.driveNode.create({
-      data: { name: E2E.officeFolder, type: "FOLDER", ownerId: testeur.id, createdById: testeur.id },
-      select: { id: true },
+    // Les identifiants de nœud atterrissent dans `.e2e-office.json` : la spec les relit, parce
+    // qu'un `cuid()` ne peut pas être une constante et que `process.env` posé ici ne traverse
+    // pas jusqu'aux workers Playwright.
+    const seed = execFileSync("npx", ["tsx", "scripts/e2e/office-seed.ts", testeur.id], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        DATABASE_URL: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/amd_internal_os?schema=public",
+        NEXTAUTH_SECRET: E2E.authSecret,
+      },
     });
-
-    const deposer = async (nom: string, octets: Buffer, mime: string) => {
-      const { blobId, size } = await putBlob(octets);
-      const node = await prisma.driveNode.create({
-        data: {
-          name: nom, type: "FILE", parentId: dossier.id, ownerId: testeur.id, createdById: testeur.id,
-          mimeType: mime, size, category: "Document",
-          versions: { create: { blobId, version: 1, size, mimeType: mime, createdById: testeur.id } },
-        },
-        select: { id: true },
-      });
-      return node.id;
-    };
-
-    const docxNode = await deposer(
-      E2E.docxName,
-      await docxDeParagraphes(
-        ["Contrat Consulting Mouffok", "Article 1 — Objet", "Article 2 — Durée", "Article 3 — Rémunération", "Article 4 — Confidentialité"],
-        { premierEstTitre: true, tableau: [["Poste", "Montant"], ["Conseil", "120 000 DZD"]] },
-      ),
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    );
-    const pdfNode = await deposer(E2E.pdfName, await pdfNumerote(E2E.pdfPages), "application/pdf");
-
-    writeFileSync(
-      path.join(process.cwd(), ".e2e-office.json"),
-      JSON.stringify({ docxNode, pdfNode }, null, 2),
-    );
-    process.env.E2E_DOCX_NODE = docxNode;
-    process.env.E2E_PDF_NODE = pdfNode;
+    writeFileSync(path.join(process.cwd(), ".e2e-office.json"), seed.trim());
   } finally {
     await prisma.$disconnect();
   }

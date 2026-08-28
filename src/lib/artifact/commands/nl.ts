@@ -47,6 +47,7 @@ export type IntentionDirecte =
   | { genre: "annuler" }
   | { genre: "retablir" }
   | { genre: "sauvegarder"; sousLeNom: string | null }
+  | { genre: "comparer"; depuis: number | null }
   | { genre: "fermer" };
 
 /** Un « petit » pas : ce que veut dire « un peu ». Un demi-centimètre se voit sans surprendre. */
@@ -148,6 +149,30 @@ export function decoder(phrase: string, ctx: ContexteDecodage): IntentionDirecte
   }
   if (new RegExp(`^(?:ferme|fermer|referme)(?:\\s+(?:le|la|ce)?\\s*documents?)?${fin}`).test(p)) {
     return { genre: "fermer" };
+  }
+  /**
+   * « QU'EST-CE QUE TU AS CHANGÉ ? » (§52) — une QUESTION, pas une commande.
+   *
+   * Elle est décodée ici plutôt que laissée au modèle pour une raison de fond : le modèle
+   * répondrait de mémoire, à partir de ce qu'il croit avoir fait. Or c'est exactement la
+   * question à laquelle il ne faut PAS répondre de mémoire — on la pose justement quand on
+   * doute. La réponse doit venir d'une comparaison de deux états réels.
+   *
+   * « par rapport à la v3 » fixe l'autre borne ; sans elle, on compare à la version sur
+   * laquelle le document a été ouvert.
+   */
+  // `T` = le trait d'union OU l'espace. `normaliserTexte` retire les accents mais GARDE les
+  // traits d'union — « qu'est-ce », « montre-moi », « dis-moi » s'écrivent ainsi et sont la
+  // façon normale de poser la question. Les oublier renvoyait la phrase au modèle, ce qui est
+  // précisément ce qu'on veut éviter ici.
+  const T = "[-\\s]";
+  if (new RegExp(
+    `^(?:qu'?est${T}ce que tu as (?:change|modifie)|qu'?as${T}tu (?:change|modifie)`
+    + `|tu as (?:change|modifie) quoi|quels? (?:sont les )?changements`
+    + `|(?:montre|dis)${T}(?:moi )?(?:les|tes) (?:changements|modifications)|compare)\\b`,
+  ).test(p)) {
+    const v = /\bv(?:ersion)?\s*(\d{1,4})\b/.exec(p);
+    return { genre: "comparer", depuis: v ? Number(v[1]) : null };
   }
   if (/^(?:(?:ok|c'est bon|parfait)[ ,.]*)?(?:sauvegarde|enregistre|sauve|save)\b/.test(p)) {
     const sous = /(?:sous|en tant que|sous le nom (?:de )?)\s+(.+)$/.exec(phrase.trim());

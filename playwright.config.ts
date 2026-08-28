@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { E2E } from "./e2e/global-setup";
 
 /**
  * E2E PLAYWRIGHT — parcours RÉELS contre le build de production (`next start` sur `.next`),
@@ -42,7 +43,9 @@ export default defineConfig({
     env: {
       DATABASE_URL: DB_URL,
       NEXTAUTH_URL: "http://localhost:3100",
-      NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET ?? "e2e-secret-local-only",
+      // MÊME source que le seed (`E2E.authSecret`) : la clé de chiffrement des blobs Drive en
+      // est dérivée, et deux valeurs différentes rendent les fichiers du seed illisibles.
+      NEXTAUTH_SECRET: E2E.authSecret,
       // LA PLANCHE DE RENDU, le temps d'une revue. Les blocs de l'espace de travail n'existent
       // qu'au bout d'un vrai tour de conversation — donc d'un appel IA, que cette suite
       // s'interdit. Cette variable ouvre une route de démonstration qui, sans elle, rend 404 :

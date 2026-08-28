@@ -24,8 +24,9 @@ import type {
   ContexteMoteur, ResultatEdition, ResultatOuverture, ResultatSauvegarde, SessionPersistee,
 } from "@/lib/artifact/runtime/engine";
 import {
-  annuler, editer, fermer, ouvrir, retablir, sauvegarder, viser, vueDeSession,
+  annuler, comparerDepuis, editer, fermer, ouvrir, retablir, sauvegarder, viser, vueDeSession,
 } from "@/lib/artifact/runtime/engine";
+import type { Comparaison } from "@/lib/artifact/versions/diff";
 import type { VueArtefact } from "@/lib/artifact/render/view";
 import { portsArtefact } from "@/platform/in-process/artifact/ports";
 import { magasinSessions } from "@/platform/in-process/artifact/store";
@@ -66,6 +67,10 @@ export const sauvegarderDocument = (
 
 export const vueDocument = (user: CurrentUser, sessionId: string): Promise<VueArtefact | null> =>
   vueDeSession(contexte(user), sessionId);
+
+/** « Qu'est-ce que tu as changé ? » (§52) — constaté entre deux états, jamais raconté de mémoire. */
+export const comparerDocument = (user: CurrentUser, sessionId: string, depuis?: number): Promise<Comparaison> =>
+  comparerDepuis(contexte(user), sessionId, depuis);
 
 /**
  * LA SESSION VISÉE par une phrase sans référence explicite.
@@ -158,6 +163,17 @@ export async function appliquerIntention(
           ? `Enregistré${r.version ? ` — version ${r.version}` : ""}.`
           : (r.motif ?? "L'enregistrement a échoué."),
         vue: r.vue, sansModele: true, aDeleguer: false,
+      };
+    }
+    case "comparer": {
+      // Une QUESTION : la vue ne bouge pas, seule la réponse change. Rendre `vue` quand même
+      // évite que le workspace se vide le temps d'une question — il n'y a rien à redessiner.
+      const c = await comparerDocument(user, sessionId, intention.depuis ?? undefined);
+      const detail = c.changements.slice(0, 8).map((x) => `${x.objet} : ${x.quoi}`).join(" ; ");
+      return {
+        ok: c.ok,
+        message: c.ok ? [c.resume, detail].filter(Boolean).join(" — ") : (c.motif ?? "Comparaison impossible."),
+        vue: await vueDocument(user, sessionId), sansModele: true, aDeleguer: false,
       };
     }
     case "commandes": {
