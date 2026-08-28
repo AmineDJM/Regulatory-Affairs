@@ -33,6 +33,8 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
+import type { Contrat } from "@/lib/missions/registry/result-contract";
+
 /**
  * L'EFFET D'UNE CAPACITÉ — la seule métadonnée dont tout le reste découle.
  *
@@ -87,6 +89,15 @@ export interface CapabilityMeta {
   latency: LatencyClass;
   /** POLICY_ENGINE = c'est la politique qui tranche ; ALWAYS = toujours ; NEVER = jamais. */
   confirmation: "POLICY_ENGINE" | "ALWAYS" | "NEVER";
+  /**
+   * CE QU'ELLE PROMET DE RENDRE — et donc ce qui distingue « l'appel a réussi » de « elle a
+   * répondu ». Voir `result-contract.ts` : sans contrat déclaré (`LIBRE`), rien n'est vérifié,
+   * et une capacité peut rendre « Pièce introuvable » en passant pour un succès.
+   *
+   * Le défaut est `LIBRE` et non un contrat prudent : ici, se tromper ne peut que faire ÉCHOUER
+   * une mission valide. L'ignorance choisit, comme partout, le côté qui ne ment pas.
+   */
+  contrat: Contrat;
   /** Vrai quand la métadonnée a été DÉCLARÉE ; faux quand elle a été dérivée ou devinée. */
   declared: boolean;
 }
@@ -99,9 +110,19 @@ export interface CapabilityMeta {
  * Le reste est dérivé, et le test d'architecture exige qu'une capacité UTILISÉE par une
  * mission soit déclarée — c'est là que la rigueur est nécessaire, pas partout.
  */
-export const DECLARED: Record<string, Omit<CapabilityMeta, "id" | "declared">> = {
+export const DECLARED: Record<string, Omit<CapabilityMeta, "id" | "declared" | "contrat"> & { contrat?: Contrat }> = {
   // ─────────── Lectures canoniques ───────────
-  directory_lookup: { domain: "directory", effect: "READ", idempotent: true, batchable: true, latency: "LOW", confirmation: "NEVER" },
+  /**
+   * ── LES CONTRATS DÉCLARÉS ICI ONT TOUS ÉTÉ LUS DANS LE CODE DE L'OUTIL ─────────────────
+   *
+   * Pas déduits d'un nom, pas supposés d'une famille : le fichier de l'outil a été ouvert et sa
+   * forme de sortie vérifiée sur les DEUX chemins — celui qui trouve et celui qui ne trouve
+   * rien. C'est la seule façon d'ajouter un contrôle sans fabriquer des échecs.
+   *
+   * Les autres capacités restent `LIBRE` jusqu'à ce que quelqu'un fasse la même vérification.
+   * Une liste courte et vraie vaut mieux qu'une liste complète et fausse.
+   */
+  directory_lookup: { domain: "directory", effect: "READ", idempotent: true, batchable: true, latency: "LOW", confirmation: "NEVER", contrat: "COLLECTION" },
   directory_list: { domain: "directory", effect: "READ", idempotent: true, batchable: false, latency: "LOW", confirmation: "NEVER" },
   inspect_record: { domain: "platform", effect: "READ", idempotent: true, batchable: true, latency: "LOW", confirmation: "NEVER" },
   search_everything: { domain: "platform", effect: "READ", idempotent: true, batchable: false, latency: "MEDIUM", confirmation: "NEVER" },
@@ -114,7 +135,7 @@ export const DECLARED: Record<string, Omit<CapabilityMeta, "id" | "declared">> =
   read_finances: { domain: "finance", effect: "READ", idempotent: true, batchable: false, latency: "MEDIUM", confirmation: "NEVER" },
   gmail_search: { domain: "mail", effect: "READ", idempotent: true, batchable: false, latency: "MEDIUM", confirmation: "NEVER" },
   read_calendar: { domain: "calendar", effect: "READ", idempotent: true, batchable: false, latency: "LOW", confirmation: "NEVER" },
-  list_pending_decisions: { domain: "tasks", effect: "READ", idempotent: true, batchable: false, latency: "LOW", confirmation: "NEVER" },
+  list_pending_decisions: { domain: "tasks", effect: "READ", idempotent: true, batchable: false, latency: "LOW", confirmation: "NEVER", contrat: "COLLECTION" },
 
   // ─────────── Communications et écritures ───────────
   //
@@ -138,10 +159,11 @@ export const DECLARED: Record<string, Omit<CapabilityMeta, "id" | "declared">> =
   create_task: { domain: "tasks", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
   create_admin_request: { domain: "tasks", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
   create_calendar_event: { domain: "calendar", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
-  search_people: { domain: "directory", effect: "READ", idempotent: true, batchable: true, latency: "LOW", confirmation: "NEVER" },
-  search_drive: { domain: "drive", effect: "READ", idempotent: true, batchable: true, latency: "MEDIUM", confirmation: "NEVER" },
-  read_document: { domain: "drive", effect: "READ", idempotent: true, batchable: true, latency: "MEDIUM", confirmation: "NEVER" },
+  search_people: { domain: "directory", effect: "READ", idempotent: true, batchable: true, latency: "LOW", confirmation: "NEVER", contrat: "COLLECTION" },
+  search_drive: { domain: "drive", effect: "READ", idempotent: true, batchable: true, latency: "MEDIUM", confirmation: "NEVER", contrat: "COLLECTION" },
+  read_document: { domain: "drive", effect: "READ", idempotent: true, batchable: true, latency: "MEDIUM", confirmation: "NEVER", contrat: "CONTENU" },
   create_report: { domain: "office", effect: "PREPARE", idempotent: false, batchable: false, latency: "HIGH", confirmation: "NEVER" },
+  list_artifacts: { domain: "office", effect: "READ", idempotent: true, batchable: false, latency: "LOW", confirmation: "NEVER", contrat: "COLLECTION" },
 };
 
 /**
@@ -207,7 +229,10 @@ const PREFIXES: { test: (n: string) => boolean; effect: Effect }[] = [
  */
 export function capabilityMeta(name: string, estEcriture?: (n: string) => boolean): CapabilityMeta {
   const declared = Object.prototype.hasOwnProperty.call(DECLARED, name) ? DECLARED[name] : null;
-  if (declared) return { id: name, declared: true, ...declared };
+  // L'ORDRE DU SPREAD COMPTE : `contrat` vient APRÈS, sinon un `contrat: undefined` absent de la
+  // déclaration écraserait le défaut et rendrait le champ non défini là où le type promet une
+  // valeur. Le genre d'inversion qui ne casse rien au typecheck et tout à l'exécution.
+  if (declared) return { id: name, declared: true, ...declared, contrat: declared.contrat ?? "LIBRE" };
 
   // Dérivation. L'ordre compte : la liste d'écritures du résolveur l'emporte sur le préfixe,
   // parce qu'elle est tenue par le code qui exécute, et non par une convention de nommage.
@@ -232,6 +257,10 @@ export function capabilityMeta(name: string, estEcriture?: (n: string) => boolea
     batchable: lecture,
     latency: "MEDIUM",
     confirmation: lecture ? "NEVER" : "POLICY_ENGINE",
+    // AUCUN CONTRAT DÉRIVÉ. Deviner la forme de sortie d'une capacité inconnue ferait échouer
+    // des missions valides pour un défaut imaginaire — l'exact inverse de ce que le contrôle
+    // sémantique existe pour empêcher.
+    contrat: "LIBRE",
     declared: false,
   };
 }

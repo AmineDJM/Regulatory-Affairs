@@ -18,6 +18,7 @@ import {
   type EtapeObservee, type JugeObjectif, type JugementAnterieur,
 } from "@/lib/missions/goal/evaluate";
 import { attenduDe, evaluerResultat } from "@/lib/missions/recovery/evaluate";
+import { verifierContrat } from "@/lib/missions/registry/result-contract";
 import { ERROR_KINDS, utilisablePourAgir, type ErrorKind, type Strategy } from "@/lib/missions/recovery/strategy";
 import {
   deciderRecours, historiqueDe, noter, peutConclureEtape, type ResolveursRecours,
@@ -75,7 +76,13 @@ export type StepOutcome =
   | { status: "DONE"; result?: unknown; receipt?: string; recu?: ExecutionReceipt }
   | { status: "WAITING"; raison: string }
   | { status: "SKIPPED"; raison: string }
-  | { status: "FAILED"; error: string; errorKind: string; retryable: boolean };
+  /**
+   * `recu` SUR UN ÉCHEC AUSSI — « nous avons interrogé cette source et cela n'a rien donné » est
+   * une information, et c'est celle qui distingue une piste non explorée d'une piste explorée
+   * sans succès. `fabriquerRecu` le disait déjà ; le reçu était fabriqué puis jeté, faute d'un
+   * champ pour le porter jusqu'à `ecrireSortie`.
+   */
+  | { status: "FAILED"; error: string; errorKind: string; retryable: boolean; recu?: ExecutionReceipt };
 
 export interface StepHandlers {
   WORKER?: (ctx: StepContext) => Promise<StepOutcome>;
@@ -743,12 +750,38 @@ async function executerCapacite(ctx: StepContext, deps: EngineDeps): Promise<Ste
    * explorée sans succès.
    */
   const meta = capabilityMeta(step.capability);
+
+  /**
+   * ── LE SUCCÈS SÉMANTIQUE, ENTRE LE TRANSPORT ET L'ATTENDU DE L'ÉTAPE ─────────────────
+   *
+   * Quatre niveaux existent, et le runtime n'en tenait que deux :
+   *
+   *   1. transport      le handler n'a pas levé  → le `try` de `executerUneEtape` ;
+   *   2. capacité       elle n'a pas déclaré d'échec → `out.ok` ;
+   *   3. SÉMANTIQUE     ce qu'elle rend satisfait ce qu'elle PROMET → ici, et nulle part avant ;
+   *   4. attendu        la forme correspond à `spec.attendu` → `recovery/evaluate.ts`.
+   *
+   * Le 3 manquait, et son absence a un coût nommable : sur un run réel, `read_document` a rendu
+   * « Pièce introuvable ou sans fichier », l'étape est passée DONE, et le juge d'objectif a reçu
+   * comme preuve de lecture une phrase disant que la lecture n'avait pas eu lieu.
+   *
+   * Le contrôle porte sur la FORME (`out.structured` : une structure, ou une phrase ?), jamais
+   * sur le sens de la phrase — voir `result-contract.ts`. Une capacité sans contrat déclaré
+   * (`LIBRE`, le défaut) n'est pas contrôlée : on ne vérifie pas une promesse qui n'a pas été
+   * faite.
+   */
+  const verdict = out.ok ? verifierContrat(meta.contrat, out.output, out.structured) : null;
+  const honore = verdict === null || verdict.etat === "SUCCESS";
+
   const recu = fabriquerRecu({
     capability: step.capability,
     effect: meta.effect,
     source: meta.domain,
     input: step.input,
-    ok: out.ok,
+    // LE REÇU DIT CE QUI S'EST VRAIMENT PASSÉ. Un contrat non honoré n'est pas un succès, et
+    // laisser `ok: out.ok` ici ferait entrer dans le registre de preuves une lecture qui n'a
+    // rien lu — exactement la preuve fabriquée que ce lot existe pour supprimer.
+    ok: out.ok && honore,
     sortie: out.output,
     debut,
     fin: ctx.clock.now(),
@@ -761,6 +794,18 @@ async function executerCapacite(ctx: StepContext, deps: EngineDeps): Promise<Ste
       error: out.error?.message ?? "échec sans message",
       errorKind: out.error?.kind ?? "CAPABILITY_FAILURE",
       retryable: out.error?.retryable ?? true,
+      recu,
+    };
+  }
+  if (verdict && !honore) {
+    return {
+      status: "FAILED",
+      error: `${step.capability} : ${verdict.raison}`,
+      errorKind: verdict.kind ?? "INCOMPATIBLE_RESULT",
+      // REJOUER À L'IDENTIQUE REDIRAIT LA MÊME CHOSE. C'est le CHEMIN qu'il faut changer, et
+      // `tenterRecours` — appelé juste après par `executerUneEtape` — en décide.
+      retryable: false,
+      recu,
     };
   }
   return {
@@ -816,6 +861,10 @@ async function ecrireSortie(
         ...base,
         error: sortie.error,
         errorKind: sortie.errorKind,
+        // LE REÇU D'UN ÉCHEC EST UNE PREUVE, PAS UN DÉCHET. Il porte la source interrogée, la
+        // requête et l'horodatage : c'est lui qui permet au juge de distinguer « cette piste n'a
+        // pas été explorée » de « cette piste a été explorée et n'a rien donné ».
+        ...(sortie.recu ? { receiptData: sortie.recu as never } : {}),
         // UN ÉCHEC NON REJOUABLE ÉPUISE SES TENTATIVES TOUT DE SUITE. Réessayer trois fois une
         // permission manquante ne la fait pas apparaître ; cela retarde seulement le diagnostic.
         ...(sortie.retryable ? {} : { attempt: step.maxAttempts }),

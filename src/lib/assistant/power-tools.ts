@@ -25,6 +25,7 @@ import { WHAT_CHANGED_TOOLS } from "@/lib/assistant/what-changed";
 import { ADAM_TOOLS } from "@/lib/assistant/adam-tools";
 import { DIRECTORY_TOOLS } from "@/lib/assistant/directory-tools";
 import { SHOW_TOOLS } from "@/lib/assistant/show-tools";
+import { resultatVide } from "@/lib/assistant/empty-result";
 
 /**
  * LES POUVOIRS DE L'ASSISTANT SONT **CEUX DE SON INTERLOCUTEUR** — ni plus, ni moins.
@@ -308,8 +309,11 @@ export const POWER_TOOLS: PowerTool[] = [
           { libelle: "Refuser", phrase: `Refuse le congé de ${l.employee}`, ton: "danger" as const },
         ],
       }));
-      if (items.length === 0 && conges.length === 0) return "Rien n'attend votre décision pour l'instant.";
-      return JSON.stringify({ total: items.length + conges.length, elements: [...conges, ...items] });
+      // ZÉRO EST UN COMPTE (`empty-result.ts`) : « rien n'attend » doit être MESURÉ pour
+      // qu'une mission puisse s'en servir comme constat, et pas seulement le lire.
+      if (items.length === 0 && conges.length === 0) return resultatVide("Rien n'attend votre décision pour l'instant.");
+      const elements = [...conges, ...items];
+      return JSON.stringify({ items: elements, count: elements.length, total: elements.length, elements });
     },
   },
   // LES OUTILS EXÉCUTIFS — « My Chief of Staff » (PDG + Super Admin) : fouille et lecture du

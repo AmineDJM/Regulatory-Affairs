@@ -6,6 +6,8 @@ import type { CurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { depositBufferToDrive } from "@/lib/assistant/exports";
+import { referenceLivrable } from "@/lib/assistant/artifact-ref";
+import { resultatVide } from "@/lib/assistant/empty-result";
 
 /**
  * LIVRABLES UNIVERSELS — de VRAIS fichiers Word / Excel / PowerPoint, fabriqués depuis UNE
@@ -354,32 +356,38 @@ export const DELIVERABLE_TOOLS: PowerTool[] = [
       }
 
       const formatsLabel = formats.join("+");
-      if (artifactId) {
-        await prisma.assistantArtifact.update({
+      const enregistre = artifactId
+        ? await prisma.assistantArtifact.update({
           where: { id: artifactId },
           data: { title: parsed.title, formats: formatsLabel, spec: parsed as never, version, files: files as never },
-        });
-      } else {
-        await prisma.assistantArtifact.create({
+          select: { id: true, title: true, version: true, formats: true, files: true },
+        })
+        : await prisma.assistantArtifact.create({
           data: { ownerId: user.id, title: parsed.title, formats: formatsLabel, spec: parsed as never, version, files: files as never },
+          select: { id: true, title: true, version: true, formats: true, files: true },
         });
-      }
       await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", summary: `Livrable « ${parsed.title} » v${version} (${formatsLabel}) généré dans le Drive` });
 
+      /**
+       * ── L'IDENTITÉ EST PUBLIÉE PAR CELUI QUI LA CRÉE ────────────────────────────────
+       *
+       * Cette réponse ne portait NI `artifact_id`, NI les `driveNodeId` en clair : l'étape qui
+       * venait de fabriquer le document ne pouvait pas dire lequel, et la suivante devait
+       * découper une URL pour le relire. `referenceLivrable` est la même construction que celle
+       * de `list_artifacts` — les deux publient littéralement le même objet.
+       *
+       * TÉLÉCHARGEABLE ICI : `telechargement` est le lien DIRECT du fichier (mêmes ACL que le
+       * Drive) — le donner quand le fichier est demandé « ici », en plus du lien Drive. Ne
+       * JAMAIS répondre « disponible dans le Drive » seul.
+       */
       return JSON.stringify({
         livrable: parsed.title,
-        version,
-        // TÉLÉCHARGEABLE ICI : `telechargement` est le lien DIRECT du fichier (mêmes ACL que
-        // le Drive) — le donner dans la réponse quand le fichier est demandé « ici », en plus
-        // du lien Drive. Ne JAMAIS répondre « disponible dans le Drive » seul.
-        fichiers: files.map((f) => ({
-          format: f.format, nom: f.filename,
-          lien: `/drive/${f.nodeId}`,
-          telechargement: `/api/drive/${f.nodeId}/raw`,
-        })),
+        ...referenceLivrable(enregistre),
         coherence: formats.length > 1 ? "Les formats sortent de LA MÊME spec : chiffres identiques par construction." : undefined,
         sources: parsed.sources.length,
         note: parsed.sources.length === 0 ? "⚠️ Aucune source dans la spec — le fichier le signale ; compléter avant diffusion." : undefined,
+        relecture: "Pour relire ce livrable : read_document avec `artifactId` (l'identité stable) "
+          + "ou `driveNodeId` (le fichier exact de cette version).",
       });
     },
   },
@@ -404,18 +412,21 @@ export const DELIVERABLE_TOOLS: PowerTool[] = [
         take: 15,
         select: { id: true, title: true, formats: true, version: true, files: true, updatedAt: true },
       });
-      if (rows.length === 0) return q ? `Aucun livrable ne mentionne « ${q} ».` : "Aucun livrable généré pour l'instant.";
+      // ZÉRO EST UN COMPTE, PAS UNE PHRASE (`empty-result.ts`) : sans `items`/`count`, une
+      // recherche infructueuse ne peut pas servir de preuve d'absence au juge d'objectif.
+      if (rows.length === 0) {
+        return resultatVide(q ? `Aucun livrable ne mentionne « ${q} ».` : "Aucun livrable généré pour l'instant.");
+      }
+      const livrables = rows.map((r) => ({ ...referenceLivrable(r), maj: r.updatedAt.toISOString().slice(0, 10) }));
       return JSON.stringify({
+        // `items` et `count` sont le contrat machine que `result-contract.ts` vérifie et que
+        // `receipt.ts` compte ; `livrables` reste le nom lisible, et pointe sur le même tableau.
+        items: livrables,
+        count: livrables.length,
         total: rows.length,
-        livrables: rows.map((r) => ({
-          artifact_id: r.id, titre: r.title, version: r.version, formats: r.formats,
-          maj: r.updatedAt.toISOString().slice(0, 10),
-          fichiers: (r.files as { format: string; filename: string; nodeId: string }[]).map((f) => ({
-            format: f.format, nom: f.filename,
-            lien: `/drive/${f.nodeId}`,
-            telechargement: `/api/drive/${f.nodeId}/raw`,
-          })),
-        })),
+        livrables,
+        relecture: "Pour relire un livrable : read_document avec son `artifact_id` (identité "
+          + "stable, toutes versions) ou le `driveNodeId` d'un fichier précis.",
       });
     },
   },

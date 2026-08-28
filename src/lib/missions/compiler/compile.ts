@@ -11,6 +11,7 @@ import {
 } from "@/lib/missions/planner/contract";
 import type { ApprovalStrategy, PlannedArtifact, PlannedWorkstream } from "@/lib/missions/planner/contract";
 import { EFFECT_RANK, Effect, effetMaximal } from "@/lib/missions/registry/capability-meta";
+import { effetDuNoeud } from "@/lib/missions/registry/node-effect";
 import type { CapabilityCatalog, MissionActor } from "@/lib/missions/ports";
 import { layout } from "@/lib/missions/compiler/graph";
 import { messageRefus, refusPourActeur } from "@/lib/missions/policy/guard";
@@ -307,8 +308,17 @@ export function compile(
       issues.push(issue("INVALID_SHAPE", s.key, `un nœud ${nodeType} n'attend rien.`));
     }
 
-    // ── La capacité : existe-t-elle, et l'acteur y a-t-il droit ? ──────────────────────
-    let effect: Effect = "ANALYZE";
+    /**
+     * ── La capacité : existe-t-elle, et l'acteur y a-t-il droit ? ─────────────────────
+     *
+     * LE DÉFAUT VIENT DE LA TABLE DES TYPES DE NŒUD, et c'est une correction. Il valait
+     * `ANALYZE` en dur, ce qui recouvrait par hasard le cas WORKER et surestimait tous les
+     * autres — une attente d'événement se voyait attribuer l'effet d'un appel de modèle. Pire :
+     * `WAIT_EVENT` et `WAIT_INPUT` n'apparaissaient dans AUCUNE des branches ci-dessous, si bien
+     * qu'un plafond `READ` les refusait. La table `EFFET_NOEUD` est exhaustive par le TYPE :
+     * ajouter un type de nœud sans lui donner d'effet ne compile plus.
+     */
+    let effect: Effect = effetDuNoeud(nodeType);
     let idempotent = true;
     let batchable = true;
     let confirmation: "POLICY_ENGINE" | "ALWAYS" | "NEVER" = "NEVER";
@@ -345,10 +355,6 @@ export function compile(
             + `(${m.effect}, non rejouable, sous confirmation).`));
         }
       }
-    } else if (nodeType === "ARTIFACT") {
-      effect = "PREPARE";
-    } else if (nodeType === "APPROVAL" || nodeType === "QA" || nodeType === "JOIN") {
-      effect = "READ";
     }
 
     /**

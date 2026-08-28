@@ -7,6 +7,7 @@ import { canReadDirectory } from "@/lib/directory/access";
 import { userCan } from "@/lib/rbac";
 import { chargeMetriques, geste } from "@/lib/assistant/workspace/emit";
 import { personRegulatoryLoad } from "@/lib/assistant/regulatory-read";
+import { resultatIndisponible } from "@/lib/assistant/capability-failure";
 
 /**
  * L'ANNUAIRE, VU PAR ADAM — pour qu'il cesse de répondre « je n'ai pas son adresse ».
@@ -54,7 +55,7 @@ export const DIRECTORY_TOOLS: PowerTool[] = [
     label: "Annuaire consulté",
     run: async (input, user) => {
       const name = str(input, "name");
-      if (name.length < 2) return "Donnez le nom de la personne.";
+      if (name.length < 2) return resultatIndisponible("MISSING_INPUT", "Donnez le nom de la personne.");
       const people = await findPeople(name, 5);
       if (people.length === 0) {
         return JSON.stringify({

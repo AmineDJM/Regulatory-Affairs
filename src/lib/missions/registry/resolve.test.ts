@@ -102,6 +102,7 @@ const catalogue: CapabilityCatalog = {
       batchable: false,
       latency: "LOW",
       confirmation: "NEVER",
+      contrat: "LIBRE",
       declared: false,
     }) satisfies CapabilityMeta,
   brief: () => [...CAPACITES],

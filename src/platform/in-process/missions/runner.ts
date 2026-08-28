@@ -4,6 +4,7 @@ import { buildProposal, executeReadTool, performAction, RESOLVER_WRITE_NAMES } f
 import { executeIntentGuarded, intentSummary } from "@/lib/assistant/action-intents";
 import type { CapabilityCall, CapabilityOutcome, CapabilityRunner } from "@/lib/missions/ports";
 import { capabilityMeta, ecritQuelqueChose } from "@/lib/missions/registry/capability-meta";
+import { ERROR_KINDS, type ErrorKind } from "@/lib/missions/recovery/strategy";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -40,29 +41,68 @@ import { capabilityMeta, ecritQuelqueChose } from "@/lib/missions/registry/capab
 
 const estEcriture = (n: string): boolean => RESOLVER_WRITE_NAMES.has(n);
 
-/** Un texte d'outil rendu en objet quand c'en est un — sinon, tel quel sous `texte`. */
-function structurer(brut: string): unknown {
+/**
+ * UN TEXTE D'OUTIL RENDU EN OBJET QUAND C'EN EST UN — et le FAIT de savoir lequel des deux.
+ *
+ * ── POURQUOI `structure` VOYAGE AVEC LA VALEUR ─────────────────────────────────────────
+ *
+ * Une phrase nue emballée en `{ texte: … }` est INDISCERNABLE, en aval, d'un JSON qui portait
+ * légitimement un champ `texte` — et c'est précisément le cas de `read_document`, qui rend
+ * `{ nom, lien, texte }` quand il lit et une phrase quand il échoue. Le seul endroit du système
+ * où la différence est encore visible est ICI, avant l'emballage.
+ *
+ * On la note donc au lieu de la perdre. `result-contract.ts` s'en sert pour refuser une phrase
+ * là où un contrat promet une structure, SANS jamais lire la phrase : le contrôle porte sur la
+ * forme, pas sur le sens — la même discipline que `empty-result.ts` applique à « aucun ».
+ */
+function structurer(brut: string): { valeur: unknown; structure: boolean } {
   const t = brut.trim();
-  if (!t) return { texte: "" };
+  if (!t) return { valeur: { texte: "" }, structure: false };
   if (t.startsWith("{") || t.startsWith("[")) {
     try {
-      return JSON.parse(t);
+      return { valeur: JSON.parse(t), structure: true };
     } catch {
       // Une lecture qui commence par une accolade sans être du JSON est presque toujours un
-      // message d'erreur formaté. On le garde en texte plutôt que de le perdre.
-      return { texte: t };
+      // message d'erreur formaté. On le garde en texte plutôt que de le perdre — et ce n'est
+      // PAS une structure, quoi qu'en dise l'accolade.
+      return { valeur: { texte: t }, structure: false };
     }
   }
-  return { texte: t };
+  return { valeur: { texte: t }, structure: false };
 }
 
 /**
- * LES RÉPONSES QUI SONT DES REFUS.
+ * UN ÉCHEC QUE LA CAPACITÉ A ELLE-MÊME DÉCLARÉ (`capability-failure.ts`).
+ *
+ * C'est le chemin PRINCIPAL, et le seul qui nomme une cause exacte : l'outil sait s'il n'a pas
+ * trouvé le fichier, s'il n'a pas su le lire, ou si le droit manquait. Une cause hors taxonomie
+ * retombe sur `CAPABILITY_FAILURE` — on ne fait jamais passer un `echec` pour un succès sous
+ * prétexte qu'on ne reconnaît pas son nom.
+ */
+function echecDeclare(v: unknown): { kind: ErrorKind; message: string } | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.echec !== "string" || o.echec.trim() === "") return null;
+  const kind = (ERROR_KINDS as readonly string[]).includes(o.echec)
+    ? (o.echec as ErrorKind)
+    : "CAPABILITY_FAILURE";
+  const message = typeof o.message === "string" && o.message.trim() !== "" ? o.message : o.echec;
+  return { kind, message };
+}
+
+/**
+ * LES RÉPONSES QUI SONT DES REFUS — la CEINTURE, pas la bretelle.
  *
  * `executeReadTool` rend une PHRASE quand le droit manque ou que la lecture échoue — c'est le
  * bon comportement en conversation, où un humain lit la phrase. Dans une mission, une phrase
  * d'excuse rangée comme un résultat serait ensuite comptée comme une étape réussie, et le
  * contrôle qualité la validerait. On la reconnaît donc et on ÉCHOUE l'étape.
+ *
+ * Ces trois motifs restent, mais ils ne sont plus la défense principale : une reconnaissance de
+ * phrase ne peut couvrir que les tournures qu'on a pensé à écrire, et un run réel a montré
+ * qu'elle en manquait six sur sept pour la seule `read_document`. Ce qui garde maintenant, c'est
+ * l'échec DÉCLARÉ ci-dessus et le contrat de résultat en aval. Celles-ci attrapent le reliquat
+ * des capacités que personne n'a encore converties.
  */
 const REFUS = [
   /ne vous est pas ouvert/i,
@@ -123,7 +163,28 @@ export class ExecutantReel implements CapabilityRunner {
       };
     }
 
-    return { ok: true, output: structurer(brut) };
+    const { valeur, structure } = structurer(brut);
+
+    // L'ÉCHEC QUE LA CAPACITÉ A DIT ELLE-MÊME. Il précède tout le reste : personne d'autre ne
+    // connaît la cause exacte, et la deviner en aval serait la fabriquer.
+    const declare = echecDeclare(valeur);
+    if (declare) {
+      return {
+        ok: false,
+        output: valeur,
+        structured: structure,
+        error: {
+          kind: declare.kind,
+          message: declare.message.slice(0, 300),
+          // UN DROIT MANQUANT NE REVIENT PAS EN RÉESSAYANT. Le reste peut être transitoire, et
+          // l'échelle de recours saura de toute façon quoi en faire — rejouer n'est que son
+          // premier barreau.
+          retryable: declare.kind !== "MISSING_PERMISSION",
+        },
+      };
+    }
+
+    return { ok: true, output: valeur, structured: structure };
   }
 
   // ── ÉCRITURE ───────────────────────────────────────────────────────────────────────

@@ -152,7 +152,25 @@ function runnerParCapacite(
       appels.push(call.capability);
       const source = inverse.get(call.capability) ?? "DEFAUT";
       sources.push(source);
-      return { ok: true, output: source in parSource ? parSource[source] : defaut } as CapabilityOutcome;
+      const doc = source in parSource ? parSource[source] : defaut;
+      /**
+       * ── LA FORME EST CELLE D'UNE VRAIE CAPACITÉ DE RECHERCHE, ET C'EST NÉCESSAIRE ────
+       *
+       * Ce substitut rendait le document NU : `{ type, titre, id }`. Aucune capacité de
+       * recherche ne rend cela en production — elles rendent une COLLECTION (`items` + `count`,
+       * cf. `empty-result.ts`), et c'est ce compte mesuré qui permet à une absence de servir de
+       * preuve. Depuis que `result-contract.ts` vérifie la forme promise, un substitut mal formé
+       * fait échouer l'étape sur `INCOMPATIBLE_RESULT` avant que l'échelle de recours ait pu
+       * dire « ce n'est pas le bon document ».
+       *
+       * Le document reste aussi à plat : ces tests lisent `result.type`, et l'enveloppe
+       * n'enlève rien. Un banc qui rend une forme que la production ne rend jamais mesure sa
+       * propre fiction — c'est le défaut qu'on corrige ici, pas le contrôle.
+       */
+      const enveloppe = doc && typeof doc === "object" && "items" in (doc as object)
+        ? doc
+        : { items: [doc], count: 1, ...(doc as Record<string, unknown>) };
+      return { ok: true, output: enveloppe, structured: true } as CapabilityOutcome;
     },
   };
 }

@@ -99,6 +99,18 @@ export interface CapabilityOutcome {
   output: unknown;
   /** Vrai si l'appel a été SERVI PAR LA CLÉ, sans refaire le travail. Compté, pas deviné. */
   deduplicated?: boolean;
+  /**
+   * LA CAPACITÉ A-T-ELLE RENDU UNE STRUCTURE, OU UNE PHRASE ?
+   *
+   * Un FAIT observé par l'exécutant — lui seul voit le texte brut avant de l'emballer — et non
+   * une interprétation de son contenu. C'est ce fait qui permet à `result-contract.ts` de
+   * refuser « Pièce introuvable ou sans fichier » comme résultat d'une lecture, sans jamais lire
+   * la phrase ni y chercher un mot-clé.
+   *
+   * `undefined` signifie NON MESURÉ (§78 : jamais un zéro à la place d'une absence de mesure) —
+   * le contrôle s'abstient alors, au lieu de le lire comme un `false` qui condamnerait à tort.
+   */
+  structured?: boolean;
   error?: { kind: string; message: string; retryable: boolean };
 }
 
