@@ -6,7 +6,7 @@ import { EFFECT_RANK } from "@/lib/missions/registry/capability-meta";
 import { catalogueDe, acteurDe } from "@/platform/in-process/missions/catalog";
 import { lancerMission } from "@/platform/in-process/missions/runtime";
 import { RaisonneurScripte, pour } from "@/platform/in-process/missions/fake-reasoner";
-import { verdictDe, MAILLONS, type Chaine, type Maillon } from "@/platform/in-process/missions/provider-smoke";
+import { MAILLONS, MAILLONS_FOURNISSEUR, MAILLONS_MISSION, type Chaine, type Maillon } from "@/platform/in-process/missions/provider-smoke";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -27,66 +27,72 @@ import { verdictDe, MAILLONS, type Chaine, type Maillon } from "@/platform/in-pr
 
 const chaine = (o: Partial<Chaine> = {}): Chaine => ({
   PROVIDER_CALL: "PASS", PLANNER_REAL_MODEL: "PASS", MISSION_PLAN_SCHEMA: "PASS",
-  COMPILER: "PASS", MISSION_PERSISTED: "PASS", READ_ONLY_EXECUTION: "PASS",
-  QA_GOAL_SATISFACTION: "PASS", ...o,
+  COMPILER: "PASS", MISSION_PERSISTED: "PASS",
+  READ_ONLY_EXECUTION: "PASS", TERMINAL_STATE: "PASS", QA_GOAL_SATISFACTION: "PASS", ...o,
 });
 
-describe("verdict fournisseur — la preuve ne peut pas être contournée", () => {
-  it("les sept maillons au vert rendent PROVIDER_PROVEN", () => {
-    expect(verdictDe(chaine()).prouve).toBe(true);
+/**
+ * LES DEUX VERDICTS, calculés comme le noyau les calcule. La duplication de ces deux lignes
+ * est délibérée : si le noyau change sa règle, ce banc doit tomber au lieu de suivre.
+ */
+const providerProven = (c: Chaine) => MAILLONS_FOURNISSEUR.every((m) => c[m] === "PASS");
+const missionProven = (c: Chaine) => providerProven(c) && MAILLONS_MISSION.every((m) => c[m] === "PASS");
+
+describe("les deux verdicts — et pourquoi ils ne se confondent pas", () => {
+  it("chaîne complète : les deux au vert", () => {
+    expect(providerProven(chaine())).toBe(true);
+    expect(missionProven(chaine())).toBe(true);
   });
 
   /**
-   * L'INVARIANT CENTRAL (§60). Chaque maillon est indispensable : il n'existe aucune chaîne à
-   * six PASS qui prouve quoi que ce soit. C'est ce qui empêche un rapport de conclure sur une
-   * mission planifiée mais jamais exécutée, ou exécutée mais jamais jugée.
+   * LA LEÇON DU PREMIER RUN RÉEL SUR RENDER.
+   *
+   * Le fournisseur, le planner, le schéma, le compilateur et la persistance étaient tous verts.
+   * Le juge d'objectif a refusé de conclure — à raison, l'énoncé n'était pas satisfiable. Un
+   * verdict unique aurait déclaré la chaîne fournisseur en échec pour une raison qui ne la
+   * concernait pas, et le prochain lecteur du rapport aurait cherché un problème de clé.
    */
-  it("chaque maillon rompu, isolément, empêche la preuve", () => {
-    for (const m of MAILLONS) {
-      const r = verdictDe(chaine({ [m]: "FAIL" } as Partial<Chaine>));
-      expect(r.prouve, `${m} rompu`).toBe(false);
-      expect(r.premierEchec, `${m} rompu`).toBe(m);
-    }
+  it("le juge peut refuser sans que la preuve fournisseur s'effondre", () => {
+    const c = chaine({ QA_GOAL_SATISFACTION: "FAIL" });
+    expect(providerProven(c), "le fournisseur reste prouvé").toBe(true);
+    expect(missionProven(c), "la mission, elle, ne l'est pas").toBe(false);
+  });
+
+  it("une mission immobilisée sans état terminal ne prouve pas le bout en bout", () => {
+    const c = chaine({ TERMINAL_STATE: "FAIL" });
+    expect(providerProven(c)).toBe(true);
+    expect(missionProven(c)).toBe(false);
   });
 
   /**
    * LA LIGNE QUI EMPÊCHE UN MOCK DE PASSER POUR UNE PREUVE. Tout le reste peut être vert :
    * sans appel facturé au fournisseur, il n'y a pas eu d'appel, donc pas de preuve.
    *
-   * L'exhaustivité vaut mieux qu'un exemple : on énumère les 2^6 combinaisons du reste de la
+   * L'exhaustivité vaut mieux qu'un exemple : on énumère les 2^7 combinaisons du reste de la
    * chaîne avec `PROVIDER_CALL: FAIL`, et l'on exige qu'AUCUNE ne franchisse la barre.
    */
-  it("aucune combinaison sans appel fournisseur ne rend PROVEN", () => {
+  it("aucune combinaison sans appel fournisseur ne prouve quoi que ce soit", () => {
     const autres = MAILLONS.filter((m) => m !== "PROVIDER_CALL");
     for (let masque = 0; masque < 1 << autres.length; masque++) {
       const c = chaine({ PROVIDER_CALL: "FAIL" });
       autres.forEach((m, i) => { c[m as Maillon] = masque & (1 << i) ? "PASS" : "FAIL"; });
-      expect(verdictDe(c).prouve, `masque ${masque}`).toBe(false);
+      expect(providerProven(c), `masque ${masque}`).toBe(false);
+      expect(missionProven(c), `masque ${masque}`).toBe(false);
     }
   });
 
-  it("le PREMIER maillon rompu est désigné — pas le dernier", () => {
-    // Un diagnostic qui dirait « compilation refusée » quand c'est le schéma qui a cédé
-    // enverrait chercher au mauvais endroit, et cela coûte une demi-journée.
-    const r = verdictDe(chaine({ MISSION_PLAN_SCHEMA: "FAIL", COMPILER: "FAIL" }));
-    expect(r.premierEchec).toBe("MISSION_PLAN_SCHEMA");
-  });
-
-  /**
-   * §10 — « toutes les étapes ont tourné » n'est pas « l'objectif est atteint ». Une exécution
-   * verte sans verdict d'objectif ne prouve rien : c'est exactement le défaut que le contrôle
-   * qualité et le juge existent pour attraper.
-   */
-  it("une exécution réussie mais non jugée ne prouve rien", () => {
-    const r = verdictDe(chaine({ QA_GOAL_SATISFACTION: "FAIL" }));
-    expect(r.prouve).toBe(false);
-    expect(r.premierEchec).toBe("QA_GOAL_SATISFACTION");
+  it("chaque maillon rompu, isolément, empêche le bout en bout", () => {
+    for (const m of MAILLONS) {
+      expect(missionProven(chaine({ [m]: "FAIL" } as Partial<Chaine>)), `${m} rompu`).toBe(false);
+    }
   });
 
   it("l'ordre des maillons suit l'ordre de la chaîne réelle", () => {
-    expect([...MAILLONS]).toEqual([
-      "PROVIDER_CALL", "PLANNER_REAL_MODEL", "MISSION_PLAN_SCHEMA", "COMPILER",
-      "MISSION_PERSISTED", "READ_ONLY_EXECUTION", "QA_GOAL_SATISFACTION",
+    expect([...MAILLONS_FOURNISSEUR]).toEqual([
+      "PROVIDER_CALL", "PLANNER_REAL_MODEL", "MISSION_PLAN_SCHEMA", "COMPILER", "MISSION_PERSISTED",
+    ]);
+    expect([...MAILLONS_MISSION]).toEqual([
+      "READ_ONLY_EXECUTION", "TERMINAL_STATE", "QA_GOAL_SATISFACTION",
     ]);
   });
 });

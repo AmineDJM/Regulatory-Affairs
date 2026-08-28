@@ -40,14 +40,15 @@ async function main(): Promise<void> {
 
   if (!(process.env.OPENAI_API_KEY ?? "").trim()) {
     console.log("");
-    console.log("═══════════════ SMOKE FOURNISSEUR — ADAM ═══════════════");
-    for (const m of MAILLONS) console.log(`${m.padEnd(22)} FAIL`);
-    console.log(`${"PROVIDER_PROVEN".padEnd(22)} NO`);
+    console.log("═══════════════ SMOKE FOURNISSEUR & MISSION — ADAM ═══════════════");
+    for (const m of MAILLONS) console.log(`  ${m.padEnd(24)} FAIL`);
+    console.log(`  ${"PROVIDER_PROVEN".padEnd(24)} NO`);
+    console.log(`  ${"MISSION_E2E_PROVEN".padEnd(24)} NO`);
     console.log("");
-    console.log("Raison                : OPENAI_API_KEY absente de l'environnement de ce processus.");
-    console.log("                        Lancer cette commande dans le Shell Render du service,");
-    console.log("                        où la variable est déjà définie.");
-    console.log("════════════════════════════════════════════════════════");
+    console.log("Raison : OPENAI_API_KEY absente de l'environnement de ce processus.");
+    console.log("         Lancer cette commande dans le Shell Render du service,");
+    console.log("         où la variable est déjà définie.");
+    console.log("══════════════════════════════════════════════════════════");
     process.exit(1);
   }
 
@@ -82,8 +83,26 @@ async function main(): Promise<void> {
   console.log(rendreTexte(r));
   console.log("");
   // La ligne machine — pour brancher un contrôle dessus sans analyser le texte.
-  console.log(JSON.stringify({ prouve: r.prouve, chaine: r.chaine, mesures: r.mesures, missionId: r.missionId }));
-  process.exit(r.prouve ? 0 : 1);
+  console.log(JSON.stringify({
+    providerProven: r.providerProven,
+    missionE2eProven: r.missionE2eProven,
+    chaine: r.chaine,
+    modele: r.modele,
+    jetons: { entree: r.jetonsEntree, sortie: r.jetonsSortie },
+    capacitesOuvertes: r.capacitesOuvertes,
+    latenceTotaleMs: r.latenceTotaleMs,
+    scenarios: r.scenarios.map((s) => ({
+      genre: s.genre, missionId: s.missionId, statutFinal: s.statutFinal, stable: s.stable,
+      motifArret: s.motifArret, toursMoteur: s.toursMoteur, replanifications: s.replanifications,
+      recoursObserves: s.recoursObserves, qaPassed: s.qaPassed, goalSatisfied: s.goalSatisfied,
+      totalMs: s.cascade?.totalMs ?? null, modeleMs: s.cascade?.tempsModeleMs ?? null,
+      horsModeleMs: s.cascade?.tempsHorsModeleMs ?? null, parallelisme: s.cascade?.parallelisme ?? null,
+    })),
+  }));
+
+  // LE CODE DE SORTIE PORTE LA QUESTION LA PLUS EXIGEANTE. `providerProven` seul serait vert
+  // alors que la mission ne conclut pas — et c'est exactement la confusion que ce lot corrige.
+  process.exit(r.missionE2eProven ? 0 : 1);
 }
 
 main().catch((e) => {

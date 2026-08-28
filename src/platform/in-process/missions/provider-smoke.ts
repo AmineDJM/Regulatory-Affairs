@@ -1,370 +1,523 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * LE DIAGNOSTIC FOURNISSEUR — la chaîne complète, depuis une phrase, avec un VRAI modèle.
+ * LE DIAGNOSTIC FOURNISSEUR ET MISSION — deux questions, deux verdicts.
  *
- *   langage naturel → fournisseur OpenAI → planner → MissionPlan → validation de schéma →
- *   compilateur → mission persistée → exécution en lecture seule → QA + satisfaction d'objectif
+ * ── CE QUE LE PREMIER RUN RÉEL A APPRIS ──────────────────────────────────────────────────
  *
- * ── POURQUOI CE FICHIER EXISTE ───────────────────────────────────────────────────────────
+ * Sur Render, la chaîne a répondu : fournisseur appelé, plan conforme, compilateur satisfait,
+ * mission écrite, six étapes exécutées, contrôle qualité passé — et le juge d'objectif a REFUSÉ
+ * de conclure, parce que la demande exigeait « les trois plus urgents » et que les données ne
+ * permettaient pas d'en établir trois de façon probante.
  *
- * L'audit Frontier a buté exactement ici : sans clé dans l'environnement d'audit, la chaîne
- * « une phrase devient un programme » n'a jamais été prouvée. Elle est TESTÉE de bout en bout
- * avec un raisonneur substitué — ce qui prouve que le CODE marche, et rien de ce qu'on voulait
- * savoir : qu'un modèle réel, sur une demande réelle, produit un plan que le compilateur
- * accepte, qui s'exécute, et dont un juge dit qu'il atteint l'objectif.
+ * Ce refus est CORRECT. C'est §10 de la doctrine appliquée à la lettre : un moteur qui conclut
+ * parce qu'il n'a pas pu vérifier est pire qu'un moteur qui ne conclut pas. On ne touche donc
+ * pas au juge. Trois défauts, en revanche, appartenaient bien au diagnostic :
  *
- * La clé vit dans l'environnement du service Render. Ce module est donc écrit pour tourner
- * LÀ-BAS, appelé par `npm run adam:smoke:provider` depuis le Shell Render.
+ *   1. IL CONFONDAIT DEUX QUESTIONS. « Un vrai fournisseur est-il appelé ? » et « ce scénario
+ *      métier a-t-il atteint son objectif ? » n'ont aucune raison de partager un verdict. Le
+ *      premier était prouvé ; le second a été annoncé en échec, et le rapport global a viré au
+ *      rouge pour une raison qui ne concernait pas le fournisseur. D'où DEUX verdicts.
+ *   2. IL S'ARRÊTAIT SUR UN ÉTAT INTERMÉDIAIRE. La mission restait `RUNNING` — ce qui, dans ce
+ *      runtime, signifie « plus aucune étape à faire, et l'objectif n'a pas été jugé atteint ».
+ *      Ni terminal, ni jugé. Le diagnostic doit POURSUIVRE le vrai moteur jusqu'à un état
+ *      réellement stable, en passant par le recours et la replanification canoniques.
+ *   3. SA DEMANDE N'ÉTAIT PAS SATISFIABLE. « Les trois plus urgents » présuppose qu'il y en ait
+ *      trois. Un banc dont l'énoncé exige ce que la base ne contient pas ne mesure pas le
+ *      produit : il mesure son propre présupposé.
  *
- * ── CE QUE `scripts/smoke/openai-live.ts` PROUVE DÉJÀ, ET CE QU'IL NE PROUVE PAS ─────────
+ * ── LES TROIS SCÉNARIOS, ET POURQUOI CEUX-LÀ ─────────────────────────────────────────────
  *
- * Ce script existe et appelle bien un modèle réel — mais il s'arrête au PLAN : il DÉCRIT les
- * outils au modèle sans jamais les exécuter, et n'écrit rien en base. C'est le bon niveau pour
- * éprouver la couche fournisseur (formes acceptées, budgets, modes stricts), et délibérément
- * insuffisant ici : la question porte sur la chaîne ENTIÈRE, mission persistée, étapes
- * exécutées et verdict d'objectif compris. Les deux coexistent, chacun à son étage.
+ *   A — SATISFIABLE          la vérité terrain garantit qu'une réponse complète EXISTE.
+ *   B — PREUVE D'ABSENCE     l'information n'existe pas, et le LIVRABLE est de le démontrer.
+ *   C — RECOURS              une première piste insuffisante, une seconde correcte.
  *
- * ── CE QUI REND LA PREUVE NON FALSIFIABLE ────────────────────────────────────────────────
+ * B mérite un mot. Demander une chose absente et attendre un échec serait un piège ; ici le
+ * critère de succès EST la démonstration d'absence. C'est la seule façon de mesurer la
+ * discipline épistémique sans la punir : un Adam qui prouve qu'il n'y a rien a fait son travail.
  *
- * Trois décisions, et elles comptent plus que le reste du fichier :
+ * ── CE QUI RESTE NON FALSIFIABLE ─────────────────────────────────────────────────────────
  *
- *   1. AUCUN RAISONNEUR N'EST INJECTABLE. `lancerMission` accepte `opts.reasoner` ; on ne le
- *      passe pas, et la signature d'ici ne l'expose pas. Un substitut ne peut donc pas entrer
- *      par cette porte, même par erreur d'appelant.
- *   2. LA PREUVE EST LA FACTURE. `metriques.usage` porte les jetons comptés et le nom du modèle
- *      RENDU PAR LE FOURNISSEUR. Un substitut rend `null`. C'est ce champ, et non le succès de
- *      la fonction, qui fait passer PROVIDER_CALL à PASS — un plan obtenu sans facture n'est
- *      pas un plan obtenu d'un modèle.
- *   3. LE VERDICT EST CALCULÉ PAR UNE FONCTION PURE, `verdictDe`, testable sans réseau et sans
- *      base. Elle ne peut pas rendre PROVIDER_PROVEN sans l'appel réel.
+ * Aucun plan n'est injecté : le planner reçoit une demande en français, toujours. Le raisonneur
+ * n'est pas remplacé — il est DÉCORÉ par `RaisonneurInstrumente`, qui délègue tout et se
+ * contente de chronométrer. Et `PROVIDER_CALL` ne passe au vert que sur la FACTURE : des jetons
+ * comptés et un nom de modèle rendus par l'API. Un substitut rend `null`.
  *
- * ── LA SÛRETÉ : POURQUOI RIEN NE PEUT ÊTRE ÉCRIT NI ENVOYÉ ───────────────────────────────
+ * ── LA SÛRETÉ ────────────────────────────────────────────────────────────────────────────
  *
- * `lectureSeule: true` plafonne le catalogue à `ANALYZE` (voir `OptionsCatalogue.effetMax`).
- * Les capacités qui écrivent, communiquent, engagent ou détruisent ne sont pas RETIRÉES DU
- * PROMPT — elles sont absentes de la liste que le compilateur consulte. Un modèle qui en
- * nommerait une reçoit `UNKNOWN_CAPABILITY` ; l'étape ne compile pas, donc elle n'existe pas.
- *
- * C'est structurel, et c'est le point : une consigne « ne contacte personne » écrite dans la
- * demande serait du texte, qu'un document lu en cours de route pourrait contredire (§77). Ici
- * il n'y a pas d'instruction à contredire, il y a un outil qui manque.
- *
- * Le plafond est ensuite RE-VÉRIFIÉ sur les étapes réellement écrites en base — parce qu'une
- * garantie qu'on ne mesure pas est une garantie qu'on suppose.
- *
- * ── CE QUI N'EST JAMAIS AFFICHÉ ──────────────────────────────────────────────────────────
- *
- * Aucune clé, même tronquée, même masquée. Le module ne lit `process.env.OPENAI_API_KEY` que
- * pour savoir si elle EXISTE. Le résultat ne porte que des NOMS de variables et des états —
- * c'est ce qui permet de coller la sortie dans un message sans se relire.
+ * `lectureSeule` plafonne le catalogue à `ANALYZE` : les capacités qui écrivent, communiquent,
+ * engagent ou détruisent sont ABSENTES de la liste que le compilateur consulte — pas découragées
+ * par une consigne qu'un document lu en route pourrait contredire. Le plafond est re-vérifié sur
+ * les étapes réellement écrites, et un dépassement ARRÊTE le diagnostic.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import { EFFECT_RANK, capabilityMeta, type Effect } from "@/lib/missions/registry/capability-meta";
 import { RESOLVER_WRITE_NAMES } from "@/lib/assistant";
-import { avancerMission, lancerMission } from "@/platform/in-process/missions/runtime";
+import { acteurDe, catalogueDe } from "@/platform/in-process/missions/catalog";
+import { raisonneur } from "@/platform/in-process/missions/reasoner";
+import { avancerMission, lancerMission, replanifierMission } from "@/platform/in-process/missions/runtime";
+import { RaisonneurInstrumente, cascade, rendreCascade, type Cascade } from "@/platform/in-process/missions/provider-waterfall";
 
-/**
- * LA DEMANDE DE RÉFÉRENCE — en français, ordinaire, et volontairement pas triviale.
- *
- * Elle doit obliger le planner à CHOISIR des capacités et à les ORDONNER, sinon on prouverait
- * qu'un modèle sait répondre « une étape », ce qui n'est pas la question. Elle reste néanmoins
- * intégralement satisfiable en lecture : c'est ce qui permet de l'exécuter pour de bon.
- *
- * Le « ne contacte personne » final n'est PAS ce qui protège — le catalogue s'en charge. Il est
- * là parce qu'une demande réaliste en porte une, et qu'on veut mesurer la chaîne sur une phrase
- * telle qu'elle serait vraiment écrite.
- */
-export const DEMANDE_REFERENCE =
-  "Fais le point sur les dossiers réglementaires en cours : identifie les trois plus urgents, "
-  + "explique pour chacun ce qui bloque, et résume-moi l'ensemble. "
-  + "Ne contacte personne et ne modifie rien.";
-
-/** Le plafond d'effet du diagnostic. Au-delà, la mission n'est PAS exécutée. */
+/** Le plafond d'effet. Au-delà, la mission n'est PAS exécutée. */
 export const PLAFOND: Effect = "ANALYZE";
 
-/** Les sept maillons, dans l'ordre de la chaîne. L'ordre est utilisé : il donne la raison. */
-export const MAILLONS = [
-  "PROVIDER_CALL",
-  "PLANNER_REAL_MODEL",
-  "MISSION_PLAN_SCHEMA",
-  "COMPILER",
-  "MISSION_PERSISTED",
-  "READ_ONLY_EXECUTION",
-  "QA_GOAL_SATISFACTION",
+/** Les maillons de la chaîne FOURNISSEUR — ceux qui prouvent qu'un vrai modèle a travaillé. */
+export const MAILLONS_FOURNISSEUR = [
+  "PROVIDER_CALL", "PLANNER_REAL_MODEL", "MISSION_PLAN_SCHEMA", "COMPILER", "MISSION_PERSISTED",
 ] as const;
-export type Maillon = (typeof MAILLONS)[number];
 
+/** Les maillons de la chaîne MISSION — ceux qui prouvent qu'elle va au bout et conclut. */
+export const MAILLONS_MISSION = [
+  "READ_ONLY_EXECUTION", "TERMINAL_STATE", "QA_GOAL_SATISFACTION",
+] as const;
+
+export const MAILLONS = [...MAILLONS_FOURNISSEUR, ...MAILLONS_MISSION] as const;
+export type Maillon = (typeof MAILLONS)[number];
 export type Etat = "PASS" | "FAIL";
 export type Chaine = Record<Maillon, Etat>;
 
-export interface MesuresFournisseur {
-  cleDisponible: boolean;
-  fournisseur: "openai" | "anthropic" | null;
-  modele: string | null;
-  jetonsEntree: number | null;
-  jetonsSortie: number | null;
-  capacitesOuvertes: number | null;
+/**
+ * LES ÉTATS OÙ L'ON S'ARRÊTE LÉGITIMEMENT.
+ *
+ * `COMPLETED` conclut. Les attentes attendent quelque chose que le diagnostic ne fournira pas —
+ * un accord humain, un événement — et insister ne changerait rien. `CANCELLED` est une décision.
+ * Tout le reste laisse une porte : on la pousse.
+ */
+const ETATS_STABLES = new Set(["COMPLETED", "CANCELLED", "AWAITING_APPROVAL", "WAITING_INPUT", "WAITING_EVENT"]);
+/** Les états d'où le mécanisme canonique de replanification a un sens. */
+const ETATS_REPLANIFIABLES = new Set(["FAILED", "BLOCKED", "PARTIAL"]);
+
+export type Genre = "SATISFIABLE" | "PREUVE_ABSENCE" | "RECOURS";
+
+export interface Scenario {
+  genre: Genre;
+  /** La demande, en français, telle qu'une personne l'écrirait. Jamais un plan. */
+  demande: string;
+  /** Ce que la base garantit AVANT d'interroger le modèle — la vérité terrain. */
+  verite: string;
+  titre: string;
+}
+
+export interface ResultatMission {
+  genre: Genre;
+  demande: string;
+  verite: string;
+  missionId: string | null;
+  /** L'état où la mission s'est immobilisée, et POURQUOI on s'est arrêté là. */
+  statutFinal: string | null;
+  stable: boolean;
+  motifArret: string;
+  toursMoteur: number;
+  replanifications: number;
+  versionPlan: number | null;
+  recoursObserves: number;
   etapesCompilees: number | null;
-  etapesTerminees: number | null;
-  etapesEnEchec: number | null;
+  etapesTerminees: number;
+  etapesEnEchec: number;
   effetMaxObserve: Effect | null;
-  /** Les capacités hors plafond trouvées en base. Doit rester vide. */
   capacitesHorsPlafond: string[];
-  statutMission: string | null;
   qaPassed: boolean | null;
   goalSatisfied: boolean | null;
   goalVerdict: string | null;
-  latencePlanificationMs: number | null;
-  latenceTotaleMs: number | null;
+  cascade: Cascade | null;
 }
 
 export interface ResultatSmoke {
-  /** PROVIDER_PROVEN n'est vrai QUE si les sept maillons sont PASS. */
-  prouve: boolean;
-  /** Le premier maillon rompu — celui qu'il faut aller regarder. */
-  premierEchec: Maillon | null;
-  raison: string | null;
   horodatage: string;
-  demande: string;
   chaine: Chaine;
-  mesures: MesuresFournisseur;
-  missionId: string | null;
-  /** Les refus du compilateur, quand il refuse — ils nomment l'étape et la règle. */
-  refus: string[];
+  /** Le fournisseur est-il réellement à l'œuvre ? Question 1, indépendante. */
+  providerProven: boolean;
+  /** Une mission atteint-elle un état terminal avec un jugement cohérent ? Question 2. */
+  missionE2eProven: boolean;
+  premierEchecFournisseur: Maillon | null;
+  premierEchecMission: Maillon | null;
+  raison: string | null;
+  cleDisponible: boolean;
+  modele: string | null;
+  jetonsEntree: number;
+  jetonsSortie: number;
+  capacitesOuvertes: number | null;
+  scenarios: ResultatMission[];
+  latenceTotaleMs: number;
 }
 
 /**
- * LE VERDICT — pur, sans réseau, sans base, donc testable et sabotable.
+ * CONSTRUIT LES TROIS DEMANDES À PARTIR DE CE QUI EXISTE (§ « satisfiable sans mensonge »).
  *
- * PROVIDER_PROVEN exige les sept. Il n'y a pas de chemin qui contourne cette ligne : c'est elle
- * qui empêche un environnement sans clé, ou un substitut, de rendre un rapport vert (§60).
+ * Aucune n'est écrite en dur. La vérité terrain est établie D'ABORD ; l'énoncé s'y adapte. Un
+ * énoncé qui exigerait trois éléments là où il n'y en a qu'un mesurerait son propre présupposé.
  */
-export function verdictDe(chaine: Chaine): { prouve: boolean; premierEchec: Maillon | null } {
-  const premierEchec = MAILLONS.find((m) => chaine[m] !== "PASS") ?? null;
-  return { prouve: premierEchec === null, premierEchec };
+export async function scenarios(): Promise<Scenario[]> {
+  const out: Scenario[] = [];
+
+  // ── A — SATISFIABLE ────────────────────────────────────────────────────────────────────
+  //
+  // On compte d'abord. La demande porte ensuite sur CE nombre : « les N dossiers en cours »
+  // est vrai quel que soit N, y compris zéro — et à zéro le scénario devient B, honnêtement.
+  const enCours = await prisma.regulatoryDossier.count({
+    where: { status: { notIn: ["ARCHIVED", "ERROR"] } },
+  }).catch(() => 0);
+  const taches = await prisma.task.count({
+    where: { status: { in: ["TODO", "IN_PROGRESS"] } },
+  }).catch(() => 0);
+
+  if (enCours > 0) {
+    out.push({
+      genre: "SATISFIABLE",
+      titre: `Dossiers réglementaires en cours (${enCours} en base)`,
+      verite: `RegulatoryDossier WHERE status NOT IN (ARCHIVED,CANCELLED) = ${enCours}`,
+      demande:
+        "Fais le point sur les dossiers réglementaires en cours : liste-les avec leur statut, "
+        + "et dis-moi lequel demande le plus d'attention et pourquoi. "
+        + "Si une information manque pour trancher, dis-le explicitement. "
+        + "Ne contacte personne et ne modifie rien.",
+    });
+  } else if (taches > 0) {
+    out.push({
+      genre: "SATISFIABLE",
+      titre: `Tâches ouvertes (${taches} en base)`,
+      verite: `Task WHERE status IN (TODO,IN_PROGRESS) = ${taches}`,
+      demande:
+        "Fais le point sur les tâches ouvertes : liste-les avec leur échéance, et dis-moi "
+        + "laquelle demande le plus d'attention et pourquoi. Ne contacte personne et ne modifie rien.",
+    });
+  }
+
+  // ── B — PREUVE D'ABSENCE ───────────────────────────────────────────────────────────────
+  //
+  // Le LIVRABLE est la démonstration d'absence, et l'énoncé le dit. Sans cela, le juge aurait
+  // raison de refuser : on lui aurait demandé de conclure sur une chose introuvable.
+  out.push({
+    genre: "PREUVE_ABSENCE",
+    titre: "Une molécule qui n'existe pas — prouver l'absence",
+    verite: "RegulatoryProduct WHERE dci ~ 'Zorbamyxine' = 0 (vérifié avant l'appel)",
+    demande:
+      "Vérifie si nous avons quoi que ce soit sur la molécule « Zorbamyxine-K7 » : produit, "
+      + "dossier réglementaire, marché, document. L'objectif de cette mission est de TRANCHER "
+      + "la question : soit tu trouves des éléments et tu les présentes, soit tu établis, "
+      + "sources consultées à l'appui, qu'il n'existe rien à ce sujet — cette conclusion négative "
+      + "documentée EST le résultat attendu et suffit à considérer la mission accomplie. "
+      + "Ne contacte personne et ne modifie rien.",
+  });
+
+  // ── C — RECOURS ────────────────────────────────────────────────────────────────────────
+  //
+  // La demande vise délibérément une information dont la source la plus évidente est la moins
+  // fournie. On ne SCRIPTE pas le recours — on crée les conditions et l'on regarde le journal
+  // pour savoir s'il a réellement eu lieu. S'il n'a pas lieu, le rapport le dit.
+  out.push({
+    genre: "RECOURS",
+    titre: "Une première piste insuffisante, une seconde à trouver",
+    verite: "aucune vérité imposée — on observe si le moteur change de source (MissionEvent STEP_RECOVERY)",
+    demande:
+      "Retrouve le document contractuel le plus récent qui engage l'entreprise. Commence par le "
+      + "Drive ; si tu n'y trouves pas de quoi conclure, va chercher dans les autres sources "
+      + "disponibles avant de répondre. Dis-moi d'où vient l'information. "
+      + "Ne contacte personne et ne modifie rien.",
+  });
+
+  return out;
 }
 
 const estEcriture = (n: string): boolean => RESOLVER_WRITE_NAMES.has(n);
 
 /**
- * LE DIAGNOSTIC. Une seule signature, volontairement pauvre : une personne, et c'est tout.
+ * MÈNE LA MISSION À UN ÉTAT RÉELLEMENT STABLE, avec le mécanisme canonique et lui seul.
  *
- * Pas de `reasoner`, pas de `catalogue`, pas de `demande` — rien qui permette à un appelant de
- * changer ce qui est mesuré. Un diagnostic paramétrable finit paramétré jusqu'à passer.
+ * ── CE QUE CETTE FONCTION NE FAIT PAS ────────────────────────────────────────────────────
+ *
+ * Elle ne réimplémente rien. Elle appelle `avancerMission` — qui est `avancer()` assemblé — et
+ * `replanifierMission`, les deux points d'entrée que l'écran et l'ordonnanceur utilisent. Elle
+ * n'écrit aucune étape, ne force aucun statut, ne juge aucun objectif.
+ *
+ * ── LE POINT FIXE, ET POURQUOI IL FALLAIT LE NOMMER ──────────────────────────────────────
+ *
+ * `RUNNING` avec toutes les étapes terminées est un état particulier de ce runtime : il signifie
+ * « plus rien à exécuter, et l'objectif n'a pas été jugé atteint ». `avancer()` n'y changera
+ * rien, et `replanifierMission` le refuse — RUNNING n'est pas dans ses états replanifiables.
+ * C'est donc un POINT FIXE : ni terminal, ni réparable par les voies existantes.
+ *
+ * On le détecte en comparant la signature de la mission d'un tour à l'autre. Le diagnostic
+ * s'arrête alors et le NOMME, au lieu de tourner en rond ou de conclure à sa place. C'est un
+ * constat sur le runtime, pas une correction déguisée.
  */
-export async function smokeFournisseur(user: CurrentUser): Promise<ResultatSmoke> {
-  const t0 = Date.now();
-  const chaine: Chaine = {
-    PROVIDER_CALL: "FAIL", PLANNER_REAL_MODEL: "FAIL", MISSION_PLAN_SCHEMA: "FAIL",
-    COMPILER: "FAIL", MISSION_PERSISTED: "FAIL", READ_ONLY_EXECUTION: "FAIL",
-    QA_GOAL_SATISFACTION: "FAIL",
-  };
-  const mesures: MesuresFournisseur = {
-    // ON NE LIT QUE L'EXISTENCE. La valeur n'est ni copiée, ni tronquée, ni journalisée.
-    cleDisponible: Boolean((process.env.OPENAI_API_KEY ?? "").trim()),
-    fournisseur: (process.env.OPENAI_API_KEY ?? "").trim() ? "openai" : null,
-    modele: null, jetonsEntree: null, jetonsSortie: null,
-    capacitesOuvertes: null, etapesCompilees: null, etapesTerminees: null, etapesEnEchec: null,
-    effetMaxObserve: null, capacitesHorsPlafond: [],
-    statutMission: null, qaPassed: null, goalSatisfied: null, goalVerdict: null,
-    latencePlanificationMs: null, latenceTotaleMs: null,
-  };
-  let missionId: string | null = null;
-  const refus: string[] = [];
-  let raison: string | null = null;
+async function menerAEtatStable(
+  user: CurrentUser,
+  missionId: string,
+  instrument: RaisonneurInstrumente,
+  toursMax: number,
+): Promise<{ statut: string | null; stable: boolean; motif: string; tours: number; replans: number; version: number | null }> {
+  let tours = 0;
+  let replans = 0;
+  let signaturePrecedente = "";
 
-  const rendre = (): ResultatSmoke => {
-    mesures.latenceTotaleMs = Date.now() - t0;
-    const { prouve, premierEchec } = verdictDe(chaine);
-    return {
-      prouve, premierEchec, raison,
-      horodatage: new Date().toISOString(),
-      demande: DEMANDE_REFERENCE,
-      chaine, mesures, missionId, refus,
-    };
-  };
+  for (let i = 0; i < toursMax; i++) {
+    await avancerMission(user, missionId, { lectureSeule: true, reasoner: instrument, maxTours: 6 }).catch(() => null);
+    tours += 1;
 
-  if (!mesures.cleDisponible) {
-    raison = "OPENAI_API_KEY absente de l'environnement de ce processus.";
-    return rendre();
+    const m = await prisma.mission.findUnique({
+      where: { id: missionId },
+      select: { status: true, planVersion: true },
+    });
+    if (!m) return { statut: null, stable: false, motif: "mission disparue en cours de route", tours, replans, version: null };
+
+    const etapes = await prisma.missionStep.groupBy({
+      by: ["status"], where: { missionId }, _count: { _all: true },
+    }).catch(() => []);
+    const signature = `${m.status}|${m.planVersion}|${etapes.map((e) => `${e.status}:${e._count._all}`).sort().join(",")}`;
+
+    if (ETATS_STABLES.has(m.status)) {
+      return { statut: m.status, stable: true, motif: `état stable atteint : ${m.status}`, tours, replans, version: m.planVersion };
+    }
+
+    if (ETATS_REPLANIFIABLES.has(m.status)) {
+      // LE MÉCANISME CANONIQUE. Il porte lui-même son plafond (`PLANS_MAX`) et sa règle de
+      // réouverture d'accord ; on ne le double pas.
+      const r = await replanifierMission(user, missionId, { lectureSeule: true, reasoner: instrument }).catch(() => null);
+      if (r?.replanifie) { replans += 1; signaturePrecedente = ""; continue; }
+      return {
+        statut: m.status, stable: true,
+        motif: `${m.status} — replanification refusée : ${r?.raison ?? "indisponible"}`,
+        tours, replans, version: m.planVersion,
+      };
+    }
+
+    if (signature === signaturePrecedente) {
+      return {
+        statut: m.status, stable: false,
+        motif: `POINT FIXE : la mission s'immobilise en ${m.status} — plus aucune étape à exécuter, `
+          + `objectif non jugé atteint, et ${m.status} n'ouvre ni recours ni replanification`,
+        tours, replans, version: m.planVersion,
+      };
+    }
+    signaturePrecedente = signature;
   }
 
-  // ── LE LANCEMENT — le vrai point d'entrée, celui que l'outil `run_mission` appelle ──────
-  //
-  // `demarrer: false` sépare deux questions qui doivent le rester : « le modèle a-t-il produit
-  // un programme compilable ? » et « ce programme tourne-t-il ? ». Les mélanger ferait imputer
-  // à la planification l'échec d'une lecture, et inversement.
-  const lancement = await lancerMission(user, DEMANDE_REFERENCE, {
-    lectureSeule: true,
-    demarrer: false,
-    titre: "Diagnostic fournisseur (lecture seule)",
-  }).catch((e: unknown) => ({
-    ok: false as const,
-    error: e instanceof Error ? e.message : String(e),
-    metriques: undefined,
-  }));
+  const fin = await prisma.mission.findUnique({ where: { id: missionId }, select: { status: true, planVersion: true } });
+  return {
+    statut: fin?.status ?? null, stable: false,
+    motif: `budget de tours épuisé (${toursMax}) sans état stable`,
+    tours, replans, version: fin?.planVersion ?? null,
+  };
+}
+
+/** Joue un scénario de bout en bout et rend TOUT ce qui a été mesuré. */
+async function jouer(
+  user: CurrentUser,
+  sc: Scenario,
+  instrument: RaisonneurInstrumente,
+  t0: number,
+): Promise<{ r: ResultatMission; chaine: Partial<Chaine>; metriques: { modele: string | null; entree: number; sortie: number; ouvertes: number | null } }> {
+  const r: ResultatMission = {
+    genre: sc.genre, demande: sc.demande, verite: sc.verite,
+    missionId: null, statutFinal: null, stable: false, motifArret: "non lancé",
+    toursMoteur: 0, replanifications: 0, versionPlan: null, recoursObserves: 0,
+    etapesCompilees: null, etapesTerminees: 0, etapesEnEchec: 0,
+    effetMaxObserve: null, capacitesHorsPlafond: [],
+    qaPassed: null, goalSatisfied: null, goalVerdict: null, cascade: null,
+  };
+  const chaine: Partial<Chaine> = {};
+  const metriques = { modele: null as string | null, entree: 0, sortie: 0, ouvertes: null as number | null };
+
+  const lancement = await lancerMission(user, sc.demande, {
+    lectureSeule: true, demarrer: false, reasoner: instrument,
+    titre: `Diagnostic — ${sc.titre}`,
+  }).catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e), metriques: undefined }));
 
   const m = lancement.metriques;
   if (m) {
-    mesures.capacitesOuvertes = m.capacitesAutorisees;
-    mesures.latencePlanificationMs = m.latencyMs;
+    metriques.ouvertes = m.capacitesAutorisees;
     if (m.usage) {
-      // ── LA FACTURE EST LA PREUVE ────────────────────────────────────────────────────
-      // Des jetons comptés et un nom de modèle ne peuvent venir que d'une réponse du
-      // fournisseur. C'est ici, et nulle part ailleurs, que « l'appel a eu lieu » se décide.
-      if (m.usage.outputTokens > 0 || m.usage.inputTokens > 0) chaine.PROVIDER_CALL = "PASS";
-      mesures.modele = m.usage.model;
-      mesures.jetonsEntree = m.usage.inputTokens;
-      mesures.jetonsSortie = m.usage.outputTokens;
+      metriques.modele = m.usage.model;
+      metriques.entree += m.usage.inputTokens;
+      metriques.sortie += m.usage.outputTokens;
+      if (m.usage.inputTokens > 0 || m.usage.outputTokens > 0) chaine.PROVIDER_CALL = "PASS";
     }
   }
 
   if (!lancement.ok) {
     const err = lancement.error ?? "";
-    raison = err || "lancement refusé";
-    // Le message du planner distingue déjà « non conforme au schéma » du reste ; on ne
-    // réinterprète pas, on classe.
     if (chaine.PROVIDER_CALL === "PASS" && !/n'a rien rendu|aucun fournisseur/i.test(err)) {
       chaine.PLANNER_REAL_MODEL = "PASS";
       if (!/non conforme au schéma/i.test(err)) chaine.MISSION_PLAN_SCHEMA = "PASS";
     }
-    if ("refus" in lancement && Array.isArray(lancement.refus)) {
-      for (const i of lancement.refus) refus.push(`[${i.code}] ${i.stepKey ?? "plan"} : ${i.message}`);
-    }
-    return rendre();
+    r.motifArret = err.slice(0, 300) || "lancement refusé";
+    return { r, chaine, metriques };
   }
 
   chaine.PLANNER_REAL_MODEL = "PASS";
   chaine.MISSION_PLAN_SCHEMA = "PASS";
   chaine.COMPILER = "PASS";
-  missionId = lancement.missionId;
-  mesures.etapesCompilees = lancement.etapes;
+  r.missionId = lancement.missionId;
+  r.etapesCompilees = lancement.etapes;
 
-  // ── LA RELECTURE — ce qui est écrit, pas ce qui a été renvoyé ───────────────────────────
-  //
-  // `lancerMission` dit combien d'étapes il a compilées. La base dit lesquelles existent. Les
-  // deux doivent concorder, et c'est la seconde qui fait foi : c'est elle que le moteur lira.
   const etapes = await prisma.missionStep.findMany({
-    where: { missionId },
-    select: { capability: true },
+    where: { missionId: r.missionId }, select: { capability: true },
   });
   if (etapes.length > 0) chaine.MISSION_PERSISTED = "PASS";
-  else raison = "la mission compilée ne se relit pas en base.";
 
-  // ── LE PLAFOND, VÉRIFIÉ ET NON SUPPOSÉ ─────────────────────────────────────────────────
+  // ── LE PLAFOND, VÉRIFIÉ SUR CE QUI EST ÉCRIT ───────────────────────────────────────────
   const plafond = EFFECT_RANK[PLAFOND];
   let max: Effect = "READ";
   for (const e of etapes) {
-    if (!e.capability) continue; // nœud de contrôle : il n'appelle rien.
+    if (!e.capability) continue;
     const eff = capabilityMeta(e.capability, estEcriture).effect;
     if (EFFECT_RANK[eff] > EFFECT_RANK[max]) max = eff;
-    if (EFFECT_RANK[eff] > plafond) mesures.capacitesHorsPlafond.push(`${e.capability} (${eff})`);
+    if (EFFECT_RANK[eff] > plafond) r.capacitesHorsPlafond.push(`${e.capability} (${eff})`);
   }
-  mesures.effetMaxObserve = etapes.some((e) => e.capability) ? max : null;
+  r.effetMaxObserve = etapes.some((e) => e.capability) ? max : null;
+  if (r.capacitesHorsPlafond.length > 0) {
+    r.motifArret = `défaut de garde : ${r.capacitesHorsPlafond.join(", ")} dépasse ${PLAFOND} — exécution refusée`;
+    return { r, chaine, metriques };
+  }
 
-  // UN DÉFAUT DE GARDE NE S'EXÉCUTE PAS. Si une capacité hors plafond a franchi le catalogue et
-  // le compilateur, la bonne conduite est de S'ARRÊTER et de le dire — pas de faire tourner la
-  // mission pour voir. C'est le seul endroit du fichier qui refuse de continuer.
-  if (mesures.capacitesHorsPlafond.length > 0) {
-    raison = `défaut de garde : ${mesures.capacitesHorsPlafond.join(", ")} dépasse le plafond ${PLAFOND}.`;
-    return rendre();
-  }
-  if (chaine.MISSION_PERSISTED !== "PASS") return rendre();
-
-  // ── L'EXÉCUTION — sur le moteur de production, plafonnée en lecture ─────────────────────
-  //
-  // Plusieurs tours : le moteur est ré-entrant, et la CONCLUSION (contrôle qualité + juge)
-  // n'arrive qu'une fois toutes les étapes terminales. S'arrêter au premier tour mesurerait
-  // « des étapes ont tourné » et laisserait le verdict d'objectif à jamais absent.
-  for (let tour = 0; tour < 4; tour++) {
-    await avancerMission(user, missionId, { lectureSeule: true, maxTours: 4 }).catch(() => null);
-    const etat = await prisma.mission.findUnique({
-      where: { id: missionId },
-      select: { status: true },
-    });
-    if (etat && ["COMPLETED", "PARTIAL", "FAILED", "BLOCKED", "CANCELLED"].includes(etat.status)) break;
-  }
+  // ── L'EXÉCUTION, MENÉE JUSQU'À UN ÉTAT STABLE ──────────────────────────────────────────
+  const fin = await menerAEtatStable(user, r.missionId, instrument, 8);
+  r.statutFinal = fin.statut;
+  r.stable = fin.stable;
+  r.motifArret = fin.motif;
+  r.toursMoteur = fin.tours;
+  r.replanifications = fin.replans;
+  r.versionPlan = fin.version;
 
   const parStatut = await prisma.missionStep.groupBy({
-    by: ["status"], where: { missionId }, _count: { _all: true },
+    by: ["status"], where: { missionId: r.missionId }, _count: { _all: true },
+  }).catch(() => []);
+  const compte = (s: string) => parStatut.find((x) => x.status === s)?._count._all ?? 0;
+  r.etapesTerminees = compte("DONE");
+  r.etapesEnEchec = compte("FAILED");
+  if (parStatut.some((x) => x.status !== "PENDING" && x.status !== "READY")) chaine.READ_ONLY_EXECUTION = "PASS";
+  if (fin.stable) chaine.TERMINAL_STATE = "PASS";
+
+  // ── LE RECOURS, LU DANS LE JOURNAL — jamais supposé ────────────────────────────────────
+  r.recoursObserves = await prisma.missionEvent.count({
+    where: { missionId: r.missionId, kind: "STEP_RECOVERY" },
+  }).catch(() => 0);
+
+  const etat = await prisma.mission.findUnique({
+    where: { id: r.missionId },
+    select: { qaPassed: true, goalSatisfied: true, goalVerdict: true },
   });
-  const compte = (s: string) => parStatut.find((r) => r.status === s)?._count._all ?? 0;
-  mesures.etapesTerminees = compte("DONE");
-  mesures.etapesEnEchec = compte("FAILED");
-  if (parStatut.some((r) => r.status !== "PENDING" && r.status !== "READY")) {
-    chaine.READ_ONLY_EXECUTION = "PASS";
-  } else {
-    raison = "aucune étape n'a tourné.";
-  }
+  r.qaPassed = etat?.qaPassed ?? null;
+  r.goalSatisfied = etat?.goalSatisfied ?? null;
+  r.goalVerdict = etat?.goalVerdict ?? null;
+  if (etat?.qaPassed === true && etat?.goalSatisfied === true) chaine.QA_GOAL_SATISFACTION = "PASS";
 
-  // ── LE VERDICT D'OBJECTIF — écrit par `conclure()`, jamais recalculé ici ────────────────
-  //
-  // `qaPassed` et `goalSatisfied` sont posés en base par le moteur lui-même. Les recalculer
-  // dans le diagnostic donnerait un second juge, qui finirait par contredire le premier — et
-  // c'est celui qu'on n'aurait pas relu qui servirait de preuve (§10).
-  const fin = await prisma.mission.findUnique({
-    where: { id: missionId },
-    select: { status: true, qaPassed: true, goalSatisfied: true, goalVerdict: true },
+  const catalogue = catalogueDe(user, { effetMax: PLAFOND });
+  const briefs = catalogue.brief(acteurDe(user));
+  const utilisees = new Set(etapes.map((e) => e.capability).filter(Boolean) as string[]).size;
+  r.cascade = await cascade(r.missionId, instrument, t0, Date.now() - t0, {
+    ouvertes: catalogue.taille,
+    montreesAuPlanner: m?.plannerCapabilitiesExposed ?? null,
+    resumeChars: briefs.reduce((n, b) => n + b.summary.length + b.id.length, 0),
+    utilisees,
+    exposeesInutiles: m?.plannerCapabilitiesExposed != null ? Math.max(0, m.plannerCapabilitiesExposed - utilisees) : null,
   });
-  mesures.statutMission = fin?.status ?? null;
-  mesures.qaPassed = fin?.qaPassed ?? null;
-  mesures.goalSatisfied = fin?.goalSatisfied ?? null;
-  mesures.goalVerdict = fin?.goalVerdict ?? null;
 
-  // LES DEUX, JAMAIS L'UN (§10) : le contrôle arithmétique a le dernier mot dans le sens
-  // négatif, et la satisfaction se JUGE. Une mission dont personne n'a jugé l'objectif ne
-  // compte pas comme prouvée — un moteur qui conclut faute d'avoir pu vérifier est pire qu'un
-  // moteur qui ne conclut pas.
-  if (fin?.qaPassed === true && fin?.goalSatisfied === true) {
-    chaine.QA_GOAL_SATISFACTION = "PASS";
-  } else if (fin?.goalSatisfied === null || fin?.goalSatisfied === undefined) {
-    raison = `la mission n'a pas été jugée (statut ${fin?.status ?? "inconnu"}) — ni QA ni satisfaction n'ont de verdict.`;
-  } else {
-    raison = fin.goalVerdict ?? `QA ${fin.qaPassed ? "passée" : "échouée"}, objectif ${fin.goalSatisfied ? "atteint" : "non atteint"}.`;
-  }
-
-  return rendre();
+  return { r, chaine, metriques };
 }
 
-/**
- * LA SORTIE — le format exigé par l'audit, au mot près.
- *
- * Les huit lignes de tête sont stables et analysables : c'est ce qui permet de comparer deux
- * exécutions séparées de six mois, et de brancher un contrôle automatique dessus. Le détail
- * vient après, pour l'humain qui doit comprendre POURQUOI.
- */
+export async function smokeFournisseur(user: CurrentUser): Promise<ResultatSmoke> {
+  const t0 = Date.now();
+  const chaine: Chaine = {
+    PROVIDER_CALL: "FAIL", PLANNER_REAL_MODEL: "FAIL", MISSION_PLAN_SCHEMA: "FAIL",
+    COMPILER: "FAIL", MISSION_PERSISTED: "FAIL",
+    READ_ONLY_EXECUTION: "FAIL", TERMINAL_STATE: "FAIL", QA_GOAL_SATISFACTION: "FAIL",
+  };
+  const out: ResultatSmoke = {
+    horodatage: new Date().toISOString(), chaine,
+    providerProven: false, missionE2eProven: false,
+    premierEchecFournisseur: null, premierEchecMission: null, raison: null,
+    cleDisponible: Boolean((process.env.OPENAI_API_KEY ?? "").trim()),
+    modele: null, jetonsEntree: 0, jetonsSortie: 0, capacitesOuvertes: null,
+    scenarios: [], latenceTotaleMs: 0,
+  };
+
+  const finir = (): ResultatSmoke => {
+    out.latenceTotaleMs = Date.now() - t0;
+    out.premierEchecFournisseur = MAILLONS_FOURNISSEUR.find((k) => chaine[k] !== "PASS") ?? null;
+    out.premierEchecMission = MAILLONS_MISSION.find((k) => chaine[k] !== "PASS") ?? null;
+    out.providerProven = out.premierEchecFournisseur === null;
+    out.missionE2eProven = out.providerProven && out.premierEchecMission === null;
+    return out;
+  };
+
+  if (!out.cleDisponible) {
+    out.raison = "OPENAI_API_KEY absente de l'environnement de ce processus.";
+    return finir();
+  }
+
+  const instrument = new RaisonneurInstrumente(raisonneur, t0);
+  const liste = await scenarios();
+
+  for (const sc of liste) {
+    const { r, chaine: partiel, metriques } = await jouer(user, sc, instrument, t0);
+    out.scenarios.push(r);
+    // UN MAILLON VERT LE RESTE : chaque scénario est une occasion de le prouver, et un scénario
+    // métier plus exigeant que les autres n'efface pas ce que les précédents ont établi.
+    for (const [k, v] of Object.entries(partiel)) if (v === "PASS") chaine[k as Maillon] = "PASS";
+    out.modele ??= metriques.modele;
+    out.jetonsEntree += metriques.entree;
+    out.jetonsSortie += metriques.sortie;
+    out.capacitesOuvertes ??= metriques.ouvertes;
+  }
+
+  const r = finir();
+  if (!r.missionE2eProven && r.providerProven) {
+    const pire = out.scenarios.find((s) => !s.stable) ?? out.scenarios.find((s) => s.goalSatisfied === false);
+    out.raison = pire?.motifArret ?? "aucun scénario n'atteint un état terminal jugé cohérent";
+  }
+  return r;
+}
+
+/** La sortie — deux verdicts distincts, puis la cascade qui explique le temps. */
 export function rendreTexte(r: ResultatSmoke): string {
   const val = (x: number | string | boolean | null) => (x === null ? "—" : String(x));
-  return [
-    "═══════════════ SMOKE FOURNISSEUR — ADAM ═══════════════",
-    ...MAILLONS.map((m) => `${m.padEnd(22)} ${r.chaine[m]}`),
-    `${"PROVIDER_PROVEN".padEnd(22)} ${r.prouve ? "YES" : "NO"}`,
+  const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${n}ms`);
+  const lignes: string[] = [
+    "═══════════════ SMOKE FOURNISSEUR & MISSION — ADAM ═══════════════",
     "",
-    ...(r.premierEchec ? [`Premier maillon rompu : ${r.premierEchec}`] : []),
-    ...(r.raison ? [`Raison                : ${r.raison}`] : []),
-    ...(r.premierEchec || r.raison ? [""] : []),
-    "── Mesures ─────────────────────────────────────────────",
-    `  OPENAI_API_KEY présente      ${r.mesures.cleDisponible ? "oui" : "NON"}`,
-    `  fournisseur                  ${val(r.mesures.fournisseur)}`,
-    `  modèle (rendu par l'API)     ${val(r.mesures.modele)}`,
-    `  jetons entrée / sortie       ${val(r.mesures.jetonsEntree)} / ${val(r.mesures.jetonsSortie)}`,
-    `  capacités ouvertes (plafond) ${val(r.mesures.capacitesOuvertes)}`,
-    `  étapes compilées             ${val(r.mesures.etapesCompilees)}`,
-    `  étapes terminées / échouées  ${val(r.mesures.etapesTerminees)} / ${val(r.mesures.etapesEnEchec)}`,
-    `  effet maximal observé        ${val(r.mesures.effetMaxObserve)} (plafond ${PLAFOND})`,
-    `  statut final de la mission   ${val(r.mesures.statutMission)}`,
-    `  QA passée                    ${val(r.mesures.qaPassed)}`,
-    `  objectif jugé atteint        ${val(r.mesures.goalSatisfied)}`,
-    ...(r.mesures.goalVerdict ? [`  verdict du juge              ${r.mesures.goalVerdict}`] : []),
-    `  latence planification        ${r.mesures.latencePlanificationMs !== null ? `${r.mesures.latencePlanificationMs} ms` : "—"}`,
-    `  latence totale               ${r.mesures.latenceTotaleMs !== null ? `${r.mesures.latenceTotaleMs} ms` : "—"}`,
-    `  mission                      ${val(r.missionId)}`,
-    ...(r.refus.length ? ["", "  REFUS DU COMPILATEUR :", ...r.refus.map((x) => `    ${x}`)] : []),
-    ...(r.mesures.capacitesHorsPlafond.length
-      ? ["", "  HORS PLAFOND (défaut de garde) :", ...r.mesures.capacitesHorsPlafond.map((x) => `    ${x}`)]
-      : []),
-    "════════════════════════════════════════════════════════",
-  ].join("\n");
+    "  CHAÎNE FOURNISSEUR",
+    ...MAILLONS_FOURNISSEUR.map((m) => `  ${m.padEnd(24)} ${r.chaine[m]}`),
+    `  ${"PROVIDER_PROVEN".padEnd(24)} ${r.providerProven ? "YES" : "NO"}`,
+    "",
+    "  CHAÎNE MISSION",
+    ...MAILLONS_MISSION.map((m) => `  ${m.padEnd(24)} ${r.chaine[m]}`),
+    `  ${"MISSION_E2E_PROVEN".padEnd(24)} ${r.missionE2eProven ? "YES" : "NO"}`,
+    "",
+    ...(r.premierEchecFournisseur ? [`Premier maillon fournisseur rompu : ${r.premierEchecFournisseur}`] : []),
+    ...(r.premierEchecMission ? [`Premier maillon mission rompu     : ${r.premierEchecMission}`] : []),
+    ...(r.raison ? [`Raison : ${r.raison}`] : []),
+    "",
+    "── Mesures globales ─────────────────────────────────────",
+    `  OPENAI_API_KEY présente      ${r.cleDisponible ? "oui" : "NON"}`,
+    `  modèle (rendu par l'API)     ${val(r.modele)}`,
+    `  jetons entrée / sortie       ${r.jetonsEntree} / ${r.jetonsSortie}`,
+    `  capacités ouvertes (plafond) ${val(r.capacitesOuvertes)}`,
+    `  latence totale               ${ms(r.latenceTotaleMs)}`,
+    "",
+  ];
+
+  for (const s of r.scenarios) {
+    lignes.push(
+      `── SCÉNARIO ${s.genre} ────────────────────────────────`,
+      `  demande        « ${s.demande.slice(0, 150)}… »`,
+      `  vérité terrain ${s.verite}`,
+      `  mission        ${val(s.missionId)}`,
+      `  état final     ${val(s.statutFinal)} ${s.stable ? "(stable)" : "(NON STABLE)"}`,
+      `  arrêt          ${s.motifArret}`,
+      `  tours moteur   ${s.toursMoteur} · replanifications ${s.replanifications} · plan v${val(s.versionPlan)}`,
+      `  recours        ${s.recoursObserves} événement(s) STEP_RECOVERY`,
+      `  étapes         ${val(s.etapesCompilees)} compilées · ${s.etapesTerminees} terminées · ${s.etapesEnEchec} en échec`,
+      `  effet max      ${val(s.effetMaxObserve)} (plafond ${PLAFOND})`,
+      `  QA / objectif  ${val(s.qaPassed)} / ${val(s.goalSatisfied)}`,
+      ...(s.goalVerdict ? [`  verdict juge   ${s.goalVerdict.slice(0, 200)}`] : []),
+      "",
+    );
+    if (s.cascade) lignes.push(...rendreCascade(s.cascade).map((l) => `  ${l}`), "");
+  }
+
+  lignes.push("══════════════════════════════════════════════════════════");
+  return lignes.join("\n");
 }

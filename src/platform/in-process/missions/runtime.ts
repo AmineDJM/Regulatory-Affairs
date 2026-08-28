@@ -73,12 +73,14 @@ export interface OptionsAssemblage {
    * modèle — qu'un document lu en cours de route pourrait contredire — mais l'ABSENCE de
    * l'outil. Le diagnostic fournisseur s'en sert pour prouver la chaîne sans rien toucher.
    *
-   * PORTÉE EXACTE, et il faut la connaître : `lancerMission` (donc la planification) et
-   * `assembler` (donc l'exécution). PAS `replanifierMission`, qui repart délibérément du
-   * catalogue complet. Le diagnostic ne replanifie jamais — il compile, exécute, conclut — et
-   * étendre le plafond à un chemin que personne n'emprunte aurait ajouté une garantie
-   * invérifiable. Si un appelant futur veut une mission en lecture seule REPLANIFIABLE, c'est
-   * là qu'il faudra le brancher, et l'écrire avec le test qui tombe quand on l'enlève.
+   * PORTÉE : les TROIS chemins qui construisent un catalogue — `lancerMission` (planification),
+   * `assembler` (exécution) et `replanifierMission` (nouveau plan).
+   *
+   * Le troisième a d'abord été laissé de côté, au motif que le diagnostic ne replanifiait pas.
+   * Le premier run réel l'a démenti : une mission qui n'atteint pas son objectif passe par la
+   * replanification canonique, et sans plafond ce nouveau plan repartirait du catalogue COMPLET.
+   * Le trou n'était pas théorique — il s'ouvrait exactement là où la mission a le plus de
+   * latitude. Une garantie qui s'arrête au premier plan n'est pas une garantie.
    */
   lectureSeule?: boolean;
 }
@@ -406,7 +408,7 @@ export async function replanifierMission(
     };
   }
 
-  const catalogue = catalogueDe(user);
+  const catalogue = catalogueDe(user, opts.lectureSeule ? { effetMax: "ANALYZE" } : {});
   const acteur = acteurDe(user);
   const cerveau = opts.reasoner ?? raisonneur;
   const objectif = m.goalRaw || m.objective;
