@@ -197,9 +197,28 @@ export interface StepSnapshot {
   nodeType: string;
   attempt: number;
   maxAttempts: number;
+  /**
+   * LE PLAN COURANT NE PORTE PLUS CETTE ÉTAPE — voir `EtatEtape.contournee`.
+   *
+   * Optionnel pour une raison précise : les tests de forme de ce fichier décrivent des états de
+   * DAG, pas des historiques de replan, et leur imposer ce champ les rendrait moins lisibles
+   * pour satisfaire un type. Absent = l'étape compte, ce qui est le cas de l'immense majorité.
+   */
+  contournee?: boolean;
 }
 
-export function deduireEtat(steps: readonly StepSnapshot[]): MissionState {
+/**
+ * CE QUI COMPTE ENCORE.
+ *
+ * Un run Render a montré le coût de l'absence de ce filtre : une étape en échec du plan v1,
+ * qu'aucun plan suivant ne reprenait, maintenait la mission BLOCKED alors que le plan v2 avait
+ * abouti — et le juge d'objectif n'était jamais atteint. Une obligation appartient au PLAN
+ * COURANT ; ce qui l'a précédée est une pièce du dossier, pas une dette.
+ */
+export const compte = (s: StepSnapshot): boolean => s.contournee !== true;
+
+export function deduireEtat(toutes: readonly StepSnapshot[]): MissionState {
+  const steps = toutes.filter(compte);
   if (steps.length === 0) return "PLANNING";
 
   const par = (s: StepState) => steps.filter((x) => x.status === s).length;
@@ -245,6 +264,7 @@ export function deduireEtat(steps: readonly StepSnapshot[]): MissionState {
 }
 
 /** Toutes les étapes sont-elles arrivées à un état terminal ? Le préalable à l'évaluation finale. */
-export function toutTermine(steps: readonly StepSnapshot[]): boolean {
+export function toutTermine(toutes: readonly StepSnapshot[]): boolean {
+  const steps = toutes.filter(compte);
   return steps.length > 0 && steps.every((s) => STEP_TERMINAL.has(s.status));
 }

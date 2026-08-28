@@ -9457,6 +9457,14 @@ model MissionStep {
   /// redemanderait au Drive ce qu'il vient de lui demander.
   recovery   Json?
   planVersion Int    @default(1)
+  /// LE PLAN COURANT NE PORTE PLUS CETTE ÉTAPE — il a tourné autour.
+  ///
+  /// Non nul = l'étape appartient à l'HISTOIRE, plus aux obligations. Elle garde son statut, son
+  /// erreur et son motif : c'est une pièce du dossier, et le juge doit pouvoir dire « ceci a été
+  /// tenté sous le plan 1 et n'a pas abouti ». Mais elle ne décide plus de l'état de la mission.
+  /// Sans cette distinction, une étape en échec d'un plan abandonné bloquait tous les suivants —
+  /// mesuré sur un run réel où le plan v2 avait pourtant réussi.
+  supersededAt DateTime?
   startedAt   DateTime?
   completedAt DateTime?
   createdAt   DateTime @default(now())

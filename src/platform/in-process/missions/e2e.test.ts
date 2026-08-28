@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { getAccess, type EffectiveAccess } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
-import { lancerMission, avancerMission } from "@/platform/in-process/missions/runtime";
+import { lancerMission, avancerMission, replanifierMission } from "@/platform/in-process/missions/runtime";
 import { RaisonneurScripte, pour, planScripte } from "@/platform/in-process/missions/fake-reasoner";
 import { decider } from "@/lib/missions/approval/gate";
 import { chargerEtat } from "@/lib/missions/runtime/store";
@@ -401,6 +401,133 @@ suite("BOUT EN BOUT — d'une phrase à une mission terminée", () => {
     expect(etat!.status).not.toBe("COMPLETED");
     expect(mission!.goalSatisfied).toBe(false);
     expect(mission!.goalVerdict ?? "").toMatch(/sans preuve|NON atteint/i);
+  }, 300_000);
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * L'ÉCHEC D'UN PLAN ABANDONNÉ NE BLOQUE PAS LES SUIVANTS
+   *
+   * ── LE RUN QUI A PRODUIT CE TEST ─────────────────────────────────────────────────────
+   *
+   * Render, scénario RECOURS. Le plan v1 déploie un éventail sur la sortie d'une recherche qui
+   * a répondu en TEXTE : l'étape échoue, tentatives épuisées. Le plan v2 contourne — Legal,
+   * courriers, contenu des documents — et ses neuf étapes aboutissent. La mission revient
+   * pourtant BLOCKED, replanifie deux fois de plus, et le juge d'objectif n'est JAMAIS atteint :
+   * `QA / objectif — / —` dans le rapport.
+   *
+   * La cause tenait en une ligne : `chargerEtat` relit TOUTES les étapes, quelle que soit la
+   * version de plan qui les a écrites, et `deduireEtat` comptait comme un échec courant une
+   * étape qu'aucun plan ne portait plus. Trois plans successifs mouraient d'une erreur du
+   * premier.
+   *
+   * ── CE QUE CE TEST VÉRIFIE, ET CE QU'IL REFUSE DE VÉRIFIER ───────────────────────────
+   *
+   * Il part de `lancerMission`, pas d'un état injecté à la main (§14). L'échec du plan v1 est
+   * PROVOQUÉ par un vrai défaut — un éventail sur une sortie sans liste — et non écrit en base.
+   * Et il vérifie les DEUX côtés : la mission conclut, ET l'étape en échec est toujours là,
+   * avec son statut et son motif. Une correction qui effacerait l'échec passerait le premier
+   * test et échouerait au second — c'est exactement ce qu'on veut interdire.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("§39 — un plan qui CONTOURNE un échec précédent atteint le juge, et l'échec reste au dossier", async () => {
+    const CRITERE = "Le bilan est produit à partir de ce qui a pu être lu.";
+
+    // ── PLAN v1 : un éventail sur une sortie qui n'a pas de liste ⇒ échec structurel ──
+    const planV1 = planScripte({
+      goal: "Retrouver le document le plus récent qui engage l'entreprise.",
+      reasoningComplexity: "B",
+      executionScale: "S",
+      acceptanceCriteria: [CRITERE],
+      workstreams: [],
+      steps: [
+        {
+          key: "recherche", title: "Chercher les documents", workstream: null,
+          nodeType: "WORKER", dependsOn: [],
+          // Le worker rend une PHRASE. C'est le défaut réel : « Aucun fichier… » est une
+          // réponse humainement juste et machinalement inexploitable.
+          outputFields: [{ name: "constat", type: "string", description: "Ce que la recherche a donné." }],
+          completionCondition: "La recherche a été menée.",
+          reasoningRequirement: "NONE", maxAttempts: 1,
+        },
+        {
+          key: "lecture", title: "Lire chaque document trouvé", workstream: null,
+          nodeType: "CAPABILITY", capability: "directory_lookup",
+          inputs: [{ key: "name", kind: "TEXT", value: "{{doc}}" }],
+          dependsOn: ["recherche"],
+          // L'ÉVENTAIL PORTE SUR UN CHEMIN QUI N'EXISTE PAS dans la sortie amont.
+          forEach: { from: "recherche", path: "documents", as: "doc" },
+          completionCondition: "Chaque document est lu.",
+          approvalRequirement: "NONE", maxAttempts: 1,
+        },
+      ],
+      expectedArtifacts: [], approvalStrategy: "BUNDLE",
+      completionCriteria: "Le document le plus récent est nommé.", gaps: [],
+      rationale: "Chercher, puis lire ce qui a été trouvé.",
+    });
+
+    // ── PLAN v2 : il ne reprend NI « recherche » NI « lecture » — il contourne ────────
+    const planV2 = planScripte({
+      goal: "Retrouver le document le plus récent qui engage l'entreprise.",
+      reasoningComplexity: "B",
+      executionScale: "S",
+      acceptanceCriteria: [CRITERE],
+      workstreams: [],
+      steps: [{
+        key: "bilan", title: "Restituer ce qui a pu être établi", workstream: null,
+        nodeType: "WORKER", dependsOn: [],
+        outputFields: [{ name: "bilan", type: "string", description: "Ce qui a pu être établi." }],
+        completionCondition: "Le bilan est écrit.",
+        reasoningRequirement: "LIGHT", maxAttempts: 1,
+      }],
+      expectedArtifacts: [], approvalStrategy: "BUNDLE",
+      completionCriteria: "Le bilan existe.", gaps: [],
+      rationale: "La lecture n'a rien donné : on restitue ce qui est établi.",
+    });
+
+    const cerveau = new RaisonneurScripte([
+      pour("mission.plan", (_req, appel) => ({ ok: true, data: appel === 1 ? planV1 : planV2 })),
+      // Chaque worker a SON schéma strict : rendre les deux champs à tous ferait échouer le banc
+      // sur « champ inattendu », et l'on mesurerait le décor au lieu du défaut visé.
+      pour("mission.worker", (req) => ({
+        ok: true,
+        data: req.schemaName.includes("bilan")
+          ? { bilan: "Rien de probant n'a pu être établi." }
+          : { constat: "Aucun fichier ne correspond." },
+      })),
+      pour("mission.judge", (req) => ({ ok: true, data: verdictSatisfait([CRITERE])(req) })),
+    ]);
+
+    const r = await lancerMission(pdg, "Retrouve le document le plus récent qui engage l'entreprise.", { reasoner: cerveau });
+    if (!r.ok) throw new Error(r.error);
+    // Le moteur avance par TOURS : la lecture ne devient prête qu'une fois la recherche finie.
+    // On le pousse jusqu'à ce qu'il n'ait plus rien à faire, comme le ferait l'ordonnanceur.
+    for (let i = 0; i < 4; i++) await avancerMission(pdg, r.missionId, { reasoner: cerveau });
+
+    // L'ÉCHEC A BIEN EU LIEU — sinon le test ne prouverait rien de ce qu'il annonce.
+    const avant = await chargerEtat(r.missionId);
+    const echouee = avant!.steps.find((s) => s.key === "lecture");
+    expect(echouee?.status, "l'éventail sur une sortie sans liste doit échouer").toBe("FAILED");
+
+    // ── LE REPLAN, PAR LE CHEMIN CANONIQUE ───────────────────────────────────────────
+    const reprise = await replanifierMission(pdg, r.missionId, { reasoner: cerveau });
+    expect(reprise.replanifie, reprise.raison).toBe(true);
+    for (let i = 0; i < 3; i++) await avancerMission(pdg, r.missionId, { reasoner: cerveau });
+
+    const apres = await chargerEtat(r.missionId);
+    const mission = await prisma.mission.findUnique({
+      where: { id: r.missionId }, select: { status: true, goalSatisfied: true },
+    });
+
+    // 1. LA MISSION CONCLUT. Avant ce lot, elle restait BLOCKED sans jamais voir le juge.
+    expect(mission!.goalSatisfied, "le juge doit avoir été atteint et avoir tranché").toBe(true);
+    expect(mission!.status).toBe("COMPLETED");
+
+    // 2. L'ÉCHEC EST TOUJOURS AU DOSSIER — statut et motif intacts. C'est le contre-poids :
+    //    une correction qui « nettoierait » l'historique passerait le point 1 et raterait celui-ci.
+    const trace = apres!.steps.find((s) => s.key === "lecture");
+    expect(trace?.status, "l'étape contournée garde son échec").toBe("FAILED");
+    expect(trace?.error ?? "", "et son motif").not.toBe("");
+    expect(trace?.contournee, "mais elle est marquée contournée").toBe(true);
   }, 300_000);
 
   it("§21/§22 — un ARTEFACT est fabriqué, CONTRÔLÉ, puis rangé ; et il prouve l'achèvement", async () => {

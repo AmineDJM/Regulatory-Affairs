@@ -81,6 +81,14 @@ export interface EtatEtape {
   recovery: unknown;
   needsIdempotencyKey: boolean;
   planVersion: number;
+  /**
+   * LE PLAN COURANT NE PORTE PLUS CETTE ÉTAPE.
+   *
+   * Elle reste au dossier — statut, erreur et motif intacts — mais elle n'est plus une
+   * obligation : ni `deduireEtat`, ni le contrôle qualité, ni le répartiteur ne la regardent.
+   * Sans cette distinction, une étape en échec d'un plan abandonné bloque tous les suivants.
+   */
+  contournee: boolean;
   dependsOn: string[];
 }
 
@@ -201,6 +209,47 @@ export async function materialiser(
     });
   }
 
+  /**
+   * ── 1 bis. CE QUE LE NOUVEAU PLAN A CONTOURNÉ ────────────────────────────────────────
+   *
+   * LE DÉFAUT QUE CE BLOC FERME, mesuré sur un run Render. Le scénario RECOURS voit son étape
+   * « lecture-drive-contracts » échouer sous le plan v1, tentatives épuisées. Le plan v2 ne la
+   * reprend pas : il passe par Legal, les courriers et le contenu des documents, et ses neuf
+   * étapes aboutissent. La mission revient pourtant BLOCKED, replanifie deux fois de plus, et le
+   * juge d'objectif n'est JAMAIS atteint — parce que `deduireEtat` compte encore comme un échec
+   * courant une étape qu'aucun plan ne porte plus.
+   *
+   * UNE OBLIGATION APPARTIENT AU PLAN COURANT. Une étape que le nouveau plan ne reprend pas est
+   * de l'HISTOIRE : elle garde son statut, son erreur et son motif — le juge et l'écran doivent
+   * pouvoir dire « ceci a été tenté sous le plan 1 et n'a pas abouti » — mais elle ne décide plus
+   * de l'état de la mission.
+   *
+   * DEUX BORNES, ET ELLES COMPTENT AUTANT L'UNE QUE L'AUTRE :
+   *
+   *   — on ne marque JAMAIS une étape ABOUTIE. Un acquis reste un acquis, et le nouveau plan a le
+   *     droit d'en dépendre (`acquises` dans `compile`). L'effacer ferait refaire un envoi ;
+   *   — on DÉMARQUE ce que le nouveau plan reprend. Un plan v3 qui réessaie ce que v2 avait
+   *     abandonné doit le voir redevenir une obligation, sinon la mission conclurait sur une
+   *     étape qu'elle a cessé de regarder.
+   */
+  const clesDuPlan = new Set(compiled.steps.map((s) => s.key));
+  const ACQUIS: readonly string[] = ["DONE", "SKIPPED"];
+  const contournees = enBase.filter((s) => !clesDuPlan.has(s.key) && !ACQUIS.includes(s.status));
+  if (contournees.length > 0) {
+    await prisma.missionStep.updateMany({
+      where: { id: { in: contournees.map((s) => s.id) }, supersededAt: null },
+      data: { supersededAt: new Date() },
+    });
+    await journaliser(mission.id, "PLAN_COMPILED",
+      `Plan v${version} : ${contournees.length} étape(s) contournée(s) — elles restent au dossier, `
+      + `elles ne bloquent plus : ${contournees.map((s) => s.key).join(", ")}.`,
+      { planVersion: version, contournees: contournees.map((s) => ({ key: s.key, statut: s.status })) });
+  }
+  await prisma.missionStep.updateMany({
+    where: { missionId: mission.id, key: { in: [...clesDuPlan] }, supersededAt: { not: null } },
+    data: { supersededAt: null },
+  });
+
   // ── 2. LES ARÊTES ───────────────────────────────────────────────────────────────────
   for (const s of compiled.steps) {
     const cible = parCle.get(s.key);
@@ -273,6 +322,7 @@ export async function chargerEtat(missionId: string): Promise<EtatMission | null
       recovery: s.recovery ?? null,
       needsIdempotencyKey: s.needsIdempotencyKey,
       planVersion: s.planVersion,
+      contournee: s.supersededAt !== null,
       dependsOn: s.deps.map((d) => d.dependsOn.key),
     })),
   };

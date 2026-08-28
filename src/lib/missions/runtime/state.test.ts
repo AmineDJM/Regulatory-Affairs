@@ -275,3 +275,39 @@ describe("toutTermine", () => {
     expect(toutTermine([etape("DONE"), etape("PENDING")])).toBe(false);
   });
 });
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * CE QU'UN PLAN ABANDONNÉ NE DÉCIDE PLUS
+ *
+ * Un run Render l'a chiffré : le plan v1 laisse une étape en échec, tentatives épuisées ; le
+ * plan v2 contourne et ses neuf étapes aboutissent ; la mission reste BLOCKED et le juge n'est
+ * jamais atteint. Trois plans successifs mouraient d'une erreur du premier.
+ *
+ * La règle est simple à énoncer et c'est elle qu'on garde ici : une obligation appartient au
+ * PLAN COURANT. Ce qui l'a précédée est une pièce du dossier, pas une dette.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("les étapes CONTOURNÉES par un replan ne décident plus de l'état", () => {
+  const contournee = (status: StepState) => etape(status, { contournee: true, attempt: 3 });
+
+  it("un échec contourné ne bloque plus — c'est le défaut mesuré sur Render", () => {
+    // Le contre-exemple d'abord : le MÊME échec, NON contourné, bloque toujours. Sans lui, ce
+    // test passerait aussi si `deduireEtat` avait cessé de regarder les échecs tout court.
+    expect(deduireEtat([etape("DONE"), etape("FAILED", { attempt: 3 })])).toBe("PARTIAL");
+    expect(deduireEtat([etape("DONE"), contournee("FAILED")])).toBe("RUNNING");
+  });
+
+  it("une étape contournée n'empêche pas de conclure", () => {
+    expect(toutTermine([etape("DONE"), contournee("PENDING")])).toBe(true);
+    // Contre-exemple : la même étape PENDING, non contournée, empêche bien de conclure.
+    expect(toutTermine([etape("DONE"), etape("PENDING")])).toBe(false);
+  });
+
+  it("une mission dont TOUT est contourné n'est pas « finie » : elle n'a plus de plan", () => {
+    // `PLANNING` est la réponse honnête — il n'y a plus aucune obligation à regarder. Rendre
+    // `RUNNING` laisserait croire qu'il reste du travail ; rendre `COMPLETED` serait pire.
+    expect(deduireEtat([contournee("FAILED"), contournee("DONE")])).toBe("PLANNING");
+    expect(toutTermine([contournee("DONE")])).toBe(false);
+  });
+});

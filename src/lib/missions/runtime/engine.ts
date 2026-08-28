@@ -252,6 +252,9 @@ async function demarrer(etat: EtatMission): Promise<void> {
 function etapesPretes(etat: EtatMission): EtatEtape[] {
   const parCle = new Map(etat.steps.map((s) => [s.key, s]));
   return etat.steps.filter((s) => {
+    // UNE ÉTAPE QUE LE PLAN COURANT NE PORTE PLUS NE S'EXÉCUTE PAS. Elle reste au dossier ;
+    // la relancer ferait travailler la mission pour un plan qu'elle a abandonné.
+    if (s.contournee) return false;
     if (s.status === "READY") return true;
     if (s.status !== "PENDING") return false;
     return s.dependsOn.every((d) => {
@@ -1006,7 +1009,15 @@ export async function conclure(
   etat: EtatMission,
   deps: EngineDeps,
 ): Promise<MissionState> {
-  const observees: EtapeObservee[] = etat.steps.map((s) => ({
+  /**
+   * LE CONTRÔLE ET LE JUGE NE VOIENT QUE LES OBLIGATIONS DU PLAN COURANT.
+   *
+   * Une étape contournée par un replan garde son statut en base — c'est une pièce du dossier —
+   * mais la compter ici ferait échouer arithmétiquement une mission que le plan suivant a
+   * menée à bien. Un run Render l'a montré : neuf étapes du plan v2 abouties, et la mission
+   * BLOCKED à cause d'une étape du plan v1 qu'aucun plan ne portait plus.
+   */
+  const observees: EtapeObservee[] = etat.steps.filter((s) => !s.contournee).map((s) => ({
     key: s.key, title: s.title, status: s.status, nodeType: s.nodeType,
     receipt: s.receipt, attempt: s.attempt, maxAttempts: s.maxAttempts, result: s.result,
   }));
@@ -1089,6 +1100,7 @@ export async function conclure(
 async function synchroniserEtat(missionId: string, etat: EtatMission): Promise<MissionState> {
   const deduit = deduireEtat(etat.steps.map((s) => ({
     status: s.status, nodeType: s.nodeType, attempt: s.attempt, maxAttempts: s.maxAttempts,
+    contournee: s.contournee,
   })));
   if (deduit !== etat.status) await transitionner(missionId, deduit);
   return deduit;
