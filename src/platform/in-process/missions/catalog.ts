@@ -2,7 +2,7 @@ import type { CurrentUser } from "@/lib/session";
 import { assistantToolsFor, RESOLVER_WRITE_NAMES } from "@/lib/assistant";
 import { POWER_TOOLS } from "@/lib/assistant/power-tools";
 import type { CapabilityBrief, CapabilityCatalog, MissionActor } from "@/lib/missions/ports";
-import { capabilityMeta, type CapabilityMeta } from "@/lib/missions/registry/capability-meta";
+import { capabilityMeta, EFFECT_RANK, type CapabilityMeta, type Effect } from "@/lib/missions/registry/capability-meta";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -68,8 +68,31 @@ export interface CatalogueReel extends CapabilityCatalog {
  * mis en cache par erreur autoriserait les droits de la personne précédente — la faute exacte
  * qui produit une élévation de privilège invisible.
  */
-export function catalogueDe(user: CurrentUser): CatalogueReel {
-  const defs = assistantToolsFor(user);
+export interface OptionsCatalogue {
+  /**
+   * LE PLAFOND D'EFFET — une RESTRICTION, jamais une ouverture.
+   *
+   * Passer `"ANALYZE"` retire du catalogue toute capacité qui écrit, communique, engage ou
+   * détruit. Le filtre porte sur `defs`, donc sur les TROIS réponses du catalogue à la fois :
+   * `has()` dit non, `allowed()` dit non, `brief()` ne la montre pas. Un modèle ne peut donc
+   * pas la planifier, et s'il en invente le nom, le compilateur rend `UNKNOWN_CAPABILITY`.
+   *
+   * C'est ce qui rend « exécution en lecture seule » vérifiable plutôt que promis : la sûreté
+   * ne vient pas d'une phrase dans la consigne — un document lu par une étape pourrait la
+   * contredire — mais de l'absence de l'outil dans la liste que le compilateur consulte.
+   *
+   * Le plafond ne peut RIEN élargir : le point de départ reste `assistantToolsFor(user)`, donc
+   * les droits réels de la personne. `effetMax` ne fait que soustraire.
+   */
+  effetMax?: Effect;
+}
+
+export function catalogueDe(user: CurrentUser, opts: OptionsCatalogue = {}): CatalogueReel {
+  const toutes = assistantToolsFor(user);
+  const plafond = opts.effetMax ? EFFECT_RANK[opts.effetMax] : null;
+  const defs = plafond === null
+    ? toutes
+    : toutes.filter((d) => EFFECT_RANK[capabilityMeta(d.name, estEcriture).effect] <= plafond);
   const parNom = new Map(defs.map((d) => [d.name, d]));
   const labels = new Map(POWER_TOOLS.map((t) => [t.def.name, t.label]));
   const metas = new Map<string, CapabilityMeta>();

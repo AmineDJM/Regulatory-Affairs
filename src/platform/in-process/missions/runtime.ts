@@ -65,6 +65,22 @@ export interface OptionsAssemblage {
   reasoner?: Reasoner;
   /** Où déposer les livrables. Par défaut le Drive. */
   sink?: ArtifactSink;
+  /**
+   * LECTURE SEULE — le catalogue est plafonné à `ANALYZE` (§ `OptionsCatalogue.effetMax`).
+   *
+   * Aucune capacité qui écrit, communique, engage ou détruit n'entre dans la liste que le
+   * planner voit et que le compilateur consulte. Ce n'est donc pas une consigne donnée au
+   * modèle — qu'un document lu en cours de route pourrait contredire — mais l'ABSENCE de
+   * l'outil. Le diagnostic fournisseur s'en sert pour prouver la chaîne sans rien toucher.
+   *
+   * PORTÉE EXACTE, et il faut la connaître : `lancerMission` (donc la planification) et
+   * `assembler` (donc l'exécution). PAS `replanifierMission`, qui repart délibérément du
+   * catalogue complet. Le diagnostic ne replanifie jamais — il compile, exécute, conclut — et
+   * étendre le plafond à un chemin que personne n'emprunte aurait ajouté une garantie
+   * invérifiable. Si un appelant futur veut une mission en lecture seule REPLANIFIABLE, c'est
+   * là qu'il faudra le brancher, et l'écrire avec le test qui tombe quand on l'enlève.
+   */
+  lectureSeule?: boolean;
 }
 
 /**
@@ -75,7 +91,7 @@ export interface OptionsAssemblage {
  * droits restent la borne — l'agent ne peut jamais faire PLUS qu'elle, seulement moins.
  */
 export function assembler(user: CurrentUser, opts: OptionsAssemblage = {}): AssemblageMission {
-  const catalogue = catalogueDe(user);
+  const catalogue = catalogueDe(user, opts.lectureSeule ? { effetMax: "ANALYZE" } : {});
   const runner = new ExecutantReel(user);
   // LE RAISONNEUR EST INJECTABLE, et le défaut est le VRAI. Ce n'est pas une couture pour les
   // tests : c'est la seule dépendance du composeur qui traverse le réseau, donc la seule qu'un
@@ -181,7 +197,7 @@ export async function lancerMission(
     console.warn(`[agent] espace d'Adam réaligné : ${espace.corrections.join(" ; ")}`);
   }
 
-  const catalogue = catalogueDe(user);
+  const catalogue = catalogueDe(user, opts.lectureSeule ? { effetMax: "ANALYZE" } : {});
   const acteur = acteurDe(user);
   const cerveau = opts.reasoner ?? raisonneur;
   const contexte: ContextePlanification = {
