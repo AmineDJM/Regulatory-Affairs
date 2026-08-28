@@ -1397,6 +1397,17 @@ coûte **quelques millisecondes** au lieu d'un aller-retour de conversion.
 - **Sauvegarde atomique et verrou optimiste** (§48, §50). On sérialise, on RELIT ce qu'on vient de
   produire, et on n'écrit la version que si la relecture passe. Si quelqu'un d'autre a enregistré
   entre-temps, on **refuse et on le dit** au lieu d'écraser son travail.
+- **« Qu'est-ce que tu as changé ? » est CONSTATÉ, pas raconté** (§52). `comparerDepuis` relit la
+  version de départ — celle de l'ouverture, ou n'importe quelle version citée (« par rapport à la
+  v3 ») — et la compare au modèle courant, objet par objet, en rangs humains. Répondre depuis le
+  journal reviendrait à redire ce qu'on a **demandé** ; or on pose justement cette question quand on
+  doute. Le cas qui sépare les deux est testé : après une annulation, le journal porte encore la
+  suppression, le document non — la comparaison répond « aucune différence ».
+- **La liste des capacités est un engagement** (§56). `capabilities/catalog.test.ts` exige de chaque
+  entrée un point d'entrée réellement exporté. C'est pourquoi `artifact.export` n'y figure **pas** :
+  exporter un Word ou un Excel en PDF suppose un moteur de rendu bureautique, absent de l'image et
+  impossible à y ajouter en `runtime: node`. Une liste plus courte et vraie vaut mieux qu'une entrée
+  qui échoue à l'usage.
 - **Où** : le workspace vit **dans le fil** d'Adam (bloc `artifact`, même `blockId`, `version++` —
   pas trois cartes qui s'empilent) ; `/office/live/<nodeId>` est le **retour**, pas le chemin
   normal, pour relire un contrat de quarante pages en plein écran.
