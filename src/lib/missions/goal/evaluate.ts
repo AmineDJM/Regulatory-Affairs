@@ -134,6 +134,53 @@ export function controlerQualite(steps: readonly EtapeObservee[]): RapportQA {
 }
 
 /**
+ * LE COMPTE RENDU LU PAR LE JUGE — des faits nommés, pas une phrase de synthèse.
+ *
+ * ── LE DÉFAUT QUE CETTE FONCTION FERME ───────────────────────────────────────────────────
+ *
+ * Le juge a pour consigne de CITER, pour chaque critère, les clés d'étapes qui le démontrent,
+ * et `normaliser` ramène à NON_DÉMONTRÉ tout critère cité sans référence. Tant qu'on ne lui
+ * envoyait que `qa.resume` — « 34/34 étapes effectives abouties » — aucune clé n'existait dans
+ * ce qu'il lisait : soit il obéissait et ne démontrait rien, soit il inventait des clés. Les
+ * deux issues sont mauvaises, et la seconde est la pire, parce qu'elle a l'air d'une réussite.
+ *
+ * On lui donne donc la matière : la clé, le titre, le reçu du chemin canonique et un extrait du
+ * résultat de CHAQUE étape aboutie — puis, séparément, celles qui ne le sont pas.
+ *
+ * ── POURQUOI UNE BORNE À 120 LIGNES ──────────────────────────────────────────────────────
+ *
+ * Une mission de trois mille envois produirait un prompt que personne ne peut payer. Au-delà de
+ * la borne, on le DIT et l'on renvoie au contrôle arithmétique, qui, lui, les a toutes comptées
+ * et a déjà eu le dernier mot dans le sens négatif. Tronquer en silence laisserait croire au
+ * juge qu'il a tout vu.
+ */
+export function compteRendu(
+  steps: readonly EtapeObservee[],
+  qa: RapportQA,
+  limite = 120,
+): string {
+  const abouties = steps.filter((e) => e.status === "DONE");
+  const lignes = abouties.slice(0, limite).map((e) => {
+    const preuve = e.receipt ? ` [reçu ${e.receipt.slice(0, 24)}]` : "";
+    const extrait = e.result ? ` → ${JSON.stringify(e.result).slice(0, 180)}` : "";
+    return `- ${e.key} : ${e.title}${preuve}${extrait}`;
+  });
+
+  const echecs = steps.filter((e) => e.status !== "DONE" && e.status !== "SKIPPED");
+  return [
+    `CONTRÔLE ARITHMÉTIQUE : ${qa.resume}`,
+    `\nÉTAPES ABOUTIES (clé : titre → résultat) :\n${lignes.join("\n") || "aucune"}`,
+    echecs.length > 0
+      ? `\nÉTAPES NON ABOUTIES :\n${echecs.slice(0, 30).map((e) => `- ${e.key} (${e.status})`).join("\n")}`
+      : "",
+    abouties.length > limite
+      ? `\n(${abouties.length - limite} étape(s) abouties supplémentaires non détaillées ici ; `
+        + `le contrôle arithmétique ci-dessus les a toutes comptées.)`
+      : "",
+  ].filter(Boolean).join("\n");
+}
+
+/**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * LA SATISFACTION DE L'OBJECTIF.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -220,7 +267,9 @@ export async function evaluerObjectif(opts: {
     const avis = await opts.juge.juger({
       objectif: opts.objectif,
       criteres: opts.criteres,
-      resumeExecution: qa.resume,
+      // LE COMPTE RENDU COMPLET, avec les CLÉS D'ÉTAPES — sans elles, le juge n'a rien à citer
+      // et `normaliser` ramène chaque critère à NON_DÉMONTRÉ. Voir l'en-tête de `compteRendu`.
+      resumeExecution: compteRendu(opts.steps, qa),
     });
     return {
       satisfait: avis.satisfait,

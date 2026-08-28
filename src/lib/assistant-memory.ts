@@ -93,6 +93,80 @@ export async function ensurePrimaryThread(userId: string): Promise<string> {
   return t.id;
 }
 
+export interface IdentifiedMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: Date;
+}
+
+/**
+ * LES MESSAGES D'UN FIL POSTÉRIEURS À UN MESSAGE DONNÉ — la matière brute d'un ÉPISODE.
+ *
+ * ── POURQUOI CETTE FONCTION EXISTE PLUTÔT QU'UNE REQUÊTE AILLEURS ────────────────────────
+ *
+ * L'en-tête de ce fichier pose une règle sans exception : il est la SEULE porte vers
+ * `assistantMessage`. Le découpage de la mémoire en épisodes (`missions/memory/`) a besoin des
+ * tours bruts ET de leurs identifiants — que `getThreadMessages` ne rend pas, puisqu'il sert à
+ * réafficher une conversation. Plutôt que d'ouvrir une seconde porte, on élargit celle-ci.
+ *
+ * Les IDENTIFIANTS sont ce qui rend l'épisode idempotent : la tranche est bornée par le premier
+ * et le dernier message, et l'unicité en base porte sur ce couple. Sans eux, deux passages
+ * enregistreraient deux souvenirs du même moment.
+ *
+ * `apres` est exclusif : on reprend là où le dernier épisode s'est arrêté.
+ */
+export async function messagesApres(
+  userId: string, threadId: string, apres: string | null, limit = 200,
+): Promise<IdentifiedMessage[]> {
+  const thread = await prisma.assistantThread.findFirst({
+    where: { id: threadId, userId },
+    select: { id: true },
+  });
+  if (!thread) return [];
+
+  let borne: { createdAt: Date; id: string } | null = null;
+  if (apres) {
+    const m = await prisma.assistantMessage.findFirst({
+      where: { id: apres, userId },
+      select: { id: true, createdAt: true },
+    });
+    // UN MARQUEUR INTROUVABLE NE FAIT PAS REPARTIR DE ZÉRO : le message a pu être effacé, et
+    // relire tout le fil recréerait des épisodes déjà enregistrés. On ne rend rien, et le
+    // prochain tour reposera la question avec un marqueur à jour.
+    if (!m) return [];
+    borne = m;
+  }
+
+  const rows = await prisma.assistantMessage.findMany({
+    where: {
+      threadId,
+      userId,
+      // « APRÈS » SE LIT SUR LE COUPLE (date, identifiant), pas sur la date seule. Une question
+      // et sa réponse sont écrites d'un même geste et partagent leur milliseconde : un `>` sur la
+      // date seule ferait disparaître de la mémoire la réponse dont la question a été mémorisée.
+      // C'est le même ordre composite que la lecture d'un fil, pour la même raison.
+      ...(borne
+        ? {
+            OR: [
+              { createdAt: { gt: borne.createdAt } },
+              { createdAt: borne.createdAt, id: { gt: borne.id } },
+            ],
+          }
+        : {}),
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: Math.max(1, limit),
+    select: { id: true, role: true, content: true, createdAt: true },
+  });
+  return rows.map((m) => ({
+    id: m.id,
+    role: m.role === "assistant" ? "assistant" as const : "user" as const,
+    content: m.content,
+    createdAt: m.createdAt,
+  }));
+}
+
 export interface OwnMessageHit {
   threadId: string;
   threadTitle: string;
@@ -267,6 +341,21 @@ export async function personalContext(userId: string): Promise<string> {
 
   if (memory) lines.push(`\nCE QUE TU AS RETENU DE CETTE PERSONNE (mémoire de vos échanges précédents) :\n${memory}`);
   if (typed) lines.push(typed);
+
+  // ── LA MÉMOIRE ÉPISODIQUE, COMPOSÉE SOUS BUDGET ────────────────────────────────────
+  //
+  // Ce que la note distillée ci-dessus ne sait pas faire : distinguer « ce qui s'est dit en
+  // mars » de « ce qui s'est dit hier », et remonter une approbation encore en attente ou un
+  // engagement qui n'est pas tenu. C'est l'objet des épisodes, et c'est ici qu'ils servent —
+  // le seul endroit du produit où un souvenir daté atteint réellement le modèle.
+  //
+  // L'import est DIFFÉRÉ : ce module est la porte des conversations et il est chargé partout,
+  // alors que le composeur de missions tire derrière lui la passerelle des modèles. Il l'est
+  // aussi pour éviter un cycle — le composeur, lui, lit les tours bruts par ce fichier-ci.
+  const episodique = await import("@/platform/in-process/missions/memory")
+    .then((m) => m.contexteMemoire(userId))
+    .catch(() => "");
+  if (episodique) lines.push(episodique);
 
   lines.push(
     "\nCette mémoire et ces conversations sont STRICTEMENT PERSONNELLES : tu n'as jamais accès " +

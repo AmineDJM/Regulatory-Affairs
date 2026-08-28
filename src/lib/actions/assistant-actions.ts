@@ -132,6 +132,49 @@ async function maybeDistillMemory(userId: string): Promise<void> {
 }
 
 /**
+ * DÉCOUPAGE DE LA MÉMOIRE EN ÉPISODES — la seconde moitié de la mémoire, et la plus utile.
+ *
+ * ── CE QU'ELLE FAIT QUE LA DISTILLATION NE FAIT PAS ──────────────────────────────────────
+ *
+ * `maybeDistillMemory` tient UNE note par personne : ce qui reste vrai dans le temps. Elle
+ * écrase la précédente à chaque passage, donc elle ne sait pas dire « en mars, on avait décidé
+ * X, puis en juin on est revenu dessus ». L'épisode, lui, est daté, borné par deux messages, et
+ * sa fidélité décroît avec l'âge sans jamais perdre un montant, une référence ni une correction.
+ *
+ * Les deux coexistent parce qu'elles répondent à deux questions différentes — « qui est cette
+ * personne » et « que s'est-il passé, et quand ». Fusionner les deux redonnerait une note qui
+ * grossit sans fin, c'est-à-dire le comportement qu'on cherche à éviter.
+ *
+ * Non bloquant, comme la distillation : la mémoire ne fait jamais échouer un tour réussi.
+ */
+async function maybeCutEpisode(userId: string, threadId: string): Promise<void> {
+  try {
+    const { noterEpisode, vieillirMemoire } = await import("@/platform/in-process/missions/memory");
+    const r = await noterEpisode(userId, threadId);
+    if (!r.episodeId) return;
+
+    console.info(
+      `[assistant] épisode ${r.episodeId} — ${r.tours} tours, `
+      + `${r.jetonsAvant} → ${r.jetonsApres} jetons estimés`,
+    );
+
+    // ET, PUISQU'ON EST ICI, ON FAIT VIEILLIR LA MÉMOIRE DE CETTE PERSONNE.
+    //
+    // Le battement le fait aussi, mais par une file BORNÉE à dix comptes par passage, et
+    // seulement tant que quelqu'un sollicite l'application. Or la personne dont la mémoire
+    // grossit le plus vite est précisément celle qui parle le plus — et c'est elle qui paiera
+    // le contexte le plus lourd au prochain tour. La compresser au moment où elle gagne un
+    // souvenir, plutôt qu'en attendant un créneau, est le geste évident.
+    //
+    // Ce n'est PAS un coût par tour : on n'arrive ici qu'une fois par tranche d'épisode, et si
+    // rien n'a vieilli la file est vide et aucun modèle n'est appelé.
+    await vieillirMemoire(new Date(), { userId });
+  } catch (e) {
+    console.error("[assistant] découpage en épisode impossible (non bloquant)", e);
+  }
+}
+
+/**
  * Mémorise un échange dans le fil de CETTE personne et renvoie l'identifiant du fil.
  *
  * Un fil inconnu — ou appartenant à quelqu'un d'autre — n'est jamais écrit : on en ouvre
@@ -153,6 +196,7 @@ export async function rememberExchange(
       await appendExchange(userId, tid, userMessage, reply);
     }
     await maybeDistillMemory(userId);
+    await maybeCutEpisode(userId, tid);
     return tid;
   } catch (e) {
     console.error("[assistant] mémorisation impossible (non bloquant)", e);

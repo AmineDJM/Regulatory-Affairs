@@ -3,7 +3,7 @@ import type { CurrentUser } from "@/lib/session";
 import { buildProposal, executeReadTool, performAction, RESOLVER_WRITE_NAMES } from "@/lib/assistant";
 import { executeIntentGuarded, intentSummary } from "@/lib/assistant/action-intents";
 import type { CapabilityCall, CapabilityOutcome, CapabilityRunner } from "@/lib/missions/ports";
-import { capabilityMeta, EFFECT_RANK } from "@/lib/missions/registry/capability-meta";
+import { capabilityMeta, ecritQuelqueChose } from "@/lib/missions/registry/capability-meta";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -84,10 +84,14 @@ export class ExecutantReel implements CapabilityRunner {
       };
     }
 
-    const meta = capabilityMeta(call.capability, estEcriture);
-    const ecrit = EFFECT_RANK[meta.effect] >= EFFECT_RANK.INTERNAL_REVERSIBLE_WRITE;
-
-    return ecrit ? this.ecrire(call) : this.lire(call);
+    // LA QUESTION « CETTE CAPACITÉ LAISSE-T-ELLE UNE TRACE ? » A UNE SEULE RÉPONSE, et elle
+    // vit avec le barème d'effets qu'elle interroge. La recopier ici en comparant les rangs à la
+    // main marcherait aujourd'hui et divergerait le jour où un niveau s'insère au milieu — c'est
+    // le genre d'écart qui envoie une écriture sur le chemin de lecture, donc sans intent, sans
+    // approbation et sans reçu.
+    return ecritQuelqueChose(capabilityMeta(call.capability, estEcriture))
+      ? this.ecrire(call)
+      : this.lire(call);
   }
 
   // ── LECTURE ────────────────────────────────────────────────────────────────────────

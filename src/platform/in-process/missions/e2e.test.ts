@@ -207,20 +207,33 @@ suite("BOUT EN BOUT — d'une phrase à une mission terminée", () => {
     rationale: "Lire d'abord la liste, demander un seul accord, puis déployer un message par personne.",
   });
 
-  const verdictSatisfait = (criteres: string[]) => ({
-    satisfied: true,
-    confidence: 0.9,
-    criteria: criteres.map((c) => ({ criterion: c, status: "SATISFAIT", evidenceRefs: ["message", "controle"] })),
-    missing: [],
-    contradictions: [],
-    suggestedRecovery: null,
-  });
+  /**
+   * LE VERDICT DU JUGE — et la vérification que le juge a VU ce qu'on lui demande de citer.
+   *
+   * Les preuves sont extraites du compte rendu REÇU, pas écrites d'avance. Si le runtime
+   * n'envoyait au juge que le résumé arithmétique — ce qu'il faisait — il n'y aurait aucune clé
+   * à extraire, la liste serait vide, `normaliser` ramènerait tout à NON_DÉMONTRÉ, et la mission
+   * ne conclurait pas. Le banc tomberait, comme il doit.
+   */
+  const verdictSatisfait = (criteres: string[]) => (req: { prompt: string }) => {
+    const clesVues = [...req.prompt.matchAll(/^- ([a-z0-9:_#-]+) : /gim)].map((m) => m[1]);
+    return {
+      satisfied: true,
+      confidence: 0.9,
+      criteria: criteres.map((c) => ({
+        criterion: c, status: "SATISFAIT", evidenceRefs: clesVues.slice(0, 3),
+      })),
+      missing: [],
+      contradictions: [],
+      suggestedRecovery: null,
+    };
+  };
 
   it("§42/§50 — une PHRASE devient un DAG exécuté : accord, éventail, attente, contrôle, objectif", async () => {
     const criteres = planBrut(false).acceptanceCriteria;
     const cerveau = new RaisonneurScripte([
       pour("mission.plan", () => ({ ok: true, data: planBrut(false) })),
-      pour("mission.judge", () => ({ ok: true, data: verdictSatisfait(criteres) })),
+      pour("mission.judge", (req) => ({ ok: true, data: verdictSatisfait(criteres)(req) })),
     ]);
 
     // ── LE POINT D'ENTRÉE RÉEL : une phrase, rien d'autre ────────────────────────────
@@ -376,7 +389,7 @@ suite("BOUT EN BOUT — d'une phrase à une mission terminée", () => {
     const depot = new DepotMemoire();
     const cerveau = new RaisonneurScripte([
       pour("mission.plan", () => ({ ok: true, data: planBrut(true) })),
-      pour("mission.judge", () => ({ ok: true, data: verdictSatisfait(criteres) })),
+      pour("mission.judge", (req) => ({ ok: true, data: verdictSatisfait(criteres)(req) })),
       pour("mission.artifact", () => ({
         ok: true,
         data: {

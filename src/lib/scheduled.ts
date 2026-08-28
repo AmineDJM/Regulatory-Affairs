@@ -17,6 +17,7 @@ import { runScheduledWorkflows } from "@/lib/scheduler/runner";
 import { registerBuiltinWorkflows } from "@/lib/scheduler/handlers";
 import { runAdamInboxSweep } from "@/lib/google/gmail/reconcile";
 import { balayerMissions } from "@/platform/in-process/missions/sweep";
+import { vieillirMemoire } from "@/platform/in-process/missions/memory";
 
 /**
  * Tâches périodiques **sans cron externe** : déclenchées (au plus une fois par minute,
@@ -145,6 +146,18 @@ export async function runScheduledJobs(): Promise<void> {
     // l'application ». Sans lui, elle s'arrêterait à la fin de la requête qui l'a lancée.
     // Débrayage : MISSIONS_SWEEP=off.
     await balayerMissions().catch((e) => console.error("[scheduled] balayage des missions échoué", e));
+
+    // LE VIEILLISSEMENT DE LA MÉMOIRE — le seul des deux mouvements de la mémoire épisodique
+    // qui n'ait pas de conversation pour le déclencher.
+    //
+    // Le DÉCOUPAGE se fait après un échange, quand la matière est fraîche. La DESCENTE de
+    // fidélité, elle, dépend du CALENDRIER : un compte silencieux depuis six mois doit voir ses
+    // souvenirs se réduire aux faits, sans quoi la compression ne profiterait qu'à ceux qui
+    // parlent — c'est-à-dire à ceux dont la mémoire est déjà fraîche et légère.
+    //
+    // Sans clé de fournisseur, c'est un no-op immédiat : on ne compresse pas un souvenir sans
+    // savoir ce qu'il contient, et il n'existe pas de repli déterministe honnête.
+    await vieillirMemoire().catch((e) => console.error("[scheduled] vieillissement mémoire échoué", e));
 
   } catch (err) {
     console.error("[scheduled] run failed", err);

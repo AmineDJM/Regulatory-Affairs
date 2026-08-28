@@ -231,8 +231,3 @@ export async function approbationsEnAttente(ownerId: string) {
     orderBy: { createdAt: "asc" },
   });
 }
-
-/** Le niveau d'une demande, relu depuis la base sans faire confiance à la chaîne stockée. */
-export function niveauDemande(v: string): NiveauApprobation {
-  return v === "CRITICAL" || v === "SENSITIVE" || v === "NORMAL" ? v : "NORMAL";
-}

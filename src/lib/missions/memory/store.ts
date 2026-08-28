@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { Assemblage, BUDGET_MEMOIRE_DEFAUT, Morceau, composer, estimerJetons } from "@/lib/missions/memory/budget";
-import { Episode, Fidelite, fideliteVisee } from "@/lib/missions/memory/compact";
+import { Episode, Fidelite, SEUILS_JOURS, fideliteVisee } from "@/lib/missions/memory/compact";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -81,6 +81,44 @@ export async function enregistrerEpisode(
     select: { id: true },
   });
   return e.id;
+}
+
+/**
+ * OÙ S'EST ARRÊTÉ LE DERNIER ÉPISODE DE CE FIL — le marqueur de reprise du découpage.
+ *
+ * Rendre `null` fait repartir du premier message du fil, ce qui est le comportement voulu la
+ * toute première fois. Ensuite, on ne relit jamais ce qui a déjà été mémorisé : c'est ce qui
+ * rend le découpage linéaire au lieu de quadratique, et c'est aussi ce qui garantit qu'un tour
+ * n'entre que dans UN épisode.
+ */
+export async function dernierePosition(userId: string, threadId: string): Promise<string | null> {
+  const e = await prisma.assistantEpisode.findFirst({
+    where: { userId, threadId, toMessageId: { not: null } },
+    orderBy: { endedAt: "desc" },
+    select: { toMessageId: true },
+  });
+  return e?.toMessageId ?? null;
+}
+
+/**
+ * LES PERSONNES DONT LA MÉMOIRE A VIEILLI — la file du battement.
+ *
+ * On ne balaie pas « tous les comptes » : la très grande majorité n'a rien à compresser, et les
+ * interroger un par un ferait N requêtes pour N fois rien. On demande donc à la base QUI a au
+ * moins un épisode assez vieux pour changer de fidélité, et l'on ne s'occupe que de ceux-là.
+ *
+ * Le seuil lu ici est le PLUS PETIT des seuils de descente (`STRUCTURED`) : au-delà, un épisode
+ * est forcément candidat ; en deçà, aucun ne l'est. `aCompacter` fait ensuite le tri exact.
+ */
+export async function personnesACompacter(maintenant = new Date(), limite = 10): Promise<string[]> {
+  const bord = new Date(maintenant.getTime() - SEUILS_JOURS.STRUCTURED * 24 * 3600 * 1000);
+  const rows = await prisma.assistantEpisode.findMany({
+    where: { endedAt: { lt: bord }, fidelity: { not: "FACTS" } },
+    select: { userId: true },
+    orderBy: { endedAt: "asc" },
+    take: 500,
+  });
+  return [...new Set(rows.map((r) => r.userId))].slice(0, limite);
 }
 
 /** Les épisodes dont la fidélité est en retard sur leur âge — la file du compacteur. */

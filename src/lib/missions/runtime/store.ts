@@ -358,11 +358,3 @@ export function cleIdempotence(
 ): string {
   return [missionId, stepKey, capability, cible ?? "-"].join("|");
 }
-
-/** Les étapes d'une mission qui attendent un événement — le routeur d'événements part d'ici. */
-export async function etapesEnAttente(kind: "WAIT_EVENT" | "WAIT_INPUT") {
-  return prisma.missionStep.findMany({
-    where: { status: "WAITING", nodeType: kind, mission: { status: { notIn: ["COMPLETED", "CANCELLED"] } } },
-    select: { id: true, missionId: true, key: true, waitFor: true },
-  });
-}
