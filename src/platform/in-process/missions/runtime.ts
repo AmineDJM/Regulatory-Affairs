@@ -465,15 +465,16 @@ export async function replanifierMission(
   const cerveau = opts.reasoner ?? raisonneur;
   const objectif = m.goalRaw || m.objective;
 
-  const plan = await planifier(objectif, catalogue, acteur, cerveau, {
-    contexte: {
-      aujourdhui: new Date().toLocaleDateString("fr-FR"),
-      // CE QUI EST DÉJÀ FAIT : le planificateur doit repartir de là, pas de zéro. Lui cacher
-      // l'acquis le ferait renvoyer trente-et-un messages déjà partis — l'idempotence les
-      // arrêterait, mais au prix d'un plan illisible et d'un travail inutile.
-      dejaFait: abouties.map((s) => `${s.key} : ${s.title}`).slice(0, 60),
-      refusPrecedent: bloquees.map((s) => `[${s.errorKind ?? "ÉCHEC"}] ${s.key} : ${s.error ?? "sans motif"}`),
-    },
+  const contexteReplan = {
+    aujourdhui: new Date().toLocaleDateString("fr-FR"),
+    // CE QUI EST DÉJÀ FAIT : le planificateur doit repartir de là, pas de zéro. Lui cacher
+    // l'acquis le ferait renvoyer trente-et-un messages déjà partis — l'idempotence les
+    // arrêterait, mais au prix d'un plan illisible et d'un travail inutile.
+    dejaFait: abouties.map((s) => `${s.key} : ${s.title}`).slice(0, 60),
+    refusPrecedent: bloquees.map((s) => `[${s.errorKind ?? "ÉCHEC"}] ${s.key} : ${s.error ?? "sans motif"}`),
+  };
+  const optionsPlan = {
+    contexte: contexteReplan,
     /**
      * UNE REPLANIFICATION NE REPREND JAMAIS LE CHEMIN DIRECT.
      *
@@ -483,25 +484,55 @@ export async function replanifierMission(
      * l'interdit, et c'est ce qui garantit que se tromper de chemin coûte une lecture, pas une
      * réponse fausse.
      */
-    sansCheminDirect: true,
-  });
-  if (!plan.ok) return { replanifie: false, raison: `Le planificateur n'a rien rendu : ${plan.error}` };
-
-  const agent = agentPour({ initiatedBy: user.id, executedBy: user.id, label: user.name });
-  // LES ACQUIS SONT DES DÉPENDANCES LÉGITIMES. On vient de dire au planificateur ce qui était
-  // déjà fait ; lui refuser ensuite d'en dépendre serait lui reprocher d'avoir écouté.
-  const c = compile(plan.plan, catalogue, agent, {
+    sansCheminDirect: true as const,
+  };
+  const optionsCompile = {
+    // LES ACQUIS SONT DES DÉPENDANCES LÉGITIMES. On vient de dire au planificateur ce qui était
+    // déjà fait ; lui refuser ensuite d'en dépendre serait lui reprocher d'avoir écouté.
     acquises: new Set(etat.steps.filter((s) => s.status === "DONE" || s.status === "SKIPPED").map((s) => s.key)),
     // LE PLAFOND SURVIT AU REPLAN. Sans cette ligne, une mission plafonnée en lecture
     // retrouverait le droit d'écrire à la deuxième version de son plan — une porte dérobée qui
     // ne s'ouvrirait qu'après un échec, donc au pire moment.
     ...(opts.lectureSeule ? { effetMax: "ANALYZE" as const } : {}),
-  });
+  };
+
+  const plan = await planifier(objectif, catalogue, acteur, cerveau, optionsPlan);
+  if (!plan.ok) return { replanifie: false, raison: `Le planificateur n'a rien rendu : ${plan.error}` };
+
+  const agent = agentPour({ initiatedBy: user.id, executedBy: user.id, label: user.name });
+  let c = compile(plan.plan, catalogue, agent, optionsCompile);
   if (!c.ok) {
-    return {
-      replanifie: false,
-      raison: `Le nouveau plan est refusé : ${c.issues.map((i) => i.message).slice(0, 2).join(" ; ")}`,
-    };
+    /**
+     * ── LE REFUS EST RENVOYÉ AU PLANIFICATEUR — UNE FOIS, comme au lancement ─────────────
+     *
+     * `lancerMission` fait ce second essai depuis toujours ; la replanification, non. Sur un
+     * run réel : le plan v2 propose un nœud ARTIFACT sous plafond de lecture, le compilateur
+     * refuse (FORBIDDEN_EFFECT, correctement), et la mission meurt BLOCKED sans jamais
+     * atteindre le juge — alors qu'un plan corrigé était à un message près. Le refus du
+     * compilateur est exactement l'information dont le planner a besoin, et elle était jetée.
+     */
+    const secondEssai = await planifier(objectif, catalogue, acteur, cerveau, {
+      ...optionsPlan,
+      contexte: {
+        ...contexteReplan,
+        refusPrecedent: [
+          ...contexteReplan.refusPrecedent,
+          ...c.issues.map((i) => `[${i.code}] ${i.stepKey ?? "plan"} : ${i.message}`),
+        ],
+      },
+    });
+    if (!secondEssai.ok) {
+      return { replanifie: false, raison: `Le planificateur n'a rien rendu : ${secondEssai.error}` };
+    }
+    const c2 = compile(secondEssai.plan, catalogue, agent, optionsCompile);
+    if (!c2.ok) {
+      return {
+        replanifie: false,
+        raison: `Le nouveau plan reste refusé après correction : `
+          + `${c2.issues.map((i) => i.message).slice(0, 2).join(" ; ")}`,
+      };
+    }
+    c = c2;
   }
 
   await transitionner(missionId, "PLANNING", "Replanification après échec sans recours");

@@ -183,8 +183,15 @@ export function compteRendu(
   const abouties = steps.filter((e) => e.status === "DONE");
   const lignes = abouties.slice(0, limite).map((e) => {
     const preuve = e.receipt ? ` [reçu ${e.receipt.slice(0, 24)}]` : "";
+    /**
+     * LA REQUÊTE FIGURE SUR LA LIGNE, VERBATIM. Un critère du type « les recherches ont été
+     * exécutées avec la chaîne exacte X » ne peut se vérifier qu'en LISANT ce qui est parti —
+     * et un run réel a montré le juge refuser deux critères parce que cette information,
+     * détenue par les reçus, ne lui parvenait pas pour les étapes abouties non vides.
+     */
+    const requete = e.recu?.query ? ` [requête « ${e.recu.query.slice(0, 120)} »]` : "";
     const extrait = e.result ? ` → ${JSON.stringify(e.result).slice(0, 180)}` : "";
-    return `- ${e.key} : ${e.title}${preuve}${extrait}`;
+    return `- ${e.key} : ${e.title}${preuve}${requete}${extrait}`;
   });
 
   const echecs = steps.filter((e) => e.status !== "DONE" && e.status !== "SKIPPED");

@@ -87,7 +87,17 @@ describe("le reçu fabriqué", () => {
     // « Nous n'avons rien trouvé » est inutile si l'on ignore ce qui a été cherché.
     expect(fabriquerRecu({ ...base, ok: true, sortie: { items: [] } }).query).toBe("Zorbamyxine-K7");
     expect(requeteDe({ question: "  contrat  " })).toBe("contrat");
-    expect(requeteDe({ limit: 20 })).toBeNull();
+    /**
+     * UN CHAMP INCONNU N'EST PLUS « SANS FILTRE » — c'est une correction mesurée. Le juge
+     * devait vérifier que chaque recherche avait utilisé « la chaîne exacte » ; pour les
+     * capacités dont l'entrée s'appelle autrement (`molecule`, `sujet`…), la preuve était
+     * muette et deux critères sont tombés. Le repli sérialise l'entrée ENTIÈRE, verbatim :
+     * ce n'est pas une interprétation, c'est ce qui est réellement parti.
+     */
+    expect(requeteDe({ limit: 20 })).toBe('{"limit":20}');
+    expect(requeteDe({ molecule: "Zorbamyxine-K7-X" })).toContain("Zorbamyxine-K7-X");
+    // Une entrée VIDE, elle, reste null : il n'y avait littéralement rien à citer.
+    expect(requeteDe({})).toBeNull();
   });
 
   it("une recherche VIDE devient une preuve d'absence citable", () => {

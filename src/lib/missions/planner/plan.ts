@@ -8,8 +8,8 @@ import type {
 } from "@/lib/missions/planner/contract";
 import { APPROVAL_STRATEGIES, COMPLEXITIES, NODE_TYPES, SCALES } from "@/lib/missions/planner/contract";
 import {
-  MISSION_PLAN_SCHEMA,
   MISSION_PLAN_SCHEMA_NAME,
+  schemaPlanPour,
   tailleSchemaJetons,
   type FieldType,
   type InputKind,
@@ -378,12 +378,38 @@ export async function planifier(
   });
   const ctx = opts.contexte ?? {};
   const liste = listerPourPlanner(resolution.capacites);
-  const contexte = composerContexte(objectif, liste, ctx);
+
+  /**
+   * ── LE PLAFOND SE LIT SUR LE CATALOGUE, ET IL RESTREINT DEUX CHOSES ─────────────────
+   *
+   * 1. LE SCHÉMA : sous plafond, la variante ARTIFACT (et tout type de nœud dont l'effet
+   *    structurel dépasse) disparaît du `anyOf` — le mode strict refuse alors l'étape à la
+   *    GÉNÉRATION, au lieu de laisser le compilateur la refuser après un appel payé.
+   * 2. LA CONSIGNE : une ligne du contexte le dit en français, pour que le modèle n'écrive pas
+   *    non plus un objectif ou des `expectedArtifacts` qui promettent un fichier.
+   *
+   * Un run réel a payé deux planifications pour un plan structurellement impossible — le
+   * catalogue était filtré, mais le nœud ARTIFACT ne porte pas de capacité et passait entre
+   * les mailles ; rien ne disait au planner pourquoi la liste était courte.
+   */
+  const plafond = catalogue.plafondEffet ?? null;
+  const schema = schemaPlanPour(plafond);
+  const ctxAvecPlafond: ContextePlanification = plafond
+    ? {
+      ...ctx,
+      contraintes: [
+        `PLAFOND D'EFFET : cette mission est limitée à ${plafond}. Elle LIT et ANALYSE, elle ne `
+        + `produit AUCUN fichier, n'écrit rien, ne contacte personne. N'annonce aucun livrable.`,
+        ...(ctx.contraintes ?? []),
+      ],
+    }
+    : ctx;
+  const contexte = composerContexte(objectif, liste, ctxAvecPlafond);
   const role = opts.role ?? rolePourPlanification("B");
 
   const metriquesBase = {
     plannerCapabilitiesExposed: resolution.metriques.plannerCapabilitiesExposed,
-    plannerSchemaTokens: tailleSchemaJetons(),
+    plannerSchemaTokens: tailleSchemaJetons(schema),
     plannerContextTokens: estimerJetons(contexte) + estimerJetons(CONSIGNE),
     plannerCatalogueChars: liste.length,
     capacitesAutorisees: resolution.metriques.capacitesAutorisees,
@@ -431,7 +457,7 @@ export async function planifier(
   const res = await reasoner.reason<PlanBrut>({
     role,
     schemaName: MISSION_PLAN_SCHEMA_NAME,
-    schema: MISSION_PLAN_SCHEMA,
+    schema,
     system: CONSIGNE,
     prompt: contexte,
     maxOutputTokens: opts.maxOutputTokens ?? budgets.maxOutputTokens,

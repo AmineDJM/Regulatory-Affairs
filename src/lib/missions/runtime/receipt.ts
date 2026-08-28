@@ -81,13 +81,30 @@ const CHAMPS_REQUETE = [
   "query", "q", "question", "requete", "recherche", "terme", "search", "name", "reference",
 ];
 
-/** La requête telle qu'elle est PARTIE — pas telle que le plan l'avait écrite. */
+/**
+ * LA REQUÊTE TELLE QU'ELLE EST PARTIE — pas telle que le plan l'avait écrite.
+ *
+ * ── LE REPLI, ET POURQUOI IL EST HONNÊTE ────────────────────────────────────────────────
+ *
+ * Quand aucun champ connu ne porte la requête, on rendait `null`, et la ligne de preuve disait
+ * « sans filtre ». Un run réel a montré le coût exact : le juge devait vérifier que chaque
+ * recherche avait utilisé « la chaîne exacte Zorbamyxine-K7-… », et pour les capacités dont
+ * l'entrée s'appelle autrement, la preuve était muette — deux critères refusés faute de la voir.
+ *
+ * Le repli sérialise l'ENTRÉE ENTIÈRE, bornée. Ce n'est pas une interprétation : c'est ce qui
+ * est réellement parti, mot pour mot. Un champ connu reste préféré parce qu'il est plus lisible,
+ * mais « je ne reconnais pas le nom du champ » ne doit jamais devenir « il n'y avait pas de
+ * requête » — c'est un `null` qui affirme (§78).
+ */
 export function requeteDe(entree: Record<string, unknown>): string | null {
   for (const c of CHAMPS_REQUETE) {
     const v = entree[c];
     if (typeof v === "string" && v.trim() !== "") return v.trim();
   }
-  return null;
+  const cles = Object.keys(entree);
+  if (cles.length === 0) return null;
+  const brut = JSON.stringify(entree);
+  return brut.length > 220 ? `${brut.slice(0, 220)}…` : brut;
 }
 
 /** FNV-1a, écrite à la main : `crypto` est interdit ici par la garde de bundle client. */

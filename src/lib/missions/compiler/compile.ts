@@ -485,6 +485,31 @@ export function compile(
   // cette même dépendance ferme un cycle — et c'est `CYCLE` qui est rapporté, ce qui est le bon
   // diagnostic. Ajouter une garde inatteignable donnerait l'illusion d'un contrôle de plus.
 
+  /**
+   * ── UN PLAN QUI NE FAIT RIEN N'EST PAS UN PLAN ──────────────────────────────────────
+   *
+   * Run Render, scénario RECOURS : le juge refuse l'objectif, la replanification tourne, et le
+   * plan v2 est UN SEUL nœud JOIN — « clôturer la restitution déjà réalisée ». Un JOIN attend
+   * ses dépendances ; sans dépendance, il est DONE à l'instant où il naît. Le plan a été
+   * compilé, matérialisé, exécuté en zéro milliseconde, et le juge a relu exactement le même
+   * dossier pour rendre exactement le même refus. Une version de plan et deux appels de modèle
+   * consommés pour rien.
+   *
+   * Un plan doit contenir au moins une étape qui PRODUIT quelque chose — un appel, un travail
+   * de modèle, un fichier, une attente d'information nouvelle. Les nœuds de structure (JOIN,
+   * QA, APPROVAL) organisent ce que d'autres produisent ; seuls, ils n'organisent rien. Le
+   * refus renvoie le planner vers la seule sortie utile : une étape qui apporte la preuve
+   * manquante, ou aucun plan du tout — et « aucun plan » est une réponse honnête, que
+   * l'appelant sait conclure.
+   */
+  const productives = new Set(["CAPABILITY", "WORKER", "ARTIFACT", "WAIT_EVENT", "WAIT_INPUT"]);
+  if (compiled.length > 0 && !compiled.some((c) => productives.has(c.nodeType))) {
+    issues.push(issue("INVALID_SHAPE", null,
+      `aucune des ${compiled.length} étape(s) ne produit quoi que ce soit : uniquement des nœuds `
+      + `de structure (JOIN/QA/APPROVAL). Un plan doit contenir au moins une étape qui apporte `
+      + `une information ou un effet nouveau — sinon, ne rends AUCUN plan.`));
+  }
+
   if (issues.length > 0) return { ok: false, issues };
 
   const maxEffect = effetMaximal(compiled.map((c) => c.effect));

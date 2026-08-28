@@ -101,21 +101,52 @@ suite("VÉRITÉ & PREUVE — les dix non-régressions du lot truth/evidence", ()
   // A à D — LE PLAFOND D'EFFET PORTE SUR L'ÉTAPE, PAS SUR LA CAPACITÉ
   // ═══════════════════════════════════════════════════════════════════════════════════════
 
-  it("A — sous plafond ANALYZE, un nœud ARTIFACT est REFUSÉ à la compilation (FORBIDDEN_EFFECT)", async () => {
+  it("A — sous plafond ANALYZE, un nœud ARTIFACT ne peut même plus être GÉNÉRÉ", async () => {
+    /**
+     * ── LA GARDE A CHANGÉ D'ÉTAGE, ET C'EST UNE AMÉLIORATION MESURÉE ──────────────────
+     *
+     * Ce test attendait un refus du COMPILATEUR (FORBIDDEN_EFFECT). Un run réel a montré le
+     * coût de cette garde tardive : deux appels de planification payés pour un plan
+     * structurellement impossible, et une mission morte BLOCKED. Le plafond filtre désormais le
+     * SCHÉMA : la variante ARTIFACT disparaît du `anyOf`, et un fournisseur en mode strict ne
+     * peut plus produire l'étape. Le raisonneur scripté applique la même règle — il REFUSE
+     * d'émettre une réponse qu'aucun fournisseur strict n'aurait pu rendre.
+     *
+     * Le compilateur garde son contrôle (compile.test.ts, « le plafond d'effet porte sur
+     * l'ÉTAPE ») : il couvre les plans qui n'arrivent pas par ce schéma.
+     */
     const cerveau = new RaisonneurScripte([
       pour("mission.plan", () => ({ ok: true, data: plan([LECTURE, FABRIQUE]) })),
     ]);
 
-    const r = await lancerMission(pdg, "Vérifie ce qu'on a sur ce sujet et fais-m'en un rapport.", {
-      lectureSeule: true, demarrer: false, reasoner: cerveau,
-    });
-
-    expect(r.ok, "un ARTIFACT sous plafond de lecture ne doit JAMAIS compiler").toBe(false);
-    // LE MOTIF EST NOMMÉ. Un refus qui ne dit pas lequel des dix contrôles a parlé ne se
-    // diagnostique pas, et laisse croire à un défaut de schéma.
-    const codes = (r.ok ? [] : (r.refus ?? [])).map((i) => i.code);
-    expect(codes, `refus attendus, obtenu : ${r.ok ? "" : r.error}`).toContain("FORBIDDEN_EFFECT");
+    await expect(
+      lancerMission(pdg, "Vérifie ce qu'on a sur ce sujet et fais-m'en un rapport.", {
+        lectureSeule: true, demarrer: false, reasoner: cerveau,
+      }),
+      "le schéma sous plafond doit rendre l'étape ARTIFACT IMPOSSIBLE à générer",
+    ).rejects.toThrow(/IMPOSSIBLE/);
   }, 120_000);
+
+  it("A' — le schéma sous plafond retire EXACTEMENT les variantes au-dessus, et elles seules", async () => {
+    const { schemaPlanPour } = await import("@/lib/missions/planner/schema");
+    const types = (schema: Record<string, unknown>): string[] => {
+      const props = (schema as { properties: { steps: { items: { anyOf: { properties: { nodeType: { const?: string; enum?: string[] } } }[] } } } }).properties;
+      return props.steps.items.anyOf.flatMap((v) => v.properties.nodeType.const
+        ? [v.properties.nodeType.const]
+        : v.properties.nodeType.enum ?? []);
+    };
+    // Sans plafond : les huit types sont là.
+    expect(types(schemaPlanPour(null))).toContain("ARTIFACT");
+    // Sous ANALYZE : l'ARTIFACT (PREPARE) disparaît, le WORKER (ANALYZE) reste.
+    const analyze = types(schemaPlanPour("ANALYZE"));
+    expect(analyze).not.toContain("ARTIFACT");
+    expect(analyze).toContain("WORKER");
+    expect(analyze).toContain("CAPABILITY");
+    // Sous READ : le WORKER tombe aussi — il appelle un modèle, c'est de l'ANALYZE.
+    const read = types(schemaPlanPour("READ"));
+    expect(read).not.toContain("WORKER");
+    expect(read).toContain("CAPABILITY");
+  });
 
   it("B — le MÊME plan, sans plafond, compile : c'est bien le plafond qui refuse, pas la forme", async () => {
     const cerveau = new RaisonneurScripte([
@@ -159,9 +190,84 @@ suite("VÉRITÉ & PREUVE — les dix non-régressions du lot truth/evidence", ()
     if (!r.ok) throw new Error(r.error);
     for (let i = 0; i < 3; i++) await avancerMission(pdg, r.missionId, { lectureSeule: true, reasoner: cerveau });
 
-    const reprise = await replanifierMission(pdg, r.missionId, { lectureSeule: true, reasoner: cerveau });
-    expect(reprise.replanifie, "le plan v2 fabrique un fichier : il doit être REFUSÉ").toBe(false);
-    expect(reprise.raison ?? "").toMatch(/plafond|FORBIDDEN_EFFECT|effet/i);
+    /**
+     * ── L'INVARIANT, PAS LA COUCHE ──────────────────────────────────────────────────────
+     *
+     * Deux gardes couvrent le replan : le SCHÉMA filtré (le raisonneur ne peut pas produire
+     * l'étape — le banc lève « IMPOSSIBLE ») et le COMPILATEUR (FORBIDDEN_EFFECT, testé
+     * unitairement dans compile.test.ts). Ce test-ci vérifie ce qui compte quel que soit
+     * l'étage qui parle : après la tentative, AUCUN plan v2 portant un ARTIFACT n'existe en
+     * base — le plafond a survécu au replan.
+     */
+    const tentative = await replanifierMission(pdg, r.missionId, { lectureSeule: true, reasoner: cerveau })
+      .catch((e: unknown) => ({ replanifie: false as const, raison: e instanceof Error ? e.message : String(e) }));
+    expect(tentative.replanifie, "le plan v2 fabrique un fichier : il ne doit JAMAIS être matérialisé").toBe(false);
+    expect(tentative.raison ?? "").toMatch(/IMPOSSIBLE|plafond|FORBIDDEN_EFFECT|effet/i);
+
+    const artefactsEnBase = await prisma.missionStep.count({
+      where: { missionId: r.missionId, nodeType: "ARTIFACT" },
+    });
+    expect(artefactsEnBase, "aucune étape ARTIFACT ne doit exister dans une mission plafonnée").toBe(0);
+  }, 180_000);
+
+  it("C' — un replan refusé est RENVOYÉ au planificateur, et un plan qui ne fait rien est refusé", async () => {
+    /**
+     * ── DEUX DÉFAUTS DU MÊME RUN, UN SEUL CHEMIN ───────────────────────────────────────
+     *
+     * Run Render, scénario RECOURS : le replan v2 était UN SEUL nœud JOIN — un plan qui ne
+     * produit rien, compilé, exécuté en zéro milliseconde, et le juge a relu le même dossier
+     * pour rendre le même refus. Et quand un plan était refusé par le compilateur, le refus
+     * n'était jamais RENVOYÉ au planner — `lancerMission` fait ce second essai depuis toujours,
+     * la replanification non.
+     *
+     * Ici : v1 échoue (lecture introuvable) → replan. Le planner propose d'abord un JOIN seul
+     * (appel 2) — refusé, AUCUNE étape ne produit quoi que ce soit — puis, NOURRI DU REFUS,
+     * un WORKER qui établit le constat (appel 3) — accepté. Trois appels de plan comptés sur
+     * l'instrument : ni deux (le refus aurait été jeté), ni un.
+     */
+    const planV3 = plan([{
+      key: "constat", title: "Établir le constat de ce qui a pu être lu", workstream: null,
+      nodeType: "WORKER", dependsOn: [],
+      outputFields: [{ name: "constat", type: "string", description: "Ce qui a pu être établi." }],
+      completionCondition: "Le constat est écrit.",
+      reasoningRequirement: "LIGHT", maxAttempts: 1,
+    }]);
+    const joinSeul = plan([{
+      key: "cloture", title: "Clôturer la restitution déjà réalisée", workstream: null,
+      nodeType: "JOIN", dependsOn: [],
+      completionCondition: "La restitution est close.",
+    }]);
+    const v1 = plan([{
+      key: "lire", title: "Lire un document introuvable", workstream: null,
+      nodeType: "CAPABILITY", capability: "read_document",
+      inputs: [{ key: "driveNodeId", kind: "TEXT", value: `${TAG}-noeud-inexistant` }],
+      dependsOn: [],
+      completionCondition: "Le document est lu.",
+      approvalRequirement: "NONE", maxAttempts: 1,
+    }]);
+
+    const cerveau = new RaisonneurScripte([
+      pour("mission.plan", (_req, appel) => ({ ok: true, data: appel === 1 ? v1 : appel === 2 ? joinSeul : planV3 })),
+      pour("mission.judge", () => ({ ok: true, data: { satisfait: false, manquants: ["rien n'a pu être lu"], verdict: "Rien d'établi." } })),
+    ]);
+
+    const r = await lancerMission(pdg, "Lis ce document et dis-moi ce qu'il contient.", { reasoner: cerveau });
+    if (!r.ok) throw new Error(r.error);
+    for (let i = 0; i < 3; i++) await avancerMission(pdg, r.missionId, { reasoner: cerveau });
+
+    const reprise = await replanifierMission(pdg, r.missionId, { reasoner: cerveau });
+    expect(reprise.replanifie,
+      `le second essai nourri du refus doit aboutir : ${reprise.replanifie ? "" : reprise.raison}`).toBe(true);
+    expect(cerveau.appelsPour("mission.plan"),
+      "3 appels : v1, JOIN seul refusé (plan sans étape productive), v3 corrigé").toBe(3);
+
+    // Le plan matérialisé est bien le v3 — pas le JOIN qui ne faisait rien.
+    const etapes = await prisma.missionStep.findMany({
+      where: { missionId: r.missionId, supersededAt: null },
+      select: { key: true, nodeType: true },
+    });
+    expect(etapes.some((e) => e.key === "constat" && e.nodeType === "WORKER")).toBe(true);
+    expect(etapes.some((e) => e.key === "cloture")).toBe(false);
   }, 180_000);
 
   it("D — chaque type de nœud a un effet EXPLICITE : aucune porte « if (!capability) »", () => {
@@ -288,11 +394,13 @@ suite("VÉRITÉ & PREUVE — les dix non-régressions du lot truth/evidence", ()
 
     const cerveau = new RaisonneurScripte([
       // Le plan TENTE de fabriquer un fichier — c'est précisément ce que le run réel a fait.
+      // Le schéma filtré rend l'étape impossible à générer : le lancement lève, et c'est bien —
+      // l'invariant mesuré ici est MATÉRIEL : le compte d'artefacts en base ne bouge pas.
       pour("mission.plan", () => ({ ok: true, data: plan([LECTURE, FABRIQUE]) })),
     ]);
     const r = await lancerMission(pdg, `Vérifie si nous avons quoi que ce soit sur ${jetonUnique()} et documente-le.`, {
       lectureSeule: true, reasoner: cerveau,
-    });
+    }).catch(() => ({ ok: false as const, error: "génération refusée par le schéma plafonné" }));
     if (r.ok) for (let i = 0; i < 3; i++) await avancerMission(pdg, r.missionId, { lectureSeule: true, reasoner: cerveau });
 
     const apres = await prisma.assistantArtifact.count({ where: { ownerId: pdg.id } });

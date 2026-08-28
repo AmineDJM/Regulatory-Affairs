@@ -75,6 +75,22 @@ export interface CapabilityCatalog {
    * C'est la mise en œuvre littérale de « ne lui envoie jamais deux mille capacités brutes ».
    */
   brief(actor: MissionActor, opts?: { domains?: readonly string[]; limit?: number }): CapabilityBrief[];
+  /**
+   * LE PLAFOND SOUS LEQUEL CE CATALOGUE A ÉTÉ CONSTRUIT — `null` quand il n'y en a pas.
+   *
+   * ── LE DÉFAUT MESURÉ QUI LE REND NÉCESSAIRE ────────────────────────────────────────────
+   *
+   * Sur un run réel, le plafond filtrait les CAPACITÉS montrées au planner — mais le planner ne
+   * SAVAIT pas qu'un plafond existait. Il a donc proposé, en replanification, un nœud ARTIFACT
+   * (qui ne porte aucune capacité) : le compilateur l'a refusé, correctement, et la mission est
+   * morte BLOCKED sans jamais atteindre le juge. Deux appels de planification payés pour un
+   * plan structurellement impossible.
+   *
+   * Le plafond doit VOYAGER AVEC le catalogue : celui qui reçoit la liste filtrée reçoit aussi
+   * la raison du filtre — et peut restreindre son schéma et sa consigne en conséquence, au lieu
+   * de laisser le modèle deviner puis échouer.
+   */
+  readonly plafondEffet?: Effect | null;
 }
 
 /**

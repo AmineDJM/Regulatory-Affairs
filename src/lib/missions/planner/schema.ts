@@ -1,4 +1,6 @@
 import { COMPLEXITIES, NODE_TYPES, SCALES, APPROVAL_STRATEGIES } from "@/lib/missions/planner/contract";
+import { EFFECT_RANK, type Effect } from "@/lib/missions/registry/capability-meta";
+import { EFFET_NOEUD } from "@/lib/missions/registry/node-effect";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -333,7 +335,60 @@ export const MISSION_PLAN_SCHEMA: Record<string, unknown> = objet({
 
 export const MISSION_PLAN_SCHEMA_NAME = "mission_plan";
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE SCHÉMA SOUS PLAFOND — le modèle ne peut pas ÉCRIRE ce que la mission ne peut pas FAIRE.
+ *
+ * ── LE DÉFAUT MESURÉ ────────────────────────────────────────────────────────────────────
+ *
+ * Run Render, scénario SATISFIABLE, mission plafonnée à ANALYZE. Le catalogue était filtré —
+ * aucune capacité d'écriture visible — mais un nœud ARTIFACT ne porte AUCUNE capacité : le
+ * filtre ne le touchait pas, et rien ne disait au planner qu'un plafond existait. À la
+ * replanification, il a donc proposé « Produire le point de situation » en ARTIFACT. Le
+ * compilateur a refusé (FORBIDDEN_EFFECT, correctement), la mission est morte BLOCKED sans
+ * jamais atteindre le juge, et deux appels de planification ont payé un plan impossible.
+ *
+ * ── LA CORRECTION EST STRUCTURELLE, PAS UNE CONSIGNE ────────────────────────────────────
+ *
+ * Sous plafond, la variante ARTIFACT est RETIRÉE du `anyOf` : le mode strict du fournisseur
+ * refuse alors toute étape de ce type à la GÉNÉRATION. Ce n'est pas une prière dans le prompt
+ * qu'un document lu en route pourrait contredire — c'est la même philosophie que le catalogue
+ * filtré (§ « la sûreté ne vient pas d'une phrase »), appliquée aux nœuds sans capacité.
+ *
+ * Le compilateur garde son contrôle FORBIDDEN_EFFECT : il couvre les plans qui n'arrivent pas
+ * par ce schéma (un plan scripté, une insertion directe). Deux gardes, une par chemin.
+ */
+export function schemaPlanPour(effetMax?: Effect | null): Record<string, unknown> {
+  if (!effetMax) return MISSION_PLAN_SCHEMA;
+  const plafond = EFFECT_RANK[effetMax];
+  const variantes = [
+    { forme: ETAPE_CAPABILITY, effet: EFFET_NOEUD.CAPABILITY },
+    { forme: ETAPE_WORKER, effet: EFFET_NOEUD.WORKER },
+    { forme: ETAPE_WAIT_EVENT, effet: EFFET_NOEUD.WAIT_EVENT },
+    { forme: ETAPE_WAIT_INPUT, effet: EFFET_NOEUD.WAIT_INPUT },
+    { forme: ETAPE_APPROVAL, effet: EFFET_NOEUD.APPROVAL },
+    // QA et JOIN partagent la variante STRUCTURE ; leurs effets sont identiques (READ).
+    { forme: ETAPE_STRUCTURE, effet: EFFET_NOEUD.QA },
+    { forme: ETAPE_ARTIFACT, effet: EFFET_NOEUD.ARTIFACT },
+  ].filter((v) => EFFECT_RANK[v.effet] <= plafond);
+
+  // LE SCHÉMA EST RECONSTRUIT, PAS MUTÉ : `MISSION_PLAN_SCHEMA` reste la vérité sans plafond,
+  // et deux missions concurrentes sous plafonds différents ne se marchent pas dessus.
+  const base = MISSION_PLAN_SCHEMA as { properties?: Record<string, unknown> };
+  return {
+    ...MISSION_PLAN_SCHEMA,
+    properties: {
+      ...base.properties,
+      steps: {
+        type: "array",
+        items: { ...(ETAPE as { description: string }), anyOf: variantes.map((v) => v.forme) },
+        description: "Les étapes. Utiliser l'éventail plutôt que de répéter une étape N fois.",
+      },
+    },
+  };
+}
+
 /** Le poids du schéma en jetons — mesuré, pas estimé au doigt mouillé (§3 `plannerSchemaTokens`). */
-export function tailleSchemaJetons(): number {
-  return Math.ceil(JSON.stringify(MISSION_PLAN_SCHEMA).length / 3.6);
+export function tailleSchemaJetons(schema: Record<string, unknown> = MISSION_PLAN_SCHEMA): number {
+  return Math.ceil(JSON.stringify(schema).length / 3.6);
 }

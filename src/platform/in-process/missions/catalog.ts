@@ -118,6 +118,10 @@ export function catalogueDe(user: CurrentUser, opts: OptionsCatalogue = {}): Cat
 
   return {
     taille: defs.length,
+    // LE PLAFOND VOYAGE AVEC LE CATALOGUE. Celui qui reçoit une liste filtrée doit connaître la
+    // raison du filtre — sans elle, le planner propose des nœuds ARTIFACT que le compilateur
+    // refusera toujours, et paie des appels pour des plans structurellement impossibles.
+    plafondEffet: opts.effetMax ?? null,
     has: (name) => parNom.has(name),
     allowed: (name, actor) => actor.userId === user.id && parNom.has(name),
     meta,
