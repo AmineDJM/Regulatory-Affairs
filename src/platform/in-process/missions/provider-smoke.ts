@@ -320,6 +320,10 @@ async function jouer(
   const chaine: Partial<Chaine> = {};
   const metriques = { modele: null as string | null, entree: 0, sortie: 0, ouvertes: null as number | null };
 
+  // LA TRANCHE DU SCÉNARIO. Sans elle, la cascade du premier affichait les appels des trois.
+  instrument.ouvrir(sc.genre);
+  const debutScenario = Date.now();
+
   const lancement = await lancerMission(user, sc.demande, {
     lectureSeule: true, demarrer: false, reasoner: instrument,
     titre: `Diagnostic — ${sc.titre}`,
@@ -407,7 +411,9 @@ async function jouer(
   const catalogue = catalogueDe(user, { effetMax: PLAFOND });
   const briefs = catalogue.brief(acteurDe(user));
   const utilisees = new Set(etapes.map((e) => e.capability).filter(Boolean) as string[]).size;
-  r.cascade = await cascade(r.missionId, instrument, t0, Date.now() - t0, {
+  // LA DURÉE EST CELLE DE CE SCÉNARIO, pas le temps écoulé depuis le début du diagnostic :
+  // le troisième affichait 232 s alors qu'il n'en avait consommé que 35.
+  r.cascade = await cascade(r.missionId, instrument, sc.genre, debutScenario, Date.now() - debutScenario, {
     ouvertes: catalogue.taille,
     montreesAuPlanner: m?.plannerCapabilitiesExposed ?? null,
     resumeChars: briefs.reduce((n, b) => n + b.summary.length + b.id.length, 0),

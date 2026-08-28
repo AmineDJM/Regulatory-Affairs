@@ -453,3 +453,48 @@ describe("graphe", () => {
     expect([...ancetres(n, "a")]).toEqual([]);
   });
 });
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA DÉPENDANCE INTER-PLAN — le refus qui tuait les replans.
+ *
+ * ── CE QU'UN RUN RÉEL A MONTRÉ ───────────────────────────────────────────────────────────
+ *
+ * Deux missions sur trois, sur la vraie base, sont mortes BLOCKED avec ce message :
+ * « dépend de « rechercher:dossiers-reglementaires », qui n'existe pas dans le plan ».
+ *
+ * Or cette étape existait — terminée, avec son résultat, en base, écrite par le plan v1. C'est
+ * même NOUS qui l'avions montrée au planificateur : la replanification lui transmet la liste de
+ * ce qui est déjà fait, précisément pour qu'il ne le refasse pas. Il en a donc dépendu, très
+ * logiquement, et le compilateur l'a refusé pour avoir écouté.
+ *
+ * Le moteur, lui, n'avait aucun problème : `etapesPretes` résout les dépendances contre TOUTES
+ * les étapes de la mission, pas contre le plan courant. Le blocage était purement statique.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("dépendance vers un plan antérieur", () => {
+  it("refuse une dépendance inconnue quand rien n'est acquis", () => {
+    const r = compile(plan([
+      { key: "b", title: "B", capability: "directory_list", dependsOn: ["a-du-plan-precedent"] },
+    ]), catalogue(), pdg);
+    expect(codes(r)).toContain("UNKNOWN_DEPENDENCY");
+  });
+
+  it("accepte la MÊME dépendance quand l'étape est acquise d'un plan antérieur", () => {
+    const r = compile(plan([
+      { key: "b", title: "B", capability: "directory_list", dependsOn: ["a-du-plan-precedent"] },
+    ]), catalogue(), pdg, { acquises: new Set(["a-du-plan-precedent"]) });
+    expect(r.ok, r.ok ? "" : r.issues.map((i) => i.message).join(" ; ")).toBe(true);
+  });
+
+  /**
+   * LE CONTRE-EXEMPLE, indispensable : sans lui, le test précédent passerait aussi si le
+   * compilateur avait tout bonnement cessé de vérifier les dépendances.
+   */
+  it("une clé absente du plan ET des acquis reste refusée", () => {
+    const r = compile(plan([
+      { key: "b", title: "B", capability: "directory_list", dependsOn: ["jamais-vue"] },
+    ]), catalogue(), pdg, { acquises: new Set(["autre-chose"]) });
+    expect(codes(r)).toContain("UNKNOWN_DEPENDENCY");
+  });
+});

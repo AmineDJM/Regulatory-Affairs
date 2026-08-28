@@ -198,11 +198,45 @@ const FORMES: Record<NodeType, { capacite: "requise" | "interdite"; attente: "re
   JOIN: { capacite: "interdite", attente: "interdite" },
 };
 
+/**
+ * CE QUI EXISTE DÉJÀ DANS LA MISSION, D'UN PLAN PRÉCÉDENT.
+ *
+ * ── LE DÉFAUT QUE CE PARAMÈTRE CORRIGE ───────────────────────────────────────────────────
+ *
+ * À la replanification, le planificateur reçoit la liste de ce qui est DÉJÀ FAIT — c'est
+ * volontaire : lui cacher l'acquis le ferait refaire trente-et-un envois déjà partis. Il écrit
+ * donc, très logiquement, un plan dont certaines étapes dépendent de ces clés-là.
+ *
+ * Le compilateur ne connaissait que le plan qu'on lui donnait. Il refusait donc le nouveau plan
+ * pour « dépend de « rechercher:dossiers-reglementaires », qui n'existe pas dans le plan » —
+ * alors que cette étape existe bel et bien, en base, terminée, avec son résultat. Deux missions
+ * réelles sur trois sont mortes BLOCKED sur ce refus.
+ *
+ * ── POURQUOI LE MOTEUR, LUI, N'AVAIT PAS DE PROBLÈME ─────────────────────────────────────
+ *
+ * `etapesPretes` résout les dépendances contre TOUTES les étapes de la mission, pas contre le
+ * plan courant. Une dépendance vers une étape v1 terminée se satisfait immédiatement. Le
+ * blocage était donc entièrement statique : le compilateur refusait ce que le moteur savait
+ * exécuter.
+ *
+ * ── CE QUI RESTE REFUSÉ, ET C'EST VOULU ──────────────────────────────────────────────────
+ *
+ * Seules les clés ABOUTIES sont acceptées. Dépendre d'une étape en échec produirait une
+ * attente que rien ne viendra lever : le refus est alors le bon comportement, et il garde son
+ * message d'origine.
+ */
+export interface OptionsCompilation {
+  /** Les clés d'étapes déjà présentes ET abouties dans la mission (plans antérieurs). */
+  acquises?: ReadonlySet<string>;
+}
+
 export function compile(
   plan: MissionPlan,
   catalog: CapabilityCatalog,
   actor: MissionActor,
+  opts: OptionsCompilation = {},
 ): CompileResult {
+  const acquises = opts.acquises ?? new Set<string>();
   const issues: CompileIssue[] = [];
   const warnings: CompileIssue[] = [];
 
@@ -333,7 +367,9 @@ export function compile(
         + `Une jonction (JOIN) exprime la même chose sans rendre le graphe illisible.`));
     }
     for (const d of dependsOn) {
-      if (!vues.has(d)) {
+      // Une clé ACQUISE est une étape d'un plan antérieur, terminée, dont le résultat est en
+      // base. Le moteur la résout ; le compilateur n'a aucune raison de la refuser.
+      if (!vues.has(d) && !acquises.has(d)) {
         issues.push(issue("UNKNOWN_DEPENDENCY", s.key, `dépend de « ${d} », qui n'existe pas dans le plan.`));
       }
     }

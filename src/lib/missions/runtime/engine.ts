@@ -647,12 +647,20 @@ async function deployerEventail(
 
   const collection = source ? lire(source.result, path) : undefined;
   if (!Array.isArray(collection)) {
-    await ecrireSortie(etat, step, {
+    // ── LE RECOURS D'ABORD, L'ÉCHEC ENSUITE ────────────────────────────────────────────
+    //
+    // Cet échec était écrit DIRECTEMENT en base, sans passer par `tenterRecours`. Résultat
+    // mesuré sur un run réel : un `INCOMPATIBLE_RESULT` — le motif que l'échelle traite le
+    // mieux — n'ouvrait aucun recours, et la mission mourait BLOCKED. Le déploiement de
+    // l'éventail est un chemin d'échec comme un autre ; il doit emprunter la même porte.
+    const sortie: StepOutcome = {
       status: "FAILED",
       error: `l'éventail attendait une liste en « ${from}.${path} » ; il a trouvé ${typeof collection}.`,
       errorKind: "INCOMPATIBLE_RESULT",
       retryable: false,
-    }, systemClock);
+    };
+    if (await tenterRecours(etat, step, sortie, systemClock)) return 0;
+    await ecrireSortie(etat, step, sortie, systemClock);
     return 0;
   }
 
@@ -831,6 +839,34 @@ export async function conclure(
     await transitionner(missionId, "RUNNING", "bilan");
     await transitionner(missionId, "PARTIAL", qa.resume);
     return "PARTIAL";
+  }
+
+  /**
+   * ── LE POINT FIXE, ET POURQUOI IL ÉTAIT UN DÉFAUT ────────────────────────────────────
+   *
+   * Ici, toutes les étapes sont terminales, le contrôle arithmétique passe, et le juge dit que
+   * l'objectif N'EST PAS atteint. `synchroniserEtat` rendait alors `RUNNING` — la réponse
+   * honnête de `deduireEtat`, qui signifie « il ne reste plus d'étapes », mais une réponse
+   * FAUSSE au niveau de la mission : plus rien ne tournera jamais.
+   *
+   * Un run réel s'y est immobilisé : sept étapes abouties, QA verte, objectif non atteint, et
+   * une mission éternellement `RUNNING`. Ni terminale, ni replanifiable — `RUNNING` n'ouvre
+   * aucune des deux portes. Le moteur avait cessé de vivre sans le dire.
+   *
+   * `BLOCKED` est l'état exact : il y a un obstacle, il est nommé (le verdict du juge), et il
+   * ouvre la replanification. C'est ce qui rend le recours possible au lieu de l'attendre.
+   *
+   * On ne force PAS `COMPLETED` : le juge a refusé, et son refus fait autorité (§10).
+   */
+  // Atteindre cette ligne SIGNIFIE que plus rien ne peut tourner : `encoreEnCours` a déjà
+  // renvoyé plus haut sinon. Réinterroger l'état des étapes ici ajouterait une condition
+  // légèrement différente de celle qui garde l'entrée — et deux conditions voisines qui
+  // divergent sont exactement la façon dont un état fantôme réapparaît.
+  if (observees.length > 0) {
+    await transitionner(missionId, "RUNNING", "bilan");
+    await transitionner(missionId, "BLOCKED",
+      `Toutes les étapes sont abouties et l'objectif n'est pas atteint : ${verdict.raison}`);
+    return "BLOCKED";
   }
 
   return synchroniserEtat(missionId, etat);

@@ -401,7 +401,18 @@ export async function replanifierMission(
   const bloquees = etat.steps.filter(
     (s) => s.status === "FAILED" && s.attempt >= s.maxAttempts,
   );
-  if (bloquees.length === 0) {
+  /**
+   * DEUX RAISONS DE REPLANIFIER, ET LA SECONDE MANQUAIT.
+   *
+   * La première est celle d'origine : des étapes ont épuisé leurs tentatives, le moteur ne sait
+   * plus réparer seul. La seconde est apparue dans un run réel — toutes les étapes abouties, le
+   * contrôle qualité vert, et le juge qui refuse : le PLAN était insuffisant, sans qu'aucune
+   * étape n'ait échoué. Exiger un échec d'étape fermait la porte exactement là où le nouveau
+   * plan était la seule issue, et la mission mourait BLOCKED.
+   */
+  const objectifManque = m.status === "BLOCKED" && etat.steps.length > 0
+    && etat.steps.every((s) => ["DONE", "SKIPPED", "CANCELLED"].includes(s.status));
+  if (bloquees.length === 0 && !objectifManque) {
     return {
       replanifie: false,
       raison: "Aucune étape n'a épuisé ses tentatives : le moteur peut encore réparer tout seul.",
@@ -426,7 +437,11 @@ export async function replanifierMission(
   if (!plan.ok) return { replanifie: false, raison: `Le planificateur n'a rien rendu : ${plan.error}` };
 
   const agent = agentPour({ initiatedBy: user.id, executedBy: user.id, label: user.name });
-  const c = compile(plan.plan, catalogue, agent);
+  // LES ACQUIS SONT DES DÉPENDANCES LÉGITIMES. On vient de dire au planificateur ce qui était
+  // déjà fait ; lui refuser ensuite d'en dépendre serait lui reprocher d'avoir écouté.
+  const c = compile(plan.plan, catalogue, agent, {
+    acquises: new Set(etat.steps.filter((s) => s.status === "DONE" || s.status === "SKIPPED").map((s) => s.key)),
+  });
   if (!c.ok) {
     return {
       replanifie: false,

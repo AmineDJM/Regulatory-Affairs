@@ -54,6 +54,19 @@ export const ERROR_KINDS = [
   "WAITING_HUMAN",
   /** Le fichier existe mais on ne sait pas le lire. */
   "UNKNOWN_FORMAT",
+  /**
+   * LE CONTRÔLE QUALITÉ A REFUSÉ — et c'est une cause d'échec comme une autre.
+   *
+   * Elle manquait ici, et son absence avait une conséquence exacte : `tenterRecours` commence
+   * par vérifier que le motif figure dans cette liste, et rendait `false` pour tout nœud QA.
+   * Un run réel l'a montré — le contrôle refuse trois fois, la mission passe BLOCKED, et
+   * `STEP_RECOVERY` reste à zéro. L'échelle de recours existait, le barreau n'était pas posé.
+   *
+   * Le recours utile ici n'est pas de rejouer le contrôle — il redirait la même chose — mais
+   * d'ÉLARGIR ou de changer de source pour que la matière manquante arrive. D'où sa place dans
+   * l'échelle ci-dessous.
+   */
+  "QA_FAILED",
 ] as const;
 export type ErrorKind = (typeof ERROR_KINDS)[number];
 
@@ -126,6 +139,15 @@ export const ECHELLE: Record<ErrorKind, readonly Strategy[]> = {
   // puis on remonte si elle ne répond toujours pas. Il n'y a rien à chercher ailleurs.
   WAITING_HUMAN: ["DEMANDER_HUMAIN", "ESCALADER"],
   UNKNOWN_FORMAT: ["AUTRE_SOURCE", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+  /**
+   * QA_FAILED — le contrôle arithmétique dit qu'il manque de la matière.
+   *
+   * `RETRY` est délibérément ABSENT en tête : rejouer le contrôle sans rien avoir réparé
+   * redonnerait le même refus, et consommerait une tentative pour l'apprendre. Ce qu'il faut,
+   * c'est de la matière — d'où `ELARGIR` puis `AUTRE_SOURCE`. `REPLANIFIER` ne vient qu'après :
+   * un nouveau plan coûte un appel de planificateur, et le recours local doit passer d'abord.
+   */
+  QA_FAILED: ["ELARGIR", "AUTRE_SOURCE", "REPLANIFIER", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
 };
 
 /**

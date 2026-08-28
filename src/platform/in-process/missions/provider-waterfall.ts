@@ -34,6 +34,8 @@ import { prisma } from "@/lib/prisma";
 import type { Reasoner, ReasonRequest, ReasonResult } from "@/lib/missions/ports";
 
 export interface AppelModele {
+  /** Le scénario auquel cet appel appartient — sans quoi trois missions se mélangent. */
+  scenario: string;
   /** L'ordre d'émission — c'est lui qui montre les appels séquentiels. */
   seq: number;
   purpose: string;
@@ -59,8 +61,27 @@ export interface AppelModele {
 export class RaisonneurInstrumente implements Reasoner {
   readonly appels: AppelModele[] = [];
   private seq = 0;
+  /**
+   * LE SCÉNARIO EN COURS.
+   *
+   * Un seul instrument sert les trois scénarios — c'est voulu, il porte le budget global. Mais
+   * sans marquage, la cascade du premier scénario affichait les onze appels des trois : on
+   * lisait « total 37,7 s » au-dessus d'appels s'étalant jusqu'à 232 s. Un tableau qui mélange
+   * trois missions ne permet plus d'imputer une seconde à quoi que ce soit.
+   *
+   * Chaque appel porte donc son scénario, et `pour()` rend la tranche exacte.
+   */
+  private scenario = "";
 
   constructor(private readonly reel: Reasoner, private readonly t0: number) {}
+
+  /** Ouvre une tranche. Tous les appels suivants lui appartiennent. */
+  ouvrir(scenario: string): void { this.scenario = scenario; }
+
+  /** Les appels d'UN scénario, et rien d'autre. */
+  pour(scenario: string): AppelModele[] {
+    return this.appels.filter((a) => a.scenario === scenario);
+  }
 
   configured(): boolean {
     return this.reel.configured();
@@ -72,6 +93,7 @@ export class RaisonneurInstrumente implements Reasoner {
     const r = await this.reel.reason<T>(req);
     const fin = Date.now();
     this.appels.push({
+      scenario: this.scenario,
       seq,
       purpose: req.purpose,
       role: req.role,
@@ -92,8 +114,8 @@ export class RaisonneurInstrumente implements Reasoner {
   }
 
   /** Le temps réellement passé À ATTENDRE UN MODÈLE, appels chevauchants comptés une fois. */
-  tempsModeleMs(): number {
-    const seg = this.appels.map((a) => [a.debutMs, a.finMs] as const).sort((x, y) => x[0] - y[0]);
+  tempsModeleMs(scenario?: string): number {
+    const seg = (scenario ? this.pour(scenario) : this.appels).map((a) => [a.debutMs, a.finMs] as const).sort((x, y) => x[0] - y[0]);
     let total = 0;
     let curDebut = -1;
     let curFin = -1;
@@ -106,8 +128,8 @@ export class RaisonneurInstrumente implements Reasoner {
   }
 
   /** Vrai quand deux appels se chevauchent — donc que du parallélisme a réellement eu lieu. */
-  aDuParallelisme(): boolean {
-    const tries = [...this.appels].sort((a, b) => a.debutMs - b.debutMs);
+  aDuParallelisme(scenario?: string): boolean {
+    const tries = [...(scenario ? this.pour(scenario) : this.appels)].sort((a, b) => a.debutMs - b.debutMs);
     return tries.some((a, i) => i > 0 && a.debutMs < tries[i - 1].finMs);
   }
 }
@@ -153,6 +175,7 @@ export interface Cascade {
 export async function cascade(
   missionId: string | null,
   instrument: RaisonneurInstrumente,
+  scenario: string,
   t0: number,
   finMs: number,
   catalogue: Cascade["catalogue"],
@@ -199,15 +222,16 @@ export async function cascade(
     }
   }
 
-  const modele = instrument.tempsModeleMs();
+  const propres = instrument.pour(scenario);
+  const modele = instrument.tempsModeleMs(scenario);
   return {
     totalMs: finMs,
     phases: phases.sort((a, b) => a.debutMs - b.debutMs),
-    appels: instrument.appels,
+    appels: propres,
     tempsModeleMs: modele,
     tempsHorsModeleMs: Math.max(0, finMs - modele),
-    parallelisme: instrument.aDuParallelisme(),
-    appelsSansEffet: instrument.appels.filter((a) => !a.ok).length,
+    parallelisme: instrument.aDuParallelisme(scenario),
+    appelsSansEffet: propres.filter((a) => !a.ok).length,
     catalogue,
   };
 }
