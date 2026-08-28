@@ -13,7 +13,7 @@ import {
   aReparer, controlerQualite, evaluerObjectif, type EtapeObservee, type JugeObjectif,
 } from "@/lib/missions/goal/evaluate";
 import { attenduDe, evaluerResultat } from "@/lib/missions/recovery/evaluate";
-import { ERROR_KINDS, type ErrorKind } from "@/lib/missions/recovery/strategy";
+import { ERROR_KINDS, utilisablePourAgir, type ErrorKind } from "@/lib/missions/recovery/strategy";
 import { deciderRecours, historiqueDe, noter, peutConclureEtape } from "@/lib/missions/recovery/coordinator";
 
 /**
@@ -338,11 +338,19 @@ async function executerUneEtape(
   // critère (`spec.attendu`), elle se tait et le résultat passe tel quel.
   if (sortie.status === "DONE" && sortie.receipt !== "DEDUPLIQUE") {
     const verdict = evaluerResultat(attenduDe(step.spec), sortie.result);
-    if (verdict.kind) {
+    // §107-109 — C'EST LA CERTITUDE QUI AUTORISE À AGIR, pas l'absence d'erreur.
+    //
+    // Un CANDIDAT peut guider la recherche suivante ; il ne peut pas satisfaire l'objectif ni
+    // déclencher un effet externe. En passant par `utilisablePourAgir`, l'acceptation d'une
+    // étape est gouvernée par l'échelle TROUVÉ / DÉDUIT / CANDIDAT / INCONNU — et non par un
+    // test local qui lui ressemblerait.
+    if (verdict.kind || !utilisablePourAgir(verdict.certitude)) {
       sortie = {
         status: "FAILED",
         error: verdict.raison,
-        errorKind: verdict.kind,
+        // `kind` est nul seulement quand la certitude vaut TROUVÉ ; on ne peut donc pas
+        // arriver ici sans cause. Le repli nomme quand même la seule qui aurait du sens.
+        errorKind: verdict.kind ?? "INSUFFICIENT_DATA",
         // Rejouer À L'IDENTIQUE ne changerait rien : c'est le CHEMIN qu'il faut changer, et
         // c'est le recours local qui en décide juste en dessous.
         retryable: false,

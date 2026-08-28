@@ -1016,8 +1016,9 @@ X("ATTESTATIONS HUMAINES, et volontairement hors de portée d'un modèle. Accord
    */
   "mission-runtime-actions:approuverModeleOperationnel",
 ]);
-X("LECTURE D'ÉCRAN pour la file d'attente humaine : la liste des modèles à valider n'a de sens que devant la personne qui va cliquer. Adam n'a rien à en faire — il sait déjà, par `MISSING_TEMPLATE`, qu'aucun modèle ne fait autorité.", [
+X("LECTURES D'ÉCRAN autour des modèles opérationnels. La file des candidats n'a de sens que devant la personne qui va cliquer ; le modèle faisant autorité est affiché pour qu'elle sache ce qui sera utilisé. Adam, lui, n'a pas besoin de ces deux lectures : le runtime lui dit déjà `MISSING_TEMPLATE` quand aucun modèle n'est approuvé, avec son échelle de recours — et un candidat ne lui est jamais servi.", [
   "mission-runtime-actions:listerModelesCandidats",
+  "mission-runtime-actions:modeleOfficiel",
 ]);
 X("APERÇU AVANT ÉCRITURE : une étape d'ÉCRAN, sans effet. Elle lit un classeur et propose une correspondance de colonnes à valider à la main. Adam, lui, importe par la reconnaissance automatique (`importDirectorySheet` sans correspondance) : il n'a personne pour trancher, et une confirmation qu'aucun humain ne lit n'est pas une confirmation.", [
   "medical-directory-actions:previewDirectorySheet",

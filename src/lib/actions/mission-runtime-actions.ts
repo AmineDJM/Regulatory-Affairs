@@ -7,7 +7,7 @@ import { fournirEntree } from "@/lib/missions/events/router";
 import { annuler, mettreEnPause, reprendre } from "@/lib/missions/runtime/control";
 import { vueMission } from "@/lib/missions/view/workspace";
 import { avancerMission, replanifierMission } from "@/platform/in-process/missions/runtime";
-import { approuver, candidats } from "@/lib/missions/templates/registry";
+import { approuver, candidats, modeleFaisantAutorite, LIBELLE_TYPE, type TypeModele } from "@/lib/missions/templates/registry";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -274,4 +274,22 @@ export async function approuverModeleOperationnel(templateId: string): Promise<R
   return ok
     ? { ok: true, message: "Modèle approuvé — il fait désormais autorité pour ce type de document." }
     : { ok: false, message: "Ce modèle n'est plus à l'état « candidat »." };
+}
+
+/**
+ * QUEL MODÈLE FAIT AUTORITÉ POUR CE TYPE — la question que l'écran pose avant de promettre.
+ *
+ * Rend `null` quand aucun modèle n'est APPROUVÉ, et c'est la bonne réponse : le registre refuse
+ * délibérément de servir un candidat, parce qu'un candidat servi ici serait utilisé comme s'il
+ * était validé. Le runtime en fait une cause d'échec à part entière (`MISSING_TEMPLATE`), avec
+ * son échelle de recours — plutôt qu'un modèle inventé.
+ */
+export async function modeleOfficiel(
+  type: string,
+): Promise<{ id: string; name: string; fileName: string | null; libelle: string } | null> {
+  const user = await requireUser();
+  if (!userCan(user, "WORKSPACE", "VIEW")) return null;
+  const m = await modeleFaisantAutorite(user.id, type as TypeModele);
+  if (!m) return null;
+  return { id: m.id, name: m.name, fileName: m.fileName, libelle: LIBELLE_TYPE[type as TypeModele] ?? type };
 }

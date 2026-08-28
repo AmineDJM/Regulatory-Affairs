@@ -1,5 +1,5 @@
 {
-  "genereLe": "2026-08-28T10:00:40.565Z",
+  "genereLe": "2026-08-28T10:03:49.135Z",
   "perimetre": [
     "src/lib/missions",
     "src/lib/artifact"
@@ -10,16 +10,15 @@
   },
   "symboles": {
     "total": 317,
-    "DIRECT_PROD_CALLER": 221,
+    "DIRECT_PROD_CALLER": 224,
     "INDIRECT_VIA_PROD_MODULE": 73,
-    "TEST_ONLY": 15,
-    "NO_CALLER": 8
+    "TEST_ONLY": 13,
+    "NO_CALLER": 7
   },
   "modulesTestOnly": [],
   "modulesOrphelins": [],
   "symbolesSansAppelant": [
     "src/lib/missions/recovery/strategy.ts:182 LIBELLE_CERTITUDE",
-    "src/lib/missions/templates/registry.ts:43 LIBELLE_TYPE",
     "src/lib/missions/model/roles.ts:89 RANG_ROLE",
     "src/lib/artifact/commands/resolve.ts:128 motifResolution",
     "src/lib/artifact/commands/ir.ts:50 cibleTexte",
@@ -30,10 +29,8 @@
   "symbolesTestOnly": [
     "src/lib/missions/approval/scope.ts:184 empreinteEtape",
     "src/lib/missions/recovery/strategy.ts:196 presenter",
-    "src/lib/missions/recovery/strategy.ts:206 utilisablePourAgir",
     "src/lib/missions/compiler/graph.ts:100 ancetres",
     "src/lib/missions/templates/registry.ts:153 deprecier",
-    "src/lib/missions/templates/registry.ts:181 modeleFaisantAutorite",
     "src/lib/missions/templates/registry.ts:201 noterUsage",
     "src/lib/missions/agent/account.ts:139 idCompteAgent",
     "src/lib/missions/agent/account.ts:159 estCompteSysteme",

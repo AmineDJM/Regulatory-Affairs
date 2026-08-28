@@ -1,6 +1,6 @@
 # Joignabilité depuis la production
 
-Généré par `npx tsx scripts/audit-runtime-reachability.ts` — 2026-08-28T10:00:40.565Z
+Généré par `npx tsx scripts/audit-runtime-reachability.ts` — 2026-08-28T10:03:49.135Z
 Périmètre : `src/lib/missions`, `src/lib/artifact`
 
 ## Niveau MODULE — « ce fichier est-il importé par de la production ? »
@@ -20,8 +20,8 @@ C'est le cas de `rendreDocx`, appelé par `rendre()` : le compter comme mort ser
 
 | classe | n |
 |---|---|
-| DIRECT_PROD_CALLER | 221 |
+| DIRECT_PROD_CALLER | 224 |
 | INDIRECT_VIA_PROD_MODULE | 73 |
-| TEST_ONLY | 15 |
-| NO_CALLER | 8 |
+| TEST_ONLY | 13 |
+| NO_CALLER | 7 |
 
