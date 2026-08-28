@@ -261,6 +261,14 @@ export interface ResultatMission {
   artefactsApres: number | null;
   /** Les artefacts APPARUS pendant ce scénario, nommés. Non vide ⇒ le plafond a été franchi. */
   artefactsCrees: string[];
+  /**
+   * COMBIEN D'APPELS DE MODÈLE, ET POUR QUOI — `mission.plan`, `mission.judge`,
+   * `mission.worker`… Le nombre de replanifications dit COMBIEN de fois le moteur a renoncé ;
+   * cette ventilation dit ce que ces renoncements ont COÛTÉ. Les deux ensemble permettent de
+   * juger si une correction a réduit le travail inutile — sans quoi « c'est plus rapide » reste
+   * une impression.
+   */
+  appelsParUsage: Record<string, number>;
   /** L'état de la vérité terrain AVANT lancement. `null` quand le scénario n'en exige pas. */
   precondition: Precondition | null;
   /** Vrai quand le BANC est invalide (vérité terrain fausse) — et non la mission en échec. */
@@ -602,6 +610,7 @@ async function jouer(
     effetMaxAutorise: PLAFOND, effetMaxPlanifie: null, effetMaxExecute: null,
     capacitesHorsPlafond: [],
     artefactsAvant: null, artefactsApres: null, artefactsCrees: [],
+    appelsParUsage: {},
     precondition: null, setupEchoue: false,
     qaPassed: null, goalSatisfied: null, goalVerdict: null, cascade: null,
   };
@@ -774,6 +783,11 @@ async function jouer(
   r.goalVerdict = etat?.goalVerdict ?? null;
   if (etat?.qaPassed === true && etat?.goalSatisfied === true) chaine.QA_GOAL_SATISFACTION = "PASS";
 
+  // LA VENTILATION DES APPELS DE CE SCÉNARIO — comptée sur l'instrument, pas estimée.
+  for (const a of instrument.pour(sc.genre)) {
+    r.appelsParUsage[a.purpose] = (r.appelsParUsage[a.purpose] ?? 0) + 1;
+  }
+
   const catalogue = catalogueDe(user, { effetMax: PLAFOND });
   const utilisees = new Set(etapes.map((e) => e.capability).filter(Boolean) as string[]).size;
   // LA DURÉE EST CELLE DE CE SCÉNARIO, pas le temps écoulé depuis le début du diagnostic :
@@ -938,6 +952,9 @@ export function rendreTexte(r: ResultatSmoke): string {
         `  état final     ${val(s.statutFinal)} ${s.stable ? "(stable)" : "(NON STABLE)"}`,
         `  arrêt          ${s.motifArret}`,
         `  tours moteur   ${s.toursMoteur} · replanifications ${s.replanifications} · plan v${val(s.versionPlan)}`,
+        // CE QUE LES REPLANIFICATIONS ONT COÛTÉ, et pas seulement combien il y en a eu.
+        `  appels modèle  ${Object.entries(s.appelsParUsage).map(([k, n]) => `${k.replace("mission.", "")}×${n}`).join(" · ") || "—"}`
+        + (s.cascade ? `  (modèle ${ms(s.cascade.tempsModeleMs)} / total ${ms(s.cascade.totalMs)})` : ""),
         `  recours        ${s.recoursObserves} événement(s) STEP_RECOVERY`,
         `  étapes         ${val(s.etapesCompilees)} compilées · ${s.etapesTerminees} terminées · ${s.etapesEnEchec} en échec`,
         // POLITIQUE / PLAN / EXÉCUTION, dans cet ordre : ce sont trois faits différents, et les

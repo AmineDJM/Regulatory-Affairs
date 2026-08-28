@@ -86,15 +86,30 @@ async function main(): Promise<void> {
   console.log(JSON.stringify({
     providerProven: r.providerProven,
     missionE2eProven: r.missionE2eProven,
+    // L'INTÉGRITÉ DU BANC EST UNE DONNÉE DE PREMIER RANG. Un run dont la vérité terrain était
+    // fausse, ou qui a laissé un artefact derrière lui, ne mesure pas ce qu'il annonce — et il
+    // faut pouvoir le savoir sans lire le texte.
+    setupValide: r.setupValide,
+    raisonSetup: r.raisonSetup,
+    artefactsInattendus: r.artefactsInattendus,
+    jeton: r.jeton,
     chaine: r.chaine,
     modele: r.modele,
     jetons: { entree: r.jetonsEntree, sortie: r.jetonsSortie },
+    appelsModele: r.appelsModele,
     capacitesOuvertes: r.capacitesOuvertes,
     latenceTotaleMs: r.latenceTotaleMs,
     scenarios: r.scenarios.map((s) => ({
       genre: s.genre, missionId: s.missionId, statutFinal: s.statutFinal, stable: s.stable,
+      setupEchoue: s.setupEchoue,
+      precondition: s.precondition ? { satisfaite: s.precondition.satisfaite, sources: s.precondition.sources } : null,
       motifArret: s.motifArret, toursMoteur: s.toursMoteur, replanifications: s.replanifications,
+      appelsParUsage: s.appelsParUsage,
       recoursObserves: s.recoursObserves, qaPassed: s.qaPassed, goalSatisfied: s.goalSatisfied,
+      // POLITIQUE / PLAN / EXÉCUTION : trois faits distincts, et les confondre est ce qui a
+      // produit un `READ_ONLY_EXECUTION PASS` pendant que des fichiers partaient au Drive.
+      effet: { autorise: s.effetMaxAutorise, planifie: s.effetMaxPlanifie, execute: s.effetMaxExecute },
+      artefacts: { avant: s.artefactsAvant, apres: s.artefactsApres, crees: s.artefactsCrees },
       totalMs: s.cascade?.totalMs ?? null, modeleMs: s.cascade?.tempsModeleMs ?? null,
       horsModeleMs: s.cascade?.tempsHorsModeleMs ?? null, parallelisme: s.cascade?.parallelisme ?? null,
     })),
