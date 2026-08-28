@@ -88,6 +88,14 @@ export interface StepSpec {
   reasoningRequirement?: "NONE" | "LIGHT" | "HEAVY";
   /** Le niveau d'accord PROPOSÉ par le planner. La politique tranche ensuite. */
   approvalRequirement?: "NONE" | "NORMAL" | "SENSITIVE" | "CRITICAL";
+  /**
+   * CE QUI REND UN RÉSULTAT ACCEPTABLE — lu par l'évaluateur sémantique (§6).
+   *
+   * Sans lui, une étape qui rend HTTP 200 est « réussie », même si elle a rapporté une
+   * convention speaker là où on demandait un contrat. Avec lui, la vérification est
+   * arithmétique ou typée, donc sans appel de modèle.
+   */
+  attendu?: { type?: string; nombre?: number; cible?: string };
   /** Pour une étape ARTIFACT : quel livrable elle produit. */
   artifactKey?: string;
   artifactFormat?: string;

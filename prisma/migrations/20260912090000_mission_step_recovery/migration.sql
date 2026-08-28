@@ -1,0 +1,12 @@
+-- L'HISTORIQUE DE RECOURS D'UNE ÉTAPE (§35).
+--
+-- Ce qui a été tenté, dans quel grenier, et pourquoi on est passé au suivant. Volontairement
+-- COMPACT : des noms de stratégies et de sources, jamais les documents rencontrés — vingt
+-- recours ne doivent pas peser vingt pièces jointes dans le prochain contexte (§76).
+--
+-- Sans cette colonne, la reprise après panne repartirait du premier grenier : le moteur
+-- redemanderait au Drive ce qu'il vient de lui demander, et la persévérance deviendrait une
+-- boucle. La colonne EST ce qui rend le recours reprenable.
+--
+-- Idempotent : rejouable sans dommage sur une base déjà migrée.
+ALTER TABLE "MissionStep" ADD COLUMN IF NOT EXISTS "recovery" JSONB;

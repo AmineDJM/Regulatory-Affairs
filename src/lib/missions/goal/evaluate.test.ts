@@ -193,10 +193,24 @@ describe("échelle de récupération", () => {
     expect(ECHELLE.MISSING_PERMISSION).not.toContain("ELARGIR");
   });
 
-  it("une panne de fournisseur se réessaie ; un résultat incompatible se replanifie", () => {
+  /**
+   * L'ORDRE A CHANGÉ POUR `INCOMPATIBLE_RESULT`, ET C'EST UNE CORRECTION, PAS UN AJUSTEMENT.
+   *
+   * Ce test attendait `REPLANIFIER` en premier. Tant que l'échelle n'était consultée par
+   * personne, l'ordre n'avait aucune conséquence observable. Une fois branchée au moteur, elle
+   * en a une, et elle est mauvaise : le Drive rend le mauvais document → on refait tout le plan,
+   * alors que l'objectif n'a pas bougé d'un mot. On consomme un des quatre plans autorisés pour
+   * finir par chercher dans Legal — ce qu'un changement de grenier fait en une tentative.
+   *
+   * On cherche donc AILLEURS d'abord ; on ne replanifie que si aucune source ne détient la
+   * chose, car là c'est bien la méthode qui est en cause.
+   */
+  it("une panne de fournisseur se réessaie ; un résultat incompatible cherche AILLEURS avant de replanifier", () => {
     expect(prochaineStrategie("PROVIDER_FAILURE", [])).toBe("RETRY");
     expect(rejouable("PROVIDER_FAILURE")).toBe(true);
-    expect(prochaineStrategie("INCOMPATIBLE_RESULT", [])).toBe("REPLANIFIER");
+    expect(prochaineStrategie("INCOMPATIBLE_RESULT", [])).toBe("AUTRE_SOURCE");
+    // Replanifier reste dans l'échelle — mais APRÈS les voies locales.
+    expect(prochaineStrategie("INCOMPATIBLE_RESULT", ["AUTRE_SOURCE", "ELARGIR"])).toBe("REPLANIFIER");
     expect(rejouable("INCOMPATIBLE_RESULT")).toBe(false);
   });
 

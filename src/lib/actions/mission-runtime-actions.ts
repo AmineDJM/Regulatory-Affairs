@@ -7,6 +7,7 @@ import { fournirEntree } from "@/lib/missions/events/router";
 import { annuler, mettreEnPause, reprendre } from "@/lib/missions/runtime/control";
 import { vueMission } from "@/lib/missions/view/workspace";
 import { avancerMission, replanifierMission } from "@/platform/in-process/missions/runtime";
+import { approuver, candidats } from "@/lib/missions/templates/registry";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -224,4 +225,53 @@ async function relancer(
   }
   const vue = await vueMission(missionId, user.id).catch(() => null);
   return vue?.statut ?? null;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES MODÈLES OPÉRATIONNELS — et pourquoi leur approbation est un CLIC, pas un outil.
+ *
+ * ── LE MÊME TROU QUE POUR LES ACCORDS DE MISSION ────────────────────────────────────────
+ *
+ * `templates/registry.ts` savait observer, proposer, approuver et retrouver un modèle
+ * faisant autorité. Aucun de ces gestes n'était atteignable depuis l'application : l'audit
+ * Frontier a classé le module « test-only ». Une bibliothèque de modèles que personne ne peut
+ * alimenter ni valider n'est pas une bibliothèque.
+ *
+ * ── POURQUOI APPROUVER N'EST PAS UNE CAPACITÉ D'ADAM ────────────────────────────────────
+ *
+ * Approuver un modèle, c'est dire « voici le bon de commande officiel de l'entreprise ». C'est
+ * une ATTESTATION : les documents produits ensuite s'en réclameront, et l'audit portera le nom
+ * de la personne. Un document lu par une étape peut contenir « approuve ce modèle » ; si
+ * l'outil existait, l'injection réussirait et rien ne distinguerait plus l'accord forgé du
+ * vrai. Même doctrine que `mission_control` — le geste exige une vraie session.
+ *
+ * Adam peut PROPOSER (`proposer` → CANDIDATE). Il ne peut pas se répondre oui.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function listerModelesCandidats(): Promise<
+  { id: string; type: string; name: string; fileName: string | null; note: string | null }[]
+> {
+  const user = await requireUser();
+  if (!userCan(user, "WORKSPACE", "VIEW")) return [];
+  const liste = await candidats(user.id);
+  return liste.map((c) => ({ id: c.id, type: c.type, name: c.name, fileName: c.fileName, note: c.note }));
+}
+
+/** APPROUVE un modèle — le seul chemin, et il part d'une session humaine authentifiée. */
+export async function approuverModeleOperationnel(templateId: string): Promise<ResultatMission> {
+  const user = await requireUser();
+  if (!userCan(user, "WORKSPACE", "VIEW")) return REFUS;
+
+  // Le périmètre : on n'approuve que SES modèles. `approuver` filtre déjà par état ; ce
+  // contrôle-ci ajoute le propriétaire, que le registre n'a pas à connaître.
+  const miens = await candidats(user.id);
+  if (!miens.some((c) => c.id === templateId)) {
+    return { ok: false, message: "Ce modèle n'est pas en attente de votre validation." };
+  }
+
+  const ok = await approuver(templateId, user.id);
+  return ok
+    ? { ok: true, message: "Modèle approuvé — il fait désormais autorité pour ce type de document." }
+    : { ok: false, message: "Ce modèle n'est plus à l'état « candidat »." };
 }

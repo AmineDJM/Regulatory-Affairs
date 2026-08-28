@@ -77,6 +77,8 @@ export interface EtatEtape {
   forEach: { from: string; path: string; as: string } | null;
   /** Ce que le MOTEUR doit savoir pour exécuter l'étape — schéma de sortie, condition de fin. */
   spec: StepSpec | null;
+  /** Ce qui a déjà été tenté pour récupérer cette étape — relu tel quel, jamais cru sur parole. */
+  recovery: unknown;
   needsIdempotencyKey: boolean;
   planVersion: number;
   dependsOn: string[];
@@ -268,6 +270,7 @@ export async function chargerEtat(missionId: string): Promise<EtatMission | null
       waitFor: s.waitFor ? asObj(s.waitFor) : null,
       forEach: lireEventail(s.forEach),
       spec: s.spec ? (asObj(s.spec) as StepSpec) : null,
+      recovery: s.recovery ?? null,
       needsIdempotencyKey: s.needsIdempotencyKey,
       planVersion: s.planVersion,
       dependsOn: s.deps.map((d) => d.dependsOn.key),

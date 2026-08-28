@@ -19,13 +19,44 @@ let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
 
-const TAG = `__legalview__${Date.now()}`;
-const cree: { folderIds: string[]; docIds: string[] } = { folderIds: [], docIds: [] };
+const RACINE = `__legalview__${Date.now()}`;
+
+/**
+ * CHAQUE TEST POSE SON PROPRE DÉCOR.
+ *
+ * Ces deux tests partageaient un `cree` de module : le premier créait, le second lisait
+ * `docIds[0]`. Quand le premier échouait, le tableau restait vide et le second échouait à
+ * son tour sur `where: { id: undefined }` — une erreur Prisma qui ne parlait pas du vrai
+ * problème. Le symptôme MASQUAIT la cause, ce qui est le pire défaut qu'un test puisse avoir.
+ *
+ * Désormais chaque test crée, lit et nettoie ce qu'il a créé, sous une étiquette qui n'est
+ * qu'à lui. Un échec du premier laisse le second parfaitement lisible.
+ */
+async function poserDossier(tag: string): Promise<{ folderId: string; docIds: string[] }> {
+  const folder = await prisma.legalFolder.create({ data: { name: `${tag} Bons de commande` }, select: { id: true } });
+  const docIds: string[] = [];
+  for (let n = 1; n <= 6; n += 1) {
+    const d = await prisma.legalDocument.create({
+      data: {
+        title: `${tag} BC ${n}`,
+        reference: `${tag}-BC-${n}`,
+        kind: "PURCHASE_ORDER",
+        counterparty: "Kwality",
+        startDate: new Date("2026-01-05"),
+        endDate: null, // sans échéance : jamais « à surveiller »
+        folderId: folder.id,
+      },
+      select: { id: true },
+    });
+    docIds.push(d.id);
+  }
+  return { folderId: folder.id, docIds };
+}
 
 afterAll(async () => {
   if (!dbOk) return;
-  await prisma.legalDocument.deleteMany({ where: { id: { in: cree.docIds } } });
-  await prisma.legalFolder.deleteMany({ where: { id: { in: cree.folderIds } } });
+  await prisma.legalDocument.deleteMany({ where: { title: { startsWith: RACINE } } });
+  await prisma.legalFolder.deleteMany({ where: { name: { startsWith: RACINE } } });
 });
 
 /** Le tableau du serveur, construit EXACTEMENT comme la page Legal le fait. */
@@ -53,24 +84,9 @@ function toRows(docs: { id: string; reference: string | null; title: string; kin
 suite("Legal — le rattachement tient en base, et la vue le montre", () => {
   it("six bons de commande rangés dans un dossier restent liés ET visibles à travers toute la navigation", async () => {
     // ── Le dossier « Bons de commande » et ses six pièces, comme sur la capture ──
-    const folder = await prisma.legalFolder.create({ data: { name: `${TAG} Bons de commande` }, select: { id: true } });
-    cree.folderIds.push(folder.id);
-
-    for (let n = 1; n <= 6; n += 1) {
-      const d = await prisma.legalDocument.create({
-        data: {
-          title: `${TAG} BC ${n}`,
-          reference: `${TAG}-BC-${n}`,
-          kind: "PURCHASE_ORDER",
-          counterparty: "Kwality",
-          startDate: new Date("2026-01-05"),
-          endDate: null, // sans échéance : jamais « à surveiller »
-          folderId: folder.id,
-        },
-        select: { id: true },
-      });
-      cree.docIds.push(d.id);
-    }
+    const TAG = `${RACINE}-nav`;
+    const { folderId, docIds } = await poserDossier(TAG);
+    const folder = { id: folderId };
 
     /** Ce que le SERVEUR sert pour un dossier donné — la requête de la page, à l'identique. */
     const servir = async (folderId: string | null) =>
@@ -111,7 +127,7 @@ suite("Legal — le rattachement tient en base, et la vue le montre", () => {
 
     // ── 3. Un flux de MODIFICATION : renommer un document ne détache rien ──
     await prisma.legalDocument.update({
-      where: { id: cree.docIds[0] },
+      where: { id: docIds[0] },
       data: { title: `${TAG} BC 1 (corrigé)` },
     });
     expect(await prisma.legalDocument.count({ where: { folderId: folder.id, title: { startsWith: TAG } } })).toBe(6);
@@ -119,7 +135,7 @@ suite("Legal — le rattachement tient en base, et la vue le montre", () => {
 
     // ── 4. Le lien tient TOUJOURS en base à la fin de la séquence ──
     const apres = await prisma.legalDocument.findMany({
-      where: { id: { in: cree.docIds } },
+      where: { id: { in: docIds } },
       select: { id: true, folderId: true },
     });
     expect(apres).toHaveLength(6);
@@ -129,11 +145,14 @@ suite("Legal — le rattachement tient en base, et la vue le montre", () => {
   it("sortir un document du dossier le retire de la vue du dossier, pas de l'ERP", async () => {
     // La disparition LÉGITIME : c'est une règle métier, pas un bogue — et elle doit continuer
     // de marcher, sinon le correctif aurait figé la liste.
-    const cible = cree.docIds[0];
+    const TAG = `${RACINE}-sortie`;
+    const { folderId, docIds } = await poserDossier(TAG);
+
+    const cible = docIds[0];
     await prisma.legalDocument.update({ where: { id: cible }, data: { folderId: null } });
 
     const dansLeDossier = await prisma.legalDocument.count({
-      where: { folderId: cree.folderIds[0], title: { startsWith: TAG } },
+      where: { folderId, title: { startsWith: TAG } },
     });
     expect(dansLeDossier).toBe(5);
 

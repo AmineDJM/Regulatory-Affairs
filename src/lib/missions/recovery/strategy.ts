@@ -107,7 +107,19 @@ export const ECHELLE: Record<ErrorKind, readonly Strategy[]> = {
   MISSING_INPUT: ["DEMANDER_HUMAIN", "ESCALADER"],
   CAPABILITY_FAILURE: ["RETRY", "DECOUPER", "REPLANIFIER", "ESCALADER"],
   PROVIDER_FAILURE: ["RETRY", "RETRY_BACKOFF", "ESCALADER"],
-  INCOMPATIBLE_RESULT: ["REPLANIFIER", "AUTRE_SOURCE", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+  /**
+   * L'ORDRE A ÉTÉ CORRIGÉ, et le détour vaut d'être raconté.
+   *
+   * `REPLANIFIER` figurait ici EN PREMIER. Une fois l'échelle réellement branchée au moteur,
+   * cela donnait : le Drive rend le mauvais document → on refait tout le plan. Or l'objectif
+   * n'a pas bougé d'un mot ; c'est le CHEMIN qui était mauvais. Replanifier pour cela consomme
+   * un des quatre plans autorisés, réécrit un DAG correct, et recommence — pour finir par
+   * chercher dans Legal, ce qu'un simple changement de grenier faisait en une tentative.
+   *
+   * On essaie donc ailleurs d'abord, on élargit ensuite, et on ne replanifie que si aucune
+   * source ne détient la chose : là, c'est bien la MÉTHODE qui est en cause (§13).
+   */
+  INCOMPATIBLE_RESULT: ["AUTRE_SOURCE", "ELARGIR", "REPLANIFIER", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
   MISSING_TEMPLATE: ["AUTRE_SOURCE", "DEMANDER_HUMAIN", "ESCALADER"],
   MISSING_DOCUMENT: ["AUTRE_SOURCE", "ELARGIR", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
   // ATTENDRE N'EST PAS ÉCHOUER. On ne « récupère » pas d'une attente : on relance la personne,

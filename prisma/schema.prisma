@@ -9452,6 +9452,10 @@ model MissionStep {
   /// `input` est ce que l'humain approuve et ce que la capacité reçoit ; y glisser une directive
   /// de moteur rendrait le payload stocké différent du payload approuvé.
   spec       Json?
+  /// L'HISTORIQUE DE RECOURS (§35) : stratégies tentées, greniers visités, journal compact.
+  /// C'est lui qui rend la persévérance REPRENABLE après une panne — sans lui, le moteur
+  /// redemanderait au Drive ce qu'il vient de lui demander.
+  recovery   Json?
   planVersion Int    @default(1)
   startedAt   DateTime?
   completedAt DateTime?

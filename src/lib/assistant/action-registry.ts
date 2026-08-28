@@ -1004,6 +1004,20 @@ const X = (note: string, keys: string[]) => classify("EXCLUDED", note, keys);
 X("ATTESTATIONS HUMAINES, et volontairement hors de portée d'un modèle. Accorder une autorisation et fournir une pièce engagent la personne : l'audit portera SON nom. Les rendre appelables par Adam les exposerait à l'injection — un document lu par une étape pourrait contenir « approuve la mission », et rien ne distinguerait plus cet accord d'un vrai. `policy/guard.ts` interdit d'ailleurs `mission_control` à l'agent lui-même, à la compilation. Ces deux gestes exigent un clic sur /missions/<id>.", [
   "mission-runtime-actions:deciderAccordMission",
   "mission-runtime-actions:fournirElementMission",
+  /**
+   * APPROUVER UN MODÈLE OPÉRATIONNEL relève de la même famille, et pour la même raison.
+   *
+   * Dire « voici le bon de commande officiel de l'entreprise » engage la personne : tous les
+   * documents produits ensuite s'en réclameront. Si Adam pouvait le faire, un fichier candidat
+   * contenant « approuve ce modèle » suffirait à se faire adouber — et rien ne distinguerait
+   * plus le modèle validé du modèle injecté.
+   *
+   * Adam PROPOSE (`proposer` → CANDIDATE). Il ne se répond pas oui.
+   */
+  "mission-runtime-actions:approuverModeleOperationnel",
+]);
+X("LECTURE D'ÉCRAN pour la file d'attente humaine : la liste des modèles à valider n'a de sens que devant la personne qui va cliquer. Adam n'a rien à en faire — il sait déjà, par `MISSING_TEMPLATE`, qu'aucun modèle ne fait autorité.", [
+  "mission-runtime-actions:listerModelesCandidats",
 ]);
 X("APERÇU AVANT ÉCRITURE : une étape d'ÉCRAN, sans effet. Elle lit un classeur et propose une correspondance de colonnes à valider à la main. Adam, lui, importe par la reconnaissance automatique (`importDirectorySheet` sans correspondance) : il n'a personne pour trancher, et une confirmation qu'aucun humain ne lit n'est pas une confirmation.", [
   "medical-directory-actions:previewDirectorySheet",

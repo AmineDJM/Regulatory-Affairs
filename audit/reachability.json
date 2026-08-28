@@ -1,0 +1,47 @@
+{
+  "genereLe": "2026-08-28T10:00:40.565Z",
+  "perimetre": [
+    "src/lib/missions",
+    "src/lib/artifact"
+  ],
+  "modules": {
+    "total": 65,
+    "PRODUCTION": 65
+  },
+  "symboles": {
+    "total": 317,
+    "DIRECT_PROD_CALLER": 221,
+    "INDIRECT_VIA_PROD_MODULE": 73,
+    "TEST_ONLY": 15,
+    "NO_CALLER": 8
+  },
+  "modulesTestOnly": [],
+  "modulesOrphelins": [],
+  "symbolesSansAppelant": [
+    "src/lib/missions/recovery/strategy.ts:182 LIBELLE_CERTITUDE",
+    "src/lib/missions/templates/registry.ts:43 LIBELLE_TYPE",
+    "src/lib/missions/model/roles.ts:89 RANG_ROLE",
+    "src/lib/artifact/commands/resolve.ts:128 motifResolution",
+    "src/lib/artifact/commands/ir.ts:50 cibleTexte",
+    "src/lib/artifact/commands/ir.ts:201 formatDeLOp",
+    "src/lib/artifact/adapters/registry.ts:50 EXTENSIONS_OFFICE",
+    "src/lib/artifact/object-model/xml.ts:260 removeAttr"
+  ],
+  "symbolesTestOnly": [
+    "src/lib/missions/approval/scope.ts:184 empreinteEtape",
+    "src/lib/missions/recovery/strategy.ts:196 presenter",
+    "src/lib/missions/recovery/strategy.ts:206 utilisablePourAgir",
+    "src/lib/missions/compiler/graph.ts:100 ancetres",
+    "src/lib/missions/templates/registry.ts:153 deprecier",
+    "src/lib/missions/templates/registry.ts:181 modeleFaisantAutorite",
+    "src/lib/missions/templates/registry.ts:201 noterUsage",
+    "src/lib/missions/agent/account.ts:139 idCompteAgent",
+    "src/lib/missions/agent/account.ts:159 estCompteSysteme",
+    "src/lib/missions/agent/principal.ts:68 humainPour",
+    "src/lib/missions/agent/principal.ts:110 tracerAction",
+    "src/lib/missions/agent/principal.ts:148 tracesPour",
+    "src/lib/missions/runtime/state.ts:98 TERMINAL_STATES",
+    "src/lib/missions/runtime/state.ts:101 WAITING_STATES",
+    "src/lib/missions/runtime/state.ts:248 toutTermine"
+  ]
+}

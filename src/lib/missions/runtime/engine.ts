@@ -12,6 +12,9 @@ import { entreeIteration, identiteIteration, lire } from "@/lib/missions/runtime
 import {
   aReparer, controlerQualite, evaluerObjectif, type EtapeObservee, type JugeObjectif,
 } from "@/lib/missions/goal/evaluate";
+import { attenduDe, evaluerResultat } from "@/lib/missions/recovery/evaluate";
+import { ERROR_KINDS, type ErrorKind } from "@/lib/missions/recovery/strategy";
+import { deciderRecours, historiqueDe, noter, peutConclureEtape } from "@/lib/missions/recovery/coordinator";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -328,12 +331,119 @@ async function executerUneEtape(
     };
   }
 
+  // ── §5 — RÉUSSITE TECHNIQUE ≠ RÉUSSITE SÉMANTIQUE ──────────────────────────────────
+  //
+  // Une capacité qui rend 200 avec le mauvais document a réussi son appel, pas l'objectif.
+  // L'évaluation est déterministe et ne coûte aucun appel de modèle ; en l'absence de
+  // critère (`spec.attendu`), elle se tait et le résultat passe tel quel.
+  if (sortie.status === "DONE" && sortie.receipt !== "DEDUPLIQUE") {
+    const verdict = evaluerResultat(attenduDe(step.spec), sortie.result);
+    if (verdict.kind) {
+      sortie = {
+        status: "FAILED",
+        error: verdict.raison,
+        errorKind: verdict.kind,
+        // Rejouer À L'IDENTIQUE ne changerait rien : c'est le CHEMIN qu'il faut changer, et
+        // c'est le recours local qui en décide juste en dessous.
+        retryable: false,
+      };
+    }
+  }
+
+  // ── §10 — LE RECOURS LOCAL, AVANT D'ÉPUISER L'ÉTAPE ────────────────────────────────
+  if (sortie.status === "FAILED") {
+    const repris = await tenterRecours(etat, step, sortie, clock);
+    if (repris) return { kind: "etape", echouee: false, dedupliquee: false };
+  }
+
   await ecrireSortie(etat, step, sortie, clock);
   return {
     kind: "etape",
     echouee: sortie.status === "FAILED",
     dedupliquee: sortie.status === "DONE" && sortie.receipt === "DEDUPLIQUE",
   };
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE RECOURS LOCAL — ce qui se passe entre « ça a échoué » et « la mission a échoué ».
+ *
+ * ── POURQUOI ICI ET PAS DANS LE COORDINATEUR ─────────────────────────────────────────────
+ *
+ * Le coordinateur DÉCIDE (quelle stratégie, quel grenier) ; il ne touche pas la base. Cette
+ * fonction-ci APPLIQUE la décision : elle réarme l'étape, note la tentative, et injecte la
+ * source suivante dans l'entrée. La séparation garde la décision pure et testable seule, et
+ * empêche `engine.ts` de devenir le fichier-dieu que §81 interdit.
+ *
+ * ── CE QU'ELLE NE FAIT PAS ───────────────────────────────────────────────────────────────
+ *
+ * Elle ne cherche RIEN elle-même. « Essayer Legal » veut dire « rappeler la même capacité en
+ * lui disant Legal », pas « écrire une requête Legal ici » (§82).
+ *
+ * Rend `true` quand l'étape a été réarmée — l'appelant ne doit alors PAS écrire l'échec.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+async function tenterRecours(
+  etat: EtatMission,
+  step: EtatEtape,
+  sortie: Extract<StepOutcome, { status: "FAILED" }>,
+  clock: Clock,
+): Promise<boolean> {
+  if (!(ERROR_KINDS as readonly string[]).includes(sortie.errorKind)) return false;
+  const kind = sortie.errorKind as ErrorKind;
+
+  const historique = historiqueDe(step.recovery);
+  const attendu = attenduDe(step.spec);
+
+  // ── §76 — L'AUTORISATION D'ARRÊTER ─────────────────────────────────────────────────
+  //
+  // C'est l'échelle qui décide si cette étape a le droit de mourir, pas le moteur. Tant
+  // qu'elle refuse, il FAUT tenter quelque chose ; laisser l'étape échouer ici serait
+  // exactement le « on s'arrête à la première difficulté » que la doctrine interdit.
+  if (peutConclureEtape({ kind, historique, cible: attendu?.cible ?? null, rejouable: sortie.retryable })) return false;
+
+  const recours = deciderRecours({
+    kind,
+    historique,
+    cible: attendu?.cible ?? null,
+    objectif: step.title,
+    rejouable: sortie.retryable,
+  });
+
+  // Seul « réessayer » réarme l'étape ici. Demander à un humain, escalader, replanifier et
+  // bloquer sont des ÉTATS de mission : ils passent par l'écriture normale de la sortie, qui
+  // porte déjà le motif exact — et par le balayage, qui sait les traiter.
+  if (recours.geste !== "REESSAYER") return false;
+
+  const suivant = noter(historique, { strategie: recours.strategie, source: recours.source, kind }, clock.now());
+
+  // La source retenue est passée par l'ENTRÉE de l'étape : c'est ce que la capacité lit, et
+  // c'est ce que l'humain verrait s'il regardait l'étape. Rien n'est caché dans le moteur.
+  const entree: Record<string, unknown> = { ...step.input };
+  if (recours.source) entree.source = recours.source;
+  if (recours.strategie === "ELARGIR") entree.elargir = true;
+
+  await prisma.missionStep.update({
+    where: { id: step.id },
+    data: {
+      status: "READY",
+      error: sortie.error,
+      errorKind: kind,
+      input: entree as never,
+      recovery: suivant as never,
+      startedAt: null,
+    },
+  });
+
+  await journaliser(etat.id, "STEP_RECOVERY", `${step.key} — ${recours.strategie}${recours.source ? ` → ${recours.source}` : ""}`, {
+    stepKey: step.key,
+    errorKind: kind,
+    strategie: recours.strategie,
+    source: recours.source,
+    tentative: suivant.journal.length,
+    pourquoi: recours.pourquoi,
+  });
+  return true;
 }
 
 /** Aiguille selon le type de nœud. Les types de CONTRÔLE ont un comportement natif. */
