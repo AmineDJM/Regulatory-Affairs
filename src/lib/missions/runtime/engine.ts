@@ -23,7 +23,8 @@ import {
   deciderRecours, historiqueDe, noter, peutConclureEtape, type ResolveursRecours,
 } from "@/lib/missions/recovery/coordinator";
 import { elargirEntree, memeAppel, type ActionRecours } from "@/lib/missions/recovery/action";
-import { capabilityMeta } from "@/lib/missions/registry/capability-meta";
+import { EFFECT_RANK, capabilityMeta, type Effect } from "@/lib/missions/registry/capability-meta";
+import { fabriquerRecu, type ExecutionReceipt } from "@/lib/missions/runtime/receipt";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -71,7 +72,7 @@ export interface StepContext {
 
 /** Ce qu'un gestionnaire de nœud rend au moteur. Rien d'autre n'est écrit en base par lui. */
 export type StepOutcome =
-  | { status: "DONE"; result?: unknown; receipt?: string }
+  | { status: "DONE"; result?: unknown; receipt?: string; recu?: ExecutionReceipt }
   | { status: "WAITING"; raison: string }
   | { status: "SKIPPED"; raison: string }
   | { status: "FAILED"; error: string; errorKind: string; retryable: boolean };
@@ -153,6 +154,21 @@ const estTerminal = (s: StepState): boolean => STEP_TERMINAL.has(s);
  * adaptateur ne peut pas échouer sur une capacité inconnue : il rendra la classe la plus
  * conservatrice, ce qui est le bon défaut pour un ordonnanceur.
  */
+/**
+ * L'EFFET LE PLUS FORT QUE CE CATALOGUE AURAIT LAISSÉ PASSER.
+ *
+ * Sans catalogue on rend le plafond le plus large, ce qui rend l'attestation d'effets plus
+ * FAIBLE — jamais plus forte. C'est le bon sens de l'erreur : une mission qui n'a pas su dire
+ * son plafond ne doit pas paraître plus vertueuse qu'une mission qui l'a dit.
+ */
+function plafondDuCatalogue(cat: CapabilityCatalog | undefined, actor: MissionActor): Effect {
+  if (!cat) return "SECURITY_ADMIN";
+  const ouvertes = cat.brief(actor);
+  if (ouvertes.length === 0) return "READ";
+  return ouvertes.reduce<Effect>(
+    (max, b) => (EFFECT_RANK[b.effect] > EFFECT_RANK[max] ? b.effect : max), "READ");
+}
+
 const profilCapacite = (id: string) => {
   const m = capabilityMeta(id);
   return { domain: m.domain, latency: m.latency };
@@ -204,7 +220,7 @@ export async function avancer(
       if (resolues === 0 && relancees === 0) {
         // PLUS RIEN NE PEUT AVANCER. C'est le moment — et le seul — où la question « est-ce
         // fini ? » a un sens. Elle est posée à part, parce qu'y répondre n'est pas exécuter.
-        const fin = await conclure(missionId, frais, deps);
+        const fin = await conclure(missionId, frais, deps, actor);
         res.status = fin;
         res.enPause = true;
         return res;
@@ -702,6 +718,7 @@ async function executerCapacite(ctx: StepContext, deps: EngineDeps): Promise<Ste
     }
   }
 
+  const debut = ctx.clock.now();
   const out = await deps.runner.run({
     capability: step.capability,
     input: step.input,
@@ -713,6 +730,31 @@ async function executerCapacite(ctx: StepContext, deps: EngineDeps): Promise<Ste
 
   await compter(mission.id, { toolCalls: 1 });
 
+  /**
+   * ── LE REÇU EST FABRIQUÉ ICI, ET SEULEMENT ICI ────────────────────────────────────────
+   *
+   * C'est le seul endroit où l'on détient les cinq faits à la fois : la capacité appelée,
+   * l'effet que le REGISTRE lui déclare, l'entrée réellement partie, les deux horodatages, et
+   * la sortie. Le fabriquer plus loin obligerait à les repasser ; le fabriquer plus tôt
+   * obligerait à deviner le résultat.
+   *
+   * Il est fabriqué même sur ÉCHEC : « nous avons interrogé cette source et l'appel a échoué »
+   * est une information, et c'est celle qui distingue une piste non explorée d'une piste
+   * explorée sans succès.
+   */
+  const meta = capabilityMeta(step.capability);
+  const recu = fabriquerRecu({
+    capability: step.capability,
+    effect: meta.effect,
+    source: meta.domain,
+    input: step.input,
+    ok: out.ok,
+    sortie: out.output,
+    debut,
+    fin: ctx.clock.now(),
+    deduplicated: out.deduplicated,
+  });
+
   if (!out.ok) {
     return {
       status: "FAILED",
@@ -721,7 +763,10 @@ async function executerCapacite(ctx: StepContext, deps: EngineDeps): Promise<Ste
       retryable: out.error?.retryable ?? true,
     };
   }
-  return { status: "DONE", result: out.output, receipt: out.deduplicated ? "DEDUPLIQUE" : undefined };
+  return {
+    status: "DONE", result: out.output, recu,
+    receipt: out.deduplicated ? "DEDUPLIQUE" : undefined,
+  };
 }
 
 /** La cible d'une action — ce qui rend la clé unique par PERSONNE, pas seulement par étape. */
@@ -750,6 +795,10 @@ async function ecrireSortie(
         ...base,
         result: (sortie.result ?? null) as never,
         receipt: sortie.receipt ?? null,
+        // LE REÇU STRUCTURÉ SURVIT AU REDÉMARRAGE, comme le reste de l'état. Le garder en
+        // mémoire ferait qu'une mission reprise après panne perdrait ses preuves — et le juge
+        // conclurait alors sur un dossier amputé sans que rien ne le signale.
+        ...(sortie.recu ? { receiptData: sortie.recu as never } : {}),
         error: null,
         errorKind: null,
         completedAt: clock.now(),
@@ -1050,6 +1099,8 @@ export async function conclure(
   missionId: string,
   etat: EtatMission,
   deps: EngineDeps,
+  /** L'acteur, pour interroger le catalogue sur son plafond d'effet. Optionnel : voir plus bas. */
+  actor?: MissionActor,
 ): Promise<MissionState> {
   /**
    * LE CONTRÔLE ET LE JUGE NE VOIENT QUE LES OBLIGATIONS DU PLAN COURANT.
@@ -1062,6 +1113,10 @@ export async function conclure(
   const observees: EtapeObservee[] = etat.steps.filter((s) => !s.contournee).map((s) => ({
     key: s.key, title: s.title, status: s.status, nodeType: s.nodeType,
     receipt: s.receipt, attempt: s.attempt, maxAttempts: s.maxAttempts, result: s.result,
+    // LE REÇU SUIT L'ÉTAPE JUSQU'AU JUGE. Sans cette ligne, tout ce qui précède — la
+    // fabrication du reçu, sa persistance, sa relecture — s'arrêterait à un pas du seul
+    // endroit où il sert : la brique serait écrite, testée, et sans effet (§14).
+    recu: s.recu,
   }));
 
   const encoreEnCours = observees.some((s) => !STEP_TERMINAL.has(s.status)
@@ -1069,12 +1124,23 @@ export async function conclure(
   if (encoreEnCours) return synchroniserEtat(missionId, etat);
 
   const qa = controlerQualite(observees);
+  /**
+   * LE PLAFOND D'EFFET EST DÉDUIT DU CATALOGUE, PAS DÉCLARÉ.
+   *
+   * `catalog` est celui que le composeur a construit — plafonné à `ANALYZE` sous lecture seule.
+   * On demande donc au catalogue lui-même quel est l'effet le plus fort qu'il aurait laissé
+   * passer, plutôt que de recopier une option d'appel : une option se désynchronise, un
+   * catalogue est la source.
+   */
+  const plafondEffet = actor ? plafondDuCatalogue(deps.catalog, actor) : "SECURITY_ADMIN";
+
   const verdict = await evaluerObjectif({
     objectif: etat.goalRaw,
     criteres: etat.acceptance,
     steps: observees,
     juge: deps.juge,
     anterieur: await dernierJugement(missionId),
+    plafondEffet,
   });
 
   await prisma.mission.update({

@@ -58,6 +58,12 @@ export const DIRECTORY_TOOLS: PowerTool[] = [
       const people = await findPeople(name, 5);
       if (people.length === 0) {
         return JSON.stringify({
+          // LE CONTRAT MACHINE SOUS LA PROSE. `items` et `count` sont ce que le runtime sait
+          // compter ; « personne introuvable » reste pour l'humain. Sans le compte, une
+          // recherche infructueuse ne peut PAS servir de preuve d'absence au juge (§ le run
+          // Render où « il n'existe rien sur cette molécule » n'était pas démontrable).
+          items: [],
+          count: 0,
           resultat: "personne introuvable",
           precision: `Aucune entrée « ${name} » dans l'annuaire interne, les fiches RH, les comptes ERP ni les contacts d'entreprise.`,
         });
@@ -164,7 +170,7 @@ export const DIRECTORY_TOOLS: PowerTool[] = [
       });
 
       if (employees.length === 0) {
-        return JSON.stringify({ resultat: "aucun salarié", precision: department ? `Aucun salarié actif dans « ${department} ».` : "Le registre RH est vide." });
+        return JSON.stringify({ items: [], count: 0, resultat: "aucun salarié", precision: department ? `Aucun salarié actif dans « ${department} ».` : "Le registre RH est vide." });
       }
 
       return JSON.stringify({

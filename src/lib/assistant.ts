@@ -19,6 +19,7 @@
  */
 
 import type { AdminRequestType, CongressRequestStatus, Priority, CalendarEventKind, HrRequestType, RegulatoryCategory } from "@prisma/client";
+import { resultatVide } from "@/lib/assistant/empty-result";
 import { prisma } from "@/lib/prisma";
 import { companyIdForNew, currentCompanyWhereFor } from "@/lib/company";
 import { buildRef, createWithRetry } from "@/lib/refs";
@@ -2277,7 +2278,7 @@ export async function executeReadTool(name: string, input: Record<string, unknow
   switch (name) {
     case "search_people": {
       const people = await findPeople(asStr(input, "query"));
-      if (people.length === 0) return "Aucun collègue trouvé pour cette recherche.";
+      if (people.length === 0) return resultatVide("Aucun collègue trouvé pour cette recherche.");
       return JSON.stringify(people.map((p) => ({ id: p.id, nom: p.name, fonction: p.title, departement: p.department, role: ROLE_LABELS[p.role] ?? p.role })));
     }
     case "read_workflow": {
@@ -2341,7 +2342,7 @@ export async function executeReadTool(name: string, input: Record<string, unknow
         orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
         take: 20,
       });
-      if (tasks.length === 0) return "Aucune tâche.";
+      if (tasks.length === 0) return resultatVide("Aucune tâche.");
       return JSON.stringify(tasks.map((t) => ({
         titre: t.title, statut: TASK_STATUS[t.status]?.label ?? t.status, priorite: PRIORITY[t.priority]?.label ?? t.priority,
         echeance: t.dueDate?.toISOString().slice(0, 10) ?? null, assigneA: t.assignedTo?.name ?? null,
@@ -2354,7 +2355,7 @@ export async function executeReadTool(name: string, input: Record<string, unknow
         orderBy: { createdAt: "desc" },
         take: 12,
       });
-      if (reqs.length === 0) return "Aucune demande administrative.";
+      if (reqs.length === 0) return resultatVide("Aucune demande administrative.");
       return JSON.stringify(reqs.map((r) => ({
         reference: r.reference, titre: r.title, type: ADMIN_REQUEST_TYPE[r.type] ?? r.type,
         statut: ADMIN_REQUEST_STATUS[r.status]?.label ?? r.status, responsable: r.assignedTo?.name ?? null,
@@ -2373,7 +2374,7 @@ export async function executeReadTool(name: string, input: Record<string, unknow
         select: { name: true, title: true, specialty: true, sector: true, institution: true, city: true, influenceLevel: true },
         take: 12, orderBy: { name: "asc" },
       });
-      if (doctors.length === 0) return "Aucun médecin trouvé (ne pas inventer : signaler à l'utilisateur que le médecin est introuvable dans son périmètre).";
+      if (doctors.length === 0) return resultatVide("Aucun médecin trouvé (ne pas inventer : signaler à l'utilisateur que le médecin est introuvable dans son périmètre).");
       return JSON.stringify(doctors.map((d) => ({
         nom: doctorDisplayName(d), specialite: d.specialty ?? null, secteur: MEDICAL_SECTOR[d.sector]?.label ?? d.sector,
         etablissement: d.institution ?? null, ville: d.city ?? null, influence: INFLUENCE_LEVEL[d.influenceLevel]?.label ?? d.influenceLevel,
@@ -2418,7 +2419,12 @@ export async function executeReadTool(name: string, input: Record<string, unknow
       });
       const total = await prisma.regulatoryProduct.count({ where: { AND: [scopeRegulatory(user)] } }).catch(() => products.length);
       if (products.length === 0) {
-        return `Aucun produit ne correspond${q ? ` à « ${q} »` : ""}. Le portefeuille compte ${total} produit(s) au total (ne pas inventer).`;
+        // Le compte du PORTEFEUILLE est conservé à part : il dit autre chose que le compte du
+        // résultat, et le confondre ferait croire à 69 résultats trouvés.
+        return resultatVide(
+          `Aucun produit ne correspond${q ? ` à « ${q} »` : ""}. Le portefeuille compte ${total} produit(s) au total (ne pas inventer).`,
+          { totalPortefeuille: total },
+        );
       }
       return JSON.stringify({
         total_portefeuille: total,
@@ -2441,7 +2447,7 @@ export async function executeReadTool(name: string, input: Record<string, unknow
         select: { name: true, type: true, status: true, startDate: true, city: true, _count: { select: { registrations: true } } },
         take: 12, orderBy: { startDate: "desc" },
       });
-      if (events.length === 0) return "Aucun événement trouvé.";
+      if (events.length === 0) return resultatVide("Aucun événement trouvé.");
       return JSON.stringify(events.map((e) => ({
         nom: e.name, type: EVENT_TYPE[e.type] ?? e.type, statut: EVENT_STATUS[e.status]?.label ?? e.status,
         date: e.startDate?.toISOString().slice(0, 10) ?? null, ville: e.city ?? null, inscrits: e._count.registrations,
@@ -2493,7 +2499,7 @@ export async function executeReadTool(name: string, input: Record<string, unknow
       ]);
       const taskMap = new Map(openTasks.map((t) => [t.assignedToId, t._count]));
       const reqMap = new Map(openReqs.map((r) => [r.assignedToId, r._count]));
-      if (users.length === 0) return "Aucun compte trouvé.";
+      if (users.length === 0) return resultatVide("Aucun compte trouvé.");
       return JSON.stringify(users.map((u) => ({
         nom: u.name, fonction: u.title ?? (ROLE_LABELS[u.role] ?? u.role), role: ROLE_LABELS[u.role] ?? u.role,
         actif: u.isActive, tachesOuvertes: taskMap.get(u.id) ?? 0, demandesACharge: reqMap.get(u.id) ?? 0,

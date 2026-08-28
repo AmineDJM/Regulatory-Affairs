@@ -530,6 +530,107 @@ suite("BOUT EN BOUT — d'une phrase à une mission terminée", () => {
     expect(trace?.contournee, "mais elle est marquée contournée").toBe(true);
   }, 300_000);
 
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * LES DEUX CRITÈRES QU'AUCUNE PROSE NE POUVAIT DÉMONTRER
+   *
+   * ── LES REFUS QUI ONT PRODUIT CE BANC ────────────────────────────────────────────────
+   *
+   * Render, deux scénarios, deux refus du juge sur des énoncés que la mission avait pourtant
+   * honorés :
+   *
+   *   RECOURS         « Aucun message n'est envoyé et aucune donnée n'est modifiée »
+   *                   → critère SANS PREUVE. La mission tournait sous plafond ANALYZE et
+   *                     n'avait exécuté que des lectures. Le runtime le savait. Le juge, non.
+   *
+   *   PREUVE_ABSENCE  « établir qu'il n'existe rien sur cette molécule »
+   *                   → la recherche à zéro résultat n'était pas citable comme preuve.
+   *
+   * Les deux missions ont ensuite brûlé des replanifications à faire RÉÉCRIRE EN PROSE, par un
+   * modèle, un fait que le code détenait déjà.
+   *
+   * ── CE QUE CE BANC VÉRIFIE, ET POURQUOI IL PART DE `lancerMission` ───────────────────
+   *
+   * Il n'inspecte pas `compteRendu` en isolation — cela prouverait que la fonction sait écrire
+   * une phrase, pas que le fait ARRIVE au juge. La chaîne complète est longue : le reçu est
+   * fabriqué au moment de l'appel, écrit en base, relu par `chargerEtat`, porté par
+   * `EtapeObservee`, rendu par `compteRendu`, puis mis dans le prompt. Rompre n'importe lequel
+   * de ces six maillons rendrait la primitive muette sans rien casser d'autre — c'est le
+   * scénario §14 exact. Le juge scripté LIT donc ce qu'il a réellement reçu.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("§20 — le juge REÇOIT l'attestation d'effets et les preuves négatives, depuis le vrai point d'entrée", async () => {
+    const CRITERES = [
+      "Aucun message n'est envoyé et aucune donnée n'est modifiée.",
+      "L'absence d'élément sur le sujet est établie, sources consultées à l'appui.",
+    ];
+
+    const plan = planScripte({
+      goal: "Vérifier s'il existe quoi que ce soit sur un sujet, sans rien modifier.",
+      reasoningComplexity: "B", executionScale: "S",
+      acceptanceCriteria: CRITERES, workstreams: [],
+      steps: [{
+        key: "recherche:annuaire", title: "Chercher dans l'annuaire", workstream: null,
+        nodeType: "CAPABILITY", capability: "directory_lookup",
+        // Un nom qui n'existe pas : la lecture aboutit et ne rend rien. C'est exactement la
+        // situation de « Zorbamyxine-K7 » — un VIDE mesuré, pas un échec.
+        inputs: [{ key: "name", kind: "TEXT", value: `${TAG}-personne-inexistante` }],
+        dependsOn: [], forEach: null,
+        completionCondition: "La recherche a été menée.",
+        approvalRequirement: "NONE", maxAttempts: 1,
+      }],
+      expectedArtifacts: [], approvalStrategy: "BUNDLE",
+      completionCriteria: "La recherche a été menée et rien n'a été modifié.",
+      gaps: [], rationale: "Une lecture, et rien d'autre.",
+    });
+
+    /** Ce que le juge a REÇU. C'est là-dessus que porte tout le banc. */
+    let vuParLeJuge = "";
+    const cerveau = new RaisonneurScripte([
+      pour("mission.plan", () => ({ ok: true, data: plan })),
+      pour("mission.judge", (req) => {
+        vuParLeJuge = req.prompt;
+        return { ok: true, data: verdictSatisfait(CRITERES)(req) };
+      }),
+    ]);
+
+    const r = await lancerMission(
+      pdg,
+      "Vérifie s'il existe quoi que ce soit sur ce sujet. Ne contacte personne et ne modifie rien.",
+      { reasoner: cerveau, lectureSeule: true },
+    );
+    if (!r.ok) throw new Error(r.error);
+    for (let i = 0; i < 3; i++) await avancerMission(pdg, r.missionId, { reasoner: cerveau, lectureSeule: true });
+
+    // ── 1. L'ATTESTATION D'EFFETS EST ARRIVÉE, avec le plafond ────────────────────────
+    //
+    // Sans elle, « aucune donnée n'est modifiée » ne peut être que CRU. Avec elle, il est
+    // constaté — et le plafond distingue « rien écrit » de « rien permis ».
+    expect(vuParLeJuge, "le juge doit avoir été appelé").not.toBe("");
+    expect(vuParLeJuge).toContain("EFFETS RÉELLEMENT PRODUITS");
+    expect(vuParLeJuge).toContain("AUCUNE écriture");
+    // Le plafond rendu est l'effet le plus FORT que le catalogue laissait passer — `READ` ici,
+    // parce qu'aucune capacité d'effet ANALYZE n'est ouverte sous lecture seule à cet acteur.
+    // C'est plus restrictif que le plafond configuré, donc l'attestation est plus forte, pas
+    // plus faible : on ne se donne jamais un mérite qu'on n'a pas.
+    expect(vuParLeJuge).toMatch(/plafond de la mission : (READ|ANALYZE)/);
+
+    // ── 2. LA PREUVE NÉGATIVE EST ARRIVÉE, avec sa requête ────────────────────────────
+    //
+    // La requête est ce qui rend le zéro opposable : « rien trouvé » sans dire quoi ne prouve
+    // rien du tout.
+    expect(vuParLeJuge).toContain("PREUVES NÉGATIVES");
+    expect(vuParLeJuge).toContain("0 résultat");
+    expect(vuParLeJuge).toContain(`${TAG}-personne-inexistante`);
+
+    // ── 3. ET LE REÇU A SURVÉCU À LA BASE ─────────────────────────────────────────────
+    const etat = await chargerEtat(r.missionId);
+    const etape = etat!.steps.find((s) => s.key === "recherche:annuaire");
+    expect(etape?.recu?.issue, "le reçu structuré doit être persisté et relu").toBe("VIDE");
+    expect(etape?.recu?.resultCount).toBe(0);
+    expect(etape?.recu?.effect).toBe("READ");
+  }, 300_000);
+
   it("§21/§22 — un ARTEFACT est fabriqué, CONTRÔLÉ, puis rangé ; et il prouve l'achèvement", async () => {
     const criteres = planBrut(true).acceptanceCriteria;
     const depot = new DepotMemoire();

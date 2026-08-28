@@ -9436,6 +9436,15 @@ model MissionStep {
   idempotencyKey String?
   result     Json?
   receipt    String?
+  /// LE REÇU STRUCTURÉ DE L'APPEL — ce que le code a CONSTATÉ, pas ce qu'un modèle en dit.
+  ///
+  /// Effet réellement porté, source interrogée, requête effective, horodatage, nombre de
+  /// résultats, empreinte. C'est lui qui rend démontrables les deux énoncés qu'aucune prose ne
+  /// peut prouver : « cette recherche a rendu zéro résultat » et « aucune écriture n'a eu lieu ».
+  ///
+  /// `resultCount: null` n'est PAS `0` : zéro est une affirmation, null est une absence de
+  /// mesure. Les confondre fabriquerait de la preuve d'absence à partir d'un défaut de lecture.
+  receiptData Json?
   error      String?
   /// La CAUSE classée de l'échec (§75) : c'est elle qui choisit la stratégie de récupération.
   errorKind  String?

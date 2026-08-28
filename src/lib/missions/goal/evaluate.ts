@@ -1,4 +1,8 @@
 import { STEP_TERMINAL, StepState } from "@/lib/missions/runtime/state";
+import {
+  attestationEffets, preuveNegative, type ExecutionReceipt,
+} from "@/lib/missions/runtime/receipt";
+import { EFFECT_RANK, type Effect } from "@/lib/missions/registry/capability-meta";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -35,6 +39,15 @@ export interface EtapeObservee {
   nodeType: string;
   /** Le reçu du chemin canonique. Sa présence est ce qui PROUVE l'effet, pas le statut. */
   receipt: string | null;
+  /**
+   * LE REÇU STRUCTURÉ — la seule chose de ce dossier que le juge n'a pas à croire sur parole.
+   *
+   * Il porte l'effet réellement déclaré par le registre, la source interrogée, la requête
+   * partie, l'horodatage et le nombre de résultats. C'est lui qui rend démontrables les deux
+   * énoncés qu'un run Render a vu refuser faute de preuve : « cette recherche a rendu zéro
+   * résultat » et « aucune écriture n'a eu lieu ».
+   */
+  recu?: ExecutionReceipt | null;
   attempt: number;
   maxAttempts: number;
   /** Pour un éventail : { expanded, done, failed } quand il a été résolu. */
@@ -158,6 +171,14 @@ export function compteRendu(
   steps: readonly EtapeObservee[],
   qa: RapportQA,
   limite = 120,
+  /**
+   * LE PLAFOND D'EFFET DE LA MISSION — une donnée du LANCEMENT, pas une déduction.
+   *
+   * Il vaut `ANALYZE` sous lecture seule. Le juge en a besoin pour distinguer « rien n'a été
+   * écrit parce que rien n'était permis » de « rien n'a été écrit alors que tout l'était » :
+   * les deux se ressemblent dans les faits et ne se valent pas dans un verdict.
+   */
+  plafond: Effect = "SECURITY_ADMIN",
 ): string {
   const abouties = steps.filter((e) => e.status === "DONE");
   const lignes = abouties.slice(0, limite).map((e) => {
@@ -167,12 +188,47 @@ export function compteRendu(
   });
 
   const echecs = steps.filter((e) => e.status !== "DONE" && e.status !== "SKIPPED");
+
+  /**
+   * ── LES DEUX SECTIONS QU'UN RUN RÉEL A EXIGÉES ────────────────────────────────────────
+   *
+   * Render, trois scénarios, trois refus du juge — et deux d'entre eux portaient sur des
+   * énoncés qu'AUCUNE prose ne peut démontrer :
+   *
+   *   « Aucun message n'est envoyé et aucune donnée n'est modifiée. »  → sans preuve
+   *   « 0 résultat sur Zorbamyxine-K7 »                                → incitable
+   *
+   * Le runtime détenait les deux faits. Il ne les transmettait pas. Le juge ne pouvait donc que
+   * CROIRE une phrase écrite par un modèle — et croire une phrase n'est pas juger. Les deux
+   * sections ci-dessous sont produites par du code à partir des reçus, et le juge les lit comme
+   * des constats.
+   */
+  const recus = steps.map((e) => e.recu).filter((r): r is ExecutionReceipt => !!r);
+  const negatives = steps
+    .map((e) => (e.recu ? preuveNegative(e.key, e.recu) : null))
+    .filter((l): l is string => !!l);
+  const indetermines = steps.filter((e) => e.recu?.issue === "INDETERMINE").length;
+
   return [
     `CONTRÔLE ARITHMÉTIQUE : ${qa.resume}`,
     `\nÉTAPES ABOUTIES (clé : titre → résultat) :\n${lignes.join("\n") || "aucune"}`,
     echecs.length > 0
       ? `\nÉTAPES NON ABOUTIES :\n${echecs.slice(0, 30).map((e) => `- ${e.key} (${e.status})`).join("\n")}`
       : "",
+    negatives.length > 0
+      ? `\nPREUVES NÉGATIVES — recherches RÉELLEMENT exécutées qui n'ont rien rendu.\n`
+        + `Ces lignes sont des CONSTATS du code, horodatés, avec la requête effective. Un critère\n`
+        + `d'absence est DÉMONTRÉ par elles ; il n'a pas à être réécrit en prose par une étape.\n`
+        + `${negatives.slice(0, 40).join("\n")}`
+      : "",
+    // L'AVEU EST DIT, jamais tu. Une lecture dont on n'a pas su compter le résultat ne prouve
+    // aucune absence — et le juge doit le savoir pour ne pas conclure à tort dans un sens
+    // comme dans l'autre.
+    indetermines > 0
+      ? `\n(${indetermines} appel(s) ont abouti sans que le nombre de résultats soit mesurable : `
+        + `ils ne démontrent NI présence NI absence.)`
+      : "",
+    `\n${attestationEffets(recus, (e) => EFFECT_RANK[e], plafond)}`,
     abouties.length > limite
       ? `\n(${abouties.length - limite} étape(s) abouties supplémentaires non détaillées ici ; `
         + `le contrôle arithmétique ci-dessus les a toutes comptées.)`
@@ -296,6 +352,15 @@ export async function evaluerObjectif(opts: {
   juge?: JugeObjectif;
   /** Le dernier verdict rendu sur cette mission, relu du journal. */
   anterieur?: JugementAnterieur | null;
+  /**
+   * LE PLAFOND D'EFFET SOUS LEQUEL LA MISSION A TOURNÉ.
+   *
+   * Facultatif, et son absence a une conséquence dite : sans lui, l'attestation d'effets ne
+   * peut pas distinguer « rien n'a été écrit parce que rien n'était permis » de « rien n'a été
+   * écrit alors que tout l'était ». On prend alors le plafond le plus large, ce qui rend
+   * l'attestation plus FAIBLE — jamais plus forte qu'elle ne devrait l'être.
+   */
+  plafondEffet?: Effect;
 }): Promise<VerdictObjectif> {
   const tousFinis = opts.steps.length > 0
     && opts.steps.every((s) => STEP_TERMINAL.has(s.status)
@@ -324,7 +389,7 @@ export async function evaluerObjectif(opts: {
 
   // LE COMPTE RENDU COMPLET, avec les CLÉS D'ÉTAPES — sans elles, le juge n'a rien à citer et
   // `normaliser` ramène chaque critère à NON_DÉMONTRÉ. Voir l'en-tête de `compteRendu`.
-  const resumeExecution = compteRendu(opts.steps, qa);
+  const resumeExecution = compteRendu(opts.steps, qa, 120, opts.plafondEffet);
   const empreinte = empreinteExecution(opts.objectif, opts.criteres, resumeExecution);
 
   if (!opts.juge) {

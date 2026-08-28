@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { CompiledMission, CompiledStep, StepSpec } from "@/lib/missions/compiler/compile";
 import { MissionState, StepState, assertTransition } from "@/lib/missions/runtime/state";
+import { lireRecu, type ExecutionReceipt } from "@/lib/missions/runtime/receipt";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -70,6 +71,14 @@ export interface EtatEtape {
   idempotencyKey: string | null;
   result: unknown;
   receipt: string | null;
+  /**
+   * LE REÇU STRUCTURÉ — ce que le code a constaté de l'appel (§ `runtime/receipt.ts`).
+   *
+   * `null` quand l'étape n'appelle aucune capacité, ou quand elle a été écrite par une version
+   * antérieure du moteur. Jamais un reçu vide : une absence de mesure se dit, elle ne s'invente
+   * pas — c'est la même règle que `resultCount: null` ≠ `0`.
+   */
+  recu: ExecutionReceipt | null;
   error: string | null;
   errorKind: string | null;
   waitFor: Record<string, unknown> | null;
@@ -314,6 +323,7 @@ export async function chargerEtat(missionId: string): Promise<EtatMission | null
       idempotencyKey: s.idempotencyKey,
       result: s.result,
       receipt: s.receipt,
+      recu: lireRecu(s.receiptData),
       error: s.error,
       errorKind: s.errorKind,
       waitFor: s.waitFor ? asObj(s.waitFor) : null,
