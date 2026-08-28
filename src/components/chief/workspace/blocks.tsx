@@ -17,6 +17,7 @@ import { ActionRow, AskContext, Avatar, Card, Chip, WorkspaceAskProvider } from 
 import { StoryBlock } from "./blocks/story";
 import { Entity360Block } from "./blocks/entity360";
 import { AlerteBlock, ComparisonBlock, MissionBlock } from "./blocks/decision";
+import { ArtifactBlock } from "./blocks/artifact";
 
 export { WorkspaceAskProvider };
 
@@ -934,6 +935,7 @@ const RENDERERS: { [K in WorkspaceBlock["kind"]]: (p: { b: Extract<WorkspaceBloc
   dossier: DossierBlock,
   planification: PlanificationBlock,
   email: EmailBlock,
+  artifact: ArtifactBlock,
 };
 
 /**

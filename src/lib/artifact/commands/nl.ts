@@ -57,8 +57,16 @@ const PAS_GRAND_CM = 3;
 /** Combien de points d'espacement « remonter un peu » retire. */
 const PAS_ESPACEMENT_PT = 6;
 
+/**
+ * Les rangs écrits en toutes lettres.
+ *
+ * « UN » ET « UNE » N'Y SONT PAS, et c'est le fruit d'un test qui a échoué : dans « supprime UN
+ * paragraphe », « un » est un article indéfini, pas le nombre 1. Les y laisser faisait supprimer
+ * le PREMIER paragraphe sur une phrase qui ne désignait rien. « Premier » couvre le rang 1 sans
+ * cette ambiguïté, et « supprime le paragraphe un » ne se dit pas.
+ */
 const NOMBRES_ECRITS: Record<string, number> = {
-  premier: 1, premiere: 1, première: 1, un: 1, une: 1,
+  premier: 1, premiere: 1, première: 1,
   deuxieme: 2, deuxième: 2, second: 2, seconde: 2, deux: 2,
   troisieme: 3, troisième: 3, trois: 3,
   quatrieme: 4, quatrième: 4, quatre: 4,
@@ -126,15 +134,26 @@ export function decoder(phrase: string, ctx: ContexteDecodage): IntentionDirecte
   if (!p) return null;
 
   // ── Les gestes de session ────────────────────────────────────────────────────────────
-  if (/^(annule|annuler|reviens en arriere|retour arriere|undo|defais|défais)\b/.test(p)
-    || /^(finalement )?annule (la )?(derniere|dernière)/.test(p)) {
+  //
+  // Chacun est ancré des DEUX côtés. « Refais » seul veut dire « rétablis » ; « refais-moi ce
+  // contrat dans un style plus formel » est une réécriture, que seul le modèle sait traiter.
+  // Sans l'ancre de fin, le décodeur attrapait la seconde et rétablissait une modification que
+  // personne n'avait annulée — un défaut trouvé par un test, pas en relecture.
+  const fin = "(?:\\s*(?:s'il te plait|s'il te plaît|stp|merci))?\\s*[.!]?$";
+  if (new RegExp(`^(?:finalement\\s+)?(?:annule|annuler|reviens en arriere|retour arriere|undo|defais|défais)(?:\\s+(?:la\\s+)?(?:derniere|dernière)(?:\\s+\\w+)?|\\s*(?:ca|ça|le|la))?${fin}`).test(p)) {
     return { genre: "annuler" };
   }
-  if (/^(retablis|rétablis|refais|redo|remets)\b/.test(p)) return { genre: "retablir" };
-  if (/^(ferme|fermer|referme)\b/.test(p)) return { genre: "fermer" };
-  if (/^(c'est bon\.? )?(sauvegarde|enregistre|sauve|save)\b/.test(p) || /^(ok|c'est bon)[ ,.]*(sauvegarde|enregistre)\b/.test(p)) {
+  if (new RegExp(`^(?:retablis|rétablis|refais|redo|remets)(?:\\s*(?:le|la|ca|ça))?${fin}`).test(p)) {
+    return { genre: "retablir" };
+  }
+  if (new RegExp(`^(?:ferme|fermer|referme)(?:\\s+(?:le|la|ce)?\\s*documents?)?${fin}`).test(p)) {
+    return { genre: "fermer" };
+  }
+  if (/^(?:(?:ok|c'est bon|parfait)[ ,.]*)?(?:sauvegarde|enregistre|sauve|save)\b/.test(p)) {
     const sous = /(?:sous|en tant que|sous le nom (?:de )?)\s+(.+)$/.exec(phrase.trim());
-    return { genre: "sauvegarder", sousLeNom: sous ? sous[1].replace(/[.«»"]/g, "").trim() : null };
+    // On ne retire QUE la ponctuation de fin de phrase et les guillemets : un `.replace` global
+    // des points effaçait le point de l'extension et rendait « Contrat v2.docx » en « v2docx ».
+    return { genre: "sauvegarder", sousLeNom: sous ? sous[1].replace(/[«»"]/g, "").replace(/[.,;!?]+$/, "").trim() : null };
   }
 
   // ── PDF : les pages ──────────────────────────────────────────────────────────────────
@@ -256,8 +275,14 @@ export function decoder(phrase: string, ctx: ContexteDecodage): IntentionDirecte
   return null;
 }
 
-/** « Là c'est bon », « parfait », « c'est parfait » — un accord, pas une commande (§58). */
+/**
+ * « Là c'est bon », « parfait », « c'est parfait » — un accord, pas une commande (§58).
+ *
+ * L'ANCRE DE FIN EST LE POINT. « C'est bon, supprime la page 3 » commence par un accord et
+ * porte une instruction : le traiter comme un simple accord ferait répondre « parfait ! » sans
+ * rien supprimer, et la personne croirait la page partie. Un accord est un accord SEUL.
+ */
 export function estAccord(phrase: string): boolean {
   const p = normaliserTexte(phrase);
-  return /^(la |là )?(c'est bon|c'est parfait|parfait|nickel|impeccable|tres bien|très bien|ok|voila|voilà|super)\b/.test(p);
+  return /^(?:(?:la|là|bon|et)\s+)?(?:c'est bon|c'est parfait|parfait|nickel|impeccable|tres bien|très bien|ok|voila|voilà|super)\s*[.!]?$/.test(p);
 }

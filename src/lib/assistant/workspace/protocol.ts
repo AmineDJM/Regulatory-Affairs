@@ -25,6 +25,8 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
+import type { VueArtefact } from "@/platform/in-process/artifact/view-types";
+
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * L'IDENTITÉ D'UNE ENTITÉ — ce qui remplace la reconnaissance par le titre.
@@ -646,6 +648,27 @@ type WorkspaceBlockShape =
       piecesJointes?: string[];
       statut: "brouillon" | "envoye" | "annule";
       envoyeLe?: string | null;
+      actions?: WorkspaceAction[];
+    }
+  /**
+   * LE DOCUMENT OUVERT — Word, Excel, PowerPoint ou PDF, VIVANT dans la conversation (§33-34).
+   *
+   * Ce bloc n'est pas un aperçu : c'est le poste de travail. Il porte la vue complète du
+   * document et l'identifiant de session, ce qui permet à la personne de cliquer un paragraphe
+   * pour le désigner, d'annuler, et d'enregistrer — sans quitter le fil.
+   *
+   * ── POURQUOI IL N'Y A QU'UN SEUL BLOC PAR DOCUMENT (§64) ───────────────────────────
+   *
+   * Le `blockId` de la vue devient celui du bloc, et `version` suit `revision`. Trois retouches
+   * ne font donc pas trois cartes qui s'empilent : la MÊME carte se transforme, comme le
+   * document sous les yeux de quelqu'un devant Word. Empiler serait plus simple à coder et
+   * rendrait la conversation illisible au bout de dix instructions.
+   */
+  | {
+      kind: "artifact";
+      title: string;
+      /** La vue complète — pages, blocs, feuilles ou diapositives, avec leurs styles résolus. */
+      vue: VueArtefact;
       actions?: WorkspaceAction[];
     };
 

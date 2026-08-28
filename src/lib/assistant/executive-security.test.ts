@@ -124,6 +124,19 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // vraie session (`mission-runtime-actions.ts`), et `policy/guard.ts` interdit en plus cet
       // outil à l'agent lui-même.
       "mission_control",
+      // artifact_open / artifact_edit / artifact_control : MÊME RAISON QUE `show_document`, et
+      // elle est structurelle.
+      //
+      // Le droit ne porte pas sur l'outil, il porte sur le FICHIER, et il est vérifié nœud par
+      // nœud dans le port (`in-process/artifact/ports.ts`) : `canViewDrive` pour lire,
+      // `canEditDrive` pour écrire une version. Un compte sans droit sur un document ne l'ouvre
+      // pas, ne le modifie pas, et ne l'enregistre pas — la conversation n'est donc pas une
+      // porte dérobée, et la recherche par nom ne balaie que le Drive VISIBLE.
+      //
+      // Exiger EN PLUS un droit de module créerait un second cloisonnement, différent de celui
+      // des écrans : quelqu'un qui a accès à un contrat dans le Drive se verrait refuser de le
+      // retoucher en parlant. Une règle de plus à maintenir, et une occasion de plus de diverger.
+      "artifact_open", "artifact_edit", "artifact_control",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

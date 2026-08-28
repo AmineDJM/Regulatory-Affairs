@@ -100,6 +100,10 @@ const KIND_WEIGHT: Record<WorkspaceBlockKind, number> = {
   entity360: 66,
   comparison: 50,
   planification: 60, // un engagement récurrent : à vérifier une fois, pas à trancher chaque jour
+  // LE DOCUMENT OUVERT passe devant la pièce à relire, et de peu devant le dossier : c'est
+  // l'objet sur lequel la personne travaille EN CE MOMENT. Le reléguer sous un tableau
+  // l'obligerait à faire défiler la conversation entre deux retouches de son contrat.
+  artifact: 72,
   document: 55,   // une pièce à relire avant de valider
   progress: 45,   // des jauges : un constat, pas une décision
   table: 40,
