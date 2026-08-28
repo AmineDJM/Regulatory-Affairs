@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import type { CapabilityCatalog, CapabilityRunner, Clock, MissionActor } from "@/lib/missions/ports";
+import type {
+  CapabilityCatalog, CapabilityRunner, Clock, MissionActor, RegistreRecours,
+} from "@/lib/missions/ports";
 import { verifierAvantAgir } from "@/lib/missions/agent/principal";
 import { systemClock } from "@/lib/missions/ports";
 import {
@@ -16,7 +18,11 @@ import {
 } from "@/lib/missions/goal/evaluate";
 import { attenduDe, evaluerResultat } from "@/lib/missions/recovery/evaluate";
 import { ERROR_KINDS, utilisablePourAgir, type ErrorKind, type Strategy } from "@/lib/missions/recovery/strategy";
-import { deciderRecours, historiqueDe, noter, peutConclureEtape } from "@/lib/missions/recovery/coordinator";
+import {
+  deciderRecours, historiqueDe, noter, peutConclureEtape, type ResolveursRecours,
+} from "@/lib/missions/recovery/coordinator";
+import { elargirEntree, memeAppel, type ActionRecours } from "@/lib/missions/recovery/action";
+import { capabilityMeta } from "@/lib/missions/registry/capability-meta";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -97,6 +103,15 @@ export interface EngineDeps {
    * s'arrête en disant que le travail est fait mais que personne ne l'a vérifié.
    */
   juge?: JugeObjectif;
+  /**
+   * LE REGISTRE DE RECOURS (§77) — ce qui rend « essaie ailleurs » exécutable.
+   *
+   * Facultatif, et son absence a une conséquence DITE : sans lui, `AUTRE_SOURCE` n'a aucune
+   * capacité de remplacement à proposer, le barreau est sauté, et l'échelle descend vers ce
+   * qui agit réellement. C'est très exactement l'état d'avant ce lot — à ceci près qu'il ne
+   * s'annonce plus comme un recours.
+   */
+  registre?: RegistreRecours;
   /** Borne le nombre de tours d'un même appel — protège d'un graphe pathologique, pas du volume. */
   maxTours?: number;
 }
@@ -362,7 +377,7 @@ async function executerUneEtape(
 
   // ── §10 — LE RECOURS LOCAL, AVANT D'ÉPUISER L'ÉTAPE ────────────────────────────────
   if (sortie.status === "FAILED") {
-    const repris = await tenterRecours(etat, step, sortie, clock);
+    const repris = await tenterRecours(etat, step, sortie, clock, { registre: deps.registre, acteur: actor });
     if (repris) return { kind: "etape", echouee: false, dedupliquee: false };
   }
 
@@ -421,6 +436,7 @@ async function tenterRecours(
   step: EtatEtape,
   sortie: Extract<StepOutcome, { status: "FAILED" }>,
   clock: Clock,
+  deps?: { registre?: RegistreRecours; acteur?: MissionActor },
 ): Promise<boolean> {
   if (!(ERROR_KINDS as readonly string[]).includes(sortie.errorKind)) return false;
   const kind = sortie.errorKind as ErrorKind;
@@ -428,6 +444,40 @@ async function tenterRecours(
   const historique = historiqueDe(step.recovery);
   const attendu = attenduDe(step.spec);
   const inapplicables = strategiesInapplicables(step);
+  const entree: Record<string, unknown> = { ...step.input };
+
+  /**
+   * ── LES RÉSOLVEURS : CE QUE LE MOTEUR SAIT FAIRE, POUR DE VRAI ──────────────────────
+   *
+   * Le coordinateur ne propose plus un barreau sans savoir s'il peut agir. Il pose la question
+   * à ces trois fonctions, et saute ce à quoi elles répondent « non ». C'est ce qui remplace
+   * l'écriture d'un champ `source` que personne ne relisait.
+   */
+  const resolveurs: ResolveursRecours = {
+    autreSource: (source) => {
+      if (!deps?.registre || !deps.acteur || !step.capability) return null;
+      const effet = capabilityMeta(step.capability).effect;
+      const alt = deps.registre.autreSource({
+        source,
+        capaciteActuelle: step.capability,
+        entree,
+        acteur: deps.acteur,
+        effetMax: effet,
+      });
+      if (!alt) return null;
+      // LA CEINTURE : même si le registre se trompait, un appel identique n'est pas un recours.
+      if (alt.capability === step.capability && memeAppel(alt.input, entree)) return null;
+      return { type: "AUTRE_CAPACITE", capability: alt.capability, input: alt.input, ceQuiChange: alt.ceQuiChange };
+    },
+    elargir: () => {
+      const large = elargirEntree(entree);
+      if (!large || memeAppel(large.input, entree)) return null;
+      return { type: "REQUETE_ELARGIE", input: large.input, ceQuiChange: large.ceQuiChange };
+    },
+    // ADAPTER est décidé par le nœud lui-même : seul l'éventail sait relire son amont, et il
+    // l'a déjà fait avant d'échouer. Le déclarer ici serait une seconde vérité.
+    adaptable: () => false,
+  };
 
   // ── §76 — L'AUTORISATION D'ARRÊTER ─────────────────────────────────────────────────
   //
@@ -445,20 +495,30 @@ async function tenterRecours(
     objectif: step.title,
     rejouable: sortie.retryable,
     inapplicables,
+    resolveurs,
   });
 
-  // Seul « réessayer » réarme l'étape ici. Demander à un humain, escalader, replanifier et
-  // bloquer sont des ÉTATS de mission : ils passent par l'écriture normale de la sortie, qui
-  // porte déjà le motif exact — et par le balayage, qui sait les traiter.
+  // Seul « réessayer » réarme l'étape ici. Demander à un humain, escalader, replanifier
+  // (localement ou globalement) et bloquer sont des ÉTATS de mission : ils passent par
+  // l'écriture normale de la sortie, qui porte déjà le motif exact — et par le balayage.
   if (recours.geste !== "REESSAYER") return false;
 
   const suivant = noter(historique, { strategie: recours.strategie, source: recours.source, kind }, clock.now());
+  const majCapacite = appliquer(recours.action, step.capability, entree);
 
-  // La source retenue est passée par l'ENTRÉE de l'étape : c'est ce que la capacité lit, et
-  // c'est ce que l'humain verrait s'il regardait l'étape. Rien n'est caché dans le moteur.
-  const entree: Record<string, unknown> = { ...step.input };
-  if (recours.source) entree.source = recours.source;
-  if (recours.strategie === "ELARGIR") entree.elargir = true;
+  /**
+   * ── L'INVARIANT : AUCUN RECOURS SANS CHANGEMENT RÉEL ────────────────────────────────
+   *
+   * Un `STEP_RECOVERY` ne peut pas être journalisé si l'appel suivant est identique au
+   * précédent. Le seul cas admis est le rejeu technique explicite, où ne rien changer EST le
+   * propos : une panne de fournisseur se répare en refaisant le même appel.
+   *
+   * Cette garde est redondante avec les résolveurs, et c'est voulu. Elle a un coût nul, et
+   * elle tombe le jour où quelqu'un ajoute un barreau qui croit changer quelque chose.
+   */
+  const rejeuTechnique = recours.action.type === "REJEU";
+  const identique = majCapacite.capability === step.capability && memeAppel(majCapacite.input, entree);
+  if (identique && !rejeuTechnique) return false;
 
   await prisma.missionStep.update({
     where: { id: step.id },
@@ -466,21 +526,55 @@ async function tenterRecours(
       status: "READY",
       error: sortie.error,
       errorKind: kind,
-      input: entree as never,
+      input: majCapacite.input as never,
+      ...(majCapacite.capability !== step.capability ? { capability: majCapacite.capability } : {}),
       recovery: suivant as never,
       startedAt: null,
     },
   });
 
-  await journaliser(etat.id, "STEP_RECOVERY", `${step.key} — ${recours.strategie}${recours.source ? ` → ${recours.source}` : ""}`, {
-    stepKey: step.key,
-    errorKind: kind,
-    strategie: recours.strategie,
-    source: recours.source,
-    tentative: suivant.journal.length,
-    pourquoi: recours.pourquoi,
-  });
+  await journaliser(
+    etat.id,
+    "STEP_RECOVERY",
+    `${step.key} — ${recours.strategie}${recours.source ? ` → ${recours.source}` : ""} : ${recours.action.ceQuiChange}`,
+    {
+      stepKey: step.key,
+      errorKind: kind,
+      strategie: recours.strategie,
+      source: recours.source,
+      tentative: suivant.journal.length,
+      // CE QUI CHANGE EST ÉCRIT. Un lecteur du fil peut vérifier que le recours en était un.
+      action: recours.action.type,
+      capaciteAvant: step.capability,
+      capaciteApres: majCapacite.capability,
+      // Les barreaux sautés faute d'action possible : ils expliquent le chemin sans le fausser.
+      sautes: recours.sautes,
+      pourquoi: recours.pourquoi,
+    },
+  );
   return true;
+}
+
+/**
+ * TRADUIT L'ACTION EN (CAPACITÉ, ENTRÉE) EFFECTIVES — le seul endroit qui touche l'étape.
+ *
+ * `courante` est rendue telle quelle quand l'action ne change pas de capacité : rendre `null`
+ * ferait croire à un changement à la comparaison qui suit, et l'on écrirait `capability: null`
+ * en base sur une étape qui en a une.
+ */
+function appliquer(
+  action: ActionRecours,
+  courante: string | null,
+  entree: Record<string, unknown>,
+): { capability: string | null; input: Record<string, unknown> } {
+  switch (action.type) {
+    case "AUTRE_CAPACITE":
+      return { capability: action.capability, input: action.input };
+    case "REQUETE_ELARGIE":
+      return { capability: courante, input: action.input };
+    case "REJEU":
+      return { capability: courante, input: entree };
+  }
 }
 
 /** Aiguille selon le type de nœud. Les types de CONTRÔLE ont un comportement natif. */

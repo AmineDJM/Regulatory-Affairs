@@ -13,6 +13,19 @@
  * directement : si le moteur cesse de les consulter, ces tests tombent. C'est toute la
  * différence entre « la fonction marche » et « le système s'en sert ».
  *
+ * ── ET POURQUOI IL A ÉTÉ RÉÉCRIT ─────────────────────────────────────────────────────────
+ *
+ * Son exécutant de test lisait `call.input.source` pour décider quoi rendre. Une recherche
+ * exhaustive du dépôt a montré que ce champ n'est lu NULLE PART AILLEURS : ce banc était le seul
+ * consommateur au monde du mécanisme qu'il validait. Le recours « changeait de grenier » en
+ * écrivant un champ que seule cette ligne relisait ; en production, la capacité repartait à
+ * l'identique.
+ *
+ * C'est §14 de la doctrine pris en flagrant délit : un test qui part d'un état injecté à la main
+ * ne répond pas à la question. L'exécutant est donc désormais indexé sur la CAPACITÉ appelée —
+ * ce que la production observe réellement — et le moteur reçoit un registre de recours, qui est
+ * la brique qui traduit « essaie dans Legal » en « appelle `search_courriers` ».
+ *
  * ── LE SCÉNARIO DE RÉFÉRENCE ─────────────────────────────────────────────────────────────
  *
  * « Trouve le contrat de la consultante médicale. » Le Drive rend une convention speaker :
@@ -25,7 +38,10 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { avancer, type StepOutcome } from "@/lib/missions/runtime/engine";
-import type { CapabilityCall, CapabilityOutcome, CapabilityRunner, MissionActor } from "@/lib/missions/ports";
+import type {
+  CapabilityCall, CapabilityOutcome, CapabilityRunner, MissionActor, RegistreRecours,
+} from "@/lib/missions/ports";
+import { champRequete } from "@/lib/missions/recovery/action";
 import { historiqueDe } from "@/lib/missions/recovery/coordinator";
 
 let dbOk = false;
@@ -76,15 +92,67 @@ async function missionAvecEtape(attendu: Record<string, unknown>, titre = "Trouv
   return { id: m.id, stepId: s.id };
 }
 
-/** Un exécutant qui répond DIFFÉREMMENT selon le grenier qu'on lui désigne. */
-function runnerParSource(reponses: Record<string, unknown>, defaut: unknown): CapabilityRunner & { appels: string[] } {
+/**
+ * LE GRENIER, ET LA CAPACITÉ QUI L'INTERROGE.
+ *
+ * C'est la traduction que fait le vrai registre (`recovery-registry.ts`) à partir du catalogue
+ * réel. On la fige ici pour que le banc reste hors base et hors droits — mais on la fige sur des
+ * NOMS D'OUTILS QUI EXISTENT, pour qu'aucun test ne s'appuie sur une capacité imaginaire.
+ */
+const CAPACITE_PAR_SOURCE: Record<string, string> = {
+  DRIVE: "search_drive",
+  LEGAL: "search_courriers",
+  COURRIERS: "list_my_requests",
+  REGULATORY: "regulatory_portfolio",
+  HR: "employee_360",
+  FINANCE: "read_finances",
+  ADPRO: "list_my_tasks",
+  GMAIL_ATTACHMENTS: "gmail_search",
+  BUSINESS_EVENTS: "inspect_record",
+};
+
+/**
+ * LE REGISTRE DE TEST — même contrat que celui de production, sans catalogue ni droits.
+ *
+ * Il rend `null` quand le grenier visé n'a pas de capacité, ou quand ce serait la capacité
+ * courante : dans les deux cas, il n'y a pas de recours à proposer, et le prétendre reproduirait
+ * exactement le défaut que ce lot supprime.
+ */
+const REGISTRE: RegistreRecours = {
+  autreSource: ({ source, capaciteActuelle, entree }) => {
+    const cap = CAPACITE_PAR_SOURCE[source];
+    if (!cap || cap === capaciteActuelle) return null;
+    const champ = champRequete(entree as Record<string, unknown>);
+    if (!champ) return null;
+    return {
+      capability: cap,
+      input: { query: String((entree as Record<string, unknown>)[champ]) },
+      ceQuiChange: `${capaciteActuelle ?? "?"} → ${cap}`,
+    };
+  },
+};
+
+/**
+ * UN EXÉCUTANT INDEXÉ SUR LA CAPACITÉ RÉELLEMENT APPELÉE.
+ *
+ * C'est le cœur de la réécriture. La production n'observe pas un champ `source` : elle observe
+ * quel OUTIL a été invoqué. Un banc qui mesure autre chose mesure sa propre fiction.
+ */
+function runnerParCapacite(
+  parSource: Record<string, unknown>,
+  defaut: unknown,
+): CapabilityRunner & { appels: string[]; sources: string[] } {
   const appels: string[] = [];
+  const sources: string[] = [];
+  const inverse = new Map(Object.entries(CAPACITE_PAR_SOURCE).map(([s, c]) => [c, s]));
   return {
     appels,
+    sources,
     async run(call: CapabilityCall): Promise<CapabilityOutcome> {
-      const source = String((call.input as Record<string, unknown>).source ?? "DEFAUT");
-      appels.push(source);
-      return { ok: true, output: source in reponses ? reponses[source] : defaut } as CapabilityOutcome;
+      appels.push(call.capability);
+      const source = inverse.get(call.capability) ?? "DEFAUT";
+      sources.push(source);
+      return { ok: true, output: source in parSource ? parSource[source] : defaut } as CapabilityOutcome;
     },
   };
 }
@@ -96,9 +164,9 @@ suite("§86 — le recours local, vu depuis le moteur", () => {
   it("un document PLAUSIBLE MAIS FAUX ne termine pas l'étape : le moteur change de grenier et trouve le bon", async () => {
     const { id, stepId } = await missionAvecEtape({ type: "CONTRAT", cible: "CONTRAT" });
     // Legal rend le vrai contrat ; partout ailleurs, la convention speaker.
-    const runner = runnerParSource({ LEGAL: CONTRAT }, CONVENTION);
+    const runner = runnerParCapacite({ LEGAL: CONTRAT }, CONVENTION);
 
-    await avancer(id, acteur, { runner, maxTours: 20 });
+    await avancer(id, acteur, { runner, registre: REGISTRE, maxTours: 20 });
 
     const step = await prisma.missionStep.findUniqueOrThrow({
       where: { id: stepId },
@@ -114,15 +182,17 @@ suite("§86 — le recours local, vu depuis le moteur", () => {
     expect(h.tentees).toContain("AUTRE_SOURCE");
     expect(h.sources.length).toBeGreaterThan(0);
     // L'ordre des greniers pour un CONTRAT commence par LEGAL — le moteur l'a bien consulté.
-    expect(runner.appels).toContain("LEGAL");
+    // Le moteur a bien APPELÉ UNE AUTRE CAPACITÉ, celle qui interroge Legal.
+    expect(runner.appels).toContain(CAPACITE_PAR_SOURCE.LEGAL);
+    expect(runner.sources).toContain("LEGAL");
   });
 
   it("le premier résultat n'est JAMAIS retenu quand il est incompatible — knownMismatchStopRate = 0", async () => {
     const { id, stepId } = await missionAvecEtape({ type: "CONTRAT", cible: "CONTRAT" });
     // Aucune source ne détient le contrat : partout la convention.
-    const runner = runnerParSource({}, CONVENTION);
+    const runner = runnerParCapacite({}, CONVENTION);
 
-    await avancer(id, acteur, { runner, maxTours: 30 });
+    await avancer(id, acteur, { runner, registre: REGISTRE, maxTours: 30 });
 
     const step = await prisma.missionStep.findUniqueOrThrow({
       where: { id: stepId }, select: { status: true, result: true, errorKind: true, error: true, recovery: true },
@@ -130,7 +200,19 @@ suite("§86 — le recours local, vu depuis le moteur", () => {
 
     // Le point du test : l'étape n'a PAS conclu sur la convention speaker.
     expect(step.status).not.toBe("DONE");
-    expect(step.errorKind).toBe("INCOMPATIBLE_RESULT");
+    /**
+     * LA CAUSE EST « PAS TROUVÉ », ET C'EST UNE CORRECTION.
+     *
+     * Elle valait `INCOMPATIBLE_RESULT`, ce qui se lisait bien — le résultat ne correspond pas.
+     * Mais l'échelle ne lit pas des mots, elle branche une conduite : la convention speaker est
+     * parfaitement bien FORMÉE, elle n'est simplement pas le contrat. Ce qui manque, c'est la
+     * pièce, pas la structure — donc on va voir ailleurs.
+     *
+     * `INCOMPATIBLE_RESULT` est désormais réservé aux vrais désaccords de forme (un éventail
+     * qui attend une liste et reçoit une phrase), dont l'échelle répare ou récrit localement au
+     * lieu de courir les greniers.
+     */
+    expect(step.errorKind).toBe("NOT_FOUND");
     // Et le blocage NOMME les greniers ouverts (§24) plutôt que de dire « impossible ».
     const h = historiqueDe(step.recovery);
     expect(h.sources.length).toBeGreaterThanOrEqual(2);
@@ -138,9 +220,9 @@ suite("§86 — le recours local, vu depuis le moteur", () => {
 
   it("NOT_FOUND : une source vide n'arrête pas la recherche", async () => {
     const { id, stepId } = await missionAvecEtape({ type: "CONTRAT", cible: "CONTRAT" });
-    const runner = runnerParSource({ HR: CONTRAT }, { items: [] });
+    const runner = runnerParCapacite({ HR: CONTRAT }, { items: [] });
 
-    await avancer(id, acteur, { runner, maxTours: 30 });
+    await avancer(id, acteur, { runner, registre: REGISTRE, maxTours: 30 });
 
     const step = await prisma.missionStep.findUniqueOrThrow({
       where: { id: stepId }, select: { status: true, result: true, recovery: true },
@@ -154,9 +236,9 @@ suite("§86 — le recours local, vu depuis le moteur", () => {
     const { id, stepId } = await missionAvecEtape({ nombre: 5, cible: "CONTRAT" }, "Récupérer les 5 contrats");
     const quatre = { items: [1, 2, 3, 4] };
     const cinq = { items: [1, 2, 3, 4, 5] };
-    const runner = runnerParSource({ DRIVE: cinq }, quatre);
+    const runner = runnerParCapacite({ DRIVE: cinq }, quatre);
 
-    await avancer(id, acteur, { runner, maxTours: 30 });
+    await avancer(id, acteur, { runner, registre: REGISTRE, maxTours: 30 });
 
     const step = await prisma.missionStep.findUniqueOrThrow({
       where: { id: stepId }, select: { status: true, result: true },
@@ -167,9 +249,9 @@ suite("§86 — le recours local, vu depuis le moteur", () => {
 
   it("la boucle est impossible : une source n'est jamais visitée deux fois", async () => {
     const { id, stepId } = await missionAvecEtape({ type: "CONTRAT", cible: "CONTRAT" });
-    const runner = runnerParSource({}, CONVENTION);
+    const runner = runnerParCapacite({}, CONVENTION);
 
-    await avancer(id, acteur, { runner, maxTours: 40 });
+    await avancer(id, acteur, { runner, registre: REGISTRE, maxTours: 40 });
 
     const step = await prisma.missionStep.findUniqueOrThrow({ where: { id: stepId }, select: { recovery: true } });
     const h = historiqueDe(step.recovery);
@@ -187,7 +269,7 @@ suite("§86 — le recours local, vu depuis le moteur", () => {
       },
     };
 
-    await avancer(id, acteur, { runner, maxTours: 20 });
+    await avancer(id, acteur, { runner, registre: REGISTRE, maxTours: 20 });
 
     const step = await prisma.missionStep.findUniqueOrThrow({
       where: { id: stepId }, select: { status: true, errorKind: true, recovery: true },
@@ -199,9 +281,9 @@ suite("§86 — le recours local, vu depuis le moteur", () => {
 
   it("un résultat SANS critère d'acceptation passe tel quel — on ne fabrique pas d'exigence", async () => {
     const { id, stepId } = await missionAvecEtape({}, "Étape sans critère");
-    const runner = runnerParSource({}, CONVENTION);
+    const runner = runnerParCapacite({}, CONVENTION);
 
-    await avancer(id, acteur, { runner, maxTours: 10 });
+    await avancer(id, acteur, { runner, registre: REGISTRE, maxTours: 10 });
 
     const step = await prisma.missionStep.findUniqueOrThrow({ where: { id: stepId }, select: { status: true, recovery: true } });
     expect(step.status).toBe("DONE");
@@ -212,8 +294,8 @@ suite("§86 — le recours local, vu depuis le moteur", () => {
     const { id, stepId } = await missionAvecEtape({ type: "CONTRAT", cible: "CONTRAT" });
 
     // Premier passage : le moteur ouvre LEGAL, qui ne rend pas le bon type.
-    const r1 = runnerParSource({}, CONVENTION);
-    await avancer(id, acteur, { runner: r1, maxTours: 2 });
+    const r1 = runnerParCapacite({}, CONVENTION);
+    await avancer(id, acteur, { runner: r1, registre: REGISTRE, maxTours: 2 });
     const apres1 = historiqueDe(
       (await prisma.missionStep.findUniqueOrThrow({ where: { id: stepId }, select: { recovery: true } })).recovery,
     );
@@ -221,9 +303,9 @@ suite("§86 — le recours local, vu depuis le moteur", () => {
 
     // « Crash » : nouveau moteur, nouvel exécutant. L'historique vient de la BASE, pas de la
     // mémoire du processus — c'est ce qui rend la persévérance reprenable.
-    const r2 = runnerParSource({}, CONVENTION);
-    await avancer(id, acteur, { runner: r2, maxTours: 4 });
-    expect(r2.appels).not.toContain(apres1.sources[0]);
+    const r2 = runnerParCapacite({}, CONVENTION);
+    await avancer(id, acteur, { runner: r2, registre: REGISTRE, maxTours: 4 });
+    expect(r2.sources).not.toContain(apres1.sources[0]);
   });
 });
 
@@ -237,7 +319,7 @@ suite("§86 — le recours local, vu depuis le moteur", () => {
 suite("le moteur consulte bien l'échelle, et pas une copie", () => {
   it("l'historique persisté porte des noms de STRATÉGIES et de SOURCES du module recovery", async () => {
     const { id, stepId } = await missionAvecEtape({ type: "CONTRAT", cible: "CONTRAT" });
-    await avancer(id, acteur, { runner: runnerParSource({}, CONVENTION), maxTours: 30 });
+    await avancer(id, acteur, { runner: runnerParCapacite({}, CONVENTION), registre: REGISTRE, maxTours: 30 });
 
     const h = historiqueDe(
       (await prisma.missionStep.findUniqueOrThrow({ where: { id: stepId }, select: { recovery: true } })).recovery,
@@ -251,7 +333,7 @@ suite("le moteur consulte bien l'échelle, et pas une copie", () => {
 
   it("un événement STEP_RECOVERY est journalisé — la persévérance est observable (§70)", async () => {
     const { id } = await missionAvecEtape({ type: "CONTRAT", cible: "CONTRAT" });
-    await avancer(id, acteur, { runner: runnerParSource({ LEGAL: CONTRAT }, CONVENTION), maxTours: 20 });
+    await avancer(id, acteur, { runner: runnerParCapacite({ LEGAL: CONTRAT }, CONVENTION), registre: REGISTRE, maxTours: 20 });
 
     const evts = await prisma.missionEvent.findMany({ where: { missionId: id, kind: "STEP_RECOVERY" } });
     expect(evts.length).toBeGreaterThan(0);

@@ -81,21 +81,52 @@ describe("échelle de recours — le contrôle qualité est un motif d'échec co
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 describe("les barreaux inapplicables", () => {
-  const base = { kind: "INCOMPATIBLE_RESULT" as const, historique: HISTORIQUE_VIDE, cible: "DOCUMENT" };
+  /** Un résolveur qui SAIT faire : c'est lui qui rend un barreau exécutable. */
+  const capable = {
+    autreSource: () => ({
+      type: "AUTRE_CAPACITE" as const,
+      capability: "search_courriers",
+      input: { query: "contrat" },
+      ceQuiChange: "search_drive → search_courriers",
+    }),
+  };
+  // NOT_FOUND est la cause qui porte AUTRE_SOURCE en tête — c'est sur elle que la question se
+  // pose. INCOMPATIBLE_RESULT, lui, ne cherche plus ailleurs du tout : ce serait chercher une
+  // autre forme dans un autre grenier.
+  const base = { kind: "NOT_FOUND" as const, historique: HISTORIQUE_VIDE, cible: "DOCUMENT" };
 
   it("SANS déclaration, l'échelle propose AUTRE_SOURCE — c'est l'état d'avant", () => {
     // Le contre-exemple d'abord : sans lui, le test suivant passerait même si l'option était
     // ignorée, et l'on croirait tenir une garantie qu'on n'a pas.
-    const r = deciderRecours({ ...base, rejouable: false });
+    const r = deciderRecours({ ...base, rejouable: false, resolveurs: capable });
     expect(r.geste).toBe("REESSAYER");
-    if (r.geste === "REESSAYER") expect(r.strategie).toBe("AUTRE_SOURCE");
+    if (r.geste === "REESSAYER") {
+      expect(r.strategie).toBe("AUTRE_SOURCE");
+      // ET L'ACTION EST CONCRÈTE : une autre capacité, pas une étiquette dans l'entrée.
+      expect(r.action.type).toBe("AUTRE_CAPACITE");
+    }
   });
 
   it("déclarés inapplicables, ils sont SAUTÉS — et l'échelle atteint le barreau qui agit", () => {
-    const r = deciderRecours({ ...base, rejouable: false, inapplicables: ["AUTRE_SOURCE", "ELARGIR"] });
-    // REPLANIFIER est le troisième barreau d'INCOMPATIBLE_RESULT. C'est lui qui corrige un
-    // chemin d'éventail faux : seul un nouveau plan peut le récrire.
-    expect(r.geste).toBe("REPLANIFIER");
+    const r = deciderRecours({
+      ...base, rejouable: false, resolveurs: capable, inapplicables: ["AUTRE_SOURCE", "ELARGIR"],
+    });
+    // REPLAN_LOCAL est le barreau suivant de NOT_FOUND : récrire la partie du plan qui
+    // cherchait au mauvais endroit, sans régénérer tout le DAG ni déranger personne.
+    expect(r.geste).toBe("REPLAN_LOCAL");
+    // `sautes` reste VIDE, et la nuance est réelle : un barreau DÉCLARÉ inapplicable n'entre
+    // jamais dans l'échelle — il est retiré en amont, avec `DECOUPER`. `sautes` ne porte que
+    // ceux qui y sont entrés et dont le résolveur n'a rien su faire (test suivant).
+    expect(r.sautes).toEqual([]);
+  });
+
+  it("UN BARREAU SANS ACTION POSSIBLE EST SAUTÉ, MÊME NON DÉCLARÉ", () => {
+    // La vraie généralisation : ce n'est pas l'appelant qui décide seul, c'est la capacité
+    // d'agir. Un résolveur qui ne sait rien faire produit exactement le même saut.
+    const r = deciderRecours({ ...base, rejouable: false, resolveurs: {} });
+    expect(r.geste).toBe("REPLAN_LOCAL");
+    expect(r.sautes).toContain("AUTRE_SOURCE");
+    expect(r.sautes).toContain("ELARGIR");
   });
 
   it("un barreau sauté n'est pas COMPTÉ comme tenté — l'étape ne meurt pas plus vite", () => {
@@ -107,18 +138,28 @@ describe("les barreaux inapplicables", () => {
   });
 
   it("quand il ne reste QUE des barreaux inapplicables, l'étape a le droit de s'arrêter", () => {
-    // NOT_FOUND n'a pas de REPLANIFIER : ses barreaux utiles sont AUTRE_SOURCE, ELARGIR,
-    // DEMANDER_HUMAIN et DECLARER_INCONNU. Tout retirer ne laisse rien à tenter, et prétendre
-    // le contraire ferait tourner le moteur sur une étape qu'il ne sait plus faire avancer.
+    // Tout retirer ne laisse rien à tenter, et prétendre le contraire ferait tourner le moteur
+    // sur une étape qu'il ne sait plus faire avancer.
     expect(peutConclureEtape({
-      kind: "NOT_FOUND", historique: HISTORIQUE_VIDE, cible: "DOCUMENT", rejouable: false,
-      inapplicables: ["AUTRE_SOURCE", "ELARGIR", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+      ...base, rejouable: false,
+      inapplicables: ["AUTRE_SOURCE", "ELARGIR", "REPLAN_LOCAL", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
     })).toBe(true);
   });
 
   it("la déclaration ne touche PAS les autres étapes — la liste vide ne change rien", () => {
-    const avec = deciderRecours({ ...base, rejouable: false, inapplicables: [] });
-    const sans = deciderRecours({ ...base, rejouable: false });
+    const avec = deciderRecours({ ...base, rejouable: false, resolveurs: capable, inapplicables: [] });
+    const sans = deciderRecours({ ...base, rejouable: false, resolveurs: capable });
     expect(avec).toEqual(sans);
+  });
+
+  it("UNE MAUVAISE FORME NE CHERCHE PLUS AILLEURS — la correction qui a coûté 191 s", () => {
+    // La taxonomie, tenue par un test : une erreur de forme ne doit produire ni AUTRE_SOURCE
+    // ni ELARGIR, quoi que sache faire le résolveur.
+    const r = deciderRecours({
+      kind: "INCOMPATIBLE_RESULT", historique: HISTORIQUE_VIDE, cible: "DOCUMENT",
+      rejouable: false, resolveurs: capable,
+    });
+    expect(["ADAPTER", "REPLAN_LOCAL"]).toContain(r.geste);
+    if (r.geste !== "BLOQUER") expect(r.strategie).not.toBe("AUTRE_SOURCE");
   });
 });

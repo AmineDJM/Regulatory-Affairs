@@ -107,6 +107,47 @@ export interface CapabilityRunner {
 }
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE REGISTRE DE RECOURS — ce qui rend « essaie ailleurs » exécutable au lieu de décoratif.
+ *
+ * ── LE DÉFAUT QU'IL FERME ────────────────────────────────────────────────────────────────
+ *
+ * `AUTRE_SOURCE` s'appliquait en écrivant `source: "LEGAL"` dans l'entrée de l'étape. Une
+ * recherche exhaustive du dépôt a montré qu'AUCUNE capacité ne lit ce champ : le moteur
+ * l'écrivait, personne ne le relisait, et la capacité repartait avec un appel identique. Le
+ * premier barreau de six échelles sur neuf était un rejeu portant un nom de stratégie.
+ *
+ * « Chercher dans Legal » ne veut pas dire « rappeler `search_drive` avec une étiquette » : cela
+ * veut dire APPELER UNE AUTRE CAPACITÉ, celle qui interroge ce grenier-là.
+ *
+ * ── POURQUOI UN PORT ─────────────────────────────────────────────────────────────────────
+ *
+ * Le runtime ne connaît ni les noms d'outils, ni leurs schémas, ni les droits. L'implémentation
+ * vit du côté de la plateforme, là où le catalogue existe — et c'est elle qui garantit les deux
+ * règles de sûreté : la capacité de remplacement est OUVERTE à l'acteur, et son effet ne dépasse
+ * jamais celui de l'étape d'origine. Une mission n'est pas une porte dérobée, y compris quand
+ * elle se rattrape.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface RegistreRecours {
+  /**
+   * L'appel qui interroge CE grenier pour la même recherche.
+   *
+   * `null` quand aucune capacité ne l'interroge, quand l'acteur n'y a pas droit, quand son
+   * effet dépasserait celui de l'étape, ou quand l'appel obtenu serait identique au précédent.
+   */
+  autreSource(demande: {
+    source: string;
+    /** La capacité qui vient d'échouer — on ne la reproposera pas. */
+    capaciteActuelle: string | null;
+    entree: Record<string, unknown>;
+    acteur: MissionActor;
+    /** L'effet de l'étape d'origine : le remplacement ne peut pas aller au-delà. */
+    effetMax: Effect;
+  }): { capability: string; input: Record<string, unknown>; ceQuiChange: string } | null;
+}
+
+/**
  * L'HORLOGE — injectée, parce qu'un test d'attente de dix jours ne dure pas dix jours.
  *
  * Le runtime ne dit jamais `new Date()` : une mission qui attend un événement compare des

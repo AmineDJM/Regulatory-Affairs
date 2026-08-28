@@ -4,7 +4,9 @@ import { avancer, BAIL_MS, StepHandlers } from "./engine";
 import { chargerEtat, materialiser } from "./store";
 import { compile } from "@/lib/missions/compiler/compile";
 import type { MissionPlan, PlannedStep } from "@/lib/missions/planner/contract";
-import type { CapabilityCall, CapabilityCatalog, CapabilityOutcome, MissionActor } from "@/lib/missions/ports";
+import type {
+  CapabilityCall, CapabilityCatalog, CapabilityOutcome, MissionActor, RegistreRecours,
+} from "@/lib/missions/ports";
 import { capabilityMeta } from "@/lib/missions/registry/capability-meta";
 
 /**
@@ -48,7 +50,25 @@ function traceur(options: {
 const CONNUES = [
   "directory_list", "employee_360", "read_hr_overview", "inspect_record",
   "gmail_prepare_mail", "send_email", "send_message", "create_admin_request",
+  "search_courriers", "search_drive",
 ];
+
+/**
+ * UN REGISTRE DE RECOURS DE TEST — même contrat que la production, sans catalogue ni droits.
+ *
+ * Il traduit un grenier en CAPACITÉ, ce que le vrai registre fait à partir du catalogue réel.
+ * Sa présence ou son absence est ce qui décide si `AUTRE_SOURCE` est exécutable : c'est la
+ * différence entre un recours et une étiquette écrite dans une entrée que personne ne lit.
+ */
+const REGISTRE_TEST: RegistreRecours = {
+  autreSource: ({ source, capaciteActuelle, entree }) => {
+    const cap = ({ LEGAL: "search_courriers", DRIVE: "search_drive", HR: "employee_360" } as Record<string, string>)[source];
+    if (!cap || cap === capaciteActuelle) return null;
+    const texte = entree.reference ?? entree.query;
+    if (typeof texte !== "string") return null;
+    return { capability: cap, input: { query: texte }, ceQuiChange: `${capaciteActuelle} → ${cap}` };
+  },
+};
 
 const catalogue: CapabilityCatalog = {
   has: (n) => CONNUES.includes(n),
@@ -272,19 +292,43 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     // lieu de retirer deux barreaux inertes sur un seul type de nœud. C'est la différence entre
     // « on ne ment plus » et « on n'essaie plus ».
     const t = traceur({
-      echouer: (c) => (c.stepKey === "doc"
+      echouer: (c) => (c.capability === "inspect_record"
         ? { kind: "NOT_FOUND", message: "le document n'est pas dans le Drive", retryable: false }
         : null),
     });
     const id = await creerMission([
-      { key: "doc", title: "Retrouver le contrat", capability: "inspect_record" },
+      { key: "doc", title: "Retrouver le contrat", capability: "inspect_record", input: { reference: "contrat consultante" } },
     ], "recours sur étape ordinaire");
 
-    await avancer(id, actor, { runner: t.runner });
+    await avancer(id, actor, { runner: t.runner, registre: REGISTRE_TEST });
     const recours = await recoursDe(id);
     expect(recours.length).toBeGreaterThan(0);
-    // Et le recours tenté est bien celui qui a du sens ici : chercher AILLEURS.
+    // Et le recours tenté est bien celui qui a du sens ici : chercher AILLEURS — en APPELANT
+    // UNE AUTRE CAPACITÉ, ce que le journal dit désormais explicitement.
     expect(recours.some((e) => e.summary.includes("AUTRE_SOURCE"))).toBe(true);
+    // LA PREUVE QUI COMPTE : une AUTRE capacité a réellement été appelée. L'ordre des greniers
+    // pour un DOCUMENT commence par le Drive, d'où `search_drive` — ce qui importe est que
+    // l'appel ait changé, pas lequel.
+    const appelees = t.appels.map((a) => a.capability);
+    expect(appelees[0]).toBe("inspect_record");
+    expect(appelees.slice(1).some((c) => c !== "inspect_record")).toBe(true);
+  });
+
+  it("SANS registre, aucun faux recours n'est journalisé — le barreau se saute au lieu de mentir", async () => {
+    // L'état d'avant ce lot, rendu honnête. Le moteur écrivait `source: "LEGAL"` dans l'entrée
+    // et rejouait la même capacité : six lignes `STEP_RECOVERY` pour six appels identiques.
+    // Sans capacité de remplacement, il n'y a rien à tenter, et le journal le dit en se taisant.
+    const t = traceur({
+      echouer: () => ({ kind: "NOT_FOUND", message: "rien ici", retryable: false }),
+    });
+    const id = await creerMission([
+      { key: "doc", title: "Retrouver le contrat", capability: "inspect_record", input: { reference: "x" } },
+    ], "recours sans registre");
+
+    await avancer(id, actor, { runner: t.runner });
+    expect(await recoursDe(id)).toEqual([]);
+    // Un seul appel : pas de rejeu déguisé en persévérance.
+    expect(t.appels).toHaveLength(1);
   });
 
   it("UNE seule liste dans le résultat : l'éventail se déploie, et la correction est JOURNALISÉE", async () => {

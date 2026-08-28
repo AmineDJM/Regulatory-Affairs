@@ -288,9 +288,12 @@ describe("échelle de récupération", () => {
   it("« pas trouvé » cherche AILLEURS avant de renoncer (§77)", () => {
     expect(prochaineStrategie("NOT_FOUND", [])).toBe("AUTRE_SOURCE");
     expect(prochaineStrategie("NOT_FOUND", ["AUTRE_SOURCE"])).toBe("ELARGIR");
-    expect(prochaineStrategie("NOT_FOUND", ["AUTRE_SOURCE", "ELARGIR"])).toBe("DEMANDER_HUMAIN");
-    expect(prochaineStrategie("NOT_FOUND", ["AUTRE_SOURCE", "ELARGIR", "DEMANDER_HUMAIN"]))
-      .toBe("DECLARER_INCONNU");
+    // LE REPLAN LOCAL S'INTERCALE AVANT L'HUMAIN, et c'est une correction : récrire la partie
+    // du plan qui cherchait au mauvais endroit est automatique et bon marché ; déranger
+    // quelqu'un ne l'est pas. On ne remonte à l'humain qu'après avoir épuisé l'automatique.
+    expect(prochaineStrategie("NOT_FOUND", ["AUTRE_SOURCE", "ELARGIR"])).toBe("REPLAN_LOCAL");
+    expect(prochaineStrategie("NOT_FOUND", ["AUTRE_SOURCE", "ELARGIR", "REPLAN_LOCAL"]))
+      .toBe("DEMANDER_HUMAIN");
   });
 
   it("§108 — un DROIT MANQUANT ne se réessaie pas, ne s'élargit pas, ne se contourne pas", () => {
@@ -315,9 +318,24 @@ describe("échelle de récupération", () => {
   it("une panne de fournisseur se réessaie ; un résultat incompatible cherche AILLEURS avant de replanifier", () => {
     expect(prochaineStrategie("PROVIDER_FAILURE", [])).toBe("RETRY");
     expect(rejouable("PROVIDER_FAILURE")).toBe(true);
-    expect(prochaineStrategie("INCOMPATIBLE_RESULT", [])).toBe("AUTRE_SOURCE");
-    // Replanifier reste dans l'échelle — mais APRÈS les voies locales.
-    expect(prochaineStrategie("INCOMPATIBLE_RESULT", ["AUTRE_SOURCE", "ELARGIR"])).toBe("REPLANIFIER");
+    /**
+     * ── ET L'ORDRE A ENCORE CHANGÉ, POUR LA MÊME RAISON, D'UN CRAN PLUS PROFOND ────────
+     *
+     * `AUTRE_SOURCE` était en tête, sur un raisonnement qui semblait juste : « le Drive rend le
+     * mauvais document, essayons Legal ». Un run réel a montré ce qu'il coûte quand la cause est
+     * une vraie erreur de FORME : quatre planifications et 191 secondes de modèle sur un
+     * éventail dont le chemin ne résolvait pas — car changer de grenier ne change pas la forme
+     * d'un résultat qu'une étape amont a déjà produit.
+     *
+     * Le cas « mauvais document » n'a pas disparu : il est désormais classé `NOT_FOUND`, ce
+     * qu'il est réellement — la pièce cherchée n'est pas dans ce grenier. `INCOMPATIBLE_RESULT`
+     * est réservé au désaccord de structure, et son échelle part du geste le moins cher :
+     * ADAPTER (zéro appel), puis récrire localement, puis seulement replanifier.
+     */
+    expect(prochaineStrategie("INCOMPATIBLE_RESULT", [])).toBe("ADAPTER");
+    expect(ECHELLE.INCOMPATIBLE_RESULT).not.toContain("AUTRE_SOURCE");
+    expect(prochaineStrategie("INCOMPATIBLE_RESULT", ["ADAPTER"])).toBe("REPLAN_LOCAL");
+    expect(prochaineStrategie("INCOMPATIBLE_RESULT", ["ADAPTER", "REPLAN_LOCAL"])).toBe("REPLANIFIER");
     expect(rejouable("INCOMPATIBLE_RESULT")).toBe(false);
   });
 
@@ -330,12 +348,12 @@ describe("échelle de récupération", () => {
     expect(estFinPossible({ objectifAtteint: false, kind: "NOT_FOUND", dejaTentees: [] })).toBe(false);
     expect(estFinPossible({
       objectifAtteint: false, kind: "NOT_FOUND",
-      dejaTentees: ["AUTRE_SOURCE", "ELARGIR", "DEMANDER_HUMAIN"],
+      dejaTentees: ["AUTRE_SOURCE", "ELARGIR", "REPLAN_LOCAL", "DEMANDER_HUMAIN"],
     })).toBe(false);
     // Épuisée : là, et là seulement, s'arrêter est honnête.
     expect(estFinPossible({
       objectifAtteint: false, kind: "NOT_FOUND",
-      dejaTentees: ["AUTRE_SOURCE", "ELARGIR", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+      dejaTentees: ["AUTRE_SOURCE", "ELARGIR", "REPLAN_LOCAL", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
     })).toBe(true);
   });
 

@@ -20,6 +20,7 @@ import { acteurDe, catalogueDe } from "@/platform/in-process/missions/catalog";
 import { raisonneur } from "@/platform/in-process/missions/reasoner";
 import { ExecutantReel } from "@/platform/in-process/missions/runner";
 import { depotDrive } from "@/platform/in-process/missions/sink";
+import { registreRecoursDe } from "@/platform/in-process/missions/recovery-registry";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -106,6 +107,10 @@ export function assembler(user: CurrentUser, opts: OptionsAssemblage = {}): Asse
     runner,
     catalog: catalogue,
     juge,
+    // CE QUI REND « ESSAIE AILLEURS » EXÉCUTABLE. Sans lui, le barreau `AUTRE_SOURCE` n'a
+    // aucune capacité de remplacement à proposer et se saute — l'échelle descend alors vers ce
+    // qui agit réellement, au lieu de rejouer le même appel sous un autre nom.
+    registre: registreRecoursDe(user, opts.lectureSeule ? { effetMax: "ANALYZE" } : {}),
     handlers: {
       WORKER: (ctx) => executerWorker(ctx, { reasoner: cerveau }),
       QA: (ctx) => controleQualite(ctx),

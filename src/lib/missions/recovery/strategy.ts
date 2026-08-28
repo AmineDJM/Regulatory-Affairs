@@ -82,7 +82,28 @@ export const STRATEGIES = [
   "ELARGIR",
   /** Découper : ce qui échoue en un coup peut réussir en trois. */
   "DECOUPER",
-  /** Replanifier : la MÉTHODE était mauvaise, l'objectif reste bon. */
+  /**
+   * ADAPTER — réparer la FORME du résultat, sans rien rechercher.
+   *
+   * Une donnée absente et une donnée mal formée n'appellent pas le même geste, et les
+   * confondre a un coût mesuré : un run réel a dépensé quatre planifications et 191 secondes
+   * de modèle parce qu'un résultat de mauvaise forme partait chercher ailleurs. Chercher
+   * ailleurs ne change pas la forme de ce qui a DÉJÀ été produit en amont.
+   *
+   * Ce barreau ne rappelle aucune capacité : il relit le résultat acquis et l'interprète
+   * correctement quand c'est possible sans ambiguïté. C'est le moins cher de tous — zéro appel.
+   */
+  "ADAPTER",
+  /**
+   * REPLAN_LOCAL — récrire LA PARTIE du plan qui ne marche pas, et elle seule.
+   *
+   * Distinct de `REPLANIFIER`, qui régénère le DAG entier avec le contexte complet. Une
+   * dépendance fausse ou une étape mal câblée ne remet pas en cause la structure de la
+   * mission : les étapes abouties restent, les preuves acquises restent, et l'on ne demande
+   * que les étapes manquantes.
+   */
+  "REPLAN_LOCAL",
+  /** Replanifier TOUT : la structure de la mission elle-même n'est plus valide. */
   "REPLANIFIER",
   /** Demander à la personne qui SAIT — ciblé, pas un appel à l'aide général (§41). */
   "DEMANDER_HUMAIN",
@@ -112,42 +133,57 @@ export type Strategy = (typeof STRATEGIES)[number];
  * interdit. On escalade, immédiatement, vers quelqu'un qui peut décider.
  */
 export const ECHELLE: Record<ErrorKind, readonly Strategy[]> = {
-  NOT_FOUND: ["AUTRE_SOURCE", "ELARGIR", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
-  INSUFFICIENT_DATA: ["AUTRE_SOURCE", "ELARGIR", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+  // ── DONNÉE ABSENTE — on cherche AILLEURS, puis PLUS LARGE, puis on demande ──────────
+  //
+  // Le replan LOCAL vient avant l'humain : récrire la partie du plan qui cherchait au mauvais
+  // endroit est automatique et bon marché ; déranger quelqu'un ne l'est pas.
+  NOT_FOUND: ["AUTRE_SOURCE", "ELARGIR", "REPLAN_LOCAL", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+  MISSING_DOCUMENT: ["AUTRE_SOURCE", "ELARGIR", "REPLAN_LOCAL", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+  INSUFFICIENT_DATA: ["AUTRE_SOURCE", "ELARGIR", "REPLAN_LOCAL", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+
+  // ── AMBIGUÏTÉ — elle ne se lève pas en cherchant, elle se lève en demandant ────────
   AMBIGUOUS_ENTITY: ["DEMANDER_HUMAIN", "DECLARER_INCONNU"],
-  // Un droit manquant ne se contourne pas, ne s'élargit pas, ne se réessaie pas (§108).
+
+  // ── DROIT MANQUANT — ni rejeu, ni élargissement, ni détour (§108) ─────────────────
   MISSING_PERMISSION: ["ESCALADER"],
   MISSING_INPUT: ["DEMANDER_HUMAIN", "ESCALADER"],
-  CAPABILITY_FAILURE: ["RETRY", "DECOUPER", "REPLANIFIER", "ESCALADER"],
+
+  // ── PANNE TECHNIQUE — le seul cas où refaire À L'IDENTIQUE a un sens ──────────────
+  CAPABILITY_FAILURE: ["RETRY", "DECOUPER", "REPLAN_LOCAL", "REPLANIFIER", "ESCALADER"],
   PROVIDER_FAILURE: ["RETRY", "RETRY_BACKOFF", "ESCALADER"],
+
   /**
-   * L'ORDRE A ÉTÉ CORRIGÉ, et le détour vaut d'être raconté.
+   * ── MAUVAISE FORME — ET C'EST LA CORRECTION QUI A COÛTÉ LE PLUS CHER ────────────────
    *
-   * `REPLANIFIER` figurait ici EN PREMIER. Une fois l'échelle réellement branchée au moteur,
-   * cela donnait : le Drive rend le mauvais document → on refait tout le plan. Or l'objectif
-   * n'a pas bougé d'un mot ; c'est le CHEMIN qui était mauvais. Replanifier pour cela consomme
-   * un des quatre plans autorisés, réécrit un DAG correct, et recommence — pour finir par
-   * chercher dans Legal, ce qu'un simple changement de grenier faisait en une tentative.
+   * `AUTRE_SOURCE` était en tête, avec un raisonnement qui semblait juste : « le Drive rend le
+   * mauvais document, essayons Legal ». Il l'est pour une donnée ABSENTE. Il ne l'est pas pour
+   * une donnée MAL FORMÉE : changer de grenier ne change pas la forme d'un résultat qu'une
+   * étape amont a DÉJÀ produit.
    *
-   * On essaie donc ailleurs d'abord, on élargit ensuite, et on ne replanifie que si aucune
-   * source ne détient la chose : là, c'est bien la MÉTHODE qui est en cause (§13).
+   * Un run réel a chiffré l'erreur : quatre planifications et 191 secondes de modèle sur un
+   * éventail dont le chemin ne résolvait pas, parce que l'échelle est partie visiter six
+   * greniers avant d'atteindre le seul barreau qui pouvait servir.
+   *
+   * L'ordre correct part du moins cher : ADAPTER relit le résultat acquis sans aucun appel ;
+   * REPLAN_LOCAL récrit la seule partie fautive du plan ; REPLANIFIER, qui régénère tout, reste
+   * le dernier recours automatique.
    */
-  INCOMPATIBLE_RESULT: ["AUTRE_SOURCE", "ELARGIR", "REPLANIFIER", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+  INCOMPATIBLE_RESULT: ["ADAPTER", "REPLAN_LOCAL", "REPLANIFIER", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+  UNKNOWN_FORMAT: ["ADAPTER", "AUTRE_SOURCE", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+
   MISSING_TEMPLATE: ["AUTRE_SOURCE", "DEMANDER_HUMAIN", "ESCALADER"],
-  MISSING_DOCUMENT: ["AUTRE_SOURCE", "ELARGIR", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+
   // ATTENDRE N'EST PAS ÉCHOUER. On ne « récupère » pas d'une attente : on relance la personne,
   // puis on remonte si elle ne répond toujours pas. Il n'y a rien à chercher ailleurs.
   WAITING_HUMAN: ["DEMANDER_HUMAIN", "ESCALADER"],
-  UNKNOWN_FORMAT: ["AUTRE_SOURCE", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+
   /**
-   * QA_FAILED — le contrôle arithmétique dit qu'il manque de la matière.
+   * LE CONTRÔLE QUALITÉ A REFUSÉ — il manque de la MATIÈRE, pas un rejeu.
    *
-   * `RETRY` est délibérément ABSENT en tête : rejouer le contrôle sans rien avoir réparé
-   * redonnerait le même refus, et consommerait une tentative pour l'apprendre. Ce qu'il faut,
-   * c'est de la matière — d'où `ELARGIR` puis `AUTRE_SOURCE`. `REPLANIFIER` ne vient qu'après :
-   * un nouveau plan coûte un appel de planificateur, et le recours local doit passer d'abord.
+   * Rejouer le contrôle sans avoir rien réparé redirait la même chose en consommant une
+   * tentative pour l'apprendre. On élargit, on change de grenier, puis on récrit localement.
    */
-  QA_FAILED: ["ELARGIR", "AUTRE_SOURCE", "REPLANIFIER", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+  QA_FAILED: ["ELARGIR", "AUTRE_SOURCE", "REPLAN_LOCAL", "REPLANIFIER", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
 };
 
 /**

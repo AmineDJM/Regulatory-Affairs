@@ -115,9 +115,27 @@ export function evaluerResultat(attendu: Attendu | null, resultat: unknown): Ver
     const types = candidats.map(typeDe).filter((t): t is string => t !== null);
     if (types.length > 0 && !types.some((t) => memeType(attendu.type as string, t))) {
       return {
-        kind: "INCOMPATIBLE_RESULT",
+        /**
+         * ── LA CAUSE EST « ABSENT », PAS « MAL FORMÉ » — et la nuance choisit le recours ───
+         *
+         * Ce cas rendait `INCOMPATIBLE_RESULT`, ce qui se défendait à la lecture : le résultat
+         * ne correspond pas à ce qu'on attendait. Mais l'échelle, elle, ne lit pas des mots :
+         * elle branche une conduite. Or ce qui s'est passé ici n'est pas un problème de FORME —
+         * le document est parfaitement bien formé. C'est que LE CONTRAT N'EST PAS DANS CE
+         * GRENIER. La conduite juste est donc d'aller voir ailleurs.
+         *
+         * Réserver `INCOMPATIBLE_RESULT` aux vrais désaccords de structure — un éventail qui
+         * attend une liste et reçoit une phrase — permet à chacune des deux causes d'avoir
+         * l'échelle qui lui convient : chercher ailleurs d'un côté, réparer ou récrire
+         * localement le plan de l'autre. Les confondre a coûté, sur un run réel, quatre
+         * planifications et 191 secondes pour un problème que zéro appel pouvait régler.
+         */
+        kind: "NOT_FOUND",
+        // CANDIDAT et non INCONNU : ce document existe et ressemble ; il peut guider la
+        // recherche suivante. Il ne peut simplement pas satisfaire l'objectif (§107-109).
         certitude: "CANDIDAT",
-        raison: `le document trouvé est de type ${types[0]}, or l'objectif demande ${attendu.type}.`,
+        raison: `le document trouvé est de type ${types[0]}, or l'objectif demande ${attendu.type} `
+          + `— la pièce cherchée n'est pas dans ce grenier.`,
       };
     }
   }
