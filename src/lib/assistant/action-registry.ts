@@ -985,10 +985,14 @@ G("cockpit Adventum (seuils de risque) & maintenance profonde de la base", [
 //
 // Trois gestes RÉDUISENT ce qu'une mission va faire — suspendre, reprendre, arrêter — et le
 // refus d'une autorisation en fait autant. Adam les propose par `mission_control`, donc COVERED.
-classify("COVERED", "mission_control (pause / reprise / arrêt / refus d'autorisation)", [
+classify("COVERED", "mission_control (pause / reprise / arrêt / refus d'autorisation / replanification)", [
   "mission-runtime-actions:mettreMissionEnPause",
   "mission-runtime-actions:reprendreMission",
   "mission-runtime-actions:arreterMission",
+  // La replanification est COUVERTE et non exclue : elle n'AJOUTE rien de sortant sans accord.
+  // Tout ce que le nouveau plan apporte repasse par `reouvrirSiChange` (§8), donc par la
+  // personne. Au pire, une injection qui la déclencherait produit une demande d'accord de plus.
+  "mission-runtime-actions:replanifierMissionAction",
 ]);
 // La LECTURE de ses accords en attente est la même information que `mission_status` rend déjà.
 classify("COVERED", "mission_status (l'écran d'une mission dit ce qu'elle attend de vous)", [

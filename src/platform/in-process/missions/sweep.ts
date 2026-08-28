@@ -4,7 +4,7 @@ import type { CurrentUser } from "@/lib/session";
 import { attentesEchues, missionsAFaireAvancer } from "@/lib/missions/events/router";
 import { journaliser } from "@/lib/missions/runtime/store";
 import { prevenir } from "@/lib/missions/approval/gate";
-import { avancerMission } from "@/platform/in-process/missions/runtime";
+import { avancerMission, replanifierMission } from "@/platform/in-process/missions/runtime";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -50,6 +50,8 @@ export interface BalayageMissions {
   avancees: number;
   etapesExecutees: number;
   relances: number;
+  /** Les missions dont le plan a été RÉÉCRIT parce qu'il ne pouvait plus aboutir (§39-40). */
+  replanifiees: number;
 }
 
 /**
@@ -83,7 +85,7 @@ async function proprietaire(userId: string): Promise<CurrentUser | null> {
  * Ne lève jamais : une mission qui plante ne doit pas emporter le battement, ni les onze autres.
  */
 export async function balayerMissions(): Promise<BalayageMissions> {
-  const out: BalayageMissions = { examinees: 0, avancees: 0, etapesExecutees: 0, relances: 0 };
+  const out: BalayageMissions = { examinees: 0, avancees: 0, etapesExecutees: 0, relances: 0, replanifiees: 0 };
   if ((process.env.MISSIONS_SWEEP ?? "").toLowerCase() === "off") return out;
 
   // ── 1. LES MISSIONS QUI ONT QUELQUE CHOSE À FAIRE ───────────────────────────────────
@@ -112,6 +114,25 @@ export async function balayerMissions(): Promise<BalayageMissions> {
       if (r && (r.executees > 0 || r.deployees > 0)) {
         out.avancees += 1;
         out.etapesExecutees += r.executees;
+      }
+
+      // ── LE PLAN NE PASSE PLUS : ON EN ÉCRIT UN AUTRE (§39-40) ──────────────────────
+      //
+      // Seulement quand le moteur a épuisé ce qu'il savait faire — réessayer, réparer — et que
+      // la mission s'est arrêtée en échec ou bloquée. Replanifier plus tôt jetterait un plan qui
+      // marchait pour un incident passager ; ne jamais replanifier laisserait la mission morte
+      // sur une étape que le planificateur savait contourner.
+      //
+      // `replanifierMission` porte ses propres garde-fous : quatre plans au maximum, et tout ce
+      // que le nouveau plan ajoute repasse par l'accord de la personne (§8). Le battement
+      // n'ouvre donc aucune porte — il ne fait que ne pas abandonner.
+      const apres = await prisma.mission.findUnique({ where: { id: m.id }, select: { status: true } });
+      if (apres && (apres.status === "FAILED" || apres.status === "BLOCKED")) {
+        const rp = await replanifierMission(user, m.id).catch(() => null);
+        if (rp?.replanifie) {
+          out.replanifiees += 1;
+          await avancerMission(user, m.id, { maxTours: TOURS_PAR_MISSION }).catch(() => null);
+        }
       }
     } catch (e) {
       console.error(`[missions] avancement de ${m.id} échoué`, e);

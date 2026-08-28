@@ -3,7 +3,8 @@ import { notifyUser } from "@/lib/notify";
 import type { StepContext, StepOutcome } from "@/lib/missions/runtime/engine";
 import { journaliser } from "@/lib/missions/runtime/store";
 import { LIBELLE_NIVEAU, NiveauApprobation } from "@/lib/missions/policy/guard";
-import type { PerimetreApprobation } from "@/lib/missions/approval/scope";
+import { nonCouvertes, perimetre, type PerimetreApprobation } from "@/lib/missions/approval/scope";
+import type { CompiledMission } from "@/lib/missions/compiler/compile";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -89,6 +90,71 @@ export async function demanderApprobation(
   });
 
   return demande.id;
+}
+
+/**
+ * UN PLAN A CHANGÉ : QU'EST-CE QUI N'EST PLUS COUVERT ? (§8, §33)
+ *
+ * ── LE TROU QUE CETTE FONCTION FERME ────────────────────────────────────────────────────
+ *
+ * Une mission approuvée peut être REPLANIFIÉE — parce qu'une étape a échoué sans recours, parce
+ * que le monde a changé. Le nouveau plan porte alors des étapes que personne n'a autorisées, et
+ * l'accord d'hier, lui, est toujours `GRANTED` en base. Sans ce contrôle, la porte d'approbation
+ * le laisse passer : elle cherche un accord qui couvre la clé de l'étape, et elle en trouve un.
+ *
+ * ── CE QU'ELLE NE FAIT PAS, ET C'EST TOUT L'ENJEU ──────────────────────────────────────
+ *
+ * Elle ne redemande PAS l'accord pour l'ensemble. Une empreinte globale différente dit seulement
+ * « quelque chose a bougé » ; `nonCouvertes` dit QUOI. Rouvrir les trente-trois envois parce que
+ * le trente-quatrième a été ajouté serait revenir aux quatre-vingt-dix-neuf confirmations par un
+ * autre chemin — ce que §8 interdit en toutes lettres.
+ *
+ * Rend `null` quand rien n'a changé matériellement, ou quand aucun accord n'avait été donné (le
+ * chemin normal de `perimetre` s'applique alors).
+ */
+export async function reouvrirSiChange(
+  missionId: string,
+  mission: CompiledMission,
+  ownerId: string,
+  titreMission: string,
+): Promise<{ approvalId: string; stepKeys: string[] } | null> {
+  const accorde = await prisma.missionApproval.findFirst({
+    where: { missionId, status: "GRANTED" },
+    select: { scopeHash: true, stepKeys: true },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!accorde) return null;
+
+  const decouvertes = nonCouvertes(mission, accorde);
+  if (decouvertes.length === 0) return null;
+
+  const complet = perimetre(mission);
+  if (!complet) return null;
+
+  // LE PÉRIMÈTRE RESTREINT — même niveau, même échantillon, mais LES SEULES clés nouvelles.
+  // L'empreinte reste celle du plan complet : c'est elle qui dit « cet accord porte sur CE
+  // plan-là », et la réutiliser telle quelle est ce qui rend le prochain contrôle juste.
+  const restreint: PerimetreApprobation = {
+    ...complet,
+    stepKeys: decouvertes,
+    resume: `Le plan a changé : ${decouvertes.length} étape(s) ne sont pas couvertes par votre accord `
+      + `précédent. ${complet.resume}`,
+    echantillon: complet.echantillon.filter((e) => decouvertes.includes(e.stepKey)).slice(0, 5),
+  };
+
+  // LES PORTES CONCERNÉES REPASSENT EN ATTENTE. Sans cela, une porte déjà franchie sous
+  // l'ancien plan resterait `DONE` et le nouveau lot partirait sans que personne n'ait rien vu.
+  await prisma.missionStep.updateMany({
+    where: { missionId, key: { in: decouvertes }, nodeType: "APPROVAL" },
+    data: { status: "WAITING" },
+  });
+
+  await journaliser(missionId, "APPROVAL_REOPENED",
+    `Le plan a changé : ${decouvertes.length} étape(s) rouvertes à votre accord.`,
+    { stepKeys: decouvertes, ancienScope: accorde.scopeHash, nouveauScope: complet.scopeHash });
+
+  const id = await demanderApprobation(missionId, restreint, ownerId, titreMission);
+  return { approvalId: id, stepKeys: decouvertes };
 }
 
 /**

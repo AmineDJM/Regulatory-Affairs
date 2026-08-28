@@ -447,7 +447,9 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
         + "DÉFINITION : ce sont les gestes qui RÉDUISENT ce qu'une mission va faire. "
         + "« pause » l'arrête là où elle est et elle repartira au même point ; « reprendre » la relance ; "
         + "« arreter » est définitif et ce qui a déjà été fait reste fait ; « refuser » ferme une demande "
-        + "d'autorisation, et les étapes concernées ne s'exécuteront pas. "
+        + "d'autorisation, et les étapes concernées ne s'exécuteront pas ; « replanifier » fait réécrire le "
+        + "plan d'une mission bloquée ou en échec — ce que le nouveau plan ajoute repasse par l'accord de "
+        + "la personne, donc rien ne part sans elle. "
         + "N'ACCORDE JAMAIS une autorisation et ne fournit jamais un élément demandé avec cet outil : "
         + "ces deux gestes-là exigent un clic de la personne sur l'écran de la mission — dis-le-lui.",
       input_schema: {
@@ -456,7 +458,7 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
           missionId: { type: "string", description: "L'identifiant de la mission." },
           geste: {
             type: "string",
-            enum: ["pause", "reprendre", "arreter", "refuser"],
+            enum: ["pause", "reprendre", "arreter", "refuser", "replanifier"],
             description: "Le geste demandé.",
           },
           motif: { type: "string", description: "Pourquoi — repris dans le journal de la mission." },
@@ -484,6 +486,7 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
       if (geste === "reprendre") return JSON.stringify(await ctl.reprendreMissionAgent(user, missionId));
       if (geste === "arreter") return JSON.stringify(await ctl.arreterMissionAgent(user, missionId, motif));
       if (geste === "refuser") return JSON.stringify(await ctl.refuserAccordMission(user, missionId));
+      if (geste === "replanifier") return JSON.stringify(await ctl.replanifierAgent(user, missionId));
 
       // LE REFUS QUI COMPTE. Il est explicite et il ORIENTE : une personne à qui l'on dit
       // seulement « non » recommence ; une personne à qui l'on dit où cliquer y va.

@@ -6,7 +6,7 @@ import { approbationsEnAttente, decider } from "@/lib/missions/approval/gate";
 import { fournirEntree } from "@/lib/missions/events/router";
 import { annuler, mettreEnPause, reprendre } from "@/lib/missions/runtime/control";
 import { vueMission } from "@/lib/missions/view/workspace";
-import { avancerMission } from "@/platform/in-process/missions/runtime";
+import { avancerMission, replanifierMission } from "@/platform/in-process/missions/runtime";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -178,6 +178,24 @@ export async function reprendreMission(missionId: string): Promise<ResultatMissi
   const r = await reprendre(missionId, user.id);
   if (!r.ok) return { ok: false, message: r.message, statut: r.vers };
   return { ok: true, statut: await relancer(user, missionId), message: r.message };
+}
+
+/**
+ * RÉÉCRIT LE PLAN D'UNE MISSION QUI N'ABOUTIT PLUS (§39-40).
+ *
+ * Le battement le fait déjà tout seul sur une mission en échec ; ce bouton-ci sert quand la
+ * personne, elle, sait que le contexte a changé — un droit rendu, un service revenu, un
+ * destinataire corrigé — et ne veut pas attendre le prochain passage.
+ *
+ * Rien de ce que le nouveau plan ajoute ne s'exécute sans son accord : `reouvrirSiChange`
+ * rouvre la partie non couverte, et elle seule.
+ */
+export async function replanifierMissionAction(missionId: string): Promise<ResultatMission> {
+  const user = await requireUser();
+  if (!userCan(user, "WORKSPACE", "VIEW")) return REFUS;
+  const r = await replanifierMission(user, missionId);
+  if (!r.replanifie) return { ok: false, message: r.raison };
+  return { ok: true, statut: await relancer(user, missionId), message: r.raison };
 }
 
 /** ARRÊTE. Ce qui a déjà été fait reste fait — la fonction sous-jacente le dit aussi. */

@@ -2,14 +2,14 @@ import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import { compile } from "@/lib/missions/compiler/compile";
 import { planifier, type ContextePlanification, type MetriquesPlanification } from "@/lib/missions/planner/plan";
-import { materialiser, chargerEtat, journaliser } from "@/lib/missions/runtime/store";
+import { materialiser, chargerEtat, journaliser, transitionner } from "@/lib/missions/runtime/store";
 import { avancer, type EngineDeps, type StepContext, type StepOutcome } from "@/lib/missions/runtime/engine";
 import { executerWorker } from "@/lib/missions/runtime/worker";
 import { executerArtefact } from "@/lib/missions/artifacts/build";
 import { controleComplet } from "@/lib/missions/goal/qa";
 import { JugeReel } from "@/lib/missions/goal/judge";
 import { perimetre } from "@/lib/missions/approval/scope";
-import { demanderApprobation, porteApprobation, prevenir } from "@/lib/missions/approval/gate";
+import { demanderApprobation, porteApprobation, prevenir, reouvrirSiChange } from "@/lib/missions/approval/gate";
 import { agentPour } from "@/lib/missions/agent/principal";
 import { assurerCompteAgent } from "@/lib/missions/agent/account";
 import { CONCURRENCE_PAR_ECHELLE } from "@/lib/missions/model/roles";
@@ -294,4 +294,157 @@ export async function avancerMission(
   });
   const agent = agentPour({ initiatedBy: user.id, executedBy: user.id, label: user.name });
   return avancer(missionId, agent, { ...deps, maxTours: opts.maxTours });
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA REPLANIFICATION (§39-40) — un échec n'est pas une fin, et un nouveau plan n'est pas un
+ * chèque en blanc.
+ *
+ * ── QUAND ELLE SE DÉCLENCHE ─────────────────────────────────────────────────────────────
+ *
+ * Quand la mission est BLOQUÉE ou EN ÉCHEC et qu'il reste au moins une étape non aboutie dont
+ * les tentatives sont épuisées. Autrement dit : le moteur a fait tout ce qu'il savait faire —
+ * réessayer, réparer — et il n'y arrive pas. Replanifier AVANT cela reviendrait à jeter un plan
+ * qui marchait pour un incident passager.
+ *
+ * ── CE QUI EST DONNÉ AU PLANIFICATEUR, ET CE QUI NE L'EST PAS ──────────────────────────
+ *
+ * On lui donne l'objectif d'origine MOT POUR MOT, ce qui a DÉJÀ abouti (pour qu'il ne le
+ * redemande pas) et ce qui a échoué AVEC son motif. On ne lui donne pas l'ancien plan : le lui
+ * remettre sous les yeux le pousserait à le reproduire, alors que c'est précisément ce plan-là
+ * qui n'a pas marché.
+ *
+ * ── LA GARANTIE QUI COMPTE LE PLUS ─────────────────────────────────────────────────────
+ *
+ * Un nouveau plan porte des étapes que personne n'a autorisées. `reouvrirSiChange` compare le
+ * périmètre au dernier accord donné et ROUVRE la partie non couverte — elle seule (§8). Sans
+ * cette ligne, un replan serait une porte dérobée : il suffirait qu'une étape échoue pour que
+ * la mission se réécrive et parte sur un accord qui portait sur autre chose.
+ *
+ * ── CE QU'ELLE NE FAIT PAS ─────────────────────────────────────────────────────────────
+ *
+ * Elle ne touche à AUCUNE étape terminée. `materialiser` est ré-entrante et n'écrase pas une
+ * étape `DONE` ; une clé qui disparaît du nouveau plan garde son historique. C'est ce qui
+ * permet de dire « ceci a été fait sous le plan 1 » au lieu de laisser croire que le plan
+ * actuel a tout produit.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface ResultatReplanification {
+  replanifie: boolean;
+  raison: string;
+  planVersion?: number;
+  etapes?: number;
+  /** Ce que le changement de plan a rouvert à l'accord — vide quand rien n'a bougé. */
+  rouvertes?: string[];
+}
+
+/** Les états d'où une replanification a un sens. Ailleurs, il n'y a rien à replanifier. */
+const ETATS_REPLANIFIABLES = new Set(["FAILED", "BLOCKED", "PARTIAL"]);
+
+/**
+ * COMBIEN DE PLANS AVANT DE S'ARRÊTER.
+ *
+ * §9 dit qu'on ne s'arrête jamais à la première difficulté — il dit aussi que l'échelle de
+ * recours a des barreaux, et qu'on peut les épuiser. Sans plafond, une mission qui échoue pour
+ * une raison que le planificateur ne peut pas voir (un service tiers en panne, un droit retiré)
+ * se réécrirait indéfiniment, en payant un appel de modèle à chaque tour de battement.
+ *
+ * Quatre plans, c'est trois corrections. Au-delà, ce n'est plus le plan qui est en cause, et la
+ * bonne réponse est de le DIRE à la personne plutôt que de continuer à essayer sans elle.
+ */
+const PLANS_MAX = 4;
+
+export async function replanifierMission(
+  user: CurrentUser,
+  missionId: string,
+  opts: OptionsAssemblage = {},
+): Promise<ResultatReplanification> {
+  const m = await prisma.mission.findFirst({
+    where: { id: missionId, ownerId: user.id, kind: "RUNTIME" },
+    select: { id: true, title: true, status: true, goalRaw: true, objective: true, planVersion: true },
+  });
+  if (!m) return { replanifie: false, raison: "Mission introuvable — ou elle ne vous appartient pas." };
+  if (!ETATS_REPLANIFIABLES.has(m.status)) {
+    return { replanifie: false, raison: `Une mission ${m.status} n'a rien à replanifier.` };
+  }
+  if (m.planVersion >= PLANS_MAX) {
+    return {
+      replanifie: false,
+      raison: `${m.planVersion} plans ont déjà été essayés. Ce n'est plus le plan qui est en cause — `
+        + `il faut regarder ce qui bloque avant d'en écrire un cinquième.`,
+    };
+  }
+
+  const etat = await chargerEtat(missionId);
+  if (!etat) return { replanifie: false, raison: "État de mission illisible." };
+
+  const abouties = etat.steps.filter((s) => s.status === "DONE");
+  const bloquees = etat.steps.filter(
+    (s) => s.status === "FAILED" && s.attempt >= s.maxAttempts,
+  );
+  if (bloquees.length === 0) {
+    return {
+      replanifie: false,
+      raison: "Aucune étape n'a épuisé ses tentatives : le moteur peut encore réparer tout seul.",
+    };
+  }
+
+  const catalogue = catalogueDe(user);
+  const acteur = acteurDe(user);
+  const cerveau = opts.reasoner ?? raisonneur;
+  const objectif = m.goalRaw || m.objective;
+
+  const plan = await planifier(objectif, catalogue, acteur, cerveau, {
+    contexte: {
+      aujourdhui: new Date().toLocaleDateString("fr-FR"),
+      // CE QUI EST DÉJÀ FAIT : le planificateur doit repartir de là, pas de zéro. Lui cacher
+      // l'acquis le ferait renvoyer trente-et-un messages déjà partis — l'idempotence les
+      // arrêterait, mais au prix d'un plan illisible et d'un travail inutile.
+      dejaFait: abouties.map((s) => `${s.key} : ${s.title}`).slice(0, 60),
+      refusPrecedent: bloquees.map((s) => `[${s.errorKind ?? "ÉCHEC"}] ${s.key} : ${s.error ?? "sans motif"}`),
+    },
+  });
+  if (!plan.ok) return { replanifie: false, raison: `Le planificateur n'a rien rendu : ${plan.error}` };
+
+  const agent = agentPour({ initiatedBy: user.id, executedBy: user.id, label: user.name });
+  const c = compile(plan.plan, catalogue, agent);
+  if (!c.ok) {
+    return {
+      replanifie: false,
+      raison: `Le nouveau plan est refusé : ${c.issues.map((i) => i.message).slice(0, 2).join(" ; ")}`,
+    };
+  }
+
+  await transitionner(missionId, "PLANNING", "Replanification après échec sans recours");
+  await materialiser(c.mission, {
+    ownerId: user.id,
+    title: m.title,
+    goalRaw: objectif,
+    missionId,
+    maxConcurrency: CONCURRENCE_PAR_ECHELLE[c.mission.scale],
+  });
+
+  // ── §8 : CE QUI N'EST PLUS COUVERT REPASSE À L'ACCORD, ET RIEN D'AUTRE ─────────────
+  const rouvert = await reouvrirSiChange(missionId, c.mission, user.id, m.title);
+  if (rouvert) {
+    await prevenir({
+      missionId, ownerId: user.id, niveau: "APPROVAL_REQUIRED",
+      titre: `Le plan a changé — ${m.title}`,
+      message: `${rouvert.stepKeys.length} étape(s) ne sont pas couvertes par votre accord précédent.`,
+    });
+  }
+
+  const apres = await prisma.mission.findUnique({
+    where: { id: missionId }, select: { planVersion: true },
+  });
+
+  return {
+    replanifie: true,
+    raison: `Nouveau plan (v${apres?.planVersion ?? "?"}) : ${c.mission.steps.length} étapes, `
+      + `${abouties.length} déjà aboutie(s) conservée(s).`,
+    planVersion: apres?.planVersion,
+    etapes: c.mission.steps.length,
+    rouvertes: rouvert?.stepKeys ?? [],
+  };
 }

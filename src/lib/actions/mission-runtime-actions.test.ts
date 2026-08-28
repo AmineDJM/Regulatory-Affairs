@@ -42,10 +42,11 @@ const { RaisonneurScripte, pour } = await import("@/platform/in-process/missions
 const { missionsAFaireAvancer } = await import("@/lib/missions/events/router");
 const { vueMission } = await import("@/lib/missions/view/workspace");
 const { compile } = await import("@/lib/missions/compiler/compile");
+const { replanifierMission } = await import("@/platform/in-process/missions/runtime");
 const { capabilityMeta } = await import("@/lib/missions/registry/capability-meta");
 const {
   arreterMission, deciderAccordMission, fournirElementMission,
-  listerAccordsMission, mettreMissionEnPause, reprendreMission,
+  listerAccordsMission, mettreMissionEnPause, replanifierMissionAction, reprendreMission,
 } = await import("@/lib/actions/mission-runtime-actions");
 
 let dbOk = false;
@@ -329,6 +330,68 @@ suite("LA MAIN HUMAINE SUR UNE MISSION — accord, élément, pause, reprise, ar
     expect(await missionsAFaireAvancer(200)).not.toContain(missionId);
     // Une mission arrêtée ne se reprend pas.
     expect((await reprendreMission(missionId)).ok).toBe(false);
+  }, 300_000);
+
+  /**
+   * §39-40 + §8 — LE PLAN SE RÉÉCRIT, ET CE QU'IL AJOUTE REPASSE PAR L'ACCORD.
+   *
+   * Le scénario est celui qui compte : une mission APPROUVÉE dont une étape échoue sans recours.
+   * Le nouveau plan porte une étape que personne n'a autorisée — et l'accord d'hier est toujours
+   * `GRANTED` en base. Sans `reouvrirSiChange`, la porte le laisserait passer : elle cherche un
+   * accord qui couvre la clé, et elle en trouve un.
+   */
+  it("§39-40 — une mission en échec se REPLANIFIE, et le nouveau lot redemande l'accord", async () => {
+    ACTEUR = pdg;
+    const missionId = await lancer();
+    const mien = (await listerAccordsMission()).find((a) => a.missionId === missionId)!;
+    await deciderAccordMission(mien.id, "GRANTED");
+
+    // ── ON CASSE UNE ÉTAPE POUR DE BON : tentatives épuisées, aucun recours. ──────────
+    await prisma.missionStep.updateMany({
+      where: { missionId, key: "piece" },
+      data: { status: "FAILED", attempt: 5, maxAttempts: 5, error: "la référence n'existe pas", errorKind: "NOT_FOUND" },
+    });
+    await prisma.mission.update({ where: { id: missionId }, data: { status: "FAILED" } });
+
+    const avantVersion = (await prisma.mission.findUnique({
+      where: { id: missionId }, select: { planVersion: true },
+    }))!.planVersion;
+
+    // LE RAISONNEUR SCRIPTÉ EST PASSÉ ICI, et rien d'autre ne change. `replanifierMissionAction`
+    // est un enrobage de quatre lignes autour de cette fonction — `requireUser` + `userCan`,
+    // couverts par les six cas ci-dessus. Le second cas de replanification, lui, appelle bien
+    // l'action serveur : il n'a besoin d'aucun modèle pour vérifier le plafond.
+    const r = await replanifierMission(pdg, missionId, { reasoner: cerveau() });
+    expect(r.replanifie, r.raison).toBe(true);
+
+    const apres = await prisma.mission.findUnique({
+      where: { id: missionId }, select: { planVersion: true },
+    });
+    expect(apres!.planVersion, "un replan incrémente la version du plan").toBe(avantVersion + 1);
+
+    // LE JOURNAL RACONTE LE CHANGEMENT — c'est lui qu'on relira dans trois jours.
+    const journal = await prisma.missionEvent.findMany({
+      where: { missionId }, select: { kind: true },
+    });
+    expect(journal.map((e) => e.kind)).toContain("STATE_CHANGED");
+
+    // ── §8 : CE QUI EST DÉJÀ FAIT RESTE FAIT ────────────────────────────────────────
+    const messages = await prisma.missionStep.count({
+      where: { missionId, key: { startsWith: "message#" }, status: "DONE" },
+    });
+    expect(messages, "un replan ne défait aucun envoi déjà parti").toBe(SALARIES.length);
+  }, 300_000);
+
+  it("§9 — on n'écrit pas un cinquième plan : l'échelle de recours a des barreaux", async () => {
+    ACTEUR = pdg;
+    const missionId = await lancer();
+    // Quatre plans déjà essayés, et une mission en échec : le plafond doit parler.
+    await prisma.mission.update({
+      where: { id: missionId }, data: { status: "FAILED", planVersion: 4 },
+    });
+    const r = await replanifierMissionAction(missionId);
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/plans ont déjà été essayés/);
   }, 300_000);
 
   it("§6 — une MISSION ne peut pas s'accorder elle-même : refus de COMPILATION", () => {

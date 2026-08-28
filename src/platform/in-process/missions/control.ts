@@ -1,7 +1,7 @@
 import type { CurrentUser } from "@/lib/session";
 import { approbationsEnAttente, decider } from "@/lib/missions/approval/gate";
 import { annuler, mettreEnPause, reprendre } from "@/lib/missions/runtime/control";
-import { avancerMission } from "@/platform/in-process/missions/runtime";
+import { avancerMission, replanifierMission } from "@/platform/in-process/missions/runtime";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -84,4 +84,21 @@ export async function refuserAccordMission(
       ? "Refus enregistré. Les étapes concernées ne seront pas exécutées."
       : "Cette demande avait déjà été tranchée.",
   };
+}
+
+/**
+ * RÉÉCRIT LE PLAN, PUIS RELANCE.
+ *
+ * Le geste est ici parce qu'il ne peut RIEN faire sortir sans accord : tout ce que le nouveau
+ * plan ajoute est rouvert à l'approbation de la personne par `reouvrirSiChange` (§8). Une
+ * injection qui le déclencherait obtiendrait donc, au pire, une demande d'accord de plus — ce
+ * qui se voit, et se refuse d'un clic.
+ */
+export async function replanifierAgent(
+  user: CurrentUser, missionId: string,
+): Promise<GesteMission> {
+  const r = await replanifierMission(user, missionId);
+  if (!r.replanifie) return { fait: false, statut: null, message: r.raison };
+  await avancerMission(user, missionId, { maxTours: 25 }).catch(() => undefined);
+  return { fait: true, statut: null, message: r.raison };
 }
