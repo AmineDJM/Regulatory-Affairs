@@ -4,6 +4,7 @@ import type {
 } from "@/lib/missions/ports";
 import { verifierAvantAgir } from "@/lib/missions/agent/principal";
 import { systemClock } from "@/lib/missions/ports";
+import { limitesDe, ordonnancer } from "@/lib/missions/runtime/scheduler";
 import {
   MissionState, STEP_TERMINAL, StepState, assertStepTransition, deduireEtat,
 } from "@/lib/missions/runtime/state";
@@ -126,9 +127,36 @@ export interface TickResult {
   tours: number;
   /** Vrai quand plus rien ne peut avancer sans un événement extérieur. */
   enPause: boolean;
+
+  /**
+   * ── CE QUE L'ORDONNANCEUR A RÉELLEMENT OBTENU (§44) ───────────────────────────────────
+   *
+   * Sans ces trois chiffres, « la mission est parallèle » est une affirmation. Avec eux, c'est
+   * une mesure — et surtout on sait POURQUOI elle ne l'est pas quand elle ne l'est pas :
+   * `differees > 0` dit qu'un quota a mordu, `differees === 0` avec une concurrence de 1 dit
+   * que c'est le GRAPHE qui est en série. Les deux diagnostics appellent des corrections
+   * opposées, et les confondre fait optimiser au mauvais endroit.
+   */
+  concurrenceMax: number;
+  concurrenceCumulee: number;
+  toursExecutants: number;
+  /** Combien d'étapes étaient prêtes et n'ont pas eu de place. La file d'attente, mesurée. */
+  differees: number;
 }
 
 const estTerminal = (s: StepState): boolean => STEP_TERMINAL.has(s);
+
+/**
+ * CE QUE L'ORDONNANCEUR SAIT D'UNE CAPACITÉ — son domaine et sa classe de latence.
+ *
+ * `capabilityMeta` DÉRIVE une métadonnée prudente pour ce qui n'est pas déclaré, donc cet
+ * adaptateur ne peut pas échouer sur une capacité inconnue : il rendra la classe la plus
+ * conservatrice, ce qui est le bon défaut pour un ordonnanceur.
+ */
+const profilCapacite = (id: string) => {
+  const m = capabilityMeta(id);
+  return { domain: m.domain, latency: m.latency };
+};
 
 /**
  * FAIT AVANCER LA MISSION AUTANT QU'ELLE PEUT AVANCER MAINTENANT.
@@ -146,6 +174,7 @@ export async function avancer(
   const res: TickResult = {
     missionId, status: "RUNNING", executees: 0, echouees: 0,
     deployees: 0, dedupliquees: 0, tours: 0, enPause: false,
+    concurrenceMax: 0, concurrenceCumulee: 0, toursExecutants: 0, differees: 0,
   };
 
   for (let tour = 0; tour < maxTours; tour++) {
@@ -183,9 +212,22 @@ export async function avancer(
       continue;
     }
 
-    // ── LE PARALLÉLISME RÉEL, BORNÉ PAR LA MISSION (§10) ──────────────────────────────
-    const lot = pretes.slice(0, Math.max(1, frais.maxConcurrency));
-    const sorties = await enParallele(lot, frais.maxConcurrency, async (step) => {
+    /**
+     * ── L'ORDONNANCEMENT (§28) — l'ordre décide de la durée, pas seulement du travail ────
+     *
+     * Ce qui était ici tenait en un `slice(0, maxConcurrency)` : les premières dans l'ordre de
+     * la base, jusqu'au plafond de la mission. Trois défauts en une ligne — un ordre arbitraire
+     * qui allonge le chemin critique, un plafond unique pour des files qui ne saturent pas
+     * ensemble, et une place consommée par des nœuds qui ne font rien. `scheduler.ts` les
+     * traite tous les trois, et RIEN d'autre : il décide qui part, jamais ce qui est permis.
+     */
+    const plan = ordonnancer(pretes, frais.steps, limitesDe(frais.maxConcurrency), profilCapacite);
+    res.differees += plan.differees.length;
+    res.concurrenceMax = Math.max(res.concurrenceMax, plan.effective);
+    res.concurrenceCumulee += plan.effective;
+    res.toursExecutants += plan.effective > 0 ? 1 : 0;
+
+    const sorties = await enParallele(plan.lot, Math.max(1, plan.lot.length), async (step) => {
       const reserve = await reserver(step, clock);
       if (!reserve) return null;
       return executerUneEtape(frais, step, actor, deps, clock);
