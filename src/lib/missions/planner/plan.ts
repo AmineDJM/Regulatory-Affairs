@@ -17,6 +17,8 @@ import {
 import { listerPourPlanner, resoudreCapacites, type ResolutionOptions } from "@/lib/missions/registry/resolve";
 import { rolePourPlanification } from "@/lib/missions/model/roles";
 import { estimerJetons } from "@/lib/missions/memory/budget";
+import { budgetsDe, trier, type Profil } from "@/lib/missions/planner/triage";
+import { cheminDirect } from "@/lib/missions/planner/direct";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -78,7 +80,18 @@ export interface OptionsPlanification extends ResolutionOptions {
   /** Forcer un rôle de modèle. Sert au banc d'essai et à l'escalade (§14), jamais au confort. */
   role?: string;
   maxOutputTokens?: number;
+  /**
+   * INTERDIT LE CHEMIN DIRECT.
+   *
+   * Une seule situation l'exige, et elle est décisive : la REPLANIFICATION après un refus du
+   * juge. Reprendre le chemin direct y reproduirait à l'identique le plan que le juge vient de
+   * refuser — une boucle qui coûte et n'apprend rien.
+   */
+  sansCheminDirect?: boolean;
 }
+
+/** Par où le plan est passé. Le mot est écrit au journal : une voie ne se devine pas après coup. */
+export type VoiePlanification = "DIRECTE" | "MODELE";
 
 export interface MetriquesPlanification {
   /** §3 — combien de capacités le planner a réellement vues. */
@@ -104,6 +117,18 @@ export interface MetriquesPlanification {
   latencyMs: number;
   /** Ce que le fournisseur a facturé. `null` = NON MESURÉ (§78). */
   usage: { inputTokens: number; outputTokens: number; model: string } | null;
+  /** Par où le plan est passé — `DIRECTE` signifie « aucun appel de modèle ». */
+  voie: VoiePlanification;
+  /** Le profil du triage, et le budget qu'il a ouvert. */
+  profil: Profil;
+  /**
+   * POURQUOI LE CHEMIN DIRECT A RENONCÉ.
+   *
+   * Renseigné à CHAQUE planification par modèle, et c'est délibéré : sans ce champ, on ne
+   * saurait jamais si le chemin direct ne sert à rien ou s'il ne se déclenche jamais — et ces
+   * deux diagnostics appellent des corrections opposées.
+   */
+  refusDirect: string | null;
 }
 
 export type ResultatPlanification =
@@ -334,7 +359,23 @@ export async function planifier(
   reasoner: Reasoner,
   opts: OptionsPlanification = {},
 ): Promise<ResultatPlanification> {
-  const resolution = resoudreCapacites(objectif, catalogue, acteur, opts);
+  const debut = Date.now();
+
+  /**
+   * ── LE TRIAGE, PUIS LE CHEMIN DIRECT — avant tout appel, avant tout jeton ─────────────
+   *
+   * L'ordre compte. Le triage est PUR et coûte une milliseconde ; il ouvre les budgets, donc il
+   * doit précéder la résolution des capacités qu'il borne. Le chemin direct vient ensuite,
+   * parce qu'il a besoin des capacités résolues pour savoir si l'une d'elles domine.
+   */
+  const triage = trier(objectif);
+  const budgets = budgetsDe(triage.profil);
+  const resolution = resoudreCapacites(objectif, catalogue, acteur, {
+    limite: budgets.limite,
+    maxDomaines: budgets.maxDomaines,
+    parDomaine: budgets.parDomaine,
+    ...opts,
+  });
   const ctx = opts.contexte ?? {};
   const liste = listerPourPlanner(resolution.capacites);
   const contexte = composerContexte(objectif, liste, ctx);
@@ -349,7 +390,31 @@ export async function planifier(
     jetonsEvites: resolution.metriques.jetonsEvites,
     domaines: resolution.domaines,
     role,
+    profil: triage.profil,
   };
+
+  const direct = opts.sansCheminDirect
+    ? { plan: null, capacite: null, refus: "chemin direct interdit (replanification)", candidats: [] }
+    : cheminDirect(objectif, triage, {
+        capacites: resolution.capacites,
+        autorisee: (id) => catalogue.allowed(id, acteur),
+      });
+
+  if (direct.plan) {
+    return {
+      ok: true,
+      plan: direct.plan,
+      metriques: {
+        ...metriquesBase,
+        // Le rôle EST celui qu'on aurait pris — on ne l'a simplement pas appelé. Écrire un autre
+        // rôle ici laisserait croire à une dégradation de cerveau qui n'a pas eu lieu.
+        latencyMs: Date.now() - debut,
+        usage: null,
+        voie: "DIRECTE",
+        refusDirect: null,
+      },
+    };
+  }
 
   if (!reasoner.configured()) {
     return {
@@ -357,7 +422,9 @@ export async function planifier(
       error:
         "Aucun fournisseur de modèle n'est configuré : je ne peux pas produire de plan. " +
         "Rien n'a été inventé, rien n'a été exécuté.",
-      metriques: { ...metriquesBase, latencyMs: 0, usage: null },
+      metriques: {
+        ...metriquesBase, latencyMs: 0, usage: null, voie: "MODELE", refusDirect: direct.refus,
+      },
     };
   }
 
@@ -367,7 +434,7 @@ export async function planifier(
     schema: MISSION_PLAN_SCHEMA,
     system: CONSIGNE,
     prompt: contexte,
-    maxOutputTokens: opts.maxOutputTokens ?? 8000,
+    maxOutputTokens: opts.maxOutputTokens ?? budgets.maxOutputTokens,
     purpose: "mission.plan",
   });
 
@@ -375,6 +442,8 @@ export async function planifier(
     ...metriquesBase,
     latencyMs: res.latencyMs,
     usage: res.usage,
+    voie: "MODELE",
+    refusDirect: direct.refus,
   };
 
   if (!res.ok || !res.data) {

@@ -273,15 +273,42 @@ export async function lancerMission(
     });
   }
 
+  let etapes = mission.steps.length;
   if (opts.demarrer !== false) {
-    await avancerMission(user, missionId, { ...opts, complexite: mission.complexity });
+    const tour = await avancerMission(user, missionId, { ...opts, complexite: mission.complexity });
+    const etat = tour?.status ?? null;
+
+    /**
+     * ── L'ESCALADE DU CHEMIN DIRECT — ce qui rend son erreur inoffensive ──────────────
+     *
+     * Le chemin direct PROPOSE une lecture sans payer de planificateur. Il se trompe rarement,
+     * mais il se trompe : la capacité dominante peut ne pas être celle qui répond. La garde
+     * n'est pas un réglage de seuil, c'est le JUGE — le même que pour tout autre plan.
+     *
+     * S'il refuse de conclure, on replanifie SUR-LE-CHAMP avec le modèle, sans attendre un
+     * battement d'ordonnanceur ni un clic. La personne qui a posé la question ne doit pas payer
+     * la tentative en délai : le pari du chemin court se solde dans la même requête.
+     *
+     * Coût d'une erreur : une lecture de trop. Coût d'une réussite : la planification entière
+     * économisée — 79 % du temps mesuré. C'est cette asymétrie qui autorise le pari.
+     */
+    if (plan.metriques.voie === "DIRECTE" && (etat === "BLOCKED" || etat === "PARTIAL" || etat === "FAILED")) {
+      await journaliser(missionId, "REPLANNED",
+        "Le chemin direct n'a pas satisfait l'objectif : reprise par le planificateur complet.",
+        { voie: "DIRECTE", etatAtteint: etat });
+      const reprise = await replanifierMission(user, missionId, opts);
+      if (reprise.replanifie) {
+        etapes = reprise.etapes ?? etapes;
+        await avancerMission(user, missionId, { ...opts, complexite: mission.complexity });
+      }
+    }
   }
 
   return {
     ok: true,
     missionId,
     titre,
-    etapes: mission.steps.length,
+    etapes,
     complexite: mission.complexity,
     echelle: mission.scale,
     approbation,
@@ -438,6 +465,16 @@ export async function replanifierMission(
       dejaFait: abouties.map((s) => `${s.key} : ${s.title}`).slice(0, 60),
       refusPrecedent: bloquees.map((s) => `[${s.errorKind ?? "ÉCHEC"}] ${s.key} : ${s.error ?? "sans motif"}`),
     },
+    /**
+     * UNE REPLANIFICATION NE REPREND JAMAIS LE CHEMIN DIRECT.
+     *
+     * Le chemin direct est déterministe : sur la même demande il rend le même plan. Le
+     * reprendre ici reproduirait à l'identique celui que le juge vient de refuser — une boucle
+     * qui consomme une version de plan et n'apprend rien. C'est le seul endroit du dépôt qui
+     * l'interdit, et c'est ce qui garantit que se tromper de chemin coûte une lecture, pas une
+     * réponse fausse.
+     */
+    sansCheminDirect: true,
   });
   if (!plan.ok) return { replanifie: false, raison: `Le planificateur n'a rien rendu : ${plan.error}` };
 
