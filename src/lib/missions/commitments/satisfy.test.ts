@@ -117,13 +117,31 @@ describe("la relance intelligente", () => {
     expect(doitRelancer(e, j(15)).relancer).toBe(true);
   });
 
-  it("le nombre de relances se DÉDUIT de l'écart, sans compteur à tenir à jour", () => {
+  /**
+   * L'ÉCART EST UN CUMUL, PAS UN INTERVALLE.
+   *
+   * Les rappels s'espacent de 1, 3, 5, 7… jours ; après k rappels, l'écart depuis l'échéance
+   * vaut donc 1+3+5+… = k². Le nombre de rappels est la RACINE de l'écart.
+   *
+   * Ce cas encodait auparavant `j(7) ⇒ 4`, c'est-à-dire l'inversion d'un seul intervalle. Le
+   * commentaire de la fonction disait pourtant « 7 ⇒ 3 », et c'est lui qui avait raison : à
+   * 19 jours d'écart, l'ancienne formule déduisait DIX rappels d'un seul, et l'espacement
+   * sautait aussitôt à son maximum. Un engagement en retard de trois semaines recevait donc son
+   * premier rappel, puis plus rien pendant quinze jours.
+   */
+  it("le nombre de relances se DÉDUIT de l'écart CUMULÉ, sans compteur à tenir à jour", () => {
     expect(relancesDeduites(t0, null)).toBe(0);
     expect(relancesDeduites(null, j(5))).toBe(0);
     expect(relancesDeduites(t0, t0)).toBe(0);
     expect(relancesDeduites(t0, j(1))).toBe(1);
     expect(relancesDeduites(t0, j(3))).toBe(2);
-    expect(relancesDeduites(t0, j(7))).toBe(4);
+    expect(relancesDeduites(t0, j(7))).toBe(3);
+    expect(relancesDeduites(t0, j(13))).toBe(4);
+    // Un premier rappel arrivé TRÈS tard ne vaut pas dix rappels.
+    expect(relancesDeduites(t0, j(19))).toBe(4);
+    // Au-delà de 49 jours, `delaiRelance` plafonne : le cumul redevient linéaire.
+    expect(relancesDeduites(t0, j(49))).toBe(7);
+    expect(relancesDeduites(t0, j(63))).toBe(8);
   });
 });
 

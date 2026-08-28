@@ -18,6 +18,7 @@ import { registerBuiltinWorkflows } from "@/lib/scheduler/handlers";
 import { runAdamInboxSweep } from "@/lib/google/gmail/reconcile";
 import { balayerMissions } from "@/platform/in-process/missions/sweep";
 import { vieillirMemoire } from "@/platform/in-process/missions/memory";
+import { relancerEngagements } from "@/platform/in-process/missions/commitments";
 
 /**
  * Tâches périodiques **sans cron externe** : déclenchées (au plus une fois par minute,
@@ -158,6 +159,17 @@ export async function runScheduledJobs(): Promise<void> {
     // Sans clé de fournisseur, c'est un no-op immédiat : on ne compresse pas un souvenir sans
     // savoir ce qu'il contient, et il n'existe pas de repli déterministe honnête.
     await vieillirMemoire().catch((e) => console.error("[scheduled] vieillissement mémoire échoué", e));
+
+    // LES PROMESSES NON TENUES — l'exact inverse du chemin qui marchait déjà.
+    //
+    // Un engagement se satisfait tout seul quand le fait arrive : `satisfaireEngagements` est
+    // appelée par le registre d'événements. Mais quand le fait N'ARRIVE PAS, personne ne
+    // repassait : la promesse restait ouverte en silence, et c'est précisément le cas où l'on
+    // attend quelque chose d'un assistant.
+    //
+    // Rien n'est envoyé À LA PERSONNE QUI A PROMIS : on prévient celle qui attend. Écrire à un
+    // tiers depuis un battement serait une communication sortante que personne n'a relue.
+    await relancerEngagements().catch((e) => console.error("[scheduled] relances d'engagements échouées", e));
 
   } catch (err) {
     console.error("[scheduled] run failed", err);

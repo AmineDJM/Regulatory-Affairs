@@ -178,6 +178,27 @@ export function doitRelancer(e: EtatRelance, maintenant: Date): DecisionRelance 
   return { relancer: true, raison: "échéance dépassée et aucun rappel récent" };
 }
 
+/**
+ * LES PERSONNES QUI ONT QUELQUE CHOSE À RELANCER — la file du battement.
+ *
+ * On ne balaie pas tous les comptes : la quasi-totalité n'a aucun engagement en retard, et les
+ * interroger un par un ferait N requêtes pour rien. On demande à la base QUI a au moins un
+ * engagement ouvert dont l'échéance est passée, et `aRelancer` fait ensuite le tri exact —
+ * échéance, dernier rappel, espacement croissant.
+ */
+export async function proprietairesARelancer(maintenant = new Date(), limite = 25): Promise<string[]> {
+  const rows = await prisma.executiveCommitment.findMany({
+    where: {
+      status: "OPEN",
+      OR: [{ dueAt: { lt: maintenant } }, { dueAt: null, promisedAt: { lt: maintenant } }],
+    },
+    select: { ownerId: true },
+    orderBy: { dueAt: "asc" },
+    take: 500,
+  });
+  return [...new Set(rows.map((r) => r.ownerId))].slice(0, limite);
+}
+
 /** Les engagements qu'il est légitime de relancer maintenant. Le « qui » et le « quoi » suivent. */
 export async function aRelancer(ownerId: string, maintenant = new Date()) {
   const ouverts = await prisma.executiveCommitment.findMany({
@@ -205,16 +226,28 @@ export async function aRelancer(ownerId: string, maintenant = new Date()) {
 /**
  * COMBIEN DE FOIS A-T-ON DÉJÀ RELANCÉ ? — déduit, pas compté.
  *
- * L'écart entre l'échéance et le dernier rappel donne l'ordre de grandeur : plus il est grand,
- * plus on a insisté. C'est approximatif, et suffisant : la seule décision qui en dépend est
- * « attend-on un jour ou une semaine ? ».
+ * ── L'INVERSION EST CUMULATIVE, ET C'EST TOUTE LA DIFFÉRENCE ────────────────────────────
+ *
+ * L'écart mesuré va de l'ÉCHÉANCE au DERNIER rappel : c'est un cumul, pas un intervalle. Si les
+ * rappels ont suivi la cadence de `delaiRelance` (1, 3, 5, 7… jours), le cumul après k rappels
+ * vaut 1+3+5+…+(2k−1) = k². Le nombre de rappels est donc la RACINE de l'écart, pas sa moitié.
+ *
+ * La première écriture inversait un seul intervalle : 19 jours d'écart y valaient dix rappels
+ * au lieu de quatre. La conséquence se voyait en exploitation — un engagement en retard de trois
+ * semaines recevait son PREMIER rappel, puis se retrouvait aussitôt à l'espacement maximal de
+ * quatorze jours, comme s'il en avait déjà reçu dix. Le commentaire d'origine disait d'ailleurs
+ * « 7 ⇒ 3 » quand le code rendait 4 : le texte avait raison, pas le calcul.
+ *
+ * Au-delà de 49 jours (k = 7), `delaiRelance` plafonne à quatorze jours et le cumul redevient
+ * linéaire — la formule suit.
  */
 export function relancesDeduites(echeance: Date | null, dernierRappel: Date | null): number {
   if (!echeance || !dernierRappel) return 0;
   const jours = (dernierRappel.getTime() - echeance.getTime()) / (24 * 3600 * 1000);
   if (jours <= 0) return 0;
-  // 1 jour ⇒ 1 relance, 3 ⇒ 2, 7 ⇒ 3, 13 ⇒ 4… l'inverse de `delaiRelance`.
-  return Math.max(1, Math.round((jours - 1) / 2) + 1);
+  // 1 jour ⇒ 1 relance, 3 ⇒ 2, 7 ⇒ 3, 13 ⇒ 4, 21 ⇒ 5… l'inverse CUMULÉ de `delaiRelance`.
+  if (jours <= 49) return Math.max(1, Math.round(Math.sqrt(jours)));
+  return 7 + Math.floor((jours - 49) / 14);
 }
 
 /** Marque la relance comme faite. Sans cela, la suivante repartirait le lendemain. */
