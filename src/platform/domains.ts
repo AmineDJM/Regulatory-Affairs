@@ -138,7 +138,10 @@ const SOCLE = [
  * fournit (`missions/ports.ts`). C'est ce qui le maintient au niveau des façades — et ce qui
  * rend l'inversion visible ici même le jour où quelqu'un tenterait l'inverse.
  */
-const FACADES = ["src/lib/queries/", "src/lib/api/", "src/lib/links/", "src/lib/missions/"];
+// `fabric/` est une façade pour la même raison que `missions/` : une couche TRANSVERSE par
+// construction (recherche de contenu, registre des sources), consommée par Adam ET par les
+// domaines, qui n'importe jamais `assistant/`.
+const FACADES = ["src/lib/queries/", "src/lib/api/", "src/lib/links/", "src/lib/missions/", "src/lib/fabric/"];
 
 /**
  * LE PONT ADAM ↔ ERP — le seul fichier de `src/platform/` autorisé à connaître l'ERP, par

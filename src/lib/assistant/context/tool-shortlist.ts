@@ -150,6 +150,8 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   executive_alerts: ["GENERAL"],
   list_pending_decisions: ["GENERAL"],
   what_changed: ["GENERAL"],
+  // La carte des sources (fabric F3) : transverse par nature, comme la recherche fédérée.
+  source_map: ["GENERAL"],
   time_travel: ["GENERAL"],
   investigate_event: ["GENERAL"],
   process_insights: ["GENERAL"],

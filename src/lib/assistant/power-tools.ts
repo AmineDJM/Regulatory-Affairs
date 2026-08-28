@@ -14,6 +14,7 @@ import { THREE_SIXTY_TOOLS } from "@/lib/assistant/three-sixty";
 import { BUSINESS_CAPABILITIES } from "@/lib/assistant/business-capabilities";
 import { OFFICE_TOOLS } from "@/lib/assistant/office-capabilities";
 import { DOCUMENT_DISCOVERY_TOOLS, KNOWLEDGE_TOOLS } from "@/lib/assistant/document-discovery";
+import { SOURCE_MAP_TOOLS } from "@/lib/assistant/source-map";
 import { WHAT_IF_TOOLS } from "@/lib/assistant/what-if";
 import { DELIVERABLE_TOOLS } from "@/lib/assistant/deliverables";
 import { CORPUS_TOOLS } from "@/lib/assistant/corpus-tools";
@@ -354,6 +355,9 @@ export const POWER_TOOLS: PowerTool[] = [
   ...DOCUMENT_DISCOVERY_TOOLS,
   // La recherche DANS le contenu — le pendant de `search_everything`, qui n'en lit aucun.
   ...KNOWLEDGE_TOOLS,
+  // LA CARTE DES SOURCES (fabric F3) : où vit chaque famille d'information, qui fait autorité,
+  // et jusqu'à quand les sources dérivées sont synchronisées. Consulter avant de fouiller.
+  ...SOURCE_MAP_TOOLS,
   // SIMULATION (jamais mutative), ÉTAT CONSOLIDÉ de l'entreprise, tri de l'ATTENTION du PDG.
   ...WHAT_IF_TOOLS,
   // LIVRABLES UNIVERSELS : vrais .docx/.xlsx/.pptx depuis UNE spec (cohérence par construction),

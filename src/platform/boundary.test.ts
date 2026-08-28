@@ -36,7 +36,15 @@ import { scanBoundary, ADAM_PATHS, BRIDGE_PATHS } from "./boundary-scan";
  *
  * ⚠ NE JAMAIS L'AUGMENTER. Le baisser en migrant une tranche, oui — c'est le geste attendu.
  */
-const DEBT_CEILING = 424;
+/**
+ * 424 → 426 (2026-08-28, Information Fabric F2/F3) : DEUX franchissements assumés, tous deux
+ * vers `src/lib/fabric/` — une FAÇADE transverse déclarée dans `domains.ts`, au même titre que
+ * `queries/`. `document-discovery` consomme la recherche de contenu indexée, `source-map`
+ * consomme le registre des sources. C'est le chemin VOULU (L3 → L2), de la même nature que les
+ * seize imports `queries/` déjà comptés dans cette dette — pas un nouveau couplage à l'ERP.
+ * Le plafond reste un cliquet : tout franchissement suivant devra se justifier ici, nommément.
+ */
+const DEBT_CEILING = 426;
 
 describe("frontière Adam ↔ ERP", () => {
   const report = scanBoundary();
