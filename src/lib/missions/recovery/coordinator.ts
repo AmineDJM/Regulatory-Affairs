@@ -69,6 +69,7 @@ function barreauxEpuises(
   historique: HistoriqueRecours,
   cible: Cible,
   rejouable: boolean,
+  inapplicables: readonly Strategy[] = [],
 ): Strategy[] {
   const base = prochaineSource(cible, historique.sources) === null
     ? [...historique.tentees, "AUTRE_SOURCE" as Strategy]
@@ -93,7 +94,25 @@ function barreauxEpuises(
    *
    * Le jour où un découpeur existera, cette ligne disparaît et le barreau redevient vivant.
    */
-  const inertes: Strategy[] = ["DECOUPER"];
+  /**
+   * ── UN BARREAU QUI NE PEUT RIEN CHANGER N'EST PAS UN BARREAU (mesuré) ─────────────────
+   *
+   * `inapplicables` est la généralisation de `DECOUPER` : l'appelant y met les stratégies que
+   * CETTE étape est structurellement incapable de consommer. Le coordinateur ne devine pas
+   * lesquelles — il ne connaît pas les types de nœuds — mais il les honore.
+   *
+   * Un run réel a chiffré ce que coûte l'absence de cette notion. `AUTRE_SOURCE` et `ELARGIR`
+   * agissent en écrivant `source` et `elargir` dans l'ENTRÉE de l'étape ; un éventail, lui, se
+   * déploie avant tout appel de capacité et ne lit jamais son entrée. L'échelle a donc parcouru
+   * six greniers — Drive, Legal, Courriers, Regulatory, pièces jointes, journal métier — en
+   * deux cents millisecondes, en écrivant six lignes `STEP_RECOVERY` au journal, sans qu'une
+   * seule ligne de code lise ce qu'elles avaient changé. Vingt-quatre au total sur la mission.
+   *
+   * Ce n'est pas seulement du gaspillage : c'est un faux recours. Le journal affirmait une
+   * persévérance qui n'avait pas eu lieu, et l'échelle s'épuisait sur une cause qu'elle
+   * n'attaquait pas — laissant le vrai barreau (`REPLANIFIER`) inatteignable.
+   */
+  const inertes: Strategy[] = ["DECOUPER", ...inapplicables];
   const sansRejeu: Strategy[] = rejouable ? base : [...base, "RETRY" as Strategy, "RETRY_BACKOFF" as Strategy];
   return [...sansRejeu, ...inertes];
 }
@@ -117,6 +136,8 @@ export function peutConclureEtape(opts: {
   cible?: string | null;
   /** Ce que l'exécutant a dit du rejeu. `false` retire les barreaux RETRY de l'échelle. */
   rejouable?: boolean;
+  /** Les stratégies que cette étape ne peut PAS consommer — voir `barreauxEpuises`. */
+  inapplicables?: readonly Strategy[];
 }): boolean {
   const cible: Cible = estCible(opts.cible) ? opts.cible : "DOCUMENT";
   // Le budget est une limite OPÉRATIONNELLE, pas doctrinale : au-delà, on s'arrête même s'il
@@ -125,7 +146,7 @@ export function peutConclureEtape(opts: {
   return estFinPossible({
     objectifAtteint: false,
     kind: opts.kind,
-    dejaTentees: barreauxEpuises(opts.historique, cible, opts.rejouable !== false),
+    dejaTentees: barreauxEpuises(opts.historique, cible, opts.rejouable !== false, opts.inapplicables),
   });
 }
 
@@ -153,6 +174,15 @@ export function deciderRecours(opts: {
   objectif?: string;
   /** Ce que l'exécutant a dit du rejeu. `false` retire les barreaux RETRY de l'échelle. */
   rejouable?: boolean;
+  /**
+   * LES STRATÉGIES QUE CETTE ÉTAPE NE PEUT PAS CONSOMMER.
+   *
+   * L'appelant les connaît, le coordinateur non — et c'est le bon partage : ce fichier décide
+   * QUOI tenter, il n'a pas à savoir comment un nœud d'éventail se déploie. Ce qu'il garantit,
+   * c'est qu'une stratégie déclarée inapplicable ne sera jamais proposée ni comptée comme
+   * tentée : l'échelle passe au barreau suivant qui, lui, agit réellement.
+   */
+  inapplicables?: readonly Strategy[];
 }): Recours {
   const { kind, historique } = opts;
   const cible: Cible = estCible(opts.cible) ? opts.cible : "DOCUMENT";
@@ -167,7 +197,7 @@ export function deciderRecours(opts: {
     };
   }
 
-  const epuisees = barreauxEpuises(historique, cible, opts.rejouable !== false);
+  const epuisees = barreauxEpuises(historique, cible, opts.rejouable !== false, opts.inapplicables);
   const strategie = prochaineStrategie(kind, epuisees);
 
   // §76 — le refus de conclure. Si l'échelle n'est pas épuisée, BLOQUER n'est pas une option.

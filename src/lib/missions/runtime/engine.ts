@@ -9,12 +9,13 @@ import {
   EtatEtape, EtatMission, chargerEtat, cleIdempotence, compter, journaliser, transitionner,
 } from "@/lib/missions/runtime/store";
 import { entreeIteration, identiteIteration, lire } from "@/lib/missions/runtime/interpolate";
+import { expliquer, resoudreCollection } from "@/lib/missions/runtime/collection";
 import {
   aReparer, controlerQualite, evaluerObjectif,
   type EtapeObservee, type JugeObjectif, type JugementAnterieur,
 } from "@/lib/missions/goal/evaluate";
 import { attenduDe, evaluerResultat } from "@/lib/missions/recovery/evaluate";
-import { ERROR_KINDS, utilisablePourAgir, type ErrorKind } from "@/lib/missions/recovery/strategy";
+import { ERROR_KINDS, utilisablePourAgir, type ErrorKind, type Strategy } from "@/lib/missions/recovery/strategy";
 import { deciderRecours, historiqueDe, noter, peutConclureEtape } from "@/lib/missions/recovery/coordinator";
 
 /**
@@ -392,6 +393,29 @@ async function executerUneEtape(
  * Rend `true` quand l'étape a été réarmée — l'appelant ne doit alors PAS écrire l'échec.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+/**
+ * LES STRATÉGIES QUE CETTE ÉTAPE-LÀ NE PEUT PAS CONSOMMER.
+ *
+ * ── LA RÈGLE, ET ELLE EST STRUCTURELLE ───────────────────────────────────────────────────
+ *
+ * `AUTRE_SOURCE` et `ELARGIR` n'agissent que d'une façon : en écrivant `source` et `elargir`
+ * dans l'ENTRÉE de l'étape, que la capacité relira au prochain passage. Une étape qui ne relit
+ * jamais son entrée ne peut donc rien en faire.
+ *
+ * C'est le cas d'un ÉVENTAIL : `executerUneEtape` le déploie et rend la main AVANT tout appel
+ * de capacité (`if (step.forEach) { … return }`). Lui proposer un autre grenier revient à
+ * changer un champ que personne ne lit — et c'est très exactement ce qu'un run réel a fait
+ * vingt-quatre fois, en écrivant vingt-quatre lignes `STEP_RECOVERY` pour zéro effet, jusqu'à
+ * épuiser l'échelle sur une cause qu'elle n'avait pas touchée.
+ *
+ * Le rendre EXPLICITE plutôt que de le corriger dans le coordinateur garde chaque savoir chez
+ * lui : le moteur sait ce qu'un nœud d'éventail fait de son entrée ; le coordinateur sait ce
+ * qu'une échelle propose. Aucun des deux n'a besoin de connaître l'autre.
+ */
+function strategiesInapplicables(step: EtatEtape): Strategy[] {
+  return step.forEach ? ["AUTRE_SOURCE", "ELARGIR"] : [];
+}
+
 async function tenterRecours(
   etat: EtatMission,
   step: EtatEtape,
@@ -403,13 +427,16 @@ async function tenterRecours(
 
   const historique = historiqueDe(step.recovery);
   const attendu = attenduDe(step.spec);
+  const inapplicables = strategiesInapplicables(step);
 
   // ── §76 — L'AUTORISATION D'ARRÊTER ─────────────────────────────────────────────────
   //
   // C'est l'échelle qui décide si cette étape a le droit de mourir, pas le moteur. Tant
   // qu'elle refuse, il FAUT tenter quelque chose ; laisser l'étape échouer ici serait
   // exactement le « on s'arrête à la première difficulté » que la doctrine interdit.
-  if (peutConclureEtape({ kind, historique, cible: attendu?.cible ?? null, rejouable: sortie.retryable })) return false;
+  if (peutConclureEtape({
+    kind, historique, cible: attendu?.cible ?? null, rejouable: sortie.retryable, inapplicables,
+  })) return false;
 
   const recours = deciderRecours({
     kind,
@@ -417,6 +444,7 @@ async function tenterRecours(
     cible: attendu?.cible ?? null,
     objectif: step.title,
     rejouable: sortie.retryable,
+    inapplicables,
   });
 
   // Seul « réessayer » réarme l'étape ici. Demander à un humain, escalader, replanifier et
@@ -646,17 +674,13 @@ async function deployerEventail(
   const { from, path, as } = eventail;
   const source = etat.steps.find((s) => s.key === from);
 
-  const collection = source ? lire(source.result, path) : undefined;
-  if (!Array.isArray(collection)) {
-    // ── LE RECOURS D'ABORD, L'ÉCHEC ENSUITE ────────────────────────────────────────────
-    //
-    // Cet échec était écrit DIRECTEMENT en base, sans passer par `tenterRecours`. Résultat
-    // mesuré sur un run réel : un `INCOMPATIBLE_RESULT` — le motif que l'échelle traite le
-    // mieux — n'ouvrait aucun recours, et la mission mourait BLOCKED. Le déploiement de
-    // l'éventail est un chemin d'échec comme un autre ; il doit emprunter la même porte.
+  if (!source) {
+    // L'ÉTAPE AMONT N'EXISTE PAS. Ce n'est pas un problème de forme, c'est un DAG faux — et
+    // seul un nouveau plan le corrige. Le message le dit, plutôt que de laisser croire à une
+    // liste manquante.
     const sortie: StepOutcome = {
       status: "FAILED",
-      error: `l'éventail attendait une liste en « ${from}.${path} » ; il a trouvé ${typeof collection}.`,
+      error: `l'éventail dépend de « ${from} », qui n'existe dans aucune version du plan.`,
       errorKind: "INCOMPATIBLE_RESULT",
       retryable: false,
     };
@@ -664,6 +688,44 @@ async function deployerEventail(
     await ecrireSortie(etat, step, sortie, systemClock);
     return 0;
   }
+
+  /**
+   * ── CE QU'ON A TROUVÉ À LA PLACE DE LA LISTE, DIT PRÉCISÉMENT ──────────────────────
+   *
+   * Ce test était `if (!Array.isArray(lire(...)))`, et le message qui en sortait disait « il a
+   * trouvé undefined ». Un run réel a montré ce que coûte cette phrase : elle est recopiée
+   * telle quelle dans `refusPrecedent`, le planificateur n'en tire rien, et il récrit la même
+   * recherche. Deux fois, pour cent neuf secondes de modèle.
+   *
+   * La cause réelle était invisible dans « undefined » : la recherche Drive n'avait rien trouvé
+   * et l'avait dit EN FRANÇAIS, si bien que le résultat de l'étape amont ne portait plus de
+   * structure du tout. Le plan était juste ; le chemin était juste.
+   */
+  const diagnostic = resoudreCollection(source.result, path);
+  if (diagnostic.kind === "CORRIGEE") {
+    // UNE SEULE LISTE = UNE CERTITUDE, et on l'inscrit au journal plutôt que de la taire. Le
+    // cas ambigu, lui, tombe plus bas : on ne choisit jamais parmi plusieurs candidates.
+    await journaliser(etat.id, "FANOUT_PATH_CORRIGE", expliquer(diagnostic, from, path), {
+      stepKey: step.key, demande: path, retenu: diagnostic.chemin, elements: diagnostic.valeur.length,
+    });
+  }
+  if (diagnostic.kind !== "LISTE" && diagnostic.kind !== "CORRIGEE") {
+    // ── LE RECOURS D'ABORD, L'ÉCHEC ENSUITE ────────────────────────────────────────────
+    //
+    // Cet échec était écrit DIRECTEMENT en base, sans passer par `tenterRecours` : un
+    // `INCOMPATIBLE_RESULT` n'ouvrait aucun recours et la mission mourait BLOCKED. Le
+    // déploiement de l'éventail est un chemin d'échec comme un autre ; il emprunte la même porte.
+    const sortie: StepOutcome = {
+      status: "FAILED",
+      error: expliquer(diagnostic, from, path),
+      errorKind: "INCOMPATIBLE_RESULT",
+      retryable: false,
+    };
+    if (await tenterRecours(etat, step, sortie, systemClock)) return 0;
+    await ecrireSortie(etat, step, sortie, systemClock);
+    return 0;
+  }
+  const collection = diagnostic.valeur;
 
   if (collection.length === 0) {
     // UNE COLLECTION VIDE N'EST PAS UNE ERREUR, et ce n'est pas non plus une étape « ignorée » :

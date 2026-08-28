@@ -210,6 +210,145 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
 
   /**
    * ═══════════════════════════════════════════════════════════════════════════════════════
+   * LE SCÉNARIO EXACT D'UN RUN RÉEL — quatre planifications, 191 s, aucun jugement.
+   *
+   * ── LA CHAÎNE, MAILLON PAR MAILLON ────────────────────────────────────────────────────
+   *
+   * `search_drive` ne trouve rien et le dit en français ; l'exécutant l'enveloppe en
+   * `{ texte: … }` ; l'étape est DONE ; l'éventail demande le chemin exact que la capacité
+   * documente et n'obtient rien ; le moteur écrit « il a trouvé undefined » ; l'échelle de
+   * recours parcourt six greniers sur une étape qui ne lit pas son entrée ; la mission bloque ;
+   * le plan suivant, qui n'a reçu que « undefined », refait la même recherche. Deux fois.
+   *
+   * Chaque maillon était correct isolément. Les trois tests ci-dessous tiennent les trois
+   * endroits où la chaîne se coupe désormais.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  const recoursDe = async (missionId: string) =>
+    prisma.missionEvent.findMany({
+      where: { missionId, kind: "STEP_RECOVERY" },
+      select: { summary: true },
+    });
+
+  it("un amont qui a répondu EN TEXTE : le motif est exploitable, et AUCUN recours n'est tenté", async () => {
+    // La forme exacte que produit `structurer()` quand une capacité répond en prose.
+    const t = traceur({
+      sortie: (c) => (c.stepKey === "chercher"
+        ? { texte: "Aucun fichier ni dossier ne contient « contrat » dans le Drive visible." }
+        : { ok: true }),
+    });
+    const id = await creerMission([
+      { key: "chercher", title: "Chercher les contrats", capability: "inspect_record" },
+      {
+        key: "lire", title: "Lire les fichiers trouvés", capability: "send_message",
+        forEach: { from: "chercher", path: "resultats", as: "f" }, input: { to: "{{f.id}}" },
+      },
+    ], "éventail sur un texte");
+
+    await avancer(id, actor, { runner: t.runner });
+    const etat = await chargerEtat(id);
+    const lire = etat!.steps.find((s) => s.key === "lire")!;
+
+    expect(lire.status).toBe("FAILED");
+    expect(lire.errorKind).toBe("INCOMPATIBLE_RESULT");
+
+    // 1. LE MOTIF PORTE CE QUE LA CAPACITÉ A DIT. C'est cette phrase que `refusPrecedent`
+    //    transmet au planificateur ; « undefined » ne lui apprenait rien, et il replanifiait
+    //    la même recherche.
+    expect(lire.error).toContain("Aucun fichier ni dossier ne contient");
+    expect(lire.error).not.toContain("undefined");
+
+    // 2. AUCUN RECOURS N'A ÉTÉ TENTÉ. `AUTRE_SOURCE` écrit `source` dans l'entrée de l'étape ;
+    //    un éventail se déploie avant tout appel de capacité et ne lit jamais son entrée. Le
+    //    run réel en a journalisé vingt-quatre pour zéro effet.
+    expect(await recoursDe(id)).toEqual([]);
+
+    // 3. ET AUCUNE ITÉRATION N'A ÉTÉ CRÉÉE sur un résultat qu'on ne sait pas parcourir.
+    expect(etat!.steps.filter((s) => s.key.startsWith("lire#"))).toHaveLength(0);
+  });
+
+  it("LE CONTRE-EXEMPLE — une étape ORDINAIRE, elle, garde tous ses recours", async () => {
+    // Sans ce test, la correction précédente pourrait avoir désactivé le recours en général au
+    // lieu de retirer deux barreaux inertes sur un seul type de nœud. C'est la différence entre
+    // « on ne ment plus » et « on n'essaie plus ».
+    const t = traceur({
+      echouer: (c) => (c.stepKey === "doc"
+        ? { kind: "NOT_FOUND", message: "le document n'est pas dans le Drive", retryable: false }
+        : null),
+    });
+    const id = await creerMission([
+      { key: "doc", title: "Retrouver le contrat", capability: "inspect_record" },
+    ], "recours sur étape ordinaire");
+
+    await avancer(id, actor, { runner: t.runner });
+    const recours = await recoursDe(id);
+    expect(recours.length).toBeGreaterThan(0);
+    // Et le recours tenté est bien celui qui a du sens ici : chercher AILLEURS.
+    expect(recours.some((e) => e.summary.includes("AUTRE_SOURCE"))).toBe(true);
+  });
+
+  it("UNE seule liste dans le résultat : l'éventail se déploie, et la correction est JOURNALISÉE", async () => {
+    // Le planificateur a écrit « resultats », la capacité produit « documents ». Il n'y a rien à
+    // arbitrer, et replanifier coûterait une cinquantaine de secondes de modèle pour obtenir le
+    // même plan à un mot près. On corrige — et on l'écrit au journal, jamais en silence.
+    const t = traceur({
+      sortie: (c) => (c.stepKey === "chercher"
+        ? { documents: [{ id: "d1" }, { id: "d2" }, { id: "d3" }], tronque: false }
+        : { ok: true }),
+    });
+    const id = await creerMission([
+      { key: "chercher", title: "Chercher", capability: "inspect_record" },
+      {
+        key: "lire", title: "Lire", capability: "send_message",
+        forEach: { from: "chercher", path: "resultats", as: "f" }, input: { to: "{{f.id}}" },
+      },
+    ], "correction de chemin");
+
+    const r = await avancer(id, actor, { runner: t.runner });
+    expect(r.deployees).toBe(3);
+
+    const etat = await chargerEtat(id);
+    expect(etat!.steps.find((s) => s.key === "lire")!.status).toBe("DONE");
+    expect(etat!.steps.filter((s) => s.key.startsWith("lire#") && s.status === "DONE")).toHaveLength(3);
+
+    const corrections = await prisma.missionEvent.findMany({
+      where: { missionId: id, kind: "FANOUT_PATH_CORRIGE" },
+      select: { summary: true },
+    });
+    expect(corrections).toHaveLength(1);
+    expect(corrections[0].summary).toContain("resultats");
+    expect(corrections[0].summary).toContain("documents");
+  });
+
+  it("DEUX listes : on ne tranche pas, et le motif NOMME les candidates", async () => {
+    // La borne de la correction précédente. Un éventail décide combien d'étapes filles naissent
+    // et avec quelles données ; se tromper de liste enverrait N actions sur les mauvaises.
+    const t = traceur({
+      sortie: (c) => (c.stepKey === "chercher"
+        ? { fichiers: [{ id: "f1" }], dossiers: [{ id: "d1" }, { id: "d2" }] }
+        : { ok: true }),
+    });
+    const id = await creerMission([
+      { key: "chercher", title: "Chercher", capability: "inspect_record" },
+      {
+        key: "lire", title: "Lire", capability: "send_message",
+        forEach: { from: "chercher", path: "resultats", as: "f" }, input: { to: "{{f.id}}" },
+      },
+    ], "éventail ambigu");
+
+    const r = await avancer(id, actor, { runner: t.runner });
+    expect(r.deployees).toBe(0);
+
+    const etat = await chargerEtat(id);
+    const lire = etat!.steps.find((s) => s.key === "lire")!;
+    expect(lire.status).toBe("FAILED");
+    expect(lire.error).toContain("fichiers");
+    expect(lire.error).toContain("dossiers");
+    expect(etat!.steps.filter((s) => s.key.startsWith("lire#"))).toHaveLength(0);
+  });
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
    * §14, §15 — LE CRASH. Le test dont dépend toute la crédibilité du moteur.
    * ═══════════════════════════════════════════════════════════════════════════════════════
    */
