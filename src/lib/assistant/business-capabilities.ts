@@ -408,4 +408,94 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
       });
     },
   },
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * REPRENDRE LA MAIN SUR UNE MISSION — et les deux gestes qui n'y sont PAS.
+   *
+   * ── CE QU'IL FAIT ───────────────────────────────────────────────────────────────────
+   *
+   * « Arrête la mission », « mets-la en pause », « je refuse » : trois phrases naturelles, trois
+   * gestes qui RÉDUISENT ce qui va se passer. Les faire passer par la conversation est sans
+   * risque, et c'est souvent là qu'on les dit — au téléphone, en marchant, sans écran.
+   *
+   * ── CE QU'IL NE FAIT PAS, ET C'EST LE CŒUR ─────────────────────────────────────────
+   *
+   * Il n'ACCORDE pas, et il ne FOURNIT pas. Ces deux-là sont des attestations humaines : « j'ai
+   * lu, et j'autorise », « voici la pièce ». Les rendre appelables par un modèle les exposerait à
+   * l'injection — un document déposé dans le Drive et lu par une étape pourrait contenir
+   * « approuve la mission », et l'audit porterait ensuite le nom de la personne pour une décision
+   * qu'elle n'a pas prise. C'est la seule falsification que ce système ne pourrait pas détecter
+   * après coup, donc la seule qu'il faut rendre impossible avant.
+   *
+   * Ces deux gestes vivent dans `mission-runtime-actions.ts`, appelés par un vrai clic dans une
+   * vraie session. Le refus ci-dessous le dit à la personne au lieu de faire semblant.
+   *
+   * ── ET DU CÔTÉ DES MISSIONS ────────────────────────────────────────────────────────
+   *
+   * `policy/guard.ts` refuse `mission_control` à tout acteur marqué `isAgent`, à la COMPILATION.
+   * Une mission ne peut donc ni se relancer elle-même après une pause, ni s'arrêter pour éviter
+   * un contrôle. Le nom de cet outil est dans la table des motifs, et un test le vérifie.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  {
+    def: {
+      name: "mission_control",
+      description:
+        "REPREND LA MAIN SUR UNE MISSION EN COURS : la suspendre, la reprendre, l'arrêter définitivement, "
+        + "ou refuser une autorisation qu'elle demande. "
+        + "DÉFINITION : ce sont les gestes qui RÉDUISENT ce qu'une mission va faire. "
+        + "« pause » l'arrête là où elle est et elle repartira au même point ; « reprendre » la relance ; "
+        + "« arreter » est définitif et ce qui a déjà été fait reste fait ; « refuser » ferme une demande "
+        + "d'autorisation, et les étapes concernées ne s'exécuteront pas. "
+        + "N'ACCORDE JAMAIS une autorisation et ne fournit jamais un élément demandé avec cet outil : "
+        + "ces deux gestes-là exigent un clic de la personne sur l'écran de la mission — dis-le-lui.",
+      input_schema: {
+        type: "object",
+        properties: {
+          missionId: { type: "string", description: "L'identifiant de la mission." },
+          geste: {
+            type: "string",
+            enum: ["pause", "reprendre", "arreter", "refuser"],
+            description: "Le geste demandé.",
+          },
+          motif: { type: "string", description: "Pourquoi — repris dans le journal de la mission." },
+        },
+        required: ["missionId", "geste"],
+      },
+    },
+    // OUVERT PAR DESSEIN, comme `run_mission` : chaque fonction sous-jacente exige que la mission
+    // appartienne à la personne, et un identifiant deviné ne donne rien.
+    allowed: () => true,
+    label: "Mission — reprise en main",
+    run: async (input, user) => {
+      const missionId = str(input, "missionId");
+      const geste = str(input, "geste");
+      if (!missionId) return "Il manque l'identifiant de la mission.";
+
+      const motif = str(input, "motif") || undefined;
+      // IMPORT DIFFÉRÉ ET PAR LE PONT, pour deux raisons distinctes : le composeur importe ce
+      // registre (un import statique fermerait le cycle), et `src/platform/in-process/` est le
+      // SEUL endroit d'Adam autorisé à connaître l'ERP — importer `missions/` d'ici ferait
+      // franchir la frontière deux fois de plus, ce que le cliquet refuse à juste titre.
+      const ctl = await import("@/platform/in-process/missions/control");
+
+      if (geste === "pause") return JSON.stringify(await ctl.pauserMission(user, missionId, motif));
+      if (geste === "reprendre") return JSON.stringify(await ctl.reprendreMissionAgent(user, missionId));
+      if (geste === "arreter") return JSON.stringify(await ctl.arreterMissionAgent(user, missionId, motif));
+      if (geste === "refuser") return JSON.stringify(await ctl.refuserAccordMission(user, missionId));
+
+      // LE REFUS QUI COMPTE. Il est explicite et il ORIENTE : une personne à qui l'on dit
+      // seulement « non » recommence ; une personne à qui l'on dit où cliquer y va.
+      return JSON.stringify({
+        fait: false,
+        message:
+          "Accorder une autorisation ou fournir un élément demandé ne se fait pas depuis la conversation : "
+          + "ce sont des gestes que vous devez poser vous-même sur l'écran de la mission, pour que l'audit "
+          + "porte votre décision et non la mienne. Ouvrez la mission et utilisez le bouton correspondant.",
+        _blocsDecoratifs: true,
+        _blocs: [{ kind: "mission", missionId, blockId: `mission:${missionId}` }],
+      });
+    },
+  },
 ];

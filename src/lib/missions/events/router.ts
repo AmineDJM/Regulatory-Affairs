@@ -168,7 +168,11 @@ export async function missionsAFaireAvancer(limite = 20): Promise<string[]> {
   const rows = await prisma.mission.findMany({
     where: {
       kind: "RUNTIME",
-      status: { notIn: ["COMPLETED", "CANCELLED"] },
+      // `PAUSED` est écarté ICI, à la source, et non dans le balayage. Une mission suspendue qui
+      // remonterait comme candidate serait chargée, examinée et reposée à chaque battement — et
+      // il suffirait qu'un appelant oublie le filtre pour qu'elle reparte. Le seul endroit qui
+      // répond « qui peut avancer ? » doit répondre juste.
+      status: { notIn: ["COMPLETED", "CANCELLED", "PAUSED"] },
       steps: { some: { status: { in: ["PENDING", "FAILED"] } } },
     },
     select: { id: true },

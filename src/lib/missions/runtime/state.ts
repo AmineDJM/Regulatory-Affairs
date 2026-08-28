@@ -33,6 +33,7 @@ export const MISSION_STATES = [
   "RETRYING",
   "PARTIAL",
   "BLOCKED",
+  "PAUSED",
   "FAILED",
   "COMPLETED",
   "CANCELLED",
@@ -55,24 +56,40 @@ export type MissionState = (typeof MISSION_STATES)[number];
  *      mission arrêtée qu'on aurait décidé de considérer comme finie. `PARTIAL` y figure parce
  *      qu'une réparation peut combler le manque trouvé par le QA sans repasser par le moteur ;
  *      ce qui reste interdit, c'est de conclure depuis un état où RIEN n'a été tenté.
+ *
+ * ── LA PAUSE (§39-40), ET CE QU'ELLE N'EST PAS ───────────────────────────────────────────
+ *
+ * On entre en PAUSED depuis n'importe quel état vivant, y compris une attente : « arrête-toi »
+ * doit marcher quel que soit l'endroit où la mission se trouve, exactement comme l'annulation.
+ *
+ * On en sort vers RUNNING ou CANCELLED, et vers RIEN d'autre. En particulier PAUSED → COMPLETED
+ * n'existe pas : conclure une mission suspendue reviendrait à déclarer atteint un objectif dont
+ * on a soi-même interrompu la vérification. La reprise repasse par le moteur, qui refera le
+ * contrôle qualité et redemandera le juge — c'est plus long, et c'est le prix de l'honnêteté.
+ *
+ * La pause ne rend PAS une attente à l'état prêt : une mission suspendue pendant qu'elle
+ * attendait un contrat repart en attendant toujours ce contrat. C'est une propriété des ÉTAPES,
+ * que la pause ne touche pas — et c'est pourquoi la reprise n'a rien à reconstruire.
  */
 export const MISSION_TRANSITIONS: Record<MissionState, readonly MissionState[]> = {
-  PLANNING: ["READY", "AWAITING_APPROVAL", "BLOCKED", "FAILED", "CANCELLED"],
-  READY: ["RUNNING", "AWAITING_APPROVAL", "BLOCKED", "CANCELLED"],
-  AWAITING_APPROVAL: ["RUNNING", "READY", "BLOCKED", "CANCELLED", "FAILED"],
+  PLANNING: ["READY", "AWAITING_APPROVAL", "BLOCKED", "PAUSED", "FAILED", "CANCELLED"],
+  READY: ["RUNNING", "AWAITING_APPROVAL", "BLOCKED", "PAUSED", "CANCELLED"],
+  AWAITING_APPROVAL: ["RUNNING", "READY", "BLOCKED", "PAUSED", "CANCELLED", "FAILED"],
   RUNNING: [
     "WAITING_EVENT", "WAITING_INPUT", "WAITING_DEPENDENCY", "AWAITING_APPROVAL",
-    "RETRYING", "PARTIAL", "BLOCKED", "FAILED", "COMPLETED", "PLANNING", "CANCELLED",
+    "RETRYING", "PARTIAL", "BLOCKED", "PAUSED", "FAILED", "COMPLETED", "PLANNING", "CANCELLED",
   ],
-  WAITING_EVENT: ["RUNNING", "BLOCKED", "FAILED", "CANCELLED"],
-  WAITING_INPUT: ["RUNNING", "BLOCKED", "FAILED", "CANCELLED"],
-  WAITING_DEPENDENCY: ["RUNNING", "BLOCKED", "FAILED", "CANCELLED"],
-  RETRYING: ["RUNNING", "FAILED", "BLOCKED", "CANCELLED"],
+  WAITING_EVENT: ["RUNNING", "BLOCKED", "PAUSED", "FAILED", "CANCELLED"],
+  WAITING_INPUT: ["RUNNING", "BLOCKED", "PAUSED", "FAILED", "CANCELLED"],
+  WAITING_DEPENDENCY: ["RUNNING", "BLOCKED", "PAUSED", "FAILED", "CANCELLED"],
+  RETRYING: ["RUNNING", "FAILED", "BLOCKED", "PAUSED", "CANCELLED"],
   // PARTIAL n'est pas une fin : le QA a trouvé un manque, le moteur va tenter de le réparer.
-  PARTIAL: ["RUNNING", "PLANNING", "COMPLETED", "FAILED", "BLOCKED", "CANCELLED"],
-  BLOCKED: ["RUNNING", "PLANNING", "WAITING_INPUT", "FAILED", "CANCELLED"],
+  PARTIAL: ["RUNNING", "PLANNING", "COMPLETED", "FAILED", "BLOCKED", "PAUSED", "CANCELLED"],
+  BLOCKED: ["RUNNING", "PLANNING", "WAITING_INPUT", "PAUSED", "FAILED", "CANCELLED"],
+  // LA PAUSE NE MÈNE QU'À REPRENDRE OU À ARRÊTER. Surtout pas à COMPLETED : voir l'en-tête.
+  PAUSED: ["RUNNING", "CANCELLED"],
   // UN ÉCHEC N'EST PAS UNE FIN (§74). On peut replanifier, ou reprendre après correction.
-  FAILED: ["PLANNING", "RUNNING", "CANCELLED"],
+  FAILED: ["PLANNING", "RUNNING", "PAUSED", "CANCELLED"],
   COMPLETED: [],
   CANCELLED: [],
 };

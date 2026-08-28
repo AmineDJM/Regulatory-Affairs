@@ -219,7 +219,7 @@ suite("Mission Runtime — la porte d'approbation", () => {
     });
     expect(n).not.toBeNull();
     expect(n!.type).toBe("GENERIC");
-    expect(n!.link).toBe(`/assistant?mission=${id}`);
+    expect(n!.link).toBe(`/missions/${id}`);
 
     // Le fait est aussi dans le journal de la mission : l'écran et la trace disent la même chose.
     const evt = await prisma.missionEvent.findFirst({ where: { missionId: id, kind: "NOTIFIED" } });

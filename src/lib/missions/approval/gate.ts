@@ -83,7 +83,7 @@ export async function demanderApprobation(
     type: "VALIDATION_REQUIRED",
     title: `Adam attend votre accord — ${titreMission}`,
     body: p.resume,
-    link: `/assistant?mission=${missionId}`,
+    link: `/missions/${missionId}`,
     // Une demande d'accord RESTE affichée : c'est une décision, pas une information qui passe.
     push: { tag: `mission-approval-${missionId}`, requireInteraction: true },
   });
@@ -209,7 +209,7 @@ export async function prevenir(opts: {
     type: opts.niveau === "APPROVAL_REQUIRED" ? "VALIDATION_REQUIRED" : "GENERIC",
     title: opts.titre,
     body: opts.message,
-    link: `/assistant?mission=${opts.missionId}`,
+    link: `/missions/${opts.missionId}`,
     push: {
       // Un tag par mission ET par niveau : deux informations du même niveau se remplacent
       // (la plus récente vaut), une décision ne remplace jamais une information.

@@ -67,6 +67,12 @@ export interface VueMission {
   blockId: string;
   title: string;
   subtitle: string;
+  /**
+   * L'ÉTAT BRUT. `subtitle` en donne la version lisible ; celui-ci sert à DÉCIDER — quels boutons
+   * proposer, et lesquels n'ont aucun sens. Faire déduire « peut-on reprendre ? » d'une phrase
+   * française reviendrait à programmer contre un libellé, qui changera.
+   */
+  statut: string;
   etapes: {
     id: string;
     label: string;
@@ -78,6 +84,23 @@ export interface VueMission {
   sousMissions: { id: string; titre: string; etat: string; avancement: string }[];
   /** Ce que la mission attend de l'humain, s'il y a lieu. */
   enAttenteDeVous: string | null;
+  /**
+   * LA MÊME ATTENTE, SOUS FORME ACTIONNABLE. `enAttenteDeVous` est une phrase à lire ; ceci est
+   * ce qu'il faut pour RÉPONDRE — la clé d'étape, sans laquelle l'écran affiche « fournissez le
+   * contrat » et n'a aucun moyen de transmettre le contrat.
+   */
+  attente: { stepKey: string; nodeType: "APPROVAL" | "WAIT_INPUT"; titre: string } | null;
+  /**
+   * LES LIVRABLES, avec l'état de leur CONTRÔLE (§21).
+   *
+   * `VERIFIED` et `BUILT` ne disent pas la même chose : le premier a été rouvert, relu, ses
+   * formules recalculées ; le second a seulement été écrit. Montrer les deux pareil ferait
+   * télécharger un classeur cassé avec la même confiance qu'un classeur vérifié.
+   */
+  livrables: {
+    key: string; titre: string; format: string; statut: string;
+    fichier: string; octets: number; driveNodeId: string | null;
+  }[];
   avancement: { faites: number; total: number; echouees: number };
 }
 
@@ -107,6 +130,13 @@ export async function vueMission(missionId: string, ownerId: string): Promise<Vu
           id: true, title: true, status: true,
           steps: { select: { status: true } },
         },
+      },
+      artifacts: {
+        select: {
+          key: true, title: true, format: true, status: true,
+          fileName: true, byteSize: true, driveNodeId: true,
+        },
+        orderBy: { createdAt: "asc" },
       },
     },
   });
@@ -152,6 +182,7 @@ export async function vueMission(missionId: string, ownerId: string): Promise<Vu
     // L'IDENTIFIANT DE LA MISSION FAIT L'IDENTITÉ DU BLOC : c'est ce qui la met à jour sur place.
     blockId: `mission:${m.id}`,
     title: m.title,
+    statut: m.status,
     subtitle: `${MISSION_STATUS_LABEL[m.status]} — ${faites}/${reelles.length} étapes`
       + (echouees > 0 ? `, ${echouees} en échec` : "")
       + (m.planVersion > 1 ? ` (plan v${m.planVersion})` : ""),
@@ -165,6 +196,17 @@ export async function vueMission(missionId: string, ownerId: string): Promise<Vu
     enAttenteDeVous: attente
       ? (attente.nodeType === "APPROVAL" ? `« ${attente.title} » attend votre accord` : `« ${attente.title} » attend un élément de votre part`)
       : null,
+    attente: attente
+      ? {
+          stepKey: attente.key,
+          nodeType: attente.nodeType === "APPROVAL" ? "APPROVAL" : "WAIT_INPUT",
+          titre: attente.title,
+        }
+      : null,
+    livrables: m.artifacts.map((a) => ({
+      key: a.key, titre: a.title, format: a.format, statut: a.status,
+      fichier: a.fileName, octets: a.byteSize, driveNodeId: a.driveNodeId,
+    })),
     avancement: { faites, total: reelles.length, echouees },
   };
 }

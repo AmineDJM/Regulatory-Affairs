@@ -305,4 +305,8 @@ export const MISSION_STATUS_LABEL: Record<MissionStatus, string> = {
   WAITING_DEPENDENCY: "attend qu'une étape amont se termine",
   RETRYING: "nouvelle tentative en cours",
   FAILED: "en échec",
+  // « SUSPENDUE » et non « en pause » : le mot dit qui a décidé. Une mission suspendue l'a été
+  // par quelqu'un, et ce qu'on veut lire sur l'écran c'est « elle attend qu'on la relance »,
+  // pas « elle se repose ».
+  PAUSED: "suspendue",
 };

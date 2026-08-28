@@ -9316,6 +9316,9 @@ enum MissionStatus {
   WAITING_DEPENDENCY
   RETRYING
   FAILED
+  /// SUSPENDUE PAR UNE PERSONNE — distincte de BLOCKED, qui décrit une mission à qui il manque
+  /// quelque chose. Ici rien ne manque : on lui a dit d'attendre, et elle repart au même point.
+  PAUSED
 }
 
 /// UNE MISSION — la coordination humaine, tenue dans le temps.

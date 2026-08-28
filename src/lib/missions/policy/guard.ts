@@ -46,6 +46,21 @@ const MOTIFS: { test: RegExp; raison: string }[] = [
   { test: /credential|api_?key|token|secret|password|mot_?de_?passe/i, raison: "créer ou lire des identifiants" },
   { test: /kill_?switch|disable_?guard|desactiver_?garde|bypass|contourn/i, raison: "désactiver un garde-fou" },
   { test: /create_?user|delete_?user|user_?account|compte_?utilisateur/i, raison: "administrer des comptes" },
+  /**
+   * S'AUTORISER SOI-MÊME — l'auto-escalade la plus discrète, et la plus tentante.
+   *
+   * Sans cette ligne, une mission pourrait comporter une étape « donner l'accord à la mission »,
+   * et la porte d'approbation deviendrait décorative : le plan compilé attendrait un accord que
+   * le plan compilé se donnerait lui-même. Personne n'aurait rien signé, et l'audit dirait
+   * pourtant qu'un accord a été donné — la pire des deux issues, parce qu'elle a l'air correcte.
+   *
+   * Le motif couvre aussi la reprise et l'arrêt : une mission qui pourrait se relancer elle-même
+   * après avoir été suspendue viderait de son sens le bouton « pause ».
+   */
+  {
+    test: /mission_(approve|control|approbation|accord|pause|resume|reprendre|cancel|arreter)|approve_?mission|decider_?accord/i,
+    raison: "se donner à elle-même un accord, ou reprendre ce qu'une personne a suspendu",
+  },
 ];
 
 export interface RefusPolitique {

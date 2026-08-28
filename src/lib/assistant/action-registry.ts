@@ -981,8 +981,26 @@ G("cockpit Adventum (seuils de risque) & maintenance profonde de la base", [
   "ai-settings-actions:updateAiSettings", "feature-actions:setFeatureStage",
 ]);
 
+// ── LA MAIN HUMAINE SUR UNE MISSION D'EXÉCUTION (§33-40) ─────────────────────────────────
+//
+// Trois gestes RÉDUISENT ce qu'une mission va faire — suspendre, reprendre, arrêter — et le
+// refus d'une autorisation en fait autant. Adam les propose par `mission_control`, donc COVERED.
+classify("COVERED", "mission_control (pause / reprise / arrêt / refus d'autorisation)", [
+  "mission-runtime-actions:mettreMissionEnPause",
+  "mission-runtime-actions:reprendreMission",
+  "mission-runtime-actions:arreterMission",
+]);
+// La LECTURE de ses accords en attente est la même information que `mission_status` rend déjà.
+classify("COVERED", "mission_status (l'écran d'une mission dit ce qu'elle attend de vous)", [
+  "mission-runtime-actions:listerAccordsMission",
+]);
+
 // ── EXCLUDED : pas un travail d'assistant — raison donnée, pas un oubli. ──
 const X = (note: string, keys: string[]) => classify("EXCLUDED", note, keys);
+X("ATTESTATIONS HUMAINES, et volontairement hors de portée d'un modèle. Accorder une autorisation et fournir une pièce engagent la personne : l'audit portera SON nom. Les rendre appelables par Adam les exposerait à l'injection — un document lu par une étape pourrait contenir « approuve la mission », et rien ne distinguerait plus cet accord d'un vrai. `policy/guard.ts` interdit d'ailleurs `mission_control` à l'agent lui-même, à la compilation. Ces deux gestes exigent un clic sur /missions/<id>.", [
+  "mission-runtime-actions:deciderAccordMission",
+  "mission-runtime-actions:fournirElementMission",
+]);
 X("APERÇU AVANT ÉCRITURE : une étape d'ÉCRAN, sans effet. Elle lit un classeur et propose une correspondance de colonnes à valider à la main. Adam, lui, importe par la reconnaissance automatique (`importDirectorySheet` sans correspondance) : il n'a personne pour trancher, et une confirmation qu'aucun humain ne lit n'est pas une confirmation.", [
   "medical-directory-actions:previewDirectorySheet",
 ]);

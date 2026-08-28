@@ -112,6 +112,18 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // par nature. Le choisir serait arbitraire, et fermerait à quelqu'un la seule façon de
       // faire durer un travail que la conversation lui permet déjà de faire en une fois.
       "run_mission",
+      // mission_control : cloisonné PAR REQUÊTE, et il ne fait QUE réduire.
+      //
+      // Chacune de ses fonctions exige que la mission appartienne au demandeur — le `where` porte
+      // le `ownerId`, donc un identifiant deviné ne donne rien. Et les quatre gestes offerts
+      // (suspendre, reprendre, arrêter, refuser) diminuent tous ce qui va se produire : aucun ne
+      // peut faire arriver quelque chose qui n'était pas déjà autorisé.
+      //
+      // Les deux gestes qui AJOUTENT — accorder une autorisation, fournir un élément — n'y sont
+      // délibérément PAS : ce sont des attestations humaines, elles passent par un clic dans une
+      // vraie session (`mission-runtime-actions.ts`), et `policy/guard.ts` interdit en plus cet
+      // outil à l'agent lui-même.
+      "mission_control",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);
