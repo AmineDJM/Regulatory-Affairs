@@ -1,0 +1,15 @@
+=== PRISMA MIGRATE STATUS ===
+Prisma schema loaded from prisma/schema.prisma
+Datasource "db": PostgreSQL database "amd_internal_os", schema "public" at "localhost:5432"
+
+273 migrations found in prisma/migrations
+
+Database schema is up to date!
+
+=== MIGRATIONS SUR DISQUE ===
+274
+20260904100000_action_intent_idempotency
+20260904120000_agent_principal_account
+20260905090000_mission_paused
+20260910120000_artifact_sessions
+migration_lock.toml

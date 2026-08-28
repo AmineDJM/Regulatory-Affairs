@@ -1,0 +1,21 @@
+=== HEAD ===
+1ff570bcffe516e148f37eff3c944ccbdc5a6edd
+1ff570b Carte Graphify + README à jour après le lot Live Office
+2aa7c43 Le décor E2E cesse de pouvoir mentir, et « qu'est-ce que tu as changé ? » répond
+f831ee8 Casser exprès, mesurer pour de vrai, et regarder l'écran
+2c6d47b Le document ouvert vit dans le fil — workspace, capacités Adam, et quatre défauts de décodage
+558cd4c Live Office — l'arbre qui se souvient de sa source, et quatre adaptateurs déterministes
+a3860e5 Un échec n'est pas une fin : la replanification, et ce qu'elle ne peut pas ouvrir
+2a1590d Double webhook, smoke du planificateur en ligne, README + CLAUDE.md + Graphify
+a2ad7bf Les promesses non tenues sont relancées — et deux défauts trouvés en le faisant
+
+=== BRANCH ===
+claude/hopeful-goodall-phd0nb
+
+=== STATUS ===
+?? audit/
+
+=== RUNTIME ===
+v22.22.2
+Next.js v14.2.35
+postgres: 16  main    5432 online postgres /var/lib/postgresql/16/main /var/log/postgresql/postgresql-16-main.log

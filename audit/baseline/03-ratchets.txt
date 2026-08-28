@@ -1,0 +1,26 @@
+=== RATCHETS DECLARES ===
+src/platform/boundary.test.ts:39:const DEBT_CEILING = 424;
+src/platform/domains.test.ts:54:const CROSSING_CEILING = 69;
+src/platform/domains.test.ts:55:const PROVIDER_CEILING = 42;
+
+=== GRAPHIFY BASELINE ===
+# Graph Report - src  (2026-08-28)
+
+## Corpus Check
+- 1823 files · ~1,909,991 words
+- Verdict: corpus is large enough that graph structure adds value.
+
+## Summary
+- 12339 nodes · 45668 edges · 290 communities (281 shown, 9 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 296 edges (avg confidence: 0.69)
+- Token cost: 0 input · 0 output
+
+## Graph Freshness
+- Built from commit: `2aa7c435`
+- Run `git rev-parse HEAD` and compare to check if the graph is stale.
+- Run `graphify update .` after code changes (no API cost).
+
+## Community Hubs (Navigation)
+- button.tsx
+- utils.ts
+- prisma.ts

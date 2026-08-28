@@ -1,0 +1,17 @@
+
+═══ src/lib/missions ═══
+modules            : 42
+  importés en prod : 39
+  TEST-ONLY        : 3
+  AUCUN importeur  : 0
+
+  ── MODULES ATTEIGNABLES SEULEMENT PAR LES TESTS ──
+    src/lib/missions/recovery/sources.ts   ← 2 banc(s)
+    src/lib/missions/recovery/strategy.ts   ← 2 banc(s)
+    src/lib/missions/templates/registry.ts   ← 1 banc(s)
+
+═══ src/lib/artifact ═══
+modules            : 21
+  importés en prod : 21
+  TEST-ONLY        : 0
+  AUCUN importeur  : 0

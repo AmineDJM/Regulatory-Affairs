@@ -1,0 +1,55 @@
+
+> amd-internal-os@0.1.0 adam:doctor
+> tsx scripts/adam-doctor.ts
+
+
+══════════════ ADAM DOCTOR ══════════════
+
+
+── Base de données
+[  OK   ] connexion établie
+
+── Migrations
+[  OK   ] table CommunicationPolicy présente
+[  OK   ] table GoogleConnection présente
+[  OK   ] table GmailIngestionState présente
+[  OK   ] table EmailRecord présente
+[  OK   ] table OutboundMailIntent présente
+[  OK   ] table Mission présente
+
+── Chiffrement
+[ ECHEC ] aucune clé de chiffrement disponible pour les jetons
+           → Définir AUTH_SECRET (ou MAIL_ENCRYPTION_KEY) sur l'hébergeur.
+
+── Config Google
+[ ECHEC ] variables manquantes : GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
+           → Renseigner GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET et GOOGLE_REDIRECT_URI sur l'hébergeur, puis redéployer.
+
+── Connexion
+[ ALERTE] aucun compte Google connecté
+           → Ouvrir /chief-of-staff/reglages et cliquer « Connecter le compte Google ».
+
+── Politique d'envoi
+[  OK   ] REQUIRE_APPROVAL
+
+── File d'attente
+[ ALERTE] 2 message(s) attendent votre accord
+           → Les traiter depuis la conversation du Chief of Staff.
+[ ALERTE] 1 message(s) approuvé(s) non partis
+           → Normalement transitoire ; s'ils s'accumulent, vérifier les coupe-circuits et l'accès Gmail.
+
+── Planificateur
+[  OK   ] actif (veille, histoire, réconciliation à chaque battement)
+
+── Parité ERP
+[  OK   ] natives=537 couvertes=39 trous=0 exclues=80
+
+── Moteur IA
+[ ECHEC ] ANTHROPIC_API_KEY absente : le Chief ne peut pas raisonner
+           → Renseigner la clé sur l'hébergeur.
+
+─────────────────────────────────────────
+10 OK · 3 alerte(s) · 3 echec(s)
+ADAM N'EST PAS OPERATIONNEL — corriger les echecs ci-dessus.
+─────────────────────────────────────────
+

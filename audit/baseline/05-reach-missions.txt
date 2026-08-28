@@ -1,0 +1,160 @@
+PÉRIMÈTRE : src/lib/missions/
+exports analysés : 207
+  PRODUCTION_CALLER : 134
+  TEST_ONLY         : 39
+  NO_CALLER         : 34
+
+── TEST_ONLY (39) ────────────────────────────────
+  ADAM_EMAIL
+      src/lib/missions/agent/account.ts:59
+      appelé par : src/lib/missions/agent/account.test.ts
+  SANS_MOT_DE_PASSE
+      src/lib/missions/agent/account.ts:70
+      appelé par : src/lib/missions/agent/account.test.ts
+  idCompteAgent
+      src/lib/missions/agent/account.ts:139
+      appelé par : src/lib/missions/agent/account.test.ts
+  estCompteSysteme
+      src/lib/missions/agent/account.ts:159
+      appelé par : src/lib/missions/agent/account.test.ts
+  humainPour
+      src/lib/missions/agent/principal.ts:68
+      appelé par : src/lib/missions/agent/account.test.ts, src/lib/missions/agent/principal.test.ts
+  tracerAction
+      src/lib/missions/agent/principal.ts:110
+      appelé par : src/lib/missions/agent/principal.test.ts
+  tracesPour
+      src/lib/missions/agent/principal.ts:148
+      appelé par : src/lib/missions/agent/principal.test.ts
+  empreinteEtape
+      src/lib/missions/approval/scope.ts:184
+      appelé par : src/lib/missions/approval/scope.test.ts
+  tientLaPromesse
+      src/lib/missions/commitments/satisfy.ts:62
+      appelé par : src/platform/in-process/missions/commitments.test.ts, src/lib/missions/evals/bench.test.ts, src/lib/missions/commitments/satisfy.test.ts
+  delaiRelance
+      src/lib/missions/commitments/satisfy.ts:147
+      appelé par : src/lib/missions/commitments/satisfy.test.ts
+  ancetres
+      src/lib/missions/compiler/graph.ts:100
+      appelé par : src/lib/missions/compiler/compile.test.ts
+  INCOMPRESSIBLES
+      src/lib/missions/memory/budget.ts:56
+      appelé par : src/lib/missions/memory/budget.test.ts
+  FIDELITES
+      src/lib/missions/memory/compact.ts:24
+      appelé par : src/lib/missions/memory/budget.test.ts
+  critiquesPerdus
+      src/lib/missions/memory/compact.ts:102
+      appelé par : src/platform/in-process/missions/memory.test.ts, src/lib/missions/memory/budget.test.ts
+  prochaineSource
+      src/lib/missions/recovery/sources.ts:87
+      appelé par : src/lib/missions/evals/bench.test.ts, src/lib/missions/goal/evaluate.test.ts
+  ERROR_KINDS
+      src/lib/missions/recovery/strategy.ts:32
+      appelé par : src/lib/missions/evals/bench.test.ts, src/lib/missions/goal/evaluate.test.ts
+  ECHELLE
+      src/lib/missions/recovery/strategy.ts:101
+      appelé par : src/lib/missions/evals/bench.test.ts, src/lib/missions/goal/evaluate.test.ts
+  prochaineStrategie
+      src/lib/missions/recovery/strategy.ts:125
+      appelé par : src/lib/missions/evals/bench.test.ts, src/lib/missions/goal/evaluate.test.ts
+  estFinPossible
+      src/lib/missions/recovery/strategy.ts:141
+      appelé par : src/lib/missions/evals/bench.test.ts, src/lib/missions/goal/evaluate.test.ts
+  CERTITUDES
+      src/lib/missions/recovery/strategy.ts:167
+      appelé par : src/lib/missions/goal/evaluate.test.ts
+  presenter
+      src/lib/missions/recovery/strategy.ts:184
+      appelé par : src/lib/missions/goal/evaluate.test.ts
+  utilisablePourAgir
+      src/lib/missions/recovery/strategy.ts:194
+      appelé par : src/lib/missions/goal/evaluate.test.ts
+  EFFECTS
+      src/lib/missions/registry/capability-meta.ts:43
+      appelé par : src/lib/missions/policy/guard.test.ts
+  BAIL_MS
+      src/lib/missions/runtime/engine.ts:51
+      appelé par : src/lib/missions/runtime/engine.test.ts
+  MISSION_STATES
+      src/lib/missions/runtime/state.ts:25
+      appelé par : src/lib/missions/runtime/state.test.ts
+  MISSION_TRANSITIONS
+      src/lib/missions/runtime/state.ts:74
+      appelé par : src/lib/missions/runtime/state.test.ts
+  TERMINAL_STATES
+      src/lib/missions/runtime/state.ts:98
+      appelé par : src/lib/missions/runtime/state.test.ts
+  WAITING_STATES
+      src/lib/missions/runtime/state.ts:101
+      appelé par : src/lib/missions/runtime/state.test.ts
+  STEP_STATES
+      src/lib/missions/runtime/state.ts:135
+      appelé par : src/lib/missions/runtime/state.test.ts
+  STEP_TRANSITIONS
+      src/lib/missions/runtime/state.ts:141
+      appelé par : src/lib/missions/runtime/state.test.ts
+  canStepTransition
+      src/lib/missions/runtime/state.ts:160
+      appelé par : src/lib/missions/runtime/state.test.ts
+  toutTermine
+      src/lib/missions/runtime/state.ts:248
+      appelé par : src/lib/missions/runtime/state.test.ts
+  TYPES_MODELE
+      src/lib/missions/templates/registry.ts:37
+      appelé par : src/lib/missions/templates/registry.test.ts
+  ETATS_MODELE
+      src/lib/missions/templates/registry.ts:54
+      appelé par : src/lib/missions/templates/registry.test.ts
+  TRANSITIONS_MODELE
+      src/lib/missions/templates/registry.ts:65
+      appelé par : src/lib/missions/templates/registry.test.ts
+  passageAutorise
+      src/lib/missions/templates/registry.ts:72
+      appelé par : src/lib/missions/templates/registry.test.ts
+  deprecier
+      src/lib/missions/templates/registry.ts:153
+      appelé par : src/lib/missions/templates/registry.test.ts
+  modeleFaisantAutorite
+      src/lib/missions/templates/registry.ts:181
+      appelé par : src/lib/missions/evals/bench.test.ts, src/lib/missions/templates/registry.test.ts
+  noterUsage
+      src/lib/missions/templates/registry.ts:201
+      appelé par : src/lib/missions/templates/registry.test.ts
+
+── NO_CALLER (34) ──────────────────────────────────
+  DOSSIER_LIVRABLES  —  src/lib/missions/artifacts/build.ts:63
+  MIMES  —  src/lib/missions/artifacts/render.ts:36
+  rendreCsv  —  src/lib/missions/artifacts/render.ts:88
+  rendreDocx  —  src/lib/missions/artifacts/render.ts:131
+  rendrePdf  —  src/lib/missions/artifacts/render.ts:169
+  rendrePptx  —  src/lib/missions/artifacts/render.ts:197
+  rendreZip  —  src/lib/missions/artifacts/render.ts:238
+  lettreColonne  —  src/lib/missions/artifacts/xlsx.ts:48
+  CONDUITES  —  src/lib/missions/commitments/proactivity.ts:48
+  FAITS_SATISFAISANTS  —  src/lib/missions/commitments/satisfy.ts:39
+  ETATS_CRITERE  —  src/lib/missions/goal/judge.ts:41
+  CONFIANCE_MINIMALE  —  src/lib/missions/goal/judge.ts:99
+  CONTROLES  —  src/lib/missions/goal/qa.ts:35
+  destinatairesDe  —  src/lib/missions/goal/qa.ts:67
+  valeursCritiques  —  src/lib/missions/memory/compactor.ts:148
+  REASONING_REQUIREMENTS  —  src/lib/missions/model/roles.ts:51
+  RANG_ROLE  —  src/lib/missions/model/roles.ts:89
+  composerContexte  —  src/lib/missions/planner/plan.ts:160
+  reconstruireEntree  —  src/lib/missions/planner/plan.ts:186
+  schemaDepuisChamps  —  src/lib/missions/planner/plan.ts:213
+  INPUT_KINDS  —  src/lib/missions/planner/schema.ts:39
+  FIELD_TYPES  —  src/lib/missions/planner/schema.ts:43
+  LIBELLE_SOURCE  —  src/lib/missions/recovery/sources.ts:35
+  STRATEGIES  —  src/lib/missions/recovery/strategy.ts:61
+  LIBELLE_CERTITUDE  —  src/lib/missions/recovery/strategy.ts:170
+  domaineDeduit  —  src/lib/missions/registry/capability-meta.ts:168
+  jetonsEtendus  —  src/lib/missions/registry/resolve.ts:131
+  scoreCapacite  —  src/lib/missions/registry/resolve.ts:149
+  SCHEMA_WORKER_MINIMAL  —  src/lib/missions/runtime/worker.ts:90
+  faitsEtablis  —  src/lib/missions/runtime/worker.ts:119
+  specifier  —  src/lib/missions/runtime/worker.ts:148
+  composerPromptWorker  —  src/lib/missions/runtime/worker.ts:187
+  mesurerEconomie  —  src/lib/missions/runtime/worker.ts:220
+  LIBELLE_TYPE  —  src/lib/missions/templates/registry.ts:43

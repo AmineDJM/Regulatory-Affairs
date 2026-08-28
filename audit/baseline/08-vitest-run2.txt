@@ -1,0 +1,963 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.2 /home/user/Regulatory-Affairs
+
+stderr | src/lib/models/responses.test.ts > 6. le résolveur d'outils s'applique AVANT l'appel Responses > le plafond de 128 reste appliqué à la frontière, sur cette porte aussi
+[models] 200 outils demandés, plafond 128 — 72 écartés à la frontière : t128, t129, t130, t131, t132, t133, t134, t135, t136, t137, t138, t139, t140, t141, t142, t143, t144, t145, t146, t147, t148, t149, t150, t151, t152, t153, t154, t155, t156, t157, t158, t159, t160, t161, t162, t163, t164, t165, t166, t167, t168, t169, t170, t171, t172, t173, t174, t175, t176, t177, t178, t179, t180, t181, t182, t183, t184, t185, t186, t187, t188, t189, t190, t191, t192, t193, t194, t195, t196, t197, t198, t199. L'appelant aurait dû réduire la liste lui-même (liste courte réversible).
+
+stderr | src/lib/models/responses.test.ts > 9. aucun chemin Terra-medium ne retombe sur /v1/chat/completions > la marche arrière `ADAM_OPENAI_PROTOCOL=chat_completions` est REFUSÉE pour raisonnement + outils
+[models] ADAM_OPENAI_PROTOCOL=chat_completions ignoré pour orchestrator/gpt-5.6-terra : raisonnement + outils n'existe pas sur /v1/chat/completions (c'est le HTTP 400 de production). Appel maintenu sur /v1/responses.
+
+stderr | src/lib/models/responses.test.ts > 10. aucun repli automatique ne transforme `medium` en `none` > un 400 qui mentionne `reasoning_effort` ne fait PAS rejouer sans raisonnement
+[models] openai responses error orchestrator gpt-5.6-terra 400 {"error":{"message":"Function tools with reasoning_effort are not supported"}}
+
+ ✓ src/lib/models/responses.test.ts  (26 tests) 47ms
+stdout | src/lib/assistant/adam-golden-benchmark.test.ts > banc doré — résolution des formulations réelles du PDG > résout au moins 98 % des 110 formulations réelles
+[ADAM_NL] rappel = 100% (110/110)
+
+stdout | src/lib/assistant/adam-golden-benchmark.test.ts > banc doré — résolution des formulations réelles du PDG > mène au BON bouton dans les deux premiers candidats
+[ADAM_NL] destination juste = 100% (95/95 vérifiables ; 15 phrases sans bouton exact au registre)
+
+stdout | src/lib/assistant/adam-golden-benchmark.test.ts > banc doré — résolution des formulations réelles du PDG > ne propose AUCUNE action sur les 44 phrases qui n'en demandent pas
+[ADAM_NL] faux positifs = 0/44
+
+stdout | src/lib/assistant/adam-golden-benchmark.test.ts > banc doré — résolution des formulations réelles du PDG > ne propose JAMAIS un geste irréversible sur une phrase qui ne le commande pas
+[ADAM_NL] faux positifs DESTRUCTEURS = 0/26
+
+stdout | src/lib/assistant/adam-golden-benchmark.test.ts > banc doré — résolution des formulations réelles du PDG > reste déterministe et rapide : p95 sous 5 ms, repli approché marginal
+[ADAM_NL] latence p50 = 0.34 ms · p95 = 0.55 ms · déterministe 180/180 · repli approché 0 · ambigus 51
+
+ ✓ src/lib/assistant/adam-golden-benchmark.test.ts  (26 tests) 350ms
+ ✓ src/lib/assistant/workspace/compose.test.ts  (53 tests) 30ms
+ ✓ src/lib/workflow/engine.test.ts  (22 tests) 1255ms
+ ✓ src/lib/missions/runtime/engine.test.ts  (27 tests) 4228ms
+ ✓ src/lib/assistant/ops-goldens-finance.test.ts  (28 tests) 368ms
+ ✓ src/lib/artifact/runtime/engine.test.ts  (24 tests) 309ms
+ ✓ src/lib/assistant/ops-goldens.test.ts  (54 tests) 706ms
+ ✓ src/lib/knowledge/knowledge.test.ts  (54 tests) 37ms
+ ✓ src/lib/assistant/voice-pipeline.test.ts  (16 tests) 41ms
+ ✓ src/lib/models/capabilities.test.ts  (36 tests) 24ms
+ ✓ src/platform/in-process/missions/e2e.test.ts  (4 tests) 2447ms
+stdout | src/lib/missions/evals/bench.test.ts > BANC D'ESSAI — Mission Runtime > SCÉNARIO 14 — compression : le taux est mesuré, et rien de critique n'est perdu
+  compressionRatio (mesuré)   : 52 % du volume d'origine
+
+stdout | src/lib/missions/evals/bench.test.ts > BANC D'ESSAI — Mission Runtime > SCÉNARIO 15 — budget de contexte : ce qui compte passe, le reste tombe
+  contextTokensPerTurn (mesuré): 1131 jetons estimés (19 vifs, 1112 retrouvés)
+
+stdout | src/lib/missions/evals/bench.test.ts > BANC D'ESSAI — Mission Runtime
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  MISSION RUNTIME — KPI MESURÉS (§117)                                        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+  scénarios exécutés          : 17
+  firstAttemptSuccessRate     : 88.2 %
+  recoverySuccessRate         : 100.0 %
+  averageRecoveryAttempts     : 3.00
+  prematureStopRate           : 0.0 %   ← invariant : 0
+  knownMismatchStopRate       : 0.0 %   ← invariant : 0
+  étapes exécutées            : 170
+  étapes REJOUÉES après reprise: 0   ← invariant : 0
+  unnecessaryModelCalls        : 0   ← lectures d'état sans modèle
+
+  NON MESURÉ ICI, ET DIT COMME TEL (§72) — exige une clé de fournisseur :
+    questionUsefulness, memoryRetrievalPrecision/Recall sur questions réelles,
+    latence de bout en bout, coût réel en jetons de modèle, oldDecisionRecall.
+    Le code les INSTRUMENTE (compteurs de mission, métriques d'assemblage) ;
+    aucun chiffre n'est produit ici, et aucun n'est inventé.
+
+
+ ✓ src/lib/missions/evals/bench.test.ts  (18 tests) 4532ms
+stdout | src/lib/knowledge/pipeline.test.ts > §21 — la file ne fait jamais le même travail deux fois > deux mises en file identiques n'en créent qu'une
+prisma:error 
+Invalid `prisma.knowledgeJob.create()` invocation in
+/home/user/Regulatory-Affairs/src/lib/knowledge/queue.ts:68:43
+
+  65   : (input.dedupeKey ?? (input.itemId ? `${input.kind}:${input.itemId}` : null));
+  66 
+  67 try {
+→ 68   const job = await prisma.knowledgeJob.create(
+Unique constraint failed on the fields: (`dedupeKey`)
+
+ ✓ src/lib/models/models.test.ts  (37 tests) 30ms
+ ✓ src/lib/knowledge/pipeline.test.ts  (24 tests) 432ms
+ ✓ src/lib/missions/compiler/compile.test.ts  (44 tests) 22ms
+ ✓ src/lib/rbac.test.ts  (41 tests) 15ms
+ ✓ src/lib/knowledge/router.test.ts  (20 tests) 32ms
+ ✓ src/lib/mail/graph/client.test.ts  (27 tests) 41ms
+ ✓ src/lib/actions/mission-runtime-actions.test.ts  (9 tests) 3517ms
+ ✓ src/lib/comms/adam-core.test.ts  (39 tests) 25ms
+ ✓ src/lib/assistant/architecture-evals.test.ts  (12 tests) 26ms
+ ✓ src/lib/assistant/ops-goldens-wave4.test.ts  (14 tests) 221ms
+ ✓ src/lib/assistant/ops-goldens-wave5b.test.ts  (16 tests) 213ms
+ ✓ src/lib/assistant/ops-goldens-hr2.test.ts  (13 tests) 220ms
+ ✓ src/lib/assistant/ops-goldens-wave3.test.ts  (15 tests) 191ms
+ ✓ src/lib/assistant/executive-security.test.ts  (16 tests) 87ms
+ ✓ src/lib/assistant/workspace/turn.test.ts  (30 tests) 13ms
+ ✓ src/lib/regulatory/intelligence/pipeline.e2e.test.ts  (1 test) 1658ms
+ ✓ src/lib/assistant/voice-e2e.test.ts  (11 tests) 14ms
+ ✓ src/lib/assistant/ops-goldens-wave4b.test.ts  (14 tests) 215ms
+ ✓ src/lib/assistant/voice-realtime.test.ts  (14 tests) 322ms
+ ✓ src/lib/comms/adam-mail-transcript.test.ts  (12 tests) 289ms
+ ✓ src/lib/assistant/ops-goldens-wave6.test.ts  (13 tests) 159ms
+ ✓ src/lib/comms/adam-redteam.test.ts  (16 tests) 224ms
+ ✓ src/lib/models/budget.test.ts  (19 tests) 23ms
+ ✓ src/lib/assistant/workspace/compose-godmode.test.ts  (30 tests) 17ms
+ ✓ src/lib/comms/mail-identity.test.ts  (13 tests) 455ms
+ ✓ src/platform/in-process/missions/memory.test.ts  (6 tests) 507ms
+ ✓ src/lib/assistant/ops-goldens-wave5.test.ts  (13 tests) 161ms
+ ✓ src/lib/assistant/ops-goldens-wave2b.test.ts  (12 tests) 205ms
+stderr | src/lib/regulatory/intelligence/ingest/ingest-dossier.test.ts > ingestDossierZip — pipeline d'ingestion CTD (intégration) > archive originale trop volumineuse pour la base → dossier ANALYSÉ quand même (best-effort)
+[ingest] archive originale 0 Mo > plafond base 0 Mo — non retenue (activez R2 pour la conserver). Analyse poursuivie.
+
+stderr | src/lib/regulatory/intelligence/ingest/ingest-dossier.test.ts > ingestDossierZip — pipeline d'ingestion CTD (intégration) > un FICHIER individuel au-delà du plafond base → MARQUÉ (jamais un crash), les autres continuent
+[inspectZip] stockage entrée échoué m1/gros.pdf Fichier trop volumineux pour le stockage en base (0 Mo > 0 Mo) — non conservé.
+
+stderr | src/lib/regulatory/intelligence/ingest/ingest-dossier.test.ts > ingestDossierZip — pipeline d'ingestion CTD (intégration) > un FICHIER individuel au-delà du plafond base → MARQUÉ (jamais un crash), les autres continuent
+[inspectZip] stockage entrée échoué m1/autre.pdf Fichier trop volumineux pour le stockage en base (0 Mo > 0 Mo) — non conservé.
+
+ ✓ src/lib/missions/events/router.test.ts  (11 tests) 2047ms
+ ✓ src/lib/assistant/voice/fast-path.test.ts  (48 tests) 25ms
+ ✓ src/lib/assistant/superadmin-write.test.ts  (11 tests) 194ms
+ ✓ src/lib/missions/goal/evaluate.test.ts  (30 tests) 13ms
+ ✓ src/lib/assistant/context/router.test.ts  (36 tests) 30ms
+ ✓ src/lib/storage/object-storage.test.ts  (25 tests) 102ms
+ ✓ src/lib/regulatory/intelligence/ingest/ingest-dossier.test.ts  (8 tests) 5874ms
+ ✓ src/lib/assistant/ops-goldens-wave7d.test.ts  (11 tests) 220ms
+ ✓ src/lib/department-budget.test.ts  (36 tests) 11ms
+ ✓ src/lib/assistant/context/rollout.test.ts  (47 tests) 42ms
+ ✓ src/lib/comms/adam-fast-flow.test.ts  (17 tests) 598ms
+ ✓ src/lib/assistant/context/tool-resolver.test.ts  (32 tests) 43ms
+stderr | src/lib/regulatory/intelligence/ocr/mistral-ocr.test.ts > mistralOcrDocument — découpage des PDF massifs par tranches > découpe un PDF au-delà d'une tranche, appelle l'API par tranche, fusionne le total
+format error: cannot find startxref
+warning: trying to repair broken xref
+warning: repairing PDF document
+
+stderr | src/lib/regulatory/intelligence/ocr/mistral-ocr.test.ts > mistralOcrDocument — découpage des PDF massifs par tranches > renumérote les pages 1..N dans l'ordre des tranches (exécution séquentielle)
+format error: cannot find startxref
+warning: trying to repair broken xref
+warning: repairing PDF document
+
+stderr | src/lib/regulatory/intelligence/ocr/mistral-ocr.test.ts > mistralOcrDocument — découpage des PDF massifs par tranches > une tranche en échec → pages vides (revue), les autres passent (jamais tout perdre)
+format error: cannot find startxref
+warning: trying to repair broken xref
+warning: repairing PDF document
+[reg-ocr] tranche 1-25 échouée : Mistral OCR 400 : bad
+
+stderr | src/lib/regulatory/intelligence/ocr/mistral-ocr.test.ts > mistralOcrDocument — forme de la requête + résultat > PDF → document_url + data:application/pdf
+syntax error: expected object number
+format error: cannot find startxref
+warning: trying to repair broken xref
+warning: repairing PDF document
+[reg-ocr] découpage PDF impossible → appel unique : no objects found
+
+ ✓ src/lib/regulatory/intelligence/ocr/mistral-ocr.test.ts  (18 tests) 154ms
+ ✓ src/lib/recruitment/request-flow.test.ts  (32 tests) 25ms
+ ✓ src/lib/assistant/workflow-config.test.ts  (10 tests) 88ms
+stdout | src/lib/scheduler/runner.test.ts > §9 — le passage > exécute une planification due, une seule fois
+[scheduler] sweep {"ran":1,"failed":0,"skipped":0,"released":0}
+
+stdout | src/lib/scheduler/runner.test.ts > §9 — le passage > avance l'échéance À LA PRISE, avant même d'exécuter
+[scheduler] sweep {"ran":0,"failed":1,"skipped":0,"released":0}
+
+stdout | src/lib/scheduler/runner.test.ts > §9 — le passage > distingue « fait », « rien à faire » et « en panne » dans l'historique
+[scheduler] sweep {"ran":1,"failed":1,"skipped":1,"released":0}
+
+stdout | src/lib/scheduler/runner.test.ts > §9 — la gestion > supprimer emporte l'historique — une planification fantôme serait pire
+[scheduler] sweep {"ran":1,"failed":0,"skipped":0,"released":0}
+
+ ✓ src/lib/scheduler/runner.test.ts  (13 tests) 220ms
+ ✓ src/lib/assistant/ops-goldens-wave8.test.ts  (9 tests) 191ms
+ ✓ src/lib/google/adam-commissioning.test.ts  (18 tests) 11ms
+ ✓ src/lib/regulatory/intelligence/pipeline.upload.e2e.test.ts  (2 tests) 19023ms
+stdout | src/lib/feedback/attachments.test.ts > retours — pièces jointes réelles > l'ÉCHEC de l'écriture ne laisse aucune pièce désignant un contenu inexistant
+prisma:error 
+Invalid `tx.feedbackAttachment.create()` invocation in
+/home/user/Regulatory-Affairs/src/lib/feedback/attachments.test.ts:168:37
+
+  165 blobs.push(blobId);
+  166 await expect(
+  167   prisma.$transaction(async (tx) => {
+→ 168     await tx.feedbackAttachment.create(
+Foreign key constraint violated: `FeedbackAttachment_feedbackId_fkey (index)`
+
+ ✓ src/lib/feedback/attachments.test.ts  (14 tests) 351ms
+ ✓ src/lib/assistant/ops-goldens-wave6b.test.ts  (10 tests) 207ms
+ ↓ src/lib/assistant.test.ts  (23 tests | 23 skipped)
+ ✓ src/lib/regulatory/intelligence/upload/session.integration.test.ts  (6 tests) 768ms
+ ✓ src/lib/missions/runtime/state.test.ts  (32 tests) 16ms
+ ✓ src/lib/comms/adam-supersede.test.ts  (8 tests) 380ms
+ ✓ src/lib/comms/adam-ceo-day.test.ts  (10 tests) 285ms
+ ✓ src/lib/tasks/request-flow.test.ts  (43 tests) 14ms
+ ✓ src/lib/missions/approval/gate.test.ts  (6 tests) 1532ms
+ ✓ src/lib/ad-pro-items.test.ts  (33 tests) 13ms
+ ✓ src/lib/comms/outbound-integration.test.ts  (13 tests) 486ms
+ ✓ src/lib/assistant/hr-perimeter.test.ts  (14 tests) 339ms
+ ✓ src/lib/missions/commitments/satisfy.test.ts  (26 tests) 16ms
+ ✓ src/lib/missions/approval/scope.test.ts  (22 tests) 24ms
+ ✓ src/lib/regulatory/sheet-import.test.ts  (34 tests) 15ms
+ ✓ src/lib/comms/adam-mail-golden.test.ts  (4 tests) 203ms
+ ✓ src/lib/queries/metrics.test.ts  (9 tests) 163ms
+stderr | src/lib/regulatory/intelligence/ingest/zip-inspector.test.ts > inspectZipFile — inspection EN FLUX (mémoire bornée), parité sécurité avec inspectZip > un échec de STOCKAGE d'un fichier ne fait PAS tomber l'archive (marqué, les autres passent)
+[inspectZipFile] stockage entrée échoué boom.pdf stockage indisponible
+
+ ✓ src/lib/regulatory/intelligence/ingest/zip-inspector.test.ts  (17 tests) 94ms
+ ✓ src/lib/assistant/action-intents.test.ts  (9 tests) 307ms
+ ✓ src/lib/knowledge/retrieve.test.ts  (11 tests) 158ms
+ ✓ src/lib/ad-pro/payment-authority.test.ts  (30 tests) 12ms
+ ✓ src/lib/assistant/regulatory-write.test.ts  (11 tests) 147ms
+ ✓ src/lib/assistant/deliverables.test.ts  (9 tests) 420ms
+ ✓ src/lib/medical/directory-sheet.test.ts  (21 tests) 17ms
+ ✓ src/lib/missions/memory/budget.test.ts  (22 tests) 10ms
+ ✓ src/lib/regulatory/intelligence/progress/analysis-progress.test.ts  (21 tests) 9ms
+ ✓ src/lib/assistant/ops-goldens-wave7.test.ts  (10 tests) 155ms
+ ✓ src/lib/assistant/voice/turn-metrics.test.ts  (26 tests) 11ms
+stdout | src/lib/assistant/action-parity.test.ts > ZERO-GAP — chaque action serveur de l'ERP est classée, aucun trou silencieux > le nombre de TROUS assumés ne grandit pas en silence (cliquet)
+[UI_ACTION_PARITY] natives=537 couvertes=39 trous=0 exclues=80 — parité=100% (sur 656 actions classées)
+
+ ✓ src/lib/assistant/action-parity.test.ts  (13 tests) 43ms
+ ✓ src/lib/knowledge/entities/resolve.test.ts  (14 tests) 240ms
+ ✓ src/lib/assistant/capability-surface.test.ts  (11 tests) 22ms
+ ✓ src/lib/assistant/voice-tuning.test.ts  (26 tests) 10ms
+ ✓ src/lib/finance/payment-request.test.ts  (34 tests) 22ms
+ ✓ src/lib/regulatory-workflow.test.ts  (17 tests) 8ms
+ ✓ src/lib/queries/product-360.test.ts  (6 tests) 203ms
+ ✓ src/lib/medical/directory-mapping.test.ts  (21 tests) 15ms
+ ✓ src/lib/knowledge/entities/entities.test.ts  (36 tests) 24ms
+ ✓ src/lib/missions/view/workspace.test.ts  (9 tests) 2277ms
+ ✓ src/lib/actions/medical-info-flow.test.ts  (8 tests) 513ms
+ ✓ src/lib/assistant/investigation.test.ts  (5 tests) 254ms
+ ✓ src/platform/in-process/missions/commitments.test.ts  (5 tests) 136ms
+ ✓ src/lib/missions/agent/principal.test.ts  (9 tests) 309ms
+ ✓ src/lib/assistant/ops-goldens-wave7b.test.ts  (8 tests) 172ms
+ ✓ src/lib/company-access.test.ts  (35 tests) 11ms
+ ✓ src/lib/mail/connection.integration.test.ts  (13 tests) 200ms
+ ✓ src/lib/assistant/business-capabilities.test.ts  (9 tests) 152ms
+ ✓ src/lib/assistant/ops-goldens-wave6c.test.ts  (8 tests) 174ms
+ ✓ src/lib/navigation.test.ts  (20 tests) 10ms
+ ✓ src/lib/missions/memory/store.test.ts  (8 tests) 192ms
+ ✓ src/lib/legal/list-view.test.ts  (12 tests) 8ms
+ ✓ src/lib/petty-cash.test.ts  (28 tests) 9ms
+ ✓ src/lib/google/scopes.test.ts  (22 tests) 10ms
+ ✓ src/lib/assistant/memory-tools.test.ts  (7 tests) 201ms
+ ✓ src/platform/domains.test.ts  (7 tests) 5ms
+ ✓ src/lib/artifact/commands/nl.test.ts  (29 tests) 18ms
+stdout | src/lib/assistant/capability-audit.test.ts > §12 — audit de capacités : ce qu'Adam sait faire, mesuré sur le code > LE TABLEAU §12 — imprimé pour l'audit final
+
+═══ §12 — AUDIT DE CAPACITÉS ═══
+  server actions de l'ERP        : 656
+  NATIVE   (Adam exécute)        : 537
+  COVERED  (même résultat, autre outil) : 39
+  GAP      (trou reconnu)        : 0
+  EXCLUDED (hors sujet, motivé)  : 80
+  → parité = 100% sur 576 actions retenues (80 exclues)
+
+  outils de domaine              : 30
+  ops exécutables                : 496
+  actions natives nommées        : 532
+
+  RÉPARTITION DES OPS PAR MODULE :
+     27 ops  Espace de travail
+     22 ops  Matériel promotionnel
+     17 ops  RH → Demandes
+     16 ops  Réunions
+     16 ops  Force de vente
+     15 ops (2 critiques)  PCH — Marchés
+     15 ops (1 critiques)  Business Development → Études
+     14 ops (1 critiques)  Regulatory
+     14 ops (2 critiques)  Annuaire
+     13 ops (1 critiques)  Business Development
+     12 ops (3 critiques)  Administration
+     12 ops  Congrès → Prises en charge
+     11 ops (1 critiques)  Drive
+     11 ops (3 critiques)  Budgets
+     10 ops  RH → Recrutement
+     10 ops (3 critiques)  Ad & Pro → Postes
+      8 ops (2 critiques)  Finances
+      8 ops  Validations → Paiements
+      8 ops  Missions
+      8 ops  Projets
+      8 ops  Rapports terrain
+      7 ops (1 critiques)  Budgets → Départements
+      7 ops (1 critiques)  Legal
+      7 ops  Information médicale
+      6 ops  RH → Congés
+      6 ops  RH → Formations
+      6 ops (1 critiques)  Courriers
+      6 ops (2 critiques)  Stocks
+      6 ops  Administration → Gammes
+      5 ops  Finances → Règlements
+      5 ops  Moyens généraux → Caisse d'avance
+      5 ops  Annuaire → Annuaires nommés
+      5 ops (2 critiques)  Congrès
+      5 ops (1 critiques)  Matériel promotionnel → Stock
+      5 ops  Moyens généraux
+      4 ops (1 critiques)  Drive → Catégories
+      4 ops  Espace de travail → Pièces
+      4 ops (1 critiques)  Finances → Factures
+      4 ops  RH
+      4 ops  Legal → Dossiers
+      4 ops  Ad & Pro
+      4 ops  Annuaire → Plans de tournée
+      4 ops (1 critiques)  Sponsoring
+      4 ops (1 critiques)  Consulting
+      4 ops  Support
+      4 ops  Mon espace → Rappels
+      4 ops  Validations → Règles
+      4 ops  Validations
+      4 ops  Moyens généraux → Catalogue
+      3 ops (1 critiques)  Pièces jointes
+      3 ops  RH → Paie
+      3 ops  RH → Avances
+      3 ops  Courriers → Dossiers
+      3 ops  Courriers → Partenaires
+      3 ops  Courriers → Pièces
+      3 ops  Administration → Départements
+      3 ops  Administration → Comptes
+      3 ops  Annuaire → Visites
+      3 ops (1 critiques)  Events
+      3 ops  Events → Inscriptions
+      3 ops  Congrès → Personnes
+      3 ops  Ad & Pro → Autres
+      3 ops  Consulting → Tâches
+      3 ops  Directives
+      3 ops  Ressources humaines
+      2 ops  Drive / Bureautique
+      2 ops (1 critiques)  Bureautique → En-têtes
+      2 ops  Finances → Paie
+      2 ops  Centre de paiement
+      2 ops  Regulatory → Catalogue
+      2 ops  RH → Notes de frais
+      2 ops  RH → Entrevues
+      2 ops (1 critiques)  RH → Dossier
+      2 ops  Administration → Entités
+      2 ops  Administration → Fournisseurs
+      2 ops  Ventes
+      2 ops  Logistique
+      2 ops  Feedback
+      1 ops  Budgets → Caisse d'avance
+      1 ops  Budgets → Lignes
+      1 ops  Courrier (boîte)
+      1 ops  Moyens généraux → Annuaire d'entreprise
+      1 ops  Administration → Accès
+      1 ops  Stocks PCH
+      1 ops (1 critiques)  Centre de contrôle IA
+      1 ops  Adventum Brain
+      1 ops  Champs personnalisés
+      1 ops  Bureautique
+═══════════════════════════════
+
+ ✓ src/lib/assistant/capability-audit.test.ts  (6 tests) 20ms
+ ✓ src/lib/scheduler/scheduler.test.ts  (17 tests) 16ms
+ ✓ src/lib/actions/budget-expense.test.ts  (7 tests) 379ms
+ ✓ src/lib/assistant/execution/bundle.test.ts  (18 tests) 9ms
+ ✓ src/lib/artifact/adapters/fidelity.test.ts  (8 tests) 240ms
+ ✓ src/lib/assistant/three-sixty.test.ts  (7 tests) 231ms
+ ✓ src/lib/assistant/triage.test.ts  (19 tests) 12ms
+ ✓ src/lib/regulatory/intelligence/vision/read-figures.test.ts  (22 tests) 20ms
+ ✓ src/lib/knowledge/rerank.test.ts  (18 tests) 10ms
+ ✓ src/lib/assistant/reasoning.test.ts  (15 tests) 16ms
+ ✓ src/lib/assistant/ops-goldens-wave7c.test.ts  (7 tests) 126ms
+ ✓ src/lib/artifact/qa/checks.test.ts  (17 tests) 11ms
+ ✓ src/lib/products/identity.test.ts  (16 tests) 11ms
+ ✓ src/lib/assistant/context/working-set.test.ts  (17 tests) 35ms
+ ✓ src/lib/general-means/catalog-normalize.test.ts  (23 tests) 12ms
+ ✓ src/lib/workflow/origin.test.ts  (19 tests) 6ms
+ ✓ src/lib/actions/dossier-flow.test.ts  (8 tests) 570ms
+ ✓ src/lib/storage/s3-config.test.ts  (20 tests) 7ms
+ ✓ src/lib/assistant/voice/delivery.test.ts  (17 tests) 13ms
+ ✓ src/lib/care.test.ts  (24 tests) 11ms
+ ✓ src/lib/missions/templates/registry.test.ts  (14 tests) 237ms
+ ✓ src/lib/regulatory/intelligence/cost/batch-multi.integration.test.ts  (2 tests) 298ms
+ ✓ src/lib/models/routing.test.ts  (6 tests) 100ms
+ ✓ src/lib/assistant/context/rollout-regression.test.ts  (31 tests) 24ms
+ ✓ src/lib/assistant/regulatory-read.test.ts  (7 tests) 191ms
+ ✓ src/lib/assistant/admin-write.test.ts  (22 tests) 15ms
+ ✓ src/lib/legal/lifecycle.test.ts  (22 tests) 22ms
+ ✓ src/lib/actions/promo-material-flow.test.ts  (7 tests) 827ms
+ ✓ src/lib/assistant/golden-queries.test.ts  (3 tests) 151ms
+ ✓ src/platform/in-process/missions/catalog.test.ts  (6 tests) 66ms
+ ✓ src/lib/regulatory/intelligence/upload/session.finalize.test.ts  (3 tests) 568ms
+ ✓ src/lib/assistant/voice-cooldown.test.ts  (21 tests) 7ms
+ ✓ src/lib/hr/stand-in.test.ts  (25 tests) 18ms
+ ✓ src/lib/regulatory/update-reminder.test.ts  (21 tests) 8ms
+ ✓ src/lib/directory/rank.test.ts  (17 tests) 8ms
+stdout | src/lib/assistant/semantic-drive.test.ts > sémantique Drive — le sens retrouve ce que le lexical rate (embedder déterministe) > BANC RECALL@5 (fixtures synthétiques) : hybride ≥ lexical, gain mesuré — jamais affirmé
+[bench] Recall@5 (fixtures synthétiques, embedder déterministe) { lexicalRecall: 0.3333333333333333, hybridRecall: 1 }
+
+ ✓ src/lib/assistant/semantic-drive.test.ts  (3 tests) 437ms
+stdout | src/lib/events/audit-to-ledger.test.ts > l'audit alimente le registre des faits > LE CAS D'ORIGINE : la tâche qui attendait le document se clôt toute seule
+[events] preuve {
+  task: 'cmtcjp1yx0009pwalfprdh2fw',
+  event: 'DOCUMENT_UPLOADED',
+  confidence: 'declared',
+  autoComplete: true
+}
+
+stdout | src/lib/events/audit-to-ledger.test.ts > l'audit alimente le registre des faits > l'échec du registre ne fait PAS échouer l'audit — la garde de non-régression
+prisma:error 
+Invalid `prisma.auditLog.create()` invocation in
+/home/user/Regulatory-Affairs/src/lib/audit.ts:25:27
+
+  22  */
+  23 export async function recordAudit(input: AuditInput) {
+  24   try {
+→ 25     await prisma.auditLog.create({
+           data: {
+             actorId: null,
+             action: "UPLOAD",
+             module: "LEGAL",
+             entityType: "CE_TYPE_N_EXISTE_PAS",
+                         ~~~~~~~~~~~~~~~~~~~~~~
+             entityId: "ZZAUD1787896973582bad",
+             field: undefined,
+             oldValue: null,
+             newValue: null,
+             summary: undefined,
+             ipAddress: null
+           }
+         })
+
+Invalid value for argument `entityType`. Expected EntityType.
+
+stderr | src/lib/events/audit-to-ledger.test.ts > l'audit alimente le registre des faits > l'échec du registre ne fait PAS échouer l'audit — la garde de non-régression
+[audit] failed to record entry PrismaClientValidationError: 
+Invalid `prisma.auditLog.create()` invocation in
+/home/user/Regulatory-Affairs/src/lib/audit.ts:25:27
+
+  22  */
+  23 export async function recordAudit(input: AuditInput) {
+  24   try {
+→ 25     await prisma.auditLog.create({
+           data: {
+             actorId: null,
+             action: "UPLOAD",
+             module: "LEGAL",
+             entityType: "CE_TYPE_N_EXISTE_PAS",
+                         ~~~~~~~~~~~~~~~~~~~~~~
+             entityId: "ZZAUD1787896973582bad",
+             field: undefined,
+             oldValue: null,
+             newValue: null,
+             summary: undefined,
+             ipAddress: null
+           }
+         })
+
+Invalid value for argument `entityType`. Expected EntityType.
+    at wn (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:29:1363)
+    at $n.handleRequestError (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:121:6958)
+    at $n.handleAndLogRequestError (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at l (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at Module.recordAudit (/home/user/Regulatory-Affairs/src/lib/audit.ts:25:5)
+    at /home/user/Regulatory-Affairs/src/lib/events/audit-to-ledger.test.ts:130:5
+    at file:///home/user/Regulatory-Affairs/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/user/Regulatory-Affairs/node_modules/@vitest/runner/dist/index.js:986:11)
+    at runSuite (file:///home/user/Regulatory-Affairs/node_modules/@vitest/runner/dist/index.js:1142:15) {
+  clientVersion: '5.22.0'
+}
+
+stdout | src/lib/events/audit-to-ledger.test.ts > l'audit alimente le registre des faits > l'échec du registre ne fait PAS échouer l'audit — la garde de non-régression
+prisma:error 
+Invalid `prisma.businessEvent.create()` invocation in
+/home/user/Regulatory-Affairs/src/lib/events/ledger.ts:49:44
+
+  46  */
+  47 export async function recordEvent(input: RecordEventInput): Promise<string | null> {
+  48   try {
+→ 49     const evt = await prisma.businessEvent.create({
+           data: {
+             type: "DOCUMENT_UPLOADED",
+             sourceDomain: "LEGAL",
+             occurredAt: new Date("2026-08-28T06:02:53.673Z"),
+             actorId: null,
+             entityType: "CE_TYPE_N_EXISTE_PAS",
+                         ~~~~~~~~~~~~~~~~~~~~~~
+             entityId: "ZZAUD1787896973582bad",
+             relatedRefs: [],
+             payload: {
+               module: "LEGAL",
+               cible: "CE_TYPE_N_EXISTE_PAS"
+             },
+             correlationId: null,
+             missionId: null
+           },
+           select: {
+             id: true,
+             type: true,
+             occurredAt: true,
+             sourceDomain: true,
+             entityType: true,
+             entityId: true,
+             actorId: true
+           }
+         })
+
+Invalid value for argument `entityType`. Expected EntityType.
+
+stderr | src/lib/events/audit-to-ledger.test.ts > l'audit alimente le registre des faits > l'échec du registre ne fait PAS échouer l'audit — la garde de non-régression
+[events] inscription impossible DOCUMENT_UPLOADED PrismaClientValidationError: 
+Invalid `prisma.businessEvent.create()` invocation in
+/home/user/Regulatory-Affairs/src/lib/events/ledger.ts:49:44
+
+  46  */
+  47 export async function recordEvent(input: RecordEventInput): Promise<string | null> {
+  48   try {
+→ 49     const evt = await prisma.businessEvent.create({
+           data: {
+             type: "DOCUMENT_UPLOADED",
+             sourceDomain: "LEGAL",
+             occurredAt: new Date("2026-08-28T06:02:53.673Z"),
+             actorId: null,
+             entityType: "CE_TYPE_N_EXISTE_PAS",
+                         ~~~~~~~~~~~~~~~~~~~~~~
+             entityId: "ZZAUD1787896973582bad",
+             relatedRefs: [],
+             payload: {
+               module: "LEGAL",
+               cible: "CE_TYPE_N_EXISTE_PAS"
+             },
+             correlationId: null,
+             missionId: null
+           },
+           select: {
+             id: true,
+             type: true,
+             occurredAt: true,
+             sourceDomain: true,
+             entityType: true,
+             entityId: true,
+             actorId: true
+           }
+         })
+
+Invalid value for argument `entityType`. Expected EntityType.
+    at wn (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:29:1363)
+    at $n.handleRequestError (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:121:6958)
+    at $n.handleAndLogRequestError (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at l (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at Module.recordEvent (/home/user/Regulatory-Affairs/src/lib/events/ledger.ts:49:17)
+    at emettreFait (/home/user/Regulatory-Affairs/src/lib/audit.ts:74:5)
+    at Module.recordAudit (/home/user/Regulatory-Affairs/src/lib/audit.ts:43:3)
+    at /home/user/Regulatory-Affairs/src/lib/events/audit-to-ledger.test.ts:130:5
+    at file:///home/user/Regulatory-Affairs/node_modules/@vitest/runner/dist/index.js:533:5 {
+  clientVersion: '5.22.0'
+}
+
+ ✓ src/lib/events/audit-to-ledger.test.ts  (6 tests) 100ms
+stdout | src/lib/events/ledger.test.ts > le registre d'événements et la preuve des tâches > un dépôt de contrat INSCRIT la preuve sur la tâche — sans la clore
+[events] preuve {
+  task: 'cmtcjp27t0002b5xbhetfqxtf',
+  event: 'CONTRACT_SIGNED',
+  confidence: 'strong',
+  autoComplete: false
+}
+
+stdout | src/lib/events/ledger.test.ts > le registre d'événements et la preuve des tâches > une tâche qui ATTEND explicitement cet événement est close automatiquement
+[events] preuve {
+  task: 'cmtcjp28r0006b5xbmf71ypko',
+  event: 'CONTRACT_SIGNED',
+  confidence: 'declared',
+  autoComplete: true
+}
+
+stdout | src/lib/events/ledger.test.ts > le registre d'événements et la preuve des tâches > la PREMIÈRE preuve fait foi — un second dépôt ne la réécrit pas
+[events] preuve {
+  task: 'cmtcjp29q000eb5xbav32sneg',
+  event: 'CONTRACT_SIGNED',
+  confidence: 'strong',
+  autoComplete: false
+}
+
+stdout | src/lib/events/ledger.test.ts > le registre d'événements et la preuve des tâches > une inscription impossible ne fait PAS échouer l'écriture métier qu'elle observe
+prisma:error 
+Invalid `prisma.businessEvent.create()` invocation in
+/home/user/Regulatory-Affairs/src/lib/events/ledger.ts:49:44
+
+  46  */
+  47 export async function recordEvent(input: RecordEventInput): Promise<string | null> {
+  48   try {
+→ 49     const evt = await prisma.businessEvent.create({
+           data: {
+             type: "X",
+             sourceDomain: "Y",
+             occurredAt: new Date("2026-08-28T06:02:54.056Z"),
+             actorId: null,
+             entityType: "PAS_UN_TYPE",
+                         ~~~~~~~~~~~~~
+             entityId: null,
+             relatedRefs: [],
+             correlationId: null,
+             missionId: null
+           },
+           select: {
+             id: true,
+             type: true,
+             occurredAt: true,
+             sourceDomain: true,
+             entityType: true,
+             entityId: true,
+             actorId: true
+           }
+         })
+
+Invalid value for argument `entityType`. Expected EntityType.
+
+stderr | src/lib/events/ledger.test.ts > le registre d'événements et la preuve des tâches > une inscription impossible ne fait PAS échouer l'écriture métier qu'elle observe
+[events] inscription impossible X PrismaClientValidationError: 
+Invalid `prisma.businessEvent.create()` invocation in
+/home/user/Regulatory-Affairs/src/lib/events/ledger.ts:49:44
+
+  46  */
+  47 export async function recordEvent(input: RecordEventInput): Promise<string | null> {
+  48   try {
+→ 49     const evt = await prisma.businessEvent.create({
+           data: {
+             type: "X",
+             sourceDomain: "Y",
+             occurredAt: new Date("2026-08-28T06:02:54.056Z"),
+             actorId: null,
+             entityType: "PAS_UN_TYPE",
+                         ~~~~~~~~~~~~~
+             entityId: null,
+             relatedRefs: [],
+             correlationId: null,
+             missionId: null
+           },
+           select: {
+             id: true,
+             type: true,
+             occurredAt: true,
+             sourceDomain: true,
+             entityType: true,
+             entityId: true,
+             actorId: true
+           }
+         })
+
+Invalid value for argument `entityType`. Expected EntityType.
+    at wn (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:29:1363)
+    at $n.handleRequestError (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:121:6958)
+    at $n.handleAndLogRequestError (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at l (/home/user/Regulatory-Affairs/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at Module.recordEvent (/home/user/Regulatory-Affairs/src/lib/events/ledger.ts:49:17)
+    at /home/user/Regulatory-Affairs/src/lib/events/ledger.test.ts:149:16
+    at file:///home/user/Regulatory-Affairs/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///home/user/Regulatory-Affairs/node_modules/@vitest/runner/dist/index.js:986:11)
+    at runSuite (file:///home/user/Regulatory-Affairs/node_modules/@vitest/runner/dist/index.js:1142:15) {
+  clientVersion: '5.22.0'
+}
+
+ ✓ src/lib/events/ledger.test.ts  (6 tests) 163ms
+ ✓ src/lib/artifact/object-model/numbering.test.ts  (12 tests) 167ms
+ ✓ src/lib/regulatory/intelligence/knowledge/dossier-thread.test.ts  (5 tests) 82ms
+ ✓ src/lib/assistant/document-search.test.ts  (8 tests) 104ms
+ ✓ src/lib/assistant/executive-state.test.ts  (8 tests) 12ms
+ ✓ src/lib/missions/agent/account.test.ts  (7 tests) 91ms
+ ✓ src/lib/mail/oauth.test.ts  (21 tests) 10ms
+ ✓ src/lib/assistant/voice/uncertainty.test.ts  (20 tests) 6ms
+ ✓ src/lib/tasks/evidence.test.ts  (15 tests) 10ms
+ ✓ src/lib/regulatory/intelligence/agents/agents.test.ts  (12 tests) 13ms
+ ✓ src/lib/missions/events/match.test.ts  (16 tests) 6ms
+ ✓ src/lib/legal/list-persistence.test.ts  (2 tests) 53ms
+ ✓ src/lib/assistant/context/discovery.test.ts  (12 tests) 16ms
+stderr | src/lib/assistant/tool-budget.test.ts > plafond d'outils — l'incident HTTP 400 ne doit pas revenir > après ajustement au budget, la liste tient dans le plafond
+[assistant] 171 outils dépassent le plafond de 128 — repli sur la liste courte (107), réversible par découverte. Domaine : GENERAL.
+
+stderr | src/lib/assistant/tool-budget.test.ts > plafond d'outils — l'incident HTTP 400 ne doit pas revenir > l'ajustement reste RÉVERSIBLE : la découverte survit à la réduction
+[assistant] 171 outils dépassent le plafond de 128 — repli sur la liste courte (107), réversible par découverte. Domaine : GENERAL.
+
+stderr | src/lib/assistant/tool-budget.test.ts > plafond d'outils — l'incident HTTP 400 ne doit pas revenir > la frontière du fournisseur ne laisse JAMAIS passer plus que le plafond
+[models] 168 outils demandés, plafond 128 — 40 écartés à la frontière : outil_128, outil_129, outil_130, outil_131, outil_132, outil_133, outil_134, outil_135, outil_136, outil_137, outil_138, outil_139, outil_140, outil_141, outil_142, outil_143, outil_144, outil_145, outil_146, outil_147, outil_148, outil_149, outil_150, outil_151, outil_152, outil_153, outil_154, outil_155, outil_156, outil_157, outil_158, outil_159, outil_160, outil_161, outil_162, outil_163, outil_164, outil_165, outil_166, outil_167. L'appelant aurait dû réduire la liste lui-même (liste courte réversible).
+[models] 168 outils demandés, plafond 128 — 40 écartés à la frontière : outil_128, outil_129, outil_130, outil_131, outil_132, outil_133, outil_134, outil_135, outil_136, outil_137, outil_138, outil_139, outil_140, outil_141, outil_142, outil_143, outil_144, outil_145, outil_146, outil_147, outil_148, outil_149, outil_150, outil_151, outil_152, outil_153, outil_154, outil_155, outil_156, outil_157, outil_158, outil_159, outil_160, outil_161, outil_162, outil_163, outil_164, outil_165, outil_166, outil_167. L'appelant aurait dû réduire la liste lui-même (liste courte réversible).
+
+stderr | src/lib/assistant/tool-budget.test.ts > plafond d'outils — l'incident HTTP 400 ne doit pas revenir > le corps de requête envoyé à OpenAI respecte le plafond
+[models] 168 outils demandés, plafond 128 — 40 écartés à la frontière : outil_128, outil_129, outil_130, outil_131, outil_132, outil_133, outil_134, outil_135, outil_136, outil_137, outil_138, outil_139, outil_140, outil_141, outil_142, outil_143, outil_144, outil_145, outil_146, outil_147, outil_148, outil_149, outil_150, outil_151, outil_152, outil_153, outil_154, outil_155, outil_156, outil_157, outil_158, outil_159, outil_160, outil_161, outil_162, outil_163, outil_164, outil_165, outil_166, outil_167. L'appelant aurait dû réduire la liste lui-même (liste courte réversible).
+
+ ✓ src/lib/assistant/tool-budget.test.ts  (6 tests) 8ms
+ ✓ src/lib/ad-pro/unified.test.ts  (17 tests) 13ms
+ ✓ src/lib/regulatory/intelligence/knowledge/dossier-knowledge.test.ts  (4 tests) 165ms
+ ✓ src/lib/departments.test.ts  (10 tests) 121ms
+ ✓ src/lib/assistant/regulatory-step-truth.test.ts  (7 tests) 5ms
+ ✓ src/lib/assistant/time-travel.test.ts  (5 tests) 107ms
+ ✓ src/lib/adoption.test.ts  (5 tests) 224ms
+ ✓ src/lib/regulatory/intelligence/reserves/decompose.test.ts  (14 tests) 9ms
+ ✓ src/lib/files/attachment-policy.test.ts  (23 tests) 27ms
+ ✓ src/lib/drive/search.test.ts  (29 tests) 14ms
+ ✓ src/lib/actions/directive-flow.test.ts  (5 tests) 383ms
+ ✓ src/lib/mail-register/trace.test.ts  (18 tests) 19ms
+ ✓ src/lib/events/from-audit.test.ts  (8 tests) 7ms
+ ✓ src/lib/promo-material/circuit.test.ts  (23 tests) 7ms
+ ✓ src/lib/drive/windows.test.ts  (24 tests) 10ms
+stderr | src/lib/assistant/drive-ingestion.test.ts > ingestion Drive — le contenu rend trouvable ce que le nom cache > l'ingestion pose un INDEX-TÉMOIN sur un fichier illisible — et ne le repasse pas en boucle
+syntax error: expected object number
+format error: cannot find startxref
+warning: trying to repair broken xref
+warning: repairing PDF document
+
+ ✓ src/lib/assistant/corpus-tools.test.ts  (6 tests) 83ms
+stderr | src/lib/assistant/drive-ingestion.test.ts > ingestion Drive — le contenu rend trouvable ce que le nom cache > l'ingestion pose un INDEX-TÉMOIN sur un fichier illisible — et ne le repasse pas en boucle
+<empty line>
+stdout | src/lib/assistant/drive-ingestion.test.ts > ingestion Drive — le contenu rend trouvable ce que le nom cache > l'ingestion pose un INDEX-TÉMOIN sur un fichier illisible — et ne le repasse pas en boucle
+Warning: Indexing all PDF objects
+
+stderr | src/lib/assistant/drive-ingestion.test.ts > ingestion Drive — le contenu rend trouvable ce que le nom cache > l'ingestion pose un INDEX-TÉMOIN sur un fichier illisible — et ne le repasse pas en boucle
+<empty line>
+stdout | src/lib/assistant/drive-ingestion.test.ts > ingestion Drive — le contenu rend trouvable ce que le nom cache > l'ingestion pose un INDEX-TÉMOIN sur un fichier illisible — et ne le repasse pas en boucle
+[assistant] drive_ingestion_sweep { indexed: 3, refreshed: 0, embedded: 0 }
+
+ ✓ src/lib/assistant/drive-ingestion.test.ts  (4 tests) 532ms
+ ✓ src/lib/regulatory/intelligence/training/ingest-case.zip.integration.test.ts  (4 tests) 86ms
+ ✓ src/lib/mail/reply.test.ts  (21 tests) 27ms
+ ✓ src/lib/models/workstreams.test.ts  (14 tests) 10ms
+ ✓ src/lib/assistant/voice/transcript-hygiene.test.ts  (21 tests) 17ms
+ ✓ src/lib/ad-pro/consulting.test.ts  (23 tests) 7ms
+ ✓ src/lib/queries/budget-general-means.integration.test.ts  (7 tests) 186ms
+ ✓ src/lib/mail/graph/map.test.ts  (18 tests) 14ms
+ ✓ src/lib/queries/graph.test.ts  (5 tests) 157ms
+ ✓ src/lib/regulatory/intelligence/agents/review-agent.test.ts  (12 tests) 24ms
+ ✓ src/lib/regulatory/intelligence/twin/extract-facts.noise.test.ts  (13 tests) 77ms
+ ✓ src/lib/assistant/platform/change-feed.test.ts  (11 tests) 12ms
+ ✓ src/lib/regulatory/intelligence/rules/rule-engine.test.ts  (10 tests) 6ms
+ ✓ src/lib/regulatory/intelligence/reserves/library-extract.test.ts  (17 tests) 12ms
+ ✓ src/lib/payments/authorization.test.ts  (19 tests) 8ms
+ ✓ src/lib/regulatory/export.test.ts  (15 tests) 111ms
+ ✓ src/lib/replay/capture.test.ts  (20 tests) 11ms
+ ✓ src/lib/regulatory/intelligence/corpus/fetch-source.test.ts  (20 tests) 9ms
+ ✓ src/lib/assistant/workspace/sheet.test.ts  (12 tests) 181ms
+ ✓ src/lib/products/catalog-match.test.ts  (16 tests) 18ms
+ ✓ src/lib/google/connection-scopes.test.ts  (4 tests) 117ms
+ ✓ src/lib/market/molecule.test.ts  (20 tests) 8ms
+ ✓ src/lib/actions/support-flow.test.ts  (5 tests) 335ms
+ ✓ src/lib/rbac-access.test.ts  (5 tests) 166ms
+ ✓ src/lib/regulatory/intelligence/twin/build-facts.test.ts  (2 tests) 891ms
+ ✓ src/lib/medical/wilaya.test.ts  (22 tests) 9ms
+ ✓ src/lib/actions/validation-item.test.ts  (6 tests) 242ms
+ ✓ src/lib/assistant/confirm.test.ts  (10 tests) 6ms
+ ✓ src/lib/regulatory/intelligence/rules/rule-loader.integration.test.ts  (4 tests) 92ms
+ ✓ src/lib/regulatory/structural-fields.test.ts  (17 tests) 13ms
+ ✓ src/lib/general-means/receipt.test.ts  (20 tests) 9ms
+ ✓ src/lib/medical/directory-coverage.test.ts  (11 tests) 8ms
+ ✓ src/lib/test-center/deep-audit.test.ts  (10 tests) 112ms
+ ✓ src/lib/pch-tender-export.test.ts  (11 tests) 68ms
+ ✓ src/lib/regulatory/intelligence/jobs/runner.test.ts  (2 tests) 373ms
+ ✓ src/lib/assistant/context/outbound-mail.test.ts  (11 tests) 23ms
+ ✓ src/lib/assistant/context/shadow.test.ts  (13 tests) 30ms
+ ✓ src/lib/doc-request.test.ts  (20 tests) 6ms
+ ✓ src/lib/client-bundle-guard.test.ts  (3 tests) 157ms
+ ✓ src/lib/responsive-guard.test.ts  (3 tests) 79ms
+ ✓ src/lib/mail-smart.test.ts  (11 tests) 7ms
+ ✓ src/lib/assistant/workspace/direct-intents.test.ts  (12 tests) 12ms
+ ✓ src/lib/products/relations.test.ts  (4 tests) 115ms
+ ✓ src/lib/org/product-ranges.test.ts  (18 tests) 14ms
+ ✓ src/lib/validation-access.test.ts  (7 tests) 222ms
+ ✓ src/lib/drive-storage.chunk.test.ts  (4 tests) 739ms
+ ✓ src/lib/assistant/context/tool-shortlist.test.ts  (22 tests) 242ms
+ ✓ src/platform/boundary.test.ts  (6 tests) 9ms
+stderr | src/platform/event-bus.test.ts > un abonné en échec ne fait échouer personne > l'exception d'un abonné est avalée — la publication réussit
+[adam-bus] abonné en échec hr.employee-added Error: abonné cassé
+    at /home/user/Regulatory-Affairs/src/platform/event-bus.test.ts:22:29
+    at Module.publish (/home/user/Regulatory-Affairs/src/platform/event-bus.ts:71:7)
+    at /home/user/Regulatory-Affairs/src/platform/event-bus.test.ts:23:18
+    at Proxy.assertThrows (file:///home/user/Regulatory-Affairs/node_modules/chai/index.js:2767:5)
+    at Proxy.methodWrapper (file:///home/user/Regulatory-Affairs/node_modules/chai/index.js:1686:25)
+    at Proxy.<anonymous> (file:///home/user/Regulatory-Affairs/node_modules/@vitest/expect/dist/index.js:980:16)
+    at Proxy.overwritingMethodWrapper (file:///home/user/Regulatory-Affairs/node_modules/chai/index.js:1735:33)
+    at Proxy.<anonymous> (file:///home/user/Regulatory-Affairs/node_modules/@vitest/expect/dist/index.js:1438:21)
+    at Proxy.<anonymous> (file:///home/user/Regulatory-Affairs/node_modules/@vitest/expect/dist/index.js:923:17)
+    at Proxy.methodWrapper (file:///home/user/Regulatory-Affairs/node_modules/chai/index.js:1686:25)
+
+stderr | src/platform/event-bus.test.ts > un abonné en échec ne fait échouer personne > …et les AUTRES abonnés sont quand même servis
+[adam-bus] abonné en échec regulatory.owner-changed Error: cassé
+    at /home/user/Regulatory-Affairs/src/platform/event-bus.test.ts:31:29
+    at Module.publish (/home/user/Regulatory-Affairs/src/platform/event-bus.ts:71:7)
+    at /home/user/Regulatory-Affairs/src/platform/event-bus.test.ts:33:5
+    at file:///home/user/Regulatory-Affairs/node_modules/@vitest/runner/dist/index.js:146:14
+    at file:///home/user/Regulatory-Affairs/node_modules/@vitest/runner/dist/index.js:533:11
+    at runWithTimeout (file:///home/user/Regulatory-Affairs/node_modules/@vitest/runner/dist/index.js:61:7)
+    at runTest (file:///home/user/Regulatory-Affairs/node_modules/@vitest/runner/dist/index.js:986:17)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at runSuite (file:///home/user/Regulatory-Affairs/node_modules/@vitest/runner/dist/index.js:1142:15)
+    at runSuite (file:///home/user/Regulatory-Affairs/node_modules/@vitest/runner/dist/index.js:1142:15)
+
+stderr | src/platform/event-bus.test.ts > un abonné en échec ne fait échouer personne > `emit` ne lève jamais, même sur un type inconnu
+[adam-events] type inconnu, ignoré : n.importe.quoi
+
+ ✓ src/platform/event-bus.test.ts  (12 tests) 22ms
+ ✓ src/lib/budget/imputation.test.ts  (13 tests) 7ms
+ ✓ src/lib/validation-supervision.test.ts  (15 tests) 5ms
+ ✓ src/lib/mail/graph/throttle.test.ts  (18 tests) 6ms
+ ✓ src/lib/queries/validations-visibility.test.ts  (6 tests) 112ms
+ ✓ src/lib/drive/explorer.test.ts  (16 tests) 14ms
+ ✓ src/lib/general-means/purchase-request.test.ts  (20 tests) 8ms
+ ✓ src/lib/leave-workflow.test.ts  (11 tests) 10ms
+ ✓ src/lib/knowledge/parsers/sheet.test.ts  (18 tests) 7ms
+ ✓ src/lib/ad-pro-edit.test.ts  (14 tests) 5ms
+ ✓ src/lib/assistant-memory.test.ts  (8 tests) 196ms
+ ✓ src/lib/assistant/power-tools.test.ts  (10 tests) 10ms
+ ✓ src/lib/regulatory/manufacturing-stage.test.ts  (11 tests) 5ms
+ ✓ src/lib/org-chart-print.test.ts  (13 tests) 7ms
+ ✓ src/lib/hr/payroll-amend.test.ts  (16 tests) 16ms
+ ✓ src/lib/user-invites.test.ts  (4 tests) 908ms
+ ✓ src/lib/assistant/what-changed.test.ts  (5 tests) 73ms
+ ✓ src/lib/missions/policy/guard.test.ts  (12 tests) 9ms
+ ✓ src/lib/regulatory/intelligence/twin/arbitrate-facts.test.ts  (6 tests) 9ms
+ ✓ src/lib/products/resolve.test.ts  (5 tests) 78ms
+ ✓ src/lib/queries/drive-space.test.ts  (5 tests) 147ms
+ ✓ src/lib/actions/reset-password.test.ts  (3 tests) 577ms
+ ✓ src/lib/mail/sanitize.test.ts  (16 tests) 12ms
+ ✓ src/lib/regulatory-drive-mirror.test.ts  (3 tests) 177ms
+ ✓ src/lib/openai-luna.test.ts  (11 tests) 5ms
+ ✓ src/lib/legal/folders.test.ts  (17 tests) 16ms
+ ✓ src/lib/validations/grouping.test.ts  (15 tests) 7ms
+ ✓ src/lib/regulatory/intelligence/ocr/vision-ocr.test.ts  (5 tests) 9ms
+ ✓ src/lib/regulatory/intelligence/access.test.ts  (8 tests) 6ms
+ ✓ src/lib/regulatory/pipeline-access.test.ts  (16 tests) 6ms
+ ✓ src/lib/training.test.ts  (14 tests) 5ms
+ ✓ src/lib/drive/selection.test.ts  (16 tests) 7ms
+ ✓ src/lib/regulatory/intelligence/agents/orchestrator.integration.test.ts  (3 tests) 123ms
+ ✓ src/lib/api/registry/operations.test.ts  (13 tests) 8ms
+ ✓ src/lib/test-center/cert.test.ts  (11 tests) 7ms
+ ✓ src/lib/queries/budget-shared-user.test.ts  (4 tests) 162ms
+ ✓ src/lib/regulatory/intelligence/knowledge/dossier-chat.test.ts  (2 tests) 168ms
+ ✓ src/lib/assistant/pre-meeting-brief.test.ts  (3 tests) 106ms
+ ✓ src/lib/rbac-sheet.test.ts  (12 tests) 11ms
+ ✓ src/lib/office/letterhead.test.ts  (15 tests) 7ms
+ ✓ src/lib/medical/directory-grid.test.ts  (9 tests) 6ms
+ ✓ src/lib/drive-storage.r2.test.ts  (2 tests) 80ms
+ ✓ src/lib/queries/budget-overview.integration.test.ts  (3 tests) 133ms
+ ✓ src/lib/sales-portfolio.test.ts  (15 tests) 18ms
+ ✓ src/lib/adventum/brain.test.ts  (3 tests) 219ms
+ ✓ src/lib/modules-visibility.test.ts  (17 tests) 6ms
+ ✓ src/lib/drive/clipboard.test.ts  (16 tests) 9ms
+ ✓ src/lib/ad-pro/authority-holders.test.ts  (12 tests) 6ms
+ ✓ src/lib/regulatory/intelligence/rules/engine.test.ts  (7 tests) 6ms
+ ✓ src/lib/drive/quota.test.ts  (12 tests) 6ms
+ ✓ src/lib/assistant/reminders.test.ts  (13 tests) 7ms
+ ✓ src/lib/regulatory/intelligence/extract/pages.test.ts  (10 tests) 5ms
+ ✓ src/lib/test-center/runner.test.ts  (2 tests) 1008ms
+ ✓ src/lib/general-means/payment-source.test.ts  (15 tests) 5ms
+ ✓ src/lib/regulatory/stage.test.ts  (11 tests) 7ms
+ ✓ src/lib/promo/stock.test.ts  (18 tests) 6ms
+ ✓ src/lib/assistant/entity-normalize.test.ts  (10 tests) 8ms
+ ✓ src/lib/queries/budget-access.test.ts  (6 tests) 111ms
+ ✓ src/lib/messaging-attachments.test.ts  (22 tests) 16ms
+ ✓ src/lib/artifact/capabilities/catalog.test.ts  (3 tests) 4ms
+ ✓ src/lib/mail/access.test.ts  (10 tests) 5ms
+ ✓ src/lib/regulatory/intelligence/ctd/classify.test.ts  (10 tests) 8ms
+ ✓ src/lib/drive/menu-portal-guard.test.ts  (4 tests) 4ms
+ ✓ src/lib/market-presentation-pptx.test.ts  (4 tests) 94ms
+ ✓ src/lib/ad-pro/create-fields.test.ts  (9 tests) 6ms
+ ✓ src/lib/regulatory/intelligence/jobs/ocr-runner.integration.test.ts  (1 test) 872ms
+ ✓ src/lib/queries/search-redirect.test.ts  (16 tests) 7ms
+ ✓ src/lib/comms/confirmation.test.ts  (37 tests) 7ms
+ ✓ src/lib/adventum/risk-detectors.test.ts  (2 tests) 164ms
+ ✓ src/lib/regulatory/intelligence/agents/review-corpus.test.ts  (8 tests) 16ms
+ ✓ src/lib/legal/chain.test.ts  (10 tests) 6ms
+ ✓ src/lib/assistant-mail.test.ts  (4 tests) 123ms
+ ✓ src/lib/actions/onboarding-flow.test.ts  (4 tests) 204ms
+ ✓ src/lib/regulatory/assignment.test.ts  (13 tests) 5ms
+ ✓ src/lib/regulatory/intelligence/extract/extract-text.test.ts  (8 tests) 90ms
+ ✓ src/lib/legal/readers.test.ts  (13 tests) 6ms
+ ✓ src/lib/ai-settings.test.ts  (3 tests) 144ms
+ ✓ src/lib/budget/auto-category.test.ts  (9 tests) 9ms
+ ✓ src/lib/test-center/manifest.test.ts  (2 tests) 214ms
+ ✓ src/lib/finances/settlement.test.ts  (12 tests) 6ms
+ ✓ src/lib/hr/payroll-cost.test.ts  (14 tests) 6ms
+ ✓ src/lib/regulatory/intelligence/twin/ai-facts.test.ts  (8 tests) 9ms
+ ✓ src/lib/budget-export.test.ts  (2 tests) 22ms
+ ✓ src/lib/drive/mirror-path.test.ts  (12 tests) 12ms
+ ✓ src/lib/assistant-nudge.test.ts  (4 tests) 194ms
+ ✓ src/lib/api/registry/entities.test.ts  (7 tests) 14ms
+ ✓ src/lib/archive.test.ts  (2 tests) 173ms
+ ✓ src/lib/ai-health.test.ts  (3 tests) 237ms
+ ✓ src/lib/onlyoffice.test.ts  (8 tests) 7ms
+ ✓ src/lib/office/apps.test.ts  (12 tests) 6ms
+ ✓ src/lib/hr/document-visibility.test.ts  (11 tests) 5ms
+ ✓ src/lib/test-center/infra.test.ts  (6 tests) 132ms
+ ✓ src/lib/api/query.test.ts  (10 tests) 7ms
+ ✓ src/platform/doc-kind.test.ts  (6 tests) 5ms
+ ✓ src/lib/contacts/kinds.test.ts  (9 tests) 15ms
+ ✓ src/lib/regulatory/intelligence/simulator/run.integration.test.ts  (4 tests) 112ms
+ ✓ src/lib/regulatory/intelligence/ctd/detect-sections.test.ts  (4 tests) 9ms
+ ✓ src/lib/regulatory/intelligence/diff/compare-versions.test.ts  (6 tests) 14ms
+ ✓ src/lib/queries/today.test.ts  (7 tests) 5ms
+ ✓ src/lib/regulatory/intelligence/reserves/ingest.integration.test.ts  (2 tests) 118ms
+ ✓ src/lib/regulatory/intelligence/simulator/normalize.test.ts  (7 tests) 5ms
+ ✓ src/lib/regulatory/intelligence/jobs/catchup.test.ts  (11 tests) 4ms
+ ✓ src/lib/assistant-files.test.ts  (5 tests) 28ms
+ ✓ src/lib/drive/file-glyph.test.ts  (12 tests) 4ms
+ ✓ src/lib/pdf/simple-pdf.test.ts  (5 tests) 27ms
+ ✓ src/lib/features.test.ts  (6 tests) 109ms
+ ✓ src/lib/queries/drive-dossiers-scope.test.ts  (2 tests) 121ms
+ ✓ src/lib/links/source-link.test.ts  (7 tests) 5ms
+stderr | src/lib/regulatory/intelligence/ocr/ocr-engine.test.ts > ocrDocument — OCR réel > rastérise puis océrise un PDF scanné (mupdf → tesseract)
+format error: cannot find startxref
+warning: trying to repair broken xref
+warning: repairing PDF document
+
+Warning: Invalid resolution 25 dpi. Using 70 instead.
+ ✓ src/lib/test-center/god/god.test.ts  (9 tests) 151ms
+ ✓ src/lib/regulatory/intelligence/ocr/ocr-engine.test.ts  (4 tests) 1732ms
+ ✓ src/lib/drive/timing.test.ts  (8 tests) 5ms
+ ✓ src/lib/regulatory/intelligence/extract/heavy-parse.test.ts  (4 tests) 429ms
+ ✓ src/lib/sfe.test.ts  (9 tests) 4ms
+ ✓ src/lib/regulatory/intelligence/corpus/import-formats.test.ts  (12 tests) 6ms
+ ✓ src/lib/regulatory/intelligence/findings/enrich.test.ts  (8 tests) 5ms
+ ✓ src/lib/regulatory/intelligence/corpus/rag.test.ts  (3 tests) 95ms
+ ✓ src/lib/legal/identity.test.ts  (10 tests) 5ms
+ ✓ src/lib/queries/budget-monthly.test.ts  (7 tests) 6ms
+ ✓ src/lib/regulatory/intelligence/extract/heavy-parse.pdf.test.ts  (2 tests) 107ms
+ ✓ src/lib/regulatory/intelligence/agents/review-experience.test.ts  (5 tests) 17ms
+ ✓ src/lib/regulatory/intelligence/lifecycle.test.ts  (3 tests) 115ms
+ ✓ src/lib/storage.test.ts  (6 tests) 63ms
+ ✓ src/lib/regulatory/intelligence/training/for-section.test.ts  (6 tests) 4ms
+ ✓ src/lib/access-override.test.ts  (2 tests) 125ms
+ ✓ src/lib/meetings.test.ts  (5 tests) 4ms
+ ✓ src/lib/regulatory/intelligence/agents/chunk-text.test.ts  (6 tests) 7ms
+ ✓ src/lib/regulatory/intelligence/rules/notice-arabic.test.ts  (7 tests) 4ms
+ ✓ src/lib/drive/fingerprint.test.ts  (7 tests) 19ms
+ ✓ src/lib/notify.test.ts  (1 test) 98ms
+ ✓ src/lib/regulatory/intelligence/twin/extract-facts.test.ts  (7 tests) 65ms
+ ✓ src/lib/office-templates.test.ts  (4 tests) 10ms
+ ✓ src/lib/org-chart-access.test.ts  (6 tests) 4ms
+ ✓ src/lib/legal/company-docs.test.ts  (7 tests) 4ms
+ ✓ src/lib/regulatory/intelligence/knowledge/retrieval.test.ts  (5 tests) 5ms
+ ✓ src/lib/adventum/pulse.test.ts  (2 tests) 94ms
+ ✓ src/lib/crypto/secret-box.test.ts  (6 tests) 7ms
+ ✓ src/lib/regulatory/intelligence/supplier/draft.test.ts  (4 tests) 17ms
+ ✓ src/lib/platform-audit/engine.test.ts  (2 tests) 100ms
+ ✓ src/lib/regulatory/intelligence/corpus/semantic.test.ts  (5 tests) 5ms
+ ✓ src/lib/regulatory/intelligence/upload/session.test.ts  (6 tests) 6ms
+ ✓ src/lib/regulatory/intelligence/docgen/build-docx.test.ts  (5 tests) 12ms
+ ✓ src/lib/api/errors.test.ts  (6 tests) 4ms
+stderr | src/lib/regulatory/intelligence/ocr/pdf-split.test.ts > openPdf — découpage par plages de pages > compte les pages, extrait une sous-plage autonome, borne en fin de document
+format error: cannot find startxref
+warning: trying to repair broken xref
+warning: repairing PDF document
+
+ ✓ src/lib/regulatory/intelligence/ocr/pdf-split.test.ts  (1 test) 90ms
+ ✓ src/lib/login-throttle.test.ts  (3 tests) 70ms
+ ✓ src/lib/ai-sanitize.test.ts  (5 tests) 3ms
+ ✓ src/lib/regulatory/intelligence/knowledge/clean-answer.test.ts  (3 tests) 4ms
+ ✓ src/lib/queries/search-everything.test.ts  (5 tests) 5ms
+ ✓ src/lib/regulatory/intelligence/ai/json.test.ts  (5 tests) 6ms
+ ✓ src/lib/api/scopes.test.ts  (6 tests) 5ms
+ ✓ src/lib/test-center/guard.test.ts  (5 tests) 4ms
+ ✓ src/lib/regulatory/intelligence/lifecycle/impact.test.ts  (5 tests) 6ms
+ ✓ src/lib/test-center/redact.test.ts  (4 tests) 11ms
+ ✓ src/lib/api/auth.test.ts  (5 tests) 5ms
+ ✓ src/lib/landing.test.ts  (4 tests) 3ms
+ ✓ src/lib/regulatory/intelligence/upload/retry.test.ts  (2 tests) 4ms
+ ✓ src/lib/storage/mime.test.ts  (5 tests) 4ms
+ ✓ src/lib/regulatory/intelligence/corpus/import.test.ts  (4 tests) 5ms
+ ✓ src/lib/utils-month.test.ts  (3 tests) 19ms
+
+ Test Files  386 passed | 1 skipped (387)
+      Tests  4914 passed | 23 skipped (4937)
+   Start at  06:01:46
+   Duration  106.06s (transform 11.29s, setup 0ms, collect 137.92s, tests 88.09s, environment 63ms, prepare 21.31s)
+
+EXIT=0
