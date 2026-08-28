@@ -9,7 +9,8 @@ import { getActionCenter } from "@/lib/queries/action-center";
 import { getComptaData } from "@/lib/queries/compta";
 import { getRhData } from "@/lib/queries/hr";
 import { getUpcomingEvents } from "@/lib/calendar";
-import { detectExecutiveAlerts, type ExecutiveAlert } from "@/lib/assistant/proactive";
+import type { ExecutiveAlert } from "@/lib/assistant/proactive";
+import { alertesExecutivesChaudes, fraicheurDeLecture } from "@/lib/assistant/hot-alerts";
 import { buildSimpleDocx, type SimplePara } from "@/lib/regulatory/intelligence/docgen/build-docx";
 import { depositBufferToDrive } from "@/lib/assistant/exports";
 import { chainOf, type ChainDoc } from "@/lib/legal/chain";
@@ -63,12 +64,14 @@ export const EXECUTIVE_BRIEF_TOOLS: PowerTool[] = [
       const min = str(input, "min_criticality") || "WATCH";
       const rank: Record<string, number> = { CRITICAL: 0, IMPORTANT: 1, WATCH: 2, INFO: 3 };
       const threshold = rank[min] ?? 2;
-      const alerts = await detectExecutiveAlerts(user);
-      const kept = alerts.filter((a) => rank[a.criticite] <= threshold);
-      if (kept.length === 0) return "Aucun signal au-dessus de ce seuil — rien ne cloche sur les détecteurs.";
+      // État chaud (fabric F5) : précalculé au battement, invalidé par les faits métier.
+      const lecture = await alertesExecutivesChaudes(user);
+      const kept = lecture.valeur.filter((a) => rank[a.criticite] <= threshold);
+      if (kept.length === 0) return `Aucun signal au-dessus de ce seuil — rien ne cloche sur les détecteurs (${fraicheurDeLecture(lecture)}).`;
       return JSON.stringify({
         seuil: min,
         signaux: kept,
+        fraicheur: fraicheurDeLecture(lecture),
         note: "Criticité calculée sur des seuils simples (âge, priorité, niveau) — les détails portent l'âge exact.",
       });
     },
@@ -88,14 +91,14 @@ export const EXECUTIVE_BRIEF_TOOLS: PowerTool[] = [
     label: "Point exécutif assemblé",
     run: async (_input, user) => {
       const entity = await platformScope(user.id);
-      const [center, centreOrders, alerts, events, compta, rh] = await Promise.all([
+      const [center, centreOrders, lectureAlertes, events, compta, rh] = await Promise.all([
         getActionCenter(user).catch(() => ({ items: [] as { title: string; subtitle?: string | null; module: string; statusLabel: string; deadline?: string | null; href: string }[] })),
         prisma.expenseOrder.findMany({
           where: { AND: [entity, { centralStatus: "AWAITING" }] },
           select: { reference: true, label: true, amount: true, beneficiary: true, createdAt: true },
           orderBy: { createdAt: "asc" }, take: 10,
         }),
-        detectExecutiveAlerts(user).catch(() => [] as ExecutiveAlert[]),
+        alertesExecutivesChaudes(user).catch(() => null),
         getUpcomingEvents(user, 5).catch(() => []),
         userCan(user, "FINANCES", "VIEW") ? getComptaData(user.id).catch(() => null) : Promise.resolve(null),
         userCan(user, "RH", "VIEW") ? getRhData(user.id).catch(() => null) : Promise.resolve(null),
@@ -115,7 +118,10 @@ export const EXECUTIVE_BRIEF_TOOLS: PowerTool[] = [
             echeance: i.deadline ? i.deadline.slice(0, 10) : null, lien: i.href,
           })),
         },
-        risques: alerts.slice(0, 12),
+        risques: {
+          signaux: (lectureAlertes?.valeur ?? ([] as ExecutiveAlert[])).slice(0, 12),
+          fraicheur: lectureAlertes ? fraicheurDeLecture(lectureAlertes) : "signaux indisponibles (détecteurs en échec)",
+        },
         reunions: events.map((e) => ({ titre: e.title, jour: e.ymd, heure: e.timeLabel || "journée entière", organisateur: e.organizerName, lien: "/calendar" })),
         finance: compta ? {
           recettesDuMoisDzd: dzd(compta.recettesMois), depensesDuMoisDzd: dzd(compta.depensesMois),

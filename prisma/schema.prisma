@@ -4728,6 +4728,24 @@ model EntityMention {
   @@index([entityType, entityId])
 }
 
+/// ÉTAT CHAUD précalculé (fabric F5) : un résultat coûteux persisté avec son instant de
+/// calcul et son coût MESURÉ. `subjectId` est la clé de DROITS — l'état calculé pour une
+/// personne n'est jamais servi à une autre. `staleAt` = invalidé par un fait métier.
+model AssistantHotState {
+  id         String    @id @default(cuid())
+  kind       String
+  subjectId  String
+  payload    Json
+  computedAt DateTime
+  /// Ce que le calcul a RÉELLEMENT coûté (ms) — la preuve que le précalcul achète quelque chose.
+  costMs     Int
+  staleAt    DateTime?
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([kind, subjectId])
+  @@index([kind, staleAt])
+}
+
 /// Partage d'un nœud avec un utilisateur précis (droits VIEW/EDIT).
 model DriveShare {
   id        String      @id @default(cuid())

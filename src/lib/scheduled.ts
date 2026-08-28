@@ -13,6 +13,7 @@ import { runLegalExpirySweep } from "@/lib/legal/expiry-sweep";
 import { runAssistantReminders } from "@/lib/assistant/reminders";
 import { runDriveIngestionSweep } from "@/lib/assistant/drive-ingestion";
 import { balayerMentions } from "@/lib/fabric";
+import { rechaufferAlertes } from "@/lib/assistant/hot-alerts";
 import { runKnowledgeSweep, enqueueBacklogs, enqueueStalled, refreshEntityIndex } from "@/lib/knowledge/worker";
 import { runScheduledWorkflows } from "@/lib/scheduler/runner";
 import { registerBuiltinWorkflows } from "@/lib/scheduler/handlers";
@@ -113,6 +114,10 @@ export async function runScheduledJobs(): Promise<void> {
     // l'extraction existe. Les nouveaux fichiers sont extraits à l'ingestion même ; ce
     // balayage borné vide le reste-à-faire (`mentionsAt: null`), un lot par passage.
     await balayerMentions().catch(() => undefined);
+    // États chauds (fabric F5) : les signaux exécutifs des dirigeants RÉCEMMENT ACTIFS se
+    // recalculent ici, en avance — la question « qu'est-ce qui cloche ? » trouve un état
+    // déjà payé, avec son instant de calcul et son coût mesurés.
+    await rechaufferAlertes().catch(() => undefined);
 
     // LA COUCHE DE CONNAISSANCE — elle avance à son rythme, derrière tout le reste.
     //

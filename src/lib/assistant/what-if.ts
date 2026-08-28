@@ -6,7 +6,8 @@ import { platformScope } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import { getComptaData } from "@/lib/queries/compta";
 import { getActionCenter } from "@/lib/queries/action-center";
-import { detectExecutiveAlerts } from "@/lib/assistant/proactive";
+import { alertesExecutivesChaudes, fraicheurDeLecture } from "@/lib/assistant/hot-alerts";
+import type { ExecutiveAlert } from "@/lib/assistant/proactive";
 import { FINISHED_REG_STATUSES } from "@/lib/regulatory/stage";
 
 /**
@@ -254,14 +255,17 @@ export const WHAT_IF_TOOLS: PowerTool[] = [
     allowed: EXEC,
     label: "État consolidé de l'entreprise",
     run: async (_input, user) => {
-      const [payroll, centreAwaiting, validationsPending, tasksLate, regActive, alerts] = await Promise.all([
+      // Les signaux passent par l'ÉTAT CHAUD (fabric F5) : précalculés au battement, invalidés
+      // par les faits métier, et la FRAÎCHEUR se dit au lieu de laisser croire au temps réel.
+      const [payroll, centreAwaiting, validationsPending, tasksLate, regActive, lectureAlertes] = await Promise.all([
         userCan(user, "RH", "VIEW") ? monthlyPayroll() : Promise.resolve(null),
         prisma.expenseOrder.count({ where: { centralStatus: "AWAITING" } }),
         prisma.validationRequest.count({ where: { status: "PENDING" } }),
         prisma.task.count({ where: { status: { in: ["TODO", "IN_PROGRESS"] }, dueDate: { lt: new Date() } } }),
         prisma.regulatoryProduct.count({ where: { status: { notIn: [...FINISHED_REG_STATUSES] } } }),
-        detectExecutiveAlerts(user).catch(() => []),
+        alertesExecutivesChaudes(user).catch(() => null),
       ]);
+      const alerts: ExecutiveAlert[] = lectureAlertes?.valeur ?? [];
       const compta = userCan(user, "FINANCES", "VIEW") ? await getComptaData(user.id).catch(() => null) : null;
       const critical = alerts.filter((a) => a.criticite === "CRITICAL");
       const important = alerts.filter((a) => a.criticite === "IMPORTANT");
@@ -288,6 +292,7 @@ export const WHAT_IF_TOOLS: PowerTool[] = [
           critiques: critical.length, importants: important.length,
           premiers: [...critical, ...important].slice(0, 5).map((a) => ({ titre: a.titre, detail: a.detail, lien: a.lien })),
           source: "détecteurs proactifs (executive_alerts pour le détail complet)",
+          fraicheur: lectureAlertes ? fraicheurDeLecture(lectureAlertes) : "signaux indisponibles (détecteurs en échec)",
         },
         rappel: "Vue COMPOSÉE des mêmes tables que les écrans — jamais une seconde source de vérité : au moindre doute, ouvrir le module.",
       });
@@ -306,11 +311,12 @@ export const WHAT_IF_TOOLS: PowerTool[] = [
     allowed: EXEC,
     label: "Tri de l'attention",
     run: async (_input, user) => {
-      const [center, alerts, overdueCommitments] = await Promise.all([
+      const [center, lectureAlertes, overdueCommitments] = await Promise.all([
         getActionCenter(user),
-        detectExecutiveAlerts(user).catch(() => []),
+        alertesExecutivesChaudes(user).catch(() => null),
         prisma.executiveCommitment.count({ where: { ownerId: user.id, status: "OPEN", dueAt: { lt: new Date() } } }),
       ]);
+      const alerts: ExecutiveAlert[] = lectureAlertes?.valeur ?? [];
       const doitDecider = center.items.slice(0, 6).map((i) => ({
         quoi: i.title, detail: i.subtitle, module: i.module, echeance: i.deadline?.slice(0, 10) ?? null, lien: i.href,
       }));
@@ -327,6 +333,7 @@ export const WHAT_IF_TOOLS: PowerTool[] = [
           engagementsEnRetard: overdueCommitments || undefined,
         },
         surveiller: { total: alerts.filter((a) => a.criticite === "WATCH").length, premiers: surveiller },
+        fraicheur: lectureAlertes ? fraicheurDeLecture(lectureAlertes) : "signaux indisponibles (détecteurs en échec)",
         principe: "PEU d'éléments, bien choisis — le reste existe dans les modules, pas dans votre matinée. Rien ici n'a déclenché d'action.",
       });
     },

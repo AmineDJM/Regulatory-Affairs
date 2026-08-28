@@ -44,7 +44,18 @@ import { scanBoundary, ADAM_PATHS, BRIDGE_PATHS } from "./boundary-scan";
  * seize imports `queries/` déjà comptés dans cette dette — pas un nouveau couplage à l'ERP.
  * Le plafond reste un cliquet : tout franchissement suivant devra se justifier ici, nommément.
  */
-const DEBT_CEILING = 426;
+/**
+ * 426 → 430 (2026-08-28, Information Fabric F5) : QUATRE franchissements, tous dans le SEUL
+ * nouveau fichier `assistant/hot-alerts.ts` — le consommateur des états chauds précalculés :
+ * `prisma` (lecture des sessions récentes pour savoir QUI réchauffer), `rbac` (droits relus
+ * en base pour le réchauffage sans session — même geste que le balayage des missions),
+ * `session` (le type CurrentUser), et la façade `fabric` (le mécanisme d'état chaud, L3 → L2
+ * voulu). Un fichier de domaine Adam qui consomme la plateforme, de la même nature que ses
+ * voisins — pas un couplage nouveau. Les AUTRES fichiers touchés par F5 n'ajoutent rien :
+ * what-if / executive-brief passent par hot-alerts (interne Adam), ledger et scheduled sont
+ * côté ERP.
+ */
+const DEBT_CEILING = 430;
 
 describe("frontière Adam ↔ ERP", () => {
   const report = scanBoundary();

@@ -3,6 +3,7 @@ import type { Prisma, EntityType } from "@prisma/client";
 import { EXPECTED_EVENTS, matchEvent, type BusinessEventLike, type TaskLike } from "@/lib/tasks/evidence";
 import { reveillerMissions } from "@/lib/missions/events/router";
 import { satisfaireEngagements } from "@/lib/missions/commitments/satisfy";
+import { invaliderEtatsChauds } from "@/lib/fabric";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -98,6 +99,13 @@ export async function recordEvent(input: RecordEventInput): Promise<string | nul
     }).catch((err) => {
       console.error("[events] satisfaction d'engagement impossible", evt.type, err);
     });
+
+    // LA QUATRIÈME CONSÉQUENCE : les états chauds démentis (fabric F5). Un fait métier vient
+    // de s'inscrire — les signaux exécutifs précalculés AVANT lui ne peuvent plus être servis
+    // tels quels. On MARQUE (pas de recalcul ici : le prochain lecteur ou le battement paie),
+    // et l'invalidation ne touche que les lignes pas encore marquées — idempotente, une
+    // requête indexée, jamais bloquante.
+    await invaliderEtatsChauds("alertes-executives").catch(() => undefined);
 
     return evt.id;
   } catch (err) {
