@@ -424,6 +424,9 @@ export async function planifier(
     : cheminDirect(objectif, triage, {
         capacites: resolution.capacites,
         autorisee: (id) => catalogue.allowed(id, acteur),
+        // Le plafond d'effet informe la forme RECHERCHE du chemin direct : sous plafond de
+        // lecture, « lecture seule » est prouvée par la politique, pas devinée sur la phrase.
+        plafondEffet: plafond,
       });
 
   if (direct.plan) {

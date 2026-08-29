@@ -3,6 +3,8 @@ import {
   attestationEffets, preuveNegative, type ExecutionReceipt,
 } from "@/lib/missions/runtime/receipt";
 import { EFFECT_RANK, type Effect } from "@/lib/missions/registry/capability-meta";
+// Import de VALEUR vers rules.ts, qui n'importe d'ici que des TYPES : pas de cycle au runtime.
+import { partitionnerCriteres } from "@/lib/missions/goal/rules";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -276,7 +278,7 @@ export function empreinteExecution(
   criteres: readonly string[],
   resumeExecution: string,
 ): string {
-  const source = `${objectif} ${criteres.join(" ")} ${resumeExecution}`;
+  const source = `${objectif}\u0000${criteres.join("\u0000")}\u0000${resumeExecution}`;
   let h = 0x811c9dc5;
   for (let i = 0; i < source.length; i++) {
     h ^= source.charCodeAt(i);
@@ -306,6 +308,8 @@ export interface VerdictObjectif {
   empreinte?: string | null;
   /** Vrai quand le verdict vient d'un jugement ANTÉRIEUR identique : aucun modèle n'a été appelé. */
   reutilise?: boolean;
+  /** Sur un refus de juge : le recours suggéré. `null` = aucun ; absent = non mesuré (§78). */
+  recoursSuggere?: string | null;
 }
 
 /** Un verdict déjà rendu, relu du journal canonique par l'appelant. */
@@ -328,7 +332,13 @@ export interface JugeObjectif {
     objectif: string;
     criteres: readonly string[];
     resumeExecution: string;
-  }): Promise<{ satisfait: boolean; raison: string; sansPreuve?: string[] }>;
+  }): Promise<{
+    satisfait: boolean;
+    raison: string;
+    sansPreuve?: string[];
+    /** Le recours que le juge suggère sur un refus. `null` = il n'en voit AUCUN ; absent = non mesuré. */
+    recoursSuggere?: string | null;
+  }>;
 }
 
 /**
@@ -399,9 +409,45 @@ export async function evaluerObjectif(opts: {
   const resumeExecution = compteRendu(opts.steps, qa, 120, opts.plafondEffet);
   const empreinte = empreinteExecution(opts.objectif, opts.criteres, resumeExecution);
 
+  /**
+   * ── LES RÈGLES D'ABORD — le juge devenu arithmétique là où les critères le sont ───────
+   *
+   * Un critère `[REGLE:…]` se vérifie sur les REÇUS structurés, pas sur une prose : la
+   * requête partie, l'effet déclaré, la sortie schématisée. Trois conséquences, dans
+   * l'ordre de la doctrine (§10) :
+   *
+   *   1. un seul FAIL refuse SANS appel de modèle — l'arithmétique garde le dernier mot
+   *      dans le sens négatif, et un refus de règle nomme l'étape et le fait constaté ;
+   *   2. tout PASS et AUCUN critère sémantique → la mission conclut sans juge LLM : chaque
+   *      critère a été vérifié contre sa preuve — c'est PLUS de vérification qu'un avis,
+   *      jamais moins. « Toutes les étapes ont tourné » ne suffit toujours pas : ce sont
+   *      les CRITÈRES qui ont été prouvés, pas le fait d'avoir tourné ;
+   *   3. des critères sémantiques restent → le juge LLM ne reçoit QU'EUX (contexte réduit),
+   *      et son avis se combine aux preuves des règles.
+   */
+  const partition = partitionnerCriteres(opts.criteres, opts.steps);
+  const reglesEnEchec = partition.regles.filter((r) => r.verdict === "FAIL");
+  if (reglesEnEchec.length > 0) {
+    return {
+      satisfait: false, avisModele: null, empreinte,
+      sansPreuve: reglesEnEchec.map((r) => r.critere),
+      raison: `Refus DÉTERMINISTE — ${reglesEnEchec.length} règle(s) en échec : `
+        + reglesEnEchec.map((r) => `[${r.code}] ${r.preuve}`).join(" ; "),
+    };
+  }
+  const preuvesRegles = partition.regles.map((r) => `[${r.code}] ${r.preuve}`);
+
+  if (partition.semantiques.length === 0 && partition.regles.length > 0) {
+    return {
+      satisfait: true, avisModele: null, sansPreuve: [], empreinte,
+      raison: `Objectif atteint — TOUS les critères sont des règles vérifiées sur les reçus : `
+        + preuvesRegles.join(" ; "),
+    };
+  }
+
   if (!opts.juge) {
     return {
-      satisfait: false, avisModele: null, sansPreuve: [...opts.criteres], empreinte,
+      satisfait: false, avisModele: null, sansPreuve: [...partition.semantiques], empreinte,
       raison: `Toutes les étapes ont abouti (${qa.resume}), mais aucun juge n'a vérifié les `
         + `critères d'acceptation. La mission n'est pas déclarée atteinte pour autant.`,
     };
@@ -425,17 +471,22 @@ export async function evaluerObjectif(opts: {
   }
 
   try {
+    // Le juge LLM ne reçoit QUE les critères sémantiques : les règles sont déjà prouvées, et
+    // les lui renvoyer serait payer des jetons pour relire ce que les reçus établissent.
     const avis = await opts.juge.juger({
       objectif: opts.objectif,
-      criteres: opts.criteres,
+      criteres: partition.semantiques,
       resumeExecution,
     });
     return {
       satisfait: avis.satisfait,
       avisModele: avis.satisfait,
-      raison: avis.raison,
+      raison: preuvesRegles.length > 0
+        ? `${avis.raison} — et ${preuvesRegles.length} règle(s) vérifiée(s) sur les reçus : ${preuvesRegles.join(" ; ")}`
+        : avis.raison,
       sansPreuve: avis.sansPreuve ?? [],
       empreinte,
+      ...(avis.recoursSuggere !== undefined ? { recoursSuggere: avis.recoursSuggere } : {}),
     };
   } catch (e) {
     // UN JUGE QUI TOMBE NE VAUT PAS UN OUI. C'est la ligne qui empêche une panne de fournisseur

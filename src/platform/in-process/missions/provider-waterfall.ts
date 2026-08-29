@@ -187,6 +187,21 @@ export interface Cascade {
   parallelisme: boolean;
   /** Les appels dont la réponse n'a pas servi (échec, ou plan jeté à la reprise). */
   appelsSansEffet: number;
+  /**
+   * ── LES MÉTRIQUES DU CHANTIER LATENCE (§18) — mesurées, jamais estimées ─────────────
+   *
+   * `voiePlan` : DIRECTE = le plan a été construit par le code, ZÉRO appel de planificateur ;
+   * MODELE = le planificateur LLM a été payé ; `null` = non mesuré (lancement en échec).
+   * `sommeDureesAppelsMs` vs `tempsModeleMs` (union) : leur rapport est le FACTEUR DE
+   * PARALLÉLISME — 1,0 = tout séquentiel ; 2,0 = deux appels menés de front en moyenne.
+   * `appelsChevauchants` : combien d'appels ont recouvert un autre — le « OUI/NON » de
+   * `parallelisme` devenu un nombre. `premierResultatUtileMs` : le premier STEP_DONE du
+   * journal — ce que la personne aurait déjà PU voir, indépendamment de la réponse finale.
+   */
+  voiePlan: string | null;
+  sommeDureesAppelsMs: number;
+  appelsChevauchants: number;
+  premierResultatUtileMs: number | null;
   catalogue: {
     ouvertes: number;
     montreesAuPlanner: number | null;
@@ -213,6 +228,7 @@ export async function cascade(
   t0: number,
   finMs: number,
   catalogue: Cascade["catalogue"],
+  voiePlan: string | null = null,
 ): Promise<Cascade> {
   const phases: Phase[] = [];
 
@@ -258,6 +274,13 @@ export async function cascade(
 
   const propres = instrument.pour(scenario);
   const modele = instrument.tempsModeleMs(scenario);
+  // Un appel est CHEVAUCHANT s'il recouvre au moins un autre appel du même scénario.
+  const chevauchants = propres.filter((a) =>
+    propres.some((b) => b !== a && a.debutMs < b.finMs && b.debutMs < a.finMs)).length;
+  // Le premier STEP_DONE du journal : ce qu'une personne aurait DÉJÀ pu voir.
+  const premierUtile = phases
+    .filter((p) => p.nom === "STEP_DONE")
+    .reduce<number | null>((min, p) => (min === null || p.debutMs < min ? p.debutMs : min), null);
   return {
     totalMs: finMs,
     phases: phases.sort((a, b) => a.debutMs - b.debutMs),
@@ -266,6 +289,10 @@ export async function cascade(
     tempsHorsModeleMs: Math.max(0, finMs - modele),
     parallelisme: instrument.aDuParallelisme(scenario),
     appelsSansEffet: propres.filter((a) => !a.ok).length,
+    voiePlan,
+    sommeDureesAppelsMs: propres.reduce((s, a) => s + a.latenceMs, 0),
+    appelsChevauchants: chevauchants,
+    premierResultatUtileMs: premierUtile,
     catalogue,
   };
 }
@@ -307,12 +334,16 @@ export function rendreCascade(c: Cascade): string[] {
   const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${n}ms`);
   const barre = (d: number) => "█".repeat(Math.max(0, Math.min(40, Math.round((d / Math.max(1, c.totalMs)) * 40))));
 
+  const facteur = c.tempsModeleMs > 0 ? (c.sommeDureesAppelsMs / c.tempsModeleMs).toFixed(2) : "—";
   return [
     "── CASCADE ─────────────────────────────────────────────",
     `  total                        ${ms(c.totalMs)}`,
+    `  voie du plan                 ${c.voiePlan === "DIRECTE" ? "DIRECTE — 0 appel de planificateur" : c.voiePlan ?? "non mesurée"}`,
     `  dont attente modèle          ${ms(c.tempsModeleMs)} (${((c.tempsModeleMs / Math.max(1, c.totalMs)) * 100).toFixed(0)} %)`,
     `  dont hors modèle (base/outils/moteur)  ${ms(c.tempsHorsModeleMs)} (${((c.tempsHorsModeleMs / Math.max(1, c.totalMs)) * 100).toFixed(0)} %)`,
-    `  parallélisme entre appels    ${c.parallelisme ? "OUI" : "NON — tous séquentiels"}`,
+    `  parallélisme entre appels    ${c.parallelisme ? `OUI — ${c.appelsChevauchants}/${c.appels.length} chevauchants` : "NON — tous séquentiels"}`
+    + ` · facteur ${facteur} (somme ${ms(c.sommeDureesAppelsMs)} / union ${ms(c.tempsModeleMs)})`,
+    `  premier résultat utile       ${c.premierResultatUtileMs !== null ? `${ms(c.premierResultatUtileMs)} (premier STEP_DONE)` : "non mesuré"}`,
     `  appels sans effet            ${c.appelsSansEffet}`,
     "",
     "  PAR FAMILLE D'APPEL — les trois leviers, séparés",

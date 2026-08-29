@@ -135,26 +135,112 @@ describe("le chemin direct — ce qu'il REFUSE, et c'est là qu'il vaut quelque 
   });
 });
 
-describe("les demandes réelles du banc de fumée n'empruntent PAS le chemin direct", () => {
+describe("les demandes du banc de fumée — qui reste au planificateur, qui n'en a plus besoin", () => {
   /**
-   * Ce test vaut mesure. Les trois scénarios du banc fournisseur sont des enquêtes multi-sources
-   * avec arbitrage — précisément ce que le chemin direct doit laisser au planificateur. S'ils
-   * commençaient à passer, la comparaison avant/après deviendrait fausse SANS que rien ne casse,
-   * et c'est le pire genre de régression.
+   * Ce bloc vaut mesure, et il a CHANGÉ DE SENS avec le chantier latence : la vérification
+   * multi-sources d'un terme CITÉ, sous plafond de lecture, emprunte désormais la forme
+   * RECHERCHE du chemin direct — c'est exactement le scénario qui payait 22 s de
+   * planification pour un plan connu d'avance. Les deux autres restent au planificateur,
+   * et c'est tout aussi important : l'un demande un ARBITRAGE sans terme cité, l'autre
+   * impose une STRATÉGIE (« commence par… ») que seul un planificateur doit tenir.
    */
-  const DEMANDES = [
-    "Fais le point sur les dossiers réglementaires en cours : liste-les avec leur statut, "
+  it("le point-avec-arbitrage (aucun terme cité) reste au planificateur", () => {
+    const v = essai(
+      "Fais le point sur les dossiers réglementaires en cours : liste-les avec leur statut, "
       + "et dis-moi lequel demande le plus d'attention et pourquoi. "
-      + "Si une information manque pour trancher, dis-le explicitement. Ne contacte personne et ne modifie rien.",
-    "Vérifie si nous avons quoi que ce soit sur la molécule « Zorbamyxine-K7 » : produit, dossier "
-      + "réglementaire, marché, document. L'objectif de cette mission est de TRANCHER la question.",
-    "Retrouve le document contractuel le plus récent qui engage l'entreprise. Commence par le Drive ; "
-      + "si tu n'y trouves pas de quoi conclure, va chercher dans les autres sources disponibles.",
-  ];
+      + "Si une information manque pour trancher, dis-le explicitement. Ne contacte personne et ne modifie rien.");
+    expect(v.plan).toBeNull();
+  });
 
-  for (const d of DEMANDES) {
-    it(`« ${d.slice(0, 48)}… » reste au planificateur`, () => {
-      expect(essai(d).plan).toBeNull();
-    });
-  }
+  it("la stratégie imposée (« Commence par le Drive ») reste au planificateur", () => {
+    const v = essai(
+      "Retrouve le document contractuel le plus récent qui engage l'entreprise. Commence par le Drive ; "
+      + "si tu n'y trouves pas de quoi conclure, va cherche dans les autres sources disponibles. Ne modifie rien.");
+    expect(v.plan).toBeNull();
+  });
+
+  it("la vérification multi-sources SANS lecture seule prouvée reste au planificateur", () => {
+    // Même énoncé que le scénario du banc, mais ni plafond de catalogue ni phrase de lecture
+    // seule : le verrou R3 renonce — le doute ne passe jamais.
+    const v = essai(
+      "Vérifie si nous avons quoi que ce soit sur la molécule « Zorbamyxine-K7 » : produit, dossier "
+      + "réglementaire, marché, document. L'objectif de cette mission est de TRANCHER la question.");
+    expect(v.plan).toBeNull();
+  });
+});
+
+describe("la forme RECHERCHE du chemin direct — la vérification multi-sources d'un terme cité", () => {
+  const RECHERCHES = [
+    cap("search_everything", "federee", "Recherche fédérée dans tout l'ERP."),
+    cap("search_products", "regulatory", "Recherche les produits Regulatory."),
+    cap("search_drive", "drive", "Cherche fichiers et dossiers du Drive."),
+    cap("find_documents", "drive", "Retrouve des documents par contenu."),
+  ];
+  const ctxRecherche = (plafond: string | null = "ANALYZE", capacites: readonly CapabilityBrief[] = RECHERCHES) =>
+    ({ capacites, autorisee: () => true, plafondEffet: plafond });
+
+  // L'énoncé RÉEL du scénario PREUVE_ABSENCE du banc, mot pour mot.
+  const PREUVE_ABSENCE =
+    "Vérifie si nous avons quoi que ce soit sur la molécule « Zorbamyxine-K7-TEST » : produit, "
+    + "dossier réglementaire, marché, document. L'objectif de cette mission est de TRANCHER "
+    + "la question : soit tu trouves des éléments et tu les présentes, soit tu établis, "
+    + "sources consultées à l'appui, qu'il n'existe rien à ce sujet — cette conclusion négative "
+    + "documentée EST le résultat attendu et suffit à considérer la mission accomplie. "
+    + "Ne contacte personne, ne modifie rien, et ne produis aucun fichier.";
+
+  it("l'énoncé PREUVE_ABSENCE du banc, sous plafond de lecture, produit le plan SANS planificateur", () => {
+    const v = cheminDirect(PREUVE_ABSENCE, trier(PREUVE_ABSENCE), ctxRecherche());
+    expect(v.refus).toBeNull();
+    expect(v.plan).not.toBeNull();
+    // Quatre recherches PARALLÈLES (aucune dépendance), une jonction, UNE conclusion.
+    const types = v.plan!.steps.map((s) => s.nodeType);
+    expect(types).toEqual(["CAPABILITY", "CAPABILITY", "CAPABILITY", "CAPABILITY", "JOIN", "WORKER"]);
+    expect(v.plan!.steps.filter((s) => s.nodeType === "CAPABILITY").every((s) => (s.dependsOn ?? []).length === 0)).toBe(true);
+    // La requête est le terme CITÉ, verbatim — jamais fabriquée.
+    for (const s of v.plan!.steps.filter((x) => x.nodeType === "CAPABILITY")) {
+      expect(s.input).toEqual({ query: "Zorbamyxine-K7-TEST" });
+    }
+    // La conclusion est SCHÉMATISÉE : c'est elle qui rend le critère de sortie vérifiable par code.
+    const conclure = v.plan!.steps.find((s) => s.key === "conclure")!;
+    expect(conclure.expectedOutputSchema).toBeTruthy();
+    // Les critères sont des RÈGLES — vérifiables sur les reçus, donc sans juge LLM en aval.
+    expect(v.plan!.acceptance.every((c) => c.startsWith("[REGLE:"))).toBe(true);
+  });
+
+  it("sans plafond de lecture, la PHRASE « ne modifie rien » suffit — dite, pas devinée", () => {
+    const v = cheminDirect(PREUVE_ABSENCE, trier(PREUVE_ABSENCE), ctxRecherche(null));
+    expect(v.plan).not.toBeNull();
+  });
+
+  it("DEUX termes cités = ambiguïté : le planificateur tranche", () => {
+    const d = "Vérifie « Alpha » et « Beta » dans les produits et documents. Ne modifie rien.";
+    const v = cheminDirect(d, trier(d), ctxRecherche());
+    expect(v.plan).toBeNull();
+    expect(v.refus).toContain("2 termes");
+  });
+
+  it("un VERBE D'EFFET hors négation renonce — même avec un terme cité et le plafond", () => {
+    const d = "Vérifie « Alpha » dans les produits et documents, puis envoie le résultat à Khaled.";
+    const v = cheminDirect(d, trier(d), ctxRecherche());
+    expect(v.plan).toBeNull();
+  });
+
+  it("UNE seule famille de sources visée = recherche ciblée : au planificateur", () => {
+    const d = "Vérifie si nous avons quoi que ce soit sur « Alpha » dans le Drive. Ne modifie rien.";
+    const v = cheminDirect(d, trier(d), ctxRecherche());
+    expect(v.plan).toBeNull();
+  });
+
+  it("moins de DEUX capacités de recherche ouvertes : pas de multi-sources, on renonce", () => {
+    const v = cheminDirect(PREUVE_ABSENCE, trier(PREUVE_ABSENCE), ctxRecherche("ANALYZE", [RECHERCHES[0]]));
+    expect(v.plan).toBeNull();
+    expect(v.refus).toContain("capacité(s) de recherche");
+  });
+
+  it("les négations ne comptent pas comme effets : « ne produis aucun fichier » n'est pas « produis »", () => {
+    // C'est le piège exact de l'énoncé réel — « produit » (le nom) y côtoie « ne produis
+    // aucun fichier » (la contrainte). Le premier test le couvre déjà ; celui-ci le NOMME.
+    const v = cheminDirect(PREUVE_ABSENCE, trier(PREUVE_ABSENCE), ctxRecherche());
+    expect(v.refus).toBeNull();
+  });
 });

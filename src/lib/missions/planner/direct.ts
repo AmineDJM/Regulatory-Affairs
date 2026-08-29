@@ -165,6 +165,8 @@ export interface ContexteDirect {
   capacites: readonly CapabilityBrief[];
   /** Vrai si la capacité est ouverte à l'acteur — relu ici, pas supposé. */
   autorisee: (id: string) => boolean;
+  /** Le plafond d'effet du catalogue (lecture seule = ANALYZE). `null` = pas de plafond. */
+  plafondEffet?: string | null;
 }
 
 const renonce = (refus: string, candidats: Candidat[]): Verdict =>
@@ -188,11 +190,27 @@ export function cheminDirect(demande: string, triage: Triage, ctx: ContexteDirec
 
   // ── VERROU 1 — le triage ────────────────────────────────────────────────────────────
   if (triage.profil !== "DIRECT") {
-    return renonce(`profil ${triage.profil} : ${triage.raisons[0] ?? "signaux composés"}`, candidats);
+    // La lecture nue exige le profil DIRECT ; la VÉRIFICATION MULTI-SOURCES, elle, a ses
+    // propres verrous (terme cité, lecture seule prouvée) et un profil composé ne l'exclut
+    // pas : « vérifie X dans quatre sources » est composé ET entièrement connu du logiciel.
+    const recherche = cheminDirectRecherche(demande, ctx);
+    if (recherche.plan) return recherche;
+    return renonce(
+      `profil ${triage.profil} : ${triage.raisons[0] ?? "signaux composés"} ; multi-sources : ${recherche.refus}`,
+      candidats);
   }
 
+  // La forme RECHERCHE se tente à chaque renoncement de la lecture nue : les deux formes ne
+  // se recouvrent pas (l'une refuse toute requête, l'autre EXIGE un terme cité), et l'ordre
+  // ne crée donc pas d'ambiguïté — il crée une seconde chance déterministe.
+  const renonceOuRecherche = (refus: string): Verdict => {
+    const recherche = cheminDirectRecherche(demande, ctx);
+    if (recherche.plan) return recherche;
+    return renonce(`${refus} ; multi-sources : ${recherche.refus}`, candidats);
+  };
+
   const tete = notes[0];
-  if (!tete) return renonce("aucune capacité ouverte à cet acteur", candidats);
+  if (!tete) return renonceOuRecherche("aucune capacité ouverte à cet acteur");
 
   // ── VERROU 2 — la dominance ─────────────────────────────────────────────────────────
   //
@@ -202,23 +220,23 @@ export function cheminDirect(demande: string, triage: Triage, ctx: ContexteDirec
   // marque haut.
   const second = notes[1]?.score ?? 0;
   if (tete.score < PLANCHER_DOMINANCE) {
-    return renonce(`aucune capacité ne domine (meilleur score ${tete.score.toFixed(2)} < ${PLANCHER_DOMINANCE})`, candidats);
+    return renonceOuRecherche(`aucune capacité ne domine (meilleur score ${tete.score.toFixed(2)} < ${PLANCHER_DOMINANCE})`);
   }
   if (tete.score < second * RAPPORT_DOMINANCE) {
-    return renonce(`cible ambiguë : ${tete.b.id} (${tete.score.toFixed(2)}) contre ${notes[1].b.id} (${second.toFixed(2)})`, candidats);
+    return renonceOuRecherche(`cible ambiguë : ${tete.b.id} (${tete.score.toFixed(2)}) contre ${notes[1].b.id} (${second.toFixed(2)})`);
   }
 
   // ── VERROU 3 — une lecture NUE, qui n'attend aucune requête ──────────────────────────
   if (!estLectureNue(tete.b.id)) {
-    return renonce(`${tete.b.id} n'est pas une lecture nue : elle attend des paramètres qu'il faudrait deviner`, candidats);
+    return renonceOuRecherche(`${tete.b.id} n'est pas une lecture nue : elle attend des paramètres qu'il faudrait deviner`);
   }
 
   // ── VERROU 4 — l'effet et le droit, relus au moment de décider ───────────────────────
   if (tete.b.effect !== "READ" && tete.b.effect !== "ANALYZE") {
-    return renonce(`${tete.b.id} porte l'effet ${tete.b.effect} : hors du chemin direct`, candidats);
+    return renonceOuRecherche(`${tete.b.id} porte l'effet ${tete.b.effect} : hors du chemin direct`);
   }
   if (!ctx.autorisee(tete.b.id)) {
-    return renonce(`${tete.b.id} n'est pas ouverte à cet acteur`, candidats);
+    return renonceOuRecherche(`${tete.b.id} n'est pas ouverte à cet acteur`);
   }
 
   return { plan: planDeLecture(demande, tete.b), capacite: tete.b.id, refus: null, candidats };
@@ -269,6 +287,252 @@ function planDeLecture(demande: string, cap: CapabilityBrief): MissionPlan {
       },
     ],
     completionCriteria: `La lecture ${cap.id} a abouti et la réponse en découle.`,
+    gaps: [],
+  };
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA VÉRIFICATION MULTI-SOURCES — la deuxième forme du chemin direct (chantier latence).
+ *
+ * ── CE QUI A CHANGÉ DEPUIS L'EXCLUSION DE `search_` ──────────────────────────────────────
+ *
+ * Le verrou 3 excluait les recherches : « fabriquer une requête à partir d'une phrase
+ * française, c'est deviner ». C'était vrai, et ça le reste. Ce qui a changé : quand la demande
+ * CITE son terme — « vérifie si nous avons quoi que ce soit sur « X » » — la requête n'est
+ * plus fabriquée, elle est LUE, verbatim. L'Information Fabric a rendu le reste connu du
+ * logiciel : les sources sont des capacités `search_*` du catalogue (convention `query`,
+ * la même que `list_`/`read_` pour la lecture nue), le plafond d'effet est porté par le
+ * catalogue, la sortie attendue est une conclusion structurée.
+ *
+ * Un run réel a payé 22,0 s de planification + 7,9 s de replanification pour produire
+ * EXACTEMENT ce plan : quatre recherches parallèles, une jonction, une conclusion. Le modèle
+ * décidait un QUOI que le logiciel connaissait déjà (§5 : models decide WHAT, code does HOW —
+ * ici, le QUOI même était connu).
+ *
+ * ── LES VERROUS — tous nécessaires, aucun négociable ─────────────────────────────────────
+ *
+ *   R1. UN terme cité, exactement — deux termes ou zéro, c'est une ambiguïté : on renonce.
+ *   R2. Une INTENTION de recherche/vérification explicite (vérifie, cherche, trouve…).
+ *   R3. LECTURE SEULE PROUVÉE : le plafond du catalogue est ≤ ANALYZE, ou la demande le dit
+ *       (« ne modifie rien », « lecture seule ») — ET, une fois les négations retirées,
+ *       aucun verbe d'effet ne survit dans la demande. Le doute renonce.
+ *   R4. La demande vise PLUSIEURS familles de sources (ou « quoi que ce soit ») — une
+ *       recherche qui nomme UNE source ou impose un ORDRE (« commence par… ») garde son
+ *       planificateur : la stratégie lui appartient.
+ *   R5. Au moins DEUX capacités de recherche ouvertes à cet acteur, effet ≤ ANALYZE.
+ *
+ * Le plan produit passe par le MÊME compilateur, la même politique, le même contrôle qualité
+ * que n'importe quel plan de modèle — le chemin direct PROPOSE, il ne contourne rien. Ses
+ * critères d'acceptation sont des RÈGLES (`[REGLE:…]`) vérifiables sur les reçus structurés :
+ * c'est ce qui permet, en aval, de conclure sans appel de juge — sans jamais affaiblir la
+ * vérification, puisque les reçus prouvent ce qu'une prose ne pouvait qu'affirmer.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** Le terme CITÉ — un seul, sinon rien. Guillemets français ou droits. */
+export function termeCite(demande: string): { terme: string | null; nombre: number } {
+  const francais = [...demande.matchAll(/«\s*([^«»]{2,120}?)\s*»/g)].map((m) => m[1].trim());
+  const droits = [...demande.matchAll(/"([^"]{2,120})"/g)].map((m) => m[1].trim());
+  const uniques = [...new Set([...francais, ...droits].filter(Boolean))];
+  return { terme: uniques.length === 1 ? uniques[0] : null, nombre: uniques.length };
+}
+
+const INTENTION_RECHERCHE = /\b(v[ée]rifie[rz]?|recherche[rz]?|cherche[rz]?|trouve[rz]?|retrouve[rz]?|inventorie[rz]?|avons[- ]nous|a[- ]t[- ]on|existe[- ]t[- ]il)\b/i;
+
+const PHRASE_LECTURE_SEULE = /ne\s+(?:modifie|change)\s+rien|n['’][ée]cris\s+rien|lecture\s+seule|sans\s+rien\s+(?:modifier|[ée]crire)/i;
+
+/**
+ * RETIRE les clauses de négation avant de chercher des verbes d'effet : « ne contacte
+ * personne », « ne modifie rien », « ne produis aucun fichier » sont des CONTRAINTES de
+ * lecture seule, pas des demandes d'action — les scanner telles quelles ferait renoncer
+ * exactement les demandes que cette forme doit servir.
+ */
+export function sansClausesNegatives(demande: string): string {
+  return demande
+    .replace(/\bne\s+\p{L}+\s+(?:rien|personne|aucune?\s+\p{L}+)\b/giu, " ")
+    .replace(/\bn['’]\p{L}+\s+(?:rien|personne|aucune?\s+\p{L}+)\b/giu, " ")
+    .replace(/\baucune?\s+\p{L}+\b/giu, " ");
+}
+
+/**
+ * Les verbes qui trahissent une demande d'EFFET. Après retrait des négations, un seul suffit à
+ * renoncer. Les formes qui sont AUSSI des noms courants (« produit », « envoi », « la paie »)
+ * sont volontairement ABSENTES : « vérifie le produit » n'est pas une demande de production,
+ * et les attraper ferait renoncer exactement les demandes que cette forme doit servir. Les
+ * impératifs sans homonyme (« produis », « envoie ») suffisent — et le doute renonce toujours.
+ */
+const VERBES_EFFET = /\b(envoie[rz]?|envoyer|[ée]cris|r[ée]dige[rz]?|cr[ée]{2}[rz]?|modifie[rz]?|supprime[rz]?|ajoute[rz]?|planifie[rz]?|programme[rz]?|contacte[rz]?|g[ée]n[èe]re[rz]?|produis|t[ée]l[ée]verse[rz]?|payer|valide[rz]?|approuve[rz]?|assigne[rz]?|transf[èe]re[rz]?)\b/iu;
+
+/**
+ * Les FAMILLES de sources qu'une demande peut nommer. Servent uniquement au verrou R4
+ * (« la demande vise-t-elle PLUSIEURS greniers ? ») — jamais à choisir les capacités,
+ * qui viennent du catalogue réel.
+ */
+const FAMILLES_SOURCES: readonly (readonly string[])[] = [
+  ["produit", "produits", "dci", "portefeuille"],
+  ["dossier", "dossiers", "r[ée]glementaire", "regulatory"],
+  ["march[ée]", "march[ée]s", "pch", "affaire", "affaires"],
+  ["document", "documents", "drive", "fichier", "fichiers"],
+  ["corpus", "connaissance"],
+  ["courrier", "courriers", "mail", "e-mail"],
+  ["contrat", "contrats", "legal"],
+  ["t[âa]che", "t[âa]ches"],
+];
+
+export function famillesNommees(demande: string): number {
+  let n = 0;
+  for (const famille of FAMILLES_SOURCES) {
+    if (famille.some((mot) => new RegExp(`\\b${mot}\\b`, "iu").test(demande))) n += 1;
+  }
+  return n;
+}
+
+const BALAYAGE_GENERAL = /quoi\s+que\s+ce\s+soit|tout\s+ce\s+que|toutes\s+les\s+sources|o[uù]\s+que\s+ce\s+soit|partout/i;
+const ORDRE_IMPOSE = /commence[rz]?\s+par|d['’]abord|ensuite|puis\s+(?:seulement|va|cherche)/i;
+
+/** L'ordre de préférence des recherches — les fédérées d'abord, puis alphabétique. Déterministe. */
+const PREFERENCE_RECHERCHE = ["search_everything", "search_products", "search_drive", "find_documents"];
+
+function capacitesDeRecherche(ctx: ContexteDirect): CapabilityBrief[] {
+  const eligibles = ctx.capacites.filter((b) =>
+    (b.id.startsWith("search_") || b.id === "find_documents")
+    && (b.effect === "READ" || b.effect === "ANALYZE")
+    && ctx.autorisee(b.id));
+  const rang = (id: string): number => {
+    const i = PREFERENCE_RECHERCHE.indexOf(id);
+    return i === -1 ? PREFERENCE_RECHERCHE.length : i;
+  };
+  return [...eligibles]
+    .sort((a, b) => rang(a.id) - rang(b.id) || a.id.localeCompare(b.id))
+    .slice(0, 6);
+}
+
+/** DÉCIDE s'il y a une vérification multi-sources directe, et la construit. Pure, comme l'autre forme. */
+export function cheminDirectRecherche(demande: string, ctx: ContexteDirect): Verdict {
+  const aucun = (refus: string): Verdict => ({ plan: null, capacite: null, refus, candidats: [] });
+
+  // ── R1 — le terme, cité et unique ─────────────────────────────────────────────────────
+  const { terme, nombre } = termeCite(demande);
+  if (!terme) {
+    return aucun(nombre === 0
+      ? "aucun terme cité entre guillemets : la requête serait devinée"
+      : `${nombre} termes cités : ambiguïté, le planificateur tranche`);
+  }
+
+  // ── R2 — l'intention de recherche ─────────────────────────────────────────────────────
+  if (!INTENTION_RECHERCHE.test(demande)) {
+    return aucun("aucune intention de recherche explicite");
+  }
+
+  // ── R3 — la lecture seule, PROUVÉE ────────────────────────────────────────────────────
+  const plafondLecture = ctx.plafondEffet === "READ" || ctx.plafondEffet === "ANALYZE";
+  if (!plafondLecture && !PHRASE_LECTURE_SEULE.test(demande)) {
+    return aucun("lecture seule non prouvée (ni plafond du catalogue, ni phrase explicite)");
+  }
+  const residuel = sansClausesNegatives(demande).match(VERBES_EFFET);
+  if (residuel) {
+    return aucun(`verbe d'effet dans la demande (« ${residuel[0]} ») : hors du chemin direct`);
+  }
+
+  // ── R4 — plusieurs familles visées, aucune stratégie imposée ──────────────────────────
+  if (ORDRE_IMPOSE.test(demande)) {
+    return aucun("la demande impose un ordre de sources : la stratégie appartient au planificateur");
+  }
+  // UNE famille nommée = une recherche CIBLÉE, même accompagnée de « quoi que ce soit » : le
+  // balayage général ne sauve que le cas où AUCUNE famille ne borne la portée.
+  const familles = famillesNommees(demande);
+  if (familles === 1) {
+    return aucun("une seule famille de sources visée : recherche ciblée, pas une vérification multi-sources");
+  }
+  if (familles === 0 && !BALAYAGE_GENERAL.test(demande)) {
+    return aucun("aucune famille de sources visée ni balayage général demandé");
+  }
+
+  // ── R5 — les capacités, relues sur le catalogue réel ──────────────────────────────────
+  const caps = capacitesDeRecherche(ctx);
+  if (caps.length < 2) {
+    return aucun(`${caps.length} capacité(s) de recherche ouverte(s) : pas de quoi couvrir plusieurs sources`);
+  }
+
+  return {
+    plan: planDeRecherche(demande, terme, caps),
+    capacite: `recherche-multi-sources (${caps.length} sources)`,
+    refus: null,
+    candidats: caps.slice(0, 2).map((c) => ({ id: c.id, score: 0 })),
+  };
+}
+
+/**
+ * LE PLAN D'UNE VÉRIFICATION MULTI-SOURCES — recherches PARALLÈLES, jonction, UNE conclusion.
+ *
+ * Les critères d'acceptation sont des RÈGLES : chacune se vérifie sur les reçus structurés
+ * des étapes (requête exacte partie, aucun effet au-delà d'ANALYZE, sortie structurée de la
+ * conclusion). Le texte humain qui les suit reste lisible par un juge LLM — si la
+ * vérification déterministe n'existe pas encore en aval, le critère se juge comme avant :
+ * la règle est un GAIN quand elle est branchée, jamais une dépendance.
+ */
+function planDeRecherche(demande: string, terme: string, caps: readonly CapabilityBrief[]): MissionPlan {
+  const recherches = caps.map((c) => ({
+    key: `recherche-${c.id.replace(/_/g, "-")}`,
+    title: `Rechercher « ${terme} » via ${c.id}`,
+    nodeType: "CAPABILITY" as const,
+    capability: c.id,
+    // La requête est le terme CITÉ, verbatim — c'est le verrou R1 rendu littéral. La
+    // convention `query` est celle de toutes les capacités `search_*` du catalogue.
+    input: { query: terme },
+    dependsOn: [] as string[],
+    completionCondition: `${c.id} a rendu son résultat pour « ${terme} ».`,
+    approvalRequirement: "NONE" as const,
+  }));
+
+  const clesRecherches = recherches.map((r) => r.key);
+
+  return {
+    objective: demande.trim(),
+    acceptance: [
+      `[REGLE:RECHERCHES_AVEC_REQUETE:${clesRecherches.join(",")}] Chaque étape citée a interrogé sa source `
+      + `avec « ${terme} » exactement — preuve : la requête portée par le reçu de chaque étape.`,
+      "[REGLE:AUCUNE_ECRITURE] Aucun reçu d'étape ne porte d'effet au-delà d'ANALYZE : la mission "
+      + "n'a rien écrit, rien envoyé, rien produit.",
+      "[REGLE:SORTIE_STRUCTUREE:conclure:trouve,conclusion,sources] L'étape « conclure » a rendu une "
+      + "sortie structurée qui tranche (trouve OUI/NON), énonce la conclusion et cite ses sources.",
+    ],
+    // La difficulté reste « B » : le plan est évident, la SYNTHÈSE ne l'est pas — c'est elle
+    // qui reçoit le raisonnement. L'échelle S : moins de dix étapes.
+    complexity: "B",
+    scale: "S",
+    steps: [
+      ...recherches,
+      {
+        key: "jonction",
+        title: "Réunir les résultats de toutes les recherches",
+        nodeType: "JOIN",
+        dependsOn: clesRecherches,
+        completionCondition: "Toutes les recherches sont terminées.",
+        approvalRequirement: "NONE",
+      },
+      {
+        key: "conclure",
+        title: `Conclure sur « ${terme} » à partir des résultats réunis`,
+        nodeType: "WORKER",
+        dependsOn: ["jonction"],
+        completionCondition: "La conclusion structurée est rendue, sources citées.",
+        reasoningRequirement: "HEAVY",
+        approvalRequirement: "NONE",
+        expectedOutputSchema: {
+          type: "object",
+          properties: {
+            trouve: { type: "boolean", description: `Vrai si au moins une source contient quelque chose sur « ${terme} ».` },
+            conclusion: { type: "string", description: "La conclusion, en français, fondée uniquement sur les résultats réunis — présence détaillée, ou absence documentée." },
+            sources: { type: "array", items: { type: "string" }, description: "Les sources interrogées, nommées une à une." },
+          },
+          required: ["trouve", "conclusion", "sources"],
+          additionalProperties: false,
+        },
+      },
+    ],
+    completionCriteria: `Chaque source a été interrogée avec « ${terme} » et la conclusion structurée en découle.`,
     gaps: [],
   };
 }

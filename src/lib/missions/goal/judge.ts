@@ -138,7 +138,7 @@ export class JugeReel implements JugeObjectif {
     objectif: string;
     criteres: readonly string[];
     resumeExecution: string;
-  }): Promise<{ satisfait: boolean; raison: string; sansPreuve?: string[] }> {
+  }): Promise<{ satisfait: boolean; raison: string; sansPreuve?: string[]; recoursSuggere?: string | null }> {
     this.dernier = null;
 
     if (!this.reasoner.configured()) {
@@ -175,7 +175,16 @@ export class JugeReel implements JugeObjectif {
       ? `Objectif jugé atteint (confiance ${v.confidence.toFixed(2)}) : ${v.criteria.length} critère(s) démontrés par des étapes citées.`
       : motifDuRefus(v, sansPreuve);
 
-    return { satisfait: v.satisfied, raison, sansPreuve };
+    return {
+      satisfait: v.satisfied,
+      raison,
+      sansPreuve,
+      // LE RECOURS SUGGÉRÉ VOYAGE AVEC LE REFUS. `null` = le juge n'en voit AUCUN — et c'est
+      // ce signal, journalisé, qui permet à la replanification de ne pas payer un plan de
+      // plus pour découvrir la même chose (§13 du chantier latence : un replan qui n'a rien
+      // à replanifier est le plus cher des non-événements).
+      recoursSuggere: v.suggestedRecovery?.trim() || null,
+    };
   }
 }
 

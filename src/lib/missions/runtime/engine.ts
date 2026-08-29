@@ -1207,6 +1207,10 @@ export async function conclure(
         // L'EMPREINTE EST CE QUI REND LE JUGEMENT REJOUABLE SANS ÊTRE REFAIT. Elle vit dans le
         // journal canonique (§17 : pas de second registre) et nulle part ailleurs.
         ...(verdict.empreinte ? { empreinteJugement: verdict.empreinte } : {}),
+        // LE RECOURS SUGGÉRÉ PAR LE JUGE, journalisé tel quel : `null` = « je n'en vois
+        // aucun » — c'est ce que la replanification relit avant de payer un plan de plus.
+        // Absent quand personne ne l'a mesuré (refus arithmétique, juge indisponible).
+        ...(verdict.recoursSuggere !== undefined ? { recoursSuggere: verdict.recoursSuggere } : {}),
       });
   }
 

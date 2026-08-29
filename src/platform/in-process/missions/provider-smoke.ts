@@ -801,7 +801,10 @@ async function jouer(
     resumeChars: m?.plannerCatalogueChars ?? null,
     utilisees,
     exposeesInutiles: m?.plannerCapabilitiesExposed != null ? Math.max(0, m.plannerCapabilitiesExposed - utilisees) : null,
-  });
+  },
+  // LA VOIE DU PLAN (§18, chantier latence) : DIRECTE = zéro appel de planificateur — le
+  // taux de contournement se calcule dans le résumé, jamais affirmé.
+  (m as { voie?: string } | undefined)?.voie ?? null);
 
   return { r, chaine, metriques };
 }
@@ -968,6 +971,17 @@ export function rendreTexte(r: ResultatSmoke): string {
       ]),
     );
     if (s.cascade) lignes.push(...rendreCascade(s.cascade).map((l) => `  ${l}`), "");
+  }
+
+  // LE TAUX DE CONTOURNEMENT DU PLANIFICATEUR (§18) — compté sur les scénarios réellement
+  // lancés : combien ont obtenu leur plan par le CODE, sans payer un appel de planification.
+  const lances = r.scenarios.filter((s) => !s.setupEchoue && s.cascade);
+  const directes = lances.filter((s) => s.cascade?.voiePlan === "DIRECTE");
+  if (lances.length > 0) {
+    lignes.push(
+      `  bypass planificateur   ${directes.length}/${lances.length} scénario(s) planifiés par le CODE`
+      + (directes.length > 0 ? ` (${directes.map((s) => s.genre).join(", ")})` : ""),
+      "");
   }
 
   lignes.push("══════════════════════════════════════════════════════════");

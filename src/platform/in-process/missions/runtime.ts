@@ -460,6 +460,39 @@ export async function replanifierMission(
     };
   }
 
+  /**
+   * ── LA PORTE DÉTERMINISTE AVANT LE REPLAN (§13, chantier latence) ────────────────────
+   *
+   * Un run réel a payé 7,9 s et 5 718 jetons de replanification pour que le planificateur
+   * réponde « aucune étape exploitable » : toutes les étapes étaient DONE, et le refus du
+   * juge ne désignait rien qu'un plan NOUVEAU puisse changer. Ce signal existait déjà — le
+   * juge remplit `suggestedRecovery` — mais personne ne le relisait avant de payer.
+   *
+   * La porte ne ferme QUE le cas mesuré : toutes les étapes abouties (aucune à réparer) ET
+   * le dernier refus journalisé porte explicitement « aucun recours » (`recoursSuggere:
+   * null, présent`). Un refus SANS ce champ (juge arithmétique, mission antérieure, juge
+   * en panne) laisse la porte ouverte — l'absence de mesure n'est pas une mesure (§78).
+   */
+  if (objectifManque && bloquees.length === 0) {
+    const dernierRefus = await prisma.missionEvent.findFirst({
+      where: { missionId, kind: "GOAL_UNSATISFIED" },
+      orderBy: { at: "desc" },
+      select: { detail: true },
+    }).catch(() => null);
+    const detail = dernierRefus?.detail as Record<string, unknown> | null | undefined;
+    if (detail && "recoursSuggere" in detail && detail.recoursSuggere === null) {
+      await journaliser(missionId, "REPLAN_SKIPPED",
+        "Replanification refusée SANS appel de modèle : toutes les étapes sont abouties et le "
+        + "juge n'a suggéré aucun recours — un plan nouveau redécouvrirait la même impasse.",
+        { porte: "RECOURS_ABSENT" });
+      return {
+        replanifie: false,
+        raison: "Toutes les étapes sont abouties et le juge n'a suggéré aucun recours : un nouveau "
+          + "plan n'aurait rien de neuf à proposer. Le verdict du juge est la réponse.",
+      };
+    }
+  }
+
   const catalogue = catalogueDe(user, opts.lectureSeule ? { effetMax: "ANALYZE" } : {});
   const acteur = acteurDe(user);
   const cerveau = opts.reasoner ?? raisonneur;
