@@ -1069,14 +1069,35 @@ async function resoudreEventails(etat: EtatMission): Promise<number> {
     const echecs = filles.filter((f) => f.status === "FAILED");
     const faites = filles.filter((f) => f.status === "DONE").length;
 
+    /**
+     * UNE LECTURE MANQUÉE EST UNE INFORMATION ; UNE ÉCRITURE MANQUÉE EST UNE DETTE (§28).
+     *
+     * Un éventail d'ÉCRITURE partiellement échoué DOIT échouer : trois vœux non partis sur
+     * trente-trois ne se maquillent pas en succès (§22). Un éventail de LECTURE, lui, pose des
+     * questions — et « ce document n'a pas pu être lu (paiement du stockage requis) » est une
+     * RÉPONSE, pas une panne : la fermer en échec envoyait la mission au recours puis au
+     * replan, qui relisait le même mur (mesuré au Run 3 : spirale de replans vides sur des
+     * fiches dont UNE cible sur trois était illisible). L'éventail de lecture conclut donc,
+     * avec ses manques NOMMÉS dans son résultat — l'étape aval les DIT, le juge les lit, et
+     * rien n'est perdu : chaque échec garde son reçu et son erreur sur sa fille.
+     */
+    const effet = step.capability ? capabilityMeta(step.capability).effect : "ANALYZE";
+    const lectureSeule = EFFECT_RANK[effet] <= EFFECT_RANK.ANALYZE;
+    const statut = echecs.length > 0 && !lectureSeule ? "FAILED" : "DONE";
+
     await prisma.missionStep.update({
       where: { id: step.id },
       data: {
-        status: echecs.length > 0 ? "FAILED" : "DONE",
+        status: statut,
         attempt: step.maxAttempts,
         completedAt: new Date(),
-        result: { expanded: cles.length, done: faites, failed: echecs.length, keys: cles } as never,
-        ...(echecs.length > 0
+        result: {
+          expanded: cles.length, done: faites, failed: echecs.length, keys: cles,
+          ...(echecs.length > 0
+            ? { echecs: echecs.map((f) => ({ key: f.key, error: f.error ?? "échec sans message" })) }
+            : {}),
+        } as never,
+        ...(statut === "FAILED"
           ? { error: `${echecs.length} itération(s) sur ${cles.length} en échec.`, errorKind: "PARTIAL_FANOUT" }
           : {}),
       },
@@ -1175,6 +1196,8 @@ export async function conclure(
     // fabrication du reçu, sa persistance, sa relecture — s'arrêterait à un pas du seul
     // endroit où il sert : la brique serait écrite, testée, et sans effet (§14).
     recu: s.recu,
+    // ET L'ENTRÉE PRÉVUE AUSSI : c'est la référence de « exécuté = prévu » (goal/rules.ts).
+    input: s.input,
   }));
 
   const encoreEnCours = observees.some((s) => !STEP_TERMINAL.has(s.status)

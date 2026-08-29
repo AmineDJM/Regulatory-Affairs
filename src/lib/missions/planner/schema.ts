@@ -317,8 +317,9 @@ export const MISSION_PLAN_SCHEMA: Record<string, unknown> = objet({
       "avec des nombres quand il y en a. Au moins un. PRÉFÈRE la grammaire de RÈGLES vérifiées par le " +
       "logiciel sur les reçus d'exécution quand elle s'applique — un critère-règle se vérifie sans jugement " +
       "et ne peut pas rester « sans preuve » : " +
-      "'[REGLE:RECHERCHES_AVEC_REQUETE:clé1,clé2] texte' (chaque étape citée a interrogé sa source avec le " +
-      "terme entre « » du texte), '[REGLE:AUCUNE_ECRITURE] texte' (aucun effet au-delà d'ANALYZE), " +
+      "'[REGLE:RECHERCHES_AVEC_REQUETE:clé1,clé2] texte' (chaque étape citée a exécuté la requête PRÉVUE " +
+      "dans son input.query du plan ; le terme entre « » du texte sert de repli si une étape n'a pas de " +
+      "requête au plan), '[REGLE:AUCUNE_ECRITURE] texte' (aucun effet au-delà d'ANALYZE), " +
       "'[REGLE:SORTIE_STRUCTUREE:cléEtape:champ1,champ2] texte' (l'étape a rendu ces champs non vides). " +
       "Un critère qui exige un JUGEMENT (fidélité d'une synthèse, pertinence) reste en texte libre — mais " +
       "n'exige JAMAIS ce que les étapes du plan ne peuvent pas prouver.",

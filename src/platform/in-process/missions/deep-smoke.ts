@@ -551,6 +551,94 @@ export function motifHonnete(m: MissionProfonde): string {
   return motif.slice(0, 90);
 }
 
+/* ────────────────────────── LA CARTE DE SCORE (§71) ────────────────────────── */
+
+/**
+ * Les genres TRIVIAUX : leur plan tient en une forme connue et leur réussite ne prouve pas
+ * grand-chose. Le taux « non trivial » les exclut pour que 54/54 ne puisse pas être fabriqué
+ * en réussissant surtout les questions faciles — c'est l'anti-triche du tableau de bord.
+ */
+export const GENRES_TRIVIAUX: readonly string[] = ["PREUVE_ABSENCE", "RECHERCHE_PRODUIT"];
+
+interface Taux { num: number; den: number; taux: number | null }
+/** §78 : un dénominateur nul rend `null`, jamais 0 — l'absence de mesure n'est pas une mesure. */
+const taux = (num: number, den: number): Taux =>
+  ({ num, den, taux: den === 0 ? null : Math.round((num / den) * 1000) / 10 });
+
+export interface CarteDeScore {
+  /** Succès de bout en bout, toutes missions confondues. */
+  e2e: Taux;
+  /** Le taux de CRÉATION : toute demande doit devenir une mission — l'invariant du §15. */
+  creation: Taux;
+  completed: Taux;
+  parVoie: { voie: "DIRECTE" | "MODELE"; succes: Taux; p50Ms: number | null; p95Ms: number | null }[];
+  /** Succès hors genres triviaux — le chiffre qui ne se fabrique pas. */
+  nonTriviales: Taux;
+  replans: { total: number; missionsAvecReplan: number; max: number };
+  /** Où partent les appels de modèle : un appel payé sur une mission qui échoue est GASPILLÉ. */
+  appels: { total: number; surSucces: number; surNonSucces: number; tauxGaspillePct: number | null };
+  jetons: { entree: number; sortie: number; parSucces: number | null };
+  latence: { p50Ms: number | null; p95Ms: number | null; succesParMinute: number | null };
+}
+
+/** Agrège la carte §71 depuis les missions MESURÉES. Pure — testable sans un seul appel. */
+export function carteDeScore(r: ResultatDeep): CarteDeScore {
+  const ms = r.missions;
+  const succes = ms.filter((m) => m.verdict === "SUCCES");
+  const appelsDe = (m: MissionProfonde): number =>
+    Object.values(m.resultat.appelsParUsage).reduce((a, b) => a + b, 0);
+  const dureesDe = (liste: readonly MissionProfonde[]): number[] =>
+    liste.map((m) => m.resultat.cascade?.totalMs ?? 0).filter((x) => x > 0).sort((a, b) => a - b);
+  const quantile = (xs: number[], q: number): number | null =>
+    xs.length === 0 ? null : xs[Math.min(xs.length - 1, Math.floor(q * (xs.length - 1)))];
+
+  const parVoie = (["DIRECTE", "MODELE"] as const).map((voie) => {
+    const liste = ms.filter((m) => (m.resultat.cascade?.voiePlan === "DIRECTE" ? "DIRECTE" : "MODELE") === voie);
+    const durees = dureesDe(liste);
+    return {
+      voie,
+      succes: taux(liste.filter((m) => m.verdict === "SUCCES").length, liste.length),
+      p50Ms: quantile(durees, 0.5),
+      p95Ms: quantile(durees, 0.95),
+    };
+  });
+
+  const nonTriviales = ms.filter((m) => !GENRES_TRIVIAUX.includes(m.genre));
+  const appelsSucces = succes.reduce((s, m) => s + appelsDe(m), 0);
+  const appelsTotal = ms.reduce((s, m) => s + appelsDe(m), 0);
+  const durees = dureesDe(ms);
+  const minutes = r.latenceTotaleMs > 0 ? r.latenceTotaleMs / 60000 : 0;
+
+  return {
+    e2e: taux(succes.length, ms.length),
+    creation: taux(ms.filter((m) => m.resultat.missionId !== null).length, ms.length),
+    completed: taux(ms.filter((m) => m.resultat.statutFinal === "COMPLETED").length, ms.length),
+    parVoie,
+    nonTriviales: taux(nonTriviales.filter((m) => m.verdict === "SUCCES").length, nonTriviales.length),
+    replans: {
+      total: ms.reduce((s, m) => s + m.resultat.replanifications, 0),
+      missionsAvecReplan: ms.filter((m) => m.resultat.replanifications > 0).length,
+      max: ms.reduce((s, m) => Math.max(s, m.resultat.replanifications), 0),
+    },
+    appels: {
+      total: appelsTotal,
+      surSucces: appelsSucces,
+      surNonSucces: appelsTotal - appelsSucces,
+      tauxGaspillePct: appelsTotal === 0 ? null : Math.round(((appelsTotal - appelsSucces) / appelsTotal) * 1000) / 10,
+    },
+    jetons: {
+      entree: r.jetonsEntree,
+      sortie: r.jetonsSortie,
+      parSucces: succes.length === 0 ? null : Math.round((r.jetonsEntree + r.jetonsSortie) / succes.length),
+    },
+    latence: {
+      p50Ms: quantile(durees, 0.5),
+      p95Ms: quantile(durees, 0.95),
+      succesParMinute: minutes > 0 ? Math.round((succes.length / minutes) * 10) / 10 : null,
+    },
+  };
+}
+
 export function rendreTexteDeep(r: ResultatDeep): string {
   const l: string[] = [];
   const compte = (v: VerdictProfond) => r.missions.filter((m) => m.verdict === v).length;
@@ -575,6 +663,24 @@ export function rendreTexteDeep(r: ResultatDeep): string {
   l.push(`  modèle                   ${r.modele ?? "—"} · jeton du run ${r.jeton}`);
   l.push(`  durée totale             ${(r.latenceTotaleMs / 1000).toFixed(1)}s`);
   l.push(`  nettoyage                ${r.nettoyage.gardees ? "missions GARDÉES (DEEP_SMOKE_GARDER=1)" : `${r.nettoyage.supprimees} mission(s) de ce run supprimée(s)`}`);
+  l.push("");
+
+  const carte = carteDeScore(r);
+  const pct = (t: { num: number; den: number; taux: number | null }): string =>
+    t.taux === null ? "— (aucune mission)" : `${t.taux}%  (${t.num}/${t.den})`;
+  const sec = (ms: number | null): string => (ms === null ? "—" : `${(ms / 1000).toFixed(1)}s`);
+  l.push("  CARTE DE SCORE (§71) — les taux qui comptent, mesurés, jamais estimés :");
+  l.push(`    E2E_SUCCESS              ${pct(carte.e2e)}`);
+  l.push(`    MISSION_CREATION         ${pct(carte.creation)}  (invariant : 100 %)`);
+  l.push(`    COMPLETED                ${pct(carte.completed)}`);
+  for (const v of carte.parVoie) {
+    l.push(`    voie ${v.voie.padEnd(8)}            ${pct(v.succes)} · P50 ${sec(v.p50Ms)} · P95 ${sec(v.p95Ms)}`);
+  }
+  l.push(`    NON-TRIVIALES            ${pct(carte.nonTriviales)}  (hors ${GENRES_TRIVIAUX.join(", ")})`);
+  l.push(`    replans                  ${carte.replans.total} au total · ${carte.replans.missionsAvecReplan} mission(s) concernée(s) · max ${carte.replans.max}`);
+  l.push(`    appels modèle GASPILLÉS  ${carte.appels.tauxGaspillePct === null ? "—" : `${carte.appels.tauxGaspillePct}%`}  (${carte.appels.surNonSucces}/${carte.appels.total} payés sur des missions non réussies)`);
+  l.push(`    jetons par succès        ${carte.jetons.parSucces ?? "— (aucun succès)"}`);
+  l.push(`    latence globale          P50 ${sec(carte.latence.p50Ms)} · P95 ${sec(carte.latence.p95Ms)} · ${carte.latence.succesParMinute ?? "—"} succès/min`);
   l.push("");
 
   if (r.paliers && r.paliers.length > 0) {

@@ -32,7 +32,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const { deepSmoke, rendreTexteDeep } = await import("@/platform/in-process/missions/deep-smoke");
+  const { deepSmoke, rendreTexteDeep, carteDeScore } = await import("@/platform/in-process/missions/deep-smoke");
   const { prisma } = await import("@/lib/prisma");
   const { getAccess } = await import("@/lib/rbac");
 
@@ -83,6 +83,8 @@ async function main(): Promise<void> {
     appelsModele: r.appelsModele, jetons: { entree: r.jetonsEntree, sortie: r.jetonsSortie },
     latenceTotaleMs: r.latenceTotaleMs, ecartes: r.ecartes, nettoyage: r.nettoyage,
     paliers: r.paliers, arretEscalade: r.arretEscalade, concurrenceRetenue: r.concurrenceRetenue,
+    // LA CARTE DE SCORE §71 — les taux qui décident, agrégés par le code, pas par un lecteur.
+    carte: carteDeScore(r),
     parMission: r.missions.map((m) => ({
       genre: m.genre, titre: m.titre, verdict: m.verdict, missionId: m.resultat.missionId,
       statut: m.resultat.statutFinal, stable: m.resultat.stable, goal: m.resultat.goalSatisfied,

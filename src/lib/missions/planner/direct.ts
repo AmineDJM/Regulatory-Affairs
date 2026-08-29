@@ -1,7 +1,8 @@
 import type { CapabilityBrief } from "@/lib/missions/ports";
 import { jetons, jetonsEtendus } from "@/lib/missions/registry/resolve";
+import { capabilityMeta } from "@/lib/missions/registry/capability-meta";
 import type { Triage } from "@/lib/missions/planner/triage";
-import type { MissionPlan } from "@/lib/missions/planner/contract";
+import type { MissionPlan, PlannedStep } from "@/lib/missions/planner/contract";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -141,8 +142,15 @@ export function scoreDiscriminant(
  * `recovery-registry.ts` s'appuie déjà sur elle pour classer les recours. `search_` en est
  * EXCLU volontairement — c'est une capacité qui attend une requête, et nous n'en avons pas.
  */
+/**
+ * Une lecture NUE n'attend aucune cible : on peut l'appeler sans rien deviner. Le préfixe ne
+ * suffit pas à le dire — `read_document` commence par `read_` et EXIGE un nœud Drive : la
+ * servir en lecture nue produirait un appel sans entrée, découvert à l'exécution. Le registre
+ * porte la vérité : un contrat `CONTENU` désigne « le contenu d'UNE cible », donc jamais nu.
+ */
 const estLectureNue = (id: string): boolean =>
-  id.startsWith("list_") || id.startsWith("read_") || id.endsWith("_overview");
+  (id.startsWith("list_") || id.startsWith("read_") || id.endsWith("_overview"))
+  && capabilityMeta(id).contrat !== "CONTENU";
 
 export interface Candidat {
   id: string;
@@ -657,23 +665,74 @@ export function cheminDirectFiche(demande: string, ctx: ContexteDirect): Verdict
     return aucun("aucune capacité de recherche ne couvre la famille nommée");
   }
 
+  const lecteur = lecteurPourFamilles(ctx, familles);
   return {
-    plan: planDeFiche(demande, terme, caps),
-    capacite: `fiche-ciblee (${caps.length} recherche(s))`,
+    plan: planDeFiche(demande, terme, caps, lecteur),
+    capacite: `fiche-ciblee (${caps.length} recherche(s)${lecteur ? ` + lecture ${lecteur.id}` : ""})`,
     refus: null,
     candidats: caps.slice(0, 2).map((c) => ({ id: c.id, score: 0 })),
   };
 }
 
 /**
- * LE PLAN D'UNE FICHE — recherches PARALLÈLES, jonction, UNE synthèse jugée.
+ * LE LECTEUR D'UNE FICHE — la capacité qui HYDRATE les cibles que les recherches ont trouvées.
+ *
+ * Le Run 3 a mesuré la limite de la fiche sans lecture : POINT_EMPLOYE 0/6, DOCUMENT_DRIVE 1/6,
+ * LEGAL 1/5 — le juge déclarait les synthèses « honnêtes mais insuffisantes », parce qu'elles
+ * étaient bâties sur les seuls TITRES des résultats de recherche. Le pipeline complet est
+ * RECHERCHER → CIBLER → LIRE → RÉPONDRE : la recherche trouve des candidats, la lecture les
+ * hydrate, la synthèse s'appuie sur du CONTENU. Le lecteur est choisi sur le catalogue RÉEL :
+ * `read_document` quand la famille est documentaire, `inspect_record` (universel) sinon —
+ * et s'il n'existe pas ou n'est pas ouvert à l'acteur, la fiche RENONCE à lire et le plan
+ * retombe sur sa forme recherche-seule : une synthèse pauvre annoncée vaut mieux qu'un plan
+ * qui ne compile pas.
+ */
+function lecteurPourFamilles(
+  ctx: ContexteDirect,
+  familles: readonly (readonly string[])[],
+): { id: string; entree: (ref: string) => Record<string, unknown> } | null {
+  const documentaire = familles.some((f) => f.includes("document"));
+  const candidats = documentaire
+    ? [
+      { id: "read_document", entree: (ref: string) => ({ driveNodeId: ref }) },
+      { id: "inspect_record", entree: (ref: string) => ({ reference: ref }) },
+    ]
+    : [{ id: "inspect_record", entree: (ref: string) => ({ reference: ref }) }];
+  for (const c of candidats) {
+    if (ctx.capacites.some((b) => b.id === c.id) && ctx.autorisee(c.id)) return c;
+  }
+  return null;
+}
+
+/**
+ * LE PLAN D'UNE FICHE — RECHERCHER → CIBLER → LIRE → RÉPONDRE, la synthèse jugée.
+ *
+ * ── POURQUOI CETTE FORME, ET PLUS L'ANCIENNE (recherches → jonction → synthèse) ─────────
+ *
+ * Deux découvertes du Run 3, l'une de mesure, l'autre de code :
+ *   1. Les synthèses bâties sur les seuls résultats de RECHERCHE étaient jugées « honnêtes
+ *      mais insuffisantes » — les recherches rendent des titres, pas des contenus.
+ *   2. Pire : le worker de synthèse ne voyait même pas ces résultats-là. `specifier` ne remet
+ *      à un worker que les résultats de ses dépendances DIRECTES, et il dépendait d'une
+ *      JONCTION — qui ne produit rien. La forme v2 supprime la jonction (dépendre de toutes
+ *      les recherches EST la synchronisation) et branche chaque worker sur ce qu'il doit lire.
+ *
+ * Le pipeline est générique (§18) : chercher produit des CANDIDATS, `cibler` en retient
+ * (0 à 3, identifiants RECOPIÉS, jamais inventés), `lire` les HYDRATE en éventail — un reçu
+ * par lecture — et `repondre` s'appuie sur du CONTENU. Ce qui n'a pas pu être ciblé ou lu est
+ * DIT : une absence dite est une réponse recevable (§28), inventer ne l'est pas.
  *
  * Trois critères sont des RÈGLES vérifiées sur les reçus ; le quatrième est SÉMANTIQUE et
  * c'est un choix, pas un oubli : « la synthèse répond-elle à la question ? » ne se compte
  * pas — la juger est ce qui autorise cette forme à servir des questions ouvertes sans
  * jamais répondre plus vite au prix de répondre moins bien.
  */
-function planDeFiche(demande: string, terme: string, caps: readonly CapabilityBrief[]): MissionPlan {
+function planDeFiche(
+  demande: string,
+  terme: string,
+  caps: readonly CapabilityBrief[],
+  lecteur: { id: string; entree: (ref: string) => Record<string, unknown> } | null,
+): MissionPlan {
   const recherches = caps.map((c) => ({
     key: `recherche-${c.id.replace(/_/g, "-")}`,
     title: `Rechercher « ${terme} » via ${c.id}`,
@@ -686,6 +745,52 @@ function planDeFiche(demande: string, terme: string, caps: readonly CapabilityBr
   }));
   const clesRecherches = recherches.map((r) => r.key);
 
+  const etapesLecture: PlannedStep[] = lecteur === null ? [] : [
+    {
+      key: "cibler",
+      title: `Choisir les cibles à lire pour « ${terme} »`,
+      nodeType: "WORKER",
+      dependsOn: [...clesRecherches],
+      completionCondition: "La liste des cibles (0 à 3) est rendue, chaque identifiant RECOPIÉ "
+        + "tel quel d'un résultat de recherche — et ce qui n'a pas pu être ciblé est dit.",
+      reasoningRequirement: "LIGHT",
+      approvalRequirement: "NONE",
+      expectedOutputSchema: {
+        type: "object",
+        properties: {
+          cibles: {
+            type: "array",
+            maxItems: 3,
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string", description: "L'identifiant EXACT tel qu'il figure dans un résultat de recherche (id, référence, nœud Drive) — recopié, jamais inventé ni reconstruit." },
+                titre: { type: "string", description: "Le titre du résultat, pour l'audit." },
+              },
+              required: ["id", "titre"],
+              additionalProperties: false,
+            },
+            description: `Les résultats qui correspondent à « ${terme} », les plus pertinents d'abord. VIDE si aucun résultat ne porte d'identifiant exploitable.`,
+          },
+          manque: { type: "string", description: "Ce qui n'a PAS pu être ciblé et pourquoi (aucun résultat, pas d'identifiant) — chaîne vide sinon." },
+        },
+        required: ["cibles", "manque"],
+        additionalProperties: false,
+      },
+    },
+    {
+      key: "lire",
+      title: `Lire chaque cible retenue (${lecteur.id})`,
+      nodeType: "CAPABILITY",
+      capability: lecteur.id,
+      input: lecteur.entree("{{cible.id}}"),
+      dependsOn: ["cibler"],
+      forEach: { from: "cibler", path: "cibles", as: "cible" },
+      completionCondition: "Chaque cible retenue a été lue, ou son échec de lecture est dit.",
+      approvalRequirement: "NONE",
+    },
+  ];
+
   return {
     objective: demande.trim(),
     acceptance: [
@@ -695,42 +800,37 @@ function planDeFiche(demande: string, terme: string, caps: readonly CapabilityBr
       + "n'a rien écrit, rien envoyé, rien produit.",
       "[REGLE:SORTIE_STRUCTUREE:repondre:trouve,synthese,sources] L'étape « repondre » a rendu une "
       + "sortie structurée (trouve OUI/NON, synthèse, sources).",
-      `La synthèse répond à la question posée sur « ${terme} » en s'appuyant uniquement sur les reçus `
-      + "des recherches, et dit explicitement ce qui manque le cas échéant.",
+      `La synthèse répond à la question posée sur « ${terme} » : ce qui est établi l'est avec sa `
+      + "provenance (recherches et lectures), et ce qui n'a pas été retrouvé — ou n'a pas pu être "
+      + "lu — est dit explicitement. Une absence DITE est une réponse recevable ; une invention ne "
+      + "l'est jamais.",
     ],
     complexity: "B",
     scale: "S",
     steps: [
       ...recherches,
-      {
-        key: "jonction",
-        title: "Réunir les résultats des recherches",
-        nodeType: "JOIN",
-        dependsOn: clesRecherches,
-        completionCondition: "Toutes les recherches sont terminées.",
-        approvalRequirement: "NONE",
-      },
+      ...etapesLecture,
       {
         key: "repondre",
-        title: `Répondre sur « ${terme} » à partir des résultats réunis`,
+        title: `Répondre sur « ${terme} » à partir des résultats et des lectures`,
         nodeType: "WORKER",
-        dependsOn: ["jonction"],
-        completionCondition: "La synthèse structurée est rendue, sources citées.",
+        dependsOn: lecteur === null ? [...clesRecherches] : [...clesRecherches, "lire"],
+        completionCondition: "La synthèse structurée est rendue — provenance citée, manques dits.",
         reasoningRequirement: "HEAVY",
         approvalRequirement: "NONE",
         expectedOutputSchema: {
           type: "object",
           properties: {
-            trouve: { type: "boolean", description: `Vrai si les recherches ont trouvé quelque chose sur « ${terme} ».` },
-            synthese: { type: "string", description: "La réponse à la question posée, en français, fondée uniquement sur les résultats réunis — et ce qui manque, dit explicitement." },
-            sources: { type: "array", items: { type: "string" }, description: "Les sources interrogées, nommées une à une." },
+            trouve: { type: "boolean", description: `Vrai si les recherches ou les lectures ont établi quelque chose sur « ${terme} ».` },
+            synthese: { type: "string", description: "La réponse à la question posée, en français, fondée uniquement sur les résultats et lectures reçus — chaque fait avec sa provenance, chaque manque (non trouvé, illisible) dit explicitement." },
+            sources: { type: "array", items: { type: "string" }, description: "Les sources interrogées ou lues, nommées une à une." },
           },
           required: ["trouve", "synthese", "sources"],
           additionalProperties: false,
         },
       },
     ],
-    completionCriteria: `Les recherches sur « ${terme} » ont abouti et la synthèse structurée répond à la demande.`,
+    completionCriteria: `Les recherches sur « ${terme} » ont abouti, les cibles pertinentes ont été lues (ou leur absence dite), et la synthèse structurée répond à la demande.`,
     gaps: [],
   };
 }

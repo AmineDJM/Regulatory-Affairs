@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  genererScenarios, verdictProfond, poursuivreEscalade,
-  type Echantillons, type PalierMesure,
+  genererScenarios, verdictProfond, poursuivreEscalade, carteDeScore, GENRES_TRIVIAUX,
+  type Echantillons, type PalierMesure, type MissionProfonde, type ResultatDeep,
 } from "@/platform/in-process/missions/deep-smoke";
 import type { ResultatMission } from "@/platform/in-process/missions/provider-smoke";
 
@@ -186,5 +186,74 @@ describe("poursuivreEscalade — on ne monte jamais sur un palier qui dégrade (
   it("un P95 NON MESURÉ n'est pas un signal d'arrêt — l'absence de mesure n'est pas une mesure (§78)", () => {
     const e = poursuivreEscalade(palier({ p95Ms: null }), palier({ concurrence: 10, p95Ms: null }));
     expect(e.poursuivre).toBe(true);
+  });
+});
+
+describe("carteDeScore (§71) — les taux qui décident, agrégés par le code", () => {
+  const mission = (
+    genre: string,
+    verdict: MissionProfonde["verdict"],
+    sur: Partial<ResultatMission> = {},
+  ): MissionProfonde => ({
+    genre, titre: genre, attendu: "OBSERVE", verdict, raisonVerdict: "—",
+    resultat: resultat({
+      genre,
+      statutFinal: verdict === "SUCCES" ? "COMPLETED" : "BLOCKED",
+      goalSatisfied: verdict === "SUCCES",
+      ...sur,
+    }),
+  });
+
+  const runDe = (missions: MissionProfonde[], sur: Partial<ResultatDeep> = {}): ResultatDeep => ({
+    horodatage: "2026-08-29T00:00:00.000Z", jeton: "T", modele: "gpt-x", cible: missions.length,
+    concurrence: 3, missions, ecartes: [], jetonsEntree: 1000, jetonsSortie: 500,
+    appelsModele: 0, latenceTotaleMs: 120000, nettoyage: { supprimees: 0, gardees: false },
+    paliers: null, arretEscalade: null, concurrenceRetenue: null,
+    ...sur,
+  });
+
+  const cascade = (voiePlan: "DIRECTE" | "MODELE", totalMs: number) =>
+    ({ voiePlan, totalMs } as unknown as ResultatMission["cascade"]);
+
+  it("chaque taux vient de SES missions : E2E, création, routes, non-trivial, gaspillage", () => {
+    const r = runDe([
+      mission("PREUVE_ABSENCE", "SUCCES", { cascade: cascade("DIRECTE", 3000), appelsParUsage: { juge: 1 } }),
+      mission("TACHES", "SUCCES", { cascade: cascade("DIRECTE", 8000), appelsParUsage: { worker: 2 } }),
+      mission("LEGAL", "CONCLUSION_HONNETE", { cascade: cascade("MODELE", 30000), appelsParUsage: { planner: 3, juge: 3 } }),
+      mission("FINANCES", "DEFAUT", { missionId: null, appelsParUsage: {} }),
+    ]);
+    const c = carteDeScore(r);
+    expect(c.e2e).toEqual({ num: 2, den: 4, taux: 50 });
+    expect(c.creation).toEqual({ num: 3, den: 4, taux: 75 });
+    const directe = c.parVoie.find((v) => v.voie === "DIRECTE")!;
+    expect(directe.succes).toEqual({ num: 2, den: 2, taux: 100 });
+    expect(directe.p50Ms).toBe(3000);
+    // Non trivial : PREUVE_ABSENCE exclue → 1 succès (TACHES) sur 3.
+    expect(c.nonTriviales.den).toBe(3);
+    expect(c.nonTriviales.num).toBe(1);
+    // 9 appels au total, 3 sur des succès → 6 gaspillés (66,7 %).
+    expect(c.appels).toEqual({ total: 9, surSucces: 3, surNonSucces: 6, tauxGaspillePct: 66.7 });
+    expect(c.jetons.parSucces).toBe(750);
+  });
+
+  it("§78 — zéro mission, zéro succès : les taux sont NULS, jamais 0 % ni 100 %", () => {
+    const c = carteDeScore(runDe([]));
+    expect(c.e2e.taux).toBeNull();
+    expect(c.nonTriviales.taux).toBeNull();
+    expect(c.appels.tauxGaspillePct).toBeNull();
+    expect(c.jetons.parSucces).toBeNull();
+    expect(c.latence.p50Ms).toBeNull();
+  });
+
+  it("SABOTAGE anti-triche — réussir SEULEMENT les genres triviaux laisse NON-TRIVIALES à 0 %", () => {
+    const r = runDe([
+      mission("PREUVE_ABSENCE", "SUCCES"),
+      mission("RECHERCHE_PRODUIT", "SUCCES"),
+      mission("LEGAL", "CONCLUSION_HONNETE"),
+    ]);
+    const c = carteDeScore(r);
+    expect(c.e2e.taux).toBeCloseTo(66.7, 1);
+    expect(c.nonTriviales).toEqual({ num: 0, den: 1, taux: 0 });
+    expect(GENRES_TRIVIAUX).toContain("PREUVE_ABSENCE");
   });
 });

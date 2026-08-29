@@ -282,9 +282,14 @@ describe("compilateur — forme des nœuds", () => {
     expect(r.mission.steps[1].modelRole).toBe("standard");
   });
 
-  it("refuse une clé illisible", () => {
+  it("une clé illisible est ASSAINIE, plus refusée — la mission naît, la réparation est dite en warning", () => {
+    // Le Run 3 a tué une mission pour « recherche:federée » : refuser renvoyait la faute au même
+    // modèle, qui la reproduisait. La clé est un identifiant MACHINE : sa forme est l'affaire du CODE.
     const r = compile(plan([{ key: "clé avec espaces !", title: "X", capability: "directory_list" }]), catalogue(), pdg);
-    expect(codes(r)).toContain("INVALID_SHAPE");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.mission.steps[0].key).toBe("cle-avec-espaces");
+    expect(r.warnings.some((w) => w.message.includes("assainie"))).toBe(true);
   });
 });
 
@@ -558,5 +563,37 @@ describe("le plafond d'effet porte sur l'ÉTAPE, pas seulement sur la capacité"
     expect(msg).toContain("PREPARE");
     expect(msg).toContain("ANALYZE");
     expect(msg).toContain("ARTIFACT");
+  });
+
+  it("§28 — sous plafond d'ANALYSE, une attente humaine devient une SYNTHÈSE qui dit le manque", () => {
+    // Trois missions analytiques d'un run réel ont fini WAITING_INPUT : la mission suspendait
+    // sa réponse à CELUI qui posait la question. La réponse honnête à une donnée absente est
+    // « voici ce qui existe, voici ce qui manque » — jamais une attente.
+    const r = compile(plan([
+      { key: "chercher", title: "Chercher", capability: "directory_list" },
+      { key: "attendre", title: "Attendre le fichier", nodeType: "WAIT_INPUT",
+        waitFor: { ask: "le fichier des ventes 2025" }, dependsOn: ["chercher"] },
+      { key: "conclure", title: "Conclure", nodeType: "WORKER", dependsOn: ["attendre"], reasoningRequirement: "LIGHT" },
+    ]), catalogue(), pdg, { effetMax: "ANALYZE" });
+    expect(r.ok, JSON.stringify(r.ok ? [] : r.issues)).toBe(true);
+    if (!r.ok) return;
+    const convertie = r.mission.steps.find((s) => s.key === "attendre")!;
+    expect(convertie.nodeType).toBe("WORKER");
+    expect(convertie.waitFor).toBeNull();
+    expect(convertie.spec?.completionCondition).toContain("ce qui manque est nommé");
+    expect(r.warnings.some((w) => w.message.includes("§28"))).toBe(true);
+    // Le graphe tient : « conclure » dépend toujours de l'étape convertie.
+    expect(r.mission.steps.find((s) => s.key === "conclure")!.dependsOn).toEqual(["attendre"]);
+  });
+
+  it("§28 CONTRE-EXEMPLE — sans plafond de lecture, l'attente humaine reste une attente", () => {
+    // Une mission qui ÉCRIT peut légitimement attendre une pièce humaine avant d'envoyer.
+    const r = compile(plan([
+      { key: "attendre", title: "Attendre la pièce", nodeType: "WAIT_INPUT",
+        waitFor: { ask: "le contrat signé" } },
+    ]), catalogue(), pdg);
+    expect(r.ok, JSON.stringify(r.ok ? [] : r.issues)).toBe(true);
+    if (!r.ok) return;
+    expect(r.mission.steps[0].nodeType).toBe("WAIT_INPUT");
   });
 });

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { CapabilityBrief } from "@/lib/missions/ports";
+import type { CapabilityBrief, CapabilityCatalog, MissionActor } from "@/lib/missions/ports";
 import { cheminDirect, PLANCHER_DOMINANCE } from "@/lib/missions/planner/direct";
 import { trier } from "@/lib/missions/planner/triage";
+import { compile } from "@/lib/missions/compiler/compile";
+import { capabilityMeta } from "@/lib/missions/registry/capability-meta";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -330,5 +332,91 @@ describe("la forme FICHE du chemin direct — la consultation ciblée d'un terme
     const v = cheminDirect(d, trier(d), ctxFiche([cap("search_products", "regulatory", "Recherche les produits Regulatory.")]));
     expect(v.plan).toBeNull();
     expect(v.refus).toContain("aucune capacité de recherche ne couvre");
+  });
+});
+
+describe("FICHE v2 — l'étage de LECTURE : rechercher → cibler → lire → répondre (clôture Run 3)", () => {
+  // Le catalogue d'une fiche RÉELLE : les recherches + le lecteur universel + le lecteur Drive.
+  const AVEC_LECTEURS = [
+    cap("search_everything", "federee", "Recherche fédérée dans tout l'ERP."),
+    cap("search_courriers", "courriers", "Recherche dans le registre des courriers."),
+    cap("search_drive", "drive", "Cherche fichiers et dossiers du Drive."),
+    cap("find_documents", "drive", "Retrouve des documents par contenu."),
+    cap("inspect_record", "platform", "Inspecte n'importe quel enregistrement par sa référence."),
+    cap("read_document", "drive", "Lit le contenu d'un document du Drive."),
+  ];
+  const ctxLecture = (capacites: readonly CapabilityBrief[] = AVEC_LECTEURS) =>
+    ({ capacites, autorisee: () => true, plafondEffet: "ANALYZE" });
+
+  const TACHE = "Où en est la tâche « printing doc ready kwality et prep dossi » ? Qui la porte, et est-elle en retard ?";
+
+  it("le plan porte l'étage complet : cibler (WORKER à schéma), lire (ÉVENTAIL sur les cibles), répondre (branché sur les lectures)", () => {
+    const v = cheminDirect(TACHE, trier(TACHE), ctxLecture());
+    expect(v.refus).toBeNull();
+    const plan = v.plan!;
+
+    const cibler = plan.steps.find((s) => s.key === "cibler")!;
+    expect(cibler.nodeType).toBe("WORKER");
+    expect(cibler.expectedOutputSchema).toBeDefined();
+    // Les identifiants sont RECOPIÉS des résultats, jamais inventés — le schéma le dit au modèle.
+    expect(JSON.stringify(cibler.expectedOutputSchema)).toContain("jamais inventé");
+
+    const lire = plan.steps.find((s) => s.key === "lire")!;
+    expect(lire.nodeType).toBe("CAPABILITY");
+    expect(lire.capability).toBe("inspect_record");
+    expect(lire.forEach).toEqual({ from: "cibler", path: "cibles", as: "cible" });
+    expect(lire.input).toEqual({ reference: "{{cible.id}}" });
+
+    const repondre = plan.steps.find((s) => s.key === "repondre")!;
+    expect(repondre.dependsOn).toContain("lire");
+    // Le critère sémantique porte la doctrine §28 : une absence DITE est une réponse recevable.
+    expect(plan.acceptance.some((c) => c.includes("absence DITE"))).toBe(true);
+  });
+
+  it("famille DOCUMENTAIRE : le lecteur est read_document, l'entrée un nœud Drive", () => {
+    const d = "Retrouve le document « Procédure qualité v3 » : montre ce qu'il contient.";
+    const v = cheminDirect(d, trier(d), ctxLecture());
+    expect(v.plan).not.toBeNull();
+    const lire = v.plan!.steps.find((s) => s.key === "lire")!;
+    expect(lire.capability).toBe("read_document");
+    expect(lire.input).toEqual({ driveNodeId: "{{cible.id}}" });
+  });
+
+  it("SANS lecteur au catalogue, la fiche RENONCE à lire — repli recherche-seule, jamais un plan qui ne compile pas", () => {
+    const sansLecteur = AVEC_LECTEURS.filter((c) => c.id !== "inspect_record" && c.id !== "read_document");
+    const v = cheminDirect(TACHE, trier(TACHE), ctxLecture(sansLecteur));
+    expect(v.plan).not.toBeNull();
+    expect(v.plan!.steps.some((s) => s.key === "lire")).toBe(false);
+    const repondre = v.plan!.steps.find((s) => s.key === "repondre")!;
+    expect(repondre.dependsOn!.length).toBeGreaterThanOrEqual(1);
+    expect(repondre.dependsOn).not.toContain("lire");
+  });
+
+  it("le lecteur non AUTORISÉ à l'acteur est écarté — la fiche ne contourne aucun droit", () => {
+    const v = cheminDirect(TACHE, trier(TACHE), {
+      capacites: AVEC_LECTEURS,
+      autorisee: (id: string) => id !== "inspect_record" && id !== "read_document",
+      plafondEffet: "ANALYZE",
+    });
+    expect(v.plan).not.toBeNull();
+    expect(v.plan!.steps.some((s) => s.key === "lire")).toBe(false);
+  });
+
+  it("le plan v2 ENTIER passe le VRAI compilateur — éventail, schéma, plafond ANALYZE compris", () => {
+    const catalogue: CapabilityCatalog = {
+      has: (n) => AVEC_LECTEURS.some((c) => c.id === n),
+      allowed: () => true,
+      meta: (n) => ({ ...capabilityMeta(n), effect: "READ" }),
+      brief: () => AVEC_LECTEURS,
+      plafondEffet: "ANALYZE",
+    };
+    const acteur: MissionActor = { userId: "u1", label: "le PDG", isAgent: false };
+    const v = cheminDirect(TACHE, trier(TACHE), ctxLecture());
+    const r = compile(v.plan!, catalogue, acteur, { effetMax: "ANALYZE" });
+    expect(r.ok, r.ok ? "" : JSON.stringify((r as { issues: unknown }).issues)).toBe(true);
+    if (!r.ok) return;
+    const lire = r.mission.steps.find((s) => s.key === "lire")!;
+    // La dépendance implicite de l'éventail sur sa source est posée par le compilateur.
+    expect(lire.dependsOn).toContain("cibler");
   });
 });

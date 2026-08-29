@@ -192,3 +192,56 @@ tentative, preuve à l'appui) :
     DEEP_SMOKE_PALIERS="3,5,10" npm run adam:smoke:deep   # stress test adaptatif (§29)
 
 PROVEN ne se marque qu'après ces runs.
+
+## H. LE TROISIÈME RUN RÉEL (2026-08-29, jeton MTEL7Y9V0TX2) — ET LE CHANTIER DE CLÔTURE
+
+Mesuré sur Render : **23 SUCCÈS / 29 honnêtes / 2 défauts** (baseline 20/32/2, run 2 15/39/0).
+30/54 par la voie DIRECTE, 187 appels, 541 s, 16 replanifications, motifs désormais NOMMÉS.
+Lu en taux : E2E 42,6 %, route MODÈLE 7/24 = 29,2 %, non-trivial 12/43 = 27,9 %, ~70 % des
+appels de modèle payés sur des missions non réussies. C'est mieux, et ce n'est pas fini —
+le mandat de clôture exige que CHAQUE non-succès ait une cause nommée et un correctif NATIF.
+
+### H.1 L'audit des 31 non-succès — six familles de logiciel, pas 31 mystères
+
+| # | Famille (missions touchées) | Symptôme au run | Cause racine | Correctif NATIF (fichier) | Tests + sabotage |
+|---|---|---|---|---|---|
+| F1 | Règle de requête LITTÉRALE (~8 : COMPARAISON branche B, RECOURS synonymes, HISTORIQUE produit du dossier, CATCH_UP, POINT_DOSSIER, LEGAL échéances) | « le reçu ne porte pas « X » » alors que la stratégie du plan était juste | La règle comparait chaque reçu au terme CITÉ dans le critère, pas à la requête PRÉVUE au plan pour CETTE étape | RECHERCHES_AVEC_REQUETE v2 : « exécuté = prévu » — la référence est `input.query` du plan, le terme « » n'est qu'un repli (`goal/rules.ts` ; `EtapeObservee.input` câblé dans `evaluate.ts`/`engine.ts`) | `rules.test.ts` : branche B PASS ; SABOTAGE : reçu ≠ requête prévue → FAIL même si le terme cité y est |
+| F2 | Reçus des éventails/dédupliqués (~2) | « capacité aboutie SANS reçu — effet invérifiable » sur un parent déployé ou une étape DEDUPLIQUE | Deux aboutissements SANS appel écrits par le MOTEUR étaient comptés comme des appels sans preuve | AUCUNE_ECRITURE reconnaît `{expanded}` et `{deduplique:true}` ; RECHERCHES se prouve sur les FILLES d'un éventail (`goal/rules.ts`) | `rules.test.ts` : parent+dédupliqué PASS ; vraie capacité sans reçu → toujours FAIL (§78) |
+| F3 | FICHE sans étage de lecture (~10 : POINT_EMPLOYE 0/6, DOCUMENT_DRIVE 1/6, LEGAL 1/5, COURRIERS, TACHES, FINANCES) | juge : « honnête mais insuffisant » — synthèses bâties sur des TITRES | DOUBLE : (a) pas de lecture des cibles ; (b) découvert au passage : le worker aval d'un éventail ou d'une jonction ne VOYAIT PAS les résultats (amont = dépendances directes ; parent d'éventail = `{expanded}` seul) | FICHE v2 : RECHERCHER → CIBLER (WORKER à schéma, ids RECOPIÉS) → LIRE (éventail `read_document`/`inspect_record`, repli recherche-seule si lecteur absent/interdit) → RÉPONDRE branché sur les lectures (`planner/direct.ts`) ; hydratation générique des éventails pour TOUT worker aval (`runtime/worker.ts` `hydraterEventail`) ; éventail de LECTURE partiellement échoué CONCLUT avec ses manques NOMMÉS (`engine.ts` `resoudreEventails`, §28) — une ÉCRITURE partielle échoue toujours | `direct.test.ts` (FICHE v2 ×5 dont compile réel), `worker.test.ts` (×4), `engine.test.ts` (lecture partielle DONE + écriture partielle FAILED) |
+| F4 | Clés/références fragiles écrites par le modèle (2 échecs de LANCEMENT : « recherche:federée », « synthese » ; +3 « reste refusé ») | mission morte AVANT DE NAÎTRE, la retouche du planificateur REPRODUISAIT la faute | Une clé est un identifiant MACHINE ; refuser une faute de forme renvoyait la faute à son auteur | `assainirPlan` (NFD, alphabet, suffixes de collision, réécriture de dependsOn/forEach/règles) + `reparerReglesDacceptation` (réparer à candidat UNIQUE — doctrine CORRIGEE — sinon DÉCLASSER en sémantique, jamais refuser) (`compiler/compile.ts`, `goal/rules.ts`) ; **MISSION_CREATION = invariant 100 %** | `rules.test.ts` (réparation ×7), `compile.test.ts` ; SABOTAGE : deux clés IDENTIQUES restent DUPLICATE_KEY — l'assainissement ne blanchit pas une vraie faute |
+| F5 | Replans vides (14×) | « le replan a rendu un plan vide », plafond atteint | En AVAL de F1-F4 : les faux refus déterministes déclenchaient des replans sans matière ; le refus « plan sans étape productive » et le plafond PLANS_MAX existaient déjà | Corrigée par les familles amont — aucune pièce nouvelle : en supprimer la cause vaut mieux qu'en traiter le symptôme | Le prochain run mesure `replans` à la carte §71 |
+| F6 | Missions analytiques en WAITING_INPUT (3×) | la mission suspendait sa réponse… à CELUI qui posait la question | Le planificateur écrivait une étape WAIT_INPUT quand la donnée manquait — sous plafond de LECTURE, l'attente humaine est la mauvaise réponse (§28 : une absence DITE est une réponse) | Sous `effetMax ≤ ANALYZE`, le compilateur CONVERTIT l'attente humaine en synthèse « ce qui existe / ce qui manque », conversion dite en warning ; une mission qui ÉCRIT garde ses attentes (`compiler/compile.ts`) | `compile.test.ts` : conversion + contre-exemple (sans plafond, l'attente reste) |
+
+Défaut ANNEXE découvert par les nouveaux bancs (aucun run ne l'avait encore payé) :
+`read_document` passait le verrou « lecture nue » par son préfixe `read_` alors qu'il EXIGE un
+nœud Drive — un plan à appel sans entrée pouvait naître. Fermé par le registre : un contrat
+`CONTENU` n'est jamais nu (`planner/direct.ts` `estLectureNue`).
+
+### H.2 La carte de score §71 — dans le banc lui-même
+
+`carteDeScore` (deep-smoke.ts, pur, testé) : E2E, MISSION_CREATION (invariant 100 %),
+COMPLETED, succès par VOIE (DIRECTE/MODÈLE, P50/P95 chacune), NON-TRIVIALES (hors
+PREUVE_ABSENCE et RECHERCHE_PRODUIT — l'anti-triche : réussir surtout les questions faciles
+ne gonfle plus le chiffre), replans (total/missions/max), **taux d'appels modèle GASPILLÉS**
+(payés sur des missions non réussies), jetons par succès, latences, succès/minute. §78
+partout : dénominateur nul → `null`, jamais 0 %. Rendue dans le rapport texte ET dans le JSON
+machine (`carte`).
+
+### H.3 États honnêtes (§69)
+
+- **IMPLEMENTED + TESTED** (ce chantier, suite complète verte) : F1, F2, F3, F4, F6, carte
+  §71, lecture-nue/CONTENU. PROVEN LIVE : **au prochain run réel uniquement.**
+- **PROVEN par les runs précédents, intouchés** : court-circuit 402/403, formes DIRECTE /
+  RECHERCHE, dépendances contournées, motifs d'honnêteté.
+- **GAPs assumés, nommés, NON commencés** (§40-53 du mandat performance) : contrôleur de
+  concurrence adaptative sur en-têtes fournisseur (`x-ratelimit-*`, `Retry-After`), réservation
+  de jetons, registre de coûts par mission, prompt caching MESURÉ (`cached_tokens`), plans
+  par gabarits validés, retrieval spéculatif, fine-tuning. Le mode PALIERS est l'instrument de
+  mesure prêt pour le premier de ces chantiers ; la télémétrie fournisseur n'est pas accessible
+  depuis cet environnement de dev — elle se lit sur Render.
+
+### H.4 Ce qu'un humain doit encore faire
+
+La FACTURATION DU STOCKAGE OBJET (402) reste une action humaine : tant qu'elle n'est pas
+réglée, les lectures de CONTENU Drive échoueront — désormais en UNE tentative, court-circuit,
+cause dite, et l'éventail de lecture CONCLUT en nommant ce manque au lieu de spiraler.

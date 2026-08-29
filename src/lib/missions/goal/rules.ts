@@ -88,22 +88,63 @@ const REGLES: Record<string, Verificateur> = {
    * refuser « faute de preuve » alors que la preuve existait, structurée, dans les reçus.
    */
   RECHERCHES_AVEC_REQUETE: (args, texte, steps) => {
+    /**
+     * « EXÉCUTÉ = PRÉVU », jamais « chaque requête contient le terme du critère ».
+     *
+     * La première version comparait chaque reçu au terme cité dans le TEXTE du critère.
+     * Un run Render a montré ce que ça punit : une comparaison A/B dont la branche B cherche
+     * légitimement B (refusée parce que son reçu ne portait pas A), un recours par synonymes
+     * (« convention » refusé parce qu'il ne porte pas « contrat »), un historique dont une
+     * branche cherche le produit du dossier. La référence JUSTE est la requête PRÉVUE AU PLAN
+     * pour CHAQUE étape (`input.query`) : la règle prouve que la recherche voulue est bien
+     * partie, telle quelle — la pertinence de la stratégie reste l'affaire du plan et du juge.
+     * Le terme cité « … » du texte reste le REPLI quand une étape n'a pas de requête au plan.
+     */
     const terme = termeDuCritere(texte);
-    if (!terme) return { verdict: "FAIL", preuve: "le critère ne cite aucun terme entre guillemets : rien à vérifier" };
     const cles = args.split(",").map((s) => s.trim()).filter(Boolean);
     if (cles.length === 0) return { verdict: "FAIL", preuve: "le critère ne cite aucune étape" };
     const manques: string[] = [];
+
+    /** La requête PRÉVUE AU PLAN d'une étape — jamais un gabarit `{{…}}` non résolu. */
+    const prevueDe = (s: EtapeObservee): string | null => {
+      const q = s.input && typeof s.input === "object" ? (s.input as Record<string, unknown>).query : undefined;
+      if (typeof q !== "string" || q.trim() === "" || q.includes("{{")) return null;
+      return q.trim();
+    };
+
+    const verifier = (s: EtapeObservee): void => {
+      if (s.status !== "DONE") { manques.push(`${s.key} : ${s.status}`); return; }
+      /**
+       * UN ÉVENTAIL DÉPLOYÉ ne porte pas de reçu : ses FILLES appellent, et chacune porte la
+       * requête RÉSOLUE de son itération. La preuve se lit donc sur elles — le parent ne dit
+       * que le déploiement (`{expanded, keys}`, écrit par le moteur, jamais par un modèle).
+       * Un éventail VIDE (0 élément) est une preuve d'absence, pas un manquement.
+       */
+      const r = s.result && typeof s.result === "object" && !Array.isArray(s.result)
+        ? (s.result as Record<string, unknown>) : null;
+      if (r && typeof r.expanded === "number" && Array.isArray(r.keys)) {
+        for (const k of r.keys as string[]) {
+          const fille = steps.find((x) => x.key === k);
+          if (!fille) { manques.push(`${k} : itération absente`); continue; }
+          verifier(fille);
+        }
+        return;
+      }
+      const attendu = prevueDe(s) ?? terme;
+      if (!attendu) { manques.push(`${s.key} : ni requête prévue au plan ni terme cité « » — rien à vérifier`); return; }
+      const requete = s.recu?.query ?? null;
+      if (!requete || !requete.toLowerCase().includes(attendu.toLowerCase())) {
+        manques.push(`${s.key} : le reçu ne porte pas la requête prévue « ${attendu} » (requête exécutée : ${requete ?? "absente"})`);
+      }
+    };
+
     for (const cle of cles) {
       const s = steps.find((x) => x.key === cle);
       if (!s) { manques.push(`${cle} : étape absente`); continue; }
-      if (s.status !== "DONE") { manques.push(`${cle} : ${s.status}`); continue; }
-      const requete = s.recu?.query ?? null;
-      if (!requete || !requete.toLowerCase().includes(terme.toLowerCase())) {
-        manques.push(`${cle} : le reçu ne porte pas « ${terme} » (requête : ${requete ?? "absente"})`);
-      }
+      verifier(s);
     }
     return manques.length === 0
-      ? { verdict: "PASS", preuve: `${cles.length} recherche(s) DONE, chaque reçu porte « ${terme} » (${cles.join(", ")})` }
+      ? { verdict: "PASS", preuve: `${cles.length} recherche(s) DONE, chaque reçu porte la requête PRÉVUE au plan (${cles.join(", ")})` }
       : { verdict: "FAIL", preuve: manques.join(" ; ") };
   },
 
@@ -121,7 +162,17 @@ const REGLES: Record<string, Verificateur> = {
         continue;
       }
       if (s.nodeType === "CAPABILITY" && s.status === "DONE") {
-        ecritures.push(`${s.key} : capacité aboutie SANS reçu — effet invérifiable`);
+        /**
+         * DEUX ABOUTISSEMENTS SANS APPEL, écrits par le MOTEUR (jamais par un modèle) :
+         * le parent d'un ÉVENTAIL déployé (`{expanded, keys, source}` — ce sont ses filles
+         * qui appellent et portent les reçus) et une étape DÉDUPLIQUÉE (`{deduplique: true}`
+         * — le reçu vit sur l'étape jumelle). Un run Render les comptait « capacité aboutie
+         * SANS reçu » et refusait des missions dont chaque appel réel ÉTAIT reçu en main.
+         */
+        const r = s.result && typeof s.result === "object" && !Array.isArray(s.result)
+          ? (s.result as Record<string, unknown>) : null;
+        const sansAppel = r !== null && (typeof r.expanded === "number" || r.deduplique === true);
+        if (!sansAppel) ecritures.push(`${s.key} : capacité aboutie SANS reçu — effet invérifiable`);
         continue;
       }
       const structurel = effetDuNoeud(s.nodeType, null);
@@ -164,49 +215,170 @@ const REGLES: Record<string, Verificateur> = {
 /** Les codes connus — exportés pour que les tests et le chemin direct restent alignés. */
 export const CODES_REGLES = Object.keys(REGLES);
 
+/** Ce que le compilateur sait du plan — ce qu'il faut pour RÉPARER une règle au lieu de refuser. */
+export interface ContexteReglesPlan {
+  /** Les clés citables : celles du plan, plus les ACQUISES des plans antérieurs (elles existent, terminées, en base). */
+  clesEtapes: ReadonlySet<string>;
+  /** Les étapes du plan dont l'entrée porte une vraie requête (`input.query`, pas un gabarit `{{…}}`). */
+  clesAvecRequete: ReadonlySet<string>;
+  /** Les étapes capables d'une sortie structurée (WORKER à schéma), avec les champs de leur schéma. */
+  sortiesStructurees: readonly { cle: string; champs: readonly string[] }[];
+}
+
+export interface ReparationRegles {
+  criteres: string[];
+  /** Chaque réparation ou déclassement, nommé en français — les warnings de compilation les portent. */
+  notes: string[];
+}
+
+/** Comparaison de clés insensible aux accents et à la casse — la faute typique d'un modèle. */
+const clePourComparer = (s: string): string =>
+  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
 /**
- * VALIDE les références des règles À LA COMPILATION — le refus qui économise un faux refus.
- *
- * Un run Render a montré la séquence : le planificateur adopte la grammaire (bien), cite une
- * étape qui n'existe pas dans son propre plan (mal), la mission tourne ENTIÈREMENT, et le
- * refus déterministe tombe à la FIN — travail fait, mission bloquée. La place de ce contrôle
- * est celle de tous les contrôles de FORME : le compilateur, qui refuse AVANT d'exécuter, et
- * dont le refus repart au planificateur avec le problème nommé (la retouche existe déjà).
- *
- * Un code INCONNU ne produit aucun problème : c'est un critère sémantique, il ira au juge —
- * la dégradation sûre ne change pas.
+ * LE CANDIDAT UNIQUE — la doctrine de `collection.ts` (CORRIGEE) appliquée aux règles : une
+ * réparation n'est permise que si UNE SEULE clé du plan peut être celle que le modèle visait.
+ * Deux candidats plausibles = zéro réparation : corriger au hasard fabriquerait une preuve.
  */
-export function validerReglesDacceptation(
+function candidatUnique(cle: string, cles: ReadonlySet<string>): string | null {
+  const n = clePourComparer(cle);
+  const exacts = [...cles].filter((k) => clePourComparer(k) === n);
+  if (exacts.length === 1) return exacts[0];
+  if (exacts.length > 1) return null;
+  const partiels = [...cles].filter((k) => {
+    const kn = clePourComparer(k);
+    return kn.includes(n) || n.includes(kn);
+  });
+  return partiels.length === 1 ? partiels[0] : null;
+}
+
+/** Déclasse un critère-règle en critère SÉMANTIQUE : l'étiquette tombe, la phrase reste, le juge la lit. */
+function declasser(critere: string, secours: string): string {
+  const m = critere.match(GRAMMAIRE);
+  const texte = m ? (m[3] ?? "").trim() : "";
+  return texte !== "" ? texte : secours;
+}
+
+/**
+ * RÉPARE les références des règles À LA COMPILATION — jamais un refus pour une faute de FORME.
+ *
+ * Deux runs Render ont payé le prix des deux politiques précédentes. Sans contrôle : une règle
+ * citant une étape fantôme laissait la mission tourner ENTIÈREMENT puis tombait en FAUX refus
+ * déterministe à la FIN — travail fait, mission bloquée. Avec refus de compilation : le même
+ * plan mourait AVANT DE NAÎTRE (« étape « synthese » absente ») alors qu'une seule étape du
+ * plan pouvait être visée — la retouche du planificateur a reproduit la faute, et la mission
+ * n'a jamais été créée. Le taux de création de mission est un invariant : une faute de forme
+ * dans un CRITÈRE ne condamne jamais un plan dont les ÉTAPES compilent.
+ *
+ * La politique est celle du décodeur (« ne jamais deviner, réparer à candidat UNIQUE ») :
+ *   — cible unique reconnaissable → la règle est RÉPARÉE, et la réparation est DITE ;
+ *   — cible introuvable ou ambiguë → la règle est DÉCLASSÉE en critère sémantique : le juge
+ *     évalue la phrase, la mission vit, et l'on perd seulement l'arithmétique — jamais l'issue.
+ * Un code INCONNU ne bouge pas : c'est déjà un critère sémantique, il ira au juge.
+ */
+export function reparerReglesDacceptation(
   criteres: readonly string[],
-  clesEtapes: ReadonlySet<string>,
-): string[] {
-  const problemes: string[] = [];
-  const disponibles = (): string => [...clesEtapes].slice(0, 12).join(", ");
+  plan: ContexteReglesPlan,
+): ReparationRegles {
+  const sortie: string[] = [];
+  const notes: string[] = [];
   for (const critere of criteres) {
     const m = critere.match(GRAMMAIRE);
-    if (!m || !REGLES[m[1]]) continue;
+    if (!m || !REGLES[m[1]]) { sortie.push(critere); continue; }
     const code = m[1];
     const args = m[2] ?? "";
+    const texte = (m[3] ?? "").trim();
+
     if (code === "RECHERCHES_AVEC_REQUETE") {
-      if (!termeDuCritere(m[3] ?? critere)) {
-        problemes.push(`[REGLE:${code}] : le texte du critère doit citer le terme entre « » — sans lui, rien à vérifier.`);
+      const citees = args.split(",").map((s) => s.trim()).filter(Boolean);
+      const gardees: string[] = [];
+      const changements: string[] = [];
+      for (const cle of citees) {
+        if (plan.clesEtapes.has(cle)) { gardees.push(cle); continue; }
+        const cand = candidatUnique(cle, plan.clesEtapes);
+        if (cand) { gardees.push(cand); changements.push(`« ${cle} » → « ${cand} »`); }
+        else changements.push(`« ${cle} » écartée (aucune étape du plan ne correspond sans ambiguïté)`);
       }
-      for (const cle of args.split(",").map((s) => s.trim()).filter(Boolean)) {
-        if (!clesEtapes.has(cle)) {
-          problemes.push(`[REGLE:${code}] cite l'étape « ${cle} », absente du plan — clés disponibles : ${disponibles()}.`);
-        }
+      const verifiable = gardees.length > 0
+        && (termeDuCritere(texte) !== null || gardees.every((c) => plan.clesAvecRequete.has(c)));
+      if (!verifiable) {
+        sortie.push(declasser(critere, "les recherches prévues au plan ont été exécutées."));
+        notes.push(`[REGLE:${code}] déclassée en critère sémantique : ${gardees.length === 0
+          ? "aucune étape citée n'existe dans le plan"
+          : "ni requête prévue au plan sur chaque étape citée, ni terme cité entre « »"} — le juge évaluera la phrase.`);
+        continue;
       }
+      if (changements.length > 0) {
+        sortie.push(`[REGLE:${code}:${gardees.join(",")}] ${texte}`.trim());
+        notes.push(`[REGLE:${code}] réparée : ${changements.join(" ; ")}.`);
+      } else {
+        sortie.push(critere);
+      }
+      continue;
+    }
+
+    if (code === "SORTIE_STRUCTUREE") {
+      const { cle, champs } = argsSortieStructuree(args);
+      const secours = champs.length > 0
+        ? `la mission rend la sortie structurée attendue (${champs.join(", ")}).`
+        : "la mission rend la sortie structurée attendue.";
+      if (!cle || champs.length === 0) {
+        sortie.push(declasser(critere, secours));
+        notes.push(`[REGLE:${code}] déclassée en critère sémantique : forme « cléEtape:champ1,champ2 » incomplète.`);
+        continue;
+      }
+      if (plan.clesEtapes.has(cle)) { sortie.push(critere); continue; }
+      let cand = candidatUnique(cle, plan.clesEtapes);
+      if (!cand) {
+        // Le nom ne mène nulle part — mais si UNE SEULE étape du plan est CAPABLE de porter
+        // tous les champs exigés (un WORKER dont le schéma les déclare), c'est elle.
+        const porteurs = plan.sortiesStructurees.filter((s) => champs.every((c) => s.champs.includes(c)));
+        if (porteurs.length === 1) cand = porteurs[0].cle;
+      }
+      if (cand) {
+        sortie.push(`[REGLE:${code}:${cand}:${champs.join(",")}] ${texte}`.trim());
+        notes.push(`[REGLE:${code}] réparée : « ${cle} » → « ${cand} » (cible unique reconnaissable).`);
+      } else {
+        sortie.push(declasser(critere, secours));
+        notes.push(`[REGLE:${code}] déclassée en critère sémantique : l'étape « ${cle} » n'existe pas et aucune cible unique ne se reconnaît.`);
+      }
+      continue;
+    }
+
+    sortie.push(critere);
+  }
+  return { criteres: sortie, notes };
+}
+
+/**
+ * RÉÉCRIT les clés d'étapes CITÉES PAR LES RÈGLES quand l'assainissement des clés les a
+ * renommées — sinon l'assainissement CRÉERAIT la référence fantôme qu'il prétend éviter.
+ * Seuls les arguments de la grammaire bougent ; le texte français reste intact.
+ */
+export function reecrireClesDansRegles(
+  criteres: readonly string[],
+  renommages: ReadonlyMap<string, string>,
+): string[] {
+  if (renommages.size === 0) return [...criteres];
+  return criteres.map((critere) => {
+    const m = critere.match(GRAMMAIRE);
+    if (!m || !REGLES[m[1]]) return critere;
+    const code = m[1];
+    const args = m[2] ?? "";
+    const texte = (m[3] ?? "").trim();
+    if (code === "RECHERCHES_AVEC_REQUETE") {
+      const cles = args.split(",").map((s) => s.trim()).filter(Boolean)
+        .map((c) => renommages.get(c) ?? c);
+      return `[REGLE:${code}:${cles.join(",")}] ${texte}`.trim();
     }
     if (code === "SORTIE_STRUCTUREE") {
       const { cle, champs } = argsSortieStructuree(args);
-      if (!cle || champs.length === 0) {
-        problemes.push(`[REGLE:${code}] : forme attendue « cléEtape:champ1,champ2 » — étape ou champs absents.`);
-      } else if (!clesEtapes.has(cle)) {
-        problemes.push(`[REGLE:${code}] cite l'étape « ${cle} », absente du plan — clés disponibles : ${disponibles()}.`);
-      }
+      if (!cle) return critere;
+      const nouvelle = renommages.get(cle) ?? cle;
+      return `[REGLE:${code}:${nouvelle}:${champs.join(",")}] ${texte}`.trim();
     }
-  }
-  return problemes;
+    return critere;
+  });
 }
 
 /**

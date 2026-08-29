@@ -144,6 +144,29 @@ function resumerResultat(v: unknown, max = 220): string {
   return "";
 }
 
+/**
+ * UN PARENT D'ÉVENTAIL NE PORTE QUE SON DÉPLOIEMENT ({expanded, keys}) — les RÉSULTATS vivent
+ * sur ses filles. Un worker qui dépendait du parent recevait donc « expanded=3 » et RIEN des
+ * lectures elles-mêmes : la synthèse était structurellement AVEUGLE (mesuré au Run 3 — les
+ * fiches répondaient depuis les seuls titres de recherche, et le juge les déclarait honnêtes
+ * mais insuffisantes). L'hydratation recompose ce que l'étape aval est en droit de lire : le
+ * résultat de CHAQUE fille sous sa clé — et, si le parent a conclu avec des manques (§28),
+ * ces manques restent dans `echecs`, pour que l'aval les DISE au lieu de les ignorer.
+ */
+export function hydraterEventail(s: EtatEtape, mission: EtatMission): Record<string, unknown> | null {
+  const r = s.result;
+  if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+  const o = r as Record<string, unknown>;
+  if (typeof o.expanded !== "number" || !Array.isArray(o.keys)) return null;
+  const resultats: Record<string, unknown> = {};
+  for (const k of o.keys as unknown[]) {
+    if (typeof k !== "string") continue;
+    const fille = mission.steps.find((x) => x.key === k);
+    if (fille && fille.result !== null && fille.result !== undefined) resultats[k] = fille.result;
+  }
+  return { ...o, resultats };
+}
+
 /** Construit la spécification d'un worker à partir de l'état réel de la mission. */
 export function specifier(
   mission: EtatMission,
@@ -154,7 +177,7 @@ export function specifier(
   const amont: Record<string, unknown> = {};
   for (const d of step.dependsOn) {
     const s = mission.steps.find((x) => x.key === d);
-    if (s && s.result !== null && s.result !== undefined) amont[d] = s.result;
+    if (s && s.result !== null && s.result !== undefined) amont[d] = hydraterEventail(s, mission) ?? s.result;
   }
 
   return {

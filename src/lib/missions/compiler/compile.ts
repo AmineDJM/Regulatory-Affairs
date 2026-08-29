@@ -15,7 +15,11 @@ import { effetDuNoeud } from "@/lib/missions/registry/node-effect";
 import type { CapabilityCatalog, MissionActor } from "@/lib/missions/ports";
 import { layout } from "@/lib/missions/compiler/graph";
 import { messageRefus, refusPourActeur } from "@/lib/missions/policy/guard";
-import { validerReglesDacceptation } from "@/lib/missions/goal/rules";
+import {
+  reecrireClesDansRegles,
+  reparerReglesDacceptation,
+  type ContexteReglesPlan,
+} from "@/lib/missions/goal/rules";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -241,8 +245,87 @@ export interface OptionsCompilation {
   acquises?: ReadonlySet<string>;
 }
 
+/** L'alphabet d'une clé d'étape — la même contrainte que le refus de forme, mais APPLIQUÉE. */
+const CLE_VALIDE = /^[A-Za-z0-9:_\-.]+$/;
+
+const normaliserCle = (brute: string): string =>
+  brute
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9:_\-.]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+/**
+ * ── 0. L'ASSAINISSEMENT DES CLÉS — une mission ne meurt pas d'un accent ──────────────────
+ *
+ * Un run Render a tué une mission AVANT SA NAISSANCE pour la clé « recherche:federée » : la
+ * clé est un IDENTIFIANT MACHINE, le modèle écrit du français, et la retouche du planificateur
+ * a REPRODUIT la faute — le refus était donc une impasse structurelle, pas un garde-fou. §5 :
+ * les modèles décident QUOI (le contenu du plan), le code décide COMMENT (la forme des
+ * identifiants). Une clé hors alphabet se NORMALISE — accents décomposés, caractères interdits
+ * remplacés — et chaque référence qui la citait (dependsOn, forEach.from, règles d'acceptation)
+ * est réécrite avec elle, sinon l'assainissement CRÉERAIT la référence fantôme qu'il évite.
+ *
+ * Ce qui N'EST PAS assaini, et c'est voulu : deux clés IDENTIQUES restent identiques —
+ * DUPLICATE_KEY reste un refus, c'est une vraie faute de plan, pas une faute d'alphabet. Une
+ * collision CRÉÉE par la normalisation, elle, se suffixe : les deux étapes existent bel et
+ * bien, les fondre serait perdre l'une des deux.
+ */
+function assainirPlan(brut: MissionPlan): { plan: MissionPlan; notes: string[] } {
+  const renommages = new Map<string, string>();
+  const prises = new Set<string>();
+  for (const s of brut.steps) {
+    if (typeof s.key === "string" && CLE_VALIDE.test(s.key)) prises.add(s.key);
+  }
+  const notes: string[] = [];
+  for (const [i, s] of brut.steps.entries()) {
+    const brute = s.key ?? "";
+    if (CLE_VALIDE.test(brute) || renommages.has(brute)) continue;
+    let candidate = normaliserCle(brute) || `etape-${i + 1}`;
+    if (prises.has(candidate)) {
+      let n = 2;
+      while (prises.has(`${candidate}-${n}`)) n += 1;
+      candidate = `${candidate}-${n}`;
+    }
+    renommages.set(brute, candidate);
+    prises.add(candidate);
+    notes.push(`clé « ${brute} » assainie en « ${candidate} » — une clé est un identifiant machine `
+      + `(lettres, chiffres, :_-.), jamais du français.`);
+  }
+  if (renommages.size === 0) return { plan: brut, notes };
+  const steps = brut.steps.map((s) => ({
+    ...s,
+    key: renommages.get(s.key ?? "") ?? s.key,
+    dependsOn: s.dependsOn?.map((d) => renommages.get(d) ?? d),
+    forEach: s.forEach
+      ? { ...s.forEach, from: renommages.get(s.forEach.from) ?? s.forEach.from }
+      : s.forEach,
+  }));
+  return {
+    plan: { ...brut, steps, acceptance: reecrireClesDansRegles(brut.acceptance, renommages) },
+    notes,
+  };
+}
+
+/** Ce que le réparateur de règles doit savoir du plan — calculé au seul endroit qui a le plan entier. */
+function contexteReglesDuPlan(plan: MissionPlan, acquises: ReadonlySet<string>): ContexteReglesPlan {
+  const clesEtapes = new Set<string>([...plan.steps.map((s) => s.key), ...acquises]);
+  const clesAvecRequete = new Set<string>();
+  const sortiesStructurees: { cle: string; champs: string[] }[] = [];
+  for (const s of plan.steps) {
+    const q = (s.input ?? {})["query"];
+    if (typeof q === "string" && q.trim() !== "" && !q.includes("{{")) clesAvecRequete.add(s.key);
+    if (s.expectedOutputSchema && typeof s.expectedOutputSchema === "object") {
+      const props = (s.expectedOutputSchema as { properties?: Record<string, unknown> }).properties;
+      if (props && typeof props === "object") sortiesStructurees.push({ cle: s.key, champs: Object.keys(props) });
+    }
+  }
+  return { clesEtapes, clesAvecRequete, sortiesStructurees };
+}
+
 export function compile(
-  plan: MissionPlan,
+  planBrut: MissionPlan,
   catalog: CapabilityCatalog,
   actor: MissionActor,
   opts: OptionsCompilation = {},
@@ -250,6 +333,62 @@ export function compile(
   const acquises = opts.acquises ?? new Set<string>();
   const issues: CompileIssue[] = [];
   const warnings: CompileIssue[] = [];
+
+  // ── 0. L'ASSAINISSEMENT, PUIS LA RÉPARATION DES RÈGLES ───────────────────────────────
+  //
+  // LE TAUX DE CRÉATION DE MISSION EST UN INVARIANT (100 %). Une faute de FORME écrite par le
+  // modèle dans un identifiant ou dans un critère ne condamne jamais un plan dont les étapes
+  // compilent : elle se répare en CODE, la réparation est DITE en warning, et l'audit la voit.
+  // Refuser renverrait la faute au même modèle qui vient de la commettre — mesuré : il récidive.
+  const assainissement = assainirPlan(planBrut);
+  for (const note of assainissement.notes) warnings.push(issue("INVALID_SHAPE", null, note));
+  const reparation = reparerReglesDacceptation(
+    assainissement.plan.acceptance,
+    contexteReglesDuPlan(assainissement.plan, acquises),
+  );
+  for (const note of reparation.notes) warnings.push(issue("INVALID_SHAPE", null, note));
+  let plan: MissionPlan = { ...assainissement.plan, acceptance: reparation.criteres };
+
+  /**
+   * ── §28 — UNE QUESTION NE SUSPEND PAS SA RÉPONSE À SON PROPRE DEMANDEUR ──────────────
+   *
+   * Trois missions d'ANALYSE d'un run réel ont fini WAITING_INPUT : le planificateur, ne
+   * trouvant pas la donnée, avait écrit une étape « attendre que la personne fournisse X » —
+   * et la mission suspendait sa réponse… à celui qui posait la question. Pour une mission en
+   * LECTURE SEULE (plafond ≤ ANALYZE), la réponse honnête à une donnée absente n'est pas une
+   * attente : c'est « voici ce qui existe, voici ce qui manque » — une absence DITE est une
+   * réponse recevable. L'attente humaine se CONVERTIT donc en travail de synthèse qui nomme
+   * le manque ; la conversion est dite en warning, et le juge garde le dernier mot sur la
+   * qualité de la réponse. Une mission qui ÉCRIT garde ses attentes : un envoi peut
+   * légitimement attendre une pièce humaine — c'est le plafond d'effet qui les distingue.
+   */
+  if (opts.effetMax && EFFECT_RANK[opts.effetMax] <= EFFECT_RANK.ANALYZE) {
+    const attentes = plan.steps.filter(
+      (s) => (s.nodeType ?? (s.capability ? "CAPABILITY" : "WORKER")) === "WAIT_INPUT");
+    if (attentes.length > 0) {
+      plan = {
+        ...plan,
+        steps: plan.steps.map((s) => {
+          if ((s.nodeType ?? (s.capability ? "CAPABILITY" : "WORKER")) !== "WAIT_INPUT") return s;
+          const demande = s.waitFor?.ask?.trim() || s.title;
+          return {
+            ...s,
+            nodeType: "WORKER" as NodeType,
+            waitFor: undefined,
+            reasoningRequirement: s.reasoningRequirement ?? "LIGHT",
+            completionCondition: `Ce qui est déjà établi pour « ${demande} » est dit avec sa provenance, `
+              + "et ce qui manque est nommé précisément — sans rien inventer.",
+          };
+        }),
+      };
+      for (const a of attentes) {
+        warnings.push(issue("INVALID_SHAPE", a.key,
+          `l'attente humaine « ${a.waitFor?.ask ?? a.title} » est convertie en synthèse : une mission `
+          + `d'analyse en lecture seule répond avec ce qui existe et DIT ce qui manque, elle ne `
+          + `suspend pas sa réponse à une fourniture humaine (§28).`));
+      }
+    }
+  }
 
   // ── 1. LES LIMITES OPÉRATIONNELLES ────────────────────────────────────────────────────
   if (plan.steps.length > PLAN_LIMITS.plannedSteps) {
@@ -265,13 +404,6 @@ export function compile(
       "un plan sans critère d'acceptation produit une mission qui se déclare finie parce qu'elle a "
       + "fini de tourner. Ce n'est pas la question posée (§20)."));
   }
-  // Un critère-RÈGLE qui cite une étape absente du plan produirait un FAUX refus déterministe
-  // À LA FIN — travail fait, mission bloquée (vu sur un run Render). C'est une erreur de FORME :
-  // elle se refuse ICI, et le refus repart au planificateur avec le problème nommé.
-  for (const probleme of validerReglesDacceptation(plan.acceptance, new Set(plan.steps.map((s) => s.key)))) {
-    issues.push(issue("INVALID_SHAPE", null, probleme));
-  }
-
   // ── 2. LES CLÉS ───────────────────────────────────────────────────────────────────────
   const vues = new Set<string>();
   for (const s of plan.steps) {

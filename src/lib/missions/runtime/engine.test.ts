@@ -631,6 +631,34 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     expect(etat!.steps.filter((s) => s.key.startsWith("msg#") && s.status === "DONE")).toHaveLength(4);
   }, 30_000);
 
+  it("un éventail de LECTURE partiellement échoué CONCLUT, ses manques NOMMÉS — une absence dite est une réponse (§28)", async () => {
+    const docs = Array.from({ length: 3 }, (_, i) => ({ id: `d-${i}` }));
+    const t = traceur({
+      sortie: (c) => (c.stepKey === "liste" ? { docs } : { contenu: "…" }),
+      echouer: (c) => (c.input.reference === "d-1"
+        ? { kind: "MISSING_DOCUMENT", message: "l'objet n'existe pas (404)", retryable: false } : null),
+    });
+    const id = await creerMission([
+      { key: "liste", title: "Lister", capability: "directory_list" },
+      {
+        key: "lire", title: "Lire", capability: "inspect_record",
+        forEach: { from: "liste", path: "docs", as: "d" }, input: { reference: "{{d.id}}" },
+      },
+    ], "éventail de lecture partiel");
+
+    await avancer(id, actor, { runner: t.runner });
+    const etat = await chargerEtat(id);
+    const modele = etat!.steps.find((s) => s.key === "lire")!;
+    // La lecture manquée n'est PAS une dette : le modèle conclut, et son résultat DIT le manque.
+    expect(modele.status).toBe("DONE");
+    const r = modele.result as { done: number; failed: number; echecs: { key: string; error: string }[] };
+    expect(r.done).toBe(2);
+    expect(r.failed).toBe(1);
+    expect(r.echecs).toHaveLength(1);
+    expect(r.echecs[0].key).toBe("lire#d-1");
+    expect(r.echecs[0].error).toContain("404");
+  }, 30_000);
+
   it("un WORKER sans exécutant échoue franchement, il n'est pas silencieusement ignoré", async () => {
     const t = traceur();
     const id = await creerMission([{ key: "w", title: "Rédiger", nodeType: "WORKER" }], "worker absent");

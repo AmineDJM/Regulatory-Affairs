@@ -2782,10 +2782,10 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | `model/roles.ts` | §4 — la politique de modèles en RÔLES métier (`CHEAP_WORKER` → `EXCEPTIONAL_PLANNER`). Aucun nom de modèle dans le métier |
 | `planner/schema.ts` | Le JSON Schema STRICT du plan : `additionalProperties: false`, `required` exhaustif, aucun objet libre |
 | `planner/plan.ts` | Objectif → capacités résolues → schéma imposé → plan RECONSTRUIT et typé. Refuse un plan sans étape ou sans critère. Rend `metriques.voie` (`DIRECTE`/`MODELE`) |
-| `planner/direct.ts` | Le chemin DIRECT : le CODE planifie sans modèle — TROIS formes : lecture nue à capacité dominante ; RECHERCHE multi-sources (terme cité « … » → N recherches parallèles + conclusion, critères tout-`[REGLE:…]`, 0 juge) ; FICHE ciblée (terme cité + 1-2 familles nommées → recherches + synthèse, 3 règles + 1 critère sémantique JUGÉ). Verrous R1–R5 / F1–F6 ; sur doute, chaque forme RENONCE au planner |
+| `planner/direct.ts` | Le chemin DIRECT : le CODE planifie sans modèle — TROIS formes : lecture nue à capacité dominante ; RECHERCHE multi-sources (terme cité « … » → N recherches parallèles + conclusion, critères tout-`[REGLE:…]`, 0 juge) ; FICHE ciblée v2 (terme cité + 1-2 familles nommées → RECHERCHER → CIBLER (ids recopiés) → LIRE (éventail `read_document`/`inspect_record`, repli recherche-seule) → RÉPONDRE ; 3 règles + 1 critère sémantique JUGÉ, §28). Verrous R1–R5 / F1–F6 ; « lecture nue » exclut les contrats CONTENU ; sur doute, chaque forme RENONCE au planner |
 | `planner/validate.ts` | La revérification de conformité, utilisée en production ET par le raisonneur scripté des bancs |
 | `registry/resolve.ts` | §3 — pas de déversement d'outils : un tour de rôle par domaine, borné, mesuré (`plannerCapabilitiesExposed`) |
-| `runtime/worker.ts` | L'étape qui RÉDIGE : faits établis, contexte partagé vs spécifique, économie mesurée |
+| `runtime/worker.ts` | L'étape qui RÉDIGE : faits établis, contexte partagé vs spécifique, économie mesurée ; `hydraterEventail` — un worker aval d'un éventail reçoit les résultats des FILLES, pas seulement `{expanded}` |
 | `runtime/control.ts` | §39-40 — la main humaine : suspendre, reprendre, arrêter. Cloisonné par `ownerId` dans le `where` |
 | `goal/qa.ts` | Le contrôle arithmétique complet : cardinalité, destinataires, reçus, doublons, artefacts |
 | `goal/judge.ts` | §12-13 — le juge structuré (`satisfied`, `confidence`, `criteria[]`, `missing[]`). Un critère sans preuve est NON_DÉMONTRÉ |
@@ -2798,7 +2798,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | `runtime/interpolate.ts` | Injection d'un élément dans une entrée — pauvre par dessein, sans traversée de prototype |
 | `planner/contract.ts` | Ce que le planner a le droit de produire, et les limites opérationnelles |
 | `compiler/graph.ts` | Tri topologique, vagues, cycles, ancêtres |
-| `compiler/compile.ts` | Le refus : capacité inconnue/interdite, cycle, forme, **cardinalité** |
+| `compiler/compile.ts` | Le refus (capacité inconnue/interdite, cycle, forme, **cardinalité**) — et la RÉPARATION : clés hors alphabet ASSAINIES (références réécrites), règles à étape fantôme réparées à candidat unique ou déclassées, WAIT_INPUT converti en synthèse sous plafond de lecture (§28). **Créer la mission est un invariant** |
 | `registry/capability-meta.ts` | Effet, idempotence, groupabilité, latence, confirmation — défaut prudent |
 | `policy/guard.ts` | §29 : l'auto-escalade est un refus de compilation |
 | `approval/scope.ts` | L'empreinte immuable d'un périmètre (§33) |
@@ -2829,7 +2829,7 @@ l'ERP, et la racine de composition du runtime (`boundary-scan.ts` l'exempte, par
 | `runner.ts` | L'exécutant : lectures par `executeReadTool`, écritures par intent + clé d'idempotence + reçu. Classe les échecs DURABLES d'une lecture (402 facturation, 401/403, 404 objet) en non-retryable + court-circuit par cible — un refus de facturation ne se « répare » plus par du raisonnement |
 | `runtime.ts` | `lancerMission` / `avancerMission` — assemblage complet, une retouche de plan sur refus du compilateur. Porte de replan : un juge qui ne suggère AUCUN recours (`recoursSuggere: null`) → `REPLAN_SKIPPED`, pas d'appel de planificateur |
 | `provider-waterfall.ts` | La cascade instrumentée du smoke : voie du plan, appels chevauchants, facteur de parallélisme, premier résultat utile — les métriques §18 du chantier latence |
-| `deep-smoke.ts` | Le Deep Live Smoke (`npm run adam:smoke:deep`) : 60-80 missions générées depuis les VRAIES données de l'ERP (~19 genres), même harnais `jouer` que le smoke fournisseur, verdicts SUCCÈS/HONNÊTE/DÉFAUT, nettoyage borné à ses missions. Mode PALIERS (`DEEP_SMOKE_PALIERS="3,5,10"`) : montée en charge par mesure, arrêt auto si défauts ↑ ou P95 ×2, concurrence retenue = maximum SAIN observé |
+| `deep-smoke.ts` | Le Deep Live Smoke (`npm run adam:smoke:deep`) : 60-80 missions générées depuis les VRAIES données de l'ERP (~19 genres), même harnais `jouer` que le smoke fournisseur, verdicts SUCCÈS/HONNÊTE/DÉFAUT, nettoyage borné à ses missions. Mode PALIERS (`DEEP_SMOKE_PALIERS="3,5,10"`) : montée en charge par mesure, arrêt auto si défauts ↑ ou P95 ×2, concurrence retenue = maximum SAIN observé ; `carteDeScore` §71 (E2E, création, routes, non-triviales anti-triche, appels gaspillés, jetons/succès) au rapport et au JSON |
 | `sweep.ts` | Le battement des missions : douze par passage, droits RELUS en base, attentes échues signalées une fois |
 | `memory.ts` | Découpage en épisodes, vieillissement par le calendrier, contexte composé sous budget |
 | `commitments.ts` | Les promesses en retard : espacement croissant, et le silence quand l'identité n'est pas canonique |
@@ -3401,6 +3401,34 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### ADAM CLÔTURE — les 31 non-succès du Run 3 réduits à six familles, corrigées en NATIF (2026-08)
+
+**La vérité terrain.** Troisième Deep Live Smoke réel : 23 SUCCÈS / 29 honnêtes / 2 défauts
+(baseline 20/32/2), 30/54 directes, motifs nommés. L'audit des 31 non-succès ne laisse AUCUN
+mystère : six familles de logiciel, chacune avec sa cause racine, son invariant, son correctif
+natif, ses tests et son sabotage (matrice complète : `docs/ADAM_PERFORMANCE.md` §H).
+
+**Livré.** (F1) `RECHERCHES_AVEC_REQUETE` v2 : « exécuté = prévu » — la règle prouve que la
+requête PRÉVUE AU PLAN est partie telle quelle (le terme cité « » n'est qu'un repli), fin des
+faux refus sur comparaisons A/B et recours par synonymes ; un éventail se prouve sur ses
+FILLES. (F2) `AUCUNE_ECRITURE` reconnaît les aboutissements SANS appel écrits par le moteur
+(`{expanded}`, `{deduplique}`). (F3) **FICHE v2 = RECHERCHER → CIBLER → LIRE → RÉPONDRE** :
+un WORKER cible (0-3 ids RECOPIÉS des résultats), un éventail `read_document`/`inspect_record`
+HYDRATE, la synthèse s'appuie sur du CONTENU — et deux défauts structurels découverts au
+passage sont fermés pour TOUTES les missions : le worker aval d'un éventail ne voyait pas les
+résultats des filles (`hydraterEventail`), et un éventail de LECTURE partiellement échoué
+CONCLUT désormais avec ses manques NOMMÉS (§28 : une absence dite est une réponse) — une
+ÉCRITURE partielle, elle, échoue toujours. (F4) **La création de mission est un invariant
+(100 %)** : le compilateur ASSAINIT les clés hors alphabet (« recherche:federée » ne tue plus
+une mission — accents décomposés, références réécrites, collisions suffixées, DUPLICATE_KEY
+reste un refus) et RÉPARE les règles citant une étape fantôme à candidat UNIQUE (doctrine
+CORRIGEE), sinon les DÉCLASSE en critère sémantique — jamais un refus pour une faute de forme
+d'un critère. (F6) Sous plafond de LECTURE, une étape WAIT_INPUT est convertie en synthèse
+« ce qui existe / ce qui manque » : une question ne suspend pas sa réponse à son propre
+demandeur. (§71) `carteDeScore` dans le Deep Smoke : E2E, création, routes, NON-TRIVIALES
+(anti-triche), appels GASPILLÉS, jetons/succès — §78 partout. Annexe : `read_document` ne
+passe plus pour une « lecture nue » (contrat CONTENU du registre). PROVEN au prochain run réel.
 
 ### ADAM PERFORMANCE, lot 1 — les défauts du Deep Smoke fermés, la voie directe généralisée (2026-08)
 

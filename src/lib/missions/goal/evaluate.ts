@@ -54,6 +54,13 @@ export interface EtapeObservee {
   maxAttempts: number;
   /** Pour un éventail : { expanded, done, failed } quand il a été résolu. */
   result: unknown;
+  /**
+   * L'ENTRÉE PRÉVUE AU PLAN — ce que l'étape DEVAIT demander. C'est elle que la règle
+   * `RECHERCHES_AVEC_REQUETE` compare au reçu : « exécuté = prévu ». Un run Render a montré
+   * l'alternative : comparer chaque requête au terme du critère punissait les plans légitimes
+   * dont chaque branche cherche autre chose (une comparaison A/B, un recours par synonymes).
+   */
+  input?: unknown;
 }
 
 export interface RapportQA {

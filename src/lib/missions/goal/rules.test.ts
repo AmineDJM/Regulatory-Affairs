@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { partitionnerCriteres, argsSortieStructuree, validerReglesDacceptation } from "@/lib/missions/goal/rules";
+import { partitionnerCriteres, argsSortieStructuree, reparerReglesDacceptation } from "@/lib/missions/goal/rules";
 import { evaluerObjectif, type EtapeObservee, type JugeObjectif } from "@/lib/missions/goal/evaluate";
 import type { ExecutionReceipt } from "@/lib/missions/runtime/receipt";
 import { cheminDirect } from "@/lib/missions/planner/direct";
@@ -274,52 +274,217 @@ describe("la grammaire face aux clés à deux-points — le FAUX refus détermin
     expect(p.regles[0].verdict).toBe("PASS");
   });
 
-  it("validerReglesDacceptation refuse À LA COMPILATION une règle citant une étape absente, clés disponibles à l'appui", () => {
-    const problemes = validerReglesDacceptation(
+});
+
+describe("reparerReglesDacceptation — réparer à candidat UNIQUE, déclasser au doute, ne JAMAIS refuser", () => {
+  const contexte = (over: Partial<Parameters<typeof reparerReglesDacceptation>[1]> = {}) => ({
+    clesEtapes: new Set(["recherche:dossiers", "analyse:priorisation", "controle:final"]),
+    clesAvecRequete: new Set(["recherche:dossiers"]),
+    sortiesStructurees: [{ cle: "analyse:priorisation", champs: ["trouve", "synthese"] }],
+    ...over,
+  });
+
+  it("une règle citant « analyse » quand seule « analyse:priorisation » existe est RÉPARÉE — cible unique", () => {
+    const r = reparerReglesDacceptation(
       ["[REGLE:SORTIE_STRUCTUREE:analyse:trouve,synthese] La synthèse est rendue."],
-      new Set(["recherche:dossiers", "analyse:priorisation", "controle:final"]),
+      contexte(),
     );
-    expect(problemes).toHaveLength(1);
-    expect(problemes[0]).toContain("« analyse »");
-    expect(problemes[0]).toContain("analyse:priorisation");
+    expect(r.criteres).toEqual(["[REGLE:SORTIE_STRUCTUREE:analyse:priorisation:trouve,synthese] La synthèse est rendue."]);
+    expect(r.notes[0]).toContain("réparée");
   });
 
-  it("une règle aux références JUSTES ne produit aucun problème ; un code INCONNU non plus (sémantique)", () => {
-    expect(validerReglesDacceptation(
-      [
-        "[REGLE:SORTIE_STRUCTUREE:analyse:priorisation:trouve,synthese] ok.",
-        "[REGLE:RECHERCHES_AVEC_REQUETE:recherche:dossiers] Interrogée avec « X ».",
-        "[REGLE:UN_CODE_INVENTE:nimporte] va au juge.",
-        "un critère sémantique ordinaire.",
+  it("le cas EXACT du Run 3 : « synthese » absente, mais UNE SEULE étape porte les champs exigés → réparée sur elle", () => {
+    const r = reparerReglesDacceptation(
+      ["[REGLE:SORTIE_STRUCTUREE:synthese:trouve,synthese] La synthèse structurée est rendue."],
+      contexte({ clesEtapes: new Set(["rechercher", "rediger", "controler"]),
+        sortiesStructurees: [{ cle: "rediger", champs: ["trouve", "synthese", "sources"] }] }),
+    );
+    expect(r.criteres).toEqual(["[REGLE:SORTIE_STRUCTUREE:rediger:trouve,synthese] La synthèse structurée est rendue."]);
+  });
+
+  it("cible AMBIGUË (deux étapes plausibles) → DÉCLASSÉE en sémantique, jamais devinée", () => {
+    const r = reparerReglesDacceptation(
+      ["[REGLE:SORTIE_STRUCTUREE:analyse:trouve] La synthèse est rendue."],
+      contexte({
+        clesEtapes: new Set(["analyse:marche", "analyse:reglementaire"]),
+        sortiesStructurees: [
+          { cle: "analyse:marche", champs: ["trouve"] },
+          { cle: "analyse:reglementaire", champs: ["trouve"] },
+        ],
+      }),
+    );
+    expect(r.criteres).toEqual(["La synthèse est rendue."]);
+    expect(r.notes[0]).toContain("déclassée");
+  });
+
+  it("RECHERCHES : une clé fantôme parmi de vraies est ÉCARTÉE, la règle survit sur les vraies", () => {
+    const r = reparerReglesDacceptation(
+      ["[REGLE:RECHERCHES_AVEC_REQUETE:recherche:dossiers,inventee] Interrogé avec « X »."],
+      contexte(),
+    );
+    expect(r.criteres).toEqual(["[REGLE:RECHERCHES_AVEC_REQUETE:recherche:dossiers] Interrogé avec « X »."]);
+    expect(r.notes[0]).toContain("écartée");
+  });
+
+  it("RECHERCHES sans terme cité NI requête au plan sur chaque étape → déclassée (le juge lira la phrase)", () => {
+    const r = reparerReglesDacceptation(
+      ["[REGLE:RECHERCHES_AVEC_REQUETE:controle:final] Les recherches ont été faites."],
+      contexte(),
+    );
+    expect(r.criteres).toEqual(["Les recherches ont été faites."]);
+    expect(r.notes[0]).toContain("sémantique");
+  });
+
+  it("RECHERCHES sans terme mais requête PRÉVUE AU PLAN sur chaque étape citée → la règle reste arithmétique", () => {
+    const r = reparerReglesDacceptation(
+      ["[REGLE:RECHERCHES_AVEC_REQUETE:recherche:dossiers] Les recherches prévues sont parties."],
+      contexte(),
+    );
+    expect(r.criteres).toEqual(["[REGLE:RECHERCHES_AVEC_REQUETE:recherche:dossiers] Les recherches prévues sont parties."]);
+    expect(r.notes).toEqual([]);
+  });
+
+  it("références JUSTES, code INCONNU, critère nu : RIEN ne bouge, aucune note", () => {
+    const criteres = [
+      "[REGLE:SORTIE_STRUCTUREE:analyse:priorisation:trouve,synthese] ok.",
+      "[REGLE:RECHERCHES_AVEC_REQUETE:recherche:dossiers] Interrogée avec « X ».",
+      "[REGLE:UN_CODE_INVENTE:nimporte] va au juge.",
+      "un critère sémantique ordinaire.",
+    ];
+    const r = reparerReglesDacceptation(criteres, contexte());
+    expect(r.criteres).toEqual(criteres);
+    expect(r.notes).toEqual([]);
+  });
+});
+
+describe("le COMPILATEUR ne meurt plus d'une faute de FORME du modèle — les deux échecs de lancement du Run 3", () => {
+  const catalogue: CapabilityCatalog = {
+    has: (n) => n === "search_everything", allowed: () => true,
+    meta: (n) => ({ ...capabilityMeta(n), effect: "READ" }), brief: () => [],
+  };
+  const acteur: MissionActor = { userId: "u1", label: "Testeur", isAgent: false };
+
+  it("clé « recherche:federée » (accent) : ASSAINIE, références réécrites, mission CRÉÉE — plus jamais un refus", () => {
+    const r = compile({
+      objective: "objectif de test",
+      acceptance: ["[REGLE:RECHERCHES_AVEC_REQUETE:recherche:federée] Interrogé avec « Zorbamyxine »."],
+      complexity: "A", scale: "S",
+      steps: [
+        { key: "recherche:federée", title: "Recherche fédérée", nodeType: "CAPABILITY",
+          capability: "search_everything", input: { query: "Zorbamyxine" }, dependsOn: [] },
+        { key: "synthese", title: "Synthèse", nodeType: "WORKER", dependsOn: ["recherche:federée"],
+          reasoningRequirement: "LIGHT" },
       ],
-      new Set(["recherche:dossiers", "analyse:priorisation"]),
-    )).toEqual([]);
+      workstreams: [], expectedArtifacts: [], approvalStrategy: "BUNDLE", gaps: [],
+    }, catalogue, acteur);
+    expect(r.ok, r.ok ? "" : JSON.stringify((r as { issues: unknown }).issues)).toBe(true);
+    if (!r.ok) return;
+    const cles = r.mission.steps.map((s) => s.key);
+    expect(cles).toContain("recherche:federee");
+    expect(r.mission.steps.find((s) => s.key === "synthese")?.dependsOn).toEqual(["recherche:federee"]);
+    expect(r.mission.acceptance[0]).toContain("recherche:federee");
+    expect(r.warnings.some((w) => w.message.includes("assainie"))).toBe(true);
   });
 
-  it("RECHERCHES_AVEC_REQUETE sans terme cité « » est refusée à la compilation — rien à vérifier sinon", () => {
-    const problemes = validerReglesDacceptation(
-      ["[REGLE:RECHERCHES_AVEC_REQUETE:recherche-a] Les recherches ont été faites."],
-      new Set(["recherche-a"]),
-    );
-    expect(problemes).toHaveLength(1);
-    expect(problemes[0]).toContain("« »");
-  });
-
-  it("le COMPILATEUR refuse un plan dont une règle cite une étape fantôme — le refus repart au planificateur", () => {
-    const catalogue: CapabilityCatalog = {
-      has: () => false, allowed: () => true, meta: (n) => capabilityMeta(n), brief: () => [],
-    };
-    const acteur: MissionActor = { userId: "u1", label: "Testeur", isAgent: false };
+  it("règle citant une étape FANTÔME : la mission est CRÉÉE, la règle réparée ou déclassée — dit en warning", () => {
     const r = compile({
       objective: "objectif de test",
       acceptance: ["[REGLE:SORTIE_STRUCTUREE:fantome:trouve] La sortie est rendue."],
       complexity: "A", scale: "S",
-      steps: [{ key: "vraie-etape", title: "Travailler", nodeType: "WORKER", dependsOn: [], approvalRequirement: "NONE", reasoningRequirement: "LIGHT" }],
+      steps: [{ key: "vraie-etape", title: "Travailler", nodeType: "WORKER", dependsOn: [],
+        approvalRequirement: "NONE", reasoningRequirement: "LIGHT",
+        expectedOutputSchema: { type: "object", properties: { trouve: { type: "boolean" } } } }],
+      workstreams: [], expectedArtifacts: [], approvalStrategy: "BUNDLE", gaps: [],
+    }, catalogue, acteur);
+    expect(r.ok, r.ok ? "" : JSON.stringify((r as { issues: unknown }).issues)).toBe(true);
+    if (!r.ok) return;
+    // UNE SEULE étape du plan peut porter le champ exigé : la règle est réparée sur elle.
+    expect(r.mission.acceptance[0]).toContain("vraie-etape");
+    expect(r.warnings.some((w) => w.message.includes("réparée"))).toBe(true);
+  });
+
+  it("SABOTAGE inverse — deux clés IDENTIQUES restent un refus DUPLICATE_KEY : l'assainissement ne blanchit pas une vraie faute", () => {
+    const r = compile({
+      objective: "objectif de test",
+      acceptance: ["critère sémantique."],
+      complexity: "A", scale: "S",
+      steps: [
+        { key: "étape dupliquée", title: "A", nodeType: "WORKER", dependsOn: [], reasoningRequirement: "LIGHT" },
+        { key: "étape dupliquée", title: "B", nodeType: "WORKER", dependsOn: [], reasoningRequirement: "LIGHT" },
+      ],
       workstreams: [], expectedArtifacts: [], approvalStrategy: "BUNDLE", gaps: [],
     }, catalogue, acteur);
     expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.issues.some((i) => i.message.includes("« fantome »"))).toBe(true);
-    }
+    if (!r.ok) expect(r.issues.some((i) => i.code === "DUPLICATE_KEY")).toBe(true);
+  });
+
+  it("deux clés DISTINCTES qui se normalisent pareil se suffixent — aucune étape n'est perdue", () => {
+    const r = compile({
+      objective: "objectif de test",
+      acceptance: ["critère sémantique."],
+      complexity: "A", scale: "S",
+      steps: [
+        { key: "recherche federée", title: "A", nodeType: "WORKER", dependsOn: [], reasoningRequirement: "LIGHT" },
+        { key: "recherche fédérée", title: "B", nodeType: "WORKER", dependsOn: [], reasoningRequirement: "LIGHT" },
+      ],
+      workstreams: [], expectedArtifacts: [], approvalStrategy: "BUNDLE", gaps: [],
+    }, catalogue, acteur);
+    expect(r.ok, r.ok ? "" : JSON.stringify((r as { issues: unknown }).issues)).toBe(true);
+    if (!r.ok) return;
+    const cles = r.mission.steps.map((s) => s.key).sort();
+    expect(cles).toHaveLength(2);
+    expect(new Set(cles).size).toBe(2);
+    expect(cles[0]).toBe("recherche-federee");
+  });
+});
+
+describe("RECHERCHES_AVEC_REQUETE v2 — « exécuté = prévu », le Run 3 ne se reproduit pas", () => {
+  it("comparaison A/B : la branche B cherche B — PASS, parce que la référence est la requête PRÉVUE, pas le terme cité", () => {
+    const steps = [
+      etape({ key: "branche-a", input: { query: "Zorbamyxine" }, recu: recu({ query: "recherche « Zorbamyxine »" }) }),
+      etape({ key: "branche-b", input: { query: "Cortexal" }, recu: recu({ query: "recherche « Cortexal »" }) }),
+    ];
+    const p = partitionnerCriteres(
+      ["[REGLE:RECHERCHES_AVEC_REQUETE:branche-a,branche-b] Les deux produits comparés, dont « Zorbamyxine »."],
+      steps,
+    );
+    expect(p.regles[0].verdict).toBe("PASS");
+  });
+
+  it("SABOTAGE — le reçu ne porte PAS la requête prévue au plan : FAIL, même si le terme cité y est", () => {
+    const steps = [
+      etape({ key: "recherche-a", input: { query: "contrat Beker" }, recu: recu({ query: "recherche « Zorbamyxine-K7 »" }) }),
+    ];
+    const p = partitionnerCriteres(
+      ["[REGLE:RECHERCHES_AVEC_REQUETE:recherche-a] Interrogée avec « Zorbamyxine-K7 »."],
+      steps,
+    );
+    expect(p.regles[0].verdict).toBe("FAIL");
+    expect(p.regles[0].preuve).toContain("contrat Beker");
+  });
+
+  it("un ÉVENTAIL déployé se prouve sur ses FILLES : chacune porte sa requête résolue", () => {
+    const steps = [
+      etape({ key: "lire", recu: null, result: { expanded: 2, keys: ["lire#a", "lire#b"], source: "cibler.items" } }),
+      etape({ key: "lire#a", input: { query: "Produit A" }, recu: recu({ query: "recherche « Produit A »" }) }),
+      etape({ key: "lire#b", input: { query: "Produit B" }, recu: recu({ query: "recherche « Produit B »" }) }),
+    ];
+    const p = partitionnerCriteres(
+      ["[REGLE:RECHERCHES_AVEC_REQUETE:lire] Chaque produit du dossier recherché."],
+      steps,
+    );
+    expect(p.regles[0].verdict).toBe("PASS");
+  });
+
+  it("AUCUNE_ECRITURE reconnaît le parent d'éventail ({expanded}) et l'étape DÉDUPLIQUÉE — plus de faux « sans reçu »", () => {
+    const p = partitionnerCriteres(
+      ["[REGLE:AUCUNE_ECRITURE] Rien n'a été écrit."],
+      [
+        etape({ key: "eventail", recu: null, result: { expanded: 3, keys: ["e#1", "e#2", "e#3"] } }),
+        etape({ key: "doublon", recu: null, result: { deduplique: true } }),
+        etape({ key: "reelle", recu: recu() }),
+      ],
+    );
+    expect(p.regles[0].verdict).toBe("PASS");
   });
 });
