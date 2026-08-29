@@ -10,7 +10,7 @@ import { extractAttachmentText } from "@/lib/assistant-files";
 import { foldText } from "@/lib/assistant/memory-context";
 import { driveSemanticCandidates } from "@/lib/assistant/semantic-drive";
 import { classifyDocument, DOC_KIND_LABEL, type DocKind } from "@/platform/doc-kind";
-import { chercherContenu, enregistrerMentions, resoudreEntitesDe, documentsLies } from "@/lib/fabric";
+import { chercherContenu, enregistrerMentions, resoudreEntitesDe, documentsLies, loteurNoeudsDrive, type Loteur } from "@/lib/fabric";
 
 /**
  * DÉCOUVERTE DOCUMENTAIRE EN DRIVE « SALE » — retrouver un document que son NOM ne trahit pas.
@@ -61,6 +61,28 @@ export async function indexDriveNodeText(nodeId: string, versionId: string, text
   } catch (err) {
     console.error("[assistant] indexDriveNodeText failed", err);
   }
+}
+
+/**
+ * L'HYDRATATION EN LOT des candidats (fabric F6) — N candidats, UNE requête de nœuds.
+ *
+ * Avant : chaque boucle de vérification faisait UN `findUnique` par candidat, EN SÉRIE —
+ * vingt candidats, vingt allers-retours SQL. Ici la vague entière part ensemble : l'ACL se
+ * vérifie toujours NŒUD PAR NŒUD (le loteur rend des lignes, jamais un droit), mais en
+ * parallèle, et les lignes `DriveNode` sont servies par le loteur en un `findMany`.
+ * L'ordre d'entrée est conservé ; refusé, absent ou à la corbeille → écarté.
+ */
+async function hydraterCandidats<H extends { nodeId: string }>(
+  user: CurrentUser,
+  noeuds: Loteur<{ id: string; name: string; isTrashed: boolean }>,
+  hits: readonly H[],
+): Promise<{ hit: H; node: { name: string } }[]> {
+  const paires = await Promise.all(hits.map(async (hit) => {
+    const [acces, node] = await Promise.all([resolveDriveAccess(user, hit.nodeId), noeuds.charger(hit.nodeId)]);
+    if (!canViewDrive(acces) || !node || node.isTrashed) return null;
+    return { hit, node };
+  }));
+  return paires.filter((p): p is NonNullable<typeof p> => p !== null);
 }
 
 interface NodeText {
@@ -223,6 +245,9 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
        * AVANT toute exploitation — un index n'est jamais une porte dérobée.
        */
       const kindWhere = kindFilter ? { docKind: kindFilter } : {};
+      // Le loteur de CETTE recherche (fabric F6) : sa mesure {logiques, physiques} est celle
+      // de cette recherche-là, et elle est DITE dans la couverture — jamais affirmée.
+      const noeudsEnLot = loteurNoeudsDrive();
       const contenu = await chercherContenu("drive", tokens, { limit: 15, docKind: kindFilter ?? null });
       const indexed = contenu.candidats.length === 0 ? [] : await prisma.driveTextIndex.findMany({
         where: { nodeId: { in: contenu.candidats.map((c) => c.id) } },
@@ -232,10 +257,9 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
       const rangDe = new Map(contenu.candidats.map((c, i) => [c.id, i]));
       indexed.sort((a, b) => (rangDe.get(a.nodeId) ?? 99) - (rangDe.get(b.nodeId) ?? 99));
       const semanticByNode = new Map<string, number>();
-      for (const hit of indexed) {
-        if (!canViewDrive(await resolveDriveAccess(user, hit.nodeId))) continue; // jamais le contenu d'autrui
-        const node = await prisma.driveNode.findUnique({ where: { id: hit.nodeId }, select: { name: true, isTrashed: true } });
-        if (!node || node.isTrashed) continue;
+      // L'ACL reste vérifiée nœud par nœud (jamais le contenu d'autrui) — en PARALLÈLE, et
+      // les nœuds arrivent par le loteur : une vague, une requête (fabric F6).
+      for (const { hit, node } of await hydraterCandidats(user, noeudsEnLot, indexed)) {
         const matchedInContent = countMatches(foldText(hit.text), tokens);
         const f = findings.get(hit.nodeId) ?? { nodeId: hit.nodeId, nom: node.name, matchedInName: countMatches(foldText(node.name), tokens), matchedInContent: 0, contentChecked: false };
         f.matchedInContent = Math.max(f.matchedInContent, matchedInContent);
@@ -267,10 +291,7 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
           where: { nodeId: { in: lies.map((l) => l.nodeId) }, ...kindWhere },
           select: { nodeId: true, text: true, note: true, docKind: true },
         });
-        for (const hit of rows) {
-          if (!canViewDrive(await resolveDriveAccess(user, hit.nodeId))) continue;
-          const node = await prisma.driveNode.findUnique({ where: { id: hit.nodeId }, select: { name: true, isTrashed: true } });
-          if (!node || node.isTrashed) continue;
+        for (const { hit, node } of await hydraterCandidats(user, noeudsEnLot, rows)) {
           const f = findings.get(hit.nodeId) ?? { nodeId: hit.nodeId, nom: node.name, matchedInName: countMatches(foldText(node.name), tokens), matchedInContent: 0, contentChecked: false };
           f.matchedInContent = Math.max(f.matchedInContent, countMatches(foldText(hit.text), tokens));
           f.entiteLiee = f.entiteLiee ?? ent.label;
@@ -299,10 +320,7 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
             where: { nodeId: { in: semanticHits.map((h) => h.nodeId) }, ...kindWhere },
             select: { nodeId: true, text: true, note: true, docKind: true },
           });
-          for (const hit of rows) {
-            if (!canViewDrive(await resolveDriveAccess(user, hit.nodeId))) continue;
-            const node = await prisma.driveNode.findUnique({ where: { id: hit.nodeId }, select: { name: true, isTrashed: true } });
-            if (!node || node.isTrashed) continue;
+          for (const { hit, node } of await hydraterCandidats(user, noeudsEnLot, rows)) {
             const f = findings.get(hit.nodeId) ?? { nodeId: hit.nodeId, nom: node.name, matchedInName: countMatches(foldText(node.name), tokens), matchedInContent: 0, contentChecked: false };
             f.semScore = semanticByNode.get(hit.nodeId);
             f.matchedInContent = Math.max(f.matchedInContent, countMatches(foldText(hit.text), tokens));
@@ -407,6 +425,12 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
             ...(semanticUsed ? ["similarité SÉMANTIQUE (repli — le lexical n'avait rien par le contenu)"] : []),
             "lecture de vérification bornée des meilleurs candidats",
           ],
+          // La mesure du LOT (fabric F6) : N hydratations logiques servies en K requêtes.
+          // Dite, jamais affirmée — c'est le compteur du loteur de CETTE recherche.
+          hydratation: (() => {
+            const m = noeudsEnLot.mesure();
+            return m.logiques > 0 ? `${m.logiques} candidat(s) hydratés en ${m.physiques} requête(s) (lot fabric)` : undefined;
+          })(),
         },
         rappel: "Le nom d'un fichier est un INDICE, pas une preuve : ne conclure qu'à partir des résultats HAUTE/MOYENNE (contenu vérifié), et lire le document (read_document) avant d'en citer un chiffre.",
       });

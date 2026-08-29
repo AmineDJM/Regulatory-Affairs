@@ -12,3 +12,4 @@ export {
 } from "@/lib/fabric/mentions";
 export { SOURCES, fraicheurDe, type DescripteurSource, type Fraicheur } from "@/lib/fabric/registry";
 export { lireEtatChaud, rechaufferEtatChaud, invaliderEtatsChauds, type LectureChaude } from "@/lib/fabric/hot-state";
+export { creerLoteur, loteurNoeudsDrive, type Loteur, type MesureLoteur } from "@/lib/fabric/bulk";
