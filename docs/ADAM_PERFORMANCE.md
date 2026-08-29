@@ -353,3 +353,57 @@ unité refaite, vagues bornées, **9,6 s, Δ tas 23 Mo**. La profondeur de chaî
   émette EMAIL_RECEIVED en production.
 - Tarifs réels si différents des défauts : `ADAM_PRICE_*`, `ADAM_PRICE_WEB_SEARCH_CALL`,
   `ADAM_PRICE_<ROLE>_CACHED_IN` ; concurrence : `ADAM_MODEL_CONCURRENCY`.
+
+## J. LA COUCHE D'ACCEPTANCE DU RUN 4 (2026-08-29) — chaque capacité, prouvée DANS le run
+
+Le Run 4 n'est plus « 54 missions + des promesses » : `npm run adam:smoke:deep` joue d'abord
+les 54 missions historiques (INTACTES, comparables au Run 3), puis une **couche d'acceptance de
+23 scénarios** (`src/platform/in-process/missions/acceptance.ts`) qui traverse les chemins de
+production, et imprime un **verdict automatique** (§29) — jamais écrit à la main.
+
+**La règle unique** : on raccourcit le temps (horloges injectées), on simule l'extérieur quand
+c'est nécessaire (Gmail servi à la frontière exacte du fournisseur, raisonneur scripté vérifié
+contre le schéma strict), mais on ne raccourcit **jamais** le chemin de production — pas de
+`resumeMission()` à la main, pas de `setTimeout`, pas d'écriture d'état directe.
+
+### J.1 Les 23 scénarios et leur statut local (sans OPENAI_API_KEY)
+
+| Code | Capacité | Local | Preuve jouée |
+|---|---|---|---|
+| BG-1 | Background | PASS | détaché en ~7 ms, interactif servi PENDANT (P50 6 ms), conclu COMPLETED |
+| BG-2 | Background | PASS | PAUSED exclu du battement ; reprise réinscrite ; attente intacte |
+| BG-3 | Background | PASS | CANCELLED terminal ; l'événement attendu arrivé APRÈS ne réveille rien |
+| BG-4 | Controls | PASS | priorité bornée +10 et SERVIE en tête de file ; plafond modèle posé/retiré |
+| TIME-1 | Wait-for-time | PASS | `waitFor.until` persisté ; ignoré avant l'heure ; réveillé par le balayage à horloge injectée |
+| EVT-1 | Wait-for-event | PASS | 4 presque-bons ignorés (expéditeur, pièce, objet, motif) ; le bon réveille ; rejeu inerte |
+| EVT-2 | Composition ET | PASS | branche 1 → `attenteProgres [0]` EN BASE ; rejeu inerte ; branche 2 → DONE |
+| REM-1 | Rappels | PASS | créé par l'OUTIL `plan_reminder` (« dans 48h » lu en code) ; échelle consommée puis extinction |
+| REM-2 | Rappels | PASS | réponse SANS pièce n'éteint pas ; le contrat AVEC pièce éteint rappel + relances |
+| MAIL-1 | E-mail | PASS | frontière exacte (format=full) : dédup, pièce extraite canonique, EMAIL_RECEIVED, réveil, rejeu duplicate |
+| CRASH-1 | Crash/restart | PASS | 3/8 avant coupure ; bail fantôme expiré repris ; reçus IDENTIQUES, zéro rejeu |
+| MASS-1 | Massif+progrès | PASS | 120 filles réelles en ~2 s par le harnais des 54 ; progression = compte exact vue/base |
+| PAT-1 | Formes de plans | PASS | 3 réussites → VALIDATED ; la 4ᵉ planification reçoit l'indication ; `formesProposees` au journal |
+| SPEC-1/2 | Spéculation | PASS | utile : finie pendant 250 ms de modèle ; inutile : abandonnée sans contamination |
+| CHEAT-1 | Anti-triche | PASS | paraphrase inédite = même verdict ; COMPLETED sans objectif reste DÉFAUT |
+| COST-1 | Coût | PASS | `costOf` exact avec remise cache, plein tarif sans, `null` dès qu'un tarif manque |
+| WEB-1/2/3, CONC-1, TOK-1, CACHE-1 | live | NOT_PROVEN_LIVE | exigent le fournisseur réel — joués au Run 4 sur Render |
+
+### J.2 Ce que le verdict §29 imprime (mesuré, jamais estimé)
+HISTORICAL x/54, NEW AUTONOMY x/x, statut par capacité, NO_DUPLICATE_EFFECT, FALSE_SUCCESS,
+FALSE_BLOCK, DEFECTS, REPLANS, MODEL_CALLS, P50/P95, TOTAL_TOKENS (entrée/sortie),
+CACHED_TOKENS + taux, WEB_SEARCH_CALLS, TOTAL_COST (**exact ou INCONNU avec le nombre d'appels
+sans tarif — jamais un partiel déguisé**), WASTED_MODEL_CALLS.
+
+### J.3 L'instrumentation qui rend ces chiffres possibles
+- `throttle.ts` : `conso {appels, estimes, reels, entree, sortie, caches, webSearch, coutUsd,
+  appelsSansPrix}` + `observations[]` (20 derniers en-têtes x-ratelimit, nombres uniquement) ;
+- `gateway.ts` : chaque réponse pousse son usage COMPLET (`noterConsommation(estimation, usage)`) ;
+- deep smoke : `facture` par mission (appels, entrée/sortie, cache) + section « FACTURE PAR
+  MISSION » au rapport — le coût en dollars n'y est pas ventilé (plusieurs rôles = plusieurs
+  tarifs ; un partiel serait un mensonge), le total EXACT vit au verdict ;
+- `lancerMission` journalise `formesProposees` dans CREATED (§64 auditable mission par mission).
+
+### J.4 Réglages du Run 4
+`DEEP_SMOKE_SANS_ACCEPTANCE=1` saute la couche (comparaison pure Run 3) ; sinon elle se joue
+après les 54 et le code de sortie devient 1 sur tout FAIL d'acceptance (les NOT_PROVEN_LIVE
+n'échouent jamais le run : leur devoir est d'être DITS).

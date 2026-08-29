@@ -196,6 +196,7 @@ describe("carteDeScore (§71) — les taux qui décident, agrégés par le code"
     sur: Partial<ResultatMission> = {},
   ): MissionProfonde => ({
     genre, titre: genre, attendu: "OBSERVE", verdict, raisonVerdict: "—",
+    facture: { appels: 0, entree: 0, sortie: 0, caches: 0 },
     resultat: resultat({
       genre,
       statutFinal: verdict === "SUCCES" ? "COMPLETED" : "BLOCKED",

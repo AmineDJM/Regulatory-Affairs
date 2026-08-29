@@ -300,6 +300,9 @@ export async function lancerMission(
       role: plan.metriques.role,
       latencyMs: plan.metriques.latencyMs,
       gaps: mission.gaps,
+      // §64 : combien de FORMES ÉPROUVÉES ont été murmurées au planner pour CE plan — le
+      // chiffre qui rend « les patterns influencent » vérifiable au journal, mission par mission.
+      formesProposees: formesValidees.length,
     });
 
   // ── L'ACCORD (§32-33) — un pour un lot cohérent, jamais quatre-vingt-dix-neuf ─────────

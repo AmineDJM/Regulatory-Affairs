@@ -95,6 +95,34 @@ interface EtatPorte {
   refus429: number;
   retrecissements: number;
   attentesJetons: number;
+  /**
+   * LA COMPTABILITÉ DE LA RÉSERVATION (§61) ET DU COÛT (§17) — cumulée sur le processus.
+   *
+   * `estimes` est ce que la porte a provisionné, `reels` ce que le fournisseur a facturé
+   * (entrée + sortie) : l'écart dit si l'estimation « 4 caractères par jeton + plafond de
+   * sortie » est du bon ORDRE — la seule exigence qu'elle a. `caches` compte les jetons
+   * d'entrée servis depuis le cache de prompt, `webSearch` les recherches web facturées.
+   *
+   * `coutUsd` est la somme des coûts EXACTS rendus par les adaptateurs ; dès qu'UN appel n'a
+   * pas de tarif (`costUsd: null`), `appelsSansPrix` monte et le total doit être annoncé
+   * INCONNU — jamais un total partiel présenté comme complet (§78).
+   */
+  conso: {
+    appels: number; estimes: number; reels: number;
+    entree: number; sortie: number; caches: number; webSearch: number;
+    coutUsd: number; appelsSansPrix: number;
+  };
+  /**
+   * LES DERNIERS EN-TÊTES OBSERVÉS du fournisseur — des NOMBRES et des durées, jamais un
+   * contenu, jamais une clé. C'est la preuve « le contrôleur s'ajuste à de vraies valeurs »
+   * qu'un rapport de run peut imprimer sans rien exposer.
+   */
+  observations: {
+    a: number;
+    limitRequests: number | null; remainingRequests: number | null; resetRequestsMs: number | null;
+    limitTokens: number | null; remainingTokens: number | null; resetTokensMs: number | null;
+    retryAfterMs: number | null;
+  }[];
 }
 
 function neuf(): EtatPorte {
@@ -113,6 +141,12 @@ function neuf(): EtatPorte {
     refus429: 0,
     retrecissements: 0,
     attentesJetons: 0,
+    conso: {
+      appels: 0, estimes: 0, reels: 0,
+      entree: 0, sortie: 0, caches: 0, webSearch: 0,
+      coutUsd: 0, appelsSansPrix: 0,
+    },
+    observations: [],
   };
 }
 
@@ -269,6 +303,18 @@ export function noterEnTetes(h: Headers | Record<string, string | null | undefin
   if (jetRestant != null) {
     etat.jetons = { restant: jetRestant, limite: jetLimite, resetA: jetReset != null ? t + jetReset : etat.jetons.resetA };
   }
+
+  // L'ÉCHANTILLON D'OBSERVATIONS — des nombres, pour que le rapport de run puisse PROUVER que
+  // le contrôleur a lu de vraies valeurs fournisseur. Borné aux 20 dernières.
+  if (reqRestant != null || jetRestant != null) {
+    etat.observations.push({
+      a: t,
+      limitRequests: reqLimite, remainingRequests: reqRestant, resetRequestsMs: reqReset,
+      limitTokens: jetLimite, remainingTokens: jetRestant, resetTokensMs: jetReset,
+      retryAfterMs: lireDuree(lire("retry-after")),
+    });
+    if (etat.observations.length > 20) etat.observations.shift();
+  }
 }
 
 /**
@@ -281,6 +327,33 @@ export function noter429(retryAfter: string | null | undefined, resetRequetes?: 
   etat.capacite = Math.max(1, Math.floor(etat.capacite / 2));
   const demande = lireDuree(retryAfter) ?? lireDuree(resetRequetes) ?? 2_000;
   etat.pauseJusqua = Math.max(etat.pauseJusqua, maintenant() + Math.max(2_000, demande));
+}
+
+/**
+ * LA CONSOMMATION RÉELLE D'UN APPEL, face à son estimation (§61). Poussée par la passerelle
+ * après chaque réponse : c'est ce qui rend l'écart estimation/réalité, le cache, les
+ * recherches web et le COÛT du run imprimables au rapport — mesurés, jamais estimés.
+ */
+export function noterConsommation(
+  estimes: number,
+  usage: {
+    inputTokens: number; outputTokens: number; cachedInputTokens?: number;
+    costUsd?: number | null; webSearchCalls?: number;
+  },
+): void {
+  const entree = Math.max(0, Math.round(usage.inputTokens));
+  const sortie = Math.max(0, Math.round(usage.outputTokens));
+  etat.conso.appels += 1;
+  etat.conso.estimes += Math.max(0, Math.round(estimes));
+  etat.conso.reels += entree + sortie;
+  etat.conso.entree += entree;
+  etat.conso.sortie += sortie;
+  etat.conso.caches += Math.max(0, Math.round(usage.cachedInputTokens ?? 0));
+  etat.conso.webSearch += Math.max(0, Math.round(usage.webSearchCalls ?? 0));
+  // LE COÛT EST EXACT OU INCONNU (§78) : un appel sans tarif ne met pas zéro dans la somme —
+  // il rend le TOTAL inannonçable, et `appelsSansPrix` dit pourquoi.
+  if (usage.costUsd == null) etat.conso.appelsSansPrix += 1;
+  else etat.conso.coutUsd += usage.costUsd;
 }
 
 /** Un succès. Dix d'affilée regagnent UN cran de capacité — l'additif de l'AIMD. */
@@ -307,6 +380,8 @@ export function etatPorte(): {
   refus429: number;
   retrecissements: number;
   attentesJetons: number;
+  conso: EtatPorte["conso"];
+  observations: EtatPorte["observations"];
 } {
   return {
     capacite: etat.capacite,
@@ -322,6 +397,8 @@ export function etatPorte(): {
     refus429: etat.refus429,
     retrecissements: etat.retrecissements,
     attentesJetons: etat.attentesJetons,
+    conso: { ...etat.conso },
+    observations: [...etat.observations],
   };
 }
 

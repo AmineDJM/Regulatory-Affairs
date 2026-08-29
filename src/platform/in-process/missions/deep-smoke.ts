@@ -325,6 +325,13 @@ export interface MissionProfonde {
   verdict: VerdictProfond;
   raisonVerdict: string;
   resultat: ResultatMission;
+  /**
+   * LA FACTURE TECHNIQUE DE CETTE MISSION (§17) — lue sur SON instrument : appels, jetons
+   * d'entrée/sortie et jetons servis du cache. Le COÛT en dollars n'est PAS ventilé ici :
+   * une mission mêle plusieurs rôles (donc plusieurs tarifs), et un partiel présenté comme
+   * un coût serait un mensonge — le total EXACT du run vit à la porte (`etatPorte().conso`).
+   */
+  facture: { appels: number; entree: number; sortie: number; caches: number };
 }
 
 /** Ce qu'un PALIER de charge a mesuré — jamais estimé, toujours compté sur ses missions. */
@@ -462,11 +469,19 @@ export async function deepSmoke(
             metriques: { modele: null, entree: 0, sortie: 0, ouvertes: null },
           }));
         const v = verdictProfond(r);
-        const fait: MissionProfonde = { genre: sc.genre, titre: sc.titre, attendu: sc.attendu, verdict: v.verdict, raisonVerdict: v.raison, resultat: r };
+        const j = instrument.jetons();
+        const fait: MissionProfonde = {
+          genre: sc.genre, titre: sc.titre, attendu: sc.attendu,
+          verdict: v.verdict, raisonVerdict: v.raison, resultat: r,
+          facture: {
+            appels: instrument.appels.length,
+            entree: j.entree, sortie: j.sortie,
+            caches: instrument.appels.reduce((s, a) => s + (a.jetonsCaches ?? 0), 0),
+          },
+        };
         faits.push(fait);
         out.missions.push(fait);
         out.modele ??= metriques.modele;
-        const j = instrument.jetons();
         out.jetonsEntree += j.entree;
         out.jetonsSortie += j.sortie;
         out.appelsModele += instrument.appels.length;
@@ -712,6 +727,20 @@ export function rendreTexteDeep(r: ResultatDeep): string {
   if (r.ecartes.length > 0) {
     l.push("  GENRES ÉCARTÉS (aucune donnée réelle — dits, jamais simulés) :");
     for (const e of r.ecartes) l.push(`    ${e.genre.padEnd(22)} ${e.raison}`);
+    l.push("");
+  }
+
+  // ── LA FACTURE PAR MISSION (§17) — appels · entrée · sortie · cache, lus sur l'instrument
+  //    de CHAQUE mission. Le coût en dollars n'est pas ventilé ici (plusieurs rôles = plusieurs
+  //    tarifs, et un partiel serait un mensonge) : le total EXACT du run est au verdict global.
+  const facturees = r.missions.filter((m) => m.facture.appels > 0);
+  if (facturees.length > 0) {
+    l.push("  FACTURE PAR MISSION (§17) — appels · jetons entrée/sortie · dont cache (les plus chères d'abord) :");
+    const triees = [...facturees].sort((a, b) => (b.facture.entree + b.facture.sortie) - (a.facture.entree + a.facture.sortie));
+    for (const m of triees.slice(0, 12)) {
+      l.push(`    ${m.genre.padEnd(20)} ${m.titre.slice(0, 26).padEnd(28)} ${String(m.facture.appels).padStart(2)} · ${String(m.facture.entree).padStart(7)}/${String(m.facture.sortie).padEnd(6)} · cache ${m.facture.caches}`);
+    }
+    if (triees.length > 12) l.push(`    … et ${triees.length - 12} autre(s) mission(s) — le détail complet est dans la ligne machine JSON.`);
     l.push("");
   }
 

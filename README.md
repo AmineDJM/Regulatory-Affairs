@@ -3402,6 +3402,30 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### ADAM RUN-4 ACCEPTANCE — chaque capacité prouvée DANS le run, verdict automatique (2026-08)
+
+**La couche d'acceptance** (`src/platform/in-process/missions/acceptance.ts`) : après les 54
+missions historiques (intactes, comparables au Run 3), `npm run adam:smoke:deep` joue
+**23 scénarios** qui traversent les chemins de production — on raccourcit le temps (horloges
+injectées), on simule l'extérieur à la frontière exacte (Gmail `format=full` servi par un fetch
+scellé sur le seul hôte Google, raisonneur scripté vérifié contre le schéma strict), mais
+**jamais le chemin** : `lancerMission`/`avancerMission`/`control.ts`, le vrai bus d'événements
+(`recordEvent` → conséquences → réveil), le vrai balayage temporel, l'outil `plan_reminder`,
+`ingestMessage`. Statuts sans ambiguïté : **PASS / FAIL / NOT_PROVEN_LIVE / ECARTE** — en local
+(clé absente) : 17 PASS déterministes, 6 NOT_PROVEN_LIVE dits. Couvert : détachement mesuré +
+interactif servi pendant le fond, pause/annulation terminale (l'événement en retard ne réveille
+rien), priorité SERVIE par l'ordonnanceur, réveil temporel persisté, 4 événements presque-bons
+ignorés vs le bon, composition ET à progression persistée, échelle de relances + extinction sur
+pièce, pipeline e-mail frontière→document canonique→réveil→dédup, crash avec reçus intacts (zéro
+rejeu), éventail 120 unités réelles + progression exacte (vue = base), formes VALIDATED qui
+influencent la 4ᵉ planification (`formesProposees` au journal CREATED), spéculation
+utile/abandonnée, anti-triche par paraphrase, coût exact-ou-null. **Le verdict §29** est imprimé
+par le harnais : HISTORICAL, NEW AUTONOMY, statut par capacité, FALSE_SUCCESS/FALSE_BLOCK,
+TOTAL_TOKENS/CACHED/WEB_SEARCH_CALLS et **TOTAL_COST exact ou INCONNU** (appels sans tarif
+comptés — jamais un partiel déguisé), alimenté par la porte (`throttle.ts` : conso complète +
+20 derniers en-têtes `x-ratelimit-*`) et la **facture par mission** du deep smoke. Détail :
+`docs/ADAM_PERFORMANCE.md` §J.
+
 ### ADAM RUN-4 — autonomie longue durée : temporel, e-mail, arrière-plan, web, massif (2026-08)
 
 **Le moteur temporel** (`src/lib/missions/events/temporal.ts`) : « demain à 10h », « dans 48h »,

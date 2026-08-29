@@ -72,6 +72,21 @@ async function main(): Promise<void> {
   console.log("");
   console.log(rendreTexteDeep(r));
   console.log("");
+
+  // ── LA COUCHE D'ACCEPTANCE (Run 4) : chaque capacité — fond, temps, événements, e-mail,
+  //    rappels, crash, massif, formes, spéculation, web, concurrence, cache, coût — prouvée
+  //    dans le MÊME run, par les chemins de production. DEEP_SMOKE_SANS_ACCEPTANCE=1 la saute.
+  const { executerAcceptance, rendreTexteAcceptance, verdictRun4 } =
+    await import("@/platform/in-process/missions/acceptance");
+  let acceptance = null as Awaited<ReturnType<typeof executerAcceptance>> | null;
+  if (process.env.DEEP_SMOKE_SANS_ACCEPTANCE !== "1") {
+    console.log("── ACCEPTANCE RUN 4 — chaque scénario ci-dessous traverse le produit réel ──");
+    acceptance = await executerAcceptance({ onScenario: (l) => console.log(l) });
+    console.log("");
+    console.log(rendreTexteAcceptance(acceptance));
+    console.log(verdictRun4(r, acceptance));
+    console.log("");
+  }
   // La ligne machine — verdicts et mesures, sans avoir à analyser le texte.
   console.log(JSON.stringify({
     jeton: r.jeton, modele: r.modele, missions: r.missions.length,
@@ -85,19 +100,32 @@ async function main(): Promise<void> {
     paliers: r.paliers, arretEscalade: r.arretEscalade, concurrenceRetenue: r.concurrenceRetenue,
     // LA CARTE DE SCORE §71 — les taux qui décident, agrégés par le code, pas par un lecteur.
     carte: carteDeScore(r),
+    // L'ACCEPTANCE RUN 4 — statuts et mesures par capacité, en machine.
+    acceptance: acceptance === null ? null : {
+      jeton: acceptance.jeton, live: acceptance.liveDisponible, compte: acceptance.compte,
+      scenarios: acceptance.scenarios.map((s) => ({
+        code: s.code, capacite: s.capacite, statut: s.statut, dureeMs: s.dureeMs,
+        mesures: s.mesures, preuve: s.preuve.slice(0, 300),
+      })),
+    },
     parMission: r.missions.map((m) => ({
       genre: m.genre, titre: m.titre, verdict: m.verdict, missionId: m.resultat.missionId,
       statut: m.resultat.statutFinal, stable: m.resultat.stable, goal: m.resultat.goalSatisfied,
       voie: m.resultat.cascade?.voiePlan ?? null, totalMs: m.resultat.cascade?.totalMs ?? null,
       replans: m.resultat.replanifications,
       appels: Object.values(m.resultat.appelsParUsage).reduce((a, b) => a + b, 0),
+      // LA FACTURE DE LA MISSION (§17) — l'instrument a compté, le rapport recopie.
+      facture: m.facture,
       // LE POURQUOI, pas juste le combien : le motif d'arrêt et le verdict du juge, tronqués.
       motif: m.resultat.motifArret.slice(0, 160),
       verdictJuge: m.resultat.goalVerdict?.slice(0, 220) ?? null,
     })),
   }));
 
-  process.exit(r.missions.some((m) => m.verdict === "DEFAUT") ? 1 : 0);
+  // Code de sortie : un DÉFAUT du deep smoke OU un FAIL d'acceptance rend 1 — les
+  // NOT_PROVEN_LIVE n'échouent pas le run : ils sont DITS, c'est leur seul devoir.
+  const echec = r.missions.some((m) => m.verdict === "DEFAUT") || (acceptance?.compte.fail ?? 0) > 0;
+  process.exit(echec ? 1 : 0);
 }
 
 main().catch((e) => {

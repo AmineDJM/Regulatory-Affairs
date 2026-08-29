@@ -15,7 +15,7 @@ import { DEFAULT_VERBOSITY } from "./registry";
 import { callAnthropic, streamAnthropic } from "./anthropic";
 import { recordModelCall } from "./telemetry";
 import { emptyUsage } from "./contract";
-import { prendrePlace, estimerJetons } from "./throttle";
+import { prendrePlace, estimerJetons, noterConsommation } from "./throttle";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -198,12 +198,17 @@ export async function callModel(
 
   // LA PORTE (§60) : la place se prend APRÈS la validation locale — un appel refusé avant le
   // réseau ne doit pas consommer de place — et se rend dans un `finally`, quoi qu'il arrive.
-  const rendre = await prendrePlace(estimationDe(turns, prepare.opts));
+  const estimation = estimationDe(turns, prepare.opts);
+  const rendre = await prendrePlace(estimation);
   try {
     const reply =
       prepare.protocol === "responses"
         ? await callOpenAiResponses(binding, turns, prepare.opts)
         : await callOpenAi(binding, turns, prepare.opts);
+    // La RÉALITÉ face à l'estimation (§61) : ce que le fournisseur a facturé — jetons, cache,
+    // recherches web, coût — poussé à la porte pour que l'écart et la facture du run soient des
+    // CHIFFRES de rapport, pas des opinions.
+    noterConsommation(estimation, reply.usage);
     recordModelCall(reply.usage);
     return reply;
   } finally {
@@ -233,12 +238,14 @@ export async function streamModel(
   const prepare = preparerOpenAi(binding, opts, true);
   if ("error" in prepare) return refus(binding, prepare.error);
 
-  const rendre = await prendrePlace(estimationDe(turns, prepare.opts));
+  const estimation = estimationDe(turns, prepare.opts);
+  const rendre = await prendrePlace(estimation);
   try {
     const reply =
       prepare.protocol === "responses"
         ? await streamOpenAiResponses(binding, turns, prepare.opts, onText)
         : await streamOpenAi(binding, turns, prepare.opts, onText);
+    noterConsommation(estimation, reply.usage);
     recordModelCall(reply.usage);
     return reply;
   } finally {
