@@ -140,6 +140,8 @@ export interface TurnSummary {
    * par tour est ce qui empêche le problème de redevenir invisible une fois le correctif oublié.
    */
   budgetTruncations: number;
+  /** Les recherches web exécutées sur le tour — facturées à l'unité, donc comptées à part. */
+  webSearchCalls: number;
   /** `null` dès qu'un seul appel a un tarif inconnu : un total partiel se lirait comme un total. */
   costUsd: number | null;
   firstPreviewMs: number | null;
@@ -154,6 +156,7 @@ export function summarize(trace: TurnTrace): TurnSummary {
   let cachedInputTokens = 0;
   let reasoningTokens = 0;
   let budgetTruncations = 0;
+  let webSearchCalls = 0;
   // Un seul tarif manquant rend le TOTAL inconnu. Additionner ce qu'on connaît et présenter la
   // somme comme le coût du tour serait un chiffre faux avec l'air d'un chiffre juste.
   let costUsd: number | null = 0;
@@ -164,6 +167,7 @@ export function summarize(trace: TurnTrace): TurnSummary {
     outputTokens += c.outputTokens;
     cachedInputTokens += c.cachedInputTokens;
     reasoningTokens += c.reasoningTokens ?? 0;
+    webSearchCalls += c.webSearchCalls ?? 0;
     if (c.incompleteReason === "max_output_tokens") budgetTruncations++;
     if (c.costUsd == null) costUsd = null;
     else if (costUsd != null) costUsd += c.costUsd;
@@ -181,6 +185,7 @@ export function summarize(trace: TurnTrace): TurnSummary {
     cachedInputTokens,
     reasoningTokens,
     budgetTruncations,
+    webSearchCalls,
     costUsd: costUsd == null ? null : Math.round(costUsd * 1_000_000) / 1_000_000,
     firstPreviewMs: trace.firstPreviewMs,
     finalMs: trace.finalMs,

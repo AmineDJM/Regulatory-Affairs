@@ -1,10 +1,41 @@
 import { prisma } from "@/lib/prisma";
 import { getAccess } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
-import { attentesEchues, missionsAFaireAvancer } from "@/lib/missions/events/router";
+import { attentesEchues, missionsAFaireAvancer, reveillerAttentesTemporelles } from "@/lib/missions/events/router";
 import { journaliser } from "@/lib/missions/runtime/store";
 import { prevenir } from "@/lib/missions/approval/gate";
-import { avancerMission, replanifierMission } from "@/platform/in-process/missions/runtime";
+import { avancerMission, rattraperLancementsPerdus, replanifierMission } from "@/platform/in-process/missions/runtime";
+import crypto from "crypto";
+
+/**
+ * L'IDENTITÉ DE CETTE INSTANCE — ce que le BAIL écrit en base. Deux battements (deux workers,
+ * un déploiement qui chevauche) ne font pas avancer la même mission en même temps : le premier
+ * qui prend le bail travaille, l'autre passe. La SÛRETÉ ne dépend pas du bail — les étapes se
+ * réservent une à une en base — mais sans lui, deux instances paieraient deux fois les mêmes
+ * tours de moteur.
+ */
+const INSTANCE = `${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
+const BAIL_MS = 90_000;
+
+/** Prend le bail d'une mission — atomique : la base tranche entre deux prétendants. */
+export async function prendreBail(missionId: string, maintenant = new Date()): Promise<boolean> {
+  const r = await prisma.mission.updateMany({
+    where: {
+      id: missionId,
+      OR: [{ leaseUntil: null }, { leaseUntil: { lt: maintenant } }, { leaseOwner: INSTANCE }],
+    },
+    data: { leaseOwner: INSTANCE, leaseUntil: new Date(maintenant.getTime() + BAIL_MS) },
+  });
+  return r.count === 1;
+}
+
+/** Rend le bail — seulement le sien : rendre le bail d'un autre le lui volerait. */
+export async function rendreBail(missionId: string): Promise<void> {
+  await prisma.mission.updateMany({
+    where: { id: missionId, leaseOwner: INSTANCE },
+    data: { leaseOwner: null, leaseUntil: null },
+  }).catch(() => undefined);
+}
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -88,6 +119,21 @@ export async function balayerMissions(): Promise<BalayageMissions> {
   const out: BalayageMissions = { examinees: 0, avancees: 0, etapesExecutees: 0, relances: 0, replanifiees: 0 };
   if ((process.env.MISSIONS_SWEEP ?? "").toLowerCase() === "off") return out;
 
+  // ── 0. LE TEMPS D'ABORD (WAIT_FOR_TIME) ─────────────────────────────────────────────
+  //
+  // Les échéances passées se règlent AVANT de chercher les missions à faire avancer : une
+  // mission dont « reviens demain 10 h » vient d'échoir devient candidate DANS CE battement,
+  // pas au suivant. La granularité est celle du battement (~60 s) — largement suffisante pour
+  // « demain », et aucun minuteur en mémoire à perdre au redéploiement.
+  await reveillerAttentesTemporelles(new Date()).catch(() => []);
+
+  // ── 0bis. LES LANCEMENTS PERDUS — le filet du lancement détaché (§5 durabilité) ───────
+  //
+  // Une mission-talon PLANNING sans étape dont le processus est mort entre « je m'en occupe »
+  // et la planification est RETROUVÉE ici et relancée. La demande n'est jamais perdue : elle
+  // vit en base depuis la première seconde.
+  await rattraperLancementsPerdus(proprietaire).catch(() => 0);
+
   // ── 1. LES MISSIONS QUI ONT QUELQUE CHOSE À FAIRE ───────────────────────────────────
   //
   // `missionsAFaireAvancer` est PRÉCISE : elle ne rend que les missions portant au moins une
@@ -98,17 +144,38 @@ export async function balayerMissions(): Promise<BalayageMissions> {
   const missions = candidates.length > 0
     ? await prisma.mission.findMany({
         where: { id: { in: candidates } },
-        select: { id: true, ownerId: true },
-      }).catch(() => [] as { id: string; ownerId: string }[])
+        select: { id: true, ownerId: true, modelCallsCap: true, modelCalls: true },
+      }).catch(() => [] as { id: string; ownerId: string; modelCallsCap: number | null; modelCalls: number }[])
     : [];
 
   const cache = new Map<string, CurrentUser | null>();
   for (const m of missions) {
     out.examinees += 1;
     try {
+      /**
+       * ── LE PLAFOND DE MODÈLE (« ne dépense plus de modèle sur ce dossier ») ──────────
+       *
+       * Atteint, la mission DORT — elle n'échoue pas, elle n'avance pas : lever le plafond la
+       * fait repartir au même point. Le battement le vérifie AVANT de payer quoi que ce soit.
+       */
+      if (m.modelCallsCap !== null && m.modelCalls >= m.modelCallsCap) {
+        const dejaDit = await prisma.missionEvent.findFirst({
+          where: { missionId: m.id, kind: "BUDGET_HOLD" }, select: { id: true },
+        });
+        if (!dejaDit) {
+          await journaliser(m.id, "BUDGET_HOLD",
+            `Plafond de modèle atteint (${m.modelCalls}/${m.modelCallsCap} appels) : la mission attend qu'on le relève.`,
+            { modelCalls: m.modelCalls, cap: m.modelCallsCap });
+        }
+        continue;
+      }
+
       if (!cache.has(m.ownerId)) cache.set(m.ownerId, await proprietaire(m.ownerId));
       const user = cache.get(m.ownerId);
       if (!user) continue;
+
+      // ── LE BAIL — deux battements concurrents ne paient pas deux fois les mêmes tours ──
+      if (!(await prendreBail(m.id))) continue;
 
       const r = await avancerMission(user, m.id, { maxTours: TOURS_PAR_MISSION });
       if (r && (r.executees > 0 || r.deployees > 0)) {
@@ -136,6 +203,11 @@ export async function balayerMissions(): Promise<BalayageMissions> {
       }
     } catch (e) {
       console.error(`[missions] avancement de ${m.id} échoué`, e);
+    } finally {
+      // Le bail se REND, même sur erreur — sinon la mission attendrait son expiration (90 s)
+      // avant que quiconque la reprenne. Un bail perdu (crash) expire tout seul : c'est le
+      // sabotage « lease lost », et il converge sans intervention.
+      await rendreBail(m.id);
     }
   }
 

@@ -1249,6 +1249,12 @@ export async function conclure(
   if (verdict.satisfait) {
     await transitionner(missionId, "RUNNING", "vérification de l'objectif");
     await transitionner(missionId, "COMPLETED", verdict.raison);
+    // LA FORME DE CE PLAN A RÉUSSI (§64) : elle s'inscrit au registre des formes — jamais le
+    // contenu, jamais bloquant, idempotente au rejeu. Import différé : la conclusion d'une
+    // mission ne charge le registre que lorsqu'elle a quelque chose à y écrire.
+    await import("@/lib/missions/planner/patterns")
+      .then((m) => m.enregistrerFormeReussie(missionId))
+      .catch(() => undefined);
     return "COMPLETED";
   }
 

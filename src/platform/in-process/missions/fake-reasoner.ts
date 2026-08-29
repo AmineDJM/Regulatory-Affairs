@@ -133,6 +133,10 @@ const DEFAUTS: Record<string, unknown> = {
   workstream: null, dependsOn: [], inputs: [], forEach: null, outputFields: [],
   approvalRequirement: "NONE", reasoningRequirement: "NONE", maxAttempts: null,
   waitFrom: null, waitEntity: null, waitWithinDays: null,
+  // Les attentes v2 (échéance, fil, objet, pièce, compositions) — nulles par défaut, comme le
+  // mode strict les fait voyager quand elles ne servent pas.
+  waitUntil: null, waitThreadId: null, waitSubject: null, waitAttachment: null,
+  waitAnyOf: null, waitAllOf: null,
 };
 
 type EtapeLibre = Record<string, unknown>;

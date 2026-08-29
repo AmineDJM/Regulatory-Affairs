@@ -1,5 +1,6 @@
 import { sanitizeForModel } from "@/lib/ai-text";
 import { mentionsUnsupportedTemperature, providerErrorMessage, isRetryableStatus } from "./errors";
+import { noterEnTetes, noter429, noterSucces } from "./throttle";
 import {
   type ModelBinding,
   type ModelBlock,
@@ -283,7 +284,12 @@ export async function callOpenAi(
         signal: opts.signal ?? AbortSignal.timeout(opts.timeoutMs ?? 120_000),
       });
 
+      // La porte de concurrence écoute les soldes et les 429 — même règle que sur Responses.
+      noterEnTetes(res.headers);
+      if (res.status === 429) noter429(res.headers.get("retry-after"), res.headers.get("x-ratelimit-reset-requests"));
+
       if (res.ok) {
+        noterSucces();
         const data = (await res.json()) as OaResponse;
         const choice = data.choices?.[0];
         const blocks = toBlocks(choice?.message);
@@ -314,7 +320,7 @@ export async function callOpenAi(
             inputTokens,
             outputTokens,
             cachedInputTokens: data.usage?.prompt_tokens_details?.cached_tokens ?? 0,
-            costUsd: costOf(binding, inputTokens, outputTokens),
+            costUsd: costOf(binding, inputTokens, outputTokens, data.usage?.prompt_tokens_details?.cached_tokens ?? 0),
             ms: Date.now() - started,
             attempts: attempt,
           },
@@ -528,7 +534,7 @@ export async function streamOpenAi(
         inputTokens,
         outputTokens,
         cachedInputTokens,
-        costUsd: costOf(binding, inputTokens, outputTokens),
+        costUsd: costOf(binding, inputTokens, outputTokens, cachedInputTokens),
         ms: Date.now() - started,
         attempts: 1,
       },

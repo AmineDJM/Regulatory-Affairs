@@ -137,3 +137,138 @@ describe("relecture d'une attente venue de la base", () => {
     expect(a).toBeNull();
   });
 });
+
+/* ═══════════ ATTENTES v2 — temps, e-mail typé, compositions (chantier Run 4) ═══════════ */
+
+import { decomposer, echueTemporelle, etatAttente, lireProgres, pieceRepond } from "@/lib/missions/events/match";
+
+const T0 = new Date("2026-08-29T10:00:00.000Z");
+
+describe("WAIT_FOR_TIME — une branche `until` se règle par l'horloge, jamais par un fait", () => {
+  it("échue quand l'instant passe, pas avant — l'horloge est un paramètre", () => {
+    const a = { until: "2026-08-30T09:00:00.000Z" };
+    expect(echueTemporelle(a, T0)).toBe(false);
+    expect(echueTemporelle(a, new Date("2026-08-30T09:00:00.000Z"))).toBe(true);
+    expect(echueTemporelle(a, new Date("2026-09-15T00:00:00.000Z"))).toBe(true);
+  });
+
+  it("un fait n'y peut RIEN : « reviens demain » ne se règle pas sur le premier e-mail venu", () => {
+    expect(correspond({ until: "2026-08-30T09:00:00.000Z" }, fait({ type: "EMAIL_RECEIVED" }))).toBe(false);
+  });
+
+  it("une échéance illisible n'échoit jamais — mieux vaut dormir que se réveiller au hasard", () => {
+    expect(echueTemporelle({ until: "demain" }, new Date("2099-01-01"))).toBe(false);
+  });
+});
+
+describe("attentes e-mail TYPÉES — fil, objet, pièce jointe (§23, §26)", () => {
+  const mail = (payload: Record<string, unknown>) =>
+    fait({ type: "EMAIL_RECEIVED", payload: { from: "sarah@partenaire.dz", ...payload } });
+
+  it("le FIL exact bat toute heuristique : bon threadId → oui, autre fil → non", () => {
+    const a = { event: "EMAIL_RECEIVED", threadId: "thr-77" };
+    expect(correspond(a, mail({ threadId: "thr-77" }))).toBe(true);
+    expect(correspond(a, mail({ threadId: "thr-99" }))).toBe(false);
+    expect(correspond(a, mail({}))).toBe(false);
+  });
+
+  it("l'objet s'inclut (≥ 4 caractères), insensible à la casse", () => {
+    const a = { event: "EMAIL_RECEIVED", subject: "contrat Beker" };
+    expect(correspond(a, mail({ subject: "RE: Contrat BEKER — version signée" }))).toBe(true);
+    expect(correspond(a, mail({ subject: "Facture mars" }))).toBe(false);
+  });
+
+  it("§26 — « je te l'envoie demain » SANS pièce ne règle PAS une attente qui exige la pièce", () => {
+    const a = { event: "EMAIL_RECEIVED", from: "sarah", attachment: true as const };
+    expect(correspond(a, mail({ subject: "Je te l'envoie demain", hasAttachments: false }))).toBe(false);
+    expect(correspond(a, mail({ subject: "Voici", attachments: ["contrat.pdf"] }))).toBe(true);
+  });
+
+  it("le motif de pièce filtre par nom : « contrat » et « *.pdf » attrapent contrat.pdf, pas photo.png", () => {
+    expect(pieceRepond("contrat", ["contrat.pdf"])).toBe(true);
+    expect(pieceRepond("*.pdf", ["contrat.pdf"])).toBe(true);
+    expect(pieceRepond("*.pdf", ["photo.png"])).toBe(false);
+    expect(pieceRepond("", ["contrat.pdf"])).toBe(false);
+    const a = { event: "EMAIL_RECEIVED", attachment: "contrat" };
+    expect(correspond(a, mail({ attachments: ["Contrat_Beker_v2.PDF"] }))).toBe(true);
+    expect(correspond(a, mail({ attachments: ["photo.png"] }))).toBe(false);
+  });
+});
+
+describe("compositions anyOf / allOf — l'état se calcule, la progression se PERSISTE", () => {
+  const contratDeSarah = { event: "EMAIL_RECEIVED", from: "sarah", attachment: "contrat" };
+  const devisDeMehdi = { event: "EMAIL_RECEIVED", from: "mehdi", attachment: "devis" };
+  const mailDe = (qui: string, piece: string) =>
+    fait({ type: "EMAIL_RECEIVED", payload: { from: `${qui}@x.dz`, attachments: [piece] } });
+
+  it("OU (§27) : « dès que Sarah OU Mehdi envoie » — le premier des deux règle tout", () => {
+    const a = { anyOf: [contratDeSarah, devisDeMehdi] };
+    const e = etatAttente(a, [], mailDe("mehdi", "devis-2026.pdf"), T0);
+    expect(e.complete).toBe(true);
+    expect(e.reglees).toEqual([1]);
+  });
+
+  it("ET (§27) : le contrat SEUL ne suffit pas ; contrat PUIS devis (progression relue) conclut", () => {
+    const a = { allOf: [contratDeSarah, devisDeMehdi] };
+    const apresContrat = etatAttente(a, [], mailDe("sarah", "contrat.pdf"), T0);
+    expect(apresContrat.complete).toBe(false);
+    expect(apresContrat.reglees).toEqual([0]);
+    // …redémarrage entre les deux : la progression revient DE LA BASE, pas de la mémoire.
+    const apresDevis = etatAttente(a, apresContrat.reglees, mailDe("mehdi", "devis.xlsx"), T0);
+    expect(apresDevis.complete).toBe(true);
+    expect(apresDevis.reglees).toEqual([0, 1]);
+  });
+
+  it("§42 — le MÊME fait rejoué ne progresse pas deux fois : l'état est idempotent", () => {
+    const a = { allOf: [contratDeSarah, devisDeMehdi] };
+    const une = etatAttente(a, [], mailDe("sarah", "contrat.pdf"), T0);
+    const deux = etatAttente(a, une.reglees, mailDe("sarah", "contrat.pdf"), T0);
+    expect(deux.nouvelles).toEqual([]);
+    expect(deux.reglees).toEqual(une.reglees);
+    expect(deux.complete).toBe(false);
+  });
+
+  it("ET mixte : « le contrat ET demain 10 h » — le fait règle l'une, l'horloge règle l'autre", () => {
+    const a = { allOf: [contratDeSarah, { until: "2026-08-30T09:00:00.000Z" }] };
+    const apresMail = etatAttente(a, [], mailDe("sarah", "contrat.pdf"), T0);
+    expect(apresMail.complete).toBe(false);
+    const apresTemps = etatAttente(a, apresMail.reglees, null, new Date("2026-08-30T09:00:01.000Z"));
+    expect(apresTemps.complete).toBe(true);
+  });
+
+  it("§43 — un événement EN RETARD règle quand même : la correspondance ne dépend pas de l'ordre d'arrivée", () => {
+    const a = { allOf: [contratDeSarah, devisDeMehdi] };
+    // Le devis est arrivé AVANT le contrat (ordre inverse du plan) : même conclusion.
+    const e1 = etatAttente(a, [], mailDe("mehdi", "devis.pdf"), T0);
+    const e2 = etatAttente(a, e1.reglees, mailDe("sarah", "contrat.pdf"), T0);
+    expect(e2.complete).toBe(true);
+  });
+
+  it("decomposer : une attente simple est UNE branche en mode ANY", () => {
+    expect(decomposer({ event: "X" })).toEqual({ mode: "ANY", branches: [{ event: "X" }] });
+  });
+
+  it("lireProgres relit la progression sans confiance — et rejette le reste", () => {
+    expect(lireProgres({ attenteProgres: [0, 2] })).toEqual([0, 2]);
+    expect(lireProgres({ attenteProgres: ["a", -1, 1.5, 3] })).toEqual([3]);
+    expect(lireProgres(null)).toEqual([]);
+    expect(lireProgres({ autre: true })).toEqual([]);
+  });
+
+  it("lireAttente relit les compositions à PROFONDEUR 1 — l'imbriqué au-delà est écarté, jamais deviné", () => {
+    const lu = lireAttente({
+      allOf: [
+        { event: "EMAIL_RECEIVED", from: "sarah", attachment: "contrat" },
+        { until: "2026-09-01T09:00:00.000Z" },
+        { anyOf: [{ event: "X" }] },
+      ],
+    });
+    expect(lu?.allOf).toHaveLength(2);
+    expect(lu?.allOf?.[0].attachment).toBe("contrat");
+    expect(lu?.allOf?.[1].until).toBe("2026-09-01T09:00:00.000Z");
+  });
+
+  it("lireAttente accepte une attente PUREMENT temporelle — c'est le WAIT_FOR_TIME", () => {
+    expect(lireAttente({ until: "2026-09-01T10:00:00.000Z" })?.until).toBe("2026-09-01T10:00:00.000Z");
+  });
+});

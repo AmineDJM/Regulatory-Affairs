@@ -464,6 +464,91 @@ suite("BANC D'ESSAI — Mission Runtime", () => {
     KPI.firstAttemptSuccess += 1;
   });
 
+  it("SCÉNARIO 18 — §40 : le processus MEURT à l'étape 37 de 50 ; le suivant reprend à 38, zéro double effet", async () => {
+    KPI.scenarios += 1;
+    // Cinquante étapes EN CHAÎNE (la limite de profondeur du compilateur est 60 — une garde
+    // OPÉRATIONNELLE assumée, §2 doctrine ; l'échelle 100+ vit en ÉVENTAIL, SCÉNARIO 19) : une
+    // vague = une étape, donc « maxTours: 37 » est EXACTEMENT le processus qui meurt après la
+    // 37ᵉ. Les reçus des 37 premières SONT le point de reprise — aucune table à part (§4).
+    const steps: PlannedStep[] = Array.from({ length: 50 }, (_, i) => ({
+      key: `u${i}`, title: `Unité ${i}`, capability: "send_message", input: { to: `dest-${i}` },
+      dependsOn: i === 0 ? [] : [`u${i - 1}`],
+    }));
+    const { id } = await creer(steps, "crash à 37 sur 100");
+
+    const t1 = traceur();
+    await avancer(id, actor, { runner: t1.runner, maxTours: 37 });
+    expect(t1.appels).toHaveLength(37); // le processus est mort ICI
+
+    // LE NOUVEAU PROCESSUS : un nouvel appel, un NOUVEAU runner — rien d'en-mémoire ne survit.
+    const t2 = traceur();
+    const r2 = await avancer(id, actor, { runner: t2.runner });
+    KPI.etapesExecutees += 37 + r2.executees;
+
+    // 1-37 ne sont PAS rejouées : le monde extérieur n'a reçu chaque effet qu'UNE fois.
+    const rejouees = t2.appels.filter((a) => Number(a.stepKey.slice(1)) < 37);
+    KPI.etapesRejouees += rejouees.length;
+    expect(rejouees).toHaveLength(0);
+    expect(t1.appels.length + t2.appels.length).toBe(50);
+
+    const etat = await chargerEtat(id);
+    expect(etat!.steps.filter((s) => s.status === "DONE")).toHaveLength(50);
+    // Chaque effet porte son reçu et sa clé d'idempotence — 50 clés DISTINCTES au total.
+    const cles = new Set([...t1.appels, ...t2.appels].map((a) => a.idempotencyKey));
+    expect(cles.size).toBe(50);
+    KPI.firstAttemptSuccess += 1;
+  }, 240_000);
+
+  it("SCÉNARIO 19 — §46 : 500 unités par le VRAI moteur — vagues bornées, mémoire mesurée, crash/reprise à l'échelle", async () => {
+    KPI.scenarios += 1;
+    const t1 = traceur({ gens: 500 });
+    const { id } = await creer([
+      { key: "liste", title: "Lister", capability: "directory_list" },
+      {
+        key: "envoi", title: "Envoyer", capability: "send_message",
+        forEach: { from: "liste", path: "gens", as: "g" }, input: { to: "{{g.id}}" },
+      },
+    ], "cinq cents unités");
+
+    if (global.gc) global.gc();
+    const heapAvant = process.memoryUsage().heapUsed;
+    const debut = Date.now();
+
+    // Phase 1 : le processus meurt en plein éventail (trois vagues).
+    await avancer(id, actor, { runner: t1.runner, maxTours: 3 });
+    const faitsAvantCrash = t1.appels.filter((a) => a.capability === "send_message").length;
+    expect(faitsAvantCrash).toBeGreaterThan(0);
+    expect(faitsAvantCrash).toBeLessThan(500);
+
+    // Phase 2 : le nouveau processus finit le travail — sans REFAIRE une seule unité.
+    const t2 = traceur({ gens: 500 });
+    const r2 = await avancer(id, actor, { runner: t2.runner });
+    const dureeMs = Date.now() - debut;
+    const heapDeltaMo = Math.round((process.memoryUsage().heapUsed - heapAvant) / 1_048_576);
+
+    const envois1 = t1.appels.filter((a) => a.capability === "send_message");
+    const envois2 = t2.appels.filter((a) => a.capability === "send_message");
+    expect(envois1.length + envois2.length).toBe(500);
+    const rejouees = envois2.filter((a) => envois1.some((b) => b.stepKey === a.stepKey));
+    KPI.etapesRejouees += rejouees.length;
+    expect(rejouees).toHaveLength(0);
+    // 500 destinataires distincts, 500 clés d'idempotence distinctes — l'isolation à l'échelle.
+    expect(new Set([...envois1, ...envois2].map((a) => a.input.to)).size).toBe(500);
+    expect(new Set([...envois1, ...envois2].map((a) => a.idempotencyKey)).size).toBe(500);
+
+    const etat = await chargerEtat(id);
+    expect(etat!.steps.filter((s) => s.status === "DONE").length).toBeGreaterThanOrEqual(501);
+    // LES VAGUES SONT BORNÉES par la concurrence — jamais « 500 d'un coup ».
+    expect(r2.tours).toBeLessThan(80);
+    // La mémoire reste plate : le contexte se COMPOSE, il ne s'accumule pas (§11 doctrine).
+    expect(heapDeltaMo).toBeLessThan(400);
+
+    KPI.etapesExecutees += envois1.length + r2.executees;
+    KPI.firstAttemptSuccess += 1;
+    // eslint-disable-next-line no-console
+    console.log(`  [SCÉNARIO 19] 500 unités : ${dureeMs} ms, Δ tas ${heapDeltaMo} Mo, vagues (reprise) ${r2.tours}`);
+  }, 600_000);
+
   it("LES DEUX INVARIANTS VALENT ZÉRO", () => {
     expect(KPI.prematureStops).toBe(0);
     expect(KPI.knownMismatchStops).toBe(0);

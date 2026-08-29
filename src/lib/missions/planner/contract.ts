@@ -94,6 +94,18 @@ export interface PlannedStep {
     ask?: string;
     /** Échéance indicative — au-delà, la mission propose une relance (§87). */
     withinDays?: number;
+    /** RÉVEIL TEMPOREL — ISO 8601. L'attente se règle quand ce moment passe (WAIT_FOR_TIME). */
+    until?: string;
+    /** E-mail : le FIL exact (threadId) — toujours préféré aux heuristiques de texte. */
+    threadId?: string;
+    /** E-mail : fragment d'objet, insensible à la casse. */
+    subject?: string;
+    /** E-mail : pièce jointe EXIGÉE — `true`, ou un motif de nom (« contrat », « *.pdf »). */
+    attachment?: true | string;
+    /** Composition OU : réglée dès qu'une branche l'est. Une branche = les mêmes champs, à plat. */
+    anyOf?: { event?: string; from?: string; entity?: string; until?: string; threadId?: string; subject?: string; attachment?: true | string }[];
+    /** Composition ET : réglée quand toutes les branches le sont (progression persistée en base). */
+    allOf?: { event?: string; from?: string; entity?: string; until?: string; threadId?: string; subject?: string; attachment?: true | string }[];
   };
   /** Le rôle de modèle demandé pour un WORKER. Jamais un nom de modèle (§11). */
   modelRole?: "cheap" | "standard" | "strong";

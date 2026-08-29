@@ -2,7 +2,9 @@ import { sanitizeForModel } from "@/lib/ai-text";
 import { providerErrorMessage, isRetryableStatus } from "./errors";
 import { createHash } from "node:crypto";
 import { capTools } from "./openai";
-import { supportsParam, type ParamName } from "./capabilities";
+import { supportsParam, supportsWebSearch, type ParamName } from "./capabilities";
+import { webSearchPricePerCall } from "./registry";
+import { noterEnTetes, noter429, noterSucces } from "./throttle";
 import { outputBudget, budgetDeSecours, BUDGET_POLICY } from "./budget";
 import {
   type ModelBinding,
@@ -65,14 +67,26 @@ interface RespFunctionCall {
 interface RespMessage {
   type: "message";
   role?: string;
-  content?: { type?: string; text?: string }[];
+  content?: {
+    type?: string;
+    text?: string;
+    /** Les citations d'une réponse fondée sur le web — `url_citation` porte l'URL et le titre. */
+    annotations?: { type?: string; url?: string; title?: string }[];
+  }[];
 }
 
 interface RespReasoning {
   type: "reasoning";
 }
 
-type RespOutputItem = RespFunctionCall | RespMessage | RespReasoning | { type: string };
+/** Une recherche exécutée par le FOURNISSEUR — elle se compte (facturée à l'unité). */
+interface RespWebSearchCall {
+  type: "web_search_call";
+  id?: string;
+  status?: string;
+}
+
+type RespOutputItem = RespFunctionCall | RespMessage | RespReasoning | RespWebSearchCall | { type: string };
 
 interface RespUsage {
   input_tokens?: number;
@@ -235,17 +249,26 @@ export function buildResponsesBody(
     });
   }
 
-  if (opts.tools?.length) {
+  // LES OUTILS SE COMPOSENT : nos fonctions ET, si l'appelant l'a demandé, l'outil `web_search`
+  // du fournisseur. Le second n'est construit que si la fiche du modèle le porte — même règle
+  // d'abstention que `poser` : ce qui n'est pas permis n'est pas fabriqué, donc jamais refusé.
+  // (La passerelle, elle, REFUSE bruyamment un `webSearch` sur un modèle qui ne le porte pas —
+  // l'abstention couvre l'usage direct de l'adaptateur, essais et bancs.)
+  const outils: Record<string, unknown>[] = (opts.tools?.length ? capTools(opts.tools) : []).map((t) => ({
+    type: "function",
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters,
+  }));
+  if (opts.webSearch && supportsWebSearch(model)) outils.push({ type: "web_search" });
+
+  if (outils.length) {
     // La fonction n'est plus emboîtée : `{type, name, description, parameters}` à plat.
-    poser("tools", "tools", capTools(opts.tools).map((t) => ({
-      type: "function",
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters,
-    })));
+    poser("tools", "tools", outils);
     poser("toolChoice", "tool_choice", opts.toolChoice ?? "auto");
     // Plusieurs outils indépendants dans une seule réponse — la boucle les exécute de front.
-    poser("parallelToolCalls", "parallel_tool_calls", true);
+    // Réservé aux FONCTIONS : le champ n'a pas de sens pour un outil fournisseur seul.
+    if (opts.tools?.length) poser("parallelToolCalls", "parallel_tool_calls", true);
   }
 
   poser("safetyIdentifier", "safety_identifier", opts.safetyIdentifier);
@@ -342,6 +365,44 @@ export function fromResponsesOutput(output: RespOutputItem[] | undefined): Model
   return texte.trim() ? [{ type: "text", text: texte.trim() }, ...blocks] : blocks;
 }
 
+/**
+ * LES TRACES D'UNE RECHERCHE WEB dans `output[]` — le compteur et les sources.
+ *
+ * Deux choses distinctes, et il faut les deux :
+ *   • chaque élément `web_search_call` est une recherche EXÉCUTÉE — elle se FACTURE, qu'elle ait
+ *     nourri la réponse ou non ;
+ *   • chaque annotation `url_citation` du message est une page CITÉE — c'est elle qui rend la
+ *     réponse vérifiable. Dédupliquée par URL : la même page citée trois fois est UNE source.
+ *
+ * `title` reste `null` quand le fournisseur n'en donne pas — on ne baptise pas une page à sa place.
+ */
+export function lireRecherchesWeb(output: RespOutputItem[] | undefined): {
+  recherches: number;
+  sources: { url: string; title: string | null }[];
+} {
+  let recherches = 0;
+  const parUrl = new Map<string, string | null>();
+
+  for (const item of output ?? []) {
+    if (item.type === "web_search_call") {
+      recherches++;
+      continue;
+    }
+    if (item.type !== "message") continue;
+    for (const part of (item as RespMessage).content ?? []) {
+      for (const a of part?.annotations ?? []) {
+        if (a?.type !== "url_citation" || !a.url) continue;
+        // Le premier titre non vide gagne — jamais écrasé par un vide arrivé après.
+        if (!parUrl.has(a.url) || (parUrl.get(a.url) == null && a.title)) {
+          parUrl.set(a.url, a.title?.trim() || null);
+        }
+      }
+    }
+  }
+
+  return { recherches, sources: [...parUrl.entries()].map(([url, title]) => ({ url, title })) };
+}
+
 /** `status` + `incomplete_details` → la raison d'arrêt NEUTRE. */
 export function stopOfResponse(payload: RespPayload, hasCalls: boolean): ModelStop {
   if (hasCalls) return "tools"; // fait foi, comme sur l'autre porte
@@ -389,10 +450,21 @@ function usageDe(
   u: RespUsage | undefined,
   started: number,
   attempts: number,
-  contexte: { maxOutputTokens?: number | null; incompleteReason?: string | null } = {},
+  contexte: { maxOutputTokens?: number | null; incompleteReason?: string | null; webSearchCalls?: number } = {},
 ): ModelReply["usage"] {
   const inputTokens = u?.input_tokens ?? 0;
   const outputTokens = u?.output_tokens ?? 0;
+  const enCache = u?.input_tokens_details?.cached_tokens ?? 0;
+  const recherches = contexte.webSearchCalls ?? 0;
+
+  // LE COÛT COMPLET : jetons (part en cache au tarif réduit quand il est renseigné) + recherches.
+  // La règle « un tarif manquant rend le total inconnu » tient : si le tarif des jetons manque,
+  // ajouter les recherches fabriquerait un total partiel avec l'air d'un total — on rend `null`.
+  const coutJetons = costOf(binding, inputTokens, outputTokens, enCache);
+  const costUsd = coutJetons == null
+    ? null
+    : Math.round((coutJetons + recherches * webSearchPricePerCall()) * 1_000_000) / 1_000_000;
+
   return {
     role: binding.role,
     model: binding.model,
@@ -401,9 +473,10 @@ function usageDe(
     outputTokens,
     cachedInputTokens: u?.input_tokens_details?.cached_tokens ?? 0,
     reasoningTokens: u?.output_tokens_details?.reasoning_tokens ?? 0,
+    ...(recherches > 0 ? { webSearchCalls: recherches } : {}),
     maxOutputTokens: contexte.maxOutputTokens ?? null,
     incompleteReason: contexte.incompleteReason ?? null,
-    costUsd: costOf(binding, inputTokens, outputTokens),
+    costUsd,
     ms: Date.now() - started,
     attempts,
   };
@@ -471,9 +544,17 @@ export async function callOpenAiResponses(
         signal: opts.signal ?? AbortSignal.timeout(opts.timeoutMs ?? 120_000),
       });
 
+      // LA PORTE ÉCOUTE (§60) : les soldes annoncés nourrissent la concurrence adaptative, et un
+      // 429 la divise en respectant `Retry-After`. C'est ici que les faits arrivent — l'adaptateur
+      // les transmet, la porte décide.
+      noterEnTetes(res.headers);
+      if (res.status === 429) noter429(res.headers.get("retry-after"), res.headers.get("x-ratelimit-reset-requests"));
+
       if (res.ok) {
+        noterSucces();
         const data = (await res.json()) as RespPayload;
         const blocks = fromResponsesOutput(data.output);
+        const web = lireRecherchesWeb(data.output);
         const plafond = Number(body.max_output_tokens ?? 0) || null;
 
         // LES QUATRE NOMBRES, à chaque appel — c'est ce qui rend la politique de budget
@@ -510,6 +591,8 @@ export async function callOpenAiResponses(
             usage: usageDe(binding, data.usage, started, attempt, {
               maxOutputTokens: plafond,
               incompleteReason: data.incomplete_details?.reason ?? null,
+              // Les recherches d'un appel ÉCHOUÉ se paient quand même — elles se comptent.
+              webSearchCalls: web.recherches,
             }),
             error: data.error?.message || "Le modèle a échoué sans message.",
           };
@@ -525,8 +608,10 @@ export async function callOpenAiResponses(
             // Renseigné SEULEMENT quand la réponse est réellement incomplète : mettre la raison
             // partout ferait passer un arrêt normal pour une coupure.
             incompleteReason: data.status === "incomplete" ? (data.incomplete_details?.reason ?? "incomplete") : null,
+            webSearchCalls: web.recherches,
           }),
           ...(data.id ? { responseId: data.id } : {}),
+          ...(web.sources.length ? { webSources: web.sources } : {}),
         };
       }
 
@@ -591,6 +676,8 @@ export async function callOpenAiResponses(
 export class ResponsesStreamAssembler {
   private texte = "";
   private appels = new Map<number, { callId: string; name: string; args: string }>();
+  private recherchesWeb = 0;
+  private citations = new Map<string, string | null>();
   statut: string | undefined;
   raison: string | undefined;
   responseId: string | undefined;
@@ -606,7 +693,7 @@ export class ResponsesStreamAssembler {
     }
 
     if (type === "response.output_item.added") {
-      const item = evt.item as RespFunctionCall | undefined;
+      const item = evt.item as RespFunctionCall | RespWebSearchCall | undefined;
       if (item?.type === "function_call") {
         const idx = Number(evt.output_index ?? 0);
         const acc = this.appels.get(idx) ?? { callId: "", name: "", args: "" };
@@ -614,6 +701,17 @@ export class ResponsesStreamAssembler {
         if (item.name) acc.name = item.name;
         if (item.arguments) acc.args = item.arguments;
         this.appels.set(idx, acc);
+      }
+      // Une recherche web annoncée dans le flux — elle se compte dès son apparition : c'est le
+      // filet quand l'événement final (qui porte l'état complet) se perd en route.
+      if (item?.type === "web_search_call") this.recherchesWeb++;
+      return "";
+    }
+
+    if (type === "response.output_text.annotation.added") {
+      const a = evt.annotation as { type?: string; url?: string; title?: string } | undefined;
+      if (a?.type === "url_citation" && a.url && !this.citations.has(a.url)) {
+        this.citations.set(a.url, a.title?.trim() || null);
       }
       return "";
     }
@@ -658,6 +756,14 @@ export class ResponsesStreamAssembler {
   hasCalls(): boolean {
     return [...this.appels.values()].some((a) => a.name);
   }
+
+  /** Les traces web accumulées — même forme que `lireRecherchesWeb`, pour le même usage. */
+  web(): { recherches: number; sources: { url: string; title: string | null }[] } {
+    return {
+      recherches: this.recherchesWeb,
+      sources: [...this.citations.entries()].map(([url, title]) => ({ url, title })),
+    };
+  }
 }
 
 /**
@@ -688,6 +794,11 @@ export async function streamOpenAiResponses(
       body: JSON.stringify(body),
       signal: opts.signal ?? AbortSignal.timeout(opts.timeoutMs ?? 180_000),
     });
+
+    // Même écoute que l'appel simple : le flux est un appel comme un autre pour la porte.
+    noterEnTetes(res.headers);
+    if (res.status === 429) noter429(res.headers.get("retry-after"), res.headers.get("x-ratelimit-reset-requests"));
+    if (res.ok) noterSucces();
 
     if (!res.ok || !res.body) {
       const raw = await res.text().catch(() => "");
@@ -737,6 +848,8 @@ export async function streamOpenAiResponses(
     // s'y fier ferme le cas où un fragment d'événement s'est perdu en route, et l'accumulateur
     // reste le filet quand l'événement final manque (flux coupé, proxy bavard).
     const blocks = sortieFinale ? fromResponsesOutput(sortieFinale) : asm.blocks();
+    // La sortie finale fait foi aussi pour le web — l'accumulateur reste le filet.
+    const web = sortieFinale ? lireRecherchesWeb(sortieFinale) : asm.web();
     const hasCalls = blocks.some((b) => b.type === "tool_call");
     const etat = { status: asm.statut, incomplete_details: { reason: asm.raison } };
     const plafond = Number((body as { max_output_tokens?: number }).max_output_tokens ?? 0) || null;
@@ -754,8 +867,10 @@ export async function streamOpenAiResponses(
       usage: usageDe(binding, usage, started, 1, {
         maxOutputTokens: plafond,
         incompleteReason: asm.statut === "incomplete" ? (asm.raison ?? "incomplete") : null,
+        webSearchCalls: web.recherches,
       }),
       ...(asm.responseId ? { responseId: asm.responseId } : {}),
+      ...(web.sources.length ? { webSources: web.sources } : {}),
     };
   } catch (err) {
     if (opts.signal?.aborted) {

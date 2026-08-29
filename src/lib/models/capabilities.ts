@@ -103,6 +103,14 @@ export interface ProviderCapability {
   functionCalling: boolean;
   structuredOutputs: boolean;
   parallelToolCalls: boolean;
+  /**
+   * L'OUTIL `web_search` DE RESPONSES — un outil FOURNISSEUR, pas une fonction à nous.
+   *
+   * `false` par prudence quand on ne sait pas : offrir la recherche web à un modèle qui ne la
+   * porte pas est un 400 assuré, et c'est exactement le genre de contrainte que ce registre
+   * existe pour connaître AVANT le réseau.
+   */
+  webSearchTool: boolean;
   /** LISTE BLANCHE des paramètres. Absent = le modèle le refuse (ou nous ne le savons pas). */
   parameters: Partial<Record<ParamName, boolean>>;
   /**
@@ -143,6 +151,9 @@ const FOURNISSEUR_5_6: Omit<ProviderCapability, "reasoning"> = {
   functionCalling: true,
   structuredOutputs: true,
   parallelToolCalls: true,
+  // La recherche web est documentée sur les modèles GPT-5.x via Responses (facturée à la
+  // recherche). Elle n'existe QUE sur cette porte — comme raisonnement + outils.
+  webSearchTool: true,
   // Raisonner ET outiller n'existe que sur Responses — c'est le HTTP 400 nº 1, mot pour mot.
   reasoningWithToolsOn: ["responses"],
   parameters: {
@@ -183,6 +194,7 @@ export const PROVIDER_CAPABILITIES: Readonly<Record<string, ProviderCapability>>
     functionCalling: true,
     structuredOutputs: false,
     parallelToolCalls: true,
+    webSearchTool: false,
     parameters: {},
   },
 };
@@ -258,6 +270,9 @@ const INCONNU: ModelCapability = {
   functionCalling: true,
   structuredOutputs: false,
   parallelToolCalls: true,
+  // Un modèle inconnu ne se voit pas offrir la recherche web « au cas où » : même abstention
+  // prudente que pour le raisonnement.
+  webSearchTool: false,
   parameters: { maxOutputTokens: true, tools: true, toolChoice: true, store: true, stream: true },
 };
 
@@ -280,6 +295,11 @@ export function isReasoningModel(model: string): boolean {
   return capabilityFor(model).reasoning !== null;
 }
 
+/** Ce modèle porte-t-il l'outil `web_search` du fournisseur ? Se pose AVANT de le poser. */
+export function supportsWebSearch(model: string): boolean {
+  return capabilityFor(model).webSearchTool === true;
+}
+
 // ─────────────────────────── Le contrôle avant réseau ───────────────────────────
 
 /** Ce qu'on s'apprête à demander, décrit dans NOS termes — pas encore dans ceux d'OpenAI. */
@@ -290,6 +310,8 @@ export interface ModelRequestShape {
   /** Les paramètres que l'appelant veut réellement voir partir. */
   params: Partial<Record<ParamName, unknown>>;
   toolCount?: number;
+  /** L'appelant veut-il offrir l'outil `web_search` du fournisseur ? */
+  webSearch?: boolean;
 }
 
 export interface RequestProblem {
@@ -373,6 +395,15 @@ export function validateModelRequest(req: ModelRequestShape): RequestProblem[] {
 
   if ((req.toolCount ?? 0) > 0 && !cap.functionCalling) {
     problemes.push({ kind: "capacite", message: `${req.model} n'appelle pas d'outils.` });
+  }
+
+  // La recherche web est un outil FOURNISSEUR : un modèle qui ne le porte pas refuserait la
+  // requête entière. Même règle que le reste — on échoue ici, jamais chez OpenAI.
+  if (req.webSearch && !cap.webSearchTool) {
+    problemes.push({
+      kind: "capacite",
+      message: `${req.model} ne porte pas l'outil web_search (Responses).`,
+    });
   }
 
   return problemes;

@@ -186,6 +186,31 @@ describe("coût — un tarif inconnu vaut `null`, jamais zéro", () => {
   it("un usage vide ne prétend pas coûter zéro", () => {
     expect(emptyUsage("worker", "m", "openai").costUsd).toBeNull();
   });
+
+  /**
+   * LES JETONS EN CACHE (§62). Sans tarif réduit renseigné, ils restent au tarif PLEIN — une
+   * surestimation assumée, jamais une remise devinée. Renseigné, la remise s'applique à la part
+   * en cache et à elle seule.
+   */
+  it("les jetons en cache restent au tarif plein tant que leur tarif réduit n'est pas renseigné", () => {
+    const b = bindingFor("bulk");
+    expect(b.priceCachedInPerM).toBeNull();
+    expect(costOf(b, 1_000_000, 0, 600_000)).toBeCloseTo(0.2, 6); // tout au tarif plein
+  });
+
+  it("le tarif réduit du cache se renseigne par variable, et la remise ne touche que la part en cache", () => {
+    process.env.ADAM_PRICE_BULK_CACHED_IN = "0.02";
+    try {
+      const b = bindingFor("bulk");
+      expect(b.priceCachedInPerM).toBe(0.02);
+      // 400 000 pleins à 0,20 + 600 000 en cache à 0,02.
+      expect(costOf(b, 1_000_000, 0, 600_000)).toBeCloseTo(0.4 * 0.2 + 0.6 * 0.02, 6);
+      // La part en cache ne dépasse jamais l'entrée — une donnée aberrante ne crée pas un coût négatif.
+      expect(costOf(b, 100, 0, 1_000)).toBeCloseTo((100 / 1_000_000) * 0.02, 9);
+    } finally {
+      delete process.env.ADAM_PRICE_BULK_CACHED_IN;
+    }
+  });
 });
 
 // ─────────────────────────── Traduction OpenAI ───────────────────────────

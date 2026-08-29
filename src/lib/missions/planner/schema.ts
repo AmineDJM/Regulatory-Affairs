@@ -214,14 +214,58 @@ const ETAPE_WORKER = objet({
   maxAttempts: MAX_ESSAIS,
 });
 
+/**
+ * UNE BRANCHE D'ATTENTE COMPOSÉE — les mêmes champs qu'une attente simple, à plat.
+ *
+ * Tout est nullable : une branche « e-mail de Sarah » n'écrit que `from`, une branche « au plus
+ * tard vendredi » n'écrit que `until`. Une branche entièrement nulle est écartée à la
+ * reconstruction.
+ */
+const BRANCHE_ATTENTE = {
+  type: "object",
+  properties: {
+    event: nullableStr("Le type de fait (EMAIL_RECEIVED, DOCUMENT_UPLOADED…). null si seule l'échéance compte."),
+    from: nullableStr("De qui. null si indifférent."),
+    entity: nullableStr("L'entité concernée, en TYPE:id. null sinon."),
+    until: nullableStr("Échéance ISO 8601 (calculée depuis la date du jour du contexte). null sinon."),
+    threadId: nullableStr("E-mail : le FIL exact — toujours le préférer quand on répond à un fil connu. null sinon."),
+    subject: nullableStr("E-mail : fragment d'objet attendu. null sinon."),
+    attachment: {
+      type: ["boolean", "string", "null"],
+      description: "E-mail : pièce jointe EXIGÉE — true (n'importe laquelle) ou un motif de nom (« contrat », « *.pdf »). "
+        + "null si aucune pièce n'est requise. Un e-mail SANS la pièce attendue ne règle PAS l'attente.",
+    },
+  },
+  required: ["event", "from", "entity", "until", "threadId", "subject", "attachment"],
+  additionalProperties: false,
+};
+
+const BRANCHES = (sens: string) => ({
+  type: ["array", "null"],
+  items: BRANCHE_ATTENTE,
+  description: sens,
+});
+
 /** Une attente d'ÉVÉNEMENT métier : la mission dort sans consommer de modèle. */
 const ETAPE_WAIT_EVENT = objet({
   ...COMMUN,
   nodeType: typeConst("WAIT_EVENT"),
-  waitEvent: str("Le type de fait attendu (par ex. EMAIL_RECEIVED)."),
+  waitEvent: str("Le type de fait attendu (par ex. EMAIL_RECEIVED). « TEMPS » si seule l'échéance waitUntil compte."),
   waitFrom: nullableStr("De qui l'on attend le fait (nom, identifiant ou adresse). null si indifférent."),
   waitEntity: nullableStr("L'entité concernée, en TYPE:id. null sinon."),
   waitWithinDays: DELAI,
+  waitUntil: nullableStr(
+    "RÉVEIL TEMPOREL, ISO 8601 : « attends jusqu'à demain 9h » → calcule l'instant depuis la date du jour "
+    + "du contexte. Se COMBINE avec un fait : fait OU échéance, le premier arrivé. null sinon.",
+  ),
+  waitThreadId: nullableStr("E-mail : le FIL exact attendu (threadId) — le préférer aux heuristiques. null sinon."),
+  waitSubject: nullableStr("E-mail : fragment d'objet attendu, insensible à la casse. null sinon."),
+  waitAttachment: {
+    type: ["boolean", "string", "null"],
+    description: "E-mail : pièce jointe EXIGÉE — true ou un motif de nom (« *.pdf »). Un e-mail sans la pièce ne règle pas l'attente. null sinon.",
+  },
+  waitAnyOf: BRANCHES("OU : l'attente se règle dès qu'UNE branche est satisfaite (« sa réponse, ou vendredi 18h »). null sinon."),
+  waitAllOf: BRANCHES("ET : l'attente se règle quand TOUTES les branches le sont (« le contrat ET le devis ») — la progression survit aux redémarrages. null sinon."),
 });
 
 /** Une attente d'une PERSONNE qui doit fournir quelque chose. */

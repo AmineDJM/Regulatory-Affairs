@@ -15,6 +15,7 @@ import { DEFAULT_VERBOSITY } from "./registry";
 import { callAnthropic, streamAnthropic } from "./anthropic";
 import { recordModelCall } from "./telemetry";
 import { emptyUsage } from "./contract";
+import { prendrePlace, estimerJetons } from "./throttle";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -119,6 +120,7 @@ function preparerOpenAi(
     protocol,
     reasoning: effort,
     toolCount: enrichi.tools?.length ?? 0,
+    webSearch: enrichi.webSearch,
     params: {
       reasoning: { effort },
       textVerbosity: enrichi.verbosity,
@@ -161,6 +163,18 @@ function preparerOpenAi(
   return { protocol, opts: enrichi };
 }
 
+/**
+ * L'ESTIMATION DE JETONS D'UN APPEL, pour la RÉSERVATION (§61) — l'entrée au caractère près
+ * (c'est ce qu'on va sérialiser de toute façon), la sortie au plafond envoyé.
+ */
+function estimationDe(turns: ModelTurn[], opts: ModelCallOptions): number {
+  let chars = opts.system?.length ?? 0;
+  for (const t of turns) {
+    chars += typeof t.content === "string" ? t.content.length : JSON.stringify(t.content).length;
+  }
+  return estimerJetons(chars, opts.maxOutputTokens ?? null);
+}
+
 export async function callModel(
   role: ModelRole,
   turns: ModelTurn[],
@@ -169,20 +183,32 @@ export async function callModel(
   const binding = bindingFor(role);
 
   if (binding.provider === "anthropic") {
-    const reply = await callAnthropic(binding, turns, opts);
-    recordModelCall(reply.usage);
-    return reply;
+    const rendre = await prendrePlace(estimationDe(turns, opts));
+    try {
+      const reply = await callAnthropic(binding, turns, opts);
+      recordModelCall(reply.usage);
+      return reply;
+    } finally {
+      rendre();
+    }
   }
 
   const prepare = preparerOpenAi(binding, opts);
   if ("error" in prepare) return refus(binding, prepare.error);
 
-  const reply =
-    prepare.protocol === "responses"
-      ? await callOpenAiResponses(binding, turns, prepare.opts)
-      : await callOpenAi(binding, turns, prepare.opts);
-  recordModelCall(reply.usage);
-  return reply;
+  // LA PORTE (§60) : la place se prend APRÈS la validation locale — un appel refusé avant le
+  // réseau ne doit pas consommer de place — et se rend dans un `finally`, quoi qu'il arrive.
+  const rendre = await prendrePlace(estimationDe(turns, prepare.opts));
+  try {
+    const reply =
+      prepare.protocol === "responses"
+        ? await callOpenAiResponses(binding, turns, prepare.opts)
+        : await callOpenAi(binding, turns, prepare.opts);
+    recordModelCall(reply.usage);
+    return reply;
+  } finally {
+    rendre();
+  }
 }
 
 export async function streamModel(
@@ -194,20 +220,30 @@ export async function streamModel(
   const binding = bindingFor(role);
 
   if (binding.provider === "anthropic") {
-    const reply = await streamAnthropic(binding, turns, opts, onText);
-    recordModelCall(reply.usage);
-    return reply;
+    const rendre = await prendrePlace(estimationDe(turns, opts));
+    try {
+      const reply = await streamAnthropic(binding, turns, opts, onText);
+      recordModelCall(reply.usage);
+      return reply;
+    } finally {
+      rendre();
+    }
   }
 
   const prepare = preparerOpenAi(binding, opts, true);
   if ("error" in prepare) return refus(binding, prepare.error);
 
-  const reply =
-    prepare.protocol === "responses"
-      ? await streamOpenAiResponses(binding, turns, prepare.opts, onText)
-      : await streamOpenAi(binding, turns, prepare.opts, onText);
-  recordModelCall(reply.usage);
-  return reply;
+  const rendre = await prendrePlace(estimationDe(turns, prepare.opts));
+  try {
+    const reply =
+      prepare.protocol === "responses"
+        ? await streamOpenAiResponses(binding, turns, prepare.opts, onText)
+        : await streamOpenAi(binding, turns, prepare.opts, onText);
+    recordModelCall(reply.usage);
+    return reply;
+  } finally {
+    rendre();
+  }
 }
 
 /**

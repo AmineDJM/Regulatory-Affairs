@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { journaliser } from "@/lib/missions/runtime/store";
-import { Attente, FaitObserve, correspond, echue, lireAttente } from "@/lib/missions/events/match";
+import { Attente, FaitObserve, echue, etatAttente, lireAttente, lireProgres } from "@/lib/missions/events/match";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -55,13 +55,32 @@ export async function reveillerMissions(fait: FaitObserve): Promise<Reveil[]> {
           ...(fait.missionId ? { id: fait.missionId } : {}),
         },
       },
-      select: { id: true, missionId: true, key: true, title: true, waitFor: true },
+      select: { id: true, missionId: true, key: true, title: true, waitFor: true, result: true },
     });
 
     const reveils: Reveil[] = [];
+    const maintenant = new Date();
     for (const step of enAttente) {
       const attente = lireAttente(step.waitFor);
-      if (!attente || !correspond(attente, fait)) continue;
+      if (!attente) continue;
+      const etat = etatAttente(attente, lireProgres(step.result), fait, maintenant);
+      if (etat.nouvelles.length === 0) continue;
+
+      if (!etat.complete) {
+        /**
+         * UNE BRANCHE SUR PLUSIEURS (« le contrat ET le devis ») : la PROGRESSION se persiste,
+         * l'attente reste ouverte. La mémoire est en base — un redémarrage entre le contrat et
+         * le devis ne redemande pas le contrat.
+         */
+        await prisma.missionStep.updateMany({
+          where: { id: step.id, status: "WAITING" },
+          data: { result: { attenteProgres: etat.reglees } as never },
+        });
+        await journaliser(step.missionId, "EVENT_PARTIAL",
+          `« ${step.title} » : une des conditions attendues est arrivée (${fait.type}) — l'attente continue.`,
+          { stepKey: step.key, event: fait.type, branchesReglees: etat.reglees });
+        continue;
+      }
 
       // LA MISE À JOUR EST CONDITIONNÉE À L'ÉTAT ATTENDU : deux faits qui arrivent en même
       // temps ne doivent pas régler deux fois la même attente, et c'est la base qui tranche.
@@ -69,8 +88,12 @@ export async function reveillerMissions(fait: FaitObserve): Promise<Reveil[]> {
         where: { id: step.id, status: "WAITING" },
         data: {
           status: "DONE",
-          completedAt: new Date(),
-          result: { reveillePar: fait.type, payload: (fait.payload ?? null) as never } as never,
+          completedAt: maintenant,
+          result: {
+            reveillePar: fait.type,
+            payload: (fait.payload ?? null) as never,
+            attenteProgres: etat.reglees,
+          } as never,
         },
       });
       if (r.count !== 1) continue;
@@ -83,6 +106,65 @@ export async function reveillerMissions(fait: FaitObserve): Promise<Reveil[]> {
     return reveils;
   } catch (err) {
     console.error("[missions] réveil impossible", fait.type, err);
+    return [];
+  }
+}
+
+/**
+ * RÈGLE LES ATTENTES QUE LE TEMPS SATISFAIT — le WAIT_FOR_TIME du runtime (§temps).
+ *
+ * « Analyse aujourd'hui, reviens demain 10 h » n'est PAS un `setTimeout` : l'échéance vit dans
+ * `waitFor.until`, en base, et ce balayage — appelé par le battement, l'horloge EN PARAMÈTRE —
+ * la découvre après n'importe quel redémarrage. L'écriture est conditionnée à `WAITING` :
+ * deux battements concurrents (ou un battement rejoué) ne règlent l'attente qu'UNE fois.
+ */
+export async function reveillerAttentesTemporelles(maintenant = new Date()): Promise<Reveil[]> {
+  try {
+    const enAttente = await prisma.missionStep.findMany({
+      where: {
+        status: "WAITING",
+        nodeType: "WAIT_EVENT",
+        mission: { status: { notIn: ["COMPLETED", "CANCELLED"] } },
+      },
+      select: { id: true, missionId: true, key: true, title: true, waitFor: true, result: true },
+    });
+
+    const reveils: Reveil[] = [];
+    for (const step of enAttente) {
+      const attente = lireAttente(step.waitFor);
+      if (!attente) continue;
+      const etat = etatAttente(attente, lireProgres(step.result), null, maintenant);
+      if (etat.nouvelles.length === 0) continue;
+
+      if (!etat.complete) {
+        await prisma.missionStep.updateMany({
+          where: { id: step.id, status: "WAITING" },
+          data: { result: { attenteProgres: etat.reglees } as never },
+        });
+        await journaliser(step.missionId, "TIME_PARTIAL",
+          `« ${step.title} » : l'échéance d'une des conditions est passée — l'attente continue.`,
+          { stepKey: step.key, branchesReglees: etat.reglees });
+        continue;
+      }
+
+      const r = await prisma.missionStep.updateMany({
+        where: { id: step.id, status: "WAITING" },
+        data: {
+          status: "DONE",
+          completedAt: maintenant,
+          result: { reveillePar: "TEMPS", instant: maintenant.toISOString(), attenteProgres: etat.reglees } as never,
+        },
+      });
+      if (r.count !== 1) continue;
+
+      await journaliser(step.missionId, "TIME_WAKE",
+        `« ${step.title} » : le moment attendu est arrivé.`,
+        { stepKey: step.key, instant: maintenant.toISOString() });
+      reveils.push({ missionId: step.missionId, stepKey: step.key });
+    }
+    return reveils;
+  } catch (err) {
+    console.error("[missions] réveil temporel impossible", err);
     return [];
   }
 }
@@ -176,7 +258,10 @@ export async function missionsAFaireAvancer(limite = 20): Promise<string[]> {
       steps: { some: { status: { in: ["PENDING", "FAILED"] } } },
     },
     select: { id: true },
-    orderBy: { updatedAt: "asc" },
+    // LA PRIORITÉ D'ABORD (« celle-ci devient prioritaire »), l'ancienneté ensuite — une
+    // mission prioritaire passe devant, mais aucune mission ne meurt de faim : à priorité
+    // égale, la plus ancienne est servie la première.
+    orderBy: [{ priority: "desc" }, { updatedAt: "asc" }],
     take: limite,
   });
   return rows.map((r) => r.id);

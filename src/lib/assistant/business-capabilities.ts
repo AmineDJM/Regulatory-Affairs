@@ -356,6 +356,15 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
             description: "Les contraintes explicites (« pas avant vendredi », « sans mettre en copie »).",
           },
           titre: { type: "string", description: "Un titre court pour l'écran. Facultatif." },
+          arrierePlan: {
+            type: "boolean",
+            description:
+              "TRUE quand la personne veut continuer à parler d'AUTRE CHOSE pendant que la mission "
+              + "tourne (« fais ça de côté », « pendant ce temps », « on en reparle plus tard »), ou "
+              + "quand le travail est long/massif. La mission est ENREGISTRÉE immédiatement (l'identifiant "
+              + "revient en moins d'une seconde), la planification et l'exécution continuent en arrière-plan, "
+              + "et la conversation est libre. FALSE (défaut) : la mission se planifie dans ce tour.",
+          },
         },
         required: ["objectif"],
       },
@@ -373,7 +382,35 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
 
       // IMPORT DIFFÉRÉ : le composeur importe le registre d'outils, qui importe ce fichier.
       // Un import statique fermerait le cycle et casserait le chargement du module.
-      const { lancerMission } = await import("@/platform/in-process/missions/runtime");
+      const { lancerMission, lancerEnArrierePlan } = await import("@/platform/in-process/missions/runtime");
+
+      /**
+       * ── LE DÉTACHEMENT (§12-13) — la conversation est libérée tout de suite ──────────
+       *
+       * Le talon est écrit en base, l'identifiant revient, la planification continue hors
+       * requête — et le battement rattrape tout lancement dont le processus meurt en route.
+       * L'accord éventuel arrivera par notification, comme pour toute mission.
+       */
+      if (input.arrierePlan === true) {
+        const d = await lancerEnArrierePlan(user, objectif, {
+          titre: str(input, "titre") || undefined,
+          contexte: { contraintes },
+        });
+        if (!d.ok) {
+          return JSON.stringify({ lancee: false, raison: d.error, message: "La mission n'a PAS été enregistrée." });
+        }
+        return JSON.stringify({
+          lancee: true,
+          missionId: d.missionId,
+          titre: d.titre,
+          arrierePlan: true,
+          message: "Mission enregistrée — je m'en occupe en arrière-plan, on peut parler d'autre chose. "
+            + "Je vous préviens quand elle aboutit (et je demanderai votre accord si elle veut produire un effet).",
+          _blocsDecoratifs: true,
+          _blocs: [{ kind: "mission", missionId: d.missionId, blockId: `mission:${d.missionId}` }],
+        });
+      }
+
       const r = await lancerMission(user, objectif, {
         titre: str(input, "titre") || undefined,
         contexte: { contraintes },
@@ -458,10 +495,14 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
           missionId: { type: "string", description: "L'identifiant de la mission." },
           geste: {
             type: "string",
-            enum: ["pause", "reprendre", "arreter", "refuser", "replanifier"],
-            description: "Le geste demandé.",
+            enum: ["pause", "reprendre", "arreter", "refuser", "replanifier", "prioriser", "plafonner_modele"],
+            description: "Le geste demandé. « prioriser » la fait passer devant (valeur dans `priorite`) ; "
+              + "« plafonner_modele » borne ses appels de modèle (« ne dépense plus de modèle dessus ») — "
+              + "`plafond` en nombre d'appels, 0 pour geler, absent pour RETIRER le plafond.",
           },
           motif: { type: "string", description: "Pourquoi — repris dans le journal de la mission." },
+          priorite: { type: "number", description: "Pour « prioriser » : -10 à 10, 0 = normal." },
+          plafond: { type: "number", description: "Pour « plafonner_modele » : le nombre d'appels autorisés. Absent = retirer le plafond." },
         },
         required: ["missionId", "geste"],
       },
@@ -487,6 +528,14 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
       if (geste === "arreter") return JSON.stringify(await ctl.arreterMissionAgent(user, missionId, motif));
       if (geste === "refuser") return JSON.stringify(await ctl.refuserAccordMission(user, missionId));
       if (geste === "replanifier") return JSON.stringify(await ctl.replanifierAgent(user, missionId));
+      if (geste === "prioriser") {
+        const p = typeof input.priorite === "number" ? input.priorite : 5;
+        return JSON.stringify(await ctl.prioriserMission(user, missionId, p));
+      }
+      if (geste === "plafonner_modele") {
+        const cap = typeof input.plafond === "number" ? input.plafond : null;
+        return JSON.stringify(await ctl.plafonnerModeleMission(user, missionId, cap));
+      }
 
       // LE REFUS QUI COMPTE. Il est explicite et il ORIENTE : une personne à qui l'on dit
       // seulement « non » recommence ; une personne à qui l'on dit où cliquer y va.

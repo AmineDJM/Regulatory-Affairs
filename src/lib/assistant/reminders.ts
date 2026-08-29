@@ -176,12 +176,34 @@ export async function runAssistantReminders(now: Date = new Date()): Promise<voi
     const watch = r.watchType && r.watchId ? await watchState(r.watchType, r.watchId).catch(() => null) : null;
     const resolved = watch != null && !watch.pending;
 
-    const next = resolved ? null : nextOccurrence(r.dueAt, r.recurrence, now);
+    /**
+     * ── L'ÉCHELLE DE RELANCES (« demain ; si rien, +48 h ; puis +72 h ») ──────────────
+     *
+     * Un rappel SANS récurrence mais avec des barreaux restants ne s'éteint pas au premier
+     * tir : il se REPROGRAMME au barreau suivant, et l'échelle se consomme en base — un
+     * redémarrage entre deux barreaux ne perd ni le rappel ni sa position. L'échelle
+     * s'arrête d'elle-même quand l'entité surveillée est réglée (`resolved`) ou quand
+     * l'événement d'extinction arrive (`eteindreRappelsSurEvenement`).
+     */
+    const echelle = Array.isArray(r.escalationsH)
+      ? (r.escalationsH as unknown[]).filter((h): h is number => typeof h === "number" && h > 0)
+      : [];
+    const barreauSuivant = !resolved && r.recurrence === "NONE" && echelle.length > 0
+      ? new Date(now.getTime() + echelle[0] * 3_600_000)
+      : null;
+
+    const next = resolved ? null : (nextOccurrence(r.dueAt, r.recurrence, now) ?? barreauSuivant);
     // L'état d'abord, les notifications ensuite : si l'envoi échoue, on préfère un rappel
     // silencieux à un rappel qui hurle toutes les minutes.
     await prisma.assistantReminder.update({
       where: { id: r.id },
-      data: next ? { dueAt: next, lastFiredAt: now } : { active: false, lastFiredAt: now },
+      data: next
+        ? {
+            dueAt: next, lastFiredAt: now,
+            // Le barreau consommé quitte l'échelle — la position vit en base, pas en mémoire.
+            ...(barreauSuivant && next === barreauSuivant ? { escalationsH: echelle.slice(1) as never } : {}),
+          }
+        : { active: false, lastFiredAt: now },
     });
 
     const watchLine = watch
@@ -227,4 +249,80 @@ export async function runAssistantReminders(now: Date = new Date()): Promise<voi
       }).catch((e) => console.error("[reminders] notify person failed", e));
     }
   }
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'EXTINCTION SUR ÉVÉNEMENT (§10) — un rappel conditionnel n'est jamais du spam mécanique.
+ *
+ * « Rappelle-moi dans 7 jours SEULEMENT SI Sarah n'a pas envoyé le contrat. » La condition est
+ * une Attente — la MÊME grammaire que le réveil des missions (event/from/threadId/subject/
+ * attachment) : une seule vérité pour « cet événement est-il celui-là ? ». Le contrat arrive à
+ * 8 h, le rappel de 9 h s'éteint TOUT SEUL, relances comprises — et la personne est prévenue
+ * une fois (« c'est arrivé, je n'insiste plus »), jamais relancée pour une chose faite.
+ *
+ * Appelée par le registre d'événements (`events/ledger.ts`), à côté de la satisfaction des
+ * engagements — le rappel est un engagement envers soi-même.
+ */
+export async function eteindreRappelsSurEvenement(fait: {
+  type: string;
+  actorId?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  relatedRefs?: readonly string[];
+  payload?: unknown;
+}): Promise<number> {
+  const { correspond, lireAttente } = await import("@/platform/in-process/missions/attentes");
+  const candidats = await prisma.assistantReminder.findMany({
+    where: { active: true, NOT: { stopOnEvent: { equals: null } } as never },
+    take: 100,
+    select: { id: true, userId: true, title: true, stopOnEvent: true },
+  }).catch(() => []);
+
+  let eteints = 0;
+  for (const r of candidats) {
+    const attente = lireAttente(r.stopOnEvent);
+    if (!attente || !correspond(attente, {
+      type: fait.type,
+      actorId: fait.actorId ?? null,
+      entityType: fait.entityType ?? null,
+      entityId: fait.entityId ?? null,
+      relatedRefs: fait.relatedRefs ?? [],
+      payload: fait.payload,
+    })) continue;
+
+    // Conditionnée à `active` : deux faits simultanés n'éteignent (et ne préviennent) qu'une fois.
+    const maj = await prisma.assistantReminder.updateMany({
+      where: { id: r.id, active: true },
+      data: { active: false },
+    });
+    if (maj.count !== 1) continue;
+    eteints += 1;
+    await notifyUser({
+      userId: r.userId,
+      type: "GENERIC",
+      title: `Rappel annulé — ${r.title}`,
+      body: "Ce que vous attendiez est arrivé : je n'insiste plus.",
+      link: "/chief-of-staff",
+    }).catch(() => undefined);
+  }
+  return eteints;
+}
+
+/**
+ * REPOUSSE un rappel (« snooze ») — l'échéance recule, l'échelle de relances reste intacte.
+ * L'appartenance est vérifiée par la requête : le rappel d'un autre ne bouge pas.
+ */
+export async function snoozeReminder(id: string, userId: string, minutes: number): Promise<Date | null> {
+  const m = Math.max(1, Math.min(7 * 24 * 60, Math.round(minutes)));
+  const r = await prisma.assistantReminder.findFirst({ where: { id, userId, active: true }, select: { dueAt: true } });
+  if (!r) return null;
+  const base = r.dueAt.getTime() > Date.now() ? r.dueAt.getTime() : Date.now();
+  const nouvelle = new Date(base + m * 60_000);
+  const maj = await prisma.assistantReminder.updateMany({
+    where: { id, userId, active: true },
+    data: { dueAt: nouvelle },
+  });
+  // La nouvelle échéance est rendue pour être DITE à la personne — un report muet se re-demande.
+  return maj.count === 1 ? nouvelle : null;
 }

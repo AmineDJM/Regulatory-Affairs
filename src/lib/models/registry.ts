@@ -134,8 +134,11 @@ export function bindingFor(role: ModelRole): ModelBinding {
   const known = KNOWN_PRICES[model];
   const priceInPerM = num(`ADAM_PRICE_${role.toUpperCase()}_IN`) ?? known?.in ?? null;
   const priceOutPerM = num(`ADAM_PRICE_${role.toUpperCase()}_OUT`) ?? known?.out ?? null;
+  // Le tarif RÉDUIT des jetons en cache : renseigné par l'exploitation, jamais deviné. Absent,
+  // les jetons en cache restent facturés au tarif plein — voir `costOf` dans le contrat.
+  const priceCachedInPerM = num(`ADAM_PRICE_${role.toUpperCase()}_CACHED_IN`);
 
-  return { role, provider, model, reasoning: readReasoning(role), priceInPerM, priceOutPerM };
+  return { role, provider, model, reasoning: readReasoning(role), priceInPerM, priceOutPerM, priceCachedInPerM };
 }
 
 /** La table entière — pour l'écran d'administration et le rapport d'observabilité. */
@@ -150,4 +153,17 @@ export function allBindings(): ModelBinding[] {
 export function roleConfigured(role: ModelRole): boolean {
   const { provider } = bindingFor(role);
   return Boolean(env(provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"));
+}
+
+/**
+ * LE TARIF D'UNE RECHERCHE WEB, en dollars PAR RECHERCHE — pas par jeton.
+ *
+ * L'outil `web_search` de Responses est facturé à l'appel (tarif public OpenAI : 10 $ les
+ * 1 000 recherches, soit 0,01 $ l'unité). Ce n'est pas une estimation inventée : c'est le tarif
+ * affiché, et il se corrige sans redéploiement par `ADAM_PRICE_WEB_SEARCH_CALL` le jour où il
+ * change. L'omettre du coût ferait précisément ce que `contract.ts` interdit : présenter un
+ * total partiel comme un total.
+ */
+export function webSearchPricePerCall(): number {
+  return num("ADAM_PRICE_WEB_SEARCH_CALL") ?? 0.01;
 }

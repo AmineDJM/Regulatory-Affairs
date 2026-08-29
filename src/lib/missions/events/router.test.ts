@@ -276,3 +276,159 @@ suite("Mission Runtime — le réveil par événement", () => {
     expect(await missionsAFaireAvancer(200)).not.toContain(neuve);
   }, 30_000);
 });
+
+/* ══════════ RUN 4 — WAIT_FOR_TIME, attentes composées, e-mail typé, sabotages ══════════ */
+
+import { reveillerAttentesTemporelles } from "./router";
+
+const TAG2 = `__mrout4__${Date.now()}`;
+let owner2 = "";
+let actor2: MissionActor;
+
+suite("Mission Runtime — le réveil TEMPOREL et les attentes composées (Run 4)", () => {
+  beforeAll(async () => {
+    const u = await prisma.user.create({
+      data: { name: `${TAG2}pdg`, email: `${TAG2}pdg@t.dz`, passwordHash: "x", role: "SUPER_ADMIN" },
+    });
+    owner2 = u.id;
+    actor2 = { userId: u.id, label: "le PDG", isAgent: false };
+  });
+
+  afterAll(async () => {
+    await prisma.mission.deleteMany({ where: { owner: { email: { startsWith: TAG2 } } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: TAG2 } } }).catch(() => {});
+  });
+
+  async function creer(steps: PlannedStep[], titre: string) {
+    const plan: MissionPlan = { objective: titre, acceptance: ["fait"], complexity: "B", scale: "S", steps };
+    const r = compile(plan, catalogue, actor2);
+    if (!r.ok) throw new Error(r.issues.map((i) => i.message).join(" | "));
+    return materialiser(r.mission, { ownerId: owner2, title: titre, goalRaw: titre });
+  }
+
+  it("WAIT_FOR_TIME — « reviens demain 10 h » dort, l'horloge VIRTUELLE passe, la mission repart (§19, §41, §44)", async () => {
+    const t = traceur();
+    const id = await creer([
+      { key: "analyser", title: "Analyser", capability: "inspect_record", input: { reference: "REG-1" } },
+      { key: "attendre", title: "Attendre demain 10 h", nodeType: "WAIT_EVENT", dependsOn: ["analyser"],
+        waitFor: { until: "2026-09-01T09:00:00.000Z" } },
+      { key: "revenir", title: "Revenir avec la synthèse", capability: "inspect_record", input: { reference: "REG-1" }, dependsOn: ["attendre"] },
+    ], "reviens demain");
+
+    const r1 = await avancer(id, actor2, { runner: t.runner });
+    expect(r1.status).toBe("WAITING_EVENT");
+    expect(t.appels.map((a) => a.stepKey)).toEqual(["analyser"]);
+
+    // AVANT l'échéance : rien ne bouge — le temps n'est pas encore passé.
+    expect(await reveillerAttentesTemporelles(new Date("2026-09-01T08:59:00.000Z"))).toEqual([]);
+
+    // L'échéance passe (horloge INJECTÉE — le test dure des millisecondes, pas un jour).
+    const reveils = await reveillerAttentesTemporelles(new Date("2026-09-01T09:00:01.000Z"));
+    expect(reveils).toEqual([{ missionId: id, stepKey: "attendre" }]);
+
+    // §41 — le MÊME balayage rejoué (déploiement, second worker) ne réveille pas deux fois.
+    expect(await reveillerAttentesTemporelles(new Date("2026-09-01T09:05:00.000Z"))).toEqual([]);
+
+    const t2 = traceur();
+    await avancer(id, actor2, { runner: t2.runner });
+    expect(t2.appels.map((a) => a.stepKey)).toEqual(["revenir"]);
+    const etat = await chargerEtat(id);
+    expect((etat!.steps.find((s) => s.key === "attendre")!.result as { reveillePar: string }).reveillePar).toBe("TEMPS");
+  }, 30_000);
+
+  it("allOf — « le contrat ET le devis » : progression PERSISTÉE entre deux faits, réveil au second (§27)", async () => {
+    const t = traceur();
+    const id = await creer([
+      { key: "attendre", title: "Contrat ET devis", nodeType: "WAIT_EVENT",
+        waitFor: { allOf: [
+          { event: "EMAIL_RECEIVED", from: "sarah", attachment: "contrat" },
+          { event: "EMAIL_RECEIVED", from: "mehdi", attachment: "devis" },
+        ] } },
+      { key: "suite", title: "Analyser les deux", capability: "inspect_record", dependsOn: ["attendre"] },
+    ], "contrat et devis");
+    await avancer(id, actor2, { runner: t.runner });
+
+    // Le contrat arrive : PAS de réveil, mais la progression est en base.
+    expect(await reveillerMissions({
+      type: "EMAIL_RECEIVED", payload: { from: "sarah@x.dz", attachments: ["contrat.pdf"] },
+    })).toEqual([]);
+    let etat = await chargerEtat(id);
+    const enCours = etat!.steps.find((s) => s.key === "attendre")!;
+    expect(enCours.status).toBe("WAITING");
+    expect((enCours.result as { attenteProgres: number[] }).attenteProgres).toEqual([0]);
+
+    // §42 — le MÊME webhook rejoué : rien ne bouge, la progression reste [0].
+    expect(await reveillerMissions({
+      type: "EMAIL_RECEIVED", payload: { from: "sarah@x.dz", attachments: ["contrat.pdf"] },
+    })).toEqual([]);
+
+    // Le devis arrive (émetteur DIFFÉRENT) : l'attente se règle.
+    const reveils = await reveillerMissions({
+      type: "EMAIL_RECEIVED", payload: { from: "mehdi@x.dz", attachments: ["devis.xlsx"] },
+    });
+    expect(reveils).toEqual([{ missionId: id, stepKey: "attendre" }]);
+    etat = await chargerEtat(id);
+    expect(etat!.steps.find((s) => s.key === "attendre")!.status).toBe("DONE");
+  }, 30_000);
+
+  it("§26 — le mail de la BONNE personne SANS la pièce exigée ne règle rien ; avec la pièce, oui", async () => {
+    const t = traceur();
+    const id = await creer([
+      { key: "attendre", title: "Le contrat de Sarah", nodeType: "WAIT_EVENT",
+        waitFor: { event: "EMAIL_RECEIVED", from: "sarah", attachment: true } },
+      { key: "suite", title: "Lire", capability: "inspect_record", dependsOn: ["attendre"] },
+    ], "contrat attendu");
+    await avancer(id, actor2, { runner: t.runner });
+
+    // « Je te l'envoie demain » — bonne personne, zéro pièce : la mission RESTE en attente.
+    expect(await reveillerMissions({
+      type: "EMAIL_RECEIVED", payload: { from: "sarah@x.dz", subject: "Je te l'envoie demain", hasAttachments: false },
+    })).toEqual([]);
+    let etat = await chargerEtat(id);
+    expect(etat!.steps.find((s) => s.key === "attendre")!.status).toBe("WAITING");
+
+    // §43 — l'événement arrive EN RETARD (bien après la promesse) : il règle quand même.
+    expect((await reveillerMissions({
+      type: "EMAIL_RECEIVED", payload: { from: "sarah@x.dz", attachments: ["Contrat_signe.pdf"] },
+    }))).toEqual([{ missionId: id, stepKey: "attendre" }]);
+  }, 30_000);
+
+  it("anyOf — « dès que Sarah OU Mehdi répond » : le premier règle, l'autre ne rouvre rien", async () => {
+    const t = traceur();
+    const id = await creer([
+      { key: "attendre", title: "Sarah ou Mehdi", nodeType: "WAIT_EVENT",
+        waitFor: { anyOf: [
+          { event: "EMAIL_RECEIVED", from: "sarah" },
+          { event: "EMAIL_RECEIVED", from: "mehdi" },
+        ] } },
+      { key: "suite", title: "Poursuivre", capability: "inspect_record", dependsOn: ["attendre"] },
+    ], "sarah ou mehdi");
+    await avancer(id, actor2, { runner: t.runner });
+
+    expect(await reveillerMissions({
+      type: "EMAIL_RECEIVED", payload: { from: "mehdi@x.dz" },
+    })).toEqual([{ missionId: id, stepKey: "attendre" }]);
+
+    // Le second mail arrive après : l'étape est DONE, rien ne se rejoue.
+    expect(await reveillerMissions({
+      type: "EMAIL_RECEIVED", payload: { from: "sarah@x.dz" },
+    })).toEqual([]);
+  }, 30_000);
+
+  it("le FIL (threadId) exact réveille ; un autre fil du même émetteur, non (§23)", async () => {
+    const t = traceur();
+    const id = await creer([
+      { key: "attendre", title: "Réponse dans le fil", nodeType: "WAIT_EVENT",
+        waitFor: { event: "EMAIL_RECEIVED", threadId: "thr-42" } },
+      { key: "suite", title: "Poursuivre", capability: "inspect_record", dependsOn: ["attendre"] },
+    ], "fil exact");
+    await avancer(id, actor2, { runner: t.runner });
+
+    expect(await reveillerMissions({
+      type: "EMAIL_RECEIVED", payload: { from: "sarah@x.dz", threadId: "thr-99" },
+    })).toEqual([]);
+    expect(await reveillerMissions({
+      type: "EMAIL_RECEIVED", payload: { from: "sarah@x.dz", threadId: "thr-42" },
+    })).toEqual([{ missionId: id, stepKey: "attendre" }]);
+  }, 30_000);
+});

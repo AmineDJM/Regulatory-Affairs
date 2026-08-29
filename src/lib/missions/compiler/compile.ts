@@ -20,6 +20,7 @@ import {
   reparerReglesDacceptation,
   type ContexteReglesPlan,
 } from "@/lib/missions/goal/rules";
+import { lireAttente } from "@/lib/missions/events/match";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -435,12 +436,27 @@ export function compile(
     }
     if (forme.attente === "requise") {
       const w = s.waitFor;
-      const decrite = nodeType === "WAIT_EVENT" ? Boolean(w?.event) : Boolean(w?.ask);
+      // UN SEUL DÉCODEUR fait foi : `lireAttente` — la même relecture que celle du routeur de
+      // réveil. Un WAIT_EVENT est décrit s'il attend un ÉVÉNEMENT, un MOMENT (`until` —
+      // WAIT_FOR_TIME), ou une composition de branches. Valider ici avec une AUTRE règle que
+      // celle du réveil fabriquerait des attentes compilables que rien ne réveille jamais.
+      const decrite = nodeType === "WAIT_EVENT" ? lireAttente(w) !== null : Boolean(w?.ask);
       if (!decrite) {
         issues.push(issue("INVALID_SHAPE", s.key,
           nodeType === "WAIT_EVENT"
-            ? "une attente d'événement doit dire QUEL événement, sinon rien ne la réveillera."
+            ? "une attente doit dire QUEL événement (event), QUEL moment (until, ISO 8601) ou "
+              + "quelles branches (anyOf/allOf) — sinon rien ne la réveillera jamais."
             : "une attente humaine doit dire ce qu'on demande, sinon personne ne sait quoi fournir."));
+      }
+      // Une échéance illisible réveillerait… jamais. Refusée à la compilation, pas découverte
+      // dans trois jours quand personne ne comprend pourquoi la mission dort encore.
+      const untils = [w?.until, ...(w?.anyOf ?? []).map((b) => b.until), ...(w?.allOf ?? []).map((b) => b.until)]
+        .filter((u): u is string => typeof u === "string" && u.trim() !== "");
+      for (const u of untils) {
+        if (!Number.isFinite(Date.parse(u))) {
+          issues.push(issue("INVALID_SHAPE", s.key,
+            `l'échéance « ${u} » n'est pas une date ISO 8601 lisible — cette attente ne se réveillerait jamais.`));
+        }
       }
     }
     if (forme.attente === "interdite" && s.waitFor) {

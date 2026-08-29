@@ -156,6 +156,8 @@ export interface LancementOptions extends OptionsAssemblage {
   titre?: string;
   /** Faire tourner la mission immédiatement après l'avoir créée. */
   demarrer?: boolean;
+  /** Matérialiser DANS cette mission existante (le talon d'un lancement en arrière-plan). */
+  missionId?: string;
 }
 
 export type ResultatLancement =
@@ -207,12 +209,42 @@ export async function lancerMission(
   const catalogue = catalogueDe(user, opts.lectureSeule ? { effetMax: "ANALYZE" } : {});
   const acteur = acteurDe(user);
   const cerveau = opts.reasoner ?? raisonneur;
+  // LES FORMES ÉPROUVÉES (§64) — une indication murmurée au planner, chargée ICI parce que
+  // c'est le côté qui possède la base. Une liste vide est la réponse normale d'un système jeune.
+  const formesValidees = opts.contexte?.formesValidees
+    ?? await import("@/lib/missions/planner/patterns").then((m) => m.indicesDeFormes()).catch(() => []);
   const contexte: ContextePlanification = {
     aujourdhui: new Date().toLocaleDateString("fr-FR"),
     ...opts.contexte,
+    ...(formesValidees.length > 0 ? { formesValidees } : {}),
   };
 
-  let plan = await planifier(objectif, catalogue, acteur, cerveau, { contexte });
+  let plan = await planifier(objectif, catalogue, acteur, cerveau, {
+    contexte,
+    // LE RETRIEVAL SPÉCULATIF (§65) : pendant que le modèle planifie (des secondes), on
+    // préchauffe l'annuaire sur les noms propres de l'objectif — des LECTURES, dont le résultat
+    // est jeté : le gain est le cache de Postgres et le pool déjà chauds quand la première
+    // étape de la mission lit pour de vrai. Ne retient jamais le plan (course, pas jointure).
+    speculation: async (but) => {
+      const debut = Date.now();
+      const noms = [...new Set(
+        (but.match(/\b[A-ZÀ-Ý][a-zà-ÿ]{2,}\b/g) ?? [])
+          .filter((n) => !["Les", "Une", "Des", "Adam", "Envoie", "Fais", "Puis", "Pour", "Avec", "Dans", "Chaque"].includes(n))
+          .slice(0, 4),
+      )];
+      if (noms.length === 0) return [];
+      const lectures = await Promise.all(noms.map(async (nom) => {
+        const t0 = Date.now();
+        await prisma.user.findMany({
+          where: { isActive: true, name: { contains: nom, mode: "insensitive" } },
+          select: { id: true },
+          take: 3,
+        }).catch(() => []);
+        return { libelle: `annuaire:${nom}`, ms: Date.now() - t0 };
+      }));
+      return [{ libelle: `total:${noms.length} noms`, ms: Date.now() - debut }, ...lectures];
+    },
+  });
   if (!plan.ok) return { ok: false, error: plan.error, metriques: plan.metriques };
 
   // L'ACTEUR DE COMPILATION EST L'AGENT : c'est lui qui exécutera, donc c'est SA politique qui
@@ -256,6 +288,7 @@ export async function lancerMission(
     title: titre,
     goalRaw: objectif,
     maxConcurrency: CONCURRENCE_PAR_ECHELLE[mission.scale],
+    ...(opts.missionId ? { missionId: opts.missionId } : {}),
   });
 
   await journaliser(missionId, "CREATED",
@@ -324,6 +357,140 @@ export async function lancerMission(
     metriques: plan.metriques,
     gaps: mission.gaps,
   };
+}
+
+/**
+ * LANCE UNE MISSION EN ARRIÈRE-PLAN — la conversation est LIBÉRÉE en dessous de la seconde.
+ *
+ * ── LE CONTRAT (§12-13) ──────────────────────────────────────────────────────────────────
+ *
+ * « Fais ça de côté, parlons d'autre chose. » La personne ne doit pas payer la planification
+ * en délai de conversation. Le TALON de mission est écrit EN BASE d'abord (statut PLANNING,
+ * l'objectif mot pour mot), la main est rendue avec l'identifiant, puis la planification et le
+ * premier tour tournent hors requête.
+ *
+ * ── POURQUOI LE TALON D'ABORD, ET PAS UN simple `setImmediate` ──────────────────────────
+ *
+ * Parce qu'un `setImmediate` sans trace meurt avec le processus : un déploiement entre la
+ * promesse (« je m'en occupe ») et la planification perdrait la demande — la pire des pannes,
+ * celle dont personne ne s'aperçoit. Avec le talon, le battement retrouve toute mission
+ * PLANNING sans étapes et RELANCE la planification (`rattraperLancementsPerdus`) : la
+ * durabilité est dans la base, jamais dans la mémoire du processus.
+ */
+export async function lancerEnArrierePlan(
+  user: CurrentUser,
+  objectif: string,
+  opts: LancementOptions = {},
+): Promise<{ ok: true; missionId: string; titre: string } | { ok: false; error: string }> {
+  try {
+    const titre = opts.titre ?? titreDe(objectif);
+    const stub = await prisma.mission.create({
+      data: {
+        kind: "RUNTIME",
+        status: "PLANNING",
+        title: titre,
+        objective: objectif,
+        goalRaw: objectif,
+        ownerId: user.id,
+        // 0 : la matérialisation qui suit incrémente à 1 — le premier plan reste « plan 1 ».
+        planVersion: 0,
+      },
+      select: { id: true },
+    });
+    await journaliser(stub.id, "DETACHED",
+      "Mission enregistrée : la planification et l'exécution continuent en arrière-plan.",
+      { objectif: objectif.slice(0, 300) });
+
+    setImmediate(() => {
+      void finaliserLancementDifere(stub.id, user, objectif, opts).catch((e) => {
+        console.error(`[missions] finalisation différée de ${stub.id} échouée`, e);
+      });
+    });
+
+    return { ok: true, missionId: stub.id, titre };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * PLANIFIE ET DÉMARRE une mission-talon — le second temps du lancement détaché, et le chemin
+ * de RATTRAPAGE après un crash. Idempotent par construction : si le talon porte déjà des
+ * étapes (une autre instance a fini le travail), il n'y a rien à faire.
+ */
+export async function finaliserLancementDifere(
+  missionId: string,
+  user: CurrentUser,
+  objectif: string,
+  opts: LancementOptions = {},
+): Promise<{ finalise: boolean; raison?: string }> {
+  const etapes = await prisma.missionStep.count({ where: { missionId } });
+  if (etapes > 0) return { finalise: false, raison: "déjà matérialisée" };
+  const mission = await prisma.mission.findUnique({
+    where: { id: missionId }, select: { status: true },
+  });
+  if (!mission || mission.status === "CANCELLED" || mission.status === "FAILED") {
+    return { finalise: false, raison: "mission close" };
+  }
+
+  const r = await lancerMission(user, objectif, { ...opts, missionId });
+  if (!r.ok) {
+    // LA PANNE EST DITE, JAMAIS SILENCIEUSE : la mission passe FAILED avec le motif — la
+    // personne voit « la planification a échoué », pas une carte qui tourne pour toujours.
+    await prisma.mission.update({
+      where: { id: missionId },
+      data: { status: "FAILED" },
+    }).catch(() => undefined);
+    await journaliser(missionId, "PLANNING_FAILED",
+      `La planification en arrière-plan a échoué : ${r.error}`, {});
+    return { finalise: false, raison: r.error };
+  }
+  return { finalise: true };
+}
+
+/**
+ * RATTRAPE LES LANCEMENTS PERDUS — le filet du talon (§5 durabilité).
+ *
+ * Une mission PLANNING sans étape ET sans activité récente est un lancement dont le processus
+ * est mort entre la promesse et la planification. Le battement la retrouve et RELANCE — au
+ * plus deux reprises (comptées au journal), sinon FAILED avec le motif : relancer sans fin une
+ * planification qui meurt à chaque fois serait une boucle, pas de la persévérance.
+ */
+export async function rattraperLancementsPerdus(
+  chargerProprietaire: (userId: string) => Promise<CurrentUser | null>,
+  opts: { plusVieuxQueMs?: number; limite?: number } = {},
+): Promise<number> {
+  const seuil = new Date(Date.now() - (opts.plusVieuxQueMs ?? 2 * 60_000));
+  const talons = await prisma.mission.findMany({
+    where: {
+      kind: "RUNTIME", status: "PLANNING", updatedAt: { lt: seuil },
+      steps: { none: {} },
+    },
+    select: { id: true, ownerId: true, goalRaw: true },
+    take: opts.limite ?? 5,
+    orderBy: { updatedAt: "asc" },
+  });
+
+  let repris = 0;
+  for (const talon of talons) {
+    if (!talon.goalRaw) continue;
+    const reprises = await prisma.missionEvent.count({
+      where: { missionId: talon.id, kind: "PLANNING_RETRY" },
+    });
+    if (reprises >= 2) {
+      await prisma.mission.update({ where: { id: talon.id }, data: { status: "FAILED" } }).catch(() => undefined);
+      await journaliser(talon.id, "PLANNING_FAILED",
+        "Trois lancements ont été tentés sans qu'aucun n'aboutisse — la mission est close, le motif est au journal.", {});
+      continue;
+    }
+    const user = await chargerProprietaire(talon.ownerId);
+    if (!user) continue;
+    await journaliser(talon.id, "PLANNING_RETRY",
+      "Lancement retrouvé sans plan : la planification reprend (le processus qui la portait s'est arrêté).", {});
+    const f = await finaliserLancementDifere(talon.id, user, talon.goalRaw, {});
+    if (f.finalise) repris += 1;
+  }
+  return repris;
 }
 
 /**

@@ -3402,6 +3402,32 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### ADAM RUN-4 — autonomie longue durée : temporel, e-mail, arrière-plan, web, massif (2026-08)
+
+**Le moteur temporel** (`src/lib/missions/events/temporal.ts`) : « demain à 10h », « dans 48h »,
+« chaque vendredi », « le 15 septembre » deviennent des échéances persistées (jamais un
+`setTimeout`) — le décodeur renonce sur le doute. Appelants réels : `plan_reminder` (champ
+`quand`), `snooze_reminder`. **Attentes v2** (`events/match.ts`) : `until` (réveil temporel par
+le battement), `threadId` exact, `subject`, `attachment` exigée (« une réponse sans le contrat
+ne suffit pas »), compositions `anyOf`/`allOf` à progression persistée — rejeu idempotent,
+hors-ordre toléré, et le planner les voit (schéma strict WAIT_EVENT v2). **E-mail entrant = fait** :
+l'ingest Gmail émet `EMAIL_RECEIVED` au registre canonique ; cinquième conséquence du registre :
+l'**extinction des rappels conditionnels** — échelle de relances (`escalationsH`, 6 barreaux max),
+`stopOnEvent` (même grammaire que les missions), report (`snooze_reminder`). **Arrière-plan** :
+`lancerEnArrierePlan` rend la main en < 100 ms (talon + finalisation différée idempotente,
+échec de planification DIT, rattrapage des processus morts borné à 3), bail d'instance 90 s,
+priorité ±10, plafond de modèle (BUDGET_HOLD dormant, jamais échoué). **Recherche web** (§30) :
+outil natif `web_search` de Responses — recherches comptées et facturées à l'unité, citations
+dédupliquées, coût jamais partiel ; outil `web_research` (provenance TOUJOURS dite : WEB
+(EXTERNE) vs MODELE_SANS_RECHERCHE) déclaré capacité de mission (READ, batchable). **§60-65** :
+porte de concurrence AIMD (`models/throttle.ts` — 429/Retry-After, soldes `x-ratelimit-*`,
+réservation de jetons, retard de boucle), tarif du cache par env (jamais deviné), formes de
+plans OBSERVED→VALIDATED (influence, pas autorité — §12), spéculation pendant l'appel planner
+(course, jamais jointure). **Massif prouvé** : crash à l'étape 37/50 → reprise sans UN rejeu ;
+500 unités avec crash en vague 3 → 500 effets exactement, 9,6 s, Δ tas 23 Mo. État complet et
+dépendances externes : `docs/ADAM_PERFORMANCE.md` §I. Rien n'est déclaré « prouvé live » —
+`OPENAI_API_KEY` absente ici ; le Run 4 se lance côté exploitation.
+
 ### ADAM CLÔTURE — les 31 non-succès du Run 3 réduits à six familles, corrigées en NATIF (2026-08)
 
 **La vérité terrain.** Troisième Deep Live Smoke réel : 23 SUCCÈS / 29 honnêtes / 2 défauts

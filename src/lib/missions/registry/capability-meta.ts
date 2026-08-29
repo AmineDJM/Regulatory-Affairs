@@ -136,6 +136,13 @@ export const DECLARED: Record<string, Omit<CapabilityMeta, "id" | "declared" | "
   gmail_search: { domain: "mail", effect: "READ", idempotent: true, batchable: false, latency: "MEDIUM", confirmation: "NEVER" },
   read_calendar: { domain: "calendar", effect: "READ", idempotent: true, batchable: false, latency: "LOW", confirmation: "NEVER" },
   list_pending_decisions: { domain: "tasks", effect: "READ", idempotent: true, batchable: false, latency: "LOW", confirmation: "NEVER", contrat: "COLLECTION" },
+  /**
+   * LA RECHERCHE WEB (`web-research.ts`) — une LECTURE, mais de l'EXTÉRIEUR. Idempotente et
+   * groupable (dix requêtes en éventail pour une veille), lente (le fournisseur cherche et
+   * lit), jamais sous confirmation : elle n'écrit rien et n'engage rien. Son coût, lui, est
+   * compté à la recherche (usage.webSearchCalls) et plafonné par le budget de mission.
+   */
+  web_research: { domain: "web", effect: "READ", idempotent: true, batchable: true, latency: "HIGH", confirmation: "NEVER" },
 
   // ─────────── Communications et écritures ───────────
   //

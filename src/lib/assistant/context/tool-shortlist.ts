@@ -122,6 +122,13 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   plan_reminder: ["MISSION"],
   list_reminders: ["MISSION"],
   cancel_reminder: ["MISSION"],
+  snooze_reminder: ["MISSION"],
+
+  // ── Le web — l'EXTÉRIEUR de l'entreprise ────────────────────────────────────────────────
+  // « le prix public en France », « l'actualité de ce laboratoire » : une information externe
+  // peut être demandée depuis n'importe quel sujet métier — la recherche web accompagne donc
+  // les domaines où l'extérieur entre naturellement dans la conversation.
+  web_research: ["REGULATORY", "GENERAL"],
 
   // ── Annuaire & personnes ────────────────────────────────────────────────────────────────
   // L'ANNUAIRE APPARTIENT AUSSI À LA MESSAGERIE. On n'écrit à personne sans son adresse : une

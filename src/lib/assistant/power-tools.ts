@@ -26,6 +26,7 @@ import { WHAT_CHANGED_TOOLS } from "@/lib/assistant/what-changed";
 import { ADAM_TOOLS } from "@/lib/assistant/adam-tools";
 import { DIRECTORY_TOOLS } from "@/lib/assistant/directory-tools";
 import { SHOW_TOOLS } from "@/lib/assistant/show-tools";
+import { WEB_RESEARCH_TOOLS } from "@/lib/assistant/web-research";
 import { resultatVide } from "@/lib/assistant/empty-result";
 
 /**
@@ -379,6 +380,9 @@ export const POWER_TOOLS: PowerTool[] = [
   // bureautique, missions). Meme cerveau, memes portes : ce sont des PowerTools comme les autres.
   ...ADAM_TOOLS,
   ...DIRECTORY_TOOLS,
+  // LE WEB — la seule fenêtre sur l'EXTÉRIEUR : synthèse sourcée via l'outil natif du
+  // fournisseur, provenance toujours dite (EXTERNE vs mémoire du modèle). Jamais pour l'ERP.
+  ...WEB_RESEARCH_TOOLS,
   // MONTRER (et non lire) : un PDF, un contrat, un classeur mis sous les yeux, dans la
   // conversation. Le droit se juge document par document — voir `show-tools.ts`.
   ...SHOW_TOOLS,

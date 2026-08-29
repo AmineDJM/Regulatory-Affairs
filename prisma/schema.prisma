@@ -9081,6 +9081,13 @@ model AssistantReminder {
   watchLabel   String?
   active       Boolean   @default(true)
   lastFiredAt  DateTime?
+  /// ÉCHELLE DE RELANCES — heures après chaque tir (« rappelle demain ; si rien, +48 h puis
+  /// +72 h » = dueAt demain + [48, 72]). Consommée barreau par barreau ; vide = un seul tir.
+  escalationsH Json      @default("[]")
+  /// EXTINCTION SUR ÉVÉNEMENT — une Attente (même grammaire que les missions : event/from/
+  /// threadId/attachment). Le fait arrive → le rappel s'éteint TOUT SEUL, relances comprises :
+  /// « rappelle-moi dans 7 jours SEULEMENT SI Sarah n'a pas envoyé le contrat ».
+  stopOnEvent  Json?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -9428,6 +9435,16 @@ model Mission {
   startedAt     DateTime?
   /// Limite OPÉRATIONNELLE de parallélisme, jamais une limite d'architecture (§4).
   maxConcurrency Int        @default(6)
+  /// PRIORITÉ d'ordonnancement : le battement sert les priorités hautes d'abord. 0 = normal.
+  priority       Int        @default(0)
+  /// BAIL multi-instances : l'instance qui détient le bail fait avancer, les autres passent.
+  /// La sûreté ne dépend PAS du bail (les étapes se réservent en base) — il évite le travail
+  /// en double quand plusieurs battements tournent.
+  leaseOwner     String?
+  leaseUntil     DateTime?
+  /// PLAFOND d'appels de modèle (« ne dépense plus de modèle sur ce dossier aujourd'hui »).
+  /// Nul = pas de plafond. Atteint : la mission dort (BUDGET_HOLD), elle n'échoue pas.
+  modelCallsCap  Int?
   /// LA CARTE DU PLAN telle que le planificateur l'a rendue : axes de travail, livrables
   /// attendus, stratégie d'accord, critère arithmétique de fin. Lue par le contrôle qualité et
   /// par le juge — quatre informations qui naissent ensemble et dont aucune ne s'interroge seule.
@@ -9536,6 +9553,34 @@ model MissionStep {
 }
 
 /// Une ARÊTE du DAG. `dependsOn` doit être TERMINÉE pour que `step` devienne exécutable.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// UNE FORME DE PLAN QUI A RÉUSSI (§64) — la mémoire STRUCTURELLE du planner.
+///
+/// On ne retient jamais le contenu d'une mission (destinataires, textes, chiffres) : uniquement
+/// sa FORME — la suite des types d'étapes et de capacités — et le nombre de fois où cette forme
+/// a conduit à un objectif jugé atteint. OBSERVED n'a aucune autorité ; VALIDATED (≥ 3 réussites
+/// de missions distinctes) devient une INDICATION donnée au planner. Jamais un raccourci : le
+/// compilateur et la politique d'approbation relisent chaque plan comme si la forme n'existait
+/// pas — pas d'apprentissage silencieux (§12), une influence, pas une autorité.
+model MissionPlanPattern {
+  id               String   @id @default(cuid())
+  /// L'empreinte de la forme (sha256 tronqué) — l'unicité est tenue par la base.
+  signature        String   @unique
+  /// SIMPLE | MOYEN | COMPLEXE — dérivé de la complexité (A/B/C) de la mission d'origine.
+  profil           String
+  /// La forme lisible : ["CAPABILITY(search_people)", "CAPABILITY(send_message)[éventail]", "QA"].
+  forme            Json
+  succes           Int      @default(1)
+  /// OBSERVED (vu, aucune autorité) | VALIDATED (répété, devient une indication).
+  statut           String   @default("OBSERVED")
+  /// La dernière mission comptée — c'est elle qui rend l'enregistrement idempotent au rejeu.
+  dernierMissionId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([statut, succes])
+}
+
 model MissionStepDep {
   id          String      @id @default(cuid())
   stepId      String

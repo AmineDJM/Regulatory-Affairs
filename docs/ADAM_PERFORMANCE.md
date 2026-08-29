@@ -245,3 +245,111 @@ machine (`carte`).
 La FACTURATION DU STOCKAGE OBJET (402) reste une action humaine : tant qu'elle n'est pas
 réglée, les lectures de CONTENU Drive échoueront — désormais en UNE tentative, court-circuit,
 cause dite, et l'éventail de lecture CONCLUT en nommant ce manque au lieu de spiraler.
+
+## I. LA CLÔTURE RUN 4 (2026-08-29) — autonomie longue durée, temporel, e-mail, arrière-plan, web
+
+Le chantier « FINAL CAPABILITY CLOSURE » a construit — code, tests, sabotages — les capacités
+suivantes. Chaque ligne dit son état RÉEL : IMPLÉMENTÉ (le code existe et a un appelant de
+production), TESTÉ (une suite le prouve localement), LIVE (prouvé contre le fournisseur réel —
+et rien n'est déclaré LIVE sans clé).
+
+### I.1 Le moteur temporel (`src/lib/missions/events/temporal.ts`)
+« demain à 10h », « dans 48h », « vendredi prochain », « chaque vendredi », « le 15 septembre »
+→ `interpreterExpressionTemporelle` rend une échéance UTC (heure d'Alger fixe UTC+1) et une
+récurrence — ou `null` : le décodeur RENONCE sur le doute, il n'attrape jamais une phrase mal
+comprise. Jamais de `setTimeout` : l'échéance devient une ATTENTE persistée (`waitFor.until`)
+ou un rappel, redécouverts par le battement après tout redémarrage. Appelants de production :
+`plan_reminder` (champ `quand`), `snooze_reminder` (champ `quand`). 12 tests.
+
+### I.2 Les attentes composables v2 (`events/match.ts`, `events/router.ts`)
+La grammaire : `{event, from, entity, withinDays, until, threadId, subject, attachment,
+anyOf[], allOf[]}` (branches à plat, profondeur 1). `threadId` exact bat les heuristiques ;
+`attachment` exige la pièce (« une réponse sans le contrat ne suffit PAS », §26) ; `allOf`
+persiste sa progression dans l'étape (`attenteProgres`) — elle survit aux redéploiements ;
+le réveil temporel (`reveillerAttentesTemporelles`) passe par le MÊME chemin que le réveil
+par fait. Rejeu idempotent (§42), hors-ordre toléré (§43). 16 + 5 tests (grammaire + routeur,
+horloge virtuelle).
+
+### I.3 L'e-mail entrant devient un FAIT (`gmail/ingest.ts` → `BusinessEvent`)
+Chaque message entrant, non automatique, non rejeté, émet `EMAIL_RECEIVED` (expéditeur, objet,
+fil, pièces jointes, missionId GLOBAL nul — le fait n'appartient à personne). Les conséquences
+en chaîne (registre §17) : réveil des missions en attente, satisfaction d'engagements,
+EXTINCTION des rappels conditionnels (5ᵉ conséquence du registre). La chaîne aval est testée
+depuis `recordEvent` ; l'émission depuis l'ingest est revue mais non couverte par un test dédié
+(elle exige une connexion Google réelle).
+
+### I.4 Rappels : échelle de relances, extinction, report (`assistant/reminders.ts`)
+`escalationsH` (6 barreaux max, 1 h–30 j) se consomme barreau par barreau puis se TAIT ;
+`stopOnEvent` (la même grammaire d'attente que les missions) éteint le rappel ET ses relances
+quand le fait attendu arrive — et un mail SANS la pièce exigée n'éteint rien ; `snoozeReminder`
+reporte depuis max(échéance, maintenant). 3 tests dédiés (horloge injectée) + extinction de
+bout en bout via le registre.
+
+### I.5 Missions en ARRIÈRE-PLAN (`platform/missions/runtime.ts`, `sweep.ts`, `control.ts`)
+`lancerEnArrierePlan` rend la main en dizaines de millisecondes (mesuré < 1,5 s dans le banc,
+typiquement < 100 ms) — talon PLANNING + finalisation différée idempotente ; un échec de
+planification devient FAILED avec motif (jamais une carte qui tourne) ; `rattraperLancementsPerdus`
+reprend un processus mort (3 tentatives maximum, puis FAILED dit). Le BAIL (`prendreBail`,
+90 s, instance pid+aléa) empêche deux instances d'avancer la même mission — l'idempotence par
+étape reste la garantie de fond. `prioriserMission` (±10) fait passer devant ;
+`plafonnerModeleMission` endort au plafond (BUDGET_HOLD journalisé une fois) sans échouer.
+7 tests.
+
+### I.6 Recherche web (§30-35) — `models/*` + outil `web_research`
+L'outil `web_search` NATIF de l'API Responses : `webSearch: true` sur un appel de modèle ;
+les recherches se COMPTENT (`usage.webSearchCalls`, facturées à l'unité — tarif public 0,01 $,
+surchargeable `ADAM_PRICE_WEB_SEARCH_CALL`) et les CITATIONS remontent (`reply.webSources`,
+dédupliquées, titre jamais inventé). Le coût total reste `null` si le tarif des jetons manque
+(jamais un total partiel). L'outil `web_research` (PowerTool + capacité de mission déclarée
+READ/batchable) rend une synthèse SOURCÉE avec provenance dite : « WEB (EXTERNE) » ou
+« MODELE_SANS_RECHERCHE » — une réponse de mémoire ne se déguise pas en fait du jour. La
+recherche PROFONDE se compose en mission (étapes web_research en éventail + synthèse) — pas de
+moteur parallèle. 9 tests (faux serveur Responses sévère). NON PROUVÉ LIVE : pas de clé ici.
+
+### I.7 Concurrence adaptative §60 + réservation de jetons §61 (`models/throttle.ts`)
+AIMD : un 429 DIVISE la capacité et impose `Retry-After` ; sous 10 % de solde annoncé
+(`x-ratelimit-remaining-*`) elle rétrécit AVANT le refus ; dix succès regagnent UN cran ;
+un retard de boucle d'événements > 200 ms serre localement. Chaque admission RÉSERVE son
+estimation de jetons contre la fenêtre observée — trente appels ne crèvent plus ensemble un
+plafond par minute qui n'en logeait que dix. FIFO, filet anti-fuite (passage forcé à 120 s,
+DIT), câblée dans la passerelle (place prise après validation, rendue en `finally`) et nourrie
+par les trois adaptateurs. 11 tests (horloge virtuelle + intégration 429 réelle à travers
+`callModel`).
+
+### I.8 Coûts §62, cache de prompt §63
+Tarifs par rôle (env), tarif web par recherche, et tarif RÉDUIT des jetons en cache
+(`ADAM_PRICE_<ROLE>_CACHED_IN`) — absent, les jetons en cache restent au tarif PLEIN
+(surestimation assumée, jamais une remise devinée). `promptCacheKey` déjà posé par le
+raisonneur de mission (`mission:<purpose>`) ; `cachedInputTokens` mesuré par appel et par tour.
+L'efficacité du cache ne peut être PROUVÉE que live.
+
+### I.9 Formes de plans §64 + spéculation §65 (`planner/patterns.ts`, `planner/plan.ts`)
+La FORME d'un plan réussi (jamais le contenu ; les clones d'éventail repliés — 33 envois et
+300 envois sont la même forme) s'inscrit : OBSERVED, puis VALIDATED à TROIS missions distinctes
+(le rejeu ne compte pas deux fois). VALIDATED devient une INDICATION murmurée au planner —
+encadrée « indication SEULEMENT », le compilateur relit tout comme si elle n'existait pas
+(§12 : influence, pas autorité). La SPÉCULATION : pendant l'appel du planner, des lectures
+sûres préchauffent l'annuaire sur les noms de l'objectif — course, jamais jointure (un plan
+n'attend JAMAIS la spéculation, mesuré), échec invisible. 7 tests.
+
+### I.10 Le planner voit les attentes v2
+Le schéma strict WAIT_EVENT porte `waitUntil/waitThreadId/waitSubject/waitAttachment/
+waitAnyOf/waitAllOf` (branches nullables) et la consigne enseigne les trois gestes : attendre
+une échéance, attendre un e-mail PRÉCIS (fil, pièce exigée), composer OU/ET. Une attente
+purement temporelle se dit `waitEvent: "TEMPS"` + `waitUntil` — et le routeur ne matche jamais
+un fait dessus.
+
+### I.11 Massif §46 + crash §40 — mesuré
+Banc (`evals/bench.test.ts`) : SCÉNARIO 18 — le processus MEURT à l'étape 37/50, le suivant
+reprend à 38, 50 effets EXACTEMENT, zéro rejeu ; SCÉNARIO 19 — 500 unités par le vrai moteur
+avec crash en vague 3 et reprise par un « nouveau processus » : 500 envois exactement, zéro
+unité refaite, vagues bornées, **9,6 s, Δ tas 23 Mo**. La profondeur de chaîne reste bornée à
+60 (garde opérationnelle du compilateur) : l'échelle vit en éventail.
+
+### I.12 Ce qui reste à l'humain (dépendances EXTERNES uniquement)
+- `OPENAI_API_KEY` sur Render — absente de cet environnement : AUCUNE capacité déclarée
+  « prouvée live » ; le Run 4 (`npm run adam:smoke:deep`) est à lancer par vous.
+- Compte Google d'Adam connecté (OAuth existant) + veille Pub/Sub active pour que l'ingest
+  émette EMAIL_RECEIVED en production.
+- Tarifs réels si différents des défauts : `ADAM_PRICE_*`, `ADAM_PRICE_WEB_SEARCH_CALL`,
+  `ADAM_PRICE_<ROLE>_CACHED_IN` ; concurrence : `ADAM_MODEL_CONCURRENCY`.

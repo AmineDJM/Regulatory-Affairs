@@ -100,6 +100,23 @@ export async function recordEvent(input: RecordEventInput): Promise<string | nul
       console.error("[events] satisfaction d'engagement impossible", evt.type, err);
     });
 
+    // LA CINQUIÈME CONSÉQUENCE : les rappels conditionnels s'ÉTEIGNENT quand ce qu'ils
+    // surveillaient arrive (§10). « Rappelle-moi dans 7 jours si Sarah n'a pas envoyé le
+    // contrat » — le contrat arrive, le rappel se tait, relances comprises. Import différé :
+    // le module des rappels importe la messagerie, qu'on ne veut pas charger pour chaque fait.
+    await import("@/lib/assistant/reminders")
+      .then((m) => m.eteindreRappelsSurEvenement({
+        type: evt.type,
+        actorId: evt.actorId,
+        entityType: evt.entityType,
+        entityId: evt.entityId,
+        relatedRefs: input.relatedRefs ?? [],
+        payload: input.payload,
+      }))
+      .catch((err) => {
+        console.error("[events] extinction de rappel impossible", evt.type, err);
+      });
+
     // LA QUATRIÈME CONSÉQUENCE : les états chauds démentis (fabric F5). Un fait métier vient
     // de s'inscrire — les signaux exécutifs précalculés AVANT lui ne peuvent plus être servis
     // tels quels. On MARQUE (pas de recalcul ici : le prochain lecteur ou le battement paie),

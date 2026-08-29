@@ -98,6 +98,12 @@ const NEUTRAL = new Set([
   // besoin AUTANT qu'Adam : le laisser dans `assistant/` aurait forcé l'ERP à importer « du
   // Adam », c'est-à-dire le couplage inverse — celui qu'on ne voit pas venir.
   "src/lib/name-match",
+  // `temporal` traduit « demain à 10h », « dans 48h », « chaque vendredi » en échéance UTC
+  // (heure d'Alger fixe). Des mathématiques de dates — zéro import, sans état, sans base, sans
+  // règle métier : le même cas que `name-match`, mot pour mot. Les rappels d'Adam le consomment
+  // ET les attentes de mission de l'ERP peuvent le consommer — le ranger d'un côté forcerait
+  // l'autre à traverser.
+  "src/lib/temporal",
 ]);
 
 export interface Violation {

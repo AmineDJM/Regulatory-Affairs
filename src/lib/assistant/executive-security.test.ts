@@ -74,6 +74,11 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       "search_everything", "list_pending_decisions",
       "remember", "list_memories", "forget_memory", "recall_conversation",
       "action_history", "episodic_recall",
+      // web_research : le WEB, pas l'ERP. L'outil ne touche à AUCUNE donnée interne — il
+      // interroge l'extérieur via le fournisseur de modèle, et son coût est compté à la
+      // recherche (usage.webSearchCalls) et plafonnable par mission. Le fermer ne protégerait
+      // aucune donnée ; il retirerait une capacité.
+      "web_research",
       // pre_meeting_brief : cloisonné PAR REQUÊTE (seules les réunions organisées par soi ou
       // sur invitation) — même design qu'action_history, aucun droit de module requis.
       "pre_meeting_brief",

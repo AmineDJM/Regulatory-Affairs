@@ -102,3 +102,50 @@ export async function replanifierAgent(
   await avancerMission(user, missionId, { maxTours: 25 }).catch(() => undefined);
   return { fait: true, statut: null, message: r.raison };
 }
+
+/**
+ * PRIORISE une mission (« celle-ci passe devant ») — le battement sert les priorités hautes
+ * d'abord, l'ancienneté ensuite : personne ne meurt de faim. L'appartenance est vérifiée par
+ * la requête elle-même : la mission d'un autre ne bouge pas.
+ */
+export async function prioriserMission(
+  user: CurrentUser, missionId: string, priorite: number,
+): Promise<GesteMission> {
+  const { prisma } = await import("@/lib/prisma");
+  const { journaliser } = await import("@/lib/missions/runtime/store");
+  const p = Math.max(-10, Math.min(10, Math.round(priorite)));
+  const r = await prisma.mission.updateMany({
+    where: { id: missionId, ownerId: user.id, kind: "RUNTIME" },
+    data: { priority: p },
+  });
+  if (r.count !== 1) return { fait: false, statut: null, message: "Mission introuvable (ou pas la vôtre)." };
+  await journaliser(missionId, "PRIORITY", `Priorité réglée à ${p}.`, { priorite: p }, user.id);
+  return { fait: true, statut: null, message: p > 0 ? `Priorité relevée (${p}) : elle passera devant.` : `Priorité réglée (${p}).` };
+}
+
+/**
+ * PLAFONNE le MODÈLE d'une mission (« ne dépense plus de modèle sur ce dossier aujourd'hui »).
+ * Atteint, la mission DORT (BUDGET_HOLD au journal) — elle n'échoue pas ; `null` retire le
+ * plafond et le battement la fait repartir au même point.
+ */
+export async function plafonnerModeleMission(
+  user: CurrentUser, missionId: string, cap: number | null,
+): Promise<GesteMission> {
+  const { prisma } = await import("@/lib/prisma");
+  const { journaliser } = await import("@/lib/missions/runtime/store");
+  const plafond = cap === null ? null : Math.max(0, Math.round(cap));
+  const r = await prisma.mission.updateMany({
+    where: { id: missionId, ownerId: user.id, kind: "RUNTIME" },
+    data: { modelCallsCap: plafond },
+  });
+  if (r.count !== 1) return { fait: false, statut: null, message: "Mission introuvable (ou pas la vôtre)." };
+  await journaliser(missionId, "BUDGET_SET",
+    plafond === null ? "Plafond de modèle retiré." : `Plafond de modèle : ${plafond} appel(s).`,
+    { cap: plafond }, user.id);
+  return {
+    fait: true, statut: null,
+    message: plafond === null
+      ? "Plafond retiré — la mission peut de nouveau consommer du modèle."
+      : `Plafond posé : ${plafond} appel(s) de modèle. Atteint, la mission dormira sans échouer.`,
+  };
+}

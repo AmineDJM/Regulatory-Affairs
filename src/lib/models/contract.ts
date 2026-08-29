@@ -90,6 +90,15 @@ export interface ModelBinding {
    */
   priceInPerM: number | null;
   priceOutPerM: number | null;
+  /**
+   * LE TARIF DES JETONS D'ENTRÉE SERVIS DEPUIS LE CACHE de prompt, par million.
+   *
+   * Optionnel et sans défaut inventé : quand il n'est pas renseigné (`ADAM_PRICE_<ROLE>_CACHED_IN`),
+   * les jetons en cache sont facturés au tarif d'entrée PLEIN — une SURESTIMATION assumée, qui
+   * vaut mieux qu'une remise devinée. Le jour où le tarif réduit est vérifié, une variable
+   * d'environnement suffit et le coût rapporté baisse tout seul.
+   */
+  priceCachedInPerM?: number | null;
 }
 
 // ─────────────────────────────── La conversation ───────────────────────────────
@@ -162,6 +171,14 @@ export interface ModelUsage {
    * rapporte pas », ce qui est un fait, pas une mesure ratée. À zéro = le modèle n'a pas réfléchi.
    */
   reasoningTokens?: number;
+  /**
+   * COMBIEN DE RECHERCHES WEB le fournisseur a exécutées pendant cet appel.
+   *
+   * Facturées À LA RECHERCHE, pas au jeton — un compteur de jetons seul rendrait ce coût
+   * invisible. Optionnel pour la même raison que `reasoningTokens` : absent = « ce protocole ne
+   * le rapporte pas », zéro = « l'outil était offert et le modèle n'a pas cherché ».
+   */
+  webSearchCalls?: number;
   /** Le plafond de sortie réellement envoyé — sans lui, `reasoningTokens` ne se juge pas. */
   maxOutputTokens?: number | null;
   /**
@@ -188,6 +205,15 @@ export interface ModelReply {
    * pas une panne, c'est un protocole qui ne chaîne pas.
    */
   responseId?: string;
+  /**
+   * LES SOURCES WEB CITÉES, quand l'appel a cherché (`webSearch: true`).
+   *
+   * Une réponse fondée sur le web SANS ses sources est une rumeur avec de l'aplomb : l'appelant
+   * doit pouvoir montrer d'où vient chaque affirmation, et distinguer une preuve INTERNE (l'ERP)
+   * d'une preuve EXTERNE (une page web, à la fraîcheur incertaine). `title` vaut `null` quand le
+   * fournisseur n'en donne pas — jamais un titre inventé.
+   */
+  webSources?: { url: string; title: string | null }[];
 }
 
 export interface ModelCallOptions {
@@ -232,6 +258,15 @@ export interface ModelCallOptions {
   /** Éléments supplémentaires demandés dans la réponse (ex. le raisonnement chiffré). */
   include?: string[];
   timeoutMs?: number;
+  /**
+   * OFFRIR LA RECHERCHE WEB au modèle pour cet appel (outil `web_search` de Responses).
+   *
+   * Un booléen et non une configuration : l'appelant dit « cette question peut nécessiter le
+   * web », le fournisseur décide s'il cherche et combien de fois. Les recherches exécutées
+   * remontent dans `usage.webSearchCalls` (facturées à l'unité) et les pages citées dans
+   * `reply.webSources` — une réponse web sans sources ne doit pas exister.
+   */
+  webSearch?: boolean;
   /** Forcer une sortie JSON conforme à un schéma. */
   jsonSchema?: { name: string; schema: Record<string, unknown> };
   /** Coupe l'appel proprement quand l'appelant abandonne (client parti, tour vocal annulé). */
@@ -271,15 +306,25 @@ export function toolCallsOf(blocks: ModelBlock[]): Extract<ModelBlock, { type: "
 /**
  * LE COÛT D'UN APPEL. Rend `null` dès qu'un des deux tarifs manque — voir `ModelBinding` : on
  * préfère ne rien annoncer plutôt qu'annoncer faux.
+ *
+ * Les jetons EN CACHE sont déduits du tarif plein SEULEMENT si leur tarif réduit est renseigné ;
+ * sinon ils restent au tarif d'entrée — surestimer un coût connu vaut mieux qu'inventer une
+ * remise. `cachedInputTokens` est une PART de `inputTokens`, jamais un supplément.
  */
 export function costOf(
-  binding: Pick<ModelBinding, "priceInPerM" | "priceOutPerM">,
+  binding: Pick<ModelBinding, "priceInPerM" | "priceOutPerM" | "priceCachedInPerM">,
   inputTokens: number,
   outputTokens: number,
+  cachedInputTokens = 0,
 ): number | null {
   if (binding.priceInPerM == null || binding.priceOutPerM == null) return null;
+  const enCache = binding.priceCachedInPerM != null
+    ? Math.max(0, Math.min(cachedInputTokens, inputTokens))
+    : 0;
   const usd =
-    (inputTokens / 1_000_000) * binding.priceInPerM + (outputTokens / 1_000_000) * binding.priceOutPerM;
+    ((inputTokens - enCache) / 1_000_000) * binding.priceInPerM
+    + (enCache / 1_000_000) * (binding.priceCachedInPerM ?? 0)
+    + (outputTokens / 1_000_000) * binding.priceOutPerM;
   return Math.round(usd * 1_000_000) / 1_000_000; // au millionième de dollar
 }
 

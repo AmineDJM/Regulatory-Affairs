@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { callModel, streamModel } from "./gateway";
 import { bindingFor } from "./registry";
 import { protocolFor, protocolViolation, needsResponses, isReasoningModel } from "./protocol";
+import { supportsWebSearch, validateModelRequest } from "./capabilities";
 import {
   buildResponsesBody,
   toResponsesInput,
@@ -616,5 +617,159 @@ describe("la traduction de forme, vérifiée sans réseau", () => {
     expect(Number(captures[1].body.max_output_tokens))
       .toBeGreaterThan(Number(captures[0].body.max_output_tokens));
     warn.mockRestore();
+  });
+});
+
+// ─────────────────────────── 13. la recherche web — outil FOURNISSEUR ───────────────────────────
+
+describe("13. la recherche web : l'outil part, les sources et le coût reviennent", () => {
+  /** Une réponse Responses qui a CHERCHÉ : N recherches, un message annoté de citations. */
+  function reponseWeb(opts: {
+    recherches: number;
+    texte: string;
+    citations?: { url: string; title?: string }[];
+  }): unknown {
+    const output: unknown[] = [{ type: "reasoning", id: "rs_1", summary: [] }];
+    for (let i = 0; i < opts.recherches; i++) {
+      output.push({ type: "web_search_call", id: `ws_${i}`, status: "completed" });
+    }
+    output.push({
+      type: "message",
+      id: "msg_1",
+      role: "assistant",
+      content: [{
+        type: "output_text",
+        text: opts.texte,
+        annotations: (opts.citations ?? []).map((c) => ({ type: "url_citation", url: c.url, title: c.title })),
+      }],
+    });
+    return {
+      id: "resp_web",
+      status: "completed",
+      output,
+      usage: { input_tokens: 1_000, output_tokens: 500, input_tokens_details: { cached_tokens: 0 } },
+    };
+  }
+
+  it("`webSearch: true` ajoute l'outil web_search au corps — même sans aucune fonction", async () => {
+    serveur([reponseWeb({ recherches: 1, texte: "Trouvé." })]);
+    const r = await callModel("bulk", [{ role: "user", content: "Cherche le prix public." }], { webSearch: true });
+    expect(r.ok).toBe(true);
+
+    const tools = captures[0].body.tools as { type: string }[];
+    expect(tools.some((t) => t.type === "web_search")).toBe(true);
+    // Un outil offert se choisit : `tool_choice` est posé aussi pour l'outil fournisseur seul.
+    expect(captures[0].body.tool_choice).toBe("auto");
+    // `parallel_tool_calls` est réservé aux FONCTIONS — absent quand il n'y en a aucune.
+    expect(captures[0].body.parallel_tool_calls).toBeUndefined();
+  });
+
+  it("fonctions ET web_search se composent dans la même liste", async () => {
+    serveur([reponseWeb({ recherches: 1, texte: "ok" })]);
+    await callModel("bulk", [{ role: "user", content: "x" }], { webSearch: true, tools: [OUTIL("read_a")] });
+
+    const tools = captures[0].body.tools as { type: string; name?: string }[];
+    expect(tools.map((t) => t.type).sort()).toEqual(["function", "web_search"]);
+    expect(tools.find((t) => t.type === "function")?.name).toBe("read_a");
+    expect(captures[0].body.parallel_tool_calls).toBe(true);
+  });
+
+  it("sans `webSearch`, aucun outil web_search ne part — le défaut reste fermé", async () => {
+    serveur([reponse({ texte: "ok" })]);
+    await callModel("bulk", [{ role: "user", content: "x" }], { tools: [OUTIL("read_a")] });
+    const tools = captures[0].body.tools as { type: string }[];
+    expect(tools.every((t) => t.type === "function")).toBe(true);
+  });
+
+  it("un modèle qui ne porte pas l'outil : le constructeur S'ABSTIENT, le contrôle REFUSE", () => {
+    // L'abstention (usage direct de l'adaptateur — bancs, essais) : rien n'est construit.
+    const binding = {
+      role: "worker" as const, provider: "openai" as const,
+      model: "modele-inconnu-x", reasoning: "none" as const, priceInPerM: null, priceOutPerM: null,
+    };
+    const body = buildResponsesBody(binding, [{ role: "user", content: "x" }], { webSearch: true });
+    expect(body.tools).toBeUndefined();
+
+    // Le refus (chemin passerelle) : le contrôle local nomme le problème AVANT le réseau.
+    const problemes = validateModelRequest({
+      model: "modele-inconnu-x", protocol: "responses", params: {}, webSearch: true,
+    });
+    expect(problemes.some((p) => p.kind === "capacite" && /web_search/.test(p.message))).toBe(true);
+    // Et les modèles branchés, eux, le portent — sinon la capacité n'existerait pour personne.
+    expect(supportsWebSearch("gpt-5.6-terra")).toBe(true);
+    expect(supportsWebSearch("gpt-5.6-luna")).toBe(true);
+    expect(supportsWebSearch("gpt-realtime-2.1")).toBe(false);
+  });
+
+  it("les recherches se COMPTENT et les citations remontent DÉDUPLIQUÉES", async () => {
+    serveur([reponseWeb({
+      recherches: 2,
+      texte: "Le prix est de 12 €.",
+      citations: [
+        { url: "https://a.example/prix", title: "Tarifs 2026" },
+        { url: "https://a.example/prix" }, // même page citée deux fois → UNE source
+        { url: "https://b.example/etude" }, // sans titre → title null, jamais inventé
+      ],
+    })]);
+
+    const r = await callModel("bulk", [{ role: "user", content: "Le prix ?" }], { webSearch: true });
+    expect(r.usage.webSearchCalls).toBe(2);
+    expect(r.webSources).toEqual([
+      { url: "https://a.example/prix", title: "Tarifs 2026" },
+      { url: "https://b.example/etude", title: null },
+    ]);
+  });
+
+  it("le coût plie les recherches au tarif UNITAIRE — et reste `null` si le tarif des jetons manque", async () => {
+    // Luna : tarif connu (0,20 / 1,20 par million). 1 000 in + 500 out + 2 recherches à 0,01 $.
+    serveur([reponseWeb({ recherches: 2, texte: "ok" })]);
+    const luna = await callModel("bulk", [{ role: "user", content: "x" }], { webSearch: true });
+    const jetons = (1_000 / 1_000_000) * 0.2 + (500 / 1_000_000) * 1.2;
+    expect(luna.usage.costUsd).toBeCloseTo(jetons + 2 * 0.01, 6);
+
+    // Terra worker : tarif des jetons INCONNU dans ce dépôt → le total reste `null`, les
+    // recherches ne fabriquent pas un « total » partiel avec l'air d'un total.
+    serveur([reponseWeb({ recherches: 2, texte: "ok" })]);
+    const terra = await callModel("worker", [{ role: "user", content: "x" }], { webSearch: true });
+    expect(terra.usage.webSearchCalls).toBe(2);
+    expect(terra.usage.costUsd).toBeNull();
+  });
+
+  it("le tarif d'une recherche se corrige par variable d'environnement, sans redéploiement", async () => {
+    process.env.ADAM_PRICE_WEB_SEARCH_CALL = "0.025";
+    try {
+      serveur([reponseWeb({ recherches: 4, texte: "ok" })]);
+      const r = await callModel("bulk", [{ role: "user", content: "x" }], { webSearch: true });
+      const jetons = (1_000 / 1_000_000) * 0.2 + (500 / 1_000_000) * 1.2;
+      expect(r.usage.costUsd).toBeCloseTo(jetons + 4 * 0.025, 6);
+    } finally {
+      delete process.env.ADAM_PRICE_WEB_SEARCH_CALL;
+    }
+  });
+
+  it("zéro recherche : pas de sources, pas de compteur — la provenance reste honnête", async () => {
+    serveur([reponse({ texte: "Réponse de mémoire." })]);
+    const r = await callModel("bulk", [{ role: "user", content: "x" }], { webSearch: true });
+    expect(r.webSources).toBeUndefined();
+    expect(r.usage.webSearchCalls).toBeUndefined();
+  });
+
+  it("le FLUX compte les recherches et récolte les citations, comme l'appel simple", async () => {
+    serveurFlux([
+      { type: "response.output_item.added", output_index: 0, item: { type: "web_search_call", id: "ws_1" } },
+      { type: "response.output_text.delta", delta: "Le chiffre " },
+      { type: "response.output_text.delta", delta: "est 42." },
+      {
+        type: "response.output_text.annotation.added",
+        annotation: { type: "url_citation", url: "https://c.example/rapport", title: "Rapport annuel" },
+      },
+      { type: "response.completed", response: { id: "resp_flux", status: "completed", usage: { input_tokens: 10, output_tokens: 5 } } },
+    ]);
+
+    const morceaux: string[] = [];
+    const r = await streamModel("bulk", [{ role: "user", content: "x" }], { webSearch: true }, (c) => morceaux.push(c));
+    expect(morceaux.join("")).toBe("Le chiffre est 42.");
+    expect(r.usage.webSearchCalls).toBe(1);
+    expect(r.webSources).toEqual([{ url: "https://c.example/rapport", title: "Rapport annuel" }]);
   });
 });

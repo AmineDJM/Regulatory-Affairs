@@ -138,11 +138,30 @@ describe("la vérification d'une étape en variantes", () => {
   });
 
   it("une WAIT_EVENT bien formée passe, et n'a pas à parler de capacité", () => {
+    // Le mode strict rend TOUS les champs : les attentes v2 (échéance, fil, objet, pièce,
+    // compositions) voyagent à `null` quand elles ne servent pas — jamais absentes.
     expect(etape({
       key: "attente:reponse", title: "Attendre la réponse", workstream: null,
       dependsOn: ["envoi"], completionCondition: "une réponse est arrivée",
       nodeType: "WAIT_EVENT", waitEvent: "EMAIL_RECEIVED",
       waitFrom: "anpp@sante.dz", waitEntity: null, waitWithinDays: 15,
+      waitUntil: null, waitThreadId: null, waitSubject: null, waitAttachment: null,
+      waitAnyOf: null, waitAllOf: null,
+    })).toEqual([]);
+  });
+
+  it("une WAIT_EVENT v2 — échéance, pièce exigée et composition ET — passe aussi", () => {
+    expect(etape({
+      key: "attente:contrat-et-devis", title: "Attendre le contrat ET le devis", workstream: null,
+      dependsOn: ["relance"], completionCondition: "les deux pièces sont arrivées",
+      nodeType: "WAIT_EVENT", waitEvent: "EMAIL_RECEIVED",
+      waitFrom: null, waitEntity: null, waitWithinDays: 7,
+      waitUntil: "2026-09-05T08:00:00.000Z", waitThreadId: "thr_9", waitSubject: null, waitAttachment: "*.pdf",
+      waitAnyOf: null,
+      waitAllOf: [
+        { event: "EMAIL_RECEIVED", from: "sarah@ex.dz", entity: null, until: null, threadId: null, subject: "contrat", attachment: true },
+        { event: "EMAIL_RECEIVED", from: "sarah@ex.dz", entity: null, until: null, threadId: null, subject: "devis", attachment: true },
+      ],
     })).toEqual([]);
   });
 

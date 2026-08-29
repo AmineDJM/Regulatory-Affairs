@@ -782,7 +782,15 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         type: "object",
         properties: {
           title: { type: "string", description: "Ce qu'il faut rappeler, en quelques mots." },
-          date: { type: "string", description: "Première échéance, AAAA-MM-JJ (heure d'Alger)." },
+          quand: {
+            type: "string",
+            description: "L'ÉCHÉANCE EN FRANÇAIS, telle que dite : « demain à 10h », « dans 48h », "
+              + "« vendredi prochain », « chaque vendredi », « le 15 septembre ». À PRÉFÉRER à date/time : "
+              + "le moteur calcule lui-même (heure d'Alger) — recopier les mots de la personne évite les "
+              + "erreurs de calcul de date. Si l'expression n'est pas comprise, l'outil le dit et il faut "
+              + "alors donner date/time explicites.",
+          },
+          date: { type: "string", description: "Première échéance, AAAA-MM-JJ (heure d'Alger) — si « quand » n'est pas fourni." },
           time: { type: "string", description: "Heure HH:MM (défaut 09:00)." },
           recurrence: { type: "string", enum: [...REMINDER_RECURRENCES], description: "NONE, DAILY, WEEKLY, MONTHLY ou MONTHLY_WEEKDAY." },
           target_role: { type: "string", description: "Rôle à relancer à chaque échéance (code rôle interne)." },
@@ -790,8 +798,25 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           watch_reference: { type: "string", description: "SURVEILLANCE CONDITIONNELLE : référence d'un règlement (ORD-…), d'une demande de paiement (PAY-…), d'une validation (VAL-…) ou fragment du titre d'une tâche. À l'échéance, le rappel RELIT l'entité : encore en attente → il prévient l'utilisateur ; réglée → il le dit et s'éteint. Pour « si ce paiement n'est pas validé sous 48 h, préviens-moi »." },
           note: { type: "string", description: "Le message de la relance / le détail du rappel." },
           link: { type: "string", description: "Lien interne (/regulatory, /legal/…)." },
+          escalations_h: {
+            type: "array", items: { type: "number" },
+            description: "ÉCHELLE DE RELANCES en heures APRÈS chaque tir : « rappelle-moi demain ; "
+              + "si je ne réponds pas, dans deux jours puis vendredi » = date demain + [48, 72]. "
+              + "Chaque barreau se consomme ; l'échelle s'arrête seule si la condition surveillée est réglée.",
+          },
+          stop_on_email_from: {
+            type: "string",
+            description: "EXTINCTION SUR E-MAIL : le rappel (et toutes ses relances) s'éteint TOUT SEUL "
+              + "dès qu'un e-mail arrive de cette personne/adresse — « rappelle-moi dans 7 jours "
+              + "SEULEMENT SI Sarah n'a toujours pas répondu ».",
+          },
+          stop_needs_attachment: {
+            type: "boolean",
+            description: "Avec stop_on_email_from : l'e-mail doit porter une PIÈCE JOINTE pour éteindre "
+              + "le rappel (« …n'a pas envoyé le contrat ») — une simple réponse sans pièce ne suffit pas.",
+          },
         },
-        required: ["title", "date"],
+        required: ["title"],
       },
     },
     allowed: EXEC,
@@ -799,11 +824,30 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
     run: async (input, user) => {
       const title = str(input, "title");
       if (!title) return "Donnez l'objet du rappel.";
-      const dueAt = algiersToUtc(str(input, "date"), str(input, "time"));
-      if (!dueAt) return "Date illisible — attendu : AAAA-MM-JJ et HH:MM (heure d'Alger).";
+
+      // LE MOTEUR TEMPOREL D'ABORD (§66) : « demain à 10h », « dans 48h », « chaque vendredi »
+      // se calculent en CODE, pas dans la tête du modèle — la même grammaire que les attentes de
+      // mission. Le décodeur renonce sur le doute (`null`) : on demande alors la date explicite,
+      // on n'attrape jamais une phrase mal comprise.
+      let dueAt: Date | null = null;
+      let recurrenceDeduite: ReminderRecurrence | null = null;
+      const quand = str(input, "quand");
+      if (quand) {
+        const { interpreterExpressionTemporelle } = await import("@/lib/temporal");
+        const lu = interpreterExpressionTemporelle(quand, new Date());
+        if (lu) {
+          dueAt = lu.echeance;
+          recurrenceDeduite = lu.recurrence === "DAILY" ? "DAILY" : lu.recurrence === "WEEKLY" ? "WEEKLY" : null;
+        } else if (!str(input, "date")) {
+          return `Expression temporelle « ${quand} » non comprise à coup sûr — donnez date (AAAA-MM-JJ) et time (HH:MM, heure d'Alger).`;
+        }
+      }
+      if (!dueAt) dueAt = algiersToUtc(str(input, "date"), str(input, "time"));
+      if (!dueAt) return "Date illisible — attendu : « quand » en français, ou date AAAA-MM-JJ et HH:MM (heure d'Alger).";
       if (dueAt.getTime() < Date.now() - 60_000) return "Cette échéance est déjà passée — donnez une date à venir.";
       const recurrence = (REMINDER_RECURRENCES as readonly string[]).includes(str(input, "recurrence"))
-        ? (str(input, "recurrence") as ReminderRecurrence) : "NONE";
+        ? (str(input, "recurrence") as ReminderRecurrence)
+        : (recurrenceDeduite ?? "NONE");
       const roleRaw = str(input, "target_role");
       if (roleRaw && !(roleRaw in ROLE_LABELS)) {
         return `Rôle « ${roleRaw} » inconnu. Rôles possibles : ${Object.keys(ROLE_LABELS).join(", ")}.`;
@@ -849,6 +893,25 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         else return `Rien à surveiller sous « ${watchRaw} » — ni règlement, ni demande de paiement, ni validation, ni tâche ouverte. Vérifier la référence (inspect_record).`;
       }
 
+      // L'ÉCHELLE DE RELANCES — bornée (6 barreaux, 1 h à 30 jours chacun) : une échelle
+      // infinie serait du harcèlement programmé, pas de la persévérance.
+      const echelle = Array.isArray(input.escalations_h)
+        ? (input.escalations_h as unknown[])
+            .filter((h): h is number => typeof h === "number" && h >= 1 && h <= 720)
+            .slice(0, 6)
+        : [];
+
+      // L'EXTINCTION SUR E-MAIL — la même grammaire d'attente que les missions : une seule
+      // vérité pour « cet e-mail est-il celui-là ? ».
+      const stopFrom = str(input, "stop_on_email_from");
+      const stopOnEvent = stopFrom
+        ? {
+            event: "EMAIL_RECEIVED",
+            from: stopFrom,
+            ...(input.stop_needs_attachment === true ? { attachment: true as const } : {}),
+          }
+        : null;
+
       const created = await prisma.assistantReminder.create({
         data: {
           userId: user.id, title, dueAt, recurrence,
@@ -857,6 +920,8 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           watchType, watchId, watchLabel,
           note: str(input, "note") || null,
           link: link || null,
+          escalationsH: echelle as never,
+          stopOnEvent: (stopOnEvent ?? undefined) as never,
         },
         select: { id: true },
       });
@@ -871,6 +936,10 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         recurrence: RECURRENCE_LABEL[recurrence],
         relance: relances.length ? relances.join(" et ") : null,
         surveille: watchLabel,
+        echelleRelances: echelle.length > 0 ? `${echelle.length} relance(s) programmée(s) (+${echelle.join(" h, +")} h)` : null,
+        extinction: stopFrom
+          ? `s'éteint tout seul dès qu'un e-mail ${input.stop_needs_attachment === true ? "AVEC pièce jointe " : ""}arrive de « ${stopFrom} »`
+          : null,
         note: "À l'échéance : pop-up pour vous" + (relances.length ? ` et relance envoyée à ${relances.join(" et ")}` : "")
           + (watchLabel ? `. Surveillance : si « ${watchLabel} » est réglé d'ici là, le rappel le dit et s'éteint ; sinon il vous prévient (vous seul).` : "") + ".",
       });
@@ -925,6 +994,45 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         data: { active: false },
       });
       return done.count > 0 ? "Rappel annulé." : "Rappel introuvable (ou déjà éteint).";
+    },
+  },
+
+  {
+    def: {
+      name: "snooze_reminder",
+      description:
+        "REPOUSSE un rappel (le sien uniquement) : « repousse-le d'une heure », « redemande-moi demain ». "
+        + "`id` vient de list_reminders. Donner `minutes` OU `quand` en français (« demain à 9h », « dans 2 heures »).",
+      input_schema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Identifiant du rappel à repousser." },
+          minutes: { type: "number", description: "De combien de minutes repousser (1 à 10080)." },
+          quand: { type: "string", description: "Ou l'échéance en français : « demain à 9h », « dans 2 heures »." },
+        },
+        required: ["id"],
+      },
+    },
+    allowed: EXEC,
+    label: "Rappel repoussé",
+    run: async (input, user) => {
+      const id = str(input, "id");
+      let minutes = typeof input.minutes === "number" && Number.isFinite(input.minutes) ? input.minutes : 0;
+      const quand = str(input, "quand");
+      if (!minutes && quand) {
+        // Le MÊME moteur temporel que la création : une seule grammaire, jamais deux calendriers.
+        const { interpreterExpressionTemporelle } = await import("@/lib/temporal");
+        const lu = interpreterExpressionTemporelle(quand, new Date());
+        if (!lu) return `Expression « ${quand} » non comprise à coup sûr — donnez plutôt « minutes ».`;
+        minutes = Math.round((lu.echeance.getTime() - Date.now()) / 60_000);
+        if (minutes < 1) return "Cette échéance est déjà passée — donnez un moment à venir.";
+      }
+      if (!minutes) return "Donnez « minutes » ou « quand » (en français).";
+      const { snoozeReminder } = await import("@/lib/assistant/reminders");
+      const nouveau = await snoozeReminder(id, user.id, minutes);
+      return nouveau
+        ? `Rappel repoussé — prochaine échéance : ${formatAlgiersDue(nouveau)}.`
+        : "Rappel introuvable (ou déjà éteint).";
     },
   },
 ];

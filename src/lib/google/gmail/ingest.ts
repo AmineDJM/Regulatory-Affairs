@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
+import { recordEvent } from "@/lib/events/ledger";
 import { extractAttachmentText } from "@/lib/assistant-files";
 import { analyzeEmail, deservesAttention, stripQuotedReply, type EmailIntelligence } from "@/lib/comms/email-intelligence";
 import { scanForInjection } from "@/lib/comms/untrusted";
@@ -246,6 +247,45 @@ export async function ingestMessage(
       note: cleanBody.slice(0, 1500),
       emailRecordId: record.id,
     }).catch(() => undefined);
+  }
+
+  /**
+   * LE FAIT « UN E-MAIL EST ARRIVÉ » ENTRE AU REGISTRE (§17 : un seul registre) — et c'est ce
+   * fait qui RÉVEILLE les missions RUNTIME en attente (« continue quand Sarah répond avec le
+   * contrat ») : `recordEvent` → `reveillerMissions` → le battement fait avancer. La charge
+   * utile porte le FIL, l'OBJET et les NOMS DE PIÈCES : c'est sur eux que l'attente typée se
+   * décide — « je te l'envoie demain » SANS pièce ne règle pas une attente qui exige la pièce.
+   *
+   * L'EXACTLY-ONCE est structurel : un webhook rejoué sort en « duplicate » AVANT ce point
+   * (clé unique connexion+message), donc le fait ne s'inscrit qu'une fois par message. Les
+   * machines (auto-répondeurs, rejets) n'émettent pas : une mission ne se réveille pas sur un
+   * accusé automatique.
+   */
+  if (!outgoing && !automated && !bounce) {
+    await recordEvent({
+      type: "EMAIL_RECEIVED",
+      sourceDomain: "comms",
+      actorId: sender.userId,
+      entityType: null,
+      entityId: null,
+      relatedRefs: [`EMAIL:${record.id}`, ...(msg.threadId ? [`EMAIL_THREAD:${msg.threadId}`] : [])],
+      payload: {
+        from: msg.from.address,
+        fromName: msg.from.name ?? sender.label,
+        subject: msg.subject,
+        threadId: msg.threadId,
+        rfcMessageId: msg.rfcMessageId,
+        inReplyTo: msg.inReplyTo,
+        hasAttachments: msg.attachments.length > 0,
+        attachments: msg.attachments.map((a) => a.filename).filter(Boolean).slice(0, 24),
+        emailRecordId: record.id,
+        linkedMissionId: mission?.missionId ?? null,
+      },
+      // JAMAIS cadré à une mission : un e-mail est un fait GLOBAL — la mission de coordination
+      // qui suit ce fil n'est pas forcément celle, RUNTIME, qui attend cette réponse pour
+      // continuer. Cadrer ici empêcherait l'une de se réveiller parce que l'autre existe.
+      missionId: null,
+    }).catch(() => null);
   }
 
   let surfaced = false;
