@@ -2833,6 +2833,27 @@ l'ERP, et la racine de composition du runtime (`boundary-scan.ts` l'exempte, par
 | `fake-reasoner.ts` | Le seul substitut des bancs : il VALIDE chaque réponse scriptée contre le schéma réellement demandé |
 | `e2e.test.ts` `memory.test.ts` `commitments.test.ts` | Les bancs de bout en bout, depuis les vrais points d'entrée |
 
+### Information Fabric (`src/lib/fabric/`) — façade L2
+
+L'information vient à Adam ; Adam ne court plus après. Cinq briques DÉTERMINISTES (zéro appel
+de modèle), consommées par les mêmes points d'entrée qu'avant — audit, décisions et mesures
+complètes : `docs/INFORMATION_FABRIC.md`.
+
+| Fichier | Rôle |
+|---|---|
+| `index.ts` | Le baril — un franchissement de frontière par fichier consommateur, pas un par brique |
+| `registry.ts` | Le registre des SOURCES : 11 familles typées (contenu, entités, modes, autorité, **preuve négative possible ou non**) + sondes de fraîcheur mesurées (« synchronisé jusqu'à HH:MM »). Appelant réel : l'outil `source_map` |
+| `text-search.ts` | La recherche de CONTENU indexée : FTS `'simple'` sur expression (index GIN de `20260828300000`), classement `ts_rank` à VIVIER BORNÉ (300), préfixes, conjonction puis disjonction, repli LIKE (servi par trigramme) DIT dans le résultat |
+| `mentions.ts` | Les liens document ↔ entité CANONIQUE, extraits à l'INGESTION (dictionnaire déterministe : produits DCI+marque, personnes nom complet, laboratoires) → table `EntityMention`. « Tout ce qui est relié à X » = une lecture d'index, et les ALIAS se franchissent (Keytruda ↔ pembrolizumab) |
+| `hot-state.ts` | Les états chauds PRÉCALCULÉS (`AssistantHotState`) : écriture au travers + TTL + invalidation par fait métier (4ᵉ conséquence de `recordEvent`) + coût MESURÉ persisté. `subjectId` est une clé de DROITS — jamais servi à un autre |
+| `bulk.ts` | Le loteur de lectures : N demandes logiques d'un même tour → K requêtes physiques (`findMany` découpé), mesure {logiques, physiques} par opération — affichée dans la couverture de `find_documents` |
+| `scripts/fabric-bench.ts` | `npm run fabric:bench` — six voies dans le même run, sélectivité contrôlée, corpus étiqueté et nettoyé, ce qui n'est pas mesuré est dit |
+
+Consommateurs côté Adam : `assistant/hot-alerts.ts` (signaux exécutifs chauds, réchauffés au
+battement pour les dirigeants actifs), `assistant/source-map.ts`, `document-discovery.ts`
+(FTS + alias + hydratation en lot). Côté ERP : `events/ledger.ts` (invalidation),
+`scheduled.ts` (balayage des mentions + réchauffage).
+
 ## 💰 Budgets, enveloppes & sous-catégories
 
 Le module **Budgets** est un vrai système de gestion budgétaire multi-niveaux, réparti sur **trois écrans, un par
@@ -3376,6 +3397,32 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### INFORMATION FABRIC — l'information vient à Adam, mesurée voie par voie (2026-08)
+
+**Le problème.** Répondre à « où est X ? » se payait à CHAQUE question : la recherche de
+contenu scannait le corpus entier (le seul endroit où la latence croissait linéairement),
+« tout ce qui concerne le Pembrolizumab » refaisait une recherche texte qui ne trouvait
+jamais les documents ne citant que « Keytruda », les signaux exécutifs refaisaient treize
+requêtes par appel, et l'hydratation des candidats coûtait un aller-retour SQL par document.
+
+**Le principe.** Le travail se paie quand l'information ENTRE, plus jamais à la question — et
+chaque accélération porte sa MESURE, jamais une affirmation. Cinq briques déterministes dans
+`src/lib/fabric/` (façade L2, zéro appel de modèle), branchées dans les points d'entrée
+EXISTANTS : `find_documents`, `company_state`, le battement, le registre d'événements.
+
+**Livré (F1→F7, chacune IMPLEMENT → WIRE → TEST → SABOTAGE → BENCH).** Audit réel de
+l'existant (extensions Postgres MESURÉES : trgm/unaccent présentes, pgvector absente) ;
+FTS+trigrammes en index d'EXPRESSION avec classement à vivier borné — le banc a d'ailleurs
+attrapé un défaut de la fabric elle-même (ts_rank non borné, 273 ms) avant la production ;
+registre central des sources avec fraîcheur sondée et preuve négative déclarée (outil
+`source_map`) ; mentions d'entités extraites à l'ingestion → les ALIAS se franchissent, prouvé
+par le vrai point d'entrée ; états chauds précalculés au battement, invalidés par
+`recordEvent`, fraîcheur DITE dans chaque réponse, `subjectId` = clé de droits ; loteur de
+lectures N logiques → K physiques, mesure affichée dans la couverture. Mesures locales
+(20 000 documents) : terme rare 28 → 8 ms, « relié à X » 8 → 1 ms (avec alias), signaux
+9 → 1 ms, hydratation de 100 candidats 81 → 2 ms. Rapport final complet (A–V du mandat,
+états GAP/…/PROVEN honnêtes) : `docs/INFORMATION_FABRIC.md` — PROVEN attend la mesure Render.
 
 ### MISSION RUNTIME — exécuter une mission gigantesque devient une propriété codée (2026-09)
 
