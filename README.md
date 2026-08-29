@@ -2781,7 +2781,8 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | `ports.ts` | Les seuls seams : catalogue de capacités, exécutant, **raisonneur**, horloge. Le runtime n'importe JAMAIS `assistant/` ni `models/` |
 | `model/roles.ts` | §4 — la politique de modèles en RÔLES métier (`CHEAP_WORKER` → `EXCEPTIONAL_PLANNER`). Aucun nom de modèle dans le métier |
 | `planner/schema.ts` | Le JSON Schema STRICT du plan : `additionalProperties: false`, `required` exhaustif, aucun objet libre |
-| `planner/plan.ts` | Objectif → capacités résolues → schéma imposé → plan RECONSTRUIT et typé. Refuse un plan sans étape ou sans critère |
+| `planner/plan.ts` | Objectif → capacités résolues → schéma imposé → plan RECONSTRUIT et typé. Refuse un plan sans étape ou sans critère. Rend `metriques.voie` (`DIRECTE`/`MODELE`) |
+| `planner/direct.ts` | Le chemin DIRECT : le CODE planifie sans modèle — lecture nue à capacité dominante, et forme RECHERCHE multi-sources (terme cité « … » → N recherches parallèles + jonction + conclusion schématisée, critères `[REGLE:…]`). Verrous R1–R5 ; sur doute, il RENONCE au planner |
 | `planner/validate.ts` | La revérification de conformité, utilisée en production ET par le raisonneur scripté des bancs |
 | `registry/resolve.ts` | §3 — pas de déversement d'outils : un tour de rôle par domaine, borné, mesuré (`plannerCapabilitiesExposed`) |
 | `runtime/worker.ts` | L'étape qui RÉDIGE : faits établis, contexte partagé vs spécifique, économie mesurée |
@@ -2804,7 +2805,8 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | `approval/gate.ts` | La porte fermée par défaut + la notification via le VAPID existant |
 | `events/match.ts` | « Ce fait est-il celui que j'attendais ? » — pur, strict par défaut |
 | `events/router.ts` | Réveil des missions, attente humaine, attentes échues, file de l'ordonnanceur |
-| `goal/evaluate.ts` | Contrôle qualité arithmétique + satisfaction de l'objectif (§20-22) |
+| `goal/evaluate.ts` | Contrôle qualité arithmétique + satisfaction de l'objectif (§20-22). Partitionne les critères : règles vérifiées sur les REÇUS d'abord, juge LLM sur le seul reste sémantique — tout-règles → 0 appel de juge |
+| `goal/rules.ts` | Le juge de RÈGLES : grammaire `[REGLE:CODE:args]`, vérification déterministe sur les reçus (`RECHERCHES_AVEC_REQUETE`, `AUCUNE_ECRITURE`, `SORTIE_STRUCTUREE`). Code inconnu → critère SÉMANTIQUE, jamais deviné |
 | `recovery/strategy.ts` | Douze causes, une échelle par cause, quatre niveaux de certitude |
 | `recovery/sources.ts` | Où chercher ensuite, par type de cible (§77) |
 | `commitments/satisfy.ts` | Une promesse se ferme quand le fait arrive ; relance sans harcèlement |
@@ -2825,7 +2827,8 @@ l'ERP, et la racine de composition du runtime (`boundary-scan.ts` l'exempte, par
 | `reasoner.ts` | Remplit le port `Reasoner` avec la vraie passerelle. Traduit les rôles métier en rôles techniques ; aucun nom de modèle |
 | `catalog.ts` | Le catalogue de capacités de CETTE personne, calculé par le même code que la conversation |
 | `runner.ts` | L'exécutant : lectures par `executeReadTool`, écritures par intent + clé d'idempotence + reçu |
-| `runtime.ts` | `lancerMission` / `avancerMission` — assemblage complet, une retouche de plan sur refus du compilateur |
+| `runtime.ts` | `lancerMission` / `avancerMission` — assemblage complet, une retouche de plan sur refus du compilateur. Porte de replan : un juge qui ne suggère AUCUN recours (`recoursSuggere: null`) → `REPLAN_SKIPPED`, pas d'appel de planificateur |
+| `provider-waterfall.ts` | La cascade instrumentée du smoke : voie du plan, appels chevauchants, facteur de parallélisme, premier résultat utile — les métriques §18 du chantier latence |
 | `sweep.ts` | Le battement des missions : douze par passage, droits RELUS en base, attentes échues signalées une fois |
 | `memory.ts` | Découpage en épisodes, vieillissement par le calendrier, contexte composé sous budget |
 | `commitments.ts` | Les promesses en retard : espacement croissant, et le silence quand l'identité n'est pas canonique |
@@ -3397,6 +3400,38 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### LATENCE COGNITIVE — le meilleur appel modèle est celui qu'on n'a pas à faire (2026-08)
+
+**Le problème, mesuré au run réel n° 6.** Une mission « prouve l'absence de X dans quatre
+sources » : 44 s dont ~99 % d'attente modèle, quatre appels EN FILE — un planificateur de
+22 s pour un plan que le code aurait pu écrire, un juge de 9 s pour des critères vérifiables
+sur les reçus, un replan de 8 s qui n'a RIEN rendu. Aucun chevauchement.
+
+**Le principe (la règle ultime).** Rien n'est économisé au détriment de la qualité : chaque
+appel supprimé l'est parce qu'un mécanisme PLUS STRICT le remplace, et la propriété est dans
+le SOFTWARE, pas dans un prompt. Le plan direct passe par le MÊME compilateur, le même QA et
+le même juge que le plan d'un modèle ; une règle se vérifie sur les REÇUS d'exécution (plus
+fort qu'une prose jugée) ; un code de règle inconnu redevient un critère sémantique jugé par
+le LLM ; toute porte sans signal reste OUVERTE (§78).
+
+**Livré (L1→L5, audit AVANT modification, sabotages §22).** `planner/direct.ts` : forme
+RECHERCHE multi-sources — terme cité « … » unique, familles nommées ≥2 ou balayage général,
+aucun verbe d'effet → le CODE émet N recherches PARALLÈLES + jonction + conclusion
+schématisée, critères `[REGLE:…]` (verrous R1–R5, renoncement au moindre doute).
+`goal/rules.ts` + `goal/evaluate.ts` : juge HYBRIDE — règles déterministes vérifiées sur les
+reçus d'abord (refus déterministe qui nomme sa preuve), juge LLM sur le seul reste
+sémantique, tout-règles → 0 appel de juge (§14). `goal/judge.ts` → `runtime.ts` : le juge
+peut dire « aucun recours » et la porte de replan saute alors l'appel (`REPLAN_SKIPPED`) —
+missions normales : 0 replan (§13). Cascade instrumentée (§18) : voie du plan, appels
+chevauchants, facteur de parallélisme, premier résultat utile, « bypass planificateur X/Y »
+au résumé du smoke. Banc `parallel-workers.test.ts` : deux workers d'une même vague se
+RECOUVRENT réellement (plafond MODELE), et la mission conclut sans que `mission.judge`
+n'atteigne le raisonneur. Quatre sabotages structurels (chemin direct coupé → appels de
+planificateur remontent ; plafond 1 → chevauchement disparaît ; règle retirée → juge appelé ;
+recours présent → replan repart). Sur PREUVE_ABSENCE : 4 appels séquentiels → 1 appel
+(le worker de conclusion), structurellement. Audit et rapport A–T : `docs/COGNITIVE_LATENCY.md`
+— PROVEN attend le smoke Render.
 
 ### INFORMATION FABRIC — l'information vient à Adam, mesurée voie par voie (2026-08)
 
