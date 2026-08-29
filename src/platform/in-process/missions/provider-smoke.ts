@@ -153,7 +153,8 @@ export interface Precondition {
 }
 
 export interface Scenario {
-  genre: Genre;
+  /** Le trio historique porte les genres de `Genre` ; le Deep Smoke en apporte d'autres. */
+  genre: string;
   /** La demande, en français, telle qu'une personne l'écrirait. Jamais un plan. */
   demande: string;
   /** Ce que la base garantit AVANT d'interroger le modèle — la vérité terrain. */
@@ -221,7 +222,7 @@ export async function preconditionAbsence(jeton: string): Promise<Precondition> 
 }
 
 export interface ResultatMission {
-  genre: Genre;
+  genre: string;
   demande: string;
   verite: string;
   missionId: string | null;
@@ -595,8 +596,10 @@ async function menerAEtatStable(
   };
 }
 
-/** Joue un scénario de bout en bout et rend TOUT ce qui a été mesuré. */
-async function jouer(
+/** Joue un scénario de bout en bout et rend TOUT ce qui a été mesuré. Exporté : le Deep
+ *  Smoke (`deep-smoke.ts`) joue ses 60-80 missions par EXACTEMENT ce chemin — mêmes portes,
+ *  même plafond, même garde d'artefacts. Un second harnais divergerait un jour du premier. */
+export async function jouer(
   user: CurrentUser,
   sc: Scenario,
   instrument: RaisonneurInstrumente,

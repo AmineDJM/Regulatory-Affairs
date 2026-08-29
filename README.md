@@ -2829,6 +2829,7 @@ l'ERP, et la racine de composition du runtime (`boundary-scan.ts` l'exempte, par
 | `runner.ts` | L'exécutant : lectures par `executeReadTool`, écritures par intent + clé d'idempotence + reçu |
 | `runtime.ts` | `lancerMission` / `avancerMission` — assemblage complet, une retouche de plan sur refus du compilateur. Porte de replan : un juge qui ne suggère AUCUN recours (`recoursSuggere: null`) → `REPLAN_SKIPPED`, pas d'appel de planificateur |
 | `provider-waterfall.ts` | La cascade instrumentée du smoke : voie du plan, appels chevauchants, facteur de parallélisme, premier résultat utile — les métriques §18 du chantier latence |
+| `deep-smoke.ts` | Le Deep Live Smoke (`npm run adam:smoke:deep`) : 60-80 missions générées depuis les VRAIES données de l'ERP (~19 genres), même harnais `jouer` que le smoke fournisseur, verdicts SUCCÈS/HONNÊTE/DÉFAUT, nettoyage borné à ses missions |
 | `sweep.ts` | Le battement des missions : douze par passage, droits RELUS en base, attentes échues signalées une fois |
 | `memory.ts` | Découpage en épisodes, vieillissement par le calendrier, contexte composé sous budget |
 | `commitments.ts` | Les promesses en retard : espacement croissant, et le silence quand l'identité n'est pas canonique |
@@ -3429,9 +3430,19 @@ au résumé du smoke. Banc `parallel-workers.test.ts` : deux workers d'une même
 RECOUVRENT réellement (plafond MODELE), et la mission conclut sans que `mission.judge`
 n'atteigne le raisonneur. Quatre sabotages structurels (chemin direct coupé → appels de
 planificateur remontent ; plafond 1 → chevauchement disparaît ; règle retirée → juge appelé ;
-recours présent → replan repart). Sur PREUVE_ABSENCE : 4 appels séquentiels → 1 appel
-(le worker de conclusion), structurellement. Audit et rapport A–T : `docs/COGNITIVE_LATENCY.md`
-— PROVEN attend le smoke Render.
+recours présent → replan repart). **PROVEN sur Render (run réel 2026-08-29)** :
+PREUVE_ABSENCE **87 s → 3,1 s, 9 appels → 1**, voie DIRECTE (0 appel de planificateur),
+COMPLETED avec « TOUS les critères sont des règles vérifiées sur les reçus » (0 juge LLM),
+premier résultat utile 128 ms, MISSION_E2E_PROVEN YES. Le run sur l'ANCIEN code avait
+révélé un POINT FIXE réel (mission immobilisée en WAITING_DEPENDENCY, non stable) —
+CORRIGÉ ici : une dépendance CONTOURNÉE par un replan ne retient plus sa descendante
+(`engine.ts#etapesPretes`, épinglé par `bypassed-dependency.test.ts` + sabotage inversé).
+Et le **Deep Live Smoke** est né : `npm run adam:smoke:deep` — 60-80 missions VARIÉES
+générées depuis les DONNÉES RÉELLES de l'ERP (~19 genres, inventaire mesuré d'abord, genre
+sans donnée ÉCARTÉ et dit), même harnais `jouer` que le smoke fournisseur, plafond ANALYZE,
+un instrument par mission (concurrence 3), trois verdicts (SUCCÈS / CONCLUSION HONNÊTE /
+DÉFAUT — seul DÉFAUT casse la sortie), nettoyage borné à ses propres missions.
+Audit et rapport A–T + analyse des deux runs : `docs/COGNITIVE_LATENCY.md`.
 
 ### INFORMATION FABRIC — l'information vient à Adam, mesurée voie par voie (2026-08)
 
@@ -3456,8 +3467,11 @@ par le vrai point d'entrée ; états chauds précalculés au battement, invalid�
 `recordEvent`, fraîcheur DITE dans chaque réponse, `subjectId` = clé de droits ; loteur de
 lectures N logiques → K physiques, mesure affichée dans la couverture. Mesures locales
 (20 000 documents) : terme rare 28 → 8 ms, « relié à X » 8 → 1 ms (avec alias), signaux
-9 → 1 ms, hydratation de 100 candidats 81 → 2 ms. Rapport final complet (A–V du mandat,
-états GAP/…/PROVEN honnêtes) : `docs/INFORMATION_FABRIC.md` — PROVEN attend la mesure Render.
+9 → 1 ms, hydratation de 100 candidats 81 → 2 ms. **PROVEN sur Render (run réel 2026-08-29)** :
+FTS 6 ms P50 contre 64 au scan (et elle gagne PARTOUT sur l'infra réelle, conjonction
+fréquente comprise), entités 1 ms alias franchis, précalculé 1 ms, lot 2 ms contre 102 à la
+pièce — l'écart du loteur a GRANDI avec le réseau, comme prédit. Rapport final complet
+(A–V du mandat, états honnêtes) : `docs/INFORMATION_FABRIC.md`.
 
 ### MISSION RUNTIME — exécuter une mission gigantesque devient une propriété codée (2026-09)
 

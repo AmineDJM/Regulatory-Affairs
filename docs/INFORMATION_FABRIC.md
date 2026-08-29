@@ -168,6 +168,27 @@ Les écarts F4/F6 sont structurels (une lecture d'index / un aller-retour au lie
 ils GRANDISSENT avec la latence réseau de l'infra réelle, ils ne s'y résorbent pas. L'écart
 F5 local est un plancher pour la même raison.
 
+### Mesures RENDER (run réel du 2026-08-29, Shell du service, 5 000 documents) — PROVEN
+
+`npm run fabric:bench` sur l'infra réelle (Postgres Render, réseau applicatif compris) :
+
+| Voie | AVANT (contains, scan) | LIKE + trgm | Fabric |
+|---|---|---|---|
+| terme rare (« pembrolizumab ») | P50 64 ms · P95 72 ms | 52 · 62 | **FTS 6 · 9** |
+| préfixe (« pembro ») | 58 · 65 | 52 · 55 | **FTS 6 · 9** |
+| conjonction fréquente | 58 · 64 | 55 · 82 | **FTS 20 · 31** |
+| conjonction rare | 53 · 61 | 50 · 60 | **FTS 4 · 5** |
+| « relié à X » (F4, 25 liens) | — (FTS 6 ms, alias NON franchis) | — | **EntityMention 1 · 2, alias franchis** |
+| signaux exécutifs (F5, témoin) | calculé 5 · 11 | — | **précalculé 1 · 2** |
+| hydratation 100 nœuds (F6) | à la pièce 102 · 116 | — | **loteur 2 · 4** |
+
+Trois constats : (1) sur l'infra réelle la FTS gagne PARTOUT, y compris la conjonction
+fréquente (20 ms contre 55) — le vivier borné paie ; (2) l'écart F6 prédit « il grandit avec
+le réseau » s'est vérifié : 81 → 102 ms à la pièce, 2 ms en lot dans les deux mondes ;
+(3) les migrations fabric (`EntityMention`, `AssistantHotState`) sont déployées et servent —
+les sections F4/F5 du banc lisent la vraie base. Le run a aussi porté un `adam:smoke:provider`
+complet après déploiement : chaîne FOURNISSEUR entièrement PASS, aucun artefact inattendu.
+
 ## D. RAPPORT FINAL (§43 du mandat) — état au 2026-08-29, branche `claude/hopeful-goodall-phd0nb`
 
 **A. Audit initial réel.** Section A de ce document : composant par composant, EXISTE / WIRED /
@@ -287,11 +308,16 @@ est générique, les 360 par entité restent à la demande (décision dite en F5
 instrumentés ; (6) le goulot dominant des missions est l'attente MODÈLE (99 % du temps du
 run 6) — hors périmètre fabric, c'est le chantier latence modèle.
 
-**U. État exact.** F1 audit : TESTED. F2 contenu : TESTED (mesuré localement). F3 registre :
-TESTED. F4 entités : TESTED. F5 états chauds : TESTED. F6 lot : TESTED. F7 bancs : TESTED
-(mesuré localement). **PROVEN : AUCUNE tranche encore** — PROVEN exige le run réel sur Render
-(§40) : `npm run fabric:bench` dans le Shell du service + un `smoke:provider` après déploiement
-(les migrations `db:deploy` sont idempotentes et tolérantes ; aucune n'est destructive).
+**U. État exact (mis à jour après le run Render du 2026-08-29).** F1 audit : TESTED (un
+audit ne se « prouve » pas sur l'infra). F2 contenu : **PROVEN** (FTS 6 ms P50 sur Render
+contre 64 ms au scan). F3 registre : TESTED (le mécanisme est testé ; `source_map` n'a pas
+encore été exercé dans un run réel tracé — on ne le marque pas PROVEN sur une inférence).
+F4 entités : **PROVEN** (1 ms, alias franchis, vraie base). F5 états chauds : **PROVEN**
+(1 ms précalculé contre 5 calculé — témoin ; migration déployée). F6 lot : **PROVEN**
+(2 ms contre 102 à la pièce — l'écart a GRANDI sur l'infra réelle, comme prédit). F7 bancs :
+**PROVEN** (le banc lui-même a tourné sur Render, six voies dans le même run). Le
+`adam:smoke:provider` du même jour a validé le déploiement (chaîne FOURNISSEUR PASS,
+migrations non destructives appliquées).
 
 **V. Pour atteindre réellement <1 s / <3 s / <5 s / <10 s.** Les voies LOGICIELLES sont déjà
 sous 100 ms local (FTS 8 ms, entités 1 ms, état chaud 1 ms) : une réponse servie par le

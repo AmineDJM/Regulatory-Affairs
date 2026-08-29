@@ -169,4 +169,70 @@ paient un juge ; (3) les écritures paient l'approbation HUMAINE (et c'est voulu
 suivant est le ROUTAGE de modèles (§11) : un planner sur un modèle plus rapide pour les
 formes moyennes — non fait ici, mesure d'abord.
 
-**T. État.** L1–L5 : TESTED. PROVEN : AUCUNE tranche — attend le run réel (§28).
+**T. État (mis à jour après les DEUX runs Render du 2026-08-29).** L1–L5 : **PROVEN** —
+voir la section E ci-dessous, mesures réelles à l'appui.
+
+## E. LES DEUX RUNS RÉELS DU 2026-08-29 — la preuve, puis ce qu'elle a encore appris
+
+**Run 1 (ancien code — le déploiement de `2ce5df9` n'était pas actif).** Reconnaissable à
+coup sûr : aucune ligne « voie du plan » dans la cascade (le nouveau code l'imprime
+inconditionnellement), PREUVE_ABSENCE planifié par le MODÈLE (8 étapes, plan×4, judge×2,
+87 s). Il a rendu un service : révéler un défaut moteur réel, le POINT FIXE — le scénario
+RECOURS immobilisé en WAITING_DEPENDENCY, NON STABLE, « plus aucune étape à exécuter,
+objectif non jugé atteint, et WAITING_DEPENDENCY n'ouvre ni recours ni replanification ».
+
+**Run 2 (nouveau code) — le chantier PROUVÉ :**
+
+| Mesure | AVANT (runs 6 et 1) | APRÈS (run 2, réel) |
+|---|---|---|
+| PREUVE_ABSENCE — durée | 44-87 s | **3,1 s** |
+| PREUVE_ABSENCE — appels | 4-9 (plan×2-4, judge×1-2, replan) | **1** (le worker de conclusion) |
+| PREUVE_ABSENCE — voie | MODELE | **DIRECTE — 0 appel de planificateur** |
+| PREUVE_ABSENCE — issue | BLOCKED (critères de juge improuvables) | **COMPLETED, goalSatisfied TRUE** |
+| Juge | LLM 8,9 s | **0 appel — « TOUS les critères sont des règles vérifiées sur les reçus »** |
+| Premier résultat utile | — (non mesuré) | **128 ms** (premier STEP_DONE) |
+| bypass planificateur | — | **1/3 scénarios planifiés par le CODE** |
+| Chaîne | QA_GOAL_SATISFACTION FAIL | **PASS — MISSION_E2E_PROVEN YES** |
+| RECOURS | point fixe NON STABLE (225 s) | BLOCKED **STABLE** après 4 plans, raison dite (158 s) |
+
+Le run 2 a aussi montré `FANOUT_PATH_CORRIGE` en production (« ne porte pas « results »,
+mais une seule liste : « items » ») — la réparation à candidat unique de `collection.ts`.
+
+**Le POINT FIXE du run 1 est CORRIGÉ dans ce lot** (`runtime/engine.ts#etapesPretes`) : une
+dépendance CONTOURNÉE par un replan (FAILED n'est pas ACQUIS → `supersededAt`) n'était ni
+terminale ni exécutable — sa descendante attendait pour toujours. Elle ne retient plus
+personne (même principe que SKIPPED, §37), et `bypassed-dependency.test.ts` épingle les deux
+faces : la descendante d'une contournée PART et la mission CONCLUT ; la même panne NON
+contournée retient toujours (sabotage inversé).
+
+**Restes visibles au run 2, dits et non corrigés ici :** (1) SATISFIABLE conclut en BLOCKED
+honnête — le juge exige des critères auto-rédigés difficiles à prouver, puis le replan rend
+un plan vide ; c'est un refus MOTIVÉ (§10), pas une panne, mais c'est le prochain hot path
+(critères de plan → règles vérifiables quand la forme s'y prête) ; (2) RECOURS brûle 6
+appels de planner en 4 plans avant de renoncer proprement — le routage de modèles (§11)
+reste le levier non joué ; (3) STEP_RECOVERY = 0 observé — l'échelle de recours n'est pas
+exercée par ces scénarios.
+
+## F. LE DEEP LIVE SMOKE — 60-80 missions réelles (`npm run adam:smoke:deep`)
+
+Le trio prouve la CHAÎNE ; il ne dit pas si Adam TIENT sur la variété du métier. Le Deep
+Live Smoke (`src/platform/in-process/missions/deep-smoke.ts`, script `scripts/deep-smoke.ts`)
+génère 60-80 missions depuis les DONNÉES RÉELLES de l'ERP (inventaire mesuré d'abord —
+dossiers, produits, employés, fichiers Drive, courriers, legal, factures, tâches, marchés
+PCH, départements, journal d'audit), sur ~19 genres : preuves d'absence à jeton, recherches
+multi-sources, points de dossier, historiques, 360 personne, découverte Drive, courriers,
+échéances legal, finances, RH, charges de tâches, agrégations arithmétiques comptées AVANT,
+comparaisons, recours multi-sources, catch-up, éventail par dossier, organigramme. Un genre
+sans donnée est ÉCARTÉ et DIT, jamais simulé (§78 : un compte mesuré à zéro reste une
+donnée ; un compte non mesurable écarte).
+
+Chaque mission passe par le MÊME harnais `jouer` que le smoke fournisseur (plafond ANALYZE,
+garde d'artefacts, conduite à l'état stable, cascade), avec UN instrument par mission pour
+que la concurrence (3 de front par défaut, `DEEP_SMOKE_CONCURRENCE`) ne mélange pas les
+mesures. Trois verdicts par mission : SUCCÈS / CONCLUSION HONNÊTE (arrêt propre et motivé —
+pas une panne, §10) / DÉFAUT (instable, incohérence COMPLETED-sans-objectif, artefact ou
+effet hors plafond) — seul DÉFAUT casse le code de sortie. Le nettoyage ne supprime QUE les
+missions de ce run (`DEEP_SMOKE_GARDER=1` les conserve). Parties pures testées
+(`deep-smoke.test.ts` : variété, réel-uniquement, tour de rôle, §78, les huit branches du
+verdict). État : TESTED localement (génération vérifiée sur base réelle : 53 missions /
+18 genres avec la base locale pauvre) — le run PROVEN se fait sur Render.

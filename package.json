@@ -32,6 +32,7 @@
     "office:sabotage": "tsx scripts/bench/office-sabotage.ts",
     "audit:reachability": "tsx scripts/audit-runtime-reachability.ts",
     "adam:smoke:provider": "tsx scripts/smoke-provider.ts",
+    "adam:smoke:deep": "tsx scripts/deep-smoke.ts",
     "fabric:bench": "tsx scripts/fabric-bench.ts"
   },
   "prisma": {

@@ -324,7 +324,16 @@ function etapesPretes(etat: EtatMission): EtatEtape[] {
     if (s.status !== "PENDING") return false;
     return s.dependsOn.every((d) => {
       const dep = parCle.get(d);
-      return dep ? estTerminal(dep.status) : true;
+      /**
+       * UNE DÉPENDANCE CONTOURNÉE NE RETIENT PERSONNE. Le journal du replan le promet —
+       * « elles ne bloquent plus » — et un run Render (2026-08-29) a montré ce que coûte de
+       * ne pas le tenir : une étape FAILED du plan v1, contournée par v2 (FAILED n'est pas
+       * ACQUIS), n'est ni terminale ni exécutable — sa descendante attendait pour TOUJOURS,
+       * la mission s'immobilisait en WAITING_DEPENDENCY sans recours ni replanification.
+       * Même principe que SKIPPED (§37) : l'étape partira avec ce que ses amonts vivants ont
+       * produit, et le worker DIT ce qui lui manque.
+       */
+      return dep ? dep.contournee || estTerminal(dep.status) : true;
     });
   });
 }
