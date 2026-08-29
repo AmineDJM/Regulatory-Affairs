@@ -2782,7 +2782,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | `model/roles.ts` | §4 — la politique de modèles en RÔLES métier (`CHEAP_WORKER` → `EXCEPTIONAL_PLANNER`). Aucun nom de modèle dans le métier |
 | `planner/schema.ts` | Le JSON Schema STRICT du plan : `additionalProperties: false`, `required` exhaustif, aucun objet libre |
 | `planner/plan.ts` | Objectif → capacités résolues → schéma imposé → plan RECONSTRUIT et typé. Refuse un plan sans étape ou sans critère. Rend `metriques.voie` (`DIRECTE`/`MODELE`) |
-| `planner/direct.ts` | Le chemin DIRECT : le CODE planifie sans modèle — lecture nue à capacité dominante, et forme RECHERCHE multi-sources (terme cité « … » → N recherches parallèles + jonction + conclusion schématisée, critères `[REGLE:…]`). Verrous R1–R5 ; sur doute, il RENONCE au planner |
+| `planner/direct.ts` | Le chemin DIRECT : le CODE planifie sans modèle — TROIS formes : lecture nue à capacité dominante ; RECHERCHE multi-sources (terme cité « … » → N recherches parallèles + conclusion, critères tout-`[REGLE:…]`, 0 juge) ; FICHE ciblée (terme cité + 1-2 familles nommées → recherches + synthèse, 3 règles + 1 critère sémantique JUGÉ). Verrous R1–R5 / F1–F6 ; sur doute, chaque forme RENONCE au planner |
 | `planner/validate.ts` | La revérification de conformité, utilisée en production ET par le raisonneur scripté des bancs |
 | `registry/resolve.ts` | §3 — pas de déversement d'outils : un tour de rôle par domaine, borné, mesuré (`plannerCapabilitiesExposed`) |
 | `runtime/worker.ts` | L'étape qui RÉDIGE : faits établis, contexte partagé vs spécifique, économie mesurée |
@@ -2826,10 +2826,10 @@ l'ERP, et la racine de composition du runtime (`boundary-scan.ts` l'exempte, par
 |---|---|
 | `reasoner.ts` | Remplit le port `Reasoner` avec la vraie passerelle. Traduit les rôles métier en rôles techniques ; aucun nom de modèle |
 | `catalog.ts` | Le catalogue de capacités de CETTE personne, calculé par le même code que la conversation |
-| `runner.ts` | L'exécutant : lectures par `executeReadTool`, écritures par intent + clé d'idempotence + reçu |
+| `runner.ts` | L'exécutant : lectures par `executeReadTool`, écritures par intent + clé d'idempotence + reçu. Classe les échecs DURABLES d'une lecture (402 facturation, 401/403, 404 objet) en non-retryable + court-circuit par cible — un refus de facturation ne se « répare » plus par du raisonnement |
 | `runtime.ts` | `lancerMission` / `avancerMission` — assemblage complet, une retouche de plan sur refus du compilateur. Porte de replan : un juge qui ne suggère AUCUN recours (`recoursSuggere: null`) → `REPLAN_SKIPPED`, pas d'appel de planificateur |
 | `provider-waterfall.ts` | La cascade instrumentée du smoke : voie du plan, appels chevauchants, facteur de parallélisme, premier résultat utile — les métriques §18 du chantier latence |
-| `deep-smoke.ts` | Le Deep Live Smoke (`npm run adam:smoke:deep`) : 60-80 missions générées depuis les VRAIES données de l'ERP (~19 genres), même harnais `jouer` que le smoke fournisseur, verdicts SUCCÈS/HONNÊTE/DÉFAUT, nettoyage borné à ses missions |
+| `deep-smoke.ts` | Le Deep Live Smoke (`npm run adam:smoke:deep`) : 60-80 missions générées depuis les VRAIES données de l'ERP (~19 genres), même harnais `jouer` que le smoke fournisseur, verdicts SUCCÈS/HONNÊTE/DÉFAUT, nettoyage borné à ses missions. Mode PALIERS (`DEEP_SMOKE_PALIERS="3,5,10"`) : montée en charge par mesure, arrêt auto si défauts ↑ ou P95 ×2, concurrence retenue = maximum SAIN observé |
 | `sweep.ts` | Le battement des missions : douze par passage, droits RELUS en base, attentes échues signalées une fois |
 | `memory.ts` | Découpage en épisodes, vieillissement par le calendrier, contexte composé sous budget |
 | `commitments.ts` | Les promesses en retard : espacement croissant, et le silence quand l'identité n'est pas canonique |
@@ -3401,6 +3401,33 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### ADAM PERFORMANCE, lot 1 — les défauts du Deep Smoke fermés, la voie directe généralisée (2026-08)
+
+**La vérité terrain.** Le premier Deep Live Smoke réel (54 missions sur les données de
+production) : 20 SUCCÈS, 32 « conclusions honnêtes », 2 DÉFAUTS, 12 directes, 220 appels,
+642 s. L'audit a montré que les 32 honnêtes étaient presque toutes ÉVITABLES : ~13 causées
+par un stockage objet répondant **402 (facturation/quota)** que le moteur RETENTAIT en
+boucle, ~19 par des critères d'acceptation auto-rédigés improuvables (le juge refuse, le
+replan rend un plan vide). Zéro cas certain de « les données n'existent pas ».
+
+**Livré.** (1) **Classement des échecs durables de lecture** (`runner.ts`) : 402/401/403 →
+`PROVIDER_FAILURE` non-retryable (l'action humaine est DITE : facturation), 404 objet →
+`MISSING_DOCUMENT` ; **court-circuit** par cible (TTL 10 min) — un refus durable ne se
+re-paye jamais ; sabotage inverse épinglé (un transitoire reste retryable, jamais
+court-circuité). (2) **La FICHE, 3ᵉ forme du chemin direct** : « où en est la tâche
+« X » ? », « fais le point sur la facture « X » » — un terme cité + 1-2 familles nommées +
+lecture seule prouvée → le CODE compile N recherches parallèles + synthèse schématisée,
+3 critères-règles + 1 critère SÉMANTIQUE gardé par le juge (la qualité d'abord) ; capacités
+tirées du catalogue réel (une nouvelle `search_*` déclarée enrichit la forme sans toucher
+au routeur) ; l'énoncé TACHES réel du run (« aucun plan exploitable ») compile désormais.
+Directes attendues : 12/54 → ~30/54. (3) **Orientation des critères du planificateur** vers
+la grammaire `[REGLE:…]` vérifiée sur les reçus (un critère-règle ne peut pas rester « sans
+preuve » ; dégradation sûre pour les codes inconnus). (4) **Mode PALIERS du Deep Smoke**
+(`DEEP_SMOKE_PALIERS="3,5,10"`) : montée en charge par mesure, arrêt automatique si les
+défauts montent ou si le P95 double, « concurrence retenue » = le maximum SAIN observé.
+Audit complet, classification A/B des 32 honnêtes, états GAP→TESTED du mandat §1-§40 :
+`docs/ADAM_PERFORMANCE.md`.
 
 ### LATENCE COGNITIVE — le meilleur appel modèle est celui qu'on n'a pas à faire (2026-08)
 

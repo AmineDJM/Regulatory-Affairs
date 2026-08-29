@@ -55,13 +55,19 @@ async function main(): Promise<void> {
   const cible = Number(process.env.DEEP_SMOKE_CIBLE ?? "") || 70;
   const concurrence = Number(process.env.DEEP_SMOKE_CONCURRENCE ?? "") || 3;
   const garder = process.env.DEEP_SMOKE_GARDER === "1";
+  // Mode CHARGE (§29) : DEEP_SMOKE_PALIERS="3,5,10" joue les missions par lots à concurrence
+  // croissante, et l'escalade s'arrête d'elle-même dès qu'un palier dégrade le système.
+  const paliers = (process.env.DEEP_SMOKE_PALIERS ?? "")
+    .split(",").map((x) => Number(x.trim())).filter((x) => Number.isFinite(x) && x > 0);
 
   console.log("");
-  console.log(`Deep Live Smoke : cible ${cible} missions, ${concurrence} de front, plafond ANALYZE.`);
+  console.log(paliers.length > 0
+    ? `Deep Live Smoke — MODE PALIERS : cible ${cible} missions, concurrences ${paliers.join(" → ")}, plafond ANALYZE.`
+    : `Deep Live Smoke : cible ${cible} missions, ${concurrence} de front, plafond ANALYZE.`);
   console.log("Chaque ligne ci-dessous est une mission RÉELLE menée à son état stable.");
   console.log("");
 
-  const r = await deepSmoke(user, { cible, concurrence, garder, onMission: (l) => console.log(l) });
+  const r = await deepSmoke(user, { cible, concurrence, garder, ...(paliers.length > 0 ? { paliers } : {}), onMission: (l) => console.log(l) });
 
   console.log("");
   console.log(rendreTexteDeep(r));
@@ -76,6 +82,7 @@ async function main(): Promise<void> {
     replanifications: r.missions.reduce((s, m) => s + m.resultat.replanifications, 0),
     appelsModele: r.appelsModele, jetons: { entree: r.jetonsEntree, sortie: r.jetonsSortie },
     latenceTotaleMs: r.latenceTotaleMs, ecartes: r.ecartes, nettoyage: r.nettoyage,
+    paliers: r.paliers, arretEscalade: r.arretEscalade, concurrenceRetenue: r.concurrenceRetenue,
     parMission: r.missions.map((m) => ({
       genre: m.genre, titre: m.titre, verdict: m.verdict, missionId: m.resultat.missionId,
       statut: m.resultat.statutFinal, stable: m.resultat.stable, goal: m.resultat.goalSatisfied,

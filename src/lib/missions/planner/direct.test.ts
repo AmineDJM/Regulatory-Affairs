@@ -225,10 +225,13 @@ describe("la forme RECHERCHE du chemin direct — la vérification multi-sources
     expect(v.plan).toBeNull();
   });
 
-  it("UNE seule famille de sources visée = recherche ciblée : au planificateur", () => {
+  it("UNE seule famille de sources visée = hors de la forme RECHERCHE — c'est la FICHE qui la sert désormais", () => {
+    // Avant le Deep Smoke, ce cas retombait au planificateur (~30 s). La forme FICHE le
+    // compile : recherches ciblées + synthèse JUGÉE (le critère sémantique reste).
     const d = "Vérifie si nous avons quoi que ce soit sur « Alpha » dans le Drive. Ne modifie rien.";
     const v = cheminDirect(d, trier(d), ctxRecherche());
-    expect(v.plan).toBeNull();
+    expect(v.plan).not.toBeNull();
+    expect(v.capacite).toContain("fiche");
   });
 
   it("moins de DEUX capacités de recherche ouvertes : pas de multi-sources, on renonce", () => {
@@ -242,5 +245,90 @@ describe("la forme RECHERCHE du chemin direct — la vérification multi-sources
     // aucun fichier » (la contrainte). Le premier test le couvre déjà ; celui-ci le NOMME.
     const v = cheminDirect(PREUVE_ABSENCE, trier(PREUVE_ABSENCE), ctxRecherche());
     expect(v.refus).toBeNull();
+  });
+
+  it("SABOTAGE — une portée multi-sources SANS deux capacités de recherche ne retombe PAS en fiche", () => {
+    // Conclure « rien nulle part » depuis une seule recherche affirmerait une couverture
+    // qu'on n'a pas (§10). Quatre familles visées + une seule capacité → planificateur.
+    const v = cheminDirect(PREUVE_ABSENCE, trier(PREUVE_ABSENCE), ctxRecherche("ANALYZE", [RECHERCHES[0]]));
+    expect(v.plan).toBeNull();
+    expect(v.refus).toContain("familles visées");
+  });
+});
+
+describe("la forme FICHE du chemin direct — la consultation ciblée d'un terme cité (Deep Smoke 2026-08-29)", () => {
+  const RECHERCHES = [
+    cap("search_everything", "federee", "Recherche fédérée dans tout l'ERP."),
+    cap("search_courriers", "courriers", "Recherche dans le registre des courriers."),
+    cap("search_drive", "drive", "Cherche fichiers et dossiers du Drive."),
+    cap("find_documents", "drive", "Retrouve des documents par contenu."),
+  ];
+  const ctxFiche = (capacites: readonly CapabilityBrief[] = RECHERCHES) =>
+    ({ capacites, autorisee: () => true, plafondEffet: "ANALYZE" });
+
+  // L'énoncé RÉEL du Deep Smoke pour lequel le planificateur n'a rendu AUCUN plan exploitable.
+  const TACHE = "Où en est la tâche « printing doc ready kwality et prep dossi » ? Qui la porte, et est-elle en retard ?";
+
+  it("l'énoncé TACHES réel (celui du DÉFAUT « aucun plan exploitable ») est désormais COMPILÉ par le code", () => {
+    const v = cheminDirect(TACHE, trier(TACHE), ctxFiche());
+    expect(v.refus).toBeNull();
+    expect(v.capacite).toContain("fiche");
+    const plan = v.plan!;
+    // La requête est le terme CITÉ, verbatim ; les recherches partent EN PARALLÈLE.
+    const recherches = plan.steps.filter((s) => s.nodeType === "CAPABILITY");
+    expect(recherches.length).toBeGreaterThanOrEqual(1);
+    for (const s of recherches) {
+      expect(s.input).toEqual({ query: "printing doc ready kwality et prep dossi" });
+      expect(s.dependsOn ?? []).toEqual([]);
+    }
+    // Trois critères sont des RÈGLES ; le QUATRIÈME est SÉMANTIQUE — le juge reste, c'est le
+    // prix de la qualité sur une question ouverte (la règle ultime).
+    const regles = plan.acceptance.filter((c) => c.startsWith("[REGLE:"));
+    const semantiques = plan.acceptance.filter((c) => !c.startsWith("[REGLE:"));
+    expect(regles).toHaveLength(3);
+    expect(semantiques).toHaveLength(1);
+  });
+
+  it("l'énoncé COURRIER réel du Deep Smoke passe par la fiche, recherches ciblées sur sa famille", () => {
+    const d = "Fais le point sur le courrier « Facture en souffrance - Intervention sollicitée » : "
+      + "de qui vient-il, à qui est-il destiné, et quelles suites ont été données ?";
+    const v = cheminDirect(d, trier(d), ctxFiche());
+    expect(v.plan).not.toBeNull();
+    const ids = v.plan!.steps.filter((s) => s.nodeType === "CAPABILITY").map((s) => s.capability);
+    // Les fédérées toujours, la recherche de la famille nommée aussi — jamais une hors sujet.
+    expect(ids).toContain("search_everything");
+    expect(ids).toContain("search_courriers");
+  });
+
+  it("une demande de PROFONDEUR renonce : « quelles étapes restent » exige plus qu'une recherche", () => {
+    const d = "Fais le point sur le dossier « Amoxicilline 500 mg » : où en est-il, quelles étapes restent ?";
+    const v = cheminDirect(d, trier(d), ctxFiche());
+    expect(v.plan).toBeNull();
+    expect(v.refus).toContain("profondeur");
+  });
+
+  it("« Raconte l'historique du dossier « X » » renonce — l'historique se lit au journal, pas en recherche", () => {
+    const d = "Raconte l'historique du dossier « REG-2026-1 » : le déroulé complet.";
+    const v = cheminDirect(d, trier(d), ctxFiche());
+    expect(v.plan).toBeNull();
+  });
+
+  it("sans terme cité, la fiche renonce — un nom de personne non cité n'est pas une cible sûre", () => {
+    const d = "Fais le point sur la situation de Yacine Habes : tâches en cours, congés posés.";
+    const v = cheminDirect(d, trier(d), ctxFiche());
+    expect(v.plan).toBeNull();
+  });
+
+  it("un verbe d'effet renonce, même en fiche : « fais le point … puis envoie-le » reste au planificateur", () => {
+    const d = "Fais le point sur la facture « F-12 » puis envoie le résumé au comptable.";
+    const v = cheminDirect(d, trier(d), ctxFiche());
+    expect(v.plan).toBeNull();
+  });
+
+  it("SABOTAGE — sans capacité couvrant la famille, la fiche renonce au lieu de chercher au hasard", () => {
+    const d = "Où en est la tâche « X-1 » ?";
+    const v = cheminDirect(d, trier(d), ctxFiche([cap("search_products", "regulatory", "Recherche les produits Regulatory.")]));
+    expect(v.plan).toBeNull();
+    expect(v.refus).toContain("aucune capacité de recherche ne couvre");
   });
 });

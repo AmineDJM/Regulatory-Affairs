@@ -327,6 +327,36 @@ export interface MissionProfonde {
   resultat: ResultatMission;
 }
 
+/** Ce qu'un PALIER de charge a mesuré — jamais estimé, toujours compté sur ses missions. */
+export interface PalierMesure {
+  concurrence: number;
+  missions: number;
+  succes: number;
+  honnetes: number;
+  defauts: number;
+  p50Ms: number | null;
+  p95Ms: number | null;
+  dureeMs: number;
+  missionsParMinute: number;
+}
+
+/**
+ * LA RÈGLE D'ESCALADE — pure, et elle ne monte jamais sur un palier qui a dégradé le système.
+ *
+ * Deux signaux d'arrêt, tous deux MESURÉS sur le palier qui vient de tourner : des DÉFAUTS en
+ * hausse (le système casse sous la charge), ou un P95 qui a plus que doublé (il s'effondre).
+ * Un P95 absent (palier vide) n'est pas un signal — l'absence de mesure n'est pas une mesure.
+ */
+export function poursuivreEscalade(precedent: PalierMesure, courant: PalierMesure): { poursuivre: boolean; raison: string } {
+  if (courant.defauts > precedent.defauts) {
+    return { poursuivre: false, raison: `défauts en hausse (${precedent.defauts} → ${courant.defauts}) : on redescend` };
+  }
+  if (precedent.p95Ms !== null && courant.p95Ms !== null && courant.p95Ms > precedent.p95Ms * 2) {
+    return { poursuivre: false, raison: `P95 plus que doublé (${precedent.p95Ms} → ${courant.p95Ms} ms) : le système sature` };
+  }
+  return { poursuivre: true, raison: "palier sain : on peut monter" };
+}
+
 export interface ResultatDeep {
   horodatage: string;
   jeton: string;
@@ -340,6 +370,10 @@ export interface ResultatDeep {
   appelsModele: number;
   latenceTotaleMs: number;
   nettoyage: { supprimees: number; gardees: boolean };
+  /** Renseigné en mode PALIERS : les mesures de chaque palier, l'arrêt éventuel, la concurrence retenue. */
+  paliers: PalierMesure[] | null;
+  arretEscalade: string | null;
+  concurrenceRetenue: number | null;
 }
 
 /** Supprime UNIQUEMENT les missions créées par ce run — enfants d'abord, défensif partout. */
@@ -356,14 +390,39 @@ async function nettoyerMissions(ids: string[]): Promise<number> {
   return r.count;
 }
 
+/** Compte les mesures d'un palier depuis SES missions — rien d'estimé. */
+function mesurerPalier(concurrence: number, missions: readonly MissionProfonde[], dureeMs: number): PalierMesure {
+  const durees = missions.map((m) => m.resultat.cascade?.totalMs ?? 0).filter((x) => x > 0).sort((a, b) => a - b);
+  const quantile = (q: number): number | null =>
+    durees.length === 0 ? null : durees[Math.min(durees.length - 1, Math.floor(q * (durees.length - 1)))];
+  return {
+    concurrence,
+    missions: missions.length,
+    succes: missions.filter((m) => m.verdict === "SUCCES").length,
+    honnetes: missions.filter((m) => m.verdict === "CONCLUSION_HONNETE").length,
+    defauts: missions.filter((m) => m.verdict === "DEFAUT").length,
+    p50Ms: quantile(0.5),
+    p95Ms: quantile(0.95),
+    dureeMs,
+    missionsParMinute: dureeMs > 0 ? Math.round((missions.length / (dureeMs / 60000)) * 10) / 10 : 0,
+  };
+}
+
 export async function deepSmoke(
   user: CurrentUser,
-  opts: { cible?: number; concurrence?: number; garder?: boolean; onMission?: (ligne: string) => void } = {},
+  opts: {
+    cible?: number; concurrence?: number; garder?: boolean;
+    /** Mode CHARGE (§29) : les missions se jouent par lots à concurrence CROISSANTE, et
+     *  l'escalade s'arrête d'elle-même dès qu'un palier dégrade le système. */
+    paliers?: number[];
+    onMission?: (ligne: string) => void;
+  } = {},
 ): Promise<ResultatDeep> {
   const t0 = Date.now();
   const jeton = jetonUnique();
   const cible = Math.max(1, Math.min(120, opts.cible ?? 70));
   const concurrence = Math.max(1, Math.min(6, opts.concurrence ?? 3));
+  const paliers = (opts.paliers ?? []).map((p) => Math.max(1, Math.min(20, Math.floor(p)))).filter((p) => p > 0);
 
   const inv = await inventorier();
   const { scenarios: liste, ecartes } = genererScenarios(inv, jeton, cible);
@@ -373,48 +432,92 @@ export async function deepSmoke(
     cible, concurrence, missions: [], ecartes,
     jetonsEntree: 0, jetonsSortie: 0, appelsModele: 0, latenceTotaleMs: 0,
     nettoyage: { supprimees: 0, gardees: opts.garder === true },
+    paliers: paliers.length > 0 ? [] : null, arretEscalade: null, concurrenceRetenue: null,
   };
 
-  // ── LE POOL BORNÉ : `concurrence` missions à la fois, chacune avec SON instrument ──────
-  const file = [...liste];
+  // ── LE LOT BORNÉ : N missions à la fois, chacune avec SON instrument ──────────────────
   let joues = 0;
   const total = liste.length;
-  const ouvrier = async (): Promise<void> => {
-    for (;;) {
-      const sc = file.shift();
-      if (!sc) return;
-      const instrument = new RaisonneurInstrumente(raisonneur, Date.now());
-      const { r, metriques } = await jouer(user, sc, instrument, t0)
-        .catch((e: unknown) => ({
-          r: {
-            genre: sc.genre, demande: sc.demande, verite: sc.verite, missionId: null,
-            statutFinal: null, stable: false,
-            motifArret: `exception du harnais : ${e instanceof Error ? e.message : String(e)}`,
-            toursMoteur: 0, replanifications: 0, versionPlan: null, recoursObserves: 0,
-            etapesCompilees: null, etapesTerminees: 0, etapesEnEchec: 0,
-            effetMaxAutorise: "ANALYZE" as const, effetMaxPlanifie: null, effetMaxExecute: null,
-            capacitesHorsPlafond: [], artefactsAvant: null, artefactsApres: null, artefactsCrees: [],
-            appelsParUsage: {}, precondition: null, setupEchoue: false,
-            qaPassed: null, goalSatisfied: null, goalVerdict: null, cascade: null,
-          } satisfies ResultatMission,
-          metriques: { modele: null, entree: 0, sortie: 0, ouvertes: null },
-        }));
-      const v = verdictProfond(r);
-      out.missions.push({ genre: sc.genre, titre: sc.titre, attendu: sc.attendu, verdict: v.verdict, raisonVerdict: v.raison, resultat: r });
-      out.modele ??= metriques.modele;
-      const j = instrument.jetons();
-      out.jetonsEntree += j.entree;
-      out.jetonsSortie += j.sortie;
-      out.appelsModele += instrument.appels.length;
-      joues += 1;
-      opts.onMission?.(
-        `[${String(joues).padStart(2)}/${total}] ${v.verdict.padEnd(18)} ${sc.genre.padEnd(20)} `
-        + `${((r.cascade?.totalMs ?? 0) / 1000).toFixed(1)}s · ${instrument.appels.length} appel(s) · `
-        + `${r.cascade?.voiePlan ?? "—"} · ${r.statutFinal ?? "aucune mission"}`,
-      );
-    }
+  const jouerLot = async (lot: readonly ScenarioProfond[], parallele: number): Promise<MissionProfonde[]> => {
+    const file = [...lot];
+    const faits: MissionProfonde[] = [];
+    const ouvrier = async (): Promise<void> => {
+      for (;;) {
+        const sc = file.shift();
+        if (!sc) return;
+        const instrument = new RaisonneurInstrumente(raisonneur, Date.now());
+        const { r, metriques } = await jouer(user, sc, instrument, t0)
+          .catch((e: unknown) => ({
+            r: {
+              genre: sc.genre, demande: sc.demande, verite: sc.verite, missionId: null,
+              statutFinal: null, stable: false,
+              motifArret: `exception du harnais : ${e instanceof Error ? e.message : String(e)}`,
+              toursMoteur: 0, replanifications: 0, versionPlan: null, recoursObserves: 0,
+              etapesCompilees: null, etapesTerminees: 0, etapesEnEchec: 0,
+              effetMaxAutorise: "ANALYZE" as const, effetMaxPlanifie: null, effetMaxExecute: null,
+              capacitesHorsPlafond: [], artefactsAvant: null, artefactsApres: null, artefactsCrees: [],
+              appelsParUsage: {}, precondition: null, setupEchoue: false,
+              qaPassed: null, goalSatisfied: null, goalVerdict: null, cascade: null,
+            } satisfies ResultatMission,
+            metriques: { modele: null, entree: 0, sortie: 0, ouvertes: null },
+          }));
+        const v = verdictProfond(r);
+        const fait: MissionProfonde = { genre: sc.genre, titre: sc.titre, attendu: sc.attendu, verdict: v.verdict, raisonVerdict: v.raison, resultat: r };
+        faits.push(fait);
+        out.missions.push(fait);
+        out.modele ??= metriques.modele;
+        const j = instrument.jetons();
+        out.jetonsEntree += j.entree;
+        out.jetonsSortie += j.sortie;
+        out.appelsModele += instrument.appels.length;
+        joues += 1;
+        opts.onMission?.(
+          `[${String(joues).padStart(2)}/${total}] ${v.verdict.padEnd(18)} ${sc.genre.padEnd(20)} `
+          + `${((r.cascade?.totalMs ?? 0) / 1000).toFixed(1)}s · ${instrument.appels.length} appel(s) · `
+          + `${r.cascade?.voiePlan ?? "—"} · ${r.statutFinal ?? "aucune mission"}`,
+        );
+      }
+    };
+    await Promise.all(Array.from({ length: parallele }, () => ouvrier()));
+    return faits;
   };
-  await Promise.all(Array.from({ length: concurrence }, () => ouvrier()));
+
+  if (paliers.length === 0) {
+    await jouerLot(liste, concurrence);
+  } else {
+    // ── LE MODE PALIERS (§29) : monter par mesure, jamais aveuglément ───────────────────
+    const taille = Math.max(1, Math.ceil(liste.length / paliers.length));
+    let curseur = 0;
+    let retenue = paliers[0];
+    for (const [i, p] of paliers.entries()) {
+      if (curseur >= liste.length) break;
+      const lot = liste.slice(curseur, curseur + taille);
+      curseur += lot.length;
+      opts.onMission?.(`── PALIER ${i + 1}/${paliers.length} : ${p} mission(s) de front, ${lot.length} mission(s) ──`);
+      const debut = Date.now();
+      const faits = await jouerLot(lot, p);
+      const mesure = mesurerPalier(p, faits, Date.now() - debut);
+      out.paliers!.push(mesure);
+      const precedent = out.paliers!.at(-2);
+      if (precedent) {
+        const e = poursuivreEscalade(precedent, mesure);
+        if (!e.poursuivre) {
+          out.arretEscalade = e.raison;
+          // ON REDESCEND, on n'abandonne pas : le reste se joue à la dernière concurrence saine.
+          if (curseur < liste.length) {
+            opts.onMission?.(`── ESCALADE ARRÊTÉE (${e.raison}) — le reste se joue à ${retenue} de front ──`);
+            const debutReste = Date.now();
+            const resteFaits = await jouerLot(liste.slice(curseur), retenue);
+            out.paliers!.push(mesurerPalier(retenue, resteFaits, Date.now() - debutReste));
+            curseur = liste.length;
+          }
+          break;
+        }
+      }
+      retenue = p;
+    }
+    out.concurrenceRetenue = retenue;
+  }
 
   if (!out.nettoyage.gardees) {
     const ids = out.missions.map((m) => m.resultat.missionId).filter((x): x is string => Boolean(x));
@@ -457,6 +560,18 @@ export function rendreTexteDeep(r: ResultatDeep): string {
   l.push(`  durée totale             ${(r.latenceTotaleMs / 1000).toFixed(1)}s`);
   l.push(`  nettoyage                ${r.nettoyage.gardees ? "missions GARDÉES (DEEP_SMOKE_GARDER=1)" : `${r.nettoyage.supprimees} mission(s) de ce run supprimée(s)`}`);
   l.push("");
+
+  if (r.paliers && r.paliers.length > 0) {
+    l.push("  PALIERS DE CHARGE (§29) — concurrence · n · s/h/d · P50 · P95 · missions/min");
+    for (const p of r.paliers) {
+      l.push(`    ${String(p.concurrence).padStart(2)} de front            ${String(p.missions).padStart(2)} · ${p.succes}/${p.honnetes}/${p.defauts}`
+        + ` · ${p.p50Ms === null ? "—" : `${(p.p50Ms / 1000).toFixed(1)}s`} · ${p.p95Ms === null ? "—" : `${(p.p95Ms / 1000).toFixed(1)}s`}`
+        + ` · ${p.missionsParMinute}/min`);
+    }
+    l.push(`    escalade                 ${r.arretEscalade ?? "menée au bout — aucun palier n'a dégradé le système"}`);
+    l.push(`    concurrence retenue      ${r.concurrenceRetenue ?? "—"} (le maximum SAIN observé, pas un chiffre supposé)`);
+    l.push("");
+  }
 
   l.push("  PAR GENRE — n · succès/honnête/défaut · P50 · appels · DIRECTE");
   const parGenre = new Map<string, MissionProfonde[]>();

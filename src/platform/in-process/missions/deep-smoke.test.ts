@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  genererScenarios, verdictProfond,
-  type Echantillons,
+  genererScenarios, verdictProfond, poursuivreEscalade,
+  type Echantillons, type PalierMesure,
 } from "@/platform/in-process/missions/deep-smoke";
 import type { ResultatMission } from "@/platform/in-process/missions/provider-smoke";
 
@@ -153,5 +153,38 @@ describe("verdictProfond — trois issues, et chaque défaut nomme sa preuve", (
     const v = verdictProfond(resultat({ setupEchoue: true, motifArret: "INVALID / SETUP_FAILED" }));
     expect(v.verdict).toBe("DEFAUT");
     expect(v.raison).toContain("banc invalide");
+  });
+});
+
+/** Un palier de référence, à déformer signal par signal. */
+function palier(sur: Partial<PalierMesure>): PalierMesure {
+  return {
+    concurrence: 3, missions: 10, succes: 6, honnetes: 4, defauts: 0,
+    p50Ms: 8000, p95Ms: 30000, dureeMs: 120000, missionsParMinute: 5,
+    ...sur,
+  };
+}
+
+describe("poursuivreEscalade — on ne monte jamais sur un palier qui dégrade (§29)", () => {
+  it("palier sain (défauts stables, P95 contenu) : on monte", () => {
+    const e = poursuivreEscalade(palier({}), palier({ concurrence: 5, p95Ms: 45000 }));
+    expect(e.poursuivre).toBe(true);
+  });
+
+  it("des DÉFAUTS en hausse arrêtent l'escalade, raison dite", () => {
+    const e = poursuivreEscalade(palier({}), palier({ concurrence: 10, defauts: 2 }));
+    expect(e.poursuivre).toBe(false);
+    expect(e.raison).toContain("défauts en hausse");
+  });
+
+  it("un P95 plus que DOUBLÉ arrête l'escalade — le système sature", () => {
+    const e = poursuivreEscalade(palier({}), palier({ concurrence: 10, p95Ms: 70000 }));
+    expect(e.poursuivre).toBe(false);
+    expect(e.raison).toContain("P95");
+  });
+
+  it("un P95 NON MESURÉ n'est pas un signal d'arrêt — l'absence de mesure n'est pas une mesure (§78)", () => {
+    const e = poursuivreEscalade(palier({ p95Ms: null }), palier({ concurrence: 10, p95Ms: null }));
+    expect(e.poursuivre).toBe(true);
   });
 });

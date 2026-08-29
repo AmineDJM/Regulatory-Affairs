@@ -188,26 +188,27 @@ export function cheminDirect(demande: string, triage: Triage, ctx: ContexteDirec
   const candidats: Candidat[] = notes.slice(0, 2)
     .map((n) => ({ id: n.b.id, score: Math.round(n.score * 100) / 100 }));
 
+  // Les FORMES CONNUES se tentent à chaque renoncement : elles ne se recouvrent pas (la
+  // lecture nue refuse toute requête, la RECHERCHE exige un terme cité ET plusieurs familles,
+  // la FICHE exige un terme cité ET peu de familles ciblées), et l'ordre ne crée donc pas
+  // d'ambiguïté — il crée des secondes chances déterministes.
+  const formesConnues = (refus: string): Verdict => {
+    const recherche = cheminDirectRecherche(demande, ctx);
+    if (recherche.plan) return recherche;
+    const fiche = cheminDirectFiche(demande, ctx);
+    if (fiche.plan) return fiche;
+    return renonce(`${refus} ; multi-sources : ${recherche.refus} ; fiche : ${fiche.refus}`, candidats);
+  };
+
   // ── VERROU 1 — le triage ────────────────────────────────────────────────────────────
   if (triage.profil !== "DIRECT") {
-    // La lecture nue exige le profil DIRECT ; la VÉRIFICATION MULTI-SOURCES, elle, a ses
-    // propres verrous (terme cité, lecture seule prouvée) et un profil composé ne l'exclut
+    // La lecture nue exige le profil DIRECT ; les formes RECHERCHE et FICHE, elles, ont leurs
+    // propres verrous (terme cité, lecture seule prouvée) et un profil composé ne les exclut
     // pas : « vérifie X dans quatre sources » est composé ET entièrement connu du logiciel.
-    const recherche = cheminDirectRecherche(demande, ctx);
-    if (recherche.plan) return recherche;
-    return renonce(
-      `profil ${triage.profil} : ${triage.raisons[0] ?? "signaux composés"} ; multi-sources : ${recherche.refus}`,
-      candidats);
+    return formesConnues(`profil ${triage.profil} : ${triage.raisons[0] ?? "signaux composés"}`);
   }
 
-  // La forme RECHERCHE se tente à chaque renoncement de la lecture nue : les deux formes ne
-  // se recouvrent pas (l'une refuse toute requête, l'autre EXIGE un terme cité), et l'ordre
-  // ne crée donc pas d'ambiguïté — il crée une seconde chance déterministe.
-  const renonceOuRecherche = (refus: string): Verdict => {
-    const recherche = cheminDirectRecherche(demande, ctx);
-    if (recherche.plan) return recherche;
-    return renonce(`${refus} ; multi-sources : ${recherche.refus}`, candidats);
-  };
+  const renonceOuRecherche = formesConnues;
 
   const tete = notes[0];
   if (!tete) return renonceOuRecherche("aucune capacité ouverte à cet acteur");
@@ -378,14 +379,21 @@ const FAMILLES_SOURCES: readonly (readonly string[])[] = [
   ["courrier", "courriers", "mail", "e-mail"],
   ["contrat", "contrats", "legal"],
   ["t[âa]che", "t[âa]ches"],
+  // Étendues après le Deep Smoke du 2026-08-29 : les fiches Finances et RH citaient leurs
+  // familles et aucune forme ne les reconnaissait. Servent aux verrous R4/F3 — jamais à
+  // choisir les capacités, qui viennent toujours du catalogue réel.
+  ["facture", "factures", "r[èe]glement", "r[èe]glements", "paiement", "paiements"],
+  ["employ[ée]", "employ[ée]s", "salari[ée]", "salari[ée]s", "cong[ée]", "cong[ée]s"],
 ];
 
+/** Les familles que la demande NOMME — la liste, pour que la forme FICHE cible ses recherches. */
+export function famillesVisees(demande: string): (readonly string[])[] {
+  return FAMILLES_SOURCES.filter((famille) =>
+    famille.some((mot) => new RegExp(`\\b${mot}\\b`, "iu").test(demande)));
+}
+
 export function famillesNommees(demande: string): number {
-  let n = 0;
-  for (const famille of FAMILLES_SOURCES) {
-    if (famille.some((mot) => new RegExp(`\\b${mot}\\b`, "iu").test(demande))) n += 1;
-  }
-  return n;
+  return famillesVisees(demande).length;
 }
 
 const BALAYAGE_GENERAL = /quoi\s+que\s+ce\s+soit|tout\s+ce\s+que|toutes\s+les\s+sources|o[uù]\s+que\s+ce\s+soit|partout/i;
@@ -533,6 +541,196 @@ function planDeRecherche(demande: string, terme: string, caps: readonly Capabili
       },
     ],
     completionCriteria: `Chaque source a été interrogée avec « ${terme} » et la conclusion structurée en découle.`,
+    gaps: [],
+  };
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA FICHE — la troisième forme du chemin direct (Deep Smoke 2026-08-29).
+ *
+ * ── LA MESURE QUI L'A IMPOSÉE ────────────────────────────────────────────────────────────
+ *
+ * Le Deep Smoke a joué 54 missions réelles : les 12 passées par le chemin direct ont conclu
+ * en 2-4 s ; les fiches ciblées — « où en est la tâche « X » ? », « fais le point sur la
+ * facture « X » », « retrouve le document « X » » — ont payé 20 à 104 s de planification et
+ * de jugement pour un plan que le logiciel connaissait : chercher le terme cité dans la
+ * famille nommée, puis répondre depuis les reçus. L'une d'elles (TACHES) n'a même reçu AUCUN
+ * plan exploitable du modèle. C'est une FORME de problème connue (§1 du mandat performance) :
+ * on la compile, on ne la fait pas raisonner.
+ *
+ * ── EN QUOI ELLE DIFFÈRE DES DEUX AUTRES, ET POURQUOI ELLES NE SE RECOUVRENT PAS ─────────
+ *
+ * La lecture nue refuse toute requête. La RECHERCHE exige un terme cité ET une portée
+ * multi-sources (≥ 2 familles ou balayage), et sa question — « en avons-nous ? » — se juge
+ * ENTIÈREMENT sur les reçus : critères tout-règles, zéro juge. La FICHE exige un terme cité
+ * ET une portée CIBLÉE (≥ 1 famille nommée), et sa question — « où en est X ? » — demande une
+ * SYNTHÈSE dont la fidélité ne se vérifie pas à l'arithmétique : son dernier critère reste
+ * SÉMANTIQUE, et le juge LLM le garde. Un appel de juge est le prix de la qualité (la règle
+ * ultime) ; il reste ~5× moins cher que le chemin planifié qu'il remplace.
+ *
+ * ── LES VERROUS — le doute renonce, toujours ─────────────────────────────────────────────
+ *
+ *   F1. UN terme cité, exactement (le même verrou que R1).
+ *   F2. Une intention de CONSULTATION ou de recherche explicite.
+ *   F3. Lecture seule PROUVÉE + aucun verbe d'effet résiduel (le même verrou que R3).
+ *   F4. Au moins UNE famille nommée, aucun ordre imposé.
+ *   F5. Aucune demande de PROFONDEUR (« historique », « qui a fait », « quelles étapes
+ *       restent », comparaisons) : ces questions exigent des lectures qu'une recherche ne
+ *       fournit pas — répondre plus vite mais moins bien serait la triche que §35 interdit.
+ *   F6. Au moins UNE capacité de recherche couvrant la famille (fédérées comprises).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+const INTENTION_CONSULTATION = /\b(o[uù]\s+en\s+(?:est|sont)|fai(?:s|tes)\s+le\s+point|montre[rz]?|r[ée]sume[rz]?|donne[- ](?:moi|nous)|que\s+savons[- ]nous|dis[- ]moi)\b/iu;
+
+/**
+ * Les demandes de PROFONDEUR qu'une recherche ne sait pas servir. La liste est courte et
+ * SÛRE — en attraper trop enverrait au planificateur des fiches qu'on sait compiler, en
+ * attraper trop peu ferait répondre une synthèse pauvre à une question riche. Chaque mot est
+ * un signal certain d'un besoin de lectures profondes (journal, étapes, comparaison).
+ */
+const PROFONDEUR_ANALYSE = /\bhistorique\b|qui\s+a\s+fait|depuis\s+sa\s+cr[ée]ation|compare[rz]?\b|comparaison|pourquoi\b|[ée]tapes\s+(?:restent|franchies|suivantes)|que\s+faut[- ]il\s+faire|raconte[rz]?\b|\baudit\b/iu;
+
+/** Les recherches qui COUVRENT les familles visées : les fédérées toujours, les autres si leur fiche catalogue croise les mots de la famille. */
+function capacitesPourFamilles(ctx: ContexteDirect, familles: readonly (readonly string[])[]): CapabilityBrief[] {
+  const FEDEREES = new Set(["search_everything", "find_documents"]);
+  const couvre = (b: CapabilityBrief): boolean => {
+    if (FEDEREES.has(b.id)) return true;
+    const fiche = `${b.id.replace(/_/g, " ")} ${b.domain} ${b.summary}`;
+    return familles.some((famille) => famille.some((mot) => new RegExp(`\\b${mot}`, "iu").test(fiche)));
+  };
+  return capacitesDeRecherche(ctx).filter(couvre).slice(0, 4);
+}
+
+/** DÉCIDE s'il y a une fiche directe, et la construit. Pure, comme les deux autres formes. */
+export function cheminDirectFiche(demande: string, ctx: ContexteDirect): Verdict {
+  const aucun = (refus: string): Verdict => ({ plan: null, capacite: null, refus, candidats: [] });
+
+  // ── F1 — le terme, cité et unique ─────────────────────────────────────────────────────
+  const { terme, nombre } = termeCite(demande);
+  if (!terme) {
+    return aucun(nombre === 0
+      ? "aucun terme cité entre guillemets : la cible serait devinée"
+      : `${nombre} termes cités : ambiguïté, le planificateur tranche`);
+  }
+
+  // ── F2 — l'intention de consultation ──────────────────────────────────────────────────
+  if (!INTENTION_CONSULTATION.test(demande) && !INTENTION_RECHERCHE.test(demande)) {
+    return aucun("aucune intention de consultation explicite");
+  }
+
+  // ── F3 — la lecture seule, PROUVÉE (le même verrou que la forme RECHERCHE) ────────────
+  const plafondLecture = ctx.plafondEffet === "READ" || ctx.plafondEffet === "ANALYZE";
+  if (!plafondLecture && !PHRASE_LECTURE_SEULE.test(demande)) {
+    return aucun("lecture seule non prouvée (ni plafond du catalogue, ni phrase explicite)");
+  }
+  const residuel = sansClausesNegatives(demande).match(VERBES_EFFET);
+  if (residuel) {
+    return aucun(`verbe d'effet dans la demande (« ${residuel[0]} ») : hors du chemin direct`);
+  }
+
+  // ── F4 — une portée ciblée, aucune stratégie imposée ──────────────────────────────────
+  if (ORDRE_IMPOSE.test(demande)) {
+    return aucun("la demande impose un ordre de sources : la stratégie appartient au planificateur");
+  }
+  const familles = famillesVisees(demande);
+  if (familles.length === 0) {
+    return aucun("aucune famille de sources nommée : la cible serait devinée");
+  }
+  if (familles.length > 2) {
+    // Une portée MULTI-SOURCES appartient à la forme RECHERCHE (qui exige ≥ 2 capacités pour
+    // la couvrir) ou au planificateur : conclure « rien nulle part » depuis une seule
+    // recherche serait affirmer une couverture qu'on n'a pas (§10).
+    return aucun(`${familles.length} familles visées : portée multi-sources, hors de la fiche ciblée`);
+  }
+
+  // ── F5 — pas de demande de profondeur ─────────────────────────────────────────────────
+  const profond = demande.match(PROFONDEUR_ANALYSE);
+  if (profond) {
+    return aucun(`demande de profondeur (« ${profond[0]} ») : les lectures nécessaires dépassent une recherche`);
+  }
+
+  // ── F6 — les capacités couvrant la famille, relues sur le catalogue réel ──────────────
+  const caps = capacitesPourFamilles(ctx, familles);
+  if (caps.length === 0) {
+    return aucun("aucune capacité de recherche ne couvre la famille nommée");
+  }
+
+  return {
+    plan: planDeFiche(demande, terme, caps),
+    capacite: `fiche-ciblee (${caps.length} recherche(s))`,
+    refus: null,
+    candidats: caps.slice(0, 2).map((c) => ({ id: c.id, score: 0 })),
+  };
+}
+
+/**
+ * LE PLAN D'UNE FICHE — recherches PARALLÈLES, jonction, UNE synthèse jugée.
+ *
+ * Trois critères sont des RÈGLES vérifiées sur les reçus ; le quatrième est SÉMANTIQUE et
+ * c'est un choix, pas un oubli : « la synthèse répond-elle à la question ? » ne se compte
+ * pas — la juger est ce qui autorise cette forme à servir des questions ouvertes sans
+ * jamais répondre plus vite au prix de répondre moins bien.
+ */
+function planDeFiche(demande: string, terme: string, caps: readonly CapabilityBrief[]): MissionPlan {
+  const recherches = caps.map((c) => ({
+    key: `recherche-${c.id.replace(/_/g, "-")}`,
+    title: `Rechercher « ${terme} » via ${c.id}`,
+    nodeType: "CAPABILITY" as const,
+    capability: c.id,
+    input: { query: terme },
+    dependsOn: [] as string[],
+    completionCondition: `${c.id} a rendu son résultat pour « ${terme} ».`,
+    approvalRequirement: "NONE" as const,
+  }));
+  const clesRecherches = recherches.map((r) => r.key);
+
+  return {
+    objective: demande.trim(),
+    acceptance: [
+      `[REGLE:RECHERCHES_AVEC_REQUETE:${clesRecherches.join(",")}] Chaque étape citée a interrogé sa source `
+      + `avec « ${terme} » exactement — preuve : la requête portée par le reçu de chaque étape.`,
+      "[REGLE:AUCUNE_ECRITURE] Aucun reçu d'étape ne porte d'effet au-delà d'ANALYZE : la mission "
+      + "n'a rien écrit, rien envoyé, rien produit.",
+      "[REGLE:SORTIE_STRUCTUREE:repondre:trouve,synthese,sources] L'étape « repondre » a rendu une "
+      + "sortie structurée (trouve OUI/NON, synthèse, sources).",
+      `La synthèse répond à la question posée sur « ${terme} » en s'appuyant uniquement sur les reçus `
+      + "des recherches, et dit explicitement ce qui manque le cas échéant.",
+    ],
+    complexity: "B",
+    scale: "S",
+    steps: [
+      ...recherches,
+      {
+        key: "jonction",
+        title: "Réunir les résultats des recherches",
+        nodeType: "JOIN",
+        dependsOn: clesRecherches,
+        completionCondition: "Toutes les recherches sont terminées.",
+        approvalRequirement: "NONE",
+      },
+      {
+        key: "repondre",
+        title: `Répondre sur « ${terme} » à partir des résultats réunis`,
+        nodeType: "WORKER",
+        dependsOn: ["jonction"],
+        completionCondition: "La synthèse structurée est rendue, sources citées.",
+        reasoningRequirement: "HEAVY",
+        approvalRequirement: "NONE",
+        expectedOutputSchema: {
+          type: "object",
+          properties: {
+            trouve: { type: "boolean", description: `Vrai si les recherches ont trouvé quelque chose sur « ${terme} ».` },
+            synthese: { type: "string", description: "La réponse à la question posée, en français, fondée uniquement sur les résultats réunis — et ce qui manque, dit explicitement." },
+            sources: { type: "array", items: { type: "string" }, description: "Les sources interrogées, nommées une à une." },
+          },
+          required: ["trouve", "synthese", "sources"],
+          additionalProperties: false,
+        },
+      },
+    ],
+    completionCriteria: `Les recherches sur « ${terme} » ont abouti et la synthèse structurée répond à la demande.`,
     gaps: [],
   };
 }

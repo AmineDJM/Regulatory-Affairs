@@ -110,6 +110,53 @@ const REFUS = [
   /je préfère ne rien avancer/i,
 ];
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════
+ * LES ÉCHECS DURABLES D'UNE LECTURE — classés, jamais devinés.
+ *
+ * Un `fetch` qui casse est transitoire : on retente, et c'est le bon réflexe. Un stockage qui
+ * répond 402 (paiement exigé), 401/403 (clé refusée) ou 404 (l'objet n'existe pas) ne change
+ * pas d'avis à la troisième tentative — et le Deep Smoke a MESURÉ ce que coûte de l'ignorer :
+ * le même blob relu à chaque tentative, chaque replan, chaque mission, contre un quota épuisé.
+ *
+ * Le classement est VOLONTAIREMENT étroit : seuls les motifs dont on est SÛR (le message
+ * exact de `object-storage.ts`, ou un vocabulaire de facturation sans ambiguïté) sont déclarés
+ * durables. Tout le reste garde `retryable: true` — dans le doute, on retente (le contraire
+ * du décodeur : ici, rater un durable coûte trois tentatives ; déclarer durable un transitoire
+ * coûterait une réponse fausse).
+ */
+export function classerEchecLecture(message: string): { kind: ErrorKind; action: string } | null {
+  // Le message EXACT de `s3Failure` : « Lecture de l'objet échouée (NNN) sur /… ».
+  const objet = message.match(/de l['’]objet échouée \((\d{3})/i);
+  const statut = objet ? Number(objet[1]) : null;
+  if (statut === 402 || /payment required|quota exceeded|billing|insufficient (?:credit|funds)/i.test(message)) {
+    return {
+      kind: "PROVIDER_FAILURE",
+      action: "— refus de FACTURATION/QUOTA du fournisseur de stockage : réessayer ne sert à rien, une action humaine (facturation) est requise.",
+    };
+  }
+  if (statut === 401 || statut === 403) {
+    return {
+      kind: "PROVIDER_FAILURE",
+      action: "— identifiants de stockage refusés : réessayer ne sert à rien, la configuration doit être corrigée.",
+    };
+  }
+  if (statut === 404) {
+    return {
+      kind: "MISSING_DOCUMENT",
+      action: "— l'objet n'existe pas à cette adresse : le document est absent du stockage, pas temporairement illisible.",
+    };
+  }
+  return null;
+}
+
+const TTL_ECHEC_DURABLE_MS = 10 * 60 * 1000;
+const PLAFOND_ECHECS_DURABLES = 300;
+const ECHECS_DURABLES = new Map<string, { kind: ErrorKind; message: string; at: number }>();
+
+/** Pour les bancs : repartir d'une table vierge. Jamais appelé en production. */
+export function __videEchecsDurables(): void { ECHECS_DURABLES.clear(); }
+
 export class ExecutantReel implements CapabilityRunner {
   constructor(private readonly user: CurrentUser) {}
 
@@ -136,16 +183,46 @@ export class ExecutantReel implements CapabilityRunner {
 
   // ── LECTURE ────────────────────────────────────────────────────────────────────────
   private async lire(call: CapabilityCall): Promise<CapabilityOutcome> {
+    // ── LE COURT-CIRCUIT — un refus DURABLE déjà constaté ne se re-paye pas ─────────────
+    //
+    // Le Deep Smoke du 2026-08-29 a montré le même blob relu en boucle contre un stockage qui
+    // répondait 402 (paiement/quota) : chaque étape payait ses tentatives, chaque replan
+    // relisait le même objet, et le raisonnement « réparait » une panne de FACTURATION.
+    // Un refus durable constaté une fois vaut pour les minutes qui suivent — et le reçu LE DIT.
+    const cle = `${call.capability}|${JSON.stringify(call.input ?? {})}`.slice(0, 500);
+    const constate = ECHECS_DURABLES.get(cle);
+    if (constate && Date.now() - constate.at < TTL_ECHEC_DURABLE_MS) {
+      return {
+        ok: false,
+        output: null,
+        error: {
+          kind: constate.kind,
+          message: `COURT-CIRCUIT — échec durable déjà constaté il y a ${Math.round((Date.now() - constate.at) / 1000)}s, non re-tenté : ${constate.message}`,
+          retryable: false,
+        },
+      };
+    }
+
     let brut: string;
     try {
       brut = await executeReadTool(call.capability, call.input, this.user);
     } catch (e) {
+      const message = e instanceof Error ? e.message : "la lecture a échoué";
+      const durable = classerEchecLecture(message);
+      if (durable) {
+        ECHECS_DURABLES.set(cle, { ...durable, message, at: Date.now() });
+        if (ECHECS_DURABLES.size > PLAFOND_ECHECS_DURABLES) {
+          const premier = ECHECS_DURABLES.keys().next().value;
+          if (premier !== undefined) ECHECS_DURABLES.delete(premier);
+        }
+        return { ok: false, output: null, error: { kind: durable.kind, message: `${message} ${durable.action}`, retryable: false } };
+      }
       return {
         ok: false,
         output: null,
         error: {
           kind: "CAPABILITY_FAILURE",
-          message: e instanceof Error ? e.message : "la lecture a échoué",
+          message,
           retryable: true,
         },
       };
