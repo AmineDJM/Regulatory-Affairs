@@ -142,6 +142,45 @@ de parallélisme) : en production. Porte de replan « aucun recours » : en prod
 
 Aucun de ces « attendus » n'est un résultat : ils se PROUVENT au prochain run (§38).
 
+## G. LE DEUXIÈME RUN RÉEL (2026-08-29, jeton MTEFGJJBPEJR) — le lot 1 MESURÉ
+
+| Mesure | Baseline | Run 2 (lot 1 déployé) | Verdict |
+|---|---|---|---|
+| DÉFAUTS | 2 | **0** | ✔ cible atteinte |
+| Voie DIRECTE | 12/54 (22 %) | **30/54 (56 %)** | ✔ la prédiction exacte de C1 |
+| Appels modèle | 220 | **186** | ↓ 15 % |
+| Durée totale | 642 s | **477 s** | ↓ 26 % |
+| Replanifications | 34 | **20** | ↓ 41 % |
+| SUCCÈS | 20 | **15** | ✘ RÉGRESSION — voir D4/D5 |
+| RECOURS_SOURCES | non stable | BLOCKED **stable**, 16 STEP_RECOVERY réels | ✔ A1/A2 corrigés |
+
+Le smoke fournisseur du même déploiement : MISSION_E2E_PROVEN YES, PREUVE_ABSENCE 2,8 s —
+et il a MONTRÉ que l'orientation des critères (C2) marche : le planificateur émet désormais
+des `[REGLE:…]`. C'est précisément ce qui a révélé D4.
+
+### D4. Collision grammaire ↔ clés d'étapes à deux-points — CORRIGÉ (lot 2)
+
+SATISFIABLE : « Refus DÉTERMINISTE — [SORTIE_STRUCTUREE] étape « analyse » absente » alors
+que l'étape s'appelle `analyse:priorisation` — l'argument `cle:champs` se découpait au
+PREMIER deux-points, et les clés des plans de modèle en contiennent. Un FAUX refus
+déterministe sur une mission dont le travail était fait. Deux correctifs :
+`argsSortieStructuree` découpe au DERNIER deux-points (les champs n'en portent jamais), et
+`validerReglesDacceptation` refuse À LA COMPILATION une règle citant une étape absente du
+plan (clés disponibles nommées dans le refus — la retouche du planificateur existe déjà).
+Épinglé par 5 tests, dont le cas exact du run et le refus du compilateur.
+
+### D5. Les fiches directes jugées insuffisantes → BLOCKED honnête (SUCCÈS 20→15)
+
+Les fiches (LEGAL, COURRIERS, FINANCES, DOCUMENT_DRIVE) passent en DIRECTE (~13-18 s,
+3 appels) mais le juge REFUSE la synthèse et le replan rend un plan vide. Le garde-fou
+qualité fait exactement son travail (la règle ultime) : une synthèse fondée sur des REÇUS DE
+RECHERCHE ne peut pas répondre à « parties, dates, échéance » — il manque une LECTURE de
+l'enregistrement trouvé. Hypothèse à CONFIRMER par la mesure : le rapport du Deep Smoke
+affiche désormais les MOTIFS des conclusions honnêtes groupés + le verdict du juge par
+mission (`verdictJuge` au JSON) — le prochain run nomme chaque cause. Le correctif de fond
+(lot 3) : un étage de LECTURE dans la forme FICHE (lire l'enregistrement que les recherches
+ont trouvé, par le mécanisme de collection existant), jamais un affaiblissement du juge.
+
 ## F. COMMANDES DU PROCHAIN RUN RÉEL (§38)
 
 Dans le Shell Render, après déploiement — et après avoir réglé la facturation du stockage

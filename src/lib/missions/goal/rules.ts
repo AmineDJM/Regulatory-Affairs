@@ -63,6 +63,20 @@ const termeDuCritere = (texte: string): string | null => {
 type Verificateur = (args: string, texte: string, steps: readonly EtapeObservee[]) => Omit<VerificationRegle, "critere" | "code">;
 
 /**
+ * L'ARGUMENT de SORTIE_STRUCTUREE — `cle:champ1,champ2` — se découpe au DERNIER deux-points,
+ * jamais au premier : les clés d'étapes des plans de modèle en CONTIENNENT
+ * (« analyse:priorisation »), et un run Render a produit un FAUX refus déterministe
+ * (« étape « analyse » absente ») sur une mission dont le travail était fait — la grammaire
+ * tronquait la clé au premier « : ». Les champs, eux, ne portent jamais de deux-points.
+ */
+export function argsSortieStructuree(args: string): { cle: string; champs: string[] } {
+  const idx = args.lastIndexOf(":");
+  const cle = (idx === -1 ? "" : args.slice(0, idx)).trim();
+  const champs = (idx === -1 ? "" : args.slice(idx + 1)).split(",").map((s) => s.trim()).filter(Boolean);
+  return { cle, champs };
+}
+
+/**
  * LE REGISTRE DES CODES. Chaque vérificateur rend sa PREUVE en français : le verdict final
  * les cite telles quelles, et c'est ce qui rend un refus déterministe aussi lisible qu'un
  * refus de juge — étape nommée, fait constaté, rien d'autre.
@@ -127,10 +141,9 @@ const REGLES: Record<string, Verificateur> = {
    * d'une conclusion qui tranche, elle, se vérifie ici.
    */
   SORTIE_STRUCTUREE: (args, _texte, steps) => {
-    const [cle, champsBruts] = args.split(":");
-    const champs = (champsBruts ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const { cle, champs } = argsSortieStructuree(args);
     if (!cle || champs.length === 0) return { verdict: "FAIL", preuve: "règle incomplète : étape ou champs absents" };
-    const s = steps.find((x) => x.key === cle.trim());
+    const s = steps.find((x) => x.key === cle);
     if (!s) return { verdict: "FAIL", preuve: `étape « ${cle} » absente` };
     if (s.status !== "DONE") return { verdict: "FAIL", preuve: `étape « ${cle} » : ${s.status}` };
     const r = s.result;
@@ -150,6 +163,51 @@ const REGLES: Record<string, Verificateur> = {
 
 /** Les codes connus — exportés pour que les tests et le chemin direct restent alignés. */
 export const CODES_REGLES = Object.keys(REGLES);
+
+/**
+ * VALIDE les références des règles À LA COMPILATION — le refus qui économise un faux refus.
+ *
+ * Un run Render a montré la séquence : le planificateur adopte la grammaire (bien), cite une
+ * étape qui n'existe pas dans son propre plan (mal), la mission tourne ENTIÈREMENT, et le
+ * refus déterministe tombe à la FIN — travail fait, mission bloquée. La place de ce contrôle
+ * est celle de tous les contrôles de FORME : le compilateur, qui refuse AVANT d'exécuter, et
+ * dont le refus repart au planificateur avec le problème nommé (la retouche existe déjà).
+ *
+ * Un code INCONNU ne produit aucun problème : c'est un critère sémantique, il ira au juge —
+ * la dégradation sûre ne change pas.
+ */
+export function validerReglesDacceptation(
+  criteres: readonly string[],
+  clesEtapes: ReadonlySet<string>,
+): string[] {
+  const problemes: string[] = [];
+  const disponibles = (): string => [...clesEtapes].slice(0, 12).join(", ");
+  for (const critere of criteres) {
+    const m = critere.match(GRAMMAIRE);
+    if (!m || !REGLES[m[1]]) continue;
+    const code = m[1];
+    const args = m[2] ?? "";
+    if (code === "RECHERCHES_AVEC_REQUETE") {
+      if (!termeDuCritere(m[3] ?? critere)) {
+        problemes.push(`[REGLE:${code}] : le texte du critère doit citer le terme entre « » — sans lui, rien à vérifier.`);
+      }
+      for (const cle of args.split(",").map((s) => s.trim()).filter(Boolean)) {
+        if (!clesEtapes.has(cle)) {
+          problemes.push(`[REGLE:${code}] cite l'étape « ${cle} », absente du plan — clés disponibles : ${disponibles()}.`);
+        }
+      }
+    }
+    if (code === "SORTIE_STRUCTUREE") {
+      const { cle, champs } = argsSortieStructuree(args);
+      if (!cle || champs.length === 0) {
+        problemes.push(`[REGLE:${code}] : forme attendue « cléEtape:champ1,champ2 » — étape ou champs absents.`);
+      } else if (!clesEtapes.has(cle)) {
+        problemes.push(`[REGLE:${code}] cite l'étape « ${cle} », absente du plan — clés disponibles : ${disponibles()}.`);
+      }
+    }
+  }
+  return problemes;
+}
 
 /**
  * PARTITIONNE les critères : règles vérifiées sur-le-champ, sémantiques rendus au juge.

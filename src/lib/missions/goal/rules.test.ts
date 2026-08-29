@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { partitionnerCriteres } from "@/lib/missions/goal/rules";
+import { partitionnerCriteres, argsSortieStructuree, validerReglesDacceptation } from "@/lib/missions/goal/rules";
 import { evaluerObjectif, type EtapeObservee, type JugeObjectif } from "@/lib/missions/goal/evaluate";
 import type { ExecutionReceipt } from "@/lib/missions/runtime/receipt";
 import { cheminDirect } from "@/lib/missions/planner/direct";
@@ -250,5 +250,76 @@ describe("SABOTAGE §22 — couper le chemin direct fait remonter les appels de 
 
     await planifier(demande, catalogue, acteur, espionR, { sansCheminDirect: true });
     expect(appels, "chemin direct coupé : le planificateur LLM est payé — c'est le sabotage mesuré").toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("la grammaire face aux clés à deux-points — le FAUX refus déterministe du run Render", () => {
+  // Le cas EXACT du run MTEFBM32COEC : le plan du modèle nomme son étape « analyse:priorisation »,
+  // la règle la cite, et l'argument se découpait au PREMIER deux-points → « étape « analyse »
+  // absente » → refus déterministe d'une mission dont le travail était FAIT.
+  it("argsSortieStructuree découpe au DERNIER deux-points : une clé « analyse:priorisation » survit", () => {
+    expect(argsSortieStructuree("analyse:priorisation:trouve,synthese,sources"))
+      .toEqual({ cle: "analyse:priorisation", champs: ["trouve", "synthese", "sources"] });
+    expect(argsSortieStructuree("repondre:trouve,synthese,sources"))
+      .toEqual({ cle: "repondre", champs: ["trouve", "synthese", "sources"] });
+    expect(argsSortieStructuree("sans-champs")).toEqual({ cle: "", champs: [] });
+  });
+
+  it("SORTIE_STRUCTUREE vérifie désormais une étape à clé deux-points — PASS sur le cas du run", () => {
+    const steps = [etape({ key: "analyse:priorisation", result: { trouve: true, synthese: "s", sources: ["a"] }, recu: null, nodeType: "WORKER" })];
+    const p = partitionnerCriteres(
+      ["[REGLE:SORTIE_STRUCTUREE:analyse:priorisation:trouve,synthese,sources] La synthèse structurée est rendue."],
+      steps,
+    );
+    expect(p.regles[0].verdict).toBe("PASS");
+  });
+
+  it("validerReglesDacceptation refuse À LA COMPILATION une règle citant une étape absente, clés disponibles à l'appui", () => {
+    const problemes = validerReglesDacceptation(
+      ["[REGLE:SORTIE_STRUCTUREE:analyse:trouve,synthese] La synthèse est rendue."],
+      new Set(["recherche:dossiers", "analyse:priorisation", "controle:final"]),
+    );
+    expect(problemes).toHaveLength(1);
+    expect(problemes[0]).toContain("« analyse »");
+    expect(problemes[0]).toContain("analyse:priorisation");
+  });
+
+  it("une règle aux références JUSTES ne produit aucun problème ; un code INCONNU non plus (sémantique)", () => {
+    expect(validerReglesDacceptation(
+      [
+        "[REGLE:SORTIE_STRUCTUREE:analyse:priorisation:trouve,synthese] ok.",
+        "[REGLE:RECHERCHES_AVEC_REQUETE:recherche:dossiers] Interrogée avec « X ».",
+        "[REGLE:UN_CODE_INVENTE:nimporte] va au juge.",
+        "un critère sémantique ordinaire.",
+      ],
+      new Set(["recherche:dossiers", "analyse:priorisation"]),
+    )).toEqual([]);
+  });
+
+  it("RECHERCHES_AVEC_REQUETE sans terme cité « » est refusée à la compilation — rien à vérifier sinon", () => {
+    const problemes = validerReglesDacceptation(
+      ["[REGLE:RECHERCHES_AVEC_REQUETE:recherche-a] Les recherches ont été faites."],
+      new Set(["recherche-a"]),
+    );
+    expect(problemes).toHaveLength(1);
+    expect(problemes[0]).toContain("« »");
+  });
+
+  it("le COMPILATEUR refuse un plan dont une règle cite une étape fantôme — le refus repart au planificateur", () => {
+    const catalogue: CapabilityCatalog = {
+      has: () => false, allowed: () => true, meta: (n) => capabilityMeta(n), brief: () => [],
+    };
+    const acteur: MissionActor = { userId: "u1", label: "Testeur", isAgent: false };
+    const r = compile({
+      objective: "objectif de test",
+      acceptance: ["[REGLE:SORTIE_STRUCTUREE:fantome:trouve] La sortie est rendue."],
+      complexity: "A", scale: "S",
+      steps: [{ key: "vraie-etape", title: "Travailler", nodeType: "WORKER", dependsOn: [], approvalRequirement: "NONE", reasoningRequirement: "LIGHT" }],
+      workstreams: [], expectedArtifacts: [], approvalStrategy: "BUNDLE", gaps: [],
+    }, catalogue, acteur);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.issues.some((i) => i.message.includes("« fantome »"))).toBe(true);
+    }
   });
 });

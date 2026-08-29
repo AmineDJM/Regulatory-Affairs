@@ -89,6 +89,9 @@ async function main(): Promise<void> {
       voie: m.resultat.cascade?.voiePlan ?? null, totalMs: m.resultat.cascade?.totalMs ?? null,
       replans: m.resultat.replanifications,
       appels: Object.values(m.resultat.appelsParUsage).reduce((a, b) => a + b, 0),
+      // LE POURQUOI, pas juste le combien : le motif d'arrêt et le verdict du juge, tronqués.
+      motif: m.resultat.motifArret.slice(0, 160),
+      verdictJuge: m.resultat.goalVerdict?.slice(0, 220) ?? null,
     })),
   }));
 

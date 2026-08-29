@@ -411,7 +411,12 @@ export async function executePowerTool(
     return await tool.run(input, user);
   } catch (err) {
     console.error(`[assistant] power tool ${name} failed`, err);
-    return "La lecture a échoué (donnée indisponible). Je préfère ne rien avancer plutôt que d'inventer un chiffre.";
+    // La CAUSE reste dans la phrase — sans elle, un run Render a vu le moteur de missions
+    // retenter trois fois un stockage qui répondait 402 (facturation), parce que le motif
+    // avait été avalé ICI. Les messages du stockage ne portent ni clé ni signature (c'est
+    // une propriété de `s3Failure`), et la conversation gagne à pouvoir DIRE pourquoi.
+    const cause = err instanceof Error && err.message.trim() !== "" ? ` Cause technique : ${err.message.slice(0, 220)}` : "";
+    return `La lecture a échoué (donnée indisponible). Je préfère ne rien avancer plutôt que d'inventer un chiffre.${cause}`;
   }
 }
 

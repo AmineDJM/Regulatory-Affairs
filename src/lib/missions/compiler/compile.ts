@@ -15,6 +15,7 @@ import { effetDuNoeud } from "@/lib/missions/registry/node-effect";
 import type { CapabilityCatalog, MissionActor } from "@/lib/missions/ports";
 import { layout } from "@/lib/missions/compiler/graph";
 import { messageRefus, refusPourActeur } from "@/lib/missions/policy/guard";
+import { validerReglesDacceptation } from "@/lib/missions/goal/rules";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -263,6 +264,12 @@ export function compile(
     issues.push(issue("INVALID_SHAPE", null,
       "un plan sans critère d'acceptation produit une mission qui se déclare finie parce qu'elle a "
       + "fini de tourner. Ce n'est pas la question posée (§20)."));
+  }
+  // Un critère-RÈGLE qui cite une étape absente du plan produirait un FAUX refus déterministe
+  // À LA FIN — travail fait, mission bloquée (vu sur un run Render). C'est une erreur de FORME :
+  // elle se refuse ICI, et le refus repart au planificateur avec le problème nommé.
+  for (const probleme of validerReglesDacceptation(plan.acceptance, new Set(plan.steps.map((s) => s.key)))) {
+    issues.push(issue("INVALID_SHAPE", null, probleme));
   }
 
   // ── 2. LES CLÉS ───────────────────────────────────────────────────────────────────────

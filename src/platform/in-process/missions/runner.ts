@@ -154,6 +154,14 @@ const TTL_ECHEC_DURABLE_MS = 10 * 60 * 1000;
 const PLAFOND_ECHECS_DURABLES = 300;
 const ECHECS_DURABLES = new Map<string, { kind: ErrorKind; message: string; at: number }>();
 
+function retenirEchecDurable(cle: string, kind: ErrorKind, message: string): void {
+  ECHECS_DURABLES.set(cle, { kind, message, at: Date.now() });
+  if (ECHECS_DURABLES.size > PLAFOND_ECHECS_DURABLES) {
+    const premier = ECHECS_DURABLES.keys().next().value;
+    if (premier !== undefined) ECHECS_DURABLES.delete(premier);
+  }
+}
+
 /** Pour les bancs : repartir d'une table vierge. Jamais appelé en production. */
 export function __videEchecsDurables(): void { ECHECS_DURABLES.clear(); }
 
@@ -210,11 +218,7 @@ export class ExecutantReel implements CapabilityRunner {
       const message = e instanceof Error ? e.message : "la lecture a échoué";
       const durable = classerEchecLecture(message);
       if (durable) {
-        ECHECS_DURABLES.set(cle, { ...durable, message, at: Date.now() });
-        if (ECHECS_DURABLES.size > PLAFOND_ECHECS_DURABLES) {
-          const premier = ECHECS_DURABLES.keys().next().value;
-          if (premier !== undefined) ECHECS_DURABLES.delete(premier);
-        }
+        retenirEchecDurable(cle, durable.kind, message);
         return { ok: false, output: null, error: { kind: durable.kind, message: `${message} ${durable.action}`, retryable: false } };
       }
       return {
@@ -229,13 +233,19 @@ export class ExecutantReel implements CapabilityRunner {
     }
 
     if (REFUS.some((r) => r.test(brut))) {
+      // La phrase de refus porte désormais sa CAUSE TECHNIQUE (executePowerTool la préserve) :
+      // un 402/quota enveloppé dans « la lecture a échoué » se classe donc DURABLE ici aussi —
+      // sans quoi le run Render l'a montré : trois tentatives, recours, replans, contre une
+      // panne de facturation dont le motif avait été avalé en route.
+      const durable = classerEchecLecture(brut);
+      if (durable) retenirEchecDurable(cle, durable.kind, brut);
       return {
         ok: false,
         output: null,
         error: {
-          kind: brut.match(/ne vous est pas ouvert/i) ? "MISSING_PERMISSION" : "CAPABILITY_FAILURE",
-          message: brut.slice(0, 300),
-          retryable: !brut.match(/ne vous est pas ouvert/i),
+          kind: durable?.kind ?? (brut.match(/ne vous est pas ouvert/i) ? "MISSING_PERMISSION" : "CAPABILITY_FAILURE"),
+          message: `${brut.slice(0, 300)}${durable ? ` ${durable.action}` : ""}`,
+          retryable: durable ? false : !brut.match(/ne vous est pas ouvert/i),
         },
       };
     }

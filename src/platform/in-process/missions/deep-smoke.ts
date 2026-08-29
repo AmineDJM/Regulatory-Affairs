@@ -535,6 +535,22 @@ const p50 = (xs: number[]): number | null => {
   return tri[Math.floor((tri.length - 1) / 2)];
 };
 
+/**
+ * LE MOTIF D'UNE CONCLUSION HONNÊTE, CLASSÉ — pour que le rapport dise POURQUOI, pas juste
+ * combien. Le run du 2026-08-29 comptait 39 honnêtes sans nommer une seule cause ; corriger
+ * à l'aveugle était la seule option. Chaque classe pointe le mécanisme responsable.
+ */
+export function motifHonnete(m: MissionProfonde): string {
+  const verdict = m.resultat.goalVerdict ?? "";
+  const motif = m.resultat.motifArret;
+  if (m.resultat.statutFinal === "WAITING_INPUT") return "en attente d'une entrée HUMAINE (échelle de recours)";
+  if (verdict.startsWith("Refus DÉTERMINISTE")) return "refus DÉTERMINISTE d'une règle (voir le verdict)";
+  if (/n'a rien rendu|aucune étape exploitable/i.test(motif)) return "juge a REFUSÉ, puis le replan a rendu un plan VIDE";
+  if (/plans ont déjà été essayés/i.test(motif)) return "plafond de replanifications atteint (honnête)";
+  if (/aucun recours/i.test(motif)) return "juge a refusé SANS recours suggéré (porte fermée)";
+  return motif.slice(0, 90);
+}
+
 export function rendreTexteDeep(r: ResultatDeep): string {
   const l: string[] = [];
   const compte = (v: VerdictProfond) => r.missions.filter((m) => m.verdict === v).length;
@@ -590,6 +606,21 @@ export function rendreTexteDeep(r: ResultatDeep): string {
   if (r.ecartes.length > 0) {
     l.push("  GENRES ÉCARTÉS (aucune donnée réelle — dits, jamais simulés) :");
     for (const e of r.ecartes) l.push(`    ${e.genre.padEnd(22)} ${e.raison}`);
+    l.push("");
+  }
+
+  const honnetesListe = r.missions.filter((m) => m.verdict === "CONCLUSION_HONNETE");
+  if (honnetesListe.length > 0) {
+    l.push("  MOTIFS DES CONCLUSIONS HONNÊTES — la cause, comptée, avec un exemple de verdict :");
+    const parMotif = new Map<string, MissionProfonde[]>();
+    for (const m of honnetesListe) parMotif.set(motifHonnete(m), [...(parMotif.get(motifHonnete(m)) ?? []), m]);
+    for (const [motif, ms] of [...parMotif.entries()].sort((a, b) => b[1].length - a[1].length)) {
+      l.push(`    ${String(ms.length).padStart(2)}× ${motif}`);
+      const exemple = ms.find((m) => (m.resultat.goalVerdict ?? "").length > 0);
+      if (exemple?.resultat.goalVerdict) {
+        l.push(`        ex. [${exemple.genre}] ${exemple.resultat.goalVerdict.slice(0, 150)}`);
+      }
+    }
     l.push("");
   }
 

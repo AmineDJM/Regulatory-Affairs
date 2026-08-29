@@ -119,3 +119,31 @@ describe("l'exécutant face à un échec durable — fail-fast, court-circuit, e
     if (!second.ok) expect(second.error?.message).not.toContain("COURT-CIRCUIT");
   });
 });
+
+describe("la phrase de refus ENROBÉE porte désormais sa cause — et se classe durable", () => {
+  // Le run MTEFBM32COEC : `executePowerTool` attrapait le 402 et rendait la phrase générique
+  // « La lecture a échoué (donnée indisponible)… » — le moteur retentait 3 fois + recours,
+  // contre une panne de facturation dont le motif avait été avalé en route.
+  it("un RETOUR « La lecture a échoué … Cause technique : (402) » est classé PROVIDER_FAILURE non-retryable", async () => {
+    lectureMock.mockResolvedValue(
+      "La lecture a échoué (donnée indisponible). Je préfère ne rien avancer plutôt que d'inventer un chiffre."
+      + " Cause technique : Lecture de l'objet échouée (402) sur /storage/v1/s3/amd/blobs/ab/cd.");
+    const out = await new ExecutantReel(user).run(appel());
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.error?.kind).toBe("PROVIDER_FAILURE");
+      expect(out.error?.retryable).toBe(false);
+    }
+  });
+
+  it("la même phrase SANS cause durable reste retryable — le classement ne devine pas", async () => {
+    lectureMock.mockResolvedValue(
+      "La lecture a échoué (donnée indisponible). Je préfère ne rien avancer plutôt que d'inventer un chiffre.");
+    const out = await new ExecutantReel(user).run(appel());
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.error?.kind).toBe("CAPABILITY_FAILURE");
+      expect(out.error?.retryable).toBe(true);
+    }
+  });
+});
