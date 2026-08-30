@@ -481,3 +481,47 @@ describe("§52 — comparer, et dire ce qui a VRAIMENT changé", () => {
     expect(decoder("Change le titre en Contrat 2026", ctxD)).not.toMatchObject({ genre: "comparer" });
   });
 });
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE PAPIER EN-TÊTE AU CORPS VIDE — le défaut mesuré en conversation réelle.
+ *
+ * « crée un Word avec papier en-tête Adventum » → « écris une lettre de souhait du Mawlid » →
+ * « Le document est vide et ne contient aucun bloc de texte éditable. La lettre ne peut pas y
+ * être insérée. » Un modèle d'en-tête porte sa mise en page dans l'en-tête/pied de page et un
+ * corps VIDE : exiger un paragraphe de référence rendait la lettre impossible à COMMENCER.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("papier en-tête — écrire dans un corps de document vide", () => {
+  it("le PREMIER paragraphe se crée sans cible, puis les suivants s'y accrochent", async () => {
+    await contexteAvec([{ nodeId: "n1", nom: "Papier en-tête Adventum.docx", octets: await docxDeParagraphes([]) }]);
+    const ouverture = await ouvrir(ctx, { nodeId: "n1" });
+    expect(ouverture.ok).toBe(true);
+    const sid = ouverture.vue!.sessionId;
+    expect((ouverture.vue!.contenu as VueDocx).blocs.filter((b) => b.type === "paragraphe")).toHaveLength(0);
+
+    // « Écris : Objet : vœux du Mawlid » — aucun paragraphe à viser, et ce n'est PAS une impasse.
+    const e1 = await editer(ctx, sid, [
+      commande("docx.inserer_paragraphe", { cible: null, texte: "Objet : vœux du Mawlid Ennabaoui" }),
+    ]);
+    expect(e1.ok).toBe(true);
+    expect(e1.effets[0].ok, e1.effets[0].motif ?? e1.effets[0].resume).toBe(true);
+    const paras1 = (e1.vue!.contenu as VueDocx).blocs.filter((b) => b.type === "paragraphe");
+    expect(paras1.map((b) => b.texte)).toEqual(["Objet : vœux du Mawlid Ennabaoui"]);
+
+    // La suite de la lettre s'insère normalement — sans cible = à la FIN, en héritant du format.
+    const e2 = await editer(ctx, sid, [
+      commande("docx.inserer_paragraphe", { cible: null, texte: "À l'ensemble des équipes d'Adventum Pharma," }),
+    ]);
+    expect(e2.ok).toBe(true);
+    const paras2 = (e2.vue!.contenu as VueDocx).blocs.filter((b) => b.type === "paragraphe");
+    expect(paras2.map((b) => b.texte)).toEqual([
+      "Objet : vœux du Mawlid Ennabaoui",
+      "À l'ensemble des équipes d'Adventum Pharma,",
+    ]);
+
+    // Et la sauvegarde referme un .docx valide — le même fichier, une version de plus.
+    const s = await sauvegarder(ctx, sid);
+    expect(s.ok).toBe(true);
+  });
+});

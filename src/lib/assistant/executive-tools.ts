@@ -16,6 +16,9 @@ import {
   type ReminderRecurrence,
 } from "@/lib/assistant/reminders";
 import { ROLE_LABELS, REGULATORY_STEP_TYPE as REG_STEP_FR } from "@/lib/labels";
+import {
+  REG_STEPS, hasWorkflowState, regProgress, workflowAsSteps, type RegWorkflowState,
+} from "@/lib/assistant/regulatory-read";
 import { geste, retardJours, retardLabel } from "@/lib/assistant/workspace/emit";
 import { resultatIndisponible } from "@/lib/assistant/capability-failure";
 import { resultatVide } from "@/lib/assistant/empty-result";
@@ -263,7 +266,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       description:
         "L'HISTOIRE COMPLÈTE d'un dossier à partir de sa RÉFÉRENCE, de son IDENTIFIANT interne (id rendu par une recherche) ou d'un fragment de titre : demande de paiement (PAY-…), " +
         "règlement/ordre de dépense, document Legal (devis, BC, facture, contrat), matériel promotionnel, demande du secrétariat " +
-        "(REQ-…), dossier Regulatory (REG-…), facture Finances, courrier du registre, projet délégué (DOS-…), tâche. " +
+        "(REQ-…), sponsoring Ad&Pro (SPO-…), dossier Regulatory (REG-…), facture Finances, courrier du registre, projet délégué (DOS-…), tâche. " +
         "Renvoie la fiche, la TIMELINE reconstruite (qui a fait quoi, quand), les VALIDATEURS nommés avec leurs dates, les pièces " +
         "jointes, la chaîne devis→BC→facture→règlement quand elle existe, et les LIENS cliquables. " +
         "À utiliser pour « donne-moi toute l'histoire de cet achat », « qui a validé ? », « est-ce qu'on a payé ? », « où en est ce dossier ? ».",
@@ -460,12 +463,80 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         });
       }
 
+      // 5 bis) Sponsoring Ad&Pro (SPO-…) — le trou mesuré en conversation réelle : Adam a déclaré
+      // « SPO-2026-004 n'existe pas » sur un sponsoring parfaitement réel (ASARI), parce que cet
+      // outil « universel » ne couvrait pas la table. Une vérification qui ne sait pas lire une
+      // famille ne doit jamais conclure à l'inexistence — désormais elle la lit.
+      const spo = await prisma.sponsoringRequest.findFirst({
+        where: {
+          OR: [
+            { id: ref },
+            { reference: { equals: ref, mode: "insensitive" } },
+            { institution: { contains: ref, mode: "insensitive" } },
+            { doctor: { contains: ref, mode: "insensitive" } },
+          ],
+        },
+        select: {
+          id: true, reference: true, institution: true, doctor: true, specialty: true, city: true,
+          type: true, status: true, strategicImportance: true, product: true,
+          amountRequested: true, amountProposed: true, amountGranted: true,
+          requestDate: true, requester: { select: { name: true } },
+          preliminaryAt: true, productManagerId: true, finalAt: true, finalDecision: true,
+          expenseOrderId: true,
+          company: { select: { shortName: true, name: true } },
+        },
+      });
+      if (spo) {
+        const [timeline, validators, docs, reglement] = await Promise.all([
+          auditOf("SPONSORING", spo.id),
+          validationsOf("SPONSORING", spo.id),
+          documentsOf("SPONSORING", spo.id),
+          spo.expenseOrderId
+            ? prisma.expenseOrder.findUnique({
+                where: { id: spo.expenseOrderId },
+                select: { reference: true, status: true, centralStatus: true, paidDate: true, amount: true },
+              })
+            : Promise.resolve(null),
+        ]);
+        return JSON.stringify({
+          type: "Sponsoring (Ad&Pro)",
+          reference: spo.reference,
+          institution: spo.institution, medecin: spo.doctor, specialite: spo.specialty, ville: spo.city,
+          nature: spo.type, produit: spo.product,
+          statut: spo.status, importanceStrategique: spo.strategicImportance,
+          entite: spo.company?.shortName ?? spo.company?.name ?? null,
+          demandePar: spo.requester?.name ?? null, demandeLe: fr(spo.requestDate),
+          montants: {
+            demandeDzd: spo.amountRequested != null ? Math.round(toNumber(spo.amountRequested)) : null,
+            proposeDzd: spo.amountProposed != null ? Math.round(toNumber(spo.amountProposed)) : null,
+            accordeDzd: spo.amountGranted != null ? Math.round(toNumber(spo.amountGranted)) : null,
+          },
+          circuit: {
+            preValidationDirection: spo.preliminaryAt ? fr(spo.preliminaryAt) : "pas encore",
+            analyseChefDeProduit: spo.productManagerId ? "faite ou en cours" : "pas encore",
+            decisionFinale: spo.finalAt ? `${fr(spo.finalAt)}${spo.finalDecision ? ` — ${spo.finalDecision.slice(0, 160)}` : ""}` : "pas encore",
+          },
+          reglement: reglement
+            ? {
+                reference: reglement.reference, statut: reglement.status, centreDePaiement: reglement.centralStatus,
+                montantDzd: Math.round(toNumber(reglement.amount)),
+                payeLe: reglement.paidDate ? fr(reglement.paidDate) : "pas encore payé",
+              }
+            : null,
+          validateurs: validators,
+          documentsJoints: docs,
+          timeline: renderTimeline(timeline),
+          lien: `/sponsoring/${spo.id}`,
+        });
+      }
+
       // 6) Dossier Regulatory (REG-…, ou DCI / nom commercial).
       const reg = await prisma.regulatoryProduct.findFirst({
         where: { OR: [{ id: ref }, { reference: { equals: ref, mode: "insensitive" } }, { dci: { contains: ref, mode: "insensitive" } }, { brandName: { contains: ref, mode: "insensitive" } }] },
         select: {
           id: true, reference: true, dci: true, brandName: true, status: true, priority: true,
           therapeuticClass: true, partnerLab: true, targetSubmissionDate: true, targetDate: true,
+          workflow: true,
           company: { select: { shortName: true, name: true } },
           responsible: { select: { name: true } },
           steps: { select: { id: true, type: true, status: true, plannedDate: true, actualDate: true }, orderBy: { order: "asc" }, take: 30 },
@@ -480,16 +551,43 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
          * Le PDG qui ouvre un dossier en retard ne cherche pas une fiche : il cherche POURQUOI
          * ça n'avance pas. La frise du circuit et le blocage passent donc devant tout le reste,
          * et les quatre gestes du bas sont ceux qu'on pose vraiment sur un dossier bloqué.
+         *
+         * ── LA FRISE LIT LA MÊME SOURCE QUE L'ÉCRAN ──────────────────────────────────────
+         *
+         * Le défaut mesuré en conversation réelle : la fiche annonçait « Pré-soumission, étapes
+         * non démarrées » alors que le journal disait « Dépôt du dossier → fait le 15/07 ». Les
+         * deux disaient vrai — sur DEUX MAGASINS : l'équipe coche `RegulatoryProduct.workflow`
+         * (les 22 étapes ANPP de l'écran), et cette fiche lisait la table `RegulatoryStep`, le
+         * second registre que `workflowAsSteps` a déjà déclaré mort (regulatory-workflow.ts).
+         * Quand le circuit est tenu, la frise le lit ; la table ne sert plus que de repli pour
+         * un dossier jamais coché.
          */
+        const circuitTenu = hasWorkflowState(reg.workflow as RegWorkflowState | null);
+        const etapesCircuit = circuitTenu
+          ? workflowAsSteps(reg.workflow as RegWorkflowState | null).map((s, i) => ({
+              id: s.type,
+              type: s.type,
+              label: REG_STEPS[i]?.label ?? s.type,
+              status: s.status,
+              actualDate: s.actualDate,
+            }))
+          : reg.steps.map((s) => ({
+              id: s.id,
+              type: s.type,
+              label: REG_STEP_FR[s.type] ?? String(s.type),
+              status: s.status,
+              actualDate: s.actualDate,
+            }));
+        const avancement = circuitTenu
+          ? (() => { const p = regProgress(reg.workflow as RegWorkflowState | null); return `${p.done}/${p.total}`; })()
+          : null;
         const cible = reg.targetDate ?? reg.targetSubmissionDate;
         const clos = reg.status === "DECISION_OBTAINED" || reg.status === "CLOSED";
         const retard = clos ? null : retardJours(cible);
         // L'ÉTAPE COURANTE : celle en cours, sinon la première qui bloque ou n'a pas démarré.
-        // « DONE » n'existe pas dans cet énuméré — l'avancement se lit à la position, pas à un
-        // état terminal, et c'est ce que la frise reproduit.
-        const etapeCourante = reg.steps.find((st) => st.status === "IN_PROGRESS")
-          ?? reg.steps.find((st) => st.status === "BLOCKED" || st.status === "LATE")
-          ?? reg.steps.find((st) => st.status === "NOT_STARTED");
+        const etapeCourante = etapesCircuit.find((st) => st.status === "IN_PROGRESS")
+          ?? etapesCircuit.find((st) => st.status === "BLOCKED" || st.status === "LATE")
+          ?? etapesCircuit.find((st) => st.status === "NOT_STARTED");
 
         const bloc = {
           kind: "dossier",
@@ -502,25 +600,29 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
               : {}),
           fields: [
             ...(reg.responsible?.name ? [{ label: "Chargé du dossier", value: reg.responsible.name }] : []),
-            ...(etapeCourante ? [{ label: "Étape courante", value: REG_STEP_FR[etapeCourante.type] ?? String(etapeCourante.type) }] : []),
+            ...(etapeCourante ? [{ label: "Étape courante", value: etapeCourante.label }] : []),
+            ...(avancement ? [{ label: "Avancement", value: `${avancement} étapes ANPP` }] : []),
             ...(retard ? [{ label: "Retard", value: retardLabel(retard) }] : []),
             ...(cible ? [{ label: "Échéance", value: fr(cible) }] : []),
             ...(reg.partnerLab ? [{ label: "Laboratoire", value: reg.partnerLab }] : []),
             ...(reg.company?.shortName || reg.company?.name ? [{ label: "Entité", value: (reg.company.shortName ?? reg.company.name) as string }] : []),
           ],
-          ...(reg.steps.length
+          ...(etapesCircuit.length
             ? {
                 steps: (() => {
-                  const idx = etapeCourante ? reg.steps.findIndex((st) => st.id === etapeCourante.id) : -1;
-                  return reg.steps.slice(0, 7).map((st, i) => ({
-                    label: REG_STEP_FR[st.type] ?? String(st.type),
-                    etat: idx < 0 ? "a-venir" : i < idx ? "fait" : i === idx ? "courant" : "a-venir",
+                  // La fenêtre glisse AUTOUR de l'étape courante : montrer les étapes 1 à 7 d'un
+                  // dossier rendu à la 12ᵉ ferait croire que rien n'a bougé.
+                  const idx = etapeCourante ? etapesCircuit.findIndex((st) => st.id === etapeCourante.id) : etapesCircuit.length;
+                  const debut = Math.max(0, Math.min(idx - 2, etapesCircuit.length - 7));
+                  return etapesCircuit.slice(debut, debut + 7).map((st) => ({
+                    label: st.label,
+                    etat: st.status === "DONE" ? "fait" : etapeCourante && st.id === etapeCourante.id ? "courant" : "a-venir",
                   }));
                 })(),
               }
             : {}),
           ...(retard
-            ? { alerte: { label: `Échéance dépassée de ${retardLabel(retard)}${etapeCourante ? ` — bloqué à l'étape « ${REG_STEP_FR[etapeCourante.type] ?? String(etapeCourante.type)} »` : ""}.`, ton: "alerte" } }
+            ? { alerte: { label: `Échéance dépassée de ${retardLabel(retard)}${etapeCourante ? ` — bloqué à l'étape « ${etapeCourante.label} »` : ""}.`, ton: "alerte" } }
             : {}),
           ...(docs.length
             ? {
@@ -555,9 +657,11 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
             soumission: reg.targetSubmissionDate ? fr(reg.targetSubmissionDate) : null,
             objectif: reg.targetDate ? fr(reg.targetDate) : null,
           },
-          etapes: reg.steps.map((s) => ({
-            etape: s.type, etat: s.status,
-            prevu: s.plannedDate ? fr(s.plannedDate) : null,
+          // LES ÉTAPES = LE CIRCUIT COCHÉ PAR L'ÉQUIPE (même source que l'écran). L'ancienne
+          // table `RegulatoryStep` ne sert plus que de repli pour un dossier jamais coché.
+          ...(avancement ? { avancementCircuit: `${avancement} étapes ANPP faites` } : {}),
+          etapes: etapesCircuit.map((s) => ({
+            etape: s.label, etat: s.status,
             fait: s.actualDate ? fr(s.actualDate) : null,
           })),
           derniereActivite: lastMove ? { le: fr(lastMove.at), quoi: lastMove.label, par: lastMove.who } : "aucune trace au journal",
@@ -680,7 +784,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         });
       }
 
-      return `Aucun dossier ne porte la référence « ${ref} » (essayée comme référence, comme identifiant interne et comme fragment de titre) — ni demande de paiement, ni règlement, ni document Legal, ni matériel promotionnel, ni demande du secrétariat, ni dossier Regulatory, ni facture, ni courrier, ni projet, ni tâche. Je préfère le dire plutôt que d'inventer.`;
+      return `Aucun dossier ne porte la référence « ${ref} » (essayée comme référence, comme identifiant interne et comme fragment de titre) — ni demande de paiement, ni règlement, ni document Legal, ni matériel promotionnel, ni demande du secrétariat, ni sponsoring, ni dossier Regulatory, ni facture, ni courrier, ni projet, ni tâche. Je préfère le dire plutôt que d'inventer.`;
     },
   },
 

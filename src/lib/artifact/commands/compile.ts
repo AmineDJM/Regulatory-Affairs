@@ -106,7 +106,10 @@ export function verifierCommande(c: CommandeArtefact, format: ArtifactFormat): s
       if (c.texte === null) return "il faut donner le nouveau texte";
       return null;
     case "docx.inserer_paragraphe":
-      if (cibleVide(c.cible)) return "il faut dire OÙ insérer (avant ou après quel paragraphe)";
+      // Une cible VIDE est licite ici — et seulement ici : « ajoute un paragraphe » sans cible
+      // signifie « à la FIN du document ». C'est un geste complet en soi, et c'est le SEUL
+      // possible sur un papier en-tête au corps vide (mesuré en conversation réelle : exiger
+      // une cible rendait la lettre impossible à commencer).
       if (c.texte === null) return "il faut donner le texte à insérer";
       if (c.position !== null && !POSITIONS.has(c.position)) return "position attendue : avant ou apres";
       return null;

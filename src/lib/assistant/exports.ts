@@ -289,13 +289,39 @@ export async function exportDatasetToDrive(
   if (!canExport(user, dataset)) {
     return { ok: false, error: `Vous n'avez pas accès à « ${spec.label} ».` };
   }
-  const rows = await fetchRows(user, dataset, opts.limit ?? 2000);
+
+  /**
+   * CHAQUE ÉTAPE NOMME SON ÉCHEC — le correctif d'un diagnostic faux vu en conversation réelle.
+   *
+   * L'export échouait et Adam répondait « échec lors de la lecture des données » alors que la
+   * lecture avait RÉUSSI : c'est le DÉPÔT dans le Drive qui tombait (stockage objet en 402 —
+   * facturation à régler, la même cause que les lectures de documents). Une erreur qui accuse
+   * la mauvaise étape envoie chercher la panne au mauvais endroit ; celle-ci dit l'étape, la
+   * cause, et ce qu'il reste à faire.
+   */
+  let rows: string[][];
+  try {
+    rows = await fetchRows(user, dataset, opts.limit ?? 2000);
+  } catch (e) {
+    return { ok: false, error: `La LECTURE des données « ${spec.label} » a échoué (${e instanceof Error ? e.message : "erreur"}). Aucun fichier créé.` };
+  }
   const data = await buildWorkbook(spec, rows);
 
   const now = new Date();
   const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const filename = `${dataset}-${stamp}.xlsx`;
 
-  const { nodeId } = await depositBufferToDrive(user.id, { folder: EXPORT_FOLDER, filename, data, mime: MIME_XLSX });
-  return { ok: true, filename, count: rows.length, nodeId };
+  try {
+    const { nodeId } = await depositBufferToDrive(user.id, { folder: EXPORT_FOLDER, filename, data, mime: MIME_XLSX });
+    return { ok: true, filename, count: rows.length, nodeId };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "erreur";
+    const facturation = /402/.test(msg)
+      ? " Cause probable : le stockage objet répond 402 (facturation à régler côté hébergeur) — le même mur que la lecture des documents."
+      : "";
+    return {
+      ok: false,
+      error: `Les données ont été lues (${rows.length} ligne(s)) et le classeur construit, mais le DÉPÔT dans le Drive a échoué : ${msg}.${facturation} Aucun fichier n'est disponible.`,
+    };
+  }
 }

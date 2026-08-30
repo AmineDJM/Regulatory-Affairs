@@ -3,7 +3,18 @@ import type { CurrentUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { geste, retardJours, retardLabel } from "@/lib/assistant/workspace/emit";
-import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
+import {
+  REG_STEPS, hasWorkflowState, regProgress, workflowAsSteps, type RegWorkflowState,
+} from "@/lib/regulatory-workflow";
+
+/**
+ * LE POINT DE PASSAGE UNIQUE vers le circuit ANPP — ce fichier franchit DÉJÀ la frontière
+ * Adam ↔ ERP pour lire `regulatory-workflow` ; les autres lecteurs d'Adam (inspect_record…)
+ * passent par lui plutôt que d'ouvrir chacun un franchissement de plus. Le cliquet de
+ * `src/platform/boundary.test.ts` compte les ARÊTES : une seule ici, zéro ailleurs.
+ */
+export { REG_STEPS, hasWorkflowState, regProgress, workflowAsSteps };
+export type { RegWorkflowState };
 import { REGULATORY_STATUS } from "@/lib/labels";
 import { resolveOrg, coreTokens } from "@/lib/assistant/entity-normalize";
 import type { PowerTool } from "@/lib/assistant/power-tools";

@@ -3402,6 +3402,32 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### ADAM EN CONVERSATION RÉELLE — huit défauts mesurés, fermés en natif (2026-08)
+
+Une conversation réelle du PDG a montré huit défauts nommables ; chacun a son correctif de CODE
+(la consigne seule avait déjà échoué). **(1) Liens tronqués** — « [Ouvrir](/regulatory/) » sans
+l'identifiant : `link-repair.ts` collecte les liens EXACTS rendus par les outils du tour et
+complète tout lien Markdown qui en est un préfixe strict avec candidat UNIQUE (ambigu = intact,
+jamais le mauvais dossier) — branché sur les DEUX boucles, flux compris (`reset` + réémission,
+comme la passe critique). **(2) « SPO-2026-004 n'existe pas » sur un sponsoring réel** —
+`inspect_record` couvre désormais les sponsorings Ad&Pro (référence, id, institution, médecin,
+circuit Direction→chef de produit→décision, règlement lié, lien exact). **(3) Fiche Regulatory
+incohérente** (« Pré-soumission, étapes non démarrées » vs journal « Dépôt fait le 15/07 ») —
+la fiche `inspect_record` lit le **circuit ANPP coché** (`RegulatoryProduct.workflow`, la même
+source que l'écran) avec frise glissante autour de l'étape courante et `avancementCircuit` ;
+la table `RegulatoryStep` (registre mort) n'est plus qu'un repli. **(4) Papier en-tête
+inécrivable** (« aucun bloc de texte éditable ») — un corps de document VIDE est un point de
+départ : `docx.inserer_paragraphe` sans cible crée le premier paragraphe (avant `w:sectPr`)
+ou ajoute À LA FIN en héritant du format du dernier — testé du vrai point d'entrée (ouvrir →
+écrire la lettre → sauvegarder). **(5) Export au diagnostic faux** (« échec de lecture » quand
+c'est le DÉPÔT Drive qui tombait) — `exportDatasetToDrive` nomme l'étape exacte et reconnaît
+le mur 402 du stockage objet. **(6) Question de clarification inutile** (« indique une
+référence pour pembrolizumab » alors que la recherche DCI répond en une seconde), **(7)
+contradiction entre tours** (mail à Khaled trouvé puis « aucune trace ») et **(8) liens à
+recopier tels quels** — trois consignes TEXTE (`TEXT_ONLY_SEMANTICS`, hors budget voix).
+Épreuves : `link-repair.test.ts` (goldens du transcript), `inspect-record.test.ts` (ASARI +
+Bictegravir sur vraie base), `engine.test.ts` (la lettre du Mawlid sur papier en-tête).
+
 ### ADAM RUN 4 JOUÉ — 38/54 · 0 défaut · acceptance 20/22 live, et les correctifs post-run (2026-08)
 
 **Le Run 4 réel** (Render, jeton MTF1QHY3Q02W) : **38/54 SUCCÈS (70,4 % vs 42,6 % au Run 3), 16

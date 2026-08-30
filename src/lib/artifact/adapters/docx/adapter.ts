@@ -30,7 +30,7 @@ import {
   STYLE_NEUTRE, cmEnEmu, cmEnTwip, demiPtEnPt, emuEnCm, ptEnDemiPt, twipEnCm,
 } from "@/lib/artifact/object-model/model";
 import { abreger, normaliserTexte } from "@/lib/artifact/object-model/text";
-import type { CommandeArtefact } from "@/lib/artifact/commands/ir";
+import { cibleVide, type CommandeArtefact } from "@/lib/artifact/commands/ir";
 import { resoudre } from "@/lib/artifact/commands/resolve";
 import type { AdaptateurArtefact, DocumentOuvert, EffetCommande, Validation } from "@/lib/artifact/adapters/contract";
 import { effetEchec, effetOk } from "@/lib/artifact/adapters/contract";
@@ -468,6 +468,47 @@ class DocxOuvert implements DocumentOuvert {
   }
 
   private insererParagraphe(c: CommandeArtefact): EffetCommande {
+    /**
+     * ── LE CORPS VIDE EST UN POINT DE DÉPART, PAS UNE IMPASSE ────────────────────────────
+     *
+     * Mesuré en conversation réelle : un modèle « papier en-tête » porte toute sa mise en
+     * page dans l'en-tête et le pied de page, et son CORPS ne contient aucun paragraphe.
+     * L'insertion exigeait un paragraphe de référence à cloner — donc « le document est vide
+     * et ne contient aucun bloc de texte éditable », et la lettre ne pouvait jamais
+     * commencer. On crée ici le PREMIER paragraphe, au bout du corps et avant `w:sectPr`
+     * (qui doit rester le dernier enfant du corps, sinon Word répare en perdant la section) ;
+     * les paragraphes suivants se clonent sur lui, comme partout ailleurs.
+     */
+    if (this.etat.paragraphes.length === 0) {
+      const body = this.etat.body;
+      const p = element("w:p");
+      p.selfClosing = false;
+      p.parent = body;
+      if (c.texte) {
+        const run = nouveauRun(c.texte, null);
+        run.parent = p;
+        p.children.push(run);
+      }
+      const sectPr = child(body, "w:sectPr");
+      if (sectPr) insertBefore(body, sectPr, p);
+      else insertAfter(body, body.children[body.children.length - 1] ?? null, p);
+      markDirty(body);
+      return effetOk("Premier paragraphe créé dans un corps vide (papier en-tête) — les suivants s'y accrochent.", []);
+    }
+
+    // SANS CIBLE = À LA FIN. « Ajoute un paragraphe » tout court se comprend comme « au bout du
+    // document » — on clone le DERNIER paragraphe de corps pour hériter de sa mise en forme.
+    if (cibleVide(c.cible)) {
+      const dernier = this.etat.paragraphes[this.etat.paragraphes.length - 1];
+      const parentFin = dernier.noeud.parent;
+      if (!parentFin) return effetEchec("paragraphe détaché du document");
+      const copieFin = cloneNode(dernier.noeud, parentFin);
+      copieFin.raw = null;
+      remplacerTexteParagraphe(copieFin, c.texte ?? "");
+      insertAfter(parentFin, dernier.noeud, copieFin);
+      return effetOk(`Paragraphe ajouté à la fin du document, après ${libelleParagraphe(dernier.modele)}.`, [dernier.modele.id]);
+    }
+
     const t = this.ciblerParagraphe(c);
     if (!t.ok) return t.echec;
     const parent = t.p.noeud.parent;

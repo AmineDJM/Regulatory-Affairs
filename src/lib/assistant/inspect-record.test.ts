@@ -33,6 +33,8 @@ const PDG: CurrentUser = {
 
 let mailId = "";
 let taskId = "";
+let spoId = "";
+let regId = "";
 
 beforeAll(async () => {
   const mail = await prisma.mailEntry.create({
@@ -51,11 +53,32 @@ beforeAll(async () => {
     select: { id: true },
   });
   taskId = task.id;
+  // Le sponsoring ASARI de la conversation réelle : Adam avait conclu « SPO-2026-004 n'existe
+  // pas » sur un enregistrement parfaitement réel, parce que l'outil ne couvrait pas la table.
+  const spo = await prisma.sponsoringRequest.create({
+    data: { reference: `${TAG}-SPO-004`, institution: `${TAG} ASARI`, type: "Congrès" },
+    select: { id: true },
+  });
+  spoId = spo.id;
+  // Le dossier « Bictegravir » de la conversation réelle : statut synthétique en retard
+  // (PRE_SUBMISSION) alors que le circuit ANPP coché porte le dépôt FAIT.
+  const reg = await prisma.regulatoryProduct.create({
+    data: {
+      reference: `${TAG}-REG-020`,
+      dci: `${TAG} Bictegravir/Emtricitabine/Tenofovir`,
+      status: "PRE_SUBMISSION",
+      workflow: { depot: { status: "DONE", date: "2026-07-15" } },
+    },
+    select: { id: true },
+  });
+  regId = reg.id;
 });
 
 afterAll(async () => {
   await prisma.mailEntry.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
   await prisma.task.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
+  await prisma.sponsoringRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
+  await prisma.regulatoryProduct.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
 });
 
 describe("inspect_record — l'identifiant interne se résout comme la référence", () => {
@@ -84,5 +107,32 @@ describe("inspect_record — l'identifiant interne se résout comme la référen
     const r = await executePowerTool("inspect_record", { reference: "cmzzzzzzzzzzzzzzzzzzzzzzz" }, PDG);
     expect(r).toMatch(/Aucun dossier ne porte/);
     expect(r).toMatch(/identifiant interne/);
+  });
+
+  it("ASARI : un SPONSORING se vérifie — par référence ET par id, avec son lien exact", async () => {
+    // Le défaut mesuré : « aucune fiche SPO-2026-004 n'existe dans les données vérifiées »
+    // sur un sponsoring réel. Une vérification qui ne sait pas lire une famille ne doit
+    // jamais conclure à l'inexistence.
+    const parRef = JSON.parse((await executePowerTool("inspect_record", { reference: `${TAG}-SPO-004` }, PDG)) ?? "null") as { type: string; lien: string };
+    expect(parRef.type).toBe("Sponsoring (Ad&Pro)");
+    expect(parRef.lien).toBe(`/sponsoring/${spoId}`);
+    const parId = JSON.parse((await executePowerTool("inspect_record", { reference: spoId }, PDG)) ?? "null") as { type: string };
+    expect(parId.type).toBe("Sponsoring (Ad&Pro)");
+  });
+
+  it("BICTEGRAVIR : la fiche Regulatory lit le circuit COCHÉ (même source que l'écran), plus la table morte", async () => {
+    // Le défaut mesuré : le journal disait « Dépôt du dossier → fait le 15/07 » et la fiche
+    // répondait « Pré-soumission, étapes non démarrées » — deux magasins pour un même fait.
+    const fiche = JSON.parse((await executePowerTool("inspect_record", { reference: `${TAG}-REG-020` }, PDG)) ?? "null") as {
+      type: string;
+      avancementCircuit?: string;
+      etapes: { etape: string; etat: string; fait: string | null }[];
+    };
+    expect(fiche.type).toBe("Dossier Regulatory");
+    expect(fiche.avancementCircuit).toMatch(/1\/\d+/);
+    const depot = fiche.etapes.find((e) => /Dépôt du dossier/.test(e.etape));
+    expect(depot, "l'étape « Dépôt du dossier » du circuit ANPP").toBeTruthy();
+    expect(depot!.etat).toBe("DONE");
+    expect(depot!.fait).toMatch(/^15\/07\/2026/);
   });
 });

@@ -97,6 +97,7 @@ import { resolveTools } from "@/lib/assistant/context/tool-resolver";
 // L'ESPACE DE TRAVAIL GÉNÉRATIF : la sortie d'une source canonique traduite en blocs TYPÉS.
 // Le modèle n'écrit aucun balisage — c'est ce qui empêche l'écran de redevenir un vidage de JSON.
 import { composeWorkspace, stripDisplayPayload } from "@/lib/assistant/workspace/compose";
+import { collecterLiensInternes, reparerLiensInternes } from "@/lib/assistant/link-repair";
 import type { WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
 import { runDiscovery, DISCOVERY_TOOL_NAME } from "@/lib/assistant/context/discovery";
 import {
@@ -1964,6 +1965,29 @@ const BUSINESS_SEMANTICS = `VOCABULAIRE MÉTIER (résolution PAR LE CONTEXTE, ja
   réécrit en français, tu reviens au français.`;
 
 /**
+ * CONSIGNES DU MODE TEXTE SEULEMENT — les trois défauts d'une conversation réelle, fermés.
+ *
+ * Elles ne partent PAS à la voix : le budget d'instructions temps réel se paie en latence à
+ * chaque tour (voir `buildChiefOfStaffContext`), la voix ne rend pas de liens Markdown, et le
+ * raisonnement profond y passe de toute façon par la délégation vers l'orchestrateur — qui,
+ * lui, lit ces lignes.
+ */
+const TEXT_ONLY_SEMANTICS = `
+- CHERCHER AVANT DE DEMANDER : « statut de X », « où en est X », « donne-moi X » se CHERCHE
+  D'ABORD (inspect_record avec le nom tel quel, search_products, regulatory_portfolio,
+  search_everything) — une question de clarification est INTERDITE tant qu'aucune recherche n'a
+  été tentée. « Le statut de pembrolizumab » se répond en cherchant « pembrolizumab », pas en
+  réclamant une référence que la recherche aurait trouvée en une seconde.
+- UNE TRACE TROUVÉE NE SE PERD PAS : si un tour précédent a établi un fait (« un suivi envoyé à
+  Khaled le 25/08 »), on le re-cherche dans SA source (état des actions, messagerie interne,
+  registre) — pas dans une autre boîte pour conclure « aucune trace » en te contredisant. Se
+  contredire d'un tour à l'autre sans expliquer POURQUOI (source différente, période différente)
+  est le défaut qui détruit la confiance.
+- LES LIENS SE RECOPIENT TELS QUELS : chaque outil rend des liens EXACTS (champ « lien ») —
+  les recopier au caractère près, JAMAIS abréger « /regulatory/cm… » en « /regulatory/ » :
+  un lien tronqué mène au tableau générique au lieu du dossier dont on parle.`;
+
+/**
  * CONTEXTE COMMUN DU CHIEF OF STAFF — la fonction que TOUTES les modalités appellent.
  *
  * `voice: false` (défaut) rend le prompt système complet du mode texte. `voice: true` rend une
@@ -2071,7 +2095,7 @@ CE QUE TU PEUX FAIRE :
 
 ${CORE_CONDUCT_RULES}
 
-${BUSINESS_SEMANTICS}
+${BUSINESS_SEMANTICS}${TEXT_ONLY_SEMANTICS}
 
 PROFONDEUR & VITESSE (fast + smart — jamais l'un contre l'autre) :
 - DÉCOMPOSE une question complexe en sous-lectures INDÉPENDANTES et appelle ces outils ENSEMBLE dans
@@ -4649,6 +4673,11 @@ async function runAssistantImpl(
   const trace: string[] = [];
   // Ce que la boucle appelle VRAIMENT — la seule vérité contre laquelle comparer la liste courte.
   const usedTools: string[] = [];
+  // Les sorties brutes du tour, pour compléter les liens tronqués (même règle que la variante
+  // en flux — voir link-repair.ts).
+  const sortiesOutils: string[] = [];
+  const reparerReponse = (brut: string): string =>
+    reparerLiensInternes(brut, collecterLiensInternes(sortiesOutils)).texte;
   let discoveryCalls = 0;
 
   try {
@@ -4663,6 +4692,7 @@ async function runAssistantImpl(
     });
     if (out !== null) {
       usedTools.push(toolName);
+      sortiesOutils.push(out);
       const label = READ_LABEL[toolName] ?? powerToolLabels()[toolName];
       if (label) trace.push(label);
       const res = await callClaude(
@@ -4670,7 +4700,7 @@ async function runAssistantImpl(
         { system: fastReadSystem(user), tools: [], maxTokens: 700, model: opts.model },
       );
       if (res.ok && res.content) {
-        const reply = textOf(res.content).trim();
+        const reply = reparerReponse(textOf(res.content).trim());
         if (reply) return { configured: true, ok: true, reply, trace };
       }
     }
@@ -4692,11 +4722,11 @@ async function runAssistantImpl(
     // Pas d'outil → réponse finale. Question à fort enjeu + réponse substantielle → SECONDE
     // PASSE CRITIQUE avant remise (davantage de calcul quand ça compte ; jamais l'inverse).
     if (res.stopReason !== "tool_use" || toolUses.length === 0) {
-      const reply = textOf(blocks) || "D'accord.";
+      const reply = reparerReponse(textOf(blocks) || "D'accord.");
       if (highStakes && reply.length >= CRITIQUE_MIN_DRAFT) {
         const revised = await reviseHighStakes(system, question, reply, opts.model).catch(() => null);
         trace.push(CRITIQUE_LABEL);
-        return { configured: true, ok: true, reply: revised ?? reply, trace };
+        return { configured: true, ok: true, reply: revised ? reparerReponse(revised) : reply, trace };
       }
       return { configured: true, ok: true, reply, trace };
     }
@@ -4760,6 +4790,7 @@ async function runAssistantImpl(
     for (const { tu, out } of settled) {
       if (READ_LABEL[tu.name] && !trace.includes(READ_LABEL[tu.name])) trace.push(READ_LABEL[tu.name]);
       usedTools.push(tu.name);
+      sortiesOutils.push(out);
       results.push({ type: "tool_result", tool_use_id: tu.id, content: out });
     }
     messages.push({ role: "assistant", content: blocks });
@@ -4957,6 +4988,11 @@ async function runAssistantStreamImpl(
   let tools = fitToolBudget(resolved.tools, rollout.route) as typeof allTools;
   const trace: string[] = [];
   const usedTools: string[] = [];
+  // LES SORTIES BRUTES DU TOUR — la matière de la réparation des liens : un « [Ouvrir](/regulatory/) »
+  // tronqué par le modèle est complété avec le lien EXACT que l'outil a rendu (link-repair.ts).
+  const sortiesOutils: string[] = [];
+  const reparerReponse = (brut: string): { texte: string; repares: number } =>
+    reparerLiensInternes(brut, collecterLiensInternes(sortiesOutils));
   let discoveryCalls = 0;
   const started = Date.now();
   const metrics: AssistantMetrics = { ttftMs: null, turns: 0, toolCalls: 0, toolErrors: 0, toolLatencyMs: 0 };
@@ -4980,6 +5016,7 @@ async function runAssistantStreamImpl(
       metrics.toolLatencyMs += Date.now() - t0;
       if (out !== null) {
         usedTools.push(toolName);
+        sortiesOutils.push(out);
         for (const s of extractSources(out)) emit({ type: "source", label: s.label, href: s.href });
         // L'ESPACE DE TRAVAIL PART AVANT LE TEXTE. La donnée est déjà lue ; la faire attendre
         // la rédaction du modèle ferait patienter le PDG devant un écran vide alors que la
@@ -5000,9 +5037,14 @@ async function runAssistantStreamImpl(
           { system: fastReadSystem(user), tools: [], maxTokens: 700, model: opts.model },
         );
         if (res.ok && res.content) {
-          const reply = textOf(res.content).trim();
+          const reparation = reparerReponse(textOf(res.content).trim());
+          const reply = reparation.texte;
           if (reply) {
             if (!streamed) emit({ type: "delta", text: reply });
+            else if (reparation.repares > 0) {
+              emit({ type: "reset" });
+              emit({ type: "delta", text: reply });
+            }
             return { configured: true, ok: true, reply, trace, metrics };
           }
         }
@@ -5039,9 +5081,20 @@ async function runAssistantStreamImpl(
 
       // Pas d'outil → c'est la réponse finale : on la diffuse d'un trait mesuré.
       if (res.stopReason !== "tool_use" || toolUses.length === 0) {
-        const reply = textOf(blocks) || "D'accord.";
+        // LES LIENS TRONQUÉS SONT COMPLÉTÉS AVANT DE CONCLURE : « [Ouvrir](/regulatory/) » alors
+        // que le tour a lu /regulatory/<id> mène au tableau générique — mesuré en conversation
+        // réelle sur trois modules. La réparation est déterministe (préfixe strict, candidat
+        // UNIQUE) ; quand elle a corrigé un texte déjà diffusé, le client le remplace (`reset`),
+        // exactement comme la passe critique.
+        const redige = textOf(blocks) || "D'accord.";
+        const reparation = reparerReponse(redige);
+        const reply = reparation.texte;
         // Rien n'a été diffusé (réponse vide côté modèle) → on envoie le repli d'un trait.
         if (!streamed) emit({ type: "delta", text: reply });
+        else if (reparation.repares > 0) {
+          emit({ type: "reset" });
+          emit({ type: "delta", text: reply });
+        }
         // Fort enjeu → SECONDE PASSE CRITIQUE. Le brouillon déjà diffusé était une vraie
         // réponse progressive (pas une invention) ; la version relue le remplace (`reset`),
         // et l'étape se DIT dans la trace — le travail en plus est visible, jamais caché.
@@ -5049,7 +5102,8 @@ async function runAssistantStreamImpl(
           emit({ type: "trace", label: CRITIQUE_LABEL });
           trace.push(CRITIQUE_LABEL);
           metrics.turns += 1;
-          const revised = await reviseHighStakes(system, question, reply, opts.model).catch(() => null);
+          const relu = await reviseHighStakes(system, question, reply, opts.model).catch(() => null);
+          const revised = relu ? reparerReponse(relu).texte : null;
           if (revised && revised !== reply) {
             emit({ type: "reset" });
             emit({ type: "delta", text: revised });
@@ -5127,6 +5181,7 @@ async function runAssistantStreamImpl(
         return { tu, out };
       }));
       const results: ClaudeContentBlock[] = [];
+      for (const { out } of settled) sortiesOutils.push(out);
       for (const { tu, out } of settled) {
         // Les SOURCES consultées alimentent le panneau CONTEXTE : chaque dossier lu devient un
         // lien cliquable, au moment même où l'assistant le lit.
