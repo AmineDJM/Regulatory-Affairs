@@ -1,59 +1,69 @@
 /**
- * RÉGLAGES VOIX — le module PUR partagé serveur / navigateur : la politique d'interruption
- * (barge-in CONFIRMÉ), le filtre de bruit sur les transcriptions, et la configuration de
- * détection de tour (VAD) pilotée par variables d'environnement pour le benchmark.
+ * RÉGLAGES VOIX — le module PUR partagé serveur / navigateur : la politique d'interruption,
+ * le filtre de bruit sur les transcriptions, et la configuration de détection de tour (VAD).
  *
- * La panne réelle qui a tout motivé : la réponse vocale se coupait sur un bruit de clavier,
- * une toux, une porte — de faux « (intervention vocale) » en cascade, des répétitions, un
- * contexte dégradé. La correction est au niveau AUDIO/VAD, pas dans le prompt :
+ * ── LE VIRAGE NATIF (audit voix 2026-08) ─────────────────────────────────────────────────
  *
- *   possible_voice_start → l'assistant parle ? → évaluer le signal
- *   (parole soutenue + mots transcrits + arrêt précoce) → VRAIE interruption ?
- *   OUI → cancel + clear + truncate.  NON → la réponse CONTINUE.
+ * Une première correction (§233) avait pris le contrôle de l'interruption CÔTÉ CLIENT pour
+ * tuer les faux « (intervention vocale) » sur écho : `interrupt_response: false` + une
+ * confirmation qui EXIGEAIT des MOTS transcrits tant que le haut-parleur jouait. Elle a
+ * sur-corrigé. Conséquence mesurable à l'usage : une VRAIE interruption restait en attente des
+ * mots (la transcription parallèle traîne de 0,4 à 1,5 s), donc « je parle et Adam continue de
+ * parler ». C'est le défaut que ce module corrige maintenant.
+ *
+ * La nouvelle doctrine est NATIVE et STT-INDÉPENDANTE (règle : la transcription parallèle ne
+ * doit JAMAIS bloquer le temps réel) :
+ *   • `semantic_vad` + `interrupt_response: true` : le SERVEUR coupe la génération dès qu'il
+ *     détecte la parole — la robustesse à l'écho revient à l'annulation d'écho du navigateur
+ *     (`echoCancellation`) et au classifieur sémantique, pas à une gymnastique de prompt ;
+ *   • le CLIENT ne fait plus qu'un geste, rapide : vider le tampon audio local et tronquer le
+ *     contexte pour que le son s'arrête NET (le serveur ne connaît pas le tampon de gigue WebRTC).
+ *
+ * Reste un garde-fou CLIENT léger et rapide, utile en repli (`OPENAI_VOICE_INTERRUPT=client`)
+ * comme en ceinture-bretelles : une parole SOUTENUE (≥ BARGE_IN_SUSTAIN_MS) confirme la coupure
+ * même sans mots — c'est ce qui rend « Stop. » instantané SANS dépendre de la transcription. Un
+ * mot transcrit reste un ACCÉLÉRATEUR (coupe encore plus tôt), jamais une CONDITION.
  *
  * Objectif jumeau, mesuré ensemble : LOW FALSE INTERRUPTION + FAST TRUE INTERRUPTION.
  * Aucun import lourd ici : le fichier est embarqué dans le bundle client.
  */
 
 /** Parole soutenue au-delà de ce seuil pendant que l'assistant parle → interruption CONFIRMÉE.
- *  Assez court pour qu'un vrai « Stop. » coupe vite ; assez long pour qu'un clic ne coupe rien. */
-export const BARGE_IN_SUSTAIN_MS = 400;
+ *  Court (180 ms) : un vrai « Stop. » coupe quasi instantanément, SANS attendre la transcription ;
+ *  assez long pour qu'un clic, une brève salve d'écho résiduel ou un pic de bruit ne coupent rien. */
+export const BARGE_IN_SUSTAIN_MS = 180;
 
-/** Signal terminé AVANT ce seuil, sans aucun mot transcrit → bruit (toux, porte, clavier). */
-export const BARGE_IN_NOISE_MS = 350;
+/** Signal terminé AVANT ce seuil, sans aucun mot transcrit → bruit (toux, porte, clavier, clic). */
+export const BARGE_IN_NOISE_MS = 140;
 
 export type BargeInVerdict = "confirm" | "ignore" | "wait";
 
 /**
- * La décision de barge-in — DÉTERMINISTE et testable :
- *   • des MOTS transcrits pendant le signal = parole humaine → confirmer immédiatement
- *     (c'est ce qui garde « Stop. » / « Attends. » rapides) ;
- *   • AUTO-PROTECTION ÉCHO : pendant que le HAUT-PARLEUR joue (`audioPlaying`), l'écho de la
- *     propre voix de l'assistant est un « signal de parole » parfaitement soutenu — la durée
- *     seule ne prouve donc RIEN. Seuls des mots transcrits confirment ; un signal sans mots
- *     qui s'arrête est ignoré, quelle que soit sa durée. (C'était LA source des interruptions
- *     fantômes « (intervention vocale) » persistantes : sustained ≥ 400 ms sur de l'écho.)
- *   • haut-parleur muet (réflexion en cours) : un signal SOUTENU (≥ BARGE_IN_SUSTAIN_MS)
- *     confirme même sans transcription — il n'y a aucune source d'écho possible ;
- *   • un signal bref qui s'arrête sans mots → IGNORER (la réponse continue) ;
- *   • sinon → attendre la suite du signal.
- * Le vrai « Stop. » pendant la voix reste rapide : la transcription temps réel livre ses
- * premiers mots en quelques centaines de ms, et un retard est rattrapé par la CONFIRMATION
- * TARDIVE (transcription finale avec mots pendant la même réponse → coupure immédiate).
+ * La décision de barge-in — DÉTERMINISTE, testable, et STT-INDÉPENDANTE :
+ *   • des MOTS transcrits pendant le signal = parole humaine certaine → confirmer TOUT DE SUITE
+ *     (l'accélérateur, jamais la condition) ;
+ *   • une parole SOUTENUE (≥ BARGE_IN_SUSTAIN_MS = 180 ms) confirme, que le haut-parleur joue ou
+ *     non : on ne subordonne PLUS la coupure à l'arrivée des mots. C'était la cause de « Adam
+ *     continue de parler quand je l'interromps ». La robustesse à l'écho est assurée en amont
+ *     (annulation d'écho du navigateur + `semantic_vad`) et par le seuil de 180 ms qui rejette
+ *     les salves brèves ;
+ *   • un signal bref qui s'arrête sans mots (< BARGE_IN_NOISE_MS) → IGNORER (la réponse continue) ;
+ *   • sinon → attendre la suite du signal (il n'a encore ni assez duré ni produit de mot).
+ * `audioPlaying` n'est plus une porte — il est conservé pour la seule MÉTRIQUE (distinguer une
+ * coupure en plein son d'une coupure pendant la réflexion silencieuse).
  */
 export function bargeInDecision(s: {
   assistantBusy: boolean;
   sustainedMs: number;
   hasTranscriptEvidence: boolean;
   speechStopped: boolean;
-  /** Le haut-parleur émet RÉELLEMENT du son (fenêtre d'écho possible). Défaut : non. */
+  /** Le haut-parleur émet RÉELLEMENT du son — pour la métrique seulement, plus une porte. */
   audioPlaying?: boolean;
 }): BargeInVerdict {
   if (!s.assistantBusy) return "confirm"; // rien à protéger : l'état de tour suit normalement
-  if (s.hasTranscriptEvidence) return "confirm";
-  if (s.audioPlaying) return s.speechStopped ? "ignore" : "wait";
-  if (s.sustainedMs >= BARGE_IN_SUSTAIN_MS) return "confirm";
-  if (s.speechStopped && s.sustainedMs < BARGE_IN_NOISE_MS) return "ignore";
+  if (s.hasTranscriptEvidence) return "confirm"; // des mots → coupure immédiate
+  if (s.sustainedMs >= BARGE_IN_SUSTAIN_MS) return "confirm"; // parole soutenue → coupure, écho ou non
+  if (s.speechStopped && s.sustainedMs < BARGE_IN_NOISE_MS) return "ignore"; // salve brève → bruit
   return "wait";
 }
 
@@ -133,22 +143,34 @@ export function isNoiseTranscript(text: string | null | undefined): boolean {
 }
 
 /**
- * La configuration `turn_detection` de la session Realtime — pilotée par l'environnement pour
- * pouvoir BENCHMARKER (semantic_vad auto/low/medium/high vs server_vad tuné) sans redéployer :
+ * La configuration `turn_detection` de la session Realtime — NATIVE par défaut, réglable par
+ * l'environnement pour benchmarker (semantic_vad low/medium/high/auto vs server_vad) :
  *
  *   OPENAI_VOICE_VAD_MODE       semantic_vad (défaut) | server_vad
- *   OPENAI_VOICE_VAD_EAGERNESS  auto (défaut) | low | medium | high        (semantic_vad)
+ *   OPENAI_VOICE_VAD_EAGERNESS  low (défaut) | medium | high | auto          (semantic_vad)
  *   OPENAI_VOICE_VAD_THRESHOLD  0..1, défaut 0.6 (plus haut = moins sensible au bruit)
- *   OPENAI_VOICE_VAD_PREFIX_MS  défaut 300                                  (server_vad)
- *   OPENAI_VOICE_VAD_SILENCE_MS défaut 500                                  (server_vad)
- *   OPENAI_VOICE_INTERRUPT      "server" pour rendre l'interruption au serveur (défaut : client)
+ *   OPENAI_VOICE_VAD_PREFIX_MS  défaut 300                                   (server_vad)
+ *   OPENAI_VOICE_VAD_SILENCE_MS défaut 600                                   (server_vad)
+ *   OPENAI_VOICE_INTERRUPT      "client" pour rendre l'interruption au client (défaut : serveur)
  *
- * `interrupt_response` est FAUX par défaut : le premier speech-start bruité ne tue plus la
- * réponse — le client confirme le barge-in (bargeInDecision) puis annule PROPREMENT
- * (response.cancel + output_audio_buffer.clear + conversation.item.truncate).
+ * ── DEUX CHOIX, ET LEUR RAISON ───────────────────────────────────────────────────────────
+ *
+ * `interrupt_response: true` par défaut (mécanisme NATIF, recommandation OpenAI) : le serveur
+ * coupe la génération dès qu'il entend la parole — c'est ce qui rend l'interruption immédiate
+ * et naturelle. Le client complète en vidant le tampon audio local (le serveur ne connaît pas
+ * la gigue WebRTC). Le repli `OPENAI_VOICE_INTERRUPT=client` (→ `interrupt_response: false`)
+ * rend la coupure entièrement au client : à n'activer que si, MICRO RÉEL À L'APPUI, l'écho
+ * résiduel se met à couper l'assistant — c'est le seul cas où le natif serait à revoir.
+ *
+ * `eagerness: "low"` par défaut : le classifieur sémantique ATTEND davantage avant de déclarer
+ * le tour fini. C'est délibéré pour un dirigeant francophone qui HÉSITE (« alors… le dossier…
+ * euh »). « low » n'ajoute de la latence QUE sur les fins de phrase ambiguës — sur une phrase
+ * clairement terminée, la probabilité est haute et la réponse part sans attendre. On échange
+ * donc « Adam me coupe au milieu d'une phrase » contre presque rien sur les phrases nettes.
  */
 export function buildTurnDetection(env: Record<string, string | undefined> = process.env): Record<string, unknown> {
-  const interrupt = env.OPENAI_VOICE_INTERRUPT === "server";
+  // Natif par défaut ; le repli client se demande EXPLICITEMENT (mesure à l'appui).
+  const interrupt = env.OPENAI_VOICE_INTERRUPT !== "client";
   if (env.OPENAI_VOICE_VAD_MODE === "server_vad") {
     const threshold = Number.parseFloat(env.OPENAI_VOICE_VAD_THRESHOLD ?? "");
     const prefix = Number.parseInt(env.OPENAI_VOICE_VAD_PREFIX_MS ?? "", 10);
@@ -157,14 +179,15 @@ export function buildTurnDetection(env: Record<string, string | undefined> = pro
       type: "server_vad",
       threshold: Number.isFinite(threshold) && threshold >= 0 && threshold <= 1 ? threshold : 0.6,
       prefix_padding_ms: Number.isFinite(prefix) && prefix >= 0 ? prefix : 300,
-      silence_duration_ms: Number.isFinite(silence) && silence >= 0 ? silence : 500,
+      // 600 ms de silence avant de clore : laisse respirer une hésitation courte sans traîner.
+      silence_duration_ms: Number.isFinite(silence) && silence >= 0 ? silence : 600,
       create_response: true,
       interrupt_response: interrupt,
     };
   }
   const eagerness = ["low", "medium", "high", "auto"].includes(env.OPENAI_VOICE_VAD_EAGERNESS ?? "")
     ? env.OPENAI_VOICE_VAD_EAGERNESS
-    : "auto";
+    : "low";
   return { type: "semantic_vad", eagerness, create_response: true, interrupt_response: interrupt };
 }
 

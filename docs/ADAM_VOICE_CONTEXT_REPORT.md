@@ -431,3 +431,93 @@ l'adresse une lettre par ligne — mais une liste de fiches.
 - `rm -rf .next && npm run build` — build propre
 - `npx playwright test` — **13 passés**
 - Banc de routage rejoué sur les deux corpus (§4 ci-dessus)
+
+---
+
+## 10. Audit voix — VIRAGE NATIF (2026-08-30)
+
+Compte rendu utilisateur : « parfois Adam ne répond pas ; parfois je parle et Adam continue de
+parler ; parfois Adam se tait alors que je parle ; interruptions peu naturelles ; latence
+ressentie trop élevée. » Audit complet du code voix (WebRTC, VAD, barge-in, restitution,
+reconnexion), comparé aux recommandations OpenAI Realtime actuelles (GA `gpt-realtime`).
+
+### 10.1 Cause(s) racine(s)
+
+Le correctif §233 avait pris le contrôle de l'interruption **côté client** (`interrupt_response:
+false`) et exigeait des **mots transcrits** pour confirmer une coupure tant que le haut-parleur
+jouait — une auto-protection contre l'écho. Il a **sur-corrigé** :
+
+1. **« Adam continue de parler quand je l'interromps » (racine principale).** La coupure
+   attendait l'arrivée des mots de la transcription parallèle (`gpt-4o-mini-transcribe`, 0,4–1,5 s
+   de retard). Une vraie interruption traînait donc jusqu'à 1,5 s. C'est aussi une **violation de
+   la règle « la transcription parallèle ne doit jamais bloquer le temps réel »** : le barge-in
+   DÉPENDAIT du STT.
+2. **« Adam se tait alors que je parle » / « interruptions peu naturelles ».** `semantic_vad`
+   avec `eagerness: auto` clôturait le tour sur une hésitation française (« alors… euh… »), et le
+   va-et-vient coupure/relance stuttérait.
+3. **Voix féminine** (`marin`) là où l'appel exécutif voulait une voix masculine posée.
+4. Les silences (« Adam ne répond pas ») étaient déjà couverts par le watchdog de restitution et
+   la garde de tour bloqué (§232) — conservés intacts.
+
+### 10.2 Correctifs (natifs, STT-indépendants)
+
+| # | Correctif | Fichier | Avant → Après |
+|---|---|---|---|
+| 1 | Interruption NATIVE | `voice-tuning.ts` `buildTurnDetection` | `interrupt_response: false` → **`true`** (le serveur coupe la génération dès qu'il entend la parole ; recommandation OpenAI) |
+| 2 | Barge-in client rapide, sans les mots | `voice-tuning.ts` `bargeInDecision` | la porte « haut-parleur actif → seuls des mots coupent » est **supprimée** ; une parole soutenue **≥ 180 ms** coupe (avant : ≥ 400 ms **ET** mots requis) |
+| 3 | Seuils | `voice-tuning.ts` | `BARGE_IN_SUSTAIN_MS` 400 → **180**, `BARGE_IN_NOISE_MS` 350 → **140** |
+| 4 | VAD pour hésitations FR | `voice-tuning.ts` | `eagerness: auto` → **`low`** ; `server_vad silence` 500 → 600 ms |
+| 5 | Voix masculine | `voice-realtime.ts` | défaut `marin` (F) → **`cedar`** (M, naturelle GA) ; `OPENAI_REALTIME_VOICE` surcharge |
+| 6 | Repli mesuré | `voice-tuning.ts` | `OPENAI_VOICE_INTERRUPT=client` rend l'interruption au client (interrupt_response:false) **si un écho réel se met à couper Adam** — le seul cas où le natif serait à revoir |
+
+Conservés **intacts** (orthogonaux, et ils marchent) : propriété de la réponse + watchdog
+(§232, « jamais muet »), hygiène des événements périmés, debounce par segment, suppression du
+bruit committé, reconnexion à quota respecté. Le geste de coupure reste `response.cancel` +
+`output_audio_buffer.clear` + `conversation.item.truncate` (§6 de la demande).
+
+### 10.3 Le compromis, dit honnêtement
+
+`interrupt_response: true` **délègue la robustesse à l'écho** à l'annulation d'écho du navigateur
+(`echoCancellation: true`, déjà en place) + au classifieur `semantic_vad`. C'est la recommandation
+OpenAI et ce que l'utilisateur a demandé explicitement. Le risque résiduel — un écho résiduel qui
+couperait Adam — n'a **pas pu être mesuré micro réel dans cet environnement** (pas de clé, pas de
+navigateur). D'où le repli `OPENAI_VOICE_INTERRUPT=client` : une variable, aucun redéploiement.
+C'est le **seul point à re-vérifier lors d'un vrai appel**.
+
+### 10.4 Métriques (déjà instrumentées, `turn-metrics.ts` + `call-provider.tsx`)
+
+Toutes les mesures demandées existent et sont journalisées à la fermeture de session
+(`voice_session_closed`) : `user_speech_ended → response_started → first_audio` (frise
+horodatée), `barge_in_confirmed` (latence interruption→coupure), `false_barge_in_ignored` (faux
+speech_started), `watchdog_recovered`/`turn_watchdog_recovered`/`delivery_failed` (réponses
+perdues), `voice_reconnect` (reconnexions), `deliveriesReady`/`deliveriesDone` (SLO de
+restitution). Aucune nouvelle métrique n'était nécessaire — l'observabilité §241 les couvre déjà.
+
+### 10.5 Mesure AVANT/APRÈS (déterministe, sur le VRAI pipeline d'événements)
+
+Live impossible ici ; la mesure honnête est le **banc déterministe** (`handleEvent`, horloges
+simulées) — le même qui prouve cette couche depuis §232.
+
+| Scénario | AVANT | APRÈS |
+|---|---|---|
+| Interruption réelle, transcription lente (aucun mot encore) | **jamais coupée** sur la durée (`bargeInDecision` → `wait` tant que le haut-parleur joue) | **coupée à 180 ms** (`response.cancel` + `clear` + `truncate`) — `voice-pipeline.test.ts` |
+| Interruption avec mot (« Attends ») | coupe à l'arrivée du mot | coupe à l'arrivée du mot (inchangé, accélérateur) |
+| Salve brève < 140 ms (clic/écho) | ignorée | ignorée (inchangé) |
+| `interrupt_response` par défaut | `false` | `true` — `voice-tuning.test.ts` |
+| `eagerness` par défaut | `auto` | `low` (hésitations FR) |
+| Voix par défaut | `marin` (F) | `cedar` (M) |
+
+### 10.6 Tests ajoutés / mis à jour
+
+- **`voice-scenarios.test.ts` (NOUVEAU, 9 tests)** : la liste EXACTE demandée — phrase courte,
+  phrase longue (intégrité), silence au milieu d'une phrase, interruption d'Adam (mots ET durée),
+  faux bruit, interruption puis changement de sujet (zéro fuite de l'ancienne réponse), plusieurs
+  interruptions successives (une par segment), jamais muet après un tour valide.
+- **`voice-tuning.test.ts`** : golden barge-in réécrit pour la politique native (parole soutenue
+  coupe même en plein son) ; `buildTurnDetection` : défauts natifs (`interrupt_response: true`,
+  `eagerness: low`) + repli `OPENAI_VOICE_INTERRUPT=client`.
+- **`voice-pipeline.test.ts`** : le golden « écho » est INVERSÉ (parole soutenue → coupe), + un
+  test dédié du faux barge-in bref.
+
+Suite voix : **53 + 9 = 62 tests verts**. Aucune régression sur la propriété de la réponse ni sur
+l'hygiène des événements périmés (leurs golden §232/§233 passent inchangés).

@@ -31,16 +31,18 @@
  *      Livraison EXACTLY-ONCE : l'obligation est portée par UNE réponse identifiée — jamais
  *      deux restitutions du même résultat.
  *
- *   2. ÉVÉNEMENTS PÉRIMÉS & BARGE-IN CONFIRMÉ — les interruptions fantômes
- *      « (intervention vocale) ». Chaque événement de contenu est LIÉ à la réponse
- *      (`response_id`) et au segment de parole (`item_id`) qui le portent : les deltas d'une
- *      réponse ANNULÉE ne polluent plus le transcript ni l'état, un delta d'un ANCIEN segment
- *      ne confirme jamais une nouvelle fenêtre de barge-in, et un segment ne produit qu'UNE
- *      confirmation (debounce). Pendant que le haut-parleur JOUE, la durée seule ne confirme
- *      rien (l'écho de la propre voix de l'assistant est un signal soutenu parfait) : seuls
- *      des MOTS transcrits coupent — voir `bargeInDecision`. En pièce silencieuse, un commit
- *      de bruit est SUPPRIMÉ de la conversation et la réponse auto qu'il a déclenchée est
- *      annulée avant d'avoir parlé : zéro fausse intervention.
+ *   2. ÉVÉNEMENTS PÉRIMÉS & BARGE-IN NATIF — les interruptions fantômes « (intervention
+ *      vocale) ». Chaque événement de contenu est LIÉ à la réponse (`response_id`) et au
+ *      segment de parole (`item_id`) qui le portent : les deltas d'une réponse ANNULÉE ne
+ *      polluent plus le transcript ni l'état, un delta d'un ANCIEN segment ne confirme jamais
+ *      une nouvelle fenêtre, et un segment ne produit qu'UNE confirmation (debounce).
+ *      L'interruption est NATIVE (le serveur coupe via `interrupt_response`) ; le client la
+ *      confirme vite et STT-INDÉPENDANT (parole soutenue ≥ 180 ms OU mots transcrits — voir
+ *      `bargeInDecision`) puis vide le tampon audio local. La robustesse à l'écho revient à
+ *      l'annulation d'écho du navigateur + `semantic_vad`, plus à une gymnastique de mots qui
+ *      retardait les vraies interruptions. En pièce silencieuse, un commit de bruit est
+ *      SUPPRIMÉ de la conversation et la réponse auto qu'il a déclenchée est annulée avant
+ *      d'avoir parlé : zéro fausse intervention.
  *
  * Le secret utilisé est ÉPHÉMÈRE (fourni par /api/assistant/voice/session) : aucune clé longue
  * durée n'existe côté navigateur.
@@ -407,10 +409,12 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
         // DEBOUNCE : un segment déjà confirmé ne rouvre pas de fenêtre (une interruption par
         // segment de parole — jamais de double CONFIRMED sur le même souffle).
         if (e.item_id && this.confirmedItemIds.has(e.item_id)) break;
-        // BARGE-IN À CONFIRMER : un début de signal pendant que l'assistant parle ne coupe
-        // RIEN (toux, clavier, porte, ÉCHO = faux positifs observés en production). La parole
-        // se confirme par des MOTS transcrits — ou par la durée seule quand le haut-parleur
-        // est muet (aucune source d'écho). Un vrai « Stop. » reste rapide.
+        // BARGE-IN NATIF : le serveur (interrupt_response:true) coupe déjà la génération dès
+        // qu'il entend la parole. Le client CONFIRME vite et STT-INDÉPENDANT — une parole
+        // soutenue (≥ 180 ms) coupe, avec ou sans mots (voir bargeInDecision) — puis vide le
+        // tampon audio local et tronque : le son s'arrête NET. On n'attend plus les mots de la
+        // transcription (c'était « je parle et Adam continue de parler »). Le seuil de 180 ms
+        // + l'annulation d'écho du navigateur rejettent les salves brèves (clic, écho résiduel).
         this.bargeWindow = { itemId: e.item_id ?? null, at: performance.now() };
         cb.onMetric?.("possible_barge_in");
         if (this.bargeInTimer) clearTimeout(this.bargeInTimer);
@@ -424,8 +428,8 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
             audioPlaying: this.audioStartedAt !== null,
           });
           if (verdict === "confirm") this.confirmBargeIn();
-          // « wait » : haut-parleur actif — seuls des mots (delta / confirmation tardive)
-          // ou la décision de fin de signal trancheront. Rien n'est coupé sur la durée seule.
+          // « wait » : la parole n'a pas encore atteint le seuil — la fin du signal
+          // (speech_stopped) ou un mot transcrit tranchera. Rien n'est perdu.
         }, BARGE_IN_SUSTAIN_MS);
         break;
       }

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OpenAIGptRealtime21Provider, type VoiceToolUi } from "@/app/(app)/assistant/realtime-voice";
+import { BARGE_IN_SUSTAIN_MS } from "@/lib/assistant/voice-tuning";
 
 /**
  * GOLDEN RÉGRESSION — LES DEUX PANNES BLOQUANTES DE L'APPEL DE PRODUCTION, rejouées sur le
@@ -247,19 +248,32 @@ describe("BUG 1 — propriété de la réponse : une analyse terminée est TOUJO
   });
 });
 
-describe("BUG 2 — fantômes : l'écho ne coupe pas, les événements périmés ne polluent pas", () => {
-  it("GOLDEN FANTÔME : signal soutenu SANS mots pendant que le haut-parleur joue → la réponse CONTINUE", async () => {
+describe("BUG 2 — barge-in natif : la parole soutenue coupe vite, le bruit bref ne coupe pas, les périmés ne polluent pas", () => {
+  it("NATIF : parole soutenue (≥180 ms) SANS mots pendant que le haut-parleur joue → COUPE (cancel + clear + truncate)", async () => {
+    // LE VIRAGE. L'ancienne politique renvoyait « CONTINUE » ici (durée seule = écho présumé),
+    // au prix d'une interruption qui traînait jusqu'à l'arrivée des mots — « je parle et Adam
+    // continue de parler ». On fait désormais confiance à l'annulation d'écho du navigateur +
+    // semantic_vad : 180 ms de parole soutenue = une vraie prise de parole, on coupe.
     const h = harness();
-    speakingScene(h);
+    speakingScene(h, "r-parle", "i-parle");
     h.feed({ type: "input_audio_buffer.speech_started", item_id: "u1" });
     expect(h.metric("possible_barge_in")).toHaveLength(1);
 
-    // 600 ms de « parole » (écho / clim / clavier soutenu) — l'ancien code coupait à 400 ms.
-    await vi.advanceTimersByTimeAsync(600);
-    expect(h.count("response.cancel")).toBe(0);
+    await vi.advanceTimersByTimeAsync(BARGE_IN_SUSTAIN_MS + 20);
+    expect(h.count("response.cancel")).toBe(1);
+    expect(h.count("output_audio_buffer.clear")).toBe(1);
+    expect(h.sent.find((s) => s.type === "conversation.item.truncate")).toMatchObject({ item_id: "i-parle" });
+    expect(h.metric("barge_in_confirmed")).toHaveLength(1);
+    expect(h.priv._state).toBe("USER_SPEAKING");
+  });
 
+  it("FAUX BARGE-IN : une salve brève (< 140 ms) sans mots, terminée → la réponse CONTINUE", async () => {
+    const h = harness();
+    speakingScene(h);
+    h.feed({ type: "input_audio_buffer.speech_started", item_id: "u-blip" });
+    await vi.advanceTimersByTimeAsync(50); // un clic / un choc bref
     h.feed({ type: "input_audio_buffer.speech_stopped" });
-    expect(h.count("response.cancel")).toBe(0); // rien coupé, la réponse continue
+    expect(h.count("response.cancel")).toBe(0); // rien coupé
     expect(h.metric("false_barge_in_ignored")).toHaveLength(1);
     expect(h.priv._state).toBe("ASSISTANT_SPEAKING"); // l'état n'a pas bougé
   });

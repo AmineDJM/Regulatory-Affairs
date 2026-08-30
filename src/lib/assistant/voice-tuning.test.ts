@@ -6,27 +6,34 @@ import {
 } from "./voice-tuning";
 
 /**
- * GOLDEN RÉGRESSION — FAILURE D (voix) : la réponse se coupait sur un clavier, une toux, une
- * porte — de faux « (intervention vocale) » en cascade. La politique est désormais un BARGE-IN
- * CONFIRMÉ, déterministe et testé : LOW FALSE INTERRUPTION + FAST TRUE INTERRUPTION.
+ * GOLDEN RÉGRESSION — BARGE-IN NATIF (audit voix 2026-08). Le geste est désormais : le serveur
+ * coupe (interrupt_response), le client confirme VITE et STT-INDÉPENDANT. Objectif jumeau :
+ * LOW FALSE INTERRUPTION (le bruit bref ne coupe pas) + FAST TRUE INTERRUPTION (une parole
+ * soutenue de 180 ms coupe, avec ou sans mots — on n'attend plus la transcription).
  */
 
-describe("bargeInDecision — le bruit ne coupe pas, la parole coupe vite", () => {
-  it("GOLDEN FAUX BARGE-IN : toux / clic / porte (signal bref, aucun mot) → la réponse CONTINUE", () => {
+describe("bargeInDecision — le bruit bref ne coupe pas, la parole soutenue coupe vite (sans les mots)", () => {
+  it("GOLDEN FAUX BARGE-IN : clic / écho résiduel bref (< 140 ms, aucun mot, terminé) → la réponse CONTINUE", () => {
     expect(bargeInDecision({ assistantBusy: true, sustainedMs: 120, hasTranscriptEvidence: false, speechStopped: true })).toBe("ignore");
     expect(bargeInDecision({ assistantBusy: true, sustainedMs: BARGE_IN_NOISE_MS - 1, hasTranscriptEvidence: false, speechStopped: true })).toBe("ignore");
   });
 
-  it("GOLDEN VRAIE INTERRUPTION : « Stop. » — des mots transcrits coupent IMMÉDIATEMENT", () => {
+  it("GOLDEN VRAIE INTERRUPTION : « Stop. » — des mots transcrits coupent IMMÉDIATEMENT (accélérateur)", () => {
     expect(bargeInDecision({ assistantBusy: true, sustainedMs: 80, hasTranscriptEvidence: true, speechStopped: false })).toBe("confirm");
   });
 
-  it("parole SOUTENUE (sans transcription encore arrivée) → interruption confirmée", () => {
-    expect(bargeInDecision({ assistantBusy: true, sustainedMs: BARGE_IN_SUSTAIN_MS, hasTranscriptEvidence: false, speechStopped: false })).toBe("confirm");
-    expect(bargeInDecision({ assistantBusy: true, sustainedMs: 900, hasTranscriptEvidence: false, speechStopped: true })).toBe("confirm");
+  it("LE CORRECTIF « Adam continue de parler » : parole soutenue ≥ 180 ms coupe MÊME pendant que le haut-parleur joue, SANS attendre les mots", () => {
+    // C'ÉTAIT la panne : l'ancienne politique renvoyait « wait » tant qu'aucun mot n'arrivait
+    // pendant l'écho — donc l'interruption traînait jusqu'à la transcription (0,4–1,5 s). La
+    // robustesse à l'écho revient maintenant à l'annulation d'écho du navigateur + semantic_vad.
+    expect(bargeInDecision({ assistantBusy: true, sustainedMs: BARGE_IN_SUSTAIN_MS, hasTranscriptEvidence: false, speechStopped: false, audioPlaying: true })).toBe("confirm");
+    expect(bargeInDecision({ assistantBusy: true, sustainedMs: 600, hasTranscriptEvidence: false, speechStopped: false, audioPlaying: true })).toBe("confirm");
+    expect(bargeInDecision({ assistantBusy: true, sustainedMs: 900, hasTranscriptEvidence: false, speechStopped: true, audioPlaying: true })).toBe("confirm");
+    // Haut-parleur MUET (réflexion) : idem, la durée soutenue confirme.
+    expect(bargeInDecision({ assistantBusy: true, sustainedMs: BARGE_IN_SUSTAIN_MS, hasTranscriptEvidence: false, speechStopped: false, audioPlaying: false })).toBe("confirm");
   });
 
-  it("signal en cours, encore court, sans mots → on ATTEND (ni coupure ni rejet)", () => {
+  it("signal en cours, encore SOUS le seuil, sans mots → on ATTEND (ni coupure ni rejet)", () => {
     expect(bargeInDecision({ assistantBusy: true, sustainedMs: 150, hasTranscriptEvidence: false, speechStopped: false })).toBe("wait");
   });
 
@@ -34,19 +41,9 @@ describe("bargeInDecision — le bruit ne coupe pas, la parole coupe vite", () =
     expect(bargeInDecision({ assistantBusy: false, sustainedMs: 0, hasTranscriptEvidence: false, speechStopped: false })).toBe("confirm");
   });
 
-  it("les seuils gardent « Stop. » rapide : confirmation soutenue ≤ 400 ms", () => {
-    expect(BARGE_IN_SUSTAIN_MS).toBeLessThanOrEqual(400);
+  it("les seuils rendent « Stop. » quasi instantané : confirmation soutenue ≤ 200 ms, plancher de bruit en dessous", () => {
+    expect(BARGE_IN_SUSTAIN_MS).toBeLessThanOrEqual(200);
     expect(BARGE_IN_NOISE_MS).toBeLessThanOrEqual(BARGE_IN_SUSTAIN_MS);
-  });
-
-  it("AUTO-PROTECTION ÉCHO : haut-parleur ACTIF → la durée seule ne confirme JAMAIS (fantômes persistants)", () => {
-    // L'écho de la propre voix de l'assistant est un « signal soutenu » parfait : 600, 2000 ms…
-    expect(bargeInDecision({ assistantBusy: true, sustainedMs: 600, hasTranscriptEvidence: false, speechStopped: false, audioPlaying: true })).toBe("wait");
-    expect(bargeInDecision({ assistantBusy: true, sustainedMs: 2_000, hasTranscriptEvidence: false, speechStopped: true, audioPlaying: true })).toBe("ignore");
-    // Des MOTS transcrits restent le témoignage recevable — la vraie interruption coupe.
-    expect(bargeInDecision({ assistantBusy: true, sustainedMs: 200, hasTranscriptEvidence: true, speechStopped: false, audioPlaying: true })).toBe("confirm");
-    // Haut-parleur MUET (réflexion) : aucune source d'écho — la durée seule confirme encore.
-    expect(bargeInDecision({ assistantBusy: true, sustainedMs: BARGE_IN_SUSTAIN_MS, hasTranscriptEvidence: false, speechStopped: false, audioPlaying: false })).toBe("confirm");
   });
 });
 
@@ -108,26 +105,28 @@ describe("isNoiseTranscript — le transcript n'est pas la vérité terrain", ()
   });
 });
 
-describe("buildTurnDetection — VAD pilotée par l'environnement, benchmarkable sans redéployer", () => {
-  it("défaut : semantic_vad, eagerness auto, interrupt_response FAUX (barge-in confirmé client)", () => {
-    expect(buildTurnDetection({})).toEqual({ type: "semantic_vad", eagerness: "auto", create_response: true, interrupt_response: false });
+describe("buildTurnDetection — NATIVE par défaut, réglable par l'environnement", () => {
+  it("défaut : semantic_vad, eagerness « low » (hésitations FR), interrupt_response VRAI (natif)", () => {
+    expect(buildTurnDetection({})).toEqual({ type: "semantic_vad", eagerness: "low", create_response: true, interrupt_response: true });
   });
 
-  it("eagerness réglable ; valeur inconnue → auto", () => {
-    expect(buildTurnDetection({ OPENAI_VOICE_VAD_EAGERNESS: "low" })).toMatchObject({ eagerness: "low" });
-    expect(buildTurnDetection({ OPENAI_VOICE_VAD_EAGERNESS: "n'importe" })).toMatchObject({ eagerness: "auto" });
+  it("eagerness réglable ; valeur inconnue → low", () => {
+    expect(buildTurnDetection({ OPENAI_VOICE_VAD_EAGERNESS: "high" })).toMatchObject({ eagerness: "high" });
+    expect(buildTurnDetection({ OPENAI_VOICE_VAD_EAGERNESS: "n'importe" })).toMatchObject({ eagerness: "low" });
   });
 
   it("server_vad tuné (threshold / prefix / silence), avec replis sûrs sur valeurs invalides", () => {
     expect(buildTurnDetection({
       OPENAI_VOICE_VAD_MODE: "server_vad", OPENAI_VOICE_VAD_THRESHOLD: "0.75",
       OPENAI_VOICE_VAD_PREFIX_MS: "200", OPENAI_VOICE_VAD_SILENCE_MS: "700",
-    })).toEqual({ type: "server_vad", threshold: 0.75, prefix_padding_ms: 200, silence_duration_ms: 700, create_response: true, interrupt_response: false });
-    expect(buildTurnDetection({ OPENAI_VOICE_VAD_MODE: "server_vad", OPENAI_VOICE_VAD_THRESHOLD: "12" })).toMatchObject({ threshold: 0.6 });
+    })).toEqual({ type: "server_vad", threshold: 0.75, prefix_padding_ms: 200, silence_duration_ms: 700, create_response: true, interrupt_response: true });
+    // Repli de silence : 600 ms par défaut (laisse respirer une hésitation courte).
+    expect(buildTurnDetection({ OPENAI_VOICE_VAD_MODE: "server_vad", OPENAI_VOICE_VAD_THRESHOLD: "12" })).toMatchObject({ threshold: 0.6, silence_duration_ms: 600 });
   });
 
-  it("OPENAI_VOICE_INTERRUPT=server rend l'interruption au serveur (pour le benchmark A/B)", () => {
-    expect(buildTurnDetection({ OPENAI_VOICE_INTERRUPT: "server" })).toMatchObject({ interrupt_response: true });
+  it("OPENAI_VOICE_INTERRUPT=client rend l'interruption au client (repli mesuré si l'écho coupait Adam)", () => {
+    expect(buildTurnDetection({ OPENAI_VOICE_INTERRUPT: "client" })).toMatchObject({ interrupt_response: false });
+    expect(buildTurnDetection({ OPENAI_VOICE_VAD_MODE: "server_vad", OPENAI_VOICE_INTERRUPT: "client" })).toMatchObject({ interrupt_response: false });
   });
 });
 

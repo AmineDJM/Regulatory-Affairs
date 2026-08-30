@@ -46,8 +46,19 @@ export const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
  */
 export const VOICE_LANGUAGE = (process.env.ADAM_VOICE_LANGUAGE || "fr").trim();
 
-/** Les voix proposées ; « marin » par défaut (posée, exécutive). Liste blanche stricte. */
-export const REALTIME_VOICES = ["marin", "cedar", "alloy", "ash", "coral", "echo", "sage", "shimmer", "verse"] as const;
+/**
+ * Les voix proposées ; « cedar » par défaut — la voix MASCULINE naturelle et posée introduite
+ * avec `gpt-realtime` (mid-range chaleureux, professionnel), demandée pour l'appel exécutif.
+ * « marin » (l'ancienne par défaut, plutôt féminine et claire) reste disponible. Liste blanche
+ * stricte, surchargeable par `OPENAI_REALTIME_VOICE`.
+ */
+export const REALTIME_VOICES = ["cedar", "marin", "alloy", "echo", "sage", "shimmer", "verse", "ballad", "coral"] as const;
+
+/** La voix par défaut de la session — masculine, réglable par environnement. */
+export const DEFAULT_REALTIME_VOICE =
+  (REALTIME_VOICES as readonly string[]).includes(process.env.OPENAI_REALTIME_VOICE ?? "")
+    ? (process.env.OPENAI_REALTIME_VOICE as string)
+    : REALTIME_VOICES[0];
 
 export function realtimeVoiceConfigured(): boolean {
   return Boolean(process.env.OPENAI_API_KEY);
@@ -296,7 +307,7 @@ export async function createVoiceSessionGrant(
   let threadId = typeof opts.threadId === "string" && opts.threadId ? opts.threadId : null;
   if (!threadId) threadId = await ensurePrimaryThread(user.id).catch(() => null);
 
-  const voice = (REALTIME_VOICES as readonly string[]).includes(opts.voice ?? "") ? (opts.voice as string) : REALTIME_VOICES[0];
+  const voice = (REALTIME_VOICES as readonly string[]).includes(opts.voice ?? "") ? (opts.voice as string) : DEFAULT_REALTIME_VOICE;
   const instructions = await buildVoiceInstructions(user, threadId, opts.screenContext ?? null);
   const tools = realtimeToolsFor(user);
 
@@ -326,10 +337,12 @@ export async function createVoiceSessionGrant(
             model: process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe",
             language: VOICE_LANGUAGE,
           },
-          // Détection de tour PILOTÉE PAR L'ENVIRONNEMENT (semantic_vad par défaut, server_vad
-          // tunable pour le benchmark). `interrupt_response` est FAUX par défaut : le premier
-          // speech-start bruité ne tue plus la réponse — le client CONFIRME le barge-in
-          // (mots transcrits ou parole soutenue) puis annule proprement. Voir voice-tuning.ts.
+          // Détection de tour NATIVE (semantic_vad, eagerness « low » pour les hésitations
+          // françaises ; server_vad tunable pour le benchmark). `interrupt_response` est VRAI
+          // par défaut : le serveur coupe la génération dès qu'il entend la parole —
+          // l'interruption est immédiate et naturelle, le client ne fait que vider le tampon
+          // audio local. Repli `OPENAI_VOICE_INTERRUPT=client` si un écho réel coupait Adam.
+          // Voir voice-tuning.ts.
           turn_detection: buildTurnDetection(),
         },
         output: { voice },
