@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireModule } from "@/lib/session";
-import { userCan, holdsRegulatoryLock, seesLockedRegulatory } from "@/lib/rbac";
+import { userCan, holdsRegulatoryLock, seesLockedRegulatory, anyRoleFilter } from "@/lib/rbac";
 import { canSetStructural } from "@/lib/regulatory/structural-fields";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
@@ -43,9 +43,10 @@ export default async function BusinessDevelopmentPipelinePage() {
   // tous. Le verrou est le critère, pas l'étape.
   const pipeline = rows.filter((r) => r.isLocked);
 
+  // Rôle SECONDAIRE compris — voir la même liste sur le suivi des dossiers.
   const assignableUsers = canAssign || canCreate
     ? await prisma.user.findMany({
-        where: { isActive: true, role: { in: ["HEAD_OF_REGULATORY", "REGULATORY_ASSISTANT", "DIRECTION"] } },
+        where: { isActive: true, ...anyRoleFilter(["HEAD_OF_REGULATORY", "REGULATORY_ASSISTANT", "DIRECTION"]) },
         select: { id: true, name: true, role: true },
         orderBy: { name: "asc" },
       })

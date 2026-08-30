@@ -18,9 +18,11 @@ import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { ProductDriveExplorer } from "@/components/documents/product-drive-explorer";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { RegulatoryProcess, RegulatoryChecklist } from "./anpp-process";
+import { RegulatoryProcess } from "./anpp-process";
 import { regProgress, regChecklistProgress, type RegWorkflowState, type RegChecklistState } from "@/lib/regulatory-workflow";
 import { StatusEditor } from "./status-editor";
+import { DossierMenu } from "./dossier-menu";
+import { deriveStatus, explainStatus } from "@/lib/regulatory/process-status";
 import { EditProductButton } from "../edit-product";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { BvRequests, type BvItem } from "./bv-requests";
@@ -31,13 +33,12 @@ import { suggestedExternalStatus } from "@/lib/regulatory-external";
 import { PRIORITY, REGULATORY_STATUS, MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRODUCT_CHANNEL, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 import { canSetStructural } from "@/lib/regulatory/structural-fields";
 import { VariationPanel } from "./variation-panel";
-import { ParticipantsPanel } from "./participants-panel";
 import { SupervisionControls } from "./supervision-controls";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { SupplierViewCard } from "./supplier-view-card";
 import { DossierUploadButton } from "./upload-button";
-import { DossierTimeline, type TimelineStepView } from "./dossier-timeline";
-import { orderSteps, summarize, type DossierStepKind } from "@/lib/regulatory/dossier-timeline";
+import { type TimelineStepView } from "./dossier-timeline";
+import { orderSteps, type DossierStepKind } from "@/lib/regulatory/dossier-timeline";
 import { getMyCompanies } from "@/lib/company";
 
 const REG_DOC_CATEGORIES = [
@@ -120,6 +121,10 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
   const checklist = (product.checklist as RegChecklistState | null) ?? null;
   const wfProgress = regProgress(workflow);
   const clProgress = regChecklistProgress(checklist);
+  // LE NIVEAU DE PROCESS SE LIT dans les étapes — il ne se choisit plus (voir
+  // `lib/regulatory/process-status.ts`). Ce que la fiche PORTE peut encore être en retard
+  // d'un instant sur ce que le processus dit : on affiche la valeur déduite, qui fait foi.
+  const derived = deriveStatus(workflow, product.status);
 
   const toDocItem = (d: (typeof documents)[number]): DocItem => ({
     id: d.id,
@@ -232,14 +237,25 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
                 users={users}
                 suppliers={suppliers}
               />
-              <StatusEditor id={product.id} status={product.status} priority={product.priority} />
+              <StatusEditor id={product.id} status={derived.status} statusHint={explainStatus(derived)} priority={product.priority} />
             </div>
           ) : (
-            <StatusBadge map={REGULATORY_STATUS} value={product.status} />
+            <StatusBadge map={REGULATORY_STATUS} value={derived.status} />
           )}
           {/* LE DÉPÔT EST EN TÊTE : poser le CTD initial est le geste le plus fréquent du
               module, il ne doit pas se chercher au fond de la colonne de droite. */}
-          {canUpload && <DossierUploadButton productId={product.id} categories={REG_DOC_CATEGORIES} />}
+          <div className="flex items-center gap-2">
+            {canUpload && <DossierUploadButton productId={product.id} categories={REG_DOC_CATEGORIES} />}
+            {/* LES RÉGLAGES DU DOSSIER derrière « ⋯ » : les participants ne méritaient pas une
+                carte entière dans la colonne qu'on lit tous les jours. */}
+            <DossierMenu
+              productId={product.id}
+              participants={product.assignedUsers}
+              allUsers={users.map((u) => ({ id: u.id, name: u.name }))}
+              coreIds={[product.responsibleId, product.assistantId].filter((x): x is string => Boolean(x))}
+              canEdit={canUpdate}
+            />
+          </div>
           <SuperAdminDeleteButton kind="REGULATORY_PRODUCT" id={product.id} name={`${product.reference} — ${product.dci}`} enabled={user.role === "SUPER_ADMIN"} />
         </div>
       </div>
@@ -291,19 +307,6 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Participants</CardTitle></CardHeader>
-            <CardContent>
-              <ParticipantsPanel
-                productId={product.id}
-                participants={product.assignedUsers}
-                allUsers={users.map((u) => ({ id: u.id, name: u.name }))}
-                coreIds={[product.responsibleId, product.assistantId].filter((x): x is string => Boolean(x))}
-                canEdit={canUpdate}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
             <CardHeader><CardTitle>Variations de fabrication</CardTitle></CardHeader>
             <CardContent>
               <VariationPanel
@@ -328,52 +331,40 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
             </CardContent>
           </Card>
 
+          {/* LE DOSSIER EST UNE FRISE VERTICALE — une seule, celle du processus réel.
+              La check-list de présoumission, la demande de BV et les allers-retours avec
+              l'ANPP y sont DANS l'étape à laquelle ils appartiennent : on ne quitte plus le
+              parcours pour faire ce que le parcours demande. */}
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <CardTitle>Processus d'enregistrement ANPP</CardTitle>
-              <Badge tone={wfProgress.pct === 100 ? "success" : "info"} dot={false}>{wfProgress.done}/{wfProgress.total} étapes</Badge>
-            </CardHeader>
-            <CardContent>
-              <RegulatoryProcess productId={product.id} workflow={workflow} canUpdate={canUpdate} canUpload={canUpload} canDelete={canDelete} stepDocs={stepDocs} path={`/regulatory/${product.id}`} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex-row items-center justify-between">
-              <CardTitle>Checklist de présoumission</CardTitle>
-              <Badge tone={clProgress.pct === 100 ? "success" : "neutral"} dot={false}>{clProgress.checked}/{clProgress.total} documents</Badge>
-            </CardHeader>
-            <CardContent>
-              <RegulatoryChecklist productId={product.id} checklist={checklist} canUpdate={canUpdate} />
-            </CardContent>
-          </Card>
-
-          {/* LA FRISE DU DOSSIER — l'histoire du CTD, de haut en bas. Elle remplace la pile
-              de PDF à plat : on y voyait DES pièces, jamais le CHEMIN, et plus personne ne
-              savait si une réponse portait sur les premières réserves ou sur celles de la v3. */}
-          <Card>
-            <CardHeader className="flex-row items-center justify-between">
-              <CardTitle>Frise du dossier — réserves, réponses &amp; versions</CardTitle>
-              <Badge tone="neutral" dot={false}>{summarize(timeline)}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge tone={clProgress.pct === 100 ? "success" : "neutral"} dot={false}>{clProgress.checked}/{clProgress.total} documents</Badge>
+                <Badge tone={wfProgress.pct === 100 ? "success" : "info"} dot={false}>{wfProgress.done}/{wfProgress.total} étapes</Badge>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <DossierTimeline
+              <RegulatoryProcess
                 productId={product.id}
-                steps={timeline}
+                reference={product.reference}
+                workflow={workflow}
+                checklist={checklist}
                 canUpdate={canUpdate}
                 canUpload={canUpload}
                 canDelete={canDelete}
+                stepDocs={stepDocs}
+                dossierSteps={timeline}
                 path={`/regulatory/${product.id}`}
               />
 
               {/* LES PIÈCES D'AVANT LA FRISE. Les réserves déposées quand la section était une
                   simple pile existent toujours : les masquer les ferait « disparaître » pour
-                  ceux qui les ont déposées. Elles restent ici, et se rattachent à une étape en
-                  les redéposant au bon endroit. */}
+                  ceux qui les ont déposées. Elles se rattachent à une étape en les redéposant
+                  au bon endroit. */}
               {reserveDocs.length > 0 && (
                 <div className="space-y-2 rounded-lg border border-border bg-secondary/30 p-3">
                   <p className="text-xs font-medium">
-                    Pièces déposées avant la frise ({reserveDocs.length})
+                    Pièces de réserves déposées avant la frise ({reserveDocs.length})
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Elles ne sont rattachées à aucune étape. Redéposez-les depuis l&apos;étape
@@ -464,7 +455,7 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
               <Badge tone="neutral">{bvItems.length}</Badge>
             </CardHeader>
             <CardContent>
-              <BvRequests productId={product.id} items={bvItems} canRequest={canUpdate} />
+              <BvRequests items={bvItems} />
             </CardContent>
           </Card>
 

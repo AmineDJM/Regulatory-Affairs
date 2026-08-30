@@ -53,14 +53,14 @@ export interface EditProductValues {
  * lui est transmis, laisse la valeur telle quelle. Un `<select disabled>` aurait fait la même
  * chose visuellement, mais un champ grisé donne envie de cliquer — celui-ci dit pourquoi.
  */
-function LockedField({ label, value }: { label: string; value: string }) {
+function LockedField({ label, value, hint = "Réservé au Super Admin." }: { label: string; value: string; hint?: string }) {
   return (
     <div className="min-w-0 space-y-1">
       <span className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
         <Lock className="h-3.5 w-3.5" /> {label}
       </span>
       <p className="truncate rounded-lg border border-dashed border-border bg-secondary/30 px-3 py-2 text-sm">{value}</p>
-      <p className="text-xs text-muted-foreground">Réservé au Super Admin.</p>
+      <p className="text-xs text-muted-foreground">{hint}</p>
     </div>
   );
 }
@@ -144,7 +144,10 @@ export function EditProductButton({ product, users, suppliers, companies, canSet
               <LockedField label="Statut de fabrication" value={MANUFACTURING_STATUS[product.manufacturingStatus] ?? product.manufacturingStatus} />
             )}
             <SelectField label="Priorité" name="priority" options={optionsFromMap(PRIORITY)} defaultValue={product.priority} />
-            <SelectField label="Statut" name="status" options={optionsFromMap(REGULATORY_STATUS)} defaultValue={product.status} />
+            {/* LE NIVEAU DE PROCESS NE SE SAISIT PLUS : il est déduit des étapes du processus
+                d'enregistrement. Le laisser modifiable ici recréerait la divergence qu'on vient
+                de fermer — l'écran disant une chose, les étapes une autre. */}
+            <LockedField label="Niveau de process (déduit du processus)" value={REGULATORY_STATUS[product.status]?.label ?? product.status} />
             {canSetStructural ? (
               <SelectField label="Chargé du dossier" name="responsibleId" options={userOptions} placeholder="—" defaultValue={product.responsibleId ?? ""} />
             ) : (

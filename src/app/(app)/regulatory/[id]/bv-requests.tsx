@@ -2,11 +2,11 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Loader2, ReceiptText, FileUp } from "lucide-react";
+import { Loader2, ReceiptText, FileUp, X } from "lucide-react";
 import { requestBV } from "@/lib/actions/regulatory-actions";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
-import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { Input, Label, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 
 export interface BvItem {
@@ -29,95 +29,145 @@ const BV_STATUS: Record<string, { label: string; tone: "warning" | "success" | "
 const fmtDZD = (n: number) => `${n.toLocaleString("fr-FR")} DZD`;
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("fr-FR") : null);
 
-export function BvRequests({ productId, items, canRequest }: { productId: string; items: BvItem[]; canRequest: boolean }) {
+/**
+ * LA DEMANDE DE BV SE FAIT DEPUIS L'ÉTAPE QUI LA PORTE.
+ *
+ * Le bouton vivait dans une carte de la colonne de droite, à côté d'une liste. On lisait le
+ * processus à gauche — « 3. Demande du BV 25 % » — et il fallait aller chercher le formulaire
+ * ailleurs, sans que rien ne relie les deux : l'étape restait à cocher à la main, et l'on
+ * découvrait des dossiers où le BV était demandé mais l'étape jamais faite.
+ *
+ * Le type de BV n'est plus un menu déroulant : il est DÉTERMINÉ par l'étape d'où l'on part.
+ * Choisir « BV 75 % » depuis l'étape « Demande du BV 25 % » était possible, et ne voulait rien
+ * dire.
+ */
+export function BvRequestSheet({
+  productId, stepKey, bvType, onClose,
+}: {
+  productId: string;
+  stepKey: string;
+  bvType: string;
+  onClose: () => void;
+}) {
   const router = useRouter();
-  const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [fileName, setFileName] = React.useState<string | null>(null);
+  const [files, setFiles] = React.useState<File[]>([]);
 
   return (
-    <div className="space-y-3">
-      {canRequest && (
-        <Button size="sm" onClick={() => { setError(null); setFileName(null); setOpen(true); }}>
-          <Plus className="h-4 w-4" /> Demande de BV
-        </Button>
-      )}
-
-      {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Aucune demande de BV pour ce dossier.</p>
-      ) : (
-        <ul className="divide-y divide-border">
-          {items.map((b) => (
-            <li key={b.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-              <div className="min-w-0">
-                <p className="truncate font-medium">{b.label}</p>
-                <p className="text-xs text-muted-foreground">
-                  <span className="font-mono">{b.reference}</span> · {fmtDZD(b.amount)}
-                  {b.dueDate && <> · échéance {fmtDate(b.dueDate)}</>}
-                  {b.paidDate && <> · réglé le {fmtDate(b.paidDate)}</>}
-                </p>
-              </div>
-              <Badge tone={BV_STATUS[b.status]?.tone ?? "neutral"} dot={false}>{BV_STATUS[b.status]?.label ?? b.status}</Badge>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <Sheet open={open} onClose={() => !busy && setOpen(false)} title="Demande de BV" description="Envoyée à l'espace comptable (ordre de dépense).">
-        <form
-          action={async (fd) => {
-            setBusy(true); setError(null);
-            fd.set("productId", productId);
-            const r = await requestBV(fd);
-            setBusy(false);
-            if (r.ok) { setOpen(false); router.refresh(); }
-            else setError(r.error ?? "Échec.");
-          }}
-          className="space-y-4"
-        >
+    <Sheet
+      open
+      onClose={() => !busy && onClose()}
+      title={`Demander le ${bvType}`}
+      description="Envoyée à l'espace comptable (ordre de dépense). L'étape du processus est cochée du même geste."
+    >
+      <form
+        action={async (fd) => {
+          setBusy(true); setError(null);
+          fd.set("productId", productId);
+          fd.set("bvType", bvType);
+          fd.set("stepKey", stepKey);
+          for (const f of files) fd.append("files", f);
+          const r = await requestBV(fd);
+          setBusy(false);
+          if (r.ok) { onClose(); router.refresh(); }
+          else setError(r.error ?? "Échec.");
+        }}
+        className="space-y-4"
+      >
+        <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label htmlFor="bvType">Type de BV</Label>
-            <Select id="bvType" name="bvType" defaultValue="BV 25 %">
-              <option value="BV 25 %">BV 25 %</option>
-              <option value="BV 75 %">BV 75 %</option>
-              <option value="BV complémentaire">BV complémentaire</option>
-              <option value="BV">Autre BV</option>
-            </Select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="amount">Montant (DZD)</Label>
-              <Input id="amount" name="amount" type="number" step="any" min="1" required placeholder="Ex. 150000" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="dueDate">Échéance souhaitée</Label>
-              <Input id="dueDate" name="dueDate" type="date" />
-            </div>
+            <Label htmlFor="amount">Montant (DZD)</Label>
+            <Input id="amount" name="amount" type="number" step="any" min="1" required placeholder="Ex. 150000" />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="note">Note pour le comptable</Label>
-            <Textarea id="note" name="note" placeholder="Précisions éventuelles (référence, urgence…)" />
+            <Label htmlFor="dueDate">Échéance souhaitée</Label>
+            <Input id="dueDate" name="dueDate" type="date" />
           </div>
-          <div className="space-y-1.5">
-            <Label>Justificatif (proforma BV, PDF…)</Label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5 text-sm hover:bg-muted/50">
-              <FileUp className="h-4 w-4 text-muted-foreground" />
-              <span className="truncate">{fileName ?? "Joindre un document (optionnel)"}</span>
-              <input type="file" name="file" className="hidden" onChange={(e) => setFileName(e.target.files?.[0]?.name ?? null)} />
-            </label>
-          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="note">Note pour le comptable</Label>
+          <Textarea id="note" name="note" placeholder="Précisions éventuelles (référence, urgence…)" />
+        </div>
 
-          {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+        {/* UNE OU PLUSIEURS PIÈCES : un BV arrive rarement seul (proforma, courrier de
+            l'agence, calcul du montant). N'en accepter qu'une revenait à déposer le reste
+            ailleurs, c'est-à-dire nulle part. */}
+        <div className="space-y-1.5">
+          <Label>Pièces jointes (proforma BV, courrier ANPP…)</Label>
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5 text-sm hover:bg-muted/50">
+            <FileUp className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="truncate">Ajouter un ou plusieurs documents (optionnel)</span>
+            <input
+              type="file" multiple className="hidden"
+              onChange={(e) => {
+                setFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])]);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          {files.length > 0 && (
+            <ul className="space-y-1">
+              {files.map((f, i) => (
+                <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 rounded-md bg-secondary/50 px-2 py-1 text-xs">
+                  <span className="truncate">{f.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                    className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                    aria-label={`Retirer ${f.name}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-          <div className="flex justify-end gap-2 pt-1">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={busy}>Annuler</Button>
-            <Button type="submit" disabled={busy}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ReceiptText className="h-4 w-4" />} Envoyer au comptable
-            </Button>
+        {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Annuler</Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ReceiptText className="h-4 w-4" />} Envoyer au comptable
+          </Button>
+        </div>
+      </form>
+    </Sheet>
+  );
+}
+
+/**
+ * LE SUIVI des bons de versement — une LISTE, plus un formulaire.
+ *
+ * On y lit ce qui est demandé, ce qui est réglé et quand. La DEMANDE, elle, part de l'étape du
+ * processus : deux portes pour le même geste auraient fini par produire des BV demandés hors
+ * de toute étape.
+ */
+export function BvRequests({ items }: { items: BvItem[] }) {
+  if (items.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Aucune demande de BV. Elle se fait depuis l&apos;étape « Demande du BV » du processus d&apos;enregistrement.
+      </p>
+    );
+  }
+  return (
+    <ul className="divide-y divide-border">
+      {items.map((b) => (
+        <li key={b.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+          <div className="min-w-0">
+            <p className="truncate font-medium">{b.label}</p>
+            <p className="text-xs text-muted-foreground">
+              <span className="font-mono">{b.reference}</span> · {fmtDZD(b.amount)}
+              {b.dueDate && <> · échéance {fmtDate(b.dueDate)}</>}
+              {b.paidDate && <> · réglé le {fmtDate(b.paidDate)}</>}
+            </p>
           </div>
-        </form>
-      </Sheet>
-    </div>
+          <Badge tone={BV_STATUS[b.status]?.tone ?? "neutral"} dot={false}>{BV_STATUS[b.status]?.label ?? b.status}</Badge>
+        </li>
+      ))}
+    </ul>
   );
 }

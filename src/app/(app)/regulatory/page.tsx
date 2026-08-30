@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { AlertTriangle, Link2 } from "lucide-react";
+import { AlertTriangle, Link2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { requireModule } from "@/lib/session";
-import { userCan, scopeRegulatory, isRegulatorySupervisor } from "@/lib/rbac";
+import { userCan, scopeRegulatory, isRegulatorySupervisor, anyRoleFilter } from "@/lib/rbac";
 import { canSetStructural } from "@/lib/regulatory/structural-fields";
 import { prisma } from "@/lib/prisma";
 import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
@@ -36,12 +36,13 @@ export default async function RegulatoryPage() {
 
   // Personnes à qui un dossier peut être confié : l'équipe Regulatory + la Direction. Sert au
   // formulaire de création ET au menu déroulant « Chargé du dossier » du tableau.
+  // LE RÔLE SECONDAIRE COMPTE. Quelqu'un à qui l'administration a donné « Assistante
+  // réglementaire » en SECOND rôle fait le travail réglementaire — et n'apparaissait pourtant
+  // pas dans la liste : on filtrait sur le rôle principal seul. `anyRoleFilter` regarde les
+  // deux, comme partout ailleurs (notifications, portées).
   const assignableUsers = canCreate || canAssign
     ? await prisma.user.findMany({
-        where: {
-          isActive: true,
-          role: { in: ["HEAD_OF_REGULATORY", "REGULATORY_ASSISTANT", "DIRECTION"] },
-        },
+        where: { isActive: true, ...anyRoleFilter(["HEAD_OF_REGULATORY", "REGULATORY_ASSISTANT", "DIRECTION"]) },
         select: { id: true, name: true, role: true },
         orderBy: { name: "asc" },
       })
@@ -55,9 +56,17 @@ export default async function RegulatoryPage() {
       })
     : [];
 
-  // Compté sur les produits DÉJÀ chargés — même portée, mêmes droits : on ne signale jamais un
-  // dossier que la personne n'aurait pas le droit de voir, et cela évite une requête de plus.
-  const unassignedCount = products.filter((p) => !p.companyId).length;
+  // Compté sur les dossiers RÉELLEMENT AFFICHÉS ici — pas sur tout le portefeuille. Le compte
+  // incluait les dossiers verrouillés : cet écran annonçait donc « 12 dossiers sans entité » en
+  // n'en montrant que quatre, et l'on cherchait les huit autres dans un tableau qui ne les
+  // contient pas. Ceux du pipeline se signalent au pipeline.
+  const visibleIds = new Set(visible.map((r) => r.id));
+  const unassignedCount = products.filter((p) => !p.companyId && visibleIds.has(p.id)).length;
+  // CE QUI N'EST PAS ICI, ET OÙ C'EST. Les deux écrans sont bien séparés — le verrou tranche —
+  // mais rien ne le DISAIT : on comptait 84 dossiers dans le module et l'on en voyait 15, sans
+  // savoir si les autres étaient perdus ou ailleurs. Une ligne suffit, et elle ne s'affiche
+  // qu'à ceux qui ont accès au pipeline.
+  const lockedCount = rows.length - visible.length;
 
   // LA RELANCE DE MISE À JOUR — réservée au Super Admin et au Directeur Général. Le tableau des
   // portefeuilles n'est chargé que pour eux : personne d'autre ne doit voir qui porte combien.
@@ -109,6 +118,18 @@ export default async function RegulatoryPage() {
             toute personne en vue « toutes les entités ». Ouvrez {unassignedCount > 1 ? "-les" : "-le"} et
             renseignez l&apos;entité.
           </span>
+        </p>
+      )}
+
+      {canLock && lockedCount > 0 && (
+        <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+          <Lock className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            <strong>{lockedCount} dossier{lockedCount > 1 ? "s" : ""} verrouillé{lockedCount > 1 ? "s" : ""}</strong>{" "}
+            {lockedCount > 1 ? "ne figurent" : "ne figure"} pas ici : {lockedCount > 1 ? "ils vivent" : "il vit"} au
+          </span>
+          <Link href="/regulatory/pipeline" className="font-medium text-primary hover:underline">Pipeline</Link>
+          <span>jusqu&apos;à l&apos;ouverture du cadenas.</span>
         </p>
       )}
 

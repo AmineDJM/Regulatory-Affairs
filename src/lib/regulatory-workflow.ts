@@ -30,7 +30,7 @@ export const REG_PHASES: RegPhase[] = [
   { key: "FINAL", label: "Finalisation" },
 ];
 
-/** Les 22 étapes officielles (numéro, libellé, responsable, résultat attendu). */
+/** Les 23 étapes officielles (numéro, libellé, responsable, résultat attendu). */
 export const REG_STEPS: RegStep[] = [
   { key: "ctd", phase: "PREP", n: 1, label: "Réception du CTD complet", responsible: "Fournisseur / RA", expected: "Dossier complet" },
   { key: "sample", phase: "PREP", n: 2, label: "Réception de l'échantillon", responsible: "Fournisseur", expected: "Échantillon conforme (avant le démarrage de la procédure)" },
@@ -38,22 +38,64 @@ export const REG_STEPS: RegStep[] = [
   { key: "bv25_pay", phase: "PREP", n: 4, label: "Paiement du BV 25 %", responsible: "Finance", expected: "Paiement effectué" },
   { key: "presub_req", phase: "PREP", n: 5, label: "Demande de présoumission", responsible: "RA", expected: "Demande avec toutes les informations correctes" },
   { key: "presub_ans", phase: "PREP", n: 6, label: "Réponse de la présoumission", responsible: "ANPP", expected: "Favorable → continuer · Défavorable → corriger puis redemander" },
-  { key: "bv75_req", phase: "ADMIN", n: 7, label: "Demande du BV 75 %", responsible: "RA", expected: "BV avec toutes les informations correctes" },
-  { key: "module1", phase: "ADMIN", n: 8, label: "Collecte des documents du Module 1 (électroniques + légalisés)", responsible: "RA / Fournisseur", expected: "Documents valides et conformes (sans attendre obligatoirement la présoumission)" },
-  { key: "docs_check", phase: "ADMIN", n: 9, label: "Vérification des documents", responsible: "RA", expected: "Contrôle des dates d'expiration et de la conformité" },
-  { key: "bv75_pay", phase: "ADMIN", n: 10, label: "Paiement du BV 75 %", responsible: "Finance", expected: "Après constitution du dossier" },
-  { key: "rdv", phase: "DEPOT", n: 11, label: "Prise de rendez-vous ANPP", responsible: "RA", expected: "Chaque mercredi à 10 h selon le calendrier ANPP (production / importation en alternance)" },
-  { key: "depot", phase: "DEPOT", n: 12, label: "Dépôt du dossier", responsible: "RA", expected: "Dépôt officiel (physique) auprès de l'ANPP" },
-  { key: "recevabilite", phase: "DEPOT", n: 13, label: "Notification de recevabilité", responsible: "ANPP", expected: "Recevable · Différé avec réserves (Module 1) · Irrecevable" },
-  { key: "evaluation", phase: "EVAL", n: 14, label: "Évaluation ANPP", responsible: "ANPP", expected: "Technico-réglementaire, prix, évaluation scientifique" },
-  { key: "reserves_recv", phase: "EVAL", n: 15, label: "Réception des réserves", responsible: "ANPP", expected: "Réserves de chaque sous-direction reçues séparément" },
-  { key: "reserves_analyse", phase: "EVAL", n: 16, label: "Analyse et traduction des réserves", responsible: "RA", expected: "Analyse interne puis traduction" },
-  { key: "reserves_transmit", phase: "EVAL", n: 17, label: "Transmission au laboratoire", responsible: "RA", expected: "Communication officielle des réserves" },
-  { key: "reponses_recv", phase: "EVAL", n: 18, label: "Réception des réponses du laboratoire", responsible: "Fournisseur", expected: "Délai variable selon les réserves" },
-  { key: "reponses_check", phase: "EVAL", n: 19, label: "Vérification des réponses", responsible: "RA", expected: "Toutes les réserves doivent être couvertes" },
-  { key: "reponses_depot", phase: "EVAL", n: 20, label: "Dépôt des réponses auprès de l'ANPP", responsible: "RA", expected: "Transmission à l'ANPP" },
-  { key: "commission", phase: "FINAL", n: 21, label: "Passage en commission", responsible: "ANPP", expected: "Après validation des réponses" },
-  { key: "decision", phase: "FINAL", n: 22, label: "Décision d'enregistrement + attestation de prix", responsible: "ANPP", expected: "Clôture du processus" },
+  // ÉTUDE DES MODULES 3-4-5 AVANT D'ENGAGER LE BV 75 %. Le BV 75 % est la dépense la plus
+  // lourde du dossier : l'engager avant d'avoir lu la qualité, le préclinique et le clinique,
+  // c'est payer pour découvrir ensuite qu'il manque une étude. L'étape existe pour que cette
+  // lecture soit un passage, pas une bonne intention.
+  { key: "modules345", phase: "ADMIN", n: 7, label: "Étude des modules 3, 4 et 5", responsible: "RA", expected: "Qualité, préclinique et clinique lus et jugés déposables — AVANT d'engager le BV 75 %" },
+  { key: "bv75_req", phase: "ADMIN", n: 8, label: "Demande du BV 75 %", responsible: "RA", expected: "BV avec toutes les informations correctes" },
+  { key: "module1", phase: "ADMIN", n: 9, label: "Collecte des documents du Module 1 (électroniques + légalisés)", responsible: "RA / Fournisseur", expected: "Documents valides et conformes (sans attendre obligatoirement la présoumission)" },
+  { key: "docs_check", phase: "ADMIN", n: 10, label: "Vérification des documents", responsible: "RA", expected: "Contrôle des dates d'expiration et de la conformité" },
+  { key: "bv75_pay", phase: "ADMIN", n: 11, label: "Paiement du BV 75 %", responsible: "Finance", expected: "Après constitution du dossier" },
+  { key: "rdv", phase: "DEPOT", n: 12, label: "Prise de rendez-vous ANPP", responsible: "RA", expected: "Chaque mercredi à 10 h selon le calendrier ANPP (production / importation en alternance)" },
+  { key: "depot", phase: "DEPOT", n: 13, label: "Dépôt du dossier", responsible: "RA", expected: "Dépôt officiel (physique) auprès de l'ANPP" },
+  { key: "recevabilite", phase: "DEPOT", n: 14, label: "Notification de recevabilité", responsible: "ANPP", expected: "Recevable · Différé avec réserves (Module 1) · Irrecevable" },
+  { key: "evaluation", phase: "EVAL", n: 15, label: "Évaluation ANPP", responsible: "ANPP", expected: "Technico-réglementaire, prix, évaluation scientifique" },
+  { key: "reserves_recv", phase: "EVAL", n: 16, label: "Réception des réserves", responsible: "ANPP", expected: "Réserves de chaque sous-direction reçues séparément" },
+  { key: "reserves_analyse", phase: "EVAL", n: 17, label: "Analyse et traduction des réserves", responsible: "RA", expected: "Analyse interne puis traduction" },
+  { key: "reserves_transmit", phase: "EVAL", n: 18, label: "Transmission au laboratoire", responsible: "RA", expected: "Communication officielle des réserves" },
+  { key: "reponses_recv", phase: "EVAL", n: 19, label: "Réception des réponses du laboratoire", responsible: "Fournisseur", expected: "Délai variable selon les réserves" },
+  { key: "reponses_check", phase: "EVAL", n: 20, label: "Vérification des réponses", responsible: "RA", expected: "Toutes les réserves doivent être couvertes" },
+  { key: "reponses_depot", phase: "EVAL", n: 21, label: "Dépôt des réponses auprès de l'ANPP", responsible: "RA", expected: "Transmission à l'ANPP" },
+  { key: "commission", phase: "FINAL", n: 22, label: "Passage en commission", responsible: "ANPP", expected: "Après validation des réponses" },
+  { key: "decision", phase: "FINAL", n: 23, label: "Décision d'enregistrement + attestation de prix", responsible: "ANPP", expected: "Clôture du processus" },
+];
+
+/**
+ * LES TROIS ENDROITS OÙ LE PROCESSUS N'EST PLUS UNE SIMPLE CASE À COCHER.
+ *
+ * Le processus officiel est une liste ; le travail réel ne l'est pas. Trois de ses étapes
+ * portent en vérité un objet vivant, et l'écran les ouvre sur place plutôt que de renvoyer
+ * ailleurs — sortir du dossier pour y revenir est exactement ce qui faisait qu'on ne le
+ * tenait pas à jour.
+ */
+
+/** Après CETTE étape, la présoumission déploie sa check-list de documents (vue pliable). */
+export const PRESUB_CHECKLIST_AFTER_STEP = "ctd";
+
+/** Les étapes qui DEMANDENT un bon de versement : cliquer dessus ouvre la demande. */
+export const BV_REQUEST_STEPS: Record<string, string> = {
+  bv25_req: "BV 25 %",
+  bv75_req: "BV 75 %",
+};
+
+/** Les étapes de paiement correspondantes — utiles pour dire « demandé, pas encore payé ». */
+export const BV_PAYMENT_STEPS: Record<string, string> = {
+  bv25_req: "bv25_pay",
+  bv75_req: "bv75_pay",
+};
+
+/**
+ * LE CYCLE DES RÉSERVES — six étapes qui, dans la vraie vie, se répètent.
+ *
+ * L'ANPP envoie des réserves, on les analyse, on les transmet, le laboratoire répond, on
+ * vérifie, on redépose… puis elle en renvoie d'autres. Six cases cochées une fois ne racontent
+ * pas trois cycles. Ces étapes-là sont donc regroupées à l'écran autour de la FRISE du dossier,
+ * qui porte les allers-retours réels ; les cases restent, comme jalons officiels.
+ */
+export const ANPP_EXCHANGE_STEPS: string[] = [
+  "reserves_recv", "reserves_analyse", "reserves_transmit",
+  "reponses_recv", "reponses_check", "reponses_depot",
 ];
 
 export interface RegChecklistItem { key: string; label: string; hint?: string }

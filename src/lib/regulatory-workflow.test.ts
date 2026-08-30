@@ -9,16 +9,16 @@ import {
 } from "./regulatory-workflow";
 
 describe("regulatory ANPP workflow", () => {
-  it("définit 22 étapes réparties sur 5 phases, clés uniques", () => {
-    expect(REG_STEPS).toHaveLength(22);
+  it("définit 23 étapes réparties sur 5 phases, clés uniques", () => {
+    expect(REG_STEPS).toHaveLength(23);
     expect(REG_PHASES).toHaveLength(5);
     const keys = REG_STEPS.map((s) => s.key);
-    expect(new Set(keys).size).toBe(22);
+    expect(new Set(keys).size).toBe(23);
     // chaque étape pointe vers une phase connue
     const phaseKeys = new Set(REG_PHASES.map((p) => p.key));
     for (const s of REG_STEPS) expect(phaseKeys.has(s.phase)).toBe(true);
-    // numéros 1..22 dans l'ordre
-    expect(REG_STEPS.map((s) => s.n)).toEqual(Array.from({ length: 22 }, (_, i) => i + 1));
+    // numéros 1..23 dans l'ordre
+    expect(REG_STEPS.map((s) => s.n)).toEqual(Array.from({ length: 23 }, (_, i) => i + 1));
   });
 
   it("checklist : groupes non vides, clés uniques", () => {
@@ -31,7 +31,7 @@ describe("regulatory ANPP workflow", () => {
   it("regProgress : vide → 0 fait, étape courante = la 1re", () => {
     const p = regProgress(null);
     expect(p.done).toBe(0);
-    expect(p.total).toBe(22);
+    expect(p.total).toBe(23);
     expect(p.pct).toBe(0);
     expect(p.current?.n).toBe(1);
   });
@@ -106,14 +106,17 @@ describe("regulatory ANPP workflow", () => {
 });
 
 describe("completeStepsThrough — un statut posé compte les étapes jusqu'à son jalon", () => {
-  it("« Déposé » (SUBMITTED) → les étapes 1 à 12 sont faites, les suivantes JAMAIS touchées", () => {
+  it("« Déposé » (SUBMITTED) → les étapes jusqu'au dépôt sont faites, les suivantes JAMAIS touchées", () => {
+    // Le dépôt est l'étape 13 depuis l'ajout de « Étude des modules 3, 4 et 5 » : on le lit
+    // dans REG_STEPS plutôt que d'écrire le nombre, pour que le test survive au prochain ajout.
+    const depotN = REG_STEPS.find((s) => s.key === "depot")!.n;
     const { state, changed } = completeStepsThrough(null, REG_STATUS_MILESTONE.SUBMITTED);
-    expect(changed).toBe(12);
+    expect(changed).toBe(depotN);
     for (const s of REG_STEPS) {
-      if (s.n <= 12) expect(regStepStatus(state, s.key)).toBe("DONE");
+      if (s.n <= depotN) expect(regStepStatus(state, s.key)).toBe("DONE");
       else expect(regStepStatus(state, s.key)).toBe("TODO");
     }
-    expect(regProgress(state).done).toBe(12);
+    expect(regProgress(state).done).toBe(depotN);
     // Chaque étape complétée reçoit une date (traçabilité).
     expect(state.depot?.date).toBeTruthy();
   });
@@ -128,12 +131,12 @@ describe("completeStepsThrough — un statut posé compte les étapes jusqu'à s
     expect(state.ctd).toEqual({ status: "DONE", date: "2026-01-05", note: "reçu V2" }); // intact
     expect(regStepStatus(state, "module1")).toBe("BLOCKED"); // le blocage est un signal humain
     expect(regStepStatus(state, "rdv")).toBe("DONE"); // DOING → DONE (rattrapé), note absente OK
-    expect(changed).toBe(10); // 12 jalons − ctd déjà fait − module1 bloqué
+    expect(changed).toBe(11); // 13 jalons jusqu'au dépôt − ctd déjà fait − module1 bloqué
   });
 
   it("idempotent (rejouer ne change rien) et jalon inconnu = aucun effet", () => {
     const first = completeStepsThrough(null, "reserves_recv");
-    expect(first.changed).toBe(15);
+    expect(first.changed).toBe(REG_STEPS.find((s) => s.key === "reserves_recv")!.n);
     const second = completeStepsThrough(first.state, "reserves_recv");
     expect(second.changed).toBe(0);
     expect(completeStepsThrough(null, "inconnu").changed).toBe(0);

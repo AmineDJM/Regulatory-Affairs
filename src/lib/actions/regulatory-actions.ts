@@ -28,6 +28,7 @@ import {
   REG_STATUS_MILESTONE, completeStepsThrough,
   type RegWorkflowState, type RegChecklistState,
 } from "@/lib/regulatory-workflow";
+import { deriveStatus } from "@/lib/regulatory/process-status";
 import { emit } from "@/platform/events";
 
 export interface ActionResult {
@@ -377,7 +378,10 @@ export async function updateRegulatoryProduct(
       manufacturingStatus: keep
         ? (str(formData, "manufacturingStatus") as ManufacturingStatus) ?? before.manufacturingStatus
         : before.manufacturingStatus,
-      status: (str(formData, "status") as RegulatoryStatus) ?? before.status,
+      // LE NIVEAU DE PROCESS N'EST PLUS UN CHAMP DE FORMULAIRE : il est déduit des étapes du
+      // processus d'enregistrement. Le laisser modifiable ici rouvrirait la divergence qu'on
+      // vient de fermer — l'en-tête disant une chose, les étapes une autre.
+      status: before.status,
       priority: (str(formData, "priority") as Priority) ?? before.priority,
       targetSubmissionDate: targetSubmissionDateRaw ? new Date(targetSubmissionDateRaw) : null,
       targetDate: targetDateRaw ? new Date(targetDateRaw) : null,
@@ -718,50 +722,46 @@ export async function updateRegulatoryStatus(formData: FormData): Promise<Action
   const before = await prisma.regulatoryProduct.findUnique({ where: { id } });
   if (!before) return { ok: false, error: "Dossier introuvable." };
 
-  const status = (str(formData, "status") as RegulatoryStatus) ?? before.status;
   const priority = (str(formData, "priority") as Priority) ?? before.priority;
 
-  // NIVEAU DE PROCESS posé = ÉTAPES COMPTÉES : « Déposé » implique que tout ce qui précède le
-  // dépôt (étapes 1 à 12) est fait — on le marque automatiquement, sans jamais toucher aux
-  // étapes d'APRÈS le jalon ni dé-cocher quoi que ce soit. Fini l'avancement à 0/22 sur un
-  // dossier pourtant déposé.
-  let workflowUpdate: Prisma.InputJsonValue | undefined;
+  /**
+   * LE NIVEAU DE PROCESS NE SE POSE PLUS À LA MAIN.
+   *
+   * Cette action n'écrit plus que la PRIORITÉ. Le niveau — « Déposé », « Attente ANPP »… — est
+   * DÉDUIT des étapes cochées (`syncStatusFromWorkflow`) : deux endroits pour dire où en est un
+   * dossier finissaient toujours par se contredire, et c'est la version fausse qu'on lisait dans
+   * le tableau de suivi.
+   *
+   * Un `status` envoyé par un appelant qui l'ignore encore n'est pas une erreur : on le lit
+   * comme une DEMANDE D'AVANCEMENT, et l'on coche les étapes jusqu'à son jalon — le niveau
+   * suivra tout seul, par la seule route qui existe désormais.
+   */
+  const asked = str(formData, "status") as RegulatoryStatus | null;
+  const milestone = asked && asked !== before.status ? REG_STATUS_MILESTONE[asked] : undefined;
+  let wf = (before.workflow as RegWorkflowState | null) ?? {};
   let autoSteps = 0;
-  const milestone = status !== before.status ? REG_STATUS_MILESTONE[status] : undefined;
   if (milestone) {
-    const sync = completeStepsThrough(before.workflow as RegWorkflowState | null, milestone);
-    if (sync.changed > 0) {
-      workflowUpdate = sync.state as unknown as Prisma.InputJsonValue;
-      autoSteps = sync.changed;
-    }
+    const sync = completeStepsThrough(wf, milestone);
+    if (sync.changed > 0) { wf = sync.state; autoSteps = sync.changed; }
   }
 
   await prisma.regulatoryProduct.update({
     where: { id },
-    data: { status, priority, updatedById: user.id, ...(workflowUpdate !== undefined ? { workflow: workflowUpdate } : {}) },
+    data: {
+      priority, updatedById: user.id,
+      ...(autoSteps > 0 ? { workflow: wf as unknown as Prisma.InputJsonValue } : {}),
+    },
   });
 
-  await recordAudit({
-    actorId: user.id,
-    action: "UPDATE",
-    module: "Regulatory",
-    entityType: "REGULATORY_PRODUCT",
-    entityId: id,
-    field: "status",
-    oldValue: before.status,
-    newValue: status,
-    summary: `Niveau de process du dossier ${before.reference} → ${status}${autoSteps > 0 ? ` (${autoSteps} étape·s ANPP comptée·s automatiquement)` : ""}`,
-  });
-
-  // Dépôt effectué : prévenir la supervision de fixer la date cible d'enregistrement.
-  if (status === "SUBMITTED" && before.status !== "SUBMITTED") {
-    await notifyRoles(await regSupervisorRoles(), {
-      type: "GENERIC",
-      title: "Dossier déposé — fixer la date cible d'enregistrement",
-      body: `${before.reference} — ${before.dci} vient d'être déposé à l'ANPP.`,
-      link: `/regulatory/${id}`,
+  if (autoSteps > 0) {
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Regulatory",
+      entityType: "REGULATORY_PRODUCT", entityId: id, field: "workflow",
+      summary: `${autoSteps} étape·s du processus comptée·s pour amener ${before.reference} à « ${asked} »`,
     });
   }
+  // Le niveau suit les étapes — y compris celles qu'on vient de compter.
+  await syncStatusFromWorkflow(id, wf, before.status, before.reference, user.id);
 
   revalidatePath(`/regulatory/${id}`);
   revalidatePath("/regulatory");
@@ -787,6 +787,52 @@ export async function addRegulatoryComment(formData: FormData): Promise<ActionRe
 
 // ───────────────────────── Processus officiel ANPP (workflow + checklist) ─────────────────────────
 
+/**
+ * LE NIVEAU DE PROCESS SUIT LES ÉTAPES — automatiquement, à chaque coche.
+ *
+ * Le menu déroulant « Niveau de process » a disparu de l'écran : la valeur se DÉDUIT du travail
+ * réellement coché (`lib/regulatory/process-status.ts`). Cette fonction est le seul endroit qui
+ * l'écrit ; toute action qui touche au processus l'appelle juste après.
+ *
+ * Elle n'écrit QUE si le niveau change, et laisse une trace nommée : « déposé » apparu tout seul
+ * dans un tableau, sans ligne d'audit, se lirait comme une anomalie.
+ */
+async function syncStatusFromWorkflow(
+  productId: string,
+  wf: RegWorkflowState,
+  current: string,
+  reference: string,
+  actorId: string,
+): Promise<string> {
+  const d = deriveStatus(wf, current);
+  if (!d.changed) return current;
+
+  await prisma.regulatoryProduct.update({
+    where: { id: productId },
+    data: { status: d.status as RegulatoryStatus, updatedById: actorId },
+  });
+  await recordAudit({
+    actorId, action: "UPDATE", module: "Regulatory",
+    entityType: "REGULATORY_PRODUCT", entityId: productId,
+    field: "status", oldValue: current, newValue: d.status,
+    summary: `Niveau de process de ${reference} → ${d.status} (déduit du processus d'enregistrement)`,
+  });
+
+  // Dépôt effectué : la supervision doit fixer la date cible d'enregistrement. Le message
+  // partait déjà quand le niveau se posait à la main — il ne doit pas se perdre maintenant
+  // qu'il se déduit.
+  if (d.status === "SUBMITTED" && current !== "SUBMITTED") {
+    await notifyRoles(await regSupervisorRoles(), {
+      type: "GENERIC",
+      title: "Dossier déposé — fixer la date cible d'enregistrement",
+      body: `${reference} vient d'être déposé à l'ANPP.`,
+      link: `/regulatory/${productId}`,
+    });
+  }
+  revalidatePath("/regulatory");
+  return d.status;
+}
+
 /** Met à jour l'état d'une étape du processus ANPP (statut + date + note) sur un produit. */
 export async function setRegulatoryStepState(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -797,7 +843,7 @@ export async function setRegulatoryStepState(formData: FormData): Promise<Action
   if (!isRegStepKey(stepKey) || !isRegStepState(status)) return { ok: false, error: "Étape ou statut invalide." };
   if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", productId, "UPDATE"))) return { ok: false, error: "Non autorisé." };
 
-  const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { workflow: true } });
+  const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { workflow: true, status: true, reference: true } });
   if (!product) return { ok: false, error: "Dossier introuvable." };
 
   const wf = { ...((product.workflow as RegWorkflowState | null) ?? {}) };
@@ -812,6 +858,7 @@ export async function setRegulatoryStepState(formData: FormData): Promise<Action
   await prisma.regulatoryProduct.update({ where: { id: productId }, data: { workflow: wf as unknown as Prisma.InputJsonValue } });
   const stepLabel = REG_STEPS.find((s) => s.key === stepKey)?.label ?? stepKey;
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: productId, field: "workflow", newValue: status, summary: `Étape ANPP « ${stepLabel} » → ${status}` });
+  await syncStatusFromWorkflow(productId, wf, product.status, product.reference, user.id);
   revalidatePath(`/regulatory/${productId}`);
   return { ok: true };
 }
@@ -829,7 +876,7 @@ export async function setRegulatoryPresubOutcome(formData: FormData): Promise<Ac
   if (!isRegPresubOutcome(outcome)) return { ok: false, error: "Avis invalide." };
   if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", productId, "UPDATE"))) return { ok: false, error: "Non autorisé." };
 
-  const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { workflow: true } });
+  const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { workflow: true, status: true, reference: true } });
   if (!product) return { ok: false, error: "Dossier introuvable." };
 
   const wf = { ...((product.workflow as RegWorkflowState | null) ?? {}) };
@@ -844,6 +891,9 @@ export async function setRegulatoryPresubOutcome(formData: FormData): Promise<Ac
 
   await prisma.regulatoryProduct.update({ where: { id: productId }, data: { workflow: wf as unknown as Prisma.InputJsonValue } });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: productId, field: "workflow", newValue: outcome, summary: `Présoumission → ${mapped.label}` });
+  // L'avis de présoumission est le VERROU du dossier : il change son niveau de process à lui
+  // seul (défavorable → bloqué, favorable → le dossier est engagé).
+  await syncStatusFromWorkflow(productId, wf, product.status, product.reference, user.id);
   revalidatePath(`/regulatory/${productId}`);
   return { ok: true };
 }
@@ -880,7 +930,7 @@ export async function requestBV(formData: FormData): Promise<ActionResult> {
   if (!productId) return { ok: false, error: "Dossier introuvable." };
   if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", productId, "UPDATE"))) return { ok: false, error: "Non autorisé." };
 
-  const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { reference: true, dci: true } });
+  const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { reference: true, dci: true, workflow: true, status: true } });
   if (!product) return { ok: false, error: "Dossier introuvable." };
 
   const bvType = str(formData, "bvType") || "BV";
@@ -901,29 +951,50 @@ export async function requestBV(formData: FormData): Promise<ActionResult> {
     dueDate: dueRaw ? new Date(dueRaw) : null,
   });
 
-  // Justificatif facultatif : rattaché à l'ordre de dépense (visible côté comptable).
-  const file = formData.get("file");
-  if (file instanceof File && file.size > 0) {
-    const err = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
-    if (err) return { ok: false, error: err };
-    const key = `EXPENSE_ORDER/${order.id}/${randomUUID()}__${file.name}`;
-    try {
-      await saveFile(key, Buffer.from(await file.arrayBuffer()));
-    } catch (e) {
-      console.error("[requestBV] storage write failed", e);
+  // JUSTIFICATIFS — UNE OU PLUSIEURS PIÈCES. Un BV arrive rarement seul : proforma, courrier
+  // de l'agence, calcul du montant. N'en accepter qu'une obligeait à choisir laquelle compte,
+  // puis à déposer le reste ailleurs — c'est-à-dire nulle part.
+  const files = [...formData.getAll("files"), formData.get("file")]
+    .filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length > 0) {
+    const maxMb = (await getAppSettings()).maxUploadMb;
+    for (const file of files) {
+      const err = validateUpload(file.name, file.size, maxMb);
+      if (err) return { ok: false, error: err };
     }
-    await prisma.document.create({
-      data: {
-        name: file.name, category: "PROFORMA", entityType: "EXPENSE_ORDER", entityId: order.id,
-        fileKey: key, mimeType: file.type || null, sizeBytes: file.size, confidentiality: "INTERNAL", uploadedById: user.id,
-      },
-    });
+    for (const file of files) {
+      const key = `EXPENSE_ORDER/${order.id}/${randomUUID()}__${file.name}`;
+      try {
+        await saveFile(key, Buffer.from(await file.arrayBuffer()));
+      } catch (e) {
+        console.error("[requestBV] storage write failed", e);
+      }
+      await prisma.document.create({
+        data: {
+          name: file.name, category: "PROFORMA", entityType: "EXPENSE_ORDER", entityId: order.id,
+          fileKey: key, mimeType: file.type || null, sizeBytes: file.size, confidentiality: "INTERNAL", uploadedById: user.id,
+        },
+      });
+    }
   }
 
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: productId,
-    summary: `Demande de ${bvType} (${amount.toLocaleString("fr-FR")} DZD) → ordre ${order.reference}`,
+    summary: `Demande de ${bvType} (${amount.toLocaleString("fr-FR")} DZD)${files.length ? ` · ${files.length} pièce·s` : ""} → ordre ${order.reference}`,
   });
+
+  // DEMANDÉ DEPUIS LE PROCESSUS : l'étape « Demande du BV … » est faite — la demande EST
+  // l'étape. La cocher à part serait redire d'un second geste ce que le premier a prouvé.
+  const stepKey = str(formData, "stepKey");
+  if (stepKey && isRegStepKey(stepKey)) {
+    const wf = { ...((product.workflow as RegWorkflowState | null) ?? {}) };
+    if (wf[stepKey]?.status !== "DONE") {
+      wf[stepKey] = { ...wf[stepKey], status: "DONE", date: wf[stepKey]?.date ?? new Date().toISOString().slice(0, 10) };
+      await prisma.regulatoryProduct.update({ where: { id: productId }, data: { workflow: wf as unknown as Prisma.InputJsonValue } });
+      await syncStatusFromWorkflow(productId, wf, product.status, product.reference, user.id);
+    }
+  }
+
   revalidatePath(`/regulatory/${productId}`);
   revalidatePath("/finances");
   return { ok: true };
