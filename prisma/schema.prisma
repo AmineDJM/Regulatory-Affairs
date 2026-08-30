@@ -245,6 +245,10 @@ enum PchTenderStatus {
   IN_PROGRESS // en cours
   COMPLETED // terminé
   CANCELLED
+  /// Suspendu par l'organisme ou par nous — un état DÉCIDÉ, jamais déduit.
+  SUSPENDED
+  /// Perdu en totalité. Le détail lot par lot vit sur les lignes ; ceci est le verdict global.
+  LOST
 }
 
 /// Statut d'un bon de commande PCH.
@@ -397,6 +401,9 @@ enum EntityType {
   /// Un CANDIDAT — porte son CV et ses pièces. Séparé de la demande : un CV appartient à une
   /// personne, et le rattacher à la demande entière rendrait impossible de dire de qui il est.
   RECRUITMENT_CANDIDATE
+  /// Un BON DE COMMANDE de marché PCH — pour y attacher documents, tâches, courriers,
+  /// validations et factures (une facture de marché porte `sourceType = PCH_ORDER`).
+  PCH_ORDER
 }
 
 enum DocumentCategory {
@@ -766,41 +773,41 @@ model UserInvite {
 }
 
 model AssistantActionIntent {
-  id            String    @id @default(cuid())
-  userId        String
-  user          User      @relation("AssistantActionIntents", fields: [userId], references: [id], onDelete: Cascade)
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation("AssistantActionIntents", fields: [userId], references: [id], onDelete: Cascade)
   /// AssistantActionKind (registre ACTION_POLICY) — le type d'action.
-  kind          String
-  module        String
+  kind           String
+  module         String
   /// Titre de la carte (« Envoyer un message à Khaled »).
-  title         String
+  title          String
   /// Résumé mémorisable : cible + objet (« Notification à Redouane — rattacher les contrats »).
-  summary       String
+  summary        String
   /// La charge utile exacte, revérifiée côté serveur à l'exécution.
-  payload       Json
+  payload        Json
   /// PROPOSED | CONFIRMED | EXECUTING | EXECUTED | FAILED | CANCELLED | EXPIRED
-  status        String    @default("PROPOSED")
+  status         String    @default("PROPOSED")
   /// D'où l'intention vient : text | voice | nudge.
-  origin        String    @default("text")
-  level         String? // SENSITIVE | CRITICAL
+  origin         String    @default("text")
+  level          String? // SENSITIVE | CRITICAL
   /// CRITICAL uniquement : la valeur exacte que l'utilisateur doit RESSAISIR — vérifiée PAR LE SERVEUR à l'exécution.
-  confirmText   String?
-  resultMessage String?
-  resultLink    String?
-  error         String?
+  confirmText    String?
+  resultMessage  String?
+  resultLink     String?
+  error          String?
   /// Journal des transitions [{ status, at }] — l'historique d'autorisation, traçable.
-  events        Json      @default("[]")
-  proposedAt    DateTime  @default(now())
-  decidedAt     DateTime?
-  executedAt    DateTime?
+  events         Json      @default("[]")
+  proposedAt     DateTime  @default(now())
+  decidedAt      DateTime?
+  executedAt     DateTime?
   /// LA CLÉ D'IDEMPOTENCE (§15) — unique EN BASE, donc garantie par la base et non par la
   /// discipline de l'appelant. Elle protège le cas que la réclamation atomique ne couvre pas :
   /// une mission qui meurt ENTRE la création de l'intent et son exécution, et dont la reprise
   /// ignorerait l'existence du premier. Reste `null` pour les actions de conversation.
-  idempotencyKey String?  @unique
+  idempotencyKey String?   @unique
   /// La mission qui a produit cette action, quand il y en a une. Sert à l'historique et à
   /// l'écran : « quelle action a produit ce reçu ? » se répond sans parcourir tous les intents.
-  missionId     String?
+  missionId      String?
 
   @@index([userId, proposedAt])
   @@index([userId, status])
@@ -1048,7 +1055,7 @@ model User {
   /// mot de passe que l'agent peut manipuler » : la présence sans la porte d'entrée. Adam agit
   /// par le Mission Runtime, sous double signature (qui a demandé / qui a exécuté), avec les
   /// mêmes approbations et le même audit que l'écran.
-  isSystem           Boolean @default(false)
+  isSystem Boolean @default(false)
 
   // Onboarding guidé : déclenché à la création d'un compte ou redéclenché par le
   // Super Admin (« demander le setup à la prochaine connexion »). Vérifié à chaud
@@ -1128,6 +1135,7 @@ model User {
   tasksCreated            Task[]                     @relation("TaskCreator")
   taskComments            TaskComment[]              @relation("TaskCommentAuthor")
   legalDocsCreated        LegalDocument[]            @relation("LegalDocCreator")
+  pchTendersResponsible   PchTender[]                @relation("PchTenderResponsible")
   mailEntriesCreated      MailEntry[]                @relation("MailEntryCreator")
   mailEntriesConcerned    MailEntry[]                @relation("MailEntryConcerned")
   regRemindersReceived    RegulatoryUpdateReminder[] @relation("RegUpdateReminderRecipient")
@@ -1175,10 +1183,10 @@ model User {
   eventsResponsible Event[] @relation("EventResponsible")
 
   // Boîte mail personnelle connectée (Infomaniak IMAP/SMTP)
-  mailAccount      MailAccount?      @relation("UserMailAccount")
-  mailConnection   MailConnection?   @relation("UserMailConnection")
-  googleConnection GoogleConnection? @relation("UserGoogleConnection")
-  missions         Mission[]         @relation("UserMissions")
+  mailAccount          MailAccount?          @relation("UserMailAccount")
+  mailConnection       MailConnection?       @relation("UserMailConnection")
+  googleConnection     GoogleConnection?     @relation("UserGoogleConnection")
+  missions             Mission[]             @relation("UserMissions")
   operationalTemplates OperationalTemplate[] @relation("UserOperationalTemplates")
 
   // Information médicale (déclaration réglementaire)
@@ -1187,10 +1195,10 @@ model User {
 
   // Directives (Direction → équipes)
   dossierSteps       RegulatoryDossierStep[] @relation("DossierStepAuthor")
-  directivesReceived Directive[]        @relation("DirectiveTarget")
-  directivesAuthored Directive[]        @relation("DirectiveAuthor")
-  directivesApproved Directive[]        @relation("DirectiveApprover")
-  directiveMessages  DirectiveMessage[] @relation("DirectiveMsgAuthor")
+  directivesReceived Directive[]             @relation("DirectiveTarget")
+  directivesAuthored Directive[]             @relation("DirectiveAuthor")
+  directivesApproved Directive[]             @relation("DirectiveApprover")
+  directiveMessages  DirectiveMessage[]      @relation("DirectiveMsgAuthor")
 
   // Demandes de support (→ directeur médical / chef de produit)
   supportRequested SupportRequest[] @relation("SupportRequester")
@@ -1909,25 +1917,25 @@ enum RegulatoryDossierStepKind {
 /// Drive, son renommage et sa corbeille.
 /// ═══════════════════════════════════════════════════════════════════════════════════════════
 model RegulatoryDossierStep {
-  id        String                    @id @default(cuid())
-  productId String
-  product   RegulatoryProduct         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  kind      RegulatoryDossierStepKind
+  id          String                    @id @default(cuid())
+  productId   String
+  product     RegulatoryProduct         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  kind        RegulatoryDossierStepKind
   /// Le nom que l'équipe donne à l'étape (« Réserves du 12/03 », « CTD v2 — module 3 revu »).
-  label     String
+  label       String
   /// Numéro de version, pour une étape CTD_VERSION. Libre : v2, v3… ou tout autre numéro.
-  version   Int?
+  version     Int?
   /// Rang dans la frise. Une insertion « juste après » décale les suivants — l'ordre AFFICHÉ
   /// est l'ordre RÉEL, et non une date de création qui ne dirait pas la même chose.
-  order     Int
+  order       Int
   /// Quand cela s'est passé (réception des réserves, dépôt de la version) — souvent différent
   /// du jour où on le saisit.
   occurredAt  DateTime?
   note        String?
   createdById String?
-  createdBy   User?    @relation("DossierStepAuthor", fields: [createdById], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdBy   User?                     @relation("DossierStepAuthor", fields: [createdById], references: [id])
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
 
   @@index([productId, order])
 }
@@ -3086,30 +3094,30 @@ enum DirectivePublication {
 }
 
 model Directive {
-  id               String             @id @default(cuid())
-  reference        String             @unique // DIR-AAAA-NNN
-  title            String
-  body             String
-  priority         Priority           @default(MEDIUM)
-  status           DirectiveStatus    @default(OPEN)
-  dueDate          DateTime?
+  id            String            @id @default(cuid())
+  reference     String            @unique // DIR-AAAA-NNN
+  title         String
+  body          String
+  priority      Priority          @default(MEDIUM)
+  status        DirectiveStatus   @default(OPEN)
+  dueDate       DateTime?
   /// ─── À QUI ELLE S'ADRESSE ───
   ///
   /// Quatre portées, et une seule fait foi : `audience`. Une note de service ne s'adresse pas
   /// toujours à une personne — elle s'adresse souvent à TOUT LE MONDE, ou à toute une entité.
-  audience         DirectiveAudience  @default(USERS)
+  audience      DirectiveAudience @default(USERS)
   /// Les personnes nommées (audience USERS) — la SOURCE DE VÉRITÉ, même à un seul destinataire.
-  targetUserIds    String[]           @default([])
+  targetUserIds String[]          @default([])
   /// CACHE dénormalisé de `targetUserIds[0]`, tenu à jour à chaque écriture : il porte la
   /// relation (donc le nom affiché) et l'index historique. La source de vérité reste le tableau.
-  targetUserId     String?
-  targetUser       User?              @relation("DirectiveTarget", fields: [targetUserId], references: [id])
-  targetRole       UserRole?
+  targetUserId  String?
+  targetUser    User?             @relation("DirectiveTarget", fields: [targetUserId], references: [id])
+  targetRole    UserRole?
   /// Entité destinataire (audience COMPANY) : tous les salariés qui en relèvent.
-  companyId        String?
-  company          Company?           @relation(fields: [companyId], references: [id])
-  fromId           String? // émetteur (Direction)
-  from             User?              @relation("DirectiveAuthor", fields: [fromId], references: [id])
+  companyId     String?
+  company       Company?          @relation(fields: [companyId], references: [id])
+  fromId        String? // émetteur (Direction)
+  from          User?             @relation("DirectiveAuthor", fields: [fromId], references: [id])
 
   /// ─── PUBLICATION : rien ne part sans l'accord de la direction générale ───
   ///
@@ -3117,20 +3125,20 @@ model Directive {
   /// le directeur général (ou le Super Admin) PUBLIE. Tant que la publication n'est pas
   /// prononcée, la directive n'existe pour personne d'autre que son auteur et les valideurs :
   /// aucune notification, aucune pop-up, aucune ligne dans la liste des destinataires.
-  publication      DirectivePublication @default(PENDING_APPROVAL)
-  submittedAt      DateTime?
-  approvedById     String?
-  approvedBy       User?              @relation("DirectiveApprover", fields: [approvedById], references: [id])
-  approvedAt       DateTime?
-  publishedAt      DateTime?
-  decisionNote     String?
+  publication  DirectivePublication @default(PENDING_APPROVAL)
+  submittedAt  DateTime?
+  approvedById String?
+  approvedBy   User?                @relation("DirectiveApprover", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+  publishedAt  DateTime?
+  decisionNote String?
   /// Diffusion en POP-UP plein écran (et non la seule cloche) : réservé à ce qui doit être lu
   /// tout de suite. Le choix est fait à l'émission et rejoué à l'identique en cas de relance.
-  popup            Boolean            @default(false)
+  popup        Boolean              @default(false)
   /// RELANCE — combien de fois la directive a été envoyée, et quand pour la dernière fois.
   /// Une note non lue se renvoie ; le compteur évite de croire qu'on l'a envoyée une seule fois.
-  sendCount        Int                @default(0)
-  lastSentAt       DateTime?
+  sendCount    Int                  @default(0)
+  lastSentAt   DateTime?
 
   acknowledgedAt   DateTime?
   acknowledgedById String?
@@ -4464,7 +4472,7 @@ model LeaveRequest {
   /// mais modifiable à la demande : on part rarement en congé avec son téléphone de bureau.
   /// Tout le reste de la fiche (nom, fonction, date de recrutement, direction) se LIT de
   /// l'employé — le recopier ici en ferait une seconde vérité qui vieillirait mal.
-  phone        String?
+  phone String?
 
   /// ─── Circuit à trois marches : N+1 → RH → DG ───
   stage              LeaveStage @default(MANAGER)
@@ -4676,44 +4684,44 @@ model PaymentCentreMessage {
 /// Nœud de l'arborescence Drive : dossier ou fichier. Le contenu binaire vit dans
 /// FileBlob (chiffré, adressé par contenu) ; l'historique dans FileVersion.
 model DriveNode {
-  custom      Json?
-  id          String              @id @default(cuid())
-  name        String
-  type        DriveNodeType
-  parentId    String?
-  parent      DriveNode?          @relation("DriveTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children    DriveNode[]         @relation("DriveTree")
-  ownerId     String?
-  owner       User?               @relation("DriveOwner", fields: [ownerId], references: [id])
+  custom           Json?
+  id               String              @id @default(cuid())
+  name             String
+  type             DriveNodeType
+  parentId         String?
+  parent           DriveNode?          @relation("DriveTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children         DriveNode[]         @relation("DriveTree")
+  ownerId          String?
+  owner            User?               @relation("DriveOwner", fields: [ownerId], references: [id])
   // Catégorie/espace partagé (ex. « Promotion Médicale ») auquel ce nœud appartient. null =
   // Drive PERSONNEL (comportement historique). Tout le sous-arbre d'un espace porte le même
   // spaceId (l'invariant est maintenu à la création et au déplacement).
-  spaceId     String?
-  space       DriveSpace?         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  mimeType    String? // version courante (fichier)
-  size        Int                 @default(0) // octets de la version courante ; 0 pour un dossier
-  category    String? // classement choisi à l'import (Contrat, Facture, Réglementaire…)
-  isTrashed   Boolean             @default(false)
-  versions    FileVersion[]
-  legalDocs   LegalDocument[]
-  mailEntries MailEntry[]
-  shares      DriveShare[]
-  comments    DriveComment[]
+  spaceId          String?
+  space            DriveSpace?         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  mimeType         String? // version courante (fichier)
+  size             Int                 @default(0) // octets de la version courante ; 0 pour un dossier
+  category         String? // classement choisi à l'import (Contrat, Facture, Réglementaire…)
+  isTrashed        Boolean             @default(false)
+  versions         FileVersion[]
+  legalDocs        LegalDocument[]
+  mailEntries      MailEntry[]
+  shares           DriveShare[]
+  comments         DriveComment[]
   /// Messages qui RÉFÉRENCENT ce nœud (partage dans la messagerie, sans recopie).
-  messageRefs MessageAttachment[] @relation("MessageDriveRef")
-  mailPieces  MailEntryPiece[]    @relation("MailPieceDriveNode")
-  textIndex   DriveTextIndex?
+  messageRefs      MessageAttachment[] @relation("MessageDriveRef")
+  mailPieces       MailEntryPiece[]    @relation("MailPieceDriveNode")
+  textIndex        DriveTextIndex?
   /// Les sessions Live Office ouvertes sur ce fichier (§3).
-  artifactSessions ArtifactSession[] @relation("ArtifactSessions")
-  createdById String?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  artifactSessions ArtifactSession[]   @relation("ArtifactSessions")
+  createdById      String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  mentions         EntityMention[]
 
   @@index([parentId])
   @@index([ownerId])
   @@index([isTrashed])
   @@index([spaceId])
-  mentions    EntityMention[]
 }
 
 /// Catégorie / espace PARTAGÉ du Drive (ex. « Promotion Médicale »), présenté comme un onglet
@@ -4790,29 +4798,29 @@ model FileVersion {
 /// l'usage — jamais de balayage massif. Ce n'est PAS un cache d'autorisation : le droit Drive
 /// se revérifie nœud par nœud à chaque requête qui s'en sert.
 model DriveTextIndex {
-  id        String    @id @default(cuid())
-  nodeId    String    @unique
-  node      DriveNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  id         String    @id @default(cuid())
+  nodeId     String    @unique
+  node       DriveNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
   /// Version du fichier dont ce texte provient — une nouvelle version invalide l'entrée.
-  versionId String
+  versionId  String
   /// Premiers ~20 000 caractères du texte extrait (assez pour retrouver et citer).
-  text      String
+  text       String
   /// Le même texte REPLIÉ (minuscules sans accents) — la colonne de RECHERCHE :
   /// « reglement » doit trouver « Règlement ».
-  textFold  String
-  note      String?
+  textFold   String
+  note       String?
   /// Classification DÉTERMINISTE du document (contrat de travail, facture, devis, BC, fiche de
   /// poste…) — le nom est un indice, le CONTENU est la preuve. Null = non classé / unknown.
-  docKind   String?
+  docKind    String?
   /// Vecteur sémantique (512d, JSONB — pgvector indisponible sur cette infra) : la recherche
   /// par le SENS quand le lexical ne trouve pas. Null = pas encore vectorisé.
-  embedding Json?
+  embedding  Json?
   /// Estampille d'extraction des MENTIONS d'entités (fabric F4). Null = jamais extrait —
   /// le balayage de rattrapage s'appuie dessus, et une date permet de ré-extraire après un
   /// changement de dictionnaire sans booléen à trois états.
   mentionsAt DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([updatedAt])
   @@index([docKind])
@@ -5245,19 +5253,33 @@ model SupplierUser {
 // la PCH en sont les sous-lignes. Caution obligatoire (marché public).
 
 model PchTender {
-  id              String          @id @default(cuid())
-  companyId       String? // entité (Adventum / Pharmagène / …)
-  company         Company?        @relation(fields: [companyId], references: [id])
-  reference       String          @unique // référence du marché / appel d'offres
-  title           String?
-  products        String? // produits concernés
-  supplier        String?
-  supplierCountry String?
-  quantity        Int             @default(0)
-  value           Decimal?        @db.Decimal(16, 2)
-  client          String          @default("PCH")
-  status          PchTenderStatus @default(NOT_STARTED)
-  awardDate       DateTime? // date d'attribution
+  id                 String          @id @default(cuid())
+  companyId          String? // entité (Adventum / Pharmagène / …)
+  company            Company?        @relation(fields: [companyId], references: [id])
+  reference          String          @unique // référence EXTERNE du marché / appel d'offres
+  /// Référence INTERNE AMD, si l'entreprise en pose une (« AO-2026-ONCO-04 »).
+  internalReference  String?
+  title              String?
+  products           String? // produits concernés
+  supplier           String?
+  supplierCountry    String?
+  quantity           Int             @default(0)
+  value              Decimal?        @db.Decimal(16, 2)
+  client             String          @default("PCH")
+  status             PchTenderStatus @default(NOT_STARTED)
+  // ── LES DATES DU CYCLE DE VIE. Le niveau affiché (Préparation → Soumis → Attribué →
+  // Exécution → Clôturé) est DÉRIVÉ de ces faits par `lib/pch/market-math.ts`, même doctrine
+  // que le niveau de process Regulatory : deux champs qui racontent la même chose divergent.
+  publishedAt        DateTime? // publication de l'AO par l'organisme
+  submissionDeadline DateTime? // date limite de dépôt — nourrit les alertes d'échéance
+  submittedAt        DateTime? // dépôt OFFICIEL (posé par la soumission verrouillée)
+  awardDate          DateTime? // date d'attribution
+  /// LE RESPONSABLE INTERNE du dossier — celui qu'on appelle quand l'échéance approche.
+  responsibleId      String?
+  responsible        User?           @relation("PchTenderResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
+  /// La Business Unit concernée, quand il y en a une (marché mono-gamme).
+  businessUnitId     String?
+  businessUnit       BusinessUnit?   @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
 
   // Caution (obligatoire)
   cautionAmount    Decimal?  @db.Decimal(14, 2)
@@ -5268,12 +5290,18 @@ model PchTender {
   notes       String?
   orders      PchOrder[]
   lines       PchTenderLine[]
+  /// Les VERSIONS de préparation de la soumission — la déposée est verrouillée.
+  submissions PchSubmission[]
+  /// Les CONTRATS nés de ce marché — le lien FORT qui remplace la recherche par texte.
+  contracts   LegalDocument[] @relation("TenderContracts")
   createdById String?
   updatedById String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
   @@index([status])
+  @@index([submissionDeadline])
+  @@index([responsibleId])
 }
 
 // Suivi par produit d'un appel d'offres (ligne du tableau du marché) : issu de l'analyse IA du
@@ -5282,8 +5310,12 @@ enum PchLineStatus {
   PENDING // à étudier
   QUOTED // chiffré (prix posé)
   SUBMITTED // soumissionné
-  WON // attribué (gagné)
+  WON // attribué (gagné) — l'attribution PARTIELLE se lit sur `awardedQuantityUnits` < demandé
   LOST // perdu
+  /// Lot déclaré infructueux par l'organisme : personne n'a gagné — ce n'est PAS « perdu ».
+  UNSUCCESSFUL
+  /// Lot annulé / retiré du marché avant décision.
+  CANCELLED
 }
 
 model PchTenderLine {
@@ -5327,7 +5359,17 @@ model PchTenderLine {
   competitorsTop         String? // « GSK 45 % · HIKMA 25 % · BIOCARE 14 % »
   // Suivi commercial de la ligne.
   status                 PchLineStatus            @default(PENDING)
+  /// Quantité SOUMISE si elle diffère de la demandée (on peut soumissionner partiellement).
+  submittedQuantityUnits Int?
+  /// Quantité ATTRIBUÉE — c'est elle qui rend l'attribution PARTIELLE représentable :
+  /// 8 000 demandées, 4 000 gagnées. Nulle = non renseignée (repli : quantité demandée).
+  awardedQuantityUnits   Int?
   awardedUnitPriceDzd    Decimal?                 @db.Decimal(14, 2) // prix d'attribution si gagné
+  /// PHOTO de NOTRE produit au moment du DÉPÔT (nom, présentation, dosage, fabricant, n° AMM,
+  /// statut réglementaire, prix, quantité). La relation `product` reste DYNAMIQUE ; cette
+  /// photo, elle, est figée : si la fiche Regulatory change dans deux ans, l'AO continue de
+  /// montrer exactement ce qui a été déposé. Posée par le verrouillage de la soumission.
+  submissionSnapshot     Json?
   note                   String?
   createdAt              DateTime                 @default(now())
   updatedAt              DateTime                 @updatedAt
@@ -5339,6 +5381,8 @@ model PchTenderLine {
   product                Product?                 @relation("TenderLineProduct", fields: [productId], references: [id], onDelete: SetNull)
   adProAllocations       AdProProductAllocation[]
   sales                  Sale[]                   @relation("SaleTenderLine")
+  contractLines          PchContractLine[]
+  orderLines             PchOrderLine[]           @relation("OrderLineTenderLine")
 
   @@index([tenderId])
   @@index([productId])
@@ -5348,7 +5392,11 @@ model PchOrder {
   id              String         @id @default(cuid())
   tenderId        String
   tender          PchTender      @relation(fields: [tenderId], references: [id], onDelete: Cascade)
-  lineId          String? // ligne-produit gagnée dont ce bon de commande est une FRACTION (vente réelle)
+  /// Le CONTRAT dont ce bon de commande est l'exécution. Nullable : un BC arrive parfois
+  /// avant que le contrat soit enregistré — le rattacher ensuite est un geste, pas un blocage.
+  contractId      String?
+  contract        LegalDocument? @relation("ContractOrders", fields: [contractId], references: [id], onDelete: SetNull)
+  lineId          String? // HÉRITAGE mono-ligne — conservé le temps de la bascule vers `orderLines` (backfillé)
   reference       String? // n° du bon de commande PCH
   products        String?
   quantity        Int            @default(0)
@@ -5360,12 +5408,174 @@ model PchOrder {
   expectedArrival DateTime? // date d'arrivée prévue
   arrivedDate     DateTime? // date d'arrivée réelle (marchandise reçue)
   notes           String?
+  /// Les LIGNES du bon — un BC réel porte plusieurs produits, chacun relié à sa ligne
+  /// contractuelle (contrôle du restant) ou, à défaut, à sa ligne d'AO.
+  orderLines      PchOrderLine[]
+  /// Les LIVRAISONS — un BC peut être servi en plusieurs fois.
+  deliveries      PchDelivery[]
   createdById     String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   @@index([tenderId])
   @@index([lineId])
+  @@index([contractId])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// MARKET 360° — l'appel d'offres devient un dossier transversal de bout en bout.
+///
+/// La chaîne : AO (`PchTender`) → lots (`PchTenderLine` → `Product`) → soumission versionnée
+/// (`PchSubmission`) → attribution (quantités/prix sur les lignes) → contrat (`LegalDocument`
+/// kind CONTRACT, `tenderId`) → avenants (kind AMENDMENT, `amendsId`, deltas) → lignes
+/// contractuelles (`PchContractLine`) → bons de commande (`PchOrder` + `PchOrderLine`) →
+/// livraisons (`PchDelivery` + lignes, mouvements de stock) → factures (`Invoice`,
+/// `sourceType = PCH_ORDER`) → règlements (Finance). Chaque flèche est une FK ; les montants
+/// dérivés (valeur contractuelle courante, restant à commander/livrer/encaisser) se CALCULENT
+/// dans `lib/pch/market-math.ts` — jamais stockés deux fois.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+model PchSubmission {
+  id          String    @id @default(cuid())
+  tenderId    String
+  tender      PchTender @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  /// V1, V2, V3… — l'ordre de travail. Unique par marché.
+  version     Int
+  /// « Brouillon », « Relecture DG », « Version finale »… le nom que l'équipe lui donne.
+  label       String?
+  /// DRAFT | REVIEW | FINAL | SUBMITTED. Une chaîne et non un enum : ajouter un état de
+  /// préparation ne doit pas demander une migration (même patron que `ProductAssignment.role`).
+  status      String    @default("DRAFT")
+  /// LA CHECKLIST du dépôt : `[{ key, label, done, doneById, doneAt }]` — dossier
+  /// administratif, technique, certificats, AMM, GMP, prix, garantie, déclarations…
+  /// Un tableau JSON et non une table : les exigences varient d'un AO à l'autre.
+  checklist   Json?
+  notes       String?
+  /// LE DÉPÔT OFFICIEL. Non nul ⇒ la version est celle qui a été remise à l'organisme.
+  submittedAt DateTime?
+  /// LE VERROU LOGIQUE (§63) : une fois posé, les actions serveur REFUSENT toute modification
+  /// de cette version — la pièce déposée doit rester exactement ce qui a été déposé.
+  lockedAt    DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([tenderId, version])
+  @@index([tenderId])
+}
+
+model PchContractLine {
+  id            String         @id @default(cuid())
+  /// La pièce qui PORTE la ligne : le contrat de base, ou un avenant. Sur un avenant, la
+  /// quantité est un DELTA (négatif possible) — l'historique exact reste lisible pièce par
+  /// pièce, et la position courante se calcule en sommant les pièces effectives.
+  documentId    String
+  document      LegalDocument  @relation("DocContractLines", fields: [documentId], references: [id], onDelete: Cascade)
+  /// Le contrat RACINE du groupe (== documentId pour les lignes du contrat de base) —
+  /// dénormalisé pour agréger un contrat sans remonter la chaîne des avenants.
+  contractId    String
+  contract      LegalDocument  @relation("RootContractLines", fields: [contractId], references: [id], onDelete: Cascade)
+  /// La ligne d'AO dont elle découle — le fil AO → contrat, lot par lot.
+  tenderLineId  String?
+  tenderLine    PchTenderLine? @relation(fields: [tenderLineId], references: [id], onDelete: SetNull)
+  /// Le produit canonique. Nullable comme sur la ligne d'AO : le libellé du contrat fait foi.
+  productId     String?
+  product       Product?       @relation("ContractLineProduct", fields: [productId], references: [id], onDelete: SetNull)
+  /// Le libellé EXACT de la pièce contractuelle — figé, comme la désignation d'AO.
+  designation   String
+  /// En unités. NÉGATIF sur un avenant de réduction.
+  quantityUnits Int
+  unitPriceDzd  Decimal?       @db.Decimal(14, 2)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  orderLines PchOrderLine[]
+
+  @@index([contractId])
+  @@index([documentId])
+  @@index([tenderLineId])
+  @@index([productId])
+}
+
+model PchOrderLine {
+  id             String           @id @default(cuid())
+  orderId        String
+  order          PchOrder         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  /// La ligne CONTRACTUELLE commandée — c'est elle qui permet le contrôle du restant.
+  contractLineId String?
+  contractLine   PchContractLine? @relation(fields: [contractLineId], references: [id], onDelete: SetNull)
+  /// REPLI : la ligne d'AO, quand le BC arrive avant l'enregistrement du contrat.
+  tenderLineId   String?
+  tenderLine     PchTenderLine?   @relation("OrderLineTenderLine", fields: [tenderLineId], references: [id], onDelete: SetNull)
+  designation    String
+  quantityUnits  Int              @default(0)
+  unitPriceDzd   Decimal?         @db.Decimal(14, 2)
+  createdAt      DateTime         @default(now())
+
+  deliveryLines PchDeliveryLine[]
+
+  @@index([orderId])
+  @@index([contractLineId])
+  @@index([tenderLineId])
+}
+
+model PchDelivery {
+  id             String            @id @default(cuid())
+  orderId        String
+  order          PchOrder          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  /// N° de bordereau de livraison (BL).
+  reference      String?
+  expectedAt     DateTime?
+  /// Non nulle ⇒ livrée. Pas de champ « statut » : livré/attendu/en retard se DÉDUISENT des
+  /// dates, un statut posé à la main aurait divergé d'elles.
+  deliveredAt    DateTime?
+  location       String?
+  /// Réserves émises à la réception — vides = réception conforme.
+  reserves       String?
+  notes          String?
+  receivedById   String?
+  lines          PchDeliveryLine[]
+  stockMovements StockMovement[]
+  createdById    String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([orderId])
+  @@index([deliveredAt])
+}
+
+model PchDeliveryLine {
+  id            String        @id @default(cuid())
+  deliveryId    String
+  delivery      PchDelivery   @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  orderLineId   String?
+  orderLine     PchOrderLine? @relation(fields: [orderLineId], references: [id], onDelete: SetNull)
+  designation   String
+  quantityUnits Int           @default(0)
+  /// Lot pharmaceutique et péremption — quand le BL les donne.
+  batchNumber   String?
+  expiryDate    DateTime?
+
+  @@index([deliveryId])
+  @@index([orderLineId])
+}
+
+/// « RELIER À… » d'un courrier : un pli concerne souvent PLUSIEURS objets (le marché, son
+/// contrat, un BC). Multi-lien TYPÉ (enum `EntityType`), scoped aux courriers — pas un
+/// polymorphisme universel : les relations structurantes restent des FK.
+model MailEntryLink {
+  id          String     @id @default(cuid())
+  entryId     String
+  entry       MailEntry  @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  entityType  EntityType
+  entityId    String
+  /// Le libellé lu au moment du lien (« Marché 174/2026 ») — ce qu'on affiche sans requête.
+  label       String?
+  createdById String?
+  createdAt   DateTime   @default(now())
+
+  @@unique([entryId, entityType, entityId])
+  @@index([entityType, entityId])
 }
 
 // ─────────────── Stocks (suivi des stocks de nos produits à la PCH) ───────────────
@@ -5381,12 +5591,17 @@ model StockMovement {
   date        DateTime           @default(now())
   location    String             @default("PCH")
   notes       String?
+  /// La LIVRAISON de marché dont ce mouvement est l'écriture stock, quand il y en a une.
+  /// Le stock reste la source de vérité des quantités ; le lien évite la double saisie.
+  deliveryId  String?
+  delivery    PchDelivery?       @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
   createdById String?
   createdAt   DateTime           @default(now())
 
   @@index([product])
   @@index([productId])
   @@index([date])
+  @@index([deliveryId])
 }
 
 /// Stock initial d'un produit à un emplacement (PCH…). Sert de base de calcul :
@@ -7891,6 +8106,7 @@ model BusinessUnit {
 
   products   PromoProduct[]
   salesTeams SalesTeam[]
+  tenders    PchTender[]
 
   @@index([companyId])
 }
@@ -8825,6 +9041,11 @@ enum LegalDocKind {
   QUOTE // devis — le premier maillon de la chaîne d'achat
   PURCHASE_ORDER // bon de commande
   INVOICE // facture — le dernier maillon avant le règlement
+  /// AVENANT à un contrat (`amendsId`) : une vraie pièce Legal — revue, lecteurs, Drive —
+  /// qui porte EN PLUS son impact marché (`amountDelta`, lignes en delta). La valeur
+  /// contractuelle courante = montant initial + deltas des avenants EFFECTIFS ; elle se
+  /// calcule, le montant initial n'est jamais écrasé.
+  AMENDMENT
   AGREEMENT // convention / accord-cadre
   NDA // accord de confidentialité
   INSURANCE // police d'assurance
@@ -8849,49 +9070,72 @@ enum LegalDocStatus {
 /// Drive ne sait pas dire : le titre exact, les dates, l'échéance, qui est en face, et ce qu'il
 /// advient du document (renouvelé, annulé).
 model LegalDocument {
-  custom         Json?
-  id             String                @id @default(cuid())
-  companyId      String?
-  company        Company?              @relation(fields: [companyId], references: [id])
-  reference      String? // référence interne / n° de BC
-  title          String // le titre EXACT, tel qu'il figure sur la pièce
-  kind           LegalDocKind          @default(CONTRACT)
-  counterparty   String? // l'autre partie (fournisseur, client, prestataire)
+  custom            Json?
+  id                String                @id @default(cuid())
+  companyId         String?
+  company           Company?              @relation(fields: [companyId], references: [id])
+  reference         String? // référence interne / n° de BC
+  title             String // le titre EXACT, tel qu'il figure sur la pièce
+  kind              LegalDocKind          @default(CONTRACT)
+  counterparty      String? // l'autre partie (fournisseur, client, prestataire)
   /// Dates FACULTATIVES : beaucoup d'engagements n'ont pas de terme (statuts, police tacite).
   /// `endDate` nul = sans échéance — jamais « expiré », jamais rappelé.
-  startDate      DateTime?
-  endDate        DateTime?
-  status         LegalDocStatus        @default(ACTIVE)
-  amount         Decimal?              @db.Decimal(14, 2)
-  notes          String?
-  cancelledAt    DateTime?
-  cancelReason   String?
+  startDate         DateTime?
+  endDate           DateTime?
+  status            LegalDocStatus        @default(ACTIVE)
+  amount            Decimal?              @db.Decimal(14, 2)
+  notes             String?
+  cancelledAt       DateTime?
+  cancelReason      String?
   /// Chaîne de RENOUVELLEMENT : le nouveau document pointe vers celui qu'il remplace, et
   /// l'ancien passe en RENEWED. On garde les deux — un renouvellement n'efface pas le passé.
-  renewedFromId  String?
-  renewedFrom    LegalDocument?        @relation("LegalRenewal", fields: [renewedFromId], references: [id])
-  renewals       LegalDocument[]       @relation("LegalRenewal")
+  renewedFromId     String?
+  renewedFrom       LegalDocument?        @relation("LegalRenewal", fields: [renewedFromId], references: [id])
+  renewals          LegalDocument[]       @relation("LegalRenewal")
   /// LE FICHIER RESTE DANS LE DRIVE : on le référence, on ne le duplique pas.
-  driveNodeId    String?
-  driveNode      DriveNode?            @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
+  driveNodeId       String?
+  driveNode         DriveNode?            @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
   /// Rattachement à ce qui l'a fait naître (demande Ad & Pro, demande au secrétariat…).
-  sourceType     EntityType?
-  sourceId       String?
+  sourceType        EntityType?
+  sourceId          String?
+  /// LE MARCHÉ dont ce contrat est issu — le lien FORT qui remplace la recherche par texte
+  /// de référence. Un marché peut porter plusieurs contrats ; un contrat vient d'au plus un
+  /// marché. PCH est propriétaire du contexte marché, Legal de la couche juridique : MÊME
+  /// objet, deux vues (jamais deux copies).
+  tenderId          String?
+  tender            PchTender?            @relation("TenderContracts", fields: [tenderId], references: [id], onDelete: SetNull)
+  /// AVENANT (`kind = AMENDMENT`) : le contrat qu'il modifie. `SetNull` : supprimer un contrat
+  /// ne détruit pas les pièces d'avenant — il casse le fil, il n'efface rien.
+  amendsId          String?
+  amends            LegalDocument?        @relation("ContractAmendments", fields: [amendsId], references: [id], onDelete: SetNull)
+  amendments        LegalDocument[]       @relation("ContractAmendments")
+  /// Impact FINANCIER d'un avenant (± DZD). Le montant initial du contrat n'est JAMAIS
+  /// écrasé : la valeur courante = initial + somme des deltas des avenants effectifs.
+  amountDelta       Decimal?              @db.Decimal(14, 2)
+  /// Signature et prise d'effet — un avenant signé mais non effectif ne compte pas encore.
+  signedAt          DateTime?
+  effectiveAt       DateTime?
+  /// Les LIGNES CONTRACTUELLES portées par cette pièce (contrat de base ou avenant).
+  contractLines     PchContractLine[]     @relation("DocContractLines")
+  /// Toutes les lignes du GROUPE contractuel quand cette pièce est le contrat racine.
+  rootContractLines PchContractLine[]     @relation("RootContractLines")
+  /// Les BONS DE COMMANDE exécutant ce contrat.
+  pchOrders         PchOrder[]            @relation("ContractOrders")
   /// DOSSIER DE CLASSEMENT. Nul = « non classé », et c'est un état normal, pas un oubli :
   /// un engagement se dépose vite, il se range ensuite.
-  folderId       String?
-  folder         LegalFolder?          @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  folderId          String?
+  folder            LegalFolder?          @relation(fields: [folderId], references: [id], onDelete: SetNull)
   /// LA CHAÎNE DU DOSSIER D'ACHAT : chaque pièce pointe vers celle dont elle DÉCOULE — le bon
   /// de commande vers son devis, la facture vers son bon de commande. C'est ce lien qui permet
   /// de lire un achat d'un bout à l'autre (avec les validateurs et les délais de chaque maillon)
   /// au lieu de rapprocher trois lignes de tableau de tête. `SetNull` : supprimer un maillon ne
   /// détruit pas les suivants — il casse le fil, il n'efface pas les pièces.
-  chainFromId    String?
-  chainFrom      LegalDocument?        @relation("LegalChain", fields: [chainFromId], references: [id], onDelete: SetNull)
-  chainNext      LegalDocument[]       @relation("LegalChain")
+  chainFromId       String?
+  chainFrom         LegalDocument?        @relation("LegalChain", fields: [chainFromId], references: [id], onDelete: SetNull)
+  chainNext         LegalDocument[]       @relation("LegalChain")
   /// LE RÈGLEMENT d'une facture : l'ordre de dépense créé pour la payer — qui passe par le
   /// centre de paiement comme toute dépense. Nul = pas encore envoyée au règlement.
-  expenseOrderId String?
+  expenseOrderId    String?
   /// LES LECTEURS AUTORISÉS — qui, en plus du déposant, a le droit d'ouvrir ce document.
   ///
   /// Un engagement de la société n'est pas une pièce d'équipe : un bail, un contrat de travail
@@ -8902,14 +9146,14 @@ model LegalDocument {
   /// Liste VIDE = document ouvert à tout le module, comme avant. C'est le seul défaut sûr pour
   /// l'historique : le remplir de listes devinées aurait fermé des documents à ceux qui les
   /// utilisent, sans que personne sache lesquels.
-  readers        LegalDocumentReader[]
+  readers           LegalDocumentReader[]
   /// Dernier rappel d'échéance envoyé — évite de renotifier tous les jours.
-  lastRemindedAt DateTime?
-  createdById    String?
-  createdBy      User?                 @relation("LegalDocCreator", fields: [createdById], references: [id])
-  updatedById    String?
-  createdAt      DateTime              @default(now())
-  updatedAt      DateTime              @updatedAt
+  lastRemindedAt    DateTime?
+  createdById       String?
+  createdBy         User?                 @relation("LegalDocCreator", fields: [createdById], references: [id])
+  updatedById       String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 
   @@index([companyId, status])
   @@index([kind])
@@ -8917,6 +9161,8 @@ model LegalDocument {
   @@index([sourceType, sourceId])
   @@index([driveNodeId])
   @@index([chainFromId])
+  @@index([tenderId])
+  @@index([amendsId])
 }
 
 /// UN LECTEUR AUTORISÉ d'un document légal. Le déposant les désigne à la création, et peut les
@@ -9041,6 +9287,9 @@ model MailEntry {
   sourceType      EntityType?
   sourceId        String?
   pieces          MailEntryPiece[]
+  /// « RELIER À… » — un pli peut concerner PLUSIEURS objets (le marché ET son contrat ET un
+  /// BC). `sourceType/sourceId` reste la relation de NAISSANCE ; ceci est le classement.
+  links           MailEntryLink[]
   createdById     String?
   createdBy       User?            @relation("MailEntryCreator", fields: [createdById], references: [id])
   updatedById     String?
@@ -9527,48 +9776,48 @@ model Mission {
   updatedAt   DateTime      @updatedAt
 
   /// COORDINATION (poursuivre des humains) | RUNTIME (exécuter un DAG durable).
-  kind        String        @default("COORDINATION")
+  kind            String    @default("COORDINATION")
   /// L'objectif tel que le PDG l'a formulé, MOT POUR MOT. `objective` est la reformulation ;
   /// c'est le brut qui fait foi quand on juge si l'objectif est atteint (§20).
-  goalRaw     String?       @db.Text
+  goalRaw         String?   @db.Text
   /// Les critères d'acceptation, produits par le planner et VÉRIFIÉS avant COMPLETED.
-  acceptance  Json          @default("[]")
+  acceptance      Json      @default("[]")
   /// Les deux axes INDÉPENDANTS (§1) : A|B|C pour le raisonnement, S|M|L|XL|MASSIVE pour l'échelle.
-  complexity  String?
-  scale       String?
+  complexity      String?
+  scale           String?
   /// Incrémentée à chaque replan. Une étape d'un plan périmé n'est pas supprimée : elle est
   /// marquée — l'historique d'une mission compte autant que son état.
-  planVersion Int           @default(1)
+  planVersion     Int       @default(1)
   parentMissionId String?
   parentMission   Mission?  @relation("SubMissions", fields: [parentMissionId], references: [id], onDelete: SetNull)
   subMissions     Mission[] @relation("SubMissions")
   /// `null` = pas encore évalué, ce qui n'est PAS `false`.
-  goalSatisfied Boolean?
-  qaPassed      Boolean?
-  goalVerdict   String?     @db.Text
+  goalSatisfied   Boolean?
+  qaPassed        Boolean?
+  goalVerdict     String?   @db.Text
   /// Observabilité (§54) — ce que la mission a réellement coûté.
-  modelCalls    Int         @default(0)
-  toolCalls     Int         @default(0)
-  tokensIn      Int         @default(0)
-  tokensOut     Int         @default(0)
-  costUsd       Float       @default(0)
-  startedAt     DateTime?
+  modelCalls      Int       @default(0)
+  toolCalls       Int       @default(0)
+  tokensIn        Int       @default(0)
+  tokensOut       Int       @default(0)
+  costUsd         Float     @default(0)
+  startedAt       DateTime?
   /// Limite OPÉRATIONNELLE de parallélisme, jamais une limite d'architecture (§4).
-  maxConcurrency Int        @default(6)
+  maxConcurrency  Int       @default(6)
   /// PRIORITÉ d'ordonnancement : le battement sert les priorités hautes d'abord. 0 = normal.
-  priority       Int        @default(0)
+  priority        Int       @default(0)
   /// BAIL multi-instances : l'instance qui détient le bail fait avancer, les autres passent.
   /// La sûreté ne dépend PAS du bail (les étapes se réservent en base) — il évite le travail
   /// en double quand plusieurs battements tournent.
-  leaseOwner     String?
-  leaseUntil     DateTime?
+  leaseOwner      String?
+  leaseUntil      DateTime?
   /// PLAFOND d'appels de modèle (« ne dépense plus de modèle sur ce dossier aujourd'hui »).
   /// Nul = pas de plafond. Atteint : la mission dort (BUDGET_HOLD), elle n'échoue pas.
-  modelCallsCap  Int?
+  modelCallsCap   Int?
   /// LA CARTE DU PLAN telle que le planificateur l'a rendue : axes de travail, livrables
   /// attendus, stratégie d'accord, critère arithmétique de fin. Lue par le contrôle qualité et
   /// par le juge — quatre informations qui naissent ensemble et dont aucune ne s'interroge seule.
-  planMeta      Json        @default("{}")
+  planMeta        Json      @default("{}")
 
   artifacts    MissionArtifact[]
   participants MissionParticipant[]
@@ -9594,29 +9843,29 @@ model Mission {
 /// c'est ce qui empêche de renvoyer 72 e-mails après un crash à la 73ᵉ.
 /// ═══════════════════════════════════════════════════════════════════════════════════════════
 model MissionStep {
-  id         String  @id @default(cuid())
-  missionId  String
-  mission    Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  id                  String    @id @default(cuid())
+  missionId           String
+  mission             Mission   @relation(fields: [missionId], references: [id], onDelete: Cascade)
   /// Le regroupement logique — sert à l'affichage ET au replan ciblé.
-  workstream String  @default("default")
+  workstream          String    @default("default")
   /// La clé STABLE dans le plan : c'est elle que les dépendances désignent, et c'est elle qui
   /// rend la compilation RÉ-ENTRANTE (recompiler ne duplique pas, il retrouve).
-  key        String
-  title      String
+  key                 String
+  title               String
   /// La capacité appelée. `null` pour un nœud de contrôle (attente, jonction).
-  capability String?
+  capability          String?
   /// CAPABILITY | WORKER | WAIT_EVENT | WAIT_INPUT | APPROVAL | QA | ARTIFACT | JOIN
-  nodeType   String  @default("CAPABILITY")
-  input      Json    @default("{}")
+  nodeType            String    @default("CAPABILITY")
+  input               Json      @default("{}")
   /// PENDING | READY | RUNNING | DONE | FAILED | SKIPPED | WAITING | CANCELLED
-  status     String  @default("PENDING")
-  attempt    Int     @default(0)
-  maxAttempts Int    @default(3)
+  status              String    @default("PENDING")
+  attempt             Int       @default(0)
+  maxAttempts         Int       @default(3)
   /// LA CLÉ D'IDEMPOTENCE (§15) — unique en base, donc garantie par la base et non par la
   /// discipline de l'appelant.
-  idempotencyKey String?
-  result     Json?
-  receipt    String?
+  idempotencyKey      String?
+  result              Json?
+  receipt             String?
   /// LE REÇU STRUCTURÉ DE L'APPEL — ce que le code a CONSTATÉ, pas ce qu'un modèle en dit.
   ///
   /// Effet réellement porté, source interrogée, requête effective, horodatage, nombre de
@@ -9625,28 +9874,28 @@ model MissionStep {
   ///
   /// `resultCount: null` n'est PAS `0` : zéro est une affirmation, null est une absence de
   /// mesure. Les confondre fabriquerait de la preuve d'absence à partir d'un défaut de lecture.
-  receiptData Json?
-  error      String?
+  receiptData         Json?
+  error               String?
   /// La CAUSE classée de l'échec (§75) : c'est elle qui choisit la stratégie de récupération.
-  errorKind  String?
+  errorKind           String?
   /// Ce que l'étape attend quand elle attend : { type, from, entity, until }.
-  waitFor    Json?
+  waitFor             Json?
   /// L'EXPANSION EN ÉVENTAIL : { from, path, as }. Une propriété de l'ÉTAPE, pas de son payload —
   /// `input` est ce que l'humain approuve et ce que la capacité reçoit ; y glisser une directive
   /// de moteur rendrait le payload stocké différent du payload approuvé.
-  forEach    Json?
+  forEach             Json?
   /// Décidé par le compilateur sur le plan APPROUVÉ, jamais recalculé à l'exécution.
-  needsIdempotencyKey Boolean @default(false)
+  needsIdempotencyKey Boolean   @default(false)
   /// CE QUE L'ÉTAPE ATTEND — schéma de sortie d'un worker, condition d'achèvement, exigence de
   /// raisonnement, niveau d'accord proposé, format d'artefact. Séparé de `input` À DESSEIN :
   /// `input` est ce que l'humain approuve et ce que la capacité reçoit ; y glisser une directive
   /// de moteur rendrait le payload stocké différent du payload approuvé.
-  spec       Json?
+  spec                Json?
   /// L'HISTORIQUE DE RECOURS (§35) : stratégies tentées, greniers visités, journal compact.
   /// C'est lui qui rend la persévérance REPRENABLE après une panne — sans lui, le moteur
   /// redemanderait au Drive ce qu'il vient de lui demander.
-  recovery   Json?
-  planVersion Int    @default(1)
+  recovery            Json?
+  planVersion         Int       @default(1)
   /// LE PLAN COURANT NE PORTE PLUS CETTE ÉTAPE — il a tourné autour.
   ///
   /// Non nul = l'étape appartient à l'HISTOIRE, plus aux obligations. Elle garde son statut, son
@@ -9654,14 +9903,14 @@ model MissionStep {
   /// tenté sous le plan 1 et n'a pas abouti ». Mais elle ne décide plus de l'état de la mission.
   /// Sans cette distinction, une étape en échec d'un plan abandonné bloquait tous les suivants —
   /// mesuré sur un run réel où le plan v2 avait pourtant réussi.
-  supersededAt DateTime?
-  startedAt   DateTime?
-  completedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  supersededAt        DateTime?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  deps       MissionStepDep[] @relation("StepDeps")
-  dependents MissionStepDep[] @relation("StepDependents")
+  deps       MissionStepDep[]   @relation("StepDeps")
+  dependents MissionStepDep[]   @relation("StepDependents")
   workerRuns MissionWorkerRun[]
   artifacts  MissionArtifact[]
 
@@ -9797,23 +10046,23 @@ model MissionArtifact {
 /// des deux faux.
 /// ═══════════════════════════════════════════════════════════════════════════════════════════
 model MissionApproval {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   missionId   String
-  mission     Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  mission     Mission   @relation(fields: [missionId], references: [id], onDelete: Cascade)
   scope       String
-  summary     String   @db.Text
+  summary     String    @db.Text
   scopeHash   String
   /// Les clés d'étapes couvertes : ce que l'approbation débloque, et rien d'autre.
-  stepKeys    String[] @default([])
+  stepKeys    String[]  @default([])
   /// NORMAL | SENSITIVE | CRITICAL
-  level       String   @default("NORMAL")
+  level       String    @default("NORMAL")
   /// PENDING | GRANTED | REFUSED | EXPIRED | SUPERSEDED
-  status      String   @default("PENDING")
+  status      String    @default("PENDING")
   decidedById String?
   decidedAt   DateTime?
   /// Un ÉCHANTILLON de ce qui sera fait — pour inspecter sans tout dérouler.
   sample      Json?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   @@index([missionId, status])
   @@index([status])
@@ -9828,29 +10077,29 @@ model MissionApproval {
 /// vérités concurrentes.
 /// ═══════════════════════════════════════════════════════════════════════════════════════════
 model OperationalTemplate {
-  id                  String   @id @default(cuid())
+  id                  String    @id @default(cuid())
   ownerId             String
-  owner               User     @relation("UserOperationalTemplates", fields: [ownerId], references: [id], onDelete: Cascade)
+  owner               User      @relation("UserOperationalTemplates", fields: [ownerId], references: [id], onDelete: Cascade)
   /// PURCHASE_ORDER | INVOICE | QUOTATION | PAYMENT_REQUEST | REGULATORY_LETTER | CONTRACT | …
   type                String
   name                String
   /// OBSERVED | CANDIDATE | APPROVED | DEPRECATED
-  state               String   @default("OBSERVED")
+  state               String    @default("OBSERVED")
   /// Le fichier de référence dans le Drive — jamais une copie de son contenu ici.
   driveNodeId         String?
   fileName            String?
   fileHash            String?
   /// Ce que l'analyse a compris du fichier : champs, cellules, règles de numérotation.
-  structure           Json     @default("{}")
-  rules               Json     @default("{}")
+  structure           Json      @default("{}")
+  rules               Json      @default("{}")
   destinationFolderId String?
   approvedById        String?
   approvedAt          DateTime?
-  usageCount          Int      @default(0)
+  usageCount          Int       @default(0)
   lastUsedAt          DateTime?
-  note                String?  @db.Text
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  note                String?   @db.Text
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([ownerId, type, state])
 }
@@ -10443,6 +10692,7 @@ model Product {
   promoProfiles      PromoProduct[]           @relation("ProductPromoProfile")
   bdProfiles         BdProduct[]              @relation("ProductBdProfile")
   tenderLines        PchTenderLine[]          @relation("TenderLineProduct")
+  contractLines      PchContractLine[]        @relation("ContractLineProduct")
   sales              Sale[]                   @relation("SaleProduct")
   visitLinks         MedicalVisitProduct[]
   adProAllocations   AdProProductAllocation[]
@@ -10605,10 +10855,10 @@ model ArtifactSession {
   name        String
   format      String
 
-  state    ArtifactSessionState @default(OPENING)
+  state        ArtifactSessionState @default(OPENING)
   /// Incrémenté à chaque commande appliquée — c'est la « version » que voit le workspace (§64).
-  revision Int                  @default(0)
-  dirty    Boolean              @default(false)
+  revision     Int                  @default(0)
+  dirty        Boolean              @default(false)
   /// Dernière version Drive écrite depuis cette session (null tant qu'on n'a pas sauvegardé).
   savedVersion Int?
   lastError    String?
@@ -10619,9 +10869,9 @@ model ArtifactSession {
   activeSheet     String?
   activeSelection Json?
 
-  openedAt   DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  closedAt   DateTime?
+  openedAt  DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  closedAt  DateTime?
 
   operations ArtifactOperation[]
 

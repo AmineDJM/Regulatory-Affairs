@@ -56,6 +56,7 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   DOSSIER: "DOSSIERS",
   PROMO_MATERIAL: "PROMO_MATERIAL",
   CONSULTING_CONTRACT: "CONSULTING",
+  PCH_ORDER: "PCH",
   AD_PRO_OTHER: "AD_PRO_OTHER",
   AD_PRO_ITEM: "SPONSORING",
   // Une demande de pièce n'appartient à aucun module : elle appartient à ses deux

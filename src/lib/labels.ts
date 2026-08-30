@@ -837,6 +837,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   EVENT: "Événement",
   MISSION_ASSIGNMENT: "Ordre de mission",
   PCH_TENDER: "Appel d'offres",
+  PCH_ORDER: "Bon de commande (marché)",
   CONSULTING_CONTRACT: "Contrat de consulting",
   AD_PRO_OTHER: "Demande Ad & Pro — autre",
   AD_PRO_ITEM: "Poste de dépense",
