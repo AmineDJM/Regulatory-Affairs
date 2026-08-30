@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Search, Mic, Settings2, PanelLeft, ArrowLeft } from "lucide-react";
+import { ModuleSwitcher } from "./module-switcher";
+import type { Destination } from "@/platform/contract";
 
 /**
  * L'EN-TÊTE D'ADAM — identité à gauche, état à droite, rien au milieu.
@@ -37,6 +39,14 @@ export interface ChiefHeaderProps {
   /** Sur une page secondaire (réglages), l'en-tête devient un retour. */
   backHref?: string;
   backLabel?: string;
+  /**
+   * LES MODULES OÙ CETTE PERSONNE PEUT ALLER — la porte de sortie du bureau.
+   *
+   * Sans elle, `(chief)` était un cul-de-sac : il retire toute la navigation de l'ERP, et rien
+   * ne la remplaçait. Vide ⇒ aucun bouton, ce qui est le comportement juste pour un compte qui
+   * n'aurait accès à rien d'autre.
+   */
+  destinations?: readonly Destination[];
 }
 
 export function ChiefHeader({
@@ -48,6 +58,7 @@ export function ChiefHeader({
   onStartVoice,
   backHref,
   backLabel,
+  destinations,
 }: ChiefHeaderProps) {
   const [pressed, setPressed] = useState<string | null>(null);
 
@@ -152,6 +163,11 @@ export function ChiefHeader({
             <Settings2 className="h-[18px] w-[18px]" aria-hidden />
           </Link>
         )}
+
+        {/* LA SORTIE, EN DERNIER. À l'extrémité de la barre parce que c'est le geste qu'on fait
+            en QUITTANT : le mettre près de l'identité l'aurait rendu plus visible que la
+            conversation elle-même, ce que ce bureau refuse depuis le premier jour. */}
+        {destinations && destinations.length > 0 && <ModuleSwitcher destinations={destinations} />}
       </div>
     </header>
   );

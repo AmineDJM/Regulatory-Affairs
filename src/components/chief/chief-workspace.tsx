@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { ChiefHeader } from "./chief-header";
+import type { Destination } from "@/platform/contract";
 import { ChiefHome } from "./chief-home";
 import { AssistantChat } from "@/app/(app)/assistant/assistant-chat";
 
@@ -41,6 +42,8 @@ export interface ChiefWorkspaceProps {
   attention: { count: number; label: string; prompt: string }[];
   /** Adam voit-il des données à jour ? Le point de l'en-tête, et rien de plus bavard. */
   freshness: { label: string; tone: "ok" | "warn" | "off" };
+  /** Les modules où cette personne peut aller — la porte de sortie du bureau (voir l'en-tête). */
+  destinations: readonly Destination[];
 }
 
 export function ChiefWorkspace({
@@ -55,6 +58,7 @@ export function ChiefWorkspace({
   settingsHref,
   attention,
   freshness,
+  destinations,
 }: ChiefWorkspaceProps) {
   // La graine de saisie : une amorce cliquée PRÉ-REMPLIT le composeur, elle n'envoie rien.
   // Envoyer « Prépare un mail à » tout seul produirait une question en retour — un tour perdu.
@@ -81,6 +85,7 @@ export function ChiefWorkspace({
         voiceAvailable={realtimeVoice}
         settingsHref={settingsHref}
         onOpenHistory={memoryEnabled ? openHistory : undefined}
+        destinations={destinations}
       />
 
       {/* UNE SEULE COLONNE. Le panneau contextuel de droite n'existe pas encore comme surface

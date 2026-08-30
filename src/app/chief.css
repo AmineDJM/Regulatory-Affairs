@@ -119,6 +119,13 @@
   gap: 12px;
   height: var(--chief-header-h);
   flex-shrink: 0;
+  /* NIVEAU D'EMPILEMENT — pour ce qui s'ouvre DEPUIS l'en-tête (le sélecteur de modules).
+     `backdrop-filter` crée déjà un contexte d'empilement ici : sans niveau explicite, l'en-tête
+     est peint AVANT la conversation qui le suit, et un panneau ancré dessus passerait dessous.
+     30 le place au-dessus du fil et sous le tiroir d'historique (`z-50`), qui doit rester
+     par-dessus tout. */
+  position: relative;
+  z-index: 30;
   padding-left: max(16px, env(safe-area-inset-left));
   padding-right: max(16px, env(safe-area-inset-right));
   border-bottom: 1px solid hsl(var(--chief-border-subtle));

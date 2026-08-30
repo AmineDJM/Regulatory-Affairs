@@ -6,6 +6,7 @@ import { realtimeVoiceConfigured, canUseRealtimeVoice } from "@/lib/assistant/vo
 import { featureEnabled, FEATURES } from "@/lib/features";
 import { getActionCenter } from "@/lib/queries/action-center";
 import { ensurePrimaryThread } from "@/lib/assistant-memory";
+import { inProcessPlatform, principalOf } from "@/platform/in-process/adapter";
 import { ChiefWorkspace } from "@/components/chief/chief-workspace";
 import { BlockPreviewPlanche } from "@/components/chief/workspace/preview-planche";
 
@@ -58,8 +59,16 @@ export default async function ChiefOfStaffPage({
     return <BlockPreviewPlanche />;
   }
 
-  const [memoryEnabled] = await Promise.all([
+  // LA PORTE DE SORTIE. `(chief)` retire toute la navigation de l'ERP — c'est ce qui fait d'Adam
+  // un bureau et non un onglet — mais il n'en restait AUCUNE : on quittait Adam par le bouton
+  // « précédent » du navigateur. La liste des destinations arrive par le CONTRAT de plateforme,
+  // jamais par un import direct du menu : c'est l'ERP qui sait qui a le droit d'aller où.
+  const [memoryEnabled, destinations] = await Promise.all([
     user.impersonatedBy ? Promise.resolve(false) : featureEnabled(FEATURES.ASSISTANT_MEMORY.key, user.id),
+    inProcessPlatform
+      .query(principalOf(user), { kind: "navigation.destinations" })
+      .then((r) => (r.kind === "navigation.destinations" ? r.destinations : []))
+      .catch(() => []),
   ]);
 
   // LE FIL PRINCIPAL : une conversation CONTINUE par personne — elle s'ouvre d'office au lieu
@@ -114,6 +123,7 @@ export default async function ChiefOfStaffPage({
       settingsHref={hasGlobalView(user) ? "/chief-of-staff/reglages" : null}
       attention={attention}
       freshness={freshness}
+      destinations={destinations}
     />
   );
 }

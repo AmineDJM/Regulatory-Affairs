@@ -1,10 +1,8 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/session";
-import { accessibleModules, userCan, seesLockedRegulatory } from "@/lib/rbac";
-import { NAVIGATION, moduleForPath, type NavItem } from "@/lib/labels";
-import { canSeeRegEnrollment } from "@/lib/org-chart-access";
-import { getAppSettings } from "@/lib/settings";
-import { visibleModules } from "@/lib/modules-visibility";
+import { userCan } from "@/lib/rbac";
+import { moduleForPath } from "@/lib/labels";
+import { navigationFor } from "@/lib/nav-access";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { MobileTabBar } from "@/components/layout/mobile-tabbar";
@@ -27,7 +25,7 @@ import { getTotalUnread } from "@/lib/queries/messaging";
 import { getAdoptionBadge } from "@/lib/adoption";
 import { aiConfigured, sttConfigured } from "@/lib/ai";
 import { getMyCompanies, myCompanyScope } from "@/lib/company";
-import { isTestUser, featureEnabled } from "@/lib/features";
+import { isTestUser } from "@/lib/features";
 import { prisma } from "@/lib/prisma";
 import { APP_SCROLL_ID } from "@/lib/use-scroll-lock";
 import { NavDepthTracker } from "@/components/shared/back-link";
@@ -48,63 +46,11 @@ export default async function AppLayout({
     });
     if (flags?.mustOnboard) redirect("/onboarding");
   }
-  // MODULES MASQUÉS — retirés du menu pour tout le monde, sauf du Super Admin, qui doit pouvoir
-  // vérifier ce qu'il vient d'éteindre et le rallumer. Le masquage n'est pas un droit : c'est un
-  // état de service, réglé une fois pour toute la plateforme (Administration › Modules).
-  const modules = visibleModules(
-    accessibleModules(user),
-    (await getAppSettings().catch(() => null))?.hiddenModules ?? [],
-    { isSuperAdmin: user.role === "SUPER_ADMIN" },
-  );
-  // Entrées fusionnées (`tabs`) : visibles si l'utilisateur a accès à au moins un
-  // onglet ; le lien pointe vers le premier onglet autorisé, et `match` couvre les
-  // chemins de tous les onglets pour le surlignage. Les entrées simples sont
-  // filtrées par leur module, comme avant.
-  // Un onglet porteur d'un `feature` n'existe que pour les comptes qui voient cette
-  // nouveauté (stade TEST → testeurs, PROD → tout le monde) : on résout les drapeaux
-  // une fois ici, puis on filtre comme n'importe quel droit.
-  const tabFeatures = Array.from(new Set(NAVIGATION.flatMap((n) => (n.tabs ?? []).map((t) => t.feature).filter((f): f is string => !!f))));
-  const featureOn = new Map<string, boolean>(
-    await Promise.all(tabFeatures.map(async (f) => [f, await featureEnabled(f, user.id).catch(() => false)] as const)),
-  );
-  const tabVisible = (t: { module: string; feature?: string }) =>
-    modules.includes(t.module as (typeof modules)[number]) && (!t.feature || featureOn.get(t.feature) === true);
-
-  // Garde SUPPLÉMENTAIRE de l'analyse CTD : elle se débloque par réglage, rôle par rôle, et pas
-  // seulement par le module Regulatory. Résolue ICI, côté serveur : une entrée interdite n'est
-  // jamais envoyée au navigateur, donc jamais « cachée » par du CSS.
-  const gateOpen: Record<string, boolean> = {
-    regEnrollment: canSeeRegEnrollment(user, await getAppSettings()),
-    // Le PIPELINE ne s'affiche qu'à qui voit des dossiers verrouillés. Une entrée de menu qui
-    // ouvre une page vide n'est pas neutre : on la clique, on ne comprend pas, et on finit par
-    // demander à l'administrateur ce qui ne marche pas.
-    pipeline: seesLockedRegulatory(user),
-    // La PAIE se lit avec le droit de TENIR les RH, pas seulement de les consulter : sa page
-    // renvoie vers /rh sans ce droit. Même règle ici, pour que l'entrée n'existe pas plutôt
-    // que de rebondir — un directeur des opérations n'a rien à faire dans la masse salariale.
-    payroll: userCan(user, "RH", "UPDATE"),
-  };
-
-  // Les SOUS-MODULES suivent la même règle que leur parent : chacun a son module et sa garde,
-  // et une entrée interdite n'est jamais envoyée au navigateur. Un parent dont l'utilisateur
-  // n'a pas le module disparaît AVEC ses enfants — mais un enfant interdit ne fait pas
-  // disparaître le parent.
-  const allowedChildren = (n: NavItem): NavItem[] =>
-    (n.children ?? []).filter((c) => (!c.gate || gateOpen[c.gate]) && modules.includes(c.module));
-
-  const navItems = NAVIGATION.reduce<NavItem[]>((acc, n) => {
-    if (n.gate && !gateOpen[n.gate]) return acc;
-    const kids = allowedChildren(n);
-    if (!n.tabs) {
-      if (modules.includes(n.module)) acc.push(kids.length ? { ...n, children: kids } : { ...n, children: undefined });
-      return acc;
-    }
-    const accessible = n.tabs.filter(tabVisible);
-    if (accessible.length > 0) {
-      acc.push({ ...n, href: accessible[0].href, match: n.tabs.map((t) => t.href), children: kids.length ? kids : undefined });
-    }
-    return acc;
-  }, []);
+  // CE QUE CETTE PERSONNE A LE DROIT D'OUVRIR — droits de module, masquages d'administration,
+  // gardes supplémentaires et onglets, résolus ensemble dans `lib/nav-access`. Le calcul vivait
+  // ici ; il a été sorti pour que le bureau d'Adam, qui n'a PAS cette coque, puisse offrir la
+  // même liste sans la recopier — deux copies auraient divergé à la première garde ajoutée.
+  const navItems = await navigationFor(user);
   const canMessage = userCan(user, "MESSAGING", "VIEW");
   const [unreadCount, messagingUnread, adoption, companies, unreadNotifs] = await Promise.all([
     prisma.notification.count({ where: { userId: user.id, isRead: false } }),

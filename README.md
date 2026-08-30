@@ -2672,8 +2672,9 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 
 | Domaine | Fichiers clés |
 |---|---|
-| **Frontière Adam ↔ ERP** | `platform/contract.ts` (les 4 verbes, `Principal`, `PlatformQuery`, `PlatformCommand`, `DomainEvent` — **zéro import**) ; `platform/event-bus.ts` (`publish`/`subscribe`, abonnés isolés, mémoire bornée, rejeu) ; `platform/events.ts` (`emit` + catalogue fermé de 17 faits) ; `platform/in-process/adapter.ts` (**le seul pont** : `principalOf`, `query`, `command` → `performAction`, `authorize`) ; `platform/boundary-scan.ts` + `boundary.test.ts` (le **cliquet** : dette plafonnée à 425, `src/platform/` à zéro) ; `scripts/adam-boundary.ts` (`npm run adam:boundary`). Côté Adam : `lib/assistant/platform/change-feed.ts` (projection « quoi de neuf », branchée sur `what_changed`). ERP instrumenté : `hr-actions.ts`, `regulatory-actions.ts`, `comms/outbound.ts`. |
+| **Frontière Adam ↔ ERP** | `platform/contract.ts` (les 4 verbes, `Principal`, `PlatformQuery`, `PlatformCommand`, `DomainEvent` — **zéro import**) ; `platform/event-bus.ts` (`publish`/`subscribe`, abonnés isolés, mémoire bornée, rejeu) ; `platform/events.ts` (`emit` + catalogue fermé de 17 faits) ; `platform/in-process/adapter.ts` (**le seul pont** : `principalOf`, `query`, `command` → `performAction`, `authorize`, `destinationsOf` → `lib/nav-access.ts`) ; `platform/boundary-scan.ts` + `boundary.test.ts` (le **cliquet** : dette plafonnée à 430, `src/platform/` à zéro) ; `scripts/adam-boundary.ts` (`npm run adam:boundary`). Côté Adam : `lib/assistant/platform/change-feed.ts` (projection « quoi de neuf », branchée sur `what_changed`). ERP instrumenté : `hr-actions.ts`, `regulatory-actions.ts`, `comms/outbound.ts`. |
 | **Adam — aiguillage & liste courte d'outils** | `lib/assistant/context/router.ts` (`routeQuery` : 5 classes de route, 11 domaines, plancher de confiance) ; `tool-shortlist.ts` (`TOOL_DOMAINS` — les 77 outils classés —, `ALWAYS_ON` socle de 4, `shortlistTools`) ; **`rollout.ts`** (`decideRollout` : `FAST_READ` / `SHORTLIST` / `LEGACY`, `SAFE_READ_TOOLS` liste blanche, `bucketOf` FNV-1a, garde `recordOutcome`/`guardStatus`/`readyForNextStep`) ; `discovery.ts` (`runDiscovery` — l'échappatoire `list_more_tools`) ; `shadow.ts` (mesure) ; `bench.ts` + `golden-corpus.ts` (TRAIN) + `holdout-corpus.ts` (**jamais retouché**). Branché dans `lib/assistant.ts` sur **les deux** boucles (`runAssistant` et `runAssistantStream`), via `assistantToolsFor(user)`. |
+| **Adam — la coque de son bureau (et sa porte de sortie)** | Groupe de routes `app/(chief)/layout.tsx` : coque délibérément VIDE — ni menu latéral, ni barre supérieure, ni barre d'onglets, ni palette, ni bandeaux. `components/chief/{chief-workspace,chief-header,chief-home}.tsx` + `app/chief.css` (jeu de jetons `--chief-*` propre à Adam). **La sortie** : `components/chief/module-switcher.tsx` — une icône dans l'en-tête ouvre la liste des modules que CETTE personne peut ouvrir (champ de filtre, groupé par pôle, Échap / clic dehors referment). Les destinations arrivent par le **contrat de plateforme** (`navigation.destinations` → `in-process/adapter.ts` → `lib/nav-access.ts`), jamais par un import du menu de l'ERP : c'est ce qui garde le cliquet de frontière à 430. Le même `navigationFor` sert la barre latérale de l'ERP — une seule vérité sur « qui a le droit d'aller où ». Tests : `platform/navigation-destinations.test.ts` (dont : une entrée fusionnée mène au premier onglet AUTORISÉ, donc `/ad-pro` pour l'admin et `/congress-international` pour le délégué médical). |
 | **Adam — espace de travail génératif** | `lib/assistant/workspace/protocol.ts` (types de blocs + `WORKSPACE_LIMITS`) ; `compose.ts` (`composeWorkspace` — table de correspondance **fermée** : un outil absent ne compose RIEN, le repli est le texte ; plus la porte `_blocs`, **revalidée champ par champ**, par laquelle une lecture déclare ce qu'elle montre) ; `sheet.ts` (classeur → lignes, ExcelJS, **sans dépendance ERP**) ; `emit.ts` (helpers **purs** de composition : gestes, retards, métriques de charge, étapes) ; `components/chief/workspace/blocks.tsx` + `blocks.css` (feuille autonome à valeurs de repli : les blocs servent aussi `/assistant`, qui ne charge pas `chief.css`) ; `preview-planche.tsx` (la planche de revue visuelle, servie par `/chief-of-staff?apercu=blocs` **uniquement** si `ADAM_BLOCK_PREVIEW=1` — elle n'a pas d'adresse en production). Blocs : `people` (fiche riche : statut, métriques, coordonnées avec provenance), `directory`, `mail`, `agenda`, `queue` (**avec ses boutons Approuver / Refuser**), `record`, `table` (**gestes par ligne**, cartes empilées sur mobile), `timeline`, `progress` (jauges), `document` (PDF, image, feuille), `dossier` (faits + frise de circuit + pièces + participants + activité), `email` (le message avant l'envoi). Événement de flux `{ type: "workspace" }` ; stocké sur le message dans `assistant-chat.tsx`, qui fournit `WorkspaceAskProvider` — un clic écrit une phrase dans la conversation, il n'exécute rien. La prop `canvas` (défaut **faux**) rend le tour d'Adam **sans bulle** ; `/assistant` reste inchangé. |
 | **Adam — montrer (et non lire)** | `lib/assistant/show-tools.ts` : `show_document` (PDF/contrat en visionneuse, image, classeur rendu en tableau — passe par le **contrat** `document.show`, servi par `platform/in-process/adapter.ts`, seul autorisé à toucher Drive, stockage et droits) et `show_table` (colonnes et tri **à la demande** : le modèle choisit la vue, le serveur relit les lignes à la source canonique — sources fermées dans `TABLE_SOURCES`). À ne pas confondre avec `read_document`, qui extrait du TEXTE pour le modèle. |
 | **Sécurité / session** | `lib/rbac.ts` (PERMISSIONS, `userCan`, `anyRoleFilter`, `getAccess` cumul secondaire), `lib/session.ts` (`requireUser`/`requireModule`, maj `UserSession.lastSeenAt`), `lib/entity-access.ts` (accès par ligne + `ENTITY_MODULE`). |
@@ -3331,7 +3332,7 @@ npx prisma migrate deploy
 | `npm run db:reset` | Réinitialise la base |
 | `npx tsx scripts/gen-selection-pf-migration.ts` | Régénère la migration d'import du portefeuille « Sélection PF Produits » depuis `data/selection-pf-produits.xlsx` (le SQL est committé ; ne pas l'éditer à la main). |
 | `npm run adam:doctor` | **Diagnostic de mise en service d'Adam** — base, migrations, chiffrement des jetons, config Google, connexion, droits accordés, veille Gmail, ingestion, politique d'envoi, coupe-circuits, planificateur, parité. Sans effet de bord, n'affiche AUCUN secret, sort en erreur s'il reste un ÉCHEC. |
-| `npm run build:measure` | **Pic mémoire du build** — build propre, échantillonnage du RSS de l'arbre node, échec au-delà du plafond (`BUILD_MEM_LIMIT_MB`, 5000 Mo par défaut). La garde contre le retour de l'OOM Render. |
+| `npm run build:measure` | **Pic mémoire du build** — build propre, **avec le plafond de tas de `build:render`** (`BUILD_HEAP_MB`, 3072 Mo), échantillonnage du RSS de l'arbre node, échec au-delà du plafond (`BUILD_MEM_LIMIT_MB`, 4200 Mo par défaut). La garde contre le retour de l'OOM Render — elle ne vaut que parce qu'elle mesure la MÊME configuration que le déploiement. |
 | `npm run autotest` | **Auto-testeur** — audit de cohérence pages ↔ gardes ↔ menu ↔ matrice RBAC (déterministe, aucun serveur). Voir `scripts/auto-test/README.md`. |
 | `npm run autotest:live -- --base-url=…` | Crawl **en direct** (Playwright) : passe anonyme (fuites d'accès) + passes par rôle (accès réel vs RBAC, uploads jetables). |
 
@@ -3402,6 +3403,42 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### ON PEUT SORTIR DU BUREAU D'ADAM — et le build tient à nouveau chez Render (2026-08)
+
+**ADAM N'EST PLUS UN CUL-DE-SAC.** Le groupe de routes `(chief)` retire délibérément les neuf
+éléments de chrome de l'ERP — c'est ce qui fait qu'on entre dans un bureau et non dans un onglet
+de plus. Mais il ne restait AUCUN bouton pour en ressortir : on quittait Adam par le bouton
+« précédent » du navigateur. Une icône dans l'en-tête ouvre désormais la liste des modules que
+CETTE personne peut ouvrir — champ de filtre (accents repliés), groupé par pôle, Échap et clic
+dehors referment, un choix referme. Repliée derrière une icône, elle occupe 44 px : le menu
+latéral ne revient pas par la fenêtre.
+
+**LA LISTE N'EST PAS RECOPIÉE, ET C'EST TOUT L'ENJEU.** Le filtre — droits de module, masquages
+réglés en Administration, gardes `regEnrollment` / `pipeline` / `payroll`, onglets d'une entrée
+fusionnée — vivait EN ENTIER dans `app/(app)/layout.tsx`, où il n'avait qu'un lecteur : la barre
+latérale. Il est sorti dans `lib/nav-access.ts` (`navigationFor`), que la barre latérale ET Adam
+consomment. Deux copies auraient divergé à la première garde ajoutée, et Adam aurait proposé une
+porte ouvrant sur un écran vide. Adam n'importe pas ce module : il passe par le **contrat de
+plateforme** (`navigation.destinations` → `in-process/adapter.ts`), ce qui laisse le cliquet de
+frontière **à 430, inchangé**. Le contrat ne transporte pas d'icône, faute de pouvoir le faire
+sans qu'Adam importe le composant de l'ERP ou tienne sa propre table de 35 noms qui cesserait
+d'être juste en silence. Un test part de la vraie porte et pose la question qui compte — la liste
+dépend-elle de la personne ? — dont le cas subtil : une entrée fusionnée mène au premier onglet
+**autorisé**, donc `/ad-pro` pour l'administrateur et `/congress-international` pour le délégué
+médical.
+
+**LE BUILD RENDER : le plafond de tas était posé PAR PROCESSUS.** Le déploiement retombait sur
+« Ran out of memory (used over 8GB) ». Mesure d'abord : `ef09bdc` (avant le lot du jour) pique à
+**6269 Mo**, HEAD à **5272 Mo** — le lot du jour n'y était pour rien, il fait même baisser le
+chiffre. La référence de 3514 Mo était périmée, et la garde ne le voyait pas parce qu'elle
+mesurait un `next build` NU quand Render lance `build:render` avec un plafond de tas explicite :
+deux configurations, deux chiffres, une garde qui ne gardait rien. `--max-old-space-size=4096`
+laissait le worker de compilation monter SEUL à 5,1 Go. Passé à **3072**, le pic tombe à
+**3743 Mo** (−1529) sans rien désactiver ; à 2048 le worker meurt, ce qui borne l'intervalle par
+le bas. `build:measure` exporte désormais le même plafond et redescend son seuil à 4200 Mo.
+Détail complet, tableaux de mesure et piste racine repérée (le baril d'icônes `lucide-react`) :
+§ « Mémoire du build, second round ».
 
 ### LE DOSSIER RÉGLEMENTAIRE DEVIENT UNE FRISE — et son niveau se lit au lieu de se déclarer (2026-08)
 
@@ -4388,6 +4425,58 @@ nul côté navigateur (ces bundles ne sont jamais téléchargés) : coupée par
 
 Résultat : **4612 → 3514 Mo**, et surtout un pic désormais INDÉPENDANT du builder.
 `npm run build:measure` garde la porte.
+
+### Mémoire du build, second round — le plafond de tas était posé PAR PROCESSUS (2026-08)
+
+L'OOM Render est revenu (« used over 8GB »). Ce qui a été mesuré, dans l'ordre, avant de
+toucher à quoi que ce soit :
+
+| Commit | Phase du pic | Pic (arbre node) |
+| --- | --- | --- |
+| `ef09bdc` (avant le lot du jour) | compilation | **6269 Mo** |
+| `591a0e8` (HEAD) | compilation | **5272 Mo** — dont **un seul worker à 5114** |
+
+**Le lot du jour n'y était pour rien** — il fait même baisser le chiffre, ayant supprimé trois
+écrans. La référence de 3514 Mo était simplement PÉRIMÉE : le graphe a grossi lot après lot, et
+personne ne l'a vu parce que **la garde ne mesurait pas la configuration qui part en
+production**. `build:measure` lançait un `next build` nu ; Render lance `build:render`, avec un
+plafond de tas explicite. Deux configurations, deux chiffres — et une garde qui annonçait
+« sous le plafond » pendant que le déploiement mourait.
+
+La cause : `--max-old-space-size` est un plafond **par processus**, et il y en a plusieurs.
+Posé à 4096 « pour le build », il autorisait en réalité le worker de compilation à monter seul
+à 5,1 Go — V8 ne ramasse sérieusement qu'en approchant sa limite. Un seul chiffre changé, tout
+le reste identique :
+
+| Tas par processus | Pic | Issue |
+| --- | --- | --- |
+| 4096 Mo | 5272 Mo | build OK, mais Render tombe |
+| **3072 Mo** | **3743 Mo** | **build OK** ← retenu |
+| 2048 Mo | — | le worker de compilation MEURT (SIGABRT, heap out of memory) |
+
+**−1529 Mo, sans rien désactiver** : ni lint, ni typecheck, ni minification client, ni aucune
+fonctionnalité. Le pic passe de la compilation à la génération statique, où la décomposition
+montre que `experimental.cpus: 2` tient bien : parent 1734 Mo + 2 workers à ~940 Mo.
+
+Trois choses ont changé, et la troisième compte autant que la première :
+- `build:render` plafonne le tas à **3072 Mo** (`package.json`) ;
+- `scripts/build-memory.sh` **exporte le même plafond** — la garde mesure désormais ce que
+  Render exécute, sinon elle mesure autre chose et ne garde rien ;
+- le plafond de la garde descend de 5000 à **4200 Mo**, redevenant un cliquet serré au lieu
+  d'un chiffre que plus personne n'atteignait.
+
+Le 2048 qui casse n'est pas un détail : il dit que la compilation a réellement besoin de plus
+de 2 Go, donc que le prochain gros lot fera ÉCHOUER le build au lieu de le laisser dériver.
+C'est le comportement voulu — un échec bruyant en local vaut mieux qu'un OOM silencieux chez
+l'hébergeur ; le message d'erreur du script dit quoi remonter, et où.
+
+**Piste racine repérée, non traitée ici** : `src/components/ui/icon.tsx` importe l'objet
+`icons` de `lucide-react`, qui référence toute la bibliothèque — `lucide-react/dist/esm/icons/`
+compte 3464 fichiers, et cet import-là ne peut être ni élagué ni traité par
+`experimental.optimizePackageImports` (qui optimise les imports NOMMÉS). Ils entrent donc tous
+dans le graphe, côté client ET serveur. Le remède demande une table explicite plus un test qui
+empêche la dérive — une icône absente de la table disparaît EN SILENCE (`Icon` rend `null`) —
+et 19 fichiers appellent ce composant, dont certains avec un nom calculé à l'exécution.
 
 ### Parité quasi totale UI ↔ Chief — 485 ops de domaine sur 30 outils, 98,6 % (2026-08)
 

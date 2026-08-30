@@ -174,7 +174,20 @@ export type PlatformQuery =
    * (c'est une façade transverse), et Adam ne doit pas le connaître. Le jour où le runtime
    * devient un service à part, cette ligne ne bouge pas.
    */
-  | { kind: "mission.status"; mission?: string };
+  | { kind: "mission.status"; mission?: string }
+  /**
+   * OÙ CETTE PERSONNE A-T-ELLE LE DROIT D'ALLER — la liste de ses destinations, pas un menu.
+   *
+   * Pourquoi c'est une lecture de PLATEFORME et non une constante d'Adam : la réponse dépend
+   * des droits de module, des masquages réglés en Administration, et de gardes qui se ferment
+   * sur un réglage (analyse CTD, pipeline, paie). Adam n'a pas à connaître une seule de ces
+   * règles ; il a besoin de savoir quelles portes existent pour celui qui lui parle.
+   *
+   * Ce n'est PAS une autorisation. La liste sert à AFFICHER ; chaque écran garde sa propre
+   * garde (`requireModule`), et c'est elle qui fait foi. Une entrée périmée coûte donc un
+   * refus poli à l'arrivée, jamais un accès indu.
+   */
+  | { kind: "navigation.destinations" };
 
 export type PlatformQueryResult =
   | { kind: "person.search" | "person.list"; people: readonly PersonView[]; total: number }
@@ -199,7 +212,30 @@ export type PlatformQueryResult =
   | { kind: "product.economics"; data: BusinessSnapshot | null; question?: string }
   | { kind: "pch.market-status"; data: BusinessSnapshot | null; question?: string }
   | { kind: "business.story"; data: BusinessStoryView | null; question?: string }
-  | { kind: "mission.status"; data: MissionStatusView | null; missions?: readonly MissionBrief[] };
+  | { kind: "mission.status"; data: MissionStatusView | null; missions?: readonly MissionBrief[] }
+  | { kind: "navigation.destinations"; destinations: readonly Destination[] };
+
+/**
+ * UNE DESTINATION — un endroit où aller, décrit assez pour être présenté et pas davantage.
+ *
+ * PAS D'ICÔNE, et c'est délibéré. Le menu de l'ERP en porte une par entrée, désignée par son
+ * nom dans un jeu d'icônes ; la faire traverser obligerait Adam soit à importer le composant de
+ * l'ERP — ce que la frontière interdit — soit à tenir sa propre table de trente-cinq noms, qui
+ * cesserait d'être juste au premier module ajouté, en silence. Une liste de noms groupés se lit
+ * très bien ; une icône manquante, non.
+ *
+ * `group` et `pole` sont le rangement que l'ERP a choisi ; les recopier ici évite à Adam
+ * d'inventer le sien — deux classements pour les mêmes modules, c'est deux choses à apprendre.
+ */
+export interface Destination {
+  /** Le module ERP (`REGULATORY`, `FINANCES`…). Sert de clé stable, pas d'étiquette. */
+  module: string;
+  label: string;
+  href: string;
+  group: string;
+  /** Pôle d'entreprise, pour les entrées du groupe « Pôles ». */
+  pole: string | null;
+}
 
 /**
  * UNE VUE MÉTIER DÉJÀ COMPOSÉE — l'ERP a fait le calcul, Adam n'a plus qu'à la restituer.
