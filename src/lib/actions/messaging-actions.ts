@@ -266,6 +266,64 @@ export async function createChannel(formData: FormData): Promise<ActionResult> {
 
 // ─────────────────────────── Messages ───────────────────────────
 
+/**
+ * RECEVOIR UN MESSAGE EST UNE NOTIFICATION — plus seulement une mention.
+ *
+ * Le compteur de non-lus ne suffisait pas : il ne vit que dans l'écran Messages, ne sonne pas,
+ * ne part pas en push sur le téléphone, et ne dit ni de qui ni quoi. Quelqu'un à qui l'on écrit
+ * pendant qu'il travaille dans un autre module ne l'apprenait qu'en repassant par la messagerie.
+ *
+ * Trois règles, et elles suivent le réglage que la personne a choisi pour CETTE conversation :
+ *  - `NONE` (silencieux) : rien, pas même une mention — c'est le sens du mot ;
+ *  - `MENTIONS` : uniquement quand on la nomme ;
+ *  - `ALL` (défaut) : chaque message.
+ *
+ * UNE SEULE LIGNE PAR CONVERSATION TANT QU'ELLE N'EST PAS LUE. Trente messages dans un fil ne
+ * font pas trente notifications : on ne remplacerait pas un compteur muet par une cloche
+ * inutilisable. Une MENTION, elle, passe toujours — elle s'adresse nommément à quelqu'un, et
+ * l'étouffer derrière un message anodin arrivé avant serait exactement l'oubli qu'on corrige.
+ */
+async function notifyRecipients(opts: {
+  conversationId: string;
+  sender: { id: string; name: string };
+  members: { userId: string; notifyLevel: ConvNotifyLevel }[];
+  mentionIds: string[];
+  body: string;
+}) {
+  const { conversationId, sender, members, mentionIds, body } = opts;
+  const link = `/messages?c=${conversationId}`;
+  const mentioned = new Set(mentionIds);
+
+  const cibles = members.filter((m) => m.userId !== sender.id && m.notifyLevel !== "NONE");
+  const aMentionner = cibles.filter((m) => mentioned.has(m.userId)).map((m) => m.userId);
+  const aPrevenir = cibles.filter((m) => m.notifyLevel === "ALL" && !mentioned.has(m.userId)).map((m) => m.userId);
+
+  // Qui a déjà une notification NON LUE sur cette conversation ? Elle dira la même chose.
+  const dejaEnAttente = aPrevenir.length
+    ? new Set(
+        (await prisma.notification.findMany({
+          where: { userId: { in: aPrevenir }, link, isRead: false },
+          select: { userId: true },
+        })).map((n) => n.userId),
+      )
+    : new Set<string>();
+
+  await Promise.all([
+    ...aMentionner.map((userId) => notifyUser({
+      userId, type: "GENERIC", link,
+      title: `${sender.name} vous a mentionné`,
+      body,
+    })),
+    ...aPrevenir.filter((id) => !dejaEnAttente.has(id)).map((userId) => notifyUser({
+      userId, type: "GENERIC", link,
+      title: `Nouveau message de ${sender.name}`,
+      body,
+      // Un même fil ne réempile pas de bandeaux sur l'appareil : le push se REMPLACE.
+      push: { tag: `conv-${conversationId}` },
+    })),
+  ]);
+}
+
 export async function sendMessage(
   formData: FormData,
 ): Promise<{ ok: boolean; error?: string; message?: MessageDTO }> {
@@ -323,20 +381,10 @@ export async function sendMessage(
   await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: created.createdAt } });
   await prisma.conversationMember.update({ where: { id: membership.id }, data: { lastReadAt: created.createdAt } });
 
-  // Notifier uniquement les personnes mentionnées (le compteur de non-lus gère le reste).
-  if (mentionIds.length) {
-    const levelById = new Map(members.map((m) => [m.userId, m.notifyLevel]));
-    for (const id of mentionIds) {
-      if (levelById.get(id) === "NONE") continue;
-      await notifyUser({
-        userId: id,
-        type: "GENERIC",
-        title: `${user.name} vous a mentionné`,
-        body: preview(body, "TEXT", pieces > 0, 120),
-        link: `/messages?c=${conversationId}`,
-      });
-    }
-  }
+  await notifyRecipients({
+    conversationId, sender: user, members, mentionIds,
+    body: preview(body, created.kind, pieces > 0, 120),
+  });
 
   revalidatePath("/messages");
   return { ok: true, message: mapMessage(created as unknown as MessageRow, user.id) };

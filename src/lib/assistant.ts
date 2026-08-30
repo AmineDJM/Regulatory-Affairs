@@ -18,7 +18,9 @@
  * affiche « IA non configurée ».
  */
 
-import type { AdminRequestType, CongressRequestStatus, Priority, CalendarEventKind, HrRequestType, RegulatoryCategory } from "@prisma/client";
+// Un SEUL import du schéma : deux déclarations vers le même module comptaient deux
+// franchissements de frontière pour une seule dépendance réelle (cf. `platform/boundary-scan`).
+import { MailSendPolicy, type AdminRequestType, type CongressRequestStatus, type Priority, type CalendarEventKind, type HrRequestType, type RegulatoryCategory } from "@prisma/client";
 import { resultatVide } from "@/lib/assistant/empty-result";
 import { prisma } from "@/lib/prisma";
 import { companyIdForNew, currentCompanyWhereFor } from "@/lib/company";
@@ -73,7 +75,6 @@ import { findPeople as findDirectoryPeople } from "@/lib/directory/resolve";
 import { decideAddress, askWhichAddress } from "@/lib/directory/rank";
 import { gmailTransport } from "@/lib/google/gmail/transport";
 import { markMissionAsked } from "@/lib/comms/missions";
-import { MailSendPolicy } from "@prisma/client";
 import { requestTreasuryUpdate } from "@/lib/actions/finance-actions";
 import { advanceWorkflow, saveWorkflowDefinition, resetWorkflowDefinition } from "@/lib/actions/workflow-actions";
 import { upsertCustomFieldDef, deleteCustomFieldDef } from "@/lib/actions/custom-field-actions";

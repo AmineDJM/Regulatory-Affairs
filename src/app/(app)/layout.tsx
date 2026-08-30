@@ -79,6 +79,10 @@ export default async function AppLayout({
     // ouvre une page vide n'est pas neutre : on la clique, on ne comprend pas, et on finit par
     // demander à l'administrateur ce qui ne marche pas.
     pipeline: seesLockedRegulatory(user),
+    // La PAIE se lit avec le droit de TENIR les RH, pas seulement de les consulter : sa page
+    // renvoie vers /rh sans ce droit. Même règle ici, pour que l'entrée n'existe pas plutôt
+    // que de rebondir — un directeur des opérations n'a rien à faire dans la masse salariale.
+    payroll: userCan(user, "RH", "UPDATE"),
   };
 
   // Les SOUS-MODULES suivent la même règle que leur parent : chacun a son module et sa garde,

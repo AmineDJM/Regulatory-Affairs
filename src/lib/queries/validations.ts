@@ -204,12 +204,31 @@ const SPO_STAGE: Record<string, string> = { AWAITING_PRELIMINARY: "Préliminaire
 const CONG_STAGE: Record<string, string> = { AWAITING_PRELIMINARY: "Préliminaire", AWAITING_FINAL: "Définitive" };
 
 /**
+ * LE TABLEAU TRANSVERSE NE S'AFFICHE PAS AUX DEUX DIRECTIONS OPÉRATIONNELLES.
+ *
+ * Pour elles, il ne montrait rien de nouveau : chaque ligne renvoie à la fiche du module où la
+ * décision se prend, et ces deux rôles ont déjà le module ENTIER sous les yeux — le Directeur
+ * des opérations voit toutes les demandes administratives (portée ALL), le Directeur général
+ * voit tout le sponsoring et toutes les prises en charge. Le bloc rejouait donc une seconde
+ * fois, sous un autre titre, ce que leur écran métier affiche déjà, et gonflait le compteur
+ * « à valider par vous » de doublons.
+ *
+ * Rien n'est perdu : aucune de ces décisions ne se prenait ICI. Elles se prennent, comme avant,
+ * sur la fiche du sponsoring, du congrès ou de la demande — et le lien de chaque ligne le disait
+ * déjà (« Ouvrir pour valider »).
+ */
+export function skipsCrossModuleBoard(user: SessionUser): boolean {
+  return user.role === "GENERAL_MANAGER" || user.role === "OPERATIONS_DIRECTOR";
+}
+
+/**
  * Centre de validation : agrège dans un seul endroit TOUTES les validations en
  * attente de l'utilisateur, issues des autres modules — demandes administratives
  * escaladées (AdminApproval), sponsoring et congrès en attente de Direction.
  * Chaque ligne renvoie vers la fiche où la décision se prend réellement.
  */
 export async function getCrossModuleValidations(user: SessionUser): Promise<CrossValidationItem[]> {
+  if (skipsCrossModuleBoard(user)) return [];
   const out: CrossValidationItem[] = [];
   const global = hasGlobalView(user.role);
 

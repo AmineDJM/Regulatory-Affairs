@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Bell } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { getActionCenter, type ActionItem } from "@/lib/queries/action-center";
@@ -11,22 +11,30 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
 import { PRIORITY, ROLE_LABELS, WORKSPACE_TABS } from "@/lib/labels";
-import { formatDate, formatDateTime, daysUntil } from "@/lib/utils";
+import { formatDate, daysUntil } from "@/lib/utils";
 
 export default async function MonTravailPage() {
   const user = await requireModule("WORKSPACE");
-  const { items, notifications, stats } = await getActionCenter(user);
+  const { items, stats } = await getActionCenter(user);
 
-  const overdue = items.filter((i) => i.deadline && new Date(i.deadline) < new Date());
   const soon = items.filter((i) => {
     if (!i.deadline) return false;
     const d = daysUntil(i.deadline);
     return d !== null && d >= 0 && d <= 3;
   });
-  const validations = items.filter((i) => i.kind === "validation");
-  const toHandle = items.filter((i) => i.kind === "request" || i.kind === "payment" || i.kind === "regulatory" || i.kind === "hr");
+  /**
+   * UN SEUL BLOC POUR CE QU'ON DOIT SIGNER — validations ET paiements.
+   *
+   * Ils vivaient dans deux sections, et un paiement à régler n'est rien d'autre qu'une
+   * validation qui porte un montant : on cherchait « ce que je dois valider » à deux endroits,
+   * et on en oubliait un. Le retard, lui, ne fait plus SA propre section : chaque ligne porte
+   * déjà sa date en rouge, et la même demande apparaissait deux fois — une fois « en retard »,
+   * une fois dans sa catégorie.
+   */
+  const validations = items.filter((i) => i.kind === "validation" || i.kind === "payment");
+  const toHandle = items.filter((i) => i.kind === "request" || i.kind === "regulatory" || i.kind === "hr");
   const myTasks = items.filter((i) => i.kind === "task");
-  const nothing = items.length === 0 && notifications.length === 0;
+  const nothing = items.length === 0;
 
   return (
     <div className="space-y-6">
@@ -48,9 +56,6 @@ export default async function MonTravailPage() {
         <EmptyState icon="CheckCheck" title="Tout est à jour 🎉" description="Vous n'avez aucune action en attente pour le moment." />
       )}
 
-      {overdue.length > 0 && (
-        <ActionSection title={`En retard (${overdue.length})`} items={overdue} tone="danger" />
-      )}
       {soon.length > 0 && (
         <ActionSection title={`À faire bientôt (${soon.length})`} items={soon} />
       )}
@@ -64,33 +69,6 @@ export default async function MonTravailPage() {
         <ActionSection title={`Mes tâches (${myTasks.length})`} items={myTasks} cta="/mon-espace" ctaLabel="Mon espace" />
       )}
 
-      {notifications.length > 0 && (
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Notifications importantes ({notifications.length})</h2>
-            <Link href="/notifications" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">Toutes <ArrowRight className="h-3.5 w-3.5" /></Link>
-          </div>
-          <Card>
-            <CardContent className="p-0">
-              <ul className="divide-y divide-border">
-                {notifications.map((n) => {
-                  const inner = (
-                    <div className="flex items-start gap-3 px-4 py-2.5">
-                      <Bell className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium">{n.title}</p>
-                        {n.body && <p className="truncate text-xs text-muted-foreground">{n.body}</p>}
-                      </div>
-                      <span className="shrink-0 text-xs text-muted-foreground">{formatDateTime(n.createdAt)}</span>
-                    </div>
-                  );
-                  return n.link ? <li key={n.id}><Link href={n.link} className="block hover:bg-secondary/50">{inner}</Link></li> : <li key={n.id}>{inner}</li>;
-                })}
-              </ul>
-            </CardContent>
-          </Card>
-        </section>
-      )}
     </div>
   );
 }

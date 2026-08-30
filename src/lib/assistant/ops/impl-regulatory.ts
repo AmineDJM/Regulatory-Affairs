@@ -2,12 +2,16 @@ import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import { scopeRegulatory } from "@/lib/rbac";
 import { currentCompanyWhereFor } from "@/lib/company";
-import { REGULATORY_STEP_TYPE, VARIATION_TARGETS, MANUFACTURING_STATUS, VARIATION_STATUS } from "@/lib/labels";
+import {
+  REGULATORY_STEP_TYPE, VARIATION_TARGETS, MANUFACTURING_STATUS, VARIATION_STATUS,
+  DOSSIER_STEP_KIND, DOSSIER_STEP_ADDABLE,
+} from "@/lib/labels";
 import { REG_CHECKLIST } from "@/lib/regulatory-workflow";
 import {
   createRegulatoryProduct, setRegulatoryParticipants, addRegulatoryComment, updateRegulatoryStep,
   setRegulatoryChecklistItem, createVariation, setVariationStatus, requestBV, setRegulatoryClassification,
 } from "@/lib/actions/regulatory-actions";
+import { addDossierStep } from "@/lib/actions/regulatory-timeline-actions";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
 import { resolvePeopleList } from "./impl-drive";
@@ -123,6 +127,11 @@ const productLink = (id: string): string => `/regulatory/${id}`;
 const REG_REVALIDATE = ["/regulatory"];
 
 const CHECKLIST_ENTRIES: [string, string][] = REG_CHECKLIST.flatMap((g) => g.items.map((i) => [i.key, i.label] as [string, string]));
+
+/** Les étapes qu'on peut AJOUTER à la frise, avec leurs mots — le même vocabulaire que l'écran
+ *  du dossier et que le journal d'audit (`DOSSIER_STEP_*`, `lib/labels.ts`). Les RÈGLES, elles,
+ *  restent côté action : Adam propose, `addDossierStep` valide et refuse. */
+const DOSSIER_STEP_ENTRIES: [string, string][] = DOSSIER_STEP_ADDABLE.map((k) => [k, DOSSIER_STEP_KIND[k]]);
 
 export const REGULATORY_OPS_IMPL: Record<string, OpImpl> = {
   create_product: {
@@ -295,6 +304,62 @@ export const REGULATORY_OPS_IMPL: Record<string, OpImpl> = {
       if (args.responsible) fd.set("responsible", args.responsible);
       const r = await updateRegulatoryStep(fd);
       if (!r.ok) return { ok: false, error: r.error ?? "La mise à jour de l'étape a été refusée." };
+      return { ok: true, revalidate: REG_REVALIDATE };
+    },
+  },
+
+  /**
+   * AJOUTER UNE ÉTAPE À LA FRISE DU DOSSIER — « note les réserves du 12 mars sur le BICTEGRAVIR ».
+   *
+   * C'est l'écriture la plus fréquente du module au quotidien : une lettre arrive, une version
+   * repart. La faire passer par la conversation évite d'ouvrir la fiche pour trois champs — et
+   * l'étape créée est la MÊME que celle du « + » de l'écran, avec le même journal.
+   */
+  add_dossier_step: {
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const product = await resolveRegProduct(user, opStr(input, "reference"));
+      if ("error" in product) return product;
+
+      const kind = matchLabel(opStr(input, "kind"), DOSSIER_STEP_ENTRIES);
+      if (typeof kind === "object") return kind;
+
+      const versionRaw = opStr(input, "version");
+      const version = versionRaw ? Number(versionRaw.replace(/[^0-9]/g, "")) : null;
+      if (kind === "CTD_VERSION" && !version) {
+        return { error: "Indiquez le numéro de version du CTD (champ « version » : 2, 3, …)." };
+      }
+      // Sans nom saisi, on n'en INVENTE pas un ici : l'action pose le libellé standard, le même
+      // que le « + » de l'écran. Deux endroits qui composent le même nom finiraient par en
+      // composer deux.
+      const label = opStr(input, "label");
+      const occurredAt = iso(opStr(input, "date"));
+      const quoi = `${DOSSIER_STEP_KIND[kind]}${version ? ` v${version}` : ""}${label ? ` — ${label}` : ""}`;
+
+      return {
+        title: `Frise de ${product.reference} — ${quoi}`,
+        fields: [
+          { label: "Dossier", value: `${product.reference} — ${product.dci}` },
+          { label: "Type d'étape", value: DOSSIER_STEP_KIND[kind] },
+          ...(label ? [{ label: "Nom", value: label }] : []),
+          ...(version ? [{ label: "Version", value: `v${version}` }] : []),
+          ...(occurredAt ? [{ label: "Date de l'événement", value: occurredAt }] : []),
+        ],
+        args: { productId: product.id, kind, label, version: version ? String(version) : null, occurredAt, note: opStr(input, "note"), reference: product.reference },
+        successMessage: `Étape ajoutée à la frise de ${product.reference} : ${quoi}.`,
+        link: productLink(product.id),
+        revalidate: REG_REVALIDATE,
+      };
+    },
+    async execute(args) {
+      const fd = new FormData();
+      fd.set("productId", args.productId ?? "");
+      fd.set("kind", args.kind ?? "");
+      fd.set("label", args.label ?? "");
+      if (args.version) fd.set("version", args.version);
+      if (args.occurredAt) fd.set("occurredAt", args.occurredAt);
+      if (args.note) fd.set("note", args.note);
+      const r = await addDossierStep(undefined, fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "L'ajout à la frise a été refusé." };
       return { ok: true, revalidate: REG_REVALIDATE };
     },
   },

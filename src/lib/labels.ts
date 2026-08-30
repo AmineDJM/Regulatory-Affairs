@@ -185,6 +185,30 @@ export const REGULATORY_STEP_TYPE: Record<string, string> = {
   DOSSIER_CLOSED: "Dossier clôturé",
 };
 
+/**
+ * LA FRISE D'UN DOSSIER — le VOCABULAIRE, et lui seul.
+ *
+ * Les RÈGLES (ce qui s'ajoute, ce qui se supprime, où l'on insère) vivent dans
+ * `lib/regulatory/dossier-timeline.ts`, qui reprend ces deux constantes en les typant : une
+ * seule source pour les mots, une seule source pour les règles. Ils sont ici parce que trois
+ * lecteurs doivent en dire exactement la MÊME chose — l'écran du dossier, le journal d'audit,
+ * et Adam quand il propose d'ajouter une étape.
+ */
+export const DOSSIER_STEP_KIND: Record<string, string> = {
+  CTD_INITIAL: "CTD initial",
+  ANPP_RESERVES: "Réserves ANPP",
+  ANPP_RESPONSE: "Réponse aux réserves",
+  CTD_VERSION: "Version du CTD",
+  DECISION: "Décision de l'agence",
+  OTHER: "Autre",
+};
+
+/** Ce que propose le « + », dans l'ordre où cela arrive dans la vie d'un dossier. L'ORIGINE
+ *  (`CTD_INITIAL`) n'y est pas : elle existe déjà — le refus, lui, est une règle testée. */
+export const DOSSIER_STEP_ADDABLE: string[] = [
+  "ANPP_RESERVES", "ANPP_RESPONSE", "CTD_VERSION", "DECISION", "OTHER",
+];
+
 /** Ordered list of regulatory steps used when seeding & rendering timelines. */
 export const REGULATORY_STEP_ORDER: string[] = [
   "PRE_SUBMISSION",
@@ -1274,7 +1298,7 @@ export interface NavItem {
    * écrans dont l'ouverture dépend d'un réglage et pas seulement d'un rôle (l'analyse CTD est
    * débloquée en Administration, rôle par rôle).
    */
-  gate?: "regEnrollment" | "pipeline";
+  gate?: "regEnrollment" | "pipeline" | "payroll";
   /**
    * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
    * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
@@ -1290,10 +1314,8 @@ export interface NavItem {
    * autonome (sa route, sa garde, son écran) rangé sous son parent. Il se déplie par une flèche,
    * sur ordinateur comme sur mobile.
    *
-   * AUCUNE entrée ne s'en sert aujourd'hui : le pipeline est passé au rang de module du pôle
-   * Regulatory, et les écrans de Finances sont revenus dans la page Finances. La capacité reste
-   * en place — elle est testée et rendue par la barre latérale comme par le tiroir mobile — pour
-   * le jour où un module aura de nouveau besoin d'un vrai sous-module.
+   * La PAIE s'en sert : elle vit sous « Ressources humaines », derrière la flèche, parce qu'elle
+   * n'a pas la même audience que le reste du module (voir l'entrée RH plus bas).
    */
   children?: NavItem[];
   /** Préfixes de chemin additionnels qui activent l'entrée (pour les entrées fusionnées). */
@@ -1534,7 +1556,20 @@ export const NAVIGATION: NavItem[] = [
   // Demandes de validations (bouton « Demande de paiement »), et une fois le bon à payer donné,
   // le dossier passe par le centre de paiement puis atterrit dans les Règlements à effectuer.
   // Les écrans /validations/paiements restent servis — on y arrive par le bouton et les liens.
-  { module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles", pole: "ADMINISTRATION", tabs: HR_TABS, match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie", "/formations"] },
+  // LA PAIE EST UN SOUS-MODULE DES RH, pas un onglet de plus. Elle n'a pas la même
+  // audience que le reste du module : les congés, l'équipe et les départements se lisent
+  // largement, la paie ne s'ouvre qu'à qui TIENT les RH (`gate: "payroll"` = droit de mise à
+  // jour). Un onglet l'aurait affichée à tout le monde pour la refuser au clic ; en enfant,
+  // elle se déplie par la flèche — sur ordinateur comme sur mobile — et n'apparaît qu'à ceux
+  // qui peuvent l'ouvrir. Elle reste servie par sa propre route, gardée par sa propre page.
+  {
+    module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles",
+    pole: "ADMINISTRATION", tabs: HR_TABS,
+    match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie", "/formations"],
+    children: [
+      { module: "RH", label: "Paie", href: "/rh/paie", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION", gate: "payroll" },
+    ],
+  },
   // LEGAL — les engagements de la société : contrats, bons de commande, assurances, baux. Le
   // fichier reste dans le Drive ; Legal porte ce que le Drive ne sait pas dire (dates, échéance,
   // partie en face) et rappelle avant l'échéance.

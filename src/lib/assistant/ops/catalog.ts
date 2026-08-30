@@ -872,6 +872,21 @@ export const OPS_CATALOG: OpMeta[] = [
     covers: ["regulatory-actions:updateRegulatoryStep"],
   },
   {
+    tool: "regulatory_operation", op: "add_dossier_step", module: "Regulatory",
+    uiLabel: "Ajouter une étape à la frise du dossier",
+    aliases: [
+      "note les réserves de l'ANPP sur le dossier", "ajoute la version 2 du CTD",
+      "on a reçu des réserves", "ajoute une étape à la frise du dossier",
+    ],
+    risk: "NORMAL",
+    summary: "Ajoute une étape à la FRISE du dossier (l'histoire du CTD) : réserves ANPP, réponse au laboratoire, version redéposée du CTD, décision de l'agence, ou autre. Nom libre, date de l'événement et note facultatives ; les pièces se déposent ensuite depuis l'étape.",
+    gate: (u) => userCan(u, "REGULATORY", "UPDATE"),
+    covers: [
+      "regulatory-timeline-actions:addDossierStep",
+      "regulatory-timeline-actions:startDossierTimeline",
+    ],
+  },
+  {
     tool: "regulatory_operation", op: "set_checklist_item", module: "Regulatory",
     uiLabel: "Checklist de présoumission (cocher un document)",
     aliases: ["coche le document de présoumission", "document fourni dans la checklist", "checklist du dossier"],

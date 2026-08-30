@@ -2748,6 +2748,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **PCH — lecture IA d'un AO** | `lib/actions/pch-tender-line-actions.ts` (`extractAndSaveLines` → `enrichLineById` → `analyzeMolecule`, `enrichAllTenderLines`, `dominantOrigin`), `lib/pch-tender-export.ts` (+ tests), `app/api/pch/export/route.ts`, `app/(app)/pch/[id]/tender-lines.tsx`. |
 | **Assistant — flux (streaming)** | `lib/ai.ts` → `callClaudeStream`, `lib/assistant.ts` → `runAssistantStream`, `app/api/assistant/stream/route.ts` (SSE), `app/(app)/assistant/assistant-chat.tsx`. |
 | **Regulatory — niveau de process** | `lib/regulatory/manufacturing-stage.ts` (`effectiveStage`, pure) + tests ; colonne et cellule dans `app/(app)/regulatory/regulatory-table.tsx` ; fiche `app/(app)/regulatory/[id]/page.tsx`. |
+| **Regulatory — frise du dossier** | `lib/regulatory/dossier-timeline.ts` (`ADDABLE_KINDS`, `planInsertion`, `validateStep`, `canRemove`, `describeStep`, `summarize` — **pures** + 17 tests) ; `lib/actions/regulatory-timeline-actions.ts` (`startDossierTimeline`, `addDossierStep`, `updateDossierStep`, `deleteDossierStep`, journalisées) ; UI `app/(app)/regulatory/[id]/dossier-timeline.tsx` + `upload-button.tsx`. Modèle `RegulatoryDossierStep` (+ index unique **partiel** `WHERE kind='CTD_INITIAL'`) ; pièces jointes par `Document.stepKey` = id de l'étape. Capacité Adam `regulatory_operation:add_dossier_step`. |
 | **RH — 4 écrans** | `lib/queries/hr-pulse.ts` (`getHrPulse` : absents, départs, échéances, soldes) ; `app/(app)/rh/` — `page.tsx` (à traiter), `equipe/`, `conges/`, `departements/`, `team-directory.tsx`. |
 | **Force de vente — portefeuille** | `lib/sales-portfolio.ts` (`mergePortfolio`, `portfolioGammes`, purs + tests) ; `lib/queries/portfolio.ts` (`getMyPortfolio`, `selectableProducts`) ; `components/planning/my-portfolio-card.tsx`. S'appuie sur `PromoProduct.channel` + `PromotionAssignment` + `SalesTeam`. |
 | **Prise en charge** | `lib/care.ts` (pur + tests) ; `lib/actions/care-actions.ts` (personnes, cases, devis, Finances) ; `lib/queries/care.ts` ; `components/care/care-panel.tsx`. Modèles `CareBeneficiary` · `CareCell` · `CareQuote` · `CareQuoteCell`. |
@@ -3401,6 +3402,78 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### LA FRISE DU DOSSIER RÉGLEMENTAIRE — le CTD, ses réserves et ses redépôts en une colonne (2026-08)
+
+**LE DÉPÔT REMONTE EN TÊTE.** Poser le CTD initial — le geste le plus fréquent du module —
+demandait de faire défiler toute la fiche jusqu'au bas de la colonne de droite. Le bouton
+**« Déposer des documents »** est désormais à côté de « Modifier », et sa feuille contient le
+**même** téléverseur que partout ailleurs : mêmes catégories, envoi en arrière-plan (on peut
+changer d'écran pendant la montée), même réplication dans le Drive du produit
+(`regulatory/[id]/upload-button.tsx`).
+
+**« RÉSERVES & RÉPONSES » DEVIENT UNE FRISE VERTICALE.** Une liste plate ne disait pas l'ordre
+des cycles : on lisait « version 3 » sans savoir de quoi elle était la troisième. La frise
+(`RegulatoryDossierStep`) **commence toujours par le CTD initial** — unicité tenue par un
+**index unique PARTIEL** en base (`WHERE kind = 'CTD_INITIAL'`), pas par une vérification
+applicative que deux onglets ouverts contourneraient. Sous chaque étape, un **`+`** ajoute la
+suivante *à cette place précise* (`planInsertion` : `afterId` porte le rang, les suivantes se
+décalent du plus grand rang au plus petit, dans une transaction). Cinq types ajoutables —
+réserves ANPP, version du CTD (numéro **obligatoire**), réponse, décision, autre — chacun
+**nommable**, daté, annotable. Les pièces jointes se rattachent à l'étape par le `stepKey` d'un
+`Document` **existant** : pas de seconde table de pièces jointes à tenir synchronisée.
+
+**CE QUI EST REFUSÉ, ET POURQUOI.** Le type d'une étape ne se change pas (transformer des
+réserves en version réécrirait l'histoire au lieu de la corriger) ; l'origine ne se supprime
+pas ; une étape **qui porte des pièces** ne se supprime pas non plus — effacer des documents
+depuis un bouton « supprimer l'étape » ferait disparaître en silence des fichiers que personne
+ne cherchait à jeter. **Tout est journalisé** (`recordAudit` à la création, au renommage, à la
+suppression), avec un résumé qui se lit seul : « Frise — étape ajoutée : Version du CTD v2 —
+Module 3 revu ». Règles pures et testées dans `lib/regulatory/dossier-timeline.ts` (17 essais),
+circuit complet dans `regulatory-timeline-flow.test.ts` (12 essais). Côté Adam, une capacité
+**native** (`regulatory_operation:add_dossier_step`) — la parité reste à 0 manque.
+
+### SEPT CORRECTIONS D'ÉCRAN — ce qui s'affichait en double, à zéro, ou pas du tout (2026-08)
+
+**« MON TRAVAIL » NE DIT PLUS TROIS FOIS LA MÊME CHOSE.** « Validations à faire » et
+« Paiements » vivaient dans deux sections : un paiement à régler n'est rien d'autre qu'une
+validation qui porte un montant, on cherchait « ce que je dois signer » à deux endroits et l'on
+en oubliait un — **un seul bloc** désormais. « En retard » ne fait plus SA section : la même
+demande y apparaissait une première fois, puis une seconde dans sa catégorie, et chaque ligne
+porte déjà sa date en rouge. « Notifications importantes (20) » est retiré — la cloche est là
+pour ça, à deux centimètres.
+
+**LE TABLEAU DE BORD NE MONTRE PLUS UN MUR DE ZÉROS.** Il dessinait une section par module
+*accessible*, avec ou sans données ; plus on a de droits, pire c'était — le **Directeur général**
+ouvrait une page où « CA mensuel 0 », « Commandes 0 », « Budget initial 0 » s'alignaient, non
+parce que l'entreprise ne vend rien, mais parce que ces modules n'ont encore **rien
+d'enregistré**. Un zéro affirme ; « rien de saisi » informe. Une section n'apparaît que si elle
+a quelque chose à dire, une ligne du bas **NOMME** les modules restés vides (sans elle, on
+croirait le module perdu ou le droit retiré), et si tout est vide la page le dit franchement.
+
+**LA PAIE PASSE SOUS LES RESSOURCES HUMAINES**, derrière la flèche du menu — sur ordinateur
+comme sur mobile. Elle n'a pas la même audience que le reste du module : les congés, l'équipe et
+les départements se lisent largement, la paie ne s'ouvre qu'à qui **tient** les RH. Un onglet
+l'aurait montrée à tout le monde pour la refuser au clic ; en **sous-module** (`children`, la
+capacité qui dormait depuis le retour du pipeline) avec la garde `payroll` = `RH: UPDATE`,
+l'entrée n'existe tout simplement pas pour les autres.
+
+**« VALIDATIONS TRANSVERSES — AUTRES MODULES » DISPARAÎT POUR LES DEUX DIRECTIONS
+OPÉRATIONNELLES** (Directeur général, Directeur des opérations). Le bloc rejouait sous un autre
+titre ce que leur écran métier affiche déjà en entier — le Directeur des opérations voit toutes
+les demandes administratives, le Directeur général tout le sponsoring et toutes les prises en
+charge — et gonflait le compteur « à valider par vous » de doublons. Aucune décision ne se
+prenait là : chaque ligne renvoyait à la fiche, et c'est toujours là qu'on tranche.
+
+**RECEVOIR UN MESSAGE EST DEVENU UNE NOTIFICATION.** Seule une *mention* en produisait une ; le
+reste comptait sur le compteur de non-lus, qui ne vit que dans l'écran Messages, ne sonne pas,
+ne part pas en push et ne dit ni de qui ni quoi. Trois règles, qui suivent le réglage choisi
+pour **cette** conversation : `NONE` ne reçoit rien (mention comprise — c'est le sens du mot),
+`MENTIONS` seulement quand on le nomme, `ALL` à chaque message. Et **une seule ligne par
+conversation tant qu'elle n'est pas lue** : trente messages dans un fil ne font pas trente
+notifications, sinon on remplacerait un compteur muet par une cloche inutilisable. Une mention,
+elle, passe toujours — elle s'adresse nommément à quelqu'un. Cinq essais partant du vrai point
+d'entrée (`messaging-notify.test.ts`).
 
 ### DIRECTIVES DIFFUSÉES & CONGÉS COMPLETS — notes de service validées, fiche de demande (2026-08)
 

@@ -1186,6 +1186,7 @@ model User {
   medicalInfoDocRequests  MedicalInfoDocRequest[]  @relation("MedicalInfoDocTarget")
 
   // Directives (Direction → équipes)
+  dossierSteps       RegulatoryDossierStep[] @relation("DossierStepAuthor")
   directivesReceived Directive[]        @relation("DirectiveTarget")
   directivesAuthored Directive[]        @relation("DirectiveAuthor")
   directivesApproved Directive[]        @relation("DirectiveApprover")
@@ -1635,6 +1636,7 @@ model RegulatoryProduct {
 
   steps          RegulatoryStep[]
   variations     RegulatoryVariation[] // variations de fabrication (Importation → packaging local)
+  dossierSteps   RegulatoryDossierStep[] // la FRISE du dossier : CTD initial → réserves → versions
   stockMovements StockMovement[] // mouvements de stock PCH rattachés à ce produit
   stockSnapshots StockSnapshot[] // états de stock datés (PCH / hôpital / annexes)
   regRequests    RegulatoryRequest[] // demandes de l'information médicale (PRIM) sur ce dossier
@@ -1880,6 +1882,54 @@ model RegulatoryUpdateReminder {
 
   @@index([recipientId, createdAt])
   @@index([createdAt])
+}
+
+/// LA NATURE D'UNE ÉTAPE DE LA FRISE. Le CTD initial est à part : c'est le point de départ,
+/// il n'y en a qu'un, et on ne le supprime pas — une frise sans origine ne se lit plus.
+enum RegulatoryDossierStepKind {
+  CTD_INITIAL // le dépôt d'origine — toujours la première étape
+  ANPP_RESERVES // réserves reçues de l'ANPP
+  ANPP_RESPONSE // réponse du laboratoire aux réserves
+  CTD_VERSION // une version redéposée du CTD (v2, v3…)
+  DECISION // décision de l'agence (DE, refus, complément)
+  OTHER // autre — le libellé fait alors tout le sens
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// LA FRISE DU DOSSIER — l'histoire du CTD, dans l'ordre où elle s'est produite.
+///
+/// « Réserves & réponses » était une pile de PDF à plat : on voyait DES pièces, jamais le
+/// CHEMIN. Or un dossier réglementaire est une suite de cycles — on dépose, l'agence répond,
+/// on redépose une version, elle répond encore — et c'est cette suite que le service doit
+/// pouvoir relire un an plus tard, quand personne ne se souvient de l'ordre.
+///
+/// Une étape porte SES pièces : elles se rattachent par `Document.stepKey` = l'id de l'étape,
+/// exactement comme les pièces des étapes ANPP. Aucune table de pièces jointes n'est créée
+/// pour l'occasion — il en existe déjà une, avec sa route protégée, sa réplication vers le
+/// Drive, son renommage et sa corbeille.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model RegulatoryDossierStep {
+  id        String                    @id @default(cuid())
+  productId String
+  product   RegulatoryProduct         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  kind      RegulatoryDossierStepKind
+  /// Le nom que l'équipe donne à l'étape (« Réserves du 12/03 », « CTD v2 — module 3 revu »).
+  label     String
+  /// Numéro de version, pour une étape CTD_VERSION. Libre : v2, v3… ou tout autre numéro.
+  version   Int?
+  /// Rang dans la frise. Une insertion « juste après » décale les suivants — l'ordre AFFICHÉ
+  /// est l'ordre RÉEL, et non une date de création qui ne dirait pas la même chose.
+  order     Int
+  /// Quand cela s'est passé (réception des réserves, dépôt de la version) — souvent différent
+  /// du jour où on le saisit.
+  occurredAt  DateTime?
+  note        String?
+  createdById String?
+  createdBy   User?    @relation("DossierStepAuthor", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([productId, order])
 }
 
 model RegulatoryStep {

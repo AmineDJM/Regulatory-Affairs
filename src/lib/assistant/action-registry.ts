@@ -968,7 +968,8 @@ G("pièces jointes & documents polymorphes (upload/renommage), papiers en-tête,
 ]);
 G("directives, support, feedback, commentaires génériques, rappels d'écran", [
   "directive-actions:createDirective", "directive-actions:updateDirectiveStatus", "directive-actions:archiveDirective",
-  "directive-actions:postDirectiveMessage", "support-actions:createSupportRequest", "support-actions:takeSupportRequest",
+  "directive-actions:postDirectiveMessage",
+ "support-actions:createSupportRequest", "support-actions:takeSupportRequest",
   "support-actions:answerSupportRequest", "support-actions:updateSupportStatus", "feedback-actions:submitFeedback",
   "feedback-actions:updateFeedbackStatus", "comment-actions:updateComment", "comment-actions:deleteComment",
   "reminder-actions:createReminder", "reminder-actions:completeReminder", "reminder-actions:cancelReminder",
@@ -1119,6 +1120,10 @@ X("lectures / analyses IA du cockpit et de l'admin — RIEN n'est écrit : le Ch
   "adventum-actions:runAutopilot", "adventum-actions:askBrain", "adventum-actions:generateBriefing",
   "adventum-actions:searchRelations", "platform-audit-actions:generatePlatformIdeas",
   "smart-mail-actions:smartMailStatus",
+]);
+X("CORRECTIONS DE SAISIE sur la frise du dossier (renommer, supprimer une étape). Ajouter une étape est natif (regulatory_operation:add_dossier_step) : c'est le geste qu'on demande. Corriger, lui, suppose d'AVOIR la frise sous les yeux — on renomme la ligne qu'on relit, on supprime celle qu'on vient de créer par erreur ; formulé de mémoire dans une conversation, « supprime la deuxième étape » désigne rarement ce que la personne croit. La suppression refuse d'ailleurs toute étape portant des pièces, et l'origine ne s'efface pas.", [
+  "regulatory-timeline-actions:updateDossierStep",
+  "regulatory-timeline-actions:deleteDossierStep",
 ]);
 X("géométrie d'ÉCRAN : position x/y d'un nœud sur la carte de l'organigramme (glisser-déposer) — pas un geste métier, le Chief n'a pas de canevas", [
   "org-actions:saveOrgPosition",

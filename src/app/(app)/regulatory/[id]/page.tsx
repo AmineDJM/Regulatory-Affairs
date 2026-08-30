@@ -35,6 +35,9 @@ import { ParticipantsPanel } from "./participants-panel";
 import { SupervisionControls } from "./supervision-controls";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { SupplierViewCard } from "./supplier-view-card";
+import { DossierUploadButton } from "./upload-button";
+import { DossierTimeline, type TimelineStepView } from "./dossier-timeline";
+import { orderSteps, summarize, type DossierStepKind } from "@/lib/regulatory/dossier-timeline";
 import { getMyCompanies } from "@/lib/company";
 
 const REG_DOC_CATEGORIES = [
@@ -61,6 +64,8 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
       supplier: { select: { name: true } },
       steps: { orderBy: { order: "asc" } },
       variations: { orderBy: { createdAt: "desc" } },
+      // LA FRISE du dossier : CTD initial → réserves → réponses → versions → décision.
+      dossierSteps: { orderBy: { order: "asc" }, include: { createdBy: { select: { name: true } } } },
     },
   });
   if (!product) notFound();
@@ -127,13 +132,28 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
     createdAt: d.createdAt.toISOString(),
     hasFile: Boolean(d.fileKey),
   });
-  // Les pièces rattachées à une étape ANPP vivent sous leur étape (pas dans la liste générale).
+  // Les pièces rattachées à une étape (ANPP ou frise du dossier) vivent SOUS leur étape, pas
+  // dans la liste générale : c'est tout l'intérêt de les y avoir rattachées.
   const stepDocs: Record<string, DocItem[]> = {};
   for (const d of documents) if (d.stepKey) (stepDocs[d.stepKey] ??= []).push(toDocItem(d));
   const nonStep = documents.filter((d) => !d.stepKey);
   // On sépare ensuite les pièces des réserves (section dédiée) du reste des documents.
   const reserveDocs = nonStep.filter((d) => REG_RESERVE_CATEGORIES.includes(d.category)).map(toDocItem);
   const docItems = nonStep.filter((d) => !REG_RESERVE_CATEGORIES.includes(d.category)).map(toDocItem);
+
+  // La frise, dans son ORDRE — et chaque étape avec les pièces qui lui sont rattachées.
+  const timeline: TimelineStepView[] = orderSteps(product.dossierSteps).map((s) => ({
+    id: s.id,
+    kind: s.kind as DossierStepKind,
+    label: s.label,
+    version: s.version,
+    order: s.order,
+    occurredAt: s.occurredAt?.toISOString() ?? null,
+    note: s.note,
+    author: s.createdBy?.name ?? null,
+    createdAt: s.createdAt.toISOString(),
+    docs: stepDocs[s.id] ?? [],
+  }));
 
   const bvItems: BvItem[] = bvOrders.map((o) => ({
     id: o.id, reference: o.reference, label: o.label, amount: toNumber(o.amount),
@@ -217,6 +237,9 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
           ) : (
             <StatusBadge map={REGULATORY_STATUS} value={product.status} />
           )}
+          {/* LE DÉPÔT EST EN TÊTE : poser le CTD initial est le geste le plus fréquent du
+              module, il ne doit pas se chercher au fond de la colonne de droite. */}
+          {canUpload && <DossierUploadButton productId={product.id} categories={REG_DOC_CATEGORIES} />}
           <SuperAdminDeleteButton kind="REGULATORY_PRODUCT" id={product.id} name={`${product.reference} — ${product.dci}`} enabled={user.role === "SUPER_ADMIN"} />
         </div>
       </div>
@@ -325,29 +348,46 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
             </CardContent>
           </Card>
 
+          {/* LA FRISE DU DOSSIER — l'histoire du CTD, de haut en bas. Elle remplace la pile
+              de PDF à plat : on y voyait DES pièces, jamais le CHEMIN, et plus personne ne
+              savait si une réponse portait sur les premières réserves ou sur celles de la v3. */}
           <Card>
             <CardHeader className="flex-row items-center justify-between">
-              <CardTitle>Réserves &amp; réponses (ANPP)</CardTitle>
-              <Badge tone="neutral">{reserveDocs.length}</Badge>
+              <CardTitle>Frise du dossier — réserves, réponses &amp; versions</CardTitle>
+              <Badge tone="neutral" dot={false}>{summarize(timeline)}</Badge>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Déposez ici les <strong>réserves reçues de l'ANPP</strong> (PDF) et les <strong>réponses</strong> du laboratoire. Vous pouvez renommer ou supprimer une pièce en cas d'erreur.
-              </p>
-              {canUpload && (
-                <DocumentUpload
-                  entityType="REGULATORY_PRODUCT"
-                  entityId={product.id}
-                  categories={REG_RESERVE_CATEGORIES}
-                />
-              )}
-              <DocumentList
-                documents={reserveDocs}
-                canDelete={canDelete || canUpload}
-                canRename={canUpload}
-                canEdit={onlyofficeConfigured() && canUpload}
+              <DossierTimeline
+                productId={product.id}
+                steps={timeline}
+                canUpdate={canUpdate}
+                canUpload={canUpload}
+                canDelete={canDelete}
                 path={`/regulatory/${product.id}`}
               />
+
+              {/* LES PIÈCES D'AVANT LA FRISE. Les réserves déposées quand la section était une
+                  simple pile existent toujours : les masquer les ferait « disparaître » pour
+                  ceux qui les ont déposées. Elles restent ici, et se rattachent à une étape en
+                  les redéposant au bon endroit. */}
+              {reserveDocs.length > 0 && (
+                <div className="space-y-2 rounded-lg border border-border bg-secondary/30 p-3">
+                  <p className="text-xs font-medium">
+                    Pièces déposées avant la frise ({reserveDocs.length})
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Elles ne sont rattachées à aucune étape. Redéposez-les depuis l&apos;étape
+                    concernée pour qu&apos;elles rejoignent l&apos;histoire du dossier.
+                  </p>
+                  <DocumentList
+                    documents={reserveDocs}
+                    canDelete={canDelete || canUpload}
+                    canRename={canUpload}
+                    canEdit={onlyofficeConfigured() && canUpload}
+                    path={`/regulatory/${product.id}`}
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
 
