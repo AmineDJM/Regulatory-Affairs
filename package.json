@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
-    "build:render": "next lint && NODE_OPTIONS=--max-old-space-size=3072 next build",
+    "build:render": "NODE_OPTIONS=--max-old-space-size=3072 next lint && NODE_OPTIONS=--max-old-space-size=3072 next build",
     "build:measure": "bash scripts/build-memory.sh",
     "adam:doctor": "tsx scripts/adam-doctor.ts",
     "start": "next start",

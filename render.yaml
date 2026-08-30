@@ -28,16 +28,27 @@ services:
     # dans DEUX processus : additionnés dans le même heap ils dépassaient la limite Node
     # par défaut (~2 Go) → OOM pendant « Linting and checking validity of types ».
     #
-    # MÉMOIRE DE BUILD — mesures (build propre, `npm run build:measure`, 4 vCPU) :
-    #   avant  4612 Mo   compilation webpack 4612 / typecheck 2692 / pages 3924
-    #   après  3514 Mo   compilation webpack 3514 / typecheck 2709 / pages 3410
-    # Deux causes, toutes deux dans next.config.mjs :
-    #   1. le PARALLÉLISME se dimensionnait sur le nombre de cœurs du builder — un
-    #      builder plus gros que la machine de dev faisait exploser le total (d'où un
-    #      « over 8GB » jamais reproductible en local). Borné par `experimental.cpus`.
-    #   2. la MINIFICATION DES BUNDLES SERVEUR coûtait ~1 Go de pic pour un gain nul
-    #      côté navigateur. Désactivée (`experimental.serverMinification`).
-    # NODE_OPTIONS=4096 reste un garde-fou : le plus gros processus mesuré fait 3366 Mo.
+    # ⚠️ LE PLAFOND « over 8GB » DE RENDER EST UN PLAFOND DE CONTENEUR : il additionne les
+    # processus ET les fichiers du workspace (node_modules 1,1 Go, cache npm, .next). C'est
+    # pourquoi un build à cache FROID mourait quand le même commit passait à cache chaud.
+    #
+    # MÉMOIRE DE BUILD — mesures (`npm run build:measure`, build propre, 4 vCPU) :
+    #   pic processus  3907 Mo → 3647 Mo   (.next écrit : 1109 Mo → 277 Mo, cache webpack
+    #                                       984 Mo → 153 Mo compressé)
+    # Trois causes bornées, toutes tenues par le dépôt :
+    #   1. PARALLÉLISME dimensionné sur les cœurs du builder → borné (`experimental.cpus: 2`,
+    #      workers statiques ET minification — vérifié dans la dist de Next 14.2.35).
+    #   2. MINIFICATION SERVEUR (~1 Go de pic pour rien côté navigateur) → désactivée.
+    #   3. CACHE WEBPACK retenu EN ENTIER dans le tas (`maxMemoryGenerations: Infinity` en
+    #      prod) et écrit NON compressé (984 Mo) → `maxMemoryGenerations: 1` partout, et
+    #      compression gzip quand `RENDER` est présent (next.config.mjs). Le cache
+    #      inter-déploiements est conservé, juste plus petit et hors du tas.
+    #   Node 20 (builder) vs Node 22 (dev) : MESURÉ neutre (3782 vs 3907 Mo) — hors de cause.
+    #
+    # ⚠️ NE PAS poser NODE_OPTIONS dans le dashboard Render : il s'appliquerait à TOUS les
+    # processus du build (npm, prisma generate, bootstrap) en les autorisant à gonfler, ET au
+    # runtime `next start` où une grande laisse V8 sur une petite instance provoque l'OOM
+    # inverse. Les plafonds vivent ICI, phase par phase, dans build:render (3072 Mo).
     buildCommand: npm install && npx prisma generate && npx prisma migrate deploy && npm run db:bootstrap && npm run build:render
     startCommand: npx next start -p $PORT
     envVars:

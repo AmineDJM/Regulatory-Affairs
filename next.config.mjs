@@ -51,6 +51,29 @@ const nextConfig = {
     // (routes en flux, jusqu'à la limite Drive configurée).
     serverActions: { bodySizeLimit: "256mb" },
   },
+  // ── LE CACHE WEBPACK NE VIT PLUS EN ENTIER DANS LE TAS ─────────────────────────────────
+  //
+  // En production, Next règle le cache filesystem de webpack sur `maxMemoryGenerations:
+  // Infinity` : CHAQUE entrée du cache (984 Mo sérialisés sur ce dépôt) reste AUSSI en
+  // mémoire du compilateur jusqu'à la fin — et le fichier s'écrit NON compressé. Sur le
+  // conteneur de build Render, tout compte dans le MÊME plafond de 8 Go : les processus
+  // node (~3,9 Go mesurés) PLUS les fichiers du workspace (node_modules 1,1 Go, cache npm,
+  // .next 1,1 Go dont 984 Mo de cache webpack). Un build à cache FROID franchit la ligne ;
+  // à cache chaud il passe — c'est pourquoi le même commit réussissait puis échouait.
+  //
+  // `maxMemoryGenerations: 1` (exactement ce que fera le drapeau officiel
+  // `webpackMemoryOptimizations` de Next 15) : une entrée non réutilisée est évacuée du tas
+  // à la génération suivante — le cache DISQUE reste complet, seuls les doublons en mémoire
+  // disparaissent. Sur Render (`process.env.RENDER`), le fichier est de plus COMPRESSÉ
+  // (gzip ≈ ⅓ de la taille) : moins d'octets dans le conteneur, cache inter-déploiements
+  // conservé. Aucune vérification désactivée, aucun contenu de cache perdu.
+  webpack: (config) => {
+    if (config.cache && config.cache.type === "filesystem") {
+      config.cache.maxMemoryGenerations = 1;
+      if (process.env.RENDER) config.cache.compression = "gzip";
+    }
+    return config;
+  },
   // Security headers applied to every response.
   async headers() {
     // CSP volontairement ciblée sur les directives à fort impact ET sans risque

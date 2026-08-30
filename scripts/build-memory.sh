@@ -58,12 +58,22 @@ done
 wait "$BUILD_PID"; CODE=$?
 tail -5 "$LOG"; rm -f "$LOG"
 
+# ── LA SECONDE FACE DU PLAFOND RENDER : les OCTETS ÉCRITS comptent aussi ────────────────
+#
+# Le « over 8GB » de Render est un plafond de CONTENEUR : processus + fichiers du workspace
+# (node_modules, cache npm, .next). Un pic processus sous 4 Go peut donc mourir quand même
+# si le build écrit 1 Go de cache webpack non compressé par-dessus. On affiche les octets
+# pour que la garde voie les deux faces.
+NEXT_MB=$(du -sm .next 2>/dev/null | cut -f1)
+WPCACHE_MB=$(du -sm .next/cache/webpack 2>/dev/null | cut -f1)
+
 echo
 echo "─────────────────────────────────────────────"
 echo "PIC MÉMOIRE (arbre node) : ${PEAK} Mo"
 echo "PROCESSUS NODE MAX       : ${PEAK_PROCS}"
 echo "TAS PAR PROCESSUS        : ${HEAP_MB} Mo (comme build:render)"
 echo "PLAFOND                  : ${LIMIT_MB} Mo"
+echo ".next ÉCRIT              : ${NEXT_MB:-?} Mo (cache webpack : ${WPCACHE_MB:-?} Mo)"
 echo "BUILD                    : code de sortie ${CODE}"
 echo "─────────────────────────────────────────────"
 
