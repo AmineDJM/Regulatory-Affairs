@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { intentFor } from "@/lib/assistant/workspace/direct-intents";
 import { toNumber } from "@/lib/utils";
+import { valeurContractuelleCourante } from "@/lib/pch/market-math";
 import type { StoryEvent, StoryThread, WorkspaceMetric } from "@/lib/assistant/workspace/protocol";
 
 /**
@@ -79,12 +80,19 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
     select: {
       id: true, reference: true, title: true, status: true, client: true, supplier: true,
       awardDate: true, value: true, quantity: true, createdAt: true, notes: true,
+      publishedAt: true, submissionDeadline: true, submittedAt: true,
       cautionAmount: true, cautionDeposited: true, cautionStart: true, cautionEnd: true,
       company: { select: { shortName: true, name: true } },
+      submissions: {
+        orderBy: { version: "desc" },
+        select: { id: true, version: true, submittedAt: true, lockedAt: true, status: true },
+        take: 5,
+      },
       lines: {
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
         select: {
           id: true, designation: true, status: true, quantityUnits: true,
+          submittedQuantityUnits: true, awardedQuantityUnits: true,
           unitPriceDzd: true, awardedUnitPriceDzd: true, ourProduct: true,
           product: { select: { id: true, code: true, canonicalName: true } },
         },
@@ -95,6 +103,13 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
           id: true, lineId: true, reference: true, quantity: true, value: true, status: true,
           receivedDate: true, paymentDate: true, expectedArrival: true, arrivedDate: true,
           createdAt: true, notes: true,
+          deliveries: {
+            orderBy: { createdAt: "asc" },
+            select: {
+              id: true, reference: true, deliveredAt: true, expectedAt: true,
+              lines: { select: { quantityUnits: true, batchNumber: true } },
+            },
+          },
         },
       },
     },
@@ -113,10 +128,14 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
   // ═══════════════ 1. LA PUBLICATION ═══════════════
   events.push({
     id: "publication",
-    date: iso(t.createdAt),
+    date: iso(t.publishedAt ?? t.createdAt),
     kind: "publication",
     titre: "Appel d'offres ouvert",
-    detail: t.client ? `Client : ${t.client}` : null,
+    detail: [
+      t.client ? `Client : ${t.client}` : null,
+      t.publishedAt ? null : "date d'enregistrement (publication non saisie)",
+      t.submissionDeadline ? `dépôt avant le ${iso(t.submissionDeadline)}` : null,
+    ].filter(Boolean).join(" · ") || null,
     etat: "fait",
     entityRef: { type: "PCH_TENDER", id: t.id, label: t.reference },
     metriques: [
@@ -129,13 +148,35 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
 
   // ═══════════════ 2. LA SOUMISSION ═══════════════
   //
-  // On la déduit des lignes CHIFFRÉES : une ligne qui porte un prix proposé a été soumise. Il
-  // n'existe pas de date de soumission en base — c'est dit plutôt que fabriqué.
+  // LE DÉPÔT OFFICIEL D'ABORD (`submittedAt`, posé par la soumission verrouillée) : c'est un
+  // FAIT daté, plus une déduction. Le repli par lignes chiffrées reste pour l'HISTORIQUE saisi
+  // avant que la date existe — et il se dit DÉDUIT, comme avant.
   const soumises = t.lines.filter((l) => l.unitPriceDzd !== null || l.status !== "PENDING");
   const valeurSoumise = t.lines.reduce(
-    (n, l) => n + (l.unitPriceDzd !== null ? l.quantityUnits * num(l.unitPriceDzd) : 0), 0,
+    (n, l) => n + (l.unitPriceDzd !== null ? (l.submittedQuantityUnits ?? l.quantityUnits) * num(l.unitPriceDzd) : 0), 0,
   );
-  if (soumises.length > 0) {
+  const versionDeposee = t.submissions.find((sub) => sub.lockedAt !== null) ?? null;
+  if (t.submittedAt) {
+    const retardDepot = ecartJours(t.submissionDeadline, t.submittedAt);
+    events.push({
+      id: "soumission",
+      date: iso(t.submittedAt),
+      kind: "soumission",
+      titre: "Soumission déposée",
+      detail: [
+        versionDeposee ? `V${versionDeposee.version} verrouillée` : null,
+        `${soumises.length} lot(s) chiffré(s) sur ${t.lines.length}`,
+      ].filter(Boolean).join(" · "),
+      etat: "fait",
+      ...(retardDepot !== null && retardDepot > 0 ? { retardJours: retardDepot } : {}),
+      metriques: [
+        { valeur: `${soumises.length}/${t.lines.length}`, label: "lots soumis" },
+        ...(valeurSoumise > 0 ? [{ valeur: dzd(valeurSoumise), label: "valeur soumise" }] : []),
+      ],
+      provenance: "PchTender.submittedAt — dépôt verrouillé",
+      certitude: "fait",
+    });
+  } else if (soumises.length > 0) {
     events.push({
       id: "soumission",
       date: null,
@@ -148,32 +189,43 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
         ...(valeurSoumise > 0 ? [{ valeur: dzd(valeurSoumise), label: "valeur soumise" }] : []),
       ],
       provenance: "PchTenderLine — lignes chiffrées",
-      // DÉDUIT, et le dire compte : aucune date de soumission n'existe en base.
+      // DÉDUIT, et le dire compte : aucun dépôt officiel n'a été enregistré sur ce marché.
       certitude: "deduit",
     });
-    limites.push("la date de soumission n'est pas enregistrée : le jalon est déduit des lignes chiffrées");
+    limites.push("aucun dépôt officiel enregistré : le jalon de soumission est déduit des lignes chiffrées");
   }
 
   // ═══════════════ 3. L'ATTRIBUTION, ET SES LOTS ═══════════════
   const gagnees = t.lines.filter((l) => l.status === "WON");
   const perdues = t.lines.filter((l) => l.status === "LOST");
+  const infructueux = t.lines.filter((l) => l.status === "UNSUCCESSFUL").length;
+  const lotsAnnules = t.lines.filter((l) => l.status === "CANCELLED").length;
+  // La quantité ATTRIBUÉE d'un lot gagné : la quantité d'attribution si elle est saisie
+  // (attribution PARTIELLE possible, §14), sinon la quantité soumise.
+  const qteAttribuee = (l: (typeof t.lines)[number]): number =>
+    l.awardedQuantityUnits ?? l.submittedQuantityUnits ?? l.quantityUnits;
   let attribue = 0;
   let gagneesSansPrix = 0;
   for (const l of gagnees) {
     if (l.awardedUnitPriceDzd === null) { gagneesSansPrix++; continue; }
-    attribue += Math.round(l.quantityUnits * num(l.awardedUnitPriceDzd));
+    attribue += Math.round(qteAttribuee(l) * num(l.awardedUnitPriceDzd));
   }
   if (gagneesSansPrix > 0) {
     limites.push(`${gagneesSansPrix} lot(s) gagné(s) sans prix d'attribution saisi : exclus de la valeur attribuée`);
   }
 
-  if (gagnees.length > 0 || perdues.length > 0 || t.awardDate) {
+  if (gagnees.length > 0 || perdues.length > 0 || infructueux > 0 || lotsAnnules > 0 || t.awardDate) {
     events.push({
       id: "attribution",
       date: iso(t.awardDate),
       kind: "attribution",
       titre: "Attribution",
-      detail: `${gagnees.length} lot(s) gagné(s) · ${perdues.length} perdu(s)`,
+      detail: [
+        `${gagnees.length} lot(s) gagné(s)`,
+        perdues.length ? `${perdues.length} perdu(s)` : null,
+        infructueux ? `${infructueux} infructueux` : null,
+        lotsAnnules ? `${lotsAnnules} annulé(s)` : null,
+      ].filter(Boolean).join(" · "),
       etat: t.awardDate ? "fait" : "en-cours",
       metriques: [
         { valeur: `${gagnees.length}/${t.lines.length}`, label: "lots gagnés", ton: gagnees.length > 0 ? "succes" : "neutre" },
@@ -193,18 +245,24 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
         filsProduit.set(fil, cur);
       }
       const pa = l.awardedUnitPriceDzd !== null ? num(l.awardedUnitPriceDzd) : null;
+      const soumisL = l.submittedQuantityUnits ?? l.quantityUnits;
+      const partielle = l.status === "WON" && l.awardedQuantityUnits !== null && l.awardedQuantityUnits < soumisL;
       events.push({
         id: `lot:${l.id}`,
         date: iso(t.awardDate),
         kind: "attribution",
         titre: l.designation,
-        detail: l.product ? `${l.product.code} — ${l.product.canonicalName}` : (l.ourProduct ?? null),
-        etat: l.status === "WON" ? "fait" : l.status === "LOST" ? "echec" : "en-cours",
+        detail: [
+          l.product ? `${l.product.code} — ${l.product.canonicalName}` : (l.ourProduct ?? null),
+          partielle ? `attribution PARTIELLE : ${l.awardedQuantityUnits}/${soumisL} u.` : null,
+          l.status === "UNSUCCESSFUL" ? "lot infructueux" : l.status === "CANCELLED" ? "lot annulé" : null,
+        ].filter(Boolean).join(" · ") || null,
+        etat: l.status === "WON" ? "fait" : l.status === "LOST" || l.status === "UNSUCCESSFUL" || l.status === "CANCELLED" ? "echec" : "en-cours",
         parent: "attribution",
         entityRef: { type: "PCH_TENDER_LINE", id: l.id, label: l.designation },
         metriques: [
-          { valeur: String(l.quantityUnits), label: "unités" },
-          ...(pa !== null ? [{ valeur: dzd(l.quantityUnits * pa), label: "attribué" }] : []),
+          { valeur: String(l.status === "WON" ? qteAttribuee(l) : l.quantityUnits), label: "unités" },
+          ...(pa !== null && l.status === "WON" ? [{ valeur: dzd(qteAttribuee(l) * pa), label: "attribué" }] : []),
         ],
         ...(fil ? { fils: [fil, l.status === "WON" ? "famille:gagnes" : "famille:perdus"] } : { fils: [l.status === "WON" ? "famille:gagnes" : "famille:perdus"] }),
         provenance: "PchTenderLine",
@@ -228,11 +286,24 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
 
   // ═══════════════ 4. LE CONTRAT ═══════════════
   //
-  // Cherché dans Legal par la RÉFÉRENCE du marché. Aucun rapprochement au jugé : si rien ne
-  // porte la référence, le jalon est marqué MANQUE plutôt qu'omis — l'absence de contrat sur un
-  // marché gagné est exactement ce qu'on veut voir.
-  const contrats = await prisma.legalDocument.findMany({
+  // LE LIEN FORT D'ABORD : les contrats portent désormais le `tenderId` du marché — plus de
+  // rapprochement par texte pour eux. Le repli par référence/source subsiste UNIQUEMENT pour
+  // l'historique saisi avant la FK, et il est dit DÉDUIT.
+  const contratsFk = await prisma.legalDocument.findMany({
+    where: { tenderId: t.id, kind: { in: ["CONTRACT", "AGREEMENT"] } },
+    orderBy: { startDate: "asc" },
+    select: {
+      id: true, reference: true, title: true, kind: true, startDate: true, endDate: true,
+      amount: true, status: true, signedAt: true,
+      amendments: {
+        orderBy: { createdAt: "asc" },
+        select: { id: true, reference: true, title: true, startDate: true, amountDelta: true, effectiveAt: true, signedAt: true, status: true },
+      },
+    },
+  });
+  const contratsTexte = contratsFk.length > 0 ? [] : await prisma.legalDocument.findMany({
     where: {
+      tenderId: null,
       OR: [
         { reference: { contains: t.reference, mode: "insensitive" } },
         { title: { contains: t.reference, mode: "insensitive" } },
@@ -244,8 +315,59 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
     take: 12,
   });
 
-  const contratPrincipal = contrats.find((c) => c.kind === "CONTRACT") ?? contrats[0] ?? null;
-  if (contratPrincipal) {
+  let nbAvenants = 0;
+  if (contratsFk.length > 0) {
+    for (const c of contratsFk) {
+      const initial = num(c.amount) > 0 ? num(c.amount) : null;
+      // LA VALEUR COURANTE : initial + deltas des avenants EFFECTIFS — le même calcul que la
+      // fiche marché et la fiche Legal, jamais un montant réécrit.
+      const courante = valeurContractuelleCourante(
+        initial,
+        c.amendments.map((a) => ({
+          amountDelta: a.amountDelta !== null ? num(a.amountDelta) : null,
+          status: String(a.status), effectiveAt: a.effectiveAt,
+        })),
+      );
+      events.push({
+        id: `contrat:${c.id}`,
+        date: iso(c.signedAt ?? c.startDate),
+        kind: "contrat",
+        titre: c.title,
+        detail: c.reference,
+        etat: c.status === "CANCELLED" ? "echec" : "fait",
+        entityRef: { type: "LEGAL_DOCUMENT", id: c.id, label: c.title },
+        metriques: [
+          ...(initial !== null ? [{ valeur: dzd(initial), label: "montant initial" }] : []),
+          ...(courante !== null && courante !== initial ? [{ valeur: dzd(courante), label: "valeur courante" }] : []),
+        ],
+        fils: ["famille:contractuel"],
+        provenance: "LegalDocument.tenderId",
+        certitude: "fait",
+      });
+      for (const a of c.amendments) {
+        nbAvenants += 1;
+        const delta = a.amountDelta !== null ? num(a.amountDelta) : null;
+        const effectif = a.status !== "CANCELLED" && a.effectiveAt !== null && a.effectiveAt <= new Date();
+        events.push({
+          id: `avenant:${a.id}`,
+          date: iso(a.effectiveAt ?? a.signedAt ?? a.startDate),
+          kind: "avenant",
+          titre: a.title,
+          detail: a.status === "CANCELLED" ? "annulé"
+            : effectif ? `effectif${a.effectiveAt ? ` au ${iso(a.effectiveAt)}` : ""}`
+              : a.signedAt ? "signé, pas encore effectif — ses deltas ne comptent pas" : "en préparation",
+          etat: a.status === "CANCELLED" ? "echec" : effectif ? "fait" : "a-venir",
+          parent: `contrat:${c.id}`,
+          entityRef: { type: "LEGAL_DOCUMENT", id: a.id, label: a.title },
+          metriques: delta !== null ? [{ valeur: `${delta >= 0 ? "+" : "−"}${dzd(Math.abs(delta))}`, label: "impact", ton: delta >= 0 ? "succes" : "attention" }] : [],
+          fils: ["famille:contractuel"],
+          provenance: "LegalDocument kind AMENDMENT (amendsId)",
+          certitude: "fait",
+        });
+      }
+    }
+  } else if (contratsTexte.length > 0) {
+    const contratPrincipal = contratsTexte.find((c) => c.kind === "CONTRACT") ?? contratsTexte[0];
     events.push({
       id: `contrat:${contratPrincipal.id}`,
       date: iso(contratPrincipal.startDate),
@@ -256,11 +378,11 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
       entityRef: { type: "LEGAL_DOCUMENT", id: contratPrincipal.id, label: contratPrincipal.title },
       metriques: num(contratPrincipal.amount) > 0 ? [{ valeur: dzd(num(contratPrincipal.amount)), label: "montant" }] : [],
       fils: ["famille:contractuel"],
-      provenance: "LegalDocument",
-      certitude: "fait",
+      provenance: "recherche Legal par référence (pièce non rattachée par FK)",
+      certitude: "deduit",
     });
-    // LES AVENANTS, sous le contrat.
-    for (const c of contrats.filter((x) => x.id !== contratPrincipal.id)) {
+    for (const c of contratsTexte.filter((x) => x.id !== contratPrincipal.id)) {
+      nbAvenants += 1;
       events.push({
         id: `avenant:${c.id}`,
         date: iso(c.startDate),
@@ -272,29 +394,47 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
         entityRef: { type: "LEGAL_DOCUMENT", id: c.id, label: c.title },
         metriques: num(c.amount) > 0 ? [{ valeur: dzd(num(c.amount)), label: "montant" }] : [],
         fils: ["famille:contractuel"],
-        provenance: "LegalDocument",
-        certitude: "fait",
+        provenance: "recherche Legal par référence",
+        certitude: "deduit",
       });
     }
+    limites.push("contrat retrouvé par TEXTE, non rattaché au marché : le rattacher depuis la fiche fiabilisera la frise");
   } else if (gagnees.length > 0) {
     events.push({
       id: "contrat:manquant",
       date: null,
       kind: "contrat",
       titre: "Contrat",
-      detail: `Aucune pièce Legal ne porte la référence ${t.reference}`,
+      detail: `Aucune pièce Legal rattachée au marché ${t.reference}`,
       // LE TROU, AFFICHÉ. Un marché gagné sans contrat rattaché est soit une pièce non
       // enregistrée, soit un contrat qui n'a jamais été signé — deux situations à traiter.
       etat: "manque",
       fils: ["famille:contractuel", "famille:risques"],
-      provenance: "recherche Legal par référence",
+      provenance: "LegalDocument.tenderId + recherche par référence",
       certitude: "attente",
     });
-    limites.push(`aucun contrat rattaché : la recherche porte sur la référence « ${t.reference} » et sur la source PCH_TENDER`);
+    limites.push(`aucun contrat rattaché : recherche par tenderId, puis par la référence « ${t.reference} » et la source PCH_TENDER`);
   }
 
   // ═══════════════ 5. LES BONS DE COMMANDE, ET LEUR CHAÎNE ═══════════════
   const ligneParId = new Map(t.lines.map((l) => [l.id, l]));
+  // LES FACTURES RÉELLES du module Finances, rattachées aux bons (§22-23 : pas de mécanisme
+  // financier parallèle — on LIT les factures, on n'en fabrique pas).
+  const facturesRows = t.orders.length
+    ? await prisma.invoice.findMany({
+        where: { sourceType: "PCH_ORDER", sourceId: { in: t.orders.map((o) => o.id) } },
+        select: { id: true, number: true, amount: true, status: true, issueDate: true, dueDate: true, sourceId: true },
+        orderBy: { issueDate: "asc" },
+      })
+    : [];
+  const facturesParBon = new Map<string, typeof facturesRows>();
+  for (const f of facturesRows) {
+    if (!f.sourceId) continue;
+    const list = facturesParBon.get(f.sourceId) ?? [];
+    list.push(f);
+    facturesParBon.set(f.sourceId, list);
+  }
+  let facture: number | null = null;
   let commande = 0, livre = 0, encaisse = 0;
   const delaisPaiement: number[] = [];
   let bcSansLigne = 0;
@@ -332,7 +472,34 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
     if (annule) continue;
 
     // ── LA LIVRAISON, sous le bon ──────────────────────────────────────────────────────
-    const livreeStatut = o.status === "DELIVERED" || o.status === "PAID";
+    //
+    // LES LIVRAISONS RÉELLES D'ABORD : chaque BL enregistré (`PchDelivery`) est un jalon daté,
+    // avec ses unités et ses lots pharma. Le statut du bon reste le repli de l'historique.
+    const livreeStatut = o.status === "DELIVERED" || o.status === "PAID"
+      || o.deliveries.some((d) => d.deliveredAt !== null);
+    if (o.deliveries.length > 0) {
+      for (const d of o.deliveries) {
+        const unites = d.lines.reduce((a, dl) => a + dl.quantityUnits, 0);
+        const lots = [...new Set(d.lines.map((dl) => dl.batchNumber).filter(Boolean))];
+        const retardBl = ecartJours(d.expectedAt, d.deliveredAt);
+        events.push({
+          id: `livraison:${d.id}`,
+          date: iso(d.deliveredAt ?? d.expectedAt),
+          kind: "livraison",
+          titre: d.reference ? `Livraison BL ${d.reference}` : "Livraison",
+          detail: lots.length ? `lot(s) ${lots.join(", ")}` : null,
+          etat: d.deliveredAt ? "fait" : "a-venir",
+          parent: bcId,
+          ...(retardBl !== null && retardBl > 0 ? { retardJours: retardBl } : {}),
+          metriques: unites > 0 ? [{ valeur: String(unites), label: "unités livrées" }] : [],
+          fils: [...filsBc, ...(retardBl !== null && retardBl > 0 ? ["famille:retards"] : [])],
+          provenance: "PchDelivery",
+          certitude: d.deliveredAt ? "fait" : "attente",
+        });
+      }
+      if (o.deliveries.some((d) => d.deliveredAt)) livre += v;
+      // Le repli par statut n'a plus rien à dire : les BL réels racontent mieux.
+    } else {
     const arrivee = o.arrivedDate;
     const retardArrivee = ecartJours(o.expectedArrival, arrivee ?? new Date());
     if (livreeStatut || arrivee) {
@@ -368,7 +535,31 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
       });
     }
 
+    }
+
     // ── LA FACTURE ET LE PAIEMENT ──────────────────────────────────────────────────────
+    const factures = facturesParBon.get(o.id) ?? [];
+    for (const f of factures) {
+      const enRetardFacture = f.status === "UNPAID" && f.dueDate !== null && f.dueDate < new Date();
+      events.push({
+        id: `facture:${f.id}`,
+        date: iso(f.issueDate),
+        kind: "facture",
+        titre: `Facture ${f.number ?? ""}`.trim(),
+        detail: f.status === "PAID" ? "réglée" : f.status === "PARTIAL" ? "partiellement réglée" : f.dueDate ? `échéance ${iso(f.dueDate)}` : "non réglée",
+        etat: f.status === "PAID" ? "fait" : enRetardFacture ? "echec" : "a-venir",
+        parent: bcId,
+        entityRef: { type: "INVOICE", id: f.id, label: f.number ?? "facture" },
+        metriques: num(f.amount) > 0 ? [{ valeur: dzd(num(f.amount)), label: "facturé" }] : [],
+        ...(enRetardFacture && f.dueDate ? { retardJours: Math.floor((Date.now() - f.dueDate.getTime()) / DAY) } : {}),
+        fils: [...filsBc, "famille:paiements", ...(enRetardFacture ? ["famille:retards", "famille:risques"] : [])],
+        provenance: "Invoice (sourceType PCH_ORDER)",
+        certitude: "fait",
+      });
+      if (!facture) facture = 0;
+      facture += num(f.amount);
+    }
+
     const paye = o.status === "PAID" || o.paymentDate !== null;
     if (paye) {
       encaisse += v;
@@ -466,9 +657,10 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
       label: "reste à encaisser",
       ton: commande - encaisse > 0 ? "attention" : "succes",
     },
+    ...(facture !== null && facture > 0 ? [{ valeur: dzd(facture), label: "facturé" }] : []),
     ...(delaiMoyen !== null ? [{ valeur: `${delaiMoyen} j`, label: "délai moyen de paiement", ton: (delaiMoyen > 90 ? "alerte" : delaiMoyen > 60 ? "attention" : "succes") as WorkspaceMetric["ton"] }] : []),
     ...(retards > 0 ? [{ valeur: String(retards), label: "jalons en retard", ton: "alerte" as const }] : []),
-    ...(contrats.length > 1 ? [{ valeur: String(contrats.length - 1), label: "avenants" }] : []),
+    ...(nbAvenants > 0 ? [{ valeur: String(nbAvenants), label: "avenants" }] : []),
   ];
 
   // ═══════════════ LES FILS PROPOSÉS ═══════════════

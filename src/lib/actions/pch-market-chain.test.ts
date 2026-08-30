@@ -14,6 +14,7 @@ import {
 } from "./pch-market-actions";
 import { createOrder } from "./pch-actions";
 import { loadMarket360, loadProductMarkets } from "@/lib/queries/market-360";
+import { storyMarche } from "@/lib/queries/story";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -242,4 +243,33 @@ suite("Market 360° — la chaîne AO → contrat → avenant → BC → livrais
     expect(row.quantiteCommandee).toBe(1500);
     expect(row.restantACommander).toBe(5500);
   }, 30_000);
+  it("la frise (storyMarche) tient désormais sur les FK : dépôt daté, contrat rattaché, avenant effectif, BL réel, facture", async () => {
+    const story = await storyMarche(`${TAG}-AO-2026-ONCO-04`);
+    expect(story).not.toBeNull();
+    const ev = story!.events;
+
+    // Le dépôt est un FAIT daté — plus une déduction par lignes chiffrées.
+    const soumission = ev.find((e) => e.id === "soumission");
+    expect(soumission?.certitude).toBe("fait");
+    expect(soumission?.date).not.toBeNull();
+    expect(story!.limites.join(" | ")).not.toContain("déduit des lignes chiffrées");
+
+    // Le contrat vient de la FK tenderId, plus de la recherche par texte.
+    const contrat = ev.find((e) => e.id === `contrat:${contractId}`);
+    expect(contrat).toBeDefined();
+    expect(contrat?.provenance).toContain("tenderId");
+    // Sa valeur COURANTE (initial + avenant effectif) est affichée à côté de l'initial.
+    expect((contrat?.metriques ?? []).some((m) => m.label === "valeur courante")).toBe(true);
+
+    // L'avenant EFFECTIF est un jalon fait, sous son contrat, avec son delta.
+    const avenant = ev.find((e) => e.id === `avenant:${amendmentId}`);
+    expect(avenant?.etat).toBe("fait");
+    expect(avenant?.parent).toBe(`contrat:${contractId}`);
+
+    // La livraison est le BL RÉEL (PchDelivery), pas le statut du bon.
+    expect(ev.some((e) => e.kind === "livraison" && e.provenance === "PchDelivery" && e.etat === "fait")).toBe(true);
+    // La facture du module Finances apparaît sous son bon de commande.
+    expect(ev.some((e) => e.kind === "facture")).toBe(true);
+  });
+
 });
