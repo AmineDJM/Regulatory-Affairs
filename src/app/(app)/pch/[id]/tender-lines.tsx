@@ -11,6 +11,7 @@ const inp = "h-8 w-full rounded-md border border-input bg-background px-2 text-s
 const LINE_STATUS: { value: string; label: string }[] = [
   { value: "PENDING", label: "À étudier" }, { value: "QUOTED", label: "Chiffré" },
   { value: "SUBMITTED", label: "Soumissionné" }, { value: "WON", label: "Gagné" }, { value: "LOST", label: "Perdu" },
+  { value: "UNSUCCESSFUL", label: "Infructueux" }, { value: "CANCELLED", label: "Lot annulé" },
 ];
 const fmt = (n: number | null) => (n == null ? "—" : new Intl.NumberFormat("fr-FR").format(n));
 
@@ -123,6 +124,7 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
     unitLabel: line.unitLabel ?? "",
     haveProduct: line.haveProduct, unitPriceDzd: line.unitPriceDzd != null ? String(line.unitPriceDzd) : "",
     status: line.status, awardedUnitPriceDzd: line.awardedUnitPriceDzd != null ? String(line.awardedUnitPriceDzd) : "",
+    awardedQuantityUnits: line.awardedQuantityUnits != null ? String(line.awardedQuantityUnits) : "",
     suppliersInfo: line.suppliersInfo ?? "", note: line.note ?? "",
   });
   const boxes = (() => { const q = Number(s.quantityUnits) || 0; const n = Number(s.unitsPerBox) || 0; return n > 0 ? Math.ceil(q / n) : null; })();
@@ -134,6 +136,7 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
     fd.set("quantityUnits", s.quantityUnits); fd.set("unitsPerBox", s.unitsPerBox); fd.set("unitLabel", s.unitLabel);
     if (s.haveProduct) fd.set("haveProduct", "on");
     fd.set("unitPriceDzd", s.unitPriceDzd); fd.set("status", s.status); fd.set("awardedUnitPriceDzd", s.awardedUnitPriceDzd);
+    fd.set("awardedQuantityUnits", s.awardedQuantityUnits);
     fd.set("suppliersInfo", s.suppliersInfo); fd.set("note", s.note);
     run(() => updateTenderLine(fd));
   }
@@ -177,7 +180,10 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
         <label className="flex items-center gap-1.5 text-xs sm:col-span-3"><input type="checkbox" checked={s.haveProduct} onChange={(e) => { setS({ ...s, haveProduct: e.target.checked }); }} onBlur={save} className="h-4 w-4 rounded border-input" /> Nous l'avons</label>
         <input className={`${inp} sm:col-span-3`} inputMode="decimal" value={s.unitPriceDzd} onChange={(e) => setS({ ...s, unitPriceDzd: e.target.value })} onBlur={save} placeholder="Prix unité (DZD)" />
         <input className={`${inp} sm:col-span-3`} inputMode="decimal" value={s.awardedUnitPriceDzd} onChange={(e) => setS({ ...s, awardedUnitPriceDzd: e.target.value })} onBlur={save} placeholder="Prix attribué (DZD)" />
-        <input className={`${inp} sm:col-span-9`} value={s.suppliersInfo} onChange={(e) => setS({ ...s, suppliersInfo: e.target.value })} onBlur={save} placeholder="Nos fournisseurs + prix / notes marché" />
+        {/* L'ATTRIBUTION PARTIELLE : vide = tout le soumis est gagné ; un chiffre = ce que
+            l'organisme a réellement attribué (8 000 soumis, 4 000 gagnés). */}
+        <input className={`${inp} sm:col-span-3`} inputMode="numeric" value={s.awardedQuantityUnits} onChange={(e) => setS({ ...s, awardedQuantityUnits: e.target.value })} onBlur={save} placeholder="Qté attribuée (si partielle)" title="Quantité attribuée — vide = quantité soumise entière" />
+        <input className={`${inp} sm:col-span-6`} value={s.suppliersInfo} onChange={(e) => setS({ ...s, suppliersInfo: e.target.value })} onBlur={save} placeholder="Nos fournisseurs + prix / notes marché" />
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-xs">

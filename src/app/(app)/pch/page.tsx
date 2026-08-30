@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
 import { getPchTenders, pchSummary } from "@/lib/queries/pch";
 import { createTender } from "@/lib/actions/pch-actions";
 import { PageHeader } from "@/components/shared/page-header";
@@ -10,39 +11,67 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
-import { optionsFromMap } from "@/components/shared/form-fields";
-import { PCH_TENDER_STATUS } from "@/lib/labels";
+import { PCH_MARKET_NIVEAU } from "@/lib/labels";
 import { getMyCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 
-export default async function PchPage() {
+/** L'ordre de LECTURE du cycle de vie — du plus amont au plus aval, puis les états hors chemin. */
+const ORDRE_NIVEAUX = [
+  "BROUILLON", "PREPARATION", "SOUMIS", "CONTRACTUALISATION", "EXECUTION", "CLOTURE",
+  "PERDU", "ANNULE", "SUSPENDU",
+] as const;
+
+export default async function PchPage({ searchParams }: { searchParams?: { niveau?: string } }) {
   const user = await requireModule("PCH");
   const canCreate = userCan(user, "PCH", "CREATE");
-  const [tenders, companies] = await Promise.all([getPchTenders(user.id), getMyCompanies(user.id)]);
+  const [tenders, companies, usersOptions, businessUnits] = await Promise.all([
+    getPchTenders(user.id),
+    getMyCompanies(user.id),
+    prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.businessUnit.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { sortOrder: "asc" } }),
+  ]);
   const s = pchSummary(tenders);
+
+  // UN SEUL ÉCRAN, des filtres — pas un onglet par état (§3). Le filtre est un lien : l'URL
+  // se partage, le retour arrière marche, aucun état client à maintenir.
+  const parNiveau = new Map<string, number>();
+  for (const t of tenders) parNiveau.set(t.niveau.niveau, (parNiveau.get(t.niveau.niveau) ?? 0) + 1);
+  const filtre = searchParams?.niveau && PCH_MARKET_NIVEAU[searchParams.niveau] ? searchParams.niveau : null;
+  const visibles = filtre ? tenders.filter((t) => t.niveau.niveau === filtre) : tenders;
+  const enExecution = parNiveau.get("EXECUTION") ?? 0;
+  const now = Date.now();
+  const depotsProches = tenders.filter((t) =>
+    t.submissionDeadline && !t.submittedAt
+    && !["ANNULE", "SUSPENDU", "PERDU", "CLOTURE"].includes(t.niveau.niveau)
+    && new Date(t.submissionDeadline).getTime() - now < 7 * 86_400_000,
+  ).length;
 
   return (
     <div className="space-y-5">
-      <PageHeader title="PCH — Marchés publics" description="Appels d'offres gagnés et bons de commande de la Pharmacie Centrale des Hôpitaux, avec suivi des cautions.">
+      <PageHeader title="PCH — Marchés publics" description="Le cycle de vie complet : appel d'offres → soumission → attribution → contrat → bons de commande → livraisons — avec suivi des cautions.">
         {canCreate && (
           <CreateRecordButton
             label="Nouvel appel d'offres"
-            title="Appel d'offres gagné"
+            title="Appel d'offres"
             description="Référence laissée vide = numérotation automatique (AO-année-n)."
             redirectBase="/pch"
             action={createTender}
             fields={[
               { type: "text", name: "reference", label: "Référence (optionnel)" },
+              { type: "text", name: "internalReference", label: "Référence interne AMD" },
               { type: "select", name: "companyId", label: "Entité", options: companyOptions(companies), placeholder: "— Entité —" },
               { type: "text", name: "title", label: "Intitulé", full: true },
               { type: "file", name: "tenderDoc", label: "Appel d'offres (fichiers, optionnel)", multiple: true, hint: "Cahier des charges, PV d'ouverture… — ajoutables aussi plus tard depuis le marché.", full: true },
               { type: "textarea", name: "products", label: "Produits concernés", full: true },
+              { type: "text", name: "client", label: "Organisme", defaultValue: "PCH" },
+              { type: "date", name: "publishedAt", label: "Publié le" },
+              { type: "date", name: "submissionDeadline", label: "Date limite de dépôt" },
+              { type: "select", name: "responsibleId", label: "Responsable du dossier", options: usersOptions.map((u) => ({ value: u.id, label: u.name })), placeholder: "— Personne —" },
+              { type: "select", name: "businessUnitId", label: "Business Unit", options: businessUnits.map((b) => ({ value: b.id, label: b.name })), placeholder: "— BU —" },
               { type: "text", name: "supplier", label: "Fournisseur" },
               { type: "text", name: "supplierCountry", label: "Pays du fournisseur" },
               { type: "number", name: "quantity", label: "Quantité totale" },
               { type: "number", name: "value", label: "Valeur (DZD)" },
-              { type: "text", name: "client", label: "Client", defaultValue: "PCH" },
-              { type: "select", name: "status", label: "Statut", options: optionsFromMap(PCH_TENDER_STATUS), defaultValue: "NOT_STARTED" },
               { type: "date", name: "awardDate", label: "Date d'attribution" },
               { type: "number", name: "cautionAmount", label: "Caution — montant (DZD)" },
               { type: "checkbox", name: "cautionDeposited", label: "Caution déposée" },
@@ -54,16 +83,33 @@ export default async function PchPage() {
         )}
       </PageHeader>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-5">
-        <KpiCard label="Appels d'offres" value={s.count} icon="Gavel" />
-        <KpiCard label="En cours" value={s.inProgress} icon="Activity" tone="info" />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+        <KpiCard label="Marchés" value={s.count} icon="Gavel" />
+        <KpiCard label="En exécution" value={enExecution} icon="Activity" tone="info" />
+        <KpiCard label="Dépôts sous 7 j" value={depotsProches} icon="AlarmClock" tone={depotsProches > 0 ? "danger" : "default"} />
         <KpiCard label="Valeur totale" value={formatCurrency(s.totalValue)} icon="Coins" tone="success" />
         <KpiCard label="Cautions à déposer" value={s.cautionsToDeposit} icon="ShieldAlert" tone={s.cautionsToDeposit > 0 ? "warning" : "default"} />
         <KpiCard label="Cautions < 30j" value={s.cautionsExpiringSoon} icon="AlarmClock" tone={s.cautionsExpiringSoon > 0 ? "danger" : "default"} />
       </div>
 
+      {tenders.length > 0 && (
+        <nav aria-label="Filtrer par niveau" className="flex flex-wrap items-center gap-1.5">
+          <FiltreChip href="/pch" actif={filtre === null} label={`Tous (${tenders.length})`} />
+          {ORDRE_NIVEAUX.filter((n) => (parNiveau.get(n) ?? 0) > 0).map((n) => (
+            <FiltreChip
+              key={n}
+              href={`/pch?niveau=${n}`}
+              actif={filtre === n}
+              label={`${PCH_MARKET_NIVEAU[n].label} (${parNiveau.get(n)})`}
+            />
+          ))}
+        </nav>
+      )}
+
       {tenders.length === 0 ? (
-        <EmptyState icon="Gavel" title="Aucun appel d'offres" description={canCreate ? "Créez un appel d'offres gagné, puis ajoutez les bons de commande reçus." : "Les marchés PCH apparaîtront ici."} />
+        <EmptyState icon="Gavel" title="Aucun appel d'offres" description={canCreate ? "Créez un appel d'offres dès sa publication : la fiche suit ensuite la soumission, l'attribution, le contrat et les bons de commande." : "Les marchés PCH apparaîtront ici."} />
+      ) : visibles.length === 0 ? (
+        <EmptyState icon="Gavel" title="Aucun marché à ce niveau" description="Changez de filtre pour retrouver les autres marchés." />
       ) : (
         <div className="surface overflow-x-auto">
           <Table mobileCards>
@@ -71,12 +117,15 @@ export default async function PchPage() {
               <TableRow>
                 <TableHead>Référence</TableHead><TableHead>Intitulé / Produits</TableHead><TableHead>Fournisseur</TableHead>
                 <TableHead className="text-right">Qté</TableHead><TableHead className="text-right">Valeur</TableHead>
-                <TableHead>Caution</TableHead><TableHead>Bons</TableHead><TableHead>Statut</TableHead>
+                <TableHead>Caution</TableHead><TableHead>Bons</TableHead><TableHead>Niveau</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tenders.map((t) => {
+              {visibles.map((t) => {
                 const cautionExpired = t.cautionEnd && new Date(t.cautionEnd) < new Date();
+                const deadline = t.submissionDeadline && !t.submittedAt
+                  && !["ANNULE", "SUSPENDU", "PERDU", "CLOTURE"].includes(t.niveau.niveau)
+                  ? new Date(t.submissionDeadline).getTime() - now : null;
                 return (
                   <TableRow key={t.id}>
                     <TableCell label="Référence" className="font-mono text-xs"><Link href={`/pch/${t.id}`} className="hover:underline">{t.reference}</Link></TableCell>
@@ -92,7 +141,18 @@ export default async function PchPage() {
                       ) : <span className="text-xs text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell label="Bons" className="text-muted-foreground">{t.orderCount}</TableCell>
-                    <TableCell label="Statut"><StatusBadge map={PCH_TENDER_STATUS} value={t.status} /></TableCell>
+                    <TableCell label="Niveau">
+                      <span title={t.niveau.raison}>
+                        <StatusBadge map={PCH_MARKET_NIVEAU} value={t.niveau.niveau} />
+                      </span>
+                      {deadline !== null && deadline < 7 * 86_400_000 && (
+                        <p className={`mt-0.5 text-xs ${deadline < 0 ? "text-destructive" : "text-warning"}`}>
+                          {deadline < 0
+                            ? `Échéance de dépôt dépassée (${formatDate(t.submissionDeadline!)})`
+                            : `Dépôt avant le ${formatDate(t.submissionDeadline!)}`}
+                        </p>
+                      )}
+                    </TableCell>
                   </TableRow>
                 );
               })}
@@ -101,5 +161,21 @@ export default async function PchPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function FiltreChip({ href, actif, label }: { href: string; actif: boolean; label: string }) {
+  return (
+    <Link
+      href={href}
+      aria-current={actif ? "true" : undefined}
+      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+        actif
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-border bg-background text-muted-foreground hover:bg-secondary hover:text-foreground"
+      }`}
+    >
+      {label}
+    </Link>
   );
 }

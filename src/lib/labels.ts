@@ -337,6 +337,25 @@ export const PCH_TENDER_STATUS: Record<string, Display> = {
   IN_PROGRESS: { label: "En cours", tone: "info" },
   COMPLETED: { label: "Terminé", tone: "success" },
   CANCELLED: { label: "Annulé", tone: "danger" },
+  SUSPENDED: { label: "Suspendu", tone: "warning" },
+  LOST: { label: "Perdu", tone: "danger" },
+};
+
+/**
+ * LE NIVEAU DÉRIVÉ d'un marché (Market 360°). Distinct du statut STOCKÉ ci-dessus : le statut
+ * est ce qu'un humain a décidé (annulé, suspendu…), le niveau est ce que les FAITS racontent —
+ * calculé par `lib/pch/market-math.ts` (même doctrine que le niveau de process Regulatory).
+ */
+export const PCH_MARKET_NIVEAU: Record<string, Display> = {
+  BROUILLON: { label: "Brouillon", tone: "neutral" },
+  PREPARATION: { label: "En préparation", tone: "info" },
+  SOUMIS: { label: "Soumis", tone: "info" },
+  PERDU: { label: "Perdu", tone: "danger" },
+  CONTRACTUALISATION: { label: "Attribué — contrat à enregistrer", tone: "warning" },
+  EXECUTION: { label: "En exécution", tone: "success" },
+  CLOTURE: { label: "Clôturé", tone: "neutral" },
+  ANNULE: { label: "Annulé", tone: "danger" },
+  SUSPENDU: { label: "Suspendu", tone: "warning" },
 };
 
 export const PCH_ORDER_STATUS: Record<string, Display> = {

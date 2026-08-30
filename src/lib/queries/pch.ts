@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { currentCompanyWhereFor } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
+import { deriverNiveau, type NiveauDerive } from "@/lib/pch/market-math";
 
 const dec = (v: unknown): number | null => (v === null || v === undefined ? null : toNumber(v));
 
@@ -50,6 +51,7 @@ export interface PchTenderLineDTO {
   competitorsTop: string | null;
   status: string;
   awardedUnitPriceDzd: number | null;
+  awardedQuantityUnits: number | null;
   note: string | null;
   // Ventes réelles : bons de commande (fractions) rattachés à cette ligne gagnée.
   soldUnits: number;
@@ -68,6 +70,12 @@ export interface PchTenderDTO {
   value: number | null;
   client: string;
   status: string;
+  internalReference: string | null;
+  publishedAt: string | null;
+  submissionDeadline: string | null;
+  submittedAt: string | null;
+  responsibleId: string | null;
+  businessUnitId: string | null;
   awardDate: string | null;
   cautionAmount: number | null;
   cautionDeposited: boolean;
@@ -90,7 +98,7 @@ function toOrderDTO(o: { id: string; lineId: string | null; reference: string | 
   };
 }
 
-type LineRow = { id: string; designation: string; dci: string | null; dosage: string | null; form: string | null; quantityUnits: number; unitsPerBox: number | null; unitLabel: string | null; haveProduct: boolean; ourProduct: string | null; ourProductId: string | null; unitPriceDzd: unknown; refPriceDzd: unknown; refPriceSource: string | null; suppliersInfo: string | null; competitorCount: number | null; registeredNomenclature: boolean; registeredOurs: boolean; nomLines: number | null; marketEstimateDzd: unknown; marketOrigin: string | null; marketVillePct: unknown; marketHopitalPct: unknown; marketHhi: number | null; competitorsTop: string | null; status: string; awardedUnitPriceDzd: unknown; note: string | null };
+type LineRow = { id: string; designation: string; dci: string | null; dosage: string | null; form: string | null; quantityUnits: number; unitsPerBox: number | null; unitLabel: string | null; haveProduct: boolean; ourProduct: string | null; ourProductId: string | null; unitPriceDzd: unknown; refPriceDzd: unknown; refPriceSource: string | null; suppliersInfo: string | null; competitorCount: number | null; registeredNomenclature: boolean; registeredOurs: boolean; nomLines: number | null; marketEstimateDzd: unknown; marketOrigin: string | null; marketVillePct: unknown; marketHopitalPct: unknown; marketHhi: number | null; competitorsTop: string | null; status: string; awardedUnitPriceDzd: unknown; awardedQuantityUnits: number | null; note: string | null };
 function toLineDTO(l: LineRow, sold?: { units: number; orders: number }): PchTenderLineDTO {
   const boxesNeeded = l.unitsPerBox && l.unitsPerBox > 0 ? Math.ceil(l.quantityUnits / l.unitsPerBox) : null;
   const soldUnits = sold?.units ?? 0;
@@ -104,7 +112,7 @@ function toLineDTO(l: LineRow, sold?: { units: number; orders: number }): PchTen
     suppliersInfo: l.suppliersInfo, competitorCount: l.competitorCount,
     registeredNomenclature: l.registeredNomenclature, registeredOurs: l.registeredOurs, nomLines: l.nomLines, marketEstimateDzd: dec(l.marketEstimateDzd),
     marketOrigin: l.marketOrigin, marketVillePct: dec(l.marketVillePct), marketHopitalPct: dec(l.marketHopitalPct), marketHhi: l.marketHhi, competitorsTop: l.competitorsTop,
-    status: l.status, awardedUnitPriceDzd: dec(l.awardedUnitPriceDzd), note: l.note,
+    status: l.status, awardedUnitPriceDzd: dec(l.awardedUnitPriceDzd), awardedQuantityUnits: l.awardedQuantityUnits, note: l.note,
     soldUnits, orderCount, fulfillmentPct,
   };
 }
@@ -123,7 +131,14 @@ function toTenderDTO(t: Awaited<ReturnType<typeof fetchTenders>>[number], lines:
   return {
     id: t.id, reference: t.reference, title: t.title ?? "", products: t.products ?? "",
     supplier: t.supplier ?? "", supplierCountry: t.supplierCountry ?? "", quantity: t.quantity,
-    value: dec(t.value), client: t.client, status: t.status, awardDate: t.awardDate?.toISOString() ?? null,
+    value: dec(t.value), client: t.client, status: t.status,
+    internalReference: t.internalReference ?? null,
+    publishedAt: t.publishedAt?.toISOString() ?? null,
+    submissionDeadline: t.submissionDeadline?.toISOString() ?? null,
+    submittedAt: t.submittedAt?.toISOString() ?? null,
+    responsibleId: t.responsibleId ?? null,
+    businessUnitId: t.businessUnitId ?? null,
+    awardDate: t.awardDate?.toISOString() ?? null,
     cautionAmount: dec(t.cautionAmount), cautionDeposited: t.cautionDeposited,
     cautionStart: t.cautionStart?.toISOString() ?? null, cautionEnd: t.cautionEnd?.toISOString() ?? null,
     notes: t.notes ?? "",
@@ -137,19 +152,41 @@ function toTenderDTO(t: Awaited<ReturnType<typeof fetchTenders>>[number], lines:
 async function fetchTenders(userId: string) {
   return prisma.pchTender.findMany({
     where: { ...await currentCompanyWhereFor(userId) },
-    include: { orders: { orderBy: { createdAt: "desc" } } },
+    include: {
+      orders: { orderBy: { createdAt: "desc" } },
+      // Le strict nécessaire pour DÉRIVER le niveau de chaque marché dans la liste.
+      lines: { select: { status: true, unitPriceDzd: true } },
+      contracts: { select: { status: true } },
+    },
     orderBy: [{ createdAt: "desc" }],
   });
 }
 
-export async function getPchTenders(userId: string): Promise<PchTenderDTO[]> {
-  return (await fetchTenders(userId)).map((t) => toTenderDTO(t));
+/** Ligne de la LISTE des marchés : le DTO plus le niveau DÉRIVÉ (mêmes règles que la fiche). */
+export type PchTenderListItem = PchTenderDTO & { niveau: NiveauDerive };
+
+export async function getPchTenders(userId: string): Promise<PchTenderListItem[]> {
+  return (await fetchTenders(userId)).map((t) => ({
+    ...toTenderDTO(t),
+    niveau: deriverNiveau({
+      status: String(t.status),
+      submittedAt: t.submittedAt,
+      awardDate: t.awardDate,
+      lignes: t.lines.map((l) => ({ status: String(l.status), unitPriceDzd: dec(l.unitPriceDzd) })),
+      aContratActif: t.contracts.some((c) => String(c.status) === "ACTIVE"),
+      aBonDeCommande: t.orders.some((o) => String(o.status) !== "CANCELLED"),
+    }),
+  }));
 }
 
 export async function getPchTenderDetail(id: string): Promise<PchTenderDTO | null> {
   const t = await prisma.pchTender.findUnique({
     where: { id },
-    include: { orders: { orderBy: { createdAt: "desc" } }, lines: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] } },
+    include: {
+      orders: { orderBy: { createdAt: "desc" } },
+      lines: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
+      contracts: { select: { status: true } },
+    },
   });
   return t ? toTenderDTO(t, t.lines) : null;
 }

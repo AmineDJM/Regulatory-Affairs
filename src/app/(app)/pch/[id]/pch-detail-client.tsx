@@ -13,6 +13,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PCH_TENDER_STATUS, PCH_ORDER_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import type { PchTenderDTO, PchOrderDTO } from "@/lib/queries/pch";
+import type { Market360 } from "@/lib/queries/market-360";
+import { OrderExecution } from "./order-execution";
 
 type Action = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
 
@@ -33,7 +35,11 @@ function useSubmit() {
   return { saving, err, setErr, submit };
 }
 
-export function EditTenderButton({ tender, canDelete }: { tender: PchTenderDTO; canDelete: boolean }) {
+export function EditTenderButton({ tender, canDelete, users = [], businessUnits = [] }: {
+  tender: PchTenderDTO; canDelete: boolean;
+  users?: { id: string; name: string }[];
+  businessUnits?: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const { saving, err, setErr, submit } = useSubmit();
@@ -45,6 +51,21 @@ export function EditTenderButton({ tender, canDelete }: { tender: PchTenderDTO; 
         <form action={(fd) => { fd.set("id", t.id); submit(updateTender, fd, () => setOpen(false)); }} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <W full label="Intitulé"><Input name="title" defaultValue={t.title} /></W>
+            <W label="Référence interne"><Input name="internalReference" defaultValue={t.internalReference ?? ""} placeholder="AO-2026-ONCO-04" /></W>
+            <W label="Responsable interne">
+              <Select name="responsibleId" defaultValue={t.responsibleId ?? ""}>
+                <option value="">—</option>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </Select>
+            </W>
+            <W label="Publié le"><Input name="publishedAt" type="date" defaultValue={t.publishedAt?.slice(0, 10) ?? ""} /></W>
+            <W label="Date limite de dépôt"><Input name="submissionDeadline" type="date" defaultValue={t.submissionDeadline?.slice(0, 10) ?? ""} /></W>
+            <W label="Business Unit">
+              <Select name="businessUnitId" defaultValue={t.businessUnitId ?? ""}>
+                <option value="">—</option>
+                {businessUnits.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </Select>
+            </W>
             <W full label="Produits"><Textarea name="products" defaultValue={t.products} /></W>
             <W label="Fournisseur"><Input name="supplier" defaultValue={t.supplier} /></W>
             <W label="Pays du fournisseur"><Input name="supplierCountry" defaultValue={t.supplierCountry} /></W>
@@ -78,10 +99,19 @@ export function EditTenderButton({ tender, canDelete }: { tender: PchTenderDTO; 
   );
 }
 
-export function OrdersManager({ tenderId, orders, canEdit, canDelete }: { tenderId: string; orders: PchOrderDTO[]; canEdit: boolean; canDelete: boolean }) {
+export function OrdersManager({ tenderId, orders, canEdit, canDelete, details = [], contrats = [] }: {
+  tenderId: string; orders: PchOrderDTO[]; canEdit: boolean; canDelete: boolean;
+  /** L'exécution de chaque bon (lignes, livraisons, factures) — la vue 360°. */
+  details?: Market360["bons"];
+  contrats?: Market360["contrats"];
+}) {
   const router = useRouter();
   const [editing, setEditing] = React.useState<PchOrderDTO | null>(null);
   const [adding, setAdding] = React.useState(false);
+  // LE BON DÉPLIÉ : ses lignes, ses livraisons, ses factures. Un seul à la fois — la table
+  // reste une table, le détail reste un détail.
+  const [expanded, setExpanded] = React.useState<string | null>(null);
+  const detailOf = React.useMemo(() => new Map(details.map((d) => [d.id, d])), [details]);
   const { saving, err, setErr, submit } = useSubmit();
   const open = adding || editing !== null;
   const o = editing;
@@ -106,7 +136,11 @@ export function OrdersManager({ tenderId, orders, canEdit, canDelete }: { tender
             </TableHeader>
             <TableBody>
               {orders.map((ord) => (
-                <TableRow key={ord.id}>
+                <React.Fragment key={ord.id}>
+                <TableRow
+                  className={detailOf.has(ord.id) ? "cursor-pointer" : undefined}
+                  onClick={() => detailOf.has(ord.id) && setExpanded(expanded === ord.id ? null : ord.id)}
+                >
                   <TableCell className="font-mono text-xs">{ord.reference || "—"}</TableCell>
                   <TableCell>{ord.products || "—"}</TableCell>
                   <TableCell className="text-right">{formatNumber(ord.quantity)}</TableCell>
@@ -116,11 +150,19 @@ export function OrdersManager({ tenderId, orders, canEdit, canDelete }: { tender
                   <TableCell><StatusBadge map={PCH_ORDER_STATUS} value={ord.status} /></TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-0.5">
-                      {canEdit && <button onClick={() => { setErr(null); setEditing(ord); }} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"><Pencil className="h-4 w-4" /></button>}
-                      {canDelete && <button onClick={() => { if (window.confirm("Supprimer ce bon de commande ?")) { const fd = new FormData(); fd.set("id", ord.id); deleteOrder(fd).then(() => router.refresh()); } }} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button>}
+                      {canEdit && <button onClick={(e) => { e.stopPropagation(); setErr(null); setEditing(ord); }} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"><Pencil className="h-4 w-4" /></button>}
+                      {canDelete && <button onClick={(e) => { e.stopPropagation(); if (window.confirm("Supprimer ce bon de commande ?")) { const fd = new FormData(); fd.set("id", ord.id); deleteOrder(fd).then(() => router.refresh()); } }} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button>}
                     </div>
                   </TableCell>
                 </TableRow>
+                {expanded === ord.id && detailOf.has(ord.id) && (
+                  <TableRow>
+                    <TableCell colSpan={8} className="bg-transparent p-2">
+                      <OrderExecution bon={detailOf.get(ord.id)!} contrats={contrats} canEdit={canEdit} />
+                    </TableCell>
+                  </TableRow>
+                )}
+                </React.Fragment>
               ))}
             </TableBody>
           </Table>
@@ -138,6 +180,15 @@ export function OrdersManager({ tenderId, orders, canEdit, canDelete }: { tender
           <div className="grid grid-cols-2 gap-3">
             <W label="Référence (n° BC)"><Input name="reference" defaultValue={o?.reference} /></W>
             <W label="Statut"><Select name="status" defaultValue={o?.status ?? "PENDING"}>{Object.entries(PCH_ORDER_STATUS).map(([v, d]) => <option key={v} value={v}>{d.label}</option>)}</Select></W>
+            {/* Le CONTRAT exécuté : c'est lui qui ouvre le contrôle du restant sur les lignes. */}
+            {!o && contrats.length > 0 && (
+              <W full label="Contrat exécuté">
+                <Select name="contractId" defaultValue={contrats.length === 1 ? contrats[0].id : ""}>
+                  <option value="">— Sans contrat —</option>
+                  {contrats.map((c) => <option key={c.id} value={c.id}>{c.reference ? `${c.reference} — ` : ""}{c.title}</option>)}
+                </Select>
+              </W>
+            )}
             <W full label="Produits"><Input name="products" defaultValue={o?.products} /></W>
             <W label="Quantité"><Input name="quantity" type="number" defaultValue={o?.quantity ?? ""} /></W>
             <W label="Valeur (DZD)"><Input name="value" type="number" step="any" defaultValue={o?.value ?? ""} /></W>

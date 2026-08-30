@@ -16,7 +16,10 @@ import { ocrDocument, canOcr } from "@/lib/regulatory/intelligence/ocr/ocr-engin
 const MODULE = "PCH" as const;
 const int = (fd: FormData, key: string): number | null => { const n = fdNum(fd, key); return n == null ? null : Math.max(0, Math.round(n)); };
 function parseLineStatus(v: string | null): PchLineStatus {
-  return v === "PENDING" || v === "QUOTED" || v === "SUBMITTED" || v === "WON" || v === "LOST" ? v : "PENDING";
+  return v === "PENDING" || v === "QUOTED" || v === "SUBMITTED" || v === "WON" || v === "LOST"
+    || v === "UNSUCCESSFUL" || v === "CANCELLED"
+    ? v
+    : "PENDING";
 }
 
 // ─────────────────────────── Lignes de l'appel d'offres ───────────────────────────
@@ -52,6 +55,9 @@ export async function updateTenderLine(formData: FormData): Promise<ActionResult
       suppliersInfo: fdStr(formData, "suppliersInfo"),
       status: parseLineStatus(fdStr(formData, "status")),
       awardedUnitPriceDzd: fdNum(formData, "awardedUnitPriceDzd"),
+      // L'attribution PARTIELLE : la quantité gagnée quand elle diffère de la soumise.
+      awardedQuantityUnits: int(formData, "awardedQuantityUnits"),
+      submittedQuantityUnits: int(formData, "submittedQuantityUnits"),
       note: fdStr(formData, "note"),
     },
   });
