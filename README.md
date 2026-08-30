@@ -198,7 +198,7 @@ jamais identique.
 | **Formations** | `/formations` | Demande individuelle (montant, organisme, dates, devis) validée **N+1 → RH → DG**, et formations **organisées par les RH** (qui partent directement au DG) avec **participants convoqués ou volontaires** (les volontaires acceptent ou déclinent) et **postes** (salle, traiteur, intervenant) validés un par un par la Direction. Budget **FORMATION** parmi les budgets départementaux. |
 | **Ventes** | `/sales` | CA pharma/PCH, **import CSV**, type **Produit / Service**. |
 | **Logistique PCH** | `/logistics` | Module autonome : import / expéditions fournisseurs, dates estimées vs réelles, dédouanement. |
-| **PCH — Marchés** | `/pch` | **Marchés publics gagnés** : appels d'offres → **bons de commande** + **caution** (alertes d'expiration). → [détails](#pch--marchés-publics) |
+| **PCH — Marchés** | `/pch` | **Market 360°** : AO → soumission versionnée → attribution par lot → contrat & avenants → BC à lignes → livraisons → factures — niveau de vie **dérivé**, caution (alertes). → [détails](#pch--marchés-publics-market-360) |
 | **Stocks** | `/stocks` | Refonte en **états datés** (« à cette date, il reste X ») — **sans** entrées/sorties : 3 onglets **Stock PCH · Stock hôpitaux · Annexes PCH** (hôpitaux **et** annexes PCH = lieux nommés, créés/supprimés **uniquement par le Super Admin**), **vue par produit** (catalogue Regulatory) en **graphique** (courbe date → quantité) ou **tableau** (avec évolution entre relevés), un état par jour (ressaisie = correction). Le détecteur « Stock PCH bas » du Brain lit en priorité le dernier état. |
 | **Rapports terrain** | `/field-reports` | **Rapports vocaux IA** des délégués : parler → transcription → analyse → relecture → validation. Onglet **« Overview »** (`/field-reports/overview`) : **graphes d'analyse** (visites par médecin / hôpital / délégué / spécialité, tendance 12 mois, statut, produits) — accès **par autorisation du Super Admin** (`fieldReportsOverviewRoles`). La fiche d'un rapport est gardée par le module **Rapports terrain** (et non plus « Promotion médicale »). → [détails](#-intelligence-artificielle-claude--whisper) |
 | **Annuaire** *(ex-« Promotion médicale »)* | `/medical` | **Annuaire structuré** : Spécialité → Secteur (Hôpital / Libéral) → médecins, titre/grade. Onglet **Annuaire** (`/medical/annuaire`) = **feuille modifiable en place** (12 colonnes exactes, 58 wilayas, potentiel, export), en **plusieurs annuaires nommés** (« Cardiologues Centre », « Pédiatres Ouest »…) qu'on crée, renomme et supprime — la suppression d'un annuaire **déplace ses praticiens** vers un autre plutôt que de les détruire. **Segmentation à 5 niveaux** (Très haut / Haut / Moyen / Bas / Très bas) pour **influence**, **potentiel** et **affinité**, **par spécialité et par produit**, médecins **et** pharmaciens. Visites & tournées **scopées par délégué**, plans de tournées **duplicables**. |
@@ -519,12 +519,52 @@ les demandes en cours (`getSupervisedValidations`). Deux niveaux de décision :
   **le message ET chaque pièce jointe séparément**, commentaire **optionnel**. Ce retour détaillé remonte au
   demandeur dans « Mes demandes » (libellés lisibles des pièces).
 
-### PCH — Marchés publics
+### PCH — Marchés publics (Market 360°)
 
-**Appel d'offres** (réf. auto `AO-année-n`) → **lignes-produits** (`PchTenderLine`) → **caution obligatoire**
-(montant, dates, alertes) → **bons de commande** (réf, qté, valeur, date réception, date paiement). **Documents du
-marché** : on téléverse **l'appel d'offres** (cahier des charges, PV…) et pièces liées, à la création OU depuis la
-fiche du marché — entité polymorphe `PCH_TENDER` (Document/Drive, versionné, mêmes contrôles d'accès PCH).
+Un marché est un **dossier transversal de bout en bout** : AO → soumission versionnée →
+attribution par lot → contrat & avenants → bons de commande à lignes → livraisons → factures →
+paiements → clôture. Voir **`docs/MARKET_360_ARCHITECTURE.md`** (modèle, mermaid, ownership) et
+**`docs/MARKET_360_AUDIT.md`** (matrice de preuves).
+
+- **Cycle de vie DÉRIVÉ** (`lib/pch/market-math.ts`, pur, testé) : les faits décident
+  (dépôt verrouillé, lots gagnés, contrat actif, BC), seuls annulé/suspendu/perdu/clôturé sont
+  DÉCIDÉS. Liste `/pch` filtrée par niveau (liens), fiche `/pch/[id]` avec barre de progression,
+  manques et KPI (soumis / attribué / contrat initial vs **courant** / commandé / livré /
+  facturé / encaissé) — un seul module calcule (§24).
+- **Soumission versionnée** (`PchSubmission`) : V1→Vn, checklist signée/horodatée, **dépôt =
+  transaction** (verrou `lockedAt` + `submittedAt` sur le marché + photo `submissionSnapshot`
+  de chaque ligne). La version déposée refuse toute retouche **côté serveur**.
+- **Résultats par LOT** : gagné / perdu / infructueux / annulé, **attribution partielle**
+  (`awardedQuantityUnits` ≤ soumis, refus sinon), prix d'attribution.
+- **Contrat = UN objet Legal, deux vues** (`LegalDocument.tenderId`) : `createContractFromAward`
+  (2 portes : PCH UPDATE + LEGAL CREATE) crée la pièce ET ses `PchContractLine` depuis les lots
+  gagnés. **Avenants** = kind `AMENDMENT` + `amendsId` + `amountDelta` ± + `effectiveAt` — le
+  montant initial n'est **jamais** écrasé, la valeur courante se **calcule**
+  (`valeurContractuelleCourante`). Fiche Legal : carte « Contexte marché ».
+- **BC à lignes** (`PchOrderLine` → ligne contractuelle) : contrôle du **restant contractuel**
+  par produit (deltas des avenants effectifs compris) — dépassement = refus **chiffré**, passage
+  outre = geste explicite `force`, **tracé dans l'audit avec son excès**.
+- **Livraisons** (`PchDelivery`/`Line`) : BL, dates, réserves, **lot pharma + péremption** ;
+  mouvement de **stock OUT** créé UNIQUEMENT sur demande (case) ET produit résolu sans ambiguïté
+  (exactement 1 `RegulatoryProduct`). Supprimer une livraison **conserve** ses mouvements.
+- **Factures** : lecture des `Invoice` Finances (`sourceType=PCH_ORDER`) — rien de fabriqué.
+- **Vues croisées** : fiche produit Regulatory → carte « Marchés PCH » (`loadProductMarkets`) ;
+  courriers → « Relier à… » multiple (`MailEntryLink`) + création **pré-associée** depuis le
+  marché ; recherche globale (marchés, BC, Legal avec garde lecteurs, courriers).
+- **Rappels d'échéance de dépôt** : balayage quotidien (`lib/pch/deadline-sweep.ts`), zones
+  J-7 / J-2 / dépassement, prévient responsable + équipe à l'ENTRÉE de zone seulement, se tait
+  dès le dépôt.
+- **Adam** : `business.story` sert la MÊME frise que l'écran (`storyMarche`, sur les FK) ;
+  13 ops `pch_operation` + 2 ops `mail_operation` natives — mêmes portes, même audit. Parité
+  100 %, frontière abaissée 430 → 428.
+- **Écritures** : `lib/actions/pch-market-actions.ts` (16 actions gardées, transactionnelles,
+  auditées) ; lecture 360° : `lib/queries/market-360.ts` (`loadMarket360`).
+- **Preuves** : 22 tests purs + **9 tests d'intégration** depuis les vraies portes (scénario
+  §87 complet). Limites dites dans l'audit (E2E navigateur non montés, 1 règlement/facture).
+
+**Documents du marché** : l'appel d'offres (cahier des charges, PV…) et pièces liées se
+téléversent à la création OU depuis la fiche — entité polymorphe `PCH_TENDER` (Document/Drive,
+versionné, mêmes contrôles d'accès PCH).
 
 **Chaîne d'automatisation d'une ligne-produit** (`src/lib/actions/pch-tender-line-actions.ts`,
 `src/lib/market/pch-lookup.ts`, RBAC `PCH`/`UPDATE`) :
@@ -3403,6 +3443,24 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### MARKET 360° — le marché public devient un dossier transversal de bout en bout (2026-08)
+
+**L'AUDIT D'ABORD (§0)** : l'ERP portait déjà les deux tiers du graphe (Product canonique,
+chaîne Legal, storyMarche servie à Adam, moteurs workflow/notify/audit) — la stratégie fut
+l'EXTENSION, jamais la duplication. Six lots : schéma additif idempotent (PchSubmission,
+PchContractLine, PchOrderLine, PchDelivery(+Line), MailEntryLink, FK `LegalDocument.tenderId`
+qui remplace la recherche par texte, backfill des BC) ; calculs PURS dans `lib/pch/market-math.ts`
+(niveau dérivé, valeur courante = initial + Σ deltas effectifs, contrôle de dépassement chiffré,
+zones d'échéance) ; fiche `/pch/[id]` recomposée (progression, soumission verrouillée, contrat
+initial vs courant, BC dépliables avec passage-outre tracé, frise = celle d'Adam) et liste au
+cycle de vie ; vues croisées (Regulatory·Marchés du produit, Legal·contexte marché, Courriers
+« Relier à… » + pré-associé, recherche globale, rappels J-7/J-2/dépassé) ; storyMarche rebranchée
+sur les FK (dépôt daté, attribution partielle, avenants effectifs, BL réels, factures) sans
+changer son contrat ; 13 ops `pch_operation` + 2 `mail_operation` natives, 3 exclusions motivées
+(cocher une pièce de checklist = ATTESTATION signée), parité 100 %, frontière ABAISSÉE 430 → 428.
+Preuves : 22 tests purs + 9 tests d'intégration (scénario §87 complet), suite 5 468 verte, build
+propre. Docs : `docs/MARKET_360_ARCHITECTURE.md` + `docs/MARKET_360_AUDIT.md` (limites dites).
 
 ### ON PEUT SORTIR DU BUREAU D'ADAM — et le build tient à nouveau chez Render (2026-08)
 

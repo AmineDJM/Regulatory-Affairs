@@ -121,5 +121,115 @@ ni réinterprété. Zéro donnée perdue, ancien code fonctionnel pendant la bas
 
 ---
 
-*(Les sections 1+ — modèle métier, cycle de vie, ownership, workflows, permissions, navigation,
-Adam, tests — sont complétées au fil des lots, chacune adossée à du code réel.)*
+## 1. Le modèle — un seul graphe, des vues (§84)
+
+```mermaid
+erDiagram
+    Product ||--o{ PchTenderLine : "productId (master data, jamais dupliqué)"
+    Product ||--o{ PchContractLine : "productId"
+    RegulatoryProduct }o--|| Product : "productId (profil réglementaire)"
+
+    PchTender ||--o{ PchTenderLine : "lots"
+    PchTender ||--o{ PchSubmission : "versions (la déposée est VERROUILLÉE)"
+    PchTender ||--o{ PchOrder : "bons de commande"
+    PchTender ||--o{ LegalDocument : "tenderId (contrats du marché)"
+
+    LegalDocument ||--o{ LegalDocument : "amendsId (avenant -> contrat)"
+    LegalDocument ||--o{ PchContractLine : "documentId (porteur) / contractId (racine)"
+    LegalDocument ||--o{ PchOrder : "contractId (le BC exécute le contrat)"
+
+    PchTenderLine ||--o{ PchContractLine : "tenderLineId"
+    PchContractLine ||--o{ PchOrderLine : "contractLineId (contrôle du restant)"
+    PchOrder ||--o{ PchOrderLine : "lignes"
+    PchOrder ||--o{ PchDelivery : "livraisons (BL)"
+    PchDelivery ||--o{ PchDeliveryLine : "lignes (lot pharma, péremption)"
+    PchOrderLine ||--o{ PchDeliveryLine : "orderLineId"
+    PchDelivery ||--o{ StockMovement : "deliveryId (OUT, sur demande, produit résolu)"
+
+    PchOrder ||--o{ Invoice : "sourceType=PCH_ORDER (module Finances)"
+    Invoice }o--o| FinanceTransaction : "transactionId (règlement)"
+    MailEntry ||--o{ MailEntryLink : "Relier à… (multi)"
+```
+
+Le fil `Product → TenderLine → ContractLine → OrderLine → DeliveryLine` se remonte par
+n'importe quel bout : `addOrderLine` recopie le `tenderLineId` de la ligne contractuelle sur
+la ligne de BC précisément pour cela.
+
+## 2. Le cycle de vie — DÉRIVÉ, jamais choisi
+
+`src/lib/pch/market-math.ts` (pur, sans import, 22 tests) : les FAITS décident, seuls les
+états DÉCIDÉS par un humain (annulé, suspendu, perdu, clôturé — posés dans « Modifier »)
+viennent du statut stocké. `deriverNiveau` rend le niveau ET sa raison (l'infobulle de
+l'en-tête, la liste `/pch`, la même règle partout).
+
+```mermaid
+stateDiagram-v2
+    [*] --> BROUILLON : créé
+    BROUILLON --> PREPARATION : lot à l'étude / chiffré
+    PREPARATION --> SOUMIS : dépôt VERROUILLÉ (submittedAt)
+    SOUMIS --> CONTRACTUALISATION : lot(s) gagné(s)
+    SOUMIS --> PERDU : tous les lots décidés, aucun gagné
+    CONTRACTUALISATION --> EXECUTION : contrat actif OU bon de commande
+    EXECUTION --> CLOTURE : décidé (COMPLETED)
+    note right of CONTRACTUALISATION : ANNULE / SUSPENDU / PERDU\npeuvent être DÉCIDÉS à tout moment
+```
+
+## 3. Les calculs — un seul endroit (§24)
+
+| Règle | Fonction | Consommée par |
+| --- | --- | --- |
+| Quantité/valeur attribuée (partielle §14) | `unitesAttribuees`, `valeurAttribuee` | fiche, liste, story, audit |
+| Valeur contractuelle courante = initial + Σ deltas EFFECTIFS (§17-18) | `valeurContractuelleCourante` | fiche marché, fiche Legal, story |
+| Quantités contractuelles par produit (deltas, clamp ≥ 0) | `quantitesContractuelles` | contrôle de BC |
+| Contrôle de dépassement (refus chiffré, force tracé §19) | `controlerCommande` | `addOrderLine` |
+| Niveau dérivé + raison | `deriverNiveau`, `etapeCourante` | en-tête, liste, badge |
+| Zones d'échéance de dépôt (J-7/J-2/dépassé, anti-spam §53) | `zoneDepot`, `doitRappelerDepot` | `deadline-sweep` |
+
+Écritures : `src/lib/actions/pch-market-actions.ts` — 16 actions serveur, transactionnelles
+là où deux écritures racontent UN événement (dépôt+verrou+snapshots ; contrat+lignes ;
+livraison+lignes+stock), toutes gardées (requireUser + userCan), toutes auditées.
+
+## 4. Ownership (§85)
+
+| Objet | Propriétaire | Les autres |
+| --- | --- | --- |
+| Produit | Regulatory (master data) | tous consomment par FK |
+| AO, lots, soumission, BC, livraisons | PCH | Regulatory lit (vue Marchés), Adam lit |
+| Contrat, avenants, lignes contractuelles | **UN objet, deux vues** : Legal instruit la pièce (LEGAL CREATE/UPDATE), PCH lit l'exécution | `createContractFromAward` exige les DEUX portes |
+| Factures, règlements | Finances (`Invoice`, `sourceType=PCH_ORDER`) | le marché LIT, ne fabrique rien |
+| Stock | Stocks (`StockMovement`) | la livraison ÉCRIT un mouvement OUT uniquement sur demande explicite ET produit résolu sans ambiguïté |
+| Courriers | Registre (MailEntry) | liens multiples via `MailEntryLink`, création pré-associée depuis le marché |
+
+## 5. Sécurité & intégrité (§49-50, §62-63)
+
+- RBAC **serveur** dans chaque action ; la fiche masque, le serveur refuse.
+- Soumission déposée : `lockedAt` — le refus de modification est SERVEUR (`loadEditableSubmission`).
+- Dépassement contractuel : refus chiffré ; le passage en force est un geste explicite, audité
+  avec son excès (« bloquer ferait saisir hors ERP »).
+- Suppression d'une livraison : les mouvements de stock SURVIVENT (SetNull) et le reçu le dit.
+- Audit : chaque geste passe par `recordAudit` ; résultat de lot = avant/après.
+
+## 6. Adam (§54-55, §88)
+
+- **Lecture** : `business.story` sert la MÊME frise que l'écran (storyMarche) — dépôt daté,
+  attribution partielle, contrats par FK avec valeur courante, avenants effectifs, BL réels,
+  factures Finances, manques affichés, limites dites.
+- **Écriture** : 13 ops `pch_operation` natives (create/submit_submission, set_line_result,
+  create_contract_from_award, link_contract, create_amendment, set_amendment_effective,
+  add/delete_contract_line, add/delete_order_line, create/delete_delivery) + 2 ops
+  `mail_operation` (link_record/unlink_record) — par les actions CANONIQUES, mêmes portes,
+  même audit, proposition confirmée avant exécution.
+- **Exclusions motivées** : cocher une pièce de la checklist de dépôt est une ATTESTATION
+  signée (registre) — écran seulement, comme `fournirElementMission`.
+- Parité mesurée après le chantier : **100 %** (0 trou), plafond de frontière ABAISSÉ 430 → 428.
+
+## 7. Ce que le chantier n'a PAS fait (dette et limites, dites)
+
+- Paiements MULTIPLES par facture : `Invoice.transactionId @unique` (1 règlement) — limite
+  Finance documentée, hors périmètre (§23 interdit le mécanisme financier parallèle).
+- `PchTenderLine.ourProductId` orphelin : à purger dans un lot dédié.
+- E2E navigateur (Playwright §72) et revue visuelle systématique (§74) : NON couverts ici —
+  la chaîne est prouvée par 9 tests d'intégration serveur (vraies actions, vraie base) et
+  22 tests purs ; l'E2E navigateur reste à monter sur l'infra Playwright existante.
+- L'historique d'avant les FK (contrats par texte, soumission déduite) reste servi en repli,
+  marqué DÉDUIT.
