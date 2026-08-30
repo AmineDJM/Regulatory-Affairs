@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegulatoryTherapeuticSegmentsForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, OrgChartViewersForm, HiddenModulesForm, PipelineAccessForm } from "./admin-settings-forms";
+import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegulatoryTherapeuticSegmentsForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, OrgChartViewersForm, HiddenModulesForm, PipelineAccessForm, DirectiveAccessForm } from "./admin-settings-forms";
 import { MODULES } from "@/lib/rbac";
 import { MODULE_LABELS } from "@/lib/labels";
 import { isHideable } from "@/lib/modules-visibility";
@@ -79,6 +79,18 @@ export default async function AdminSettingsPage() {
         </CardHeader>
         <CardContent>
           <RegulatoryTherapeuticSegmentsForm segments={settings.regulatoryTherapeuticSegments} />
+        </CardContent>
+      </Card>
+
+      {/* LES DIRECTIVES — qui les lit, qui les rédige. La PUBLICATION n'est pas ici : elle
+          appartient à la direction générale, en dur. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Megaphone className="h-4 w-4" /> Directives — Accès au module</CardTitle>
+          <p className="text-sm text-muted-foreground">Une <strong>note de service</strong> s&apos;adresse à une ou plusieurs personnes, à un rôle, à une entité, ou à <strong>tous les salariés</strong>. Ouvrez la <strong>lecture</strong> largement — chacun doit recevoir les notes qui le concernent —, et la <strong>rédaction</strong> à ceux qui préparent les consignes. La <strong>publication</strong>, elle, reste au Directeur Général : elle ne se règle pas.</p>
+        </CardHeader>
+        <CardContent>
+          <DirectiveAccessForm roles={roleOptions} users={users} settings={settings} />
         </CardContent>
       </Card>
 

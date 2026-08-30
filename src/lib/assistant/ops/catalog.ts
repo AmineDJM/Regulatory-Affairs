@@ -3478,7 +3478,7 @@ export const OPS_CATALOG: OpMeta[] = [
     uiLabel: "Émettre une directive",
     aliases: ["émets une directive", "envoie une directive à l'équipe commerciale"],
     risk: "SENSITIVE",
-    summary: "La DIRECTION émet une directive référencée DIR- vers UNE personne ou UN rôle (une personne précise prime) — priorité, échéance, notification immédiate.",
+    summary: "La DIRECTION rédige une directive référencée DIR- (note de service) vers une ou plusieurs personnes, un rôle, une entité ou TOUS les salariés — priorité, échéance, pièce jointe, pop-up. Elle ne part qu'après validation du Directeur Général ou du Super Admin.",
     gate: (u) => hasGlobalView(u) || userCan(u, "DIRECTIVES", "CREATE"),
     covers: ["directive-actions:createDirective"],
   },

@@ -106,10 +106,20 @@ export function applyChainDecision(stage: ChainStage, decision: "APPROVED" | "RE
 }
 
 /** Qui doit être prévenu de l'arrivée d'une demande à cette étape (rôles de repli). */
+/**
+ * ⚠️ CES NOMS SONT DES `UserRole` RÉELS. « RH_MANAGER » figurait ici et n'existe pas dans
+ * l'énumération : Prisma refusait la requête ENTIÈRE, l'erreur était avalée par le `try/catch`
+ * de `notifyRoles`, et **personne** n'était prévenu quand un congé arrivait à l'étape RH — pas
+ * même le Super Admin, pourtant correctement listé. Une liste de rôles inventés ne rate pas
+ * seulement sa cible : elle fait taire tout l'envoi.
+ *
+ * Qui porte réellement la fonction RH (`RH: MANAGE`, donc VALIDATE) : la Direction et le
+ * Directeur Général. Et la dernière marche appartient au sommet — DG compris (`isTopManagement`).
+ */
 export function chainNotifyRoles(stage: ChainStage): string[] {
   switch (stage) {
-    case "HR": return ["RH_MANAGER", "SUPER_ADMIN"];
-    case "DG": return ["DIRECTION", "SUPER_ADMIN"];
+    case "HR": return ["DIRECTION", "GENERAL_MANAGER", "SUPER_ADMIN"];
+    case "DG": return ["DIRECTION", "GENERAL_MANAGER", "SUPER_ADMIN"];
     default: return [];
   }
 }

@@ -312,6 +312,11 @@ export async function requestLeave(
     type: (fdStr(formData, "type") as LeaveType) ?? "ANNUAL",
     startDate, endDate, days,
     reason: fdStr(formData, "reason"),
+    // La FICHE de demande (cf. `lib/hr/leave-sheet.ts`) : le téléphone où joindre la personne
+    // — pré-rempli depuis sa fiche employé mais modifiable — et l'intérimaire qu'elle choisit.
+    // Le reste (nom, fonction, recrutement, direction) se LIT de l'employé, jamais recopié.
+    phone: fdStr(formData, "phone") ?? employee.phone,
+    standInId: fdStr(formData, "standInId"),
   });
 
   // Justificatifs (certificat médical, formulaire signé…) : la demande les porte.

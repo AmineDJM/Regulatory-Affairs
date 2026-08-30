@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { platformScope } from "@/lib/company";
-import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, isTopManagement, type SessionUser } from "@/lib/rbac";
 import { canDecideLeave, type LeaveStage } from "@/lib/leave-workflow";
+import { buildLeaveSheet } from "@/lib/hr/leave-sheet";
 import { toNumber } from "@/lib/utils";
 import { payrollMass as payrollMassOf, basisLabel } from "@/lib/hr/payroll-cost";
 
@@ -309,6 +310,13 @@ export interface LeaveToDecide {
   /** Note laissée par la marche précédente — le contexte que le suivant n'a pas. */
   previousNote: string | null;
   previousStageLabel: string | null;
+  /**
+   * LA FICHE DE DEMANDE, telle que le formulaire papier la portait : nom, prénom, fonction,
+   * date de recrutement, direction, date de la demande, jours, départ, reprise, téléphone,
+   * intérim. Le valideur l'a SOUS LES YEUX au moment de signer — la chercher ailleurs, c'est
+   * ce qui faisait décrocher le téléphone à chacune des trois marches.
+   */
+  sheet: { label: string; value: string }[];
 }
 
 /**
@@ -325,11 +333,28 @@ export interface LeaveToDecide {
 export async function getLeavesToDecide(user: SessionUser): Promise<LeaveToDecide[]> {
   const pending = await prisma.leaveRequest.findMany({
     where: { status: "PENDING", stage: { not: "DONE" } },
-    include: { employee: { select: { id: true, fullName: true, userId: true } } },
+    include: {
+      employee: {
+        select: {
+          id: true, fullName: true, userId: true,
+          // La FICHE se lit de l'employé — jamais recopiée dans la demande (cf. `leave-sheet.ts`).
+          position: true, hireDate: true, phone: true,
+          department: true, departmentRef: { select: { name: true } },
+        },
+      },
+    },
     orderBy: { startDate: "asc" },
     take: 200,
   });
   if (pending.length === 0) return [];
+
+  // Le nom des intérimaires désignés, résolu en UNE requête pour tout le lot.
+  const standInNames = new Map(
+    (await prisma.user.findMany({
+      where: { id: { in: pending.map((l) => l.standInId).filter((v): v is string => !!v) } },
+      select: { id: true, name: true },
+    })).map((u) => [u.id, u.name]),
+  );
 
   // Responsables enregistrés → comptes applicatifs, en UNE requête.
   const managerIds = [...new Set(pending.map((l) => l.managerId).filter((v): v is string => !!v))];
@@ -339,7 +364,10 @@ export async function getLeavesToDecide(user: SessionUser): Promise<LeaveToDecid
   const managerUserById = new Map(managers.map((m) => [m.id, m.userId]));
 
   const isHr = userCan(user, "RH", "VALIDATE");
-  const isDg = hasGlobalView(user);
+  // MÊME prédicat que `leaveDecider` : la file de décision et le droit de trancher doivent
+  // dire la même chose, sinon la demande apparaît à quelqu'un qui ne peut pas la signer
+  // (ou l'inverse, plus grave : elle disparaît de la file de celui qui le peut).
+  const isDg = isTopManagement(user);
 
   const out: LeaveToDecide[] = [];
   for (const l of pending) {
@@ -370,6 +398,21 @@ export async function getLeavesToDecide(user: SessionUser): Promise<LeaveToDecid
       stage: l.stage as LeaveStage,
       previousNote: previous.note,
       previousStageLabel: previous.note ? previous.label : null,
+      sheet: buildLeaveSheet(
+        {
+          fullName: l.employee.fullName,
+          position: l.employee.position,
+          hireDate: l.employee.hireDate,
+          department: l.employee.departmentRef?.name ?? l.employee.department,
+          phone: l.employee.phone,
+        },
+        {
+          createdAt: l.createdAt, startDate: l.startDate, endDate: l.endDate, days: Number(l.days),
+          phone: l.phone,
+          standInName: l.standInId ? standInNames.get(l.standInId) ?? null : null,
+          standInStatus: l.standInStatus,
+        },
+      ),
     });
   }
   return out;

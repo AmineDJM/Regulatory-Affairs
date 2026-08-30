@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { Loader2, Check, Megaphone, Search, Plus, X, RotateCcw, Eye, EyeOff } from "lucide-react";
-import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegulatoryTherapeuticSegments, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles, setOrgChartViewers, setHiddenModules, setPipelineAccess } from "@/lib/actions/settings-actions";
+import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegulatoryTherapeuticSegments, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles, setOrgChartViewers, setHiddenModules, setPipelineAccess, setDirectiveAccess } from "@/lib/actions/settings-actions";
 import { describePipelineAudience } from "@/lib/regulatory/pipeline-access";
+import { describeDirectiveAccess } from "@/lib/directives/access";
 import { setRegIntelligenceEnabled } from "@/lib/regulatory/intelligence/actions";
 import { sendBroadcast } from "@/lib/actions/notification-actions";
 import { Button } from "@/components/ui/button";
@@ -815,6 +816,83 @@ export function PipelineAccessForm({ roles, users, settings }: {
       <Button type="submit" size="sm" disabled={saving}>
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : null}
         {saved ? "Enregistré" : "Enregistrer les accès au pipeline"}
+      </Button>
+    </form>
+  );
+}
+
+/**
+ * ACCÈS AU MODULE DIRECTIVES — qui lit les notes de service, qui en rédige.
+ *
+ * Le troisième droit, la PUBLICATION, n'apparaît pas ici : il n'est pas réglable. Une note de
+ * service engage l'entreprise devant tous ses salariés ; sa signature appartient à la direction
+ * générale, en dur dans le code. L'écran le DIT, pour que personne ne cherche la case.
+ */
+export function DirectiveAccessForm({ roles, users, settings }: {
+  roles: Opt[];
+  users: UserLite[];
+  settings: Pick<AppSettings, "directiveReaderRoles" | "directiveReaderUserIds" | "directiveIssuerRoles" | "directiveIssuerUserIds">;
+}) {
+  const [readerRoles, setReaderRoles] = React.useState<string[]>(settings.directiveReaderRoles);
+  const [readerUsers, setReaderUsers] = React.useState<string[]>(settings.directiveReaderUserIds);
+  const [issuerRoles, setIssuerRoles] = React.useState<string[]>(settings.directiveIssuerRoles);
+  const [issuerUsers, setIssuerUsers] = React.useState<string[]>(settings.directiveIssuerUserIds);
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const flip = (set: React.Dispatch<React.SetStateAction<string[]>>) => (v: string) =>
+    set((p) => (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]));
+
+  const audience = describeDirectiveAccess({
+    directiveReaderRoles: readerRoles,
+    directiveReaderUserIds: readerUsers,
+    directiveIssuerRoles: issuerRoles,
+    directiveIssuerUserIds: issuerUsers,
+  });
+
+  return (
+    <form
+      action={async () => {
+        setSaving(true); setError(null);
+        const fd = new FormData();
+        readerRoles.forEach((r) => fd.append("readerRoles", r));
+        readerUsers.forEach((id) => fd.append("readerUserIds", id));
+        issuerRoles.forEach((r) => fd.append("issuerRoles", r));
+        issuerUsers.forEach((id) => fd.append("issuerUserIds", id));
+        const res = await setDirectiveAccess(fd);
+        setSaving(false);
+        if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 1500); }
+        else setError(res.error ?? "Échec.");
+      }}
+      className="space-y-3"
+    >
+      <RolePeoplePicker
+        title="Lire les directives"
+        hint="Recevoir et consulter les notes de service qui vous concernent. C'est le cas ordinaire : presque tout le monde doit lire les notes de la direction."
+        roles={roles} users={users}
+        pickedRoles={readerRoles} pickedUsers={readerUsers}
+        onToggleRole={flip(setReaderRoles)} onToggleUser={flip(setReaderUsers)}
+      />
+
+      <RolePeoplePicker
+        title="Rédiger une directive"
+        hint="Écrire une note et la SOUMETTRE. Ce n'est pas la publier : elle attendra l'accord de la direction générale. Rédiger donne aussi la lecture."
+        roles={roles} users={users}
+        pickedRoles={issuerRoles} pickedUsers={issuerUsers}
+        onToggleRole={flip(setIssuerRoles)} onToggleUser={flip(setIssuerUsers)}
+      />
+
+      <p className="rounded-lg bg-secondary px-3 py-2 text-xs text-muted-foreground">
+        <strong className="text-foreground">La publication ne se règle pas.</strong> Une note de service
+        engage l&apos;entreprise devant tous ses salariés : seuls le <strong>Directeur Général</strong> et le
+        <strong> Super Admin</strong> la prononcent, et cela ne s&apos;ouvre pas depuis cet écran.
+      </p>
+      <p className="text-xs text-muted-foreground">{audience}</p>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <Button type="submit" size="sm" disabled={saving}>
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : null}
+        {saved ? "Enregistré" : "Enregistrer les accès aux directives"}
       </Button>
     </form>
   );

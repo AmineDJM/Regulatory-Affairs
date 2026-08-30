@@ -240,8 +240,12 @@ export async function getActionCenter(user: SessionUser) {
 
   // 6e. Directives de la Direction qui me concernent (non clôturées)
   if (userCan(user, "DIRECTIVES", "VIEW")) {
+    // Les notes adressées « aux salariés d'une entité » n'atteignent leur file d'actions que si
+    // l'on sait de quelle entité la personne relève — sans cela, elles seraient reçues mais
+    // absentes de « Mon travail », l'écran qui sert justement à ne rien oublier.
+    const { companyIdsOf } = await import("@/lib/directives/recipients");
     const directives = await prisma.directive.findMany({
-      where: { AND: [scopeDirectives(user), { status: { notIn: ["DONE", "ARCHIVED"] } }] },
+      where: { AND: [scopeDirectives(user, await companyIdsOf(user.id)), { status: { notIn: ["DONE", "ARCHIVED"] } }] },
       orderBy: [{ priority: "desc" }, { createdAt: "desc" }], take: 40,
     });
     for (const d of directives) {

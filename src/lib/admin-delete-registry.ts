@@ -20,6 +20,7 @@ export type DeletableKind =
   | "EVENT"
   | "EMPLOYEE"
   | "HR_REQUEST"
+  | "LEAVE_REQUEST"
   | "DOSSIER"
   | "ADMIN_REQUEST"
   | "MEETING"
@@ -61,6 +62,15 @@ export interface KindSpec {
    * Absent = ce type ne se désigne que par id (ex. demande RH, composite sans référence).
    */
   searchFields?: string[];
+  /**
+   * CE QUE LA SUPPRESSION A COMPENSÉ AILLEURS, à refaire en sens inverse à la restauration.
+   *
+   * La corbeille recrée la ligne telle quelle — elle ne sait rien des compteurs qu'elle
+   * alimentait. Un congé accordé avait débité un solde de jours ; sa suppression les restitue
+   * (voir LEAVE_REQUEST) ; sans ce crochet, le restaurer rendrait le congé ET les jours, et
+   * personne ne saurait d'où vient l'écart. Absent = rien à compenser (le cas courant).
+   */
+  restored?: (id: string) => Promise<void>;
 }
 
 export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
@@ -121,6 +131,59 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     },
     async remove(id) {
       await prisma.employee.delete({ where: { id } });
+    },
+  },
+  /**
+   * UNE DEMANDE DE CONGÉ — jamais l'employé, jamais son solde par accident.
+   *
+   * Supprimer une demande ACCORDÉE, c'est effacer une ligne qui a déjà débité le compteur de
+   * jours : si l'on se contentait du `delete`, la personne perdrait ses jours pour une demande
+   * qui n'existe plus, et personne ne saurait retrouver pourquoi. On RESTITUE donc le solde
+   * dans le même geste — et seulement pour ce qui l'avait entamé (congé annuel accordé).
+   */
+  LEAVE_REQUEST: {
+    label: "demande de congé",
+    module: "RH",
+    redirect: "/rh/conges",
+    model: "leaveRequest",
+    entityType: "LEAVE_REQUEST",
+    searchFields: ["reason"],
+    async describe(id) {
+      const r = await prisma.leaveRequest.findUnique({
+        where: { id },
+        select: { startDate: true, endDate: true, days: true, employee: { select: { fullName: true } } },
+      });
+      if (!r) return null;
+      const p = `${r.startDate.toLocaleDateString("fr-FR")} → ${r.endDate.toLocaleDateString("fr-FR")}`;
+      return `${r.employee.fullName} — ${p} (${Number(r.days)} j)`;
+    },
+    async remove(id) {
+      const r = await prisma.leaveRequest.findUnique({
+        where: { id },
+        select: { employeeId: true, days: true, type: true, status: true },
+      });
+      if (!r) return;
+      await prisma.$transaction(async (tx) => {
+        if (r.status === "APPROVED" && r.type === "ANNUAL") {
+          await tx.employee.update({
+            where: { id: r.employeeId },
+            data: { leaveBalanceDays: { increment: Number(r.days) } },
+          });
+        }
+        await tx.leaveRequest.delete({ where: { id } });
+      });
+    },
+    /** Restaurer un congé accordé, c'est le rendre — donc reprendre les jours restitués. */
+    async restored(id) {
+      const r = await prisma.leaveRequest.findUnique({
+        where: { id },
+        select: { employeeId: true, days: true, type: true, status: true },
+      });
+      if (!r || r.status !== "APPROVED" || r.type !== "ANNUAL") return;
+      await prisma.employee.update({
+        where: { id: r.employeeId },
+        data: { leaveBalanceDays: { decrement: Number(r.days) } },
+      });
     },
   },
   // Une SEULE demande RH (attestation, note de frais, entrevue…) — jamais l'employé.

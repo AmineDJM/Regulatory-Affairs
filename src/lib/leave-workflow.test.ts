@@ -91,8 +91,13 @@ describe("applyLeaveDecision", () => {
 
 describe("stageNotifyRoles", () => {
   it("prévient la bonne équipe à l'arrivée sur la marche", () => {
-    expect(stageNotifyRoles("HR")).toContain("RH_MANAGER");
+    // CES NOMS DOIVENT EXISTER dans l'énumération `UserRole` : « RH_MANAGER » y figurait sans
+    // exister, Prisma refusait la requête entière et l'étape RH ne prévenait plus PERSONNE —
+    // pas même le Super Admin, pourtant bien listé. On teste donc la valeur exacte.
+    expect(stageNotifyRoles("HR")).toEqual(["DIRECTION", "GENERAL_MANAGER", "SUPER_ADMIN"]);
     expect(stageNotifyRoles("DG")).toContain("DIRECTION");
+    // La dernière marche appartient au sommet — le Directeur Général en fait partie.
+    expect(stageNotifyRoles("DG")).toContain("GENERAL_MANAGER");
     // MANAGER : c'est une personne nommée (le N+1 résolu), pas un rôle.
     expect(stageNotifyRoles("MANAGER")).toEqual([]);
     expect(stageNotifyRoles("DONE")).toEqual([]);

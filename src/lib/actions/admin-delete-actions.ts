@@ -171,6 +171,9 @@ export async function restoreDeletedRecord(formData: FormData): Promise<DeleteRe
 
   try {
     await deleteDelegateOf(spec).create({ data: rec.payload as Record<string, unknown> });
+    // Ce que la suppression avait compensé ailleurs (un solde de congés rendu, par exemple)
+    // se reprend ici : sans ce geste, restaurer donnerait à la fois l'objet et sa compensation.
+    await spec.restored?.(rec.sourceId);
     const docs = (rec.documents as Record<string, unknown>[] | null) ?? [];
     if (docs.length) await prisma.document.createMany({ data: docs as never[], skipDuplicates: true });
     const comments = (rec.comments as Record<string, unknown>[] | null) ?? [];

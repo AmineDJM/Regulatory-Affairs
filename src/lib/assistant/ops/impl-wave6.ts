@@ -738,12 +738,12 @@ export const DIRECTIVE_OPS_IMPL: Record<string, OpImpl> = {
           ["Échéance", isoDate(opStr(input, "date"))],
           ["Contenu", body],
         ]),
-        warnings: ["Émission réservée à la Direction — le destinataire est notifié immédiatement."],
+        warnings: ["Émission réservée à la Direction. La note part SEULEMENT après validation du Directeur Général (ou du Super Admin) — sauf s'il en est l'auteur, auquel cas elle part aussitôt."],
         args: {
           title, body, targetUserId, targetRole, priority: priority || null,
           dueDate: isoDate(opStr(input, "date")),
         },
-        successMessage: `Directive « ${title} » émise (${targetShown}).`,
+        successMessage: `Directive « ${title} » soumise (${targetShown}) — elle partira à la validation de la direction générale.`,
         revalidate: ["/directives", "/mon-travail"],
       };
     },

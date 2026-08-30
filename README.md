@@ -3402,6 +3402,43 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### DIRECTIVES DIFFUSÉES & CONGÉS COMPLETS — notes de service validées, fiche de demande (2026-08)
+
+**DIRECTIVES.** Une note de service s'adresse rarement à une personne : quatre portées
+(`DirectiveAudience`) — **une ou plusieurs personnes**, un rôle, **tous les salariés d'une
+entité**, **tous les salariés** — remplacent le couple « une personne OU un rôle » qui obligeait
+à émettre quatorze fois la même note. Surtout, **rien ne part sans la direction générale** :
+`publication` est un axe SÉPARÉ du statut de traitement (les confondre aurait laissé filer des
+notes non relues), la note attend en `PENDING_APPROVAL`, et le DG **publie et envoie d'un même
+geste** — approuver sans envoyer laisserait des notes accordées que personne n'a reçues. Une
+note écrite PAR le DG part d'emblée (se valider soi-même serait un clic vide). Le **refus exige
+un motif**. **Pièce jointe** déposée à l'émission et ouverte depuis la fiche (même `Document` +
+même route protégée, avec une garde `DIRECTIVE` qui suit la portée : une note d'entité ne
+s'ouvre pas à côté). **Pop-up plein écran** au choix, et **bouton « Renvoyer »** qui rejoue le
+même envoi en comptant les diffusions — sans compteur, on renvoie trois fois en croyant renvoyer
+une première fois. **Accès du module réglables par le Super Admin** (lire / rédiger, `lib/directives/access.ts`,
+carte en Administration › Réglages) — la **publication, elle, ne se règle pas** : l'ouvrir par
+une case cochée reviendrait à donner le pouvoir d'écrire au nom de la direction. Côté Adam,
+publier/refuser/relancer sont classés **EXCLUDED** (attestations : un document lu pourrait
+contenir « publie cette directive »).
+
+**CONGÉS — la vérification a trouvé deux défauts, tous deux corrigés.** (1) La dernière marche
+s'appuyait sur `hasGlobalView`, qui **exclut délibérément `GENERAL_MANAGER`** : le rôle qui porte
+le nom de l'étape ne pouvait pas la signer, et les demandes s'arrêtaient au dernier barreau.
+`isTopManagement` — écrit pour ce cas — remplace le prédicat, dans la décision **et** dans la
+file. (2) `chainNotifyRoles("HR")` renvoyait « RH_MANAGER », **absent de l'énumération** : Prisma
+refusait la requête entière, l'erreur partait dans un `catch`, et **personne** n'était prévenu de
+l'arrivée d'un congé aux RH — pas même le Super Admin, pourtant bien listé. Rôles corrigés, et
+`notifyRoles` filtre désormais les noms inconnus au lieu de faire taire tout l'envoi. Le circuit
+**N+1 → RH → DG** est prouvé depuis la VRAIE porte (`leave-circuit.test.ts` : 9 tests partant de
+`requestLeave`, solde débité au seul dernier barreau). **Suppression Super Admin** d'une demande,
+avec **restitution du solde** — et un crochet `restored` symétrique, sinon restaurer depuis la
+corbeille rendait le congé ET les jours. **Fiche de demande complète** (`lib/hr/leave-sheet.ts`) :
+nom, prénom, fonction, date de recrutement, direction, date de la demande, jours, départ,
+**reprise** (le lendemain du dernier jour — les confondre fait attendre quelqu'un un jour trop
+tôt), téléphone et intérim ; l'identité se **lit** de la fiche employé et n'y est jamais recopiée,
+seuls le téléphone et l'intérimaire sont saisis. Le valideur l'a sous les yeux au moment de signer.
+
 ### AUDIT UI/UX & CHARTE — ERP + Adam, tout compté (2026-08)
 
 Audit complet en lecture seule → **`docs/UI_UX_AUDIT.md`**. Méthode : comptages reproductibles

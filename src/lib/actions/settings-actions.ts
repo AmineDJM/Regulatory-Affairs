@@ -211,6 +211,44 @@ export async function setPipelineAccess(formData: FormData): Promise<ActionResul
   return { ok: true };
 }
 
+/**
+ * ACCÈS DU MODULE DIRECTIVES — qui LIT les notes de service, qui en RÉDIGE.
+ *
+ * Ce qui ne se règle PAS ici : la PUBLICATION. Elle appartient à la direction générale et au
+ * Super Admin, en dur (`lib/directives/audience.ts`). En faire un réglage reviendrait à
+ * permettre qu'une case cochée par mégarde donne le pouvoir d'écrire au nom de la direction —
+ * et une note lue ne se rattrape pas.
+ *
+ * **Super Admin uniquement.**
+ */
+export async function setDirectiveAccess(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  const readerRoles = [...new Set(formData.getAll("readerRoles").map(String).filter(Boolean))];
+  const readerUserIds = [...new Set(formData.getAll("readerUserIds").map(String).filter(Boolean))];
+  const issuerRoles = [...new Set(formData.getAll("issuerRoles").map(String).filter(Boolean))];
+  const issuerUserIds = [...new Set(formData.getAll("issuerUserIds").map(String).filter(Boolean))];
+  const data = {
+    directiveReaderRoles: readerRoles,
+    directiveReaderUserIds: readerUserIds,
+    directiveIssuerRoles: issuerRoles,
+    directiveIssuerUserIds: issuerUserIds,
+    updatedById: admin.id,
+  };
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", ...data },
+    update: data,
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: `Accès aux directives — lecture : ${readerRoles.length} rôle(s) / ${readerUserIds.length} personne(s) ; rédaction : ${issuerRoles.length} rôle(s) / ${issuerUserIds.length} personne(s)`,
+  });
+  revalidatePath("/admin");
+  revalidatePath("/directives");
+  return { ok: true };
+}
+
 /** Capacité globale du Drive + quota par utilisateur (Go). **Super Admin uniquement.** */
 export async function saveDriveStorageSettings(formData: FormData): Promise<ActionResult> {
   const admin = await requireUser();

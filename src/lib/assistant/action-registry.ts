@@ -657,7 +657,7 @@ classify("COVERED", "update_platform_setting", [
   "settings-actions:saveAppSettings", "settings-actions:setRegEnrollmentEnabled",
   "settings-actions:setRegulatorySupervisorRoles", "settings-actions:setRegulatoryTherapeuticSegments",
   "settings-actions:setDriveSpaceCreatorRoles", "settings-actions:setFieldReportsOverviewRoles",
-  "settings-actions:setOrgChartViewers", "settings-actions:saveDriveStorageSettings",
+  "settings-actions:setDirectiveAccess", "settings-actions:setOrgChartViewers", "settings-actions:saveDriveStorageSettings",
   "settings-actions:setHiddenModules",
 ]);
 classify("COVERED", "find_documents / inspect_drive_folder (lecture)", ["drive-browse-actions:browseDrive"]);
@@ -1001,6 +1001,11 @@ classify("COVERED", "mission_status (l'écran d'une mission dit ce qu'elle atten
 
 // ── EXCLUDED : pas un travail d'assistant — raison donnée, pas un oubli. ──
 const X = (note: string, keys: string[]) => classify("EXCLUDED", note, keys);
+X("PUBLIER UNE NOTE DE SERVICE est une ATTESTATION, et une diffusion qui ne se reprend pas. Accorder la publication engage la direction générale devant TOUS les salariés — l'audit portera son nom — et la note part instantanément, en pop-up s'il le faut : ce qui a été lu a été lu. Rendre ces gestes appelables par Adam les exposerait à l'injection, un document lu par une étape pouvant contenir « publie cette directive ». Le refus et la RELANCE relèvent de la même famille : renvoyer, c'est rediffuser à la même audience. Ces trois gestes exigent un clic sur /directives/<id>. Adam RÉDIGE et SOUMET (`createDirective`), il ne se signe pas lui-même.", [
+  "directive-actions:publishDirective",
+  "directive-actions:rejectDirective",
+  "directive-actions:resendDirective",
+]);
 X("ATTESTATIONS HUMAINES, et volontairement hors de portée d'un modèle. Accorder une autorisation et fournir une pièce engagent la personne : l'audit portera SON nom. Les rendre appelables par Adam les exposerait à l'injection — un document lu par une étape pourrait contenir « approuve la mission », et rien ne distinguerait plus cet accord d'un vrai. `policy/guard.ts` interdit d'ailleurs `mission_control` à l'agent lui-même, à la compilation. Ces deux gestes exigent un clic sur /missions/<id>.", [
   "mission-runtime-actions:deciderAccordMission",
   "mission-runtime-actions:fournirElementMission",

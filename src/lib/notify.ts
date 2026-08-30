@@ -1,3 +1,4 @@
+import { UserRole as UserRoleValues } from "@prisma/client";
 import type { NotificationType, UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { anyRoleFilter } from "@/lib/rbac";
@@ -76,8 +77,17 @@ export async function notifyRoles(
   input: Omit<NotifyInput, "userId">,
 ) {
   try {
+    // UN NOM DE RÔLE INVENTÉ NE DOIT PAS FAIRE TAIRE TOUT L'ENVOI. Prisma refuse la requête
+    // entière dès qu'une valeur n'appartient pas à l'énumération ; l'erreur atterrit dans le
+    // `catch` ci-dessous et plus personne n'est prévenu — y compris les rôles corrects de la
+    // même liste. C'est exactement ce qui a privé l'étape RH des congés de toute notification.
+    const connus = roles.filter((r) => r in UserRoleValues);
+    if (connus.length !== roles.length) {
+      console.error("[notify] rôle(s) inconnu(s) ignoré(s) :", roles.filter((r) => !(r in UserRoleValues)));
+    }
+    if (connus.length === 0) return;
     const users = await prisma.user.findMany({
-      where: { ...anyRoleFilter(roles), isActive: true },
+      where: { ...anyRoleFilter(connus), isActive: true },
       select: { id: true },
     });
     if (users.length === 0) return;

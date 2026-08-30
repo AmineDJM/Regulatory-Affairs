@@ -19,6 +19,7 @@ import { TaskList, type TaskItem } from "./task-list";
 import { MyLeaves } from "@/components/hr/my-leaves";
 import { LeaveApprovals } from "@/components/hr/leave-approvals";
 import { LeaveRequestButton } from "@/components/hr/leave-request-button";
+import { leaveFormContext } from "@/lib/hr/leave-form-context";
 import { MyAdvances, type AdvanceItem } from "./my-advances";
 import { MyPortfolioCard } from "@/components/planning/my-portfolio-card";
 import { getMyPortfolio } from "@/lib/queries/portfolio";
@@ -78,9 +79,11 @@ export default async function MonEspacePage() {
     .map((t) => ({ ...toItem(t), assignee: t.assignedTo?.name ?? null }));
   // Mes congés ET les congés que je dois trancher : le responsable d'équipe n'a pas le module
   // RH, sa file de validation ne peut donc vivre qu'ici.
-  const [myLeaves, leavesToDecide] = await Promise.all([
+  const [myLeaves, leavesToDecide, leaveForm] = await Promise.all([
     getMyLeaveRequests(user.id),
     getLeavesToDecide(user),
+    // La fiche de demande est pré-remplie depuis la fiche employé : rien à ressaisir.
+    leaveFormContext(user.id),
   ]);
   const myAdvances: AdvanceItem[] = data.myAdvances.map((a) => ({
     id: a.id, amount: Number(a.amount), reason: a.reason, status: a.status, createdAt: a.createdAt.toISOString(),
@@ -134,7 +137,7 @@ export default async function MonEspacePage() {
           action={createTask} fields={taskFields} />
         {data.employee && (
           <>
-            <LeaveRequestButton />
+            <LeaveRequestButton identity={leaveForm?.identity} colleagues={leaveForm?.colleagues ?? []} />
             <CreateRecordButton label="Demander une avance" title="Avance sur salaire" width="md"
               description="Soumise aux RH, puis réglée par la comptabilité." action={requestAdvance} fields={advanceFields} />
           </>

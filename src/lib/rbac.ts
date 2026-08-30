@@ -1022,11 +1022,37 @@ export function scopeDossiers(user: SessionUser): Prisma.DossierWhereInput {
 
 /** Directives : la Direction (scope ALL) voit tout ; un employé ne voit que les
  *  directives qui le ciblent nommément ou qui visent son rôle. */
-export function scopeDirectives(user: SessionUser): Prisma.DirectiveWhereInput {
+/**
+ * LES DIRECTIVES QU'UNE PERSONNE VOIT.
+ *
+ * Quatre portées (voir `lib/directives/audience.ts`) et une règle qui prime sur toutes :
+ * **une directive non publiée n'existe pour personne d'autre que son auteur**. Elle attend la
+ * signature de la direction générale ; la faire apparaître dans la liste de ses destinataires
+ * avant cet accord reviendrait à l'avoir diffusée.
+ *
+ * `companyIds` : les entités dont la personne relève (fiche employé). Non fourni — depuis un
+ * appelant qui ne les connaît pas — les notes d'entité ne remontent tout simplement pas, plutôt
+ * que de remonter celles d'une entité qui ne la regarde pas.
+ */
+export function scopeDirectives(user: SessionUser, companyIds: string[] = []): Prisma.DirectiveWhereInput {
   const m = user.access.modules.get("DIRECTIVES");
   if (!m) return { id: "__none__" };
   if (m.scope === "ALL") return {};
-  return { OR: [{ targetUserId: user.id }, { targetRole: user.role }] };
+  const destinataire: Prisma.DirectiveWhereInput[] = [
+    { audience: "ALL" },
+    { targetUserIds: { has: user.id } },
+    { targetRole: user.role },
+    ...(user.secondaryRole ? [{ targetRole: user.secondaryRole }] : []),
+    ...(companyIds.length ? [{ companyId: { in: companyIds } }] : []),
+    // Compat : les notes émises avant les portées multiples ne portent que `targetUserId`.
+    { targetUserId: user.id },
+  ];
+  return {
+    OR: [
+      { fromId: user.id }, // sa propre note, à tout état — sinon il la croirait perdue
+      { AND: [{ publication: "PUBLISHED" }, { OR: destinataire }] },
+    ],
+  };
 }
 
 /** Information médicale : le pharmacien (scope ALL) voit toutes les déclarations ;

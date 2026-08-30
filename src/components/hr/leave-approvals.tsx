@@ -24,6 +24,8 @@ export interface PendingLeave {
   stage: LeaveStage;
   previousNote?: string | null;
   previousStageLabel?: string | null;
+  /** La fiche complète (nom, fonction, recrutement, direction, téléphone, intérim, reprise). */
+  sheet?: { label: string; value: string }[];
 }
 
 const STAGE_SHORT: Record<LeaveStage, string> = {
@@ -61,7 +63,27 @@ function DecisionRow({ leave, canManage }: { leave: PendingLeave; canManage: boo
 
   return (
     <TableRow>
-      <TableCell label="Employé" className="font-medium">{leave.employee}</TableCell>
+      {/* LA FICHE SOUS LES YEUX AU MOMENT DE SIGNER. Repliée par défaut — la liste reste
+          lisible —, mais présente : la chercher ailleurs, c'était décrocher le téléphone à
+          chacune des trois marches. */}
+      <TableCell label="Employé" className="font-medium">
+        {leave.employee}
+        {leave.sheet && leave.sheet.length > 0 && (
+          <details className="mt-1 font-normal">
+            <summary className="cursor-pointer text-[0.6875rem] text-primary hover:underline">
+              Fiche de la demande
+            </summary>
+            <dl className="mt-1.5 space-y-0.5 rounded-md border border-border bg-secondary/40 p-2 text-[0.6875rem]">
+              {leave.sheet.map((l) => (
+                <div key={l.label} className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">{l.label}</dt>
+                  <dd className="text-right font-medium">{l.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+        )}
+      </TableCell>
       <TableCell label="Type">{LEAVE_TYPE[leave.type] ?? leave.type}</TableCell>
       <TableCell label="Période">{formatDate(leave.startDate)} → {formatDate(leave.endDate)}</TableCell>
       <TableCell label="Jours" className="text-right">{leave.days}</TableCell>

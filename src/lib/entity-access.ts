@@ -156,6 +156,39 @@ export async function canAccessEntity(
       || userCan(user, "FINANCES", "VALIDATE") || userCan(user, "FINANCES", "UPDATE");
   }
 
+  // DIRECTIVE : la pièce jointe EST souvent la note (un PDF signé, un formulaire). Elle suit
+  // donc exactement la note — même portée, même règle de publication. Le module seul ne suffit
+  // pas : presque tout le monde a « Directives », et une note adressée aux salariés d'une entité
+  // ne s'ouvre pas à ceux d'à côté.
+  if (entityType === "DIRECTIVE") {
+    if (hasGlobalView(user.role)) return true;
+    const d = await prisma.directive.findUnique({
+      where: { id: entityId },
+      select: {
+        audience: true, targetUserIds: true, targetUserId: true, targetRole: true,
+        companyId: true, publication: true, fromId: true,
+      },
+    });
+    if (!d) return false;
+    if (d.fromId === user.id) return true;
+    // Déposer une pièce reste l'affaire de l'émetteur et de la Direction : un destinataire
+    // répond dans le fil, il n'ajoute pas de document à la note de service.
+    if (action !== "VIEW") return userCan(user, "DIRECTIVES", "CREATE");
+    if (d.publication !== "PUBLISHED") return userCan(user, "DIRECTIVES", "CREATE");
+    const { isRecipient } = await import("@/lib/directives/audience");
+    const { companyIdsOf } = await import("@/lib/directives/recipients");
+    return isRecipient(
+      { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, companyIds: await companyIdsOf(user.id) },
+      {
+        audience: d.audience,
+        // Compat : les notes d'avant les portées multiples ne portent que `targetUserId`.
+        targetUserIds: d.targetUserIds.length ? d.targetUserIds : (d.targetUserId ? [d.targetUserId] : []),
+        targetRole: d.targetRole,
+        companyId: d.companyId,
+      },
+    );
+  }
+
   // Le DEMANDEUR d'une demande de sponsoring/congrès peut toujours consulter et
   // joindre des pièces à SA propre demande (devis, programme…), même si son rôle
   // n'a pas le droit UPLOAD du module.

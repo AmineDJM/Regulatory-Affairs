@@ -11,6 +11,7 @@ import { ModuleTabs } from "@/components/shared/module-tabs";
 import { formatDate, formatDateTime, formatMonth, formatCurrency } from "@/lib/utils";
 import { NewRequestButton, CancelRequestButton } from "./request-controls";
 import { LeaveRequestButton } from "@/components/hr/leave-request-button";
+import { leaveFormContext } from "@/lib/hr/leave-form-context";
 import { MyLeaves } from "@/components/hr/my-leaves";
 import { prisma } from "@/lib/prisma";
 import { MODULES } from "@/lib/rbac";
@@ -28,6 +29,9 @@ export default async function MonDossierPage() {
   const myLeaves = await getMyLeaveRequests(user.id);
   // Qui peut me remplacer, et sur quoi. Les collègues actifs (moi excepté — on ne se remplace
   // pas soi-même) et les modules réellement délégables, jamais les espaces personnels.
+  // La fiche de demande de congé, pré-remplie depuis la fiche employé (même contexte que
+  // « Mon espace » : un seul formulaire, un seul jeu d'informations).
+  const leaveForm = await leaveFormContext(user.id);
   const [colleagues, delegatable] = await Promise.all([
     prisma.user.findMany({
       where: { isActive: true, id: { not: user.id } },
@@ -53,7 +57,7 @@ export default async function MonDossierPage() {
   return (
     <div className="space-y-5">
       <PageHeader title="Mon dossier RH" description="Retrouvez vos documents RH et suivez vos demandes (attestations, congé, ordre de mission, note de frais…).">
-        <LeaveRequestButton />
+        <LeaveRequestButton identity={leaveForm?.identity} colleagues={colleagues} />
         <NewRequestButton />
       </PageHeader>
       <ModuleTabs tabs={dossierTabs} />

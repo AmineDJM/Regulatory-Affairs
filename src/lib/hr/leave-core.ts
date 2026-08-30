@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import type { LeaveType, UserRole, HrRequestType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { userCan, isTopManagement, type SessionUser } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { getAppSettings } from "@/lib/settings";
@@ -67,7 +67,13 @@ export function revalidateLeaveViews(employeeId?: string): void {
 export async function createLeaveRequest(
   actorId: string,
   employee: { id: string; fullName: string; userId: string | null },
-  input: { type: LeaveType; startDate: Date; endDate: Date; days: number; reason: string | null },
+  input: {
+    type: LeaveType; startDate: Date; endDate: Date; days: number; reason: string | null;
+    /** Où joindre la personne pendant son absence (fiche de demande). */
+    phone?: string | null;
+    /** Intérimaire désigné DÈS la demande — les RH le valideront comme d'habitude. */
+    standInId?: string | null;
+  },
 ): Promise<{ id: string; stage: "MANAGER" | "HR" }> {
   const manager = await getManagerOf(employee.id).catch(() => null);
   const managerUserId = manager?.userId ?? null;
@@ -81,9 +87,13 @@ export async function createLeaveRequest(
       endDate: input.endDate,
       days: input.days,
       reason: input.reason,
+      phone: input.phone ?? null,
       createdById: actorId,
       stage,
       managerId: manager?.employeeId ?? null,
+      // L'intérimaire désigné à la demande entre en attente de validation RH — le même état
+      // que s'il avait été désigné après coup : une seule règle, un seul écran de décision.
+      ...(input.standInId ? { standInId: input.standInId, standInStatus: "PENDING" as const } : {}),
     },
   });
 
@@ -144,8 +154,17 @@ export async function leaveDecider(
   user: SessionUser,
   leave: { managerId: string | null; employeeId: string },
 ): Promise<LeaveDecider> {
-  // Vue globale = Direction / Super Admin, rôle principal OU secondaire.
-  const isDg = hasGlobalView(user);
+  /**
+   * LA DERNIÈRE MARCHE EST CELLE DE LA DIRECTION GÉNÉRALE — et le Directeur Général en fait
+   * partie. Elle s'appuyait sur `hasGlobalView`, qui EXCLUT délibérément `GENERAL_MANAGER`
+   * (il ne supervise pas les validations de tout le monde, il ne lit pas les Drive privés) :
+   * le rôle qui porte le nom de l'étape ne pouvait donc pas la signer, et tous les congés
+   * s'arrêtaient au dernier barreau en attendant la Direction ou le Super Admin.
+   *
+   * `isTopManagement` est le prédicat écrit pour exactement ce cas : le sommet qui tranche en
+   * dernier ressort, DG compris. Rôle principal OU secondaire, comme partout ailleurs.
+   */
+  const isDg = isTopManagement(user);
   const isHr = userCan(user, "RH", "VALIDATE");
 
   let isManager = false;

@@ -46,6 +46,12 @@ export interface AppSettings {
   /** PIPELINE — qui tient le CADENAS (ouvrir un dossier = le publier à toute l'entreprise). */
   pipelineManagerRoles: string[];
   pipelineManagerUserIds: string[];
+  /** DIRECTIVES — qui LIT les notes de service, et qui en RÉDIGE. Voir `lib/directives/access.ts`.
+   *  La PUBLICATION, elle, ne se règle pas : elle appartient à la direction générale. */
+  directiveReaderRoles: string[];
+  directiveReaderUserIds: string[];
+  directiveIssuerRoles: string[];
+  directiveIssuerUserIds: string[];
   /** Modules RETIRÉS de la plateforme (menu ET adresse). Voir `lib/modules-visibility.ts`. */
   hiddenModules: string[];
 }
@@ -73,6 +79,11 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   pipelineViewerUserIds: [],
   pipelineManagerRoles: [],
   pipelineManagerUserIds: [],
+  // Listes VIDES : par défaut, les directives restent distribuées par la seule matrice de rôles.
+  directiveReaderRoles: [],
+  directiveReaderUserIds: [],
+  directiveIssuerRoles: [],
+  directiveIssuerUserIds: [],
   regEnrollmentRoles: [],
   hiddenModules: [],
 };
@@ -100,6 +111,10 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       pipelineViewerUserIds: row.pipelineViewerUserIds ?? [],
       pipelineManagerRoles: row.pipelineManagerRoles ?? [],
       pipelineManagerUserIds: row.pipelineManagerUserIds ?? [],
+      directiveReaderRoles: row.directiveReaderRoles ?? [],
+      directiveReaderUserIds: row.directiveReaderUserIds ?? [],
+      directiveIssuerRoles: row.directiveIssuerRoles ?? [],
+      directiveIssuerUserIds: row.directiveIssuerUserIds ?? [],
       regEnrollmentRoles: row.regEnrollmentRoles ?? [],
       hiddenModules: row.hiddenModules ?? [],
     };

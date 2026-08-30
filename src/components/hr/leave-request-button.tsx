@@ -16,7 +16,27 @@ import { requestLeave } from "@/lib/actions/hr-actions";
  * au même endroit : selon la porte empruntée, la demande apparaissait ici mais pas là. Un seul
  * composant, une seule action serveur, une seule demande — et elle se voit des deux côtés.
  */
-export function LeaveRequestButton({ label = "Demander un congé" }: { label?: string }) {
+export interface LeaveIdentity {
+  /** Nom complet, fonction, direction et date de recrutement — LUS de la fiche employé. */
+  nom: string;
+  prenom: string;
+  position: string | null;
+  department: string | null;
+  hireDate: string | null;
+  phone: string | null;
+}
+
+export function LeaveRequestButton({
+  label = "Demander un congé",
+  identity,
+  colleagues = [],
+}: {
+  label?: string;
+  /** L'identité pré-remplie affichée en tête de la demande (rien à ressaisir). */
+  identity?: LeaveIdentity;
+  /** Les personnes pouvant tenir la place pendant l'absence. */
+  colleagues?: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -24,6 +44,15 @@ export function LeaveRequestButton({ label = "Demander un congé" }: { label?: s
   const [type, setType] = React.useState("ANNUAL");
   const [start, setStart] = React.useState("");
   const [end, setEnd] = React.useState("");
+  const [phone, setPhone] = React.useState(identity?.phone ?? "");
+
+  // La DATE DE REPRISE est le lendemain du dernier jour — l'afficher évite qu'on attende
+  // quelqu'un un jour trop tôt (cf. `lib/hr/leave-sheet.ts`).
+  const reprise = React.useMemo(() => {
+    if (!end) return null;
+    const d = new Date(new Date(end).getTime() + 86_400_000);
+    return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("fr-FR");
+  }, [end]);
 
   const days = React.useMemo(() => {
     if (!start || !end) return 0;
@@ -54,6 +83,22 @@ export function LeaveRequestButton({ label = "Demander un congé" }: { label?: s
         width="md"
       >
         <form action={onSubmit} className="space-y-4">
+          {/* L'IDENTITÉ EST LUE, PAS RESSAISIE — elle vient de la fiche employé, qui fait foi.
+              La recopier dans la demande en ferait une seconde vérité qui vieillirait mal. */}
+          {identity && (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-lg border border-border bg-secondary/40 p-3 text-xs">
+              <p><span className="text-muted-foreground">Nom :</span> <strong>{identity.nom || "—"}</strong></p>
+              <p><span className="text-muted-foreground">Prénom :</span> <strong>{identity.prenom || "—"}</strong></p>
+              <p><span className="text-muted-foreground">Fonction :</span> <strong>{identity.position ?? "—"}</strong></p>
+              <p><span className="text-muted-foreground">Date de recrutement :</span> <strong>{identity.hireDate ?? "—"}</strong></p>
+              <p className="col-span-2"><span className="text-muted-foreground">Direction :</span> <strong>{identity.department ?? "—"}</strong></p>
+              <p className="col-span-2 text-muted-foreground">
+                Ces informations viennent de votre fiche employé et accompagnent la demande.
+                Une erreur ? Les RH la corrigent à la source.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label>Type <span className="text-destructive">*</span></Label>
             <Select name="type" value={type} onChange={(e) => setType(e.target.value)}>
@@ -78,6 +123,7 @@ export function LeaveRequestButton({ label = "Demander un congé" }: { label?: s
             {days > 0 && (
               <p className="text-xs text-muted-foreground">
                 Durée : <strong>{days} jour(s)</strong>
+                {reprise && <> · reprise le <strong>{reprise}</strong></>}
                 {type === "ANNUAL"
                   ? " — déduits de votre solde une fois le circuit terminé."
                   : type === "UNPAID"
@@ -87,6 +133,30 @@ export function LeaveRequestButton({ label = "Demander un congé" }: { label?: s
             )}
             <input type="hidden" name="days" value={days || ""} />
           </div>
+
+          {/* OÙ VOUS JOINDRE, ET QUI TIENT LA PLACE — les deux questions que la direction pose
+              systématiquement, et qui manquaient à l'écran. */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>N° de téléphone</Label>
+              <Input
+                name="phone" value={phone} onChange={(e) => setPhone(e.target.value)}
+                inputMode="tel" placeholder="Où vous joindre pendant l'absence"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Intérim choisi</Label>
+              <Select name="standInId" defaultValue="">
+                <option value="">— aucun —</option>
+                {colleagues.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </Select>
+            </div>
+          </div>
+          {colleagues.length > 0 && (
+            <p className="-mt-2 text-xs text-muted-foreground">
+              L&apos;intérimaire que vous désignez est soumis à la validation des RH.
+            </p>
+          )}
 
           {type === "SICK" && (
             <p className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">

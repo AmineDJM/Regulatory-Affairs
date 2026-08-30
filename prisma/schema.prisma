@@ -1188,6 +1188,7 @@ model User {
   // Directives (Direction → équipes)
   directivesReceived Directive[]        @relation("DirectiveTarget")
   directivesAuthored Directive[]        @relation("DirectiveAuthor")
+  directivesApproved Directive[]        @relation("DirectiveApprover")
   directiveMessages  DirectiveMessage[] @relation("DirectiveMsgAuthor")
 
   // Demandes de support (→ directeur médical / chef de produit)
@@ -1467,6 +1468,7 @@ model Company {
   companyContacts         CompanyContact[]
   DirectoryEntry          DirectoryEntry[]
   products                Product[]
+  directives              Directive[]
 
   @@index([isActive])
 }
@@ -3015,6 +3017,24 @@ enum DirectiveStatus {
   ARCHIVED // archivée par la Direction
 }
 
+/// À QUI une directive s'adresse. Quatre portées qui ne se recouvrent pas : on choisit l'une.
+enum DirectiveAudience {
+  USERS // une ou plusieurs personnes nommées
+  ROLE // tous les porteurs d'un rôle
+  COMPANY // tous les salariés d'une entité du groupe
+  ALL // tous les salariés
+}
+
+/// L'ÉTAT DE PUBLICATION — distinct du `status` (qui décrit le TRAITEMENT par le destinataire).
+/// Une directive peut être « traitée » (status) et n'avoir jamais été publiée : les deux axes
+/// répondent à deux questions différentes, et les confondre ferait partir des notes non validées.
+enum DirectivePublication {
+  DRAFT // brouillon de l'émetteur — n'a encore rien demandé
+  PENDING_APPROVAL // soumise : attend le directeur général ou le Super Admin
+  PUBLISHED // accordée et diffusée
+  REJECTED // refusée par le valideur, avec son motif
+}
+
 model Directive {
   id               String             @id @default(cuid())
   reference        String             @unique // DIR-AAAA-NNN
@@ -3023,12 +3043,45 @@ model Directive {
   priority         Priority           @default(MEDIUM)
   status           DirectiveStatus    @default(OPEN)
   dueDate          DateTime?
-  // Destinataire : un utilisateur précis OU un rôle (diffusion). Au moins l'un des deux.
+  /// ─── À QUI ELLE S'ADRESSE ───
+  ///
+  /// Quatre portées, et une seule fait foi : `audience`. Une note de service ne s'adresse pas
+  /// toujours à une personne — elle s'adresse souvent à TOUT LE MONDE, ou à toute une entité.
+  audience         DirectiveAudience  @default(USERS)
+  /// Les personnes nommées (audience USERS) — la SOURCE DE VÉRITÉ, même à un seul destinataire.
+  targetUserIds    String[]           @default([])
+  /// CACHE dénormalisé de `targetUserIds[0]`, tenu à jour à chaque écriture : il porte la
+  /// relation (donc le nom affiché) et l'index historique. La source de vérité reste le tableau.
   targetUserId     String?
   targetUser       User?              @relation("DirectiveTarget", fields: [targetUserId], references: [id])
   targetRole       UserRole?
+  /// Entité destinataire (audience COMPANY) : tous les salariés qui en relèvent.
+  companyId        String?
+  company          Company?           @relation(fields: [companyId], references: [id])
   fromId           String? // émetteur (Direction)
   from             User?              @relation("DirectiveAuthor", fields: [fromId], references: [id])
+
+  /// ─── PUBLICATION : rien ne part sans l'accord de la direction générale ───
+  ///
+  /// Une note de service engage l'entreprise devant tous ses salariés. L'émetteur PROPOSE ;
+  /// le directeur général (ou le Super Admin) PUBLIE. Tant que la publication n'est pas
+  /// prononcée, la directive n'existe pour personne d'autre que son auteur et les valideurs :
+  /// aucune notification, aucune pop-up, aucune ligne dans la liste des destinataires.
+  publication      DirectivePublication @default(PENDING_APPROVAL)
+  submittedAt      DateTime?
+  approvedById     String?
+  approvedBy       User?              @relation("DirectiveApprover", fields: [approvedById], references: [id])
+  approvedAt       DateTime?
+  publishedAt      DateTime?
+  decisionNote     String?
+  /// Diffusion en POP-UP plein écran (et non la seule cloche) : réservé à ce qui doit être lu
+  /// tout de suite. Le choix est fait à l'émission et rejoué à l'identique en cas de relance.
+  popup            Boolean            @default(false)
+  /// RELANCE — combien de fois la directive a été envoyée, et quand pour la dernière fois.
+  /// Une note non lue se renvoie ; le compteur évite de croire qu'on l'a envoyée une seule fois.
+  sendCount        Int                @default(0)
+  lastSentAt       DateTime?
+
   acknowledgedAt   DateTime?
   acknowledgedById String?
   messages         DirectiveMessage[]
@@ -3039,6 +3092,8 @@ model Directive {
   @@index([targetUserId])
   @@index([targetRole])
   @@index([priority])
+  @@index([publication])
+  @@index([companyId])
 }
 
 model DirectiveMessage {
@@ -4354,6 +4409,12 @@ model LeaveRequest {
   decidedBy    User?       @relation("LeaveDecider", fields: [decidedById], references: [id])
   decidedAt    DateTime?
   decisionNote String?
+
+  /// Le numéro où JOINDRE la personne pendant son absence. Pré-rempli depuis la fiche employé,
+  /// mais modifiable à la demande : on part rarement en congé avec son téléphone de bureau.
+  /// Tout le reste de la fiche (nom, fonction, date de recrutement, direction) se LIT de
+  /// l'employé — le recopier ici en ferait une seconde vérité qui vieillirait mal.
+  phone        String?
 
   /// ─── Circuit à trois marches : N+1 → RH → DG ───
   stage              LeaveStage @default(MANAGER)
@@ -6146,6 +6207,15 @@ model AppSetting {
   pipelineViewerUserIds         String[] @default([])
   pipelineManagerRoles          String[] @default([])
   pipelineManagerUserIds        String[] @default([])
+  /// DIRECTIVES (notes de service) — deux droits distincts, réglés en Administration.
+  /// LIRE : recevoir et consulter les directives publiées qui vous concernent. ÉMETTRE :
+  /// rédiger une note et la soumettre à la direction générale. Le Super Admin et le Directeur
+  /// Général détiennent toujours les deux — ce sont eux qui publient.
+  /// Voir `lib/directives/access.ts`.
+  directiveReaderRoles          String[] @default([])
+  directiveReaderUserIds        String[] @default([])
+  directiveIssuerRoles          String[] @default([])
+  directiveIssuerUserIds        String[] @default([])
   // Clés VAPID (Web Push) auto-générées et persistées si non fournies par l'environnement.
   // La clé privée reste côté serveur ; la publique est servie via /api/push/key.
   vapidPublicKey                String?
