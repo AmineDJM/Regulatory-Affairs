@@ -10,7 +10,7 @@ import { recordAudit } from "@/lib/audit";
 import { persistUploadedDocument } from "@/lib/documents";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 
-const TENDER_STATUSES: PchTenderStatus[] = ["NOT_STARTED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
+const TENDER_STATUSES: PchTenderStatus[] = ["NOT_STARTED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "SUSPENDED", "LOST"];
 const ORDER_STATUSES: PchOrderStatus[] = ["PENDING", "VALIDATED", "DELIVERED", "PAID", "CANCELLED"];
 const int = (formData: FormData, key: string) => Math.max(0, Math.round(fdNum(formData, key) ?? 0));
 
@@ -43,6 +43,11 @@ export async function createTender(
       value: fdNum(formData, "value"),
       client: fdStr(formData, "client") ?? "PCH",
       status: (statusRaw && TENDER_STATUSES.includes(statusRaw as PchTenderStatus) ? statusRaw : "NOT_STARTED") as PchTenderStatus,
+      internalReference: fdStr(formData, "internalReference"),
+      publishedAt: fdDate(formData, "publishedAt"),
+      submissionDeadline: fdDate(formData, "submissionDeadline"),
+      responsibleId: fdStr(formData, "responsibleId"),
+      businessUnitId: fdStr(formData, "businessUnitId"),
       awardDate: fdDate(formData, "awardDate"),
       cautionAmount: fdNum(formData, "cautionAmount"),
       cautionDeposited: fdBool(formData, "cautionDeposited"),
@@ -87,6 +92,11 @@ export async function updateTender(formData: FormData): Promise<ActionResult> {
       value: fdNum(formData, "value"),
       client: fdStr(formData, "client") ?? "PCH",
       status: (statusRaw && TENDER_STATUSES.includes(statusRaw as PchTenderStatus) ? (statusRaw as PchTenderStatus) : undefined),
+      internalReference: fdStr(formData, "internalReference"),
+      publishedAt: fdDate(formData, "publishedAt"),
+      submissionDeadline: fdDate(formData, "submissionDeadline"),
+      responsibleId: fdStr(formData, "responsibleId"),
+      businessUnitId: fdStr(formData, "businessUnitId"),
       awardDate: fdDate(formData, "awardDate"),
       cautionAmount: fdNum(formData, "cautionAmount"),
       cautionDeposited: fdBool(formData, "cautionDeposited"),
@@ -124,9 +134,19 @@ export async function createOrder(formData: FormData): Promise<ActionResult> {
   if (!tender) return { ok: false, error: "Appel d'offres introuvable." };
   const statusRaw = fdStr(formData, "status");
 
+  // Le CONTRAT du bon, quand il est connu : c'est lui qui ouvre le contrôle du restant
+  // contractuel sur les lignes. Vérifié : il doit appartenir au même marché.
+  const contractId = fdStr(formData, "contractId");
+  if (contractId) {
+    const contract = await prisma.legalDocument.findUnique({ where: { id: contractId }, select: { tenderId: true } });
+    if (!contract) return { ok: false, error: "Contrat introuvable." };
+    if (contract.tenderId !== tenderId) return { ok: false, error: "Ce contrat appartient à un autre marché." };
+  }
+
   await prisma.pchOrder.create({
     data: {
       tenderId,
+      contractId,
       reference: fdStr(formData, "reference"),
       products: fdStr(formData, "products"),
       quantity: int(formData, "quantity"),
