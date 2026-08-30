@@ -3402,6 +3402,24 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### AUDIT UI/UX & CHARTE — ERP + Adam, tout compté (2026-08)
+
+Audit complet en lecture seule → **`docs/UI_UX_AUDIT.md`**. Méthode : comptages reproductibles
+sur le code + contrastes WCAG **calculés** sur les HSL exacts des deux chartes. **Ce qui tient** :
+labels.ts (352 tons → 6 tons sémantiques, 248 `<Badge>`), blocks/godmode.css (329 jetons, 4 hex),
+lucide seul (428 fichiers), kit partagé adopté (PageHeader 122, .surface 110, EmptyState 73),
+chief/ n'importe **zéro** composant ui/, **161/161 pages gardées** (menu = droits côté serveur,
+40 modules × 19 rôles). **Les écarts, en chiffres** : 124 hex + 342 palettes brutes dans 52
+fichiers (4 fichiers en portent 69 ; amber ×137 là où `--warning` existe) ; contrastes AA en
+échec — `warning` 2,64:1 sur badge, `success` 3,60, blanc/`primary` 4,15, trio `.ik-mail`
+2,40–3,03, slate-400 en dur 2,56 ×26 ; **mode sombre fantôme** (33 classes `dark:` sans aucun
+bloc `.dark`, `theme-color` sombre autour d'une app claire) ; typo hors échelle (11 px ×265
+jamais tokenisé, 9 px ×13) ; `focus-visible` sur 4 fichiers, `aria-live` **0**, 595 `<button>`
+bruts ; `artifact.css` à 32 hex contre 8 jetons ; utilitaires morts (`.badge-soft` 0 usage) ;
+garde d'accès = discipline par page **sans test-balai**. Le rapport fixe la charte cible (8
+décisions) et un plan **U1→U8** dont trois lots ≤ 10 fichiers ferment le plus grave, et U4
+(palette brute) reçoit un cliquet chiffré comme la dette de frontière.
+
 ### ADAM EN CONVERSATION RÉELLE — huit défauts mesurés, fermés en natif (2026-08)
 
 Une conversation réelle du PDG a montré huit défauts nommables ; chacun a son correctif de CODE
