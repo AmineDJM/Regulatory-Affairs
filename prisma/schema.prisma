@@ -5277,6 +5277,9 @@ model PchTender {
   /// LE RESPONSABLE INTERNE du dossier — celui qu'on appelle quand l'échéance approche.
   responsibleId      String?
   responsible        User?           @relation("PchTenderResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
+  /// Dernier rappel d'ÉCHÉANCE DE DÉPÔT envoyé (balayage quotidien) — le verrou anti-spam :
+  /// on prévient à l'ENTRÉE dans une zone (J-7, J-2, dépassement), jamais tous les jours.
+  deadlineRemindedAt DateTime?
   /// La Business Unit concernée, quand il y en a une (marché mono-gamme).
   businessUnitId     String?
   businessUnit       BusinessUnit?   @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)

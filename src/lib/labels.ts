@@ -358,6 +358,17 @@ export const PCH_MARKET_NIVEAU: Record<string, Display> = {
   SUSPENDU: { label: "Suspendu", tone: "warning" },
 };
 
+/** Le RÉSULTAT d'un lot d'appel d'offres (§14) — cinq issues, plus les états de préparation. */
+export const PCH_LINE_STATUS: Record<string, Display> = {
+  PENDING: { label: "À étudier", tone: "neutral" },
+  QUOTED: { label: "Chiffré", tone: "info" },
+  SUBMITTED: { label: "Soumissionné", tone: "info" },
+  WON: { label: "Gagné", tone: "success" },
+  LOST: { label: "Perdu", tone: "danger" },
+  UNSUCCESSFUL: { label: "Infructueux", tone: "warning" },
+  CANCELLED: { label: "Lot annulé", tone: "neutral" },
+};
+
 export const PCH_ORDER_STATUS: Record<string, Display> = {
   PENDING: { label: "En attente", tone: "warning" },
   VALIDATED: { label: "Validé", tone: "info" },

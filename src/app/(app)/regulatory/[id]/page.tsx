@@ -40,6 +40,8 @@ import { DossierUploadButton } from "./upload-button";
 import { type TimelineStepView } from "./dossier-timeline";
 import { orderSteps, type DossierStepKind } from "@/lib/regulatory/dossier-timeline";
 import { getMyCompanies } from "@/lib/company";
+import { loadProductMarkets } from "@/lib/queries/market-360";
+import { ProductMarkets } from "./product-markets";
 
 const REG_DOC_CATEGORIES = [
   "CTD_FULL", "MODULE_1", "MODULE_2", "MODULE_3", "MODULE_4", "MODULE_5",
@@ -105,6 +107,10 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
     // L'entité du dossier est modifiable : elle détermine qui le voit.
     getMyCompanies(user.id),
   ]);
+
+  // LES MARCHÉS DU PRODUIT (§30) : la vue inverse de la fiche marché, servie par la MÊME
+  // requête que /pch/[id]. Rien à montrer tant que le produit canonique n'a croisé aucun AO.
+  const marches = product.productId ? await loadProductMarkets(product.productId) : [];
 
   const supplierViewValues = {
     supplierId: product.supplierId ?? "",
@@ -381,6 +387,8 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
               )}
             </CardContent>
           </Card>
+
+          {marches.length > 0 && <ProductMarkets rows={marches} />}
 
           <Card>
             <CardHeader>

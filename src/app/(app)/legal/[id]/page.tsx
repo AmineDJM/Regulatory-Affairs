@@ -23,6 +23,8 @@ import { EditLegalButton } from "./edit-legal";
 import { RecordDeleteButton } from "@/components/shared/record-delete-button";
 import { legalReaderWhere, readersCaption } from "@/lib/legal/readers";
 import { loadLegalChain } from "@/lib/queries/legal-chain";
+import { valeurContractuelleCourante } from "@/lib/pch/market-math";
+import { MarketContext } from "./market-context";
 import { LegalChainCard } from "./chain-card";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +61,13 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     include: {
       driveNode: { select: { id: true, name: true } },
       renewedFrom: { select: { id: true, title: true } },
+      // Le CONTEXTE MARCHÉ : marché d'origine, contrat amendé, avenants portés.
+      tender: { select: { id: true, reference: true, title: true } },
+      amends: { select: { id: true, title: true } },
+      amendments: {
+        select: { id: true, title: true, amountDelta: true, effectiveAt: true, signedAt: true, status: true },
+        orderBy: { createdAt: "asc" },
+      },
       renewals: { select: { id: true, title: true, endDate: true }, orderBy: { createdAt: "desc" } },
       createdBy: { select: { name: true } },
       company: { select: { name: true, shortName: true } },
@@ -120,6 +129,29 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     value: r.id,
     label: `${LEGAL_DOC_KIND[r.kind] ?? r.kind} — ${r.reference ? `${r.reference} · ` : ""}${r.title}`,
   }));
+
+  // La valeur COURANTE d'un contrat amendé — calculée, jamais stockée (§17-18).
+  const montantInitial = doc.amount !== null ? toNumber(doc.amount) : null;
+  const marketCtx = {
+    kind: String(doc.kind),
+    tender: doc.tender,
+    amends: doc.amends,
+    amendments: doc.amendments.map((a) => ({
+      id: a.id, title: a.title,
+      amountDelta: a.amountDelta !== null ? toNumber(a.amountDelta) : null,
+      effectiveAt: a.effectiveAt, signedAt: a.signedAt, status: String(a.status),
+    })),
+    montantInitial,
+    valeurCourante: valeurContractuelleCourante(
+      montantInitial,
+      doc.amendments.map((a) => ({
+        amountDelta: a.amountDelta !== null ? toNumber(a.amountDelta) : null,
+        status: String(a.status), effectiveAt: a.effectiveAt,
+      })),
+    ),
+    amountDelta: doc.amountDelta !== null ? toNumber(doc.amountDelta) : null,
+    effectiveAt: doc.effectiveAt,
+  };
 
   const fields = legalFields({
     title: doc.title,
@@ -236,6 +268,10 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
               </div>
             </CardContent>
           </Card>
+
+          {/* LE CONTEXTE MARCHÉ : marché d'origine, valeur courante calculée, avenants —
+              le même objet que la fiche /pch, vu du côté juridique. */}
+          <MarketContext ctx={marketCtx} />
 
           {/* LA CHAÎNE D'ACHAT : devis → BC → facture → règlement, avec les validateurs et les
               délais de chaque maillon. Elle ne s'affiche que si la pièce en fait partie. */}

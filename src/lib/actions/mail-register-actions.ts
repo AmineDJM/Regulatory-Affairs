@@ -131,6 +131,98 @@ export async function setMailDate(input: {
   return r;
 }
 
+/**
+ * « RELIER À… » MULTIPLE (§25) — un pli concerne souvent PLUSIEURS affaires à la fois : le
+ * marché, son contrat, le dossier Regulatory du produit. `sourceType`/`sourceId` gardent le
+ * rattachement de NAISSANCE (d'où le pli a été créé) ; les liens `MailEntryLink` s'ajoutent et
+ * se retirent librement ensuite. Le libellé est photographié au moment du lien : la liste des
+ * courriers d'un marché s'affiche sans re-résoudre chaque cible.
+ */
+const MAIL_LINKABLE: Partial<Record<EntityType, string>> = {
+  PCH_TENDER: "Marché PCH",
+  PCH_ORDER: "Bon de commande PCH",
+  LEGAL_DOCUMENT: "Document légal",
+  REGULATORY_PRODUCT: "Dossier Regulatory",
+};
+
+/** Le libellé PHOTOGRAPHIÉ de la cible — résolu ici, jamais confié au formulaire. */
+async function mailLinkLabel(entityType: EntityType, entityId: string): Promise<string | null> {
+  switch (entityType) {
+    case "PCH_TENDER": {
+      const t = await prisma.pchTender.findUnique({ where: { id: entityId }, select: { reference: true, title: true } });
+      return t ? `${t.reference}${t.title ? ` — ${t.title}` : ""}` : null;
+    }
+    case "PCH_ORDER": {
+      const o = await prisma.pchOrder.findUnique({ where: { id: entityId }, select: { reference: true, tender: { select: { reference: true } } } });
+      return o ? `BC ${o.reference ?? "s/n"} — ${o.tender.reference}` : null;
+    }
+    case "LEGAL_DOCUMENT": {
+      const d = await prisma.legalDocument.findUnique({ where: { id: entityId }, select: { title: true, reference: true } });
+      return d ? `${d.reference ? `${d.reference} — ` : ""}${d.title}` : null;
+    }
+    case "REGULATORY_PRODUCT": {
+      const r = await prisma.regulatoryProduct.findUnique({ where: { id: entityId }, select: { reference: true, dci: true } });
+      return r ? `${r.reference} — ${r.dci}` : null;
+    }
+    default:
+      return null;
+  }
+}
+
+export async function addMailLink(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MAIL_REGISTER", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const entryId = fdStr(formData, "entryId");
+  const entityTypeRaw = fdStr(formData, "entityType");
+  const entityId = fdStr(formData, "entityId");
+  if (!entryId || !entityTypeRaw || !entityId) return { ok: false, error: "Cible manquante." };
+  if (!(entityTypeRaw in MAIL_LINKABLE)) return { ok: false, error: "Ce type d'objet ne se relie pas à un courrier." };
+  const entityType = entityTypeRaw as EntityType;
+
+  const entry = await prisma.mailEntry.findUnique({ where: { id: entryId }, select: { id: true, title: true } });
+  if (!entry) return { ok: false, error: "Courrier introuvable." };
+  // La cible se vérifie avec les DROITS DU LIEUR : relier un pli à un dossier qu'on ne peut
+  // pas voir servirait à en deviner l'existence.
+  if (!(await canAccessEntity(user, entityType, entityId, "VIEW"))) {
+    return { ok: false, error: "Vous n'avez pas accès à cet objet." };
+  }
+  const label = await mailLinkLabel(entityType, entityId);
+  if (!label) return { ok: false, error: "Objet introuvable." };
+
+  await prisma.mailEntryLink.upsert({
+    where: { entryId_entityType_entityId: { entryId, entityType, entityId } },
+    update: { label },
+    create: { entryId, entityType, entityId, label, createdById: user.id },
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "MAIL_REGISTER", entityType: "MAIL_ENTRY", entityId: entryId,
+    summary: `Courrier « ${entry.title} » relié à ${MAIL_LINKABLE[entityType]} « ${label} »`,
+  });
+  revalidatePath(`/courriers/${entryId}`);
+  if (entityType === "PCH_TENDER") revalidatePath(`/pch/${entityId}`);
+  return { ok: true };
+}
+
+export async function removeMailLink(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MAIL_REGISTER", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const link = await prisma.mailEntryLink.findUnique({
+    where: { id }, select: { id: true, entryId: true, entityType: true, entityId: true, label: true, entry: { select: { title: true } } },
+  });
+  if (!link) return { ok: false, error: "Lien introuvable." };
+
+  await prisma.mailEntryLink.delete({ where: { id } });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "MAIL_REGISTER", entityType: "MAIL_ENTRY", entityId: link.entryId,
+    summary: `Lien retiré du courrier « ${link.entry.title} » : ${link.label ?? link.entityId}`,
+  });
+  revalidatePath(`/courriers/${link.entryId}`);
+  if (link.entityType === "PCH_TENDER") revalidatePath(`/pch/${link.entityId}`);
+  return { ok: true };
+}
+
 export async function deleteMailEntry(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "MAIL_REGISTER", "DELETE")) return { ok: false, error: "Non autorisé." };

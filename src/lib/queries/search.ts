@@ -5,6 +5,7 @@ import {
   scopeAdminRequests, scopeCongressIntl, scopeCongressNational,
 } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { legalReaderWhere } from "@/lib/legal/readers";
 
 export interface SearchResult {
   id: string;
@@ -41,6 +42,7 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
   const [
     regulatory, dossiers, sponsoring, finances, employees, sales, logistics, doctors, bd, drive, documents, tasks,
     adminReqs, congressIntl, congressNat, events, directives, conversations, messages,
+    tenders, pchOrders, legalDocs, mailEntries,
   ] = await Promise.all([
     userCan(user, "REGULATORY", "VIEW")
       ? prisma.regulatoryProduct.findMany({ where: { AND: [scopeRegulatory(user), ...(match(["dci", "reference", "brandName"]) as Prisma.RegulatoryProductWhereInput[])] }, take, select: { id: true, dci: true, reference: true, brandName: true } })
@@ -101,6 +103,34 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
     canMessaging
       ? prisma.message.findMany({ where: { AND: [{ deletedAt: null }, { conversation: { members: { some: { userId: user.id } } } }, ...(match(["body"]) as Prisma.MessageWhereInput[])] }, take, orderBy: { createdAt: "desc" }, select: { id: true, body: true, conversationId: true, conversation: { select: { title: true } } } })
       : [],
+    // MARCHÉS PCH (§44) : un AO se retrouve par sa référence (externe OU interne), son intitulé,
+    // ses produits ou son organisme — le point d'entrée de toute la chaîne marché.
+    userCan(user, "PCH", "VIEW")
+      ? prisma.pchTender.findMany({ where: { AND: match(["reference", "internalReference", "title", "products", "client"]) as Prisma.PchTenderWhereInput[] }, take, select: { id: true, reference: true, title: true, client: true } })
+      : [],
+    // Les BONS DE COMMANDE mènent à la fiche de LEUR marché — pas d'écran BC isolé.
+    userCan(user, "PCH", "VIEW")
+      ? prisma.pchOrder.findMany({ where: { AND: match(["reference", "products"]) as Prisma.PchOrderWhereInput[] }, take, select: { id: true, reference: true, products: true, tenderId: true, tender: { select: { reference: true } } } })
+      : [],
+    // LEGAL : la garde des LECTEURS s'applique ici aussi — un document restreint ne se
+    // découvre pas par la palette de recherche.
+    userCan(user, "LEGAL", "VIEW")
+      ? prisma.legalDocument.findMany({
+          where: {
+            AND: [
+              ...((): Prisma.LegalDocumentWhereInput[] => {
+                const w = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
+                return w ? [w as Prisma.LegalDocumentWhereInput] : [];
+              })(),
+              ...(match(["title", "reference", "counterparty"]) as Prisma.LegalDocumentWhereInput[]),
+            ],
+          },
+          take, select: { id: true, title: true, reference: true, kind: true },
+        })
+      : [],
+    userCan(user, "MAIL_REGISTER", "VIEW")
+      ? prisma.mailEntry.findMany({ where: { AND: match(["title", "reference", "sender", "recipient"]) as Prisma.MailEntryWhereInput[] }, take, select: { id: true, title: true, reference: true } })
+      : [],
   ]);
 
   const out: SearchResult[] = [];
@@ -123,5 +153,9 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
   for (const r of directives) out.push({ id: r.id, group: "Directives", title: r.title, subtitle: r.reference, href: `/directives`, icon: "Megaphone" });
   for (const r of conversations) out.push({ id: r.id, group: "Discussions", title: r.title ?? "Conversation", subtitle: "Canal / groupe", href: `/messages?c=${r.id}`, icon: "MessagesSquare" });
   for (const r of messages) out.push({ id: r.id, group: "Discussions", title: (r.conversation?.title ?? "Message"), subtitle: r.body.slice(0, 80), href: `/messages?c=${r.conversationId}`, icon: "MessageCircle" });
+  for (const r of tenders) out.push({ id: r.id, group: "Marchés PCH", title: r.reference, subtitle: [r.title, r.client].filter(Boolean).join(" · "), href: `/pch/${r.id}`, icon: "Gavel" });
+  for (const r of pchOrders) out.push({ id: r.id, group: "Marchés PCH", title: `BC ${r.reference ?? "s/n"}`, subtitle: [r.tender.reference, r.products].filter(Boolean).join(" · "), href: `/pch/${r.tenderId}`, icon: "ReceiptText" });
+  for (const r of legalDocs) out.push({ id: r.id, group: "Legal", title: r.title, subtitle: r.reference ?? String(r.kind), href: `/legal/${r.id}`, icon: "Scale" });
+  for (const r of mailEntries) out.push({ id: r.id, group: "Courriers", title: r.title, subtitle: r.reference ?? "", href: `/courriers/${r.id}`, icon: "Mails" });
   return out;
 }

@@ -1,9 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { resolveDriveAccess } from "@/lib/drive";
-import { createMailEntry, editMailEntry, attachDriveNodeToMail } from "@/lib/actions/mail-register-actions";
+import { createMailEntry, editMailEntry, attachDriveNodeToMail, addMailLink, removeMailLink } from "@/lib/actions/mail-register-actions";
 import { moveMailEntries } from "@/lib/actions/mail-folder-actions";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
+import { runFd } from "./helpers";
 
 /**
  * OPS COURRIERS — le registre des plis (créer, corriger, classer, déclarer un fichier Drive
@@ -41,7 +42,110 @@ const directionOf = (raw: string): "INCOMING" | "OUTGOING" | null => {
 
 const MAIL_REVALIDATE = ["/courriers"];
 
+/**
+ * LES CIBLES DU « RELIER À… » (§25) — mêmes familles que l'écran. La résolution suit
+ * l'invariant des ops : exact → unique → ambiguïté LISTÉE, jamais de choix silencieux.
+ */
+const LINK_KINDS: [string, string][] = [
+  ["PCH_TENDER", "Marché PCH"], ["PCH_ORDER", "Bon de commande PCH"],
+  ["LEGAL_DOCUMENT", "Document légal"], ["REGULATORY_PRODUCT", "Dossier Regulatory"],
+];
+
+async function resolveLinkTarget(kindRaw: string, raw: string): Promise<{ entityType: string; entityId: string; label: string } | { error: string }> {
+  const q = raw.trim();
+  if (!q) return { error: "Précisez la cible (champ « target » — référence ou titre)." };
+  const k = kindRaw.trim().toLowerCase();
+  const kind = /march|tender|\bao\b|appel/.test(k) ? "PCH_TENDER"
+    : /\bbc\b|bon de commande|commande/.test(k) ? "PCH_ORDER"
+      : /contrat|l[ée]gal|convention|avenant/.test(k) ? "LEGAL_DOCUMENT"
+        : /regulatory|dossier|produit/.test(k) ? "REGULATORY_PRODUCT"
+          : null;
+  if (!kind) return { error: "Précisez le type de cible (champ « kind ») : marché PCH, bon de commande, document légal, ou dossier Regulatory." };
+
+  if (kind === "PCH_TENDER") {
+    const rows = await prisma.pchTender.findMany({
+      where: { OR: [{ reference: { contains: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }] },
+      select: { id: true, reference: true, title: true }, orderBy: { createdAt: "desc" }, take: 6,
+    });
+    if (rows.length === 1) return { entityType: kind, entityId: rows[0].id, label: `${rows[0].reference}${rows[0].title ? ` — ${rows[0].title}` : ""}` };
+    if (rows.length === 0) return { error: `Aucun marché « ${q} ».` };
+    return { error: `Plusieurs marchés correspondent : ${rows.map((r) => r.reference).join(" ; ")} — préciser.` };
+  }
+  if (kind === "PCH_ORDER") {
+    const rows = await prisma.pchOrder.findMany({
+      where: { OR: [{ reference: { contains: q, mode: "insensitive" } }, { tender: { reference: { contains: q, mode: "insensitive" } } }] },
+      select: { id: true, reference: true, tender: { select: { reference: true } } }, orderBy: { createdAt: "desc" }, take: 6,
+    });
+    if (rows.length === 1) return { entityType: kind, entityId: rows[0].id, label: `BC ${rows[0].reference ?? "s/n"} — ${rows[0].tender.reference}` };
+    if (rows.length === 0) return { error: `Aucun bon de commande « ${q} ».` };
+    return { error: `Plusieurs bons de commande correspondent : ${rows.map((r) => `BC ${r.reference ?? "s/n"} (${r.tender.reference})`).join(" ; ")} — préciser.` };
+  }
+  if (kind === "LEGAL_DOCUMENT") {
+    const rows = await prisma.legalDocument.findMany({
+      where: { OR: [{ title: { contains: q, mode: "insensitive" } }, { reference: { contains: q, mode: "insensitive" } }] },
+      select: { id: true, title: true, reference: true }, orderBy: { createdAt: "desc" }, take: 6,
+    });
+    if (rows.length === 1) return { entityType: kind, entityId: rows[0].id, label: `${rows[0].reference ? `${rows[0].reference} — ` : ""}${rows[0].title}` };
+    if (rows.length === 0) return { error: `Aucun document légal « ${q} ».` };
+    return { error: `Plusieurs documents correspondent : ${rows.map((r) => r.title).join(" ; ")} — préciser.` };
+  }
+  const rows = await prisma.regulatoryProduct.findMany({
+    where: { isLocked: false, OR: [{ reference: { contains: q, mode: "insensitive" } }, { dci: { contains: q, mode: "insensitive" } }, { brandName: { contains: q, mode: "insensitive" } }] },
+    select: { id: true, reference: true, dci: true }, orderBy: { updatedAt: "desc" }, take: 6,
+  });
+  if (rows.length === 1) return { entityType: kind, entityId: rows[0].id, label: `${rows[0].reference} — ${rows[0].dci}` };
+  if (rows.length === 0) return { error: `Aucun dossier Regulatory « ${q} ».` };
+  return { error: `Plusieurs dossiers correspondent : ${rows.map((r) => `${r.reference} (${r.dci})`).join(" ; ")} — préciser.` };
+}
+
 export const MAIL_OPS_IMPL: Record<string, OpImpl> = {
+  link_record: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const entry = await resolveMailEntry(opStr(input, "reference"));
+      if ("error" in entry) return entry;
+      const cible = await resolveLinkTarget(opStr(input, "kind"), opStr(input, "target"));
+      if ("error" in cible) return cible;
+      const typeLabel = LINK_KINDS.find(([c]) => c === cible.entityType)?.[1] ?? cible.entityType;
+      return {
+        title: `Relier le courrier à ${typeLabel.toLowerCase()}`,
+        fields: [
+          { label: "Courrier", value: `${entry.reference ? `${entry.reference} — ` : ""}${entry.title}` },
+          { label: typeLabel, value: cible.label },
+        ],
+        args: { entryId: entry.id, entityType: cible.entityType, entityId: cible.entityId },
+        successMessage: `Courrier « ${entry.title} » relié à « ${cible.label} » — visible des deux côtés.`,
+        link: `/courriers/${entry.id}`, revalidate: MAIL_REVALIDATE,
+      };
+    },
+    execute: (args) => runFd(addMailLink, args, "Le lien a été refusé."),
+  },
+
+  unlink_record: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const entry = await resolveMailEntry(opStr(input, "reference"));
+      if ("error" in entry) return entry;
+      const links = await prisma.mailEntryLink.findMany({
+        where: { entryId: entry.id }, select: { id: true, label: true, entityId: true }, orderBy: { createdAt: "asc" },
+      });
+      if (links.length === 0) return { error: `Le courrier « ${entry.title} » n'a aucun lien à retirer.` };
+      const q = opStr(input, "target").trim().toLowerCase();
+      const hits = q ? links.filter((l) => (l.label ?? "").toLowerCase().includes(q)) : links;
+      if (hits.length === 0) return { error: `Aucun lien « ${opStr(input, "target")} » — présents : ${links.map((l) => l.label ?? l.entityId).join(" ; ")}.` };
+      if (hits.length > 1) return { error: `Précisez le lien à retirer (champ « target ») parmi : ${hits.map((l) => l.label ?? l.entityId).join(" ; ")}.` };
+      return {
+        title: `Retirer le lien « ${hits[0].label ?? hits[0].entityId} »`,
+        fields: [
+          { label: "Courrier", value: `${entry.reference ? `${entry.reference} — ` : ""}${entry.title}` },
+          { label: "Lien retiré", value: hits[0].label ?? hits[0].entityId },
+        ],
+        args: { id: hits[0].id },
+        successMessage: `Lien « ${hits[0].label ?? hits[0].entityId} » retiré du courrier.`,
+        link: `/courriers/${entry.id}`, revalidate: MAIL_REVALIDATE,
+      };
+    },
+    execute: (args) => runFd(removeMailLink, args, "Le retrait du lien a été refusé."),
+  },
+
   create_entry: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const title = opStr(input, "label");

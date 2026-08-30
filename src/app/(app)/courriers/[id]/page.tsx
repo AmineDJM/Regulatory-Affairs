@@ -20,6 +20,8 @@ import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/fold
 import { EditMailButton } from "./edit-mail";
 import { RecordDeleteButton } from "@/components/shared/record-delete-button";
 import { MailPieces } from "./mail-pieces";
+import { MailLinks, type MailLinkCandidates, type MailLinkView } from "./mail-links";
+import { ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { getMyCompanies, companyLabel } from "@/lib/company";
 import { mailRoutingOptions } from "@/lib/queries/mail-routing";
 
@@ -61,6 +63,8 @@ export default async function MailEntryPage({ params }: { params: { id: string }
         orderBy: { createdAt: "asc" },
         include: { driveNode: { select: { name: true } } },
       },
+      // « Relier à… » multiple : les affaires que ce pli concerne, au-delà de sa naissance.
+      links: { orderBy: { createdAt: "asc" } },
     },
   });
   if (!entry) notFound();
@@ -98,6 +102,42 @@ export default async function MailEntryPage({ params }: { params: { id: string }
     prisma.mailEntryFolder.findMany({ select: { id: true, name: true, parentId: true, companyId: true } }),
   ]);
   const folderOptions = flattenFolders(buildFolderTree(folderRows)).map((n) => ({ value: n.id, label: indentedLabel(n) }));
+
+  // LES CANDIDATS du « Relier à… » — bornés et cloisonnés par entité là où le module l'est.
+  // Le serveur revérifie l'accès au moment du lien : ces listes sont une commodité de saisie.
+  const scope = await platformScope(user.id);
+  const [tenders, pchOrders, legalDocs, regProducts] = await Promise.all([
+    prisma.pchTender.findMany({ where: scope, select: { id: true, reference: true, title: true }, orderBy: { createdAt: "desc" }, take: 100 }),
+    prisma.pchOrder.findMany({ select: { id: true, reference: true, tenderId: true, tender: { select: { reference: true } } }, orderBy: { createdAt: "desc" }, take: 100 }),
+    prisma.legalDocument.findMany({ where: scope, select: { id: true, title: true, reference: true }, orderBy: { createdAt: "desc" }, take: 100 }),
+    prisma.regulatoryProduct.findMany({ where: { isLocked: false }, select: { id: true, reference: true, dci: true }, orderBy: { updatedAt: "desc" }, take: 100 }),
+  ]);
+  const candidates: MailLinkCandidates[] = [
+    { type: "PCH_TENDER", typeLabel: "Marché PCH", options: tenders.map((t) => ({ value: t.id, label: `${t.reference}${t.title ? ` — ${t.title}` : ""}` })) },
+    { type: "PCH_ORDER", typeLabel: "Bon de commande PCH", options: pchOrders.map((o) => ({ value: o.id, label: `BC ${o.reference ?? "s/n"} — ${o.tender.reference}` })) },
+    { type: "LEGAL_DOCUMENT", typeLabel: "Document légal", options: legalDocs.map((d) => ({ value: d.id, label: `${d.reference ? `${d.reference} — ` : ""}${d.title}` })) },
+    { type: "REGULATORY_PRODUCT", typeLabel: "Dossier Regulatory", options: regProducts.map((r) => ({ value: r.id, label: `${r.reference} — ${r.dci}` })) },
+  ];
+  // Un BC s'ouvre sur la fiche de SON marché : le lien se résout depuis les liens réellement
+  // posés (la liste des candidats est bornée, pas les liens existants).
+  const bcLies = entry.links.filter((l) => String(l.entityType) === "PCH_ORDER").map((l) => l.entityId);
+  const ordreParId = new Map(
+    (bcLies.length
+      ? await prisma.pchOrder.findMany({ where: { id: { in: bcLies } }, select: { id: true, tenderId: true } })
+      : []
+    ).map((o) => [o.id, o.tenderId]),
+  );
+  const lienHref = (t: string, id: string): string | null =>
+    t === "PCH_TENDER" ? `/pch/${id}`
+      : t === "PCH_ORDER" ? (ordreParId.has(id) ? `/pch/${ordreParId.get(id)}` : null)
+        : t === "LEGAL_DOCUMENT" ? `/legal/${id}`
+          : t === "REGULATORY_PRODUCT" ? `/regulatory/${id}` : null;
+  const linkViews: MailLinkView[] = entry.links.map((l) => ({
+    id: l.id,
+    typeLabel: ENTITY_TYPE_LABELS[l.entityType] ?? l.entityType,
+    label: l.label ?? l.entityId,
+    href: lienHref(String(l.entityType), l.entityId),
+  }));
 
   const dir = MAIL_DIRECTION[entry.direction];
   const fields = mailFields({
@@ -205,6 +245,8 @@ export default async function MailEntryPage({ params }: { params: { id: string }
               )}
             </CardContent>
           </Card>
+
+          <MailLinks entryId={entry.id} links={linkViews} candidates={candidates} canEdit={canEdit} />
 
           <Card>
             <CardHeader>

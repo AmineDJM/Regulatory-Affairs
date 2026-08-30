@@ -24,6 +24,11 @@ import { ContractPanel } from "./contract-panel";
 import { MarketGaps, MarketKpis, MarketProgress } from "./market-header";
 import { MarketTimeline } from "./market-timeline";
 import { BackLink } from "@/components/shared/back-link";
+import { CreateRecordButton } from "@/components/shared/create-record-button";
+import { createMailEntry } from "@/lib/actions/mail-register-actions";
+import { mailFields } from "../../courriers/mail-fields";
+import { getMyCompanies, companyLabel } from "@/lib/company";
+import { mailRoutingOptions } from "@/lib/queries/mail-routing";
 
 /**
  * LA FICHE MARCHÉ 360° — un appel d'offres se lit de bout en bout : cahier des charges →
@@ -53,6 +58,32 @@ export default async function PchTenderPage({ params }: { params: { id: string }
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.businessUnit.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { sortOrder: "asc" } }),
   ]);
+
+  // COURRIER PRÉ-ASSOCIÉ (§26-27) : le pli naît DEPUIS le marché, déjà rattaché — personne ne
+  // ressaisit le lien. Le formulaire est celui du registre, à l'identique ; seuls le
+  // rattachement (caché) et le destinataire (l'organisme) sont pré-remplis.
+  const canMail = userCan(user, "MAIL_REGISTER", "CREATE");
+  const [mailCompanies, mailPartners, mailRouting] = canMail
+    ? await Promise.all([
+        getMyCompanies(user.id),
+        prisma.mailPartner.findMany({ where: { isActive: true }, select: { id: true, name: true, kind: true }, orderBy: { name: "asc" } }),
+        mailRoutingOptions(),
+      ])
+    : [[], [], { departments: [], people: [] }];
+  const mailFormFields = canMail
+    ? [
+        ...mailFields(
+          { recipient: t.client },
+          "create",
+          mailCompanies.map((c) => ({ value: c.id, label: companyLabel(c) })),
+          mailPartners.map((x) => ({ value: x.id, label: x.kind ? `${x.name} — ${x.kind}` : x.name })),
+          mailRouting.departments,
+          mailRouting.people,
+        ),
+        { type: "hidden", name: "sourceType", value: "PCH_TENDER" } as const,
+        { type: "hidden", name: "sourceId", value: t.id } as const,
+      ]
+    : [];
 
   const docs = await prisma.document.findMany({
     where: { entityType: "PCH_TENDER", entityId: t.id },
@@ -174,10 +205,26 @@ export default async function PchTenderPage({ params }: { params: { id: string }
         </Card>
       )}
 
-      {market.courriers.length > 0 && (
+      {(market.courriers.length > 0 || canMail) && (
         <Card>
-          <CardHeader><CardTitle>Courriers du marché</CardTitle></CardHeader>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle>Courriers du marché</CardTitle>
+            {canMail && (
+              <CreateRecordButton
+                label="Nouveau courrier lié"
+                title="Courrier du marché"
+                description={`Le pli naît déjà rattaché à ${t.reference} — il apparaîtra ici et au registre des courriers.`}
+                redirectBase="/courriers"
+                action={createMailEntry}
+                width="lg"
+                fields={mailFormFields}
+              />
+            )}
+          </CardHeader>
           <CardContent>
+            {market.courriers.length === 0 && (
+              <p className="text-sm text-muted-foreground">Aucun courrier rattaché à ce marché.</p>
+            )}
             <ul className="space-y-1.5">
               {market.courriers.map((c) => (
                 <li key={c.id}>

@@ -3,7 +3,7 @@ import {
   attributionPartielle, controlerCommande, deriverNiveau, etapeCourante, ETAPES_MARCHE,
   quantitesContractuelles, restantACommander, restantALivrer, unitesAttribuees, uniteSoumises,
   valeurAttribuee, valeurContractuelleCourante, valeurSoumise,
-  type FaitsMarche, type LigneFaits,
+  type FaitsMarche, type LigneFaits, zoneDepot, doitRappelerDepot,
 } from "./market-math";
 
 /**
@@ -180,5 +180,34 @@ describe("le niveau du marché se DÉDUIT — les états décidés gagnent toujo
     expect(etapeCourante("CLOTURE")).toBe(5);
     expect(etapeCourante("ANNULE")).toBe(-1);
     expect(etapeCourante("PERDU")).toBe(-1);
+  });
+});
+
+describe("échéance de dépôt — zones et rappels (§53 : prévenir à l'entrée d'une zone, jamais tous les jours)", () => {
+  const j = (n: number) => new Date(Date.UTC(2026, 8, 10 + n));
+  const deadline = j(0);
+
+  it("zone : J-10 → rien, J-6 → PROCHE, J-1 → URGENTE, J+1 → DEPASSEE", () => {
+    expect(zoneDepot(deadline, j(-10))).toBeNull();
+    expect(zoneDepot(deadline, j(-6))).toBe("PROCHE");
+    expect(zoneDepot(deadline, j(-1))).toBe("URGENTE");
+    expect(zoneDepot(deadline, j(1))).toBe("DEPASSEE");
+  });
+
+  it("premier passage en zone → rappel ; repasser le lendemain dans la MÊME zone → silence", () => {
+    expect(doitRappelerDepot(deadline, null, j(-6))).toBe("PROCHE");
+    // Rappelé à J-6 : à J-5 la zone n'a pas changé, on se tait.
+    expect(doitRappelerDepot(deadline, j(-6), j(-5))).toBeNull();
+  });
+
+  it("l'escalade rouvre la parole : PROCHE → URGENTE → DEPASSEE, trois rappels au plus", () => {
+    expect(doitRappelerDepot(deadline, j(-6), j(-2))).toBe("URGENTE");
+    expect(doitRappelerDepot(deadline, j(-2), j(-1))).toBeNull();
+    expect(doitRappelerDepot(deadline, j(-1), j(1))).toBe("DEPASSEE");
+    expect(doitRappelerDepot(deadline, j(1), j(30))).toBeNull();
+  });
+
+  it("hors zone (échéance à plus de 7 jours) → jamais de rappel, même sans rappel précédent", () => {
+    expect(doitRappelerDepot(deadline, null, j(-30))).toBeNull();
   });
 });

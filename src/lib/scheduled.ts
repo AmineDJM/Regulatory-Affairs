@@ -10,6 +10,7 @@ import { embedBacklog } from "@/lib/regulatory/intelligence/corpus/semantic";
 import { runIntelligencePulse } from "@/lib/adventum/pulse";
 import { runPettyCashRechargeReminders } from "@/lib/actions/petty-cash-actions";
 import { runLegalExpirySweep } from "@/lib/legal/expiry-sweep";
+import { runPchDeadlineSweep } from "@/lib/pch/deadline-sweep";
 import { runAssistantReminders } from "@/lib/assistant/reminders";
 import { runDriveIngestionSweep } from "@/lib/assistant/drive-ingestion";
 import { balayerMentions } from "@/lib/fabric";
@@ -103,6 +104,9 @@ export async function runScheduledJobs(): Promise<void> {
     // passé, et prévient À L'ENTRÉE dans une zone d'urgence (90 j, 30 j, dépassement) — pas tous
     // les jours, sinon la personne coupe les notifications et rate la vraie.
     await runLegalExpirySweep().catch(() => undefined);
+    // Échéances de DÉPÔT des marchés PCH : responsable + équipe prévenus à J-7, J-2 et au
+    // dépassement — le rappel se tait dès que la soumission est déposée.
+    await runPchDeadlineSweep().catch(() => undefined);
     // Rappels du Chief of Staff : « rappelle-moi mardi à 10 h », « tous les dimanches relance
     // Regulatory » — pop-up au propriétaire, relance du rôle cible s'il y en a un.
     await runAssistantReminders().catch(() => undefined);

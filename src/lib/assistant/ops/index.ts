@@ -399,7 +399,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
     def: {
       name: "mail_operation",
       description:
-        "REGISTRE DES COURRIERS — enregistrer un pli (entrant/sortant), corriger, classer dans un dossier, déclarer un fichier Drive en courrier (référence SANS copie), par les actions canoniques (cloisonnement par entité et anti-doublon inclus). "
+        "REGISTRE DES COURRIERS — enregistrer un pli (entrant/sortant), corriger, classer dans un dossier, déclarer un fichier Drive en courrier (référence SANS copie), RELIER un pli aux affaires qu'il concerne (marché PCH, BC, contrat, dossier Regulatory), par les actions canoniques (cloisonnement par entité et anti-doublon inclus). "
         + `Champ « op » : ${opsSummary("mail_operation")}. `
         + "La cible se donne par n° de chrono ou par objet.",
       input_schema: {
@@ -416,7 +416,8 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           newLabel: { type: "string", description: "edit_entry : nouvel objet." },
           newReference: { type: "string", description: "edit_entry : nouveau n° de chrono." },
           notes: { type: "string", description: "Notes." },
-          kind: { type: "string", description: "set_date : « reçu le » ou « accusé de réception » ; partenaires : nature." },
+          kind: { type: "string", description: "set_date : « reçu le » ou « accusé de réception » ; partenaires : nature ; link_record : type de cible (marché PCH, bon de commande, document légal, dossier Regulatory)." },
+          target: { type: "string", description: "link_record / unlink_record : la cible du lien (référence AO, n° de BC, titre du contrat, référence ou DCI du dossier)." },
           date: { type: "string", description: "set_date : la date (AAAA-MM-JJ) — « aucune » pour l'effacer." },
           parent: { type: "string", description: "create_folder : dossier parent (sous-dossier)." },
           piece: { type: "string", description: "Pièces : libellé de la pièce visée (update/delete_piece)." },

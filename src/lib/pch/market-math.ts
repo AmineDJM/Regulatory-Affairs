@@ -262,6 +262,35 @@ export function deriverNiveau(f: FaitsMarche): NiveauDerive {
   return { niveau: "BROUILLON", raison: "aucun lot travaillé, pas de dépôt" };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ÉCHÉANCE DE DÉPÔT — zones de rappel (le balayage prévient à l'ENTRÉE d'une zone, jamais
+// tous les jours : une notification quotidienne est une notification qu'on coupe).
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+export type ZoneDepot = "DEPASSEE" | "URGENTE" | "PROCHE";
+
+/** J-7 → PROCHE, J-2 → URGENTE, terme passé → DEPASSEE ; au-delà de J-7 → null (rien à dire). */
+export function zoneDepot(deadline: Date, quand: Date = new Date()): ZoneDepot | null {
+  const jours = (deadline.getTime() - quand.getTime()) / 86_400_000;
+  if (jours < 0) return "DEPASSEE";
+  if (jours <= 2) return "URGENTE";
+  if (jours <= 7) return "PROCHE";
+  return null;
+}
+
+/**
+ * FAUT-IL RAPPELER ? Oui si l'échéance est dans une zone ET que le dernier rappel date d'une
+ * zone MOINS grave (ou n'existe pas). Un marché rappelé à J-6 se tait jusqu'à J-2, puis
+ * jusqu'au dépassement — trois rappels au plus par échéance.
+ */
+export function doitRappelerDepot(deadline: Date, dernierRappel: Date | null, quand: Date = new Date()): ZoneDepot | null {
+  const zone = zoneDepot(deadline, quand);
+  if (!zone) return null;
+  if (!dernierRappel) return zone;
+  const zoneAuDernier = zoneDepot(deadline, dernierRappel);
+  return zone !== zoneAuDernier ? zone : null;
+}
+
 /**
  * LA PROGRESSION D'EN-TÊTE : Préparation → Soumission → Attribution → Contrat → Exécution →
  * Clôture. Rend l'index de l'étape courante (−1 pour les états hors chemin : annulé,
