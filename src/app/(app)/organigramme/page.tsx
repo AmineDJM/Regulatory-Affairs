@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
 export default async function OrganigrammePage() {
   const user = await requireUser();
   const settings = await getAppSettings();
-  if (!canViewOrgChart(user, settings)) redirect("/mon-travail");
+  if (!canViewOrgChart(user, settings)) redirect("/mon-espace");
   const canEdit = canEditOrgChart(user);
 
   // L'ORGANIGRAMME SUIT L'ENTITÉ SÉLECTIONNÉE en haut de l'écran. Il montrait jusqu'ici tout le

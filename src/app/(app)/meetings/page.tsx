@@ -4,6 +4,9 @@ import { requireModule } from "@/lib/session";
 import { hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { visibleTabs } from "@/lib/nav-tabs";
+import { AGENDA_TABS } from "@/lib/labels";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { formatAlgiers } from "@/lib/calendar-tz";
@@ -53,9 +56,10 @@ export default async function MeetingsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Réunions & appels" description="Réunions et appels via un simple lien (Meet, Teams, Zoom…), comptes rendus et tâches générés par l'IA.">
+      <PageHeader title="Réunions & appels" description="Réunions et appels via un simple lien (Meet, Teams, Zoom…), comptes rendus et tâches générés par l'IA. Elles apparaissent aussi dans le calendrier, à leur créneau.">
         <NewMeetingButton users={users} />
       </PageHeader>
+      <ModuleTabs tabs={await visibleTabs(user, AGENDA_TABS)} />
 
       {meetings.length === 0 ? (
         <EmptyState icon="Video" title="Aucune réunion" description="Créez une réunion : un lien de salle est généré aussitôt, partageable même en externe." />

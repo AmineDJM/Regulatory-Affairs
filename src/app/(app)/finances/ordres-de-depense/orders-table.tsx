@@ -128,7 +128,14 @@ function RevisionResolve({ id, currentAmount, proposed }: { id: string; currentA
   );
 }
 
-export function OrdersTable({ rows, canSettle, canDirection = false, emptyLabel }: { rows: OrderRow[]; canSettle: boolean; canDirection?: boolean; emptyLabel?: string }) {
+/**
+ * `focusId` — LA LIGNE QU'ON VIENT DE CLIQUER, mise en évidence et atteignable par ancre.
+ *
+ * On arrivait ici depuis « Mon espace » sur un tableau de trois cents ordres, à chercher des
+ * yeux celui qu'on venait de cliquer. L'ancre `#ord-<id>` amène le navigateur dessus, le liseré
+ * dit lequel c'est.
+ */
+export function OrdersTable({ rows, canSettle, canDirection = false, emptyLabel, focusId = null }: { rows: OrderRow[]; canSettle: boolean; canDirection?: boolean; emptyLabel?: string; focusId?: string | null }) {
   if (rows.length === 0) {
     return <EmptyState icon="ReceiptText" title={emptyLabel ?? "Aucun ordre de dépense"} description="Les ordres émis par la Direction apparaîtront ici." />;
   }
@@ -151,7 +158,11 @@ export function OrdersTable({ rows, canSettle, canDirection = false, emptyLabel 
         </TableHeader>
         <TableBody>
           {rows.map((r) => (
-            <TableRow key={r.id}>
+            <TableRow
+              key={r.id}
+              id={`ord-${r.id}`}
+              className={r.id === focusId ? "scroll-mt-24 bg-primary/5 outline outline-2 -outline-offset-2 outline-primary/40" : "scroll-mt-24"}
+            >
               <TableCell className="font-mono text-xs">{r.reference}</TableCell>
               <TableCell>{formatDate(r.createdAt)}</TableCell>
               <TableCell className="max-w-[220px]">

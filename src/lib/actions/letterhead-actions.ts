@@ -22,7 +22,7 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
  * destinataire.
  */
 
-const PATH = "/office";
+const PATH = "/drive"; // la papeterie vit dans le menu « ⋯ » du Drive
 
 /** Téléverse un papier en-tête. Le fichier doit correspondre au type annoncé. */
 export async function uploadLetterhead(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {

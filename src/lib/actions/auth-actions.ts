@@ -15,7 +15,7 @@ export async function authenticate(
     await signIn("credentials", {
       email: String(formData.get("email") ?? ""),
       password: String(formData.get("password") ?? ""),
-      redirectTo: "/dashboard",
+      redirectTo: "/mon-espace",
     });
   } catch (error) {
     // signIn throws a NEXT_REDIRECT on success — let it propagate.

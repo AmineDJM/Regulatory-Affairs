@@ -3403,6 +3403,77 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### LE DOSSIER RÉGLEMENTAIRE DEVIENT UNE FRISE — et son niveau se lit au lieu de se déclarer (2026-08)
+
+**LE NIVEAU DE PROCESS NE SE POSE PLUS À LA MAIN.** Deux endroits disaient où en était un
+dossier : le menu déroulant en tête de fiche, et les étapes du processus cochées au fil de l'eau.
+Rien ne les reliait — on déposait à l'ANPP, on cochait l'étape, et le bandeau affichait encore
+« Pré-soumission » jusqu'à ce que quelqu'un pense à revenir le changer. Sur soixante-neuf
+dossiers, ce quelqu'un n'existe pas, et c'est ce chiffre-là qu'on lit pour décider où mettre les
+gens. Le niveau est désormais **déduit** (`lib/regulatory/process-status.ts`, module pur) et
+écrit à chaque coche. Trois règles : une **étape bloquée** bloque le dossier (seul jugement
+humain de la chaîne) ; le **verrou de présoumission** tient (sans avis favorable, le dossier en
+est à sa réception) ; **on n'efface jamais un passé déjà écrit** — le niveau retenu est le plus
+avancé entre les étapes et ce que la fiche portait, sinon tous les dossiers saisis à la main
+auraient « reculé » du jour au lendemain. Le menu disparaît de l'en-tête ET du formulaire de
+modification ; une phrase dit d'où vient la valeur.
+
+**UNE FRISE VERTICALE, PAS QUATRE CARTES.** Le processus, la check-list de présoumission, la
+demande de BV et les réserves ANPP vivaient dans quatre blocs empilés qui parlaient du même
+parcours. Un seul fil désormais, et les trois objets vivants sont **dans** l'étape à laquelle
+ils appartiennent : la **check-list** se déplie après « Réception du CTD complet » (pliée par
+défaut — trente cases ouvertes noieraient le parcours) ; **« Demander le BV 25 / 75 % »** se fait
+sur l'étape qui le porte, avec montant, échéance, note et **une ou plusieurs** pièces, et la
+demande EST l'étape (elle la coche) ; les **allers-retours avec l'ANPP** remplacent six cases
+cochées une fois — la frise du dossier vit entre l'évaluation et la commission, les six jalons
+officiels gardés en dessous. Nouvelle étape **« Étude des modules 3, 4 et 5 »** avant le BV 75 % :
+l'engager sans avoir lu la qualité, le préclinique et le clinique, c'est payer pour découvrir
+qu'il manque une étude. Le processus passe de 22 à **23 étapes**.
+
+Les **participants** passent derrière « ⋯ » en tête de fiche. **Pipeline et suivi des dossiers**
+étaient déjà séparés (le verrou tranche, des tests le tiennent) mais rien ne le DISAIT : une
+ligne le dit maintenant, avec le lien, et seulement à qui a accès au pipeline. La liste
+**« Chargé du dossier »** tient enfin compte du **rôle secondaire**.
+
+### UN SEUL ESPACE PERSONNEL — et trois écrans en moins (2026-08)
+
+**« MON TRAVAIL » A FONDU DANS « MON ESPACE ».** C'étaient deux écrans pour une seule question,
+« qu'est-ce qui me concerne ? » : on ouvrait l'un, puis l'autre, et l'on manquait celui auquel on
+n'avait pas pensé. Ce qui attend une signature — validations **et** paiements — se lit en tête de
+son espace, les tâches en dessous. **« Mon dossier RH »** et **« Mes ordres de mission »** en
+deviennent des onglets. La **demande de congé** se fait dans le dossier RH, et là seulement :
+deux boutons pour la même demande, sur deux écrans, faisaient croire à deux circuits.
+**« Demander une avance »** disparaît (l'historique reste tant qu'il y en a un).
+
+**LE DASHBOARD N'EXISTE PLUS.** Il dessinait une section par module accessible, avec ou sans
+données : plus on avait de droits, plus il alignait de zéros. Ce qu'il apportait vraiment est
+dans « Mon espace » ; ce qu'il montrait par module se lit dans le module, à jour. Le module
+`DASHBOARD` est retiré du RBAC — un module qui ne garde plus aucun écran est une case à cocher
+qui ment. Les adresses `/dashboard` et `/mon-travail` **redirigent** au lieu de disparaître :
+elles vivent dans des favoris et des notifications déjà envoyées.
+
+**UN CLIC MÈNE DANS LA VALIDATION.** Depuis « Mon espace », cliquer une validation menait à
+l'écran du module, à chercher des yeux la ligne qu'on venait de cliquer. Le lien porte désormais
+`?focus=<id>#ancre` : la validation visée passe **en tête**, encadrée, avec ses pièces et son
+panneau de décision — même chose pour un ordre de dépense dans les Finances.
+
+**FEEDBACK DEVIENT UN VRAI MODULE.** C'était un écran de l'espace de travail : ouvert à tout le
+monde et surtout **impossible à régler** — ni à fermer à un rôle, ni à retirer de la plateforme,
+parce qu'on ne masque pas le module dont dépend l'espace personnel. Module à part désormais,
+donc administrable comme les autres.
+
+**AGENDA = CALENDRIER + RÉUNIONS.** Deux entrées de menu, dans deux groupes, pour une seule
+journée — et le calendrier projetait DÉJÀ les réunions planifiées. Une entrée, deux onglets, et
+« Nouvelle réunion » depuis l'agenda : on ne change plus d'écran pour poser un créneau qu'on est
+en train de regarder.
+
+**« BUREAUTIQUE » DISPARAÎT.** L'écran ne faisait rien que le Drive ne fasse déjà — créer un
+document Word/Excel/PowerPoint (c'est « Nouveau document »), ouvrir, partager, jeter — et le
+faisait sur une **seconde liste**, vouée à diverger sur un détail. Ce qu'il portait de propre, la
+**papeterie de la société**, descend dans le menu « ⋯ » du Drive, où elle n'apparaît qu'à qui la
+tient : un réglage que deux personnes touchent n'occupe plus une entrée de menu pour tous. Les
+épingles bureautiques de la barre latérale mènent au Drive, prêtes à créer.
+
 ### LA FRISE DU DOSSIER RÉGLEMENTAIRE — le CTD, ses réserves et ses redépôts en une colonne (2026-08)
 
 **LE DÉPÔT REMONTE EN TÊTE.** Poser le CTD initial — le geste le plus fréquent du module —

@@ -14,7 +14,7 @@ import { FeedbackAttachments } from "./attachment-list";
 import { ACCEPT_ATTRIBUTE, ALLOWED_EXTENSIONS, MAX_ATTACHMENTS_PER_FEEDBACK, MAX_ATTACHMENT_BYTES } from "@/lib/files/attachment-policy";
 
 export default async function FeedbackPage() {
-  const user = await requireModule("WORKSPACE");
+  const user = await requireModule("FEEDBACK");
 
   const mods = accessibleModules(user);
   const seen = new Set<string>();

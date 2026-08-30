@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { accessibleModules, userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -10,7 +12,9 @@ import { optionsFromMap } from "@/components/shared/form-fields";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
 import { createTask } from "@/lib/actions/task-actions";
-import { requestAdvance } from "@/lib/actions/hr-actions";
+import { getActionCenter, type ActionItem } from "@/lib/queries/action-center";
+import { Badge } from "@/components/ui/badge";
+import { formatDate, daysUntil } from "@/lib/utils";
 import { ROLE_LABELS, PRIORITY, WORKSPACE_TABS, MODULE_LABELS } from "@/lib/labels";
 import { listMyReminders } from "@/lib/queries/reminders";
 import { MyReminders } from "@/components/reminders/my-reminders";
@@ -18,8 +22,6 @@ import { ReminderButton } from "@/components/reminders/reminder-button";
 import { TaskList, type TaskItem } from "./task-list";
 import { MyLeaves } from "@/components/hr/my-leaves";
 import { LeaveApprovals } from "@/components/hr/leave-approvals";
-import { LeaveRequestButton } from "@/components/hr/leave-request-button";
-import { leaveFormContext } from "@/lib/hr/leave-form-context";
 import { MyAdvances, type AdvanceItem } from "./my-advances";
 import { MyPortfolioCard } from "@/components/planning/my-portfolio-card";
 import { getMyPortfolio } from "@/lib/queries/portfolio";
@@ -79,12 +81,21 @@ export default async function MonEspacePage() {
     .map((t) => ({ ...toItem(t), assignee: t.assignedTo?.name ?? null }));
   // Mes congés ET les congés que je dois trancher : le responsable d'équipe n'a pas le module
   // RH, sa file de validation ne peut donc vivre qu'ici.
-  const [myLeaves, leavesToDecide, leaveForm] = await Promise.all([
+  // LA DEMANDE DE CONGÉ SE FAIT DANS « MON DOSSIER RH », et là seulement : c'est le dossier de
+  // la personne, avec sa fiche, ses documents et ses demandes. Deux boutons pour la même
+  // demande, sur deux écrans, faisaient croire à deux circuits. Ici on LIT ses congés et l'on
+  // signe ceux des autres.
+  const [myLeaves, leavesToDecide, { items: actionItems }] = await Promise.all([
     getMyLeaveRequests(user.id),
     getLeavesToDecide(user),
-    // La fiche de demande est pré-remplie depuis la fiche employé : rien à ressaisir.
-    leaveFormContext(user.id),
+    // « MON TRAVAIL » A FONDU ICI : ce qui attend une signature se lit en tête de son espace,
+    // au lieu d'un second écran qu'on ouvrait — ou pas.
+    getActionCenter(user),
   ]);
+  const validations = actionItems.filter((i) => i.kind === "validation" || i.kind === "payment");
+  // Les TÂCHES du centre d'action ne sont pas reprises : elles ont déjà leurs sections ici,
+  // plus riches. Les répéter ferait lire deux fois la même to-do.
+  const toHandle = actionItems.filter((i) => i.kind === "request" || i.kind === "regulatory" || i.kind === "hr");
   const myAdvances: AdvanceItem[] = data.myAdvances.map((a) => ({
     id: a.id, amount: Number(a.amount), reason: a.reason, status: a.status, createdAt: a.createdAt.toISOString(),
   }));
@@ -116,11 +127,6 @@ export default async function MonEspacePage() {
       hint: "Le contexte de la tâche : bon de commande, plan, facture à régler…" },
   ];
 
-  const advanceFields: FieldDef[] = [
-    { type: "number", name: "amount", label: "Montant souhaité (DZD)", required: true, full: true },
-    { type: "textarea", name: "reason", label: "Motif" },
-  ];
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -136,11 +142,12 @@ export default async function MonEspacePage() {
           description="Pour vous, c'est une to-do. Pour quelqu'un d'autre, c'est une demande : il l'accepte ou la refuse, puis dépose son travail dans le dossier."
           action={createTask} fields={taskFields} />
         {data.employee && (
-          <>
-            <LeaveRequestButton identity={leaveForm?.identity} colleagues={leaveForm?.colleagues ?? []} />
-            <CreateRecordButton label="Demander une avance" title="Avance sur salaire" width="md"
-              description="Soumise aux RH, puis réglée par la comptabilité." action={requestAdvance} fields={advanceFields} />
-          </>
+          <Link
+            href="/mon-dossier"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-secondary"
+          >
+            Demander un congé <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
         )}
       </PageHeader>
       <ModuleTabs tabs={await visibleTabs(user, WORKSPACE_TABS)} />
@@ -155,6 +162,22 @@ export default async function MonEspacePage() {
         <KpiCard label="Congés en attente" value={data.stats.pendingLeaves} icon="Hourglass" tone={data.stats.pendingLeaves > 0 ? "warning" : "default"} />
         <KpiCard label="Solde congés" value={data.stats.leaveBalance === null ? "—" : `${data.stats.leaveBalance} j`} icon="Plane" tone="info" />
       </div>
+
+      {/* CE QUI ATTEND MA SIGNATURE — en tête, parce que c'est ce qui bloque quelqu'un d'autre.
+          Validations et paiements sont un seul bloc : un paiement à régler n'est rien d'autre
+          qu'une validation qui porte un montant. */}
+      {validations.length > 0 && (
+        <ActionSection
+          title={`Validations à faire (${validations.length})`}
+          items={validations}
+          cta="/validations"
+          ctaLabel="Toutes mes validations"
+        />
+      )}
+
+      {toHandle.length > 0 && (
+        <ActionSection title={`Demandes & dossiers à traiter (${toHandle.length})`} items={toHandle} />
+      )}
 
       {requestedTasks.length > 0 && (
         <section className="space-y-3">
@@ -233,10 +256,15 @@ export default async function MonEspacePage() {
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes congés</h2>
             <MyLeaves leaves={myLeaves} />
           </section>
-          <section className="space-y-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes avances sur salaire</h2>
-            <MyAdvances advances={myAdvances} />
-          </section>
+          {/* L'AVANCE SUR SALAIRE NE SE DEMANDE PLUS ICI. L'historique reste tant qu'il y en a
+              un — effacer l'écran effacerait la trace de ce que la personne a demandé et
+              reçu — mais rien ne se crée depuis cet espace. */}
+          {myAdvances.length > 0 && (
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes avances sur salaire</h2>
+              <MyAdvances advances={myAdvances} />
+            </section>
+          )}
         </div>
       ) : (
         <Card><CardContent className="p-4 text-sm text-muted-foreground">
@@ -245,5 +273,62 @@ export default async function MonEspacePage() {
       )}
 
     </div>
+  );
+}
+
+/**
+ * UNE SECTION D'ACTIONS — reprise telle quelle de « Mon travail », qui n'existe plus.
+ *
+ * Le lien de chaque ligne mène DANS l'élément (la validation ouverte, ses pièces lisibles),
+ * pas sur l'écran du module : arriver sur une liste pour y rechercher ce qu'on venait de
+ * cliquer est un pas de trop, et c'est celui qu'on ne fait pas.
+ */
+function ActionSection({ title, items, cta, ctaLabel }: { title: string; items: ActionItem[]; cta?: string; ctaLabel?: string }) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{title}</h2>
+        {cta && <Link href={cta} className="inline-flex items-center gap-1 text-sm text-primary hover:underline">{ctaLabel} <ArrowRight className="h-3.5 w-3.5" /></Link>}
+      </div>
+      <Card>
+        <CardContent className="p-0">
+          <ul className="divide-y divide-border">
+            {items.map((i) => <ActionRow key={i.key} item={i} />)}
+          </ul>
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function ActionRow({ item }: { item: ActionItem }) {
+  const d = item.deadline ? daysUntil(item.deadline) : null;
+  const overdue = d !== null && d < 0;
+  const prio = item.priority ? PRIORITY[item.priority] : null;
+  return (
+    <li>
+      <Link href={item.href} className="flex flex-col gap-2 px-4 py-3 transition-colors hover:bg-secondary/50 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">{item.title}</span>
+            {prio && (prio.tone === "warning" || prio.tone === "danger") && <Badge tone={prio.tone} dot={false}>{prio.label}</Badge>}
+            {item.statusLabel && <Badge tone={item.statusTone ?? "neutral"} dot={false}>{item.statusLabel}</Badge>}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium">{item.module}</span>
+            {item.subtitle ? ` · ${item.subtitle}` : ""}
+            {item.owner ? ` · ${item.owner}` : ""}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
+          {item.deadline && (
+            <span className={`text-xs ${overdue ? "font-medium text-destructive" : "text-muted-foreground"}`}>
+              {formatDate(item.deadline)}{overdue ? " · en retard" : d === 0 ? " · aujourd'hui" : ""}
+            </span>
+          )}
+          <ArrowRight className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </Link>
+    </li>
   );
 }

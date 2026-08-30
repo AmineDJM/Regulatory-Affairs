@@ -34,7 +34,7 @@ export async function startImpersonation(formData: FormData): Promise<ActionResu
     actorId: session.user.id, action: "LOGIN", module: "Administration",
     summary: `Vue exacte démarrée — ${target.name}`,
   });
-  redirect("/mon-travail");
+  redirect("/mon-espace");
 }
 
 export async function stopImpersonation(): Promise<void> {

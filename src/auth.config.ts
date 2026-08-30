@@ -33,7 +33,7 @@ export const authConfig = {
 
       if (isOnLogin) {
         if (isLoggedIn) {
-          return Response.redirect(new URL("/dashboard", nextUrl));
+          return Response.redirect(new URL("/mon-espace", nextUrl));
         }
         return true; // allow the login page for anonymous users
       }

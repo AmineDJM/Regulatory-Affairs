@@ -26,6 +26,10 @@ import { getRecentFiles } from "@/lib/queries/drive-quick-access";
 import { searchDrive } from "@/lib/queries/drive-search";
 import { normalizeQuery, searchSummary } from "@/lib/drive/search";
 import { letterheadContextFor } from "@/lib/queries/letterheads";
+import { canManageLetterheads } from "@/lib/office/letterhead";
+import { getMyCompanies, companyLabel } from "@/lib/company";
+import { LetterheadManager } from "@/components/office/letterhead-manager";
+import { Stamp } from "lucide-react";
 
 
 export default async function DrivePage({ searchParams }: { searchParams: { folder?: string; trash?: string; view?: string; q?: string } }) {
@@ -122,6 +126,31 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
   const { letterheads, companyId: letterheadCompanyId } = canCreate
     ? await letterheadContextFor(user.id)
     : { letterheads: [], companyId: null };
+  /**
+   * LA PAPETERIE DE LA SOCIÉTÉ — dans le menu « ⋯ », pour ceux qui la tiennent.
+   *
+   * Elle vivait sur l'écran « Bureautique », que tout le monde voyait dans le menu pour un
+   * réglage que deux personnes touchent — et qui ne servait, pour tous les autres, qu'à
+   * refaire ce que le Drive fait déjà (créer un document, l'ouvrir, le partager). L'écran
+   * disparaît ; la papeterie descend ici, invisible tant qu'on n'y a pas droit.
+   */
+  const canLetterheads = canManageLetterheads(user);
+  const letterheadTools = canLetterheads
+    ? [{
+        key: "letterheads",
+        label: "Papiers en-tête",
+        description: "Les modèles de la société, proposés à la création d'un document Word, Excel ou PowerPoint.",
+        icon: <Stamp className="h-4 w-4" />,
+        panel: (
+          <LetterheadManager
+            embedded
+            letterheads={(await letterheadContextFor(user.id, { includeInactive: true })).letterheads}
+            companies={(await getMyCompanies(user.id)).map((c) => ({ id: c.id, label: companyLabel(c) }))}
+          />
+        ),
+      }]
+    : [];
+
   // Personnes avec qui partager à l'import / ouvrir une catégorie (hors soi-même).
   const users = (canCreate || canCreateSpace)
     ? await prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
@@ -170,6 +199,11 @@ export default async function DrivePage({ searchParams }: { searchParams: { fold
           trashHref={trash ? "/drive" : "/drive?trash=1"}
           trashLabel={trash ? "Mes fichiers" : "Corbeille"}
           settings={!trash && canCreateSpace ? <CreateSpaceButton users={users} /> : undefined}
+          // LA PAPETERIE VIT DANS LE MENU « ⋯ », et n'apparaît qu'à qui la tient. Elle avait un
+          // écran à elle (« Bureautique ») que tout le monde voyait pour un réglage que deux
+          // personnes touchent. Créer un document avec en-tête, lui, reste où il a toujours
+          // été : sur le bouton « Nouveau document ».
+          tools={letterheadTools}
           primary={!trash && canCreate ? (
             <>
               <NewFolderButton parentId={folderId} />

@@ -87,7 +87,12 @@ export function pinnedApps(keys: readonly OfficeAppKey[]): OfficeApp[] {
   return keys.map((k) => officeApp(k)).filter((a): a is OfficeApp => Boolean(a));
 }
 
-/** Lien d'ouverture d'une application : l'écran Office, centré sur elle. */
+/**
+ * Lien d'ouverture d'une application : le DRIVE, prêt à créer ce type de document.
+ *
+ * L'écran « Bureautique » n'existe plus — il refaisait ce que le Drive fait déjà. L'épingle
+ * garde donc exactement son sens (« ouvre-moi un Word »), en menant là où le document naît.
+ */
 export function officeHref(key: OfficeAppKey): string {
-  return `/office?app=${key}`;
+  return `/drive?new=${key}`;
 }

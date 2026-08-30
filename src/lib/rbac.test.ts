@@ -61,7 +61,7 @@ describe("role-default permissions (can)", () => {
   });
   it("prevents a Viewer from creating", () => {
     expect(can("VIEWER", "REGULATORY", "CREATE")).toBe(false);
-    expect(can("VIEWER", "DASHBOARD", "VIEW")).toBe(true);
+    expect(can("VIEWER", "WORKSPACE", "VIEW")).toBe(true);
   });
   it("lets Direction validate every pôle (validate-everything)", () => {
     // Les BUDGETS (enveloppes) sont désormais une prérogative du Super Admin : la

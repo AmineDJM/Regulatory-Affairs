@@ -4,7 +4,7 @@ import type { CurrentUser } from "@/lib/session";
 import type { EffectiveAccess, Module, Action } from "@/lib/rbac";
 import { POWER_TOOLS } from "./power-tools";
 import { dossierStageLabel } from "./regulatory-read";
-import { completeStepsThrough } from "@/lib/regulatory-workflow";
+import { completeStepsThrough, REG_STEPS } from "@/lib/regulatory-workflow";
 
 /**
  * GOLDEN RÉGRESSION — les pannes Regulatory réelles :
@@ -131,10 +131,12 @@ suite("regulatory_workload / regulatory_portfolio — gérer ≠ accéder, parte
     expect(portfolio.allowed(bare)).toBe(false);
   });
 
-  it("GOLDEN F — un workflow 22/22 (via jalon Décision obtenue) affiche « TERMINÉ », jamais l'étape 1", () => {
+  it("GOLDEN F — un workflow COMPLET (via jalon Décision obtenue) affiche « TERMINÉ », jamais l'étape 1", () => {
     const { state } = completeStepsThrough(null, "decision");
     const stage = dossierStageLabel(state);
-    expect(stage.avancement).toBe("22/22");
+    // Le total suit le processus officiel — 23 étapes depuis l'ajout de « Étude des modules
+    // 3, 4 et 5 ». On l'écrit à partir de REG_STEPS pour que le golden survive au prochain ajout.
+    expect(stage.avancement).toBe(`${REG_STEPS.length}/${REG_STEPS.length}`);
     expect(stage.etape).toMatch(/TERMINÉ/);
     expect(stage.etape).not.toMatch(/Réception du CTD/);
   });

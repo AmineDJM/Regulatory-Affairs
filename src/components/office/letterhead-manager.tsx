@@ -27,10 +27,12 @@ const KINDS: OfficeKind[] = ["word", "cell", "slide"];
  * l'ancienne version repartant en circulation quelques semaines plus tard.
  */
 export function LetterheadManager({
-  letterheads, companies,
+  letterheads, companies, embedded = false,
 }: {
   letterheads: LetterheadOption[];
   companies: { id: string; label: string }[];
+  /** Rendu DANS une feuille (menu « ⋯ » du Drive) : le titre et le cadre sont déjà posés. */
+  embedded?: boolean;
 }) {
   const router = useRouter();
   const [adding, setAdding] = React.useState(false);
@@ -46,11 +48,13 @@ export function LetterheadManager({
   };
 
   return (
-    <section className="surface space-y-3 p-3 sm:p-4">
+    <section className={embedded ? "space-y-3" : "surface space-y-3 p-3 sm:p-4"}>
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <FileStack className="h-4 w-4 text-primary" /> Papiers en-tête
-        </h2>
+        {!embedded && (
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <FileStack className="h-4 w-4 text-primary" /> Papiers en-tête
+          </h2>
+        )}
         <Button size="sm" variant="outline" className="ml-auto" onClick={() => setAdding(true)}>
           <Plus className="h-4 w-4" /> Téléverser
         </Button>

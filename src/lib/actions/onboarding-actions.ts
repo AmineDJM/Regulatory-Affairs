@@ -40,6 +40,6 @@ export async function completeOnboarding(): Promise<ActionResult> {
     module: "Onboarding",
     summary: "Configuration guidée du compte terminée",
   });
-  revalidatePath("/dashboard");
+  revalidatePath("/mon-espace");
   return { ok: true };
 }

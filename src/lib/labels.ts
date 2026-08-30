@@ -1327,18 +1327,45 @@ export const CONGRESS_TABS: NavTab[] = [
   { module: "CONGRESS_INTERNATIONAL", label: "Internationaux", href: "/congress-international" },
   { module: "CONGRESS_NATIONAL", label: "Nationaux", href: "/congress-national" },
 ];
-// Espace personnel : travail + espace perso + tableau de bord + directives. (« Dossiers »,
-// « Calendrier » et « Mon dossier RH » en sont ressortis → entrées/modules autonomes ;
-// « Dashboard » y est entré.)
+/**
+ * L'ESPACE PERSONNEL — UN SEUL ENDROIT.
+ *
+ * Il y en avait trois : « Mon travail » (ce qu'on doit signer et traiter), « Mon espace » (ses
+ * tâches, ses congés) et « Mon dossier RH » (ses documents, ses demandes) — trois écrans pour
+ * une seule question, « qu'est-ce qui me concerne ? ». On les ouvrait l'un après l'autre pour
+ * en faire le tour, et l'on manquait celui qu'on n'avait pas pensé à ouvrir.
+ *
+ * « Mon travail » a fondu DANS « Mon espace » : ce qui attend une signature s'y lit en tête, les
+ * tâches en dessous. « Mon dossier RH » et les ordres de mission deviennent des onglets du même
+ * espace. Le « Dashboard » a disparu — voir la note du module.
+ */
 export const WORKSPACE_TABS: NavTab[] = [
   // « Aujourd'hui » : l'accueil qui répond à une seule question — que dois-je faire maintenant ?
   { module: "WORKSPACE", label: "Aujourd'hui", href: "/aujourdhui", feature: "home_today" },
-  { module: "WORKSPACE", label: "Mon travail", href: "/mon-travail" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace" },
+  { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier" },
+  { module: "WORKSPACE", label: "Mes ordres de mission", href: "/missions" },
   { module: "WORKSPACE", label: "Pièces demandées", href: "/pieces" },
-  { module: "DASHBOARD", label: "Dashboard", href: "/dashboard" },
   { module: "DIRECTIVES", label: "Directives", href: "/directives" },
 ];
+/**
+ * L'AGENDA — le calendrier ET les réunions, au même endroit.
+ *
+ * C'étaient deux entrées de menu, dans deux groupes différents, pour une seule journée : le
+ * « Calendrier » projetait DÉJÀ les réunions planifiées (`getScheduledMeetingsAsEvents`), et
+ * « Réunions & appels » listait les mêmes objets sous un autre angle. On planifiait d'un côté,
+ * on retrouvait de l'autre, et l'on cherchait toujours dans celui qu'on n'avait pas ouvert.
+ *
+ * Une entrée, deux vues : le MOIS (où l'on voit sa journée) et la LISTE des réunions (où l'on
+ * ouvre un compte rendu). Elles n'ont pas le même module — l'une tient à l'espace de travail,
+ * l'autre à la messagerie — et c'est justement ce que les onglets savent faire : chacun
+ * n'apparaît qu'à qui y a droit.
+ */
+export const AGENDA_TABS: NavTab[] = [
+  { module: "WORKSPACE", label: "Calendrier", href: "/calendar" },
+  { module: "MESSAGING", label: "Réunions & appels", href: "/meetings" },
+];
+
 // BUDGETS — trois écrans au lieu d'un seul écran fourre-tout : on REGARDE (vue d'ensemble
 // graphique), on TRAVAILLE (dépenses à imputer), on RÈGLE (enveloppe, catégories, total).
 
@@ -1358,11 +1385,6 @@ export const HR_TABS: NavTab[] = [
   { module: "RH", label: "Équipe", href: "/rh/equipe" },
   { module: "RH", label: "Congés", href: "/rh/conges" },
   { module: "RH", label: "Départements", href: "/rh/departements" },
-];
-// Mon dossier RH + Mes ordres de mission, sous une seule entrée de menu « Mon dossier RH ».
-export const MON_DOSSIER_TABS: NavTab[] = [
-  { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier" },
-  { module: "WORKSPACE", label: "Mes ordres de mission", href: "/missions" },
 ];
 // « Ad & Pro » : sponsoring + congrès (international/national) + événements +
 // matériel promotionnel, sous un seul module. Le matériel promotionnel a été
@@ -1426,11 +1448,11 @@ export const ADMIN_TABS: NavTab[] = [
  * de menu dédiée. Typé `Record<Module, string>` → exhaustivité garantie.
  */
 export const MODULE_LABELS: Record<Module, string> = {
+  FEEDBACK: "Feedback",
   GENERAL_MEANS: "Moyens généraux",
   LEGAL: "Legal",
   MAIL_REGISTER: "Courriers",
   RECRUITMENT: "Recrutement",
-  DASHBOARD: "Dashboard",
   WORKSPACE: "Espace de travail",
   MESSAGING: "Messagerie",
   REGULATORY: "Regulatory",
@@ -1490,9 +1512,8 @@ export const ACTION_LABELS: Record<Action, string> = {
 export const NAVIGATION: NavItem[] = [
   // Pilotage — « Mon espace » regroupe désormais Mon travail, Mon espace, Dashboard, Calendrier
   // et Directives (onglets). `match` couvre ces routes pour l'état actif de la barre latérale.
-  { module: "WORKSPACE", label: "Mon espace", href: "/mon-travail", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-espace", "/dashboard", "/directives", "/pieces"] },
-  { module: "WORKSPACE", label: "Calendrier", href: "/calendar", icon: "CalendarDays", group: "Pilotage" },
-  { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier", icon: "BadgeCheck", group: "Pilotage", tabs: MON_DOSSIER_TABS, match: ["/missions"] },
+  { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-travail", "/mon-dossier", "/missions", "/directives", "/pieces"] },
+  { module: "WORKSPACE", label: "Agenda", href: "/calendar", icon: "CalendarDays", group: "Pilotage", tabs: AGENDA_TABS, match: ["/meetings"] },
   // Assistant IA : MODULE À PART ENTIÈRE (l'ancienne bulle flottante a été retirée) —
   // page plein écran avec dictée vocale et lecture de pièces jointes.
   { module: "WORKSPACE", label: "Assistant IA", href: "/assistant", icon: "Sparkles", group: "Pilotage" },
@@ -1624,13 +1645,15 @@ export const NAVIGATION: NavItem[] = [
   // Admin), et les validateurs y traitent ce qui leur revient. Les validations en
   // attente restent aussi visibles dans « Mon espace » (Action Center).
   { module: "VALIDATIONS", label: "Demandes de validations", href: "/validations", icon: "ShieldCheck", group: "Transverse" },
-  { module: "MESSAGING", label: "Réunions & appels", href: "/meetings", icon: "Video", group: "Transverse" },
   { module: "DRIVE", label: "Drive", href: "/drive", icon: "FolderOpen", group: "Transverse", tabs: DOCS_TABS },
-  // Bureautique : même module que le Drive (les documents Y vivent), écran séparé parce que le
-  // geste est différent — on vient écrire, pas ranger.
-  { module: "DRIVE", label: "Bureautique", href: "/office", icon: "FileText", group: "Transverse" },
+  // BUREAUTIQUE N'A PLUS D'ENTRÉE : créer un document Word/Excel/PowerPoint est le bouton
+  // « Nouveau document » du Drive, et la papeterie de la société est dans son menu « ⋯ ».
+  // Un second écran pour les mêmes fichiers finissait par en donner une seconde liste.
   { module: "ADMIN_REQUESTS", label: "Bureau du secrétariat", href: "/demandes", icon: "ClipboardList", group: "Transverse" },
-  { module: "WORKSPACE", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
+  // FEEDBACK — module à part, donc réglable : accès par rôle ou par personne, et masquable
+  // depuis la console d'administration comme n'importe quel autre. Rattaché à « espace de
+  // travail », il était ouvert à tous sans qu'on puisse ni le fermer ni le retirer.
+  { module: "FEEDBACK", label: "Feedback", href: "/feedback", icon: "MessageSquarePlus", group: "Transverse" },
   // Système
   { module: "ADVENTUM_BRAIN", label: "Adventum Brain", href: "/adventum-brain", icon: "BrainCircuit", group: "Système", tabs: BRAIN_TABS },
   // « Console d'Administration » et non « Administration » : l'administration de

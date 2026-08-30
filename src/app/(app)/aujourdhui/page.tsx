@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function TodayPage() {
   const user = await requireModule("WORKSPACE");
-  if (!(await featureEnabled(FEATURES.HOME_TODAY.key, user.id))) redirect("/mon-travail");
+  if (!(await featureEnabled(FEATURES.HOME_TODAY.key, user.id))) redirect("/mon-espace");
 
   const today = await getToday(user);
   // Point du matin (nouveauté indépendante) : l'assistant résume la journée en 3-5 phrases.
@@ -68,7 +68,7 @@ export default async function TodayPage() {
                 +{today.restCount} autre{today.restCount > 1 ? "s" : ""} en attente
               </span>
             ) : <span />}
-            <Link href="/mon-travail" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+            <Link href="/mon-espace" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
               Tout voir <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>

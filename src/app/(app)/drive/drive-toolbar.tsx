@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { MoreHorizontal, Trash2, Maximize2, MoveHorizontal, Settings2 } from "lucide-react";
 import { setFocusMode } from "@/components/layout/focus-mode";
+import { Sheet } from "@/components/ui/sheet";
 
 /**
  * LA BARRE D'OUTILS DU DRIVE — discrète, parce qu'elle n'est pas le sujet.
@@ -22,8 +23,23 @@ import { setFocusMode } from "@/components/layout/focus-mode";
 /** Préférence « plein écran » du Drive — par navigateur, comme dans un explorateur. */
 const WIDE_KEY = "amd-drive-wide";
 
+/**
+ * UN OUTIL RARE, RANGÉ DANS LE MENU — son panneau vit HORS du menu.
+ *
+ * C'est la leçon du commentaire ci-dessous : un panneau rendu à l'intérieur du menu déroulant
+ * est démonté par le clic même qui l'ouvre. Le menu ne porte donc que l'ENTRÉE ; la feuille est
+ * montée au niveau de la barre, et survit à sa fermeture.
+ */
+export interface ToolbarTool {
+  key: string;
+  label: string;
+  description?: string;
+  icon: React.ReactNode;
+  panel: React.ReactNode;
+}
+
 export function DriveToolbar({
-  primary, trashHref, trashLabel, settings,
+  primary, trashHref, trashLabel, settings, tools = [],
 }: {
   /** Les commandes de tous les jours : créer, importer. Rendues telles quelles. */
   primary?: React.ReactNode;
@@ -31,8 +47,11 @@ export function DriveToolbar({
   trashLabel: string;
   /** Bouton « Accès & réglages » de la catégorie, quand il y a lieu. */
   settings?: React.ReactNode;
+  /** Outils rares (papeterie de la société…) : une entrée de menu, une feuille. */
+  tools?: ToolbarTool[];
 }) {
   const [open, setOpen] = React.useState(false);
+  const [tool, setTool] = React.useState<string | null>(null);
   const [wide, setWide] = React.useState(false);
 
   React.useEffect(() => { setWide(window.localStorage.getItem(WIDE_KEY) === "1"); }, []);
@@ -97,10 +116,30 @@ export function DriveToolbar({
               >
                 <Trash2 className="h-4 w-4 text-muted-foreground" /> {trashLabel}
               </Link>
+              {tools.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => { setTool(t.key); setOpen(false); }}
+                  className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left text-sm hover:bg-secondary"
+                >
+                  <span className="mt-0.5 shrink-0 text-muted-foreground">{t.icon}</span>
+                  <span>
+                    <span className="block">{t.label}</span>
+                    {t.description && <span className="block text-xs text-muted-foreground">{t.description}</span>}
+                  </span>
+                </button>
+              ))}
             </div>
           </>
         )}
       </div>
+
+      {tools.map((t) => (
+        <Sheet key={t.key} open={tool === t.key} onClose={() => setTool(null)} title={t.label} description={t.description} width="md">
+          {t.panel}
+        </Sheet>
+      ))}
     </div>
   );
 }

@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function DatabasesPage() {
   const user = await requireUser();
-  if (user.role !== "SUPER_ADMIN") redirect("/dashboard");
+  if (user.role !== "SUPER_ADMIN") redirect("/mon-espace");
 
   const [
     blobAgg, chunkCount, versionAgg, storedCount,

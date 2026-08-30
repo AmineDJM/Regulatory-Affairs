@@ -814,7 +814,7 @@ export interface AssistantResult {
 // ───────────────────────────── Libellés modules ─────────────────────────────
 
 const MODULE_FR: Partial<Record<Module, string>> = {
-  DASHBOARD: "Tableau de bord", WORKSPACE: "Mon espace / tâches", MESSAGING: "Messagerie",
+  WORKSPACE: "Mon espace / tâches", MESSAGING: "Messagerie",
   REGULATORY: "Regulatory (AMM/ANPP)", SPONSORING: "Sponsoring", BUDGETS: "Budgets",
   FINANCES: "Finances", RH: "Ressources humaines", CONGRESS_INTERNATIONAL: "Prises en charge Internationales",
   CONGRESS_NATIONAL: "Prises en charge Nationales", EVENTS: "Events (billetterie)", SALES: "Ventes",

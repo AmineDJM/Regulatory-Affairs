@@ -26,7 +26,7 @@ function isRequester(user: SessionUser, r: SupportLike): boolean {
 function revalidate(id?: string) {
   revalidatePath(PATH);
   if (id) revalidatePath(`${PATH}/${id}`);
-  revalidatePath("/mon-travail");
+  revalidatePath("/mon-espace");
 }
 
 async function nextRef(): Promise<string> {

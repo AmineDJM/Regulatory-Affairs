@@ -26,7 +26,16 @@ import { NewPaymentButton } from "./paiements/new-payment-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { DocumentList } from "@/components/documents/document-list";
 
-export default async function ValidationsPage() {
+export default async function ValidationsPage({ searchParams }: { searchParams: { focus?: string } }) {
+  /**
+   * `?focus=<stepId>` — ON ARRIVE **DANS** LA VALIDATION.
+   *
+   * Depuis « Mon espace », cliquer une validation menait à cet écran et pas plus loin : on
+   * cherchait des yeux, dans une liste, la ligne qu'on venait de cliquer. La validation visée
+   * passe désormais EN TÊTE, encadrée, avec ses pièces et son panneau de décision ouverts —
+   * on agit sans un clic de plus.
+   */
+  const focusStep = searchParams.focus ?? null;
   const user = await requireModule("VALIDATIONS");
   const [{ toValidate, myRequests, crossModule, supervised }, financePeople] = await Promise.all([
     getMyValidations(user),
@@ -34,8 +43,10 @@ export default async function ValidationsPage() {
     financeRecipients(),
   ]);
   // À traiter maintenant (mon tour) vs assignées mais en attente du validateur précédent.
-  const actionable = toValidate.filter((v) => v.actionable);
-  const upcoming = toValidate.filter((v) => !v.actionable);
+  const focusFirst = <T extends { stepId: string }>(list: T[]): T[] =>
+    focusStep ? [...list].sort((a, b) => Number(b.stepId === focusStep) - Number(a.stepId === focusStep)) : list;
+  const actionable = focusFirst(toValidate.filter((v) => v.actionable));
+  const upcoming = focusFirst(toValidate.filter((v) => !v.actionable));
 
   const mods = accessibleModules(user);
   const seen = new Set<string>();
@@ -129,7 +140,7 @@ export default async function ValidationsPage() {
           <EmptyState icon="CheckCheck" title="Aucune validation en attente" description="Les éléments qui requièrent votre validation apparaîtront ici." />
         ) : (
           <div className="space-y-3">
-            {actionable.map((v) => <PendingValidationCard key={v.stepId} v={v} actionable />)}
+            {actionable.map((v) => <PendingValidationCard key={v.stepId} v={v} actionable focused={v.stepId === focusStep} />)}
           </div>
         )}
       </section>
@@ -155,7 +166,7 @@ export default async function ValidationsPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Qui vous reviendront — en attente du validateur précédent ({upcoming.length})</h2>
           <p className="text-xs text-muted-foreground">Vous êtes validateur de ces demandes : consultez-les et leurs pièces dès maintenant ; vous pourrez décider quand ce sera votre tour.</p>
           <div className="space-y-3">
-            {upcoming.map((v) => <PendingValidationCard key={v.stepId} v={v} actionable={false} />)}
+            {upcoming.map((v) => <PendingValidationCard key={v.stepId} v={v} actionable={false} focused={v.stepId === focusStep} />)}
           </div>
         </section>
       )}
@@ -302,11 +313,11 @@ function StepChips({ steps }: { steps: MyValidationItem["steps"] }) {
  * optionnel dans les trois cas. Sinon (circuit séquentiel, pas encore son tour), il
  * consulte déjà tout mais un badge indique qu'il décidera le moment venu.
  */
-function PendingValidationCard({ v, actionable }: { v: PendingValidationItem; actionable: boolean }) {
+function PendingValidationCard({ v, actionable, focused = false }: { v: PendingValidationItem; actionable: boolean; focused?: boolean }) {
   const d = v.deadline ? daysUntil(v.deadline) : null;
   const msgDecision = v.itemDecisions.find((x) => x.itemKey === "MESSAGE");
   return (
-    <Card>
+    <Card id={`val-${v.stepId}`} className={focused ? "scroll-mt-24 ring-2 ring-primary/50" : "scroll-mt-24"}>
       <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">

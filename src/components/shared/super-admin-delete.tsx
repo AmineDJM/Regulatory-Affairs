@@ -45,7 +45,7 @@ export function SuperAdminDeleteButton({
     const r = await superAdminDelete(fd);
     if (r.ok) {
       setOpen(false);
-      router.push(r.redirect ?? "/dashboard");
+      router.push(r.redirect ?? "/mon-espace");
       router.refresh();
     } else {
       setBusy(false);

@@ -79,7 +79,10 @@ export async function getActionCenter(user: SessionUser) {
       items.push({
         key: `val-${v.stepId}`, title: v.title,
         subtitle: v.amount !== null ? formatCurrency(v.amount) : v.objectType,
-        module: "Validations", href: "/validations", kind: "validation", priority: v.priority,
+        // LE LIEN MÈNE DANS LA VALIDATION, pas sur l'écran du module. Arriver sur une liste
+        // pour y rechercher la ligne qu'on vient de cliquer est un pas de trop — et c'est
+        // celui qu'on ne fait pas : on repart, et la validation attend un jour de plus.
+        module: "Validations", href: `/validations?focus=${v.stepId}#val-${v.stepId}`, kind: "validation", priority: v.priority,
         deadline: v.deadline, owner: v.requester,
         statusLabel: v.actionable ? "À valider" : "En attente du validateur précédent",
         statusTone: v.actionable ? "warning" : "neutral",
@@ -119,7 +122,7 @@ export async function getActionCenter(user: SessionUser) {
     for (const o of orders) {
       items.push({
         key: `pay-${o.id}`, title: o.label, subtitle: `${o.reference} · ${formatCurrency(toNumber(o.amount))}`,
-        module: "Espace comptable", href: "/finances/ordres-de-depense", kind: "payment", priority: null,
+        module: "Espace comptable", href: `/finances/ordres-de-depense?focus=${o.id}#ord-${o.id}`, kind: "payment", priority: null,
         deadline: o.dueDate?.toISOString() ?? null, owner: o.beneficiary ?? "", ...resolve(EXPENSE_ORDER_STATUS, o.status),
       });
     }

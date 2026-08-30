@@ -12,13 +12,11 @@ export const metadata = { title: "Bienvenue — AMD Internal OS" };
  * espace » concret : à quoi sert chaque onglet auquel l'utilisateur a accès.
  */
 const DESTINATION_HELP: Record<string, string> = {
-  "/mon-travail": "Vos tâches, validations à faire et demandes en attente, réunies au même endroit.",
-  "/mon-espace": "Votre tableau de bord personnel : activité, raccourcis et suivi.",
+  "/mon-espace": "Tout ce qui vous concerne : ce qui attend votre signature, vos tâches, vos congés.",
   "/messages": "Messagerie interne temps réel — discutez par canal ou en privé, partagez des fichiers.",
   "/courrier": "Votre boîte e-mail professionnelle (Infomaniak) lue et envoyée sans quitter l'OS.",
   "/directives": "Les instructions priorisées de la Direction et l'espace d'échange associé.",
   "/mon-dossier": "Votre dossier RH : congés, documents, avances sur salaire.",
-  "/dashboard": "La vue d'ensemble de l'activité de l'entreprise (KPIs, graphiques).",
   "/regulatory": "Dossiers d'enregistrement (AMM/ANPP), échéances et documents réglementaires.",
   "/sponsoring": "Demandes de sponsoring : circuit d'analyse, budget et validation.",
   "/budgets": "Suivi budgétaire par ligne, engagements et consommation.",

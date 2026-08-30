@@ -91,7 +91,10 @@ export const ENTITIES: EntityDef[] = [
   {
     name: "company",
     model: "Company",
-    module: "DASHBOARD",
+    // Lue par quiconque a un espace de travail : l'entité cloisonne presque tout, la connaître
+    // est un préalable, pas un privilège. (Elle était rattachée au « tableau de bord », qui
+    // n'existe plus.)
+    module: "WORKSPACE",
     label: "Entité du groupe",
     description: "Société du groupe (Adventum, Pharmagène…). L'entité cloisonne la plupart des objets de la plateforme.",
     scope: moduleOnly,

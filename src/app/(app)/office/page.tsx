@@ -1,174 +1,19 @@
-import Link from "next/link";
-import { Users } from "lucide-react";
-import { requireModule } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
-import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
-import { PageHeader } from "@/components/shared/page-header";
-import { EmptyState } from "@/components/shared/empty-state";
-import { formatDateTime } from "@/lib/utils";
-import { explorerSize, fileTypeLabel } from "@/lib/drive/explorer";
-import { OFFICE_APPS, type OfficeAppKey } from "@/lib/office/apps";
-import { canManageLetterheads } from "@/lib/office/letterhead";
-import { letterheadContextFor } from "@/lib/queries/letterheads";
-import { getMyCompanies, companyLabel } from "@/lib/company";
-import { DriveTable, type DriveRow } from "../drive/drive-table";
-import { OfficeLauncher } from "./office-launcher";
-import { LetterheadManager } from "./letterhead-manager";
-
-export const dynamic = "force-dynamic";
-
-/** Assez pour couvrir « ce sur quoi je travaille en ce moment », sans devenir une seconde liste. */
-const RECENT_TAKE = 60;
-const RECENT_SHOWN = 15;
+import { redirect } from "next/navigation";
 
 /**
- * BUREAUTIQUE — Word, Excel, PowerPoint, sur les documents de l'ERP.
+ * « BUREAUTIQUE » N'EXISTE PLUS — TOUT SE FAIT DEPUIS LE DRIVE.
  *
- * Les fichiers restent dans le Drive : mêmes droits, même cloisonnement par entité, même journal
- * d'audit, même chiffrement. L'éditeur lit et écrit les VRAIS formats (`.docx`, `.xlsx`, `.pptx`),
- * ouvrables ensuite dans Microsoft Office sur un poste.
+ * Cet écran ne faisait rien que le Drive ne fasse déjà, et le faisait sur une SECONDE liste :
+ * créer un document Word/Excel/PowerPoint (c'est le bouton « Nouveau document » du Drive),
+ * ouvrir, partager, mettre à la corbeille. Un module de menu pour une porte d'entrée en double,
+ * et deux listes vouées à diverger sur un détail — c'est ce détail qu'on remarque.
+ *
+ * Ce qu'il portait de réellement propre, la PAPETERIE de la société, est descendu dans le menu
+ * « ⋯ » du Drive, où il n'apparaît qu'à qui la tient (assistante de direction, Super Admin) :
+ * un réglage que deux personnes touchent n'a pas à occuper une entrée de menu pour tous.
+ *
+ * L'adresse redirige plutôt que de disparaître : elle vit dans des favoris.
  */
-export default async function OfficePage({ searchParams }: { searchParams: { app?: string } }) {
-  const user = await requireModule("DRIVE");
-  const focus = OFFICE_APPS.find((a) => a.key === searchParams.app)?.key as OfficeAppKey | undefined;
-
-  // Les documents bureautiques récents, filtrés par la MÊME résolution d'accès que le Drive :
-  // cet écran est une porte d'entrée, jamais un contournement.
-  const candidates = await prisma.driveNode.findMany({
-    where: {
-      type: "FILE", isTrashed: false,
-      OR: [
-        { name: { endsWith: ".docx", mode: "insensitive" } },
-        { name: { endsWith: ".xlsx", mode: "insensitive" } },
-        { name: { endsWith: ".pptx", mode: "insensitive" } },
-      ],
-    },
-    select: {
-      id: true, name: true, size: true, updatedAt: true, owner: { select: { name: true } },
-      // AVEC QUI le document est partagé : c'est ce qui distingue un fichier personnel d'un
-      // document de travail à plusieurs, et c'est invisible tant qu'on ne l'affiche pas.
-      shares: { select: { access: true, user: { select: { name: true } } } },
-    },
-    orderBy: { updatedAt: "desc" },
-    take: RECENT_TAKE,
-  });
-
-  // On retient l'ACCÈS résolu, pas seulement la visibilité : c'est lui qui décide si la ligne
-  // peut être renommée, partagée ou supprimée depuis ici.
-  const visible: { row: (typeof candidates)[number]; canEdit: boolean }[] = [];
-  for (const n of candidates) {
-    if (visible.length >= RECENT_SHOWN) break;
-    const access = await resolveDriveAccess(user, n.id);
-    if (canViewDrive(access)) visible.push({ row: n, canEdit: access === "EDIT" });
-  }
-
-  // La papeterie : proposée à tous à la création, tenue par les seuls habilités. Ces derniers
-  // voient AUSSI les en-têtes retirés — sinon un modèle mis de côté devient introuvable.
-  const canManage = canManageLetterheads(user);
-  const { letterheads, companyId } = await letterheadContextFor(user.id, { includeInactive: canManage });
-  const manageableCompanies = canManage
-    ? (await getMyCompanies(user.id)).map((c) => ({ id: c.id, label: companyLabel(c) }))
-    : [];
-
-  const officeEnabled = onlyofficeConfigured();
-  const users = visible.some((v) => v.canEdit)
-    ? await prisma.user.findMany({ where: { isActive: true, id: { not: user.id } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
-    : [];
-
-  // LES DOCUMENTS DÉJÀ COLLABORATIFS — ceux qu'on partage en modification. Les nommer, avec les
-  // personnes concernées, donne à voir que le travail à plusieurs existe et fonctionne ici.
-  const collaborative = visible
-    .filter(({ row }) => row.shares.some((s) => s.access === "EDIT"))
-    .slice(0, 6)
-    .map(({ row }) => {
-      const names = row.shares.filter((s) => s.access === "EDIT").map((s) => s.user?.name ?? "—");
-      return {
-        id: row.id,
-        name: row.name,
-        withWhom: names.length <= 2 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`,
-      };
-    });
-
-  // EXACTEMENT la liste du Drive — sélection Ctrl/Maj, ouverture multiple, partage et corbeille
-  // groupés. Une seconde liste « spéciale bureautique » finirait par diverger sur un détail, et
-  // c'est ce détail qu'on remarque.
-  const rows: DriveRow[] = visible.map(({ row: n, canEdit }) => ({
-    id: n.id, name: n.name, isFile: true,
-    category: null,
-    owner: n.owner?.name ?? "—",
-    size: n.size,
-    sizeLabel: explorerSize(n.size, true),
-    typeLabel: fileTypeLabel(n.name, true),
-    updatedAt: n.updatedAt.toISOString(),
-    updatedLabel: formatDateTime(n.updatedAt),
-    canEdit,
-    href: officeEnabled && canEdit ? `/drive/${n.id}/edit` : `/drive/vue?ids=${n.id}`,
-  }));
-
-  return (
-    <div className="space-y-5">
-      <PageHeader title="Bureautique" description="Word, Excel et PowerPoint sur vos documents — ils restent dans le Drive, avec ses droits." />
-
-      <OfficeLauncher
-        officeEnabled={officeEnabled} focus={focus}
-        letterheads={letterheads.filter((l) => l.isActive)} companyId={companyId}
-      />
-
-      {canManage && <LetterheadManager letterheads={letterheads} companies={manageableCompanies} />}
-
-      {/* LA CO-ÉDITION NE SE DEVINE PAS. Deux personnes qui ouvrent le même document travaillent
-          dessus EN MÊME TEMPS, curseurs visibles — mais personne ne le découvre par accident, et
-          l'on continue de s'envoyer « v3_final_ok.docx » par mail. Il faut le dire. */}
-      {officeEnabled && (
-        <section className="surface space-y-2 p-3 sm:p-4">
-          <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <Users className="h-4 w-4 text-primary" /> Travailler à plusieurs sur le même document
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            Partagez un document en <strong className="text-foreground">modification</strong> (bouton « Partager » sur
-            sa ligne), puis ouvrez-le : ceux qui l&apos;ont aussi ouvert apparaissent, chacun avec son curseur, et les
-            modifications se voient en direct. Plus de « v3_final_ok.docx » qui circule par mail.
-            Le fichier reste dans le Drive, avec ses droits et son historique de versions.
-          </p>
-          {collaborative.length > 0 && (
-            <ul className="flex flex-wrap gap-1.5 pt-0.5">
-              {collaborative.map((c) => (
-                <li key={c.id}>
-                  <Link
-                    href={officeEnabled ? `/drive/${c.id}/edit` : `/drive/${c.id}`}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs hover:bg-secondary"
-                  >
-                    <span className="max-w-[16rem] truncate font-medium">{c.name}</span>
-                    <span className="text-muted-foreground">· {c.withWhom}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
-
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Documents récents</h2>
-        {rows.length === 0 ? (
-          <EmptyState
-            icon="FileText"
-            title="Aucun document bureautique"
-            description="Créez un document ci-dessus, ou importez un fichier Word, Excel ou PowerPoint dans le Drive."
-          />
-        ) : (
-          <DriveTable rows={rows} moveTargets={[]} trash={false} users={users.length ? users : undefined} spaceId={null} />
-        )}
-      </section>
-
-      {!officeEnabled && (
-        <p className="surface p-3 text-xs text-muted-foreground">
-          <strong className="text-foreground">Édition dans le navigateur non activée sur ce serveur.</strong> Les documents
-          se créent et se téléchargent normalement ; l&apos;édition en ligne s&apos;ouvrira dès que le serveur d&apos;édition
-          sera configuré (Administration).
-        </p>
-      )}
-    </div>
-  );
+export default function OfficeRedirect() {
+  redirect("/drive");
 }

@@ -38,9 +38,10 @@ export function OfficePins() {
 
   const apps = pinnedApps(pins);
   if (apps.length === 0) return null;
-  // On surligne l'écran Bureautique, pas l'application choisie : lire `?app=` obligerait à
-  // `useSearchParams`, qui force une frontière Suspense sur TOUTES les pages portant ce menu.
-  const onOffice = pathname === "/office";
+  // On surligne le Drive, où les documents naissent et vivent — pas l'application choisie :
+  // lire `?new=` obligerait à `useSearchParams`, qui force une frontière Suspense sur TOUTES
+  // les pages portant ce menu.
+  const onOffice = pathname === "/drive";
 
   return (
     <div>

@@ -23,7 +23,7 @@ import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, FLAT_GROUPS }
 
 /** Cibles fixes de la barre : on privilégie ce qu'on ouvre 20 fois par jour. */
 const PRIMARY: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; match: string[] }[] = [
-  { href: "/mon-travail", label: "Espace", icon: LayoutGrid, match: ["/mon-travail", "/mon-espace", "/dashboard", "/directives"] },
+  { href: "/mon-espace", label: "Espace", icon: LayoutGrid, match: ["/mon-espace", "/mon-travail", "/mon-dossier", "/missions", "/directives"] },
   { href: "/messages", label: "Messages", icon: MessageSquare, match: ["/messages"] },
   { href: "/assistant", label: "Assistant", icon: Sparkles, match: ["/assistant"] },
 ];

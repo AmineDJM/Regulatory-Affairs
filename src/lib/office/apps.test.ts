@@ -73,7 +73,7 @@ describe("Les épingles du menu — la préférence de chacun", () => {
   });
 
   it("chaque application a un lien qui l'ouvre directement", () => {
-    expect(officeHref("cell")).toBe("/office?app=cell");
+    expect(officeHref("cell")).toBe("/drive?new=cell");
     for (const a of OFFICE_APPS) expect(officeHref(a.key)).toContain(a.key);
   });
 });

@@ -11,7 +11,9 @@ import { visibleToFinance, type CentralStatus } from "@/lib/payments/authorizati
 import { OrdersTable, type OrderRow } from "./orders-table";
 import { BackLink } from "@/components/shared/back-link";
 
-export default async function OrdresDepensePage() {
+export default async function OrdresDepensePage({ searchParams }: { searchParams: { focus?: string } }) {
+  // `?focus=` : la ligne qu'on vient de cliquer depuis « Mon espace ». Voir OrdersTable.
+  const focusId = searchParams.focus ?? null;
   const user = await requireModule("FINANCES");
   const canSettle = userCan(user, "FINANCES", "UPDATE");
   const canDirection = hasGlobalView(user.role) || userCan(user, "FINANCES", "VALIDATE") || userCan(user, "BUDGETS", "VALIDATE");
@@ -71,20 +73,20 @@ export default async function OrdresDepensePage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">À régler</h2>
-        <OrdersTable rows={pending.map(toRow)} canSettle={canSettle} canDirection={canDirection} emptyLabel="Aucun ordre à régler" />
+        <OrdersTable rows={pending.map(toRow)} canSettle={canSettle} canDirection={canDirection} emptyLabel="Aucun ordre à régler" focusId={focusId} />
       </section>
 
       {revisions.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Révisions de budget demandées ({revisions.length})</h2>
-          <OrdersTable rows={revisions.map(toRow)} canSettle={canSettle} canDirection={canDirection} />
+          <OrdersTable rows={revisions.map(toRow)} canSettle={canSettle} canDirection={canDirection} focusId={focusId} />
         </section>
       )}
 
       {others.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Historique</h2>
-          <OrdersTable rows={others.map(toRow)} canSettle={false} />
+          <OrdersTable rows={others.map(toRow)} canSettle={false} focusId={focusId} />
         </section>
       )}
     </div>

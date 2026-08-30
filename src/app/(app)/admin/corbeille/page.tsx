@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 /** Corbeille des suppressions définitives — Super Admin uniquement. */
 export default async function CorbeillePage() {
   const user = await requireUser();
-  if (user.role !== "SUPER_ADMIN") redirect("/dashboard");
+  if (user.role !== "SUPER_ADMIN") redirect("/mon-espace");
 
   const rows = await prisma.deletedRecord.findMany({
     where: { purgedAt: null },
