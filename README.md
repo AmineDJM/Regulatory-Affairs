@@ -3402,6 +3402,28 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### ADAM RUN 4 JOUÉ — 38/54 · 0 défaut · acceptance 20/22 live, et les correctifs post-run (2026-08)
+
+**Le Run 4 réel** (Render, jeton MTF1QHY3Q02W) : **38/54 SUCCÈS (70,4 % vs 42,6 % au Run 3), 16
+conclusions honnêtes, 0 DÉFAUT (vs 2)** ; voie MODÈLE 21/24 (87,5 %) ; acceptance **20 PASS /
+2 FAIL / 1 NOT_PROVEN_LIVE** — background, temporel, événements, e-mail, rappels, crash,
+massif (120 filles), formes, spéculation, anti-triche, coût, web, concurrence adaptative et
+réservation de jetons **prouvés live** ; CACHE_HIT mesuré **42,5 %** (336 823 jetons). L'audit
+des non-succès a produit quatre correctifs NATIFS : **(F-A)** la réconciliation des éventails —
+une fille contournée par un replan n'est plus une « incohérence de comptage » éternelle
+(`controlerQualite(steps, clesContournees)`, annonce d'éventail dédoublonnée et fusions dites ;
+le vrai trou — clé annoncée introuvable partout — bloque toujours, sabotage au banc) ;
+**(F-B)** `inspect_record` résout désormais les **identifiants internes** qu'une recherche a
+rendus (`{ id: ref }` sur les 10 tables — la contradiction CIBLER→LIRE du pipeline direct est
+morte, test sur vraie base) ; **(F-D)** le budget de sortie connaît la **recherche web**
+(`SUPPLEMENT_RECHERCHE_WEB`, mesuré sur la coupure 3 400/1 774-reasoning du run) et le
+rattrapage rejoue UNE fois toute coupure par notre plafond, **tronquée ou vide** — WEB-2/WEB-3
+ne meurent plus sur une synthèse coupée ; **(F-E)** la preuve CACHE-1 lit d'abord la mesure de
+PRODUCTION de la porte (42,5 % du run) et DIT l'échec de la sonde étroite. **Restent deux
+actions humaines** : les tarifs `ADAM_PRICE_*` sur Render (TOTAL_COST = INCONNU, 168 appels
+sans tarif) et la facturation du stockage objet (402 sur `read_document`, cause première des
+honnêtes DOCUMENT_DRIVE). Détail : `docs/ADAM_PERFORMANCE.md` §K.
+
 ### ADAM RUN-4 ACCEPTANCE — chaque capacité prouvée DANS le run, verdict automatique (2026-08)
 
 **La couche d'acceptance** (`src/platform/in-process/missions/acceptance.ts`) : après les 54

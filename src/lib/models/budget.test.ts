@@ -84,6 +84,19 @@ describe("la politique de budget", () => {
     expect(mission.maxOutputTokens).toBeLessThanOrEqual(20_000);
   });
 
+  it("RUN 4 : un tour de recherche WEB reçoit son supplément — l'appel qui a coupé la veille ne coupe plus", () => {
+    // La mesure exacte du Run 4 : worker/low, webSearch, 1 400 visibles → plafond 3 400, épuisé
+    // (reasoning 1774 + synthèse coupée à 1 626). Le supplément dit ce que la mesure a montré :
+    // un tour de recherche web paie la délibération entre recherches ET les items web_search_call.
+    const sans = outputBudget({ role: "worker", effort: "low", toolCount: 0, requested: 1400 });
+    const avec = outputBudget({ role: "worker", effort: "low", toolCount: 0, requested: 1400, webSearch: true });
+    expect(sans.maxOutputTokens).toBe(3400); // l'ancien plafond, celui que le run a vu s'épuiser
+    expect(avec.headroom).toBe(sans.headroom + BUDGET_POLICY.SUPPLEMENT_RECHERCHE_WEB);
+    expect(avec.maxOutputTokens).toBe(3400 + BUDGET_POLICY.SUPPLEMENT_RECHERCHE_WEB);
+    // Et la garantie de non-régression tient : sans webSearch, pas un jeton ne bouge.
+    expect(outputBudget({ role: "worker", effort: "none", toolCount: 0, requested: 2000 }).maxOutputTokens).toBe(2000);
+  });
+
   it("un plafond absolu protège d'un réglage aberrant", () => {
     const fou = outputBudget({ role: "orchestrator", effort: "max", toolCount: 40, requested: 900_000 });
     expect(fou.maxOutputTokens).toBe(BUDGET_POLICY.PLAFOND);
@@ -234,6 +247,42 @@ describe("la passerelle applique la politique — et l'adaptateur ne la contredi
     expect(dit).toContain("BUDGET DE SORTIE ÉPUISÉ");
     expect(dit).toContain("reasoning_tokens");
     expect(dit).toContain("budget.ts");
+  });
+
+  it("RUN 4 : une réponse TRONQUÉE par le plafond est rejouée aussi — pas seulement la vide", async () => {
+    // Le trou mesuré : 1 626 jetons visibles rendus AVANT la coupure → `blocks` non vide → aucun
+    // rattrapage → la synthèse coupée en plein vol descendait la chaîne et la mission mourait
+    // BLOCKED. Agir sur une réponse tronquée est pire qu'un appel payé deux fois.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    serveur([
+      {
+        id: "r1", status: "incomplete", incomplete_details: { reason: "max_output_tokens" },
+        output: [{ type: "message", content: [{ type: "output_text", text: "Synthèse coupée en plein v" }] }],
+        usage: { input_tokens: 10, output_tokens: 3400, output_tokens_details: { reasoning_tokens: 1774 } },
+      },
+      reponse({ output: [{ type: "message", content: [{ type: "output_text", text: "Synthèse complète, sourcée." }] }] }),
+    ]);
+
+    const r = await callModel("worker", [{ role: "user", content: "x" }], { maxOutputTokens: 1400, reasoning: "low" });
+
+    expect(textOf(r.blocks)).toBe("Synthèse complète, sourcée.");
+    expect(captures).toHaveLength(2);
+    expect(Number(captures[1].body.max_output_tokens))
+      .toBeGreaterThan(Number(captures[0].body.max_output_tokens));
+  });
+
+  it("le rejeu du plafond reste borné à UNE relance — deux coupures ne font pas trois appels", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const coupe = {
+      id: "r1", status: "incomplete", incomplete_details: { reason: "max_output_tokens" },
+      output: [{ type: "message", content: [{ type: "output_text", text: "encore coupé" }] }],
+      usage: { input_tokens: 10, output_tokens: 999, output_tokens_details: { reasoning_tokens: 100 } },
+    };
+    serveur([coupe, coupe]);
+    const r = await callModel("worker", [{ role: "user", content: "x" }], { maxOutputTokens: 500 });
+    expect(captures).toHaveLength(2);
+    // La seconde coupure est RENDUE telle quelle, avec sa cause — jamais une boucle de paiement.
+    expect(r.usage.incompleteReason).toBe("max_output_tokens");
   });
 
   it("un `content_filter` n'est PAS rejoué : agrandir le budget n'y changerait rien", async () => {

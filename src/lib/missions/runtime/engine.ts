@@ -983,9 +983,25 @@ async function deployerEventail(
     return 0;
   }
 
+  /**
+   * DEUX ÉLÉMENTS, UNE IDENTITÉ → UNE SEULE ITÉRATION, ET C'EST DIT.
+   *
+   * L'upsert ci-dessous dédoublonne DÉJÀ en base (même clé = même ligne). Mais la première
+   * écriture de ce fichier annonçait `expanded: cles.length` AVEC les doublons — le parent
+   * disait « 3 itérations » quand la base en portait 2, et le contrôle qualité comptait une
+   * incohérence éternelle sur une mission parfaitement saine. L'annonce dit désormais la
+   * vérité de la base ; les identités fusionnées sont nommées au journal, jamais tues.
+   */
+  const clesVues = new Set<string>();
+  const doublons: string[] = [];
   const cles: string[] = [];
   for (const [i, element] of collection.entries()) {
     const cle = `${step.key}#${identiteIteration(element, i)}`;
+    if (clesVues.has(cle)) {
+      doublons.push(cle);
+      continue;
+    }
+    clesVues.add(cle);
     cles.push(cle);
     await prisma.missionStep.upsert({
       where: { missionId_key: { missionId: etat.id, key: cle } },
@@ -1036,8 +1052,11 @@ async function deployerEventail(
     data: { status: "WAITING", result: { expanded: cles.length, keys: cles } as never },
   });
   await journaliser(etat.id, "FANOUT",
-    `« ${step.title} » déployée en ${cles.length} étapes individuelles.`,
-    { stepKey: step.key, count: cles.length });
+    `« ${step.title} » déployée en ${cles.length} étapes individuelles.`
+    + (doublons.length > 0
+      ? ` ${doublons.length} élément(s) partageaient une identité déjà déployée — fusionnés, pas dupliqués : ${[...new Set(doublons)].slice(0, 5).join(", ")}.`
+      : ""),
+    { stepKey: step.key, count: cles.length, ...(doublons.length > 0 ? { fusionnes: doublons.length } : {}) });
 
   return cles.length;
 }
@@ -1054,7 +1073,12 @@ async function resoudreEventails(etat: EtatMission): Promise<number> {
   for (const step of etat.steps) {
     if (step.status !== "WAITING") continue;
     const r = step.result as { keys?: unknown } | null;
-    const cles = Array.isArray(r?.keys) ? (r!.keys as unknown[]).filter((k): k is string => typeof k === "string") : [];
+    // Dédoublonné DÉFENSIVEMENT : un résultat écrit avant le correctif d'annonce (voir le
+    // déploiement) peut porter deux fois la même clé — la refermer au compte des doublons
+    // referait exactement l'incohérence qu'on vient d'éteindre.
+    const cles = Array.isArray(r?.keys)
+      ? [...new Set((r!.keys as unknown[]).filter((k): k is string => typeof k === "string"))]
+      : [];
     if (cles.length === 0) continue;
 
     const filles = etat.steps.filter((s) => cles.includes(s.key));
@@ -1200,11 +1224,24 @@ export async function conclure(
     input: s.input,
   }));
 
+  /**
+   * LES CLÉS CONTOURNÉES VOYAGENT AVEC LA VUE FILTRÉE — la réconciliation des éventails.
+   *
+   * Le Run 4 a mesuré le défaut de la vue seule : un parent d'éventail DONE annonce ses filles
+   * sous le plan qui l'a déployé ; une fille en échec contournée par un replan sort de la vue,
+   * et le contrôle qualité comptait alors une « incohérence de comptage » ÉTERNELLE — trois
+   * missions brûlées au plafond de replanifications pour une itération que le journal disait
+   * déjà contournée. La fille contournée n'est pas un trou : elle est nommée. Le trou — une clé
+   * annoncée qui n'existe NULLE PART — bloque toujours.
+   */
+  const clesContournees: ReadonlySet<string> = new Set(
+    etat.steps.filter((s) => s.contournee).map((s) => s.key));
+
   const encoreEnCours = observees.some((s) => !STEP_TERMINAL.has(s.status)
     && !(s.status === "FAILED" && s.attempt >= s.maxAttempts));
   if (encoreEnCours) return synchroniserEtat(missionId, etat);
 
-  const qa = controlerQualite(observees);
+  const qa = controlerQualite(observees, clesContournees);
   /**
    * LE PLAFOND D'EFFET EST DÉDUIT DU CATALOGUE, PAS DÉCLARÉ.
    *
@@ -1219,6 +1256,7 @@ export async function conclure(
     objectif: etat.goalRaw,
     criteres: etat.acceptance,
     steps: observees,
+    clesContournees,
     juge: deps.juge,
     anterieur: await dernierJugement(missionId),
     plafondEffet,

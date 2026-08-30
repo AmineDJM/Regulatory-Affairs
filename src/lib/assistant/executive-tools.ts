@@ -261,7 +261,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
     def: {
       name: "inspect_record",
       description:
-        "L'HISTOIRE COMPLÈTE d'un dossier à partir de sa RÉFÉRENCE (ou d'un fragment de titre) : demande de paiement (PAY-…), " +
+        "L'HISTOIRE COMPLÈTE d'un dossier à partir de sa RÉFÉRENCE, de son IDENTIFIANT interne (id rendu par une recherche) ou d'un fragment de titre : demande de paiement (PAY-…), " +
         "règlement/ordre de dépense, document Legal (devis, BC, facture, contrat), matériel promotionnel, demande du secrétariat " +
         "(REQ-…), dossier Regulatory (REG-…), facture Finances, courrier du registre, projet délégué (DOS-…), tâche. " +
         "Renvoie la fiche, la TIMELINE reconstruite (qui a fait quoi, quand), les VALIDATEURS nommés avec leurs dates, les pièces " +
@@ -269,7 +269,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         "À utiliser pour « donne-moi toute l'histoire de cet achat », « qui a validé ? », « est-ce qu'on a payé ? », « où en est ce dossier ? ».",
       input_schema: {
         type: "object",
-        properties: { reference: { type: "string", description: "Référence exacte (PAY-2026-014, ORD-…, REF du BC) ou fragment de titre d'un document Legal." } },
+        properties: { reference: { type: "string", description: "Référence exacte (PAY-2026-014, ORD-…, REF du BC), identifiant interne rendu par une recherche (id), ou fragment de titre d'un document Legal." } },
         required: ["reference"],
       },
     },
@@ -280,9 +280,21 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       const ref = str(input, "reference");
       if (ref.length < 2) return "Donnez une référence ou un fragment de titre.";
 
+      /**
+       * L'IDENTIFIANT INTERNE EST RÉSOLU, PAS SEULEMENT LA RÉFÉRENCE — le correctif du Run 4.
+       *
+       * Le pipeline direct des missions (RECHERCHER → CIBLER → LIRE) recopie l'`id` EXACT rendu
+       * par une recherche — c'est la consigne, et elle est juste. Or cet outil ne cherchait que
+       * `reference`/`title` : servi avec l'id que le SYSTÈME LUI-MÊME avait rendu, il répondait
+       * « Aucun dossier ne porte la référence » — contradiction relevée par le juge, replan
+       * vide, mission BLOCKED (mesuré : COURRIERS, FINANCES, LEGAL, TACHES). Un identifiant
+       * qu'on a distribué se relit ; chaque table porte donc `{ id: ref }` dans son OR — une
+       * égalité stricte, qui ne peut rien attraper d'autre.
+       */
+
       // 1) Demande de paiement.
       const pay = await prisma.paymentRequest.findFirst({
-        where: { OR: [{ reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
+        where: { OR: [{ id: ref }, { reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
         include: { pieces: { select: { kind: true, status: true, note: true } } },
       });
       if (pay) {
@@ -335,7 +347,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
 
       // 2) Ordre de dépense (règlement).
       const order = await prisma.expenseOrder.findFirst({
-        where: { OR: [{ reference: { equals: ref, mode: "insensitive" } }, { label: { contains: ref, mode: "insensitive" } }] },
+        where: { OR: [{ id: ref }, { reference: { equals: ref, mode: "insensitive" } }, { label: { contains: ref, mode: "insensitive" } }] },
         include: { requestedBy: { select: { name: true } } },
       });
       if (order) {
@@ -358,7 +370,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
 
       // 3) Document Legal — et sa CHAÎNE devis → BC → facture → règlement.
       const legal = await prisma.legalDocument.findFirst({
-        where: { OR: [{ reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
+        where: { OR: [{ id: ref }, { reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
         select: { id: true, title: true, reference: true, kind: true, counterparty: true, amount: true, startDate: true, endDate: true, status: true, chainFromId: true, expenseOrderId: true },
       });
       if (legal) {
@@ -413,7 +425,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
 
       // 4) Matériel promotionnel.
       const promo = await prisma.promoMaterial.findFirst({
-        where: { OR: [{ reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
+        where: { OR: [{ id: ref }, { reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
         select: { id: true, reference: true, title: true, circuitState: true, tracksDone: true, status: true, chosenAgency: true, amount: true, chosenAmount: true },
       });
       if (promo) {
@@ -433,7 +445,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
 
       // 5) Demande du secrétariat.
       const req = await prisma.administrativeRequest.findFirst({
-        where: { OR: [{ reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
+        where: { OR: [{ id: ref }, { reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
         select: { id: true, reference: true, title: true, type: true, status: true, assignedTo: { select: { name: true } } },
       });
       if (req) {
@@ -450,7 +462,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
 
       // 6) Dossier Regulatory (REG-…, ou DCI / nom commercial).
       const reg = await prisma.regulatoryProduct.findFirst({
-        where: { OR: [{ reference: { equals: ref, mode: "insensitive" } }, { dci: { contains: ref, mode: "insensitive" } }, { brandName: { contains: ref, mode: "insensitive" } }] },
+        where: { OR: [{ id: ref }, { reference: { equals: ref, mode: "insensitive" } }, { dci: { contains: ref, mode: "insensitive" } }, { brandName: { contains: ref, mode: "insensitive" } }] },
         select: {
           id: true, reference: true, dci: true, brandName: true, status: true, priority: true,
           therapeuticClass: true, partnerLab: true, targetSubmissionDate: true, targetDate: true,
@@ -558,7 +570,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
 
       // 7) Facture (module Finances) — par n° ou titre.
       const invoice = await prisma.invoice.findFirst({
-        where: { OR: [{ number: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
+        where: { OR: [{ id: ref }, { number: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
         select: {
           id: true, number: true, title: true, status: true, direction: true, amount: true,
           issueDate: true, dueDate: true, paidDate: true, recipient: true, payer: true,
@@ -586,7 +598,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
 
       // 8) Courrier du registre — par référence de chrono ou objet.
       const mail = await prisma.mailEntry.findFirst({
-        where: { OR: [{ reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
+        where: { OR: [{ id: ref }, { reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
         select: {
           id: true, reference: true, title: true, direction: true, sender: true, recipient: true,
           sentAt: true, receivedAt: true, acknowledgedAt: true, carrier: true, notes: true, driveNodeId: true,
@@ -621,7 +633,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
 
       // 9) Projet délégué (DOS-…).
       const dossier = await prisma.dossier.findFirst({
-        where: { OR: [{ reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
+        where: { OR: [{ id: ref }, { reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
         select: {
           id: true, reference: true, title: true, status: true, priority: true, category: true, dueDate: true,
           assignedTo: { select: { name: true } }, createdBy: { select: { name: true } },
@@ -646,7 +658,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
 
       // 10) Tâche — par fragment de titre (en dernier : les titres sont les moins spécifiques).
       const task = await prisma.task.findFirst({
-        where: { title: { contains: ref, mode: "insensitive" } },
+        where: { OR: [{ id: ref }, { title: { contains: ref, mode: "insensitive" } }] },
         select: {
           id: true, title: true, description: true, status: true, priority: true, dueDate: true, createdAt: true,
           assignedTo: { select: { name: true } }, createdBy: { select: { name: true } },
@@ -668,7 +680,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         });
       }
 
-      return `Aucun dossier ne porte la référence « ${ref} » — ni demande de paiement, ni règlement, ni document Legal, ni matériel promotionnel, ni demande du secrétariat, ni dossier Regulatory, ni facture, ni courrier, ni projet, ni tâche. Je préfère le dire plutôt que d'inventer.`;
+      return `Aucun dossier ne porte la référence « ${ref} » (essayée comme référence, comme identifiant interne et comme fragment de titre) — ni demande de paiement, ni règlement, ni document Legal, ni matériel promotionnel, ni demande du secrétariat, ni dossier Regulatory, ni facture, ni courrier, ni projet, ni tâche. Je préfère le dire plutôt que d'inventer.`;
     },
   },
 

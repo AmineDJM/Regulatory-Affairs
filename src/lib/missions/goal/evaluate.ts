@@ -90,8 +90,25 @@ const nombre = (v: unknown, champ: string): number | null => {
  *
  * Un éventail compte pour ses ITÉRATIONS, pas pour un. C'est le point : trente-trois envois
  * dont deux échouent doivent donner 31/33, jamais 0/1 ni 1/1.
+ *
+ * ── `clesContournees` — la réconciliation que le Run 4 a exigée ──────────────────────────
+ *
+ * Le contrôle ne voit que les obligations du PLAN COURANT (voir `conclure`). Mais un parent
+ * d'éventail DONE garde l'annonce faite sous le plan qui l'a déployé — et ses filles ne sont
+ * JAMAIS dans un plan compilé : elles naissent du moteur. Au premier replan, une fille en échec
+ * est donc contournée, sort de la vue… et l'annonce du parent cesse de coller. Trois missions
+ * du Run 4 sont mortes là : « 14/14 étapes effectives abouties. 1 incohérence(s) de comptage »,
+ * replans brûlés jusqu'au plafond pour une itération que le journal disait DÉJÀ contournée.
+ *
+ * Une fille contournée n'est pas un trou silencieux : elle a été créée, nommée au journal
+ * (`PLAN_COMPILED`), et son échec vit sur sa ligne. Le vrai trou — une clé ANNONCÉE qui
+ * n'existe NULLE PART, ni au plan courant, ni parmi les contournées — reste une incohérence,
+ * et le sabotage du banc le vérifie.
  */
-export function controlerQualite(steps: readonly EtapeObservee[]): RapportQA {
+export function controlerQualite(
+  steps: readonly EtapeObservee[],
+  clesContournees: ReadonlySet<string> = new Set(),
+): RapportQA {
   const CONTROLE = new Set(["JOIN", "APPROVAL", "QA", "WAIT_EVENT", "WAIT_INPUT"]);
   const effectives = steps.filter((s) => !CONTROLE.has(s.nodeType));
 
@@ -110,12 +127,35 @@ export function controlerQualite(steps: readonly EtapeObservee[]): RapportQA {
   for (const s of effectives) {
     if (modeles.has(s.key)) {
       // Le modèle d'un éventail DÉJÀ déployé : ses filles portent le compte. On vérifie
-      // seulement qu'il n'a pas menti sur le nombre.
-      const annonces = nombre(s.result, "expanded");
-      const reelles = effectives.filter((f) => f.key.startsWith(`${s.key}#`)).length;
-      if (annonces !== null && annonces !== reelles) {
-        nonVerifiables.push(
-          `« ${s.title} » annonce ${annonces} itérations mais ${reelles} existent en base.`);
+      // seulement qu'il n'a pas menti sur le nombre — clé par clé quand il a laissé ses clés
+      // (le déploiement écrit toujours `keys`), au compte sinon (résultats plus anciens).
+      const r = (s.result && typeof s.result === "object" && !Array.isArray(s.result))
+        ? (s.result as Record<string, unknown>) : null;
+      const clesAnnoncees = Array.isArray(r?.keys)
+        ? [...new Set((r!.keys as unknown[]).filter((k): k is string => typeof k === "string"))]
+        : null;
+      const presentes = new Set(
+        effectives.filter((f) => f.key.startsWith(`${s.key}#`)).map((f) => f.key));
+
+      if (clesAnnoncees) {
+        // LE VRAI TROU : une itération annoncée qui n'existe nulle part — ni au plan courant,
+        // ni contournée par un replan. C'est le silence le plus dangereux du runtime, et lui
+        // seul bloque : une personne n'aurait rien reçu sans qu'aucune étape n'échoue.
+        const fantomes = clesAnnoncees.filter((k) => !presentes.has(k) && !clesContournees.has(k));
+        if (fantomes.length > 0) {
+          nonVerifiables.push(
+            `« ${s.title} » annonce ${clesAnnoncees.length} itérations mais ${fantomes.length} `
+            + `sont INTROUVABLES (ni au plan courant, ni contournées) : ${fantomes.slice(0, 5).join(", ")}.`);
+        }
+      } else {
+        const annonces = nombre(s.result, "expanded");
+        const contourneesFilles = [...clesContournees]
+          .filter((k) => k.startsWith(`${s.key}#`)).length;
+        const reelles = presentes.size + contourneesFilles;
+        if (annonces !== null && annonces !== reelles) {
+          nonVerifiables.push(
+            `« ${s.title} » annonce ${annonces} itérations mais ${reelles} existent en base.`);
+        }
       }
       continue;
     }
@@ -373,6 +413,8 @@ export async function evaluerObjectif(opts: {
   objectif: string;
   criteres: readonly string[];
   steps: readonly EtapeObservee[];
+  /** Les clés d'étapes CONTOURNÉES par un replan — pour la réconciliation des éventails. */
+  clesContournees?: ReadonlySet<string>;
   juge?: JugeObjectif;
   /** Le dernier verdict rendu sur cette mission, relu du journal. */
   anterieur?: JugementAnterieur | null;
@@ -396,7 +438,7 @@ export async function evaluerObjectif(opts: {
     };
   }
 
-  const qa = controlerQualite(opts.steps);
+  const qa = controlerQualite(opts.steps, opts.clesContournees);
   if (!qa.ok) {
     return {
       satisfait: false, avisModele: null, sansPreuve: [...opts.criteres],

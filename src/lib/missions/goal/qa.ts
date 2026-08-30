@@ -83,11 +83,17 @@ const estEffetExterne = (capability: string | null): boolean => {
   return EFFECT_RANK[m.effect] >= EFFECT_RANK.EXTERNAL_COMMUNICATION;
 };
 
+// MÊME VUE QUE `conclure` : les obligations du plan COURANT. Une étape contournée par un
+// replan reste au dossier mais ne décide plus — et ses clés voyagent à part, pour que la
+// réconciliation des éventails sache qu'une fille contournée n'est pas un trou silencieux.
 const observer = (m: EtatMission): EtapeObservee[] =>
-  m.steps.map((s) => ({
+  m.steps.filter((s) => !s.contournee).map((s) => ({
     key: s.key, title: s.title, status: s.status, nodeType: s.nodeType,
     receipt: s.receipt, attempt: s.attempt, maxAttempts: s.maxAttempts, result: s.result,
   }));
+
+const contourneesDe = (m: EtatMission): ReadonlySet<string> =>
+  new Set(m.steps.filter((s) => s.contournee).map((s) => s.key));
 
 /**
  * LE CONTRÔLE COMPLET.
@@ -98,7 +104,7 @@ const observer = (m: EtatMission): EtapeObservee[] =>
  */
 export async function controleComplet(mission: EtatMission): Promise<RapportComplet> {
   const steps = observer(mission);
-  const base = controlerQualite(steps);
+  const base = controlerQualite(steps, contourneesDe(mission));
   const constats: Constat[] = [];
 
   // ── 1. CARDINALITÉ DES ÉVENTAILS ────────────────────────────────────────────────────

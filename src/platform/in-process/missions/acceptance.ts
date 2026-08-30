@@ -1165,10 +1165,33 @@ export async function executerAcceptance(
       attendre(second.ok, `le second appel a échoué : ${second.error ?? "?"}`);
       const caches = second.usage.cachedInputTokens;
       if (caches <= 0) {
+        /**
+         * LA SONDE À DEUX APPELS N'EST PAS LA SEULE MESURE — le Run 4 l'a montré : elle a rendu
+         * zéro pendant que le RUN lui-même mesurait 336 823 jetons servis du cache (42,5 % des
+         * entrées), comptés par la porte de production sur les `cachedInputTokens` RÉELS de
+         * chaque appel du processus. La capacité s'appelle PROMPT_CACHE, pas « la sonde passe » :
+         * quand la mesure de production est positive, elle fait foi — et l'échec de la sonde
+         * est DIT (préfixe trop court pour le routage, ou éviction entre deux appels), jamais tu.
+         * Zéro partout, en revanche, reste NOT_PROVEN_LIVE : on ne triche pas sur le statut.
+         */
+        const conso = etatPorte().conso;
+        if (conso.caches > 0) {
+          const tauxRun = Math.round((conso.caches / Math.max(1, conso.entree)) * 1000) / 10;
+          return {
+            mesures: {
+              cachesDuRun: conso.caches, entreesDuRun: conso.entree, tauxCacheRunPct: tauxRun,
+              sonde: { premierEntree: premier.usage.inputTokens, secondEntree: second.usage.inputTokens, secondCaches: caches },
+            },
+            preuve: `mesure de PRODUCTION : ${conso.caches}/${conso.entree} jetons d'entrée servis du cache `
+              + `sur le processus entier (${tauxRun} %), comptés par la porte sur les cachedInputTokens réels `
+              + `du fournisseur — le cache de prompt est PROUVÉ LIVE. (La sonde à deux appels a rendu zéro `
+              + `sur son préfixe : dit, pas caché.)`,
+          };
+        }
         return {
           statut: "NOT_PROVEN_LIVE",
-          mesures: { premierEntree: premier.usage.inputTokens, secondEntree: second.usage.inputTokens, secondCaches: caches },
-          preuve: "zéro cachedInputTokens mesuré sur le second appel à préfixe identique — PROMPT CACHE = NOT PROVEN LIVE (on ne triche pas sur le statut).",
+          mesures: { premierEntree: premier.usage.inputTokens, secondEntree: second.usage.inputTokens, secondCaches: caches, cachesDuRun: conso.caches },
+          preuve: "zéro cachedInputTokens mesuré — sonde à préfixe identique ET compteur de production à zéro — PROMPT CACHE = NOT PROVEN LIVE (on ne triche pas sur le statut).",
         };
       }
       const taux = Math.round((caches / Math.max(1, second.usage.inputTokens)) * 1000) / 10;

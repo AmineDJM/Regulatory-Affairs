@@ -66,6 +66,63 @@ describe("contrôle qualité", () => {
     expect(qa.nonVerifiables[0]).toMatch(/annonce 33 itérations mais 1 existent/);
   });
 
+  it("RUN 4 : une fille CONTOURNÉE par un replan n'est pas une incohérence de comptage", () => {
+    // Le défaut mesuré : « 14/14 étapes effectives abouties. 1 incohérence(s) de comptage » —
+    // la fille en échec avait été contournée (nommée au journal), le parent annonçait encore
+    // ses trois clés, et la mission brûlait ses replans jusqu'au plafond sans jamais conclure.
+    const qa = controlerQualite(
+      [
+        etape("lire", "DONE", { result: { expanded: 3, keys: ["lire#a", "lire#b", "lire#c"], done: 2, failed: 1 } }),
+        etape("lire#a", "DONE"),
+        etape("lire#b", "DONE"),
+        // lire#c : FAILED sous le plan v1, contournée au replan → hors de la vue courante.
+      ],
+      new Set(["lire#c"]),
+    );
+    expect(qa.nonVerifiables).toEqual([]);
+    expect(qa.ok).toBe(true);
+    expect(qa.faits).toBe(2);
+  });
+
+  it("SABOTAGE : une clé ANNONCÉE qui n'existe nulle part — ni au plan, ni contournée — bloque toujours", () => {
+    // C'est le silence le plus dangereux du runtime : une personne n'a rien reçu sans
+    // qu'aucune étape ne soit en échec. La réconciliation ne doit JAMAIS l'excuser.
+    const qa = controlerQualite(
+      [
+        etape("envoi", "DONE", { result: { expanded: 3, keys: ["envoi#a", "envoi#b", "envoi#fantome"] } }),
+        etape("envoi#a", "DONE"),
+        etape("envoi#b", "DONE"),
+      ],
+      new Set(["autre#z"]),
+    );
+    expect(qa.ok).toBe(false);
+    expect(qa.nonVerifiables[0]).toMatch(/INTROUVABLES/);
+    expect(qa.nonVerifiables[0]).toMatch(/envoi#fantome/);
+  });
+
+  it("résultat ANCIEN (expanded sans keys) : les filles contournées comptent dans la réconciliation", () => {
+    const qa = controlerQualite(
+      [
+        etape("m", "DONE", { result: { expanded: 3 } }),
+        etape("m#a", "DONE"),
+        etape("m#b", "DONE"),
+      ],
+      new Set(["m#c"]),
+    );
+    expect(qa.nonVerifiables).toEqual([]);
+    expect(qa.ok).toBe(true);
+  });
+
+  it("des clés annoncées EN DOUBLE (résultat d'avant le correctif d'annonce) ne fabriquent pas d'incohérence", () => {
+    const qa = controlerQualite([
+      etape("m", "DONE", { result: { expanded: 3, keys: ["m#a", "m#a", "m#b"] } }),
+      etape("m#a", "DONE"),
+      etape("m#b", "DONE"),
+    ]);
+    expect(qa.nonVerifiables).toEqual([]);
+    expect(qa.ok).toBe(true);
+  });
+
   it("une étape SAUTÉE sort du dénominateur : ni succès, ni manque", () => {
     const qa = controlerQualite([etape("a", "DONE"), etape("b", "SKIPPED")]);
     expect(qa.attendus).toBe(1);

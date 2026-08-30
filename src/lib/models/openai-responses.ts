@@ -232,6 +232,7 @@ export function buildResponsesBody(
         effort: reasoning,
         toolCount: opts.tools?.length ?? 0,
         requested: null,
+        webSearch: Boolean(opts.webSearch),
       }).maxOutputTokens,
   );
   // Voir l'en-tête : on n'entrepose rien chez le fournisseur sans l'avoir demandé.
@@ -568,7 +569,13 @@ export async function callOpenAiResponses(
         // se déclenche donc plus que sur `max_output_tokens`, et son déclenchement est désormais
         // une ANOMALIE : la passerelle a calculé un budget exprès, s'il ne suffit pas c'est la
         // politique qui est fausse. Le journal le dit dans ces termes.
-        if (!blocks.length && budgetEpuise(data) && !grewBudget) {
+        //
+        // ET IL COUVRE AUSSI LA RÉPONSE TRONQUÉE, pas seulement la vide. Le Run 4 a montré le
+        // trou : 1 626 jetons visibles rendus AVANT le plafond → `blocks` non vide → aucun
+        // rattrapage → la synthèse coupée en plein vol descendait la chaîne, tuait l'étape, et
+        // la mission mourait BLOCKED. Agir sur une réponse tronquée est pire qu'un appel payé
+        // deux fois — même règle que pour la réponse vide, borné à UNE relance (`grewBudget`).
+        if (budgetEpuise(data) && !grewBudget) {
           grewBudget = true;
           const courant = Number(body.max_output_tokens ?? 0) || BUDGET_POLICY.RESERVE_RAISONNEMENT.medium;
           const relance = budgetDeSecours(courant);

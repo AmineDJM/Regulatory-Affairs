@@ -407,3 +407,78 @@ sans tarif — jamais un partiel déguisé**), WASTED_MODEL_CALLS.
 `DEEP_SMOKE_SANS_ACCEPTANCE=1` saute la couche (comparaison pure Run 3) ; sinon elle se joue
 après les 54 et le code de sortie devient 1 sur tout FAIL d'acceptance (les NOT_PROVEN_LIVE
 n'échouent jamais le run : leur devoir est d'être DITS).
+
+## K. LE RUN 4 RÉEL (2026-08-29, jeton MTF1QHY3Q02W) — résultats mesurés et correctifs post-run
+
+`npm run adam:smoke:deep` sur Render, gpt-5.6-terra, données réelles. Le verdict §29 s'est
+imprimé tout seul ; chaque chiffre ci-dessous en sort, aucun n'est estimé.
+
+### K.1 Les résultats, contre la baseline Run 3
+
+| Mesure | Run 3 | Run 4 |
+|---|---|---|
+| SUCCÈS / missions | 23/54 | **38/54 (70,4 %)** |
+| Conclusions honnêtes | 29 | 16 |
+| **DÉFAUTS** | 2 | **0** |
+| Voie DIRECTE | — | 17/30 (56,7 %) · P50 7,8 s |
+| Voie MODÈLE | — | **21/24 (87,5 %)** · P50 18,8 s |
+| Replans | — | 16 (9 missions, max 3) |
+| Acceptance (23 scénarios) | n'existait pas | **20 PASS · 2 FAIL · 1 NOT_PROVEN_LIVE** |
+| TOTAL_TOKENS | — | 922 912 (792 334 entrée / 130 578 sortie) |
+| CACHED_TOKENS | non mesuré | **336 823 · CACHE_HIT 42,5 %** |
+| WEB_SEARCH_CALLS | non mesuré | 25 |
+| TOTAL_COST | non mesuré | **INCONNU — 168 appels sans tarif configuré** (dit, pas maquillé) |
+| Appels gaspillés | — | 47,1 % (81/172 payés hors succès) |
+
+Acceptance PASS live : BACKGROUND (×3), CONTROLS, WAIT_FOR_TIME, WAIT_FOR_EVENT (×2),
+REMINDERS (×2), EMAIL_PIPELINE, CRASH_RESTART, MASSIVE (120 filles), PLAN_PATTERNS,
+SPECULATIVE (×2), ANTI_CHEAT, COST_ACCOUNTING, WEB_RESEARCH, ADAPTIVE_CONCURRENCY (20
+échantillons d'en-têtes réels), TOKEN_RESERVATION (zéro fuite sur 182 appels).
+
+### K.2 L'audit des non-succès — quatre familles, quatre correctifs NATIFS (commit de ce lot)
+
+**F-A — l'« incohérence de comptage » fantôme (3 missions au plafond de replans).**
+`RECOURS_SOURCES` : « 14/14 étapes effectives abouties. 1 incohérence(s) de comptage » — tout
+était DONE et la mission ne pouvait JAMAIS conclure. Cause en code : les filles d'un éventail
+ne figurent dans aucun plan compilé (le moteur les crée) ; au premier replan, une fille en
+échec est `supersededAt` et sort de la vue de `conclure`, mais le parent DONE garde son
+annonce `expanded: N` — le contrôle comptait alors une incohérence ÉTERNELLE. Correctifs :
+`controlerQualite(steps, clesContournees)` réconcilie clé par clé (une fille contournée est
+nommée au journal, pas un trou ; une clé annoncée qui n'existe NULLE PART bloque toujours —
+sabotage au banc) ; le déploiement d'éventail dédoublonne les identités et DIT les fusions.
+
+**F-B — la contradiction CIBLER→LIRE (COURRIERS ×2, et derrière 4+ refus de juge).**
+Le pipeline direct recopie l'`id` EXACT rendu par une recherche (la bonne consigne), mais
+`inspect_record` ne cherchait que `reference`/`title` : servi avec l'id
+`cmt1j3mco0003nnmzjvpe2tnc` qu'il avait lui-même distribué, il répondait « Aucun dossier ne
+porte la référence ». Correctif : chaque table de l'outil porte `{ id: ref }` dans son OR —
+une égalité stricte, testée sur la vraie base (`inspect-record.test.ts`).
+
+**F-D — le budget de sortie épuisé qui a tué WEB-2 et WEB-3.**
+Mesure du run : `worker/low`, webSearch, plafond 3 400 ÉPUISÉ (reasoning 1 774, synthèse
+coupée à 1 626 visibles) — et le rattrapage ne rejouait que les réponses VIDES : la synthèse
+tronquée descendait la chaîne et la mission mourait BLOCKED. Correctifs : (1) le budget
+connaît la recherche web (`SUPPLEMENT_RECHERCHE_WEB = 2 000` — la délibération entre
+recherches + les items `web_search_call` comptent dans la sortie) ; (2) le rattrapage rejoue
+UNE fois toute coupure par notre plafond, tronquée ou vide — agir sur une réponse coupée est
+pire qu'un appel payé deux fois.
+
+**F-C — les 13 « juge a refusé, replan vide ».** Pas de porte à adoucir (§25) : le juge avait
+RAISON à chaque fois (synthèses sans contenu à cause de F-B et du 402 ci-dessous ; critères
+sémantiques exigeants). F-B et F-D en ferment la plus grande part ; le reste suit le 402.
+
+**F-E — CACHE-1 NOT_PROVEN_LIVE alors que le run mesurait 336 823 jetons en cache.** La sonde
+à deux appels a rendu zéro pendant que la porte de production comptait 42,5 % de cache sur les
+`cachedInputTokens` réels du processus. La preuve primaire du scénario est désormais la mesure
+de PRODUCTION ; l'échec de la sonde est DIT. Zéro partout reste NOT_PROVEN_LIVE.
+
+### K.3 Les deux actions HUMAINES restantes (aucun correctif de code ne les remplace)
+
+1. **Configurer les tarifs sur Render** — `ADAM_PRICE_<ROLE>_IN`, `ADAM_PRICE_<ROLE>_OUT`,
+   `ADAM_PRICE_<ROLE>_CACHED_IN`, `ADAM_PRICE_WEB_SEARCH_CALL` : tant qu'ils manquent,
+   TOTAL_COST restera « INCONNU — N appels sans tarif » (168 au Run 4). C'est voulu : un
+   total partiel serait un mensonge.
+2. **Régler la facturation du stockage objet** — les `read_document` ont rendu des 402
+   (`object-storage.ts`) tout au long du run : c'est la cause première des honnêtes
+   DOCUMENT_DRIVE et d'une partie des refus de juge. Le code fait déjà ce qu'il doit
+   (échec nommé, éventail de lecture qui conclut avec ses manques dits).

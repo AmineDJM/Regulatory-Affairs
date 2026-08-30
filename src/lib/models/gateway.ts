@@ -106,6 +106,10 @@ function preparerOpenAi(
     effort,
     toolCount: opts.tools?.length ?? 0,
     requested: opts.maxOutputTokens ?? null,
+    // La recherche web du fournisseur coûte de la SORTIE (délibération entre recherches +
+    // items `web_search_call`) — mesuré au Run 4, où un plafond sans ce supplément a coupé
+    // une veille en plein vol. Voir SUPPLEMENT_RECHERCHE_WEB dans budget.ts.
+    webSearch: Boolean(opts.webSearch),
   });
 
   const enrichi: ModelCallOptions = {

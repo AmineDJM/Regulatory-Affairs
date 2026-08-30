@@ -113,6 +113,18 @@ const REPONSE_VISIBLE: Record<Workload, number> = {
 const SUPPLEMENT_DECOUVERTE = 4_000;
 
 /**
+ * LE SUPPLÉMENT DE RECHERCHE WEB — le premier chiffre de ce fichier CORRIGÉ SUR UNE MESURE.
+ *
+ * Run 4 (Render, réel) : un appel `worker`/`low` avec `webSearch` et 1 400 de réponse visible a
+ * ÉPUISÉ son plafond de 3 400 — `reasoning_tokens: 1774` (la réserve `low` de 2 000 presque
+ * entière partie à décider QUOI chercher, entre plusieurs recherches), et la part visible coupée
+ * en plein vol : les items `web_search_call` de l'API Responses comptent dans la sortie, en plus
+ * de la synthèse. Un tour de recherche web coûte donc structurellement plus qu'un tour simple, et
+ * ce supplément le dit — plutôt que de laisser le rattrapage payer chaque veille deux fois.
+ */
+const SUPPLEMENT_RECHERCHE_WEB = 2_000;
+
+/**
  * LE PLAFOND ABSOLU. Ce n'est pas une politique, c'est un garde-fou : une variable d'environnement
  * mal réglée ou un appelant qui demande 900 000 jetons de réponse doit échouer petit, pas
  * commander une facture. Aucun usage légitime du dépôt n'en approche.
@@ -133,6 +145,13 @@ export interface BudgetInput {
   toolCount: number;
   /** Ce que l'appelant demande comme RÉPONSE VISIBLE. Absent = le défaut de la charge. */
   requested?: number | null;
+  /**
+   * L'outil `web_search` du FOURNISSEUR est décrit pour ce tour. Il ne compte pas dans
+   * `toolCount` (ce ne sont pas nos fonctions) et coûte pourtant de la sortie : la délibération
+   * entre recherches ET les items `web_search_call` eux-mêmes. Mesuré au Run 4 — voir
+   * `SUPPLEMENT_RECHERCHE_WEB`.
+   */
+  webSearch?: boolean;
 }
 
 export interface OutputBudget {
@@ -171,7 +190,9 @@ export function outputBudget(input: BudgetInput): OutputBudget {
     Number.isFinite(demande) && demande > 0 ? Math.floor(demande) : REPONSE_VISIBLE[workload];
 
   const brut =
-    RESERVE_RAISONNEMENT[input.effort] + (workload === "deep" ? SUPPLEMENT_DECOUVERTE : 0);
+    RESERVE_RAISONNEMENT[input.effort]
+    + (workload === "deep" ? SUPPLEMENT_DECOUVERTE : 0)
+    + (input.webSearch ? SUPPLEMENT_RECHERCHE_WEB : 0);
   const headroom = Math.round(brut * facteur());
 
   return {
@@ -199,6 +220,7 @@ export const BUDGET_POLICY = {
   RESERVE_RAISONNEMENT,
   REPONSE_VISIBLE,
   SUPPLEMENT_DECOUVERTE,
+  SUPPLEMENT_RECHERCHE_WEB,
   SEUIL_DECOUVERTE,
   PLAFOND,
 } as const;
