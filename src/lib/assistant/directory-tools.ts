@@ -1,5 +1,4 @@
 import type { PowerTool } from "@/lib/assistant/power-tools";
-import type { CurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { DirectoryChannel } from "@prisma/client";
 import { findPeople } from "@/lib/directory/resolve";

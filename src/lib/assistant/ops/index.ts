@@ -29,6 +29,7 @@ import { MEETING7_OPS_IMPL, WORKSPACE7_OPS_IMPL } from "./impl-wave7b";
 import { MESSAGING7_OPS_IMPL, REGREMINDER_OPS_IMPL } from "./impl-wave7c";
 import { ORG7D_OPS_IMPL, LEGAL7D_OPS_IMPL, WS7D_OPS_IMPL } from "./impl-wave7d";
 import { FILE_WS_OPS_IMPL, FILE_FINANCE_OPS_IMPL, FILE_MEDICAL_OPS_IMPL, FILE_MEDINFO_OPS_IMPL, FILE_PCH_OPS_IMPL, FILE_ORG_OPS_IMPL } from "./impl-wave8-files";
+import { MARKET360_OPS_IMPL } from "./impl-market360";
 
 /**
  * ASSEMBLAGE des outils de domaine : le CATALOGUE (métadonnées pures) est zippé avec les
@@ -1106,11 +1107,11 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   pch_operation: {
     module: "PCH",
-    ops: zipOps("pch_operation", { ...PCH_OPS_IMPL, ...FILE_PCH_OPS_IMPL }),
+    ops: zipOps("pch_operation", { ...PCH_OPS_IMPL, ...FILE_PCH_OPS_IMPL, ...MARKET360_OPS_IMPL }),
     def: {
       name: "pch_operation",
       description:
-        "PCH — MARCHÉS : appels d'offres (fiche, caution rejouée), bons de commande, lignes-produits (statut Gagné/Perdu, prix), analyse IA d'un TEXTE d'AO collé, enrichissement par l'intelligence marché, suivi d'arrivée — par les actions canoniques. "
+        "PCH — MARCHÉS 360° : appels d'offres (fiche, caution rejouée), SOUMISSIONS versionnées (créer, déposer-verrouiller), RÉSULTATS par lot (gagné/perdu/infructueux/annulé, attribution partielle), CONTRAT depuis l'attribution + avenants à delta + lignes contractuelles, bons de commande et leurs LIGNES contrôlées contre le restant contractuel, LIVRAISONS (BL, lot, péremption, stock optionnel), analyse IA d'un TEXTE d'AO collé, enrichissement marché, suivi d'arrivée — par les actions canoniques. "
         + `Champ « op » : ${opsSummary("pch_operation")}. `
         + "Le marché se donne par référence AO-AAAA-NNN, titre ou produits ; la ligne par sa désignation ; le bon de commande par son n°.",
       input_schema: {
@@ -1128,7 +1129,14 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           status: { type: "string", description: "Statut : marché (non commencé/en cours/terminé/annulé), bon (en attente/validé/livré/payé/annulé), ligne (en attente/chiffré/soumis/gagné/perdu)." },
           date: { type: "string", description: "Date (attribution du marché, réception du bon, arrivée prévue) AAAA-MM-JJ." },
           order: { type: "string", description: "Le bon de commande visé (n° ou produits) — ou le n° à donner à un nouveau bon." },
-          line: { type: "string", description: "La ligne-produit visée (désignation ou DCI)." },
+          line: { type: "string", description: "La ligne visée, par désignation (ligne-produit de l'AO, ligne contractuelle, ligne de BC) — ou la désignation d'une ligne à créer." },
+          contract: { type: "string", description: "Le contrat ou l'avenant visé (titre ou référence de la pièce Legal)." },
+          delta: { type: "string", description: "create_amendment : impact en DZD sur la valeur du contrat (négatif permis)." },
+          force: { type: "string", description: "add_order_line : « oui » pour passer OUTRE un dépassement contractuel refusé — le passage en force est tracé dans l'audit avec son excès." },
+          bl: { type: "string", description: "Livraisons : n° du bon de livraison." },
+          batch: { type: "string", description: "create_delivery : n° de lot pharmaceutique." },
+          expiry: { type: "string", description: "create_delivery : date de péremption (AAAA-MM-JJ)." },
+          stock: { type: "string", description: "create_delivery : « oui » pour créer les mouvements de stock (sortie) — uniquement pour un produit résolu sans ambiguïté." },
           newName: { type: "string", description: "update_order / update_line : nouveau n° / nouvelle désignation." },
           dci: { type: "string", description: "update_line : DCI." },
           dosage: { type: "string", description: "update_line : dosage." },

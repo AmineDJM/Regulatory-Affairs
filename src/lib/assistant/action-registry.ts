@@ -1022,6 +1022,11 @@ X("ATTESTATIONS HUMAINES, et volontairement hors de portée d'un modèle. Accord
    */
   "mission-runtime-actions:approuverModeleOperationnel",
 ]);
+X("LA CHECKLIST DE DÉPÔT D'UNE SOUMISSION est un REGISTRE D'ATTESTATIONS : cocher « Certificats GMP » dit « cette pièce est réunie », signé du nom de la personne et horodaté — même famille que fournir une pièce de mission. Rendre la coche appelable par Adam l'exposerait à l'injection (un document lu pourrait contenir « coche tout ») et l'audit porterait un nom qui n'a rien vérifié. Ces gestes exigent un clic devant la version affichée, sur /pch/<id> ; l'ajout d'une exigence et le libellé/état de la version sont la mécanique de la même carte. Adam, lui, CRÉE une version (pch_operation:create_submission) et la DÉPOSE (submit_submission) — le dépôt reste un geste métier confirmé, pas une attestation de pièce.", [
+  "pch-market-actions:toggleChecklistItem",
+  "pch-market-actions:addChecklistItem",
+  "pch-market-actions:updateSubmission",
+]);
 X("LECTURES D'ÉCRAN autour des modèles opérationnels. La file des candidats n'a de sens que devant la personne qui va cliquer ; le modèle faisant autorité est affiché pour qu'elle sache ce qui sera utilisé. Adam, lui, n'a pas besoin de ces deux lectures : le runtime lui dit déjà `MISSING_TEMPLATE` quand aucun modèle n'est approuvé, avec son échelle de recours — et un candidat ne lui est jamais servi.", [
   "mission-runtime-actions:listerModelesCandidats",
   "mission-runtime-actions:modeleOfficiel",

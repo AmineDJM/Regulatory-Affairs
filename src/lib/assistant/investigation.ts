@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import type { CurrentUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { ensureNodeIndexed } from "@/lib/assistant/document-discovery";

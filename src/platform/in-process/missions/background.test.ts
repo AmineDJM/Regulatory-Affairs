@@ -116,10 +116,16 @@ suite("ARRIÈRE-PLAN — détachement, panne dite, rattrapage, bail, gouvernance
     })).not.toBeNull();
 
     // Puis la finalisation différée matérialise — on l'attend en scrutant, comme un client réel.
+    // La matérialisation N'EST PAS instantanée ni atomique vue d'ici : les étapes apparaissent
+    // d'abord, le statut quitte PLANNING au premier tour. On scrute donc jusqu'au BOUT de la
+    // matérialisation (statut sorti de PLANNING), pas jusqu'à son premier signe — lire entre les
+    // deux écritures faisait échouer le test sur une machine chargée sans rien prouver.
     let etapes = 0;
-    for (let i = 0; i < 150 && etapes === 0; i++) {
+    let statut = "PLANNING";
+    for (let i = 0; i < 150 && (etapes === 0 || statut === "PLANNING"); i++) {
       await new Promise((res) => setTimeout(res, 100));
       etapes = await prisma.missionStep.count({ where: { missionId: r.missionId } });
+      statut = (await prisma.mission.findUnique({ where: { id: r.missionId }, select: { status: true } }))!.status;
     }
     expect(etapes).toBeGreaterThan(0);
     const mission = await prisma.mission.findUnique({

@@ -55,7 +55,17 @@ import { scanBoundary, ADAM_PATHS, BRIDGE_PATHS } from "./boundary-scan";
  * what-if / executive-brief passent par hot-alerts (interne Adam), ledger et scheduled sont
  * côté ERP.
  */
-const DEBT_CEILING = 430;
+/**
+ * 430 → 428 (2026-08-30, Market 360° Lot 3) : DEUX franchissements assumés dans le SEUL nouveau
+ * fichier `assistant/ops/impl-market360.ts` — les ops de la chaîne marché (soumission, résultat
+ * par lot, contrat, avenants, lignes, livraisons) : `prisma` (résolution des entités avant la
+ * carte de confirmation) et `actions/pch-market-actions` (les actions CANONIQUES de l'écran) —
+ * de la même nature exacte que ses voisins `impl-wave*.ts`, pas un couplage nouveau. Et QUATRE
+ * imports MORTS retirés (`CurrentUser` importé sans aucun usage dans directory-tools,
+ * investigation, impl-wave7, impl-wave7c) : la dette mesurée baisse de 430 à 428, le plafond
+ * suit — c'est le geste attendu du cliquet.
+ */
+const DEBT_CEILING = 428;
 
 describe("frontière Adam ↔ ERP", () => {
   const report = scanBoundary();

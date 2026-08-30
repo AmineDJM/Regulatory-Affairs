@@ -221,9 +221,9 @@ export const REG4_OPS_IMPL: Record<string, OpImpl> = {
 
 // ─────────────────────────── PCH / MARCHÉS ───────────────────────────
 
-interface TenderHit { id: string; reference: string; title: string | null }
+export interface TenderHit { id: string; reference: string; title: string | null }
 
-async function resolveTender(raw: string): Promise<TenderHit | { error: string }> {
+export async function resolveTender(raw: string): Promise<TenderHit | { error: string }> {
   const q = raw.trim();
   if (!q) return { error: "Précisez l'appel d'offres (champ « reference » — AO-AAAA-NNN, titre ou produits)." };
   const exact = await prisma.pchTender.findFirst({
@@ -241,7 +241,7 @@ async function resolveTender(raw: string): Promise<TenderHit | { error: string }
   return { error: `Plusieurs appels d'offres correspondent : ${rows.map((t) => `${t.reference}${t.title ? ` — ${t.title}` : ""}`).join(" ; ")} — donner la référence exacte.` };
 }
 
-const tenderLabel = (t: TenderHit): string => `${t.reference}${t.title ? ` — ${t.title}` : ""}`;
+export const tenderLabel = (t: TenderHit): string => `${t.reference}${t.title ? ` — ${t.title}` : ""}`;
 
 async function resolveTenderLine(tenderId: string, tenderRef: string, raw: string) {
   const rows = await prisma.pchTenderLine.findMany({
@@ -260,7 +260,7 @@ async function resolveTenderLine(tenderId: string, tenderRef: string, raw: strin
   return { error: `Plusieurs lignes correspondent : ${hits.map((l) => l.designation).join(" ; ")} — préciser.` } as const;
 }
 
-async function resolvePchOrder(tenderId: string, tenderRef: string, raw: string) {
+export async function resolvePchOrder(tenderId: string, tenderRef: string, raw: string) {
   const rows = await prisma.pchOrder.findMany({
     where: { tenderId }, select: { id: true, reference: true, products: true },
     orderBy: { createdAt: "desc" }, take: 20,

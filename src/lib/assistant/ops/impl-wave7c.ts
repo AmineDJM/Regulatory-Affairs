@@ -7,7 +7,6 @@ import {
 } from "@/lib/actions/messaging-actions";
 import { sendRegulatoryUpdateReminder } from "@/lib/actions/regulatory-reminder-actions";
 import { CHAT_STATUS_LABEL, type ChatStatus } from "@/lib/messaging";
-import type { CurrentUser } from "@/lib/session";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
 import { runFd, fieldsOf } from "./helpers";
