@@ -547,7 +547,10 @@ paiements → clôture. Voir **`docs/MARKET_360_ARCHITECTURE.md`** (modèle, mer
 - **Livraisons** (`PchDelivery`/`Line`) : BL, dates, réserves, **lot pharma + péremption** ;
   mouvement de **stock OUT** créé UNIQUEMENT sur demande (case) ET produit résolu sans ambiguïté
   (exactement 1 `RegulatoryProduct`). Supprimer une livraison **conserve** ses mouvements.
-- **Factures** : lecture des `Invoice` Finances (`sourceType=PCH_ORDER`) — rien de fabriqué.
+- **Factures** : lecture des `Invoice` Finances (`sourceType=PCH_ORDER`) — rien de fabriqué. La
+  création se fait depuis le **bon déplié** (bouton « Facture », droit FINANCES CREATE) : c'est le
+  `createInvoice` canonique avec le rattachement en champs cachés ; Adam : `create_invoice` +
+  champ « order ».
 - **Vues croisées** : fiche produit Regulatory → carte « Marchés PCH » (`loadProductMarkets`) ;
   courriers → « Relier à… » multiple (`MailEntryLink`) + création **pré-associée** depuis le
   marché ; recherche globale (marchés, BC, Legal avec garde lecteurs, courriers).

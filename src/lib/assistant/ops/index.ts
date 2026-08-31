@@ -154,6 +154,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           file: { type: "string", description: "Ops a fichier (import_transactions, spend_from_petty_cash, add_payment_piece) : Le FICHIER : nom d'un fichier de votre Drive (glissé dans la conversation ou déposé) — résolu par nom, droits Drive revérifiés à l'exécution." },
           target: { type: "string", description: "add_payment_piece : la demande de paiement (référence PAY-… ou titre)." },
           reference: { type: "string", description: "Référence exacte de la cible (FIN-…, OD-…, PAY-…, n° de facture)." },
+          order: { type: "string", description: "create_invoice : bon de commande PCH auquel rattacher la facture (n° de BC, produits ou réf. du marché) — elle apparaîtra alors sur la fiche marché." },
           amount: { type: "string", description: "Montant en DZD (ex. « 1500000 » ou « 1 500 000,50 »)." },
           direction: { type: "string", description: "create_transaction/create_invoice : encaissement/décaissement, reçue/émise." },
           category: { type: "string", description: "Catégorie : de l'écriture (loyer, salaires…) ou budgétaire par NOM (imputations, transfert de paie)." },

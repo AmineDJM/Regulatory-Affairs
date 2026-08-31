@@ -379,9 +379,9 @@ export const OPS_CATALOG: OpMeta[] = [
   {
     tool: "finance_operation", op: "create_invoice", module: "Finances → Factures",
     uiLabel: "Nouvelle facture",
-    aliases: ["enregistre une facture", "nouvelle facture reçue", "ajoute la facture au registre"],
+    aliases: ["enregistre une facture", "nouvelle facture reçue", "ajoute la facture au registre", "facture du bon de commande"],
     risk: "NORMAL",
-    summary: "Ajoute une facture au registre (reçue OUT ou émise IN, montant, échéance) — l'enregistrement ne paie rien.",
+    summary: "Ajoute une facture au registre (reçue OUT ou émise IN, montant, échéance) — l'enregistrement ne paie rien. Champ « order » : la rattache à un bon de commande PCH (elle apparaît alors sur la fiche marché).",
     gate: (u) => userCan(u, "FINANCES", "CREATE"),
     covers: ["invoice-actions:createInvoice"],
   },

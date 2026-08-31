@@ -13,6 +13,7 @@ import {
   createSubmission, setAmendmentEffective, setLineResult, submitSubmission, updateSubmission,
 } from "./pch-market-actions";
 import { createOrder } from "./pch-actions";
+import { createInvoice } from "./invoice-actions";
 import { loadMarket360, loadProductMarkets } from "@/lib/queries/market-360";
 import { storyMarche } from "@/lib/queries/story";
 
@@ -204,14 +205,15 @@ suite("Market 360° — la chaîne AO → contrat → avenant → BC → livrais
   }, 30_000);
 
   it("la lecture 360° raconte toute la chaîne — et dit ce qui MANQUE", async () => {
-    // Une facture Finance rattachée au BC (sourceType = PCH_ORDER), non réglée et échue.
-    await prisma.invoice.create({
-      data: {
-        title: `${TAG} Facture F-194`, amount: 150_000, status: "UNPAID", direction: "IN",
-        issueDate: new Date("2026-02-05"), dueDate: new Date("2026-02-20"),
-        sourceType: "PCH_ORDER", sourceId: orderId, createdById: admin,
-      },
-    });
+    // Une facture Finance rattachée au BC — par le VRAI point d'entrée : l'action createInvoice
+    // avec les champs cachés sourceType/sourceId, exactement ce que le bouton « Facture » du bon
+    // déplié envoie (pas un état injecté à la main).
+    const rInv = await createInvoice(undefined, fd({
+      title: `${TAG} Facture F-194`, amount: "150000", direction: "IN",
+      issueDate: "2026-02-05", dueDate: "2026-02-20",
+      sourceType: "PCH_ORDER", sourceId: orderId,
+    }));
+    expect(rInv.ok).toBe(true);
 
     const m = await loadMarket360(tenderId);
     expect(m).not.toBeNull();

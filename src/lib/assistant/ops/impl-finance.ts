@@ -162,6 +162,30 @@ async function resolveInvoice(raw: string): Promise<InvoiceHit | { error: string
   return { error: `Plusieurs factures correspondent à « ${q} » : ${hits.map((h) => `${h.number ? `${h.number} — ` : ""}${h.title}${h.amount !== null ? ` (${dzd(h.amount)})` : ""}`).join(" ; ")} — préciser.` };
 }
 
+/**
+ * BC PCH pour rattacher une facture à sa naissance (sourceType = PCH_ORDER) : par n° de bon,
+ * produits ou référence du marché. Exact → unique → ambiguïté LISTÉE, jamais devinée.
+ */
+async function resolvePchOrderSource(raw: string): Promise<{ id: string; label: string } | { error: string }> {
+  const q = raw.trim().toLowerCase();
+  if (!q) return { error: "Précisez le bon de commande (champ « order » : n° de BC ou marché)." };
+  const rows = await prisma.pchOrder.findMany({
+    select: { id: true, reference: true, products: true, tender: { select: { reference: true } } },
+    orderBy: { createdAt: "desc" },
+    take: 300,
+  });
+  const label = (o: (typeof rows)[number]) => `BC ${o.reference ?? o.products ?? "s/n"} — ${o.tender.reference}`;
+  const exact = rows.filter((o) => (o.reference ?? "").toLowerCase() === q);
+  if (exact.length === 1) return { id: exact[0].id, label: label(exact[0]) };
+  const hits = rows.filter((o) =>
+    (o.reference ?? "").toLowerCase().includes(q)
+    || (o.products ?? "").toLowerCase().includes(q)
+    || o.tender.reference.toLowerCase().includes(q));
+  if (hits.length === 1) return { id: hits[0].id, label: label(hits[0]) };
+  if (hits.length === 0) return { error: `Aucun bon de commande PCH ne correspond à « ${raw} ».` };
+  return { error: `Plusieurs bons correspondent à « ${raw} » : ${hits.slice(0, 8).map(label).join(" ; ")} — préciser.` };
+}
+
 const decisionOf = (raw: string): "APPROVED" | "REJECTED" | null => {
   const k = raw.toLowerCase();
   if (/accord|approuv|valide|oui|ok/.test(k)) return "APPROVED";
@@ -377,11 +401,19 @@ export const FINANCE_OPS_IMPL: Record<string, OpImpl> = {
       const number = opStr(input, "reference");
       const issueDate = iso(opStr(input, "date"));
       const dueDate = iso(opStr(input, "dueDate"));
+      // Rattachement de naissance à un BC PCH : la facture apparaît alors sur la fiche marché.
+      let bon: { id: string; label: string } | null = null;
+      if (opStr(input, "order")) {
+        const r = await resolvePchOrderSource(opStr(input, "order"));
+        if ("error" in r) return r;
+        bon = r;
+      }
       return {
         title: `Enregistrer la facture ${received ? "reçue" : "émise"} — ${title}`,
         fields: [
           { label: "Facture", value: title },
           { label: "Sens", value: received ? "REÇUE — la société paie" : "ÉMISE — la société encaisse" },
+          ...(bon ? [{ label: "Rattachée au bon", value: bon.label }] : []),
           ...(number ? [{ label: "Numéro", value: number }] : []),
           ...(amount !== null ? [{ label: "Montant", value: dzd(amount) }] : []),
           ...(issueDate ? [{ label: "Émise le", value: issueDate }] : []),
@@ -393,8 +425,9 @@ export const FINANCE_OPS_IMPL: Record<string, OpImpl> = {
           amount: amount !== null ? String(amount) : null,
           issueDate, dueDate,
           recipient: opStr(input, "counterparty"), notes: opStr(input, "notes"),
+          sourceId: bon?.id ?? null,
         },
-        successMessage: `Facture « ${title} » enregistrée.`,
+        successMessage: bon ? `Facture « ${title} » enregistrée et rattachée au bon (${bon.label}).` : `Facture « ${title} » enregistrée.`,
         link: "/finances",
         revalidate: ["/finances"],
       };
@@ -409,6 +442,7 @@ export const FINANCE_OPS_IMPL: Record<string, OpImpl> = {
       if (args.dueDate) fd.set("dueDate", args.dueDate);
       if (args.recipient) fd.set("recipient", args.recipient);
       if (args.notes) fd.set("notes", args.notes);
+      if (args.sourceId) { fd.set("sourceType", "PCH_ORDER"); fd.set("sourceId", args.sourceId); }
       const r = await createInvoice(undefined, fd);
       if (!r.ok) return { ok: false, error: r.error ?? "L'enregistrement de la facture a été refusé." };
       return { ok: true, createdId: r.id, link: "/finances", revalidate: ["/finances"] };

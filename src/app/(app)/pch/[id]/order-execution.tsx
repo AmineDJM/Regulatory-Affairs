@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2, PackageCheck, Plus, Trash2 } from "lucide-react";
 import { addOrderLine, createDelivery, deleteDelivery, deleteOrderLine } from "@/lib/actions/pch-market-actions";
+import { AttachToSourceButtons } from "@/components/shared/attach-to-source";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -20,10 +21,12 @@ import type { Market360 } from "@/lib/queries/market-360";
  * l'écran MONTRE le refus et propose UN geste explicite de passage en force — qui s'audite.
  * Cacher le bouton aurait fait saisir la commande hors ERP ; le montrer garde l'écart visible.
  */
-export function OrderExecution({ bon, contrats, canEdit }: {
+export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
   bon: Market360["bons"][number];
   contrats: Market360["contrats"];
   canEdit: boolean;
+  /** Droit FINANCES CREATE : ouvre la création d'une facture DÉJÀ rattachée à ce bon. */
+  canInvoice: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -144,10 +147,20 @@ export function OrderExecution({ bon, contrats, canEdit }: {
         )}
       </div>
 
-      {/* ── Les factures Finance du bon ───────────────────────────────────────────────────── */}
-      {bon.factures.length > 0 && (
+      {/* ── Les factures Finance du bon ───────────────────────────────────────────────────────
+          La facture reste une pièce FINANCES (createInvoice, mêmes verrous) : ici on la crée
+          simplement DÉJÀ rattachée (sourceType=PCH_ORDER) — le seul moment où le lien se fait. */}
+      {(bon.factures.length > 0 || canInvoice) && (
         <div className="space-y-1.5">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Factures</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Factures</p>
+            {canInvoice && (
+              <AttachToSourceButtons entityType="PCH_ORDER" entityId={bon.id} reference={bon.reference} kinds={["invoice"]} />
+            )}
+          </div>
+          {bon.factures.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aucune facture rattachée à ce bon.</p>
+          ) : (
           <ul className="space-y-1">
             {bon.factures.map((f) => (
               <li key={f.id} className="flex flex-wrap items-center gap-2 rounded-md bg-card px-2.5 py-1.5 text-sm">
@@ -161,6 +174,7 @@ export function OrderExecution({ bon, contrats, canEdit }: {
               </li>
             ))}
           </ul>
+          )}
         </div>
       )}
 

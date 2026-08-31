@@ -83,6 +83,8 @@ export async function createInvoice(
   await syncInvoiceSettlement(created.id, user.id);
   revalidatePath("/finances/factures");
   revalidatePath("/finances");
+  // Née rattachée à un bon de commande PCH : la fiche marché l'affiche aussi.
+  if (fdStr(formData, "sourceType") === "PCH_ORDER") revalidatePath("/pch");
   return { ok: true, id: created.id };
 }
 

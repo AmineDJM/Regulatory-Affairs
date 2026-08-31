@@ -63,6 +63,8 @@ export default async function PchTenderPage({ params }: { params: { id: string }
   // ressaisit le lien. Le formulaire est celui du registre, à l'identique ; seuls le
   // rattachement (caché) et le destinataire (l'organisme) sont pré-remplis.
   const canMail = userCan(user, "MAIL_REGISTER", "CREATE");
+  // La facture d'un bon reste une pièce FINANCES : le bouton n'apparaît qu'avec ce droit-là.
+  const canInvoice = userCan(user, "FINANCES", "CREATE");
   const [mailCompanies, mailPartners, mailRouting] = canMail
     ? await Promise.all([
         getMyCompanies(user.id),
@@ -195,7 +197,7 @@ export default async function PchTenderPage({ params }: { params: { id: string }
         </CardContent>
       </Card>
 
-      <OrdersManager tenderId={t.id} orders={t.orders} canEdit={canEdit} canDelete={canDelete} details={market.bons} contrats={market.contrats} />
+      <OrdersManager tenderId={t.id} orders={t.orders} canEdit={canEdit} canDelete={canDelete} canInvoice={canInvoice} details={market.bons} contrats={market.contrats} />
 
       {t.orders.length > 0 && (
         <Card>

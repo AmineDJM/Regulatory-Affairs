@@ -99,8 +99,10 @@ export function EditTenderButton({ tender, canDelete, users = [], businessUnits 
   );
 }
 
-export function OrdersManager({ tenderId, orders, canEdit, canDelete, details = [], contrats = [] }: {
+export function OrdersManager({ tenderId, orders, canEdit, canDelete, canInvoice = false, details = [], contrats = [] }: {
   tenderId: string; orders: PchOrderDTO[]; canEdit: boolean; canDelete: boolean;
+  /** Droit FINANCES CREATE — la facture d'un bon se crée depuis le bon, déjà rattachée. */
+  canInvoice?: boolean;
   /** L'exécution de chaque bon (lignes, livraisons, factures) — la vue 360°. */
   details?: Market360["bons"];
   contrats?: Market360["contrats"];
@@ -158,7 +160,7 @@ export function OrdersManager({ tenderId, orders, canEdit, canDelete, details = 
                 {expanded === ord.id && detailOf.has(ord.id) && (
                   <TableRow>
                     <TableCell colSpan={8} className="bg-transparent p-2">
-                      <OrderExecution bon={detailOf.get(ord.id)!} contrats={contrats} canEdit={canEdit} />
+                      <OrderExecution bon={detailOf.get(ord.id)!} contrats={contrats} canEdit={canEdit} canInvoice={canInvoice} />
                     </TableCell>
                   </TableRow>
                 )}

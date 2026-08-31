@@ -45,12 +45,15 @@ const TITLES: Record<Kind, { title: string; description: string; label: string }
   },
 };
 
-export function AttachToSourceButtons({ entityType, entityId, reference }: {
+export function AttachToSourceButtons({ entityType, entityId, reference, kinds }: {
   entityType: EntityType;
   entityId: string;
   reference: string | null;
+  /** Natures proposées — par défaut les trois. Un bon de commande PCH, lui, n'appelle qu'une facture. */
+  kinds?: Kind[];
 }) {
   const [open, setOpen] = React.useState<Kind | null>(null);
+  const offered: Kind[] = kinds ?? ["legal", "invoice", "mail"];
 
   // Le rattachement voyage en champs cachés : ce n'est pas un secret (le serveur revérifie ce
   // qu'il en fait), c'est un contexte que l'utilisateur n'a pas à ressaisir.
@@ -109,15 +112,21 @@ export function AttachToSourceButtons({ entityType, entityId, reference }: {
   return (
     <>
       <span className="flex flex-wrap items-center gap-1.5">
-        <Button size="sm" variant="outline" onClick={() => setOpen("legal")}>
-          <Scale className="h-3.5 w-3.5" /> Engagement
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => setOpen("invoice")}>
-          <ReceiptText className="h-3.5 w-3.5" /> Facture
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => setOpen("mail")}>
-          <Mails className="h-3.5 w-3.5" /> Courrier
-        </Button>
+        {offered.includes("legal") && (
+          <Button size="sm" variant="outline" onClick={() => setOpen("legal")}>
+            <Scale className="h-3.5 w-3.5" /> Engagement
+          </Button>
+        )}
+        {offered.includes("invoice") && (
+          <Button size="sm" variant="outline" onClick={() => setOpen("invoice")}>
+            <ReceiptText className="h-3.5 w-3.5" /> Facture
+          </Button>
+        )}
+        {offered.includes("mail") && (
+          <Button size="sm" variant="outline" onClick={() => setOpen("mail")}>
+            <Mails className="h-3.5 w-3.5" /> Courrier
+          </Button>
+        )}
       </span>
 
       {open && (
