@@ -593,11 +593,14 @@ paiements → clôture. Voir **`docs/MARKET_360_ARCHITECTURE.md`** (modèle, mer
   `createInvoice` canonique avec le rattachement en champs cachés ; Adam : `create_invoice` +
   champ « order ».
 - **Vues croisées** : fiche produit Regulatory → carte « Marchés PCH » (`loadProductMarkets`) ;
-  courriers → « Relier à… » multiple (`MailEntryLink` — cibles : marché, BC, **facture**,
-  document légal, dossier Regulatory ; un pli de recouvrement porte plusieurs factures et BC,
-  et la fiche marché montre les courriers de CHAQUE bon et de CHAQUE facture) + création
-  **pré-associée** depuis le
+  « Relier à… » sur toute fiche (registre unique `EntityLink` — voir « Le fil de l'affaire »
+  ci-dessous : un pli de recouvrement porte plusieurs factures et BC, et la fiche marché montre
+  les courriers de CHAQUE bon et de CHAQUE facture) + création **pré-associée** depuis le
   marché ; recherche globale (marchés, BC, Legal avec garde lecteurs, courriers).
+- **La référence d'un marché se CORRIGE** (écran « Modifier » et Adam `update_tender.newReference`) :
+  elle est saisie à la main le jour de la publication, une coquille se paie pendant des années.
+  Elle reste **unique** — le refus NOMME le marché qui la porte déjà — et les libellés
+  photographiés par ses liens d'affaire sont rafraîchis (`refreshLinkLabels`).
 - **Rappels d'échéance de dépôt** : balayage quotidien (`lib/pch/deadline-sweep.ts`), zones
   J-7 / J-2 / dépassement, prévient responsable + équipe à l'ENTRÉE de zone seulement, se tait
   dès le dépôt.
@@ -2852,8 +2855,9 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **CTD — rattrapage de l'existant** | `lib/regulatory/intelligence/jobs/catchup.ts` — `shouldCatchUpAi` / `batchStillFresh` (pures + tests), `catchUpMissingAiReviews` (revue de fond jamais livrée → job `AI_REVIEW` en mode `immediate`, marqueur d'audit `AI_CATCHUP` = une fois par version), `catchUpStalledPipelines` (pipeline arrêté → `FACTS`, audit `PIPELINE_RESUMED`) ; branchés dans `lib/scheduled.ts`. Coupure : `REG_AI_CATCHUP=0`. |
 | **CTD — progression vivante** | `lib/regulatory/intelligence/progress/analysis-progress.ts` (`computeAnalysisProgress`, `formatEta` — pures + tests : phases réception→lecture→OCR→données→conformité→revue IA, % renormalisé, ETA au débit réel), `query.ts` (`getAnalysisProgress` — comptes légers) ; route de polling `app/api/regulatory/intelligence/progress/[versionId]` (réveille aussi le planificateur) ; carte cliente `analyse/[dossierId]/analysis-progress-card.tsx` (barre + bande lumineuse + étapes + temps restant) ; badge vivant `analyse/live-badge.tsx` sur la liste. |
 | **CTD — Entraînement IA (admin)** | `lib/regulatory/intelligence/training/` — `ingest-case.ts` (extraction + repérage CTD déterministe, dédup sha256 par étude), `for-section.ts` (`experienceForSection`, `rankCaseDocs` pure + tests, dédup par empreinte), `labels.ts` (pur, importable client), `actions.ts` (SUPER_ADMIN only) ; bloc « EXPÉRIENCE INTERNE » dans `agents/review-agent.ts` (`buildPrompt.experience` + tests), câblé dans `jobs/runner.ts` ET `cost/batch-runner.ts` ; embeddings via `corpus/semantic.ts` (`embedBacklog`) ; écran `app/(app)/regulatory/enregistrement/entrainement/`. Modèles `RegulatoryCaseStudy`/`RegulatoryCaseDoc`. |
-| **Courriers — registre, pièces & trace** | `lib/mail-register/trace.ts` (pur : `traceValue`, `diffMailEntry`, `describeMailChanges`, `renderTraceValue` + tests) et `write.ts` (le CŒUR partagé écran/API : `createMailEntryFor`, `updateMailEntryFor`, `setMailDateFor`) ; `lib/actions/mail-register-actions.ts` (ne fait plus que lire le formulaire et rafraîchir) ; `app/(app)/courriers/` (`page.tsx`, `mail-table.tsx`, `mail-fields.ts`, `[id]/`). `EntityType.MAIL_ENTRY` pour les pièces jointes. |
+| **Courriers — registre, pièces & trace** | `lib/mail-register/trace.ts` (pur : `traceValue`, `diffMailEntry`, `describeMailChanges`, `renderTraceValue` + tests) et `write.ts` (le CŒUR partagé écran/API : `createMailEntryFor`, `updateMailEntryFor`, `setMailDateFor`) ; `lib/actions/mail-register-actions.ts` (ne fait plus que lire le formulaire et rafraîchir) ; `app/(app)/courriers/` (`page.tsx`, `mail-table.tsx`, `mail-fields.ts`, `[id]/`). `EntityType.MAIL_ENTRY` pour les pièces jointes. Les liens du pli sont ceux du registre commun (voir « Le fil de l'affaire »). |
 | **Legal — engagements & échéances** | `lib/legal/lifecycle.ts` (pur : `expiryLevel`, `shouldRemind`, `expiryMessage`, `proposeRenewalDates` + tests) ; `lib/legal/expiry-sweep.ts` (`runLegalExpirySweep`, branché dans `lib/scheduled.ts` — aligne le statut échu, prévient à l'entrée d'une zone d'urgence, verrou atomique sur `lastRemindedAt`) ; `app/(app)/legal/` (`page.tsx`, `legal-table.tsx`, `legal-fields.ts`, `[id]/`). `EntityType.LEGAL_DOCUMENT`. |
+| **Le fil de l'affaire — « Relié à… »** | `lib/links/graph.ts` (**pur, testé** : `LINK_TYPES`, `LINK_PAIRS` = le flux AO → contrat → BC → facture, l'assurance au contrat, le courrier à tout ; `DETOURS` refuse en NOMMANT le chemin — facture→marché, BC→marché, facture→contrat ; `canonicalPair` range la paire, `linkHref`) ; `lib/links/store.ts` (le SEUL chemin d'écriture : `addLink`/`removeLink` — voir les deux bouts + modifier au moins l'un des deux —, `linksOf`/`linksOfMany`/`linkedViews`, `refreshLinkLabels`, double entrée au journal) ; `lib/actions/link-actions.ts` (`addEntityLink`/`removeEntityLink`) ; `lib/queries/link-candidates.ts` (le menu n'offre que ce que le flux autorise) ; `components/shared/entity-links.tsx` (la MÊME carte : courrier, document légal…). Modèle **`EntityLink`** — registre unique (§17), migration `20261001160000` reprend les lignes de l'ancien `MailEntryLink`. Adam : `mail_operation.link_record` / `unlink_record`. |
 | **Liaisons transverses** | `lib/links/source-link.ts` (pur : `LINKABLE_SOURCES`, `sourceHref`, `sourceCaption` — un test remonte CHAQUE route jusqu'à `NAVIGATION` pour interdire les liens morts) ; `components/shared/linked-records.tsx` (bloc serveur posable sur toute fiche) + `attach-to-source.tsx` (créer une pièce déjà rattachée). Les modèles `LegalDocument`/`Invoice`/`MailEntry` portent `sourceType`/`sourceId`. |
 | **Catalogues produits — rapprochement** | `lib/products/catalog-match.ts` (pur : `productKey`, `matchScore`, `bestMatches` — le score CHUTE quand les dosages diffèrent + tests) ; `lib/products/link.ts` (cœur partagé écran/API) ; `lib/queries/product-catalog.ts` ; `app/(app)/regulatory/catalogue/`. Champs `BdProduct.regulatoryProductId` / `PromoProduct.regulatoryProductId`. |
 | **API agents — écriture** | `lib/api/registry/operations.ts` (catalogue déclaratif + `validateParams` pur, qui REFUSE au lieu de deviner ; un test exige une portée d'écriture par opération) ; `app/api/v1/operations/[operation]/route.ts` (idempotent) et `app/api/v1/meta/operations/route.ts`. Chaque opération appelle le même cœur métier que l'écran. |
@@ -3490,6 +3494,41 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Le fil de l'affaire — un registre de liens, et le flux qui le gouverne (2026-08)
+
+**Le problème posé tel quel :** « on peut relier un document à un appel d'offres, un bon de
+commande, une facture, un contrat — mais ça suit un flux ». Le code, lui, n'avait qu'une table
+`MailEntryLink` : elle ne savait relier qu'un **courrier**. Un contrat né d'un marché, un bon qui
+exécute ce contrat, une assurance rattachée à son contrat n'avaient nulle part où s'écrire.
+
+**Un seul registre (§17), pas un deuxième.** `EntityLink` remplace `MailEntryLink` — les lignes
+existantes sont RECOPIÉES par la migration, l'ancienne table n'est plus lue. Deux registres
+auraient obligé chaque fiche à interroger les deux, et à en oublier un au troisième besoin.
+
+**Le flux est une règle, pas une convention.** `lib/links/graph.ts` (pur, testé) porte les paires
+autorisées — AO ↔ contrat, contrat ↔ contrat (l'assurance et ce qu'elle couvre), contrat ↔ BC,
+BC ↔ facture, et le **courrier avec tout** (un pli n'est pas une étape de l'affaire, c'est ce
+qu'on s'écrit à son sujet). Trois raccourcis sont refusés **en nommant le chemin** : relier une
+facture directement au marché fait gagner trois secondes à la saisie et détruit la réponse à
+« quelle facture pour quel bon ? ». Un refus qui explique enseigne le flux ; un refus muet fait
+saisir la donnée hors de l'ERP.
+
+**La paire est rangée avant d'être écrite.** « Relier A à B » et « relier B à A » sont le même
+fait : `canonicalPair` les range dans l'ordre du flux, l'unicité en base suffit — aucun code de
+déduplication, et le lien se lit des deux côtés. Les libellés sont **photographiés** (une fiche
+affiche ses liens sans re-résoudre chaque cible) et rafraîchis quand l'identité d'un objet est
+**corrigée** (`refreshLinkLabels`).
+
+**Une seule carte, partout.** `components/shared/entity-links.tsx` : le menu n'offre que les
+natures que le flux autorise depuis cette fiche, la raison de la paire s'affiche sous le choix, et
+le serveur revérifie tout (`links/store.ts` : voir les deux bouts, pouvoir modifier au moins l'un
+des deux). Posée sur la fiche courrier et sur la fiche d'un document légal.
+
+**Et la référence d'un marché se corrige.** Elle était le seul champ non modifiable de l'écran
+« Modifier l'appel d'offres » alors qu'elle est saisie à la main le jour de la publication. Elle
+reste **unique** : le refus nomme le marché qui la porte déjà. Le journal garde l'ancienne et la
+nouvelle valeur, et les liens d'affaire sont remis à jour. Adam suit : `update_tender.newReference`.
 
 ### Force de vente — la boucle terrain se ferme (2026-08)
 

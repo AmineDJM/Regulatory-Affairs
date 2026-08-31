@@ -353,8 +353,12 @@ export const PCH_OPS_IMPL: Record<string, OpImpl> = {
       const value = opStr(input, "amount") ? (changes.push("valeur"), opStr(input, "amount")) : numStr(t.value);
       const awardDate = isoDate(opStr(input, "date")) ? (changes.push("date d'attribution"), isoDate(opStr(input, "date"))) : day(t.awardDate);
       const notes = pick("notes", t.notes, "notes");
+      // LA RÉFÉRENCE se corrige comme le reste — elle est saisie à la main, donc faillible. Elle
+      // reste UNIQUE : l'action refuse en nommant le marché qui la porte déjà.
+      const nouvelleRef = opStr(input, "newReference").trim();
+      if (nouvelleRef && nouvelleRef !== t.reference) changes.push(`référence → ${nouvelleRef}`);
       if (status) changes.push(`statut → ${TENDER_STATUS_FR.find(([c]) => c === status)?.[1] ?? status}`);
-      if (changes.length === 0) return { error: "Rien à changer : donnez name, products, supplier, country, quantity, amount, status, date ou notes." };
+      if (changes.length === 0) return { error: "Rien à changer : donnez name, newReference, products, supplier, country, quantity, amount, status, date ou notes." };
       return {
         title: `Modifier l'appel d'offres ${tender.reference}`,
         fields: [
@@ -368,7 +372,7 @@ export const PCH_OPS_IMPL: Record<string, OpImpl> = {
           awardDate, notes,
           cautionAmount: numStr(t.cautionAmount), cautionDeposited: t.cautionDeposited ? "1" : null,
           cautionStart: day(t.cautionStart), cautionEnd: day(t.cautionEnd),
-          reference: tender.reference,
+          reference: nouvelleRef || tender.reference,
         },
         successMessage: `Appel d'offres ${tender.reference} mis à jour (${changes.join(", ")}).`,
         link: `/pch/${tender.id}`, revalidate: ["/pch"],

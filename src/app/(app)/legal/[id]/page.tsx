@@ -26,6 +26,9 @@ import { loadLegalChain } from "@/lib/queries/legal-chain";
 import { valeurContractuelleCourante } from "@/lib/pch/market-math";
 import { MarketContext } from "./market-context";
 import { LegalChainCard } from "./chain-card";
+import { EntityLinks } from "@/components/shared/entity-links";
+import { linksOf, linkedViews } from "@/lib/links/store";
+import { linkCandidates } from "@/lib/queries/link-candidates";
 
 export const dynamic = "force-dynamic";
 
@@ -98,6 +101,13 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null,
     createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
   }));
+
+  // « RELIER À… » — une pièce légale se tient rarement seule : elle naît d'un marché, elle est
+  // exécutée par des bons, elle est couverte par une assurance, et des plis s'échangent à son
+  // sujet. Le flux (`links/graph.ts`) décide de ce qui se relie ; l'écran ne propose que cela.
+  const self = { type: "LEGAL_DOCUMENT" as const, id: doc.id };
+  const [linkRows, linkGroups] = await Promise.all([linksOf(self), linkCandidates(user.id, self)]);
+  const linkViews = await linkedViews(self, linkRows);
 
   const today = new Date();
   const status = effectiveStatus(doc, today);
@@ -276,6 +286,18 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
           {/* LA CHAÎNE D'ACHAT : devis → BC → facture → règlement, avec les validateurs et les
               délais de chaque maillon. Elle ne s'affiche que si la pièce en fait partie. */}
           <LegalChainCard links={chain.links} settlement={chain.settlement} canSettle={canEdit} />
+
+          {/* LE FIL DE L'AFFAIRE : le marché dont ce contrat est né, les bons qui l'exécutent,
+              l'assurance qui le couvre, les plis échangés à son sujet. Une facture, elle, se relie
+              à son BON — le contrat s'en déduit par le bon, et « quelle facture pour quel bon ? »
+              garde une réponse. */}
+          <EntityLinks
+            self={self}
+            links={linkViews}
+            candidates={linkGroups}
+            canEdit={canEdit}
+            emptyHint="Aucun lien. Reliez cette pièce au marché dont elle est née, aux bons de commande qui l'exécutent, à l'assurance qui la couvre, ou aux courriers échangés à son sujet."
+          />
 
           {(doc.renewedFrom || doc.renewals.length > 0) && (
             <Card>

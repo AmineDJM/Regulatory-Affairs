@@ -5569,19 +5569,36 @@ model PchDeliveryLine {
 /// « RELIER À… » d'un courrier : un pli concerne souvent PLUSIEURS objets (le marché, son
 /// contrat, un BC). Multi-lien TYPÉ (enum `EntityType`), scoped aux courriers — pas un
 /// polymorphisme universel : les relations structurantes restent des FK.
-model MailEntryLink {
+/// LE REGISTRE UNIQUE DES LIENS D'AFFAIRE — « relié à… », pour TOUTES les natures.
+///
+/// Il remplace `MailEntryLink`, qui ne savait relier qu'un courrier (ses lignes ont été
+/// recopiées ici par la migration). Garder deux tables aurait produit exactement la dérive
+/// qu'on redoute : un lien courrier↔contrat d'un côté, un lien contrat↔bon de l'autre, et la
+/// fiche d'un contrat obligée d'interroger DEUX registres — dont un qu'on oublierait le jour
+/// d'un troisième besoin (§17 : pas de second registre).
+///
+/// LA PAIRE EST RANGÉE CANONIQUEMENT (voir `lib/links/graph.ts`) : « relier A à B » et
+/// « relier B à A » sont le même fait, donc la même ligne. L'unicité suffit alors à empêcher
+/// le doublon, sans aucun code de déduplication.
+///
+/// Les LIBELLÉS des deux bouts sont photographiés à la création : afficher « Relié à » ne
+/// coûte aucune requête, et une pièce renommée garde le nom sous lequel on l'a reliée.
+model EntityLink {
   id          String     @id @default(cuid())
-  entryId     String
-  entry       MailEntry  @relation(fields: [entryId], references: [id], onDelete: Cascade)
-  entityType  EntityType
-  entityId    String
-  /// Le libellé lu au moment du lien (« Marché 174/2026 ») — ce qu'on affiche sans requête.
-  label       String?
+  fromType    EntityType
+  fromId      String
+  fromLabel   String?
+  toType      EntityType
+  toId        String
+  toLabel     String?
+  /// Pourquoi ce lien, quand la personne l'a précisé (« couvre le lot 3 »).
+  note        String?
   createdById String?
   createdAt   DateTime   @default(now())
 
-  @@unique([entryId, entityType, entityId])
-  @@index([entityType, entityId])
+  @@unique([fromType, fromId, toType, toId])
+  @@index([fromType, fromId])
+  @@index([toType, toId])
 }
 
 // ─────────────── Stocks (suivi des stocks de nos produits à la PCH) ───────────────
@@ -9340,7 +9357,6 @@ model MailEntry {
   pieces          MailEntryPiece[]
   /// « RELIER À… » — un pli peut concerner PLUSIEURS objets (le marché ET son contrat ET un
   /// BC). `sourceType/sourceId` reste la relation de NAISSANCE ; ceci est le classement.
-  links           MailEntryLink[]
   createdById     String?
   createdBy       User?            @relation("MailEntryCreator", fields: [createdById], references: [id])
   updatedById     String?

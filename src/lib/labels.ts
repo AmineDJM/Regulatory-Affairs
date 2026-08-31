@@ -875,6 +875,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   PAYMENT_REQUEST: "Demande de paiement",
   MAIL_ENTRY: "Courrier",
   LEGAL_DOCUMENT: "Document légal",
+  INVOICE: "Facture",
 };
 
 /**

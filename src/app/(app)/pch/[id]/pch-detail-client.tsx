@@ -50,6 +50,10 @@ export function EditTenderButton({ tender, canDelete, users = [], businessUnits 
       <Sheet open={open} onClose={() => setOpen(false)} title="Modifier l'appel d'offres" width="lg">
         <form action={(fd) => { fd.set("id", t.id); submit(updateTender, fd, () => setOpen(false)); }} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
+            {/* LA RÉFÉRENCE DU MARCHÉ SE CORRIGE ICI. Elle est saisie à la main le jour de la
+                publication : une coquille dans le numéro se paie pendant des années. Elle reste
+                unique — le serveur refuse en NOMMANT le marché qui la porte déjà. */}
+            <W label="Référence du marché"><Input name="reference" defaultValue={t.reference} required placeholder="AO 12/2026" /></W>
             <W full label="Intitulé"><Input name="title" defaultValue={t.title} /></W>
             <W label="Référence interne"><Input name="internalReference" defaultValue={t.internalReference ?? ""} placeholder="AO-2026-ONCO-04" /></W>
             <W label="Responsable interne">

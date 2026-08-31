@@ -10,7 +10,6 @@ import { attachDriveNodeToLegal, deleteLegalDocument } from "@/lib/actions/legal
 import {
   createLegalFolder, updateLegalFolder, deleteLegalFolder, moveLegalDocuments,
 } from "@/lib/actions/legal-folder-actions";
-import { setMailDate, deleteMailEntry } from "@/lib/actions/mail-register-actions";
 import { createMailFolder, updateMailFolder, deleteMailFolder } from "@/lib/actions/mail-folder-actions";
 import { createMailPartner, updateMailPartner, deleteMailPartner } from "@/lib/actions/mail-partner-actions";
 import { addMailPiece, updateMailPiece, deleteMailPiece } from "@/lib/actions/mail-piece-actions";
@@ -510,53 +509,13 @@ export const LEGAL3_OPS_IMPL: Record<string, OpImpl> = {
   },
 };
 
+/**
+ * Ce qui reste ici du registre des courriers : les DOSSIERS de classement, les PARTENAIRES, les
+ * PIÈCES nominatives et la signature. Les ops qui écrivent le pli lui-même (dater, supprimer)
+ * ont rejoint `impl-mail.ts`, avec créer / corriger / classer / relier — un seul fichier pour
+ * les gestes du registre, au lieu de deux qui se partageaient la même action serveur.
+ */
 export const MAIL3_OPS_IMPL: Record<string, OpImpl> = {
-  set_date: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const entry = await resolveMailEntry(opStr(input, "reference") || opStr(input, "label"));
-      if ("error" in entry) return entry;
-      const fieldRaw = opStr(input, "kind");
-      const ack = /accus/i.test(fieldRaw);
-      const received = /re[çc]u|r[ée]ception|arriv/i.test(fieldRaw);
-      if (!ack && !received) return { error: "Précisez la date visée (champ « kind ») : « reçu le » ou « accusé de réception »." };
-      const value = isoDate(opStr(input, "date"));
-      const clearing = /^(aucune?|retire|efface)$/i.test(opStr(input, "date"));
-      if (!value && !clearing) return { error: "Précisez la date (champ « date », AAAA-MM-JJ) — ou « aucune » pour l'effacer." };
-      return {
-        title: `${ack ? "Accusé de réception" : "Date de réception"} — courrier ${entry.reference ?? entry.title}`,
-        fields: [
-          { label: "Courrier", value: `${entry.reference ?? "s/n"} — ${entry.title}` },
-          { label: ack ? "Accusé le" : "Reçu le", value: clearing ? "— (effacée)" : value! },
-        ],
-        args: { id: entry.id, field: ack ? "acknowledgedAt" : "receivedAt", value: clearing ? null : value },
-        successMessage: `${ack ? "Accusé" : "Réception"} du courrier ${entry.reference ?? ""} ${clearing ? "effacé" : "daté"}.`,
-        revalidate: ["/courriers"],
-      };
-    },
-    async execute(args) {
-      const r = await setMailDate({ id: args.id ?? "", field: (args.field ?? "receivedAt") as "receivedAt" | "acknowledgedAt", value: args.value ?? null });
-      if (!r.ok) return { ok: false, error: r.error ?? "La date a été refusée." };
-      return { ok: true, revalidate: ["/courriers"] };
-    },
-  },
-
-  delete_entry: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const entry = await resolveMailEntry(opStr(input, "reference") || opStr(input, "label"));
-      if ("error" in entry) return entry;
-      return {
-        title: `SUPPRIMER le courrier ${entry.reference ?? ""} — ${entry.title}`,
-        fields: [{ label: "Courrier", value: `${entry.reference ?? "s/n"} — ${entry.title}` }],
-        warnings: ["Suppression définitive du registre (pièces référencées comprises) — les fichiers Drive référencés restent."],
-        confirmText: entry.reference ?? entry.title,
-        args: { id: entry.id },
-        successMessage: `Courrier ${entry.reference ?? ""} supprimé du registre.`,
-        revalidate: ["/courriers"],
-      };
-    },
-    execute: (args) => runFd(deleteMailEntry, args, "La suppression a été refusée.", { revalidate: ["/courriers"] }),
-  },
-
   create_folder: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const name = opStr(input, "folder") || opStr(input, "name");

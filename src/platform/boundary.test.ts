@@ -65,6 +65,24 @@ import { scanBoundary, ADAM_PATHS, BRIDGE_PATHS } from "./boundary-scan";
  * investigation, impl-wave7, impl-wave7c) : la dette mesurée baisse de 430 à 428, le plafond
  * suit — c'est le geste attendu du cliquet.
  */
+/**
+ * 428 → 428 (2026-08-31, registre des liens d'affaire) : le lot ajoutait TROIS franchissements
+ * dans `assistant/ops/impl-mail.ts` (`actions/link-actions`, `links/graph`, `links/store`). Le
+ * cliquet a fait son travail — il a refusé, et la correction a été architecturale, pas comptable :
+ *
+ *   • le décodeur des ops ne recopie plus le FLUX (`targetsFor`, `LINK_TYPE_LABELS`) : la validité
+ *     d'une paire est décidée à l'écriture, dans `lib/links/`, pour l'écran comme pour Adam — une
+ *     seconde règle dans l'op aurait dérivé au premier changement. Les libellés viennent de
+ *     `lib/labels` (NEUTRE). Franchissements de `links/graph` : 0 ;
+ *   • la lecture des liens d'un pli passe par le `prisma` que ce fichier importe déjà, comme
+ *     toutes ses autres résolutions. Franchissements de `links/store` : 0 ;
+ *   • reste `actions/link-actions` — l'action CANONIQUE de l'écran, rejouée telle quelle : +1.
+ *
+ * Et un franchissement RETIRÉ en face : `impl-wave3.ts` n'importe plus `mail-register-actions`.
+ * Ses deux ops qui écrivaient le pli (`set_date`, `delete_entry`) ont rejoint `impl-mail.ts`, où
+ * vivent déjà créer / corriger / classer / relier — deux fichiers ne se partagent plus la même
+ * action serveur. Solde : +1 − 1 = 0, le plafond ne bouge pas.
+ */
 const DEBT_CEILING = 428;
 
 describe("frontière Adam ↔ ERP", () => {

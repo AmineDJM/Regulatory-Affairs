@@ -1,10 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { resolveDriveAccess } from "@/lib/drive";
-import { createMailEntry, editMailEntry, attachDriveNodeToMail, addMailLink, removeMailLink } from "@/lib/actions/mail-register-actions";
+import { createMailEntry, editMailEntry, attachDriveNodeToMail, setMailDate, deleteMailEntry } from "@/lib/actions/mail-register-actions";
+import { addEntityLink, removeEntityLink } from "@/lib/actions/link-actions";
+import { ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { moveMailEntries } from "@/lib/actions/mail-folder-actions";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
-import { runFd } from "./helpers";
+import { runFd, isoDate } from "./helpers";
 
 /**
  * OPS COURRIERS — le registre des plis (créer, corriger, classer, déclarer un fichier Drive
@@ -43,25 +45,38 @@ const directionOf = (raw: string): "INCOMING" | "OUTGOING" | null => {
 const MAIL_REVALIDATE = ["/courriers"];
 
 /**
- * LES CIBLES DU « RELIER À… » (§25) — mêmes familles que l'écran. La résolution suit
- * l'invariant des ops : exact → unique → ambiguïté LISTÉE, jamais de choix silencieux.
+ * LES CIBLES DU « RELIER À… » — la résolution seulement, jamais le flux.
+ *
+ * Ce décodeur ne décide PAS de ce qui a le droit d'être relié : c'est `lib/links/` qui le fait, à
+ * l'écriture, pour l'écran comme pour Adam. Le recopier ici en ferait une seconde règle, qui
+ * dériverait au premier changement — et un modèle qui contourne une règle absente ne se voit pas.
+ * On reconnaît donc une NATURE et un objet ; la validité de la paire est refusée en aval, avec le
+ * chemin à prendre à la place.
+ *
+ * L'invariant des ops tient : exact → unique → ambiguïté LISTÉE, jamais de choix silencieux.
  */
-const LINK_KINDS: [string, string][] = [
-  ["PCH_TENDER", "Marché PCH"], ["PCH_ORDER", "Bon de commande PCH"], ["INVOICE", "Facture"],
-  ["LEGAL_DOCUMENT", "Document légal"], ["REGULATORY_PRODUCT", "Dossier Regulatory"],
-];
+const MAIL_TARGETS = ["PCH_TENDER", "PCH_ORDER", "INVOICE", "LEGAL_DOCUMENT", "REGULATORY_PRODUCT"] as const;
+type MailTarget = (typeof MAIL_TARGETS)[number];
 
-async function resolveLinkTarget(kindRaw: string, raw: string): Promise<{ entityType: string; entityId: string; label: string } | { error: string }> {
-  const q = raw.trim();
-  if (!q) return { error: "Précisez la cible (champ « target » — référence ou titre)." };
-  const k = kindRaw.trim().toLowerCase();
-  const kind = /march|tender|\bao\b|appel/.test(k) ? "PCH_TENDER"
+const typeLabel = (t: string): string => ENTITY_TYPE_LABELS[t] ?? t;
+
+function kindFromWords(raw: string): MailTarget | null {
+  const k = raw.trim().toLowerCase();
+  return /march|tender|\bao\b|appel/.test(k) ? "PCH_TENDER"
     : /\bbc\b|bon de commande|commande/.test(k) ? "PCH_ORDER"
       : /factur|invoice/.test(k) ? "INVOICE"
-        : /contrat|l[ée]gal|convention|avenant/.test(k) ? "LEGAL_DOCUMENT"
+        : /contrat|l[ée]gal|convention|avenant|assurance/.test(k) ? "LEGAL_DOCUMENT"
           : /regulatory|dossier|produit/.test(k) ? "REGULATORY_PRODUCT"
             : null;
-  if (!kind) return { error: "Précisez le type de cible (champ « kind ») : marché PCH, bon de commande, facture, document légal, ou dossier Regulatory." };
+}
+
+async function resolveLinkTarget(kindRaw: string, raw: string): Promise<{ entityType: MailTarget; entityId: string; label: string } | { error: string }> {
+  const q = raw.trim();
+  if (!q) return { error: "Précisez la cible (champ « target » — référence ou titre)." };
+  const kind = kindFromWords(kindRaw);
+  if (!kind) {
+    return { error: `Précisez le type de cible (champ « kind ») : ${MAIL_TARGETS.map((t) => typeLabel(t).toLowerCase()).join(", ")}.` };
+  }
 
   if (kind === "PCH_TENDER") {
     const rows = await prisma.pchTender.findMany({
@@ -109,51 +124,114 @@ async function resolveLinkTarget(kindRaw: string, raw: string): Promise<{ entity
 }
 
 export const MAIL_OPS_IMPL: Record<string, OpImpl> = {
+  set_date: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const entry = await resolveMailEntry(opStr(input, "reference") || opStr(input, "label"));
+      if ("error" in entry) return entry;
+      const fieldRaw = opStr(input, "kind");
+      const ack = /accus/i.test(fieldRaw);
+      const received = /re[çc]u|r[ée]ception|arriv/i.test(fieldRaw);
+      if (!ack && !received) return { error: "Précisez la date visée (champ « kind ») : « reçu le » ou « accusé de réception »." };
+      const value = isoDate(opStr(input, "date"));
+      const clearing = /^(aucune?|retire|efface)$/i.test(opStr(input, "date"));
+      if (!value && !clearing) return { error: "Précisez la date (champ « date », AAAA-MM-JJ) — ou « aucune » pour l'effacer." };
+      return {
+        title: `${ack ? "Accusé de réception" : "Date de réception"} — courrier ${entry.reference ?? entry.title}`,
+        fields: [
+          { label: "Courrier", value: `${entry.reference ?? "s/n"} — ${entry.title}` },
+          { label: ack ? "Accusé le" : "Reçu le", value: clearing ? "— (effacée)" : value! },
+        ],
+        args: { id: entry.id, field: ack ? "acknowledgedAt" : "receivedAt", value: clearing ? null : value },
+        successMessage: `${ack ? "Accusé" : "Réception"} du courrier ${entry.reference ?? ""} ${clearing ? "effacé" : "daté"}.`,
+        revalidate: ["/courriers"],
+      };
+    },
+    async execute(args) {
+      const r = await setMailDate({ id: args.id ?? "", field: (args.field ?? "receivedAt") as "receivedAt" | "acknowledgedAt", value: args.value ?? null });
+      if (!r.ok) return { ok: false, error: r.error ?? "La date a été refusée." };
+      return { ok: true, revalidate: ["/courriers"] };
+    },
+  },
+
+  delete_entry: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const entry = await resolveMailEntry(opStr(input, "reference") || opStr(input, "label"));
+      if ("error" in entry) return entry;
+      return {
+        title: `SUPPRIMER le courrier ${entry.reference ?? ""} — ${entry.title}`,
+        fields: [{ label: "Courrier", value: `${entry.reference ?? "s/n"} — ${entry.title}` }],
+        warnings: ["Suppression définitive du registre (pièces référencées comprises) — les fichiers Drive référencés restent."],
+        confirmText: entry.reference ?? entry.title,
+        args: { id: entry.id },
+        successMessage: `Courrier ${entry.reference ?? ""} supprimé du registre.`,
+        revalidate: ["/courriers"],
+      };
+    },
+    execute: (args) => runFd(deleteMailEntry, args, "La suppression a été refusée.", { revalidate: ["/courriers"] }),
+  },
+
   link_record: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const entry = await resolveMailEntry(opStr(input, "reference"));
       if ("error" in entry) return entry;
       const cible = await resolveLinkTarget(opStr(input, "kind"), opStr(input, "target"));
       if ("error" in cible) return cible;
-      const typeLabel = LINK_KINDS.find(([c]) => c === cible.entityType)?.[1] ?? cible.entityType;
+      const cibleLabel = typeLabel(cible.entityType);
       return {
-        title: `Relier le courrier à ${typeLabel.toLowerCase()}`,
+        title: `Relier le courrier à ${cibleLabel.toLowerCase()}`,
         fields: [
           { label: "Courrier", value: `${entry.reference ? `${entry.reference} — ` : ""}${entry.title}` },
-          { label: typeLabel, value: cible.label },
+          { label: cibleLabel, value: cible.label },
         ],
-        args: { entryId: entry.id, entityType: cible.entityType, entityId: cible.entityId },
+        args: { fromType: "MAIL_ENTRY", fromId: entry.id, toType: cible.entityType, toId: cible.entityId },
         successMessage: `Courrier « ${entry.title} » relié à « ${cible.label} » — visible des deux côtés.`,
         link: `/courriers/${entry.id}`, revalidate: MAIL_REVALIDATE,
       };
     },
-    execute: (args) => runFd(addMailLink, args, "Le lien a été refusé."),
+    execute: (args) => runFd(addEntityLink, args, "Le lien a été refusé."),
   },
 
   unlink_record: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const entry = await resolveMailEntry(opStr(input, "reference"));
       if ("error" in entry) return entry;
-      const links = await prisma.mailEntryLink.findMany({
-        where: { entryId: entry.id }, select: { id: true, label: true, entityId: true }, orderBy: { createdAt: "asc" },
+      // Le registre range chaque paire dans l'ordre du flux : le courrier peut être de l'un OU
+      // l'autre côté. On regarde les deux, et l'on n'affiche que l'AUTRE bout.
+      const rows = await prisma.entityLink.findMany({
+        where: {
+          OR: [
+            { fromType: "MAIL_ENTRY", fromId: entry.id },
+            { toType: "MAIL_ENTRY", toId: entry.id },
+          ],
+        },
+        select: { id: true, fromType: true, fromId: true, fromLabel: true, toType: true, toId: true, toLabel: true },
+        orderBy: { createdAt: "asc" },
+      });
+      const links = rows.map((r) => {
+        const estDepart = r.fromType === "MAIL_ENTRY" && r.fromId === entry.id;
+        return {
+          id: r.id,
+          label: (estDepart ? r.toLabel : r.fromLabel) ?? (estDepart ? r.toId : r.fromId),
+          typeLabel: typeLabel(String(estDepart ? r.toType : r.fromType)),
+        };
       });
       if (links.length === 0) return { error: `Le courrier « ${entry.title} » n'a aucun lien à retirer.` };
       const q = opStr(input, "target").trim().toLowerCase();
-      const hits = q ? links.filter((l) => (l.label ?? "").toLowerCase().includes(q)) : links;
-      if (hits.length === 0) return { error: `Aucun lien « ${opStr(input, "target")} » — présents : ${links.map((l) => l.label ?? l.entityId).join(" ; ")}.` };
-      if (hits.length > 1) return { error: `Précisez le lien à retirer (champ « target ») parmi : ${hits.map((l) => l.label ?? l.entityId).join(" ; ")}.` };
+      const hits = q ? links.filter((l) => l.label.toLowerCase().includes(q)) : links;
+      if (hits.length === 0) return { error: `Aucun lien « ${opStr(input, "target")} » — présents : ${links.map((l) => l.label).join(" ; ")}.` };
+      if (hits.length > 1) return { error: `Précisez le lien à retirer (champ « target ») parmi : ${hits.map((l) => `${l.typeLabel} · ${l.label}`).join(" ; ")}.` };
       return {
-        title: `Retirer le lien « ${hits[0].label ?? hits[0].entityId} »`,
+        title: `Retirer le lien « ${hits[0].label} »`,
         fields: [
           { label: "Courrier", value: `${entry.reference ? `${entry.reference} — ` : ""}${entry.title}` },
-          { label: "Lien retiré", value: hits[0].label ?? hits[0].entityId },
+          { label: "Lien retiré", value: `${hits[0].typeLabel} · ${hits[0].label}` },
         ],
         args: { id: hits[0].id },
-        successMessage: `Lien « ${hits[0].label ?? hits[0].entityId} » retiré du courrier.`,
+        successMessage: `Lien « ${hits[0].label} » retiré du courrier.`,
         link: `/courriers/${entry.id}`, revalidate: MAIL_REVALIDATE,
       };
     },
-    execute: (args) => runFd(removeMailLink, args, "Le retrait du lien a été refusé."),
+    execute: (args) => runFd(removeEntityLink, args, "Le retrait du lien a été refusé."),
   },
 
   create_entry: {

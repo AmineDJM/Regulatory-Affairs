@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { linksOfMany } from "@/lib/links/store";
 import { toNumber } from "@/lib/utils";
 import {
   deriverNiveau, etapeCourante, quantitesContractuelles, restantACommander, restantALivrer,
@@ -189,42 +190,60 @@ export async function loadMarket360(tenderId: string): Promise<Market360 | null>
   //    MARCHÉ, mais aussi de CHAQUE BON et de CHAQUE FACTURE (le recouvrement écrit des
   //    courriers par facture ; un même pli peut en porter plusieurs). ──────────────────────
   const factureIds = factures.map((f) => f.id);
-  const [courriersSource, liens, liensBons, liensFactures] = await Promise.all([
+  // Le registre range chaque paire dans l'ordre du flux : un courrier a le rang le plus élevé,
+  // il est donc toujours le SECOND membre. On lit néanmoins par `linksOfMany`, qui regarde les
+  // deux côtés — la fiche du marché n'a pas à connaître l'ordre de rangement.
+  const [courriersSource, liensMarche, liensBons, liensFactures] = await Promise.all([
     prisma.mailEntry.findMany({
       where: { sourceType: "PCH_TENDER", sourceId: t.id },
       select: { id: true, reference: true, title: true, direction: true, sentAt: true, receivedAt: true },
     }),
-    prisma.mailEntryLink.findMany({
-      where: { entityType: "PCH_TENDER", entityId: t.id },
-      select: { entry: { select: { id: true, reference: true, title: true, direction: true, sentAt: true, receivedAt: true } } },
-    }),
-    orderIds.length
-      ? prisma.mailEntryLink.findMany({
-          where: { entityType: "PCH_ORDER", entityId: { in: orderIds } },
-          select: { entityId: true, entry: { select: { id: true, reference: true, title: true, direction: true } } },
-        })
-      : Promise.resolve([]),
-    factureIds.length
-      ? prisma.mailEntryLink.findMany({
-          where: { entityType: "INVOICE", entityId: { in: factureIds } },
-          select: { entityId: true, entry: { select: { id: true, reference: true, title: true, direction: true } } },
-        })
-      : Promise.resolve([]),
+    linksOfMany("PCH_TENDER", [t.id]),
+    linksOfMany("PCH_ORDER", orderIds),
+    linksOfMany("INVOICE", factureIds),
   ]);
-  const courriersParBon = new Map<string, { id: string; reference: string | null; title: string; direction: string }[]>();
-  for (const l of liensBons) {
-    const list = courriersParBon.get(l.entityId) ?? [];
-    list.push({ id: l.entry.id, reference: l.entry.reference, title: l.entry.title, direction: String(l.entry.direction) });
-    courriersParBon.set(l.entityId, list);
+
+  // Les plis cités par ces liens, chargés EN UNE FOIS : le registre ne porte que le libellé
+  // photographié, et la fiche veut le sens du pli et ses dates.
+  const plisCites = new Set<string>();
+  for (const l of [...liensMarche, ...liensBons, ...liensFactures]) {
+    if (l.fromType === "MAIL_ENTRY") plisCites.add(l.fromId);
+    if (l.toType === "MAIL_ENTRY") plisCites.add(l.toId);
   }
-  const courriersParFacture = new Map<string, { id: string; reference: string | null; title: string; direction: string }[]>();
-  for (const l of liensFactures) {
-    const list = courriersParFacture.get(l.entityId) ?? [];
-    list.push({ id: l.entry.id, reference: l.entry.reference, title: l.entry.title, direction: String(l.entry.direction) });
-    courriersParFacture.set(l.entityId, list);
-  }
+  const plis = plisCites.size
+    ? await prisma.mailEntry.findMany({
+        where: { id: { in: [...plisCites] } },
+        select: { id: true, reference: true, title: true, direction: true, sentAt: true, receivedAt: true },
+      })
+    : [];
+  const pliParId = new Map(plis.map((p) => [p.id, p]));
+
+  /** Le pli d'un lien, et l'objet de CE côté-ci — le registre est lisible des deux sens. */
+  const plisParObjet = (
+    liens: { fromType: string; fromId: string; toType: string; toId: string }[],
+  ): Map<string, { id: string; reference: string | null; title: string; direction: string }[]> => {
+    const par = new Map<string, { id: string; reference: string | null; title: string; direction: string }[]>();
+    for (const l of liens) {
+      const pliId = l.fromType === "MAIL_ENTRY" ? l.fromId : l.toType === "MAIL_ENTRY" ? l.toId : null;
+      if (!pliId) continue;
+      const objetId = l.fromType === "MAIL_ENTRY" ? l.toId : l.fromId;
+      const pli = pliParId.get(pliId);
+      if (!pli) continue;
+      const list = par.get(objetId) ?? [];
+      list.push({ id: pli.id, reference: pli.reference, title: pli.title, direction: String(pli.direction) });
+      par.set(objetId, list);
+    }
+    return par;
+  };
+  const courriersParBon = plisParObjet(liensBons);
+  const courriersParFacture = plisParObjet(liensFactures);
+
   const courriersMap = new Map(courriersSource.map((c) => [c.id, c]));
-  for (const l of liens) courriersMap.set(l.entry.id, l.entry);
+  for (const l of liensMarche) {
+    const pliId = l.fromType === "MAIL_ENTRY" ? l.fromId : l.toType === "MAIL_ENTRY" ? l.toId : null;
+    const pli = pliId ? pliParId.get(pliId) : null;
+    if (pli) courriersMap.set(pli.id, pli);
+  }
   const courriers = [...courriersMap.values()]
     .map((c) => ({ id: c.id, reference: c.reference, title: c.title, direction: String(c.direction), date: c.sentAt ?? c.receivedAt }))
     .sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0));

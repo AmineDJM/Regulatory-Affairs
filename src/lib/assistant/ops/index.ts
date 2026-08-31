@@ -1123,6 +1123,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           op: { type: "string", enum: opEnum("pch_operation"), description: "Le geste à faire." },
           file: { type: "string", description: "analyze_tender_document : PDF / image de l'appel d'offres — Le FICHIER : nom d'un fichier de votre Drive (glissé dans la conversation ou déposé) — résolu par nom, droits Drive revérifiés à l'exécution." },
           reference: { type: "string", description: "L'appel d'offres visé (AO-AAAA-NNN, titre ou produits)." },
+          newReference: { type: "string", description: "update_tender : CORRIGER la référence du marché (elle reste unique — refus nommant le marché qui la porte déjà)." },
           name: { type: "string", description: "create_tender : titre du marché." },
           products: { type: "string", description: "Produits concernés (texte)." },
           supplier: { type: "string", description: "Fournisseur." },
