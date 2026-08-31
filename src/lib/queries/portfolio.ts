@@ -18,13 +18,13 @@ import { mergePortfolio, type Portfolio, type PortfolioProduct } from "@/lib/sal
 
 const EMPTY: Portfolio = { products: [], cycleLabel: null, fromPreviousCycle: false, hasTeam: false };
 
-/** Les identifiants des KAM d'un superviseur — vide s'il n'en pilote aucun. */
+/** Les identifiants des KAM d'un superviseur — les membres des BU qu'il supervise. */
 async function teamMemberIds(userId: string): Promise<string[]> {
-  const teams = await prisma.salesTeam.findMany({
+  const bus = await prisma.businessUnit.findMany({
     where: { supervisorId: userId, isActive: true },
-    select: { members: { where: { isActive: true }, select: { repId: true } } },
+    select: { reps: { where: { isActive: true }, select: { repId: true } } },
   });
-  return [...new Set(teams.flatMap((t) => t.members.map((m) => m.repId)))];
+  return [...new Set(bus.flatMap((b) => b.reps.map((m) => m.repId)))];
 }
 
 /** Le cycle en cours (année/mois d'Alger), s'il a été créé. */

@@ -54,7 +54,7 @@ async function snapshotMonth(year: number, month: number, close: boolean): Promi
     if (existing?.closedAt) continue; // clos : on n'y touche plus, jamais
     const cible = r.plannedVisits || r.requiredVisits;
     const data = {
-      teamId: r.teamId,
+      buId: r.buId,
       panelSize: r.panelSize,
       capacity: r.capacity,
       plannedVisits: r.plannedVisits,
@@ -77,14 +77,14 @@ async function snapshotMonth(year: number, month: number, close: boolean): Promi
   return { written, closed };
 }
 
-/** Les destinataires d'une alerte : le superviseur du KAM, ou ceux qui configurent. */
+/** Les destinataires d'une alerte : le superviseur de la BU du KAM, ou ceux qui configurent. */
 async function audienceFor(alert: FieldAlert, configurators: string[]): Promise<string[]> {
   if (alert.audience === "configurator") return configurators;
   const prof = await prisma.salesRepProfile.findUnique({
     where: { repId: alert.repId },
-    select: { team: { select: { supervisorId: true } } },
+    select: { businessUnit: { select: { supervisorId: true } } },
   });
-  const sup = prof?.team?.supervisorId;
+  const sup = prof?.businessUnit?.supervisorId;
   // Sans superviseur désigné, l'alerte remonte à ceux qui configurent : la taire reviendrait à
   // ne prévenir personne, ce qui est exactement le défaut qu'on corrige.
   return sup ? [sup] : configurators;
@@ -152,17 +152,17 @@ export async function runSfeFieldSweep(now: Date = new Date()): Promise<SfeSweep
       out.closed += clos.closed;
 
       // La revue part aux superviseurs, avec LEUR périmètre — pas le total de la société.
-      const teams = await prisma.salesTeam.findMany({
+      const bus = await prisma.businessUnit.findMany({
         where: { supervisorId: { not: null }, isActive: true },
-        select: { supervisorId: true, name: true, members: { select: { repId: true } } },
+        select: { supervisorId: true, name: true, reps: { select: { repId: true } } },
       });
       const parSuperviseur = new Map<string, { equipes: string[]; repIds: Set<string> }>();
-      for (const t of teams) {
-        if (!t.supervisorId) continue;
-        const cur = parSuperviseur.get(t.supervisorId) ?? { equipes: [], repIds: new Set<string>() };
-        cur.equipes.push(t.name);
-        for (const m of t.members) cur.repIds.add(m.repId);
-        parSuperviseur.set(t.supervisorId, cur);
+      for (const b of bus) {
+        if (!b.supervisorId) continue;
+        const cur = parSuperviseur.get(b.supervisorId) ?? { equipes: [], repIds: new Set<string>() };
+        cur.equipes.push(b.name);
+        for (const m of b.reps) cur.repIds.add(m.repId);
+        parSuperviseur.set(b.supervisorId, cur);
       }
       const moisPrec = await loadCockpit({ year: prev.year, month: prev.month, repIds: null });
       for (const [supervisorId, info] of parSuperviseur) {

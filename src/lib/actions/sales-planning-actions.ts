@@ -10,6 +10,8 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 const MODULE = "SALES_PLANNING" as const;
 const PATH = "/planning";
+/** L'écran où se monte une force de vente : une BU, son superviseur, ses KAM, ses produits. */
+const BU_PATH = "/planning/business-units";
 
 function num(fd: FormData, key: string): number | null {
   const v = fd.get(key);
@@ -37,12 +39,23 @@ export async function createBusinessUnit(formData: FormData): Promise<ActionResu
   if (!userCan(user, MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de la BU est obligatoire." };
-  await prisma.businessUnit.create({
-    data: { name, code: fdStr(formData, "code") ?? undefined, color: fdStr(formData, "color") ?? undefined, companyId: fdStr(formData, "companyId") || null, headId: fdStr(formData, "headId") || null },
+  const created = await prisma.businessUnit.create({
+    data: {
+      name,
+      code: fdStr(formData, "code") ?? undefined,
+      color: fdStr(formData, "color") ?? undefined,
+      companyId: fdStr(formData, "companyId") || null,
+      headId: fdStr(formData, "headId") || null,
+      // LES DEUX RÉPONSES QU'ON DONNE EN CRÉANT UNE BU : qui la supervise, et sur quel terrain
+      // elle opère. Les demander plus tard, c'est les laisser vides.
+      supervisorId: fdStr(formData, "supervisorId") || null,
+      channel: parseChannel(fdStr(formData, "channel")),
+    },
+    select: { id: true },
   });
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", summary: `BU « ${name} »` });
-  revalidatePath(`${PATH}/catalogue`);
-  return { ok: true };
+  revalidatePath(BU_PATH);
+  return { ok: true, id: created.id };
 }
 
 export async function updateBusinessUnit(formData: FormData): Promise<ActionResult> {
@@ -58,10 +71,12 @@ export async function updateBusinessUnit(formData: FormData): Promise<ActionResu
       color: fdStr(formData, "color"),
       companyId: fdStr(formData, "companyId") || null,
       headId: fdStr(formData, "headId") || null,
+      supervisorId: fdStr(formData, "supervisorId") || null,
+      ...(formData.has("channel") ? { channel: parseChannel(fdStr(formData, "channel")) } : {}),
       isActive: formData.get("isActive") === null ? undefined : formData.get("isActive") === "on",
     },
   });
-  revalidatePath(`${PATH}/catalogue`);
+  revalidatePath(BU_PATH);
   return { ok: true };
 }
 
@@ -70,9 +85,24 @@ export async function deleteBusinessUnit(formData: FormData): Promise<ActionResu
   if (!userCan(user, MODULE, "DELETE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "BU introuvable." };
+  const bu = await prisma.businessUnit.findUnique({
+    where: { id },
+    select: { name: true, _count: { select: { products: true, reps: true } } },
+  });
+  if (!bu) return { ok: false, error: "BU introuvable." };
+  // ON REFUSE PLUTÔT QUE DE DÉTACHER EN SILENCE. Supprimer une BU qui porte encore des KAM et
+  // des produits les laisserait orphelins — sans superviseur, sans canal, invisibles au cockpit,
+  // et sans que personne ait vu passer la perte.
+  if (bu._count.reps > 0 || bu._count.products > 0) {
+    const quoi = [
+      bu._count.reps > 0 ? `${bu._count.reps} KAM` : null,
+      bu._count.products > 0 ? `${bu._count.products} produit(s)` : null,
+    ].filter(Boolean).join(" et ");
+    return { ok: false, error: `La BU « ${bu.name} » porte encore ${quoi}. Déplacez-les d'abord, ou désactivez la BU.` };
+  }
   await prisma.businessUnit.delete({ where: { id } });
-  await recordAudit({ actorId: user.id, action: "DELETE", module: "Force de vente", summary: "BU supprimée" });
-  revalidatePath(`${PATH}/catalogue`);
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Force de vente", summary: `BU « ${bu.name} » supprimée` });
+  revalidatePath(BU_PATH);
   return { ok: true };
 }
 
@@ -80,13 +110,44 @@ export async function deleteBusinessUnit(formData: FormData): Promise<ActionResu
 export async function createPromoProduct(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
-  const name = fdStr(formData, "name");
-  if (!name) return { ok: false, error: "Le nom du produit est obligatoire." };
+  const businessUnitId = fdStr(formData, "businessUnitId") || null;
+
+  // LE PRODUIT PROMU VIENT DU DOSSIER RÉGLEMENTAIRE. Le saisir au clavier créait un second
+  // référentiel de produits, qui divergeait du premier au premier changement de nom — et rendait
+  // impossible de remonter du terrain au dossier. On reprend donc le nom et la référence du
+  // dossier ; le nom reste modifiable ensuite (une marque commerciale n'est pas une DCI).
+  const regulatoryProductId = fdStr(formData, "regulatoryProductId");
+  let name = fdStr(formData, "name");
+  let code = fdStr(formData, "code");
+  if (regulatoryProductId) {
+    const dossier = await prisma.regulatoryProduct.findUnique({
+      where: { id: regulatoryProductId },
+      select: { reference: true, dci: true, brandName: true },
+    });
+    if (!dossier) return { ok: false, error: "Ce dossier Regulatory n'existe pas." };
+    name = name || dossier.brandName || dossier.dci;
+    code = code || dossier.reference;
+  }
+  if (!name) return { ok: false, error: "Choisissez un dossier Regulatory, ou donnez un nom de produit." };
+
+  // LE CANAL SUIT LA BU quand le formulaire ne le dit pas : c'est la franchise qui décide du
+  // terrain, et redemander la même réponse à chaque produit est le genre de saisie qu'on ne fait
+  // qu'une fois — mal.
+  let channel = parseChannel(fdStr(formData, "channel"));
+  if (!formData.has("channel") && businessUnitId) {
+    const bu = await prisma.businessUnit.findUnique({ where: { id: businessUnitId }, select: { channel: true } });
+    if (bu) channel = bu.channel;
+  }
+
   await prisma.promoProduct.create({
-    data: { name, code: fdStr(formData, "code") ?? undefined, channel: parseChannel(fdStr(formData, "channel")), businessUnitId: fdStr(formData, "businessUnitId") || null, managerId: fdStr(formData, "managerId") || null },
+    data: {
+      name, code: code ?? undefined, channel, businessUnitId,
+      managerId: fdStr(formData, "managerId") || null,
+      regulatoryProductId: regulatoryProductId || null,
+    },
   });
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", summary: `Produit « ${name} »` });
-  revalidatePath(`${PATH}/catalogue`);
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", summary: `Produit « ${name} »${regulatoryProductId ? " (depuis son dossier Regulatory)" : ""}` });
+  revalidatePath(BU_PATH);
   return { ok: true };
 }
 
@@ -106,7 +167,7 @@ export async function updatePromoProduct(formData: FormData): Promise<ActionResu
       isActive: formData.get("isActive") === null ? undefined : formData.get("isActive") === "on",
     },
   });
-  revalidatePath(`${PATH}/catalogue`);
+  revalidatePath(BU_PATH);
   return { ok: true };
 }
 
@@ -117,7 +178,7 @@ export async function deletePromoProduct(formData: FormData): Promise<ActionResu
   if (!id) return { ok: false, error: "Produit introuvable." };
   await prisma.promoProduct.delete({ where: { id } });
   await recordAudit({ actorId: user.id, action: "DELETE", module: "Force de vente", summary: "Produit supprimé" });
-  revalidatePath(`${PATH}/catalogue`);
+  revalidatePath(BU_PATH);
   return { ok: true };
 }
 
@@ -174,54 +235,6 @@ export async function saveSfeSettings(formData: FormData): Promise<ActionResult>
   return { ok: true };
 }
 
-// ─────────────────────────── Équipes (superviseur national) ───────────────────────────
-export async function createSalesTeam(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  if (!userCan(user, MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
-  const name = fdStr(formData, "name");
-  if (!name) return { ok: false, error: "Le nom de l'équipe est obligatoire." };
-  await prisma.salesTeam.create({
-    data: {
-      name, code: fdStr(formData, "code") ?? undefined, color: fdStr(formData, "color") ?? undefined,
-      supervisorId: fdStr(formData, "supervisorId") || null, businessUnitId: fdStr(formData, "businessUnitId") || null,
-    },
-  });
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", summary: `Équipe « ${name} »` });
-  revalidatePath(`${PATH}/equipes`);
-  return { ok: true };
-}
-
-export async function updateSalesTeam(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
-  const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Équipe introuvable." };
-  await prisma.salesTeam.update({
-    where: { id },
-    data: {
-      name: fdStr(formData, "name") ?? undefined,
-      code: fdStr(formData, "code"),
-      color: fdStr(formData, "color"),
-      supervisorId: fdStr(formData, "supervisorId") || null,
-      businessUnitId: fdStr(formData, "businessUnitId") || null,
-      isActive: formData.get("isActive") === "on" ? true : formData.get("isActive") === "off" ? false : undefined,
-    },
-  });
-  revalidatePath(`${PATH}/equipes`);
-  return { ok: true };
-}
-
-export async function deleteSalesTeam(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  if (!userCan(user, MODULE, "DELETE")) return { ok: false, error: "Non autorisé." };
-  const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Équipe introuvable." };
-  await prisma.salesTeam.delete({ where: { id } });
-  await recordAudit({ actorId: user.id, action: "DELETE", module: "Force de vente", summary: "Équipe supprimée" });
-  revalidatePath(`${PATH}/equipes`);
-  return { ok: true };
-}
-
 // ─────────────────────────── Profil KAM (configuration individuelle) ───────────────────────────
 export async function saveRepProfile(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -229,7 +242,7 @@ export async function saveRepProfile(formData: FormData): Promise<ActionResult> 
   const repId = fdStr(formData, "repId");
   if (!repId) return { ok: false, error: "KAM introuvable." };
   const data = {
-    teamId: fdStr(formData, "teamId") || null,
+    businessUnitId: fdStr(formData, "businessUnitId") || null,
     region: fdStr(formData, "region"),
     capDaysPerMonth: num(formData, "capDaysPerMonth") != null ? Math.round(num(formData, "capDaysPerMonth")!) : null,
     capVisitsPerDay: num(formData, "capVisitsPerDay") != null ? Math.round(num(formData, "capVisitsPerDay")!) : null,
@@ -244,7 +257,7 @@ export async function saveRepProfile(formData: FormData): Promise<ActionResult> 
     create: { repId, ...data },
     update: data,
   });
-  revalidatePath(`${PATH}/equipes`);
+  revalidatePath(BU_PATH);
   return { ok: true };
 }
 
@@ -254,7 +267,7 @@ export async function deleteRepProfile(formData: FormData): Promise<ActionResult
   const repId = fdStr(formData, "repId");
   if (!repId) return { ok: false, error: "KAM introuvable." };
   await prisma.salesRepProfile.deleteMany({ where: { repId } });
-  revalidatePath(`${PATH}/equipes`);
+  revalidatePath(BU_PATH);
   return { ok: true };
 }
 

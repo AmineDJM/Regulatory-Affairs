@@ -2,12 +2,13 @@ import { prisma } from "@/lib/prisma";
 import {
   ensureCycle, createBusinessUnit, updateBusinessUnit, deleteBusinessUnit,
   createPromoProduct, updatePromoProduct, deletePromoProduct,
-  saveForecast, saveSfeSettings, createSalesTeam, updateSalesTeam, deleteSalesTeam,
+  saveForecast, saveSfeSettings,
   saveRepProfile, deleteRepProfile, saveAssignment, deleteAssignment, carryForwardAssignments,
 } from "@/lib/actions/sales-planning-actions";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
 import { runFd, fieldsOf, resolveOne, dzd } from "./helpers";
+import { PRODUCT_CHANNEL } from "@/lib/labels";
 import { fold } from "./impl-regulatory";
 
 /**
@@ -62,11 +63,6 @@ const resolvePromoProduct6 = (raw: string) =>
     (q) => prisma.promoProduct.findMany({ where: { name: { contains: q, mode: "insensitive" } }, select: { id: true, name: true }, take: 6 }),
     (p) => p.name);
 
-const resolveSalesTeam = (raw: string) =>
-  resolveOne(raw, "l'équipe de vente (champ « target » — son nom)",
-    (q) => prisma.salesTeam.findMany({ where: { name: { contains: q, mode: "insensitive" } }, select: { id: true, name: true }, take: 6 }),
-    (t) => t.name);
-
 async function planningUser(raw: string): Promise<{ id: string; name: string } | { error: string }> {
   const q = raw.trim();
   if (!q) return { error: "Précisez la personne (nom)." };
@@ -89,27 +85,54 @@ const CHANNEL_FR = (v: string): "RETAIL" | "HOSPITAL" | "BOTH" | null => {
 };
 const CHANNEL_SHOWN: Record<string, string> = { RETAIL: "Ville", HOSPITAL: "Hôpital", BOTH: "Ville + Hôpital" };
 
+/**
+ * LE TERRAIN D'UNE BU, dit en français. Le défaut « les deux » n'exclut rien — c'est la bonne
+ * valeur quand la phrase ne tranche pas, plutôt qu'un refus qui bloque une création.
+ */
+function channelFromWords(raw: string): string {
+  const k = raw.trim().toLowerCase();
+  if (/h[oô]pital|hospitali|clinique/.test(k)) return "HOSPITAL";
+  if (/ville|officine|retail|pharmaci/.test(k)) return "RETAIL";
+  return "BOTH";
+}
+
 export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
   // ───────── Business units ─────────
   create_business_unit: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const name = opStr(input, "name") || opStr(input, "label");
       if (!name) return { error: "Nommez la business unit (champ « name »)." };
-      let headId: string | null = null; let headShown: string | null = null;
+      // LE SUPERVISEUR ET LE TERRAIN se posent À LA CRÉATION, comme à l'écran : les demander
+      // plus tard, c'est les laisser vides — et une BU sans superviseur n'alerte personne.
+      // C'est la personne PRINCIPALE d'une BU : elle prend donc le champ « person ». Le chef de
+      // BU, lui, passe par « label » — et « target » reste ce qu'il a toujours été partout
+      // ailleurs : l'objet visé.
+      let supervisorId: string | null = null; let supShown: string | null = null;
       if (opStr(input, "person")) {
         const u = await planningUser(opStr(input, "person"));
         if ("error" in u) return u;
+        supervisorId = u.id; supShown = u.name;
+      }
+      let headId: string | null = null; let headShown: string | null = null;
+      if (opStr(input, "label")) {
+        const u = await planningUser(opStr(input, "label"));
+        if ("error" in u) return u;
         headId = u.id; headShown = u.name;
       }
+      const channel = channelFromWords(opStr(input, "mode"));
       return {
         title: `Créer la business unit « ${name} »`,
-        fields: fieldsOf([["BU", name], ["Code", opStr(input, "reference") || null], ["Responsable", headShown]]),
-        args: { name, code: opStr(input, "reference") || null, color: null, companyId: null, headId },
-        successMessage: `BU « ${name} » créée.`,
-        revalidate: ["/planning/catalogue"],
+        fields: fieldsOf([
+          ["BU", name], ["Code", opStr(input, "reference") || null],
+          ["Superviseur", supShown], ["Terrain", PRODUCT_CHANNEL[channel].label],
+          ["Responsable", headShown],
+        ]),
+        args: { name, code: opStr(input, "reference") || null, color: null, companyId: null, headId, supervisorId, channel },
+        successMessage: `BU « ${name} » créée${supShown ? `, supervisée par ${supShown}` : " — pensez à lui désigner un superviseur"}.`,
+        revalidate: ["/planning/business-units"],
       };
     },
-    execute: (args) => runFd(createBusinessUnit, args, "La création de la BU a été refusée.", { revalidate: ["/planning/catalogue"] }),
+    execute: (args) => runFd(createBusinessUnit, args, "La création de la BU a été refusée.", { revalidate: ["/planning/business-units"] }),
   },
 
   update_business_unit: {
@@ -117,21 +140,34 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
       const hit = await resolveBU(opStr(input, "target") || opStr(input, "name"));
       if ("error" in hit) return hit;
       const cur = await prisma.businessUnit.findUnique({
-        where: { id: hit.id }, select: { code: true, color: true, companyId: true, headId: true, isActive: true },
+        where: { id: hit.id }, select: { code: true, color: true, companyId: true, headId: true, isActive: true, supervisorId: true, channel: true },
       });
-      // FUSION : code, couleur, entité et responsable sont REMPLACÉS par l'action — rejoués.
-      let headId = cur?.headId ?? null; let headShown = "(inchangé)";
+      // FUSION : code, couleur, entité, superviseur et responsable sont REMPLACÉS par l'action
+      // — tout ce qui n'est pas demandé est relu et rejoué.
+      let supervisorId = cur?.supervisorId ?? null; let supShown = "(inchangé)";
       const p = opStr(input, "person");
-      if (/^aucun/i.test(p)) { headId = null; headShown = "— (retiré)"; }
+      if (/^aucun/i.test(p)) { supervisorId = null; supShown = "— (retiré)"; }
       else if (p) {
         const u = await planningUser(p);
         if ("error" in u) return u;
+        supervisorId = u.id; supShown = u.name;
+      }
+      let headId = cur?.headId ?? null; let headShown = "(inchangé)";
+      const h = opStr(input, "label");
+      if (/^aucun/i.test(h)) { headId = null; headShown = "— (retiré)"; }
+      else if (h) {
+        const u = await planningUser(h);
+        if ("error" in u) return u;
         headId = u.id; headShown = u.name;
       }
+      const modeRaw = opStr(input, "mode");
+      const channel = modeRaw ? channelFromWords(modeRaw) : (String(cur?.channel ?? "BOTH"));
       return {
         title: `Modifier la BU « ${hit.name} »`,
         fields: fieldsOf([
           ["BU", opStr(input, "newName") ? `${hit.name} → ${opStr(input, "newName")}` : hit.name],
+          ["Superviseur", supShown],
+          ["Terrain", modeRaw ? PRODUCT_CHANNEL[channel].label : "(inchangé)"],
           ["Responsable", headShown],
           ["Le reste", "code, couleur et entité rejoués (FUSION)"],
         ]),
@@ -139,33 +175,39 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
           id: hit.id, name: opStr(input, "newName") || null,
           code: opStr(input, "reference") || cur?.code || null,
           color: cur?.color ?? null, companyId: cur?.companyId ?? null, headId,
+          supervisorId, channel,
           isActive: cur?.isActive === false ? null : "on",
         },
         successMessage: `BU « ${opStr(input, "newName") || hit.name} » modifiée.`,
-        revalidate: ["/planning/catalogue"],
+        revalidate: ["/planning/business-units"],
       };
     },
-    execute: (args) => runFd(updateBusinessUnit, args, "La modification de la BU a été refusée.", { revalidate: ["/planning/catalogue"] }),
+    execute: (args) => runFd(updateBusinessUnit, args, "La modification de la BU a été refusée.", { revalidate: ["/planning/business-units"] }),
   },
 
   delete_business_unit: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const hit = await resolveBU(opStr(input, "target") || opStr(input, "name"));
       if ("error" in hit) return hit;
-      const [products, teams] = await Promise.all([
+      const [products, reps] = await Promise.all([
         prisma.promoProduct.count({ where: { businessUnitId: hit.id } }),
-        prisma.salesTeam.count({ where: { businessUnitId: hit.id } }),
+        prisma.salesRepProfile.count({ where: { businessUnitId: hit.id } }),
       ]);
+      // L'action REFUSE une BU encore peuplée — on le dit ICI plutôt que de faire confirmer un
+      // geste qui sera rejeté à l'exécution.
+      if (products > 0 || reps > 0) {
+        return { error: `La BU « ${hit.name} » porte encore ${reps} KAM et ${products} produit(s). Déplacez-les d'abord, ou désactivez la BU.` };
+      }
       return {
         title: `Supprimer la BU « ${hit.name} »`,
-        fields: [{ label: "BU", value: hit.name }, { label: "Rattachements", value: `${products} produit(s), ${teams} équipe(s)` }],
-        warnings: ["Suppression définitive de la franchise — produits et équipes rattachés perdent leur BU."],
+        fields: [{ label: "BU", value: hit.name }, { label: "Rattachements", value: "aucun" }],
+        warnings: ["Suppression définitive de la franchise."],
         args: { id: hit.id },
         successMessage: `BU « ${hit.name} » supprimée.`,
-        revalidate: ["/planning/catalogue"],
+        revalidate: ["/planning/business-units"],
       };
     },
-    execute: (args) => runFd(deleteBusinessUnit, args, "La suppression de la BU a été refusée.", { revalidate: ["/planning/catalogue"] }),
+    execute: (args) => runFd(deleteBusinessUnit, args, "La suppression de la BU a été refusée.", { revalidate: ["/planning/business-units"] }),
   },
 
   // ───────── Produits promus ─────────
@@ -196,10 +238,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
         ]),
         args: { name, code: opStr(input, "reference") || null, channel, businessUnitId: buId, managerId },
         successMessage: `Produit promu « ${name} » créé.`,
-        revalidate: ["/planning/catalogue"],
+        revalidate: ["/planning/business-units"],
       };
     },
-    execute: (args) => runFd(createPromoProduct, args, "La création du produit a été refusée.", { revalidate: ["/planning/catalogue"] }),
+    execute: (args) => runFd(createPromoProduct, args, "La création du produit a été refusée.", { revalidate: ["/planning/business-units"] }),
   },
 
   update_promo_product: {
@@ -240,10 +282,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
           isActive: cur?.isActive === false ? null : "on",
         },
         successMessage: `Produit « ${opStr(input, "newName") || hit.name} » modifié.`,
-        revalidate: ["/planning/catalogue"],
+        revalidate: ["/planning/business-units"],
       };
     },
-    execute: (args) => runFd(updatePromoProduct, args, "La modification du produit a été refusée.", { revalidate: ["/planning/catalogue"] }),
+    execute: (args) => runFd(updatePromoProduct, args, "La modification du produit a été refusée.", { revalidate: ["/planning/business-units"] }),
   },
 
   delete_promo_product: {
@@ -257,10 +299,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Suppression définitive — les affectations KAM × produit de tous les cycles partent avec."],
         args: { id: hit.id },
         successMessage: `Produit « ${hit.name} » supprimé.`,
-        revalidate: ["/planning/catalogue"],
+        revalidate: ["/planning/business-units"],
       };
     },
-    execute: (args) => runFd(deletePromoProduct, args, "La suppression du produit a été refusée.", { revalidate: ["/planning/catalogue"] }),
+    execute: (args) => runFd(deletePromoProduct, args, "La suppression du produit a été refusée.", { revalidate: ["/planning/business-units"] }),
   },
 
   // ───────── Prévision par produit et par cycle ─────────
@@ -357,86 +399,6 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
     execute: (args) => runFd(saveSfeSettings, args, "L'enregistrement des paramètres a été refusé.", { revalidate: ["/planning/parametres"] }),
   },
 
-  // ───────── Équipes ─────────
-  create_sales_team: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const name = opStr(input, "name") || opStr(input, "label");
-      if (!name) return { error: "Nommez l'équipe (champ « name »)." };
-      let supervisorId: string | null = null; let supShown: string | null = null;
-      if (opStr(input, "person")) {
-        const u = await planningUser(opStr(input, "person"));
-        if ("error" in u) return u;
-        supervisorId = u.id; supShown = u.name;
-      }
-      let buId: string | null = null; let buShown: string | null = null;
-      if (opStr(input, "target")) {
-        const b = await resolveBU(opStr(input, "target"));
-        if ("error" in b) return b;
-        buId = b.id; buShown = b.name;
-      }
-      return {
-        title: `Créer l'équipe de vente « ${name} »`,
-        fields: fieldsOf([["Équipe", name], ["Superviseur", supShown], ["BU", buShown]]),
-        args: { name, code: opStr(input, "reference") || null, color: null, supervisorId, businessUnitId: buId },
-        successMessage: `Équipe « ${name} » créée.`,
-        revalidate: ["/planning/equipes"],
-      };
-    },
-    execute: (args) => runFd(createSalesTeam, args, "La création de l'équipe a été refusée.", { revalidate: ["/planning/equipes"] }),
-  },
-
-  update_sales_team: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const hit = await resolveSalesTeam(opStr(input, "target") || opStr(input, "name"));
-      if ("error" in hit) return hit;
-      const cur = await prisma.salesTeam.findUnique({
-        where: { id: hit.id }, select: { code: true, color: true, supervisorId: true, businessUnitId: true },
-      });
-      // FUSION : code, couleur, superviseur et BU REMPLACÉS — rejoués.
-      let supervisorId = cur?.supervisorId ?? null; let supShown = "(inchangé)";
-      const p = opStr(input, "person");
-      if (/^aucun/i.test(p)) { supervisorId = null; supShown = "— (retiré)"; }
-      else if (p) {
-        const u = await planningUser(p);
-        if ("error" in u) return u;
-        supervisorId = u.id; supShown = u.name;
-      }
-      return {
-        title: `Modifier l'équipe « ${hit.name} »`,
-        fields: fieldsOf([
-          ["Équipe", opStr(input, "newName") ? `${hit.name} → ${opStr(input, "newName")}` : hit.name],
-          ["Superviseur", supShown],
-          ["Le reste", "code, couleur et BU rejoués (FUSION)"],
-        ]),
-        args: {
-          id: hit.id, name: opStr(input, "newName") || null,
-          code: opStr(input, "reference") || cur?.code || null,
-          color: cur?.color ?? null, supervisorId, businessUnitId: cur?.businessUnitId ?? null,
-        },
-        successMessage: `Équipe « ${opStr(input, "newName") || hit.name} » modifiée.`,
-        revalidate: ["/planning/equipes"],
-      };
-    },
-    execute: (args) => runFd(updateSalesTeam, args, "La modification de l'équipe a été refusée.", { revalidate: ["/planning/equipes"] }),
-  },
-
-  delete_sales_team: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const hit = await resolveSalesTeam(opStr(input, "target") || opStr(input, "name"));
-      if ("error" in hit) return hit;
-      const members = await prisma.salesRepProfile.count({ where: { teamId: hit.id } });
-      return {
-        title: `Supprimer l'équipe « ${hit.name} »`,
-        fields: [{ label: "Équipe", value: hit.name }, { label: "KAM rattachés", value: String(members) }],
-        warnings: ["Suppression définitive de l'équipe — les profils KAM perdent leur rattachement."],
-        args: { id: hit.id },
-        successMessage: `Équipe « ${hit.name} » supprimée.`,
-        revalidate: ["/planning/equipes"],
-      };
-    },
-    execute: (args) => runFd(deleteSalesTeam, args, "La suppression de l'équipe a été refusée.", { revalidate: ["/planning/equipes"] }),
-  },
-
   // ───────── Profil KAM ─────────
   save_rep_profile: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
@@ -444,29 +406,29 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
       if ("error" in rep) return rep;
       const cur = await prisma.salesRepProfile.findUnique({
         where: { repId: rep.id },
-        select: { teamId: true, region: true, capDaysPerMonth: true, capVisitsPerDay: true, capFieldPct: true, fteBudget: true, seniority: true, isActive: true, note: true },
+        select: { businessUnitId: true, region: true, capDaysPerMonth: true, capVisitsPerDay: true, capFieldPct: true, fteBudget: true, seniority: true, isActive: true, note: true },
       });
       // FUSION : l'upsert REMPLACE tout (fteBudget absent → 1 !) — l'existant est relu et rejoué.
-      let teamId = cur?.teamId ?? null; let teamShown = cur?.teamId ? "(inchangée)" : null;
-      const teamRaw = opStr(input, "label");
-      if (/^aucun/i.test(teamRaw)) { teamId = null; teamShown = "— (retirée)"; }
-      else if (teamRaw) {
-        const t = await resolveSalesTeam(teamRaw);
-        if ("error" in t) return t;
-        teamId = t.id; teamShown = t.name;
+      let businessUnitId = cur?.businessUnitId ?? null; let buShown = cur?.businessUnitId ? "(inchangée)" : null;
+      const buRaw = opStr(input, "label");
+      if (/^aucun/i.test(buRaw)) { businessUnitId = null; buShown = "— (retirée)"; }
+      else if (buRaw) {
+        const b = await resolveBU(buRaw);
+        if ("error" in b) return b;
+        businessUnitId = b.id; buShown = b.name;
       }
       const num = (given: string, curV: number | null | undefined) => given || (curV != null ? String(Number(curV)) : null);
       return {
         title: `Profil KAM de ${rep.name}`,
         fields: fieldsOf([
           ["KAM", rep.name],
-          ["Équipe", teamShown],
+          ["BU", buShown],
           ["Région", opStr(input, "location") || cur?.region || null],
           ["FTE budget", num(opStr(input, "quantity"), cur?.fteBudget != null ? Number(cur.fteBudget) : null) ?? "1 (défaut)"],
           ["Le reste", "capacités, séniorité et note rejouées (FUSION)"],
         ]),
         args: {
-          repId: rep.id, teamId,
+          repId: rep.id, businessUnitId,
           region: opStr(input, "location") || cur?.region || null,
           capDaysPerMonth: num(opStr(input, "days"), cur?.capDaysPerMonth),
           capVisitsPerDay: num(opStr(input, "visits"), cur?.capVisitsPerDay),
@@ -477,10 +439,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
           note: opStr(input, "note") || cur?.note || null,
         },
         successMessage: `Profil KAM de ${rep.name} enregistré.`,
-        revalidate: ["/planning/equipes"],
+        revalidate: ["/planning/business-units"],
       };
     },
-    execute: (args) => runFd(saveRepProfile, args, "L'enregistrement du profil a été refusé.", { revalidate: ["/planning/equipes"] }),
+    execute: (args) => runFd(saveRepProfile, args, "L'enregistrement du profil a été refusé.", { revalidate: ["/planning/business-units"] }),
   },
 
   delete_rep_profile: {
@@ -493,10 +455,10 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Le profil (équipe, capacités, FTE) est retiré — la personne reste, ses affectations aussi."],
         args: { repId: rep.id },
         successMessage: `Profil KAM de ${rep.name} retiré.`,
-        revalidate: ["/planning/equipes"],
+        revalidate: ["/planning/business-units"],
       };
     },
-    execute: (args) => runFd(deleteRepProfile, args, "Le retrait du profil a été refusé.", { revalidate: ["/planning/equipes"] }),
+    execute: (args) => runFd(deleteRepProfile, args, "Le retrait du profil a été refusé.", { revalidate: ["/planning/business-units"] }),
   },
 
   // ───────── Affectations KAM × produit ─────────

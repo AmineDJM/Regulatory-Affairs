@@ -74,11 +74,11 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
   const next = month === 12 ? { y: year + 1, m: 1 } : { y: year, m: month + 1 };
 
   // Groupement par équipe.
-  const groups: { teamName: string; items: typeof rows }[] = [];
+  const groups: { buName: string; items: typeof rows }[] = [];
   for (const r of rows) {
     const g = groups[groups.length - 1];
-    if (g && g.teamName === r.teamName) g.items.push(r);
-    else groups.push({ teamName: r.teamName, items: [r] });
+    if (g && g.buName === r.buName) g.items.push(r);
+    else groups.push({ buName: r.buName, items: [r] });
   }
 
   const scopeLabel = scope.mode === "all" ? "Toute la force de vente" : scope.mode === "team" ? "Mes équipes" : "Mon activité";
@@ -129,9 +129,9 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
                     const sReal = g.items.reduce((s, r) => s + r.realVisits, 0);
                     const sFte = g.items.reduce((s, r) => s + r.plannedFte, 0);
                     return (
-                      <Fragment key={g.teamName}>
+                      <Fragment key={g.buName}>
                         <tr className="bg-accent/40">
-                          <td colSpan={9} className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide">{g.teamName}</td>
+                          <td colSpan={9} className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide">{g.buName}</td>
                         </tr>
                         {g.items.map((r) => {
                           const realPct = pct(r.realVisits, r.plannedVisits || r.requiredVisits);
@@ -154,7 +154,7 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
                           );
                         })}
                         <tr className="bg-secondary/30 text-sm font-medium">
-                          <td className="px-2 py-1.5 text-right text-xs text-muted-foreground">Sous-total {g.teamName}</td>
+                          <td className="px-2 py-1.5 text-right text-xs text-muted-foreground">Sous-total {g.buName}</td>
                           <td className="px-2 py-1.5 tabular-nums">{sCap}</td>
                           <td className="px-2 py-1.5" />
                           <td className="px-2 py-1.5" />

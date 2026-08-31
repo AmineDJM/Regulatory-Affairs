@@ -3495,6 +3495,43 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### La Business Unit devient la colonne vertébrale de la force de vente (2026-08)
+
+**Le problème posé tel quel :** « le module Prévisions & force de vente doit être plus clair : on
+commence par créer une BU, supervisée par un superviseur, elle contient des KAM, on lui met soit
+hospitalière soit gamme de ville soit les deux, on lui donne des produits qu'on sélectionne depuis
+Regulatory ».
+
+**Le module éclatait cette seule réalité sur deux onglets et deux objets.** La BU vivait au
+« Catalogue » (nom, société, chef) ; le superviseur et les KAM vivaient sur une **`SalesTeam`**,
+posée EN DESSOUS de la BU, qui redisait ce qu'elle était. Monter une force de vente demandait
+quatre allers-retours, et personne ne savait lequel des deux objets faisait autorité. Le canal
+(ville / hôpital) se saisissait produit par produit, alors que c'est une propriété de la franchise.
+Et les produits promus se tapaient au clavier : un second référentiel, qui divergeait de Regulatory
+au premier changement de nom et interdisait de remonter du terrain au dossier.
+
+**Une BU EST une équipe.** `SalesTeam` a été retiré ; `BusinessUnit` porte désormais son
+**superviseur**, son **terrain** (`channel`), ses **KAM** (`SalesRepProfile.businessUnitId`) et ses
+produits. La migration REPREND chaque équipe — dans sa BU si elle en avait une, dans une BU créée à
+son image sinon — et déduit le terrain des produits déjà saisis : la donnée existait, on ne la fait
+pas ressaisir. La table `SalesTeam` n'est pas supprimée, elle n'est simplement plus lue.
+
+**Un seul écran, lu de haut en bas.** L'onglet **Business Units** passe en PREMIER — l'ordre des
+onglets est l'ordre du montage. Une BU par carte dépliable : identité → supervision & terrain →
+KAM → produits. Chaque carte fermée dit **ce qui manque**, nommément (« Désigner le superviseur »),
+parce que ces pannes-là sont silencieuses : une BU sans superviseur n'alerte personne quand le
+terrain décroche, une BU sans KAM n'apparaît pas au pilotage, une BU sans produit ne porte aucune
+affectation — et aucune des trois ne produit d'erreur. Un bloc « Sans Business Unit » montre ce qui
+n'est rattaché à rien. Module pur `lib/sfe-setup.ts` (10 tests).
+
+**Les produits viennent des dossiers Regulatory.** Le sélecteur propose les dossiers vivants ; le
+nom et la référence en sont repris (le nom reste modifiable — une marque n'est pas une DCI). Le
+produit hérite du terrain de sa BU, et l'incohérence (un produit de ville dans une BU hospitalière)
+se **dit** au lieu de se corriger toute seule : c'est peut-être l'exception voulue.
+
+**Supprimer une BU peuplée est REFUSÉ** — écran et Adam —, en nommant ce qu'elle porte. Détacher en
+silence aurait laissé des KAM sans superviseur et des produits sans terrain, invisibles au pilotage.
+
 ### Le fil de l'affaire — un registre de liens, et le flux qui le gouverne (2026-08)
 
 **Le problème posé tel quel :** « on peut relier un document à un appel d'offres, un bon de

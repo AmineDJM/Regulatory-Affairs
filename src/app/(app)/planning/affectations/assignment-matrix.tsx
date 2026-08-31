@@ -6,7 +6,7 @@ import { Plus, Trash2, Loader2, CopyPlus } from "lucide-react";
 import { saveAssignment, deleteAssignment, carryForwardAssignments } from "@/lib/actions/sales-planning-actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-interface Kam { repId: string; name: string; teamName: string; capacity: number; active: boolean }
+interface Kam { repId: string; name: string; buName: string; capacity: number; active: boolean }
 interface Prod { id: string; name: string; buName: string; buColor: string | null }
 interface Assign { repId: string; productId: string; position: number; plannedVisits: number }
 
@@ -94,11 +94,11 @@ export function AssignmentMatrix({
   }).filter((r) => r.visits > 0 || r.fte > 0);
 
   // Groupement des KAM par équipe (déjà triés côté serveur).
-  const teamGroups: { teamName: string; items: Kam[] }[] = [];
+  const buGroups: { buName: string; items: Kam[] }[] = [];
   for (const k of kams) {
-    const g = teamGroups[teamGroups.length - 1];
-    if (g && g.teamName === k.teamName) g.items.push(k);
-    else teamGroups.push({ teamName: k.teamName, items: [k] });
+    const g = buGroups[buGroups.length - 1];
+    if (g && g.buName === k.buName) g.items.push(k);
+    else buGroups.push({ buName: k.buName, items: [k] });
   }
 
   return (
@@ -112,9 +112,9 @@ export function AssignmentMatrix({
         </div>
       )}
 
-      {teamGroups.map((g) => (
-        <div key={g.teamName} className="space-y-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{g.teamName}</h3>
+      {buGroups.map((g) => (
+        <div key={g.buName} className="space-y-3">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{g.buName}</h3>
           <div className="grid gap-3 lg:grid-cols-2">
             {g.items.map((k) => {
               const shown = shownProducts(k.repId);

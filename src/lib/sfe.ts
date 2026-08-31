@@ -104,29 +104,31 @@ export interface RepScope {
   mode: "all" | "team" | "self";
   canConfigure: boolean;
   isSupervisor: boolean;
-  teamIds: string[]; // équipes supervisées (pour team/all)
+  buIds: string[]; // BU supervisées (pour team/all)
   repIds: string[] | null; // null = tous ; sinon liste explicite
 }
 
 export async function resolveRepScope(user: SessionUser): Promise<RepScope> {
   const canConfigure = userCan(user, "SALES_PLANNING", "UPDATE") || hasGlobalView(user);
-  const supervised = await prisma.salesTeam.findMany({ where: { supervisorId: user.id }, select: { id: true } });
-  const teamIds = supervised.map((t) => t.id);
-  const isSupervisor = teamIds.length > 0;
+  // LA BU EST L'ÉQUIPE. On est superviseur parce qu'on supervise une BU — plus par un objet
+  // « équipe » posé entre les deux, qui redisait la même chose et pouvait la contredire.
+  const supervisees = await prisma.businessUnit.findMany({ where: { supervisorId: user.id }, select: { id: true } });
+  const buIds = supervisees.map((b) => b.id);
+  const isSupervisor = buIds.length > 0;
 
-  if (canConfigure) return { mode: "all", canConfigure: true, isSupervisor, teamIds, repIds: null };
+  if (canConfigure) return { mode: "all", canConfigure: true, isSupervisor, buIds, repIds: null };
   if (isSupervisor) {
-    const members = await prisma.salesRepProfile.findMany({ where: { teamId: { in: teamIds } }, select: { repId: true } });
+    const members = await prisma.salesRepProfile.findMany({ where: { businessUnitId: { in: buIds } }, select: { repId: true } });
     const repIds = Array.from(new Set([...members.map((m) => m.repId), user.id]));
-    return { mode: "team", canConfigure: false, isSupervisor: true, teamIds, repIds };
+    return { mode: "team", canConfigure: false, isSupervisor: true, buIds, repIds };
   }
-  return { mode: "self", canConfigure: false, isSupervisor: false, teamIds: [], repIds: [user.id] };
+  return { mode: "self", canConfigure: false, isSupervisor: false, buIds: [], repIds: [user.id] };
 }
 
 /** Le user peut-il éditer les affectations de ce KAM ? Configurateur, superviseur du KAM, ou lui-même. */
 export async function canEditRep(user: SessionUser, repId: string): Promise<boolean> {
   if (userCan(user, "SALES_PLANNING", "UPDATE") || hasGlobalView(user)) return true;
   if (repId === user.id) return true;
-  const prof = await prisma.salesRepProfile.findUnique({ where: { repId }, select: { team: { select: { supervisorId: true } } } });
-  return prof?.team?.supervisorId === user.id;
+  const prof = await prisma.salesRepProfile.findUnique({ where: { repId }, select: { businessUnit: { select: { supervisorId: true } } } });
+  return prof?.businessUnit?.supervisorId === user.id;
 }

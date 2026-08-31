@@ -24,9 +24,9 @@ import {
 export interface CockpitRow {
   repId: string;
   name: string;
-  teamId: string | null;
-  teamName: string;
-  teamSort: number;
+  buId: string | null;
+  buName: string;
+  buSort: number;
   /** Capacité terrain nette (visites/mois), surcharge individuelle comprise. */
   capacity: number;
   /** Effectif du panel par palier de potentiel. */
@@ -94,9 +94,9 @@ export async function loadCockpit(input: {
   const repIds = kamUsers.map((u) => u.id);
   if (repIds.length === 0) return { rows: [], config, cycleId: cycle?.id ?? null, year, month };
 
-  const [profiles, teams, assignments, panel, visits, lastLogged] = await Promise.all([
+  const [profiles, bus, assignments, panel, visits, lastLogged] = await Promise.all([
     prisma.salesRepProfile.findMany({ where: { repId: { in: repIds } } }),
-    prisma.salesTeam.findMany({ select: { id: true, name: true, sortOrder: true } }),
+    prisma.businessUnit.findMany({ select: { id: true, name: true, sortOrder: true } }),
     cycle
       ? prisma.promotionAssignment.findMany({ where: { cycleId: cycle.id, repId: { in: repIds } } })
       : Promise.resolve([]),
@@ -115,7 +115,7 @@ export async function loadCockpit(input: {
   ]);
 
   const profileByRep = new Map(profiles.map((p) => [p.repId, p]));
-  const teamById = new Map(teams.map((t) => [t.id, t]));
+  const buById = new Map(bus.map((b) => [b.id, b]));
   const loggedByRep = new Map(lastLogged.map((g) => [g.delegateId ?? "", g._max.createdAt ?? null]));
 
   const panelByRep = new Map<string, Record<string, number>>();
@@ -151,7 +151,7 @@ export async function loadCockpit(input: {
   const rows: CockpitRow[] = kamUsers
     .map((u) => {
       const p = profileByRep.get(u.id);
-      const team = p?.teamId ? teamById.get(p.teamId) : null;
+      const bu = p?.businessUnitId ? buById.get(p.businessUnitId) : null;
       const capacity = repCapacity(p, config);
       const panelRec = panelByRep.get(u.id) ?? {};
       const planned = plannedByRep.get(u.id) ?? { visits: 0, fte: 0 };
@@ -159,9 +159,9 @@ export async function loadCockpit(input: {
       return {
         repId: u.id,
         name: u.name,
-        teamId: p?.teamId ?? null,
-        teamName: team?.name ?? "Sans équipe",
-        teamSort: team?.sortOrder ?? 9999,
+        buId: p?.businessUnitId ?? null,
+        buName: bu?.name ?? "Sans BU",
+        buSort: bu?.sortOrder ?? 9999,
         capacity,
         panelByTier: panelRec,
         panelSize: Object.values(panelRec).reduce((s, n) => s + n, 0),
@@ -174,7 +174,7 @@ export async function loadCockpit(input: {
         lastVisitLoggedAt: loggedByRep.get(u.id) ?? null,
       };
     })
-    .sort((a, b) => a.teamSort - b.teamSort || a.teamName.localeCompare(b.teamName, "fr") || a.name.localeCompare(b.name, "fr"));
+    .sort((a, b) => a.buSort - b.buSort || a.buName.localeCompare(b.buName, "fr") || a.name.localeCompare(b.name, "fr"));
 
   return { rows, config, cycleId: cycle?.id ?? null, year, month };
 }

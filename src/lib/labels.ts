@@ -480,10 +480,15 @@ export const INSTITUTION_SECTOR: Record<string, Display> = {
   PRIVE: { label: "Privé", tone: "purple" },
 };
 
-// Canal de distribution d'un produit : Ville (officine) / Hôpital / les deux.
+// LE TERRAIN — officine de ville, secteur hospitalier, ou les deux.
+//
+// Le MÊME vocabulaire sert au produit (son canal de distribution) et à la Business Unit (le
+// terrain qu'elle couvre) : deux jeux de mots pour un seul énuméré divergent à la première
+// retouche, et « Ville » d'un côté contre « Gamme de ville » de l'autre fait douter qu'il
+// s'agisse de la même chose. `lib/sfe-setup.ts` en dérive ses libellés.
 export const PRODUCT_CHANNEL: Record<string, Display> = {
-  RETAIL: { label: "Ville", tone: "purple" },
-  HOSPITAL: { label: "Hôpital", tone: "info" },
+  RETAIL: { label: "Gamme de ville", tone: "purple" },
+  HOSPITAL: { label: "Hospitalière", tone: "info" },
   BOTH: { label: "Ville + Hôpital", tone: "neutral" },
 };
 

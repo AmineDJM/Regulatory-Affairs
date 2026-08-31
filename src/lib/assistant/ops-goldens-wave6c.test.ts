@@ -36,7 +36,6 @@ let saId = "";
 let kamId = "";
 let buId = "";
 let productId = "";
-let teamId = "";
 let cycleId = "";
 
 const sa = () => userWith({
@@ -57,12 +56,10 @@ suite("ops vague 6c — planning force de vente (SFE)", () => {
       data: { name: `${TAG} Tensiofix`, channel: "RETAIL", businessUnitId: bu.id, code: "TFX" },
     });
     productId = product.id;
-    const team = await prisma.salesTeam.create({
-      data: { name: `${TAG} Équipe Centre`, code: "CTR", supervisorId: s.id, businessUnitId: bu.id },
-    });
-    teamId = team.id;
+    // LA BU EST L'ÉQUIPE : le KAM s'y rattache directement, sans étage intermédiaire.
+    await prisma.businessUnit.update({ where: { id: bu.id }, data: { supervisorId: s.id } });
     await prisma.salesRepProfile.create({
-      data: { repId: kam.id, teamId: team.id, region: "Centre", fteBudget: 0.8, seniority: "Senior", isActive: true, note: "Bilingue" },
+      data: { repId: kam.id, businessUnitId: bu.id, region: "Centre", fteBudget: 0.8, seniority: "Senior", isActive: true, note: "Bilingue" },
     });
     const cycle = await prisma.promoCycle.create({ data: { year: 2033, month: 9, label: "Septembre 2033" } });
     cycleId = cycle.id;
@@ -80,7 +77,6 @@ suite("ops vague 6c — planning force de vente (SFE)", () => {
     await prisma.promoCycle.deleteMany({ where: { year: 2033 } }).catch(() => {});
     const testUsers = await prisma.user.findMany({ where: { email: { startsWith: "__ops6c__" } }, select: { id: true } }).catch(() => []);
     await prisma.salesRepProfile.deleteMany({ where: { repId: { in: testUsers.map((u) => u.id) } } }).catch(() => {});
-    await prisma.salesTeam.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.promoProduct.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.businessUnit.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: "__ops6c__" } } }).catch(() => {});
@@ -127,7 +123,7 @@ suite("ops vague 6c — planning force de vente (SFE)", () => {
       const a = domainArgs(p);
       expect(a.repId).toBe(kamId);
       expect(a.region).toBe("Est");
-      expect(a.teamId).toBe(teamId);
+      expect(a.businessUnitId).toBe(buId);
       expect(a.fteBudget).toBe("0.8");
       expect(a.seniority).toBe("Senior");
       expect(a.note).toBe("Bilingue");
@@ -186,9 +182,48 @@ suite("ops vague 6c — planning force de vente (SFE)", () => {
     }
   });
 
-  it("delete_business_unit : rattachements comptés (produits, équipes)", async () => {
+  it("delete_business_unit : REFUSÉ tant que la BU porte des KAM ou des produits", async () => {
+    // Supprimer une BU peuplée laisserait ses KAM sans superviseur et ses produits sans terrain —
+    // invisibles au pilotage, sans qu'aucune erreur ne se produise. Le refus NOMME ce qui reste.
     const p = await buildProposal("planning_operation", { op: "delete_business_unit", target: "BU Cardio" }, sa());
+    expect("error" in p).toBe(true);
+    if ("error" in p) {
+      expect(p.error).toMatch(/1 KAM/);
+      expect(p.error).toMatch(/1 produit/);
+      expect(p.error).toMatch(/d[ée]sactiv/i);
+    }
+  });
+
+  it("create_business_unit : le SUPERVISEUR et le TERRAIN se posent dès la création", async () => {
+    const p = await buildProposal("planning_operation", {
+      op: "create_business_unit", name: `${TAG} BU Onco`, person: "Amine", mode: "hospitalier",
+    }, sa());
     expect("error" in p).toBe(false);
-    if (!("error" in p)) expect(p.fields.map((f) => f.value).join(" ")).toMatch(/1 produit.*1 équipe/);
+    if (!("error" in p)) {
+      const a = domainArgs(p);
+      expect(a.supervisorId).toBe(saId);
+      expect(a.channel).toBe("HOSPITAL");
+      expect(p.fields.map((f) => f.value).join(" ")).toMatch(/Hospitali/i);
+    }
+  });
+
+  it("create_business_unit sans superviseur : ça passe, mais le message le DIT", async () => {
+    const p = await buildProposal("planning_operation", { op: "create_business_unit", name: `${TAG} BU Derma` }, sa());
+    expect("error" in p).toBe(false);
+    if (!("error" in p)) {
+      expect(domainArgs(p).supervisorId).toBeNull();
+      // Le défaut « les deux » n'exclut rien : il ne bloque pas la création.
+      expect(domainArgs(p).channel).toBe("BOTH");
+    }
+  });
+
+  it("update_business_unit : le terrain NON demandé est rejoué, il ne retombe pas sur « les deux »", async () => {
+    await prisma.businessUnit.update({ where: { id: buId }, data: { channel: "HOSPITAL" } });
+    const p = await buildProposal("planning_operation", {
+      op: "update_business_unit", target: "BU Cardio", newName: `${TAG} BU Cardiologie`,
+    }, sa());
+    expect("error" in p).toBe(false);
+    if (!("error" in p)) expect(domainArgs(p).channel).toBe("HOSPITAL");
+    await prisma.businessUnit.update({ where: { id: buId }, data: { channel: "BOTH" } });
   });
 });

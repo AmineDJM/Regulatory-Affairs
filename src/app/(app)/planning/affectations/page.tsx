@@ -22,14 +22,14 @@ export default async function AffectationsPage({ searchParams }: { searchParams:
   const year = Number(searchParams.y) || now.getFullYear();
   const month = Number(searchParams.m) || now.getMonth() + 1;
 
-  const [cycle, config, products, teams] = await Promise.all([
+  const [cycle, config, products, bus] = await Promise.all([
     ensureCycle(year, month),
     getSfeConfig(),
     prisma.promoProduct.findMany({ where: { isActive: true }, include: { businessUnit: { select: { name: true, color: true, sortOrder: true } } }, orderBy: [{ businessUnit: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }] }),
-    prisma.salesTeam.findMany({ select: { id: true, name: true, sortOrder: true } }),
+    prisma.businessUnit.findMany({ select: { id: true, name: true, sortOrder: true } }),
   ]);
 
-  // KAM visibles selon la portée (tous / équipe supervisée).
+  // KAM visibles selon la portée (tous / BU supervisée).
   const kamUsers = await prisma.user.findMany({
     where: { isActive: true, ...anyRoleFilter(["MEDICAL_DELEGATE", "NATIONAL_SALES"]), ...(scope.repIds ? { id: { in: scope.repIds } } : {}) },
     select: { id: true, name: true },
@@ -41,21 +41,21 @@ export default async function AffectationsPage({ searchParams }: { searchParams:
     cycle ? prisma.promotionAssignment.findMany({ where: { cycleId: cycle.id, repId: { in: repIds } } }) : Promise.resolve([]),
   ]);
   const profileByRep = new Map(profiles.map((p) => [p.repId, p]));
-  const teamById = new Map(teams.map((t) => [t.id, t]));
+  const buById = new Map(bus.map((b) => [b.id, b]));
 
   const kams = kamUsers
     .map((u) => {
       const p = profileByRep.get(u.id);
-      const team = p?.teamId ? teamById.get(p.teamId) : null;
+      const bu = p?.businessUnitId ? buById.get(p.businessUnitId) : null;
       return {
         repId: u.id, name: u.name,
-        teamName: team?.name ?? "Sans équipe",
-        teamSort: team?.sortOrder ?? 9999,
+        buName: bu?.name ?? "Sans BU",
+        buSort: bu?.sortOrder ?? 9999,
         capacity: repCapacity(p, config),
         active: p?.isActive ?? true,
       };
     })
-    .sort((a, b) => a.teamSort - b.teamSort || a.teamName.localeCompare(b.teamName) || a.name.localeCompare(b.name));
+    .sort((a, b) => a.buSort - b.buSort || a.buName.localeCompare(b.buName) || a.name.localeCompare(b.name));
 
   const prev = month === 1 ? { y: year - 1, m: 12 } : { y: year, m: month - 1 };
   const next = month === 12 ? { y: year + 1, m: 1 } : { y: year, m: month + 1 };
