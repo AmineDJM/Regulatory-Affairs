@@ -392,6 +392,50 @@ export async function clearValidationItem(formData: FormData): Promise<ActionRes
  *
  * Réservé à la vue globale : c'est une pression hiérarchique, pas un bouton de confort.
  */
+/**
+ * RETIRER SA PROPRE DEMANDE DE VALIDATION.
+ *
+ * Une demande partie par erreur — mauvais validateur, mauvaise pièce, objet abandonné — occupait
+ * jusqu'ici la file de quelqu'un d'autre pour toujours : seul le Super Admin pouvait l'effacer,
+ * et on ne le dérange pas pour ça. Le demandeur reprend donc la sienne.
+ *
+ * DEUX BORNES, et elles ne se négocient pas :
+ *   • seul LE DEMANDEUR (ou le Super Admin) retire — un validateur qui supprimerait ce qu'on lui
+ *     soumet ferait disparaître la demande au lieu de la refuser, sans motif et sans trace ;
+ *   • une demande DÉJÀ TRANCHÉE ne se retire pas. L'accord ou le refus d'un tiers est un fait :
+ *     l'effacer réécrirait ce que quelqu'un a signé. On ne retire que ce qui attend encore.
+ */
+export async function deleteMyValidationRequest(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.validationRequest.findUnique({
+    where: { id },
+    select: { id: true, reference: true, title: true, requesterId: true, status: true, steps: { select: { status: true } } },
+  });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (req.requesterId !== user.id && user.role !== "SUPER_ADMIN") {
+    return { ok: false, error: "Seul le demandeur retire sa demande. Un validateur refuse — avec un motif, qui reste." };
+  }
+  if (req.status !== "PENDING") {
+    return { ok: false, error: "Cette demande a été tranchée : l'accord ou le refus d'un tiers ne s'efface pas." };
+  }
+  const decidee = req.steps.some((e) => e.status !== "PENDING");
+  if (decidee) {
+    return { ok: false, error: "Un validateur s'est déjà prononcé sur une étape : la demande ne peut plus être retirée." };
+  }
+
+  await prisma.validationRequest.delete({ where: { id } });
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Validations",
+    entityType: "VALIDATION_REQUEST", entityId: id,
+    summary: `Demande de validation retirée par son demandeur — ${req.reference} : ${req.title}`,
+  });
+  revalidatePath("/validations");
+  revalidatePath("/mon-espace");
+  return { ok: true };
+}
+
 export async function remindValidator(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!hasGlobalView(user)) return { ok: false, error: "Réservé à la Direction." };

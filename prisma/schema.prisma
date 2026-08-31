@@ -3037,6 +3037,25 @@ model MedicalInfoDeclaration {
   validatedById           String?
   expenseOrderId          String? // ordre de dépense émis après validation du pharmacien
   budgetCategoryId        String? // (sous-)catégorie budgétaire choisie par la Direction à la validation définitive
+  /// ── LE BON DE VERSEMENT, l'étape qui PRÉCÈDE la déclaration aux autorités ──────────────
+  ///
+  /// On ne déclare pas un événement aux autorités sans avoir versé la taxe : le PRIM demande le
+  /// BV, le centre de paiement autorise, les Finances règlent, puis elles REMETTENT le bon à son
+  /// bureau. C'est cette remise — un geste, pas un statut déduit — qui débloque la déclaration :
+  /// « payé » ne veut pas dire « le PRIM a le papier en main », et c'est le papier qu'on dépose.
+  ///
+  /// La demande elle-même est une `PaymentRequest` ordinaire (montant, note, pièces, fil) : elle
+  /// emprunte le circuit commun plutôt qu'un second circuit de paiement qui divergerait.
+  bvRequestId             String? // la demande de paiement portant le BV
+  bvDeliveredAt           DateTime? // remis au bureau du PRIM par les Finances
+  bvDeliveredById         String?
+  bvDeliveryNote          String?
+  /// SANS BV — certains dossiers n'appellent aucun versement. Le dire est un geste TRACÉ, avec
+  /// son motif : sans cette porte, un dossier sans taxe resterait bloqué pour toujours ; sans la
+  /// trace, elle deviendrait le contournement ordinaire.
+  bvSkippedAt             DateTime?
+  bvSkippedById           String?
+  bvSkipReason            String?
   archivedNodeId          String? // dossier « Dossier traité » créé dans le Drive du PRIM
   requests                MedicalInfoDocRequest[]
   createdAt               DateTime                @default(now())

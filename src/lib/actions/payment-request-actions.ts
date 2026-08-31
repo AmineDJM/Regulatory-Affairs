@@ -126,6 +126,16 @@ export async function createPaymentRequest(_prev: ActionResult | undefined, form
     const submit = fdStr(formData, "submit") !== "0";
     const companyId = fdStr(formData, "companyId") || (await companyIdForNew(user.id));
 
+    // UNE DEMANDE TRANSMISE PORTE SA JUSTIFICATION. Le centre de paiement autorise une sortie
+    // d'argent : sans facture, devis ou bon, il autorise une phrase. La règle existait déjà pour
+    // le bon à payer (`canApprove`) et pour le renvoi (`canResubmit`) — elle manquait au tout
+    // premier dépôt, si bien qu'un dossier vide arrivait au centre et y restait bloqué.
+    // Un BROUILLON, lui, n'engage rien : on l'enregistre sans pièce et on la joint ensuite.
+    const joints = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+    if (submit && joints.length === 0) {
+      return { ok: false, error: "Joignez au moins une pièce — facture, devis, bon de commande : c'est ce que le centre de paiement doit pouvoir lire avant d'autoriser." };
+    }
+
     const req = await createWithRetry(async () =>
       prisma.paymentRequest.create({
         data: {
@@ -149,7 +159,7 @@ export async function createPaymentRequest(_prev: ActionResult | undefined, form
     // Les pièces du premier dépôt. Un échec d'enregistrement ne doit pas emporter la demande :
     // on préfère un dossier créé auquel il manque une pièce — visible, corrigeable — à un
     // formulaire perdu avec tout ce qui avait été saisi.
-    const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+    const files = joints;
     for (const [i, file] of files.entries()) {
       try {
         const doc = await persistUploadedDocument(user.id, {

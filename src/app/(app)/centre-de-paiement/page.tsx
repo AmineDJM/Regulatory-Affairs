@@ -70,6 +70,10 @@ export default async function CentreDePaiementPage() {
     createdAt: o.createdAt.toISOString(),
     decidedBy: o.centralDecidedById ? deciderName.get(o.centralDecidedById) ?? null : null,
     decidedAt: o.centralDecidedAt?.toISOString() ?? null,
+    dueDate: o.dueDate?.toISOString() ?? null,
+    // Le dossier n'existe que pour les ordres nés d'une DEMANDE DE PAIEMENT — les autres viennent
+    // d'un circuit qui porte ses pièces ailleurs, et un lien mort vaut moins qu'aucun lien.
+    dossierHref: o.sourceType === "PAYMENT_REQUEST" && o.sourceId ? `/validations/paiements/${o.sourceId}` : null,
     isMine: o.requestedById === user.id,
     messages: o.centralMessages.map((m) => ({
       id: m.id, decision: m.decision, body: m.body,

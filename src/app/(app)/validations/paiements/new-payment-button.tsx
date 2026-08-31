@@ -71,7 +71,7 @@ export function NewPaymentButton({ people }: { people: { id: string; name: strin
         open={open}
         onClose={() => !busy && setOpen(false)}
         title="Demander un paiement"
-        description="Le dossier part directement aux Finances : montant, bénéficiaire, échéance, et les pièces qui le justifient."
+        description="Le dossier part au CENTRE DE PAIEMENT, qui autorise avant que les Finances ne voient quoi que ce soit : montant, bénéficiaire, échéance demandée, et les pièces qui le justifient."
         width="lg"
       >
         <form ref={formRef} className="space-y-4" onSubmit={(e) => e.preventDefault()}>
@@ -98,8 +98,13 @@ export function NewPaymentButton({ people }: { people: { id: string; name: strin
               <p className="text-xs text-muted-foreground">Sans destinataire, tout le pôle est prévenu.</p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="pay-due">Échéance discutée</Label>
+              <Label htmlFor="pay-due">Échéance demandée</Label>
               <Input id="pay-due" name="dueDate" type="date" />
+              {/* C'est un SOUHAIT, formé sans voir la trésorerie ni les autres engagements du
+                  mois. Le centre de paiement voit la file entière et pose, en autorisant, la
+                  date que la comptabilité devra tenir. Dire « demandée » évite de la croire
+                  acquise. */}
+              <p className="text-xs text-muted-foreground">Le centre de paiement arbitre : il voit la file entière.</p>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="pay-urgency">…ou, à défaut de date, l&apos;urgence</Label>

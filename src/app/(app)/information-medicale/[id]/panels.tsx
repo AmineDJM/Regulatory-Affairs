@@ -2,10 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Send, Upload, Trash2, ShieldCheck, AlertCircle, FileText, BadgeCheck } from "lucide-react";
+import { Loader2, Send, Upload, Trash2, ShieldCheck, AlertCircle, FileText, BadgeCheck, Lock, HandCoins, PackageCheck } from "lucide-react";
 import {
   requestDocument, cancelDocRequest, fulfillDocRequest, validateDeclaration, validateDeclarationByDirection, recordAuthorityDeclaration,
+  requestMedicalInfoBv, deliverMedicalInfoBv, skipMedicalInfoBv,
 } from "@/lib/actions/medical-info-actions";
+import { bvMessage, bvStageLabel, type BvStage } from "@/lib/medical-info/bv";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { ROLE_LABELS } from "@/lib/labels";
@@ -87,6 +89,142 @@ export function FulfillForm({ requestId }: { requestId: string }) {
       <Err msg={err} />
       <Button type="submit" disabled={saving} size="sm">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Déposer</Button>
     </form>
+  );
+}
+
+// ───────────── Le BON DE VERSEMENT — l'étape qui précède la déclaration ─────────────
+
+/**
+ * LA CARTE DU BON DE VERSEMENT — un seul état à la fois, et le geste de CELUI QUI REGARDE.
+ *
+ * Trois personnes passent ici et n'y font pas la même chose : le PRIM demande (ou déclare qu'il
+ * n'y a rien à verser), le centre de paiement tranche ailleurs, les Finances remettent le bon.
+ * L'écran montre donc l'état à tous, et le bouton à un seul — un bouton qu'on ne peut pas
+ * actionner apprend seulement qu'on n'a pas le droit.
+ */
+export function BvCard({ id, stage, amount, deliveredAt, deliveredBy, skipReason, canRequest, canDeliver, canSkip, requestHref }: {
+  id: string;
+  stage: BvStage;
+  amount: number | null;
+  deliveredAt: string | null;
+  deliveredBy: string | null;
+  skipReason: string | null;
+  canRequest: boolean;
+  canDeliver: boolean;
+  canSkip: boolean;
+  requestHref: string | null;
+}) {
+  const { saving, err, run } = useAction();
+  const [skipping, setSkipping] = React.useState(false);
+  const formRef = React.useRef<HTMLFormElement>(null);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <HandCoins className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="font-medium">{bvStageLabel(stage)}</span>
+        {amount != null && amount > 0 && (
+          <span className="text-muted-foreground">· {amount.toLocaleString("fr-FR")} DZD</span>
+        )}
+        {requestHref && (
+          <a href={requestHref} className="text-primary hover:underline">Voir le dossier de paiement</a>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">{bvMessage(stage)}</p>
+
+      {stage === "REMIS" && deliveredAt && (
+        <p className="text-xs text-muted-foreground">
+          Remis le {new Date(deliveredAt).toLocaleDateString("fr-FR")}{deliveredBy ? ` par ${deliveredBy}` : ""}.
+        </p>
+      )}
+      {stage === "SANS_BV" && skipReason && (
+        <p className="text-xs text-muted-foreground">Motif : {skipReason}</p>
+      )}
+
+      {/* LE PRIM DEMANDE — montant, note, et autant de pièces qu'il faut. */}
+      {canRequest && (
+        <form
+          ref={formRef}
+          className="space-y-2 border-t border-border pt-3"
+          action={(fd) => { fd.set("id", id); run(() => requestMedicalInfoBv(undefined, fd), () => formRef.current?.reset()); }}
+        >
+          <div className="space-y-1">
+            <Label htmlFor="bv-amount">Montant du bon de versement (DZD)</Label>
+            <Input id="bv-amount" name="amount" type="number" step="0.01" min="0" required />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="bv-payee">Bénéficiaire</Label>
+            <Input id="bv-payee" name="payee" defaultValue="Autorités sanitaires" />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="bv-due">Échéance demandée</Label>
+            <Input id="bv-due" name="dueDate" type="date" />
+            <p className="text-xs text-muted-foreground">Le centre de paiement arbitre : il voit la file entière.</p>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="bv-note">Note</Label>
+            <Textarea id="bv-note" name="note" rows={2} placeholder="Ce que couvre ce versement, la référence de l'avis…" />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="bv-files">Pièces jointes</Label>
+            <Input id="bv-files" name="files" type="file" multiple className="text-sm" />
+          </div>
+          <Err msg={err} />
+          <Button type="submit" disabled={saving} size="sm">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Demander le bon de versement
+          </Button>
+        </form>
+      )}
+
+      {/* LES FINANCES REMETTENT — c'est CE geste qui ouvre la déclaration, pas le règlement. */}
+      {canDeliver && (
+        <form className="space-y-2 border-t border-border pt-3" action={(fd) => { fd.set("id", id); run(() => deliverMedicalInfoBv(fd)); }}>
+          <p className="text-xs text-muted-foreground">
+            Le versement est réglé. En confirmant la remise du bon au bureau du PRIM, vous lui ouvrez
+            la déclaration aux autorités.
+          </p>
+          <Input name="note" placeholder="Remis à… / en main propre / par coursier (facultatif)" className="text-sm" />
+          <Err msg={err} />
+          <Button type="submit" disabled={saving} size="sm">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />} Bon remis au bureau du PRIM
+          </Button>
+        </form>
+      )}
+
+      {/* LA PORTE DE SORTIE — tracée et motivée. Sans elle, un dossier sans taxe resterait bloqué. */}
+      {canSkip && (
+        <div className="border-t border-border pt-3">
+          {!skipping ? (
+            <button type="button" onClick={() => setSkipping(true)} className="text-xs text-muted-foreground underline hover:text-foreground">
+              Ce dossier n&apos;appelle aucun versement
+            </button>
+          ) : (
+            <form className="space-y-2" action={(fd) => { fd.set("id", id); run(() => skipMedicalInfoBv(fd), () => setSkipping(false)); }}>
+              <Label htmlFor="bv-skip">Pourquoi ce dossier n&apos;appelle aucun versement</Label>
+              <Textarea id="bv-skip" name="reason" rows={2} required placeholder="Ex. : événement exonéré, taxe déjà acquittée sur le dossier X…" />
+              <p className="text-xs text-muted-foreground">Le motif est versé au journal : c&apos;est ce que lira l&apos;audit.</p>
+              <Err msg={err} />
+              <div className="flex gap-2">
+                <Button type="button" variant="ghost" size="sm" onClick={() => setSkipping(false)}>Annuler</Button>
+                <Button type="submit" size="sm" variant="outline" disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Déclarer sans versement
+                </Button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** La déclaration aux autorités, FERMÉE tant que le bon n'est pas entre les mains du PRIM. */
+export function AuthorityLocked({ stage }: { stage: BvStage }) {
+  return (
+    <div className="flex items-start gap-2 text-sm text-muted-foreground">
+      <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+      <span>{bvMessage(stage)}</span>
+    </div>
   );
 }
 

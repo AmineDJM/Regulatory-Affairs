@@ -55,7 +55,7 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
 
   const order = await prisma.expenseOrder.findUnique({
     where: { id },
-    select: { id: true, reference: true, label: true, amount: true, centralStatus: true, requestedById: true, status: true },
+    select: { id: true, reference: true, label: true, amount: true, centralStatus: true, requestedById: true, status: true, dueDate: true },
   });
   if (!order) return { ok: false, error: "Ordre de dépense introuvable." };
 
@@ -72,6 +72,19 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
   // un montant que personne n'a validé en bas de la chaîne.
   const proposed = decision === "REQUEST_CHANGES" ? fdNum(formData, "proposedAmount") : null;
 
+  // L'ÉCHÉANCE QUE LE CENTRE IMPOSE AUX FINANCES — distincte de celle qui a été DEMANDÉE.
+  //
+  // Le demandeur dit quand il aurait besoin d'être payé ; c'est un souhait, formé sans voir la
+  // trésorerie ni les autres engagements du mois. Le centre, lui, voit la file entière : il
+  // arbitre. Écraser silencieusement la date demandée aurait effacé la demande ; on la garde
+  // (elle reste dans la demande de paiement) et l'on pose ICI la date que la comptabilité doit
+  // tenir. Sans date fournie, celle du dossier reste — ne rien dire n'est pas repousser à jamais.
+  const echeance = decision === "APPROVE" ? fdStr(formData, "dueDate") : null;
+  const echeanceDate = echeance ? new Date(echeance) : null;
+  if (echeance && Number.isNaN(echeanceDate!.getTime())) {
+    return { ok: false, error: "Échéance illisible." };
+  }
+
   await prisma.$transaction([
     prisma.expenseOrder.update({
       where: { id },
@@ -80,6 +93,7 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
         centralDecidedById: user.id,
         centralDecidedAt: new Date(),
         ...(proposed != null ? { centralProposedAmount: proposed } : {}),
+        ...(echeanceDate ? { dueDate: echeanceDate } : {}),
       },
     }),
     prisma.paymentCentreMessage.create({

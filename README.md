@@ -3523,6 +3523,49 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### Le bon de versement précède la déclaration, et le dossier de paiement s'ouvre (2026-08)
+
+**Information médicale — l'étape qui manquait.** On ne déclare pas un événement aux autorités sans
+avoir versé la taxe, et sans le **bon en main** : c'est ce papier qu'on dépose au guichet. Le PRIM
+demande donc le versement (montant, note, pièces), le **centre de paiement** autorise, les
+**Finances** règlent, puis elles **remettent le bon à son bureau**. « Déclaration aux autorités »
+s'ouvre à ce moment-là, pas avant — et la règle tient **côté serveur**, pas seulement à l'écran.
+
+**Pourquoi la remise, et non le paiement.** « Payé » ne veut pas dire « le pharmacien a le papier ».
+Déduire l'ouverture du règlement aurait débloqué un geste qu'il ne peut pas encore faire, et il
+aurait cherché longtemps pourquoi son écran l'y autorisait. La remise est un **geste**, posé par
+les Finances — qui sont ramenées sur la déclaration par une notification au moment du règlement.
+
+**Une porte de sortie, tracée.** Tous les dossiers n'appellent pas un versement, et le jour où
+l'étape apparaît, aucun de ceux déjà en cours n'en a. « Ce dossier n'appelle aucun versement »
+existe donc, avec un **motif exigé**, versé au journal : sans la porte, ils resteraient bloqués à
+vie ; sans le motif, elle deviendrait le contournement ordinaire. Module pur `lib/medical-info/bv.ts`
+(8 tests) ; la demande est une `PaymentRequest` **ordinaire**, pas un second circuit de paiement.
+
+**L'échéance a deux temps.** Le demandeur dit **l'échéance demandée** — un souhait, formé sans voir
+la trésorerie. Le **centre de paiement**, qui voit la file entière, pose en autorisant **l'échéance
+que la comptabilité doit tenir**. La première reste dans la demande, la seconde va sur l'ordre.
+
+**On ouvre le dossier, on réclame ce qui manque.** Le centre de paiement et les Finances accèdent
+désormais à la **demande de paiement et à ses pièces** (pas à la demande source, qui vit dans un
+autre module) et peuvent **réclamer une pièce** — facture, bon de commande, n'importe quel document :
+elle atterrit dans « Pièces demandées » de la personne, avec son fil, sans lui ouvrir le module.
+Symétriquement, **une demande transmise porte au moins une pièce** : la règle existait pour le bon
+à payer et pour le renvoi, elle manquait au premier dépôt — un dossier vide arrivait au centre et
+y restait bloqué.
+
+**Validations — deux blocs retirés, une fiche ajoutée.** « Qui vous reviendront » montrait des
+demandes sur lesquelles on ne peut **rien** faire (elles reviennent d'elles-mêmes dans « À traiter »)
+et « Validations transverses » doublait les écrans de chaque module. En revanche une demande
+**s'ouvre** enfin : `/validations/[id]` montre ce qu'on a demandé, à qui, où ça bloque, et ses
+pièces — le coup de fil au validateur que ce module existe pour éviter. Et **chacun retire la
+sienne**, tant qu'aucun validateur ne s'est prononcé : l'accord d'un tiers est un fait, il ne
+s'efface pas.
+
+**L'historique des règlements se vide** (Super Admin). On efface la **file**, pas la comptabilité :
+les écritures de trésorerie et le journal d'audit restent — c'est là que vit la trace de l'argent
+sorti. Les ordres encore à régler ne sont jamais touchés.
+
 ### Les accès du pipeline arrivent là où on les cherche, et le Dashboard cesse de se répéter (2026-08)
 
 **Le pipeline réglementaire se réglait déjà — mais nulle part.** Le mécanisme existait (rôles et

@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { visibleToFinance, type CentralStatus } from "@/lib/payments/authorization";
 import { OrdersTable, type OrderRow } from "./orders-table";
+import { PurgeHistoryButton } from "./purge-history";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
 import { FINANCES_TABS } from "@/lib/labels";
@@ -60,6 +61,10 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
     requestedBy: o.requestedBy?.name ?? null, createdAt: o.createdAt.toISOString(),
     revisionReason: o.revisionReason, proposedAmount: o.proposedAmount ? toNumber(o.proposedAmount) : null,
     requiresInvoice: o.requiresInvoice, hasInvoice: hasInvoice(o),
+    // On ouvre la DEMANDE DE PAIEMENT et ses pièces — pas la demande source, qui vit dans un
+    // autre module, avec d'autres droits, et que le comptable n'a pas à traverser pour lire une
+    // facture.
+    dossierHref: o.sourceType === "PAYMENT_REQUEST" && o.sourceId ? `/validations/paiements/${o.sourceId}` : null,
   });
 
   const pending = orders.filter((o) => o.status === "PENDING");
@@ -97,7 +102,12 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
 
       {others.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Historique</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Historique</h2>
+            {/* Le Super Admin peut vider cette pile : elle ne sert plus qu'à faire défiler. Les
+                écritures de trésorerie, elles, restent — on efface la FILE, pas la comptabilité. */}
+            {user.role === "SUPER_ADMIN" && <PurgeHistoryButton count={others.length} />}
+          </div>
           <OrdersTable rows={others.map(toRow)} canSettle={false} focusId={focusId} />
         </section>
       )}

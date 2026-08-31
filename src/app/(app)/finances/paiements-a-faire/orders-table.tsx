@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { ItemAskPanel } from "@/components/ad-pro/item-ask-panel";
 import { useRouter } from "next/navigation";
-import { Loader2, Banknote, X, TrendingDown, Check, AlertCircle, FileText } from "lucide-react";
+import { Loader2, Banknote, X, TrendingDown, Check, AlertCircle, FileText, Paperclip } from "lucide-react";
 import { settleExpenseOrder, cancelExpenseOrder, requestBudgetRevision, resolveBudgetRevision, requestInvoice } from "@/lib/actions/expense-actions";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -29,6 +31,12 @@ export interface OrderRow {
   proposedAmount: number | null;
   requiresInvoice: boolean;
   hasInvoice: boolean;
+  /**
+   * LE DOSSIER DE LA DEMANDE DE PAIEMENT, quand l'ordre en vient : son montant, SES PIÈCES, son
+   * fil. C'est là qu'on va voir la facture — pas dans la demande SOURCE, qui appartient à un
+   * autre module et à d'autres droits.
+   */
+  dossierHref: string | null;
 }
 
 /** Facture obligatoire : joindre la facture à l'ordre, ou la demander au demandeur. */
@@ -179,7 +187,16 @@ export function OrdersTable({ rows, canSettle, canDirection = false, emptyLabel,
               {showActions && (
                 <TableCell className="text-right">
                   {r.status === "PENDING" && canSettle ? (
-                    <div className="flex items-center justify-end gap-1.5">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {r.dossierHref && (
+                        <Link href={r.dossierHref} className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium hover:bg-secondary">
+                          <Paperclip className="h-3.5 w-3.5" /> Dossier &amp; pièces
+                        </Link>
+                      )}
+                      {/* RÉCLAMER LA FACTURE, LE BON, N'IMPORTE QUELLE PIÈCE — plutôt que de
+                          relancer par message. La demande atterrit dans « Pièces demandées » de
+                          la personne, avec son fil : elle dépose sans qu'on lui ouvre le module. */}
+                      <ItemAskPanel entityType="EXPENSE_ORDER" entityId={r.id} link="/finances/paiements-a-faire" subject={`${r.reference} — ${r.label}`} />
                       {r.requiresInvoice && <InvoiceControl id={r.id} hasInvoice={r.hasInvoice} />}
                       <SubmitForm action={settleExpenseOrder} id={r.id}><MiniBtn tone="success"><Banknote className="h-3.5 w-3.5" /> Régler</MiniBtn></SubmitForm>
                       <RevisionRequest id={r.id} />

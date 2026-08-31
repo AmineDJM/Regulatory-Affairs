@@ -15,6 +15,9 @@ import { getDeclaration, canViewDeclaration } from "@/lib/queries/medical-info";
 import { archiveProcessedRequest } from "@/lib/archive";
 import { formatAlgiers } from "@/lib/calendar-tz";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { createPaymentRequest } from "@/lib/actions/payment-request-actions";
+import { bvCanDeliver, bvCanRequest, bvStage, bvStageLabel, bvUnlocksAuthorities } from "@/lib/medical-info/bv";
+import { bvStateOf } from "@/lib/medical-info/bv-state";
 
 const PATH = "/information-medicale";
 
@@ -131,11 +134,162 @@ export async function recordAuthorityDeclaration(formData: FormData): Promise<Ac
   if (!canManage(user)) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
+
+  // LA PORTE DU BON DE VERSEMENT TIENT ICI, pas seulement à l'écran. Masquer une carte est du
+  // confort ; un formulaire posté à la main, ou un écran ouvert avant la remise puis soumis
+  // après coup, doit rencontrer la même règle. Le refus DIT l'étape qui manque.
+  const decl = await prisma.medicalInfoDeclaration.findUnique({ where: { id } });
+  if (!decl) return { ok: false, error: "Déclaration introuvable." };
+  const etat = await bvStateOf(decl);
+  if (!bvUnlocksAuthorities(etat)) {
+    return { ok: false, error: `Le bon de versement n'est pas encore entre vos mains : ${bvStageLabel(bvStage(etat)).toLowerCase()}.` };
+  }
+
   await prisma.medicalInfoDeclaration.update({
     where: { id },
     data: { authorityRef: fdStr(formData, "authorityRef"), authorityNotes: fdStr(formData, "authorityNotes") },
   });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Information médicale", entityType: "MEDICAL_INFO_DECLARATION", entityId: id, summary: "Déclaration aux autorités enregistrée" });
+  revalidate(id);
+  return { ok: true };
+}
+
+// ───────────── Le BON DE VERSEMENT — l'étape qui précède la déclaration ─────────────
+
+/**
+ * LE PRIM DEMANDE LE BON DE VERSEMENT.
+ *
+ * On ne déclare pas un événement aux autorités sans avoir versé la taxe, et sans le bon en main :
+ * c'est ce papier qu'on dépose au guichet. Le pharmacien saisit le montant, une note, et joint ce
+ * qu'il faut ; la demande part au CENTRE DE PAIEMENT, puis, une fois autorisée, aux Finances.
+ *
+ * La demande est une `PaymentRequest` ORDINAIRE — pas un second circuit de paiement. Elle
+ * emprunte donc le chemin commun (centre → Finances), avec ses pièces, son fil d'allers-retours
+ * et son échéance ; ce qui la distingue est son rattachement (`entityType` / `entityId`), qui la
+ * ramène à cette déclaration.
+ */
+export async function requestMedicalInfoBv(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!canManage(user)) return { ok: false, error: "Réservé au pharmacien responsable de l'information médicale." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Déclaration introuvable." };
+  const decl = await prisma.medicalInfoDeclaration.findUnique({ where: { id } });
+  if (!decl) return { ok: false, error: "Déclaration introuvable." };
+
+  const etat = await bvStateOf(decl);
+  if (!bvCanRequest(etat)) {
+    return { ok: false, error: `Un bon de versement est déjà engagé pour ce dossier (${bvStageLabel(bvStage(etat)).toLowerCase()}).` };
+  }
+  if (decl.bvSkippedAt) return { ok: false, error: "Ce dossier a été déclaré sans versement." };
+
+  const raw = fdStr(formData, "amount");
+  const amount = raw ? Number(raw.replace(",", ".")) : NaN;
+  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "Indiquez le montant du bon de versement." };
+
+  // On rejoue le formulaire de la demande de paiement : c'est la MÊME action canonique que
+  // depuis les Demandes de validations, donc les mêmes contrôles et le même circuit.
+  const fd = new FormData();
+  fd.set("title", `Bon de versement — ${decl.label}`);
+  fd.set("payee", fdStr(formData, "payee") || "Autorités sanitaires");
+  fd.set("amount", String(amount));
+  fd.set("description", fdStr(formData, "note") ?? "");
+  if (decl.companyId) fd.set("companyId", decl.companyId);
+  const echeance = fdStr(formData, "dueDate");
+  if (echeance) fd.set("dueDate", echeance);
+  for (const f of formData.getAll("files")) if (f instanceof File && f.size > 0) fd.append("files", f);
+
+  const created = await createPaymentRequest(undefined, fd);
+  if (!created.ok || !created.id) return { ok: false, error: created.error ?? "La demande de bon de versement a été refusée." };
+
+  await prisma.$transaction([
+    prisma.paymentRequest.update({
+      where: { id: created.id },
+      data: { entityType: "MEDICAL_INFO_DECLARATION", entityId: id, link: `${PATH}/${id}` },
+    }),
+    prisma.medicalInfoDeclaration.update({ where: { id }, data: { bvRequestId: created.id } }),
+  ]);
+
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Information médicale",
+    entityType: "MEDICAL_INFO_DECLARATION", entityId: id,
+    summary: `Bon de versement demandé — ${amount.toLocaleString("fr-FR")} DZD (${decl.reference})`,
+  });
+  revalidate(id);
+  return { ok: true, id: created.id };
+}
+
+/**
+ * LES FINANCES REMETTENT LE BON AU BUREAU DU PRIM.
+ *
+ * C'est CE geste — et non le règlement — qui ouvre la déclaration aux autorités. « Payé » ne veut
+ * pas dire « le pharmacien a le papier en main », et c'est le papier qu'on dépose au guichet :
+ * déduire l'ouverture du paiement aurait débloqué un geste qu'il ne peut pas encore faire.
+ */
+export async function deliverMedicalInfoBv(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  // Ceux qui règlent remettent : les Finances, et la Direction / le Super Admin qui les couvrent.
+  if (!(userCan(user, "FINANCES", "UPDATE") || hasGlobalView(user.role))) {
+    return { ok: false, error: "La remise du bon revient aux Finances." };
+  }
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Déclaration introuvable." };
+  const decl = await prisma.medicalInfoDeclaration.findUnique({ where: { id } });
+  if (!decl) return { ok: false, error: "Déclaration introuvable." };
+
+  const etat = await bvStateOf(decl);
+  if (!bvCanDeliver(etat)) {
+    return { ok: false, error: `Le bon ne peut pas encore être remis : ${bvStageLabel(bvStage(etat)).toLowerCase()}.` };
+  }
+
+  await prisma.medicalInfoDeclaration.update({
+    where: { id },
+    data: { bvDeliveredAt: new Date(), bvDeliveredById: user.id, bvDeliveryNote: fdStr(formData, "note") },
+  });
+  if (decl.pharmacistId) {
+    await notifyUser({
+      userId: decl.pharmacistId, type: "GENERIC",
+      title: "Bon de versement remis — vous pouvez déclarer aux autorités",
+      body: `${decl.reference} — ${decl.label}`, link: `${PATH}/${id}`,
+    });
+  }
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Information médicale",
+    entityType: "MEDICAL_INFO_DECLARATION", entityId: id,
+    summary: `Bon de versement remis au bureau du PRIM — ${decl.reference}`,
+  });
+  revalidate(id);
+  return { ok: true };
+}
+
+/**
+ * CE DOSSIER N'APPELLE AUCUN VERSEMENT — la porte de sortie, tracée et motivée.
+ *
+ * Sans elle, un dossier sans taxe resterait bloqué pour toujours — y compris tous ceux déjà en
+ * cours le jour où cette étape est apparue. Sans le motif, elle deviendrait le contournement
+ * ordinaire : c'est pourquoi il est EXIGÉ et versé au journal.
+ */
+export async function skipMedicalInfoBv(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!canManage(user)) return { ok: false, error: "Réservé au pharmacien responsable de l'information médicale." };
+  const id = fdStr(formData, "id");
+  const reason = fdStr(formData, "reason");
+  if (!id) return { ok: false, error: "Déclaration introuvable." };
+  if (!reason) return { ok: false, error: "Dites pourquoi ce dossier n'appelle aucun versement : c'est ce que lira l'audit." };
+  const decl = await prisma.medicalInfoDeclaration.findUnique({ where: { id } });
+  if (!decl) return { ok: false, error: "Déclaration introuvable." };
+  if (decl.bvDeliveredAt) return { ok: false, error: "Un bon a déjà été remis pour ce dossier." };
+  if (decl.bvRequestId) return { ok: false, error: "Une demande de bon de versement est engagée : elle doit être menée à son terme ou refusée." };
+
+  await prisma.medicalInfoDeclaration.update({
+    where: { id },
+    data: { bvSkippedAt: new Date(), bvSkippedById: user.id, bvSkipReason: reason },
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Information médicale",
+    entityType: "MEDICAL_INFO_DECLARATION", entityId: id,
+    field: "Bon de versement", newValue: "sans versement",
+    summary: `Déclaré sans bon de versement — ${decl.reference} : ${reason}`,
+  });
   revalidate(id);
   return { ok: true };
 }

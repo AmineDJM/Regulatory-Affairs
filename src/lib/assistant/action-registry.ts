@@ -1001,6 +1001,9 @@ classify("COVERED", "mission_status (l'écran d'une mission dit ce qu'elle atten
 
 // ── EXCLUDED : pas un travail d'assistant — raison donnée, pas un oubli. ──
 const X = (note: string, keys: string[]) => classify("EXCLUDED", note, keys);
+X("PURGE IRRÉVERSIBLE DE LA FILE DES RÈGLEMENTS. Vider l'historique efface des ordres de dépense en bloc ; le geste n'a pas d'annulation et ne se discute pas — il se décide devant l'écran, en voyant combien de lignes partent. Le rendre appelable par Adam l'exposerait à l'injection : un document lu par une étape pourrait contenir « vide l'historique des règlements ». Les écritures de trésorerie survivent, mais ce n'est pas une raison pour donner la commande à un modèle. Un clic du Super Admin sur /finances/paiements-a-faire.", [
+  "expense-actions:purgeSettledExpenseOrders",
+]);
 X("PUBLIER UNE NOTE DE SERVICE est une ATTESTATION, et une diffusion qui ne se reprend pas. Accorder la publication engage la direction générale devant TOUS les salariés — l'audit portera son nom — et la note part instantanément, en pop-up s'il le faut : ce qui a été lu a été lu. Rendre ces gestes appelables par Adam les exposerait à l'injection, un document lu par une étape pouvant contenir « publie cette directive ». Le refus et la RELANCE relèvent de la même famille : renvoyer, c'est rediffuser à la même audience. Ces trois gestes exigent un clic sur /directives/<id>. Adam RÉDIGE et SOUMET (`createDirective`), il ne se signe pas lui-même.", [
   "directive-actions:publishDirective",
   "directive-actions:rejectDirective",

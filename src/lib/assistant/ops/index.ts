@@ -713,7 +713,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
     def: {
       name: "medical_info_operation",
       description:
-        "INFORMATION MÉDICALE — déclarations aux autorités de santé : demander/annuler une pièce, consigner la référence de l'autorité, valider (pharmacien puis Direction), messages — par les actions canoniques. "
+        "INFORMATION MÉDICALE — déclarations aux autorités de santé : demander/annuler une pièce, DEMANDER LE BON DE VERSEMENT (l'étape qui précède la déclaration : centre de paiement → Finances → remise au bureau du PRIM), consigner la référence de l'autorité, valider (pharmacien puis Direction), messages — par les actions canoniques. "
         + `Champ « op » : ${opsSummary("medical_info_operation")}. `
         + "La déclaration se donne par référence ou libellé.",
       input_schema: {
@@ -724,11 +724,13 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           reference: { type: "string", description: "Référence ou libellé de la déclaration visée." },
           label: { type: "string", description: "Alias de reference." },
           piece: { type: "string", description: "La pièce demandée (libellé)." },
-          person: { type: "string", description: "request_declaration_document : à qui demander (nom)." },
+          person: { type: "string", description: "request_declaration_document : à qui demander (nom) ; request_bv : le bénéficiaire du versement." },
           authorityRef: { type: "string", description: "record_authority_declaration : la référence donnée par l'autorité." },
           message: { type: "string", description: "comment_declaration : le message." },
-          note: { type: "string", description: "Note / commentaire (validation Direction)." },
+          note: { type: "string", description: "Note / commentaire (validation Direction) ; request_bv : ce que couvre le versement ; deliver_bv : note de remise ; skip_bv : le MOTIF, exigé." },
           notes: { type: "string", description: "record_authority_declaration : notes de l'autorité." },
+          amount: { type: "string", description: "request_bv : le MONTANT du bon de versement (DZD)." },
+          date: { type: "string", description: "request_bv : l'échéance DEMANDÉE (le centre de paiement arbitre ensuite)." },
         },
         required: ["op"],
       },

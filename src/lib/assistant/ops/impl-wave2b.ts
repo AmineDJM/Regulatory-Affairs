@@ -15,6 +15,7 @@ import {
 import {
   requestDocument as requestMedicalDoc, cancelDocRequest, recordAuthorityDeclaration,
   validateDeclaration, validateDeclarationByDirection, addMedicalInfoComment,
+  requestMedicalInfoBv, deliverMedicalInfoBv, skipMedicalInfoBv,
 } from "@/lib/actions/medical-info-actions";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
@@ -795,6 +796,81 @@ export const MEDINFO_OPS_IMPL: Record<string, OpImpl> = {
       };
     },
     execute: (args) => runFd(cancelDocRequest, args, "L'annulation a été refusée.", { revalidate: ["/information-medicale"] }),
+  },
+
+  // ───────────── Le BON DE VERSEMENT — l'étape qui précède la déclaration ─────────────
+
+  request_bv: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const decl = await resolveDeclaration(opStr(input, "reference") || opStr(input, "label"));
+      if ("error" in decl) return decl;
+      const raw = opStr(input, "amount");
+      const montant = raw ? Number(raw.replace(",", ".").replace(/\s/g, "")) : NaN;
+      if (!Number.isFinite(montant) || montant <= 0) return { error: "Précisez le montant du bon de versement (champ « amount »)." };
+      return {
+        title: `Demander le bon de versement — ${decl.reference}`,
+        fields: fieldsOf([
+          ["Déclaration", `${decl.reference} — ${decl.label}`],
+          ["Montant", dzd(montant)],
+          ["Bénéficiaire", opStr(input, "person") || "Autorités sanitaires"],
+          ["Échéance demandée", isoDate(opStr(input, "date")) || null],
+          ["Note", opStr(input, "note") || null],
+        ]),
+        warnings: [
+          "La demande part au CENTRE DE PAIEMENT ; les Finances ne la voient qu'une fois autorisée.",
+          "Les pièces se joignent à l'écran : une demande de versement se justifie par un document, pas par une phrase.",
+        ],
+        args: {
+          id: decl.id, amount: String(montant),
+          payee: opStr(input, "person") || "Autorités sanitaires",
+          dueDate: isoDate(opStr(input, "date")) || null,
+          note: opStr(input, "note") || null,
+        },
+        successMessage: `Bon de versement de ${dzd(montant)} demandé pour ${decl.reference} — au centre de paiement.`,
+        link: `/information-medicale/${decl.id}`,
+        revalidate: ["/information-medicale"],
+      };
+    },
+    execute: (args) => runFd2(requestMedicalInfoBv, args, "La demande de bon de versement a été refusée.", { revalidate: ["/information-medicale"] }),
+  },
+
+  deliver_bv: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const decl = await resolveDeclaration(opStr(input, "reference") || opStr(input, "label"));
+      if ("error" in decl) return decl;
+      return {
+        title: `Bon de versement remis au bureau du PRIM — ${decl.reference}`,
+        fields: fieldsOf([
+          ["Déclaration", `${decl.reference} — ${decl.label}`],
+          ["Note de remise", opStr(input, "note") || null],
+        ]),
+        warnings: ["C'est cette remise — et non le règlement — qui ouvre la déclaration aux autorités."],
+        args: { id: decl.id, note: opStr(input, "note") || null },
+        successMessage: `Bon remis au bureau du PRIM — la déclaration de ${decl.reference} est ouverte.`,
+        link: `/information-medicale/${decl.id}`,
+        revalidate: ["/information-medicale"],
+      };
+    },
+    execute: (args) => runFd(deliverMedicalInfoBv, args, "La remise du bon a été refusée.", { revalidate: ["/information-medicale"] }),
+  },
+
+  skip_bv: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const decl = await resolveDeclaration(opStr(input, "reference") || opStr(input, "label"));
+      if ("error" in decl) return decl;
+      const motif = opStr(input, "note");
+      if (!motif) return { error: "Dites POURQUOI ce dossier n'appelle aucun versement (champ « note ») : c'est ce que lira l'audit." };
+      return {
+        title: `Déclarer ${decl.reference} sans bon de versement`,
+        fields: fieldsOf([["Déclaration", `${decl.reference} — ${decl.label}`], ["Motif", motif]]),
+        warnings: ["Ouvre la déclaration aux autorités sans versement — le motif est versé au journal."],
+        args: { id: decl.id, reason: motif },
+        successMessage: `${decl.reference} déclarée sans versement — la déclaration aux autorités est ouverte.`,
+        link: `/information-medicale/${decl.id}`,
+        revalidate: ["/information-medicale"],
+      };
+    },
+    execute: (args) => runFd(skipMedicalInfoBv, args, "La déclaration « sans versement » a été refusée.", { revalidate: ["/information-medicale"] }),
   },
 
   record_authority_declaration: {

@@ -37,7 +37,7 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
    */
   const focusStep = searchParams.focus ?? null;
   const user = await requireModule("VALIDATIONS");
-  const [{ toValidate, myRequests, crossModule, supervised }, financePeople] = await Promise.all([
+  const [{ toValidate, myRequests, supervised }, financePeople] = await Promise.all([
     getMyValidations(user),
     // Les destinataires possibles d'une demande de paiement : les personnes du module Finances.
     financeRecipients(),
@@ -46,7 +46,6 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
   const focusFirst = <T extends { stepId: string }>(list: T[]): T[] =>
     focusStep ? [...list].sort((a, b) => Number(b.stepId === focusStep) - Number(a.stepId === focusStep)) : list;
   const actionable = focusFirst(toValidate.filter((v) => v.actionable));
-  const upcoming = focusFirst(toValidate.filter((v) => !v.actionable));
 
   const mods = accessibleModules(user);
   const seen = new Set<string>();
@@ -122,7 +121,7 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
       {/* Les chiffres du haut répondent à « qu'est-ce qui m'attend ? » puis, pour la Direction,
           à « qu'est-ce qui est en retard, et où ? » — pas à « combien en ai-je envoyé ». */}
       <div className={`grid grid-cols-2 gap-3 ${supervised.length > 0 ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
-        <KpiCard label="À valider par vous" value={actionable.length + crossModule.length} icon="ShieldCheck" tone={actionable.length + crossModule.length > 0 ? "warning" : "default"} />
+        <KpiCard label="À valider par vous" value={actionable.length} icon="ShieldCheck" tone={actionable.length > 0 ? "warning" : "default"} />
         {supervised.length > 0 && (
           <KpiCard
             label="En retard (société)" value={supervisionStats.overdue} icon="AlarmClock"
@@ -161,42 +160,11 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
         </section>
       )}
 
-      {upcoming.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Qui vous reviendront — en attente du validateur précédent ({upcoming.length})</h2>
-          <p className="text-xs text-muted-foreground">Vous êtes validateur de ces demandes : consultez-les et leurs pièces dès maintenant ; vous pourrez décider quand ce sera votre tour.</p>
-          <div className="space-y-3">
-            {upcoming.map((v) => <PendingValidationCard key={v.stepId} v={v} actionable={false} focused={v.stepId === focusStep} />)}
-          </div>
-        </section>
-      )}
-
-      {crossModule.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Validations transverses — autres modules ({crossModule.length})</h2>
-          <div className="space-y-2">
-            {crossModule.map((v) => (
-              <Card key={v.id}>
-                <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs text-muted-foreground">{v.reference}</span>
-                      <Badge tone="info" dot={false}>{v.module}</Badge>
-                      <Badge tone="neutral" dot={false}>{v.stage}</Badge>
-                      {v.amount !== null && <span className="text-sm font-semibold">{formatCurrency(v.amount)}</span>}
-                    </div>
-                    <p className="truncate font-medium">{v.title}</p>
-                    <p className="text-xs text-muted-foreground">Demandé par {v.requester || "—"} · {formatDateTime(v.createdAt)}</p>
-                  </div>
-                  <Link href={v.link} className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-secondary">
-                    <ExternalLink className="h-4 w-4" /> Ouvrir pour valider
-                  </Link>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
+      {/* DEUX BLOCS RETIRÉS (2026-08) — « Qui vous reviendront » et « Validations transverses ».
+          Le premier montrait des demandes sur lesquelles on ne peut RIEN faire : elles reviennent
+          d'elles-mêmes dans « À traiter » le jour où c'est notre tour, et les lister d'avance
+          faisait chercher un bouton qui n'existait pas. Le second doublait les écrans de chaque
+          module, où la validation se fait AVEC son contexte. */}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes demandes de validation ({myGroups.length})</h2>
@@ -234,6 +202,15 @@ function MyRequestCard({ g, isSuperAdmin }: { g: ValidationGroup<MyValidationIte
           <div className="flex items-center gap-2">
             {head.amount !== null && <span className="text-sm font-semibold">{formatCurrency(head.amount)}</span>}
             <StatusBadge map={VALIDATION_STATUS} value={g.status} />
+            {/* OUVRIR SA DEMANDE : relire ce qu'on a écrit, rouvrir la pièce envoyée, voir qui
+                bloque. Sans cette porte, il fallait téléphoner au validateur — le coup de fil
+                que ce module existe précisément pour éviter. */}
+            <Link
+              href={`/validations/${head.id}`}
+              className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
+            >
+              <ExternalLink className="h-3.5 w-3.5" /> Ouvrir
+            </Link>
             {isSuperAdmin && g.main && (
               <SuperAdminDeleteButton kind="VALIDATION_REQUEST" id={g.main.id} name={`${g.main.reference} — ${g.main.title}`} enabled />
             )}

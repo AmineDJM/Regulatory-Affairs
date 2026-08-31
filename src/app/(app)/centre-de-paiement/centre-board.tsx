@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, ShieldX, MessageSquare, Coins, Loader2, Send, ChevronDown } from "lucide-react";
+import { ShieldCheck, ShieldX, MessageSquare, Coins, Loader2, Send, ChevronDown, Paperclip } from "lucide-react";
 import { decidePayment, respondToPaymentCentre } from "@/lib/actions/payment-centre-actions";
 import {
   CENTRAL_STATUS_LABEL, CENTRAL_DECISION_LABEL, awaitsCentre, awaitsRequester,
@@ -14,7 +15,8 @@ import { Input, Label, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import type { BadgeTone } from "@/lib/labels";
 import { EmptyState } from "@/components/shared/empty-state";
-import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+import { ItemAskPanel } from "@/components/ad-pro/item-ask-panel";
 
 export interface CentreMessage {
   id: string;
@@ -37,6 +39,14 @@ export interface CentreOrder {
   createdAt: string;
   decidedBy: string | null;
   decidedAt: string | null;
+  /** L'échéance DEMANDÉE par le demandeur — un souhait, formé sans voir la trésorerie. */
+  dueDate: string | null;
+  /**
+   * LE DOSSIER DE LA DEMANDE, quand l'ordre est né d'une demande de paiement : son montant, ses
+   * pièces, son fil. Autoriser une sortie d'argent sans pouvoir ouvrir la facture, c'est
+   * autoriser une ligne de tableau.
+   */
+  dossierHref: string | null;
   messages: CentreMessage[];
   /** L'utilisateur courant est-il le demandeur ? Il peut alors répondre et resoumettre. */
   isMine: boolean;
@@ -145,6 +155,23 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
 
                       {canDecide && awaitsCentre(o.centralStatus) && (
                         <>
+                          {o.dossierHref && (
+                            <Link
+                              href={o.dossierHref}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary"
+                            >
+                              <Paperclip className="h-4 w-4" /> Ouvrir le dossier &amp; ses pièces
+                            </Link>
+                          )}
+                          {/* RÉCLAMER CE QUI MANQUE plutôt que refuser faute de pièce : la
+                              demande atterrit dans « Pièces demandées » de la personne, avec son
+                              fil — elle dépose sans qu'on lui ouvre le module. */}
+                          <ItemAskPanel
+                            entityType="EXPENSE_ORDER"
+                            entityId={o.id}
+                            link="/centre-de-paiement"
+                            subject={`${o.reference} — ${o.label}`}
+                          />
                           <Button size="sm" onClick={() => { setErr(null); setActing({ order: o, decision: "APPROVE" }); }}>
                             <ShieldCheck className="h-4 w-4" /> Autoriser
                           </Button>
@@ -207,6 +234,17 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
             }}
             className="space-y-4"
           >
+            {acting.decision === "APPROVE" && (
+              <div className="space-y-1.5">
+                <Label htmlFor="pc-due">Échéance imposée aux Finances</Label>
+                <Input id="pc-due" name="dueDate" type="date" defaultValue={acting.order.dueDate?.slice(0, 10) ?? ""} />
+                <p className="text-xs text-muted-foreground">
+                  {acting.order.dueDate
+                    ? <>Le demandeur a souhaité le <strong>{formatDate(acting.order.dueDate)}</strong>. Vous voyez la file entière : c&apos;est vous qui arbitrez.</>
+                    : <>Aucune échéance demandée. Laissez vide si rien ne presse — une date posée est une date que la comptabilité doit tenir.</>}
+                </p>
+              </div>
+            )}
             {acting.decision === "REQUEST_CHANGES" && (
               <div className="space-y-1.5">
                 <Label htmlFor="pc-amount">Montant que vous proposez de retenir</Label>

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ExternalLink, FileText, ShieldPlus, CheckCircle2, Clock } from "lucide-react";
+import { ArrowLeft, ExternalLink, FileText, ShieldPlus, CheckCircle2, Clock, HandCoins } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { hasGlobalView, userCan, scopeCongressIntl, scopeCongressNational } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -16,7 +16,9 @@ import { addMedicalInfoComment } from "@/lib/actions/medical-info-actions";
 import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { MEDICAL_INFO_STATUS, DOC_REQUEST_STATUS, ENTITY_TYPE_LABELS } from "@/lib/labels";
-import { RequestDocForm, CancelRequestButton, FulfillForm, AuthorityForm, ValidateButton, DirectionValidateButton } from "./panels";
+import { RequestDocForm, CancelRequestButton, FulfillForm, AuthorityForm, ValidateButton, DirectionValidateButton, BvCard, AuthorityLocked } from "./panels";
+import { bvCanDeliver, bvCanRequest, bvStage, bvUnlocksAuthorities } from "@/lib/medical-info/bv";
+import { bvStateOf } from "@/lib/medical-info/bv-state";
 import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +30,21 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
   if (!canViewDeclaration(user, decl)) notFound();
 
   const canManage = hasGlobalView(user.role) || userCan(user, "MEDICAL_INFO", "VALIDATE");
+
+  // ── LE BON DE VERSEMENT : l'étape qui précède la déclaration aux autorités ────────────────
+  // L'état ne vit dans aucun champ — il se compose de la demande de paiement, de son passage au
+  // centre, de son règlement, et de la remise au bureau du PRIM. C'est cette REMISE qui ouvre la
+  // déclaration : « payé » ne veut pas dire « le pharmacien a le papier en main ».
+  const bv = await bvStateOf(decl);
+  const bvEtape = bvStage(bv);
+  const autoritesOuvertes = bvUnlocksAuthorities(bv);
+  const canDeliverBv = bvCanDeliver(bv) && (userCan(user, "FINANCES", "UPDATE") || hasGlobalView(user.role));
+  const bvMontant = decl.bvRequestId
+    ? await prisma.paymentRequest.findUnique({ where: { id: decl.bvRequestId }, select: { amount: true } })
+    : null;
+  const bvRemisPar = decl.bvDeliveredById
+    ? await prisma.user.findUnique({ where: { id: decl.bvDeliveredById }, select: { name: true } })
+    : null;
   const isValidated = decl.status === "VALIDATED";
   const isAwaitingDirection = decl.status === "AWAITING_DIRECTION";
   const isDirection = hasGlobalView(user.role);
@@ -226,14 +243,41 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
                 <CardHeader><CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4" /> Demander une pièce</CardTitle></CardHeader>
                 <CardContent><RequestDocForm declarationId={decl.id} users={users} /></CardContent>
               </Card>
+              {/* LE BON DE VERSEMENT vient AVANT : on ne déclare pas aux autorités sans avoir
+                  versé la taxe, et sans le bon en main — c'est ce papier qu'on dépose. */}
+              <Card>
+                <CardHeader><CardTitle className="flex items-center gap-2 text-base"><HandCoins className="h-4 w-4" /> Bon de versement</CardTitle></CardHeader>
+                <CardContent>
+                  <BvCard
+                    id={decl.id}
+                    stage={bvEtape}
+                    amount={bvMontant ? toNumber(bvMontant.amount) : null}
+                    deliveredAt={decl.bvDeliveredAt?.toISOString() ?? null}
+                    deliveredBy={bvRemisPar?.name ?? null}
+                    skipReason={decl.bvSkipReason}
+                    canRequest={bvCanRequest(bv)}
+                    canDeliver={canDeliverBv}
+                    canSkip={!autoritesOuvertes && bvCanRequest(bv)}
+                    requestHref={decl.bvRequestId ? `/validations/paiements/${decl.bvRequestId}` : null}
+                  />
+                </CardContent>
+              </Card>
               <Card>
                 <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldPlus className="h-4 w-4" /> Déclaration aux autorités</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
-                  <AuthorityForm id={decl.id} authorityRef={decl.authorityRef} authorityNotes={decl.authorityNotes} />
-                  <div className="space-y-1.5 border-t border-border pt-3">
-                    <p className="text-xs text-muted-foreground">Joindre un document (récépissé, accusé… — facultatif)</p>
-                    <DocumentUpload entityType="MEDICAL_INFO_DECLARATION" entityId={decl.id} categories={["SUPPORTING_DOC", "OTHER"]} compact />
-                  </div>
+                  {/* FERMÉE tant que le bon n'est pas remis. Le serveur applique la même règle :
+                      masquer une carte est du confort, le refus est la règle. */}
+                  {autoritesOuvertes ? (
+                    <>
+                      <AuthorityForm id={decl.id} authorityRef={decl.authorityRef} authorityNotes={decl.authorityNotes} />
+                      <div className="space-y-1.5 border-t border-border pt-3">
+                        <p className="text-xs text-muted-foreground">Joindre un document (récépissé, accusé… — facultatif)</p>
+                        <DocumentUpload entityType="MEDICAL_INFO_DECLARATION" entityId={decl.id} categories={["SUPPORTING_DOC", "OTHER"]} compact />
+                      </div>
+                    </>
+                  ) : (
+                    <AuthorityLocked stage={bvEtape} />
+                  )}
                 </CardContent>
               </Card>
               {!isAwaitingDirection && (

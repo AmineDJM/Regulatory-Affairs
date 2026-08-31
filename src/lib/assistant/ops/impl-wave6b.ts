@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import {
   createValidationRule, updateValidationRule, toggleValidationRule, deleteValidationRule,
   createValidationRequest, decideValidation, reviewValidationItem, clearValidationItem, remindValidator,
+  deleteMyValidationRequest,
 } from "@/lib/actions/validation-actions";
 import {
   createFieldReport, updateFieldReport, analyzeFieldReportAction, submitFieldReport,
@@ -227,6 +228,45 @@ export const VALIDATION_OPS_IMPL: Record<string, OpImpl> = {
       };
     },
     execute: (args) => runFd(deleteValidationRule, args, "La suppression de la règle a été refusée.", { revalidate: ["/admin/validations"] }),
+  },
+
+  withdraw_request: {
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const q = (opStr(input, "target") || opStr(input, "label") || opStr(input, "name")).trim();
+      if (!q) return { error: "Précisez la demande à retirer (sa référence VAL- ou son objet)." };
+      // MES demandes, et celles qui ATTENDENT encore : une demande tranchée ne se retire pas —
+      // l'accord ou le refus d'un tiers est un fait, pas un brouillon.
+      const rows = await prisma.validationRequest.findMany({
+        where: {
+          requesterId: user.id,
+          status: "PENDING",
+          OR: [{ reference: { contains: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }],
+        },
+        select: { id: true, reference: true, title: true, steps: { select: { status: true, validator: { select: { name: true } } } } },
+        orderBy: { createdAt: "desc" },
+        take: 6,
+      });
+      if (rows.length === 0) return { error: `Aucune de VOS demandes de validation en attente ne correspond à « ${q} ».` };
+      if (rows.length > 1) {
+        return { error: `Plusieurs correspondent : ${rows.map((r) => `${r.reference} — ${r.title}`).join(" ; ")} — préciser.` };
+      }
+      const hit = rows[0];
+      if (hit.steps.some((e) => e.status !== "PENDING")) {
+        return { error: `Un validateur s'est déjà prononcé sur ${hit.reference} : la demande ne peut plus être retirée.` };
+      }
+      return {
+        title: `Retirer la demande de validation ${hit.reference}`,
+        fields: fieldsOf([
+          ["Demande", `${hit.reference} — ${hit.title}`],
+          ["Validateurs", hit.steps.map((e) => e.validator?.name).filter(Boolean).join(", ") || null],
+        ]),
+        warnings: ["La demande disparaît de la file de ses validateurs. Aucun d'eux ne s'est encore prononcé."],
+        args: { id: hit.id },
+        successMessage: `Demande ${hit.reference} retirée.`,
+        revalidate: ["/validations"],
+      };
+    },
+    execute: (args) => runFd(deleteMyValidationRequest, args, "Le retrait de la demande a été refusé.", { revalidate: ["/validations"] }),
   },
 
   create_validation_request: {

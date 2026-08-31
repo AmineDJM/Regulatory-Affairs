@@ -115,6 +115,25 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
       body: `${order.reference} — ${order.label}`, link: "/finances/paiements-a-faire",
     });
   }
+
+  // UN BON DE VERSEMENT RÉGLÉ N'EST PAS UN BON REMIS. Le pharmacien responsable ne peut déclarer
+  // aux autorités qu'avec le papier en main : on ramène donc les Finances sur la déclaration,
+  // avec le geste qui reste à poser. Sans ce rappel, le dossier attendrait sans que personne ne
+  // sache que la balle est de leur côté — le règlement, lui, a bien eu lieu.
+  if (order.sourceType === "PAYMENT_REQUEST" && order.sourceId) {
+    const req = await prisma.paymentRequest
+      .findUnique({ where: { id: order.sourceId }, select: { entityType: true, entityId: true, reference: true } })
+      .catch(() => null);
+    if (req?.entityType === "MEDICAL_INFO_DECLARATION" && req.entityId) {
+      await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], {
+        type: "ASSIGNMENT",
+        title: "Bon de versement réglé — à remettre au bureau du PRIM",
+        body: `${req.reference} — c'est la remise, et non le règlement, qui ouvre la déclaration aux autorités.`,
+        link: `/information-medicale/${req.entityId}`,
+      });
+      revalidatePath(`/information-medicale/${req.entityId}`);
+    }
+  }
   await recordAudit({
     actorId: user.id, action: "VALIDATE", module: "Finances", entityType: "EXPENSE_ORDER",
     entityId: id, summary: `Ordre ${order.reference} réglé — ${order.label}`,
@@ -125,6 +144,40 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
   revalidatePath("/rh");
   revalidatePath("/mon-espace");
   return { ok: true };
+}
+
+/**
+ * PURGER L'HISTORIQUE DES RÈGLEMENTS — réglés et annulés, et eux seuls.
+ *
+ * L'écran « Paiements à faire » accumulait sous la file du jour un historique qui ne servait plus
+ * qu'à faire défiler. Le Super Admin peut le vider.
+ *
+ * CE QUI N'EST PAS TOUCHÉ, et c'est ce qui rend le geste sûr : les ÉCRITURES DE TRÉSORERIE
+ * (`FinanceTransaction`) restent — c'est là que vit la trace de l'argent sorti, dans le livre
+ * comptable —, ainsi que le journal d'audit. On efface la FILE, pas la comptabilité. Le fil
+ * d'autorisation du centre de paiement part avec son ordre : il ne dit rien sans lui.
+ *
+ * Un ordre EN COURS (à régler, révision demandée) n'est jamais touché : purger ne doit pas
+ * pouvoir faire disparaître un paiement qui attend.
+ */
+export async function purgeSettledExpenseOrders(): Promise<ActionResult> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+
+  const cibles = await prisma.expenseOrder.findMany({
+    where: { status: { in: ["PAID", "CANCELLED"] } },
+    select: { id: true },
+  });
+  if (cibles.length === 0) return { ok: false, error: "L'historique est déjà vide." };
+
+  await prisma.expenseOrder.deleteMany({ where: { id: { in: cibles.map((o) => o.id) } } });
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Finances",
+    summary: `Historique des règlements purgé — ${cibles.length} ordre(s) réglé(s) ou annulé(s). Les écritures de trésorerie sont conservées.`,
+  });
+  revalidatePath("/finances/paiements-a-faire");
+  revalidatePath("/finances");
+  return { ok: true, message: `${cibles.length} ordre(s) retiré(s) de l'historique. Les écritures de trésorerie sont conservées.` };
 }
 
 /** Le comptable demande la facture au demandeur (dépense événementielle sans facture). */
