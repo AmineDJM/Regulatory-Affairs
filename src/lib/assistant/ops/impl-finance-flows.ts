@@ -440,10 +440,10 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
         ],
         args: { id: order.id },
         successMessage: `Facture demandée au porteur de l'ordre ${order.reference}.`,
-        revalidate: ["/finances/ordres-de-depense"],
+        revalidate: ["/finances/paiements-a-faire"],
       };
     },
-    execute: (args) => runFd(requestInvoice, args, "La demande de facture a été refusée.", { revalidate: ["/finances/ordres-de-depense"] }),
+    execute: (args) => runFd(requestInvoice, args, "La demande de facture a été refusée.", { revalidate: ["/finances/paiements-a-faire"] }),
   },
 
   request_budget_revision: {
@@ -463,10 +463,10 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["L'ordre passe « Révision demandée » et remonte à la Direction — il n'est plus réglable en l'état."],
         args: { id: order.id, reason, proposedAmount: proposed !== null ? String(proposed) : null },
         successMessage: `Révision de budget demandée pour ${order.reference}.`,
-        revalidate: ["/finances/ordres-de-depense", "/validations"],
+        revalidate: ["/finances/paiements-a-faire", "/validations"],
       };
     },
-    execute: (args) => runFd(requestBudgetRevision, args, "La demande de révision a été refusée.", { revalidate: ["/finances/ordres-de-depense", "/validations"] }),
+    execute: (args) => runFd(requestBudgetRevision, args, "La demande de révision a été refusée.", { revalidate: ["/finances/paiements-a-faire", "/validations"] }),
   },
 
   resolve_budget_revision: {
@@ -491,10 +491,10 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["L'ordre repart « à régler » chez le comptable dès la décision."],
         args: { id: order.id, decision: adjust ? "ADJUST" : "REJECT", amount: adjust ? String(amount) : null, comment: opStr(input, "note") || null },
         successMessage: adjust ? `Ordre ${order.reference} ajusté à ${dzd(amount ?? 0)}.` : `Révision refusée — ${order.reference} maintenu.`,
-        revalidate: ["/finances/ordres-de-depense", "/validations"],
+        revalidate: ["/finances/paiements-a-faire", "/validations"],
       };
     },
-    execute: (args) => runFd(resolveBudgetRevision, args, "La décision de révision a été refusée.", { revalidate: ["/finances/ordres-de-depense", "/validations"] }),
+    execute: (args) => runFd(resolveBudgetRevision, args, "La décision de révision a été refusée.", { revalidate: ["/finances/paiements-a-faire", "/validations"] }),
   },
 
   // ─────────────── Demandes de paiement ───────────────

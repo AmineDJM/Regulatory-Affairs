@@ -32,7 +32,7 @@ RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Cale
 - [Rôles](#-rôles)
 - [Workflows critiques](#-workflows-critiques)
 - [**Référence détaillée des circuits & mécanismes transverses**](#-référence-détaillée-des-circuits--mécanismes-transverses)
-  - [**Centre de paiement — l'autorisation du PDG**](#centre-de-paiement--rien-ne-sort-au-dessus-du-seuil-sans-le-pdg)
+  - [**Centre de paiement — l'autorisation du PDG**](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-le-pdg)
   - [Chaîne du dossier d'achat (Legal)](#la-chaîne-du-dossier-dachat--devis--bc--facture--règlement-dun-seul-écran)
   - [My Chief of Staff — interface exécutive](#my-chief-of-staff--linterface-exécutive-pdg--super-admin)
   - [Matériel promotionnel — circuit court](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle)
@@ -190,8 +190,8 @@ jamais identique.
 | **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (19 étapes / 5 phases — CTD déposé sur l'étape 1, check-list de présoumission en étape 2, allers-retours de réserves dans la frise), documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. |
 | **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve + **désigne le chef de produit**), **analyse confidentielle du chef de produit**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** a son circuit **court** : devis → demandeur → N+1 → PDG **ou** Super Admin → information médicale, puis **trois chantiers en parallèle** (bon de commande, paiement, visa publicitaire) ; chacun ne voit que **sa** marche, seuls l'administrateur et le PDG voient tout. → [workflows](#-workflows-critiques) · [détails](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
-| **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense** (« Règlements à effectuer »), **Factures**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). Les **demandes de paiement** se déposent depuis les **Demandes de validations** ; un paiement n'arrive aux Finances qu'une fois **autorisé par le centre de paiement** (dès 50 000 DZD). |
-| **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (RBAC `PAYMENT_CENTRE` — PDG + Super Admin) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. Dès **50 000 DZD**, aucun paiement n'atteint les Finances sans autorisation — BV Regulatory compris ; **moyens généraux exceptés**. Quatre issues (autoriser · refuser · révision du montant · argumentation) avec fil d'allers-retours. → [détails](#centre-de-paiement--rien-ne-sort-au-dessus-du-seuil-sans-le-pdg) |
+| **Finances** | `/finances` | **TROIS SOUS-MODULES** (onglets + flèches) : **Dashboard** (trésorerie, ce qu'il reste à traiter, courbes), **Paiements à faire** (`/finances/paiements-a-faire` — la file du décaissement, alimentée **exclusivement** par le centre de paiement) et **Comptabilité** (`/finances/comptabilite` — le livre, l'import, les soldes d'ouverture). **Factures** à part. Aucun paiement n'arrive ici sans être **autorisé par le centre**, quel que soit son montant. |
+| **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (RBAC `PAYMENT_CENTRE` — PDG + Super Admin) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. **GUICHET UNIQUE** : aucun paiement n'atteint les Finances sans autorisation, **quel que soit le montant et le module** — plus de seuil, plus d'exemption. Une demande de paiement y entre **dès sa soumission**, avant l'instruction des Finances. Quatre issues (autoriser · refuser · révision du montant · argumentation) avec fil d'allers-retours. → [détails](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-le-pdg) |
 | **My Chief of Staff** | `/chief-of-staff` | **L'interface exécutive du PDG et du Super Admin** (module `CHIEF_OF_STAFF`) : piloter l'entreprise en langage naturel, **au clavier ou à la voix** (conversation vocale avec interruption). Recherche fédérée `search_everything` (~30 familles, tolérante aux accents/fautes), histoire complète d'un dossier (`inspect_record` : timeline, validateurs, chaîne devis→BC→facture→règlement — paiements, Legal, Regulatory, factures, courriers, projets, tâches), lecture des documents du Drive, calendrier + disponibilités, stocks, hôpitaux, paie, agrégats financiers, **signaux d'alerte proactifs**, **point exécutif**, **rapport consolidé .docx**, rappels récurrents (rôle ou personne nommée), et les **actions** — trancher un paiement, réassigner une tâche, chaîner une facture, **modifier un salaire (confirmation renforcée)** — toujours confirmées et auditées. → [architecture](docs/CHIEF_OF_STAFF_ARCHITECTURE.md) |
 | **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
 | **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **CHAQUE DÉPARTEMENT a ses moyens généraux** ; les **ressources humaines** pilotent le module (elles voient et dotent tous les départements, via un sélecteur), l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) : l'administration remet une somme chaque mois, la personne qui la détient **confirme l'avoir reçue** — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**, jusqu'à épuisement. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. **Annuaire d'entreprise** (`/moyens-generaux/annuaire`) : tous les contacts extérieurs de la société — agence de voyage, livreurs, agence marketing, imprimeur, transitaire… — par catégorie, cherchables, avec téléphone et e-mail cliquables. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
@@ -688,7 +688,7 @@ ensuite). C'est une **dimension transverse** appliquée à tout le logiciel :
 - ⚠ **Ne pas confondre** avec l'enum polymorphe `EntityType` (type d'objet pour Documents/Commentaires/accès) : la
   société est le modèle **`Company`** (libellé UI « Entité »).
 
-### Centre de paiement — rien ne sort, au-dessus du seuil, sans le PDG
+### Centre de paiement — rien ne sort, quel que soit le montant, sans le PDG
 
 **Un module À PART, hors Finances** (`/centre-de-paiement`, RBAC `PAYMENT_CENTRE` — PDG + Super
 Admin) : celui qui autorise l'argent ne doit pas être dans l'écran de celui qui le décaisse, sinon
@@ -696,22 +696,26 @@ la séparation des rôles n'est qu'un onglet. L'ancienne adresse `/finances/cent
 redirige.
 
 **La règle** : **tout paiement de la société**, quel que soit le module qui l'a produit — Ad & Pro,
-secrétariat, formations, recrutement, **BV Regulatory compris** —, passe par le **centre de
-paiement** avant d'atteindre les Finances. **Les moyens généraux en sont exceptés** (`GENERAL_MEANS`
-dans `EXEMPT_MODULES`) : c'est l'argent du quotidien, déjà encadré par une caisse et un budget de
-département, et le faire remonter au PDG paralyserait l'achat d'une rame de papier. La **paie RH**
-n'y entre pas non plus : elle a son propre circuit.
+secrétariat, formations, recrutement, moyens généraux, **BV Regulatory compris** — et **quel que
+soit le montant**, passe par le **centre de paiement** avant d'atteindre les Finances. La **paie
+RH** est le seul circuit à part : elle a le sien.
 
-**Les demandes de paiement** n'ont plus de module à part : la demande se dépose depuis les
-**Demandes de validations** (bouton « Demande de paiement »), les Finances instruisent pièce par
-pièce, et le **bon à payer crée l'ordre de dépense par la porte commune** (`createExpenseOrder`) —
-qui applique la règle du centre. `PaymentRequest.expenseOrderId` porte le lien ; la transition
-APPROVED étant terminale, l'ordre ne peut pas être créé deux fois.
+**Le seuil et l'exemption ont été retirés (2026-08).** Au-dessous de 50 000 DZD, et pour les moyens
+généraux, l'ordre filait droit aux Finances. L'intention était bonne — ne pas faire viser une
+facture de 3 000 DZD par le PDG. L'effet ne l'était pas : le centre n'avait **aucune vue** de ce
+que la société décaissait, et « combien sort ce mois-ci » n'avait de réponse que dans l'écran de
+celui qui paie. Une porte qui laisse passer la moitié du flux n'est pas une porte. Le seuil survit
+comme **marqueur** (`isHighValue`) pour trier la file, jamais comme filtre ; si le volume devient
+un problème, la réponse sera une **voie rapide explicite et tracée**, pas le retour d'une exemption
+silencieuse.
 
-**Le seuil : 50 000 DZD.** En dessous, un paiement validé par les circuits existants part
-**directement** aux Finances — le centre n'est pas un péage, il ne doit pas faire la queue pour de
-petits montants. À partir du seuil, il attend une autorisation. Le montant **inconnu ou illisible**
-est traité comme au-dessus du seuil : dans le doute, on demande, on ne laisse pas passer.
+**Les demandes de paiement entrent au centre DÈS LEUR SOUMISSION.** C'était l'inversion la plus
+coûteuse du circuit : l'ordre de dépense ne naissait qu'**après** l'instruction des Finances, si
+bien qu'elles épluchaient pièce par pièce des dossiers que le centre refuserait peut-être ensuite.
+Désormais : le demandeur transmet → l'ordre naît en attente → **le centre tranche** → les Finances
+instruisent et règlent ce qui est autorisé. `PaymentRequest.expenseOrderId` porte le lien et
+garantit que l'ordre n'est créé qu'une fois, même après un renvoi pour correction ; un filet
+subsiste au bon à payer pour les dossiers antérieurs à cette règle.
 
 **Qui siège** : le **PDG** (`DIRECTION`) et le **Super Admin**, et personne d'autre — le Directeur
 Général n'y est délibérément pas. **Un centre par entité** : autoriser un paiement d'Adventum et un
@@ -739,8 +743,27 @@ autre porte vers le paiement devra passer par cette même fonction.
   `applyResubmission`, `blockedReason`) + `authorization.test.ts` (**19 tests**).
 - **Modèles** : `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` +
   `PaymentCentreMessage` (le fil). Migration `20260824150000_payment_centre`.
-- **Écrans** : `app/(app)/finances/centre-de-paiement/{page,centre-board}.tsx` ;
+- **Écrans** : `app/(app)/centre-de-paiement/{page,centre-board}.tsx` ;
   **actions** `lib/actions/payment-centre-actions.ts` (`decidePayment`, `respondToPaymentCentre`).
+- **Reprise du passé** : migration `20261002140000_centre_guichet_unique` — les ordres encore
+  **non réglés** qui étaient en `NOT_REQUIRED` entrent au centre. Les ordres **payés ou annulés**
+  ne sont pas touchés : les rouvrir gèlerait des dossiers clos et réécrirait un passé autorisé par
+  le circuit d'alors.
+
+### Finances — trois sous-modules, trois métiers
+
+Une seule page portait la trésorerie, le livre comptable, les règlements et les factures : celui
+qui **paie** et celui qui **tient les comptes** s'y disputaient le défilement. Trois écrans, dans
+l'ordre où l'on y passe, atteignables par onglets **et par flèches** (`ModuleTabs arrows`) :
+
+| Sous-module | Route | Ce qu'on y fait |
+| --- | --- | --- |
+| **Dashboard** | `/finances` | Soldes, ce que le DAF doit traiter, courbes. Rien qui s'écrive. |
+| **Paiements à faire** | `/finances/paiements-a-faire` | La file du décaissement. **Une seule source d'alimentation : le centre de paiement.** Les ordres non autorisés sont écartés en amont — ils n'existent ni en ligne, ni en total, ni en compteur. |
+| **Comptabilité** | `/finances/comptabilite` | Le livre : écritures, import de relevés, soldes d'ouverture. |
+
+L'ancienne adresse `/finances/ordres-de-depense` **redirige** — des notifications déjà parties et
+des favoris y pointent.
 
 ### La chaîne du dossier d'achat — devis → BC → facture → règlement, d'un seul écran
 
@@ -2798,7 +2821,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Catalogue d'articles — écriture uniforme** | Module PUR `lib/general-means/catalog-normalize.ts` (`normalizeArticleName`, `articleKey`, `normalizeReference`, `normalizeToCode`, `normalizeArticle`, `needsRewrite`, `describeRewrite`, `CATEGORY_ALIASES`, `UNIT_ALIASES`) + `catalog-normalize.test.ts` (23 tests) ; normalisation + **refus du doublon** dans `lib/actions/office-supply-actions.ts` ; `previewCatalogNormalization` / `applyCatalogNormalization` (on montre avant d'appliquer) ; `NormalizePanel` dans `app/(app)/demandes/supplies-manager.tsx`. |
 | **Legal — dossiers de classement** | Modèle `LegalFolder` + `LegalDocument.folderId` (`ON DELETE SET NULL` : on déclasse, on ne détruit pas) ; module PUR `lib/legal/folders.ts` (`buildFolderTree`, `flattenFolders`, `folderPath`, `subtreeIds`, `canReparent`, `deletionSummary`) + `folders.test.ts` (17 tests) ; `lib/actions/legal-folder-actions.ts` ; `app/(app)/legal/folder-bar.tsx` ; champ `folderId` dans `legal-fields.ts`. |
 | **Legal — coordonnées légales & fiscales** | Modèle `CompanyLegalIdentity` + `EntityType.COMPANY` ; module PUR `lib/legal/identity.ts` (`IDENTITY_SECTIONS`, `identityBlock`, `filledCount`) + tests ; `lib/actions/company-identity-actions.ts` ; `app/(app)/legal/identites/`. |
-| **Centre de paiement (autorisation du PDG)** | Module PUR `lib/payments/authorization.ts` (`CENTRAL_AUTH_THRESHOLD_DZD` = 50 000, `EXEMPT_MODULES` = `GENERAL_MEANS`, `needsCentralAuthorization`, `initialCentralStatus`, **`canDisburse`** — le verrou réel —, `visibleToFinance`, `sitsOnPaymentCentre` (**`SUPER_ADMIN` ou `DIRECTION`**, pas le DG), `applyDecision`, `applyResubmission`, `blockedReason`) + `authorization.test.ts` (19 tests) ; `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` ; `createExpenseOrder` calcule le statut d'entrée et notifie `DIRECTION` + `SUPER_ADMIN` (`lib/expense-orders.ts`) ; garde dans `markExpenseOrderPaid` (`lib/actions/expense-actions.ts`) ; `lib/actions/payment-centre-actions.ts` ; `app/(app)/finances/centre-de-paiement/`. |
+| **Centre de paiement (guichet unique)** | Module PUR `lib/payments/authorization.ts` (`needsCentralAuthorization` — **toujours vrai**, `initialCentralStatus`, **`canDisburse`** — le verrou réel —, `visibleToFinance`, `isHighValue` + `CENTRAL_AUTH_THRESHOLD_DZD` = 50 000 **en marqueur, plus en filtre**, `sitsOnPaymentCentre` (**`SUPER_ADMIN` ou `DIRECTION`**, pas le DG), `applyDecision`, `applyResubmission`, `blockedReason`) + `authorization.test.ts` (18 tests) ; `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` ; `createExpenseOrder` calcule le statut d'entrée et notifie `DIRECTION` + `SUPER_ADMIN` (`lib/expense-orders.ts`) ; **la demande de paiement crée son ordre à la SOUMISSION** (`lib/actions/payment-request-actions.ts`) ; garde dans `markExpenseOrderPaid` (`lib/actions/expense-actions.ts`) ; `lib/actions/payment-centre-actions.ts` ; `app/(app)/centre-de-paiement/`. Migrations `20260824150000_payment_centre` puis `20261002140000_centre_guichet_unique`. |
 | **Matériel promo — circuit court** | Module PUR `lib/promo-material/circuit.ts` (`PROMO_STEPS` (7), `PROMO_TRACKS` (`PURCHASE_ORDER`/`PAYMENT`/`AD_VISA`), `initialStep` — saute la demande de devis si le devis est déjà là —, `canValidate` (N+1 réel : `Employee.managerId`, à défaut `departmentRef.head`), **`seesFullCircuit`** (Super Admin + PDG **uniquement**), `tracksOpen`, `allTracksDone`, `pendingTracks`, `progress`, `waitingOn`) + `circuit.test.ts` (23 tests) ; `lib/actions/promo-circuit-actions.ts`. |
 | **Rejeu de session (support)** | Module PUR `lib/replay/capture.ts` (`FORBIDDEN_FIELD` — mot de passe / secret / jeton / IBAN / RIB / CVV / carte —, `FORBIDDEN_INPUT_TYPE` — `password`, `hidden` —, `fieldIsRecordable`, `isSensitiveLabel`, `cleanLabel`, `scrubDetail`, **`makeEvent` : la porte d'entrée UNIQUE**, `coalesce`, `describeEvent`, `stamp`, `firstErrorIndex`) + `capture.test.ts` (20 tests) ; modèle `SessionEvent` ; `components/layout/session-recorder.tsx` (monté dans `app/(app)/layout.tsx`, `sendBeacon`, **ne lit jamais `.value`**) ; `app/api/replay/route.ts` (**re-masque côté serveur**, 204 systématique, lot plafonné à 200) ; `app/(app)/admin/replay/{page,replay-viewer}.tsx` (**`SUPER_ADMIN` seul**). |
 | **Courriers — dossiers & pièces multiples** | Modèles `MailFolder` (arbre, `MailEntry.folderId` en `ON DELETE SET NULL`) et `MailEntryPiece` (intitulé + **destinataire propre** + fichier téléversé **ou** nœud Drive référencé) ; `lib/actions/mail-folder-actions.ts`, `lib/actions/mail-piece-actions.ts` ; `app/(app)/courriers/mail-folder-bar.tsx`, `app/(app)/courriers/[id]/mail-pieces.tsx`. |
@@ -3494,6 +3517,37 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Le centre de paiement devient le guichet unique, et les Finances se coupent en trois (2026-08)
+
+**L'audit demandé — où va chaque demande — a nommé trois écarts.** Le circuit du secrétariat
+(`AdministrativeRequest`), celui des validations (`ValidationRequest`) et celui des paiements
+(`PaymentRequest`) convergent tous sur une même porte, `createExpenseOrder`, appelée par douze
+modules. C'est la bonne architecture ; elle portait trois défauts.
+
+**1. Le centre passait APRÈS les Finances.** Il n'examinait pas des demandes de paiement mais des
+*ordres de dépense*, qui ne naissaient qu'après le bon à payer. Les Finances épluchaient donc pièce
+par pièce des dossiers que le centre refuserait peut-être ensuite. Désormais **l'ordre naît à la
+soumission** : le demandeur transmet, le centre tranche, les Finances instruisent et règlent ce qui
+est autorisé.
+
+**2. Le seuil laissait passer la moitié du flux.** Sous 50 000 DZD — et pour les moyens généraux —
+l'ordre filait droit aux Finances : le centre n'avait aucune vue de ce que la société décaissait, et
+« combien sort ce mois-ci » n'avait de réponse que dans l'écran de celui qui paie. Seuil et
+exemption **retirés** ; le seuil survit comme marqueur de tri (`isHighValue`), jamais comme filtre.
+Les demandes **déjà en base** et non réglées entrent au centre par migration — sinon il s'ouvrirait
+sur un présent sans passé. Les dossiers payés ou annulés ne sont pas touchés.
+
+**3. Les Finances mélangeaient trois métiers** sur une page. Trois sous-modules, dans l'ordre où
+l'on y passe, avec onglets **et flèches** : **Dashboard** (trésorerie, ce qu'il reste à traiter,
+courbes), **Paiements à faire** (la file du décaissement — **une seule source d'alimentation, le
+centre**), **Comptabilité** (le livre, l'import, les soldes d'ouverture). L'ancienne adresse
+redirige.
+
+**Ce qui reste à surveiller, dit ici plutôt que découvert plus tard :** faire passer tous les
+montants par le centre met une facture de 3 000 DZD sur le même bureau qu'un marché à quatre
+millions. Si la file devient trop longue, la réponse ne sera pas de rouvrir une exemption
+silencieuse — ce sera une voie rapide **explicite**, visible au centre, avec sa propre trace.
 
 ### La Business Unit devient la colonne vertébrale de la force de vente (2026-08)
 
@@ -6001,7 +6055,7 @@ Parité UI↔Chief : **10,1 % → 22,8 %** (natives 106, couvertes 30, trous ass
   (textarea, affiché au bureau central), **montant (DZD)** et **catégorie de finance** facultatifs
   (portés par `ValidationRequest.amount/category` — pas de migration). (4) **Pièce approuvée +
   montant ⇒ ordre de dépense AUTOMATIQUE** vers les Finances (`createExpenseOrder` dans
-  `decideValidation` : notifie le responsable Finances, visible `/finances/ordres-de-depense`,
+  `decideValidation` : notifie le responsable Finances, visible `/finances/paiements-a-faire`,
   catégorie choisie sinon « Autre », rattaché à la demande d'origine — au règlement, la dépense
   rejoint le budget par le circuit habituel des ordres). Sans montant : l'approbation reste un
   simple avis.

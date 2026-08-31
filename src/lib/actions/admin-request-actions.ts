@@ -257,7 +257,7 @@ export async function decideApproval(formData: FormData): Promise<ActionResult> 
   await recordAudit({ actorId: user.id, action: decision === "REJECTED" ? "REFUSE" : "VALIDATE", module: "Demandes administratives", entityType: "ADMIN_REQUEST", entityId: req.id, summary: `Validation ${decision}` });
   revalidatePath(`/demandes/${req.id}`);
   revalidatePath("/demandes/approvals");
-  revalidatePath("/finances/ordres-de-depense");
+  revalidatePath("/finances/paiements-a-faire");
   return { ok: true };
 }
 

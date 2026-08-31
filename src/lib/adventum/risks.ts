@@ -220,10 +220,10 @@ async function expenseOrderRisks(th: RiskThresholds): Promise<Risk[]> {
       probableCause: "Aucun règlement effectué depuis l'émission.",
       recommendation: "Régler ou demander une révision de budget.",
       evidence: [`Montant : ${formatCurrency(toNumber(o.amount))}`, `Émis il y a ${age} j`, o.dueDate ? `Échéance : ${o.dueDate.toLocaleDateString("fr-FR")}` : "Pas d'échéance"],
-      href: `/finances/ordres-de-depense`, at: o.createdAt.toISOString(),
+      href: `/finances/paiements-a-faire`, at: o.createdAt.toISOString(),
       actions: [
-        { label: "Notifier comptable", icon: "Bell", payload: { kind: "notify", userId: finance?.id, role: finance ? undefined : "FINANCE_BUDGET_MANAGER", title: "Ordre de dépense à régler", body: `${o.reference} — ${formatCurrency(toNumber(o.amount))}`, link: `/finances/ordres-de-depense` } },
-        { label: "Ouvrir", icon: "ExternalLink", href: `/finances/ordres-de-depense` },
+        { label: "Notifier comptable", icon: "Bell", payload: { kind: "notify", userId: finance?.id, role: finance ? undefined : "FINANCE_BUDGET_MANAGER", title: "Ordre de dépense à régler", body: `${o.reference} — ${formatCurrency(toNumber(o.amount))}`, link: `/finances/paiements-a-faire` } },
+        { label: "Ouvrir", icon: "ExternalLink", href: `/finances/paiements-a-faire` },
       ],
     });
   }

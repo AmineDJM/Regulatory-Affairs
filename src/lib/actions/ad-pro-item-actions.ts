@@ -408,7 +408,7 @@ export async function emitItemExpenseOrder(_prev: ActionResult | undefined, form
     await audit(user, owner.parent, owner.id, "UPDATE",
       `Ordre de dépense ${order.reference} émis pour le poste « ${item.label} » — ${(amount as number).toLocaleString("fr-FR")} DZD au profit de ${item.supplier ?? info.beneficiary}.`);
     revalidate(owner.parent, owner.id);
-    revalidatePath("/finances/ordres-de-depense");
+    revalidatePath("/finances/paiements-a-faire");
     return { ok: true, id: order.id };
   } catch (err) {
     console.error("[ad-pro-item] émission de l'ordre impossible", err);

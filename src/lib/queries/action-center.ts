@@ -123,7 +123,7 @@ export async function getActionCenter(user: SessionUser) {
     for (const o of orders) {
       items.push({
         key: `pay-${o.id}`, title: o.label, subtitle: `${o.reference} · ${formatCurrency(toNumber(o.amount))}`,
-        module: "Espace comptable", href: `/finances/ordres-de-depense?focus=${o.id}#ord-${o.id}`, kind: "payment", priority: null,
+        module: "Espace comptable", href: `/finances/paiements-a-faire?focus=${o.id}#ord-${o.id}`, kind: "payment", priority: null,
         deadline: o.dueDate?.toISOString() ?? null, owner: o.beneficiary ?? "", ...resolve(EXPENSE_ORDER_STATUS, o.status),
       });
     }

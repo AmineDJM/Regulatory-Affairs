@@ -3,35 +3,37 @@ import {
   CENTRAL_AUTH_THRESHOLD_DZD, needsCentralAuthorization, initialCentralStatus, canDisburse,
   visibleToFinance, awaitsCentre, awaitsRequester, sitsOnPaymentCentre, applyDecision,
   canResubmit, applyResubmission, blockedReason, type CentralStatus,
+  isHighValue,
 } from "./authorization";
 
-describe("Le seuil — ce qui passe tout seul, ce qui monte au centre", () => {
-  it("au-dessous de 50 000 DZD, le circuit habituel suffit", () => {
-    expect(needsCentralAuthorization({ amount: 49_999 })).toBe(false);
-    expect(initialCentralStatus({ amount: 3_000 })).toBe("NOT_REQUIRED");
+describe("LE GUICHET UNIQUE — plus rien ne contourne le centre", () => {
+  it("un petit montant passe par le centre comme un gros — le seuil ne filtre plus", () => {
+    // C'était le trou : sous 50 000 DZD, l'ordre filait aux Finances et le centre n'avait aucune
+    // vue de ce que la société décaissait réellement.
+    expect(needsCentralAuthorization({ amount: 3_000 })).toBe(true);
+    expect(initialCentralStatus({ amount: 3_000 })).toBe("AWAITING");
+    expect(initialCentralStatus({ amount: 49_999 })).toBe("AWAITING");
+    expect(initialCentralStatus({ amount: 2_400_000 })).toBe("AWAITING");
   });
 
-  it("À PARTIR de 50 000 DZD, l'autorisation du centre est requise — le seuil est inclus", () => {
-    // Un fournisseur qui facture exactement le seuil n'est pas un cas limite qu'on laisse filer.
-    expect(needsCentralAuthorization({ amount: CENTRAL_AUTH_THRESHOLD_DZD })).toBe(true);
-    expect(needsCentralAuthorization({ amount: 2_400_000 })).toBe(true);
-    expect(initialCentralStatus({ amount: 50_000 })).toBe("AWAITING");
-  });
-
-  it("les moyens généraux sont exemptés, quel que soit le montant", () => {
-    expect(needsCentralAuthorization({ amount: 900_000, module: "GENERAL_MEANS" })).toBe(false);
-    expect(initialCentralStatus({ amount: 900_000, module: "GENERAL_MEANS" })).toBe("NOT_REQUIRED");
-  });
-
-  it("un autre module n'est PAS exempté — l'exemption est nominative", () => {
+  it("AUCUN module n'est exempté — la petite caisse non plus", () => {
+    expect(needsCentralAuthorization({ amount: 900_000, module: "GENERAL_MEANS" })).toBe(true);
+    expect(initialCentralStatus({ amount: 4_000, module: "GENERAL_MEANS" })).toBe("AWAITING");
     expect(needsCentralAuthorization({ amount: 80_000, module: "REGULATORY" })).toBe(true);
-    expect(needsCentralAuthorization({ amount: 80_000, module: "SPONSORING" })).toBe(true);
   });
 
-  it("un montant illisible ne passe jamais tout seul", () => {
-    // Le doute profite au contrôle, pas au décaissement.
+  it("un montant illisible entre au centre comme les autres", () => {
     expect(needsCentralAuthorization({ amount: Number.NaN })).toBe(true);
-    expect(needsCentralAuthorization({ amount: Number.POSITIVE_INFINITY })).toBe(true);
+    expect(initialCentralStatus({ amount: Number.NaN })).toBe("AWAITING");
+  });
+
+  it("le seuil survit comme MARQUEUR d'importance, pas comme filtre", () => {
+    // Il sert à trier la file du centre. Il ne décide plus de qui y entre.
+    expect(isHighValue(CENTRAL_AUTH_THRESHOLD_DZD)).toBe(true);
+    expect(isHighValue(2_400_000)).toBe(true);
+    expect(isHighValue(49_999)).toBe(false);
+    // Un montant illisible se regarde en premier : le doute profite au contrôle.
+    expect(isHighValue(Number.NaN)).toBe(true);
   });
 });
 

@@ -2,11 +2,20 @@
  * LE CENTRE DE PAIEMENT — la règle unique qui décide si un décaissement peut partir.
  *
  * Le principe : AUCUN paiement de la société ne quitte les Finances sans être passé par le centre,
- * tenu par le PDG et le Super Admin. Deux exceptions, et deux seulement :
- *   • les petits montants — au-dessous de 50 000 DZD, le circuit de validation habituel suffit et
- *     l'ordre file directement aux Finances. Faire viser une facture de 3 000 DZD par le PDG, c'est
- *     garantir qu'il ne visera plus rien au bout de trois semaines ;
- *   • les MOYENS GÉNÉRAUX — la petite caisse a son propre circuit, elle est explicitement exemptée.
+ * tenu par le PDG et le Super Admin. **Sans exception, et quel que soit le montant.**
+ *
+ * ── POURQUOI LE SEUIL A DISPARU ────────────────────────────────────────────────────────────────
+ *
+ * Il existait un seuil de 50 000 DZD et une exemption pour les moyens généraux : au-dessous, l'ordre
+ * filait directement aux Finances. L'intention était bonne — ne pas faire viser une facture de
+ * 3 000 DZD par le PDG. L'effet ne l'était pas : le centre n'avait AUCUNE vue de ce que la société
+ * décaissait réellement, et la question « combien sort ce mois-ci » n'avait de réponse que dans
+ * l'écran de celui qui paie. Une porte qui laisse passer la moitié du flux n'est pas une porte.
+ *
+ * Le seuil survit comme un MARQUEUR (`isHighValue`), pas comme un filtre : il sert à trier la file
+ * du centre, pas à la contourner. Si le volume devient un problème, la réponse sera une voie
+ * rapide EXPLICITE et tracée — jamais une exemption silencieuse, qui est précisément ce qu'on
+ * vient de retirer.
  *
  * Le centre AUTORISE, il ne paie pas : la comptabilité exécute ensuite le virement. Séparer les
  * deux gestes est ce qui rend le contrôle réel — celui qui autorise n'est pas celui qui décaisse.
@@ -15,15 +24,23 @@
  * l'argent de l'entreprise, elle doit pouvoir être lue et vérifiée sans rien exécuter.
  */
 
-/** Le seuil, en dinars. Au-dessous : circuit habituel. À partir de ce montant : centre de paiement. */
+/**
+ * Le montant à partir duquel un paiement est dit IMPORTANT. Ce n'est plus un filtre — tout passe
+ * par le centre — mais un repère : la file du centre met ces dossiers en tête.
+ */
 export const CENTRAL_AUTH_THRESHOLD_DZD = 50_000;
+
+/** Ce paiement est-il de ceux qu'on regarde en premier ? Un montant illisible compte comme tel. */
+export function isHighValue(amount: number): boolean {
+  return !Number.isFinite(amount) || amount >= CENTRAL_AUTH_THRESHOLD_DZD;
+}
 
 /**
  * L'état d'un paiement vis-à-vis du centre.
  *
- * `NOT_REQUIRED` n'est pas un contournement : c'est la trace explicite qu'on a REGARDÉ et conclu
- * que ce paiement n'avait pas à passer par le centre. Sans cet état, un paiement non soumis et un
- * paiement approuvé se ressembleraient dans la base.
+ * `NOT_REQUIRED` est désormais un état HISTORIQUE : il porte les ordres émis quand le seuil
+ * existait encore et qui sont déjà réglés. Plus aucun ordre ne naît dans cet état. On le garde
+ * parce qu'effacer le passé rendrait illisible tout ce qui a été payé avant la règle actuelle.
  */
 export type CentralStatus =
   | "NOT_REQUIRED"      // sous le seuil, ou exempté (moyens généraux)
@@ -53,22 +70,18 @@ export const CENTRAL_DECISION_LABEL: Record<CentralDecision, string> = {
 };
 
 /** Les modules dont les paiements NE passent PAS par le centre. */
-const EXEMPT_MODULES = new Set(["GENERAL_MEANS"]);
-
 /**
- * Ce paiement doit-il être autorisé par le centre ?
+ * Ce paiement doit-il être autorisé par le centre ? OUI — toujours.
  *
- * `amount` est comparé au seuil de façon INCLUSIVE : « au-dessus de 50 000 a besoin d'une
- * autorisation » se lit, dans une entreprise, comme « à partir de 50 000 » — et un fournisseur qui
- * facture exactement le seuil n'est pas un cas limite qu'on veut voir passer sans contrôle.
+ * La signature garde ses paramètres : les appelants les passent déjà, et le jour où une voie
+ * rapide sera décidée, elle se posera ICI, en un seul endroit, avec sa raison écrite. Une
+ * fonction qui rend toujours vrai est plus honnête qu'un appelant qui aurait cessé de demander.
  */
-export function needsCentralAuthorization(input: { amount: number; module?: string | null }): boolean {
-  if (input.module && EXEMPT_MODULES.has(input.module)) return false;
-  if (!Number.isFinite(input.amount)) return true; // un montant illisible ne passe pas tout seul
-  return input.amount >= CENTRAL_AUTH_THRESHOLD_DZD;
+export function needsCentralAuthorization(_input: { amount: number; module?: string | null }): boolean {
+  return true;
 }
 
-/** L'état d'un paiement au moment où il est émis. */
+/** L'état d'un paiement au moment où il est émis : il attend le centre, sans exception. */
 export function initialCentralStatus(input: { amount: number; module?: string | null }): CentralStatus {
   return needsCentralAuthorization(input) ? "AWAITING" : "NOT_REQUIRED";
 }
@@ -80,6 +93,9 @@ export function initialCentralStatus(input: { amount: number; module?: string | 
  * exemption, allers-retours — est déjà tranché dans l'état.
  */
 export function canDisburse(status: CentralStatus): boolean {
+  // `NOT_REQUIRED` reste payable : il ne porte plus que des ordres ANCIENS, émis sous la règle du
+  // seuil et déjà autorisés par leur circuit d'alors. Les bloquer rétroactivement gèlerait des
+  // dossiers clos ; aucun ordre neuf ne peut plus naître dans cet état.
   return status === "NOT_REQUIRED" || status === "APPROVED";
 }
 
@@ -158,7 +174,7 @@ export function applyResubmission(current: CentralStatus): CentralStatus | null 
  */
 export function blockedReason(status: CentralStatus): string | null {
   switch (status) {
-    case "AWAITING": return "Ce paiement attend l'autorisation du centre de paiement (montant supérieur au seuil).";
+    case "AWAITING": return "Ce paiement attend l'autorisation du centre de paiement — tout décaissement y passe.";
     case "CHANGES_REQUESTED": return "Le centre de paiement a demandé une révision du montant : le demandeur doit corriger et resoumettre.";
     case "INFO_REQUESTED": return "Le centre de paiement a demandé une argumentation : le demandeur doit répondre et resoumettre.";
     case "REFUSED": return "Ce paiement a été refusé par le centre de paiement.";

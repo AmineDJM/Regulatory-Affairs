@@ -484,7 +484,7 @@ export async function decideCareQuote(_prev: ActionResult | undefined, formData:
     }
 
     revalidate(scope, requestId);
-    revalidatePath("/finances/ordres-de-depense");
+    revalidatePath("/finances/paiements-a-faire");
     return { ok: true, id };
   } catch (err) {
     console.error("[care] décision de devis impossible", err);
@@ -569,7 +569,7 @@ export async function sendCareToFinance(_prev: ActionResult | undefined, formDat
     type: "VALIDATION_REQUIRED",
     title: "Prise en charge à régler",
     body: `${req.name} — dossier complet, ${rows.filter((r) => r.status === "APPROVED").length} personne(s) prise(s) en charge.`,
-    link: "/finances/ordres-de-depense",
+    link: "/finances/paiements-a-faire",
   }).catch(() => undefined);
   if (req.requesterId) {
     await notifyUser({

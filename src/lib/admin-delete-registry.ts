@@ -397,7 +397,7 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
   EXPENSE_ORDER: {
     label: "ordre de dépense",
     module: "Finances",
-    redirect: "/finances/ordres-de-depense",
+    redirect: "/finances/paiements-a-faire",
     model: "expenseOrder",
     entityType: "EXPENSE_ORDER",
     searchFields: ["reference", "label"],

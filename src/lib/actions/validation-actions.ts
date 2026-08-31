@@ -291,7 +291,7 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
           requestedById: req.requesterId,
           notes: `Pièce validée (${req.reference})${req.description ? ` — ${req.description}` : ""}`,
         });
-        revalidatePath("/finances/ordres-de-depense");
+        revalidatePath("/finances/paiements-a-faire");
       } catch (err) {
         // L'ordre raté ne doit pas annuler la décision déjà enregistrée — on trace et on continue.
         console.error("[validations] ordre de dépense post-approbation échoué :", err);

@@ -82,7 +82,7 @@ export async function advanceWorkflow(formData: FormData): Promise<ActionResult>
   revalidatePath(`${base}/${entityId}`);
   revalidatePath(base);
   revalidatePath("/information-medicale");
-  revalidatePath("/finances/ordres-de-depense");
+  revalidatePath("/finances/paiements-a-faire");
   revalidatePath("/finances");
   revalidatePath("/mon-espace");
   return { ok: true };

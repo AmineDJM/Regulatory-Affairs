@@ -138,7 +138,7 @@ export const ADMIN_REQUEST_OPS_IMPL: Record<string, OpImpl> = {
             : ["Réservé au validateur saisi, au droit Valider du module, ou à la vue globale (revérifié par l'action)."],
         args: { approvalId: pick.id, decision: m, comment: opStr(input, "note") || null },
         successMessage: `${req.reference} : ${APPROVAL_DECISION_FR.find(([c]) => c === m)?.[1]}.`,
-        revalidate: ["/demandes", "/demandes/approvals", "/finances/ordres-de-depense"],
+        revalidate: ["/demandes", "/demandes/approvals", "/finances/paiements-a-faire"],
       };
     },
     execute: (args) => runFd(decideApproval, args, "La décision a été refusée.", { revalidate: ["/demandes"] }),

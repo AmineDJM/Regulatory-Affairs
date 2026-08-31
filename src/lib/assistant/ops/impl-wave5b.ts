@@ -367,7 +367,7 @@ export const CARE_OPS_IMPL: Record<string, OpImpl> = {
           : ["Les cases couvertes repassent « demandées » : il faut un autre devis."],
         args: { id: pick.id, decision, note: opStr(input, "note") || null },
         successMessage: `Devis ${pick.supplier} ${decision === "ACCEPTED" ? "ACCEPTÉ (ordre de dépense émis)" : "refusé"}.`,
-        revalidate: ["/congress-national", "/congress-international", "/finances/ordres-de-depense"],
+        revalidate: ["/congress-national", "/congress-international", "/finances/paiements-a-faire"],
       };
     },
     execute: (args) => runFd2(decideCareQuote, args, "La décision sur le devis a été refusée.", { revalidate: ["/congress-national"] }),
@@ -631,7 +631,7 @@ export const PROMO_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Geste des FINANCES — crée l'ordre de dépense du règlement final et CLÔT le dossier (la demande administrative liée passe « terminée »)."],
         args: { id: pm.id, amount: opStr(input, "amount") || null },
         successMessage: `Dossier ${pm.reference} réglé et clôturé.`,
-        revalidate: ["/promo-material", "/finances/ordres-de-depense"],
+        revalidate: ["/promo-material", "/finances/paiements-a-faire"],
       };
     },
     execute: (args) => runFd(settle, args, "Le règlement a été refusé.", { revalidate: ["/promo-material"] }),

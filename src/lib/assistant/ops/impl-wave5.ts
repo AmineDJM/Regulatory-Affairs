@@ -849,7 +849,7 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Geste des FINANCES, après visa Direction — un ordre PAR poste (les bénéficiaires diffèrent réellement)."],
         args: { id: found.id },
         successMessage: `Ordre de dépense émis pour « ${found.label} ».`,
-        revalidate: ["/sponsoring", "/finances/ordres-de-depense"],
+        revalidate: ["/sponsoring", "/finances/paiements-a-faire"],
       };
     },
     execute: (args) => runFd2(emitItemExpenseOrder, args, "L'émission a été refusée.", { revalidate: ["/sponsoring"] }),

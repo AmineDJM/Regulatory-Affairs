@@ -254,7 +254,7 @@ export async function validateDeclarationByDirection(formData: FormData): Promis
   if (decl.pharmacistId && decl.pharmacistId !== user.id) await notifyUser({ userId: decl.pharmacistId, type: "GENERIC", title: "Information médicale — validé par la Direction", body: `${decl.reference} — ${decl.label}`, link: `${PATH}/${id}` });
   await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Information médicale", entityType: "MEDICAL_INFO_DECLARATION", entityId: id, summary: `Validation Direction — ${decl.reference}${order ? ` (ordre ${order.reference})` : ""}` });
   revalidate(id);
-  revalidatePath("/finances/ordres-de-depense");
+  revalidatePath("/finances/paiements-a-faire");
   revalidatePath("/comptabilite");
   return { ok: true };
 }

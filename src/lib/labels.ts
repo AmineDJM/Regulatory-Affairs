@@ -1408,6 +1408,23 @@ export const AGENDA_TABS: NavTab[] = [
 // BUDGETS — trois écrans au lieu d'un seul écran fourre-tout : on REGARDE (vue d'ensemble
 // graphique), on TRAVAILLE (dépenses à imputer), on RÈGLE (enveloppe, catégories, total).
 
+/**
+ * LES FINANCES EN TROIS MÉTIERS — et ils ne se lisent pas dans le même moment.
+ *
+ * Une seule page portait la trésorerie, le livre comptable, les règlements et les factures :
+ * celui qui PAIE et celui qui TIENT LES COMPTES travaillaient dans le même écran, à se disputer
+ * le défilement. Trois sous-modules, dans l'ordre où l'on y passe : on regarde la situation, on
+ * règle ce qui est autorisé, on écrit les comptes.
+ *
+ * « Paiements à faire » n'a QU'UNE source d'alimentation : le centre de paiement. Aucune autre
+ * porte n'y dépose de ligne — c'est ce qui rend la question « qui a autorisé cette sortie ? »
+ * toujours répondable.
+ */
+export const FINANCES_TABS: NavTab[] = [
+  { module: "FINANCES", label: "Dashboard", href: "/finances" },
+  { module: "FINANCES", label: "Paiements à faire", href: "/finances/paiements-a-faire" },
+  { module: "FINANCES", label: "Comptabilité", href: "/finances/comptabilite" },
+];
 export const BUDGET_TABS: NavTab[] = [
   { module: "BUDGETS", label: "Vue d'ensemble", href: "/budgets" },
   { module: "BUDGETS", label: "Dépenses", href: "/budgets/depenses" },
@@ -1612,11 +1629,14 @@ export const NAVIGATION: NavItem[] = [
     // de cette entrée (`match`) pour que le menu ne se désélectionne pas en y entrant.
     match: ["/moyens-generaux/annuaire"],
   },
-  // FINANCES porte ses écrans DEDANS, pas en sous-entrées de menu : « Règlements à effectuer » et
-  // « Factures » s'atteignent depuis la page Finances, qui reste la porte unique du module.
+  // FINANCES — TROIS SOUS-MODULES, atteignables par onglets et par flèches depuis la page :
+  // Dashboard (trésorerie), Paiements à faire (alimenté EXCLUSIVEMENT par le centre de paiement)
+  // et Comptabilité (le livre). Le menu latéral garde une entrée unique : on entre aux Finances,
+  // on choisit ensuite son métier.
   {
     module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", pole: "ADMINISTRATION",
-    match: ["/finances/ordres-de-depense", "/finances/factures"],
+    tabs: FINANCES_TABS,
+    match: ["/finances/paiements-a-faire", "/finances/comptabilite", "/finances/paiements-a-faire", "/finances/factures"],
   },
   // LE CENTRE DE PAIEMENT — un module À PART, HORS Finances : celui qui autorise l'argent ne
   // doit pas être dans l'écran de celui qui le décaisse. L'entrée n'apparaît qu'à qui a le

@@ -6032,7 +6032,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
       ok: true,
       message: `${CENTRAL_DECISION_LABEL[payload.decision]} — ${payload.reference} (${payload.amountDzd.toLocaleString("fr-FR")} DZD).`,
       link: "/centre-de-paiement",
-      revalidate: ["/centre-de-paiement", "/finances/ordres-de-depense"],
+      revalidate: ["/centre-de-paiement", "/finances/paiements-a-faire"],
     };
   }
 

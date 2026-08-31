@@ -100,7 +100,7 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
       type: "VALIDATION_REQUIRED",
       title: "Paiement autorisé — à régler",
       body: `${order.reference} — ${order.label} (${money})`,
-      link: "/finances/ordres-de-depense",
+      link: "/finances/paiements-a-faire",
     });
   }
   if (order.requestedById) {
@@ -114,7 +114,7 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
   }
 
   revalidatePath(PATH);
-  revalidatePath("/finances/ordres-de-depense");
+  revalidatePath("/finances/paiements-a-faire");
   return { ok: true, message: `${CENTRAL_DECISION_LABEL[decision]} — enregistré.` };
 }
 

@@ -271,7 +271,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
               Ordre de dépense <span className="font-mono text-xs">{view.outcome.expenseOrder.reference}</span>
               <StatusBadge map={EXPENSE_ORDER_STATUS} value={view.outcome.expenseOrder.status} dot={false} />
               <span>{formatCurrency(view.outcome.expenseOrder.amount)}</span>
-              <Link href="/finances/ordres-de-depense" className="text-primary hover:underline">Voir</Link>
+              <Link href="/finances/paiements-a-faire" className="text-primary hover:underline">Voir</Link>
             </p>
           ) : view.status === "APPROVED" ? (
             <p className="mt-1 text-xs text-muted-foreground">En cours de traitement (information médicale / Finances).</p>

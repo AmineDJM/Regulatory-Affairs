@@ -1,7 +1,7 @@
 import type { EntityType, FinanceCategory } from "@prisma/client";
 import { buildRef } from "@/lib/refs";
 import { ENTITY_MODULE } from "@/lib/entity-access";
-import { initialCentralStatus, CENTRAL_AUTH_THRESHOLD_DZD } from "@/lib/payments/authorization";
+import { initialCentralStatus, isHighValue, CENTRAL_AUTH_THRESHOLD_DZD } from "@/lib/payments/authorization";
 import { prisma } from "./prisma";
 import { notifyRoles } from "./notify";
 
@@ -67,9 +67,9 @@ export async function createExpenseOrder(input: CreateExpenseOrderInput) {
   const requiresInvoice = (input.sourceType ? INVOICE_REQUIRED_SOURCES.includes(input.sourceType) : false) || input.category === "EVENEMENT";
 
   // LE CENTRE DE PAIEMENT SE DÉCIDE ICI, à la naissance de l'ordre — le seul endroit par lequel
-  // TOUT décaissement passe. Un ordre au-dessus du seuil part « en attente » et n'arrive pas aux
-  // Finances tant que le PDG ou le Super Admin ne l'a pas autorisé ; au-dessous, il file
-  // directement, comme avant. Les moyens généraux sont exemptés par leur module d'origine.
+  // TOUT décaissement passe. Tout ordre part « en attente » et n'arrive pas aux Finances tant que
+  // le PDG ou le Super Admin ne l'a pas autorisé : plus de seuil, plus d'exemption de module. Le
+  // seuil survit comme MARQUEUR (`isHighValue`) pour trier la file du centre, jamais comme filtre.
   const sourceModule = input.sourceType ? ENTITY_MODULE[input.sourceType] : null;
   const centralStatus = initialCentralStatus({ amount: input.amount, module: sourceModule });
 
@@ -96,19 +96,22 @@ export async function createExpenseOrder(input: CreateExpenseOrderInput) {
   if (centralStatus === "AWAITING") {
     // On alerte LE CENTRE, pas les Finances : elles ne doivent rien voir tant que l'autorisation
     // n'est pas donnée. Les prévenir maintenant les ferait relancer un dossier qu'elles ne
-    // peuvent pas traiter.
+    // peuvent pas traiter. Les montants importants le DISENT dans le corps du message : la file
+    // du centre en compte désormais beaucoup, et tous ne se valent pas.
     await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
       type: "VALIDATION_REQUIRED",
       title: "Autorisation de paiement demandée",
-      body: `${order.reference} — ${input.label} (${money}, au-dessus de ${CENTRAL_AUTH_THRESHOLD_DZD.toLocaleString("fr-FR")} DZD)`,
+      body: `${order.reference} — ${input.label} (${money}${isHighValue(input.amount) ? `, au-dessus de ${CENTRAL_AUTH_THRESHOLD_DZD.toLocaleString("fr-FR")} DZD` : ""})`,
       link: "/centre-de-paiement",
     });
   } else {
+    // Chemin HISTORIQUE : plus aucun ordre ne naît hors du centre. Il reste pour que la fonction
+    // ne dépende pas d'une invariante qu'un futur changement de règle pourrait rompre en silence.
     await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], {
       type: "VALIDATION_REQUIRED",
       title: "Nouvel ordre de dépense",
       body: `${order.reference} — ${input.label} (${money})`,
-      link: "/finances/ordres-de-depense",
+      link: "/finances/paiements-a-faire",
     });
   }
   return order;

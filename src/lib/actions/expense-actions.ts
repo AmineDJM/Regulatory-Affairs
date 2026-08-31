@@ -112,7 +112,7 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
   if (order.requestedById) {
     await notifyUser({
       userId: order.requestedById, type: "GENERIC", title: "Ordre de dépense réglé",
-      body: `${order.reference} — ${order.label}`, link: "/finances/ordres-de-depense",
+      body: `${order.reference} — ${order.label}`, link: "/finances/paiements-a-faire",
     });
   }
   await recordAudit({
@@ -120,7 +120,7 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
     entityId: id, summary: `Ordre ${order.reference} réglé — ${order.label}`,
   });
   revalidatePath("/finances");
-  revalidatePath("/finances/ordres-de-depense");
+  revalidatePath("/finances/paiements-a-faire");
   revalidatePath("/sponsoring");
   revalidatePath("/rh");
   revalidatePath("/mon-espace");
@@ -140,13 +140,13 @@ export async function requestInvoice(formData: FormData): Promise<ActionResult> 
     await notifyUser({
       userId: order.requestedById, type: "ASSIGNMENT", title: "Facture demandée",
       body: `${order.reference} — ${order.label} : merci de joindre la facture pour règlement.`,
-      link: "/finances/ordres-de-depense",
+      link: "/finances/paiements-a-faire",
     });
   } else {
-    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "ASSIGNMENT", title: "Facture demandée", body: `${order.reference} — ${order.label}`, link: "/finances/ordres-de-depense" });
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "ASSIGNMENT", title: "Facture demandée", body: `${order.reference} — ${order.label}`, link: "/finances/paiements-a-faire" });
   }
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Finances", entityType: "EXPENSE_ORDER", entityId: id, summary: `Facture demandée — ${order.reference}` });
-  revalidatePath("/finances/ordres-de-depense");
+  revalidatePath("/finances/paiements-a-faire");
   return { ok: true };
 }
 
@@ -171,10 +171,10 @@ export async function requestBudgetRevision(formData: FormData): Promise<ActionR
   });
   await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED", title: "Ordre de dépense — révision de budget demandée",
-    body: `${order.reference} — ${order.label}`, link: "/finances/ordres-de-depense",
+    body: `${order.reference} — ${order.label}`, link: "/finances/paiements-a-faire",
   });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Finances", entityType: "EXPENSE_ORDER", entityId: id, field: "status", newValue: "REVISION_REQUESTED", summary: `Ordre ${order.reference} — révision budget demandée` });
-  revalidatePath("/finances/ordres-de-depense");
+  revalidatePath("/finances/paiements-a-faire");
   revalidatePath("/validations");
   return { ok: true };
 }
@@ -206,10 +206,10 @@ export async function resolveBudgetRevision(formData: FormData): Promise<ActionR
     data: { status: "PENDING", amount: newAmount, notes: fdStr(formData, "comment") ?? order.notes, revisionReason: null, proposedAmount: null, revisionById: null },
   });
   if (order.revisionById) {
-    await notifyUser({ userId: order.revisionById, type: "GENERIC", title: decision === "ADJUST" ? "Budget ajusté par la Direction" : "Révision refusée — montant maintenu", body: `${order.reference} — ${order.label}`, link: "/finances/ordres-de-depense" });
+    await notifyUser({ userId: order.revisionById, type: "GENERIC", title: decision === "ADJUST" ? "Budget ajusté par la Direction" : "Révision refusée — montant maintenu", body: `${order.reference} — ${order.label}`, link: "/finances/paiements-a-faire" });
   }
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Finances", entityType: "EXPENSE_ORDER", entityId: id, field: "amount", newValue: String(newAmount), summary: `Ordre ${order.reference} — révision ${decision === "ADJUST" ? "ajustée" : "refusée"}` });
-  revalidatePath("/finances/ordres-de-depense");
+  revalidatePath("/finances/paiements-a-faire");
   revalidatePath("/validations");
   return { ok: true };
 }
@@ -228,6 +228,6 @@ export async function cancelExpenseOrder(formData: FormData): Promise<ActionResu
     actorId: user.id, action: "UPDATE", module: "Finances", entityType: "EXPENSE_ORDER",
     entityId: id, field: "status", newValue: "CANCELLED", summary: `Ordre ${order.reference} annulé`,
   });
-  revalidatePath("/finances/ordres-de-depense");
+  revalidatePath("/finances/paiements-a-faire");
   return { ok: true };
 }

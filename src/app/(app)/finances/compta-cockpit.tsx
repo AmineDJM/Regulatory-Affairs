@@ -20,7 +20,7 @@ export function ComptaCockpit({ d }: { d: ComptaData }) {
       {d.enRetardCount > 0 && (
         <div className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
           <span><strong>{d.enRetardCount}</strong> échéance·s en retard à traiter.</span>
-          <Link href="/finances/ordres-de-depense" className="inline-flex items-center gap-1 font-medium hover:underline">Voir <ArrowRight className="h-3.5 w-3.5" /></Link>
+          <Link href="/finances/paiements-a-faire" className="inline-flex items-center gap-1 font-medium hover:underline">Voir <ArrowRight className="h-3.5 w-3.5" /></Link>
         </div>
       )}
 
@@ -31,7 +31,7 @@ export function ComptaCockpit({ d }: { d: ComptaData }) {
             À régler ({d.aReglerCount}) · {formatCurrency(d.aReglerOrders)}
           </h2>
           {d.aReglerCount > 0 && (
-            <Link href="/finances/ordres-de-depense" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+            <Link href="/finances/paiements-a-faire" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
               Régler les ordres <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           )}
@@ -39,7 +39,7 @@ export function ComptaCockpit({ d }: { d: ComptaData }) {
         {d.ordersPending.length === 0 ? (
           <EmptyState icon="CheckCheck" title="Rien à régler" description="Les ordres de dépense validés par la Direction apparaîtront ici." />
         ) : (
-          <ItemTable items={d.ordersPending} thirdLabel="Bénéficiaire" href="/finances/ordres-de-depense" />
+          <ItemTable items={d.ordersPending} thirdLabel="Bénéficiaire" href="/finances/paiements-a-faire" />
         )}
       </section>
 

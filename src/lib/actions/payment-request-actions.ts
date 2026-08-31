@@ -170,8 +170,20 @@ export async function createPaymentRequest(_prev: ActionResult | undefined, form
       }
     }
 
-    await trace(req.id, user.id, submit ? "SUBMIT" : "COMMENT", submit ? "Demande transmise aux Finances." : "Brouillon créé.");
-    if (submit) await alertFinance(req, "Demande de paiement à instruire");
+    // TRANSMETTRE, C'EST ENTRER AU CENTRE. La demande déposée directement (sans passer par le
+    // brouillon) suit le même chemin que celle transmise depuis la fiche : l'ordre de dépense naît
+    // ici, en attente du centre. Un brouillon, lui, n'engage rien et n'y entre pas.
+    if (submit) {
+      const order = await createExpenseOrder({
+        label: `${req.reference} — ${req.title}`,
+        amount, category: "FOURNISSEUR", beneficiary: payee,
+        sourceType: "PAYMENT_REQUEST", sourceId: req.id,
+        requestedById: user.id, dueDate: dateOf(fdStr(formData, "dueDate")),
+        notes: fdStr(formData, "description"),
+      });
+      await prisma.paymentRequest.update({ where: { id: req.id }, data: { expenseOrderId: order.id } });
+    }
+    await trace(req.id, user.id, submit ? "SUBMIT" : "COMMENT", submit ? "Demande transmise au centre de paiement." : "Brouillon créé.");
     await recordAudit({
       actorId: user.id, action: "CREATE", module: "Demandes de paiement",
       entityType: "PAYMENT_REQUEST", entityId: req.id,
@@ -361,8 +373,32 @@ export async function submitPaymentRequest(formData: FormData): Promise<ActionRe
     if (!next) return { ok: false, error: "Ce dossier n'est pas en attente d'envoi." };
 
     await prisma.paymentRequest.update({ where: { id }, data: { status: next as PaymentRequestStatus, submittedAt: new Date() } });
-    await trace(id, user.id, "SUBMIT", fdStr(formData, "note") ?? "Dossier transmis aux Finances.");
-    await alertFinance(req, "Demande de paiement à instruire");
+
+    // LE DOSSIER ENTRE AU CENTRE DE PAIEMENT DÈS LA SOUMISSION, pas au bon à payer.
+    //
+    // C'était l'inversion la plus coûteuse du circuit : l'ordre de dépense ne naissait qu'APRÈS
+    // l'instruction des Finances, si bien qu'elles épluchaient pièce par pièce des dossiers que le
+    // centre refuserait peut-être ensuite. Le centre tranche d'abord — c'est lui qui dit si
+    // l'entreprise engage cet argent —, les Finances instruisent et paient ce qui est autorisé.
+    //
+    // L'ordre n'est créé qu'UNE FOIS : après un renvoi pour correction, le dossier est resoumis
+    // mais `expenseOrderId` est déjà posé, et le centre retrouve le même dossier dans son fil.
+    if (!req.expenseOrderId) {
+      const order = await createExpenseOrder({
+        label: `${req.reference} — ${req.title}`,
+        amount: toNumber(req.amount),
+        category: "FOURNISSEUR",
+        beneficiary: req.payee,
+        sourceType: "PAYMENT_REQUEST",
+        sourceId: req.id,
+        requestedById: req.requesterId,
+        dueDate: req.dueDate,
+        notes: fdStr(formData, "note") ?? null,
+      });
+      await prisma.paymentRequest.update({ where: { id }, data: { expenseOrderId: order.id } });
+    }
+
+    await trace(id, user.id, "SUBMIT", fdStr(formData, "note") ?? "Dossier transmis au centre de paiement.");
     revalidate(id);
     return { ok: true, id };
   } catch (err) {
@@ -413,11 +449,11 @@ export async function decidePaymentRequest(formData: FormData): Promise<ActionRe
     });
     await trace(id, user.id, move, note);
 
-    // LE BON À PAYER OUVRE UN RÈGLEMENT — et le règlement passe par le CENTRE DE PAIEMENT.
-    // C'est `createExpenseOrder` qui applique la règle (dès 50 000 DZD : autorisation du PDG ou
-    // du Super Admin avant que les Finances ne voient l'ordre) : la demande de paiement ne
-    // contourne donc jamais le centre — elle y entre par la même porte que toutes les dépenses.
-    // La transition APPROVED est terminale, ce qui garantit qu'on ne crée pas l'ordre deux fois.
+    // L'ORDRE DE DÉPENSE EXISTE DÉJÀ : il est né à la soumission, et le centre l'a autorisé avant
+    // que ce dossier n'arrive ici. Le bon à payer ne le crée donc plus — il constate que les
+    // pièces sont conformes. Le verrou du décaissement reste `canDisburse`, au règlement.
+    // Filet pour les dossiers ANTÉRIEURS à cette règle, soumis quand l'ordre naissait ici :
+    // sans lui, ils n'auraient jamais de règlement.
     if (move === "APPROVE" && !req.expenseOrderId) {
       const order = await createExpenseOrder({
         label: `${req.reference} — ${req.title}`,

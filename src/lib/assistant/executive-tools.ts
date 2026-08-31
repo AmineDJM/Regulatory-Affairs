@@ -367,7 +367,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           demandePar: order.requestedBy?.name ?? null,
           payeLe: order.paidDate ? fr(order.paidDate) : "pas encore payé",
           timeline: renderTimeline(timeline),
-          liens: ["/finances/ordres-de-depense", "/centre-de-paiement"],
+          liens: ["/finances/paiements-a-faire", "/centre-de-paiement"],
         });
       }
 

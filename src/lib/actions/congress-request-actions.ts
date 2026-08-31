@@ -303,7 +303,7 @@ export async function finalDecision(formData: FormData): Promise<ActionResult> {
       updatedById: user.id,
     });
     await recordAudit({ actorId: user.id, action: "VALIDATE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Validation définitive — ${c.name} (ordre ${order.reference})` });
-    revalidatePath("/finances/ordres-de-depense");
+    revalidatePath("/finances/paiements-a-faire");
     revalidatePath("/finances");
   }
 
@@ -344,13 +344,13 @@ export async function updateGrantedBudget(formData: FormData): Promise<ActionRes
     const order = await prisma.expenseOrder.findUnique({ where: { id: orderId }, select: { status: true } });
     if (order && order.status !== "PAID") {
       await prisma.expenseOrder.update({ where: { id: orderId }, data: { amount } });
-      await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: "Budget d'un événement modifié", body: `${c.name} — nouveau montant ${amount.toLocaleString("fr-FR")} DZD`, link: "/finances/ordres-de-depense" });
+      await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: "Budget d'un événement modifié", body: `${c.name} — nouveau montant ${amount.toLocaleString("fr-FR")} DZD`, link: "/finances/paiements-a-faire" });
     }
   }
   await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, field: "finalAmount", newValue: String(amount), summary: `Budget accordé modifié — ${c.name}` });
   revalidatePath(`${pathFor(t)}/${id}`);
   revalidatePath("/information-medicale");
-  revalidatePath("/finances/ordres-de-depense");
+  revalidatePath("/finances/paiements-a-faire");
   return { ok: true };
 }
 
