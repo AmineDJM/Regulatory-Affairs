@@ -1542,6 +1542,17 @@ export const ACTION_LABELS: Record<Action, string> = {
 // nombre d'entrées. Messagerie & Notifications ne sont PLUS dans le menu — elles
 // restent accessibles via leurs icônes dans la barre du haut (les routes /messages
 // et /notifications et leurs modules RBAC sont inchangés).
+/**
+ * PROMOTION MÉDICALE — « Ma journée » (le terrain) et l'annuaire (le référentiel).
+ *
+ * Le premier onglet est celui qu'on ouvre chaque matin ; le second celui qu'on consulte. Mettre
+ * l'annuaire en tête obligeait un délégué à traverser un référentiel pour noter une visite.
+ */
+export const MEDICAL_TABS: NavTab[] = [
+  { module: "MEDICAL", label: "Ma journée", href: "/medical/ma-journee" },
+  { module: "MEDICAL", label: "Annuaire", href: "/medical/annuaire" },
+];
+
 export const NAVIGATION: NavItem[] = [
   // Pilotage — « Mon espace » regroupe désormais Mon travail, Mon espace, Dashboard, Calendrier
   // et Directives (onglets). `match` couvre ces routes pour l'état actif de la barre latérale.
@@ -1647,10 +1658,11 @@ export const NAVIGATION: NavItem[] = [
   // praticiens vit DANS Promotion médicale : on ne consulte pas un annuaire pour lui-même, on
   // le consulte en préparant une visite.
   { module: "SALES", label: "Ventes", href: "/sales", icon: "TrendingUp", group: "Pôles", pole: "SALES_MARKETING" },
-  // L'ANNUAIRE — le référentiel des praticiens. « Visites & segmentation » a été RETIRÉ : un
-  // écran mieux pensé le remplacera. Les données (visites, plans de tournée) restent en base ;
-  // c'est l'écran qui disparaît, pas l'historique. La route `/medical` redirige vers l'annuaire.
-  { module: "MEDICAL", label: "Annuaire", href: "/medical/annuaire", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", match: ["/medical"] },
+  // PROMOTION MÉDICALE — deux onglets, et l'ordre compte : « Ma journée » d'abord, parce que
+  // c'est l'écran quotidien du terrain (sa tournée, sa saisie de visite en trois gestes) ;
+  // l'annuaire ensuite, qui est le référentiel. L'ancien « Visites & segmentation » retiré est
+  // remplacé par cette journée — les visites en base n'ont jamais bougé, et elle les relit.
+  { module: "MEDICAL", label: "Promotion médicale", href: "/medical/ma-journee", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical"] },
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/promo-material/stock", "/consulting"] },

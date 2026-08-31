@@ -49,10 +49,10 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
 
   it("le décompte porte sur CE QUE LA PERSONNE VOIT, pas sur le total du pôle", () => {
     // Deux entrées seulement, alors que le pôle en compte davantage au total : il s'ouvre.
-    // Replier pour deux lignes n'aurait aucun sens. (MEDICAL n'a plus qu'une entrée depuis le
-    // retrait de « Visites & segmentation » — un écran mieux pensé le remplacera.)
+    // Replier pour deux lignes n'aurait aucun sens. (MEDICAL n'a qu'UNE entrée de menu —
+    // « Promotion médicale » — qui porte ses deux onglets : Ma journée et l'Annuaire.)
     const sm = groupIntoPoles(accessible(["FIELD_REPORTS", "MEDICAL"])).find((p) => p.key === "SALES_MARKETING");
-    expect(sm?.children.map((c) => c.label)).toEqual(["Annuaire", "Rapports terrain"]);
+    expect(sm?.children.map((c) => c.label)).toEqual(["Promotion médicale", "Rapports terrain"]);
     expect(sm?.defaultOpen).toBe(true);
   });
 

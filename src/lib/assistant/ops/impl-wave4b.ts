@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import {
   createDoctor, updateDoctor, deleteDoctor, createVisit, updateVisit, deleteVisit,
-  deleteInstitution, createSpecialty, updateSpecialty, deleteSpecialty,
+  deleteInstitution, createSpecialty, updateSpecialty, deleteSpecialty, logVisit,
 } from "@/lib/actions/medical-actions";
 import { addDirectoryDoctor, saveDirectoryCell, deleteDirectoryDoctors } from "@/lib/actions/medical-directory-actions";
 import {
@@ -205,6 +205,84 @@ async function resolvePlan(raw: string, dateRaw: string): Promise<PlanHit | { er
 // ─────────────────────────── ANNUAIRE MÉDICAL ───────────────────────────
 
 export const MEDICAL_OPS_IMPL: Record<string, OpImpl> = {
+  /**
+   * SAISIR UNE VISITE FAITE — le geste quotidien du terrain, disponible à la voix.
+   *
+   * « J'ai vu le professeur Benali, je lui ai présenté l'Atorvastatine » depuis la voiture vaut
+   * mieux qu'une saisie remise au soir puis oubliée. L'action canonique (`logVisit`) revérifie
+   * tout : le praticien doit être dans le panel de celui qui parle, la visite est TERMINÉE par
+   * construction, et la date ne peut pas être future.
+   */
+  log_visit: {
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      // LA RECHERCHE SE FAIT DANS SON PANEL, et nulle part ailleurs. Deux raisons, et la
+      // seconde est la vraie : (1) elle évite une carte de confirmation que l'action refuserait
+      // ensuite ; (2) `logVisit` crédite CELUI QUI SAISIT — chercher hors du panel laisserait
+      // un superviseur enregistrer, sous son propre nom, la visite d'un de ses délégués, et
+      // fausserait les deux compteurs à la fois. Une visite se saisit par celui qui l'a faite.
+      const hit = await resolveOne(
+        opStr(input, "doctor"),
+        "le praticien de VOTRE panel (champ « doctor » — son nom)",
+        (q) => prisma.medicalDoctor.findMany({
+          where: { delegateId: user.id, name: { contains: q, mode: "insensitive" } },
+          select: { id: true, name: true, specialty: true, institution: true }, take: 6,
+        }),
+        (d) => `${d.name}${d.specialty ? ` (${d.specialty})` : ""}${d.institution ? ` — ${d.institution}` : ""}`,
+      );
+      if ("error" in hit) return hit;
+
+      // Les produits se donnent par NOM et se résolvent contre le catalogue canonique : un nom
+      // qui ne correspond à rien est DIT, jamais enregistré en texte libre.
+      const noms = opStr(input, "products").split(/[,;]/).map((x) => x.trim()).filter(Boolean);
+      const produits: { id: string; name: string }[] = [];
+      const inconnus: string[] = [];
+      for (const n of noms) {
+        const rows = await prisma.product.findMany({
+          where: { canonicalName: { contains: n, mode: "insensitive" } },
+          select: { id: true, canonicalName: true }, take: 3,
+        });
+        if (rows.length === 1) produits.push({ id: rows[0].id, name: rows[0].canonicalName });
+        else inconnus.push(rows.length > 1 ? `${n} (plusieurs correspondances)` : n);
+      }
+      if (inconnus.length) {
+        return { error: `Produit non reconnu : ${inconnus.join(" ; ")}. Donnez le nom exact, ou omettez le champ « products ».` };
+      }
+
+      const date = isoDate(opStr(input, "date"));
+      return {
+        title: `Visite faite — ${hit.name}`,
+        fields: fieldsOf([
+          ["Praticien", hit.name],
+          ["Date", date ?? "aujourd'hui"],
+          ["Produits présentés", produits.length ? produits.map((p) => p.name).join(", ") : null],
+          ["Compte rendu", opStr(input, "notes") || null],
+          ["À faire ensuite", opStr(input, "followUp") || null],
+        ]),
+        warnings: ["La visite est enregistrée comme FAITE — elle entre aussitôt dans votre réalisé du mois."],
+        args: {
+          doctorId: hit.id, doctorName: hit.name, date,
+          productIds: produits.map((p) => p.id).join(","),
+          report: opStr(input, "notes") || null,
+          followUp: opStr(input, "followUp") || null,
+        },
+        successMessage: `Visite chez ${hit.name} enregistrée.`,
+        link: "/medical/ma-journee",
+        revalidate: ["/medical/ma-journee", "/planning/pilotage"],
+      };
+    },
+    async execute(args) {
+      const fd = new FormData();
+      fd.set("doctorId", args.doctorId ?? "");
+      if (args.date) fd.set("date", args.date);
+      if (args.report) fd.set("report", args.report);
+      if (args.followUp) fd.set("followUpActions", args.followUp);
+      for (const id of (args.productIds ?? "").split(",").filter(Boolean)) fd.append("productId", id);
+      const r = await logVisit(undefined, fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "L'enregistrement de la visite a été refusé." };
+      return { ok: true, createdId: r.id, link: "/medical/ma-journee", revalidate: ["/medical/ma-journee", "/planning/pilotage"] };
+    },
+  },
+
   create_doctor: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const name = opStr(input, "doctor") || opStr(input, "name");

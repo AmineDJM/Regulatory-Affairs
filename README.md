@@ -196,6 +196,7 @@ jamais identique.
 | **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
 | **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **CHAQUE DÉPARTEMENT a ses moyens généraux** ; les **ressources humaines** pilotent le module (elles voient et dotent tous les départements, via un sélecteur), l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) : l'administration remet une somme chaque mois, la personne qui la détient **confirme l'avoir reçue** — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**, jusqu'à épuisement. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. **Annuaire d'entreprise** (`/moyens-generaux/annuaire`) : tous les contacts extérieurs de la société — agence de voyage, livreurs, agence marketing, imprimeur, transitaire… — par catégorie, cherchables, avec téléphone et e-mail cliquables. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
 | **Formations** | `/formations` | Demande individuelle (montant, organisme, dates, devis) validée **N+1 → RH → DG**, et formations **organisées par les RH** (qui partent directement au DG) avec **participants convoqués ou volontaires** (les volontaires acceptent ou déclinent) et **postes** (salle, traiteur, intervenant) validés un par un par la Direction. Budget **FORMATION** parmi les budgets départementaux. |
+| **Promotion médicale** | `/medical/ma-journee` | **Ma journée** (KAM) : la **tournée proposée** du jour — les praticiens en retard sur leur **fréquence cible**, avec la raison chiffrée — et la **saisie d'une visite en 3 gestes** (praticien, produits de sa mallette pré-cochés P1, un mot dicté au clavier) ; une ligne de chiffres (fait/attendu, couverture du panel, rythme à tenir sur les **jours ouvrés algériens**). Onglet **Annuaire** : le référentiel des praticiens. → [détails](#force-de-vente--la-boucle-terrain) |
 | **Ventes** | `/sales` | CA pharma/PCH, **import CSV**, type **Produit / Service**. |
 | **Logistique PCH** | `/logistics` | Module autonome : import / expéditions fournisseurs, dates estimées vs réelles, dédouanement. |
 | **PCH — Marchés** | `/pch` | **Market 360°** : AO → soumission versionnée → attribution par lot → contrat & avenants → BC à lignes → livraisons → factures — niveau de vie **dérivé**, caution (alertes). → [détails](#pch--marchés-publics-market-360) |
@@ -518,6 +519,46 @@ les demandes en cours (`getSupervisedValidations`). Deux niveaux de décision :
   ou id de pièce ; `ItemReview` + `ValidationAttachments`) : le validateur approuve / demande une révision / refuse
   **le message ET chaque pièce jointe séparément**, commentaire **optionnel**. Ce retour détaillé remonte au
   demandeur dans « Mes demandes » (libellés lisibles des pièces).
+
+### Force de vente — la boucle terrain
+
+**LE TROU QUE CE CHANTIER FERME.** Le pilotage SFE était complet d'un bout — la Direction prévoit
+par produit, on affecte KAM × produit × rang de détail, le cockpit compare planifié et réalisé.
+Mais l'écran de **saisie du terrain avait été retiré**, et un cockpit sans réalisé pilote à
+l'aveugle : le « réalisé » venait de visites que plus rien ne permettait d'enregistrer simplement.
+La saisie ne se décrète pas — elle s'obtient en rendant l'écran **utile avant d'être obligatoire**.
+
+- **« Ma journée » (`/medical/ma-journee`)** — l'écran unique du KAM, pensé pour un téléphone.
+  La **tournée proposée** vient de `lib/sfe-day.ts` (PUR, testé) : priorité au **retard sur la
+  fréquence cible** (pas au potentiel seul — sinon on renvoie toujours chez les mêmes), puis au
+  potentiel, puis au plus anciennement vu ; un palier à fréquence nulle n'est **jamais** proposé,
+  la liste est **bornée** (8), et **chaque ligne porte sa raison chiffrée** (« 3 attendues, 1 faite
+  — vu il y a 12 j »). La **saisie** (`logVisit`) est en 3 gestes : praticien (pré-rempli), produits
+  **de sa mallette** dans l'ordre P1/P2/P3 (**seuls les P1 pré-cochés** — un chiffre faux vaut moins
+  qu'un chiffre absent), un mot libre (le micro du clavier y dicte nativement). La visite est
+  **TERMINÉE par construction**, créditée à **celui qui saisit**, refusée hors de son panel et
+  jamais future ; les produits sont des **liens** (`MedicalVisitProduct`), pas du texte.
+- **La supervision vient au superviseur** (`lib/sfe-alerts.ts`, PUR + `lib/sfe-sweep.ts` branché
+  sur l'ordonnanceur existant) : **silence** (aucune saisie depuis 5 j — « on ne sait pas », jamais
+  « il ne fait rien »), **retard à mi-mois** (< 40 % au 15, pendant qu'on peut rattraper),
+  **couverture** (< 50 % après le 25 — le volume peut être bon alors que le panel est mort), et
+  **KAM non armé** (sans panel ni affectation : elle vise **celui qui configure**, pas l'homme, et
+  **coupe** les autres). Une alerte par **type et par mois** (`lastAlertKey`), jamais une par nuit.
+  Au 1er du mois : **revue** par superviseur, le chiffre **dans la notification**.
+- **La boucle performance** — `lib/sfe-performance.ts` (PUR) met **effort × ventes** côte à côte
+  sur le mois, **sans affirmer aucune causalité** (une vente hospitalière tombe des mois après la
+  visite ; un marché public ne doit rien au détaillage). Ce qu'on vient y lire, ce sont les deux
+  **anomalies** qu'aucun chiffre ne montre seul : un produit **détaillé sans vente**, un produit
+  **vendu sans visite**. Et l'**instantané mensuel** par KAM (`SalesRepMonthlyKpi`) fige ce qui
+  était vrai ce mois-là, **équipe comprise** : un panel modifié en juin ne doit pas réécrire la
+  couverture de mars — c'est ce chiffre qu'on relit en entretien annuel.
+- **UN SEUL CALCUL** : `queries/sfe-cockpit.ts` sert l'écran de pilotage, le balayage d'alertes et
+  l'archivage. Trois copies d'une même formule finissent par donner trois taux, et le superviseur
+  ne sait plus lequel croire.
+- **Adam** : `medical_operation` op **`log_visit`** — « j'ai vu le professeur Benali, je lui ai
+  présenté l'Atorvastatine » depuis la voiture ; la résolution se fait **dans son propre panel**
+  (une visite se saisit par celui qui l'a faite), les produits sont résolus **au catalogue** et un
+  nom inconnu est **dit**, jamais enregistré en texte libre.
 
 ### PCH — Marchés publics (Market 360°)
 
@@ -3449,6 +3490,21 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Force de vente — la boucle terrain se ferme (2026-08)
+
+Le SFE prévoyait et pilotait, mais **le terrain n'avait plus d'écran pour saisir** : le cockpit
+mesurait un réalisé que rien n'alimentait. Trois étages livrés. **« Ma journée »** : tournée
+proposée (retard sur la fréquence cible d'abord, raison chiffrée sur chaque ligne, liste bornée)
+et saisie de visite en trois gestes, mobile d'abord, produits liés au catalogue. **Supervision qui
+vient au superviseur** : quatre alertes (silence, retard à mi-mois, couverture, KAM non armé —
+celle-ci vise le configurateur et coupe les autres), une par type et par mois, plus la revue du 1er.
+**Boucle performance** : effort × ventes mis en regard sans affirmer de causalité (les deux
+anomalies — détaillé sans vente, vendu sans visite — sont ce qu'on vient lire), et instantané
+mensuel figé par KAM pour que le chiffre d'un mois clos ne bouge plus. Le calcul du cockpit,
+jusque-là dans la page, devient **la source unique** des trois consommateurs. Adam sait saisir une
+visite à la voix (`log_visit`, résolution dans son propre panel). Frontière Adam↔ERP tenue à 428 —
+l'import ajouté a été supprimé au profit d'une résolution mieux conçue.
 
 ### Files au métier, Mon espace recomposé, factures reliables (2026-08)
 

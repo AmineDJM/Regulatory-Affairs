@@ -1,11 +1,12 @@
-import { ArrowLeft } from "lucide-react";
 import { notFound } from "next/navigation";
 import { requireModule } from "@/lib/session";
 import { userCan, scopeMedicalDoctors, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { currentCompanyWhereFor, getMyCompanies, companyLabel } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
-import { BackLink } from "@/components/shared/back-link";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { visibleTabs } from "@/lib/nav-tabs";
+import { MEDICAL_TABS } from "@/lib/labels";
 import type { AnnuaireRow } from "@/lib/medical/directory-grid";
 import { AnnuaireGrid } from "./annuaire-grid";
 import { DirectoryBar, type DirectoryRow } from "./directory-bar";
@@ -108,13 +109,11 @@ export default async function AnnuairePage({ searchParams }: { searchParams?: { 
 
   return (
     <div className="space-y-5">
-      <BackLink href="/medical">
-        <ArrowLeft className="h-4 w-4" /> Annuaire
-      </BackLink>
       <PageHeader
         title="Annuaire"
         description="Tous les praticiens avec qui nous travaillons — médecins, pharmaciens, hospitaliers — en feuille modifiable, exportable, avec vue par spécialité."
       />
+      <ModuleTabs tabs={await visibleTabs(user, MEDICAL_TABS)} />
       <DirectoryBar
         directories={directories}
         current={searchParams?.annuaire ?? null}

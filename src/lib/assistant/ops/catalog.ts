@@ -2329,6 +2329,15 @@ export const OPS_CATALOG: OpMeta[] = [
 
   // ───────────────────────────── ANNUAIRE MÉDICAL (praticiens, visites, référentiels, annuaires, plans) ─────────────────────────────
   {
+    tool: "medical_operation", op: "log_visit", module: "Promotion médicale",
+    uiLabel: "Saisir une visite faite",
+    aliases: ["j'ai vu le docteur", "note ma visite", "visite faite chez", "j'ai visité le professeur"],
+    risk: "NORMAL",
+    summary: "Enregistre une visite QUI A EU LIEU (praticien de VOTRE panel, produits présentés résolus au catalogue, compte rendu) — elle entre aussitôt dans votre réalisé du mois. La date ne peut pas être future.",
+    gate: (u) => userCan(u, "MEDICAL", "CREATE"),
+    covers: ["medical-actions:logVisit"],
+  },
+  {
     tool: "medical_operation", op: "create_doctor", module: "Annuaire",
     uiLabel: "Nouveau praticien",
     aliases: ["ajoute le médecin", "crée le praticien", "nouveau médecin dans l'annuaire"],

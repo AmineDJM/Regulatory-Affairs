@@ -11,6 +11,7 @@ import { runIntelligencePulse } from "@/lib/adventum/pulse";
 import { runPettyCashRechargeReminders } from "@/lib/actions/petty-cash-actions";
 import { runLegalExpirySweep } from "@/lib/legal/expiry-sweep";
 import { runPchDeadlineSweep } from "@/lib/pch/deadline-sweep";
+import { runSfeFieldSweep } from "@/lib/sfe-sweep";
 import { runAssistantReminders } from "@/lib/assistant/reminders";
 import { runDriveIngestionSweep } from "@/lib/assistant/drive-ingestion";
 import { balayerMentions } from "@/lib/fabric";
@@ -107,6 +108,10 @@ export async function runScheduledJobs(): Promise<void> {
     // Échéances de DÉPÔT des marchés PCH : responsable + équipe prévenus à J-7, J-2 et au
     // dépassement — le rappel se tait dès que la soumission est déposée.
     await runPchDeadlineSweep().catch(() => undefined);
+    // FORCE DE VENTE : alertes de supervision (silence, retard à mi-mois, couverture, KAM non
+    // armé) — une par type et par mois, jamais une par nuit —, instantané mensuel de chaque KAM
+    // (le mois clos ne se recalcule plus) et revue au passage du mois.
+    await runSfeFieldSweep().catch(() => undefined);
     // Rappels du Chief of Staff : « rappelle-moi mardi à 10 h », « tous les dimanches relance
     // Regulatory » — pop-up au propriétaire, relance du rôle cible s'il y en a un.
     await runAssistantReminders().catch(() => undefined);

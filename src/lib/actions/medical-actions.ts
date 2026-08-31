@@ -299,6 +299,100 @@ export async function updateDoctor(formData: FormData): Promise<ActionResult> {
   return { ok: true };
 }
 
+/**
+ * SAISIR UNE VISITE FAITE — le geste du terrain, en trois champs.
+ *
+ * ── POURQUOI UNE ACTION À PART DE `createVisit` ─────────────────────────────────────────────
+ *
+ * `createVisit` sert à PLANIFIER depuis un bureau : elle accepte un délégué, un statut, une
+ * région. Ici on enregistre ce qui VIENT D'AVOIR LIEU, depuis un téléphone, entre deux
+ * rendez-vous. Les deux gestes n'ont ni les mêmes champs obligatoires, ni le même auteur, ni le
+ * même risque : mélanger les deux dans une action « polyvalente » aurait imposé au terrain de
+ * choisir un statut, c'est-à-dire un champ de plus à comprendre pour un homme qui saisit debout.
+ *
+ * ── CE QUI EST TENU ICI ─────────────────────────────────────────────────────────────────────
+ *
+ *  1. **La visite est TERMINÉE par construction** — on ne saisit pas une visite qu'on n'a pas
+ *     faite. C'est ce qui rend le cockpit juste sans demander un statut à personne.
+ *  2. **Le délégué est CELUI QUI SAISIT.** Jamais un champ du formulaire : laisser choisir
+ *     l'auteur ferait entrer les visites d'un autre dans son propre compteur.
+ *  3. **Le praticien doit appartenir à SON panel.** Un identifiant forgé enregistrerait une
+ *     visite chez le praticien d'un collègue — et fausserait deux tableaux à la fois.
+ *  4. **Les produits présentés sont des LIENS** (`MedicalVisitProduct`), pas une chaîne de
+ *     texte : c'est ce qui permet de croiser l'effort et les ventes par produit. Le texte
+ *     `presentedProducts` reste renseigné pour les écrans hérités qui le lisent encore.
+ *  5. **La date peut être ANTÉRIEURE** (saisie le soir, ou le lendemain), jamais future : on
+ *     n'enregistre pas une visite qui n'a pas eu lieu.
+ */
+export async function logVisit(
+  _prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé." };
+
+  const doctorId = fdStr(formData, "doctorId");
+  if (!doctorId) return { ok: false, error: "Choisissez le praticien visité." };
+
+  // Règle 3 : le praticien doit être dans le panel de celui qui saisit. La seule exception est
+  // le compte à vue globale, qui peut saisir pour rattraper une absence.
+  const doctor = await prisma.medicalDoctor.findUnique({
+    where: { id: doctorId },
+    select: { id: true, name: true, delegateId: true },
+  });
+  if (!doctor) return { ok: false, error: "Praticien introuvable." };
+  if (doctor.delegateId !== user.id && !(await canAccessEntity(user, "DOCTOR", doctorId, "UPDATE"))) {
+    return { ok: false, error: "Ce praticien n'est pas dans votre panel." };
+  }
+
+  // Règle 5 : jamais dans le futur — une visite « faite » demain n'existe pas.
+  const now = new Date();
+  const saisie = fdDate(formData, "date");
+  const date = saisie && saisie <= now ? saisie : now;
+
+  // Règle 4 : les produits arrivent en identifiants ; on ne garde que ceux qui existent.
+  const productIds = [...new Set(formData.getAll("productId").map(String).filter(Boolean))];
+  const products = productIds.length
+    ? await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, canonicalName: true } })
+    : [];
+
+  const created = await prisma.medicalVisit.create({
+    data: {
+      date,
+      doctorId,
+      // Règle 2 : l'auteur de la saisie, jamais un champ du formulaire.
+      delegateId: user.id,
+      // Règle 1 : ce qu'on saisit a eu lieu.
+      status: "COMPLETED",
+      report: fdStr(formData, "report"),
+      followUpActions: fdStr(formData, "followUpActions"),
+      // Le texte hérité reste renseigné pour les écrans qui le lisent encore ; la VÉRITÉ
+      // exploitable, elle, est dans les liens.
+      presentedProducts: products.map((p) => p.canonicalName).join(", ") || null,
+      createdById: user.id,
+      updatedById: user.id,
+      productLinks: products.length
+        ? { create: products.map((p) => ({ productId: p.id })) }
+        : undefined,
+    },
+    select: { id: true },
+  });
+
+  // La fiche du praticien porte sa dernière visite : sans cette mise à jour, la tournée du
+  // lendemain le reproposerait en tête, et l'écran perdrait la confiance du terrain.
+  await prisma.medicalDoctor.update({ where: { id: doctorId }, data: { lastVisit: date } });
+
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Promotion médicale",
+    entityType: "VISIT", entityId: created.id,
+    summary: `Visite saisie — ${doctor.name}${products.length ? ` (${products.length} produit${products.length > 1 ? "s" : ""})` : ""}`,
+  });
+  revalidatePath("/medical/ma-journee");
+  revalidatePath("/medical");
+  revalidatePath("/planning/pilotage");
+  return { ok: true, id: created.id };
+}
+
 export async function createVisit(
   _prev: ActionResult | undefined,
   formData: FormData,

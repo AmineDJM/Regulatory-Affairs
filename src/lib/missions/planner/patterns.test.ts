@@ -21,9 +21,25 @@ import { capabilityMeta } from "@/lib/missions/registry/capability-meta";
 const TAG = `patterns-${Date.now().toString(36)}`;
 
 let dbOk = true;
+/**
+ * LE PROPRIÉTAIRE DES MISSIONS D'ESSAI EST LE NÔTRE — pas « le premier venu ».
+ *
+ * Ce banc empruntait `prisma.user.findFirst()` : n'importe quel compte de la base faisait
+ * l'affaire. Tant que rien ne tournait en parallèle, cela passait. Depuis, d'autres bancs
+ * créent ET SUPPRIMENT leurs propres comptes ; quand `findFirst` tombait sur l'un d'eux au
+ * mauvais moment, la création de mission échouait sur la clé étrangère `Mission_ownerId_fkey`
+ * — un échec qui n'apprend rien sur les formes de plans, et qui ne se reproduit pas seul.
+ *
+ * Un banc qui dépend de l'état laissé par les autres n'est pas un banc : il crée donc le sien.
+ */
+let ownerId = "";
 beforeAll(async () => {
   try {
     await prisma.$queryRaw`SELECT 1`;
+    const u = await prisma.user.create({
+      data: { name: `${TAG}-owner`, email: `${TAG}-owner@t.dz`, role: "VIEWER", passwordHash: "x" },
+    });
+    ownerId = u.id;
   } catch {
     dbOk = false;
   }
@@ -34,6 +50,7 @@ afterAll(async () => {
   await prisma.missionPlanPattern.deleteMany({ where: { dernierMissionId: { startsWith: TAG } } }).catch(() => undefined);
   await prisma.missionStep.deleteMany({ where: { mission: { title: { startsWith: TAG } } } }).catch(() => undefined);
   await prisma.mission.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => undefined);
+  await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => undefined);
 });
 
 describe("la forme d'un plan — structurelle, jamais le contenu", () => {
@@ -66,7 +83,7 @@ describe("le registre — OBSERVED, puis VALIDATED à trois réussites DISTINCTE
       data: {
         kind: "RUNTIME", status: "COMPLETED", title: `${TAG}-${suffixe}`,
         objective: "objectif d'essai", goalRaw: "objectif d'essai", complexity: "B", scale: "S",
-        ownerId: (await prisma.user.findFirst({ select: { id: true } }))!.id,
+        ownerId,
         steps: {
           create: [
             // La capacité porte le TAG du run : la signature de forme est UNIQUE en base, et

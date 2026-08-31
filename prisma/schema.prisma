@@ -8228,6 +8228,11 @@ model SalesRepProfile {
   teamId          String?
   team            SalesTeam? @relation(fields: [teamId], references: [id], onDelete: SetNull)
   region          String?
+  /// ANTI-SPAM DES ALERTES DE SUPERVISION. Une alerte qui se répète chaque nuit se fait
+  /// couper — et c'est la VRAIE qu'on rate ensuite. On garde donc la dernière alerte
+  /// envoyée (sa clé : `type:AAAA-MM`) : la même ne repart pas dans le même cycle.
+  lastAlertKey    String?
+  lastAlertAt     DateTime?
   // Capacité individuelle : surcharge du paramétrage global (null = valeur globale).
   capDaysPerMonth Int?
   capVisitsPerDay Int?
@@ -8239,6 +8244,46 @@ model SalesRepProfile {
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
+  @@index([teamId])
+}
+
+/// L'INSTANTANÉ MENSUEL D'UN KAM — le mois clos ne se recalcule plus.
+///
+/// POURQUOI STOCKER CE QUI SE CALCULE. Le cockpit dérive tout du présent : panel actuel,
+/// affectations actuelles, paramétrage actuel. C'est juste pour le mois EN COURS, et faux pour
+/// un mois passé — un praticien retiré du panel en juin change rétroactivement la couverture de
+/// mars, et « on avait fait 78 % » devient 91 % sans que personne n'ait rien fait. Or c'est
+/// précisément ce chiffre-là qu'on relit en entretien annuel.
+///
+/// L'instantané est donc écrit UNE FOIS, au passage du mois, avec ce qui était vrai ce mois-là
+/// — équipe comprise (un KAM change d'équipe ; son historique, non). Il est idempotent : le
+/// balayage peut repasser, il réécrit la même ligne (`@@unique`) tant que le mois n'est pas
+/// clos, et cesse d'y toucher une fois `closedAt` posé.
+model SalesRepMonthlyKpi {
+  id     String @id @default(cuid())
+  repId  String // utilisateur KAM / délégué (résolu en requête, comme PromotionAssignment)
+  year   Int
+  month  Int // 1..12
+  /// L'équipe AU MOMENT du mois — photographiée, jamais relue depuis le profil courant.
+  teamId String?
+
+  panelSize      Int @default(0)
+  capacity       Int @default(0) // visites/mois (capacité terrain nette)
+  plannedVisits  Int @default(0) // affectations du cycle
+  requiredVisits Int @default(0) // fréquence cible du panel
+  realVisits     Int @default(0) // visites COMPLETED du mois
+  coveredDoctors Int @default(0) // praticiens distincts visités
+
+  /// Dérivés au moment de l'instantané : les relire sans les recalculer est tout l'intérêt.
+  realizationPct Int @default(0)
+  coveragePct    Int @default(0)
+
+  /// Mois CLOS : plus aucun balayage n'y touche. Null = mois encore vivant (réécriture permise).
+  closedAt   DateTime?
+  computedAt DateTime  @default(now())
+
+  @@unique([repId, year, month])
+  @@index([year, month])
   @@index([teamId])
 }
 

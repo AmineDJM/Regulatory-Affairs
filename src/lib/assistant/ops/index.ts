@@ -1039,7 +1039,8 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
       description:
         "ANNUAIRE MÉDICAL — praticiens (fiche complète ou cellule de la feuille, suppressions bornées par la portée), visites (planification et compte rendu champ-par-champ), établissements, spécialités, annuaires nommés (rangement + accès désignés), plans de tournée — par les actions canoniques. "
         + `Champ « op » : ${opsSummary("medical_operation")}. `
-        + "Le praticien se donne par NOM (« doctor »), la visite par praticien + date, le plan par délégué + date de début.",
+        + "Le praticien se donne par NOM (« doctor »), la visite par praticien + date, le plan par délégué + date de début. "
+        + "log_visit : la visite QUI A EU LIEU — « products » liste les produits présentés (noms exacts, résolus au catalogue), « followUp » ce qu'il reste à faire.",
       input_schema: {
         type: "object",
         properties: {
@@ -1069,7 +1070,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           status: { type: "string", description: "update_visit : planifiée / réalisée / annulée / reportée." },
           report: { type: "string", description: "update_visit : compte rendu." },
           feedback: { type: "string", description: "update_visit : retour du médecin." },
-          followUp: { type: "string", description: "update_visit : actions de suivi." },
+          followUp: { type: "string", description: "Actions de suivi : update_visit (compte rendu) ou log_visit (ce qu'il reste à faire après la visite)." },
           products: { type: "string", description: "Produits (cibles de la fiche, présentés en visite, cible du plan)." },
           quantity: { type: "string", description: "create/update_plan : visites cibles." },
           keyTargets: { type: "string", description: "create/update_plan : médecins clés cibles." },
