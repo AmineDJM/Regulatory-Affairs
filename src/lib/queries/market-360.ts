@@ -81,7 +81,11 @@ export interface Market360 {
     factures: Array<{
       id: string; number: string | null; title: string; status: string;
       amount: number | null; issueDate: Date | null; dueDate: Date | null; paidDate: Date | null;
+      /** Les courriers reliés à CETTE facture (recouvrement : relance, mise en demeure…). */
+      courriers: Array<{ id: string; reference: string | null; title: string; direction: string }>;
     }>;
+    /** Les courriers reliés à CE bon (« Relier à… » → Bon de commande PCH). */
+    courriers: Array<{ id: string; reference: string | null; title: string; direction: string }>;
   }>;
   finances: {
     valeurAnnoncee: number | null;
@@ -181,8 +185,11 @@ export async function loadMarket360(tenderId: string): Promise<Market360 | null>
     facturesParBon.set(f.sourceId, list);
   }
 
-  // ── LES COURRIERS : la relation de naissance OU un lien « Relier à… ». ──────────────────
-  const [courriersSource, liens] = await Promise.all([
+  // ── LES COURRIERS : la relation de naissance OU un lien « Relier à… » — au niveau du
+  //    MARCHÉ, mais aussi de CHAQUE BON et de CHAQUE FACTURE (le recouvrement écrit des
+  //    courriers par facture ; un même pli peut en porter plusieurs). ──────────────────────
+  const factureIds = factures.map((f) => f.id);
+  const [courriersSource, liens, liensBons, liensFactures] = await Promise.all([
     prisma.mailEntry.findMany({
       where: { sourceType: "PCH_TENDER", sourceId: t.id },
       select: { id: true, reference: true, title: true, direction: true, sentAt: true, receivedAt: true },
@@ -191,7 +198,31 @@ export async function loadMarket360(tenderId: string): Promise<Market360 | null>
       where: { entityType: "PCH_TENDER", entityId: t.id },
       select: { entry: { select: { id: true, reference: true, title: true, direction: true, sentAt: true, receivedAt: true } } },
     }),
+    orderIds.length
+      ? prisma.mailEntryLink.findMany({
+          where: { entityType: "PCH_ORDER", entityId: { in: orderIds } },
+          select: { entityId: true, entry: { select: { id: true, reference: true, title: true, direction: true } } },
+        })
+      : Promise.resolve([]),
+    factureIds.length
+      ? prisma.mailEntryLink.findMany({
+          where: { entityType: "INVOICE", entityId: { in: factureIds } },
+          select: { entityId: true, entry: { select: { id: true, reference: true, title: true, direction: true } } },
+        })
+      : Promise.resolve([]),
   ]);
+  const courriersParBon = new Map<string, { id: string; reference: string | null; title: string; direction: string }[]>();
+  for (const l of liensBons) {
+    const list = courriersParBon.get(l.entityId) ?? [];
+    list.push({ id: l.entry.id, reference: l.entry.reference, title: l.entry.title, direction: String(l.entry.direction) });
+    courriersParBon.set(l.entityId, list);
+  }
+  const courriersParFacture = new Map<string, { id: string; reference: string | null; title: string; direction: string }[]>();
+  for (const l of liensFactures) {
+    const list = courriersParFacture.get(l.entityId) ?? [];
+    list.push({ id: l.entry.id, reference: l.entry.reference, title: l.entry.title, direction: String(l.entry.direction) });
+    courriersParFacture.set(l.entityId, list);
+  }
   const courriersMap = new Map(courriersSource.map((c) => [c.id, c]));
   for (const l of liens) courriersMap.set(l.entry.id, l.entry);
   const courriers = [...courriersMap.values()]
@@ -310,7 +341,9 @@ export async function loadMarket360(tenderId: string): Promise<Market360 | null>
     factures: (facturesParBon.get(o.id) ?? []).map((f) => ({
       id: f.id, number: f.number, title: f.title, status: String(f.status),
       amount: num(f.amount), issueDate: f.issueDate, dueDate: f.dueDate, paidDate: f.paidDate,
+      courriers: courriersParFacture.get(f.id) ?? [],
     })),
+    courriers: courriersParBon.get(o.id) ?? [],
   }));
 
   // ── LES FINANCES — chaque chiffre vient du module pur ou d'une somme de pièces réelles. ──

@@ -108,6 +108,46 @@ export async function updateTaskStatus(formData: FormData): Promise<ActionResult
   return { ok: true };
 }
 
+/**
+ * SUPPRIMER UNE TÂCHE — le geste de rangement qui manquait : une to-do créée en double, un
+ * intitulé de test, une tâche devenue sans objet restaient à l'écran pour toujours (« terminée »
+ * n'est pas « disparue »).
+ *
+ * QUI : le CRÉATEUR de la tâche (c'est sa saisie) ou le Super Admin. L'assigné d'une tâche
+ * créée par un autre ne la supprime pas : sa voie est le refus (avec motif) ou le travail —
+ * supprimer la demande d'autrui en silence ferait disparaître ce qu'on attend de lui.
+ * Les pièces et le fil de la tâche partent avec elle : ce sont les siens, pas des archives.
+ */
+export async function deleteTask(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Tâche introuvable." };
+
+  const task = await prisma.task.findUnique({ where: { id }, select: { createdById: true, title: true } });
+  if (!task) return { ok: false, error: "Tâche introuvable." };
+  if (task.createdById !== user.id && user.role !== "SUPER_ADMIN") {
+    return { ok: false, error: "Seul le créateur de la tâche (ou un administrateur) peut la supprimer — refusez-la plutôt si elle vous a été demandée." };
+  }
+
+  // Les fichiers du stockage sont libérés APRÈS la suppression en base (best-effort) : un blob
+  // orphelin est un déchet, une ligne orpheline serait un bug.
+  const docs = await prisma.document.findMany({ where: { entityType: "TASK", entityId: id }, select: { fileKey: true } });
+  await prisma.$transaction([
+    prisma.document.deleteMany({ where: { entityType: "TASK", entityId: id } }),
+    prisma.comment.deleteMany({ where: { entityType: "TASK", entityId: id } }),
+    prisma.task.delete({ where: { id } }),
+  ]);
+  const { deleteFileByKey } = await import("@/lib/storage");
+  for (const d of docs) if (d.fileKey) await deleteFileByKey(d.fileKey).catch(() => {});
+
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Espace de travail", entityType: "TASK",
+    entityId: id, summary: `Tâche « ${task.title} » supprimée`,
+  });
+  revalidatePath("/mon-espace");
+  return { ok: true };
+}
+
 /** Démarre une tâche « course / déplacement » : horodate le départ (et passe en cours). */
 export async function startTask(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();

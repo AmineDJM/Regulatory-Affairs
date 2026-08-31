@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { accessibleModules, userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getMyWorkspace, getMyLeaveRequests, getLeavesToDecide } from "@/lib/queries/hr";
+import { getMyWorkspace, getLeavesToDecide } from "@/lib/queries/hr";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,8 +20,12 @@ import { listMyReminders } from "@/lib/queries/reminders";
 import { MyReminders } from "@/components/reminders/my-reminders";
 import { ReminderButton } from "@/components/reminders/reminder-button";
 import { TaskList, type TaskItem } from "./task-list";
-import { MyLeaves } from "@/components/hr/my-leaves";
 import { LeaveApprovals } from "@/components/hr/leave-approvals";
+import { MissionItem } from "@/components/missions/mission-item";
+import { getMyMissions } from "@/lib/queries/missions";
+import { isOutstanding, isLate } from "@/lib/doc-request";
+import { StatusBadge } from "@/components/shared/status-badge";
+import { PIECE_REQUEST_STATUS } from "@/lib/labels";
 import { MyAdvances, type AdvanceItem } from "./my-advances";
 import { MyPortfolioCard } from "@/components/planning/my-portfolio-card";
 import { getMyPortfolio } from "@/lib/queries/portfolio";
@@ -63,6 +67,8 @@ export default async function MonEspacePage() {
     requestedAt: t.requestedAt ? t.requestedAt.toISOString() : null,
     declineReason: t.declineReason, completionNote: t.completionNote,
     involved: involvedText(t.participantIds, t.readerIds),
+    // Supprimer = retirer SA saisie : le créateur (ou l'admin). Une tâche reçue se REFUSE.
+    canDelete: t.createdById === user.id || user.role === "SUPER_ADMIN",
   });
   const myTasks: TaskItem[] = data.myTasks.map(toItem);
   // Ce que J'AI demandé à quelqu'un, séparé de ce que j'ai simplement délégué : le premier
@@ -79,19 +85,27 @@ export default async function MonEspacePage() {
   const watching: TaskItem[] = data.shared
     .filter((t) => !t.participantIds.includes(user.id))
     .map((t) => ({ ...toItem(t), assignee: t.assignedTo?.name ?? null }));
-  // Mes congés ET les congés que je dois trancher : le responsable d'équipe n'a pas le module
-  // RH, sa file de validation ne peut donc vivre qu'ici.
-  // LA DEMANDE DE CONGÉ SE FAIT DANS « MON DOSSIER RH », et là seulement : c'est le dossier de
-  // la personne, avec sa fiche, ses documents et ses demandes. Deux boutons pour la même
-  // demande, sur deux écrans, faisaient croire à deux circuits. Ici on LIT ses congés et l'on
-  // signe ceux des autres.
-  const [myLeaves, leavesToDecide, { items: actionItems }] = await Promise.all([
-    getMyLeaveRequests(user.id),
+  // « MES CONGÉS » NE VIT PLUS ICI : le congé est une affaire de dossier RH — demande, solde,
+  // historique se lisent dans « Mon dossier RH », et là seulement. Rester ici, c'était deux
+  // écrans pour le même objet. Ce qui RESTE dans l'espace : signer les congés des autres (le
+  // rôle de N+1 est du travail, pas « mes congés »).
+  const [leavesToDecide, { items: actionItems }, missions, pieces] = await Promise.all([
     getLeavesToDecide(user),
     // « MON TRAVAIL » A FONDU ICI : ce qui attend une signature se lit en tête de son espace,
     // au lieu d'un second écran qu'on ouvrait — ou pas.
     getActionCenter(user),
+    // Les ordres de mission et les pièces demandées ne sont PLUS des onglets à part : deux
+    // écrans de plus pour des choses qui sont, très exactement, « mon travail en cours ».
+    getMyMissions(user.id),
+    prisma.documentRequest.findMany({
+      where: { OR: [{ askedToId: user.id }, { askedById: user.id }] },
+      orderBy: { createdAt: "desc" }, take: 100,
+      include: { askedBy: { select: { name: true } }, askedTo: { select: { name: true } } },
+    }),
   ]);
+  // Ce que JE dois déposer (l'action), et ce que J'attends (le suivi, en résumé).
+  const piecesADeposer = pieces.filter((r) => r.askedToId === user.id && isOutstanding(r.status));
+  const piecesEnAttente = pieces.filter((r) => r.askedById === user.id && isOutstanding(r.status)).length;
   const validations = actionItems.filter((i) => i.kind === "validation" || i.kind === "payment");
   // Les TÂCHES du centre d'action ne sont pas reprises : elles ont déjà leurs sections ici,
   // plus riches. Les répéter ferait lire deux fois la même to-do.
@@ -156,11 +170,13 @@ export default async function MonEspacePage() {
           mais personne ne la voyait depuis son espace. */}
       <MyPortfolioCard portfolio={await getMyPortfolio(user.id)} />
 
+      {/* Les KPI disent le TRAVAIL de l'espace : tâches, retards, signatures, pièces à
+          déposer. Les congés (solde, demandes) se lisent dans « Mon dossier RH ». */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Tâches ouvertes" value={data.stats.openTasks} icon="ListTodo" />
         <KpiCard label="En retard" value={data.stats.overdue} icon="AlarmClock" tone={data.stats.overdue > 0 ? "danger" : "default"} />
-        <KpiCard label="Congés en attente" value={data.stats.pendingLeaves} icon="Hourglass" tone={data.stats.pendingLeaves > 0 ? "warning" : "default"} />
-        <KpiCard label="Solde congés" value={data.stats.leaveBalance === null ? "—" : `${data.stats.leaveBalance} j`} icon="Plane" tone="info" />
+        <KpiCard label="À valider" value={validations.length} icon="CheckCheck" tone={validations.length > 0 ? "warning" : "default"} />
+        <KpiCard label="Pièces à déposer" value={piecesADeposer.length} icon="Paperclip" tone={piecesADeposer.length > 0 ? "warning" : "default"} />
       </div>
 
       {/* CE QUI ATTEND MA SIGNATURE — en tête, parce que c'est ce qui bloque quelqu'un d'autre.
@@ -190,6 +206,54 @@ export default async function MonEspacePage() {
         </section>
       )}
 
+      {/* LES PIÈCES QU'ON ME DEMANDE — sur place, plus dans un onglet à part : déposer une
+          pièce est un travail comme un autre, il se lit avec le reste. Le détail (fil,
+          dépôt) reste sur la fiche de chaque demande ; « vous attendez » se résume en une
+          ligne — c'est de la relance, pas de l'action. */}
+      {(piecesADeposer.length > 0 || piecesEnAttente > 0) && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Pièces demandées{piecesADeposer.length > 0 ? ` (${piecesADeposer.length} à déposer)` : ""}
+            </h2>
+            <Link href="/pieces" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+              Tout voir <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+          {piecesADeposer.length > 0 && (
+            <Card>
+              <CardContent className="p-0">
+                <ul className="divide-y divide-border">
+                  {piecesADeposer.map((r) => (
+                    <li key={r.id}>
+                      <Link href={`/pieces/${r.id}`} className="flex flex-col gap-1.5 px-4 py-3 transition-colors hover:bg-secondary/50 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{r.label}</span>
+                            <StatusBadge map={PIECE_REQUEST_STATUS} value={r.status} dot={false} />
+                            {isLate(r) && <Badge tone="danger" dot={false}>en retard</Badge>}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {r.reference} · demandée par {r.askedBy.name}
+                            {r.dueDate ? ` · échéance ${formatDate(r.dueDate.toISOString())}` : ""}
+                          </p>
+                        </div>
+                        <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+          {piecesEnAttente > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Vous attendez {piecesEnAttente} pièce{piecesEnAttente > 1 ? "s" : ""} de la part d'autres personnes.
+            </p>
+          )}
+        </section>
+      )}
+
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes rappels{reminderRows.length > 0 ? ` (${reminderRows.length})` : ""}</h2>
@@ -202,6 +266,22 @@ export default async function MonEspacePage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes tâches</h2>
         <TaskList tasks={myTasks} userId={user.id} canCreateDossier={canCreateDossier} />
       </section>
+
+      {/* MES ORDRES DE MISSION — sur place, plus un onglet à part : la mission en cours fait
+          partie de « mon travail », au même titre que les tâches. La carte est la MÊME que
+          l'écran /missions (demande d'ordre, pièces, échange) — pas une copie qui divergerait. */}
+      {missions.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Mes ordres de mission ({missions.length})
+          </h2>
+          <div className="space-y-2">
+            {missions.map((m) => (
+              <MissionItem key={m.id} m={m} canManage={false} currentUserId={user.id} path="/mon-espace" showParent />
+            ))}
+          </div>
+        </section>
+      )}
 
       {participating.length > 0 && (
         <section className="space-y-3">
@@ -250,26 +330,15 @@ export default async function MonEspacePage() {
         </section>
       )}
 
-      {data.employee ? (
-        <div className="grid gap-3 lg:grid-cols-2">
-          <section className="space-y-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes congés</h2>
-            <MyLeaves leaves={myLeaves} />
-          </section>
-          {/* L'AVANCE SUR SALAIRE NE SE DEMANDE PLUS ICI. L'historique reste tant qu'il y en a
-              un — effacer l'écran effacerait la trace de ce que la personne a demandé et
-              reçu — mais rien ne se crée depuis cet espace. */}
-          {myAdvances.length > 0 && (
-            <section className="space-y-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes avances sur salaire</h2>
-              <MyAdvances advances={myAdvances} />
-            </section>
-          )}
-        </div>
-      ) : (
-        <Card><CardContent className="p-4 text-sm text-muted-foreground">
-          Aucune fiche employé n'est liée à votre compte. Demandez à l'administrateur de la créer pour activer les congés et les avances sur salaire.
-        </CardContent></Card>
+      {/* L'AVANCE SUR SALAIRE NE SE DEMANDE PLUS ICI. L'historique reste tant qu'il y en a
+          un — effacer l'écran effacerait la trace de ce que la personne a demandé et
+          reçu — mais rien ne se crée depuis cet espace. Les congés, eux, vivent ENTIÈREMENT
+          dans « Mon dossier RH » (bouton en tête pour y aller). */}
+      {myAdvances.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes avances sur salaire</h2>
+          <MyAdvances advances={myAdvances} />
+        </section>
       )}
 
     </div>

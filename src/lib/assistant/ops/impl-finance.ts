@@ -3,7 +3,7 @@ import {
   createTransaction, updateTransactionStatus, createQuickIncome, setTreasuryOpeningBalance,
 } from "@/lib/actions/finance-actions";
 import { settleExpenseOrder, cancelExpenseOrder } from "@/lib/actions/expense-actions";
-import { createInvoice, setInvoicePaid } from "@/lib/actions/invoice-actions";
+import { createInvoice, setInvoicePaid, setInvoiceOrder } from "@/lib/actions/invoice-actions";
 import { decidePettyCashTopUp } from "@/lib/actions/petty-cash-actions";
 import { decideDepartmentBudgetRequest } from "@/lib/actions/department-budget-actions";
 import { toNumber } from "@/lib/utils";
@@ -446,6 +446,39 @@ export const FINANCE_OPS_IMPL: Record<string, OpImpl> = {
       const r = await createInvoice(undefined, fd);
       if (!r.ok) return { ok: false, error: r.error ?? "L'enregistrement de la facture a été refusé." };
       return { ok: true, createdId: r.id, link: "/finances", revalidate: ["/finances"] };
+    },
+  },
+
+  attach_invoice_order: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const inv = await resolveInvoice(opStr(input, "reference") || opStr(input, "label"));
+      if ("error" in inv) return inv;
+      const detach = /d[ée]tach|retire|aucun|enl[èe]ve/i.test(opStr(input, "order"));
+      const bon = detach ? null : await resolvePchOrderSource(opStr(input, "order"));
+      if (bon && "error" in bon) return bon;
+      return {
+        title: detach
+          ? `Détacher la facture « ${inv.title} » de son bon de commande`
+          : `Rattacher la facture « ${inv.title} » à un bon de commande`,
+        fields: [
+          { label: "Facture", value: `${inv.number ? `${inv.number} — ` : ""}${inv.title}${inv.amount !== null ? ` (${dzd(inv.amount)})` : ""}` },
+          { label: "Bon de commande", value: detach ? "— détachée —" : (bon as { label: string }).label },
+        ],
+        args: { id: inv.id, orderId: detach ? null : (bon as { id: string }).id, title: inv.title },
+        successMessage: detach
+          ? `Facture « ${inv.title} » détachée de son bon.`
+          : `Facture « ${inv.title} » rattachée au bon (${(bon as { label: string }).label}) — visible sur la fiche marché.`,
+        link: "/finances/factures",
+        revalidate: ["/finances", "/pch"],
+      };
+    },
+    async execute(args) {
+      const fd = new FormData();
+      fd.set("id", args.id ?? "");
+      if (args.orderId) fd.set("pchOrderId", args.orderId);
+      const r = await setInvoiceOrder(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "Le rattachement a été refusé." };
+      return { ok: true, revalidate: ["/finances", "/pch"] };
     },
   },
 

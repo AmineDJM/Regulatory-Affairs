@@ -404,6 +404,9 @@ enum EntityType {
   /// Un BON DE COMMANDE de marché PCH — pour y attacher documents, tâches, courriers,
   /// validations et factures (une facture de marché porte `sourceType = PCH_ORDER`).
   PCH_ORDER
+  /// Une FACTURE (module Finances) — cible de liens « Relier à… » : le recouvrement écrit des
+  /// courriers PAR facture, et un même courrier peut en porter plusieurs.
+  INVOICE
 }
 
 enum DocumentCategory {

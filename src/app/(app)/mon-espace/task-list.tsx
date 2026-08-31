@@ -3,8 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Play, Check, FolderKanban, MapPin, Navigation, Timer, X, Users, ArrowRight, MessageSquareQuote } from "lucide-react";
-import { updateTaskStatus, startTask, respondTaskRequest } from "@/lib/actions/task-actions";
+import { Loader2, Play, Check, FolderKanban, MapPin, Navigation, Timer, X, Users, ArrowRight, MessageSquareQuote, Trash2 } from "lucide-react";
+import { updateTaskStatus, startTask, respondTaskRequest, deleteTask } from "@/lib/actions/task-actions";
 import { createDossierFromTask } from "@/lib/actions/dossier-actions";
 import { taskActions, declineSummary, requestStage } from "@/lib/tasks/request-flow";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -34,6 +34,8 @@ export interface TaskItem {
   completionNote?: string | null;
   /** « Participants : … · Lecture : … » — le cercle de la tâche, pré-calculé côté serveur. */
   involved?: string | null;
+  /** Le lecteur peut la SUPPRIMER (il l'a créée, ou est Super Admin) — calculé côté serveur. */
+  canDelete?: boolean;
 }
 
 function mapsUrl(address: string) {
@@ -76,6 +78,25 @@ function CreateDossierButton({ id }: { id: string }) {
       onClick={async () => { setBusy(true); const r = await createDossierFromTask(id); if (r.ok && r.dossierId) router.push(`/dossiers/${r.dossierId}`); else setBusy(false); }}
       className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50">
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderKanban className="h-3.5 w-3.5" />} Projet
+    </button>
+  );
+}
+
+/** Suppression par le créateur (ou l'admin) : une to-do en double ou sans objet se retire. */
+function DeleteTaskButton({ id, title }: { id: string; title: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+  return (
+    <button type="button" disabled={busy} title="Supprimer la tâche (pièces et fil compris)"
+      onClick={async () => {
+        if (!window.confirm(`Supprimer la tâche « ${title} » ? Ses pièces et son fil partent avec elle.`)) return;
+        setBusy(true);
+        const fd = new FormData(); fd.set("id", id);
+        const r = await deleteTask(fd);
+        if (r.ok) router.refresh(); else { setBusy(false); window.alert(r.error ?? "Suppression impossible."); }
+      }}
+      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
     </button>
   );
 }
@@ -154,7 +175,7 @@ export function TaskList({
                 <p className="line-clamp-2 text-xs text-muted-foreground">{t.completionNote}</p>
               )}
             </div>
-            {actions.length === 0 ? null : (
+            {actions.length === 0 && !(t.canDelete && !readOnly) ? null : (
             <div className="flex shrink-0 flex-wrap items-center gap-1.5">
               {show("respond") && (
                 <>
@@ -186,6 +207,7 @@ export function TaskList({
                 <ActionForm action={updateTaskStatus} fields={{ id: t.id, status: "DONE" }}><Check className="h-3.5 w-3.5" /> {t.address ? "Arrivé / fait" : "Terminer"}</ActionForm>
               )}
               {show("dossier") && <CreateDossierButton id={t.id} />}
+              {t.canDelete && !readOnly && <DeleteTaskButton id={t.id} title={t.title} />}
             </div>
             )}
           </li>

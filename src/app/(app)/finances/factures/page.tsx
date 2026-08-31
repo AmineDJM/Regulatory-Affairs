@@ -29,11 +29,19 @@ export default async function FacturesPage() {
   const canCreate = userCan(user, "FINANCES", "CREATE");
   const canEdit = userCan(user, "FINANCES", "UPDATE");
 
-  const invoices = await prisma.invoice.findMany({
-    where: { ...await currentCompanyWhereFor(user.id) },
-    orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
-    take: 500,
-  });
+  const [invoices, pchOrders] = await Promise.all([
+    prisma.invoice.findMany({
+      where: { ...await currentCompanyWhereFor(user.id) },
+      orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
+      take: 500,
+    }),
+    // Les BC PCH récents : une facture de marché peut naître RATTACHÉE à son bon depuis ici
+    // aussi — c'est ce lien qui la fait apparaître sous son bon dans la fiche marché.
+    prisma.pchOrder.findMany({
+      select: { id: true, reference: true, tender: { select: { reference: true } } },
+      orderBy: { createdAt: "desc" }, take: 100,
+    }),
+  ]);
 
   const rows: InvoiceRow[] = invoices.map((i) => ({
     id: i.id,
@@ -69,6 +77,17 @@ export default async function FacturesPage() {
     },
     { type: "text", name: "recipient", label: "Destinataire (à qui elle est adressée)" },
     { type: "text", name: "payer", label: "Payeur (qui règle)" },
+    ...(pchOrders.length > 0
+      ? [
+          {
+            type: "select", name: "sourceId", label: "Bon de commande PCH (facultatif)",
+            options: pchOrders.map((o) => ({ value: o.id, label: `BC ${o.reference ?? "s/n"} — ${o.tender.reference}` })),
+            placeholder: "— aucun —",
+            hint: "Rattachée à son bon, la facture apparaît sur la fiche du marché.",
+          } as FieldDef,
+          { type: "hidden", name: "sourceType", value: "PCH_ORDER" } as FieldDef,
+        ]
+      : []),
     { type: "textarea", name: "notes", label: "Notes", full: true },
   ];
 

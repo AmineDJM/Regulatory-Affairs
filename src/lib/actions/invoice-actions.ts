@@ -69,7 +69,9 @@ export async function createInvoice(
     data: {
       ...f, title,
       companyId: await companyIdForNew(user.id),
-      sourceType: (fdStr(formData, "sourceType") as EntityType | null) ?? null,
+      // Le type ne se pose QUE si la cible existe : un « PCH_ORDER » sans identifiant serait
+      // un lien qui pointe nulle part (le select « Bon de commande » peut rester vide).
+      sourceType: fdStr(formData, "sourceId") ? ((fdStr(formData, "sourceType") as EntityType | null) ?? null) : null,
       sourceId: fdStr(formData, "sourceId"),
       createdById: user.id, updatedById: user.id,
     },
@@ -107,6 +109,42 @@ export async function updateInvoice(formData: FormData): Promise<ActionResult> {
   revalidatePath("/finances/factures");
   revalidatePath(`/finances/factures/${id}`);
   revalidatePath("/finances");
+  return { ok: true };
+}
+
+/**
+ * RATTACHER une facture EXISTANTE à un bon de commande PCH (ou l'en détacher) — le geste
+ * a posteriori : la facture arrivée par Finances avant que le lien soit fait. C'est ce lien
+ * (sourceType = PCH_ORDER) qui la fait apparaître sous SON bon dans la fiche marché, et qui
+ * répond à « quelle facture correspond à quel BC ».
+ */
+export async function setInvoiceOrder(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Facture introuvable." };
+  const inv = await prisma.invoice.findUnique({ where: { id }, select: { title: true, number: true } });
+  if (!inv) return { ok: false, error: "Facture introuvable." };
+
+  const orderId = fdStr(formData, "pchOrderId");
+  let orderLabel: string | null = null;
+  if (orderId) {
+    const o = await prisma.pchOrder.findUnique({ where: { id: orderId }, select: { reference: true, tender: { select: { reference: true } } } });
+    if (!o) return { ok: false, error: "Bon de commande introuvable." };
+    orderLabel = `BC ${o.reference ?? "s/n"} — ${o.tender.reference}`;
+  }
+  await prisma.invoice.update({
+    where: { id },
+    data: { sourceType: orderId ? "PCH_ORDER" : null, sourceId: orderId, updatedById: user.id },
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Finances",
+    summary: orderId
+      ? `Facture « ${inv.title} » rattachée au ${orderLabel}`
+      : `Facture « ${inv.title} » détachée de son bon de commande`,
+  });
+  revalidatePath("/finances/factures");
+  revalidatePath("/pch");
   return { ok: true };
 }
 

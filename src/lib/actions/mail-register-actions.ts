@@ -141,6 +141,9 @@ export async function setMailDate(input: {
 const MAIL_LINKABLE: Partial<Record<EntityType, string>> = {
   PCH_TENDER: "Marché PCH",
   PCH_ORDER: "Bon de commande PCH",
+  // Le RECOUVREMENT écrit des courriers PAR FACTURE (relance, mise en demeure) — et un même
+  // pli peut porter plusieurs factures et bons de commande : les liens sont multiples.
+  INVOICE: "Facture",
   LEGAL_DOCUMENT: "Document légal",
   REGULATORY_PRODUCT: "Dossier Regulatory",
 };
@@ -155,6 +158,10 @@ async function mailLinkLabel(entityType: EntityType, entityId: string): Promise<
     case "PCH_ORDER": {
       const o = await prisma.pchOrder.findUnique({ where: { id: entityId }, select: { reference: true, tender: { select: { reference: true } } } });
       return o ? `BC ${o.reference ?? "s/n"} — ${o.tender.reference}` : null;
+    }
+    case "INVOICE": {
+      const f = await prisma.invoice.findUnique({ where: { id: entityId }, select: { number: true, title: true } });
+      return f ? `Facture ${f.number ? `${f.number} — ` : ""}${f.title}` : null;
     }
     case "LEGAL_DOCUMENT": {
       const d = await prisma.legalDocument.findUnique({ where: { id: entityId }, select: { title: true, reference: true } });

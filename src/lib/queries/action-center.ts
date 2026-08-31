@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { userCan, hasGlobalView, scopeRegulatory, scopeDirectives, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, hasRole, scopeRegulatory, scopeDirectives, type SessionUser } from "@/lib/rbac";
 import { getPendingValidations } from "@/lib/queries/validations";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import type { PromoMaterialStatus } from "@prisma/client";
@@ -72,10 +72,14 @@ export async function getActionCenter(user: SessionUser) {
     });
   }
 
-  // 2. Validations à faire
+  // 2. Validations à faire — SEULEMENT celles où c'est MON tour. Une étape séquentielle en
+  //    attente du validateur précédent n'est pas du travail à faire : la lister gonflait la
+  //    file d'items sur lesquels aucun geste n'est possible. Elle reste visible sur l'écran
+  //    /validations, section « Qui vous reviendront » — rien n'est perdu, c'est trié.
   if (userCan(user, "VALIDATIONS", "VIEW")) {
     const pending = await getPendingValidations(user.id);
     for (const v of pending) {
+      if (!v.actionable) continue;
       items.push({
         key: `val-${v.stepId}`, title: v.title,
         subtitle: v.amount !== null ? formatCurrency(v.amount) : v.objectType,
@@ -84,18 +88,12 @@ export async function getActionCenter(user: SessionUser) {
         // celui qu'on ne fait pas : on repart, et la validation attend un jour de plus.
         module: "Validations", href: `/validations?focus=${v.stepId}#val-${v.stepId}`, kind: "validation", priority: v.priority,
         deadline: v.deadline, owner: v.requester,
-        statusLabel: v.actionable ? "À valider" : "En attente du validateur précédent",
-        statusTone: v.actionable ? "warning" : "neutral",
-        // L'étape SÉQUENTIELLE dont ce n'est pas le tour reste visible, sans bouton : l'action
-        // serait refusée à l'exécution, et un bouton qui refuse est pire que pas de bouton.
-        ...(v.actionable
-          ? {
-              actions: [
-                { libelle: "Approuver", phrase: `Approuve la validation ${v.reference}`, ton: "primaire" as const },
-                { libelle: "Refuser", phrase: `Refuse la validation ${v.reference}`, ton: "danger" as const },
-              ],
-            }
-          : {}),
+        statusLabel: "À valider",
+        statusTone: "warning",
+        actions: [
+          { libelle: "Approuver", phrase: `Approuve la validation ${v.reference}`, ton: "primaire" as const },
+          { libelle: "Refuser", phrase: `Refuse la validation ${v.reference}`, ton: "danger" as const },
+        ],
       });
     }
   }
@@ -116,8 +114,11 @@ export async function getActionCenter(user: SessionUser) {
     }
   }
 
-  // 4. Paiements / ordres de dépense à régler (comptable)
-  if (userCan(user, "FINANCES", "UPDATE")) {
+  // 4. Paiements / ordres de dépense à régler — la file du COMPTABLE, pas de tous ceux qui
+  //    ont le droit Finances. La Direction et le DG portent FINANCES: MANAGE (ils peuvent
+  //    ouvrir l'écran), mais régler n'est pas leur travail quotidien : soixante ordres dans
+  //    leur espace noyaient ce qui les attend vraiment. Le Super Admin, lui, voit tout.
+  if (hasRole(user, "FINANCE_BUDGET_MANAGER") || user.role === "SUPER_ADMIN") {
     const orders = await prisma.expenseOrder.findMany({ where: { status: "PENDING" }, orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }], take: 60 });
     for (const o of orders) {
       items.push({
@@ -186,16 +187,24 @@ export async function getActionCenter(user: SessionUser) {
     }
   }
 
-  // 6c. Information médicale — déclarations à instruire (pharmacien responsable) ou
-  //     en attente de validation finale de la Direction (AWAITING_DIRECTION → vue globale).
-  if (userCan(user, "MEDICAL_INFO", "VALIDATE") || hasGlobalView(user.role)) {
-    const miStatuses: ("AWAITING_REVIEW" | "DOCS_REQUESTED" | "READY" | "AWAITING_DIRECTION")[] = hasGlobalView(user.role)
-      ? ["AWAITING_REVIEW", "DOCS_REQUESTED", "READY", "AWAITING_DIRECTION"]
-      : ["AWAITING_REVIEW", "DOCS_REQUESTED", "READY"];
-    const decls = await prisma.medicalInfoDeclaration.findMany({
-      where: { status: { in: miStatuses } },
-      orderBy: { createdAt: "desc" }, take: 40,
-    });
+  // 6c. Information médicale — l'INSTRUCTION (à déclarer, pièces demandées, prêt à valider)
+  //     est le travail du PHARMACIEN RESPONSABLE (PRIM), et de lui seul : la Direction a le
+  //     droit d'agir sur le module, mais ces événements ne sont pas SA file. Elle ne reçoit
+  //     que l'étape qui lui appartient — la validation finale (AWAITING_DIRECTION), même
+  //     garde que l'action `validateDeclarationByDirection`. Le Super Admin voit tout.
+  {
+    const prim = hasRole(user, "MEDICAL_INFO_PHARMACIST") || user.role === "SUPER_ADMIN";
+    const direction = hasGlobalView(user);
+    const miStatuses: ("AWAITING_REVIEW" | "DOCS_REQUESTED" | "READY" | "AWAITING_DIRECTION")[] = [
+      ...(prim ? (["AWAITING_REVIEW", "DOCS_REQUESTED", "READY"] as const) : []),
+      ...(direction ? (["AWAITING_DIRECTION"] as const) : []),
+    ];
+    const decls = miStatuses.length
+      ? await prisma.medicalInfoDeclaration.findMany({
+          where: { status: { in: miStatuses } },
+          orderBy: { createdAt: "desc" }, take: 40,
+        })
+      : [];
     for (const d of decls) {
       items.push({
         key: `mi-${d.id}`, title: d.label, subtitle: d.reference,

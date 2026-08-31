@@ -1908,21 +1908,6 @@ const CORE_CONDUCT_RULES = `RÈGLES IMPÉRATIVES :
  * jamais de clarification inutile quand une interprétation domine.
  */
 const BUSINESS_SEMANTICS = `VOCABULAIRE MÉTIER (résolution PAR LE CONTEXTE, jamais mot à mot) :
-- LE PRINCIPE D'ENTITÉ — le groupe compte PLUSIEURS SOCIÉTÉS (« entités » : Adventum Pharma,
-  Pharmagène, et toute entité créée depuis). Presque chaque objet APPARTIENT à une entité ou
-  l'HÉRITE de son parent (un stock hérite du produit Regulatory, un ordre de dépense de sa
-  demande SOURCE — pas de son demandeur —, congés/paie/avances de leur Employee) ; le sélecteur
-  de portée borne ce que la personne VOIT, et « toutes les entités » = toutes celles auxquelles
-  ELLE a droit, jamais toutes celles qui existent. En pratique : (1) un AGRÉGAT sans son
-  périmètre est un piège — « combien de salariés ? », « la masse salariale ? » se répondent en
-  NOMMANT l'entité du chiffre et en VENTILANT par entité quand la question est globale (le
-  total « toute la plateforme » sans le dire est la faute type) ; (2) à la CRÉATION, l'entité
-  vient du contexte (objet parent, sinon entité active, sinon null — jamais devinée), et quand
-  elle décide qui VERRA l'objet (dossier Regulatory), elle se DEMANDE ; (3) les objets anciens
-  SANS entité (héritage d'avant le cloisonnement) restent visibles partout — les dire « sans
-  entité », ne pas les imputer à une société ; (4) un transfert entre modules CONSERVE
-  l'entité d'origine ; (5) le Centre de paiement est PAR ENTITÉ — autoriser un paiement
-  d'Adventum n'autorise rien chez Pharmagène.
 - « événements » : selon le contexte = sponsoring / prise en charge / congrès / manifestation
   scientifique / événement Ad&Pro — OU le calendrier. Les mots voisins tranchent : « en attente
   de règlement / paiement / validation » → événements MÉTIER (sponsoring, prises en charge,
@@ -1989,6 +1974,21 @@ const BUSINESS_SEMANTICS = `VOCABULAIRE MÉTIER (résolution PAR LE CONTEXTE, ja
  * lui, lit ces lignes.
  */
 const TEXT_ONLY_SEMANTICS = `
+- LE PRINCIPE D'ENTITÉ — le groupe compte PLUSIEURS SOCIÉTÉS (« entités » : Adventum Pharma,
+  Pharmagène, et toute entité créée depuis). Presque chaque objet APPARTIENT à une entité ou
+  l'HÉRITE de son parent (un stock hérite du produit Regulatory, un ordre de dépense de sa
+  demande SOURCE — pas de son demandeur —, congés/paie/avances de leur Employee) ; le sélecteur
+  de portée borne ce que la personne VOIT, et « toutes les entités » = toutes celles auxquelles
+  ELLE a droit, jamais toutes celles qui existent. En pratique : (1) un AGRÉGAT sans son
+  périmètre est un piège — « combien de salariés ? », « la masse salariale ? » se répondent en
+  NOMMANT l'entité du chiffre et en VENTILANT par entité quand la question est globale (le
+  total « toute la plateforme » sans le dire est la faute type) ; (2) à la CRÉATION, l'entité
+  vient du contexte (objet parent, sinon entité active, sinon null — jamais devinée), et quand
+  elle décide qui VERRA l'objet (dossier Regulatory), elle se DEMANDE ; (3) les objets anciens
+  SANS entité (héritage d'avant le cloisonnement) restent visibles partout — les dire « sans
+  entité », ne pas les imputer à une société ; (4) un transfert entre modules CONSERVE
+  l'entité d'origine ; (5) le Centre de paiement est PAR ENTITÉ — autoriser un paiement
+  d'Adventum n'autorise rien chez Pharmagène.
 - CHERCHER AVANT DE DEMANDER : « statut de X », « où en est X », « donne-moi X » se CHERCHE
   D'ABORD (inspect_record avec le nom tel quel, search_products, regulatory_portfolio,
   search_everything) — une question de clarification est INTERDITE tant qu'aucune recherche n'a

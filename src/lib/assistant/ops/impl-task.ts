@@ -4,7 +4,7 @@ import type { CurrentUser } from "@/lib/session";
 import { hasGlobalView } from "@/lib/rbac";
 import { TASK_STATUS } from "@/lib/labels";
 import {
-  respondTaskRequest, submitTaskWork, reopenTaskWork, addTaskComment,
+  respondTaskRequest, submitTaskWork, reopenTaskWork, addTaskComment, deleteTask,
 } from "@/lib/actions/task-actions";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
@@ -29,7 +29,7 @@ function statusLabel(status: string): string {
 async function resolveMyTask(
   user: CurrentUser,
   raw: string,
-  mode: "respond" | "work" | "reopen" | "comment",
+  mode: "respond" | "work" | "reopen" | "comment" | "delete",
 ): Promise<TaskHit | { error: string }> {
   const q = raw.trim();
   if (!q) return { error: "Précisez l'intitulé (ou un morceau) de la tâche visée (champ « title »)." };
@@ -44,9 +44,12 @@ async function resolveMyTask(
         ? { OR: doers, status: { notIn: ["REQUESTED", "DECLINED", "CANCELLED"] } }
         : mode === "reopen"
           ? { OR: doers, status: "DONE" }
-          : hasGlobalView(user.role)
-            ? {}
-            : { OR: circle };
+          : mode === "delete"
+            // Supprimer = retirer SA saisie : le créateur seulement (l'admin, lui, voit tout).
+            ? (user.role === "SUPER_ADMIN" ? {} : { createdById: user.id })
+            : hasGlobalView(user.role)
+              ? {}
+              : { OR: circle };
   const rows = await prisma.task.findMany({
     where: { title: { contains: q, mode: "insensitive" }, ...scope },
     select: { id: true, title: true, status: true, createdBy: { select: { name: true } } },
@@ -61,7 +64,8 @@ async function resolveMyTask(
       mode === "respond" ? "demande de tâche EN ATTENTE de votre réponse"
         : mode === "reopen" ? "tâche TERMINÉE dont vous avez fait le travail"
           : mode === "work" ? "tâche en cours dont vous faites le travail"
-            : "tâche de votre cercle";
+            : mode === "delete" ? "tâche créée par vous (une tâche reçue se REFUSE, elle ne se supprime pas)"
+              : "tâche de votre cercle";
     return { error: `Aucune ${what} ne correspond à « ${q} ». (list_my_tasks montre vos tâches.)` };
   }
   const exact = hits.filter((h) => h.title.toLowerCase() === q.toLowerCase());
@@ -82,6 +86,29 @@ const taskLink = (id: string): string => `/mon-espace/taches/${id}`;
 const TASK_REVALIDATE = ["/mon-espace"];
 
 export const TASK_OPS_IMPL: Record<string, OpImpl> = {
+  delete_task: {
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const t = await resolveMyTask(user, opStr(input, "title"), "delete");
+      if ("error" in t) return t;
+      return {
+        title: `Supprimer la tâche « ${t.title} »`,
+        fields: taskFields(t),
+        warnings: ["Suppression définitive — les pièces jointes et le fil de la tâche partent avec elle."],
+        args: { id: t.id, title: t.title },
+        successMessage: `Tâche « ${t.title} » supprimée.`,
+        link: "/mon-espace",
+        revalidate: TASK_REVALIDATE,
+      };
+    },
+    async execute(args) {
+      const fd = new FormData();
+      fd.set("id", args.id ?? "");
+      const r = await deleteTask(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "La suppression a été refusée." };
+      return { ok: true, revalidate: TASK_REVALIDATE };
+    },
+  },
+
   accept: {
     async propose(input, user): Promise<OpProposalDraft | { error: string }> {
       const t = await resolveMyTask(user, opStr(input, "title"), "respond");

@@ -171,10 +171,41 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
                 <Badge tone={f.status === "PAID" ? "success" : f.status === "PARTIAL" ? "warning" : f.status === "CANCELLED" ? "neutral" : f.dueDate && new Date(f.dueDate) < new Date() ? "danger" : "info"} dot={false}>
                   {f.status === "PAID" ? "Réglée" : f.status === "PARTIAL" ? "Partielle" : f.status === "CANCELLED" ? "Annulée" : f.dueDate && new Date(f.dueDate) < new Date() ? "Échue" : "À régler"}
                 </Badge>
+                {/* Les courriers DE CETTE facture (relance, mise en demeure…) — reliés depuis
+                    la fiche courrier (« Relier à… » → Facture) ou par Adam. */}
+                {f.courriers.length > 0 && (
+                  <span className="w-full text-xs text-muted-foreground">
+                    Courriers :{" "}
+                    {f.courriers.map((c, i) => (
+                      <React.Fragment key={c.id}>
+                        {i > 0 && " · "}
+                        <Link href={`/courriers/${c.id}`} className="text-primary hover:underline">
+                          {c.reference ? `${c.reference} — ` : ""}{c.title}
+                        </Link>
+                      </React.Fragment>
+                    ))}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
           )}
+        </div>
+      )}
+
+      {/* ── Les courriers reliés à CE bon (« Relier à… » depuis la fiche courrier). ───────── */}
+      {bon.courriers.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Courriers du bon</p>
+          <ul className="space-y-1">
+            {bon.courriers.map((c) => (
+              <li key={c.id} className="rounded-md bg-card px-2.5 py-1.5 text-sm">
+                <Link href={`/courriers/${c.id}`} className="text-primary hover:underline">
+                  {c.reference ? `${c.reference} — ` : ""}{c.title}
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

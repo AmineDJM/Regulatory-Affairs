@@ -106,15 +106,18 @@ export default async function MailEntryPage({ params }: { params: { id: string }
   // LES CANDIDATS du « Relier à… » — bornés et cloisonnés par entité là où le module l'est.
   // Le serveur revérifie l'accès au moment du lien : ces listes sont une commodité de saisie.
   const scope = await platformScope(user.id);
-  const [tenders, pchOrders, legalDocs, regProducts] = await Promise.all([
+  const [tenders, pchOrders, invoices, legalDocs, regProducts] = await Promise.all([
     prisma.pchTender.findMany({ where: scope, select: { id: true, reference: true, title: true }, orderBy: { createdAt: "desc" }, take: 100 }),
     prisma.pchOrder.findMany({ select: { id: true, reference: true, tenderId: true, tender: { select: { reference: true } } }, orderBy: { createdAt: "desc" }, take: 100 }),
+    // Le recouvrement écrit des courriers PAR facture : elles se relient comme le reste.
+    prisma.invoice.findMany({ where: scope, select: { id: true, number: true, title: true }, orderBy: { createdAt: "desc" }, take: 100 }),
     prisma.legalDocument.findMany({ where: scope, select: { id: true, title: true, reference: true }, orderBy: { createdAt: "desc" }, take: 100 }),
     prisma.regulatoryProduct.findMany({ where: { isLocked: false }, select: { id: true, reference: true, dci: true }, orderBy: { updatedAt: "desc" }, take: 100 }),
   ]);
   const candidates: MailLinkCandidates[] = [
     { type: "PCH_TENDER", typeLabel: "Marché PCH", options: tenders.map((t) => ({ value: t.id, label: `${t.reference}${t.title ? ` — ${t.title}` : ""}` })) },
     { type: "PCH_ORDER", typeLabel: "Bon de commande PCH", options: pchOrders.map((o) => ({ value: o.id, label: `BC ${o.reference ?? "s/n"} — ${o.tender.reference}` })) },
+    { type: "INVOICE", typeLabel: "Facture", options: invoices.map((f) => ({ value: f.id, label: `Facture ${f.number ? `${f.number} — ` : ""}${f.title}` })) },
     { type: "LEGAL_DOCUMENT", typeLabel: "Document légal", options: legalDocs.map((d) => ({ value: d.id, label: `${d.reference ? `${d.reference} — ` : ""}${d.title}` })) },
     { type: "REGULATORY_PRODUCT", typeLabel: "Dossier Regulatory", options: regProducts.map((r) => ({ value: r.id, label: `${r.reference} — ${r.dci}` })) },
   ];
@@ -130,8 +133,9 @@ export default async function MailEntryPage({ params }: { params: { id: string }
   const lienHref = (t: string, id: string): string | null =>
     t === "PCH_TENDER" ? `/pch/${id}`
       : t === "PCH_ORDER" ? (ordreParId.has(id) ? `/pch/${ordreParId.get(id)}` : null)
-        : t === "LEGAL_DOCUMENT" ? `/legal/${id}`
-          : t === "REGULATORY_PRODUCT" ? `/regulatory/${id}` : null;
+        : t === "INVOICE" ? "/finances/factures"
+          : t === "LEGAL_DOCUMENT" ? `/legal/${id}`
+            : t === "REGULATORY_PRODUCT" ? `/regulatory/${id}` : null;
   const linkViews: MailLinkView[] = entry.links.map((l) => ({
     id: l.id,
     typeLabel: ENTITY_TYPE_LABELS[l.entityType] ?? l.entityType,

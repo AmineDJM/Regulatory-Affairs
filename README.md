@@ -172,8 +172,8 @@ jamais identique.
 
 | Module | Route | Description |
 |---|---|---|
-| **Mon travail** *(Action Center)* | `/mon-travail` | Agrège, **selon les droits** : tâches, demandes du Bureau du secrétariat à traiter, validations en attente, paiements à régler, dossiers Regulatory, congés RH, congrès/événements à valider/analyser, **directives**, **pièces de support**, **info médicale**, notifications. Vues **en retard / bientôt / urgent**. |
-| **Mon espace** | `/mon-espace` | Tâches perso, congés/absences, **avances sur salaire** (self-service), **dossiers de suivi** intégrés. |
+| **Mon travail** *(Action Center)* | `/mon-travail` | Redirige vers **Mon espace** (fusionné). La file agrège **selon les droits ET le métier** : validations **à mon tour seulement** (une étape en attente du validateur précédent reste sur `/validations` → « Qui vous reviendront »), paiements à régler **réservés au comptable** (`FINANCE_BUDGET_MANAGER`) + Super Admin, info médicale : stades d'instruction **réservés au PRIM** (+ Super Admin), la Direction ne reçoit que la **validation finale**. |
+| **Mon espace** | `/mon-espace` | Le POSTE DE TRAVAIL : validations à faire, demandes à traiter, tâches (perso, demandées, partagées, déléguées — **suppression par le créateur** ou le Super Admin, pièces et fil compris), **pièces demandées** et **ordres de mission en sections** (plus d'onglets à part), rappels, congés **des autres** à signer (N+1), historique d'avances. **« Mes congés » vit uniquement dans Mon dossier RH.** |
 | **Messagerie** | `/messages` | Messagerie interne complète (DM / groupes / canaux). Badge non-lus live **+ notification sonore** qui retentit même quand l'onglet est en arrière-plan. → [détails](#-messagerie-interne-temps-réel) |
 | **Courrier** | `/courrier` | **Webmail Infomaniak** intégré par utilisateur (IMAP + SMTP) : dossiers (Réception · **Envoyés** · Corbeille…), **recherche** plein-texte, **filtres** (tous / non lus), **Répondre · Répondre à tous · Transférer**, **carnet de contacts externes**, **aperçu des pièces jointes**, **« Lier à un dossier »**. → [détails](#-courrier--webmail-infomaniak-intégré) |
 | **Directives** | `/directives` | **Instructions priorisées de la Direction** vers une personne ou un rôle entier, avec échéance, statut et **fil d'échange**. |
@@ -552,7 +552,10 @@ paiements → clôture. Voir **`docs/MARKET_360_ARCHITECTURE.md`** (modèle, mer
   `createInvoice` canonique avec le rattachement en champs cachés ; Adam : `create_invoice` +
   champ « order ».
 - **Vues croisées** : fiche produit Regulatory → carte « Marchés PCH » (`loadProductMarkets`) ;
-  courriers → « Relier à… » multiple (`MailEntryLink`) + création **pré-associée** depuis le
+  courriers → « Relier à… » multiple (`MailEntryLink` — cibles : marché, BC, **facture**,
+  document légal, dossier Regulatory ; un pli de recouvrement porte plusieurs factures et BC,
+  et la fiche marché montre les courriers de CHAQUE bon et de CHAQUE facture) + création
+  **pré-associée** depuis le
   marché ; recherche globale (marchés, BC, Legal avec garde lecteurs, courriers).
 - **Rappels d'échéance de dépôt** : balayage quotidien (`lib/pch/deadline-sweep.ts`), zones
   J-7 / J-2 / dépassement, prévient responsable + équipe à l'ENTRÉE de zone seulement, se tait
@@ -3446,6 +3449,23 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Files au métier, Mon espace recomposé, factures reliables (2026-08)
+
+**Les files suivent le MÉTIER, plus le droit** : une validation séquentielle n'entre dans
+« Validations à faire » qu'à SON tour (l'attente du validateur précédent reste lisible sur
+`/validations`) ; les paiements à régler ne s'affichent que chez le comptable
+(`FINANCE_BUDGET_MANAGER`) et le Super Admin ; l'instruction Info médicale (à déclarer, pièces,
+prêt) est réservée au **PRIM** — la Direction ne reçoit que la validation finale (même garde que
+l'action). **Mon espace recomposé** : « Mes congés » part vivre uniquement dans Mon dossier RH ;
+les **ordres de mission** et les **pièces demandées** deviennent des sections de l'espace (les
+onglets disparaissent, les pages `/missions` et `/pieces` survivent aux liens) ; KPI recentrés
+(à valider, pièces à déposer) ; **une tâche se supprime** par son créateur ou le Super Admin
+(pièces et fil compris — une tâche reçue se refuse), op Adam `delete_task`. **Le graphe de
+liens s'étend aux factures** : `INVOICE` entre dans `EntityType` (migration), « Relier à… »
+propose la facture (recouvrement : un pli porte plusieurs factures et BC), la fiche marché
+montre les courriers de chaque bon ET de chaque facture, une facture existante se rattache à
+son BC (`setInvoiceOrder`, select à la création Finances, op Adam `attach_invoice_order`).
 
 ### Processus ANPP resserré + suppressions RH + masse salariale réelle (2026-08)
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import "@/lib/assistant";
 // L'outil ET sa garde vivent dans `document-discovery` : ce module fait déjà la découverte
 // de documents et porte déjà la dépendance au Drive.
@@ -8,6 +8,50 @@ import { ALWAYS_ON, TOOL_DOMAINS_ALL } from "./context/tool-shortlist";
 import { POWER_TOOLS } from "./power-tools";
 import { MODULES, ACTIONS, type Module, type Action } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
+
+/**
+ * LE CORPUS EST CONSTRUIT PAR LE TEST — plus jamais supposé. Ces tests ont longtemps reposé
+ * sur un document « metformine » qui traînait dans la base de dev : sur une base fraîche, le
+ * témoin ne trouvait rien et le test de fuite ne prouvait plus rien. Le corpus est donc créé
+ * ici (un nœud Drive personnel + son texte indexé) et nettoyé à la fin.
+ */
+const TAG = "__docsearch__";
+let corpusUserId = "";
+let corpusNodeId = "";
+
+beforeAll(async () => {
+  const owner = await prisma.user.create({
+    data: { name: `${TAG}owner`, email: `${TAG}owner@t.dz`, role: "VIEWER", passwordHash: "x" },
+  });
+  corpusUserId = owner.id;
+  // Un fichier du Drive PERSONNEL du propriétaire : le Super Admin y accède (vue globale),
+  // l'employé du test non (aucun partage) — exactement la frontière que ces tests jugent.
+  const node = await prisma.driveNode.create({
+    data: { name: `${TAG}-metformine.txt`, type: "FILE", ownerId: owner.id, mimeType: "text/plain", size: 240 },
+  });
+  corpusNodeId = node.id;
+  // Le pipeline de recherche lit KnowledgeItem/KnowledgeChunk (sourceType `drive_file`) ;
+  // `textFold` est la colonne cherchée (minuscules sans accents — le texte est écrit sans
+  // accents pour que le repli soit trivial et exact).
+  const text = "Metformine — fiche produit. La metformine est contre-indiquee en cas d'insuffisance renale severe : la contre-indication renale s'applique lorsque le DFG est inferieur a 30 ml/min.";
+  const item = await prisma.knowledgeItem.create({
+    data: {
+      sourceType: "drive_file", sourceId: node.id, contentHash: `${TAG}-hash`,
+      title: `${TAG}-metformine.txt`, docType: "note", language: "fr",
+      confidentiality: "internal", text, textFold: text.toLowerCase(),
+    },
+  });
+  await prisma.knowledgeChunk.create({
+    data: { itemId: item.id, kind: "whole", ord: 0, text, textFold: text.toLowerCase() },
+  });
+});
+
+afterAll(async () => {
+  await prisma.knowledgeItem.deleteMany({ where: { contentHash: `${TAG}-hash` } }).catch(() => {});
+  await prisma.driveNode.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
+  await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
+});
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════

@@ -132,9 +132,11 @@ suite("ops vague 4a — Regulatory reste, PCH, Stocks, Ventes, Logistique", () =
   });
 
   describe("Regulatory — reste du dossier", () => {
-    it("set_step_note : l'étape se donne par NUMÉRO (« 5 » = Demande de présoumission) ; « aucune » efface", async () => {
+    it("set_step_note : l'étape se donne par NUMÉRO (« 6 » = Demande de présoumission) ; « aucune » efface", async () => {
+      // Le numéro suit le processus OFFICIEL du moment (19 étapes — la check-list de
+      // présoumission est l'étape 2, la demande de présoumission est donc la 6).
       const p = await buildProposal("regulatory_operation", {
-        op: "set_step_note", reference: `${TAG}-REG-1`, step: "5", note: "Rendez-vous ANPP confirmé",
+        op: "set_step_note", reference: `${TAG}-REG-1`, step: "6", note: "Rendez-vous ANPP confirmé",
       }, sa());
       expect("error" in p).toBe(false);
       if ("error" in p) return;

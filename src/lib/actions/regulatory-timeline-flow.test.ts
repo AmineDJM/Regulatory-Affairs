@@ -27,10 +27,11 @@ async function actorFor(id: string, role: SessionUser["role"]): Promise<CurrentU
  * LA FRISE DEPUIS LA VRAIE PORTE — les actions que l'écran appelle, pas un état injecté.
  *
  * Ce qui doit être prouvé ici n'est pas « la ligne s'écrit » : c'est que l'HISTOIRE reste
- * lisible — une seule origine, des insertions à la bonne place, et rien qui efface des
- * documents en silence.
+ * lisible — la frise s'ouvre sur « Réserves ANPP 1 » (le CTD initial, lui, se dépose sur
+ * l'étape 1 du processus), les insertions tombent à la bonne place, et rien n'efface des
+ * documents en silence. Les frises HISTORIQUES ouvertes par un CTD initial restent protégées.
  */
-suite("Regulatory — frise du dossier : origine unique, insertion à la place voulue, journal", () => {
+suite("Regulatory — frise du dossier : Réserves ANPP 1, insertion à la place voulue, journal", () => {
   let productId = "", regId = "", viewerId = "", initialStepId = "";
 
   beforeAll(async () => {
@@ -53,28 +54,23 @@ suite("Regulatory — frise du dossier : origine unique, insertion à la place v
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
   }, 60_000);
 
-  it("la frise s'ouvre sur le CTD initial — et l'ouvrir DEUX FOIS n'en crée pas deux", async () => {
+  it("la frise s'ouvre sur « Réserves ANPP 1 » — et l'ouvrir DEUX FOIS n'en crée pas deux", async () => {
     ACTOR = await actorFor(regId, "HEAD_OF_REGULATORY");
     const fd = new FormData(); fd.set("productId", productId);
     const first = await startDossierTimeline(fd);
     expect(first.ok).toBe(true);
     initialStepId = first.id!;
 
-    // Second clic (ou second onglet) : idempotent, l'index unique partiel a le dernier mot.
+    // Second clic (ou second onglet) : une frise déjà ouverte n'est pas rouverte.
     const second = await startDossierTimeline(fd);
     expect(second.ok).toBe(true);
     expect(second.id).toBe(initialStepId);
 
     const steps = await prisma.regulatoryDossierStep.findMany({ where: { productId } });
     expect(steps).toHaveLength(1);
-    expect(steps[0].kind).toBe("CTD_INITIAL");
+    expect(steps[0].kind).toBe("ANPP_RESERVES");
+    expect(steps[0].label).toBe("Réserves ANPP 1");
     expect(steps[0].order).toBe(0);
-  });
-
-  it("la base REFUSE une seconde origine, même en contournant l'action", async () => {
-    await expect(prisma.regulatoryDossierStep.create({
-      data: { productId, kind: "CTD_INITIAL", label: "Deuxième origine", order: 9 },
-    })).rejects.toThrow();
   });
 
   it("ajouter des réserves puis une réponse : la frise se déroule dans l'ordre", async () => {
@@ -91,14 +87,14 @@ suite("Regulatory — frise du dossier : origine unique, insertion à la place v
     expect(r2.ok).toBe(true);
 
     const steps = await prisma.regulatoryDossierStep.findMany({ where: { productId }, orderBy: { order: "asc" } });
-    expect(steps.map((s) => s.kind)).toEqual(["CTD_INITIAL", "ANPP_RESERVES", "ANPP_RESPONSE"]);
+    expect(steps.map((s) => s.kind)).toEqual(["ANPP_RESERVES", "ANPP_RESERVES", "ANPP_RESPONSE"]);
     expect(steps.map((s) => s.order)).toEqual([0, 1, 2]);
     expect(steps[1].occurredAt?.toISOString().slice(0, 10)).toBe("2026-03-12");
   });
 
   it("le « + » sous une étape insère À CET ENDROIT — les suivantes se décalent", async () => {
     const before = await prisma.regulatoryDossierStep.findMany({ where: { productId }, orderBy: { order: "asc" } });
-    const reserves = before.find((s) => s.kind === "ANPP_RESERVES")!;
+    const reserves = before.find((s) => s.label === "Réserves du 12/03")!;
 
     ACTOR = await actorFor(regId, "HEAD_OF_REGULATORY");
     const fd = new FormData();
@@ -108,7 +104,7 @@ suite("Regulatory — frise du dossier : origine unique, insertion à la place v
 
     const after = await prisma.regulatoryDossierStep.findMany({ where: { productId }, orderBy: { order: "asc" } });
     expect(after.map((s) => s.label)).toEqual([
-      "CTD initial", "Réserves du 12/03", "Réunion ANPP intermédiaire", "Réponse du labo",
+      "Réserves ANPP 1", "Réserves du 12/03", "Réunion ANPP intermédiaire", "Réponse du labo",
     ]);
     // Les rangs restent contigus : une frise trouée se relit mal.
     expect(after.map((s) => s.order)).toEqual([0, 1, 2, 3]);
@@ -138,7 +134,7 @@ suite("Regulatory — frise du dossier : origine unique, insertion à la place v
     fd.set("productId", productId); fd.set("kind", "CTD_INITIAL"); fd.set("label", "Encore le CTD");
     const r = await addDossierStep(undefined, fd);
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/origine/i);
+    expect(r.error).toMatch(/étape 1/i);
   });
 
   it("une étape se renomme, et l'ANCIEN nom reste au journal", async () => {
@@ -163,7 +159,7 @@ suite("Regulatory — frise du dossier : origine unique, insertion à la place v
   }, 30_000);
 
   it("une étape qui PORTE une pièce ne se supprime pas — on ne jette pas un document en silence", async () => {
-    const step = await prisma.regulatoryDossierStep.findFirstOrThrow({ where: { productId, kind: "ANPP_RESERVES" } });
+    const step = await prisma.regulatoryDossierStep.findFirstOrThrow({ where: { productId, label: "Réserves du 12/03" } });
     await prisma.document.create({
       data: {
         name: `${TAG}lettre-reserves.pdf`, category: "QUERY_RECEIVED",
@@ -180,12 +176,24 @@ suite("Regulatory — frise du dossier : origine unique, insertion à la place v
     expect(await prisma.regulatoryDossierStep.findUnique({ where: { id: step.id } })).not.toBeNull();
   });
 
-  it("le CTD initial ne se supprime pas — c'est l'origine de la frise", async () => {
+  it("une frise HISTORIQUE garde son origine : le CTD initial ne se supprime pas, la base en refuse un second", async () => {
+    // Les frises ouvertes AVANT la bascule vers « Réserves ANPP 1 » commencent par un
+    // CTD_INITIAL : on ne réécrit pas leur histoire — il ne se supprime pas, et l'index
+    // unique partiel refuse toujours d'en créer deux.
+    const historique = await prisma.regulatoryDossierStep.create({
+      data: { productId, kind: "CTD_INITIAL", label: "CTD initial (historique)", order: 90 },
+    });
+    await expect(prisma.regulatoryDossierStep.create({
+      data: { productId, kind: "CTD_INITIAL", label: "Deuxième origine", order: 91 },
+    })).rejects.toThrow();
+
     ACTOR = await actorFor(regId, "HEAD_OF_REGULATORY");
-    const fd = new FormData(); fd.set("id", initialStepId);
+    const fd = new FormData(); fd.set("id", historique.id);
     const r = await deleteDossierStep(fd);
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/origine/i);
+    expect(r.error).toMatch(/origine historique/i);
+    // Nettoyage direct : la ligne « historique » ne doit pas polluer les tests suivants.
+    await prisma.regulatoryDossierStep.delete({ where: { id: historique.id } });
   });
 
   it("une étape vide créée par erreur s'efface, et la suppression est JOURNALISÉE", async () => {
@@ -219,7 +227,7 @@ suite("Regulatory — frise du dossier : origine unique, insertion à la place v
     });
     const logs = all.filter((l) => (l.summary ?? "").includes("Frise"));
     expect(logs.length).toBeGreaterThanOrEqual(4);
-    expect(logs.some((l) => (l.summary ?? "").includes("CTD initial"))).toBe(true);
+    expect(logs.some((l) => (l.summary ?? "").includes("Réserves ANPP 1"))).toBe(true);
     expect(logs.some((l) => (l.summary ?? "").includes("Réserves ANPP — Réserves du 12/03"))).toBe(true);
     expect(logs.some((l) => (l.summary ?? "").includes("Version du CTD v2"))).toBe(true);
   }, 30_000);

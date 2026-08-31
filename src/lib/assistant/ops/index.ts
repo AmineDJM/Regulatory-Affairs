@@ -417,7 +417,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           newLabel: { type: "string", description: "edit_entry : nouvel objet." },
           newReference: { type: "string", description: "edit_entry : nouveau n° de chrono." },
           notes: { type: "string", description: "Notes." },
-          kind: { type: "string", description: "set_date : « reçu le » ou « accusé de réception » ; partenaires : nature ; link_record : type de cible (marché PCH, bon de commande, document légal, dossier Regulatory)." },
+          kind: { type: "string", description: "set_date : « reçu le » ou « accusé de réception » ; partenaires : nature ; link_record : type de cible (marché PCH, bon de commande, facture, document légal, dossier Regulatory)." },
           target: { type: "string", description: "link_record / unlink_record : la cible du lien (référence AO, n° de BC, titre du contrat, référence ou DCI du dossier)." },
           date: { type: "string", description: "set_date : la date (AAAA-MM-JJ) — « aucune » pour l'effacer." },
           parent: { type: "string", description: "create_folder : dossier parent (sous-dossier)." },

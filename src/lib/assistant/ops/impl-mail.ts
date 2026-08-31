@@ -47,7 +47,7 @@ const MAIL_REVALIDATE = ["/courriers"];
  * l'invariant des ops : exact → unique → ambiguïté LISTÉE, jamais de choix silencieux.
  */
 const LINK_KINDS: [string, string][] = [
-  ["PCH_TENDER", "Marché PCH"], ["PCH_ORDER", "Bon de commande PCH"],
+  ["PCH_TENDER", "Marché PCH"], ["PCH_ORDER", "Bon de commande PCH"], ["INVOICE", "Facture"],
   ["LEGAL_DOCUMENT", "Document légal"], ["REGULATORY_PRODUCT", "Dossier Regulatory"],
 ];
 
@@ -57,10 +57,11 @@ async function resolveLinkTarget(kindRaw: string, raw: string): Promise<{ entity
   const k = kindRaw.trim().toLowerCase();
   const kind = /march|tender|\bao\b|appel/.test(k) ? "PCH_TENDER"
     : /\bbc\b|bon de commande|commande/.test(k) ? "PCH_ORDER"
-      : /contrat|l[ée]gal|convention|avenant/.test(k) ? "LEGAL_DOCUMENT"
-        : /regulatory|dossier|produit/.test(k) ? "REGULATORY_PRODUCT"
-          : null;
-  if (!kind) return { error: "Précisez le type de cible (champ « kind ») : marché PCH, bon de commande, document légal, ou dossier Regulatory." };
+      : /factur|invoice/.test(k) ? "INVOICE"
+        : /contrat|l[ée]gal|convention|avenant/.test(k) ? "LEGAL_DOCUMENT"
+          : /regulatory|dossier|produit/.test(k) ? "REGULATORY_PRODUCT"
+            : null;
+  if (!kind) return { error: "Précisez le type de cible (champ « kind ») : marché PCH, bon de commande, facture, document légal, ou dossier Regulatory." };
 
   if (kind === "PCH_TENDER") {
     const rows = await prisma.pchTender.findMany({
@@ -79,6 +80,15 @@ async function resolveLinkTarget(kindRaw: string, raw: string): Promise<{ entity
     if (rows.length === 1) return { entityType: kind, entityId: rows[0].id, label: `BC ${rows[0].reference ?? "s/n"} — ${rows[0].tender.reference}` };
     if (rows.length === 0) return { error: `Aucun bon de commande « ${q} ».` };
     return { error: `Plusieurs bons de commande correspondent : ${rows.map((r) => `BC ${r.reference ?? "s/n"} (${r.tender.reference})`).join(" ; ")} — préciser.` };
+  }
+  if (kind === "INVOICE") {
+    const rows = await prisma.invoice.findMany({
+      where: { OR: [{ number: { contains: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }] },
+      select: { id: true, number: true, title: true }, orderBy: { createdAt: "desc" }, take: 6,
+    });
+    if (rows.length === 1) return { entityType: kind, entityId: rows[0].id, label: `Facture ${rows[0].number ? `${rows[0].number} — ` : ""}${rows[0].title}` };
+    if (rows.length === 0) return { error: `Aucune facture « ${q} ».` };
+    return { error: `Plusieurs factures correspondent : ${rows.map((r) => `${r.number ? `${r.number} — ` : ""}${r.title}`).join(" ; ")} — préciser.` };
   }
   if (kind === "LEGAL_DOCUMENT") {
     const rows = await prisma.legalDocument.findMany({

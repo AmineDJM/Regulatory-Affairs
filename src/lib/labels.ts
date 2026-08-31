@@ -1367,16 +1367,18 @@ export const CONGRESS_TABS: NavTab[] = [
  * en faire le tour, et l'on manquait celui qu'on n'avait pas pensé à ouvrir.
  *
  * « Mon travail » a fondu DANS « Mon espace » : ce qui attend une signature s'y lit en tête, les
- * tâches en dessous. « Mon dossier RH » et les ordres de mission deviennent des onglets du même
- * espace. Le « Dashboard » a disparu — voir la note du module.
+ * tâches en dessous — puis les ordres de mission et les pièces demandées y sont devenus des
+ * SECTIONS à leur tour. « Mon dossier RH » reste le seul onglet frère : c'est le dossier de la
+ * personne (documents, demandes, congés), pas son travail. Le « Dashboard » a disparu.
  */
 export const WORKSPACE_TABS: NavTab[] = [
   // « Aujourd'hui » : l'accueil qui répond à une seule question — que dois-je faire maintenant ?
   { module: "WORKSPACE", label: "Aujourd'hui", href: "/aujourdhui", feature: "home_today" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier" },
-  { module: "WORKSPACE", label: "Mes ordres de mission", href: "/missions" },
-  { module: "WORKSPACE", label: "Pièces demandées", href: "/pieces" },
+  // Les ordres de mission et les pièces demandées ne sont PLUS des onglets : ils s'affichent
+  // en SECTIONS dans « Mon espace » (les pages /missions et /pieces survivent — liens et
+  // notifications y pointent encore).
   { module: "DIRECTIVES", label: "Directives", href: "/directives" },
 ];
 /**
