@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import type { getComptaData, ComptaItem, ComptaCategoryRow } from "@/lib/queries/compta";
-import { EmptyState } from "@/components/shared/empty-state";
+import type { getComptaData, ComptaItem } from "@/lib/queries/compta";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -11,8 +10,13 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 type ComptaData = Awaited<ReturnType<typeof getComptaData>>;
 
 /**
- * Cockpit comptable du DAF, intégré à la page Finances (module unifié). Liste ce
- * qu'il faut régler / encaisser, les retards, et la synthèse du mois.
+ * CE QUE LE DAF DOIT ENCORE ARBITRER — et rien qui vive déjà ailleurs.
+ *
+ * Ce bloc listait aussi les ordres « à régler » et les recettes attendues. Depuis que les
+ * Finances ont trois sous-modules, la file des ordres EST « Paiements à faire » : la répéter ici
+ * donnait deux listes de la même chose, qui divergeaient dès qu'on réglait depuis l'une. Restent
+ * les dépenses qu'aucun autre écran ne porte — celles hors ordres, la masse salariale à
+ * provisionner — et le résultat mensuel.
  */
 export function ComptaCockpit({ d }: { d: ComptaData }) {
   return (
@@ -24,36 +28,10 @@ export function ComptaCockpit({ d }: { d: ComptaData }) {
         </div>
       )}
 
-      {/* À régler — ordres de dépense validés par la Direction */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            À régler ({d.aReglerCount}) · {formatCurrency(d.aReglerOrders)}
-          </h2>
-          {d.aReglerCount > 0 && (
-            <Link href="/finances/paiements-a-faire" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
-              Régler les ordres <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          )}
-        </div>
-        {d.ordersPending.length === 0 ? (
-          <EmptyState icon="CheckCheck" title="Rien à régler" description="Les ordres de dépense validés par la Direction apparaîtront ici." />
-        ) : (
-          <ItemTable items={d.ordersPending} thirdLabel="Bénéficiaire" href="/finances/paiements-a-faire" />
-        )}
-      </section>
-
-      {/* Recettes attendues */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Recettes attendues ({d.recettesAttendues.length}) · {formatCurrency(d.aEncaisser)}
-        </h2>
-        {d.recettesAttendues.length === 0 ? (
-          <EmptyState icon="Inbox" title="Aucune recette prévue" description="Les encaissements prévus (statut « Prévu ») apparaîtront ici." />
-        ) : (
-          <ItemTable items={d.recettesAttendues} thirdLabel="Client" href="/finances" />
-        )}
-      </section>
+      {/* « À RÉGLER » ET « RECETTES ATTENDUES » ONT ÉTÉ RETIRÉS D'ICI (2026-08).
+          La file des ordres à régler EST le sous-module « Paiements à faire » : la répéter sur le
+          tableau de bord donnait deux listes de la même chose, qui se désynchronisaient dès qu'on
+          réglait depuis l'une. Le bandeau des retards ci-dessus suffit à ramener l'œil. */}
 
       {/* Dépenses prévues hors ordres — la MASSE SALARIALE est séparée : elle tombe chaque mois
           et n'a pas à noyer les décaissements qu'on peut encore arbitrer. */}
@@ -75,12 +53,6 @@ export function ComptaCockpit({ d }: { d: ComptaData }) {
           <ItemTable items={d.depensesSalaires} thirdLabel="Bénéficiaire" href="/rh/paie" />
         </section>
       )}
-
-      {/* Synthèse du mois par poste */}
-      <div className="grid gap-3 lg:grid-cols-2">
-        <CategoryCard title="Dépenses du mois par poste" rows={d.depByCat} total={d.depensesMois} tone="danger" />
-        <CategoryCard title="Recettes du mois par poste" rows={d.recByCat} total={d.recettesMois} tone="success" />
-      </div>
 
       {/* Résultat mensuel */}
       <Card>
@@ -157,37 +129,5 @@ function ItemTable({ items, thirdLabel, href }: { items: ComptaItem[]; thirdLabe
         </TableBody>
       </Table>
     </div>
-  );
-}
-
-function CategoryCard({ title, rows, total, tone }: { title: string; rows: ComptaCategoryRow[]; total: number; tone: "danger" | "success" }) {
-  const barColor = tone === "danger" ? "bg-destructive" : "bg-success";
-  const max = rows.reduce((m, r) => Math.max(m, r.amount), 0);
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{formatCurrency(total)} ce mois-ci</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Aucun mouvement ce mois-ci.</p>
-        ) : (
-          <ul className="space-y-2.5">
-            {rows.map((r) => (
-              <li key={r.category} className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <span>{FINANCE_CATEGORY[r.category] ?? r.category}</span>
-                  <span className="font-medium tabular-nums">{formatCurrency(r.amount)}</span>
-                </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div className={`h-full rounded-full ${barColor}`} style={{ width: `${max ? Math.round((r.amount / max) * 100) : 0}%` }} />
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
   );
 }

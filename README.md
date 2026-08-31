@@ -756,9 +756,13 @@ Une seule page portait la trésorerie, le livre comptable, les règlements et le
 qui **paie** et celui qui **tient les comptes** s'y disputaient le défilement. Trois écrans, dans
 l'ordre où l'on y passe, atteignables par onglets **et par flèches** (`ModuleTabs arrows`) :
 
+Ils se **déplient aussi dans le menu latéral** (flèche, comme la paie sous les RH) : le menu pour
+arriver directement là où l'on va travailler, les onglets pour passer d'un métier à l'autre sans
+repartir du menu.
+
 | Sous-module | Route | Ce qu'on y fait |
 | --- | --- | --- |
-| **Dashboard** | `/finances` | Soldes, ce que le DAF doit traiter, courbes. Rien qui s'écrive. |
+| **Dashboard** | `/finances` | Soldes, ce que le DAF doit encore arbitrer, courbes. Rien qui s'écrive, et **rien qui vive déjà ailleurs** : « à régler » et « recettes attendues » ont été retirés (la file EST « Paiements à faire » — deux listes de la même chose divergent dès qu'on règle depuis l'une), ainsi que les trois cartes par poste, que le résultat mensuel dit mieux. |
 | **Paiements à faire** | `/finances/paiements-a-faire` | La file du décaissement. **Une seule source d'alimentation : le centre de paiement.** Les ordres non autorisés sont écartés en amont — ils n'existent ni en ligne, ni en total, ni en compteur. |
 | **Comptabilité** | `/finances/comptabilite` | Le livre : écritures, import de relevés, soldes d'ouverture. |
 
@@ -3518,6 +3522,30 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Les accès du pipeline arrivent là où on les cherche, et le Dashboard cesse de se répéter (2026-08)
+
+**Le pipeline réglementaire se réglait déjà — mais nulle part.** Le mécanisme existait (rôles et
+personnes, consulter / tenir le cadenas) et son formulaire vivait au fond d'une page de réglages
+longue de quinze cartes. Or « les accès » se cherchent dans **l'écran des accès**. Deux colonnes
+s'ajoutent donc à la grille d'Administration › Accès par module, sur la ligne de la personne,
+quand le module Regulatory est sélectionné : **Voit le pipeline** et **Tient le cadenas**.
+
+Un droit hérité d'un **rôle** s'affiche **coché et verrouillé**, avec la phrase qui dit où le
+retirer : décocher sans effet est le défaut qui fait conclure que l'écran ne marche pas. Et parce
+qu'on n'ouvre pas un dossier qu'on ne voit pas, cocher « tient le cadenas » verrouille « voit »
+sur oui. Les rôles déjà accordés sont **rejoués** à l'enregistrement — cet écran règle les
+personnes, il ne doit pas effacer ce qui vient des rôles.
+
+**Les sous-modules des Finances se déplient dans le menu**, par la flèche, comme la paie sous les
+RH : on arrive directement dans « Paiements à faire » ou « Comptabilité » sans passer par le
+tableau de bord. Les onglets restent dans la page — les deux chemins servent deux gestes.
+
+**Et le Dashboard cesse de répéter ce qui vit ailleurs.** « À régler » et « Recettes attendues »
+en sont retirés : la file des ordres EST le sous-module « Paiements à faire », et deux listes de la
+même chose divergent dès qu'on règle depuis l'une. Les trois cartes par poste (« Répartition des
+dépenses », « Dépenses du mois », « Recettes du mois ») partent aussi — le tableau du résultat
+mensuel dit la même chose, sur six mois, sans trois barres à interpréter.
 
 ### Les factures sortent des bons de commande et deviennent des pièces à part entière (2026-08)
 

@@ -6,7 +6,7 @@ import { buildAccessSheet, type PermissionMatrix } from "@/lib/rbac-sheet";
 import { MODULE_LABELS, ROLE_LABELS, ACTION_LABELS } from "@/lib/labels";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ModuleAccessGrid, type AccessUser, type UserModuleState } from "./module-access-grid";
+import { ModuleAccessGrid, type AccessUser, type UserModuleState, type PipelineConfig } from "./module-access-grid";
 import { getAppSettings } from "@/lib/settings";
 import { BackLink } from "@/components/shared/back-link";
 
@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
  * oublie un module ajouté la semaine dernière — et cela ne se voit jamais à l'écran.
  */
 export default async function AccessByModulePage() {
-  await requireModule("ADMIN", "UPDATE");
+  const admin = await requireModule("ADMIN", "UPDATE");
 
   const users = await prisma.user.findMany({
     where: { isActive: true },
@@ -58,7 +58,29 @@ export default async function AccessByModulePage() {
   // à l'application le fait entrer ici sans qu'on y touche.
   // LES MODULES HORS SERVICE entrent dans la feuille : un module masqué prime sur tous les
   // droits, et l'écran qui règle les droits est le seul endroit où l'on a besoin de le savoir.
-  const { hiddenModules } = await getAppSettings().catch(() => ({ hiddenModules: [] as string[] }));
+  const settings = await getAppSettings().catch(() => null);
+  const hiddenModules = settings?.hiddenModules ?? [];
+
+  // LES ACCÈS AU PIPELINE, sur la ligne de la personne. Ce n'est pas un droit du module
+  // Regulatory — c'est une confidence accordée nommément ou par rôle — mais c'est ICI qu'on la
+  // cherche : « les accès » se règlent dans l'écran des accès, pas au fond d'une page de réglages.
+  // Ce qui vient d'un RÔLE est affiché verrouillé plutôt que masqué : décocher sans effet est le
+  // défaut qui fait conclure que l'écran ne marche pas.
+  const roleGrants = (roles: string[], u: (typeof users)[number]) =>
+    roles.some((r) => r === u.role || (u.secondaryRole ? r === u.secondaryRole : false));
+  const pipeline: PipelineConfig | undefined = settings && admin.role === "SUPER_ADMIN"
+    ? {
+        canEdit: true,
+        viewerRoles: settings.pipelineViewerRoles,
+        managerRoles: settings.pipelineManagerRoles,
+        byUser: Object.fromEntries(users.map((u) => [u.id, {
+          view: settings.pipelineViewerUserIds.includes(u.id),
+          manage: settings.pipelineManagerUserIds.includes(u.id),
+          viewViaRole: roleGrants(settings.pipelineViewerRoles, u),
+          manageViaRole: roleGrants(settings.pipelineManagerRoles, u),
+        }])),
+      }
+    : undefined;
   const sheet = buildAccessSheet(
     MODULES,
     MODULE_LABELS as Record<string, string>,
@@ -83,7 +105,7 @@ export default async function AccessByModulePage() {
           <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-primary" /> Qui peut quoi sur ce module</CardTitle>
         </CardHeader>
         <CardContent>
-          <ModuleAccessGrid modules={sheet} users={accessUsers} actionLabels={ACTION_LABELS} />
+          <ModuleAccessGrid modules={sheet} users={accessUsers} actionLabels={ACTION_LABELS} pipeline={pipeline} />
         </CardContent>
       </Card>
     </div>

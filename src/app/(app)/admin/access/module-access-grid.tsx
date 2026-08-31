@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Check, Search, EyeOff } from "lucide-react";
+import { Loader2, Check, Search, EyeOff, Lock } from "lucide-react";
 import { saveModuleAccess } from "@/lib/actions/access-actions";
+import { setPipelineAccess } from "@/lib/actions/settings-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -40,13 +41,43 @@ export interface ModuleSpec {
   hidden: boolean;
 }
 
+/**
+ * LE PIPELINE RÉGLEMENTAIRE — un droit qui ne passe PAS par la matrice des modules.
+ *
+ * Voir un dossier verrouillé n'est pas une action du module Regulatory : c'est une confidence
+ * accordée nommément ou par rôle. Le réglage existait, mais dans une page de réglages longue de
+ * quinze cartes — c'est-à-dire nulle part, pour qui cherche « les accès ». Il vient donc ICI, sur
+ * la ligne de la personne, à côté du module qu'il concerne.
+ *
+ * Un droit hérité du RÔLE s'affiche coché et VERROUILLÉ : le décocher n'aurait rien fait, et
+ * l'on aurait conclu que l'écran ne marche pas. On dit d'où il vient, et où le retirer.
+ */
+export interface PipelineState {
+  view: boolean;
+  manage: boolean;
+  /** Le droit vient du RÔLE : il ne se retire pas d'ici. */
+  viewViaRole: boolean;
+  manageViaRole: boolean;
+}
+export interface PipelineConfig {
+  /** Seul le Super Admin distribue ces accès (`setPipelineAccess`). */
+  canEdit: boolean;
+  byUser: Record<string, PipelineState>;
+  /** Rejoués tels quels à l'enregistrement : cet écran règle les PERSONNES, pas les rôles. */
+  viewerRoles: string[];
+  managerRoles: string[];
+}
+
+const PIPELINE_MODULE = "REGULATORY";
+
 export function ModuleAccessGrid({
-  modules, users, actionLabels,
-}: { modules: ModuleSpec[]; users: AccessUser[]; actionLabels: Record<string, string> }) {
+  modules, users, actionLabels, pipeline,
+}: { modules: ModuleSpec[]; users: AccessUser[]; actionLabels: Record<string, string>; pipeline?: PipelineConfig }) {
   const [module, setModule] = React.useState(modules[0]?.value ?? "");
   const spec = modules.find((m) => m.value === module) ?? modules[0];
   const cols = spec?.actions ?? [];
   const [rows, setRows] = React.useState<Record<string, UserModuleState>>({});
+  const [pipeRows, setPipeRows] = React.useState<Record<string, PipelineState>>({});
   const [search, setSearch] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
@@ -57,6 +88,19 @@ export function ModuleAccessGrid({
     for (const u of users) next[u.id] = { ...u.byModule[module], actions: { ...u.byModule[module]?.actions } };
     setRows(next);
   }, [module, users]);
+
+  React.useEffect(() => {
+    if (!pipeline) return;
+    const next: Record<string, PipelineState> = {};
+    for (const u of users) next[u.id] = { ...(pipeline.byUser[u.id] ?? { view: false, manage: false, viewViaRole: false, manageViaRole: false }) };
+    setPipeRows(next);
+  }, [pipeline, users]);
+
+  // Les colonnes du pipeline ne s'affichent que sur le module qu'elles concernent, et seulement
+  // à qui peut réellement les enregistrer.
+  const showPipeline = Boolean(pipeline?.canEdit) && module === PIPELINE_MODULE;
+  const setPipe = (userId: string, patch: Partial<PipelineState>) =>
+    setPipeRows((s) => ({ ...s, [userId]: { ...s[userId], ...patch } }));
 
   function update(userId: string, patch: Partial<UserModuleState>) {
     setRows((s) => ({ ...s, [userId]: { ...s[userId], ...patch } }));
@@ -83,6 +127,21 @@ export function ModuleAccessGrid({
           }
         }
         await saveModuleAccess(fd);
+        // LES ACCÈS AU PIPELINE partent par leur propre action : ce sont des réglages
+        // d'instance, pas des droits de module. Les rôles déjà accordés sont REJOUÉS —
+        // cet écran règle les personnes, il ne doit pas effacer ce qui vient des rôles.
+        if (showPipeline && pipeline) {
+          const pfd = new FormData();
+          pipeline.viewerRoles.forEach((r) => pfd.append("viewerRoles", r));
+          pipeline.managerRoles.forEach((r) => pfd.append("managerRoles", r));
+          for (const u of users) {
+            const p = pipeRows[u.id];
+            if (!p) continue;
+            if (p.view && !p.viewViaRole) pfd.append("viewerUserIds", u.id);
+            if (p.manage && !p.manageViaRole) pfd.append("managerUserIds", u.id);
+          }
+          await setPipelineAccess(pfd);
+        }
         setSaving(false);
         setSaved(true);
         setTimeout(() => setSaved(false), 1500);
@@ -126,6 +185,21 @@ export function ModuleAccessGrid({
         </div>
       )}
 
+      {showPipeline && (
+        <div className="flex items-start gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <p>
+            <strong>Pipeline réglementaire</strong> — les dossiers <em>verrouillés</em> : un produit à
+            l&apos;étude, invisible de toute la plateforme (tableau, recherche, sélecteurs de produits,
+            assistant). <strong>Voir</strong> est une confidence ; <strong>tenir le cadenas</strong> est
+            le pouvoir de publier un dossier à toute l&apos;entreprise — et cela ne se reprend pas.
+            Les accès donnés par <strong>rôle</strong> apparaissent cochés et verrouillés : ils se
+            retirent dans{" "}
+            <a href="/admin/settings" className="font-medium text-primary hover:underline">Réglages › Pipeline réglementaire</a>.
+          </p>
+        </div>
+      )}
+
       <div className="surface overflow-x-auto">
         <Table>
           <TableHeader>
@@ -134,6 +208,8 @@ export function ModuleAccessGrid({
               <TableHead>Accès</TableHead>
               {cols.map((a) => <TableHead key={a} className="text-center">{actionLabels[a] ?? a}</TableHead>)}
               {cols.length === 0 && <TableHead>Capacités</TableHead>}
+              {showPipeline && <TableHead className="text-center">Voit le pipeline</TableHead>}
+              {showPipeline && <TableHead className="text-center">Tient le cadenas</TableHead>}
               <TableHead>Portée</TableHead>
             </TableRow>
           </TableHeader>
@@ -169,6 +245,46 @@ export function ModuleAccessGrid({
                   {cols.length === 0 && (
                     <TableCell className="text-xs text-muted-foreground">Consultation seule</TableCell>
                   )}
+                  {showPipeline && (() => {
+                    const p = pipeRows[u.id] ?? { view: false, manage: false, viewViaRole: false, manageViaRole: false };
+                    // Tenir le cadenas IMPLIQUE de voir : on n'ouvre pas ce qu'on ne voit pas.
+                    const voit = p.view || p.manage || p.viewViaRole || p.manageViaRole;
+                    const voitFige = p.viewViaRole || p.manageViaRole || p.manage;
+                    return (
+                      <>
+                        <TableCell className="text-center">
+                          <input
+                            type="checkbox"
+                            checked={voit}
+                            disabled={voitFige}
+                            title={
+                              p.viewViaRole || p.manageViaRole
+                                ? "Accordé par le RÔLE — se retire dans Administration › Réglages › Pipeline réglementaire."
+                                : p.manage
+                                  ? "Tenir le cadenas implique de voir : on n'ouvre pas un dossier qu'on ne voit pas."
+                                  : "Voir les dossiers verrouillés, ici et partout ailleurs (recherche, sélecteurs, assistant)."
+                            }
+                            onChange={(e) => setPipe(u.id, { view: e.target.checked })}
+                            className="h-4 w-4 rounded border-input disabled:opacity-40"
+                          />
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <input
+                            type="checkbox"
+                            checked={p.manage || p.manageViaRole}
+                            disabled={p.manageViaRole}
+                            title={
+                              p.manageViaRole
+                                ? "Accordé par le RÔLE — se retire dans Administration › Réglages › Pipeline réglementaire."
+                                : "Ouvrir un dossier le rend visible de TOUTE l'entreprise, et cela ne se reprend pas."
+                            }
+                            onChange={(e) => setPipe(u.id, { manage: e.target.checked })}
+                            className="h-4 w-4 rounded border-input disabled:opacity-40"
+                          />
+                        </TableCell>
+                      </>
+                    );
+                  })()}
                   <TableCell>
                     {module === "DRIVE" || module === "DOSSIERS" ? (
                       <span className="text-xs text-muted-foreground" title="Confidentialité stricte : l'utilisateur ne voit que ses propres fichiers / projets et ceux qu'on lui a partagés ou confiés.">Privé (assignées)</span>

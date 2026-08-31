@@ -11,13 +11,11 @@ import { visibleTabs } from "@/lib/nav-tabs";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { TrendChart, DonutChart } from "@/components/dashboard/charts";
-import { FINANCE_CATEGORY, FINANCES_TABS } from "@/lib/labels";
+import { TrendChart } from "@/components/dashboard/charts";
+import { FINANCES_TABS } from "@/lib/labels";
 import { formatCurrency } from "@/lib/utils";
 import { RecettesDepensesChart } from "./finance-charts";
 import { TreasuryUpdateRequestButton } from "./treasury-update-request";
-
-const DONUT_COLORS = ["#dc2626", "#d97706", "#7c3aed", "#2563eb", "#0891b2", "#db2777", "#65a30d", "#0d9488", "#9333ea", "#475569"];
 
 export const dynamic = "force-dynamic";
 
@@ -90,21 +88,6 @@ export default async function FinancesPage() {
           <CardContent><RecettesDepensesChart data={data.recVsDep} /></CardContent>
         </Card>
       </div>
-
-      {data.byCategoryOut.length > 0 && (
-        <Card>
-          <CardHeader><CardTitle>Répartition des dépenses par poste</CardTitle></CardHeader>
-          <CardContent>
-            <DonutChart
-              data={data.byCategoryOut.slice(0, 10).map((c, i) => ({
-                label: FINANCE_CATEGORY[c.category] ?? c.category,
-                value: Math.round(c.amount),
-                color: DONUT_COLORS[i % DONUT_COLORS.length],
-              }))}
-            />
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

@@ -1629,14 +1629,20 @@ export const NAVIGATION: NavItem[] = [
     // de cette entrée (`match`) pour que le menu ne se désélectionne pas en y entrant.
     match: ["/moyens-generaux/annuaire"],
   },
-  // FINANCES — TROIS SOUS-MODULES, atteignables par onglets et par flèches depuis la page :
-  // Dashboard (trésorerie), Paiements à faire (alimenté EXCLUSIVEMENT par le centre de paiement)
-  // et Comptabilité (le livre). Le menu latéral garde une entrée unique : on entre aux Finances,
-  // on choisit ensuite son métier.
+  // FINANCES — TROIS SOUS-MODULES, et ils se DÉPLIENT dans le menu, comme la paie sous les RH.
+  //
+  // L'entrée mène au tableau de bord ; la flèche ouvre « Paiements à faire » et « Comptabilité ».
+  // Les onglets restent DANS la page (`tabs`) : les deux chemins servent des gestes différents —
+  // le menu pour arriver directement là où l'on va travailler, les onglets pour passer d'un
+  // métier à l'autre sans repartir du menu.
   {
     module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", pole: "ADMINISTRATION",
     tabs: FINANCES_TABS,
-    match: ["/finances/paiements-a-faire", "/finances/comptabilite", "/finances/paiements-a-faire", "/finances/factures"],
+    match: ["/finances/paiements-a-faire", "/finances/comptabilite", "/finances/factures"],
+    children: [
+      { module: "FINANCES", label: "Paiements à faire", href: "/finances/paiements-a-faire", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION" },
+      { module: "FINANCES", label: "Comptabilité", href: "/finances/comptabilite", icon: "BookOpen", group: "Pôles", pole: "ADMINISTRATION" },
+    ],
   },
   // LE CENTRE DE PAIEMENT — un module À PART, HORS Finances : celui qui autorise l'argent ne
   // doit pas être dans l'écran de celui qui le décaisse. L'entrée n'apparaît qu'à qui a le
