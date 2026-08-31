@@ -2879,6 +2879,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **CTD — progression vivante** | `lib/regulatory/intelligence/progress/analysis-progress.ts` (`computeAnalysisProgress`, `formatEta` — pures + tests : phases réception→lecture→OCR→données→conformité→revue IA, % renormalisé, ETA au débit réel), `query.ts` (`getAnalysisProgress` — comptes légers) ; route de polling `app/api/regulatory/intelligence/progress/[versionId]` (réveille aussi le planificateur) ; carte cliente `analyse/[dossierId]/analysis-progress-card.tsx` (barre + bande lumineuse + étapes + temps restant) ; badge vivant `analyse/live-badge.tsx` sur la liste. |
 | **CTD — Entraînement IA (admin)** | `lib/regulatory/intelligence/training/` — `ingest-case.ts` (extraction + repérage CTD déterministe, dédup sha256 par étude), `for-section.ts` (`experienceForSection`, `rankCaseDocs` pure + tests, dédup par empreinte), `labels.ts` (pur, importable client), `actions.ts` (SUPER_ADMIN only) ; bloc « EXPÉRIENCE INTERNE » dans `agents/review-agent.ts` (`buildPrompt.experience` + tests), câblé dans `jobs/runner.ts` ET `cost/batch-runner.ts` ; embeddings via `corpus/semantic.ts` (`embedBacklog`) ; écran `app/(app)/regulatory/enregistrement/entrainement/`. Modèles `RegulatoryCaseStudy`/`RegulatoryCaseDoc`. |
 | **Courriers — registre, pièces & trace** | `lib/mail-register/trace.ts` (pur : `traceValue`, `diffMailEntry`, `describeMailChanges`, `renderTraceValue` + tests) et `write.ts` (le CŒUR partagé écran/API : `createMailEntryFor`, `updateMailEntryFor`, `setMailDateFor`) ; `lib/actions/mail-register-actions.ts` (ne fait plus que lire le formulaire et rafraîchir) ; `app/(app)/courriers/` (`page.tsx`, `mail-table.tsx`, `mail-fields.ts`, `[id]/`). `EntityType.MAIL_ENTRY` pour les pièces jointes. Les liens du pli sont ceux du registre commun (voir « Le fil de l'affaire »). |
+| **Legal — factures sorties des bons** | Migration `20261003100000_factures_sorties_des_bons` : chaque pièce `INVOICE` attachée à un `LegalDocument` de nature `PURCHASE_ORDER` devient une pièce Legal `INVOICE` (id dérivé `linv_` + id de la pièce → idempotent et traçable), le fichier DÉMÉNAGE, les `LegalDocumentReader` du bon sont recopiés (sans quoi la facture serait exposée à tout le module), `chainFromId` pointe vers le bon, et référence / montant / dates / contrepartie restent VIDES. Annulation documentée en tête du fichier. Preuve : `lib/legal/facture-extraction.test.ts` (8 tests, rejoue le `.sql` réel). |
 | **Legal — engagements & échéances** | `lib/legal/lifecycle.ts` (pur : `expiryLevel`, `shouldRemind`, `expiryMessage`, `proposeRenewalDates` + tests) ; `lib/legal/expiry-sweep.ts` (`runLegalExpirySweep`, branché dans `lib/scheduled.ts` — aligne le statut échu, prévient à l'entrée d'une zone d'urgence, verrou atomique sur `lastRemindedAt`) ; `app/(app)/legal/` (`page.tsx`, `legal-table.tsx`, `legal-fields.ts`, `[id]/`). `EntityType.LEGAL_DOCUMENT`. |
 | **Le fil de l'affaire — « Relié à… »** | `lib/links/graph.ts` (**pur, testé** : `LINK_TYPES`, `LINK_PAIRS` = le flux AO → contrat → BC → facture, l'assurance au contrat, le courrier à tout ; `DETOURS` refuse en NOMMANT le chemin — facture→marché, BC→marché, facture→contrat ; `canonicalPair` range la paire, `linkHref`) ; `lib/links/store.ts` (le SEUL chemin d'écriture : `addLink`/`removeLink` — voir les deux bouts + modifier au moins l'un des deux —, `linksOf`/`linksOfMany`/`linkedViews`, `refreshLinkLabels`, double entrée au journal) ; `lib/actions/link-actions.ts` (`addEntityLink`/`removeEntityLink`) ; `lib/queries/link-candidates.ts` (le menu n'offre que ce que le flux autorise) ; `components/shared/entity-links.tsx` (la MÊME carte : courrier, document légal…). Modèle **`EntityLink`** — registre unique (§17), migration `20261001160000` reprend les lignes de l'ancien `MailEntryLink`. Adam : `mail_operation.link_record` / `unlink_record`. |
 | **Liaisons transverses** | `lib/links/source-link.ts` (pur : `LINKABLE_SOURCES`, `sourceHref`, `sourceCaption` — un test remonte CHAQUE route jusqu'à `NAVIGATION` pour interdire les liens morts) ; `components/shared/linked-records.tsx` (bloc serveur posable sur toute fiche) + `attach-to-source.tsx` (créer une pièce déjà rattachée). Les modèles `LegalDocument`/`Invoice`/`MailEntry` portent `sourceType`/`sourceId`. |
@@ -3517,6 +3518,35 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Les factures sortent des bons de commande et deviennent des pièces à part entière (2026-08)
+
+**Une facture classée en pièce jointe d'un bon de commande n'est pas une pièce du dossier : c'est
+un fichier.** Elle n'a ni référence, ni montant, ni échéance, ni statut ; elle n'apparaît pas dans
+la liste Legal quand on filtre par « Facture » ; elle ne peut être reliée ni à un marché ni à un
+courrier de recouvrement, et elle ne peut pas partir au règlement.
+
+**Chaque pièce de catégorie FACTURE attachée à un document de nature BON DE COMMANDE devient un
+`LegalDocument` de nature `INVOICE`**, et le fichier **déménage** — il n'est pas recopié. Migration
+idempotente `20261003100000_factures_sorties_des_bons`, dont l'annulation est écrite dans l'en-tête
+du fichier.
+
+**Elle ne remplit que ce qu'elle SAIT.** Titre = nom du fichier sans extension ; entité, dossier de
+classement et déposant viennent du bon ; `chainFromId` pointe vers le bon (ce n'est pas une
+déduction : le fichier y était rangé). **Référence, montant, dates et contrepartie restent vides** —
+les déduire du bon aurait produit des chiffres plausibles et faux, sans qu'on sache ensuite
+lesquels avaient été saisis et lesquels devinés. La contrepartie du bon figure en **note**, pas
+dans le champ : c'est un fait sur le bon, pas une affirmation sur la facture. L'assistante de
+direction complète et pose les autres liens.
+
+**Les lecteurs suivent la pièce.** Un document Legal sans lecteur désigné est ouvert à tout le
+module : sortir une facture d'un bon restreint sans recopier ses lecteurs l'aurait **exposée**,
+silencieusement, sans qu'aucun écran ne le signale.
+
+**La migration est prouvée sur des données, pas sur une lecture** : `lib/legal/facture-extraction.test.ts`
+(8 tests) rejoue **le texte réel du fichier `.sql`** sur un jeu construit — filtre étroit (un bon de
+livraison ne bouge pas, une facture attachée à un contrat non plus), fichier déplacé et non copié,
+lecteurs recopiés, aucun champ inventé, journal écrit, et rejeu sans doublon.
 
 ### Le centre de paiement devient le guichet unique, et les Finances se coupent en trois (2026-08)
 
