@@ -6,7 +6,7 @@ import {
 import { requestInvoice, requestBudgetRevision, resolveBudgetRevision } from "@/lib/actions/expense-actions";
 import {
   createPaymentRequest, submitPaymentRequest, decidePaymentRequest, cancelPaymentRequest,
-  addPaymentComment, askPaymentValidation, commentPaymentPiece, reviewPaymentPiece,
+  addPaymentComment, askPaymentValidation, askPieceValidation, commentPaymentPiece, reviewPaymentPiece,
 } from "@/lib/actions/payment-request-actions";
 import { updateTransaction, deleteTransaction, deleteTreasuryAccount, createPayroll, payPayroll } from "@/lib/actions/finance-actions";
 import { updateInvoice, deleteInvoice } from "@/lib/actions/invoice-actions";
@@ -666,6 +666,39 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
       if (!r.ok) return { ok: false, error: r.error ?? "La demande de validation a été refusée." };
       return { ok: true, revalidate: ["/validations", "/validations/paiements"] };
     },
+  },
+
+  /**
+   * FAIRE VALIDER UNE PIÈCE — au centre, jamais à quelqu'un qu'on nomme.
+   *
+   * `ask_payment_validation` laisse choisir le validateur ; celle-ci ne le laisse pas. C'est
+   * délibéré : le destinataire est le centre de validations (Directeur Général, à défaut Super
+   * Admin), et rien dans la phrase de la personne ne peut le changer. Un outil qui accepterait
+   * « fais valider par Untel » offrirait à un modèle — ou à un document qu'il a lu — de désigner
+   * le validateur le plus arrangeant, et l'audit n'y verrait qu'une validation de plus.
+   */
+  ask_piece_validation: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const req = await resolvePayment(opStr(input, "reference") || opStr(input, "label"));
+      if ("error" in req) return req;
+      const piece = await resolvePiece(req.id, req.reference, opStr(input, "piece"));
+      if ("error" in piece) return piece;
+      return {
+        title: `Envoyer la pièce « ${piece.name} » au centre de validations (${req.reference})`,
+        fields: fieldsOf([
+          ["Dossier", `${req.reference} — ${req.payee} · ${dzd(toNumber(req.amount))}`],
+          ["Pièce", piece.name],
+          ["Destinataire", "Centre de validations — Directeur Général (à défaut Super Admin)"],
+          ["Note", opStr(input, "note") || null],
+        ]),
+        args: { pieceId: piece.id, note: opStr(input, "note") || null },
+        successMessage: `Pièce « ${piece.name} » envoyée au centre de validations.`,
+        revalidate: ["/validations", "/validations/paiements", "/centre-de-validations"],
+      };
+    },
+    execute: (args) => runFd(askPieceValidation, args, "La demande de validation a été refusée.", {
+      revalidate: ["/validations", "/validations/paiements", "/centre-de-validations"],
+    }),
   },
 
   comment_payment_piece: {

@@ -731,7 +731,7 @@ G("demandes de paiement (création/pièces/décisions du circuit)", [
   "payment-request-actions:commentPaymentPiece", "payment-request-actions:reviewPaymentPiece",
   "payment-request-actions:addPaymentComment", "payment-request-actions:submitPaymentRequest",
   "payment-request-actions:decidePaymentRequest", "payment-request-actions:cancelPaymentRequest",
-  "payment-request-actions:askPaymentValidation",
+  "payment-request-actions:askPaymentValidation", "payment-request-actions:askPieceValidation",
   "payment-centre-actions:respondToPaymentCentre",
 ]);
 G("paie RH (marquer payé, transfert budget)", ["payroll-hr-actions:markSalaryPaid", "payroll-hr-actions:unmarkSalaryPaid", "payroll-hr-actions:transferPayrollToBudget"]);

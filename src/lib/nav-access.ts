@@ -4,6 +4,9 @@ import { canSeeRegEnrollment } from "@/lib/org-chart-access";
 import { getAppSettings } from "@/lib/settings";
 import { visibleModules } from "@/lib/modules-visibility";
 import { featureEnabled } from "@/lib/features";
+import { loadReportingLine } from "@/lib/departments";
+import { managesAnyone } from "@/lib/hr/reporting-line";
+import { prisma } from "@/lib/prisma";
 
 /**
  * CE QU'UNE PERSONNE A LE DROIT D'OUVRIR — la réponse, une fois, pour tous les écrans.
@@ -29,6 +32,28 @@ import { featureEnabled } from "@/lib/features";
  * propre garde (`requireModule`), et c'est elle qui fait foi. Ce qu'on évite ici, c'est de
  * proposer une porte fermée.
  */
+/**
+ * ENCADRE-T-IL QUELQU'UN ? — la même cascade que celle qui route les demandes.
+ *
+ * On ne demande pas « est-il chef d'un département » : la question serait plus simple et la
+ * réponse fausse. Un manager explicite sans département encadre ; un chef de département dont
+ * tous les subordonnés sont partis n'encadre plus. `managesAnyone` répond par la définition
+ * même — « quelqu'un dont je suis le N+1 » — et donc exactement comme l'écran qu'elle ouvre.
+ *
+ * Le doute referme le verrou : une lecture qui échoue cache l'entrée plutôt que de casser le
+ * menu entier.
+ */
+async function encadreQuelquun(user: SessionUser): Promise<boolean> {
+  try {
+    const me = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
+    if (!me) return false;
+    const { employees, departments } = await loadReportingLine();
+    return managesAnyone(me.id, employees, departments);
+  } catch {
+    return false;
+  }
+}
+
 export async function navigationFor(user: SessionUser): Promise<NavItem[]> {
   // LE DOUTE REFERME LE VERROU. Si les réglages sont illisibles, les gardes qui en dépendent
   // restent FERMÉES au lieu de faire échouer l'écran entier : on perd une entrée de menu, pas
@@ -68,6 +93,11 @@ export async function navigationFor(user: SessionUser): Promise<NavItem[]> {
     // renvoie vers /rh sans ce droit. Même règle ici, pour que l'entrée n'existe pas plutôt que
     // de rebondir — un directeur des opérations n'a rien à faire dans la masse salariale.
     payroll: userCan(user, "RH", "UPDATE"),
+    // « MON ÉQUIPE » n'apparaît qu'à qui encadre RÉELLEMENT quelqu'un. Le module est ouvert à
+    // tous (encadrer est un fait d'organigramme, pas un rôle), mais l'entrée n'a de sens que
+    // pour celui qui a des N-1 : sans eux, l'écran est vide, on le clique, on ne comprend pas,
+    // et l'on finit par demander à l'administrateur ce qui ne marche pas.
+    myTeam: await encadreQuelquun(user),
   };
 
   // Les SOUS-MODULES suivent la même règle que leur parent : chacun a son module et sa garde, et

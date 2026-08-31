@@ -1335,7 +1335,7 @@ export interface NavItem {
    * écrans dont l'ouverture dépend d'un réglage et pas seulement d'un rôle (l'analyse CTD est
    * débloquée en Administration, rôle par rôle).
    */
-  gate?: "regEnrollment" | "pipeline" | "payroll";
+  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam";
   /**
    * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
    * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
@@ -1492,6 +1492,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   LEGAL: "Legal",
   MAIL_REGISTER: "Courriers",
   RECRUITMENT: "Recrutement",
+  MY_TEAM: "Mon Équipe",
   WORKSPACE: "Espace de travail",
   MESSAGING: "Messagerie",
   REGULATORY: "Regulatory",
@@ -1512,8 +1513,13 @@ export const MODULE_LABELS: Record<Module, string> = {
   MEDICAL: "Promotion médicale",
   FIELD_REPORTS: "Rapports terrain",
   SALES_PLANNING: "Prévisions & Force de vente",
-  BUSINESS_DEVELOPMENT: "Business Development",
-  PCH: "PCH — Marchés",
+  // LES TROIS ÉCRANS DU PÔLE SE NOMMENT ICI COMME DANS LE MENU, et se règlent séparément.
+  // « Business Development » couvrait DEUX entrées de menu (Market Intelligence et
+  // l'Explorateur produits) sous un seul droit : on ne pouvait ni ouvrir l'un sans l'autre,
+  // ni retrouver « Explorateur produits » dans la console — le nom n'y existait pas.
+  BUSINESS_DEVELOPMENT: "Market Intelligence",
+  PRODUCT_EXPLORER: "Explorateur produits",
+  PCH: "Marchés PCH",
   STOCKS: "Stocks PCH",
   MEDICAL_INFO: "Information médicale",
   PROMO_MATERIAL: "Matériel promotionnel",
@@ -1674,10 +1680,22 @@ export const NAVIGATION: NavItem[] = [
   },
   // COURRIERS — le carnet entrant/sortant de l'assistante de direction.
   { module: "MAIL_REGISTER", label: "Courriers", href: "/courriers", icon: "Mails", group: "Pôles", pole: "ADMINISTRATION" },
-  // RECRUTEMENT — module à part, et non un écran de plus dans RH : celui qui demande un poste
-  // est un directeur opérationnel, qui n'a rien à faire dans la paie ni dans les dossiers du
-  // personnel. C'est aux RH que la demande ARRIVE, pas de chez eux qu'elle part.
-  { module: "RECRUITMENT", label: "Recrutement", href: "/recrutement", icon: "UserPlus", group: "Pôles", pole: "ADMINISTRATION" },
+  // MON ÉQUIPE — l'écran de celui qui ENCADRE, et RECRUTEMENT est passé dessous.
+  //
+  // Recruter n'est pas une affaire d'Administration : c'est le geste d'un encadrant à qui il
+  // manque quelqu'un. Le module vivait à côté des Budgets et des Courriers, si bien que le
+  // directeur qui voulait un poste devait savoir qu'il fallait le chercher là. Il est
+  // désormais où l'on pense à lui — sous son équipe, à côté des congés qu'il valide et des
+  // fins de contrat qu'il voit venir. Les DROITS ne bougent pas : `RECRUITMENT` reste un
+  // module à part, réglable seul dans la console.
+  {
+    module: "MY_TEAM", label: "Mon Équipe", href: "/mon-equipe", icon: "Users", group: "Pilotage",
+    match: ["/recrutement"], gate: "myTeam",
+    children: [
+      { module: "MY_TEAM", label: "Mon Équipe", href: "/mon-equipe", icon: "Users", group: "Pilotage" },
+      { module: "RECRUITMENT", label: "Recrutement", href: "/recrutement", icon: "UserPlus", group: "Pilotage" },
+    ],
+  },
   { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", pole: "ADMINISTRATION", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/reglages"] },
 
   // SALES & MARKETING — tout ce qui touche au terrain et au business réalisé. L'annuaire des
@@ -1702,7 +1720,7 @@ export const NAVIGATION: NavItem[] = [
   // On ne l'ouvre pas « en analysant le marché » : on l'ouvre parce qu'on cherche UN produit,
   // UNE molécule, UN laboratoire. C'était le geste le plus fréquent du pôle, et il fallait deux
   // clics et connaître le chemin pour y arriver.
-  { module: "BUSINESS_DEVELOPMENT", label: "Explorateur produits", href: "/explorateur-produits", icon: "PackageSearch", group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche/produits"] },
+  { module: "PRODUCT_EXPLORER", label: "Explorateur produits", href: "/explorateur-produits", icon: "PackageSearch", group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche/produits"] },
   { module: "PCH", label: "Marchés PCH", href: "/pch", icon: "Gavel", group: "Pôles", pole: "BUSINESS_DEV" },
 
   // SUPPLY CHAIN & LOGISTICS — l'exécution physique. Les modèles existaient déjà
@@ -1762,7 +1780,7 @@ export const NAV_LEGACY_LABELS: Record<string, Module> = {
   "PCH — Marchés": "PCH",
   "Prévisions & Force de vente": "SALES_PLANNING",
   "Business Development": "BUSINESS_DEVELOPMENT",
-  "Explorateur produits": "BUSINESS_DEVELOPMENT",
+  "Explorateur produits": "PRODUCT_EXPLORER",
   "Administration": "ADMIN",
 };
 

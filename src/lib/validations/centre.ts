@@ -27,6 +27,34 @@ export function sitsOnValidationCentre(user: { role: string }): boolean {
   return user.role === "SUPER_ADMIN" || user.role === "GENERAL_MANAGER";
 }
 
+/**
+ * À QUI ADRESSER UNE VALIDATION QU'ON ENVOIE « AU CENTRE ».
+ *
+ * ── POURQUOI UNE SEULE PERSONNE, ET NON LES DEUX ────────────────────────────────────────────
+ *
+ * Le centre est l'écran du Directeur Général ET du Super Admin. La tentation est d'adresser la
+ * demande aux deux : elle apparaîtrait chez chacun. Mais une demande à deux validateurs exige
+ * DEUX signatures (`mode: PARALLEL` n'approuve que lorsque toutes les étapes sont approuvées) —
+ * autrement dit, deux personnes qui regardent le même écran signeraient deux fois la même
+ * décision, et le dossier s'arrêterait dès que l'une est absente.
+ *
+ * On adresse donc au **Directeur Général**, à qui la décision revient ; à défaut de DG actif, au
+ * **Super Admin**. Rien n'est perdu pour ce dernier : `decideValidation` l'autorise déjà à
+ * trancher n'importe quelle étape — c'est un pouvoir qu'il détient de toute façon, et le lui
+ * faire exercer explicitement vaut mieux que de le déguiser en co-signature.
+ *
+ * Fonction PURE : cette règle décide où part une décision d'entreprise, elle doit se lire sans
+ * rien exécuter.
+ */
+export function centreValidatorFrom(
+  candidates: readonly { id: string; role: string; isActive?: boolean }[],
+): string | null {
+  const actifs = candidates.filter((c) => c.isActive !== false);
+  return actifs.find((c) => c.role === "GENERAL_MANAGER")?.id
+    ?? actifs.find((c) => c.role === "SUPER_ADMIN")?.id
+    ?? null;
+}
+
 export interface CentreValidationLike {
   actionable: boolean;
   deadline: string | null;

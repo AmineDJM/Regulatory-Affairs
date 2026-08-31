@@ -11,6 +11,7 @@ import { buildRef, createWithRetry } from "@/lib/refs";
 import { companyIdForNew } from "@/lib/company";
 import { persistUploadedDocument } from "@/lib/documents";
 import { createDirectValidation } from "@/lib/validation";
+import { centreValidatorFrom } from "@/lib/validations/centre";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
@@ -577,6 +578,86 @@ export async function askPaymentValidation(formData: FormData): Promise<ActionRe
     return { ok: true, id };
   } catch (err) {
     console.error("[payment] askPaymentValidation failed", err);
+    return { ok: false, error: "La demande de validation n'a pas pu être créée." };
+  }
+}
+
+/**
+ * FAIRE VALIDER **UNE PIÈCE** — et elle part au centre de validations.
+ *
+ * ── CE QUI CHANGE PAR RAPPORT À `askPaymentValidation` ──────────────────────────────────────
+ *
+ * L'ancienne demande portait sur le DOSSIER, avec des pièces citées en passant dans le titre, et
+ * l'on choisissait le validateur à la main. Deux défauts :
+ *
+ *   • le validateur recevait « valider PAY-2026-014 » et devait deviner ce qui, dans un dossier
+ *     de six pièces, était réellement en cause — il rouvrait tout, ou il signait sans lire ;
+ *   • choisir son validateur dans une liste, c'est choisir qui vous dit oui.
+ *
+ * Ici la validation porte sur UNE pièce (`documentId`), et son destinataire n'est pas choisi :
+ * elle part au **centre de validations** — au Directeur Général, à défaut au Super Admin
+ * (`centreValidatorFrom`, règle pure et testée). Une décision prise sur une pièce ne clôt pas
+ * le dossier : `decideValidation` le dit explicitement au demandeur, et compte ce qui reste.
+ */
+export async function askPieceValidation(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    if (!isFinance(user)) return { ok: false, error: "Réservé aux Finances." };
+    const pieceId = fdStr(formData, "pieceId");
+    if (!pieceId) return { ok: false, error: "Pièce introuvable." };
+
+    const piece = await prisma.paymentPiece.findUnique({
+      where: { id: pieceId },
+      include: { request: { select: { id: true, reference: true, payee: true, amount: true, status: true, dueDate: true, description: true } } },
+    });
+    if (!piece) return { ok: false, error: "Pièce introuvable." };
+    if (isClosed(piece.request.status)) return { ok: false, error: "Ce dossier est clos." };
+
+    // Une même pièce ne se fait pas valider deux fois : la seconde demande arriverait à côté de
+    // la première, sur le même écran, et le validateur devrait deviner laquelle fait foi.
+    const deja = await prisma.validationRequest.findFirst({
+      where: { entityType: "PAYMENT_REQUEST", entityId: piece.request.id, documentId: piece.documentId, status: "PENDING" },
+      select: { reference: true },
+    });
+    if (deja) return { ok: false, error: `Cette pièce est déjà en validation (${deja.reference}).` };
+
+    const sieges = await prisma.user.findMany({
+      where: { isActive: true, role: { in: ["GENERAL_MANAGER", "SUPER_ADMIN"] } },
+      select: { id: true, role: true },
+    });
+    const validatorId = centreValidatorFrom(sieges);
+    // Le dire, plutôt que de créer une demande que personne ne recevra : une validation sans
+    // destinataire dort dans la base et le demandeur croit l'avoir envoyée.
+    if (!validatorId) return { ok: false, error: "Aucun Directeur Général ni Super Admin actif : la validation n'aurait personne à qui aller." };
+
+    const doc = await prisma.document.findUnique({ where: { id: piece.documentId }, select: { name: true } });
+    const pieceName = doc?.name ?? "Pièce jointe";
+    const res = await createDirectValidation({
+      requesterId: user.id,
+      title: `Pièce à valider — ${pieceName} · paiement ${piece.request.reference} (${piece.request.payee})`,
+      description: [
+        fdStr(formData, "note"),
+        `Montant du paiement : ${toNumber(piece.request.amount).toLocaleString("fr-FR")} DZD.`,
+        piece.request.description,
+      ].filter(Boolean).join("\n\n") || null,
+      link: `${PATH}/${piece.request.id}`,
+      module: "Finances",
+      priority: "HIGH",
+      deadline: piece.request.dueDate,
+      validatorIds: [validatorId],
+      entityType: "PAYMENT_REQUEST",
+      entityId: piece.request.id,
+      // C'EST CE CHAMP QUI FAIT LA VALIDATION « DE PIÈCE » : sans lui, la décision se lirait
+      // comme portant sur le dossier entier.
+      documentId: piece.documentId,
+    });
+    if (!res.ok) return { ok: false, error: res.error ?? "La demande de validation n'a pas pu être créée." };
+
+    await trace(piece.request.id, user.id, "VALIDATION_ASKED", `Validation demandée au centre — pièce « ${pieceName} ».`);
+    revalidate(piece.request.id);
+    return { ok: true, id: piece.request.id };
+  } catch (err) {
+    console.error("[payment] askPieceValidation failed", err);
     return { ok: false, error: "La demande de validation n'a pas pu être créée." };
   }
 }

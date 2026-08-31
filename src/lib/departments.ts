@@ -1,4 +1,9 @@
+import { cache } from "react";
 import { prisma } from "@/lib/prisma";
+import {
+  resolveManager, managementChainOf,
+  type DepartmentNodeLite, type EmployeeNode, type ManagerSource,
+} from "@/lib/hr/reporting-line";
 
 /**
  * DÉPARTEMENTS — structure de l'entreprise et hiérarchie réelle (N+1).
@@ -15,6 +20,12 @@ import { prisma } from "@/lib/prisma";
  * L'**adjoint** (`Department.deputy`) prend le relais si le responsable est l'employé
  * lui-même (on ne se valide pas soi-même) ou n'est pas renseigné.
  */
+
+// Mémoïsation par requête si React `cache` est disponible ; sinon (tests, hors requête) no-op.
+// La ligne hiérarchique est demandée par la barre de navigation ET par les écrans qu'elle
+// ouvre : sans mémo, les deux mêmes lectures repartaient à chaque rendu.
+const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
+  typeof cache === "function" ? (cache as never) : (fn) => fn;
 
 // ───────────────────────────── Arbre des départements ─────────────────────────────
 
@@ -144,18 +155,29 @@ export interface ManagerRef {
   fullName: string;
   userId: string | null;
   /** D'où vient ce N+1 : manager explicite, responsable du département, ou d'un parent. */
-  source: "MANAGER" | "DEPARTMENT_HEAD" | "DEPARTMENT_DEPUTY" | "PARENT_DEPARTMENT_HEAD";
+  source: ManagerSource;
 }
 
-type EmpLite = { id: string; fullName: string; userId: string | null; managerId: string | null; departmentId: string | null };
-type DeptLite = { id: string; parentId: string | null; headId: string | null; deputyId: string | null };
-
-async function loadEmployee(employeeId: string): Promise<EmpLite | null> {
-  return prisma.employee.findUnique({
-    where: { id: employeeId },
-    select: { id: true, fullName: true, userId: true, managerId: true, departmentId: true },
-  });
-}
+/**
+ * LES DEUX TABLES DE LA LIGNE HIÉRARCHIQUE, chargées d'un coup.
+ *
+ * La cascade elle-même vit dans `hr/reporting-line.ts` — PURE, testée, et appelée aussi bien
+ * pour « qui est mon N+1 » que pour « qui sont mes N-1 ». Ce module ne fait plus que lui porter
+ * les données : c'est ce qui garantit que « untel est dans mon équipe » et « la demande d'untel
+ * m'arrive » disent toujours la même chose. Écrire la règle deux fois, c'est se donner rendez-vous
+ * avec le jour où elles divergent.
+ */
+export const loadReportingLine = perRequest(
+  async (): Promise<{ employees: EmployeeNode[]; departments: DepartmentNodeLite[] }> => {
+    const [employees, departments] = await Promise.all([
+      prisma.employee.findMany({
+        select: { id: true, fullName: true, userId: true, managerId: true, departmentId: true, isActive: true },
+      }),
+      prisma.department.findMany({ select: { id: true, parentId: true, headId: true, deputyId: true } }),
+    ]);
+    return { employees, departments };
+  },
+);
 
 /**
  * Résout le **N+1 réel** d'un employé (voir la cascade en tête de fichier).
@@ -163,64 +185,20 @@ async function loadEmployee(employeeId: string): Promise<EmpLite | null> {
  * département, on passe à l'adjoint puis on remonte au département parent.
  */
 export async function getManagerOf(employeeId: string): Promise<ManagerRef | null> {
-  const emp = await loadEmployee(employeeId);
-  if (!emp) return null;
-
-  const ref = async (id: string, source: ManagerRef["source"]): Promise<ManagerRef | null> => {
-    if (id === emp.id) return null; // on ne se valide pas soi-même
-    const m = await prisma.employee.findUnique({ where: { id }, select: { id: true, fullName: true, userId: true, isActive: true } });
-    if (!m || !m.isActive) return null;
-    return { employeeId: m.id, fullName: m.fullName, userId: m.userId, source };
-  };
-
-  // 1. Manager explicite (organigramme)
-  if (emp.managerId) {
-    const direct = await ref(emp.managerId, "MANAGER");
-    if (direct) return direct;
-  }
-  if (!emp.departmentId) return null;
-
-  // 2 & 3. Responsable du département, puis on REMONTE les parents (N niveaux).
-  const depts = (await prisma.department.findMany({ select: { id: true, parentId: true, headId: true, deputyId: true } })) as DeptLite[];
-  const byId = new Map(depts.map((d) => [d.id, d]));
-  let current = byId.get(emp.departmentId) ?? null;
-  let level = 0;
-  while (current && level++ < 20) {
-    const isOwn = level === 1;
-    // Si l'employé EST le responsable de son propre département, son N+1 se trouve
-    // forcément AU-DESSUS : on escalade au parent (l'adjoint est un subordonné, pas
-    // un supérieur — il supplée une absence, il ne valide pas son propre chef).
-    if (isOwn && current.headId === emp.id) {
-      current = current.parentId ? byId.get(current.parentId) ?? null : null;
-      continue;
-    }
-    if (current.headId) {
-      const head = await ref(current.headId, isOwn ? "DEPARTMENT_HEAD" : "PARENT_DEPARTMENT_HEAD");
-      if (head) return head;
-    }
-    // Responsable absent (non renseigné ou compte inactif) → l'adjoint supplée.
-    if (current.deputyId) {
-      const dep = await ref(current.deputyId, isOwn ? "DEPARTMENT_DEPUTY" : "PARENT_DEPARTMENT_HEAD");
-      if (dep) return dep;
-    }
-    current = current.parentId ? byId.get(current.parentId) ?? null : null;
-  }
-  return null;
+  const { employees, departments } = await loadReportingLine();
+  return resolveManager(employeeId, employees, departments);
 }
 
-/** Chaîne hiérarchique complète, du N+1 jusqu'au sommet (sans boucle infinie). */
+/**
+ * Chaîne hiérarchique complète, du N+1 jusqu'au sommet (sans boucle infinie).
+ *
+ * UNE lecture des deux tables, puis la chaîne se déroule en mémoire. L'ancienne version
+ * rappelait `getManagerOf` à chaque échelon, et chacun rechargeait TOUS les départements :
+ * une chaîne de cinq niveaux faisait dix allers-retours pour la même donnée.
+ */
 export async function getManagementChain(employeeId: string, maxDepth = 10): Promise<ManagerRef[]> {
-  const chain: ManagerRef[] = [];
-  const seen = new Set<string>([employeeId]);
-  let currentId = employeeId;
-  for (let i = 0; i < maxDepth; i++) {
-    const mgr = await getManagerOf(currentId);
-    if (!mgr || seen.has(mgr.employeeId)) break;
-    chain.push(mgr);
-    seen.add(mgr.employeeId);
-    currentId = mgr.employeeId;
-  }
-  return chain;
+  const { employees, departments } = await loadReportingLine();
+  return managementChainOf(employeeId, employees, departments, maxDepth);
 }
 
 /** N+1 d'un COMPTE applicatif (résolu via sa fiche employé). */

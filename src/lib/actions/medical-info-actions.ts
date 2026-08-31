@@ -16,8 +16,13 @@ import { archiveProcessedRequest } from "@/lib/archive";
 import { formatAlgiers } from "@/lib/calendar-tz";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { createPaymentRequest } from "@/lib/actions/payment-request-actions";
-import { bvCanDeliver, bvCanRequest, bvStage, bvStageLabel, bvUnlocksAuthorities } from "@/lib/medical-info/bv";
+import { bvCanDeliver, bvCanRequest, bvCanRequestQuittance, bvStage, bvStageLabel, bvUnlocksAuthorities } from "@/lib/medical-info/bv";
 import { bvStateOf } from "@/lib/medical-info/bv-state";
+import { bvChain, bvChainNote } from "@/lib/medical-info/bv-approval";
+import { centreValidatorFrom } from "@/lib/validations/centre";
+import { createDirectValidation } from "@/lib/validation";
+import { getManagerOfUser } from "@/lib/departments";
+import { toNumber } from "@/lib/utils";
 
 const PATH = "/information-medicale";
 
@@ -184,22 +189,138 @@ export async function requestMedicalInfoBv(_prev: ActionResult | undefined, form
 
   const raw = fdStr(formData, "amount");
   const amount = raw ? Number(raw.replace(",", ".")) : NaN;
-  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "Indiquez le montant du bon de versement." };
+  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "Indiquez le montant attendu du bon de versement." };
+  const note = fdStr(formData, "note");
+
+  // ── LES TROIS SIGNATAIRES ─────────────────────────────────────────────────────────────────
+  // Le N+1 vient de l'organigramme, le chef de produit du DOSSIER SOURCE (c'est lui qui connaît
+  // le budget accordé et ce qu'il couvre), le centre de validations de la règle qui le définit.
+  const [manager, productManagerId, sieges] = await Promise.all([
+    getManagerOfUser(user.id).catch(() => null),
+    productManagerOfSource(decl.sourceType, decl.sourceId),
+    prisma.user.findMany({
+      where: { isActive: true, role: { in: ["GENERAL_MANAGER", "SUPER_ADMIN"] } },
+      select: { id: true, role: true },
+    }),
+  ]);
+  const chaine = bvChain({
+    managerUserId: manager?.userId ?? null,
+    productManagerUserId: productManagerId,
+    centreUserId: centreValidatorFrom(sieges),
+    requesterId: user.id,
+  });
+  // Créer une demande que personne ne reçoit, c'est la laisser dormir en base pendant que le
+  // pharmacien croit l'avoir envoyée.
+  if (chaine.validatorIds.length === 0) {
+    return { ok: false, error: "Aucun signataire disponible (responsable, chef de produit, Directeur Général) : la demande n'aurait personne à qui aller." };
+  }
+
+  const res = await createDirectValidation({
+    requesterId: user.id,
+    title: `Bon de versement — ${decl.label} · ${amount.toLocaleString("fr-FR")} DZD`,
+    description: [
+      note,
+      `Déclaration ${decl.reference}${decl.beneficiary ? ` — ${decl.beneficiary}` : ""}.`,
+      bvChainNote(chaine),
+    ].filter(Boolean).join("\n\n") || null,
+    link: `${PATH}/${id}`,
+    module: "Information médicale",
+    priority: "HIGH",
+    validatorIds: chaine.validatorIds,
+    // SÉQUENTIEL : l'ordre EST le contrôle. En parallèle, le Directeur Général signerait avant
+    // que quiconque ait vérifié le montant, et sa signature ne s'appuierait sur rien.
+    mode: "SEQUENTIAL",
+    entityType: "MEDICAL_INFO_DECLARATION",
+    entityId: id,
+    amount,
+  });
+  if (!res.ok) return { ok: false, error: res.error ?? "La demande de bon de versement n'a pas pu être créée." };
+
+  await prisma.medicalInfoDeclaration.update({
+    where: { id },
+    data: {
+      bvValidationId: res.requestId ?? null,
+      bvAmount: amount,
+      bvNote: note,
+      bvRequestedAt: new Date(),
+      bvRequestedById: user.id,
+    },
+  });
+
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Information médicale",
+    entityType: "MEDICAL_INFO_DECLARATION", entityId: id,
+    summary: `Bon de versement demandé en validation — ${amount.toLocaleString("fr-FR")} DZD (${decl.reference})`,
+  });
+  revalidate(id);
+  return { ok: true, id: res.requestId };
+}
+
+/**
+ * LE CHEF DE PRODUIT DU DOSSIER — celui du dossier SOURCE, jamais un « chef de produit » générique.
+ *
+ * La question qu'on lui pose est « le montant correspond-il à CET événement ? ». Y répondre
+ * suppose de connaître le budget accordé et ce qu'il couvre — donc d'être celui qui a instruit
+ * ce dossier-là. Désigner n'importe quel titulaire du rôle ferait signer quelqu'un qui n'a pas
+ * la question, ce qui est pire qu'une marche sautée : la signature existe et ne vaut rien.
+ */
+async function productManagerOfSource(sourceType: string, sourceId: string): Promise<string | null> {
+  const sel = { select: { productManagerId: true } } as const;
+  switch (sourceType) {
+    case "CONGRESS_INTERNATIONAL":
+      return (await prisma.congressInternational.findUnique({ where: { id: sourceId }, ...sel }))?.productManagerId ?? null;
+    case "CONGRESS_NATIONAL":
+      return (await prisma.congressNational.findUnique({ where: { id: sourceId }, ...sel }))?.productManagerId ?? null;
+    case "EVENT":
+      return (await prisma.event.findUnique({ where: { id: sourceId }, ...sel }))?.productManagerId ?? null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * DEUXIÈME TEMPS — LE PAIEMENT DE LA QUITTANCE.
+ *
+ * Le bon accordé, le pharmacien demande le règlement depuis LE MÊME écran, avec le montant RÉEL
+ * de la quittance — qui n'est pas toujours celui annoncé au moment de la demande. À partir
+ * d'ici, plus rien de spécifique : c'est une `PaymentRequest` ORDINAIRE, qui emprunte le chemin
+ * commun (centre de paiement → Finances) avec ses pièces, son fil d'allers-retours et son
+ * échéance. Ce qui la distingue est son rattachement, qui la ramène à cette déclaration.
+ */
+export async function requestMedicalInfoQuittance(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!canManage(user)) return { ok: false, error: "Réservé au pharmacien responsable de l'information médicale." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Déclaration introuvable." };
+  const decl = await prisma.medicalInfoDeclaration.findUnique({ where: { id } });
+  if (!decl) return { ok: false, error: "Déclaration introuvable." };
+
+  const etat = await bvStateOf(decl);
+  if (!bvCanRequestQuittance(etat)) {
+    return { ok: false, error: `Le paiement de la quittance ne peut pas être demandé maintenant : ${bvStageLabel(bvStage(etat)).toLowerCase()}.` };
+  }
+
+  const raw = fdStr(formData, "amount");
+  const amount = raw ? Number(raw.replace(",", ".")) : NaN;
+  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "Indiquez le montant de la quittance." };
 
   // On rejoue le formulaire de la demande de paiement : c'est la MÊME action canonique que
   // depuis les Demandes de validations, donc les mêmes contrôles et le même circuit.
   const fd = new FormData();
-  fd.set("title", `Bon de versement — ${decl.label}`);
+  fd.set("title", `Quittance de versement — ${decl.label}`);
   fd.set("payee", fdStr(formData, "payee") || "Autorités sanitaires");
   fd.set("amount", String(amount));
-  fd.set("description", fdStr(formData, "note") ?? "");
+  fd.set("description", [
+    fdStr(formData, "note"),
+    decl.bvAmount ? `Bon accordé pour ${toNumber(decl.bvAmount).toLocaleString("fr-FR")} DZD.` : null,
+  ].filter(Boolean).join("\n\n"));
   if (decl.companyId) fd.set("companyId", decl.companyId);
   const echeance = fdStr(formData, "dueDate");
   if (echeance) fd.set("dueDate", echeance);
   for (const f of formData.getAll("files")) if (f instanceof File && f.size > 0) fd.append("files", f);
 
   const created = await createPaymentRequest(undefined, fd);
-  if (!created.ok || !created.id) return { ok: false, error: created.error ?? "La demande de bon de versement a été refusée." };
+  if (!created.ok || !created.id) return { ok: false, error: created.error ?? "La demande de paiement a été refusée." };
 
   await prisma.$transaction([
     prisma.paymentRequest.update({
@@ -212,7 +333,7 @@ export async function requestMedicalInfoBv(_prev: ActionResult | undefined, form
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Information médicale",
     entityType: "MEDICAL_INFO_DECLARATION", entityId: id,
-    summary: `Bon de versement demandé — ${amount.toLocaleString("fr-FR")} DZD (${decl.reference})`,
+    summary: `Quittance demandée au paiement — ${amount.toLocaleString("fr-FR")} DZD (${decl.reference})`,
   });
   revalidate(id);
   return { ok: true, id: created.id };

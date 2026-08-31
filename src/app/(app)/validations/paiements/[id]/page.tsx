@@ -49,24 +49,41 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
   // demandeur, les Finances et le destinataire désigné y entrent.
   if (!isFinance && !isRequester && req.recipientId !== user.id) redirect("/validations/paiements");
 
-  const [docs, people] = await Promise.all([
+  const [docs, people, validations] = await Promise.all([
     prisma.document.findMany({
       where: { id: { in: req.pieces.map((p) => p.documentId) } },
       select: { id: true, name: true },
     }),
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    // LES VALIDATIONS DÉJÀ DEMANDÉES, PIÈCE PAR PIÈCE. Sans elles, on redemande à valider ce
+    // qui est déjà chez le Directeur Général : deux demandes arrivent sur le même écran et il
+    // doit deviner laquelle fait foi.
+    prisma.validationRequest.findMany({
+      where: { entityType: "PAYMENT_REQUEST", entityId: req.id, documentId: { not: null } },
+      select: { id: true, reference: true, status: true, documentId: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
   const docName = new Map(docs.map((d) => [d.id, d.name]));
   const names = new Map(people.map((p) => [p.id, p.name]));
 
-  const pieces: PieceView[] = req.pieces.map((p) => ({
-    id: p.id, documentId: p.documentId, name: docName.get(p.documentId) ?? "Pièce",
-    kind: p.kind, note: p.note, status: p.status, reviewNote: p.reviewNote,
-    reviewedBy: p.reviewedById ? names.get(p.reviewedById) ?? null : null,
-    replacedById: p.replacedBy?.id ?? null,
-    addedBy: p.createdById ? names.get(p.createdById) ?? null : null,
-    createdAt: formatDate(p.createdAt.toISOString()),
-  }));
+  // La validation la PLUS RÉCENTE par pièce : c'est elle qui décrit l'état actuel. Les
+  // précédentes appartiennent à l'historique, que le fil du dossier porte déjà.
+  const validationByDoc = new Map<string, (typeof validations)[number]>();
+  for (const v of validations) if (v.documentId && !validationByDoc.has(v.documentId)) validationByDoc.set(v.documentId, v);
+
+  const pieces: PieceView[] = req.pieces.map((p) => {
+    const v = validationByDoc.get(p.documentId) ?? null;
+    return {
+      id: p.id, documentId: p.documentId, name: docName.get(p.documentId) ?? "Pièce",
+      kind: p.kind, note: p.note, status: p.status, reviewNote: p.reviewNote,
+      reviewedBy: p.reviewedById ? names.get(p.reviewedById) ?? null : null,
+      replacedById: p.replacedBy?.id ?? null,
+      addedBy: p.createdById ? names.get(p.createdById) ?? null : null,
+      createdAt: formatDate(p.createdAt.toISOString()),
+      validation: v ? { id: v.id, reference: v.reference, status: v.status } : null,
+    };
+  });
   const events: EventView[] = req.events.map((e) => ({
     id: e.id, kind: e.kind, message: e.message,
     actor: e.actorId ? names.get(e.actorId) ?? null : null,
@@ -124,6 +141,7 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
 
       <PaymentDossier
         id={req.id}
+        reference={req.reference}
         status={req.status}
         isRequester={isRequester}
         isFinance={isFinance}

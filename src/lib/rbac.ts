@@ -26,14 +26,14 @@ const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
 export const MODULES = [
   "WORKSPACE", "FEEDBACK", "MESSAGING", "REGULATORY", "SPONSORING", "BUDGETS", "FINANCES", "RH",
   "CONGRESS_INTERNATIONAL", "CONGRESS_NATIONAL", "EVENTS", "SALES", "LOGISTICS", "MEDICAL", "FIELD_REPORTS", "SALES_PLANNING",
-  "BUSINESS_DEVELOPMENT", "PCH", "STOCKS", "MEDICAL_INFO", "PROMO_MATERIAL", "CONSULTING", "AD_PRO_OTHER", "GENERAL_MEANS", "VALIDATIONS", "VALIDATION_CENTRE", "DIRECTIVES", "SUPPORT", "DOSSIERS", "DOCUMENTS", "DRIVE", "ADMIN_REQUESTS", "NOTIFICATIONS",
+  "BUSINESS_DEVELOPMENT", "PRODUCT_EXPLORER", "PCH", "STOCKS", "MEDICAL_INFO", "PROMO_MATERIAL", "CONSULTING", "AD_PRO_OTHER", "GENERAL_MEANS", "VALIDATIONS", "VALIDATION_CENTRE", "DIRECTIVES", "SUPPORT", "DOSSIERS", "DOCUMENTS", "DRIVE", "ADMIN_REQUESTS", "NOTIFICATIONS",
   // LEGAL : les engagements de la société (contrats, bons de commande, assurances).
   // MAIL_REGISTER : le carnet de courriers entrants/sortants de l'assistante de direction —
   // module à part, dont le Super Admin ouvre l'accès à qui il veut.
   // RECRUITMENT : les demandes de recrutement, de la demande d'un directeur à l'intégration.
   // Module À PART de RH, et pas un écran de plus dedans : le DEMANDEUR est un directeur
   // opérationnel qui n'a rien à faire dans la paie ni dans les dossiers du personnel.
-  "LEGAL", "MAIL_REGISTER", "RECRUITMENT",
+  "LEGAL", "MAIL_REGISTER", "RECRUITMENT", "MY_TEAM",
   // PAYMENT_CENTRE : le centre d'autorisation des paiements — un module À PART, hors Finances.
   // Il n'appartient qu'au PDG et au Super Admin : celui qui autorise l'argent ne doit pas être
   // dans le même écran que celui qui le décaisse, sinon la séparation des rôles n'est qu'un onglet.
@@ -112,7 +112,7 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, DRIVE: DRIVE_USER,
     REGULATORY: MANAGE, SPONSORING: MANAGE, BUDGETS: READ, FINANCES: MANAGE, RH: MANAGE,
     CONGRESS_INTERNATIONAL: MANAGE, CONGRESS_NATIONAL: MANAGE, EVENTS: MANAGE, SALES: MANAGE,
-    LOGISTICS: MANAGE, PCH: MANAGE, STOCKS: MANAGE, MEDICAL: MANAGE, FIELD_REPORTS: MANAGE, SALES_PLANNING: MANAGE, BUSINESS_DEVELOPMENT: MANAGE,
+    LOGISTICS: MANAGE, PCH: MANAGE, STOCKS: MANAGE, MEDICAL: MANAGE, FIELD_REPORTS: MANAGE, SALES_PLANNING: MANAGE, BUSINESS_DEVELOPMENT: MANAGE, PRODUCT_EXPLORER: MANAGE,
     MEDICAL_INFO: MANAGE, PROMO_MATERIAL: MANAGE, CONSULTING: MANAGE, AD_PRO_OTHER: MANAGE, DOCUMENTS: MANAGE, ADMIN_REQUESTS: MANAGE,
     GENERAL_MEANS: MANAGE, LEGAL: MANAGE, MAIL_REGISTER: MANAGE, RECRUITMENT: MANAGE,
     // Le CENTRE DE PAIEMENT : le PDG y siège avec le Super Admin — et personne d'autre,
@@ -140,7 +140,7 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     REGULATORY: MANAGE, SPONSORING: MANAGE, BUDGETS: READ, FINANCES: MANAGE, RH: MANAGE,
     CONGRESS_INTERNATIONAL: MANAGE, CONGRESS_NATIONAL: MANAGE, EVENTS: MANAGE, SALES: MANAGE,
     LOGISTICS: MANAGE, PCH: MANAGE, STOCKS: MANAGE, MEDICAL: MANAGE, FIELD_REPORTS: MANAGE,
-    SALES_PLANNING: MANAGE, BUSINESS_DEVELOPMENT: MANAGE, MEDICAL_INFO: MANAGE,
+    SALES_PLANNING: MANAGE, BUSINESS_DEVELOPMENT: MANAGE, PRODUCT_EXPLORER: MANAGE, MEDICAL_INFO: MANAGE,
     PROMO_MATERIAL: MANAGE, CONSULTING: MANAGE, AD_PRO_OTHER: MANAGE, DOCUMENTS: MANAGE,
     ADMIN_REQUESTS: MANAGE, GENERAL_MEANS: MANAGE, LEGAL: MANAGE, MAIL_REGISTER: MANAGE,
     // Le DG est le SOMMET de la chaîne de validation d'un recrutement, et celui qui tranche
@@ -205,7 +205,7 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, CONGRESS_INTERNATIONAL: MANAGE, CONGRESS_NATIONAL: MANAGE, EVENTS: MANAGE, MEDICAL: READ, FIELD_REPORTS: READ, BUDGETS: READ, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
   },
   BUSINESS_DEVELOPMENT_MANAGER: {
-    WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, BUSINESS_DEVELOPMENT: MANAGE, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
+    WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, BUSINESS_DEVELOPMENT: MANAGE, PRODUCT_EXPLORER: MANAGE, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
   },
   FINANCE_BUDGET_MANAGER: {
     WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, BUDGETS: MANAGE, FINANCES: MANAGE, GENERAL_MEANS: MANAGE, RH: READ, SPONSORING: READ, SALES: READ, LOGISTICS: READ, PCH: READ, STOCKS: READ,
@@ -762,6 +762,22 @@ export const getAccess = perRequest(
       } else {
         modules.set("RECRUITMENT", { actions: new Set<Action>(recruitment.actions), scope: recruitment.scope });
       }
+    }
+
+    // ── « MON ÉQUIPE » SUIT L'ORGANIGRAMME, PAS LE RÔLE ──
+    //
+    // Encadrer n'est pas un rôle : c'est un FAIT de l'organigramme. Un chef de produit, un
+    // responsable régulatoire, un directeur commercial encadrent tous quelqu'un sans partager
+    // le moindre rôle — et l'on ne peut pas prévoir dans une matrice quels rôles encadrent, ni
+    // la corriger à chaque nomination.
+    //
+    // Le module est donc accordé à TOUT LE MONDE, et c'est la GARDE de navigation (`myTeam`,
+    // dans `nav-access.ts`) qui n'affiche l'entrée qu'à ceux qui ont réellement des N-1. Ce
+    // n'est pas un trou : l'écran d'une personne sans équipe ne contient rien à voir — il ne
+    // lit que SES subordonnés, et elle n'en a pas.
+    {
+      const cur = modules.get("MY_TEAM");
+      if (!cur) modules.set("MY_TEAM", { actions: new Set<Action>(["VIEW"]), scope: "ASSIGNED" });
     }
 
     // ── INTÉRIM D'UN CONGÉ ──

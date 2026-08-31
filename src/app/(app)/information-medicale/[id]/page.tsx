@@ -17,7 +17,7 @@ import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { MEDICAL_INFO_STATUS, DOC_REQUEST_STATUS, ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { RequestDocForm, CancelRequestButton, FulfillForm, AuthorityForm, ValidateButton, DirectionValidateButton, BvCard, AuthorityLocked } from "./panels";
-import { bvCanDeliver, bvCanRequest, bvStage, bvUnlocksAuthorities } from "@/lib/medical-info/bv";
+import { bvCanDeliver, bvCanRequest, bvCanRequestQuittance, bvStage, bvUnlocksAuthorities } from "@/lib/medical-info/bv";
 import { bvStateOf } from "@/lib/medical-info/bv-state";
 import { BackLink } from "@/components/shared/back-link";
 
@@ -32,9 +32,12 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
   const canManage = hasGlobalView(user.role) || userCan(user, "MEDICAL_INFO", "VALIDATE");
 
   // ── LE BON DE VERSEMENT : l'étape qui précède la déclaration aux autorités ────────────────
-  // L'état ne vit dans aucun champ — il se compose de la demande de paiement, de son passage au
-  // centre, de son règlement, et de la remise au bureau du PRIM. C'est cette REMISE qui ouvre la
-  // déclaration : « payé » ne veut pas dire « le pharmacien a le papier en main ».
+  // Deux temps. Le bon est d'abord ACCORDÉ — trois signatures : le responsable, le chef de
+  // produit du dossier, puis le centre de validations — et la quittance n'est demandée au
+  // paiement qu'ensuite. L'état ne vit dans aucun champ : il se compose de la validation, de la
+  // demande de paiement, de son passage au centre, de son règlement et de la remise au bureau du
+  // PRIM. C'est cette REMISE qui ouvre la déclaration : « payé » ne veut pas dire « le
+  // pharmacien a le papier en main ».
   const bv = await bvStateOf(decl);
   const bvEtape = bvStage(bv);
   const autoritesOuvertes = bvUnlocksAuthorities(bv);
@@ -255,10 +258,13 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
                     deliveredAt={decl.bvDeliveredAt?.toISOString() ?? null}
                     deliveredBy={bvRemisPar?.name ?? null}
                     skipReason={decl.bvSkipReason}
+                    bvAmount={decl.bvAmount ? toNumber(decl.bvAmount) : null}
                     canRequest={bvCanRequest(bv)}
+                    canRequestQuittance={canManage && bvCanRequestQuittance(bv)}
                     canDeliver={canDeliverBv}
                     canSkip={!autoritesOuvertes && bvCanRequest(bv)}
                     requestHref={decl.bvRequestId ? `/validations/paiements/${decl.bvRequestId}` : null}
+                    validationHref={decl.bvValidationId ? `/validations/${decl.bvValidationId}` : null}
                   />
                 </CardContent>
               </Card>

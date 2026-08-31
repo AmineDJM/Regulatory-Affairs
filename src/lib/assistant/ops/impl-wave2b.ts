@@ -15,7 +15,7 @@ import {
 import {
   requestDocument as requestMedicalDoc, cancelDocRequest, recordAuthorityDeclaration,
   validateDeclaration, validateDeclarationByDirection, addMedicalInfoComment,
-  requestMedicalInfoBv, deliverMedicalInfoBv, skipMedicalInfoBv,
+  requestMedicalInfoBv, requestMedicalInfoQuittance, deliverMedicalInfoBv, skipMedicalInfoBv,
 } from "@/lib/actions/medical-info-actions";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
@@ -811,14 +811,47 @@ export const MEDINFO_OPS_IMPL: Record<string, OpImpl> = {
         title: `Demander le bon de versement — ${decl.reference}`,
         fields: fieldsOf([
           ["Déclaration", `${decl.reference} — ${decl.label}`],
-          ["Montant", dzd(montant)],
+          ["Montant attendu", dzd(montant)],
+          ["Note", opStr(input, "note") || null],
+        ]),
+        warnings: [
+          "AUCUN ARGENT N'EST ENGAGÉ ICI : la demande part en VALIDATION — le responsable du pharmacien, le chef de produit du dossier, puis le centre de validations.",
+          "Le paiement de la quittance se demande ENSUITE, une fois le bon accordé.",
+        ],
+        args: { id: decl.id, amount: String(montant), note: opStr(input, "note") || null },
+        successMessage: `Bon de versement de ${dzd(montant)} demandé en validation pour ${decl.reference}.`,
+        link: `/information-medicale/${decl.id}`,
+        revalidate: ["/information-medicale", "/validations", "/centre-de-validations"],
+      };
+    },
+    execute: (args) => runFd2(requestMedicalInfoBv, args, "La demande de bon de versement a été refusée.", {
+      revalidate: ["/information-medicale", "/validations", "/centre-de-validations"],
+    }),
+  },
+
+  /**
+   * LE SECOND TEMPS — la quittance. Elle ne peut être demandée qu'une fois le bon accordé, et
+   * l'action le REVÉRIFIE : ce n'est pas à l'aperçu de garder cette garde.
+   */
+  request_quittance: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const decl = await resolveDeclaration(opStr(input, "reference") || opStr(input, "label"));
+      if ("error" in decl) return decl;
+      const montant = Number(opStr(input, "amount") ?? "");
+      if (!Number.isFinite(montant) || montant <= 0) return { error: "Indiquez le montant de la quittance (champ « amount »)." };
+      return {
+        title: `Demander le paiement de la quittance — ${decl.reference}`,
+        fields: fieldsOf([
+          ["Déclaration", `${decl.reference} — ${decl.label}`],
+          ["Montant de la quittance", dzd(montant)],
           ["Bénéficiaire", opStr(input, "person") || "Autorités sanitaires"],
           ["Échéance demandée", isoDate(opStr(input, "date")) || null],
           ["Note", opStr(input, "note") || null],
         ]),
         warnings: [
+          "Le bon doit être ACCORDÉ : sans cela, l'action refuse.",
           "La demande part au CENTRE DE PAIEMENT ; les Finances ne la voient qu'une fois autorisée.",
-          "Les pièces se joignent à l'écran : une demande de versement se justifie par un document, pas par une phrase.",
+          "Les pièces se joignent à l'écran : une demande de paiement se justifie par un document, pas par une phrase.",
         ],
         args: {
           id: decl.id, amount: String(montant),
@@ -826,12 +859,14 @@ export const MEDINFO_OPS_IMPL: Record<string, OpImpl> = {
           dueDate: isoDate(opStr(input, "date")) || null,
           note: opStr(input, "note") || null,
         },
-        successMessage: `Bon de versement de ${dzd(montant)} demandé pour ${decl.reference} — au centre de paiement.`,
+        successMessage: `Quittance de ${dzd(montant)} demandée au paiement pour ${decl.reference} — au centre de paiement.`,
         link: `/information-medicale/${decl.id}`,
-        revalidate: ["/information-medicale"],
+        revalidate: ["/information-medicale", "/validations/paiements"],
       };
     },
-    execute: (args) => runFd2(requestMedicalInfoBv, args, "La demande de bon de versement a été refusée.", { revalidate: ["/information-medicale"] }),
+    execute: (args) => runFd2(requestMedicalInfoQuittance, args, "La demande de paiement a été refusée.", {
+      revalidate: ["/information-medicale", "/validations/paiements"],
+    }),
   },
 
   deliver_bv: {

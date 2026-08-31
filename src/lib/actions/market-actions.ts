@@ -19,6 +19,18 @@ const asForm = (v: string | undefined | null): GalenicForm | null =>
   v && (GALENIC_FORMS as readonly string[]).includes(v) ? (v as GalenicForm) : null;
 
 /**
+ * QUI PEUT INTERROGER LE MARCHÉ — l'un OU l'autre des deux écrans.
+ *
+ * Ces trois lectures servent DEUX modules désormais distincts : « Market Intelligence » et
+ * « Explorateur produits ». Les avoir gardées sur le seul droit historique aurait fait de la
+ * séparation un piège : on ouvre l'Explorateur à quelqu'un, il voit l'écran, et chaque
+ * recherche lui répond « Non autorisé ». Un module qu'on ouvre à moitié est pire qu'un module
+ * fermé — il fait croire à une panne.
+ */
+const peutInterrogerLeMarche = (user: Parameters<typeof userCan>[0]): boolean =>
+  userCan(user, "BUSINESS_DEVELOPMENT", "VIEW") || userCan(user, "PRODUCT_EXPLORER", "VIEW");
+
+/**
  * Recherche de produits (marché ville IQVIA + marché hospitalier PCH) pour l'explorateur de
  * l'Intelligence marché. On cherche **par la case que l'on remplit** : molécule (comparée par
  * radical), nom de produit, ou laboratoire (réconcilié entre les trois sources).
@@ -29,7 +41,7 @@ export async function searchMarketProducts(input: {
   form?: string; dosage?: string; cls?: string; lab?: string; segment?: string;
 }): Promise<MarketProductSearchResult> {
   const user = await requireUser();
-  if (!userCan(user, "BUSINESS_DEVELOPMENT", "VIEW")) return { ok: false, products: [], total: 0, error: "Non autorisé." };
+  if (!peutInterrogerLeMarche(user)) return { ok: false, products: [], total: 0, error: "Non autorisé." };
   const segment = input.segment === "VILLE" || input.segment === "HOPITAL" ? (input.segment as MarketSegment) : null;
   const res = searchProducts({
     q: input.q, molecule: input.molecule, brand: input.brand, labName: input.labName,
@@ -54,7 +66,7 @@ export async function analyzeMarketMolecule(input: {
   molecule: string; dosage?: string; form?: string;
 }): Promise<MoleculeAnalysisResult> {
   const user = await requireUser();
-  if (!userCan(user, "BUSINESS_DEVELOPMENT", "VIEW")) return { ok: false, analysis: null, error: "Non autorisé." };
+  if (!peutInterrogerLeMarche(user)) return { ok: false, analysis: null, error: "Non autorisé." };
   const molecule = (input.molecule ?? "").trim();
   if (molecule.length < 3) return { ok: false, analysis: null, error: "Indiquez au moins 3 caractères de molécule." };
   try {
@@ -71,7 +83,7 @@ export async function analyzeMarketMolecule(input: {
 /** Suggestions pendant la frappe : molécules connues (les plus grosses d'abord) et laboratoires. */
 export async function marketSuggestions(kind: "molecule" | "lab", q: string): Promise<string[]> {
   const user = await requireUser();
-  if (!userCan(user, "BUSINESS_DEVELOPMENT", "VIEW")) return [];
+  if (!peutInterrogerLeMarche(user)) return [];
   try {
     return kind === "molecule" ? moleculeSuggestions(q).map((m) => m.label) : labSuggestions(q);
   } catch {

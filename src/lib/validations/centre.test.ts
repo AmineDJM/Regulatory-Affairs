@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { centreCounters, sitsOnValidationCentre, sortForCentre, type CentreValidationLike } from "./centre";
+import { centreCounters, centreValidatorFrom, sitsOnValidationCentre, sortForCentre, type CentreValidationLike } from "./centre";
 
 const J = 86_400_000;
 const MAINTENANT = new Date("2026-09-10T09:00:00Z");
@@ -84,5 +84,37 @@ describe("l'ordre d'affichage", () => {
     const copie = [...rows];
     sortForCentre(rows);
     expect(rows).toEqual(copie);
+  });
+});
+
+describe("à qui part une validation envoyée « au centre »", () => {
+  const dg = { id: "dg", role: "GENERAL_MANAGER" };
+  const sa = { id: "sa", role: "SUPER_ADMIN" };
+  const autre = { id: "x", role: "FINANCE_BUDGET_MANAGER" };
+
+  it("au Directeur Général quand il y en a un — la décision lui revient", () => {
+    expect(centreValidatorFrom([autre, sa, dg])).toBe("dg");
+  });
+
+  it("au Super Admin à défaut de DG actif", () => {
+    expect(centreValidatorFrom([autre, sa])).toBe("sa");
+  });
+
+  it("UNE SEULE personne, jamais les deux", () => {
+    // Deux validateurs = deux signatures exigées : deux personnes qui regardent le même écran
+    // signeraient deux fois la même décision, et le dossier s'arrêterait dès que l'une s'absente.
+    const cible = centreValidatorFrom([dg, sa]);
+    expect(cible).toBe("dg");
+    expect(cible).not.toBe("sa");
+  });
+
+  it("un compte DÉSACTIVÉ ne reçoit rien — la demande dormirait chez un absent", () => {
+    expect(centreValidatorFrom([{ ...dg, isActive: false }, sa])).toBe("sa");
+    expect(centreValidatorFrom([{ ...dg, isActive: false }, { ...sa, isActive: false }])).toBeNull();
+  });
+
+  it("personne qui siège : `null`, et l'appelant devra le dire", () => {
+    expect(centreValidatorFrom([autre])).toBeNull();
+    expect(centreValidatorFrom([])).toBeNull();
   });
 });

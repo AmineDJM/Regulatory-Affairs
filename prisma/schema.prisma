@@ -3044,9 +3044,25 @@ model MedicalInfoDeclaration {
   /// bureau. C'est cette remise — un geste, pas un statut déduit — qui débloque la déclaration :
   /// « payé » ne veut pas dire « le PRIM a le papier en main », et c'est le papier qu'on dépose.
   ///
-  /// La demande elle-même est une `PaymentRequest` ordinaire (montant, note, pièces, fil) : elle
-  /// emprunte le circuit commun plutôt qu'un second circuit de paiement qui divergerait.
-  bvRequestId             String? // la demande de paiement portant le BV
+  /// ── DEUX TEMPS, ET NON UN SEUL ────────────────────────────────────────────────────────
+  ///
+  /// 1. LE BON EST D'ABORD ACCORDÉ. Le PRIM demande le versement (montant attendu, note,
+  ///    pièces) et cette demande est VALIDÉE — N+1, puis chef de produit, puis le centre de
+  ///    validations (Directeur Général, à défaut Super Admin). Tant que ces trois-là n'ont pas
+  ///    signé, aucun argent n'est engagé : on ne fait pas autoriser un décaissement par le
+  ///    centre de PAIEMENT pour découvrir ensuite que le principe même du versement était
+  ///    contesté.
+  /// 2. LA QUITTANCE EST ENSUITE PAYÉE. Le BV accordé, le PRIM demande le paiement de la
+  ///    quittance (le montant réel, qui n'est pas toujours celui annoncé), et cette demande
+  ///    emprunte le circuit COMMUN — centre de paiement, puis Finances.
+  bvValidationId          String? // la demande de validation du BON (circuit à trois signatures)
+  bvAmount                Decimal?                @db.Decimal(14, 2) // montant ANNONCÉ à la demande du bon
+  bvNote                  String? // ce que le PRIM explique en demandant le bon
+  bvRequestedAt           DateTime?
+  bvRequestedById         String?
+  /// La demande de paiement de la QUITTANCE : une `PaymentRequest` ordinaire (montant, note,
+  /// pièces, fil), qui emprunte le circuit commun plutôt qu'un second circuit qui divergerait.
+  bvRequestId             String? // la demande de paiement de la quittance
   bvDeliveredAt           DateTime? // remis au bureau du PRIM par les Finances
   bvDeliveredById         String?
   bvDeliveryNote          String?

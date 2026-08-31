@@ -722,6 +722,18 @@ export const OPS_CATALOG: OpMeta[] = [
     covers: ["payment-request-actions:askPaymentValidation"],
   },
   {
+    tool: "finance_operation", op: "ask_piece_validation", module: "Validations → Paiements",
+    uiLabel: "Faire valider UNE pièce (centre de validations)",
+    aliases: ["fais valider la facture du dossier de paiement", "envoie cette pièce au centre de validations"],
+    risk: "NORMAL",
+    // Le destinataire ne se choisit PAS : c'est le centre (Directeur Général, à défaut Super
+    // Admin). Le laisser choisir reviendrait à laisser choisir qui vous dit oui — et Adam s'en
+    // servirait pour désigner le validateur le plus complaisant sans que personne le voie.
+    summary: "Les Finances envoient UNE pièce nommée au centre de validations — au Directeur Général, à défaut au Super Admin. La décision porte sur cette pièce seule et ne clôt pas le dossier.",
+    gate: (u) => hasGlobalView(u) || userCan(u, "FINANCES", "VALIDATE") || userCan(u, "FINANCES", "UPDATE"),
+    covers: ["payment-request-actions:askPieceValidation"],
+  },
+  {
     tool: "finance_operation", op: "comment_payment_piece", module: "Validations → Paiements",
     uiLabel: "Commenter une pièce",
     aliases: ["commente la pièce du dossier de paiement", "précise le commentaire de la facture du dossier"],
@@ -1950,9 +1962,18 @@ export const OPS_CATALOG: OpMeta[] = [
     uiLabel: "Demander le bon de versement",
     aliases: ["demande le bon de versement", "demande un BV pour la déclaration", "il faut verser la taxe"],
     risk: "NORMAL",
-    summary: "Demande le BON DE VERSEMENT d'une déclaration (champ « amount » = le montant) — l'étape qui PRÉCÈDE la déclaration aux autorités. La demande part au centre de paiement, puis aux Finances une fois autorisée ; les pièces se joignent à l'écran.",
+    summary: "Fait ACCORDER le bon de versement d'une déclaration (champ « amount » = le montant attendu). Aucun argent n'est engagé : la demande part en VALIDATION — le responsable du pharmacien, le chef de produit du dossier, puis le centre de validations. Le paiement de la quittance se demande ensuite, une fois le bon accordé.",
     gate: (u) => hasGlobalView(u) || userCan(u, "MEDICAL_INFO", "VALIDATE"),
     covers: ["medical-info-actions:requestMedicalInfoBv"],
+  },
+  {
+    tool: "medical_info_operation", op: "request_quittance", module: "Information médicale",
+    uiLabel: "Demander le paiement de la quittance",
+    aliases: ["demande le paiement de la quittance", "fais payer la quittance du BV"],
+    risk: "NORMAL",
+    summary: "Demande le PAIEMENT de la quittance, une fois le bon de versement accordé (champ « amount » = le montant réel de la quittance, qui peut différer de celui annoncé). La demande part au centre de paiement, puis aux Finances une fois autorisée ; les pièces se joignent à l'écran.",
+    gate: (u) => hasGlobalView(u) || userCan(u, "MEDICAL_INFO", "VALIDATE"),
+    covers: ["medical-info-actions:requestMedicalInfoQuittance"],
   },
   {
     tool: "medical_info_operation", op: "deliver_bv", module: "Information médicale",

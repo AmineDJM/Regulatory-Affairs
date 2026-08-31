@@ -15,7 +15,7 @@ export const metadata = { title: "Explorateur produits — AMD Internal OS" };
  * fallait deux clics et connaître le chemin pour y arriver.
  */
 export default async function ProductExplorerPage() {
-  await requireModule("BUSINESS_DEVELOPMENT");
+  await requireModule("PRODUCT_EXPLORER");
   // Listes de filtres (UNION ville + hôpital) + jeu initial (60 plus fortes valeurs) chargés
   // côté serveur ; les recherches suivantes passent par l'action `searchMarketProducts`.
   const { classes } = productFilterOptions();

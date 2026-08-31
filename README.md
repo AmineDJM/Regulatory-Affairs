@@ -213,6 +213,7 @@ jamais identique.
 | **Demandes de validations** | `/validations` | **Bureau de validation central** : agrège **toutes les validations en attente** issues des autres modules (Bureau du secrétariat, Ad & Pro, **Finances**, information médicale…) — visible des **validateurs** (pas du demandeur). Le Super Admin définit des **règles configurables** (module, type d'objet, montant, département, rôle, priorité → 1 ou 2 validateurs, séquentiel/parallèle). → [détails](#centre-de-validation-agrégation--configurable) |
 | **Documents** (Drive + Documents + **catégories**) | `/drive` | Stockage **chiffré et durable en base** (`FileBlob`), visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), **impression**, versioning. **Imports larges**, **déplacer**, **corbeille en cascade**, **accès par personne** (voir / modifier) à l'import. **Catégories** (espaces partagés type « Promotion Médicale ») créées par un rôle autorisé par le Super Admin, présentées en **onglets** à côté de Drive/Documents, accès encadré (consultation vs gestion). |
 | **Projets** | `/dossiers` | **Projet** de suivi d'un sujet ad hoc : description, **responsable + participants**, statut, **fichiers** et **fil de discussion**. Créable **manuellement**, **proposé par l'IA**, ou **créé automatiquement** quand on implique une tierce personne sur un événement. (Route interne `/dossiers`, entité `Dossier` inchangées.) |
+| **Mon Équipe** | `/mon-equipe` | L'écran de celui qui **encadre** (RBAC `MY_TEAM`, ouvert à tous — l'entrée n'apparaît qu'à qui a réellement des N-1, garde `myTeam`). Trois questions et trois seulement : **qui est dans mon équipe** (déduite de la cascade hiérarchique — la MÊME fonction qui route les demandes, donc les deux ne peuvent pas diverger), **qu'est-ce qui m'attend** (congés, achats, formations, la plus ancienne en tête), **qui est là cette semaine** (absents du jour, prochaines absences, fins de contrat ≤ 60 j). Ce n'est **pas** un mini-module RH : fiches, salaires et dossiers restent aux RH. **Recrutement** est son sous-module dans le menu — recruter est le geste d'un encadrant à qui il manque quelqu'un — mais garde ses **droits propres**. |
 | **Recrutement** | `/recrutement` | Le poste demandé, de l'idée d'un directeur jusqu'à l'intégration. Un **directeur de département** formule le besoin (poste, missions, compétences, contrat **CDI / CDD / consulting / stage**, fourchette de rémunération, dates, fiche de poste) — le droit de demander suit l'**organigramme**, pas une liste de rôles. Sa **hiérarchie valide marche par marche jusqu'au sommet** (chaîne **figée à la soumission** ; la direction peut trancher à n'importe quelle marche, les marches sautées étant marquées **non consultées**). Les **RH instruisent** et demandent des précisions autant de fois qu'il le faut — la demande **retourne alors au demandeur**. Poste ouvert : **CV reçus** déposés par les RH, **présélection par le demandeur**, **choix de la direction parmi les présélectionnés ou en dehors**, entretiens, recrutement. Puis l'**intégration** (fiche employé pré-remplie) — **sauf pour un consulting**, intervenant externe hors effectif et hors paie. → [circuit](#-journal-des-évolutions-récentes) |
 | **Bureau du secrétariat** | `/demandes` | « Bureau de l'assistante de direction » : **10 types** de demandes, **catalogue d'articles de fourniture**, **demandes multi-cellules**, **fenêtre de 15 min** pour que le demandeur **modifie TOUT ce qu'il a saisi** ou supprime sa demande, **suppression traçable** (corbeille + motif), **flux par demande** (achat → validation Finances → devis/facture → Fin de la demande), validations, ordres de dépense, **espace Courses** (`/demandes/courses` : courses chauffeur **multi-points A/B/C** avec consigne par point, date **et heure max** — heure d'Alger —, pièces jointes, vue chauffeur en checklist), **accusé de réception des originaux de notes de frais** (section dédiée sur `/demandes`, verrouille/déverrouille le traitement RH), demandes terminées **archivées dans le Drive** (« Dossier traité »). → [workflow](#bureau-du-secrétariat--flux-par-demande) |
 | **Demandes de support** | `/support` | Questions / **brochures** / **supports de visite** / PDF adressés au **directeur médical** ou au **chef de produit**, avec fil + pièces jointes. |
@@ -3522,6 +3523,105 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Le bon de versement se fait en deux temps : accordé, puis payé (2026-08)
+
+**Le principe du versement se discute AVANT que l'argent soit engagé.** Le pharmacien responsable
+déposait jusqu'ici une demande de **paiement** directement : le centre de paiement se retrouvait
+donc à autoriser un décaissement dont personne, en amont, n'avait dit qu'il était dû. Refuser à ce
+stade coûte cher — le dossier est déjà instruit, et le refus se lit comme un désaveu comptable
+alors qu'il porte sur le fond.
+
+Deux marches, désormais :
+
+1. **Le bon est ACCORDÉ.** Le PRIM demande le versement (montant attendu, note) et **trois
+   signatures** répondent, dans cet ordre : son **N+1**, le **chef de produit du dossier source**
+   (c'est lui qui connaît le budget accordé et ce qu'il couvre), puis le **centre de validations**
+   (Directeur Général, à défaut Super Admin). L'ordre EST le contrôle : en parallèle, le DG
+   signerait avant que quiconque ait vérifié le montant, et sa signature ne s'appuierait sur rien.
+2. **La quittance est PAYÉE.** Le bon accordé, le PRIM demande le règlement depuis le même écran,
+   avec le montant **réel** de la quittance — qui n'est pas toujours celui annoncé. À partir de
+   là, plus rien de spécifique : `PaymentRequest` ordinaire, centre de paiement puis Finances, qui
+   règlent, **scannent la quittance et la déposent** au bureau du PRIM. C'est cette remise — un
+   geste, pas un statut déduit — qui ouvre la déclaration aux autorités.
+
+Une marche sans signataire (pas de N+1, pas de chef de produit) est **sautée et DITE** dans la
+demande, jamais remplacée par quelqu'un d'autre : désigner un remplaçant « au plus proche » ferait
+signer une personne qui n'a pas la question — pire qu'une marche sautée, car la signature existe
+et ne vaut rien. Le demandeur est écarté partout ; la même personne ne signe jamais deux fois.
+
+Un refus **de principe** rouvre la demande de bon ; un refus **du centre de paiement** ne rouvre
+que la quittance — le bon reste accordé, et renvoyer le pharmacien à la première marche lui ferait
+refaire trois signatures pour un montant à corriger. Les dossiers ouverts avant cette marche
+reprennent où ils en sont : ils n'ont pas de validation, et les renvoyer à « à demander » leur
+ferait recommencer un circuit déjà instruit.
+
+- **Purs & testés** : `lib/medical-info/bv.ts` (12 états, `bvCanRequest` / `bvCanRequestQuittance` /
+  `bvCanDeliver` / `bvUnlocksAuthorities`, 13 tests) ; `lib/medical-info/bv-approval.ts`
+  (`bvChain`, `bvChainNote`, 6 tests).
+- **Circuit** : `lib/actions/medical-info-actions.ts` (`requestMedicalInfoBv` → validation
+  séquentielle ; `requestMedicalInfoQuittance` → paiement) ; `lib/medical-info/bv-state.ts`.
+- **Schéma** : `MedicalInfoDeclaration.bvValidationId|bvAmount|bvNote|bvRequestedAt|bvRequestedById`
+  — migration `20261005090000_bv_valide_avant_quittance` (idempotente, et qui **reprend le fil**
+  des dossiers déjà en cours).
+- **Adam** : `medical_info_operation:request_bv` (reformulée) + `request_quittance`.
+
+### Mon Équipe — l'écran de celui qui encadre (2026-08)
+
+**Encadrer n'est pas un rôle, c'est un fait de l'organigramme.** Un chef de produit, un
+responsable régulatoire, un directeur commercial encadrent tous quelqu'un sans partager le moindre
+rôle. Le module est donc ouvert à tous, et c'est une **garde de navigation** qui n'affiche
+l'entrée qu'à ceux qui ont réellement des N-1.
+
+**L'équipe se DÉDUIT, elle ne se déclare pas.** `directReportsOf` la définit comme « ceux dont la
+cascade dit que je suis le N+1 » — la **même** fonction qui route leurs demandes. Inverser la
+cascade à la main aurait été faux et silencieusement : on aurait compté quelqu'un dont le
+`managerId` désigne une autre personne mais qui appartient à mon département, et oublié celui dont
+le chef est inactif et qui remonte donc jusqu'à moi. Deux vérités : un écran qui affiche
+quelqu'un, et un circuit qui envoie sa demande ailleurs.
+
+L'écran répond à trois questions et à trois seulement : **qui est dans mon équipe**, **qu'est-ce
+qui m'attend** (congés, achats, formations — la plus ancienne en tête), **qui est là cette
+semaine**. Ce n'est pas un mini-module RH : les fiches, les salaires et les dossiers restent aux
+ressources humaines. **Recrutement** rejoint ce pôle dans le menu — recruter est le geste d'un
+encadrant à qui il manque quelqu'un, pas une affaire d'Administration — mais ses **droits ne
+bougent pas** : `RECRUITMENT` reste réglable seul dans la console.
+
+- **Pur & testé** : `lib/hr/reporting-line.ts` (`resolveManager`, `directReportsOf`,
+  `managementChainOf`, `managesAnyone` — 15 tests). `lib/departments.ts` lui DÉLÈGUE désormais :
+  écrire la cascade deux fois, c'est se donner rendez-vous avec le jour où elles divergent.
+- **Écran** : `app/(app)/mon-equipe/page.tsx` ; requête `lib/queries/my-team.ts` ; module RBAC
+  `MY_TEAM` (accordé à tous, garde `myTeam` dans `lib/nav-access.ts`).
+
+### Les lignes non rattachées cessent de disparaître (2026-08)
+
+**`companyId` est NULLABLE, et `{ companyId: X }` ne retient pas `null`.** Beaucoup de lignes
+n'ont pas d'entité — celles créées avant le multi-entités, celles nées d'un circuit qui ne la
+renseigne pas. Elles disparaissaient de **tous** les écrans dès qu'une portée d'entité
+s'appliquait. Deux pannes rapportées le même jour : « des fois 19 courriers, des fois 14 », et un
+pharmacien responsable qui voyait ses déclarations dans « Mon espace » (aucun filtre d'entité) et
+zéro dans son module. Et c'est une impasse : une ligne qu'on ne voit pas est une ligne qu'on ne
+peut pas rattacher — l'écran « non rattachés » existe précisément pour aller les rechercher.
+
+`currentCompanyWhereFor` est **supprimé**, remplacé par `companyScopedWhere(userId, base)` sur les
+23 appels. Ce n'est pas cosmétique : le filtre s'écrit désormais `OR` (l'entité, **ou rien**), et
+l'étaler dans un `where` qui porte déjà un `OR` — la plupart des portées RBAC — écraserait
+silencieusement la portée métier et ouvrirait les lignes des autres. La composition se fait par un
+`AND`, à l'intérieur de la fonction, et le type force le passage par elle.
+
+### Dossier de paiement : pièces demandées et validations PAR PIÈCE (2026-08)
+
+Le dossier ouvert depuis « Paiements à faire » devient un vrai espace **Dossier & pièces** :
+
+- **Demander une pièce d'ici** — elle atterrit dans « Pièces demandées » de la personne visée, qui
+  la dépose sans accéder au module. Ce qu'on demande s'écrit en clair (« la facture définitive de
+  l'agence »), jamais « pièce n° 3 » : le destinataire n'a pas le dossier sous les yeux.
+- **Faire valider UNE pièce**, et elle part **au centre de validations** — au Directeur Général, à
+  défaut au Super Admin (`centreValidatorFrom`, pure et testée). Le destinataire ne se choisit
+  pas : choisir son validateur dans une liste, c'est choisir qui vous dit oui. Et une demande qui
+  dit « valider PAY-2026-014 » sans nommer la pièce en cause fait rouvrir un dossier de six
+  pièces, ou signer sans lire. Une même pièce ne part pas deux fois ; l'état de sa validation
+  s'affiche sur elle.
 
 ### Le bon de versement précède la déclaration, et le dossier de paiement s'ouvre (2026-08)
 

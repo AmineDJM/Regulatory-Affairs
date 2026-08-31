@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, Send, Upload, Trash2, ShieldCheck, AlertCircle, FileText, BadgeCheck, Lock, HandCoins, PackageCheck } from "lucide-react";
 import {
   requestDocument, cancelDocRequest, fulfillDocRequest, validateDeclaration, validateDeclarationByDirection, recordAuthorityDeclaration,
-  requestMedicalInfoBv, deliverMedicalInfoBv, skipMedicalInfoBv,
+  requestMedicalInfoBv, requestMedicalInfoQuittance, deliverMedicalInfoBv, skipMedicalInfoBv,
 } from "@/lib/actions/medical-info-actions";
 import { bvMessage, bvStageLabel, type BvStage } from "@/lib/medical-info/bv";
 import { Button } from "@/components/ui/button";
@@ -102,17 +102,26 @@ export function FulfillForm({ requestId }: { requestId: string }) {
  * L'écran montre donc l'état à tous, et le bouton à un seul — un bouton qu'on ne peut pas
  * actionner apprend seulement qu'on n'a pas le droit.
  */
-export function BvCard({ id, stage, amount, deliveredAt, deliveredBy, skipReason, canRequest, canDeliver, canSkip, requestHref }: {
+export function BvCard({
+  id, stage, amount, bvAmount, deliveredAt, deliveredBy, skipReason,
+  canRequest, canRequestQuittance, canDeliver, canSkip, requestHref, validationHref,
+}: {
   id: string;
   stage: BvStage;
+  /** Le montant de la QUITTANCE demandée au paiement, quand elle existe. */
   amount: number | null;
+  /** Le montant ANNONCÉ à la demande du bon — celui que les trois signataires ont vu. */
+  bvAmount: number | null;
   deliveredAt: string | null;
   deliveredBy: string | null;
   skipReason: string | null;
   canRequest: boolean;
+  canRequestQuittance: boolean;
   canDeliver: boolean;
   canSkip: boolean;
   requestHref: string | null;
+  /** La demande de VALIDATION du bon : c'est là qu'on lit qui a signé et qui bloque. */
+  validationHref: string | null;
 }) {
   const { saving, err, run } = useAction();
   const [skipping, setSkipping] = React.useState(false);
@@ -123,8 +132,17 @@ export function BvCard({ id, stage, amount, deliveredAt, deliveredBy, skipReason
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <HandCoins className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
         <span className="font-medium">{bvStageLabel(stage)}</span>
+        {/* LES DEUX MONTANTS SE DISTINGUENT. Celui du bon est ce que les trois signataires ont
+            approuvé ; celui de la quittance est ce qu'on paie réellement. Les confondre ferait
+            croire à une signature sur un montant que personne n'a vu. */}
+        {bvAmount != null && bvAmount > 0 && (
+          <span className="text-muted-foreground">· bon : {bvAmount.toLocaleString("fr-FR")} DZD</span>
+        )}
         {amount != null && amount > 0 && (
-          <span className="text-muted-foreground">· {amount.toLocaleString("fr-FR")} DZD</span>
+          <span className="text-muted-foreground">· quittance : {amount.toLocaleString("fr-FR")} DZD</span>
+        )}
+        {validationHref && (
+          <a href={validationHref} className="text-primary hover:underline">Voir la validation</a>
         )}
         {requestHref && (
           <a href={requestHref} className="text-primary hover:underline">Voir le dossier de paiement</a>
@@ -141,33 +159,26 @@ export function BvCard({ id, stage, amount, deliveredAt, deliveredBy, skipReason
         <p className="text-xs text-muted-foreground">Motif : {skipReason}</p>
       )}
 
-      {/* LE PRIM DEMANDE — montant, note, et autant de pièces qu'il faut. */}
+      {/* PREMIER TEMPS — LE PRIM FAIT ACCORDER LE BON. Aucun argent n'est engagé ici : trois
+          signatures répondent d'abord (responsable, chef de produit, centre de validations). */}
       {canRequest && (
         <form
           ref={formRef}
           className="space-y-2 border-t border-border pt-3"
           action={(fd) => { fd.set("id", id); run(() => requestMedicalInfoBv(undefined, fd), () => formRef.current?.reset()); }}
         >
+          <p className="text-xs text-muted-foreground">
+            La demande part en validation : votre <strong>responsable</strong>, le <strong>chef de
+            produit</strong> du dossier, puis le <strong>centre de validations</strong> (Directeur
+            Général). Le paiement ne se demandera qu&apos;une fois le bon accordé.
+          </p>
           <div className="space-y-1">
-            <Label htmlFor="bv-amount">Montant du bon de versement (DZD)</Label>
+            <Label htmlFor="bv-amount">Montant attendu du bon (DZD)</Label>
             <Input id="bv-amount" name="amount" type="number" step="0.01" min="0" required />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="bv-payee">Bénéficiaire</Label>
-            <Input id="bv-payee" name="payee" defaultValue="Autorités sanitaires" />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="bv-due">Échéance demandée</Label>
-            <Input id="bv-due" name="dueDate" type="date" />
-            <p className="text-xs text-muted-foreground">Le centre de paiement arbitre : il voit la file entière.</p>
           </div>
           <div className="space-y-1">
             <Label htmlFor="bv-note">Note</Label>
             <Textarea id="bv-note" name="note" rows={2} placeholder="Ce que couvre ce versement, la référence de l'avis…" />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="bv-files">Pièces jointes</Label>
-            <Input id="bv-files" name="files" type="file" multiple className="text-sm" />
           </div>
           <Err msg={err} />
           <Button type="submit" disabled={saving} size="sm">
@@ -176,17 +187,62 @@ export function BvCard({ id, stage, amount, deliveredAt, deliveredBy, skipReason
         </form>
       )}
 
+      {/* SECOND TEMPS — LE BON EST ACCORDÉ, LA QUITTANCE SE PAIE. Le montant réel peut différer
+          de celui annoncé : c'est la quittance qu'on règle, pas l'estimation. */}
+      {canRequestQuittance && (
+        <form
+          className="space-y-2 border-t border-border pt-3"
+          action={(fd) => { fd.set("id", id); run(() => requestMedicalInfoQuittance(undefined, fd)); }}
+        >
+          <p className="text-xs text-muted-foreground">
+            Le bon est accordé. La demande de paiement partira au <strong>centre de paiement</strong>,
+            puis aux <strong>Finances</strong>, qui régleront et déposeront la quittance à votre bureau.
+          </p>
+          <div className="space-y-1">
+            <Label htmlFor="q-amount">Montant de la quittance (DZD)</Label>
+            <Input id="q-amount" name="amount" type="number" step="0.01" min="0" required defaultValue={bvAmount ?? undefined} />
+            {bvAmount != null && bvAmount > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Bon accordé pour {bvAmount.toLocaleString("fr-FR")} DZD — corrigez si la quittance diffère.
+              </p>
+            )}
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="q-payee">Bénéficiaire</Label>
+            <Input id="q-payee" name="payee" defaultValue="Autorités sanitaires" />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="q-due">Échéance demandée</Label>
+            <Input id="q-due" name="dueDate" type="date" />
+            <p className="text-xs text-muted-foreground">Le centre de paiement arbitre : il voit la file entière.</p>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="q-note">Note</Label>
+            <Textarea id="q-note" name="note" rows={2} placeholder="Référence de l'avis, précisions pour les Finances…" />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="q-files">Pièces jointes</Label>
+            <Input id="q-files" name="files" type="file" multiple className="text-sm" />
+            <p className="text-xs text-muted-foreground">Au moins une pièce est exigée pour transmettre — c&apos;est ce que le centre doit pouvoir lire.</p>
+          </div>
+          <Err msg={err} />
+          <Button type="submit" disabled={saving} size="sm">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Demander le paiement de la quittance
+          </Button>
+        </form>
+      )}
+
       {/* LES FINANCES REMETTENT — c'est CE geste qui ouvre la déclaration, pas le règlement. */}
       {canDeliver && (
         <form className="space-y-2 border-t border-border pt-3" action={(fd) => { fd.set("id", id); run(() => deliverMedicalInfoBv(fd)); }}>
           <p className="text-xs text-muted-foreground">
-            Le versement est réglé. En confirmant la remise du bon au bureau du PRIM, vous lui ouvrez
-            la déclaration aux autorités.
+            Le versement est réglé. Scannez la quittance et déposez-la au bureau du PRIM : en
+            confirmant la remise, vous lui ouvrez la déclaration aux autorités.
           </p>
-          <Input name="note" placeholder="Remis à… / en main propre / par coursier (facultatif)" className="text-sm" />
+          <Input name="note" placeholder="Remise à… / en main propre / par coursier (facultatif)" className="text-sm" />
           <Err msg={err} />
           <Button type="submit" disabled={saving} size="sm">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />} Bon remis au bureau du PRIM
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />} Quittance remise au bureau du PRIM
           </Button>
         </form>
       )}
