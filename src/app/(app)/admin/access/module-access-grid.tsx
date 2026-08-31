@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Check, Search } from "lucide-react";
+import { Loader2, Check, Search, EyeOff } from "lucide-react";
 import { saveModuleAccess } from "@/lib/actions/access-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -32,6 +32,12 @@ export interface ModuleSpec {
   actions: string[];
   rowScoped: boolean;
   roleCount: number;
+  /**
+   * Module MASQUÉ (« Modules en service ») — hors service pour tout le monde sauf le Super
+   * Admin, quels que soient les droits accordés ici. Sans cette information, on règle des
+   * accès qui n'ouvrent rien et l'on conclut que « les droits ne se modifient pas ».
+   */
+  hidden: boolean;
 }
 
 export function ModuleAccessGrid({
@@ -103,6 +109,22 @@ export function ModuleAccessGrid({
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher un employé…" className="w-56 pl-8" />
         </div>
       </div>
+
+      {/* LE MODULE HORS SERVICE SE DIT ICI, pas ailleurs. Un module masqué se referme pour tout
+          le monde sauf le Super Admin : les droits réglés ci-dessous s'enregistrent bel et bien,
+          mais n'ouvrent RIEN tant qu'il n'est pas remis en service. Sans ce bandeau, on règle,
+          on teste, on ne comprend pas — et l'on conclut que les accès du module sont cassés. */}
+      {spec?.hidden && (
+        <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
+          <EyeOff className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <p>
+            <strong>{spec.label} est hors service</strong> — retiré de la plateforme pour tout le monde
+            (le Super Admin excepté). Les droits réglés ci-dessous s&apos;enregistrent, mais n&apos;ouvriront
+            rien tant que le module ne sera pas remis en service dans{" "}
+            <a href="/admin/settings" className="font-medium text-primary hover:underline">Administration › Réglages › Modules en service</a>.
+          </p>
+        </div>
+      )}
 
       <div className="surface overflow-x-auto">
         <Table>

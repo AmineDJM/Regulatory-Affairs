@@ -77,6 +77,13 @@ export interface ModuleSheetSpec {
   rowScoped: boolean;
   /** Nombre de rôles qui atteignent le module sans autorisation nominative. */
   roleCount: number;
+  /**
+   * Module retiré du service (« Modules en service »). Ce n'est PAS un droit — c'est un état
+   * de plateforme qui prime sur tous les droits : masqué, le module se referme pour tout le
+   * monde sauf le Super Admin. L'écran des accès doit le DIRE, sinon on règle des permissions
+   * qui n'ouvrent rien et l'on croit la matrice cassée.
+   */
+  hidden: boolean;
 }
 
 /** La feuille entière, module par module — l'unique source de ce que l'écran affiche. */
@@ -87,12 +94,16 @@ export function buildAccessSheet(
   actionOrder: readonly string[],
   roles: readonly string[],
   scopeOf: (role: string, module: string) => string,
+  /** Modules hors service. Absent = aucun (la feuille reste utilisable sans les réglages). */
+  hidden: readonly string[] = [],
 ): ModuleSheetSpec[] {
+  const off = new Set(hidden);
   return modules.map((m) => ({
     value: m,
     label: labels[m] ?? m,
     actions: actionsOfModule(m, permissions, actionOrder),
     rowScoped: isRowScoped(m, roles, scopeOf),
     roleCount: rolesReaching(m, permissions),
+    hidden: off.has(m),
   }));
 }

@@ -7,6 +7,7 @@ import { MODULE_LABELS, ROLE_LABELS, ACTION_LABELS } from "@/lib/labels";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ModuleAccessGrid, type AccessUser, type UserModuleState } from "./module-access-grid";
+import { getAppSettings } from "@/lib/settings";
 import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +56,9 @@ export default async function AccessByModulePage() {
 
   // LA FEUILLE, DÉDUITE. Les rôles porteurs sont ceux de la matrice elle-même : ajouter un rôle
   // à l'application le fait entrer ici sans qu'on y touche.
+  // LES MODULES HORS SERVICE entrent dans la feuille : un module masqué prime sur tous les
+  // droits, et l'écran qui règle les droits est le seul endroit où l'on a besoin de le savoir.
+  const { hiddenModules } = await getAppSettings().catch(() => ({ hiddenModules: [] as string[] }));
   const sheet = buildAccessSheet(
     MODULES,
     MODULE_LABELS as Record<string, string>,
@@ -62,6 +66,7 @@ export default async function AccessByModulePage() {
     ACTIONS,
     Object.keys(PERMISSIONS),
     (role, module) => defaultScope(role as Parameters<typeof defaultScope>[0], module as Module),
+    hiddenModules,
   );
 
   return (

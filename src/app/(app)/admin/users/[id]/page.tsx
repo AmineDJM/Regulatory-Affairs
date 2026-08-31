@@ -14,6 +14,7 @@ import { formatDateTime } from "@/lib/utils";
 import { AccessMatrix, type ModuleAccessRow } from "./access-matrix";
 import { SessionsList, type SessionItem } from "./sessions-list";
 import { RowGrants } from "./row-grants";
+import { getAppSettings } from "@/lib/settings";
 import { ProfileForm, ResetPasswordForm, ActiveToggle, RevokeAllButton, RequestOnboardingButton } from "./user-admin-forms";
 import { BackLink } from "@/components/shared/back-link";
 
@@ -56,6 +57,10 @@ export default async function AdminUserPage({ params }: { params: { id: string }
     prisma.businessDevelopmentOpportunity.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
 
+  // Modules HORS SERVICE : un module masqué prime sur tous les droits réglés ici — le dire
+  // évite de chercher pourquoi un accès accordé « ne marche pas ».
+  const { hiddenModules } = await getAppSettings().catch(() => ({ hiddenModules: [] as string[] }));
+  const hors = new Set(hiddenModules);
   const overrideMap = new Map(target.access.map((a) => [a.module, a]));
   const matrixRows: ModuleAccessRow[] = MODULES.map((module) => {
     const ov = overrideMap.get(module);
@@ -77,6 +82,7 @@ export default async function AdminUserPage({ params }: { params: { id: string }
     const spec = SHEET.get(module);
     return {
       module, label: MODULE_LABEL[module] ?? module, mode, actions, scope,
+      hidden: hors.has(module),
       available: spec?.actions ?? [], rowScoped: spec?.rowScoped ?? false, roleSummary,
     };
   });

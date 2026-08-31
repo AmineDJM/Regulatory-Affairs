@@ -27,6 +27,8 @@ export interface ModuleAccessRow {
   available: string[];
   rowScoped: boolean;
   roleSummary: string; // human description of the role default
+  /** Module retiré du service : les droits s'enregistrent mais n'ouvrent rien (sauf Super Admin). */
+  hidden?: boolean;
 }
 
 export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAccessRow[] }) {
@@ -68,7 +70,16 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
               return (
                 <TableRow key={r.module}>
                   <TableCell>
-                    <div className="font-medium">{r.label}</div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-medium">{r.label}</span>
+                      {/* Hors service : le droit s'enregistre, mais n'ouvre rien tant que le
+                          module n'est pas remis en service (Réglages › Modules en service). */}
+                      {r.hidden && (
+                        <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[0.625rem] font-medium text-warning" title="Module retiré du service : les droits réglés ici n'ouvriront rien tant qu'il n'est pas remis en service (Administration › Réglages › Modules en service).">
+                          hors service
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground">Défaut&nbsp;: {r.roleSummary}</div>
                     <input type="hidden" name={`mode_${r.module}`} value={r.mode} />
                   </TableCell>

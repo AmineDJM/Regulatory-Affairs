@@ -73,6 +73,29 @@ describe("Branchée sur les VRAIES règles de l'application", () => {
     expect(sheet.every((s) => s.label.length > 0)).toBe(true);
   });
 
+  it("LE MODULE HORS SERVICE est signalé — un droit accordé sur un module masqué n'ouvre rien", () => {
+    // Sans réglage, aucun module n'est hors service : la feuille reste utilisable telle quelle.
+    expect(sheet.every((s) => s.hidden === false)).toBe(true);
+
+    // Avec un module masqué, la feuille le DIT — c'est ce qui évite de régler des accès qui
+    // s'enregistrent sans rien ouvrir, puis de conclure que la matrice est cassée.
+    const avecMasque = buildAccessSheet(
+      MODULES, MODULE_LABELS as Record<string, string>,
+      PERMISSIONS as unknown as PermissionMatrix, ACTIONS,
+      Object.keys(PERMISSIONS),
+      (role, module) => defaultScope(role as Parameters<typeof defaultScope>[0], module as Module),
+      ["PCH"],
+    );
+    expect(avecMasque.find((s) => s.value === "PCH")?.hidden).toBe(true);
+    // Et lui seul : masquer un module n'en masque pas d'autres au passage.
+    expect(avecMasque.filter((s) => s.hidden).map((s) => s.value)).toEqual(["PCH"]);
+    // Le masquage ne touche NI les capacités réglables NI la portée : ce n'est pas un droit.
+    const avant = sheet.find((s) => s.value === "PCH")!;
+    const apres = avecMasque.find((s) => s.value === "PCH")!;
+    expect(apres.actions).toEqual(avant.actions);
+    expect(apres.roleCount).toBe(avant.roleCount);
+  });
+
   it("retrouve les modules réellement cloisonnés par ligne, sans qu'on les ait listés", () => {
     const rowScoped = sheet.filter((s) => s.rowScoped).map((s) => s.value);
     // Ceux-là le sont par construction dans `defaultScope` — le test tomberait si la règle
