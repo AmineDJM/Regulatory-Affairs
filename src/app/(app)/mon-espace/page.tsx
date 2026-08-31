@@ -285,8 +285,14 @@ export default async function MonEspacePage() {
       {/* MES DEMANDES D'ACHAT — venues des Moyens généraux (2026-08).
           Demander un stylo et tenir la caisse d'un département sont deux métiers : le second
           reste là-bas, le premier appartient à l'espace de chacun, à côté du congé, de la
-          formation et des tâches. Le circuit ne change pas : le responsable valide, l'achat suit. */}
-      <PurchaseSection userId={user.id} articles={articleOptions} />
+          formation et des tâches. Le circuit ne change pas : le responsable valide, l'achat suit.
+
+          Le bloc porte le MÊME titre de section que ses voisins : une carte isolée au milieu de
+          sections titrées se lit comme un encart, pas comme un espace où l'on vient travailler. */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes demandes d&apos;achat</h2>
+        <PurchaseSection userId={user.id} articles={articleOptions} />
+      </section>
 
       {/* MES ORDRES DE MISSION — sur place, plus un onglet à part : la mission en cours fait
           partie de « mon travail », au même titre que les tâches. La carte est la MÊME que

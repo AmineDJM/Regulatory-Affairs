@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getManagerOfUser } from "@/lib/departments";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { purchaseStage, summarize, type PurchaseLine } from "@/lib/general-means/purchase-request";
 import { PurchaseRequestForm } from "./purchase-request-form";
 import { MyPurchaseRequests, type MyPurchaseRow } from "./my-purchase-requests";
@@ -61,7 +61,6 @@ export async function PurchaseSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Mes demandes d&apos;achat</CardTitle>
         <p className="text-xs text-muted-foreground">
           {manager
             ? <>Ce dont vous avez besoin, validé par <strong>{manager.fullName}</strong>. Choisissez dans le catalogue de la société, ou décrivez ce qui n&apos;y figure pas.</>
