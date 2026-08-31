@@ -19,7 +19,6 @@ import { ExpensePanel } from "./expense-panel";
 import { DepartmentSwitcher } from "./department-switcher";
 import { SuppliesManager } from "../demandes/supplies-manager";
 import { ExpenseRowActions } from "./expense-row-actions";
-import { PurchaseSection } from "./purchase-section";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Moyens généraux — AMD Internal OS" };
@@ -65,15 +64,25 @@ export default async function MoyensGenerauxPage({
     id: a.id, name: a.name, unit: a.unit, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null,
   }));
 
-  // LA VUE DU DEMANDEUR — son catalogue, ses demandes, et rien du budget.
+  // LES DEMANDES D'ACHAT ONT DÉMÉNAGÉ DANS « MON ESPACE » (2026-08).
+  //
+  // Demander un stylo et tenir la caisse d'un département sont deux métiers. Ce module est
+  // celui de ceux qui ACHÈTENT et qui DÉCAISSENT ; demander ce dont on a besoin pour
+  // travailler est un geste de tout le monde, au même titre que demander un congé ou une
+  // formation. Qui n'a pas la caisse n'a donc plus rien à faire ici — et on le lui dit,
+  // avec le chemin, plutôt que de lui laisser une page vide.
   if (!userCan(user, "GENERAL_MEANS", "VIEW")) {
     return (
       <div className="space-y-5">
         <PageHeader
           title="Moyens généraux"
-          description="Demandez ce dont vous avez besoin pour travailler — dans le catalogue de la société, ou décrit en clair. Votre responsable valide, et l'achat suit."
+          description="Ce module tient la caisse et le budget d'un département. Vos demandes d'achat, elles, se font désormais depuis « Mon espace »."
         />
-        <PurchaseSection userId={user.id} articles={articleOptions} />
+        <EmptyState
+          icon="ShoppingBasket"
+          title="Vos demandes d'achat sont dans « Mon espace »"
+          description="Demandez ce dont vous avez besoin pour travailler depuis votre espace — le circuit ne change pas : votre responsable valide, et l'achat suit."
+        />
       </div>
     );
   }
@@ -83,7 +92,6 @@ export default async function MoyensGenerauxPage({
     return (
       <div className="space-y-5">
         <PageHeader title="Moyens généraux" description="La caisse d'un département — l'exercice et le mois — et ses achats, au même endroit." />
-        <PurchaseSection userId={user.id} articles={articleOptions} />
         <EmptyState
           icon="Building2"
           title="Aucun département rattaché à votre compte"
@@ -168,7 +176,6 @@ export default async function MoyensGenerauxPage({
         />
       </div>
 
-      <PurchaseSection userId={user.id} articles={articleOptions} />
 
       <Card>
         <CardHeader>

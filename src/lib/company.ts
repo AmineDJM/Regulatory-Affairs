@@ -62,7 +62,9 @@ export function companyWhere(scope: string | null): { companyId?: string } {
 /**
  * LE FILTRE D'ENTITÉ DES ÉCRANS DE MODULE — la portée du sélecteur, VALIDÉE contre les droits.
  *
- * Remplace l'ancien `currentCompanyWhere()`, qui posait le cookie tel quel. Deux trous s'y
+ * ── CE QU'IL VALIDE ─────────────────────────────────────────────────────────────────────────
+ *
+ * Il remplace l'ancien `currentCompanyWhere()`, qui posait le cookie tel quel. Deux trous s'y
  * ouvraient, et le second n'avait rien de théorique :
  *
  *   • le cookie se modifie à la main : il suffisait d'y écrire l'identifiant d'une autre société
@@ -74,10 +76,35 @@ export function companyWhere(scope: string | null): { companyId?: string } {
  * On passe donc par `platformScope`, qui applique la règle commune et ses deux garde-fous :
  * aucun filtre si le groupe ne compte qu'une société, aucun filtre pour qui ne relève d'aucune
  * entité (on n'aveugle personne par omission).
+ *
+ * ── LE DÉFAUT QU'ON CORRIGE, ET POURQUOI LE FILTRE NE S'ÉTALE PLUS ──────────────────────────
+ *
+ * `companyId` est NULLABLE sur presque tous les modèles, et beaucoup de lignes n'ont pas
+ * d'entité — celles créées avant le multi-entités, celles nées d'un circuit qui ne la renseigne
+ * pas. Un filtre `{ companyId: X }` ne les retient PAS : `null` n'est égal à rien. Elles
+ * disparaissaient donc de TOUS les écrans dès qu'une portée d'entité s'appliquait.
+ *
+ * Ce n'est pas une hypothèse : c'est ce qui a produit deux pannes rapportées le même jour —
+ * « des fois 19 courriers, des fois 14 », et un pharmacien responsable qui voyait ses
+ * déclarations dans « Mon espace » (aucun filtre d'entité) et zéro dans son module (filtre).
+ * Et c'est une impasse : une ligne qu'on ne voit pas est une ligne qu'on ne peut pas rattacher
+ * — l'écran « non rattachés » existe précisément pour aller les rechercher.
+ *
+ * Une ligne SANS entité n'est le secret d'aucune société. La cacher ne protège rien et perd du
+ * travail. Elle reste donc dans la portée, et « non rattachés » sert à l'affecter.
+ *
+ * Le filtre s'écrit dès lors `OR` (l'entité, ou rien). L'ÉTALER dans un `where` qui porte déjà
+ * un `OR` — c'est le cas de la plupart des portées RBAC — écraserait silencieusement la portée
+ * métier et ouvrirait les lignes des autres. On ne rend donc plus d'objet à étaler : la
+ * composition se fait ICI, par un `AND`, et le type force le passage par cette fonction.
+ * L'ancien `currentCompanyWhereFor` a été SUPPRIMÉ pour cette raison — le laisser, c'était
+ * laisser le défaut se réintroduire au prochain écran.
  */
-export async function currentCompanyWhereFor(userId: string): Promise<{ companyId?: string | { in: string[] } }> {
+export async function companyScopedWhere<W extends object>(userId: string, base: W): Promise<W> {
   const where = await platformScope(userId);
-  return "companyId" in where && where.companyId !== undefined ? { companyId: where.companyId } : {};
+  if (!("companyId" in where) || where.companyId === undefined) return base;
+  const entite = { OR: [{ companyId: where.companyId }, { companyId: null }] };
+  return { AND: [base, entite] } as unknown as W;
 }
 
 /** Libellé court d'une entité (fallback sur le nom complet). */
@@ -182,7 +209,7 @@ export async function platformScope(userId: string): Promise<ScopeWhere> {
  * personne, plus tout ce qui relève des sociétés qu'elle a en entier.
  *
  * S'utilise en COMPOSITION, jamais en remplacement du filtre d'entité :
- *   `where: { AND: [scopeRegulatory(user), await currentCompanyWhereFor(id), ...rangeAnd] }`
+ *   `where: await companyScopedWhere(id, { AND: [scopeRegulatory(user), ...rangeAnd] })`
  */
 export async function productRangeScope(userId: string): Promise<ReturnType<typeof productRangeWhere>> {
   const [all, bearer] = await Promise.all([getCompanies(), accessBearerOf(userId)]);

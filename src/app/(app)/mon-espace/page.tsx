@@ -29,13 +29,16 @@ import { PIECE_REQUEST_STATUS } from "@/lib/labels";
 import { MyAdvances, type AdvanceItem } from "./my-advances";
 import { MyPortfolioCard } from "@/components/planning/my-portfolio-card";
 import { getMyPortfolio } from "@/lib/queries/portfolio";
+import { PurchaseSection } from "@/components/purchase/purchase-section";
+import { TrainingRequestButton } from "@/components/purchase/training-request-button";
+import { getManagerOfUser } from "@/lib/departments";
 
 export default async function MonEspacePage() {
   const user = await requireModule("WORKSPACE");
   const data = await getMyWorkspace(user.id);
   const canCreateDossier = userCan(user, "DOSSIERS", "CREATE");
 
-  const [users, requested, reminders] = await Promise.all([
+  const [users, requested, reminders, articles, manager] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     // Tâches **demandées** à l'utilisateur (à accepter / refuser), comme des DM.
     prisma.task.findMany({
@@ -44,7 +47,21 @@ export default async function MonEspacePage() {
       orderBy: { createdAt: "desc" },
     }),
     listMyReminders(user.id),
+    // LE CATALOGUE D'ACHAT — proposé à tout le monde : c'est lui qui rend la demande possible
+    // sans connaître les références internes.
+    prisma.officeSupplyArticle.findMany({
+      where: { active: true },
+      select: { id: true, name: true, unit: true, estimatedPrice: true },
+      orderBy: { name: "asc" },
+    }),
+    // Le responsable hiérarchique — nommé dans les deux formulaires, pour qu'on sache à qui
+    // l'on écrit. Il ne se choisit pas : laisser choisir son validateur reviendrait à laisser
+    // choisir qui vous dit oui.
+    getManagerOfUser(user.id).catch(() => null),
   ]);
+  const articleOptions = articles.map((a) => ({
+    id: a.id, name: a.name, unit: a.unit, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null,
+  }));
   const reminderRows = reminders.map((r) => ({ ...r, remindAt: r.remindAt.toISOString(), sentAt: r.sentAt ? r.sentAt.toISOString() : null }));
 
   // Le cercle d'une tâche, en clair : « Participants : … · Lecture : … ». Les identifiants sont
@@ -155,14 +172,12 @@ export default async function MonEspacePage() {
         <CreateRecordButton label="Nouvelle tâche" title="Créer une tâche" width="md"
           description="Pour vous, c'est une to-do. Pour quelqu'un d'autre, c'est une demande : il l'accepte ou la refuse, puis dépose son travail dans le dossier."
           action={createTask} fields={taskFields} />
-        {data.employee && (
-          <Link
-            href="/mon-dossier"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-secondary"
-          >
-            Demander un congé <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        )}
+        {/* « DEMANDER UN CONGÉ » A ÉTÉ RETIRÉ D'ICI (2026-08). Ce n'était pas une action de cet
+            écran mais un lien vers « Mon dossier RH » — où le congé se demande, avec son solde
+            sous les yeux, ses justificatifs et l'historique de ses décisions. Deux portes pour
+            un même geste font douter qu'il s'agisse du même. Le dossier RH reste à un clic dans
+            le menu. */}
+        <TrainingRequestButton managerName={manager?.fullName ?? null} />
       </PageHeader>
       <ModuleTabs tabs={await visibleTabs(user, WORKSPACE_TABS)} />
 
@@ -266,6 +281,12 @@ export default async function MonEspacePage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mes tâches</h2>
         <TaskList tasks={myTasks} userId={user.id} canCreateDossier={canCreateDossier} />
       </section>
+
+      {/* MES DEMANDES D'ACHAT — venues des Moyens généraux (2026-08).
+          Demander un stylo et tenir la caisse d'un département sont deux métiers : le second
+          reste là-bas, le premier appartient à l'espace de chacun, à côté du congé, de la
+          formation et des tâches. Le circuit ne change pas : le responsable valide, l'achat suit. */}
+      <PurchaseSection userId={user.id} articles={articleOptions} />
 
       {/* MES ORDRES DE MISSION — sur place, plus un onglet à part : la mission en cours fait
           partie de « mon travail », au même titre que les tâches. La carte est la MÊME que

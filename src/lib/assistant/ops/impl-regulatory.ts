@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import { scopeRegulatory } from "@/lib/rbac";
-import { currentCompanyWhereFor } from "@/lib/company";
+import { companyScopedWhere } from "@/lib/company";
 import {
   REGULATORY_STEP_TYPE, VARIATION_TARGETS, MANUFACTURING_STATUS, VARIATION_STATUS,
   DOSSIER_STEP_KIND, DOSSIER_STEP_ADDABLE,
@@ -30,7 +30,7 @@ export interface ProductHit { id: string; reference: string; dci: string }
 export async function resolveRegProduct(user: CurrentUser, raw: string): Promise<ProductHit | { error: string }> {
   const q = raw.trim();
   if (!q) return { error: "Précisez la référence (REG-AAAA-NNN) ou la DCI du dossier (champ « reference »)." };
-  const scope = { AND: [scopeRegulatory(user), await currentCompanyWhereFor(user.id)] };
+  const scope = await companyScopedWhere(user.id, { AND: [scopeRegulatory(user)] });
   const exact = await prisma.regulatoryProduct.findFirst({
     where: { AND: [{ reference: { equals: q, mode: "insensitive" } }, scope] },
     select: { id: true, reference: true, dci: true },

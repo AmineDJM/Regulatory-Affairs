@@ -2,7 +2,7 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
-import { currentCompanyWhereFor, getMyCompanies, companyOptions } from "@/lib/company";
+import { companyScopedWhere, getMyCompanies, companyOptions } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -19,7 +19,7 @@ export default async function LogisticsPage() {
 
   const companies = await getMyCompanies(user.id);
   const [orders, inProgress, arriving, late] = await Promise.all([
-    prisma.logisticsOrder.findMany({ where: { ...await currentCompanyWhereFor(user.id) }, orderBy: { estimatedArrival: "asc" } }),
+    prisma.logisticsOrder.findMany({ where: await companyScopedWhere(user.id, {}), orderBy: { estimatedArrival: "asc" } }),
     prisma.logisticsOrder.count({ where: { status: { notIn: ["DELIVERED", "BLOCKED"] } } }),
     prisma.logisticsOrder.count({ where: { estimatedArrival: { gte: now, lte: weekAhead }, status: { not: "DELIVERED" } } }),
     prisma.logisticsOrder.count({ where: { estimatedArrival: { lt: now }, status: { notIn: ["DELIVERED"] } } }),

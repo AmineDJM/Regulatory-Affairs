@@ -3,7 +3,7 @@ import { UserPlus, Info } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, isTopManagement } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhereFor, getMyCompanies } from "@/lib/company";
+import { companyScopedWhere, getMyCompanies } from "@/lib/company";
 import { getDepartmentOptions } from "@/lib/departments";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -36,7 +36,7 @@ export default async function RecrutementPage() {
 
   const [requests, departments, companies] = await Promise.all([
     prisma.recruitmentRequest.findMany({
-      where: { AND: [recruitmentScope(user), await currentCompanyWhereFor(user.id)] },
+      where: await companyScopedWhere(user.id, { AND: [recruitmentScope(user)] }),
       orderBy: [{ createdAt: "desc" }],
       take: 300,
       include: {

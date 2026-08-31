@@ -1,7 +1,8 @@
+import type { Prisma } from "@prisma/client";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhereFor, getMyCompanies, companyLabel } from "@/lib/company";
+import { companyScopedWhere, getMyCompanies, companyLabel } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -48,11 +49,10 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
   const folderWhere = unfiledOnly ? { folderId: null } : openFolderId ? { folderId: openFolderId } : {};
 
   const docs = await prisma.legalDocument.findMany({
-    where: {
-      ...await currentCompanyWhereFor(user.id),
+    where: await companyScopedWhere(user.id, {
       ...folderWhere,
       ...(readerScope ? { AND: [readerScope] } : {}),
-    },
+    }),
     orderBy: [{ endDate: "asc" }, { createdAt: "desc" }],
     include: {
       driveNode: { select: { id: true, name: true } },
@@ -101,11 +101,10 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
   ]);
   const counts = await prisma.legalDocument.groupBy({
     by: ["folderId"],
-    where: {
-      ...await currentCompanyWhereFor(user.id),
+    where: await companyScopedWhere(user.id, {
       ...(readerScope ? { AND: [readerScope] } : {}),
       folderId: { not: null },
-    },
+    }),
     _count: { _all: true },
   });
   const countByFolder = new Map(counts.map((c) => [c.folderId as string, c._count._all]));
@@ -123,11 +122,10 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
   // l'on crée la facture. Même cloisonnement (entité + lecteurs) que la liste.
   const chainDocs = canCreate
     ? await prisma.legalDocument.findMany({
-        where: {
-          ...await currentCompanyWhereFor(user.id),
+        where: await companyScopedWhere<Prisma.LegalDocumentWhereInput>(user.id, {
           ...(readerScope ? { AND: [readerScope] } : {}),
           kind: { in: ["QUOTE", "PURCHASE_ORDER"] },
-        },
+        }),
         select: { id: true, kind: true, reference: true, title: true },
         orderBy: { createdAt: "desc" },
         take: 100,

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhereFor } from "@/lib/company";
+import { companyScopedWhere } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import { deriverNiveau, type NiveauDerive } from "@/lib/pch/market-math";
 
@@ -151,7 +151,7 @@ function toTenderDTO(t: Awaited<ReturnType<typeof fetchTenders>>[number], lines:
 
 async function fetchTenders(userId: string) {
   return prisma.pchTender.findMany({
-    where: { ...await currentCompanyWhereFor(userId) },
+    where: await companyScopedWhere(userId, {}),
     include: {
       orders: { orderBy: { createdAt: "desc" } },
       // Le strict nécessaire pour DÉRIVER le niveau de chaque marché dans la liste.

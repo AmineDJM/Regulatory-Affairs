@@ -108,7 +108,16 @@ export default async function RhPage() {
         <KpiCard label="Congés en attente" value={data.stats.pending} icon="Hourglass" tone={data.stats.pending > 0 ? "warning" : "default"} />
         <KpiCard label="Avances en attente" value={data.stats.advances} icon="Banknote" tone={data.stats.advances > 0 ? "warning" : "default"} />
         <KpiCard label="Contrats à échéance" value={data.stats.expiring} icon="CalendarClock" tone={data.stats.expiring > 0 ? "danger" : "default"} hint="≤ 60 jours" />
-        <KpiCard label="Masse salariale" value={formatCurrency(data.stats.masseSalariale)} icon="Wallet" tone="info" hint={data.stats.masseSalarialeSource} />
+        {/* LA COUVERTURE EST DANS LE TON, pas seulement dans la note : un mois de paie
+            partiellement saisi affiche une masse salariale qui n'est celle de personne — et
+            se lit comme un effondrement des charges si rien ne le signale. */}
+        <KpiCard
+          label="Masse salariale" value={formatCurrency(data.stats.masseSalariale)} icon="Wallet"
+          tone={data.stats.masseSalarialePartielle ? "warning" : "info"}
+          hint={data.stats.masseSalarialePartielle
+            ? `${data.stats.masseSalarialeSource} — mois incomplet`
+            : data.stats.masseSalarialeSource}
+        />
       </div>
 
       {canValidate && (

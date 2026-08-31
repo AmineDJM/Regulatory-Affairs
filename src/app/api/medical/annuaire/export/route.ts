@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { userCan, scopeMedicalDoctors } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhereFor } from "@/lib/company";
+import { companyScopedWhere } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { buildAnnuaireWorkbook } from "@/lib/medical/directory-workbook";
 import { directoryExportFilename } from "@/lib/medical/directory-sheet";
@@ -21,7 +21,7 @@ export async function GET() {
   if (!userCan(user, "MEDICAL", "VIEW")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
 
   const doctors = await prisma.medicalDoctor.findMany({
-    where: { ...scopeMedicalDoctors(user), ...await currentCompanyWhereFor(user.id) },
+    where: await companyScopedWhere(user.id, scopeMedicalDoctors(user)),
     orderBy: [{ name: "asc" }],
     include: { specialtyRef: { select: { name: true } } },
   });

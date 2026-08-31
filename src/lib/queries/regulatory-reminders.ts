@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { scopeRegulatory, type SessionUser } from "@/lib/rbac";
-import { currentCompanyWhereFor, productRangeScope } from "@/lib/company";
+import { companyScopedWhere, productRangeScope } from "@/lib/company";
 import { reminderTargets, type ReminderBoard } from "@/lib/regulatory/update-reminder";
 
 /**
@@ -18,11 +18,10 @@ import { reminderTargets, type ReminderBoard } from "@/lib/regulatory/update-rem
 export async function regulatoryReminderBoard(user: SessionUser, now = new Date()): Promise<ReminderBoard> {
   const rangeScope = await productRangeScope(user.id);
   const dossiers = await prisma.regulatoryProduct.findMany({
-    where: {
+    where: await companyScopedWhere(user.id, {
       ...scopeRegulatory(user),
-      ...await currentCompanyWhereFor(user.id),
       ...(rangeScope ? { AND: [rangeScope] } : {}),
-    },
+    }),
     select: {
       responsibleId: true,
       isLocked: true,

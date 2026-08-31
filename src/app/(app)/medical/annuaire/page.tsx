@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireModule } from "@/lib/session";
 import { userCan, scopeMedicalDoctors, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhereFor, getMyCompanies, companyLabel } from "@/lib/company";
+import { companyScopedWhere, getMyCompanies, companyLabel } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
@@ -37,7 +37,7 @@ export default async function AnnuairePage({ searchParams }: { searchParams?: { 
   const openDirectoryId = searchParams?.annuaire && searchParams.annuaire !== "general" ? searchParams.annuaire : null;
   const directoryWhere = generalOnly ? { directoryId: null } : openDirectoryId ? { directoryId: openDirectoryId } : {};
 
-  const scope = { ...scopeMedicalDoctors(user), ...await currentCompanyWhereFor(user.id) };
+  const scope = await companyScopedWhere(user.id, scopeMedicalDoctors(user));
 
   // L'ACCÈS PAR ANNUAIRE. Liste d'accès vide = ouvert à tout le module ; des noms = fermé à tous
   // les autres, hors vue globale. On tranche AVANT de charger les praticiens : un annuaire fermé

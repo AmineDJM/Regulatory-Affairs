@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { scopeMedicalInfo, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
-import { currentCompanyWhereFor } from "@/lib/company";
+import { companyScopedWhere } from "@/lib/company";
 
 /**
  * COMBIEN LE FILTRE D'ENTITÉ RETIRE de cette liste — compté ici, DIT par l'écran.
@@ -12,14 +12,14 @@ export async function declarationsHiddenByScope(user: SessionUser): Promise<{ sh
   const metier = scopeMedicalInfo(user);
   const [total, shown] = await Promise.all([
     prisma.medicalInfoDeclaration.count({ where: metier }),
-    prisma.medicalInfoDeclaration.count({ where: { ...metier, ...await currentCompanyWhereFor(user.id) } }),
+    prisma.medicalInfoDeclaration.count({ where: await companyScopedWhere(user.id, metier) }),
   ]);
   return { shown, total };
 }
 
 export async function getDeclarations(user: SessionUser) {
   return prisma.medicalInfoDeclaration.findMany({
-    where: { ...scopeMedicalInfo(user), ...await currentCompanyWhereFor(user.id) },
+    where: await companyScopedWhere(user.id, scopeMedicalInfo(user)),
     include: {
       pharmacist: { select: { name: true } },
       requests: { select: { id: true, status: true } },

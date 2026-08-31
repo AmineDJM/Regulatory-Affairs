@@ -69,6 +69,48 @@ export function payrollMass(entries: PayrollCostInput[]): { total: number; basis
   return { total, basis: allEmployerCost ? "EMPLOYER_COST" : "GROSS" };
 }
 
+/**
+ * LA COUVERTURE — combien de salariés le chiffre couvre RÉELLEMENT.
+ *
+ * ── LE DÉFAUT QU'ON CORRIGE ─────────────────────────────────────────────────────────────────
+ *
+ * « Comment ça se fait que la masse salariale mensuelle c'est environ 400 000 DZD ? » Le total
+ * n'était pas faux : c'était la somme des lignes de paie du dernier mois SAISI. Mais si l'on n'a
+ * marqué « payé » que quatre salariés sur trente, on lit la masse salariale de quatre personnes
+ * sous un libellé qui promet celle de la société. Le chiffre est juste, la phrase est fausse.
+ *
+ * C'est le même piège que la ventilation par entité, déjà documenté juste à côté : un agrégat
+ * sans sa portée se dit avec aplomb et répond à une autre question que celle posée. On rend donc
+ * TOUJOURS la couverture avec le total, et l'écran la montre.
+ *
+ * `partial` est vrai dès qu'il manque une ligne : c'est ce qui décide de l'alerte à l'écran.
+ * Un mois de paie en cours de saisie n'est pas une anomalie — le présenter comme un mois complet
+ * en est une.
+ */
+export interface MassCoverage {
+  /** Lignes de paie retenues pour le total. */
+  lines: number;
+  /** Salariés actifs sur le périmètre affiché. */
+  activeEmployees: number;
+  /** Il manque au moins une ligne : le total ne couvre pas tout le monde. */
+  partial: boolean;
+}
+
+export function massCoverage(lines: number, activeEmployees: number): MassCoverage {
+  const n = Math.max(0, Math.trunc(lines));
+  const actifs = Math.max(0, Math.trunc(activeEmployees));
+  // Plus de lignes que d'actifs n'est pas « partiel » : c'est le cas normal d'un salarié parti
+  // en cours de mois, payé puis désactivé. Signaler une alerte là serait crier au loup.
+  return { lines: n, activeEmployees: actifs, partial: n > 0 && n < actifs };
+}
+
+/** La phrase de couverture, ou `null` quand il n'y a rien d'utile à dire. */
+export function coverageLabel(c: MassCoverage): string | null {
+  if (c.lines === 0 || c.activeEmployees === 0) return null;
+  const salaries = c.lines === 1 ? "1 salaire" : `${c.lines} salaires`;
+  return `${salaries} sur ${c.activeEmployees} actifs`;
+}
+
 /** Libellé de la base, tel qu'il s'écrit sous l'indicateur. */
 export function basisLabel(basis: CostBasis): string {
   switch (basis) {

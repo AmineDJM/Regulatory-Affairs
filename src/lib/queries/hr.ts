@@ -4,7 +4,7 @@ import { userCan, hasGlobalView, isTopManagement, type SessionUser } from "@/lib
 import { canDecideLeave, type LeaveStage } from "@/lib/leave-workflow";
 import { buildLeaveSheet } from "@/lib/hr/leave-sheet";
 import { toNumber } from "@/lib/utils";
-import { payrollMass as payrollMassOf, basisLabel } from "@/lib/hr/payroll-cost";
+import { payrollMass as payrollMassOf, basisLabel, massCoverage, coverageLabel } from "@/lib/hr/payroll-cost";
 
 /** Personalised workspace data for the signed-in user ("Mon espace"). */
 export async function getMyWorkspace(userId: string) {
@@ -147,7 +147,10 @@ export async function getRhData(userId: string) {
   const lastEntries = lastPayroll
     ? await prisma.payrollEntry
         .findMany({
-          where: { year: lastPayroll.year, month: lastPayroll.month },
+          // SEULEMENT LES LIGNES PAYÉES. Annuler un paiement remet la ligne en brouillon mais
+          // LUI LAISSE SES MONTANTS : sans ce filtre, un salaire annulé continuait de peser dans
+          // la masse — un décaissement qui n'a pas eu lieu, compté comme s'il avait eu lieu.
+          where: { year: lastPayroll.year, month: lastPayroll.month, status: "PAID" },
           // L'ENTITÉ DE CHAQUE LIGNE — sans elle, la masse salariale ne se ventile pas, et un
           // total « groupe » se retrouve présenté comme celui d'une société.
           select: { employerCost: true, gross: true, bonuses: true, deductions: true, employee: { select: { companyId: true } } },
@@ -160,11 +163,25 @@ export async function getRhData(userId: string) {
   })));
   const baseMass = active.reduce((a, e) => a + toNumber(e.baseSalary), 0);
   const masseSalariale = mass.total > 0 ? mass.total : baseMass;
-  /** D'où vient le chiffre affiché — et sur QUELLE base : un indicateur dont on ignore la base
-   *  est un indicateur qu'on finit par ne plus croire. */
+  /**
+   * D'où vient le chiffre affiché — sur quelle BASE, et sur COMBIEN DE SALARIÉS.
+   *
+   * La base était déjà dite ; la COUVERTURE ne l'était pas, et c'est elle qui manquait. Un mois
+   * dont on n'a marqué « payé » que quatre salariés sur trente affiche la masse salariale de
+   * quatre personnes sous un libellé qui promet celle de la société : le total est juste, la
+   * phrase est fausse. On dit donc les deux — et `masseSalarialePartielle` permet à l'écran de
+   * le signaler au lieu de le laisser lire comme un chiffre complet.
+   */
+  const couverture = massCoverage(lastEntries.length, active.length);
+  const couvertureTexte = mass.total > 0 ? coverageLabel(couverture) : null;
   const masseSalarialeSource = mass.total > 0 && lastPayroll
-    ? `paie ${String(lastPayroll.month).padStart(2, "0")}/${lastPayroll.year} · ${basisLabel(mass.basis)}`
+    ? [
+        `paie ${String(lastPayroll.month).padStart(2, "0")}/${lastPayroll.year}`,
+        basisLabel(mass.basis),
+        ...(couvertureTexte ? [couvertureTexte] : []),
+      ].join(" · ")
     : basisLabel("BASE_SALARY");
+  const masseSalarialePartielle = mass.total > 0 && couverture.partial;
   const contractsExpiring = employees.filter(
     (e) => e.contractEnd && e.contractEnd >= now && e.contractEnd <= in60,
   );
@@ -232,6 +249,7 @@ export async function getRhData(userId: string) {
       advances: advances.filter((a) => a.status === "PENDING").length,
       masseSalariale,
       masseSalarialeSource,
+      masseSalarialePartielle,
     },
   };
 }

@@ -1,7 +1,7 @@
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhereFor } from "@/lib/company";
+import { companyScopedWhere } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -30,7 +30,7 @@ export default async function PromoStockPage() {
 
   const [rows, tabs] = await Promise.all([
     prisma.promoStockItem.findMany({
-      where: { ...await currentCompanyWhereFor(user.id) },
+      where: await companyScopedWhere(user.id, {}),
       orderBy: [{ isActive: "desc" }, { name: "asc" }],
       include: {
         movements: { orderBy: { occurredAt: "desc" }, take: 100 },

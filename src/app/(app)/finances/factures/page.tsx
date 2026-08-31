@@ -2,7 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhereFor } from "@/lib/company";
+import { companyScopedWhere } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { BackLink } from "@/components/shared/back-link";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -31,7 +31,7 @@ export default async function FacturesPage() {
 
   const [invoices, pchOrders] = await Promise.all([
     prisma.invoice.findMany({
-      where: { ...await currentCompanyWhereFor(user.id) },
+      where: await companyScopedWhere(user.id, {}),
       orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
       take: 500,
     }),

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { scopeRegulatory, isRegulatorySupervisor, type SessionUser } from "@/lib/rbac";
-import { currentCompanyWhereFor, productRangeScope, getMyCompanies } from "@/lib/company";
+import { companyScopedWhere, productRangeScope, getMyCompanies } from "@/lib/company";
 import { getAppSettings } from "@/lib/settings";
 import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { regStage } from "@/lib/regulatory/stage";
@@ -37,13 +37,12 @@ const NAMED_ON_DOSSIER = (userId: string) => ({
  */
 export async function regulatoryVisibleWhere(user: SessionUser) {
   const rangeScope = await productRangeScope(user.id);
-  return {
+  return companyScopedWhere(user.id, {
     ...scopeRegulatory(user),
-    ...await currentCompanyWhereFor(user.id),
     ...(rangeScope
       ? { AND: [{ OR: [rangeScope, NAMED_ON_DOSSIER(user.id)] }] }
       : {}),
-  };
+  });
 }
 
 export async function getRegulatoryRows(user: SessionUser) {

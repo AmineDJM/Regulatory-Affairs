@@ -8,7 +8,7 @@ import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { createPurchaseRequest } from "@/lib/actions/purchase-request-actions";
 import { estimatedTotal, type PurchaseLine } from "@/lib/general-means/purchase-request";
 import { formatCurrency } from "@/lib/utils";
-import type { CatalogArticle } from "./receipt-lines";
+import type { CatalogArticle } from "@/app/(app)/moyens-generaux/receipt-lines";
 
 interface Row extends PurchaseLine { key: number }
 let uid = 0;

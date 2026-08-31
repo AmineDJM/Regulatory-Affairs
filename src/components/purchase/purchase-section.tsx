@@ -4,14 +4,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { purchaseStage, summarize, type PurchaseLine } from "@/lib/general-means/purchase-request";
 import { PurchaseRequestForm } from "./purchase-request-form";
 import { MyPurchaseRequests, type MyPurchaseRow } from "./my-purchase-requests";
-import type { CatalogArticle } from "./receipt-lines";
+import type { CatalogArticle } from "@/app/(app)/moyens-generaux/receipt-lines";
 
 /**
- * LA PARTIE « DEMANDE D'ACHAT » DU MODULE — la même pour tout le monde.
+ * MES DEMANDES D'ACHAT — le bloc a quitté les Moyens généraux pour « Mon espace ».
  *
- * Elle s'affiche au-dessus du budget pour ceux qui tiennent la caisse, et SEULE pour ceux qui
- * ne font que demander. C'est le même bloc dans les deux cas : un acheteur qui demande aussi
- * pour lui-même n'a pas à changer d'écran, et le circuit reste identique.
+ * DEMANDER un stylo et TENIR la caisse du département sont deux métiers. Les Moyens généraux
+ * sont l'écran de ceux qui achètent et qui décaissent ; demander ce dont on a besoin pour
+ * travailler est un geste de tout le monde, au même titre que demander un congé ou une
+ * formation. Le mettre dans un module que la plupart des gens n'ouvrent jamais, c'était le
+ * rendre introuvable pour ceux à qui il est destiné.
+ *
+ * Le circuit ne change pas d'un iota : le responsable hiérarchique valide, et l'achat suit.
+ * C'est l'ENDROIT qui change, pas la règle.
  */
 export async function PurchaseSection({
   userId, articles,

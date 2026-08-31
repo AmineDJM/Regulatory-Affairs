@@ -68,8 +68,16 @@ export default async function RhTeamPage() {
                 <p className="border-t border-border pt-3 text-sm text-muted-foreground">
                   Masse salariale mensuelle :{" "}
                   <strong className="text-foreground tabular-nums">{formatCurrency(data.stats.masseSalariale)}</strong>
-                  {/* La BASE du chiffre est dite : un indicateur dont on ignore la base finit par ne plus être cru. */}
+                  {/* La BASE et la COUVERTURE du chiffre sont dites : un indicateur dont on ignore
+                      la base finit par ne plus être cru, et un mois de paie à moitié saisi affiche
+                      la masse de quelques personnes sous un libellé qui promet celle de la société. */}
                   <span className="block text-xs">({data.stats.masseSalarialeSource})</span>
+                  {data.stats.masseSalarialePartielle && (
+                    <span className="mt-1 block text-xs text-warning">
+                      Mois de paie incomplet : les salariés dont le mois n&apos;est pas encore marqué
+                      « payé » ne sont pas comptés.
+                    </span>
+                  )}
                 </p>
               )}
             </section>

@@ -3,7 +3,7 @@ import { requireModule } from "@/lib/session";
 import { hiddenByScopeMessage } from "@/lib/company-visibility";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getCompanyScope, currentCompanyWhereFor } from "@/lib/company";
+import { getCompanyScope, companyScopedWhere } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -63,10 +63,10 @@ export default async function CourriersPage({ searchParams }: { searchParams?: {
   // COMBIEN LE FILTRE D'ENTITÉ RETIRE — compté, puis DIT. Sans ce chiffre, on ouvre le registre
   // et l'on compte dix-neuf plis, on y revient et l'on en compte quatorze : rien à l'écran ne
   // relie les deux faits, et l'on conclut que le module perd des courriers.
-  const filtreEntite = await currentCompanyWhereFor(user.id);
+  const porteeWhere = await companyScopedWhere(user.id, folderWhere);
   const [horsPortee, dansPortee] = await Promise.all([
     prisma.mailEntry.count({ where: folderWhere }),
-    prisma.mailEntry.count({ where: { ...filtreEntite, ...folderWhere } }),
+    prisma.mailEntry.count({ where: porteeWhere }),
   ]);
   const scopeId = getCompanyScope();
   const masques = hiddenByScopeMessage({
@@ -76,7 +76,7 @@ export default async function CourriersPage({ searchParams }: { searchParams?: {
   });
 
   const entries = await prisma.mailEntry.findMany({
-    where: { ...filtreEntite, ...folderWhere },
+    where: porteeWhere,
     orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
     take: 500,
     include: {

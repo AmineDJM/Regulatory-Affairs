@@ -2,7 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhereFor, getMyCompanies, companyLabel } from "@/lib/company";
+import { companyScopedWhere, getMyCompanies, companyLabel } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { BackLink } from "@/components/shared/back-link";
 import { ContactsBoard, type ContactRow } from "./contacts-board";
@@ -32,7 +32,7 @@ export default async function CompanyContactsPage() {
 
   const [contacts, myCompanies, employees] = await Promise.all([
     prisma.companyContact.findMany({
-      where: { ...await currentCompanyWhereFor(user.id) },
+      where: await companyScopedWhere(user.id, {}),
       include: { company: { select: { name: true, shortName: true } } },
       orderBy: [{ name: "asc" }],
     }),

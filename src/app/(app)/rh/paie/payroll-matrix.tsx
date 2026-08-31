@@ -3,12 +3,12 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Check, Undo2, Pencil, PiggyBank, ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
+import { Loader2, Check, Undo2, Pencil, PiggyBank, ChevronLeft, ChevronRight, ArrowLeft, Paperclip, FileWarning } from "lucide-react";
 import { markSalaryPaid, unmarkSalaryPaid, updatePayrollEntry, transferPayrollToBudget } from "@/lib/actions/payroll-hr-actions";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Label, Select } from "@/components/ui/input";
-import { formatCurrency, formatMonth } from "@/lib/utils";
+import { formatBytes, formatCurrency, formatMonth } from "@/lib/utils";
 
 export interface PayrollCell {
   state: "UNPAID" | "PAID" | "TRANSFERRED";
@@ -19,6 +19,14 @@ export interface PayrollCell {
   /** Coût employeur réellement enregistré — c'est lui qu'on rouvre pour corriger. */
   employerCost?: number | null;
   entryId: string | null;
+  /**
+   * LA FICHE DE PAIE ATTACHÉE À CE MOIS, quand elle a été déposée.
+   *
+   * Elle l'était déjà — dans le dossier RH du salarié — mais rien ne la montrait ICI : on
+   * revenait sur l'écran et le bulletin qu'on venait de joindre semblait avoir disparu. Un
+   * fichier qu'on ne peut pas rouvrir depuis l'endroit où on l'a déposé est un fichier perdu.
+   */
+  payslip: { id: string; name: string; sizeBytes: number | null; addedAt: string } | null;
 }
 export interface PayrollRow {
   employeeId: string;
@@ -108,6 +116,31 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
                         >
                           <Check className="h-3 w-3" /> Payé
                         </span>
+                        {/* LA FICHE DE PAIE, VISIBLE SANS SURVOL. Le trombone n'est pas un
+                            ornement : c'est la preuve que le bulletin est bien là, et le lien
+                            pour le rouvrir. Son absence se voit tout autant — un mois payé sans
+                            fiche affiche l'invitation à la déposer. */}
+                        {cell.payslip ? (
+                          <a
+                            href={`/api/rh/document/${cell.payslip.id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={`Fiche de paie : ${cell.payslip.name}`}
+                            className="mt-0.5 inline-flex max-w-20 items-center gap-0.5 text-[0.625rem] text-muted-foreground hover:text-primary"
+                          >
+                            <Paperclip className="h-3 w-3 shrink-0" /> <span className="truncate">fiche</span>
+                          </a>
+                        ) : (
+                          cell.entryId && (
+                            <button
+                              onClick={() => { setErr(null); setEditing({ row: r, month: i + 1, cell }); }}
+                              title="Aucune fiche de paie pour ce mois — la déposer"
+                              className="mt-0.5 inline-flex items-center gap-0.5 text-[0.625rem] text-warning hover:underline"
+                            >
+                              <FileWarning className="h-3 w-3" /> sans fiche
+                            </button>
+                          )
+                        )}
                         {cell.entryId && (
                           <span className="mt-0.5 hidden items-center gap-1.5 group-hover:inline-flex">
                             {/* Une paie fausse ne se rattrape pas au mois suivant : elle se
@@ -139,8 +172,10 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
       </div>
       <p className="text-xs text-muted-foreground">
         Vert = payé (annulable tant que non transféré) · Bleu = transféré dans le budget.
-        Une ligne se <strong>corrige</strong> dans les deux cas — après transfert, l&apos;écriture
-        budgétaire est corrigée avec elle. L&apos;employé reçoit sa notification 24 h après le marquage.
+        Le <strong>trombone</strong> ouvre la fiche de paie du mois ; « sans fiche » signale un mois
+        payé dont le bulletin manque encore — on le dépose d&apos;un clic. Une ligne se
+        <strong> corrige</strong> dans les deux cas — après transfert, l&apos;écriture budgétaire est
+        corrigée avec elle. L&apos;employé reçoit sa notification 24 h après le marquage.
       </p>
 
       {/* Marquer payé : montant total + fiche de paie */}
@@ -241,11 +276,39 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-file">Remplacer la fiche de paie <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></Label>
+              {/* CE QUI EST DÉJÀ LÀ, AVANT CE QU'ON PEUT METTRE. Un champ « Remplacer la fiche »
+                  au-dessus du vide laissait croire qu'il n'y en avait pas ; on rejoignait alors
+                  le même bulletin une seconde fois, sans savoir qu'on écrasait le premier. */}
+              {editing.cell.payslip ? (
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs">
+                  <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <a
+                    href={`/api/rh/document/${editing.cell.payslip.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-primary hover:underline"
+                  >
+                    {editing.cell.payslip.name}
+                  </a>
+                  <span className="text-muted-foreground">
+                    déposée le {new Date(editing.cell.payslip.addedAt).toLocaleDateString("fr-FR")}
+                    {editing.cell.payslip.sizeBytes != null ? ` · ${formatBytes(editing.cell.payslip.sizeBytes)}` : ""} · dans le dossier RH du salarié
+                  </span>
+                </div>
+              ) : (
+                <p className="rounded-lg border border-dashed border-warning/50 bg-warning/5 px-3 py-2 text-xs text-muted-foreground">
+                  Aucune fiche de paie n&apos;est jointe à ce mois. Vous pouvez la déposer maintenant.
+                </p>
+              )}
+              <Label htmlFor="edit-file">
+                {editing.cell.payslip ? "Remplacer la fiche de paie" : "Déposer la fiche de paie"}{" "}
+                <span className="text-xs font-normal text-muted-foreground">(facultatif)</span>
+              </Label>
               <input id="edit-file" name="payslip" type="file" className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
               <p className="text-xs text-muted-foreground">
-                La nouvelle prend la place de l&apos;ancienne dans le dossier du salarié — deux bulletins
-                pour le même mois lui laisseraient deviner lequel fait foi.
+                {editing.cell.payslip
+                  ? "La nouvelle prend la place de l'ancienne dans le dossier du salarié — deux bulletins pour le même mois lui laisseraient deviner lequel fait foi."
+                  : "Elle sera déposée dans le dossier RH du salarié, visible par lui, et restera rattachée à ce mois."}
               </p>
             </div>
             {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}

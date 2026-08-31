@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { scopePromoMaterial, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
-import { currentCompanyWhereFor, type CompanyLite } from "@/lib/company";
+import { companyScopedWhere, type CompanyLite } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 
 export interface PromoListItem {
@@ -44,7 +44,7 @@ async function resolveNames(ids: (string | null)[]): Promise<Map<string, string>
 
 export async function getPromoMaterials(user: SessionUser): Promise<PromoListItem[]> {
   const rows = await prisma.promoMaterial.findMany({
-    where: { ...scopePromoMaterial(user), ...await currentCompanyWhereFor(user.id) },
+    where: await companyScopedWhere(user.id, scopePromoMaterial(user)),
     include: { company: { select: { id: true, name: true, shortName: true, color: true } } },
     orderBy: { createdAt: "desc" },
     take: 500,

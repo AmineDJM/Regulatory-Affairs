@@ -32,6 +32,21 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
     getBudgetCategoryOptions(undefined, user),
   ]);
 
+  // LES FICHES DE PAIE DÉJÀ DÉPOSÉES — chargées EN LOT et rendues à l'écran.
+  //
+  // Elles étaient bien enregistrées (dossier RH du salarié), mais la matrice n'en disait rien :
+  // on sortait de l'écran, on revenait, et plus aucune trace du bulletin qu'on venait de joindre.
+  // Un fichier qu'on ne peut pas revoir depuis l'endroit où on l'a déposé est, pour celui qui
+  // l'a déposé, un fichier perdu.
+  const payslipIds = entries.map((e) => e.payslipDocumentId).filter((v): v is string => Boolean(v));
+  const payslips = payslipIds.length
+    ? await prisma.employeeDocument.findMany({
+        where: { id: { in: payslipIds } },
+        select: { id: true, name: true, size: true, createdAt: true },
+      })
+    : [];
+  const payslipById = new Map(payslips.map((d) => [d.id, d]));
+
   const byKey = new Map(entries.map((e) => [`${e.employeeId}:${e.month}`, e]));
   const rows: PayrollRow[] = employees.map((emp) => ({
     employeeId: emp.id,
@@ -48,7 +63,8 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
     defaultNet: emp.netToPay != null ? toNumber(emp.netToPay) : emp.baseSalary != null ? toNumber(emp.baseSalary) : null,
     months: Array.from({ length: 12 }, (_, i) => {
       const e = byKey.get(`${emp.id}:${i + 1}`);
-      if (!e || e.status !== "PAID") return { state: "UNPAID" as const, amount: null, net: null, employerCost: null, entryId: e?.id ?? null };
+      if (!e || e.status !== "PAID") return { state: "UNPAID" as const, amount: null, net: null, employerCost: null, entryId: e?.id ?? null, payslip: null };
+      const doc = e.payslipDocumentId ? payslipById.get(e.payslipDocumentId) ?? null : null;
       return {
         state: e.budgetTransferredAt ? ("TRANSFERRED" as const) : ("PAID" as const),
         // `amount` = BRUT (ligne de bulletin) ; `net` = ce que perçoit le salarié ;
@@ -57,6 +73,7 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
         net: toNumber(e.net),
         employerCost: e.employerCost != null ? toNumber(e.employerCost) : null,
         entryId: e.id,
+        payslip: doc ? { id: doc.id, name: doc.name, sizeBytes: doc.size, addedAt: doc.createdAt.toISOString() } : null,
       };
     }),
   }));
@@ -68,7 +85,7 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
       </BackLink>
       <PageHeader
         title={`Paie ${year}`}
-        description="Un clic sur un mois pour marquer « Payé » (montant total + fiche de paie). L'employé est notifié 24 h plus tard (marge d'erreur). Puis « Transférer dans le budget » impute le mois à la catégorie choisie, avec résumé avant confirmation."
+        description="Un clic sur un mois pour marquer « Payé » (montant total + fiche de paie). La fiche jointe reste attachée au mois : elle se rouvre d'ici, et se dépose plus tard si elle manquait. L'employé est notifié 24 h après le marquage. Puis « Transférer dans le budget » impute le mois à la catégorie choisie, avec résumé avant confirmation."
       />
       <PayrollMatrix year={year} rows={rows} budgetOptions={budgetOptions.map((b) => ({ id: b.id, label: b.label }))} />
     </div>

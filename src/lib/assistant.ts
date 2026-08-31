@@ -23,7 +23,7 @@
 import { MailSendPolicy, type AdminRequestType, type CongressRequestStatus, type Priority, type CalendarEventKind, type HrRequestType, type RegulatoryCategory } from "@prisma/client";
 import { resultatVide } from "@/lib/assistant/empty-result";
 import { prisma } from "@/lib/prisma";
-import { companyIdForNew, currentCompanyWhereFor } from "@/lib/company";
+import { companyIdForNew, companyScopedWhere } from "@/lib/company";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles, broadcastNotification, type BroadcastAudience } from "@/lib/notify";
@@ -2762,7 +2762,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     // Le dossier est cherché DANS LE PÉRIMÈTRE de la personne : deviner une référence ne doit
     // pas permettre de modifier le portefeuille d'une autre entité.
     const product = await prisma.regulatoryProduct.findFirst({
-      where: { AND: [{ reference }, scopeRegulatory(user), await currentCompanyWhereFor(user.id)] },
+      where: await companyScopedWhere(user.id, { AND: [{ reference }, scopeRegulatory(user)] }),
       select: { id: true, reference: true, dci: true, ...({ [field]: true } as Record<string, true>) },
     }) as (Record<string, unknown> & { id: string; reference: string; dci: string }) | null;
     if (!product) {
@@ -2804,7 +2804,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     const personName = asStr(input, "personName");
 
     const product = await prisma.regulatoryProduct.findFirst({
-      where: { AND: [{ reference }, scopeRegulatory(user), await currentCompanyWhereFor(user.id)] },
+      where: await companyScopedWhere(user.id, { AND: [{ reference }, scopeRegulatory(user)] }),
       select: { id: true, reference: true, dci: true, responsible: { select: { id: true, name: true } } },
     });
     if (!product) return { error: `Dossier « ${reference} » introuvable dans votre périmètre.` };
@@ -2869,7 +2869,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (!outcome && (!status || !isRegStepState(status))) return { error: "Statut invalide : TODO, DOING, DONE ou BLOCKED." };
 
     const product = await prisma.regulatoryProduct.findFirst({
-      where: { AND: [{ reference }, scopeRegulatory(user), await currentCompanyWhereFor(user.id)] },
+      where: await companyScopedWhere(user.id, { AND: [{ reference }, scopeRegulatory(user)] }),
       select: { id: true, reference: true, dci: true },
     });
     if (!product) return { error: `Dossier « ${reference} » introuvable dans votre périmètre.` };
@@ -4203,7 +4203,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     const reference = asStr(input, "reference");
     if (!reference) return { error: "Précisez la référence du dossier (REG-AAAA-NNN)." };
     const product = await prisma.regulatoryProduct.findFirst({
-      where: { AND: [{ reference }, scopeRegulatory(user), await currentCompanyWhereFor(user.id)] },
+      where: await companyScopedWhere(user.id, { AND: [{ reference }, scopeRegulatory(user)] }),
       select: {
         id: true, reference: true, dci: true,
         responsible: { select: { id: true, name: true } },
@@ -5408,7 +5408,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     // On REVÉRIFIE le périmètre à l'exécution : entre l'aperçu et le clic, le dossier a pu
     // changer d'entité — ou la personne, de portée.
     const target = await prisma.regulatoryProduct.findFirst({
-      where: { AND: [{ id: payload.productId }, scopeRegulatory(user), await currentCompanyWhereFor(user.id)] },
+      where: await companyScopedWhere(user.id, { AND: [{ id: payload.productId }, scopeRegulatory(user)] }),
       select: { id: true, reference: true },
     });
     if (!target) return { ok: false, error: "Ce dossier n'est plus dans votre périmètre." };

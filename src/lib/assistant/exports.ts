@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { putBlob } from "@/lib/drive-storage";
 import { userCan, isTopManagement, type SessionUser } from "@/lib/rbac";
-import { currentCompanyWhereFor } from "@/lib/company";
+import { companyScopedWhere } from "@/lib/company";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { dossierStageLabel } from "@/lib/assistant/regulatory-read";
 import { recruitmentScope } from "@/lib/recruitment/access";
@@ -134,7 +134,7 @@ async function fetchRows(user: SessionUser, dataset: ExportDataset, limit: numbe
     }
     case "courriers": {
       const rows = await prisma.mailEntry.findMany({
-        where: { ...await currentCompanyWhereFor(user.id) },
+        where: await companyScopedWhere(user.id, {}),
         orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
         take,
         include: {
@@ -152,7 +152,7 @@ async function fetchRows(user: SessionUser, dataset: ExportDataset, limit: numbe
     }
     case "recrutement": {
       const rows = await prisma.recruitmentRequest.findMany({
-        where: { AND: [recruitmentScope(user), await currentCompanyWhereFor(user.id)] },
+        where: await companyScopedWhere(user.id, { AND: [recruitmentScope(user)] }),
         orderBy: { createdAt: "desc" },
         take,
         include: {
@@ -171,7 +171,7 @@ async function fetchRows(user: SessionUser, dataset: ExportDataset, limit: numbe
     }
     case "employes": {
       const rows = await prisma.employee.findMany({
-        where: { ...await currentCompanyWhereFor(user.id) },
+        where: await companyScopedWhere(user.id, {}),
         orderBy: { fullName: "asc" },
         take,
         include: { company: { select: { name: true, shortName: true } } },
