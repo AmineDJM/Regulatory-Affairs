@@ -22,7 +22,6 @@ import { RecordDeleteButton } from "@/components/shared/record-delete-button";
 import { MailPieces } from "./mail-pieces";
 import { EntityLinks } from "@/components/shared/entity-links";
 import { linksOf, linkedViews } from "@/lib/links/store";
-import { linkCandidates } from "@/lib/queries/link-candidates";
 import { getMyCompanies, companyLabel } from "@/lib/company";
 import { mailRoutingOptions } from "@/lib/queries/mail-routing";
 
@@ -106,8 +105,7 @@ export default async function MailEntryPage({ params }: { params: { id: string }
   // commun porte les liens, et l'accès est REVÉRIFIÉ à l'écriture. Un pli parle de tout : c'est
   // la seule nature sans contrainte de flux.
   const self = { type: "MAIL_ENTRY" as const, id: entry.id };
-  const [linkRows, candidates] = await Promise.all([linksOf(self), linkCandidates(user.id, self)]);
-  const linkViews = await linkedViews(self, linkRows);
+  const linkViews = await linkedViews(self, await linksOf(self));
 
   const dir = MAIL_DIRECTION[entry.direction];
   const fields = mailFields({
@@ -219,7 +217,6 @@ export default async function MailEntryPage({ params }: { params: { id: string }
           <EntityLinks
             self={self}
             links={linkViews}
-            candidates={candidates}
             canEdit={canEdit}
             emptyHint="Aucun lien. Reliez ce pli aux affaires qu'il concerne (marché, contrat, bon de commande, facture, dossier) — elles l'afficheront dans leur fiche."
           />

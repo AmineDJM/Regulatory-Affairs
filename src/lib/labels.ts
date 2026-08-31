@@ -1408,23 +1408,6 @@ export const AGENDA_TABS: NavTab[] = [
 // BUDGETS — trois écrans au lieu d'un seul écran fourre-tout : on REGARDE (vue d'ensemble
 // graphique), on TRAVAILLE (dépenses à imputer), on RÈGLE (enveloppe, catégories, total).
 
-/**
- * LES FINANCES EN TROIS MÉTIERS — et ils ne se lisent pas dans le même moment.
- *
- * Une seule page portait la trésorerie, le livre comptable, les règlements et les factures :
- * celui qui PAIE et celui qui TIENT LES COMPTES travaillaient dans le même écran, à se disputer
- * le défilement. Trois sous-modules, dans l'ordre où l'on y passe : on regarde la situation, on
- * règle ce qui est autorisé, on écrit les comptes.
- *
- * « Paiements à faire » n'a QU'UNE source d'alimentation : le centre de paiement. Aucune autre
- * porte n'y dépose de ligne — c'est ce qui rend la question « qui a autorisé cette sortie ? »
- * toujours répondable.
- */
-export const FINANCES_TABS: NavTab[] = [
-  { module: "FINANCES", label: "Dashboard", href: "/finances" },
-  { module: "FINANCES", label: "Paiements à faire", href: "/finances/paiements-a-faire" },
-  { module: "FINANCES", label: "Comptabilité", href: "/finances/comptabilite" },
-];
 export const BUDGET_TABS: NavTab[] = [
   { module: "BUDGETS", label: "Vue d'ensemble", href: "/budgets" },
   { module: "BUDGETS", label: "Dépenses", href: "/budgets/depenses" },
@@ -1521,7 +1504,12 @@ export const MODULE_LABELS: Record<Module, string> = {
   EVENTS: "Événements",
   SALES: "Ventes",
   LOGISTICS: "Logistique",
-  MEDICAL: "Annuaire",
+  // « Annuaire » était le nom de l'écran d'ORIGINE de ce module ; le menu dit « Promotion
+  // médicale » depuis le chantier force de vente, et la console d'accès continuait à le
+  // présenter sous son ancien nom. On cherchait « Promotion médicale » dans la liste des
+  // modules et on ne le trouvait pas — un droit qu'on n'arrive pas à nommer est un droit qu'on
+  // ne donne pas. Le libellé du module suit celui du menu.
+  MEDICAL: "Promotion médicale",
   FIELD_REPORTS: "Rapports terrain",
   SALES_PLANNING: "Prévisions & Force de vente",
   BUSINESS_DEVELOPMENT: "Business Development",
@@ -1532,6 +1520,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   CONSULTING: "Consulting",
   AD_PRO_OTHER: "Ad & Pro — autres demandes",
   VALIDATIONS: "Demandes de validations",
+  VALIDATION_CENTRE: "Centre de validations",
   DIRECTIVES: "Directives",
   SUPPORT: "Demandes de support",
   DOSSIERS: "Projets",
@@ -1629,17 +1618,16 @@ export const NAVIGATION: NavItem[] = [
     // de cette entrée (`match`) pour que le menu ne se désélectionne pas en y entrant.
     match: ["/moyens-generaux/annuaire"],
   },
-  // FINANCES — TROIS SOUS-MODULES, et ils se DÉPLIENT dans le menu, comme la paie sous les RH.
+  // FINANCES — TROIS SOUS-MODULES, DANS LE MENU et nulle part ailleurs.
   //
-  // L'entrée mène au tableau de bord ; la flèche ouvre « Paiements à faire » et « Comptabilité ».
-  // Les onglets restent DANS la page (`tabs`) : les deux chemins servent des gestes différents —
-  // le menu pour arriver directement là où l'on va travailler, les onglets pour passer d'un
-  // métier à l'autre sans repartir du menu.
+  // Ils ont d'abord été des onglets DANS la page : deux chemins pour la même chose, et une barre
+  // d'onglets qui redisait sous chaque titre ce que le menu montrait déjà à gauche. Le menu suffit
+  // — on déplie la flèche et l'on arrive directement là où l'on va travailler.
   {
     module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", pole: "ADMINISTRATION",
-    tabs: FINANCES_TABS,
     match: ["/finances/paiements-a-faire", "/finances/comptabilite", "/finances/factures"],
     children: [
+      { module: "FINANCES", label: "Dashboard", href: "/finances", icon: "LayoutDashboard", group: "Pôles", pole: "ADMINISTRATION" },
       { module: "FINANCES", label: "Paiements à faire", href: "/finances/paiements-a-faire", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION" },
       { module: "FINANCES", label: "Comptabilité", href: "/finances/comptabilite", icon: "BookOpen", group: "Pôles", pole: "ADMINISTRATION" },
     ],
@@ -1649,6 +1637,12 @@ export const NAVIGATION: NavItem[] = [
   // module (PDG + Super Admin) ; un demandeur à qui le centre rend la main y arrive par le LIEN
   // de sa notification — pas par le menu.
   { module: "PAYMENT_CENTRE", label: "Centre de paiement", href: "/centre-de-paiement", icon: "ShieldCheck", group: "Pôles", pole: "ADMINISTRATION" },
+  // LE CENTRE DE VALIDATIONS — le pendant du précédent, côté DÉCISIONS, pour le Directeur
+  // Général et le Super Admin. Un écran qui ne contient QUE ce qu'on attend d'eux, tous modules
+  // confondus : dans l'écran commun des validations, ces demandes se noyaient entre leurs
+  // propres dossiers et les blocs de suivi, et l'on découvrait une signature attendue depuis six
+  // jours en cherchant autre chose.
+  { module: "VALIDATION_CENTRE", label: "Centre de validations", href: "/centre-de-validations", icon: "Gavel", group: "Pôles", pole: "ADMINISTRATION" },
   // LES DEMANDES DE PAIEMENT n'ont PLUS d'entrée de menu : la demande se fait depuis les
   // Demandes de validations (bouton « Demande de paiement »), et une fois le bon à payer donné,
   // le dossier passe par le centre de paiement puis atterrit dans les Règlements à effectuer.

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ExternalLink, Paperclip, Banknote } from "lucide-react";
+import { ExternalLink, Paperclip } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { accessibleModules } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -84,6 +84,9 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
   // recalcule pour ses filtres, à partir des MÊMES fonctions pures — les deux ne peuvent pas
   // diverger.
   const supervisionStats = supervisionCounters(supervised, new Date());
+  // La supervision de TOUTE la société est un pouvoir de contrôle, pas un outil de travail :
+  // elle se referme sur le Super Admin.
+  const peutSuperviser = user.role === "SUPER_ADMIN";
 
   return (
     <div className="space-y-5">
@@ -104,25 +107,16 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
         <NewPaymentButton people={financePeople} />
       </PageHeader>
 
-      {/* Le suivi des demandes de paiement (les miennes, et la file à instruire pour les
-          Finances) vit sur son écran dédié — accessible d'ici, plus par le menu. */}
-      <Link
-        href="/validations/paiements"
-        className="surface flex flex-wrap items-center justify-between gap-3 p-3 text-sm transition-colors hover:bg-secondary/40"
-      >
-        <span className="flex items-center gap-2 font-medium">
-          <Banknote className="h-4 w-4 text-primary" /> Suivi des demandes de paiement
-        </span>
-        <span className="text-xs text-muted-foreground">
-          Vos dossiers de paiement, et la file à instruire pour les Finances. Autorisation au centre de paiement dès 50 000 DZD, puis Règlements.
-        </span>
-      </Link>
+      {/* LE RACCOURCI « Suivi des demandes de paiement » A ÉTÉ RETIRÉ (2026-08). Une bannière
+          en tête de page repoussait ce qu'on vient réellement faire ici — valider, et suivre ses
+          demandes. Le dossier de paiement s'ouvre depuis le bouton qui l'a créé, et les Finances
+          ont leur propre écran. */}
 
       {/* Les chiffres du haut répondent à « qu'est-ce qui m'attend ? » puis, pour la Direction,
           à « qu'est-ce qui est en retard, et où ? » — pas à « combien en ai-je envoyé ». */}
-      <div className={`grid grid-cols-2 gap-3 ${supervised.length > 0 ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
+      <div className={`grid grid-cols-2 gap-3 ${peutSuperviser && supervised.length > 0 ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
         <KpiCard label="À valider par vous" value={actionable.length} icon="ShieldCheck" tone={actionable.length > 0 ? "warning" : "default"} />
-        {supervised.length > 0 && (
+        {peutSuperviser && supervised.length > 0 && (
           <KpiCard
             label="En retard (société)" value={supervisionStats.overdue} icon="AlarmClock"
             tone={supervisionStats.overdue > 0 ? "danger" : "default"}
@@ -144,7 +138,11 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
         )}
       </section>
 
-      {supervised.length > 0 && (
+      {/* SUPERVISION — RÉSERVÉE AU SUPER ADMIN. Lire tout ce qui circule dans la société, et
+          relancer n'importe quel validateur, n'est pas un besoin de travail : c'est un pouvoir de
+          contrôle. Il restait ouvert à quiconque avait la portée « toutes les lignes », ce qui en
+          faisait un tableau de surveillance par accident. */}
+      {peutSuperviser && supervised.length > 0 && (
         <section className="space-y-3">
           <div>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">

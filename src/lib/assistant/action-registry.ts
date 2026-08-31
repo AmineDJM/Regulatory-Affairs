@@ -1110,6 +1110,9 @@ X("sélecteurs de formulaires care / matériel promo (options d'annuaire, de mat
 X("liste des projets rattachables (sélecteur du Courrier) — une lecture ; côté Chief, dossier_operation:link_email_to_dossier résout le projet par NOM", [
   "dossier-actions:listLinkableDossiers",
 ]);
+X("liste des objets qu'on peut relier (candidats du panneau « Relié à… ») — une lecture chargée à l'ouverture du volet, pas un geste ; c'est addEntityLink qui relie et lui est classé", [
+  "link-actions:linkCandidatesFor",
+]);
 X("plomberie du planning SFE : get-or-create idempotent du cycle mensuel à l'ouverture de l'écran (précédent ensureDriveFolders) — les ops planning_operation l'assurent elles-mêmes à l'exécution", [
   "sales-planning-actions:ensureCycle",
 ]);

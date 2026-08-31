@@ -172,8 +172,12 @@ export function RecordForm({
     if (state?.ok) {
       setSubmitting(false);
       done.current();
-      router.refresh();
+      // ON NE RAFRAÎCHIT PAS L'ÉCRAN QU'ON QUITTE. Quand la création ouvre la fiche du nouvel
+      // objet, un `refresh()` suivi d'un `push()` faisait rendre DEUX pages au serveur — la
+      // liste qu'on abandonne, puis la fiche — et le bouton tournait pendant les deux.
+      // L'action a déjà invalidé le cache de la liste : elle sera à jour au retour.
       if (redirectBase && state.id) router.push(`${redirectBase}/${state.id}`);
+      else router.refresh();
     } else if (state?.error) {
       setSubmitting(false);
       lock.current = false; // échec → nouvelle tentative autorisée

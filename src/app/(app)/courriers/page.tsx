@@ -1,7 +1,9 @@
+import { Filter } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { hiddenByScopeMessage } from "@/lib/company-visibility";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { currentCompanyWhereFor } from "@/lib/company";
+import { getCompanyScope, currentCompanyWhereFor } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -58,8 +60,23 @@ export default async function CourriersPage({ searchParams }: { searchParams?: {
   const partnerRows = partners.map((p) => ({ id: p.id, name: p.name, kind: p.kind }));
   const partnerOpts = partners.map((p) => ({ value: p.id, label: p.kind ? `${p.name} — ${p.kind}` : p.name }));
 
+  // COMBIEN LE FILTRE D'ENTITÉ RETIRE — compté, puis DIT. Sans ce chiffre, on ouvre le registre
+  // et l'on compte dix-neuf plis, on y revient et l'on en compte quatorze : rien à l'écran ne
+  // relie les deux faits, et l'on conclut que le module perd des courriers.
+  const filtreEntite = await currentCompanyWhereFor(user.id);
+  const [horsPortee, dansPortee] = await Promise.all([
+    prisma.mailEntry.count({ where: folderWhere }),
+    prisma.mailEntry.count({ where: { ...filtreEntite, ...folderWhere } }),
+  ]);
+  const scopeId = getCompanyScope();
+  const masques = hiddenByScopeMessage({
+    shown: dansPortee,
+    total: horsPortee,
+    companyLabel: scopeId ? (myCompanies.find((c) => c.id === scopeId)?.name ?? null) : null,
+  });
+
   const entries = await prisma.mailEntry.findMany({
-    where: { ...await currentCompanyWhereFor(user.id), ...folderWhere },
+    where: { ...filtreEntite, ...folderWhere },
     orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
     take: 500,
     include: {
@@ -138,6 +155,12 @@ export default async function CourriersPage({ searchParams }: { searchParams?: {
           />
         )}
       </PageHeader>
+
+      {masques && (
+        <p className="flex items-start gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm text-muted-foreground">
+          <Filter className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> {masques}
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Courriers" value={rows.length} icon="Mails" />

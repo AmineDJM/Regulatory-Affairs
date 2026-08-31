@@ -26,7 +26,7 @@ const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
 export const MODULES = [
   "WORKSPACE", "FEEDBACK", "MESSAGING", "REGULATORY", "SPONSORING", "BUDGETS", "FINANCES", "RH",
   "CONGRESS_INTERNATIONAL", "CONGRESS_NATIONAL", "EVENTS", "SALES", "LOGISTICS", "MEDICAL", "FIELD_REPORTS", "SALES_PLANNING",
-  "BUSINESS_DEVELOPMENT", "PCH", "STOCKS", "MEDICAL_INFO", "PROMO_MATERIAL", "CONSULTING", "AD_PRO_OTHER", "GENERAL_MEANS", "VALIDATIONS", "DIRECTIVES", "SUPPORT", "DOSSIERS", "DOCUMENTS", "DRIVE", "ADMIN_REQUESTS", "NOTIFICATIONS",
+  "BUSINESS_DEVELOPMENT", "PCH", "STOCKS", "MEDICAL_INFO", "PROMO_MATERIAL", "CONSULTING", "AD_PRO_OTHER", "GENERAL_MEANS", "VALIDATIONS", "VALIDATION_CENTRE", "DIRECTIVES", "SUPPORT", "DOSSIERS", "DOCUMENTS", "DRIVE", "ADMIN_REQUESTS", "NOTIFICATIONS",
   // LEGAL : les engagements de la société (contrats, bons de commande, assurances).
   // MAIL_REGISTER : le carnet de courriers entrants/sortants de l'assistante de direction —
   // module à part, dont le Super Admin ouvre l'accès à qui il veut.
@@ -38,6 +38,10 @@ export const MODULES = [
   // Il n'appartient qu'au PDG et au Super Admin : celui qui autorise l'argent ne doit pas être
   // dans le même écran que celui qui le décaisse, sinon la séparation des rôles n'est qu'un onglet.
   "PAYMENT_CENTRE",
+  // VALIDATION_CENTRE : le pendant du centre de paiement, côté DÉCISIONS. Il n'appartient qu'au
+  // DIRECTEUR GÉNÉRAL et au Super Admin — pas au PDG, dont le centre est celui de l'argent :
+  // donner les deux à la même personne referait l'écran fourre-tout qu'on vient de découper.
+  "VALIDATION_CENTRE",
   // CHIEF_OF_STAFF : « My Chief of Staff » — l'interface exécutive de pilotage (PDG + Super
   // Admin). Le même moteur que l'assistant, mais avec les outils de chef de cabinet : histoire
   // complète d'un dossier, lecture des documents du Drive, bilan d'une personne, rappels
@@ -144,6 +148,10 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     RECRUITMENT: MANAGE,
     // Pas de VALIDATE global : il valide ce dont il est nommément validateur, comme tout le monde.
     VALIDATIONS: VALIDATION_USER, DIRECTIVES: MANAGE, SUPPORT: MANAGE, DOSSIERS: MANAGE,
+    // LE CENTRE DE VALIDATIONS est le sien : un écran qui ne contient QUE les décisions qu'on
+    // attend de lui, tous modules confondus. Il ne lui donne aucun droit nouveau — il rassemble
+    // ce qui lui était déjà adressé, et que l'écran commun des validations noyait.
+    VALIDATION_CENTRE: MANAGE,
     NOTIFICATIONS: ["VIEW"],
   },
   // DIRECTEUR DES OPÉRATIONS — rôle À PART, pas une Direction au rabais.
@@ -1064,13 +1072,29 @@ export function scopeDirectives(user: SessionUser, companyIds: string[] = []): P
   };
 }
 
-/** Information médicale : le pharmacien (scope ALL) voit toutes les déclarations ;
- *  un autre utilisateur ne voit que celles où une pièce lui est demandée. */
+/**
+ * INFORMATION MÉDICALE — qui voit quelle déclaration.
+ *
+ * Portée ALL (le pharmacien responsable) : tout. Sinon, on voit ce qui nous concerne — et
+ * « nous concerne » inclut LES DÉCLARATIONS QUE PERSONNE N'A ENCORE PRISES.
+ *
+ * Le trou, corrigé ici : une déclaration arrive « à déclarer » sans pharmacien assigné
+ * (`pharmacistId` nul). Avec l'ancienne règle, celui qui a le droit de la VALIDER ne la voyait
+ * pas dans son module — il ne la découvrait que par le raccourci de « Mon espace », c'est-à-dire
+ * par accident. Un dossier que personne ne voit est un dossier que personne ne prend : c'est
+ * exactement la panne silencieuse que ce module doit empêcher.
+ */
 export function scopeMedicalInfo(user: SessionUser): Prisma.MedicalInfoDeclarationWhereInput {
   const m = user.access.modules.get("MEDICAL_INFO");
   if (!m) return { id: "__none__" };
   if (m.scope === "ALL") return {};
-  return { OR: [{ pharmacistId: user.id }, { requests: { some: { targetUserId: user.id } } }] };
+  const ors: Prisma.MedicalInfoDeclarationWhereInput[] = [
+    { pharmacistId: user.id },
+    { requests: { some: { targetUserId: user.id } } },
+  ];
+  // Qui peut VALIDER une déclaration doit voir celles qui attendent d'être prises en charge.
+  if (m.actions.has("VALIDATE")) ors.push({ pharmacistId: null });
+  return { OR: ors };
 }
 
 /** Admin requests scope: a manager (scope ALL) sees all; others see the ones they

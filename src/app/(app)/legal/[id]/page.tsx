@@ -28,7 +28,6 @@ import { MarketContext } from "./market-context";
 import { LegalChainCard } from "./chain-card";
 import { EntityLinks } from "@/components/shared/entity-links";
 import { linksOf, linkedViews } from "@/lib/links/store";
-import { linkCandidates } from "@/lib/queries/link-candidates";
 
 export const dynamic = "force-dynamic";
 
@@ -106,8 +105,7 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   // exécutée par des bons, elle est couverte par une assurance, et des plis s'échangent à son
   // sujet. Le flux (`links/graph.ts`) décide de ce qui se relie ; l'écran ne propose que cela.
   const self = { type: "LEGAL_DOCUMENT" as const, id: doc.id };
-  const [linkRows, linkGroups] = await Promise.all([linksOf(self), linkCandidates(user.id, self)]);
-  const linkViews = await linkedViews(self, linkRows);
+  const linkViews = await linkedViews(self, await linksOf(self));
 
   const today = new Date();
   const status = effectiveStatus(doc, today);
@@ -294,7 +292,6 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
           <EntityLinks
             self={self}
             links={linkViews}
-            candidates={linkGroups}
             canEdit={canEdit}
             emptyHint="Aucun lien. Reliez cette pièce au marché dont elle est née, aux bons de commande qui l'exécutent, à l'assurance qui la couvre, ou aux courriers échangés à son sujet."
           />

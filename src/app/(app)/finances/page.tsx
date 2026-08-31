@@ -6,13 +6,10 @@ import { getFinanceData } from "@/lib/queries/finance";
 import { getComptaData } from "@/lib/queries/compta";
 import { ComptaCockpit } from "./compta-cockpit";
 import { PageHeader } from "@/components/shared/page-header";
-import { ModuleTabs } from "@/components/shared/module-tabs";
-import { visibleTabs } from "@/lib/nav-tabs";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TrendChart } from "@/components/dashboard/charts";
-import { FINANCES_TABS } from "@/lib/labels";
 import { formatCurrency } from "@/lib/utils";
 import { RecettesDepensesChart } from "./finance-charts";
 import { TreasuryUpdateRequestButton } from "./treasury-update-request";
@@ -32,10 +29,9 @@ export const dynamic = "force-dynamic";
  */
 export default async function FinancesPage() {
   const user = await requireModule("FINANCES");
-  const [data, compta, tabs] = await Promise.all([
+  const [data, compta] = await Promise.all([
     getFinanceData(user.id),
     getComptaData(user.id),
-    visibleTabs(user, FINANCES_TABS),
   ]);
 
   return (
@@ -50,7 +46,6 @@ export default async function FinancesPage() {
         {/* L'administration DEMANDE l'actualisation ; les Finances la font. */}
         {(user.role === "SUPER_ADMIN" || hasGlobalView(user)) && <TreasuryUpdateRequestButton />}
       </PageHeader>
-      <ModuleTabs tabs={tabs} arrows />
 
       {/* Treasury KPIs */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">

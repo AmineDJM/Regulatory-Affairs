@@ -2,12 +2,10 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { getFinanceData } from "@/lib/queries/finance";
 import { PageHeader } from "@/components/shared/page-header";
-import { ModuleTabs } from "@/components/shared/module-tabs";
-import { visibleTabs } from "@/lib/nav-tabs";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { createTransaction, createQuickIncome } from "@/lib/actions/finance-actions";
-import { FINANCE_CATEGORY, FINANCE_DIRECTION, FINANCE_METHOD, FINANCE_STATUS, FINANCES_TABS } from "@/lib/labels";
+import { FINANCE_CATEGORY, FINANCE_DIRECTION, FINANCE_METHOD, FINANCE_STATUS } from "@/lib/labels";
 import { getMyCompanies, companyOptions } from "@/lib/company";
 import { LedgerTable } from "../ledger-table";
 import { ImportTransactionsButton } from "../import-transactions";
@@ -28,10 +26,9 @@ export default async function ComptabilitePage() {
   const canCreate = userCan(user, "FINANCES", "CREATE");
   const canUpdate = userCan(user, "FINANCES", "UPDATE");
   const canDelete = userCan(user, "FINANCES", "DELETE");
-  const [data, companies, tabs] = await Promise.all([
+  const [data, companies] = await Promise.all([
     getFinanceData(user.id),
     getMyCompanies(user.id),
-    visibleTabs(user, FINANCES_TABS),
   ]);
 
   return (
@@ -80,7 +77,6 @@ export default async function ComptabilitePage() {
           </>
         )}
       </PageHeader>
-      <ModuleTabs tabs={tabs} arrows />
 
       <LedgerTable rows={data.rows} canUpdate={canUpdate} canDelete={canDelete} />
     </div>

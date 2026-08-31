@@ -2,6 +2,21 @@ import { prisma } from "@/lib/prisma";
 import { scopeMedicalInfo, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
 import { currentCompanyWhereFor } from "@/lib/company";
 
+/**
+ * COMBIEN LE FILTRE D'ENTITÉ RETIRE de cette liste — compté ici, DIT par l'écran.
+ *
+ * Le cloisonnement est voulu ; son silence ne l'est pas. Le pharmacien voyait deux déclarations
+ * dans « Mon espace » et zéro dans son module, sans qu'aucun écran ne relie les deux faits.
+ */
+export async function declarationsHiddenByScope(user: SessionUser): Promise<{ shown: number; total: number }> {
+  const metier = scopeMedicalInfo(user);
+  const [total, shown] = await Promise.all([
+    prisma.medicalInfoDeclaration.count({ where: metier }),
+    prisma.medicalInfoDeclaration.count({ where: { ...metier, ...await currentCompanyWhereFor(user.id) } }),
+  ]);
+  return { shown, total };
+}
+
 export async function getDeclarations(user: SessionUser) {
   return prisma.medicalInfoDeclaration.findMany({
     where: { ...scopeMedicalInfo(user), ...await currentCompanyWhereFor(user.id) },

@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ExternalLink, Link2, Loader2, Plus, X } from "lucide-react";
-import { addEntityLink, removeEntityLink } from "@/lib/actions/link-actions";
+import { addEntityLink, removeEntityLink, linkCandidatesFor } from "@/lib/actions/link-actions";
 import { LINK_TYPE_LABELS, pairReason, type LinkType } from "@/lib/links/graph";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,12 +38,9 @@ export interface EntityLinkCandidates {
   options: { value: string; label: string }[];
 }
 
-export function EntityLinks({
-  self, links, candidates, canEdit, emptyHint,
-}: {
+export function EntityLinks({ self, links, canEdit, emptyHint }: {
   self: { type: LinkType; id: string };
   links: EntityLinkView[];
-  candidates: EntityLinkCandidates[];
   canEdit: boolean;
   emptyHint?: string;
 }) {
@@ -51,10 +48,20 @@ export function EntityLinks({
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
-  const utiles = candidates.filter((c) => c.options.length > 0);
-  const [type, setType] = React.useState(utiles[0]?.type ?? candidates[0]?.type ?? "");
-  const groupe = candidates.find((c) => c.type === type);
+  // LES CIBLES SE CHARGENT AU CLIC, pas avec la page : jusqu'à cinq requêtes de deux cents
+  // lignes pour un tiroir que la plupart des visites n'ouvrent jamais.
+  const [candidates, setCandidates] = React.useState<EntityLinkCandidates[] | null>(null);
+  const [type, setType] = React.useState("");
+  const groupe = candidates?.find((c) => c.type === type);
   const raison = type ? pairReason(self.type, type as LinkType) : null;
+
+  const ouvrir = async () => {
+    setErr(null); setOpen(true);
+    if (candidates) return;
+    const groupes = await linkCandidatesFor(self.type, self.id);
+    setCandidates(groupes);
+    setType(groupes.find((c) => c.options.length > 0)?.type ?? groupes[0]?.type ?? "");
+  };
 
   const run = async (fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setBusy(true); setErr(null);
@@ -74,8 +81,8 @@ export function EntityLinks({
           <Link2 className="h-4 w-4" aria-hidden /> Relié à
           <span className="text-sm font-normal text-muted-foreground">({links.length})</span>
         </CardTitle>
-        {canEdit && utiles.length > 0 && (
-          <Button size="sm" variant="outline" onClick={() => { setErr(null); setOpen(true); }}>
+        {canEdit && (
+          <Button size="sm" variant="outline" onClick={ouvrir}>
             <Plus className="h-4 w-4" /> Relier à…
           </Button>
         )}
@@ -132,15 +139,18 @@ export function EntityLinks({
               className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
               value={type}
               onChange={(e) => setType(e.target.value)}
+              disabled={candidates === null}
             >
-              {candidates.map((c) => (
+              {(candidates ?? []).map((c) => (
                 <option key={c.type} value={c.type} disabled={c.options.length === 0}>
                   {c.typeLabel}{c.options.length === 0 ? " (aucun)" : ""}
                 </option>
               ))}
             </select>
             {/* CE QU'ON AFFIRME EN RELIANT — le flux, écrit là où on l'applique. */}
-            {raison && <p className="text-xs text-muted-foreground">{raison}</p>}
+            {candidates === null
+              ? <p className="text-xs text-muted-foreground">Chargement des objets à relier…</p>
+              : raison && <p className="text-xs text-muted-foreground">{raison}</p>}
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium" htmlFor="entity-link-target">Objet</label>
@@ -158,7 +168,7 @@ export function EntityLinks({
           {err && <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Annuler</Button>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" disabled={busy || candidates === null}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />} Relier
             </Button>
           </div>

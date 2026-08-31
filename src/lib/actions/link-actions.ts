@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { addLink, removeLink, linkRevalidatePaths } from "@/lib/links/store";
+import { linkCandidates, type LinkCandidateGroup } from "@/lib/queries/link-candidates";
+import { isLinkType } from "@/lib/links/graph";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 /**
@@ -42,4 +44,21 @@ export async function removeEntityLink(formData: FormData): Promise<ActionResult
   // fiche d'en face garderait la pastille disparue jusqu'au prochain passage.
   for (const p of linkRevalidatePaths(r.ends)) revalidatePath(p);
   return { ok: true };
+}
+
+/**
+ * CE À QUOI ON PEUT RELIER, CHARGÉ À L'OUVERTURE DU TIROIR.
+ *
+ * Ces listes remplissent un menu déroulant : jusqu'à cinq requêtes de deux cents lignes, payées
+ * par CHAQUE affichage de fiche — alors que la plupart des visites n'ouvrent jamais « Relier
+ * à… ». La fiche d'un courrier mettait une seconde de plus à s'ouvrir pour un tiroir qu'on
+ * n'ouvre pas. On les charge donc au clic, comme l'annuaire des demandes de pièce.
+ *
+ * Ce n'est PAS un contrôle d'accès : les listes sont cloisonnées par entité, et l'écriture
+ * revérifie les deux bouts (`links/store.ts`). C'est une commodité de saisie, rien de plus.
+ */
+export async function linkCandidatesFor(type: string, id: string): Promise<LinkCandidateGroup[]> {
+  const user = await requireUser();
+  if (!isLinkType(type) || !id) return [];
+  return linkCandidates(user.id, { type, id });
 }

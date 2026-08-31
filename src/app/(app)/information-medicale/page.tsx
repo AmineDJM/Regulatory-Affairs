@@ -1,7 +1,9 @@
 import Link from "next/link";
-import { ArrowRight, ShieldPlus, FileClock, FileCheck2, Inbox } from "lucide-react";
+import { ArrowRight, ShieldPlus, FileClock, FileCheck2, Inbox, Filter } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { getDeclarations } from "@/lib/queries/medical-info";
+import { getDeclarations, declarationsHiddenByScope } from "@/lib/queries/medical-info";
+import { getCompanyScope, getMyCompanies } from "@/lib/company";
+import { hiddenByScopeMessage } from "@/lib/company-visibility";
 import { toNumber, formatCurrency, formatDate } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +15,18 @@ export const dynamic = "force-dynamic";
 
 export default async function MedicalInfoPage() {
   const user = await requireModule("MEDICAL_INFO");
-  const declarations = await getDeclarations(user);
+  const [declarations, portee, myCompanies] = await Promise.all([
+    getDeclarations(user),
+    declarationsHiddenByScope(user),
+    getMyCompanies(user.id),
+  ]);
+  // CE QUE LE FILTRE D'ENTITÉ CACHE, dit au lieu d'être subi : sans ce chiffre, on voit des
+  // déclarations dans « Mon espace » et pas dans son module, et rien ne relie les deux faits.
+  const scopeId = getCompanyScope();
+  const masques = hiddenByScopeMessage({
+    ...portee,
+    companyLabel: scopeId ? (myCompanies.find((c) => c.id === scopeId)?.name ?? null) : null,
+  });
 
   const count = (s: string) => declarations.filter((d) => d.status === s).length;
   const stats = [
@@ -29,6 +42,12 @@ export default async function MedicalInfoPage() {
         title="Information médicale"
         description="Déclaration réglementaire des sponsorings et congrès validés par la Direction — avant tout règlement. Le pharmacien responsable exige les pièces nécessaires, puis valide pour déclencher l'ordre de dépense."
       />
+
+      {masques && (
+        <p className="flex items-start gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm text-muted-foreground">
+          <Filter className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> {masques}
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {stats.map((s) => (

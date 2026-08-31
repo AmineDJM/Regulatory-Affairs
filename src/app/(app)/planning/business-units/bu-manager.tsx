@@ -16,6 +16,8 @@ import {
 } from "@/lib/sfe-setup";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Sheet } from "@/components/ui/sheet";
 
 /**
  * LE MONTAGE D'UNE BU, DE HAUT EN BAS.
@@ -63,6 +65,7 @@ export function BusinessUnitsManager({
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
+  const [creating, setCreating] = React.useState(false);
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
 
   const run = React.useCallback(async (action: Action, fd: FormData, refresh = true) => {
@@ -81,19 +84,25 @@ export function BusinessUnitsManager({
 
   return (
     <div className="space-y-5">
-      {/* ─────────── L'ORDRE DU MONTAGE, énoncé une fois ─────────── */}
-      <Card>
-        <CardHeader><CardTitle className="text-base">Créer une Business Unit</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
+      {/* LE FORMULAIRE DE CRÉATION VIT DANS UN TIROIR, pas en tête de page. Déplié en permanence,
+          il repoussait les BU existantes sous la ligne de flottaison — alors qu'on vient ici dix
+          fois pour en consulter une, et une fois pour en créer une. */}
+      <div className="flex justify-end">
+        <Button onClick={() => { setCreating(true); }} disabled={busy}>
+          <Plus className="h-4 w-4" /> Créer une BU
+        </Button>
+      </div>
+
+      <Sheet open={creating} onClose={() => setCreating(false)} title="Créer une Business Unit" width="md">
+        <form
+          className="space-y-3"
+          action={async (fd) => { if (await run(createBusinessUnit, fd)) setCreating(false); }}
+        >
           <p className="text-sm text-muted-foreground">
-            Une BU est une franchise ET son équipe : un superviseur, un terrain, des KAM, des produits.
-            On la crée ici, puis on la déplie pour lui rattacher ses KAM et ses produits.
+            Une BU est une franchise ET son équipe : un superviseur, un terrain, des KAM, des
+            produits. On la crée ici, puis on la déplie pour lui rattacher ses KAM et ses produits.
           </p>
-          <form
-            className="grid grid-cols-1 gap-2 sm:grid-cols-3"
-            action={async (fd) => { if (await run(createBusinessUnit, fd)) (document.getElementById("bu-create") as HTMLFormElement | null)?.reset(); }}
-            id="bu-create"
-          >
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <input name="name" required placeholder="Nom de la BU (ex. Neurologie)" className={`${inputCls} sm:col-span-2`} />
             <input name="code" placeholder="Code (facultatif)" className={inputCls} />
             <select name="supervisorId" className={inputCls} defaultValue="">
@@ -112,12 +121,15 @@ export function BusinessUnitsManager({
               {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
             <input name="color" type="color" defaultValue="#2563eb" className="h-9 w-16 rounded-lg border border-input bg-background" title="Couleur" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setCreating(false)} className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary">Annuler</button>
             <button type="submit" disabled={busy} className={btnCls}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Créer la BU
             </button>
-          </form>
-        </CardContent>
-      </Card>
+          </div>
+        </form>
+      </Sheet>
 
       {businessUnits.length === 0 && (
         <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">

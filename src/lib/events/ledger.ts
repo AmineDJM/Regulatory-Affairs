@@ -63,66 +63,75 @@ export async function recordEvent(input: RecordEventInput): Promise<string | nul
       select: { id: true, type: true, occurredAt: true, sourceDomain: true, entityType: true, entityId: true, actorId: true },
     });
 
-    await reconcileTasks(evt).catch((err) => {
-      console.error("[events] réconciliation impossible", evt.type, err);
-    });
-
-    // LE RÉVEIL DES MISSIONS (§18) — la deuxième conséquence d'un fait, après la réconciliation
-    // des tâches. Elle passe par le MÊME registre : une mission qui attend « la réponse de
-    // Redouane » se règle quand le fait arrive, sans que personne ait à dire « il a répondu ».
+    // ── LES CONSÉQUENCES D'UN FAIT, EN PARALLÈLE ────────────────────────────────────────────
     //
-    // Le routeur ne fait PAS tourner la mission : il règle l'attente et rend la main. Sans quoi
-    // le dépôt d'un contrat attendrait la fin d'une mission de trente-trois envois.
-    await reveillerMissions({
-      type: evt.type,
-      actorId: evt.actorId,
-      entityType: evt.entityType,
-      entityId: evt.entityId,
-      relatedRefs: input.relatedRefs ?? [],
-      payload: input.payload,
-      missionId: input.missionId ?? null,
-    }).catch((err) => {
-      console.error("[events] réveil de mission impossible", evt.type, err);
-    });
+    // Elles étaient enchaînées : réconcilier les tâches, PUIS réveiller les missions, PUIS
+    // satisfaire les engagements, PUIS charger le module des rappels, PUIS marquer les états
+    // chauds. Cinq allers-retours à la base, en file, DANS la requête de la personne — et l'on
+    // voyait tourner « Enregistrer » sur un formulaire de courrier qui ne pèse rien.
+    //
+    // Elles sont INDÉPENDANTES : aucune ne lit ce qu'une autre écrit. Les enchaîner ne servait
+    // qu'à les écrire les unes sous les autres. Chacune garde son `catch` nommé — une
+    // conséquence qui tombe ne doit jamais emporter les autres, ni l'écriture métier.
+    const consequences: Promise<unknown>[] = [
+      reconcileTasks(evt).catch((err) => {
+        console.error("[events] réconciliation impossible", evt.type, err);
+      }),
 
-    // LA TROISIÈME CONSÉQUENCE : les promesses tenues (§86). Redouane dépose son contrat, et
-    // l'engagement se ferme tout seul — sans quoi Adam le relancerait trois jours plus tard
-    // pour une chose déjà faite, ce qui est la façon la plus rapide de perdre sa crédibilité.
-    await satisfaireEngagements({
-      type: evt.type,
-      actorId: evt.actorId,
-      entityType: evt.entityType,
-      entityId: evt.entityId,
-      relatedRefs: input.relatedRefs ?? [],
-      payload: input.payload,
-      missionId: input.missionId ?? null,
-    }).catch((err) => {
-      console.error("[events] satisfaction d'engagement impossible", evt.type, err);
-    });
-
-    // LA CINQUIÈME CONSÉQUENCE : les rappels conditionnels s'ÉTEIGNENT quand ce qu'ils
-    // surveillaient arrive (§10). « Rappelle-moi dans 7 jours si Sarah n'a pas envoyé le
-    // contrat » — le contrat arrive, le rappel se tait, relances comprises. Import différé :
-    // le module des rappels importe la messagerie, qu'on ne veut pas charger pour chaque fait.
-    await import("@/lib/assistant/reminders")
-      .then((m) => m.eteindreRappelsSurEvenement({
+      // LE RÉVEIL DES MISSIONS (§18) : une mission qui attend « la réponse de Redouane » se règle
+      // quand le fait arrive, sans que personne ait à dire « il a répondu ». Le routeur ne fait
+      // PAS tourner la mission — il règle l'attente et rend la main ; sans quoi le dépôt d'un
+      // contrat attendrait la fin d'une mission de trente-trois envois.
+      reveillerMissions({
         type: evt.type,
         actorId: evt.actorId,
         entityType: evt.entityType,
         entityId: evt.entityId,
         relatedRefs: input.relatedRefs ?? [],
         payload: input.payload,
-      }))
-      .catch((err) => {
-        console.error("[events] extinction de rappel impossible", evt.type, err);
-      });
+        missionId: input.missionId ?? null,
+      }).catch((err) => {
+        console.error("[events] réveil de mission impossible", evt.type, err);
+      }),
 
-    // LA QUATRIÈME CONSÉQUENCE : les états chauds démentis (fabric F5). Un fait métier vient
-    // de s'inscrire — les signaux exécutifs précalculés AVANT lui ne peuvent plus être servis
-    // tels quels. On MARQUE (pas de recalcul ici : le prochain lecteur ou le battement paie),
-    // et l'invalidation ne touche que les lignes pas encore marquées — idempotente, une
-    // requête indexée, jamais bloquante.
-    await invaliderEtatsChauds("alertes-executives").catch(() => undefined);
+      // LES PROMESSES TENUES (§86) : Redouane dépose son contrat, l'engagement se ferme tout
+      // seul — sans quoi Adam le relancerait trois jours plus tard pour une chose déjà faite,
+      // ce qui est la façon la plus rapide de perdre sa crédibilité.
+      satisfaireEngagements({
+        type: evt.type,
+        actorId: evt.actorId,
+        entityType: evt.entityType,
+        entityId: evt.entityId,
+        relatedRefs: input.relatedRefs ?? [],
+        payload: input.payload,
+        missionId: input.missionId ?? null,
+      }).catch((err) => {
+        console.error("[events] satisfaction d'engagement impossible", evt.type, err);
+      }),
+
+      // LES RAPPELS CONDITIONNELS S'ÉTEIGNENT (§10) : « rappelle-moi dans 7 jours si Sarah n'a
+      // pas envoyé le contrat » — le contrat arrive, le rappel se tait, relances comprises.
+      // Import différé : ce module tire la messagerie, qu'on ne veut pas charger pour chaque fait.
+      import("@/lib/assistant/reminders")
+        .then((m) => m.eteindreRappelsSurEvenement({
+          type: evt.type,
+          actorId: evt.actorId,
+          entityType: evt.entityType,
+          entityId: evt.entityId,
+          relatedRefs: input.relatedRefs ?? [],
+          payload: input.payload,
+        }))
+        .catch((err) => {
+          console.error("[events] extinction de rappel impossible", evt.type, err);
+        }),
+
+      // LES ÉTATS CHAUDS DÉMENTIS (fabric F5) : les signaux exécutifs précalculés AVANT ce fait
+      // ne peuvent plus être servis tels quels. On MARQUE — le prochain lecteur ou le battement
+      // paie le recalcul —, et l'invalidation ne touche que les lignes pas encore marquées :
+      // idempotente, une requête indexée, jamais bloquante.
+      invaliderEtatsChauds("alertes-executives").catch(() => undefined),
+    ];
+    await Promise.allSettled(consequences);
 
     return evt.id;
   } catch (err) {

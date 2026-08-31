@@ -8,9 +8,6 @@ import { KpiCard } from "@/components/shared/kpi-card";
 import { visibleToFinance, type CentralStatus } from "@/lib/payments/authorization";
 import { OrdersTable, type OrderRow } from "./orders-table";
 import { PurgeHistoryButton } from "./purge-history";
-import { ModuleTabs } from "@/components/shared/module-tabs";
-import { visibleTabs } from "@/lib/nav-tabs";
-import { FINANCES_TABS } from "@/lib/labels";
 
 /**
  * PAIEMENTS À FAIRE — la file du décaissement, et elle n'a QU'UNE source.
@@ -72,15 +69,12 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
   const others = orders.filter((o) => o.status === "PAID" || o.status === "CANCELLED");
   const totalPending = pending.reduce((a, o) => a + toNumber(o.amount), 0);
 
-  const tabs = await visibleTabs(user, FINANCES_TABS);
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="Finances — Paiements à faire"
         description="Les dépenses AUTORISÉES par le centre de paiement, à régler par la comptabilité. Le règlement génère l'écriture de trésorerie."
       />
-      <ModuleTabs tabs={tabs} arrows />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <KpiCard label="Ordres à régler" value={pending.length} icon="ReceiptText" tone={pending.length > 0 ? "warning" : "default"} />
