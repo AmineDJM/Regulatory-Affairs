@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  planInsertion, validateStep, canRemove, defaultLabel, describeStep, summarize, orderSteps,
+  planInsertion, validateStep, canRemove, defaultLabel, nextReservesLabel, describeStep, summarize, orderSteps,
   ADDABLE_KINDS, KIND_LABELS, type TimelineStep,
 } from "./dossier-timeline";
 
@@ -65,8 +65,8 @@ describe("ce qui manque est DIT, en nommant la case", () => {
     expect(validateStep({ kind: "OTHER", label: "Audit GMP du site" })).toBeNull();
   });
 
-  it("le CTD initial ne s'AJOUTE pas : il est l'origine, il existe déjà", () => {
-    expect(validateStep({ kind: "CTD_INITIAL", label: "CTD initial" })).toMatch(/origine/i);
+  it("le CTD initial ne s'AJOUTE pas : sa place est l'étape 1 du processus, pas la frise", () => {
+    expect(validateStep({ kind: "CTD_INITIAL", label: "CTD initial" })).toMatch(/étape 1/i);
     expect(ADDABLE_KINDS).not.toContain("CTD_INITIAL");
   });
 
@@ -100,6 +100,12 @@ describe("libellés", () => {
     expect(defaultLabel("CTD_VERSION", 3)).toBe("CTD version 3");
     expect(defaultLabel("CTD_VERSION")).toBe("Nouvelle version du CTD");
     expect(defaultLabel("ANPP_RESERVES")).toBe("Réserves ANPP");
+  });
+
+  it("les cycles de réserves se NUMÉROTENT : la frise s'ouvre sur « Réserves ANPP 1 »", () => {
+    expect(nextReservesLabel([])).toBe("Réserves ANPP 1");
+    expect(nextReservesLabel(frise())).toBe("Réserves ANPP 2"); // un cycle déjà présent
+    expect(nextReservesLabel([step("a", 0), step("b", 1)])).toBe("Réserves ANPP 3"); // deux cycles
   });
 
   it("le résumé d'audit se lit SEUL, sans rouvrir le dossier", () => {

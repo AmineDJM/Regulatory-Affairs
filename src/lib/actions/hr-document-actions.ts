@@ -511,13 +511,25 @@ export async function deleteHrRequest(formData: FormData): Promise<ActionResult>
   if (!id) return { ok: false, error: "Demande introuvable." };
   const req = await prisma.hrDocumentRequest.findUnique({
     where: { id },
-    include: { employee: { select: { userId: true } } },
+    include: { employee: { select: { userId: true, fullName: true } } },
   });
   if (!req) return { ok: false, error: "Demande introuvable." };
   const isOwner = req.employee.userId === user.id;
   const isHr = userCan(user, "RH", "UPDATE");
   if (!((isOwner && req.status === "PENDING") || isHr)) return { ok: false, error: "Non autorisé." };
-  await prisma.hrDocumentRequest.delete({ where: { id } });
+  // Un congé annuel APPROUVÉ a débité le solde (verrou balanceAppliedAt) : le supprimer sans
+  // rendre les jours amputerait le solde d'un congé qui n'existe plus.
+  const joursARendre = req.balanceAppliedAt && Number(req.periodDays ?? 0) > 0 ? Number(req.periodDays) : 0;
+  await prisma.$transaction(async (tx) => {
+    if (joursARendre > 0) {
+      await tx.employee.update({ where: { id: req.employeeId }, data: { leaveBalanceDays: { increment: joursARendre } } });
+    }
+    await tx.hrDocumentRequest.delete({ where: { id } });
+  });
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "RH", entityType: "HR_REQUEST", entityId: id,
+    summary: `Demande RH ${req.type} de ${req.employee.fullName} supprimée${joursARendre > 0 ? ` — ${joursARendre} j restitués au solde` : ""}`,
+  });
   revalidatePath("/mon-dossier");
   revalidatePath(`/rh/${req.employeeId}`);
   return { ok: true };

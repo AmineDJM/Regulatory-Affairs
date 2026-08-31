@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDate } from "@/lib/utils";
 import { LeaveEditButton } from "@/components/hr/leave-edit";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { prisma } from "@/lib/prisma";
 import { MODULE_LABELS } from "@/lib/labels";
 import { StandInBadge, StandInDecision } from "@/components/hr/stand-in-panel";
@@ -183,7 +184,9 @@ export default async function RhLeavePage() {
         </section>
       )}
 
-      {/* 5. L'historique des décisions, modifiable par les RH. */}
+      {/* 5. L'historique des décisions, modifiable par les RH — et purgeable par le Super
+             Admin : supprimer un congé APPROUVÉ (saisi en double, posé par erreur) restitue
+             automatiquement les jours au solde (registre de suppression, corbeille restaurable). */}
       {data.recentLeaves.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Historique des décisions</h2>
@@ -209,8 +212,16 @@ export default async function RhLeavePage() {
                     <TableCell label="Statut"><StatusBadge map={LEAVE_STATUS} value={l.status} /></TableCell>
                     {canManage && (
                       <TableCell label="Modifier" className="text-right">
-                        <div className="flex justify-end">
+                        <div className="flex items-center justify-end gap-0.5">
                           <LeaveEditButton leave={{ id: l.id, employee: l.employee.fullName, type: l.type, startDate: l.startDate.toISOString(), endDate: l.endDate.toISOString(), days: Number(l.days), reason: l.reason, status: l.status, decisionNote: l.decisionNote }} />
+                          <SuperAdminDeleteButton
+                            compact
+                            kind="LEAVE_REQUEST"
+                            id={l.id}
+                            name={`${l.employee.fullName} — ${formatDate(l.startDate)} → ${formatDate(l.endDate)} (${Number(l.days)} j)`}
+                            enabled={user.role === "SUPER_ADMIN"}
+                            warning={l.status === "APPROVED" && l.type === "ANNUAL" ? "Congé annuel approuvé : les jours seront restitués au solde de l'employé." : undefined}
+                          />
                         </div>
                       </TableCell>
                     )}

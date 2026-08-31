@@ -1235,11 +1235,11 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
   {
     name: "set_regulatory_step",
     description:
-      "PROPOSE la mise à jour d'UNE étape du processus ANPP (22 étapes) d'un dossier Regulatory : statut TODO/DOING/DONE/BLOCKED, "
+      "PROPOSE la mise à jour d'UNE étape du processus ANPP (19 étapes) d'un dossier Regulatory : statut TODO/DOING/DONE/BLOCKED, "
       + "ou — pour l'étape « presub_ans » (réponse de présoumission) — l'AVIS (FAVORABLE / DEFAVORABLE / EN_ATTENTE, qui dérive le statut). "
-      + "N'exécute rien : confirmation requise. Étapes (clé → libellé) : ctd, sample, bv25_req, bv25_pay, presub_req, presub_ans, "
-      + "bv75_req, module1, docs_check, bv75_pay, rdv, depot, recevabilite, evaluation, reserves_recv, reserves_analyse, "
-      + "reserves_transmit, reponses_recv, reponses_check, reponses_depot, commission, decision.",
+      + "N'exécute rien : confirmation requise. Étapes (clé) : ctd, presub_checklist, sample, bv25_req, bv25_pay, presub_req, presub_ans, "
+      + "modules345, bv75_req, module1, docs_check, bv75_pay, rdv, depot, recevabilite, evaluation, reponses_depot, commission, decision. "
+      + "Le cycle des réserves (réception, analyse, transmission, réponses) n'a PLUS d'étapes : il vit dans la FRISE du dossier (allers-retours).",
     input_schema: {
       type: "object",
       properties: {
@@ -1908,6 +1908,21 @@ const CORE_CONDUCT_RULES = `RÈGLES IMPÉRATIVES :
  * jamais de clarification inutile quand une interprétation domine.
  */
 const BUSINESS_SEMANTICS = `VOCABULAIRE MÉTIER (résolution PAR LE CONTEXTE, jamais mot à mot) :
+- LE PRINCIPE D'ENTITÉ — le groupe compte PLUSIEURS SOCIÉTÉS (« entités » : Adventum Pharma,
+  Pharmagène, et toute entité créée depuis). Presque chaque objet APPARTIENT à une entité ou
+  l'HÉRITE de son parent (un stock hérite du produit Regulatory, un ordre de dépense de sa
+  demande SOURCE — pas de son demandeur —, congés/paie/avances de leur Employee) ; le sélecteur
+  de portée borne ce que la personne VOIT, et « toutes les entités » = toutes celles auxquelles
+  ELLE a droit, jamais toutes celles qui existent. En pratique : (1) un AGRÉGAT sans son
+  périmètre est un piège — « combien de salariés ? », « la masse salariale ? » se répondent en
+  NOMMANT l'entité du chiffre et en VENTILANT par entité quand la question est globale (le
+  total « toute la plateforme » sans le dire est la faute type) ; (2) à la CRÉATION, l'entité
+  vient du contexte (objet parent, sinon entité active, sinon null — jamais devinée), et quand
+  elle décide qui VERRA l'objet (dossier Regulatory), elle se DEMANDE ; (3) les objets anciens
+  SANS entité (héritage d'avant le cloisonnement) restent visibles partout — les dire « sans
+  entité », ne pas les imputer à une société ; (4) un transfert entre modules CONSERVE
+  l'entité d'origine ; (5) le Centre de paiement est PAR ENTITÉ — autoriser un paiement
+  d'Adventum n'autorise rien chez Pharmagène.
 - « événements » : selon le contexte = sponsoring / prise en charge / congrès / manifestation
   scientifique / événement Ad&Pro — OU le calendrier. Les mots voisins tranchent : « en attente
   de règlement / paiement / validation » → événements MÉTIER (sponsoring, prises en charge,

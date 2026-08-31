@@ -13,7 +13,7 @@ import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { formatDate, cn } from "@/lib/utils";
 import {
-  ADDABLE_KINDS, KIND_LABELS, KIND_TONES, defaultLabel, summarize, type DossierStepKind,
+  ADDABLE_KINDS, KIND_LABELS, KIND_TONES, defaultLabel, nextReservesLabel, summarize, type DossierStepKind,
 } from "@/lib/regulatory/dossier-timeline";
 import {
   addDossierStep, updateDossierStep, deleteDossierStep, startDossierTimeline,
@@ -78,15 +78,15 @@ export function DossierTimeline({
           <FileStack className="mx-auto h-6 w-6 text-muted-foreground" />
           <p className="mt-2 text-sm font-medium">La frise du dossier n&apos;est pas encore ouverte</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Elle commence toujours par le <strong>CTD initial</strong>, puis suit les cycles :
-            réserves de l&apos;ANPP, réponses, versions redéposées.
+            Elle s&apos;ouvre sur les premières réserves — <strong>Réserves ANPP 1</strong> — puis
+            suit les cycles avec le « + » : réponses, CTD version 2, 3…, décision.
           </p>
           {canUpdate && (
             <Button
               size="sm" className="mt-3" disabled={busy}
               onClick={() => run(() => { const fd = new FormData(); fd.set("productId", productId); return startDossierTimeline(fd); })}
             >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Démarrer la frise (CTD initial)
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Démarrer la frise (Réserves ANPP 1)
             </Button>
           )}
         </div>
@@ -145,6 +145,7 @@ export function DossierTimeline({
         afterId={addAfter === false ? null : addAfter}
         open={addAfter !== false}
         onClose={() => setAddAfter(false)}
+        reservesLabel={nextReservesLabel(steps)}
       />
     </div>
   );
@@ -280,25 +281,27 @@ function StepCard({
 
 /** Le formulaire d'ajout : type au menu, nom, numéro de version quand il en faut un, date. */
 function AddStepSheet({
-  productId, afterId, open, onClose,
+  productId, afterId, open, onClose, reservesLabel,
 }: {
   productId: string; afterId: string | null; open: boolean; onClose: () => void;
+  /** Libellé proposé pour un nouveau cycle de réserves — « Réserves ANPP n+1 ». */
+  reservesLabel: string;
 }) {
   const router = useRouter();
   const [kind, setKind] = React.useState<DossierStepKind>("ANPP_RESERVES");
   const [version, setVersion] = React.useState("");
-  const [label, setLabel] = React.useState(defaultLabel("ANPP_RESERVES"));
+  const [label, setLabel] = React.useState(reservesLabel);
   const [touched, setTouched] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
   // Le libellé suit le type TANT QUE la personne ne l'a pas écrit elle-même : pré-remplir aide,
-  // écraser une saisie serait insupportable.
+  // écraser une saisie serait insupportable. Un cycle de réserves arrive NUMÉROTÉ.
   React.useEffect(() => {
-    if (!touched) setLabel(defaultLabel(kind, version ? Number(version) : null));
-  }, [kind, version, touched]);
+    if (!touched) setLabel(kind === "ANPP_RESERVES" ? reservesLabel : defaultLabel(kind, version ? Number(version) : null));
+  }, [kind, version, touched, reservesLabel]);
 
-  const reset = () => { setKind("ANPP_RESERVES"); setVersion(""); setLabel(defaultLabel("ANPP_RESERVES")); setTouched(false); setErr(null); };
+  const reset = () => { setKind("ANPP_RESERVES"); setVersion(""); setLabel(reservesLabel); setTouched(false); setErr(null); };
 
   const submit = async (fd: FormData) => {
     setSaving(true); setErr(null);

@@ -66,8 +66,10 @@ export default async function RhTeamPage() {
               />
               {canSeeSalary && (
                 <p className="border-t border-border pt-3 text-sm text-muted-foreground">
-                  Masse salariale mensuelle de base :{" "}
+                  Masse salariale mensuelle :{" "}
                   <strong className="text-foreground tabular-nums">{formatCurrency(data.stats.masseSalariale)}</strong>
+                  {/* La BASE du chiffre est dite : un indicateur dont on ignore la base finit par ne plus être cru. */}
+                  <span className="block text-xs">({data.stats.masseSalarialeSource})</span>
                 </p>
               )}
             </section>

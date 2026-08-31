@@ -37,47 +37,38 @@ async function guard(productId: string, action: "UPDATE" | "VIEW" = "UPDATE") {
 }
 
 /**
- * LE POINT DE DÉPART — le CTD initial, créé une seule fois.
- *
- * La frise commence toujours par lui : « version 3 » ne veut rien dire si l'on ignore de quoi
- * elle est la troisième. L'unicité est tenue par un index unique PARTIEL en base (voir la
- * migration) — deux onglets ouverts ne peuvent pas créer deux origines ; si la course a lieu,
- * on relit celle qui a gagné plutôt que d'échouer.
+ * Ouvre la frise d'un dossier (bouton « Démarrer la frise ») en créant son PREMIER cycle :
+ * « Réserves ANPP 1 ». Le CTD initial n'est plus l'origine — il vit comme pièce de l'étape 1
+ * du processus officiel. Idempotent au sens utile : une frise déjà ouverte n'est pas rouverte
+ * (deux clics simultanés sur une frise vide peuvent, en théorie, créer deux premiers tours —
+ * bénin : le doublon se supprime d'un clic, contrairement à un refus qui perdrait la saisie).
  */
-async function ensureInitialStep(productId: string, actorId: string) {
-  const existing = await prisma.regulatoryDossierStep.findFirst({
-    where: { productId, kind: "CTD_INITIAL" },
-  });
-  if (existing) return existing;
-  try {
-    const created = await prisma.regulatoryDossierStep.create({
-      data: {
-        productId, kind: "CTD_INITIAL", label: defaultLabel("CTD_INITIAL"),
-        order: 0, createdById: actorId,
-      },
-    });
-    await recordAudit({
-      actorId, action: "CREATE", module: "Regulatory",
-      entityType: "REGULATORY_PRODUCT", entityId: productId,
-      summary: "Frise du dossier ouverte — CTD initial",
-    });
-    return created;
-  } catch {
-    // L'index unique a tranché : une autre requête vient de créer l'origine.
-    return prisma.regulatoryDossierStep.findFirst({ where: { productId, kind: "CTD_INITIAL" } });
-  }
-}
-
-/** Ouvre la frise d'un dossier (bouton « Démarrer la frise »). Idempotent. */
 export async function startDossierTimeline(formData: FormData): Promise<ActionResult> {
   const productId = fdStr(formData, "productId");
   if (!productId) return { ok: false, error: "Dossier introuvable." };
   const g = await guard(productId);
   if (!g.user) return { ok: false, error: g.error };
 
-  const step = await ensureInitialStep(productId, g.user.id);
+  const existing = await prisma.regulatoryDossierStep.findFirst({
+    where: { productId }, orderBy: { order: "asc" },
+  });
+  if (existing) {
+    revalidatePath(PATH(productId));
+    return { ok: true, id: existing.id };
+  }
+  const created = await prisma.regulatoryDossierStep.create({
+    data: {
+      productId, kind: "ANPP_RESERVES", label: "Réserves ANPP 1",
+      order: 0, createdById: g.user.id,
+    },
+  });
+  await recordAudit({
+    actorId: g.user.id, action: "CREATE", module: "Regulatory",
+    entityType: "REGULATORY_PRODUCT", entityId: productId,
+    summary: "Frise du dossier ouverte — Réserves ANPP 1",
+  });
   revalidatePath(PATH(productId));
-  return { ok: true, id: step?.id };
+  return { ok: true, id: created.id };
 }
 
 /**
@@ -99,10 +90,8 @@ export async function addDossierStep(_prev: ActionResult | undefined, formData: 
   const manque = validateStep({ kind, label, version });
   if (manque) return { ok: false, error: manque };
 
-  // L'origine existe toujours AVANT toute autre étape — même si personne ne l'a créée
-  // explicitement : on ouvre la frise plutôt que de refuser un ajout légitime.
-  await ensureInitialStep(productId, g.user.id);
-
+  // Plus d'origine imposée : la première étape ajoutée EST le début de la frise (le bouton
+  // « Démarrer » propose « Réserves ANPP 1 », mais un ajout direct est tout aussi légitime).
   const steps = await prisma.regulatoryDossierStep.findMany({
     where: { productId },
     select: { id: true, kind: true, label: true, version: true, order: true },

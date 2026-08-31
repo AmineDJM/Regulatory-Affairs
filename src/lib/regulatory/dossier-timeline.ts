@@ -8,9 +8,12 @@
  *
  * ── CE QUI EST TENU ICI ─────────────────────────────────────────────────────────────────────
  *
- *   1. **La frise commence TOUJOURS par le CTD initial.** C'est l'origine ; on ne la supprime
- *      pas et on ne la déplace pas. Une frise sans origine ne se lit plus — « version 3 » ne
- *      veut rien dire si l'on ignore de quoi elle est la troisième.
+ *   1. **La frise raconte les ALLERS-RETOURS : elle s'ouvre sur « Réserves ANPP 1 ».** Le CTD
+ *      initial, lui, n'est plus un tour de frise — c'est la pièce déposée sur l'étape 1 du
+ *      processus officiel (« Réception du CTD complet »). Les cycles se numérotent (Réserves
+ *      ANPP 1, 2…) : « version 3 » ne veut rien dire si l'on ignore de quoi elle est la
+ *      troisième. Les frises HISTORIQUES ouvertes par un « CTD initial » restent lisibles
+ *      telles quelles — on ne réécrit pas une histoire déjà écrite.
  *   2. **On insère APRÈS une étape**, jamais « quelque part ». Le « + » sous une étape dit
  *      exactement où l'on ajoute, et les suivantes se décalent — l'ordre AFFICHÉ est l'ordre
  *      RÉEL, et non une date de création qui raconterait autre chose (on saisit souvent après
@@ -61,12 +64,22 @@ export function defaultLabel(kind: DossierStepKind, version?: number | null): st
 }
 
 /**
+ * Le libellé du PROCHAIN cycle de réserves : « Réserves ANPP n », où n compte les cycles déjà
+ * dans la frise. C'est ce numéro qui permet, un an plus tard, de dire de quelles réserves une
+ * réponse est la réponse.
+ */
+export function nextReservesLabel(steps: readonly { kind: DossierStepKind }[]): string {
+  const cycles = steps.filter((s) => s.kind === "ANPP_RESERVES").length;
+  return `Réserves ANPP ${cycles + 1}`;
+}
+
+/**
  * Ce qui manque pour qu'une étape soit créable. Renvoie le motif EXACT : « formulaire
  * incomplet » n'apprend à personne quelle case remplir.
  */
 export function validateStep(input: { kind: DossierStepKind; label: string; version?: number | null }): string | null {
   if (input.kind === "CTD_INITIAL") {
-    return "Le CTD initial est l'origine de la frise : il ne s'ajoute pas, il existe déjà.";
+    return "Le CTD initial ne s'ajoute pas à la frise : il se dépose sur l'étape 1 du processus (« Réception du CTD complet »).";
   }
   if (!ADDABLE_KINDS.includes(input.kind)) return "Type d'étape inconnu.";
   if (!input.label.trim()) return "Donnez un nom à cette étape — c'est lui qu'on relira dans un an.";
@@ -114,7 +127,8 @@ export function canRemove(
   attachmentCount: number,
 ): { ok: boolean; reason?: string } {
   if (step.kind === "CTD_INITIAL") {
-    return { ok: false, reason: "Le CTD initial est l'origine de la frise : il ne se supprime pas." };
+    // Les frises HISTORIQUES se sont ouvertes sur lui : on ne réécrit pas leur origine.
+    return { ok: false, reason: "Le CTD initial est l'origine historique de cette frise : il ne se supprime pas." };
   }
   if (attachmentCount > 0) {
     return {
@@ -145,7 +159,7 @@ export function describeStep(step: { kind: DossierStepKind; label: string; versi
  * est à sa troisième réponse ne se raconte pas comme un dossier déposé la semaine dernière.
  */
 export function summarize(steps: readonly TimelineStep[]): string {
-  if (steps.length === 0) return "Frise vide — commencez par le CTD initial.";
+  if (steps.length === 0) return "Frise vide — commencez par les premières réserves (Réserves ANPP 1).";
   const cycles = steps.filter((s) => s.kind === "ANPP_RESERVES").length;
   const versions = steps.filter((s) => s.kind === "CTD_VERSION").length;
   const parts = [`${steps.length} étape${steps.length > 1 ? "s" : ""}`];

@@ -201,7 +201,32 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
       return r ? `Demande ${r.type} — ${r.employee.fullName}` : null;
     },
     async remove(id) {
-      await prisma.hrDocumentRequest.delete({ where: { id } });
+      // Une demande de congé annuel APPROUVÉE a débité le solde (verrou balanceAppliedAt) :
+      // la supprimer rend les jours — même geste que LEAVE_REQUEST, même raison.
+      const r = await prisma.hrDocumentRequest.findUnique({
+        where: { id },
+        select: { employeeId: true, balanceAppliedAt: true, periodDays: true },
+      });
+      if (!r) return;
+      const jours = r.balanceAppliedAt && Number(r.periodDays ?? 0) > 0 ? Number(r.periodDays) : 0;
+      await prisma.$transaction(async (tx) => {
+        if (jours > 0) {
+          await tx.employee.update({ where: { id: r.employeeId }, data: { leaveBalanceDays: { increment: jours } } });
+        }
+        await tx.hrDocumentRequest.delete({ where: { id } });
+      });
+    },
+    /** Restaurer une demande dont le solde avait été rendu = reprendre les jours restitués. */
+    async restored(id) {
+      const r = await prisma.hrDocumentRequest.findUnique({
+        where: { id },
+        select: { employeeId: true, balanceAppliedAt: true, periodDays: true },
+      });
+      if (!r || !r.balanceAppliedAt || !(Number(r.periodDays ?? 0) > 0)) return;
+      await prisma.employee.update({
+        where: { id: r.employeeId },
+        data: { leaveBalanceDays: { decrement: Number(r.periodDays) } },
+      });
     },
   },
   DOSSIER: {

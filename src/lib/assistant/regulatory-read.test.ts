@@ -134,8 +134,8 @@ suite("regulatory_workload / regulatory_portfolio — gérer ≠ accéder, parte
   it("GOLDEN F — un workflow COMPLET (via jalon Décision obtenue) affiche « TERMINÉ », jamais l'étape 1", () => {
     const { state } = completeStepsThrough(null, "decision");
     const stage = dossierStageLabel(state);
-    // Le total suit le processus officiel — 23 étapes depuis l'ajout de « Étude des modules
-    // 3, 4 et 5 ». On l'écrit à partir de REG_STEPS pour que le golden survive au prochain ajout.
+    // Le total suit le processus officiel : on l'écrit à partir de REG_STEPS pour que le
+    // golden survive aux remaniements du processus (ajouts comme retraits d'étapes).
     expect(stage.avancement).toBe(`${REG_STEPS.length}/${REG_STEPS.length}`);
     expect(stage.etape).toMatch(/TERMINÉ/);
     expect(stage.etape).not.toMatch(/Réception du CTD/);

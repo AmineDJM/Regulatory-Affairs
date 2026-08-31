@@ -102,7 +102,7 @@ Comprendre l'OS, c'est comprendre le métier qu'il digitalise. Termes récurrent
 | Terme | Signification |
 |---|---|
 | **AMM** | **Autorisation de Mise sur le Marché** — dossier réglementaire d'un médicament (module Regulatory). |
-| **ANPP** | **Agence Nationale des Produits Pharmaceutiques** — autorité algérienne d'enregistrement. Le workflow Regulatory suit son **processus officiel (22 étapes / 5 phases)**. L'étape « Réponse de la présoumission » porte un **avis explicite** : **favorable** → le processus continue · **défavorable** → à corriger et redemander · **en attente**. |
+| **ANPP** | **Agence Nationale des Produits Pharmaceutiques** — autorité algérienne d'enregistrement. Le workflow Regulatory suit son **processus officiel (19 étapes / 5 phases)** — le CTD initial se dépose sur l'étape 1, la check-list de présoumission est l'étape 2, et le cycle des réserves vit dans la **frise des allers-retours** (« Réserves ANPP 1 », réponses, versions), pas dans des cases. L'étape « Réponse de la présoumission » porte un **avis explicite** : **favorable** → le processus continue · **défavorable** → à corriger et redemander · **en attente**. |
 | **PCH** | **Pharmacie Centrale des Hôpitaux** — centrale d'achat publique. Client institutionnel majeur : **appels d'offres → bons de commande → caution**. |
 | **DCI** | **Dénomination Commune Internationale** (principe actif). Un produit peut être **mono / double / triple** DCI (1, 2 ou 3 principes actifs associés). |
 | **Ad & Pro** | **Advertising & Promotion** — le pôle sponsoring / congrès / événements / matériel promotionnel. |
@@ -187,7 +187,7 @@ jamais identique.
 
 | Module | Route | Description |
 |---|---|---|
-| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (22 étapes / 5 phases) + checklist de présoumission, documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. |
+| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (19 étapes / 5 phases — CTD déposé sur l'étape 1, check-list de présoumission en étape 2, allers-retours de réserves dans la frise), documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. |
 | **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve + **désigne le chef de produit**), **analyse confidentielle du chef de produit**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** a son circuit **court** : devis → demandeur → N+1 → PDG **ou** Super Admin → information médicale, puis **trois chantiers en parallèle** (bon de commande, paiement, visa publicitaire) ; chacun ne voit que **sa** marche, seuls l'administrateur et le PDG voient tout. → [workflows](#-workflows-critiques) · [détails](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances` | **Solde de trésorerie initial** + calcul, livre, **paie**, **ordres de dépense** (« Règlements à effectuer »), **Factures**, synthèse comptable (onglet **Espace comptable** : à régler, recettes attendues, résultat mensuel). Les **demandes de paiement** se déposent depuis les **Demandes de validations** ; un paiement n'arrive aux Finances qu'une fois **autorisé par le centre de paiement** (dès 50 000 DZD). |
@@ -2585,7 +2585,7 @@ vérifie le droit **par nature** (`canSetDepartmentBudget`).
 - **Les deux colonnes sont CÔTE À CÔTE**, et une case non modifiable est **affichée en lecture** (cadenas) plutôt
   que masquée : c'est la seule façon de voir ce que coûte réellement un département. Ce qui est réservé, c'est
   l'écriture, pas la lecture. Qui règle quoi est **écrit à l'écran**, pas seulement appliqué en silence.
-- **La masse salariale RÉELLE est calculée depuis la paie** de l'exercice (`PayrollEntry.gross` des membres),
+- **La masse salariale RÉELLE est calculée depuis la paie** de l'exercice (**coût employeur** de chaque ligne, repli brut + primes − retenues sur les mois d'avant ce champ — `hr/payroll-cost.ts`),
   jamais saisie — un montant ressaisi dirait ce qu'on espère, pas ce qui se passe.
 - **Le fonctionnement n'a volontairement PAS de colonne de consommation** : aucune dépense n'est aujourd'hui
   imputée à un département, et un chiffre inventé ressemblerait à une mesure sans en être une. La page le dit.
@@ -3446,6 +3446,27 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Processus ANPP resserré + suppressions RH + masse salariale réelle (2026-08)
+
+**Regulatory — le processus passe de 23 à 19 étapes** : le CTD initial se DÉPOSE sur l'étape 1
+(« Réception du CTD complet » — tous formats, .zip pour une arborescence) ; la **check-list de
+présoumission devient l'étape 2**, à part, sa liste dépliable sous elle (statut manuel : des
+documents sont « si applicable ») ; les **anciennes étapes 16-20 du cycle des réserves sont
+retirées** — le cycle vit dans la **frise des allers-retours**, qui s'ouvre désormais sur
+**« Réserves ANPP 1 »** (cycles numérotés automatiquement, « + » pour réponses / CTD version x /
+décision) ; l'étape officielle suivante est « Dépôt des réponses auprès de l'ANPP ». Les dossiers
+qui avaient coché les étapes retirées ne reculent pas (`process-status.ts` continue de les lire) ;
+un jalon `RESPONDING_TO_QUERIES` mappe désormais sur l'évaluation. Fiche produit épurée : les
+cartes **Champs personnalisés / Dossiers & fichiers / Bons de versement** n'apparaissent que
+lorsqu'elles portent quelque chose. **RH** : le Super Admin supprime congés et demandes RH depuis
+`/rh/conges` et la fiche employé (corbeille restaurable) ; supprimer un congé annuel APPROUVÉ —
+`LeaveRequest` comme demande RH débitée — **restitue les jours au solde** (et la restauration les
+reprend). **Masse salariale** : la consommation RH des budgets départementaux se calcule au **coût
+employeur** (`entryCost`, repli brut+primes−retenues dit), plus jamais au brut seul ; `/rh/equipe`
+nomme la base de son chiffre. **Adam** : le PRINCIPE D'ENTITÉ entre dans sa tête (agrégats nommés
+par entité, héritage parent, « toutes les entités » = celles auxquelles on a droit, legacy sans
+entité dits tels quels).
 
 ### MARKET 360° — le marché public devient un dossier transversal de bout en bout (2026-08)
 

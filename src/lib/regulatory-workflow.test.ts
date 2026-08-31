@@ -9,16 +9,26 @@ import {
 } from "./regulatory-workflow";
 
 describe("regulatory ANPP workflow", () => {
-  it("définit 23 étapes réparties sur 5 phases, clés uniques", () => {
-    expect(REG_STEPS).toHaveLength(23);
+  it("définit 19 étapes réparties sur 5 phases, clés uniques — le cycle des réserves vit dans la frise", () => {
+    expect(REG_STEPS).toHaveLength(19);
     expect(REG_PHASES).toHaveLength(5);
     const keys = REG_STEPS.map((s) => s.key);
-    expect(new Set(keys).size).toBe(23);
+    expect(new Set(keys).size).toBe(19);
     // chaque étape pointe vers une phase connue
     const phaseKeys = new Set(REG_PHASES.map((p) => p.key));
     for (const s of REG_STEPS) expect(phaseKeys.has(s.phase)).toBe(true);
-    // numéros 1..23 dans l'ordre
-    expect(REG_STEPS.map((s) => s.n)).toEqual(Array.from({ length: 23 }, (_, i) => i + 1));
+    // numéros 1..19 dans l'ordre
+    expect(REG_STEPS.map((s) => s.n)).toEqual(Array.from({ length: 19 }, (_, i) => i + 1));
+    // la check-list de présoumission est l'ÉTAPE 2, à part ; le CTD reste l'étape 1
+    expect(REG_STEPS[0].key).toBe("ctd");
+    expect(REG_STEPS[1].key).toBe("presub_checklist");
+    // les anciennes étapes-jalons du cycle des réserves ont bien été retirées
+    for (const gone of ["reserves_recv", "reserves_analyse", "reserves_transmit", "reponses_recv", "reponses_check"]) {
+      expect(keys).not.toContain(gone);
+    }
+    // et l'étape qui SUIT les allers-retours est le dépôt des réponses
+    const evalN = REG_STEPS.find((s) => s.key === "evaluation")!.n;
+    expect(REG_STEPS.find((s) => s.n === evalN + 1)?.key).toBe("reponses_depot");
   });
 
   it("checklist : groupes non vides, clés uniques", () => {
@@ -31,14 +41,15 @@ describe("regulatory ANPP workflow", () => {
   it("regProgress : vide → 0 fait, étape courante = la 1re", () => {
     const p = regProgress(null);
     expect(p.done).toBe(0);
-    expect(p.total).toBe(23);
+    expect(p.total).toBe(19);
     expect(p.pct).toBe(0);
     expect(p.current?.n).toBe(1);
   });
 
   it("regProgress : étapes faites comptées, courante = 1re non terminée (présoumission favorable)", () => {
     const wf: RegWorkflowState = {
-      ctd: { status: "DONE" }, sample: { status: "DONE" }, bv25_req: { status: "DOING" },
+      ctd: { status: "DONE" }, presub_checklist: { status: "DONE" }, sample: { status: "DONE" },
+      bv25_req: { status: "DOING" },
       [PRESUB_ANSWER_STEP]: { status: "DONE", outcome: "FAVORABLE" },
     };
     const p = regProgress(wf);
@@ -107,8 +118,8 @@ describe("regulatory ANPP workflow", () => {
 
 describe("completeStepsThrough — un statut posé compte les étapes jusqu'à son jalon", () => {
   it("« Déposé » (SUBMITTED) → les étapes jusqu'au dépôt sont faites, les suivantes JAMAIS touchées", () => {
-    // Le dépôt est l'étape 13 depuis l'ajout de « Étude des modules 3, 4 et 5 » : on le lit
-    // dans REG_STEPS plutôt que d'écrire le nombre, pour que le test survive au prochain ajout.
+    // Le numéro du dépôt se LIT dans REG_STEPS plutôt que d'être écrit en dur, pour que le
+    // test survive au prochain remaniement du processus.
     const depotN = REG_STEPS.find((s) => s.key === "depot")!.n;
     const { state, changed } = completeStepsThrough(null, REG_STATUS_MILESTONE.SUBMITTED);
     expect(changed).toBe(depotN);
@@ -131,20 +142,23 @@ describe("completeStepsThrough — un statut posé compte les étapes jusqu'à s
     expect(state.ctd).toEqual({ status: "DONE", date: "2026-01-05", note: "reçu V2" }); // intact
     expect(regStepStatus(state, "module1")).toBe("BLOCKED"); // le blocage est un signal humain
     expect(regStepStatus(state, "rdv")).toBe("DONE"); // DOING → DONE (rattrapé), note absente OK
-    expect(changed).toBe(11); // 13 jalons jusqu'au dépôt − ctd déjà fait − module1 bloqué
+    const depotN = REG_STEPS.find((s) => s.key === "depot")!.n;
+    expect(changed).toBe(depotN - 2); // jalons jusqu'au dépôt − ctd déjà fait − module1 bloqué
   });
 
   it("idempotent (rejouer ne change rien) et jalon inconnu = aucun effet", () => {
-    const first = completeStepsThrough(null, "reserves_recv");
-    expect(first.changed).toBe(REG_STEPS.find((s) => s.key === "reserves_recv")!.n);
-    const second = completeStepsThrough(first.state, "reserves_recv");
+    const first = completeStepsThrough(null, "evaluation");
+    expect(first.changed).toBe(REG_STEPS.find((s) => s.key === "evaluation")!.n);
+    const second = completeStepsThrough(first.state, "evaluation");
     expect(second.changed).toBe(0);
+    // Une clé RETIRÉE du processus (ex-jalon du cycle des réserves) est un jalon inconnu.
+    expect(completeStepsThrough(null, "reserves_recv").changed).toBe(0);
     expect(completeStepsThrough(null, "inconnu").changed).toBe(0);
   });
 
   it("la carte statut → jalon couvre les statuts non ambigus, et eux seuls", () => {
     expect(REG_STATUS_MILESTONE.SUBMITTED).toBe("depot");
-    expect(REG_STATUS_MILESTONE.RESPONDING_TO_QUERIES).toBe("reserves_recv");
+    expect(REG_STATUS_MILESTONE.RESPONDING_TO_QUERIES).toBe("evaluation");
     expect(REG_STATUS_MILESTONE.DECISION_OBTAINED).toBe("decision");
     expect(REG_STATUS_MILESTONE.PRE_SUBMISSION).toBeUndefined();
     expect(REG_STATUS_MILESTONE.BLOCKED).toBeUndefined();
@@ -174,7 +188,7 @@ describe("completeStepsThrough — un statut posé compte les étapes jusqu'à s
     // Et un jalon intermédiaire (dépôt) donne bien l'étape suivante, pas l'étape 1.
     const depot = completeStepsThrough(null, "depot");
     const pd = regProgress(depot.state);
-    expect(pd.current?.key).toBe("recevabilite"); // étape 13 — le verrou est levé par l'avis dérivé
+    expect(pd.current?.key).toBe("recevabilite"); // l'étape d'après le dépôt — le verrou est levé par l'avis dérivé
   });
 
   it("un avis EXPLICITE déjà posé n'est JAMAIS réécrit par un jalon", () => {

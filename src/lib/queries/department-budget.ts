@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { myCompanyScope } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
+import { entryCost } from "@/lib/hr/payroll-cost";
 import {
   mergeGrants, canViewDepartmentBudget, editableKindsOn, EMPTY_GRANT,
   type DeptBudgetViewRow, type DeptBudgetGrant, type BudgetSetter, type GrantSubject, type DeptBudgetKind,
@@ -46,12 +47,13 @@ export async function getDepartmentBudgets(
   const ids = departments.map((d) => d.id);
   const [budgets, payroll, expenses, accessRows] = await Promise.all([
     prisma.departmentBudget.findMany({ where: { departmentId: { in: ids }, year }, select: { departmentId: true, kind: true, amount: true } }),
-    // Masse salariale réelle : le BRUT de l'exercice, regroupé par employé puis reventilé sur
-    // son département (la paie ne connaît que l'employé).
-    prisma.payrollEntry.groupBy({
-      by: ["employeeId"],
+    // Masse salariale réelle : le COÛT EMPLOYEUR de chaque ligne de paie de l'exercice (repli
+    // brut + primes − retenues sur les mois saisis avant ce champ — voir `hr/payroll-cost.ts`),
+    // reventilé sur le département de l'employé. Sommer des bruts sous-estimait ce que les
+    // salaires coûtent VRAIMENT — et c'est ce chiffre-là qu'on oppose au budget.
+    prisma.payrollEntry.findMany({
       where: { year, employee: { departmentId: { in: ids } } },
-      _sum: { gross: true },
+      select: { employeeId: true, employerCost: true, gross: true, bonuses: true, deductions: true },
     }),
     // Moyens généraux et budget métier : la consommation RÉELLE, imputée dépense par dépense.
     // La page affichait jusqu'ici une colonne vide faute de source ; il y en a une désormais.
@@ -73,7 +75,10 @@ export async function getDepartmentBudgets(
   for (const p of payroll) {
     const dept = empDept.get(p.employeeId);
     if (!dept) continue;
-    consumedByDept.set(dept, (consumedByDept.get(dept) ?? 0) + toNumber(p._sum.gross ?? 0));
+    consumedByDept.set(dept, (consumedByDept.get(dept) ?? 0) + entryCost({
+      employerCost: p.employerCost != null ? toNumber(p.employerCost) : null,
+      gross: toNumber(p.gross), bonuses: toNumber(p.bonuses), deductions: toNumber(p.deductions),
+    }));
   }
 
   const spentByDeptKind = new Map<string, number>();

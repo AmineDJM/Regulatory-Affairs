@@ -64,6 +64,10 @@ const MILESTONES: { step: string; status: string }[] = [
   { step: "decision", status: "DECISION_OBTAINED" },
   { step: "commission", status: "AWAITING_ANPP" },
   { step: "reponses_depot", status: "RESPONDING_TO_QUERIES" },
+  // Les cinq clés suivantes ne sont PLUS des étapes du processus (le cycle des réserves vit
+  // dans la frise du dossier) — mais les dossiers qui les avaient cochées les portent toujours
+  // dans leur JSON. On continue de les LIRE : sans cela, retirer les étapes ferait « reculer »
+  // ces dossiers de « Réponses aux réserves » à « Attente ANPP » du jour au lendemain.
   { step: "reponses_check", status: "RESPONDING_TO_QUERIES" },
   { step: "reponses_recv", status: "RESPONDING_TO_QUERIES" },
   { step: "reserves_transmit", status: "RESPONDING_TO_QUERIES" },
@@ -81,6 +85,7 @@ const MILESTONES: { step: string; status: string }[] = [
   { step: "presub_req", status: "PRE_SUBMISSION" },
   { step: "bv25_pay", status: "PRE_SUBMISSION" },
   { step: "sample", status: "PRE_SUBMISSION" },
+  { step: "presub_checklist", status: "PRE_SUBMISSION" },
   { step: "ctd", status: "PRE_SUBMISSION" },
 ];
 

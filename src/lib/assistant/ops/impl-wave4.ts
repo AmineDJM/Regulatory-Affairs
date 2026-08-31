@@ -36,10 +36,10 @@ const numStr = (v: unknown): string | null => (v == null ? null : String(Number(
 
 // ─────────────────────────── REGULATORY (reste) ───────────────────────────
 
-/** Les 22 étapes du WORKFLOW JSON (chronologie du dossier) — « 5 » ou un bout du libellé. */
+/** Les étapes du WORKFLOW JSON (chronologie du dossier) — « 5 » ou un bout du libellé. */
 function matchWorkflowStep(raw: string): { key: string; label: string } | { error: string } {
   const q = raw.trim();
-  if (!q) return { error: "Précisez l'étape (champ « step ») : son numéro (1 à 22) ou son libellé." };
+  if (!q) return { error: `Précisez l'étape (champ « step ») : son numéro (1 à ${REG_STEPS.length}) ou son libellé.` };
   const byNumber = REG_STEPS.find((s) => String(s.n) === q.replace(/^étape\s*/i, "").trim());
   if (byNumber) return { key: byNumber.key, label: `${byNumber.n}. ${byNumber.label}` };
   const m = matchLabel(q, REG_STEPS.map((s) => [s.key, s.label] as [string, string]));

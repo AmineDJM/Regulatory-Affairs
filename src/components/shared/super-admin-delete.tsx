@@ -20,6 +20,8 @@ export function SuperAdminDeleteButton({
   enabled,
   label = "Supprimer définitivement",
   warning,
+  compact = false,
+  stay = false,
 }: {
   kind: string;
   id: string;
@@ -28,6 +30,10 @@ export function SuperAdminDeleteButton({
   label?: string;
   /** Ligne d'avertissement supplémentaire (ex. périmètre exact de la suppression). */
   warning?: string;
+  /** Icône seule (rangée de tableau) — la confirmation, elle, reste identique. */
+  compact?: boolean;
+  /** Rester sur la page après suppression (ligne d'une liste qui se rafraîchit en place). */
+  stay?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -45,7 +51,7 @@ export function SuperAdminDeleteButton({
     const r = await superAdminDelete(fd);
     if (r.ok) {
       setOpen(false);
-      router.push(r.redirect ?? "/mon-espace");
+      if (!stay) router.push(r.redirect ?? "/mon-espace");
       router.refresh();
     } else {
       setBusy(false);
@@ -55,9 +61,18 @@ export function SuperAdminDeleteButton({
 
   return (
     <>
-      <Button variant="destructive" size="sm" onClick={() => setOpen(true)}>
-        <Trash2 className="h-4 w-4" /> {label}
-      </Button>
+      {compact ? (
+        <button
+          type="button" onClick={() => setOpen(true)} title={label}
+          className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      ) : (
+        <Button variant="destructive" size="sm" onClick={() => setOpen(true)}>
+          <Trash2 className="h-4 w-4" /> {label}
+        </Button>
+      )}
 
       <Sheet
         open={open}

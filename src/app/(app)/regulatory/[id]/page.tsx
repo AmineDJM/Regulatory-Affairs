@@ -17,6 +17,7 @@ import { CommentThread } from "@/components/shared/comment-thread";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { ProductDriveExplorer } from "@/components/documents/product-drive-explorer";
+import { REG_DRIVE_ROOT } from "@/lib/regulatory-drive-mirror";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { RegulatoryProcess } from "./anpp-process";
 import { regProgress, regChecklistProgress, type RegWorkflowState, type RegChecklistState } from "@/lib/regulatory-workflow";
@@ -111,6 +112,13 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
   // LES MARCHÉS DU PRODUIT (§30) : la vue inverse de la fiche marché, servie par la MÊME
   // requête que /pch/[id]. Rien à montrer tant que le produit canonique n'a croisé aucun AO.
   const marches = product.productId ? await loadProductMarkets(product.productId) : [];
+
+  // La carte « Dossiers & fichiers » n'apparaît que si le dossier Drive du produit EXISTE —
+  // même résolution que l'explorateur (il naît au premier dépôt).
+  const productDriveRoot = await prisma.driveNode.findFirst({
+    where: { type: "FOLDER", name: `${product.reference} — ${product.dci}`.trim(), isTrashed: false, parent: { name: REG_DRIVE_ROOT } },
+    select: { id: true },
+  });
 
   const supplierViewValues = {
     supplierId: product.supplierId ?? "",
@@ -324,18 +332,22 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader><CardTitle>Champs personnalisés</CardTitle></CardHeader>
-            <CardContent>
-              <CustomFieldsCard
-                entityType="REGULATORY_PRODUCT"
-                entityId={product.id}
-                defs={fieldDefs.map((d) => ({ id: d.id, key: d.key, label: d.label, type: d.type, options: d.options, required: d.required }))}
-                values={(product.custom as Record<string, unknown>) ?? {}}
-                canEdit={canUpdate}
-              />
-            </CardContent>
-          </Card>
+          {/* La carte n'existe que s'il y a des champs DÉFINIS : un état vide permanent
+              (« un administrateur peut en ajouter… ») n'apprend rien à celui qui lit la fiche. */}
+          {fieldDefs.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle>Champs personnalisés</CardTitle></CardHeader>
+              <CardContent>
+                <CustomFieldsCard
+                  entityType="REGULATORY_PRODUCT"
+                  entityId={product.id}
+                  defs={fieldDefs.map((d) => ({ id: d.id, key: d.key, label: d.label, type: d.type, options: d.options, required: d.required }))}
+                  values={(product.custom as Record<string, unknown>) ?? {}}
+                  canEdit={canUpdate}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           {/* LE DOSSIER EST UNE FRISE VERTICALE — une seule, celle du processus réel.
               La check-list de présoumission, la demande de BV et les allers-retours avec
@@ -441,31 +453,38 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
           {/* LES DOSSIERS DU PRODUIT, sur place. Un ZIP décompressé ou une arborescence déposée
               vivaient dans le Drive et n'étaient plus atteignables depuis ici : il fallait quitter
               Regulatory pour les retrouver. C'est le MÊME explorateur que le Drive — pas une
-              seconde liste qui finirait par diverger. */}
-          <Card>
-            <CardHeader className="flex-row items-center justify-between">
-              <CardTitle>Dossiers &amp; fichiers</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ProductDriveExplorer
-                user={user}
-                productName={`${product.reference} — ${product.dci}`.trim()}
-                folderId={searchParams.dossier ?? null}
-                basePath={`/regulatory/${product.id}`}
-                canEdit={canUpload}
-              />
-            </CardContent>
-          </Card>
+              seconde liste qui finirait par diverger. La carte n'apparaît qu'une fois le dossier
+              Drive né (premier dépôt) : vide, elle n'était qu'un encombrement. */}
+          {productDriveRoot && (
+            <Card>
+              <CardHeader className="flex-row items-center justify-between">
+                <CardTitle>Dossiers &amp; fichiers</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ProductDriveExplorer
+                  user={user}
+                  productName={`${product.reference} — ${product.dci}`.trim()}
+                  folderId={searchParams.dossier ?? null}
+                  basePath={`/regulatory/${product.id}`}
+                  canEdit={canUpload}
+                />
+              </CardContent>
+            </Card>
+          )}
 
-          <Card>
-            <CardHeader className="flex-row items-center justify-between">
-              <CardTitle>Bons de versement (BV)</CardTitle>
-              <Badge tone="neutral">{bvItems.length}</Badge>
-            </CardHeader>
-            <CardContent>
-              <BvRequests items={bvItems} />
-            </CardContent>
-          </Card>
+          {/* Les BV existants, s'il y en a — la DEMANDE, elle, se fait depuis l'étape
+              « Demande du BV » du processus, pas depuis cette carte. */}
+          {bvItems.length > 0 && (
+            <Card>
+              <CardHeader className="flex-row items-center justify-between">
+                <CardTitle>Bons de versement (BV)</CardTitle>
+                <Badge tone="neutral">{bvItems.length}</Badge>
+              </CardHeader>
+              <CardContent>
+                <BvRequests items={bvItems} />
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader className="flex-row items-center justify-between">

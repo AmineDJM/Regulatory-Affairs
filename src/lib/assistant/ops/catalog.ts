@@ -957,7 +957,7 @@ export const OPS_CATALOG: OpMeta[] = [
     uiLabel: "Note sur une étape de la chronologie",
     aliases: ["note sur l'étape du dossier", "annote l'étape de la chronologie", "note d'étape regulatory"],
     risk: "NORMAL",
-    summary: "Pose (ou efface avec « aucune ») une NOTE sur l'une des 22 étapes de la chronologie du dossier — le statut de l'étape, lui, ne bouge pas.",
+    summary: "Pose (ou efface avec « aucune ») une NOTE sur l'une des étapes de la chronologie du dossier — le statut de l'étape, lui, ne bouge pas.",
     gate: (u) => userCan(u, "REGULATORY", "UPDATE"),
     covers: ["regulatory-actions:setRegulatoryStepNote"],
   },

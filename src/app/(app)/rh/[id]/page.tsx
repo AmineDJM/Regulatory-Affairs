@@ -254,6 +254,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
                     <TableRow>
                       <TableHead>Type</TableHead><TableHead>Période</TableHead>
                       <TableHead className="text-right">Jours</TableHead><TableHead>Statut</TableHead>
+                      {user.role === "SUPER_ADMIN" && <TableHead className="text-right"></TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -263,6 +264,21 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
                         <TableCell>{formatDate(l.startDate)} → {formatDate(l.endDate)}</TableCell>
                         <TableCell className="text-right">{toNumber(l.days)}</TableCell>
                         <TableCell><StatusBadge map={LEAVE_STATUS} value={l.status} /></TableCell>
+                        {/* Supprimer un congé approuvé (saisi en double, posé par erreur) restitue
+                            les jours au solde — registre de suppression, corbeille restaurable. */}
+                        {user.role === "SUPER_ADMIN" && (
+                          <TableCell className="text-right">
+                            <SuperAdminDeleteButton
+                              compact
+                              stay
+                              kind="LEAVE_REQUEST"
+                              id={l.id}
+                              name={`${employee.fullName} — ${formatDate(l.startDate)} → ${formatDate(l.endDate)} (${toNumber(l.days)} j)`}
+                              enabled
+                              warning={l.status === "APPROVED" && l.type === "ANNUAL" ? "Congé annuel approuvé : les jours seront restitués au solde de l'employé." : undefined}
+                            />
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>

@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
 import { getLeavesToDecide } from "@/lib/queries/hr";
 import { requestLeave, decideLeave } from "./hr-actions";
+import { decideHrLeave, deleteHrRequest } from "./hr-document-actions";
 import { superAdminDelete, restoreDeletedRecord } from "./admin-delete-actions";
 
 let dbOk = false;
@@ -67,7 +68,8 @@ suite("Congés — N+1 → RH → DG depuis « Mon espace »", () => {
 
   afterAll(async () => {
     await prisma.leaveRequest.deleteMany({ where: { employee: { fullName: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.deletedRecord.deleteMany({ where: { kind: "LEAVE_REQUEST", name: { contains: TAG } } }).catch(() => {});
+    await prisma.hrDocumentRequest.deleteMany({ where: { employee: { fullName: { startsWith: TAG } } } }).catch(() => {});
+    await prisma.deletedRecord.deleteMany({ where: { kind: { in: ["LEAVE_REQUEST", "HR_REQUEST"] }, name: { contains: TAG } } }).catch(() => {});
     await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG } } }).catch(() => {});
     await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
     await prisma.auditLog.deleteMany({ where: { actor: { email: { startsWith: TAG } } } }).catch(() => {});
@@ -241,5 +243,59 @@ suite("Congés — N+1 → RH → DG depuis « Mon espace »", () => {
 
     await prisma.leaveRequest.deleteMany({ where: { employeeId: dgEmp.id } }).catch(() => {});
     await prisma.employee.delete({ where: { id: dgEmp.id } }).catch(() => {});
+  });
+
+  /**
+   * L'AUTRE CHEMIN DU CONGÉ — la demande RH de « Mon dossier RH » (HrDocumentRequest), dont
+   * l'accord DÉBITE aussi le solde (verrou `balanceAppliedAt`). La supprimer doit RENDRE les
+   * jours, par les DEUX portes : l'action de l'écran (`deleteHrRequest`) et le registre du
+   * Super Admin (corbeille) — et la restauration doit les REPRENDRE.
+   */
+  it("demande RH de congé annuel accordée : la supprimer restitue le solde (écran ET corbeille)", async () => {
+    const mkReq = () => prisma.hrDocumentRequest.create({
+      data: {
+        employeeId: salarieEmpId, type: "ANNUAL_LEAVE", status: "PENDING",
+        periodStart: new Date("2026-10-05T00:00:00Z"), periodEnd: new Date("2026-10-09T00:00:00Z"),
+        periodDays: 5,
+      },
+    });
+    const solde = async () => Number((await prisma.employee.findUniqueOrThrow({ where: { id: salarieEmpId } })).leaveBalanceDays);
+    const avant = await solde();
+
+    // 1) L'accord RH débite (le VRAI point d'entrée du débit : decideHrLeave).
+    ACTOR = await actorFor(rhUserId, "DIRECTION");
+    const req1 = await mkReq();
+    const d1 = new FormData(); d1.set("id", req1.id); d1.set("decision", "APPROVE");
+    expect((await decideHrLeave(d1)).ok).toBe(true);
+    expect(await solde()).toBe(avant - 5);
+
+    // 2) La suppression ÉCRAN (bouton de la fiche employé) rend les 5 jours.
+    const del1 = new FormData(); del1.set("id", req1.id);
+    expect((await deleteHrRequest(del1)).ok).toBe(true);
+    expect(await solde()).toBe(avant);
+
+    // 3) Même garantie par la porte du SUPER ADMIN (registre + corbeille)…
+    const req2 = await mkReq();
+    const d2 = new FormData(); d2.set("id", req2.id); d2.set("decision", "APPROVE");
+    expect((await decideHrLeave(d2)).ok).toBe(true);
+    expect(await solde()).toBe(avant - 5);
+
+    ACTOR = await actorFor(adminUserId, "SUPER_ADMIN");
+    const del2 = new FormData(); del2.set("kind", "HR_REQUEST"); del2.set("id", req2.id);
+    expect((await superAdminDelete(del2)).ok).toBe(true);
+    expect(await solde()).toBe(avant);
+
+    // 4) …et RESTAURER reprend les jours — jamais l'objet ET sa compensation.
+    const rec = await prisma.deletedRecord.findFirstOrThrow({
+      where: { kind: "HR_REQUEST", sourceId: req2.id }, orderBy: { deletedAt: "desc" },
+    });
+    const fdRestore = new FormData(); fdRestore.set("id", rec.id);
+    expect((await restoreDeletedRecord(fdRestore)).ok).toBe(true);
+    expect(await solde()).toBe(avant - 5);
+
+    // Solde propre pour la suite.
+    const del3 = new FormData(); del3.set("kind", "HR_REQUEST"); del3.set("id", req2.id);
+    expect((await superAdminDelete(del3)).ok).toBe(true);
+    expect(await solde()).toBe(avant);
   });
 });

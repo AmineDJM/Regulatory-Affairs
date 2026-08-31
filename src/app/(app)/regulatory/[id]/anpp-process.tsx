@@ -9,7 +9,7 @@ import {
 import {
   REG_PHASES, REG_STEPS, REG_STEP_STATE, REG_CHECKLIST,
   PRESUB_ANSWER_STEP, REG_PRESUB_OUTCOME, REG_PRESUB_OUTCOME_ORDER, presubOutcome,
-  PRESUB_CHECKLIST_AFTER_STEP, BV_REQUEST_STEPS, BV_PAYMENT_STEPS, ANPP_EXCHANGE_STEPS,
+  PRESUB_CHECKLIST_AFTER_STEP, BV_REQUEST_STEPS, BV_PAYMENT_STEPS, ANPP_EXCHANGE_AFTER_STEP,
   regProgress, regStepStatus, regChecklistProgress,
   type RegWorkflowState, type RegChecklistState, type RegStepState, type RegPresubOutcome,
 } from "@/lib/regulatory-workflow";
@@ -61,13 +61,14 @@ function Dot({ state, n }: { state: RegStepState; n: number }) {
  * Ici il n'y a qu'un fil vertical, celui du dossier réel, et les trois objets vivants y sont
  * DANS l'étape à laquelle ils appartiennent :
  *
- *   • la **check-list de présoumission** se déplie juste après « Réception du CTD complet » —
- *     c'est là qu'on la remplit, pas dans un autre écran ;
+ *   • le **CTD initial se dépose sur l'étape 1** (fichiers, .zip pour une arborescence) — la
+ *     réception n'est pas qu'une case, c'est la pièce elle-même ;
+ *   • la **check-list de présoumission est l'étape 2**, à part — la liste se déplie sous elle ;
  *   • **demander un BV** se fait sur l'étape « Demande du BV 25 / 75 % », avec montant,
  *     échéance, note et pièces ; la demande EST l'étape, elle la coche ;
  *   • les **allers-retours avec l'ANPP** (réserves → réponses → redépôt, autant de fois qu'il
- *     le faut) remplacent six cases cochées une fois : la frise du dossier vit là, entre
- *     l'évaluation et la commission.
+ *     le faut) sont la SEULE trace du cycle des réserves : la frise du dossier vit entre
+ *     l'évaluation et le dépôt des réponses — les anciennes cases-jalons ont été retirées.
  */
 export function RegulatoryProcess({
   productId, workflow, checklist, canUpdate, canUpload, canDelete, stepDocs, path,
@@ -199,7 +200,14 @@ export function RegulatoryProcess({
             <div className="mt-3 space-y-3 border-t border-border pt-3">
               <StepNote productId={productId} stepKey={s.key} initial={note} canUpdate={canUpdate} path={path} />
               <div>
-                <p className="mb-1.5 text-xs font-medium text-muted-foreground">Pièces de l&apos;étape</p>
+                <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+                  {s.key === "ctd" ? "Le CTD initial se dépose ici" : "Pièces de l'étape"}
+                </p>
+                {s.key === "ctd" && (
+                  <p className="mb-1.5 text-xs text-muted-foreground">
+                    Tous les formats sont acceptés — un .zip dépose une arborescence entière d&apos;un geste.
+                  </p>
+                )}
                 {docs.length > 0 ? (
                   <DocumentList documents={docs} canDelete={canDelete || canUpload} canRename={canUpload} path={path} />
                 ) : (
@@ -207,7 +215,15 @@ export function RegulatoryProcess({
                 )}
                 {canUpload && (
                   <div className="mt-2">
-                    <DocumentUpload entityType="REGULATORY_PRODUCT" entityId={productId} stepKey={s.key} categories={["SUPPORTING_DOC", "OTHER"]} compact />
+                    <DocumentUpload
+                      entityType="REGULATORY_PRODUCT"
+                      entityId={productId}
+                      stepKey={s.key}
+                      categories={s.key === "ctd"
+                        ? ["CTD_FULL", "MODULE_1", "MODULE_2", "MODULE_3", "MODULE_4", "MODULE_5", "SUPPORTING_DOC", "OTHER"]
+                        : ["SUPPORTING_DOC", "OTHER"]}
+                      compact
+                    />
                   </div>
                 )}
               </div>
@@ -246,10 +262,9 @@ export function RegulatoryProcess({
       {REG_PHASES.map((phase) => {
         const steps = REG_STEPS.filter((s) => s.phase === phase.key);
         const phaseDone = steps.filter((s) => regStepStatus(state, s.key) === "DONE").length;
-        // Le cycle des réserves est rendu d'un bloc, à la place de ses six étapes.
-        const before = steps.filter((s) => !ANPP_EXCHANGE_STEPS.includes(s.key) && s.n < (REG_STEPS.find((x) => x.key === ANPP_EXCHANGE_STEPS[0])?.n ?? Infinity));
-        const after = steps.filter((s) => !ANPP_EXCHANGE_STEPS.includes(s.key) && !before.includes(s));
-        const cycle = steps.filter((s) => ANPP_EXCHANGE_STEPS.includes(s.key));
+        // La frise des allers-retours s'insère APRÈS l'évaluation — le cycle des réserves
+        // n'a plus de cases : il se raconte là, tour par tour, avec ses pièces.
+        const exchangeIdx = steps.findIndex((s) => s.key === ANPP_EXCHANGE_AFTER_STEP);
 
         return (
           <section key={phase.key} className="space-y-2">
@@ -258,32 +273,30 @@ export function RegulatoryProcess({
               <span className="text-xs text-muted-foreground">{phaseDone}/{steps.length}</span>
             </div>
             <ol className="space-y-2">
-              {before.map((s, i) => renderStep(s, cycle.length === 0 && after.length === 0 && i === before.length - 1))}
-              {cycle.length > 0 && (
-                <li className="relative pl-10">
-                  {after.length > 0 && <span aria-hidden className="absolute left-[13px] top-7 bottom-0 w-px bg-border" />}
-                  <span className="absolute left-0 top-0.5">
-                    <span className="z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-warning bg-warning/10 text-warning">
-                      <Repeat className="h-3.5 w-3.5" />
-                    </span>
-                  </span>
-                  <AnppCycle
-                    productId={productId}
-                    reference={reference}
-                    steps={cycle}
-                    state={state}
-                    busy={busy}
-                    canUpdate={canUpdate}
-                    canUpload={canUpload}
-                    canDelete={canDelete}
-                    path={path}
-                    stepDocs={stepDocs}
-                    dossierSteps={dossierSteps}
-                    onSetStep={setStep}
-                  />
-                </li>
-              )}
-              {after.map((s, i) => renderStep(s, i === after.length - 1))}
+              {steps.map((s, i) => (
+                <React.Fragment key={s.key}>
+                  {renderStep(s, i === steps.length - 1 && i !== exchangeIdx)}
+                  {i === exchangeIdx && (
+                    <li className="relative pl-10">
+                      {i < steps.length - 1 && <span aria-hidden className="absolute left-[13px] top-7 bottom-0 w-px bg-border" />}
+                      <span className="absolute left-0 top-0.5">
+                        <span className="z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-warning bg-warning/10 text-warning">
+                          <Repeat className="h-3.5 w-3.5" />
+                        </span>
+                      </span>
+                      <AnppExchanges
+                        productId={productId}
+                        reference={reference}
+                        canUpdate={canUpdate}
+                        canUpload={canUpload}
+                        canDelete={canDelete}
+                        path={path}
+                        dossierSteps={dossierSteps}
+                      />
+                    </li>
+                  )}
+                </React.Fragment>
+              ))}
             </ol>
           </section>
         );
@@ -303,30 +316,26 @@ export function RegulatoryProcess({
 }
 
 /**
- * LE CYCLE DES RÉSERVES — six jalons officiels, et l'histoire réelle qui les répète.
+ * LES ALLERS-RETOURS AVEC L'ANPP — la seule trace du cycle des réserves.
  *
- * Cocher « Réception des réserves » une fois ne dit pas qu'il y a eu trois lettres. La frise du
- * dossier porte les allers-retours réels ; les six cases restent, parce que ce sont elles qui
- * comptent dans l'avancement officiel du processus.
+ * Les anciennes cases-jalons (réception, analyse, transmission, réponses, vérification) ont été
+ * retirées : cocher « Réception des réserves » une fois ne disait pas qu'il y a eu trois
+ * lettres. La frise du dossier porte les tours réels — « Réserves ANPP 1 », réponses, versions
+ * redéposées — chacun daté, avec ses pièces. L'étape officielle qui suit est le dépôt des
+ * réponses.
  */
-function AnppCycle({
-  productId, reference, steps, state, busy, canUpdate, canUpload, canDelete, path, stepDocs, dossierSteps, onSetStep,
+function AnppExchanges({
+  productId, reference, canUpdate, canUpload, canDelete, path, dossierSteps,
 }: {
   productId: string;
   reference: string;
-  steps: (typeof REG_STEPS);
-  state: RegWorkflowState;
-  busy: string | null;
   canUpdate: boolean;
   canUpload: boolean;
   canDelete: boolean;
   path: string;
-  stepDocs: Record<string, DocItem[]>;
   dossierSteps: TimelineStepView[];
-  onSetStep: (key: string, status: RegStepState) => void;
 }) {
   const [open, setOpen] = React.useState(true);
-  const done = steps.filter((s) => regStepStatus(state, s.key) === "DONE").length;
   const cycles = dossierSteps.filter((s) => s.kind === "ANPP_RESERVES").length;
 
   return (
@@ -335,7 +344,7 @@ function AnppCycle({
         <div className="min-w-0">
           <p className="text-sm font-medium">Réserves &amp; réponses (ANPP) — les allers-retours</p>
           <p className="text-xs text-muted-foreground">
-            {steps[0].n}–{steps[steps.length - 1].n} · {done}/{steps.length} jalons
+            dossier {reference}
             {cycles > 0 ? ` · ${cycles} cycle${cycles > 1 ? "s" : ""} de réserves reçu${cycles > 1 ? "s" : ""}` : " · aucun cycle enregistré"}
           </p>
         </div>
@@ -344,7 +353,6 @@ function AnppCycle({
 
       {open && (
         <div className="space-y-4 border-t border-warning/30 px-3 py-3">
-          {/* L'HISTOIRE RÉELLE, d'abord : c'est elle qu'on vient lire. */}
           <DossierTimeline
             productId={productId}
             steps={dossierSteps}
@@ -353,44 +361,6 @@ function AnppCycle({
             canDelete={canDelete}
             path={path}
           />
-
-          {/* Les jalons officiels du processus, compacts — ils comptent dans l'avancement. */}
-          <div className="rounded-lg border border-border bg-background/70">
-            <p className="border-b border-border px-3 py-2 text-xs font-medium text-muted-foreground">
-              Jalons officiels du cycle — dossier {reference}
-            </p>
-            <ul className="divide-y divide-border">
-              {steps.map((s) => {
-                const st = regStepStatus(state, s.key);
-                const docs = stepDocs[s.key] ?? [];
-                return (
-                  <li key={s.key} className="flex items-center justify-between gap-3 px-3 py-2">
-                    <div className="min-w-0">
-                      <p className={cn("truncate text-sm", st === "DONE" && "text-muted-foreground line-through")}>
-                        <span className="text-muted-foreground">{s.n}.</span> {s.label}
-                      </p>
-                      <p className="text-[0.6875rem] text-muted-foreground">
-                        {s.responsible}
-                        {docs.length > 0 && ` · ${docs.length} pièce${docs.length > 1 ? "s" : ""}`}
-                      </p>
-                    </div>
-                    {canUpdate ? (
-                      <Select
-                        value={st}
-                        onChange={(e) => onSetStep(s.key, e.target.value as RegStepState)}
-                        disabled={busy === s.key}
-                        className="h-8 w-32 shrink-0 text-xs"
-                      >
-                        {STATE_OPTS.map((o) => <option key={o} value={o}>{REG_STEP_STATE[o].label}</option>)}
-                      </Select>
-                    ) : (
-                      <Badge tone={REG_STEP_STATE[st].tone} dot={false}>{REG_STEP_STATE[st].label}</Badge>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
         </div>
       )}
     </div>
