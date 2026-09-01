@@ -13,12 +13,16 @@ export const STATE_MACHINES: StateMachine[] = [
     module: "FINANCES",
     model: "expenseOrder",
     statusField: "status",
+    // TROIS ÉTATS AU DÉCAISSEMENT, et le report n'en est pas un quatrième : c'est une DATE sur
+    // un ordre resté « à régler » (`deferredUntil`), qui expire seule. `REVISION_REQUESTED` et
+    // `CANCELLED` restent DÉCLARÉS parce que des ordres anciens les portent — plus rien ne les
+    // produit depuis que le circuit de révision et l'annulation ont été retirés aux Finances.
     states: ["PENDING", "REVISION_REQUESTED", "PAID", "CANCELLED"],
     initial: ["PENDING"],
     terminal: ["PAID", "CANCELLED"],
     transitions: [
-      ["PENDING", "REVISION_REQUESTED"], ["PENDING", "PAID"], ["PENDING", "CANCELLED"],
-      ["REVISION_REQUESTED", "PENDING"], ["REVISION_REQUESTED", "PAID"], ["REVISION_REQUESTED", "CANCELLED"],
+      ["PENDING", "PAID"],
+      ["REVISION_REQUESTED", "PENDING"], ["REVISION_REQUESTED", "PAID"],
     ],
   },
   {

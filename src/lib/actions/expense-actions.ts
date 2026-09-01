@@ -10,7 +10,8 @@ import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { canDisburse, blockedReason, type CentralStatus } from "@/lib/payments/authorization";
-import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { checkDeferral } from "@/lib/finance/settlement";
+import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 async function nextFinanceRef(): Promise<string> {
   const year = new Date().getFullYear();
@@ -204,83 +205,93 @@ export async function requestInvoice(formData: FormData): Promise<ActionResult> 
 }
 
 /**
- * Le comptable demande à la Direction de revoir le budget (manque de fonds) :
- * l'ordre passe en « Révision budget demandée » et remonte à la Direction.
+ * REPORTER UN PAIEMENT À UNE DATE — le seul geste, avec le règlement, qui reste aux Finances.
+ *
+ * ── CE QUI A ÉTÉ RETIRÉ D'ICI, ET POURQUOI ───────────────────────────────────────────────────
+ *
+ * Trois actions vivaient à cet endroit : `cancelExpenseOrder`, `requestBudgetRevision` et
+ * `resolveBudgetRevision`. Toutes les trois défaisaient une décision déjà prise ailleurs : l'ordre
+ * arrive au décaissement **autorisé par le centre de paiement**, qui a vu le montant, la file
+ * entière et l'engagement pris. Le rouvrir à la caisse, c'est donner le dernier mot à celui qui
+ * n'a que la trésorerie sous les yeux — et faire porter à l'écran comptable un arbitrage qui
+ * appartient au centre. Elles ont été supprimées, pas seulement masquées : un bouton retiré
+ * laisse une porte ouverte à l'assistant et à l'API, et §118-7 interdit qu'une mission soit une
+ * porte dérobée vers ce que l'écran refuse.
+ *
+ * Il ne reste donc que trois états — non payé (défaut), reporté à une date, payé — et le report
+ * est une DATE, jamais un statut : il expire seul (`src/lib/finance/settlement.ts`).
+ *
+ * Le motif n'est exigé que sur une échéance déclarée FIXE et non négociable. Ce n'est pas un
+ * veto : les Finances peuvent devoir décaler, et personne ne peut le leur interdire depuis un
+ * formulaire. C'est la trace que le demandeur relira quand il devra expliquer le retard.
  */
-export async function requestBudgetRevision(formData: FormData): Promise<ActionResult> {
+export async function deferExpenseOrder(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Réservé à la comptabilité (Finances)." };
   const id = fdStr(formData, "id");
-  const reason = fdStr(formData, "reason");
   if (!id) return { ok: false, error: "Ordre introuvable." };
-  if (!reason) return { ok: false, error: "Indiquez le motif (ex. manque de budget)." };
   const order = await prisma.expenseOrder.findUnique({ where: { id } });
   if (!order) return { ok: false, error: "Ordre introuvable." };
-  if (order.status !== "PENDING") return { ok: false, error: "Seul un ordre à régler peut faire l'objet d'une demande de révision." };
+  if (order.status !== "PENDING") return { ok: false, error: "Seul un ordre à régler peut être reporté." };
+
+  const reason = fdStr(formData, "reason");
+  const check = checkDeferral({
+    order: { status: order.status, deferredUntil: order.deferredUntil },
+    until: fdStr(formData, "until"),
+    reason,
+    deadlineNature: order.deadlineNature,
+  });
+  if (!check.ok || !check.until) return { ok: false, error: check.reason ?? "Report impossible." };
 
   await prisma.expenseOrder.update({
     where: { id },
-    data: { status: "REVISION_REQUESTED", revisionReason: reason, proposedAmount: fdNum(formData, "proposedAmount"), revisionById: user.id },
+    data: { deferredUntil: check.until, deferredReason: reason, deferredById: user.id, deferredAt: new Date() },
   });
-  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
-    type: "VALIDATION_REQUIRED", title: "Ordre de dépense — révision de budget demandée",
-    body: `${order.reference} — ${order.label}`, link: "/finances/paiements-a-faire",
+
+  // LE DEMANDEUR APPREND LE REPORT — c'est lui qui a une échéance en face, et un fournisseur qui
+  // rappelle. Le lui cacher jusqu'au jour dit ne retarde pas le problème, il le rend surprenant.
+  if (order.requestedById) {
+    await notifyUser({
+      userId: order.requestedById, type: "GENERIC", title: "Paiement reporté",
+      body: `${order.reference} — ${order.label} : reporté au ${check.until.toLocaleDateString("fr-FR")}${reason ? ` — ${reason}` : ""}`,
+      link: "/finances/paiements-a-faire",
+    });
+  }
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Finances", entityType: "EXPENSE_ORDER",
+    entityId: id, field: "deferredUntil", newValue: check.until.toISOString(),
+    summary: `Ordre ${order.reference} — paiement reporté au ${check.until.toLocaleDateString("fr-FR")}${reason ? ` (${reason})` : ""}`,
   });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Finances", entityType: "EXPENSE_ORDER", entityId: id, field: "status", newValue: "REVISION_REQUESTED", summary: `Ordre ${order.reference} — révision budget demandée` });
   revalidatePath("/finances/paiements-a-faire");
-  revalidatePath("/validations");
+  revalidatePath("/finances");
+  revalidatePath("/mon-espace");
   return { ok: true };
 }
 
 /**
- * La Direction tranche la demande de révision : soit elle AJUSTE le montant (l'ordre
- * repart à régler au nouveau montant), soit elle REFUSE (l'ordre repart à régler tel quel).
+ * LEVER LE REPORT — l'ordre redevient simplement « non payé », l'état par défaut.
+ *
+ * Ce n'est pas un quatrième geste : c'est le retour au premier des trois états. Sans lui, une
+ * date saisie trop loin ne pourrait plus être corrigée qu'en attendant qu'elle arrive.
  */
-export async function resolveBudgetRevision(formData: FormData): Promise<ActionResult> {
+export async function resumeExpenseOrder(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!(hasGlobalView(user.role) || userCan(user, "FINANCES", "VALIDATE") || userCan(user, "BUDGETS", "VALIDATE"))) {
-    return { ok: false, error: "Réservé à la Direction." };
-  }
-  const id = fdStr(formData, "id");
-  const decision = fdStr(formData, "decision"); // ADJUST | REJECT
-  if (!id || !decision) return { ok: false, error: "Paramètres manquants." };
-  const order = await prisma.expenseOrder.findUnique({ where: { id } });
-  if (!order) return { ok: false, error: "Ordre introuvable." };
-  if (order.status !== "REVISION_REQUESTED") return { ok: false, error: "Cet ordre n'attend pas de révision." };
-
-  let newAmount = order.amount;
-  if (decision === "ADJUST") {
-    const amt = fdNum(formData, "amount");
-    if (amt === null || amt <= 0) return { ok: false, error: "Indiquez le nouveau montant accordé." };
-    newAmount = amt as never;
-  }
-  await prisma.expenseOrder.update({
-    where: { id },
-    data: { status: "PENDING", amount: newAmount, notes: fdStr(formData, "comment") ?? order.notes, revisionReason: null, proposedAmount: null, revisionById: null },
-  });
-  if (order.revisionById) {
-    await notifyUser({ userId: order.revisionById, type: "GENERIC", title: decision === "ADJUST" ? "Budget ajusté par la Direction" : "Révision refusée — montant maintenu", body: `${order.reference} — ${order.label}`, link: "/finances/paiements-a-faire" });
-  }
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Finances", entityType: "EXPENSE_ORDER", entityId: id, field: "amount", newValue: String(newAmount), summary: `Ordre ${order.reference} — révision ${decision === "ADJUST" ? "ajustée" : "refusée"}` });
-  revalidatePath("/finances/paiements-a-faire");
-  revalidatePath("/validations");
-  return { ok: true };
-}
-
-/** Cancel a pending ordre de dépense (e.g. created in error). */
-export async function cancelExpenseOrder(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Réservé à la comptabilité (Finances)." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Ordre introuvable." };
   const order = await prisma.expenseOrder.findUnique({ where: { id } });
   if (!order) return { ok: false, error: "Ordre introuvable." };
-  if (order.status !== "PENDING") return { ok: false, error: "Seul un ordre à régler peut être annulé." };
-  await prisma.expenseOrder.update({ where: { id }, data: { status: "CANCELLED" } });
+  if (!order.deferredUntil) return { ok: false, error: "Ce paiement n'est pas reporté." };
+
+  await prisma.expenseOrder.update({
+    where: { id },
+    data: { deferredUntil: null, deferredReason: null, deferredById: null, deferredAt: null },
+  });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Finances", entityType: "EXPENSE_ORDER",
-    entityId: id, field: "status", newValue: "CANCELLED", summary: `Ordre ${order.reference} annulé`,
+    entityId: id, field: "deferredUntil", newValue: "", summary: `Ordre ${order.reference} — report levé, paiement de nouveau dû`,
   });
   revalidatePath("/finances/paiements-a-faire");
+  revalidatePath("/finances");
   return { ok: true };
 }

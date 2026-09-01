@@ -22,6 +22,9 @@
  * Module PUR — testé.
  */
 
+import { canSubmitDossier, isBonDeVersement, type DossierPiece } from "./payment-dossier";
+import { deadlineNatureRank } from "./deadline-nature";
+
 export type PaymentState =
   | "DRAFT" | "SUBMITTED" | "UNDER_REVIEW" | "ON_HOLD"
   | "CHANGES_REQUESTED" | "APPROVED" | "REJECTED" | "CANCELLED";
@@ -83,6 +86,13 @@ export function isClosed(status: string): boolean {
 
 export interface PieceLike { status: string }
 
+/**
+ * CE QUE PORTE UNE PIÈCE quand la question est « le dossier est-il complet ? » — sa nature, pas
+ * son verdict. Les deux questions sont distinctes : un dossier peut être complet et ses pièces
+ * refusées, ou incomplet et tout ce qu'il contient accepté.
+ */
+export type PieceFull = PieceLike & DossierPiece;
+
 export interface PieceTally {
   total: number;
   pending: number;
@@ -128,21 +138,45 @@ export function statusFromPieces(current: string, pieces: readonly PieceLike[]):
  * exactement ce que le dossier existe pour empêcher. On répond par un motif lisible plutôt que
  * par un bouton grisé sans explication.
  */
-export function canApprove(request: { status: string; amount: number | null }, pieces: readonly PieceLike[]): { ok: boolean; reason?: string } {
+export function canApprove(
+  request: { status: string; amount: number | null; entityType?: string | null; paymentMethodStated?: boolean },
+  pieces: readonly PieceFull[],
+): { ok: boolean; reason?: string } {
   if (isClosed(request.status)) return { ok: false, reason: "Ce dossier est déjà clos." };
   if (request.amount == null || request.amount <= 0) return { ok: false, reason: "Le montant doit être renseigné." };
-  if (pieces.length === 0) return { ok: false, reason: "Aucune pièce jointe : un paiement sans justificatif ne s'autorise pas." };
+
+  // LA COMPLÉTUDE DU DOSSIER SE JUGE AU MÊME ENDROIT QU'AU DÉPÔT — bon de commande ou facture,
+  // moyen de paiement déclaré, et l'exemption du bon de versement. Deux règles séparées auraient
+  // divergé : on aurait fini par autoriser au bon à payer ce que la transmission refusait.
+  const dossier = canSubmitDossier({
+    entityType: request.entityType ?? null,
+    pieces,
+    paymentMethodStated: request.paymentMethodStated ?? false,
+  });
+  if (!dossier.ok) return dossier;
+
   const t = tallyPieces(pieces);
   if (t.rejected > 0) return { ok: false, reason: `${t.rejected} pièce(s) refusée(s) — le dossier ne peut pas être payé en l'état.` };
   if (t.toFix > 0) return { ok: false, reason: `${t.toFix} pièce(s) à revoir — attendez la reprise du demandeur.` };
-  if (t.accepted === 0) return { ok: false, reason: "Aucune pièce validée pour l'instant." };
+  // Un BON DE VERSEMENT peut n'avoir aucune pièce du tout : exiger une pièce ACCEPTÉE le rendrait
+  // impayable, alors qu'il a déjà été validé en amont (N+1, chef de produit, centre).
+  if (t.accepted === 0 && !isBonDeVersement(request)) return { ok: false, reason: "Aucune pièce validée pour l'instant." };
   return { ok: true };
 }
 
 /** Le demandeur peut-il renvoyer son dossier ? */
-export function canResubmit(request: { status: string }, pieces: readonly PieceLike[]): { ok: boolean; reason?: string } {
+export function canResubmit(
+  request: { status: string; entityType?: string | null; paymentMethodStated?: boolean },
+  pieces: readonly PieceFull[],
+): { ok: boolean; reason?: string } {
   if (!isWithRequester(request.status)) return { ok: false, reason: "Le dossier est chez les Finances." };
-  if (pieces.length === 0) return { ok: false, reason: "Joignez au moins une pièce — facture, bon de commande, devis…" };
+  // Renvoyer, c'est transmettre : la même exigence qu'au premier dépôt, à la même adresse.
+  const dossier = canSubmitDossier({
+    entityType: request.entityType ?? null,
+    pieces,
+    paymentMethodStated: request.paymentMethodStated ?? false,
+  });
+  if (!dossier.ok) return dossier;
   const t = tallyPieces(pieces);
   if (t.toFix > 0) return { ok: false, reason: `${t.toFix} pièce(s) restent à corriger.` };
   if (t.rejected > 0) return { ok: false, reason: `${t.rejected} pièce(s) refusée(s) : remplacez-les avant de renvoyer.` };
@@ -189,6 +223,8 @@ export interface SortableRequest {
   dueDate: Date | string | null;
   urgency: string;
   createdAt: Date | string;
+  /** `FIXED`, `IMPORTANT`, `MODERATE` — facultatif : les demandes anciennes n'en portent pas. */
+  deadlineNature?: string | null;
 }
 
 /**
@@ -196,13 +232,14 @@ export interface SortableRequest {
  *
  * Un tri par date de création enterre l'urgence de ce matin sous les dossiers du mois dernier.
  * On classe donc par échéance réelle — une date dépassée passe devant tout, puis les dates
- * proches, puis l'urgence déclarée, puis l'ancienneté.
+ * proches, puis la NATURE de l'échéance (à date égale, un engagement non négociable passe avant
+ * un repère), puis l'urgence déclarée, puis l'ancienneté.
  */
 export function sortByPriority<T extends SortableRequest>(rows: readonly T[], now: Date = new Date()): T[] {
-  const key = (r: T): [number, number, number, number] => {
+  const key = (r: T): [number, number, number, number, number] => {
     const overdue = isOverdue(r, now) ? 0 : 1;
     const due = r.dueDate ? new Date(r.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
-    return [overdue, due, urgencyRank(r.urgency), new Date(r.createdAt).getTime()];
+    return [overdue, due, deadlineNatureRank(r.deadlineNature), urgencyRank(r.urgency), new Date(r.createdAt).getTime()];
   };
   return [...rows].sort((a, b) => {
     const ka = key(a);

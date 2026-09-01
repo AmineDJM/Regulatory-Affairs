@@ -722,9 +722,9 @@ G("caisse d'avance (allouer/dépenser/recharger)", [
   "petty-cash-actions:spendFromPettyCash", "petty-cash-actions:requestPettyCashTopUp",
   "petty-cash-actions:decidePettyCashTopUp", "petty-cash-actions:setPettyCashPlan",
 ]);
-G("ordres de dépense (règlement, facture, révision budgétaire, annulation)", [
-  "expense-actions:settleExpenseOrder", "expense-actions:requestInvoice", "expense-actions:requestBudgetRevision",
-  "expense-actions:resolveBudgetRevision", "expense-actions:cancelExpenseOrder",
+G("ordres de dépense (règlement, report de paiement, facture)", [
+  "expense-actions:settleExpenseOrder", "expense-actions:requestInvoice",
+  "expense-actions:deferExpenseOrder", "expense-actions:resumeExpenseOrder",
 ]);
 G("demandes de paiement (création/pièces/décisions du circuit)", [
   "payment-request-actions:createPaymentRequest", "payment-request-actions:addPaymentPiece",
@@ -732,6 +732,7 @@ G("demandes de paiement (création/pièces/décisions du circuit)", [
   "payment-request-actions:addPaymentComment", "payment-request-actions:submitPaymentRequest",
   "payment-request-actions:decidePaymentRequest", "payment-request-actions:cancelPaymentRequest",
   "payment-request-actions:askPaymentValidation", "payment-request-actions:askPieceValidation",
+  "payment-request-actions:updatePaymentRequestDetails",
   "payment-centre-actions:respondToPaymentCentre",
 ]);
 G("paie RH (marquer payé, transfert budget)", ["payroll-hr-actions:markSalaryPaid", "payroll-hr-actions:unmarkSalaryPaid", "payroll-hr-actions:transferPayrollToBudget"]);

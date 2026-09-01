@@ -15,10 +15,11 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { FileGlyph } from "@/components/drive/file-glyph";
 import { PAYMENT_PIECE_STATUS, PAYMENT_PIECE_KIND, PAYMENT_PIECE_KIND_OPTIONS, VALIDATION_STATUS } from "@/lib/labels";
 import { needsReplacement, tallyPieces } from "@/lib/finance/payment-request";
+import { dossierHint, isBonDeVersement } from "@/lib/finance/payment-dossier";
 import {
   addPaymentPiece, commentPaymentPiece, reviewPaymentPiece, addPaymentComment,
   submitPaymentRequest, decidePaymentRequest, cancelPaymentRequest, askPaymentValidation,
-  askPieceValidation,
+  askPieceValidation, updatePaymentRequestDetails,
 } from "@/lib/actions/payment-request-actions";
 import { requestDocument, askablePeople } from "@/lib/actions/document-request-actions";
 
@@ -65,6 +66,7 @@ type Runner = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
  */
 export function PaymentDossier({
   id, reference, status, isRequester, isFinance, pieces, events, people, canApproveNow, approveBlocker, resubmitBlocker,
+  entityType, paymentMethodStated, contact,
 }: {
   id: string;
   reference: string;
@@ -77,6 +79,10 @@ export function PaymentDossier({
   canApproveNow: boolean;
   approveBlocker: string | null;
   resubmitBlocker: string | null;
+  /** Le rattachement — c'est lui qui exempte un BON DE VERSEMENT des pièces obligatoires. */
+  entityType: string | null;
+  paymentMethodStated: boolean;
+  contact: { name: string | null; phone: string | null; email: string | null };
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -142,6 +148,19 @@ export function PaymentDossier({
 
         {(isRequester || isFinance) && open && (
           <AddPiece id={id} busy={busy} run={run} />
+        )}
+
+        {/* CE QUE LE DOSSIER DOIT PORTER POUR PARTIR, et ce qu'il peut porter en plus.
+            Le demandeur y coche l'attestation et y met son contact. Sans ce bloc, un brouillon
+            ouvert avant la règle — ou un dossier renvoyé pour correction — serait bloqué à la
+            transmission sans aucun moyen de se débloquer : le formulaire de création est passé,
+            et rien d'autre n'écrit ces champs. */}
+        {isRequester && open && (
+          <DossierRequirements
+            id={id} entityType={entityType} pieces={pieces}
+            paymentMethodStated={paymentMethodStated} contact={contact}
+            busy={busy} run={run}
+          />
         )}
       </section>
 
@@ -280,6 +299,89 @@ export function PaymentDossier({
       )}
 
       {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+    </div>
+  );
+}
+
+/**
+ * CE QUE LE DOSSIER DOIT PORTER — dit ici, pendant qu'on le complète.
+ *
+ * Deux gestes que SEUL LE DEMANDEUR peut poser, et qui vivent donc ensemble :
+ *
+ *   • **l'attestation** que le moyen de paiement figure sur le document. C'est une attestation,
+ *     pas une case administrative : elle engage celui qui a la pièce sous les yeux, et ni les
+ *     Finances ni l'assistant ne peuvent la cocher à sa place — ils n'ont pas fourni la pièce ;
+ *   • **le contact** chez le bénéficiaire, facultatif, celui qu'on appelle quand une pièce manque
+ *     ou qu'un virement n'arrive pas.
+ *
+ * L'exigence de pièce (bon de commande ou facture) est RAPPELÉE ici et non recodée : c'est
+ * `dossierHint`, la même fonction que celle qui garde l'action serveur.
+ */
+function DossierRequirements({
+  id, entityType, pieces, paymentMethodStated, contact, busy, run,
+}: {
+  id: string;
+  entityType: string | null;
+  pieces: PieceView[];
+  paymentMethodStated: boolean;
+  contact: { name: string | null; phone: string | null; email: string | null };
+  busy: string | null;
+  run: (k: string, f: Runner, fields: Record<string, string>, files?: Record<string, File>) => Promise<boolean>;
+}) {
+  const [stated, setStated] = React.useState(paymentMethodStated);
+  const [name, setName] = React.useState(contact.name ?? "");
+  const [phone, setPhone] = React.useState(contact.phone ?? "");
+  const [email, setEmail] = React.useState(contact.email ?? "");
+
+  const manque = dossierHint({ entityType, pieces, paymentMethodStated: stated });
+  const modifie = stated !== paymentMethodStated
+    || name !== (contact.name ?? "") || phone !== (contact.phone ?? "") || email !== (contact.email ?? "");
+
+  const enregistrer = () =>
+    void run("details", updatePaymentRequestDetails, {
+      id, paymentMethodStated: stated ? "1" : "0", contactName: name, contactPhone: phone, contactEmail: email,
+    });
+
+  return (
+    <div className="surface space-y-3 p-3">
+      <h3 className="text-sm font-semibold">Ce que le dossier doit porter</h3>
+
+      {isBonDeVersement({ entityType }) ? (
+        // L'EXEMPTION SE DIT, elle ne se devine pas au silence de l'écran : un pharmacien qui ne
+        // voit pas l'exigence croit que l'écran a oublié de la lui montrer.
+        <p className="rounded-lg bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+          <strong className="text-foreground">Bon de versement</strong> — ni bon de commande ni facture ne sont exigés :
+          ils n&apos;existent pas pour un versement aux autorités, et la quittance ne vient qu&apos;après. Le bon a déjà
+          été validé en amont (N+1, chef de produit, centre de validations).
+        </p>
+      ) : (
+        <p className={`rounded-lg px-3 py-2 text-xs ${manque ? "border border-warning/40 bg-warning/5 text-foreground" : "bg-success/10 text-success"}`}>
+          {manque ?? "Le dossier est complet : bon de commande ou facture joint, moyen de paiement déclaré."}
+        </p>
+      )}
+
+      <label className="flex cursor-pointer items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-primary" checked={stated} onChange={(e) => setStated(e.target.checked)} />
+        <span>
+          <strong>Le moyen de paiement est mentionné dans le document</strong> (RIB, chèque, espèces).
+          <span className="block text-xs text-muted-foreground">C&apos;est ce qui permet à la comptabilité de payer sans vous rappeler.</span>
+        </span>
+      </label>
+
+      <div className="space-y-1.5">
+        <Label>Contact chez le bénéficiaire <span className="text-xs font-normal text-muted-foreground">— facultatif</span></Label>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nom" />
+          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Téléphone" />
+          <Input value={email} type="email" onChange={(e) => setEmail(e.target.value)} placeholder="E-mail" />
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <Button size="sm" variant="outline" disabled={busy !== null || !modifie} onClick={enregistrer}>
+          {busy === "details" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer
+        </Button>
+      </div>
     </div>
   );
 }

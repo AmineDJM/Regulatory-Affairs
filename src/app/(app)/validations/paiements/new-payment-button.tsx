@@ -2,11 +2,13 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Banknote, Plus, Loader2, X, Paperclip } from "lucide-react";
+import { Banknote, Plus, Loader2, X, Paperclip, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { PAYMENT_PIECE_KIND_OPTIONS, PAYMENT_URGENCY_OPTIONS } from "@/lib/labels";
+import { DEADLINE_NATURE_OPTIONS } from "@/lib/finance/deadline-nature";
+import { dossierHint } from "@/lib/finance/payment-dossier";
 import { createPaymentRequest } from "@/lib/actions/payment-request-actions";
 
 interface PieceDraft { file: File; kind: string; note: string }
@@ -19,9 +21,19 @@ interface PieceDraft { file: File; kind: string; note: string }
  * TTC inclut la livraison » appelle une réponse sur cette facture-là — pas un message général que
  * les Finances devront rattacher de tête, puis rechercher trois semaines plus tard.
  *
- * L'échéance a deux formes, et les deux comptent : la **date convenue** quand elle existe, et
- * sinon **l'urgence**. Une demande sans date n'est pas une demande sans priorité — sans ce
- * second champ, elle finit systématiquement au bas de la pile parce que la colonne est vide.
+ * ── CE QUE LE DOSSIER DOIT PORTER ────────────────────────────────────────────────────────────
+ *
+ * Un **bon de commande OU une facture** — les deux seules pièces qui disent ce que la société doit
+ * — et la **déclaration que le moyen de paiement y figure**. Le reste (devis, bon de livraison,
+ * notes, contact) est facultatif, et c'est délibéré : rendre obligatoire ce qui n'est pas toujours
+ * pertinent apprend à remplir les champs pour rien.
+ *
+ * La règle est annoncée PENDANT la saisie (`dossierHint`), pas découverte dans une erreur rouge
+ * après avoir tout rempli. C'est la même fonction que celle qui garde l'action serveur : deux
+ * règles séparées auraient divergé.
+ *
+ * L'échéance a trois formes, et les trois comptent : la **date convenue**, **ce qu'elle pèse**
+ * (fixe non négociable, importante, moyenne), et à défaut de date **l'urgence**.
  */
 export function NewPaymentButton() {
   const router = useRouter();
@@ -29,10 +41,11 @@ export function NewPaymentButton() {
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [pieces, setPieces] = React.useState<PieceDraft[]>([]);
+  const [methodStated, setMethodStated] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const formRef = React.useRef<HTMLFormElement>(null);
 
-  const reset = () => { setPieces([]); setErr(null); };
+  const reset = () => { setPieces([]); setMethodStated(false); setErr(null); };
 
   const addFiles = (list: FileList | null) => {
     if (!list) return;
@@ -57,12 +70,17 @@ export function NewPaymentButton() {
   const patch = (i: number, p: Partial<PieceDraft>) =>
     setPieces((prev) => prev.map((x, j) => (j === i ? { ...x, ...p } : x)));
 
+  // LA MÊME RÈGLE QUE LE SERVEUR, dite avant qu'on essaie. `entityType: null` : ce formulaire ne
+  // crée jamais de bon de versement — celui-ci naît de l'Information médicale, avec son exemption.
+  const manque = dossierHint({ entityType: null, pieces, paymentMethodStated: methodStated });
+
   const submit = async (draft: boolean) => {
     const form = formRef.current;
     if (!form) return;
     setBusy(true); setErr(null);
     const fd = new FormData(form);
     fd.set("submit", draft ? "0" : "1");
+    fd.set("paymentMethodStated", methodStated ? "1" : "0");
     // Chaque pièce voyage avec SON commentaire et SA nature, à l'index correspondant.
     for (const [i, p] of pieces.entries()) {
       fd.append("files", p.file);
@@ -85,7 +103,7 @@ export function NewPaymentButton() {
         open={open}
         onClose={() => !busy && setOpen(false)}
         title="Demander un paiement"
-        description="Le dossier part au CENTRE DE PAIEMENT — il n'y a pas de destinataire à choisir : c'est le centre qui autorise, avant que les Finances ne voient quoi que ce soit. Montant, bénéficiaire, échéance demandée, et les pièces qui le justifient."
+        description="Le dossier part au CENTRE DE PAIEMENT — il n'y a pas de destinataire à choisir : c'est le centre qui autorise, avant que les Finances ne voient quoi que ce soit. Montant, bénéficiaire, échéance demandée, et le bon de commande ou la facture qui le justifie."
         width="lg"
       >
         <form ref={formRef} className="space-y-4" onSubmit={(e) => e.preventDefault()}>
@@ -116,6 +134,16 @@ export function NewPaymentButton() {
                   acquise. */}
               <p className="text-xs text-muted-foreground">Le centre de paiement arbitre : il voit la file entière.</p>
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pay-nature">Cette échéance est…</Label>
+              <Select id="pay-nature" name="deadlineNature" defaultValue="MODERATE">
+                {DEADLINE_NATURE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </Select>
+              {/* Deux dates identiques ne pèsent pas la même chose. La nature CLASSE la file, et
+                  une échéance fixe ne se reporte pas sans motif écrit — c'est le seul moyen que
+                  ce que vous avez engagé auprès du bénéficiaire arrive jusqu'à la caisse. */}
+              <p className="text-xs text-muted-foreground">Une échéance fixe ne se reporte pas sans motif écrit.</p>
+            </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="pay-urgency">…ou, à défaut de date, l&apos;urgence</Label>
               <Select id="pay-urgency" name="urgency" defaultValue="WHEN_POSSIBLE">
@@ -126,6 +154,19 @@ export function NewPaymentButton() {
               <Label htmlFor="pay-desc">Contexte</Label>
               <Textarea id="pay-desc" name="description" rows={3} placeholder="Ce qui a été convenu, avec qui, et pourquoi ce montant." />
             </div>
+          </div>
+
+          {/* LE CONTACT — facultatif, et utile précisément quand quelque chose coince : une pièce
+              manque, un virement n'arrive pas, un RIB a changé. Sans lui, on cherche dans les
+              mails de quelqu'un qui est en congé. */}
+          <div className="space-y-2 rounded-xl border border-border p-3">
+            <Label>Contact chez le bénéficiaire <span className="text-xs font-normal text-muted-foreground">— facultatif</span></Label>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <Input name="contactName" placeholder="Nom" />
+              <Input name="contactPhone" placeholder="Téléphone" />
+              <Input name="contactEmail" type="email" placeholder="E-mail" />
+            </div>
+            <p className="text-xs text-muted-foreground">Celui qu&apos;on appelle si une pièce manque ou si le virement n&apos;arrive pas.</p>
           </div>
 
           <div className="space-y-2 rounded-xl border border-border p-3">
@@ -140,19 +181,15 @@ export function NewPaymentButton() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Facture, bon de commande, devis, bon de livraison… <strong className="text-foreground">Chaque pièce
-              porte son propre commentaire</strong> — c&apos;est sur cette pièce-là que les Finances répondront.
+              <strong className="text-foreground">Un bon de commande ou une facture est obligatoire</strong> — c&apos;est
+              la pièce qui dit ce qui est dû. Devis, bon de livraison et autres pièces s&apos;ajoutent librement, et
+              <strong className="text-foreground"> chacune porte son propre commentaire</strong>.
             </p>
 
             {pieces.length === 0 ? (
-              // LA RÈGLE SE DIT AVANT, PAS APRÈS. Le bouton « Envoyer » partait, l'action
-              // refusait, et l'on découvrait l'exigence dans un message d'erreur rouge après
-              // avoir tout saisi. Une contrainte qu'on n'apprend qu'en la heurtant se vit comme
-              // une panne.
               <p className="rounded-lg border border-dashed border-warning/50 bg-warning/5 px-3 py-4 text-center text-xs text-muted-foreground">
-                Aucune pièce pour l&apos;instant. <strong className="text-foreground">Une pièce au moins est
-                nécessaire pour envoyer</strong> — c&apos;est ce que le centre de paiement doit pouvoir lire
-                avant d&apos;autoriser. Vous pouvez enregistrer un brouillon sans pièce et la joindre ensuite.
+                Aucune pièce pour l&apos;instant. Vous pouvez enregistrer un <strong className="text-foreground">brouillon</strong> sans
+                pièce et la joindre ensuite — l&apos;envoi, lui, exige le bon de commande ou la facture.
               </p>
             ) : (
               <ul className="space-y-2">
@@ -183,8 +220,30 @@ export function NewPaymentButton() {
                 ))}
               </ul>
             )}
+
+            {/* L'ATTESTATION — elle engage celui qui a la pièce sous les yeux. Sans elle, la
+                comptabilité sait quoi payer mais pas comment, et le dossier repart trois jours
+                pour un RIB. */}
+            <label className="flex cursor-pointer items-start gap-2 rounded-lg bg-secondary/30 px-3 py-2.5 text-sm">
+              <input
+                type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                checked={methodStated} onChange={(e) => setMethodStated(e.target.checked)}
+              />
+              <span>
+                <strong>Le moyen de paiement est mentionné dans le document</strong> (RIB, chèque, espèces).
+                <span className="block text-xs text-muted-foreground">Obligatoire pour envoyer — c&apos;est ce qui permet à la comptabilité de payer sans vous rappeler.</span>
+              </span>
+            </label>
           </div>
 
+          {/* LA RÈGLE SE DIT AVANT, PAS APRÈS. Le bouton partait, l'action refusait, et l'on
+              découvrait l'exigence dans un message rouge après avoir tout saisi. Une contrainte
+              qu'on n'apprend qu'en la heurtant se vit comme une panne. */}
+          {manque && (
+            <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-foreground">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" /> {manque}
+            </p>
+          )}
           {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
 
           <div className="flex flex-wrap justify-end gap-2 pt-1">
@@ -194,8 +253,8 @@ export function NewPaymentButton() {
             </Button>
             <Button
               type="button"
-              disabled={busy || pieces.length === 0}
-              title={pieces.length === 0 ? "Joignez au moins une pièce — le centre de paiement doit pouvoir la lire avant d'autoriser." : undefined}
+              disabled={busy || manque !== null}
+              title={manque ?? undefined}
               onClick={() => void submit(false)}
             >
               {busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer au centre de paiement

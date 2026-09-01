@@ -1,6 +1,9 @@
 "use server";
 
-import type { PaymentPieceKind, PaymentPieceStatus, PaymentRequestStatus, PaymentUrgency } from "@prisma/client";
+import type {
+  EntityType, PaymentDeadlineNature, PaymentPieceKind, PaymentPieceStatus,
+  PaymentRequestStatus, PaymentUrgency,
+} from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
@@ -19,6 +22,9 @@ import {
   nextPaymentStatus, statusFromPieces, canApprove, canResubmit, isClosed, isWithFinance,
   needsReplacement, type PaymentMove,
 } from "@/lib/finance/payment-request";
+import { canSubmitDossier } from "@/lib/finance/payment-dossier";
+import { deadlineNatureOf } from "@/lib/finance/deadline-nature";
+import { ENTITY_MODULE } from "@/lib/entity-access";
 
 const PATH = "/validations/paiements";
 
@@ -85,6 +91,22 @@ const kindOf = (raw: string | null): PaymentPieceKind => {
 };
 
 /**
+ * LE RATTACHEMENT, validé contre la liste réelle des types d'entité.
+ *
+ * C'est lui qui décide de l'EXEMPTION du bon de versement (`isBonDeVersement`) : il ne peut donc
+ * pas être un texte libre. `ENTITY_MODULE` couvre exactement l'énumération Prisma — une valeur
+ * absente retombe sur « aucun rattachement », et la demande passe par la règle commune.
+ */
+const entityTypeOf = (raw: string | null): EntityType | null =>
+  raw && raw in ENTITY_MODULE ? (raw as EntityType) : null;
+
+/** Une case cochée arrive « on » ; tout le reste vaut non coché. */
+const checked = (formData: FormData, name: string): boolean => {
+  const v = formData.get(name);
+  return v === "on" || v === "1" || v === "true";
+};
+
+/**
  * PRÉVENIR QUI DOIT AGIR — le CENTRE, puis les Finances seulement une fois autorisé.
  *
  * Une demande transmise n'attend pas les Finances : elle attend le centre de paiement, qui
@@ -134,15 +156,30 @@ export async function createPaymentRequest(_prev: ActionResult | undefined, form
 
     const submit = fdStr(formData, "submit") !== "0";
     const companyId = fdStr(formData, "companyId") || (await companyIdForNew(user.id));
+    const entityType = entityTypeOf(fdStr(formData, "entityType"));
+    const paymentMethodStated = checked(formData, "paymentMethodStated");
+    const deadlineNature = deadlineNatureOf(fdStr(formData, "deadlineNature")) as PaymentDeadlineNature;
 
-    // UNE DEMANDE TRANSMISE PORTE SA JUSTIFICATION. Le centre de paiement autorise une sortie
-    // d'argent : sans facture, devis ou bon, il autorise une phrase. La règle existait déjà pour
-    // le bon à payer (`canApprove`) et pour le renvoi (`canResubmit`) — elle manquait au tout
-    // premier dépôt, si bien qu'un dossier vide arrivait au centre et y restait bloqué.
-    // Un BROUILLON, lui, n'engage rien : on l'enregistre sans pièce et on la joint ensuite.
+    // UNE DEMANDE TRANSMISE PORTE SA JUSTIFICATION — un BON DE COMMANDE ou une FACTURE, et la
+    // déclaration que le moyen de paiement y figure. Le centre de paiement autorise une sortie
+    // d'argent : sans l'un ou l'autre, il autorise une phrase ; sans le moyen de paiement, la
+    // comptabilité sait quoi payer mais pas comment, et le dossier repart trois jours pour un RIB.
+    //
+    // L'exception est le BON DE VERSEMENT (information médicale), qui n'a ni bon ni facture et ne
+    // peut pas en avoir : sa quittance n'existe qu'APRÈS le versement. Toute la règle vit dans
+    // `finance/payment-dossier.ts` — module pur, testé, partagé avec le formulaire qui l'annonce
+    // AVANT qu'on essaie d'envoyer.
+    //
+    // Un BROUILLON n'est pas concerné : il n'engage rien, il se garde incomplet, c'est sa raison
+    // d'être.
     const joints = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
-    if (submit && joints.length === 0) {
-      return { ok: false, error: "Joignez au moins une pièce — facture, devis, bon de commande : c'est ce que le centre de paiement doit pouvoir lire avant d'autoriser." };
+    if (submit) {
+      const gate = canSubmitDossier({
+        entityType,
+        pieces: joints.map((_, i) => ({ kind: kindOf(fdStr(formData, `kind_${i}`)) })),
+        paymentMethodStated,
+      });
+      if (!gate.ok) return { ok: false, error: gate.reason ?? "Le dossier est incomplet." };
     }
 
     const req = await createWithRetry(async () =>
@@ -161,10 +198,23 @@ export async function createPaymentRequest(_prev: ActionResult | undefined, form
           recipientId: null,
           companyId: companyId || null,
           dueDate: dateOf(fdStr(formData, "dueDate")),
+          deadlineNature,
           urgency: urgencyOf(fdStr(formData, "urgency")),
+          paymentMethodStated,
+          // Le contact du bénéficiaire — facultatif, et c'est délibéré : une autorité sanitaire
+          // n'a pas d'interlocuteur nommé, et rendre obligatoire ce qui n'est pas toujours
+          // pertinent apprend à remplir les champs pour rien.
+          contactName: fdStr(formData, "contactName"),
+          contactPhone: fdStr(formData, "contactPhone"),
+          contactEmail: fdStr(formData, "contactEmail"),
           status: submit ? "SUBMITTED" : "DRAFT",
           submittedAt: submit ? new Date() : null,
           requesterId: user.id,
+          // LE RATTACHEMENT EST POSÉ ICI, à la création — pas dans une mise à jour qui suivrait.
+          // C'est lui qui ouvre (ou non) l'exemption du bon de versement : le fixer après coup
+          // reviendrait à contrôler la règle sur une demande qui ne dit pas encore ce qu'elle est.
+          entityType,
+          entityId: entityType ? fdStr(formData, "entityId") : null,
           link: fdStr(formData, "link"),
         },
       }),
@@ -203,6 +253,7 @@ export async function createPaymentRequest(_prev: ActionResult | undefined, form
         amount, category: "FOURNISSEUR", beneficiary: payee,
         sourceType: "PAYMENT_REQUEST", sourceId: req.id,
         requestedById: user.id, dueDate: dateOf(fdStr(formData, "dueDate")),
+        deadlineNature,
         notes: fdStr(formData, "description"),
       });
       await prisma.paymentRequest.update({ where: { id: req.id }, data: { expenseOrderId: order.id } });
@@ -279,6 +330,52 @@ export async function addPaymentPiece(formData: FormData): Promise<ActionResult>
   } catch (err) {
     console.error("[payment] addPaymentPiece failed", err);
     return { ok: false, error: "La pièce n'a pas pu être ajoutée." };
+  }
+}
+
+/**
+ * CE QUE LE DEMANDEUR PEUT ENCORE PRÉCISER APRÈS COUP — la déclaration du moyen de paiement et
+ * le contact du bénéficiaire.
+ *
+ * Sans cette action, un brouillon créé avant que la case n'existe, ou un dossier renvoyé pour
+ * correction, serait bloqué à la transmission sans aucun moyen de se débloquer : le formulaire de
+ * création est passé, et rien d'autre n'écrit ce champ. C'est exactement le cul-de-sac que la
+ * règle est censée éviter.
+ *
+ * La case est une ATTESTATION : « j'ai la pièce sous les yeux et elle porte le RIB ». Seul le
+ * demandeur la coche — les Finances ne peuvent pas attester à sa place de ce qu'elles n'ont pas
+ * fourni.
+ */
+export async function updatePaymentRequestDetails(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const id = fdStr(formData, "id");
+    if (!id) return { ok: false, error: "Demande introuvable." };
+    const req = await prisma.paymentRequest.findUnique({ where: { id } });
+    if (!req) return { ok: false, error: "Demande introuvable." };
+    if (!isRequester(user, req)) return { ok: false, error: "Seul le demandeur complète sa demande." };
+    if (isClosed(req.status)) return { ok: false, error: "Ce dossier est clos." };
+
+    const paymentMethodStated = checked(formData, "paymentMethodStated");
+    await prisma.paymentRequest.update({
+      where: { id },
+      data: {
+        paymentMethodStated,
+        contactName: fdStr(formData, "contactName"),
+        contactPhone: fdStr(formData, "contactPhone"),
+        contactEmail: fdStr(formData, "contactEmail"),
+      },
+    });
+    if (paymentMethodStated !== req.paymentMethodStated) {
+      await trace(id, user.id, "COMMENT", paymentMethodStated
+        ? "Le demandeur déclare que le moyen de paiement figure sur le document."
+        : "Le demandeur retire sa déclaration sur le moyen de paiement.");
+    }
+    revalidate(id);
+    return { ok: true, id };
+  } catch (err) {
+    console.error("[payment] updatePaymentRequestDetails failed", err);
+    return { ok: false, error: "Les précisions n'ont pas pu être enregistrées." };
   }
 }
 
@@ -387,7 +484,9 @@ export async function submitPaymentRequest(formData: FormData): Promise<ActionRe
     const user = await requireUser();
     const id = fdStr(formData, "id");
     if (!id) return { ok: false, error: "Demande introuvable." };
-    const req = await prisma.paymentRequest.findUnique({ where: { id }, include: { pieces: { select: { status: true } } } });
+    // `kind` autant que `status` : la complétude du dossier se juge sur la NATURE des pièces
+    // (bon de commande ou facture), leur verdict ne dit rien de ce qui manque.
+    const req = await prisma.paymentRequest.findUnique({ where: { id }, include: { pieces: { select: { status: true, kind: true } } } });
     if (!req) return { ok: false, error: "Demande introuvable." };
     if (!isRequester(user, req)) return { ok: false, error: "Seul le demandeur transmet son dossier." };
 
@@ -417,6 +516,7 @@ export async function submitPaymentRequest(formData: FormData): Promise<ActionRe
         sourceId: req.id,
         requestedById: req.requesterId,
         dueDate: req.dueDate,
+        deadlineNature: req.deadlineNature,
         notes: fdStr(formData, "note") ?? null,
       });
       await prisma.paymentRequest.update({ where: { id }, data: { expenseOrderId: order.id } });
@@ -446,7 +546,7 @@ export async function decidePaymentRequest(formData: FormData): Promise<ActionRe
     const moves: PaymentMove[] = ["REVIEW", "HOLD", "RESUME", "REQUEST_CHANGES", "APPROVE", "REJECT"];
     if (!id || !move || !moves.includes(move)) return { ok: false, error: "Geste inconnu." };
 
-    const req = await prisma.paymentRequest.findUnique({ where: { id }, include: { pieces: { select: { status: true } } } });
+    const req = await prisma.paymentRequest.findUnique({ where: { id }, include: { pieces: { select: { status: true, kind: true } } } });
     if (!req) return { ok: false, error: "Demande introuvable." };
 
     const next = nextPaymentStatus(req.status, move);
@@ -457,7 +557,10 @@ export async function decidePaymentRequest(formData: FormData): Promise<ActionRe
     if (move === "HOLD" && !note) return { ok: false, error: "Dites pourquoi le dossier est mis en attente." };
     if (move === "REJECT" && !note) return { ok: false, error: "Un refus se motive : c'est ce que lira le demandeur." };
     if (move === "APPROVE") {
-      const check = canApprove({ status: req.status, amount: toNumber(req.amount) }, req.pieces);
+      const check = canApprove(
+        { status: req.status, amount: toNumber(req.amount), entityType: req.entityType, paymentMethodStated: req.paymentMethodStated },
+        req.pieces,
+      );
       if (!check.ok) return { ok: false, error: check.reason ?? "Bon à payer impossible." };
     }
 
@@ -488,6 +591,7 @@ export async function decidePaymentRequest(formData: FormData): Promise<ActionRe
         sourceId: req.id,
         requestedById: req.requesterId,
         dueDate: req.dueDate,
+        deadlineNature: req.deadlineNature,
         notes: note ?? null,
       });
       await prisma.paymentRequest.update({ where: { id }, data: { expenseOrderId: order.id } });

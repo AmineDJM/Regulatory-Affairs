@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PAYMENT_REQUEST_STATUS, PAYMENT_URGENCY } from "@/lib/labels";
 import { sortByPriority, isOverdue, deadlineLabel, isWithFinance } from "@/lib/finance/payment-request";
+import { deadlineNatureLabel, deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { NewPaymentButton } from "./new-payment-button";
 
 export const dynamic = "force-dynamic";
@@ -85,6 +86,13 @@ export default async function PaymentRequestsPage() {
               <TableCell className="text-muted-foreground">
                 {deadlineLabel(r, PAYMENT_URGENCY)}
                 {isOverdue(r) && <Badge tone="danger" dot={false} className="ml-1.5">en retard</Badge>}
+                {/* Une date sans sa nature ne dit qu'à moitié — et c'est la nature qui classe
+                    cette file (`sortByPriority`), pas seulement la date. */}
+                {r.dueDate && (
+                  <span className={deadlineNatureOf(r.deadlineNature) === "FIXED" ? "block text-xs font-semibold text-destructive" : "block text-xs"}>
+                    {deadlineNatureLabel(r.deadlineNature)}
+                  </span>
+                )}
               </TableCell>
               <TableCell><StatusBadge map={PAYMENT_REQUEST_STATUS} value={r.status} dot={false} /></TableCell>
             </TableRow>

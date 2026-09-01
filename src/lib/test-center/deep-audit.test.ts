@@ -63,7 +63,13 @@ describe("Test Center — machines à états : transitions déclarées", () => {
   it("valide/invalide correctement les transitions de l'ordre de dépense", () => {
     const m = STATE_MACHINES.find((s) => s.id === "expenseOrder")!;
     expect(isValidTransition(m, "PENDING", "PAID")).toBe(true);
-    expect(isValidTransition(m, "PENDING", "REVISION_REQUESTED")).toBe(true);
+    // PLUS DE RÉVISION NI D'ANNULATION AU DÉCAISSEMENT : l'ordre arrive autorisé par le centre
+    // de paiement, et les Finances n'ont plus que trois états — non payé, reporté (une DATE sur
+    // un ordre resté « à régler »), payé. L'état survit pour les ordres anciens, mais plus rien
+    // ne peut y conduire.
+    expect(isValidTransition(m, "PENDING", "REVISION_REQUESTED")).toBe(false);
+    expect(isValidTransition(m, "PENDING", "CANCELLED")).toBe(false);
+    expect(isValidTransition(m, "REVISION_REQUESTED", "PENDING")).toBe(true); // les anciens reviennent
     expect(isValidTransition(m, "PAID", "PENDING")).toBe(false); // PAID est terminal
     expect(isValidTransition(m, "PENDING", "IN_PROGRESS")).toBe(false); // état étranger
   });

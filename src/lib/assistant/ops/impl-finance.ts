@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import {
   createTransaction, updateTransactionStatus, createQuickIncome, setTreasuryOpeningBalance,
 } from "@/lib/actions/finance-actions";
-import { settleExpenseOrder, cancelExpenseOrder } from "@/lib/actions/expense-actions";
+import { settleExpenseOrder } from "@/lib/actions/expense-actions";
 import { createInvoice, setInvoicePaid, setInvoiceOrder } from "@/lib/actions/invoice-actions";
 import { decidePettyCashTopUp } from "@/lib/actions/petty-cash-actions";
 import { decideDepartmentBudgetRequest } from "@/lib/actions/department-budget-actions";
@@ -362,32 +362,6 @@ export const FINANCE_OPS_IMPL: Record<string, OpImpl> = {
       fd.set("id", args.id ?? "");
       const r = await settleExpenseOrder(fd);
       if (!r.ok) return { ok: false, error: r.error ?? "Le règlement a été refusé." };
-      return { ok: true, revalidate: ["/finances"] };
-    },
-  },
-
-  cancel_expense_order: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const order = await resolveExpenseOrder(opStr(input, "reference") || opStr(input, "label"), ["PENDING", "REVISION_REQUESTED"]);
-      if ("error" in order) return order;
-      return {
-        title: `Annuler l'ordre ${order.reference}`,
-        fields: [
-          { label: "Ordre", value: `${order.reference} — ${order.label}` },
-          { label: "Montant", value: dzd(order.amount) },
-        ],
-        warnings: ["Rien n'est décaissé — l'ordre est simplement clos."],
-        args: { id: order.id, reference: order.reference },
-        successMessage: `Ordre ${order.reference} annulé.`,
-        link: "/finances",
-        revalidate: ["/finances"],
-      };
-    },
-    async execute(args) {
-      const fd = new FormData();
-      fd.set("id", args.id ?? "");
-      const r = await cancelExpenseOrder(fd);
-      if (!r.ok) return { ok: false, error: r.error ?? "L'annulation a été refusée." };
       return { ok: true, revalidate: ["/finances"] };
     },
   },

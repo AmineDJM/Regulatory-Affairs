@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import type { BadgeTone } from "@/lib/labels";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+import { deadlineNatureLabel, deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { ItemAskPanel } from "@/components/ad-pro/item-ask-panel";
 
 export interface CentreMessage {
@@ -41,6 +42,12 @@ export interface CentreOrder {
   decidedAt: string | null;
   /** L'échéance DEMANDÉE par le demandeur — un souhait, formé sans voir la trésorerie. */
   dueDate: string | null;
+  /**
+   * CE QUE CETTE ÉCHÉANCE PÈSE — `FIXED`, `IMPORTANT`, `MODERATE`. C'est ICI qu'elle compte le
+   * plus : le centre POSE la date que la comptabilité devra tenir, et poser une date en ignorant
+   * qu'un engagement ferme a été pris auprès du bénéficiaire, c'est arbitrer à l'aveugle.
+   */
+  deadlineNature: string | null;
   /**
    * LE DOSSIER DE LA DEMANDE, quand l'ordre est né d'une demande de paiement : son montant, ses
    * pièces, son fil. Autoriser une sortie d'argent sans pouvoir ouvrir la facture, c'est
@@ -254,9 +261,14 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
                 <Input id="pc-due" name="dueDate" type="date" defaultValue={acting.order.dueDate?.slice(0, 10) ?? ""} />
                 <p className="text-xs text-muted-foreground">
                   {acting.order.dueDate
-                    ? <>Le demandeur a souhaité le <strong>{formatDate(acting.order.dueDate)}</strong>. Vous voyez la file entière : c&apos;est vous qui arbitrez.</>
+                    ? <>Le demandeur a souhaité le <strong>{formatDate(acting.order.dueDate)}</strong>, échéance déclarée <strong>{deadlineNatureLabel(acting.order.deadlineNature).toLowerCase()}</strong>. Vous voyez la file entière : c&apos;est vous qui arbitrez.</>
                     : <>Aucune échéance demandée. Laissez vide si rien ne presse — une date posée est une date que la comptabilité doit tenir.</>}
                 </p>
+                {deadlineNatureOf(acting.order.deadlineNature) === "FIXED" && acting.order.dueDate && (
+                  <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    Le demandeur a déclaré cette échéance <strong>fixe et non négociable</strong> : elle a été engagée auprès du bénéficiaire. La déplacer a un coût que vous seul pouvez arbitrer.
+                  </p>
+                )}
               </div>
             )}
             {acting.decision === "REQUEST_CHANGES" && (

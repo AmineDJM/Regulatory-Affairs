@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PAYMENT_REQUEST_STATUS, PAYMENT_URGENCY, ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { canApprove, canResubmit, isOverdue, deadlineLabel } from "@/lib/finance/payment-request";
+import { deadlineNatureLabel, deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { PaymentDossier, type PieceView, type EventView } from "./dossier";
 import { AskChief } from "@/components/shared/ask-chief";
 import { realtimeVoiceConfigured, canUseRealtimeVoice } from "@/lib/assistant/voice-realtime";
@@ -91,7 +92,12 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
   }));
 
   const amount = toNumber(req.amount);
-  const approve = canApprove({ status: req.status, amount }, req.pieces);
+  // `entityType` et l'attestation entrent dans le calcul : c'est le rattachement qui exempte un
+  // BON DE VERSEMENT du bon de commande et de la facture.
+  const approve = canApprove(
+    { status: req.status, amount, entityType: req.entityType, paymentMethodStated: req.paymentMethodStated },
+    req.pieces,
+  );
   const resubmit = canResubmit(req, req.pieces);
 
   return (
@@ -110,13 +116,39 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
         <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4">
           <Info label="Montant" value={formatCurrency(amount)} />
           <Info label="Bénéficiaire" value={req.payee} />
-          <Info label="Échéance" value={deadlineLabel(req, PAYMENT_URGENCY)} />
+          <Info
+            label="Échéance"
+            value={
+              <>
+                {deadlineLabel(req, PAYMENT_URGENCY)}
+                {/* LA DATE SEULE NE DIT QU'À MOITIÉ : « le 15 » n'est pas la même chose selon
+                    qu'il s'agit d'un engagement pris ou d'un repère. */}
+                {req.dueDate && (
+                  <span className={deadlineNatureOf(req.deadlineNature) === "FIXED" ? "block text-xs font-semibold text-destructive" : "block text-xs text-muted-foreground"}>
+                    {deadlineNatureLabel(req.deadlineNature)}
+                  </span>
+                )}
+              </>
+            }
+          />
           <Info label="Demandeur" value={names.get(req.requesterId) ?? "—"} />
           {/* Le destinataire n'existe plus à la création — la demande va au CENTRE. La ligne
               survit pour les demandes anciennes, qui en portent un : la masquer effacerait leur
               historique. `Info` ne rend rien quand la valeur est absente. */}
           <Info label="Destinataire (Finances)" value={req.recipientId ? names.get(req.recipientId) : null} />
           <Info label="Entité" value={req.company?.name} />
+          {/* LE CONTACT — celui qu'on appelle quand une pièce manque ou qu'un virement n'arrive
+              pas. Sans lui, on cherche dans les mails de quelqu'un qui est en congé. */}
+          <Info
+            label="Contact bénéficiaire"
+            value={[req.contactName, req.contactPhone, req.contactEmail].filter(Boolean).join(" · ") || null}
+          />
+          <Info
+            label="Moyen de paiement"
+            value={req.paymentMethodStated
+              ? <span className="text-success">Mentionné dans le document</span>
+              : <span className="text-warning">Non déclaré</span>}
+          />
           <Info label="Décidé par" value={req.decidedById ? names.get(req.decidedById) : null} />
           <Info label="Décidé le" value={req.decidedAt ? formatDate(req.decidedAt.toISOString()) : null} />
           {req.link && (
@@ -154,6 +186,9 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
         canApproveNow={approve.ok}
         approveBlocker={approve.ok ? null : approve.reason ?? null}
         resubmitBlocker={resubmit.ok ? null : resubmit.reason ?? null}
+        entityType={req.entityType}
+        paymentMethodStated={req.paymentMethodStated}
+        contact={{ name: req.contactName, phone: req.contactPhone, email: req.contactEmail }}
       />
     </div>
   );

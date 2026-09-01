@@ -4665,11 +4665,25 @@ model ExpenseOrder {
   requiresInvoice       Boolean                @default(false) // facture obligatoire avant règlement (dépenses événementielles)
   budgetCategoryId      String? // (sous-)catégorie budgétaire choisie par la Direction — sert d'attribution au règlement
   notes                 String?
-  // Aller-retour comptable ↔ Direction : le comptable peut demander une baisse de
-  // budget (manque de fonds) ; la Direction ajuste le montant ou refuse.
-  revisionReason        String? // motif de la demande de révision (comptable)
-  proposedAmount        Decimal?               @db.Decimal(14, 2) // montant proposé par le comptable
-  revisionById          String? // comptable ayant demandé la révision
+  // Aller-retour comptable ↔ Direction : le comptable pouvait demander une baisse de budget.
+  // CE CIRCUIT EST RETIRÉ — au décaissement, les Finances ne disposent plus que des trois états
+  // du règlement (non payé, reporté, payé) ; l'arbitrage du montant appartient au centre de
+  // paiement, qui voit la file entière. Les colonnes SURVIVENT : elles portent l'historique des
+  // ordres qui ont connu une révision, et l'effacer réécrirait le passé.
+  revisionReason        String? // motif de la demande de révision (historique)
+  proposedAmount        Decimal?               @db.Decimal(14, 2) // montant proposé (historique)
+  revisionById          String? // comptable ayant demandé la révision (historique)
+  /// LE REPORT DE PAIEMENT — une DATE, jamais un statut.
+  /// Un statut « reporté » obligerait quelqu'un à le remettre à « non payé » le jour venu, et ce
+  /// quelqu'un oublierait. Une date expire seule : le 12 au matin, l'ordre reporté au 12 est de
+  /// nouveau simplement dû. Voir `src/lib/finance/settlement.ts`.
+  deferredUntil         DateTime?
+  deferredReason        String?
+  deferredById          String?
+  deferredAt            DateTime?
+  /// La nature de l'échéance DÉCLARÉE PAR LE DEMANDEUR — `FIXED` (non négociable), `IMPORTANT`,
+  /// `MODERATE`. Elle classe la file et exige un motif pour reporter une échéance fixe.
+  deadlineNature        String?
   sourceType            EntityType? // SPONSORING, SALARY_ADVANCE…
   sourceId              String?
   requestedById         String?
@@ -8994,6 +9008,17 @@ enum PaymentRequestStatus {
   CANCELLED
 }
 
+/// CE QUE PÈSE UNE ÉCHÉANCE DE PAIEMENT, quand il y en a une.
+///
+/// L'urgence (`PaymentUrgency`) répond à « quand ? » en l'absence de date ; la nature répond à
+/// « et si on ne la tient pas ? ». Ce sont deux questions distinctes : une échéance au 30 peut
+/// être non négociable, et une demande « urgente » peut n'avoir aucune date engagée.
+enum PaymentDeadlineNature {
+  MODERATE // moyenne — la date est un repère
+  IMPORTANT // importante — un décalage se discute
+  FIXED // fixe, non négociable — la date est un engagement pris
+}
+
 /// À défaut de date convenue, l'URGENCE. Une demande sans échéance n'est pas une demande
 /// sans priorité — et sans ce champ, elle finit systématiquement au bas de la pile.
 enum PaymentUrgency {
@@ -9048,8 +9073,25 @@ model PaymentRequest {
 
   /// L'échéance CONVENUE, quand elle existe.
   dueDate DateTime?
+  /// CE QUE CETTE ÉCHÉANCE PÈSE, dit par celui qui l'a négociée. Deux dates identiques ne
+  /// valent pas la même chose : le 15 d'un fournisseur mensuel n'est pas le 15 d'une quittance
+  /// dont le retard coûte une pénalité. Voir `src/lib/finance/deadline-nature.ts`.
+  deadlineNature PaymentDeadlineNature @default(MODERATE)
   /// À défaut de date : le degré d'urgence, discuté.
   urgency PaymentUrgency @default(WHEN_POSSIBLE)
+
+  /// LE MOYEN DE PAIEMENT FIGURE SUR LE DOCUMENT — déclaré par celui qui a la pièce sous les
+  /// yeux. Sans lui, la comptabilité sait quoi payer mais pas comment : la facture est conforme,
+  /// elle est autorisée, et le dossier repart trois jours pour un RIB.
+  paymentMethodStated Boolean @default(false)
+
+  /// CONTACT FACULTATIF chez le bénéficiaire — celui qu'on appelle quand une pièce manque ou
+  /// qu'un virement n'arrive pas. Facultatif parce qu'il ne l'est pas toujours (une autorité
+  /// sanitaire n'a pas d'interlocuteur nommé), et rendre obligatoire ce qui n'est pas toujours
+  /// pertinent apprend à remplir les champs pour rien.
+  contactName  String?
+  contactPhone String?
+  contactEmail String?
 
   status      PaymentRequestStatus @default(DRAFT)
   requesterId String

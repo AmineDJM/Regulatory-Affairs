@@ -4,7 +4,12 @@ import {
   canApprove, canResubmit, needsReplacement, urgencyRank, deadlineLabel, isOverdue, sortByPriority,
 } from "./payment-request";
 
-const p = (status: string) => ({ status });
+/**
+ * Une pièce porte DEUX choses distinctes : son verdict (`status`) et sa nature (`kind`). Par
+ * défaut on prend une facture, parce que la plupart des cas testés ici portent sur le verdict —
+ * les tests de la NATURE sont explicites et vivent dans `payment-dossier.test.ts`.
+ */
+const p = (status: string, kind = "INVOICE") => ({ status, kind });
 const URG = { URGENT: "Urgent", THIS_WEEK: "Cette semaine", THIS_MONTH: "Ce mois-ci", WHEN_POSSIBLE: "Dès que possible" };
 
 describe("Le dossier fait des allers-retours, il ne se tranche pas une fois", () => {
@@ -95,7 +100,7 @@ describe("L'état du dossier se DÉDUIT de ses pièces", () => {
 });
 
 describe("Le bon à payer", () => {
-  const req = { status: "UNDER_REVIEW", amount: 120_000 };
+  const req = { status: "UNDER_REVIEW", amount: 120_000, paymentMethodStated: true };
 
   it("s'autorise quand tout est en ordre", () => {
     expect(canApprove(req, [p("ACCEPTED"), p("ACCEPTED")])).toEqual({ ok: true });
@@ -103,7 +108,26 @@ describe("Le bon à payer", () => {
 
   it("JAMAIS sans justificatif — c'est ce que le dossier existe pour empêcher", () => {
     expect(canApprove(req, []).ok).toBe(false);
-    expect(canApprove(req, []).reason).toContain("justificatif");
+    expect(canApprove(req, []).reason).toMatch(/bon de commande ou la facture/i);
+  });
+
+  it("ni sur des pièces qui ACCOMPAGNENT sans justifier (devis, bon de livraison)", () => {
+    // Le bon à payer se juge exactement comme la transmission : deux règles séparées auraient
+    // divergé, et l'on aurait fini par autoriser au bon à payer ce que le dépôt refusait.
+    const r = canApprove(req, [p("ACCEPTED", "QUOTE"), p("ACCEPTED", "DELIVERY_NOTE")]);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/BON DE COMMANDE ou une FACTURE/);
+  });
+
+  it("ni tant que le moyen de paiement n'a pas été déclaré", () => {
+    const r = canApprove({ status: "UNDER_REVIEW", amount: 120_000 }, [p("ACCEPTED")]);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/moyen de paiement/i);
+  });
+
+  it("UN BON DE VERSEMENT s'autorise SANS pièce — sa quittance n'existe qu'après le versement", () => {
+    const bv = { status: "UNDER_REVIEW", amount: 45_000, entityType: "MEDICAL_INFO_DECLARATION" };
+    expect(canApprove(bv, [])).toEqual({ ok: true });
   });
 
   it("pas tant qu'une pièce est refusée ou à revoir", () => {
@@ -129,21 +153,33 @@ describe("Le bon à payer", () => {
 });
 
 describe("Renvoyer le dossier corrigé", () => {
+  const encours = { status: "CHANGES_REQUESTED", paymentMethodStated: true };
+
   it("possible quand tout ce qui était en cause a été repris", () => {
-    expect(canResubmit({ status: "CHANGES_REQUESTED" }, [p("ACCEPTED"), p("PENDING")])).toEqual({ ok: true });
+    expect(canResubmit(encours, [p("ACCEPTED"), p("PENDING")])).toEqual({ ok: true });
   });
 
   it("impossible tant qu'une pièce reste à corriger", () => {
-    expect(canResubmit({ status: "CHANGES_REQUESTED" }, [p("CHANGES_REQUESTED")]).ok).toBe(false);
-    expect(canResubmit({ status: "CHANGES_REQUESTED" }, [p("REJECTED")]).ok).toBe(false);
+    expect(canResubmit(encours, [p("CHANGES_REQUESTED")]).ok).toBe(false);
+    expect(canResubmit(encours, [p("REJECTED")]).ok).toBe(false);
   });
 
   it("impossible sans aucune pièce", () => {
     expect(canResubmit({ status: "DRAFT" }, []).ok).toBe(false);
   });
 
+  it("RENVOYER, C'EST TRANSMETTRE : même exigence de bon de commande ou de facture", () => {
+    const r = canResubmit(encours, [p("ACCEPTED", "OTHER")]);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/BON DE COMMANDE ou une FACTURE/);
+  });
+
+  it("un BON DE VERSEMENT se renvoie sans pièce", () => {
+    expect(canResubmit({ status: "CHANGES_REQUESTED", entityType: "MEDICAL_INFO_DECLARATION" }, []).ok).toBe(true);
+  });
+
   it("impossible quand le dossier est chez les Finances", () => {
-    expect(canResubmit({ status: "UNDER_REVIEW" }, [p("ACCEPTED")]).ok).toBe(false);
+    expect(canResubmit({ status: "UNDER_REVIEW", paymentMethodStated: true }, [p("ACCEPTED")]).ok).toBe(false);
   });
 
   it("seule une pièce en cause se remplace", () => {
@@ -200,6 +236,22 @@ describe("La file des Finances : ce qui presse d'abord", () => {
   it("puis les échéances convenues, puis l'urgence déclarée", () => {
     const ids = sortByPriority(rows, now).map((r) => r.id);
     expect(ids).toEqual(["en-retard", "echeance-proche", "urgent-sans-date", "ancien-tranquille"]);
+  });
+
+  it("à date égale, l'échéance FIXE non négociable passe devant", () => {
+    const memeJour = [
+      { id: "moyenne", status: "SUBMITTED", dueDate: "2026-08-20", urgency: "WHEN_POSSIBLE", createdAt: "2026-02-01", deadlineNature: "MODERATE" },
+      { id: "fixe", status: "SUBMITTED", dueDate: "2026-08-20", urgency: "WHEN_POSSIBLE", createdAt: "2026-02-01", deadlineNature: "FIXED" },
+    ];
+    expect(sortByPriority(memeJour, now).map((r) => r.id)).toEqual(["fixe", "moyenne"]);
+  });
+
+  it("mais la nature ne double PAS une échéance plus proche — la date reste première", () => {
+    const rows2 = [
+      { id: "fixe-lointaine", status: "SUBMITTED", dueDate: "2026-12-01", urgency: "WHEN_POSSIBLE", createdAt: "2026-02-01", deadlineNature: "FIXED" },
+      { id: "moyenne-proche", status: "SUBMITTED", dueDate: "2026-08-20", urgency: "WHEN_POSSIBLE", createdAt: "2026-02-01", deadlineNature: "MODERATE" },
+    ];
+    expect(sortByPriority(rows2, now).map((r) => r.id)).toEqual(["moyenne-proche", "fixe-lointaine"]);
   });
 
   it("ne modifie pas la liste reçue", () => {

@@ -155,7 +155,17 @@ async function probeStuck(): Promise<Finding[]> {
   const findings: Finding[] = [];
   const wf = await safe(() => prisma.workflowInstance.count({ where: { status: "IN_PROGRESS", createdAt: { lt: cutoff } } }), 0);
   if (wf > 0) findings.push({ severity: "warning", area: "Files d'attente", title: `${wf} circuit(s) Ad & Pro en attente depuis > ${STALE_DAYS} j`, detail: "Des demandes de sponsoring / congrès / événement stagnent dans le circuit de validation.", suggestion: "Relancer les validateurs concernés (Mon travail) ou revoir le circuit dans Administration → Circuits de validation." });
-  const eo = await safe(() => prisma.expenseOrder.count({ where: { status: { in: ["PENDING", "REVISION_REQUESTED"] }, createdAt: { lt: cutoff } } }), 0);
+  // UN PAIEMENT REPORTÉ N'EST PAS UN PAIEMENT OUBLIÉ : la date a été posée exprès, avec un motif.
+  // Le compter comme « en souffrance » remplirait l'audit d'alertes qu'on a soi-même créées, et
+  // c'est ainsi qu'on cesse de lire un audit. Un report ÉCHU, lui, revient dans le compte : sa
+  // date est passée, l'ordre est de nouveau dû.
+  const eo = await safe(() => prisma.expenseOrder.count({
+    where: {
+      status: { in: ["PENDING", "REVISION_REQUESTED"] },
+      createdAt: { lt: cutoff },
+      OR: [{ deferredUntil: null }, { deferredUntil: { lte: new Date() } }],
+    },
+  }), 0);
   if (eo > 0) findings.push({ severity: "warning", area: "Files d'attente", title: `${eo} ordre(s) de dépense non réglé(s) depuis > ${STALE_DAYS} j`, detail: "Des ordres de dépense attendent d'être exécutés par les Finances.", suggestion: "Vérifier la disponibilité budgétaire et relancer le règlement côté Finances." });
   const vr = await safe(() => prisma.validationRequest.count({ where: { status: "PENDING", createdAt: { lt: cutoff } } }), 0);
   if (vr > 0) findings.push({ severity: "warning", area: "Files d'attente", title: `${vr} demande(s) de validation en attente depuis > ${STALE_DAYS} j`, detail: "Des demandes du bureau de validation n'ont pas été traitées.", suggestion: "Relancer les validateurs ou clôturer les demandes obsolètes." });

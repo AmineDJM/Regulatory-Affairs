@@ -317,18 +317,22 @@ export async function requestMedicalInfoQuittance(_prev: ActionResult | undefine
   if (decl.companyId) fd.set("companyId", decl.companyId);
   const echeance = fdStr(formData, "dueDate");
   if (echeance) fd.set("dueDate", echeance);
+  // LE RATTACHEMENT EST POSÉ DÈS LA CRÉATION, et non par une mise à jour qui suivrait.
+  //
+  // C'est lui qui identifie un BON DE VERSEMENT, et donc ce qui l'exempte de l'obligation de
+  // joindre un bon de commande ou une facture (`finance/payment-dossier.ts`) : un BV n'en a ni
+  // n'en peut avoir, et sa quittance n'existe qu'APRÈS le versement. Le poser après coup
+  // reviendrait à faire passer la demande devant une règle qui ne sait pas encore ce qu'elle est,
+  // et la quittance serait refusée au dépôt.
+  fd.set("entityType", "MEDICAL_INFO_DECLARATION");
+  fd.set("entityId", id);
+  fd.set("link", `${PATH}/${id}`);
   for (const f of formData.getAll("files")) if (f instanceof File && f.size > 0) fd.append("files", f);
 
   const created = await createPaymentRequest(undefined, fd);
   if (!created.ok || !created.id) return { ok: false, error: created.error ?? "La demande de paiement a été refusée." };
 
-  await prisma.$transaction([
-    prisma.paymentRequest.update({
-      where: { id: created.id },
-      data: { entityType: "MEDICAL_INFO_DECLARATION", entityId: id, link: `${PATH}/${id}` },
-    }),
-    prisma.medicalInfoDeclaration.update({ where: { id }, data: { bvRequestId: created.id } }),
-  ]);
+  await prisma.medicalInfoDeclaration.update({ where: { id }, data: { bvRequestId: created.id } });
 
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Information médicale",

@@ -73,6 +73,7 @@ export default async function CentreDePaiementPage() {
     decidedBy: o.centralDecidedById ? deciderName.get(o.centralDecidedById) ?? null : null,
     decidedAt: o.centralDecidedAt?.toISOString() ?? null,
     dueDate: o.dueDate?.toISOString() ?? null,
+    deadlineNature: o.deadlineNature,
     // CHAQUE ORIGINE S'OUVRE, PAS SEULEMENT LA DEMANDE DE PAIEMENT.
     //
     // Tant que le centre ne voyait que des demandes de paiement, ne relier que celles-là se

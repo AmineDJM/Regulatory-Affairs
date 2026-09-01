@@ -470,13 +470,31 @@ suite("ops FINANCES vague 1 — budgets, caisse, paiements, écritures, paie (go
   });
 
   describe("ordres, lignes budgétaires, centre de paiement", () => {
-    it("request_budget_revision : motif OBLIGATOIRE ; resolve : ajuster exige le nouveau montant", async () => {
-      const noReason = await buildProposal("finance_operation", { op: "request_budget_revision", reference: `${TAG}-OD-9` }, fin());
-      expect("error" in noReason && noReason.error).toMatch(/motif/);
+    it("defer_payment : la DATE est obligatoire, et la proposition DIT ce que l'action exigera", async () => {
+      // Sans date, ce n'est pas un report, c'est un oubli qui porte un nom : l'op refuse, parce
+      // qu'un argument manque — pas parce qu'elle rejoue la règle métier.
+      const sansDate = await buildProposal("finance_operation", { op: "defer_payment", reference: `${TAG}-OD-9` }, fin());
+      expect("error" in sansDate && sansDate.error).toMatch(/date/i);
 
-      const p = await buildProposal("finance_operation", { op: "request_budget_revision", reference: `${TAG}-OD-9`, reason: "Enveloppe épuisée" }, fin());
+      const dans30 = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+      const p = await buildProposal("finance_operation", { op: "defer_payment", reference: `${TAG}-OD-9`, date: dans30, reason: "Trésorerie" }, fin());
       expect("error" in p).toBe(false);
-      if (!("error" in p)) expect(JSON.stringify(p.fields)).toContain("Enveloppe épuisée");
+      if (!("error" in p)) {
+        expect(JSON.stringify(p.fields)).toContain("Trésorerie");
+        // L'ordre reste DÛ : reporter ne doit jamais devenir le moyen de faire disparaître un
+        // paiement qu'on ne veut pas régler.
+        expect(p.warnings.join(" ")).toMatch(/reste dû/i);
+        // LA RÈGLE N'EST PAS REJOUÉE ICI, elle est ANNONCÉE : « date à venir » et « motif exigé
+        // sur une échéance fixe » vivent dans `checkDeferral` (testé dans settlement.test.ts) et
+        // sont appliqués par l'action. Deux copies d'une même règle finissent par diverger.
+        expect(p.warnings.join(" ")).toMatch(/à venir/i);
+        expect(p.warnings.join(" ")).toMatch(/non négociable/i);
+      }
+    });
+
+    it("resume_payment : sans report posé, il n'y a rien à lever — et on le DIT", async () => {
+      const p = await buildProposal("finance_operation", { op: "resume_payment", reference: `${TAG}-OD-9` }, fin());
+      expect("error" in p && p.error).toMatch(/n'est pas reporté/i);
     });
 
     it("create_budget_line : domaine FR → enum (marketing → MARKETING)", async () => {

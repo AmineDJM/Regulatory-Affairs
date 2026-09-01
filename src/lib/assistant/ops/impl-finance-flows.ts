@@ -3,10 +3,11 @@ import { toNumber } from "@/lib/utils";
 import {
   allotPettyCash, confirmPettyCashReceipt, closePettyCash, requestPettyCashTopUp, setPettyCashPlan,
 } from "@/lib/actions/petty-cash-actions";
-import { requestInvoice, requestBudgetRevision, resolveBudgetRevision } from "@/lib/actions/expense-actions";
+import { requestInvoice, deferExpenseOrder, resumeExpenseOrder } from "@/lib/actions/expense-actions";
 import {
   createPaymentRequest, submitPaymentRequest, decidePaymentRequest, cancelPaymentRequest,
   addPaymentComment, askPaymentValidation, askPieceValidation, commentPaymentPiece, reviewPaymentPiece,
+  updatePaymentRequestDetails,
 } from "@/lib/actions/payment-request-actions";
 import { updateTransaction, deleteTransaction, deleteTreasuryAccount, createPayroll, payPayroll } from "@/lib/actions/finance-actions";
 import { updateInvoice, deleteInvoice } from "@/lib/actions/invoice-actions";
@@ -98,7 +99,10 @@ async function resolveOrder(raw: string, statuses?: string[]) {
         { beneficiary: { contains: q, mode: "insensitive" } },
       ],
     },
-    select: { id: true, reference: true, label: true, amount: true, beneficiary: true, status: true },
+    select: {
+      id: true, reference: true, label: true, amount: true, beneficiary: true, status: true,
+      deferredUntil: true,
+    },
     orderBy: { createdAt: "desc" },
     take: 6,
   });
@@ -115,7 +119,10 @@ async function resolvePayment(raw: string) {
   if (!q) return { error: "Précisez la référence (PAY-…) ou l'objet de la demande de paiement." } as const;
   const rows = await prisma.paymentRequest.findMany({
     where: { OR: [{ reference: { equals: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }, { payee: { contains: q, mode: "insensitive" } }] },
-    select: { id: true, reference: true, title: true, amount: true, payee: true, status: true },
+    select: {
+      id: true, reference: true, title: true, amount: true, payee: true, status: true,
+      contactName: true, contactPhone: true, contactEmail: true, paymentMethodStated: true,
+    },
     orderBy: { createdAt: "desc" },
     take: 6,
   });
@@ -247,6 +254,26 @@ function urgencyOf(raw: string): { code: string; label: string } {
   if (/mois|month/.test(k)) return { code: "THIS_MONTH", label: "Ce mois-ci" };
   return { code: "WHEN_POSSIBLE", label: "Quand possible" };
 }
+
+/**
+ * CE QUE LA PERSONNE DIT DE SON ÉCHÉANCE, ramené aux trois natures.
+ *
+ * On ne reconnaît QUE ce dont on est sûr, et `deadlineNatureOf` retombe sur « moyenne » pour tout
+ * le reste : deviner « non négociable » derrière une phrase ambiguë ferait passer une demande
+ * devant les autres sur un malentendu.
+ */
+function natureCodeOf(raw: string): string {
+  const k = raw.toLowerCase();
+  if (/fixe|non n[ée]gociable|imp[ée]rative|ferme|FIXED/i.test(k)) return "FIXED";
+  if (/importante|prioritaire|IMPORTANT/i.test(k)) return "IMPORTANT";
+  if (/moyenne|souple|indicative|MODERATE/i.test(k)) return "MODERATE";
+  return raw;
+}
+
+/** Ce qu'on ÉCRIT dans la proposition. Une nature non reconnue n'est simplement pas affichée. */
+const NATURE_FR: Record<string, string> = {
+  FIXED: "Fixe, non négociable", IMPORTANT: "Importante", MODERATE: "Moyenne",
+};
 
 const VERDICT_FR: Record<string, string> = { ACCEPTED: "Acceptée", CHANGES_REQUESTED: "À revoir", REJECTED: "Refusée", PENDING: "Remise en attente" };
 
@@ -446,59 +473,85 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
     execute: (args) => runFd(requestInvoice, args, "La demande de facture a été refusée.", { revalidate: ["/finances/paiements-a-faire"] }),
   },
 
-  request_budget_revision: {
+  /**
+   * REPORTER UN PAIEMENT — le seul geste, avec le règlement, qui reste au décaissement.
+   *
+   * Les deux ops qui vivaient ici (`request_budget_revision`, `resolve_budget_revision`) ont
+   * disparu AVEC leurs actions serveur : l'ordre arrive autorisé par le centre de paiement, et
+   * rouvrir le montant à la caisse revenait à défaire une décision prise ailleurs. Les retirer de
+   * l'écran sans les retirer d'ici aurait laissé à l'assistant une porte que l'écran refuse
+   * (§118-7 : une mission n'est jamais une porte dérobée).
+   */
+  defer_payment: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const order = await resolveOrder(opStr(input, "reference") || opStr(input, "label"), ["PENDING"]);
       if ("error" in order) return order;
-      const reason = opStr(input, "reason");
-      if (!reason) return { error: "Précisez le motif (champ « reason » — ex. manque de budget)." };
-      const proposed = num(input, "amount");
+      // ON VÉRIFIE QU'UN ARGUMENT A ÉTÉ DONNÉ — pas que la règle est satisfaite.
+      //
+      // La règle (« la date doit être à venir », « un motif est exigé sur une échéance fixe »)
+      // vit dans `checkDeferral`, côté Finances, et l'action l'applique. La rejouer ici la
+      // dédoublerait : deux copies d'une même règle finissent par diverger, et c'est la copie
+      // affichée qui ment. Adam propose, l'action tranche — et son refus remonte tel quel.
+      const until = isoDate(opStr(input, "date") || opStr(input, "until"));
+      if (!until) return { error: "Précisez la date à laquelle le paiement est reporté (champ « date »)." };
+      const reason = opStr(input, "reason") || opStr(input, "note");
       return {
-        title: `Demander une révision de budget — ordre ${order.reference}`,
+        title: `Reporter le paiement de l'ordre ${order.reference}`,
         fields: fieldsOf([
           ["Ordre", `${order.reference} — ${order.label} (${dzd(toNumber(order.amount))})`],
-          ["Motif", reason],
-          ["Montant proposé", proposed !== null ? dzd(proposed) : null],
+          ["Reporté au", until],
+          ["Motif", reason || null],
         ]),
-        warnings: ["L'ordre passe « Révision demandée » et remonte à la Direction — il n'est plus réglable en l'état."],
-        args: { id: order.id, reason, proposedAmount: proposed !== null ? String(proposed) : null },
-        successMessage: `Révision de budget demandée pour ${order.reference}.`,
-        revalidate: ["/finances/paiements-a-faire", "/validations"],
+        warnings: [
+          "L'ordre reste dû et reste dans la file : il est daté, pas classé. Il redevient « non payé » tout seul à l'échéance du report, et le demandeur en est averti.",
+          "La date doit être à venir ; si le demandeur a déclaré son échéance FIXE et non négociable, un motif est exigé — sans quoi le report sera refusé.",
+        ],
+        args: { id: order.id, until, reason: reason || null },
+        successMessage: `Paiement de ${order.reference} reporté.`,
+        revalidate: ["/finances/paiements-a-faire", "/finances"],
       };
     },
-    execute: (args) => runFd(requestBudgetRevision, args, "La demande de révision a été refusée.", { revalidate: ["/finances/paiements-a-faire", "/validations"] }),
+    execute: (args) => runFd(deferExpenseOrder, args, "Le report a été refusé.", { revalidate: ["/finances/paiements-a-faire", "/finances"] }),
   },
 
-  resolve_budget_revision: {
+  resume_payment: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const order = await resolveOrder(opStr(input, "reference") || opStr(input, "label"), ["REVISION_REQUESTED"]);
+      const order = await resolveOrder(opStr(input, "reference") || opStr(input, "label"), ["PENDING"]);
       if ("error" in order) return order;
-      const raw = opStr(input, "decision");
-      const adjust = /ajust|accord|nouveau|augmente|modif/i.test(raw) || raw.toUpperCase() === "ADJUST";
-      const reject = /refus|rejet|maintien|maintenir/i.test(raw) || raw.toUpperCase() === "REJECT";
-      if (!adjust && !reject) return { error: "Précisez la décision (champ « decision ») : ajuster le montant, ou refuser (montant maintenu)." };
-      const amount = num(input, "amount");
-      if (adjust && (amount === null || amount <= 0)) return { error: "Pour ajuster, précisez le nouveau montant accordé (champ « amount »)." };
+      if (!order.deferredUntil) return { error: `Le paiement de ${order.reference} n'est pas reporté.` };
       return {
-        title: adjust
-          ? `Ajuster l'ordre ${order.reference} : ${dzd(toNumber(order.amount))} → ${dzd(amount ?? 0)}`
-          : `Refuser la révision — l'ordre ${order.reference} repart tel quel`,
+        title: `Lever le report — ordre ${order.reference}`,
         fields: fieldsOf([
-          ["Ordre", `${order.reference} — ${order.label}`],
-          ["Décision", adjust ? `Montant ajusté à ${dzd(amount ?? 0)}` : `Refusée — montant maintenu (${dzd(toNumber(order.amount))})`],
-          ["Commentaire", opStr(input, "note") || null],
+          ["Ordre", `${order.reference} — ${order.label} (${dzd(toNumber(order.amount))})`],
+          ["Report en cours", order.deferredUntil.toLocaleDateString("fr-FR")],
         ]),
-        warnings: ["L'ordre repart « à régler » chez le comptable dès la décision."],
-        args: { id: order.id, decision: adjust ? "ADJUST" : "REJECT", amount: adjust ? String(amount) : null, comment: opStr(input, "note") || null },
-        successMessage: adjust ? `Ordre ${order.reference} ajusté à ${dzd(amount ?? 0)}.` : `Révision refusée — ${order.reference} maintenu.`,
-        revalidate: ["/finances/paiements-a-faire", "/validations"],
+        warnings: ["L'ordre redevient simplement « non payé » — l'état par défaut."],
+        args: { id: order.id },
+        successMessage: `Report levé sur ${order.reference}.`,
+        revalidate: ["/finances/paiements-a-faire", "/finances"],
       };
     },
-    execute: (args) => runFd(resolveBudgetRevision, args, "La décision de révision a été refusée.", { revalidate: ["/finances/paiements-a-faire", "/validations"] }),
+    execute: (args) => runFd(resumeExpenseOrder, args, "La levée du report a été refusée.", { revalidate: ["/finances/paiements-a-faire", "/finances"] }),
   },
 
   // ─────────────── Demandes de paiement ───────────────
 
+  /**
+   * UNE DEMANDE DE PAIEMENT NE SE TRANSMET PAS DEPUIS LA CONVERSATION.
+   *
+   * Deux raisons, et elles tiennent toutes les deux à la même chose — ce que l'assistant ne peut
+   * pas faire à la place d'une personne (§118-15) :
+   *
+   *   • une demande transmise doit porter un BON DE COMMANDE ou une FACTURE, et l'assistant n'a
+   *     pas de fichier à joindre ; la transmettre échouerait à coup sûr, ou pire, exigerait de
+   *     contourner la règle ;
+   *   • cocher « le moyen de paiement figure sur le document » est une ATTESTATION : elle engage
+   *     celui qui a la pièce sous les yeux. Un modèle ne peut pas attester d'un document qu'il
+   *     n'a pas lu, et l'audit portera pourtant le nom d'une personne.
+   *
+   * L'op ouvre donc un BROUILLON, toujours — la personne y joint sa pièce, coche la case et
+   * transmet depuis l'écran.
+   */
   create_payment_request: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const title = opStr(input, "label") || opStr(input, "title");
@@ -507,35 +560,67 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
       if (!title) return { error: "Précisez l'objet du paiement (champ « label »)." };
       if (!payee) return { error: "Précisez le bénéficiaire — à qui l'argent doit aller (champ « payee »)." };
       if (amount === null || amount <= 0) return { error: "Précisez le montant à payer (champ « amount »)." };
-      let recipientId: string | null = null; let recipientName: string | null = null;
-      const recipientRaw = opStr(input, "recipient");
-      if (recipientRaw) {
-        const recipient = await resolvePerson(recipientRaw);
-        if ("error" in recipient) return recipient;
-        recipientId = recipient.id; recipientName = recipient.name;
-      }
-      const draft = /brouillon|draft|sans (envoyer|transmettre)/i.test(opStr(input, "mode"));
       const urgency = urgencyOf(opStr(input, "urgency"));
       const dueDate = isoDate(opStr(input, "dueDate"));
+      // La chaîne part telle quelle : `deadlineNatureOf`, côté Finances, est seul juge de ce
+      // qu'elle vaut — et retombe sur « moyenne » pour tout ce qu'il ne reconnaît pas.
+      const nature = natureCodeOf(opStr(input, "deadlineNature") || opStr(input, "deadline"));
       return {
-        title: `Demande de paiement — ${payee} · ${dzd(amount)}${draft ? " (brouillon)" : ""}`,
+        title: `Demande de paiement (brouillon) — ${payee} · ${dzd(amount)}`,
         fields: fieldsOf([
           ["Objet", title], ["Bénéficiaire", payee], ["Montant", dzd(amount)],
-          ["Interlocuteur Finances", recipientName], ["Échéance", dueDate],
+          ["Échéance", dueDate], ["Nature de l'échéance", dueDate ? NATURE_FR[nature] ?? null : null],
           ["Urgence", dueDate ? null : urgency.label],
+          ["Contact chez le bénéficiaire", opStr(input, "contactName") || null],
+          ["Téléphone", opStr(input, "contactPhone") || null],
           ["Description", opStr(input, "description") || null],
-          ["Envoi", draft ? "Brouillon — à transmettre ensuite" : "Transmise aux Finances immédiatement"],
         ]),
-        warnings: ["Les pièces justificatives (facture, bon de commande…) se déposent depuis le dossier — le bon à payer les exigera."],
+        warnings: [
+          "BROUILLON : joignez le bon de commande ou la facture depuis le dossier, cochez que le moyen de paiement y figure, puis transmettez. Ces deux gestes engagent celui qui a la pièce sous les yeux — ils ne se délèguent pas.",
+        ],
         args: {
           title, payee, amount: String(amount), description: opStr(input, "description") || null,
-          recipientId, dueDate, urgency: urgency.code, submit: draft ? "0" : null,
+          dueDate, urgency: urgency.code, deadlineNature: nature, submit: "0",
+          contactName: opStr(input, "contactName") || null,
+          contactPhone: opStr(input, "contactPhone") || null,
+          contactEmail: opStr(input, "contactEmail") || null,
         },
-        successMessage: draft ? `Brouillon de demande de paiement créé (${payee}, ${dzd(amount)}).` : `Demande de paiement transmise aux Finances (${payee}, ${dzd(amount)}).`,
+        successMessage: `Brouillon de demande de paiement créé (${payee}, ${dzd(amount)}) — joignez la pièce et transmettez depuis le dossier.`,
         link: "/validations/paiements", revalidate: ["/validations", "/validations/paiements"],
       };
     },
     execute: (args) => runFd2(createPaymentRequest, args, "La demande de paiement a été refusée.", { link: "/validations/paiements", revalidate: ["/validations", "/validations/paiements"] }),
+  },
+
+  /** Le contact du bénéficiaire — le seul champ de la demande qu'un modèle peut remplir seul. */
+  update_payment_contact: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const req = await resolvePayment(opStr(input, "reference") || opStr(input, "label"));
+      if ("error" in req) return req;
+      const name = opStr(input, "contactName") || opStr(input, "contact");
+      const phone = opStr(input, "contactPhone") || opStr(input, "phone");
+      const email = opStr(input, "contactEmail") || opStr(input, "email");
+      if (!name && !phone && !email) return { error: "Donnez au moins un élément de contact : nom, téléphone ou e-mail." };
+      return {
+        title: `Contact du bénéficiaire — ${req.reference}`,
+        fields: fieldsOf([
+          ["Dossier", `${req.reference} — ${req.title} (${req.payee})`],
+          ["Nom", name || null], ["Téléphone", phone || null], ["E-mail", email || null],
+        ]),
+        // L'action REMPLACE les trois champs : on rejoue ceux qu'on ne change pas, sinon donner
+        // un téléphone effacerait le nom déjà saisi.
+        args: {
+          id: req.id,
+          contactName: name || req.contactName || null,
+          contactPhone: phone || req.contactPhone || null,
+          contactEmail: email || req.contactEmail || null,
+          paymentMethodStated: req.paymentMethodStated ? "1" : null,
+        },
+        successMessage: `Contact enregistré sur ${req.reference}.`,
+        link: "/validations/paiements", revalidate: ["/validations", "/validations/paiements"],
+      };
+    },
+    execute: (args) => runFd(updatePaymentRequestDetails, args, "Les précisions ont été refusées.", { revalidate: ["/validations", "/validations/paiements"] }),
   },
 
   submit_payment_request: {

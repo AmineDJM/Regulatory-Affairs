@@ -764,7 +764,7 @@ repartir du menu.
 | Sous-module | Route | Ce qu'on y fait |
 | --- | --- | --- |
 | **Dashboard** | `/finances` | Soldes, ce que le DAF doit encore arbitrer, courbes. Rien qui s'écrive, et **rien qui vive déjà ailleurs** : « à régler » et « recettes attendues » ont été retirés (la file EST « Paiements à faire » — deux listes de la même chose divergent dès qu'on règle depuis l'une), ainsi que les trois cartes par poste, que le résultat mensuel dit mieux. |
-| **Paiements à faire** | `/finances/paiements-a-faire` | La file du décaissement. **Une seule source d'alimentation : le centre de paiement.** Les ordres non autorisés sont écartés en amont — ils n'existent ni en ligne, ni en total, ni en compteur. |
+| **Paiements à faire** | `/finances/paiements-a-faire` | La file du décaissement. **Une seule source d'alimentation : le centre de paiement.** Les ordres non autorisés sont écartés en amont — ils n'existent ni en ligne, ni en total, ni en compteur. **TROIS ÉTATS, et rien d'autre** : *non payé* (défaut) · *paiement reporté à une date* · *payé*. Ni annulation ni révision de budget : l'ordre arrive **autorisé**, et le rouvrir à la caisse défait une décision prise par le centre. Un report est une **date** — il expire seul, et l'ordre reste dans la file. |
 | **Comptabilité** | `/finances/comptabilite` | Le livre : écritures, import de relevés, soldes d'ouverture. |
 
 L'ancienne adresse `/finances/ordres-de-depense` **redirige** — des notifications déjà parties et
@@ -2813,7 +2813,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Explorateur Drive dans un formulaire** | `lib/actions/drive-browse-actions.ts` (`browseDrive`, lecture seule via `getDriveListing`) ; `components/drive/drive-picker.tsx` (`DrivePickerField`) ; type de champ `drivepicker` dans `components/shared/create-record-button.tsx` ; pièces jointes de création via `attachFormFiles` (`lib/documents.ts`). |
 | **Bureautique — papier en-tête** | Modèle `OfficeLetterhead` ; module PUR `lib/office/letterhead.ts` (`canManageLetterheads` — **assistante de direction + Super Admin, et personne d'autre** : la Direction et le DG en ont été retirés, ils signent les courriers, ils ne tiennent pas la papeterie ; CHOISIR un en-tête à la création reste ouvert à tous —, `validateLetterheadFile`, `letterheadsFor`, `documentName`) + `letterhead.test.ts` (15 tests) ; `lib/actions/letterhead-actions.ts` (téléverser / renommer / retirer / supprimer) ; `lib/queries/letterheads.ts` (`letterheadContextFor`) ; `components/office/letterhead-choice.tsx` (Vierge / Avec en-tête) ; `app/(app)/office/letterhead-manager.tsx`. `createOfficeNode` recopie les OCTETS du modèle (voir circuit). |
 | **Tâches demandées (accepter / faire / valider)** | `Task.requestedAt|respondedAt|declineReason|completionNote` + `TaskComment` (le fil) ; module PUR `lib/tasks/request-flow.ts` (**`taskCreationMode`**, **`creationNotices`**, `canRespond`, `canDoWork`, `canSee`, `canAttach`, **`canComment`**, **`taskActions`**, `requestStage`, `declineSummary`) + `request-flow.test.ts` (43 tests) ; **cœur partagé `lib/tasks/create-core.ts`** (`createTaskRecord` : statut/`requestedAt` selon le mode + notifications pop-up/cloche + audit — consommé par l'action écran ET par l'assistant, une seule logique du circuit) ; `lib/actions/task-actions.ts` (`createTask` — porte UNIQUE, `respondTaskRequest`, `submitTaskWork`, `reopenTaskWork`, `addTaskComment`) ; dossier `app/(app)/mon-espace/taches/[id]/` (+ `work-panel.tsx`, `comments.tsx`) ; cas `TASK` dans `lib/entity-access.ts`. |
-| **Demandes de paiement** | Les écrans vivent sous `app/(app)/validations/paiements/` (`page.tsx`, `[id]/page.tsx` + `dossier.tsx`, `new-payment-button.tsx`) ; `app/(app)/finances/paiements/**` sont des **redirections**. Pas de bouton « retour aux Finances » : la page est **ouverte à tout le monde** (n'importe qui peut avoir une facture à faire payer) alors que le module Finances ne l'est pas — le bouton menait donc la plupart des gens vers un refus. Les Finances les voient depuis **leur propre module**. `lib/queries/finance-people.ts` (`financeRecipients`) ; garde **nominative** `PAYMENT_REQUEST` dans `lib/entity-access.ts` (demandeur / destinataire / Finances — elle tranche avant la porte du module, donc elle a survécu aux deux déménagements sans changer) ; règles pures dans `lib/finance/payment-request.ts`. |
+| **Demandes de paiement** | Les écrans vivent sous `app/(app)/validations/paiements/` (`page.tsx`, `[id]/page.tsx` + `dossier.tsx`, `new-payment-button.tsx`) ; `app/(app)/finances/paiements/**` sont des **redirections**. Pas de bouton « retour aux Finances » : la page est **ouverte à tout le monde** (n'importe qui peut avoir une facture à faire payer) alors que le module Finances ne l'est pas — le bouton menait donc la plupart des gens vers un refus. Les Finances les voient depuis **leur propre module**. `lib/queries/finance-people.ts` (`financeRecipients`) ; garde **nominative** `PAYMENT_REQUEST` dans `lib/entity-access.ts` (demandeur / destinataire / Finances — elle tranche avant la porte du module, donc elle a survécu aux deux déménagements sans changer) ; règles pures dans `lib/finance/payment-request.ts`. **CE QU'UNE DEMANDE DOIT PORTER POUR PARTIR** (`lib/finance/payment-dossier.ts`, pur, 15 tests) : un **bon de commande OU une facture** (`JUSTIFYING_KINDS` — le devis et le bon de livraison accompagnent, ils ne justifient pas) **et** la case `paymentMethodStated` (« le moyen de paiement figure dans le document »). Le reste — autres PJ, notes, `contactName|Phone|Email` — reste facultatif. **EXEMPTION** : un **bon de versement** (`entityType = MEDICAL_INFO_DECLARATION`, posé **à la création**) part sans pièce — la quittance n'existe qu'après le versement, et le BV a déjà été validé en amont. La MÊME fonction garde le formulaire (`dossierHint`), l'action (`createPaymentRequest`), le renvoi (`canResubmit`) et le bon à payer (`canApprove`). **NATURE DE L'ÉCHÉANCE** (`lib/finance/deadline-nature.ts`) : `FIXED` / `IMPORTANT` / `MODERATE` — elle classe `sortByPriority`, voyage jusqu'à `ExpenseOrder.deadlineNature`, et exige un motif pour reporter un paiement. |
 | **Moyens généraux — caisse ou hors caisse** | Module PUR `lib/general-means/payment-source.ts` (`sourceOf`, `cashAvailable`, `resolveSource`, `sourceChange`, `defaultSource`) + `payment-source.test.ts` (15 tests) ; `addDepartmentExpense` / `updateDepartmentExpense` acceptent `paymentSource` (`lib/actions/department-budget-actions.ts`) ; `app/(app)/moyens-generaux/{expense-panel,expense-row-actions}.tsx`. Le volet « dépense » de `cash-panel.tsx` a été **retiré** : un seul bouton. |
 | **Moyens généraux — demande d'achat (tous)** | Module PUR `lib/general-means/purchase-request.ts` (`cleanLines`, `estimatedTotal`, `summarize`, `purchaseStage`, `canWithdraw`) + `purchase-request.test.ts` (20 tests) ; `lib/actions/purchase-request-actions.ts` (validateur = **N+1 résolu par `getManagerOfUser`**) ; `app/(app)/moyens-generaux/{purchase-section,purchase-request-form,my-purchase-requests}.tsx`. La demande est une `AdministrativeRequest` de type `PURCHASE`. |
 | **Paie — correction d'une ligne** | Module PUR `lib/hr/payroll-amend.ts` (`validateAmounts` — partagé avec le marquage —, `resolvedGross`, `amendImpact`, `canAmend`) + `payroll-amend.test.ts` (16 tests) ; `updatePayrollEntry` (`lib/actions/payroll-hr-actions.ts`, reprend l'écriture de trésorerie liée) ; `app/(app)/rh/paie/payroll-matrix.tsx`. |
@@ -2826,6 +2826,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Catalogue d'articles — écriture uniforme** | Module PUR `lib/general-means/catalog-normalize.ts` (`normalizeArticleName`, `articleKey`, `normalizeReference`, `normalizeToCode`, `normalizeArticle`, `needsRewrite`, `describeRewrite`, `CATEGORY_ALIASES`, `UNIT_ALIASES`) + `catalog-normalize.test.ts` (23 tests) ; normalisation + **refus du doublon** dans `lib/actions/office-supply-actions.ts` ; `previewCatalogNormalization` / `applyCatalogNormalization` (on montre avant d'appliquer) ; `NormalizePanel` dans `app/(app)/demandes/supplies-manager.tsx`. |
 | **Legal — dossiers de classement** | Modèle `LegalFolder` + `LegalDocument.folderId` (`ON DELETE SET NULL` : on déclasse, on ne détruit pas) ; module PUR `lib/legal/folders.ts` (`buildFolderTree`, `flattenFolders`, `folderPath`, `subtreeIds`, `canReparent`, `deletionSummary`) + `folders.test.ts` (17 tests) ; `lib/actions/legal-folder-actions.ts` ; `app/(app)/legal/folder-bar.tsx` ; champ `folderId` dans `legal-fields.ts`. |
 | **Legal — coordonnées légales & fiscales** | Modèle `CompanyLegalIdentity` + `EntityType.COMPANY` ; module PUR `lib/legal/identity.ts` (`IDENTITY_SECTIONS`, `identityBlock`, `filledCount`) + tests ; `lib/actions/company-identity-actions.ts` ; `app/(app)/legal/identites/`. |
+| **Règlement — trois états** | Module PUR `lib/finance/settlement.ts` (`settlementState` · `checkDeferral` · `deferralNote` · `sortForSettlement`, 22 tests) : **non payé** (défaut) / **reporté à une date** / **payé**. Le report est une **DATE** (`ExpenseOrder.deferredUntil|deferredReason|deferredById|deferredAt`), jamais un statut — il **expire seul**, sans que personne ait à y penser, et l'ordre reste **dans la file**. Actions : `deferExpenseOrder` / `resumeExpenseOrder` (`lib/actions/expense-actions.ts`) ; ops Adam `defer_payment` / `resume_payment`. **SUPPRIMÉS** (écran + action + op) : `cancelExpenseOrder`, `requestBudgetRevision`, `resolveBudgetRevision` — l'ordre arrive autorisé par le centre, le rouvrir à la caisse défait une décision prise ailleurs (§118-7 : pas de porte dérobée). Migration `20261006090000_…` : les ordres `REVISION_REQUESTED` repassent `PENDING`, motif recopié en notes. |
 | **Centre de paiement (guichet unique)** | Module PUR `lib/payments/authorization.ts` (`needsCentralAuthorization` — **toujours vrai**, `initialCentralStatus`, **`canDisburse`** — le verrou réel —, `visibleToFinance`, `isHighValue` + `CENTRAL_AUTH_THRESHOLD_DZD` = 50 000 **en marqueur, plus en filtre**, `sitsOnPaymentCentre` (**`SUPER_ADMIN` ou `DIRECTION`**, pas le DG), `applyDecision`, `applyResubmission`, `blockedReason`) + `authorization.test.ts` (18 tests) ; `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` ; `createExpenseOrder` calcule le statut d'entrée et notifie `DIRECTION` + `SUPER_ADMIN` (`lib/expense-orders.ts`) ; **la demande de paiement crée son ordre à la SOUMISSION** (`lib/actions/payment-request-actions.ts`) ; garde dans `markExpenseOrderPaid` (`lib/actions/expense-actions.ts`) ; `lib/actions/payment-centre-actions.ts` ; `app/(app)/centre-de-paiement/`. Migrations `20260824150000_payment_centre` puis `20261002140000_centre_guichet_unique`. |
 | **Matériel promo — circuit court** | Module PUR `lib/promo-material/circuit.ts` (`PROMO_STEPS` (7), `PROMO_TRACKS` (`PURCHASE_ORDER`/`PAYMENT`/`AD_VISA`), `initialStep` — saute la demande de devis si le devis est déjà là —, `canValidate` (N+1 réel : `Employee.managerId`, à défaut `departmentRef.head`), **`seesFullCircuit`** (Super Admin + PDG **uniquement**), `tracksOpen`, `allTracksDone`, `pendingTracks`, `progress`, `waitingOn`) + `circuit.test.ts` (23 tests) ; `lib/actions/promo-circuit-actions.ts`. |
 | **Rejeu de session (support)** | Module PUR `lib/replay/capture.ts` (`FORBIDDEN_FIELD` — mot de passe / secret / jeton / IBAN / RIB / CVV / carte —, `FORBIDDEN_INPUT_TYPE` — `password`, `hidden` —, `fieldIsRecordable`, `isSensitiveLabel`, `cleanLabel`, `scrubDetail`, **`makeEvent` : la porte d'entrée UNIQUE**, `coalesce`, `describeEvent`, `stamp`, `firstErrorIndex`) + `capture.test.ts` (20 tests) ; modèle `SessionEvent` ; `components/layout/session-recorder.tsx` (monté dans `app/(app)/layout.tsx`, `sendBeacon`, **ne lit jamais `.value`**) ; `app/api/replay/route.ts` (**re-masque côté serveur**, 204 systématique, lot plafonné à 200) ; `app/(app)/admin/replay/{page,replay-viewer}.tsx` (**`SUPER_ADMIN` seul**). |
@@ -3523,6 +3524,89 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Le règlement n'a plus que trois états, et la demande porte sa justification (2026-09)
+
+**Au décaissement, les Finances ne rouvrent plus rien.** Elles disposaient de quatre gestes sur un
+ordre à régler : régler, **annuler**, **demander une révision de budget**, et (côté Direction)
+**trancher** cette révision. Trois d'entre eux défaisaient une décision déjà prise ailleurs :
+l'ordre arrive **autorisé par le centre de paiement**, qui a vu le montant, la file entière et
+l'engagement. Le rouvrir à la caisse, c'est donner le dernier mot à celui qui n'a que la trésorerie
+sous les yeux. Il ne reste donc que la question du décaissement, et elle a **trois réponses** :
+
+| État | Ce que c'est |
+|---|---|
+| **Non payé** | Le défaut. L'argent n'est pas sorti, il doit sortir. |
+| **Paiement reporté au …** | L'argent doit toujours sortir ; on dit **quand**, et pourquoi. |
+| **Payé** | L'écriture de trésorerie existe. |
+
+Les trois actions ont été **supprimées**, pas masquées — écran, action serveur ET op Adam. Un bouton
+retiré laisse une porte ouverte à l'assistant et à l'API, et §118-7 interdit qu'une mission soit une
+porte dérobée vers ce que l'écran refuse. Les ordres restés en « Révision demandée » **repassent à
+régler** par migration, au montant autorisé (une révision non tranchée n'a rien changé), avec le
+motif du comptable recopié dans les notes : sans cela ils auraient attendu indéfiniment une décision
+qu'aucun écran ne sait plus prendre.
+
+**Le report est une DATE, jamais un statut.** Un statut « reporté » obligerait quelqu'un à le
+remettre à « non payé » le jour venu ; ce quelqu'un oublierait — c'est un travail de secrétariat, et
+un travail de secrétariat finit par être oublié. Une date **expire seule** : le 12 au matin, l'ordre
+reporté au 12 est de nouveau simplement dû. Il ne quitte d'ailleurs jamais la file — il est **daté,
+pas classé** — sinon « reporter » deviendrait le moyen commode de faire disparaître ce qu'on ne veut
+pas payer. `lib/finance/settlement.ts`, module pur, 22 tests.
+
+**La demande de paiement porte enfin sa justification.** « Au moins une pièce » était trop faible :
+un bon de livraison, une photo, une capture d'écran satisfaisaient la règle, et le centre autorisait
+une sortie d'argent sans savoir **ni ce qui est dû, ni comment le payer**. Deux exigences, et deux
+seulement, pour transmettre :
+
+1. **un BON DE COMMANDE ou une FACTURE** — les deux seules pièces qui disent ce que la société doit.
+   Le devis dit ce qu'on *pourrait* devoir, le bon de livraison ce qu'on a *reçu* : ils accompagnent,
+   ils ne justifient pas. L'un **ou** l'autre suffit — exiger les deux bloquerait les fournisseurs
+   qui facturent sans bon, et les commandes payées d'avance ;
+2. **la déclaration que le moyen de paiement figure sur le document** (RIB, chèque, espèces). C'est
+   le détail qui coûte le plus cher en bas de chaîne : la facture arrive, elle est conforme, elle est
+   autorisée — et la comptabilité ne sait pas sur quel compte virer. Trois jours d'aller-retour pour
+   un RIB.
+
+Tout le reste — autres pièces, notes, commentaires, **contact chez le bénéficiaire** — reste
+facultatif : rendre obligatoire ce qui n'est pas toujours pertinent apprend à remplir les champs
+pour rien, et c'est ainsi qu'on cesse de lire ceux qui comptent.
+
+**L'exception du bon de versement.** Un BV n'a ni bon ni facture et ne peut pas en avoir : c'est
+l'entreprise qui verse à une autorité sanitaire, et la **quittance n'existe qu'APRÈS le versement** —
+l'exiger avant reviendrait à exiger la preuve d'un paiement pour autoriser ce paiement. Il est donc
+exempté des deux règles et de la pièce jointe. Ce n'est pas un trou : le BV a déjà été validé par le
+N+1, le chef de produit et le centre de validations. L'exemption tient au **rattachement**
+(`entityType = MEDICAL_INFO_DECLARATION`), désormais posé **à la création** et non par une mise à
+jour qui suivait — sinon la quittance serait passée devant une règle qui ne savait pas encore ce
+qu'elle est. Aucune heuristique sur le titre : « bon de versement » écrit dans l'objet d'une demande
+fournisseur n'ouvre rien, sans quoi l'exemption appartiendrait à qui connaît la formule.
+
+**L'échéance se qualifie.** Deux dates identiques ne pèsent pas la même chose : le 15 d'un
+fournisseur mensuel n'est pas le 15 d'une quittance dont le retard coûte une pénalité. Le demandeur
+déclare donc son échéance **fixe non négociable**, **importante** ou **moyenne** (défaut). Une
+qualification qu'on se contenterait d'afficher finit ignorée — elle a donc deux conséquences
+**codées** : elle **classe** la file du centre et des Finances (à date égale, le fixe passe devant,
+jamais devant une échéance plus proche), et elle **ferme le report muet** (reporter une échéance fixe
+exige un motif écrit). Ce n'est pas un veto — les Finances peuvent devoir décaler, et personne ne
+peut le leur interdire depuis un formulaire — c'est la **trace** que le demandeur relira quand il
+devra expliquer le retard à son fournisseur.
+
+**Ce que la règle a exigé ailleurs, et qu'il aurait été facile d'oublier :** le demandeur peut cocher
+l'attestation **après coup** (sinon un brouillon ouvert avant la règle, ou un dossier renvoyé pour
+correction, serait bloqué sans aucun moyen de se débloquer — exactement le cul-de-sac que la règle
+est censée éviter) ; le **bon à payer** applique la même règle que la transmission, `canApprove`
+délégant à `canSubmitDossier` (deux règles séparées auraient divergé, et l'on aurait fini par
+autoriser au bon à payer ce que le dépôt refusait) ; l'op Adam de création n'ouvre plus qu'un
+**brouillon**, parce qu'attester d'un document qu'on n'a pas lu est précisément ce qu'un modèle ne
+doit jamais faire à notre place (§118-15) ; et l'audit plateforme cesse de compter un paiement
+**reporté** parmi les ordres « en souffrance » — la date a été posée exprès, et un audit rempli
+d'alertes qu'on a soi-même créées cesse d'être lu.
+
+Modules purs : `lib/finance/settlement.ts` (22 tests), `lib/finance/deadline-nature.ts` (7),
+`lib/finance/payment-dossier.ts` (15) ; circuit réel : `lib/actions/payment-dossier-flow.test.ts`
+(12 tests sur les vraies actions). Migration
+`20261006090000_reglement_trois_etats_et_piece_justificative`.
 
 ### Le bon de versement se fait en deux temps : accordé, puis payé (2026-08)
 

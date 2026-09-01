@@ -21,6 +21,12 @@ interface CreateExpenseOrderInput {
   requestedById?: string | null;
   notes?: string | null;
   dueDate?: Date | null;
+  /**
+   * CE QUE L'ÉCHÉANCE PÈSE, déclaré par le demandeur — `FIXED`, `IMPORTANT`, `MODERATE`.
+   * Elle voyage avec l'ordre : le centre arbitre et les Finances classent leur file dessus, et
+   * aucun des deux n'a à rouvrir la demande d'origine pour l'apprendre.
+   */
+  deadlineNature?: string | null;
   /** (Sous-)catégorie budgétaire choisie par la Direction — attribution au règlement. */
   budgetCategoryId?: string | null;
 }
@@ -86,6 +92,7 @@ export async function createExpenseOrder(input: CreateExpenseOrderInput) {
       requestedById: input.requestedById ?? null,
       notes: input.notes ?? null,
       dueDate: input.dueDate ?? null,
+      deadlineNature: input.deadlineNature ?? null,
       budgetCategoryId: input.budgetCategoryId ?? null,
       requiresInvoice,
       centralStatus,
