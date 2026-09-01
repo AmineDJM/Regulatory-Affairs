@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Label, Select } from "@/components/ui/input";
 import { formatBytes, formatCurrency, formatMonth } from "@/lib/utils";
+import { DocumentPreview } from "@/components/documents/document-preview";
 
 export interface PayrollCell {
   state: "UNPAID" | "PAID" | "TRANSFERRED";
@@ -121,15 +122,20 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
                             pour le rouvrir. Son absence se voit tout autant — un mois payé sans
                             fiche affiche l'invitation à la déposer. */}
                         {cell.payslip ? (
-                          <a
-                            href={`/api/rh/document/${cell.payslip.id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            title={`Fiche de paie : ${cell.payslip.name}`}
-                            className="mt-0.5 inline-flex max-w-20 items-center gap-0.5 text-[0.625rem] text-muted-foreground hover:text-primary"
-                          >
-                            <Paperclip className="h-3 w-3 shrink-0" /> <span className="truncate">fiche</span>
-                          </a>
+                          // ON REGARDE LA FICHE, ON NE LA TÉLÉCHARGE PAS. Un lien brut envoyait
+                          // le fichier au disque — et un `.docx` cliqué s'ouvrait dans Word,
+                          // hors de l'application, pour une simple vérification. L'aperçu commun
+                          // rend le PDF comme le Word sur place ; le téléchargement reste
+                          // disponible dans sa barre d'outils, pour qui en a vraiment besoin.
+                          <span className="mt-0.5 inline-flex max-w-24 items-center gap-0.5 text-[0.625rem] text-muted-foreground [&_button]:truncate [&_button]:text-[0.625rem]">
+                            <Paperclip className="h-3 w-3 shrink-0" />
+                            <DocumentPreview
+                              id={cell.payslip.id}
+                              name={cell.payslip.name}
+                              hasFile
+                              srcOverride={`/api/rh/document/${cell.payslip.id}`}
+                            />
+                          </span>
                         ) : (
                           cell.entryId && (
                             <button
@@ -282,14 +288,12 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
               {editing.cell.payslip ? (
                 <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs">
                   <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <a
-                    href={`/api/rh/document/${editing.cell.payslip.id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-medium text-primary hover:underline"
-                  >
-                    {editing.cell.payslip.name}
-                  </a>
+                  <DocumentPreview
+                    id={editing.cell.payslip.id}
+                    name={editing.cell.payslip.name}
+                    hasFile
+                    srcOverride={`/api/rh/document/${editing.cell.payslip.id}`}
+                  />
                   <span className="text-muted-foreground">
                     déposée le {new Date(editing.cell.payslip.addedAt).toLocaleDateString("fr-FR")}
                     {editing.cell.payslip.sizeBytes != null ? ` · ${formatBytes(editing.cell.payslip.sizeBytes)}` : ""} · dans le dossier RH du salarié

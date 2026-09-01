@@ -37,7 +37,7 @@ const iconBtn = "rounded-lg p-2 text-muted-foreground transition-colors hover:bg
  * — selon les droits reçus. Plus d'icônes entassées dans la liste : le nom seul suffit à tout ouvrir.
  */
 export function DocumentPreview({
-  id, name, hasFile, canEdit, canDelete, canRename, path,
+  id, name, hasFile, canEdit, canDelete, canRename, path, srcOverride,
 }: {
   id: string;
   name: string;
@@ -46,6 +46,20 @@ export function DocumentPreview({
   canDelete?: boolean;
   canRename?: boolean;
   path?: string;
+  /**
+   * LA ROUTE QUI SERT LES OCTETS, quand ce n'est pas celle des `Document`.
+   *
+   * Toutes les pièces de l'ERP ne vivent pas dans le modèle `Document` : une FICHE DE PAIE est
+   * un `EmployeeDocument`, servi par `/api/rh/document/…` parce qu'elle obéit à une règle
+   * d'accès qui lui est propre (le salarié propriétaire, ou les RH). Faute de pouvoir viser
+   * cette route, l'écran de la Paie se rabattait sur un lien brut — et un `.docx` cliqué se
+   * TÉLÉCHARGEAIT au lieu de s'afficher, alors que cet aperçu sait le rendre depuis toujours.
+   *
+   * Un second composant d'aperçu aurait divergé du premier à la première correction. On lui
+   * apprend donc où chercher les octets ; tout le reste — rendu PDF, Word, Excel, image,
+   * impression, téléchargement — est le MÊME code.
+   */
+  srcOverride?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -55,7 +69,7 @@ export function DocumentPreview({
   const [busy, setBusy] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
 
-  const src = `/api/documents/${id}`;
+  const src = srcOverride ?? `/api/documents/${id}`;
   const kind = kindFromName(name);
   const canPreview = hasFile && ["image", "pdf", "text", "docx", "xlsx", "pptx"].includes(kind);
   const canEditFile = Boolean(canEdit) && hasFile && OFFICE_EDIT.includes(extOf(name));
