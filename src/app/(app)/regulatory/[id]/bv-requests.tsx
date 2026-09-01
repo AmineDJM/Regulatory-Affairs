@@ -101,7 +101,12 @@ export function BvRequestSheet({
             <input
               type="file" multiple className="hidden"
               onChange={(e) => {
-                setFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])]);
+                // Le tableau est matérialisé MAINTENANT : le corps d'un updater React ne
+                // s'exécute que plus tard, et `e.target.value = ""` aura d'ici là VIDÉ la
+                // FileList — on ajouterait alors zéro fichier, par intermittence.
+                const ajoutes = Array.from(e.target.files ?? []);
+                if (ajoutes.length === 0) return;
+                setFiles((prev) => [...prev, ...ajoutes]);
                 e.target.value = "";
               }}
             />

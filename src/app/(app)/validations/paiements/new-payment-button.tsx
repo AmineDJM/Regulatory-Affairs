@@ -36,7 +36,21 @@ export function NewPaymentButton() {
 
   const addFiles = (list: FileList | null) => {
     if (!list) return;
-    setPieces((prev) => [...prev, ...Array.from(list).map((file) => ({ file, kind: "INVOICE", note: "" }))]);
+    // ── LE FICHIER SE LIT AVANT, JAMAIS DANS L'UPDATER ────────────────────────────────────────
+    //
+    // `setPieces((prev) => [...prev, ...Array.from(list)…])` paraît identique et ne l'est pas :
+    // le corps de la fonction n'est exécuté que LORSQUE React traite la mise à jour — c'est-à-dire
+    // APRÈS la ligne suivante, qui remet l'input à vide. Or vider un `<input type="file">` VIDE SA
+    // FileList : `list` est alors une liste vide, et l'on ajoutait zéro pièce.
+    //
+    // D'où le défaut rapporté : on joignait bien une pièce, et l'envoi répondait quand même
+    // « Joignez au moins une pièce ». Le comportement dépendait du moment où React traitait la
+    // mise à jour — donc intermittent, donc incompréhensible.
+    //
+    // On matérialise le tableau MAINTENANT ; l'updater ne fait plus que concaténer.
+    const ajoutees = Array.from(list).map((file) => ({ file, kind: "INVOICE", note: "" }));
+    if (ajoutees.length === 0) return;
+    setPieces((prev) => [...prev, ...ajoutees]);
     if (fileRef.current) fileRef.current.value = "";
   };
 

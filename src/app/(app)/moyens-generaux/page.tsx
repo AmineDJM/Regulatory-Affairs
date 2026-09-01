@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Wallet, ExternalLink, FileText, Download, BookUser } from "lucide-react";
+import { Wallet, ExternalLink, FileText, Download, BookUser, Info } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
 import { getGeneralMeans, resolveGeneralMeansDepartment, LIST_LIMIT } from "@/lib/queries/general-means";
 import { generalMeansBudgetTargets } from "@/lib/general-means/budget-targets";
 import { normalizeYear, DEPT_BUDGET_LABEL, budgetHealth, consumedPercent } from "@/lib/department-budget";
-import { currentPeriod } from "@/lib/petty-cash";
+import { currentPeriod, periodLabel } from "@/lib/petty-cash";
+import { activePeriod, carriedOverMessage } from "@/lib/general-means/active-period";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,7 +52,8 @@ export default async function MoyensGenerauxPage({
   // ne tient pas.
   const user = await requireUser();
   const year = normalizeYear(searchParams.year);
-  const period = searchParams.period ?? currentPeriod();
+  // La PÉRIODE se résout plus bas, une fois le département connu : une caisse d'avance appartient
+  // à un département, et « la dernière caisse ouverte » n'a de sens que dans le sien.
 
   // Le catalogue est proposé à TOUT LE MONDE : c'est lui qui rend la demande possible sans
   // connaître les références internes.
@@ -100,6 +102,23 @@ export default async function MoyensGenerauxPage({
       </div>
     );
   }
+
+  // ── LE MOIS QU'ON OUVRE — plus jamais un mois vide au 1er du mois ────────────────────────
+  //
+  // L'écran ouvrait sur le mois du CALENDRIER. Le 1er à minuit, il basculait donc sur un mois
+  // sans caisse et tout se bloquait : plus de solde, plus de dépense possible, alors que la
+  // caisse du mois précédent était encore ouverte et contenait de l'argent. Elle n'était pas
+  // soldée — elle était devenue invisible, et il fallait deviner `?period=…` pour la retrouver.
+  const moisCourant = currentPeriod();
+  const caisses = await prisma.pettyCashAllotment.findMany({
+    where: { departmentId },
+    select: { period: true, status: true },
+    orderBy: { period: "desc" },
+    take: 24,
+  });
+  const active = activePeriod(searchParams.period, moisCourant, caisses);
+  const period = active.period;
+  const reportMessage = carriedOverMessage(active, periodLabel(moisCourant), periodLabel(period));
 
   const view = await getGeneralMeans(user, departmentId, year, period);
   if (!view) notFound();
@@ -157,6 +176,14 @@ export default async function MoyensGenerauxPage({
           </Link>
         )}
       </PageHeader>
+
+      {/* LE REPORT SE DIT. Sans cette phrase, on lit un solde en croyant qu'il est celui du mois
+          en cours, et l'on impute une dépense de septembre à la caisse d'août sans le savoir. */}
+      {reportMessage && (
+        <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-sm text-foreground">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden /> {reportMessage}
+        </p>
+      )}
 
       {/* TROIS INDICATEURS, PAS QUATRE. « Restant sur l'année » affichait allocation − consommé :
           sans caisse annuelle réglée, cela donnait un « restant » NÉGATIF du montant déjà dépensé
