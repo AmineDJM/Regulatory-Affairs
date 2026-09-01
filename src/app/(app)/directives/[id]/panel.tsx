@@ -9,19 +9,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import type { ActionResult } from "@/lib/actions/types";
+import { useAction } from "@/components/shared/use-action";
 
-function useAction() {
-  const router = useRouter();
-  const [saving, setSaving] = React.useState(false);
-  const [err, setErr] = React.useState<string | null>(null);
-  const run = async (fn: () => Promise<ActionResult>, onOk?: () => void) => {
-    setSaving(true); setErr(null);
-    const r = await fn();
-    setSaving(false);
-    if (r.ok) { onOk?.(); router.refresh(); } else setErr(r.error ?? "Action impossible.");
-  };
-  return { saving, err, run };
-}
 
 const set = (id: string, status: string) => { const fd = new FormData(); fd.set("id", id); fd.set("status", status); return updateDirectiveStatus(fd); };
 

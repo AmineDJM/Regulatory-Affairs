@@ -19,6 +19,7 @@ import {
   addDossierStep, updateDossierStep, deleteDossierStep, startDossierTimeline,
 } from "@/lib/actions/regulatory-timeline-actions";
 import type { ActionResult } from "@/lib/actions/types";
+import { useAction } from "@/components/shared/use-action";
 
 export interface TimelineStepView {
   id: string;
@@ -36,19 +37,6 @@ export interface TimelineStepView {
 /** Les catégories proposées pour une pièce de frise : ce qu'on y dépose réellement. */
 const STEP_DOC_CATEGORIES = ["CTD_FULL", "MODULE_1", "MODULE_2", "MODULE_3", "MODULE_4", "MODULE_5", "QUERY_RECEIVED", "QUERY_RESPONSE", "SUPPORTING_DOC", "OTHER"];
 
-function useAction() {
-  const router = useRouter();
-  const [busy, setBusy] = React.useState(false);
-  const [err, setErr] = React.useState<string | null>(null);
-  const run = async (fn: () => Promise<ActionResult>, onOk?: () => void) => {
-    setBusy(true); setErr(null);
-    const r = await fn();
-    setBusy(false);
-    if (r.ok) { onOk?.(); router.refresh(); } else setErr(r.error ?? "Action impossible.");
-    return r.ok;
-  };
-  return { busy, err, setErr, run };
-}
 
 /**
  * LA FRISE DU DOSSIER — l'histoire du CTD, de haut en bas.

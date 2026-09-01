@@ -8,6 +8,8 @@ import { KpiCard } from "@/components/shared/kpi-card";
 import {
   sitsOnPaymentCentre, awaitsCentre, CENTRAL_AUTH_THRESHOLD_DZD, type CentralStatus,
 } from "@/lib/payments/authorization";
+import { entityHref } from "@/lib/entity-href";
+import { ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { CentreBoard, type CentreOrder } from "./centre-board";
 
 export const dynamic = "force-dynamic";
@@ -71,9 +73,16 @@ export default async function CentreDePaiementPage() {
     decidedBy: o.centralDecidedById ? deciderName.get(o.centralDecidedById) ?? null : null,
     decidedAt: o.centralDecidedAt?.toISOString() ?? null,
     dueDate: o.dueDate?.toISOString() ?? null,
-    // Le dossier n'existe que pour les ordres nés d'une DEMANDE DE PAIEMENT — les autres viennent
-    // d'un circuit qui porte ses pièces ailleurs, et un lien mort vaut moins qu'aucun lien.
-    dossierHref: o.sourceType === "PAYMENT_REQUEST" && o.sourceId ? `/validations/paiements/${o.sourceId}` : null,
+    // CHAQUE ORIGINE S'OUVRE, PAS SEULEMENT LA DEMANDE DE PAIEMENT.
+    //
+    // Tant que le centre ne voyait que des demandes de paiement, ne relier que celles-là se
+    // défendait. Depuis qu'il est le GUICHET UNIQUE — avance sur salaire, demande
+    // administrative, matériel promotionnel, dossier réglementaire, information médicale… —
+    // la même règle rendait la plupart des lignes impossibles à ouvrir : on autorisait des
+    // sorties d'argent sans pouvoir lire ce qui les justifie. `entityHref` porte la table des
+    // routes, et ce qu'elle ne sait pas ouvrir est DIT (voir `sourceLabel`).
+    dossierHref: entityHref(o.sourceType, o.sourceId),
+    sourceLabel: o.sourceType ? ENTITY_TYPE_LABELS[o.sourceType] ?? o.sourceType : null,
     isMine: o.requestedById === user.id,
     messages: o.centralMessages.map((m) => ({
       id: m.id, decision: m.decision, body: m.body,

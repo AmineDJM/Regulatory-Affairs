@@ -4,6 +4,7 @@ import { toNumber } from "@/lib/utils";
 import { hasGlobalView, hasRole, userCan, type SessionUser } from "@/lib/rbac";
 import type { DocItem } from "@/components/documents/document-list";
 import { sortByUrgency, type SupervisedRow } from "@/lib/validation-supervision";
+import { entityHref } from "@/lib/entity-href";
 
 export interface PendingValidationItem {
   stepId: string;
@@ -126,7 +127,11 @@ export async function getPendingValidations(userId: string): Promise<PendingVali
         priority: s.request.priority,
         requester: s.request.requester?.name ?? "",
         deadline: s.request.deadline?.toISOString() ?? null,
-        link: s.request.link ?? "",
+        // LE LIEN VERS L'OBJET, AVEC UN REPLI. `request.link` est un texte libre posé par qui a
+        // créé la demande ; les validations nées d'une RÈGLE d'un autre module ne le renseignent
+        // pas, et le validateur se retrouvait alors devant un titre sans rien à ouvrir. Quand
+        // l'objet est identifié (`entityType` / `entityId`), la table des routes le retrouve.
+        link: s.request.link || entityHref(s.request.entityType, s.request.entityId) || "",
         createdAt: s.request.createdAt.toISOString(),
         documents: [...own, ...linked],
         actionable: isActionable(s),
@@ -388,7 +393,7 @@ export async function getSupervisedValidations(user: SessionUser): Promise<Super
       blockingValidator: blocking?.validator?.name ?? null,
       blockingStepId: blocking?.id ?? null,
       blockingOrder: blocking?.order ?? null,
-      link: r.link ?? "",
+      link: r.link || entityHref(r.entityType, r.entityId) || "",
       documents: [...own, ...linked],
       steps: r.steps.map((s) => ({ order: s.order, validator: s.validator?.name ?? "", status: s.status, reason: s.reason ?? "" })),
     };

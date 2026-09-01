@@ -47,6 +47,8 @@ export interface CentreOrder {
    * autoriser une ligne de tableau.
    */
   dossierHref: string | null;
+  /** L'origine de la dépense en clair (« Demande administrative », « Avance sur salaire »…). */
+  sourceLabel: string | null;
   messages: CentreMessage[];
   /** L'utilisateur courant est-il le demandeur ? Il peut alors répondre et resoumettre. */
   isMine: boolean;
@@ -153,16 +155,28 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
                         </button>
                       )}
 
+                      {/* OUVRIR EST UNE LECTURE, PAS UN POUVOIR DE DÉCISION.
+                          Ce lien vivait à l'intérieur du bloc « je peux encore décider » : une
+                          fois le paiement autorisé ou refusé, plus personne ne pouvait rouvrir ce
+                          qui l'avait justifié — et le DEMANDEUR, lui, n'y avait jamais eu droit,
+                          alors que c'est son propre dossier. On lit ce qu'on voit, à tout état. */}
+                      {o.dossierHref ? (
+                        <Link
+                          href={o.dossierHref}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary"
+                        >
+                          <Paperclip className="h-4 w-4" /> Ouvrir le dossier &amp; ses pièces
+                        </Link>
+                      ) : (
+                        // Le silence laisse croire à une panne : on clique, rien ne se passe, on
+                        // recommence. On nomme donc l'origine et l'on dit qu'elle n'a pas de fiche.
+                        <span className="text-xs text-muted-foreground">
+                          {o.sourceLabel ? `${o.sourceLabel} — pas de fiche à ouvrir` : "Pas de fiche à ouvrir"}
+                        </span>
+                      )}
+
                       {canDecide && awaitsCentre(o.centralStatus) && (
                         <>
-                          {o.dossierHref && (
-                            <Link
-                              href={o.dossierHref}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary"
-                            >
-                              <Paperclip className="h-4 w-4" /> Ouvrir le dossier &amp; ses pièces
-                            </Link>
-                          )}
                           {/* RÉCLAMER CE QUI MANQUE plutôt que refuser faute de pièce : la
                               demande atterrit dans « Pièces demandées » de la personne, avec son
                               fil — elle dépose sans qu'on lui ouvre le module. */}

@@ -16,6 +16,7 @@ import {
   moveRecruitmentCandidate, onboardRecruitment,
 } from "@/lib/actions/recruitment-actions";
 import type { ActionResult } from "@/lib/actions/types";
+import { useKeyedAction as useAction } from "@/components/shared/use-action";
 
 /**
  * LES GESTES DU CIRCUIT DE RECRUTEMENT.
@@ -26,22 +27,6 @@ import type { ActionResult } from "@/lib/actions/types";
  */
 
 /** Enveloppe commune : l'attente, l'erreur, et le rafraîchissement après succès. */
-function useAction() {
-  const router = useRouter();
-  const [busy, setBusy] = React.useState<string | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-
-  const run = React.useCallback(async (key: string, fn: () => Promise<ActionResult>) => {
-    setBusy(key); setError(null);
-    const r = await fn();
-    setBusy(null);
-    if (!r.ok) { setError(r.error ?? "Action impossible."); return false; }
-    router.refresh();
-    return true;
-  }, [router]);
-
-  return { busy, error, run, setError };
-}
 
 function ErrorLine({ error }: { error: string | null }) {
   if (!error) return null;

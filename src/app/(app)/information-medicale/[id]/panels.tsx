@@ -12,24 +12,13 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { ROLE_LABELS } from "@/lib/labels";
 import type { ActionResult } from "@/lib/actions/types";
+import { useAction } from "@/components/shared/use-action";
 
 interface UserOpt { id: string; name: string; role: string }
 
 const Err = ({ msg }: { msg: string | null }) =>
   msg ? <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4 shrink-0" /> {msg}</div> : null;
 
-function useAction() {
-  const router = useRouter();
-  const [saving, setSaving] = React.useState(false);
-  const [err, setErr] = React.useState<string | null>(null);
-  const run = async (fn: () => Promise<ActionResult>, onOk?: () => void) => {
-    setSaving(true); setErr(null);
-    const r = await fn();
-    setSaving(false);
-    if (r.ok) { onOk?.(); router.refresh(); } else setErr(r.error ?? "Action impossible.");
-  };
-  return { saving, err, run };
-}
 
 // ───────────── Pharmacien : demander une pièce ─────────────
 

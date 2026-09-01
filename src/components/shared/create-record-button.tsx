@@ -135,10 +135,47 @@ export function RecordForm({
   const done = React.useRef(onDone);
   done.current = onDone;
   const [submitting, setSubmitting] = React.useState(false);
-  const [state, formAction] = useFormState<ActionResult | undefined, FormData>(action, undefined);
   // Verrou SYNCHRONE anti double-création : un double-clic (ou double Entrée) déclenche un 2ᵉ
   // envoi AVANT que `submitting` n'ait désactivé le bouton — le verrou bloque ce 2ᵉ envoi.
   const lock = React.useRef(false);
+
+  /**
+   * LE BOUTON NE PEUT PLUS TOURNER INDÉFINIMENT.
+   *
+   * ── LE DÉFAUT QU'ON CORRIGE ───────────────────────────────────────────────────────────────
+   *
+   * `useFormState` ne met l'état à jour QUE si l'action RETOURNE. Si elle LÈVE — erreur Prisma,
+   * stockage injoignable, déploiement en cours, connexion coupée — aucun état n'arrive : l'effet
+   * de succès comme celui d'erreur restent muets, `submitting` reste vrai, et le bouton tourne
+   * pour toujours SANS AUCUN MESSAGE. C'est exactement le symptôme rapporté (« ça tourne tourne
+   * tourne »), et la raison pour laquelle on croyait que rien ne s'enregistrait.
+   *
+   * Le piège est plus vicieux qu'un simple bouton bloqué : plusieurs de ces actions
+   * ENREGISTRENT D'ABORD puis font le lent (pièces jointes, journal, notifications). Le courrier
+   * était donc souvent bien créé — mais l'écran ne le disait jamais, la personne recommençait, et
+   * l'on obtenait des doublons. D'où l'interdiction, dans le message, de « réessayer » à
+   * l'aveugle : on demande de VÉRIFIER LA LISTE d'abord.
+   *
+   * Deux garde-fous, et le second est indispensable : attraper la levée ne suffit pas si le
+   * serveur ne répond JAMAIS (requête suspendue). Le chronomètre tranche ce cas-là.
+   */
+  const actionRef = React.useRef(action);
+  actionRef.current = action;
+  const guarded = React.useCallback(
+    async (prev: ActionResult | undefined, fd: FormData): Promise<ActionResult> => {
+      try {
+        return await actionRef.current(prev, fd);
+      } catch (err) {
+        console.error("[form] l'action serveur a levé", err);
+        return {
+          ok: false,
+          error: "L'enregistrement n'a pas abouti (connexion ou serveur). VÉRIFIEZ D'ABORD LA LISTE : l'enregistrement a pu se faire malgré tout — recommencer à l'aveugle créerait un doublon.",
+        };
+      }
+    },
+    [],
+  );
+  const [state, formAction] = useFormState<ActionResult | undefined, FormData>(guarded, undefined);
 
   // Pré-remplissage IA : valeurs extraites + compteur pour re-monter (reset) les champs.
   const [prefill, setPrefill] = React.useState<Record<string, string>>({});
@@ -168,7 +205,27 @@ export function RecordForm({
     return "defaultValue" in field ? field.defaultValue : undefined;
   };
 
+  /**
+   * LE CHRONOMÈTRE — pour la requête qui ne revient jamais.
+   *
+   * Une action qui LÈVE est attrapée juste au-dessus. Une action qui SE SUSPEND (stockage
+   * injoignable, conteneur redémarré au milieu) ne lève ni ne retourne : rien ne la réveillera.
+   * Au bout de 45 secondes on rend la main à la personne, en lui disant quoi faire — et
+   * SURTOUT ce qu'il ne faut pas faire, c'est-à-dire recommencer sans regarder.
+   */
+  const [timedOut, setTimedOut] = React.useState(false);
   React.useEffect(() => {
+    if (!submitting) return;
+    const t = setTimeout(() => {
+      setSubmitting(false);
+      lock.current = false;
+      setTimedOut(true);
+    }, 45_000);
+    return () => clearTimeout(t);
+  }, [submitting]);
+
+  React.useEffect(() => {
+    if (state?.ok || state?.error) setTimedOut(false);
     if (state?.ok) {
       setSubmitting(false);
       done.current();
@@ -206,6 +263,7 @@ export function RecordForm({
         action={(fd) => {
           if (lock.current) return;
           lock.current = true;
+          setTimedOut(false);
           setSubmitting(true);
           formAction(fd);
         }}
@@ -295,6 +353,17 @@ export function RecordForm({
           <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
             <AlertCircle className="h-4 w-4" />
             {state.error}
+          </div>
+        )}
+
+        {timedOut && !state?.error && (
+          <div className="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-sm text-foreground">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <span>
+              Le serveur n&apos;a pas répondu. <strong>Fermez et regardez la liste avant de
+              recommencer</strong> : l&apos;enregistrement a pu aboutir, et un second envoi
+              créerait un doublon.
+            </span>
           </div>
         )}
 
