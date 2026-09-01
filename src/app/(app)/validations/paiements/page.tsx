@@ -11,7 +11,6 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PAYMENT_REQUEST_STATUS, PAYMENT_URGENCY } from "@/lib/labels";
 import { sortByPriority, isOverdue, deadlineLabel, isWithFinance } from "@/lib/finance/payment-request";
-import { financeRecipients } from "@/lib/queries/finance-people";
 import { NewPaymentButton } from "./new-payment-button";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +39,7 @@ export default async function PaymentRequestsPage() {
   const finance = userCan(user, "FINANCES", "VALIDATE") || userCan(user, "FINANCES", "UPDATE")
     || user.role === "FINANCE_BUDGET_MANAGER" || hasGlobalView(user.role);
 
-  const [mine, queue, financePeople] = await Promise.all([
+  const [mine, queue] = await Promise.all([
     prisma.paymentRequest.findMany({ where: { requesterId: user.id }, orderBy: { createdAt: "desc" }, take: 200 }),
     finance
       ? prisma.paymentRequest.findMany({
@@ -48,7 +47,6 @@ export default async function PaymentRequestsPage() {
           orderBy: { createdAt: "desc" }, take: 200,
         })
       : Promise.resolve([] as never[]),
-    financeRecipients(),
   ]);
 
   const names = new Map(
@@ -109,7 +107,7 @@ export default async function PaymentRequestsPage() {
         title="Demandes de paiement"
         description="Le dossier qui arrive aux Finances : montant, bénéficiaire, échéance, et les pièces qui le justifient. La discussion se tient pièce par pièce."
       >
-        <NewPaymentButton people={financePeople} />
+        <NewPaymentButton />
       </PageHeader>
 
       {finance && (

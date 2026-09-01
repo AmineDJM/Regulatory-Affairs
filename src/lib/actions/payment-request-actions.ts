@@ -84,13 +84,21 @@ const kindOf = (raw: string | null): PaymentPieceKind => {
   return allowed.includes(raw as PaymentPieceKind) ? (raw as PaymentPieceKind) : "OTHER";
 };
 
-/** Prévient les Finances : l'interlocuteur désigné, ou tout le pôle à défaut. */
+/**
+ * PRÉVENIR QUI DOIT AGIR — le CENTRE, puis les Finances seulement une fois autorisé.
+ *
+ * Une demande transmise n'attend pas les Finances : elle attend le centre de paiement, qui
+ * autorise avant qu'elles ne voient quoi que ce soit. Les prévenir à ce moment-là leur annonçait
+ * un travail qu'elles ne pouvaient pas commencer — et noyait la vraie alerte, celle du centre.
+ *
+ * Le destinataire nommé n'existe plus à la création ; il survit sur les demandes anciennes, et on
+ * continue de le prévenir quand il y en a un : sa demande est la sienne, il doit la suivre.
+ */
 async function alertFinance(req: { id: string; reference: string; title: string; recipientId: string | null }, title: string) {
   const body = `${req.reference} — ${req.title}`;
   const link = `${PATH}/${req.id}`;
   if (req.recipientId) await notifyUser({ userId: req.recipientId, type: "VALIDATION_REQUIRED", title, body, link });
-  // Une demande adressée à une personne absente ne doit pas dormir jusqu'à son retour.
-  else await notifyRoles(["FINANCE_BUDGET_MANAGER", "DIRECTION", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title, body, link });
+  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title, body, link });
 }
 
 /** Recalcule l'état d'après les verdicts, et le trace s'il change. */
@@ -145,7 +153,12 @@ export async function createPaymentRequest(_prev: ActionResult | undefined, form
           description: fdStr(formData, "description"),
           amount,
           payee,
-          recipientId: fdStr(formData, "recipientId"),
+          // PLUS DE DESTINATAIRE À LA CRÉATION. Depuis que le centre de paiement est le guichet
+          // unique, les Finances ne voient rien avant l'autorisation : désigner l'une d'elles
+          // nommait quelqu'un qui ne pouvait pas encore agir, et faisait dormir la demande
+          // jusqu'au retour de l'intéressé s'il était absent. Le champ SURVIT sur les demandes
+          // anciennes — il porte leur historique, et la garde d'accès du dossier s'en sert.
+          recipientId: null,
           companyId: companyId || null,
           dueDate: dateOf(fdStr(formData, "dueDate")),
           urgency: urgencyOf(fdStr(formData, "urgency")),
@@ -662,11 +675,3 @@ export async function askPieceValidation(formData: FormData): Promise<ActionResu
   }
 }
 
-/** Les personnes à qui l'on peut adresser une demande ou une validation. */
-export async function paymentPeople(): Promise<{ id: string; name: string }[]> {
-  const user = await requireUser();
-  return prisma.user.findMany({
-    where: { isActive: true, id: { not: user.id } },
-    select: { id: true, name: true }, orderBy: { name: "asc" },
-  });
-}

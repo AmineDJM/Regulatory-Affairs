@@ -21,7 +21,6 @@ import { ItemReview } from "./validation-item-review";
 import { ValidationAttachments } from "./validation-attachments";
 import { SupervisionBoard } from "./supervision-board";
 import { supervisionCounters } from "@/lib/validation-supervision";
-import { financeRecipients } from "@/lib/queries/finance-people";
 import { NewPaymentButton } from "./paiements/new-payment-button";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { DocumentList } from "@/components/documents/document-list";
@@ -37,11 +36,7 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
    */
   const focusStep = searchParams.focus ?? null;
   const user = await requireModule("VALIDATIONS");
-  const [{ toValidate, myRequests, supervised }, financePeople] = await Promise.all([
-    getMyValidations(user),
-    // Les destinataires possibles d'une demande de paiement : les personnes du module Finances.
-    financeRecipients(),
-  ]);
+  const { toValidate, myRequests, supervised } = await getMyValidations(user);
   // À traiter maintenant (mon tour) vs assignées mais en attente du validateur précédent.
   const focusFirst = <T extends { stepId: string }>(list: T[]): T[] =>
     focusStep ? [...list].sort((a, b) => Number(b.stepId === focusStep) - Number(a.stepId === focusStep)) : list;
@@ -104,7 +99,7 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
         {/* LA DEMANDE DE PAIEMENT SE FAIT D'ICI — c'est sa seule porte d'entrée, le module à
             part a disparu. Une fois le bon à payer donné, le dossier passe OBLIGATOIREMENT par
             le centre de paiement (dès 50 000 DZD), puis atterrit dans les Règlements à effectuer. */}
-        <NewPaymentButton people={financePeople} />
+        <NewPaymentButton />
       </PageHeader>
 
       {/* LE RACCOURCI « Suivi des demandes de paiement » A ÉTÉ RETIRÉ (2026-08). Une bannière

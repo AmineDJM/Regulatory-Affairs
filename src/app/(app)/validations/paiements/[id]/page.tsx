@@ -112,7 +112,10 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
           <Info label="Bénéficiaire" value={req.payee} />
           <Info label="Échéance" value={deadlineLabel(req, PAYMENT_URGENCY)} />
           <Info label="Demandeur" value={names.get(req.requesterId) ?? "—"} />
-          <Info label="Destinataire (Finances)" value={req.recipientId ? names.get(req.recipientId) : "Tout le pôle"} />
+          {/* Le destinataire n'existe plus à la création — la demande va au CENTRE. La ligne
+              survit pour les demandes anciennes, qui en portent un : la masquer effacerait leur
+              historique. `Info` ne rend rien quand la valeur est absente. */}
+          <Info label="Destinataire (Finances)" value={req.recipientId ? names.get(req.recipientId) : null} />
           <Info label="Entité" value={req.company?.name} />
           <Info label="Décidé par" value={req.decidedById ? names.get(req.decidedById) : null} />
           <Info label="Décidé le" value={req.decidedAt ? formatDate(req.decidedAt.toISOString()) : null} />

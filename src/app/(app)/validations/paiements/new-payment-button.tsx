@@ -23,7 +23,7 @@ interface PieceDraft { file: File; kind: string; note: string }
  * sinon **l'urgence**. Une demande sans date n'est pas une demande sans priorité — sans ce
  * second champ, elle finit systématiquement au bas de la pile parce que la colonne est vide.
  */
-export function NewPaymentButton({ people }: { people: { id: string; name: string }[] }) {
+export function NewPaymentButton() {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -71,7 +71,7 @@ export function NewPaymentButton({ people }: { people: { id: string; name: strin
         open={open}
         onClose={() => !busy && setOpen(false)}
         title="Demander un paiement"
-        description="Le dossier part au CENTRE DE PAIEMENT, qui autorise avant que les Finances ne voient quoi que ce soit : montant, bénéficiaire, échéance demandée, et les pièces qui le justifient."
+        description="Le dossier part au CENTRE DE PAIEMENT — il n'y a pas de destinataire à choisir : c'est le centre qui autorise, avant que les Finances ne voient quoi que ce soit. Montant, bénéficiaire, échéance demandée, et les pièces qui le justifient."
         width="lg"
       >
         <form ref={formRef} className="space-y-4" onSubmit={(e) => e.preventDefault()}>
@@ -88,15 +88,11 @@ export function NewPaymentButton({ people }: { people: { id: string; name: strin
               <Label htmlFor="pay-amount">Montant (DZD) <span className="text-destructive">*</span></Label>
               <Input id="pay-amount" name="amount" type="number" step="any" required />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pay-recipient">Destinataire aux Finances</Label>
-              <Select id="pay-recipient" name="recipientId">
-                <option value="">— Tout le pôle Finances —</option>
-                {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </Select>
-              {/* Une demande adressée à une personne absente ne doit pas dormir jusqu'à son retour. */}
-              <p className="text-xs text-muted-foreground">Sans destinataire, tout le pôle est prévenu.</p>
-            </div>
+            {/* PLUS DE DESTINATAIRE — la demande va AU CENTRE DE PAIEMENT.
+                Choisir une personne aux Finances n'avait plus de sens depuis que le centre est le
+                guichet unique : les Finances ne voient rien avant l'autorisation, si bien que le
+                champ désignait quelqu'un qui ne pouvait pas encore agir. Et une demande adressée
+                à un absent dormait jusqu'à son retour. */}
             <div className="space-y-1.5">
               <Label htmlFor="pay-due">Échéance demandée</Label>
               <Input id="pay-due" name="dueDate" type="date" />
@@ -135,8 +131,14 @@ export function NewPaymentButton({ people }: { people: { id: string; name: strin
             </p>
 
             {pieces.length === 0 ? (
-              <p className="rounded-lg bg-muted/40 px-3 py-4 text-center text-xs text-muted-foreground">
-                Aucune pièce pour l&apos;instant. Un paiement sans justificatif ne s&apos;autorise pas.
+              // LA RÈGLE SE DIT AVANT, PAS APRÈS. Le bouton « Envoyer » partait, l'action
+              // refusait, et l'on découvrait l'exigence dans un message d'erreur rouge après
+              // avoir tout saisi. Une contrainte qu'on n'apprend qu'en la heurtant se vit comme
+              // une panne.
+              <p className="rounded-lg border border-dashed border-warning/50 bg-warning/5 px-3 py-4 text-center text-xs text-muted-foreground">
+                Aucune pièce pour l&apos;instant. <strong className="text-foreground">Une pièce au moins est
+                nécessaire pour envoyer</strong> — c&apos;est ce que le centre de paiement doit pouvoir lire
+                avant d&apos;autoriser. Vous pouvez enregistrer un brouillon sans pièce et la joindre ensuite.
               </p>
             ) : (
               <ul className="space-y-2">
@@ -176,8 +178,13 @@ export function NewPaymentButton({ people }: { people: { id: string; name: strin
             <Button type="button" variant="outline" disabled={busy} onClick={() => void submit(true)}>
               Enregistrer en brouillon
             </Button>
-            <Button type="button" disabled={busy} onClick={() => void submit(false)}>
-              {busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer aux Finances
+            <Button
+              type="button"
+              disabled={busy || pieces.length === 0}
+              title={pieces.length === 0 ? "Joignez au moins une pièce — le centre de paiement doit pouvoir la lire avant d'autoriser." : undefined}
+              onClick={() => void submit(false)}
+            >
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer au centre de paiement
             </Button>
           </div>
         </form>

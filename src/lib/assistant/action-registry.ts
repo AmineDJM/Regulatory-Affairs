@@ -1089,9 +1089,9 @@ X("outillage de TEST interne de la plateforme (centre de tests), pas une action 
   "test-center-actions:runTestCenter", "test-center-actions:resumeTestCleanup",
 ]);
 X("helpers de LECTURE et tâches PLANIFIÉES internes (pas des gestes métier qu'on demande)", [
-  // paymentPeople = liste de choix d'un formulaire ; les rappels de rechargement tournent
-  // seuls au planificateur ; nextRechargeFor = affichage d'une échéance calculée.
-  "payment-request-actions:paymentPeople",
+  // Les rappels de rechargement tournent seuls au planificateur ; nextRechargeFor = affichage
+  // d'une échéance calculée. (`paymentPeople` a été SUPPRIMÉ : une demande de paiement ne
+  // choisit plus de destinataire, elle va au centre — la liste n'avait plus d'appelant.)
   "petty-cash-actions:runPettyCashRechargeReminders", "petty-cash-actions:nextRechargeFor",
 ]);
 X("analyse IA de PRÉ-REMPLISSAGE (extrait les champs d'un contrat scanné, ne persiste RIEN — les RH relisent et enregistrent eux-mêmes)", [

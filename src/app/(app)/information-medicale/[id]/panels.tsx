@@ -211,7 +211,10 @@ export function BvCard({
           </div>
           <div className="space-y-1">
             <Label htmlFor="q-files">Pièces jointes</Label>
-            <Input id="q-files" name="files" type="file" multiple className="text-sm" />
+            {/* `required` : la contrainte se heurte AVANT l'envoi, dans le navigateur, au lieu de
+                revenir en message d'erreur rouge après avoir tout saisi. `createPaymentRequest`
+                la revérifie côté serveur — c'est elle qui fait foi. */}
+            <Input id="q-files" name="files" type="file" multiple required className="text-sm" />
             <p className="text-xs text-muted-foreground">Au moins une pièce est exigée pour transmettre — c&apos;est ce que le centre doit pouvoir lire.</p>
           </div>
           <Err msg={err} />
