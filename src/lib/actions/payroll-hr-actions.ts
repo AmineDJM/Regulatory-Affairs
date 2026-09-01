@@ -13,6 +13,8 @@ import { formatMonth } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { entryCost } from "@/lib/hr/payroll-cost";
 import { validateAmounts, resolvedGross, amendImpact, canAmend } from "@/lib/hr/payroll-amend";
+import { docxToPdf, isConvertibleWord, pdfFileName } from "@/lib/payslip/to-pdf";
+import { MIME_DOCX } from "@/lib/artifact/adapters/docx/adapter";
 
 const PATH = "/rh/paie";
 /** Marge avant de notifier l'employé (en cas d'erreur de saisie, les RH peuvent annuler). */
@@ -22,6 +24,67 @@ const ym = (year: number, month: number) => `${year}-${String(month).padStart(2,
 
 function canRunPayroll(user: Parameters<typeof userCan>[0]): boolean {
   return userCan(user, "RH", "UPDATE");
+}
+
+/**
+ * DÉPOSER UNE FICHE DE PAIE — en PDF, quel que soit le format d'origine.
+ *
+ * ── CE QUI SE PASSE ─────────────────────────────────────────────────────────────────────────
+ *
+ * Un `.docx` est CONVERTI en PDF (`lib/payslip/to-pdf.ts`) ; un PDF reste tel quel ; tout autre
+ * format est conservé sans transformation. Le salarié reçoit donc un bulletin qui s'ouvre
+ * partout, sans Word, et qui s'affiche dans l'application au lieu d'atterrir sur son disque.
+ *
+ * ── POURQUOI L'ORIGINAL SURVIT ──────────────────────────────────────────────────────────────
+ *
+ * La conversion redessine la structure du document ; elle ne le photographie pas. Sur un
+ * bulletin, les libellés, les colonnes et les montants arrivent justes, mais la trame, les
+ * bordures et le logo se perdent. Seul un œil humain peut dire si le résultat est acceptable —
+ * on garde donc le `.docx` de départ, INVISIBLE DU SALARIÉ, pour que les ressources humaines
+ * puissent le récupérer sans le redemander. Une conversion qui détruit son entrée est une
+ * conversion qu'on ne peut plus contredire.
+ *
+ * ── ET SI LA CONVERSION ÉCHOUE ? ────────────────────────────────────────────────────────────
+ *
+ * On dépose le fichier d'origine et l'on continue. Payer un salarié passe avant le format de son
+ * bulletin : faire échouer la paie parce qu'un Word est corrompu serait une règle absurde.
+ */
+async function deposerFicheDePaie(
+  employeeId: string,
+  file: File,
+  period: string,
+  uploadedById: string,
+): Promise<{ id: string } | { error: string }> {
+  const invalid = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
+  if (invalid) return { error: invalid };
+
+  const octets = Buffer.from(await file.arrayBuffer());
+  const creer = async (name: string, bytes: Buffer, mime: string, visibleToEmployee: boolean) => {
+    const { blobId } = await putBlob(bytes);
+    return prisma.employeeDocument.create({
+      data: {
+        employeeId, category: "PAYSLIP", name, blobId, mime, size: bytes.length,
+        period, visibleToEmployee, uploadedById,
+      },
+      select: { id: true },
+    });
+  };
+
+  if (isConvertibleWord(file.name, file.type)) {
+    const conv = await docxToPdf(octets);
+    if (conv.ok) {
+      const pdf = await creer(pdfFileName(file.name), conv.pdf, "application/pdf", true);
+      // La source, gardée et NON visible du salarié : deux bulletins pour le même mois lui
+      // feraient deviner lequel fait foi.
+      await creer(`${file.name} (source Word)`, octets, file.type || MIME_DOCX, false).catch(() => null);
+      return { id: pdf.id };
+    }
+    // Conversion impossible : on garde le Word plutôt que de bloquer la paie.
+    console.warn("[payroll] fiche de paie non convertie, dépôt du Word d'origine :", conv.error);
+  }
+
+  const doc = await creer(file.name, octets, file.type || "application/pdf", true);
+  return { id: doc.id };
 }
 
 /**
@@ -59,18 +122,9 @@ export async function markSalaryPaid(formData: FormData): Promise<ActionResult> 
   const file = formData.get("payslip");
   let payslipDocumentId: string | null = null;
   if (file instanceof File && file.size > 0) {
-    const invalid = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
-    if (invalid) return { ok: false, error: invalid };
-    const { blobId } = await putBlob(Buffer.from(await file.arrayBuffer()));
-    const payslip = await prisma.employeeDocument.create({
-      data: {
-        employeeId, category: "PAYSLIP", name: file.name, blobId,
-        mime: file.type || "application/pdf", size: file.size,
-        period: ym(year, month), visibleToEmployee: true, uploadedById: user.id,
-      },
-      select: { id: true },
-    });
-    payslipDocumentId = payslip.id;
+    const depot = await deposerFicheDePaie(employeeId, file, ym(year, month), user.id);
+    if ("error" in depot) return { ok: false, error: depot.error };
+    payslipDocumentId = depot.id;
   }
 
   const now = new Date();
@@ -246,17 +300,9 @@ export async function updatePayrollEntry(formData: FormData): Promise<ActionResu
   const file = formData.get("payslip");
   let payslipDocumentId = entry.payslipDocumentId;
   if (file instanceof File && file.size > 0) {
-    const badFile = validateUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
-    if (badFile) return { ok: false, error: badFile };
-    const { blobId } = await putBlob(Buffer.from(await file.arrayBuffer()));
-    const fresh = await prisma.employeeDocument.create({
-      data: {
-        employeeId: entry.employeeId, category: "PAYSLIP", name: file.name, blobId,
-        mime: file.type || "application/pdf", size: file.size,
-        period: ym(entry.year, entry.month), visibleToEmployee: true, uploadedById: user.id,
-      },
-      select: { id: true },
-    });
+    const depot = await deposerFicheDePaie(entry.employeeId, file, ym(entry.year, entry.month), user.id);
+    if ("error" in depot) return { ok: false, error: depot.error };
+    const fresh = depot;
     if (entry.payslipDocumentId) {
       const old = await prisma.employeeDocument.findUnique({ where: { id: entry.payslipDocumentId }, select: { blobId: true } });
       await prisma.employeeDocument.delete({ where: { id: entry.payslipDocumentId } }).catch(() => {});
