@@ -696,7 +696,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           reglement: invoice.transaction
             ? { ecriture: invoice.transaction.reference, le: fr(invoice.transaction.date), montantDzd: Math.round(toNumber(invoice.transaction.amount)) }
             : null,
-          lien: "/finances/factures",
+          lien: "/legal/factures",
         });
       }
 

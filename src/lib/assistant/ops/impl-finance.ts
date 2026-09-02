@@ -442,7 +442,7 @@ export const FINANCE_OPS_IMPL: Record<string, OpImpl> = {
         successMessage: detach
           ? `Facture « ${inv.title} » détachée de son bon.`
           : `Facture « ${inv.title} » rattachée au bon (${(bon as { label: string }).label}) — visible sur la fiche marché.`,
-        link: "/finances/factures",
+        link: "/legal/factures",
         revalidate: ["/finances", "/pch"],
       };
     },

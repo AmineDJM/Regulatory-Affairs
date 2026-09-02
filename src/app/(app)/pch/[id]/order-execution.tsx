@@ -164,7 +164,7 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
           <ul className="space-y-1">
             {bon.factures.map((f) => (
               <li key={f.id} className="flex flex-wrap items-center gap-2 rounded-md bg-card px-2.5 py-1.5 text-sm">
-                <Link href={`/finances/factures`} className="min-w-0 flex-1 truncate text-primary hover:underline">
+                <Link href={`/legal/factures`} className="min-w-0 flex-1 truncate text-primary hover:underline">
                   {f.number ? `${f.number} — ` : ""}{f.title}
                 </Link>
                 {f.amount !== null && <span className="tabular-nums">{formatNumber(f.amount)} DZD</span>}

@@ -354,7 +354,7 @@ export async function searchEverything(user: SessionUser, q: string, take = 6): 
     hits.push({
       famille: "Factures", titre: r.title,
       detail: `${r.number ?? "sans n°"} · ${r.amount != null ? Math.round(toNumber(r.amount)).toLocaleString("fr-FR") + " DZD" : "—"}`,
-      reference: r.number, statut: r.status, date: d10(r.dueDate), lien: "/finances/factures",
+      reference: r.number, statut: r.status, date: d10(r.dueDate), lien: "/legal/factures",
     });
   }
   for (const r of suppliers) {

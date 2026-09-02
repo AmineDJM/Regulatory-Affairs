@@ -1631,7 +1631,7 @@ export const NAVIGATION: NavItem[] = [
   // — on déplie la flèche et l'on arrive directement là où l'on va travailler.
   {
     module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", pole: "ADMINISTRATION",
-    match: ["/finances/paiements-a-faire", "/finances/comptabilite", "/finances/factures"],
+    match: ["/finances/paiements-a-faire", "/finances/comptabilite"],
     children: [
       { module: "FINANCES", label: "Dashboard", href: "/finances", icon: "LayoutDashboard", group: "Pôles", pole: "ADMINISTRATION" },
       { module: "FINANCES", label: "Paiements à faire", href: "/finances/paiements-a-faire", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION" },
@@ -1672,9 +1672,16 @@ export const NAVIGATION: NavItem[] = [
   // partie en face) et rappelle avant l'échéance.
   {
     module: "LEGAL", label: "Legal", href: "/legal", icon: "Scale", group: "Pôles", pole: "ADMINISTRATION",
+    match: ["/legal/factures"],
     // Les COORDONNÉES LÉGALES & FISCALES de chaque entité vivent sous Legal : ce sont les
     // numéros par lesquels la société s'engage, et on les cherche là où l'on range ses engagements.
+    //
+    // LES FACTURES AUSSI. Elles vivaient sous les Finances, à côté de la trésorerie : c'était un
+    // second registre, alors que Legal tient déjà les contrats, les devis et les bons de commande
+    // dont la facture est le dernier maillon. Deux registres pour un même objet finissent par
+    // diverger — et « quelles factures de ce fournisseur ? » n'a alors plus de réponse unique.
     children: [
+      { module: "LEGAL", label: "Factures", href: "/legal/factures", icon: "ReceiptText", group: "Pôles", pole: "ADMINISTRATION" },
       { module: "LEGAL", label: "Coordonnées des entités", href: "/legal/identites", icon: "IdCard", group: "Pôles", pole: "ADMINISTRATION" },
     ],
   },

@@ -91,7 +91,7 @@ export async function createInvoice(
   // fichier qu'on avait sous la main, et en pratique un justificatif qui reste dans la boîte mail.
   const files = await attachFormFiles(user.id, "INVOICE", created.id, formData);
 
-  revalidatePath("/finances/factures");
+  revalidatePath("/legal/factures");
   revalidatePath("/finances");
   // Née rattachée à un bon de commande PCH : la fiche marché l'affiche aussi.
   if (fdStr(formData, "sourceType") === "PCH_ORDER") revalidatePath("/pch");
@@ -119,8 +119,8 @@ export async function updateInvoice(formData: FormData): Promise<ActionResult> {
   });
   // La date de règlement peut avoir été posée ou retirée depuis la fiche : l'écriture suit.
   await syncInvoiceSettlement(id, user.id);
-  revalidatePath("/finances/factures");
-  revalidatePath(`/finances/factures/${id}`);
+  revalidatePath("/legal/factures");
+  revalidatePath(`/legal/factures/${id}`);
   revalidatePath("/finances");
   return { ok: true };
 }
@@ -156,7 +156,7 @@ export async function setInvoiceOrder(formData: FormData): Promise<ActionResult>
       ? `Facture « ${inv.title} » rattachée au ${orderLabel}`
       : `Facture « ${inv.title} » détachée de son bon de commande`,
   });
-  revalidatePath("/finances/factures");
+  revalidatePath("/legal/factures");
   revalidatePath("/pch");
   return { ok: true };
 }
@@ -175,7 +175,7 @@ export async function setInvoicePaid(input: { id: string; paidDate: string | nul
   });
   // L'ARGENT PASSE PAR LES FINANCES : marquer réglée y inscrit le mouvement, dé-marquer le retire.
   await syncInvoiceSettlement(input.id, user.id);
-  revalidatePath("/finances/factures");
+  revalidatePath("/legal/factures");
   revalidatePath("/finances");
   return { ok: true };
 }
@@ -193,7 +193,7 @@ export async function deleteInvoice(formData: FormData): Promise<ActionResult> {
     actorId: user.id, action: "DELETE", module: "Finances",
     summary: `Facture « ${inv.title} » supprimée`,
   });
-  revalidatePath("/finances/factures");
+  revalidatePath("/legal/factures");
   return { ok: true };
 }
 

@@ -1,6 +1,7 @@
 import { cache } from "react";
 import type { AccessScope, EntityType, Prisma, UserRole } from "@prisma/client";
 import { prisma } from "./prisma";
+import { isRetiredModule } from "./modules-retired";
 import { activeStandInsFor } from "./hr/stand-in-resolve";
 import { getAppSettings } from "./settings"; // settings n'importe que prisma → aucun cycle
 import { pipelineAccessFor } from "./regulatory/pipeline-access";
@@ -617,6 +618,12 @@ export const getAccess = perRequest(
     const blockedModules = new Set<Module>();
 
     for (const module of MODULES) {
+      // UN MODULE RETIRÉ N'ENTRE PAS DANS L'ACCÈS EFFECTIF — et c'est LA garde qui compte.
+      // `userCan` répond alors non partout d'un seul coup : écrans, actions serveur, routes
+      // d'API et outils d'Adam. Le masquage du menu ne fait que rendre l'interface cohérente ;
+      // s'il était seul, l'assistant continuerait de créer des projets dans un module retiré.
+      // Voir `lib/modules-retired.ts`.
+      if (isRetiredModule(module)) continue;
       const ov = overrideMap.get(module);
       // Override « BLOQUÉ » (ligne présente, canView=false) : **absolu**. Il retire le
       // module quoi qu'il arrive — y compris par-dessus un défaut de rôle PRINCIPAL **ou

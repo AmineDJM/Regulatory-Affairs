@@ -117,9 +117,11 @@ export const NAV_ALIASES: { terms: string[]; href: string; label: string }[] = [
   { terms: ["événement", "evenement", "events"], href: "/sponsoring", label: "Ad & Pro — Événement" },
   { terms: ["matériel promotionnel", "materiel promotionnel", "promo"], href: "/promo-material", label: "Ad & Pro — Matériel promotionnel" },
   { terms: ["administration", "admin", "console"], href: "/admin", label: "Console d'Administration (système)" },
-  { terms: ["logistique", "commandes", "expédition", "expedition", "transit", "dédouanement", "dedouanement"], href: "/logistics", label: "Supply Chain — Commandes & logistique" },
+  // « Commandes & logistique » et « Market Intelligence » ont été RETIRÉS du service
+  // (`modules-visibility.ts`) : leurs alias partent avec eux. Un raccourci qui mène à une page
+  // interdite est pire qu'un raccourci absent — on tape, on est renvoyé, et l'on croit à une
+  // panne de droits.
   { terms: ["pch", "appel d'offres", "appel d offres", "marché", "marche"], href: "/pch", label: "Business Development — Marchés PCH" },
-  { terms: ["intelligence marché", "intelligence marche", "iqvia", "molécule", "molecule"], href: "/business-development", label: "Business Development — Market Intelligence" },
   { terms: ["ctd", "enregistrement", "anpp"], href: "/regulatory/enregistrement", label: "Regulatory — Analyse CTD" },
   { terms: ["annuaire", "médecins", "medecins", "pharmaciens", "établissements", "etablissements"], href: "/medical/annuaire", label: "Annuaire — médecins & praticiens" },
   // On cherche « embauche » ou « CV » bien plus souvent que « recrutement » — et « demande de

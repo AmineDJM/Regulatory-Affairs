@@ -125,8 +125,12 @@ describe("alias de recherche — les anciens noms restent trouvables", () => {
 
   it("ignore la casse et les accents — personne ne tape les accents dans une recherche", () => {
     expect(aliasMatches("CONGRES").length).toBeGreaterThan(0);
-    expect(aliasMatches("dedouanement")[0].href).toBe("/logistics");
+    // « dédouanement » menait à Commandes & logistique, RETIRÉ du service : l'alias est parti
+    // avec l'écran. Un raccourci vers une page interdite est pire qu'un raccourci absent — on
+    // tape, on est renvoyé, et l'on croit à une panne de droits.
+    expect(aliasMatches("dedouanement")).toEqual([]);
     expect(aliasMatches("Événement")[0].href).toBe("/sponsoring");
+    expect(aliasMatches("marche")[0].href).toBe("/pch");
   });
 
   it("« administration » propose la Console d'Administration sans masquer l'ambiguïté", () => {

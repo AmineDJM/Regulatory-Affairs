@@ -4,6 +4,7 @@ import {
   parseSettingValue, parseRegFieldValue, renderSettingValue, describeChange,
 } from "./admin-write";
 import { MODULES } from "@/lib/rbac";
+import { RETIRED_MODULE_KEYS, isRetiredModule } from "@/lib/modules-retired";
 import { ROLE_LABELS, MODULE_LABELS } from "@/lib/labels";
 
 const ctx = { roleLabels: ROLE_LABELS, moduleLabels: MODULE_LABELS as Record<string, string> };
@@ -147,9 +148,17 @@ describe("rendu — ce que l'on lit sur la carte de confirmation", () => {
 describe("couverture — le catalogue reste cohérent avec la plateforme", () => {
   it("tout module masquable est désignable par son libellé", () => {
     for (const m of MODULES) {
-      if (m === "ADMIN") continue;
+      // La console ne se masque jamais ; un module RETIRÉ du service n'a plus rien à éteindre.
+      if (m === "ADMIN" || isRetiredModule(m)) continue;
       const r = parseSettingValue("hiddenModules", (MODULE_LABELS as Record<string, string>)[m], ctx);
       expect(r.ok, m).toBe(true);
+    }
+  });
+
+  it("UN MODULE RETIRÉ N'EST PAS DÉSIGNABLE — le proposer laisserait croire qu'on le rallume", () => {
+    for (const m of RETIRED_MODULE_KEYS) {
+      const r = parseSettingValue("hiddenModules", (MODULE_LABELS as Record<string, string>)[m], ctx);
+      expect(r.ok, m).toBe(false);
     }
   });
 });

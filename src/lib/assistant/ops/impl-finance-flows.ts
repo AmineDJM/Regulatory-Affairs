@@ -939,10 +939,10 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
           notes: opStr(input, "notes") || inv.notes,
         },
         successMessage: `Facture « ${title} » mise à jour.`,
-        link: "/finances/factures", revalidate: ["/finances", "/finances/factures"],
+        link: "/legal/factures", revalidate: ["/finances", "/legal/factures"],
       };
     },
-    execute: (args) => runFd(updateInvoice, args, "La modification de la facture a été refusée.", { revalidate: ["/finances", "/finances/factures"] }),
+    execute: (args) => runFd(updateInvoice, args, "La modification de la facture a été refusée.", { revalidate: ["/finances", "/legal/factures"] }),
   },
 
   delete_invoice: {
@@ -959,10 +959,10 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
         confirmText: key,
         args: { id: inv.id },
         successMessage: `Facture « ${inv.title} » supprimée.`,
-        revalidate: ["/finances", "/finances/factures"],
+        revalidate: ["/finances", "/legal/factures"],
       };
     },
-    execute: (args) => runFd(deleteInvoice, args, "La suppression de la facture a été refusée.", { revalidate: ["/finances", "/finances/factures"] }),
+    execute: (args) => runFd(deleteInvoice, args, "La suppression de la facture a été refusée.", { revalidate: ["/finances", "/legal/factures"] }),
   },
 
   // ─────────────── Paie (bulletins Finances) ───────────────

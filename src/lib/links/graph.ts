@@ -172,7 +172,7 @@ export function linkHref(
     case "PCH_TENDER": return `/pch/${id}`;
     case "LEGAL_DOCUMENT": return `/legal/${id}`;
     case "PCH_ORDER": return ctx?.orderTenderId ? `/pch/${ctx.orderTenderId}` : null;
-    case "INVOICE": return "/finances/factures";
+    case "INVOICE": return "/legal/factures";
     case "REGULATORY_PRODUCT": return `/regulatory/${id}`;
     case "MAIL_ENTRY": return `/courriers/${id}`;
   }

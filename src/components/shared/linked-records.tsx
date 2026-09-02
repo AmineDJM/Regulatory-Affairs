@@ -85,7 +85,7 @@ export async function LinkedRecords({
                 {invoices.map((i) => {
                   const st = INVOICE_STATUS[i.status];
                   return (
-                    <Row key={i.id} href="/finances/factures" title={i.title} reference={i.number}
+                    <Row key={i.id} href="/legal/factures" title={i.title} reference={i.number}
                       meta={[i.issueDate ? `émise le ${formatDate(i.issueDate)}` : "", i.paidDate ? `réglée le ${formatDate(i.paidDate)}` : "",
                         i.amount !== null ? formatCurrency(toNumber(i.amount)) : ""].filter(Boolean).join(" · ")}
                       badge={st ? { label: st.label, tone: st.tone } : null} />

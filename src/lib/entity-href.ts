@@ -32,7 +32,8 @@ export function entityHref(type: string | null | undefined, id: string | null | 
     case "PAYMENT_REQUEST": return `/validations/paiements/${id}`;
     case "ADMIN_REQUEST": return `/demandes/${id}`;
     case "EXPENSE_ORDER": return "/finances/paiements-a-faire";
-    case "INVOICE": return "/finances/factures";
+    // Les factures sont centralisées dans Legal — voir `app/(app)/legal/factures`.
+    case "INVOICE": return "/legal/factures";
     // Une avance sur salaire se lit sur la fiche de l'employé, pas sur un écran à elle.
     case "SALARY_ADVANCE": return "/rh";
 

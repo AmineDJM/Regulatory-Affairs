@@ -26,7 +26,7 @@ describe("où s'ouvre un objet", () => {
   it("un objet SANS fiche propre renvoie vers son registre, pas vers une page inexistante", () => {
     // Mieux vaut la liste où l'objet se trouve qu'un lien qui rend 404.
     expect(entityHref("SALARY_ADVANCE", "a1")).toBe("/rh");
-    expect(entityHref("INVOICE", "i1")).toBe("/finances/factures");
+    expect(entityHref("INVOICE", "i1")).toBe("/legal/factures");
   });
 
   it("un type INCONNU rend `null` — jamais un lien deviné", () => {

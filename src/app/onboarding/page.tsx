@@ -24,13 +24,13 @@ const DESTINATION_HELP: Record<string, string> = {
   "/rh": "Gestion des ressources humaines : employés, congés, demandes.",
   "/congress-international": "Demandes de congrès (national & international) jusqu'à l'ordre de dépense.",
   "/events": "Événements internes : inscriptions, QR codes et émargement.",
-  "/sales": "Suivi des ventes (produits & services) et performance.",
-  "/logistics": "Logistique et suivi des stocks à la PCH.",
+  // « Ventes » et « Commandes & logistique » ont été RETIRÉS du service
+  // (`lib/modules-retired.ts`) : les présenter à l'arrivée promettrait des écrans qui n'existent
+  // plus pour personne.
   "/pch": "Marchés PCH : appels d'offres, bons de commande et cautions.",
   "/medical/annuaire": "Annuaire : médecins et pharmaciens (hôpital / libéral), leurs coordonnées et leur segmentation.",
   "/field-reports": "Rapports terrain vocaux des délégués (dictés, relus, validés).",
   "/information-medicale": "Information médicale réglementaire : déclarations et circuit documentaire.",
-  "/business-development": "Business Development : opportunités, projets, gammes et produits.",
   "/validations": "Centre de validation transversal : ce que vous devez approuver.",
   "/drive": "Vos fichiers chiffrés, partagés en interne en toute sécurité.",
   "/demandes": "Bureau du secrétariat (attestations, notes de frais, ordres de mission…).",

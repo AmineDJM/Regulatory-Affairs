@@ -40,9 +40,10 @@ export default async function FinancesPage() {
         title="Finances"
         description="Trésorerie, ce qu'il reste à traiter et l'évolution des flux. Les règlements et le livre comptable ont leur propre écran. La paie est tenue par les Ressources humaines."
       >
-        <Link href="/finances/factures">
-          <Button variant="outline"><ReceiptText className="h-4 w-4" /> Factures</Button>
-        </Link>
+        {/* PLUS DE « FACTURES » ICI. Elles sont CENTRALISÉES DANS LEGAL, avec les contrats, les
+            devis et les bons de commande dont elles sont le dernier maillon. Deux registres pour
+            un même objet finissent par diverger — et le circuit des pièces réclamées y versait
+            déjà les factures acceptées pendant qu'on continuait de les saisir ici. */}
         {/* L'administration DEMANDE l'actualisation ; les Finances la font. */}
         {(user.role === "SUPER_ADMIN" || hasGlobalView(user)) && <TreasuryUpdateRequestButton />}
       </PageHeader>

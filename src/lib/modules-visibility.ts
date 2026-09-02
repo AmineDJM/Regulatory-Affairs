@@ -1,4 +1,5 @@
 import { MODULES, type Module } from "@/lib/rbac";
+import { RETIRED_MODULE_KEYS, isRetiredModule } from "@/lib/modules-retired";
 
 /**
  * MASQUER UN MODULE — le retirer de la plateforme sans toucher aux droits ni aux données.
@@ -26,9 +27,42 @@ import { MODULES, type Module } from "@/lib/rbac";
 /** Les modules qu'on n'a pas le droit de masquer, quoi qu'il arrive. */
 export const NEVER_HIDDEN: readonly Module[] = ["ADMIN"];
 
-/** Peut-on masquer ce module ? */
+/**
+ * LES MODULES RETIRÉS DU SERVICE — décidés ICI, dans le code, et pour TOUT LE MONDE.
+ *
+ * ── EN QUOI C'EST AUTRE CHOSE QUE « MASQUER » ───────────────────────────────────────────────
+ *
+ * Masquer est un RÉGLAGE : un administrateur éteint un module le temps d'une refonte, et le
+ * Super Admin continue de le voir pour pouvoir le rallumer. Retirer est une DÉCISION DE PRODUIT :
+ * ces écrans ne servent à personne dans cette entreprise, Super Admin compris. Les laisser
+ * derrière un réglage, c'est laisser trois entrées de menu que quelqu'un rallumera un jour « pour
+ * voir », et trois écrans à maintenir pour un usage qui n'existe pas.
+ *
+ * ── POURQUOI ON NE SUPPRIME PAS LE CODE ─────────────────────────────────────────────────────
+ *
+ * Parce que les DONNÉES restent, et qu'une décision de produit se révise. Supprimer les écrans
+ * effacerait aussi les requêtes, les actions et les tests qui les tiennent ; les rétablir
+ * demanderait de tout réécrire. Ici, une ligne retirée de cette liste les rend tels qu'ils
+ * étaient — c'est ce qui rend le geste réversible sans crainte.
+ *
+ * Ce que la liste garantit, et qui n'était pas vrai du masquage : ni menu, ni ADRESSE. Un lien
+ * envoyé par courriel il y a six mois ne rouvre pas l'écran.
+ */
+export const RETIRED_MODULES = RETIRED_MODULE_KEYS as readonly Module[];
+
+/** Ce module a-t-il été retiré du service pour tout le monde ? */
+export const isRetired = isRetiredModule;
+
+/**
+ * Peut-on masquer ce module ?
+ *
+ * Un module RETIRÉ n'est pas masquable : il n'y a plus rien à éteindre, et le proposer dans la
+ * liste des réglages laisserait croire qu'une case le rallumerait.
+ */
 export function isHideable(module: string): module is Module {
-  return (MODULES as readonly string[]).includes(module) && !(NEVER_HIDDEN as readonly string[]).includes(module);
+  return (MODULES as readonly string[]).includes(module)
+    && !(NEVER_HIDDEN as readonly string[]).includes(module)
+    && !isRetired(module);
 }
 
 /**
@@ -58,8 +92,11 @@ export function visibleModules(
   hidden: readonly string[],
   opts: { isSuperAdmin: boolean },
 ): Module[] {
-  if (opts.isSuperAdmin) return [...accessible];
-  return accessible.filter((m) => !isModuleHidden(hidden, m));
+  // LES MODULES RETIRÉS PARTENT D'ABORD, et le Super Admin ne fait pas exception : c'est ce qui
+  // distingue « retiré du service » de « masqué le temps d'une refonte ».
+  const enService = accessible.filter((m) => !isRetired(m));
+  if (opts.isSuperAdmin) return enService;
+  return enService.filter((m) => !isModuleHidden(hidden, m));
 }
 
 /**
@@ -74,6 +111,9 @@ export function canOpenModule(
   hidden: readonly string[],
   opts: { isSuperAdmin: boolean },
 ): boolean {
+  // Retiré = injoignable, pour tout le monde. Sans cette ligne, « retiré » ne voudrait dire que
+  // « absent du menu », et un lien d'il y a six mois rouvrirait l'écran.
+  if (isRetired(module)) return false;
   return opts.isSuperAdmin || !isModuleHidden(hidden, module);
 }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   NEVER_HIDDEN, isHideable, normalizeHidden, isModuleHidden, visibleModules,
-  canOpenModule, hiddenNotice, hiddenSummary,
+  canOpenModule, hiddenNotice, hiddenSummary, RETIRED_MODULES, isRetired,
 } from "./modules-visibility";
 import { MODULES, type Module } from "./rbac";
 
@@ -61,6 +61,36 @@ describe("visibleModules — masquer retire du menu, pour tout le monde sauf le 
   });
 });
 
+describe("les modules RETIRÉS du service — pour tout le monde, Super Admin compris", () => {
+  it("TROIS MODULES SONT RETIRÉS, décidés dans le code et non par un réglage", () => {
+    expect([...RETIRED_MODULES]).toEqual(["SALES", "LOGISTICS", "BUSINESS_DEVELOPMENT"]);
+    for (const m of RETIRED_MODULES) expect(isRetired(m), m).toBe(true);
+    expect(isRetired("REGULATORY")).toBe(false);
+    // PCH et l'Explorateur produits RESTENT : ce sont des modules voisins, pas les mêmes.
+    expect(isRetired("PCH")).toBe(false);
+    expect(isRetired("PRODUCT_EXPLORER")).toBe(false);
+  });
+
+  it("LE SUPER ADMIN NE LES VOIT PAS NON PLUS — c'est ce qui les distingue d'un module masqué", () => {
+    const accessibles = ["REGULATORY", "SALES", "LOGISTICS", "BUSINESS_DEVELOPMENT", "PCH"] as Module[];
+    expect(visibleModules(accessibles, [], { isSuperAdmin: true })).toEqual(["REGULATORY", "PCH"]);
+    expect(visibleModules(accessibles, [], { isSuperAdmin: false })).toEqual(["REGULATORY", "PCH"]);
+  });
+
+  it("ET ILS SONT INJOIGNABLES PAR LEUR ADRESSE — sinon un lien d'il y a six mois les rouvre", () => {
+    for (const m of RETIRED_MODULES) {
+      expect(canOpenModule(m, [], { isSuperAdmin: true }), m).toBe(false);
+      expect(canOpenModule(m, [], { isSuperAdmin: false }), m).toBe(false);
+    }
+  });
+
+  it("un module retiré n'est plus MASQUABLE — il n'y a plus rien à éteindre", () => {
+    // Le proposer dans la liste des réglages laisserait croire qu'une case le rallumerait.
+    for (const m of RETIRED_MODULES) expect(isHideable(m), m).toBe(false);
+    expect(normalizeHidden([...RETIRED_MODULES, "STOCKS"])).toEqual(["STOCKS"]);
+  });
+});
+
 describe("canOpenModule — masqué veut dire INJOIGNABLE, pas seulement absent du menu", () => {
   // Sans cette garde, un lien envoyé par courriel il y a un mois rouvrirait l'écran retiré.
   it("refuse l'ouverture d'un module masqué", () => {
@@ -96,8 +126,17 @@ describe("messages", () => {
 
 describe("couverture — tout module réel est masquable, sauf ceux qu'on protège", () => {
   it("aucun module n'échappe à la règle par oubli", () => {
+    // Deux exceptions, et deux seulement : la console (on fermerait la porte de l'intérieur) et
+    // les modules RETIRÉS du service (il n'y a plus rien à éteindre).
     for (const m of MODULES) {
-      expect(isHideable(m), m).toBe(!(NEVER_HIDDEN as readonly string[]).includes(m));
+      const protege = (NEVER_HIDDEN as readonly string[]).includes(m) || isRetired(m);
+      expect(isHideable(m), m).toBe(!protege);
     }
+  });
+
+  it("un module retiré est bien un module RÉEL — la liste ne contient pas une faute de frappe", () => {
+    // Sans cette vérification, « SALESS » retirerait un module qui n'existe pas, et le vrai
+    // resterait en service sans que rien ne le signale.
+    for (const m of RETIRED_MODULES) expect((MODULES as readonly string[]).includes(m), m).toBe(true);
   });
 });
