@@ -16,6 +16,8 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { DocumentUpload } from "@/components/documents/document-upload";
+import { LinkedRecords } from "@/components/shared/linked-records";
+import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import { CommentThread } from "@/components/shared/comment-thread";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
@@ -57,7 +59,21 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     isMedicalInfo: user.role === "MEDICAL_INFO_PHARMACIST" || isDirection,
     isDirection,
   };
-  const canUpload = userCan(user, "PROMO_MATERIAL", "UPLOAD") || flags.isMarketing || flags.isAssistant || flags.isFinance || flags.isMedicalInfo;
+  // QUI PEUT DÉCIDER DU DOSSIER PEUT Y JOINDRE SA FACTURE — la MÊME règle sur les cinq écrans
+  // Ad&Pro (`ad-pro/attachments.ts`). Ici l'ancienne liste NOMMAIT quatre rôles : elle tenait
+  // jusqu'à la première nomination qu'on oublie d'y ajouter. On lit désormais ce que la personne
+  // peut FAIRE du dossier, et les quatre rôles y entrent par leurs droits — sans être nommés.
+  const attacheur = {
+    id: user.id,
+    canUploadModule: userCan(user, "PROMO_MATERIAL", "UPLOAD"),
+    canUpdateModule: userCan(user, "PROMO_MATERIAL", "UPDATE"),
+    canValidateModule: userCan(user, "PROMO_MATERIAL", "VALIDATE"),
+    hasGlobalView: isDirection,
+  };
+  const dossierAdPro = { requesterId: pm.requesterId, assistantId: pm.assistantId };
+  const canUpload = canAttachToAdPro(attacheur, dossierAdPro)
+    || flags.isMarketing || flags.isAssistant || flags.isFinance || flags.isMedicalInfo;
+  const uploadHint = canUpload ? null : attachHint(attacheur, dossierAdPro);
   const canDelete = userCan(user, "PROMO_MATERIAL", "DELETE") || isDirection;
 
   const [documents, comments] = await Promise.all([
@@ -136,10 +152,18 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
           <Card>
             <CardHeader><CardTitle>Documents (devis, BC, quittance, matériel, visa, facture…)</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              {canUpload && <DocumentUpload entityType="PROMO_MATERIAL" entityId={pm.id} categories={PROMO_DOC_CATEGORIES} />}
+              {canUpload
+                ? <DocumentUpload entityType="PROMO_MATERIAL" entityId={pm.id} categories={PROMO_DOC_CATEGORIES} />
+                : uploadHint && <p className="text-xs text-muted-foreground">{uploadHint}</p>}
               <DocumentList documents={docItems} canDelete={canDelete} canRename={canUpload} canEdit={onlyofficeConfigured() && canUpload} path={`/promo-material/${pm.id}`} />
             </CardContent>
           </Card>
+
+          {/* CE QUI EN DÉCOULE : engagement, facture, courrier. Le mécanisme connaissait déjà ce
+              type de dossier ; il ne manquait que le bloc — et l'on ne pouvait donc RIEN rattacher
+              à un dossier de matériel. Créés d'ici, ils gardent le lien : c'est le seul moment où
+              l'on sait de quoi ils viennent, et le seul où le rattachement ne coûte rien. */}
+          <LinkedRecords entityType="PROMO_MATERIAL" entityId={pm.id} reference={pm.reference} canCreate={canUpload} />
 
           <Card>
             <CardHeader><CardTitle>Commentaires & échanges</CardTitle></CardHeader>

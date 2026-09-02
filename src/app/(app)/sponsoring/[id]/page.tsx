@@ -15,6 +15,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { LinkedRecords } from "@/components/shared/linked-records";
+import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { SPONSORING_STATUS, PRIORITY } from "@/lib/labels";
 import { WorkflowPanel } from "@/components/workflow/workflow-panel";
@@ -61,8 +62,20 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
     createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
   }));
 
-  // Le demandeur (délégué) peut toujours joindre des pièces à SA demande.
-  const canUpload = userCan(user, "SPONSORING", "UPLOAD") || isRequester;
+  // QUI PEUT DÉCIDER DU DOSSIER PEUT Y JOINDRE SA FACTURE. La règle vit dans
+  // `ad-pro/attachments.ts` et elle est la MÊME sur les cinq écrans Ad&Pro : chacun l'épelait à
+  // sa façon, et chaque orthographe oubliait quelqu'un — la Direction qui valide, le chef de
+  // produit qui analyse — qui envoyait alors la facture par mail, dossier vide.
+  const attacheur = {
+    id: user.id,
+    canUploadModule: userCan(user, "SPONSORING", "UPLOAD"),
+    canUpdateModule: userCan(user, "SPONSORING", "UPDATE"),
+    canValidateModule: userCan(user, "SPONSORING", "VALIDATE"),
+    hasGlobalView: hasGlobalView(user),
+  };
+  const dossierAdPro = { requesterId: req.requesterId, productManagerId: req.productManagerId };
+  const canUpload = canAttachToAdPro(attacheur, dossierAdPro);
+  const uploadHint = attachHint(attacheur, dossierAdPro);
   const canDelete = userCan(user, "SPONSORING", "DELETE");
 
   // Postes du sponsoring : de quoi est fait le montant, à qui va l'argent, et où en est chacun
@@ -192,7 +205,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
 
           {/* CE QUI EN DÉCOULE : bon de commande, facture, courrier. Créés d'ici, ils gardent le
               lien vers cette demande — c'est le seul moment où l'on sait de quoi ils viennent. */}
-          <LinkedRecords entityType="SPONSORING" entityId={req.id} reference={req.reference} canCreate={canDirection || canEditRequest} />
+          <LinkedRecords entityType="SPONSORING" entityId={req.id} reference={req.reference} canCreate={canUpload} />
         </div>
 
         <div className="space-y-5">
@@ -207,7 +220,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
                   Sponsoring accordé — pensez à joindre la <strong>facture</strong> (catégorie « Facture / Invoice »).
                 </div>
               )}
-              {canUpload && <DocumentUpload entityType="SPONSORING" entityId={req.id} categories={SPONSORING_DOC_CATEGORIES} />}
+              {canUpload
+                ? <DocumentUpload entityType="SPONSORING" entityId={req.id} categories={SPONSORING_DOC_CATEGORIES} />
+                : uploadHint && <p className="text-xs text-muted-foreground">{uploadHint}</p>}
               <DocumentList documents={docItems} canDelete={canDelete} canEdit={onlyofficeConfigured() && canUpload} path={`/sponsoring/${req.id}`} />
             </CardContent>
           </Card>

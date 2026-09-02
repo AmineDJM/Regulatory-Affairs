@@ -24,6 +24,8 @@ import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
+import { LinkedRecords } from "@/components/shared/linked-records";
+import { canAttachToAdPro } from "@/lib/ad-pro/attachments";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
 import { loadAdProItems, adProBudgetOptions } from "@/lib/queries/ad-pro-items";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
@@ -38,7 +40,19 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
   // chef de produit assigné, Direction) — le moteur pilote désormais la validation.
   const canInvolveThirdParty = hasGlobalView(user) || hasRole(user, "NATIONAL_SALES") || detail.productManagerId === user.id;
   // Le demandeur peut joindre des pièces à sa demande, même si son rôle n'a pas UPLOAD.
-  const canUpload = userCan(user, "CONGRESS_INTERNATIONAL", "UPLOAD") || detail.requesterId === user.id;
+  // QUI PEUT DÉCIDER DU DOSSIER PEUT Y JOINDRE SA FACTURE. La règle vit dans
+  // `ad-pro/attachments.ts`, la MÊME sur les cinq écrans Ad&Pro : chacun l'épelait à sa façon, et
+  // chaque orthographe oubliait quelqu'un — la Direction qui valide, le chef de produit qui
+  // analyse — qui envoyait alors la facture par mail, dossier vide.
+  const attacheur = {
+    id: user.id,
+    canUploadModule: userCan(user, "CONGRESS_INTERNATIONAL", "UPLOAD"),
+    canUpdateModule: userCan(user, "CONGRESS_INTERNATIONAL", "UPDATE"),
+    canValidateModule: userCan(user, "CONGRESS_INTERNATIONAL", "VALIDATE"),
+    hasGlobalView: hasGlobalView(user),
+  };
+  const dossierAdPro = { requesterId: detail.requesterId, productManagerId: detail.productManagerId };
+  const canUpload = canAttachToAdPro(attacheur, dossierAdPro);
   const canDelete = userCan(user, "CONGRESS_INTERNATIONAL", "DELETE") || hasGlobalView(user);
   const docs = await prisma.document.findMany({
     where: { entityType: "CONGRESS_INTERNATIONAL", entityId: detail.id },
@@ -136,6 +150,12 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
       </Card>
 
       <CongressDetailView detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-international/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} involvementThreads={await getInvolvementThreads("CONGRESS_INTERNATIONAL", detail.id)} canModerate={hasGlobalView(user)} />
+      {/* CE QUI EN DÉCOULE : engagement, facture, courrier. Le mécanisme connaissait déjà ce
+          type de dossier ; il ne manquait que le bloc — et l'on ne pouvait donc RIEN rattacher à
+          un congrès ou à un événement. Créés d'ici, ils gardent le lien : c'est le seul moment où
+          l'on sait de quoi ils viennent, et le seul où le rattachement ne coûte rien. */}
+      <LinkedRecords entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} reference={detail.name} canCreate={canUpload} />
+
     </div>
   );
 }

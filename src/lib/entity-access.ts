@@ -4,6 +4,7 @@ import { platformScope } from "@/lib/company";
 import { legalReaderWhere } from "@/lib/legal/readers";
 import { canSee as canSeeTask, canAttach as canAttachTask } from "@/lib/tasks/request-flow";
 import { recruitmentViewer } from "@/lib/recruitment/access";
+import { isOwnBusiness } from "@/lib/ad-pro/attachments";
 import { getMyCompanies } from "@/lib/company";
 import {
   userCan,
@@ -113,6 +114,33 @@ async function isRequestOwner(user: SessionUser, entityType: EntityType, entityI
   return false;
 }
 
+/** Les cinq natures de dossier du module Ad&Pro. */
+const AD_PRO_TYPES: EntityType[] = [
+  "SPONSORING", "CONGRESS_INTERNATIONAL", "CONGRESS_NATIONAL", "EVENT", "PROMO_MATERIAL",
+];
+
+/**
+ * LES PARTIES PRENANTES NOMMÉES d'un dossier Ad&Pro — demandeur, chef de produit, assistante.
+ *
+ * Elles instruisent ce dossier-là. Leur refuser d'y joindre la facture ne protège rien : cela
+ * sort la pièce de l'ERP, et six semaines plus tard personne ne sait plus à quel événement elle
+ * correspondait.
+ */
+async function adProStakeholders(
+  entityType: EntityType, entityId: string,
+): Promise<{ requesterId?: string | null; productManagerId?: string | null; assistantId?: string | null } | null> {
+  const sel = { select: { requesterId: true, productManagerId: true } } as const;
+  switch (entityType) {
+    case "SPONSORING": return prisma.sponsoringRequest.findUnique({ where: { id: entityId }, ...sel });
+    case "CONGRESS_INTERNATIONAL": return prisma.congressInternational.findUnique({ where: { id: entityId }, ...sel });
+    case "CONGRESS_NATIONAL": return prisma.congressNational.findUnique({ where: { id: entityId }, ...sel });
+    case "EVENT": return prisma.event.findUnique({ where: { id: entityId }, ...sel });
+    case "PROMO_MATERIAL":
+      return prisma.promoMaterial.findUnique({ where: { id: entityId }, select: { requesterId: true, assistantId: true } });
+    default: return null;
+  }
+}
+
 export async function canAccessEntity(
   user: SessionUser,
   entityType: EntityType,
@@ -200,6 +228,23 @@ export async function canAccessEntity(
     (await isRequestOwner(user, entityType, entityId))
   ) {
     return true;
+  }
+
+  // JOINDRE UNE PIÈCE À UN DOSSIER Ad&Pro : QUI PEUT DÉCIDER DU DOSSIER PEUT Y JOINDRE SA FACTURE.
+  //
+  // « On veut associer une facture à l'événement, mais je n'arrive pas à joindre de PJ. » Le droit
+  // `UPLOAD` du module était exigé, et lui seul : la Direction qui valide le dossier, le chef de
+  // produit qui l'a analysé, l'assistante qui le suit ne pouvaient rien déposer dès que cette case
+  // ne leur avait pas été cochée. Ils envoyaient donc la facture par mail, et le dossier restait
+  // vide — c'est-à-dire exactement ce que l'ERP existe pour éviter.
+  //
+  // Joindre une pièce n'est pas un pouvoir : c'est le geste qui rend le dossier lisible. La règle
+  // est la MÊME que celle des écrans (`ad-pro/attachments.ts`, pure et testée) : un bouton visible
+  // qui refuse ensuite fait chercher la panne au lieu de faire demander le droit.
+  if ((action === "UPLOAD" || action === "VIEW") && AD_PRO_TYPES.includes(entityType)) {
+    if (userCan(user, module, "UPDATE") || userCan(user, module, "VALIDATE")) return true;
+    const parties = await adProStakeholders(entityType, entityId);
+    if (parties && isOwnBusiness(user.id, parties)) return true;
   }
 
   // L'Assistante de Direction pilote le circuit Matériel promotionnel depuis les

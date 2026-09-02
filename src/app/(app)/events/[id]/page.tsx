@@ -32,6 +32,8 @@ import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { toNumber } from "@/lib/utils";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { DocumentUpload } from "@/components/documents/document-upload";
+import { LinkedRecords } from "@/components/shared/linked-records";
+import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 
 export const dynamic = "force-dynamic";
@@ -80,7 +82,19 @@ export default async function EventDetailPage({ params }: { params: { id: string
     confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null,
     createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
   }));
-  const canUploadDocs = userCan(user, "EVENTS", "UPLOAD") || canManage;
+  // QUI PEUT DÉCIDER DU DOSSIER PEUT Y JOINDRE SA FACTURE — la MÊME règle sur les cinq écrans
+  // Ad&Pro (`ad-pro/attachments.ts`) : chacun l'épelait à sa façon, et chaque orthographe
+  // oubliait quelqu'un, qui envoyait alors la facture par mail avec un dossier vide.
+  const attacheur = {
+    id: user.id,
+    canUploadModule: userCan(user, "EVENTS", "UPLOAD"),
+    canUpdateModule: userCan(user, "EVENTS", "UPDATE"),
+    canValidateModule: userCan(user, "EVENTS", "VALIDATE"),
+    hasGlobalView: hasGlobalView(user),
+  };
+  const dossierAdPro = { requesterId: e.requesterId ?? null, productManagerId: e.productManagerId ?? null };
+  const canUploadDocs = canAttachToAdPro(attacheur, dossierAdPro) || canManage;
+  const uploadHint = canUploadDocs ? null : attachHint(attacheur, dossierAdPro);
 
   return (
     <div className="space-y-5">
@@ -121,7 +135,9 @@ export default async function EventDetailPage({ params }: { params: { id: string
       <Card>
         <CardHeader><CardTitle>Documents</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          {canUploadDocs && <DocumentUpload entityType="EVENT" entityId={e.id} />}
+          {canUploadDocs
+            ? <DocumentUpload entityType="EVENT" entityId={e.id} />
+            : uploadHint && <p className="text-xs text-muted-foreground">{uploadHint}</p>}
           <DocumentList
             documents={docItems}
             canDelete={userCan(user, "EVENTS", "DELETE") || hasGlobalView(user)}
@@ -131,6 +147,12 @@ export default async function EventDetailPage({ params }: { params: { id: string
           />
         </CardContent>
       </Card>
+      {/* CE QUI EN DÉCOULE : engagement, facture, courrier. Le mécanisme connaissait déjà ce type
+          de dossier ; il ne manquait que le bloc — et l'on ne pouvait donc RIEN rattacher à un
+          événement. Créés d'ici, ils gardent le lien : c'est le seul moment où l'on sait de quoi
+          ils viennent, et le seul où le rattachement ne coûte rien. */}
+      <LinkedRecords entityType="EVENT" entityId={e.id} reference={e.name} canCreate={canUploadDocs} />
+
 
       <Card>
         <CardHeader><CardTitle>Suivi de validation</CardTitle></CardHeader>

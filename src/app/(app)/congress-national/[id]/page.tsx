@@ -28,6 +28,8 @@ import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
+import { LinkedRecords } from "@/components/shared/linked-records";
+import { canAttachToAdPro } from "@/lib/ad-pro/attachments";
 
 export default async function CongressNatDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("CONGRESS_NATIONAL");
@@ -36,7 +38,19 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
 
   // Impliquer une tierce personne : ouvert aux acteurs du circuit (le moteur pilote la validation).
   const canInvolveThirdParty = hasGlobalView(user) || hasRole(user, "NATIONAL_SALES") || detail.productManagerId === user.id;
-  const canUpload = userCan(user, "CONGRESS_NATIONAL", "UPLOAD") || detail.requesterId === user.id;
+  // QUI PEUT DÉCIDER DU DOSSIER PEUT Y JOINDRE SA FACTURE. La règle vit dans
+  // `ad-pro/attachments.ts`, la MÊME sur les cinq écrans Ad&Pro : chacun l'épelait à sa façon, et
+  // chaque orthographe oubliait quelqu'un — la Direction qui valide, le chef de produit qui
+  // analyse — qui envoyait alors la facture par mail, dossier vide.
+  const attacheur = {
+    id: user.id,
+    canUploadModule: userCan(user, "CONGRESS_NATIONAL", "UPLOAD"),
+    canUpdateModule: userCan(user, "CONGRESS_NATIONAL", "UPDATE"),
+    canValidateModule: userCan(user, "CONGRESS_NATIONAL", "VALIDATE"),
+    hasGlobalView: hasGlobalView(user),
+  };
+  const dossierAdPro = { requesterId: detail.requesterId, productManagerId: detail.productManagerId };
+  const canUpload = canAttachToAdPro(attacheur, dossierAdPro);
   const canDelete = userCan(user, "CONGRESS_NATIONAL", "DELETE") || hasGlobalView(user);
   const docs = await prisma.document.findMany({
     where: { entityType: "CONGRESS_NATIONAL", entityId: detail.id },
@@ -135,6 +149,12 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
           />
         }
       />
+      {/* CE QUI EN DÉCOULE : engagement, facture, courrier. Le mécanisme connaissait déjà ce
+          type de dossier ; il ne manquait que le bloc — et l'on ne pouvait donc RIEN rattacher à
+          un congrès ou à un événement. Créés d'ici, ils gardent le lien : c'est le seul moment où
+          l'on sait de quoi ils viennent, et le seul où le rattachement ne coûte rien. */}
+      <LinkedRecords entityType="CONGRESS_NATIONAL" entityId={detail.id} reference={detail.name} canCreate={canUpload} />
+
     </div>
   );
 }
