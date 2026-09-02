@@ -242,6 +242,33 @@ export async function companyIdForNew(userId: string): Promise<string | null> {
   return bearer?.homeCompanyId ?? null;
 }
 
+/**
+ * L'ENTITÉ D'UN MOUVEMENT D'ARGENT — celle de la PERSONNE, pas celle de son écran.
+ *
+ * `companyIdForNew` répond à « sur quoi je travaille en ce moment » : elle privilégie la portée
+ * SÉLECTIONNÉE dans la barre supérieure. C'est juste pour un dossier qu'on ouvre — et faux pour
+ * de l'argent. Un délégué de Pharmagène qui consulte Adventum et dépose une demande de paiement
+ * l'aurait imputée à Adventum : la société qui paie aurait été décidée par un cookie d'affichage.
+ *
+ * Pour l'argent, l'ordre est donc inversé : la société où la personne TRAVAILLE d'abord (sa fiche
+ * employé), à défaut celle de son DÉPARTEMENT, et seulement ensuite la portée sélectionnée. La
+ * Direction reste libre de corriger au moment où elle valide — au seul moment où quelqu'un a le
+ * dossier entier sous les yeux.
+ */
+export async function moneyEntityOf(userId: string): Promise<string | null> {
+  try {
+    const emp = await prisma.employee.findFirst({
+      where: { userId },
+      select: { companyId: true, departmentRef: { select: { companyId: true } } },
+    });
+    if (emp?.companyId) return emp.companyId;
+    if (emp?.departmentRef?.companyId) return emp.departmentRef.companyId;
+  } catch (e) {
+    console.error("[company] entité de la personne indéterminable", e);
+  }
+  return companyIdForNew(userId);
+}
+
 /** Peut-on écrire sur cette entité ? Voir ne suffit pas. */
 export async function canEditCompanyId(userId: string, companyId: string | null): Promise<boolean> {
   if (!companyId) return true; // objet non rattaché : la portée ne s'applique pas

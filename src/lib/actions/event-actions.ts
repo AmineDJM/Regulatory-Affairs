@@ -8,7 +8,7 @@ import type { CongressRequestStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, anyRoleFilter } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { companyIdForNew } from "@/lib/company";
+import { moneyEntityOf } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
@@ -28,7 +28,11 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
     data: {
       name,
       // Entité : la portée en cours, à défaut la société d'appartenance du créateur.
-      companyId: await companyIdForNew(user.id),
+      // L'ENTITÉ QUI PAIERA suit la PERSONNE (sa fiche employé, à défaut son
+      // département), pas la portée sélectionnée dans la barre : un délégué de Pharmagène qui
+      // consulte Adventum ne doit pas imputer sa demande à Adventum. La Direction corrige en
+      // validant, au seul moment où quelqu'un a le dossier entier sous les yeux.
+      companyId: await moneyEntityOf(user.id),
       type: inEnum(EventType, fdStr(formData, "type"), "CONGRESS"),
       scope: inEnum(EventScope, fdStr(formData, "scope"), "NATIONAL"),
       format: inEnum(EventFormat, fdStr(formData, "format"), "PRESENTIAL"),

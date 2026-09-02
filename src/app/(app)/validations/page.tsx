@@ -22,6 +22,7 @@ import { ValidationAttachments } from "./validation-attachments";
 import { SupervisionBoard } from "./supervision-board";
 import { supervisionCounters } from "@/lib/validation-supervision";
 import { NewPaymentButton } from "./paiements/new-payment-button";
+import { getMyCompanies, moneyEntityOf } from "@/lib/company";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { DocumentList } from "@/components/documents/document-list";
 
@@ -83,6 +84,10 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
   // elle se referme sur le Super Admin.
   const peutSuperviser = user.role === "SUPER_ADMIN";
 
+  // L'ENTITÉ CONCERNÉE se choisit sur la demande de paiement : elle paiera, et sa comptabilité
+  // doit pouvoir s'y retrouver. Proposée (la vôtre), modifiable, exigée à l'envoi.
+  const [mesEntites, monEntite] = await Promise.all([getMyCompanies(user.id), moneyEntityOf(user.id)]);
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -99,7 +104,10 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
         {/* LA DEMANDE DE PAIEMENT SE FAIT D'ICI — c'est sa seule porte d'entrée, le module à
             part a disparu. Une fois le bon à payer donné, le dossier passe OBLIGATOIREMENT par
             le centre de paiement (dès 50 000 DZD), puis atterrit dans les Règlements à effectuer. */}
-        <NewPaymentButton />
+        <NewPaymentButton
+          companies={mesEntites.map((c) => ({ id: c.id, name: c.shortName || c.name }))}
+          defaultCompanyId={monEntite}
+        />
       </PageHeader>
 
       {/* LE RACCOURCI « Suivi des demandes de paiement » A ÉTÉ RETIRÉ (2026-08). Une bannière

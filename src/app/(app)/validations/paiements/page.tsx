@@ -13,6 +13,8 @@ import { PAYMENT_REQUEST_STATUS, PAYMENT_URGENCY } from "@/lib/labels";
 import { sortByPriority, isOverdue, deadlineLabel, isWithFinance } from "@/lib/finance/payment-request";
 import { deadlineNatureLabel, deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { NewPaymentButton } from "./new-payment-button";
+import { getMyCompanies, moneyEntityOf } from "@/lib/company";
+import { groupByEntity, unassignedWarning } from "@/lib/finance/money-entity";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +51,11 @@ export default async function PaymentRequestsPage() {
         })
       : Promise.resolve([] as never[]),
   ]);
+
+  // L'ENTITÉ EST LA COLONNE VERTÉBRALE DE L'ARGENT : le formulaire la propose et l'exige, la
+  // file la RANGE. Un total qui mélange deux sociétés n'appartient à aucune des deux.
+  const [mesEntites, monEntite] = await Promise.all([getMyCompanies(user.id), moneyEntityOf(user.id)]);
+  const entityLabels = Object.fromEntries(mesEntites.map((c) => [c.id, c.shortName || c.name]));
 
   const names = new Map(
     (await prisma.user.findMany({
@@ -104,6 +111,11 @@ export default async function PaymentRequestsPage() {
 
   const waiting = queue.filter((q) => isWithFinance(q.status));
   const total = waiting.reduce((a, q) => a + toNumber(q.amount), 0);
+  // UN PAIEMENT PAR ENTITÉ. On ne présente plus une file mélangée avec un total qui n'appartient
+  // à personne : chaque société a sa section et son total, et ce qui ne porte aucune entité forme
+  // son propre groupe, nommé — ce sont précisément ceux qu'il faut rattacher.
+  const parEntite = groupByEntity(waiting, (q) => ({ companyId: q.companyId, amount: toNumber(q.amount) }), entityLabels);
+  const orphelins = unassignedWarning(parEntite);
 
   return (
     <div className="space-y-5">
@@ -115,7 +127,10 @@ export default async function PaymentRequestsPage() {
         title="Demandes de paiement"
         description="Le dossier qui arrive aux Finances : montant, bénéficiaire, échéance, et les pièces qui le justifient. La discussion se tient pièce par pièce."
       >
-        <NewPaymentButton />
+        <NewPaymentButton
+          companies={mesEntites.map((c) => ({ id: c.id, name: c.shortName || c.name }))}
+          defaultCompanyId={monEntite}
+        />
       </PageHeader>
 
       {finance && (
@@ -127,11 +142,32 @@ export default async function PaymentRequestsPage() {
       )}
 
       {finance && (
-        <section className="space-y-2">
+        <section className="space-y-3">
           <h2 className="text-sm font-semibold">À instruire (Finances)</h2>
-          {queue.length === 0
-            ? <EmptyState icon="Banknote" title="Rien à instruire" description="Aucune demande de paiement en attente." />
-            : <Rows rows={queue} who={(id) => names.get(id) ?? "—"} />}
+          {/* CE QUI NE PORTE AUCUNE ENTITÉ SE DIT. Ces montants n'entrent dans la comptabilité
+              d'aucune société tant qu'ils ne sont pas rattachés — les noyer dans une liste les
+              ferait disparaître. */}
+          {orphelins && (
+            <p className="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-sm text-muted-foreground">{orphelins}</p>
+          )}
+          {queue.length === 0 ? (
+            <EmptyState icon="Banknote" title="Rien à instruire" description="Aucune demande de paiement en attente." />
+          ) : parEntite.length > 1 ? (
+            // UN PAIEMENT PAR ENTITÉ : chaque société sa section, chaque section son total.
+            parEntite.map((bucket) => (
+              <div key={bucket.companyId ?? "sans"} className="space-y-1.5">
+                <p className="flex flex-wrap items-baseline justify-between gap-2 text-xs">
+                  <span className="font-semibold uppercase tracking-wide text-muted-foreground">{bucket.label}</span>
+                  <span className="text-muted-foreground">
+                    {bucket.rows.length} demande(s) · <strong className="tabular-nums text-foreground">{formatCurrency(bucket.total)}</strong>
+                  </span>
+                </p>
+                <Rows rows={bucket.rows} who={(id) => names.get(id) ?? "—"} />
+              </div>
+            ))
+          ) : (
+            <Rows rows={queue} who={(id) => names.get(id) ?? "—"} />
+          )}
         </section>
       )}
 

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { getAccess, type SessionUser } from "@/lib/rbac";
+import { getAccess, userCan, type SessionUser } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 
 let dbOk = false;
@@ -78,7 +78,7 @@ suite("Ad&Pro — joindre une pièce", () => {
     // Le cœur du défaut : ce chef de produit a `UPDATE` sur le module, pas `UPLOAD`. Il
     // instruisait le dossier et n'avait aucun moyen d'y déposer la facture.
     const v = await viewerFor(pmId, "PRODUCT_MANAGER");
-    expect(v.access.SPONSORING?.actions.has("UPLOAD") ?? false, "le droit UPLOAD ne doit PAS être coché : c'est tout l'intérêt du test").toBe(false);
+    expect(userCan(v, "SPONSORING", "UPLOAD"), "le droit UPLOAD ne doit PAS être coché : c'est tout l'intérêt du test").toBe(false);
     expect(await canAccessEntity(v, "SPONSORING", sponsoringId, "UPLOAD")).toBe(true);
   });
 

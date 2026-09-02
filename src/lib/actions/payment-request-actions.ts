@@ -11,7 +11,8 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { buildRef, createWithRetry } from "@/lib/refs";
-import { companyIdForNew } from "@/lib/company";
+import { moneyEntityOf, getMyCompanies } from "@/lib/company";
+import { resolveMoneyEntity, checkMoneyEntity } from "@/lib/finance/money-entity";
 import { persistUploadedDocument } from "@/lib/documents";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { toNumber } from "@/lib/utils";
@@ -153,7 +154,27 @@ export async function createPaymentRequest(_prev: ActionResult | undefined, form
     if (amount == null || amount <= 0) return { ok: false, error: "Indiquez le montant à payer." };
 
     const submit = fdStr(formData, "submit") !== "0";
-    const companyId = fdStr(formData, "companyId") || (await companyIdForNew(user.id));
+    // ── L'ENTITÉ SE DIT, ELLE NE SE DEVINE PLUS ────────────────────────────────────────────
+    //
+    // Elle était prise en silence sur le compte du demandeur : personne ne la voyait, personne
+    // ne la choisissait, et elle pouvait rester vide. La file de paiements mélangeait alors deux
+    // sociétés avec un total qui n'appartenait à aucune, et la comptabilité rattachait à la main
+    // — donc de mémoire, donc parfois à tort.
+    //
+    // La règle ne s'applique QU'À L'ENVOI — un brouillon se garde incomplet, c'est sa raison
+    // d'être — et QU'À QUI PEUT S'Y CONFORMER : exiger un choix de quelqu'un dont le sélecteur
+    // est vide n'est pas une règle, c'est une impasse. Ces demandes-là existent (personne non
+    // rattachée, installation mono-société) ; elles partent, et la Direction les voit dans le
+    // groupe « Sans entité — à rattacher » de la file, qui existe précisément pour cela.
+    const companyId = resolveMoneyEntity({
+      explicit: fdStr(formData, "companyId"),
+      requester: await moneyEntityOf(user.id),
+    });
+    const mesEntites = (await getMyCompanies(user.id)).map((c) => c.id);
+    if (submit && mesEntites.length > 0) {
+      const verdict = checkMoneyEntity(companyId, mesEntites, { hasGlobalView: hasGlobalView(user.role) });
+      if (!verdict.ok) return { ok: false, error: verdict.reason ?? "Entité manquante." };
+    }
     const entityType = entityTypeOf(fdStr(formData, "entityType"));
     const paymentMethodStated = checked(formData, "paymentMethodStated");
     const deadlineNature = deadlineNatureOf(fdStr(formData, "deadlineNature")) as PaymentDeadlineNature;

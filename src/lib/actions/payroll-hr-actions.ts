@@ -11,6 +11,7 @@ import { recordAudit } from "@/lib/audit";
 import { buildRef } from "@/lib/refs";
 import { formatMonth } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { massByDepartment, budgetRefreshes, refreshSummary, type PayrollCostLine } from "@/lib/hr/payroll-mass";
 import { entryCost } from "@/lib/hr/payroll-cost";
 import { validateAmounts, resolvedGross, amendImpact, canAmend } from "@/lib/hr/payroll-amend";
 import { docxToPdf, isConvertibleWord, pdfFileName } from "@/lib/payslip/to-pdf";
@@ -246,14 +247,71 @@ export async function transferPayrollToBudget(formData: FormData): Promise<Actio
     });
   }
 
+  // ── LE BUDGET S'ACTUALISE, IL NE S'AJOUTE PAS ────────────────────────────────────────────
+  //
+  // La ligne « masse salariale » du département restait un montant SAISI À LA MAIN : on la
+  // remontait à chaque embauche, on l'oubliait à chaque départ, et six mois plus tard le budget
+  // annonçait une masse que personne ne reconnaissait. Elle se LIT pourtant — c'est la somme des
+  // coûts employeur réellement payés sur l'année.
+  //
+  // On la RECALCULE et on la REMPLACE. Incrémenter supposerait de ne jamais transférer deux fois,
+  // de ne jamais corriger une ligne, de ne jamais annuler un paiement : les trois arrivent.
+  // Recalculer rend l'opération idempotente, et une correction se répercute d'elle-même.
+  const actualisation = await refreshPayrollMass(year, user.id);
+
   await recordAudit({
     actorId: user.id, action: "VALIDATE", module: "RH", entityType: "PAYROLL",
-    summary: `Paie ${formatMonth(ym(year, month))} transférée au budget « ${category.name} » — ${entries.length} salaire·s, ${total.toLocaleString("fr-FR")} DZD`,
+    summary: `Paie ${formatMonth(ym(year, month))} transférée au budget « ${category.name} » — ${entries.length} salaire·s, ${total.toLocaleString("fr-FR")} DZD · ${actualisation}`,
   });
   revalidatePath(PATH);
   revalidatePath("/finances");
   revalidatePath("/budgets");
   return { ok: true };
+}
+
+/**
+ * RECALCULER LA MASSE SALARIALE DE L'ANNÉE, département par département — et l'ÉCRIRE.
+ *
+ * Par ENTITÉ aussi, mais indirectement et c'est voulu : un département appartient à une société,
+ * donc la masse d'une société est la somme de celle de ses départements. Poser un second total
+ * par entité créerait une deuxième vérité, qui divergerait au premier rattachement corrigé.
+ *
+ * Rend la phrase que le journal retient.
+ */
+async function refreshPayrollMass(year: number, actorId: string): Promise<string> {
+  const paid = await prisma.payrollEntry.findMany({
+    where: { year, status: "PAID" },
+    select: {
+      gross: true, bonuses: true, deductions: true, employerCost: true,
+      employee: { select: { departmentId: true, companyId: true } },
+    },
+  });
+  const lignes: PayrollCostLine[] = paid.map((e) => ({
+    departmentId: e.employee?.departmentId ?? null,
+    companyId: e.employee?.companyId ?? null,
+    cost: entryCost({
+      employerCost: e.employerCost != null ? Number(e.employerCost) : null,
+      gross: Number(e.gross), bonuses: Number(e.bonuses), deductions: Number(e.deductions),
+    }),
+  }));
+  const { byDepartment } = massByDepartment(lignes);
+
+  const existantes = await prisma.departmentBudget.findMany({
+    where: { year, kind: "HR" },
+    select: { departmentId: true, amount: true },
+  });
+  const current = new Map(existantes.map((b) => [b.departmentId, Number(b.amount)]));
+  const aEcrire = budgetRefreshes(byDepartment, current);
+
+  for (const r of aEcrire) {
+    await prisma.departmentBudget.upsert({
+      where: { departmentId_year_kind: { departmentId: r.departmentId, year, kind: "HR" } },
+      create: { departmentId: r.departmentId, year, kind: "HR", amount: r.amount, setById: actorId },
+      // REMPLACEMENT, jamais `increment` : c'est toute la règle.
+      update: { amount: r.amount, setById: actorId },
+    }).catch((e) => console.error("[paie] masse salariale non actualisée", r.departmentId, e));
+  }
+  return refreshSummary(aEcrire, (n) => `${n.toLocaleString("fr-FR")} DZD`);
 }
 
 /**

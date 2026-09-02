@@ -5,7 +5,7 @@ import type { Priority, SponsoringStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, anyRoleFilter, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { companyIdForNew } from "@/lib/company";
+import { moneyEntityOf } from "@/lib/company";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { attachFiles } from "@/lib/attach-files";
@@ -80,7 +80,11 @@ export async function createSponsoring(
       requesterId: user.id,
       createdById: user.id,
       // Entité : la portée en cours, à défaut la société d'appartenance du créateur.
-      companyId: await companyIdForNew(user.id),
+      // L'ENTITÉ QUI PAIERA suit la PERSONNE (sa fiche employé, à défaut son
+      // département), pas la portée sélectionnée dans la barre : un délégué de Pharmagène qui
+      // consulte Adventum ne doit pas imputer sa demande à Adventum. La Direction corrige en
+      // validant, au seul moment où quelqu'un a le dossier entier sous les yeux.
+      companyId: await moneyEntityOf(user.id),
       ...(init.productManagerId ? { productManagerId: init.productManagerId } : {}),
       ...(init.preliminaryBySelf ? { preliminaryById: user.id, preliminaryAt: now } : {}),
     },
