@@ -696,6 +696,47 @@ export const getAccess = perRequest(
       rowGrants.get(g.entityType)!.add(g.entityId);
     }
 
+    /**
+     * ═══════════════════════════════════════════════════════════════════════════════════════
+     * POSER UN ACCÈS IMPLICITE — jamais par-dessus un blocage explicite de l'administrateur.
+     *
+     * ── LE DÉFAUT QU'ON CORRIGE ────────────────────────────────────────────────────────────
+     *
+     * Les accès implicites posés plus bas (tenir les RH ouvre les Moyens généraux, diriger un
+     * département ouvre le Recrutement, avoir une validation en attente ouvre le module visé…)
+     * ignoraient `blockedModules`. Un administrateur qui RETIRAIT un module à quelqu'un dans la
+     * console le voyait donc revenir au rafraîchissement suivant, sans explication : la règle
+     * implicite le rendait, en silence, à chaque requête.
+     *
+     * Le commentaire de `blockedModules` promet pourtant l'inverse depuis toujours — « un blocage
+     * qui se lèverait tout seul serait pire qu'inutile : il serait imprévisible ». La promesse
+     * n'était tenue que par le siège du centre de paiement. Elle l'est maintenant partout, par
+     * ce passage OBLIGÉ : plus aucun `modules.set` implicite n'existe hors de cette fonction.
+     *
+     * `mode` distingue les deux gestes réels : ÉLARGIR ce qu'on a déjà (le cas ordinaire) ou
+     * REMPLACER (le recrutement et le pipeline calculent un accès complet, qui ne se cumule pas).
+     * ═══════════════════════════════════════════════════════════════════════════════════════
+     */
+    const grantImplicit = (
+      module: Module,
+      actions: readonly Action[],
+      scope: AccessScope | null,
+      mode: "widen" | "replace" = "widen",
+    ) => {
+      // LE BLOCAGE EXPLICITE PRIME, TOUJOURS. C'est la décision d'une personne, prise à la main,
+      // devant l'écran des accès ; une règle automatique ne la défait pas.
+      if (blockedModules.has(module)) return;
+      const cur = modules.get(module);
+      if (!cur || mode === "replace") {
+        modules.set(module, { actions: new Set<Action>(actions), scope: scope ?? "ASSIGNED" });
+        return;
+      }
+      for (const a of actions) cur.actions.add(a);
+      // On n'élargit la portée que vers le HAUT : un accès implicite ne rétrécit jamais ce
+      // qu'un rôle accorde nativement.
+      if (scope === "ALL") cur.scope = "ALL";
+    };
+
     // ── Accès TEMPORAIRE de validation ──────────────────────────────────────────
     // Un validateur dont une étape est EN ATTENTE obtient, LE TEMPS de décider, une
     // LECTURE (VIEW/EXPORT) du module concerné + l'accès à la LIGNE liée — de sorte
@@ -704,11 +745,7 @@ export const getAccess = perRequest(
     // la requête → l'accès disparaît de lui-même. Toujours en LECTURE SEULE.
     for (const s of pendingValidations) {
       const mod = moduleFromValidation(s.request.module, s.request.link);
-      if (mod) {
-        const cur = modules.get(mod);
-        if (cur) { cur.actions.add("VIEW"); cur.actions.add("EXPORT"); }
-        else modules.set(mod, { actions: new Set<Action>(["VIEW", "EXPORT"]), scope: "ASSIGNED" });
-      }
+      if (mod) grantImplicit(mod, ["VIEW", "EXPORT"], null);
       if (s.request.entityType && s.request.entityId) {
         if (!rowGrants.has(s.request.entityType)) rowGrants.set(s.request.entityType, new Set());
         rowGrants.get(s.request.entityType)!.add(s.request.entityId);
@@ -719,11 +756,7 @@ export const getAccess = perRequest(
     // module par défaut (ex. un VIEWER, ou un compte dont l'accès a été personnalisé
     // sans VALIDATIONS). Sinon `requireModule("VALIDATIONS")` le redirige et la demande
     // qui l'attend reste invisible. On garantit donc au moins la LECTURE de la page.
-    if (pendingValidations.length > 0) {
-      const cur = modules.get("VALIDATIONS");
-      if (cur) cur.actions.add("VIEW");
-      else modules.set("VALIDATIONS", { actions: new Set<Action>(["VIEW"]), scope: "ASSIGNED" });
-    }
+    if (pendingValidations.length > 0) grantImplicit("VALIDATIONS", ["VIEW"], null);
 
     // ── LE SIÈGE NOMMÉ OUVRE LE MODULE QU'IL SERT, ET LUI SEUL ──
     //
@@ -734,11 +767,7 @@ export const getAccess = perRequest(
     // On accorde `PAYMENT_CENTRE` en VUE + VALIDATE, et RIEN d'autre : le siège ne donne pas les
     // Finances, ni la vue globale, ni un module de plus. Un BLOCAGE explicite de l'administrateur
     // prime, comme partout ailleurs — sinon on ne pourrait plus retirer le module à quelqu'un.
-    if (centreSeat > 0 && !blockedModules.has("PAYMENT_CENTRE")) {
-      const cur = modules.get("PAYMENT_CENTRE");
-      if (cur) { cur.actions.add("VIEW"); cur.actions.add("VALIDATE"); cur.scope = "ALL"; }
-      else modules.set("PAYMENT_CENTRE", { actions: new Set<Action>(["VIEW", "VALIDATE"]), scope: "ALL" });
-    }
+    if (centreSeat > 0) grantImplicit("PAYMENT_CENTRE", ["VIEW", "VALIDATE"], "ALL");
 
     // ── LES RH SONT LE MANAGER des Moyens généraux ──
     // Le module n'est pas dans leur matrice par rôle (« RH » est un droit de module, pas un
@@ -746,10 +775,7 @@ export const getAccess = perRequest(
     // TOUS les départements — c'est lui qui dote, arbitre les rallonges et contrôle les
     // dépenses. L'assistante de direction, elle, en est l'utilisatrice quotidienne.
     if (!modules.has("GENERAL_MEANS") && (modules.get("RH")?.actions.has("UPDATE") ?? false)) {
-      modules.set("GENERAL_MEANS", {
-        actions: new Set<Action>(["VIEW", "CREATE", "UPDATE", "DELETE", "VALIDATE", "EXPORT", "UPLOAD"]),
-        scope: "ALL",
-      });
+      grantImplicit("GENERAL_MEANS", ["VIEW", "CREATE", "UPDATE", "DELETE", "VALIDATE", "EXPORT", "UPLOAD"], "ALL");
     }
 
     // ── LE DRH ET LES FINANCES VOIENT TOUT LE BUREAU DU SECRÉTARIAT ──
@@ -766,9 +792,7 @@ export const getAccess = perRequest(
       rhCanUpdate: modules.get("RH")?.actions.has("UPDATE") ?? false,
       financeCanUpdate: modules.get("FINANCES")?.actions.has("UPDATE") ?? false,
     })) {
-      const cur = modules.get("ADMIN_REQUESTS");
-      if (cur) cur.scope = "ALL";
-      else modules.set("ADMIN_REQUESTS", { actions: new Set<Action>(["VIEW", "EXPORT"]), scope: "ALL" });
+      grantImplicit("ADMIN_REQUESTS", ["VIEW", "EXPORT"], "ALL");
     }
 
     // ── LE RECRUTEMENT SUIT L'ORGANIGRAMME ──
@@ -779,15 +803,7 @@ export const getAccess = perRequest(
       headsDepartment: departmentsLed > 0,
       rhCanUpdate: modules.get("RH")?.actions.has("UPDATE") ?? false,
     });
-    if (recruitment) {
-      const cur = modules.get("RECRUITMENT");
-      if (cur) {
-        for (const a of recruitment.actions) cur.actions.add(a);
-        if (recruitment.scope === "ALL") cur.scope = "ALL";
-      } else {
-        modules.set("RECRUITMENT", { actions: new Set<Action>(recruitment.actions), scope: recruitment.scope });
-      }
-    }
+    if (recruitment) grantImplicit("RECRUITMENT", recruitment.actions, recruitment.scope);
 
     // ── « MON ÉQUIPE » SUIT L'ORGANIGRAMME, PAS LE RÔLE ──
     //
@@ -800,10 +816,7 @@ export const getAccess = perRequest(
     // dans `nav-access.ts`) qui n'affiche l'entrée qu'à ceux qui ont réellement des N-1. Ce
     // n'est pas un trou : l'écran d'une personne sans équipe ne contient rien à voir — il ne
     // lit que SES subordonnés, et elle n'en a pas.
-    {
-      const cur = modules.get("MY_TEAM");
-      if (!cur) modules.set("MY_TEAM", { actions: new Set<Action>(["VIEW"]), scope: "ASSIGNED" });
-    }
+    grantImplicit("MY_TEAM", ["VIEW"], null);
 
     // ── INTÉRIM D'UN CONGÉ ──
     //
@@ -815,11 +828,7 @@ export const getAccess = perRequest(
     // Personne n'a rien à révoquer au retour, et c'est précisément ce qui la rend sûre — un
     // accès ouvert « pour cette fois » par un administrateur, lui, ne se referme jamais.
     for (const intérim of standIns) {
-      for (const d of intérim.delegations) {
-        const cur = modules.get(d.module);
-        if (cur) for (const a of d.actions) cur.actions.add(a);
-        else modules.set(d.module, { actions: new Set<Action>(d.actions), scope: "ASSIGNED" });
-      }
+      for (const d of intérim.delegations) grantImplicit(d.module, d.actions, null);
     }
 
     // ── PORTER UN DOSSIER RÉGLEMENTAIRE OUVRE LE MODULE ─────────────────────────
@@ -851,7 +860,7 @@ export const getAccess = perRequest(
         blocked: blockedModules.has("REGULATORY"),
         hasModule: modules.has("REGULATORY"),
       });
-      if (grant) modules.set("REGULATORY", { actions: new Set<Action>(grant.actions), scope: grant.scope });
+      if (grant) grantImplicit("REGULATORY", grant.actions, grant.scope, "replace");
     }
 
     // ── Accès IMPLICITE au module Budget quand une enveloppe est PARTAGÉE avec ce compte ──
@@ -874,7 +883,7 @@ export const getAccess = perRequest(
           select: { id: true },
         })
         .catch(() => null);
-      if (shared) modules.set("BUDGETS", { actions: new Set<Action>(["VIEW", "EXPORT"]), scope: "ASSIGNED" });
+      if (shared) grantImplicit("BUDGETS", ["VIEW", "EXPORT"], null);
     }
 
     // ── Accès IMPLICITE au module Drive quand quelque chose est PARTAGÉ avec ce compte ──
@@ -903,7 +912,7 @@ export const getAccess = perRequest(
           .catch(() => null),
         prisma.driveShare.findFirst({ where: { userId }, select: { id: true } }).catch(() => null),
       ]);
-      if (space || share) modules.set("DRIVE", { actions: new Set<Action>(["VIEW"]), scope: "ASSIGNED" });
+      if (space || share) grantImplicit("DRIVE", ["VIEW"], null);
     }
 
     // ── LE PIPELINE (dossiers VERROUILLÉS) ──────────────────────────────────────
