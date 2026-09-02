@@ -16,9 +16,11 @@ import { addMedicalInfoComment } from "@/lib/actions/medical-info-actions";
 import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { MEDICAL_INFO_STATUS, DOC_REQUEST_STATUS, ENTITY_TYPE_LABELS } from "@/lib/labels";
-import { RequestDocForm, CancelRequestButton, FulfillForm, AuthorityForm, ValidateButton, DirectionValidateButton, BvCard, AuthorityLocked } from "./panels";
-import { bvCanDeliver, bvCanRequest, bvCanRequestQuittance, bvStage, bvUnlocksAuthorities } from "@/lib/medical-info/bv";
-import { bvStateOf } from "@/lib/medical-info/bv-state";
+import { RequestDocForm, CancelRequestButton, FulfillForm, AuthorityForm, ValidateButton, DirectionValidateButton, DeclareDecisionCard, SlipsCard, AuthorityLocked } from "./panels";
+import { CIRCUIT_LABEL, CIRCUIT_HINT, DECLARATION_KIND_LABEL, isDeclarationKind } from "@/lib/medical-info/circuits";
+import { canRequestDecision, declareMessage } from "@/lib/medical-info/declare-decision";
+import { canEditSlips, canRequestSlipsValidation, slipsMessage } from "@/lib/medical-info/slips";
+import { circuitStateOf, authoritiesOpen } from "@/lib/medical-info/circuit-state";
 import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
@@ -31,23 +33,17 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
 
   const canManage = hasGlobalView(user.role) || userCan(user, "MEDICAL_INFO", "VALIDATE");
 
-  // ── LE BON DE VERSEMENT : l'étape qui précède la déclaration aux autorités ────────────────
-  // Deux temps. Le bon est d'abord ACCORDÉ — trois signatures : le responsable, le chef de
-  // produit du dossier, puis le centre de validations — et la quittance n'est demandée au
-  // paiement qu'ensuite. L'état ne vit dans aucun champ : il se compose de la validation, de la
-  // demande de paiement, de son passage au centre, de son règlement et de la remise au bureau du
-  // PRIM. C'est cette REMISE qui ouvre la déclaration : « payé » ne veut pas dire « le
-  // pharmacien a le papier en main ».
-  const bv = await bvStateOf(decl);
-  const bvEtape = bvStage(bv);
-  const autoritesOuvertes = bvUnlocksAuthorities(bv);
-  const canDeliverBv = bvCanDeliver(bv) && (userCan(user, "FINANCES", "UPDATE") || hasGlobalView(user.role));
-  const bvMontant = decl.bvRequestId
-    ? await prisma.paymentRequest.findUnique({ where: { id: decl.bvRequestId }, select: { amount: true } })
-    : null;
-  const bvRemisPar = decl.bvDeliveredById
-    ? await prisma.user.findUnique({ where: { id: decl.bvDeliveredById }, select: { name: true } })
-    : null;
+  // ── DEUX CIRCUITS, ET LA NATURE DÉCIDE ───────────────────────────────────────────────────
+  //
+  // Le bon de versement ne concerne QUE le matériel promotionnel. Une prise en charge, un
+  // sponsoring, un événement n'appellent aucun versement : ils appellent une DÉCISION — faut-il
+  // les déclarer au ministère de l'Industrie pharmaceutique ? L'état ne vit dans aucun champ : il
+  // se compose des validations, des demandes de paiement, de leur passage au centre, de leur
+  // règlement et de la remise de chaque quittance au bureau du PRIM.
+  const etat = await circuitStateOf(decl);
+  const autoritesOuvertes = authoritiesOpen(etat);
+  const canDeliverSlips = userCan(user, "FINANCES", "UPDATE") || hasGlobalView(user.role);
+  const lotEditable = canEditSlips(etat.lot);
   const isValidated = decl.status === "VALIDATED";
   const isAwaitingDirection = decl.status === "AWAITING_DIRECTION";
   const isDirection = hasGlobalView(user.role);
@@ -123,7 +119,11 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
             <h1 className="text-xl font-semibold tracking-tight">{decl.label}</h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            <span className="font-mono">{decl.reference}</span> · {ENTITY_TYPE_LABELS[decl.sourceType] ?? decl.sourceType}
+            <span className="font-mono">{decl.reference}</span> · {CIRCUIT_LABEL[etat.circuit]}
+            {" · "}
+            {isDeclarationKind(decl.declarationKind)
+              ? DECLARATION_KIND_LABEL[decl.declarationKind]
+              : (ENTITY_TYPE_LABELS[decl.sourceType] ?? decl.sourceType)}
             {amount != null && <> · {formatCurrency(amount)}</>}
           </p>
         </div>
@@ -246,33 +246,51 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
                 <CardHeader><CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4" /> Demander une pièce</CardTitle></CardHeader>
                 <CardContent><RequestDocForm declarationId={decl.id} users={users} /></CardContent>
               </Card>
-              {/* LE BON DE VERSEMENT vient AVANT : on ne déclare pas aux autorités sans avoir
-                  versé la taxe, et sans le bon en main — c'est ce papier qu'on dépose. */}
+              {/* LE CIRCUIT DU DOSSIER — et il n'y en a qu'UN à l'écran. Montrer les deux
+                  laisserait choisir, alors que la nature du dossier a déjà décidé. */}
               <Card>
-                <CardHeader><CardTitle className="flex items-center gap-2 text-base"><HandCoins className="h-4 w-4" /> Bon de versement</CardTitle></CardHeader>
-                <CardContent>
-                  <BvCard
-                    id={decl.id}
-                    stage={bvEtape}
-                    amount={bvMontant ? toNumber(bvMontant.amount) : null}
-                    deliveredAt={decl.bvDeliveredAt?.toISOString() ?? null}
-                    deliveredBy={bvRemisPar?.name ?? null}
-                    skipReason={decl.bvSkipReason}
-                    bvAmount={decl.bvAmount ? toNumber(decl.bvAmount) : null}
-                    canRequest={bvCanRequest(bv)}
-                    canRequestQuittance={canManage && bvCanRequestQuittance(bv)}
-                    canDeliver={canDeliverBv}
-                    canSkip={!autoritesOuvertes && bvCanRequest(bv)}
-                    requestHref={decl.bvRequestId ? `/validations/paiements/${decl.bvRequestId}` : null}
-                    validationHref={decl.bvValidationId ? `/validations/${decl.bvValidationId}` : null}
-                  />
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    {etat.circuit === "EVENT" ? <ShieldPlus className="h-4 w-4" /> : <HandCoins className="h-4 w-4" />}
+                    {etat.circuit === "EVENT" ? "Faut-il déclarer ?" : "Bons de versement"}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-xs text-muted-foreground">{CIRCUIT_HINT[etat.circuit]}</p>
+                  {etat.circuit === "EVENT" ? (
+                    <DeclareDecisionCard
+                      id={decl.id}
+                      state={etat.declare}
+                      authorityRef={decl.authorityRef}
+                      canRequest={canManage && canRequestDecision(etat.declare)}
+                      validationHref={decl.declareValidationId ? `/validations/${decl.declareValidationId}` : null}
+                    />
+                  ) : (
+                    <SlipsCard
+                      id={decl.id}
+                      lot={etat.lot}
+                      slips={etat.slips.map((sl) => ({
+                        id: sl.id, label: sl.label, amount: sl.amount, note: sl.note,
+                        requestId: sl.requestId, centralStatus: sl.centralStatus, orderStatus: sl.orderStatus,
+                        deliveredAt: sl.deliveredAt, deliveredAtIso: sl.deliveredAt?.toISOString() ?? null,
+                      }))}
+                      summary={etat.summary}
+                      canEdit={canManage && lotEditable}
+                      canValidate={canManage && canRequestSlipsValidation(etat.lot, etat.slips).ok}
+                      canManage={canManage}
+                      canDeliver={canDeliverSlips}
+                      canSkip={canManage && lotEditable && !etat.skipped && etat.slips.every((sl) => !sl.requestId)}
+                      skipReason={etat.skipped ? decl.bvSkipReason : null}
+                      validationHref={decl.bvValidationId ? `/validations/${decl.bvValidationId}` : null}
+                    />
+                  )}
                 </CardContent>
               </Card>
               <Card>
-                <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldPlus className="h-4 w-4" /> Déclaration aux autorités</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldPlus className="h-4 w-4" /> Dépôt au ministère</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
-                  {/* FERMÉE tant que le bon n'est pas remis. Le serveur applique la même règle :
-                      masquer une carte est du confort, le refus est la règle. */}
+                  {/* FERMÉ tant que le circuit ne l'a pas ouvert. Le serveur applique la MÊME
+                      règle : masquer une carte est du confort, le refus est la règle. */}
                   {autoritesOuvertes ? (
                     <>
                       <AuthorityForm id={decl.id} authorityRef={decl.authorityRef} authorityNotes={decl.authorityNotes} />
@@ -282,7 +300,9 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
                       </div>
                     </>
                   ) : (
-                    <AuthorityLocked stage={bvEtape} />
+                    <AuthorityLocked message={etat.circuit === "EVENT"
+                      ? declareMessage(etat.declare, { authorityRef: decl.authorityRef })
+                      : slipsMessage(etat.lot, etat.summary)} />
                   )}
                 </CardContent>
               </Card>

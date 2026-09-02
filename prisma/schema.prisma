@@ -3076,6 +3076,30 @@ model MedicalInfoDeclaration {
   bvSkippedById           String?
   bvSkipReason            String?
   archivedNodeId          String? // dossier « Dossier traité » créé dans le Drive du PRIM
+  /// ── DEUX CIRCUITS, ET LA NATURE DÉCIDE ────────────────────────────────────────────────
+  ///
+  /// Le bon de versement ne concerne QUE le matériel promotionnel. Une prise en charge, un
+  /// sponsoring, un événement n'appellent aucun versement : ils appellent une décision — faut-il
+  /// les déclarer au ministère de l'Industrie pharmaceutique ? Le circuit se déduit de
+  /// `sourceType` (et de `declarationKind` quand c'est le PRIM qui ouvre le dossier) ; voir
+  /// `src/lib/medical-info/circuits.ts`. Aucun geste ne permet de faire changer un dossier de
+  /// circuit : une case à cocher aurait laissé deux dossiers identiques suivre deux chemins.
+  ///
+  /// LA DÉCISION DE DÉCLARER — circuit ÉVÉNEMENT.
+  declareIntent           String? // DECLARE | SKIP — la lecture que le pharmacien soumet
+  declareValidationId     String? // la demande de validation de cette lecture
+  declareNote             String? // ce qu'il explique en la soumettant
+  declareRequestedAt      DateTime?
+  declareRequestedById    String?
+  /// LA REPRISE, et rien d'autre : les dossiers instruits AVANT que cette marche existe sont
+  /// réputés décidés. Posé UNE FOIS par la migration ; l'application écrit la validation, jamais
+  /// ce champ — deux écritures pour un même état finiraient par diverger.
+  declareGrantedAt        DateTime?
+  /// CE QUE LE PRIM OUVRE LUI-MÊME : MIP | AD_VISA | PAYMENT_SLIP. `null` = le dossier vient d'un
+  /// événement ou du matériel promotionnel, et c'est sa source qui dit le circuit.
+  declarationKind         String?
+  createdById             String?
+  slips                   MedicalInfoSlip[]
   requests                MedicalInfoDocRequest[]
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @updatedAt
@@ -3083,6 +3107,42 @@ model MedicalInfoDeclaration {
   @@unique([sourceType, sourceId])
   @@index([status])
   @@index([pharmacistId])
+}
+
+/// UN BON DE VERSEMENT — un par MATÉRIEL, dans le circuit du matériel promotionnel.
+///
+/// Il n'y en avait qu'un par dossier. Or un dossier en porte plusieurs : un présentoir, un jeu de
+/// posters, une vidéo — chacun son support, chacun sa taxe, chacun sa quittance. On additionnait
+/// donc les montants pour n'en demander qu'un, et l'on perdait ce que le guichet exige : le
+/// versement se fait matériel par matériel.
+///
+/// DEUX TEMPS : une VALIDATION couvre le dépôt du lot entier (`MedicalInfoDeclaration.bvValidationId`),
+/// puis chaque bon suit SA route — demande de paiement, centre, règlement, remise de la quittance.
+/// Voir `src/lib/medical-info/slips.ts`.
+model MedicalInfoSlip {
+  id            String                 @id @default(cuid())
+  declarationId String
+  declaration   MedicalInfoDeclaration @relation(fields: [declarationId], references: [id], onDelete: Cascade)
+  /// Le matériel concerné, nommé par le pharmacien (« présentoir comptoir », « affiches A2 »…).
+  label         String
+  /// Le montant ANNONCÉ du versement. Le montant RÉEL est celui de la demande de paiement.
+  amount        Decimal?               @db.Decimal(14, 2)
+  note          String?
+  /// L'ordre d'affichage, tel que le pharmacien a listé ses matériels.
+  position      Int                    @default(0)
+  /// La demande de paiement de LA quittance de ce bon : une `PaymentRequest` ordinaire, qui
+  /// emprunte le circuit commun plutôt qu'un second circuit qui divergerait.
+  requestId     String?
+  /// La remise au bureau du pharmacien — un GESTE des Finances, jamais un état déduit du
+  /// règlement : « payé » ne veut pas dire « il a le papier », et c'est le papier qu'on dépose.
+  deliveredAt   DateTime?
+  deliveredById String?
+  deliveryNote  String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  @@index([declarationId])
+  @@index([requestId])
 }
 
 model MedicalInfoDocRequest {

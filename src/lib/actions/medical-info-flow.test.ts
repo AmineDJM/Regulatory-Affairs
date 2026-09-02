@@ -118,11 +118,28 @@ suite("PRIM — circuit information médicale (déclaration → pièces → phar
     expect(r.ok).toBe(false);
   });
 
-  it("le pharmacien valide → transmis à la Direction (AWAITING_DIRECTION), AUCUN ordre encore", async () => {
+  it("SANS DÉCISION, LE PHARMACIEN NE VALIDE PAS — ce serait trancher seul la question", async () => {
+    // Un sponsoring relève du circuit ÉVÉNEMENT : aucun bon de versement, mais une décision —
+    // faut-il le déclarer au ministère ? Valider avant qu'elle soit accordée reviendrait à
+    // répondre tout seul à la question qu'on vient d'ouvrir.
     ACTOR = await actorFor(pharmacistId, "MEDICAL_INFO_PHARMACIST");
     const fd = new FormData(); fd.set("id", declId);
     const r = await validateDeclaration(fd);
-    expect(r.ok).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/décision/i);
+  });
+
+  it("le pharmacien valide → transmis à la Direction (AWAITING_DIRECTION), AUCUN ordre encore", async () => {
+    // La décision est accordée : ici, « sans déclaration » — il n'y a donc rien à déposer, et le
+    // dossier se valide directement.
+    await prisma.medicalInfoDeclaration.update({
+      where: { id: declId },
+      data: { declareIntent: "SKIP", declareGrantedAt: new Date() },
+    });
+    ACTOR = await actorFor(pharmacistId, "MEDICAL_INFO_PHARMACIST");
+    const fd = new FormData(); fd.set("id", declId);
+    const r = await validateDeclaration(fd);
+    expect(r.ok, r.error).toBe(true);
     const decl = await prisma.medicalInfoDeclaration.findUniqueOrThrow({ where: { id: declId } });
     expect(decl.status).toBe("AWAITING_DIRECTION");
     expect(decl.pharmacistValidatedById).toBe(pharmacistId);
