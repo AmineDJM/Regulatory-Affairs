@@ -1105,6 +1105,9 @@ model User {
 
   // Admin-managed dynamic access + activity + sessions
   access             UserAccess[]
+  /// SIÈGE NOMMÉ AU CENTRE DE PAIEMENT — voir `PaymentCentreSeat`.
+  paymentCentreSeat  PaymentCentreSeat?  @relation("PaymentCentreSeatHolder")
+  paymentCentreSeatsGranted PaymentCentreSeat[] @relation("PaymentCentreSeatGranter")
   rowGrants          RowGrant[]
   sessions           UserSession[]
   activityLogs       ActivityLog[]
@@ -4021,6 +4024,47 @@ enum AccessScope {
 /// Per-user, per-module access override. When a row exists it fully replaces the
 /// role default for that module, so an admin can grant/revoke a tab and tune
 /// exactly which actions a user may perform.
+/// UN SIÈGE NOMMÉ AU CENTRE DE PAIEMENT — une personne, désignée, et pas un rôle.
+///
+/// ── LE PROBLÈME QU'IL RÉSOUT ────────────────────────────────────────────────────────────────
+///
+/// Siéger au centre était une propriété du RÔLE : Super Admin ou Direction, et personne d'autre
+/// (`sitsOnPaymentCentre`). Faire entrer une personne de plus n'avait donc qu'un seul chemin —
+/// lui donner le rôle Direction, c'est-à-dire MANAGE sur tous les pôles, la vue globale sur les
+/// validations de toute l'entreprise et My Chief of Staff. Pour quelqu'un qui doit autoriser des
+/// paiements, c'est hors de proportion, et ce n'est pas ce qu'on voulait accorder.
+///
+/// Les deux gestes qui SEMBLAIENT surgicaux ne fonctionnaient pas et ne le disaient pas : cocher
+/// le module `PAYMENT_CENTRE` dans la grille d'accès (l'écran du centre ne consulte pas ce
+/// module) et poser « autre rôle = Direction » (la règle lit le rôle PRINCIPAL). Dans les deux
+/// cas l'administrateur croyait avoir accordé l'accès, et la personne trouvait un écran vide.
+///
+/// ── CE QUE LE SIÈGE EST, ET CE QU'IL N'EST PAS ──────────────────────────────────────────────
+///
+/// Il donne EXACTEMENT une chose : siéger au centre de paiement — voir la file des autorisations
+/// et trancher. Aucun autre module, aucune vue globale, aucun droit sur les Finances. Le cercle
+/// s'élargit par des NOMS, un par un, et chaque nom porte celui qui l'a désigné.
+///
+/// ── POURQUOI IL PORTE SON MOTIF ET SON AUTEUR ───────────────────────────────────────────────
+///
+/// Désigner quelqu'un au centre, c'est lui donner le pouvoir d'engager l'argent de la société.
+/// Un siège dont on ne sait ni qui l'a accordé, ni pourquoi, est un siège que personne n'ose
+/// retirer — on ne sait pas ce qu'on déferait. Le motif n'est pas de la paperasse : c'est ce
+/// qu'on relit le jour où l'on se demande si ce siège a encore une raison d'être.
+model PaymentCentreSeat {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation("PaymentCentreSeatHolder", fields: [userId], references: [id], onDelete: Cascade)
+  /// Qui a désigné. `SET NULL` : désactiver un compte n'efface pas la trace de ce qu'il a accordé.
+  grantedById String?
+  grantedBy   User?    @relation("PaymentCentreSeatGranter", fields: [grantedById], references: [id], onDelete: SetNull)
+  grantedAt   DateTime @default(now())
+  /// Le motif, écrit par celui qui désigne — obligatoire à l'écran.
+  note        String?
+
+  @@index([grantedById])
+}
+
 model UserAccess {
   id          String      @id @default(cuid())
   userId      String

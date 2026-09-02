@@ -110,7 +110,7 @@ import { persistActionIntents, recentActionIntentsContext } from "@/lib/assistan
 import { toNumber } from "@/lib/utils";
 import {
   sitsOnPaymentCentre, applyDecision, CENTRAL_STATUS_LABEL, CENTRAL_DECISION_LABEL,
-  type CentralStatus,
+  PAYMENT_CENTRE_REFUSAL, type CentralStatus,
 } from "@/lib/payments/authorization";
 import { decidePayment } from "@/lib/actions/payment-centre-actions";
 import type { CurrentUser } from "@/lib/session";
@@ -3346,7 +3346,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
 
   if (toolName === "decide_payment") {
     // Qui SIÈGE au centre — la même règle que l'écran. Le modèle ne décide jamais d'un droit.
-    if (!sitsOnPaymentCentre(user)) return { error: "Seuls le PDG et le Super Admin siègent au centre de paiement." };
+    if (!sitsOnPaymentCentre(user)) return { error: PAYMENT_CENTRE_REFUSAL };
     const ref = asStr(input, "reference").trim();
     if (!ref) return { error: "Donnez la référence du paiement à trancher." };
     const decision = asStr(input, "decision") as "APPROVE" | "REFUSE" | "REQUEST_CHANGES" | "REQUEST_INFO";
@@ -6020,7 +6020,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     // L'exécution repasse par L'ACTION DU CENTRE — la même que l'écran : elle revérifie qui
     // siège, si la décision a encore un sens (transition), écrit le fil et prévient qui attend.
     // Ne pas dupliquer cette logique ici : deux implémentations divergeraient un jour de paie.
-    if (!sitsOnPaymentCentre(user)) return { ok: false, error: "Seuls le PDG et le Super Admin siègent au centre de paiement." };
+    if (!sitsOnPaymentCentre(user)) return { ok: false, error: PAYMENT_CENTRE_REFUSAL };
     const fd = new FormData();
     fd.set("id", payload.orderId);
     fd.set("decision", payload.decision);

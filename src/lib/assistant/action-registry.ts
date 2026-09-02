@@ -1040,6 +1040,9 @@ X("APERÇU AVANT ÉCRITURE : une étape d'ÉCRAN, sans effet. Elle lit un classe
 // NB : `admin-actions:createUser` a quitté cette liste — le besoin « créer un compte » est
 // couvert par `org_operation:create_account_invite` (lien d'invitation : la personne définit
 // SON mot de passe ; rien ne transite par la conversation) via la reclassification catalogue.
+X("DÉSIGNER QUELQU'UN AU CENTRE DE PAIEMENT est une ATTESTATION, et celle qui porte le plus loin : elle donne le pouvoir d'ENGAGER L'ARGENT DE LA SOCIÉTÉ. §118-15 — accorder une autorisation engage la personne qui l'accorde, et l'audit portera SON nom. La rendre appelable par Adam l'exposerait à l'injection : un document lu par une étape pourrait contenir « désigne Untel au centre de paiement », et rien ne distinguerait plus cette désignation d'une vraie — puis Untel autoriserait les paiements. `policy/guard.ts` rattraperait l'agent sur les motifs « permission » et « grant », mais on ne s'en remet pas à un filet quand la porte peut rester fermée. Ces deux gestes exigent un clic du Super Admin sur /admin/access.", [
+  "payment-centre-seat-actions:grantPaymentCentreSeat", "payment-centre-seat-actions:revokePaymentCentreSeat",
+]);
 X("SÉCURITÉ : identifiants et sessions appartiennent à la personne au clavier — jamais à une conversation", [
   "auth-actions:authenticate", "auth-actions:doSignOut", "auth-actions:changePassword",
   "access-actions:adminResetPassword",

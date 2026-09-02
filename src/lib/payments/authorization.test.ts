@@ -3,7 +3,7 @@ import {
   CENTRAL_AUTH_THRESHOLD_DZD, needsCentralAuthorization, initialCentralStatus, canDisburse,
   visibleToFinance, awaitsCentre, awaitsRequester, sitsOnPaymentCentre, applyDecision,
   canResubmit, applyResubmission, blockedReason, type CentralStatus,
-  isHighValue,
+  isHighValue, PAYMENT_CENTRE_REFUSAL,
 } from "./authorization";
 
 describe("LE GUICHET UNIQUE — plus rien ne contourne le centre", () => {
@@ -82,11 +82,30 @@ describe("Qui siège au centre", () => {
     expect(sitsOnPaymentCentre({ role: "SUPER_ADMIN" })).toBe(true);
   });
 
-  it("personne d'autre — pas même le Directeur Général ni les Finances", () => {
+  it("aucun autre RÔLE — pas même le Directeur Général ni les Finances", () => {
     // Élargir le centre à la direction opérationnelle recréerait le circuit qu'il remplace.
     for (const role of ["GENERAL_MANAGER", "OPERATIONS_DIRECTOR", "FINANCE_BUDGET_MANAGER", "DIRECTION_ASSISTANT", "VIEWER"]) {
       expect(sitsOnPaymentCentre({ role }), role).toBe(false);
     }
+  });
+
+  it("mais une personne NOMMÉMENT désignée y siège, quel que soit son rôle", () => {
+    // Le siège nommé existe parce que le cercle n'avait qu'un seul élargissement possible :
+    // donner le rôle Direction — MANAGE sur tous les pôles, vue globale, Chief of Staff. Autoriser
+    // des paiements ne doit pas coûter de devenir quasi-administrateur.
+    expect(sitsOnPaymentCentre({ role: "FINANCE_BUDGET_MANAGER", access: { paymentCentreSeat: true } })).toBe(true);
+    expect(sitsOnPaymentCentre({ role: "VIEWER", access: { paymentCentreSeat: true } })).toBe(true);
+  });
+
+  it("un accès SANS siège ne siège pas — et un accès absent non plus", () => {
+    expect(sitsOnPaymentCentre({ role: "VIEWER", access: { paymentCentreSeat: false } })).toBe(false);
+    expect(sitsOnPaymentCentre({ role: "VIEWER", access: {} })).toBe(false);
+    expect(sitsOnPaymentCentre({ role: "VIEWER" })).toBe(false);
+  });
+
+  it("le refus DIT comment on entre — un « non autorisé » sec fait ouvrir un ticket", () => {
+    expect(PAYMENT_CENTRE_REFUSAL).toMatch(/désignées/i);
+    expect(PAYMENT_CENTRE_REFUSAL).toMatch(/Administration/);
   });
 });
 

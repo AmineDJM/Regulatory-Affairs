@@ -9,6 +9,7 @@ import {
   sitsOnPaymentCentre, applyDecision, applyResubmission, canResubmit,
   CENTRAL_DECISION_LABEL, CENTRAL_STATUS_LABEL,
   type CentralDecision, type CentralStatus,
+  PAYMENT_CENTRE_REFUSAL,
 } from "@/lib/payments/authorization";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
@@ -40,7 +41,7 @@ function isDecision(v: string): v is CentralDecision {
 export async function decidePayment(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!sitsOnPaymentCentre(user)) {
-    return { ok: false, error: "Seuls le PDG et le Super Admin siègent au centre de paiement." };
+    return { ok: false, error: PAYMENT_CENTRE_REFUSAL };
   }
 
   const id = fdStr(formData, "id");

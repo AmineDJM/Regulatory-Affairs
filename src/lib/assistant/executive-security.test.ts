@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { POWER_TOOLS, powerToolsFor, executePowerTool } from "./power-tools";
 import { buildProposal, performAction, extractSources, ACTION_POLICY, type AssistantActionPayload } from "@/lib/assistant";
 import { watchState } from "./reminders";
+import { PAYMENT_CENTRE_REFUSAL } from "@/lib/payments/authorization";
 
 /**
  * L'IA NE DOIT JAMAIS DEVENIR UNE PORTE DÉROBÉE CONTOURNANT LE RBAC.
@@ -151,9 +152,13 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
 });
 
 describe("actions d'écriture — la proposition ET l'exécution revérifient le droit", () => {
+  // ON COMPARE AU MESSAGE EXPORTÉ, pas à une formulation recopiée. Le refus a déjà changé de
+  // texte une fois (le siège NOMMÉ l'a rendu faux : « seuls le PDG et le Super Admin » ne l'est
+  // plus), et trois copies d'une phrase ne se corrigent jamais toutes les trois. Ce qu'on teste
+  // ici est le REFUS, pas sa rédaction.
   it("decide_payment : un compte hors du centre est refusé à la PROPOSITION", async () => {
     const r = await buildProposal("decide_payment", { reference: "ORD-2026-001", decision: "APPROVE" }, userWith({ FINANCES: ["VIEW"] }));
-    expect("error" in r && r.error).toMatch(/siègent au centre/i);
+    expect("error" in r && r.error).toBe(PAYMENT_CENTRE_REFUSAL);
   });
 
   it("decide_payment : une charge utile FORGÉE est refusée à l'EXÉCUTION", async () => {
@@ -163,7 +168,18 @@ describe("actions d'écriture — la proposition ET l'exécution revérifient le
     };
     const r = await performAction(userWith({ FINANCES: ["VIEW", "UPDATE"] }), forged);
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/siègent au centre/i);
+    expect(r.error).toBe(PAYMENT_CENTRE_REFUSAL);
+  });
+
+  it("decide_payment : un SIÈGE NOMMÉ passe la garde, sans aucun droit Finances", async () => {
+    // Le contraire du test précédent, et c'est lui qui prouve que le siège sert à quelque chose :
+    // sans droit sur les Finances, sans rôle Direction, la personne désignée n'est plus refusée
+    // au motif qu'elle ne siège pas — elle bute sur la référence introuvable, ce qui est la
+    // suite normale du traitement.
+    const seated = userWith({});
+    seated.access.paymentCentreSeat = true;
+    const r = await buildProposal("decide_payment", { reference: "ORD-INEXISTANT", decision: "APPROVE" }, seated);
+    expect("error" in r && r.error).not.toBe(PAYMENT_CENTRE_REFUSAL);
   });
 
   it("update_salary : refusé sans RH (modification), à la proposition ET à l'exécution", async () => {

@@ -116,15 +116,54 @@ export function awaitsRequester(status: CentralStatus): boolean {
 }
 
 /**
- * Qui siège au centre de paiement : le PDG et le Super Admin, personne d'autre.
+ * QUI SIÈGE AU CENTRE DE PAIEMENT — deux rôles, plus les personnes NOMMÉMENT désignées.
  *
- * Le Directeur Général n'y est PAS. Ce n'est pas un oubli : le centre existe pour que le sommet de
- * l'entreprise voie passer chaque engagement important, et l'élargir à la direction opérationnelle
- * reviendrait à recréer le circuit qu'il remplace.
+ * ── LE CERCLE PAR DÉFAUT N'A PAS BOUGÉ ───────────────────────────────────────────────────────
+ *
+ * Le PDG (`DIRECTION`) et le Super Admin. Le Directeur Général n'y est toujours PAS : le centre
+ * existe pour que le sommet de l'entreprise voie passer chaque engagement important, et l'ouvrir
+ * en bloc à la direction opérationnelle reviendrait à recréer le circuit qu'il remplace.
+ *
+ * ── CE QUI S'AJOUTE : LE SIÈGE NOMMÉ ─────────────────────────────────────────────────────────
+ *
+ * Le cercle restait strictement lié au RÔLE, si bien que faire entrer une personne de plus
+ * n'avait qu'un seul chemin : lui donner le rôle `DIRECTION` — MANAGE sur tous les pôles, vue
+ * globale sur les validations de toute l'entreprise, My Chief of Staff. Autoriser des paiements
+ * coûtait donc de devenir quasi-administrateur, et le refus d'élargir se payait en sur-attribution.
+ *
+ * Le siège nommé (`PaymentCentreSeat`) donne EXACTEMENT une chose : siéger ici. Il s'accorde
+ * personne par personne, par le Super Admin, avec un motif et une trace. Il n'ouvre aucun autre
+ * module, aucune vue globale, aucun droit sur les Finances.
+ *
+ * ── POURQUOI IL ARRIVE PAR `access` ET NON PAR UNE LECTURE ICI ───────────────────────────────
+ *
+ * Cette fonction est SYNCHRONE et appelée partout — écran, action, assistant, recherche. Lui
+ * donner une lecture de base la rendrait asynchrone d'un bout à l'autre de la chaîne. Le siège
+ * est donc résolu UNE FOIS par requête dans `getAccess`, exactement comme les accès au pipeline
+ * réglementaire, et voyage dans l'accès effectif.
  */
-export function sitsOnPaymentCentre(user: { role: string }): boolean {
-  return user.role === "SUPER_ADMIN" || user.role === "DIRECTION";
+export interface PaymentCentreMember {
+  role: string;
+  /** L'accès effectif de la session — `paymentCentreSeat` y est résolu par `getAccess`. */
+  access?: { paymentCentreSeat?: boolean };
 }
+
+export function sitsOnPaymentCentre(user: PaymentCentreMember): boolean {
+  return user.role === "SUPER_ADMIN"
+    || user.role === "DIRECTION"
+    || user.access?.paymentCentreSeat === true;
+}
+
+/**
+ * LE REFUS, ÉCRIT UNE SEULE FOIS.
+ *
+ * Trois endroits refusaient l'accès au centre avec la même phrase recopiée — « Seuls le PDG et le
+ * Super Admin siègent au centre de paiement ». Depuis le siège nommé, cette phrase est FAUSSE, et
+ * trois copies d'un message faux se corrigent rarement toutes les trois. La formulation vit ici.
+ */
+export const PAYMENT_CENTRE_REFUSAL =
+  "Vous ne siégez pas au centre de paiement. Y siègent le PDG, le Super Admin, et les personnes "
+  + "qui y ont été nommément désignées — un Super Admin peut vous y désigner depuis Administration → Accès.";
 
 /**
  * L'état qui suit une décision — et les allers-retours qu'il autorise.

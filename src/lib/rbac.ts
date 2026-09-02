@@ -552,6 +552,11 @@ export interface EffectiveAccess {
   pipelineView?: boolean;
   /** PIPELINE — tient-il le CADENAS (ouvrir un dossier = le publier à toute l'entreprise) ? */
   pipelineManage?: boolean;
+  /** CENTRE DE PAIEMENT — a-t-il un SIÈGE NOMMÉ ? Une désignation personnelle, indépendante du
+   *  rôle, qui n'ouvre QUE le centre (voir `PaymentCentreSeat`). Résolu ici pour la même raison
+   *  que le pipeline : `sitsOnPaymentCentre` est SYNCHRONE et appelée partout, elle ne peut pas
+   *  lire la base. Optionnel : les fabriques de test construisent un accès minimal. */
+  paymentCentreSeat?: boolean;
 }
 export interface SessionUser {
   id: string;
@@ -568,7 +573,7 @@ export interface SessionUser {
  */
 export const getAccess = perRequest(
   async (userId: string, roleHint: UserRole): Promise<EffectiveAccess> => {
-    const [overrides, grants, userRow, pendingValidations, departmentsLed, standIns, appSettings] = await Promise.all([
+    const [overrides, grants, userRow, pendingValidations, departmentsLed, standIns, appSettings, centreSeat] = await Promise.all([
       prisma.userAccess.findMany({ where: { userId } }),
       prisma.rowGrant.findMany({ where: { userId }, select: { entityType: true, entityId: true } }),
       prisma.user.findUnique({ where: { id: userId }, select: { role: true, secondaryRole: true } }),
@@ -588,6 +593,11 @@ export const getAccess = perRequest(
       // `getAppSettings` est lui-même mis en cache par requête et retombe sur ses valeurs par
       // défaut en cas de souci — le doute referme le verrou, il ne l'ouvre pas.
       getAppSettings(),
+      // LE SIÈGE NOMMÉ AU CENTRE DE PAIEMENT. Une désignation PERSONNELLE, accordée une par une
+      // par le Super Admin : elle n'ouvre que le centre, et rien d'autre. On la résout ici parce
+      // que `sitsOnPaymentCentre` est synchrone et appelée depuis l'écran, l'action, l'assistant
+      // et la recherche — lui donner une lecture de base rendrait toute la chaîne asynchrone.
+      prisma.paymentCentreSeat.count({ where: { userId } }).catch(() => 0),
     ]);
 
     // Rôle principal résolu EN DIRECT depuis la base : le JWT fige le rôle au login, donc
@@ -713,6 +723,21 @@ export const getAccess = perRequest(
       const cur = modules.get("VALIDATIONS");
       if (cur) cur.actions.add("VIEW");
       else modules.set("VALIDATIONS", { actions: new Set<Action>(["VIEW"]), scope: "ASSIGNED" });
+    }
+
+    // ── LE SIÈGE NOMMÉ OUVRE LE MODULE QU'IL SERT, ET LUI SEUL ──
+    //
+    // Désigner quelqu'un au centre sans lui ouvrir l'entrée de menu produirait exactement le
+    // défaut qu'on corrige : un accès accordé qui ne mène nulle part, et une personne qui doit
+    // connaître l'URL pour exercer un droit qu'on croit lui avoir donné.
+    //
+    // On accorde `PAYMENT_CENTRE` en VUE + VALIDATE, et RIEN d'autre : le siège ne donne pas les
+    // Finances, ni la vue globale, ni un module de plus. Un BLOCAGE explicite de l'administrateur
+    // prime, comme partout ailleurs — sinon on ne pourrait plus retirer le module à quelqu'un.
+    if (centreSeat > 0 && !blockedModules.has("PAYMENT_CENTRE")) {
+      const cur = modules.get("PAYMENT_CENTRE");
+      if (cur) { cur.actions.add("VIEW"); cur.actions.add("VALIDATE"); cur.scope = "ALL"; }
+      else modules.set("PAYMENT_CENTRE", { actions: new Set<Action>(["VIEW", "VALIDATE"]), scope: "ALL" });
     }
 
     // ── LES RH SONT LE MANAGER des Moyens généraux ──
@@ -887,7 +912,11 @@ export const getAccess = perRequest(
     // assistant). Un droit qui exigerait une requête à chaque appel ne pourrait pas y vivre.
     const pipeline = pipelineAccessFor({ id: userId, role, secondaryRole }, appSettings);
 
-    return { modules, rowGrants, secondaryRole, role, pipelineView: pipeline.view, pipelineManage: pipeline.manage };
+    return {
+      modules, rowGrants, secondaryRole, role,
+      pipelineView: pipeline.view, pipelineManage: pipeline.manage,
+      paymentCentreSeat: centreSeat > 0,
+    };
   },
 );
 

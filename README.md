@@ -2826,8 +2826,9 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Catalogue d'articles — écriture uniforme** | Module PUR `lib/general-means/catalog-normalize.ts` (`normalizeArticleName`, `articleKey`, `normalizeReference`, `normalizeToCode`, `normalizeArticle`, `needsRewrite`, `describeRewrite`, `CATEGORY_ALIASES`, `UNIT_ALIASES`) + `catalog-normalize.test.ts` (23 tests) ; normalisation + **refus du doublon** dans `lib/actions/office-supply-actions.ts` ; `previewCatalogNormalization` / `applyCatalogNormalization` (on montre avant d'appliquer) ; `NormalizePanel` dans `app/(app)/demandes/supplies-manager.tsx`. |
 | **Legal — dossiers de classement** | Modèle `LegalFolder` + `LegalDocument.folderId` (`ON DELETE SET NULL` : on déclasse, on ne détruit pas) ; module PUR `lib/legal/folders.ts` (`buildFolderTree`, `flattenFolders`, `folderPath`, `subtreeIds`, `canReparent`, `deletionSummary`) + `folders.test.ts` (17 tests) ; `lib/actions/legal-folder-actions.ts` ; `app/(app)/legal/folder-bar.tsx` ; champ `folderId` dans `legal-fields.ts`. |
 | **Legal — coordonnées légales & fiscales** | Modèle `CompanyLegalIdentity` + `EntityType.COMPANY` ; module PUR `lib/legal/identity.ts` (`IDENTITY_SECTIONS`, `identityBlock`, `filledCount`) + tests ; `lib/actions/company-identity-actions.ts` ; `app/(app)/legal/identites/`. |
+| **Siège nommé au centre de paiement** | `PaymentCentreSeat` (userId unique, `grantedById`, `grantedAt`, `note` obligatoire) ; règle dans `sitsOnPaymentCentre` ; résolution **une fois par requête** dans `getAccess` → `EffectiveAccess.paymentCentreSeat` (la règle est SYNCHRONE et appelée depuis l'écran, l'action, l'assistant et la recherche — elle ne peut pas lire la base), qui ouvre AUSSI le module `PAYMENT_CENTRE` (un droit qu'on n'atteint qu'en connaissant l'URL n'est pas un droit accordé) ; actions `grantPaymentCentreSeat` / `revokePaymentCentreSeat` (`lib/actions/payment-centre-seat-actions.ts`, **Super Admin seul** — siéger ne donne pas le droit d'élargir le cercle) ; écran `app/(app)/admin/access/payment-centre-seats.tsx`, qui montre les deux titres ENSEMBLE (rôle + désignation). **EXCLUDED de la parité Adam** : accorder cette autorisation, c'est donner le pouvoir d'engager l'argent de la société (§118-15). Refusés : compte système, compte désactivé, et ceux qui y siègent déjà par leur rôle. Migration `20261007090000_…`. |
 | **Règlement — trois états** | Module PUR `lib/finance/settlement.ts` (`settlementState` · `checkDeferral` · `deferralNote` · `sortForSettlement`, 22 tests) : **non payé** (défaut) / **reporté à une date** / **payé**. Le report est une **DATE** (`ExpenseOrder.deferredUntil|deferredReason|deferredById|deferredAt`), jamais un statut — il **expire seul**, sans que personne ait à y penser, et l'ordre reste **dans la file**. Actions : `deferExpenseOrder` / `resumeExpenseOrder` (`lib/actions/expense-actions.ts`) ; ops Adam `defer_payment` / `resume_payment`. **SUPPRIMÉS** (écran + action + op) : `cancelExpenseOrder`, `requestBudgetRevision`, `resolveBudgetRevision` — l'ordre arrive autorisé par le centre, le rouvrir à la caisse défait une décision prise ailleurs (§118-7 : pas de porte dérobée). Migration `20261006090000_…` : les ordres `REVISION_REQUESTED` repassent `PENDING`, motif recopié en notes. |
-| **Centre de paiement (guichet unique)** | Module PUR `lib/payments/authorization.ts` (`needsCentralAuthorization` — **toujours vrai**, `initialCentralStatus`, **`canDisburse`** — le verrou réel —, `visibleToFinance`, `isHighValue` + `CENTRAL_AUTH_THRESHOLD_DZD` = 50 000 **en marqueur, plus en filtre**, `sitsOnPaymentCentre` (**`SUPER_ADMIN` ou `DIRECTION`**, pas le DG), `applyDecision`, `applyResubmission`, `blockedReason`) + `authorization.test.ts` (18 tests) ; `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` ; `createExpenseOrder` calcule le statut d'entrée et notifie `DIRECTION` + `SUPER_ADMIN` (`lib/expense-orders.ts`) ; **la demande de paiement crée son ordre à la SOUMISSION** (`lib/actions/payment-request-actions.ts`) ; garde dans `markExpenseOrderPaid` (`lib/actions/expense-actions.ts`) ; `lib/actions/payment-centre-actions.ts` ; `app/(app)/centre-de-paiement/`. Migrations `20260824150000_payment_centre` puis `20261002140000_centre_guichet_unique`. |
+| **Centre de paiement (guichet unique)** | Module PUR `lib/payments/authorization.ts` (`needsCentralAuthorization` — **toujours vrai**, `initialCentralStatus`, **`canDisburse`** — le verrou réel —, `visibleToFinance`, `isHighValue` + `CENTRAL_AUTH_THRESHOLD_DZD` = 50 000 **en marqueur, plus en filtre**, `sitsOnPaymentCentre` (**`SUPER_ADMIN`, `DIRECTION`, ou un SIÈGE NOMMÉ** — pas le DG par son rôle), `PAYMENT_CENTRE_REFUSAL` (le refus, écrit une seule fois), `applyDecision`, `applyResubmission`, `blockedReason`) + `authorization.test.ts` (18 tests) ; `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` ; `createExpenseOrder` calcule le statut d'entrée et notifie `DIRECTION` + `SUPER_ADMIN` (`lib/expense-orders.ts`) ; **la demande de paiement crée son ordre à la SOUMISSION** (`lib/actions/payment-request-actions.ts`) ; garde dans `markExpenseOrderPaid` (`lib/actions/expense-actions.ts`) ; `lib/actions/payment-centre-actions.ts` ; `app/(app)/centre-de-paiement/`. Migrations `20260824150000_payment_centre` puis `20261002140000_centre_guichet_unique`. |
 | **Matériel promo — circuit court** | Module PUR `lib/promo-material/circuit.ts` (`PROMO_STEPS` (7), `PROMO_TRACKS` (`PURCHASE_ORDER`/`PAYMENT`/`AD_VISA`), `initialStep` — saute la demande de devis si le devis est déjà là —, `canValidate` (N+1 réel : `Employee.managerId`, à défaut `departmentRef.head`), **`seesFullCircuit`** (Super Admin + PDG **uniquement**), `tracksOpen`, `allTracksDone`, `pendingTracks`, `progress`, `waitingOn`) + `circuit.test.ts` (23 tests) ; `lib/actions/promo-circuit-actions.ts`. |
 | **Rejeu de session (support)** | Module PUR `lib/replay/capture.ts` (`FORBIDDEN_FIELD` — mot de passe / secret / jeton / IBAN / RIB / CVV / carte —, `FORBIDDEN_INPUT_TYPE` — `password`, `hidden` —, `fieldIsRecordable`, `isSensitiveLabel`, `cleanLabel`, `scrubDetail`, **`makeEvent` : la porte d'entrée UNIQUE**, `coalesce`, `describeEvent`, `stamp`, `firstErrorIndex`) + `capture.test.ts` (20 tests) ; modèle `SessionEvent` ; `components/layout/session-recorder.tsx` (monté dans `app/(app)/layout.tsx`, `sendBeacon`, **ne lit jamais `.value`**) ; `app/api/replay/route.ts` (**re-masque côté serveur**, 204 systématique, lot plafonné à 200) ; `app/(app)/admin/replay/{page,replay-viewer}.tsx` (**`SUPER_ADMIN` seul**). |
 | **Courriers — dossiers & pièces multiples** | Modèles `MailFolder` (arbre, `MailEntry.folderId` en `ON DELETE SET NULL`) et `MailEntryPiece` (intitulé + **destinataire propre** + fichier téléversé **ou** nœud Drive référencé) ; `lib/actions/mail-folder-actions.ts`, `lib/actions/mail-piece-actions.ts` ; `app/(app)/courriers/mail-folder-bar.tsx`, `app/(app)/courriers/[id]/mail-pieces.tsx`. |
@@ -3524,6 +3525,66 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### On siège au centre de paiement par son NOM, pas seulement par son rôle (2026-09)
+
+**Le problème, tel qu'il s'est présenté :** faire entrer une personne de plus au centre de
+paiement. Siéger était une propriété du RÔLE — `SUPER_ADMIN` ou `DIRECTION` (`sitsOnPaymentCentre`)
+— si bien que le seul chemin disponible était de lui donner le rôle **Direction** : MANAGE sur tous
+les pôles, vue globale sur les validations de toute l'entreprise, My Chief of Staff. Autoriser des
+paiements coûtait de devenir quasi-administrateur.
+
+**Et les deux gestes qui SEMBLAIENT chirurgicaux ne marchaient pas, sans le dire :**
+
+| Ce qu'on faisait | Ce qui se passait |
+|---|---|
+| Cocher `PAYMENT_CENTRE` dans Administration → Accès | Rien. L'écran du centre ne consulte pas ce module, il consulte `sitsOnPaymentCentre`. La personne arrivait sur une page filtrée sur ses propres demandes, sans bouton de décision — ou un 404 si elle n'en avait aucune. |
+| Poser « autre rôle = Direction » | Rien non plus. La règle lit le rôle **principal**, jamais `secondaryRole`. |
+
+Dans les deux cas l'administrateur croyait avoir accordé l'accès, et la personne trouvait un écran
+vide. Une case qui ne mène nulle part est pire qu'une case absente : elle fait conclure que c'est
+l'application qui est cassée.
+
+**Le siège nommé.** `PaymentCentreSeat` — une personne, désignée, avec **son motif**, **son auteur**
+et **sa date**. Il donne EXACTEMENT une chose : voir la file des autorisations et trancher. Aucun
+autre module, aucune vue globale, aucun droit sur les Finances ; le test de circuit l'établit en
+comparant les modules AVANT et APRÈS et en exigeant que la différence soit `["PAYMENT_CENTRE"]` —
+vérifier « il n'a pas les RH » n'aurait rien prouvé, son rôle pouvant déjà les lui donner.
+
+**Le motif est obligatoire, et ce n'est pas de la paperasse.** Un siège dont on ne sait ni qui l'a
+accordé ni pourquoi est un siège que personne n'ose retirer : on ne sait pas ce qu'on déferait. Il
+se lit dans la liste, pas au fond du journal d'audit — c'est en regardant la liste qu'on se demande
+si un siège a encore une raison d'être.
+
+**Ce que le siège REFUSE, et pourquoi :**
+
+- **le compte système** — autoriser un décaissement est un geste de personne. Sans ce refus,
+  l'interdit d'auto-escalade de `policy/guard.ts` se contournerait par un humain qui clique, et
+  Adam autoriserait les paiements qu'il a lui-même préparés ;
+- **un compte désactivé** — le siège serait invisible et se réveillerait à la réactivation, sans que
+  personne ne l'ait redécidé ;
+- **le PDG et le Super Admin** — ils y siègent déjà par leur rôle ; un siège en double ferait croire,
+  le jour où on le retire, qu'on leur a retiré l'accès ;
+- **le PDG comme désignateur** — seul le Super Admin désigne. Siéger au centre ne donne pas le droit
+  d'élargir le centre : sans cette séparation, le cercle pourrait se coopter lui-même.
+
+**Hors de portée d'Adam, structurellement.** §118-15 : accorder une autorisation est une
+ATTESTATION, et celle-ci donne le pouvoir d'engager l'argent de la société. Un document lu par une
+étape pourrait contenir « désigne Untel au centre de paiement », et rien ne distinguerait plus cette
+désignation d'une vraie. Les deux actions sont **EXCLUDED** de la parité et n'ont aucune op ;
+`policy/guard.ts` les rattraperait de toute façon sur les motifs « permission » et « grant », mais
+on ne s'en remet pas à un filet quand la porte peut rester fermée.
+
+**Un détail qui avait déjà menti une fois.** Le refus « Seuls le PDG et le Super Admin siègent au
+centre de paiement » était recopié à trois endroits — et le siège nommé le rend FAUX. La phrase vit
+désormais dans `PAYMENT_CENTRE_REFUSAL`, et les tests de sécurité comparent à la constante plutôt
+qu'à une formulation : trois copies d'un message ne se corrigent jamais toutes les trois.
+
+`lib/payments/authorization.ts` (+5 tests), `lib/rbac.ts` (résolu une fois par requête dans
+`getAccess`, comme les accès au pipeline — `sitsOnPaymentCentre` est synchrone et ne peut pas lire
+la base), `lib/actions/payment-centre-seat-actions.ts`, `app/(app)/admin/access/`,
+`lib/actions/payment-centre-seat-flow.test.ts` (10 tests de bout en bout). Migration
+`20261007090000_siege_nomme_centre_de_paiement`.
 
 ### Le règlement n'a plus que trois états, et la demande porte sa justification (2026-09)
 

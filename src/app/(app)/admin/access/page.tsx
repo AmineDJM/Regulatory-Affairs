@@ -1,4 +1,4 @@
-import { ArrowLeft, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Coins } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { PERMISSIONS, defaultScope, MODULES, ACTIONS, type Action, type Module } from "@/lib/rbac";
@@ -7,8 +7,10 @@ import { MODULE_LABELS, ROLE_LABELS, ACTION_LABELS } from "@/lib/labels";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ModuleAccessGrid, type AccessUser, type UserModuleState, type PipelineConfig } from "./module-access-grid";
+import { PaymentCentreSeats, type SeatCandidate, type SeatHolder } from "./payment-centre-seats";
 import { getAppSettings } from "@/lib/settings";
 import { BackLink } from "@/components/shared/back-link";
+import { formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +83,32 @@ export default async function AccessByModulePage() {
         }])),
       }
     : undefined;
+  // ── LE CERCLE DU CENTRE DE PAIEMENT ──────────────────────────────────────────────────────
+  //
+  // Il ne se règle PAS par la grille des modules : l'écran du centre ne consulte pas le module
+  // `PAYMENT_CENTRE`, il consulte `sitsOnPaymentCentre`. Cocher la case ne donnait donc rien, et
+  // ne le disait pas. On lit donc les deux titres — le RÔLE et la DÉSIGNATION nominative — et on
+  // les montre ensemble : ne montrer que les désignations ferait croire le cercle plus étroit
+  // qu'il n'est, et l'on retirerait un siège en pensant fermer une porte restée ouverte.
+  const seatRows = await prisma.paymentCentreSeat.findMany({
+    include: { user: { select: { id: true, name: true, role: true } }, grantedBy: { select: { name: true } } },
+    orderBy: { grantedAt: "desc" },
+  });
+  const seats: SeatHolder[] = seatRows.map((r) => ({
+    userId: r.userId, name: r.user.name, role: ROLE_LABELS[r.user.role] ?? r.user.role,
+    note: r.note, grantedBy: r.grantedBy?.name ?? null, grantedAt: formatDate(r.grantedAt.toISOString()),
+  }));
+  const seated = new Set(seats.map((s) => s.userId));
+  const byRole = users
+    .filter((u) => u.role === "SUPER_ADMIN" || u.role === "DIRECTION")
+    .map((u) => ({ id: u.id, name: u.name, role: ROLE_LABELS[u.role] ?? u.role }));
+  // Les candidats : ni ceux qui y siègent déjà par leur rôle (un siège nommé n'ajouterait rien),
+  // ni ceux déjà désignés, ni le compte système — autoriser un décaissement est un geste de
+  // personne, et le laisser dans la liste inviterait à l'auto-escalade par un humain qui clique.
+  const candidates: SeatCandidate[] = users
+    .filter((u) => !u.isSystem && u.role !== "SUPER_ADMIN" && u.role !== "DIRECTION" && !seated.has(u.id))
+    .map((u) => ({ id: u.id, name: u.name, role: ROLE_LABELS[u.role] ?? u.role }));
+
   const sheet = buildAccessSheet(
     MODULES,
     MODULE_LABELS as Record<string, string>,
@@ -106,6 +134,15 @@ export default async function AccessByModulePage() {
         </CardHeader>
         <CardContent>
           <ModuleAccessGrid modules={sheet} users={accessUsers} actionLabels={ACTION_LABELS} pipeline={pipeline} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Coins className="h-4 w-4 text-primary" /> Qui siège au centre de paiement</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <PaymentCentreSeats seats={seats} candidates={candidates} byRole={byRole} />
         </CardContent>
       </Card>
     </div>
