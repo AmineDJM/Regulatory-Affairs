@@ -108,15 +108,15 @@ describe("Le bon à payer", () => {
 
   it("JAMAIS sans justificatif — c'est ce que le dossier existe pour empêcher", () => {
     expect(canApprove(req, []).ok).toBe(false);
-    expect(canApprove(req, []).reason).toMatch(/bon de commande ou la facture/i);
+    expect(canApprove(req, []).reason).toMatch(/bon de commande, une facture ou un devis/i);
   });
 
-  it("ni sur des pièces qui ACCOMPAGNENT sans justifier (devis, bon de livraison)", () => {
+  it("ni sur des pièces qui ACCOMPAGNENT sans justifier (bon de livraison, autre pièce)", () => {
     // Le bon à payer se juge exactement comme la transmission : deux règles séparées auraient
     // divergé, et l'on aurait fini par autoriser au bon à payer ce que le dépôt refusait.
-    const r = canApprove(req, [p("ACCEPTED", "QUOTE"), p("ACCEPTED", "DELIVERY_NOTE")]);
+    const r = canApprove(req, [p("ACCEPTED", "DELIVERY_NOTE"), p("ACCEPTED", "OTHER")]);
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/BON DE COMMANDE ou une FACTURE/);
+    expect(r.reason).toMatch(/BON DE COMMANDE, une FACTURE ou un DEVIS/);
   });
 
   it("ni tant que le moyen de paiement n'a pas été déclaré", () => {
@@ -171,7 +171,7 @@ describe("Renvoyer le dossier corrigé", () => {
   it("RENVOYER, C'EST TRANSMETTRE : même exigence de bon de commande ou de facture", () => {
     const r = canResubmit(encours, [p("ACCEPTED", "OTHER")]);
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/BON DE COMMANDE ou une FACTURE/);
+    expect(r.reason).toMatch(/BON DE COMMANDE, une FACTURE ou un DEVIS/);
   });
 
   it("un BON DE VERSEMENT se renvoie sans pièce", () => {

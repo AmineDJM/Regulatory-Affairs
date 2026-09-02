@@ -28,7 +28,7 @@ import { createValidationRequest } from "@/lib/actions/validation-actions";
  * visites n'ouvriront pas.
  */
 export function ItemAskPanel({
-  entityType, entityId, link, subject,
+  entityType, entityId, link, subject, canAskValidation = true,
 }: {
   /** L'objet auquel la pièce se rattachera (`AD_PRO_ITEM` pour un poste). */
   entityType: string;
@@ -37,6 +37,15 @@ export function ItemAskPanel({
   link: string;
   /** L'intitulé de l'objet, pour pré-remplir les titres. */
   subject: string;
+  /**
+   * DEMANDER UNE VALIDATION A-T-IL ENCORE UN SENS ICI ?
+   *
+   * Sur un poste de dépense en cours d'arbitrage, oui. Sur un paiement DÉJÀ AUTORISÉ par le centre
+   * — la file du décaissement, le centre lui-même — non : faire valider ce qui vient d'être validé
+   * ne mène nulle part, et proposer un geste sans effet est pire que ne rien proposer. On l'exerce,
+   * on attend une réponse, elle ne vient jamais.
+   */
+  canAskValidation?: boolean;
 }) {
   const router = useRouter();
   const [mode, setMode] = React.useState<"piece" | "validation" | null>(null);
@@ -102,12 +111,14 @@ export function ItemAskPanel({
         >
           <FileQuestion className="h-3.5 w-3.5" /> Demander une pièce
         </button>
+        {canAskValidation && (
         <button
           type="button" onClick={() => void open("validation")}
           className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 font-medium hover:bg-secondary"
         >
           <ShieldCheck className="h-3.5 w-3.5" /> Demander une validation
         </button>
+        )}
       </div>
 
       <Sheet

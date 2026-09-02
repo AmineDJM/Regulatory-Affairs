@@ -27,8 +27,23 @@ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/centre-de-paiement";
 
+/**
+ * DEUX DÉCISIONS, ET DEUX SEULEMENT : autoriser ou refuser.
+ *
+ * `REQUEST_CHANGES` (« réviser le montant ») et `REQUEST_INFO` (« demander une argumentation »)
+ * ont été retirés du centre. Ils y ajoutaient deux allers-retours pour une question qui se pose
+ * AVANT — le montant et sa justification appartiennent à la demande, pas à l'autorisation — et
+ * quatre boutons sur une ligne où l'on engage l'argent de la société font hésiter là où il faut
+ * trancher.
+ *
+ * On les retire ICI et pas seulement à l'écran : un geste que l'écran ne propose plus mais que
+ * l'action accepte encore reste ouvert à l'assistant et à l'API (§118-7). Les deux ÉTATS, eux,
+ * survivent — des dossiers en cours les portent, et leur demandeur doit pouvoir répondre et
+ * resoumettre (`respondToPaymentCentre`) : l'ordre revient alors « en attente » et le centre
+ * tranche. Rien ne reste bloqué.
+ */
 function isDecision(v: string): v is CentralDecision {
-  return v === "APPROVE" || v === "REFUSE" || v === "REQUEST_CHANGES" || v === "REQUEST_INFO";
+  return v === "APPROVE" || v === "REFUSE";
 }
 
 /**

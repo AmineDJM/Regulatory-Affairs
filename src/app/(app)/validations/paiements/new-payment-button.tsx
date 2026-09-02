@@ -23,10 +23,10 @@ interface PieceDraft { file: File; kind: string; note: string }
  *
  * ── CE QUE LE DOSSIER DOIT PORTER ────────────────────────────────────────────────────────────
  *
- * Un **bon de commande OU une facture** — les deux seules pièces qui disent ce que la société doit
- * — et la **déclaration que le moyen de paiement y figure**. Le reste (devis, bon de livraison,
- * notes, contact) est facultatif, et c'est délibéré : rendre obligatoire ce qui n'est pas toujours
- * pertinent apprend à remplir les champs pour rien.
+ * Un **bon de commande, une facture OU un devis** — les pièces qui disent ce que la société doit,
+ * à qui et pour combien — et la **déclaration que le moyen de paiement y figure**. Le reste (bon
+ * de livraison, notes, contact) est facultatif, et c'est délibéré : rendre obligatoire ce qui n'est
+ * pas toujours pertinent apprend à remplir les champs pour rien.
  *
  * La règle est annoncée PENDANT la saisie (`dossierHint`), pas découverte dans une erreur rouge
  * après avoir tout rempli. C'est la même fonction que celle qui garde l'action serveur : deux
@@ -103,7 +103,7 @@ export function NewPaymentButton() {
         open={open}
         onClose={() => !busy && setOpen(false)}
         title="Demander un paiement"
-        description="Le dossier part au CENTRE DE PAIEMENT — il n'y a pas de destinataire à choisir : c'est le centre qui autorise, avant que les Finances ne voient quoi que ce soit. Montant, bénéficiaire, échéance demandée, et le bon de commande ou la facture qui le justifie."
+        description="Le dossier part au CENTRE DE PAIEMENT — il n'y a pas de destinataire à choisir : c'est le centre qui autorise, avant que les Finances ne voient quoi que ce soit. Montant, bénéficiaire, échéance demandée, et le bon de commande, la facture ou le devis qui le justifie."
         width="lg"
       >
         <form ref={formRef} className="space-y-4" onSubmit={(e) => e.preventDefault()}>
@@ -181,15 +181,15 @@ export function NewPaymentButton() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              <strong className="text-foreground">Un bon de commande ou une facture est obligatoire</strong> — c&apos;est
-              la pièce qui dit ce qui est dû. Devis, bon de livraison et autres pièces s&apos;ajoutent librement, et
+              <strong className="text-foreground">Un bon de commande, une facture ou un devis est obligatoire</strong> —
+              c&apos;est la pièce qui dit ce qui est dû. Bon de livraison et autres pièces s&apos;ajoutent librement, et
               <strong className="text-foreground"> chacune porte son propre commentaire</strong>.
             </p>
 
             {pieces.length === 0 ? (
               <p className="rounded-lg border border-dashed border-warning/50 bg-warning/5 px-3 py-4 text-center text-xs text-muted-foreground">
                 Aucune pièce pour l&apos;instant. Vous pouvez enregistrer un <strong className="text-foreground">brouillon</strong> sans
-                pièce et la joindre ensuite — l&apos;envoi, lui, exige le bon de commande ou la facture.
+                pièce et la joindre ensuite — l&apos;envoi, lui, exige le bon de commande, la facture ou le devis.
               </p>
             ) : (
               <ul className="space-y-2">

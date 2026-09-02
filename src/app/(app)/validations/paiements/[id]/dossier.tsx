@@ -18,8 +18,7 @@ import { needsReplacement, tallyPieces } from "@/lib/finance/payment-request";
 import { dossierHint, isBonDeVersement } from "@/lib/finance/payment-dossier";
 import {
   addPaymentPiece, commentPaymentPiece, reviewPaymentPiece, addPaymentComment,
-  submitPaymentRequest, decidePaymentRequest, cancelPaymentRequest, askPaymentValidation,
-  askPieceValidation, updatePaymentRequestDetails,
+  submitPaymentRequest, decidePaymentRequest, cancelPaymentRequest, updatePaymentRequestDetails,
 } from "@/lib/actions/payment-request-actions";
 import { requestDocument, askablePeople } from "@/lib/actions/document-request-actions";
 
@@ -89,9 +88,6 @@ export function PaymentDossier({
   const [err, setErr] = React.useState<string | null>(null);
   const [note, setNote] = React.useState("");
   const [message, setMessage] = React.useState("");
-  const [askOpen, setAskOpen] = React.useState(false);
-  const [askPieces, setAskPieces] = React.useState<Set<string>>(new Set());
-  const [validator, setValidator] = React.useState("");
 
   const run = async (key: string, fn: Runner, fields: Record<string, string>, files?: Record<string, File>) => {
     setBusy(key); setErr(null);
@@ -241,9 +237,6 @@ export function PaymentDossier({
                 <Button variant="outline" className="text-destructive" disabled={busy !== null} onClick={() => void run("no", decidePaymentRequest, { id, move: "REJECT", note })}>
                   {busy === "no" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Refuser
                 </Button>
-                <Button variant="outline" disabled={busy !== null} onClick={() => setAskOpen((v) => !v)}>
-                  <ShieldCheck className="h-4 w-4" /> Demander une validation
-                </Button>
               </>
             )}
             {isRequester && (
@@ -254,47 +247,6 @@ export function PaymentDossier({
           </div>
           {isFinance && approveBlocker && <p className="text-xs text-muted-foreground">{approveBlocker}</p>}
 
-          {/* Les Finances ne tranchent pas seules au-delà de leur seuil : elles font valider, et
-              elles disent SUR QUOI — un validateur qui reçoit « valider PAY-2026-014 » sans savoir
-              quelles pièces sont en cause rouvre tout le dossier pour rien. */}
-          {isFinance && askOpen && (
-            <div className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
-              <Label>Validateur</Label>
-              <Select value={validator} onChange={(e) => setValidator(e.target.value)}>
-                <option value="">— Choisir —</option>
-                {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </Select>
-              <p className="text-xs text-muted-foreground">Pièces visées (aucune cochée = dossier complet)</p>
-              <div className="max-h-40 space-y-1 overflow-auto rounded-lg bg-background p-2">
-                {pieces.map((p) => (
-                  <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
-                    <input
-                      type="checkbox" className="h-4 w-4 rounded border-input"
-                      checked={askPieces.has(p.id)}
-                      onChange={() => setAskPieces((s) => { const n = new Set(s); if (n.has(p.id)) n.delete(p.id); else n.add(p.id); return n; })}
-                    />
-                    <span className="truncate">{PAYMENT_PIECE_KIND[p.kind] ?? p.kind} — {p.name}</span>
-                  </label>
-                ))}
-              </div>
-              <Button
-                disabled={busy !== null || !validator}
-                onClick={async () => {
-                  setBusy("ask"); setErr(null);
-                  const fd = new FormData();
-                  fd.set("id", id); fd.set("validatorId", validator); fd.set("note", note);
-                  for (const pid of askPieces) fd.append("pieceId", pid);
-                  const r = await askPaymentValidation(fd);
-                  setBusy(null);
-                  if (!r.ok) { setErr(r.error ?? "Échec."); return; }
-                  setAskOpen(false); setAskPieces(new Set()); setValidator(""); setNote("");
-                  router.refresh();
-                }}
-              >
-                {busy === "ask" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Envoyer la demande de validation
-              </Button>
-            </div>
-          )}
         </section>
       )}
 
@@ -495,21 +447,12 @@ function PieceCard({
             <Button size="sm" variant="outline" className="text-destructive" disabled={busy !== null} onClick={() => void run(`no-${piece.id}`, reviewPaymentPiece, { pieceId: piece.id, verdict: "REJECTED", note: review })}>
               <X className="h-3.5 w-3.5" /> Refuser
             </Button>
-            {/* FAIRE VALIDER CETTE PIÈCE — et elle part AU CENTRE, pas à quelqu'un qu'on choisit.
-                Choisir son validateur dans une liste, c'est choisir qui vous dit oui ; et une
-                demande qui dit « valider PAY-2026-014 » sans nommer la pièce en cause fait
-                rouvrir un dossier de six pièces, ou signer sans lire. */}
-            {piece.validation?.status === "PENDING" ? (
-              <span className="self-center text-xs text-muted-foreground">Déjà au centre de validations.</span>
-            ) : (
-              <Button
-                size="sm" variant="outline" disabled={busy !== null}
-                title="Envoyer cette pièce au centre de validations (Directeur Général)"
-                onClick={() => void run(`val-${piece.id}`, askPieceValidation, { pieceId: piece.id, note: review })}
-              >
-                {busy === `val-${piece.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Gavel className="h-3.5 w-3.5" />} Faire valider
-              </Button>
-            )}
+            {/* PLUS DE « FAIRE VALIDER » ICI.
+                Le dossier n'arrive dans cet écran QU'AUTORISÉ par le centre de paiement : demander
+                une validation sur ce qui vient d'être autorisé n'avait plus de sens, et proposer un
+                geste sans effet est pire que ne rien proposer — on l'exerce, on attend une réponse,
+                elle ne vient jamais. Les Finances lisent les pièces et RÉCLAMENT celles qui
+                manquent ; ce qui se décide se décide dans « Paiements à faire ». */}
           </div>
         </div>
       )}

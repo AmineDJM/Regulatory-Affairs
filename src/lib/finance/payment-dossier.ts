@@ -8,10 +8,16 @@
  * de paiement se retrouvait à autoriser une sortie d'argent sans savoir NI ce qui est dû, NI
  * comment le payer. D'où deux exigences, et deux seulement :
  *
- *   1. **Un BON DE COMMANDE ou une FACTURE.** Ce sont les deux pièces qui disent ce que la
- *      société doit et à qui. Le devis ne l'est pas — il dit ce qu'on pourrait devoir ; le bon
- *      de livraison non plus — il dit ce qu'on a reçu. L'un OU l'autre suffit : exiger les deux
- *      bloquerait les fournisseurs qui facturent sans bon, et les commandes payées d'avance.
+ *   1. **Un BON DE COMMANDE, une FACTURE ou un DEVIS.** Ce sont les pièces qui disent ce que la
+ *      société doit, à qui, et pour combien. Le bon de livraison n'en est pas une — il dit ce
+ *      qu'on a REÇU, jamais ce qu'on doit —, ni le justificatif, ni « autre pièce ». N'importe
+ *      laquelle des trois suffit : exiger le bon ET la facture bloquerait les fournisseurs qui
+ *      facturent sans bon, et les commandes payées d'avance.
+ *
+ *      LE DEVIS EN FAIT PARTIE, et c'est une correction assumée : beaucoup de dépenses se règlent
+ *      sur devis accepté, la facture n'arrivant qu'APRÈS le paiement. L'exclure obligeait à
+ *      inventer un bon de commande pour satisfaire l'écran — c'est-à-dire à fabriquer une pièce
+ *      pour passer une règle, exactement ce qu'une règle doit empêcher.
  *   2. **Le MOYEN DE PAIEMENT figure sur le document, et le demandeur le déclare.** C'est le
  *      détail qui coûte le plus cher en bas de chaîne : la facture arrive, elle est conforme,
  *      elle est autorisée — et la comptabilité ne sait pas sur quel compte virer. Un aller-retour
@@ -36,8 +42,8 @@
  * Module PUR — testé sans base.
  */
 
-/** Les deux pièces qui disent ce que la société doit. */
-export const JUSTIFYING_KINDS: readonly string[] = ["INVOICE", "PURCHASE_ORDER"];
+/** Les pièces qui disent ce que la société doit, à qui et pour combien. */
+export const JUSTIFYING_KINDS: readonly string[] = ["INVOICE", "PURCHASE_ORDER", "QUOTE"];
 
 export interface DossierPiece {
   kind: string;
@@ -88,13 +94,13 @@ export function canSubmitDossier(gate: DossierGate): GateResult {
   if (gate.pieces.length === 0) {
     return {
       ok: false,
-      reason: "Joignez au moins le bon de commande ou la facture : c'est ce que le centre de paiement doit pouvoir lire avant d'autoriser.",
+      reason: "Joignez au moins un bon de commande, une facture ou un devis : c'est ce que le centre de paiement doit pouvoir lire avant d'autoriser.",
     };
   }
   if (!hasJustifyingPiece(gate.pieces)) {
     return {
       ok: false,
-      reason: "Il manque la pièce qui dit ce qui est dû : un BON DE COMMANDE ou une FACTURE. Un devis ou un bon de livraison ne la remplace pas — ils accompagnent, ils ne justifient pas.",
+      reason: "Il manque la pièce qui dit ce qui est dû : un BON DE COMMANDE, une FACTURE ou un DEVIS. Un bon de livraison ne la remplace pas — il dit ce qu'on a reçu, pas ce qu'on doit.",
     };
   }
   if (!gate.paymentMethodStated) {

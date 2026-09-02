@@ -3349,8 +3349,11 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (!sitsOnPaymentCentre(user)) return { error: PAYMENT_CENTRE_REFUSAL };
     const ref = asStr(input, "reference").trim();
     if (!ref) return { error: "Donnez la référence du paiement à trancher." };
-    const decision = asStr(input, "decision") as "APPROVE" | "REFUSE" | "REQUEST_CHANGES" | "REQUEST_INFO";
-    if (!["APPROVE", "REFUSE", "REQUEST_CHANGES", "REQUEST_INFO"].includes(decision)) return { error: "Décision inconnue." };
+    // DEUX DÉCISIONS AU CENTRE, comme à l'écran : autoriser ou refuser. « Réviser le montant » et
+    // « demander une argumentation » ont été retirés — les laisser ici ouvrirait à l'assistant un
+    // geste que l'écran ne propose plus, et §118-7 l'interdit.
+    const decision = asStr(input, "decision") as "APPROVE" | "REFUSE";
+    if (!["APPROVE", "REFUSE"].includes(decision)) return { error: "Décision inconnue : le centre autorise ou refuse." };
     const note = asStr(input, "note").trim();
     if (decision !== "APPROVE" && !note) return { error: "Dites pourquoi : sans motif, le demandeur ne peut que deviner." };
 
@@ -3363,9 +3366,9 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
       return { error: `Ce paiement est « ${CENTRAL_STATUS_LABEL[order.centralStatus as CentralStatus]} » — cette décision n'a plus de sens à ce stade.` };
     }
     const amountDzd = Math.round(toNumber(order.amount));
-    const proposedRaw = input.proposedAmount;
-    const proposedAmount = decision === "REQUEST_CHANGES" && typeof proposedRaw === "number" && Number.isFinite(proposedRaw) && proposedRaw > 0
-      ? Math.round(proposedRaw) : null;
+    // PLUS DE MONTANT PROPOSÉ : il n'accompagnait que « réviser le montant », qui n'existe plus.
+    // Le centre autorise ce qui lui est présenté, ou le refuse ; corriger un montant appartient à
+    // la demande, en amont.
 
     const fields = [
       { label: "Paiement", value: `${order.reference} — ${order.label}` },
@@ -3373,14 +3376,13 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
       { label: "Décision", value: CENTRAL_DECISION_LABEL[decision] },
     ];
     if (order.beneficiary) fields.push({ label: "Bénéficiaire", value: order.beneficiary });
-    if (proposedAmount != null) fields.push({ label: "Montant proposé", value: `${proposedAmount.toLocaleString("fr-FR")} DZD (proposition — le demandeur corrige et resoumet)` });
     if (note) fields.push({ label: "Motif", value: note });
     return {
       kind: "decide_payment", module: "PAYMENT_CENTRE", title: `Centre de paiement — ${CENTRAL_DECISION_LABEL[decision].toLowerCase()}`, fields, warnings,
       level: "SENSITIVE",
       payload: {
         kind: "decide_payment", orderId: order.id, reference: order.reference, label: order.label,
-        amountDzd, decision, note: note || null, proposedAmount,
+        amountDzd, decision, note: note || null, proposedAmount: null,
       },
     };
   }

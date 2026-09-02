@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { ItemAskPanel } from "@/components/ad-pro/item-ask-panel";
 import { useRouter } from "next/navigation";
-import { Loader2, Banknote, CalendarClock, RotateCcw, AlertCircle, FileText, Paperclip, Lock } from "lucide-react";
+import { Loader2, Banknote, CalendarClock, RotateCcw, AlertCircle, FileText, Lock } from "lucide-react";
 import { settleExpenseOrder, deferExpenseOrder, resumeExpenseOrder, requestInvoice } from "@/lib/actions/expense-actions";
 import { EmptyState } from "@/components/shared/empty-state";
 import { DocumentUpload } from "@/components/documents/document-upload";
@@ -208,7 +208,16 @@ export function OrdersTable({ rows, canSettle, emptyLabel, focusId = null }: { r
                 <TableCell className="font-mono text-xs">{r.reference}</TableCell>
                 <TableCell>{formatDate(r.createdAt)}</TableCell>
                 <TableCell className="max-w-[220px]">
-                  <p className="truncate font-medium">{r.label}</p>
+                  {/* LE LIBELLÉ EST LE LIEN vers le dossier et ses pièces. Le bouton séparé qui
+                      vivait dans la colonne « Action » disait la même chose une seconde fois, au
+                      milieu des gestes de décaissement — alors qu'ouvrir n'est pas décider. */}
+                  {r.dossierHref ? (
+                    <Link href={r.dossierHref} className="block truncate font-medium text-primary hover:underline" title="Voir les pièces du dossier">
+                      {r.label}
+                    </Link>
+                  ) : (
+                    <p className="truncate font-medium">{r.label}</p>
+                  )}
                   {note && <p className="truncate text-xs text-warning" title={note}>{note}</p>}
                 </TableCell>
                 <TableCell>{r.beneficiary || "—"}</TableCell>
@@ -232,17 +241,13 @@ export function OrdersTable({ rows, canSettle, emptyLabel, focusId = null }: { r
                   <TableCell className="text-right">
                     {r.status === "PENDING" ? (
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
-                        {r.dossierHref && (
-                          <Link href={r.dossierHref} className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium hover:bg-secondary">
-                            <Paperclip className="h-3.5 w-3.5" /> Dossier &amp; pièces
-                          </Link>
-                        )}
                         {/* RÉCLAMER LA FACTURE, LE BON, N'IMPORTE QUELLE PIÈCE — plutôt que de
                             relancer par message. La demande atterrit dans « Pièces demandées » de
                             la personne, avec son fil : elle dépose sans qu'on lui ouvre le module.
                             Demander une pièce n'est pas décider du paiement — c'est ce qui permet
-                            de le décider. */}
-                        <ItemAskPanel entityType="EXPENSE_ORDER" entityId={r.id} link="/finances/paiements-a-faire" subject={`${r.reference} — ${r.label}`} />
+                            de le décider. DEMANDER UNE VALIDATION, en revanche, n'a plus de sens :
+                            l'ordre est ici PARCE QUE le centre l'a autorisé. */}
+                        <ItemAskPanel entityType="EXPENSE_ORDER" entityId={r.id} link="/finances/paiements-a-faire" subject={`${r.reference} — ${r.label}`} canAskValidation={false} />
                         {r.requiresInvoice && <InvoiceControl id={r.id} hasInvoice={r.hasInvoice} />}
                         <SubmitForm action={settleExpenseOrder} id={r.id}><MiniBtn tone="success"><Banknote className="h-3.5 w-3.5" /> Payé</MiniBtn></SubmitForm>
                         <DeferControl row={r} />

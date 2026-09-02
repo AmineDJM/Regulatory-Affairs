@@ -9,22 +9,26 @@ const gate = (o: Partial<DossierGate> = {}): DossierGate => ({
 });
 
 describe("la pièce qui JUSTIFIE la dépense", () => {
-  it("le bon de commande et la facture, et eux seuls", () => {
-    expect([...JUSTIFYING_KINDS].sort()).toEqual(["INVOICE", "PURCHASE_ORDER"]);
+  it("le bon de commande, la facture et le DEVIS", () => {
+    expect([...JUSTIFYING_KINDS].sort()).toEqual(["INVOICE", "PURCHASE_ORDER", "QUOTE"]);
     expect(hasJustifyingPiece([{ kind: "INVOICE" }])).toBe(true);
     expect(hasJustifyingPiece([{ kind: "PURCHASE_ORDER" }])).toBe(true);
   });
 
-  it("un devis ne justifie PAS — il dit ce qu'on pourrait devoir", () => {
-    expect(hasJustifyingPiece([{ kind: "QUOTE" }])).toBe(false);
+  it("LE DEVIS JUSTIFIE — beaucoup de dépenses se règlent sur devis, la facture ne venant qu'après", () => {
+    // L'exclure obligeait à inventer un bon de commande pour satisfaire l'écran : fabriquer une
+    // pièce pour passer une règle est exactement ce qu'une règle doit empêcher.
+    expect(hasJustifyingPiece([{ kind: "QUOTE" }])).toBe(true);
   });
 
-  it("un bon de livraison ne justifie PAS — il dit ce qu'on a reçu", () => {
+  it("un bon de livraison ne justifie PAS — il dit ce qu'on a REÇU, pas ce qu'on doit", () => {
     expect(hasJustifyingPiece([{ kind: "DELIVERY_NOTE" }, { kind: "PROOF" }, { kind: "OTHER" }])).toBe(false);
+    expect(hasJustifyingPiece([{ kind: "CONTRACT" }])).toBe(false);
   });
 
-  it("l'un OU l'autre suffit — exiger les deux bloquerait les fournisseurs qui facturent sans bon", () => {
+  it("n'importe laquelle des trois suffit — exiger bon ET facture bloquerait les paiements d'avance", () => {
     expect(hasJustifyingPiece([{ kind: "INVOICE" }, { kind: "OTHER" }])).toBe(true);
+    expect(hasJustifyingPiece([{ kind: "QUOTE" }, { kind: "DELIVERY_NOTE" }])).toBe(true);
   });
 });
 
@@ -32,14 +36,18 @@ describe("transmettre une demande de paiement ordinaire", () => {
   it("un dossier VIDE ne part pas", () => {
     const r = canSubmitDossier(gate());
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/bon de commande ou la facture/i);
+    expect(r.reason).toMatch(/bon de commande, une facture ou un devis/i);
   });
 
-  it("des pièces sans BC ni facture ne suffisent pas, et on DIT lesquelles ne comptent pas", () => {
-    const r = canSubmitDossier(gate({ pieces: [{ kind: "QUOTE" }, { kind: "DELIVERY_NOTE" }], paymentMethodStated: true }));
+  it("des pièces qui n'engagent rien ne suffisent pas, et on DIT laquelle manque", () => {
+    const r = canSubmitDossier(gate({ pieces: [{ kind: "DELIVERY_NOTE" }, { kind: "OTHER" }], paymentMethodStated: true }));
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/devis/i);
+    expect(r.reason).toMatch(/DEVIS/);
     expect(r.reason).toMatch(/bon de livraison/i);
+  });
+
+  it("un DEVIS seul, avec la case cochée, suffit à partir", () => {
+    expect(canSubmitDossier(gate({ pieces: [{ kind: "QUOTE" }], paymentMethodStated: true })).ok).toBe(true);
   });
 
   it("la facture SANS la case du moyen de paiement ne part pas", () => {
@@ -52,7 +60,7 @@ describe("transmettre une demande de paiement ordinaire", () => {
     expect(canSubmitDossier(gate({ pieces: [{ kind: "PURCHASE_ORDER" }], paymentMethodStated: true })).ok).toBe(true);
   });
 
-  it("les AUTRES pièces restent facultatives — on n'exige jamais devis, contrat ni justificatif", () => {
+  it("les AUTRES pièces restent facultatives — on n'exige jamais contrat ni justificatif", () => {
     const complet = gate({ pieces: [{ kind: "INVOICE" }, { kind: "QUOTE" }, { kind: "OTHER" }], paymentMethodStated: true });
     expect(canSubmitDossier(complet).ok).toBe(true);
     const minimal = gate({ pieces: [{ kind: "INVOICE" }], paymentMethodStated: true });
@@ -91,7 +99,7 @@ describe("l'exception du BON DE VERSEMENT", () => {
 
 describe("ce que le formulaire annonce pendant qu'on le remplit", () => {
   it("dit ce qui manque, AVANT d'essayer d'envoyer", () => {
-    expect(dossierHint(gate())).toMatch(/bon de commande ou la facture/i);
+    expect(dossierHint(gate())).toMatch(/bon de commande, une facture ou un devis/i);
     expect(dossierHint(gate({ pieces: [{ kind: "INVOICE" }] }))).toMatch(/moyen de paiement/i);
   });
 

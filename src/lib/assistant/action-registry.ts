@@ -731,7 +731,6 @@ G("demandes de paiement (création/pièces/décisions du circuit)", [
   "payment-request-actions:commentPaymentPiece", "payment-request-actions:reviewPaymentPiece",
   "payment-request-actions:addPaymentComment", "payment-request-actions:submitPaymentRequest",
   "payment-request-actions:decidePaymentRequest", "payment-request-actions:cancelPaymentRequest",
-  "payment-request-actions:askPaymentValidation", "payment-request-actions:askPieceValidation",
   "payment-request-actions:updatePaymentRequestDetails",
   "payment-centre-actions:respondToPaymentCentre",
 ]);

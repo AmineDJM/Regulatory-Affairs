@@ -6,7 +6,7 @@ import {
 import { requestInvoice, deferExpenseOrder, resumeExpenseOrder } from "@/lib/actions/expense-actions";
 import {
   createPaymentRequest, submitPaymentRequest, decidePaymentRequest, cancelPaymentRequest,
-  addPaymentComment, askPaymentValidation, askPieceValidation, commentPaymentPiece, reviewPaymentPiece,
+  addPaymentComment, commentPaymentPiece, reviewPaymentPiece,
   updatePaymentRequestDetails,
 } from "@/lib/actions/payment-request-actions";
 import { updateTransaction, deleteTransaction, deleteTreasuryAccount, createPayroll, payPayroll } from "@/lib/actions/finance-actions";
@@ -705,86 +705,15 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
     execute: (args) => runFd(addPaymentComment, args, "Le message a été refusé.", { revalidate: ["/validations/paiements"] }),
   },
 
-  ask_payment_validation: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const req = await resolvePayment(opStr(input, "reference") || opStr(input, "label"));
-      if ("error" in req) return req;
-      const validator = await resolvePerson(opStr(input, "validator"));
-      if ("error" in validator) return validator;
-      let validator2Id: string | null = null; let validator2Name: string | null = null;
-      const v2Raw = opStr(input, "validator2");
-      if (v2Raw) {
-        const v2 = await resolvePerson(v2Raw);
-        if ("error" in v2) return v2;
-        validator2Id = v2.id; validator2Name = v2.name;
-      }
-      const pieceNames: string[] = []; const pieceIds: string[] = [];
-      const piecesRaw = opStr(input, "pieces");
-      if (piecesRaw) {
-        for (const part of piecesRaw.split(/[;,]/).map((p) => p.trim()).filter(Boolean)) {
-          const piece = await resolvePiece(req.id, req.reference, part);
-          if ("error" in piece) return piece;
-          pieceIds.push(piece.id); pieceNames.push(piece.name);
-        }
-      }
-      return {
-        title: `Demander la validation du paiement ${req.reference} à ${validator.name}`,
-        fields: fieldsOf([
-          ["Dossier", `${req.reference} — ${req.payee} · ${dzd(toNumber(req.amount))}`],
-          ["Validateur", validator.name], ["2ᵉ validateur", validator2Name],
-          ["Portée", pieceNames.length > 0 ? `Pièces : ${pieceNames.join(", ")}` : "Dossier complet"],
-          ["Note", opStr(input, "note") || null],
-        ]),
-        args: { id: req.id, validatorId: validator.id, validator2Id, note: opStr(input, "note") || null, pieceIds: pieceIds.join(",") },
-        successMessage: `Validation du paiement ${req.reference} demandée à ${validator.name}${validator2Name ? ` et ${validator2Name}` : ""}.`,
-        revalidate: ["/validations", "/validations/paiements"],
-      };
-    },
-    async execute(args) {
-      const fd = new FormData();
-      fd.set("id", args.id ?? "");
-      fd.set("validatorId", args.validatorId ?? "");
-      if (args.validator2Id) fd.set("validator2Id", args.validator2Id);
-      if (args.note) fd.set("note", args.note);
-      for (const pid of (args.pieceIds ?? "").split(",").filter(Boolean)) fd.append("pieceId", pid);
-      const r = await askPaymentValidation(fd);
-      if (!r.ok) return { ok: false, error: r.error ?? "La demande de validation a été refusée." };
-      return { ok: true, revalidate: ["/validations", "/validations/paiements"] };
-    },
-  },
-
   /**
-   * FAIRE VALIDER UNE PIÈCE — au centre, jamais à quelqu'un qu'on nomme.
+   * PLUS DE DEMANDE DE VALIDATION SUR UN PAIEMENT — ni sur le dossier, ni sur une pièce.
    *
-   * `ask_payment_validation` laisse choisir le validateur ; celle-ci ne le laisse pas. C'est
-   * délibéré : le destinataire est le centre de validations (Directeur Général, à défaut Super
-   * Admin), et rien dans la phrase de la personne ne peut le changer. Un outil qui accepterait
-   * « fais valider par Untel » offrirait à un modèle — ou à un document qu'il a lu — de désigner
-   * le validateur le plus arrangeant, et l'audit n'y verrait qu'une validation de plus.
+   * `ask_payment_validation` et `ask_piece_validation` vivaient ici. Elles n'ont plus d'objet : un
+   * dossier n'arrive aux Finances QU'AUTORISÉ par le centre de paiement, et faire valider ce qui
+   * vient d'être validé n'aboutit nulle part. Elles ont été supprimées à l'écran ET ici — un geste
+   * que l'écran ne propose plus mais que l'assistant peut encore poser est une porte dérobée
+   * (§118-7). Ce qui reste : réclamer une PIÈCE, qui n'est pas une décision.
    */
-  ask_piece_validation: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const req = await resolvePayment(opStr(input, "reference") || opStr(input, "label"));
-      if ("error" in req) return req;
-      const piece = await resolvePiece(req.id, req.reference, opStr(input, "piece"));
-      if ("error" in piece) return piece;
-      return {
-        title: `Envoyer la pièce « ${piece.name} » au centre de validations (${req.reference})`,
-        fields: fieldsOf([
-          ["Dossier", `${req.reference} — ${req.payee} · ${dzd(toNumber(req.amount))}`],
-          ["Pièce", piece.name],
-          ["Destinataire", "Centre de validations — Directeur Général (à défaut Super Admin)"],
-          ["Note", opStr(input, "note") || null],
-        ]),
-        args: { pieceId: piece.id, note: opStr(input, "note") || null },
-        successMessage: `Pièce « ${piece.name} » envoyée au centre de validations.`,
-        revalidate: ["/validations", "/validations/paiements", "/centre-de-validations"],
-      };
-    },
-    execute: (args) => runFd(askPieceValidation, args, "La demande de validation a été refusée.", {
-      revalidate: ["/validations", "/validations/paiements", "/centre-de-validations"],
-    }),
-  },
 
   comment_payment_piece: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {

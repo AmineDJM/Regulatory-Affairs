@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, ShieldX, MessageSquare, Coins, Loader2, Send, ChevronDown, Paperclip } from "lucide-react";
+import { ShieldCheck, ShieldX, MessageSquare, Coins, Loader2, Send, ChevronDown } from "lucide-react";
 import { decidePayment, respondToPaymentCentre } from "@/lib/actions/payment-centre-actions";
 import {
   CENTRAL_STATUS_LABEL, CENTRAL_DECISION_LABEL, awaitsCentre, awaitsRequester,
@@ -128,15 +128,30 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
               )}
             </div>
 
-            <ul className="divide-y divide-border">
+            {/* UNE CARTE PAR DEMANDE, et non une ligne de liste séparée d'un filet.
+                Autoriser une sortie d'argent se fait une demande à la fois : quand elles se
+                touchent, l'œil glisse d'un montant à l'autre et l'on clique « Autoriser » sur la
+                ligne d'à côté. L'espace ici n'est pas décoratif, il évite une erreur coûteuse.
+                On s'arrête à une bordure et un peu d'air — au-delà, la file cesse de se lire d'un
+                coup d'œil, ce qui est le second défaut de cet écran. */}
+            <ul className="space-y-2">
               {list.map((o) => {
                 const isOpen = open === o.id;
                 return (
-                  <li key={o.id} className="py-2.5">
+                  <li key={o.id} className="rounded-xl border border-border bg-background p-3">
                     <div className="flex flex-wrap items-start gap-2">
                       <div className="min-w-0 flex-1">
+                        {/* LE TITRE EST LE LIEN. Un bouton « Ouvrir le dossier & ses pièces »
+                            posé à côté disait deux fois la même chose et allongeait une barre
+                            d'actions déjà chargée : ce qu'on veut lire, on clique dessus. */}
                         <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                          <span className="truncate">{o.label}</span>
+                          {o.dossierHref ? (
+                            <Link href={o.dossierHref} className="truncate text-primary hover:underline" title="Ouvrir le dossier et ses pièces">
+                              {o.label}
+                            </Link>
+                          ) : (
+                            <span className="truncate">{o.label}</span>
+                          )}
                           <Badge tone={TONE[o.centralStatus]}>{CENTRAL_STATUS_LABEL[o.centralStatus]}</Badge>
                         </p>
                         <p className="text-xs text-muted-foreground">
@@ -151,7 +166,7 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
                       <p className="shrink-0 text-sm font-semibold tabular-nums">{formatCurrency(o.amount)}</p>
                     </div>
 
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
                       {o.messages.length > 0 && (
                         <button
                           type="button" onClick={() => setOpen(isOpen ? null : o.id)}
@@ -162,21 +177,10 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
                         </button>
                       )}
 
-                      {/* OUVRIR EST UNE LECTURE, PAS UN POUVOIR DE DÉCISION.
-                          Ce lien vivait à l'intérieur du bloc « je peux encore décider » : une
-                          fois le paiement autorisé ou refusé, plus personne ne pouvait rouvrir ce
-                          qui l'avait justifié — et le DEMANDEUR, lui, n'y avait jamais eu droit,
-                          alors que c'est son propre dossier. On lit ce qu'on voit, à tout état. */}
-                      {o.dossierHref ? (
-                        <Link
-                          href={o.dossierHref}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary"
-                        >
-                          <Paperclip className="h-4 w-4" /> Ouvrir le dossier &amp; ses pièces
-                        </Link>
-                      ) : (
-                        // Le silence laisse croire à une panne : on clique, rien ne se passe, on
-                        // recommence. On nomme donc l'origine et l'on dit qu'elle n'a pas de fiche.
+                      {/* Le bouton d'ouverture a disparu : c'est le TITRE qui ouvre, ci-dessus.
+                            Reste à DIRE quand il n'y a rien à ouvrir — un titre qui ne réagit pas
+                            au clic se lit comme une panne, on recommence, on abandonne. */}
+                      {!o.dossierHref && (
                         <span className="text-xs text-muted-foreground">
                           {o.sourceLabel ? `${o.sourceLabel} — pas de fiche à ouvrir` : "Pas de fiche à ouvrir"}
                         </span>
@@ -192,15 +196,10 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
                             entityId={o.id}
                             link="/centre-de-paiement"
                             subject={`${o.reference} — ${o.label}`}
+                            canAskValidation={false}
                           />
                           <Button size="sm" onClick={() => { setErr(null); setActing({ order: o, decision: "APPROVE" }); }}>
                             <ShieldCheck className="h-4 w-4" /> Autoriser
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => { setErr(null); setActing({ order: o, decision: "REQUEST_CHANGES" }); }}>
-                            Réviser le montant
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => { setErr(null); setActing({ order: o, decision: "REQUEST_INFO" }); }}>
-                            Demander une argumentation
                           </Button>
                           <Button size="sm" variant="outline" className="text-destructive hover:bg-destructive/10" onClick={() => { setErr(null); setActing({ order: o, decision: "REFUSE" }); }}>
                             <ShieldX className="h-4 w-4" /> Refuser
@@ -271,15 +270,6 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
                 )}
               </div>
             )}
-            {acting.decision === "REQUEST_CHANGES" && (
-              <div className="space-y-1.5">
-                <Label htmlFor="pc-amount">Montant que vous proposez de retenir</Label>
-                <Input id="pc-amount" name="proposedAmount" type="number" step="0.01" min="0" placeholder={String(acting.order.amount)} />
-                <p className="text-xs text-muted-foreground">
-                  Une proposition, pas une réécriture : c&apos;est au demandeur de corriger et de resoumettre.
-                </p>
-              </div>
-            )}
             <div className="space-y-1.5">
               <Label htmlFor="pc-body">
                 {acting.decision === "APPROVE" ? "Note (facultative)" : "Motif"}
@@ -290,8 +280,6 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
                 required={acting.decision !== "APPROVE"}
                 placeholder={
                   acting.decision === "REFUSE" ? "Pourquoi ce paiement ne doit pas partir…"
-                    : acting.decision === "REQUEST_CHANGES" ? "Ce qui justifie une révision du montant…"
-                      : acting.decision === "REQUEST_INFO" ? "Ce que vous voulez voir argumenté…"
                         : "À quelles conditions vous autorisez…"
                 }
               />

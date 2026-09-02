@@ -713,27 +713,6 @@ export const OPS_CATALOG: OpMeta[] = [
     covers: ["payment-request-actions:addPaymentComment"],
   },
   {
-    tool: "finance_operation", op: "ask_payment_validation", module: "Validations → Paiements",
-    uiLabel: "Demander une validation (dossier ou pièces)",
-    aliases: ["demande une validation sur le paiement", "fais valider la demande de paiement par"],
-    risk: "NORMAL",
-    summary: "Les Finances demandent une validation à un ou deux validateurs, sur le dossier complet ou des pièces nommées — part au bureau de validation.",
-    gate: (u) => hasGlobalView(u) || userCan(u, "FINANCES", "VALIDATE") || userCan(u, "FINANCES", "UPDATE"),
-    covers: ["payment-request-actions:askPaymentValidation"],
-  },
-  {
-    tool: "finance_operation", op: "ask_piece_validation", module: "Validations → Paiements",
-    uiLabel: "Faire valider UNE pièce (centre de validations)",
-    aliases: ["fais valider la facture du dossier de paiement", "envoie cette pièce au centre de validations"],
-    risk: "NORMAL",
-    // Le destinataire ne se choisit PAS : c'est le centre (Directeur Général, à défaut Super
-    // Admin). Le laisser choisir reviendrait à laisser choisir qui vous dit oui — et Adam s'en
-    // servirait pour désigner le validateur le plus complaisant sans que personne le voie.
-    summary: "Les Finances envoient UNE pièce nommée au centre de validations — au Directeur Général, à défaut au Super Admin. La décision porte sur cette pièce seule et ne clôt pas le dossier.",
-    gate: (u) => hasGlobalView(u) || userCan(u, "FINANCES", "VALIDATE") || userCan(u, "FINANCES", "UPDATE"),
-    covers: ["payment-request-actions:askPieceValidation"],
-  },
-  {
     tool: "finance_operation", op: "comment_payment_piece", module: "Validations → Paiements",
     uiLabel: "Commenter une pièce",
     aliases: ["commente la pièce du dossier de paiement", "précise le commentaire de la facture du dossier"],

@@ -13,8 +13,6 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { companyIdForNew } from "@/lib/company";
 import { persistUploadedDocument } from "@/lib/documents";
-import { createDirectValidation } from "@/lib/validation";
-import { centreValidatorFrom } from "@/lib/validations/centre";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
@@ -646,136 +644,21 @@ export async function cancelPaymentRequest(formData: FormData): Promise<ActionRe
 }
 
 /**
- * LES FINANCES DEMANDENT UNE VALIDATION — sur le dossier, ou sur des pièces précises.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * CE QUI VIVAIT ICI, ET POURQUOI CE N'EST PLUS LÀ.
  *
- * Un montant qui dépasse leur seuil, un fournisseur nouveau, un doute : elles ne tranchent pas
- * seules. La demande part dans le bureau de validation ordinaire (`ValidationRequest`), avec les
- * pièces visées nommées dans son objet — un validateur qui reçoit « valider PAY-2026-014 » sans
- * savoir quelles pièces sont en cause rouvre tout le dossier pour rien.
+ * `askPaymentValidation` (faire valider le dossier) et `askPieceValidation` (faire valider une
+ * pièce) permettaient aux Finances de demander une signature sur un paiement. Elles n'ont plus
+ * d'objet : depuis que le centre de paiement est le GUICHET UNIQUE, un dossier n'atteint les
+ * Finances **que parce que le centre l'a autorisé**. Faire valider ce qui vient d'être validé
+ * n'aboutit nulle part — et proposer un geste sans effet est pire que ne rien proposer : on
+ * l'exerce, on attend une réponse, elle ne vient jamais.
+ *
+ * Supprimées à l'écran, dans les ops d'Adam et ICI, ensemble : une action sans appelant réel
+ * n'existe pas (§118-14), et une action que l'écran ne propose plus mais que l'assistant peut
+ * encore appeler est une porte dérobée (§118-7).
+ *
+ * Ce que les Finances gardent sur un dossier : LIRE les pièces, et RÉCLAMER celles qui manquent
+ * (`ItemAskPanel`) — ce qui n'est pas une décision, mais ce qui permet d'en prendre une.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-export async function askPaymentValidation(formData: FormData): Promise<ActionResult> {
-  try {
-    const user = await requireUser();
-    if (!isFinance(user)) return { ok: false, error: "Réservé aux Finances." };
-    const id = fdStr(formData, "id");
-    const validatorId = fdStr(formData, "validatorId");
-    if (!id) return { ok: false, error: "Demande introuvable." };
-    if (!validatorId) return { ok: false, error: "Choisissez le validateur." };
-
-    const req = await prisma.paymentRequest.findUnique({
-      where: { id }, include: { pieces: { orderBy: { position: "asc" } } },
-    });
-    if (!req) return { ok: false, error: "Demande introuvable." };
-    if (isClosed(req.status)) return { ok: false, error: "Ce dossier est clos." };
-
-    const pieceIds = formData.getAll("pieceId").map(String).filter(Boolean);
-    const targeted = req.pieces.filter((p) => pieceIds.includes(p.id));
-    const docs = await prisma.document.findMany({
-      where: { id: { in: targeted.map((p) => p.documentId) } }, select: { id: true, name: true },
-    });
-    const scope = targeted.length > 0
-      ? ` — pièces : ${docs.map((d) => d.name).join(", ")}`
-      : " — dossier complet";
-
-    const second = fdStr(formData, "validator2Id");
-    const res = await createDirectValidation({
-      requesterId: user.id,
-      title: `Paiement ${req.reference} — ${req.payee} · ${toNumber(req.amount).toLocaleString("fr-FR")} DZD${scope}`,
-      description: [fdStr(formData, "note"), req.description].filter(Boolean).join("\n\n") || null,
-      link: `${PATH}/${id}`,
-      module: "Finances",
-      priority: "HIGH",
-      deadline: req.dueDate,
-      validatorIds: second ? [validatorId, second] : [validatorId],
-    });
-
-    await trace(id, user.id, "VALIDATION_ASKED", `Validation demandée${scope}.`);
-    revalidate(id);
-    if (!res.ok) return { ok: false, error: res.error ?? "La demande de validation n'a pas pu être créée." };
-    return { ok: true, id };
-  } catch (err) {
-    console.error("[payment] askPaymentValidation failed", err);
-    return { ok: false, error: "La demande de validation n'a pas pu être créée." };
-  }
-}
-
-/**
- * FAIRE VALIDER **UNE PIÈCE** — et elle part au centre de validations.
- *
- * ── CE QUI CHANGE PAR RAPPORT À `askPaymentValidation` ──────────────────────────────────────
- *
- * L'ancienne demande portait sur le DOSSIER, avec des pièces citées en passant dans le titre, et
- * l'on choisissait le validateur à la main. Deux défauts :
- *
- *   • le validateur recevait « valider PAY-2026-014 » et devait deviner ce qui, dans un dossier
- *     de six pièces, était réellement en cause — il rouvrait tout, ou il signait sans lire ;
- *   • choisir son validateur dans une liste, c'est choisir qui vous dit oui.
- *
- * Ici la validation porte sur UNE pièce (`documentId`), et son destinataire n'est pas choisi :
- * elle part au **centre de validations** — au Directeur Général, à défaut au Super Admin
- * (`centreValidatorFrom`, règle pure et testée). Une décision prise sur une pièce ne clôt pas
- * le dossier : `decideValidation` le dit explicitement au demandeur, et compte ce qui reste.
- */
-export async function askPieceValidation(formData: FormData): Promise<ActionResult> {
-  try {
-    const user = await requireUser();
-    if (!isFinance(user)) return { ok: false, error: "Réservé aux Finances." };
-    const pieceId = fdStr(formData, "pieceId");
-    if (!pieceId) return { ok: false, error: "Pièce introuvable." };
-
-    const piece = await prisma.paymentPiece.findUnique({
-      where: { id: pieceId },
-      include: { request: { select: { id: true, reference: true, payee: true, amount: true, status: true, dueDate: true, description: true } } },
-    });
-    if (!piece) return { ok: false, error: "Pièce introuvable." };
-    if (isClosed(piece.request.status)) return { ok: false, error: "Ce dossier est clos." };
-
-    // Une même pièce ne se fait pas valider deux fois : la seconde demande arriverait à côté de
-    // la première, sur le même écran, et le validateur devrait deviner laquelle fait foi.
-    const deja = await prisma.validationRequest.findFirst({
-      where: { entityType: "PAYMENT_REQUEST", entityId: piece.request.id, documentId: piece.documentId, status: "PENDING" },
-      select: { reference: true },
-    });
-    if (deja) return { ok: false, error: `Cette pièce est déjà en validation (${deja.reference}).` };
-
-    const sieges = await prisma.user.findMany({
-      where: { isActive: true, role: { in: ["GENERAL_MANAGER", "SUPER_ADMIN"] } },
-      select: { id: true, role: true },
-    });
-    const validatorId = centreValidatorFrom(sieges);
-    // Le dire, plutôt que de créer une demande que personne ne recevra : une validation sans
-    // destinataire dort dans la base et le demandeur croit l'avoir envoyée.
-    if (!validatorId) return { ok: false, error: "Aucun Directeur Général ni Super Admin actif : la validation n'aurait personne à qui aller." };
-
-    const doc = await prisma.document.findUnique({ where: { id: piece.documentId }, select: { name: true } });
-    const pieceName = doc?.name ?? "Pièce jointe";
-    const res = await createDirectValidation({
-      requesterId: user.id,
-      title: `Pièce à valider — ${pieceName} · paiement ${piece.request.reference} (${piece.request.payee})`,
-      description: [
-        fdStr(formData, "note"),
-        `Montant du paiement : ${toNumber(piece.request.amount).toLocaleString("fr-FR")} DZD.`,
-        piece.request.description,
-      ].filter(Boolean).join("\n\n") || null,
-      link: `${PATH}/${piece.request.id}`,
-      module: "Finances",
-      priority: "HIGH",
-      deadline: piece.request.dueDate,
-      validatorIds: [validatorId],
-      entityType: "PAYMENT_REQUEST",
-      entityId: piece.request.id,
-      // C'EST CE CHAMP QUI FAIT LA VALIDATION « DE PIÈCE » : sans lui, la décision se lirait
-      // comme portant sur le dossier entier.
-      documentId: piece.documentId,
-    });
-    if (!res.ok) return { ok: false, error: res.error ?? "La demande de validation n'a pas pu être créée." };
-
-    await trace(piece.request.id, user.id, "VALIDATION_ASKED", `Validation demandée au centre — pièce « ${pieceName} ».`);
-    revalidate(piece.request.id);
-    return { ok: true, id: piece.request.id };
-  } catch (err) {
-    console.error("[payment] askPieceValidation failed", err);
-    return { ok: false, error: "La demande de validation n'a pas pu être créée." };
-  }
-}
-

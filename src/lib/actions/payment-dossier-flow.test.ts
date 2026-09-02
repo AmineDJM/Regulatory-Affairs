@@ -72,14 +72,24 @@ suite("Demande de paiement — le dossier porte sa justification, et le règleme
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
   });
 
-  it("une demande SANS bon de commande ni facture est refusée — un devis ne suffit pas", async () => {
+  it("une demande SANS pièce qui engage est refusée — un bon de livraison ne suffit pas", async () => {
     ACTOR = await actorFor(requesterId, "DIRECTION");
     const r = await createPaymentRequest(undefined, form(
-      { title: `${TAG} Devis seul`, payee: "Fournisseur X", amount: "120000", paymentMethodStated: "1" },
-      [{ kind: "QUOTE" }],
+      { title: `${TAG} Bon de livraison seul`, payee: "Fournisseur X", amount: "120000", paymentMethodStated: "1" },
+      [{ kind: "DELIVERY_NOTE" }],
     ));
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/BON DE COMMANDE ou une FACTURE/);
+    expect(r.error).toMatch(/BON DE COMMANDE, une FACTURE ou un DEVIS/);
+  });
+
+  it("UN DEVIS SUFFIT — beaucoup de dépenses se règlent sur devis, la facture ne venant qu'après", async () => {
+    ACTOR = await actorFor(requesterId, "DIRECTION");
+    const r = await createPaymentRequest(undefined, form(
+      { title: `${TAG} Sur devis`, payee: "Fournisseur D", amount: "42000", paymentMethodStated: "1" },
+      [{ kind: "QUOTE" }],
+    ));
+    expect(r.ok).toBe(true);
+    if (r.id) created.push(r.id);
   });
 
   it("une facture SANS la case du moyen de paiement est refusée", async () => {
@@ -129,7 +139,7 @@ suite("Demande de paiement — le dossier porte sa justification, et le règleme
     // …mais il ne se TRANSMET pas tant qu'il lui manque sa pièce : la règle vaut à l'envoi.
     const envoi = await submitPaymentRequest(form({ id: r.id }));
     expect(envoi.ok).toBe(false);
-    expect(envoi.error).toMatch(/bon de commande ou la facture/i);
+    expect(envoi.error).toMatch(/bon de commande, une facture ou un devis/i);
   });
 
   it("le demandeur peut cocher le moyen de paiement APRÈS COUP — sinon le brouillon est un cul-de-sac", async () => {
@@ -173,7 +183,7 @@ suite("Demande de paiement — le dossier porte sa justification, et le règleme
       title: `${TAG} Faux BV`, payee: "Fournisseur", amount: "45000", entityType: "BON_DE_VERSEMENT",
     }));
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/bon de commande ou la facture/i);
+    expect(r.error).toMatch(/bon de commande, une facture ou un devis/i);
   });
 
   describe("au décaissement : payé, reporté à une date, non payé", () => {

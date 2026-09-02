@@ -350,16 +350,14 @@ suite("ops FINANCES vague 1 — budgets, caisse, paiements, écritures, paie (go
       expect(domainArgs(p).verdict).toBe("CHANGES_REQUESTED");
     });
 
-    it("ask_payment_validation : validateur par nom, pièces visées par NOM → ids rejoués", async () => {
-      const p = await buildProposal("finance_operation", {
-        op: "ask_payment_validation", reference: `${TAG}-PAY-1`, validator: `${TAG} Yacine`, pieces: "Facture fournisseur",
-      }, fin());
-      expect("error" in p).toBe(false);
-      if ("error" in p) return;
-      const args = domainArgs(p);
-      expect(args.validatorId).toBe(validatorId);
-      expect(args.pieceIds).toContain(pieceId);
-      expect(JSON.stringify(p.fields)).toContain("Facture fournisseur");
+    it("PLUS DE DEMANDE DE VALIDATION sur un paiement — le centre l'a déjà autorisé", async () => {
+      // Les deux ops ont été supprimées avec leurs actions : un dossier n'atteint les Finances que
+      // parce que le centre l'a autorisé, et faire valider ce qui vient d'être validé n'aboutit
+      // nulle part. Retirer le bouton sans retirer l'op aurait laissé une porte à l'assistant.
+      for (const op of ["ask_payment_validation", "ask_piece_validation"]) {
+        const p = await buildProposal("finance_operation", { op, reference: `${TAG}-PAY-1` }, fin());
+        expect("error" in p, op).toBe(true);
+      }
     });
 
     it("add_payment_comment : message OBLIGATOIRE ; submit/cancel se proposent sur le dossier résolu", async () => {
