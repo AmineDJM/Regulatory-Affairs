@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FileText, Download } from "lucide-react";
 import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS, CONTRACT_TYPE, WORKSPACE_TABS } from "@/lib/labels";
 import { visibleTabs } from "@/lib/nav-tabs";
@@ -94,22 +95,51 @@ export default async function MonDossierPage() {
             {dossier.documents.length === 0 ? (
               <p className="p-4 text-sm text-muted-foreground">Aucun document pour l'instant. Les RH y déposeront vos contrats, bulletins et attestations.</p>
             ) : (
-              <ul className="divide-y divide-border">
-                {dossier.documents.map((d) => (
-                  <li key={d.id} className="flex items-center gap-3 px-4 py-2.5">
-                    <FileText className="h-5 w-5 shrink-0 text-primary" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{d.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {HR_DOCUMENT_CATEGORY[d.category]}{d.period ? ` · ${d.period}` : ""} · {formatDate(d.createdAt)}
-                      </p>
-                    </div>
-                    <a href={`/api/rh/document/${d.id}?dl=1`} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">
-                      <Download className="h-4 w-4" /> Télécharger
-                    </a>
-                  </li>
-                ))}
-              </ul>
+              // UN TABLEAU, ET LA NATURE EN PREMIÈRE COLONNE.
+              //
+              // La liste mettait le NOM DE FICHIER en avant et reléguait la nature dans une ligne
+              // grise, collée à la période et à la date. Or on ne cherche jamais « bulletin_07.pdf » :
+              // on cherche SON CONTRAT, ou SA fiche de paie de juillet. Avec vingt lignes, un nom de
+              // fichier ne se trie pas, ne se compare pas, et deux dépôts nommés pareil sont
+              // indiscernables. La nature, la période et la date sont les trois colonnes qu'on lit.
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nature</TableHead>
+                      <TableHead>Document</TableHead>
+                      <TableHead>Période</TableHead>
+                      <TableHead>Déposé le</TableHead>
+                      <TableHead className="text-right">Fichier</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {dossier.documents.map((d) => (
+                      <TableRow key={d.id}>
+                        <TableCell className="whitespace-nowrap font-medium">
+                          {HR_DOCUMENT_CATEGORY[d.category] ?? d.category}
+                        </TableCell>
+                        <TableCell className="max-w-[260px]">
+                          <span className="flex items-center gap-2">
+                            <FileText className="h-4 w-4 shrink-0 text-primary" />
+                            <span className="truncate" title={d.name}>{d.name}</span>
+                          </span>
+                        </TableCell>
+                        {/* La période n'a de sens que sur ce qui en porte une (une fiche de paie,
+                            un relevé) : ailleurs on écrit « — » plutôt qu'une colonne vide, qui se
+                            lit comme une donnée manquante. */}
+                        <TableCell className="whitespace-nowrap text-muted-foreground">{d.period || "—"}</TableCell>
+                        <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(d.createdAt)}</TableCell>
+                        <TableCell className="text-right">
+                          <a href={`/api/rh/document/${d.id}?dl=1`} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary">
+                            <Download className="h-4 w-4" /> Télécharger
+                          </a>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>

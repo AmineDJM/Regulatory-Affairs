@@ -1,5 +1,6 @@
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView } from "@/lib/rbac";
+import { visibleStockScopes, canRequestStockState, keepVisibleSnapshots } from "@/lib/stocks/scopes";
 import { prisma } from "@/lib/prisma";
 import { getProductOptions } from "@/lib/queries/stock";
 import { platformScope } from "@/lib/company";
@@ -11,8 +12,18 @@ export default async function StocksPage() {
   const canRecord = userCan(user, "STOCKS", "CREATE") || userCan(user, "STOCKS", "UPDATE");
   const canDelete = userCan(user, "STOCKS", "DELETE");
   const isSuperAdmin = user.role === "SUPER_ADMIN";
-  // Demande d'état de stock à un instant T : Direction (droit STOCKS.DELETE) ou Super Admin.
-  const canRequest = isSuperAdmin || canDelete;
+
+  // ── QUI VOIT QUEL STOCK ───────────────────────────────────────────────────────────────────
+  //
+  // PCH et ses ANNEXES sont la chaîne d'approvisionnement ; les HÔPITAUX sont le relevé de
+  // terrain. Un délégué médical relève les hôpitaux qu'il visite — il n'a rien à faire dans la
+  // position de la centrale d'achat, ni dans celle de ses annexes. La règle est portée par
+  // `lib/stocks/scopes.ts` : elle ne nomme aucun rôle, elle lit l'accès à la chaîne.
+  const viewer = { canSeeSupplyChain: userCan(user, "PCH", "VIEW"), hasGlobalView: hasGlobalView(user.role), isSuperAdmin };
+  const scopes = visibleStockScopes(viewer);
+  // Demander un état de stock est une RÉQUISITION adressée à quelqu'un : elle appartient à qui
+  // tient la chaîne, jamais à qui y contribue. Le droit de suppression ne l'ouvre plus.
+  const canRequest = canRequestStockState(viewer);
 
   const [products, locations, snapshots, users] = await Promise.all([
     getProductOptions(user),
@@ -28,7 +39,9 @@ export default async function StocksPage() {
   const hospitals = locations.filter((l) => l.kind !== "ANNEX").map((l) => ({ id: l.id, name: l.name }));
   const annexes = locations.filter((l) => l.kind === "ANNEX").map((l) => ({ id: l.id, name: l.name }));
 
-  const snaps: SnapshotDTO[] = snapshots.map((s) => ({
+  // LE FILTRE PORTE SUR LES DONNÉES, pas seulement sur les onglets : un relevé PCH qui part dans
+  // la charge utile de la page se lit, même sans onglet pour l'afficher.
+  const snaps: SnapshotDTO[] = keepVisibleSnapshots(viewer, snapshots).map((s) => ({
     id: s.id, scope: s.scope, annexId: s.annexId, productId: s.productId,
     date: s.date.toISOString(), quantity: s.quantity, mine: s.createdById === user.id,
   }));
@@ -49,6 +62,7 @@ export default async function StocksPage() {
         canDelete={canDelete}
         isSuperAdmin={isSuperAdmin}
         canRequest={canRequest}
+        scopes={scopes}
       />
     </div>
   );

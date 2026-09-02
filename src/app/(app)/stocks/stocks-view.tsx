@@ -10,6 +10,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumber, formatDate } from "@/lib/utils";
+import { STOCK_SCOPE_LABEL, type StockScope } from "@/lib/stocks/scopes";
 
 export interface ProductOpt { id: string; label: string }
 export interface LocationDTO { id: string; name: string }
@@ -26,12 +27,7 @@ export interface SnapshotDTO {
   mine: boolean; // enregistré par l'utilisateur courant (droit de correction)
 }
 
-const TABS = [
-  { key: "PCH", label: "Stock PCH" },
-  { key: "HOSPITAL", label: "Stock hôpitaux" },
-  { key: "ANNEX", label: "Stock annexes PCH" },
-] as const;
-type TabKey = (typeof TABS)[number]["key"];
+type TabKey = StockScope;
 
 // Libellés du panneau de gestion des lieux nommés, par onglet.
 const LOC_UI: Record<"HOSPITAL" | "ANNEX", { title: string; singular: string; addLabel: string; placeholder: string; emptyAdmin: string; emptyOther: string }> = {
@@ -42,7 +38,7 @@ const LOC_UI: Record<"HOSPITAL" | "ANNEX", { title: string; singular: string; ad
 const todayInput = () => new Date().toISOString().slice(0, 10);
 
 export function StocksView({
-  products, hospitals, annexes, snapshots, users, canRecord, canDelete, isSuperAdmin, canRequest,
+  products, hospitals, annexes, snapshots, users, canRecord, canDelete, isSuperAdmin, canRequest, scopes,
 }: {
   products: ProductOpt[];
   hospitals: LocationDTO[];
@@ -53,9 +49,19 @@ export function StocksView({
   canDelete: boolean;
   isSuperAdmin: boolean;
   canRequest: boolean;
+  /**
+   * LES ONGLETS AUXQUELS CETTE PERSONNE A DROIT — décidés par le serveur, jamais ici.
+   *
+   * Le terrain n'y voit que les hôpitaux : la centrale d'achat et ses annexes relèvent de la
+   * chaîne d'approvisionnement. Les relevés correspondants ne sont pas non plus envoyés.
+   */
+  scopes: StockScope[];
 }) {
   const router = useRouter();
-  const [tab, setTab] = React.useState<TabKey>("PCH");
+  const tabs = React.useMemo(() => scopes.map((k) => ({ key: k, label: STOCK_SCOPE_LABEL[k] })), [scopes]);
+  // On ouvre sur le PREMIER onglet auquel on a droit — « PCH » en dur ouvrait sur un onglet
+  // interdit, donc sur du vide, pour toute personne qui n'y a pas accès.
+  const [tab, setTab] = React.useState<TabKey>(scopes[0] ?? "HOSPITAL");
   const [view, setView] = React.useState<"chart" | "table">("chart");
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -130,7 +136,7 @@ export function StocksView({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="inline-flex max-w-full flex-wrap gap-1 rounded-xl border border-border bg-muted/40 p-1">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button key={t.key} onClick={() => switchTab(t.key)}
               className={`rounded-lg px-3 py-1.5 text-sm transition ${tab === t.key ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
               {t.label}

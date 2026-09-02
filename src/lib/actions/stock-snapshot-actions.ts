@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView } from "@/lib/rbac";
+import { canRequestStockState, canSeeStockScope, type StockScope } from "@/lib/stocks/scopes";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
@@ -16,6 +17,20 @@ const PATH = "/stocks";
 
 /** Libellés d'un lieu nommé selon son type (pour messages/audit). */
 const LOC = { HOSPITAL: { un: "un hôpital", ce: "Cet hôpital", le: "Hôpital" }, ANNEX: { un: "une annexe PCH", ce: "Cette annexe PCH", le: "Annexe PCH" } } as const;
+
+/**
+ * CE QUE CETTE PERSONNE VOIT DU STOCK — la même règle qu'à l'écran, appliquée ICI.
+ *
+ * Masquer les onglets « PCH » et « annexes PCH » à un délégué médical ne ferme rien : la portée
+ * voyage dans un champ de formulaire, et une requête forgée écrit ou efface un état de stock de la
+ * centrale d'achat aussi bien qu'un clic. La garde vit donc dans l'action, l'écran n'en est que le
+ * reflet (§118-7 : ce que l'écran refuse ne se rattrape pas ailleurs).
+ */
+const stockViewer = (user: { role: string; access: Parameters<typeof userCan>[0]["access"] }) => ({
+  canSeeSupplyChain: userCan(user as Parameters<typeof userCan>[0], "PCH", "VIEW"),
+  hasGlobalView: hasGlobalView(user.role as Parameters<typeof hasGlobalView>[0]),
+  isSuperAdmin: user.role === "SUPER_ADMIN",
+});
 
 /** Crée un lieu nommé (hôpital ou annexe PCH), réservé au Super Admin. */
 async function createStockLocation(formData: FormData, kind: "HOSPITAL" | "ANNEX"): Promise<ActionResult> {
@@ -74,7 +89,10 @@ export async function deleteStockAnnex(formData: FormData): Promise<ActionResult
  */
 export async function requestStockState(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (user.role !== "SUPER_ADMIN" && !userCan(user, "STOCKS", "DELETE")) {
+  // DEMANDER UN ÉTAT DE STOCK est une RÉQUISITION adressée à une personne nommée : elle
+  // appartient à qui tient la chaîne d'approvisionnement, jamais à qui y contribue. Le droit de
+  // SUPPRESSION sur le module ne l'ouvre plus — il pouvait être accordé pour de tout autres raisons.
+  if (!canRequestStockState(stockViewer(user))) {
     return { ok: false, error: "Réservé à la Direction / au Super Admin." };
   }
   const assigneeId = fdStr(formData, "assigneeId");
@@ -140,6 +158,12 @@ export async function recordStockSnapshot(formData: FormData): Promise<ActionRes
   const annexId = fdStr(formData, "annexId");
   const isLocationScope = scope === "HOSPITAL" || scope === "ANNEX";
   if (!scope || !(SCOPES as readonly string[]).includes(scope)) return { ok: false, error: "Lieu de stock invalide." };
+  // ON N'ÉCRIT PAS DANS UN STOCK QU'ON N'A PAS LE DROIT DE VOIR. Sans cette ligne, la portée
+  // n'était qu'un champ de formulaire : un compte terrain pouvait renseigner la position de la
+  // centrale d'achat.
+  if (!canSeeStockScope(stockViewer(user), scope as StockScope)) {
+    return { ok: false, error: "Ce stock ne relève pas de votre périmètre : vous relevez les hôpitaux, la centrale d'achat et ses annexes appartiennent à la chaîne d'approvisionnement." };
+  }
   if (isLocationScope && !annexId) return { ok: false, error: scope === "HOSPITAL" ? "Choisissez l'hôpital concerné." : "Choisissez l'annexe PCH concernée." };
   if (!productId) return { ok: false, error: "Choisissez le produit." };
   if (!date) return { ok: false, error: "Indiquez la date de l'état de stock." };
@@ -172,9 +196,13 @@ export async function deleteStockSnapshot(formData: FormData): Promise<ActionRes
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  const snap = await prisma.stockSnapshot.findUnique({ where: { id }, select: { createdById: true } });
+  const snap = await prisma.stockSnapshot.findUnique({ where: { id }, select: { createdById: true, scope: true } });
   if (!snap) return { ok: false, error: "État introuvable." };
   if (!userCan(user, "STOCKS", "DELETE") && snap.createdById !== user.id) return { ok: false, error: "Non autorisé." };
+  // Même barrière qu'à l'écriture : on n'efface pas un relevé d'un stock hors de son périmètre.
+  if (!canSeeStockScope(stockViewer(user), snap.scope as StockScope)) {
+    return { ok: false, error: "Ce stock ne relève pas de votre périmètre." };
+  }
   await prisma.stockSnapshot.delete({ where: { id } });
   revalidatePath(PATH);
   return { ok: true };
