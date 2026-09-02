@@ -35,6 +35,10 @@ export interface PchTenderLineDTO {
   ourProduct: string | null;
   ourProductId: string | null;
   unitPriceDzd: number | null;
+  /** NOTRE PRIX DE PARTICIPATION, à la boîte — le chiffre négocié, celui qui fait foi. */
+  boxPriceDzd: number | null;
+  /** NOTRE COÛT d'achat, à la boîte — la marge se voit avant le dépôt. */
+  boxCostDzd: number | null;
   refPriceDzd: number | null; // prix verrouillé depuis les réceptions PCH 2025
   refPriceSource: string | null;
   suppliersInfo: string | null;
@@ -52,6 +56,8 @@ export interface PchTenderLineDTO {
   status: string;
   awardedUnitPriceDzd: number | null;
   awardedQuantityUnits: number | null;
+  /** CE QUE NOUS AVONS DÉPOSÉ — le dénominateur du pourcentage gagné. */
+  submittedQuantityUnits: number | null;
   note: string | null;
   // Ventes réelles : bons de commande (fractions) rattachés à cette ligne gagnée.
   soldUnits: number;
@@ -98,7 +104,7 @@ function toOrderDTO(o: { id: string; lineId: string | null; reference: string | 
   };
 }
 
-type LineRow = { id: string; designation: string; dci: string | null; dosage: string | null; form: string | null; quantityUnits: number; unitsPerBox: number | null; unitLabel: string | null; haveProduct: boolean; ourProduct: string | null; ourProductId: string | null; unitPriceDzd: unknown; refPriceDzd: unknown; refPriceSource: string | null; suppliersInfo: string | null; competitorCount: number | null; registeredNomenclature: boolean; registeredOurs: boolean; nomLines: number | null; marketEstimateDzd: unknown; marketOrigin: string | null; marketVillePct: unknown; marketHopitalPct: unknown; marketHhi: number | null; competitorsTop: string | null; status: string; awardedUnitPriceDzd: unknown; awardedQuantityUnits: number | null; note: string | null };
+type LineRow = { id: string; designation: string; dci: string | null; dosage: string | null; form: string | null; quantityUnits: number; unitsPerBox: number | null; unitLabel: string | null; haveProduct: boolean; ourProduct: string | null; ourProductId: string | null; unitPriceDzd: unknown; boxPriceDzd: unknown; boxCostDzd: unknown; refPriceDzd: unknown; refPriceSource: string | null; suppliersInfo: string | null; competitorCount: number | null; registeredNomenclature: boolean; registeredOurs: boolean; nomLines: number | null; marketEstimateDzd: unknown; marketOrigin: string | null; marketVillePct: unknown; marketHopitalPct: unknown; marketHhi: number | null; competitorsTop: string | null; status: string; awardedUnitPriceDzd: unknown; awardedQuantityUnits: number | null; submittedQuantityUnits: number | null; note: string | null };
 function toLineDTO(l: LineRow, sold?: { units: number; orders: number }): PchTenderLineDTO {
   const boxesNeeded = l.unitsPerBox && l.unitsPerBox > 0 ? Math.ceil(l.quantityUnits / l.unitsPerBox) : null;
   const soldUnits = sold?.units ?? 0;
@@ -108,11 +114,13 @@ function toLineDTO(l: LineRow, sold?: { units: number; orders: number }): PchTen
     id: l.id, designation: l.designation, dci: l.dci, dosage: l.dosage, form: l.form,
     quantityUnits: l.quantityUnits, unitsPerBox: l.unitsPerBox, unitLabel: l.unitLabel, boxesNeeded,
     haveProduct: l.haveProduct, ourProduct: l.ourProduct, ourProductId: l.ourProductId, unitPriceDzd: dec(l.unitPriceDzd),
+    boxPriceDzd: dec(l.boxPriceDzd), boxCostDzd: dec(l.boxCostDzd),
     refPriceDzd: dec(l.refPriceDzd), refPriceSource: l.refPriceSource,
     suppliersInfo: l.suppliersInfo, competitorCount: l.competitorCount,
     registeredNomenclature: l.registeredNomenclature, registeredOurs: l.registeredOurs, nomLines: l.nomLines, marketEstimateDzd: dec(l.marketEstimateDzd),
     marketOrigin: l.marketOrigin, marketVillePct: dec(l.marketVillePct), marketHopitalPct: dec(l.marketHopitalPct), marketHhi: l.marketHhi, competitorsTop: l.competitorsTop,
-    status: l.status, awardedUnitPriceDzd: dec(l.awardedUnitPriceDzd), awardedQuantityUnits: l.awardedQuantityUnits, note: l.note,
+    status: l.status, awardedUnitPriceDzd: dec(l.awardedUnitPriceDzd), awardedQuantityUnits: l.awardedQuantityUnits,
+    submittedQuantityUnits: l.submittedQuantityUnits, note: l.note,
     soldUnits, orderCount, fulfillmentPct,
   };
 }

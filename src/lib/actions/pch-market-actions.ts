@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { toNumber } from "@/lib/utils";
 import { controlerCommande } from "@/lib/pch/market-math";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
+import { unitFromBoxPrice } from "@/lib/pch/box-economics";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -587,6 +588,11 @@ export async function addOrderLine(formData: FormData): Promise<ActionResult> {
     }
   }
 
+  // MÊME RÈGLE QUE SUR LA LIGNE D'AO : le prix de BOÎTE fait foi quand il est saisi, et le prix
+  // unitaire s'en déduit ici — le seul endroit où il s'écrit sur un bon. Le conditionnement du
+  // bon peut différer de celui de l'AO : c'est celui qui sera réellement livré.
+  const unitsPerBox = posInt(formData, "unitsPerBox");
+  const boxPrice = fdNum(formData, "boxPriceDzd");
   await prisma.pchOrderLine.create({
     data: {
       orderId,
@@ -594,7 +600,11 @@ export async function addOrderLine(formData: FormData): Promise<ActionResult> {
       tenderLineId,
       designation,
       quantityUnits: qty,
-      unitPriceDzd: fdNum(formData, "unitPriceDzd"),
+      unitsPerBox,
+      boxPriceDzd: boxPrice,
+      unitPriceDzd: boxPrice != null
+        ? unitFromBoxPrice(boxPrice, unitsPerBox) ?? fdNum(formData, "unitPriceDzd")
+        : fdNum(formData, "unitPriceDzd"),
     },
   });
   await recordAudit({

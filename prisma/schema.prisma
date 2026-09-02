@@ -5502,6 +5502,14 @@ model PchTenderLine {
   ourProductId           String?
   ourProduct             String?
   unitPriceDzd           Decimal?                 @db.Decimal(14, 2) // notre prix unitaire (DZD)
+  /// NOTRE PRIX DE PARTICIPATION, À LA BOÎTE — le chiffre réellement négocié, celui qui figure
+  /// sur l'offre. Quand il est saisi, il FAIT FOI et `unitPriceDzd` s'en déduit
+  /// (`lib/pch/box-economics.ts`) : l'inverse ferait de 1 000 DZD la boîte de 30 un prix
+  /// unitaire de 33,33 puis une boîte à 999,90, un centime perdu à chaque aller-retour.
+  boxPriceDzd            Decimal?                 @db.Decimal(14, 2)
+  /// NOTRE COÛT D'ACHAT, À LA BOÎTE. Sans lui, on soumissionnait sans que la plateforme sache
+  /// si le lot était gagnant ou perdant — la marge se voit désormais AVANT le dépôt.
+  boxCostDzd             Decimal?                 @db.Decimal(14, 2)
   suppliersInfo          String? // nos fournisseurs + prix (texte)
   // Prix de RÉFÉRENCE verrouillé depuis les réceptions PCH 2025 (vérifié dosage + forme).
   refPriceDzd            Decimal?                 @db.Decimal(14, 2)
@@ -5672,7 +5680,13 @@ model PchOrderLine {
   tenderLine     PchTenderLine?   @relation("OrderLineTenderLine", fields: [tenderLineId], references: [id], onDelete: SetNull)
   designation    String
   quantityUnits  Int              @default(0)
+  /// CONDITIONNEMENT COMMANDÉ — « boîte de N ». Il peut différer de celui de l'AO : un bon de
+  /// commande porte le conditionnement réellement livré, et le nombre de boîtes s'en déduit.
+  unitsPerBox    Int?
   unitPriceDzd   Decimal?         @db.Decimal(14, 2)
+  /// LE PRIX À LA BOÎTE du bon — même règle que sur la ligne d'AO : saisi, il fait foi, et le
+  /// prix unitaire s'en déduit. Voir `lib/pch/box-economics.ts`.
+  boxPriceDzd    Decimal?         @db.Decimal(14, 2)
   createdAt      DateTime         @default(now())
 
   deliveryLines PchDeliveryLine[]

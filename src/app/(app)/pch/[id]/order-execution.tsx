@@ -11,6 +11,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, formatNumber } from "@/lib/utils";
+import { boxCount } from "@/lib/pch/box-economics";
 import type { Market360 } from "@/lib/queries/market-360";
 
 /**
@@ -69,6 +70,14 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
               <li key={l.id} className="flex flex-wrap items-center gap-2 rounded-md bg-card px-2.5 py-1.5 text-sm">
                 <span className="min-w-0 flex-1 truncate">{l.designation}</span>
                 <span className="tabular-nums">{formatNumber(l.quantityUnits)} u.</span>
+                {/* LA QUANTITÉ EN BOÎTES, calculée — jamais stockée : un chiffre dérivé qu'on
+                    enregistre devient faux le jour où l'on corrige la quantité sans y penser. */}
+                {boxCount(l.quantityUnits, l.unitsPerBox) != null && (
+                  <span className="tabular-nums text-xs text-muted-foreground">= {formatNumber(boxCount(l.quantityUnits, l.unitsPerBox) as number)} bt</span>
+                )}
+                {l.boxPriceDzd != null && (
+                  <span className="tabular-nums text-xs text-muted-foreground">{formatNumber(l.boxPriceDzd)} DZD / bt</span>
+                )}
                 {l.quantiteLivree > 0 && (
                   <span className="text-xs text-success">livré {formatNumber(l.quantiteLivree)}</span>
                 )}
@@ -234,8 +243,15 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
               </Select>
             </Field>
             <Field full label="Désignation"><Input name="designation" required /></Field>
+            {/* LE BON SE COMMANDE EN BOÎTES, LE CONTRAT SE CONTRÔLE EN UNITÉS.
+                Le conditionnement du bon peut différer de celui de l'AO — c'est celui qui sera
+                réellement livré. Le prix de la BOÎTE fait foi quand il est saisi ; le prix
+                unitaire, dont vit le contrôle du restant contractuel, s'en déduit au serveur
+                (`lib/pch/box-economics.ts`). */}
             <Field label="Quantité (unités)"><Input name="quantityUnits" type="number" min={1} required /></Field>
-            <Field label="Prix unitaire (DZD)"><Input name="unitPriceDzd" type="number" step="any" /></Field>
+            <Field label="Boîte de N unités"><Input name="unitsPerBox" type="number" min={1} placeholder="ex. 30" /></Field>
+            <Field label="Prix / boîte (DZD)"><Input name="boxPriceDzd" type="number" step="any" /></Field>
+            <Field label="Prix unitaire (DZD)"><Input name="unitPriceDzd" type="number" step="any" placeholder="déduit du prix / boîte" /></Field>
           </div>
           <FormFooter busy={busy} onCancel={() => setAddingLine(false)} submitLabel="Ajouter" />
         </form>

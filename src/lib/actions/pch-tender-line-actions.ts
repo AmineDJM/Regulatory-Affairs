@@ -7,6 +7,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { unitFromBoxPrice } from "@/lib/pch/box-economics";
 import { askClaude, aiConfigured } from "@/lib/ai";
 import { getRecommendations, normText, queryTokens, allTokensIn, type RecRow } from "@/lib/market/engine";
 import { pchReceptionPrice, nomenclatureMatch } from "@/lib/market/pch-lookup";
@@ -40,6 +41,8 @@ export async function updateTenderLine(formData: FormData): Promise<ActionResult
   const id = fdStr(formData, "id");
   const tenderId = fdStr(formData, "tenderId");
   if (!id) return { ok: false, error: "Ligne introuvable." };
+  const unitsPerBox = int(formData, "unitsPerBox");
+  const boxPrice = fdNum(formData, "boxPriceDzd");
   await prisma.pchTenderLine.update({
     where: { id },
     data: {
@@ -48,10 +51,23 @@ export async function updateTenderLine(formData: FormData): Promise<ActionResult
       dosage: fdStr(formData, "dosage"),
       form: fdStr(formData, "form"),
       quantityUnits: int(formData, "quantityUnits") ?? 0,
-      unitsPerBox: int(formData, "unitsPerBox"),
+      unitsPerBox: unitsPerBox,
       unitLabel: fdStr(formData, "unitLabel"),
       haveProduct: fdStr(formData, "haveProduct") === "on",
-      unitPriceDzd: fdNum(formData, "unitPriceDzd"),
+      // ── LA BOÎTE EST LA SOURCE, L'UNITÉ SA PROJECTION ───────────────────────────────────
+      //
+      // Le prix réellement négocié est celui de la BOÎTE : c'est lui qui figure sur l'offre.
+      // Le prix unitaire — dont vit toute la chaîne aval, qui compte en unités parce que le
+      // marché compte en unités — s'en DÉDUIT ici, au seul endroit où il s'écrit. Le stocker
+      // comme source ferait de 1 000 DZD la boîte de 30 un prix à 999,90 au retour.
+      //
+      // Une ligne chiffrée à l'unité, sans prix de boîte, garde son prix tel quel : les lignes
+      // anciennes ne sont pas réécrites.
+      boxPriceDzd: boxPrice,
+      boxCostDzd: fdNum(formData, "boxCostDzd"),
+      unitPriceDzd: boxPrice != null
+        ? unitFromBoxPrice(boxPrice, unitsPerBox) ?? fdNum(formData, "unitPriceDzd")
+        : fdNum(formData, "unitPriceDzd"),
       suppliersInfo: fdStr(formData, "suppliersInfo"),
       status: parseLineStatus(fdStr(formData, "status")),
       awardedUnitPriceDzd: fdNum(formData, "awardedUnitPriceDzd"),

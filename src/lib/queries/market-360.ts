@@ -72,6 +72,8 @@ export interface Market360 {
     paymentDate: Date | null; valeur: number | null; quantiteHeritee: number;
     lignes: Array<{
       id: string; designation: string; quantityUnits: number; unitPriceDzd: number | null;
+      /** Conditionnement et prix À LA BOÎTE du bon — le nombre de boîtes s'en déduit. */
+      unitsPerBox: number | null; boxPriceDzd: number | null;
       contractLineId: string | null; quantiteLivree: number;
     }>;
     livraisons: Array<{
@@ -151,6 +153,7 @@ export async function loadMarket360(tenderId: string): Promise<Market360 | null>
           orderLines: {
             select: {
               id: true, designation: true, quantityUnits: true, unitPriceDzd: true, contractLineId: true,
+              unitsPerBox: true, boxPriceDzd: true,
               deliveryLines: { select: { quantityUnits: true, delivery: { select: { deliveredAt: true } } } },
             },
           },
@@ -350,6 +353,7 @@ export async function loadMarket360(tenderId: string): Promise<Market360 | null>
     lignes: o.orderLines.map((ol) => ({
       id: ol.id, designation: ol.designation, quantityUnits: ol.quantityUnits,
       unitPriceDzd: num(ol.unitPriceDzd), contractLineId: ol.contractLineId,
+      unitsPerBox: ol.unitsPerBox, boxPriceDzd: num(ol.boxPriceDzd),
       quantiteLivree: ol.deliveryLines.reduce((s, dl) => s + (dl.delivery.deliveredAt ? dl.quantityUnits : 0), 0),
     })),
     livraisons: o.deliveries.map((d) => ({

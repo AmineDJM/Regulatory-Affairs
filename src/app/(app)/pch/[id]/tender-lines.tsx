@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, Loader2, Sparkles, Wand2, Package, Upload, TrendingUp, ShoppingCart, BadgeCheck, Download, Factory, Ship } from "lucide-react";
 import { addTenderLine, updateTenderLine, deleteTenderLine, analyzeTenderText, analyzeTenderDocument, enrichTenderLine, enrichAllTenderLines, createOrderFromLine } from "@/lib/actions/pch-tender-line-actions";
 import type { PchTenderLineDTO } from "@/lib/queries/pch";
+import { lineEconomics, awardResult } from "@/lib/pch/box-economics";
 
 type Res = { ok: boolean; error?: string };
 const inp = "h-8 w-full rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
@@ -123,11 +124,34 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
     quantityUnits: String(line.quantityUnits || ""), unitsPerBox: line.unitsPerBox != null ? String(line.unitsPerBox) : "",
     unitLabel: line.unitLabel ?? "",
     haveProduct: line.haveProduct, unitPriceDzd: line.unitPriceDzd != null ? String(line.unitPriceDzd) : "",
+    // NOTRE PRIX DE PARTICIPATION ET NOTRE COÛT, à la BOÎTE — les deux chiffres qu'on négocie
+    // réellement. Le prix de boîte non saisi se RECONSTRUIT depuis l'unité pour les lignes
+    // anciennes, sans être réenregistré (voir `lib/pch/box-economics.ts`).
+    boxPriceDzd: line.boxPriceDzd != null ? String(line.boxPriceDzd) : "",
+    boxCostDzd: line.boxCostDzd != null ? String(line.boxCostDzd) : "",
     status: line.status, awardedUnitPriceDzd: line.awardedUnitPriceDzd != null ? String(line.awardedUnitPriceDzd) : "",
     awardedQuantityUnits: line.awardedQuantityUnits != null ? String(line.awardedQuantityUnits) : "",
+    submittedQuantityUnits: line.submittedQuantityUnits != null ? String(line.submittedQuantityUnits) : "",
     suppliersInfo: line.suppliersInfo ?? "", note: line.note ?? "",
   });
-  const boxes = (() => { const q = Number(s.quantityUnits) || 0; const n = Number(s.unitsPerBox) || 0; return n > 0 ? Math.ceil(q / n) : null; })();
+
+  // TOUTE L'ÉCONOMIE DE LA LIGNE, calculée à la frappe : boîtes, prix unitaire déduit, montant,
+  // marge. Le même module que le serveur — deux calculs séparés auraient fini par afficher une
+  // marge que l'enregistrement n'aurait pas confirmée.
+  const eco = lineEconomics({
+    quantityUnits: Number(s.quantityUnits) || 0,
+    unitsPerBox: Number(s.unitsPerBox) || null,
+    boxPriceDzd: s.boxPriceDzd === "" ? null : Number(s.boxPriceDzd),
+    boxCostDzd: s.boxCostDzd === "" ? null : Number(s.boxCostDzd),
+    unitPriceDzd: s.unitPriceDzd === "" ? null : Number(s.unitPriceDzd),
+  });
+  const boxes = eco.boxes;
+  const award = awardResult({
+    quantityUnits: Number(s.quantityUnits) || 0,
+    submittedQuantityUnits: s.submittedQuantityUnits === "" ? null : Number(s.submittedQuantityUnits),
+    awardedQuantityUnits: s.awardedQuantityUnits === "" ? null : Number(s.awardedQuantityUnits),
+    status: s.status,
+  });
 
   function save() {
     const fd = new FormData();
@@ -136,7 +160,8 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
     fd.set("quantityUnits", s.quantityUnits); fd.set("unitsPerBox", s.unitsPerBox); fd.set("unitLabel", s.unitLabel);
     if (s.haveProduct) fd.set("haveProduct", "on");
     fd.set("unitPriceDzd", s.unitPriceDzd); fd.set("status", s.status); fd.set("awardedUnitPriceDzd", s.awardedUnitPriceDzd);
-    fd.set("awardedQuantityUnits", s.awardedQuantityUnits);
+    fd.set("boxPriceDzd", s.boxPriceDzd); fd.set("boxCostDzd", s.boxCostDzd);
+    fd.set("awardedQuantityUnits", s.awardedQuantityUnits); fd.set("submittedQuantityUnits", s.submittedQuantityUnits);
     fd.set("suppliersInfo", s.suppliersInfo); fd.set("note", s.note);
     run(() => updateTenderLine(fd));
   }
@@ -178,12 +203,34 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
           <span className="whitespace-nowrap text-xs font-medium text-primary">{boxes != null ? `= ${fmt(boxes)} bt` : ""}</span>
         </div>
         <label className="flex items-center gap-1.5 text-xs sm:col-span-3"><input type="checkbox" checked={s.haveProduct} onChange={(e) => { setS({ ...s, haveProduct: e.target.checked }); }} onBlur={save} className="h-4 w-4 rounded border-input" /> Nous l'avons</label>
-        <input className={`${inp} sm:col-span-3`} inputMode="decimal" value={s.unitPriceDzd} onChange={(e) => setS({ ...s, unitPriceDzd: e.target.value })} onBlur={save} placeholder="Prix unité (DZD)" />
+        {/* NOTRE PRIX DE PARTICIPATION ET NOTRE COÛT, À LA BOÎTE — les deux chiffres que
+            l'équipe négocie réellement. Le prix unitaire, dont vit la chaîne aval, s'en déduit
+            et s'affiche à côté : on ne divise plus de tête avant de saisir. */}
+        <input className={`${inp} sm:col-span-3`} inputMode="decimal" value={s.boxPriceDzd} onChange={(e) => setS({ ...s, boxPriceDzd: e.target.value })} onBlur={save} placeholder="Notre prix / boîte" title="Notre prix de participation, à la boîte — c'est lui qui fait foi" />
+        <input className={`${inp} sm:col-span-3`} inputMode="decimal" value={s.boxCostDzd} onChange={(e) => setS({ ...s, boxCostDzd: e.target.value })} onBlur={save} placeholder="Notre coût / boîte" title="Ce que la boîte nous coûte — la marge se voit avant le dépôt" />
+        <input className={`${inp} sm:col-span-3`} inputMode="decimal" value={s.unitPriceDzd} onChange={(e) => setS({ ...s, unitPriceDzd: e.target.value })} onBlur={save} placeholder="Prix unité (DZD)" title="Déduit du prix à la boîte quand celui-ci est saisi" />
         <input className={`${inp} sm:col-span-3`} inputMode="decimal" value={s.awardedUnitPriceDzd} onChange={(e) => setS({ ...s, awardedUnitPriceDzd: e.target.value })} onBlur={save} placeholder="Prix attribué (DZD)" />
-        {/* L'ATTRIBUTION PARTIELLE : vide = tout le soumis est gagné ; un chiffre = ce que
-            l'organisme a réellement attribué (8 000 soumis, 4 000 gagnés). */}
+        {/* CE QU'ON A DÉPOSÉ, ET CE QU'ON A OBTENU. Le pourcentage gagné se MESURE sur ces deux
+            quantités — un pourcentage saisi à la main dérive de ses quantités dès la première
+            correction, et l'on ne sait plus lequel croire. */}
+        <input className={`${inp} sm:col-span-3`} inputMode="numeric" value={s.submittedQuantityUnits} onChange={(e) => setS({ ...s, submittedQuantityUnits: e.target.value })} onBlur={save} placeholder="Qté soumise (si partielle)" title="Ce que NOUS avons déposé — vide = toute la quantité demandée" />
         <input className={`${inp} sm:col-span-3`} inputMode="numeric" value={s.awardedQuantityUnits} onChange={(e) => setS({ ...s, awardedQuantityUnits: e.target.value })} onBlur={save} placeholder="Qté attribuée (si partielle)" title="Quantité attribuée — vide = quantité soumise entière" />
         <input className={`${inp} sm:col-span-6`} value={s.suppliersInfo} onChange={(e) => setS({ ...s, suppliersInfo: e.target.value })} onBlur={save} placeholder="Nos fournisseurs + prix / notes marché" />
+      </div>
+
+      {/* L'ÉCONOMIE DE LA LIGNE, LUE D'UN COUP D'ŒIL — et l'attribution quand elle est tombée. */}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {eco.unitPrice != null && <span className="rounded bg-secondary px-2 py-0.5">Prix unité déduit : <strong>{eco.unitPrice}</strong> DZD</span>}
+        {eco.amount != null && <span className="rounded bg-secondary px-2 py-0.5">Montant du lot : <strong>{fmt(eco.amount)}</strong> DZD</span>}
+        {eco.marginPerBox != null && (
+          <span className={`rounded px-2 py-0.5 ${eco.atLoss ? "bg-destructive/10 text-destructive" : "bg-success/15 text-success"}`}
+            title={eco.atLoss ? "Le coût dépasse le prix : ce lot se dépose à perte." : undefined}>
+            Marge / boîte : <strong>{fmt(eco.marginPerBox)}</strong> DZD{eco.marginPct != null ? ` (${eco.marginPct} %)` : ""}
+          </span>
+        )}
+        {award.won && (
+          <span className={`rounded px-2 py-0.5 ${award.partial ? "bg-warning/15 text-warning" : "bg-success/15 text-success"}`}>{award.label}</span>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-xs">

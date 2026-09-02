@@ -24,11 +24,13 @@ const ORDRE_NIVEAUX = [
 export default async function PchPage({ searchParams }: { searchParams?: { niveau?: string } }) {
   const user = await requireModule("PCH");
   const canCreate = userCan(user, "PCH", "CREATE");
-  const [tenders, companies, usersOptions, businessUnits] = await Promise.all([
+  // LES BUSINESS UNITS NE SONT PLUS CHARGÉES ICI : l'affectation ne se décide pas à l'ouverture
+  // du dossier, mais PRODUIT PAR PRODUIT une fois l'attribution connue — un marché sert souvent
+  // plusieurs gammes, et le champ unique du formulaire forçait à n'en nommer qu'une.
+  const [tenders, companies, usersOptions] = await Promise.all([
     getPchTenders(user.id),
     getMyCompanies(user.id),
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.businessUnit.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { sortOrder: "asc" } }),
   ]);
   const s = pchSummary(tenders);
 
@@ -56,28 +58,36 @@ export default async function PchPage({ searchParams }: { searchParams?: { nivea
             description="Référence laissée vide = numérotation automatique (AO-année-n)."
             redirectBase="/pch"
             action={createTender}
+            /**
+             * CE QU'ON SAIT LE JOUR DE LA PUBLICATION, ET RIEN DE PLUS.
+             *
+             * Le formulaire demandait vingt et un champs : la Business Unit, les produits, le
+             * fournisseur, son pays, la quantité, la valeur, la date d'attribution, les quatre
+             * champs de caution, les notes. Aucun n'est CONNU à la création — on ouvre un dossier
+             * le jour où l'organisme publie l'appel d'offres, avant d'avoir chiffré quoi que ce
+             * soit, avant de savoir ce qu'on gagnera, avant même de savoir si l'on soumissionne.
+             *
+             * Un champ qu'on ne peut pas remplir se remplit quand même : d'une estimation, d'un
+             * zéro, d'un « à voir ». Il devient alors une donnée FAUSSE que plus personne ne
+             * corrige, parce qu'elle a l'air renseignée. Et un formulaire de vingt et un champs
+             * dont dix-huit sont vides apprend surtout à passer au suivant sans lire.
+             *
+             * Tout ce qui a été retiré se pose ENSUITE, sur la fiche, au moment où le fait
+             * existe : les produits ligne par ligne (avec leurs quantités et nos prix), la
+             * soumission et ses pièces, l'attribution lot par lot, le contrat et ses avenants,
+             * les bons de commande, les affectations aux Business Units. Rien n'est perdu ;
+             * chaque chose est demandée là où on la connaît.
+             */
             fields={[
               { type: "text", name: "reference", label: "Référence (optionnel)" },
               { type: "text", name: "internalReference", label: "Référence interne AMD" },
               { type: "select", name: "companyId", label: "Entité", options: companyOptions(companies), placeholder: "— Entité —" },
               { type: "text", name: "title", label: "Intitulé", full: true },
-              { type: "file", name: "tenderDoc", label: "Appel d'offres (fichiers, optionnel)", multiple: true, hint: "Cahier des charges, PV d'ouverture… — ajoutables aussi plus tard depuis le marché.", full: true },
-              { type: "textarea", name: "products", label: "Produits concernés", full: true },
+              { type: "file", name: "tenderDoc", label: "Cahier des charges (optionnel)", multiple: true, hint: "Ajoutable aussi plus tard depuis la fiche du marché.", full: true },
               { type: "text", name: "client", label: "Organisme", defaultValue: "PCH" },
               { type: "date", name: "publishedAt", label: "Publié le" },
               { type: "date", name: "submissionDeadline", label: "Date limite de dépôt" },
               { type: "select", name: "responsibleId", label: "Responsable du dossier", options: usersOptions.map((u) => ({ value: u.id, label: u.name })), placeholder: "— Personne —" },
-              { type: "select", name: "businessUnitId", label: "Business Unit", options: businessUnits.map((b) => ({ value: b.id, label: b.name })), placeholder: "— BU —" },
-              { type: "text", name: "supplier", label: "Fournisseur" },
-              { type: "text", name: "supplierCountry", label: "Pays du fournisseur" },
-              { type: "number", name: "quantity", label: "Quantité totale" },
-              { type: "number", name: "value", label: "Valeur (DZD)" },
-              { type: "date", name: "awardDate", label: "Date d'attribution" },
-              { type: "number", name: "cautionAmount", label: "Caution — montant (DZD)" },
-              { type: "checkbox", name: "cautionDeposited", label: "Caution déposée" },
-              { type: "date", name: "cautionStart", label: "Caution — début" },
-              { type: "date", name: "cautionEnd", label: "Caution — fin" },
-              { type: "textarea", name: "notes", label: "Notes", full: true },
             ]}
           />
         )}
