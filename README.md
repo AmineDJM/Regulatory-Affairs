@@ -3526,6 +3526,48 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### « Le DG ne voit rien dans son centre de paiement, c'est tout blanc » (2026-09)
+
+Trois défauts enchaînés, dont aucun ne se voyait — et le premier est **le défaut du pharmacien
+responsable, resté à un autre endroit du code**.
+
+**1. Les ordres naissaient sans entité.** `companyOfExpense` était une cascade de quatre ternaires
+— sponsoring, les deux congrès, matériel promo — et **`PAYMENT_REQUEST` n'y figurait pas**, alors
+que c'est devenu la source la plus fréquente depuis que le centre de paiement est le guichet
+unique. Tout ordre né d'une demande de paiement retombait donc sur la fiche salarié du demandeur,
+et à défaut sur `NULL`. La cascade est remplacée par une **table exhaustive** ; un test relit le
+code appelant et échoue si un `sourceType` réellement utilisé n'y figure pas — une cascade se
+complète en l'oubliant, une table nommée ne le permet plus.
+
+**2. Un ordre sans entité DISPARAISSAIT.** Le filtre d'entité vaut `companyId = X`, et **`NULL`
+n'est pas `X`**. Les deux files de paiement — le centre ET « Paiements à faire » — utilisaient
+encore le filtre BRUT au lieu de `companyScopedWhere`, qui compose un `OR` (mon entité, **ou
+aucune**) à l'intérieur d'un `AND`. Conséquence exacte de ce qui a été rapporté : le Super Admin
+(vue groupe, aucun filtre) voyait la file entière ; le Directeur Général, cloisonné sur une
+société, ouvrait un écran vide. Un paiement invisible n'est pas un paiement classé — c'est un
+paiement qu'on ne fera jamais.
+
+Une migration **rattache le passé** : chaque ordre orphelin retrouve l'entité de sa source, à
+défaut celle de la fiche salarié du demandeur. Ce qui reste sans réponse reste à `NULL` — et
+désormais visible de tous, donc rattachable à la main. Inventer une société pour faire propre
+imputerait une dépense à la mauvaise comptabilité.
+
+**3. L'écran ne disait rien.** Un `notFound()` renvoyait une page blanche à quiconque n'était ni
+membre du centre ni demandeur. C'est ce qui a été vu : un accès qu'on croit avoir donné, un écran
+muet, et l'on cherche le défaut ailleurs pendant des jours. La page **explique** désormais — qui
+siège, pourquoi vous n'y siégez pas, et le geste exact qui vous y fait entrer (le siège nommé,
+Administration → Accès). Aucun paiement n'est chargé au passage : la requête a déjà filtré.
+
+**Ce qui n'a PAS changé, et c'est délibéré :** le Directeur Général ne siège toujours pas au centre
+*par son rôle*. Le cercle par défaut reste le sommet de l'entreprise ; pour l'y faire entrer, on le
+**désigne par son nom**, ce qui laisse une trace, un motif et un auteur.
+
+`lib/expense-orders.ts` (table des sources + `EXPENSE_SOURCE_TYPES`), `lib/expense-orders.test.ts`
+(5 tests : entité depuis la demande, orphelin visible, société voisine toujours invisible,
+couverture des sources), `app/(app)/centre-de-paiement/page.tsx`,
+`app/(app)/finances/paiements-a-faire/page.tsx`. Migration
+`20261008090000_rattacher_les_ordres_orphelins`.
+
 ### On siège au centre de paiement par son NOM, pas seulement par son rôle (2026-09)
 
 **Le problème, tel qu'il s'est présenté :** faire entrer une personne de plus au centre de

@@ -1,7 +1,7 @@
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { companyScopedWhere } from "@/lib/company";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -34,8 +34,12 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
   // autorisé (ou refusé : il faut savoir qu'il ne faut pas payer). Les écarter en amont plutôt
   // qu'à l'écran est délibéré : un ordre non autorisé ne doit pas exister pour la comptabilité,
   // pas même en total ou en compteur.
+  // `companyScopedWhere` ET NON LE FILTRE BRUT : celui-ci vaut `companyId = X`, et `NULL` n'est
+  // pas `X`. Un ordre qu'on n'a pas su rattacher disparaissait de la file du décaissement pour
+  // tout comptable cloisonné sur une société — et un paiement invisible n'est pas un paiement
+  // classé, c'est un paiement qu'on ne fera jamais.
   const orders = (await prisma.expenseOrder.findMany({
-    where: await platformScope(user.id),
+    where: await companyScopedWhere(user.id, {}),
     orderBy: { createdAt: "desc" },
     include: { requestedBy: { select: { name: true } } },
     take: 300,

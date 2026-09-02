@@ -41,6 +41,53 @@ const INVOICE_REQUIRED_SOURCES: EntityType[] = ["SPONSORING", "CONGRESS_INTERNAT
  * facture jointe avant règlement.
  */
 /**
+ * OÙ L'ENTITÉ D'UN ORDRE SE LIT — une source, une lecture, et la liste est EXHAUSTIVE.
+ *
+ * ── LE DÉFAUT QU'ON CORRIGE ─────────────────────────────────────────────────────────────────
+ *
+ * Cette table était une cascade de quatre ternaires : SPONSORING, les deux congrès, le matériel
+ * promo. Tout le reste tombait dans le `null` final — **y compris `PAYMENT_REQUEST`**, devenu
+ * depuis la source la plus fréquente puisque le centre de paiement est le guichet unique. Les
+ * ordres nés d'une demande de paiement naissaient donc SANS entité dès que le demandeur n'avait
+ * pas de fiche salarié rattachée.
+ *
+ * Un ordre sans entité n'est pas seulement mal classé : il devient **invisible** à quiconque est
+ * cloisonné sur une société — le filtre d'entité vaut `companyId = X`, et `NULL` n'est pas `X`.
+ * Le Super Admin (vue groupe, aucun filtre) voyait la file entière ; le Directeur Général, lui,
+ * ouvrait un centre de paiement vide. Exactement le défaut du pharmacien responsable, à un autre
+ * endroit du code.
+ *
+ * ── POURQUOI UNE TABLE ET NON UNE CASCADE ───────────────────────────────────────────────────
+ *
+ * Parce qu'une cascade se complète en l'oubliant. Toutes les sources d'un ordre de dépense
+ * portent un `companyId` : la table les nomme TOUTES, et `expense-orders.test.ts` échoue si un
+ * `sourceType` réellement utilisé par le code n'y figure pas. Ajouter un circuit sans ajouter sa
+ * ligne ne compilera pas en silence — il tombera au test.
+ */
+const COMPANY_OF_SOURCE: Partial<Record<EntityType, (id: string) => Promise<{ companyId: string | null } | null>>> = {
+  PAYMENT_REQUEST: (id) => prisma.paymentRequest.findUnique({ where: { id }, select: { companyId: true } }),
+  ADMIN_REQUEST: (id) => prisma.administrativeRequest.findUnique({ where: { id }, select: { companyId: true } }),
+  MEDICAL_INFO_DECLARATION: (id) => prisma.medicalInfoDeclaration.findUnique({ where: { id }, select: { companyId: true } }),
+  LEGAL_DOCUMENT: (id) => prisma.legalDocument.findUnique({ where: { id }, select: { companyId: true } }),
+  SPONSORING: (id) => prisma.sponsoringRequest.findUnique({ where: { id }, select: { companyId: true } }),
+  CONGRESS_NATIONAL: (id) => prisma.congressNational.findUnique({ where: { id }, select: { companyId: true } }),
+  CONGRESS_INTERNATIONAL: (id) => prisma.congressInternational.findUnique({ where: { id }, select: { companyId: true } }),
+  PROMO_MATERIAL: (id) => prisma.promoMaterial.findUnique({ where: { id }, select: { companyId: true } }),
+  CONSULTING_CONTRACT: (id) => prisma.consultingContract.findUnique({ where: { id }, select: { companyId: true } }),
+  EVENT: (id) => prisma.event.findUnique({ where: { id }, select: { companyId: true } }),
+  REGULATORY_PRODUCT: (id) => prisma.regulatoryProduct.findUnique({ where: { id }, select: { companyId: true } }),
+};
+
+/**
+ * `SALARY_ADVANCE` n'y figure pas, et c'est CORRECT : une avance sur salaire ne porte pas
+ * d'entité — elle appartient à un salarié, et le repli sur la société de sa fiche donne la bonne
+ * réponse. L'absence est donc une décision, pas un oubli ; le test la nomme explicitement.
+ */
+
+/** Les sources couvertes — lues par le test qui vérifie qu'aucun circuit n'a été oublié. */
+export const EXPENSE_SOURCE_TYPES = Object.keys(COMPANY_OF_SOURCE) as EntityType[];
+
+/**
  * L'entité d'un ordre de dépense se déduit de sa SOURCE — la demande qui l'a fait naître —
  * et non de la portée du navigateur : c'est la demande qui engage une société, pas l'écran
  * depuis lequel on valide. À défaut de source exploitable, on retombe sur la société
@@ -48,14 +95,9 @@ const INVOICE_REQUIRED_SOURCES: EntityType[] = ["SPONSORING", "CONGRESS_INTERNAT
  */
 async function companyOfExpense(input: CreateExpenseOrderInput): Promise<string | null> {
   try {
-    if (input.sourceId) {
-      const sel = { select: { companyId: true } } as const;
-      const src =
-        input.sourceType === "SPONSORING" ? await prisma.sponsoringRequest.findUnique({ where: { id: input.sourceId }, ...sel })
-          : input.sourceType === "CONGRESS_NATIONAL" ? await prisma.congressNational.findUnique({ where: { id: input.sourceId }, ...sel })
-            : input.sourceType === "CONGRESS_INTERNATIONAL" ? await prisma.congressInternational.findUnique({ where: { id: input.sourceId }, ...sel })
-              : input.sourceType === "PROMO_MATERIAL" ? await prisma.promoMaterial.findUnique({ where: { id: input.sourceId }, ...sel })
-                : null;
+    if (input.sourceId && input.sourceType) {
+      const lire = COMPANY_OF_SOURCE[input.sourceType];
+      const src = lire ? await lire(input.sourceId) : null;
       if (src?.companyId) return src.companyId;
     }
     if (input.requestedById) {

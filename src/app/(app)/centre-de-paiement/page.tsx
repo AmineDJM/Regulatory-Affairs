@@ -1,12 +1,13 @@
-import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { companyScopedWhere } from "@/lib/company";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
+import { EmptyState } from "@/components/shared/empty-state";
 import {
-  sitsOnPaymentCentre, awaitsCentre, CENTRAL_AUTH_THRESHOLD_DZD, type CentralStatus,
+  sitsOnPaymentCentre, awaitsCentre, CENTRAL_AUTH_THRESHOLD_DZD, PAYMENT_CENTRE_REFUSAL,
+  type CentralStatus,
 } from "@/lib/payments/authorization";
 import { entityHref } from "@/lib/entity-href";
 import { ENTITY_TYPE_LABELS } from "@/lib/labels";
@@ -26,23 +27,32 @@ export const metadata = { title: "Centre de paiement — AMD Internal OS" };
  *
  * L'écran est ouvert au CENTRE (qui décide) et au DEMANDEUR (qui répond quand on lui rend la
  * main) : les Finances, elles, n'ont rien à faire ici — un paiement leur arrive une fois autorisé.
+ *
+ * Le CENTRE, ce sont les deux rôles du sommet **et les personnes nommément désignées** (siège
+ * nommé, `PaymentCentreSeat`). Qui n'y siège pas ne reçoit plus une page blanche : il lit ce qui
+ * lui manque et par quel geste on l'y fait entrer.
  */
 export default async function CentreDePaiementPage() {
   const user = await requireUser();
   const canDecide = sitsOnPaymentCentre(user);
 
   // Les paiements que CETTE personne a le droit de voir ici : tout, si elle siège au centre ;
-  // seulement les siens, si elle est demandeuse. Quelqu'un qui n'est ni l'un ni l'autre n'a rien
-  // à faire sur cet écran — et un 404 en dit moins qu'une page vide.
-  const scope = await platformScope(user.id);
+  // seulement les siens, si elle est demandeuse.
+  // `companyScopedWhere` ET NON LE FILTRE D'ENTITÉ BRUT — c'est toute la différence.
+  //
+  // Le filtre brut vaut `companyId = X`, et **`NULL` n'est pas `X`** : un ordre qui n'a pas pu
+  // être rattaché disparaissait de cet écran pour quiconque est cloisonné sur une société. Le
+  // Super Admin (vue groupe, aucun filtre) voyait la file entière ; le Directeur Général ouvrait
+  // un centre de paiement VIDE, et rien ne le lui disait. `companyScopedWhere` compose un `OR`
+  // (mon entité, OU aucune) à l'intérieur d'un `AND` : les ordres à rattacher restent visibles,
+  // sans jamais ouvrir ceux d'une autre société.
   const orders = await prisma.expenseOrder.findMany({
-    where: {
+    where: await companyScopedWhere(user.id, {
       AND: [
-        scope,
         { centralStatus: { not: "NOT_REQUIRED" } },
         ...(canDecide ? [] : [{ requestedById: user.id }]),
       ],
-    },
+    }),
     orderBy: [{ createdAt: "desc" }],
     take: 300,
     include: {
@@ -51,7 +61,37 @@ export default async function CentreDePaiementPage() {
       centralMessages: { orderBy: { createdAt: "asc" }, include: { author: { select: { name: true } } } },
     },
   });
-  if (!canDecide && orders.length === 0) notFound();
+  // ── ON NE REND PLUS UN ÉCRAN MUET ────────────────────────────────────────────────────────
+  //
+  // Ici vivait un `notFound()` : quiconque n'était ni membre du centre ni demandeur tombait sur
+  // une page blanche. C'est ce qu'on a vu — un Directeur Général à qui l'on croyait avoir donné
+  // l'accès (module coché, « autre rôle » posé) et qui trouvait le vide, sans une ligne pour lui
+  // dire ce qui manquait. Une page qui ne s'explique pas se lit comme une panne, et l'on cherche
+  // le défaut ailleurs pendant des jours.
+  //
+  // On DIT donc la règle : qui siège, pourquoi vous n'y siégez pas, et le geste exact qui vous y
+  // fait entrer. Rien n'est divulgué au passage — aucun paiement n'est chargé pour qui n'a pas le
+  // droit de les voir, la requête ci-dessus s'en est chargée.
+  if (!canDecide && orders.length === 0) {
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          title="Centre de paiement"
+          description="L'écran où les paiements de la société sont autorisés, avant d'atteindre les Finances."
+        />
+        <EmptyState
+          icon="ShieldAlert"
+          title="Vous ne siégez pas au centre de paiement"
+          description={PAYMENT_CENTRE_REFUSAL}
+        />
+        <p className="text-center text-xs text-muted-foreground">
+          Cocher le module « Centre de paiement » dans la grille des accès ne suffit pas, et poser un « autre rôle »
+          non plus : le siège se donne <strong>par votre nom</strong>, depuis Administration → Accès → « Qui siège au
+          centre de paiement ».
+        </p>
+      </div>
+    );
+  }
 
   const decidedByIds = [...new Set(orders.map((o) => o.centralDecidedById).filter((v): v is string => Boolean(v)))];
   const deciders = decidedByIds.length
