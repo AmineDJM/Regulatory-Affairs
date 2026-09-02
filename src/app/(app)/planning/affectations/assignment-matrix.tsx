@@ -161,8 +161,17 @@ export function AssignmentMatrix({
                     {available.length > 0 && (
                       <div className="flex items-center gap-1.5 pt-1">
                         <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                        {/* AJOUTER, C'EST ENREGISTRER. La ligne n'existait que dans l'état local
+                            jusqu'à ce qu'on touche un champ : quitter l'écran la perdait, sans
+                            rien dire. On l'écrit tout de suite — rang 1, visites à planifier. */}
                         <select className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm" value=""
-                          onChange={(e) => { const pid = e.target.value; if (!pid) return; setExtra((cur) => ({ ...cur, [k.repId]: [...(cur[k.repId] ?? []), pid] })); setDraft(k.repId, pid, { position: 1, visits: "" }); }}>
+                          onChange={(e) => {
+                            const pid = e.target.value;
+                            if (!pid) return;
+                            setExtra((cur) => ({ ...cur, [k.repId]: [...(cur[k.repId] ?? []), pid] }));
+                            setDraft(k.repId, pid, { position: 1, visits: "" });
+                            void persist(k.repId, pid, { position: 1, visits: "0" });
+                          }}>
                           <option value="">Ajouter un produit…</option>
                           {available.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.buName}</option>)}
                         </select>

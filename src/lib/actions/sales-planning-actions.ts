@@ -282,12 +282,17 @@ export async function saveAssignment(formData: FormData): Promise<ActionResult> 
   const position = Math.min(3, Math.max(1, Math.round(num(formData, "position") ?? 1)));
   const plannedVisits = Math.max(0, Math.round(num(formData, "plannedVisits") ?? 0));
   const note = fdStr(formData, "note");
-  // Une affectation à 0 visite sans note est retirée (nettoyage de la matrice).
-  if (plannedVisits === 0 && !note) {
-    await prisma.promotionAssignment.deleteMany({ where: { cycleId, repId, productId } });
-    revalidatePath(`${PATH}/affectations`);
-    return { ok: true };
-  }
+  // ── ZÉRO VISITE N'EST PLUS UNE SUPPRESSION ────────────────────────────────────────────────
+  //
+  // Cette action retirait l'affectation dès que les visites tombaient à 0 sans note — « nettoyage
+  // de la matrice ». C'était le défaut rapporté : « on ne voit pas le produit quand on l'ajoute au
+  // KAM ». On ajoutait un produit, on choisissait son rang P1/P2/P3, l'écran enregistrait avec
+  // zéro visite encore saisie… et l'action SUPPRIMAIT la ligne qu'on venait de créer, en
+  // répondant « ok ». Rien ne s'affichait, rien ne le disait.
+  //
+  // Une affectation à zéro visite est un ÉTAT LÉGITIME : ce KAM détaille ce produit, les visites
+  // restent à planifier. Et pour retirer une ligne, il y a un bouton qui ne fait que cela
+  // (`deleteAssignment`) — un geste explicite, au lieu d'un effet de bord d'un champ vidé.
   const data = { position, plannedVisits, note, updatedById: user.id };
   await prisma.promotionAssignment.upsert({
     where: { cycleId_repId_productId: { cycleId, repId, productId } },
