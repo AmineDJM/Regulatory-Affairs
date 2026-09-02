@@ -18,26 +18,25 @@ import type { BudgetTarget } from "@/lib/budget/target";
  * AJOUTER UN ACHAT — UN SEUL BOUTON, la question du paiement à l'intérieur.
  *
  * Il y en avait deux : « Ajouter une dépense » (sur le budget) et « Enregistrer une dépense »
- * (sur la caisse du mois). Deux boutons, deux formulaires, deux endroits — pour la MÊME dépense :
+ * (sur la caisse d'avance). Deux boutons, deux formulaires, deux endroits — pour la MÊME dépense :
  * le même achat, la même facture, le même budget consommé. Seul le moyen de paiement changeait.
- * On saisissait régulièrement par le mauvais, et la caisse du mois se retrouvait fausse d'un
- * côté, gonflée de l'autre, sans qu'aucun des deux écrans ne le dise.
+ * On saisissait régulièrement par le mauvais, et la caisse se retrouvait fausse d'un côté,
+ * gonflée de l'autre, sans qu'aucun des deux écrans ne le dise.
  *
  * La pièce est obligatoire, et le formulaire le dit avant qu'on ne clique : une dépense sans
  * facture ni bon de paiement n'est qu'une affirmation, et un budget bâti sur des affirmations
  * ne sert à rien.
  */
 export function ExpensePanel({
-  departmentId, year, remaining, articles, budgetTargets = [], cash, period,
+  departmentId, year, remaining, articles, budgetTargets = [], cash,
 }: {
   departmentId: string;
   year: number;
   remaining: number;
   articles: CatalogArticle[];
   budgetTargets?: BudgetTarget[];
-  /** La caisse du mois, quand elle existe ET qu'on peut en sortir de l'argent. */
+  /** La caisse d'avance, quand elle contient quelque chose ET qu'on peut en sortir de l'argent. */
   cash?: { status: string; remaining: number; canSpend: boolean } | null;
-  period?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -54,7 +53,7 @@ export function ExpensePanel({
     if (open) setSource(defaultSource(cash ? { status: cash.status } : null, { isHolder: cashUsable }));
   }, [open, cash, cashUsable]);
 
-  // Le plafond dépassé n'est pas le même selon le moyen de paiement : le fond du mois d'un côté,
+  // Le plafond dépassé n'est pas le même selon le moyen de paiement : le fond en main d'un côté,
   // la caisse de l'exercice de l'autre. Prévenir avec le mauvais chiffre serait pire que se taire.
   const ceiling = source === "CASH" && cash ? cash.remaining : remaining;
   const overBudget = total > 0 && total > ceiling;
@@ -73,14 +72,13 @@ export function ExpensePanel({
             fd.set("departmentId", departmentId);
             fd.set("year", String(year));
             fd.set("paymentSource", source);
-            if (period) fd.set("period", period);
             setBusy(true); setMsg(null);
             void addDepartmentExpense(fd).then((r) => {
               setBusy(false);
               setMsg({
                 ok: r.ok,
                 text: r.ok
-                  ? (source === "CASH" ? "Dépense enregistrée et déduite de la caisse du mois." : "Dépense enregistrée et déduite de la caisse de l'exercice.")
+                  ? (source === "CASH" ? "Dépense enregistrée et déduite de la caisse d'avance." : "Dépense enregistrée et déduite de la caisse de l'exercice.")
                   : (r.error ?? "Échec."),
               });
               if (r.ok) { setOpen(false); setTotal(0); router.refresh(); }
@@ -147,7 +145,7 @@ export function ExpensePanel({
             <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/5 p-2 text-xs text-muted-foreground">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
               <span>
-                Ce montant dépasse ce qu&apos;il reste{source === "CASH" ? " dans la caisse du mois" : " sur la caisse de l'exercice"} ({formatCurrency(ceiling)}).
+                Ce montant dépasse ce qu&apos;il reste{source === "CASH" ? " dans la caisse d'avance" : " sur la caisse de l'exercice"} ({formatCurrency(ceiling)}).
                 {source === "CASH"
                   ? " La dépense sera refusée : on ne sort pas d'un fond ce qu'il ne contient pas."
                   : " La dépense sera enregistrée — mais le budget passera en dépassement, et cela se verra."}

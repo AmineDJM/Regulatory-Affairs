@@ -11,9 +11,10 @@ import { getAppSettings } from "@/lib/settings";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { normalizeAmount, normalizeYear } from "@/lib/department-budget";
 import {
-  pettyCashBalance, canSpendFromPettyCash, currentPeriod, periodLabel,
-  normalizeRechargeDay, nextRechargeDate, grantedTopUpAmount, type PettyCashStatus,
+  currentPeriod, periodLabel, normalizeRechargeDay, nextRechargeDate, grantedTopUpAmount,
 } from "@/lib/petty-cash";
+import { continuousCash, canSpendFromFund } from "@/lib/general-means/continuous-cash";
+import { openRemittances } from "@/lib/queries/general-means";
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
@@ -42,10 +43,14 @@ function canAllot(user: Parameters<typeof userCan>[0]): boolean {
 }
 
 /**
- * REMETTRE UNE SOMME (dotation initiale du mois, ou rallonge).
+ * REMETTRE UNE SOMME — et c'est tout ce que ça fait.
  *
- * Une rallonge n'ouvre pas une seconde caisse pour le même mois : elle S'AJOUTE à celle en
- * cours. Deux caisses simultanées rendraient le solde indécidable — laquelle vide-t-on ?
+ * Chaque remise est une LIGNE, avec sa date, sa période, son montant et sa confirmation de
+ * réception. Elle s'ajoute au fond ; elle ne clôt pas la précédente et n'ouvre pas un « nouveau
+ * mois ». Auparavant, remettre une somme en septembre fusionnait avec la caisse de septembre si
+ * elle existait, et faisait sortir de l'écran celle d'août — dont l'argent était pourtant
+ * toujours dans le tiroir. On ne peut pas répondre à « qu'a-t-on remis, et quand ? » avec une
+ * somme qui s'incrémente : la question a besoin des lignes.
  */
 export async function allotPettyCash(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -62,37 +67,30 @@ export async function allotPettyCash(formData: FormData): Promise<ActionResult> 
   const department = await prisma.department.findUnique({ where: { id: departmentId }, select: { name: true } });
   if (!department) return { ok: false, error: "Département introuvable." };
 
-  const existing = await prisma.pettyCashAllotment.findFirst({ where: { departmentId, period } });
-  const note = fdStr(formData, "note");
+  // À QUI ? La personne nommée sur le formulaire ; à défaut celle qui détient déjà le fond, à
+  // défaut celle que les RH ont désignée dans le réglage mensuel. Sans ce repli, une rallonge
+  // exigerait de redésigner à chaque fois quelqu'un qui n'a pas changé.
+  const ouvertes = await openRemittances(departmentId);
+  const plan = await prisma.pettyCashPlan.findUnique({ where: { departmentId }, select: { holderId: true } });
+  const holder = holderId || ouvertes.find((r) => r.holderId)?.holderId || plan?.holderId || "";
+  if (!holder) return { ok: false, error: "Indiquez à qui la somme est remise." };
 
-  let holder = holderId;
-  if (existing) {
-    // Rallonge : on ajoute au fond du mois plutôt que d'ouvrir une seconde caisse.
-    await prisma.pettyCashAllotment.update({
-      where: { id: existing.id },
-      data: { amount: { increment: amount }, note: note ?? existing.note, ...(holderId ? { holderId } : {}) },
-    });
-    holder = holderId || existing.holderId || "";
-  } else {
-    if (!holderId) return { ok: false, error: "Indiquez à qui la somme est remise." };
-    await prisma.pettyCashAllotment.create({
-      data: { departmentId, period, amount, holderId, note, createdById: user.id },
-    });
-  }
+  const premiere = ouvertes.length === 0;
+  await prisma.pettyCashAllotment.create({
+    data: { departmentId, period, amount, holderId: holder, note: fdStr(formData, "note"), createdById: user.id },
+  });
 
   await recordAudit({
-    actorId: user.id, action: existing ? "UPDATE" : "CREATE", module: "Budgets",
+    actorId: user.id, action: "CREATE", module: "Budgets",
     entityType: "BUDGET", entityId: departmentId,
-    summary: `Caisse d'avance ${periodLabel(period)} — ${department.name} : ${existing ? "rallonge de " : ""}${amount} DZD`,
+    summary: `Caisse d'avance — ${department.name} : ${premiere ? "" : "nouvelle "}remise de ${amount} DZD (${periodLabel(period)})`,
   });
-  if (holder) {
-    await notifyUser({
-      userId: holder, type: "GENERIC",
-      title: existing ? "Rallonge de caisse d'avance" : "Caisse d'avance remise",
-      body: `${amount} DZD pour ${periodLabel(period)} — confirmez la réception dans Moyens généraux.`,
-      link: PATH,
-    });
-  }
+  await notifyUser({
+    userId: holder, type: "GENERIC",
+    title: premiere ? "Caisse d'avance remise" : "Nouvelle remise en caisse d'avance",
+    body: `${amount} DZD remis le ${new Date().toLocaleDateString("fr-FR")} — confirmez la réception dans Moyens généraux.`,
+    link: PATH,
+  });
   revalidatePath(PATH);
   return { ok: true };
 }
@@ -123,26 +121,39 @@ export async function confirmPettyCashReceipt(formData: FormData): Promise<Actio
   });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Budgets", entityType: "BUDGET", entityId: cash.department.id,
-    summary: `Caisse d'avance ${periodLabel(cash.period)} reçue — ${toNumber(cash.amount)} DZD`,
+    summary: `Remise en caisse d'avance reçue — ${toNumber(cash.amount)} DZD (${periodLabel(cash.period)})`,
   });
   revalidatePath(PATH);
   return { ok: true };
 }
 
-/** Solder une caisse : ce qui reste n'est plus disponible, et le mois est clos. */
+/**
+ * SOLDER LA CAISSE — le fond ENTIER, jamais une remise isolée.
+ *
+ * Solder, c'est arrêter les comptes : on rend le reliquat, on classe les tickets, on repart de
+ * zéro. Ne solder qu'une remise retirerait son montant du fond en y laissant les dépenses
+ * imputées sur les autres — un solde qui s'effondre sans qu'une seule dépense n'ait été faite.
+ * Il n'y a qu'une caisse : on la solde d'un bloc.
+ */
 export async function closePettyCash(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Caisse non précisée." };
-  const cash = await prisma.pettyCashAllotment.findUnique({ where: { id }, select: { id: true, departmentId: true, period: true, holderId: true, status: true } });
+  const cash = await prisma.pettyCashAllotment.findUnique({ where: { id }, select: { departmentId: true } });
   if (!cash) return { ok: false, error: "Caisse introuvable." };
-  if (cash.holderId !== user.id && !canAllot(user)) return { ok: false, error: "Non autorisé." };
-  if (cash.status === "CLOSED") return { ok: false, error: "Cette caisse est déjà soldée." };
 
-  await prisma.pettyCashAllotment.update({ where: { id }, data: { status: "CLOSED" } });
+  const ouvertes = await openRemittances(cash.departmentId);
+  if (ouvertes.length === 0) return { ok: false, error: "Cette caisse est déjà soldée." };
+  if (!ouvertes.some((r) => r.holderId === user.id) && !canAllot(user)) return { ok: false, error: "Non autorisé." };
+
+  const fund = continuousCash(ouvertes);
+  await prisma.pettyCashAllotment.updateMany({
+    where: { id: { in: ouvertes.map((r) => r.id) } },
+    data: { status: "CLOSED" },
+  });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Budgets", entityType: "BUDGET", entityId: cash.departmentId,
-    summary: `Caisse d'avance ${periodLabel(cash.period)} soldée`,
+    summary: `Caisse d'avance soldée — ${ouvertes.length} remise(s), ${fund.remitted} DZD remis, ${fund.spent} DZD dépensés, reliquat ${fund.remaining} DZD`,
   });
   revalidatePath(PATH);
   return { ok: true };
@@ -162,10 +173,15 @@ export async function spendFromPettyCash(formData: FormData): Promise<ActionResu
 
   const cash = await prisma.pettyCashAllotment.findUnique({
     where: { id: cashId },
-    include: { expenses: { select: { id: true, label: true, amount: true, date: true } } },
+    select: { id: true, departmentId: true, period: true },
   });
   if (!cash) return { ok: false, error: "Caisse introuvable." };
-  if (cash.holderId !== user.id && !hasGlobalView(user)) {
+
+  // LE FOND DÉCIDE, PAS LA REMISE. Trois remises de 20 000 paient un achat de 55 000 : c'est le
+  // même tiroir. Comparer au montant d'une seule remise refusait la dépense au motif que
+  // « septembre ne la couvre pas », alors que l'argent était là.
+  const ouvertes = await openRemittances(cash.departmentId);
+  if (!ouvertes.some((r) => r.holderId === user.id) && !hasGlobalView(user)) {
     return { ok: false, error: "Seule la personne qui détient la caisse y impute des dépenses." };
   }
 
@@ -183,13 +199,12 @@ export async function spendFromPettyCash(formData: FormData): Promise<ActionResu
   const amount = ticket ? ticket.total : normalizeAmount(fdStr(formData, "amount"));
   if (typeof amount !== "number") return { ok: false, error: amount.error };
 
-  const state = { id: cash.id, period: cash.period, amount: toNumber(cash.amount), status: cash.status as PettyCashStatus };
-  const balance = pettyCashBalance(
-    state,
-    cash.expenses.map((e) => ({ id: e.id, label: e.label, amount: toNumber(e.amount), date: e.date.toISOString() })),
-  );
-  const allowed = canSpendFromPettyCash(state, balance, amount);
+  const fund = continuousCash(ouvertes);
+  const allowed = canSpendFromFund(fund, amount);
   if (!allowed.ok) return { ok: false, error: allowed.reason ?? "Dépense impossible." };
+  // La dépense s'inscrit sur la remise EN MAIN la plus récente : le fond est un, mais chaque
+  // sortie doit rester rattachée à une remise pour que l'historique se lise.
+  const imputeSur = fund.currentId ?? cash.id;
 
   const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
   if (files.length === 0) {
@@ -209,7 +224,7 @@ export async function spendFromPettyCash(formData: FormData): Promise<ActionResu
       amount,
       budgetCategoryId,
       notes: fdStr(formData, "notes"),
-      pettyCashId: cash.id,
+      pettyCashId: imputeSur,
       createdById: user.id,
     },
     select: { id: true },
@@ -236,22 +251,21 @@ export async function spendFromPettyCash(formData: FormData): Promise<ActionResu
   }
 
   // Le fond baisse : on prévient AVANT d'être à sec, pas une fois bloqué.
-  const after = pettyCashBalance(state, [
-    ...cash.expenses.map((e) => ({ id: e.id, label: e.label, amount: toNumber(e.amount), date: e.date.toISOString() })),
-    { id: created.id, label, amount, date: new Date().toISOString() },
-  ]);
+  const after = continuousCash(ouvertes.map((r) => (
+    r.id === imputeSur ? { ...r, expenses: [...r.expenses, { id: created.id, amount }] } : r
+  )));
   if (after.lowOnCash) {
     await notifyRoles(["SUPER_ADMIN", "DIRECTION"], {
       type: "GENERIC",
       title: "Caisse d'avance presque épuisée",
-      body: `${periodLabel(cash.period)} : il reste ${Math.max(0, after.remaining)} DZD.`,
+      body: `Il reste ${Math.max(0, after.remaining)} DZD en caisse.`,
       link: PATH,
     });
   }
 
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Budgets", entityType: "BUDGET", entityId: cash.departmentId,
-    summary: `Dépense sur caisse d'avance ${periodLabel(cash.period)} — ${label} (${amount} DZD)`,
+    summary: `Dépense sur caisse d'avance — ${label} (${amount} DZD)`,
   });
   revalidatePath(PATH);
   revalidatePath("/budgets/departements");
@@ -271,16 +285,19 @@ export async function requestPettyCashTopUp(formData: FormData): Promise<ActionR
   if (!cashId) return { ok: false, error: "Caisse non précisée." };
   const cash = await prisma.pettyCashAllotment.findUnique({
     where: { id: cashId },
-    include: { department: { select: { name: true } }, expenses: { select: { amount: true } } },
+    select: { id: true, departmentId: true, department: { select: { name: true } } },
   });
   if (!cash) return { ok: false, error: "Caisse introuvable." };
-  if (cash.holderId !== user.id && !hasGlobalView(user)) return { ok: false, error: "Non autorisé." };
+  const ouvertes = await openRemittances(cash.departmentId);
+  if (!ouvertes.some((r) => r.holderId === user.id) && !hasGlobalView(user)) return { ok: false, error: "Non autorisé." };
 
   const amount = normalizeAmount(fdStr(formData, "amount"));
   if (typeof amount !== "number") return { ok: false, error: amount.error };
   if (amount <= 0) return { ok: false, error: "Indiquez le montant demandé." };
 
-  const already = await prisma.pettyCashTopUpRequest.count({ where: { allotmentId: cashId, status: "PENDING" } });
+  const already = await prisma.pettyCashTopUpRequest.count({
+    where: { allotmentId: { in: ouvertes.map((r) => r.id) }, status: "PENDING" },
+  });
   if (already > 0) return { ok: false, error: "Une demande de rallonge est déjà en attente sur cette caisse." };
 
   const reason = fdStr(formData, "reason");
@@ -288,17 +305,18 @@ export async function requestPettyCashTopUp(formData: FormData): Promise<ActionR
     data: { allotmentId: cashId, amountRequested: amount, reason, requestedById: user.id },
   });
 
-  const spent = cash.expenses.reduce((a, e) => a + toNumber(e.amount), 0);
-  const remaining = toNumber(cash.amount) - spent;
+  // CE QUI RESTE, C'EST LE FOND — pas ce qui reste sur la remise à laquelle la demande
+  // s'accroche. Celui qui tranche décide sur le tiroir, pas sur une tranche.
+  const remaining = continuousCash(ouvertes).remaining;
   await notifyRoles(["SUPER_ADMIN", "DIRECTION"], {
     type: "VALIDATION_REQUIRED",
     title: "Rallonge de caisse d'avance à trancher",
-    body: `${cash.department.name} · ${periodLabel(cash.period)} : +${amount} DZD demandés (il reste ${Math.max(0, remaining)} DZD)${reason ? ` — ${reason}` : ""}`,
+    body: `${cash.department.name} : +${amount} DZD demandés (il reste ${Math.max(0, remaining)} DZD en caisse)${reason ? ` — ${reason}` : ""}`,
     link: PATH,
   });
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Budgets", entityType: "BUDGET", entityId: cash.departmentId,
-    summary: `Rallonge de caisse demandée — ${periodLabel(cash.period)} : +${amount} DZD`,
+    summary: `Rallonge de caisse demandée : +${amount} DZD`,
   });
   revalidatePath(PATH);
   return { ok: true };
@@ -355,7 +373,7 @@ export async function decidePettyCashTopUp(formData: FormData): Promise<ActionRe
       userId: req.requestedById, type: "GENERIC",
       title: decision === "APPROVED" ? "Rallonge accordée" : "Rallonge refusée",
       body: decision === "APPROVED"
-        ? `${granted} DZD ajoutés à la caisse de ${periodLabel(req.allotment.period)}${note ? ` — ${note}` : ""}`
+        ? `${granted} DZD ajoutés à la caisse d'avance${note ? ` — ${note}` : ""}`
         : `Demande refusée${note ? ` — ${note}` : ""}`,
       link: PATH,
     });
@@ -363,7 +381,7 @@ export async function decidePettyCashTopUp(formData: FormData): Promise<ActionRe
   await recordAudit({
     actorId: user.id, action: decision === "APPROVED" ? "VALIDATE" : "REFUSE", module: "Budgets",
     entityType: "BUDGET", entityId: req.allotment.departmentId,
-    summary: `Rallonge de caisse ${decision === "APPROVED" ? `accordée (${granted} DZD)` : "refusée"} — ${req.allotment.department.name} · ${periodLabel(req.allotment.period)}`,
+    summary: `Rallonge de caisse ${decision === "APPROVED" ? `accordée (${granted} DZD)` : "refusée"} — ${req.allotment.department.name}`,
   });
   revalidatePath(PATH);
   return { ok: true };

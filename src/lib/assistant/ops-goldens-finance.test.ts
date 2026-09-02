@@ -258,19 +258,25 @@ suite("ops FINANCES vague 1 — budgets, caisse, paiements, écritures, paie (go
   });
 
   describe("caisse d'avance — dotation, réception, rallonge, plan mensuel", () => {
-    it("allot_petty_cash : caisse du mois EXISTANTE → RALLONGE (fonds actuel montré) ; nouveau mois sans détentrice → refus", async () => {
+    it("allot_petty_cash : LA REMISE S'AJOUTE AU FOND — aucun mois n'est clos, et la détentrice se reprend", async () => {
+      // La caisse est CONTINUE. Remettre une somme en août puis en septembre ne fusionne rien et
+      // ne clôt rien : ce sont deux remises datées, et le mois n'a plus de rôle. La proposition
+      // le DIT, et ne redemande pas une détentrice qui n'a pas changé.
       const p = await buildProposal("finance_operation", {
         op: "allot_petty_cash", department: `${TAG} Ventes`, amount: "20000", period: "2026-08",
       }, sa());
       expect("error" in p).toBe(false);
       if ("error" in p) return;
-      expect(p.title).toContain("Rallonger");
-      expect(JSON.stringify(p.fields)).toMatch(/60.000.DZD/);
+      expect(p.title).toContain("Remettre");
+      expect(p.warnings.join(" ")).toMatch(/S'AJOUTE au fond/);
 
-      const missing = await buildProposal("finance_operation", {
+      // Un « nouveau mois » ne redemande plus la détentrice : elle est reprise du fond en cours.
+      const autreMois = await buildProposal("finance_operation", {
         op: "allot_petty_cash", department: `${TAG} Ventes`, amount: "20000", period: "2026-09",
       }, sa());
-      expect("error" in missing && missing.error).toMatch(/à qui/);
+      expect("error" in autreMois).toBe(false);
+      if ("error" in autreMois) return;
+      expect(autreMois.title).toContain("Remettre");
     });
 
     it("confirm_petty_cash_receipt : la caisse ALLOTTED se résout par département + période FR (« août 2026 »)", async () => {

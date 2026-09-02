@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  Wallet, Loader2, Check, Plus, HandCoins, AlertTriangle, Lock, FileText, Download,
+  Wallet, Loader2, Check, Plus, HandCoins, AlertTriangle, Lock,
   CalendarClock, ThumbsUp, ThumbsDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,19 +12,29 @@ import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { PETTY_CASH_STATUS_LABEL, periodLabel, MAX_RECHARGE_DAY } from "@/lib/petty-cash";
+import { cashWarning } from "@/lib/general-means/continuous-cash";
 import {
   allotPettyCash, confirmPettyCashReceipt, requestPettyCashTopUp, closePettyCash,
   decidePettyCashTopUp, setPettyCashPlan,
 } from "@/lib/actions/petty-cash-actions";
-import type { GeneralMeansView } from "@/lib/queries/general-means";
+import type { GeneralMeansView, GeneralMeansRemittance } from "@/lib/queries/general-means";
 
 /**
- * LA CAISSE D'AVANCE, À L'ÉCRAN.
+ * LA CAISSE D'AVANCE, À L'ÉCRAN — une seule, continue.
  *
- * Une seule question guide la mise en page : **me reste-t-il de quoi payer ?** Le solde est
- * donc en haut, en gros, avant l'historique ; la dépense s'y ajoute juste en dessous, avec son
- * justificatif obligatoire ; la rallonge se demande depuis le même endroit, sans changer
- * d'écran — c'est au moment où l'on constate qu'il ne reste rien qu'on la demande.
+ * Une seule question guide la mise en page : **me reste-t-il de quoi payer ?** Le solde est donc
+ * en haut, en gros, avant l'historique ; la rallonge se demande depuis le même endroit — c'est
+ * au moment où l'on constate qu'il ne reste rien qu'on la demande.
+ *
+ * ── CE QUI A DISPARU D'ICI, ET POURQUOI ─────────────────────────────────────────────────────
+ *
+ * Un bloc « Dépenses de la caisse » listait les achats payés en liquide. Ils figuraient DÉJÀ
+ * dans « Toutes les dépenses » juste en dessous, avec leur badge « caisse d'avance » : la même
+ * dépense s'affichait deux fois, à deux endroits, avec deux compteurs — et l'on ne savait plus
+ * laquelle lire ni laquelle corriger. Il n'y a plus qu'une liste, et elle se filtre.
+ *
+ * Le titre ne porte plus de mois non plus. La caisse ne se ferme pas au 1er : chaque remise
+ * garde sa date, et l'historique les montre l'une après l'autre.
  */
 export function CashPanel({ view, people }: { view: GeneralMeansView; people: { id: string; name: string }[] }) {
   const router = useRouter();
@@ -42,19 +52,25 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
   };
 
   const cash = view.cash;
-  const b = cash?.balance;
+  const fund = cash?.fund ?? null;
+  const warning = cashWarning(fund, formatCurrency);
+  /** La remise qui attend une confirmation de réception, quand c'est à moi de la donner. */
+  const aConfirmer = view.isHolder ? cash?.remittances.filter((r) => r.status === "ALLOTTED") ?? [] : [];
 
   return (
     <div className="space-y-3">
-      {cash ? (
+      {cash && fund ? (
         <>
           <div className="flex flex-wrap items-center gap-2">
             <Wallet className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold">Caisse du mois — {periodLabel(cash.period)}</h2>
-            <Badge tone={PETTY_CASH_STATUS_LABEL[cash.status].tone} dot={false}>
-              {PETTY_CASH_STATUS_LABEL[cash.status].label}
+            <h2 className="text-sm font-semibold">Caisse d&apos;avance</h2>
+            <Badge tone={fund.received > 0 ? "success" : "warning"} dot={false}>
+              {fund.received > 0 ? "Ouverte" : "En attente de réception"}
             </Badge>
-            {cash.holder && <span className="text-xs text-muted-foreground">détenue par {cash.holder}</span>}
+            <span className="text-xs text-muted-foreground">
+              {fund.remittanceCount} remise{fund.remittanceCount > 1 ? "s" : ""} en cours
+              {cash.holder ? ` · détenue par ${cash.holder}` : ""}
+            </span>
           </div>
 
           {view.plan?.isActive && (
@@ -68,54 +84,56 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
           )}
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Figure label="Remis" value={formatCurrency(cash.amount)} />
-            <Figure label="Reçu" value={b!.received > 0 ? formatCurrency(b!.received) : "—"} hint={cash.receivedAt ? formatDate(cash.receivedAt) : "à confirmer"} />
-            <Figure label="Dépensé" value={formatCurrency(b!.spent)} hint={`${b!.usedPercent} %`} />
+            <Figure label="Remis (non soldé)" value={formatCurrency(fund.remitted)} hint={`${fund.remittanceCount} remise${fund.remittanceCount > 1 ? "s" : ""}`} />
+            <Figure
+              label="Reçu (en main)" value={formatCurrency(fund.received)}
+              hint={fund.awaitingReceipt ? `${formatCurrency(fund.awaitingAmount)} à confirmer` : undefined}
+              tone={fund.awaitingReceipt ? "warning" : undefined}
+            />
+            <Figure label="Dépensé" value={formatCurrency(fund.spent)} hint={`${fund.usedPercent} %`} />
             <Figure
               label="Reste en caisse"
-              value={formatCurrency(b!.remaining)}
-              tone={b!.overspent ? "danger" : b!.lowOnCash ? "warning" : "success"}
+              value={formatCurrency(fund.remaining)}
+              tone={fund.overspent ? "danger" : fund.lowOnCash ? "warning" : "success"}
             />
           </div>
 
-          {cash.status === "ALLOTTED" && (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
-              <span className="min-w-0 flex-1">
-                La somme est <strong>décidée mais pas encore confirmée</strong> : rien n&apos;est disponible tant que
-                la réception n&apos;est pas marquée.
-              </span>
-              {view.isHolder && (
-                <Button size="sm" disabled={busy === "recv"} onClick={() => {
-                  const fd = new FormData(); fd.set("id", cash.id);
-                  void run("recv", () => confirmPettyCashReceipt(fd), "Réception confirmée.");
-                }}>
-                  {busy === "recv" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} J&apos;ai reçu la somme
-                </Button>
-              )}
-            </div>
+          {/* CE QUE LE FOND A À DIRE — dépassement, épuisement, ou réception en attente. Un seul
+              message à la fois : trois bandeaux empilés ne se lisent plus. */}
+          {warning && (
+            <p className={`flex items-start gap-2 rounded-xl border p-3 text-sm ${
+              fund.overspent ? "border-destructive/40 bg-destructive/5 text-destructive" : "border-warning/40 bg-warning/5 text-muted-foreground"
+            }`}>
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{warning}</span>
+            </p>
           )}
 
-          {b!.lowOnCash && cash.status === "RECEIVED" && (
-            <p className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm text-muted-foreground">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-              <span>Le fond s&apos;épuise — demandez une rallonge <strong>avant</strong> d&apos;être à sec.</span>
-            </p>
-          )}
-          {b!.overspent && (
-            <p className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>Les dépenses dépassent la somme reçue de {formatCurrency(-b!.remaining)}. À régulariser.</span>
-            </p>
-          )}
+          {/* CONFIRMER LA RÉCEPTION, REMISE PAR REMISE. Une somme décidée n'est pas une somme
+              détenue : tant que la personne n'a pas dit l'avoir reçue, elle n'est pas dépensable. */}
+          {aConfirmer.map((r) => (
+            <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
+              <span className="min-w-0 flex-1">
+                <strong>{formatCurrency(r.amount)}</strong> vous ont été remis le {formatDate(r.remittedAt)} —
+                cette somme n&apos;est pas dépensable tant que vous n&apos;avez pas confirmé l&apos;avoir reçue.
+              </span>
+              <Button size="sm" disabled={busy === `recv:${r.id}`} onClick={() => {
+                const fd = new FormData(); fd.set("id", r.id);
+                void run(`recv:${r.id}`, () => confirmPettyCashReceipt(fd), "Réception confirmée.");
+              }}>
+                {busy === `recv:${r.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} J&apos;ai reçu la somme
+              </Button>
+            </div>
+          ))}
 
           <div className="flex flex-wrap gap-2">
             {/* UN SEUL BOUTON DE DÉPENSE, et il est plus bas, avec la liste des dépenses. Le
                 second bouton vivait ici, sur la caisse — même achat, même facture, même budget
-                consommé, mais deux formulaires : on saisissait par le mauvais, et le fond du
-                mois se retrouvait faux sans qu'aucun écran ne le dise. Le moyen de paiement est
-                devenu une case du formulaire unique. */}
-            {view.isHolder && cash.status === "RECEIVED" && (
+                consommé, mais deux formulaires : on saisissait par le mauvais, et le fond se
+                retrouvait faux sans qu'aucun écran ne le dise. Le moyen de paiement est devenu
+                une case du formulaire unique. */}
+            {view.isHolder && fund.received > 0 && (
               <Button size="sm" variant="outline" onClick={() => setPane(pane === "topup" ? "none" : "topup")}>
                 <HandCoins className="h-4 w-4" /> Demander une rallonge
               </Button>
@@ -130,13 +148,16 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
                 </Button>
               </>
             )}
-            {(view.isHolder || view.canAllot) && cash.status !== "CLOSED" && (
+            {(view.isHolder || view.canAllot) && cash.currentId && (
               <Button size="sm" variant="outline" disabled={busy === "close"} onClick={() => {
-                if (!window.confirm("Solder cette caisse ? Aucune dépense ne pourra plus y être imputée.")) return;
-                const fd = new FormData(); fd.set("id", cash.id);
+                if (!window.confirm(
+                  `Solder la caisse ? Les ${fund.remittanceCount} remise(s) en cours sont arrêtées d'un bloc, `
+                  + `reliquat de ${formatCurrency(fund.remaining)}. Aucune dépense ne pourra plus y être imputée.`,
+                )) return;
+                const fd = new FormData(); fd.set("id", cash.currentId ?? "");
                 void run("close", () => closePettyCash(fd), "Caisse soldée.");
               }}>
-                <Lock className="h-4 w-4" /> Solder
+                <Lock className="h-4 w-4" /> Solder la caisse
               </Button>
             )}
           </div>
@@ -144,10 +165,10 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
       ) : (
         <EmptyState
           icon="Wallet"
-          title="Aucune caisse ce mois-ci"
+          title="Aucune somme en caisse"
           description={view.canAllot
-            ? "Remettez une somme à la personne qui achète au quotidien : elle confirmera l'avoir reçue, puis y imputera ses dépenses."
-            : "L'administration n'a pas encore remis de somme pour ce mois."}
+            ? "Remettez une somme à la personne qui achète au quotidien : elle confirmera l'avoir reçue, puis y imputera ses dépenses. Les remises suivantes s'ajouteront au fond — la caisse ne se ferme pas au changement de mois."
+            : "L'administration n'a pas encore remis de somme pour ce département."}
         />
       )}
 
@@ -157,11 +178,15 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
             fd.set("departmentId", view.department.id);
-            void run("allot", () => allotPettyCash(fd), cash ? "Rallonge remise." : "Caisse ouverte.");
+            void run("allot", () => allotPettyCash(fd), "Somme remise — elle s'ajoute au fond.");
           }}
           className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3"
         >
-          <p className="text-sm font-medium">{cash ? "Rallonge — la somme s'ajoute au fond du mois" : "Remettre la caisse du mois"}</p>
+          <p className="text-sm font-medium">Remettre une somme en caisse</p>
+          <p className="text-xs text-muted-foreground">
+            Elle <strong>s&apos;ajoute</strong> au fond en cours et garde sa date : rien n&apos;est clos, rien ne
+            sort de l&apos;écran.
+          </p>
           <div className="grid gap-2 sm:grid-cols-3">
             <label className="text-xs">
               Montant remis (DZD)
@@ -170,7 +195,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
             <label className="text-xs">
               Remis à
               <select name="holderId" defaultValue={cash?.holderId ?? ""} className="mt-1 h-9 w-full rounded-lg border border-border bg-background px-2 text-sm">
-                <option value="">— Choisir la personne —</option>
+                <option value="">— Personne actuelle —</option>
                 {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </label>
@@ -193,7 +218,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
           onSubmit={(e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
-            fd.set("cashId", cash.id);
+            fd.set("cashId", cash.currentId ?? "");
             void run("topup", () => requestPettyCashTopUp(fd), "Rallonge demandée — l'administration est prévenue.");
           }}
           className="space-y-2 rounded-xl border border-border bg-secondary/30 p-3"
@@ -218,8 +243,9 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
         </form>
       )}
 
-      {/* RÉGLAGE MENSUEL — posé par les RH. Sans lui, la caisse dépend d'un geste dont personne
-          ne se souvient à date fixe, et l'on ne peut prévenir de rien. */}
+      {/* RÉGLAGE MENSUEL — posé par les RH. La caisse ne se ferme plus au changement de mois,
+          mais le RECHARGEMENT, lui, reste une échéance d'agenda : sans lui, la remise dépend d'un
+          geste dont personne ne se souvient à date fixe, et l'on ne peut prévenir de rien. */}
       {view.canAllot && pane === "plan" && (
         <form
           onSubmit={(e) => {
@@ -322,56 +348,52 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
         </p>
       )}
 
-      {cash && cash.lines.length > 0 && (
-        <div className="space-y-1.5">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Dépenses de la caisse ({cash.lines.length})
-          </h3>
-          <ul className="divide-y divide-border rounded-xl border border-border">
-            {cash.lines.map((l) => (
-              <li key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
-                <span className="min-w-0 flex-1">
-                  <span className="font-medium">{l.label}</span>
-                  {l.notes && <span className="block text-xs text-muted-foreground">{l.notes}</span>}
-                </span>
-                <span className="text-xs text-muted-foreground">{formatDate(l.date)}</span>
-                <span className="tabular-nums font-semibold">− {formatCurrency(l.amount)}</span>
-                <span className="flex items-center gap-1">
-                  {l.documents.length === 0 ? (
-                    <Badge tone="danger" dot={false}>sans pièce</Badge>
-                  ) : l.documents.map((d) => (
-                    <a
-                      key={d.id}
-                      href={`/api/documents/${d.id}?dl=1`}
-                      className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[0.6875rem] hover:bg-secondary"
-                      title={d.name}
-                    >
-                      <FileText className="h-3 w-3" /> <Download className="h-3 w-3" />
-                    </a>
-                  ))}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+      {/* L'HISTORIQUE DES REMISES — ce que la période servait à raconter, en mieux : chaque
+          somme avec SA date, sans faire croire qu'un mois solde le précédent. */}
+      {cash && cash.remittances.length > 0 && (
+        <RemittanceList title={`Remises en cours (${cash.remittances.length})`} rows={cash.remittances} />
       )}
-
       {view.history.length > 0 && (
-        <div className="space-y-1.5">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mois précédents</h3>
-          <ul className="divide-y divide-border rounded-xl border border-border">
-            {view.history.map((h) => (
-              <li key={h.id} className="flex flex-wrap items-center gap-x-3 px-3 py-1.5 text-sm">
-                <span className="min-w-0 flex-1 font-medium">{periodLabel(h.period)}</span>
-                <span className="text-xs text-muted-foreground">remis {formatCurrency(h.amount)}</span>
-                <span className="text-xs text-muted-foreground">dépensé {formatCurrency(h.spent)}</span>
-                <span className="tabular-nums">{formatCurrency(h.amount - h.spent)}</span>
-                <Badge tone={PETTY_CASH_STATUS_LABEL[h.status].tone} dot={false}>{PETTY_CASH_STATUS_LABEL[h.status].label}</Badge>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <RemittanceList title="Remises soldées" rows={view.history} muted />
       )}
+    </div>
+  );
+}
+
+function RemittanceList({ title, rows, muted }: { title: string; rows: GeneralMeansRemittance[]; muted?: boolean }) {
+  return (
+    <div className="space-y-1.5">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+      <div className="overflow-x-auto rounded-xl border border-border">
+        <table className="w-full min-w-[34rem] text-sm">
+          <thead className="bg-secondary/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th scope="col" className="px-3 py-1.5 font-medium">Remise</th>
+              <th scope="col" className="px-3 py-1.5 font-medium">Période</th>
+              <th scope="col" className="px-3 py-1.5 text-right font-medium">Remis</th>
+              <th scope="col" className="px-3 py-1.5 text-right font-medium">Dépensé</th>
+              <th scope="col" className="px-3 py-1.5 font-medium">État</th>
+            </tr>
+          </thead>
+          <tbody className={`divide-y divide-border ${muted ? "text-muted-foreground" : ""}`}>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="px-3 py-1.5">
+                  {formatDate(r.remittedAt)}
+                  {r.holder && <span className="block text-[0.6875rem] text-muted-foreground">{r.holder}</span>}
+                  {r.note && <span className="block text-[0.6875rem] text-muted-foreground">{r.note}</span>}
+                </td>
+                <td className="px-3 py-1.5 text-xs text-muted-foreground">{periodLabel(r.period)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{formatCurrency(r.amount)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{r.spent > 0 ? formatCurrency(r.spent) : "—"}</td>
+                <td className="px-3 py-1.5">
+                  <Badge tone={PETTY_CASH_STATUS_LABEL[r.status].tone} dot={false}>{PETTY_CASH_STATUS_LABEL[r.status].label}</Badge>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

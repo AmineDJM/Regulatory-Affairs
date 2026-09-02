@@ -18,7 +18,8 @@ import {
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
 import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/general-means/budget-targets";
-import { pettyCashBalanceExcluding, pettyCashBalance, canSpendFromPettyCash, type PettyCashStatus } from "@/lib/petty-cash";
+import { continuousCash, fundExcluding, fundHandle, canSpendFromFund } from "@/lib/general-means/continuous-cash";
+import { openRemittances } from "@/lib/queries/general-means";
 import { resolveSource, sourceOf, sourceChange } from "@/lib/general-means/payment-source";
 import { toNumber } from "@/lib/utils";
 
@@ -373,19 +374,14 @@ export async function addDepartmentExpense(formData: FormData): Promise<ActionRe
   // formulaire. Le moyen de paiement était jusqu'ici un SECOND BOUTON, et l'on saisissait
   // régulièrement par le mauvais : la caisse du mois se retrouvait fausse d'un côté, gonflée
   // de l'autre, sans qu'aucun des deux écrans ne le dise.
-  const cash = await currentCashOf(departmentId, fdStr(formData, "period"));
-  const src = resolveSource(fdStr(formData, "paymentSource"), cash, {
-    isHolder: cash?.holderId === user.id, globalView: hasGlobalView(user),
+  const cash = await cashOf(departmentId);
+  const src = resolveSource(fdStr(formData, "paymentSource"), cash.handle, {
+    isHolder: cash.holders.includes(user.id), globalView: hasGlobalView(user),
   });
   if (src.error) return { ok: false, error: src.error };
   // L'argent liquide ne s'invente pas : le fond doit couvrir le montant, comme avant.
-  if (src.pettyCashId && cash) {
-    const state = { id: cash.id, period: cash.period, amount: toNumber(cash.amount), status: cash.status as PettyCashStatus };
-    const balance = pettyCashBalance(
-      state,
-      cash.expenses.map((e) => ({ id: e.id, label: e.label, amount: toNumber(e.amount), date: e.date.toISOString() })),
-    );
-    const room = canSpendFromPettyCash(state, balance, amount);
+  if (src.pettyCashId) {
+    const room = canSpendFromFund(cash.fund, amount);
     if (!room.ok) return { ok: false, error: room.reason ?? "Le fond ne couvre pas ce montant." };
   }
 
@@ -430,20 +426,19 @@ export async function addDepartmentExpense(formData: FormData): Promise<ActionRe
 }
 
 /**
- * La caisse du mois d'un département, telle qu'il faut la lire pour y imputer une dépense.
+ * LA CAISSE D'AVANCE D'UN DÉPARTEMENT, telle qu'il faut la lire pour y imputer une dépense.
  *
- * `null` quand il n'y en a pas — l'appelant refuse alors « payé sur la caisse » avec un motif,
- * plutôt que de basculer silencieusement en hors caisse.
+ * Elle est CONTINUE : ce sont toutes les remises non soldées, pas celle d'un mois. On rend donc
+ * le fond (pour l'arithmétique), les remises (pour recalculer en écartant une dépense qu'on
+ * corrige), et la « poignée » — la remise sur laquelle la dépense s'inscrira, avec son état, qui
+ * permet de distinguer « aucune caisse » de « somme pas encore confirmée reçue ».
+ *
+ * `handle` vaut `null` quand il n'y a rien — l'appelant refuse alors « payé sur la caisse » avec
+ * un motif, plutôt que de basculer silencieusement en hors caisse.
  */
-async function currentCashOf(departmentId: string, period: string | null) {
-  return prisma.pettyCashAllotment.findFirst({
-    where: { departmentId, ...(period ? { period } : {}), status: { not: "CLOSED" } },
-    orderBy: { period: "desc" },
-    select: {
-      id: true, period: true, amount: true, status: true, holderId: true,
-      expenses: { select: { id: true, label: true, amount: true, date: true } },
-    },
-  });
+async function cashOf(departmentId: string) {
+  const rows = await openRemittances(departmentId);
+  return { rows, fund: continuousCash(rows), handle: fundHandle(rows), holders: rows.map((r) => r.holderId) };
 }
 
 /**
@@ -526,14 +521,15 @@ export async function updateDepartmentExpense(formData: FormData): Promise<Actio
   // faux jusqu'au solde, et l'erreur ne se voit qu'à ce moment-là. On la corrige donc là où on
   // la constate. Champ absent du formulaire = moyen de paiement inchangé.
   const beforeSource = sourceOf(before);
-  let cash = before.pettyCash;
   let nextCashId: string | null = before.pettyCashId;
+  const cash = await cashOf(before.departmentId);
   if (formData.has("paymentSource")) {
     const target = fdStr(formData, "paymentSource");
     if (target === "CASH") {
-      cash = cash ?? (await currentCashOf(before.departmentId, null));
-      const src = resolveSource("CASH", cash, {
-        isHolder: cash?.holderId === user.id, globalView: hasGlobalView(user),
+      // Une dépense DÉJÀ sur la caisse y reste attachée à sa remise : la déplacer sur la plus
+      // récente réécrirait l'historique d'une remise qu'on n'a pas touchée.
+      const src = resolveSource("CASH", before.pettyCashId ? { id: before.pettyCashId, status: "RECEIVED" } : cash.handle, {
+        isHolder: cash.holders.includes(user.id), globalView: hasGlobalView(user),
       });
       if (src.error) return { ok: false, error: src.error };
       nextCashId = src.pettyCashId;
@@ -543,14 +539,8 @@ export async function updateDepartmentExpense(formData: FormData): Promise<Actio
   }
 
   // La caisse doit pouvoir porter le NOUVEAU montant, la dépense corrigée mise de côté.
-  if (nextCashId && cash) {
-    const state = { id: cash.id, period: cash.period, amount: toNumber(cash.amount), status: cash.status as PettyCashStatus };
-    const balance = pettyCashBalanceExcluding(
-      state,
-      cash.expenses.map((e) => ({ id: e.id, label: e.label, amount: toNumber(e.amount), date: e.date.toISOString() })),
-      id,
-    );
-    const room = canSpendFromPettyCash(state, balance, amount);
+  if (nextCashId) {
+    const room = canSpendFromFund(fundExcluding(cash.rows, id), amount);
     if (!room.ok) return { ok: false, error: room.reason ?? "Le fond ne couvre pas ce montant." };
   }
 

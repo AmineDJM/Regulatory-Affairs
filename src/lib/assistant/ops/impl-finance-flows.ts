@@ -62,28 +62,66 @@ const resolvePerson = (raw: string) =>
     (q) => prisma.user.findMany({ where: { name: { contains: q, mode: "insensitive" }, isActive: true }, select: { id: true, name: true }, take: 6 }),
     (u) => u.name);
 
-interface CashHit { id: string; period: string; status: string; amount: number; holderName: string | null; deptName: string }
+interface CashHit {
+  /** La remise que l'action vise. Ce qu'elle en fait — le fond entier, ou elle seule — est SA règle. */
+  id: string;
+  deptId: string;
+  deptName: string;
+  period: string;
+  status: string;
+  amount: number;
+  holderName: string | null;
+  /** Combien de remises correspondent à la demande (sert à refuser une cible ambiguë). */
+  count: number;
+  /** Combien de remises composent le fond en cours (sert à DIRE ce que « solder » emporte). */
+  openCount: number;
+}
 
-/** La caisse d'avance d'un département (période précisée, sinon la plus récente non close en priorité). */
+/**
+ * LA REMISE VISÉE DANS LA CAISSE D'AVANCE D'UN DÉPARTEMENT.
+ *
+ * La caisse est CONTINUE : plusieurs remises non soldées coexistent, et c'est normal. Le
+ * résolveur refusait justement sur cette pluralité (« préciser la période ») — il aurait bloqué
+ * Adam dès la deuxième remise. Il rend désormais la plus récente, et la période ne sert plus qu'à
+ * viser une remise précise (confirmer SA réception).
+ *
+ * ── CE QU'IL NE FAIT PAS, ET C'EST VOULU ────────────────────────────────────────────────────
+ *
+ * Il ne calcule NI le solde du fond, NI ce qui est dépensable. Cette arithmétique appartient à
+ * `general-means/continuous-cash.ts`, et l'action la revérifie de toute façon : la recopier ici
+ * donnerait deux calculs qui se contrediraient au premier changement de règle — Adam annoncerait
+ * un reste, l'action en appliquerait un autre. La proposition dit donc ce que l'action VA FAIRE
+ * (« la somme s'ajoute au fond », « le fond entier est arrêté »), sans chiffrer le fond.
+ */
 async function resolveCash(deptRaw: string, periodRaw: string, statuses?: string[]): Promise<CashHit | { error: string }> {
   const dept = await resolveDept(deptRaw);
   if ("error" in dept) return dept;
   const period = periodRaw ? periodOf(periodRaw) : null;
   if (period && typeof period !== "string") return period;
+
   const rows = await prisma.pettyCashAllotment.findMany({
-    where: {
-      departmentId: dept.id,
-      ...(period ? { period } : {}),
-      ...(statuses ? { status: { in: statuses as never } } : {}),
-    },
+    where: { departmentId: dept.id, status: { not: "CLOSED" } },
     select: { id: true, period: true, status: true, amount: true, holder: { select: { name: true } } },
-    orderBy: { period: "desc" },
-    take: 4,
+    orderBy: { createdAt: "desc" },
   });
-  if (rows.length === 0) return { error: `Aucune caisse d'avance${period ? ` ${period}` : ""} pour ${dept.name}${statuses ? ` (état attendu : ${statuses.join("/")})` : ""}.` };
-  if (rows.length > 1) return { error: `Plusieurs caisses pour ${dept.name} : ${rows.map((r) => `${r.period} (${r.status})`).join(", ")} — préciser la période (champ « period »).` };
-  const hit = rows[0];
-  return { id: hit.id, period: hit.period, status: hit.status, amount: toNumber(hit.amount), holderName: hit.holder?.name ?? null, deptName: dept.name };
+  const eligibles = rows.filter((r) => (
+    (!period || r.period === period) && (!statuses || statuses.includes(r.status))
+  ));
+  if (eligibles.length === 0) {
+    return { error: `Aucune remise en caisse${period ? ` de ${period}` : ""} pour ${dept.name}${statuses ? ` (état attendu : ${statuses.join("/")})` : ""}.` };
+  }
+  const hit = eligibles[0];
+  return {
+    id: hit.id,
+    deptId: dept.id,
+    deptName: dept.name,
+    period: hit.period,
+    status: hit.status,
+    amount: toNumber(hit.amount),
+    holderName: hit.holder?.name ?? null,
+    count: eligibles.length,
+    openCount: rows.length,
+  };
 }
 
 /** Un ordre de dépense par référence OD-… ou libellé (statuts bornés si fournis). */
@@ -320,32 +358,42 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
       if (amount === null || amount <= 0) return { error: "Précisez la somme remise (champ « amount »)." };
       const period = periodOf(opStr(input, "period"));
       if (typeof period !== "string") return period;
-      const existing = await prisma.pettyCashAllotment.findFirst({
-        where: { departmentId: dept.id, period }, select: { id: true, amount: true, holder: { select: { name: true } } },
+      // LA CAISSE EST CONTINUE : la remise s'AJOUTE au fond, elle ne rallonge pas « le mois » et
+      // n'en ouvre pas un nouveau. Le détenteur se reprend donc du fond en cours (ou du réglage
+      // mensuel) : le redemander à chaque remise pour une personne qui n'a pas changé serait un
+      // aller-retour de plus à chaque fois.
+      const ouvertes = await prisma.pettyCashAllotment.findMany({
+        where: { departmentId: dept.id, status: { not: "CLOSED" } },
+        select: { holderId: true }, orderBy: { createdAt: "desc" },
       });
       let holderId: string | null = null;
-      let holderName: string | null = existing?.holder?.name ?? null;
+      let holderName: string | null = null;
       const holderRaw = opStr(input, "holder");
       if (holderRaw) {
         const holder = await resolvePerson(holderRaw);
         if ("error" in holder) return holder;
         holderId = holder.id; holderName = holder.name;
-      } else if (!existing) {
-        return { error: "Précisez à qui la somme est remise (champ « holder ») — première dotation du mois." };
+      } else {
+        const connu = ouvertes.find((r) => r.holderId)?.holderId
+          ?? (await prisma.pettyCashPlan.findUnique({ where: { departmentId: dept.id }, select: { holderId: true } }))?.holderId
+          ?? null;
+        if (!connu) return { error: "Précisez à qui la somme est remise (champ « holder ») — personne ne détient encore cette caisse." };
+        holderName = (await prisma.user.findUnique({ where: { id: connu }, select: { name: true } }))?.name ?? null;
       }
       return {
-        title: existing
-          ? `Rallonger la caisse de ${dept.name} (${period}) : +${dzd(amount)}`
-          : `Remettre ${dzd(amount)} à la caisse de ${dept.name} (${period})`,
+        title: `Remettre ${dzd(amount)} à la caisse de ${dept.name}`,
         fields: fieldsOf([
-          ["Département", dept.name], ["Période", period],
-          [existing ? "Rallonge" : "Somme remise", dzd(amount)],
-          ["Fonds actuel", existing ? dzd(toNumber(existing.amount)) : null],
+          ["Département", dept.name], ["Période enregistrée", period],
+          ["Somme remise", dzd(amount)],
+          ["Remises déjà en cours", ouvertes.length > 0 ? `${ouvertes.length}` : "aucune"],
           ["Détenteur·rice", holderName], ["Note", opStr(input, "note") || null],
         ]),
-        warnings: ["L'argent est réputé remis : la personne détentrice devra CONFIRMER la réception avant de dépenser."],
+        warnings: [
+          "La somme S'AJOUTE au fond : aucune remise antérieure n'est close.",
+          "L'argent est réputé remis : la personne détentrice devra CONFIRMER la réception avant de dépenser.",
+        ],
         args: { departmentId: dept.id, holderId, period, amount: String(amount), note: opStr(input, "note") || null },
-        successMessage: existing ? `Caisse de ${dept.name} rallongée de ${dzd(amount)}.` : `Caisse de ${dept.name} dotée (${dzd(amount)}).`,
+        successMessage: `${dzd(amount)} remis à la caisse de ${dept.name}.`,
         link: "/moyens-generaux", revalidate: ["/moyens-generaux"],
       };
     },
@@ -356,16 +404,20 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const cash = await resolveCash(opStr(input, "department"), opStr(input, "period"), ["ALLOTTED"]);
       if ("error" in cash) return cash;
+      if (cash.count > 1) {
+        return { error: `${cash.count} remises attendent une confirmation chez ${cash.deptName} — précisez laquelle par sa période (champ « period »).` };
+      }
       return {
-        title: `Confirmer la réception de la caisse — ${cash.deptName} (${cash.period})`,
-        fields: [
-          { label: "Caisse", value: `${cash.deptName} · ${cash.period}` },
-          { label: "Fonds", value: dzd(cash.amount) },
-          ...(cash.holderName ? [{ label: "Détenteur·rice", value: cash.holderName }] : []),
-        ],
-        warnings: ["Seule la personne détentrice (ou la Direction) confirme — l'action refusera sinon. Le fonds devient dépensable."],
+        title: `Confirmer la réception d'une remise en caisse — ${cash.deptName}`,
+        fields: fieldsOf([
+          ["Département", cash.deptName],
+          ["Somme remise", dzd(cash.amount)],
+          ["Période enregistrée", cash.period],
+          ["Détenteur·rice", cash.holderName],
+        ]),
+        warnings: ["Seule la personne détentrice (ou la Direction) confirme — l'action refusera sinon. La somme devient alors dépensable."],
         args: { id: cash.id },
-        successMessage: `Réception confirmée — caisse ${cash.deptName} (${cash.period}) ouverte.`,
+        successMessage: `Réception confirmée — la somme est en main chez ${cash.deptName}.`,
         revalidate: ["/moyens-generaux"],
       };
     },
@@ -377,14 +429,17 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
       const cash = await resolveCash(opStr(input, "department"), opStr(input, "period"), ["ALLOTTED", "RECEIVED"]);
       if ("error" in cash) return cash;
       return {
-        title: `Solder la caisse d'avance — ${cash.deptName} (${cash.period})`,
-        fields: [
-          { label: "Caisse", value: `${cash.deptName} · ${cash.period}` },
-          { label: "Fonds du mois", value: dzd(cash.amount) },
+        title: `Solder la caisse d'avance — ${cash.deptName}`,
+        fields: fieldsOf([
+          ["Département", cash.deptName],
+          ["Remises en cours", `${cash.openCount}`],
+        ]),
+        warnings: [
+          `Le fond ENTIER est arrêté d'un bloc : les ${cash.openCount} remise(s) en cours passent en soldé.`,
+          "Le reliquat n'est plus disponible. Les dépenses déjà imputées restent.",
         ],
-        warnings: ["Le reliquat n'est plus disponible : le mois est clos. Les dépenses déjà imputées restent."],
         args: { id: cash.id },
-        successMessage: `Caisse ${cash.deptName} (${cash.period}) soldée.`,
+        successMessage: `Caisse d'avance de ${cash.deptName} soldée.`,
         revalidate: ["/moyens-generaux"],
       };
     },
@@ -398,9 +453,9 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
       const amount = num(input, "amount");
       if (amount === null || amount <= 0) return { error: "Précisez le montant demandé (champ « amount »)." };
       return {
-        title: `Demander une rallonge de ${dzd(amount)} — caisse ${cash.deptName} (${cash.period})`,
+        title: `Demander une rallonge de ${dzd(amount)} — caisse de ${cash.deptName}`,
         fields: fieldsOf([
-          ["Caisse", `${cash.deptName} · ${cash.period}`],
+          ["Département", cash.deptName],
           ["Montant demandé", dzd(amount)],
           ["Motif", opStr(input, "reason") || null],
         ]),

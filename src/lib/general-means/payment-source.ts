@@ -15,12 +15,12 @@
 export type PaymentSource = "CASH" | "OFF_CASH";
 
 export const SOURCE_LABEL: Record<PaymentSource, string> = {
-  CASH: "Caisse du mois",
+  CASH: "Caisse d'avance",
   OFF_CASH: "Hors caisse",
 };
 
 export const SOURCE_HINT: Record<PaymentSource, string> = {
-  CASH: "Payé en liquide sur le fond détenu ce mois-ci — le montant en est déduit.",
+  CASH: "Payé en liquide sur le fond détenu — le montant en est déduit.",
   OFF_CASH: "Virement, carte, facture réglée par les Finances — déduit de la caisse de l'exercice.",
 };
 
@@ -32,10 +32,10 @@ export function sourceOf(expense: { pettyCashId?: string | null }): PaymentSourc
 /**
  * La caisse est-elle utilisable comme moyen de paiement ?
  *
- * Trois conditions, et les trois comptent : il faut une caisse ouverte ce mois-ci, elle doit
- * avoir été RECUE (une somme décidée mais pas encaissée n'existe pas encore), et c'est la
- * personne qui la détient qui en sort l'argent. Proposer l'option en dehors de ces cas, c'est
- * offrir un choix qui sera refusé après la saisie — donc après la perte du formulaire.
+ * Trois conditions, et les trois comptent : il faut de l'argent en caisse, il doit avoir été
+ * RECU (une somme décidée mais pas encaissée n'existe pas encore), et c'est la personne qui la
+ * détient qui en sort l'argent. Proposer l'option en dehors de ces cas, c'est offrir un choix
+ * qui sera refusé après la saisie — donc après la perte du formulaire.
  */
 export function cashAvailable(
   cash: { status: string } | null | undefined,
@@ -66,13 +66,13 @@ export function resolveSource(
 ): SourceResolution {
   if (requested !== "CASH") return { source: "OFF_CASH", pettyCashId: null };
   if (!cash) {
-    return { source: "OFF_CASH", pettyCashId: null, error: "Aucune caisse ouverte ce mois-ci : cette dépense ne peut pas en sortir." };
+    return { source: "OFF_CASH", pettyCashId: null, error: "Aucune somme n'est en caisse : cette dépense ne peut pas en sortir." };
   }
   if (!cashAvailable(cash, opts)) {
     return {
       source: "OFF_CASH", pettyCashId: null,
       error: cash.status !== "RECEIVED"
-        ? "La caisse du mois n'a pas encore été confirmée reçue : rien ne peut en sortir."
+        ? "La somme remise n'a pas encore été confirmée reçue : rien ne peut en sortir."
         : "Seule la personne qui détient la caisse y impute des dépenses.",
     };
   }
@@ -87,8 +87,8 @@ export function resolveSource(
 export function sourceChange(before: PaymentSource, after: PaymentSource): string | null {
   if (before === after) return null;
   return after === "CASH"
-    ? `Dépense rattachée à la caisse du mois (elle en est désormais déduite)`
-    : `Dépense sortie de la caisse du mois (payée hors caisse)`;
+    ? `Dépense rattachée à la caisse d'avance (elle en est désormais déduite)`
+    : `Dépense sortie de la caisse d'avance (payée hors caisse)`;
 }
 
 /** Le choix par défaut à l'ouverture du formulaire : la caisse quand elle est utilisable. */

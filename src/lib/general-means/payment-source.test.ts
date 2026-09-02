@@ -55,7 +55,7 @@ describe("resolveSource — ce qui est demandé, confronté à ce qui est possib
   // enregistrée, le budget consommé, et le fond du mois resterait faux jusqu'au solde.
   it("REFUSE, avec un motif, quand la caisse est demandée sans être disponible", () => {
     const noCash = resolveSource("CASH", null, { isHolder: true });
-    expect(noCash.error).toContain("Aucune caisse");
+    expect(noCash.error).toMatch(/aucune somme/i);
 
     const notReceived = resolveSource("CASH", PENDING, { isHolder: true });
     expect(notReceived.error).toContain("confirmée reçue");

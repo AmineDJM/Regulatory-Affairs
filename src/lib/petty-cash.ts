@@ -8,7 +8,16 @@
  *
  * Le budget et la caisse répondent à deux questions différentes : « ai-je le droit ? » et
  * « me reste-t-il de quoi payer ? ». Les confondre, c'est ne plus savoir combien il y a dans
- * le tiroir. Ce module ne calcule que la seconde.
+ * le tiroir.
+ *
+ * ── OÙ EST PASSÉ LE SOLDE ? ─────────────────────────────────────────────────────────────────
+ *
+ * Il vivait ici, calculé PAR MOIS. La caisse est devenue CONTINUE : une remise ne clôt plus le
+ * mois précédent, et le solde se lit sur le fond entier — voir `general-means/continuous-cash.ts`,
+ * désormais seul calculateur. Garder les deux aurait laissé deux arithmétiques qui se
+ * contredisent dès la deuxième remise. Ce module garde ce qui n'a pas changé : le vocabulaire
+ * des états, la lecture d'une période, et le RÉGLAGE MENSUEL du rechargement — qui, lui, reste
+ * mensuel : c'est une échéance d'agenda, pas un cloisonnement de l'argent.
  *
  * Module PUR — testé.
  */
@@ -20,99 +29,6 @@ export const PETTY_CASH_STATUS_LABEL: Record<PettyCashStatus, { label: string; t
   RECEIVED: { label: "Reçue — caisse ouverte", tone: "success" },
   CLOSED: { label: "Caisse soldée", tone: "neutral" },
 };
-
-export interface PettyCashLine {
-  id: string;
-  label: string;
-  amount: number;
-  date: string;
-}
-
-export interface PettyCashState {
-  id: string;
-  period: string;
-  amount: number;
-  status: PettyCashStatus;
-}
-
-export interface PettyCashBalance {
-  /** Ce qui a été remis (0 tant que la réception n'est pas confirmée : rien n'est en main). */
-  received: number;
-  spent: number;
-  remaining: number;
-  /** Part consommée, bornée à 100 % — le dépassement se dit par le signe du solde. */
-  usedPercent: number;
-  /** Le fond est-il presque épuisé ? Seuil bas : on demande une rallonge AVANT d'être à sec. */
-  lowOnCash: boolean;
-  /** A-t-on dépensé plus que ce qui a été remis ? Anomalie à corriger, pas un état normal. */
-  overspent: boolean;
-}
-
-/** En dessous, on prévient : demander une rallonge une fois à zéro, c'est déjà trop tard. */
-export const LOW_CASH_RATIO = 0.2;
-
-/**
- * Le solde de la caisse. Tant que la réception n'est pas confirmée, `received` vaut 0 — la
- * somme est *décidée*, pas *détenue*, et afficher un solde disponible avant d'avoir l'argent
- * conduit à engager des dépenses qu'on ne peut pas payer.
- */
-export function pettyCashBalance(allotment: PettyCashState | null, lines: PettyCashLine[]): PettyCashBalance {
-  const received = allotment && allotment.status !== "ALLOTTED" ? allotment.amount : 0;
-  const spent = lines.reduce((a, l) => a + l.amount, 0);
-  const remaining = received - spent;
-  const usedPercent = received > 0 ? Math.min(100, Math.round((spent / received) * 100)) : 0;
-  return {
-    received,
-    spent,
-    remaining,
-    usedPercent,
-    lowOnCash: received > 0 && remaining > 0 && remaining <= received * LOW_CASH_RATIO,
-    overspent: remaining < 0,
-  };
-}
-
-/**
- * Le solde de la caisse EN METTANT DE CÔTÉ une dépense — celle qu'on est en train de corriger.
- *
- * Sans cette mise à l'écart, corriger une dépense de 8 000 DZD sur un fond de 10 000 comparerait
- * le nouveau montant à un solde qui compte encore l'ancien : une simple correction de libellé
- * serait refusée « faute d'argent », alors que la place existe — elle est occupée par la ligne
- * qu'on modifie.
- */
-export function pettyCashBalanceExcluding(
-  allotment: PettyCashState | null,
-  lines: PettyCashLine[],
-  excludeId: string,
-): PettyCashBalance {
-  return pettyCashBalance(allotment, lines.filter((l) => l.id !== excludeId));
-}
-
-/**
- * Peut-on imputer une dépense sur cette caisse ?
- *
- * Trois refus, et ils ne disent pas la même chose : pas de caisse ouverte, argent pas encore
- * reçu, ou fond insuffisant. Le message doit le dire — « impossible » n'indique à personne
- * quoi faire ensuite.
- */
-export function canSpendFromPettyCash(
-  allotment: PettyCashState | null,
-  balance: PettyCashBalance,
-  amount: number,
-): { ok: boolean; reason?: string } {
-  if (!allotment) return { ok: false, reason: "Aucune caisse d'avance ouverte pour cette période." };
-  if (allotment.status === "ALLOTTED") {
-    return { ok: false, reason: "Confirmez d'abord la réception de la somme : on ne dépense pas un argent qu'on n'a pas encore." };
-  }
-  if (allotment.status === "CLOSED") return { ok: false, reason: "Cette caisse est soldée." };
-  if (!(amount > 0)) return { ok: false, reason: "Indiquez le montant de la dépense." };
-  if (amount > balance.remaining) {
-    return {
-      ok: false,
-      reason: `Il ne reste que ${Math.max(0, balance.remaining)} DZD dans la caisse : demandez une rallonge avant d'engager cette dépense.`,
-    };
-  }
-  return { ok: true };
-}
 
 /** Le mois courant au format « AAAA-MM » — la clé d'une caisse. */
 export function currentPeriod(now = new Date()): string {

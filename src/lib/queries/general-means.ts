@@ -3,7 +3,8 @@ import { toNumber } from "@/lib/utils";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { mergeGrants, canViewDepartmentBudget, editableKindsOn, EMPTY_GRANT, type DeptBudgetGrant, type BudgetSetter, type DeptBudgetKind } from "@/lib/department-budget";
 import { headedDepartmentIds } from "@/lib/queries/department-budget";
-import { pettyCashBalance, currentPeriod, nextRechargeDate, type PettyCashBalance, type PettyCashStatus } from "@/lib/petty-cash";
+import { nextRechargeDate, type PettyCashStatus } from "@/lib/petty-cash";
+import { continuousCash, remittanceSpent, type ContinuousCash, type CashRemittance } from "@/lib/general-means/continuous-cash";
 import { isFullyClassified } from "@/lib/budget/imputation";
 
 /**
@@ -40,17 +41,38 @@ export interface GeneralMeansExpense {
   createdBy: string;
 }
 
-export interface GeneralMeansCash {
+/** Une remise d'argent, telle qu'elle se lit dans l'historique : sa date, sa somme, son sort. */
+export interface GeneralMeansRemittance {
   id: string;
+  /** « AAAA-MM » — la période reste enregistrée, elle ne cloisonne simplement plus l'argent. */
   period: string;
+  /** La DATE de la remise : deux remises peuvent tomber le même mois. */
+  remittedAt: string;
   amount: number;
+  /** Ce qui est sorti depuis cette remise. */
+  spent: number;
   status: PettyCashStatus;
   holder: string;
-  holderId: string | null;
   receivedAt: string | null;
   note: string | null;
-  balance: PettyCashBalance;
-  lines: GeneralMeansExpense[];
+}
+
+/**
+ * LA CAISSE D'AVANCE — une seule, continue, faite de toutes les remises non soldées.
+ *
+ * Elle n'a plus de « mois » : une remise ajoute au fond, elle ne clôt pas la précédente. Ce
+ * qu'on garde de chaque remise, c'est sa date et sa période — de quoi répondre à « combien
+ * a-t-on remis en août ? » sans faire croire que septembre a soldé août.
+ */
+export interface GeneralMeansCash {
+  /** La remise sur laquelle une nouvelle dépense s'impute (la plus récente EN MAIN). */
+  currentId: string | null;
+  /** Qui détient la caisse aujourd'hui — celui de la remise la plus récente. */
+  holder: string;
+  holderId: string | null;
+  fund: ContinuousCash;
+  /** Les remises qui composent le fond, la plus récente d'abord. */
+  remittances: GeneralMeansRemittance[];
 }
 
 /** Le réglage mensuel de la caisse (posé par les RH) et sa prochaine échéance. */
@@ -103,8 +125,8 @@ export interface GeneralMeansView {
   plan: GeneralMeansPlan | null;
   /** Demandes de rallonge sur la caisse en cours, la plus récente d'abord. */
   topUps: GeneralMeansTopUp[];
-  /** Caisses des mois précédents, la plus récente d'abord. */
-  history: { id: string; period: string; amount: number; spent: number; status: PettyCashStatus }[];
+  /** Les remises SOLDÉES, la plus récente d'abord — ce qui a été arrêté, compté, rendu. */
+  history: GeneralMeansRemittance[];
   expenses: GeneralMeansExpense[];
 }
 
@@ -117,6 +139,36 @@ function grantOf(rows: { departmentId: string | null; accessRoles: string[]; acc
       activityRoles: r.activityRoles, activityUserIds: r.activityUserIds,
     } : null;
   return mergeGrants(as(rows.find((r) => r.departmentId === null)), as(rows.find((r) => r.departmentId === departmentId)));
+}
+
+/**
+ * LES REMISES NON SOLDÉES D'UN DÉPARTEMENT — la matière du fond, pour l'écran comme pour la saisie.
+ *
+ * Un seul chargement, une seule forme : l'écran affiche le solde et les actions le revérifient
+ * avec EXACTEMENT le même calcul. Deux lectures différentes de la même caisse, c'est un bouton
+ * proposé puis un refus après la saisie — le formulaire est perdu, et la personne ne sait pas
+ * pourquoi.
+ */
+export async function openRemittances(
+  departmentId: string,
+): Promise<(CashRemittance & { holderId: string | null })[]> {
+  const rows = await prisma.pettyCashAllotment.findMany({
+    where: { departmentId, status: { not: "CLOSED" } },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true, period: true, createdAt: true, amount: true, status: true, holderId: true,
+      expenses: { select: { id: true, amount: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    period: r.period,
+    remittedAt: r.createdAt.toISOString(),
+    amount: toNumber(r.amount),
+    status: r.status,
+    holderId: r.holderId,
+    expenses: r.expenses.map((e) => ({ id: e.id, amount: toNumber(e.amount) })),
+  }));
 }
 
 /**
@@ -143,7 +195,6 @@ export async function getGeneralMeans(
   user: SessionUser,
   departmentId: string,
   year: number,
-  period: string = currentPeriod(),
 ): Promise<GeneralMeansView | null> {
   const department = await prisma.department.findUnique({
     where: { id: departmentId },
@@ -167,28 +218,33 @@ export async function getGeneralMeans(
   });
   const grant = grantOf(accessRows, departmentId);
 
-  const cashHere = await prisma.pettyCashAllotment.findFirst({
-    where: { departmentId, period },
+  // LA CAISSE SE LIT D'UN BLOC. On chargeait la remise du MOIS demandé ; le fond, lui, est fait
+  // de toutes les remises non soldées — c'est la somme qu'on a réellement dans le tiroir. Les
+  // remises soldées suivent, en nombre borné : elles ne servent qu'à l'historique.
+  const remittanceRows = await prisma.pettyCashAllotment.findMany({
+    where: { departmentId },
+    orderBy: { createdAt: "desc" },
+    take: 36,
     include: {
       holder: { select: { id: true, name: true } },
-      expenses: {
-        orderBy: { date: "desc" },
-        include: {
-          createdBy: { select: { name: true } },
-          lines: { orderBy: { createdAt: "asc" }, select: { id: true, label: true, quantity: true, amount: true, budgetCategoryId: true } },
-        },
-      },
+      expenses: { select: { id: true, amount: true } },
       topUps: {
         orderBy: { createdAt: "desc" },
         include: { requestedBy: { select: { name: true } } },
       },
     },
   });
+  const openRows = remittanceRows.filter((r) => r.status !== "CLOSED");
+  const closedRows = remittanceRows.filter((r) => r.status === "CLOSED").slice(0, 12);
+  /** La remise la plus récente : c'est elle qui nomme le détenteur du fond. */
+  const latest = openRows[0] ?? null;
   const planRow = await prisma.pettyCashPlan.findUnique({
     where: { departmentId },
     include: { holder: { select: { name: true } } },
   });
-  const isHolder = cashHere?.holderId === user.id;
+  // DÉTENIR LA CAISSE, c'est détenir N'IMPORTE LAQUELLE des remises ouvertes : le fond est un,
+  // et une remise plus ancienne à son nom suffit à en faire la personne qui sort l'argent.
+  const isHolder = openRows.some((r) => r.holderId === user.id);
   // LE DROIT DE MODULE SUFFIT. Celui qui achète au quotidien (l'assistante de direction) a le
   // module « Moyens généraux » et rien d'autre : exiger en plus une autorisation budgétaire la
   // renvoyait vers un écran vide sur son propre budget. Le module ouvre SON département ; les
@@ -197,7 +253,7 @@ export async function getGeneralMeans(
 
   if (!isHolder && !hasModule && !canViewDepartmentBudget(subject, rights, grant, canViewModule, departmentId)) return null;
 
-  const [budget, expenses, totals, expenseCount, history] = await Promise.all([
+  const [budget, expenses, totals, expenseCount] = await Promise.all([
     prisma.departmentBudget.findUnique({
       where: { departmentId_year_kind: { departmentId, year, kind: "OPERATING" } },
       select: { amount: true },
@@ -220,17 +276,12 @@ export async function getGeneralMeans(
       _sum: { amount: true },
     }),
     prisma.departmentBudgetExpense.count({ where: { departmentId, year, kind: { not: "HR" } } }),
-    prisma.pettyCashAllotment.findMany({
-      where: { departmentId, period: { not: period } },
-      orderBy: { period: "desc" },
-      take: 12,
-      include: { expenses: { select: { amount: true } } },
-    }),
   ]);
 
-  // Les pièces des dépenses de la CAISSE aussi : son mois peut relever d'une autre année que
-  // celle consultée, et la ligne se serait alors affichée « sans pièce » alors qu'elle en a une.
-  const docIds = Array.from(new Set([...expenses.map((e) => e.id), ...(cashHere?.expenses ?? []).map((e) => e.id)]));
+  // UNE SEULE LISTE DE DÉPENSES, donc un seul jeu de pièces à charger. Il y en avait deux :
+  // celles de l'année et celles de la caisse du mois, qui se recouvraient largement — la même
+  // dépense s'affichait deux fois, à deux endroits, et l'on ne savait plus laquelle lire.
+  const docIds = Array.from(new Set(expenses.map((e) => e.id)));
   const docRows = docIds.length
     ? await prisma.document.findMany({
         where: { entityType: "DEPARTMENT_EXPENSE", entityId: { in: docIds } },
@@ -249,8 +300,6 @@ export async function getGeneralMeans(
   const usedCategoryIds = Array.from(new Set([
     ...expenses.map((e) => e.budgetCategoryId),
     ...expenses.flatMap((e) => e.lines.map((l) => l.budgetCategoryId)),
-    ...(cashHere?.expenses ?? []).map((e) => e.budgetCategoryId),
-    ...(cashHere?.expenses ?? []).flatMap((e) => e.lines.map((l) => l.budgetCategoryId)),
   ].filter((x): x is string => Boolean(x))));
   const categoryRows = usedCategoryIds.length
     ? await prisma.budgetCategoryLine.findMany({
@@ -303,23 +352,38 @@ export async function getGeneralMeans(
     .filter((t) => t.kind !== "OPERATING")
     .reduce((a, t) => a + toNumber(t._sum.amount ?? 0), 0);
 
-  const cashLines: GeneralMeansExpense[] = (cashHere?.expenses ?? []).map((e) => toExpense(e, true));
+  type RemittanceRow = (typeof remittanceRows)[number];
+  const asRemittance = (r: RemittanceRow): CashRemittance => ({
+    id: r.id,
+    period: r.period,
+    remittedAt: r.createdAt.toISOString(),
+    amount: toNumber(r.amount),
+    status: r.status,
+    expenses: r.expenses.map((e) => ({ id: e.id, amount: toNumber(e.amount) })),
+  });
+  const readable = (r: RemittanceRow): GeneralMeansRemittance => {
+    const base = asRemittance(r);
+    return {
+      id: base.id,
+      period: base.period,
+      remittedAt: base.remittedAt,
+      amount: base.amount,
+      spent: remittanceSpent(base),
+      status: r.status as PettyCashStatus,
+      holder: r.holder?.name ?? "",
+      receivedAt: r.receivedAt ? r.receivedAt.toISOString() : null,
+      note: r.note,
+    };
+  };
 
-  const cash: GeneralMeansCash | null = cashHere
+  const fund = continuousCash(openRows.map(asRemittance));
+  const cash: GeneralMeansCash | null = latest
     ? {
-        id: cashHere.id,
-        period: cashHere.period,
-        amount: toNumber(cashHere.amount),
-        status: cashHere.status as PettyCashStatus,
-        holder: cashHere.holder?.name ?? "",
-        holderId: cashHere.holderId,
-        receivedAt: cashHere.receivedAt ? cashHere.receivedAt.toISOString() : null,
-        note: cashHere.note,
-        balance: pettyCashBalance(
-          { id: cashHere.id, period: cashHere.period, amount: toNumber(cashHere.amount), status: cashHere.status as PettyCashStatus },
-          cashLines,
-        ),
-        lines: cashLines,
+        currentId: fund.currentId,
+        holder: latest.holder?.name ?? "",
+        holderId: latest.holderId,
+        fund,
+        remittances: openRows.map(readable),
       }
     : null;
 
@@ -358,7 +422,9 @@ export async function getGeneralMeans(
     canAmendCash: isHolder || hasGlobalView(user),
     cash,
     plan,
-    topUps: (cashHere?.topUps ?? []).map((t) => ({
+    // LES RALLONGES DE TOUTES LES REMISES OUVERTES. Les rattacher à la seule remise du mois
+    // faisait disparaître une demande en attente le jour où une nouvelle somme arrivait.
+    topUps: openRows.flatMap((r) => r.topUps).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).map((t) => ({
       id: t.id,
       amountRequested: toNumber(t.amountRequested),
       amountGranted: t.amountGranted === null ? null : toNumber(t.amountGranted),
@@ -368,13 +434,7 @@ export async function getGeneralMeans(
       createdAt: t.createdAt.toISOString(),
       decisionNote: t.decisionNote,
     })),
-    history: history.map((h) => ({
-      id: h.id,
-      period: h.period,
-      amount: toNumber(h.amount),
-      spent: h.expenses.reduce((a, e) => a + toNumber(e.amount), 0),
-      status: h.status as PettyCashStatus,
-    })),
+    history: closedRows.map(readable),
     expenses: allExpenses,
   };
 }
