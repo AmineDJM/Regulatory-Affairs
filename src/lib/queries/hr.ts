@@ -4,7 +4,8 @@ import { userCan, hasGlobalView, isTopManagement, type SessionUser } from "@/lib
 import { canDecideLeave, type LeaveStage } from "@/lib/leave-workflow";
 import { buildLeaveSheet } from "@/lib/hr/leave-sheet";
 import { toNumber } from "@/lib/utils";
-import { payrollMass as payrollMassOf, basisLabel, massCoverage, coverageLabel } from "@/lib/hr/payroll-cost";
+import { basisLabel } from "@/lib/hr/payroll-cost";
+import { employeeCosts, workforceMass, massByCompany, massProvenance, massIsIncomplete } from "@/lib/hr/workforce-mass";
 
 /** Personalised workspace data for the signed-in user ("Mon espace"). */
 export async function getMyWorkspace(userId: string) {
@@ -144,52 +145,70 @@ export async function getRhData(userId: string) {
     .groupBy({ by: ["year", "month"], orderBy: [{ year: "desc" }, { month: "desc" }], take: 1 })
     .catch(() => [] as { year: number; month: number }[]);
   const lastPayroll = lastMonthAgg[0] ?? null;
+  // ── TOUTES LES LIGNES DU MOIS, PAS SEULEMENT LES POINTÉES ─────────────────────────────────
+  //
+  // On ne retenait ici que `status: "PAID"`. C'était le premier des trois chemins par lesquels la
+  // masse salariale se retrouvait SOUS-ÉVALUÉE : un mois saisi mais pas encore pointé comptait
+  // pour zéro, et une société dont quatre bulletins sur trente étaient marqués payés affichait la
+  // masse salariale de quatre personnes.
+  //
+  // Le filtre protégeait contre un vrai risque — un paiement annulé qui continuerait de peser —
+  // mais il protégeait la MAUVAISE GRANDEUR. La masse salariale est ce que l'effectif COÛTE, pas
+  // ce qui est sorti de la banque : un bulletin en brouillon coûte déjà, le salaire est dû. Le
+  // décaissement, lui, a son propre indicateur en trésorerie. Voir `hr/workforce-mass.ts`.
   const lastEntries = lastPayroll
     ? await prisma.payrollEntry
         .findMany({
-          // SEULEMENT LES LIGNES PAYÉES. Annuler un paiement remet la ligne en brouillon mais
-          // LUI LAISSE SES MONTANTS : sans ce filtre, un salaire annulé continuait de peser dans
-          // la masse — un décaissement qui n'a pas eu lieu, compté comme s'il avait eu lieu.
-          //
-          // ET SEULEMENT LES SALARIÉS DE LA PORTÉE. L'effectif était filtré par entité, la masse
+          // SEULEMENT LES SALARIÉS DE LA PORTÉE. L'effectif était filtré par entité, la masse
           // salariale ne l'était pas : on lisait « 10 actifs » d'une société sous une masse
           // salariale du GROUPE ENTIER. Le total n'était pas faux, il répondait simplement à une
           // autre question que celle posée — le piège que ce fichier documente déjà deux fois.
           where: {
-            year: lastPayroll.year, month: lastPayroll.month, status: "PAID",
+            year: lastPayroll.year, month: lastPayroll.month,
             employeeId: { in: employees.map((e) => e.id) },
           },
-          // L'ENTITÉ DE CHAQUE LIGNE — sans elle, la masse salariale ne se ventile pas, et un
-          // total « groupe » se retrouve présenté comme celui d'une société.
-          select: { employerCost: true, gross: true, bonuses: true, deductions: true, employee: { select: { companyId: true } } },
+          select: { employeeId: true, employerCost: true, gross: true, bonuses: true, deductions: true },
         })
         .catch(() => [])
     : [];
-  const mass = payrollMassOf(lastEntries.map((e) => ({
-    employerCost: e.employerCost != null ? toNumber(e.employerCost) : null,
-    gross: toNumber(e.gross), bonuses: toNumber(e.bonuses), deductions: toNumber(e.deductions),
-  })));
-  const baseMass = active.reduce((a, e) => a + toNumber(e.baseSalary), 0);
-  const masseSalariale = mass.total > 0 ? mass.total : baseMass;
+
+  // ── UN SALARIÉ, UN COÛT, PERSONNE D'OUBLIÉ ────────────────────────────────────────────────
+  //
+  // Chaque salarié ACTIF est compté une fois : sa ligne de paie du mois si elle existe, sinon le
+  // coût employeur de référence de sa fiche. C'est ce qui corrige les deux autres chemins de la
+  // sous-estimation — le mois de référence lu à l'échelle de la PLATEFORME (une société dont la
+  // paie n'était pas encore saisie tombait à zéro) et le repli sur les SALAIRES DE BASE, qui
+  // retire d'un coup les primes et les charges patronales.
+  const coutsParSalarie = employeeCosts(
+    employees.map((e) => ({
+      id: e.id, companyId: e.company?.id ?? null, isActive: e.isActive,
+      employerCost: e.employerCost != null ? toNumber(e.employerCost) : null,
+      grossSalary: e.grossSalary != null ? toNumber(e.grossSalary) : null,
+      baseSalary: toNumber(e.baseSalary),
+    })),
+    lastEntries.map((e) => ({
+      employeeId: e.employeeId,
+      employerCost: e.employerCost != null ? toNumber(e.employerCost) : null,
+      gross: toNumber(e.gross), bonuses: toNumber(e.bonuses), deductions: toNumber(e.deductions),
+    })),
+  );
+  const mass = workforceMass(coutsParSalarie);
+  const masseSalariale = mass.total;
   /**
-   * D'où vient le chiffre affiché — sur quelle BASE, et sur COMBIEN DE SALARIÉS.
+   * D'OÙ VIENT LE CHIFFRE — le mois lu, la base, et la provenance salarié par salarié.
    *
-   * La base était déjà dite ; la COUVERTURE ne l'était pas, et c'est elle qui manquait. Un mois
-   * dont on n'a marqué « payé » que quatre salariés sur trente affiche la masse salariale de
-   * quatre personnes sous un libellé qui promet celle de la société : le total est juste, la
-   * phrase est fausse. On dit donc les deux — et `masseSalarialePartielle` permet à l'écran de
-   * le signaler au lieu de le laisser lire comme un chiffre complet.
+   * Un total dont on ignore la provenance est un total qu'on finit par ne plus croire. On dit
+   * donc combien de salariés viennent de la paie du mois, combien de leur fiche, et combien n'ont
+   * aucun montant connu — ceux-là AMPUTENT le total, et c'est `masseSalarialePartielle` qui le
+   * signale à l'écran.
    */
-  const couverture = massCoverage(lastEntries.length, active.length);
-  const couvertureTexte = mass.total > 0 ? coverageLabel(couverture) : null;
-  const masseSalarialeSource = mass.total > 0 && lastPayroll
-    ? [
-        `paie ${String(lastPayroll.month).padStart(2, "0")}/${lastPayroll.year}`,
-        basisLabel(mass.basis),
-        ...(couvertureTexte ? [couvertureTexte] : []),
-      ].join(" · ")
-    : basisLabel("BASE_SALARY");
-  const masseSalarialePartielle = mass.total > 0 && couverture.partial;
+  const provenance = massProvenance(mass);
+  const masseSalarialeSource = [
+    ...(lastPayroll ? [`paie ${String(lastPayroll.month).padStart(2, "0")}/${lastPayroll.year}`] : []),
+    basisLabel(mass.basis),
+    ...(provenance ? [provenance] : []),
+  ].join(" · ");
+  const masseSalarialePartielle = massIsIncomplete(mass);
   const contractsExpiring = employees.filter(
     (e) => e.contractEnd && e.contractEnd >= now && e.contractEnd <= in60,
   );
@@ -211,12 +230,12 @@ export async function getRhData(userId: string) {
   // Un agrégat sans sa portée est un piège : il est juste, il se dit avec aplomb, et il répond à
   // une autre question que celle posée. On rend donc TOUJOURS la décomposition, à côté du total.
   // Elle ne coûte aucune requête supplémentaire — les employés et les lignes de paie sont déjà là.
-  const payrollByCompany = new Map<string, typeof lastEntries>();
-  for (const e of lastEntries) {
-    const key = e.employee?.companyId ?? "";
-    const bucket = payrollByCompany.get(key);
-    if (bucket) bucket.push(e); else payrollByCompany.set(key, [e]);
-  }
+  //
+  // LA MASSE PAR ENTITÉ SE LIT SUR LES MÊMES COÛTS QUE LE TOTAL — un seul calcul, une seule
+  // vérité. Deux calculs parallèles auraient fini par diverger sur le cas qu'on n'aurait corrigé
+  // que d'un côté, et c'est précisément ce qui s'était produit : le total retombait sur les
+  // lignes payées du mois, la ventilation sur les salaires de base par société.
+  const masseParEntite = massByCompany(coutsParSalarie);
   const compMap = new Map<string, { id: string | null; label: string; fullName: string | null; total: number; active: number }>();
   for (const e of employees) {
     const id = e.company?.id ?? null;
@@ -229,15 +248,15 @@ export async function getRhData(userId: string) {
   }
   const byCompany = [...compMap.values()]
     .map((c) => {
-      const lines = payrollByCompany.get(c.id ?? "") ?? [];
-      const m = payrollMassOf(lines.map((e) => ({
-        employerCost: e.employerCost != null ? toNumber(e.employerCost) : null,
-        gross: toNumber(e.gross), bonuses: toNumber(e.bonuses), deductions: toNumber(e.deductions),
-      })));
-      const base = employees
-        .filter((e) => e.isActive && (e.company?.id ?? null) === c.id)
-        .reduce((a, e) => a + toNumber(e.baseSalary), 0);
-      return { ...c, masseSalariale: m.total > 0 ? m.total : base };
+      const m = masseParEntite.get(c.id) ?? null;
+      return {
+        ...c,
+        masseSalariale: m?.total ?? 0,
+        // CE QUI MANQUE SE DIT ENTITÉ PAR ENTITÉ : un salarié sans montant connu ampute le
+        // chiffre de SA société, et c'est là qu'il faut aller le corriger.
+        masseProvenance: m ? massProvenance(m) : null,
+        massePartielle: m ? massIsIncomplete(m) : false,
+      };
     })
     .sort((a, b) => b.active - a.active || a.label.localeCompare(b.label, "fr"));
 

@@ -16,6 +16,7 @@ import {
 import { continuousCash, canSpendFromFund } from "@/lib/general-means/continuous-cash";
 import { openRemittances } from "@/lib/queries/general-means";
 import { toNumber } from "@/lib/utils";
+import { nextFinanceRef } from "@/lib/finance/next-ref";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
 import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/general-means/budget-targets";
@@ -75,9 +76,49 @@ export async function allotPettyCash(formData: FormData): Promise<ActionResult> 
   const holder = holderId || ouvertes.find((r) => r.holderId)?.holderId || plan?.holderId || "";
   if (!holder) return { ok: false, error: "Indiquez à qui la somme est remise." };
 
+  // LE NOM DE LA DÉTENTRICE figure sur l'écriture : « Caisse d'avance — Logistique » sans dire à
+  // qui la somme a été remise oblige à rouvrir le module pour lire une ligne de banque.
+  const holderName = (await prisma.user.findUnique({ where: { id: holder }, select: { name: true } }))?.name ?? null;
+
   const premiere = ouvertes.length === 0;
+
+  // ── REMETTRE UNE CAISSE EST UN DÉCAISSEMENT, ET IL SE COMPTABILISE ────────────────────────
+  //
+  // L'argent quitte la banque pour alimenter la caisse d'un service. Les DÉPENSES de cette caisse
+  // étaient bien suivies (ligne de budget du département) ; la SORTIE initiale, celle qui fait
+  // exister le fond, ne l'était pas. Le solde comptable et le solde bancaire divergeaient
+  // d'autant, et l'écart ne se découvrait qu'au rapprochement, un mois plus tard.
+  //
+  // BEST-EFFORT, comme partout dans ce circuit : une écriture qui échoue ne doit pas empêcher la
+  // remise — l'argent prime, et le contrôle du livre signale ce qui manque
+  // (`lib/finance/ledger-audit.ts`).
+  const tx = await prisma.financeTransaction
+    .create({
+      data: {
+        reference: await nextFinanceRef(),
+        date: new Date(),
+        direction: "OUT",
+        category: "AUTRE",
+        label: `Caisse d'avance — ${department.name} (${periodLabel(period)})`,
+        amount,
+        method: "CASH",
+        account: "Caisse",
+        counterparty: holderName ?? null,
+        status: "SETTLED",
+        createdById: user.id,
+      },
+      select: { id: true },
+    })
+    .catch((e) => {
+      console.error("[petty-cash] écriture de trésorerie non passée", e);
+      return null;
+    });
+
   await prisma.pettyCashAllotment.create({
-    data: { departmentId, period, amount, holderId: holder, note: fdStr(formData, "note"), createdById: user.id },
+    data: {
+      departmentId, period, amount, holderId: holder, note: fdStr(formData, "note"),
+      createdById: user.id, transactionId: tx?.id ?? null,
+    },
   });
 
   await recordAudit({

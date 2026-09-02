@@ -1,6 +1,10 @@
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
+import { companyScopedWhere } from "@/lib/company";
+import { toNumber } from "@/lib/utils";
 import { getFinanceData } from "@/lib/queries/finance";
+import { auditLedger, auditSummary } from "@/lib/finance/ledger-audit";
 import { PageHeader } from "@/components/shared/page-header";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
@@ -26,10 +30,57 @@ export default async function ComptabilitePage() {
   const canCreate = userCan(user, "FINANCES", "CREATE");
   const canUpdate = userCan(user, "FINANCES", "UPDATE");
   const canDelete = userCan(user, "FINANCES", "DELETE");
-  const [data, companies] = await Promise.all([
+  const [data, companies, settled, remises] = await Promise.all([
     getFinanceData(user.id),
     getMyCompanies(user.id),
+    // ── LE CONTRÔLE DU LIVRE ────────────────────────────────────────────────────────────────
+    //
+    // Deux questions qu'aucun écran ne posait : tout paiement est-il comptabilisé, et quelque
+    // chose est-il sorti deux fois ? Un ordre réglé sans écriture creuse un écart bancaire qu'on
+    // découvre au rapprochement, un mois plus tard ; un double paiement ne se voit pas dans un
+    // livre de trois mille lignes, puisque chaque écriture, prise seule, est régulière.
+    //
+    // On lit les ordres RÉGLÉS de la portée. La règle vit dans `finance/ledger-audit.ts` — ce
+    // module SIGNALE et n'efface rien : un doublon apparent peut être deux règlements légitimes.
+    prisma.expenseOrder.findMany({
+      where: await companyScopedWhere(user.id, { status: "PAID" as const }),
+      orderBy: { paidDate: "desc" },
+      take: 500,
+      select: {
+        id: true, reference: true, label: true, amount: true, transactionId: true,
+        sourceType: true, sourceId: true, paidDate: true,
+      },
+    }),
+    // LES REMISES DE CAISSE D'AVANCE — l'autre porte par laquelle l'argent quitte la banque. Les
+    // DÉPENSES de la caisse étaient suivies ; la remise qui fait exister le fond ne l'était pas.
+    prisma.pettyCashAllotment.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 300,
+      select: {
+        id: true, amount: true, period: true, transactionId: true, createdAt: true,
+        department: { select: { name: true } },
+      },
+    }),
   ]);
+
+  const audit = auditLedger(
+    settled.map((o) => ({
+      id: o.id, reference: o.reference, label: o.label, amount: toNumber(o.amount),
+      transactionId: o.transactionId, sourceType: o.sourceType, sourceId: o.sourceId,
+      paidDate: o.paidDate,
+    })),
+    data.rows.map((r) => ({
+      id: r.id, reference: r.reference, direction: r.direction, amount: r.amount,
+      label: r.label, counterparty: r.counterparty, date: r.date,
+    })),
+    remises.map((r) => ({
+      id: r.id,
+      label: `Caisse d'avance — ${r.department?.name ?? "service"} (${r.period})`,
+      amount: toNumber(r.amount),
+      transactionId: r.transactionId,
+      date: r.createdAt,
+    })),
+  );
 
   return (
     <div className="space-y-6">
@@ -77,6 +128,35 @@ export default async function ComptabilitePage() {
           </>
         )}
       </PageHeader>
+
+      {/* CE QUE LE LIVRE NE DIT PAS DE LUI-MÊME. Placé AVANT les écritures : un contrôle qu'il
+          faut aller chercher sous trois mille lignes est un contrôle que personne ne lit. */}
+      <section className="surface space-y-3 p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold">Contrôle du livre</h2>
+          <p className={`text-xs ${audit.clean ? "text-success" : "text-muted-foreground"}`}>{auditSummary(audit)}</p>
+        </div>
+        {!audit.clean && (
+          <ul className="space-y-2">
+            {audit.findings.slice(0, 12).map((f, i) => (
+              <li
+                key={`${f.kind}-${i}`}
+                className={`rounded-lg border px-3 py-2 text-sm ${
+                  f.severity === "HIGH" ? "border-destructive/40 bg-destructive/5" : "border-warning/40 bg-warning/5"
+                }`}
+              >
+                <p className="font-medium">{f.title}</p>
+                <p className="text-xs text-muted-foreground">{f.detail}</p>
+              </li>
+            ))}
+            {audit.findings.length > 12 && (
+              <li className="text-xs text-muted-foreground">
+                … et {audit.findings.length - 12} autre(s). Les plus lourds sont en tête.
+              </li>
+            )}
+          </ul>
+        )}
+      </section>
 
       <LedgerTable rows={data.rows} canUpdate={canUpdate} canDelete={canDelete} />
     </div>

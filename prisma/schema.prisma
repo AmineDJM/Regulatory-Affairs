@@ -2565,6 +2565,10 @@ model PettyCashAllotment {
   holder       User?           @relation("PettyCashHolder", fields: [holderId], references: [id], onDelete: SetNull)
   receivedAt   DateTime?
   note         String?
+  /// L'ÉCRITURE DE TRÉSORERIE de la remise. Remettre une caisse d'avance SORT de l'argent de la
+  /// banque : sans écriture, le livre ignore un décaissement réel et le rapprochement bancaire
+  /// décroche. Nul = remise antérieure à cette règle, signalée par le contrôle du livre.
+  transactionId String?
   createdById  String?
   createdBy    User?           @relation("PettyCashCreator", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt    DateTime        @default(now())

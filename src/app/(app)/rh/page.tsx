@@ -129,8 +129,10 @@ export default async function RhPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Masse salariale par entité</CardTitle>
             <p className="text-xs text-muted-foreground">
-              Somme des <strong>coûts employeur</strong> saisis dans la paie ({data.stats.masseSalarialeSource}) —
-              charges patronales comprises, c&apos;est ce que chaque société décaisse réellement.
+              Somme des <strong>coûts employeur</strong> de l&apos;effectif ACTIF ({data.stats.masseSalarialeSource}) —
+              charges patronales comprises. Chaque salarié compte une fois : sa ligne de paie du
+              mois si elle existe, sinon le coût employeur de sa fiche. Le pointage du paiement
+              n&apos;entre pas dans ce chiffre : un bulletin non encore pointé coûte déjà.
             </p>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
@@ -139,6 +141,14 @@ export default async function RhPage() {
                 <p className="truncate text-xs text-muted-foreground" title={c.fullName ?? c.label}>{c.label}</p>
                 <p className="text-lg font-semibold tabular-nums">{formatCurrency(c.masseSalariale)}</p>
                 <p className="text-[0.6875rem] text-muted-foreground">{c.active} actif{c.active > 1 ? "s" : ""} sur {c.total}</p>
+                {/* D'OÙ VIENT LE CHIFFRE DE CETTE SOCIÉTÉ — et surtout ce qui lui manque. Un
+                    salarié sans montant connu ampute le total de SA société : c'est là qu'il
+                    faut aller le corriger, pas dans un décompte global. */}
+                {c.masseProvenance && (
+                  <p className={`text-[0.6875rem] ${c.massePartielle ? "text-warning" : "text-muted-foreground"}`}>
+                    {c.masseProvenance}
+                  </p>
+                )}
               </div>
             ))}
           </CardContent>

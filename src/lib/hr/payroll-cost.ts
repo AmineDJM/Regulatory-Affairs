@@ -15,6 +15,16 @@
  * de charges moyen à un brut. Cela remplirait les colonnes vides de chiffres plausibles et faux,
  * dans un module qui sert à décider.
  *
+ * ── CE QUI A DÉMÉNAGÉ ───────────────────────────────────────────────────────────────────────
+ *
+ * `payrollMass` et la COUVERTURE (« 4 salaires sur 31 actifs ») vivaient ici. Elles répondaient à
+ * « que valent les lignes que j'ai sous la main ? » — une question qui n'est PAS celle de la masse
+ * salariale : un salarié sans ligne de paie coûte quand même. `hr/workforce-mass.ts` part
+ * désormais de l'EFFECTIF et retombe sur la fiche, si bien que la couverture n'a plus lieu d'être
+ * (personne n'est hors du total) ; elle est remplacée par la PROVENANCE, qui dit d'où vient le
+ * coût de chacun. Les laisser ici en aurait fait deux calculs concurrents de la même grandeur —
+ * exactement ce qui a produit la sous-estimation.
+ *
  * Module PUR — testé, sans base de données.
  */
 
@@ -49,66 +59,6 @@ export function entryCost(e: PayrollCostInput): number {
 export function entryBasis(e: PayrollCostInput): CostBasis {
   if (e.employerCost != null && Number.isFinite(e.employerCost)) return "EMPLOYER_COST";
   return num(e.gross) > 0 ? "GROSS" : "NONE";
-}
-
-/**
- * La masse salariale d'un lot de lignes de paie, et sa base.
- *
- * La base est celle du LOT : « coût employeur » seulement si TOUTES les lignes en portent un.
- * Dès qu'une seule retombe sur son brut, le total est mixte, et l'annoncer « coût employeur »
- * serait faux. C'est le cas normal d'un mois de transition — on le dit plutôt que de le lisser.
- */
-export function payrollMass(entries: PayrollCostInput[]): { total: number; basis: CostBasis } {
-  if (entries.length === 0) return { total: 0, basis: "NONE" };
-  let total = 0;
-  let allEmployerCost = true;
-  for (const e of entries) {
-    total += entryCost(e);
-    if (entryBasis(e) !== "EMPLOYER_COST") allEmployerCost = false;
-  }
-  return { total, basis: allEmployerCost ? "EMPLOYER_COST" : "GROSS" };
-}
-
-/**
- * LA COUVERTURE — combien de salariés le chiffre couvre RÉELLEMENT.
- *
- * ── LE DÉFAUT QU'ON CORRIGE ─────────────────────────────────────────────────────────────────
- *
- * « Comment ça se fait que la masse salariale mensuelle c'est environ 400 000 DZD ? » Le total
- * n'était pas faux : c'était la somme des lignes de paie du dernier mois SAISI. Mais si l'on n'a
- * marqué « payé » que quatre salariés sur trente, on lit la masse salariale de quatre personnes
- * sous un libellé qui promet celle de la société. Le chiffre est juste, la phrase est fausse.
- *
- * C'est le même piège que la ventilation par entité, déjà documenté juste à côté : un agrégat
- * sans sa portée se dit avec aplomb et répond à une autre question que celle posée. On rend donc
- * TOUJOURS la couverture avec le total, et l'écran la montre.
- *
- * `partial` est vrai dès qu'il manque une ligne : c'est ce qui décide de l'alerte à l'écran.
- * Un mois de paie en cours de saisie n'est pas une anomalie — le présenter comme un mois complet
- * en est une.
- */
-export interface MassCoverage {
-  /** Lignes de paie retenues pour le total. */
-  lines: number;
-  /** Salariés actifs sur le périmètre affiché. */
-  activeEmployees: number;
-  /** Il manque au moins une ligne : le total ne couvre pas tout le monde. */
-  partial: boolean;
-}
-
-export function massCoverage(lines: number, activeEmployees: number): MassCoverage {
-  const n = Math.max(0, Math.trunc(lines));
-  const actifs = Math.max(0, Math.trunc(activeEmployees));
-  // Plus de lignes que d'actifs n'est pas « partiel » : c'est le cas normal d'un salarié parti
-  // en cours de mois, payé puis désactivé. Signaler une alerte là serait crier au loup.
-  return { lines: n, activeEmployees: actifs, partial: n > 0 && n < actifs };
-}
-
-/** La phrase de couverture, ou `null` quand il n'y a rien d'utile à dire. */
-export function coverageLabel(c: MassCoverage): string | null {
-  if (c.lines === 0 || c.activeEmployees === 0) return null;
-  const salaries = c.lines === 1 ? "1 salaire" : `${c.lines} salaires`;
-  return `${salaries} sur ${c.activeEmployees} actifs`;
 }
 
 /** Libellé de la base, tel qu'il s'écrit sous l'indicateur. */

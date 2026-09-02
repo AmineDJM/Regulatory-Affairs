@@ -7,7 +7,7 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { ENTITY_MODULE } from "@/lib/entity-access";
 import { pickAutoCategory } from "@/lib/budget/auto-category";
 import { prisma } from "@/lib/prisma";
-import { buildRef } from "@/lib/refs";
+import { nextFinanceRef } from "@/lib/finance/next-ref";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { canDisburse, blockedReason, type CentralStatus } from "@/lib/payments/authorization";
@@ -45,12 +45,6 @@ async function syncCompanionOnSettle(orderId: string, orderRef: string, actorId:
   } catch (e) {
     console.error("[expense] dossier compagnon non synchronisé", e);
   }
-}
-
-async function nextFinanceRef(): Promise<string> {
-  const year = new Date().getFullYear();
-  const refs = await prisma.financeTransaction.findMany({ where: { reference: { startsWith: `FIN-${year}-` } }, select: { reference: true } });
-  return buildRef("FIN", year, refs.map((r) => r.reference));
 }
 
 /** Comptable settles an ordre de dépense → generates the treasury OUT entry and marks the source paid. */
