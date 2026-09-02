@@ -2,7 +2,7 @@ import Link from "next/link";
 import { AlertTriangle, Link2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { requireModule } from "@/lib/session";
-import { userCan, scopeRegulatory, isRegulatorySupervisor, anyRoleFilter } from "@/lib/rbac";
+import { userCan, scopeRegulatory, isRegulatorySupervisor, anyRoleFilter, seesLockedRegulatory } from "@/lib/rbac";
 import { canSetStructural } from "@/lib/regulatory/structural-fields";
 import { prisma } from "@/lib/prisma";
 import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
@@ -142,6 +142,16 @@ export default async function RegulatoryPage() {
         assignableUsers={assignableUsers}
         companies={companies}
         segments={effectiveTherapeuticSegments(settings.regulatoryTherapeuticSegments)}
+        // L'EXPORT PROPOSE L'AUTRE VOLET. Le suivi et le pipeline montrent les mêmes objets sous
+        // deux angles ; exporter l'un sans proposer l'autre sortait la moitié du portefeuille
+        // sans que rien ne le dise, et l'on recollait deux classeurs à la main. Le pipeline n'est
+        // proposé qu'à qui a le droit de le voir : sinon l'option révélerait un compte de
+        // dossiers verrouillés à quelqu'un qui n'en voit aucun.
+        crossExport={
+          seesLockedRegulatory(user) && rows.some((r) => r.isLocked)
+            ? { label: "le pipeline", ids: rows.filter((r) => r.isLocked).map((r) => r.id) }
+            : null
+        }
       />
     </div>
   );

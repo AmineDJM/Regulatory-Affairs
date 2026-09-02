@@ -8,6 +8,7 @@ import { PRIORITY, REGULATORY_STATUS, REGULATORY_CATEGORY, MANUFACTURING_STATUS 
 import { formatDate, daysUntil } from "@/lib/utils";
 import { setRegulatoryPriority, setRegulatoryResponsible, setRegulatoryClassification, setRegulatoryLock, unlockAllRegulatory } from "@/lib/actions/regulatory-actions";
 import { visibleStages, defaultStage, type RegStage } from "@/lib/regulatory/stage";
+import { dossierReceivedLabel, dossierReceivedOptions, DOSSIER_RECEIVED_HINT, DOSSIER_RECEIVED_YES } from "@/lib/regulatory/dossier-received";
 import { setFocusMode, useFocusState } from "@/components/layout/focus-mode";
 
 export interface RegulatoryRow {
@@ -45,6 +46,11 @@ export interface RegulatoryRow {
   stepsDone: number;
   stepsTotal: number;
   stage: RegStage;
+  /**
+   * LE DOSSIER CTD A-T-IL ÉTÉ REÇU ? Constaté sur le fait — une archive téléversée dans le
+   * processus d'enregistrement —, jamais coché à la main. Voir `regulatory/dossier-received.ts`.
+   */
+  dossierReceived: boolean;
 }
 
 const lbl = (m: Record<string, unknown>, v: string): string => {
@@ -89,6 +95,15 @@ const COLS: Col[] = [
   // « Chargé du dossier » : la personne qui le porte. Modifiable ici même — c'est la question
   // qu'on se pose en balayant la liste, pas une fois entré dans la fiche.
   { key: "responsible", header: "Chargé du dossier", text: (r) => r.responsible, raw: (r) => r.responsibleId || "—", dynamic: "people" },
+  // « DOSSIER REÇU » — Yes / No, non modifiable : elle répond au FAIT (une archive CTD
+  // téléversée), pas à ce que quelqu'un pense. Une case à cocher aurait dérivé dès le premier
+  // « je coche en attendant l'envoi promis ».
+  {
+    key: "dossierReceived", header: "Dossier reçu",
+    text: (r) => dossierReceivedLabel(r.dossierReceived),
+    raw: (r) => dossierReceivedLabel(r.dossierReceived),
+    options: dossierReceivedOptions(),
+  },
   { key: "targetSubmissionDate", header: "Date cible dépôt", text: (r) => r.targetSubmissionDate ?? "" },
   { key: "targetDate", header: "Date cible enreg.", text: (r) => r.targetDate ?? "" },
 ];
@@ -123,6 +138,7 @@ export function RegulatoryTable({
   companies = [],
   segments = [],
   stageTabs = true,
+  crossExport = null,
 }: {
   rows: RegulatoryRow[];
   /** Entités du groupe — le menu « Entité » de la colonne. */
@@ -144,6 +160,13 @@ export function RegulatoryTable({
    * haut, et un tableau vide en dessous. Sans onglets, la table montre ce qu'on lui donne.
    */
   stageTabs?: boolean;
+  /**
+   * L'AUTRE VOLET, quand il y en a un — le pipeline vu depuis le suivi, le suivi vu depuis le
+   * pipeline. Les deux écrans montrent les mêmes objets sous deux angles : exporter l'un sans
+   * PROPOSER l'autre sortait la moitié du portefeuille sans que rien ne le dise, et l'on
+   * recollait deux classeurs à la main.
+   */
+  crossExport?: { label: string; ids: string[] } | null;
 }) {
   const router = useRouter();
   // Les colonnes visibles dépendent du verrou : sans lui, le pipeline serait toujours vide.
@@ -184,6 +207,9 @@ export function RegulatoryTable({
   const [hiddenCols, setHiddenCols] = React.useState<string[]>([]);
   const [colsOpen, setColsOpen] = React.useState(false);
   const colsRef = React.useRef<HTMLDivElement>(null);
+  // Le petit menu « qu'exporte-t-on ? », ouvert seulement quand l'autre volet existe.
+  const [askExport, setAskExport] = React.useState(false);
+  const exportRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     try {
@@ -204,6 +230,15 @@ export function RegulatoryTable({
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
   }, [colsOpen]);
+
+  React.useEffect(() => {
+    if (!askExport) return;
+    const onClick = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) setAskExport(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [askExport]);
 
   const toggleCol = (key: string) => {
     const hiding = !hiddenCols.includes(key);
@@ -278,14 +313,20 @@ export function RegulatoryTable({
    * filtres compris : un classeur qui ne correspond pas à l'écran d'où il sort circule ensuite
    * sans que personne ne sache ce qu'il contient. Le serveur recroise malgré tout la portée.
    */
-  async function exportXlsx() {
+  async function exportXlsx(withCross: boolean) {
     setExporting(true);
     setAssignError(null);
     try {
+      // CE QU'ON VOIT, PLUS — SI ON L'A DEMANDÉ — L'AUTRE VOLET. Les deux écrans montrent les
+      // mêmes objets sous deux angles ; on exportait donc la moitié du portefeuille sans que
+      // rien ne le dise, et l'on recollait deux classeurs à la main.
+      const ids = withCross && crossExport
+        ? [...new Set([...filtered.map((r) => r.id), ...crossExport.ids])]
+        : filtered.map((r) => r.id);
       const res = await fetch("/api/regulatory/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: filtered.map((r) => r.id) }),
+        body: JSON.stringify({ ids }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Export impossible.");
       const blob = await res.blob();
@@ -301,6 +342,7 @@ export function RegulatoryTable({
       setAssignError(err instanceof Error ? err.message : "Export impossible.");
     } finally {
       setExporting(false);
+      setAskExport(false);
     }
   }
 
@@ -466,6 +508,23 @@ export function RegulatoryTable({
             ) : r.responsible || "—"}
           </td>
         );
+      case "dossierReceived": {
+        // Pas de menu, pas de case : une PASTILLE qui se lit. Le titre dit pourquoi elle ne se
+        // modifie pas — sans quoi on cherche le bouton, on ne le trouve pas, et l'on croit à un
+        // droit manquant.
+        const recu = r.dossierReceived;
+        return (
+          <td key={key} className="px-3 py-2" title={DOSSIER_RECEIVED_HINT}>
+            <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold ${
+              recu
+                ? "border-success/40 bg-success/10 text-success"
+                : "border-input bg-background text-muted-foreground"
+            }`}>
+              {dossierReceivedLabel(recu)}
+            </span>
+          </td>
+        );
+      }
       case "targetSubmissionDate":
         return <td key={key} className="px-3 py-2 text-muted-foreground">{r.targetSubmissionDate ? formatDate(r.targetSubmissionDate) : "—"}</td>;
       case "targetDate": {
@@ -515,14 +574,45 @@ export function RegulatoryTable({
             {focused ? "Quitter" : "Plein écran"}
           </button>
 
-          <button
-            type="button" onClick={() => void exportXlsx()} disabled={exporting}
-            title={`Exporter les ${filtered.length} dossier(s) affiché(s) en Excel`}
-            className="inline-flex items-center gap-1 rounded-lg border border-input px-2.5 py-2 text-xs text-muted-foreground hover:bg-secondary disabled:opacity-60"
-          >
-            {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />}
-            Exporter ({filtered.length})
-          </button>
+          {/* EXPORTER — et, quand l'autre volet existe, DEMANDER s'il faut l'inclure. On ne
+              décide pas à la place de la personne : parfois on veut le portefeuille entier,
+              parfois seulement ce qu'on instruit. Sans la question, c'était toujours le second,
+              et personne ne savait que l'autre moitié manquait. */}
+          <div ref={exportRef} className="relative">
+            <button
+              type="button"
+              onClick={() => (crossExport ? setAskExport((v) => !v) : void exportXlsx(false))}
+              disabled={exporting}
+              title={`Exporter les ${filtered.length} dossier(s) affiché(s) en Excel`}
+              className="inline-flex items-center gap-1 rounded-lg border border-input px-2.5 py-2 text-xs text-muted-foreground hover:bg-secondary disabled:opacity-60"
+            >
+              {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />}
+              Exporter ({filtered.length})
+            </button>
+            {askExport && crossExport && (
+              <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-border bg-popover p-3 shadow-md">
+                <p className="text-xs font-medium">Que faut-il exporter ?</p>
+                <div className="mt-2 space-y-1.5">
+                  <button
+                    type="button" disabled={exporting} onClick={() => void exportXlsx(false)}
+                    className="w-full rounded-md border border-input px-2.5 py-2 text-left text-xs hover:bg-secondary disabled:opacity-60"
+                  >
+                    <span className="font-medium">Cet écran seulement</span>
+                    <span className="block text-muted-foreground">{filtered.length} dossier(s) affiché(s)</span>
+                  </button>
+                  <button
+                    type="button" disabled={exporting} onClick={() => void exportXlsx(true)}
+                    className="w-full rounded-md border border-primary/50 px-2.5 py-2 text-left text-xs text-primary hover:bg-primary/10 disabled:opacity-60"
+                  >
+                    <span className="font-medium">Inclure aussi {crossExport.label}</span>
+                    <span className="block text-muted-foreground">
+                      {filtered.length} + {crossExport.ids.length} dossier(s)
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Masquer / démasquer chaque colonne — préférence mémorisée par navigateur. */}
           <div ref={colsRef} className="relative">

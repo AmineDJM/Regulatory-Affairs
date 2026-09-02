@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { companyScopedWhere } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
+import { dossierReceived } from "@/lib/regulatory/dossier-received";
 import { buildRegulatoryWorkbook, regulatoryExportFilename, type RegulatoryExportRow } from "@/lib/regulatory/export";
 
 /**
@@ -49,6 +50,18 @@ export async function POST(req: NextRequest) {
     },
   });
 
+  // « DOSSIER REÇU » — le FAIT, pas une déclaration : une archive CTD a-t-elle été téléversée ?
+  // Une seule requête pour tout le classeur ; la lire dossier par dossier ferait autant d'allers
+  // en base que de lignes exportées.
+  const withArchive = await prisma.regulatoryDossier.findMany({
+    where: {
+      productId: { in: products.map((p) => p.id) },
+      versions: { some: { originalZipBlobId: { not: null } } },
+    },
+    select: { productId: true },
+  });
+  const recus = new Set(withArchive.map((d) => d.productId).filter((v): v is string => Boolean(v)));
+
   const rows: RegulatoryExportRow[] = products.map((p) => {
     const stage = effectiveStage(p.manufacturingStatus, p.variations);
     const done = p.steps.filter((s) => s.status === "DONE").length;
@@ -84,6 +97,7 @@ export async function POST(req: NextRequest) {
       comments: p.comments,
       createdAt: p.createdAt.toISOString(),
       updatedAt: p.updatedAt.toISOString(),
+      dossierReceived: dossierReceived({ hasArchive: recus.has(p.id) }),
     };
   });
 

@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { PHARMA_FORM, DOSAGE_UNIT, MANUFACTURING_STATUS, REGULATORY_STATUS, PRIORITY } from "@/lib/labels";
+import { dossierReceivedLabel } from "@/lib/regulatory/dossier-received";
 
 /**
  * EXPORT EXCEL DU TABLEAU REGULATORY.
@@ -53,6 +54,8 @@ export interface RegulatoryExportRow {
   comments: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Le dossier CTD a-t-il été reçu ? Constaté, jamais saisi — `regulatory/dossier-received.ts`. */
+  dossierReceived: boolean;
 }
 
 /** Libellé d'un code, avec repli sur le code lui-même : on n'efface jamais une valeur inconnue. */
@@ -78,10 +81,16 @@ export function dosageLabel(dosage: string | null, unit: string | null): string 
   return [dosage, u].filter(Boolean).join(" ");
 }
 
-/** L'en-tête du classeur — les colonnes voulues par le métier, dans cet ordre. */
+/**
+ * L'en-tête du classeur — les colonnes voulues par le métier, dans cet ordre.
+ *
+ * « DOSSIER REÇU » y figure parce que c'est la première question qu'on pose en relisant la
+ * liste, et parce qu'un classeur qui la porte évite l'aller-retour vers l'écran : sans elle, on
+ * exportait pour envoyer, puis on renvoyait un message pour dire lesquels manquaient.
+ */
 export const EXPORT_COLUMNS = [
   "DCI", "Dosage", "Forme", "Laboratoire partenaire",
-  "Statut de fabrication", "Niveau de process", "Priorité", "Chargé du dossier",
+  "Statut de fabrication", "Niveau de process", "Priorité", "Chargé du dossier", "Dossier reçu",
 ] as const;
 
 export function exportRowValues(r: RegulatoryExportRow): string[] {
@@ -94,6 +103,7 @@ export function exportRowValues(r: RegulatoryExportRow): string[] {
     label(REGULATORY_STATUS as Record<string, unknown>, r.status),
     label(PRIORITY as Record<string, unknown>, r.priority),
     r.responsible ?? "",
+    dossierReceivedLabel(r.dossierReceived),
   ];
 }
 
@@ -112,7 +122,7 @@ export const PRIORITY_FILL: Record<string, { bg: string; fg: string }> = {
 };
 
 /** Largeurs — un classeur qu'il faut élargir à la main avant de le lire se referme aussitôt. */
-const WIDTHS = [30, 14, 24, 24, 22, 22, 14, 22];
+const WIDTHS = [30, 14, 24, 24, 22, 22, 14, 22, 14];
 
 export async function buildRegulatoryWorkbook(rows: RegulatoryExportRow[]): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();

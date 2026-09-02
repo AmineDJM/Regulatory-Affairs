@@ -8,6 +8,7 @@ import {
 const row = (over: Partial<RegulatoryExportRow> = {}): RegulatoryExportRow => ({
   reference: "REG-2026-001",
   dci: "FINGOLIMOD",
+  dossierReceived: false,
   molecules: null,
   brandName: null,
   dosage: "0.5",
@@ -64,11 +65,19 @@ describe("dosageLabel", () => {
 });
 
 describe("Les colonnes voulues par le métier — et elles seules", () => {
-  it("porte exactement les huit colonnes demandées, dans l'ordre", () => {
+  it("porte exactement les neuf colonnes demandées, dans l'ordre", () => {
     expect([...EXPORT_COLUMNS]).toEqual([
       "DCI", "Dosage", "Forme", "Laboratoire partenaire",
-      "Statut de fabrication", "Niveau de process", "Priorité", "Chargé du dossier",
+      "Statut de fabrication", "Niveau de process", "Priorité", "Chargé du dossier", "Dossier reçu",
     ]);
+  });
+
+  it("« DOSSIER REÇU » SORT AUSSI AU CLASSEUR — Yes / No, jamais vide", () => {
+    // Sans elle, on exportait pour envoyer la liste, puis on renvoyait un message pour dire
+    // lesquels manquaient encore.
+    const i = EXPORT_COLUMNS.indexOf("Dossier reçu");
+    expect(exportRowValues(row({ dossierReceived: true }))[i]).toBe("Yes");
+    expect(exportRowValues(row({ dossierReceived: false }))[i]).toBe("No");
   });
 
   it("traduit les codes en libellés lisibles — un classeur sort de l'outil", () => {

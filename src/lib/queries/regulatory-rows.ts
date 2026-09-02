@@ -4,6 +4,7 @@ import { companyScopedWhere, productRangeScope, getMyCompanies } from "@/lib/com
 import { getAppSettings } from "@/lib/settings";
 import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { regStage } from "@/lib/regulatory/stage";
+import { dossierReceived } from "@/lib/regulatory/dossier-received";
 import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
 import { PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 import type { RegulatoryRow } from "@/app/(app)/regulatory/regulatory-table";
@@ -70,6 +71,24 @@ export async function getRegulatoryRows(user: SessionUser) {
   // Supervision Regulatory : Super Admin + rôles configurés (priorité, dates, MàJ de statut).
   const canSupervise = isRegulatorySupervisor(user, settings.regulatorySupervisorRoles);
 
+  // ── « DOSSIER REÇU » — CONSTATÉ, JAMAIS SAISI ───────────────────────────────────────────────
+  //
+  // La question « avons-nous reçu le dossier CTD ? » se posait en ouvrant l'onglet Enregistrement
+  // et en cherchant le produit. Elle se lit désormais dans le tableau, et sa réponse vient du
+  // FAIT : une ARCHIVE a-t-elle été téléversée ? Un dossier d'enregistrement simplement ouvert ne
+  // suffit pas — on l'ouvre souvent des semaines avant que le fournisseur envoie quoi que ce soit.
+  //
+  // Une seule requête pour toute la page : interroger produit par produit ferait soixante-neuf
+  // allers en base pour une colonne.
+  const withArchive = await prisma.regulatoryDossier.findMany({
+    where: {
+      productId: { in: products.map((p) => p.id) },
+      versions: { some: { originalZipBlobId: { not: null } } },
+    },
+    select: { productId: true },
+  });
+  const recus = new Set(withArchive.map((d) => d.productId).filter((v): v is string => Boolean(v)));
+
   const rows: RegulatoryRow[] = products.map((p) => {
     const prog = regProgress(p.workflow as RegWorkflowState | null);
     const done = prog.done;
@@ -110,6 +129,8 @@ export async function getRegulatoryRows(user: SessionUser) {
       // LE VERROU EST LE PIPELINE : un dossier verrouillé attend d'être ouvert, un dossier
       // ouvert est à traiter, un dossier abouti reste abouti. Règle pure et testée.
       stage: regStage({ isLocked: p.isLocked, status: p.status }),
+      // Voir `regulatory/dossier-received.ts` : la colonne se constate, elle ne se coche pas.
+      dossierReceived: dossierReceived({ hasArchive: recus.has(p.id) }),
     };
   });
 

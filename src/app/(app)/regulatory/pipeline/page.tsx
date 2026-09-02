@@ -101,6 +101,13 @@ export default async function BusinessDevelopmentPipelinePage() {
           assignableUsers={assignableUsers}
           companies={companies}
           segments={effectiveTherapeuticSegments(settings.regulatoryTherapeuticSegments)}
+          // ET INVERSEMENT : depuis le pipeline, l'export propose d'inclure le suivi des
+          // dossiers. Même raison, même geste — un seul classeur pour tout le portefeuille.
+          crossExport={
+            rows.some((r) => !r.isLocked)
+              ? { label: "le suivi des dossiers", ids: rows.filter((r) => !r.isLocked).map((r) => r.id) }
+              : null
+          }
         />
       )}
     </div>
