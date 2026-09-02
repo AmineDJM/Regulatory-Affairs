@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   isRestricted, canReadLegalDocument, legalReaderWhere, normalizeReaderIds, readersCaption,
+  canManageLegalReaders, readersManagerHint,
 } from "./readers";
 
 const ME = "u-me";
@@ -37,6 +38,42 @@ describe("canReadLegalDocument — quatre portes, et quatre seulement", () => {
   it("un document dont le déposant a été supprimé reste lisible de ses lecteurs", () => {
     expect(canReadLegalDocument(ctx(READER), { createdById: null, readerIds: [READER] })).toBe(true);
     expect(canReadLegalDocument(ctx(ME), { createdById: null, readerIds: [READER] })).toBe(false);
+  });
+});
+
+describe("canManageLegalReaders — qui change la liste, et qui ne la change pas", () => {
+  const doc = { createdById: AUTHOR };
+
+  it("LE DÉPOSANT gère les accès de ce qu'il a versé", () => {
+    expect(canManageLegalReaders(ctx(AUTHOR), doc)).toBe(true);
+  });
+
+  it("le Super Admin arbitre", () => {
+    expect(canManageLegalReaders(ctx(ME, true), doc)).toBe(true);
+  });
+
+  it("PERSONNE D'AUTRE — le droit d'écriture sur Legal ne l'ouvre pas", () => {
+    // C'est la porte dérobée exacte que la restriction ferme : pouvoir corriger une date
+    // d'échéance donnerait le pouvoir de s'ajouter soi-même à la liste des lecteurs.
+    expect(canManageLegalReaders(ctx(ME), doc)).toBe(false);
+    expect(canManageLegalReaders(ctx(READER), doc)).toBe(false);
+  });
+
+  it("un document sans déposant ne s'ouvre qu'au Super Admin", () => {
+    // Compte supprimé : sans cette porte, plus personne ne pourrait corriger la liste.
+    expect(canManageLegalReaders(ctx(ME), { createdById: null })).toBe(false);
+    expect(canManageLegalReaders(ctx(ME, true), { createdById: null })).toBe(true);
+  });
+});
+
+describe("readersManagerHint — à qui demander", () => {
+  it("NOMME la personne quand on la connaît : sans le nom, on suppose une panne", () => {
+    expect(readersManagerHint("Khaled Djouamai")).toContain("Khaled Djouamai");
+    expect(readersManagerHint("Khaled Djouamai")).toMatch(/Super Admin/);
+  });
+
+  it("reste lisible quand le déposant est inconnu", () => {
+    expect(readersManagerHint(null)).toMatch(/déposant/i);
   });
 });
 

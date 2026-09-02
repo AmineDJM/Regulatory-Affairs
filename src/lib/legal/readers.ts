@@ -90,6 +90,31 @@ export function normalizeReaderIds(raw: string[], createdById: string | null): s
   return out;
 }
 
+/**
+ * QUI GÈRE LES ACCÈS D'UN DOCUMENT — le déposant, et le Super Admin.
+ *
+ * Pas celui qui a le droit d'ÉCRITURE sur le module : pouvoir corriger une date d'échéance n'est
+ * pas pouvoir s'ouvrir un document qu'on ne devrait pas lire. Ce serait la porte dérobée exacte
+ * que la restriction ferme — il suffirait de s'ajouter soi-même à la liste.
+ *
+ * Cette règle vivait DANS l'action. Elle en sort pour que l'écran pose exactement la même
+ * question : un bouton qu'on voit et qui refuse ensuite est pire qu'un bouton absent, parce
+ * qu'on cherche la panne au lieu de demander à la bonne personne.
+ */
+export function canManageLegalReaders(
+  ctx: LegalReaderContext,
+  doc: { createdById: string | null },
+): boolean {
+  return ctx.isSuperAdmin || (doc.createdById !== null && doc.createdById === ctx.viewerId);
+}
+
+/** À qui s'adresser quand on ne gère pas soi-même les accès. Nommer évite l'aller-retour. */
+export function readersManagerHint(depositorName: string | null): string {
+  return depositorName
+    ? `Seul ${depositorName}, qui a déposé ce document, ou un Super Admin peut en changer les accès.`
+    : "Seul le déposant du document, ou un Super Admin, peut en changer les accès.";
+}
+
 /** Phrase d'état, telle qu'elle s'affiche sur la fiche et dans la liste. */
 export function readersCaption(doc: LegalDocumentAccess): string {
   const n = doc.readerIds.length;

@@ -11,7 +11,7 @@ import { canRenew, canCancel, validateDates, proposeRenewalDates } from "@/lib/l
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFormFiles } from "@/lib/documents";
 import { createExpenseOrder } from "@/lib/expense-orders";
-import { normalizeReaderIds } from "@/lib/legal/readers";
+import { normalizeReaderIds, canManageLegalReaders } from "@/lib/legal/readers";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 
 /**
@@ -382,9 +382,10 @@ export async function setLegalReaders(formData: FormData): Promise<ActionResult>
   });
   if (!doc) return { ok: false, error: "Document introuvable." };
 
-  const isOwner = doc.createdById === user.id;
-  if (!isOwner && user.role !== "SUPER_ADMIN") {
-    return { ok: false, error: "Seul le déposant du document peut en revoir les lecteurs." };
+  // LA MÊME RÈGLE QUE L'ÉCRAN, et elle vit dans le module : le droit d'écriture sur Legal ne
+  // suffit pas — sinon il suffirait de s'ajouter soi-même à la liste pour lire n'importe quoi.
+  if (!canManageLegalReaders({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" }, doc)) {
+    return { ok: false, error: "Seul le déposant du document, ou un Super Admin, peut en revoir les accès." };
   }
 
   const wanted = normalizeReaderIds(formData.getAll("readerId").map((v) => String(v)), doc.createdById);

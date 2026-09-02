@@ -21,7 +21,8 @@ import { legalFields, dateInput } from "../legal-fields";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { EditLegalButton } from "./edit-legal";
 import { RecordDeleteButton } from "@/components/shared/record-delete-button";
-import { legalReaderWhere, readersCaption } from "@/lib/legal/readers";
+import { legalReaderWhere, canManageLegalReaders } from "@/lib/legal/readers";
+import { LegalAccessPanel } from "./access-panel";
 import { loadLegalChain } from "@/lib/queries/legal-chain";
 import { valeurContractuelleCourante } from "@/lib/pch/market-math";
 import { MarketContext } from "./market-context";
@@ -80,6 +81,22 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
 
   const canEdit = userCan(user, "LEGAL", "UPDATE");
   const canUpload = userCan(user, "LEGAL", "UPLOAD") || canEdit;
+
+  // LES ACCÈS SE GÈRENT SUR LE DOCUMENT. La règle est celle du module — le déposant et le Super
+  // Admin, jamais le simple droit d'écriture : il suffirait de s'ajouter soi-même à la liste.
+  const canManageAccess = canManageLegalReaders(
+    { viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" },
+    { createdById: doc.createdById },
+  );
+  // La liste des comptes n'est chargée que pour qui peut réellement s'en servir : on ne publie
+  // pas l'annuaire de l'entreprise à qui ne fait que lire la fiche.
+  const designables = canManageAccess
+    ? (await prisma.user.findMany({
+        where: { isActive: true, ...(doc.createdById ? { id: { not: doc.createdById } } : {}) },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }))
+    : [];
 
   const [documents, history] = await Promise.all([
     prisma.document.findMany({
@@ -262,20 +279,21 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
                   </Link>
                 </div>
               )}
-              {/* QUI PEUT L'OUVRIR — dit sur la fiche, avec les noms. Une restriction invisible
-                  est une restriction dont on doute, et qu'on contourne « au cas où » en envoyant
-                  le fichier par mail — ce qu'elle sert précisément à éviter. */}
-              <div className="col-span-2 min-w-0 sm:col-span-3">
-                <p className="text-xs text-muted-foreground">Accès</p>
-                <p className="font-medium">{readersCaption({ createdById: doc.createdById, readerIds: doc.readers.map((r) => r.userId) })}</p>
-                {doc.readers.length > 0 && (
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {doc.readers.map((r) => r.user.name).join(", ")}
-                  </p>
-                )}
-              </div>
             </CardContent>
           </Card>
+
+          {/* QUI PEUT L'OUVRIR — dit sur la fiche, avec les noms, ET MODIFIABLE ICI. Une
+              restriction invisible est une restriction dont on doute, et qu'on contourne « au cas
+              où » en envoyant le fichier par mail — ce qu'elle sert précisément à éviter. Une
+              restriction qu'on ne peut plus corriger a le même effet : on redépose le document. */}
+          <LegalAccessPanel
+            documentId={doc.id}
+            createdById={doc.createdById}
+            depositorName={doc.createdBy?.name ?? null}
+            people={designables}
+            readers={doc.readers.map((r) => ({ id: r.userId, name: r.user.name }))}
+            canManage={canManageAccess}
+          />
 
           {/* LE CONTEXTE MARCHÉ : marché d'origine, valeur courante calculée, avenants —
               le même objet que la fiche /pch, vu du côté juridique. */}
