@@ -11,7 +11,9 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PAYMENT_REQUEST_STATUS, PAYMENT_URGENCY, ENTITY_TYPE_LABELS } from "@/lib/labels";
-import { canApprove, canResubmit, isOverdue, deadlineLabel } from "@/lib/finance/payment-request";
+import { canApprove, canResubmit, isOverdue, deadlineLabel, isWithFinance } from "@/lib/finance/payment-request";
+import { isCompanionDossier } from "@/lib/finance/dossier-auto";
+import { entityHref } from "@/lib/entity-href";
 import { deadlineNatureLabel, deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { PaymentDossier, type PieceView, type EventView } from "./dossier";
 import { AskChief } from "@/components/shared/ask-chief";
@@ -91,6 +93,13 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
     at: formatDateTime(e.at.toISOString()),
   }));
 
+  // L'ORDRE DE DÉPENSE derrière ce dossier — sa référence se lit en tête d'un compagnon, pour
+  // dire d'où il vient et où le paiement se décide.
+  const companion = isCompanionDossier(req.origin);
+  const order = req.expenseOrderId
+    ? await prisma.expenseOrder.findUnique({ where: { id: req.expenseOrderId }, select: { reference: true } })
+    : null;
+
   const amount = toNumber(req.amount);
   // `entityType` et l'attestation entrent dans le calcul : c'est le rattachement qui exempte un
   // BON DE VERSEMENT du bon de commande et de la facture.
@@ -151,14 +160,20 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
           />
           <Info label="Décidé par" value={req.decidedById ? names.get(req.decidedById) : null} />
           <Info label="Décidé le" value={req.decidedAt ? formatDate(req.decidedAt.toISOString()) : null} />
-          {req.link && (
+          {/* CE QUI A FAIT NAÎTRE CE PAIEMENT, ouvrable d'un clic. Un dossier compagnon ne porte
+              pas de `link` : sa route se DÉDUIT du rattachement (`entityHref`), qui tient la
+              table des routes en un seul endroit. La recopier ici l'aurait fait diverger. */}
+          {(req.link || entityHref(req.entityType, req.entityId)) && (
             <Info
               label="Se rattache à"
-              value={<Link href={req.link} className="inline-flex items-center gap-1 text-primary hover:underline">
+              value={<Link href={req.link || entityHref(req.entityType, req.entityId)!} className="inline-flex items-center gap-1 text-primary hover:underline">
                 {req.entityType ? ENTITY_TYPE_LABELS[req.entityType] ?? req.entityType : "l'objet d'origine"} <ExternalLink className="h-3 w-3" />
               </Link>}
             />
           )}
+          {/* L'ORDRE DE DÉPENSE — le vrai objet du décaissement. On le NOMME : sans lui, un
+              dossier compagnon parle d'un paiement dont on ne retrouve pas la trace. */}
+          <Info label="Ordre de dépense" value={order?.reference} />
           {req.description && (
             <div className="col-span-full"><p className="text-xs text-muted-foreground">Contexte</p><p className="whitespace-pre-wrap">{req.description}</p></div>
           )}
@@ -189,6 +204,9 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
         entityType={req.entityType}
         paymentMethodStated={req.paymentMethodStated}
         contact={{ name: req.contactName, phone: req.contactPhone, email: req.contactEmail }}
+        isCompanion={companion}
+        orderReference={order?.reference ?? null}
+        withFinance={isWithFinance(req.status)}
       />
     </div>
   );

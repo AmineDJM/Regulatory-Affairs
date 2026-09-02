@@ -1,5 +1,6 @@
 "use server";
 
+import type { PaymentRequestStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
@@ -11,7 +12,40 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { canDisburse, blockedReason, type CentralStatus } from "@/lib/payments/authorization";
 import { checkDeferral } from "@/lib/finance/settlement";
+import { budgetGate } from "@/lib/finance/settle-budget";
+import { dossierHrefByOrder } from "@/lib/expense-orders";
+import { companionStatusForOrder } from "@/lib/finance/dossier-auto";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+
+/**
+ * LE DOSSIER COMPAGNON PASSE À « SOLDÉ » quand son ordre est réglé, et le fil le dit.
+ *
+ * Best-effort : un dossier qui ne se met pas à jour ne doit jamais annuler un virement déjà
+ * inscrit. C'est la même hiérarchie que partout dans ce circuit — l'argent prime, l'affichage
+ * se rattrape.
+ */
+async function syncCompanionOnSettle(orderId: string, orderRef: string, actorId: string): Promise<void> {
+  try {
+    const dossiers = await prisma.paymentRequest.findMany({
+      where: { expenseOrderId: orderId, origin: "EXPENSE_ORDER" },
+      select: { id: true },
+    });
+    if (dossiers.length === 0) return;
+    const ids = dossiers.map((d) => d.id);
+    await prisma.paymentRequest.updateMany({
+      where: { id: { in: ids } },
+      data: { status: companionStatusForOrder("PAID") as PaymentRequestStatus },
+    });
+    await prisma.paymentRequestEvent.createMany({
+      data: ids.map((requestId) => ({
+        requestId, actorId, kind: "APPROVE",
+        message: `Ordre ${orderRef} réglé par les Finances.`,
+      })),
+    });
+  } catch (e) {
+    console.error("[expense] dossier compagnon non synchronisé", e);
+  }
+}
 
 async function nextFinanceRef(): Promise<string> {
   const year = new Date().getFullYear();
@@ -54,10 +88,19 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
     if (invoice === 0) return { ok: false, error: "Facture obligatoire : joignez la facture à l'ordre (ou au dossier source) avant de régler, ou demandez-la au demandeur." };
   }
 
-  // Attribution budgétaire : on privilégie la (sous-)catégorie explicitement choisie
-  // par la Direction à la validation définitive (`order.budgetCategoryId`). À défaut,
-  // attribution automatique à la catégorie de 1er niveau rattachée au module source :
-  // la dépense « tombe » dans la catégorie du module d'où vient la demande.
+  // ── ON CLASSE AVANT DE PAYER ───────────────────────────────────────────────────────────────
+  //
+  // Trois chances, dans l'ordre : la catégorie CHOISIE ICI par les Finances au moment de régler
+  // (la plus récente et la plus informée — quelqu'un a la facture sous les yeux), celle posée par
+  // la Direction à la validation, puis l'attribution automatique déduite du module d'origine.
+  // Si aucune ne répond, le règlement s'ARRÊTE et demande le classement : une écriture sans
+  // budget rejoint les « à imputer », que personne ne reprend jamais, et l'enveloppe affiche
+  // l'année suivante une consommation fausse. La règle vit dans `finance/settle-budget.ts`.
+  let chosenCategoryId: string | null = fdStr(formData, "budgetCategoryId");
+  if (chosenCategoryId) {
+    const ok = await prisma.budgetCategoryLine.count({ where: { id: chosenCategoryId } });
+    if (ok === 0) chosenCategoryId = null;
+  }
   let budgetCategoryId: string | null = order.budgetCategoryId ?? null;
   if (budgetCategoryId) {
     // Sécurité : on ignore une (sous-)catégorie qui n'existe plus.
@@ -85,6 +128,17 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
     }
   }
 
+  // L'EXCEPTION QUI ÉVITE L'IMPASSE : s'il n'existe AUCUNE catégorie où classer, on paie et la
+  // dépense reste à imputer. Exiger un choix dans une liste vide ferme une porte à clé sur une
+  // pièce vide, et une installation sans enveloppes doit pouvoir régler ses factures.
+  const gate = budgetGate({
+    chosen: chosenCategoryId,
+    onOrder: budgetCategoryId,
+    availableCount: await prisma.budgetCategoryLine.count({ where: { envelope: { isActive: true } } }),
+  });
+  if (!gate.ok) return { ok: false, error: gate.reason ?? "Classez cette dépense dans son budget avant de la régler." };
+  budgetCategoryId = gate.categoryId;
+
   const tx = await prisma.financeTransaction.create({
     data: {
       reference: await nextFinanceRef(), date: new Date(), direction: "OUT",
@@ -96,6 +150,13 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
   await prisma.expenseOrder.update({
     where: { id }, data: { status: "PAID", transactionId: tx.id, paidById: user.id, paidDate: new Date() },
   });
+
+  // LE DOSSIER COMPAGNON SUIT L'ORDRE — il n'a pas de vie propre : il décrit un paiement. Le
+  // laisser « chez les Finances » sous un virement fait ce matin ferait relancer un dossier soldé.
+  //
+  // Les dossiers NATIFS ne sont pas touchés : leur « bon à payer » a été donné par quelqu'un, et
+  // récrire `decidedById` avec le nom du comptable qui règle effacerait celui qui a décidé.
+  await syncCompanionOnSettle(id, order.reference, user.id);
 
   // Mark the originating record as settled.
   if (order.sourceType === "SPONSORING" && order.sourceId) {
@@ -171,6 +232,12 @@ export async function purgeSettledExpenseOrders(): Promise<ActionResult> {
   });
   if (cibles.length === 0) return { ok: false, error: "L'historique est déjà vide." };
 
+  // LE DOSSIER COMPAGNON PART AVEC SON ORDRE. Il ne décrit que lui : sans l'ordre, il montre un
+  // paiement qui n'existe plus, avec des pièces rattachées à rien. Les dossiers NATIFS restent —
+  // ce sont des demandes que quelqu'un a déposées, elles ont une vie propre et leur propre écran.
+  await prisma.paymentRequest.deleteMany({
+    where: { origin: "EXPENSE_ORDER", expenseOrderId: { in: cibles.map((o) => o.id) } },
+  });
   await prisma.expenseOrder.deleteMany({ where: { id: { in: cibles.map((o) => o.id) } } });
   await recordAudit({
     actorId: user.id, action: "DELETE", module: "Finances",
@@ -190,14 +257,18 @@ export async function requestInvoice(formData: FormData): Promise<ActionResult> 
   const order = await prisma.expenseOrder.findUnique({ where: { id } });
   if (!order) return { ok: false, error: "Ordre introuvable." };
 
+  // ON ENVOIE LE DEMANDEUR LÀ OÙ IL PEUT DÉPOSER — son dossier — et non dans la file du
+  // décaissement, qui est l'écran des Finances et que la plupart des demandeurs ne peuvent même
+  // pas ouvrir. C'est le dossier qui porte les pièces ; l'y conduire est la moitié du geste.
+  const dossier = (await dossierHrefByOrder([order.id])).get(order.id) ?? "/finances/paiements-a-faire";
   if (order.requestedById) {
     await notifyUser({
       userId: order.requestedById, type: "ASSIGNMENT", title: "Facture demandée",
       body: `${order.reference} — ${order.label} : merci de joindre la facture pour règlement.`,
-      link: "/finances/paiements-a-faire",
+      link: dossier,
     });
   } else {
-    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "ASSIGNMENT", title: "Facture demandée", body: `${order.reference} — ${order.label}`, link: "/finances/paiements-a-faire" });
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "ASSIGNMENT", title: "Facture demandée", body: `${order.reference} — ${order.label}`, link: dossier });
   }
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Finances", entityType: "EXPENSE_ORDER", entityId: id, summary: `Facture demandée — ${order.reference}` });
   revalidatePath("/finances/paiements-a-faire");

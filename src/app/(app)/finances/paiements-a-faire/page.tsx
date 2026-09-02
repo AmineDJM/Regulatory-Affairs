@@ -7,7 +7,11 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { visibleToFinance, type CentralStatus } from "@/lib/payments/authorization";
 import { settlementState, sortForSettlement } from "@/lib/finance/settlement";
-import { OrdersTable, type OrderRow } from "./orders-table";
+import { dossierHrefByOrder } from "@/lib/expense-orders";
+import { needsBudgetChoice } from "@/lib/finance/settle-budget";
+import { pickAutoCategory } from "@/lib/budget/auto-category";
+import { ENTITY_MODULE } from "@/lib/entity-access";
+import { OrdersTable, type OrderRow, type BudgetChoice } from "./orders-table";
 import { PurgeHistoryButton } from "./purge-history";
 
 /**
@@ -61,6 +65,42 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
   const hasInvoice = (o: (typeof orders)[number]) =>
     invoiceSet.has(`EXPENSE_ORDER:${o.id}`) || Boolean(o.sourceType && o.sourceId && invoiceSet.has(`${o.sourceType}:${o.sourceId}`));
 
+  // LE DOSSIER DE CHAQUE ORDRE — de TOUS les ordres, désormais. La règle testait `sourceType ===
+  // "PAYMENT_REQUEST"` et ne reconnaissait donc qu'un circuit sur treize : un matériel
+  // promotionnel, un bon de versement, un sponsoring arrivaient ici avec un libellé mort, et
+  // joindre une facture obligeait à retrouver le module d'origine — quand on y avait accès.
+  // Depuis qu'un ordre ouvre son dossier en naissant (`createExpenseOrder`), le lien se lit sur
+  // `expenseOrderId`, qui vaut pour les deux sens de l'histoire.
+  const dossiers = await dossierHrefByOrder(orderIds);
+
+  // ── OÙ CETTE DÉPENSE TOMBERA-T-ELLE ? ───────────────────────────────────────────────────────
+  //
+  // La question se pose AVANT le clic, avec la MÊME fonction que le serveur (`pickAutoCategory`,
+  // puis `needsBudgetChoice`) : deux règles séparées auraient divergé, et l'on aurait fini avec un
+  // bouton qui promet un règlement que le serveur refuse. Les catégories sont chargées ici une
+  // fois pour toute la table — l'écran en a besoin pour PROPOSER le classement, pas seulement
+  // pour le calculer.
+  const [envelopes, categoryLines] = await Promise.all([
+    prisma.budgetEnvelope.findMany({
+      where: { isActive: true },
+      select: { id: true, isActive: true, modules: true, module: true, periodStart: true, name: true },
+    }),
+    prisma.budgetCategoryLine.findMany({
+      where: { envelope: { isActive: true } },
+      select: { id: true, envelopeId: true, module: true, parentId: true, createdAt: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  const envelopeName = new Map(envelopes.map((e) => [e.id, e.name]));
+  // Le libellé porte l'enveloppe : « Marketing 2026 · Congrès » — « Congrès » seul se répète
+  // d'une enveloppe à l'autre, et l'on classe alors dans l'exercice de l'an dernier.
+  const budgets: BudgetChoice[] = categoryLines.map((c) => ({
+    id: c.id,
+    label: `${envelopeName.get(c.envelopeId) ?? "Budget"} · ${c.name}`,
+  }));
+  const autoOf = (o: (typeof orders)[number]): string | null =>
+    o.sourceType ? pickAutoCategory(ENTITY_MODULE[o.sourceType], envelopes, categoryLines) : null;
+
   const toRow = (o: (typeof orders)[number]): OrderRow => ({
     id: o.id, reference: o.reference, label: o.label, beneficiary: o.beneficiary,
     category: o.category, amount: toNumber(o.amount), status: o.status,
@@ -68,10 +108,15 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
     requiresInvoice: o.requiresInvoice, hasInvoice: hasInvoice(o),
     dueDate: o.dueDate?.toISOString() ?? null, deadlineNature: o.deadlineNature,
     deferredUntil: o.deferredUntil?.toISOString() ?? null, deferredReason: o.deferredReason,
-    // On ouvre la DEMANDE DE PAIEMENT et ses pièces — pas la demande source, qui vit dans un
+    // On ouvre LE DOSSIER DU PAIEMENT et ses pièces — pas la demande source, qui vit dans un
     // autre module, avec d'autres droits, et que le comptable n'a pas à traverser pour lire une
     // facture.
-    dossierHref: o.sourceType === "PAYMENT_REQUEST" && o.sourceId ? `/validations/paiements/${o.sourceId}` : null,
+    dossierHref: dossiers.get(o.id) ?? null,
+    needsBudget: needsBudgetChoice({
+      onOrder: o.budgetCategoryId,
+      auto: autoOf(o),
+      availableCount: categoryLines.length,
+    }),
   });
 
   // UN ORDRE REPORTÉ RESTE DANS LA FILE — daté, pas classé. Le sortir d'ici ferait de « reporter »
@@ -101,7 +146,7 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">À régler</h2>
-        <OrdersTable rows={pending.map(toRow)} canSettle={canSettle} emptyLabel="Aucun ordre à régler" focusId={focusId} />
+        <OrdersTable rows={pending.map(toRow)} canSettle={canSettle} emptyLabel="Aucun ordre à régler" focusId={focusId} budgets={budgets} />
       </section>
 
       {reportes.length > 0 && (
@@ -111,7 +156,7 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
           <p className="text-xs text-muted-foreground">
             Ces ordres sont dus — leur règlement est daté, pas abandonné. Ils redescendent dans « À régler » à l&apos;échéance du report, sans que personne n&apos;ait à y penser.
           </p>
-          <OrdersTable rows={reportes.map(toRow)} canSettle={canSettle} focusId={focusId} />
+          <OrdersTable rows={reportes.map(toRow)} canSettle={canSettle} focusId={focusId} budgets={budgets} />
         </section>
       )}
 

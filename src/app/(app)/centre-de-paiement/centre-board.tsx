@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, ShieldX, MessageSquare, Coins, Loader2, Send, ChevronDown } from "lucide-react";
+import { ShieldCheck, ShieldX, MessageSquare, Coins, Loader2, Send, ChevronDown, ExternalLink } from "lucide-react";
 import { decidePayment, respondToPaymentCentre } from "@/lib/actions/payment-centre-actions";
 import {
   CENTRAL_STATUS_LABEL, CENTRAL_DECISION_LABEL, awaitsCentre, awaitsRequester,
@@ -49,11 +49,13 @@ export interface CentreOrder {
    */
   deadlineNature: string | null;
   /**
-   * LE DOSSIER DE LA DEMANDE, quand l'ordre est né d'une demande de paiement : son montant, ses
-   * pièces, son fil. Autoriser une sortie d'argent sans pouvoir ouvrir la facture, c'est
-   * autoriser une ligne de tableau.
+   * LE DOSSIER DU PAIEMENT : son montant, ses pièces, son fil. Autoriser une sortie d'argent sans
+   * pouvoir ouvrir la facture, c'est autoriser une ligne de tableau. TOUT ordre en porte un
+   * désormais, quelle que soit sa provenance.
    */
   dossierHref: string | null;
+  /** LA DEMANDE D'ORIGINE — le sponsoring, le matériel promotionnel, le dossier réglementaire. */
+  sourceHref: string | null;
   /** L'origine de la dépense en clair (« Demande administrative », « Avance sur salaire »…). */
   sourceLabel: string | null;
   messages: CentreMessage[];
@@ -146,7 +148,7 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
                             d'actions déjà chargée : ce qu'on veut lire, on clique dessus. */}
                         <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
                           {o.dossierHref ? (
-                            <Link href={o.dossierHref} className="truncate text-primary hover:underline" title="Ouvrir le dossier et ses pièces">
+                            <Link href={o.dossierHref} className="truncate text-primary hover:underline" title="Ouvrir le dossier : pièces, demandes de pièces, discussion">
                               {o.label}
                             </Link>
                           ) : (
@@ -177,10 +179,19 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
                         </button>
                       )}
 
+                      {/* LA DEMANDE D'ORIGINE, à côté du dossier — deux objets distincts : le
+                            dossier dit ce qui JUSTIFIE le paiement (facture, bon, discussion),
+                            l'origine dit ce qu'on ACHÈTE. */}
+                      {o.sourceHref && (
+                        <Link href={o.sourceHref} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-secondary">
+                          <ExternalLink className="h-3 w-3" /> {o.sourceLabel ?? "Demande d'origine"}
+                        </Link>
+                      )}
+
                       {/* Le bouton d'ouverture a disparu : c'est le TITRE qui ouvre, ci-dessus.
                             Reste à DIRE quand il n'y a rien à ouvrir — un titre qui ne réagit pas
                             au clic se lit comme une panne, on recommence, on abandonne. */}
-                      {!o.dossierHref && (
+                      {!o.dossierHref && !o.sourceHref && (
                         <span className="text-xs text-muted-foreground">
                           {o.sourceLabel ? `${o.sourceLabel} — pas de fiche à ouvrir` : "Pas de fiche à ouvrir"}
                         </span>

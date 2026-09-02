@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PAYMENT_REQUEST_STATUS, PAYMENT_URGENCY } from "@/lib/labels";
 import { sortByPriority, isOverdue, deadlineLabel, isWithFinance } from "@/lib/finance/payment-request";
+import { isCompanionDossier } from "@/lib/finance/dossier-auto";
 import { deadlineNatureLabel, deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { NewPaymentButton } from "./new-payment-button";
 import { getMyCompanies, moneyEntityOf } from "@/lib/company";
@@ -46,7 +47,15 @@ export default async function PaymentRequestsPage() {
     prisma.paymentRequest.findMany({ where: { requesterId: user.id }, orderBy: { createdAt: "desc" }, take: 200 }),
     finance
       ? prisma.paymentRequest.findMany({
-          where: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "ON_HOLD"] } },
+          // ── LES COMPAGNONS NE S'INSTRUISENT PAS ICI ────────────────────────────────────────
+          //
+          // Depuis que TOUT ordre de dépense ouvre son dossier, les paiements nés ailleurs
+          // (matériel promotionnel, bon de versement, sponsoring…) ont eux aussi un dossier. Mais
+          // ils ne s'instruisent pas : leur circuit d'origine a validé, le centre a autorisé, et
+          // les Finances les règlent dans « Paiements à faire ». Les faire remonter ici aurait
+          // demandé de les instruire une SECONDE fois — deux files pour le même argent, et un
+          // « à instruire » qui ne veut plus rien dire.
+          where: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "ON_HOLD"] }, origin: "REQUEST" },
           orderBy: { createdAt: "desc" }, take: 200,
         })
       : Promise.resolve([] as never[]),
@@ -86,6 +95,11 @@ export default async function PaymentRequestsPage() {
               </TableCell>
               <TableCell className="font-medium">
                 <Link href={`/validations/paiements/${r.id}`} className="hover:underline">{r.title}</Link>
+                {/* CE DOSSIER VIENT D'AILLEURS — il accompagne un ordre né d'un autre circuit.
+                    Le dire évite de chercher un « bon à payer » qui n'existe pas ici. */}
+                {isCompanionDossier(r.origin) && (
+                  <span className="block text-xs font-normal text-muted-foreground">accompagne un ordre de dépense</span>
+                )}
               </TableCell>
               <TableCell className="text-muted-foreground">{r.payee}</TableCell>
               {who && <TableCell className="text-muted-foreground">{who(r.requesterId)}</TableCell>}
@@ -173,6 +187,9 @@ export default async function PaymentRequestsPage() {
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold">Mes demandes</h2>
+        {/* MES DEMANDES, ET AUSSI CE QUE J'AI FAIT PAYER AILLEURS. Un matériel promotionnel, un
+            bon de versement, un sponsoring que j'ai lancés sont des paiements que j'attends : les
+            retrouver ici est la condition pour pouvoir relancer ou signaler une urgence. */}
         {mine.length === 0
           ? <EmptyState icon="Banknote" title="Aucune demande" description="Utilisez « Demander un paiement » : le dossier part directement aux Finances." />
           : <Rows rows={mine} />}

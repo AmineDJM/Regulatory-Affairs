@@ -10,6 +10,7 @@ import {
   type CentralStatus,
 } from "@/lib/payments/authorization";
 import { entityHref } from "@/lib/entity-href";
+import { dossierHrefByOrder } from "@/lib/expense-orders";
 import { ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { CentreBoard, type CentreOrder } from "./centre-board";
 
@@ -99,6 +100,11 @@ export default async function CentreDePaiementPage() {
     : [];
   const deciderName = new Map(deciders.map((d) => [d.id, d.name]));
 
+  // LE DOSSIER DE CHAQUE PAIEMENT — pièces, demandes de pièces, discussion. Le centre autorise
+  // une sortie d'argent : sans pouvoir ouvrir la facture, il autorise une ligne de tableau.
+  // Tout ordre en porte un désormais, quelle que soit sa provenance (`createExpenseOrder`).
+  const dossiers = await dossierHrefByOrder(orders.map((o) => o.id));
+
   const rows: CentreOrder[] = orders.map((o) => ({
     id: o.id,
     reference: o.reference,
@@ -114,15 +120,15 @@ export default async function CentreDePaiementPage() {
     decidedAt: o.centralDecidedAt?.toISOString() ?? null,
     dueDate: o.dueDate?.toISOString() ?? null,
     deadlineNature: o.deadlineNature,
-    // CHAQUE ORIGINE S'OUVRE, PAS SEULEMENT LA DEMANDE DE PAIEMENT.
-    //
-    // Tant que le centre ne voyait que des demandes de paiement, ne relier que celles-là se
-    // défendait. Depuis qu'il est le GUICHET UNIQUE — avance sur salaire, demande
-    // administrative, matériel promotionnel, dossier réglementaire, information médicale… —
-    // la même règle rendait la plupart des lignes impossibles à ouvrir : on autorisait des
-    // sorties d'argent sans pouvoir lire ce qui les justifie. `entityHref` porte la table des
+    // LE TITRE OUVRE LE DOSSIER DU PAIEMENT — ses pièces, ses demandes de pièces, son fil. C'est
+    // ce que le centre doit lire pour autoriser : la facture, le bon, la discussion. Il existe
+    // maintenant pour TOUS les ordres, et non pour la seule demande de paiement.
+    dossierHref: dossiers.get(o.id) ?? null,
+    // ET LA DEMANDE D'ORIGINE RESTE ATTEIGNABLE, à côté — le sponsoring, le matériel
+    // promotionnel, le dossier réglementaire. Deux objets distincts, deux liens : le dossier dit
+    // ce qui justifie le paiement, l'origine dit ce qu'on achète. `entityHref` porte la table des
     // routes, et ce qu'elle ne sait pas ouvrir est DIT (voir `sourceLabel`).
-    dossierHref: entityHref(o.sourceType, o.sourceId),
+    sourceHref: entityHref(o.sourceType, o.sourceId),
     sourceLabel: o.sourceType ? ENTITY_TYPE_LABELS[o.sourceType] ?? o.sourceType : null,
     isMine: o.requestedById === user.id,
     messages: o.centralMessages.map((m) => ({

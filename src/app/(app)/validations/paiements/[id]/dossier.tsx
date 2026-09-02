@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Loader2, Check, X, RotateCcw, PauseCircle, PlayCircle, Send, Plus, ShieldCheck,
-  MessageSquare, Download, Paperclip, FileQuestion, Gavel, ExternalLink,
+  MessageSquare, Download, Paperclip, FileQuestion, Gavel, ExternalLink, Info, BellRing, Siren,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
@@ -16,9 +16,11 @@ import { FileGlyph } from "@/components/drive/file-glyph";
 import { PAYMENT_PIECE_STATUS, PAYMENT_PIECE_KIND, PAYMENT_PIECE_KIND_OPTIONS, VALIDATION_STATUS } from "@/lib/labels";
 import { needsReplacement, tallyPieces } from "@/lib/finance/payment-request";
 import { dossierHint, isBonDeVersement } from "@/lib/finance/payment-dossier";
+import { companionNotice } from "@/lib/finance/dossier-auto";
 import {
   addPaymentPiece, commentPaymentPiece, reviewPaymentPiece, addPaymentComment,
   submitPaymentRequest, decidePaymentRequest, cancelPaymentRequest, updatePaymentRequestDetails,
+  nudgePaymentRequest,
 } from "@/lib/actions/payment-request-actions";
 import { requestDocument, askablePeople } from "@/lib/actions/document-request-actions";
 
@@ -53,6 +55,85 @@ export interface EventView {
 type Runner = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
 
 /**
+ * RELANCER, OU SIGNALER UNE URGENCE — les deux gestes du demandeur quand la balle n'est plus
+ * dans son camp.
+ *
+ * Ils ne disent PAS la même chose, et c'est pourquoi ils ne partagent pas un bouton :
+ *   • **relancer** demande où l'on en est ; personne n'est pris en faute ;
+ *   • **signaler une urgence** REMONTE le dossier dans la file des Finances — ce qui n'est pas
+ *     gratuit, d'où le motif exigé, que les Finances liront pour arbitrer entre deux dossiers
+ *     pressants.
+ *
+ * Un bouton unique aurait fait de chaque relance une urgence, et une file où tout est urgent n'a
+ * plus de priorité du tout.
+ */
+function NudgePanel({ id, onDone }: { id: string; onDone: () => void }) {
+  const [kind, setKind] = React.useState<"REMINDER" | "URGENT" | null>(null);
+  const [comment, setComment] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const [done, setDone] = React.useState<string | null>(null);
+
+  const envoyer = async () => {
+    if (!kind) return;
+    setBusy(true); setErr(null);
+    const fd = new FormData();
+    fd.set("id", id); fd.set("kind", kind); fd.set("comment", comment);
+    const r = await nudgePaymentRequest(fd);
+    setBusy(false);
+    if (!r.ok) { setErr(r.error ?? "La relance n'a pas pu être envoyée."); return; }
+    setDone(r.message ?? "Envoyé."); setKind(null); setComment("");
+    onDone();
+  };
+
+  return (
+    <section className="surface space-y-3 p-4">
+      <div>
+        <h2 className="text-sm font-semibold">Votre demande est chez les Finances</h2>
+        <p className="text-xs text-muted-foreground">
+          Vous n&apos;avez plus la main sur le dossier — mais vous pouvez faire savoir que vous attendez.
+        </p>
+      </div>
+      {done && <p className="rounded-lg bg-success/10 px-3 py-2 text-sm text-success">{done}</p>}
+      <div className="flex flex-wrap gap-2">
+        <Button variant={kind === "REMINDER" ? "primary" : "outline"} onClick={() => { setKind("REMINDER"); setDone(null); setErr(null); }}>
+          <BellRing className="h-4 w-4" /> Relancer
+        </Button>
+        <Button variant={kind === "URGENT" ? "primary" : "outline"} className={kind === "URGENT" ? "" : "text-destructive"} onClick={() => { setKind("URGENT"); setDone(null); setErr(null); }}>
+          <Siren className="h-4 w-4" /> Signaler une urgence de paiement
+        </Button>
+      </div>
+      {kind && (
+        <div className="space-y-2">
+          <Label htmlFor={`nudge-${id}`}>
+            Commentaire {kind === "URGENT" ? <span className="text-destructive">*</span> : <span className="text-muted-foreground">(facultatif)</span>}
+          </Label>
+          <Textarea
+            id={`nudge-${id}`} value={comment} onChange={(e) => setComment(e.target.value)} rows={2}
+            placeholder={kind === "URGENT"
+              ? "Ex. le fournisseur bloque la livraison tant que la facture n'est pas réglée."
+              : "Ex. le fournisseur a rappelé ce matin."}
+          />
+          {kind === "URGENT" && (
+            <p className="text-xs text-muted-foreground">
+              Une urgence remonte ce dossier dans la file des Finances. Dites pourquoi : c&apos;est ce
+              qu&apos;elles liront pour arbitrer entre deux paiements pressants.
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={busy} onClick={() => { setKind(null); setComment(""); }}>Annuler</Button>
+            <Button disabled={busy || (kind === "URGENT" && comment.trim().length === 0)} onClick={() => void envoyer()}>
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer
+            </Button>
+          </div>
+        </div>
+      )}
+      {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+    </section>
+  );
+}
+
+/**
  * LE DOSSIER DE PAIEMENT — la conversation, pièce par pièce.
  *
  * Tout se joue ici : les Finances se prononcent sur CHAQUE pièce (accepter, faire revoir,
@@ -65,13 +146,23 @@ type Runner = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
  */
 export function PaymentDossier({
   id, reference, status, isRequester, isFinance, pieces, events, people, canApproveNow, approveBlocker, resubmitBlocker,
-  entityType, paymentMethodStated, contact,
+  entityType, paymentMethodStated, contact, isCompanion = false, orderReference = null, withFinance = false,
 }: {
   id: string;
   reference: string;
   status: string;
   isRequester: boolean;
   isFinance: boolean;
+  /**
+   * CE DOSSIER ACCOMPAGNE-T-IL UN ORDRE DE DÉPENSE né ailleurs (matériel promotionnel, bon de
+   * versement, sponsoring…) ? Alors le paiement a DÉJÀ été décidé par son circuit puis autorisé
+   * par le centre : on rassemble ici les pièces et la discussion, on ne tranche pas une seconde
+   * fois. Les gestes de décision sont retirés — et le serveur les refuse aussi (§118-7).
+   */
+  isCompanion?: boolean;
+  orderReference?: string | null;
+  /** Le dossier est-il chez les Finances ? C'est la condition de la relance. */
+  withFinance?: boolean;
   pieces: PieceView[];
   events: EventView[];
   people: { id: string; name: string }[];
@@ -108,6 +199,15 @@ export function PaymentDossier({
 
   return (
     <div className="space-y-5">
+      {/* CE DOSSIER DIT CE QU'IL EST, avant qu'on cherche le bouton qui n'existe pas. Le silence
+          d'une interface se lit toujours comme une panne, et un comptable qui ne trouve pas
+          « bon à payer » en conclut qu'il lui manque un droit. */}
+      {isCompanion && (
+        <p className="flex items-start gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {companionNotice(orderReference)}
+        </p>
+      )}
+
       {/* ───────────── Les pièces, et leur conversation ───────────── */}
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -189,8 +289,15 @@ export function PaymentDossier({
         )}
       </section>
 
+      {/* ───────────── LA RELANCE — le seul geste du demandeur quand tout est parti ─────────────
+          Une fois sa demande chez les Finances, le demandeur n'avait plus qu'un statut à regarder.
+          C'est pourtant le moment où il en a le plus besoin : son fournisseur rappelle, sa
+          quittance a une date. Il décrochait son téléphone, et la relance n'existait nulle part —
+          ni trace, ni preuve qu'elle a eu lieu. */}
+      {isRequester && withFinance && <NudgePanel id={id} onDone={() => router.refresh()} />}
+
       {/* ───────────── Les gestes ───────────── */}
-      {open && (isRequester || isFinance) && (
+      {open && !isCompanion && (isRequester || isFinance) && (
         <section className="surface space-y-3 p-4">
           <h2 className="text-sm font-semibold">Que faire de ce dossier ?</h2>
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Motif / commentaire — obligatoire pour une mise en attente ou un refus." />

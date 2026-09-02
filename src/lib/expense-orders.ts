@@ -1,7 +1,11 @@
-import type { EntityType, FinanceCategory } from "@prisma/client";
-import { buildRef } from "@/lib/refs";
+import type { EntityType, FinanceCategory, PaymentDeadlineNature, PaymentRequestStatus } from "@prisma/client";
+import { buildRef, createWithRetry } from "@/lib/refs";
 import { ENTITY_MODULE } from "@/lib/entity-access";
 import { initialCentralStatus, isHighValue, CENTRAL_AUTH_THRESHOLD_DZD } from "@/lib/payments/authorization";
+import { deadlineNatureOf } from "@/lib/finance/deadline-nature";
+import {
+  needsCompanionDossier, companionPayee, companionStatusForOrder,
+} from "@/lib/finance/dossier-auto";
 import { prisma } from "./prisma";
 import { notifyRoles } from "./notify";
 
@@ -9,6 +13,12 @@ export async function nextExpenseRef(): Promise<string> {
   const year = new Date().getFullYear();
   const refs = await prisma.expenseOrder.findMany({ where: { reference: { startsWith: `OD-${year}-` } }, select: { reference: true } });
   return buildRef("OD", year, refs.map((r) => r.reference));
+}
+
+async function nextPaymentRef(): Promise<string> {
+  const year = new Date().getFullYear();
+  const refs = await prisma.paymentRequest.findMany({ where: { reference: { startsWith: `PAY-${year}-` } }, select: { reference: true } });
+  return buildRef("PAY", year, refs.map((r) => r.reference));
 }
 
 interface CreateExpenseOrderInput {
@@ -111,6 +121,109 @@ async function companyOfExpense(input: CreateExpenseOrderInput): Promise<string 
   return null;
 }
 
+/** La route du dossier d'une demande de paiement — une seule définition, partout. */
+export function paymentDossierHref(requestId: string): string {
+  return `/validations/paiements/${requestId}`;
+}
+
+/**
+ * LE DOSSIER DE CHAQUE ORDRE, EN UN SEUL ALLER — c'est lui qui rend le libellé cliquable.
+ *
+ * `expenseOrderId` porte le lien dans les deux sens de l'histoire : une demande de paiement le
+ * pose une fois son ordre créé, un dossier compagnon naît avec. Une seule requête indexée suffit
+ * donc pour trois cents lignes, au lieu d'un test de `sourceType` qui ne reconnaissait qu'un
+ * circuit sur treize.
+ */
+export async function dossierHrefByOrder(orderIds: readonly string[]): Promise<Map<string, string>> {
+  if (orderIds.length === 0) return new Map();
+  const rows = await prisma.paymentRequest.findMany({
+    where: { expenseOrderId: { in: [...orderIds] } },
+    select: { id: true, expenseOrderId: true },
+  });
+  const out = new Map<string, string>();
+  for (const r of rows) if (r.expenseOrderId) out.set(r.expenseOrderId, paymentDossierHref(r.id));
+  return out;
+}
+
+/**
+ * LE DOSSIER COMPAGNON — ouvert AVEC l'ordre, sans que personne le demande.
+ *
+ * ── LE DÉFAUT QU'ON CORRIGE ─────────────────────────────────────────────────────────────────
+ *
+ * Un ordre né d'une demande de paiement portait un dossier : ses pièces, son fil, et un libellé
+ * CLIQUABLE dans la file du décaissement. Un ordre né d'ailleurs — matériel promotionnel, bon de
+ * versement, sponsoring, congrès, dossier réglementaire, secrétariat — n'en portait aucun. Même
+ * écran, même argent, et la moitié des lignes étaient du texte mort : pour joindre une facture à
+ * celles-là, il fallait retrouver le module d'origine, y avoir accès, et savoir que c'était là.
+ *
+ * ── POURQUOI ICI, ET NULLE PART AILLEURS ────────────────────────────────────────────────────
+ *
+ * Treize circuits appellent `createExpenseOrder`. Poser la règle dans chacun d'eux, c'est
+ * l'oublier dans le quatorzième — et la retrouver six mois plus tard sous la forme d'un libellé
+ * qui ne s'ouvre pas. Le seul endroit par lequel TOUT ordre passe est celui-ci : c'est ici que la
+ * règle tient, et c'est le code qui la tient, pas une consigne.
+ *
+ * ── CE QUE LE COMPAGNON N'EST PAS ───────────────────────────────────────────────────────────
+ *
+ * Une seconde décision. L'ordre existe parce que son circuit d'origine a validé la dépense, et
+ * c'est le CENTRE DE PAIEMENT qui autorise la sortie. `origin = EXPENSE_ORDER` le dit à l'écran,
+ * qui retire le « bon à payer » : sans cette marque, le même paiement se déciderait à deux
+ * endroits et « qui a autorisé ? » n'aurait plus de réponse unique.
+ *
+ * BEST-EFFORT, comme le rattachement d'entité : un dossier qui ne s'ouvre pas ne doit jamais
+ * empêcher un ordre de naître. L'argent prime ; le dossier se rouvre, l'ordre perdu ne se
+ * retrouve pas.
+ */
+async function openCompanionDossier(
+  order: { id: string; label: string; amount: unknown; beneficiary: string | null; companyId: string | null; dueDate: Date | null; deadlineNature: string | null; status: string; notes: string | null },
+  input: CreateExpenseOrderInput,
+): Promise<void> {
+  const requesterId = input.requestedById;
+  // SANS DEMANDEUR, PAS DE DOSSIER — et c'est une décision, pas un oubli. `requesterId` n'est pas
+  // nullable, et inscrire à sa place le premier Super Admin venu porterait à l'audit le nom de
+  // quelqu'un qui n'a rien demandé. Ces ordres-là gardent un libellé non cliquable : une lacune
+  // HONNÊTE vaut mieux qu'une attribution fausse.
+  if (!needsCompanionDossier(input.sourceType) || !requesterId) return;
+  try {
+    const dossier = await createWithRetry(async () =>
+      prisma.paymentRequest.create({
+        data: {
+          reference: await nextPaymentRef(),
+          title: order.label,
+          description: order.notes,
+          amount: input.amount,
+          payee: companionPayee(order.beneficiary, order.label),
+          companyId: order.companyId,
+          dueDate: order.dueDate,
+          deadlineNature: deadlineNatureOf(order.deadlineNature) as PaymentDeadlineNature,
+          // Le moyen de paiement n'a pas été déclaré sur ces circuits : l'affirmer serait une
+          // attestation fausse, portée au nom du demandeur (§118-15).
+          paymentMethodStated: false,
+          status: companionStatusForOrder(order.status) as PaymentRequestStatus,
+          submittedAt: new Date(),
+          requesterId,
+          // LE RATTACHEMENT À L'ORIGINE : c'est lui qui rend la demande d'origine ouvrable
+          // depuis le dossier, et le dossier lisible depuis la file du décaissement.
+          entityType: input.sourceType ?? null,
+          entityId: input.sourceId ?? null,
+          expenseOrderId: order.id,
+          origin: "EXPENSE_ORDER",
+        },
+        select: { id: true },
+      }),
+    );
+    // Le fil ne s'ouvre pas vide : un historique blanc laisse croire qu'il ne s'est rien passé.
+    await prisma.paymentRequestEvent.create({
+      data: {
+        requestId: dossier.id, actorId: requesterId, kind: "SUBMIT",
+        message: "Dossier ouvert automatiquement avec l'ordre de dépense — le circuit d'origine avait déjà validé la dépense.",
+      },
+    });
+  } catch (e) {
+    console.error("[expense-orders] dossier compagnon non ouvert", e);
+  }
+}
+
 export async function createExpenseOrder(input: CreateExpenseOrderInput) {
   const requiresInvoice = (input.sourceType ? INVOICE_REQUIRED_SOURCES.includes(input.sourceType) : false) || input.category === "EVENEMENT";
 
@@ -140,6 +253,9 @@ export async function createExpenseOrder(input: CreateExpenseOrderInput) {
       centralStatus,
     },
   });
+
+  // UN ORDRE, UN DOSSIER — quelle que soit sa provenance. Voir `openCompanionDossier`.
+  await openCompanionDossier(order, input);
 
   const money = `${input.amount.toLocaleString("fr-FR")} DZD`;
   if (centralStatus === "AWAITING") {

@@ -2,21 +2,20 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ItemAskPanel } from "@/components/ad-pro/item-ask-panel";
 import { useRouter } from "next/navigation";
-import { Loader2, Banknote, CalendarClock, RotateCcw, AlertCircle, FileText, Lock } from "lucide-react";
-import { settleExpenseOrder, deferExpenseOrder, resumeExpenseOrder, requestInvoice } from "@/lib/actions/expense-actions";
+import { Loader2, Banknote, CalendarClock, RotateCcw, AlertCircle, FileText, Lock, FolderOpen } from "lucide-react";
+import { settleExpenseOrder, deferExpenseOrder, resumeExpenseOrder } from "@/lib/actions/expense-actions";
 import { EmptyState } from "@/components/shared/empty-state";
-import { DocumentUpload } from "@/components/documents/document-upload";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input, Textarea, Label } from "@/components/ui/input";
+import { Input, Textarea, Label, Select } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FINANCE_CATEGORY } from "@/lib/labels";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { settlementState, deferralNote, SETTLEMENT_LABEL, type SettlementState } from "@/lib/finance/settlement";
 import { deadlineNatureLabel, deadlineNatureOf, deferralWarning } from "@/lib/finance/deadline-nature";
+import { BUDGET_CLASSIFY_PROMPT } from "@/lib/finance/settle-budget";
 import type { ActionResult } from "@/lib/actions/types";
 
 export interface OrderRow {
@@ -38,35 +37,44 @@ export interface OrderRow {
   deferredUntil: string | null;
   deferredReason: string | null;
   /**
-   * LE DOSSIER DE LA DEMANDE DE PAIEMENT, quand l'ordre en vient : son montant, SES PIÈCES, son
-   * fil. C'est là qu'on va voir la facture — pas dans la demande SOURCE, qui appartient à un
-   * autre module et à d'autres droits.
+   * LE DOSSIER DU PAIEMENT : son montant, SES PIÈCES, son fil. C'est là qu'on va voir la facture
+   * et qu'on la réclame — pas dans la demande SOURCE, qui appartient à un autre module et à
+   * d'autres droits. Tout ordre en porte un désormais, quelle que soit sa provenance.
    */
   dossierHref: string | null;
+  /**
+   * LA DÉPENSE EST-ELLE DÉJÀ CLASSÉE dans un budget ? Si non, il faut le faire AVANT de régler :
+   * après le virement, plus personne n'y revient et l'enveloppe affiche un chiffre faux.
+   */
+  needsBudget: boolean;
 }
 
-/** Facture obligatoire : joindre la facture à l'ordre, ou la demander au demandeur. */
-function InvoiceControl({ id, hasInvoice }: { id: string; hasInvoice: boolean }) {
-  const router = useRouter();
-  const [open, setOpen] = React.useState(false);
+/** Les catégories budgétaires où classer — chargées une fois pour toute la table. */
+export interface BudgetChoice {
+  id: string;
+  label: string;
+}
+
+/**
+ * LA FACTURE EST UN ÉTAT, PLUS UNE ACTION.
+ *
+ * Ici vivait un bouton qui ouvrait un panneau de dépôt et un « demander la facture ». Les deux
+ * gestes ont DÉMÉNAGÉ dans le dossier du paiement, où ils ont leur place : c'est là que les
+ * pièces vivent, que la discussion se tient pièce par pièce, et que le demandeur répond. Les
+ * garder ici en faisait un second endroit où déposer la même facture — deux fils, deux versions,
+ * et personne pour dire laquelle fait foi.
+ *
+ * Ce qui reste est ce que la comptabilité doit LIRE d'un coup d'œil : la facture est là, ou elle
+ * manque. Le libellé mène au dossier ; c'est le même clic pour joindre ou pour réclamer.
+ */
+function InvoiceState({ hasInvoice }: { hasInvoice: boolean }) {
   if (hasInvoice) {
-    return <span className="inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success"><FileText className="h-3.5 w-3.5" /> Facture</span>;
+    return <span className="inline-flex items-center gap-1 text-xs font-medium text-success"><FileText className="h-3.5 w-3.5" /> Facture jointe</span>;
   }
   return (
-    <>
-      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-md border border-warning/50 px-2 py-1 text-xs font-medium text-warning hover:bg-warning/10">
-        <AlertCircle className="h-3.5 w-3.5" /> Facture requise
-      </button>
-      <Sheet open={open} onClose={() => { setOpen(false); router.refresh(); }} title="Facture obligatoire" description="Joignez la facture pour pouvoir régler cet ordre, ou demandez-la au demandeur." width="md">
-        <div className="space-y-4">
-          <DocumentUpload entityType="EXPENSE_ORDER" entityId={id} categories={["INVOICE", "OTHER"]} />
-          <div className="flex items-center justify-between border-t border-border pt-3">
-            <SubmitForm action={requestInvoice} id={id}><MiniBtn tone="purple"><AlertCircle className="h-3.5 w-3.5" /> Demander la facture</MiniBtn></SubmitForm>
-            <Button type="button" variant="outline" onClick={() => { setOpen(false); router.refresh(); }}>Fermer</Button>
-          </div>
-        </div>
-      </Sheet>
-    </>
+    <span className="inline-flex items-center gap-1 text-xs font-medium text-warning" title="Le règlement attend la facture — elle se joint et se réclame dans le dossier.">
+      <AlertCircle className="h-3.5 w-3.5" /> Facture requise
+    </span>
   );
 }
 
@@ -154,12 +162,80 @@ function DeferControl({ row }: { row: OrderRow }) {
   );
 }
 
+/**
+ * RÉGLER — et, si la dépense n'est rattachée à aucun budget, LA CLASSER D'ABORD.
+ *
+ * Ce n'est pas un veto sur le paiement : c'est un geste de plus dans le même écran, exigé une
+ * seule fois, au moment où quelqu'un a le dossier sous les yeux. Sans lui, l'écriture naissait
+ * sans budget et rejoignait les « à imputer » — une liste que personne ne reprend, et l'enveloppe
+ * affichait l'année suivante une consommation fausse.
+ *
+ * Quand la dépense est DÉJÀ classée (choix de la Direction, ou attribution automatique d'après le
+ * module d'origine), le bouton règle directement : ajouter une question dont on connaît la réponse
+ * apprend à cliquer sans lire.
+ */
+function SettleControl({ row, budgets }: { row: OrderRow; budgets: BudgetChoice[] }) {
+  const router = useRouter();
+  const [open, setOpen] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const [categoryId, setCategoryId] = React.useState("");
+
+  if (!row.needsBudget) {
+    return <SubmitForm action={settleExpenseOrder} id={row.id}><MiniBtn tone="success"><Banknote className="h-3.5 w-3.5" /> Payé</MiniBtn></SubmitForm>;
+  }
+  return (
+    <>
+      <button
+        type="button" onClick={() => { setErr(null); setOpen(true); }}
+        className="inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success hover:bg-success/10"
+      >
+        <Banknote className="h-3.5 w-3.5" /> Payé
+      </button>
+      <Sheet
+        open={open} onClose={() => !saving && setOpen(false)}
+        title="Classer, puis régler"
+        description="La dépense n'est rattachée à aucun budget. On la classe maintenant : après le virement, plus personne n'y revient."
+        width="md"
+      >
+        <form
+          action={async (fd) => {
+            setSaving(true); setErr(null);
+            fd.set("id", row.id); fd.set("budgetCategoryId", categoryId);
+            const r = await settleExpenseOrder(fd);
+            setSaving(false);
+            if (r.ok) { setOpen(false); router.refresh(); } else setErr(r.error ?? "Erreur.");
+          }}
+          className="space-y-3"
+        >
+          <p className="text-xs text-muted-foreground">
+            {row.reference} — {row.label} · <span className="font-semibold text-foreground">{formatCurrency(row.amount)}</span>
+          </p>
+          <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-foreground">{BUDGET_CLASSIFY_PROMPT}</p>
+          <div className="space-y-1">
+            <Label htmlFor={`bud-${row.id}`}>Budget exact <span className="text-destructive">*</span></Label>
+            <Select id={`bud-${row.id}`} value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
+              <option value="">— Choisir la catégorie —</option>
+              {budgets.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+            </Select>
+          </div>
+          {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" disabled={saving} onClick={() => setOpen(false)}>Annuler</Button>
+            <Button type="submit" disabled={saving || !categoryId}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Classer et régler</Button>
+          </div>
+        </form>
+      </Sheet>
+    </>
+  );
+}
+
 const TONE: Record<SettlementState, "neutral" | "warning" | "success"> = {
   UNPAID: "neutral", DEFERRED: "warning", PAID: "success",
 };
 
 /**
- * LA FILE DU DÉCAISSEMENT — trois états, et rien d'autre.
+ * LA FILE DU DÉCAISSEMENT — deux gestes, et rien d'autre.
  *
  * Les Finances ne peuvent NI annuler, NI demander une révision de budget : l'ordre leur arrive
  * autorisé par le centre de paiement, qui a vu le montant, la file entière et l'engagement pris.
@@ -167,11 +243,20 @@ const TONE: Record<SettlementState, "neutral" | "warning" | "success"> = {
  * **paiement reporté à** une date, **payé**. Les actions correspondantes ont été SUPPRIMÉES, pas
  * masquées : un bouton retiré laisse une porte ouverte à l'assistant et à l'API.
  *
+ * ── CE QUI VIENT DE PARTIR D'ICI, ET OÙ C'EST ALLÉ ──────────────────────────────────────────
+ *
+ * « Demander une pièce » et le panneau de dépôt de facture vivaient dans cette colonne. Ils ont
+ * DÉMÉNAGÉ dans le dossier du paiement — qui existe désormais pour TOUT ordre, d'où qu'il vienne.
+ * C'est là que les pièces vivent, que la discussion se tient pièce par pièce et que le demandeur
+ * répond ; les garder ici offrait un second endroit où déposer la même facture, avec deux fils et
+ * personne pour dire lequel fait foi. La colonne « Action » ne porte donc plus que les DÉCISIONS
+ * de décaissement : payé, reporté — et lever le report, qui n'est que le retour au premier état.
+ *
  * `focusId` — LA LIGNE QU'ON VIENT DE CLIQUER, mise en évidence et atteignable par ancre. On
  * arrivait ici depuis « Mon espace » sur un tableau de trois cents ordres, à chercher des yeux
  * celui qu'on venait de cliquer.
  */
-export function OrdersTable({ rows, canSettle, emptyLabel, focusId = null }: { rows: OrderRow[]; canSettle: boolean; emptyLabel?: string; focusId?: string | null }) {
+export function OrdersTable({ rows, canSettle, emptyLabel, focusId = null, budgets = [] }: { rows: OrderRow[]; canSettle: boolean; emptyLabel?: string; focusId?: string | null; budgets?: BudgetChoice[] }) {
   // `now` est figé au premier rendu : recalculer l'expiration d'un report à chaque re-render
   // ferait sauter une ligne d'une section à l'autre pendant qu'on la regarde.
   const now = React.useMemo(() => new Date(), []);
@@ -208,12 +293,16 @@ export function OrdersTable({ rows, canSettle, emptyLabel, focusId = null }: { r
                 <TableCell className="font-mono text-xs">{r.reference}</TableCell>
                 <TableCell>{formatDate(r.createdAt)}</TableCell>
                 <TableCell className="max-w-[220px]">
-                  {/* LE LIBELLÉ EST LE LIEN vers le dossier et ses pièces. Le bouton séparé qui
-                      vivait dans la colonne « Action » disait la même chose une seconde fois, au
-                      milieu des gestes de décaissement — alors qu'ouvrir n'est pas décider. */}
+                  {/* LE LIBELLÉ EST LE LIEN vers le dossier — ses pièces, ses demandes de pièces,
+                      son fil. Tout ordre en porte un désormais, quelle que soit sa provenance :
+                      la moitié des lignes étaient du texte mort parce que seule la demande de
+                      paiement ouvrait un dossier. Le bouton séparé qui vivait dans « Action »
+                      disait la même chose une seconde fois, au milieu des gestes de décaissement
+                      — alors qu'ouvrir n'est pas décider. */}
                   {r.dossierHref ? (
-                    <Link href={r.dossierHref} className="block truncate font-medium text-primary hover:underline" title="Voir les pièces du dossier">
-                      {r.label}
+                    <Link href={r.dossierHref} className="flex items-center gap-1 font-medium text-primary hover:underline" title="Ouvrir le dossier : pièces, demandes de pièces, discussion">
+                      <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{r.label}</span>
                     </Link>
                   ) : (
                     <p className="truncate font-medium">{r.label}</p>
@@ -236,20 +325,17 @@ export function OrdersTable({ rows, canSettle, emptyLabel, focusId = null }: { r
                 </TableCell>
                 <TableCell className="text-right font-semibold">{formatCurrency(r.amount)}</TableCell>
                 <TableCell>{r.requestedBy || "—"}</TableCell>
-                <TableCell><Badge tone={TONE[etat]} dot={false}>{SETTLEMENT_LABEL[etat]}</Badge></TableCell>
+                <TableCell>
+                  <Badge tone={TONE[etat]} dot={false}>{SETTLEMENT_LABEL[etat]}</Badge>
+                  {/* La facture est un ÉTAT du règlement, pas un geste : elle se joint et se
+                      réclame dans le dossier, que le libellé ouvre. */}
+                  {r.requiresInvoice && <span className="mt-0.5 block"><InvoiceState hasInvoice={r.hasInvoice} /></span>}
+                </TableCell>
                 {canSettle && (
                   <TableCell className="text-right">
                     {r.status === "PENDING" ? (
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
-                        {/* RÉCLAMER LA FACTURE, LE BON, N'IMPORTE QUELLE PIÈCE — plutôt que de
-                            relancer par message. La demande atterrit dans « Pièces demandées » de
-                            la personne, avec son fil : elle dépose sans qu'on lui ouvre le module.
-                            Demander une pièce n'est pas décider du paiement — c'est ce qui permet
-                            de le décider. DEMANDER UNE VALIDATION, en revanche, n'a plus de sens :
-                            l'ordre est ici PARCE QUE le centre l'a autorisé. */}
-                        <ItemAskPanel entityType="EXPENSE_ORDER" entityId={r.id} link="/finances/paiements-a-faire" subject={`${r.reference} — ${r.label}`} canAskValidation={false} />
-                        {r.requiresInvoice && <InvoiceControl id={r.id} hasInvoice={r.hasInvoice} />}
-                        <SubmitForm action={settleExpenseOrder} id={r.id}><MiniBtn tone="success"><Banknote className="h-3.5 w-3.5" /> Payé</MiniBtn></SubmitForm>
+                        <SettleControl row={r} budgets={budgets} />
                         <DeferControl row={r} />
                         {/* LEVER LE REPORT, c'est revenir à « non payé » — le premier des trois
                             états, pas un quatrième geste. Sans lui, une date saisie trop loin ne

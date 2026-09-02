@@ -9211,8 +9211,16 @@ model PaymentRequest {
   /// Motif de la mise en attente — sans lui, « en attente » ne dit rien à personne.
   holdReason   String?
 
-  /// Ordre de dépense créé une fois le bon à payer donné.
+  /// Ordre de dépense créé une fois le bon à payer donné — ou, sur un dossier COMPAGNON,
+  /// l'ordre qui a fait naître ce dossier.
   expenseOrderId String?
+
+  /// D'OÙ VIENT CE DOSSIER — `REQUEST` (quelqu'un a demandé un paiement, et la décision sur ce
+  /// dossier crée l'ordre) ou `EXPENSE_ORDER` (l'ordre existait déjà, né d'un autre circuit, et
+  /// son dossier s'est ouvert automatiquement derrière lui). Deux dossiers identiques à l'écran,
+  /// deux règles de décision opposées : un compagnon ne se tranche pas ici, il rassemble les
+  /// pièces et la discussion. Voir `src/lib/finance/dossier-auto.ts`.
+  origin String @default("REQUEST")
 
   submittedAt DateTime?
   createdAt   DateTime  @default(now())
@@ -9224,6 +9232,9 @@ model PaymentRequest {
   @@index([status])
   @@index([requesterId])
   @@index([recipientId, status])
+  /// La file du décaissement lit le dossier DEPUIS l'ordre, en lot : sans cet index, chaque
+  /// écran de trois cents ordres balayait la table entière.
+  @@index([expenseOrderId])
 }
 
 /// UNE PIÈCE DU DOSSIER, avec sa conversation propre.

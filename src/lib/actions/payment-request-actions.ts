@@ -22,6 +22,7 @@ import {
   needsReplacement, type PaymentMove,
 } from "@/lib/finance/payment-request";
 import { canSubmitDossier } from "@/lib/finance/payment-dossier";
+import { canNudge, nudgeKindOf, nudgeMessage, NUDGE_LABEL, isCompanionDossier, canDecideFromDossier } from "@/lib/finance/dossier-auto";
 import { deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { ENTITY_MODULE } from "@/lib/entity-access";
 
@@ -508,6 +509,11 @@ export async function submitPaymentRequest(formData: FormData): Promise<ActionRe
     const req = await prisma.paymentRequest.findUnique({ where: { id }, include: { pieces: { select: { status: true, kind: true } } } });
     if (!req) return { ok: false, error: "Demande introuvable." };
     if (!isRequester(user, req)) return { ok: false, error: "Seul le demandeur transmet son dossier." };
+    // Un dossier COMPAGNON est déjà parti avec son ordre : le « transmettre » créerait un second
+    // ordre pour la même dépense.
+    if (isCompanionDossier(req.origin)) {
+      return { ok: false, error: "Ce dossier accompagne un ordre de dépense déjà transmis — il n'y a rien à envoyer." };
+    }
 
     const check = canResubmit(req, req.pieces);
     if (!check.ok) return { ok: false, error: check.reason ?? "Transmission impossible." };
@@ -642,6 +648,78 @@ export async function decidePaymentRequest(formData: FormData): Promise<ActionRe
   }
 }
 
+/**
+ * RELANCER, OU SIGNALER UNE URGENCE DE PAIEMENT.
+ *
+ * ── LE DÉFAUT QU'ON CORRIGE ─────────────────────────────────────────────────────────────────
+ *
+ * Une fois sa demande partie, le demandeur n'avait plus qu'un statut à regarder. C'est pourtant
+ * le moment où il en a le plus besoin : son fournisseur rappelle, sa quittance a une date, et il
+ * ne sait pas si quelqu'un a seulement ouvert le dossier. Il décrochait donc son téléphone — et
+ * la relance n'existait nulle part : ni trace, ni file, ni preuve qu'elle a eu lieu. Quand le
+ * paiement partait trois semaines plus tard, personne ne pouvait dire s'il avait prévenu.
+ *
+ * ── DEUX GESTES, ET ILS NE DISENT PAS LA MÊME CHOSE ─────────────────────────────────────────
+ *
+ *   • **RELANCER** — « où en est-on ? ». Le dossier remonte, personne n'est pris en faute ;
+ *   • **SIGNALER UNE URGENCE** — « ce paiement est devenu pressant, et voici pourquoi ». Il
+ *     REMONTE la priorité dans la file des Finances (`urgency`), ce qui n'est pas gratuit : d'où
+ *     le motif exigé, que les Finances liront pour arbitrer entre deux dossiers pressants.
+ *
+ * Les fondre en un seul bouton aurait fait de chaque relance une urgence, et une file où tout est
+ * urgent n'a plus de priorité du tout.
+ *
+ * La règle — qui peut, quand, et le délai de courtoisie — vit dans `finance/dossier-auto.ts`,
+ * module pur et testé. Le délai se lit sur le FIL du dossier : il porte déjà chaque relance, et
+ * une colonne « dernière relance » dirait la même chose une seconde fois (§118-5).
+ */
+export async function nudgePaymentRequest(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const id = fdStr(formData, "id");
+    if (!id) return { ok: false, error: "Demande introuvable." };
+    const req = await prisma.paymentRequest.findUnique({ where: { id } });
+    if (!req) return { ok: false, error: "Demande introuvable." };
+    // LE DEMANDEUR, ET LUI SEUL. Les Finances n'ont personne à relancer : le dossier est chez
+    // elles. Un tiers qui relance à la place du demandeur brouille la question « qui attend ? ».
+    if (req.requesterId !== user.id && !hasGlobalView(user.role)) {
+      return { ok: false, error: "Seul le demandeur peut relancer sa demande." };
+    }
+
+    const kind = nudgeKindOf(fdStr(formData, "kind"));
+    const comment = fdStr(formData, "comment");
+    const dernier = await prisma.paymentRequestEvent.findFirst({
+      where: { requestId: id, kind: kind === "URGENT" ? "URGENT" : "NUDGE", actorId: user.id },
+      orderBy: { at: "desc" }, select: { at: true },
+    });
+    const verdict = canNudge({ status: req.status, kind, comment, lastNudgeAt: dernier?.at ?? null });
+    if (!verdict.ok) return { ok: false, error: verdict.reason ?? "Relance impossible." };
+
+    const message = nudgeMessage(kind, req.reference, comment);
+    await trace(id, user.id, kind === "URGENT" ? "URGENT" : "NUDGE", comment || NUDGE_LABEL[kind]);
+    // UNE URGENCE DÉPLACE LE DOSSIER DANS LA FILE, sinon elle n'est qu'un message de plus. C'est
+    // `urgency` qui classe (`sortByPriority`) : le signaler sans le poser laisserait le dossier
+    // exactement où il était, et le demandeur croirait avoir agi.
+    if (kind === "URGENT" && req.urgency !== "URGENT") {
+      await prisma.paymentRequest.update({ where: { id }, data: { urgency: "URGENT" } });
+    }
+
+    const link = `${PATH}/${id}`;
+    const title = kind === "URGENT" ? "Paiement signalé urgent" : "Relance sur une demande de paiement";
+    if (req.recipientId) await notifyUser({ userId: req.recipientId, type: "VALIDATION_REQUIRED", title, body: message, link });
+    await notifyRoles(["FINANCE_BUDGET_MANAGER", "DIRECTION", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title, body: message, link });
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Demandes de paiement",
+      entityType: "PAYMENT_REQUEST", entityId: id, summary: message,
+    });
+    revalidate(id);
+    return { ok: true, id, message: kind === "URGENT" ? "Urgence signalée — les Finances sont prévenues." : "Relance envoyée." };
+  } catch (err) {
+    console.error("[payment] nudgePaymentRequest failed", err);
+    return { ok: false, error: "La relance n'a pas pu être envoyée." };
+  }
+}
+
 /** Le demandeur retire son dossier. */
 export async function cancelPaymentRequest(formData: FormData): Promise<ActionResult> {
   try {
@@ -651,6 +729,12 @@ export async function cancelPaymentRequest(formData: FormData): Promise<ActionRe
     const req = await prisma.paymentRequest.findUnique({ where: { id } });
     if (!req) return { ok: false, error: "Demande introuvable." };
     if (!isRequester(user, req)) return { ok: false, error: "Seul le demandeur retire sa demande." };
+    // RETIRER UN COMPAGNON NE RETIRERAIT RIEN. L'ordre de dépense, lui, resterait à régler : le
+    // dossier afficherait « annulée » sous un paiement qui part quand même. Une dépense se retire
+    // là où elle a été décidée, pas dans le dossier qui la documente.
+    if (isCompanionDossier(req.origin)) {
+      return { ok: false, error: "Ce dossier accompagne un ordre de dépense : le retirer n'annulerait pas le paiement. Passez par le circuit d'origine." };
+    }
     if (!nextPaymentStatus(req.status, "CANCEL")) return { ok: false, error: "Ce dossier est déjà clos." };
 
     await prisma.paymentRequest.update({ where: { id }, data: { status: "CANCELLED" } });
