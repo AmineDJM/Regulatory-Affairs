@@ -194,7 +194,7 @@ jamais identique.
 | **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (RBAC `PAYMENT_CENTRE` — PDG + Super Admin) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. **GUICHET UNIQUE** : aucun paiement n'atteint les Finances sans autorisation, **quel que soit le montant et le module** — plus de seuil, plus d'exemption. Une demande de paiement y entre **dès sa soumission**, avant l'instruction des Finances. Quatre issues (autoriser · refuser · révision du montant · argumentation) avec fil d'allers-retours. → [détails](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-le-pdg) |
 | **My Chief of Staff** | `/chief-of-staff` | **L'interface exécutive du PDG et du Super Admin** (module `CHIEF_OF_STAFF`) : piloter l'entreprise en langage naturel, **au clavier ou à la voix** (conversation vocale avec interruption). Recherche fédérée `search_everything` (~30 familles, tolérante aux accents/fautes), histoire complète d'un dossier (`inspect_record` : timeline, validateurs, chaîne devis→BC→facture→règlement — paiements, Legal, Regulatory, factures, courriers, projets, tâches), lecture des documents du Drive, calendrier + disponibilités, stocks, hôpitaux, paie, agrégats financiers, **signaux d'alerte proactifs**, **point exécutif**, **rapport consolidé .docx**, rappels récurrents (rôle ou personne nommée), et les **actions** — trancher un paiement, réassigner une tâche, chaîner une facture, **modifier un salaire (confirmation renforcée)** — toujours confirmées et auditées. → [architecture](docs/CHIEF_OF_STAFF_ARCHITECTURE.md) |
 | **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
-| **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **CHAQUE DÉPARTEMENT a ses moyens généraux** ; les **ressources humaines** pilotent le module (elles voient et dotent tous les départements, via un sélecteur), l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) : l'administration remet une somme chaque mois, la personne qui la détient **confirme l'avoir reçue** — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**, jusqu'à épuisement. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. **Annuaire d'entreprise** (`/moyens-generaux/annuaire`) : tous les contacts extérieurs de la société — agence de voyage, livreurs, agence marketing, imprimeur, transitaire… — par catégorie, cherchables, avec téléphone et e-mail cliquables. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
+| **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **CHAQUE DÉPARTEMENT a ses moyens généraux** ; les **ressources humaines** pilotent le module (elles voient et dotent tous les départements, via un sélecteur), l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) et elle est **CONTINUE** : chaque remise s'ajoute au fond et garde sa date, aucune ne clôt la précédente — solder est un geste, et il porte sur le fond entier. La personne qui la détient **confirme avoir reçu** chaque somme — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**. Les dépenses tiennent en **une seule liste, en tableau, filtrable sur « caisse d'avance »**. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. **Annuaire d'entreprise** (`/moyens-generaux/annuaire`) : tous les contacts extérieurs de la société — agence de voyage, livreurs, agence marketing, imprimeur, transitaire… — par catégorie, cherchables, avec téléphone et e-mail cliquables. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
 | **Formations** | `/formations` | Demande individuelle (montant, organisme, dates, devis) validée **N+1 → RH → DG**, et formations **organisées par les RH** (qui partent directement au DG) avec **participants convoqués ou volontaires** (les volontaires acceptent ou déclinent) et **postes** (salle, traiteur, intervenant) validés un par un par la Direction. Budget **FORMATION** parmi les budgets départementaux. |
 | **Promotion médicale** | `/medical/ma-journee` | **Ma journée** (KAM) : la **tournée proposée** du jour — les praticiens en retard sur leur **fréquence cible**, avec la raison chiffrée — et la **saisie d'une visite en 3 gestes** (praticien, produits de sa mallette pré-cochés P1, un mot dicté au clavier) ; une ligne de chiffres (fait/attendu, couverture du panel, rythme à tenir sur les **jours ouvrés algériens**). Onglet **Annuaire** : le référentiel des praticiens. → [détails](#force-de-vente--la-boucle-terrain) |
 | **Ventes** | `/sales` | CA pharma/PCH, **import CSV**, type **Produit / Service**. |
@@ -203,7 +203,7 @@ jamais identique.
 | **Stocks** | `/stocks` | Refonte en **états datés** (« à cette date, il reste X ») — **sans** entrées/sorties : 3 onglets **Stock PCH · Stock hôpitaux · Annexes PCH** (hôpitaux **et** annexes PCH = lieux nommés, créés/supprimés **uniquement par le Super Admin**), **vue par produit** (catalogue Regulatory) en **graphique** (courbe date → quantité) ou **tableau** (avec évolution entre relevés), un état par jour (ressaisie = correction). Le détecteur « Stock PCH bas » du Brain lit en priorité le dernier état. |
 | **Rapports terrain** | `/field-reports` | **Rapports vocaux IA** des délégués : parler → transcription → analyse → relecture → validation. Onglet **« Overview »** (`/field-reports/overview`) : **graphes d'analyse** (visites par médecin / hôpital / délégué / spécialité, tendance 12 mois, statut, produits) — accès **par autorisation du Super Admin** (`fieldReportsOverviewRoles`). La fiche d'un rapport est gardée par le module **Rapports terrain** (et non plus « Promotion médicale »). → [détails](#-intelligence-artificielle-claude--whisper) |
 | **Annuaire** *(ex-« Promotion médicale »)* | `/medical` | **Annuaire structuré** : Spécialité → Secteur (Hôpital / Libéral) → médecins, titre/grade. Onglet **Annuaire** (`/medical/annuaire`) = **feuille modifiable en place** (12 colonnes exactes, 58 wilayas, potentiel, export), en **plusieurs annuaires nommés** (« Cardiologues Centre », « Pédiatres Ouest »…) qu'on crée, renomme et supprime — la suppression d'un annuaire **déplace ses praticiens** vers un autre plutôt que de les détruire. **Segmentation à 5 niveaux** (Très haut / Haut / Moyen / Bas / Très bas) pour **influence**, **potentiel** et **affinité**, **par spécialité et par produit**, médecins **et** pharmaciens. Visites & tournées **scopées par délégué**, plans de tournées **duplicables**. |
-| **Information médicale** | `/information-medicale` | Module du **pharmacien responsable de l'information médicale (PRIM)** : déclaration réglementaire **intercalée** entre la validation de la Direction et l'ordre de dépense ; **consultation des pièces de l'événement source**, upload de la déclaration, affichage du demandeur. → [workflow](#information-médicale--déclaration-réglementaire-prim) |
+| **Information médicale** | `/information-medicale` | Module du **pharmacien responsable de l'information médicale (PRIM)**, en **DEUX CIRCUITS** que la nature du dossier décide. **Événements & prises en charge** (national, international, événements, sponsorings) : aucun bon de versement — le PRIM soumet sa **lecture** (« à déclarer au ministère » ou « sans déclaration », motif exigé), la fait valider, puis dépose auprès du **ministère de l'Industrie pharmaceutique** et valide. **Matériel promotionnel** : le dossier se sépare en **matériels**, un **bon de versement par matériel**, **une** validation pour le dépôt du lot, puis le paiement de **chaque quittance séparément** (centre de paiement → Finances → remise au bureau). Le PRIM peut aussi **ouvrir lui-même** un dossier (déclaration MIP · visa publicitaire · bon de versement). **Consultation des pièces de l'événement source**, demande de pièces, affichage du demandeur. → [workflow](#information-médicale--déclaration-réglementaire-prim) |
 | **Business Development** | `/business-development` | **Grand tableau stratégique Projet → Gamme → Produit** (~20 colonnes), colonnes gelées, export CSV. **Intègre Pharmatool** : pipeline de données concurrentielles, **Vue d'ensemble**, **moteur de matching DCI**, **Opportunités**, **Pricing** (ville / hôpital), **Analyse produit / concurrence** (HHI, parts de marché, radar), **Explorateur produits** (recherche **en temps réel** + filtres classe/labo, sélection multi-produits, comparaison volume/prix/valeur). |
 
 ### Transverse
@@ -482,19 +482,41 @@ Demande (employé) — simple OU multi-cellules (lot), articles depuis le catalo
 Chaque **cellule** d'une demande multi-cellules est pilotée **indépendamment** (statut + validations). La
 **suppression** par l'assistante est **traçable** (corbeille + motif + audit, restauration possible).
 
-### Information médicale — déclaration réglementaire (PRIM)
+### Information médicale — deux circuits, et la nature du dossier décide (PRIM)
 
 Étape **intercalée** entre la validation définitive de la Direction et l'ordre de dépense (uniquement si un
-pharmacien responsable est configuré ; sinon l'ordre part directement aux Finances) :
+pharmacien responsable est configuré ; sinon l'ordre part directement aux Finances). **Le bon de versement
+ne concerne que le matériel promotionnel** — c'est ce qui sépare les deux circuits, et aucun geste ne permet
+de faire changer un dossier de chemin (`lib/medical-info/circuits.ts`) :
 
 ```
-Direction valide définitivement  →  PAS encore d'ordre de dépense
+CIRCUIT ÉVÉNEMENT — prise en charge nationale / internationale, événement, sponsoring
    → MedicalInfoDeclaration (DIM-AAAA-NNN) notifiée au pharmacien
-   → le pharmacien CONSULTE les pièces de l'événement source + déclare aux autorités
-   → il EXIGE des pièces (Direction / comptable / délégué…) — non obligatoires selon le cas
-   → les destinataires DÉPOSENT les pièces (visibles dans Mon travail)
-   → le pharmacien VALIDE  →  l'ordre de dépense est enfin émis vers le comptable
+   → il SOUMET sa lecture : « à déclarer au ministère » ou « sans déclaration » (motif EXIGÉ)
+   → trois signatures : son responsable, le chef de produit du dossier, le centre de validations
+   → accordée : il réclame les pièces s'il en manque, dépose auprès du ministère de l'Industrie
+     pharmaceutique, enregistre la référence
+   → il VALIDE  →  la Direction valide  →  l'ordre de dépense part au comptable
+
+CIRCUIT MATÉRIEL PROMOTIONNEL
+   → il réclame les pièces s'il en manque
+   → il SÉPARE le dossier en matériels — un bon de versement PAR matériel
+   → UNE validation couvre le dépôt du lot (mêmes trois signatures)
+   → accordée : il demande le paiement de CHAQUE quittance séparément
+     (centre de paiement → Finances → REMISE de la quittance à son bureau)
+   → toutes remises : le dépôt aux autorités s'ouvre, puis il VALIDE
 ```
+
+**Ce qu'on fait valider est la LECTURE, pas la question.** Une demande de validation répond oui ou non :
+poser « faut-il déclarer ? » aurait fait dire « refusé » pour signifier « non, ne déclarez pas », et un
+dossier parfaitement conforme aurait été marqué comme rejeté.
+
+**Une validation pour le lot, un paiement par bon.** Faire signer cinq fois la même décision n'ajoute
+aucune sécurité : cela ajoute quatre relances. À l'inverse, grouper les paiements obligerait à attendre le
+dernier matériel pour déposer le premier. Un refus du centre rouvre CE bon, et lui seul.
+
+**Le PRIM ouvre aussi ses propres dossiers** — déclaration MIP, demande de visa publicitaire, bon de
+versement — sans attendre qu'un événement les lui envoie ; la nature choisie décide du circuit.
 
 ### Ordres de dépense — aller-retour comptable ↔ Direction
 
@@ -3525,6 +3547,84 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### La caisse d'avance devient continue, et les dépenses tiennent en un tableau filtrable (2026-09)
+
+**La caisse était UNE BOÎTE PAR MOIS.** Remettre 50 000 DZD en septembre ouvrait « la caisse de
+septembre » et faisait sortir de l'écran les 30 000 d'août — dont l'argent était pourtant toujours
+dans le tiroir. Rien n'était soldé : le mois précédent devenait invisible, et il fallait deviner le
+paramètre d'URL qui le ramène. Le solde affiché était faux.
+
+Il n'y a désormais qu'**une caisse par département, continue** : chaque remise est une LIGNE qui
+s'ajoute au fond, avec sa date, sa période et sa confirmation de réception. Ce qui disparaît, c'est
+l'idée qu'un mois solde le précédent — pas les dates, qui restent toutes enregistrées. Solder reste
+possible, mais c'est un geste, et il porte sur le **fond entier** : n'arrêter qu'une remise
+retirerait son montant en y laissant les dépenses imputées sur les autres. Conséquence concrète :
+trois remises de 20 000 paient un achat de 55 000, que le calcul par mois refusait.
+
+**Une seule liste de dépenses, en tableau, avec un filtre « caisse d'avance ».** Le bloc « Dépenses
+de la caisse » était un sous-ensemble de « Toutes les dépenses » : les mêmes achats, deux endroits,
+deux compteurs qui ne se recoupaient pas. Ce qui les distinguait est devenu un filtre, qui affiche
+le total de ce qu'il montre.
+
+Module pur `lib/general-means/continuous-cash.ts` (22 tests) — SEUL calculateur ; le solde par mois
+de `petty-cash.ts` disparaît, en garder deux aurait laissé deux arithmétiques contradictoires dès la
+deuxième remise. `lib/actions/continuous-cash.test.ts` (7) part des actions réelles.
+
+### Legal — les accès d'un document se gèrent depuis sa fiche (2026-09)
+
+La restriction par lecteurs nommés existait, mais la liste ne se choisissait **qu'à la création** :
+`setLegalReaders` n'avait **aucun appelant de production** (§118-14), seul l'assistant pouvait
+l'appeler. On redéposait donc le document pour corriger une liste — deux exemplaires du même
+contrat, dont un aux mauvais accès — ou l'on envoyait le fichier par mail, ce que la restriction
+sert précisément à éviter. La fiche porte désormais une carte « Accès au document » ; la règle
+« déposant + Super Admin, jamais le simple droit d'écriture » passe dans `lib/legal/readers.ts`
+(`canManageLegalReaders`) pour que l'écran pose exactement la question que l'action revérifie.
+
+### Information médicale — deux circuits, et un bon de versement par matériel (2026-09)
+
+Le module exigeait un **bon de versement** avant toute déclaration, quelle que soit la nature du
+dossier. Or cette taxe ne concerne QUE le matériel promotionnel : chaque prise en charge, chaque
+sponsoring sortait par la porte « ce dossier n'appelle aucun versement », motif à l'appui — un
+contournement obligatoire n'est plus une porte de sortie, c'est le chemin normal mal nommé.
+
+- **Circuit ÉVÉNEMENT** (prises en charge, événements, sponsorings) : le pharmacien SOUMET sa
+  lecture — « à déclarer au ministère » ou « sans déclaration », motif exigé — et la fait valider
+  (responsable, chef de produit, centre). Accordée, elle ouvre le dépôt au ministère.
+- **Circuit MATÉRIEL** : le dossier se sépare en **matériels**, un bon par matériel ; **une** seule
+  validation couvre le dépôt du lot, puis le paiement de **chaque quittance se demande
+  séparément**. Un refus du centre rouvre ce bon, et lui seul.
+- **Le PRIM ouvre lui-même un dossier** (déclaration MIP · visa publicitaire · bon de versement), et
+  la nature choisie décide du circuit.
+
+Modules purs `lib/medical-info/{circuits,declare-decision,slips}.ts` (47 tests) + `circuit-state.ts`.
+Migration `20261009090000` avec reprise (le bon unique devient le premier matériel ; les dossiers
+d'événement déjà instruits sont réputés décidés). Quatre ops Adam nouvelles, trois reformulées.
+
+### Ad&Pro — joindre une pièce, et rattacher une facture à l'événement (2026-09)
+
+« On veut associer une facture à l'événement, mais je n'arrive pas à joindre de PJ. » Deux causes.
+`canAccessEntity(..., "UPLOAD")` réclamait la case `UPLOAD` du module, et elle seule : la Direction
+qui valide, le chef de produit qui analyse ne pouvaient rien déposer — ils envoyaient la facture par
+mail, dossier vide. La règle devient **qui peut décider du dossier peut y joindre sa facture**
+(`lib/ad-pro/attachments.ts`, 10 tests), appliquée d'abord **côté serveur** : afficher le bouton
+sans ouvrir la porte n'aurait déplacé le refus qu'après le téléversement. Et le bloc « Engagements,
+factures et courriers liés » n'existait que sur le sponsoring alors que le mécanisme connaissait
+déjà les congrès, les événements et le matériel : il y est désormais partout.
+
+### L'entité, colonne vertébrale de l'argent (2026-09)
+
+L'entité d'un mouvement d'argent était **facultative et implicite**, et pire : elle venait de la
+**portée d'affichage**. Un délégué de Pharmagène qui consultait Adventum imputait sa demande à
+Adventum — la société qui paie était décidée par un cookie. `moneyEntityOf` inverse l'ordre pour
+l'argent (fiche employé → département → portée), et les demandes Ad&Pro comme les demandes de
+paiement l'utilisent. Le formulaire porte un **sélecteur d'entité exigé à l'envoi** ; la file des
+Finances est **rangée par société**, chacune avec son total, et ce qui n'en porte aucune forme un
+groupe nommé. La **paie suit le sélecteur d'entité** et la masse salariale s'affiche société par
+société. Enfin, transférer la paie au budget **RECALCULE et REMPLACE** la masse salariale du
+département au lieu de l'ajouter : incrémenter supposerait de ne jamais transférer deux fois, de ne
+jamais corriger une ligne, de ne jamais annuler un paiement. Modules purs
+`lib/finance/money-entity.ts` (17 tests) et `lib/hr/payroll-mass.ts` (12 tests).
 
 ### « Le DG ne voit rien dans son centre de paiement, c'est tout blanc » (2026-09)
 
