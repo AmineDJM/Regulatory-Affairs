@@ -9077,6 +9077,15 @@ model DocumentRequest {
   note    String?
   dueDate DateTime?
 
+  /// LA NATURE DE LA PIÈCE — même vocabulaire qu'une pièce de dossier de paiement (`INVOICE`,
+  /// `PURCHASE_ORDER`, `QUOTE`, `DELIVERY_NOTE`, `CONTRACT`, `PROOF`, `OTHER`). C'est elle qui
+  /// décide si la pièce, une fois acceptée, rejoint le registre des engagements (Legal).
+  /// Voir `src/lib/legal/from-piece.ts`.
+  kind String @default("OTHER")
+  /// La pièce Legal née de cette demande, quand il y en a une. Elle rend le classement
+  /// IDEMPOTENT (on n'enregistre pas deux fois) et TRAÇABLE (le fil dit où la pièce est allée).
+  legalDocumentId String?
+
   askedById String
   askedBy   User   @relation("DocRequestAsker", fields: [askedById], references: [id], onDelete: Cascade)
   askedToId String

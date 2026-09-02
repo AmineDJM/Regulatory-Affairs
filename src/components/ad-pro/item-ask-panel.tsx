@@ -8,6 +8,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { requestDocument, askablePeople } from "@/lib/actions/document-request-actions";
+import { pieceKindOptions, filingNotice } from "@/lib/legal/from-piece";
 import { createValidationRequest } from "@/lib/actions/validation-actions";
 
 /**
@@ -55,6 +56,7 @@ export function ItemAskPanel({
   const [done, setDone] = React.useState<{ href: string; text: string } | null>(null);
 
   const [label, setLabel] = React.useState("");
+  const [kind, setKind] = React.useState("INVOICE");
   const [who, setWho] = React.useState("");
   const [who2, setWho2] = React.useState("");
   const [due, setDue] = React.useState("");
@@ -62,7 +64,7 @@ export function ItemAskPanel({
 
   const open = async (m: "piece" | "validation") => {
     setMode(m); setErr(null); setDone(null);
-    setLabel(""); setWho(""); setWho2(""); setDue(""); setNote("");
+    setLabel(""); setKind("INVOICE"); setWho(""); setWho2(""); setDue(""); setNote("");
     if (people === null) setPeople(await askablePeople());
   };
 
@@ -73,6 +75,7 @@ export function ItemAskPanel({
     fd.set("entityId", entityId);
     fd.set("link", link);
     fd.set("label", label);
+    fd.set("kind", kind);
     fd.set("askedToId", who);
     fd.set("dueDate", due);
     fd.set("note", note);
@@ -171,6 +174,18 @@ export function ItemAskPanel({
                   <option value="">— Aucun —</option>
                   {(people ?? []).filter((p) => p.id !== who).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </Select>
+              </div>
+            )}
+
+            {mode === "piece" && (
+              // LA NATURE DE LA PIÈCE, et ce qu'elle entraîne — dit AVANT l'envoi. Une facture ou
+              // un bon de commande acceptés rejoignent le registre des engagements (Legal).
+              <div className="space-y-1.5">
+                <Label htmlFor="ask-kind">Nature de la pièce</Label>
+                <Select id="ask-kind" value={kind} onChange={(e) => setKind(e.target.value)}>
+                  {pieceKindOptions().map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+                {filingNotice(kind) && <p className="text-xs text-muted-foreground">{filingNotice(kind)}</p>}
               </div>
             )}
 

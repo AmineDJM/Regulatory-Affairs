@@ -17,6 +17,7 @@ import { PAYMENT_PIECE_STATUS, PAYMENT_PIECE_KIND, PAYMENT_PIECE_KIND_OPTIONS, V
 import { needsReplacement, tallyPieces } from "@/lib/finance/payment-request";
 import { dossierHint, isBonDeVersement } from "@/lib/finance/payment-dossier";
 import { companionNotice } from "@/lib/finance/dossier-auto";
+import { pieceKindOptions, filingNotice } from "@/lib/legal/from-piece";
 import {
   addPaymentPiece, commentPaymentPiece, reviewPaymentPiece, addPaymentComment,
   submitPaymentRequest, decidePaymentRequest, cancelPaymentRequest, updatePaymentRequestDetails,
@@ -589,6 +590,7 @@ function AskPiece({
   const [people, setPeople] = React.useState<{ id: string; name: string }[] | null>(null);
   const [who, setWho] = React.useState("");
   const [label, setLabel] = React.useState("");
+  const [kind, setKind] = React.useState("INVOICE");
   const [due, setDue] = React.useState("");
   const [note, setNote] = React.useState("");
   const [sending, setSending] = React.useState(false);
@@ -596,7 +598,7 @@ function AskPiece({
 
   const ouvrir = async () => {
     setOpen(true); setErr(null); setDone(null);
-    setWho(""); setLabel(""); setDue(""); setNote("");
+    setWho(""); setLabel(""); setKind("INVOICE"); setDue(""); setNote("");
     if (people === null) setPeople(await askablePeople());
   };
 
@@ -621,6 +623,16 @@ function AskPiece({
             <p className="text-xs text-muted-foreground">
               Dites-le en clair : la personne n&apos;a pas le dossier sous les yeux, « pièce n° 3 » ne lui apprend rien.
             </p>
+          </div>
+          {/* LA NATURE DE LA PIÈCE — et ce qu'elle entraîne, DIT AVANT l'envoi. Une facture ou
+              un bon de commande acceptés rejoignent le registre des engagements (Legal) ; un
+              classement qui se produit sans être annoncé se découvre par accident. */}
+          <div className="space-y-1.5">
+            <Label htmlFor="ap-kind">Nature de la pièce</Label>
+            <Select id="ap-kind" value={kind} onChange={(e) => setKind(e.target.value)}>
+              {pieceKindOptions().map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </Select>
+            {filingNotice(kind) && <p className="text-xs text-muted-foreground">{filingNotice(kind)}</p>}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="ap-due">Pour le</Label>
@@ -647,13 +659,14 @@ function AskPiece({
                 fd.set("link", `/validations/paiements/${requestId}`);
                 fd.set("askedToId", who);
                 fd.set("label", label.trim());
+                fd.set("kind", kind);
                 fd.set("dueDate", due);
                 fd.set("note", note);
                 const r = await requestDocument(fd);
                 setSending(false);
                 if (!r.ok) { setErr(r.error ?? "La demande n'a pas pu être créée."); return; }
                 setDone(label.trim());
-                setWho(""); setLabel(""); setDue(""); setNote("");
+                setWho(""); setLabel(""); setKind("INVOICE"); setDue(""); setNote("");
                 router.refresh();
               }}
             >

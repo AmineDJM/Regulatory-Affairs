@@ -1,6 +1,6 @@
 "use server";
 
-import type { DocumentRequestStatus, EntityType } from "@prisma/client";
+import type { DocumentRequestStatus, EntityType, LegalDocKind } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { hasGlobalView } from "@/lib/rbac";
@@ -10,6 +10,8 @@ import { notifyUser } from "@/lib/notify";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { nextDocRequestStatus, canSubmit, canDecide, canCancel } from "@/lib/doc-request";
+import { companyIdForNew } from "@/lib/company";
+import { pieceKindOf, legalKindOfPiece, legalTitleFromPiece, PIECE_KIND_LABEL } from "@/lib/legal/from-piece";
 
 const PATH = "/pieces";
 
@@ -65,6 +67,8 @@ export async function requestDocument(formData: FormData): Promise<ActionResult>
           entityId,
           link: fdStr(formData, "link"),
           label,
+          // LA NATURE DE LA PIÈCE — c'est elle qui décide si l'acceptation la classe dans Legal.
+          kind: pieceKindOf(fdStr(formData, "kind")),
           note: fdStr(formData, "note"),
           dueDate: dateOf(fdStr(formData, "dueDate")),
           askedById: user.id,
@@ -124,6 +128,74 @@ export async function submitDocumentRequest(formData: FormData): Promise<ActionR
   }
 }
 
+/**
+ * CLASSER LA PIÈCE ACCEPTÉE DANS LEGAL — quand sa nature engage la société.
+ *
+ * ── CE QUI SE PASSE, ET DANS QUEL ORDRE ─────────────────────────────────────────────────────
+ *
+ * Une pièce Legal est créée sous la nature déclarée (facture, bon de commande, devis, contrat),
+ * et les fichiers déposés DÉMÉNAGENT vers elle. Ils ne sont pas recopiés : un fichier, un seul
+ * domicile — deux copies divergent le jour où l'une est remplacée. Le fil de la demande continue
+ * de les montrer, en les lisant à leur nouvelle adresse (`/pieces/[id]`).
+ *
+ * ── LES DROITS, QUI SONT LE VRAI PIÈGE ──────────────────────────────────────────────────────
+ *
+ * Un document Legal SANS lecteur désigné est visible de TOUT le module. Classer sans y penser
+ * exposerait donc, en silence, une facture à des gens qui n'avaient rien à en connaître. La pièce
+ * naît RESTREINTE — celui qui a demandé, celui qui a déposé — et Legal offre déjà le geste
+ * inverse, explicite : « Ouvrir à tout le module ».
+ *
+ * BEST-EFFORT : un classement qui échoue ne doit pas annuler l'acceptation. La pièce est bien
+ * déposée et acceptée ; ce qui manque est son entrée au registre, et elle se rattrape.
+ */
+async function classerDansLegal(
+  req: { id: string; reference: string; label: string; kind: string; legalDocumentId: string | null; askedById: string; askedToId: string },
+  actorId: string,
+): Promise<{ id: string; kindLabel: string } | null> {
+  const legalKind = legalKindOfPiece(req.kind);
+  if (!legalKind) return null;
+  // Déjà classée : accepter une seconde fois ne crée pas un second engagement.
+  if (req.legalDocumentId) return null;
+  try {
+    const doc = await prisma.legalDocument.create({
+      data: {
+        title: legalTitleFromPiece(req.label, req.reference),
+        kind: legalKind as LegalDocKind,
+        companyId: await companyIdForNew(actorId),
+        sourceType: "DOCUMENT_REQUEST",
+        sourceId: req.id,
+        createdById: actorId,
+        updatedById: actorId,
+        // Ni référence, ni montant, ni dates, ni contrepartie : on n'INVENTE rien à partir d'un
+        // fichier qu'on n'a pas lu. Ce sont des champs qu'un humain remplit en ouvrant la pièce.
+        notes: `Enregistrée depuis la demande de pièce ${req.reference}.`,
+      },
+      select: { id: true },
+    });
+    // LES LECTEURS SUIVENT — sans quoi classer une facture l'exposerait à tout le module.
+    await prisma.legalDocumentReader.createMany({
+      data: [...new Set([req.askedById, req.askedToId, actorId])].map((userId) => ({
+        documentId: doc.id, userId, grantedById: actorId,
+      })),
+      skipDuplicates: true,
+    });
+    // LE FICHIER DÉMÉNAGE, il n'est pas recopié.
+    await prisma.document.updateMany({
+      where: { entityType: "DOCUMENT_REQUEST", entityId: req.id },
+      data: { entityType: "LEGAL_DOCUMENT", entityId: doc.id },
+    });
+    await prisma.documentRequest.update({ where: { id: req.id }, data: { legalDocumentId: doc.id } });
+    await recordAudit({
+      actorId, action: "CREATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: doc.id,
+      summary: `Pièce ${req.reference} enregistrée dans Legal (${legalKind}) — ${req.label}`,
+    });
+    return { id: doc.id, kindLabel: PIECE_KIND_LABEL[pieceKindOf(req.kind)].toLowerCase() };
+  } catch (e) {
+    console.error("[doc-request] classement Legal impossible", e);
+    return null;
+  }
+}
+
 /** Celui qui a demandé accepte la pièce, ou la refuse — et la demande repart alors. */
 export async function decideDocumentRequest(formData: FormData): Promise<ActionResult> {
   try {
@@ -147,6 +219,13 @@ export async function decideDocumentRequest(formData: FormData): Promise<ActionR
         closedById: accept ? user.id : null,
       },
     });
+    // ── LA PIÈCE ACCEPTÉE REJOINT LE REGISTRE DES ENGAGEMENTS ─────────────────────────────
+    //
+    // À l'ACCEPTATION, et non au dépôt : le registre ne doit contenir que des pièces que
+    // quelqu'un a regardées. Une facture déposée puis refusée — mauvais montant, mauvaise
+    // société — y resterait comme un engagement de la société.
+    const classement = accept ? await classerDansLegal(req, user.id) : null;
+
     await notifyUser({
       userId: req.askedToId, type: "GENERIC",
       title: accept ? "Pièce acceptée" : "Pièce refusée — à redéposer",
@@ -158,7 +237,11 @@ export async function decideDocumentRequest(formData: FormData): Promise<ActionR
       summary: `${accept ? "Pièce acceptée" : "Pièce refusée"} — ${req.reference}`,
     });
     revalidate(id, req.link);
-    return { ok: true, id };
+    if (classement) revalidatePath("/legal");
+    return {
+      ok: true, id,
+      message: classement ? `Pièce acceptée et enregistrée dans Legal (${classement.kindLabel}).` : undefined,
+    };
   } catch (err) {
     console.error("[doc-request] decideDocumentRequest failed", err);
     return { ok: false, error: "La décision n'a pas pu être enregistrée." };

@@ -15,6 +15,7 @@ import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { PIECE_REQUEST_STATUS, ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { canSubmit, canDecide, canCancel, isLate, docRequestSummary } from "@/lib/doc-request";
+import { PIECE_KIND_LABEL, pieceKindOf } from "@/lib/legal/from-piece";
 import { RespondPanel } from "./respond-panel";
 
 export const dynamic = "force-dynamic";
@@ -39,8 +40,19 @@ export default async function DocumentRequestPage({ params }: { params: { id: st
   // découvrir qu'on réclame une facture à quelqu'un.
   if (!involved) redirect("/pieces");
 
+  // LE FIL CONTINUE DE MONTRER CE QUI A ÉTÉ DÉPOSÉ, MÊME APRÈS CLASSEMENT.
+  //
+  // Une pièce acceptée dont la nature engage la société (facture, bon de commande, devis,
+  // contrat) DÉMÉNAGE vers Legal — un fichier, un seul domicile ; deux copies divergent le jour
+  // où l'une est remplacée. On lit donc les documents aux DEUX adresses : sans cela, le fil
+  // afficherait « aucune pièce » juste après l'acceptation, ce qui se lit comme une perte.
   const documents = await prisma.document.findMany({
-    where: { entityType: "DOCUMENT_REQUEST", entityId: req.id },
+    where: {
+      OR: [
+        { entityType: "DOCUMENT_REQUEST", entityId: req.id },
+        ...(req.legalDocumentId ? [{ entityType: "LEGAL_DOCUMENT" as const, entityId: req.legalDocumentId }] : []),
+      ],
+    },
     include: { uploadedBy: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
   });
@@ -80,6 +92,22 @@ export default async function DocumentRequestPage({ params }: { params: { id: st
                   ) : (ENTITY_TYPE_LABELS[req.entityType] ?? req.entityType)}
                 </p>
               </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Nature</p>
+                <p className="font-medium">{PIECE_KIND_LABEL[pieceKindOf(req.kind)]}</p>
+              </div>
+              {/* OÙ LA PIÈCE EST ALLÉE — le registre des engagements. Sans ce lien, on la
+                  chercherait dans le Drive, puis on la redemanderait. */}
+              {req.legalDocumentId && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Enregistrée dans</p>
+                  <p className="font-medium">
+                    <Link href={`/legal/${req.legalDocumentId}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                      Legal <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  </p>
+                </div>
+              )}
               {req.note && (
                 <div className="col-span-full">
                   <p className="text-xs text-muted-foreground">Précisions</p>
