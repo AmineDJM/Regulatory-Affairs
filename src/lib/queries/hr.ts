@@ -150,7 +150,15 @@ export async function getRhData(userId: string) {
           // SEULEMENT LES LIGNES PAYÉES. Annuler un paiement remet la ligne en brouillon mais
           // LUI LAISSE SES MONTANTS : sans ce filtre, un salaire annulé continuait de peser dans
           // la masse — un décaissement qui n'a pas eu lieu, compté comme s'il avait eu lieu.
-          where: { year: lastPayroll.year, month: lastPayroll.month, status: "PAID" },
+          //
+          // ET SEULEMENT LES SALARIÉS DE LA PORTÉE. L'effectif était filtré par entité, la masse
+          // salariale ne l'était pas : on lisait « 10 actifs » d'une société sous une masse
+          // salariale du GROUPE ENTIER. Le total n'était pas faux, il répondait simplement à une
+          // autre question que celle posée — le piège que ce fichier documente déjà deux fois.
+          where: {
+            year: lastPayroll.year, month: lastPayroll.month, status: "PAID",
+            employeeId: { in: employees.map((e) => e.id) },
+          },
           // L'ENTITÉ DE CHAQUE LIGNE — sans elle, la masse salariale ne se ventile pas, et un
           // total « groupe » se retrouve présenté comme celui d'une société.
           select: { employerCost: true, gross: true, bonuses: true, deductions: true, employee: { select: { companyId: true } } },

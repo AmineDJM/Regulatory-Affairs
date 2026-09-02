@@ -6,6 +6,8 @@ import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, anyRoleFilter, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { moneyEntityOf } from "@/lib/company";
+import { readMultiField } from "@/lib/ad-pro/pickers";
+import { normalizeCity } from "@/lib/geo/algeria";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { attachFiles } from "@/lib/attach-files";
@@ -66,15 +68,22 @@ export async function createSponsoring(
     data: {
       reference,
       institution,
-      doctor: fdStr(formData, "doctor"),
+      // PLUSIEURS MÉDECINS, PLUSIEURS PRODUITS. Le formulaire envoie une entrée par case cochée ;
+      // la colonne, elle, est un texte lu partout (liste, fiche, libellé de l'ordre de dépense,
+      // notification). On joint donc les noms choisis — et la saisie libre reste acceptée pour les
+      // écrans anciens et pour le cas où le référentiel est vide : refuser une valeur qu'on n'a
+      // pas su proposer, c'est bloquer une demande légitime pour un défaut de table.
+      doctor: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
       specialty: fdStr(formData, "specialty"),
-      city: fdStr(formData, "city"),
+      // La ville vient du référentiel des wilayas ; `normalizeCity` remet une saisie ancienne dans
+      // sa forme officielle sans jamais effacer ce qu'elle ne sait pas rattacher.
+      city: normalizeCity(fdStr(formData, "city")),
       type: fdStr(formData, "type") ?? "Sponsoring",
       description: fdStr(formData, "description"),
       comments: fdStr(formData, "comments"),
       amountRequested: fdNum(formData, "amountRequested"),
       amountProposed: fdNum(formData, "amountProposed"),
-      product: fdStr(formData, "product"),
+      product: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product")),
       strategicImportance: (fdStr(formData, "strategicImportance") as Priority) ?? "MEDIUM",
       status: init.status as SponsoringStatus,
       requesterId: user.id,

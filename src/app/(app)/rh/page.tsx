@@ -120,6 +120,31 @@ export default async function RhPage() {
         />
       </div>
 
+      {/* LA MASSE SALARIALE, SOCIÉTÉ PAR SOCIÉTÉ — la somme des coûts employeur écrits dans la
+          paie de chacun. Elle était calculée et n'était affichée nulle part : on lisait un total
+          de groupe sous un effectif d'entité. Un agrégat sans sa portée est un piège — il est
+          juste, il se dit avec aplomb, et il répond à une autre question que celle posée. */}
+      {data.byCompany.length > 1 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Masse salariale par entité</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Somme des <strong>coûts employeur</strong> saisis dans la paie ({data.stats.masseSalarialeSource}) —
+              charges patronales comprises, c&apos;est ce que chaque société décaisse réellement.
+            </p>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+            {data.byCompany.map((c) => (
+              <div key={c.id ?? "sans"} className={`rounded-lg border px-3 py-2 ${c.id ? "border-border" : "border-warning/40 bg-warning/5"}`}>
+                <p className="truncate text-xs text-muted-foreground" title={c.fullName ?? c.label}>{c.label}</p>
+                <p className="text-lg font-semibold tabular-nums">{formatCurrency(c.masseSalariale)}</p>
+                <p className="text-[0.6875rem] text-muted-foreground">{c.active} actif{c.active > 1 ? "s" : ""} sur {c.total}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {canValidate && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Demandes RH à traiter ({openHrRequests.length})</h2>

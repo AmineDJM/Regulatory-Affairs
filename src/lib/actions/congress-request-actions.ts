@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, anyRoleFilter, type Module } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { moneyEntityOf } from "@/lib/company";
+import { normalizeCity } from "@/lib/geo/algeria";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
@@ -97,7 +98,9 @@ export async function createCongressRequest(
           data: {
             ...common,
             country: fdStr(formData, "country"),
-            city: fdStr(formData, "city"),
+            // La ville vient du référentiel des wilayas ; une saisie ancienne reprend sa forme
+            // officielle, et ce qu'on ne sait pas rattacher est conservé tel quel.
+            city: normalizeCity(fdStr(formData, "city")),
             startDate: fdDate(formData, "startDate"),
             endDate: fdDate(formData, "endDate"),
           },
@@ -108,7 +111,9 @@ export async function createCongressRequest(
             // Une prise en charge « nationale » peut se tenir hors d'Algérie : le pays reste
             // demandé des deux côtés, simplement facultatif.
             country: fdStr(formData, "country"),
-            city: fdStr(formData, "city"),
+            // La ville vient du référentiel des wilayas ; une saisie ancienne reprend sa forme
+            // officielle, et ce qu'on ne sait pas rattacher est conservé tel quel.
+            city: normalizeCity(fdStr(formData, "city")),
             hostInstitution: fdStr(formData, "hostInstitution"),
             date: fdDate(formData, "date"),
           },

@@ -107,7 +107,10 @@ export function NewRequestPicker({ kinds, data, canDesignatePM, canChooseAnalysi
                 {...nav}
                 action={createSponsoring}
                 redirectBase="/sponsoring"
-                fields={sponsoringCreateFields({ productManagers: data.productManagers, canDesignatePM, canChooseAnalysis })}
+                fields={sponsoringCreateFields({
+                  productManagers: data.productManagers, canDesignatePM, canChooseAnalysis,
+                  products: data.products, doctors: data.doctors,
+                })}
               />
             )}
             {spec.kind === "CONGRESS_INTERNATIONAL" && (

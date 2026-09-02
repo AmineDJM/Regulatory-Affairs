@@ -65,6 +65,20 @@ export function AttachToSourceButtons({ entityType, entityId, reference, kinds }
   // main, et c'est ce qui rend le rapprochement possible sur un relevé bancaire ou un tableur.
   const ref = (reference ?? "").trim() || undefined;
 
+  // ── LE SCAN PART AVEC LA PIÈCE, ET C'EST TOUT L'INTÉRÊT ────────────────────────────────────
+  //
+  // On créait ici une facture ou un engagement SANS pouvoir y joindre quoi que ce soit : il
+  // fallait enregistrer, retrouver la fiche dans son module, puis y téléverser le PDF. Trois
+  // écrans pour une pièce qu'on a sous la main au moment où l'on saisit — donc, en pratique, un
+  // PDF qui reste dans la boîte mail et une ligne d'ERP sans justificatif.
+  //
+  // Le champ s'appelle `attachment` : c'est le nom que `attachFormFiles` lit côté serveur, le
+  // même pour les trois natures. Un second nom aurait été un second chemin à maintenir.
+  const piece: FieldDef[] = [{
+    type: "file", name: "attachment", label: "Pièces jointes", multiple: true, full: true,
+    hint: "Le scan de la pièce — facture, bon de commande, courrier signé. Joint dès la création : c'est le seul moment où on l'a sous la main.",
+  }];
+
   const FIELDS: Record<Kind, FieldDef[]> = {
     legal: [
       ...link,
@@ -76,6 +90,7 @@ export function AttachToSourceButtons({ entityType, entityId, reference, kinds }
       { type: "date", name: "endDate", label: "Date de fin — vide = sans échéance" },
       { type: "number", name: "amount", label: "Montant (DZD)" },
       { type: "textarea", name: "notes", label: "Notes", full: true },
+      ...piece,
     ],
     invoice: [
       ...link,
@@ -88,6 +103,7 @@ export function AttachToSourceButtons({ entityType, entityId, reference, kinds }
       { type: "text", name: "recipient", label: "Destinataire (à qui elle est adressée)" },
       { type: "text", name: "payer", label: "Payeur (qui règle)" },
       { type: "textarea", name: "notes", label: "Notes", full: true },
+      ...piece,
     ],
     mail: [
       ...link,
@@ -104,6 +120,7 @@ export function AttachToSourceButtons({ entityType, entityId, reference, kinds }
       { type: "date", name: "receivedAt", label: "Arrivée" },
       { type: "text", name: "carrier", label: "Porteur (poste, coursier, e-mail…)" },
       { type: "textarea", name: "notes", label: "Notes", full: true },
+      ...piece,
     ],
   };
 

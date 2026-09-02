@@ -8,7 +8,10 @@ import { createCongressRequest } from "@/lib/actions/congress-request-actions";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
+import { wilayaOptions } from "@/lib/geo/algeria";
 import { NATIONAL_EVENT_TYPE, ROLE_LABELS } from "@/lib/labels";
+
+const WILAYA_OPTIONS = wilayaOptions();
 
 export interface DoctorOpt { id: string; name: string; specialty: string; city: string }
 export interface UserOpt { id: string; name: string; role: string }
@@ -112,14 +115,28 @@ export function CongressRequestForm({ national, doctors, users, canDesignatePM, 
           {national ? (
             <>
               <Field label="Pays"><Input name="country" placeholder="Algérie" /></Field>
-              <Field label="Ville"><Input name="city" /></Field>
+              {/* LA VILLE SE CHOISIT, elle ne se tape plus : on lisait « Alger », « alger »,
+                  « ALGER », « Algiers » dans la même colonne — remplie, mais inexploitable. */}
+              <Field label="Ville (wilaya)">
+                <Select name="city" defaultValue="">
+                  <option value="">— Choisir la wilaya —</option>
+                  {WILAYA_OPTIONS.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
+                </Select>
+              </Field>
               <Field label="Institution hôte"><Input name="hostInstitution" placeholder="Hôpital / association" /></Field>
               <Field label="Date"><Input name="date" type="date" /></Field>
             </>
           ) : (
             <>
               <Field label="Pays"><Input name="country" /></Field>
-              <Field label="Ville"><Input name="city" /></Field>
+              {/* LA VILLE SE CHOISIT, elle ne se tape plus : on lisait « Alger », « alger »,
+                  « ALGER », « Algiers » dans la même colonne — remplie, mais inexploitable. */}
+              <Field label="Ville (wilaya)">
+                <Select name="city" defaultValue="">
+                  <option value="">— Choisir la wilaya —</option>
+                  {WILAYA_OPTIONS.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
+                </Select>
+              </Field>
               <Field label="Date début"><Input name="startDate" type="date" /></Field>
               <Field label="Date fin"><Input name="endDate" type="date" /></Field>
             </>

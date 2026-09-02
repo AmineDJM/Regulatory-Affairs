@@ -9,6 +9,7 @@ import { ModuleTabs } from "@/components/shared/module-tabs";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
 import { canChooseAnalysisAtCreation, canDesignateProductManagerAtCreation, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { sponsoringCreateFields } from "@/lib/ad-pro/create-fields";
+import { AVAILABLE_PRODUCT_STATUSES } from "@/lib/ad-pro/pickers";
 import { EVENTS_TABS } from "@/lib/labels";
 import { SponsoringTable, type SponsoringRow } from "./sponsoring-table";
 
@@ -25,8 +26,26 @@ export default async function SponsoringPage() {
   // La Direction CHOISIT : trancher tout de suite, ou demander d'abord l'avis d'un chef de
   // produit. Le National Sales, lui, n'a pas ce choix — l'analyse est son étape suivante.
   const canChooseAnalysis = canChooseAnalysisAtCreation(user);
+  // LES RÉFÉRENTIELS DU FORMULAIRE — produits promouvables et médecins de l'annuaire. Les deux
+  // portes d'entrée (cet écran et le panneau commun d'Ad & Pro) les chargent de la même façon :
+  // un menu peuplé d'un côté et vide de l'autre ferait douter de la liste, pas de la porte.
+  const [produits, medecins] = await Promise.all([
+    prisma.regulatoryProduct.findMany({
+      where: { status: { in: AVAILABLE_PRODUCT_STATUSES as never } },
+      select: { id: true, brandName: true, dci: true, status: true },
+      orderBy: [{ brandName: "asc" }, { dci: "asc" }],
+    }),
+    prisma.medicalDoctor.findMany({
+      select: { id: true, name: true, specialty: true, city: true },
+      orderBy: [{ specialty: "asc" }, { name: "asc" }],
+    }),
+  ]);
   // Mêmes champs qu'au panneau commun d'Ad & Pro : une seule définition, deux portes d'entrée.
-  const fields = sponsoringCreateFields({ productManagers: pmCandidates, canDesignatePM, canChooseAnalysis });
+  const fields = sponsoringCreateFields({
+    productManagers: pmCandidates, canDesignatePM, canChooseAnalysis,
+    products: produits.map((p) => ({ id: p.id, brandName: p.brandName, dci: p.dci, status: String(p.status) })),
+    doctors: medecins,
+  });
 
   // Cloisonnement par entité : la vue « Adventum » ne montre que les demandes d'Adventum.
   const requests = await prisma.sponsoringRequest.findMany({

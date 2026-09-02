@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { AVAILABLE_PRODUCT_STATUSES } from "@/lib/ad-pro/pickers";
 import { platformScope, getMyCompanies, companyOptions } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import { userCan, anyRoleFilter, type SessionUser } from "@/lib/rbac";
@@ -158,11 +159,18 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
  */
 export async function getAdProCreateData(userId: string, kinds: readonly AdProKind[]): Promise<AdProCreateData> {
   const has = (k: AdProKind) => kinds.includes(k);
-  const needsDoctors = has("CONGRESS_INTERNATIONAL") || has("CONGRESS_NATIONAL");
+  // LE SPONSORING DÉSIGNE LUI AUSSI DES MÉDECINS. Il les tapait à la main — un praticien nommé de
+  // mémoire, qui ne se rapproche d'aucune fiche de l'annuaire, si bien qu'on ne sait jamais
+  // combien de fois on a pris en charge la même personne.
+  const needsDoctors = has("CONGRESS_INTERNATIONAL") || has("CONGRESS_NATIONAL") || has("SPONSORING");
   const needsProductManagers = needsDoctors || has("SPONSORING");
   const needsPeople = kinds.length > 0;
+  // LES PRODUITS PROMOUVABLES : ceux dont le traitement réglementaire est TERMINÉ. Proposer un
+  // dossier en cours ferait préparer la promotion d'un médicament qui n'a pas encore le droit
+  // d'être promu — ce n'est pas une maladresse d'écran, c'est une faute réglementaire.
+  const needsProducts = has("SPONSORING");
 
-  const [doctors, users, productManagers, companies] = await Promise.all([
+  const [doctors, users, productManagers, companies, products] = await Promise.all([
     needsDoctors
       ? prisma.medicalDoctor.findMany({
           select: { id: true, name: true, specialty: true, city: true },
@@ -183,6 +191,13 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
       // rattacher une demande à une société qu'elle n'a pas le droit de voir.
       ? getMyCompanies(userId).then(companyOptions)
       : Promise.resolve([] as { value: string; label: string }[]),
+    needsProducts
+      ? prisma.regulatoryProduct.findMany({
+          where: { status: { in: AVAILABLE_PRODUCT_STATUSES as never } },
+          select: { id: true, brandName: true, dci: true, status: true },
+          orderBy: [{ brandName: "asc" }, { dci: "asc" }],
+        })
+      : Promise.resolve([] as { id: string; brandName: string | null; dci: string; status: string }[]),
   ]);
 
   return {
@@ -190,5 +205,6 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
     users: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
     productManagers,
     companies,
+    products: products.map((p) => ({ id: p.id, brandName: p.brandName, dci: p.dci, status: String(p.status) })),
   };
 }

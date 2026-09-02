@@ -34,6 +34,9 @@ export type FieldDef =
       placeholder?: string;
       defaultValue?: string | number;
       full?: boolean;
+      /** Ce que le champ attend quand le libellé ne suffit pas — ou POURQUOI il est libre ici
+       *  alors qu'il se choisit ailleurs (référentiel vide). */
+      hint?: string;
     }
   | {
       type: "textarea";
@@ -64,7 +67,7 @@ export type FieldDef =
   // serveur revérifie ce qu'il en fait — c'est un contexte que l'utilisateur n'a pas à ressaisir.
   | { type: "hidden"; name: string; value: string }
   | { type: "checkbox"; name: string; label: string; full?: boolean }
-  | { type: "multiselect"; name: string; label: string; options: { value: string; label: string }[]; hint?: string; full?: boolean }
+  | { type: "multiselect"; name: string; label: string; options: { value: string; label: string }[]; hint?: string; full?: boolean; defaultValue?: string[]; searchPlaceholder?: string; emptyLabel?: string }
   | { type: "file"; name: string; label: string; multiple?: boolean; hint?: string; defaultValue?: string | number; full?: boolean; /** Formats proposés par le sélecteur (`.pdf,.png`…) — le serveur revérifie TOUJOURS. */ accept?: string }
   // L'EXPLORATEUR DU DRIVE, ouvert par-dessus le formulaire : on désigne un dossier ou un
   // fichier qui existe déjà plutôt que d'en téléverser une copie. Le champ ne transporte qu'un
@@ -119,6 +122,80 @@ interface RecordFormProps {
  * a déjà choisi la nature de sa demande — et où ouvrir un second panneau par-dessus le premier
  * n'aurait aucun sens.
  */
+/**
+ * CHOISIR PLUSIEURS ENTRÉES DANS UNE LISTE QUI PEUT ÊTRE LONGUE.
+ *
+ * ── POURQUOI UNE BARRE DE RECHERCHE ─────────────────────────────────────────────────────────
+ *
+ * Le champ affichait toutes les options dans une boîte à défilement. Cela tient pour douze
+ * collaborateurs ; l'annuaire des médecins en compte des centaines, et le référentiel des wilayas
+ * cinquante-huit. Faire défiler pour trouver « Dr Zerrouki » n'est pas un inconfort : c'est ce qui
+ * fait renoncer, et écrire le nom dans la description où plus rien ne le compte.
+ *
+ * ── CE QUI RESTE VISIBLE MÊME QUAND ON FILTRE ───────────────────────────────────────────────
+ *
+ * Les entrées DÉJÀ COCHÉES restent dans la liste quoi qu'on tape. Sans cela, chercher un second
+ * nom ferait disparaître le premier de l'écran — et l'on décoche par réflexe ce qu'on croit avoir
+ * perdu. Le compteur dit combien sont retenues, y compris hors filtre.
+ *
+ * Les cases sont de VRAIES cases nommées : le formulaire les envoie sans JavaScript de notre
+ * part, et le serveur lit `formData.getAll(name)` comme avant.
+ */
+function MultiSelectField({ field }: {
+  field: Extract<FieldDef, { type: "multiselect" }>;
+}) {
+  const [query, setQuery] = React.useState("");
+  const [picked, setPicked] = React.useState<string[]>(() => field.defaultValue ?? []);
+
+  const q = query.trim().toLowerCase();
+  const visible = React.useMemo(
+    () => (q ? field.options.filter((o) => o.label.toLowerCase().includes(q) || picked.includes(o.value)) : field.options),
+    [field.options, q, picked],
+  );
+  // La recherche n'apparaît que là où elle sert : sous une dizaine d'entrées, elle prend de la
+  // place et un temps de lecture pour rien.
+  const searchable = field.options.length > 8;
+
+  if (field.options.length === 0) {
+    return <p className="text-xs text-muted-foreground">{field.emptyLabel ?? "Aucune option disponible."}</p>;
+  }
+
+  return (
+    <>
+      {searchable && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={field.searchPlaceholder ?? "Rechercher…"}
+            aria-label={`Rechercher dans ${field.label}`}
+            className="h-8 flex-1"
+          />
+          <span className="text-xs text-muted-foreground">
+            {picked.length > 0 ? `${picked.length} sélectionné(s)` : `${field.options.length} au choix`}
+          </span>
+        </div>
+      )}
+      <div className="mt-1 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-input p-2">
+        {visible.length === 0 ? (
+          <p className="px-1.5 py-1 text-xs text-muted-foreground">Aucun résultat pour « {query} ».</p>
+        ) : visible.map((o) => (
+          <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
+            <input
+              type="checkbox" name={field.name} value={o.value}
+              checked={picked.includes(o.value)}
+              onChange={(e) => setPicked((prev) => (e.target.checked ? [...prev, o.value] : prev.filter((v) => v !== o.value)))}
+              className="h-4 w-4 rounded border-input"
+            />
+            {o.label}
+          </label>
+        ))}
+      </div>
+      {field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
+    </>
+  );
+}
+
 export function RecordForm({
   fields,
   action,
@@ -198,10 +275,17 @@ export function RecordForm({
     setAnalyzeMsg({ ok: true, text: `${Object.keys(r.values ?? {}).length} champ(s) préremplis — vérifiez et complétez.` });
   }
 
-  /** Valeur par défaut d'un champ : priorité au pré-remplissage IA. */
+  /**
+   * Valeur par défaut d'un champ : priorité au pré-remplissage IA.
+   *
+   * Le multi-sélecteur porte sa propre valeur par défaut (un TABLEAU, géré dans son composant) :
+   * la rendre ici la ferait passer pour la valeur d'un `<input>` simple, et React afficherait
+   * « a,b,c » dans une case de texte.
+   */
   const dv = (field: FieldDef): string | number | undefined => {
     const p = prefill[field.name];
     if (p !== undefined) return p;
+    if (field.type === "multiselect") return undefined;
     return "defaultValue" in field ? field.defaultValue : undefined;
   };
 
@@ -319,31 +403,20 @@ export function RecordForm({
                   {field.label}
                 </label>
               ) : field.type === "multiselect" ? (
-                <>
-                  {field.options.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">Aucune personne disponible.</p>
-                  ) : (
-                    <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-input p-2">
-                      {field.options.map((o) => (
-                        <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
-                          <input type="checkbox" name={field.name} value={o.value} className="h-4 w-4 rounded border-input" />
-                          {o.label}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                  {field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
-                </>
+                <MultiSelectField field={field} />
               ) : (
-                <Input
-                  id={field.name}
-                  name={field.name}
-                  type={field.type}
-                  required={field.required}
-                  placeholder={field.placeholder}
-                  defaultValue={dv(field)}
-                  step={field.type === "number" ? "any" : undefined}
-                />
+                <>
+                  <Input
+                    id={field.name}
+                    name={field.name}
+                    type={field.type}
+                    required={field.required}
+                    placeholder={field.placeholder}
+                    defaultValue={dv(field)}
+                    step={field.type === "number" ? "any" : undefined}
+                  />
+                  {"hint" in field && field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
+                </>
               )}
             </div>
           )))}

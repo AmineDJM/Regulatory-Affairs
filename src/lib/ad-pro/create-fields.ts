@@ -1,5 +1,7 @@
 import type { FieldDef } from "@/components/shared/create-record-button";
 import { PRIORITY, SPONSORING_TYPES, MATERIAL_TYPE_OPTIONS, CONSULTING_BILLING_OPTIONS } from "@/lib/labels";
+import { wilayaOptions } from "@/lib/geo/algeria";
+import { availableProductOptions, doctorOptions, type DoctorRow, type ProductRow } from "@/lib/ad-pro/pickers";
 
 /**
  * LES CHAMPS DE CRÉATION AD & PRO, ÉCRITS UNE SEULE FOIS.
@@ -23,6 +25,8 @@ export interface UserOption { id: string; name: string; role: string }
 export interface AdProCreateData {
   /** Médecins invitables (prises en charge) — vient de la Promotion médicale. */
   doctors: DoctorOption[];
+  /** Les produits dont le traitement réglementaire est TERMINÉ — les seuls promouvables. */
+  products: ProductRow[];
   /** Collaborateurs actifs : participants, responsable d'événement, assistante de direction. */
   users: UserOption[];
   /** Chefs de produit désignables pour l'analyse. */
@@ -75,20 +79,61 @@ function circuitFields(opts: {
   ];
 }
 
+/**
+ * LES TROIS CHAMPS QUI SE CHOISISSENT AU LIEU DE SE TAPER — produits, médecins, ville.
+ *
+ * Ils étaient libres, et la colonne devenait inexploitable : un produit écrit de six façons (et
+ * parfois un dossier réglementaire EN COURS, dont la promotion est interdite), un médecin nommé de
+ * mémoire qui ne se rapproche d'aucune fiche, une ville en huit orthographes.
+ *
+ * On choisit désormais dans le réel, et PLUSIEURS de chaque : une prise en charge concerne souvent
+ * deux praticiens et trois produits, et n'en accepter qu'un faisait écrire le reste dans la
+ * description — où rien ne le compte.
+ *
+ * Le repli en saisie libre reste offert quand le référentiel est vide : un menu sans option est un
+ * cul-de-sac, et une demande légitime ne doit pas attendre qu'on peuple une table.
+ */
+function referentielFields(opts: { products: readonly ProductRow[]; doctors: readonly DoctorRow[] }): FieldDef[] {
+  const produits = availableProductOptions(opts.products);
+  const medecins = doctorOptions(opts.doctors);
+  return [
+    medecins.length > 0
+      ? {
+          type: "multiselect", name: "doctorIds", label: "Médecin(s) concerné(s)", full: true,
+          options: medecins, searchPlaceholder: "Chercher un médecin de l'annuaire…",
+          emptyLabel: "Aucun médecin dans l'annuaire.",
+          hint: "Depuis l'annuaire des praticiens. Plusieurs choix possibles.",
+        }
+      : { type: "text", name: "doctor", label: "Médecin concerné", full: true, hint: "L'annuaire des praticiens est vide : saisissez le nom." },
+    produits.length > 0
+      ? {
+          type: "multiselect", name: "productIds", label: "Produit(s) concerné(s)", full: true,
+          options: produits, searchPlaceholder: "Chercher un produit…",
+          emptyLabel: "Aucun produit au traitement terminé.",
+          hint: "Seuls les produits dont le traitement réglementaire est TERMINÉ — les seuls qu'on ait le droit de promouvoir.",
+        }
+      : { type: "text", name: "product", label: "Produit concerné", full: true, hint: "Aucun dossier réglementaire n'est encore au traitement terminé." },
+    {
+      type: "select", name: "city", label: "Ville (wilaya)",
+      options: wilayaOptions(), placeholder: "— Choisir la wilaya —",
+    },
+  ];
+}
+
 export function sponsoringCreateFields(opts: {
   productManagers: readonly PersonOption[];
   canDesignatePM: boolean;
   canChooseAnalysis: boolean;
+  products?: readonly ProductRow[];
+  doctors?: readonly DoctorRow[];
 }): FieldDef[] {
   return [
     ...circuitFields(opts),
     { type: "text", name: "institution", label: "Institution / Association", required: true },
     { type: "file", name: "files", label: "Demande(s) du médecin", multiple: true, full: true, hint: "Courrier, invitation, programme… Plusieurs fichiers possibles." },
-    { type: "text", name: "doctor", label: "Médecin concerné" },
+    ...referentielFields({ products: opts.products ?? [], doctors: opts.doctors ?? [] }),
     { type: "text", name: "specialty", label: "Spécialité" },
-    { type: "text", name: "city", label: "Ville" },
     { type: "select", name: "type", label: "Type", options: SPONSORING_TYPES.map((t) => ({ value: t, label: t })), defaultValue: "Congrès" },
-    { type: "text", name: "product", label: "Produit concerné" },
     { type: "number", name: "amountRequested", label: "Budget demandé par l'intéressé (DZD)" },
     { type: "number", name: "amountProposed", label: "Budget suggéré par le délégué (DZD)" },
     { type: "select", name: "strategicImportance", label: "Importance stratégique", options: optionsOf(PRIORITY), defaultValue: "MEDIUM" },

@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { companyIdForNew } from "@/lib/company";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
+import { attachFormFiles } from "@/lib/documents";
 import { toNumber } from "@/lib/utils";
 import { buildRef } from "@/lib/refs";
 import { settlementAction, invoiceDirection, invoiceSettlementLabel } from "@/lib/finances/settlement";
@@ -83,11 +84,23 @@ export async function createInvoice(
   });
   // Une facture créée DÉJÀ réglée (saisie a posteriori) inscrit son mouvement aussitôt.
   await syncInvoiceSettlement(created.id, user.id);
+
+  // LE SCAN PART AVEC LA FACTURE. L'engagement et le courrier joignaient déjà leurs pièces à la
+  // création ; la facture, non — celle qui en a le plus besoin. On enregistrait donc une ligne,
+  // puis on repartait la chercher dans son module pour y téléverser le PDF : trois écrans pour un
+  // fichier qu'on avait sous la main, et en pratique un justificatif qui reste dans la boîte mail.
+  const files = await attachFormFiles(user.id, "INVOICE", created.id, formData);
+
   revalidatePath("/finances/factures");
   revalidatePath("/finances");
   // Née rattachée à un bon de commande PCH : la fiche marché l'affiche aussi.
   if (fdStr(formData, "sourceType") === "PCH_ORDER") revalidatePath("/pch");
-  return { ok: true, id: created.id };
+  return files.failed.length
+    ? {
+        ok: true, id: created.id,
+        message: `Facture créée. ${files.attached} pièce(s) jointe(s) ; échec sur : ${files.failed.map((x) => x.name).join(", ")}.`,
+      }
+    : { ok: true, id: created.id };
 }
 
 export async function updateInvoice(formData: FormData): Promise<ActionResult> {
