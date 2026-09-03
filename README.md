@@ -3548,6 +3548,94 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### Un ordre de dépense, un dossier — d'où qu'il vienne (2026-09)
+
+Le libellé d'un matériel promotionnel n'était pas cliquable dans « Paiements à faire », et ce
+n'était pas un défaut d'affichage : **le dossier n'existait pas**. Seul un ordre né d'une DEMANDE
+DE PAIEMENT en portait un ; un ordre né d'ailleurs — promo, bon de versement, sponsoring, congrès,
+Regulatory, secrétariat — arrivait dans la même file, pour le même argent, avec du texte mort.
+
+**Tout ordre ouvre son dossier à sa naissance**, dans `createExpenseOrder` — le seul endroit par
+lequel les treize circuits passent. Un compagnon n'est PAS une seconde décision : `origin =
+EXPENSE_ORDER` retire le « bon à payer », et le serveur refuse aussi de trancher, transmettre ou
+retirer (§118-7). Reprise SQL des ordres déjà émis (id dérivé `pcomp_`, idempotent), rejouée sur
+données réelles par `lib/finance/dossier-reprise.test.ts`. Un ordre sans demandeur est laissé de
+côté : inventer un demandeur porterait à l'audit le nom de quelqu'un qui n'a rien demandé.
+
+**Finances « À régler » — deux gestes.** « Demander une pièce » et le dépôt de facture ont déménagé
+dans le dossier ; la facture redevient un ÉTAT qu'on lit. **Côté demandeur** : relancer, ou
+signaler une urgence — deux gestes distincts (une file où tout est urgent n'a plus de priorité),
+motif exigé sur l'urgence, délai d'une heure. **Budget non défini** : on CLASSE avant de payer,
+sauf s'il n'existe aucune catégorie — exiger un choix dans une liste vide est une impasse.
+
+Modules purs `finance/dossier-auto.ts`, `finance/settle-budget.ts` · flux `companion-dossier-flow`.
+
+### Une pièce réclamée qui engage la société rejoint Legal (2026-09)
+
+La demande de pièce DIT SA NATURE ; l'acceptation classe facture, bon de commande, devis et contrat
+dans le registre des engagements. À L'ACCEPTATION et non au dépôt — une facture refusée y resterait
+comme un engagement. **Les lecteurs suivent** (un document Legal sans lecteur est visible de tout
+le module) et **le fichier déménage** : un fichier, un seul domicile. `lib/legal/from-piece.ts`.
+
+### Regulatory : « Dossier reçu » se constate, et l'export propose l'autre volet (2026-09)
+
+Colonne **Yes / No non modifiable** : elle répond au FAIT — une archive CTD téléversée — et non à
+ce que quelqu'un pense. Une case à cocher aurait dérivé dès le premier « je coche en attendant
+l'envoi promis ». Elle sort aussi au classeur. **Exports croisés** : le suivi et le pipeline
+montrent les mêmes objets sous deux angles, l'export DEMANDE désormais s'il faut inclure l'autre.
+`lib/regulatory/dossier-received.ts`.
+
+### Trois modules retirés du service, et les factures rejoignent Legal (2026-09)
+
+**Ventes, Commandes & logistique, Market Intelligence** sont retirés — décision de produit écrite
+dans le code, valable pour TOUT LE MONDE, Super Admin compris. La garde est dans `getAccess` : un
+module retiré n'entre pas dans l'accès effectif, donc `userCan` répond non partout d'un coup —
+écrans, actions, API et outils d'Adam. Rien n'est supprimé ; une ligne retirée de
+`lib/modules-retired.ts` les rend tels qu'ils étaient. **PCH et Explorateur produits restent.**
+
+**Les factures sont centralisées dans Legal** (`/legal/factures`), avec les contrats, devis et bons
+de commande dont elles sont le dernier maillon. L'écran déménage plutôt que de disparaître et
+s'ouvre à LEGAL **ou** FINANCES : centraliser ne doit rien retirer à personne.
+
+### La masse salariale se compte en entier, et le livre se contrôle (2026-09)
+
+La masse était sous-évaluée par **trois chemins** : on ne comptait que les lignes POINTÉES, le mois
+de référence était celui de la PLATEFORME, et le repli tombait sur les SALAIRES DE BASE. La règle :
+la masse est ce que l'effectif COÛTE, pas ce qui est sorti de la banque — chaque salarié actif
+compte une fois, sa ligne du mois sinon le coût employeur de sa fiche, et ce qui manque est DIT
+par entité. `lib/hr/workforce-mass.ts`.
+
+**Contrôle du livre**, en tête de la comptabilité : un règlement sans écriture, une même dépense
+réglée par deux ordres, deux écritures identiques le même jour. Il SIGNALE et n'efface rien — il
+n'existe aucune fonction « supprimer les doublons ». **Remettre une caisse d'avance** écrit
+désormais au livre : les dépenses de la caisse étaient suivies, la sortie qui fait exister le fond
+ne l'était pas. `lib/finance/ledger-audit.ts`.
+
+### PCH : l'AO s'ouvre avec ce qu'on sait, et se chiffre à la boîte (2026-09)
+
+**Création réduite de vingt et un champs à neuf** : la BU, les produits, le fournisseur, la
+quantité, la valeur, la caution ne sont pas CONNUS le jour de la publication. Un champ qu'on ne
+peut pas remplir se remplit quand même, et devient une donnée fausse que plus personne ne corrige.
+
+**Le marché compte en unités, nous vendons en boîtes.** Prix de participation et coût sont saisis À
+LA BOÎTE — quand le prix de boîte existe, il FAIT FOI et le prix unitaire s'en déduit. Boîtes,
+montant et marge se calculent ; un lot déposé à perte le DIT. Le pourcentage gagné se mesure sur ce
+qu'on a DÉPOSÉ et ne se saisit pas. `lib/pch/box-economics.ts`.
+
+**Affectations** : chaque lot est confié à une ou plusieurs Business Units — le marché en portait
+UNE pour ses vingt lots. Affecter une BU inscrit le produit à son portefeuille, d'où la force de
+vente l'attribue à ses KAM par le circuit existant. `lib/pch/bu-allocation.ts`.
+
+### Les Business Units deviennent des sous-départements, avec leur budget (2026-09)
+
+« Combien l'oncologie a-t-elle dépensé ? » n'avait pas de réponse. Une BU a un budget et une masse
+salariale : ce sont les deux choses qu'un DÉPARTEMENT porte déjà. Elle devient donc un
+sous-département de la Direction commerciale, par un LIEN — lui donner ses propres colonnes aurait
+créé un second mécanisme et deux réponses à la même question (§17). L'ouverture du budget est un
+geste explicite ; **chaque demande Ad & Pro porte sa gamme** ; **Budgets → Business Units** lit le
+tout et consolide (le total est la SOMME des lignes affichées, jamais un chiffre lu ailleurs).
+`lib/sfe/bu-department.ts`.
+
 ### La caisse d'avance devient continue, et les dépenses tiennent en un tableau filtrable (2026-09)
 
 **La caisse était UNE BOÎTE PAR MOIS.** Remettre 50 000 DZD en septembre ouvrait « la caisse de

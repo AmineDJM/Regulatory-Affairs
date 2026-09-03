@@ -63,7 +63,7 @@ export default async function BusinessUnitBudgetsPage({ searchParams }: { search
           by: ["departmentId"], where: { departmentId: { in: departmentIds }, year }, _sum: { amount: true },
         })
       : Promise.resolve([] as { departmentId: string; _sum: { amount: unknown } }[]),
-    // CE QUE LES DEMANDES Ad&Pro ONT ENGAGÉ, gamme par gamme. Elles ne passent pas toutes par une
+    // CE QUE LES DEMANDES Ad & Pro ONT ENGAGÉ, gamme par gamme. Elles ne passent pas toutes par une
     // dépense de département : c'est le rattachement de la demande qui les rend comptables ici.
     prisma.promoMaterial.groupBy({
       by: ["businessUnitId"],
@@ -115,7 +115,7 @@ export default async function BusinessUnitBudgetsPage({ searchParams }: { search
         <EmptyState
           icon="Layers"
           title="Aucune Business Unit"
-          description="Créez vos gammes dans Force de vente → Business Units : chacune deviendra un sous-département de la Direction commerciale, avec son budget Ad&Pro et sa masse salariale."
+          description="Créez vos gammes dans Force de vente → Business Units : chacune deviendra un sous-département de la Direction commerciale, avec son budget Ad & Pro et sa masse salariale."
         />
       ) : (
         <div className="surface overflow-hidden">
