@@ -15,6 +15,7 @@ import { isCompanionDossier } from "@/lib/finance/dossier-auto";
 import { deadlineNatureLabel, deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { NewPaymentButton } from "./new-payment-button";
 import { getMyCompanies, moneyEntityOf } from "@/lib/company";
+import { myPaymentRequests } from "@/lib/queries/my-payment-requests";
 import { groupByEntity, unassignedWarning } from "@/lib/finance/money-entity";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +45,9 @@ export default async function PaymentRequestsPage() {
     || user.role === "FINANCE_BUDGET_MANAGER" || hasGlobalView(user.role);
 
   const [mine, queue] = await Promise.all([
-    prisma.paymentRequest.findMany({ where: { requesterId: user.id }, orderBy: { createdAt: "desc" }, take: 200 }),
+    // LA MÊME LISTE QUE L'ÉCRAN DES VALIDATIONS — une seule définition de « mes demandes ».
+    // Deux requêtes auraient fini par diverger, et une demande visible ici serait absente là.
+    myPaymentRequests(user.id),
     finance
       ? prisma.paymentRequest.findMany({
           // ── LES COMPAGNONS NE S'INSTRUISENT PAS ICI ────────────────────────────────────────

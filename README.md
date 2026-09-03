@@ -3598,6 +3598,31 @@ module retiré n'entre pas dans l'accès effectif, donc `userCan` répond non pa
 nature « facture »** (`LegalDocKind.INVOICE`), dans la même liste que les devis et les bons de
 commande dont elles sont le dernier maillon — voir la section suivante.
 
+### « J'envoie ma demande de paiement, et je ne la vois plus » (2026-09)
+
+Panne rapportée : le demandeur perd son dossier de vue dès qu'il l'a envoyé, et ne peut plus y
+joindre de pièce. **Les droits n'y étaient pour rien** — la garde du dossier laisse entrer son
+demandeur, l'action accepte sa pièce tant que le dossier n'est pas clos, et le bloc « Ajouter une
+pièce » s'affiche. Ce qui manquait était une **porte**.
+
+Les demandes de paiement n'ont plus d'entrée de menu (décision de 2026-08) : on les dépose depuis
+« Demandes de validations », et le formulaire conduit sur la fiche du dossier. Mais cet écran-là ne
+listait **aucune** demande de paiement, et le raccourci vers l'écran dédié avait été retiré du haut
+de page. Une fois la fiche quittée, plus rien n'y ramenait : ni pour suivre l'instruction, ni pour
+déposer la facture que les Finances réclament. Le demandeur voyait sa demande une fois, puis jamais.
+
+**Un écran où l'on dépose doit montrer ce qu'on y a déposé.** « Mes demandes de paiement » revient
+donc sur `/validations` — en BAS, sous les demandes de validation, et non en bannière au-dessus de
+ce qu'on vient y faire (c'était le défaut de l'ancien raccourci). La section ne s'affiche que si
+l'on a des demandes, et « Tout voir » mène à l'écran dédié avec sa file d'instruction.
+
+La liste elle-même est **une seule fonction** (`lib/queries/my-payment-requests.ts`), servie par les
+deux écrans : deux requêtes auraient fini par diverger, et l'on serait revenu au même endroit — une
+demande visible ici, absente là. Elle ne filtre ni le statut ni l'origine : un dossier transmis,
+en attente ou né d'un autre circuit appartient encore à son auteur.
+`lib/actions/demande-paiement-visible-flow.test.ts` part du vrai formulaire et suit les quatre
+maillons — l'envoi, la liste, la fiche, la pièce.
+
 ### « J'enregistre mon courrier, et la page est introuvable » (2026-09)
 
 Panne rapportée : une assistante enregistre un pli, la fiche répond **404**, et le scan qu'elle

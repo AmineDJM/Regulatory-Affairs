@@ -23,6 +23,10 @@ import { SupervisionBoard } from "./supervision-board";
 import { supervisionCounters } from "@/lib/validation-supervision";
 import { NewPaymentButton } from "./paiements/new-payment-button";
 import { getMyCompanies, moneyEntityOf } from "@/lib/company";
+import { myPaymentRequests } from "@/lib/queries/my-payment-requests";
+import { sortByPriority, isOverdue, deadlineLabel } from "@/lib/finance/payment-request";
+import { PAYMENT_REQUEST_STATUS, PAYMENT_URGENCY } from "@/lib/labels";
+import { toNumber } from "@/lib/utils";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { DocumentList } from "@/components/documents/document-list";
 
@@ -86,7 +90,13 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
 
   // L'ENTITÉ CONCERNÉE se choisit sur la demande de paiement : elle paiera, et sa comptabilité
   // doit pouvoir s'y retrouver. Proposée (la vôtre), modifiable, exigée à l'envoi.
-  const [mesEntites, monEntite] = await Promise.all([getMyCompanies(user.id), moneyEntityOf(user.id)]);
+  const [mesEntites, monEntite, mesPaiements] = await Promise.all([
+    getMyCompanies(user.id),
+    moneyEntityOf(user.id),
+    // MES DEMANDES DE PAIEMENT — voir la section plus bas : cet écran est la SEULE porte du
+    // circuit, il doit donc montrer ce qu'on y a déposé.
+    myPaymentRequests(user.id, 50),
+  ]);
 
   return (
     <div className="space-y-5">
@@ -110,10 +120,10 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
         />
       </PageHeader>
 
-      {/* LE RACCOURCI « Suivi des demandes de paiement » A ÉTÉ RETIRÉ (2026-08). Une bannière
-          en tête de page repoussait ce qu'on vient réellement faire ici — valider, et suivre ses
-          demandes. Le dossier de paiement s'ouvre depuis le bouton qui l'a créé, et les Finances
-          ont leur propre écran. */}
+      {/* LE RACCOURCI « Suivi des demandes de paiement » A ÉTÉ RETIRÉ DU HAUT DE PAGE (2026-08) :
+          une bannière y repoussait ce qu'on vient réellement faire ici. Le suivi, lui, est REVENU
+          — en BAS, à sa place, sous forme de liste (2026-09). Voir la section « Mes demandes de
+          paiement » : sans elle, un dossier quitté n'était plus atteignable par personne. */}
 
       {/* Les chiffres du haut répondent à « qu'est-ce qui m'attend ? » puis, pour la Direction,
           à « qu'est-ce qui est en retard, et où ? » — pas à « combien en ai-je envoyé ». */}
@@ -177,6 +187,49 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
           </div>
         )}
       </section>
+
+      {/* ───────────── MES DEMANDES DE PAIEMENT ─────────────
+          UN ÉCRAN OÙ L'ON DÉPOSE DOIT MONTRER CE QU'ON Y A DÉPOSÉ.
+
+          Le bouton « Demander un paiement » ci-dessus est la SEULE porte du circuit : les
+          demandes de paiement n'ont plus d'entrée de menu. Le formulaire conduisait sur la fiche
+          du dossier — et c'était tout. Une fois cette fiche quittée, plus rien n'y ramenait : ni
+          pour suivre l'instruction, ni pour joindre la pièce que les Finances réclament. « Je
+          l'envoie, et je ne la vois plus. »
+
+          La section ne s'affiche que si l'on a des demandes : un bloc vide en permanence sur
+          l'écran de validation serait exactement la bannière qu'on avait retirée. */}
+      {mesPaiements.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Mes demandes de paiement ({mesPaiements.length})
+            </h2>
+            {/* La liste COMPLÈTE, avec la file des Finances pour qui l'instruit. */}
+            <Link href="/validations/paiements" className="text-xs font-medium text-primary hover:underline">
+              Tout voir
+            </Link>
+          </div>
+          <div className="surface divide-y divide-border p-0">
+            {sortByPriority(mesPaiements).map((p) => (
+              <Link
+                key={p.id} href={`/validations/paiements/${p.id}`}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm hover:bg-secondary/40"
+              >
+                <span className="font-mono text-xs text-muted-foreground">{p.reference}</span>
+                <span className="min-w-0 flex-1 truncate font-medium">{p.title}</span>
+                <span className="truncate text-xs text-muted-foreground">{p.payee}</span>
+                <span className="tabular-nums">{formatCurrency(toNumber(p.amount))}</span>
+                <span className="text-xs text-muted-foreground">
+                  {deadlineLabel(p, PAYMENT_URGENCY)}
+                  {isOverdue(p) && <Badge tone="danger" dot={false} className="ml-1.5">en retard</Badge>}
+                </span>
+                <StatusBadge map={PAYMENT_REQUEST_STATUS} value={p.status} dot={false} />
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
