@@ -1,10 +1,11 @@
+import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Paperclip, ExternalLink } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { companyScopedWhere } from "@/lib/company";
 import { legalViewScope, legalWriteAllowed } from "@/lib/legal/invoices";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -70,7 +71,12 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     // société) et les LECTEURS DÉSIGNÉS (un document restreint ne s'ouvre pas parce qu'on en
     // devine l'identifiant). Un refus rend 404, jamais « accès refusé » : dire qu'un document
     // existe, c'est déjà en dire trop.
-    where: { AND: [{ id: params.id }, await platformScope(user.id), ...(readerScope ? [readerScope] : [])] },
+    // LA MÊME PORTE QUE LA LISTE (`companyScopedWhere`). La fiche appliquait le filtre STRICT,
+    // qui exclut les pièces SANS entité : un engagement visible au registre répondait 404 quand
+    // on l'ouvrait, et ses pièces jointes avec. Deux règles pour un même document, c'est la panne.
+    where: await companyScopedWhere(user.id, {
+      AND: [{ id: params.id }, ...(readerScope ? [readerScope] : [])],
+    }),
     include: {
       driveNode: { select: { id: true, name: true } },
       renewedFrom: { select: { id: true, title: true } },
@@ -155,11 +161,13 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     prisma.legalFolder.findMany({ select: { id: true, name: true, parentId: true } }),
     // Les pièces amont possibles pour rattacher CE document à sa chaîne d'achat.
     prisma.legalDocument.findMany({
-      where: {
-        AND: [await platformScope(user.id), ...(readerScope ? [readerScope] : [])],
+      // Même porte que la liste : le cloisonnement par entité TIENT sur les pièces amont
+      // proposées — on ne chaîne pas une facture au bon de commande d'une autre société.
+      where: await companyScopedWhere<Prisma.LegalDocumentWhereInput>(user.id, {
+        AND: [...(readerScope ? [readerScope] : [])],
         kind: { in: ["QUOTE", "PURCHASE_ORDER"] },
         id: { not: doc.id },
-      },
+      }),
       select: { id: true, kind: true, reference: true, title: true },
       orderBy: { createdAt: "desc" },
       take: 100,

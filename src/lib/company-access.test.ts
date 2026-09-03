@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   seesWholeGroup, allowedCompanyIds, canViewCompany, canEditCompany,
-  resolveScope, companyAccessWhere, platformScopeWhere, type AccessBearer,
+  resolveScope, companyAccessWhere, platformScopeWhere, type AccessBearer, chosenCompanyId,
 } from "./company-access";
 
 const ALL = ["adv", "pha", "xyz"];
@@ -203,5 +203,34 @@ describe("platformScopeWhere", () => {
       const w = platformScopeWhere(bearer({ role: "SUPER_ADMIN" }), scope, ALL);
       expect(JSON.stringify(w)).not.toContain("null");
     }
+  });
+});
+
+describe("chosenCompanyId — un menu laissé vide n'est pas un choix", () => {
+  it("UN CHOIX EXPLICITE GAGNE TOUJOURS — c'est pour cela que le menu existe", () => {
+    expect(chosenCompanyId("c-pharmagene", "c-adventum", "c-adventum")).toBe("c-pharmagene");
+  });
+
+  // LE DÉFAUT RÉEL : le courrier naissait sans entité, disparaissait des vues cloisonnées, et
+  // sa fiche répondait 404 juste après l'enregistrement.
+  it("UN MENU VIDE RETOMBE SUR L'ENTITÉ DU CRÉATEUR, jamais sur « aucune »", () => {
+    expect(chosenCompanyId("", null, "c-adventum")).toBe("c-adventum");
+    expect(chosenCompanyId("   ", null, "c-adventum")).toBe("c-adventum");
+    expect(chosenCompanyId(null, null, "c-adventum")).toBe("c-adventum");
+  });
+
+  it("le champ ABSENT du formulaire se comporte pareil — l'API d'agents ne fait pas exception", () => {
+    expect(chosenCompanyId(undefined, null, "c-adventum")).toBe("c-adventum");
+  });
+
+  // Corriger une date sur une fiche ne doit pas faire disparaître la pièce de sa propre vue.
+  it("ON NE DÉTACHE PAS PAR OMISSION — la pièce garde l'entité qu'elle a déjà", () => {
+    expect(chosenCompanyId("", "c-pharmagene", "c-adventum")).toBe("c-pharmagene");
+    expect(chosenCompanyId(undefined, "c-pharmagene", null)).toBe("c-pharmagene");
+  });
+
+  it("et il reste un cas non rattaché : quand rien n'est déterminable", () => {
+    // La Console d'Administration les liste — visible et réparable, plutôt que perdu.
+    expect(chosenCompanyId(null, null, null)).toBeNull();
   });
 });

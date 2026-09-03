@@ -1,6 +1,6 @@
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { companyScopedWhere } from "@/lib/company";
 import { legalReaderWhere } from "@/lib/legal/readers";
 import { canSee as canSeeTask, canAttach as canAttachTask } from "@/lib/tasks/request-flow";
 import { recruitmentViewer } from "@/lib/recruitment/access";
@@ -364,8 +364,12 @@ export async function canAccessEntity(
       // Le registre est CLOISONNÉ PAR ENTITÉ : avoir le module Courriers ne donne pas accès aux
       // plis d'une autre société du groupe. Sans ce contrôle, une pièce jointe se téléverserait
       // sur le courrier d'une entité voisine en devinant son identifiant.
+      //
+      // LA MÊME PORTE QUE L'ÉCRAN (`companyScopedWhere`), et c'est ce qui manquait : le filtre
+      // STRICT refusait les plis SANS entité, si bien que le scan qu'on venait de joindre à son
+      // propre courrier n'était plus téléchargeable par personne — « pièce jointe introuvable ».
       const found = await prisma.mailEntry.findFirst({
-        where: { AND: [{ id: entityId }, await platformScope(user.id)] },
+        where: await companyScopedWhere(user.id, { id: entityId }),
         select: { id: true },
       });
       return Boolean(found);
@@ -399,7 +403,11 @@ export async function canAccessEntity(
       // ses pièces se téléchargeraient encore par leur identifiant.
       const readerScope = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
       const found = await prisma.legalDocument.findFirst({
-        where: { AND: [{ id: entityId }, await platformScope(user.id), ...(readerScope ? [readerScope] : [])] },
+        // Même porte que la liste Legal : un engagement sans entité y figure, ses pièces
+        // doivent donc s'ouvrir. La restriction par LECTEURS, elle, ne bouge pas d'un pouce.
+        where: await companyScopedWhere(user.id, {
+          AND: [{ id: entityId }, ...(readerScope ? [readerScope] : [])],
+        }),
         select: { id: true },
       });
       return Boolean(found);

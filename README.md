@@ -3598,6 +3598,34 @@ module retiré n'entre pas dans l'accès effectif, donc `userCan` répond non pa
 nature « facture »** (`LegalDocKind.INVOICE`), dans la même liste que les devis et les bons de
 commande dont elles sont le dernier maillon — voir la section suivante.
 
+### « J'enregistre mon courrier, et la page est introuvable » (2026-09)
+
+Panne rapportée : une assistante enregistre un pli, la fiche répond **404**, et le scan qu'elle
+venait d'y joindre est **introuvable**. Trois défauts s'enchaînaient, et le premier les déclenche
+tous.
+
+1. **Un menu laissé vide n'est pas un choix.** Le champ « Entité concernée » s'ouvrait sur un choix
+   vide dès qu'il y a plusieurs sociétés. Le noyau devait retomber sur l'entité du créateur, mais
+   il testait `!== undefined` : un menu vide rend `null`, pas `undefined`, et le repli était sauté.
+   Le courrier naissait **sans entité**. Même trou à la modification : corriger une date effaçait
+   l'entité du pli. Règle unique désormais, pure et testée — `chosenCompanyId` dans
+   `lib/company-access.ts` : choix explicite > entité déjà portée > entité du créateur.
+2. **La liste et la fiche ne disaient pas la même chose.** La liste passe par `companyScopedWhere`,
+   qui garde volontairement les lignes sans entité (« une ligne qu'on ne voit pas est une ligne
+   qu'on ne peut pas rattacher »). La fiche appliquait le filtre STRICT `platformScope`, qui les
+   exclut. Un pli visible au registre répondait donc 404 à l'ouverture. Même porte des deux côtés
+   maintenant — et **même correction sur la fiche Legal**, qui avait exactement la même divergence.
+3. **Les pièces jointes suivaient le filtre strict.** `canAccessEntity` (MAIL_ENTRY et
+   LEGAL_DOCUMENT) gouverne le téléversement ET le téléchargement : le scan d'un courrier sans
+   entité n'était plus atteignable par personne. Même porte que l'écran.
+
+Le défaut ne se voyait **que chez une employée** : un rôle qui voit tout le groupe n'a aucun filtre
+d'entité, donc la fiche s'ouvrait chez celui qui testait. À la création, l'entité est désormais
+**pré-choisie et visible** dans le menu plutôt que devinée en silence. Aucune reprise de données :
+la correction rend les plis déjà sans entité de nouveau lisibles et rattachables, et deviner leur
+société aurait été plus faux que de les laisser à corriger à la main.
+`lib/mail-register/courrier-visible-mais-404.test.ts` rejoue la panne depuis le vrai formulaire.
+
 ### Une facture EST un document légal de nature « facture » (2026-09)
 
 La table `Invoice` a disparu. Legal tenait déjà la chaîne d'achat entière — devis → bon de commande

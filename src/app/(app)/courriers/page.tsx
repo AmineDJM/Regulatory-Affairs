@@ -3,7 +3,7 @@ import { requireModule } from "@/lib/session";
 import { hiddenByScopeMessage } from "@/lib/company-visibility";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getCompanyScope, companyScopedWhere } from "@/lib/company";
+import { getCompanyScope, companyScopedWhere, companyIdForNew } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -64,6 +64,12 @@ export default async function CourriersPage({ searchParams }: { searchParams?: {
   // et l'on compte dix-neuf plis, on y revient et l'on en compte quatorze : rien à l'écran ne
   // relie les deux faits, et l'on conclut que le module perd des courriers.
   const porteeWhere = await companyScopedWhere(user.id, folderWhere);
+  // L'ENTITÉ EST PRÉ-CHOISIE À LA CRÉATION — celle sur laquelle la personne travaille, ou la
+  // sienne. Le menu s'ouvrait sur un choix vide : la plupart des plis étaient enregistrés sans
+  // entité, et sortaient aussitôt de toutes les vues cloisonnées. Un pré-choix VISIBLE, qu'on
+  // change en un clic, vaut mieux qu'un repli silencieux — l'assistante des trois sociétés voit
+  // sur laquelle elle est en train de classer.
+  const entiteParDefaut = await companyIdForNew(user.id);
   const [horsPortee, dansPortee] = await Promise.all([
     prisma.mailEntry.count({ where: folderWhere }),
     prisma.mailEntry.count({ where: porteeWhere }),
@@ -150,7 +156,10 @@ export default async function CourriersPage({ searchParams }: { searchParams?: {
             label="Nouveau courrier" title="Enregistrer un courrier" width="lg"
             description="Seul l'objet est obligatoire : l'arrivée et l'accusé se posent plus tard, en un clic depuis le tableau."
             action={createMailEntry}
-            fields={mailFields(openFolderId ? { folderId: openFolderId } : {}, "create", companyOpts, partnerOpts, routing.departments, routing.people, folderOptions)}
+            fields={mailFields(
+              { ...(openFolderId ? { folderId: openFolderId } : {}), ...(entiteParDefaut ? { companyId: entiteParDefaut } : {}) },
+              "create", companyOpts, partnerOpts, routing.departments, routing.people, folderOptions,
+            )}
             redirectBase="/courriers"
           />
         )}

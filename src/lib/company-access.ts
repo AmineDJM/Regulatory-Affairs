@@ -143,6 +143,46 @@ export function companyAccessWhere(
   return { companyId: { in: allowed } };
 }
 
+/**
+ * L'ENTITÉ D'UNE PIÈCE QU'ON ENREGISTRE — quand un menu la propose, et qu'il est resté vide.
+ *
+ * ── LE DÉFAUT QU'ON FERME ───────────────────────────────────────────────────────────────────
+ *
+ * Un `<select>` d'entité avec un choix vide en tête rend `""`, que le serveur lit `null`. Or
+ * `null` n'est PAS « pas de valeur » : le repli sur l'entité du créateur était écrit
+ * `f.companyId !== undefined ? f.companyId : défaut`, et un menu laissé vide passait donc dans
+ * la première branche. La pièce naissait SANS entité.
+ *
+ * Ce n'est pas anodin : les vues cloisonnées excluent les lignes sans entité. Une assistante
+ * enregistrait son courrier, le voyait dans la liste (qui les garde, exprès, pour qu'on puisse
+ * les rattacher) et tombait sur un 404 en l'ouvrant — sa fiche et ses pièces jointes, elles,
+ * appliquent le filtre strict. Le pli était là, visible, et n'existait pas.
+ *
+ * ── LA RÈGLE, EN TROIS TEMPS ────────────────────────────────────────────────────────────────
+ *
+ *   1. un choix EXPLICITE gagne toujours — c'est pour cela que le menu existe ;
+ *   2. sinon, la pièce GARDE l'entité qu'elle a déjà : on ne détache pas par omission, et
+ *      corriger une date sur une fiche ne doit pas faire disparaître le pli de sa propre vue ;
+ *   3. sinon seulement, le repli — l'entité du créateur.
+ *
+ * Le résultat peut rester `null` (personne n'a d'entité déterminable) : c'est le seul cas où une
+ * pièce naît non rattachée, et la Console d'Administration les liste pour qu'on les répare.
+ *
+ * Fonction PURE — testée.
+ */
+export function chosenCompanyId(
+  /** Ce que le formulaire a envoyé. `undefined` = le champ n'était pas proposé. */
+  submitted: string | null | undefined,
+  /** L'entité que la pièce porte DÉJÀ (création : `null`). */
+  current: string | null,
+  /** Le repli — l'entité du créateur (`companyIdForNew`). */
+  fallback: string | null,
+): string | null {
+  const choisi = (submitted ?? "").trim();
+  if (choisi) return choisi;
+  return current ?? fallback;
+}
+
 /** Filtre Prisma acceptant aussi les enregistrements NON rattachés. */
 export type ScopeWhere = { companyId?: string | { in: string[] } } | { OR: { companyId: string | { in: string[] } | null }[] } | Record<string, never>;
 

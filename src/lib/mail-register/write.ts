@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { userCan, type SessionUser } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { companyIdForNew, getMyCompanies } from "@/lib/company";
+import { chosenCompanyId } from "@/lib/company-access";
 import { canAccessEntity } from "@/lib/entity-access";
 import type { ActionResult } from "@/lib/actions/types";
 import {
@@ -43,9 +44,12 @@ export interface MailFields {
    */
   driveNodeId?: string | null;
   /**
-   * ENTITÉ du courrier, CHOISIE et non déduite de la portée d'affichage. `undefined` retombe
-   * sur l'entité par défaut du créateur — l'ancien comportement, conservé pour les écritures
-   * qui ne passent pas par le formulaire (API d'agents).
+   * ENTITÉ du courrier, CHOISIE et non déduite de la portée d'affichage.
+   *
+   * Vide OU absente retombe sur l'entité de la pièce, puis sur celle du créateur — voir
+   * `chosenCompanyId`. Un menu laissé vide n'est pas le choix « aucune entité » : ce l'était,
+   * et le pli naissait alors hors de toutes les vues cloisonnées, visible dans la liste et
+   * introuvable sur sa fiche.
    */
   companyId?: string | null;
   /** Partenaire concerné (liste du module). `null` = aucun, ce qui est fréquent et normal. */
@@ -172,7 +176,10 @@ export async function createMailEntryFor(user: SessionUser, f: MailFields): Prom
       departmentId: f.departmentId ?? null,
       concernedUserId: f.concernedUserId ?? null,
       folderId: f.folderId ?? null,
-      companyId: f.companyId !== undefined ? f.companyId : await companyIdForNew(user.id),
+      // UN MENU LAISSÉ VIDE N'EST PAS UN CHOIX. Sans ce repli, le pli naît sans entité :
+      // la liste le montre (elle garde les non rattachés, exprès), sa fiche répond 404 et ses
+      // pièces jointes sont refusées. C'est le défaut rapporté « j'enregistre, et 404 ».
+      companyId: chosenCompanyId(f.companyId, null, await companyIdForNew(user.id)),
       sourceType: f.sourceType ?? null,
       sourceId: f.sourceId ?? null,
       createdById: user.id, updatedById: user.id,
@@ -204,7 +211,12 @@ export async function updateMailEntryFor(user: SessionUser, id: string, f: MailF
     where: { id },
     // Les rattachements sont relus par leur NOM, pas par leur identifiant : c'est ce nom qui part
     // au journal, et c'est lui qu'on compare.
-    select: { ...TRACKED_SELECT, department: { select: { name: true } }, concernedUser: { select: { name: true } } },
+    select: {
+      ...TRACKED_SELECT,
+      // L'ENTITÉ ACTUELLE est relue : elle est ce qu'on GARDE quand le menu revient vide.
+      companyId: true,
+      department: { select: { name: true } }, concernedUser: { select: { name: true } },
+    },
   });
   if (!before) return { ok: false, error: "Courrier introuvable." };
 
@@ -232,7 +244,10 @@ export async function updateMailEntryFor(user: SessionUser, id: string, f: MailF
   const assigned = await resolveAssignments(user, f);
   if (!assigned.ok) return { ok: false, error: assigned.error };
   const links = {
-    ...(f.companyId !== undefined ? { companyId: f.companyId } : {}),
+    // CORRIGER UNE DATE NE DÉTACHE PAS LE PLI. Le menu d'entité revient vide dès qu'on n'y
+    // touche pas ; l'écrire tel quel effaçait l'entité, et le courrier disparaissait de sa
+    // propre vue au rechargement suivant — 404 sur la fiche qu'on venait de corriger.
+    companyId: chosenCompanyId(f.companyId, before.companyId, await companyIdForNew(user.id)),
     ...(f.partnerId !== undefined ? { partnerId: f.partnerId ?? null } : {}),
     ...(f.departmentId !== undefined ? { departmentId: f.departmentId ?? null } : {}),
     ...(f.concernedUserId !== undefined ? { concernedUserId: f.concernedUserId ?? null } : {}),

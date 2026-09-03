@@ -4,7 +4,7 @@ import { ArrowLeft, Paperclip, ExternalLink } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { companyScopedWhere } from "@/lib/company";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -47,10 +47,14 @@ const MAIL_DOC_CATEGORIES = [
 export default async function MailEntryPage({ params }: { params: { id: string } }) {
   const user = await requireModule("MAIL_REGISTER");
 
-  // Le cloisonnement par entité s'applique ICI aussi : deviner un identifiant ne doit pas ouvrir
-  // le registre d'une autre société du groupe.
+  // LE CLOISONNEMENT S'APPLIQUE ICI AUSSI — deviner un identifiant ne doit pas ouvrir le
+  // registre d'une autre société du groupe. Mais par la MÊME porte que la liste
+  // (`companyScopedWhere`), et c'est tout le sujet : la fiche appliquait le filtre STRICT, qui
+  // exclut les plis sans entité, pendant que la liste les gardait. Un courrier enregistré sans
+  // entité s'affichait donc au registre et répondait 404 quand on l'ouvrait — avec ses pièces
+  // jointes devenues inatteignables. Deux règles pour un même pli, c'était la panne.
   const entry = await prisma.mailEntry.findFirst({
-    where: { AND: [{ id: params.id }, await platformScope(user.id)] },
+    where: await companyScopedWhere(user.id, { id: params.id }),
     include: {
       createdBy: { select: { name: true } },
       company: { select: { name: true, shortName: true } },
