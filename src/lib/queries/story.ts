@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { intentFor } from "@/lib/assistant/workspace/direct-intents";
 import { toNumber } from "@/lib/utils";
 import { valeurContractuelleCourante } from "@/lib/pch/market-math";
+import { invoiceSettlementState } from "@/lib/labels";
 import type { StoryEvent, StoryThread, WorkspaceMetric } from "@/lib/assistant/workspace/protocol";
 
 /**
@@ -418,13 +419,19 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
 
   // ═══════════════ 5. LES BONS DE COMMANDE, ET LEUR CHAÎNE ═══════════════
   const ligneParId = new Map(t.lines.map((l) => [l.id, l]));
-  // LES FACTURES RÉELLES du module Finances, rattachées aux bons (§22-23 : pas de mécanisme
-  // financier parallèle — on LIT les factures, on n'en fabrique pas).
+  // LES FACTURES RÉELLES, rattachées aux bons (§22-23 : pas de mécanisme financier parallèle —
+  // on LIT les factures, on n'en fabrique pas). Une facture est un document légal de nature
+  // « facture » : son n° est sa `reference`, son émission son `startDate`, son échéance son
+  // `endDate`, et son règlement se lit sur `paidDate` — jamais sur un statut qui pourrait le
+  // contredire.
   const facturesRows = t.orders.length
-    ? await prisma.invoice.findMany({
-        where: { sourceType: "PCH_ORDER", sourceId: { in: t.orders.map((o) => o.id) } },
-        select: { id: true, number: true, amount: true, status: true, issueDate: true, dueDate: true, sourceId: true },
-        orderBy: { issueDate: "asc" },
+    ? await prisma.legalDocument.findMany({
+        where: { kind: "INVOICE", sourceType: "PCH_ORDER", sourceId: { in: t.orders.map((o) => o.id) } },
+        select: {
+          id: true, reference: true, amount: true, status: true, startDate: true, endDate: true,
+          paidDate: true, expenseOrderId: true, kind: true, sourceId: true,
+        },
+        orderBy: { startDate: "asc" },
       })
     : [];
   const facturesParBon = new Map<string, typeof facturesRows>();
@@ -540,20 +547,23 @@ export async function storyMarche(idOuReference: string): Promise<BusinessStory 
     // ── LA FACTURE ET LE PAIEMENT ──────────────────────────────────────────────────────
     const factures = facturesParBon.get(o.id) ?? [];
     for (const f of factures) {
-      const enRetardFacture = f.status === "UNPAID" && f.dueDate !== null && f.dueDate < new Date();
+      const regle = invoiceSettlementState(f);
+      const enRetardFacture = regle !== "PAID" && f.status !== "CANCELLED" && f.endDate !== null && f.endDate < new Date();
       events.push({
         id: `facture:${f.id}`,
-        date: iso(f.issueDate),
+        date: iso(f.startDate),
         kind: "facture",
-        titre: `Facture ${f.number ?? ""}`.trim(),
-        detail: f.status === "PAID" ? "réglée" : f.status === "PARTIAL" ? "partiellement réglée" : f.dueDate ? `échéance ${iso(f.dueDate)}` : "non réglée",
-        etat: f.status === "PAID" ? "fait" : enRetardFacture ? "echec" : "a-venir",
+        titre: `Facture ${f.reference ?? ""}`.trim(),
+        detail: regle === "PAID" ? "réglée"
+          : regle === "IN_CIRCUIT" ? "partie au règlement"
+          : f.endDate ? `échéance ${iso(f.endDate)}` : "non réglée",
+        etat: regle === "PAID" ? "fait" : enRetardFacture ? "echec" : "a-venir",
         parent: bcId,
-        entityRef: { type: "INVOICE", id: f.id, label: f.number ?? "facture" },
+        entityRef: { type: "INVOICE", id: f.id, label: f.reference ?? "facture" },
         metriques: num(f.amount) > 0 ? [{ valeur: dzd(num(f.amount)), label: "facturé" }] : [],
-        ...(enRetardFacture && f.dueDate ? { retardJours: Math.floor((Date.now() - f.dueDate.getTime()) / DAY) } : {}),
+        ...(enRetardFacture && f.endDate ? { retardJours: Math.floor((Date.now() - f.endDate.getTime()) / DAY) } : {}),
         fils: [...filsBc, "famille:paiements", ...(enRetardFacture ? ["famille:retards", "famille:risques"] : [])],
-        provenance: "Invoice (sourceType PCH_ORDER)",
+        provenance: "LegalDocument kind INVOICE (sourceType PCH_ORDER)",
         certitude: "fait",
       });
       if (!facture) facture = 0;

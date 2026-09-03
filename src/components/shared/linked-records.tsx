@@ -4,8 +4,9 @@ import { Scale, ReceiptText, Mails, ExternalLink } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, INVOICE_STATUS, MAIL_DIRECTION } from "@/lib/labels";
+import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, MAIL_DIRECTION } from "@/lib/labels";
 import { formatCurrency, formatDate, toNumber } from "@/lib/utils";
+import { isInvoice, invoiceSettlementState, INVOICE_SETTLEMENT } from "@/lib/labels";
 import { AttachToSourceButtons } from "./attach-to-source";
 
 /**
@@ -33,20 +34,26 @@ export async function LinkedRecords({
   canCreate?: boolean;
 }) {
   const where = { sourceType: entityType, sourceId: entityId };
-  const [legal, invoices, mails] = await Promise.all([
+  // UNE SEULE REQUÊTE POUR LES DEUX GROUPES. Une facture est un document légal de nature
+  // « facture » : l'interroger à part demanderait deux fois la même table et ferait, tôt ou
+  // tard, deux réponses différentes à la même question.
+  const [docs, mails] = await Promise.all([
     prisma.legalDocument.findMany({
-      where, orderBy: { createdAt: "desc" }, take: 20,
-      select: { id: true, title: true, reference: true, kind: true, status: true, endDate: true, amount: true },
-    }),
-    prisma.invoice.findMany({
-      where, orderBy: { createdAt: "desc" }, take: 20,
-      select: { id: true, title: true, number: true, status: true, amount: true, issueDate: true, paidDate: true },
+      where, orderBy: { createdAt: "desc" }, take: 40,
+      select: {
+        id: true, title: true, reference: true, kind: true, status: true, endDate: true,
+        amount: true, startDate: true, paidDate: true, expenseOrderId: true,
+      },
     }),
     prisma.mailEntry.findMany({
       where, orderBy: { createdAt: "desc" }, take: 20,
       select: { id: true, title: true, reference: true, direction: true, sentAt: true },
     }),
   ]);
+  // Les FACTURES gardent leur groupe : elles répondent à une autre question que les engagements
+  // (« est-ce payé ? » plutôt que « jusqu'à quand ? »), et les mêler perdrait les deux.
+  const invoices = docs.filter((d) => isInvoice(d.kind)).slice(0, 20);
+  const legal = docs.filter((d) => !isInvoice(d.kind)).slice(0, 20);
 
   const total = legal.length + invoices.length + mails.length;
   // Rien à montrer ET rien à créer : on n'affiche pas une carte vide sur toutes les fiches de l'ERP.
@@ -83,10 +90,10 @@ export async function LinkedRecords({
             {invoices.length > 0 && (
               <Group icon={<ReceiptText className="h-3.5 w-3.5" />} title="Factures">
                 {invoices.map((i) => {
-                  const st = INVOICE_STATUS[i.status];
+                  const st = INVOICE_SETTLEMENT[invoiceSettlementState(i)];
                   return (
-                    <Row key={i.id} href="/legal/factures" title={i.title} reference={i.number}
-                      meta={[i.issueDate ? `émise le ${formatDate(i.issueDate)}` : "", i.paidDate ? `réglée le ${formatDate(i.paidDate)}` : "",
+                    <Row key={i.id} href={`/legal/${i.id}`} title={i.title} reference={i.reference}
+                      meta={[i.startDate ? `émise le ${formatDate(i.startDate)}` : "", i.paidDate ? `réglée le ${formatDate(i.paidDate)}` : "",
                         i.amount !== null ? formatCurrency(toNumber(i.amount)) : ""].filter(Boolean).join(" · ")}
                       badge={st ? { label: st.label, tone: st.tone } : null} />
                   );

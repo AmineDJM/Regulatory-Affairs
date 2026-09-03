@@ -32,8 +32,9 @@ export function entityHref(type: string | null | undefined, id: string | null | 
     case "PAYMENT_REQUEST": return `/validations/paiements/${id}`;
     case "ADMIN_REQUEST": return `/demandes/${id}`;
     case "EXPENSE_ORDER": return "/finances/paiements-a-faire";
-    // Les factures sont centralisées dans Legal — voir `app/(app)/legal/factures`.
-    case "INVOICE": return "/legal/factures";
+    // Une facture EST un document légal de nature « facture » : elle a sa fiche, comme le
+    // contrat et le bon de commande dont elle découle.
+    case "INVOICE": return `/legal/${id}`;
     // Une avance sur salaire se lit sur la fiche de l'employé, pas sur un écran à elle.
     case "SALARY_ADVANCE": return "/rh";
 

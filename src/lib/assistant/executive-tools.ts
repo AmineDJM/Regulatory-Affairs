@@ -23,6 +23,7 @@ import { geste, retardJours, retardLabel } from "@/lib/assistant/workspace/emit"
 import { resultatIndisponible } from "@/lib/assistant/capability-failure";
 import { resultatVide } from "@/lib/assistant/empty-result";
 import { fichierALire, fichiersDe } from "@/lib/assistant/artifact-ref";
+import { invoiceSettlementState, INVOICE_SETTLEMENT } from "@/lib/labels";
 
 /** Le pictogramme d'un document, déduit du nom — le protocole n'en connaît que cinq. */
 function docKindFromName(name: string): "pdf" | "image" | "feuille" | "texte" | "autre" {
@@ -672,31 +673,35 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         });
       }
 
-      // 7) Facture (module Finances) — par n° ou titre.
-      const invoice = await prisma.invoice.findFirst({
-        where: { OR: [{ id: ref }, { number: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
+      // 7) Facture — un document légal de nature « facture », par n° ou objet.
+      const invoice = await prisma.legalDocument.findFirst({
+        where: {
+          kind: "INVOICE",
+          OR: [{ id: ref }, { reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }],
+        },
         select: {
-          id: true, number: true, title: true, status: true, direction: true, amount: true,
-          issueDate: true, dueDate: true, paidDate: true, recipient: true, payer: true,
-          transaction: { select: { reference: true, date: true, amount: true } },
+          id: true, kind: true, reference: true, title: true, status: true, direction: true, amount: true,
+          startDate: true, endDate: true, paidDate: true, counterparty: true, expenseOrderId: true,
+          settlementTx: { select: { reference: true, date: true, amount: true } },
         },
       });
       if (invoice) {
-        // Pas de timeline : la table Invoice n'a pas de type d'entité au journal d'audit.
+        const etat = invoiceSettlementState(invoice);
         return JSON.stringify({
-          type: "Facture (Finances)",
-          numero: invoice.number, objet: invoice.title,
+          type: "Facture (document légal)",
+          numero: invoice.reference, objet: invoice.title,
           sens: invoice.direction === "IN" ? "émise (on encaisse)" : "reçue (on paie)",
           montantDzd: invoice.amount != null ? Math.round(toNumber(invoice.amount)) : null,
           statut: invoice.status,
-          emiseLe: invoice.issueDate ? fr(invoice.issueDate) : null,
-          echeance: invoice.dueDate ? fr(invoice.dueDate) : null,
-          payeeLe: invoice.paidDate ? fr(invoice.paidDate) : "pas encore réglée",
-          destinataire: invoice.recipient, payeur: invoice.payer,
-          reglement: invoice.transaction
-            ? { ecriture: invoice.transaction.reference, le: fr(invoice.transaction.date), montantDzd: Math.round(toNumber(invoice.transaction.amount)) }
+          reglementEtat: INVOICE_SETTLEMENT[etat]?.label ?? null,
+          emiseLe: invoice.startDate ? fr(invoice.startDate) : null,
+          echeance: invoice.endDate ? fr(invoice.endDate) : null,
+          payeeLe: invoice.paidDate ? fr(invoice.paidDate) : (etat === "IN_CIRCUIT" ? "partie au règlement" : "pas encore réglée"),
+          partie: invoice.counterparty,
+          reglement: invoice.settlementTx
+            ? { ecriture: invoice.settlementTx.reference, le: fr(invoice.settlementTx.date), montantDzd: Math.round(toNumber(invoice.settlementTx.amount)) }
             : null,
-          lien: "/legal/factures",
+          lien: `/legal/${invoice.id}`,
         });
       }
 

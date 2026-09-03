@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { linksOfMany } from "@/lib/links/store";
+import { invoiceSettlementState } from "@/lib/labels";
 import { toNumber } from "@/lib/utils";
 import {
   deriverNiveau, etapeCourante, quantitesContractuelles, restantACommander, restantALivrer,
@@ -174,12 +175,23 @@ export async function loadMarket360(tenderId: string): Promise<Market360 | null>
 
   // ── LES FACTURES du marché : rattachées à ses bons (sourceType = PCH_ORDER). ────────────
   const orderIds = t.orders.map((o) => o.id);
+  // Une facture est un DOCUMENT LÉGAL de nature « facture » : son n° est sa `reference`, son
+  // émission son `startDate`, son échéance son `endDate`. `etat` porte le règlement (réglée /
+  // partie au règlement / à régler) — le statut du document, lui, dit sa vie (annulée).
   const factures = orderIds.length
-    ? await prisma.invoice.findMany({
-        where: { sourceType: "PCH_ORDER", sourceId: { in: orderIds } },
-        select: { id: true, number: true, title: true, status: true, amount: true, issueDate: true, dueDate: true, paidDate: true, sourceId: true },
-        orderBy: { issueDate: "asc" },
-      })
+    ? (await prisma.legalDocument.findMany({
+        where: { kind: "INVOICE", sourceType: "PCH_ORDER", sourceId: { in: orderIds } },
+        select: {
+          id: true, reference: true, title: true, status: true, amount: true, kind: true,
+          startDate: true, endDate: true, paidDate: true, expenseOrderId: true, sourceId: true,
+        },
+        orderBy: { startDate: "asc" },
+      })).map((f) => ({
+        id: f.id, number: f.reference, title: f.title, amount: f.amount, sourceId: f.sourceId,
+        issueDate: f.startDate, dueDate: f.endDate, paidDate: f.paidDate,
+        // ANNULÉE l'emporte : une facture annulée ne se règle plus, et ne compte nulle part.
+        status: f.status === "CANCELLED" ? "CANCELLED" : invoiceSettlementState(f),
+      }))
     : [];
   const facturesParBon = new Map<string, typeof factures>();
   for (const f of factures) {
@@ -403,7 +415,7 @@ export async function loadMarket360(tenderId: string): Promise<Market360 | null>
   if (bcSansLigne > 0) manques.push(`${bcSansLigne} bon(s) de commande sans ligne détaillée.`);
   const bcSansFacture = bonsActifs.filter((o) => (o.status === "DELIVERED" || o.status === "PAID") && (facturesParBon.get(o.id) ?? []).length === 0).length;
   if (bcSansFacture > 0) manques.push(`${bcSansFacture} bon(s) livré(s) sans facture enregistrée dans Finances.`);
-  const facturesEchues = factures.filter((f) => f.status === "UNPAID" && f.dueDate && f.dueDate < maintenant).length;
+  const facturesEchues = factures.filter((f) => (f.status === "UNPAID" || f.status === "IN_CIRCUIT") && f.dueDate && f.dueDate < maintenant).length;
   if (facturesEchues > 0) manques.push(`${facturesEchues} facture(s) échue(s) non réglée(s).`);
   if (t.cautionEnd && t.cautionEnd < maintenant && !["COMPLETED", "CANCELLED"].includes(String(t.status))) {
     manques.push("Caution expirée sur un marché encore ouvert.");

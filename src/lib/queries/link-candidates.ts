@@ -41,15 +41,19 @@ export async function linkCandidates(
       });
       groups.push({ ...base, options: rows.map((r) => ({ value: r.id, label: `BC ${r.reference ?? "s/n"} — ${r.tender.reference}` })) });
     } else if (t === "INVOICE") {
-      const rows = await prisma.invoice.findMany({
-        where: scope, select: { id: true, number: true, title: true }, orderBy: { createdAt: "desc" }, take: TAKE,
+      // Une facture est un document légal de nature « facture » — elle n'apparaît donc QUE dans
+      // ce groupe, jamais aussi dans « Documents légaux » : la proposer deux fois laisserait
+      // relier la même pièce sous deux natures, et le même couple s'enregistrerait deux fois.
+      const rows = await prisma.legalDocument.findMany({
+        where: { AND: [scope, { kind: "INVOICE" }, ...(self.type === "INVOICE" ? [{ id: { not: self.id } }] : [])] },
+        select: { id: true, reference: true, title: true }, orderBy: { createdAt: "desc" }, take: TAKE,
       });
-      groups.push({ ...base, options: rows.map((r) => ({ value: r.id, label: `Facture ${r.number ? `${r.number} — ` : ""}${r.title}` })) });
+      groups.push({ ...base, options: rows.map((r) => ({ value: r.id, label: `Facture ${r.reference ? `${r.reference} — ` : ""}${r.title}` })) });
     } else if (t === "LEGAL_DOCUMENT") {
       const rows = await prisma.legalDocument.findMany({
         // Un document ne se relie pas à LUI-MÊME : l'écarter de la liste vaut mieux que de le
         // proposer pour refuser ensuite.
-        where: { AND: [scope, ...(self.type === "LEGAL_DOCUMENT" ? [{ id: { not: self.id } }] : [])] },
+        where: { AND: [scope, { kind: { not: "INVOICE" } }, ...(self.type === "LEGAL_DOCUMENT" ? [{ id: { not: self.id } }] : [])] },
         select: { id: true, title: true, reference: true }, orderBy: { createdAt: "desc" }, take: TAKE,
       });
       groups.push({ ...base, options: rows.map((r) => ({ value: r.id, label: `${r.reference ? `${r.reference} — ` : ""}${r.title}` })) });

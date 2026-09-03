@@ -7,6 +7,14 @@ import { LEGAL_DOC_KIND } from "@/lib/labels";
  *
  * Deux listes séparées finiraient par diverger : on ajouterait un champ à la création, la fiche
  * ne saurait plus le corriger, et l'on aurait un engagement qu'on ne peut plus rectifier.
+ *
+ * ── LES DEUX CHAMPS D'UNE FACTURE ───────────────────────────────────────────────────────────
+ *
+ * Le SENS de l'argent et la DATE DE RÈGLEMENT n'ont de sens que sur une facture. Ils figurent
+ * pourtant dans le formulaire commun, et c'est le prix assumé de n'avoir qu'un seul formulaire :
+ * un second, réservé aux factures, redeviendrait l'endroit spécial qu'on vient de fermer. Leurs
+ * libellés le disent (« facture »), et le serveur les ignore sur toute autre nature — un bail ne
+ * portera jamais de sens de l'argent, même si quelqu'un remplit le champ.
  */
 export function legalFields(
   values: Partial<Record<string, string>> = {},
@@ -17,16 +25,44 @@ export function legalFields(
   folders: { value: string; label: string }[] = [],
   /** Pièces amont possibles (devis, BC…) pour la CHAÎNE. Vide → le champ n'apparaît pas. */
   chainCandidates: { value: string; label: string }[] = [],
+  /**
+   * La personne ne tient QUE les factures (comptabilité). La nature n'est alors pas un choix :
+   * la proposer laisserait enregistrer un bail qu'on ne pourrait plus ni voir ni corriger.
+   */
+  invoiceOnly = false,
 ): FieldDef[] {
   const v = (k: string) => values[k] ?? undefined;
+  const facture = invoiceOnly || v("kind") === "INVOICE";
   return [
-    { type: "text", name: "title", label: "Titre exact du document", required: true, full: true, defaultValue: v("title") },
-    { type: "text", name: "reference", label: "Référence / n°", defaultValue: v("reference") },
-    { type: "select", name: "kind", label: "Nature", options: optionsFromMap(LEGAL_DOC_KIND), defaultValue: v("kind") ?? "CONTRACT" },
+    {
+      type: "text", name: "title",
+      label: facture ? "Objet de la facture" : "Titre exact du document",
+      required: true, full: true, defaultValue: v("title"),
+    },
+    { type: "text", name: "reference", label: facture ? "N° de facture" : "Référence / n°", defaultValue: v("reference") },
+    ...(invoiceOnly
+      ? ([{ type: "hidden", name: "kind", value: "INVOICE" }] as FieldDef[])
+      : ([{ type: "select", name: "kind", label: "Nature", options: optionsFromMap(LEGAL_DOC_KIND), defaultValue: v("kind") ?? "CONTRACT" }] as FieldDef[])),
     { type: "text", name: "counterparty", label: "Partie (fournisseur, client, prestataire)", full: true, defaultValue: v("counterparty") },
-    { type: "date", name: "startDate", label: "Date de début (facultative)", defaultValue: v("startDate") },
-    { type: "date", name: "endDate", label: "Date de fin — vide = sans échéance", defaultValue: v("endDate") },
+    { type: "date", name: "startDate", label: facture ? "Date d’émission" : "Date de début (facultative)", defaultValue: v("startDate") },
+    { type: "date", name: "endDate", label: facture ? "Échéance de règlement" : "Date de fin — vide = sans échéance", defaultValue: v("endDate") },
     { type: "number", name: "amount", label: "Montant (DZD)", defaultValue: v("amount") },
+    // LE SENS DE L'ARGENT — jamais deviné du nom de la partie en face : selon la facture, la
+    // même société est celle qu'on paie ou celle qui nous paie, et une écriture posée à
+    // l'envers est pire qu'une écriture absente parce qu'elle se voit moins.
+    {
+      type: "select", name: "direction", label: "Facture — sens de l’argent",
+      options: [
+        { value: "OUT", label: "Reçue — nous payons" },
+        { value: "IN", label: "Émise — nous encaissons" },
+      ],
+      defaultValue: v("direction") ?? "OUT",
+    },
+    {
+      type: "date", name: "paidDate", label: "Facture — date de règlement (si déjà réglée)",
+      defaultValue: v("paidDate"),
+      hint: "La renseigner déclare la facture réglée et inscrit le mouvement aux Finances ; l’effacer le retire. Une facture partie au règlement se solde par son paiement — cette date lui est refusée.",
+    },
     { type: "textarea", name: "notes", label: "Notes", full: true, defaultValue: v("notes") },
     // LA CHAÎNE DU DOSSIER D'ACHAT : la pièce dont celle-ci DÉCOULE. C'est ce lien qui permet de
     // lire devis → BC → facture → règlement d'un seul écran, avec les validateurs et les délais.

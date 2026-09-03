@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { EntityType, InvoiceStatus } from "@prisma/client";
+import type { EntityType } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -9,47 +9,58 @@ import { recordAudit } from "@/lib/audit";
 import { companyIdForNew } from "@/lib/company";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFormFiles } from "@/lib/documents";
-import { toNumber } from "@/lib/utils";
-import { buildRef } from "@/lib/refs";
-import { settlementAction, invoiceDirection, invoiceSettlementLabel } from "@/lib/finances/settlement";
+import { invoiceDirection } from "@/lib/finances/settlement";
+import { legalWriteAllowed } from "@/lib/legal/invoices";
+import { syncInvoiceSettlement } from "@/lib/finance/settle-invoice";
+import type { CurrentUser } from "@/lib/session";
 
 /**
- * LES FACTURES — reçues ou émises, avec leur pièce et leur règlement.
+ * LES FACTURES — DES DOCUMENTS LÉGAUX DE NATURE « FACTURE », et rien d'autre.
  *
- * `recipient` (destinataire) et `payer` (payeur) sont écrits EN CLAIR plutôt que déduits d'un
- * sens « entrante / sortante » : selon la facture, la même société est l'un ou l'autre, et
- * c'est précisément ce qu'on vient vérifier six mois plus tard.
+ * ── CE QUI A CHANGÉ, ET POURQUOI CE FICHIER EXISTE ENCORE ───────────────────────────────────
  *
- * La DATE DE PAIEMENT gouverne le statut : la renseigner, c'est déclarer la facture réglée ;
- * l'effacer, c'est la remettre à régler. Deux champs qui se contredisent (une date de paiement
- * sur une facture « à régler ») créent un doute qu'aucun tableau ne lève.
+ * Une facture n'a plus de table à elle : c'est un `LegalDocument` de nature `INVOICE`, dans le
+ * registre où vivent déjà les devis et les bons de commande dont elle découle (§17 : pas de
+ * second registre).
+ *
+ * Ce fichier garde ses gestes parce qu'ils ont des APPELANTS RÉELS et un vocabulaire à eux :
+ * « enregistrer la facture reçue de ce fournisseur » depuis la fiche qui la fait naître, et les
+ * opérations d'Adam. Ce sont des adaptateurs : ils traduisent le vocabulaire d'une facture vers
+ * celui du registre, et n'ont AUCUNE règle qui leur soit propre — la porte d'écriture, l'état du
+ * règlement et l'écriture comptable vivent dans `lib/legal/`.
+ *
+ *   n° de facture     → `reference`        objet   → `title`
+ *   date d'émission   → `startDate`        échéance → `endDate`
+ *   destinataire/payeur → `counterparty` (celui des deux qui n'est pas nous, désigné par le SENS)
+ *
+ * ── QUI ÉCRIT ───────────────────────────────────────────────────────────────────────────────
+ *
+ * Legal tient le registre ; la COMPTABILITÉ tient les factures. Fondre les deux écrans aurait
+ * pu fermer la porte à celle qui vient y lire ce qui reste à payer : `legalWriteAllowed` l'ouvre
+ * pour la seule nature « facture », et pour elle seule.
  */
 
-const STATUSES: InvoiceStatus[] = ["UNPAID", "PARTIAL", "PAID", "CANCELLED"];
-const parseStatus = (v: string | null): InvoiceStatus =>
-  v && STATUSES.includes(v as InvoiceStatus) ? (v as InvoiceStatus) : "UNPAID";
-
-/** Le statut découle de la date de paiement, sauf annulation explicite. */
-function statusFor(raw: string | null, paidDate: Date | null): InvoiceStatus {
-  const asked = parseStatus(raw);
-  if (asked === "CANCELLED" || asked === "PARTIAL") return asked;
-  return paidDate ? "PAID" : "UNPAID";
+/** La porte d'écriture d'une facture — la même règle que l'écran, tenue par le serveur. */
+function peutEcrire(user: CurrentUser, verb: "CREATE" | "UPDATE" | "DELETE"): boolean {
+  return legalWriteAllowed({
+    onLegal: userCan(user, "LEGAL", verb),
+    onFinances: userCan(user, "FINANCES", verb),
+    kind: "INVOICE",
+  });
 }
 
 function readFields(formData: FormData) {
-  const paidDate = fdDate(formData, "paidDate");
-  const amountRaw = fdStr(formData, "amount");
   return {
     title: fdStr(formData, "title"),
-    number: fdStr(formData, "number"),
-    issueDate: fdDate(formData, "issueDate"),
-    dueDate: fdDate(formData, "dueDate"),
-    paidDate,
-    amount: amountRaw ? Number(amountRaw) : null,
-    status: statusFor(fdStr(formData, "status"), paidDate),
-    recipient: fdStr(formData, "recipient"),
-    payer: fdStr(formData, "payer"),
-    // Sens de l'argent — jamais deviné des noms : voir `invoiceDirection`.
+    reference: fdStr(formData, "number") ?? fdStr(formData, "reference"),
+    startDate: fdDate(formData, "issueDate"),
+    endDate: fdDate(formData, "dueDate"),
+    paidDate: fdDate(formData, "paidDate"),
+    amount: fdStr(formData, "amount") ? Number(fdStr(formData, "amount")) : null,
+    // LA PARTIE EN FACE. Le formulaire peut la nommer « destinataire » ou « payeur » selon le
+    // sens ; le registre n'en garde qu'une — l'autre, c'est nous, et `companyId` le dit déjà.
+    counterparty: fdStr(formData, "counterparty") ?? fdStr(formData, "recipient") ?? fdStr(formData, "payer"),
+    // Sens de l'argent — jamais deviné d'un nom de société : voir `invoiceDirection`.
     direction: invoiceDirection(fdStr(formData, "direction")),
     notes: fdStr(formData, "notes"),
   };
@@ -60,18 +71,19 @@ export async function createInvoice(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "FINANCES", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!peutEcrire(user, "CREATE")) return { ok: false, error: "Non autorisé." };
 
   const { title, ...f } = readFields(formData);
   if (!title) return { ok: false, error: "L'objet de la facture est obligatoire." };
   if (f.amount !== null && !Number.isFinite(f.amount)) return { ok: false, error: "Montant invalide." };
 
-  const created = await prisma.invoice.create({
+  const created = await prisma.legalDocument.create({
     data: {
       ...f, title,
+      kind: "INVOICE",
       companyId: await companyIdForNew(user.id),
-      // Le type ne se pose QUE si la cible existe : un « PCH_ORDER » sans identifiant serait
-      // un lien qui pointe nulle part (le select « Bon de commande » peut rester vide).
+      // Le type ne se pose QUE si la cible existe : un « PCH_ORDER » sans identifiant serait un
+      // lien qui pointe nulle part (le select « Bon de commande » peut rester vide).
       sourceType: fdStr(formData, "sourceId") ? ((fdStr(formData, "sourceType") as EntityType | null) ?? null) : null,
       sourceId: fdStr(formData, "sourceId"),
       createdById: user.id, updatedById: user.id,
@@ -79,19 +91,19 @@ export async function createInvoice(
     select: { id: true },
   });
   await recordAudit({
-    actorId: user.id, action: "CREATE", module: "Finances",
-    summary: `Facture « ${title} »${f.number ? ` (n° ${f.number})` : ""}`,
+    actorId: user.id, action: "CREATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: created.id,
+    summary: `Facture « ${title} »${f.reference ? ` (n° ${f.reference})` : ""}`,
   });
   // Une facture créée DÉJÀ réglée (saisie a posteriori) inscrit son mouvement aussitôt.
   await syncInvoiceSettlement(created.id, user.id);
 
-  // LE SCAN PART AVEC LA FACTURE. L'engagement et le courrier joignaient déjà leurs pièces à la
-  // création ; la facture, non — celle qui en a le plus besoin. On enregistrait donc une ligne,
-  // puis on repartait la chercher dans son module pour y téléverser le PDF : trois écrans pour un
-  // fichier qu'on avait sous la main, et en pratique un justificatif qui reste dans la boîte mail.
-  const files = await attachFormFiles(user.id, "INVOICE", created.id, formData);
+  // LE SCAN PART AVEC LA FACTURE. On enregistrait sinon une ligne, puis on repartait la chercher
+  // pour y téléverser le PDF : trois écrans pour un fichier qu'on avait sous la main, et en
+  // pratique un justificatif qui reste dans la boîte mail.
+  const files = await attachFormFiles(user.id, "LEGAL_DOCUMENT", created.id, formData);
 
-  revalidatePath("/legal/factures");
+  revalidatePath("/legal");
   revalidatePath("/finances");
   // Née rattachée à un bon de commande PCH : la fiche marché l'affiche aussi.
   if (fdStr(formData, "sourceType") === "PCH_ORDER") revalidatePath("/pch");
@@ -103,41 +115,55 @@ export async function createInvoice(
     : { ok: true, id: created.id };
 }
 
+/** La pièce visée existe-t-elle, et est-elle bien une facture ? */
+async function laFacture(id: string) {
+  if (!id) return null;
+  const doc = await prisma.legalDocument.findUnique({
+    where: { id },
+    select: { id: true, title: true, reference: true, kind: true, expenseOrderId: true },
+  });
+  return doc && doc.kind === "INVOICE" ? doc : null;
+}
+
 export async function updateInvoice(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Non autorisé." };
-  const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Facture introuvable." };
+  if (!peutEcrire(user, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const doc = await laFacture(fdStr(formData, "id") ?? "");
+  if (!doc) return { ok: false, error: "Facture introuvable." };
 
   const { title, ...f } = readFields(formData);
   if (!title) return { ok: false, error: "L'objet de la facture est obligatoire." };
 
-  await prisma.invoice.update({ where: { id }, data: { ...f, title, updatedById: user.id } });
+  await prisma.legalDocument.update({
+    where: { id: doc.id },
+    // Changer l'échéance rouvre la surveillance : le dernier rappel s'efface pour que la
+    // nouvelle date soit annoncée à son tour.
+    data: { ...f, title, lastRemindedAt: null, updatedById: user.id },
+  });
   await recordAudit({
-    actorId: user.id, action: "UPDATE", module: "Finances",
+    actorId: user.id, action: "UPDATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: doc.id,
     summary: `Facture « ${title} » mise à jour`,
   });
   // La date de règlement peut avoir été posée ou retirée depuis la fiche : l'écriture suit.
-  await syncInvoiceSettlement(id, user.id);
-  revalidatePath("/legal/factures");
-  revalidatePath(`/legal/factures/${id}`);
+  await syncInvoiceSettlement(doc.id, user.id);
+  revalidatePath("/legal");
+  revalidatePath(`/legal/${doc.id}`);
   revalidatePath("/finances");
   return { ok: true };
 }
 
 /**
  * RATTACHER une facture EXISTANTE à un bon de commande PCH (ou l'en détacher) — le geste
- * a posteriori : la facture arrivée par Finances avant que le lien soit fait. C'est ce lien
- * (sourceType = PCH_ORDER) qui la fait apparaître sous SON bon dans la fiche marché, et qui
+ * a posteriori : la facture arrivée avant que le lien soit fait. C'est ce lien
+ * (`sourceType = PCH_ORDER`) qui la fait apparaître sous SON bon dans la fiche marché, et qui
  * répond à « quelle facture correspond à quel BC ».
  */
 export async function setInvoiceOrder(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Non autorisé." };
-  const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Facture introuvable." };
-  const inv = await prisma.invoice.findUnique({ where: { id }, select: { title: true, number: true } });
-  if (!inv) return { ok: false, error: "Facture introuvable." };
+  if (!peutEcrire(user, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const doc = await laFacture(fdStr(formData, "id") ?? "");
+  if (!doc) return { ok: false, error: "Facture introuvable." };
 
   const orderId = fdStr(formData, "pchOrderId");
   let orderLabel: string | null = null;
@@ -146,17 +172,18 @@ export async function setInvoiceOrder(formData: FormData): Promise<ActionResult>
     if (!o) return { ok: false, error: "Bon de commande introuvable." };
     orderLabel = `BC ${o.reference ?? "s/n"} — ${o.tender.reference}`;
   }
-  await prisma.invoice.update({
-    where: { id },
+  await prisma.legalDocument.update({
+    where: { id: doc.id },
     data: { sourceType: orderId ? "PCH_ORDER" : null, sourceId: orderId, updatedById: user.id },
   });
   await recordAudit({
-    actorId: user.id, action: "UPDATE", module: "Finances",
+    actorId: user.id, action: "UPDATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: doc.id,
     summary: orderId
-      ? `Facture « ${inv.title} » rattachée au ${orderLabel}`
-      : `Facture « ${inv.title} » détachée de son bon de commande`,
+      ? `Facture « ${doc.title} » rattachée au ${orderLabel}`
+      : `Facture « ${doc.title} » détachée de son bon de commande`,
   });
-  revalidatePath("/legal/factures");
+  revalidatePath("/legal");
   revalidatePath("/pch");
   return { ok: true };
 }
@@ -164,110 +191,48 @@ export async function setInvoiceOrder(formData: FormData): Promise<ActionResult>
 /** Marquer réglée / à régler depuis la ligne du tableau — le geste le plus fréquent. */
 export async function setInvoicePaid(input: { id: string; paidDate: string | null }): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!peutEcrire(user, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const doc = await laFacture(input.id);
+  if (!doc) return { ok: false, error: "Facture introuvable." };
   const paid = input.paidDate ? new Date(input.paidDate) : null;
   if (input.paidDate && Number.isNaN(paid!.getTime())) return { ok: false, error: "Date invalide." };
 
-  await prisma.invoice.update({
-    where: { id: input.id },
-    // Le statut suit la date : pas de facture « à régler » portant une date de paiement.
-    data: { paidDate: paid, status: paid ? "PAID" : "UNPAID", updatedById: user.id },
-  });
+  // LE CIRCUIT A LA PRIORITÉ. Une facture partie au règlement sera soldée par le paiement de son
+  // ordre : la marquer réglée à la main poserait la date d'un virement qui n'a pas encore eu
+  // lieu, et l'écran dirait « réglée » sur un dossier que les Finances tiennent encore ouvert.
+  if (paid && doc.expenseOrderId) {
+    return {
+      ok: false,
+      error: "Cette facture est partie au règlement : son paiement la soldera. Suivez-la depuis le centre de paiement.",
+    };
+  }
+
+  await prisma.legalDocument.update({ where: { id: doc.id }, data: { paidDate: paid, updatedById: user.id } });
   // L'ARGENT PASSE PAR LES FINANCES : marquer réglée y inscrit le mouvement, dé-marquer le retire.
-  await syncInvoiceSettlement(input.id, user.id);
-  revalidatePath("/legal/factures");
+  await syncInvoiceSettlement(doc.id, user.id);
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: doc.id, field: "paidDate",
+    summary: paid ? `Facture « ${doc.title} » marquée réglée` : `Facture « ${doc.title} » remise à régler`,
+  });
+  revalidatePath("/legal");
+  revalidatePath(`/legal/${doc.id}`);
   revalidatePath("/finances");
   return { ok: true };
 }
 
 export async function deleteInvoice(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "FINANCES", "DELETE")) return { ok: false, error: "Non autorisé." };
-  const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Facture introuvable." };
-  const inv = await prisma.invoice.findUnique({ where: { id }, select: { title: true } });
-  if (!inv) return { ok: false, error: "Facture introuvable." };
+  if (!peutEcrire(user, "DELETE")) return { ok: false, error: "Non autorisé." };
+  const doc = await laFacture(fdStr(formData, "id") ?? "");
+  if (!doc) return { ok: false, error: "Facture introuvable." };
 
-  await prisma.invoice.delete({ where: { id } });
+  await prisma.legalDocument.delete({ where: { id: doc.id } });
   await recordAudit({
-    actorId: user.id, action: "DELETE", module: "Finances",
-    summary: `Facture « ${inv.title} » supprimée`,
+    actorId: user.id, action: "DELETE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: doc.id,
+    summary: `Facture « ${doc.title} » supprimée`,
   });
-  revalidatePath("/legal/factures");
+  revalidatePath("/legal");
   return { ok: true };
-}
-
-/**
- * L'ÉCRITURE FINANCIÈRE D'UNE FACTURE — créée quand on la marque réglée, retirée quand on
- * revient dessus.
- *
- * TOUT PAIEMENT DE LA PLATEFORME PASSE PAR LES FINANCES. Marquer une facture « réglée » posait
- * une date, et rien d'autre : l'argent bougeait sans qu'aucune écriture n'apparaisse, si bien
- * que la trésorerie et le budget décrivaient une entreprise qui n'existait pas — et l'écran
- * qu'on aurait consulté pour s'en apercevoir était précisément celui qui mentait.
- *
- * Idempotent, dans les deux sens : ré-enregistrer une facture déjà réglée ne double pas son
- * écriture, et dé-marquer un règlement retire la sienne plutôt que de la laisser traîner.
- */
-async function syncInvoiceSettlement(invoiceId: string, actorId: string): Promise<void> {
-  const inv = await prisma.invoice.findUnique({
-    where: { id: invoiceId },
-    select: {
-      id: true, number: true, title: true, amount: true, paidDate: true, direction: true,
-      companyId: true, payer: true, recipient: true, transactionId: true,
-    },
-  });
-  if (!inv) return;
-
-  const what = settlementAction({ paidDate: inv.paidDate, transactionId: inv.transactionId });
-  if (what === "NOOP") return;
-
-  if (what === "REMOVE") {
-    const txId = inv.transactionId!;
-    // On délie AVANT de supprimer : si la suppression échoue, la facture ne pointe plus vers
-    // une écriture fantôme — mieux vaut une écriture orpheline, visible, qu'un lien mort.
-    await prisma.invoice.update({ where: { id: inv.id }, data: { transactionId: null } });
-    await prisma.financeTransaction.delete({ where: { id: txId } }).catch(() => undefined);
-    await recordAudit({
-      actorId, action: "UPDATE", module: "Finances", entityType: "FINANCE_TRANSACTION", entityId: txId,
-      summary: `Règlement annulé — écriture retirée pour « ${inv.title} »`,
-    });
-    return;
-  }
-
-  // CREATE — le montant est obligatoire pour écrire : une écriture à zéro est un mouvement qui
-  // n'a pas eu lieu, et elle brouillerait la trésorerie sans rien apporter.
-  const amount = inv.amount != null ? toNumber(inv.amount) : 0;
-  if (!(amount > 0)) return;
-
-  const year = (inv.paidDate ?? new Date()).getFullYear();
-  const refs = (await prisma.financeTransaction.findMany({
-    where: { reference: { startsWith: `FIN-${year}-` } },
-    select: { reference: true },
-  })).map((r) => r.reference);
-
-  const direction = invoiceDirection(inv.direction);
-  const tx = await prisma.financeTransaction.create({
-    data: {
-      reference: buildRef("FIN", year, refs),
-      date: inv.paidDate ?? new Date(),
-      direction,
-      category: "AUTRE",
-      label: invoiceSettlementLabel(inv),
-      amount,
-      method: "BANK_TRANSFER",
-      account: "Banque",
-      // La contrepartie, c'est L'AUTRE : pour une facture reçue, celui qu'on paie.
-      counterparty: (direction === "OUT" ? inv.recipient : inv.payer) ?? null,
-      status: "SETTLED",
-      companyId: inv.companyId,
-      createdById: actorId,
-    },
-    select: { id: true },
-  });
-  await prisma.invoice.update({ where: { id: inv.id }, data: { transactionId: tx.id } });
-  await recordAudit({
-    actorId, action: "CREATE", module: "Finances", entityType: "FINANCE_TRANSACTION", entityId: tx.id,
-    summary: `${direction === "OUT" ? "Décaissement" : "Encaissement"} ${amount.toLocaleString("fr-FR")} DZD — « ${inv.title} » (facture réglée)`,
-  });
 }

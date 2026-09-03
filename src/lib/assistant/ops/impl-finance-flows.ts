@@ -246,19 +246,20 @@ async function resolveTx(raw: string) {
   return { error: `Plusieurs écritures correspondent à « ${q} » : ${rows.map((r) => `${r.reference} — ${r.label} (${dzd(toNumber(r.amount))})`).join(" ; ")} — donner la référence exacte.` } as const;
 }
 
+/** Une facture est un DOCUMENT LÉGAL de nature « facture » — son n° est sa `reference`. */
 async function resolveInvoiceFull(raw: string) {
   const q = raw.trim();
   if (!q) return { error: "Précisez le numéro ou le titre de la facture." } as const;
-  const rows = await prisma.invoice.findMany({
-    where: { OR: [{ number: { equals: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }] },
+  const rows = await prisma.legalDocument.findMany({
+    where: { kind: "INVOICE", OR: [{ reference: { equals: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }] },
     orderBy: { createdAt: "desc" },
     take: 6,
   });
   if (rows.length === 0) return { error: `Aucune facture « ${q} ».` } as const;
-  const exact = rows.filter((r) => (r.number ?? "").toLowerCase() === q.toLowerCase());
+  const exact = rows.filter((r) => (r.reference ?? "").toLowerCase() === q.toLowerCase());
   if (exact.length === 1) return exact[0];
   if (rows.length === 1) return rows[0];
-  return { error: `Plusieurs factures correspondent à « ${q} » : ${rows.map((r) => `${r.number ? `${r.number} — ` : ""}${r.title}`).join(" ; ")} — préciser.` } as const;
+  return { error: `Plusieurs factures correspondent à « ${q} » : ${rows.map((r) => `${r.reference ? `${r.reference} — ` : ""}${r.title}`).join(" ; ")} — préciser.` } as const;
 }
 
 const resolveBudgetCategoryLine = (raw: string) =>
@@ -914,15 +915,15 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
       // FUSION : updateInvoice REMPLACE la fiche — chaque champ absent est rejoué à l'identique.
       const title = opStr(input, "newLabel") || inv.title;
       const amount = num(input, "amount");
-      const number = opStr(input, "number") || inv.number;
-      const issueDate = isoDate(opStr(input, "date")) ?? (inv.issueDate ? inv.issueDate.toISOString().slice(0, 10) : null);
-      const dueDate = isoDate(opStr(input, "dueDate")) ?? (inv.dueDate ? inv.dueDate.toISOString().slice(0, 10) : null);
+      const number = opStr(input, "reference") || opStr(input, "number") || inv.reference;
+      const issueDate = isoDate(opStr(input, "date")) ?? (inv.startDate ? inv.startDate.toISOString().slice(0, 10) : null);
+      const dueDate = isoDate(opStr(input, "dueDate")) ?? (inv.endDate ? inv.endDate.toISOString().slice(0, 10) : null);
       const paidDate = inv.paidDate ? inv.paidDate.toISOString().slice(0, 10) : null;
-      const recipient = opStr(input, "counterparty") || inv.recipient;
+      const counterparty = opStr(input, "counterparty") || inv.counterparty;
       return {
         title: `Modifier la facture « ${inv.title} »`,
         fields: fieldsOf([
-          ["Facture", inv.number ? `${inv.number} — ${inv.title}` : inv.title],
+          ["Facture", inv.reference ? `${inv.reference} — ${inv.title}` : inv.title],
           ["Objet", title !== inv.title ? `${inv.title} → ${title}` : title],
           ["Montant", amount !== null ? `${inv.amount !== null ? dzd(toNumber(inv.amount)) : "—"} → ${dzd(amount)}` : (inv.amount !== null ? dzd(toNumber(inv.amount)) : null)],
           ["Échéance", dueDate],
@@ -931,38 +932,38 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
         args: {
           id: inv.id, title, number,
           amount: amount !== null ? String(amount) : (inv.amount !== null ? String(toNumber(inv.amount)) : null),
-          issueDate, dueDate, paidDate,
-          // Le statut existant est REJOUÉ : sans lui, une facture annulée ou partielle
-          // redeviendrait « impayée » au premier renommage (statusFor le déduirait de la date).
-          status: inv.status,
-          direction: inv.direction, recipient, payer: inv.payer,
+          issueDate, dueDate,
+          // LE RÈGLEMENT EST REJOUÉ À L'IDENTIQUE : sans lui, renommer une facture réglée
+          // l'effacerait, et l'écriture comptable serait retirée du livre par un renommage.
+          paidDate,
+          direction: inv.direction, counterparty,
           notes: opStr(input, "notes") || inv.notes,
         },
         successMessage: `Facture « ${title} » mise à jour.`,
-        link: "/legal/factures", revalidate: ["/finances", "/legal/factures"],
+        link: `/legal/${inv.id}`, revalidate: ["/legal", "/finances"],
       };
     },
-    execute: (args) => runFd(updateInvoice, args, "La modification de la facture a été refusée.", { revalidate: ["/finances", "/legal/factures"] }),
+    execute: (args) => runFd(updateInvoice, args, "La modification de la facture a été refusée.", { revalidate: ["/legal", "/finances"] }),
   },
 
   delete_invoice: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const inv = await resolveInvoiceFull(opStr(input, "reference") || opStr(input, "label"));
       if ("error" in inv) return inv;
-      const key = inv.number || inv.title;
+      const key = inv.reference || inv.title;
       return {
         title: `SUPPRIMER la facture « ${inv.title} »`,
         fields: [
-          { label: "Facture", value: `${inv.number ? `${inv.number} — ` : ""}${inv.title}${inv.amount !== null ? ` (${dzd(toNumber(inv.amount))})` : ""}` },
+          { label: "Facture", value: `${inv.reference ? `${inv.reference} — ` : ""}${inv.title}${inv.amount !== null ? ` (${dzd(toNumber(inv.amount))})` : ""}` },
         ],
-        warnings: ["Suppression définitive de la fiche facture — l'écriture de règlement éventuelle reste au livre."],
+        warnings: ["Suppression définitive de la pièce dans le registre Legal — l'écriture de règlement éventuelle reste au livre."],
         confirmText: key,
         args: { id: inv.id },
         successMessage: `Facture « ${inv.title} » supprimée.`,
-        revalidate: ["/finances", "/legal/factures"],
+        revalidate: ["/legal", "/finances"],
       };
     },
-    execute: (args) => runFd(deleteInvoice, args, "La suppression de la facture a été refusée.", { revalidate: ["/finances", "/legal/factures"] }),
+    execute: (args) => runFd(deleteInvoice, args, "La suppression de la facture a été refusée.", { revalidate: ["/legal", "/finances"] }),
   },
 
   // ─────────────── Paie (bulletins Finances) ───────────────

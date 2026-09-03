@@ -100,8 +100,17 @@ export function AttachToSourceButtons({ entityType, entityId, reference, kinds }
       { type: "date", name: "issueDate", label: "Date d'émission" },
       { type: "date", name: "dueDate", label: "Échéance de règlement" },
       { type: "date", name: "paidDate", label: "Date de paiement (si déjà réglée)" },
-      { type: "text", name: "recipient", label: "Destinataire (à qui elle est adressée)" },
-      { type: "text", name: "payer", label: "Payeur (qui règle)" },
+      // UN SEUL NOM, ET LE SENS. « Destinataire » et « payeur » demandaient deux fois la même
+      // chose : l'un des deux est TOUJOURS nous. On saisit donc la partie EN FACE, et le sens
+      // dit de quel côté elle se tient.
+      {
+        type: "select", name: "direction", label: "Sens", defaultValue: "OUT",
+        options: [
+          { value: "OUT", label: "Reçue — nous payons" },
+          { value: "IN", label: "Émise — nous encaissons" },
+        ],
+      },
+      { type: "text", name: "counterparty", label: "Partie (fournisseur, client)", full: true },
       { type: "textarea", name: "notes", label: "Notes", full: true },
       ...piece,
     ],

@@ -7,6 +7,7 @@ import { platformScope } from "@/lib/company";
 import { globalSearch } from "@/lib/queries/search";
 import { toNumber } from "@/lib/utils";
 import { emptySearchNote } from "@/lib/queries/search-redirect";
+import { invoiceSettlementState, INVOICE_SETTLEMENT } from "@/lib/labels";
 
 /**
  * RECHERCHE FÉDÉRÉE « search_everything » — le geste réflexe du Chief of Staff.
@@ -83,7 +84,6 @@ const FUZZY_TABLES: Record<string, readonly string[]> = {
   Employee: ["fullName", "position"],
   PaymentRequest: ["title", "reference", "payee"],
   ExpenseOrder: ["label", "reference", "beneficiary"],
-  Invoice: ["title", "number", "recipient", "payer"],
   AdministrativeRequest: ["title", "reference"],
 };
 
@@ -185,6 +185,10 @@ export async function searchEverything(user: SessionUser, q: string, take = 6): 
     familyWhere("ExpenseOrder", terms, ["label", "reference", "beneficiary"], [entity as Where]),
     familyWhere("LegalDocument", terms, ["title", "reference", "counterparty"], [
       entity as Where,
+      // LES FACTURES ONT LEUR PROPRE FAMILLE. Elles vivent dans la même table (ce sont des
+      // documents de nature « facture »), mais on ne veut pas la même pièce deux fois dans la
+      // même liste de résultats : « Legal » = les engagements, « Factures » = les factures.
+      { kind: { not: "INVOICE" } },
       // La restriction par LECTEURS s'applique aussi ici : un contrat restreint n'apparaît pas
       // dans une recherche de qui n'en est pas lecteur.
       ...(user.role === "SUPER_ADMIN" ? [] : [{
@@ -192,7 +196,13 @@ export async function searchEverything(user: SessionUser, q: string, take = 6): 
       }]),
     ]),
     familyWhere("MailEntry", terms, ["title", "reference", "sender", "recipient"], [entity as Where]),
-    familyWhere("Invoice", terms, ["title", "number", "recipient", "payer"], [entity as Where]),
+    familyWhere("LegalDocument", terms, ["title", "reference", "counterparty"], [
+      entity as Where,
+      { kind: "INVOICE" },
+      ...(user.role === "SUPER_ADMIN" ? [] : [{
+        OR: [{ readers: { none: {} } }, { readers: { some: { userId: user.id } } }, { createdById: user.id }],
+      }]),
+    ]),
     familyWhere("MedicalInstitution", terms, ["name", "city", "wilaya"], []),
   ]);
 
@@ -237,11 +247,12 @@ export async function searchEverything(user: SessionUser, q: string, take = 6): 
         }).catch(() => [])
       : [],
 
-    // 6) Factures (module Finances).
-    canFinances
-      ? prisma.invoice.findMany({
-          where: wInvoices as Prisma.InvoiceWhereInput,
-          select: { id: true, number: true, title: true, status: true, amount: true, dueDate: true },
+    // 6) Factures — des documents légaux de nature « facture ». La COMPTABILITÉ les cherche
+    // aussi : centraliser dans Legal ne devait pas la priver de ce qu'elle consultait.
+    canFinances || userCan(user, "LEGAL", "VIEW")
+      ? prisma.legalDocument.findMany({
+          where: wInvoices as Prisma.LegalDocumentWhereInput,
+          select: { id: true, reference: true, title: true, amount: true, endDate: true, paidDate: true, expenseOrderId: true, kind: true },
           take, orderBy: { createdAt: "desc" },
         }).catch(() => [])
       : [],
@@ -353,8 +364,10 @@ export async function searchEverything(user: SessionUser, q: string, take = 6): 
   for (const r of invoices) {
     hits.push({
       famille: "Factures", titre: r.title,
-      detail: `${r.number ?? "sans n°"} · ${r.amount != null ? Math.round(toNumber(r.amount)).toLocaleString("fr-FR") + " DZD" : "—"}`,
-      reference: r.number, statut: r.status, date: d10(r.dueDate), lien: "/legal/factures",
+      detail: `${r.reference ?? "sans n°"} · ${r.amount != null ? Math.round(toNumber(r.amount)).toLocaleString("fr-FR") + " DZD" : "—"}`,
+      reference: r.reference,
+      statut: INVOICE_SETTLEMENT[invoiceSettlementState(r)]?.label,
+      date: d10(r.endDate), lien: `/legal/${r.id}`,
     });
   }
   for (const r of suppliers) {

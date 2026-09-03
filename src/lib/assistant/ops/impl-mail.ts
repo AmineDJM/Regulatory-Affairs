@@ -96,18 +96,20 @@ async function resolveLinkTarget(kindRaw: string, raw: string): Promise<{ entity
     if (rows.length === 0) return { error: `Aucun bon de commande « ${q} ».` };
     return { error: `Plusieurs bons de commande correspondent : ${rows.map((r) => `BC ${r.reference ?? "s/n"} (${r.tender.reference})`).join(" ; ")} — préciser.` };
   }
+  // Une facture est un document légal de nature « facture » : chaque nature ne cherche que la
+  // sienne, sinon la même pièce serait reliable sous les deux et le lien s'écrirait deux fois.
   if (kind === "INVOICE") {
-    const rows = await prisma.invoice.findMany({
-      where: { OR: [{ number: { contains: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }] },
-      select: { id: true, number: true, title: true }, orderBy: { createdAt: "desc" }, take: 6,
+    const rows = await prisma.legalDocument.findMany({
+      where: { kind: "INVOICE", OR: [{ reference: { contains: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }] },
+      select: { id: true, reference: true, title: true }, orderBy: { createdAt: "desc" }, take: 6,
     });
-    if (rows.length === 1) return { entityType: kind, entityId: rows[0].id, label: `Facture ${rows[0].number ? `${rows[0].number} — ` : ""}${rows[0].title}` };
+    if (rows.length === 1) return { entityType: kind, entityId: rows[0].id, label: `Facture ${rows[0].reference ? `${rows[0].reference} — ` : ""}${rows[0].title}` };
     if (rows.length === 0) return { error: `Aucune facture « ${q} ».` };
-    return { error: `Plusieurs factures correspondent : ${rows.map((r) => `${r.number ? `${r.number} — ` : ""}${r.title}`).join(" ; ")} — préciser.` };
+    return { error: `Plusieurs factures correspondent : ${rows.map((r) => `${r.reference ? `${r.reference} — ` : ""}${r.title}`).join(" ; ")} — préciser.` };
   }
   if (kind === "LEGAL_DOCUMENT") {
     const rows = await prisma.legalDocument.findMany({
-      where: { OR: [{ title: { contains: q, mode: "insensitive" } }, { reference: { contains: q, mode: "insensitive" } }] },
+      where: { kind: { not: "INVOICE" }, OR: [{ title: { contains: q, mode: "insensitive" } }, { reference: { contains: q, mode: "insensitive" } }] },
       select: { id: true, title: true, reference: true }, orderBy: { createdAt: "desc" }, take: 6,
     });
     if (rows.length === 1) return { entityType: kind, entityId: rows[0].id, label: `${rows[0].reference ? `${rows[0].reference} — ` : ""}${rows[0].title}` };

@@ -75,7 +75,7 @@ export async function inventorier(): Promise<Echantillons> {
       prisma.mailEntry.findMany({ select: { title: true }, take: 4 }).catch(() => []),
       prisma.mailPartner.findMany({ where: { isActive: true }, select: { name: true }, take: 3 }).catch(() => []),
       prisma.legalDocument.findMany({ select: { title: true }, take: 4 }).catch(() => []),
-      prisma.invoice.findMany({ select: { title: true }, take: 3 }).catch(() => []),
+      prisma.legalDocument.findMany({ where: { kind: "INVOICE" }, select: { title: true }, take: 3 }).catch(() => []),
       prisma.paymentRequest.findMany({ select: { title: true }, take: 3 }).catch(() => []),
       prisma.task.findMany({ select: { title: true }, take: 4 }).catch(() => []),
       prisma.pchTender.findMany({ select: { reference: true, title: true }, take: 3 }).catch(() => []),

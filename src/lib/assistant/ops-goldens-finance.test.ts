@@ -123,8 +123,9 @@ suite("ops FINANCES vague 1 — budgets, caisse, paiements, écritures, paie (go
       },
     });
     await prisma.treasuryAccount.create({ data: { name: `${TAG} Banque BNA`, openingBalance: 2_000_000 } });
-    await prisma.invoice.create({
-      data: { title: `${TAG} Maintenance clim`, direction: "OUT", amount: 75_000, status: "UNPAID" },
+    // Une facture est un DOCUMENT LÉGAL de nature « facture » : sans `paidDate`, elle est à régler.
+    await prisma.legalDocument.create({
+      data: { title: `${TAG} Maintenance clim`, kind: "INVOICE", direction: "OUT", amount: 75_000 },
     });
 
     // Paie : année atypique 2031 pour des décomptes EXACTS (aucune autre ligne ne matche).
@@ -150,7 +151,7 @@ suite("ops FINANCES vague 1 — budgets, caisse, paiements, écritures, paie (go
     await prisma.budgetEnvelope.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.financeTransaction.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
     await prisma.treasuryAccount.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.invoice.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
+    await prisma.legalDocument.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
     await prisma.expenseOrder.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
     await prisma.pettyCashPlan.deleteMany({ where: { department: { name: { startsWith: TAG } } } }).catch(() => {});
     await prisma.pettyCashAllotment.deleteMany({ where: { department: { name: { startsWith: TAG } } } }).catch(() => {});
@@ -404,13 +405,17 @@ suite("ops FINANCES vague 1 — budgets, caisse, paiements, écritures, paie (go
       }
     });
 
-    it("update_invoice : FUSION — l'échéance seule change, titre ET statut existants rejoués ; delete = CRITIQUE", async () => {
+    it("update_invoice : FUSION — l'échéance seule change, titre ET RÈGLEMENT existants rejoués ; delete = CRITIQUE", async () => {
       const p = await buildProposal("finance_operation", { op: "update_invoice", label: `${TAG} Maintenance clim`, dueDate: "2026-10-15" }, fin());
       expect("error" in p).toBe(false);
       if ("error" in p) return;
       const args = domainArgs(p);
       expect(args.title).toBe(`${TAG} Maintenance clim`);
-      expect(args.status).toBe("UNPAID");
+      // LE RÈGLEMENT EST REJOUÉ À L'IDENTIQUE (ici : aucun). Sans lui, corriger une échéance
+      // effacerait la date de paiement d'une facture réglée — et RETIRERAIT son écriture du
+      // livre au passage. Le statut, lui, ne se rejoue plus : il n'existe plus.
+      expect(args.paidDate).toBeNull();
+      expect(args.status).toBeUndefined();
       expect(args.dueDate).toBe("2026-10-15");
 
       const d = await buildProposal("finance_operation", { op: "delete_invoice", label: `${TAG} Maintenance clim` }, fin());

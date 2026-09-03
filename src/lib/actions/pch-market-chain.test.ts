@@ -85,7 +85,7 @@ suite("Market 360° — la chaîne AO → contrat → avenant → BC → livrais
 
   afterAll(async () => {
     await prisma.auditLog.deleteMany({ where: { summary: { contains: TAG } } }).catch(() => {});
-    await prisma.invoice.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
+    // Les factures sont des documents légaux : le nettoyage de `legalDocument`, plus bas, les emporte.
     await prisma.stockMovement.deleteMany({ where: { product: { contains: "Pembrolizumab 100 mg flacon" }, notes: { contains: "Livraison marché" } } }).catch(() => {});
     await prisma.pchTender.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
     await prisma.legalDocument.deleteMany({ where: { title: { contains: TAG } } }).catch(() => {});

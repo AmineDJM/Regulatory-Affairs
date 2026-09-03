@@ -253,10 +253,12 @@ export async function metriquesEntreprise(periode = douzeDerniersMois()): Promis
   const fenetre = { gte: periode.du, lte: periode.au };
 
   const [facture, encaisse, creances, produitsActifs, produitsVendus] = await Promise.all([
-    prisma.invoice.aggregate({
+    prisma.legalDocument.aggregate({
+      // `kind = INVOICE` : une facture est un document légal de nature « facture ».
       // `direction = IN` : facture ÉMISE, la société encaisse. Les `OUT` sont des dépenses —
       // les additionner gonflerait le chiffre d'affaires avec les factures des fournisseurs.
-      where: { direction: "IN", issueDate: fenetre },
+      // La date d'ÉMISSION d'une facture est le `startDate` du document.
+      where: { kind: "INVOICE", direction: "IN", startDate: fenetre },
       _count: { _all: true }, _sum: { amount: true },
     }),
     prisma.sale.aggregate({ where: { paymentStatus: "PAID", date: fenetre }, _count: { _all: true }, _sum: { revenue: true } }),

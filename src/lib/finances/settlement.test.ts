@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   PAYMENT_PATHS, paymentPath, nonSettlingPaths,
-  invoiceDirection, invoiceSettlementLabel, settlementAction,
+  invoiceDirection, invoiceSettlementLabel, settlementAction, canSendToSettlement,
 } from "./settlement";
 
 describe("PAYMENT_PATHS — le registre qu'on relit avant d'ajouter un geste d'argent", () => {
@@ -52,13 +52,13 @@ describe("invoiceDirection — on ne devine jamais le sens", () => {
 });
 
 describe("invoiceSettlementLabel", () => {
-  it("porte le numéro quand il existe", () => {
-    expect(invoiceSettlementLabel({ number: "F-2026-12", title: "Prestation" })).toBe("Facture F-2026-12 — Prestation");
+  it("porte la référence quand elle existe", () => {
+    expect(invoiceSettlementLabel({ reference: "F-2026-12", title: "Prestation" })).toBe("Facture F-2026-12 — Prestation");
   });
 
-  it("reste lisible sans numéro", () => {
-    expect(invoiceSettlementLabel({ number: null, title: "Prestation" })).toBe("Facture — Prestation");
-    expect(invoiceSettlementLabel({ number: "   ", title: "Prestation" })).toBe("Facture — Prestation");
+  it("reste lisible sans référence", () => {
+    expect(invoiceSettlementLabel({ reference: null, title: "Prestation" })).toBe("Facture — Prestation");
+    expect(invoiceSettlementLabel({ reference: "   ", title: "Prestation" })).toBe("Facture — Prestation");
   });
 });
 
@@ -77,5 +77,49 @@ describe("settlementAction", () => {
   it("ne fait rien si l'état est déjà cohérent", () => {
     expect(settlementAction({ paidDate: D, transactionId: "tx-1" })).toBe("NOOP");
     expect(settlementAction({ paidDate: null, transactionId: null })).toBe("NOOP");
+  });
+
+  // LE DÉFAUT QU'ON FERME : deux chemins vers l'argent sur la même pièce, donc deux écritures
+  // pour un seul décaissement — et un total du mois qui gonfle sans que rien ne le signale.
+  it("UNE FACTURE PARTIE AU CIRCUIT NE S'ÉCRIT PAS UNE SECONDE FOIS", () => {
+    expect(settlementAction({ paidDate: D, transactionId: null, expenseOrderId: "od-1" })).toBe("NOOP");
+  });
+
+  it("mais une écriture directe posée AVANT l'envoi reste défaisable", () => {
+    // Sans cela elle resterait au livre, sans plus rien pour la corriger.
+    expect(settlementAction({ paidDate: null, transactionId: "tx-1", expenseOrderId: "od-1" })).toBe("REMOVE");
+  });
+});
+
+describe("canSendToSettlement — l'autre bout du même verrou", () => {
+  const D2 = new Date("2026-08-20");
+  const base = { kind: "INVOICE", amount: 120_000 as number | null, paidDate: null as Date | null, expenseOrderId: null as string | null };
+
+  it("une facture montée et non réglée part au règlement", () => {
+    expect(canSendToSettlement(base).ok).toBe(true);
+  });
+
+  it("un contrat ne s'envoie pas au règlement", () => {
+    const r = canSendToSettlement({ ...base, kind: "CONTRACT" });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/facture/i);
+  });
+
+  it("DÉJÀ PARTIE : on ne l'envoie pas deux fois", () => {
+    const r = canSendToSettlement({ ...base, expenseOrderId: "od-1" });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/déjà partie/);
+  });
+
+  // Le double comptage se referme des DEUX côtés : le circuit refuse ce que le direct a soldé.
+  it("DÉJÀ RÉGLÉE EN DIRECT : l'envoyer décaisserait une seconde fois", () => {
+    const r = canSendToSettlement({ ...base, paidDate: D2 });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toMatch(/seconde fois/);
+  });
+
+  it("sans montant, il n'y a rien à faire payer", () => {
+    expect(canSendToSettlement({ ...base, amount: null }).ok).toBe(false);
+    expect(canSendToSettlement({ ...base, amount: 0 }).ok).toBe(false);
   });
 });

@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Paperclip, ExternalLink } from "lucide-react";
-import { requireModule } from "@/lib/session";
+import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { platformScope } from "@/lib/company";
+import { legalViewScope, legalWriteAllowed } from "@/lib/legal/invoices";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -50,7 +51,16 @@ const LEGAL_DOC_CATEGORIES = [
  * Les pièces jointes ici sont les pièces PROPRES à l'engagement, par la table `Document` commune.
  */
 export default async function LegalDocumentPage({ params }: { params: { id: string } }) {
-  const user = await requireModule("LEGAL");
+  // DEUX PORTES, ET LA SECONDE EST ÉTROITE. Legal ouvre tout le registre ; la COMPTABILITÉ n'y
+  // ouvre que les FACTURES — elle venait les lire dans un écran à part, et centraliser ne devait
+  // rien lui retirer. La restriction est vérifiée sur la pièce elle-même, plus bas : une porte
+  // qui n'existe qu'à l'écran se contourne en tapant l'adresse.
+  const user = await requireUser();
+  const portee = legalViewScope({
+    onLegal: userCan(user, "LEGAL", "VIEW"),
+    onFinances: userCan(user, "FINANCES", "VIEW"),
+  });
+  if (portee === "NONE") notFound();
 
   // Cloisonnement par entité : deviner un identifiant n'ouvre pas les engagements d'une autre
   // société du groupe.
@@ -79,7 +89,15 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   });
   if (!doc) notFound();
 
-  const canEdit = userCan(user, "LEGAL", "UPDATE");
+  // La pièce est-elle DANS la portée de cette personne ? Un refus rend 404, comme les autres :
+  // dire qu'un document existe, c'est déjà en dire trop.
+  if (portee === "INVOICES_ONLY" && doc.kind !== "INVOICE") notFound();
+
+  const canEdit = legalWriteAllowed({
+    onLegal: userCan(user, "LEGAL", "UPDATE"),
+    onFinances: userCan(user, "FINANCES", "UPDATE"),
+    kind: String(doc.kind),
+  });
   const canUpload = userCan(user, "LEGAL", "UPLOAD") || canEdit;
 
   // LES ACCÈS SE GÈRENT SUR LE DOCUMENT. La règle est celle du module — le déposant et le Super
@@ -186,6 +204,11 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     startDate: dateInput(doc.startDate),
     endDate: dateInput(doc.endDate),
     amount: doc.amount !== null ? String(toNumber(doc.amount)) : undefined,
+    // LE RÈGLEMENT D'UNE FACTURE, REJOUÉ. Sans ces deux valeurs, corriger une virgule sur une
+    // facture réglée EFFACERAIT sa date de paiement — et retirerait son écriture du livre au
+    // passage. Un formulaire qui ne recharge pas un champ le remet à vide, en silence.
+    direction: doc.direction ?? undefined,
+    paidDate: dateInput(doc.paidDate),
     notes: doc.notes ?? undefined,
     folderId: doc.folderId ?? undefined,
     chainFromId: doc.chainFromId ?? undefined,
@@ -219,7 +242,11 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
               Un contrat effacé par erreur reste récupérable par un administrateur. */}
           <RecordDeleteButton
             kind="LEGAL_DOCUMENT" id={doc.id} name={doc.title} typeLabel="ce document"
-            enabled={userCan(user, "LEGAL", "DELETE") || doc.createdById === user.id}
+            enabled={legalWriteAllowed({
+              onLegal: userCan(user, "LEGAL", "DELETE"),
+              onFinances: userCan(user, "FINANCES", "DELETE"),
+              kind: String(doc.kind),
+            }) || doc.createdById === user.id}
           />
         </div>
       </div>

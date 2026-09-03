@@ -2,14 +2,16 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { FilterX, Loader2, RefreshCw, Ban, Paperclip, ExternalLink, Lock, FolderInput } from "lucide-react";
+import { FilterX, Loader2, RefreshCw, Ban, Paperclip, ExternalLink, Lock, FolderInput, Check, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, LEGAL_EXPIRY_LEVEL } from "@/lib/labels";
 import { renewLegalDocument, cancelLegalDocument } from "@/lib/actions/legal-actions";
+import { setInvoicePaid } from "@/lib/actions/invoice-actions";
 import { moveLegalDocuments } from "@/lib/actions/legal-folder-actions";
+import { invoiceSettlementState, INVOICE_SETTLEMENT, isInvoice } from "@/lib/labels";
 import {
   EMPTY_FILTERS, URGENT_EXPIRY,
   initialLegalListState, syncLegalListState, visibleLegalRows, hasActiveFilter, describeActiveFilters,
@@ -36,11 +38,17 @@ const cellInput = "h-8 w-full rounded-md border border-input bg-card px-2 text-x
 const URGENT = URGENT_EXPIRY;
 
 export function LegalTable({
-  rows, canEdit, watchByDefault = false, folders = [], currentFolderId = null, scope,
+  rows, canEdit, watchByDefault = false, folders = [], currentFolderId = null, scope, initialKind = "",
 }: {
   rows: LegalRow[];
   canEdit: boolean;
   watchByDefault?: boolean;
+  /**
+   * La NATURE demandée par l'URL (`?nature=INVOICE`). Elle se pose comme un filtre de colonne
+   * ORDINAIRE — visible, et retirable d'un clic : « les factures » est une vue de cette liste,
+   * pas un écran verrouillé.
+   */
+  initialKind?: string;
   /** Dossiers de classement disponibles — vide : le classement n'est pas proposé. */
   folders?: { id: string; name: string }[];
   currentFolderId?: string | null;
@@ -55,21 +63,24 @@ export function LegalTable({
   scope: string;
 }) {
   const router = useRouter();
-  const [state, setState] = React.useState(() => initialLegalListState(scope, watchByDefault));
+  const [state, setState] = React.useState(() => initialLegalListState(scope, watchByDefault, initialKind));
   const [busy, setBusy] = React.useState<string | null>(null);
 
   // AJUSTEMENT PENDANT LE RENDU (motif recommandé par React pour un état dérivé d'une
   // propriété) : pas d'effet, donc pas d'affichage intermédiaire où la liste apparaîtrait vide
   // le temps d'un battement.
-  const synced = syncLegalListState(state, scope, watchByDefault);
+  const synced = syncLegalListState(state, scope, watchByDefault, initialKind);
   if (synced !== state) setState(synced);
 
   const f = synced.filters;
   const watchOnly = synced.watchOnly;
+  const unpaidOnly = synced.unpaidOnly;
   const setF = (next: (p: LegalColumnFilters) => LegalColumnFilters) =>
     setState((p) => ({ ...p, filters: next(p.filters) }));
   const setWatchOnly = (next: (v: boolean) => boolean) =>
     setState((p) => ({ ...p, watchOnly: next(p.watchOnly) }));
+  const setUnpaidOnly = (next: (v: boolean) => boolean) =>
+    setState((p) => ({ ...p, unpaidOnly: next(p.unpaidOnly) }));
 
   const set = (k: keyof LegalColumnFilters) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const v = e.target.value;
@@ -79,6 +90,12 @@ export function LegalTable({
   const shown = visibleLegalRows(rows, synced);
   const active = hasActiveFilter(synced);
   const watchCount = rows.filter((r) => URGENT.has(r.expiry)).length;
+  // LE RESTE À RÉGLER, sur les lignes servies — et son TOTAL, qui suit ce qui est AFFICHÉ :
+  // filtrer puis additionner est le geste attendu, et un total qui répondrait pour autre chose
+  // que le tableau sous les yeux ferait douter des deux.
+  const impayee = (r: LegalRow) => isInvoice(r.kind) && !r.paidDate && r.status !== "CANCELLED";
+  const unpaidCount = rows.filter(impayee).length;
+  const shownInvoiceTotal = shown.filter(impayee).reduce((a, r) => a + (r.amount ?? 0), 0);
 
   const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setBusy(key);
@@ -99,10 +116,25 @@ export function LegalTable({
         >
           À surveiller ({watchCount})
         </button>
+        {/* CE QUI RESTE À PAYER — l'unique bouton que l'écran dédié aux factures apportait
+            vraiment. Il ne s'affiche que là où il y a des factures : un bouton à zéro sur une
+            liste de baux n'est que du bruit. */}
+        {unpaidCount > 0 && (
+          <button
+            type="button" onClick={() => setUnpaidOnly((v) => !v)}
+            className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 font-medium",
+              unpaidOnly ? "border-warning/60 bg-warning/10 text-warning" : "border-input hover:bg-secondary")}
+          >
+            Factures à régler ({unpaidCount})
+          </button>
+        )}
+        {shownInvoiceTotal > 0 && (
+          <span className="font-semibold text-foreground">Reste à payer affiché&nbsp;: {formatCurrency(shownInvoiceTotal)}</span>
+        )}
         {active && (
           <button
             type="button"
-            onClick={() => setState((p) => ({ ...p, filters: { ...EMPTY_FILTERS }, watchOnly: false }))}
+            onClick={() => setState((p) => ({ ...p, filters: { ...EMPTY_FILTERS }, watchOnly: false, unpaidOnly: false }))}
             className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 font-medium hover:bg-secondary"
           >
             <FilterX className="h-3.5 w-3.5" /> Réinitialiser
@@ -193,7 +225,7 @@ export function LegalTable({
                       </span>
                       <button
                         type="button"
-                        onClick={() => setState((p) => ({ ...p, filters: { ...EMPTY_FILTERS }, watchOnly: false }))}
+                        onClick={() => setState((p) => ({ ...p, filters: { ...EMPTY_FILTERS }, watchOnly: false, unpaidOnly: false }))}
                         className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium hover:bg-secondary"
                       >
                         <FilterX className="h-3.5 w-3.5" /> Tout afficher
@@ -205,6 +237,8 @@ export function LegalTable({
             ) : shown.map((r) => {
               const exp = LEGAL_EXPIRY_LEVEL[r.expiry];
               const st = LEGAL_DOC_STATUS[r.status];
+              const etatReglement = invoiceSettlementState({ kind: r.kind, paidDate: r.paidDate, expenseOrderId: r.expenseOrderId });
+              const reglement = INVOICE_SETTLEMENT[etatReglement];
               return (
                 <tr key={r.id} className="align-middle hover:bg-secondary/30">
                   <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{r.reference || "—"}</td>
@@ -236,7 +270,15 @@ export function LegalTable({
                     )}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{r.amount !== null ? formatCurrency(r.amount) : "—"}</td>
-                  <td className="px-3 py-2"><Badge tone={st?.tone ?? "neutral"} dot={false}>{st?.label ?? r.status}</Badge></td>
+                  <td className="px-3 py-2">
+                    <span className="flex flex-wrap items-center gap-1">
+                      <Badge tone={st?.tone ?? "neutral"} dot={false}>{st?.label ?? r.status}</Badge>
+                      {/* LE RÈGLEMENT, sur les seules factures — et en TROIS états : « payée /
+                          à payer » ment sur le cas le plus fréquent, celui de la facture partie
+                          au circuit dont quelqu'un s'occupe déjà. */}
+                      {reglement && <Badge tone={reglement.tone} dot={false}>{reglement.label}</Badge>}
+                    </span>
+                  </td>
                   <td className="px-3 py-2">
                     {r.driveNodeId ? (
                       // Le fichier vit dans le DRIVE : on y renvoie, on n'en sert pas une copie.
@@ -249,12 +291,34 @@ export function LegalTable({
                   {canEdit && (
                     <td className="px-3 py-2">
                       <span className="flex items-center gap-1">
+                        {/* LE GESTE LE PLUS FRÉQUENT d'une facture : dire qu'elle est réglée. Il
+                            se fait DANS LA LIGNE — rouvrir une fiche pour cocher une date est ce
+                            qui faisait tenir les règlements dans un tableur à côté. Une facture
+                            partie au circuit n'a pas ce bouton : son paiement la soldera, et le
+                            serveur le refuse de toute façon. */}
+                        {etatReglement === "UNPAID" && (
+                          <Button size="sm" variant="outline" disabled={busy === `p:${r.id}`}
+                            onClick={() => void run(`p:${r.id}`, () => setInvoicePaid({ id: r.id, paidDate: new Date().toISOString() }))}>
+                            {busy === `p:${r.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Réglée
+                          </Button>
+                        )}
+                        {etatReglement === "PAID" && (
+                          <Button size="sm" variant="ghost" disabled={busy === `p:${r.id}`}
+                            onClick={() => void run(`p:${r.id}`, () => setInvoicePaid({ id: r.id, paidDate: null }))}>
+                            {busy === `p:${r.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />} À régler
+                          </Button>
+                        )}
                         {(r.status === "ACTIVE" || r.status === "EXPIRED") && (
                           <>
-                            <Button size="sm" variant="outline" disabled={busy === `r:${r.id}`}
-                              onClick={() => { const fd = new FormData(); fd.set("id", r.id); void run(`r:${r.id}`, () => renewLegalDocument(fd)); }}>
-                              {busy === `r:${r.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Renouveler
-                            </Button>
+                            {/* Une facture ne se RENOUVELLE pas : on n'en réémet pas une pour la
+                                période suivante, on en reçoit une autre. L'annulation, elle,
+                                vaut pour toutes les natures. */}
+                            {!isInvoice(r.kind) && (
+                              <Button size="sm" variant="outline" disabled={busy === `r:${r.id}`}
+                                onClick={() => { const fd = new FormData(); fd.set("id", r.id); void run(`r:${r.id}`, () => renewLegalDocument(fd)); }}>
+                                {busy === `r:${r.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Renouveler
+                              </Button>
+                            )}
                             <Button size="sm" variant="ghost" disabled={busy === `c:${r.id}`}
                               onClick={() => {
                                 const reason = window.prompt("Motif de l'annulation ?") ?? "";

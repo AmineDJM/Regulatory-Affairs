@@ -1,17 +1,13 @@
 import { redirect } from "next/navigation";
 
 /**
- * ANCIENNE ADRESSE — les factures sont CENTRALISÉES DANS LEGAL.
+ * LES FACTURES N'ONT PLUS D'ADRESSE À ELLES — elles sont dans le registre.
  *
- * Elles vivaient sous les Finances, à côté de la trésorerie et du livre comptable. C'était un
- * second registre : Legal tient déjà les engagements de la société — contrats, devis, bons de
- * commande — et une facture est le dernier maillon de cette même chaîne. Deux registres pour un
- * même objet finissent toujours par diverger, et la question « quelles factures de ce
- * fournisseur ? » n'a alors plus de réponse unique.
- *
- * La route reste et redirige : des liens internes, des notifications et des favoris pointent ici.
- * Un lien mort coûte plus cher qu'une redirection.
+ * Une facture est un document légal de nature « facture », au milieu des devis et des bons de
+ * commande dont elle découle. Cette page ne fait plus que conduire là-bas : les liens déjà
+ * envoyés, les favoris et les raccourcis des mois passés continuent d'aboutir. Une adresse qui
+ * meurt fait chercher un écran supprimé, et conclure que la donnée a disparu avec lui.
  */
-export default function LegacyFinanceInvoicesPage() {
-  redirect("/legal/factures");
+export default function FacturesRedirectPage() {
+  redirect("/legal?nature=INVOICE");
 }

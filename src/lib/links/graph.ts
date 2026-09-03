@@ -28,7 +28,21 @@
  * Module PUR : ni base, ni import lourd. Testé.
  */
 
-/** Les natures qui participent au graphe. Le rang est celui du FLUX de l'affaire. */
+/**
+ * Les natures qui participent au graphe. Le rang est celui du FLUX de l'affaire.
+ *
+ * ── POURQUOI « FACTURE » RESTE UNE NATURE À PART ────────────────────────────────────────────
+ *
+ * Une facture est désormais un `LegalDocument` de nature `INVOICE` : les deux natures désignent
+ * la même table. Les fondre en une seule effacerait pourtant du savoir métier — c'est ICI, et
+ * nulle part ailleurs, qu'est écrit qu'une facture se relie à SON BON DE COMMANDE et non au
+ * contrat (le contrat s'en déduit par le bon), et que le refus l'explique.
+ *
+ * Le prix de ce choix est une règle à tenir : une pièce n'apparaît QUE sous sa nature. Les
+ * listes de candidats l'appliquent (`queries/link-candidates`), et la résolution du libellé la
+ * REFUSE côté serveur (`links/store`) — sans quoi la même pièce serait reliable deux fois, et le
+ * même couple s'enregistrerait sous deux paires canoniques différentes.
+ */
 export const LINK_TYPES = [
   "PCH_TENDER",
   "LEGAL_DOCUMENT",
@@ -158,10 +172,10 @@ export function validateLink(
  * OÙ MÈNE UN LIEN. Un lien qui ne s'ouvre pas est une chaîne de caractères : on veut cliquer et
  * arriver sur la fiche.
  *
- * Deux natures n'ont pas de fiche à elles : un BON DE COMMANDE se lit dans la fiche de SON
- * marché (d'où `orderTenderId`, que l'appelant résout), et une FACTURE dans le tableau des
- * factures. Renvoyer `null` plutôt qu'une URL inventée : un lien mort érode la confiance dans
- * tous les autres.
+ * Une seule nature n'a pas de fiche à elle : un BON DE COMMANDE se lit dans la fiche de SON
+ * marché (d'où `orderTenderId`, que l'appelant résout). Une FACTURE, elle, en a une depuis
+ * qu'elle est un document légal de nature « facture » : `/legal/<id>`. Renvoyer `null` plutôt
+ * qu'une URL inventée : un lien mort érode la confiance dans tous les autres.
  */
 export function linkHref(
   type: LinkType,
@@ -172,7 +186,7 @@ export function linkHref(
     case "PCH_TENDER": return `/pch/${id}`;
     case "LEGAL_DOCUMENT": return `/legal/${id}`;
     case "PCH_ORDER": return ctx?.orderTenderId ? `/pch/${ctx.orderTenderId}` : null;
-    case "INVOICE": return "/legal/factures";
+    case "INVOICE": return `/legal/${id}`;
     case "REGULATORY_PRODUCT": return `/regulatory/${id}`;
     case "MAIL_ENTRY": return `/courriers/${id}`;
   }

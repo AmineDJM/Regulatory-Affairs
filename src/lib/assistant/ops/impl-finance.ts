@@ -7,6 +7,7 @@ import { createInvoice, setInvoicePaid, setInvoiceOrder } from "@/lib/actions/in
 import { decidePettyCashTopUp } from "@/lib/actions/petty-cash-actions";
 import { decideDepartmentBudgetRequest } from "@/lib/actions/department-budget-actions";
 import { toNumber } from "@/lib/utils";
+import { invoiceSettlementState } from "@/lib/labels";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
 
@@ -148,13 +149,20 @@ interface InvoiceHit { id: string; title: string; number: string | null; amount:
 async function resolveInvoice(raw: string): Promise<InvoiceHit | { error: string }> {
   const q = raw.trim();
   if (!q) return { error: "Précisez le numéro ou le titre de la facture." };
-  const rows = await prisma.invoice.findMany({
-    where: { OR: [{ number: { equals: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }] },
-    select: { id: true, title: true, number: true, amount: true, status: true },
+  // Une facture est un document légal de nature « facture » : son n° est sa `reference`.
+  const rows = await prisma.legalDocument.findMany({
+    where: { kind: "INVOICE", OR: [{ reference: { equals: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }] },
+    select: { id: true, title: true, reference: true, amount: true, status: true, kind: true, paidDate: true, expenseOrderId: true },
     orderBy: { createdAt: "desc" },
     take: 6,
   });
-  const hits: InvoiceHit[] = rows.map((r) => ({ ...r, amount: r.amount === null ? null : toNumber(r.amount) }));
+  const hits: InvoiceHit[] = rows.map((r) => ({
+    id: r.id, title: r.title, number: r.reference,
+    amount: r.amount === null ? null : toNumber(r.amount),
+    // Le STATUT d'une facture, pour Adam, c'est son RÈGLEMENT : « en vigueur » ne dit rien à
+    // qui demande où en est son paiement.
+    status: r.status === "CANCELLED" ? "CANCELLED" : invoiceSettlementState(r),
+  }));
   if (hits.length === 0) return { error: `Aucune facture « ${q} ».` };
   const exact = hits.filter((h) => (h.number ?? "").toLowerCase() === q.toLowerCase());
   if (exact.length === 1) return exact[0];
@@ -398,12 +406,12 @@ export const FINANCE_OPS_IMPL: Record<string, OpImpl> = {
           title, number, direction: received ? "OUT" : "IN",
           amount: amount !== null ? String(amount) : null,
           issueDate, dueDate,
-          recipient: opStr(input, "counterparty"), notes: opStr(input, "notes"),
+          counterparty: opStr(input, "counterparty"), notes: opStr(input, "notes"),
           sourceId: bon?.id ?? null,
         },
         successMessage: bon ? `Facture « ${title} » enregistrée et rattachée au bon (${bon.label}).` : `Facture « ${title} » enregistrée.`,
-        link: "/finances",
-        revalidate: ["/finances"],
+        link: "/legal?nature=INVOICE",
+        revalidate: ["/legal", "/finances"],
       };
     },
     async execute(args) {
@@ -414,12 +422,13 @@ export const FINANCE_OPS_IMPL: Record<string, OpImpl> = {
       if (args.amount) fd.set("amount", args.amount);
       if (args.issueDate) fd.set("issueDate", args.issueDate);
       if (args.dueDate) fd.set("dueDate", args.dueDate);
-      if (args.recipient) fd.set("recipient", args.recipient);
+      if (args.counterparty) fd.set("counterparty", args.counterparty);
       if (args.notes) fd.set("notes", args.notes);
       if (args.sourceId) { fd.set("sourceType", "PCH_ORDER"); fd.set("sourceId", args.sourceId); }
       const r = await createInvoice(undefined, fd);
       if (!r.ok) return { ok: false, error: r.error ?? "L'enregistrement de la facture a été refusé." };
-      return { ok: true, createdId: r.id, link: "/finances", revalidate: ["/finances"] };
+      // Une facture est un document légal : c'est SA fiche qu'on ouvre au retour.
+      return { ok: true, createdId: r.id, link: r.id ? `/legal/${r.id}` : "/legal?nature=INVOICE", revalidate: ["/legal", "/finances"] };
     },
   },
 
@@ -442,8 +451,8 @@ export const FINANCE_OPS_IMPL: Record<string, OpImpl> = {
         successMessage: detach
           ? `Facture « ${inv.title} » détachée de son bon.`
           : `Facture « ${inv.title} » rattachée au bon (${(bon as { label: string }).label}) — visible sur la fiche marché.`,
-        link: "/legal/factures",
-        revalidate: ["/finances", "/pch"],
+        link: `/legal/${inv.id}`,
+        revalidate: ["/legal", "/finances", "/pch"],
       };
     },
     async execute(args) {
@@ -452,7 +461,7 @@ export const FINANCE_OPS_IMPL: Record<string, OpImpl> = {
       if (args.orderId) fd.set("pchOrderId", args.orderId);
       const r = await setInvoiceOrder(fd);
       if (!r.ok) return { ok: false, error: r.error ?? "Le rattachement a été refusé." };
-      return { ok: true, revalidate: ["/finances", "/pch"] };
+      return { ok: true, revalidate: ["/legal", "/finances", "/pch"] };
     },
   },
 
@@ -470,14 +479,14 @@ export const FINANCE_OPS_IMPL: Record<string, OpImpl> = {
         ],
         args: { id: inv.id, paidDate, title: inv.title },
         successMessage: unpay ? `Facture « ${inv.title} » repassée impayée.` : `Facture « ${inv.title} » marquée payée.`,
-        link: "/finances",
-        revalidate: ["/finances"],
+        link: `/legal/${inv.id}`,
+        revalidate: ["/legal", "/finances"],
       };
     },
     async execute(args) {
       const r = await setInvoicePaid({ id: args.id ?? "", paidDate: args.paidDate ?? null });
       if (!r.ok) return { ok: false, error: r.error ?? "La mise à jour de la facture a été refusée." };
-      return { ok: true, revalidate: ["/finances"] };
+      return { ok: true, revalidate: ["/legal", "/finances"] };
     },
   },
 

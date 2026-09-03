@@ -78,6 +78,8 @@ function toRows(docs: { id: string; reference: string | null; title: string; kin
     driveName: null,
     renewedFromTitle: null,
     restricted: false,
+    paidDate: null,
+    expenseOrderId: null,
   }));
 }
 

@@ -54,13 +54,16 @@ export async function linkLabel(type: LinkType, id: string): Promise<string | nu
       const o = await prisma.pchOrder.findUnique({ where: { id }, select: { reference: true, tender: { select: { reference: true } } } });
       return o ? `BC ${o.reference ?? "s/n"} — ${o.tender.reference}` : null;
     }
+    // INVOICE et LEGAL_DOCUMENT désignent la MÊME table : une facture est un document légal de
+    // nature « facture ». Chaque nature ne résout donc QUE la sienne — sans ce contrôle, la même
+    // pièce serait reliable sous deux natures, et le même couple donnerait deux enregistrements.
     case "INVOICE": {
-      const f = await prisma.invoice.findUnique({ where: { id }, select: { number: true, title: true } });
-      return f ? `Facture ${f.number ? `${f.number} — ` : ""}${f.title}` : null;
+      const f = await prisma.legalDocument.findUnique({ where: { id }, select: { kind: true, reference: true, title: true } });
+      return f && f.kind === "INVOICE" ? `Facture ${f.reference ? `${f.reference} — ` : ""}${f.title}` : null;
     }
     case "LEGAL_DOCUMENT": {
-      const d = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true, reference: true } });
-      return d ? `${d.reference ? `${d.reference} — ` : ""}${d.title}` : null;
+      const d = await prisma.legalDocument.findUnique({ where: { id }, select: { kind: true, title: true, reference: true } });
+      return d && d.kind !== "INVOICE" ? `${d.reference ? `${d.reference} — ` : ""}${d.title}` : null;
     }
     case "REGULATORY_PRODUCT": {
       const r = await prisma.regulatoryProduct.findUnique({ where: { id }, select: { reference: true, dci: true } });

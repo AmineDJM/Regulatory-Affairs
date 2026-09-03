@@ -62,8 +62,9 @@ export const PAYMENT_PATHS: PaymentPath[] = [
     settles: true, why: "C'est le module lui-même : l'écriture EST le geste.",
   },
   {
-    key: "invoice", label: "Facture marquée réglée", module: "Finances — Factures",
-    settles: true, why: "Écriture au sens de la facture (reçue = sortie, émise = entrée), retirée si l'on dé-marque.",
+    key: "invoice", label: "Facture marquée réglée", module: "Legal — document de nature facture",
+    settles: true,
+    why: "Écriture au sens de la facture (reçue = sortie, émise = entrée), retirée si l'on dé-marque — SEULEMENT si la facture n'est pas partie au circuit de règlement, qui écrit déjà.",
   },
   {
     key: "petty-cash-allotment", label: "Caisse d'avance remise", module: "Moyens généraux",
@@ -98,8 +99,8 @@ export function invoiceDirection(raw: string | null | undefined): MoneyDirection
 }
 
 /** Le libellé de l'écriture d'une facture — reconnaissable dans le journal des Finances. */
-export function invoiceSettlementLabel(invoice: { number?: string | null; title: string }): string {
-  const ref = invoice.number?.trim();
+export function invoiceSettlementLabel(invoice: { reference?: string | null; title: string }): string {
+  const ref = invoice.reference?.trim();
   return ref ? `Facture ${ref} — ${invoice.title}` : `Facture — ${invoice.title}`;
 }
 
@@ -109,12 +110,78 @@ export function invoiceSettlementLabel(invoice: { number?: string | null; title:
  * `paidDate` posée et aucune écriture → CREATE. `paidDate` retirée et une écriture existe →
  * REMOVE (on ne laisse pas traîner l'écriture d'un règlement annulé). Le reste → NOOP, y compris
  * une facture déjà réglée qu'on ré-enregistre : re-créer l'écriture la doublerait.
+ *
+ * ── LE CIRCUIT A LA PRIORITÉ, ET C'EST ARITHMÉTIQUE ─────────────────────────────────────────
+ *
+ * Une facture a DEUX chemins vers l'argent : l'envoi au règlement (`expenseOrderId` → centre de
+ * paiement → ordre payé, qui écrit son écriture) et la saisie directe d'une date de paiement
+ * (la facture déjà réglée qu'on enregistre après coup). Les laisser tourner tous les deux sur la
+ * même pièce inscrirait le même décaissement DEUX FOIS : le total du mois gonflerait sans que
+ * rien ne le signale, et c'est exactement le défaut qu'on vient de fermer ailleurs.
+ *
+ * Dès qu'une facture est partie au circuit, la saisie directe se tait. Elle ne « échoue » pas :
+ * elle n'a plus rien à faire — l'écriture viendra du paiement de l'ordre.
  */
 export function settlementAction(input: {
   paidDate: Date | null;
   transactionId: string | null;
+  /** L'ordre de dépense né de cette facture. Non nul = le circuit possède le règlement. */
+  expenseOrderId?: string | null;
 }): "CREATE" | "REMOVE" | "NOOP" {
+  // Le retrait reste possible même sous circuit : une écriture directe posée AVANT l'envoi doit
+  // pouvoir être défaite, sinon elle resterait au livre sans plus rien pour la corriger.
+  if (input.expenseOrderId && !input.transactionId) return "NOOP";
   if (input.paidDate && !input.transactionId) return "CREATE";
   if (!input.paidDate && input.transactionId) return "REMOVE";
   return "NOOP";
+}
+
+export type SettlementCheck = { ok: true } | { ok: false; error: string };
+
+/**
+ * PEUT-ON ENVOYER CETTE FACTURE AU RÈGLEMENT ?
+ *
+ * Le refus NOMME ce qui bloque : « envoi impossible » fait rouvrir la fiche trois fois avant de
+ * comprendre que la facture est déjà partie. Et il ferme le double comptage par l'autre bout —
+ * une facture déjà réglée en direct n'a plus rien à envoyer au centre de paiement.
+ */
+export function canSendToSettlement(input: {
+  kind: string;
+  amount: number | null;
+  paidDate: Date | null;
+  expenseOrderId: string | null;
+}): SettlementCheck {
+  if (input.kind !== "INVOICE") {
+    return { ok: false, error: "Seul un document de nature « facture » s'envoie au règlement." };
+  }
+  if (input.expenseOrderId) return { ok: false, error: "Cette facture est déjà partie au règlement." };
+  if (input.paidDate) {
+    return {
+      ok: false,
+      error: "Cette facture porte déjà une date de règlement : l'envoyer au paiement décaisserait une seconde fois. Effacez la date si le règlement n'a pas eu lieu.",
+    };
+  }
+  if (!input.amount || input.amount <= 0) return { ok: false, error: "Renseignez d'abord le montant de la facture." };
+  return { ok: true };
+}
+
+/**
+ * PEUT-ON POSER À LA MAIN LA DATE DE RÈGLEMENT ?
+ *
+ * Non, si la facture est partie au circuit : son paiement la soldera, et la marquer réglée
+ * d'avance écrirait la date d'un virement qui n'a pas encore eu lieu. L'écran dirait « réglée »
+ * sur un dossier que les Finances tiennent encore ouvert — et personne ne rouvre ce qui a l'air
+ * fini. EFFACER la date reste toujours possible : défaire une erreur ne doit jamais se bloquer.
+ */
+export function canMarkPaidDirectly(input: {
+  paidDate: Date | null;
+  expenseOrderId: string | null;
+}): SettlementCheck {
+  if (input.paidDate && input.expenseOrderId) {
+    return {
+      ok: false,
+      error: "Cette facture est partie au règlement : son paiement la soldera. Suivez-la depuis le centre de paiement.",
+    };
+  }
+  return { ok: true };
 }

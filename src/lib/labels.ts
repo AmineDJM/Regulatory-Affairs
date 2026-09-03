@@ -1035,12 +1035,64 @@ export const MAIL_DIRECTION: Record<string, Display> = {
   OUTGOING: { label: "Sortant", tone: "purple" },
 };
 
-/** FACTURES — état de règlement. */
-export const INVOICE_STATUS: Record<string, Display> = {
+/**
+ * UNE FACTURE — la nature de document légal qui en est une, et OÙ EN EST SON RÈGLEMENT.
+ *
+ * ── POURQUOI L'ÉTAT SE DÉDUIT AU LIEU D'ÊTRE STOCKÉ ─────────────────────────────────────────
+ *
+ * Ce fichier portait un `INVOICE_STATUS` à quatre valeurs, écrit en base à côté d'une date de
+ * paiement. Deux champs qui disent la même chose finissent par se contredire : une facture
+ * « à régler » portant une date de règlement, et aucun écran pour lever le doute. L'état se
+ * CALCULE désormais, à partir des seuls faits — la date de paiement, et l'ordre de dépense né de
+ * la facture. Il ne peut plus mentir.
+ *
+ * ── ET POURQUOI TROIS ÉTATS, PAS DEUX ───────────────────────────────────────────────────────
+ *
+ * « Payée / à payer » ment sur le cas le plus fréquent : la facture PARTIE au circuit (centre de
+ * paiement, puis Finances). Elle n'est pas payée — l'afficher comme telle ferait clore un dossier
+ * ouvert — et elle n'est pas « à faire » : quelqu'un s'en occupe, et la relancer créerait un
+ * second ordre pour la même somme.
+ *
+ * ── POURQUOI ICI, DANS LE VOCABULAIRE ───────────────────────────────────────────────────────
+ *
+ * Parce que la déduction n'est QUE la lecture de deux champs, et que tout le monde la lit :
+ * l'écran Legal, la fiche marché, la recherche, la frise, Adam. Un module de domaine l'aurait
+ * rendue inaccessible à la moitié d'entre eux, qui l'auraient alors recopiée — et deux copies
+ * d'une règle d'affichage se répondent différemment le jour où l'une change.
+ *
+ * Le nom porte « invoice » EN ENTIER parce qu'un `settlementState` existe déjà, pour les ORDRES
+ * DE DÉPENSE (`lib/finance/settlement.ts`, payé / reporté / à régler). Deux homonymes de sens
+ * différents se prennent l'un pour l'autre à la première relecture pressée.
+ */
+export const INVOICE_KIND = "INVOICE";
+
+export function isInvoice(kind: string): boolean {
+  return kind === INVOICE_KIND;
+}
+
+export type InvoiceSettlementState = "NOT_INVOICE" | "UNPAID" | "IN_CIRCUIT" | "PAID";
+
+/**
+ * L'ordre des tests n'est pas anodin : une facture payée l'est, même si son ordre de dépense
+ * existe encore. Lire le circuit d'abord afficherait « en règlement » sur une facture soldée, et
+ * l'on relancerait la comptabilité pour un virement déjà parti.
+ */
+export function invoiceSettlementState(doc: {
+  kind: string;
+  paidDate: Date | string | null;
+  expenseOrderId?: string | null;
+}): InvoiceSettlementState {
+  if (!isInvoice(doc.kind)) return "NOT_INVOICE";
+  if (doc.paidDate) return "PAID";
+  if (doc.expenseOrderId) return "IN_CIRCUIT";
+  return "UNPAID";
+}
+
+/** Comment l'état se dit à l'écran. Rien pour ce qui n'est pas une facture : c'est voulu. */
+export const INVOICE_SETTLEMENT: Record<string, Display> = {
   UNPAID: { label: "À régler", tone: "warning" },
-  PARTIAL: { label: "Partiellement réglée", tone: "info" },
+  IN_CIRCUIT: { label: "En règlement", tone: "info" },
   PAID: { label: "Réglée", tone: "success" },
-  CANCELLED: { label: "Annulée", tone: "neutral" },
 };
 
 export const PIECE_REQUEST_STATUS: Record<string, Display> = {
@@ -1676,16 +1728,15 @@ export const NAVIGATION: NavItem[] = [
   // partie en face) et rappelle avant l'échéance.
   {
     module: "LEGAL", label: "Legal", href: "/legal", icon: "Scale", group: "Pôles", pole: "ADMINISTRATION",
-    match: ["/legal/factures"],
     // Les COORDONNÉES LÉGALES & FISCALES de chaque entité vivent sous Legal : ce sont les
     // numéros par lesquels la société s'engage, et on les cherche là où l'on range ses engagements.
     //
-    // LES FACTURES AUSSI. Elles vivaient sous les Finances, à côté de la trésorerie : c'était un
-    // second registre, alors que Legal tient déjà les contrats, les devis et les bons de commande
-    // dont la facture est le dernier maillon. Deux registres pour un même objet finissent par
-    // diverger — et « quelles factures de ce fournisseur ? » n'a alors plus de réponse unique.
+    // LES FACTURES N'ONT PAS D'ENTRÉE, et c'est le sujet. Elles ne sont pas un endroit : ce sont
+    // des documents légaux de NATURE « facture », dans la même liste que les devis et les bons
+    // de commande dont elles découlent. `/legal?nature=INVOICE` en est une VUE — un filtre de
+    // colonne prérempli, retirable d'un clic. Lui donner un onglet recréerait, sous un autre
+    // nom, l'écran séparé qu'on vient de fermer.
     children: [
-      { module: "LEGAL", label: "Factures", href: "/legal/factures", icon: "ReceiptText", group: "Pôles", pole: "ADMINISTRATION" },
       { module: "LEGAL", label: "Coordonnées des entités", href: "/legal/identites", icon: "IdCard", group: "Pôles", pole: "ADMINISTRATION" },
     ],
   },

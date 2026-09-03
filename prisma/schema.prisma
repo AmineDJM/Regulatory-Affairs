@@ -1154,7 +1154,6 @@ model User {
   recruitmentInfoAnswered RecruitmentInfoRequest[]   @relation("RecruitmentInfoAnswerer")
   recruitmentCandidates   RecruitmentCandidate[]     @relation("RecruitmentCandidateAdder")
   leaveStandIns           LeaveRequest[]             @relation("LeaveStandIn")
-  invoicesCreated         Invoice[]                  @relation("InvoiceCreator")
   leaveDecisions          LeaveRequest[]             @relation("LeaveDecider")
   advanceDecisions        SalaryAdvance[]            @relation("AdvanceDecider")
   expenseOrders           ExpenseOrder[]             @relation("ExpenseOrderRequester")
@@ -1445,7 +1444,6 @@ model Company {
   legalDocuments          LegalDocument[]
   mailEntries             MailEntry[]
   recruitments            RecruitmentRequest[]
-  invoices                Invoice[]
   pchTenders              PchTender[]
   employees               Employee[]
   promoMaterials          PromoMaterial[]
@@ -4355,7 +4353,7 @@ model FinanceTransaction {
   updatedAt   DateTime @updatedAt
 
   /// Règlement de facture dont ce mouvement est l'écriture (relation inverse).
-  settledInvoice Invoice? @relation("InvoiceSettlement")
+  settledInvoice LegalDocument? @relation("LegalSettlement")
 
   @@index([date])
   @@index([direction])
@@ -5650,8 +5648,9 @@ model PchOrder {
 /// (`PchSubmission`) → attribution (quantités/prix sur les lignes) → contrat (`LegalDocument`
 /// kind CONTRACT, `tenderId`) → avenants (kind AMENDMENT, `amendsId`, deltas) → lignes
 /// contractuelles (`PchContractLine`) → bons de commande (`PchOrder` + `PchOrderLine`) →
-/// livraisons (`PchDelivery` + lignes, mouvements de stock) → factures (`Invoice`,
-/// `sourceType = PCH_ORDER`) → règlements (Finance). Chaque flèche est une FK ; les montants
+/// livraisons (`PchDelivery` + lignes, mouvements de stock) → factures (`LegalDocument`
+/// kind INVOICE, `sourceType = PCH_ORDER`) → règlements (Finance). Chaque flèche est une FK ;
+/// les montants
 /// dérivés (valeur contractuelle courante, restant à commander/livrer/encaisser) se CALCULENT
 /// dans `lib/pch/market-math.ts` — jamais stockés deux fois.
 /// ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -9502,6 +9501,21 @@ model LegalDocument {
   /// LE RÈGLEMENT d'une facture : l'ordre de dépense créé pour la payer — qui passe par le
   /// centre de paiement comme toute dépense. Nul = pas encore envoyée au règlement.
   expenseOrderId    String?
+  /// SENS DE L'ARGENT d'une FACTURE (`kind = INVOICE`) — `OUT` : facture REÇUE, la société
+  /// paie ; `IN` : facture ÉMISE, elle encaisse. Nul sur toute autre nature. On ne le devine
+  /// jamais du nom de la partie : une écriture posée à l'envers est pire qu'une écriture
+  /// absente, parce qu'elle se voit moins.
+  direction         String?
+  /// DATE DE RÈGLEMENT EFFECTIF d'une facture. La renseigner, c'est déclarer la facture
+  /// réglée ; l'effacer, c'est la remettre à régler. Le statut ne la contredit jamais :
+  /// `LegalDocStatus` dit la vie du document (en vigueur, annulé), `paidDate` dit l'argent.
+  paidDate          DateTime?
+  /// L'ÉCRITURE FINANCIÈRE d'un règlement SAISI DIRECTEMENT (facture déjà payée qu'on
+  /// enregistre après coup). Quand la facture est partie au CIRCUIT (`expenseOrderId`), c'est
+  /// lui qui écrit au paiement : poser ici une seconde écriture compterait le même dinar deux
+  /// fois. La règle vit dans `lib/finances/settlement.ts`, testée.
+  settlementTxId    String?               @unique
+  settlementTx      FinanceTransaction?   @relation("LegalSettlement", fields: [settlementTxId], references: [id], onDelete: SetNull)
   /// LES LECTEURS AUTORISÉS — qui, en plus du déposant, a le droit d'ouvrir ce document.
   ///
   /// Un engagement de la société n'est pas une pièce d'équipe : un bail, un contrat de travail
@@ -9529,6 +9543,7 @@ model LegalDocument {
   @@index([chainFromId])
   @@index([tenderId])
   @@index([amendsId])
+  @@index([paidDate])
 }
 
 /// UN LECTEUR AUTORISÉ d'un document légal. Le déposant les désigne à la création, et peut les
@@ -9729,55 +9744,6 @@ model MailEntryFolder {
 }
 
 // ───────────────────────────── FACTURES ─────────────────────────────
-
-enum InvoiceStatus {
-  UNPAID // émise, non réglée
-  PARTIAL // partiellement réglée
-  PAID // réglée
-  CANCELLED
-}
-
-/// UNE FACTURE — reçue ou émise, avec sa pièce et son règlement.
-///
-/// `payer` et `recipient` sont écrits en clair et non déduits du sens : la même société peut
-/// être l'un ou l'autre selon la facture, et c'est justement ce qu'on vient vérifier.
-model Invoice {
-  custom        Json?
-  id            String              @id @default(cuid())
-  companyId     String?
-  company       Company?            @relation(fields: [companyId], references: [id])
-  number        String? // n° de facture
-  title         String
-  issueDate     DateTime? // date d'émission
-  dueDate       DateTime? // échéance de règlement
-  paidDate      DateTime? // date de paiement effectif
-  amount        Decimal?            @db.Decimal(14, 2)
-  status        InvoiceStatus       @default(UNPAID)
-  recipient     String? // destinataire (à qui la facture est adressée)
-  payer         String? // payeur (qui règle)
-  /// SENS DE L'ARGENT — `OUT` : facture REÇUE, la société paie. `IN` : facture ÉMISE, elle
-  /// encaisse. `payer` et `recipient` sont du texte libre : on ne devine pas le sens d'un nom
-  /// de société, et une écriture comptable posée à l'envers est pire qu'une écriture absente.
-  direction     String              @default("OUT")
-  /// L'ÉCRITURE FINANCIÈRE de son règlement. Toute sortie ou entrée d'argent de la plateforme
-  /// passe par le module Finances : une facture marquée réglée y inscrit son mouvement, et
-  /// dé-marquer le règlement le retire. Nul = facture non réglée.
-  transactionId String?             @unique
-  transaction   FinanceTransaction? @relation("InvoiceSettlement", fields: [transactionId], references: [id], onDelete: SetNull)
-  notes         String?
-  sourceType    EntityType?
-  sourceId      String?
-  createdById   String?
-  createdBy     User?               @relation("InvoiceCreator", fields: [createdById], references: [id])
-  updatedById   String?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-
-  @@index([companyId, status])
-  @@index([issueDate])
-  @@index([paidDate])
-  @@index([sourceType, sourceId])
-}
 
 /// LE REJEU DE SESSION — la suite des actions d'une personne, pour le support technique.
 /// Ce N'EST PAS une vidéo : un navigateur ne peut pas filmer l'écran sans autorisation explicite ni

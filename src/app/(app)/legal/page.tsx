@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
-import { requireModule } from "@/lib/session";
+import { notFound } from "next/navigation";
+import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { companyScopedWhere, getMyCompanies, companyLabel } from "@/lib/company";
@@ -15,6 +16,8 @@ import { LegalFolderBar, type FolderRow } from "./folder-bar";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { legalListScope } from "@/lib/legal/list-view";
 import { legalReaderWhere } from "@/lib/legal/readers";
+import { legalViewScope, natureFromParam, invoiceTally } from "@/lib/legal/invoices";
+import { formatCurrency } from "@/lib/utils";
 import { ROLE_LABELS, LEGAL_DOC_KIND } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
@@ -31,11 +34,32 @@ export const metadata = { title: "Legal — AMD Internal OS" };
  * Un document peut n'avoir AUCUNE date : c'est un cas normal (statuts, tacite reconduction), pas
  * un oubli. Il ne se périme jamais et ne déclenche donc aucun rappel — la règle vit dans le
  * module pur `legal/lifecycle`, testé, partagé par l'écran et par le balayage des échéances.
+ *
+ * ── LES FACTURES SONT ICI, ET NULLE PART AILLEURS ───────────────────────────────────────────
+ *
+ * Elles avaient leur écran ; elles sont désormais des documents de nature « facture », dans le
+ * registre où vivent déjà les devis et les bons de commande dont elles découlent. « Les
+ * factures » (`?nature=INVOICE`) est une VUE de cette liste, pas un autre endroit.
+ *
+ * Deux portes s'ouvrent donc dessus, et la seconde est étroite : Legal voit tout le registre, la
+ * COMPTABILITÉ ne voit que les factures. Centraliser ne devait rien retirer à celle qui venait y
+ * lire ce qui reste à payer — et ne devait pas non plus lui ouvrir les baux et les contrats de
+ * cadre. La restriction est posée DANS LA REQUÊTE : un filtre d'écran se retire dans le navigateur.
  */
-export default async function LegalPage({ searchParams }: { searchParams?: { echeances?: string; dossier?: string } }) {
-  const user = await requireModule("LEGAL");
-  const canCreate = userCan(user, "LEGAL", "CREATE");
-  const canEdit = userCan(user, "LEGAL", "UPDATE");
+export default async function LegalPage({ searchParams }: { searchParams?: { echeances?: string; dossier?: string; nature?: string } }) {
+  const user = await requireUser();
+  const portee = legalViewScope({
+    onLegal: userCan(user, "LEGAL", "VIEW"),
+    onFinances: userCan(user, "FINANCES", "VIEW"),
+  });
+  if (portee === "NONE") notFound();
+  const facturesSeules = portee === "INVOICES_ONLY";
+
+  // LA NATURE DEMANDÉE. Une portée « factures seulement » l'impose : elle ne se choisit pas.
+  const nature = facturesSeules ? "INVOICE" : natureFromParam(searchParams?.nature, Object.keys(LEGAL_DOC_KIND));
+
+  const canCreate = userCan(user, nature === "INVOICE" || facturesSeules ? "FINANCES" : "LEGAL", "CREATE") || userCan(user, "LEGAL", "CREATE");
+  const canEdit = userCan(user, "LEGAL", "UPDATE") || (facturesSeules && userCan(user, "FINANCES", "UPDATE"));
 
   // LES LECTEURS DÉSIGNÉS, en plus du cloisonnement d'entité. Un document restreint n'apparaît
   // pas dans la liste de ceux qui n'y sont pas nommés — pas même en grisé : une ligne qu'on voit
@@ -47,10 +71,14 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
   const openFolderId = searchParams?.dossier && searchParams.dossier !== "none" ? searchParams.dossier : null;
   const unfiledOnly = searchParams?.dossier === "none";
   const folderWhere = unfiledOnly ? { folderId: null } : openFolderId ? { folderId: openFolderId } : {};
+  // LA PORTÉE, DANS LA REQUÊTE. `facturesSeules` n'est pas une préférence d'affichage : c'est le
+  // droit de la personne, et il se tient côté serveur.
+  const natureWhere = facturesSeules ? { kind: "INVOICE" as const } : {};
 
   const docs = await prisma.legalDocument.findMany({
     where: await companyScopedWhere(user.id, {
       ...folderWhere,
+      ...natureWhere,
       ...(readerScope ? { AND: [readerScope] } : {}),
     }),
     orderBy: [{ endDate: "asc" }, { createdAt: "desc" }],
@@ -90,6 +118,9 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
     driveName: d.driveNode?.name ?? null,
     renewedFromTitle: d.renewedFrom?.title ?? null,
     restricted: d.readers.length > 0,
+    // LE RÈGLEMENT d'une facture — vide sur toute autre nature.
+    paidDate: d.paidDate?.toISOString() ?? null,
+    expenseOrderId: d.expenseOrderId,
   }));
 
   // L'ARMOIRE. Le compte de documents par dossier respecte le MÊME cloisonnement que la liste :
@@ -102,6 +133,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
   const counts = await prisma.legalDocument.groupBy({
     by: ["folderId"],
     where: await companyScopedWhere(user.id, {
+      ...natureWhere,
       ...(readerScope ? { AND: [readerScope] } : {}),
       folderId: { not: null },
     }),
@@ -138,36 +170,70 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
 
   const watch = rows.filter((r) => r.expiry === "SOON" || r.expiry === "IMMINENT").length;
   const overdue = rows.filter((r) => r.expiry === "OVERDUE").length;
-  const purchaseOrders = rows.filter((r) => r.kind === "PURCHASE_ORDER").length;
+  // CE QUI RESTE À PAYER — le seul chiffre que l'écran dédié apportait vraiment, calculé sur les
+  // lignes servies. Il ne s'affiche que là où il veut dire quelque chose.
+  const factures = invoiceTally(rows);
 
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Legal"
-        description="Les engagements de la société : contrats, devis, bons de commande, factures, conventions, assurances, baux. Le fichier reste dans le Drive — Legal porte les dates, l'échéance et ce qu'il advient du document."
+        title={facturesSeules ? "Factures" : "Legal"}
+        description={facturesSeules
+          ? "Les factures de la société, dans le registre des engagements : elles y suivent le devis et le bon de commande dont elles découlent. Renseigner la date de règlement suffit à les déclarer réglées."
+          : "Les engagements de la société : contrats, devis, bons de commande, factures, conventions, assurances, baux. Le fichier reste dans le Drive — Legal porte les dates, l'échéance et ce qu'il advient du document."}
       >
         {canCreate && (
           <CreateRecordButton
-            label="Nouveau document" title="Déclarer un document légal" width="lg"
-            description="Un document peut n'avoir aucune date : laissez les dates vides, il ne se périmera jamais et ne déclenchera aucun rappel."
-            action={createLegalDocument} fields={legalFields({ folderId: openFolderId ?? undefined }, "create", people, folderOptions, chainCandidates)} redirectBase="/legal"
+            label={nature === "INVOICE" ? "Nouvelle facture" : "Nouveau document"}
+            title={nature === "INVOICE" ? "Enregistrer une facture" : "Déclarer un document légal"} width="lg"
+            description={nature === "INVOICE"
+              ? "Une facture est un document légal de nature « facture » : elle se range avec les devis et les bons de commande dont elle découle. Renseigner la date de règlement suffit à la déclarer réglée."
+              : "Un document peut n'avoir aucune date : laissez les dates vides, il ne se périmera jamais et ne déclenchera aucun rappel."}
+            action={createLegalDocument}
+            fields={legalFields(
+              // La nature demandée par l'URL PRÉREMPLIT le formulaire : arriver par « les
+              // factures » et devoir rechoisir « facture » dans une liste de dix est le genre
+              // de frottement qui fait recréer un écran dédié.
+              { folderId: openFolderId ?? undefined, kind: nature || undefined },
+              "create", people, folderOptions, chainCandidates,
+              facturesSeules,
+            )}
+            redirectBase="/legal"
           />
         )}
       </PageHeader>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label="Documents" value={rows.length} icon="Scale" />
-        <KpiCard label="Échéance < 3 mois" value={watch} icon="AlarmClock" tone={watch > 0 ? "warning" : "default"} />
-        <KpiCard label="Échéances dépassées" value={overdue} icon="AlertTriangle" tone={overdue > 0 ? "danger" : "default"} />
-        <KpiCard label="Bons de commande" value={purchaseOrders} icon="ClipboardList" tone="info" />
+        <KpiCard label={facturesSeules ? "Factures" : "Documents"} value={rows.length} icon="Scale" />
+        {factures.count > 0 ? (
+          <>
+            <KpiCard label="Factures à régler" value={factures.unpaid} icon="Hourglass" tone={factures.unpaid > 0 ? "warning" : "default"} />
+            <KpiCard label="Reste à payer" value={formatCurrency(factures.unpaidTotal)} icon="Wallet" />
+            <KpiCard
+              label="Échéance dépassée" value={factures.overdue + (facturesSeules ? 0 : overdue)}
+              icon="AlertTriangle" tone={factures.overdue + overdue > 0 ? "danger" : "default"}
+            />
+          </>
+        ) : (
+          <>
+            <KpiCard label="Échéance < 3 mois" value={watch} icon="AlarmClock" tone={watch > 0 ? "warning" : "default"} />
+            <KpiCard label="Échéances dépassées" value={overdue} icon="AlertTriangle" tone={overdue > 0 ? "danger" : "default"} />
+            <KpiCard label="Bons de commande" value={rows.filter((r) => r.kind === "PURCHASE_ORDER").length} icon="ClipboardList" tone="info" />
+          </>
+        )}
       </div>
 
-      <LegalFolderBar
-        folders={folders}
-        current={searchParams?.dossier ?? null}
-        companies={myCompanies.map((c) => ({ id: c.id, label: companyLabel(c) }))}
-        canManage={canCreate}
-      />
+      {/* L'ARMOIRE ne s'affiche pas à qui ne voit que les factures : ses dossiers rangent tout
+          le registre, et une barre qui compte des documents qu'on ne peut pas ouvrir se lit
+          comme une panne. */}
+      {!facturesSeules && (
+        <LegalFolderBar
+          folders={folders}
+          current={searchParams?.dossier ?? null}
+          companies={myCompanies.map((c) => ({ id: c.id, label: companyLabel(c) }))}
+          canManage={canCreate}
+        />
+      )}
 
       {/* `scope` DÉCLARE à quel ensemble de documents ces filtres s'appliquent. La barre de
           dossiers navigue par <Link> : sans lui, le filtre « à surveiller » posé par un rappel
@@ -175,10 +241,12 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
           servis — les fameux bons de commande « disparus ». */}
       <LegalTable
         rows={rows} canEdit={canEdit} watchByDefault={searchParams?.echeances === "1"}
+        initialKind={nature}
         scope={legalListScope({
           folderId: openFolderId,
           unfiledOnly,
           fromExpiryAlert: searchParams?.echeances === "1",
+          kind: nature,
         })}
         folders={folders.map((f) => ({ id: f.id, name: f.name }))}
         currentFolderId={openFolderId}

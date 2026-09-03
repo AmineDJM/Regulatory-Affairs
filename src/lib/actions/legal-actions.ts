@@ -13,6 +13,10 @@ import { attachFormFiles } from "@/lib/documents";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { normalizeReaderIds, canManageLegalReaders } from "@/lib/legal/readers";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
+import { legalWriteAllowed } from "@/lib/legal/invoices";
+import { syncInvoiceSettlement } from "@/lib/finance/settle-invoice";
+import { invoiceDirection, canSendToSettlement, canMarkPaidDirectly } from "@/lib/finances/settlement";
+import type { CurrentUser } from "@/lib/session";
 
 /**
  * LES ENGAGEMENTS DE LA SOCIÉTÉ — écriture.
@@ -27,21 +31,45 @@ import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
  *     chercher dans un module Legal.
  */
 
+// AMENDMENT n'y figure pas, et c'est délibéré : un avenant naît de SON contrat (`amendsId`), pas
+// d'un formulaire libre — un avenant orphelin ne modifierait rien et fausserait la valeur du marché.
 const KINDS: LegalDocKind[] = ["CONTRACT", "QUOTE", "PURCHASE_ORDER", "INVOICE", "AGREEMENT", "NDA", "INSURANCE", "LICENSE", "LEASE", "OTHER"];
 const parseKind = (v: string | null): LegalDocKind =>
   v && KINDS.includes(v as LegalDocKind) ? (v as LegalDocKind) : "CONTRACT";
 
+/**
+ * LA PORTE D'ÉCRITURE DU REGISTRE.
+ *
+ * Legal tient tout le registre ; la COMPTABILITÉ ne tient que les factures. La règle est un
+ * module pur partagé avec l'écran et avec les actions du vocabulaire « facture » — trois copies
+ * d'un contrôle d'accès finissent par diverger, et la divergence s'appelle une faille.
+ */
+function peutEcrire(user: CurrentUser, verb: "CREATE" | "UPDATE" | "DELETE", kind: string): boolean {
+  return legalWriteAllowed({
+    onLegal: userCan(user, "LEGAL", verb),
+    onFinances: userCan(user, "FINANCES", verb),
+    kind,
+  });
+}
+
 /** Champs communs à la création et à la modification. */
 function readFields(formData: FormData) {
+  const kind = parseKind(fdStr(formData, "kind"));
+  const estFacture = kind === "INVOICE";
   return {
     title: fdStr(formData, "title"),
     reference: fdStr(formData, "reference"),
-    kind: parseKind(fdStr(formData, "kind")),
+    kind,
     counterparty: fdStr(formData, "counterparty"),
     startDate: fdDate(formData, "startDate"),
     endDate: fdDate(formData, "endDate"),
     notes: fdStr(formData, "notes"),
     amount: fdStr(formData, "amount") ? Number(fdStr(formData, "amount")) : null,
+    // CE QU'UNE FACTURE AJOUTE, et rien d'autre. Sur un bail, ces deux champs restent vides :
+    // les remplir ferait apparaître un « sens de l'argent » sur une pièce qui n'en a pas, et le
+    // registre des règlements compterait des documents qui ne se paient pas.
+    direction: estFacture ? invoiceDirection(fdStr(formData, "direction")) : null,
+    paidDate: estFacture ? fdDate(formData, "paidDate") : null,
     // DOSSIER DE CLASSEMENT. Vide = « non classé », et c'est un état normal : un engagement se
     // dépose vite, il se range ensuite. Le dossier ne change RIEN à qui peut le lire.
     folderId: fdStr(formData, "folderId"),
@@ -64,9 +92,9 @@ export async function createLegalDocument(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "LEGAL", "CREATE")) return { ok: false, error: "Non autorisé." };
-
   const { title, ...f } = readFields(formData);
+  if (!peutEcrire(user, "CREATE", f.kind)) return { ok: false, error: "Non autorisé." };
+
   if (!title) return { ok: false, error: "Le titre exact du document est obligatoire." };
   const dates = validateDates(f.startDate, f.endDate);
   if (!dates.ok) return { ok: false, error: dates.error };
@@ -120,6 +148,10 @@ export async function createLegalDocument(
     summary: `Document légal « ${title} »${readerIds.length ? ` — restreint à ${readerIds.length} lecteur(s)` : ""}`,
   });
 
+  // UNE FACTURE DÉJÀ RÉGLÉE, saisie a posteriori, inscrit son mouvement aussitôt : tout paiement
+  // de la plateforme passe par les Finances, y compris celui qu'on enregistre après coup.
+  await syncInvoiceSettlement(created.id, user.id);
+
   // Les pièces jointes du formulaire, rattachées au document qui vient de naître. Un échec de
   // fichier ne défait PAS la création : l'engagement est enregistré, on dit ce qui n'a pas suivi.
   const files = await attachFormFiles(user.id, "LEGAL_DOCUMENT", created.id, formData);
@@ -136,16 +168,28 @@ export async function createLegalDocument(
 
 export async function updateLegalDocument(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "LEGAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
 
   const { title, ...f } = readFields(formData);
+  // LA NATURE ACTUELLE COMPTE AUTANT QUE LA DEMANDÉE : sans elle, la comptabilité pourrait
+  // rebaptiser un bail en « facture » pour s'ouvrir le droit de le modifier.
+  const avant = await prisma.legalDocument.findUnique({
+    where: { id }, select: { kind: true, expenseOrderId: true },
+  });
+  if (!avant) return { ok: false, error: "Document introuvable." };
+  if (!peutEcrire(user, "UPDATE", avant.kind) || !peutEcrire(user, "UPDATE", f.kind)) {
+    return { ok: false, error: "Non autorisé." };
+  }
+
   if (!title) return { ok: false, error: "Le titre exact du document est obligatoire." };
   const dates = validateDates(f.startDate, f.endDate);
   if (!dates.ok) return { ok: false, error: dates.error };
   const chainErr = await checkChainFrom(f.chainFromId, id);
   if (chainErr) return { ok: false, error: chainErr };
+  // Le circuit de règlement possède la date de paiement des factures qu'il porte.
+  const reglement = canMarkPaidDirectly({ paidDate: f.paidDate, expenseOrderId: avant.expenseOrderId });
+  if (!reglement.ok) return { ok: false, error: reglement.error };
 
   await prisma.legalDocument.update({
     where: { id },
@@ -162,6 +206,9 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
     entityType: "LEGAL_DOCUMENT", entityId: id,
     summary: `Document légal « ${title} » mis à jour`,
   });
+  // Une date de règlement posée ou retirée depuis le formulaire ORDINAIRE fait bouger l'argent
+  // exactement comme depuis la ligne du tableau : c'est le même document, donc la même règle.
+  await syncInvoiceSettlement(id, user.id);
   revalidatePath("/legal");
   revalidatePath(`/legal/${id}`);
   return { ok: true };
@@ -345,11 +392,11 @@ export async function cancelLegalDocument(formData: FormData): Promise<ActionRes
 /** Supprimer la FICHE — jamais le fichier du Drive, qui ne nous appartient pas. */
 export async function deleteLegalDocument(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "LEGAL", "DELETE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
-  const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true } });
+  const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true, kind: true } });
   if (!doc) return { ok: false, error: "Document introuvable." };
+  if (!peutEcrire(user, "DELETE", doc.kind)) return { ok: false, error: "Non autorisé." };
 
   await prisma.legalDocument.delete({ where: { id } });
   await recordAudit({
@@ -437,13 +484,19 @@ export async function sendLegalInvoiceToSettlement(formData: FormData): Promise<
 
   const doc = await prisma.legalDocument.findUnique({
     where: { id },
-    select: { id: true, title: true, reference: true, kind: true, amount: true, counterparty: true, endDate: true, expenseOrderId: true },
+    select: {
+      id: true, title: true, reference: true, kind: true, amount: true, counterparty: true,
+      endDate: true, expenseOrderId: true, paidDate: true,
+    },
   });
   if (!doc) return { ok: false, error: "Document introuvable." };
-  if (doc.kind !== "INVOICE") return { ok: false, error: "Seule une facture s'envoie au règlement." };
-  if (doc.expenseOrderId) return { ok: false, error: "Cette facture est déjà partie au règlement." };
   const amount = doc.amount ? Number(doc.amount) : 0;
-  if (!amount || amount <= 0) return { ok: false, error: "Renseignez d'abord le montant de la facture." };
+  // LE MÊME DINAR NE SORT PAS DEUX FOIS : une facture déjà soldée en direct n'a plus rien à
+  // envoyer au centre de paiement. La règle est un module pur, partagé avec l'écriture directe.
+  const envoi = canSendToSettlement({
+    kind: doc.kind, amount: amount || null, paidDate: doc.paidDate, expenseOrderId: doc.expenseOrderId,
+  });
+  if (!envoi.ok) return { ok: false, error: envoi.error };
 
   const order = await createExpenseOrder({
     label: `${doc.reference ? `${doc.reference} — ` : ""}${doc.title}`,

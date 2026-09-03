@@ -40,6 +40,8 @@ function bc(n: number): LegalListRow {
     driveName: `BC-${n}.pdf`,
     renewedFromTitle: null,
     restricted: false,
+    paidDate: null,
+    expenseOrderId: null,
   };
 }
 
@@ -120,6 +122,7 @@ describe("Legal — LE BOGUE : des documents servis mais masqués par un filtre 
       scope: SCOPE_DOSSIER_BC,
       filters: { ...EMPTY_FILTERS, counterparty: "Kwality" },
       watchOnly: false,
+      unpaidOnly: false,
     };
     const apresRefresh = syncLegalListState(posee, SCOPE_DOSSIER_BC, false);
     expect(apresRefresh).toBe(posee); // même référence : aucun re-rendu inutile
@@ -191,6 +194,7 @@ describe("Legal — l'écran vide DIT pourquoi il est vide", () => {
       scope: SCOPE_DOSSIER_BC,
       filters: { ...EMPTY_FILTERS, counterparty: "Sanofi" },
       watchOnly: true,
+      unpaidOnly: false,
     };
     const raisons = describeActiveFilters(s);
     expect(raisons.join(" ")).toContain("à surveiller");

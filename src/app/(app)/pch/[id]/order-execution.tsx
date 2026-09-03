@@ -173,12 +173,12 @@ export function OrderExecution({ bon, contrats, canEdit, canInvoice }: {
           <ul className="space-y-1">
             {bon.factures.map((f) => (
               <li key={f.id} className="flex flex-wrap items-center gap-2 rounded-md bg-card px-2.5 py-1.5 text-sm">
-                <Link href={`/legal/factures`} className="min-w-0 flex-1 truncate text-primary hover:underline">
+                <Link href={`/legal/${f.id}`} className="min-w-0 flex-1 truncate text-primary hover:underline">
                   {f.number ? `${f.number} — ` : ""}{f.title}
                 </Link>
                 {f.amount !== null && <span className="tabular-nums">{formatNumber(f.amount)} DZD</span>}
-                <Badge tone={f.status === "PAID" ? "success" : f.status === "PARTIAL" ? "warning" : f.status === "CANCELLED" ? "neutral" : f.dueDate && new Date(f.dueDate) < new Date() ? "danger" : "info"} dot={false}>
-                  {f.status === "PAID" ? "Réglée" : f.status === "PARTIAL" ? "Partielle" : f.status === "CANCELLED" ? "Annulée" : f.dueDate && new Date(f.dueDate) < new Date() ? "Échue" : "À régler"}
+                <Badge tone={f.status === "PAID" ? "success" : f.status === "IN_CIRCUIT" ? "info" : f.status === "CANCELLED" ? "neutral" : f.dueDate && new Date(f.dueDate) < new Date() ? "danger" : "warning"} dot={false}>
+                  {f.status === "PAID" ? "Réglée" : f.status === "IN_CIRCUIT" ? "En règlement" : f.status === "CANCELLED" ? "Annulée" : f.dueDate && new Date(f.dueDate) < new Date() ? "Échue" : "À régler"}
                 </Badge>
                 {/* Les courriers DE CETTE facture (relance, mise en demeure…) — reliés depuis
                     la fiche courrier (« Relier à… » → Facture) ou par Adam. */}

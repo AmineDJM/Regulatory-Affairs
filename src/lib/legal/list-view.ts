@@ -43,6 +43,12 @@ export interface LegalListRow {
   driveName: string | null;
   renewedFromTitle: string | null;
   restricted: boolean;
+  /**
+   * LE RÈGLEMENT, pour les documents de nature FACTURE — voir `lib/legal/invoices.ts`.
+   * `null` partout ailleurs : un bail n'est ni réglé ni à régler.
+   */
+  paidDate: string | null;
+  expenseOrderId: string | null;
 }
 
 /** Les niveaux d'échéance qui méritent qu'on s'en occupe — le filtre « à surveiller ». */
@@ -71,6 +77,12 @@ export interface LegalListState {
   scope: string;
   filters: LegalColumnFilters;
   watchOnly: boolean;
+  /**
+   * LE RESTE À RÉGLER — l'unique bouton que l'écran dédié aux factures apportait vraiment.
+   * Il ne garde que les factures non réglées : c'est la question qu'on vient poser, et y
+   * répondre en trois filtres de colonnes revient à ne pas y répondre.
+   */
+  unpaidOnly: boolean;
 }
 
 /**
@@ -79,14 +91,20 @@ export interface LegalListState {
  * Le dossier ouvert ET l'entrée par un rappel d'échéance en font partie : ce sont les deux
  * choses qui changent l'ensemble des documents servis par le serveur.
  */
-export function legalListScope(opts: { folderId: string | null; unfiledOnly?: boolean; fromExpiryAlert?: boolean }): string {
+export function legalListScope(opts: {
+  folderId: string | null;
+  unfiledOnly?: boolean;
+  fromExpiryAlert?: boolean;
+  /** La NATURE demandée par l'URL (`?nature=INVOICE`) — « les factures » est une vue, pas un écran. */
+  kind?: string | null;
+}): string {
   const dossier = opts.unfiledOnly ? "none" : (opts.folderId ?? "all");
-  return `${dossier}|${opts.fromExpiryAlert ? "echeances" : "tous"}`;
+  return `${dossier}|${opts.fromExpiryAlert ? "echeances" : "tous"}|${opts.kind || "toutes"}`;
 }
 
 /** L'état initial d'une liste : ses filtres sont ceux que le périmètre impose, et rien d'autre. */
-export function initialLegalListState(scope: string, watchByDefault: boolean): LegalListState {
-  return { scope, filters: { ...EMPTY_FILTERS }, watchOnly: watchByDefault };
+export function initialLegalListState(scope: string, watchByDefault: boolean, kind = ""): LegalListState {
+  return { scope, filters: { ...EMPTY_FILTERS, kind }, watchOnly: watchByDefault, unpaidOnly: false };
 }
 
 /**
@@ -100,9 +118,10 @@ export function syncLegalListState(
   state: LegalListState,
   scope: string,
   watchByDefault: boolean,
+  kind = "",
 ): LegalListState {
   if (state.scope === scope) return state;
-  return initialLegalListState(scope, watchByDefault);
+  return initialLegalListState(scope, watchByDefault, kind);
 }
 
 function contains(hay: string | null, needle: string): boolean {
@@ -126,13 +145,16 @@ export function visibleLegalRows(rows: readonly LegalListRow[], state: LegalList
     if (f.startMonth && !inMonth(r.startDate, f.startMonth)) return false;
     if (f.endMonth && !inMonth(r.endDate, f.endMonth)) return false;
     if (state.watchOnly && !URGENT_EXPIRY.has(r.expiry)) return false;
+    // LE RESTE À RÉGLER : les seules factures non réglées. Une facture ANNULÉE ne sera jamais
+    // payée — la montrer ici gonflerait une dette qui n'existe pas.
+    if (state.unpaidOnly && !(r.kind === "INVOICE" && !r.paidDate && r.status !== "CANCELLED")) return false;
     return true;
   });
 }
 
 /** Y a-t-il un filtre actif ? Sert à proposer « Réinitialiser » — et à l'expliquer. */
 export function hasActiveFilter(state: LegalListState): boolean {
-  return state.watchOnly || Object.values(state.filters).some(Boolean);
+  return state.watchOnly || state.unpaidOnly || Object.values(state.filters).some(Boolean);
 }
 
 /**
@@ -145,6 +167,7 @@ export function hasActiveFilter(state: LegalListState): boolean {
 export function describeActiveFilters(state: LegalListState): string[] {
   const out: string[] = [];
   if (state.watchOnly) out.push("à surveiller (échéance proche ou dépassée)");
+  if (state.unpaidOnly) out.push("factures restant à régler");
   const f = state.filters;
   if (f.reference) out.push(`référence « ${f.reference} »`);
   if (f.title) out.push(`titre « ${f.title} »`);
