@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { unitFromBoxPrice } from "@/lib/pch/box-economics";
+import { allocationChange, allocationSummary, portfolioName } from "@/lib/pch/bu-allocation";
 import { askClaude, aiConfigured } from "@/lib/ai";
 import { getRecommendations, normText, queryTokens, allTokensIn, type RecRow } from "@/lib/market/engine";
 import { pchReceptionPrice, nomenclatureMatch } from "@/lib/market/pch-lookup";
@@ -78,6 +79,105 @@ export async function updateTenderLine(formData: FormData): Promise<ActionResult
     },
   });
   if (tenderId) revalidatePath(`/pch/${tenderId}`);
+  return { ok: true };
+}
+
+/**
+ * AFFECTER UN LOT D'APPEL D'OFFRES À UNE OU PLUSIEURS BUSINESS UNITS.
+ *
+ * ── LE MAILLON QUI MANQUAIT ─────────────────────────────────────────────────────────────────
+ *
+ * On gagne un lot PCH ; quelqu'un doit le vendre. La force de vente sait déjà attribuer un
+ * produit à un délégué — son écran, ses cycles, ses droits. Ce qui manquait était le maillon
+ * d'AVANT : rien ne disait quelle gamme portait quel lot, et les produits gagnés n'apparaissaient
+ * dans aucun portefeuille. On les répartissait de vive voix.
+ *
+ * ── POURQUOI PAR LOT, ET PLUSIEURS ──────────────────────────────────────────────────────────
+ *
+ * `PchTender.businessUnitId` posait UNE BU pour tout le marché ; or un bordereau porte vingt lots
+ * de gammes différentes. Et deux BU peuvent légitimement se partager un produit (une gamme ville,
+ * une gamme hôpital sur la même molécule).
+ *
+ * ── CE QUE L'AFFECTATION DÉCLENCHE ──────────────────────────────────────────────────────────
+ *
+ * Le produit entre au PORTEFEUILLE de la BU (`PromoProduct`) : c'est de là que la force de vente
+ * l'attribue à ses KAM, par le circuit existant. On ne construit pas un second mécanisme
+ * d'attribution — il produirait deux vérités sur « qui porte ce produit ».
+ *
+ * On n'invente NI le canal, NI le chef de produit, NI les prévisions : ce sont des décisions
+ * commerciales qui appartiennent à la BU, pas des valeurs qu'un rattachement peut deviner.
+ *
+ * RETIRER une BU ne supprime PAS le produit de son portefeuille : il a pu y être ajouté pour
+ * d'autres raisons, porter des prévisions et des affectations de KAM. On défait le rattachement
+ * au lot, pas le travail de l'équipe commerciale.
+ */
+export async function setTenderLineBusinessUnits(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  const tenderId = fdStr(formData, "tenderId");
+  if (!id) return { ok: false, error: "Ligne introuvable." };
+
+  const line = await prisma.pchTenderLine.findUnique({
+    where: { id },
+    select: {
+      id: true, designation: true, dci: true, dosage: true, form: true, productId: true,
+      businessUnits: { select: { businessUnitId: true } },
+    },
+  });
+  if (!line) return { ok: false, error: "Ligne introuvable." };
+
+  const voulu = formData.getAll("businessUnitId").map((v) => String(v)).filter(Boolean);
+  const connues = await prisma.businessUnit.findMany({
+    where: { id: { in: voulu }, isActive: true },
+    select: { id: true, name: true },
+  });
+  const nomParId = new Map(connues.map((b) => [b.id, b.name]));
+  const change = allocationChange(line.businessUnits.map((b) => b.businessUnitId), connues.map((b) => b.id));
+  if (change.unchanged) return { ok: true };
+
+  if (change.toRemove.length > 0) {
+    await prisma.pchTenderLineBusinessUnit.deleteMany({
+      where: { tenderLineId: id, businessUnitId: { in: change.toRemove } },
+    });
+  }
+  if (change.toAdd.length > 0) {
+    await prisma.pchTenderLineBusinessUnit.createMany({
+      data: change.toAdd.map((businessUnitId) => ({ tenderLineId: id, businessUnitId, createdById: user.id })),
+      skipDuplicates: true,
+    });
+    // LE PRODUIT ENTRE AU PORTEFEUILLE de chaque BU qui le prend — best-effort : un portefeuille
+    // qui ne se met pas à jour ne doit pas annuler l'affectation, qui est le fait décidé.
+    const nom = portfolioName(line);
+    for (const businessUnitId of change.toAdd) {
+      try {
+        const deja = await prisma.promoProduct.findFirst({
+          where: {
+            businessUnitId,
+            ...(line.productId ? { productId: line.productId } : { name: nom }),
+          },
+          select: { id: true },
+        });
+        if (!deja) {
+          await prisma.promoProduct.create({
+            data: { name: nom, businessUnitId, productId: line.productId ?? null, isActive: true },
+          });
+        }
+      } catch (e) {
+        console.error("[pch] portefeuille BU non alimenté", e);
+      }
+    }
+  }
+
+  const nomsAjoutes = change.toAdd.map((b) => nomParId.get(b) ?? b);
+  const nomsRetires = change.toRemove.map((b) => b);
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "PCH",
+    entityType: "PCH_TENDER", entityId: tenderId || undefined,
+    summary: allocationSummary(line.designation, nomsAjoutes, nomsRetires),
+  });
+  if (tenderId) revalidatePath(`/pch/${tenderId}`);
+  revalidatePath("/planning/affectations");
   return { ok: true };
 }
 

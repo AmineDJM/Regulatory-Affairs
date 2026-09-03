@@ -5554,9 +5554,42 @@ model PchTenderLine {
   sales                  Sale[]                   @relation("SaleTenderLine")
   contractLines          PchContractLine[]
   orderLines             PchOrderLine[]           @relation("OrderLineTenderLine")
+  /// LES BUSINESS UNITS QUI PORTENT CE PRODUIT — voir `PchTenderLineBusinessUnit`.
+  businessUnits          PchTenderLineBusinessUnit[]
 
   @@index([tenderId])
   @@index([productId])
+}
+
+/// QUI PORTE CE PRODUIT DU MARCHÉ — l'affectation d'un lot d'AO à une ou plusieurs Business Units.
+///
+/// ── POURQUOI PAS UN CHAMP SUR LE MARCHÉ ────────────────────────────────────────────────────
+///
+/// `PchTender.businessUnitId` existait déjà : UNE BU pour tout le marché. Or un appel d'offres
+/// PCH porte vingt lots qui relèvent de gammes différentes — l'oncologie et l'anti-infectieux
+/// dans le même bordereau. Le champ unique obligeait à n'en nommer qu'une, et les dix-neuf autres
+/// lots se retrouvaient rattachés à la mauvaise équipe, ou à aucune.
+///
+/// L'affectation est donc PAR PRODUIT, et MULTIPLE : deux BU peuvent légitimement se partager un
+/// même produit (une gamme ville et une gamme hôpital sur la même molécule).
+///
+/// ── CE QU'ELLE DÉCLENCHE ───────────────────────────────────────────────────────────────────
+///
+/// Affecter une BU inscrit le produit à son PORTEFEUILLE (`PromoProduct`), d'où la force de vente
+/// l'attribue ensuite à ses KAM par le circuit existant (`PromotionAssignment`, cycle par cycle).
+/// On ne construit pas un second mécanisme d'attribution : celui de la force de vente marche, il
+/// a ses écrans et ses droits — il lui manquait seulement de savoir que ces produits existent.
+model PchTenderLineBusinessUnit {
+  id             String        @id @default(cuid())
+  tenderLineId   String
+  tenderLine     PchTenderLine @relation(fields: [tenderLineId], references: [id], onDelete: Cascade)
+  businessUnitId String
+  businessUnit   BusinessUnit  @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  createdById    String?
+  createdAt      DateTime      @default(now())
+
+  @@unique([tenderLineId, businessUnitId])
+  @@index([businessUnitId])
 }
 
 model PchOrder {
@@ -8314,6 +8347,8 @@ model BusinessUnit {
   /// LES KAM de la BU — le rattachement direct, sans étage intermédiaire.
   reps     SalesRepProfile[]
   tenders  PchTender[]
+  /// LES LOTS D'APPEL D'OFFRES qui lui sont affectés, produit par produit.
+  tenderLines PchTenderLineBusinessUnit[]
 
   @@index([companyId])
   @@index([supervisorId])

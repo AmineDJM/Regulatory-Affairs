@@ -18,6 +18,7 @@ import { PCH_MARKET_NIVEAU } from "@/lib/labels";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import { EditTenderButton, OrdersManager } from "./pch-detail-client";
 import { TenderLines } from "./tender-lines";
+import { AllocationsPanel } from "./allocations-panel";
 import { TenderLogistics } from "./tender-logistics";
 import { SubmissionPanel } from "./submission-panel";
 import { ContractPanel } from "./contract-panel";
@@ -38,10 +39,21 @@ import { mailRoutingOptions } from "@/lib/queries/mail-routing";
  */
 export default async function PchTenderPage({ params }: { params: { id: string } }) {
   const user = await requireModule("PCH");
-  const [t, market, story] = await Promise.all([
+  const [t, market, story, businessUnits, affectations] = await Promise.all([
     getPchTenderDetail(params.id),
     loadMarket360(params.id),
     storyMarche(params.id),
+    // LES GAMMES OÙ L'ON PEUT RANGER UN PRODUIT GAGNÉ. Seules les BU ACTIVES : proposer une
+    // gamme dissoute ferait confier un produit à une équipe qui n'existe plus.
+    prisma.businessUnit.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, color: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    }),
+    prisma.pchTenderLineBusinessUnit.findMany({
+      where: { tenderLine: { tenderId: params.id } },
+      select: { tenderLineId: true, businessUnitId: true },
+    }),
   ]);
   if (!t || !market) notFound();
   const canEdit = userCan(user, "PCH", "UPDATE");
@@ -53,11 +65,12 @@ export default async function PchTenderPage({ params }: { params: { id: string }
     && market.tender.submittedAt === null
     && new Date(market.tender.submissionDeadline).getTime() - Date.now() < 7 * 86_400_000;
 
-  // Options du formulaire d'édition : responsables possibles (comptes actifs) et BU.
-  const [usersOptions, businessUnits] = await Promise.all([
-    prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.businessUnit.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { sortOrder: "asc" } }),
-  ]);
+  // Options du formulaire d'édition : responsables possibles (comptes actifs). Les BU sont déjà
+  // chargées plus haut, pour le bloc d'affectations — les relire ici ferait deux requêtes pour la
+  // même liste, et deux listes qui pourraient un jour diverger sur leur filtre.
+  const usersOptions = await prisma.user.findMany({
+    where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" },
+  });
 
   // COURRIER PRÉ-ASSOCIÉ (§26-27) : le pli naît DEPUIS le marché, déjà rattaché — personne ne
   // ressaisit le lien. Le formulaire est celui du registre, à l'identique ; seuls le
@@ -181,6 +194,25 @@ export default async function PchTenderPage({ params }: { params: { id: string }
       <Card>
         <CardContent className="p-4">
           <TenderLines tenderId={t.id} lines={t.lines} canEdit={canEdit} aiConfigured={aiConfigured()} />
+        </CardContent>
+      </Card>
+
+      {/* QUI PORTE CHAQUE PRODUIT — le maillon entre le marché gagné et la force de vente.
+          Placé JUSTE APRÈS les produits : c'est en lisant la liste des lots qu'on se demande à
+          qui les confier, pas trois écrans plus bas. */}
+      <Card>
+        <CardContent className="p-4">
+          <AllocationsPanel
+            tenderId={t.id}
+            businessUnits={businessUnits}
+            canEdit={canEdit}
+            lines={t.lines.map((l) => ({
+              id: l.id,
+              designation: l.designation,
+              status: l.status,
+              businessUnitIds: affectations.filter((a) => a.tenderLineId === l.id).map((a) => a.businessUnitId),
+            }))}
+          />
         </CardContent>
       </Card>
 
