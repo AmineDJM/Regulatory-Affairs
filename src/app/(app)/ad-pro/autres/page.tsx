@@ -30,14 +30,19 @@ export default async function AdProOtherPage() {
   const user = await requireModule("AD_PRO_OTHER");
   const canCreate = userCan(user, "AD_PRO_OTHER", "CREATE");
 
-  const [requests, companies] = await Promise.all([
+  const [requests, companies, businessUnits] = await Promise.all([
     prisma.adProOtherRequest.findMany({
       where: await platformScope(user.id),
       orderBy: { createdAt: "desc" },
       include: { company: { select: { name: true } } },
     }),
     getMyCompanies(user.id),
-  ]);
+      // LES GAMMES ACTIVES — c'est le budget Ad&Pro de l'une d'elles que la demande engage.
+    prisma.businessUnit.findMany({
+      where: { isActive: true }, select: { id: true, name: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    }),
+]);
 
   return (
     <div className="space-y-5">
@@ -54,7 +59,7 @@ export default async function AdProOtherPage() {
             width="md"
             action={createAdProOtherRequest}
             redirectBase="/ad-pro/autres"
-            fields={adProOtherCreateFields({ companies: companyOptions(companies) })}
+            fields={adProOtherCreateFields({ companies: companyOptions(companies), businessUnits })}
           />
         )}
       </PageHeader>

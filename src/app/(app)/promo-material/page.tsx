@@ -29,7 +29,12 @@ export default async function PromoMaterialPage() {
     ? await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [];
   // Mêmes champs qu'au panneau commun d'Ad & Pro : une seule définition, deux portes d'entrée.
-  const createFields = promoMaterialCreateFields({ companies: companyOptions(companies), assistants });
+  // LES GAMMES ACTIVES — c'est le budget Ad&Pro de l'une d'elles que la demande engage.
+  const businessUnits = await prisma.businessUnit.findMany({
+    where: { isActive: true }, select: { id: true, name: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+  });
+  const createFields = promoMaterialCreateFields({ companies: companyOptions(companies), assistants, businessUnits });
 
   // Un dossier au circuit court se juge sur SON état ; un ancien dossier sur l'ancien statut.
   const isClosed = (i: { status: string; circuitState: string | null }) =>

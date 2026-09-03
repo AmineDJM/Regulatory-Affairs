@@ -32,6 +32,8 @@ export default async function BusinessUnitsPage() {
       select: {
         id: true, name: true, code: true, color: true, companyId: true, headId: true,
         supervisorId: true, channel: true, isActive: true,
+        // LE SOUS-DÉPARTEMENT de la gamme : c'est lui qui dit si son budget est ouvert.
+        departmentId: true,
       },
     }),
     prisma.company.findMany({ where: { isActive: true }, select: { id: true, name: true, shortName: true }, orderBy: { sortOrder: "asc" } }),

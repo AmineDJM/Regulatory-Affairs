@@ -30,14 +30,19 @@ export default async function ConsultingPage() {
   const user = await requireModule("CONSULTING");
   const canCreate = userCan(user, "CONSULTING", "CREATE");
 
-  const [contracts, companies] = await Promise.all([
+  const [contracts, companies, businessUnits] = await Promise.all([
     prisma.consultingContract.findMany({
       where: await platformScope(user.id),
       orderBy: { createdAt: "desc" },
       include: { company: { select: { name: true } }, tasks: { select: { doneAt: true } } },
     }),
     getMyCompanies(user.id),
-  ]);
+      // LES GAMMES ACTIVES — c'est le budget Ad&Pro de l'une d'elles que la demande engage.
+    prisma.businessUnit.findMany({
+      where: { isActive: true }, select: { id: true, name: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    }),
+]);
 
   const active = contracts.filter((c) => c.status === "ACTIVE");
   const awaiting = contracts.filter((c) => c.status === "AWAITING_VALIDATION");
@@ -57,7 +62,7 @@ export default async function ConsultingPage() {
             description="Un contrat a deux parties : indiquez le prestataire, ce qu'il doit livrer, et à quelles conditions."
             action={createConsultingContract}
             redirectBase="/consulting"
-            fields={consultingCreateFields({ companies: companyOptions(companies) })}
+            fields={consultingCreateFields({ companies: companyOptions(companies), businessUnits })}
           />
         )}
       </PageHeader>

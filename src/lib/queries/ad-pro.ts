@@ -170,7 +170,7 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
   // d'être promu — ce n'est pas une maladresse d'écran, c'est une faute réglementaire.
   const needsProducts = has("SPONSORING");
 
-  const [doctors, users, productManagers, companies, products] = await Promise.all([
+  const [doctors, users, productManagers, companies, products, businessUnits] = await Promise.all([
     needsDoctors
       ? prisma.medicalDoctor.findMany({
           select: { id: true, name: true, specialty: true, city: true },
@@ -198,7 +198,14 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
           orderBy: [{ brandName: "asc" }, { dci: "asc" }],
         })
       : Promise.resolve([] as { id: string; brandName: string | null; dci: string; status: string }[]),
-  ]);
+      // LES GAMMES ACTIVES — c'est le budget Ad&Pro de l'une d'elles que la demande engage.
+    // Toujours chargées : les cinq natures de demande Ad&Pro se rattachent toutes à une gamme.
+    prisma.businessUnit.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    }),
+]);
 
   return {
     doctors: doctors.map((d) => ({ id: d.id, name: d.name, specialty: d.specialty ?? "Sans spécialité", city: d.city ?? "" })),
@@ -206,5 +213,6 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
     productManagers,
     companies,
     products: products.map((p) => ({ id: p.id, brandName: p.brandName, dci: p.dci, status: String(p.status) })),
+    businessUnits,
   };
 }

@@ -1412,6 +1412,10 @@ export const BUDGET_TABS: NavTab[] = [
   { module: "BUDGETS", label: "Vue d'ensemble", href: "/budgets" },
   { module: "BUDGETS", label: "Dépenses", href: "/budgets/depenses" },
   { module: "BUDGETS", label: "Départements", href: "/budgets/departements" },
+  // LE BUDGET PAR GAMME — une Business Unit EST un sous-département, mais on ne vient pas la
+  // chercher dans une liste où elle voisine avec les Finances et les Ressources humaines : la
+  // question « combien l'oncologie a-t-elle dépensé ? » se pose sur les gammes, entre elles.
+  { module: "BUDGETS", label: "Business Units", href: "/budgets/business-units" },
   { module: "BUDGETS", label: "Réglages", href: "/budgets/reglages" },
 ];
 // RH — quatre écrans au lieu d'une page à sept sections : ce qu'il faut TRAITER, l'ANNUAIRE
@@ -1703,7 +1707,7 @@ export const NAVIGATION: NavItem[] = [
       { module: "RECRUITMENT", label: "Recrutement", href: "/recrutement", icon: "UserPlus", group: "Pilotage" },
     ],
   },
-  { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", pole: "ADMINISTRATION", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/reglages"] },
+  { module: "BUDGETS", label: "Budgets", href: "/budgets", icon: "Wallet", group: "Pôles", pole: "ADMINISTRATION", tabs: BUDGET_TABS, match: ["/budgets/depenses", "/budgets/departements", "/budgets/business-units", "/budgets/reglages"] },
 
   // SALES & MARKETING — tout ce qui touche au terrain et au business réalisé. L'annuaire des
   // praticiens vit DANS Promotion médicale : on ne consulte pas un annuaire pour lui-même, on

@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { monthLabel, canEditRep } from "@/lib/sfe";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { canAttachBuDepartment, buDepartmentName, buDepartmentCode } from "@/lib/sfe/bu-department";
 
 const MODULE = "SALES_PLANNING" as const;
 const PATH = "/planning";
@@ -78,6 +79,82 @@ export async function updateBusinessUnit(formData: FormData): Promise<ActionResu
   });
   revalidatePath(BU_PATH);
   return { ok: true };
+}
+
+/**
+ * OUVRIR LE BUDGET D'UNE GAMME — en lui donnant son sous-département.
+ *
+ * ── POURQUOI UN DÉPARTEMENT ─────────────────────────────────────────────────────────────────
+ *
+ * Une BU a un budget Ad&Pro et une masse salariale. Ce sont exactement les deux choses qu'un
+ * DÉPARTEMENT porte déjà, avec ses enveloppes, ses dépenses, ses demandes de budget, sa caisse
+ * d'avance, ses salariés, ses droits et ses écrans. Lui donner ses propres colonnes aurait créé
+ * un second mécanisme à côté de celui qui marche — et deux réponses à « combien la gamme a-t-elle
+ * dépensé ? » (§17 : pas de second registre).
+ *
+ * ── UN GESTE EXPLICITE, PAS UN EFFET DE BORD DE LA CRÉATION ─────────────────────────────────
+ *
+ * Créer le département automatiquement à chaque nouvelle BU remplirait l'arbre de départements
+ * vides pour des gammes qu'on essaie, qu'on renomme et qu'on supprime la semaine suivante. On
+ * ouvre le budget quand on décide qu'il y en a un.
+ *
+ * Le PARENT est la Direction commerciale : une gamme se range SOUS elle, pas à côté des Finances.
+ * S'il n'existe pas, le refus le DIT et nomme l'écran qui le crée.
+ */
+export async function openBusinessUnitBudget(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Business Unit introuvable." };
+  const bu = await prisma.businessUnit.findUnique({
+    where: { id },
+    select: { id: true, name: true, code: true, companyId: true, departmentId: true },
+  });
+  if (!bu) return { ok: false, error: "Business Unit introuvable." };
+
+  // LE PARENT : la Direction commerciale de la MÊME entité quand la BU en porte une — une gamme
+  // d'Adventum ne se range pas sous la direction commerciale de Pharmagène.
+  const parent = await prisma.department.findFirst({
+    where: {
+      ...(bu.companyId ? { companyId: bu.companyId } : {}),
+      OR: [
+        { name: { contains: "commercial", mode: "insensitive" } },
+        { code: { contains: "COMMERCIAL", mode: "insensitive" } },
+      ],
+      // On ne se range pas sous une BU : c'est la Direction commerciale qu'on cherche, pas une
+      // gamme sœur — sans ce filtre, l'arbre s'emboîterait sur lui-même.
+      businessUnits: { none: {} },
+    },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const verdict = canAttachBuDepartment({
+    businessUnitName: bu.name,
+    parentDepartmentId: parent?.id ?? null,
+    alreadyAttached: Boolean(bu.departmentId),
+  });
+  if (!verdict.ok) return { ok: false, error: verdict.reason ?? "Rattachement impossible." };
+
+  const dep = await prisma.department.create({
+    data: {
+      name: buDepartmentName(bu.name),
+      code: buDepartmentCode(bu),
+      companyId: bu.companyId,
+      parentId: parent!.id,
+      description: `Sous-département de la Direction commerciale — budget Ad&Pro et masse salariale de la Business Unit « ${bu.name} ».`,
+    },
+    select: { id: true },
+  });
+  await prisma.businessUnit.update({ where: { id }, data: { departmentId: dep.id } });
+
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Force de vente",
+    summary: `Budget ouvert pour la BU « ${bu.name} » — sous-département ${buDepartmentName(bu.name)}`,
+  });
+  revalidatePath(BU_PATH);
+  revalidatePath("/budgets");
+  return { ok: true, id: dep.id, message: `Budget ouvert. La gamme « ${bu.name} » a désormais son enveloppe et sa masse salariale dans Budgets.` };
 }
 
 export async function deleteBusinessUnit(formData: FormData): Promise<ActionResult> {

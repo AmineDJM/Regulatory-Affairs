@@ -96,6 +96,8 @@ export async function createCongressRequest(
     t === "INTL"
       ? await prisma.congressInternational.create({
           data: {
+      // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
+      businessUnitId: fdStr(formData, "businessUnitId") || null,
             ...common,
             country: fdStr(formData, "country"),
             // La ville vient du référentiel des wilayas ; une saisie ancienne reprend sa forme
@@ -107,6 +109,8 @@ export async function createCongressRequest(
         })
       : await prisma.congressNational.create({
           data: {
+      // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
+      businessUnitId: fdStr(formData, "businessUnitId") || null,
             ...common,
             // Une prise en charge « nationale » peut se tenir hors d'Algérie : le pays reste
             // demandé des deux côtés, simplement facultatif.

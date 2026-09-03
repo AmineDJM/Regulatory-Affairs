@@ -127,6 +127,8 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
             description,
             materialType: materialType ? (materialType as MaterialType) : null,
             companyId: companyId || null,
+            // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
+            businessUnitId: fdStr(formData, "businessUnitId") || null,
             amount: amount ?? null,
             assistantId,
             status: "PROSPECTION_REQUESTED",

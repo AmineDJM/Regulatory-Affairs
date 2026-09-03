@@ -33,6 +33,8 @@ export interface AdProCreateData {
   productManagers: PersonOption[];
   /** Entités (matériel promotionnel), déjà réduites à des options. */
   companies: { value: string; label: string }[];
+  /** LES GAMMES : c'est le budget Ad&Pro de l'une d'elles que la demande engage. */
+  businessUnits: { id: string; name: string }[];
 }
 
 const optionsOf = (map: Record<string, string | { label: string }>): { value: string; label: string }[] =>
@@ -93,6 +95,27 @@ function circuitFields(opts: {
  * Le repli en saisie libre reste offert quand le référentiel est vide : un menu sans option est un
  * cul-de-sac, et une demande légitime ne doit pas attendre qu'on peuple une table.
  */
+/**
+ * LA BUSINESS UNIT QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
+ *
+ * Sans ce champ, la dépense pesait sur un total commercial que personne ne pouvait répartir :
+ * « combien l'oncologie a-t-elle dépensé cette année ? » n'avait pas de réponse, et l'on
+ * reconstituait le chiffre à la main en filtrant sur des noms de produits.
+ *
+ * Le choix est OBLIGATOIRE dès qu'il y a des gammes à proposer — une demande sans gamme retombe
+ * dans l'indistinct, et personne ne revient la rattacher. Il DISPARAÎT quand aucune BU n'existe :
+ * exiger un choix dans une liste vide n'est pas une règle, c'est une impasse.
+ */
+export function businessUnitField(businessUnits: readonly { id: string; name: string }[]): FieldDef[] {
+  if (businessUnits.length === 0) return [];
+  return [{
+    type: "select", name: "businessUnitId", label: "Business Unit", required: true, full: true,
+    options: businessUnits.map((b) => ({ value: b.id, label: b.name })),
+    placeholder: "— Choisir la gamme —",
+    hint: "C'est son budget Ad&Pro qui est engagé — et c'est par elle que la dépense se lit dans Budgets.",
+  }];
+}
+
 function referentielFields(opts: { products: readonly ProductRow[]; doctors: readonly DoctorRow[] }): FieldDef[] {
   const produits = availableProductOptions(opts.products);
   const medecins = doctorOptions(opts.doctors);
@@ -126,8 +149,10 @@ export function sponsoringCreateFields(opts: {
   canChooseAnalysis: boolean;
   products?: readonly ProductRow[];
   doctors?: readonly DoctorRow[];
+  businessUnits?: readonly { id: string; name: string }[];
 }): FieldDef[] {
   return [
+    ...businessUnitField(opts.businessUnits ?? []),
     ...circuitFields(opts),
     { type: "text", name: "institution", label: "Institution / Association", required: true },
     { type: "file", name: "files", label: "Demande(s) du médecin", multiple: true, full: true, hint: "Courrier, invitation, programme… Plusieurs fichiers possibles." },
@@ -145,8 +170,10 @@ export function sponsoringCreateFields(opts: {
 export function promoMaterialCreateFields(opts: {
   companies: readonly { value: string; label: string }[];
   assistants: readonly PersonOption[];
+  businessUnits?: readonly { id: string; name: string }[];
 }): FieldDef[] {
   return [
+    ...businessUnitField(opts.businessUnits ?? []),
     { type: "text", name: "title", label: "Campagne / matériel", required: true, full: true, placeholder: "Ex. Brochure Cardiomax 2026" },
     { type: "select", name: "materialType", label: "Type de matériel", options: MATERIAL_TYPE_OPTIONS, placeholder: "— Type de matériel —" },
     { type: "select", name: "companyId", label: "Entité", options: [...opts.companies], placeholder: "— Entité —" },
@@ -172,8 +199,10 @@ export function promoMaterialCreateFields(opts: {
  */
 export function consultingCreateFields(opts: {
   companies: readonly { value: string; label: string }[];
+  businessUnits?: readonly { id: string; name: string }[];
 }): FieldDef[] {
   return [
+    ...businessUnitField(opts.businessUnits ?? []),
     { type: "text", name: "title", label: "Intitulé du contrat", required: true, full: true, placeholder: "Ex. Accompagnement réglementaire 2026" },
     { type: "text", name: "counterparty", label: "Consultant / cabinet", required: true, placeholder: "L'autre partie au contrat" },
     { type: "text", name: "counterpartyContact", label: "Contact (e-mail, téléphone)" },
@@ -202,8 +231,10 @@ export function consultingCreateFields(opts: {
  */
 export function adProOtherCreateFields(opts: {
   companies: readonly { value: string; label: string }[];
+  businessUnits?: readonly { id: string; name: string }[];
 }): FieldDef[] {
   return [
+    ...businessUnitField(opts.businessUnits ?? []),
     { type: "text", name: "title", label: "Objet de la demande", required: true, full: true, placeholder: "En une phrase" },
     { type: "textarea", name: "description", label: "Description", required: true, full: true, placeholder: "Ce que vous demandez, pour qui, et pourquoi." },
     { type: "text", name: "beneficiary", label: "Pour qui / avec qui" },

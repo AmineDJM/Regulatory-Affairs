@@ -109,7 +109,7 @@ export function NewRequestPicker({ kinds, data, canDesignatePM, canChooseAnalysi
                 redirectBase="/sponsoring"
                 fields={sponsoringCreateFields({
                   productManagers: data.productManagers, canDesignatePM, canChooseAnalysis,
-                  products: data.products, doctors: data.doctors,
+                  products: data.products, doctors: data.doctors, businessUnits: data.businessUnits,
                 })}
               />
             )}
@@ -125,7 +125,7 @@ export function NewRequestPicker({ kinds, data, canDesignatePM, canChooseAnalysi
                 {...nav}
                 action={createPromoMaterial}
                 redirectBase="/promo-material"
-                fields={promoMaterialCreateFields({ companies: data.companies, assistants: people })}
+                fields={promoMaterialCreateFields({ companies: data.companies, assistants: people, businessUnits: data.businessUnits })}
               />
             )}
             {spec.kind === "CONSULTING" && (
@@ -133,7 +133,7 @@ export function NewRequestPicker({ kinds, data, canDesignatePM, canChooseAnalysi
                 {...nav}
                 action={createConsultingContract}
                 redirectBase="/consulting"
-                fields={consultingCreateFields({ companies: data.companies })}
+                fields={consultingCreateFields({ companies: data.companies, businessUnits: data.businessUnits })}
               />
             )}
             {spec.kind === "OTHER" && (
@@ -141,7 +141,7 @@ export function NewRequestPicker({ kinds, data, canDesignatePM, canChooseAnalysi
                 {...nav}
                 action={createAdProOtherRequest}
                 redirectBase="/ad-pro/autres"
-                fields={adProOtherCreateFields({ companies: data.companies })}
+                fields={adProOtherCreateFields({ companies: data.companies, businessUnits: data.businessUnits })}
               />
             )}
           </div>

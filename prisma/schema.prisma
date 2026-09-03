@@ -649,6 +649,8 @@ model Department {
   pettyCash      PettyCashAllotment[]
   pettyCashPlan  PettyCashPlan?
   trainings      Training[]
+  /// La Business Unit dont ce département est le sous-département, le cas échéant.
+  businessUnits  BusinessUnit[]            @relation("BusinessUnitDepartment")
 
   @@unique([companyId, name])
   @@index([parentId])
@@ -1970,6 +1972,11 @@ model RegulatoryStep {
 // ───────────────────────────── Sponsoring ─────────────────────────────
 
 model SponsoringRequest {
+  /// LA BUSINESS UNIT qui porte cette demande — c'est SON budget Ad&Pro qui est engagé.
+  /// Sans elle, la dépense pesait sur un total commercial que personne ne pouvait
+  /// répartir : « combien la gamme oncologie a-t-elle dépensé ? » n'avait pas de réponse.
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation("AdProSponsoringRequest", fields: [businessUnitId], references: [id], onDelete: SetNull)
   custom              Json? // admin-defined dynamic fields
   id                  String           @id @default(cuid())
   companyId           String? // entité de rattachement (Adventum / Pharmagène / …)
@@ -2689,6 +2696,11 @@ model BudgetExpenseLine {
 // ───────────────────────────── Congresses ─────────────────────────────
 
 model CongressInternational {
+  /// LA BUSINESS UNIT qui porte cette demande — c'est SON budget Ad&Pro qui est engagé.
+  /// Sans elle, la dépense pesait sur un total commercial que personne ne pouvait
+  /// répartir : « combien la gamme oncologie a-t-elle dépensé ? » n'avait pas de réponse.
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation("AdProCongressInternational", fields: [businessUnitId], references: [id], onDelete: SetNull)
   custom           Json? // admin-defined dynamic fields
   id               String            @id @default(cuid())
   companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
@@ -2753,6 +2765,11 @@ model CongressInternational {
 }
 
 model CongressNational {
+  /// LA BUSINESS UNIT qui porte cette demande — c'est SON budget Ad&Pro qui est engagé.
+  /// Sans elle, la dépense pesait sur un total commercial que personne ne pouvait
+  /// répartir : « combien la gamme oncologie a-t-elle dépensé ? » n'avait pas de réponse.
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation("AdProCongressNational", fields: [businessUnitId], references: [id], onDelete: SetNull)
   custom           Json? // admin-defined dynamic fields
   id               String         @id @default(cuid())
   companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
@@ -5898,6 +5915,11 @@ enum PromoMaterialStatus {
 }
 
 model PromoMaterial {
+  /// LA BUSINESS UNIT qui porte cette demande — c'est SON budget Ad&Pro qui est engagé.
+  /// Sans elle, la dépense pesait sur un total commercial que personne ne pouvait
+  /// répartir : « combien la gamme oncologie a-t-elle dépensé ? » n'avait pas de réponse.
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation("AdProPromoMaterial", fields: [businessUnitId], references: [id], onDelete: SetNull)
   id           String              @id @default(cuid())
   reference    String              @unique // MP-2026-001
   title        String
@@ -6360,6 +6382,11 @@ enum RegistrationStatus {
 }
 
 model Event {
+  /// LA BUSINESS UNIT qui porte cette demande — c'est SON budget Ad&Pro qui est engagé.
+  /// Sans elle, la dépense pesait sur un total commercial que personne ne pouvait
+  /// répartir : « combien la gamme oncologie a-t-elle dépensé ? » n'avait pas de réponse.
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation("AdProEvent", fields: [businessUnitId], references: [id], onDelete: SetNull)
   id              String      @id @default(cuid())
   companyId       String? // entité de rattachement (Adventum / Pharmagène / …)
   company         Company?    @relation(fields: [companyId], references: [id])
@@ -8338,6 +8365,16 @@ model BusinessUnit {
   /// LE TERRAIN COUVERT : officine de ville, secteur hospitalier, ou les deux. Il qualifie la BU
   /// entière — c'est la question qu'on pose en la créant, pas produit par produit.
   channel      ProductChannel @default(BOTH)
+  /// LE SOUS-DÉPARTEMENT de la BU, sous la Direction commerciale.
+  ///
+  /// Une Business Unit a un budget Ad&Pro et une masse salariale : ce sont exactement les deux
+  /// choses qu'un DÉPARTEMENT porte déjà, avec ses écrans, ses droits, ses demandes et son
+  /// arbre. Lui donner ses propres colonnes de budget aurait créé un second mécanisme à côté de
+  /// celui qui marche — et deux réponses à « combien la gamme a-t-elle dépensé ? ».
+  ///
+  /// Nul = BU non encore rattachée : elle vit, mais elle n'a ni budget ni masse salariale.
+  departmentId String?
+  department   Department?    @relation("BusinessUnitDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
   sortOrder    Int            @default(0)
   isActive     Boolean        @default(true)
   createdAt    DateTime       @default(now())
@@ -8349,6 +8386,12 @@ model BusinessUnit {
   tenders  PchTender[]
   /// LES LOTS D'APPEL D'OFFRES qui lui sont affectés, produit par produit.
   tenderLines PchTenderLineBusinessUnit[]
+  /// LES DEMANDES Ad&Pro qui engagent son budget.
+  sponsorings           SponsoringRequest[]     @relation("AdProSponsoringRequest")
+  congressNationaux     CongressNational[]      @relation("AdProCongressNational")
+  congressInternationaux CongressInternational[] @relation("AdProCongressInternational")
+  events                Event[]                 @relation("AdProEvent")
+  promoMaterials        PromoMaterial[]         @relation("AdProPromoMaterial")
 
   @@index([companyId])
   @@index([supervisorId])

@@ -26,6 +26,8 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
   if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
   const created = await prisma.event.create({
     data: {
+      // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
+      businessUnitId: fdStr(formData, "businessUnitId") || null,
       name,
       // Entité : la portée en cours, à défaut la société d'appartenance du créateur.
       // L'ENTITÉ QUI PAIERA suit la PERSONNE (sa fiche employé, à défaut son

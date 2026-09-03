@@ -3,10 +3,10 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  AlertTriangle, Check, ChevronDown, ChevronRight, Loader2, Package, Plus, Trash2, UserCog, Users,
+  AlertTriangle, Check, ChevronDown, ChevronRight, Loader2, Package, Plus, Trash2, UserCog, Users, Wallet,
 } from "lucide-react";
 import {
-  createBusinessUnit, updateBusinessUnit, deleteBusinessUnit,
+  createBusinessUnit, updateBusinessUnit, deleteBusinessUnit, openBusinessUnitBudget,
   createPromoProduct, updatePromoProduct, deletePromoProduct,
   saveRepProfile,
 } from "@/lib/actions/sales-planning-actions";
@@ -38,6 +38,11 @@ export interface BuRow {
   id: string; name: string; code: string | null; color: string | null;
   companyId: string | null; headId: string | null; supervisorId: string | null;
   channel: string; isActive: boolean;
+  /**
+   * LE SOUS-DÉPARTEMENT de la gamme, quand son budget a été ouvert. C'est lui qui porte son
+   * enveloppe Ad&Pro et sa masse salariale — une BU sans département ne compte nulle part.
+   */
+  departmentId: string | null;
 }
 export interface KamRow {
   repId: string; name: string; role: string; businessUnitId: string | null; region: string | null;
@@ -262,6 +267,27 @@ function BuCard({
               <label className="flex items-center gap-1 text-xs text-muted-foreground">
                 <input type="checkbox" defaultChecked={bu.isActive} onChange={(e) => saveBu({ isActive: e.target.checked })} /> Active
               </label>
+              {/* OUVRIR LE BUDGET DE LA GAMME — un geste explicite, pas un effet de bord de la
+                  création. Créer le sous-département à chaque nouvelle BU remplirait l'arbre de
+                  départements vides pour des gammes qu'on essaie, qu'on renomme et qu'on
+                  supprime la semaine suivante. */}
+              {bu.departmentId ? (
+                <span className="inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success" title="Cette gamme a son sous-département : son budget et sa masse salariale se lisent dans Budgets.">
+                  <Wallet className="h-3.5 w-3.5" /> Budget ouvert
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  title="Ouvrir le budget de cette gamme : elle devient un sous-département de la Direction commerciale, avec son enveloppe Ad&Pro et sa masse salariale."
+                  className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium hover:bg-secondary"
+                  onClick={() => {
+                    const fd = new FormData(); fd.set("id", bu.id);
+                    void run(openBusinessUnitBudget, fd);
+                  }}
+                >
+                  <Wallet className="h-3.5 w-3.5" /> Ouvrir le budget
+                </button>
+              )}
               <button
                 type="button"
                 title="Supprimer la BU"

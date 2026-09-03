@@ -66,6 +66,8 @@ export async function createSponsoring(
 
   const created = await prisma.sponsoringRequest.create({
     data: {
+      // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
+      businessUnitId: fdStr(formData, "businessUnitId") || null,
       reference,
       institution,
       // PLUSIEURS MÉDECINS, PLUSIEURS PRODUITS. Le formulaire envoie une entrée par case cochée ;
