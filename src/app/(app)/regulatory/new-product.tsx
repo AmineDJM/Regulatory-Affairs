@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { TextField, TextAreaField, SelectField, optionsFromMap } from "@/components/shared/form-fields";
 import { DciAssociationField } from "./dci-field";
+import { DciDuplicateBanner, useDciDuplicate } from "./dci-duplicate-banner";
 import { MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRODUCT_CHANNEL, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 
 interface UserOption {
@@ -33,6 +34,13 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
   // Verrou SYNCHRONE anti double-soumission (double-clic / double Entrée avant re-render).
   const lock = React.useRef(false);
 
+  // La DCI en cours de saisie, et ce que le référentiel en dit. Le champ la recompose (« A + B »)
+  // exactement comme l'action serveur : deux recompositions différentes signaleraient un doublon
+  // à l'écran sans que le serveur en voie un, ou l'inverse.
+  const [dci, setDci] = React.useState("");
+  const doublon = useDciDuplicate(dci);
+  const recheck = doublon.recheck;
+
   React.useEffect(() => {
     if (state?.ok) {
       setOpen(false);
@@ -42,8 +50,12 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
     } else if (state?.error) {
       setSubmitting(false);
       lock.current = false; // échec → on autorise une nouvelle tentative
+      // LE SERVEUR A REFUSÉ : si c'est pour un doublon, l'avis n'était pas encore arrivé à
+      // l'écran (saisie trop rapide, requête perdue). On le redemande — sans quoi le message
+      // s'afficherait sans le bouton qui permet de passer outre, et l'on serait bloqué.
+      recheck();
     }
-  }, [state, router]);
+  }, [state, router, recheck]);
 
   const userOptions = users.map((u) => ({
     value: u.id,
@@ -82,7 +94,7 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
             <SelectField label="Catégorie" name="category" options={optionsFromMap(REGULATORY_CATEGORY)} defaultValue="MEDICINE" />
             <SelectField label="Canal (Ville / Hôpital)" name="channel" options={optionsFromMap(PRODUCT_CHANNEL)} defaultValue="BOTH" />
             <SelectField label="Entité" name="companyId" required options={companies.map((c) => ({ value: c.id, label: c.shortName || c.name }))} placeholder="— Choisir l'entité —" defaultValue={companies.length === 1 ? companies[0].id : ""} />
-            <DciAssociationField />
+            <DciAssociationField onDciChange={setDci} />
             <TextField label="Nom commercial envisagé" name="brandName" placeholder="Ex. Adventor" className="sm:col-span-2" />
             <TextField label="Dosage" name="dosage" placeholder="20" />
             <SelectField label="Unité" name="dosageUnit" options={optionsFromMap(DOSAGE_UNIT)} placeholder="—" />
@@ -102,6 +114,11 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
           </div>
           <TextAreaField label="Commentaires" name="comments" placeholder="Notes internes…" />
 
+          <DciDuplicateBanner dci={dci} check={doublon} />
+          {/* L'accord de la personne, porté par le formulaire. Le serveur refuse sans lui : la
+              garde vit là-bas, l'écran ne fait que ne pas proposer ce qui serait refusé. */}
+          {doublon.acknowledged && <input type="hidden" name="confirmDuplicate" value="1" />}
+
           {state?.error && (
             <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
               <AlertCircle className="h-4 w-4" />
@@ -113,7 +130,7 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Annuler
             </Button>
-            <Button type="submit" disabled={submitting}>
+            <Button type="submit" disabled={submitting || doublon.blocking}>
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Créer le dossier
             </Button>

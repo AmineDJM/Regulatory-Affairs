@@ -31,6 +31,7 @@ import { MyPortfolioCard } from "@/components/planning/my-portfolio-card";
 import { getMyPortfolio } from "@/lib/queries/portfolio";
 import { PurchaseSection } from "@/components/purchase/purchase-section";
 import { TrainingRequestButton } from "@/components/purchase/training-request-button";
+import { ExpenseClaimButton } from "@/components/hr/expense-claim-button";
 import { getManagerOfUser } from "@/lib/departments";
 
 export default async function MonEspacePage() {
@@ -178,6 +179,11 @@ export default async function MonEspacePage() {
             un même geste font douter qu'il s'agisse du même. Le dossier RH reste à un clic dans
             le menu. */}
         <TrainingRequestButton managerName={manager?.fullName ?? null} />
+        {/* LA NOTE DE FRAIS SE DÉPOSE ICI, avec le reçu qu'on a dans la main. Elle n'existait
+            que derrière la liste des douze types de « Mon dossier RH » : on y allait pour une
+            attestation, pas pour se faire rembourser un taxi. Même action, même demande — le
+            bouton n'ouvre pas un second circuit, il ouvre une porte. */}
+        <ExpenseClaimButton />
       </PageHeader>
       <ModuleTabs tabs={await visibleTabs(user, WORKSPACE_TABS)} />
 

@@ -16,7 +16,7 @@ import { archiveProcessedRequest } from "@/lib/archive";
 import { formatAlgiers } from "@/lib/calendar-tz";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { createPaymentRequest } from "@/lib/actions/payment-request-actions";
-import { circuitOfDeclaration, isDeclarationKind, DECLARATION_KIND_LABEL } from "@/lib/medical-info/circuits";
+import { circuitOfDeclaration, isOpenableDeclarationKind, DECLARATION_KIND_LABEL } from "@/lib/medical-info/circuits";
 import {
   canRequestDecision, canValidateEvent, declareStage, declareStageLabel, isDeclareIntent,
   DECLARE_INTENT_LABEL,
@@ -627,7 +627,11 @@ export async function skipMedicalInfoBv(formData: FormData): Promise<ActionResul
  * qui n'entre pas dans l'ERP se traite dans un carnet.
  *
  * LA NATURE CHOISIE DÉCIDE DU CIRCUIT, et il n'y a pas de seconde case : une déclaration au
- * ministère suit le circuit de la décision, un visa ou un versement celui du matériel.
+ * ministère suit le circuit de la décision, une demande de visa celui du matériel.
+ *
+ * DEUX NATURES, ET C'EST LE SERVEUR QUI LE TIENT. « Bon de versement » a été retiré du choix :
+ * ce n'est pas ce qu'on ouvre, c'est une ÉTAPE du circuit du matériel. Le refus vit ici, pas
+ * seulement dans la liste déroulante — une liste se réécrit dans le navigateur.
  */
 export async function createMedicalInfoItem(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -636,8 +640,11 @@ export async function createMedicalInfoItem(_prev: ActionResult | undefined, for
   const label = fdStr(formData, "label");
   const kind = fdStr(formData, "kind");
   if (!label) return { ok: false, error: "Nommez ce que vous ouvrez : c'est ce qui figurera dans la liste." };
-  if (!isDeclarationKind(kind)) {
-    return { ok: false, error: "Choisissez la nature : déclaration au ministère, visa publicitaire, ou bon de versement." };
+  if (!isOpenableDeclarationKind(kind)) {
+    return {
+      ok: false,
+      error: "Choisissez la nature : déclaration au ministère (MIP), ou demande de visa publicitaire. Le bon de versement n'est pas un dossier : c'est une étape du circuit du matériel, à l'intérieur du dossier.",
+    };
   }
   const raw = fdStr(formData, "amount");
   const amount = raw ? Number(raw.replace(",", ".")) : null;

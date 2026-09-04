@@ -3,6 +3,7 @@ import {
   circuitOf, circuitOfKind, circuitOfDeclaration, usesPaymentSlips, usesDeclareDecision,
   splitByCircuit, isDeclarationKind, EVENT_SOURCES, PROMO_SOURCES,
   CIRCUIT_LABEL, DECLARATION_KIND_LABEL, DECLARATION_KINDS,
+  OPENABLE_DECLARATION_KINDS, isOpenableDeclarationKind,
 } from "./circuits";
 
 describe("deux circuits, et la nature décide", () => {
@@ -87,5 +88,30 @@ describe("splitByCircuit — la liste se lit en deux familles", () => {
     expect(out.PROMO).toEqual([]);
     expect(CIRCUIT_LABEL.EVENT).toMatch(/prises en charge/i);
     expect(CIRCUIT_LABEL.PROMO).toMatch(/matériel/i);
+  });
+});
+
+describe("ce que le PRIM peut OUVRIR — deux natures, plus trois", () => {
+  it("UN DOSSIER S'OUVRE EN MIP OU EN DEMANDE DE VISA, et rien d'autre", () => {
+    // « Bon de versement » était une confusion de niveau : ce n'est pas ce qu'on ouvre, c'est
+    // une ÉTAPE du circuit du matériel. Le proposer faisait choisir entre un dossier et l'une
+    // de ses propres pièces.
+    expect(OPENABLE_DECLARATION_KINDS).toEqual(["MIP", "AD_VISA"]);
+    expect(isOpenableDeclarationKind("PAYMENT_SLIP")).toBe(false);
+    expect(isOpenableDeclarationKind("AD_VISA")).toBe(true);
+  });
+
+  it("MAIS LA NATURE RESTE RECONNUE EN LECTURE — un dossier historique garde SON circuit", () => {
+    // La retirer des natures connues ferait retomber un dossier repris sur le circuit par
+    // défaut (ÉVÉNEMENT), c'est-à-dire lui faire perdre ses bons de versement en route.
+    expect(isDeclarationKind("PAYMENT_SLIP")).toBe(true);
+    expect(DECLARATION_KINDS).toContain("PAYMENT_SLIP");
+  });
+
+  it("et le reclassement en visa ne change PAS de circuit — c'est ce qui le rend sûr", () => {
+    const avant = { sourceType: "MEDICAL_INFO_DECLARATION", declarationKind: "PAYMENT_SLIP" };
+    const apres = { sourceType: "MEDICAL_INFO_DECLARATION", declarationKind: "AD_VISA" };
+    expect(splitByCircuit([avant]).PROMO).toHaveLength(1);
+    expect(splitByCircuit([apres]).PROMO).toHaveLength(1);
   });
 });

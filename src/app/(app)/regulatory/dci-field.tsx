@@ -9,10 +9,20 @@ import { Input, Label } from "@/components/ui/input";
  * Chaque ligne est une molécule (champ `molecule` répété) ; l'action serveur
  * recompose la DCI canonique (« A + B + C ») et stocke la liste structurée.
  * Volontairement très simple : un champ, un bouton « + Ajouter une molécule ».
+ *
+ * `onDciChange` — la DCI recomposée, à chaque frappe, pour qui veut en faire quelque chose
+ * pendant la saisie (le formulaire de création s'en sert pour signaler un dossier existant).
+ * Optionnel : l'écran de modification ne le passe pas, et le champ se comporte comme avant.
  */
-export function DciAssociationField({ defaultMolecules }: { defaultMolecules?: string[] }) {
+export function DciAssociationField({ defaultMolecules, onDciChange }: { defaultMolecules?: string[]; onDciChange?: (dci: string) => void }) {
   const init = defaultMolecules && defaultMolecules.length ? defaultMolecules : [""];
   const [rows, setRows] = React.useState<string[]>(init);
+
+  // La MÊME recomposition que l'action serveur : molécules non vides, jointes par « + ».
+  const dci = rows.map((r) => r.trim()).filter(Boolean).join(" + ");
+  const signal = React.useRef(onDciChange);
+  signal.current = onDciChange;
+  React.useEffect(() => { signal.current?.(dci); }, [dci]);
 
   function update(i: number, v: string) {
     setRows((r) => r.map((x, idx) => (idx === i ? v : x)));

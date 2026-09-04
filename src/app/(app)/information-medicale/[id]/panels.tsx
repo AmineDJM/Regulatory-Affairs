@@ -15,7 +15,7 @@ import {
   slipStage, slipsMessage, SLIP_STAGE_LABEL, SLIPS_LOT_LABEL,
   type SlipsLotStage, type SlipsSummary, type SlipInput,
 } from "@/lib/medical-info/slips";
-import { DECLARATION_KINDS, DECLARATION_KIND_LABEL, DECLARATION_KIND_HINT } from "@/lib/medical-info/circuits";
+import { OPENABLE_DECLARATION_KINDS, DECLARATION_KIND_LABEL, DECLARATION_KIND_HINT } from "@/lib/medical-info/circuits";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
@@ -428,7 +428,10 @@ export function CreateDeclarationButton() {
         <div className="space-y-1">
           <Label>Nature</Label>
           <Select name="kind" value={kind} onChange={(e) => setKind(e.target.value)}>
-            {DECLARATION_KINDS.map((k) => <option key={k} value={k}>{DECLARATION_KIND_LABEL[k]}</option>)}
+            {/* DEUX NATURES. « Bon de versement » n'est pas un dossier qu'on ouvre : c'est une
+                ÉTAPE du circuit du matériel, à l'intérieur du dossier. Le proposer ici faisait
+                choisir entre un dossier et l'une de ses pièces. */}
+            {OPENABLE_DECLARATION_KINDS.map((k) => <option key={k} value={k}>{DECLARATION_KIND_LABEL[k]}</option>)}
           </Select>
         </div>
         <div className="space-y-1">

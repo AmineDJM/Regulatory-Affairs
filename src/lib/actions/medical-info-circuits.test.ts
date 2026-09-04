@@ -140,14 +140,26 @@ suite("Information médicale — deux circuits", () => {
     it("LE PHARMACIEN OUVRE LUI-MÊME UN DOSSIER, et la nature choisie décide du circuit", async () => {
       ACTOR = await actorFor(primId, "MEDICAL_INFO_PHARMACIST");
       const r = await createMedicalInfoItem(undefined, form({
-        label: `${TAG} Campagne présentoirs`, kind: "PAYMENT_SLIP", amount: "0",
+        label: `${TAG} Campagne présentoirs`, kind: "AD_VISA", amount: "0",
       }));
       expect(r.ok, r.error).toBe(true);
       promoId = r.id!;
       const decl = await prisma.medicalInfoDeclaration.findUniqueOrThrow({ where: { id: promoId } });
-      expect(decl.declarationKind).toBe("PAYMENT_SLIP");
+      expect(decl.declarationKind).toBe("AD_VISA");
       expect(decl.createdById).toBe(primId);
       expect((await circuitStateOf(decl)).circuit).toBe("PROMO");
+    });
+
+    it("LE BON DE VERSEMENT NE S'OUVRE PLUS COMME UN DOSSIER — c'est une ÉTAPE, à l'intérieur", async () => {
+      // Le PRIM choisissait entre trois natures dont l'une n'était pas de même nature que les
+      // autres : « bon de versement » est ce qu'on AJOUTE dans un dossier de matériel, pas ce
+      // qu'on ouvre. Le proposer produisait des dossiers vides, sans matériel, dont le bon
+      // n'attendait rien. Il reste RECONNU en lecture (les dossiers historiques gardent leur
+      // circuit) mais ne s'ouvre plus.
+      ACTOR = await actorFor(primId, "MEDICAL_INFO_PHARMACIST");
+      const r = await createMedicalInfoItem(undefined, form({ label: `${TAG} refus`, kind: "PAYMENT_SLIP" }));
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/bon de versement/i);
     });
 
     it("une nature inventée est refusée", async () => {

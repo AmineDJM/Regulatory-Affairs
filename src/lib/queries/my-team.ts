@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { loadReportingLine } from "@/lib/departments";
-import { directReportsOf } from "@/lib/hr/reporting-line";
+import { subtreeOf, flattenTree, type TeamTreeNode } from "@/lib/hr/team-tree";
 import { toNumber } from "@/lib/utils";
 import type { SessionUser } from "@/lib/rbac";
 
@@ -27,12 +27,30 @@ import type { SessionUser } from "@/lib/rbac";
  * `directReportsOf` définit mon équipe comme « ceux dont la cascade dit que je suis le N+1 » —
  * la MÊME fonction qui route les demandes. Les deux ne peuvent donc pas diverger : personne
  * n'apparaît dans mon équipe sans que ses demandes m'arrivent, et réciproquement.
+ *
+ * ── L'ÉQUIPE DESCEND JUSQU'EN BAS, LA FILE S'ARRÊTE AU PREMIER RANG ─────────────────────────
+ *
+ * Deux portées, et les confondre serait une faute dans les deux sens :
+ *
+ *   • **QUI EST SOUS MOI** — tout l'arbre (`subtreeOf`), N-1, N-2, jusqu'en bas. Pour un
+ *     directeur, s'arrêter au premier rang, c'était quatre cartes qui cachaient quarante
+ *     personnes : celles qui font le travail sont toutes au deuxième rang.
+ *   • **CE QUI ATTEND MA DÉCISION** — les DIRECTS, et eux seuls. Le congé d'un N-2 est routé
+ *     vers SON N+1 ; le faire apparaître dans ma file me ferait attendre une décision que je
+ *     n'ai pas à prendre, et qui n'attend pas après moi. `TeamMember.pending` suit la même
+ *     règle : il vaut 0 plus bas parce que je ne décide rien là.
  */
 
 export interface TeamMember {
   employeeId: string;
   userId: string | null;
   fullName: string;
+  /** 1 = N-1, 2 = N-2, … — le rang tel qu'un humain le compte. */
+  depth: number;
+  /** Son N+1 DANS MON ARBRE (null au premier rang : c'est moi). */
+  managerEmployeeId: string | null;
+  /** Le rôle applicatif — c'est lui qui décide QUELS indicateurs existent pour cette personne. */
+  role: string | null;
   position: string | null;
   department: string | null;
   email: string | null;
@@ -64,7 +82,12 @@ export interface TeamPending {
 export interface MyTeam {
   /** La fiche employé de l'encadrant — absente, il n'a pas d'équipe à montrer. */
   selfEmployeeId: string | null;
+  /** TOUT le monde sous moi, à plat mais DANS L'ORDRE DE L'ARBRE (un chef, puis ses gens). */
   members: TeamMember[];
+  /** Le nombre de N-1 directs — le premier rang, celui dont les demandes m'arrivent. */
+  directCount: number;
+  /** Jusqu'où descend la chaîne : 1 = personne n'encadre personne sous moi. */
+  depth: number;
   pending: TeamPending[];
 }
 
@@ -79,14 +102,20 @@ const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() 
  */
 export async function getMyTeam(user: SessionUser): Promise<MyTeam> {
   const me = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
-  if (!me) return { selfEmployeeId: null, members: [], pending: [] };
+  if (!me) return { selfEmployeeId: null, members: [], directCount: 0, depth: 0, pending: [] };
 
   const { employees, departments } = await loadReportingLine();
-  const reports = directReportsOf(me.id, employees, departments);
-  if (reports.length === 0) return { selfEmployeeId: me.id, members: [], pending: [] };
+  const arbre = subtreeOf(me.id, employees, departments);
+  const tous = flattenTree(arbre);
+  if (tous.length === 0) return { selfEmployeeId: me.id, members: [], directCount: 0, depth: 0, pending: [] };
 
-  const employeeIds = reports.map((r) => r.id);
-  const userIds = reports.map((r) => r.userId).filter((v): v is string => Boolean(v));
+  // L'ARBRE POUR MONTRER, LE PREMIER RANG POUR DÉCIDER — deux portées, jamais confondues.
+  const directs = arbre.map((n) => n.employeeId);
+  const directSet = new Set(directs);
+
+  const employeeIds = tous.map((n) => n.employeeId);
+  // Les demandes ne se lisent QUE pour mes directs : elles ne sont routées vers moi que là.
+  const userIds = arbre.map((n) => n.userId).filter((v): v is string => Boolean(v));
   const now = new Date();
 
   const [fiches, conges, achats, formations] = await Promise.all([
@@ -95,16 +124,20 @@ export async function getMyTeam(user: SessionUser): Promise<MyTeam> {
       select: {
         id: true, fullName: true, userId: true, position: true, email: true, phone: true,
         hireDate: true, contractEnd: true, department: true,
+        // Le RÔLE APPLICATIF, pas l'intitulé de poste : c'est lui qui dit quels indicateurs
+        // existent pour cette personne (`jobOf`). Un intitulé libre obligerait à deviner.
+        user: { select: { role: true } },
       },
       orderBy: { fullName: "asc" },
     }),
-    // Les congés APPROUVÉS (pour savoir qui est là) ET ceux qui attendent MA décision.
+    // Les congés APPROUVÉS de TOUT L'ARBRE (pour savoir qui est là) ET ceux qui attendent MA
+    // décision — ces derniers filtrés plus bas sur mes seuls directs.
     prisma.leaveRequest.findMany({
       where: {
         employeeId: { in: employeeIds },
         OR: [
           { status: "APPROVED", endDate: { gte: now } },
-          { status: "PENDING", stage: "MANAGER" },
+          { status: "PENDING", stage: "MANAGER", employeeId: { in: directs } },
         ],
       },
       select: {
@@ -191,14 +224,26 @@ export async function getMyTeam(user: SessionUser): Promise<MyTeam> {
   }
 
   const approuves = conges.filter((c) => c.status === "APPROVED");
-  const members: TeamMember[] = fiches.map((f) => {
+  const parEmploye = new Map(fiches.map((f) => [f.id, f]));
+
+  // L'ORDRE EST CELUI DE L'ARBRE, pas l'ordre alphabétique : un chef, puis ses gens, puis le
+  // chef suivant. C'est ce qui permet à la page de dessiner la hiérarchie avec une simple
+  // indentation, sans refaire la descente — et c'est le seul ordre qui répond à la question
+  // que l'écran sert : « par qui passe-t-on pour lui parler ? »
+  const members: TeamMember[] = tous.flatMap((n: TeamTreeNode) => {
+    const f = parEmploye.get(n.employeeId);
+    // Une fiche désactivée entre deux lectures : on la saute plutôt que d'inventer une ligne.
+    if (!f) return [];
     const siens = approuves.filter((c) => c.employeeId === f.id);
     const enCours = siens.find((c) => c.startDate <= now && c.endDate >= now);
     const aVenir = siens.find((c) => c.startDate > now);
-    return {
+    return [{
       employeeId: f.id,
       userId: f.userId,
       fullName: f.fullName,
+      depth: n.depth,
+      managerEmployeeId: n.managerEmployeeId,
+      role: f.user?.role ?? null,
       position: f.position,
       department: f.department,
       email: f.email,
@@ -209,9 +254,13 @@ export async function getMyTeam(user: SessionUser): Promise<MyTeam> {
       nextLeave: aVenir
         ? { start: aVenir.startDate.toISOString(), end: aVenir.endDate.toISOString(), type: aVenir.type }
         : null,
-      pending: enAttenteParEmploye.get(f.id) ?? 0,
-    };
+      // ZÉRO PLUS BAS QUE LE PREMIER RANG, et ce n'est pas un manque : la demande d'un N-2 est
+      // routée vers SON N+1. Afficher « 1 à décider » ici ferait chercher un bouton qui
+      // n'existe pas, sur une décision que quelqu'un d'autre a déjà.
+      pending: directSet.has(f.id) ? (enAttenteParEmploye.get(f.id) ?? 0) : 0,
+    }];
   });
 
-  return { selfEmployeeId: me.id, members, pending };
+  const depth = members.reduce((max, m) => Math.max(max, m.depth), 0);
+  return { selfEmployeeId: me.id, members, directCount: arbre.length, depth, pending };
 }

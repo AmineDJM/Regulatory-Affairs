@@ -776,14 +776,18 @@ export const getAccess = perRequest(
     // prime, comme partout ailleurs — sinon on ne pourrait plus retirer le module à quelqu'un.
     if (centreSeat > 0) grantImplicit("PAYMENT_CENTRE", ["VIEW", "VALIDATE"], "ALL");
 
-    // ── LES RH SONT LE MANAGER des Moyens généraux ──
-    // Le module n'est pas dans leur matrice par rôle (« RH » est un droit de module, pas un
-    // rôle nommé) : quiconque tient les ressources humaines pilote donc les moyens généraux de
-    // TOUS les départements — c'est lui qui dote, arbitre les rallonges et contrôle les
-    // dépenses. L'assistante de direction, elle, en est l'utilisatrice quotidienne.
-    if (!modules.has("GENERAL_MEANS") && (modules.get("RH")?.actions.has("UPDATE") ?? false)) {
-      grantImplicit("GENERAL_MEANS", ["VIEW", "CREATE", "UPDATE", "DELETE", "VALIDATE", "EXPORT", "UPLOAD"], "ALL");
-    }
+    // ── LES MOYENS GÉNÉRAUX NE S'OUVRENT PLUS TOUT SEULS ──────────────────────────────────
+    //
+    // Ce module s'accordait ICI, implicitement, à quiconque tenait les ressources humaines
+    // (`RH` en écriture) — au motif que les RH pilotent la dotation des départements. C'était
+    // une PORTE DÉROBÉE : la console d'administration affichait « Aucun accès » sur la ligne
+    // Moyens généraux, et la personne l'avait quand même. Retirer le module depuis la console
+    // ne changeait rien, et il fallait connaître cette ligne de code pour comprendre pourquoi.
+    //
+    // Un droit qui ne se lit pas là où on le règle n'est pas administrable. Les Moyens généraux
+    // s'accordent donc comme tous les autres : par la matrice du rôle, ou nommément depuis la
+    // console. Ceux qui l'avaient par ce détour le reçoivent d'un clic, et cette fois cela se
+    // VOIT sur leur ligne.
 
     // ── LE DRH ET LES FINANCES VOIENT TOUT LE BUREAU DU SECRÉTARIAT ──
     //

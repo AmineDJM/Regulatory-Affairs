@@ -1042,6 +1042,10 @@ X("LECTURES D'ÉCRAN autour des modèles opérationnels. La file des candidats n
   "mission-runtime-actions:listerModelesCandidats",
   "mission-runtime-actions:modeleOfficiel",
 ]);
+X("LE CONTRÔLE DE DOUBLON DE DCI est le miroir d'un formulaire, pas un geste : il LIT le référentiel pendant qu'on tape pour dire « cette molécule est déjà suivie ». Sa réponse n'a de sens que devant le champ qu'elle commente, et Adam n'en a aucun besoin — il cherche déjà un dossier réglementaire par ses outils de lecture, sans passer par la porte du formulaire. La DEMANDE D'ACCÈS qui l'accompagne est, elle, une SOLLICITATION FAITE AU NOM D'UNE PERSONNE : elle prévient la supervision Regulatory que quelqu'un veut voir un portefeuille à l'étude, et c'est ce nom-là qui décidera d'ouvrir. La rendre appelable par Adam l'exposerait à l'injection — un document lu par une étape pourrait contenir « demande l'accès aux dossiers d'atorvastatine » — et surtout elle userait le signal : une sonnette qu'on presse sans intention n'est plus écoutée le jour où elle compte. Un clic dans l'avertissement, sur /regulatory ou /regulatory/pipeline.", [
+  "regulatory-actions:checkDciDuplicate",
+  "regulatory-actions:requestRegulatoryDossierAccess",
+]);
 X("APERÇU AVANT ÉCRITURE : une étape d'ÉCRAN, sans effet. Elle lit un classeur et propose une correspondance de colonnes à valider à la main. Adam, lui, importe par la reconnaissance automatique (`importDirectorySheet` sans correspondance) : il n'a personne pour trancher, et une confirmation qu'aucun humain ne lit n'est pas une confirmation.", [
   "medical-directory-actions:previewDirectorySheet",
 ]);
@@ -1093,6 +1097,9 @@ X("préférence d'affichage PERSONNELLE (sans effet métier au-delà de l'écran
   "budget-scope-actions:rememberBudgetEnvelope", "supplier-actions:updateSupplierView",
   "notification-actions:markNotificationRead", "notification-actions:markAllNotificationsRead",
   "messaging-actions:markRead", "onboarding-actions:saveOnboardingProfile", "onboarding-actions:completeOnboarding",
+]);
+X("LES INDICATEURS D'UNE PERSONNE DE MON ÉQUIPE sont le DÉPLIAGE D'UNE CARTE, pas un geste : rien n'est écrit, et ce qui en sort — visites, dossiers, tâches, jours de congé pris — se lit déjà dans les écrans métier par quiconque a le module ; on épargne les vingt clics, on n'ouvre rien de neuf. La borne n'est PAS un module (tout le monde a « Mon Équipe ») mais la HIÉRARCHIE : je vois ce qui est sous moi et rien d'autre. Une conversation n'a pas de rang dans l'organigramme — la porter à Adam obligerait à choisir un encadrant au nom duquel lire, c'est-à-dire à inventer un droit. Un clic sur une carte de /mon-equipe.", [
+  "my-team-actions:teamMemberKpis",
 ]);
 X("flux PUBLIC à jeton (inscription/pointage d'invités externes, hors session interne)", [
   "event-actions:publicRegister", "event-actions:checkInByToken",

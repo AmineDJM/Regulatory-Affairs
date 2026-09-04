@@ -111,8 +111,20 @@ export function splitByCircuit<T extends { sourceType: string; declarationKind?:
  * pour cela aucun geste — le module ne se remplissait que par la validation d'un autre — et ce
  * qui n'entre pas dans l'ERP se traite dans un carnet.
  *
- * Il choisit donc CE QU'IL OUVRE, et ce choix décide du circuit : un visa publicitaire et un bon
- * de versement relèvent du matériel promotionnel, une déclaration au ministère de l'événement.
+ * Il choisit donc CE QU'IL OUVRE, et ce choix décide du circuit : un visa publicitaire relève du
+ * matériel promotionnel, une déclaration au ministère de l'événement.
+ *
+ * ── DEUX NATURES, PLUS TROIS ────────────────────────────────────────────────────────────────
+ *
+ * « Bon de versement » en était une troisième, et c'était une confusion de niveau : le bon de
+ * versement n'est pas ce qu'on OUVRE, c'est une ÉTAPE du circuit du matériel — un bon par
+ * support, validés ensemble, payés séparément. Le proposer à l'ouverture faisait choisir entre
+ * un dossier et l'une de ses pièces, et les deux natures ouvraient de toute façon exactement le
+ * même circuit. Ce qu'on ouvre est donc : une déclaration au ministère, ou une demande de visa.
+ *
+ * La nature reste RECONNUE en lecture — voir `DECLARATION_KINDS` — parce qu'un dossier
+ * historique doit continuer de se lire et de suivre SON circuit. Ce qui disparaît, c'est la
+ * possibilité d'en ouvrir un nouveau : `OPENABLE_DECLARATION_KINDS`.
  */
 export type DeclarationKind = "MIP" | "AD_VISA" | "PAYMENT_SLIP";
 
@@ -128,10 +140,29 @@ export const DECLARATION_KIND_HINT: Record<DeclarationKind, string> = {
   PAYMENT_SLIP: "Un versement à faire. Le dossier suit le circuit du matériel : un bon par matériel, validés ensemble, payés séparément.",
 };
 
+/**
+ * TOUTES les natures RECONNUES — lecture, libellés, circuit.
+ *
+ * `PAYMENT_SLIP` y reste bien qu'on ne puisse plus en ouvrir : la retirer d'ici ferait retomber
+ * un dossier historique sur le circuit par défaut (ÉVÉNEMENT), c'est-à-dire lui faire perdre ses
+ * bons de versement en cours de route. Une nature qu'on cesse de proposer ne cesse pas d'exister.
+ */
 export const DECLARATION_KINDS: readonly DeclarationKind[] = ["MIP", "AD_VISA", "PAYMENT_SLIP"];
+
+/**
+ * CE QUE LE PRIM PEUT OUVRIR AUJOURD'HUI — et c'est cette liste que l'écran propose ET que le
+ * serveur exige. Deux listes séparées auraient laissé le formulaire proposer ce que l'action
+ * refuse, ou l'inverse.
+ */
+export const OPENABLE_DECLARATION_KINDS: readonly DeclarationKind[] = ["MIP", "AD_VISA"];
 
 export function isDeclarationKind(v: unknown): v is DeclarationKind {
   return typeof v === "string" && (DECLARATION_KINDS as readonly string[]).includes(v);
+}
+
+/** Peut-on OUVRIR un dossier de cette nature ? Le bon de versement, non — c'est une étape. */
+export function isOpenableDeclarationKind(v: unknown): v is DeclarationKind {
+  return typeof v === "string" && (OPENABLE_DECLARATION_KINDS as readonly string[]).includes(v);
 }
 
 /**

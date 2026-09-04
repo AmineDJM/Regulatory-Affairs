@@ -6,8 +6,13 @@ import { revalidatePath } from "next/cache";
 import type { Priority, ProductChannel, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, ManufacturingStatus, VariationStatus, UserRole } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, isRegulatorySupervisor, holdsRegulatoryLock } from "@/lib/rbac";
+import { userCan, isRegulatorySupervisor, holdsRegulatoryLock, type SessionUser } from "@/lib/rbac";
 import { pipelineAccessFor } from "@/lib/regulatory/pipeline-access";
+import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
+import {
+  dciKey, duplicateNotice, needsAccessRequest,
+  type DciDuplicate,
+} from "@/lib/regulatory/dci-duplicate";
 import { assignmentNotice, assignmentWarning } from "@/lib/regulatory/assignment";
 import {
   canSetStructural, structuralChanges, structuralRefusal, structuralNotice, STRUCTURAL_LABELS,
@@ -70,6 +75,98 @@ async function ensureRegSupervisor(user: Awaited<ReturnType<typeof requireUser>>
 }
 
 /**
+ * LES DOSSIERS QUI PORTENT DÉJÀ CETTE DCI — ceux qu'on peut nommer, et ceux qu'on compte.
+ *
+ * Deux lectures, et la différence entre elles EST le renseignement :
+ *
+ *   • sans portée, pour SAVOIR qu'un homonyme existe. Aucun nom n'en sort — seulement des
+ *     identifiants qui servent à filtrer la seconde requête, puis un décompte ;
+ *   • avec `regulatoryVisibleWhere`, la clause UNIQUE que l'écran Regulatory applique déjà
+ *     (verrou du pipeline, portée par ligne, cloisonnement par entité, gamme), pour savoir
+ *     lesquels cette personne a le droit de VOIR — ceux-là seulement seront nommés.
+ *
+ * Reprendre la clause de l'écran plutôt que d'en réécrire une ici n'est pas de l'élégance : une
+ * seconde clause dériverait au premier droit ajouté, et c'est ce jour-là qu'un avertissement
+ * nommerait un dossier confidentiel.
+ *
+ * La comparaison se fait en mémoire parce qu'elle ne s'exprime PAS en SQL : « A + B » et
+ * « B + A » sont la même association, et un `equals` les manquerait — précisément le doublon
+ * qu'on cherche.
+ */
+async function dciDuplicatesFor(user: SessionUser, dci: string): Promise<DciDuplicate> {
+  const cle = dciKey(dci);
+  if (!cle) return { visible: [], hidden: 0 };
+
+  const tous = await prisma.regulatoryProduct.findMany({ select: { id: true, dci: true } });
+  const ids = tous.filter((p) => dciKey(p.dci) === cle).map((p) => p.id);
+  if (ids.length === 0) return { visible: [], hidden: 0 };
+
+  const visible = await prisma.regulatoryProduct.findMany({
+    where: { AND: [await regulatoryVisibleWhere(user), { id: { in: ids } }] },
+    select: { id: true, reference: true, brandName: true, dosage: true, pharmaceuticalForm: true },
+    orderBy: { reference: "asc" },
+  });
+  return { visible, hidden: ids.length - visible.length };
+}
+
+/**
+ * CE QU'ON DIT PENDANT LA SAISIE — appelée par le formulaire quand la DCI change.
+ *
+ * L'avertissement doit arriver AVANT le clic sur « Créer », pas après : découvrir le doublon
+ * dans un message d'erreur oblige à relire un formulaire qu'on croyait fini, et c'est là qu'on
+ * force le passage plutôt que d'aller vérifier.
+ */
+export async function checkDciDuplicate(dci: string): Promise<{ notice: string | null; canRequestAccess: boolean }> {
+  const user = await requireUser();
+  // Le même droit que la création : ce que cette réponse révèle (« cette DCI est déjà suivie »)
+  // n'a pas à sortir pour qui n'ouvre pas de dossier.
+  if (!userCan(user, "REGULATORY", "CREATE")) return { notice: null, canRequestAccess: false };
+  const propre = normalizeDci(dci ?? "");
+  if (propre.length < 3) return { notice: null, canRequestAccess: false };
+  const doublons = await dciDuplicatesFor(user, propre);
+  return { notice: duplicateNotice(propre, doublons), canRequestAccess: needsAccessRequest(doublons) };
+}
+
+/**
+ * « JE NE LE VOIS PAS SUR MON ÉCRAN » — le geste qui débloque.
+ *
+ * On ne crée AUCUN registre de demandes d'accès (§118-5) : la demande est une notification aux
+ * personnes qui distribuent réellement cet accès — la supervision Regulatory et le Super Admin —
+ * et une ligne d'audit. Une table de demandes en attente exigerait un écran, des relances et un
+ * cycle de vie, pour un geste qui se règle en deux clics dans la console.
+ *
+ * La demande porte sur la DCI, jamais sur un identifiant de dossier : nommer le dossier caché
+ * dans la demande le révélerait à celui-là même à qui on le cache.
+ */
+export async function requestRegulatoryDossierAccess(dci: string): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "REGULATORY", "VIEW")) return { ok: false, error: "Accès non autorisé." };
+  const propre = normalizeDci(dci ?? "");
+  if (!propre) return { ok: false, error: "La DCI est obligatoire." };
+
+  // ON NE DEMANDE PAS UN ACCÈS QU'ON A DÉJÀ. Sans cette garde le bouton devient une sonnette
+  // qu'on presse par réflexe, et la demande qui compte se noie dans celles qui ne coûtaient rien.
+  const doublons = await dciDuplicatesFor(user, propre);
+  if (!needsAccessRequest(doublons)) {
+    return { ok: false, error: "Aucun dossier caché ne porte cette DCI : tout ce qui existe vous est déjà visible." };
+  }
+
+  await notifyRoles(await regSupervisorRoles(), {
+    type: "GENERIC",
+    title: "Demande d'accès à un dossier réglementaire",
+    body: `${user.name} ouvre un dossier « ${propre} » et ${doublons.hidden > 1 ? `${doublons.hidden} dossiers portant cette DCI ne lui sont pas visibles` : "un dossier portant cette DCI ne lui est pas visible"}.`,
+    link: "/admin/access",
+  });
+  await recordAudit({
+    actorId: user.id,
+    action: "UPDATE",
+    module: "Regulatory",
+    summary: `Demande d'accès aux dossiers de DCI « ${propre} » (${doublons.hidden} hors de portée)`,
+  });
+  return { ok: true, message: "Demande transmise à la supervision Regulatory." };
+}
+
+/**
  * Création d'un fournisseur depuis le module Regulatory (par les Responsables
  * réglementaires). Le fournisseur alimente le menu déroulant des dossiers. Aucun
  * compte de portail n'est créé ici — l'accès externe reste piloté à part.
@@ -110,6 +207,19 @@ export async function createRegulatoryProduct(
   const rawDci = molecules.length ? molecules.join(" + ") : str(formData, "dci");
   if (!rawDci) return { ok: false, error: "La DCI est obligatoire." };
   const dci = normalizeDci(rawDci);
+
+  // UNE DCI DÉJÀ SUIVIE : ON LE DIT, ON NE REFUSE PAS. Un second dossier est souvent légitime
+  // (autre dosage, autre forme, autre partenaire) — mais il doit être VOULU. Interdire ferait
+  // chercher un contournement, et l'on créerait le doublon sous une DCI mal orthographiée : plus
+  // rapprochable du premier, donc pire. Le formulaire renvoie `confirmDuplicate=1` quand la
+  // personne a LU l'avis et maintient sa création.
+  //
+  // La garde vit ICI et pas seulement à l'écran (§118-7) : une action serveur s'appelle depuis
+  // le navigateur sans passer par le formulaire.
+  if (str(formData, "confirmDuplicate") !== "1") {
+    const avis = duplicateNotice(dci, await dciDuplicatesFor(user, dci));
+    if (avis) return { ok: false, error: avis };
+  }
 
   // L'ENTITÉ est obligatoire : c'est elle qui détermine qui a le droit de voir ce dossier. Un
   // produit sans entité apparaît dans la vue « toutes les entités » de TOUT LE MONDE — la
