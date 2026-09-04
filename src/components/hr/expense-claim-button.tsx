@@ -52,7 +52,10 @@ export function ExpenseClaimButton() {
 
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => { setErr(null); setOpen(true); }}>
+      {/* MÊME TAILLE QUE SES VOISINS — voir `training-request-button.tsx` : les trois boutons
+          de l'en-tête de Mon espace forment un jeu, et une taille différente se lit comme une
+          importance différente. */}
+      <Button variant="outline" onClick={() => { setErr(null); setOpen(true); }}>
         <ReceiptText className="h-4 w-4" /> Ajouter une note de frais
       </Button>
 

@@ -27,7 +27,11 @@ export function TrainingRequestButton({ managerName }: { managerName: string | n
 
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => { setMsg(null); setOpen(true); }}>
+      {/* MÊME TAILLE QUE SES VOISINS. Ce bouton vit à côté de « Nouvelle tâche » et
+          « Ajouter une note de frais », dans l'en-tête de Mon espace : trois gestes du même
+          rang. En laisser un en `md` et les deux autres en `sm` donnait trois hauteurs et deux
+          tailles de texte sur une même ligne — on lit alors une hiérarchie qui n'existe pas. */}
+      <Button variant="outline" onClick={() => { setMsg(null); setOpen(true); }}>
         <GraduationCap className="h-4 w-4" /> Demander une formation
       </Button>
 

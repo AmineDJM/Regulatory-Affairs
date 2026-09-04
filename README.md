@@ -3575,6 +3575,42 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### Deux largeurs sur le même élément — le défaut qui casse un écran sans rien dire (2026-09)
+
+Sur l'écran des **affectations KAM**, les cartes n'affichaient plus que des rangs « P1 / P2 / P3 »
+flottant à côté de rien : **le nom du produit avait disparu**, et l'on ne savait plus qui portait
+quoi — sur téléphone surtout. La cause n'était ni une donnée manquante ni un droit :
+
+```ts
+const inputCls = "h-8 w-full …";
+<input className={`${inputCls} w-16`} />
+```
+
+On lit « la dernière classe écrite gagne ». **C'est faux** : le navigateur applique la dernière
+RÈGLE de la feuille, et Tailwind y émet `w-full` APRÈS `w-16`. Le champ prenait donc toute la
+ligne et écrasait son voisin — le nom, en `flex-1 truncate`, donc **réductible à zéro**. Ni le
+typage, ni le lint, ni le build ne disaient rien : l'écran s'affichait, il ne disait simplement
+plus ce qu'il devait dire. C'est le pire genre de panne, celle qu'on impute à la donnée.
+
+La largeur est **sortie des constantes de style**, les contrôles **passent à la ligne** au lieu
+d'écraser le nom (qui porte désormais une largeur plancher), et une **légende** dit enfin ce que
+pèsent P1/P2/P3 — les poids étant lus dans les réglages du cycle, pas écrits en dur.
+
+**Le garde qui va avec** (`src/lib/ui/class-collision.test.ts`) balaie tous les `.tsx` et refuse
+qu'une constante de classes et son suffixe se disputent la largeur ou la hauteur. Il a trouvé
+**deux autres occurrences vivantes** du même défaut dès sa première exécution (`pch/[id]/
+tender-lines.tsx` : la quantité vendue poussait à elle seule la référence et le bouton au rang
+suivant). Il suit les constantes composées — sans quoi il deviendrait aveugle au fichier qu'il
+vient de faire réparer. Sa règle est **étroite exprès** : `min-w-`, `max-w-` et les variantes
+conditionnelles (`sm:w-…`) ne sont pas signalées, parce qu'un garde qu'on désactive à la première
+fausse alerte ne garde rien.
+
+**Au passage** : les trois boutons de l'en-tête de **Mon espace** — « Nouvelle tâche »,
+« Demander une formation », « Ajouter une note de frais » — étaient en deux tailles (une `md`,
+deux `sm`). Trois gestes du même rang, trois hauteurs et deux tailles de texte : on lit une
+hiérarchie qui n'existe pas. Ils partagent désormais la même taille ; l'accent de couleur reste
+sur « Nouvelle tâche », qui est l'action principale de l'écran.
+
 ### La note de frais devient un objet, et le menu cesse de mentir (2026-09)
 
 **Le montant sort du texte.** Il vivait dans le motif — « 4 200 DZD — taxi et péage, PCH Alger du
@@ -7600,7 +7636,10 @@ Parité UI↔Chief : **10,1 % → 22,8 %** (natives 106, couvertes 30, trous ass
   avec **rang de détail P1/P2/P3** et visites prévues, transverse aux BU). Trois onglets s'ajoutent :
   **(2) Affectations** — par KAM (groupé par équipe), on affecte des produits à un rang de détail avec un
   nombre de visites ; le **FTE et la charge** se calculent en direct (barre de charge, alerte surcharge),
-  avec **synthèse par produit** et bouton **« Reporter le mois précédent »**. **(3) Équipes & KAM** —
+  avec **synthèse par produit** et bouton **« Reporter le mois précédent »**. Chaque ligne porte le **nom du
+  produit d'abord** (largeur plancher : ce sont les contrôles qui passent à la ligne sur un écran étroit,
+  jamais le nom qui s'efface — voir le journal 2026-09 sur la collision `w-full` / `w-16`), et une
+  **légende** dit ce que pèsent P1/P2/P3 dans le FTE, **d'après les poids du cycle** et non une constante. **(3) Équipes & KAM** —
   gestion des équipes (superviseur, BU, couleur) et **tableau de configuration de tous les KAM**.
   **(4) Pilotage** — cockpit **planifié vs réalisé** : par KAM (et sous-totaux d'équipe), capacité, panel
   (praticiens par palier de potentiel, **réutilise l'annuaire médical existant** `MedicalDoctor`),

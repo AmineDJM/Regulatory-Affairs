@@ -8,7 +8,21 @@ import type { PchTenderLineDTO } from "@/lib/queries/pch";
 import { lineEconomics, awardResult } from "@/lib/pch/box-economics";
 
 type Res = { ok: boolean; error?: string };
-const inp = "h-8 w-full rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
+/**
+ * LE CHAMP SANS SA LARGEUR — et le cas ordinaire par-dessus.
+ *
+ * `inp` portait `w-full`, et deux appels ajoutaient `w-28` / `w-32` par-dessus en croyant les
+ * rétrécir. Tailwind n'applique pas « la dernière classe écrite » mais la dernière RÈGLE de sa
+ * feuille, où `w-full` est émis APRÈS les largeurs numériques : les deux champs prenaient donc
+ * toute la ligne — celui de la quantité vendue poussait à lui seul la référence et le bouton au
+ * rang suivant. Rien ne le signalait : ni le typage, ni le lint, ni le build.
+ *
+ * La largeur est donc SORTIE de la base. `inp` reste le cas ordinaire (le champ occupe sa
+ * cellule) ; qui veut une largeur précise part de `inpBase`. Le garde
+ * `src/lib/ui/class-collision.test.ts` fait échouer la suite si la collision revient.
+ */
+const inpBase = "h-8 rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
+const inp = `${inpBase} w-full`;
 const LINE_STATUS: { value: string; label: string }[] = [
   { value: "PENDING", label: "À étudier" }, { value: "QUOTED", label: "Chiffré" },
   { value: "SUBMITTED", label: "Soumissionné" }, { value: "WON", label: "Gagné" }, { value: "LOST", label: "Perdu" },
@@ -196,7 +210,7 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
         <div className="flex items-center gap-1 sm:col-span-3">
           <input className={inp} inputMode="numeric" value={s.quantityUnits} onChange={(e) => setS({ ...s, quantityUnits: e.target.value })} onBlur={save} placeholder="Quantité" />
           {/* Un appel d'offres ne parle pas toujours de comprimés : flacon, seringue, ampoule… */}
-          <input className={`${inp} w-28`} value={s.unitLabel} onChange={(e) => setS({ ...s, unitLabel: e.target.value })} onBlur={save} placeholder="comprimé…" title="Nature de l'unité demandée" />
+          <input className={`${inpBase} w-28`} value={s.unitLabel} onChange={(e) => setS({ ...s, unitLabel: e.target.value })} onBlur={save} placeholder="comprimé…" title="Nature de l'unité demandée" />
         </div>
         <div className="flex items-center gap-1 sm:col-span-3">
           <input className={inp} inputMode="numeric" value={s.unitsPerBox} onChange={(e) => setS({ ...s, unitsPerBox: e.target.value })} onBlur={save} placeholder="Boîte de N" />
@@ -318,7 +332,7 @@ function SalesBlock({ tenderId, line, canEdit, busy, run }: { tenderId: string; 
       <p className="text-right text-[0.6875rem] font-medium text-success">{pct}% réalisé</p>
       {canEdit && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <input className={`${inp} w-32`} inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="Quantité vendue" />
+          <input className={`${inpBase} w-32`} inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="Quantité vendue" />
           <input className={`${inp} min-w-[8rem] flex-1`} value={ref} onChange={(e) => setRef(e.target.value)} placeholder="N° bon de commande (optionnel)" />
           <button type="button" disabled={busy} onClick={addOrder} className="inline-flex items-center gap-1 rounded-lg bg-success px-2.5 py-1.5 text-xs font-medium text-white hover:bg-success/90 disabled:opacity-60"><ShoppingCart className="h-3.5 w-3.5" /> Enregistrer la vente</button>
         </div>

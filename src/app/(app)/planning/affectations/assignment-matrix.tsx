@@ -12,7 +12,19 @@ interface Assign { repId: string; productId: string; position: number; plannedVi
 
 const key = (repId: string, productId: string) => `${repId}::${productId}`;
 const nOr0 = (s: string) => { const n = Number(String(s).replace(",", ".")); return Number.isFinite(n) ? Math.max(0, n) : 0; };
-const inputCls = "h-8 w-full rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
+/**
+ * PAS DE LARGEUR ICI — et ce n'est pas un détail de style.
+ *
+ * La classe portait `w-full`, et l'appel ajoutait `w-16` par-dessus. Tailwind n'applique pas
+ * « la dernière classe écrite » mais la dernière RÈGLE de sa feuille : `w-full` y est émis après
+ * `w-16`, donc c'est `w-full` qui gagnait. Le champ « visites » prenait toute la ligne, écrasait
+ * le nom du produit — `min-w-0 truncate`, donc réductible à ZÉRO — et la carte n'affichait plus
+ * que des rangs P1/P2/P3 flottant à côté de rien. Sur téléphone, on ne savait plus quel produit
+ * était affecté à qui.
+ *
+ * La largeur appartient donc à l'appelant, une seule fois.
+ */
+const inputCls = "h-8 rounded-md border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
 
 export function AssignmentMatrix({
   cycleId, canConfigure, fromYear, fromMonth, positionWeights, kams, products, assignments,
@@ -112,6 +124,20 @@ export function AssignmentMatrix({
         </div>
       )}
 
+      {/* CE QUE SIGNIFIENT P1 / P2 / P3, ET LES DEUX NOMBRES.
+          Les rangs s'affichaient nus, à côté de deux champs sans en-tête : on voyait
+          « P1 · 10 · 0.09 » sans savoir que le rang PONDÈRE la charge, ni lequel des deux
+          nombres on saisissait. Les poids sont lus dans les réglages du cycle, pas écrits en
+          dur — les afficher depuis une constante mentirait le jour où on les change. */}
+      <p className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+        <strong className="text-foreground">Chaque ligne = un produit de la mallette du KAM.</strong>{" "}
+        Le <strong className="text-foreground">rang</strong> dit sa place — P1 le produit principal, puis P2, P3 —
+        et il PONDÈRE la charge : {[1, 2, 3].map((pos) => `P${pos} × ${weight(pos)}`).join(" · ")}.
+        Le champ chiffré est le nombre de <strong className="text-foreground">visites planifiées</strong> dans le mois ;
+        la valeur à droite est le <strong className="text-foreground">FTE</strong> qu&apos;elles consomment
+        (visites × poids ÷ capacité).
+      </p>
+
       {buGroups.map((g) => (
         <div key={g.buName} className="space-y-3">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{g.buName}</h3>
@@ -141,20 +167,36 @@ export function AssignmentMatrix({
                       const p = prodById.get(pid)!;
                       const d = drafts[key(k.repId, pid)] ?? { position: 1, visits: "" };
                       return (
-                        <div key={pid} className="flex items-center gap-1.5">
+                        /* LE NOM DU PRODUIT D'ABORD, ET IL NE SE FAIT PLUS ÉCRASER.
+                           Tout tenait sur UNE ligne de flex : quand la largeur manquait, c'est le
+                           nom qui cédait (`flex-1 truncate`) — jusqu'à zéro — pendant que les
+                           contrôles gardaient la leur. On lisait « P1 · 10 · 0.09 » sans savoir
+                           de QUEL produit il s'agissait, ce qui rend la carte inutilisable.
+                           Le nom porte donc une largeur PLANCHER, et ce sont les contrôles qui
+                           passent à la ligne quand l'écran est étroit. */
+                        <div key={pid} className="flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg border border-border/60 px-2 py-1.5">
                           <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: p.buColor ?? "#94a3b8" }} title={p.buName} />
-                          <span className="min-w-0 flex-1 truncate text-sm" title={p.name}>{p.name}</span>
-                          <select className="h-8 rounded-md border border-input bg-background px-1 text-xs" value={d.position}
-                            onChange={(e) => { const position = Number(e.target.value); setDraft(k.repId, pid, { position }); persist(k.repId, pid, { ...d, position }); }}>
-                            <option value={1}>P1</option><option value={2}>P2</option><option value={3}>P3</option>
-                          </select>
-                          <input inputMode="numeric" className={`${inputCls} w-16`} value={d.visits} placeholder="0"
-                            onChange={(e) => setDraft(k.repId, pid, { visits: e.target.value })}
-                            onBlur={() => persist(k.repId, pid, drafts[key(k.repId, pid)] ?? d)} />
-                          <span className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{fteOf(k.repId, pid, k.capacity).toFixed(2)}</span>
-                          {saving === key(k.repId, pid) ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : (
-                            <button type="button" onClick={() => removeRow(k.repId, pid)} className="rounded p-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5" /></button>
-                          )}
+                          <span className="min-w-[9rem] flex-1 text-sm font-medium leading-tight" title={`${p.name} · ${p.buName}`}>{p.name}</span>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {/* Le rang PONDÈRE la charge — le libellé le dit, pour qu'on ne
+                                choisisse pas « P2 » en croyant nommer un ordre d'affichage. */}
+                            <select
+                              className="h-8 rounded-md border border-input bg-background px-1 text-xs"
+                              value={d.position}
+                              aria-label={`Rang de ${p.name} dans la mallette`}
+                              title="Rang du produit : P1 est le produit principal, P2 et P3 pèsent moins dans la charge."
+                              onChange={(e) => { const position = Number(e.target.value); setDraft(k.repId, pid, { position }); persist(k.repId, pid, { ...d, position }); }}>
+                              <option value={1}>P1</option><option value={2}>P2</option><option value={3}>P3</option>
+                            </select>
+                            <input inputMode="numeric" className={`${inputCls} w-16`} value={d.visits} placeholder="0"
+                              aria-label={`Visites planifiées sur ${p.name}`}
+                              onChange={(e) => setDraft(k.repId, pid, { visits: e.target.value })}
+                              onBlur={() => persist(k.repId, pid, drafts[key(k.repId, pid)] ?? d)} />
+                            <span className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground" title="FTE consommé par ce produit">{fteOf(k.repId, pid, k.capacity).toFixed(2)}</span>
+                            {saving === key(k.repId, pid) ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : (
+                              <button type="button" onClick={() => removeRow(k.repId, pid)} aria-label={`Retirer ${p.name}`} className="rounded p-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5" /></button>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
