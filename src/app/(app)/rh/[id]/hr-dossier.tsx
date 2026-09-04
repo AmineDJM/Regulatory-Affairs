@@ -7,12 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Label } from "@/components/ui/input";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { HR_DOCUMENT_CATEGORY, HR_REQUEST_TYPE, HR_REQUEST_STATUS } from "@/lib/labels";
-import { formatDate, formatMonth } from "@/lib/utils";
+import { formatDate, formatMonth, formatCurrency } from "@/lib/utils";
 import { processHrRequest, deleteEmployeeDocument, decideExpenseReport, decideHrLeave, deleteHrRequest, setEmployeeDocumentVisibility } from "@/lib/actions/hr-document-actions";
 import { defaultVisibleToEmployee, visibilityLabel } from "@/lib/hr/document-visibility";
 import { hrNature, HR_DOCUMENT_STATUSES } from "@/lib/hr-request-flow";
 import { HrRequestThread } from "@/components/shared/hr-request-thread";
 import { MeetingControls } from "@/components/shared/hr-meeting-controls";
+import { ExpenseClaimHrPanel } from "@/components/hr/expense-claim-hr-panel";
 import type { HrDocumentDTO, HrRequestDTO } from "@/lib/queries/hr-documents";
 
 const REQ_TO_CAT: Record<string, string> = {
@@ -149,7 +150,7 @@ export function HrDossier({ employeeId, employeeName, documents, requests, curre
           <p className="text-sm text-muted-foreground">Aucune demande.</p>
         ) : (
           <ul className="space-y-2">
-            {requests.map((r) => <RequestRow key={r.id} req={r} employeeId={employeeId} onFulfil={upload} busy={busy} currentUserId={currentUserId} />)}
+            {requests.map((r) => <RequestRow key={r.id} req={r} employeeId={employeeId} employeeName={employeeName} onFulfil={upload} busy={busy} currentUserId={currentUserId} />)}
           </ul>
         )}
       </div>
@@ -157,7 +158,7 @@ export function HrDossier({ employeeId, employeeName, documents, requests, curre
   );
 }
 
-function RequestRow({ req, employeeId, onFulfil, busy, currentUserId }: { req: HrRequestDTO; employeeId: string; onFulfil: (file: File, opts: { category: string; requestId: string }) => void; busy: boolean; currentUserId: string }) {
+function RequestRow({ req, employeeId, employeeName, onFulfil, busy, currentUserId }: { req: HrRequestDTO; employeeId: string; employeeName: string; onFulfil: (file: File, opts: { category: string; requestId: string }) => void; busy: boolean; currentUserId: string }) {
   const router = useRouter();
   const [status, setStatus] = React.useState(req.status);
   const [note, setNote] = React.useState(req.hrNote ?? "");
@@ -240,6 +241,11 @@ function RequestRow({ req, employeeId, onFulfil, busy, currentUserId }: { req: H
       {req.type === "EXPENSE_REPORT" && (
         <div className="mb-2 space-y-2 rounded-lg border border-border bg-muted/20 p-2.5">
           <p className="text-xs">
+            {/* LE MONTANT EN PREMIER : c'est ce que les RH doivent décider de rembourser, et il
+                ne se lit plus au milieu d'une phrase de motif. */}
+            {req.expenseAmount != null && (
+              <>Montant : <span className="font-semibold tabular-nums">{formatCurrency(req.expenseAmount)}</span> · </>
+            )}
             Mois concerné : <span className="font-medium">{formatMonth(req.expenseMonth)}</span>
             {req.approvedMonth && <> · Validée pour <span className="font-medium text-success">{formatMonth(req.approvedMonth)}</span></>}
           </p>
@@ -269,6 +275,18 @@ function RequestRow({ req, employeeId, onFulfil, busy, currentUserId }: { req: H
             </>
           )}
           {decideErr && <p className="text-xs text-destructive">{decideErr}</p>}
+
+          {/* CE QUE LES RH FONT SANS RÉÉCRIRE LA NOTE : réclamer un justificatif au demandeur,
+              et lui rouvrir la modification. « Votre montant est faux, corrigez » n'a aucun sens
+              passé les quinze minutes — la personne refait une seconde note, et l'on se retrouve
+              avec deux demandes pour une dépense. Pour une simple explication, le fil d'échange
+              juste en dessous suffit et prévient déjà le demandeur. */}
+          <ExpenseClaimHrPanel
+            requestId={req.id}
+            employeeName={employeeName}
+            unlocked={Boolean(req.editUnlockedAt)}
+            decided={["READY", "DELIVERED", "APPROVED", "REJECTED"].includes(req.status)}
+          />
         </div>
       )}
 

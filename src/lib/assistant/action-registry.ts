@@ -1157,6 +1157,11 @@ X("CORRECTIONS DE SAISIE sur la frise du dossier (renommer, supprimer une étape
 X("géométrie d'ÉCRAN : position x/y d'un nœud sur la carte de l'organigramme (glisser-déposer) — pas un geste métier, le Chief n'a pas de canevas", [
   "org-actions:saveOrgPosition",
 ]);
+X("LA NOTE DE FRAIS SE CORRIGE, SE ROUVRE ET SE RÉCLAME DEVANT L'ÉCRAN — les trois gestes tournent autour d'une PIÈCE et d'un MONTANT que seule la personne au clavier peut fournir ou autoriser. CORRIGER, c'est presque toujours redéposer un reçu lisible : un fichier ne transite pas par une conversation, et le montant est ce que la personne déclare lui être dû — le réécrire par une phrase lui ferait porter un chiffre qu'un document lu par une étape pourrait avoir soufflé (« corrigez la note à 200 000 »). ROUVRIR est une AUTORISATION au sens de §118-15 : `editUnlockedById` portera le nom d'un humain, et si l'outil existait, « rouvrez cette note de frais » glissé dans un mail suffirait à rendre modifiable, après lecture, une somme déjà instruite. RÉCLAMER LE JUSTIFICATIF est le geste jumeau : il n'a de sens qu'après avoir REGARDÉ le scan qu'on juge illisible — et Adam tient déjà la porte GÉNÉRIQUE de la demande de pièce (`task_operation:request_document`) ; en ouvrir une seconde, spécialisée note de frais, donnerait deux chemins pour la même `DocumentRequest` (§17). Trois clics : /mon-dossier pour le demandeur, /rh/<id> pour les RH.", [
+  "hr-document-actions:updateExpenseClaim",
+  "hr-document-actions:setExpenseClaimEditUnlocked",
+  "hr-document-actions:askHrRequestPiece",
+]);
 X("SÉCURITÉ : exige un mot de passe EN CLAIR pour le compte portail fournisseur — un mot de passe ne transite jamais par une conversation (même règle que les comptes internes, résolus par lien d'invitation) ; geste réservé à l'écran Admin", [
   "supplier-actions:createSupplierUser",
 ]);

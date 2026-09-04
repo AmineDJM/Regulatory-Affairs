@@ -1666,14 +1666,22 @@ export const NAVIGATION: NavItem[] = [
 
   // ADMINISTRATION — l'administration de L'ENTREPRISE (à ne pas confondre avec la Console
   // d'Administration, qui est celle du logiciel et vit dans « Système »).
-  // MOYENS GÉNÉRAUX — ouvert à TOUT LE MONDE, mais pas au même écran.
+  // MOYENS GÉNÉRAUX — L'ENTRÉE SUIT LE MODULE, comme partout ailleurs.
   //
-  // Le module retenu est WORKSPACE, et ce n'est pas un raccourci : demander un achat est un
-  // geste de tout employé — un délégué qui a besoin de cartouches n'a pas à connaître le
-  // circuit ni à écrire à l'assistante. Le BUDGET, lui, reste gardé par `GENERAL_MEANS` DANS
-  // la page : qui ne l'a pas voit son catalogue et ses demandes, et rien de l'enveloppe.
+  // Elle était portée par WORKSPACE — que tout le monde a — du temps où la page servait aussi à
+  // DEMANDER un achat : le module retenu ouvrait le catalogue à tous, et le budget restait gardé
+  // à l'intérieur. Les demandes d'achat ont déménagé dans « Mon espace », et la page refuse
+  // désormais l'entrée à qui n'a pas `GENERAL_MEANS` : l'entrée de menu promettait donc un écran
+  // qui répond « ce n'est pas pour vous ».
+  //
+  // Pire, cela faisait mentir la console : un administrateur BLOQUE les Moyens généraux à
+  // quelqu'un, et la personne continue de voir l'entrée dans son menu. Elle en conclut que le
+  // blocage n'a pas pris — c'est le défaut rapporté sur deux comptes.
+  //
+  // L'entrée porte donc le MÊME module que sa page. Un droit qui ne se lit pas là où on le règle
+  // n'est pas administrable, et un menu qui ne dit pas la vérité sur les droits non plus.
   {
-    module: "WORKSPACE", label: "Moyens généraux", href: "/moyens-generaux", icon: "ShoppingBasket",
+    module: "GENERAL_MEANS", label: "Moyens généraux", href: "/moyens-generaux", icon: "ShoppingBasket",
     group: "Pôles", pole: "ADMINISTRATION",
     // L'ANNUAIRE DE L'ENTREPRISE s'atteint depuis les Moyens généraux — c'est le service qui
     // traite avec l'imprimeur, le transitaire et l'agence de voyage. Il reste dans le PÉRIMÈTRE

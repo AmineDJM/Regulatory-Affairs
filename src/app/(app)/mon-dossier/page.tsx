@@ -15,6 +15,7 @@ import { NewRequestButton, CancelRequestButton } from "./request-controls";
 import { LeaveRequestButton } from "@/components/hr/leave-request-button";
 import { leaveFormContext } from "@/lib/hr/leave-form-context";
 import { MyLeaves } from "@/components/hr/my-leaves";
+import { ExpenseClaimEdit } from "@/components/hr/expense-claim-edit";
 import { prisma } from "@/lib/prisma";
 import { MODULES } from "@/lib/rbac";
 import { MODULE_LABELS } from "@/lib/labels";
@@ -188,6 +189,11 @@ export default async function MonDossierPage() {
                       {r.type === "EXPENSE_REPORT" && (
                         <div className="mt-1 space-y-0.5 text-xs">
                           <p className="text-muted-foreground">
+                            {/* LE MONTANT EN PREMIER : c'est la question qu'on se pose en
+                                relisant sa note, et c'est celle sur laquelle on se trompe. */}
+                            {r.expenseAmount != null && (
+                              <>Montant : <span className="font-semibold tabular-nums text-foreground">{formatCurrency(r.expenseAmount)}</span> · </>
+                            )}
                             Mois concerné : <span className="font-medium text-foreground">{formatMonth(r.expenseMonth)}</span>
                             {r.approvedMonth && <> · Validée pour <span className="font-medium text-success">{formatMonth(r.approvedMonth)}</span></>}
                           </p>
@@ -196,6 +202,17 @@ export default async function MonDossierPage() {
                           ) : (
                             <p className="font-medium text-amber-700">⚠ Déposez les documents originaux au bureau du secrétariat — accusé de réception en attente.</p>
                           )}
+                          {/* LES QUINZE MINUTES POUR SE RELIRE. Sans cette porte, celui qui
+                              repère son erreur annule et redépose : deux demandes dans
+                              l'historique, dont une morte, et des RH qui devinent laquelle
+                              fait foi. C'est la MÊME note qui change. */}
+                          <ExpenseClaimEdit
+                            id={r.id}
+                            state={{ editableUntil: r.editableUntil, editUnlockedAt: r.editUnlockedAt, status: r.status }}
+                            month={r.expenseMonth}
+                            amount={r.expenseAmount}
+                            details={r.details}
+                          />
                         </div>
                       )}
                       <p className="text-[0.6875rem] text-muted-foreground">Demandée le {formatDateTime(r.createdAt)}</p>

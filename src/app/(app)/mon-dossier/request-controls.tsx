@@ -2,14 +2,14 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Loader2, AlertCircle, AlertTriangle, CalendarClock, CalendarRange, Stethoscope } from "lucide-react";
+import { Plus, Loader2, AlertCircle, CalendarClock, CalendarRange, Stethoscope } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Select, Textarea, Label, Input } from "@/components/ui/input";
 import { HR_REQUEST_TYPE } from "@/lib/labels";
 import { requestHrDocument, deleteHrRequest } from "@/lib/actions/hr-document-actions";
+import { ExpenseClaimFields } from "@/components/hr/expense-claim-form";
 
-const currentYm = () => new Date().toISOString().slice(0, 7);
 /** Types « congé » à jours entiers (début + fin) ; l'absence ponctuelle n'a qu'une date. */
 const LEAVE_TYPES = new Set(["ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "SICK_LEAVE"]);
 
@@ -23,6 +23,7 @@ export function NewRequestButton() {
   const [end, setEnd] = React.useState("");
   const isLeave = LEAVE_TYPES.has(type);
   const isExit = type === "EXCEPTIONAL_EXIT";
+  const isExpense = type === "EXPENSE_REPORT";
   const needsPeriod = isLeave || isExit;
   const days = React.useMemo(() => {
     if (!start || !end) return 0;
@@ -78,19 +79,11 @@ export function NewRequestButton() {
             </p>
           )}
 
-          {type === "EXPENSE_REPORT" && (
-            <>
-              <div className="space-y-1.5">
-                <Label>Mois concerné <span className="text-destructive">*</span></Label>
-                <Input type="month" name="expenseMonth" defaultValue={currentYm()} required />
-                <p className="text-xs text-muted-foreground">Le mois des dépenses. Les RH valideront pour ce mois ou pour le mois suivant.</p>
-              </div>
-              <p className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span><strong>Important :</strong> les documents <strong>originaux</strong> (reçus, factures…) doivent être déposés au <strong>bureau du secrétariat</strong>, qui accusera réception directement dans cette demande.</span>
-              </p>
-            </>
-          )}
+          {/* NOTE DE FRAIS : LES MÊMES CHAMPS QUE LE BOUTON DE « MON ESPACE ».
+              Deux formulaires pour le même objet finissent par diverger — un montant exigé d'un
+              côté, facultatif de l'autre — et l'on corrigerait alors une note avec des règles
+              qui ne sont plus celles de son dépôt. */}
+          {isExpense && <ExpenseClaimFields />}
 
           {type === "HR_INTERVIEW" && (
             <p className="flex items-start gap-2 rounded-lg bg-secondary px-3 py-2 text-xs text-muted-foreground">
@@ -99,15 +92,21 @@ export function NewRequestButton() {
             </p>
           )}
 
-          <div className="space-y-1.5">
-            <Label>Précisions {type === "HR_INTERVIEW" ? "(objet de l'entrevue)" : "(optionnel)"}</Label>
-            <Textarea name="details" required={type === "HR_INTERVIEW"} placeholder={type === "HR_INTERVIEW" ? "Ex. point sur ma situation contractuelle…" : "Ex. dates de congé souhaitées, trajet et dates (mission), montant et motif (note de frais)…"} rows={3} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Pièces jointes (optionnel)</Label>
-            <input type="file" name="files" multiple className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
-            <p className="text-xs text-muted-foreground">{type === "EXPENSE_REPORT" ? "Scans/photos des reçus et du récapitulatif (les originaux restent à déposer au secrétariat)." : "Ex. justificatif d'arrêt maladie, formulaire signé…"}</p>
-          </div>
+          {/* Le motif et les pièces d'une note de frais sont déjà dans ses champs à elle : les
+              répéter ici enverrait deux fois `details` et `files` dans le même envoi. */}
+          {!isExpense && (
+            <>
+              <div className="space-y-1.5">
+                <Label>Précisions {type === "HR_INTERVIEW" ? "(objet de l'entrevue)" : "(optionnel)"}</Label>
+                <Textarea name="details" required={type === "HR_INTERVIEW"} placeholder={type === "HR_INTERVIEW" ? "Ex. point sur ma situation contractuelle…" : "Ex. dates de congé souhaitées, trajet et dates (mission)…"} rows={3} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Pièces jointes (optionnel)</Label>
+                <input type="file" name="files" multiple className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
+                <p className="text-xs text-muted-foreground">Ex. justificatif d&apos;arrêt maladie, formulaire signé…</p>
+              </div>
+            </>
+          )}
           {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>

@@ -24,6 +24,10 @@ import {
 } from "@/lib/hr/leave-core";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { visibilityLabel } from "@/lib/hr/document-visibility";
+import {
+  canEditExpenseClaim, expenseAmountError, expenseEditDeadline, expenseEditLabel,
+} from "@/lib/hr/expense-claim";
+import { requestDocument } from "@/lib/actions/document-request-actions";
 
 const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "HR_INTERVIEW", "OTHER"];
 const REQUEST_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS", "READY", "DELIVERED", "REJECTED"];
@@ -149,6 +153,38 @@ async function createLeaveFromHrForm(
   return { ok: true, id: created.id };
 }
 
+/**
+ * VERSER DES PIÈCES AU DOSSIER D'UNE DEMANDE RH.
+ *
+ * Extrait parce que la CRÉATION et la MODIFICATION en ont toutes deux besoin, et que deux
+ * copies auraient fini par diverger sur ce qui compte : la validation de taille et de type, et
+ * le fait qu'un échec d'écriture n'efface pas la trace de la pièce. Renvoie le message de refus,
+ * ou `null` quand tout est versé.
+ */
+async function attachRequestFiles(requestId: string, files: File[], uploaderId: string): Promise<string | null> {
+  if (files.length === 0) return null;
+  const maxMb = (await getAppSettings()).maxUploadMb;
+  for (const file of files) {
+    const invalid = validateUpload(file.name, file.size, maxMb);
+    if (invalid) return invalid;
+    const key = `HR_REQUEST/${requestId}/${randomUUID()}__${file.name}`;
+    try {
+      await saveFile(key, Buffer.from(await file.arrayBuffer()));
+    } catch (err) {
+      // ON GARDE LA LIGNE MÊME SI L'ÉCRITURE A ÉCHOUÉ : une pièce annoncée puis introuvable se
+      // voit et se redemande ; une pièce silencieusement disparue laisse croire au dépôt.
+      console.error("[hr-request] storage write failed, recording metadata only", err);
+    }
+    await prisma.document.create({
+      data: {
+        name: file.name, category: "OTHER", entityType: "HR_REQUEST", entityId: requestId,
+        fileKey: key, mimeType: file.type || null, sizeBytes: file.size, confidentiality: "INTERNAL", uploadedById: uploaderId,
+      },
+    });
+  }
+  return null;
+}
+
 /** Demande d'attestation par l'employé (acte côté « Mon dossier RH »). */
 export async function requestHrDocument(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -164,10 +200,24 @@ export async function requestHrDocument(formData: FormData): Promise<ActionResul
   // de validation, aux « Absents aujourd'hui » et au solde.
   if (hrTypeIsLeave(type)) return createLeaveFromHrForm(user.id, employee, type, formData);
 
-  // Note de frais : le mois concerné est obligatoire (« YYYY-MM »).
+  // ── NOTE DE FRAIS : UN MOIS, UN MONTANT, UNE PIÈCE ────────────────────────────────────────
+  //
+  // Le mois dit sur quel exercice l'imputer ; le MONTANT est ce qu'on demande, et il ne vit
+  // plus dans le texte du motif — un chiffre noyé dans une phrase ne s'additionne pas et ne se
+  // contrôle pas. La PIÈCE, enfin : une note de frais sans justificatif n'est pas une demande,
+  // c'est une affirmation, et les RH la renverraient au premier examen.
   const expenseMonth = fdStr(formData, "expenseMonth");
-  if (type === "EXPENSE_REPORT" && (!expenseMonth || !YM.test(expenseMonth))) {
-    return { ok: false, error: "Indiquez le mois concerné par la note de frais." };
+  const expenseAmount = type === "EXPENSE_REPORT" ? fdNum(formData, "expenseAmount") : null;
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (type === "EXPENSE_REPORT") {
+    if (!expenseMonth || !YM.test(expenseMonth)) {
+      return { ok: false, error: "Indiquez le mois concerné par la note de frais." };
+    }
+    const mauvais = expenseAmountError(expenseAmount);
+    if (mauvais) return { ok: false, error: mauvais };
+    if (files.length === 0) {
+      return { ok: false, error: "Joignez le justificatif : scannez-le ou choisissez-le dans vos fichiers." };
+    }
   }
 
   // Congés / absences : période demandée. Début obligatoire ; fin obligatoire pour les congés
@@ -185,33 +235,20 @@ export async function requestHrDocument(formData: FormData): Promise<ActionResul
     data: {
       employeeId: employee.id, type, details: fdStr(formData, "details"),
       expenseMonth: type === "EXPENSE_REPORT" ? expenseMonth : null,
+      expenseAmount: expenseAmount != null ? expenseAmount : null,
+      // LA FENÊTRE EST POSÉE À L'ENVOI, pas recalculée à la lecture : elle se lit ainsi dans la
+      // base, et une prolongation décidée par les RH s'écrit au même endroit au lieu de se
+      // déduire d'une règle qu'il faudrait retrouver.
+      editableUntil: type === "EXPENSE_REPORT" ? expenseEditDeadline(new Date()) : null,
       periodStart, periodEnd,
       periodDays: periodDays != null ? periodDays : null,
     },
   });
 
-  // Pièces jointes facultatives (justificatif d'arrêt maladie, formulaire de congé…),
-  // versées au dossier de la demande (visibles du demandeur et des RH).
-  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
-  if (files.length) {
-    const maxMb = (await getAppSettings()).maxUploadMb;
-    for (const file of files) {
-      const invalid = validateUpload(file.name, file.size, maxMb);
-      if (invalid) return { ok: false, error: invalid };
-      const key = `HR_REQUEST/${created.id}/${randomUUID()}__${file.name}`;
-      try {
-        await saveFile(key, Buffer.from(await file.arrayBuffer()));
-      } catch (err) {
-        console.error("[hr-request] storage write failed, recording metadata only", err);
-      }
-      await prisma.document.create({
-        data: {
-          name: file.name, category: "OTHER", entityType: "HR_REQUEST", entityId: created.id,
-          fileKey: key, mimeType: file.type || null, sizeBytes: file.size, confidentiality: "INTERNAL", uploadedById: user.id,
-        },
-      });
-    }
-  }
+  // Pièces jointes (facultatives partout SAUF sur une note de frais, où le justificatif est
+  // exigé plus haut), versées au dossier de la demande — visibles du demandeur et des RH.
+  const refus = await attachRequestFiles(created.id, files, user.id);
+  if (refus) return { ok: false, error: refus };
   await recordAudit({ actorId: user.id, action: "CREATE", module: "RH", summary: `Demande RH — ${type}` });
   await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
     type: "GENERIC",
@@ -222,6 +259,205 @@ export async function requestHrDocument(formData: FormData): Promise<ActionResul
   revalidatePath("/mon-dossier");
   revalidatePath("/rh");
   return { ok: true, id: created.id };
+}
+
+/**
+ * SE CORRIGER — la note de frais, pendant quinze minutes, ou après si les RH ont rouvert.
+ *
+ * ── POURQUOI MODIFIER PLUTÔT QUE REFAIRE ────────────────────────────────────────────────────
+ *
+ * On envoie, on relit, on voit qu'on s'est trompé d'un chiffre. Sans cette porte, il faut
+ * annuler et redéposer : deux demandes dans l'historique, dont une morte, et des RH qui devinent
+ * laquelle fait foi. C'est la MÊME demande qui change — elle garde son identité, ses pièces, son
+ * fil et sa place dans l'historique.
+ *
+ * ── LA GARDE VIT ICI ────────────────────────────────────────────────────────────────────────
+ *
+ * L'écran cache le bouton passé le délai ; cela ne prouve rien, une action serveur s'appelle
+ * depuis le navigateur (§118-7). C'est CETTE ligne qui refuse — et elle refuse aussi sur une
+ * note déjà tranchée, y compris rouverte : modifier après coup changerait ce sur quoi quelqu'un
+ * s'est prononcé, et l'audit dirait « validée » à côté d'un montant que le validateur n'a jamais
+ * vu.
+ *
+ * ── ET CE QUI RESTE ─────────────────────────────────────────────────────────────────────────
+ *
+ * L'ancien montant part à l'AUDIT (§17 : pas de second registre). Une correction d'argent qui ne
+ * laisse aucune trace, c'est une note qu'on peut réécrire après lecture sans que rien ne le dise.
+ */
+export async function updateExpenseClaim(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+
+  const req = await prisma.hrDocumentRequest.findUnique({
+    where: { id },
+    select: {
+      id: true, type: true, status: true, editableUntil: true, editUnlockedAt: true,
+      expenseMonth: true, expenseAmount: true, details: true, employeeId: true,
+      employee: { select: { userId: true, fullName: true } },
+    },
+  });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (req.type !== "EXPENSE_REPORT") return { ok: false, error: "Cette demande n'est pas une note de frais." };
+  // SA note, et pas celle d'un autre : les RH corrigent en demandant, pas en réécrivant. Le
+  // montant remboursé doit rester la parole du demandeur.
+  if (req.employee.userId !== user.id) return { ok: false, error: "Seul le demandeur modifie sa note de frais." };
+
+  const verdict = canEditExpenseClaim(req, new Date());
+  if (!verdict.allowed) return { ok: false, error: expenseEditLabel(verdict) };
+
+  const expenseMonth = fdStr(formData, "expenseMonth");
+  if (!expenseMonth || !YM.test(expenseMonth)) return { ok: false, error: "Indiquez le mois concerné par la note de frais." };
+  const expenseAmount = fdNum(formData, "expenseAmount");
+  const mauvais = expenseAmountError(expenseAmount);
+  if (mauvais) return { ok: false, error: mauvais };
+
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  const refus = await attachRequestFiles(id, files, user.id);
+  if (refus) return { ok: false, error: refus };
+
+  const ancien = req.expenseAmount != null ? Number(req.expenseAmount) : null;
+  await prisma.hrDocumentRequest.update({
+    where: { id },
+    data: {
+      expenseMonth,
+      expenseAmount,
+      details: fdStr(formData, "details"),
+      // LA RÉOUVERTURE SE CONSOMME. La laisser ouverte ferait d'une autorisation ponctuelle un
+      // droit permanent : les RH ont dit « corrigez cette fois », pas « corrigez quand vous
+      // voulez ». La fenêtre ordinaire, elle, n'est PAS reconduite — quinze minutes de plus à
+      // chaque enregistrement seraient une fenêtre sans fin.
+      editUnlockedAt: null,
+      editUnlockedById: null,
+    },
+  });
+
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "RH",
+    entityType: "HR_REQUEST", entityId: id, field: "expenseAmount",
+    oldValue: ancien != null ? String(ancien) : null,
+    newValue: expenseAmount != null ? String(expenseAmount) : null,
+    summary: `Note de frais corrigée par ${req.employee.fullName}${verdict.reason === "UNLOCKED" ? " (modification rouverte par les RH)" : ""}`,
+  });
+
+  // LES RH SONT PRÉVENUS quand la correction vient d'une réouverture QU'ILS ONT ACCORDÉE : sans
+  // cela, ils attendent une correction déjà faite. Dans les quinze minutes ordinaires, en
+  // revanche, personne n'a encore rien lu — les avertir serait du bruit.
+  if (verdict.reason === "UNLOCKED") {
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+      type: "GENERIC",
+      title: "Note de frais corrigée",
+      body: `${req.employee.fullName} a corrigé sa note de frais.`,
+      link: `/rh/${req.employeeId}`,
+    });
+  }
+  revalidatePath("/mon-dossier");
+  revalidatePath(`/rh/${req.employeeId}`);
+  return { ok: true, id, message: "Note de frais mise à jour." };
+}
+
+/**
+ * ROUVRIR (OU REFERMER) LA MODIFICATION — une décision des RH, portée par son auteur.
+ *
+ * « Votre reçu est illisible, corrigez » n'a aucun sens si la personne ne peut plus rien
+ * changer : elle refait une seconde note, et l'on se retrouve avec deux demandes pour une
+ * dépense. On rouvre donc — mais c'est un geste HUMAIN, tracé : `editUnlockedById` dit qui.
+ *
+ * Refermer sert au cas symétrique : on a rouvert par erreur, ou la correction est faite et l'on
+ * ne veut pas laisser la porte ouverte indéfiniment.
+ */
+export async function setExpenseClaimEditUnlocked(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const ouvrir = fdStr(formData, "unlock") === "1";
+
+  const req = await prisma.hrDocumentRequest.findUnique({
+    where: { id },
+    select: { id: true, type: true, status: true, employeeId: true, employee: { select: { userId: true, fullName: true } } },
+  });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (req.type !== "EXPENSE_REPORT") return { ok: false, error: "Cette demande n'est pas une note de frais." };
+  // ROUVRIR UNE NOTE DÉJÀ TRANCHÉE NE SERT À RIEN et induirait en erreur : le demandeur verrait
+  // « corrigez », essaierait, et se ferait refuser par la même garde un cran plus loin.
+  if (ouvrir && !canEditExpenseClaim({ ...req, editableUntil: null, editUnlockedAt: new Date() }).allowed) {
+    return { ok: false, error: "Cette note est déjà traitée : elle ne se modifie plus. Demandez-en une nouvelle." };
+  }
+
+  await prisma.hrDocumentRequest.update({
+    where: { id },
+    data: ouvrir
+      ? { editUnlockedAt: new Date(), editUnlockedById: user.id }
+      : { editUnlockedAt: null, editUnlockedById: null },
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "RH",
+    entityType: "HR_REQUEST", entityId: id, field: "editUnlockedAt",
+    summary: `${ouvrir ? "Modification rouverte" : "Modification refermée"} — note de frais de ${req.employee.fullName}`,
+  });
+  // Rouvrir sans le dire ne sert à rien : la personne ne retourne pas sur l'écran par hasard.
+  if (ouvrir && req.employee.userId) {
+    await notifyUser({
+      userId: req.employee.userId, type: "GENERIC",
+      title: "Vous pouvez corriger votre note de frais",
+      body: "Les RH ont rouvert la modification. Corrigez-la depuis « Mon dossier RH ».",
+      link: "/mon-dossier",
+    });
+  }
+  revalidatePath("/mon-dossier");
+  revalidatePath(`/rh/${req.employeeId}`);
+  return { ok: true, message: ouvrir ? "Modification rouverte — le demandeur est prévenu." : "Modification refermée." };
+}
+
+/**
+ * LES RH RÉCLAMENT UN JUSTIFICATIF SUR UNE DEMANDE — au demandeur, et à personne d'autre.
+ *
+ * Le mécanisme existe déjà et il est générique (`DocumentRequest`, §118-5) : on ne le récrit
+ * pas, on l'appelle. Ce qui change ici, c'est qu'il n'y a PAS de choix du destinataire — le
+ * justificatif d'un taxi est chez celui qui l'a pris, et proposer un annuaire ferait réclamer
+ * la pièce d'une personne à une autre.
+ *
+ * La demande apparaît alors dans « Mes pièces à fournir » du demandeur, avec sa référence, son
+ * échéance et son fil — c'est-à-dire une trace de ce qu'on attend, de qui, depuis quand. C'est
+ * précisément ce qu'un message perdu ne donne pas.
+ *
+ * Pour une EXPLICATION plutôt qu'une pièce, il n'y a rien à ajouter : le fil de la demande sert
+ * déjà à cela (`addHrRequestComment`), et il prévient le demandeur.
+ */
+export async function askHrRequestPiece(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "RH", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "requestId");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.hrDocumentRequest.findUnique({
+    where: { id },
+    select: { id: true, employeeId: true, employee: { select: { userId: true, fullName: true } } },
+  });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (!req.employee.userId) {
+    return { ok: false, error: "Cette personne n'a pas de compte : la pièce se réclame de vive voix." };
+  }
+  if (req.employee.userId === user.id) {
+    return { ok: false, error: "C'est votre propre demande : ajoutez la pièce vous-même." };
+  }
+
+  const fd = new FormData();
+  fd.set("entityType", "HR_REQUEST");
+  fd.set("entityId", id);
+  // Le demandeur n'a pas accès au module RH : on le ramène là où SA demande vit.
+  fd.set("link", "/mon-dossier");
+  fd.set("label", fdStr(formData, "label") ?? "");
+  fd.set("kind", "PROOF");
+  fd.set("askedToId", req.employee.userId);
+  fd.set("note", fdStr(formData, "note") ?? "");
+  fd.set("dueDate", fdStr(formData, "dueDate") ?? "");
+  const r = await requestDocument(fd);
+  if (!r.ok) return r;
+
+  revalidatePath("/mon-dossier");
+  revalidatePath(`/rh/${req.employeeId}`);
+  return { ok: true, id: r.id, message: `Pièce demandée à ${req.employee.fullName} — la personne est prévenue.` };
 }
 
 /** Échange dans une demande RH : le demandeur ou les RH y répondent (fil de discussion). */

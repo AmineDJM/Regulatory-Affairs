@@ -4590,6 +4590,32 @@ model HrDocumentRequest {
   originalsAckAt   DateTime?
   originalsAckById String?
 
+  /// LE MONTANT AVANCÉ, en DZD — séparé du texte de la note.
+  ///
+  /// Il vivait DANS `details`, mélangé au motif (« 4 200 DZD — taxi et péage »). Un montant
+  /// noyé dans une phrase ne s'additionne pas, ne se compare pas, ne se contrôle pas : les RH
+  /// relisaient chaque ligne pour savoir ce qu'on leur demandait de rembourser. Chaque note de
+  /// frais porte donc SON montant et SA pièce.
+  expenseAmount Decimal? @db.Decimal(12, 2)
+
+  /// LES QUINZE MINUTES POUR SE CORRIGER.
+  ///
+  /// On envoie, on relit, on voit qu'on s'est trompé d'un chiffre. Sans cette fenêtre, il faut
+  /// annuler et refaire — ce qui laisse deux demandes dans l'historique, dont une morte, et
+  /// oblige les RH à deviner laquelle fait foi. La fenêtre est POSÉE À LA CRÉATION plutôt que
+  /// recalculée à la lecture : ainsi elle se lit dans la base, et une éventuelle prolongation
+  /// s'écrit ici au lieu de se déduire d'une règle qu'il faudrait retrouver.
+  editableUntil DateTime?
+
+  /// LA MODIFICATION ROUVERTE PAR LES RH — hors des quinze minutes.
+  ///
+  /// « Votre reçu est illisible, corrigez » n'a aucun sens si la personne ne peut plus rien
+  /// changer : elle refait une seconde note, et l'on se retrouve avec deux demandes pour une
+  /// dépense. C'est une décision HUMAINE, tracée par son auteur : l'audit portera son nom.
+  /// Remise à null quand les RH referment.
+  editUnlockedAt   DateTime?
+  editUnlockedById String?
+
   // Entrevue RH : dernière date/heure proposée, par qui, et confirmation par l'autre partie.
   meetingAt           DateTime?
   meetingProposedById String?

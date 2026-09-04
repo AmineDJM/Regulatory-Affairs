@@ -126,7 +126,7 @@ suite("Mon Équipe montre tout l'arbre, et n'ouvre les indicateurs qu'à qui enc
   it("LES INDICATEURS D'UN N-2 S'OUVRENT AU DG — la hiérarchie descend, le droit aussi", async () => {
     ACTOR = await actorFor(users.dg, "GENERAL_MANAGER");
     const r = await teamMemberKpis(emps.delegue);
-    expect(r.ok, "ok" in r ? undefined : r.error).toBe(true);
+    expect(r.ok, r.ok ? undefined : r.error).toBe(true);
     if (!r.ok) return;
     expect(r.kpis.job).toBe("FIELD");
     // Le compteur du métier compte VRAIMENT : la visite semée est là.

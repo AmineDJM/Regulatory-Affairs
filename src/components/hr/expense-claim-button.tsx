@@ -2,13 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, AlertTriangle, Camera, Loader2, Paperclip, ReceiptText } from "lucide-react";
+import { AlertCircle, Loader2, ReceiptText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
-import { Input, Label, Textarea } from "@/components/ui/input";
 import { requestHrDocument } from "@/lib/actions/hr-document-actions";
-
-const moisCourant = () => new Date().toISOString().slice(0, 7);
+import { ExpenseClaimFields } from "./expense-claim-form";
+import { EXPENSE_EDIT_MINUTES } from "@/lib/hr/expense-claim";
 
 /**
  * AJOUTER UNE NOTE DE FRAIS — depuis son espace, avec le reçu qu'on a dans la main.
@@ -24,19 +23,17 @@ const moisCourant = () => new Date().toISOString().slice(0, 7);
  * MÊME demande. Un second circuit aurait donné deux notes de frais pour un seul remboursement,
  * et deux files aux RH (§17).
  *
- * ── SCANNER OU CHOISIR UN FICHIER ───────────────────────────────────────────────────────────
+ * ── UNE NOTE, UN MONTANT, SA PIÈCE ──────────────────────────────────────────────────────────
  *
- * Le reçu est un bout de papier qu'on a sous les yeux au moment où l'on saisit. Deux entrées,
- * donc, et le même champ `files` derrière : l'APPAREIL PHOTO (`capture` — sur un téléphone, le
- * bouton ouvre la caméra directement) et le CHOIX DE FICHIERS pour les scans déjà faits et les
- * PDF. Une seule entrée « parcourir » obligeait à photographier d'abord, retrouver l'image
- * ensuite — deux gestes et une photo perdue dans la galerie.
+ * Le montant a son champ, séparé du motif ; le justificatif est exigé — une note de frais sans
+ * pièce n'est pas une demande, c'est une affirmation, et elle repartirait au premier examen.
+ * Deux dépenses sans rapport font deux notes : c'est ce qui permet de les instruire séparément.
  *
- * ── CE QUE LE FORMULAIRE NE PROMET PAS ──────────────────────────────────────────────────────
+ * ── ET APRÈS L'ENVOI ────────────────────────────────────────────────────────────────────────
  *
- * Les scans ne remplacent pas les ORIGINAUX : le secrétariat en accuse réception dans la
- * demande, et les RH ne décident qu'après. Le dire ici évite de croire le dossier complet — et
- * c'est la même règle que sur l'autre porte, parce que c'est la même demande.
+ * Quinze minutes pour se relire et se corriger, depuis « Mon dossier RH ». On le DIT ici, avant
+ * l'envoi : sans cela, la personne qui se relit croit devoir annuler et redéposer, ce qui laisse
+ * deux demandes dont une morte.
  */
 export function ExpenseClaimButton() {
   const router = useRouter();
@@ -63,57 +60,16 @@ export function ExpenseClaimButton() {
         open={open}
         onClose={() => !busy && setOpen(false)}
         title="Ajouter une note de frais"
-        description="Le mois concerné, ce que vous avez avancé, et le reçu — photographié ou choisi dans vos fichiers. Les RH la traitent depuis votre dossier."
+        description="Le mois concerné, le montant avancé, le motif, et le justificatif scanné. Les RH la traitent depuis votre dossier."
         width="md"
       >
         <form action={submit} className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="nf-mois">Mois concerné <span className="text-destructive">*</span></Label>
-            <Input id="nf-mois" type="month" name="expenseMonth" defaultValue={moisCourant()} required />
-            <p className="text-xs text-muted-foreground">
-              Le mois des dépenses. Les RH valideront pour ce mois ou pour le mois suivant.
-            </p>
-          </div>
+          <ExpenseClaimFields />
 
-          <div className="space-y-1.5">
-            <Label htmlFor="nf-details">Montant et motif</Label>
-            <Textarea
-              id="nf-details" name="details" rows={3}
-              placeholder="Ex. 4 200 DZD — taxi et péage, déplacement PCH Alger du 12/09"
-            />
-          </div>
-
-          {/* ── LE REÇU : deux entrées, un seul champ ── */}
-          <div className="space-y-2 rounded-lg border border-border bg-secondary/40 p-3">
-            <p className="flex items-center gap-1.5 text-xs font-medium">
-              <Paperclip className="h-4 w-4 text-primary" /> Le justificatif
-            </p>
-            <div className="space-y-1.5">
-              <Label htmlFor="nf-scan" className="flex items-center gap-1.5">
-                <Camera className="h-3.5 w-3.5" /> Scanner / photographier
-              </Label>
-              {/* `capture` ouvre l'appareil photo sur un téléphone ; sur ordinateur, le
-                  navigateur retombe de lui-même sur un choix de fichier — rien à gérer. */}
-              <input
-                id="nf-scan" type="file" name="files" accept="image/*" capture="environment" multiple
-                className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="nf-fichiers">…ou choisir des fichiers</Label>
-              <input
-                id="nf-fichiers" type="file" name="files" accept="image/*,application/pdf" multiple
-                className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
-              />
-            </div>
-          </div>
-
-          <p className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>
-              <strong>Les originaux restent à déposer</strong> au bureau du secrétariat, qui en
-              accusera réception dans cette demande. Les RH décident ensuite.
-            </span>
+          <p className="text-xs text-muted-foreground">
+            Après l&apos;envoi, vous pourrez la corriger pendant {EXPENSE_EDIT_MINUTES} minutes depuis
+            « Mon dossier RH ». Passé ce délai, les RH peuvent rouvrir la modification — ne déposez
+            pas une seconde note pour la même dépense.
           </p>
 
           {err && (

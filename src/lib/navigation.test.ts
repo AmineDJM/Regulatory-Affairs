@@ -27,12 +27,11 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
   });
 
   it("≤ 5 sous-modules visibles → ouvert par défaut", () => {
-    // « Moyens généraux » relève de WORKSPACE, que TOUT LE MONDE a : demander un achat est un
-    // geste de n'importe quel employé, et l'écran se charge ensuite de ne montrer ni budget ni
-    // trésorerie à qui n'y a pas droit. « Demandes de paiement » n'a PLUS d'entrée de menu : la
-    // demande se fait depuis les Demandes de validations, et le dossier passe par le centre de
-    // paiement avant d'atteindre les Règlements.
-    const admin = groupIntoPoles(accessible(["WORKSPACE", "FINANCES", "RH", "BUDGETS"]))
+    // « Moyens généraux » relève de GENERAL_MEANS, le MÊME module que sa page. « Demandes de
+    // paiement » n'a PLUS d'entrée de menu : la demande se fait depuis les Demandes de
+    // validations, et le dossier passe par le centre de paiement avant d'atteindre les
+    // Règlements.
+    const admin = groupIntoPoles(accessible(["GENERAL_MEANS", "FINANCES", "RH", "BUDGETS"]))
       .find((p) => p.key === "ADMINISTRATION");
     expect(admin?.children.map((c) => c.label)).toEqual([
       "Moyens généraux", "Finances", "Ressources humaines", "Budgets",
@@ -92,6 +91,41 @@ describe("groupes historiques", () => {
     expect(admin?.children.map((c) => c.label)).toEqual(
       expect.arrayContaining(["Moyens généraux", "Finances", "Ressources humaines", "Budgets"]),
     );
+  });
+});
+
+/**
+ * L'ENTRÉE DE MENU DIT LA VÉRITÉ SUR LES DROITS.
+ *
+ * ── LE DÉFAUT RAPPORTÉ ──────────────────────────────────────────────────────────────────────
+ *
+ * Deux comptes BLOQUÉS sur les Moyens généraux dans la console voyaient toujours l'entrée dans
+ * leur menu de gauche. L'entrée était portée par `WORKSPACE` — que tout le monde a — du temps où
+ * la page servait aussi à DEMANDER un achat. Les demandes ont déménagé dans « Mon espace », la
+ * page refuse désormais l'entrée sans `GENERAL_MEANS`, et le menu promettait donc un écran qui
+ * répond « ce n'est pas pour vous ».
+ *
+ * Le coût réel n'est pas la porte inutile : c'est que la console PARAISSAIT ne pas marcher. On
+ * bloque, on regarde, le module est toujours là — et l'on cesse de se servir de l'écran des
+ * accès. Une entrée de menu qui ne suit pas son module fait mentir tout le reste.
+ */
+describe("une entrée de menu porte le MÊME module que sa page", () => {
+  it("MOYENS GÉNÉRAUX : bloqué dans la console = absent du menu", () => {
+    // Le compte a tout le reste — poste de travail compris : c'est exactement le cas rapporté.
+    const labels = accessible(["WORKSPACE", "VALIDATIONS", "NOTIFICATIONS", "DOSSIERS"]).map((n) => n.label);
+    expect(labels).not.toContain("Moyens généraux");
+  });
+
+  it("…et l'entrée revient dès que le module est accordé", () => {
+    expect(accessible(["GENERAL_MEANS"]).map((n) => n.label)).toContain("Moyens généraux");
+  });
+
+  it("l'ANNUAIRE d'entreprise reste dans le périmètre de cette entrée", () => {
+    // Il est gardé par `requireModule("GENERAL_MEANS")` : le laisser hors du `match` ferait
+    // se désélectionner le menu en y entrant, sur un écran qu'on vient pourtant d'ouvrir.
+    const mg = NAVIGATION.find((n) => n.href === "/moyens-generaux")!;
+    expect(mg.module).toBe("GENERAL_MEANS");
+    expect(mg.match).toContain("/moyens-generaux/annuaire");
   });
 });
 

@@ -30,9 +30,15 @@ export interface HrRequestDTO {
   fulfilmentDocId: string | null;
   // Note de frais
   expenseMonth: string | null;
+  /** Le MONTANT avancé — un champ, plus un chiffre noyé dans le motif. */
+  expenseAmount: number | null;
   approvedMonth: string | null;
   originalsAckAt: string | null;
   originalsAckByName: string | null;
+  /** Fin des quinze minutes pendant lesquelles le demandeur se corrige. */
+  editableUntil: string | null;
+  /** Réouverture accordée par les RH — elle prime sur le délai. */
+  editUnlockedAt: string | null;
   // Congé / absence : période demandée + jours + débit du solde effectué (congé annuel).
   periodStart: string | null;
   periodEnd: string | null;
@@ -81,7 +87,9 @@ function mapDoc(d: { id: string; category: HrDocumentCategory; name: string; mim
 type ReqRow = {
   id: string; type: HrRequestType; status: HrRequestStatus; details: string | null; hrNote: string | null;
   createdAt: Date; fulfilment: { id: string } | null;
-  expenseMonth: string | null; approvedMonth: string | null; originalsAckAt: Date | null; originalsAckById: string | null;
+  expenseMonth: string | null; expenseAmount: unknown; approvedMonth: string | null;
+  originalsAckAt: Date | null; originalsAckById: string | null;
+  editableUntil: Date | null; editUnlockedAt: Date | null;
   periodStart: Date | null; periodEnd: Date | null; periodDays: unknown; balanceAppliedAt: Date | null;
   meetingAt: Date | null; meetingProposedById: string | null; meetingConfirmedAt: Date | null;
   archivedNodeId: string | null;
@@ -91,9 +99,13 @@ function mapReq(r: ReqRow): HrRequestDTO {
   return {
     id: r.id, type: r.type, status: r.status, details: r.details, hrNote: r.hrNote,
     createdAt: r.createdAt.toISOString(), fulfilmentDocId: r.fulfilment?.id ?? null,
-    expenseMonth: r.expenseMonth, approvedMonth: r.approvedMonth,
+    expenseMonth: r.expenseMonth,
+    expenseAmount: r.expenseAmount == null ? null : Number(r.expenseAmount.toString()),
+    approvedMonth: r.approvedMonth,
     originalsAckAt: r.originalsAckAt?.toISOString() ?? null,
     originalsAckByName: r.originalsAckById, // remplacé par le nom dans attachThreads
+    editableUntil: r.editableUntil?.toISOString() ?? null,
+    editUnlockedAt: r.editUnlockedAt?.toISOString() ?? null,
     periodStart: r.periodStart?.toISOString() ?? null,
     periodEnd: r.periodEnd?.toISOString() ?? null,
     periodDays: r.periodDays == null ? null : Number(r.periodDays.toString()),

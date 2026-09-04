@@ -173,7 +173,7 @@ jamais identique.
 | Module | Route | Description |
 |---|---|---|
 | **Mon travail** *(Action Center)* | `/mon-travail` | Redirige vers **Mon espace** (fusionné). La file agrège **selon les droits ET le métier** : validations **à mon tour seulement** (une étape en attente du validateur précédent reste sur `/validations` → « Qui vous reviendront »), paiements à régler **réservés au comptable** (`FINANCE_BUDGET_MANAGER`) + Super Admin, info médicale : stades d'instruction **réservés au PRIM** (+ Super Admin), la Direction ne reçoit que la **validation finale**. |
-| **Mon espace** | `/mon-espace` | Le POSTE DE TRAVAIL : validations à faire, demandes à traiter, tâches (perso, demandées, partagées, déléguées — **suppression par le créateur** ou le Super Admin, pièces et fil compris), **pièces demandées** et **ordres de mission en sections** (plus d'onglets à part), rappels, congés **des autres** à signer (N+1), historique d'avances. Trois portes de dépôt : nouvelle tâche, **demande de formation**, et **« Ajouter une note de frais »** — mois concerné, montant et motif, et le reçu **photographié** (`capture`, la caméra s'ouvre sur téléphone) **ou choisi dans ses fichiers**. Le bouton n'invente aucun circuit : c'est la MÊME demande RH `EXPENSE_REPORT`, avec le même accusé de réception des ORIGINAUX au secrétariat (§17). **« Mes congés » vit uniquement dans Mon dossier RH.** |
+| **Mon espace** | `/mon-espace` | Le POSTE DE TRAVAIL : validations à faire, demandes à traiter, tâches (perso, demandées, partagées, déléguées — **suppression par le créateur** ou le Super Admin, pièces et fil compris), **pièces demandées** et **ordres de mission en sections** (plus d'onglets à part), rappels, congés **des autres** à signer (N+1), historique d'avances. Trois portes de dépôt : nouvelle tâche, **demande de formation**, et **« Ajouter une note de frais »** — mois concerné, **montant** (son propre champ, plus un chiffre noyé dans le motif), motif, et le justificatif **scanné ou choisi dans ses fichiers** (pas de `capture` : le sélecteur du téléphone propose « Numériser un document », qui redresse et recadre — bien plus lisible qu'une photo). **Montant et pièce sont exigés côté serveur.** Le bouton n'invente aucun circuit : c'est la MÊME demande RH `EXPENSE_REPORT`, avec le même accusé de réception des ORIGINAUX au secrétariat (§17). **Quinze minutes pour se corriger** ensuite, depuis « Mon dossier RH » — et les RH peuvent rouvrir au-delà. **« Mes congés » vit uniquement dans Mon dossier RH.** |
 | **Messagerie** | `/messages` | Messagerie interne complète (DM / groupes / canaux). Badge non-lus live **+ notification sonore** qui retentit même quand l'onglet est en arrière-plan. → [détails](#-messagerie-interne-temps-réel) |
 | **Courrier** | `/courrier` | **Webmail Infomaniak** intégré par utilisateur (IMAP + SMTP) : dossiers (Réception · **Envoyés** · Corbeille…), **recherche** plein-texte, **filtres** (tous / non lus), **Répondre · Répondre à tous · Transférer**, **carnet de contacts externes**, **aperçu des pièces jointes**, **« Lier à un dossier »**. → [détails](#-courrier--webmail-infomaniak-intégré) |
 | **Directives** | `/directives` | **Instructions priorisées de la Direction** vers une personne ou un rôle entier, avec échéance, statut et **fil d'échange**. |
@@ -194,7 +194,7 @@ jamais identique.
 | **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (RBAC `PAYMENT_CENTRE` — PDG + Super Admin) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. **GUICHET UNIQUE** : aucun paiement n'atteint les Finances sans autorisation, **quel que soit le montant et le module** — plus de seuil, plus d'exemption. Une demande de paiement y entre **dès sa soumission**, avant l'instruction des Finances. Quatre issues (autoriser · refuser · révision du montant · argumentation) avec fil d'allers-retours. → [détails](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-le-pdg) |
 | **My Chief of Staff** | `/chief-of-staff` | **L'interface exécutive du PDG et du Super Admin** (module `CHIEF_OF_STAFF`) : piloter l'entreprise en langage naturel, **au clavier ou à la voix** (conversation vocale avec interruption). Recherche fédérée `search_everything` (~30 familles, tolérante aux accents/fautes), histoire complète d'un dossier (`inspect_record` : timeline, validateurs, chaîne devis→BC→facture→règlement — paiements, Legal, Regulatory, factures, courriers, projets, tâches), lecture des documents du Drive, calendrier + disponibilités, stocks, hôpitaux, paie, agrégats financiers, **signaux d'alerte proactifs**, **point exécutif**, **rapport consolidé .docx**, rappels récurrents (rôle ou personne nommée), et les **actions** — trancher un paiement, réassigner une tâche, chaîner une facture, **modifier un salaire (confirmation renforcée)** — toujours confirmées et auditées. → [architecture](docs/CHIEF_OF_STAFF_ARCHITECTURE.md) |
 | **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
-| **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **L'ACCÈS SE RÈGLE DEPUIS LA CONSOLE, ET NULLE PART AILLEURS** : le module s'accordait implicitement à quiconque tenait les RH en écriture — la console affichait « Aucun accès » sur cette ligne et la personne l'avait quand même, si bien que le retirer ne changeait rien. La règle est **supprimée** : matrice du rôle, ou attribution nominative dans la console (`rbac-console-authority.test.ts` tient les deux sens depuis la vraie table d'overrides). **CHAQUE DÉPARTEMENT a ses moyens généraux** ; les **ressources humaines** pilotent le module (elles voient et dotent tous les départements, via un sélecteur), l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) et elle est **CONTINUE** : chaque remise s'ajoute au fond et garde sa date, aucune ne clôt la précédente — solder est un geste, et il porte sur le fond entier. La personne qui la détient **confirme avoir reçu** chaque somme — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**. Les dépenses tiennent en **une seule liste, en tableau, filtrable sur « caisse d'avance »**. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. **Annuaire d'entreprise** (`/moyens-generaux/annuaire`) : tous les contacts extérieurs de la société — agence de voyage, livreurs, agence marketing, imprimeur, transitaire… — par catégorie, cherchables, avec téléphone et e-mail cliquables. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
+| **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **L'ACCÈS SE RÈGLE DEPUIS LA CONSOLE, ET NULLE PART AILLEURS** : le module s'accordait implicitement à quiconque tenait les RH en écriture — la console affichait « Aucun accès » sur cette ligne et la personne l'avait quand même, si bien que le retirer ne changeait rien. La règle est **supprimée** : matrice du rôle, ou attribution nominative dans la console (`rbac-console-authority.test.ts` tient les deux sens depuis la vraie table d'overrides). **L'entrée de MENU porte le même module que la page** (`GENERAL_MEANS`, plus `WORKSPACE`) : elle était restée sur le module ouvert à tous du temps où l'on demandait un achat ici, si bien qu'un compte bloqué continuait de la voir — et en concluait que la console ne marchait pas. **CHAQUE DÉPARTEMENT a ses moyens généraux** ; les **ressources humaines** pilotent le module (elles voient et dotent tous les départements, via un sélecteur), l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) et elle est **CONTINUE** : chaque remise s'ajoute au fond et garde sa date, aucune ne clôt la précédente — solder est un geste, et il porte sur le fond entier. La personne qui la détient **confirme avoir reçu** chaque somme — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**. Les dépenses tiennent en **une seule liste, en tableau, filtrable sur « caisse d'avance »**. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. **Annuaire d'entreprise** (`/moyens-generaux/annuaire`) : tous les contacts extérieurs de la société — agence de voyage, livreurs, agence marketing, imprimeur, transitaire… — par catégorie, cherchables, avec téléphone et e-mail cliquables. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
 | **Formations** | `/formations` | Demande individuelle (montant, organisme, dates, devis) validée **N+1 → RH → DG**, et formations **organisées par les RH** (qui partent directement au DG) avec **participants convoqués ou volontaires** (les volontaires acceptent ou déclinent) et **postes** (salle, traiteur, intervenant) validés un par un par la Direction. Budget **FORMATION** parmi les budgets départementaux. |
 | **Promotion médicale** | `/medical/ma-journee` | **Ma journée** (KAM) : la **tournée proposée** du jour — les praticiens en retard sur leur **fréquence cible**, avec la raison chiffrée — et la **saisie d'une visite en 3 gestes** (praticien, produits de sa mallette pré-cochés P1, un mot dicté au clavier) ; une ligne de chiffres (fait/attendu, couverture du panel, rythme à tenir sur les **jours ouvrés algériens**). Onglet **Annuaire** : le référentiel des praticiens. → [détails](#force-de-vente--la-boucle-terrain) |
 | **Ventes** | `/sales` | CA pharma/PCH, **import CSV**, type **Produit / Service**. |
@@ -1186,14 +1186,26 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
   débitent pas.
 - **Demandes RH par type** (`requestHrDocument`) : les types congé (`ANNUAL_LEAVE`, `UNPAID_LEAVE`, `SPECIAL_LEAVE`,
   `MATERNITY_LEAVE`, `SICK_LEAVE`) exigent `periodStart` + `periodEnd` (jours calculés, calendaires inclusifs) ;
-  `EXCEPTIONAL_EXIT` n'exige que `periodStart` ; `EXPENSE_REPORT` garde son `expenseMonth` ; `HR_INTERVIEW` sa
+  `EXCEPTIONAL_EXIT` n'exige que `periodStart` ; `EXPENSE_REPORT` exige `expenseMonth` + `expenseAmount` + au moins
+  une pièce ; `HR_INTERVIEW` sa
   négociation de date. Formulaire type-aware : `src/app/(app)/mon-dossier/request-controls.tsx`.
 
 ### Notes de frais (Mon dossier RH → RH, avec verrou secrétariat)
 
-1. **Employé** (`/mon-dossier`) : type « Note de frais » → **mois concerné obligatoire** (`expenseMonth` YYYY-MM),
-   scans en pièces jointes ; avertissement bloquant affiché : *les ORIGINAUX doivent être déposés au bureau du
+1. **Employé** (`/mon-dossier` ou le bouton « Ajouter une note de frais » de `/mon-espace` — **mêmes champs**,
+   `ExpenseClaimFields`) : **mois concerné** (`expenseMonth` YYYY-MM), **MONTANT** (`expenseAmount`, son propre champ)
+   et **justificatif** — les trois exigés **côté serveur**. Le montant vivait dans le motif (« 4 200 DZD — taxi ») :
+   noyé dans une phrase, il ne s'additionne ni ne se contrôle. Zéro est refusé (c'est un champ sauté, pas un montant),
+   et un montant aberrant l'est aussi — une faute de frappe se rembourse une fois et ne se récupère jamais. Le champ
+   de fichier **n'ouvre plus la caméra** (`capture` retiré) : le sélecteur du téléphone propose « Numériser un
+   document », qui redresse et recadre. Avertissement maintenu : *les ORIGINAUX doivent être déposés au bureau du
    secrétariat*.
+   **QUINZE MINUTES POUR SE CORRIGER** (`editableUntil`, posé à l'envoi) : `updateExpenseClaim` modifie **la même
+   demande** — elle garde son identité, ses pièces, son fil et sa place dans l'historique — et porte l'ancien montant
+   à l'audit. Sans cette porte, on annulait et l'on redéposait : deux demandes, dont une morte. Le compte à rebours
+   s'affiche dans le navigateur à partir de la **même fonction** que le serveur (`canEditExpenseClaim`), et c'est le
+   SERVEUR qui refuse (§118-7). **Seul le demandeur** modifie : le montant est sa parole, le réécrire à sa place lui
+   ferait porter une somme qu'il n'a pas déclarée.
 2. **Bureau du secrétariat** (`/demandes`, section « Notes de frais — originaux à réceptionner ») : bouton
    **Accuser réception** (`ackExpenseOriginals`, gate `hasGlobalView || ADMIN_REQUESTS:UPDATE`) → `originalsAckAt/ById`
    tracés, notification employé + RH.
@@ -1201,9 +1213,24 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
    désactivés avec bandeau). Trois décisions : **Valider (mois demandé)** / **Valider pour le mois suivant**
    (`nextMonthYm`, passage d'année géré) / **Refuser** — `decideExpenseReport` fixe `approvedMonth` + statut
    READY|REJECTED, notifie l'employé avec le mois d'imputation. Le commentaire libre passe par le fil de la demande.
-- **Fichiers** : `src/lib/actions/hr-document-actions.ts` (toutes les actions), `src/app/(app)/rh/[id]/hr-dossier.tsx`
-  (UI RH), `src/app/(app)/demandes/expense-ack.tsx` (accusé secrétariat), helpers mois `formatMonth`/`nextMonthYm`
-  dans `src/lib/utils.ts` (testés).
+   **DEUX GESTES DE PLUS, ET LES RH NE RÉÉCRIVENT RIEN :**
+   • **« Demander un justificatif »** (`askHrRequestPiece`) ouvre une vraie **demande de pièce** — le mécanisme
+     GÉNÉRIQUE (`DocumentRequest`, §118-5), pas un second registre — adressée **au demandeur et à personne d'autre**
+     (le reçu d'un taxi est chez celui qui l'a pris ; un annuaire ferait réclamer la pièce d'une personne à une
+     autre). Elle apparaît dans ses pièces à fournir, avec référence `PIE-…`, échéance et fil, et pointe vers
+     `/mon-dossier` — le demandeur n'a pas le module RH. Dire CE QU'ON VEUT est obligatoire.
+   • **« Autoriser la modification »** (`setExpenseClaimEditUnlocked`) rouvre la correction **hors des quinze
+     minutes** : « votre reçu est illisible, corrigez » n'a aucun sens si la personne ne peut plus rien changer —
+     elle refait une seconde note, et l'on a deux demandes pour une dépense. La réouverture **prime sur l'horloge**,
+     **se consomme** à la première correction, porte son auteur (`editUnlockedById`) et **prévient le demandeur** ;
+     elle ne rouvre JAMAIS une note tranchée (READY / DELIVERED / APPROVED / REJECTED) — on ne réécrit pas ce sur
+     quoi quelqu'un s'est prononcé. Pour une simple explication, le fil de la demande suffit et notifie déjà.
+- **Fichiers** : `src/lib/hr/expense-claim.ts` (règle pure : fenêtre, réouverture, montant — 12 tests),
+  `src/lib/actions/hr-document-actions.ts` (toutes les actions), `src/components/hr/expense-claim-form.tsx` (les
+  champs, partagés par les deux portes de dépôt et par la correction), `expense-claim-button.tsx`,
+  `expense-claim-edit.tsx`, `expense-claim-hr-panel.tsx`, `src/app/(app)/rh/[id]/hr-dossier.tsx` (UI RH),
+  `src/app/(app)/demandes/expense-ack.tsx` (accusé secrétariat), helpers mois `formatMonth`/`nextMonthYm` dans
+  `src/lib/utils.ts` (testés). Flux réel : `src/lib/actions/note-de-frais-flow.test.ts` (17 tests).
 
 ### Entrevue avec les RH (type de demande négocié)
 
@@ -3547,6 +3574,51 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### La note de frais devient un objet, et le menu cesse de mentir (2026-09)
+
+**Le montant sort du texte.** Il vivait dans le motif — « 4 200 DZD — taxi et péage, PCH Alger du
+12/09 ». Un montant noyé dans une phrase ne s'additionne pas, ne se compare pas, ne se contrôle
+pas : les RH relisaient chaque ligne pour savoir ce qu'on leur demandait de rembourser, et un
+chiffre mal recopié ne se voyait nulle part. **Chaque note porte désormais SON montant et SA
+pièce** — le justificatif est exigé côté serveur (sans lui, ce n'est pas une demande, c'est une
+affirmation), et deux dépenses sans rapport font deux notes, ce qui permet de les instruire
+séparément. Zéro est refusé : c'est un champ qu'on a sauté, pas un montant.
+
+**Le scan, plus l'appareil photo.** Le champ ouvrait la caméra directement (`capture`) : on
+photographiait de travers, à la lumière du bureau, et les RH renvoyaient. Sans cet attribut, le
+téléphone propose son propre sélecteur, où « Numériser un document » redresse la page, la recadre
+et rend un PDF lisible ; l'appareil photo y reste disponible. **On ne perd aucun geste, on cesse
+d'en imposer un mauvais.**
+
+**Quinze minutes pour se relire.** On envoie, on relit, on voit qu'on s'est trompé d'un chiffre.
+Sans cette fenêtre il fallait annuler et refaire : deux demandes dans l'historique, dont une
+morte, et des RH qui devinent laquelle fait foi. C'est **la même demande qui change** — elle garde
+son identité, ses pièces, son fil et sa place dans l'historique — et l'ancien montant part à
+l'audit. Passé le délai, **les RH rouvrent** : « votre reçu est illisible, corrigez » n'a aucun
+sens si la personne ne peut plus rien changer. La réouverture **prime sur l'horloge** et **se
+consomme** (« corrigez cette fois », pas « quand vous voulez ») ; elle ne ressuscite jamais une
+note tranchée — on ne réécrit pas ce sur quoi quelqu'un s'est prononcé.
+
+**Et les RH réclament sans réécrire.** Un bouton « Demander un justificatif » ouvre une vraie
+demande de pièce (`DocumentRequest`, le mécanisme générique — §118-5), adressée **au demandeur et
+à personne d'autre** : le reçu d'un taxi est chez celui qui l'a pris, et proposer un annuaire
+ferait réclamer la pièce d'une personne à une autre. Elle apparaît dans ses pièces à fournir, avec
+sa référence et son échéance. Pour une simple explication, le fil d'échange de la demande sert
+déjà. **Les RH ne corrigent jamais le montant eux-mêmes** : ce chiffre est la parole du demandeur.
+
+**Le menu cessait de dire la vérité sur les droits.** Deux comptes BLOQUÉS sur les Moyens généraux
+dans la console voyaient toujours l'entrée à gauche : elle était portée par `WORKSPACE` — que tout
+le monde a — du temps où la page servait aussi à demander un achat. Les demandes ont déménagé dans
+« Mon espace », la page refuse l'entrée sans `GENERAL_MEANS`, et le menu promettait donc un écran
+qui répond « ce n'est pas pour vous ». Le coût réel n'est pas la porte inutile : **c'est que la
+console paraissait ne pas marcher**, et qu'on cesse alors de s'en servir. L'entrée porte
+maintenant le même module que sa page.
+
+- **Pur & testé** : `lib/hr/expense-claim.ts` (fenêtre, réouverture, montant — 12 tests).
+- **Flux réel** : `lib/actions/note-de-frais-flow.test.ts` (17 tests) — la garde refuse depuis le
+  serveur, et corriger ne crée JAMAIS une seconde ligne.
+- **Migration** : `20261017090000_note_de_frais_montant_et_modification`.
 
 ### Six chantiers : note de frais, accès console, deux natures, DCI en double, tout l'arbre (2026-09)
 
