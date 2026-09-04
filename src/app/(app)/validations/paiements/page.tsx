@@ -55,7 +55,7 @@ export default async function PaymentRequestsPage() {
           // Depuis que TOUT ordre de dépense ouvre son dossier, les paiements nés ailleurs
           // (matériel promotionnel, bon de versement, sponsoring…) ont eux aussi un dossier. Mais
           // ils ne s'instruisent pas : leur circuit d'origine a validé, le centre a autorisé, et
-          // les Finances les règlent dans « Paiements à faire ». Les faire remonter ici aurait
+          // les Finances les règlent dans « Banque & paiements ». Les faire remonter ici aurait
           // demandé de les instruire une SECONDE fois — deux files pour le même argent, et un
           // « à instruire » qui ne veut plus rien dire.
           where: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "ON_HOLD"] }, origin: "REQUEST" },

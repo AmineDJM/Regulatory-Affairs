@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { FinanceCategory, FinanceDirection, FinanceMethod, FinanceStatus, PayrollStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { buildRef, nextRefNumber } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
@@ -364,20 +364,31 @@ export async function createQuickIncome(
 }
 
 /**
- * L'ADMINISTRATEUR DEMANDE une mise à jour du solde de trésorerie. Les Finances le mettent à
- * jour quand elles le veulent ; l'admin, lui, ne saisit pas à leur place — il le demande, et la
- * demande arrive là où elle sera traitée (notification + tâche dans leur file).
+ * LE SUPER ADMIN DEMANDE une mise à jour du solde de trésorerie. Les Finances le mettent à jour
+ * quand elles le veulent ; lui ne saisit pas à leur place — il le demande, et la demande arrive
+ * là où elle sera traitée (notification + tâche dans leur file).
+ *
+ * ── POURQUOI LE SEUL SUPER ADMIN ────────────────────────────────────────────────────────────
+ *
+ * Le geste sonne chez TOUS les responsables Finances. Ouvert à toute la direction, il devient une
+ * sonnerie fréquente — et une sonnerie fréquente finit par n'être plus écoutée, y compris le jour
+ * où le solde est vraiment douteux.
+ *
+ * LA RÈGLE VIT EN TROIS ENDROITS, et c'est délibéré : ici (le serveur, qui décide), sur le bouton
+ * de « Banque & paiements » (l'écran, qui ne montre pas ce qu'on ne peut pas faire) et dans
+ * l'opération d'Adam `request_treasury_update` (la même porte, par la conversation). Un bouton
+ * masqué n'est pas un contrôle d'accès : c'est CETTE ligne qui refuse.
  */
 export async function requestTreasuryUpdate(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (user.role !== "SUPER_ADMIN" && !hasGlobalView(user)) return { ok: false, error: "Réservé à l'administration." };
+  if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
   const note = fdStr(formData, "note");
 
   await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], {
     type: "GENERIC",
     title: "Mise à jour du solde de trésorerie demandée",
     body: note || "L'administration demande l'actualisation des soldes de trésorerie.",
-    link: "/finances",
+    link: "/finances/comptabilite",
   }).catch(() => undefined);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Finances",

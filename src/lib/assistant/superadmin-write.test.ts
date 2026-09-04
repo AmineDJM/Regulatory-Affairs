@@ -208,10 +208,17 @@ suite("le Chief fait tout — demandes de tâches, relance, corbeille, comptes",
     expect(JSON.stringify(p.fields)).toContain("Responsables Finances");
     expect(JSON.stringify(p.fields)).toContain("Avant le conseil de lundi");
     expect(p.warnings.join(" ")).toMatch(/PAS modifiés/);
-    // La même porte que le bouton : un délégué sans vision globale est refusé.
+
+    // LA MÊME PORTE QUE LE BOUTON « Banque & paiements », et elle s'est RESSERRÉE (2026-09) :
+    // le geste sonne chez tous les responsables Finances, si bien qu'ouvert à toute la direction
+    // il devenait une sonnerie que plus personne n'écoutait. Le Super Admin, et lui seul.
     const delegate = userWith({}, "MEDICAL_DELEGATE", yasmineId, `${TAG} Yasmine`);
-    const refused = await buildProposal("request_treasury_update", {}, delegate);
-    expect("error" in refused && refused.error).toMatch(/administration/);
+    expect("error" in (await buildProposal("request_treasury_update", {}, delegate))).toBe(true);
+
+    // Le cas qui compte pour la NOUVELLE règle : une vision globale ne suffit plus.
+    const dg = userWith({ FINANCES: ["VIEW", "UPDATE"] }, "GENERAL_MANAGER", yasmineId, `${TAG} DG`);
+    const refuseDg = await buildProposal("request_treasury_update", {}, dg);
+    expect("error" in refuseDg && refuseDg.error).toMatch(/Super Admin/);
   });
 
   it("COMPTES : réservés au Super Admin — un directeur n'y touche pas", async () => {

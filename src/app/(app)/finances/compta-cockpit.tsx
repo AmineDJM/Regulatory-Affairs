@@ -13,7 +13,7 @@ type ComptaData = Awaited<ReturnType<typeof getComptaData>>;
  * CE QUE LE DAF DOIT ENCORE ARBITRER — et rien qui vive déjà ailleurs.
  *
  * Ce bloc listait aussi les ordres « à régler » et les recettes attendues. Depuis que les
- * Finances ont trois sous-modules, la file des ordres EST « Paiements à faire » : la répéter ici
+ * Finances ont deux sous-modules, la file des ordres EST « Banque & paiements » : la répéter ici
  * donnait deux listes de la même chose, qui divergeaient dès qu'on réglait depuis l'une. Restent
  * les dépenses qu'aucun autre écran ne porte — celles hors ordres, la masse salariale à
  * provisionner — et le résultat mensuel.
@@ -29,7 +29,7 @@ export function ComptaCockpit({ d }: { d: ComptaData }) {
       )}
 
       {/* « À RÉGLER » ET « RECETTES ATTENDUES » ONT ÉTÉ RETIRÉS D'ICI (2026-08).
-          La file des ordres à régler EST le sous-module « Paiements à faire » : la répéter sur le
+          La file des ordres à régler EST le sous-module « Banque & paiements » : la répéter sur le
           tableau de bord donnait deux listes de la même chose, qui se désynchronisaient dès qu'on
           réglait depuis l'une. Le bandeau des retards ci-dessus suffit à ramener l'œil. */}
 
@@ -40,7 +40,7 @@ export function ComptaCockpit({ d }: { d: ComptaData }) {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Autres dépenses prévues ({d.depensesAutres.length}) · {formatCurrency(d.depensesAutresTotal)}
           </h2>
-          <ItemTable items={d.depensesAutres} thirdLabel="Fournisseur" href="/finances" />
+          <ItemTable items={d.depensesAutres} thirdLabel="Fournisseur" href="/finances/comptabilite" />
         </section>
       )}
 

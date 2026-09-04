@@ -560,7 +560,7 @@ function PieceCard({
                 une validation sur ce qui vient d'être autorisé n'avait plus de sens, et proposer un
                 geste sans effet est pire que ne rien proposer — on l'exerce, on attend une réponse,
                 elle ne vient jamais. Les Finances lisent les pièces et RÉCLAMENT celles qui
-                manquent ; ce qui se décide se décide dans « Paiements à faire ». */}
+                manquent ; ce qui se décide se décide dans « Banque & paiements ». */}
           </div>
         </div>
       )}

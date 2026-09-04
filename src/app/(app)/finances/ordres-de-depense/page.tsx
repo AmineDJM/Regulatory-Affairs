@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 /**
- * L'ANCIENNE ADRESSE DES RÈGLEMENTS. L'écran s'appelle désormais « Paiements à faire » et vit
+ * L'ANCIENNE ADRESSE DES RÈGLEMENTS. L'écran s'appelle désormais « Banque & paiements » et vit
  * sous `/finances/paiements-a-faire` — il n'a plus qu'une source d'alimentation, le centre de
  * paiement, et son nom le dit.
  *

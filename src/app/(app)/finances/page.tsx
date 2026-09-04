@@ -1,89 +1,29 @@
-import Link from "next/link";
-import { ReceiptText } from "lucide-react";
-import { requireModule } from "@/lib/session";
-import { hasGlobalView } from "@/lib/rbac";
-import { getFinanceData } from "@/lib/queries/finance";
-import { getComptaData } from "@/lib/queries/compta";
-import { ComptaCockpit } from "./compta-cockpit";
-import { PageHeader } from "@/components/shared/page-header";
-import { KpiCard } from "@/components/shared/kpi-card";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { TrendChart } from "@/components/dashboard/charts";
-import { formatCurrency } from "@/lib/utils";
-import { RecettesDepensesChart } from "./finance-charts";
-import { TreasuryUpdateRequestButton } from "./treasury-update-request";
-
-export const dynamic = "force-dynamic";
+import { redirect } from "next/navigation";
 
 /**
- * FINANCES — LE TABLEAU DE BORD. Ce qu'on regarde, pas ce qu'on saisit.
+ * LE TABLEAU DE BORD DES FINANCES N'EXISTE PLUS — le module a deux écrans, pas trois.
  *
- * Le module portait trois métiers sur une seule page : la situation de trésorerie, la file des
- * règlements et le livre comptable. Celui qui PAIE et celui qui TIENT LES COMPTES s'y disputaient
- * le défilement, et la question « où en est-on ? » se noyait sous deux tableaux.
+ * ── CE QU'IL PORTAIT, ET OÙ C'EST PARTI ─────────────────────────────────────────────────────
  *
- * Trois sous-modules, dans l'ordre où l'on y passe — Dashboard, Paiements à faire, Comptabilité —,
- * atteignables par les onglets ET par les flèches. Ici : les soldes, ce que le DAF doit traiter,
- * et les courbes. Rien qui s'écrive.
+ * Il montrait la trésorerie, ce que le DAF doit arbitrer et deux courbes. Rien ne s'y écrivait :
+ * on y passait pour regarder, puis on allait travailler ailleurs — un écran d'escale, entre le
+ * menu et le vrai écran.
+ *
+ *   • le SOLDE DE TRÉSORERIE, le détail par compte et la demande d'actualisation sont allés dans
+ *     « Banque & paiements » : on y regarde ce qu'il y a en banque au moment où l'on décide ce
+ *     qu'on paie, et non deux écrans plus tôt ;
+ *   • le COCKPIT DU DAF (dépenses hors ordres, masse salariale à provisionner, résultat mensuel)
+ *     a rejoint la Comptabilité — c'est du travail de comptable, il est désormais là où on le
+ *     fait ;
+ *   • les DEUX COURBES et les compteurs du mois n'ont pas été relogés. Ils n'étaient l'entrée
+ *     d'aucun geste ; les déplacer aurait rouvert un écran d'escale sous un autre nom.
+ *
+ * ── POURQUOI UNE REDIRECTION PLUTÔT QU'UNE SUPPRESSION ──────────────────────────────────────
+ *
+ * `/finances` est cité par des notifications déjà parties, des liens d'audit et les favoris de
+ * ceux qui y passaient tous les matins. Une adresse qui meurt fait chercher un écran supprimé et
+ * conclure que le module a disparu ; celle-ci conduit là où le travail se fait.
  */
-export default async function FinancesPage() {
-  const user = await requireModule("FINANCES");
-  const [data, compta] = await Promise.all([
-    getFinanceData(user.id),
-    getComptaData(user.id),
-  ]);
-
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Finances"
-        description="Trésorerie, ce qu'il reste à traiter et l'évolution des flux. Les règlements et le livre comptable ont leur propre écran. La paie est tenue par les Ressources humaines."
-      >
-        {/* PLUS DE « FACTURES » ICI. Elles sont CENTRALISÉES DANS LEGAL, avec les contrats, les
-            devis et les bons de commande dont elles sont le dernier maillon. Deux registres pour
-            un même objet finissent par diverger — et le circuit des pièces réclamées y versait
-            déjà les factures acceptées pendant qu'on continuait de les saisir ici. */}
-        {/* L'administration DEMANDE l'actualisation ; les Finances la font. */}
-        {(user.role === "SUPER_ADMIN" || hasGlobalView(user)) && <TreasuryUpdateRequestButton />}
-      </PageHeader>
-
-      {/* Treasury KPIs */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <KpiCard label="Solde trésorerie" value={formatCurrency(data.totalBalance)} icon="Landmark" tone={data.totalBalance >= 0 ? "success" : "danger"} />
-        <KpiCard label="Encaissements (mois)" value={formatCurrency(data.encMonth)} icon="TrendingUp" tone="success" />
-        <KpiCard label="Décaissements (mois)" value={formatCurrency(data.decMonth)} icon="TrendingDown" tone="danger" />
-        <KpiCard label="À encaisser (prévu)" value={formatCurrency(data.pendingIn)} icon="Hourglass" tone="info" />
-        <KpiCard label="À régler (prévu)" value={formatCurrency(data.pendingOut)} icon="Clock" tone="warning" />
-      </div>
-
-      {data.accounts.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3">
-          {data.accounts.map((a) => (
-            <div key={a.account} className="surface flex items-center gap-3 px-4 py-2.5">
-              <span className="text-sm text-muted-foreground">{a.account}</span>
-              <span className={`font-semibold ${a.balance >= 0 ? "text-foreground" : "text-destructive"}`}>{formatCurrency(a.balance)}</span>
-            </div>
-          ))}
-          {data.openingTotal !== 0 && (
-            <span className="text-xs text-muted-foreground">dont {formatCurrency(data.openingTotal)} de solde d&apos;ouverture + flux réglés</span>
-          )}
-        </div>
-      )}
-
-      {/* Ce que le DAF doit traiter — le cockpit reste au tableau de bord : c'est de la lecture. */}
-      <ComptaCockpit d={compta} />
-
-      <div className="grid gap-3 lg:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>Évolution de la trésorerie</CardTitle><CardDescription>Solde cumulé (6 mois)</CardDescription></CardHeader>
-          <CardContent><TrendChart data={data.trend} color="#1e293b" /></CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle>Recettes vs Dépenses</CardTitle><CardDescription>Par mois (6 mois)</CardDescription></CardHeader>
-          <CardContent><RecettesDepensesChart data={data.recVsDep} /></CardContent>
-        </Card>
-      </div>
-    </div>
-  );
+export default function FinancesPage() {
+  redirect("/finances/paiements-a-faire");
 }

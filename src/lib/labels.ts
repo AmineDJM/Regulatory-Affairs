@@ -1680,17 +1680,26 @@ export const NAVIGATION: NavItem[] = [
     // de cette entrée (`match`) pour que le menu ne se désélectionne pas en y entrant.
     match: ["/moyens-generaux/annuaire"],
   },
-  // FINANCES — TROIS SOUS-MODULES, DANS LE MENU et nulle part ailleurs.
+  // FINANCES — DEUX SOUS-MODULES, DANS LE MENU et nulle part ailleurs.
   //
   // Ils ont d'abord été des onglets DANS la page : deux chemins pour la même chose, et une barre
   // d'onglets qui redisait sous chaque titre ce que le menu montrait déjà à gauche. Le menu suffit
   // — on déplie la flèche et l'on arrive directement là où l'on va travailler.
+  //
+  // LE « DASHBOARD » A DISPARU (2026-09). Il ne portait aucun geste : on y regardait la
+  // trésorerie, puis on allait travailler ailleurs — un écran d'escale entre le menu et le vrai
+  // écran. Le solde de la banque a rejoint « Banque & paiements », là où l'on décide ce qu'on
+  // paie ; le cockpit du DAF a rejoint la Comptabilité, là où il devient des écritures.
+  //
+  // L'ENTRÉE PARENTE MÈNE DONC À « Banque & paiements » : cliquer « Finances » ne doit pas
+  // conduire à une page d'accueil vide qu'il faut quitter aussitôt. `/finances` reste dans le
+  // `match` — l'adresse survit par une redirection, et le menu ne doit pas se désélectionner
+  // pour ceux qui arrivent par un lien ou un favori.
   {
-    module: "FINANCES", label: "Finances", href: "/finances", icon: "Landmark", group: "Pôles", pole: "ADMINISTRATION",
-    match: ["/finances/paiements-a-faire", "/finances/comptabilite"],
+    module: "FINANCES", label: "Finances", href: "/finances/paiements-a-faire", icon: "Landmark", group: "Pôles", pole: "ADMINISTRATION",
+    match: ["/finances", "/finances/comptabilite"],
     children: [
-      { module: "FINANCES", label: "Dashboard", href: "/finances", icon: "LayoutDashboard", group: "Pôles", pole: "ADMINISTRATION" },
-      { module: "FINANCES", label: "Paiements à faire", href: "/finances/paiements-a-faire", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION" },
+      { module: "FINANCES", label: "Banque & paiements", href: "/finances/paiements-a-faire", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION" },
       { module: "FINANCES", label: "Comptabilité", href: "/finances/comptabilite", icon: "BookOpen", group: "Pôles", pole: "ADMINISTRATION" },
     ],
   },

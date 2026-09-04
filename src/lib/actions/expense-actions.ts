@@ -205,7 +205,7 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
 /**
  * PURGER L'HISTORIQUE DES RÈGLEMENTS — réglés et annulés, et eux seuls.
  *
- * L'écran « Paiements à faire » accumulait sous la file du jour un historique qui ne servait plus
+ * L'écran « Banque & paiements » accumulait sous la file du jour un historique qui ne servait plus
  * qu'à faire défiler. Le Super Admin peut le vider.
  *
  * CE QUI N'EST PAS TOUCHÉ, et c'est ce qui rend le geste sûr : les ÉCRITURES DE TRÉSORERIE

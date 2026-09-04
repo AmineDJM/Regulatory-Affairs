@@ -11,11 +11,22 @@ import { dossierHrefByOrder } from "@/lib/expense-orders";
 import { needsBudgetChoice } from "@/lib/finance/settle-budget";
 import { pickAutoCategory } from "@/lib/budget/auto-category";
 import { ENTITY_MODULE } from "@/lib/entity-access";
+import { getFinanceData } from "@/lib/queries/finance";
+import { TreasuryUpdateRequestButton } from "../treasury-update-request";
 import { OrdersTable, type OrderRow, type BudgetChoice } from "./orders-table";
 import { PurgeHistoryButton } from "./purge-history";
 
 /**
- * PAIEMENTS À FAIRE — la file du décaissement, et elle n'a QU'UNE source.
+ * BANQUE & PAIEMENTS — ce qu'il y a en banque, et ce qu'il faut en sortir.
+ *
+ * ── POURQUOI LES DEUX SUR LE MÊME ÉCRAN ─────────────────────────────────────────────────────
+ *
+ * Le solde de trésorerie vivait sur un tableau de bord, un écran plus tôt. On y regardait ce
+ * qu'il restait en banque, puis on venait ici décider ce qu'on paie — de mémoire. C'est
+ * exactement au moment de régler qu'on veut voir le solde : il est donc en tête de la file qu'il
+ * gouverne, avec le détail par compte.
+ *
+ * ── LA FILE DU DÉCAISSEMENT N'A QU'UNE SOURCE ───────────────────────────────────────────────
  *
  * Rien n'atterrit ici qui ne soit passé par le CENTRE DE PAIEMENT. Ce n'est pas un filtre
  * d'affichage : les ordres non autorisés sont écartés en amont, si bien qu'ils n'existent ni en
@@ -130,19 +141,53 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
   const others = orders.filter((o) => o.status === "PAID" || o.status === "CANCELLED");
   const totalPending = pending.reduce((a, o) => a + toNumber(o.amount), 0);
 
+  // LA BANQUE — le même calcul que la comptabilité (`getFinanceData`) : soldes d'ouverture plus
+  // les flux réglés. Un second calcul aurait donné deux soldes, et l'on n'aurait plus su lequel
+  // croire au moment précis où il faut décider si l'on peut payer.
+  const tresorerie = await getFinanceData(user.id);
+
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Finances — Paiements à faire"
-        description="Les dépenses AUTORISÉES par le centre de paiement, à régler par la comptabilité. Le règlement génère l'écriture de trésorerie."
-      />
+        title="Finances — Banque & paiements"
+        description="Ce qu'il y a en banque, et les dépenses AUTORISÉES par le centre de paiement qu'il reste à régler. Le règlement génère l'écriture de trésorerie."
+      >
+        {/* L'ADMINISTRATION DEMANDE l'actualisation, les Finances la font — et « l'administration »
+            veut dire LE SUPER ADMIN, lui seul. Le geste notifie tous les responsables Finances :
+            ouvert plus largement, il devient une sonnerie que personne n'écoute plus.
+            La MÊME règle garde l'action serveur (`requestTreasuryUpdate`) et l'opération d'Adam
+            (`request_treasury_update`) — un bouton masqué n'est pas un contrôle d'accès. */}
+        {user.role === "SUPER_ADMIN" && <TreasuryUpdateRequestButton />}
+      </PageHeader>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {/* ───────────── LA BANQUE ─────────────
+          Le solde d'abord : c'est lui qui dit si la file ci-dessous peut être servie. */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        <KpiCard
+          label="Solde trésorerie" value={formatCurrency(tresorerie.totalBalance)} icon="Landmark"
+          tone={tresorerie.totalBalance >= 0 ? "success" : "danger"}
+        />
         <KpiCard label="Ordres à régler" value={pending.length} icon="ReceiptText" tone={pending.length > 0 ? "warning" : "default"} />
         <KpiCard label="Montant à régler" value={formatCurrency(totalPending)} icon="Banknote" tone="warning" />
         <KpiCard label="Paiements reportés" value={reportes.length} icon="CalendarClock" tone={reportes.length > 0 ? "info" : "default"} />
         <KpiCard label="Total ordres émis" value={orders.length} icon="ListChecks" tone="info" />
       </div>
+
+      {tresorerie.accounts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          {tresorerie.accounts.map((a) => (
+            <div key={a.account} className="surface flex items-center gap-3 px-4 py-2.5">
+              <span className="text-sm text-muted-foreground">{a.account}</span>
+              <span className={`font-semibold ${a.balance >= 0 ? "text-foreground" : "text-destructive"}`}>{formatCurrency(a.balance)}</span>
+            </div>
+          ))}
+          {tresorerie.openingTotal !== 0 && (
+            <span className="text-xs text-muted-foreground">
+              dont {formatCurrency(tresorerie.openingTotal)} de solde d&apos;ouverture + flux réglés
+            </span>
+          )}
+        </div>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">À régler</h2>

@@ -3951,15 +3951,16 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
   }
 
   if (toolName === "request_treasury_update") {
-    // LA MÊME PORTE QUE LE BOUTON Finances « Demander l'actualisation des soldes » —
-    // revérifiée par l'action canonique à l'exécution.
-    if (user.role !== "SUPER_ADMIN" && !hasGlobalView(user)) {
-      return { error: "La demande d'actualisation des soldes est réservée à l'administration (même règle que le bouton Finances)." };
+    // LA MÊME PORTE QUE LE BOUTON « Banque & paiements » — et il est réservé au SUPER ADMIN :
+    // le geste sonne chez tous les responsables Finances, ouvert plus largement il devient une
+    // sonnerie que personne n'écoute plus. Revérifié par l'action canonique à l'exécution.
+    if (user.role !== "SUPER_ADMIN") {
+      return { error: "La demande d'actualisation des soldes est réservée au Super Admin (même règle que le bouton « Banque & paiements »)." };
     }
     const note = asStr(input, "note") || null;
     const fields = [
       { label: "Action native", value: "Finances — « Demander l'actualisation des soldes »" },
-      { label: "Destinataires", value: "Responsables Finances (+ Super Admin) — notification avec lien vers Finances" },
+      { label: "Destinataires", value: "Responsables Finances (+ Super Admin) — notification avec lien vers la Comptabilité" },
     ];
     if (note) fields.push({ label: "Précision", value: note });
     return {

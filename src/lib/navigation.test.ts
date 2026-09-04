@@ -172,3 +172,26 @@ describe("aucune route n'a changé — les liens historiques restent valides", (
     }
   });
 });
+
+describe("Finances — deux écrans, et cliquer le module conduit au travail", () => {
+  const finances = NAVIGATION.find((n) => n.label === "Finances");
+
+  it("CLIQUER « FINANCES » MÈNE À « BANQUE & PAIEMENTS »", () => {
+    // Le tableau de bord ne portait aucun geste : on y regardait, puis on allait travailler
+    // ailleurs. L'entrée parente ne doit donc pas ouvrir une page d'accueil qu'il faut quitter.
+    expect(finances?.href).toBe("/finances/paiements-a-faire");
+  });
+
+  it("LE « DASHBOARD » N'EST PLUS UN SOUS-MODULE, et les deux qui restent sont nommés", () => {
+    const enfants = (finances?.children ?? []).map((c) => c.label);
+    expect(enfants).not.toContain("Dashboard");
+    expect(enfants).toEqual(["Banque & paiements", "Comptabilité"]);
+  });
+
+  it("L'ANCIENNE ADRESSE RESTE DANS LE PÉRIMÈTRE — le menu ne se désélectionne pas", () => {
+    // `/finances` survit par une redirection : notifications parties, liens copiés, favoris. Si
+    // l'adresse sortait du `match`, l'entrée du menu s'éteindrait en y arrivant, et l'on se
+    // croirait ailleurs que dans les Finances.
+    expect(finances?.match ?? []).toContain("/finances");
+  });
+});
