@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, Loader2 } from "lucide-react";
 import { setMessagingStatus } from "@/lib/actions/messaging-actions";
-import { CHAT_STATUS_LABEL, CHAT_STATUSES, type ChatStatus } from "@/lib/messaging";
+import { CHAT_STATUS_LABEL, CHAT_STATUSES, type ChatStatus } from "@/lib/messaging-ui";
 import { Input } from "@/components/ui/input";
 
 const DOT: Record<ChatStatus, string> = {

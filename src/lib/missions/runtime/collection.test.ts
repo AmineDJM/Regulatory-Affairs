@@ -164,3 +164,19 @@ describe("le recensement des listes", () => {
     expect(cheminsDeListes([1, 2, 3])).toEqual([]);
   });
 });
+
+describe("collection — plusieurs listes ne sont pas toujours une ambiguïté", () => {
+  it("la liste d'enregistrements du premier niveau l'emporte sur la métadonnée imbriquée", () => {
+    const amont = { resultats: [{ id: "a", nom: "Contrat" }, { id: "b", nom: "Facture" }], couverture: { sourcesInterrogees: ["drive", "legal"] }, total: 2 };
+    const c = resoudreCollection(amont, "documents");
+    expect(c.kind).toBe("CORRIGEE");
+    if (c.kind === "CORRIGEE") { expect(c.chemin).toBe("resultats"); expect(c.valeur).toHaveLength(2); }
+  });
+  it("à même profondeur, les objets l'emportent sur les étiquettes ; deux listes d'objets restent ambiguës", () => {
+    const c1 = resoudreCollection({ tags: ["x", "y"], lignes: [{ id: 1 }] }, "items");
+    expect(c1.kind).toBe("CORRIGEE");
+    if (c1.kind === "CORRIGEE") expect(c1.chemin).toBe("lignes");
+    const c2 = resoudreCollection({ a: [{ id: 1 }], b: [{ id: 2 }] }, "items");
+    expect(c2.kind).toBe("AMBIGU");
+  });
+});

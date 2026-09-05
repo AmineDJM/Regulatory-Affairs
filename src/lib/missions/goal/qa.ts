@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { EtatMission } from "@/lib/missions/runtime/store";
 import { controlerQualite, type EtapeObservee, type RapportQA } from "@/lib/missions/goal/evaluate";
-import { EFFECT_RANK, capabilityMeta } from "@/lib/missions/registry/capability-meta";
+import { EFFECT_RANK, capabilityMeta, type Effect } from "@/lib/missions/registry/capability-meta";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -77,10 +77,19 @@ export function destinatairesDe(input: Record<string, unknown>): string[] {
   return out;
 }
 
-const estEffetExterne = (capability: string | null): boolean => {
-  if (!capability) return false;
-  const m = capabilityMeta(capability);
-  return EFFECT_RANK[m.effect] >= EFFECT_RANK.EXTERNAL_COMMUNICATION;
+/**
+ * « CETTE ÉTAPE A-T-ELLE UN EFFET EXTERNE ? » — le REÇU d'abord, le registre nu ensuite.
+ *
+ * Le reçu porte l'effet que le catalogue du composeur a déclaré au moment de l'appel : c'est
+ * l'observation. `capabilityMeta(nom)` sans liste d'écritures rend le défaut prudent
+ * (EXTERNAL_COMMUNICATION) pour toute lecture qu'aucun préfixe ne reconnaît — juste pour
+ * demander un accord, faux pour juger un effet : une lecture `find_documents` se voyait
+ * réclamer un reçu d'intent, et le contrôle comptait une anomalie sur une mission sans écriture.
+ */
+const estEffetExterne = (s: { capability: string | null; recu?: { effect: Effect } | null }): boolean => {
+  if (!s.capability) return false;
+  const effet = s.recu?.effect ?? capabilityMeta(s.capability).effect;
+  return EFFECT_RANK[effet] >= EFFECT_RANK.EXTERNAL_COMMUNICATION;
 };
 
 // MÊME VUE QUE `conclure` : les obligations du plan COURANT. Une étape contournée par un
@@ -136,7 +145,7 @@ export async function controleComplet(mission: EtatMission): Promise<RapportComp
   const multiples: string[] = [];
   for (const s of mission.steps) {
     if (s.forEach) continue; // le modèle n'envoie rien : ses filles le font
-    if (!estEffetExterne(s.capability)) continue;
+    if (!estEffetExterne(s)) continue;
     const dests = destinatairesDe(s.input);
     if (dests.length > 1) multiples.push(s.key);
     for (const d of dests) {
@@ -174,9 +183,9 @@ export async function controleComplet(mission: EtatMission): Promise<RapportComp
   // externe, seul le second compte — c'est la différence entre « on a appelé l'envoi » et
   // « le fournisseur a accepté le message ».
   const sansRecu = mission.steps
-    .filter((s) => s.status === "DONE" && !s.forEach && estEffetExterne(s.capability) && !s.receipt)
+    .filter((s) => s.status === "DONE" && !s.forEach && estEffetExterne(s) && !s.receipt)
     .map((s) => s.key);
-  if (mission.steps.some((s) => estEffetExterne(s.capability))) {
+  if (mission.steps.some((s) => estEffetExterne(s))) {
     constats.push({
       controle: "RECUS",
       ok: sansRecu.length === 0,

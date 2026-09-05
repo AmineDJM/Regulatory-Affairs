@@ -32,7 +32,7 @@ import { createDossierRecord } from "@/lib/dossiers-core";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
 import { createEvent } from "@/lib/actions/event-actions";
 import { createPromoMaterial } from "@/lib/actions/promo-material-actions";
-import { findDirectConversation } from "@/lib/messaging";
+import { envoyerMessageDirect } from "@/lib/messaging";
 import { getMailAccount, listMessages, getMessage } from "@/lib/mail";
 import {
   type ClaudeMessage, type ClaudeContentBlock, type ClaudeToolDef,
@@ -5909,17 +5909,12 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     const recipientId = await activeUserId(payload.recipientId);
     if (!recipientId || recipientId === user.id) return { ok: false, error: "Destinataire invalide." };
 
-    let convId = await findDirectConversation(user.id, recipientId);
-    if (!convId) {
-      const conv = await prisma.conversation.create({
-        data: { type: "DIRECT", createdById: user.id, members: { create: [{ userId: user.id }, { userId: recipientId }] } },
-        select: { id: true },
-      });
-      convId = conv.id;
-    }
-    const msg = await prisma.message.create({ data: { conversationId: convId, senderId: user.id, kind: "TEXT", body }, select: { createdAt: true } });
-    await prisma.conversation.update({ where: { id: convId }, data: { lastMessageAt: msg.createdAt } });
-    await prisma.conversationMember.updateMany({ where: { conversationId: convId, userId: user.id }, data: { lastReadAt: msg.createdAt } });
+    // UN SEUL CHEMIN D'ÉCRITURE (`envoyerMessageDirect`) : conversation, message, et LE FAIT
+    // `MESSAGE_RECEIVED` — le message d'une mission à un collègue, et sa réponse plus tard, sont
+    // des événements que d'autres missions peuvent attendre.
+    const { conversationId: convId } = await envoyerMessageDirect({
+      senderId: user.id, senderName: user.name, senderEmail: user.email, recipientId, body,
+    });
     await notifyUser({ userId: recipientId, type: "GENERIC", title: "Nouveau message", body: body.slice(0, 80), link: "/messages" });
     await recordAudit({ actorId: user.id, action: "CREATE", module: "Assistant IA", entityId: convId, summary: `Message envoyé via l'assistant à ${payload.recipientName ?? "un collègue"}` });
     return { ok: true, message: `Message envoyé à ${payload.recipientName ?? "votre collègue"}.`, link: "/messages", revalidate: ["/messages"] };

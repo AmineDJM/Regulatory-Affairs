@@ -55,6 +55,23 @@ function resumer(texte: string): string {
 
 const estEcriture = (n: string): boolean => RESOLVER_WRITE_NAMES.has(n);
 
+/**
+ * LA FORME DE SORTIE DES CAPACITÉS QUI PRODUISENT DES LISTES — dite au planificateur, pas devinée.
+ *
+ * Un éventail se déploie sur un CHEMIN (`forEachPath`). Le planificateur écrivait « documents »
+ * pour une capacité qui rend `resultats`, et l'éventail refusait de choisir entre deux listes.
+ * Nommer la liste dans le résumé coûte quelques mots et supprime la devinette. Ce tableau est
+ * du SAVOIR (la forme réelle des sorties), pas une consigne : il se corrige en le lisant.
+ */
+const SORTIES: Record<string, string> = {
+  find_documents: "rend { resultats: [{ id, titre, … }], couverture } — éventail sur « resultats »",
+  search_everything: "rend { resultats: [{ famille, titre, reference, … }], total } — éventail sur « resultats »",
+  directory_list: "rend { salaries: [{ id, nom, emails, … }], total } — éventail sur « salaries »",
+  list_my_tasks: "rend { items: [{ id, titre, … }], count } — éventail sur « items »",
+  gmail_search: "rend { messages: [{ id, threadId, objet, … }] } — éventail sur « messages »",
+  search_drive: "rend { items: [{ id, nom, … }], count } — éventail sur « items »",
+};
+
 export interface CatalogueReel extends CapabilityCatalog {
   /** Le nombre de capacités ouvertes à cette personne — mesuré, pour l'observabilité. */
   readonly taille: number;
@@ -112,7 +129,8 @@ export function catalogueDe(user: CurrentUser, opts: OptionsCatalogue = {}): Cat
       domain: m.domain,
       effect: m.effect,
       batchable: m.batchable,
-      summary: resumer(labels.get(d.name) ? `${labels.get(d.name)}. ${d.description}` : d.description),
+      summary: resumer(labels.get(d.name) ? `${labels.get(d.name)}. ${d.description}` : d.description)
+        + (SORTIES[d.name] ? ` [${SORTIES[d.name]}]` : ""),
     };
   });
 

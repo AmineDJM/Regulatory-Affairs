@@ -5,6 +5,7 @@ import { EntityType, type ConvMemberRole, type ConvNotifyLevel } from "@prisma/c
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { emettreMessageRecu } from "@/lib/events/messaging-events";
 import { notifyUser } from "@/lib/notify";
 import { resolveDriveAccess } from "@/lib/drive";
 import { MAX_ATTACHMENTS, recipientsToGrant } from "@/lib/messaging-attachments";
@@ -384,6 +385,11 @@ export async function sendMessage(
   await notifyRecipients({
     conversationId, sender: user, members, mentionIds,
     body: preview(body, created.kind, pieces > 0, 120),
+  });
+  // LE FAIT : une mission qui attend la réponse de cette personne se réveille ici.
+  await emettreMessageRecu({
+    conversationId, messageId: created.id, senderId: user.id, senderName: user.name, senderEmail: user.email,
+    body, recipientIds: members.map((m) => m.userId), hasAttachments: pieces > 0,
   });
 
   revalidatePath("/messages");

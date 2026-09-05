@@ -2842,6 +2842,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Frontière Adam ↔ ERP** | `platform/contract.ts` (les 4 verbes, `Principal`, `PlatformQuery`, `PlatformCommand`, `DomainEvent` — **zéro import**) ; `platform/event-bus.ts` (`publish`/`subscribe`, abonnés isolés, mémoire bornée, rejeu) ; `platform/events.ts` (`emit` + catalogue fermé de 17 faits) ; `platform/in-process/adapter.ts` (**le seul pont** : `principalOf`, `query`, `command` → `performAction`, `authorize`, `destinationsOf` → `lib/nav-access.ts`) ; `platform/boundary-scan.ts` + `boundary.test.ts` (le **cliquet** : dette plafonnée à 430, `src/platform/` à zéro) ; `scripts/adam-boundary.ts` (`npm run adam:boundary`). Côté Adam : `lib/assistant/platform/change-feed.ts` (projection « quoi de neuf », branchée sur `what_changed`). ERP instrumenté : `hr-actions.ts`, `regulatory-actions.ts`, `comms/outbound.ts`. |
 | **Adam — aiguillage & liste courte d'outils** | `lib/assistant/context/router.ts` (`routeQuery` : 5 classes de route, 11 domaines, plancher de confiance) ; `tool-shortlist.ts` (`TOOL_DOMAINS` — les 77 outils classés —, `ALWAYS_ON` socle de 4, `shortlistTools`) ; **`rollout.ts`** (`decideRollout` : `FAST_READ` / `SHORTLIST` / `LEGACY`, `SAFE_READ_TOOLS` liste blanche, `bucketOf` FNV-1a, garde `recordOutcome`/`guardStatus`/`readyForNextStep`) ; `discovery.ts` (`runDiscovery` — l'échappatoire `list_more_tools`) ; `shadow.ts` (mesure) ; `bench.ts` + `golden-corpus.ts` (TRAIN) + `holdout-corpus.ts` (**jamais retouché**). Branché dans `lib/assistant.ts` sur **les deux** boucles (`runAssistant` et `runAssistantStream`), via `assistantToolsFor(user)`. |
 | **Adam — pré-lectures, cache de prompt, prompt compact, coût** | `lib/assistant/pre-lectures.ts` (décision PURE + exécution bornée : recherche fédérée + documentaire avant le modèle, seconde vague fiche/document, recette réunion) ; `lib/assistant/context/tour.ts` (le contexte du tour voyage avec le message — le préfixe reste cachable) ; `lib/assistant/context/fast-args-contract.test.ts` (clés écrites par le routeur ⊆ clés lues par l'outil) ; `lib/assistant/context/tool-resolver.ts` (niveaux A/B/C ; en C les écritures ne partent que si la phrase nomme un geste — `nommeUnGeste` dans `router.ts` ; description de la découverte par tour) ; `lib/assistant/regulatory-read.ts` (`regulatory_knowledge` : le savoir ANPP est un outil, plus un bloc de prompt) ; `lib/models/telemetry.ts` (contexte de tour, puits d'appels, phases) ; `platform/in-process/telemetry/usage-sink.ts` (une ligne `ModelCallLog` par appel, tamponnée ; `journaliserSessionVocale`) ; `platform/in-process/telemetry/usage-stats.ts` (agrégats de coût du centre de contrôle IA) ; `lib/assistant/voice/cost.ts` (prix d'une session vocale) ; `lib/models/registry.ts` (tarifs publics datés, `ROLE_VOIX`) ; `platform/in-process/missions/crash-between.test.ts` (effet fait, reçu perdu → zéro doublon) ; `scripts/bench/seed-adam-bench.ts` + `adam-live-bench.ts` (`npm run adam:bench:seed`, `npm run adam:bench`) ; tables dans `bench-out/`. |
+| **Adam — chef de cabinet : missions inédites, attention, relances** | `scripts/bench/adam-mission-bench.ts` (neuf missions vagues via `lancerMission`, carte de score par mission, attendus vérifiés en base, coût par mission ; `BENCH_ONLY`, `BENCH_TOURS`) ; `platform/in-process/missions/situation.ts` (enquête) ; `lib/missions/attention/policy.ts` + `platform/in-process/missions/attention.ts` (porte d'attention) ; `platform/in-process/missions/relance.ts` (échelle de relances) ; `lib/messaging.ts` (`envoyerMessageDirect`, l'unique chemin d'écriture d'un message direct ; module SERVEUR — les écrans importent la part pure `lib/messaging-ui.ts`) ; `lib/events/messaging-events.ts` (`MESSAGE_RECEIVED`) ; `lib/missions/registry/capability-meta.ts` (`AUTONOMES`). |
 | **Adam — la coque de son bureau (et sa porte de sortie)** | Groupe de routes `app/(chief)/layout.tsx` : coque délibérément VIDE — ni menu latéral, ni barre supérieure, ni barre d'onglets, ni palette, ni bandeaux. `components/chief/{chief-workspace,chief-header,chief-home}.tsx` + `app/chief.css` (jeu de jetons `--chief-*` propre à Adam). **La sortie** : `components/chief/module-switcher.tsx` — une icône dans l'en-tête ouvre la liste des modules que CETTE personne peut ouvrir (champ de filtre, groupé par pôle, Échap / clic dehors referment). Les destinations arrivent par le **contrat de plateforme** (`navigation.destinations` → `in-process/adapter.ts` → `lib/nav-access.ts`), jamais par un import du menu de l'ERP : c'est ce qui garde le cliquet de frontière à 430. Le même `navigationFor` sert la barre latérale de l'ERP — une seule vérité sur « qui a le droit d'aller où ». Tests : `platform/navigation-destinations.test.ts` (dont : une entrée fusionnée mène au premier onglet AUTORISÉ, donc `/ad-pro` pour l'admin et `/congress-international` pour le délégué médical). |
 | **Adam — espace de travail génératif** | `lib/assistant/workspace/protocol.ts` (types de blocs + `WORKSPACE_LIMITS`) ; `compose.ts` (`composeWorkspace` — table de correspondance **fermée** : un outil absent ne compose RIEN, le repli est le texte ; plus la porte `_blocs`, **revalidée champ par champ**, par laquelle une lecture déclare ce qu'elle montre) ; `sheet.ts` (classeur → lignes, ExcelJS, **sans dépendance ERP**) ; `emit.ts` (helpers **purs** de composition : gestes, retards, métriques de charge, étapes) ; `components/chief/workspace/blocks.tsx` + `blocks.css` (feuille autonome à valeurs de repli : les blocs servent aussi `/assistant`, qui ne charge pas `chief.css`) ; `preview-planche.tsx` (la planche de revue visuelle, servie par `/chief-of-staff?apercu=blocs` **uniquement** si `ADAM_BLOCK_PREVIEW=1` — elle n'a pas d'adresse en production). Blocs : `people` (fiche riche : statut, métriques, coordonnées avec provenance), `directory`, `mail`, `agenda`, `queue` (**avec ses boutons Approuver / Refuser**), `record`, `table` (**gestes par ligne**, cartes empilées sur mobile), `timeline`, `progress` (jauges), `document` (PDF, image, feuille), `dossier` (faits + frise de circuit + pièces + participants + activité), `email` (le message avant l'envoi). Événement de flux `{ type: "workspace" }` ; stocké sur le message dans `assistant-chat.tsx`, qui fournit `WorkspaceAskProvider` — un clic écrit une phrase dans la conversation, il n'exécute rien. La prop `canvas` (défaut **faux**) rend le tour d'Adam **sans bulle** ; `/assistant` reste inchangé. |
 | **Adam — montrer (et non lire)** | `lib/assistant/show-tools.ts` : `show_document` (PDF/contrat en visionneuse, image, classeur rendu en tableau — passe par le **contrat** `document.show`, servi par `platform/in-process/adapter.ts`, seul autorisé à toucher Drive, stockage et droits) et `show_table` (colonnes et tri **à la demande** : le modèle choisit la vue, le serveur relit les lignes à la source canonique — sources fermées dans `TABLE_SOURCES`). À ne pas confondre avec `read_document`, qui extrait du TEXTE pour le modèle. |
@@ -2953,10 +2954,10 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 
 | Fichier | Rôle |
 |---|---|
-| `ports.ts` | Les seuls seams : catalogue de capacités, exécutant, **raisonneur**, horloge. Le runtime n'importe JAMAIS `assistant/` ni `models/` |
+| `ports.ts` | Les seuls seams : catalogue de capacités, exécutant, **raisonneur**, horloge, **enquêteur** (`Situation`) et **porte d'attention** (`PorteAttention`, signaux typés). Le runtime n'importe JAMAIS `assistant/` ni `models/` |
 | `model/roles.ts` | §4 — la politique de modèles en RÔLES métier (`CHEAP_WORKER` → `EXCEPTIONAL_PLANNER`). Aucun nom de modèle dans le métier |
 | `planner/schema.ts` | Le JSON Schema STRICT du plan : `additionalProperties: false`, `required` exhaustif, aucun objet libre |
-| `planner/plan.ts` | Objectif → capacités résolues → schéma imposé → plan RECONSTRUIT et typé. Refuse un plan sans étape ou sans critère. Rend `metriques.voie` (`DIRECTE`/`MODELE`) |
+| `planner/plan.ts` | Objectif → capacités résolues → schéma imposé → plan RECONSTRUIT et typé. Refuse un plan sans étape ou sans critère. Rend `metriques.voie` (`DIRECTE`/`MODELE`). `rendreSituation` : la situation établie par le code (entités, faits, acteurs, sources en échec) rendue au planificateur ; `capacitesImposees` : les capacités du domaine imposées au schéma |
 | `planner/direct.ts` | Le chemin DIRECT : le CODE planifie sans modèle — TROIS formes : lecture nue à capacité dominante ; RECHERCHE multi-sources (terme cité « … » → N recherches parallèles + conclusion, critères tout-`[REGLE:…]`, 0 juge) ; FICHE ciblée v2 (terme cité + 1-2 familles nommées → RECHERCHER → CIBLER (ids recopiés) → LIRE (éventail `read_document`/`inspect_record`, repli recherche-seule) → RÉPONDRE ; 3 règles + 1 critère sémantique JUGÉ, §28). Verrous R1–R5 / F1–F6 ; « lecture nue » exclut les contrats CONTENU ; sur doute, chaque forme RENONCE au planner |
 | `planner/validate.ts` | La revérification de conformité, utilisée en production ET par le raisonneur scripté des bancs |
 | `registry/resolve.ts` | §3 — pas de déversement d'outils : un tour de rôle par domaine, borné, mesuré (`plannerCapabilitiesExposed`) |
@@ -2969,12 +2970,12 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | `agent/account.ts` | L'espace d'Adam dans l'ERP — SUPER_ADMIN, `isSystem`, et AUCUNE porte de connexion |
 | `runtime/state.ts` | Machine à états mission + étape, pure et exhaustivement testée |
 | `runtime/store.ts` | Persistance, matérialisation ré-entrante, journal (`MissionEvent`), clé d'idempotence |
-| `runtime/engine.ts` | Le moteur : réservation, reprise, retry, éventail, parallélisme borné, conclusion |
+| `runtime/engine.ts` | Le moteur : réservation, reprise, retry, éventail, parallélisme borné, conclusion. `dependanceSatisfaite` : une dépendance MORTE laisse passer une synthèse qui a du matériau, jamais une capacité ni une synthèse sans rien ; `bilanDe` + signaux d'attention à la conclusion ; `metaDe` : l'effet d'un reçu vient du catalogue du composeur |
 | `runtime/interpolate.ts` | Injection d'un élément dans une entrée — pauvre par dessein, sans traversée de prototype |
 | `planner/contract.ts` | Ce que le planner a le droit de produire, et les limites opérationnelles |
 | `compiler/graph.ts` | Tri topologique, vagues, cycles, ancêtres |
 | `compiler/compile.ts` | Le refus (capacité inconnue/interdite, cycle, forme, **cardinalité**) — et la RÉPARATION : clés hors alphabet ASSAINIES (références réécrites), règles à étape fantôme réparées à candidat unique ou déclassées, WAIT_INPUT converti en synthèse sous plafond de lecture (§28). **Créer la mission est un invariant** |
-| `registry/capability-meta.ts` | Effet, idempotence, groupabilité, latence, confirmation — défaut prudent |
+| `registry/capability-meta.ts` | Effet, idempotence, groupabilité, latence, confirmation — défaut prudent SANS liste d'écritures, `READ` avec ; `AUTONOMES` : les écritures autonomes de la conversation (rappels, souvenirs, décisions, engagements, dépôt Drive interne, export) exécutées par le chemin des lectures sous garde d'idempotence |
 | `policy/guard.ts` | §29 : l'auto-escalade est un refus de compilation |
 | `approval/scope.ts` | L'empreinte immuable d'un périmètre (§33) |
 | `approval/gate.ts` | La porte fermée par défaut + la notification via le VAPID existant |
@@ -2986,6 +2987,8 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | `recovery/sources.ts` | Où chercher ensuite, par type de cible (§77) |
 | `commitments/satisfy.ts` | Une promesse se ferme quand le fait arrive ; relance sans harcèlement |
 | `commitments/proactivity.ts` | Cinq facteurs : agir / proposer / se taire |
+| `attention/policy.ts` | La POLITIQUE D'ATTENTION, pure : classe un signal (`SILENCE` / `JOURNAL` / `INFO` / `ATTENTION` / `ARBITRAGE`), choisit les canaux, déduplique (`cleDe`), cadence par niveau, plafond quotidien, et compose le message exécutif depuis les reçus (Résultat / Actions / À surveiller ; Problème / Contexte / Recommandation / Décision) |
+| `runtime/collection.ts` | La collection d'un éventail : chemin explicite, sinon UNE liste ; deux listes → `preferer` (la moins profonde, puis celle d'objets), sinon AMBIGU dit |
 | `templates/registry.ts` | OBSERVED → CANDIDATE → APPROVED : pas d'apprentissage silencieux |
 | `memory/budget.ts` | Composition sous budget + trois couches incompressibles |
 | `memory/compact.ts` | Compression progressive avec refus si une valeur critique est perdue |
@@ -3001,16 +3004,19 @@ l'ERP, et la racine de composition du runtime (`boundary-scan.ts` l'exempte, par
 |---|---|
 | `reasoner.ts` | Remplit le port `Reasoner` avec la vraie passerelle. Traduit les rôles métier en rôles techniques ; aucun nom de modèle |
 | `catalog.ts` | Le catalogue de capacités de CETTE personne, calculé par le même code que la conversation |
-| `runner.ts` | L'exécutant : lectures par `executeReadTool`, écritures par intent + clé d'idempotence + reçu. Classe les échecs DURABLES d'une lecture (402 facturation, 401/403, 404 objet) en non-retryable + court-circuit par cible — un refus de facturation ne se « répare » plus par du raisonnement |
-| `runtime.ts` | `lancerMission` / `avancerMission` — assemblage complet, une retouche de plan sur refus du compilateur. Porte de replan : un juge qui ne suggère AUCUN recours (`recoursSuggere: null`) → `REPLAN_SKIPPED`, pas d'appel de planificateur |
+| `runner.ts` | L'exécutant : lectures par `executeReadTool`, écritures par intent + clé d'idempotence + reçu. Classe les échecs DURABLES d'une lecture (402 facturation, 401/403, 404 objet) en non-retryable + court-circuit par cible — un refus de facturation ne se « répare » plus par du raisonnement. Les écritures AUTONOMES passent par le chemin des lectures sous garde `AUTONOMOUS_EFFECT` (relue au journal : jamais deux rappels à la reprise) ; une écriture autonome qui rend une phrase est un échec |
+| `runtime.ts` | `lancerMission` / `avancerMission` — assemblage complet, une retouche de plan sur refus du compilateur. Porte de replan : un juge qui ne suggère AUCUN recours (`recoursSuggere: null`) → `REPLAN_SKIPPED`, pas d'appel de planificateur. Enquête avant plan (`situation`) ; panne transitoire du planificateur → talon + `PLANNING_DEFERRED`, repris par le battement (`estPanneTransitoire`) ; signaux d'attention à l'approbation, à la question, au changement de plan ; `ADAM_PLANNER_ROLE` pour mesurer un autre rôle |
+| `situation.ts` | L'ENQUÊTE : la situation d'un objectif composée par le code sous délai — entités, recherche fédérée, fiches, changements récents, documents, engagements, acteurs — sous les droits de la personne |
+| `attention.ts` | La porte d'attention réalisée : classement, dédup au journal (`NOTIFIED`), plafond du jour, notification/push/e-mail au dirigeant |
+| `relance.ts` | L'ÉCHELLE DE RELANCES : Adam relance lui-même (message interne signé du compte système, un par jour), la hiérarchie au 3ᵉ barreau, le dirigeant seulement au-delà ; une partie externe va directement au dirigeant ; `relancerPersonne` partagé avec les engagements |
 | `provider-waterfall.ts` | La cascade instrumentée du smoke : voie du plan, appels chevauchants, facteur de parallélisme, premier résultat utile — les métriques §18 du chantier latence |
 | `deep-smoke.ts` | Le Deep Live Smoke (`npm run adam:smoke:deep`) : 60-80 missions générées depuis les VRAIES données de l'ERP (~19 genres), même harnais `jouer` que le smoke fournisseur, verdicts SUCCÈS/HONNÊTE/DÉFAUT, nettoyage borné à ses missions. Mode PALIERS (`DEEP_SMOKE_PALIERS="3,5,10"`) : montée en charge par mesure, arrêt auto si défauts ↑ ou P95 ×2, concurrence retenue = maximum SAIN observé ; `carteDeScore` §71 (E2E, création, routes, non-triviales anti-triche, appels gaspillés, jetons/succès) au rapport et au JSON |
-| `sweep.ts` | Le battement des missions : douze par passage, droits RELUS en base, attentes échues signalées une fois |
+| `sweep.ts` | Le battement des missions : douze par passage, droits RELUS en base, attentes échues journalisées une fois puis RELANCÉES par l'échelle (`relancerAttente`) à chaque battement, idempotent dans la journée |
 | `memory.ts` | Découpage en épisodes, vieillissement par le calendrier, contexte composé sous budget |
-| `commitments.ts` | Les promesses en retard : espacement croissant, et le silence quand l'identité n'est pas canonique |
+| `commitments.ts` | Les promesses en retard : espacement croissant, le silence quand l'identité n'est pas canonique, et la relance du PROMETTANT par Adam (échelle) — le dirigeant seulement quand l'échelle est épuisée ou sans compte interne |
 | `control.ts` | Les gestes de conduite vus d'Adam — sans accorder ni fournir, qui exigent un clic |
 | `fake-reasoner.ts` | Le seul substitut des bancs : il VALIDE chaque réponse scriptée contre le schéma réellement demandé |
-| `e2e.test.ts` `memory.test.ts` `commitments.test.ts` | Les bancs de bout en bout, depuis les vrais points d'entrée |
+| `e2e.test.ts` `memory.test.ts` `commitments.test.ts` `relance.test.ts` `situation.test.ts` `attention.test.ts` `launch-resilience.test.ts` `autonomous-dedup.test.ts` `message-wake.test.ts` | Les bancs de bout en bout, depuis les vrais points d'entrée |
 
 ### Information Fabric (`src/lib/fabric/`) — façade L2
 
@@ -3583,6 +3589,92 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Adam, chef de cabinet — lot 1 : l'enquête avant le plan, l'attention protégée, la relance par Adam lui-même (2026-09)
+
+**La question qui gouverne ce chantier** : « puis-je confier un objectif à Adam et arrêter d'y penser jusqu'à
+ce qu'il ait besoin de moi ou qu'il l'ait terminé ? ». Le lot 1 répond sur cinq propriétés, chacune tenue par
+du code et un test, et il est MESURÉ par un banc de missions inédites (`scripts/bench/adam-mission-bench.ts`) :
+neuf missions vagues d'un dirigeant — « occupe-toi du dossier Trastuzumab », « la facture 2026-0891 de
+l'Imprimerie », « surveille l'appel d'offres PCH 2026/14 », « les engagements du comité », et la phrase-phare
+qui enchaîne neuf gestes (statuts à mettre à jour d'urgence, export Excel, mail au dirigeant, tickets de caisse,
+point bloquants chaque dimanche, réunion du jeudi, budget, annuaire) — lancées par `lancerMission` sur le vrai
+fournisseur, avec pour chacune une carte : enquête, plan, lectures/écritures, attentes, notifications, effets,
+coût, et une liste d'attendus vérifiés en base. Baseline : 9 attendus sur 35 (26 %). Après le lot : 9/14 (64 %)
+sur les quatre missions planifiées, puis 9/17 (53 %) sur cinq — trois missions n'ont jamais été planifiées parce
+que la planification dure 54 à 93 s et que le mandataire HTTP de cet environnement coupe à 60 s. C'est dit tel
+quel : la latence de planification est la limite suivante, pas un détail.
+
+**1. L'enquête avant le plan** (`platform/in-process/missions/situation.ts`, `planner/plan.ts`). Une mission
+vague partait au planificateur avec la seule phrase du dirigeant, et le plan commençait par lui demander ce que
+l'ERP savait déjà. Désormais le CODE enquête d'abord, sous délai (9 s) : entités reconnues, recherche fédérée,
+fiches (`inspect_record`), changements des quatorze derniers jours (`what_changed`), documents, engagements
+ouverts, acteurs concernés — sous les droits de la personne (une déléguée ne voit pas les dossiers réglementaires).
+La situation est rendue au planificateur en clair (« SITUATION ÉTABLIE PAR LE CODE — ne les redemande à
+personne », « ACTEURS CONCERNÉS, à qui s'adresser AVANT de solliciter le dirigeant ») et impose les capacités du
+domaine ; la consigne 12 dit la règle : le dirigeant n'est pas la première source. Journal `INVESTIGATED`,
+détail `enquete` dans `CREATED`.
+
+**2. Le lancement ne se perd plus** (`runtime.ts`). Une panne transitoire du fournisseur pendant la
+planification (HTTP 5xx, coupure du mandataire, délai) ne rend plus une erreur : la mission-talon est créée,
+`PLANNING_DEFERRED` est journalisé, la conversation dit « la demande est enregistrée, je vous préviens quand la
+mission aboutit », et le battement reprend la planification (`finaliserLancementDifere`, `rattraperLancementsPerdus`).
+`estPanneTransitoire` distingue la panne de la faute durable ; un sabotage l'a neutralisée — trois tests tombent.
+
+**3. La porte d'attention** (`lib/missions/attention/policy.ts` — pur ; `platform/in-process/missions/attention.ts`
+— le pont). Le moteur ne pousse plus une notification par événement : il émet un SIGNAL typé
+(`MISSION_COMPLETED`, `MISSION_PARTIAL`, `MISSION_BLOCKED`, `APPROVAL_REQUIRED`, `QUESTION`, `WAIT_OVERDUE`,
+`PLAN_CHANGED`, `BUDGET_HOLD`…) par le port `PorteAttention`, et la politique CLASSE : `SILENCE`, `JOURNAL`,
+`INFO`, `ATTENTION`, `ARBITRAGE`. Le niveau choisit les canaux (journal seul ; notification ; + push ; + e-mail
+au dirigeant), une clé `kind:mission:vN:étape` déduplique, une cadence par niveau et un plafond de quinze
+signaux par jour dégradent en journal ce qui déborde. Le message est composé par le code depuis les reçus —
+« Mission terminée — … : Résultat / Actions / Livrables / À surveiller », « Bloqué — … : Problème / Contexte /
+Recommandation / Décision demandée » — en moins de 700 caractères. Branchée dans `conclure` (bilan des reçus),
+à l'ouverture d'une approbation, à une question d'étape, à un changement de plan, aux attentes échues.
+
+**4. Adam relance lui-même** (`platform/in-process/missions/relance.ts`, `commitments.ts`, `sweep.ts`). Une
+attente échue produisait un push au dirigeant : « attend toujours. Voulez-vous relancer ? » — l'agent passif,
+qui transfère la micro-décision la plus évidente. L'échelle : barreau 1 et 2, un message interne signé Adam
+(compte système) à la personne attendue, un par vingt-quatre heures ; barreau 3, sa hiérarchie
+(`Employee.managerId`) ; au-delà seulement, le dirigeant, par la porte d'attention, avec le nombre de relances
+faites. Une partie EXTERNE n'est jamais écrite depuis le battement : le dirigeant décide. Les engagements en
+retard passent par la même échelle (le promettant d'abord ; le dirigeant quand l'échelle est épuisée ou sans
+compte interne). Tout est relu au journal (`NUDGED`) : aucun harcèlement au redémarrage. Le message part par
+`envoyerMessageDirect` (`lib/messaging.ts`) — l'UNIQUE chemin d'écriture d'un message direct, partagé par
+l'écran, l'assistant et Adam — qui inscrit le fait `MESSAGE_RECEIVED` (`lib/events/messaging-events.ts`) au
+registre canonique : une mission peut attendre « la réponse de Raihana » comme elle attend un e-mail.
+
+**5. Le moteur, trois défauts mesurés par le banc.** (a) 62 des 107 capacités « non écriture » du catalogue
+partaient en `EXTERNAL_COMMUNICATION` par défaut prudent — `resolve_person`, `find_documents`, `what_changed`… —
+donc une approbation SENSITIVE demandée pour une lecture, puis « action non prise en charge » sur le chemin des
+intents ; la première mission inédite s'est bloquée là. `registry/capability-meta.ts` : sous liste d'écritures,
+une lecture est `READ` ; les ÉCRITURES AUTONOMES (`AUTONOMES` : rappels, souvenirs, décisions, engagements,
+dépôt Drive interne, export…) sont exécutées par le chemin des lectures sous une garde d'idempotence
+(`AUTONOMOUS_EFFECT` au journal — la reprise après panne ne crée pas deux rappels), et une écriture autonome
+qui rend une phrase au lieu d'une structure est un ÉCHEC (« plan_reminder n'a rien écrit »), plus une étape
+DONE. (b) Une lecture en échec définitif tenait en otage l'analyse, l'accord et le contrôle d'une enquête de
+facture : `dependanceSatisfaite` — une dépendance MORTE laisse passer un nœud de synthèse qui a DU MATÉRIAU
+(un autre amont abouti) ; jamais une capacité, jamais une synthèse sans rien (« conclure malgré tout », c'est
+inventer — la mission passe BLOCKED et se replanifie). (c) Un éventail sur un résultat portant deux listes
+(`resultats` et `couverture.sourcesInterrogees`) était AMBIGU : `preferer` choisit la moins profonde, puis celle
+d'objets ; les briefs du catalogue disent leur SORTIE (« éventail sur « resultats » »). Et l'effet d'un REÇU se
+lit désormais dans le catalogue du composeur (`metaDe`), plus dans le registre nu : le banc d'acceptance
+(`CHEAT-1`) a montré une lecture `find_documents` reçue comme `EXTERNAL_COMMUNICATION` et une mission sans
+écriture jugée « au-delà du plafond ANALYZE ».
+
+**Et la frontière client/serveur, une fois de plus.** `envoyerMessageDirect` a fait de `messaging.ts` un module
+qui inscrit des faits — donc qui tire, à sept modules de distance, le push VAPID (`web-push` → `net`/`tls`). Trois
+écrans de messagerie l'importaient pour un libellé de statut : le build PROPRE est tombé (« Can't resolve 'net' »),
+alors que le garde-fou du bundle passait, parce que la chaîne traversait un `import()` dynamique que le garde ne
+suivait pas. La part pure vit désormais dans `lib/messaging-ui.ts` (présence, statuts, aperçu — zéro import), les
+écrans l'importent, `messaging.ts` la réexporte pour le serveur ; et `client-bundle-guard.test.ts` suit les imports
+dynamiques et connaît les PAQUETS Node-only (`web-push`, `nodemailer`, `imapflow`, `sharp`, `mupdf`, `pdfkit`…) —
+un sabotage (l'écran remis sur `messaging.ts`) le fait tomber en nommant la chaîne exacte.
+
+**Ce qui reste, dit avant d'être demandé.** La latence de planification (2,4-3,5 k jetons de sortie, 54-93 s) ;
+`ADAM_PLANNER_ROLE` permet de mesurer un rôle plus rapide. Les attentes riches (« si A n'arrive pas avant T fais
+C », condition sur le résultat), la surveillance permanente (« préviens-moi seulement s'il y a un problème »),
+la suite d'évaluation chiffrée et le chaos sont les lots suivants du même chantier.
 
 ### Adam mesuré, puis accéléré : le banc, les pré-lectures, le routage par niveau, le coût de premier rang (2026-09)
 

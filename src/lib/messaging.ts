@@ -2,9 +2,15 @@ import crypto from "crypto";
 import type { ConversationMember, Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { shouldTouch } from "./touch-throttle";
+import { emettreMessageRecu } from "./events/messaging-events";
+
+// LA PART PURE vit dans `messaging-ui.ts` (importable par le navigateur) ; le serveur la retrouve ici.
+export { presenceOf, PRESENCE_LABEL, CHAT_STATUSES, CHAT_STATUS_LABEL, normalizeChatStatus, preview } from "./messaging-ui";
+export type { Presence, ChatStatus } from "./messaging-ui";
 
 /**
- * Cœur de la messagerie interne — règles d'accès & présence.
+ * Cœur de la messagerie interne — règles d'accès & présence. MODULE SERVEUR : il lit la base
+ * et inscrit des faits ; un composant client importe `messaging-ui.ts`, jamais ce fichier.
  *
  * Principe de sécurité : l'accès à une conversation est **strictement** gouverné
  * par l'appartenance (ConversationMember actif), jamais par un scope RBAC global.
@@ -12,23 +18,6 @@ import { shouldTouch } from "./touch-throttle";
  * membre — y compris un Super Admin (la messagerie reste un espace de confiance ;
  * l'entreprise possède la donnée, mais pas de « lecture par-dessus l'épaule » ici).
  */
-
-/** Présence dérivée du dernier battement de cœur (heartbeat) de l'utilisateur. */
-export type Presence = "online" | "away" | "offline";
-
-export function presenceOf(lastSeenAt: Date | string | null | undefined): Presence {
-  if (!lastSeenAt) return "offline";
-  const diff = Date.now() - new Date(lastSeenAt).getTime();
-  if (diff < 90_000) return "online"; // moins de 1 min 30
-  if (diff < 10 * 60_000) return "away"; // moins de 10 min
-  return "offline";
-}
-
-export const PRESENCE_LABEL: Record<Presence, string> = {
-  online: "En ligne",
-  away: "Absent",
-  offline: "Hors ligne",
-};
 
 /** Renvoie l'adhésion active de l'utilisateur à une conversation (ou null). */
 export async function getActiveMembership(
@@ -43,6 +32,46 @@ export async function getActiveMembership(
 /** Indique si l'utilisateur peut accéder à la conversation (membre actif). */
 export async function canAccessConversation(userId: string, conversationId: string): Promise<boolean> {
   return (await getActiveMembership(userId, conversationId)) !== null;
+}
+
+/**
+ * ÉCRIT UN MESSAGE DIRECT — le geste COMMUN à l'écran, à l'assistant et aux relances d'Adam.
+ *
+ * Trouve (ou crée) la conversation 1-1, écrit le message, date la conversation, marque le
+ * message lu par son auteur, et INSCRIT LE FAIT (`MESSAGE_RECEIVED`) au registre canonique :
+ * un message interne, et la réponse qu'il appellera, sont des événements que des missions
+ * peuvent attendre. Un seul chemin d'écriture, donc un seul endroit où le fait est émis — trois
+ * copies de cette séquence divergeaient déjà (assistant, relances, écran).
+ *
+ * Ne vérifie AUCUN droit : l'appelant l'a fait (`userCan(MESSAGING, CREATE)` côté humain, le
+ * compte système côté Adam). Ne notifie pas : la notification est une politique de l'appelant.
+ */
+export async function envoyerMessageDirect(opts: {
+  senderId: string; recipientId: string; body: string;
+  senderName?: string | null; senderEmail?: string | null; missionId?: string | null;
+}): Promise<{ conversationId: string; messageId: string; createdAt: Date }> {
+  let conversationId = await findDirectConversation(opts.senderId, opts.recipientId);
+  if (!conversationId) {
+    const conv = await prisma.conversation.create({
+      data: { type: "DIRECT", createdById: opts.senderId, members: { create: [{ userId: opts.senderId }, { userId: opts.recipientId }] } },
+      select: { id: true },
+    });
+    conversationId = conv.id;
+  }
+  const msg = await prisma.message.create({
+    data: { conversationId, senderId: opts.senderId, kind: "TEXT", body: opts.body },
+    select: { id: true, createdAt: true },
+  });
+  await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: msg.createdAt } });
+  await prisma.conversationMember.updateMany({
+    where: { conversationId, userId: opts.senderId }, data: { lastReadAt: msg.createdAt },
+  }).catch(() => undefined);
+  await emettreMessageRecu({
+    conversationId, messageId: msg.id, senderId: opts.senderId, senderName: opts.senderName ?? undefined,
+    senderEmail: opts.senderEmail ?? undefined, body: opts.body, recipientIds: [opts.recipientId],
+    ...(opts.missionId ? { missionId: opts.missionId } : {}),
+  });
+  return { conversationId, messageId: msg.id, createdAt: msg.createdAt };
 }
 
 /** Cherche le message direct (1-1) déjà existant entre deux utilisateurs. */
@@ -72,22 +101,6 @@ export const messagingUserSelect = {
   chatStatus: true,
   statusMessage: true,
 } satisfies Prisma.UserSelect;
-
-/** Statut de messagerie choisi manuellement (façon Teams). */
-export type ChatStatus = "AVAILABLE" | "BUSY" | "DND" | "BRB" | "AWAY" | "OFFLINE";
-export const CHAT_STATUSES: ChatStatus[] = ["AVAILABLE", "BUSY", "DND", "BRB", "AWAY", "OFFLINE"];
-export const CHAT_STATUS_LABEL: Record<ChatStatus, string> = {
-  AVAILABLE: "Disponible",
-  BUSY: "Occupé",
-  DND: "Ne pas déranger",
-  BRB: "De retour bientôt",
-  AWAY: "Absent",
-  OFFLINE: "Hors ligne",
-};
-/** Valide et normalise un statut manuel reçu du client (ou null pour « automatique »). */
-export function normalizeChatStatus(raw: string | null | undefined): ChatStatus | null {
-  return raw && (CHAT_STATUSES as string[]).includes(raw) ? (raw as ChatStatus) : null;
-}
 
 // ─────────────────────────── Signature des pièces jointes ───────────────────────────
 // Une pièce jointe est référencée par l'id de son blob chiffré. Pour empêcher un
@@ -123,13 +136,6 @@ export async function touchPresence(userId: string): Promise<void> {
     .catch(() => undefined);
 }
 
-/** Tronque un corps de message pour un aperçu (liste, citation, notification). */
-export function preview(body: string, kind: string, hasAttachment: boolean, max = 90): string {
-  if (kind === "FILE" || (!body && hasAttachment)) return "📎 Pièce jointe";
-  const clean = body.replace(/\s+/g, " ").trim();
-  if (!clean && hasAttachment) return "📎 Pièce jointe";
-  return clean.length > max ? clean.slice(0, max) + "…" : clean;
-}
 
 /**
  * Extrait les identifiants mentionnés à partir d'une liste candidate.

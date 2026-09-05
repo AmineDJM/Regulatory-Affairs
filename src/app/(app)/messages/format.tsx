@@ -1,5 +1,5 @@
 import * as React from "react";
-import type { Presence } from "@/lib/messaging";
+import type { Presence } from "@/lib/messaging-ui";
 
 /** Couleurs de présence. */
 const PRESENCE_COLOR: Record<Presence, string> = {

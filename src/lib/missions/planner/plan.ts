@@ -1,4 +1,4 @@
-import type { CapabilityCatalog, MissionActor, Reasoner } from "@/lib/missions/ports";
+import type { CapabilityCatalog, MissionActor, Reasoner, Situation } from "@/lib/missions/ports";
 import type {
   ApprovalStrategy,
   MissionPlan,
@@ -67,6 +67,12 @@ export interface ContextePlanification {
   politiques?: readonly string[];
   /** Ce que la personne attend comme livrable, si elle l'a dit. */
   livrablesAttendus?: readonly string[];
+  /**
+   * LA SITUATION ÉTABLIE PAR L'ENQUÊTE (port `Enqueteur`) — faits, acteurs, domaines. Le
+   * planificateur planifie À PARTIR d'elle : ce qui y est écrit ne se redemande à personne, et
+   * les personnes qu'elle nomme passent avant le dirigeant pour toute question.
+   */
+  situation?: Situation;
   /** Pour un REPLAN : ce que la mission a déjà fait, et qu'il ne faut pas refaire (§39). */
   dejaFait?: readonly string[];
   /** Pour une seconde tentative : ce que le compilateur a refusé. */
@@ -232,11 +238,64 @@ RÈGLES ABSOLUES
 8. Si la mission doit attendre quelqu'un ou quelque chose, dis-le avec WAIT_INPUT (une personne doit fournir) ou WAIT_EVENT (un fait doit se produire). Ne fais jamais semblant d'avoir ce que tu n'as pas. WAIT_EVENT sait aussi : attendre une ÉCHÉANCE (waitUntil, ISO, calculée depuis la date du jour — « relance dans 48h » = une attente puis l'étape de relance) ; attendre un e-mail PRÉCIS (waitThreadId quand le fil est connu, waitSubject, waitAttachment quand une pièce est exigée — une réponse sans la pièce ne suffit pas) ; composer OU / ET (waitAnyOf : « sa réponse OU vendredi 18h » ; waitAllOf : « le contrat ET le devis »). La mission dort sans consommer de modèle et se réveille toute seule — même après un redéploiement.
 9. Chaque étape prend la FORME de son nodeType et n'écrit que les champs de cette forme. Une CAPABILITY n'a pas de champs d'attente ; une JOIN n'a ni capacité, ni entrées, ni éventail.
 10. « completionCondition » doit être VÉRIFIABLE : « 33 destinataires ont un reçu », jamais « le travail est bien fait ». C'est elle que le contrôle qualité relit.
-11. « approvalRequirement » est le niveau que tu PROPOSES ; la politique de la maison tranche ensuite, et proposer NONE ne dispense de rien.`;
+11. « approvalRequirement » est le niveau que tu PROPOSES ; la politique de la maison tranche ensuite, et proposer NONE ne dispense de rien.
+12. Le dirigeant n'est PAS la première source. Ce que la SITUATION établit ne se redemande pas ; ce qu'elle n'établit pas se demande d'abord au RESPONSABLE qu'elle nomme (message interne, tâche), puis au partenaire. Réserve WAIT_INPUT adressé au dirigeant à un ARBITRAGE (un choix, un budget, un engagement externe) ou à une information que ni les données ni le responsable ne peuvent fournir. Une mission qui commence par une question au dirigeant est presque toujours une mission mal enquêtée.`;
 
 function ligne(titre: string, valeurs: readonly string[] | undefined): string {
   if (!valeurs || valeurs.length === 0) return "";
   return `\n\n${titre}\n${valeurs.map((v) => `- ${v}`).join("\n")}`;
+}
+
+/** Bornes de la couche « situation » : assez pour planifier juste, jamais un déversement. */
+export const SITUATION_MAX_FAITS = 30;
+export const SITUATION_MAX_CHARS = 5_000;
+
+/**
+ * LA SITUATION, RENDUE POUR LE PLANIFICATEUR — chaque fait avec sa provenance, bornée en nombre
+ * et en caractères. Pure : elle se teste sans base et sans modèle.
+ */
+export function rendreSituation(sit: Situation | undefined): string {
+  if (!sit) return "";
+  const lignes: string[] = [];
+  let total = 0;
+  for (const f of sit.faits.slice(0, SITUATION_MAX_FAITS)) {
+    const l = `[${f.source}] ${f.texte}${f.ref ? ` (réf. ${f.ref})` : ""}`;
+    if (total + l.length > SITUATION_MAX_CHARS) break;
+    lignes.push(l);
+    total += l.length;
+  }
+  const entites = sit.entites.slice(0, 12).map((e) => `${e.type} ${e.label}${e.ref ? ` (${e.ref})` : ""} → domaine ${e.domaine}`);
+  const couverture = [
+    sit.couverture.sources.length ? `consultées : ${sit.couverture.sources.join(", ")}` : "",
+    sit.couverture.enEchec.length ? `EN ÉCHEC (non consultées, ne conclus pas à une absence) : ${sit.couverture.enEchec.join(", ")}` : "",
+  ].filter(Boolean);
+  return [
+    ligne("ENTITÉS RECONNUES DANS LA DEMANDE :", entites),
+    ligne(
+      "SITUATION ÉTABLIE PAR LE CODE — lue dans l'ERP AVANT de planifier, avec sa provenance. "
+      + "Planifie À PARTIR de ces faits ; ne les redemande à personne :",
+      lignes,
+    ),
+    ligne("ACTEURS CONCERNÉS (à qui s'adresser AVANT de solliciter le dirigeant) :", sit.acteurs),
+    ligne("SOURCES DE L'ENQUÊTE :", couverture),
+  ].join("");
+}
+
+/**
+ * LES CAPACITÉS IMPOSÉES AU RÉSOLVEUR : celles que l'appelant impose, puis celles que l'enquête
+ * suggère — dédoublonnées, bornées, dans cet ordre. Exportée pour être testée sans planificateur.
+ */
+export function capacitesImposees(
+  imposees: readonly string[] | undefined,
+  situation: Situation | undefined,
+  max = 18,
+): string[] {
+  const out: string[] = [];
+  for (const n of [...(imposees ?? []), ...(situation?.capacitesSuggerees ?? [])]) {
+    if (n && !out.includes(n)) out.push(n);
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 /** Le contexte, à couches, borné. L'ordre est celui de la priorité, pas celui de la commodité. */
@@ -254,6 +313,7 @@ export function composerContexte(
     ligne("CE QUI A DÉJÀ ÉTÉ DÉCIDÉ OU RETENU :", ctx.memoire),
     ligne("RÈGLES DE LA MAISON :", ctx.politiques),
     ligne("LIVRABLES ATTENDUS :", ctx.livrablesAttendus),
+    rendreSituation(ctx.situation),
     ligne(
       "FORMES DE PLANS QUI ONT DÉJÀ RÉUSSI ICI (indication SEULEMENT — si la demande s'y prête, "
       + "inspire-t'en ; sinon ignore-les, elles n'obligent à rien) :",
@@ -451,6 +511,10 @@ export async function planifier(
     maxDomaines: budgets.maxDomaines,
     parDomaine: budgets.parDomaine,
     ...opts,
+    // L'ENQUÊTE ÉLARGIT LE CATALOGUE MONTRÉ : une entité reconnue (un produit, un contrat) appelle
+    // ses capacités, que les mots de la demande les nomment ou non. « Dossier Trastuzumab » ne
+    // contient aucun mot que le résolveur associe au réglementaire ; le produit reconnu, si.
+    imposees: capacitesImposees(opts.imposees, opts.contexte?.situation),
   });
   const ctx = opts.contexte ?? {};
   const liste = listerPourPlanner(resolution.capacites);

@@ -9,7 +9,7 @@ import { executerArtefact } from "@/lib/missions/artifacts/build";
 import { controleComplet } from "@/lib/missions/goal/qa";
 import { JugeReel } from "@/lib/missions/goal/judge";
 import { perimetre } from "@/lib/missions/approval/scope";
-import { demanderApprobation, porteApprobation, prevenir, reouvrirSiChange } from "@/lib/missions/approval/gate";
+import { demanderApprobation, porteApprobation, reouvrirSiChange } from "@/lib/missions/approval/gate";
 import { agentPour } from "@/lib/missions/agent/principal";
 import { assurerCompteAgent } from "@/lib/missions/agent/account";
 import { CONCURRENCE_PAR_ECHELLE } from "@/lib/missions/model/roles";
@@ -22,6 +22,8 @@ import { withTurn, setTurnContext } from "@/lib/models/telemetry";
 import { ExecutantReel } from "@/platform/in-process/missions/runner";
 import { depotDrive } from "@/platform/in-process/missions/sink";
 import { registreRecoursDe } from "@/platform/in-process/missions/recovery-registry";
+import { enqueter, resumerSituation } from "@/platform/in-process/missions/situation";
+import { porteAttentionPour } from "@/platform/in-process/missions/attention";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -112,6 +114,9 @@ export function assembler(user: CurrentUser, opts: OptionsAssemblage = {}): Asse
     // aucune capacité de remplacement à proposer et se saute — l'échelle descend alors vers ce
     // qui agit réellement, au lieu de rejouer le même appel sous un autre nom.
     registre: registreRecoursDe(user, opts.lectureSeule ? { effetMax: "ANALYZE" } : {}),
+    // LA PORTE D'ATTENTION : c'est par elle que la conclusion, le blocage ou l'échec d'une
+    // mission parviennent au dirigeant — niveau, cadence et canaux décidés par la politique.
+    attention: porteAttentionPour(),
     handlers: {
       WORKER: (ctx) => executerWorker(ctx, { reasoner: cerveau }),
       QA: (ctx) => controleQualite(ctx),
@@ -159,6 +164,19 @@ export interface LancementOptions extends OptionsAssemblage {
   demarrer?: boolean;
   /** Matérialiser DANS cette mission existante (le talon d'un lancement en arrière-plan). */
   missionId?: string;
+  /** Sauter l'enquête (bancs qui mesurent le planificateur seul). Jamais en production. */
+  sansEnquete?: boolean;
+}
+
+/**
+ * UNE PANNE TRANSITOIRE DU FOURNISSEUR N'EST PAS UN REFUS. « HTTP 502 upstream request failed »,
+ * un délai dépassé, une coupure réseau, une limite de débit : la demande était bonne, c'est le
+ * réseau qui a lâché. La perdre — « la mission n'a PAS été lancée » — serait faire payer au
+ * dirigeant une panne qu'il ne voit pas. On la classe pour la RETENIR au lieu de la refuser.
+ */
+export function estPanneTransitoire(message: string | null | undefined): boolean {
+  if (!message) return false;
+  return /\bHTTP (5\d\d|408|425|429)\b|upstream|timeout|timed out|d[ée]lai d[ée]pass[ée]|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|socket hang up|fetch failed|rate.?limit|overloaded|temporarily|indisponible|unavailable/i.test(message);
 }
 
 export type ResultatLancement =
@@ -174,6 +192,11 @@ export type ResultatLancement =
       approbation: { id: string; niveau: string; resume: string } | null;
       metriques: MetriquesPlanification;
       gaps: string[];
+      /**
+       * VRAI quand le fournisseur a lâché pendant la planification : la mission est ENREGISTRÉE
+       * (talon PLANNING, le battement reprendra), pas encore planifiée. `etapes` vaut 0.
+       */
+      differe?: boolean;
     }
   | { ok: false; error: string; refus?: CompileIssue[]; metriques?: MetriquesPlanification };
 
@@ -231,13 +254,27 @@ async function lancerMissionInterne(
   // c'est le côté qui possède la base. Une liste vide est la réponse normale d'un système jeune.
   const formesValidees = opts.contexte?.formesValidees
     ?? await import("@/lib/missions/planner/patterns").then((m) => m.indicesDeFormes()).catch(() => []);
+  // ── L'ENQUÊTE AVANT LE PLAN ─────────────────────────────────────────────────────────────
+  //
+  // Le code établit la situation (entités reconnues, fiches, changements, documents, engagements)
+  // avec les droits de la personne, et le planificateur planifie à partir de faits. Sous délai :
+  // une enquête qui traîne rend ce qu'elle a, et une enquête qui échoue rend `null` — le plan
+  // part alors comme avant, et le journal le dit.
+  const situation = opts.sansEnquete || opts.contexte?.situation
+    ? opts.contexte?.situation ?? null
+    : await enqueter(user, objectif).catch(() => null);
   const contexte: ContextePlanification = {
     aujourdhui: new Date().toLocaleDateString("fr-FR"),
     ...opts.contexte,
+    ...(situation ? { situation } : {}),
     ...(formesValidees.length > 0 ? { formesValidees } : {}),
   };
 
+  // LE RÔLE DE PLANIFICATION PEUT ÊTRE FORCÉ PAR L'EXPLOITATION (`ADAM_PLANNER_ROLE`) — pour
+  // mesurer un modèle plus rapide sur le banc, jamais par confort. Absent : la politique des rôles.
+  const roleForce = (process.env.ADAM_PLANNER_ROLE ?? "").trim();
   let plan = await planifier(objectif, catalogue, acteur, cerveau, {
+    ...(roleForce ? { role: roleForce } : {}),
     contexte,
     // LE RETRIEVAL SPÉCULATIF (§65) : pendant que le modèle planifie (des secondes), on
     // préchauffe l'annuaire sur les noms propres de l'objectif — des LECTURES, dont le résultat
@@ -263,7 +300,27 @@ async function lancerMissionInterne(
       return [{ libelle: `total:${noms.length} noms`, ms: Date.now() - debut }, ...lectures];
     },
   });
-  if (!plan.ok) return { ok: false, error: plan.error, metriques: plan.metriques };
+  if (!plan.ok) {
+    // ── LE REPLI : UNE PANNE TRANSITOIRE RETIENT LA DEMANDE AU LIEU DE LA PERDRE ────────
+    //
+    // Sans talon déjà écrit (lancement direct), on en écrit un : la mission existe en base dès
+    // maintenant, PLANNING sans étape, et le battement la reprendra comme un lancement détaché
+    // (`rattraperLancementsPerdus`). Avec un talon (finalisation différée), l'appelant décide.
+    if (!opts.missionId && estPanneTransitoire(plan.error)) {
+      const titre = opts.titre ?? titreDe(objectif);
+      const talon = await creerTalon(user, objectif, titre);
+      if (talon) {
+        await journaliser(talon, "PLANNING_DEFERRED",
+          `Le fournisseur de modèle a lâché pendant la planification (${plan.error.slice(0, 120)}) : la demande est retenue, la planification reprendra au prochain battement.`,
+          { transitoire: true });
+        return {
+          ok: true, missionId: talon, titre, etapes: 0,
+          complexite: "?", echelle: "?", approbation: null, metriques: plan.metriques, gaps: [], differe: true,
+        };
+      }
+    }
+    return { ok: false, error: plan.error, metriques: plan.metriques };
+  }
 
   // L'ACTEUR DE COMPILATION EST L'AGENT : c'est lui qui exécutera, donc c'est SA politique qui
   // doit refuser une étape d'auto-escalade. Compiler sous l'identité humaine laisserait passer
@@ -309,10 +366,25 @@ async function lancerMissionInterne(
     ...(opts.missionId ? { missionId: opts.missionId } : {}),
   });
   setTurnContext({ missionId });
-
+  if (situation) {
+    await journaliser(missionId, "INVESTIGATED", resumerSituation(situation), {
+      entites: situation.entites.slice(0, 8).map((e) => `${e.type}:${e.label}`),
+      faits: situation.faits.length,
+      domaines: situation.domaines,
+      sources: situation.couverture.sources,
+      enEchec: situation.couverture.enEchec,
+      ms: situation.couverture.ms,
+    });
+  }
   await journaliser(missionId, "CREATED",
     `Mission planifiée : ${mission.steps.length} étapes, complexité ${mission.complexity}, échelle ${mission.scale}.`,
     {
+      // LE COÛT DE LA PLANIFICATION SUIT LA MISSION : l'appel est parti avant que la mission ait
+      // un identifiant, il ne porte donc pas le sien dans le journal des appels. Ses jetons sont
+      // écrits ici, là où le banc et l'écran les relisent.
+      usage: plan.metriques.usage,
+      voie: plan.metriques.voie,
+      enquete: situation ? { faits: situation.faits.length, ms: situation.couverture.ms } : null,
       capacitesMontrees: plan.metriques.plannerCapabilitiesExposed,
       capacitesOuvertes: plan.metriques.capacitesAutorisees,
       domaines: plan.metriques.domaines,
@@ -330,11 +402,10 @@ async function lancerMissionInterne(
   if (p) {
     const id = await demanderApprobation(missionId, p, user.id, titre);
     approbation = { id, niveau: p.niveau, resume: p.resume };
-    await prevenir({
-      missionId, ownerId: user.id, niveau: "APPROVAL_REQUIRED",
-      titre: `Votre accord est demandé — ${titre}`,
-      message: p.resume,
-    });
+    await porteAttentionPour().signaler({
+      kind: "APPROVAL_REQUIRED", missionId, ownerId: user.id, titre, raison: p.resume,
+      niveauApprobation: p.niveau, stepKey: "accord", planVersion: 1,
+    }).catch(() => undefined);
   }
 
   let etapes = mission.steps.length;
@@ -399,13 +470,9 @@ async function lancerMissionInterne(
  * PLANNING sans étapes et RELANCE la planification (`rattraperLancementsPerdus`) : la
  * durabilité est dans la base, jamais dans la mémoire du processus.
  */
-export async function lancerEnArrierePlan(
-  user: CurrentUser,
-  objectif: string,
-  opts: LancementOptions = {},
-): Promise<{ ok: true; missionId: string; titre: string } | { ok: false; error: string }> {
+/** LE TALON : la mission existe en base, PLANNING sans étape — la demande est retenue. */
+async function creerTalon(user: CurrentUser, objectif: string, titre: string): Promise<string | null> {
   try {
-    const titre = opts.titre ?? titreDe(objectif);
     const stub = await prisma.mission.create({
       data: {
         kind: "RUNTIME",
@@ -419,6 +486,22 @@ export async function lancerEnArrierePlan(
       },
       select: { id: true },
     });
+    return stub.id;
+  } catch {
+    return null;
+  }
+}
+
+export async function lancerEnArrierePlan(
+  user: CurrentUser,
+  objectif: string,
+  opts: LancementOptions = {},
+): Promise<{ ok: true; missionId: string; titre: string } | { ok: false; error: string }> {
+  try {
+    const titre = opts.titre ?? titreDe(objectif);
+    const id = await creerTalon(user, objectif, titre);
+    if (!id) return { ok: false, error: "la mission n'a pas pu être enregistrée" };
+    const stub = { id };
     await journaliser(stub.id, "DETACHED",
       "Mission enregistrée : la planification et l'exécution continuent en arrière-plan.",
       { objectif: objectif.slice(0, 300) });
@@ -457,6 +540,17 @@ export async function finaliserLancementDifere(
 
   const r = await lancerMission(user, objectif, { ...opts, missionId });
   if (!r.ok) {
+    // UNE PANNE TRANSITOIRE NE CLÔT PAS LA MISSION : le talon reste PLANNING, le journal dit
+    // pourquoi, et `rattraperLancementsPerdus` reprendra (trois tentatives au plus, espacées
+    // par le battement). Seul un refus DURABLE — plan irrecevable, aucun fournisseur — passe
+    // FAILED : la personne voit « la planification a échoué », pas une carte qui tourne pour
+    // toujours.
+    if (estPanneTransitoire(r.error)) {
+      await journaliser(missionId, "PLANNING_DEFERRED",
+        `Le fournisseur de modèle a lâché pendant la planification (${r.error.slice(0, 120)}) : nouvelle tentative au prochain battement.`,
+        { transitoire: true });
+      return { finalise: false, raison: r.error };
+    }
     // LA PANNE EST DITE, JAMAIS SILENCIEUSE : la mission passe FAILED avec le motif — la
     // personne voit « la planification a échoué », pas une carte qui tourne pour toujours.
     await prisma.mission.update({
@@ -552,7 +646,29 @@ async function avancerMissionInterne(
     complexite: opts.complexite ?? (proprietaire.complexity as "A" | "B" | "C" | null) ?? "B",
   });
   const agent = agentPour({ initiatedBy: user.id, executedBy: user.id, label: user.name });
-  return avancer(missionId, agent, { ...deps, maxTours: opts.maxTours });
+  const res = await avancer(missionId, agent, { ...deps, maxTours: opts.maxTours });
+  // ── UNE QUESTION AU DIRIGEANT SE POSE, ELLE NE S'ATTEND PAS EN SILENCE ─────────────────
+  //
+  // Une étape WAIT_INPUT met la mission en WAITING_INPUT ; avant ce crochet, personne n'était
+  // prévenu — la mission dormait jusqu'à ce que quelqu'un ouvre l'écran. La porte d'attention
+  // classe la question en ARBITRAGE et ne la redemande pas d'elle-même (cadence infinie).
+  if (res.status === "WAITING_INPUT") {
+    const q = await prisma.missionStep.findFirst({
+      where: { missionId, status: "WAITING", nodeType: "WAIT_INPUT" },
+      select: { key: true, title: true, waitFor: true },
+      orderBy: { updatedAt: "desc" },
+    }).catch(() => null);
+    if (q) {
+      const ask = (q.waitFor as { ask?: unknown } | null)?.ask;
+      const m = await prisma.mission.findUnique({ where: { id: missionId }, select: { title: true, planVersion: true } }).catch(() => null);
+      await porteAttentionPour().signaler({
+        kind: "QUESTION", missionId, ownerId: user.id, titre: m?.title ?? "",
+        raison: typeof ask === "string" && ask.trim() ? ask : `« ${q.title} » attend un élément de votre part.`,
+        decision: "répondre depuis l'écran de la mission", stepKey: q.key, planVersion: m?.planVersion ?? null,
+      }).catch(() => undefined);
+    }
+  }
+  return res;
 }
 
 /**
@@ -791,11 +907,11 @@ async function replanifierMissionInterne(
   // ── §8 : CE QUI N'EST PLUS COUVERT REPASSE À L'ACCORD, ET RIEN D'AUTRE ─────────────
   const rouvert = await reouvrirSiChange(missionId, c.mission, user.id, m.title);
   if (rouvert) {
-    await prevenir({
-      missionId, ownerId: user.id, niveau: "APPROVAL_REQUIRED",
-      titre: `Le plan a changé — ${m.title}`,
-      message: `${rouvert.stepKeys.length} étape(s) ne sont pas couvertes par votre accord précédent.`,
-    });
+    await porteAttentionPour().signaler({
+      kind: "PLAN_CHANGED", missionId, ownerId: user.id, titre: m.title,
+      raison: `${rouvert.stepKeys.length} étape(s) ne sont pas couvertes par votre accord précédent.`,
+      stepKey: rouvert.stepKeys.join("+").slice(0, 120),
+    }).catch(() => undefined);
   }
 
   const apres = await prisma.mission.findUnique({

@@ -234,6 +234,55 @@ const PREFIXES: { test: (n: string) => boolean; effect: Effect }[] = [
  * (`RESOLVER_WRITE_NAMES`). On la CONSULTE plutôt que de la recopier — deux listes d'écritures
  * divergent, et celle qui diverge est toujours celle qui gardait.
  */
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES ÉCRITURES AUTONOMES — ce que la conversation fait SANS carte de confirmation.
+ *
+ * Un rappel, un souvenir, une décision consignée, un engagement noté, un fichier déposé dans le
+ * Drive interne, un export Excel : la conversation les exécute par le chemin des lectures
+ * (`executeReadTool`), sans intent, parce qu'ils sont internes et réversibles. Mais ils LAISSENT
+ * UNE TRACE — deux rappels valent une erreur, pas un rappel plus sûr.
+ *
+ * Le Mission Runtime doit donc les connaître pour deux raisons contraires : les exécuter par le
+ * même chemin que la conversation (le chemin des intents ne les connaît pas), ET ne jamais les
+ * rejouer sans garde (la reprise après panne rejoue les étapes sans reçu). Ce tableau les nomme ;
+ * l'exécutant s'en sert pour poser une garde d'idempotence sur le chemin des lectures.
+ *
+ * Mesuré avant ce tableau : 62 des 107 capacités « non écriture » du catalogue partaient en
+ * EXTERNAL_COMMUNICATION par défaut prudent — `resolve_person`, `find_documents`, `product_360`,
+ * `what_changed`… — donc une approbation SENSITIVE demandée pour une lecture, puis
+ * « Action non prise en charge » sur le chemin des intents. La première mission inédite du banc
+ * s'est bloquée exactement là.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export const AUTONOMES: Record<string, Effect> = {
+  plan_reminder: "INTERNAL_REVERSIBLE_WRITE",
+  cancel_reminder: "INTERNAL_REVERSIBLE_WRITE",
+  snooze_reminder: "INTERNAL_REVERSIBLE_WRITE",
+  remember: "INTERNAL_REVERSIBLE_WRITE",
+  forget_memory: "INTERNAL_REVERSIBLE_WRITE",
+  record_decision: "INTERNAL_REVERSIBLE_WRITE",
+  update_decision_outcome: "INTERNAL_REVERSIBLE_WRITE",
+  record_commitment: "INTERNAL_REVERSIBLE_WRITE",
+  close_commitment: "INTERNAL_REVERSIBLE_WRITE",
+  gmail_organize: "INTERNAL_REVERSIBLE_WRITE",
+  gdrive_put_internal_file: "INTERNAL_REVERSIBLE_WRITE",
+  gworkspace_create: "INTERNAL_REVERSIBLE_WRITE",
+  gdoc_read_or_append: "INTERNAL_REVERSIBLE_WRITE",
+  export_excel: "INTERNAL_REVERSIBLE_WRITE",
+  artifact_edit: "INTERNAL_REVERSIBLE_WRITE",
+  artifact_control: "INTERNAL_REVERSIBLE_WRITE",
+  mission_create: "INTERNAL_REVERSIBLE_WRITE",
+  run_mission: "INTERNAL_REVERSIBLE_WRITE",
+  mission_consolidate: "INTERNAL_REVERSIBLE_WRITE",
+  // La conduite d'une mission par l'agent est déjà refusée à la compilation (policy/guard.ts) ;
+  // l'effet ne fait que dire ce que c'est si quelqu'un la rencontre ailleurs.
+  mission_control: "INTERNAL_REVERSIBLE_WRITE",
+};
+
+/** Une écriture autonome : exécutée par le chemin des lectures, gardée par une clé d'idempotence. */
+export const estAutonome = (name: string): boolean => Object.prototype.hasOwnProperty.call(AUTONOMES, name);
+
 export function capabilityMeta(name: string, estEcriture?: (n: string) => boolean): CapabilityMeta {
   const declared = Object.prototype.hasOwnProperty.call(DECLARED, name) ? DECLARED[name] : null;
   // L'ORDRE DU SPREAD COMPTE : `contrat` vient APRÈS, sinon un `contrat: undefined` absent de la
@@ -243,17 +292,29 @@ export function capabilityMeta(name: string, estEcriture?: (n: string) => boolea
 
   // Dérivation. L'ordre compte : la liste d'écritures du résolveur l'emporte sur le préfixe,
   // parce qu'elle est tenue par le code qui exécute, et non par une convention de nommage.
-  const ecrit = estEcriture?.(name) ?? false;
+  const ecrit = estEcriture?.(name);
   const parPrefixe = PREFIXES.find((p) => p.test(name))?.effect;
-
-  const effect: Effect = ecrit
-    ? (parPrefixe && EFFECT_RANK[parPrefixe] >= EFFECT_RANK.INTERNAL_REVERSIBLE_WRITE
-        ? parPrefixe
-        : "INTERNAL_REVERSIBLE_WRITE")
-    // PAS D'ÉCRITURE CONNUE ET AUCUN PRÉFIXE RECONNU ⇒ on ne sait pas. Le défaut prudent est
+  let effect: Effect;
+  if (ecrit === true) {
+    effect = parPrefixe && EFFECT_RANK[parPrefixe] >= EFFECT_RANK.INTERNAL_REVERSIBLE_WRITE
+      ? parPrefixe
+      : "INTERNAL_REVERSIBLE_WRITE";
+  } else if (ecrit === false) {
+    // LA LISTE DES ÉCRITURES FAIT FOI DANS LES DEUX SENS. Elle est tenue par le code qui exécute :
+    // ce qui n'y est pas part par le chemin des lectures en conversation. Une écriture autonome
+    // garde son effet d'écriture (approbation, non-rejeu) ; un nom de sécurité garde le sien
+    // (le garde-fou de compilation en dépend) ; tout le reste est une LECTURE — pas une
+    // communication externe imaginaire qui réclame un accord puis échoue.
+    effect = AUTONOMES[name]
+      ?? (parPrefixe === "SECURITY_ADMIN" ? "SECURITY_ADMIN"
+        : parPrefixe && EFFECT_RANK[parPrefixe] <= EFFECT_RANK.PREPARE ? parPrefixe
+        : "READ");
+  } else {
+    // PAS DE LISTE ET AUCUN PRÉFIXE RECONNU ⇒ on ne sait pas. Le défaut prudent est
     // `EXTERNAL_COMMUNICATION` : non rejouable, sous confirmation, non groupable. Une capacité
     // inconnue ne part donc jamais en masse sans que quelqu'un l'ait qualifiée.
-    : (parPrefixe ?? "EXTERNAL_COMMUNICATION");
+    effect = parPrefixe ?? "EXTERNAL_COMMUNICATION";
+  }
 
   const lecture = EFFECT_RANK[effect] <= EFFECT_RANK.ANALYZE;
   return {

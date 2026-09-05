@@ -1013,7 +1013,8 @@ export async function executerAcceptance(
       const va = verdictProfond(a);
       const vb = verdictProfond(b);
       attendre(va.verdict === vb.verdict && a.statutFinal === b.statutFinal,
-        `la paraphrase change le verdict (${va.verdict}/${a.statutFinal} vs ${vb.verdict}/${b.statutFinal}) — un chemin reconnaît une string`);
+        `la paraphrase change le verdict (${va.verdict}/${a.statutFinal} vs ${vb.verdict}/${b.statutFinal}) — un chemin reconnaît une string ; `
+        + `raisons : A « ${va.raison} » / B « ${vb.raison} »`);
       attendre(va.verdict !== "DEFAUT", `le scénario de référence lui-même est en DÉFAUT : ${va.raison}`);
 
       // Le garde anti-FAUX-SUCCÈS ne s'est pas assoupli : COMPLETED sans objectif = DÉFAUT.

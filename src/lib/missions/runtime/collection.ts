@@ -97,14 +97,25 @@ export function resoudreCollection(amont: unknown, chemin: string): Collection {
 
   // ── LE CHEMIN EST ABSENT. QU'Y A-T-IL À LA PLACE ? ─────────────────────────────────
   const listes = cheminsDeListes(amont);
-
   if (listes.length === 1) {
     const valeur = lire(amont, listes[0]);
-    // La garde est redondante avec `cheminsDeListes` ; elle est là parce qu'un jour quelqu'un
-    // changera l'une des deux fonctions et que le compilateur ne le verra pas.
     if (Array.isArray(valeur)) return { kind: "CORRIGEE", valeur, chemin: listes[0] };
   }
-  if (listes.length > 1) return { kind: "AMBIGU", chemins: listes };
+  if (listes.length > 1) {
+    // PLUSIEURS LISTES, MAIS PAS FORCÉMENT UNE AMBIGUÏTÉ. Un résultat de recherche porte ses
+    // enregistrements au premier niveau (`resultats`) et sa métadonnée plus bas
+    // (`couverture.sourcesInterrogees`, une liste de noms). Déployer sur la métadonnée serait
+    // absurde ; refuser parce qu'elle existe aussi l'était tout autant — le banc l'a montré sur
+    // « lire les pièces retrouvées ». La préférence est STRUCTURELLE, jamais sémantique : la
+    // liste la moins profonde, puis celle dont les éléments sont des objets (des enregistrements,
+    // pas des étiquettes). Deux candidates à égalité restent une ambiguïté, et on la dit.
+    const preferee = preferer(amont, listes);
+    if (preferee) {
+      const valeur = lire(amont, preferee);
+      if (Array.isArray(valeur)) return { kind: "CORRIGEE", valeur, chemin: preferee };
+    }
+    return { kind: "AMBIGU", chemins: listes };
+  }
 
   /**
    * AUCUNE LISTE. DEUX CAS, ET LES CONFONDRE COÛTE CHER.
@@ -135,6 +146,20 @@ export function resoudreCollection(amont: unknown, chemin: string): Collection {
  * planificateur qui reçoit `refusPrecedent`. « il a trouvé undefined » ne fait décider personne :
  * c'est ce qui a conduit un run réel à replanifier deux fois la même recherche infructueuse.
  */
+/** La liste préférée parmi plusieurs — ou `null` si deux candidates sont à égalité structurelle. */
+export function preferer(amont: unknown, chemins: readonly string[]): string | null {
+  const notes = chemins.map((chemin) => {
+    const v = lire(amont, chemin);
+    const items = Array.isArray(v) ? v : [];
+    const objets = items.length > 0 && items.every((x) => x !== null && typeof x === "object" && !Array.isArray(x));
+    return { chemin, profondeur: chemin.split(".").length, objets, taille: items.length };
+  });
+  const min = Math.min(...notes.map((n) => n.profondeur));
+  let candidates = notes.filter((n) => n.profondeur === min);
+  if (candidates.length > 1 && candidates.some((n) => n.objets)) candidates = candidates.filter((n) => n.objets);
+  return candidates.length === 1 ? candidates[0].chemin : null;
+}
+
 export function expliquer(c: Collection, from: string, chemin: string): string {
   switch (c.kind) {
     case "LISTE":

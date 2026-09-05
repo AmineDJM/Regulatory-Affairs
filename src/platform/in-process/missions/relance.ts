@@ -1,0 +1,168 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'ÉCHELLE DE RELANCES — quand une attente a dépassé son délai, Adam relance LUI-MÊME.
+ *
+ * Avant ce fichier, une attente échue produisait un push au dirigeant : « attend toujours.
+ * Voulez-vous relancer ? ». C'est l'agent passif : il transfère à la personne qu'il décharge la
+ * micro-décision la plus évidente. Un chef de cabinet relance, puis relance encore, puis monte
+ * d'un cran, et ne vient vous voir que quand tout cela n'a rien donné.
+ *
+ * ── L'ÉCHELLE, ET SES BORNES ─────────────────────────────────────────────────────────────
+ *
+ *   barreau 1  message interne à la personne attendue, signé Adam (compte système), un par 24 h ;
+ *   barreau 2  seconde relance, même canal ;
+ *   barreau 3  le responsable hiérarchique de la personne (Employee.managerId) est mis dans la
+ *              boucle par un message ;
+ *   au-delà    le dirigeant est prévenu par la porte d'attention (ATTENTION) — l'échelle est dite.
+ *
+ * Ce qui n'est PAS fait : écrire à l'extérieur (un partenaire, une autorité). Une relance externe
+ * est une communication qui engage l'entreprise ; elle passe par un plan et un accord, jamais
+ * par le battement. Quand la personne attendue n'est pas un compte interne, l'échelle saute
+ * directement au dirigeant avec la mention « personne externe ».
+ *
+ * Tout est relu au journal de la mission (`NUDGED`, avec le barreau et la date) : aucune mémoire
+ * de processus, donc aucun harcèlement au redémarrage et aucun oubli à la reprise.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+import { prisma } from "@/lib/prisma";
+import { notifyUser } from "@/lib/notify";
+import { journaliser } from "@/lib/missions/runtime/store";
+import { idCompteAgent } from "@/lib/missions/agent/account";
+import { envoyerMessageDirect } from "@/lib/messaging";
+import { porteAttentionPour } from "@/platform/in-process/missions/attention";
+import type { Attente } from "@/lib/missions/events/match";
+
+export const CADENCE_RELANCE_MS = 24 * 3600_000;
+export const BARREAUX_AVANT_DIRIGEANT = 3;
+
+export interface AttenteEchue {
+  missionId: string; ownerId: string; missionTitle: string;
+  stepKey: string; stepTitle: string; attente: Attente; depuis: Date;
+}
+
+export interface ResultatRelance {
+  geste: "RELANCE" | "MANAGER" | "DIRIGEANT" | "SILENCE" | "EXTERNE";
+  barreau: number;
+  detail: string;
+}
+
+/** La personne attendue, si c'est un compte interne actif : par nom, par adresse, ou par identifiant. */
+async function personneAttendue(from: string | undefined): Promise<{ id: string; name: string; managerUserId: string | null } | null> {
+  if (!from || from.trim().length < 3) return null;
+  const f = from.trim();
+  const user = await prisma.user.findFirst({
+    where: {
+      isActive: true, isSystem: false,
+      OR: [{ id: f }, { email: { equals: f, mode: "insensitive" } }, { name: { equals: f, mode: "insensitive" } }, { name: { contains: f, mode: "insensitive" } }],
+    },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  }).catch(() => null);
+  if (!user) return null;
+  const fiche = await prisma.employee.findFirst({ where: { userId: user.id }, select: { manager: { select: { userId: true } } } }).catch(() => null);
+  return { id: user.id, name: user.name, managerUserId: fiche?.manager?.userId ?? null };
+}
+
+/** Les relances déjà faites pour cette étape, et la date de la dernière — lues au journal. */
+async function historique(missionId: string, stepKey: string): Promise<{ n: number; derniere: Date | null }> {
+  const rows = await prisma.missionEvent.findMany({
+    where: { missionId, kind: "NUDGED", detail: { path: ["stepKey"], equals: stepKey } },
+    select: { at: true }, orderBy: { at: "desc" },
+  }).catch(() => []);
+  return { n: rows.length, derniere: rows[0]?.at ?? null };
+}
+
+async function messageSigneAdam(agentId: string, destinataireId: string, body: string, missionId?: string): Promise<boolean> {
+  try {
+    // Le MÊME geste que l'écran et l'assistant : conversation, message, fait MESSAGE_RECEIVED.
+    await envoyerMessageDirect({ senderId: agentId, senderName: "Adam", recipientId: destinataireId, body, missionId: missionId ?? null });
+    await notifyUser({ userId: destinataireId, type: "GENERIC", title: "Relance d'Adam", body: body.slice(0, 100), link: "/messages" });
+    return true;
+  } catch (e) {
+    console.error("[relance] message impossible", e);
+    return false;
+  }
+}
+
+/**
+ * RELANCE UNE PERSONNE INTERNE PAR MESSAGE SIGNÉ ADAM — le geste commun aux attentes de mission
+ * et aux engagements en retard. Barreaux 1-2 : la personne ; barreau 3 : sa hiérarchie si elle
+ * existe ; au-delà : `null` — c'est à l'appelant de prévenir le dirigeant. Ne lève jamais.
+ */
+export async function relancerPersonne(opts: {
+  personneId: string; barreau: number; pour: string; objet: string; contexte: string; jours: number;
+}): Promise<{ geste: "RELANCE" | "MANAGER"; destinataire: string; envoye: boolean } | null> {
+  if (opts.barreau > BARREAUX_AVANT_DIRIGEANT) return null;
+  const agentId = await idCompteAgent();
+  if (!agentId) return null;
+  const personne = await personneAttendue(opts.personneId);
+  if (!personne) return null;
+  const prenom = personne.name.split(" ")[0];
+  if (opts.barreau === BARREAUX_AVANT_DIRIGEANT && personne.managerUserId && personne.managerUserId !== personne.id) {
+    const corps = `Bonjour — pour ${opts.pour} : « ${opts.objet} » (${opts.contexte}) attend ${personne.name} depuis ${opts.jours} jour(s), `
+      + `après ${opts.barreau - 1} relance(s) restées sans réponse. Pouvez-vous voir avec ${prenom} ce qui bloque ? — Adam`;
+    const envoye = await messageSigneAdam(agentId, personne.managerUserId, corps);
+    return { geste: "MANAGER", destinataire: personne.managerUserId, envoye };
+  }
+  const corps = `Bonjour ${prenom} — pour ${opts.pour} : « ${opts.objet} » (${opts.contexte}) attend votre retour depuis ${opts.jours} jour(s)`
+    + (opts.barreau > 1 ? `, c'est ma ${opts.barreau}ᵉ relance` : "") + `. Un mot ici suffit, même pour dire « pas avant tel jour ». Merci — Adam`;
+  const envoye = await messageSigneAdam(agentId, personne.id, corps);
+  return { geste: "RELANCE", destinataire: personne.id, envoye };
+}
+
+/**
+ * RELANCE UNE ATTENTE ÉCHUE — un barreau par appel, jamais deux le même jour. Idempotent au
+ * battement : rappelé dix fois dans la journée, il ne fait rien neuf fois.
+ */
+export async function relancerAttente(e: AttenteEchue, maintenant = new Date()): Promise<ResultatRelance> {
+  const h = await historique(e.missionId, e.stepKey);
+  if (h.derniere && maintenant.getTime() - h.derniere.getTime() < CADENCE_RELANCE_MS) {
+    return { geste: "SILENCE", barreau: h.n, detail: "relance déjà faite dans les 24 h" };
+  }
+  const jours = Math.max(1, Math.round((maintenant.getTime() - e.depuis.getTime()) / 86_400_000));
+  const barreau = h.n + 1;
+  const porte = porteAttentionPour();
+
+  // ── L'ÉCHELLE ÉPUISÉE, OU PERSONNE À RELANCER EN INTERNE : LE DIRIGEANT ─────────────
+  const personne = await personneAttendue(e.attente.from);
+  if (!personne || barreau > BARREAUX_AVANT_DIRIGEANT) {
+    const geste: ResultatRelance["geste"] = personne ? "DIRIGEANT" : "EXTERNE";
+    await porte.signaler({
+      kind: "WAIT_OVERDUE", missionId: e.missionId, ownerId: e.ownerId, titre: e.missionTitle, stepKey: e.stepKey,
+      raison: personne
+        ? `« ${e.stepTitle} » attend ${personne.name} depuis ${jours} jour(s) malgré ${h.n} relance(s) et l'alerte de sa hiérarchie`
+        : `« ${e.stepTitle} » attend ${e.attente.from ?? "une partie externe"} (hors de l'entreprise) depuis ${jours} jour(s)`,
+      decision: personne ? "trancher : relancer autrement, réassigner, ou clore" : "relancer le partenaire par un e-mail que je préparerai, ou clore",
+      attente: { jours, relances: Math.max(h.n, BARREAUX_AVANT_DIRIGEANT) },
+    }).catch(() => undefined);
+    await journaliser(e.missionId, "NUDGED", `Barreau ${barreau} : le dirigeant est prévenu (${geste === "EXTERNE" ? "partie externe" : "échelle épuisée"}).`,
+      { stepKey: e.stepKey, barreau, geste });
+    return { geste, barreau, detail: geste === "EXTERNE" ? "partie externe : le dirigeant décide" : "échelle épuisée : le dirigeant décide" };
+  }
+
+  const agentId = await idCompteAgent();
+  if (!agentId) {
+    await journaliser(e.missionId, "NUDGED", `Barreau ${barreau} impossible : le compte d'Adam n'existe pas encore.`, { stepKey: e.stepKey, barreau, geste: "SILENCE" });
+    return { geste: "SILENCE", barreau, detail: "compte d'Adam absent" };
+  }
+  const proprietaire = await prisma.user.findUnique({ where: { id: e.ownerId }, select: { name: true } }).catch(() => null);
+  const pour = proprietaire?.name ?? "la direction";
+
+  // ── BARREAU 3 : LA HIÉRARCHIE DANS LA BOUCLE ─────────────────────────────────────────
+  if (barreau === BARREAUX_AVANT_DIRIGEANT && personne.managerUserId && personne.managerUserId !== personne.id) {
+    const corps = `Bonjour — pour ${pour} : « ${e.stepTitle} » (mission « ${e.missionTitle} ») attend ${personne.name} depuis ${jours} jour(s), `
+      + `après ${h.n} relance(s) restées sans réponse. Pouvez-vous voir avec ${personne.name.split(" ")[0]} ce qui bloque ? — Adam`;
+    const ok = await messageSigneAdam(agentId, personne.managerUserId, corps);
+    await journaliser(e.missionId, "NUDGED", `Barreau ${barreau} : la hiérarchie de ${personne.name} est prévenue${ok ? "" : " (envoi impossible)"}.`,
+      { stepKey: e.stepKey, barreau, geste: "MANAGER", destinataire: personne.managerUserId });
+    return { geste: "MANAGER", barreau, detail: `hiérarchie de ${personne.name} prévenue` };
+  }
+
+  // ── BARREAUX 1 ET 2 : LA RELANCE DIRECTE, SIGNÉE ADAM ─────────────────────────────────
+  const corps = `Bonjour ${personne.name.split(" ")[0]} — pour ${pour} : « ${e.stepTitle} » (mission « ${e.missionTitle} ») attend votre retour depuis ${jours} jour(s)`
+    + (h.n > 0 ? `, c'est ma ${h.n + 1}ᵉ relance` : "") + `. Un mot ici suffit, même pour dire « pas avant tel jour ». Merci — Adam`;
+  const ok = await messageSigneAdam(agentId, personne.id, corps);
+  await journaliser(e.missionId, "NUDGED", `Barreau ${barreau} : relance envoyée à ${personne.name}${ok ? "" : " (envoi impossible)"}.`,
+    { stepKey: e.stepKey, barreau, geste: "RELANCE", destinataire: personne.id });
+  return { geste: "RELANCE", barreau, detail: `relance ${barreau} à ${personne.name}` };
+}

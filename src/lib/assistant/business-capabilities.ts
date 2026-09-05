@@ -425,6 +425,18 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
         });
       }
 
+      if (r.differe) {
+        return JSON.stringify({
+          lancee: true,
+          missionId: r.missionId,
+          titre: r.titre,
+          differe: true,
+          message: "La demande est enregistrée ; le fournisseur de modèle a lâché pendant la planification, "
+            + "elle reprend d'elle-même au prochain battement. Je vous préviens quand la mission aboutit.",
+          _blocsDecoratifs: true,
+          _blocs: [{ kind: "mission", missionId: r.missionId, blockId: `mission:${r.missionId}` }],
+        });
+      }
       return JSON.stringify({
         lancee: true,
         missionId: r.missionId,

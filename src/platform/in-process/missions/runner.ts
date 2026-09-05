@@ -3,7 +3,8 @@ import type { CurrentUser } from "@/lib/session";
 import { buildProposal, executeReadTool, performAction, RESOLVER_WRITE_NAMES } from "@/lib/assistant";
 import { executeIntentGuarded, intentSummary } from "@/lib/assistant/action-intents";
 import type { CapabilityCall, CapabilityOutcome, CapabilityRunner } from "@/lib/missions/ports";
-import { capabilityMeta, ecritQuelqueChose } from "@/lib/missions/registry/capability-meta";
+import { estAutonome } from "@/lib/missions/registry/capability-meta";
+import { journaliser } from "@/lib/missions/runtime/store";
 import { ERROR_KINDS, type ErrorKind } from "@/lib/missions/recovery/strategy";
 
 /**
@@ -184,9 +185,38 @@ export class ExecutantReel implements CapabilityRunner {
     // main marcherait aujourd'hui et divergerait le jour où un niveau s'insère au milieu — c'est
     // le genre d'écart qui envoie une écriture sur le chemin de lecture, donc sans intent, sans
     // approbation et sans reçu.
-    return ecritQuelqueChose(capabilityMeta(call.capability, estEcriture))
-      ? this.ecrire(call)
-      : this.lire(call);
+    // LE CHEMIN EST CELUI DE LA CONVERSATION : ce que la liste d'écritures nomme part par les
+    // intents (proposition, accord, reçu) ; tout le reste part par `executeReadTool` — y compris
+    // les écritures AUTONOMES (rappels, souvenirs, exports), que le chemin des intents ne connaît
+    // pas. Leur effet, lui, reste une écriture : approbation demandée, jamais groupées, et gardées
+    // ci-dessous par une clé d'idempotence pour ne pas être rejouées après une panne.
+    return estEcriture(call.capability) ? this.ecrire(call) : this.lire(call);
+  }
+  /**
+   * LA GARDE DES ÉCRITURES AUTONOMES — « ce rappel a-t-il déjà été posé par cette étape ? »
+   *
+   * Le chemin des lectures n'a ni intent ni reçu. Une étape `plan_reminder` reprise après une
+   * panne entre l'effet et l'écriture de son état reposerait le rappel. La clé d'idempotence de
+   * l'étape (persistée AVANT l'effet par le moteur) est inscrite au journal canonique de la
+   * mission avec la sortie ; la relire coûte une requête et rend l'effet unique. Le journal est
+   * le seul registre (§17) — pas de table de plus.
+   */
+  private async dejaProduit(call: CapabilityCall): Promise<CapabilityOutcome | null> {
+    if (!call.idempotencyKey || !call.missionId) return null;
+    const marque = await prisma.missionEvent.findFirst({
+      where: { missionId: call.missionId, kind: "AUTONOMOUS_EFFECT", detail: { path: ["idempotencyKey"], equals: call.idempotencyKey } },
+      select: { detail: true },
+    }).catch(() => null);
+    if (!marque) return null;
+    const d = (marque.detail ?? {}) as { output?: unknown };
+    return { ok: true, deduplicated: true, output: d.output ?? { rejoue: true } };
+  }
+  private async marquerProduit(call: CapabilityCall, output: unknown): Promise<void> {
+    if (!call.idempotencyKey || !call.missionId) return;
+    const texte = typeof output === "string" ? output.slice(0, 2_000) : output;
+    await journaliser(call.missionId, "AUTONOMOUS_EFFECT",
+      `Écriture autonome « ${call.capability} » produite (étape ${call.stepKey}).`,
+      { stepKey: call.stepKey, capability: call.capability, idempotencyKey: call.idempotencyKey, output: texte as never }).catch(() => undefined);
   }
 
   // ── LECTURE ────────────────────────────────────────────────────────────────────────
@@ -211,6 +241,12 @@ export class ExecutantReel implements CapabilityRunner {
       };
     }
 
+    // ── L'ÉCRITURE AUTONOME DÉJÀ FAITE REND SA SORTIE, SANS RIEN REFAIRE ────────────────
+    const autonome = estAutonome(call.capability);
+    if (autonome) {
+      const deja = await this.dejaProduit(call);
+      if (deja) return deja;
+    }
     let brut: string;
     try {
       brut = await executeReadTool(call.capability, call.input, this.user);
@@ -271,6 +307,23 @@ export class ExecutantReel implements CapabilityRunner {
       };
     }
 
+    // ── UNE ÉCRITURE AUTONOME QUI RÉPOND PAR UNE PHRASE N'A RIEN ÉCRIT ─────────────────
+    //
+    // Ces capacités rendent un OBJET quand elles ont agi (« ok », identifiant, échéance) et une
+    // PHRASE quand elles refusent — « Date illisible », « Personne introuvable », « Précisez ».
+    // La conversation lit la phrase ; une mission la rangeait comme un résultat, marquait
+    // l'étape DONE et comptait un rappel qui n'existait pas. Le contrat est donc structurel :
+    // pas d'objet, pas d'effet — l'étape échoue, l'échelle de recours décide, et la garde
+    // d'idempotence n'inscrit rien qu'une reprise pourrait croire déjà fait.
+    if (autonome && !structure) {
+      const message = typeof valeur === "string" ? valeur.slice(0, 300) : "réponse non structurée";
+      return {
+        ok: false,
+        output: valeur,
+        error: { kind: "INCOMPATIBLE_RESULT", message: `${call.capability} n'a rien écrit : ${message}`, retryable: false },
+      };
+    }
+    if (autonome) await this.marquerProduit(call, valeur);
     return { ok: true, output: valeur, structured: structure };
   }
 

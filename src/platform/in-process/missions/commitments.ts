@@ -1,4 +1,5 @@
 import { notifyUser } from "@/lib/notify";
+import { relancerPersonne } from "@/platform/in-process/missions/relance";
 import { conduire, facteursRelance } from "@/lib/missions/commitments/proactivity";
 import { aRelancer, noterRelance, proprietairesARelancer, relancesDeduites } from "@/lib/missions/commitments/satisfy";
 
@@ -25,12 +26,17 @@ import { aRelancer, noterRelance, proprietairesARelancer, relancesDeduites } fro
  *                      est une issue à part entière, et c'est celle qui rend les autres
  *                      crédibles : un système qui parle toujours ne dit jamais rien.
  *
- * ── CE QU'ON NE FAIT PAS, ET C'EST DÉLIBÉRÉ ────────────────────────────────────────────
+ * ── QUI EST RELANCÉ, ET QUI NE L'EST PAS ───────────────────────────────────────────────
  *
- * On ne relance pas la PERSONNE QUI A PROMIS. On prévient celle qui attend. Écrire directement
- * à un tiers serait une communication sortante décidée par un battement, sans qu'aucun humain
- * n'ait relu le message — exactement ce que la politique d'envoi interdit. La relance est une
- * information (« Redouane n'a toujours pas envoyé son contrat »), pas un envoi.
+ * La PERSONNE QUI A PROMIS, d'abord — par un message interne signé Adam (`relancerPersonne`,
+ * la même échelle que les attentes de mission : personne, personne, hiérarchie). Prévenir le
+ * dirigeant « Redouane n'a toujours pas envoyé son contrat. Voulez-vous relancer ? » lui
+ * transférait la micro-décision la plus évidente ; un chef de cabinet relance lui-même et ne
+ * vient vous voir que quand cela n'a rien donné. Le dirigeant est donc prévenu dans DEUX cas
+ * seulement : l'échelle est épuisée, ou la promesse ne désigne aucun compte interne.
+ *
+ * Ce qu'on n'écrit JAMAIS depuis un battement : un message à l'EXTÉRIEUR (partenaire,
+ * autorité). Une relance externe engage l'entreprise ; elle passe par un plan et un accord.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -105,14 +111,38 @@ export async function relancerEngagements(
           out.tus += 1;
           continue;
         }
+        // ── ADAM RELANCE D'ABORD LA PERSONNE QUI A PROMIS, pas le dirigeant ──────────────
+        //
+        // « Voulez-vous relancer ? » transférait au dirigeant la micro-décision la plus
+        // évidente. Quand la promesse est celle d'un compte interne, l'échelle de relances
+        // s'applique (personne, personne, hiérarchie) ; le dirigeant n'est prévenu qu'au-delà,
+        // ou quand la promesse vient de l'extérieur.
+        if (engagement.personId) {
+          const r = await relancerPersonne({
+            personneId: engagement.personId, barreau: dejaRelance + 1, pour: "la direction",
+            objet: engagement.what, contexte: "engagement pris", jours: Math.floor(jours),
+          });
+          if (r) {
+            await noterRelance(engagement.id, maintenant);
+            out.signales += 1;
+            continue;
+          }
+        }
 
+        // ── LE DIRIGEANT : échelle épuisée, ou personne d'interne à relancer ─────────────
+        //
+        // Le message dit ce qui a été FAIT et ce qu'il reste à DÉCIDER — pas « voulez-vous
+        // relancer ? » après trois relances restées sans réponse.
+        const echelleEpuisee = Boolean(engagement.personId) && dejaRelance > 0;
         await notifyUser({
           userId: ownerId,
           type: "GENERIC",
           title: `Toujours en attente — ${engagement.who}`,
           body: `${engagement.what} — ${Math.floor(jours)} jour(s) de retard`
             + (dejaRelance > 0 ? `, ${dejaRelance} rappel(s) déjà passé(s)` : "")
-            + ". Voulez-vous relancer ?",
+            + (echelleEpuisee
+              ? ". Mes relances sont restées sans réponse : à vous de trancher (relancer autrement, réassigner, ou clore)."
+              : ". Cette personne n'a pas de compte interne : je peux préparer un e-mail de relance, à vous de décider."),
           // Le lien mène à la mission quand il y en a une ; sinon à l'espace de travail, où la
           // personne retrouve ses engagements. Un lien mort serait pire que pas de lien.
           link: engagement.missionId ? `/missions/${engagement.missionId}` : "/assistant",

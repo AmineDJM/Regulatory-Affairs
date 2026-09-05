@@ -1145,7 +1145,8 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         where: { id, userId: user.id, active: true },
         data: { active: false },
       });
-      return done.count > 0 ? "Rappel annulé." : "Rappel introuvable (ou déjà éteint).";
+      // UN SUCCÈS SE REND STRUCTURÉ : une mission distingue ainsi « fait » d'une phrase d'excuse.
+      return done.count > 0 ? JSON.stringify({ ok: true, annule: true, message: "Rappel annulé." }) : "Rappel introuvable (ou déjà éteint).";
     },
   },
 
@@ -1183,7 +1184,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       const { snoozeReminder } = await import("@/lib/assistant/reminders");
       const nouveau = await snoozeReminder(id, user.id, minutes);
       return nouveau
-        ? `Rappel repoussé — prochaine échéance : ${formatAlgiersDue(nouveau)}.`
+        ? JSON.stringify({ ok: true, repousse: true, prochaineEcheance: formatAlgiersDue(nouveau), message: `Rappel repoussé — prochaine échéance : ${formatAlgiersDue(nouveau)}.` })
         : "Rappel introuvable (ou déjà éteint).";
     },
   },

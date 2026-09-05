@@ -277,3 +277,93 @@ export interface Reasoner {
   configured(): boolean;
   reason<T>(req: ReasonRequest): Promise<ReasonResult<T>>;
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA SITUATION — ce que le CODE a établi AVANT de planifier (l'enquête).
+ *
+ * « Occupe-toi du dossier Trastuzumab » ne dit ni ce qu'est Trastuzumab, ni où il en est, ni
+ * qui en répond. Demander au modèle de planifier sur ce seul nom, c'est lui demander de deviner
+ * — et le banc a montré ce que ça donne : « dossier » compris comme un dossier Drive, aucune
+ * capacité réglementaire montrée, et une question renvoyée au dirigeant en première étape.
+ *
+ * La situation est composée par le pont depuis l'ERP et l'Information Fabric, avec les DROITS de
+ * la personne (les mêmes lectures que la conversation), bornée, et chaque fait porte sa
+ * PROVENANCE. Le planificateur planifie à partir de faits ; il ne les redemande à personne.
+ * Le savoir est dans les données, la capacité dans le code, le raisonnement dans le modèle.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface SituationEntite {
+  /** PRODUIT, PERSONNE, ORGANISATION, DOSSIER, CONTRAT, FACTURE, MARCHE, TACHE, COURRIER… */
+  type: string;
+  id: string;
+  label: string;
+  ref?: string | null;
+  /** Le domaine de capacités que cette entité appelle (REGULATORY, LEGAL, FINANCE…). */
+  domaine: string;
+}
+
+export interface SituationFait {
+  /** D'où vient le fait : « ERP:RegulatoryProduct », « recherche:Courriers », « fiche », « engagement ». */
+  source: string;
+  texte: string;
+  ref?: string | null;
+}
+
+export interface Situation {
+  entites: SituationEntite[];
+  faits: SituationFait[];
+  /** Les personnes à qui s'adresser AVANT le dirigeant : « Raihana Cherif — responsable du dossier ». */
+  acteurs: string[];
+  domaines: string[];
+  /** Les capacités que l'enquête recommande de montrer au planificateur (noms exacts). */
+  capacitesSuggerees: string[];
+  couverture: { sources: string[]; enEchec: string[]; ms: number };
+}
+
+/** Le port de l'enquête — rempli par le pont, jamais par le runtime lui-même. */
+export interface Enqueteur {
+  situer(objectif: string, acteur: MissionActor): Promise<Situation | null>;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'ATTENTION DU DIRIGEANT — un port, parce qu'elle est une ressource rare (§attention).
+ *
+ * Le runtime SAIT quand quelque chose mérite d'être dit : une mission conclut, se bloque après
+ * avoir épuisé ses recours, a besoin d'un accord, d'une précision, ou attend quelqu'un depuis
+ * trop longtemps. Il ne sait pas — et ne doit pas savoir — COMMENT le dire : notification,
+ * push, e-mail, cadence, digest. Il émet un SIGNAL typé ; le pont décide du niveau et des canaux
+ * par une politique déterministe (`attention/policy.ts`), et journalise ce qu'il a envoyé.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export type GenreSignal =
+  | "MISSION_COMPLETED" | "MISSION_PARTIAL" | "MISSION_BLOCKED" | "MISSION_FAILED"
+  | "APPROVAL_REQUIRED" | "QUESTION" | "WAIT_OVERDUE" | "PLANNING_FAILED" | "BUDGET_HOLD" | "PLAN_CHANGED";
+
+export interface SignalAttention {
+  kind: GenreSignal;
+  missionId: string;
+  ownerId: string;
+  /** Le titre de la mission, tel que la personne l'a vu à l'écran. */
+  titre: string;
+  /** Une phrase de fond — verdict du juge, motif du blocage, question posée, périmètre de l'accord. */
+  raison?: string | null;
+  /** Ce que la personne doit décider, quand il y a une décision. */
+  decision?: string | null;
+  /** Le niveau d'approbation quand le signal en porte un (NORMAL, SENSITIVE, CRITICAL). */
+  niveauApprobation?: string | null;
+  /** L'étape concernée (accord, question, attente) — sert à la clé de dédoublonnage. */
+  stepKey?: string | null;
+  /** Ce que la mission a fait, pour le compte rendu : étapes faites / total / en échec, effets. */
+  bilan?: { faites: number; total: number; echouees: number; effets?: string[]; livrables?: string[]; aSurveiller?: string[] } | null;
+  /** Le nombre de jours d'attente ou de relances déjà faites, pour une attente échue. */
+  attente?: { jours: number; relances: number } | null;
+  planVersion?: number | null;
+}
+
+export type NiveauSignal = "SILENCE" | "JOURNAL" | "INFO" | "ATTENTION" | "ARBITRAGE";
+
+export interface PorteAttention {
+  signaler(signal: SignalAttention): Promise<{ niveau: NiveauSignal; canaux: string[]; supprime: boolean }>;
+}

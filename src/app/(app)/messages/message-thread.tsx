@@ -6,7 +6,7 @@ import { startCall } from "@/lib/actions/meeting-actions";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import type { ConversationDetailDTO, ConvMemberDTO, MessageDTO } from "@/lib/queries/messaging";
-import { CHAT_STATUS_LABEL, CHAT_STATUSES, type ChatStatus } from "@/lib/messaging";
+import { CHAT_STATUS_LABEL, CHAT_STATUSES, type ChatStatus } from "@/lib/messaging-ui";
 import { MessageItem } from "./message-item";
 import { Composer, type SendPayload } from "./composer";
 import { PresenceDot, dayLabel, sameDay, presenceLine } from "./format";

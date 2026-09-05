@@ -26,6 +26,22 @@ import { describe, expect, it } from "vitest";
 
 const SRC = path.join(process.cwd(), "src");
 const NODE_ONLY = /^(node:)?(fs|fs\/promises|zlib|child_process|worker_threads|net|tls|dns|http|https|os|cluster|readline)$/;
+/**
+ * LES PAQUETS QUI N'EXISTENT QUE CÔTÉ NODE — la seconde façon d'atteindre `net`/`tls`.
+ *
+ * Le premier garde ne regardait que les modules natifs importés PAR NOTRE CODE. Or un paquet
+ * externe peut les importer à notre place : `web-push` tire `https-proxy-agent`, donc `net` et
+ * `tls`. Mesuré sur un build propre : `messaging.ts` → `events/messaging-events` → `ledger` →
+ * `reminders` → `notify` → `push` → `web-push`, depuis un composant client qui voulait un
+ * libellé de statut. Le test passait, le build tombait. Ces paquets sont donc des frontières au
+ * même titre que `fs`.
+ */
+// `@prisma/client` et `bcryptjs` n'y sont PAS : le premier a un talon navigateur (le build passe,
+// et des écrans l'atteignent déjà par `rbac`/`settings`), le second est du JavaScript pur.
+const NODE_ONLY_PACKAGES = new Set([
+  "web-push", "nodemailer", "imapflow", "mailparser", "sharp", "mupdf", "pdfkit", "pdf-parse", "yauzl",
+]);
+const estPaquetNode = (spec: string) => NODE_ONLY_PACKAGES.has(spec) || [...NODE_ONLY_PACKAGES].some((p) => spec.startsWith(`${p}/`));
 
 /** Tous les fichiers `.ts`/`.tsx` sous `src/`, hors tests. */
 function walk(dir: string, out: string[] = []): string[] {
@@ -43,6 +59,15 @@ function walk(dir: string, out: string[] = []): string[] {
 
 const IMPORT_RE = /(?:^|\n)\s*import\s+(?:type\s+)?(?:[^'"]*?\sfrom\s+)?["']([^"']+)["']/g;
 
+/**
+ * LES IMPORTS DYNAMIQUES COMPTENT AUSSI. `await import("@/lib/assistant/reminders")` n'est pas
+ * une frontière pour webpack : le module devient un morceau asynchrone du MÊME bundle, et ses
+ * `net`/`tls` cassent le build exactement comme un import statique. Le premier garde ne suivait
+ * que `import … from` ; un sabotage l'a montré — un composant client remis sur `messaging.ts`
+ * passait le test, parce que la chaîne fautive traversait le `import()` du registre d'événements.
+ */
+const DYNAMIC_IMPORT_RE = /\bimport\(\s*["']([^"']+)["']\s*\)/g;
+
 /** Spécificateurs importés par un fichier, en ignorant les imports de TYPE (effacés à la compilation). */
 function importsOf(file: string): string[] {
   const src = readFileSync(file, "utf8");
@@ -54,6 +79,7 @@ function importsOf(file: string): string[] {
     if (/\{\s*(?:type\s+[^,}]+,?\s*)+\}/.test(stmt) && !/\{\s*[^t}][^,}]*/.test(stmt.replace(/type\s+[^,}]+/g, ""))) continue;
     out.push(m[1]);
   }
+  for (const m of src.matchAll(DYNAMIC_IMPORT_RE)) out.push(m[1]);
   return out;
 }
 
@@ -81,7 +107,7 @@ function nodeOnlyPath(entry: string): string[] | null {
     if (seen.has(file)) continue;
     seen.add(file);
     for (const spec of importsOf(file)) {
-      if (NODE_ONLY.test(spec)) return [...trail, spec];
+      if (NODE_ONLY.test(spec) || estPaquetNode(spec)) return [...trail, spec];
       const next = resolve(spec, file);
       if (!next || seen.has(next)) continue;
       if (isServerAction(next)) continue; // frontière RPC : rien ne traverse
@@ -109,8 +135,14 @@ describe("Bundle client — aucun composant « use client » ne doit atteindre f
     expect(offenders, `Chaîne(s) d'import fautive(s) :\n\n  ${offenders.join("\n\n  ")}\n`).toEqual([]);
   });
 
+
+
   it("le module des normalisations pharma reste PUR (il est importé par l'explorateur)", () => {
     expect(nodeOnlyPath(path.join(SRC, "lib/market/galenic.ts"))).toBeNull();
     expect(nodeOnlyPath(path.join(SRC, "lib/market/text.ts"))).toBeNull();
+  });
+
+  it("la part pure de la messagerie reste PURE (les écrans de messagerie l'importent)", () => {
+    expect(nodeOnlyPath(path.join(SRC, "lib/messaging-ui.ts"))).toBeNull();
   });
 });

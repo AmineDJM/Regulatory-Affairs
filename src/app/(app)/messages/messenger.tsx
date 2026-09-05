@@ -6,7 +6,7 @@ import { Sheet } from "@/components/ui/sheet";
 import type {
   ConversationSummaryDTO, ConversationDetailDTO, DirectoryUserDTO, ChannelDTO, MessageDTO, BookmarkDTO,
 } from "@/lib/queries/messaging";
-import type { Presence } from "@/lib/messaging";
+import type { Presence } from "@/lib/messaging-ui";
 import {
   sendMessage, toggleReaction, togglePinMessage, bookmarkMessage, deleteMessage, editMessage, markRead,
 } from "@/lib/actions/messaging-actions";

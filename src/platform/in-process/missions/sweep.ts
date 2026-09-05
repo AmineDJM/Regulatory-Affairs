@@ -3,7 +3,7 @@ import { getAccess } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
 import { attentesEchues, missionsAFaireAvancer, reveillerAttentesTemporelles } from "@/lib/missions/events/router";
 import { journaliser } from "@/lib/missions/runtime/store";
-import { prevenir } from "@/lib/missions/approval/gate";
+import { relancerAttente } from "@/platform/in-process/missions/relance";
 import { avancerMission, rattraperLancementsPerdus, replanifierMission } from "@/platform/in-process/missions/runtime";
 import crypto from "crypto";
 
@@ -223,18 +223,15 @@ export async function balayerMissions(): Promise<BalayageMissions> {
         where: { missionId: e.missionId, kind: "OVERDUE", detail: { path: ["stepKey"], equals: e.stepKey } },
         select: { id: true },
       });
-      if (dejaDit) continue;
-
-      await journaliser(e.missionId, "OVERDUE",
-        `L'attente « ${e.stepTitle} » a dépassé son échéance.`, { stepKey: e.stepKey });
-      await prevenir({
-        missionId: e.missionId,
-        ownerId: e.ownerId,
-        niveau: "IMPORTANT",
-        titre: `En attente depuis trop longtemps — ${e.missionTitle}`,
-        message: `« ${e.stepTitle} » attend toujours. Voulez-vous relancer ?`,
-      });
-      out.relances += 1;
+      if (!dejaDit) {
+        await journaliser(e.missionId, "OVERDUE",
+          `L'attente « ${e.stepTitle} » a dépassé son échéance.`, { stepKey: e.stepKey });
+      }
+      // ADAM RELANCE LUI-MÊME — un barreau par jour, la hiérarchie au troisième, le dirigeant
+      // seulement quand l'échelle est épuisée ou que la personne attendue est externe. L'échelle
+      // relit le journal : rappelée à chaque battement, elle ne fait rien de plus dans la journée.
+      const r = await relancerAttente(e).catch(() => null);
+      if (r && r.geste !== "SILENCE") out.relances += 1;
     }
   } catch (e) {
     console.error("[missions] balayage des attentes échues échoué", e);

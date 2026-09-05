@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type {
-  CapabilityCatalog, CapabilityRunner, Clock, MissionActor, RegistreRecours,
+  CapabilityCatalog, CapabilityRunner, Clock, MissionActor, RegistreRecours, PorteAttention,
 } from "@/lib/missions/ports";
 import { verifierAvantAgir } from "@/lib/missions/agent/principal";
 import { systemClock } from "@/lib/missions/ports";
@@ -121,6 +121,12 @@ export interface EngineDeps {
    * s'annonce plus comme un recours.
    */
   registre?: RegistreRecours;
+  /**
+   * LA PORTE D'ATTENTION (port) — par où le moteur DIT au dirigeant qu'une mission a conclu,
+   * s'est bloquée ou a échoué. Absente, le moteur se tait et le journal reste la seule trace :
+   * un banc qui n'en fournit pas ne dérange personne.
+   */
+  attention?: PorteAttention;
   /** Borne le nombre de tours d'un même appel — protège d'un graphe pathologique, pas du volume. */
   maxTours?: number;
 }
@@ -182,6 +188,21 @@ const profilCapacite = (id: string) => {
 };
 
 /**
+ * LA MÉTADONNÉE D'UNE CAPACITÉ, VUE DU MOTEUR — le catalogue d'abord, le registre nu ensuite.
+ *
+ * `capabilityMeta(nom)` sans liste d'écritures ne sait pas si une capacité écrit : elle rend
+ * alors le défaut PRUDENT (EXTERNAL_COMMUNICATION) — le bon défaut pour un compilateur qui doit
+ * demander un accord, le mauvais pour un REÇU qui doit dire ce qui s'est passé. Mesuré sur le
+ * banc d'acceptance : une lecture `find_documents` ajoutée par la voie directe recevait un reçu
+ * « EXTERNAL_COMMUNICATION », le contrôle qualité lui réclamait un reçu d'intent qu'une lecture
+ * n'a pas, et le banc concluait « effet exécuté au-delà du plafond ANALYZE » sur une mission
+ * qui n'avait rien écrit. Le catalogue que le composeur a construit porte la liste d'écritures :
+ * c'est lui qui fait foi quand il connaît la capacité.
+ */
+const metaDe = (capability: string, catalog: CapabilityCatalog | undefined) =>
+  catalog?.has(capability) ? catalog.meta(capability) : capabilityMeta(capability);
+
+/**
  * FAIT AVANCER LA MISSION AUTANT QU'ELLE PEUT AVANCER MAINTENANT.
  *
  * Réentrant et sûr à rappeler : deux appels concurrents se disputent les étapes par une
@@ -223,7 +244,7 @@ export async function avancer(
 
     const pretes = etapesPretes(frais);
     if (pretes.length === 0) {
-      const resolues = await resoudreEventails(frais);
+      const resolues = await resoudreEventails(frais, deps.catalog);
       if (resolues === 0 && relancees === 0) {
         // PLUS RIEN NE PEUT AVANCER. C'est le moment — et le seul — où la question « est-ce
         // fini ? » a un sens. Elle est posée à part, parce qu'y répondre n'est pas exécuter.
@@ -322,8 +343,11 @@ function etapesPretes(etat: EtatMission): EtatEtape[] {
     if (s.contournee) return false;
     if (s.status === "READY") return true;
     if (s.status !== "PENDING") return false;
-    return s.dependsOn.every((d) => {
-      const dep = parCle.get(d);
+    const amonts = s.dependsOn.map((d) => parCle.get(d)).filter((d): d is EtatEtape => d !== undefined);
+    // DU MATÉRIAU VIVANT : au moins un amont a ABOUTI. C'est ce qui distingue « synthétiser ce
+    // qu'on a, en disant ce qui manque » de « conclure à partir de rien ».
+    const materiel = amonts.some((d) => d.status === "DONE");
+    return amonts.every((dep) => {
       /**
        * UNE DÉPENDANCE CONTOURNÉE NE RETIENT PERSONNE. Le journal du replan le promet —
        * « elles ne bloquent plus » — et un run Render (2026-08-29) a montré ce que coûte de
@@ -333,9 +357,44 @@ function etapesPretes(etat: EtatMission): EtatEtape[] {
        * Même principe que SKIPPED (§37) : l'étape partira avec ce que ses amonts vivants ont
        * produit, et le worker DIT ce qui lui manque.
        */
-      return dep ? dep.contournee || estTerminal(dep.status) : true;
+      return dependanceSatisfaite(dep, s, materiel);
     });
   });
+}
+
+/** Les nœuds qui SYNTHÉTISENT : ils lisent ce que leurs amonts ont produit, et disent ce qui manque. */
+const SYNTHESE: ReadonlySet<string> = new Set(["WORKER", "QA", "JOIN", "ARTIFACT"]);
+
+/** Une étape MORTE : en échec, toutes ses tentatives consommées — plus rien ne la fera aboutir seule. */
+const estMorte = (dep: Pick<EtatEtape, "status" | "attempt" | "maxAttempts">): boolean =>
+  dep.status === "FAILED" && dep.attempt >= dep.maxAttempts;
+
+/**
+ * « CETTE DÉPENDANCE LAISSE-T-ELLE PASSER ? » — pure, exportée pour être testée au cas près.
+ *
+ * Terminale (DONE, SKIPPED, CANCELLED) ou contournée : oui, pour tout le monde. MORTE : oui pour
+ * un nœud de SYNTHÈSE seulement, et seulement s'il a DU MATÉRIAU — au moins un autre amont
+ * abouti. Le banc l'a montré sur l'enquête d'une facture : une lecture de pièces en échec
+ * définitif tenait en otage l'analyse, l'accord et le contrôle — la mission finissait BLOQUÉE
+ * sans avoir rien conclu, alors que l'analyste avait sept lectures réussies sous la main. Un
+ * worker part avec ce que ses amonts vivants ont produit et DIT ce qui lui manque ; le juge
+ * tranche ensuite.
+ *
+ * Deux bornes, chacune pour une raison :
+ *   • une CAPABILITY reste retenue : écrire à partir d'une lecture qui a échoué, c'est écrire
+ *     sur du vide ;
+ *   • une synthèse dont TOUS les amonts sont morts reste retenue : « conclure malgré tout »
+ *     sans matériau, c'est inventer — le faux succès que §10 interdit. La mission passe alors
+ *     BLOCKED (`deduireEtat`, règle 4) et c'est la REPLANIFICATION qui décide, pas le moteur.
+ */
+export function dependanceSatisfaite(
+  dep: Pick<EtatEtape, "status" | "attempt" | "maxAttempts" | "contournee">,
+  dependant: Pick<EtatEtape, "nodeType">,
+  /** Le dépendant a-t-il au moins un amont ABOUTI (DONE) ? Sans matériau, rien ne part. */
+  materiel: boolean,
+): boolean {
+  if (dep.contournee || estTerminal(dep.status)) return true;
+  return estMorte(dep) && SYNTHESE.has(dependant.nodeType) && materiel;
 }
 
 /**
@@ -454,7 +513,7 @@ async function executerUneEtape(
 
   // ── §10 — LE RECOURS LOCAL, AVANT D'ÉPUISER L'ÉTAPE ────────────────────────────────
   if (sortie.status === "FAILED") {
-    const repris = await tenterRecours(etat, step, sortie, clock, { registre: deps.registre, acteur: actor });
+    const repris = await tenterRecours(etat, step, sortie, clock, { registre: deps.registre, acteur: actor, catalog: deps.catalog });
     if (repris) return { kind: "etape", echouee: false, dedupliquee: false };
   }
 
@@ -513,7 +572,7 @@ async function tenterRecours(
   step: EtatEtape,
   sortie: Extract<StepOutcome, { status: "FAILED" }>,
   clock: Clock,
-  deps?: { registre?: RegistreRecours; acteur?: MissionActor },
+  deps?: { registre?: RegistreRecours; acteur?: MissionActor; catalog?: CapabilityCatalog },
 ): Promise<boolean> {
   if (!(ERROR_KINDS as readonly string[]).includes(sortie.errorKind)) return false;
   const kind = sortie.errorKind as ErrorKind;
@@ -533,7 +592,7 @@ async function tenterRecours(
   const resolveurs: ResolveursRecours = {
     autreSource: (source) => {
       if (!deps?.registre || !deps.acteur || !step.capability) return null;
-      const effet = capabilityMeta(step.capability).effect;
+      const effet = metaDe(step.capability, deps.catalog).effect;
       const alt = deps.registre.autreSource({
         source,
         capaciteActuelle: step.capability,
@@ -758,7 +817,7 @@ async function executerCapacite(ctx: StepContext, deps: EngineDeps): Promise<Ste
    * est une information, et c'est celle qui distingue une piste non explorée d'une piste
    * explorée sans succès.
    */
-  const meta = capabilityMeta(step.capability);
+  const meta = metaDe(step.capability, deps.catalog);
 
   /**
    * ── LE SUCCÈS SÉMANTIQUE, ENTRE LE TRANSPORT ET L'ATTENDU DE L'ÉTAPE ─────────────────
@@ -1068,7 +1127,7 @@ async function deployerEventail(
  * ÉCHEC si une fille a échoué définitivement — sinon un envoi manquant sur trente-trois
  * passerait pour un succès, ce qui est précisément ce que le §22 interdit.
  */
-async function resoudreEventails(etat: EtatMission): Promise<number> {
+async function resoudreEventails(etat: EtatMission, catalog?: CapabilityCatalog): Promise<number> {
   let resolus = 0;
   for (const step of etat.steps) {
     if (step.status !== "WAITING") continue;
@@ -1105,7 +1164,7 @@ async function resoudreEventails(etat: EtatMission): Promise<number> {
      * avec ses manques NOMMÉS dans son résultat — l'étape aval les DIT, le juge les lit, et
      * rien n'est perdu : chaque échec garde son reçu et son erreur sur sa fille.
      */
-    const effet = step.capability ? capabilityMeta(step.capability).effect : "ANALYZE";
+    const effet = step.capability ? metaDe(step.capability, catalog).effect : "ANALYZE";
     const lectureSeule = EFFECT_RANK[effet] <= EFFECT_RANK.ANALYZE;
     const statut = echecs.length > 0 && !lectureSeule ? "FAILED" : "DONE";
 
@@ -1198,6 +1257,21 @@ async function dernierJugement(missionId: string): Promise<JugementAnterieur | n
   };
 }
 
+/** CE QUE LA MISSION A FAIT, en trois nombres et une liste d'effets lus sur les reçus. PUR. */
+export function bilanDe(steps: readonly EtapeObservee[]): { faites: number; total: number; echouees: number; effets: string[] } {
+  const reelles = steps.filter((s) => s.nodeType !== "JOIN");
+  const faites = reelles.filter((s) => s.status === "DONE").length;
+  const echouees = reelles.filter((s) => s.status === "FAILED").length;
+  const parCapacite = new Map<string, number>();
+  for (const s of reelles) {
+    if (s.status !== "DONE" || !s.recu || !s.recu.capability) continue;
+    if (EFFECT_RANK[s.recu.effect] < EFFECT_RANK.INTERNAL_REVERSIBLE_WRITE) continue;
+    parCapacite.set(s.recu.capability, (parCapacite.get(s.recu.capability) ?? 0) + 1);
+  }
+  const effets = [...parCapacite.entries()].map(([c, n]) => (n > 1 ? `${c} ×${n}` : c));
+  return { faites, total: reelles.length, echouees, effets };
+}
+
 export async function conclure(
   missionId: string,
   etat: EtatMission,
@@ -1284,9 +1358,19 @@ export async function conclure(
       });
   }
 
+  // ── LE COMPTE RENDU AU DIRIGEANT, composé par le code depuis les reçus ───────────────
+  const bilan = bilanDe(observees);
+  const signaler = async (kind: "MISSION_COMPLETED" | "MISSION_PARTIAL" | "MISSION_BLOCKED", raison: string) => {
+    if (!deps.attention) return;
+    await deps.attention.signaler({
+      kind, missionId, ownerId: etat.ownerId, titre: "", raison, bilan, planVersion: etat.planVersion,
+      decision: verdict.recoursSuggere ?? null,
+    }).catch(() => undefined);
+  };
   if (verdict.satisfait) {
     await transitionner(missionId, "RUNNING", "vérification de l'objectif");
     await transitionner(missionId, "COMPLETED", verdict.raison);
+    await signaler("MISSION_COMPLETED", verdict.raison);
     // LA FORME DE CE PLAN A RÉUSSI (§64) : elle s'inscrit au registre des formes — jamais le
     // contenu, jamais bloquant, idempotente au rejeu. Import différé : la conclusion d'une
     // mission ne charge le registre que lorsqu'elle a quelque chose à y écrire.
@@ -1299,6 +1383,7 @@ export async function conclure(
   if (!qa.ok && qa.manquants.length > 0) {
     await transitionner(missionId, "RUNNING", "bilan");
     await transitionner(missionId, "PARTIAL", qa.resume);
+    await signaler("MISSION_PARTIAL", qa.resume);
     return "PARTIAL";
   }
 
@@ -1327,6 +1412,7 @@ export async function conclure(
     await transitionner(missionId, "RUNNING", "bilan");
     await transitionner(missionId, "BLOCKED",
       `Toutes les étapes sont abouties et l'objectif n'est pas atteint : ${verdict.raison}`);
+    await signaler("MISSION_BLOCKED", verdict.raison);
     return "BLOCKED";
   }
 
