@@ -128,6 +128,8 @@ export interface VoiceRealtimeProvider {
   setMuted(muted: boolean): void;
   readonly state: VoiceCallState;
   readonly threadId: string | null;
+  /** Les totaux de consommation de la session (jetons texte/audio, cache) — pour le journal d'usage. */
+  getUsage?(): VoiceUsageTotals;
 }
 
 interface ProviderOptions {
@@ -157,7 +159,57 @@ interface RealtimeEvent {
   response_id?: string;
   item?: { id?: string; type?: string };
   error?: { message?: string; code?: string };
-  response?: { id?: string; status?: string; output?: { type: string; name?: string; call_id?: string; arguments?: string }[] };
+  response?: {
+    id?: string; status?: string;
+    output?: { type: string; name?: string; call_id?: string; arguments?: string }[];
+    /** La consommation de la réponse, telle que le fournisseur la rapporte sur `response.done`. */
+    usage?: RealtimeUsage;
+  };
+}
+
+/** Ce que `response.done` rapporte — texte et audio séparés, part en cache incluse. */
+export interface RealtimeUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  input_token_details?: { text_tokens?: number; audio_tokens?: number; cached_tokens?: number; cached_tokens_details?: { text_tokens?: number; audio_tokens?: number } };
+  output_token_details?: { text_tokens?: number; audio_tokens?: number };
+}
+
+/**
+ * LES TOTAUX D'UNE SESSION VOCALE — additionnés réponse après réponse, remis au journal à la
+ * fermeture. Le coût d'un appel se calcule côté serveur à partir de ces six nombres : la voix
+ * était la seule modalité dont personne ne savait le prix.
+ */
+export interface VoiceUsageTotals {
+  responses: number;
+  inputText: number;
+  inputAudio: number;
+  cachedText: number;
+  cachedAudio: number;
+  outputText: number;
+  outputAudio: number;
+}
+
+export const usageVide = (): VoiceUsageTotals => ({ responses: 0, inputText: 0, inputAudio: 0, cachedText: 0, cachedAudio: 0, outputText: 0, outputAudio: 0 });
+
+/** Additionne une réponse aux totaux — pur, tolérant aux champs absents. */
+export function cumulerUsage(totaux: VoiceUsageTotals, u: RealtimeUsage | undefined): VoiceUsageTotals {
+  if (!u) return totaux;
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  const inDet = u.input_token_details ?? {};
+  const outDet = u.output_token_details ?? {};
+  // Sans détail, tout est réputé TEXTE — une sous-estimation assumée (l'audio coûte plus) plutôt qu'une invention.
+  const inputText = inDet.text_tokens != null || inDet.audio_tokens != null ? n(inDet.text_tokens) : n(u.input_tokens);
+  const outputText = outDet.text_tokens != null || outDet.audio_tokens != null ? n(outDet.text_tokens) : n(u.output_tokens);
+  return {
+    responses: totaux.responses + 1,
+    inputText: totaux.inputText + inputText,
+    inputAudio: totaux.inputAudio + n(inDet.audio_tokens),
+    cachedText: totaux.cachedText + n(inDet.cached_tokens_details?.text_tokens ?? (inDet.cached_tokens_details ? 0 : inDet.cached_tokens)),
+    cachedAudio: totaux.cachedAudio + n(inDet.cached_tokens_details?.audio_tokens),
+    outputText: totaux.outputText + outputText,
+    outputAudio: totaux.outputAudio + n(outDet.audio_tokens),
+  };
 }
 
 /** L'obligation de restitution d'un résultat d'outil — le « propriétaire de la réponse ». */
@@ -274,6 +326,9 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
   /** Réponses annulées dont les événements résiduels doivent être IGNORÉS. */
   private cancelledResponseIds = new Set<string>();
+  /** La consommation cumulée de la session — lue à la fermeture, jamais estimée. */
+  private usageTotaux: VoiceUsageTotals = usageVide();
+  getUsage(): VoiceUsageTotals { return { ...this.usageTotaux }; }
 
   // ── BARGE-IN CONFIRMÉ ──
   // Un début de signal pendant que l'assistant parle n'interrompt RIEN — il ouvre une fenêtre
@@ -639,6 +694,8 @@ export class OpenAIGptRealtime21Provider implements VoiceRealtimeProvider {
       case "response.done": {
         const rid = e.response?.id ?? this.activeResponseId ?? "r-inconnue";
         const status = e.response?.status ?? "completed";
+        // La facture de CETTE réponse s'ajoute aux totaux — même annulée : les jetons sont payés.
+        this.usageTotaux = cumulerUsage(this.usageTotaux, e.response?.usage);
         // Le marqueur « annulée » SURVIT au done : les événements de tampon audio de la
         // réponse annulée traînent encore derrière (c'est lui qui les fait ignorer).
         const wasCancelled = this.cancelledResponseIds.has(rid) || status === "cancelled";

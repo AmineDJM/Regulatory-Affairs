@@ -1,6 +1,8 @@
 import { requireUser } from "@/lib/session";
 import { logAiUsage } from "@/lib/ai-settings";
 import { canUseRealtimeVoice, REALTIME_VOICE_MODEL } from "@/lib/assistant/voice-realtime";
+import { coutSessionVocale, type UsageVocal } from "@/lib/assistant/voice/cost";
+import { journaliserSessionVocale } from "@/platform/in-process/telemetry/usage-sink";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -39,6 +41,8 @@ export async function POST(req: Request) {
     staleEventsIgnored?: number; phantomCancels?: number;
     falseBargeInsIgnored?: number; bargeInLatencyMs?: number;
     reasonCode?: string; detail?: string;
+    /** Les totaux de jetons de la session (texte / audio / cache) — remis à la fermeture. */
+    usage?: Partial<UsageVocal> | null;
   };
   try { body = (await req.json()) as typeof body; } catch { return Response.json({ ok: false }, { status: 400 }); }
   const event = typeof body.event === "string" && EVENTS.has(body.event) ? body.event : "voice_event";
@@ -63,13 +67,36 @@ export async function POST(req: Request) {
   // La fin de session (ou son échec) rejoint le registre d'usage IA — coût et latences suivis
   // PAR UTILISATEUR, comme le texte. ttftMs = premier audio entendu (le « ressenti » vocal).
   if (event === "voice_session_closed" || event === "voice_session_error") {
+    // LE COÛT DE LA SESSION — calculé ici, depuis des NOMBRES que le client a comptés sur les
+    // `response.done` du fournisseur ; le tarif vient du registre (texte) et des variables
+    // d'exploitation (audio). `null` si aucune consommation n'a été remise ou si un tarif manque.
+    const u = body.usage && typeof body.usage === "object" ? body.usage : null;
+    const usage: UsageVocal | null = u ? {
+      responses: num(u.responses) ?? 0, inputText: num(u.inputText) ?? 0, inputAudio: num(u.inputAudio) ?? 0,
+      cachedText: num(u.cachedText) ?? 0, cachedAudio: num(u.cachedAudio) ?? 0, outputText: num(u.outputText) ?? 0, outputAudio: num(u.outputAudio) ?? 0,
+    } : null;
+    const cout = usage ? coutSessionVocale(usage) : null;
+    const entree = usage ? usage.inputText + usage.inputAudio : null;
+    const sortie = usage ? usage.outputText + usage.outputAudio : null;
+    const cache = usage ? usage.cachedText + usage.cachedAudio : null;
     await logAiUsage({
       feature: "voice_realtime", provider: "openai", model: REALTIME_VOICE_MODEL, userId: user.id,
       ok: event === "voice_session_closed",
       latencyMs: payload.sessionMs, ttftMs: payload.firstAudioMs,
       turns: payload.turns, toolCalls: payload.toolCalls, toolErrors: payload.toolErrors,
       errorCode: event === "voice_session_error" ? (payload.reasonCode ?? "error") : null,
+      llmCalls: usage?.responses ?? null, inputTokens: entree, outputTokens: sortie, cachedInputTokens: cache,
+      costUsd: cout?.costUsd ?? null,
     });
+    // La voix rejoint le journal PAR APPEL (une ligne par session) : le coût par modèle la compte.
+    // C'est le PUITS qui écrit — la route ne connaît ni la table ni le rôle.
+    if (usage) {
+      journaliserSessionVocale({
+        userId: user.id, model: REALTIME_VOICE_MODEL,
+        inputTokens: entree ?? 0, outputTokens: sortie ?? 0, cachedInputTokens: cache ?? 0,
+        costUsd: cout?.costUsd ?? null, ms: payload.sessionMs ?? 0, responses: usage.responses,
+      });
+    }
   }
   return Response.json({ ok: true });
 }

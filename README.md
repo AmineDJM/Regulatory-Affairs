@@ -2841,6 +2841,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 |---|---|
 | **Frontière Adam ↔ ERP** | `platform/contract.ts` (les 4 verbes, `Principal`, `PlatformQuery`, `PlatformCommand`, `DomainEvent` — **zéro import**) ; `platform/event-bus.ts` (`publish`/`subscribe`, abonnés isolés, mémoire bornée, rejeu) ; `platform/events.ts` (`emit` + catalogue fermé de 17 faits) ; `platform/in-process/adapter.ts` (**le seul pont** : `principalOf`, `query`, `command` → `performAction`, `authorize`, `destinationsOf` → `lib/nav-access.ts`) ; `platform/boundary-scan.ts` + `boundary.test.ts` (le **cliquet** : dette plafonnée à 430, `src/platform/` à zéro) ; `scripts/adam-boundary.ts` (`npm run adam:boundary`). Côté Adam : `lib/assistant/platform/change-feed.ts` (projection « quoi de neuf », branchée sur `what_changed`). ERP instrumenté : `hr-actions.ts`, `regulatory-actions.ts`, `comms/outbound.ts`. |
 | **Adam — aiguillage & liste courte d'outils** | `lib/assistant/context/router.ts` (`routeQuery` : 5 classes de route, 11 domaines, plancher de confiance) ; `tool-shortlist.ts` (`TOOL_DOMAINS` — les 77 outils classés —, `ALWAYS_ON` socle de 4, `shortlistTools`) ; **`rollout.ts`** (`decideRollout` : `FAST_READ` / `SHORTLIST` / `LEGACY`, `SAFE_READ_TOOLS` liste blanche, `bucketOf` FNV-1a, garde `recordOutcome`/`guardStatus`/`readyForNextStep`) ; `discovery.ts` (`runDiscovery` — l'échappatoire `list_more_tools`) ; `shadow.ts` (mesure) ; `bench.ts` + `golden-corpus.ts` (TRAIN) + `holdout-corpus.ts` (**jamais retouché**). Branché dans `lib/assistant.ts` sur **les deux** boucles (`runAssistant` et `runAssistantStream`), via `assistantToolsFor(user)`. |
+| **Adam — pré-lectures, cache de prompt, prompt compact, coût** | `lib/assistant/pre-lectures.ts` (décision PURE + exécution bornée : recherche fédérée + documentaire avant le modèle, seconde vague fiche/document, recette réunion) ; `lib/assistant/context/tour.ts` (le contexte du tour voyage avec le message — le préfixe reste cachable) ; `lib/assistant/context/fast-args-contract.test.ts` (clés écrites par le routeur ⊆ clés lues par l'outil) ; `lib/assistant/context/tool-resolver.ts` (niveaux A/B/C ; en C les écritures ne partent que si la phrase nomme un geste — `nommeUnGeste` dans `router.ts` ; description de la découverte par tour) ; `lib/assistant/regulatory-read.ts` (`regulatory_knowledge` : le savoir ANPP est un outil, plus un bloc de prompt) ; `lib/models/telemetry.ts` (contexte de tour, puits d'appels, phases) ; `platform/in-process/telemetry/usage-sink.ts` (une ligne `ModelCallLog` par appel, tamponnée ; `journaliserSessionVocale`) ; `platform/in-process/telemetry/usage-stats.ts` (agrégats de coût du centre de contrôle IA) ; `lib/assistant/voice/cost.ts` (prix d'une session vocale) ; `lib/models/registry.ts` (tarifs publics datés, `ROLE_VOIX`) ; `platform/in-process/missions/crash-between.test.ts` (effet fait, reçu perdu → zéro doublon) ; `scripts/bench/seed-adam-bench.ts` + `adam-live-bench.ts` (`npm run adam:bench:seed`, `npm run adam:bench`) ; tables dans `bench-out/`. |
 | **Adam — la coque de son bureau (et sa porte de sortie)** | Groupe de routes `app/(chief)/layout.tsx` : coque délibérément VIDE — ni menu latéral, ni barre supérieure, ni barre d'onglets, ni palette, ni bandeaux. `components/chief/{chief-workspace,chief-header,chief-home}.tsx` + `app/chief.css` (jeu de jetons `--chief-*` propre à Adam). **La sortie** : `components/chief/module-switcher.tsx` — une icône dans l'en-tête ouvre la liste des modules que CETTE personne peut ouvrir (champ de filtre, groupé par pôle, Échap / clic dehors referment). Les destinations arrivent par le **contrat de plateforme** (`navigation.destinations` → `in-process/adapter.ts` → `lib/nav-access.ts`), jamais par un import du menu de l'ERP : c'est ce qui garde le cliquet de frontière à 430. Le même `navigationFor` sert la barre latérale de l'ERP — une seule vérité sur « qui a le droit d'aller où ». Tests : `platform/navigation-destinations.test.ts` (dont : une entrée fusionnée mène au premier onglet AUTORISÉ, donc `/ad-pro` pour l'admin et `/congress-international` pour le délégué médical). |
 | **Adam — espace de travail génératif** | `lib/assistant/workspace/protocol.ts` (types de blocs + `WORKSPACE_LIMITS`) ; `compose.ts` (`composeWorkspace` — table de correspondance **fermée** : un outil absent ne compose RIEN, le repli est le texte ; plus la porte `_blocs`, **revalidée champ par champ**, par laquelle une lecture déclare ce qu'elle montre) ; `sheet.ts` (classeur → lignes, ExcelJS, **sans dépendance ERP**) ; `emit.ts` (helpers **purs** de composition : gestes, retards, métriques de charge, étapes) ; `components/chief/workspace/blocks.tsx` + `blocks.css` (feuille autonome à valeurs de repli : les blocs servent aussi `/assistant`, qui ne charge pas `chief.css`) ; `preview-planche.tsx` (la planche de revue visuelle, servie par `/chief-of-staff?apercu=blocs` **uniquement** si `ADAM_BLOCK_PREVIEW=1` — elle n'a pas d'adresse en production). Blocs : `people` (fiche riche : statut, métriques, coordonnées avec provenance), `directory`, `mail`, `agenda`, `queue` (**avec ses boutons Approuver / Refuser**), `record`, `table` (**gestes par ligne**, cartes empilées sur mobile), `timeline`, `progress` (jauges), `document` (PDF, image, feuille), `dossier` (faits + frise de circuit + pièces + participants + activité), `email` (le message avant l'envoi). Événement de flux `{ type: "workspace" }` ; stocké sur le message dans `assistant-chat.tsx`, qui fournit `WorkspaceAskProvider` — un clic écrit une phrase dans la conversation, il n'exécute rien. La prop `canvas` (défaut **faux**) rend le tour d'Adam **sans bulle** ; `/assistant` reste inchangé. |
 | **Adam — montrer (et non lire)** | `lib/assistant/show-tools.ts` : `show_document` (PDF/contrat en visionneuse, image, classeur rendu en tableau — passe par le **contrat** `document.show`, servi par `platform/in-process/adapter.ts`, seul autorisé à toucher Drive, stockage et droits) et `show_table` (colonnes et tri **à la demande** : le modèle choisit la vue, le serveur relit les lignes à la source canonique — sources fermées dans `TABLE_SOURCES`). À ne pas confondre avec `read_document`, qui extrait du TEXTE pour le modèle. |
@@ -3582,6 +3583,97 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Adam mesuré, puis accéléré : le banc, les pré-lectures, le routage par niveau, le coût de premier rang (2026-09)
+
+**On a d'abord mesuré, sur le vrai fournisseur.** Un banc de conversation reproductible
+(`npm run adam:bench`, `scripts/bench/adam-live-bench.ts`) joue vingt questions d'un dirigeant — lecture
+canonique, requête structurée, permission d'une déléguée, raisonnement, documents, agrégation partenaire,
+mémoire de fil, anti-hallucination, actions, préparation de comité — contre un jeu de données LOCAL et
+jetable dont la vérité terrain est connue (`npm run adam:bench:seed`, gardé : base locale + `BENCH_SEED_ALLOW=1`,
+manifeste incrémental, `--clean`). Chaque tour traverse `runAssistantStream` comme le navigateur et rend un
+verdict déterministe, le premier signe de vie, le premier mot, le total, les appels par rôle, les jetons, la
+part en cache, le coût et les outils appelés. Tables AVANT/APRÈS dans `bench-out/`.
+
+| Mesure (20 tours, cache chaud) | AVANT | APRÈS pré-lectures + routage | FINAL (prompt compact + routage resserré) |
+|---|---|---|---|
+| Réussites | 12/20 | 20/20 | 20/20 |
+| Total P50 · P95 | 6,3 s · 28,2 s | 3,7 s · 14,5 s | 3,9 s · 10,3 s |
+| Premier mot P50 · P95 | — | — | 3,4 s · 6,1 s |
+| Jetons d'entrée par tour (part en cache) | 87 600 (75 %) | 47 200 (72 %) | 22 300 (88 %) |
+| Coût moyen par tour | inconnu (≈ 0,09 $ recalculé) | 0,036 $ | 0,012 $ — salutation 0,0001 $, lecture nue 0,0001 $, requête structurée 0,008 $, permission refusée 0,005 $ |
+| « Où en est le dossier Nivolumab ? » | « il me faut une référence » | fiche en 1,0 s, 0,0004 $ |
+| « Qu'avait promis Amel au comité ? » | 7 appels, 32 s, « aucune trace » | 1 appel, 1,9 s, la promesse citée |
+| « Prépare-moi le comité de demain » | 10 appels, 57 s, 0,54 $ | 2 appels, 18,6 s, 0,095 $ |
+
+**Ce qui a changé, cause par cause.** (1) Le chemin rapide écrivait `query`, l'outil lisait `reference` : la
+question la plus fréquente d'un dirigeant échouait proprement — clé alignée, sujet débarrassé de son mot-classe,
+synonyme accepté par l'outil, et un **test de contrat routeur → outil** (`context/fast-args-contract.test.ts`)
+qui a aussitôt attrapé l'agenda (`horizon` n'existait pas ; « demain » devient une date). (2) **Les pré-lectures**
+(`assistant/pre-lectures.ts`) : sur une route de lecture, la recherche fédérée et la recherche documentaire
+partent AVANT le modèle, sous délai, par les mêmes outils et les mêmes droits, présentées comme des appels
+déjà faits ; une seconde vague suit ce qui est devenu évident (la fiche d'un dossier unique, le document de
+confiance HAUTE) ; la recette « préparer une réunion » lit l'agenda, le point exécutif et les documents. Le
+modèle décide toujours la suite — avec la preuve sous les yeux. (3) **La recherche fédérée** dit son
+assouplissement quand l'expression entière ne rend rien, trouve un produit par son laboratoire, les tâches de
+toute l'entreprise en vue globale ; la fiche Legal porte ses notes et son fichier signé. (4) **La relecture
+critique** rendait parfois sa critique à la place de la réponse : sortie structurée (verdict + réponse finale).
+(5) **Le routage par niveau** : une salutation et la formulation d'une lecture déjà faite partent sur le rôle
+`bulk` (Luna, sans réflexion, repli sur l'orchestrateur si vide) ; les niveaux A/B tournent en effort `low`
+(`ADAM_REASONING_SIMPLE`), le C garde l'effort du rôle ; « prépare-moi le comité » est une synthèse, pas une
+mutation. (6) **Le cache de prompt effectif** : tout ce qui change à chaque message (mémoire personnelle, entités
+actives, plan, indice natif, actions récentes) voyage avec le message (`context/tour.ts`) au lieu de la fin des
+consignes, avec une clé de cache par personne — 96 % de jetons servis du cache sur les requêtes structurées.
+(7) Les lectures d'ouverture (interrupteur IA, mémoire, contexte personnel, identité, accord en attente) partent
+ensemble au lieu d'en file.
+
+**Le coût devient une métrique de premier rang.** Tarifs publics Sol / Terra / Luna / Realtime (lecture de cache à
+10 %, datés, surchargeables par `ADAM_PRICE_*`) ; `ModelCallLog` (une ligne PAR APPEL, écrite par un puits tamponné
+branché sur la passerelle — rôle, modèle, jetons, cache, coût, personne, fil, mission) ; agrégats du tour dans
+`AiUsageLog` ; coût par mission (le runtime signe ses tours) ; coût d'une session VOCALE (texte et audio comptés
+depuis `response.done`, tarifés côté serveur, `voice/cost.ts`) ; carte « Coût des modèles » dans le centre de
+contrôle IA (par modèle, par usage, par personne, par tour, par mission, tarifs en vigueur). Un tarif inconnu
+reste NULL — jamais un zéro qui aurait l'air d'un prix. Chaque tour porte aussi ses **phases** (contexte,
+pré-lectures, outils, modèle) : « où sont passées les six secondes ? » se lit dans le journal `[adam] turn`.
+
+**Prouvé live dans cet environnement** (fournisseur réel via le proxy de session) : les vingt tours du banc, le
+smoke fournisseur (`PROVIDER_PROVEN` / `MISSION_E2E_PROVEN`), la couche d'acceptance des missions (arrière-plan,
+pause/annulation, priorité, attente temporelle, attente d'événement, rappels, e-mail entrant, reprise après crash,
+éventail de 120, formes validées, spéculation, réservation de jetons, cache de prompt, **recherche web réelle**), la
+création d'une session Realtime avec la configuration de production (cedar, `semantic_vad`, 41 outils). Deux
+scénarios de veille web longue se sont arrêtés BLOQUÉS sur des `HTTP 502 upstream request failed` répétés du proxy
+de session sur les appels de plus d'une minute — une limite de l'environnement d'exécution, pas du produit
+(un appel `web_search` direct de 5 s passe). Correctif annexe : deux écritures simultanées du même contenu dans le
+Drive ne se disputent plus l'index `sha256` (`putBlob` adopte la ligne gagnante).
+
+**Le prompt redevient compact : la capacité est dans le code, le savoir dans les données.** Le prompt système
+du PDG pesait 46 500 caractères (≈ 16 600 jetons) : un condensé réglementaire, un briefing des outils de puissance et
+un briefing exécutif — de la logique métier récitée à chaque tour. Il ne porte plus que le comportement, le jugement
+et le style. Le savoir ANPP est devenu un **outil** (`regulatory_knowledge`, `lib/assistant/regulatory-read.ts`) que le
+modèle appelle quand la question le demande ; les règles d'usage vivent dans la **description de chaque outil**
+(un test l'exige) ; le briefing exécutif nomme ses capacités au lieu de les paraphraser. Mesuré au même banc, cache
+chaud : **20/20, 29 600 jetons par tour (89 % en cache), 0,015 $ par tour** — contre 0,036 $ avant compaction et
+≈ 0,09 $ au départ ; après les correctifs de routage ci-dessous : **22 300 jetons, 0,012 $, total P50 3,9 s, P95 10,3 s**. Trois fuites de jetons trouvées par la mesure, pas par la lecture : (1) « Rappelle-moi demain à
+8h de valider le budget » partait sans `plan_reminder` (le rappel n'était pas un signal MISSION) — le modèle
+demandait la liste complète, 2 appels et 64 000 jetons ; corrigé dans le routeur : 1 appel, 12 000 jetons, 2,9 s
+à cache chaud. (2) Une question causale (niveau C) emportait **17 outils d'écriture, 16 800 jetons sur 28 000**,
+pour lire et diagnostiquer : les écritures ne partent plus en C que si la phrase **nomme un geste**
+(`nommeUnGeste`, même liste de verbes que la route ACTION) ; la découverte reste le filet. (3) « L'appel d'offres
+PCH » ne menait qu'à DRIVE (le document), jamais aux outils PCH (REGULATORY) ; et la description de la découverte
+ne disait pas quels domaines étaient déjà ouverts — elle le dit maintenant, par tour, et chaque appel de découverte
+se journalise (`[discovery]`, domaine demandé, outils rouverts) ; la découverte lit la carte COMPLÈTE des domaines
+(une demande « HR » d'une déléguée rouvrait 72 outils « non classés » ; elle en rouvre 7 — permission refusée : 47 000 →
+16 600 jetons). Effet mesuré sur les deux questions causales du banc : 3–4 appels et 120 000–130 000 jetons avec un appel de découverte à chaque fois → **2–3 appels, 22 000–40 000 jetons, zéro découverte**, 6–14 s au lieu de 16–25 s.
+
+**La reprise après panne ne rejoue jamais une écriture faite — prouvé, puis saboté.** Un sabotage avait montré que
+rendre la clé d'idempotence aléatoire ne faisait tomber aucun test : la clé est persistée sur l'étape avant l'effet,
+ce qui neutralise cette faute-là, mais rien ne prouvait le cas « effet fait, reçu perdu ». `platform/in-process/
+missions/crash-between.test.ts` le prouve par l'entrée réelle : deux messages envoyés, une étape remise à RUNNING
+avec son bail expiré et son reçu effacé, `avancerMission` la rejoue — l'intent EXÉCUTÉ est retrouvé, l'étape
+porte `DEDUPLIQUE` et le reçu du premier passage, **pas un message de plus**. Le même sabotage fait maintenant tomber
+ce test (« expected 0 to be greater than or equal to 1 »). Le journal d'usage a rejoint le pont
+(`platform/in-process/telemetry/usage-sink.ts`, `usage-stats.ts`) : le cliquet de frontière Adam ↔ ERP reste à 428,
+et la session vocale se journalise par le puits, le rôle nommé une seule fois dans la passerelle (`ROLE_VOIX`).
 
 ### Rien ne dépasse, rien ne casse, aucun lien mort — l'audit UI mesuré (2026-09)
 

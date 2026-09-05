@@ -141,3 +141,19 @@ suite("regulatory_workload / regulatory_portfolio — gérer ≠ accéder, parte
     expect(stage.etape).not.toMatch(/Réception du CTD/);
   });
 });
+
+describe("regulatory_knowledge — la connaissance se lit à la demande, par section", () => {
+  it("rend tout le cadre sans sujet, et UNE section ciblée avec — jamais vide", async () => {
+    const { extraireConnaissanceReglementaire } = await import("./regulatory-read");
+    const tout = extraireConnaissanceReglementaire(null);
+    expect(tout).toContain("DROITS D'ENREGISTREMENT");
+    expect(tout).toContain("MOTIFS DE REFUS");
+    const droits = extraireConnaissanceReglementaire("droits");
+    expect(droits).toContain("DROITS D'ENREGISTREMENT");
+    expect(droits).not.toContain("MODIFICATIONS POST-ENREGISTREMENT");
+    expect(droits.length).toBeLessThan(tout.length);
+    const refus = extraireConnaissanceReglementaire("refus");
+    expect(refus).toContain("MOTIFS DE REFUS");
+    expect(extraireConnaissanceReglementaire("n-importe-quoi")).toBe(tout);
+  });
+});

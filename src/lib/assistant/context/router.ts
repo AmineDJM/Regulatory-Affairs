@@ -115,6 +115,8 @@ const DEEP = /\b(pourquoi|comment ca se fait|comment on en est|explique moi pour
  * recherche. Quand le premier mot dit « va chercher », il tranche.
  */
 const RETRIEVE_IMPERATIVE = /^(retrouve|retrouver|cherche|chercher|recherche|trouve|trouver|ou est|ou sont|sors moi)\b/;
+/** « Prépare(-moi) le comité / la réunion / mon point / le brief » — sans mail ni document à produire. */
+const MEETING_PREP = /^(?:prepare|preparez|preparer|briefe|brief)(?: moi)?\b(?!.*\b(?:mail|mails|message|courrier|lettre|reponse|convocation|invitation|powerpoint|pptx|slides|presentation|rapport|compte rendu|note de service|excel|tableau)\b).{0,40}\b(?:comite|codir|conseil|reunion|reunions|point|brief|entretien|rendez vous|rdv|seance|assemblee)\b/;
 
 /** Chercher dans du non structuré : documents, fils, archives. */
 const RETRIEVE = /\b(retrouve|retrouver|cherche|chercher|recherche|ou est|ou sont|le document|le contrat|le fichier|la piece|le rapport|la presentation|le pdf|dont|parlait|evoquait|mentionnait|version|archive)\b/;
@@ -141,7 +143,21 @@ const STRUCTURED = /\b(qui gere|qui s occupe|qui est|qui sont|qui a|qui travaill
  * d'écriture et, pire, ferait passer une simple consultation par les gardes de confirmation.
  * La liste ci-dessous ne contient donc que des gestes qui laissent une trace.
  */
-const ACTION = /^(demande|demandez|demander|dis|dites|ecris|ecrivez|ecrire|envoie|envoyez|envoyer|transmets|transmet|transmettre|transfere|transferer|relance|relancer|appelle|appelez|appeler|assigne|assignes|assigner|attribue|attribuer|confie|confier|reassigne|prepare|prepares|preparer|redige|rediger|ajoute|ajouter|cree|creer|planifie|planifier|programme|programmer|invite|inviter|reponds|repondez|repondre|rappelle|note|noter|marque|marquer|change|changer|modifie|modifier|mets|met|mettre|deplace|deplacer|renomme|renommer|masque|masquer|reserve|reserver|commande|commander|valide|valider|approuve|approuver|refuse|refuser|rejette|rejeter|annule|annuler|supprime|supprimer|efface|effacer|detruis|detruire|archive|archiver|paie|payer|regle|regler|rembourse|rembourser|augmente|augmenter|active|activer|desactive|desactiver|exporte|exporter|genere|generer)\b/;
+const VERBES_D_ECRITURE = "demande|demandez|demander|dis|dites|ecris|ecrivez|ecrire|envoie|envoyez|envoyer|transmets|transmet|transmettre|transfere|transferer|relance|relancer|appelle|appelez|appeler|assigne|assignes|assigner|attribue|attribuer|confie|confier|reassigne|prepare|prepares|preparer|redige|rediger|ajoute|ajouter|cree|creer|planifie|planifier|programme|programmer|invite|inviter|reponds|repondez|repondre|rappelle|note|noter|marque|marquer|change|changer|modifie|modifier|mets|met|mettre|deplace|deplacer|renomme|renommer|masque|masquer|reserve|reserver|commande|commander|valide|valider|approuve|approuver|refuse|refuser|rejette|rejeter|annule|annuler|supprime|supprimer|efface|effacer|detruis|detruire|archive|archiver|paie|payer|regle|regler|rembourse|rembourser|augmente|augmenter|active|activer|desactive|desactiver|exporte|exporter|genere|generer";
+const ACTION = new RegExp(`^(${VERBES_D_ECRITURE})\\b`);
+/**
+ * LA PHRASE NOMME-T-ELLE UN GESTE QUI LAISSE UNE TRACE — n'importe où, pas seulement en tête ?
+ *
+ * `ACTION` décide de la ROUTE et ne regarde que le premier mot : « Pourquoi le dossier est-il en
+ * retard, et relance les hôpitaux » reste une question de fond. Ici on répond à une autre question,
+ * posée par le résolveur d'outils : faut-il envoyer les schémas d'ÉCRITURE ? Mesuré sur le banc :
+ * pour une question causale (niveau C), les écritures pesaient 17 outils et 16 800 jetons sur 28 000
+ * — pour un tour qui, dans l'immense majorité des cas, lit, diagnostique et propose. Quand la
+ * phrase nomme un geste, elles reviennent ; sinon `list_more_tools` reste le filet.
+ */
+export function nommeUnGeste(texteNormalise: string): boolean {
+  return new RegExp(`\\b(${VERBES_D_ECRITURE})\\b`).test(texteNormalise);
+}
 
 /** Les questions sur Adam lui-même — jamais une lecture de la boîte du PDG. */
 const SELF = /\b(tu t appelles|tu es qui|qui es tu|comment tu t appelles|ton nom|ton adresse|tu as une adresse|ton e mail|ton email|tu es quoi)\b/;
@@ -149,7 +165,10 @@ const SELF = /\b(tu t appelles|tu es qui|qui es tu|comment tu t appelles|ton nom
 const DOMAIN_SIGNALS: [Domain, RegExp][] = [
   ["MAIL", /\b(mail|mails|email|emails|e mail|courriel|courriels|boite|messagerie|repondu|repond|repondre|a ecrit|ecrit|expediteur|destinataire|fil|thread)\b/],
   ["CALENDAR", /\b(rendez vous|rdv|agenda|calendrier|reunion|reunions|planning|creneau|disponibilite|dispo)\b/],
-  ["REGULATORY", /\b(dossier|dossiers|regulatory|reglementaire|anpp|amm|ctd|enregistrement|soumission|presoumission|dci|molecule|produit|produits|laboratoire|fabricant|concurrent|concurrents)\b/],
+  // « L'appel d'offres PCH » : les outils du PCH (`pch_operation`, `pch_market_status`) sont classés
+  // REGULATORY, mais la phrase ne menait qu'à DRIVE (l'appel d'offres comme DOCUMENT). Mesuré au
+  // banc : le modèle demandait la liste complète à chaque question sur un appel d'offres.
+  ["REGULATORY", /\b(dossier|dossiers|regulatory|reglementaire|anpp|amm|ctd|enregistrement|soumission|presoumission|dci|molecule|produit|produits|laboratoire|fabricant|concurrent|concurrents|pch|appel d offres|appels d offres)\b/],
   ["FINANCE", /\b(paiement|paiements|facture|factures|budget|tresorerie|solde|depense|depenses|encaissement|encaissements|decaissement|decaissements|reglement|ordre de depense|banque)\b/],
   // « la paie » est un nom, « paie la facture » est un verbe : sans l'article, le domaine RH
   // s'emparait d'un ordre de paiement. Le banc l'a montré sur « Paie la facture de Pharmagene ».
@@ -161,7 +180,11 @@ const DOMAIN_SIGNALS: [Domain, RegExp][] = [
   // phrase « les tâches de Raihana » ne menait à AUCUN domaine, donc à aucun de ces outils.
   // Trouvé en mesurant le scénario transverse : sur trois sources demandées, deux étaient
   // reliées et les tâches manquaient. Une omission de vocabulaire, pas de conception.
-  ["MISSION", /\b(mission|missions|tache|taches|todo|to do|a faire|engagement|engagements|promesse|en attente de|waiting|relance|suivi)\b/],
+  // « Rappelle-moi demain à 8h de valider le budget » : le rappel est un engagement planifié,
+  // donc MISSION (`plan_reminder`). Sans ce marqueur, la phrase partait avec les seuls outils
+  // FINANCE (à cause de « budget »), le modèle demandait la liste complète, et le tour coûtait
+  // deux appels et 64 000 jetons au lieu d'un — mesuré au banc, pas supposé.
+  ["MISSION", /\b(mission|missions|tache|taches|todo|to do|a faire|engagement|engagements|promesse|en attente de|waiting|relance|suivi|rappel|rappels|rappelle|rappeler|pense bete)\b/],
   ["DIRECTORY", /\b(annuaire|coordonnees|adresse de|numero de|telephone de|contact|contacts|joindre|joins|contacter)\b/],
   ["ADMIN", /\b(compte|comptes|role|roles|droit|droits|permission|permissions|parametre|parametres|module|modules|circuit|circuits)\b/],
 ];
@@ -285,6 +308,18 @@ export function routeQuery(raw: string, ctx: RouterContext = {}): QueryRoute {
   // d'identité constaté en production, et il se ferme ici.
   if (SELF.test(text)) {
     return build("HYBRID_RETRIEVAL", "question sur l'identité d'Adam", { confidence: 0.9 });
+  }
+
+  // ── 2 bis. PRÉPARER UNE RÉUNION EST UNE SYNTHÈSE, PAS UNE MUTATION ────────────────────
+  // « Prépare-moi le comité de demain » commence par un verbe d'action, mais rien n'est à
+  // écrire : il faut LIRE (agenda, dossiers, engagements) et synthétiser. Classée ACTION, la
+  // demande partait sur le chemin des mutations avec la totalité des outils — mesuré au banc :
+  // dix appels, cinquante-sept secondes, 0,54 $. Un mail ou un document à PRÉPARER reste un
+  // ordre (l'exclusion le garde).
+  if (MEETING_PREP.test(text)) {
+    return build("DEEP_REASONING", "préparation de réunion — lire et synthétiser ce qui attend", {
+      domain: "CALENDAR", confidence: 0.85,
+    });
   }
 
   // ── 3. L'ORDRE QUI MUTE — avant toute lecture ───────────────────────────────────────────

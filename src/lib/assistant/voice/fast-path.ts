@@ -1,5 +1,4 @@
 import { classifyReply } from "@/lib/comms/confirmation";
-import { algiersYmd } from "@/lib/calendar-tz";
 
 /**
  * LE ROUTEUR VOCAL — ce que le PDG vient de dire, traduit en UN geste canonique, sans modèle.
@@ -77,6 +76,16 @@ export interface VoiceContext {
 const stripAccents = (s: string): string => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
 /** Forme comparable : sans accents, sans casse, sans ponctuation, espaces normalisés. */
+/**
+ * La date civile d'Alger (UTC+1, sans heure d'été) au format « AAAA-MM-JJ ». Trois lignes
+ * d'arithmétique recopiées plutôt qu'un import de `calendar-tz` : la frontière Adam ↔ ERP est un
+ * cliquet (`src/platform/boundary.test.ts`), et un fuseau n'apprend rien à Adam sur l'ERP.
+ */
+function algiersYmd(date: Date): string {
+  const shifted = new Date(date.getTime() + 60 * 60000);
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-${String(shifted.getUTCDate()).padStart(2, "0")}`;
+}
+
 export function normalizeUtterance(raw: string): string {
   return stripAccents((raw ?? "").toLowerCase())
     .replace(/['’]/g, " ")

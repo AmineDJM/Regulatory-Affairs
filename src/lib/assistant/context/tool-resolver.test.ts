@@ -220,3 +220,36 @@ describe("résolveur — le classement du niveau", () => {
     expect(a).toEqual(b);
   });
 });
+
+describe("résolveur — un rappel part avec l'outil de rappel (mesuré au banc)", () => {
+  it("« Rappelle-moi demain à 8h de valider le budget » expose plan_reminder sans découverte", () => {
+    // Au banc live, cette phrase partait en B avec les seuls outils FINANCE (« budget ») : le
+    // modèle appelait `list_more_tools`, et le tour coûtait deux appels et 64 000 jetons. Le
+    // rappel est un engagement planifié : MISSION doit être un domaine de la phrase.
+    const r = resoudre("Rappelle-moi demain à 8h de valider le budget marketing T4.");
+    expect(r.level).toBe("B");
+    expect(r.domains).toContain("MISSION");
+    expect(r.domains).toContain("FINANCE");
+    expect(r.tools.map((t) => t.name)).toContain("plan_reminder");
+  });
+});
+
+describe("résolveur — une question causale part sans les schémas d'écriture (mesuré au banc)", () => {
+  it("« Pourquoi … est-il en retard, et que faut-il faire ? » n'emporte aucune écriture de domaine", () => {
+    // 17 outils d'écriture et 16 800 jetons sur 28 000 pour une question qui lit et diagnostique.
+    const r = resoudre("Pourquoi le dossier trastuzumab est-il en retard, et que faut-il faire cette semaine ?");
+    expect(r.level).toBe("C");
+    const ecritures = r.tools.map((t) => t.name).filter((n) => RESOLVER_WRITE_NAMES.has(n));
+    expect(ecritures).toEqual([]);
+    // La découverte reste là : c'est elle qui rouvre un domaine si la question débouche sur un geste.
+    expect(r.tools.map((t) => t.name)).toContain(DISCOVERY_TOOL.name);
+    expect(r.tools.length).toBeGreaterThanOrEqual(CIBLE.C[0]);
+  });
+
+  it("… mais les emporte dès que la phrase nomme un geste", () => {
+    const r = resoudre("Pourquoi le dossier trastuzumab est-il en retard ? Relance les hôpitaux concernés.");
+    expect(r.level).toBe("C");
+    const ecritures = r.tools.map((t) => t.name).filter((n) => RESOLVER_WRITE_NAMES.has(n));
+    expect(ecritures.length).toBeGreaterThan(0);
+  });
+});

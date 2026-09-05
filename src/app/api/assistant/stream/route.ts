@@ -48,13 +48,19 @@ export async function POST(req: Request) {
           send({ type: "done", result: { configured: true, ok: false, reply: "", trace: [], error: "L'assistant est désactivé en « Vue exacte » : sa mémoire est strictement personnelle." } });
           return;
         }
-        if (!(await aiFeatureEnabled("assistant"))) {
+        // LES TROIS LECTURES D'OUVERTURE PARTENT ENSEMBLE : l'interrupteur IA, le drapeau
+        // mémoire et le contexte personnel n'ont aucune dépendance entre eux — en file, elles
+        // ajoutaient trois allers-retours de base avant le premier mot.
+        const [enabled, memoryOn, personalBrut] = await Promise.all([
+          aiFeatureEnabled("assistant"),
+          featureEnabled(FEATURES.ASSISTANT_MEMORY.key, user.id),
+          personalContext(user.id).catch(() => null),
+        ]);
+        if (!enabled) {
           send({ type: "done", result: { configured: true, ok: false, reply: "", trace: [], error: "L'assistant IA est actuellement désactivé par l'administrateur." } });
           return;
         }
-
-        const memoryOn = await featureEnabled(FEATURES.ASSISTANT_MEMORY.key, user.id);
-        const personal = memoryOn ? await personalContext(user.id).catch(() => null) : null;
+        const personal = memoryOn ? personalBrut : null;
 
         const t0 = Date.now();
         const result = await runAssistantStream(user, history, send, {

@@ -49,10 +49,13 @@ import {
  * boucle parlera la forme neutre, l'import et le pont disparaissent ensemble.
  */
 import { callClaude, callClaudeStream, assistantConfigured as aiConfigured } from "@/lib/models/compat";
-import { withTurn, markPreview, markFinal, logTurn, recordTool, setTurnContext, summarize, type TurnRoute, type TurnContext, type TurnSummary } from "@/lib/models/telemetry";
-import "@/lib/assistant/usage-sink";
+import { withTurn, markPreview, markFinal, logTurn, recordTool, setTurnContext, summarize, addPhase, timedPhase, type TurnRoute, type TurnContext, type TurnSummary } from "@/lib/models/telemetry";
+import "@/platform/in-process/telemetry/usage-sink";
 import { callModel } from "@/lib/models/gateway";
 import { planifierPreLectures, executerPreLectures, PRE_LECTURE_MAX_CHARS } from "@/lib/assistant/pre-lectures";
+import { composerContexteTour } from "@/lib/assistant/context/tour";
+import { safetyIdentifierFor } from "@/lib/models/openai-responses";
+import type { ReasoningEffort } from "@/lib/models/contract";
 import {
   userCan, accessibleModules, hasGlobalView, isRegulatorySupervisor, type Module,
   scopeMedicalDoctors, scopeRegulatory, scopeAdminRequests,
@@ -105,7 +108,7 @@ import { collecterLiensInternes, reparerLiensInternes } from "@/lib/assistant/li
 import type { WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
 import { runDiscovery, DISCOVERY_TOOL_NAME } from "@/lib/assistant/context/discovery";
 import {
-  powerToolsFor, executePowerTool, powerToolLabels, powerToolsBriefing,
+  powerToolsFor, executePowerTool, powerToolLabels,
 } from "@/lib/assistant/power-tools";
 import { executiveBriefing } from "@/lib/assistant/executive-tools";
 import { conversationWorkingSet, isHighStakesQuestion, queryPlan, queryPlanContext } from "@/lib/assistant/reasoning";
@@ -122,7 +125,6 @@ import {
   MEDICAL_SECTOR, INFLUENCE_LEVEL, REGULATORY_STATUS, EVENT_STATUS, EVENT_TYPE,
   MODULE_LABELS, ENTITY_TYPE_LABELS, doctorDisplayName,
 } from "@/lib/labels";
-import { regulatoryKnowledgeDigest } from "@/lib/regulatory/anpp-knowledge";
 import { getAppSettings } from "@/lib/settings";
 import { DATASETS, isExportDataset, exportDatasetToDrive } from "@/lib/assistant/exports";
 import {
@@ -1953,16 +1955,8 @@ const BUSINESS_SEMANTICS = `VOCABULAIRE MÉTIER (résolution PAR LE CONTEXTE, ja
   « je ne peux pas cliquer sur ce bouton » : le Chief invoque la fonction métier DERRIÈRE le
   bouton — si elle manque vraiment, le dire comme un TROU DE CAPACITÉ à combler, pas comme une
   fatalité.
-- OUTILS DE DOMAINE (champ « op », cibles par NOM/RÉFÉRENCE, la carte montre l'élément exact
-  résolu) : drive_operation (créer/renommer/déplacer/partager/corbeille/supprimer/Office/PDF —
-  les pièces jointes de ce chat SONT des fichiers Drive), task_operation (accepter/refuser une
-  demande, valider/rouvrir mon travail, commenter), finance_operation (écritures DZD, ordres de
-  dépense, factures, rallonges de caisse, budgets de département), regulatory_operation (créer
-  un dossier, participants, étapes, checklist, variations, BV, entité/segments), hr_operation
-  (décisions congés/avances/notes de frais/demandes RH/formations/recrutement, fiche employé),
-  meeting_operation (planifier, répondre, inviter, fil, terminer), mail_operation (registre des
-  courriers), legal_operation (renouveler, annuler, lecteurs, facture au règlement),
-  org_operation (entités, départements/N+1, fournisseurs, annuaire d'entreprise).
+- OUTILS DE DOMAINE (*_operation : drive, tâches, finances, réglementaire, RH, réunions, courriers, Legal,
+  organisation) : un champ « op », des cibles par NOM ou RÉFÉRENCE — la carte montre l'élément exact résolu.
 - LOT : même action sur PLUSIEURS cibles = UN appel bulk_action (une carte, reçus par cible).
 - LANGUE : tu réponds TOUJOURS en FRANÇAIS — quelle que soit la langue de la question, d'un
   document cité ou d'un e-mail lu (tu COMPRENDS toutes les langues : arabe, anglais…, et tu
@@ -2033,170 +2027,86 @@ ${BUSINESS_SEMANTICS}`;
 }
 
 function systemPrompt(user: CurrentUser): string {
-  // Le bot devient EXPERT du cadre réglementaire ANPP (Algérie) dès que l'utilisateur a
-  // accès au module Regulatory — connaissance intégrée, réponses fondées sur les textes.
-  const regExpertise = userCan(user, "REGULATORY", "VIEW") ? `\n\n${regulatoryKnowledgeDigest()}\n` : "";
-  // Sans cette annonce, le modèle IGNORE qu'il dispose des lectures chiffrées et continue de
-  // renvoyer vers les pages — précisément le défaut que ces outils corrigent.
-  const powers = powerToolsBriefing(user) + executiveBriefing(user);
+  // ── LE PROMPT DÉFINIT LE COMPORTEMENT, LE JUGEMENT ET LA MANIÈRE DE RAISONNER — RIEN D'AUTRE.
+  //
+  // Il a longtemps porté aussi la CONNAISSANCE (le digest réglementaire ANPP, 3 000 jetons) et
+  // la CAPACITÉ (le mode d'emploi de quatre-vingts outils, 6 000 jetons) : seize mille jetons
+  // de consignes avant le premier mot, dont la moitié répétait ce que les schémas d'outils
+  // disent déjà et ce que les données savent mieux. La connaissance vit dans les données et se
+  // lit par un outil (`regulatory_knowledge`) ; la capacité vit dans les outils, leurs schémas
+  // et le routeur ; les droits vivent dans le serveur. Ce qui reste ici est ce qu'aucun outil ne
+  // peut porter : qui il sert, comment il juge, ce qu'il ne fait jamais.
+  const exec = executiveBriefing(user);
+  const regulatoire = userCan(user, "REGULATORY", "VIEW")
+    ? `\n- CADRE RÉGLEMENTAIRE ALGÉRIEN (droits ANPP, délais légaux, modules CTD, modifications, motifs de refus) : lis
+  regulatory_knowledge AVANT de citer un article, un délai ou un montant — jamais de mémoire. Tu prépares, vérifies,
+  alertes ; la validation finale revient au pharmacien directeur technique.`
+    : "";
   return `Tu es « Assistant IA », ${IDENTITY_HEADER}
 Tu aides l'employé à comprendre l'application, à retrouver ses informations et à passer à l'action.
 ${user.role === "SUPER_ADMIN" ? `
-TU ES L'ASSISTANT DU SUPER ADMIN — le plus puissant de l'application. Tu as une VISION GLOBALE de
-toute l'entreprise (tous les modules, tous les comptes, toutes les données). Tu peux lister tous les
-comptes et leur charge (list_accounts), interroger n'importe quel pôle, et RELANCER/PILOTER n'importe
-qui (créer une tâche pour un collaborateur, lui envoyer un message). Tu peux aussi DIFFUSER UNE
-NOTIFICATION (create_notification) à tous les comptes, à un rôle précis, ou à des personnes précises
-(elle arrive dans la cloche + en push sur leur téléphone) — ou en POP-UP PLEIN ÉCRAN pour une annonce
-importante (popup=true, accusé de réception « J'ai compris »). Sers le pilotage de l'entreprise : détecte les
-blocages, désigne les responsables, propose des relances. Les actions restent soumises à confirmation.
-
-TU RÈGLES AUSSI LA PLATEFORME. read_platform_settings te donne les réglages ACTUELS ;
-update_platform_setting les modifie (limites de téléversement, capacité et quota du Drive, mode et
-total du budget, analyse CTD, rôles superviseurs Regulatory, segments thérapeutiques, rôles d'accès,
-MODULES MASQUÉS). Deux règles à ne jamais oublier :
-- une LISTE (rôles, segments, modules) est REMPLACÉE, pas complétée : quand on te dit « ajoute X »,
-  lis d'abord la valeur actuelle et propose la liste COMPLÈTE, ancienne + X ;
-- masquer un module le retire pour TOUT LE MONDE, menu et adresse comprises. Dis-le avant de le proposer.
-Ne dis JAMAIS « je ne peux pas modifier les paramètres » — ces outils existent.
-
-TU PEUX AUSSI PROPOSER LA SUPPRESSION DÉFINITIVE d'un enregistrement (delete_record) — le même
-pouvoir que le bouton rouge « Supprimer définitivement » des fiches : dossier réglementaire, employé,
-événement, courrier, document légal… (la liste exacte est dans l'outil). C'est une action CRITIQUE :
-la carte affiche l'élément, l'impact et la réversibilité (instantané en corbeille, restaurable), et la
-confirmation exige de RESSAISIR la référence. Ne dis JAMAIS « je ne peux pas supprimer » — tu PROPOSES,
-l'utilisateur confirme. Désigne l'élément par sa référence exacte ; en cas d'homonymes, l'outil te
-listera les candidats.
-
-TU PILOTES AUSSI LA CORBEILLE ET LES COMPTES. restore_record RESTAURE un élément supprimé
-(recréé à l'identique avec pièces et commentaires) ; purge_record le DÉTRUIT pour de bon (fichiers
-effacés — CRITIQUE, ressaisie exigée). set_account_active ACTIVE ou DÉSACTIVE un compte (jamais le
-tien) ; set_account_role change le RÔLE d'un compte et son AUTRE RÔLE cumulé (jamais Super Admin en
-secondaire). La CRÉATION de compte reste sur l'écran Administration : un mot de passe ne transite
-JAMAIS par cette conversation. Ne dis jamais « je ne peux pas » pour ces gestes — tu PROPOSES,
-l'utilisateur confirme.
-
-TU ADMINISTRES AUSSI LES CIRCUITS ET LES FORMULAIRES. Les CIRCUITS DE VALIDATION Ad&Pro
-(Sponsoring, Prises en charge Internationale/Nationale, Événements) se lisent avec read_workflow et
-se reconfigurent avec configure_workflow (ajouter/retirer/réordonner des étapes, changer qui agit —
-même builder que l'écran ; les autres circuits de l'ERP sont codés en dur, dis-le honnêtement).
-advance_workflow APPROUVE, REFUSE ou SAUTE une étape courante (SKIP = raison obligatoire, tracée).
-manage_custom_field gère les CHAMPS PERSONNALISÉS des modules — y compris rendre un champ
-OBLIGATOIRE ou optionnel (« rends ce champ obligatoire » = UPDATE required=true). Les pièces
-jointes, elles, existent déjà nativement sur les demandes et fiches.
+SUPER ADMIN — vision globale de toute l'entreprise (tous les modules, comptes et données) et des outils exclusifs :
+comptes et charge (list_accounts), diffusion (create_notification : cloche, push, pop-up avec accusé), réglages de la
+plateforme (read_platform_settings / update_platform_setting), suppression définitive, restauration et purge
+(delete_record / restore_record / purge_record), comptes (set_account_active / set_account_role), circuits Ad&Pro et
+champs personnalisés (read_workflow / configure_workflow / advance_workflow / manage_custom_field). Règles : une LISTE de
+réglage se REMPLACE (relire la valeur, proposer la liste complète) ; masquer un module le retire pour tout le monde — le
+dire ; une suppression ou une purge est CRITIQUE (ressaisie de la référence) ; la création de compte reste à l'écran
+(aucun mot de passe ici). Tu PROPOSES, l'utilisateur confirme.
 ` : ""}
 CONTEXTE :
-${buildContext(user)}${powers}
+${buildContext(user)}${exec}
 
-CE QUE TU PEUX FAIRE :
-- Répondre aux questions sur le travail de l'utilisateur et sur l'application (modules, démarches, statuts).
-- Consulter et résumer ses E-MAILS (sa propre boîte connectée dans Courrier) via list_emails / read_email,
-  et chercher un message précis. Tu peux résumer la boîte, repérer ce qui demande une réponse, retrouver un
-  mail d'un expéditeur, etc. — toujours UNIQUEMENT sa boîte à lui.
-- LIRE LES PIÈCES JOINTES fournies par l'utilisateur (Excel complet, PowerPoint, Word, PDF, CSV, texte…) :
-  quand un message contient une section « Contenu des pièces jointes fournies », APPUIE-TOI directement sur
-  ce contenu pour répondre — résumer, extraire ou recalculer des chiffres d'un tableur, synthétiser une
-  présentation, comparer des documents. Si une pièce est signalée non lisible (scan sans OCR, format hérité),
-  dis-le simplement.
-- Agir pour lui (dans la limite de SES droits) : créer une tâche, créer une demande administrative
-  (billet/déplacement, courrier, signature, achat, devis, paiement, mission chauffeur, visa/invité, RH),
-  envoyer un message interne à un collègue, ENVOYER UN E-MAIL depuis sa boîte, créer une demande de prise en
-  charge de congrès (national ou international). Tu PROPOSES l'action ; le système l'exécute seulement après
-  que l'utilisateur a cliqué « Confirmer ». Ne prétends jamais qu'une action est déjà faite : dis « je
-  prépare… », pas « c'est fait ».
-- MODIFIER DES FICHES PRODUIT REGULATORY : rattacher un ou PLUSIEURS produits à une entité du groupe
-  (set_products_company), et modifier UN CHAMP d'un dossier précis (update_regulatory_product : statut,
-  priorité, dates cibles, forme, dosage, conditionnement, classe et segments thérapeutiques, laboratoire,
-  fabricant, détenteur de la DE, commentaires, cadenas). Tu ne dis JAMAIS « je ne dispose pas d'outil pour
-  modifier une fiche produit » — ces outils existent. Vérifie d'abord avec search_products, puis propose.
-- EXPORTER EN EXCEL (export_excel) : dossiers réglementaires, annuaire médical, registre des courriers,
-  demandes de recrutement, effectif, comptes. Le fichier est déposé dans le Drive personnel de
-  l'utilisateur, dossier « Exports IA » — dis-lui le nom du fichier, le nombre de lignes et où il est.
-  Tu ne dis JAMAIS « je ne peux pas générer de fichier » : tu le peux.
+CE QUE TU FAIS :
+- Répondre sur le travail de la personne et sur l'application ; lire et agir DANS LA LIMITE DE SES DROITS.
+- Chaque écriture est PROPOSÉE (une carte) puis confirmée par la personne — jamais annoncée comme faite avant son
+  état EXÉCUTÉE. Si un outil existe pour le geste demandé, tu le proposes ; tu ne dis jamais « je ne peux pas » pour
+  une capacité dont tu disposes — et quand elle manque vraiment, tu le dis comme un trou à combler.
+- Lire les pièces jointes fournies (section « Contenu des pièces jointes fournies ») et t'appuyer dessus ; dire
+  simplement quand une pièce est illisible.
+- La BOÎTE (« des mails ? », « X a répondu ? ») se lit par gmail_search et se répond avec ce qu'il rend ; list_emails /
+  read_email lisent le module Courrier (IMAP), un autre magasin, à n'ouvrir que si l'on en parle explicitement.
+- Exporter en Excel (export_excel → Drive personnel, dossier « Exports IA » : dire le nom, le nombre de lignes, l'endroit).${regulatoire}
 
 ${CORE_CONDUCT_RULES}
 
 ${BUSINESS_SEMANTICS}${TEXT_ONLY_SEMANTICS}
 
 PROFONDEUR & VITESSE (fast + smart — jamais l'un contre l'autre) :
-- DÉCOMPOSE une question complexe en sous-lectures INDÉPENDANTES et appelle ces outils ENSEMBLE dans
-  le MÊME tour — ils s'exécutent en PARALLÈLE. « Analyse Regulatory et dis-moi si je dois recruter » =
-  charge de travail + retards + effectif + coûts + dépendances, lancés d'un coup, PUIS une synthèse.
-- Commence par les sources les PLUS probables ; ÉLARGIS seulement si la confiance est insuffisante,
-  s'il y a contradiction, ou si l'enjeu est important. ARRÊTE de chercher quand une lecture de plus ne
-  changerait ni la conclusion ni la confiance — une dixième preuve identique ne vaut pas 8 secondes.
-- La PROFONDEUR suit l'ENJEU (montant, irréversibilité, impact réglementaire, incertitude), jamais la
-  longueur de la question : « est-ce qu'on doit lancer X ? » (cinq mots) mérite plus de vérifications
-  qu'une date de dépôt. Ne réduis JAMAIS la qualité pour gagner du temps : gagne du temps par le
-  parallélisme et les lectures ciblées, pas en sautant une vérification importante.
-- SYNTHÈSE exécutive, jamais une concaténation : réponds à « et alors ? qu'est-ce qui compte ?
-  qu'est-ce qui change la décision ? que dois-je faire ? » — pas la liste brute de ce que tu as lu.
-- AUTO-CONTRÔLE avant une réponse importante (implicite, jamais récité) : l'entité est-elle bien
-  résolue ? la période ? la donnée fait-elle AUTORITÉ et est-elle fraîche ? les sources se
-  contredisent-elles ? une action passée est-elle en jeu (état canonique) ? l'HISTORIQUE
-  compte-t-il (what_changed / time_travel) ? une lecture de plus changerait-elle la réponse ?
-- INVENTAIRE EXHAUSTIF (« tous les produits », « la liste complète, sans exception ») : appelle
-  search_products SANS paramètre query et avec un limit élevé (jusqu'à 300). Si la réponse indique
-  tronque = true, dis combien il en reste plutôt que d'en omettre silencieusement. Une recherche qui ne
-  remonte rien sur un mot-clé (« oncologie », « biosimilaire ») ne veut pas dire que le portefeuille est
-  vide : relance sans query pour voir ce qu'il contient réellement, et dis ce que tu as trouvé.
-- Avant d'assigner une tâche/demande à quelqu'un ou d'envoyer un message, utilise search_people pour
-  retrouver le bon collègue (la recherche fonctionne aussi par FONCTION : « assistante de direction »,
-  « chef de produit »…, pas seulement par prénom). Pour un congrès lié à un médecin, utilise search_doctors.
+- DÉCOMPOSE une question complexe en sous-lectures INDÉPENDANTES et appelle ces outils ENSEMBLE dans le MÊME tour —
+  ils s'exécutent en PARALLÈLE ; PUIS une synthèse.
+- Commence par les sources les PLUS probables ; ÉLARGIS seulement si la confiance est insuffisante, s'il y a
+  contradiction, ou si l'enjeu est important. ARRÊTE quand une lecture de plus ne changerait ni la conclusion ni la
+  confiance.
+- La PROFONDEUR suit l'ENJEU (montant, irréversibilité, impact réglementaire, incertitude), jamais la longueur de la
+  question. Gagne du temps par le parallélisme et les lectures ciblées, jamais en sautant une vérification importante.
+- SYNTHÈSE exécutive, jamais une concaténation : « et alors ? qu'est-ce qui compte ? que dois-je faire ? ».
+- AUTO-CONTRÔLE implicite avant une réponse importante : entité résolue ? période ? donnée qui fait autorité et
+  fraîche ? contradiction ? action passée en jeu (état canonique) ? historique utile (what_changed / time_travel) ?
+- Un inventaire « complet, sans exception » se lit SANS filtre et avec une limite haute ; si le résultat est tronqué,
+  dis combien il en reste. Avant d'assigner ou d'écrire à quelqu'un, retrouve la bonne personne (l'annuaire cherche
+  aussi par fonction) ; pour un congrès lié à un médecin, l'annuaire médical.
 
-INTERPRÉTATION DES DEMANDES (très important) :
-- « Fais une demande », « crée un ticket », « demande à l'assistante de direction (ou au back-office) de … »,
-  « il me faut un billet / un achat / une signature / un devis / un paiement / une mission chauffeur … » =
-  une DEMANDE ADMINISTRATIVE → utilise create_admin_request. L'assistante de direction GÈRE les demandes
-  administratives : assigne-lui la demande (assigneeName = « assistante de direction » ou son nom) — ne
-  cherche PAS dans la messagerie et n'utilise PAS send_message pour ça.
-- N'utilise send_message QUE si l'utilisateur demande explicitement d'« envoyer un message / écrire / dire /
-  prévenir » un collègue via la messagerie INTERNE.
-- E-MAIL vs message interne : send_email PROPOSE un vrai e-mail vers une ADRESSE (nom@domaine), expédié
-  depuis TON adresse à toi ; send_message écrit à un collègue dans la messagerie interne. Pour « envoie un
-  mail à … », utilise send_email — UN SEUL appel : il prépare le message ET affiche la carte d'approbation.
-  Ne devine jamais une adresse e-mail.
-- LA BOÎTE DE RÉCEPTION — « tu as reçu des mails ? », « j'ai reçu quelque chose ? », « qu'est-ce qui est
-  arrivé récemment ? », « Deepak a répondu ? », « du nouveau dans ma boîte ? » : appelle gmail_search (sans
-  filtre pour un état général, avec le champ « from » pour une personne précise) et RÉPONDS avec ce qu'il rend. Ces
-  questions portent TOUJOURS sur la boîte : n'y réponds jamais par une action d'un autre domaine, et ne
-  reprends jamais à cette occasion une proposition restée en suspens sur un autre sujet.
-  (list_emails / read_email lisent la messagerie IMAP historique du module Courrier — un autre magasin,
-  qui n'est PAS ta boîte. Ne les utilise que si l'on te parle explicitement du module Courrier.)
-- NE DEMANDE JAMAIS UNE CONFIRMATION D'ENVOI EN TEXTE. N'écris pas « tu confirmes l'envoi ? », « je
-  l'envoie ? », « veux-tu que je l'envoie ? » : la carte d'approbation EST la confirmation, et une
-  confirmation demandée deux fois n'en est plus une. Prépare, laisse la carte poser la question.
-- DATES — sois prudent : la date du jour est indiquée dans le contexte. Quand une date demandée est DÉJÀ
-  PASSÉE (antérieure à aujourd'hui), SIGNALE-LE clairement dans ta réponse et demande à l'utilisateur de
-  confirmer ou de corriger AVANT de proposer l'action. Renseigne toujours les dates au format AAAA-MM-JJ
-  dans les champs prévus (startDate/endDate) pour qu'elles soient vérifiées.
-- Pour un billet (ex. « billet pour le Pr X, Alger → Paris du 10 au 15 janvier »), utilise
-  create_admin_request type=TRAVEL : titre court, description (passager, trajet) et startDate/endDate.
-- Pour tout sujet qualité ou pharmacovigilance, reste prudent et demande confirmation renforcée à l'humain ;
-  ne crée rien automatiquement.
-${regExpertise}
+INTERPRÉTATION DES DEMANDES :
+- « Fais une demande / un ticket », « il me faut un billet, un achat, une signature, un devis, un paiement, une mission
+  chauffeur » = DEMANDE ADMINISTRATIVE (create_admin_request, assignée à l'assistante de direction), pas un message.
+- « Envoie un message / écris / préviens » un collègue = messagerie interne (send_message) ; « envoie un mail à … » =
+  send_email, UN SEUL appel (il prépare le message ET affiche la carte d'approbation) ; jamais d'adresse devinée.
+- N'écris JAMAIS « tu confirmes l'envoi ? » : la carte d'approbation EST la confirmation.
+- DATES : une date déjà passée se SIGNALE et se fait confirmer avant toute action ; les champs de date se remplissent
+  en AAAA-MM-JJ.
+- Qualité / pharmacovigilance : prudence, confirmation renforcée, rien de créé automatiquement.
+
 ${CHIEF_STYLE_RULES}
 
 STYLE DE RÉPONSE — IMPÉRATIF :
-- Écris en TEXTE SIMPLE, lisible, SANS Markdown : PAS d'astérisques (** ou *), PAS de dièses (#), PAS de
-  tableaux ÉCRITS À LA MAIN, PAS de balises de code. Pour mettre en avant, écris normalement ; pour une
-  liste, utilise des tirets « - » en début de ligne. Les emojis sobres sont autorisés.
-- CE N'EST PAS UNE LIMITE D'AFFICHAGE, C'EST UN PARTAGE DES RÔLES. L'écran d'Adam SAIT afficher, à partir
-  de la donnée canonique que tes lectures rapportent et pendant que tu rédiges :
-    · des TABLEAUX (dossiers, courriers, effectif par entité, postes d'un budget) ;
-    · des BARRES DE PROGRESSION (consommation d'une enveloppe, avancement) ;
-    · des DOCUMENTS sur place — PDF et contrats dans une visionneuse, images, classeurs Excel et CSV
-      rendus en tableau lisible — via l'outil show_document ;
-    · des FICHES, un AGENDA, des MESSAGES, et la FILE DE DÉCISIONS avec ses boutons Approuver / Refuser.
-  Ne réponds donc JAMAIS « je ne peux pas afficher de tableau », « je ne peux pas afficher un fichier
-  Excel », « je ne peux pas afficher d'image », « ouvre le module pour voir » : c'est FAUX, et cela renvoie
-  le PDG vers un autre écran sans raison.
-  Quand on te dit « dans un tableau », « montre-le moi ici », « fais voir », « je veux le voir avant de
-  l'envoyer » : APPELLE la lecture (ou show_document) qui rapporte cette donnée — l'affichage se fait
-  tout seul — puis commente en UNE phrase. Ne décris pas ce qui est déjà à l'écran.
-- POUR VALIDER, N'ENVOIE PAS AILLEURS. L'outil list_pending_decisions rend chaque ligne avec ses boutons :
-  le PDG tranche depuis la conversation. Ne dis jamais « rendez-vous dans Validations » quand il demande
-  à décider ici.
+- TEXTE SIMPLE, sans Markdown : pas d'astérisques, pas de dièses, pas de tableau écrit à la main, pas de balise de
+  code ; des tirets « - » pour une liste ; emojis sobres autorisés.
+- L'ÉCRAN AFFICHE, TU COMMENTES : à partir des lectures canoniques, l'espace de travail montre lui-même tableaux,
+  barres de progression, documents (show_document : PDF, images, classeurs rendus en tableau), fiches, agenda, messages
+  et la file de décisions avec ses boutons Approuver / Refuser. Ne dis jamais « je ne peux pas afficher » ni « ouvre
+  le module pour voir » ; quand on te dit « montre-le ici », appelle la lecture qui rapporte la donnée, puis commente
+  en UNE phrase. Pour décider, list_pending_decisions suffit : jamais « rendez-vous dans Validations ».
 - Sois concret, professionnel et bref. Réponds en français. Les montants sont en DZD.`;
 }
 
@@ -4617,6 +4527,7 @@ async function reviseHighStakes(
   question: string,
   draft: string,
   model: string | undefined,
+  promptCacheKey?: string,
 ): Promise<string | null> {
   // LA SORTIE EST STRUCTURÉE, ET C'EST LE CORRECTIF. En texte libre, le modèle rendait parfois
   // sa critique (« INCONNU — les montants du brouillon ne sont pas vérifiés… À corriger avant
@@ -4626,7 +4537,7 @@ async function reviseHighStakes(
   const reply = await callModel(
     "orchestrator",
     [{ role: "user", content: `QUESTION D'ORIGINE :\n${question.slice(0, 2_000)}\n\nBROUILLON DE RÉPONSE À RELIRE :\n${draft}` }],
-    { system: `${system}\n\n${CRITIQUE_ADDENDUM}`, jsonSchema: CRITIQUE_SCHEMA, maxOutputTokens: 1400, ...(model ? { modelOverride: model } : {}) },
+    { system: `${system}\n\n${CRITIQUE_ADDENDUM}`, jsonSchema: CRITIQUE_SCHEMA, maxOutputTokens: 1400, ...(model ? { modelOverride: model } : {}), ...(promptCacheKey ? { promptCacheKey } : {}) },
   );
   if (!reply.ok) return null;
   const brut = reply.blocks.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("").trim();
@@ -4665,7 +4576,10 @@ async function runAssistantImpl(
   // + ACTIONS RÉCENTES : l'état CANONIQUE serveur des dernières intentions — « est-ce que je
   // te l'avais déjà demandé ? » se répond depuis cet état, jamais de mémoire.
   const workingSet = conversationWorkingSet(history);
-  const intentsCtx = await recentActionIntentsContext(user.id).catch(() => null);
+  const [intentsCtx, identite] = await Promise.all([
+    recentActionIntentsContext(user.id).catch(() => null),
+    assistantIdentityContext(user).catch(() => null),
+  ]);
   // La question d'ORIGINE (avant que la boucle n'empile les résultats d'outils) — elle décide
   // de la PROFONDEUR : une décision demandée mérite la seconde passe critique.
   const question = String(messages[messages.length - 1]?.content ?? "");
@@ -4692,10 +4606,12 @@ async function runAssistantImpl(
       suiviElliptique: plan.suiviElliptique, historique: plan.besoinHistorique, investigation: plan.besoinInvestigation,
     });
   }
-  const system = [
-    systemPrompt(user),
-    // QUI IL EST ET DEPUIS QUELLE ADRESSE IL ÉCRIT — lu dans la connexion, jamais supposé.
-    await assistantIdentityContext(user).catch(() => null),
+  // QUI IL EST ET DEPUIS QUELLE ADRESSE IL ÉCRIT — lu ci-dessus, avec les actions récentes.
+  // LE PRÉFIXE STABLE : consignes + identité. Tout ce qui change à chaque message part avec le
+  // message (context/tour.ts) — c'est ce qui rend le cache de prompt effectif sur les outils et
+  // l'historique, pas seulement sur le début des consignes.
+  const system = [systemPrompt(user), identite].filter(Boolean).join("\n\n");
+  const contexteTour = composerContexteTour([
     opts.personalContext ? `CONTEXTE PERSONNEL\n${opts.personalContext}` : null,
     workingSet,
     planCtx,
@@ -4703,7 +4619,11 @@ async function runAssistantImpl(
     // nomme (outil + libellé d'écran) — le modèle ne fabrique pas un substitut plus faible.
     nativeActionHint(question),
     intentsCtx,
-  ].filter(Boolean).join("\n\n");
+  ]);
+  if (contexteTour) messages[messages.length - 1] = { role: "user", content: `${question}${contexteTour}` };
+  const systemComplet = contexteTour ? `${system}${contexteTour}` : system;
+  const cacheKey = `adam:${user.id}`;
+  const surete = safetyIdentifierFor(user.id);
   // Le Super Admin dispose d'outils exclusifs (vision globale de tous les comptes).
   const allTools = assistantToolsFor(user);
 
@@ -4735,6 +4655,16 @@ async function runAssistantImpl(
   let discoveryCalls = 0;
 
   try {
+  // ── LA SALUTATION NE PAIE PAS UN ORCHESTRATEUR (même règle qu'en flux) ─────────────────
+  if (resolved.level === "AUCUN") {
+    const res = await callClaude(
+      [{ role: "user", content: question }],
+      { role: "bulk", system: salutationSystem(user, identite), tools: [], maxTokens: 160, reasoning: "none", promptCacheKey: cacheKey, safetyIdentifier: surete },
+    );
+    const texte = res.ok && res.content ? textOf(res.content).trim() : "";
+    if (texte) return { configured: true, ok: true, reply: texte, trace };
+  }
+
   // ── LE CHEMIN RAPIDE — la source canonique d'abord, le modèle ensuite ────────────────────
   // Un seul appel de modèle au lieu de deux (choisir l'outil, puis formuler), et ZÉRO schéma
   // d'outil envoyé. C'est là que se trouve l'essentiel du gain mesuré.
@@ -4749,10 +4679,12 @@ async function runAssistantImpl(
       sortiesOutils.push(out);
       const label = READ_LABEL[toolName] ?? powerToolLabels()[toolName];
       if (label) trace.push(label);
-      const res = await callClaude(
-        [{ role: "user", content: `DEMANDE : ${question}\n\nRÉSULTAT DE LA SOURCE CANONIQUE :\n${out}` }],
-        { system: fastReadSystem(user), tools: [], maxTokens: 700, model: opts.model },
+      const phraser = (role: "bulk" | "orchestrator") => callClaude(
+        [{ role: "user", content: `DEMANDE : ${question}\n\nRÉSULTAT DE LA SOURCE CANONIQUE :\n${stripDisplayPayload(out)}` }],
+        { role, system: fastReadSystem(user), tools: [], maxTokens: 700, model: opts.model, reasoning: role === "bulk" ? "none" : "low", promptCacheKey: cacheKey, safetyIdentifier: surete },
       );
+      let res = await phraser("bulk");
+      if (!res.ok || !res.content || !textOf(res.content).trim()) res = await phraser("orchestrator");
       if (res.ok && res.content) {
         const reply = reparerReponse(textOf(res.content).trim());
         if (reply) return { configured: true, ok: true, reply, trace };
@@ -4767,9 +4699,9 @@ async function runAssistantImpl(
   // LES PRÉ-LECTURES — même règle qu'en flux (voir pre-lectures.ts) : la voix qui délègue et
   // le nudge en profitent autant que le texte.
   if (rollout.mode !== "FAST_READ") {
-    const plansPre = planifierPreLectures(question, { route: rollout.route.route, isMutation: rollout.isMutation, entites: plan.entites });
+    const plansPre = planifierPreLectures(question, { route: rollout.route.route, isMutation: rollout.isMutation, entites: plan.entites, domain: rollout.route.domain });
     if (plansPre.length > 0) {
-      const faites = await executerPreLectures(plansPre, (tool, input) => executeReadTool(tool, input, user));
+      const faites = await timedPhase("pre_lectures", () => executerPreLectures(plansPre, (tool, input) => executeReadTool(tool, input, user)));
       if (faites.length > 0) {
         for (const f of faites) {
           recordTool({ name: f.tool, ms: f.ms, ok: true, parallel: faites.length > 1 });
@@ -4786,7 +4718,7 @@ async function runAssistantImpl(
   }
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const res = await callClaude(messages, { system, tools, maxTokens: 1400, model: opts.model });
+    const res = await callClaude(messages, { system, tools, maxTokens: 1400, model: opts.model, reasoning: effortPourNiveau(resolved.level), promptCacheKey: cacheKey, safetyIdentifier: surete });
     if (!res.ok || !res.content) {
       return { configured: res.configured, ok: false, reply: "", trace, error: res.error ?? "Réponse IA indisponible." };
     }
@@ -4799,7 +4731,7 @@ async function runAssistantImpl(
     if (res.stopReason !== "tool_use" || toolUses.length === 0) {
       const reply = reparerReponse(textOf(blocks) || "D'accord.");
       if (highStakes && reply.length >= CRITIQUE_MIN_DRAFT) {
-        const revised = await reviseHighStakes(system, question, reply, opts.model).catch(() => null);
+        const revised = await reviseHighStakes(systemComplet, question, reply, opts.model, cacheKey).catch(() => null);
         trace.push(CRITIQUE_LABEL);
         return { configured: true, ok: true, reply: revised ? reparerReponse(revised) : reply, trace };
       }
@@ -4833,7 +4765,7 @@ async function runAssistantImpl(
       okProposals.forEach((p, i) => { const id = intentIds[i]; if (id) p.intentId = id; });
       const reply = textOf(blocks)
         || (okProposals.length === 1
-          ? `Je propose de ${okProposals[0].title.toLowerCase()}. Confirmez-vous ?`
+          ? `Je propose : « ${okProposals[0].title} ». Confirmez-vous ?`
           : `Je propose ${okProposals.length} actions — confirmez-les une à une, ou toutes d'un coup.`);
       return { configured: true, ok: true, reply, trace, proposal: okProposals[0], proposals: okProposals };
     }
@@ -4848,6 +4780,10 @@ async function runAssistantImpl(
       if (tu.name === DISCOVERY_TOOL_NAME) {
         discoveryCalls += 1;
         const found = runDiscovery(tu.input, allTools);
+        console.info("[discovery]", {
+          asked: typeof (tu.input as Record<string, unknown>).domain === "string" ? (tu.input as Record<string, unknown>).domain : null,
+          served: found.domain, unlocked: found.unlock.length, exposed: tools.length,
+        });
         const unlock = new Set(found.unlock);
         const known = new Set(tools.map((t) => t.name));
         tools = [...tools, ...allTools.filter((t) => unlock.has(t.name) && !known.has(t.name))];
@@ -5008,12 +4944,20 @@ async function runAssistantStreamImpl(
   // Mêmes injections que la variante simple : contexte personnel + ENTITÉS ACTIVES du fil
   // + PLAN DE LA QUESTION (suivi elliptique compris) + ACTIONS RÉCENTES (état canonique).
   const workingSet = conversationWorkingSet(history);
-  const intentsCtx = await recentActionIntentsContext(user.id).catch(() => null);
   const question = String(messages[messages.length - 1]?.content ?? "");
 
-  // UN ACCORD CONCLUT — même règle qu'en variante non diffusée, et pour la même raison : c'est
-  // le serveur qui sait quelle intention attend, et c'est lui qui l'expédie.
-  const spoken = await resolveSpokenMailApproval(user, question).catch(() => null);
+  // LES TROIS LECTURES DE CONTEXTE PARTENT ENSEMBLE — actions récentes, accord en attente,
+  // identité d'envoi. Elles étaient en file : trois allers-retours de base avant le premier
+  // appel de modèle, c'est-à-dire avant le premier mot. Mesuré en phase « contexte ».
+  const tCtx = Date.now();
+  const [intentsCtx, spoken, identite] = await Promise.all([
+    recentActionIntentsContext(user.id).catch(() => null),
+    // UN ACCORD CONCLUT — même règle qu'en variante non diffusée, et pour la même raison : c'est
+    // le serveur qui sait quelle intention attend, et c'est lui qui l'expédie.
+    resolveSpokenMailApproval(user, question).catch(() => null),
+    assistantIdentityContext(user).catch(() => null),
+  ]);
+  addPhase("contexte", Date.now() - tCtx);
   if (spoken) {
     const reply = spoken.ok ? (spoken.message ?? "Envoyé.") : (spoken.error ?? "Envoi impossible.");
     emit({ type: "delta", text: reply });
@@ -5031,10 +4975,12 @@ async function runAssistantStreamImpl(
       suiviElliptique: plan.suiviElliptique, historique: plan.besoinHistorique, investigation: plan.besoinInvestigation,
     });
   }
-  const system = [
-    systemPrompt(user),
-    // QUI IL EST ET DEPUIS QUELLE ADRESSE IL ÉCRIT — lu dans la connexion, jamais supposé.
-    await assistantIdentityContext(user).catch(() => null),
+  // QUI IL EST ET DEPUIS QUELLE ADRESSE IL ÉCRIT — lu ci-dessus, avec les autres lectures.
+  // LE PRÉFIXE STABLE : consignes + identité. Tout ce qui change à chaque message part avec le
+  // message (context/tour.ts) — c'est ce qui rend le cache de prompt effectif sur les outils et
+  // l'historique, pas seulement sur le début des consignes.
+  const system = [systemPrompt(user), identite].filter(Boolean).join("\n\n");
+  const contexteTour = composerContexteTour([
     opts.personalContext ? `CONTEXTE PERSONNEL\n${opts.personalContext}` : null,
     workingSet,
     planCtx,
@@ -5042,7 +4988,11 @@ async function runAssistantStreamImpl(
     // nomme (outil + libellé d'écran) — le modèle ne fabrique pas un substitut plus faible.
     nativeActionHint(question),
     intentsCtx,
-  ].filter(Boolean).join("\n\n");
+  ]);
+  if (contexteTour) messages[messages.length - 1] = { role: "user", content: `${question}${contexteTour}` };
+  const systemComplet = contexteTour ? `${system}${contexteTour}` : system;
+  const cacheKey = `adam:${user.id}`;
+  const surete = safetyIdentifierFor(user.id);
   const allTools = assistantToolsFor(user);
 
   // ── LE MÊME AIGUILLAGE QU'EN VARIANTE NON DIFFUSÉE ────────────────────────────────────────
@@ -5073,6 +5023,27 @@ async function runAssistantStreamImpl(
   const metrics: AssistantMetrics = { ttftMs: null, turns: 0, toolCalls: 0, toolErrors: 0, toolLatencyMs: 0 };
 
   try {
+    // ── LA SALUTATION NE PAIE PAS UN ORCHESTRATEUR ──────────────────────────────────────────
+    // « Bonjour Adam » partait sur le rôle le plus cher avec 13 000 jetons de consignes :
+    // 0,027 $ et deux secondes pour un mot. Le rôle « bulk » avec une consigne de six lignes
+    // répond mieux et dix fois moins cher ; s'il ne rend rien, la boucle normale reprend.
+    if (resolved.level === "AUCUN") {
+      let streamed = false;
+      const res = await callClaudeStream(
+        [{ role: "user", content: question }],
+        (chunk) => { streamed = true; if (metrics.ttftMs == null) metrics.ttftMs = Date.now() - started; emit({ type: "delta", text: chunk }); },
+        { role: "bulk", system: salutationSystem(user, identite), tools: [], maxTokens: 160, reasoning: "none", promptCacheKey: cacheKey, safetyIdentifier: surete },
+      );
+      metrics.turns = 1;
+      const texte = res.ok && res.content ? textOf(res.content).trim() : "";
+      if (texte) {
+        if (!streamed) emit({ type: "delta", text: texte });
+        return { configured: true, ok: true, reply: texte, trace, metrics };
+      }
+      if (streamed) emit({ type: "reset" });
+      metrics.ttftMs = null;
+    }
+
     // ── LE CHEMIN RAPIDE ────────────────────────────────────────────────────────────────────
     // Source canonique d'abord, un seul appel de modèle ensuite, ZÉRO schéma d'outil envoyé.
     // La trace est émise AVANT la lecture : l'utilisateur voit « Annuaire » pendant l'attente,
@@ -5101,7 +5072,10 @@ async function runAssistantStreamImpl(
         if (composed) emit({ type: "workspace", composition: composed });
         metrics.turns = 1;
         let streamed = false;
-        const res = await callClaudeStream(
+        // FORMULER UN RÉSULTAT DÉJÀ LU N'EST PAS DU RAISONNEMENT : le rôle « bulk » (Luna, sans
+        // réflexion) le fait en moins d'une seconde, dix fois moins cher. S'il ne rend rien
+        // d'exploitable, l'orchestrateur reprend la même consigne — jamais une réponse fausse.
+        const phraser = (role: "bulk" | "orchestrator") => callClaudeStream(
           // LA CHARGE D'AFFICHAGE NE PART PAS AU MODÈLE. L'écran l'a déjà reçue ci-dessus ;
           // la lui faire lire serait payer un texte dont il ne tire rien.
           [{ role: "user", content: `DEMANDE : ${question}\n\nRÉSULTAT DE LA SOURCE CANONIQUE :\n${stripDisplayPayload(out)}` }],
@@ -5110,8 +5084,14 @@ async function runAssistantStreamImpl(
             if (metrics.ttftMs == null) metrics.ttftMs = Date.now() - started;
             emit({ type: "delta", text: chunk });
           },
-          { system: fastReadSystem(user), tools: [], maxTokens: 700, model: opts.model },
+          { role, system: fastReadSystem(user), tools: [], maxTokens: 700, model: opts.model, reasoning: role === "bulk" ? "none" : "low", promptCacheKey: cacheKey, safetyIdentifier: surete },
         );
+        let res = await phraser("bulk");
+        if (!res.ok || !res.content || !textOf(res.content).trim()) {
+          if (streamed) { emit({ type: "reset" }); streamed = false; metrics.ttftMs = null; }
+          metrics.turns += 1;
+          res = await phraser("orchestrator");
+        }
         if (res.ok && res.content) {
           const reparation = reparerReponse(textOf(res.content).trim());
           const reply = reparation.texte;
@@ -5139,13 +5119,13 @@ async function runAssistantStreamImpl(
     // Présentées au modèle comme des appels d'outils déjà faits : il décide la suite avec la
     // preuve sous les yeux. Mêmes outils, mêmes droits, délai borné, extrait borné.
     if (rollout.mode !== "FAST_READ") {
-      const plansPre = planifierPreLectures(question, { route: rollout.route.route, isMutation: rollout.isMutation, entites: plan.entites });
+      const plansPre = planifierPreLectures(question, { route: rollout.route.route, isMutation: rollout.isMutation, entites: plan.entites, domain: rollout.route.domain });
       if (plansPre.length > 0) {
         for (const p of plansPre) {
           const label = READ_LABEL[p.tool] ?? powerToolLabels()[p.tool];
           if (label && !trace.includes(label)) { trace.push(label); emit({ type: "trace", label }); }
         }
-        const faites = await executerPreLectures(plansPre, (tool, input) => executeReadTool(tool, input, user));
+        const faites = await timedPhase("pre_lectures", () => executerPreLectures(plansPre, (tool, input) => executeReadTool(tool, input, user)));
         if (faites.length > 0) {
           metrics.toolCalls += faites.length;
           for (const f of faites) {
@@ -5176,7 +5156,7 @@ async function runAssistantStreamImpl(
         streamed = true;
         if (metrics.ttftMs == null) metrics.ttftMs = Date.now() - started;
         emit({ type: "delta", text: chunk });
-      }, { system, tools, maxTokens: 1400, model: opts.model });
+      }, { system, tools, maxTokens: 1400, model: opts.model, reasoning: effortPourNiveau(resolved.level), promptCacheKey: cacheKey, safetyIdentifier: surete });
       if (!res.ok || !res.content) {
         return { configured: res.configured, ok: false, reply: "", trace, metrics, error: res.error ?? "Réponse IA indisponible." };
       }
@@ -5207,7 +5187,7 @@ async function runAssistantStreamImpl(
           emit({ type: "trace", label: CRITIQUE_LABEL });
           trace.push(CRITIQUE_LABEL);
           metrics.turns += 1;
-          const relu = await reviseHighStakes(system, question, reply, opts.model).catch(() => null);
+          const relu = await reviseHighStakes(systemComplet, question, reply, opts.model, cacheKey).catch(() => null);
           const revised = relu ? reparerReponse(relu).texte : null;
           if (revised && revised !== reply) {
             emit({ type: "reset" });
@@ -5248,7 +5228,7 @@ async function runAssistantStreamImpl(
         okProposals.forEach((p, i) => { const id = intentIds[i]; if (id) p.intentId = id; });
         const reply = textOf(blocks)
           || (okProposals.length === 1
-            ? `Je propose de ${okProposals[0].title.toLowerCase()}. Confirmez-vous ?`
+            ? `Je propose : « ${okProposals[0].title} ». Confirmez-vous ?`
             : `Je propose ${okProposals.length} actions — confirmez-les une à une, ou toutes d'un coup.`);
         if (!streamed) emit({ type: "delta", text: reply });
         return { configured: true, ok: true, reply, trace, proposal: okProposals[0], proposals: okProposals, metrics };
@@ -5269,6 +5249,10 @@ async function runAssistantStreamImpl(
         if (tu.name === DISCOVERY_TOOL_NAME) {
           discoveryCalls += 1;
           const found = runDiscovery(tu.input, allTools);
+          console.info("[discovery]", {
+            asked: typeof (tu.input as Record<string, unknown>).domain === "string" ? (tu.input as Record<string, unknown>).domain : null,
+            served: found.domain, unlocked: found.unlock.length, exposed: tools.length,
+          });
           const unlock = new Set(found.unlock);
           const known = new Set(tools.map((t) => t.name));
           tools = [...tools, ...allTools.filter((t) => unlock.has(t.name) && !known.has(t.name))];
@@ -6456,6 +6440,30 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
  *   • `nudge` — proactif, personne n'attend devant l'écran.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+/**
+ * L'EFFORT DE RAISONNEMENT SUIT LE NIVEAU, pas l'inverse.
+ *
+ * A et B : le plan est connu (une ou plusieurs opérations nommées) — réfléchir longuement à
+ * QUOI appeler est du temps payé pour rien ; « low » suffit et se mesure au banc (succès
+ * identiques, premier mot plus tôt). C : le plan est à découvrir — l'effort du rôle (registre,
+ * surchargeable par ADAM_REASONING_ORCHESTRATOR) s'applique. `ADAM_REASONING_SIMPLE` règle
+ * l'effort des niveaux A/B sans redéploiement.
+ */
+function effortPourNiveau(level: string): ReasoningEffort | undefined {
+  if (level === "C") return undefined;
+  const brut = (process.env.ADAM_REASONING_SIMPLE ?? "").trim().toLowerCase();
+  return (["none", "low", "medium", "high"] as const).includes(brut as never) ? (brut as ReasoningEffort) : "low";
+}
+
+/** Un message sans demande (salutation, merci, essai) : un mot chaleureux, du rôle le moins cher. */
+function salutationSystem(user: CurrentUser, identite: string | null): string {
+  return `Tu es Adam, le chef de cabinet de ${user.name} (${ROLE_LABELS[user.role] ?? user.role}) chez Adventum Pharma.
+${identite ?? ""}
+Le message reçu ne contient AUCUNE demande (salutation, remerciement, accusé de réception, essai).
+Réponds en français, en une phrase ou deux, chaleureux et sobre : pas de liste de capacités, pas de
+question de relance obligatoire ; à un remerciement, réponds simplement. N'invente aucun fait.`;
+}
+
 /** Les outils des pré-lectures sont DÉCLARÉS au tour : le modèle voit leurs appels, il peut les rejouer. */
 function avecOutilsDeclares<T extends { name: string }>(tools: T[], all: T[], noms: string[]): T[] {
   const connus = new Set(tools.map((t) => t.name));

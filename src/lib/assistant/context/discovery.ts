@@ -1,5 +1,5 @@
 import type { Domain } from "./router";
-import { TOOL_DOMAINS, DISCOVERY_TOOL } from "./tool-shortlist";
+import { TOOL_DOMAINS_ALL, DISCOVERY_TOOL } from "./tool-shortlist";
 
 /**
  * « JE N'AI PAS D'OUTIL POUR ÇA » NE DOIT JAMAIS ÊTRE VRAI.
@@ -55,9 +55,14 @@ export function runDiscovery(
   const openNames = new Set(available.map((t) => t.name));
   const matches = available.filter((t) => {
     if (t.name === DISCOVERY_TOOL_NAME) return false;
-    const domains = TOOL_DOMAINS[t.name];
+    // LA CARTE COMPLÈTE, pas la carte historique. Avec `TOOL_DOMAINS` (la première moitié du
+    // classement), une demande « HR » d'une déléguée rouvrait 72 outils : tout ce que cette
+    // carte-là ignorait passait pour « non classé », donc montré. Mesuré au banc sur une question
+    // de salaire refusée à bon droit — deux appels et 47 000 jetons pour dire non.
+    const domains = TOOL_DOMAINS_ALL[t.name];
     // Un outil NON classé est montré dans tous les cas : c'est le comportement sûr, le même que
-    // dans la liste courte. Un oubli de classement ne doit pas rendre un outil introuvable.
+    // dans la liste courte. Un oubli de classement ne doit pas rendre un outil introuvable — et
+    // le résolveur exige (par un test) que tout outil envoyé soit classé, donc ce cas reste rare.
     if (!domains) return true;
     return domain === null || domains.includes(domain);
   });

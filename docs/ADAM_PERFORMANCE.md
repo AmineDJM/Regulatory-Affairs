@@ -482,3 +482,46 @@ de PRODUCTION ; l'échec de la sonde est DIT. Zéro partout reste NOT_PROVEN_LIV
    (`object-storage.ts`) tout au long du run : c'est la cause première des honnêtes
    DOCUMENT_DRIVE et d'une partie des refus de juge. Le code fait déjà ce qu'il doit
    (échec nommé, éventail de lecture qui conclut avec ses manques dits).
+
+## L. LA CAMPAGNE DE CONVERSATION (2026-09-05) — mesurer le tour, puis l'alléger
+
+Le banc `npm run adam:bench` (`scripts/bench/adam-live-bench.ts`, jeu semé par `adam:bench:seed`) joue vingt
+questions d'un dirigeant contre le vrai fournisseur, à travers `runAssistantStream`, avec un verdict
+déterministe par cas. Tout ce qui suit a été mesuré là, pas déduit du code.
+
+| 20 tours, cache chaud | BASELINE | APRÈS pré-lectures + routage | APRÈS prompt compact | FINAL (routage resserré) |
+|---|---|---|---|---|
+| Réussites | 12/20 | 20/20 | 20/20 | 20/20 |
+| Total P50 · P95 | 6,3 s · 28,2 s | 3,7 s · 14,5 s | 4,2 s · 19,8 s | 3,9 s · 10,3 s |
+| Premier mot P50 · P95 | — | — | 3,5 s · 10,2 s | 3,4 s · 6,1 s |
+| Jetons d'entrée par tour (en cache) | 87 600 (75 %) | 47 200 (72 %) | 29 600 (89 %) | 22 300 (88 %) |
+| Coût moyen par tour | ≈ 0,09 $ | 0,036 $ | 0,015 $ | 0,012 $ |
+
+**Causes racines, dans l'ordre où la mesure les a livrées.**
+1. Le chemin rapide et l'outil ne parlaient pas la même clé (`query` / `reference`) : la question la plus
+   fréquente échouait proprement. Un test de contrat routeur → outil l'empêche de revenir.
+2. Le modèle partait sans preuve : les pré-lectures (recherche fédérée + documentaire, seconde vague fiche /
+   document, recette « réunion ») lui donnent la preuve avant son premier jeton.
+3. Le contexte variable vivait dans les consignes : le préfixe n'était jamais en cache. Il voyage avec le message.
+4. Le prompt récitait le métier (46 500 caractères) : le savoir réglementaire est un outil, les règles sont dans
+   les descriptions d'outils, le briefing exécutif nomme ses capacités.
+5. Trois fuites de routage : le rappel n'était pas un signal MISSION (2 appels, 64 000 jetons → 1 appel, 12 000) ;
+   une question causale emportait 17 outils d'écriture (16 800 jetons sur 28 000) ; « l'appel d'offres PCH » ne
+   menait qu'à DRIVE, et la découverte ne disait pas ce qui était déjà ouvert (questions causales : 120 000–130 000
+   jetons et un appel de découverte à chaque fois → 22 000–40 000, zéro découverte).
+
+**Le coût est une métrique de premier rang.** `ModelCallLog` (une ligne par appel, puits tamponné dans le pont,
+`src/platform/in-process/telemetry/usage-sink.ts`), agrégats par tour dans `AiUsageLog`, coût par mission, coût
+d'une session vocale (texte + audio), carte « Coût des modèles » dans le centre de contrôle IA. Les tarifs publics
+Sol / Terra / Luna / Realtime (relevé du 2026-09-05, lecture de cache à 10 %) sont connus par défaut ; les
+variables `ADAM_PRICE_*` restent des SURCHARGES — l'action humaine n° 1 de K.3 n'est plus bloquante, elle est
+optionnelle.
+
+**Ce qui n'est pas atteint, dit tel quel.** Premier mot d'une requête structurée : 2,2 s en médiane (cible < 1 s) ;
+une action ERP : 3–4 s (cible < 1,5 s) ; une synthèse longue : 15–25 s selon la longueur produite. Les leviers
+restants sont connus : les schémas d'outils (`finance_operation` seul pèse 5 200 jetons ; 175 outils ≈ 105 000),
+et le nombre d'appels séquentiels des tours de raisonnement.
+
+**Bloqueurs strictement externes à cet environnement.** Appels de recherche web de plus d'une minute coupés par le
+proxy de session (`HTTP 502 upstream request failed`) ; base Render et fournisseur Anthropic injoignables ; pas
+d'audio WebRTC possible depuis le conteneur (la session Realtime, elle, s'ouvre avec la configuration de production).

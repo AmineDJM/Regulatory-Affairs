@@ -37,3 +37,26 @@ n'y changent quoi que ce soit (`big-blob.ts`, `toast.ts`). Tout le reste en déc
 ⚠️ **Toujours mesurer dans un processus neuf, une taille par exécution.** Deux itérations dans le
 même processus se contaminent : la seconde paie l'écriture de fond de la première et paraît deux
 fois plus lente qu'elle n'est.
+
+## Le banc de conversation d'Adam (`adam:bench`)
+
+Vingt questions d'un dirigeant — lecture canonique, requête structurée, permission d'une déléguée, raisonnement
+causal, documents, agrégation partenaire, mémoire de fil, anti-hallucination, actions, préparation de comité —
+jouées contre le VRAI fournisseur, à travers `runAssistantStream` comme le navigateur, sur un jeu de données local
+et jetable dont la vérité terrain est connue.
+
+```bash
+# 1. Semer le jeu (base LOCALE uniquement : localhost/127.0.0.1 + BENCH_SEED_ALLOW=1 ; manifeste incrémental)
+BENCH_SEED_ALLOW=1 npm run adam:bench:seed          # --clean pour tout retirer
+# 2. Jouer (clé fournisseur requise)
+npm run adam:bench                                  # BENCH_ONLY=id1,id2  BENCH_REPEAT=2  BENCH_TAG=nom
+```
+
+Chaque tour rend un verdict déterministe (expressions attendues / interdites), le premier signe de vie, le premier
+mot, le total, les appels par rôle, les jetons (entrée, sortie, cache, raisonnement), le coût, les outils appelés
+et les phases (contexte, pré-lectures, outils, modèle). Le tableau par catégorie s'affiche en fin de run et le
+détail part en JSON dans `bench-out/` (ignoré par git). Les tables AVANT/APRÈS de la campagne de 2026-09 sont dans
+`bench-out/BASELINE-conversation.md` → `APRES-4-prompt-compact.md`.
+
+Deux règles : le jeu ne se sème jamais sur une base distante (le script refuse), et un cas qui échoue est une
+information — on corrige le produit ou le verdict, jamais le chiffre.

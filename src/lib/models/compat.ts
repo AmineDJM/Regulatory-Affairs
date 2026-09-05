@@ -1,6 +1,6 @@
 import { callModel, streamModel } from "./gateway";
 import { roleConfigured } from "./registry";
-import type { ModelBlock, ModelRole, ModelToolDef, ModelTurn } from "./contract";
+import type { ModelBlock, ModelRole, ModelToolDef, ModelTurn, ReasoningEffort } from "./contract";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -69,6 +69,12 @@ export interface CompatOptions {
   /** Le rôle qui paie l'appel. Défaut : `orchestrator` (c'est la conversation). */
   role?: ModelRole;
   signal?: AbortSignal;
+  /** L'effort de raisonnement de CET appel — sans lui, celui du rôle (registre / env). */
+  reasoning?: ReasoningEffort;
+  /** La clé de cache de prompt : les tours d'une même personne partagent leur préfixe. */
+  promptCacheKey?: string;
+  /** L'identifiant de sûreté (déjà condensé — jamais une identité en clair). */
+  safetyIdentifier?: string;
 }
 
 const toTurns = (messages: ClaudeMessage[]): ModelTurn[] =>
@@ -123,6 +129,9 @@ const options = (opts: CompatOptions) => ({
   timeoutMs: opts.timeoutMs,
   modelOverride: opts.model,
   signal: opts.signal,
+  ...(opts.reasoning ? { reasoning: opts.reasoning } : {}),
+  ...(opts.promptCacheKey ? { promptCacheKey: opts.promptCacheKey } : {}),
+  ...(opts.safetyIdentifier ? { safetyIdentifier: opts.safetyIdentifier } : {}),
 });
 
 export async function callClaude(messages: ClaudeMessage[], opts: CompatOptions = {}): Promise<ClaudeRawResult> {

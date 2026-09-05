@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { runDiscovery, DISCOVERY_TOOL_NAME } from "./discovery";
-import { TOOL_DOMAINS, DISCOVERY_TOOL, shortlistTools } from "./tool-shortlist";
+import { TOOL_DOMAINS, TOOL_DOMAINS_ALL, DISCOVERY_TOOL, shortlistTools } from "./tool-shortlist";
 import { routeQuery } from "./router";
 
 /**
@@ -127,5 +127,23 @@ describe("la découverte répare vraiment ce que la liste courte a coupé", () =
       expect(names.length).toBeGreaterThan(0);
       expect(names).toContain(DISCOVERY_TOOL_NAME);
     }
+  });
+});
+
+describe("découverte — une demande de domaine ne rouvre que ce domaine (carte complète)", () => {
+  it("« HR » ne rouvre pas un outil classé REGULATORY dans la seconde moitié de la carte", () => {
+    // `pch_operation` n'est classé que dans `TOOL_DOMAINS_RESTE` : avec la carte historique il
+    // passait pour non classé et sortait pour n'importe quel domaine demandé.
+    const dispo = [
+      { name: "pch_operation", description: "PCH." },
+      { name: "read_payroll", description: "Paie." },
+      DISCOVERY_TOOL,
+    ];
+    expect(TOOL_DOMAINS_ALL.pch_operation).toContain("REGULATORY");
+    const hr = runDiscovery({ domain: "HR" }, dispo);
+    expect(hr.unlock).not.toContain("pch_operation");
+    const reg = runDiscovery({ domain: "REGULATORY" }, dispo);
+    expect(reg.unlock).toContain("pch_operation");
+    expect(reg.unlock).not.toContain("read_payroll");
   });
 });

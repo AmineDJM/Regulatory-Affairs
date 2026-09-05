@@ -33,7 +33,9 @@
     "audit:reachability": "tsx scripts/audit-runtime-reachability.ts",
     "adam:smoke:provider": "tsx scripts/smoke-provider.ts",
     "adam:smoke:deep": "tsx scripts/deep-smoke.ts",
-    "fabric:bench": "tsx scripts/fabric-bench.ts"
+    "fabric:bench": "tsx scripts/fabric-bench.ts",
+    "adam:bench:seed": "tsx scripts/bench/seed-adam-bench.ts",
+    "adam:bench": "tsx scripts/bench/adam-live-bench.ts"
   },
   "prisma": {
     "seed": "tsx prisma/bootstrap.ts"

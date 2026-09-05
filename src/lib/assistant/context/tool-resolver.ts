@@ -1,6 +1,6 @@
-import { detectDomains, type Domain, type QueryRoute } from "./router";
+import { detectDomains, nommeUnGeste, type Domain, type QueryRoute } from "./router";
 import { normalizeUtterance } from "@/lib/assistant/voice/fast-path";
-import { TOOL_DOMAINS_ALL, ALWAYS_ON, EXECUTIVE, CAPABILITIES, DISCOVERY_TOOL } from "./tool-shortlist";
+import { TOOL_DOMAINS_ALL, ALWAYS_ON, EXECUTIVE, CAPABILITIES, DISCOVERY_TOOL, descriptionDecouverte } from "./tool-shortlist";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -198,7 +198,13 @@ export function resolveTools<T extends { name: string }>(
 
   // ── LES DOMAINES. En A on ne prend que les LECTURES : décrire les écritures d'un domaine à
   //    quelqu'un qui pose une question, c'est offrir l'occasion de se tromper de geste.
-  const veutEcritures = level !== "A";
+  //    En C — une question causale — on ne les prend que si la phrase NOMME un geste : mesuré au
+  //    banc, les écritures pesaient 60 % des jetons de schéma d'une question qui ne fait que
+  //    lire, diagnostiquer et proposer. Le B les garde toujours : il nomme son geste par
+  //    définition. Et quand la question C débouche malgré tout sur une écriture, la découverte
+  //    (`list_more_tools`) la rouvre — un appel de plus dans ce cas-là, pas 17 000 jetons de
+  //    plus dans tous les autres.
+  const veutEcritures = level === "B" || (level === "C" && nommeUnGeste(normalizeUtterance(question)));
   for (const [nom, ds] of Object.entries(TOOL_DOMAINS_ALL)) {
     if (!ds.some((d) => effectifs.includes(d))) continue;
     if (!veutEcritures && estEcriture(nom, ecritures)) continue;
@@ -243,8 +249,14 @@ export function resolveTools<T extends { name: string }>(
   const coupes = Math.max(0, retenus.length - cap);
   const finaux = retenus.slice(0, cap);
 
+  // La découverte porte la liste des domaines DÉJÀ ouverts : même nom, même schéma, description
+  // du tour. Le préfixe de cache ne bouge pas plus que la liste d'outils elle-même.
+  const decouverte: typeof DISCOVERY_TOOL = {
+    ...DISCOVERY_TOOL,
+    description: descriptionDecouverte(domains.length ? domains : null, veutEcritures),
+  };
   return {
-    tools: [...finaux, DISCOVERY_TOOL],
+    tools: [...finaux, decouverte],
     level,
     domains,
     dropped: tools.length - finaux.length,

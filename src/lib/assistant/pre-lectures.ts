@@ -28,8 +28,10 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
+export type OutilPreLecture = "search_everything" | "find_documents" | "inspect_record" | "read_document" | "read_calendar" | "executive_brief";
+
 export interface PreLecture {
-  tool: "search_everything" | "find_documents";
+  tool: OutilPreLecture;
   input: Record<string, string>;
 }
 
@@ -37,6 +39,8 @@ export interface PlanPreLecture {
   route: string;
   isMutation: boolean;
   entites?: readonly string[];
+  /** Le domaine décidé par le routeur — certaines recettes en dépendent (préparation de réunion). */
+  domain?: string;
 }
 
 /** Mots qui ne désignent rien qu'on puisse chercher — articles, pronoms, verbes d'appui. */
@@ -88,19 +92,82 @@ export function planifierPreLectures(question: string, plan: PlanPreLecture): Pr
   const q = (question ?? "").trim();
   if (q.length < 12) return [];
   const mots = motsSignificatifs(q);
+  // LA RECETTE « PRÉPARER UNE RÉUNION » : l'agenda du jour visé, le point exécutif (ce qui
+  // attend une décision, les risques, la finance, les réunions) et les documents qui en
+  // parlent — les trois lectures que le modèle finissait par faire l'une après l'autre.
+  if (plan.route === "DEEP_REASONING" && plan.domain === "CALENDAR") {
+    const out: PreLecture[] = [{ tool: "read_calendar", input: {} }, { tool: "executive_brief", input: {} }];
+    if (mots.length > 0) out.push({ tool: "find_documents", input: { query: mots.join(" ").slice(0, 120) } });
+    return out;
+  }
   if (mots.length === 0) return [];
   // La recherche fédérée préfère les ENTITÉS quand le plan en a extrait ; sinon les mots porteurs.
   const entites = (plan.entites ?? []).map((e) => e.trim()).filter((e) => e.length >= 3);
   const federee = (entites.length > 0 ? entites : mots).join(" ").slice(0, 120);
-  const out: PreLecture[] = [{ tool: "search_everything", input: { query: federee } }];
-  if (plan.route !== "STRUCTURED_QUERY") out.push({ tool: "find_documents", input: { query: mots.join(" ").slice(0, 120) } });
-  return out;
+  // LES DEUX, TOUJOURS : une question « structurée » sur des réserves, un contrat ou une
+  // pièce trouve souvent sa réponse dans un document (mesuré : « résume les réserves de
+  // l'ANPP » partait en cinq appels sans la recherche documentaire). Elle coûte ~50 ms et un
+  // extrait ; un tour de modèle en moins vaut cent fois cela.
+  return [
+    { tool: "search_everything", input: { query: federee } },
+    { tool: "find_documents", input: { query: mots.join(" ").slice(0, 120) } },
+  ];
 }
 
 export interface PreLectureFaite extends PreLecture {
   id: string;
   out: string;
   ms: number;
+}
+
+/** Les fiches que `inspect_record` sait reconstituer — par le chemin de leur lien interne. */
+const LIENS_FICHE = ["/regulatory/", "/legal/", "/pch/", "/validations/paiements/", "/finances/", "/courrier/", "/demandes/", "/dossiers/"];
+
+const idDuLien = (lien: string): string | null => {
+  const seg = (lien ?? "").split(/[?#]/)[0].split("/").filter(Boolean);
+  const dernier = seg[seg.length - 1] ?? "";
+  return /^[a-z0-9_-]{8,}$/i.test(dernier) ? dernier : null;
+};
+
+/**
+ * LA SECONDE VAGUE — ce que la première a rendu ÉVIDENT, on le lit tout de suite.
+ *
+ * Une recherche fédérée qui rend UN ou deux dossiers appelle leur fiche (`inspect_record`) ;
+ * une recherche documentaire dont le premier résultat est de confiance HAUTE appelle sa
+ * lecture (`read_document`). Le modèle aurait demandé exactement cela au tour suivant — quatre
+ * secondes et un aller-retour complet de contexte pour une décision que le code sait prendre.
+ * Pure : elle lit des JSON, elle ne touche à rien. Sur le moindre doute, elle ne suit pas.
+ */
+export function suiviPreLectures(faites: ReadonlyArray<{ tool: string; out: string }>): PreLecture[] {
+  const suites: PreLecture[] = [];
+  const dejaVus = new Set<string>();
+  for (const f of faites) {
+    let json: unknown;
+    try { json = JSON.parse(f.out); } catch { continue; }
+    if (!json || typeof json !== "object") continue;
+    if (f.tool === "search_everything") {
+      const r = json as { total?: number; resultats?: { famille?: string; reference?: string | null; lien?: string }[] };
+      const hits = Array.isArray(r.resultats) ? r.resultats : [];
+      // Résultat FOCALISÉ seulement : au-delà de trois fiches, choisir serait deviner.
+      const fiches = hits.filter((h) => typeof h.lien === "string" && LIENS_FICHE.some((p) => h.lien!.startsWith(p)));
+      if (fiches.length === 0 || fiches.length > 2 || (r.total ?? hits.length) > 4) continue;
+      for (const h of fiches) {
+        const ref = (h.reference && h.reference.trim()) || idDuLien(h.lien ?? "");
+        if (!ref || dejaVus.has(`inspect:${ref}`)) continue;
+        dejaVus.add(`inspect:${ref}`);
+        suites.push({ tool: "inspect_record", input: { reference: ref } });
+      }
+    }
+    if (f.tool === "find_documents") {
+      const r = json as { resultats?: { driveNodeId?: string; confiance?: string }[] };
+      const top = Array.isArray(r.resultats) ? r.resultats[0] : undefined;
+      if (top?.driveNodeId && top.confiance === "HAUTE" && !dejaVus.has(`read:${top.driveNodeId}`)) {
+        dejaVus.add(`read:${top.driveNodeId}`);
+        suites.push({ tool: "read_document", input: { driveNodeId: top.driveNodeId } });
+      }
+    }
+  }
+  return suites.slice(0, 3);
 }
 
 /** Délai au-delà duquel une pré-lecture est abandonnée — elle n'est jamais attendue. */
@@ -116,22 +183,31 @@ export async function executerPreLectures(
   plans: PreLecture[],
   run: (tool: string, input: Record<string, string>) => Promise<string>,
   timeoutMs = PRE_LECTURE_TIMEOUT_MS,
+  opts: { suivi?: boolean } = {},
 ): Promise<PreLectureFaite[]> {
-  const faites = await Promise.all(plans.map(async (p, i) => {
-    const t0 = Date.now();
-    let timer: NodeJS.Timeout | null = null;
-    try {
-      const out = await Promise.race([
-        run(p.tool, p.input),
-        new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs); }),
-      ]);
-      if (out == null || typeof out !== "string" || out.trim() === "") return null;
-      return { ...p, id: `pre_${i + 1}`, out, ms: Date.now() - t0 } satisfies PreLectureFaite;
-    } catch {
-      return null;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }));
-  return faites.filter((f): f is PreLectureFaite => f != null);
+  const vague = async (liste: PreLecture[], depart: number): Promise<PreLectureFaite[]> => {
+    const faites = await Promise.all(liste.map(async (p, i) => {
+      const t0 = Date.now();
+      let timer: NodeJS.Timeout | null = null;
+      try {
+        const out = await Promise.race([
+          run(p.tool, p.input),
+          new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs); }),
+        ]);
+        if (out == null || typeof out !== "string" || out.trim() === "") return null;
+        return { ...p, id: `pre_${depart + i + 1}`, out, ms: Date.now() - t0 } satisfies PreLectureFaite;
+      } catch {
+        return null;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }));
+    return faites.filter((f): f is PreLectureFaite => f != null);
+  };
+  const premiere = await vague(plans, 0);
+  if (opts.suivi === false || premiere.length === 0) return premiere;
+  const suites = suiviPreLectures(premiere);
+  if (suites.length === 0) return premiere;
+  const seconde = await vague(suites, premiere.length);
+  return [...premiere, ...seconde];
 }

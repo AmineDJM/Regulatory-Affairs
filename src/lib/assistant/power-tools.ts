@@ -1,6 +1,6 @@
 import type { ClaudeToolDef } from "@/lib/ai";
 import type { CurrentUser } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { getEnvelopes, getEnvelopesGrandTotal, getBudgetOverview } from "@/lib/queries/budget";
 import { getComptaData } from "@/lib/queries/compta";
 import { getRhData, getLeavesToDecide } from "@/lib/queries/hr";
@@ -424,17 +424,3 @@ export async function executePowerTool(
   }
 }
 
-/**
- * Ce que l'assistant peut consulter, en une phrase, pour le prompt système. Sans cela le
- * modèle ignore qu'il DISPOSE de ces outils et continue de renvoyer l'utilisateur vers les
- * pages — le défaut exact qu'on corrige.
- */
-export function powerToolsBriefing(user: CurrentUser): string {
-  const open = POWER_TOOLS.filter((t) => t.allowed(user));
-  if (open.length === 0) return "";
-  const lines = open.map((t) => `- \`${t.def.name}\` — ${t.label.toLowerCase()}`).join("\n");
-  const global = hasGlobalView(user)
-    ? "\nVous servez un compte à VUE GLOBALE : ces lectures portent sur toute l'entité en cours, pas seulement sur son périmètre personnel."
-    : "";
-  return `\n\nLECTURES CHIFFRÉES À VOTRE DISPOSITION (ouvertes par les droits de cette personne — les utiliser au lieu de renvoyer vers un module) :\n${lines}${global}\nNe JAMAIS avancer un montant sans avoir appelé l'outil correspondant.`;
-}

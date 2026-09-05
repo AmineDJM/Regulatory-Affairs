@@ -87,6 +87,20 @@ describe("les gestes qui ne pardonnent pas ne prennent jamais de raccourci", () 
   });
 });
 
+describe("préparer une réunion est une synthèse", () => {
+  it("« Prépare-moi le comité de demain matin » lit et synthétise — jamais le chemin des mutations", () => {
+    for (const q of ["Prépare-moi le comité de demain matin : points à trancher, risques, chiffres clés.", "Prépare ma réunion avec Amel", "Brief-moi avant le point de 14h"]) {
+      const r = routeQuery(q);
+      expect(r.route, q).toBe("DEEP_REASONING");
+      expect(r.domain, q).toBe("CALENDAR");
+    }
+  });
+  it("mais préparer un MAIL ou un DOCUMENT pour la réunion reste un ordre", () => {
+    expect(routeQuery("Prépare un mail à Khaled pour la réunion de jeudi").route).toBe("ACTION");
+    expect(routeQuery("Prépare la présentation du comité").route).toBe("ACTION");
+  });
+});
+
 describe("les formes que la mission nomme", () => {
   it("« Des mails aujourd'hui ? » ne réveille aucun modèle", () => {
     const r = routeQuery("Des mails aujourd'hui ?");

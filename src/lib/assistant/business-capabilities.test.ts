@@ -61,14 +61,20 @@ describe("les capacités métier — la forme", () => {
     // séquence qu'il connaît. La consigne d'outils est le seul endroit où il apprend qu'un
     // raccourci existe, et ce test empêche qu'une réécriture de prompt la fasse disparaître
     // sans que personne ne s'en aperçoive — la régression serait silencieuse et coûteuse.
+    // La DOCTRINE (le prompt) nomme la préférence — et rien de plus : le prompt porte le
+    // jugement, pas le mode d'emploi. Les RÈGLES qui rendent les chiffres utilisables vivent
+    // dans la description de l'outil, là où elles suivent le modèle quel qu'il soit.
     const doctrine = executiveBriefing(lecteur());
     expect(doctrine).toContain("product_economics");
     expect(doctrine).toContain("pch_market_status");
-    // Elle doit nommer CE QU'ELLE REMPLACE, pas seulement exister.
     expect(doctrine).toMatch(/PAS la\s+séquence/);
-    // Et rappeler la règle qui rend les chiffres utilisables.
-    expect(doctrine).toMatch(/CHACUN AVEC SA DÉFINITION/);
-    expect(doctrine).toMatch(/ne JAMAIS le remplacer par\s+zéro/);
+    const outils = powerToolsFor(lecteur());
+    const eco = outils.find((t) => t.name === "product_economics")!;
+    const pch = outils.find((t) => t.name === "pch_market_status")!;
+    expect(eco.description).toMatch(/chacun avec SA DÉFINITION/i);
+    expect(eco.description).toMatch(/REMPLACE la séquence/);
+    expect(eco.description).toMatch(/jamais zéro/i);
+    expect(pch.description).toMatch(/chacun avec sa définition/i);
   });
 
   it("les capacités sont dans le registre et suivent les DROITS", () => {

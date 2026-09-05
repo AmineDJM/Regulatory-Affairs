@@ -15,7 +15,7 @@ import { formatNumber, formatDateTime } from "@/lib/utils";
 import { AiSettingsForm } from "./ai-settings-form";
 import { AiHealthCheckButton } from "./health-check-button";
 import { adamHealth, type HealthLevel } from "@/lib/google/health";
-import { statistiquesCout, fmtUsd } from "@/lib/assistant/usage-stats";
+import { statistiquesCout, fmtUsd } from "@/platform/in-process/telemetry/usage-stats";
 import { allBindings } from "@/lib/models/registry";
 
 export const metadata = { title: "Centre de contrôle IA — AMD Internal OS" };

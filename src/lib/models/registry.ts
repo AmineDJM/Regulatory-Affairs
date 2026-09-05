@@ -144,6 +144,13 @@ export function activeProvider(): ModelProvider {
  * d'environnement demanderait un redémarrage, et les tests ne pourraient pas couvrir deux
  * configurations dans le même processus.
  */
+/**
+ * LE RÔLE DE LA VOIX, nommé une seule fois. Hors de la passerelle, personne n'écrit
+ * `"realtime"` comme rôle (`routing.test.ts` l'interdit) : le journal d'usage d'une session
+ * vocale prend donc le rôle ICI, pas dans une chaîne recopiée.
+ */
+export const ROLE_VOIX: ModelRole = "realtime";
+
 export function bindingFor(role: ModelRole): ModelBinding {
   const provider: ModelProvider = role === "realtime" ? "openai" : activeProvider();
 

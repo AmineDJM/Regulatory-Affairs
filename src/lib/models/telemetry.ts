@@ -72,6 +72,12 @@ export interface TurnTrace {
   finalMs: number | null;
   /** Le niveau décidé par le triage, quand il y en a eu un. */
   complexity: "A" | "B" | "C" | null;
+  /**
+   * LES PHASES DU TOUR, en millisecondes, nommées par l'appelant : « contexte » (lectures de
+   * base avant le premier appel), « pre_lectures », « outils », « modele »… C'est ce qui permet
+   * de répondre « où sont passées les six secondes ? » sans rejouer le tour.
+   */
+  phases: Record<string, number>;
 }
 
 const storage = new AsyncLocalStorage<TurnTrace>();
@@ -108,6 +114,7 @@ export function withTurn<T>(route: TurnRoute, fn: (trace: TurnTrace) => Promise<
     firstPreviewMs: null,
     finalMs: null,
     complexity: null,
+    phases: {},
   };
   return storage.run(trace, () => fn(trace));
 }
@@ -159,6 +166,19 @@ export function markFinal(): void {
   if (t && t.finalMs == null) t.finalMs = Date.now() - t.startedAt;
 }
 
+/** Ajoute une durée à une phase nommée du tour en cours — cumulative, silencieuse hors d'un tour. */
+export function addPhase(name: string, ms: number): void {
+  const t = currentTurn();
+  if (!t || !Number.isFinite(ms)) return;
+  t.phases[name] = (t.phases[name] ?? 0) + Math.max(0, Math.round(ms));
+}
+
+/** Mesure `fn` et l'impute à la phase `name`. */
+export async function timedPhase<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  const t0 = Date.now();
+  try { return await fn(); } finally { addPhase(name, Date.now() - t0); }
+}
+
 export function markComplexity(level: "A" | "B" | "C"): void {
   const t = currentTurn();
   if (t) t.complexity = level;
@@ -194,6 +214,8 @@ export interface TurnSummary {
   firstPreviewMs: number | null;
   finalMs: number | null;
   totalMs: number;
+  /** Les phases nommées par l'appelant + « modele » (somme des durées d'appels) et « outils ». */
+  phases: Record<string, number>;
 }
 
 export function summarize(trace: TurnTrace): TurnSummary {
@@ -238,6 +260,11 @@ export function summarize(trace: TurnTrace): TurnSummary {
     firstPreviewMs: trace.firstPreviewMs,
     finalMs: trace.finalMs,
     totalMs: Date.now() - trace.startedAt,
+    phases: {
+      ...trace.phases,
+      modele: trace.calls.reduce((s, c) => s + (c.ms ?? 0), 0),
+      outils: trace.tools.reduce((s, t) => s + t.ms, 0),
+    },
   };
 }
 

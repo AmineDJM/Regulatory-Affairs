@@ -410,6 +410,8 @@ export function CallProvider({ enabled, children }: { enabled: boolean; children
     }
 
     logEvent("voice_session_closed", {
+      // LA CONSOMMATION DE LA SESSION (texte/audio, cache) — le serveur en fait le coût.
+      usage: providerRef.current?.getUsage?.() ?? null,
       sessionMs: durationS * 1000 || Math.round(performance.now() - m.startedAt),
       connectMs: m.connectMs || null, firstAudioMs: m.firstAudioMs || null,
       toolCalls: m.toolCalls, toolErrors: m.toolErrors, interruptions: m.interruptions, turns: m.turns,

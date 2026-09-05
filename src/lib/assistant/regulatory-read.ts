@@ -18,6 +18,7 @@ export type { RegWorkflowState };
 import { REGULATORY_STATUS } from "@/lib/labels";
 import { resolveOrg, coreTokens } from "@/lib/assistant/entity-normalize";
 import type { PowerTool } from "@/lib/assistant/power-tools";
+import { regulatoryKnowledgeDigest } from "@/lib/regulatory/anpp-knowledge";
 
 /**
  * LECTURES REGULATORY CANONIQUES DU CHIEF OF STAFF — la réponse à la panne réelle :
@@ -173,7 +174,58 @@ async function resolveUserByName(name: string): Promise<{ id: string; name: stri
   return emps.flatMap((e) => (e.user ? [{ id: e.user.id, name: e.user.name }] : []));
 }
 
+/**
+ * LE CADRE RÉGLEMENTAIRE SE LIT, IL NE SE RÉCITE PAS.
+ *
+ * Le digest ANPP (droits, délais, CTD, modifications, décision, refus) partait dans CHAQUE prompt
+ * système d'un lecteur Regulatory — 3 000 jetons payés à chaque tour, y compris pour « bonjour ».
+ * C'est de la CONNAISSANCE : elle vit dans les données (le même texte est ingéré au corpus) et se
+ * sert à la demande, par section. Le prompt ne garde que la règle : le lire avant de citer.
+ */
+const SECTIONS_CONNAISSANCE: Record<string, RegExp> = {
+  droits: /^DROITS D'ENREGISTREMENT/m,
+  delais: /^PARCOURS ET DÉLAIS LÉGAUX/m,
+  ctd: /^DOSSIER AU FORMAT CTD/m,
+  presoumission: /^PRÉ-SOUMISSION/m,
+  modifications: /^MODIFICATIONS POST-ENREGISTREMENT/m,
+  decision: /^DÉCISION D'ENREGISTREMENT/m,
+  refus: /^MOTIFS DE REFUS/m,
+};
+
+export function extraireConnaissanceReglementaire(sujet: string | null | undefined): string {
+  const digest = regulatoryKnowledgeDigest();
+  const cle = (sujet ?? "").trim().toLowerCase();
+  if (!cle || cle === "tout" || !(cle in SECTIONS_CONNAISSANCE)) return digest;
+  // Une section va de son titre au prochain titre EN MAJUSCULES suivi de deux-points (ou à la fin).
+  const lignes = digest.split("\n");
+  const debut = lignes.findIndex((l) => SECTIONS_CONNAISSANCE[cle].test(l));
+  if (debut < 0) return digest;
+  const fin = lignes.findIndex((l, i) => i > debut && /^[A-ZÉÈÀÂÎÔÛÇ' ()/-]{8,}:/.test(l) && !/^ /.test(l));
+  const entete = lignes.slice(0, 3).join("\n");
+  return `${entete}\n\n${lignes.slice(debut, fin < 0 ? undefined : fin).join("\n").trim()}`;
+}
+
 export const REGULATORY_READ_TOOLS: PowerTool[] = [
+  {
+    def: {
+      name: "regulatory_knowledge",
+      description:
+        "LE CADRE RÉGLEMENTAIRE ALGÉRIEN (ANPP) — droits d'enregistrement (bordereaux 25 % / 75 %, autres droits), parcours et " +
+        "délais légaux, modules CTD et règles de forme, pré-soumission, modifications post-enregistrement, décision et motifs de refus, " +
+        "avec les textes (décret 20-325, arrêtés 2021, loi 18-11). À LIRE avant de citer un article, un délai ou un montant : " +
+        "ne jamais les réciter de mémoire. `sujet` cible une section (droits, delais, ctd, presoumission, modifications, decision, refus) ; sans lui, tout le cadre.",
+      input_schema: {
+        type: "object",
+        properties: {
+          sujet: { type: "string", description: "droits | delais | ctd | presoumission | modifications | decision | refus | tout" },
+        },
+      },
+    },
+    allowed: (u) => userCan(u, "REGULATORY", "VIEW"),
+    label: "Cadre réglementaire consulté",
+    run: async (input) => extraireConnaissanceReglementaire(typeof input.sujet === "string" ? input.sujet : null),
+  },
+
   // ───────────────────────── CHARGE PAR PERSONNE (assignation DIRECTE) ─────────────────────────
   {
     def: {

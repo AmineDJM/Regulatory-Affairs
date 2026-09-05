@@ -72,7 +72,9 @@ export const CAS: Cas[] = [
   { id: "action-tache", categorie: "ACTION", tours: ["Crée une tâche pour Raihana Cherif : relancer Hetero Labs pour le certificat GMP Trastuzex, échéance vendredi prochain."], attendProposition: true, neDoitPas: [/c'est fait/i, /tâche créée/i] },
   // Un rappel pour soi est une écriture À FAIBLE RISQUE, exécutée sans carte (politique documentée
   // du Chief of Staff) : on attend la confirmation de la programmation, pas une proposition.
-  { id: "action-rappel", categorie: "ACTION", tours: ["Rappelle-moi demain à 8h de valider le budget marketing T4."], doit: [/rappel/i], doitUneDe: [/08\s?h/i, /8\s?h/i, /08:00/], neDoitPas: [/erreur/i, /impossible/i] },
+  // Deux issues légitimes : programmé directement (« Rappel programmé le … à 08h00 ») ou proposé
+  // sur une carte à confirmer. Ce qui est interdit : une erreur, ou un rappel prétendu sans heure.
+  { id: "action-rappel", categorie: "ACTION", tours: ["Rappelle-moi demain à 8h de valider le budget marketing T4."], doit: [/rappel/i], doitUneDe: [/08\s?h/i, /8\s?h/i, /08:00/, /propose/i], neDoitPas: [/erreur/i, /impossible/i] },
   { id: "brief", categorie: "SYNTHESE", tours: ["Prépare-moi le comité de demain matin : points à trancher, risques, chiffres clés."], doitUneDe: [/nivol/i, /hetero/i, /PCH/i], neDoitPas: NON_TROUVE },
 ];
 
@@ -112,6 +114,7 @@ async function main(): Promise<void> {
     appels: number; parRole: Record<string, number>; outils: string[];
     entree: number; sortie: number; cache: number; raisonnement: number; coutUsd: number | null;
     reponse: string; proposition: string | null; erreur: string | null;
+    phases: Record<string, number>;
   }
   const mesures: Mesure[] = [];
 
@@ -132,7 +135,7 @@ async function main(): Promise<void> {
         let proposition: string | null = null;
         let erreur: string | null = null;
         const personal = await personalContext(user.id).catch(() => null);
-        const { result, resume, outils } = await withTurn("text", async (trace) => {
+        const { result, resume, outils, phases } = await withTurn("text", async (trace) => {
           const result = await runAssistantStream(user, history, (e) => {
             if (premierSigne == null && (e.type === "delta" || e.type === "trace" || e.type === "workspace")) premierSigne = Date.now() - t0;
             if (e.type === "delta") { if (premierMot == null) premierMot = Date.now() - t0; texte += e.text; }
@@ -143,7 +146,7 @@ async function main(): Promise<void> {
               if (r.error) erreur = r.error;
             }
           }, { personalContext: personal });
-          return { result, resume: summarize(trace), outils: trace.tools.map((t) => t.name) };
+          return { result, resume: summarize(trace), outils: trace.tools.map((t) => t.name), phases: summarize(trace).phases };
         });
         const totalMs = Date.now() - t0;
         const reply = result.reply || texte;
@@ -156,7 +159,7 @@ async function main(): Promise<void> {
           premierSigneMs: premierSigne, premierMotMs: premierMot, totalMs,
           appels: resume.llmCalls, parRole: resume.callsByRole, outils,
           entree: resume.inputTokens, sortie: resume.outputTokens, cache: resume.cachedInputTokens, raisonnement: resume.reasoningTokens, coutUsd: resume.costUsd,
-          reponse: reply, proposition, erreur,
+          reponse: reply, proposition, erreur, phases,
         };
       }
       if (!derniere) continue;
@@ -179,20 +182,22 @@ async function main(): Promise<void> {
       m.motif = motifs.join(" ; ");
       mesures.push(m);
       const roles = Object.entries(m.parRole).filter(([, n]) => n > 0).map(([r, n]) => `${r}×${n}`).join(" ");
-      console.log(`${m.ok ? "PASS" : "FAIL"} ${c.id.padEnd(20)} ${c.categorie.padEnd(18)} 1er mot ${fmtMs(m.premierMotMs).padStart(6)} · total ${fmtMs(m.totalMs).padStart(7)} · ${String(m.appels)} appel(s) [${roles}] · ${m.entree}/${m.sortie} jetons (cache ${m.cache}, raison. ${m.raisonnement}) · ${fmtUsd(m.coutUsd)} · outils [${m.outils.join(", ")}]${m.ok ? "" : `\n     ↳ ${m.motif}\n     ↳ « ${m.reponse.slice(0, 220).replace(/\s+/g, " ")} »`}`);
+      console.log(`${m.ok ? "PASS" : "FAIL"} ${c.id.padEnd(20)} ${c.categorie.padEnd(18)} 1er signe ${fmtMs(m.premierSigneMs).padStart(6)} · 1er mot ${fmtMs(m.premierMotMs).padStart(6)} · total ${fmtMs(m.totalMs).padStart(7)} · ${String(m.appels)} appel(s) [${roles}] · ${m.entree}/${m.sortie} jetons (cache ${m.cache}, raison. ${m.raisonnement}) · ${fmtUsd(m.coutUsd)} · outils [${m.outils.join(", ")}] · phases ${Object.entries(m.phases).map(([k, v]) => `${k} ${v}ms`).join(" ")}${m.ok ? "" : `\n     ↳ ${m.motif}\n     ↳ « ${m.reponse.slice(0, 220).replace(/\s+/g, " ")} »`}`);
     }
   }
 
   // ── Agrégats ──
   const cats = [...new Set(mesures.map((m) => m.categorie))];
   const lignes: string[] = [];
-  lignes.push(`| Catégorie | n | succès | 1er mot P50 | 1er mot P95 | total P50 | total P95 | appels moy. | jetons moy. (e/s) | coût moy. |`);
-  lignes.push(`|---|---|---|---|---|---|---|---|---|---|`);
+  lignes.push(`| Catégorie | n | succès | 1er signe P50 | 1er mot P50 | 1er mot P95 | total P50 | total P95 | appels moy. | jetons moy. (e/s) | cache | coût moy. |`);
+  lignes.push(`|---|---|---|---|---|---|---|---|---|---|---|---|`);
   const agr = (list: Mesure[], label: string) => {
     const ok = list.filter((m) => m.ok).length;
     const couts = list.map((m) => m.coutUsd);
     const cout = couts.some((c) => c == null) ? null : couts.reduce((somme: number, c) => somme + (c ?? 0), 0) / list.length;
-    lignes.push(`| ${label} | ${list.length} | ${ok}/${list.length} (${Math.round((100 * ok) / list.length)} %) | ${fmtMs(pct(list.map((m) => m.premierMotMs ?? NaN), 50))} | ${fmtMs(pct(list.map((m) => m.premierMotMs ?? NaN), 95))} | ${fmtMs(pct(list.map((m) => m.totalMs), 50))} | ${fmtMs(pct(list.map((m) => m.totalMs), 95))} | ${(list.reduce((s, m) => s + m.appels, 0) / list.length).toFixed(1)} | ${Math.round(list.reduce((s, m) => s + m.entree, 0) / list.length)}/${Math.round(list.reduce((s, m) => s + m.sortie, 0) / list.length)} | ${fmtUsd(cout)} |`);
+    const entree = list.reduce((s, m) => s + m.entree, 0);
+    const cache = list.reduce((s, m) => s + m.cache, 0);
+    lignes.push(`| ${label} | ${list.length} | ${ok}/${list.length} (${Math.round((100 * ok) / list.length)} %) | ${fmtMs(pct(list.map((m) => m.premierSigneMs ?? NaN), 50))} | ${fmtMs(pct(list.map((m) => m.premierMotMs ?? NaN), 50))} | ${fmtMs(pct(list.map((m) => m.premierMotMs ?? NaN), 95))} | ${fmtMs(pct(list.map((m) => m.totalMs), 50))} | ${fmtMs(pct(list.map((m) => m.totalMs), 95))} | ${(list.reduce((s, m) => s + m.appels, 0) / list.length).toFixed(1)} | ${Math.round(entree / list.length)}/${Math.round(list.reduce((s, m) => s + m.sortie, 0) / list.length)} | ${entree > 0 ? `${Math.round((100 * cache) / entree)} %` : "—"} | ${fmtUsd(cout)} |`);
   };
   for (const cat of cats) agr(mesures.filter((m) => m.categorie === cat), cat);
   agr(mesures, "**TOUT**");

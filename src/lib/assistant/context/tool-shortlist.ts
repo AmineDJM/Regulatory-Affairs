@@ -55,6 +55,7 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   // ── Réglementaire ───────────────────────────────────────────────────────────────────────
   regulatory_portfolio: ["REGULATORY"],
   regulatory_workload: ["REGULATORY", "HR"],
+  regulatory_knowledge: ["REGULATORY"],
   product_360: ["REGULATORY"],
   search_hospitals: ["REGULATORY"],
   read_stock: ["REGULATORY"],
@@ -381,6 +382,24 @@ export const DISCOVERY_TOOL = {
     },
   },
 };
+
+/**
+ * LA DESCRIPTION DE LA DÉCOUVERTE, PAR TOUR — elle dit ce qui est DÉJÀ ouvert.
+ *
+ * La version fixe disait « cette conversation ne montre que les outils du domaine en cours » sans
+ * dire lequel : sur une question de fond, un modèle consciencieux appelait la découverte « pour
+ * voir », et le tour repartait avec cent schémas de plus (mesuré : un appel de plus et 60 000
+ * jetons sur chaque question causale du banc). Nommer les domaines présentés lui donne
+ * l'information qu'il n'avait pas ; le reste est une consigne de coût, pas de comportement.
+ */
+export function descriptionDecouverte(ouverts: readonly Domain[] | null, avecEcritures: boolean): string {
+  const presentes = ouverts && ouverts.length ? ouverts.join(", ") : "tous les domaines";
+  return `LES AUTRES OUTILS. Déjà présentés pour cette demande : ${presentes} — `
+    + (avecEcritures ? "lectures et actions. " : "lectures seulement. ")
+    + "Appelez ceci SEULEMENT si un outil précis vous manque — un autre module, une action d'un autre pôle — "
+    + "en nommant le domaine voulu. Chaque appel coûte un aller-retour complet : n'explorez pas « pour voir ». "
+    + "Ne répondez JAMAIS « je n'ai pas d'outil pour cela » sans avoir appelé ceci d'abord.";
+}
 
 /** Les noms d'outils que cette route mérite. Rendu séparément du filtrage, pour être testable. */
 export function shortlistNames(route: Pick<QueryRoute, "route" | "domain">): string[] {

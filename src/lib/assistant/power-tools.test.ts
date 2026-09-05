@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { CurrentUser } from "@/lib/session";
 import type { EffectiveAccess, Module, Action } from "@/lib/rbac";
-import { POWER_TOOLS, powerToolsFor, executePowerTool, powerToolsBriefing } from "./power-tools";
+import { POWER_TOOLS, powerToolsFor, executePowerTool } from "./power-tools";
 
 /**
  * Ce qui est verrouillé ici n'est pas la LISTE des outils (elle grandira) mais la RÈGLE :
@@ -81,14 +81,3 @@ describe("executePowerTool — le droit est revérifié à l'exécution", () => 
   });
 });
 
-describe("powerToolsBriefing", () => {
-  it("annonce au modèle les outils réellement ouverts, et eux seuls", () => {
-    const brief = powerToolsBriefing(userWith({ BUDGETS: ["VIEW"] }));
-    expect(brief).toContain("read_budget");
-    expect(brief).not.toContain("read_finances");
-  });
-
-  it("n'est jamais vide : la file de décisions est ouverte à tous", () => {
-    expect(powerToolsBriefing(userWith({}))).toContain("list_pending_decisions");
-  });
-});
