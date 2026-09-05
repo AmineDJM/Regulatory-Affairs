@@ -144,8 +144,28 @@ export function verifierEntree(input: Record<string, unknown>, contrat: ContratE
   for (const cle of Object.keys(input)) {
     if (!parNom.has(cle)) verdict.inconnues.push(cle);
   }
+  // ── LA RÉPARATION DE CLÉ ─────────────────────────────────────────────────────────────
+  //
+  // Le planificateur écrit `query` là où l'outil lit `question`, `name` pour `recipientName`.
+  // Quand UNE seule clé est inconnue et qu'UN seul champ obligatoire manque, du même type, il n'y
+  // a pas d'ambiguïté : on déplace la valeur et on le DIT (réparation), au lieu de refuser le
+  // plan deux fois de suite — deux missions sur quarante tombaient là (banc de paliers, §16).
+  // Deux inconnues ou deux manquants : on ne devine pas, le refus nomme les entrées attendues.
+  const manquantsRequis = contrat.champs.filter((c) => c.requis && estVide(input[c.nom]));
+  if (verdict.inconnues.length === 1 && manquantsRequis.length === 1) {
+    const [orpheline] = verdict.inconnues;
+    const cible = manquantsRequis[0];
+    const v = input[orpheline];
+    const typeOk = cible.type.split("|").some((t) => (t === "texte" && typeof v === "string") || ((t === "nombre" || t === "entier") && typeof v === "number") || (t === "booléen" && typeof v === "boolean") || (t === "liste" && Array.isArray(v)) || (t === "objet" && v !== null && typeof v === "object"));
+    if (typeOk && !estVide(v)) {
+      entree[cible.nom] = v;
+      delete entree[orpheline];
+      verdict.inconnues = [];
+      verdict.reparations.push({ champ: cible.nom, de: `clé « ${orpheline} »`, vers: v });
+    }
+  }
   for (const c of contrat.champs) {
-    const v = input[c.nom];
+    const v = entree[c.nom];
     if (c.requis && estVide(v)) {
       verdict.manquantes.push(c.nom);
       continue;

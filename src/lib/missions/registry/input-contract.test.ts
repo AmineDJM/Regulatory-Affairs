@@ -82,4 +82,21 @@ describe("le contrat d'entrée — dérivé du schéma, montré, vérifié", () 
     expect(v.inconnues).toEqual([]); expect(v.manquantes).toEqual([]); expect(v.invalides).toEqual([]);
     expect(exempleEntree(null)).toEqual({});
   });
+
+  it("répare une clé synonyme sans ambiguïté (« query » → « question ») et refuse quand il faudrait deviner", () => {
+    const contrat = contratDepuisSchema({ type: "object", properties: { question: { type: "string" }, limit: { type: "integer" } }, required: ["question"] })!;
+    const r = verifierEntree({ query: "contrat Julphar" }, contrat);
+    expect(r.entree).toEqual({ question: "contrat Julphar" });
+    expect(r.inconnues).toEqual([]);
+    expect(r.manquantes).toEqual([]);
+    expect(r.reparations).toEqual([{ champ: "question", de: "clé « query »", vers: "contrat Julphar" }]);
+    // Deux clés inconnues pour un seul manquant : on ne choisit pas.
+    const deux = verifierEntree({ query: "a", texte: "b" }, contrat);
+    expect(deux.inconnues).toEqual(["query", "texte"]);
+    expect(deux.manquantes).toEqual(["question"]);
+    // Un type incompatible : pas de déplacement.
+    const mauvais = verifierEntree({ query: 12 }, contrat);
+    expect(mauvais.manquantes).toEqual(["question"]);
+    expect(mauvais.inconnues).toEqual(["query"]);
+  });
 });

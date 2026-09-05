@@ -45,6 +45,12 @@ export const CAPACITES_ARTEFACT = [
   "artifact.save_as",
   "artifact.compare",
   "artifact.close",
+  // L'Excel God Mode : des LECTURES en flux, sans la borne du Live Office (voir `sheets/analyse.ts`).
+  "artifact.sheet_audit",
+  "artifact.sheet_trace",
+  "artifact.sheet_diff",
+  "artifact.sheet_read",
+  "artifact.sheet_build",
 ] as const;
 
 export type CapaciteArtefact = (typeof CAPACITES_ARTEFACT)[number];
@@ -60,6 +66,11 @@ export const LIBELLE_CAPACITE: Record<CapaciteArtefact, string> = {
   "artifact.save_as": "Enregistrer sous un nouveau nom, sans toucher à l'original",
   "artifact.compare": "Comparer deux versions et dire ce qui a changé",
   "artifact.close": "Fermer le document ouvert",
+  "artifact.sheet_audit": "Vérifier un classeur Excel : structure, recalcul indépendant, audit des formules (sans limite de taille)",
+  "artifact.sheet_trace": "Expliquer une cellule : d'où vient sa valeur, qui en dépend, rayon d'impact",
+  "artifact.sheet_diff": "Comparer deux versions d'un classeur : lignes insérées, valeurs, formules modifiées ou écrasées",
+  "artifact.sheet_read": "Lire une plage d'un grand classeur en clair",
+  "artifact.sheet_build": "Construire un classeur vérifié (formules recalculées, valeurs écrites, audit propre) depuis une spécification",
 };
 
 /** La cible d'une commande, en schéma strict. */

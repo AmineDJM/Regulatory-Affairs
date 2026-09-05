@@ -211,4 +211,238 @@ export const OFFICE_TOOLS: PowerTool[] = [
       return JSON.stringify({ fait: false, message: `Geste « ${geste} » inconnu.` });
     },
   },
+
+  // ═══════════════════════════ L'EXCEL GOD MODE — lire, vérifier, expliquer, comparer ═══════════════════════════
+  //
+  // Quatre LECTURES. Le Live Office ouvre un classeur pour le MODIFIER (borné à vingt mille
+  // cellules par feuille, parce qu'il doit le refermer à l'octet près) ; ces outils le LISENT en
+  // flux, sans limite pratique (mesuré : cent mille lignes, deux cent mille formules, cent vingt
+  // feuilles — `npm run sheets:bench`), et raisonnent dessus : graphe de dépendances, recalcul
+  // indépendant, audit, comparaison sémantique. Les droits sont ceux du Drive (`canViewDrive`),
+  // vérifiés par le port — jamais ici.
+  {
+    def: {
+      name: "sheet_audit",
+      description:
+        "VÉRIFIE un classeur Excel du Drive, sans l'ouvrir dans l'espace de travail : structure (feuilles, "
+        + "tailles, en-têtes, noms définis), RECALCUL indépendant de toutes les formules, et AUDIT — formules "
+        + "écrasées par une valeur en dur au milieu d'une colonne, formules différentes de leurs voisines, "
+        + "sommes qui oublient des lignes, cellules en erreur (#REF!, #DIV/0!), références circulaires, "
+        + "constantes codées (×1.19), nombres stockés en texte, valeurs affichées qui ne correspondent plus "
+        + "à leur formule, feuilles masquées. Chaque constat a une gravité, une adresse et une PREUVE. "
+        + "Utilise-le pour « vérifie ce fichier », « ce budget est-il fiable ? », « qu'est-ce qui cloche "
+        + "dans le modèle ? ». Rends d'abord le résumé et les constats critiques ; ne récite pas la liste.",
+      input_schema: {
+        type: "object",
+        properties: {
+          nom: { type: "string", description: "Le nom du classeur, tel que la personne le dit." },
+          nodeId: { type: "string", description: "L'identifiant Drive, quand on le connaît (plus sûr qu'un nom)." },
+          version: { type: "integer", description: "Une version précise ; vide = la courante." },
+        },
+        required: [],
+      },
+    },
+    allowed: () => true,
+    label: "Excel — vérifier un classeur",
+    run: async (input, user) => {
+      const { auditerClasseurDrive } = await import("@/platform/in-process/artifact/sheets");
+      const r = await auditerClasseurDrive(user, cibleDe(input));
+      if (!r.ok) return JSON.stringify({ fait: false, message: r.motif, candidats: r.candidats });
+      return JSON.stringify({
+        fait: true, document: r.document, resume: r.audit.resume,
+        structure: r.structure, recalcul: r.recalcul,
+        parGravite: r.audit.parGravite, parCode: r.audit.parCode, total: r.audit.total,
+        constats: r.audit.constats.map((c) => ({ gravite: c.gravite, code: c.code, ou: `${c.feuille}!${c.cellule}`, message: c.message, preuve: c.preuve, suggestion: c.suggestion })),
+        dureeMs: r.metriques.totalMs,
+      });
+    },
+  },
+
+  {
+    def: {
+      name: "sheet_trace",
+      description:
+        "EXPLIQUE une cellule d'un classeur Excel : d'où vient sa valeur (sa formule, les cellules et plages "
+        + "qu'elle lit, avec leurs valeurs), qui en dépend directement, et combien de formules changent si "
+        + "elle change (par feuille). Pour « d'où vient ce chiffre ? », « à quoi sert cette cellule ? », "
+        + "« si je change la TVA en Param!B2, qu'est-ce qui bouge ? ». L'adresse s'écrit en A1 avec sa "
+        + "feuille : « Ventes!D12 » (sans feuille = la première). Rends l'explication telle quelle.",
+      input_schema: {
+        type: "object",
+        properties: {
+          nom: { type: "string", description: "Le nom du classeur." },
+          nodeId: { type: "string", description: "L'identifiant Drive, quand on le connaît." },
+          cellule: { type: "string", description: "L'adresse : « Ventes!D12 », ou « D12 »." },
+          feuille: { type: "string", description: "La feuille, si l'adresse ne la porte pas." },
+          version: { type: "integer", description: "Une version précise ; vide = la courante." },
+        },
+        required: ["cellule"],
+      },
+    },
+    allowed: () => true,
+    label: "Excel — expliquer une cellule",
+    run: async (input, user) => {
+      const { tracerCelluleDrive } = await import("@/platform/in-process/artifact/sheets");
+      const r = await tracerCelluleDrive(user, cibleDe(input), str(input, "cellule"), str(input, "feuille") || null);
+      if (!r.ok) return JSON.stringify({ fait: false, message: r.motif, candidats: "candidats" in r ? r.candidats : undefined });
+      const t = r.trace;
+      return JSON.stringify({
+        fait: true, document: r.document, explication: t.explication, cellule: t.cellule,
+        precedents: t.precedents, dependants: t.dependants.map((d) => d.ref), rayon: t.rayon,
+      });
+    },
+  },
+
+  {
+    def: {
+      name: "sheet_diff",
+      description:
+        "COMPARE deux versions d'un classeur Excel du Drive (ou deux classeurs différents) et dit ce qui a "
+        + "CHANGÉ : lignes insérées ou supprimées, valeurs modifiées, formules modifiées, formules ÉCRASÉES par "
+        + "une valeur, feuilles ajoutées, noms définis déplacés. Les lignes sont alignées par leur contenu et "
+        + "les formules comparées relativement : une ligne insérée compte UNE fois, pas mille. Sans version "
+        + "indiquée : la version courante contre la précédente. Pour « qu'est-ce qui a changé dans le budget "
+        + "depuis la v3 ? », « compare le fichier de Karim et le mien ». Rends le résumé, puis les changements "
+        + "les plus graves (formules écrasées et modifiées) avec leur adresse.",
+      input_schema: {
+        type: "object",
+        properties: {
+          nom: { type: "string", description: "Le classeur (version « après », ou l'unique classeur)." },
+          nodeId: { type: "string", description: "Son identifiant Drive, quand on le connaît." },
+          versionAvant: { type: "integer", description: "La version de départ. Vide = la version juste avant la courante." },
+          versionApres: { type: "integer", description: "La version d'arrivée. Vide = la courante." },
+          nomAvant: { type: "string", description: "Pour comparer DEUX fichiers différents : le nom du fichier « avant »." },
+          nodeIdAvant: { type: "string", description: "L'identifiant Drive du fichier « avant »." },
+        },
+        required: [],
+      },
+    },
+    allowed: () => true,
+    label: "Excel — comparer deux versions",
+    run: async (input, user) => {
+      const { comparerClasseursDrive } = await import("@/platform/in-process/artifact/sheets");
+      const apres = { nom: str(input, "nom") || null, nodeId: str(input, "nodeId") || null, version: typeof input.versionApres === "number" ? input.versionApres : null };
+      const autreFichier = Boolean(str(input, "nomAvant") || str(input, "nodeIdAvant"));
+      const avant = autreFichier
+        ? { nom: str(input, "nomAvant") || null, nodeId: str(input, "nodeIdAvant") || null, version: typeof input.versionAvant === "number" ? input.versionAvant : null }
+        : { ...apres, version: typeof input.versionAvant === "number" ? input.versionAvant : null };
+      const r = await comparerClasseursDrive(user, avant, autreFichier ? apres : null);
+      if (!r.ok) return JSON.stringify({ fait: false, message: r.motif, candidats: "candidats" in r ? r.candidats : undefined });
+      const c = r.comparaison;
+      return JSON.stringify({
+        fait: true, avant: r.avant, apres: r.apres, resume: c.resume, total: c.total, parGenre: c.parGenre, parFeuille: c.parFeuille,
+        changements: c.changements.map((x) => ({ genre: x.genre, ou: x.cellule ? `${x.feuille}!${x.cellule}` : x.feuille, avant: x.avant, apres: x.apres })),
+        limites: c.limites,
+      });
+    },
+  },
+
+  {
+    def: {
+      name: "sheet_read",
+      description:
+        "LIT une plage d'un classeur Excel en clair — « montre-moi Ventes!A1:F20 », « les 30 premières lignes "
+        + "du budget » — sans l'ouvrir dans l'espace de travail, y compris sur de très grands classeurs. "
+        + "Rend les valeurs AFFICHÉES, ligne par ligne. Deux mille cellules au plus par appel : cible la plage.",
+      input_schema: {
+        type: "object",
+        properties: {
+          nom: { type: "string", description: "Le nom du classeur." },
+          nodeId: { type: "string", description: "L'identifiant Drive, quand on le connaît." },
+          plage: { type: "string", description: "La plage : « Ventes!A1:F20 », ou « A1:F20 »." },
+          feuille: { type: "string", description: "La feuille, si la plage ne la porte pas." },
+          version: { type: "integer", description: "Une version précise ; vide = la courante." },
+        },
+        required: ["plage"],
+      },
+    },
+    allowed: () => true,
+    label: "Excel — lire une plage",
+    run: async (input, user) => {
+      const { lirePlageDrive } = await import("@/platform/in-process/artifact/sheets");
+      const r = await lirePlageDrive(user, cibleDe(input), str(input, "plage"), str(input, "feuille") || null);
+      if (!r.ok) return JSON.stringify({ fait: false, message: r.motif, candidats: "candidats" in r ? r.candidats : undefined });
+      return JSON.stringify({ fait: true, document: r.document, feuille: r.feuille, plage: r.plage, lignes: r.lignes, tronque: r.tronque });
+    },
+  },
+
+  {
+    def: {
+      name: "sheet_build",
+      description:
+        "CONSTRUIT un classeur Excel VÉRIFIÉ et l'enregistre dans le Drive de la personne : des feuilles à "
+        + "colonnes typées, des lignes de données, des formules écrites en termes de colonnes ([qte]*[pu]) et "
+        + "de paramètres nommés ({TVA}), des totaux. Le fichier est relu, RECALCULÉ par un moteur indépendant, "
+        + "les valeurs sont écrites (un aperçu montre les bons chiffres) et il est AUDITÉ : s'il reste une "
+        + "erreur de formule ou un défaut grave, RIEN n'est écrit et l'outil te rend les constats à corriger. "
+        + "Pour « fais-moi un tableau des ventes par région avec totaux et TVA », « prépare un devis », "
+        + "« un suivi des échéances avec le nombre de jours restants ». Mets les DONNÉES dans `lignes` (une "
+        + "clé par colonne) et les CALCULS dans `formule` — jamais un total tapé à la main.",
+      input_schema: {
+        type: "object",
+        properties: {
+          nom: { type: "string", description: "Le nom du fichier (sans chemin) : « Ventes T3 2026 »." },
+          feuilles: {
+            type: "array",
+            description: "Les feuilles, dans l'ordre.",
+            items: {
+              type: "object",
+              properties: {
+                nom: { type: "string" },
+                colonnes: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      cle: { type: "string", description: "Clé courte sans espace : qte, pu, ht." },
+                      titre: { type: "string", description: "L'en-tête affiché." },
+                      formule: { type: "string", description: "Calcul par ligne : « [qte]*[pu] », « [ht]*(1+{TVA}) », « SI([qte]>10;[pu]*0.9;[pu]) ». Vide = colonne de données." },
+                      format: { type: "string", description: "Format Excel : « #,##0.00 \"DZD\" », « 0% », « dd/mm/yyyy »." },
+                    },
+                    required: ["cle", "titre"],
+                  },
+                },
+                lignes: { type: "array", items: { type: "object" }, description: "Une ligne = un objet { cle: valeur } pour les colonnes de données." },
+                totaux: { type: "object", description: "Ligne de totaux : { cle: \"SUM\" | \"AVERAGE\" | \"COUNT\" | \"MIN\" | \"MAX\" }." },
+              },
+              required: ["nom", "colonnes", "lignes"],
+            },
+          },
+          parametres: {
+            type: "array",
+            description: "Paramètres nommés, référencés par {Nom} dans les formules : [{ nom: \"TVA\", valeur: 0.19, libelle: \"Taux de TVA\", format: \"0%\" }].",
+            items: { type: "object", properties: { nom: { type: "string" }, valeur: {}, libelle: { type: "string" }, format: { type: "string" } }, required: ["nom", "valeur"] },
+          },
+          dossier: { type: "string", description: "Le dossier du Drive personnel où ranger le fichier. Vide = « Documents Adam »." },
+        },
+        required: ["nom", "feuilles"],
+      },
+    },
+    allowed: () => true,
+    label: "Excel — construire un classeur vérifié",
+    run: async (input, user) => {
+      const { construireClasseurDrive } = await import("@/platform/in-process/artifact/sheets");
+      const feuilles = Array.isArray(input.feuilles) ? input.feuilles : [];
+      if (feuilles.length === 0) return JSON.stringify({ fait: false, message: "Il faut au moins une feuille avec ses colonnes et ses lignes." });
+      const r = await construireClasseurDrive(user, {
+        nom: str(input, "nom"),
+        dossier: str(input, "dossier") || undefined,
+        spec: {
+          feuilles: feuilles as never,
+          parametres: Array.isArray(input.parametres) ? (input.parametres as never) : undefined,
+        },
+      });
+      if (!r.ok) return JSON.stringify({ fait: false, message: r.motif, verification: r.verification });
+      return JSON.stringify({
+        fait: true, nodeId: r.nodeId, nom: r.nom, version: r.version, tailleOctets: r.taille, dureeMs: r.ms,
+        verification: { formules: r.verification.formules, ecarts: r.verification.ecarts, constats: r.verification.constats.length },
+        message: `Classeur « ${r.nom} » enregistré dans le Drive : ${r.verification.formules} formule(s) recalculée(s), 0 écart, audit propre.`,
+      });
+    },
+  },
 ];
+
+/** La cible d'un outil Excel : identifiant Drive, nom, version. */
+function cibleDe(input: Record<string, unknown>): { nodeId: string | null; nom: string | null; version: number | null } {
+  return { nodeId: str(input, "nodeId") || null, nom: str(input, "nom") || null, version: typeof input.version === "number" ? input.version : null };
+}

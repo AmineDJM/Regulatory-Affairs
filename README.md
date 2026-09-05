@@ -1591,6 +1591,85 @@ coûte **quelques millisecondes** au lieu d'un aller-retour de conversion.
   outils Adam dans `src/lib/assistant/office-capabilities.ts`, UI
   `src/components/chief/workspace/blocks/artifact.tsx`.
 
+### Excel God Mode — lire, vérifier, expliquer et comparer un classeur de cent mille lignes (`src/lib/artifact/sheets/`)
+
+Le Live Office **édite** un classeur ; il est borné à vingt mille cellules par feuille parce qu'il doit
+le refermer à l'octet près. Raisonner sur un classeur — « vérifie ce budget », « d'où vient ce
+41,3 M ? », « qu'est-ce qui a changé depuis la v3 ? » — demande de **tout lire**, et de le lire
+**exactement**. Ce module est pur (aucun Drive, aucun Prisma, aucun droit : le pont
+`platform/in-process/artifact/sheets.ts` les apporte), et chaque brique a été mesurée
+(`npm run sheets:bench` : 1 feuille × 100 000 lignes × 12 colonnes avec 200 000 formules, et
+120 feuilles × 400 lignes avec 145 000 formules et une synthèse inter-feuilles).
+
+- **Le lecteur natif en flux** (`reader.ts`). Pas ExcelJS : son lecteur en flux a été essayé et
+  mesuré infidèle sur trois points qu'un audit ne peut pas se permettre — il **jette les résultats
+  0, « » et FAUX** des formules et transforme `#REF!` en NaN ; il **perd les formules partagées**
+  (95 % des formules d'un modèle recopié arrivaient vides) ; et il **coupe un « é » sur deux
+  tampons** une fois sur cinquante mille cellules (« Sétif » devenait « S��tif », et un SOMME.SI ne
+  le trouvait plus). `fflate` gonfle le zip en flux, un `TextDecoder` en flux ne coupe jamais un
+  caractère, un seul motif reconnaît les cellules, les formules partagées sont traduites pour chaque
+  esclave par notre analyseur. Valeurs typées, formats de nombre, noms définis, feuilles masquées,
+  ordre des onglets ; **1,2 million de cellules en 3,5 s**. Ce qu'il ne lit pas (styles, graphiques,
+  tableaux croisés, validations), il le dit dans `limites`.
+- **L'analyseur de formules** (`formula.ts`) : Pratt, priorités d'Excel (`^` associatif à gauche,
+  moins unaire prioritaire sur `^`, `%` postfixé), A1 ↔ R1C1, décalage, traduction d'une formule
+  partagée. **Le graphe de dépendances** (`graph.ts`) : arêtes simples + index de plages par
+  feuille, ordre topologique de Kahn (tête d'index — `shift()` rendait le tri quadratique : 16 s au
+  lieu de 2,5 s sur 200 000 formules), cycles isolés, `rayonImpact` (« si je change la TVA, 5
+  formules bougent »).
+- **Le recalcul indépendant** (`evaluate.ts`) : une centaine de fonctions avec les **coercitions
+  d'Excel** vérifiées une par une (« 3 »+4 = 7, VRAI+1 = 2, « abc »+1 = #VALUE!, NB(B7) = 0 quand
+  B7 contient « 3 » en texte mais B7+1 = 4, MOD(-7;3) = 2, ARRONDI(-2,5) = -3), critères (« >20 »,
+  « Am\* »), RECHERCHEV / EQUIV / INDEX / RECHERCHEX, dates en numéros de série, VAN / TRI / VPM,
+  **alias français** (SOMME.SI, NB.SI.ENS, RECHERCHEV, FIN.MOIS…). Les écarts entre valeur affichée
+  et valeur recalculée sont rendus cellule par cellule ; une formule **non vérifiable** (fonction
+  inconnue) garde sa valeur affichée pour ses dépendantes au lieu de cascader un `#NAME?` de notre
+  fait ; une formule **sans valeur enregistrée** (fichier produit par un programme) est comptée à
+  part, pas comme un écart.
+- **L'audit** (`audit.ts`) : ce qu'un contrôleur de gestion vérifie avant de signer, avec l'adresse
+  et la **preuve**. Critiques : référence circulaire, **valeur en dur au milieu d'une colonne de
+  formules**. Hautes : plage d'agrégat qui **oublie des lignes** (`SUM(D2:D40)` alors que D41
+  continue la série — mais pas la ligne de total, reconnue à son motif), formule différente de ses
+  voisines (jugée sur les **deux axes** : la « Marge % » d'une ligne de totaux suit sa colonne, pas
+  sa ligne), cellule en erreur, feuille référencée absente, valeur affichée ≠ recalcul. Moyennes :
+  constante codée (`*1.19`), nombre en texte, lien externe, fonction inconnue, formules non
+  recalculées. Basses : référence à une cellule vide, fonction volatile, feuille masquée. Un
+  classeur sain ne déclenche **rien** de critique ni de haut — vérifié sur les deux classeurs du
+  banc et sur chaque devis construit.
+- **La comparaison sémantique** (`diff.ts`) : lignes alignées par leur **contenu** (signatures,
+  ancres uniques, plus longue sous-suite croissante — l'algorithme « patience »), formules
+  comparées en **R1C1** ; une plage dont la fin a suivi une insertion (`D2:D100001` → `D2:D100002`,
+  même depuis une autre feuille) est une **plage ajustée**, pas une formule modifiée. Sur le banc :
+  une ligne insérée au milieu de 100 000 + trois valeurs changées + une formule écrasée →
+  **exactement** 1 + 3 + 1, et 30 plages ajustées ; zéro faux « formule modifiée ». Genres, du plus
+  grave au moins grave : formule écrasée par une valeur, formule modifiée, feuille / ligne
+  supprimée, ligne insérée, feuille ajoutée, valeur modifiée, valeur devenue formule, cellule vidée
+  / ajoutée, nom défini modifié, plage ajustée, résultat modifié (formule inchangée).
+- **Le constructeur de classeurs vérifiés** (`build.ts`) : une spécification déclarative
+  (colonnes à clé, lignes, formules écrites en termes de colonnes `[qte]*[pu]*(1-{Remise})` et de
+  paramètres nommés, totaux) → construction → **relecture** par le lecteur → **recalcul** par notre
+  moteur → **valeurs écrites** dans le fichier (un aperçu sans moteur montre les bons chiffres) →
+  **audit**. `ok` est faux si une formule donne une erreur ou si l'audit relève un constat critique
+  ou haut — un appelant honnête ne livre pas. Vérifié : un contrôle `SUM(E2:E4)` écrit en dur dans
+  une spécification à cinq lignes est **refusé** comme plage tronquée.
+- **Les outils d'Adam** (`lib/assistant/office-capabilities.ts`, toutes des LECTURES sous
+  `canViewDrive`) : `sheet_audit` (« vérifie ce fichier »), `sheet_trace` (« d'où vient ce chiffre »,
+  « qu'est-ce qui bouge si je change Param!B2 »), `sheet_diff` (« qu'est-ce qui a changé depuis la
+  v3 », deux fichiers ou deux versions), `sheet_read` (une plage en clair, sans ouvrir le Live
+  Office). Cache d'analyses par (personne, fichier, version), borné en **cellules** (3 M) et non en
+  entrées : une analyse de 1,2 M de cellules pèse ~400 Mo avec son graphe. Capacités déclarées dans
+  `capabilities/catalog.ts` (`artifact.sheet_*`), chacune avec un point d'entrée réel exigé par
+  `catalog.test.ts`.
+- **Mesuré** (`npm run sheets:bench`, budgets qui font échouer le banc) : GRAND — lecture 3,5 s,
+  graphe 2,5 s (200 033 formules, 600 030 arêtes), recalcul 6,5 s (0 écart), audit 2,3 s, trace 1 ms,
+  comparaison 4,6 s ; LARGE — lecture 0,9 s (121 feuilles), graphe 1,2 s, recalcul 0,6 s, audit 1,1 s,
+  trace jusqu'à la Synthèse 0 ms. **Non mesuré et dit franchement** : le réseau et la lecture du blob
+  Drive. **Limite connue** : ~370 octets par cellule en mémoire (objets + graphe) ; au-delà de
+  4 millions de cellules la lecture s'arrête et le dit.
+- **Tests** : `sheets/*.test.ts` — 41 cas (fidélité du lecteur dont l'UTF-8 sur 60 000 cellules,
+  évaluateur contre les valeurs d'Excel, graphe à 50 000 formules, audit sur défauts plantés à des
+  adresses connues, comparaison avec insertion au milieu, constructeur refusant une formule fausse).
+
 **Tout ce qui entre dans l'ERP entre aussi dans le Drive.** Une pièce importée depuis un sponsoring,
 un appel d'offres ou une demande RH restait accrochée à son objet métier ; six semaines plus tard on
 la cherchait « dans le Drive » — parce que c'est là qu'on cherche les fichiers — et elle n'y était
@@ -2843,6 +2922,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Adam — aiguillage & liste courte d'outils** | `lib/assistant/context/router.ts` (`routeQuery` : 5 classes de route, 11 domaines, plancher de confiance) ; `tool-shortlist.ts` (`TOOL_DOMAINS` — les 77 outils classés —, `ALWAYS_ON` socle de 4, `shortlistTools`) ; **`rollout.ts`** (`decideRollout` : `FAST_READ` / `SHORTLIST` / `LEGACY`, `SAFE_READ_TOOLS` liste blanche, `bucketOf` FNV-1a, garde `recordOutcome`/`guardStatus`/`readyForNextStep`) ; `discovery.ts` (`runDiscovery` — l'échappatoire `list_more_tools`) ; `shadow.ts` (mesure) ; `bench.ts` + `golden-corpus.ts` (TRAIN) + `holdout-corpus.ts` (**jamais retouché**). Branché dans `lib/assistant.ts` sur **les deux** boucles (`runAssistant` et `runAssistantStream`), via `assistantToolsFor(user)`. |
 | **Adam — pré-lectures, cache de prompt, prompt compact, coût** | `lib/assistant/pre-lectures.ts` (décision PURE + exécution bornée : recherche fédérée + documentaire avant le modèle, seconde vague fiche/document, recette réunion) ; `lib/assistant/context/tour.ts` (le contexte du tour voyage avec le message — le préfixe reste cachable) ; `lib/assistant/context/fast-args-contract.test.ts` (clés écrites par le routeur ⊆ clés lues par l'outil) ; `lib/assistant/context/tool-resolver.ts` (niveaux A/B/C ; en C les écritures ne partent que si la phrase nomme un geste — `nommeUnGeste` dans `router.ts` ; description de la découverte par tour) ; `lib/assistant/regulatory-read.ts` (`regulatory_knowledge` : le savoir ANPP est un outil, plus un bloc de prompt) ; `lib/models/telemetry.ts` (contexte de tour, puits d'appels, phases) ; `platform/in-process/telemetry/usage-sink.ts` (une ligne `ModelCallLog` par appel, tamponnée ; `journaliserSessionVocale`) ; `platform/in-process/telemetry/usage-stats.ts` (agrégats de coût du centre de contrôle IA) ; `lib/assistant/voice/cost.ts` (prix d'une session vocale) ; `lib/models/registry.ts` (tarifs publics datés, `ROLE_VOIX`) ; `platform/in-process/missions/crash-between.test.ts` (effet fait, reçu perdu → zéro doublon) ; `scripts/bench/seed-adam-bench.ts` + `adam-live-bench.ts` (`npm run adam:bench:seed`, `npm run adam:bench`) ; tables dans `bench-out/`. |
 | **Adam — chef de cabinet : missions inédites, attention, relances** | `scripts/bench/adam-mission-bench.ts` (neuf missions vagues via `lancerMission`, carte de score par mission, attendus vérifiés en base, coût par mission ; `BENCH_ONLY`, `BENCH_TOURS`) ; `platform/in-process/missions/situation.ts` (enquête) ; `lib/missions/attention/policy.ts` + `platform/in-process/missions/attention.ts` (porte d'attention) ; `platform/in-process/missions/relance.ts` (échelle de relances) ; `lib/messaging.ts` (`envoyerMessageDirect`, l'unique chemin d'écriture d'un message direct ; module SERVEUR — les écrans importent la part pure `lib/messaging-ui.ts`) ; `lib/events/messaging-events.ts` (`MESSAGE_RECEIVED`) ; `lib/missions/registry/capability-meta.ts` (`AUTONOMES`) ; `lib/assistant/watch-tools.ts` (`watch_entity`, `list_watches`, `stop_watch`) ; `prisma/migrations/20261019090000_adam_surveillances`. |
+| **Excel God Mode — lire, vérifier, expliquer, comparer** | `lib/artifact/sheets/reader.ts` (lecteur natif en flux : fflate + TextDecoder en flux, formules partagées traduites, résultats typés, 1,2 M de cellules en 3,5 s) ; `formula.ts` (analyseur Pratt, A1 ↔ R1C1, `decaler`, `traduireFormulePartagee`) ; `graph.ts` (`construireGraphe`, `rayonImpact`, `precedentsDirects`, Kahn à tête d'index) ; `evaluate.ts` (`recalculer`, `evaluerFormule`, ~100 fonctions + `ALIAS_FR`, `nonCalculees` / `nonVerifiees`) ; `audit.ts` (`auditerClasseur`, 16 codes de constat, `resumerAudit`) ; `diff.ts` (`comparerClasseurs` : alignement patience + R1C1 + plages ajustées) ; `build.ts` (`construireClasseurVerifie` : spécification → xlsx relu, recalculé, valeurs écrites, audité) ; `analyse.ts` (façade : `analyserClasseur`, `tracerCellule`, `comparerFichiersXlsx`, `lirePlage`) ; pont `platform/in-process/artifact/sheets.ts` (droits par le port, cache borné en cellules) ; outils `lib/assistant/office-capabilities.ts` (`sheet_audit`, `sheet_trace`, `sheet_diff`, `sheet_read`) ; banc `scripts/bench/sheets-bench.ts` (`npm run sheets:bench`). |
 | **Adam — la coque de son bureau (et sa porte de sortie)** | Groupe de routes `app/(chief)/layout.tsx` : coque délibérément VIDE — ni menu latéral, ni barre supérieure, ni barre d'onglets, ni palette, ni bandeaux. `components/chief/{chief-workspace,chief-header,chief-home}.tsx` + `app/chief.css` (jeu de jetons `--chief-*` propre à Adam). **La sortie** : `components/chief/module-switcher.tsx` — une icône dans l'en-tête ouvre la liste des modules que CETTE personne peut ouvrir (champ de filtre, groupé par pôle, Échap / clic dehors referment). Les destinations arrivent par le **contrat de plateforme** (`navigation.destinations` → `in-process/adapter.ts` → `lib/nav-access.ts`), jamais par un import du menu de l'ERP : c'est ce qui garde le cliquet de frontière à 430. Le même `navigationFor` sert la barre latérale de l'ERP — une seule vérité sur « qui a le droit d'aller où ». Tests : `platform/navigation-destinations.test.ts` (dont : une entrée fusionnée mène au premier onglet AUTORISÉ, donc `/ad-pro` pour l'admin et `/congress-international` pour le délégué médical). |
 | **Adam — espace de travail génératif** | `lib/assistant/workspace/protocol.ts` (types de blocs + `WORKSPACE_LIMITS`) ; `compose.ts` (`composeWorkspace` — table de correspondance **fermée** : un outil absent ne compose RIEN, le repli est le texte ; plus la porte `_blocs`, **revalidée champ par champ**, par laquelle une lecture déclare ce qu'elle montre) ; `sheet.ts` (classeur → lignes, ExcelJS, **sans dépendance ERP**) ; `emit.ts` (helpers **purs** de composition : gestes, retards, métriques de charge, étapes) ; `components/chief/workspace/blocks.tsx` + `blocks.css` (feuille autonome à valeurs de repli : les blocs servent aussi `/assistant`, qui ne charge pas `chief.css`) ; `preview-planche.tsx` (la planche de revue visuelle, servie par `/chief-of-staff?apercu=blocs` **uniquement** si `ADAM_BLOCK_PREVIEW=1` — elle n'a pas d'adresse en production). Blocs : `people` (fiche riche : statut, métriques, coordonnées avec provenance), `directory`, `mail`, `agenda`, `queue` (**avec ses boutons Approuver / Refuser**), `record`, `table` (**gestes par ligne**, cartes empilées sur mobile), `timeline`, `progress` (jauges), `document` (PDF, image, feuille), `dossier` (faits + frise de circuit + pièces + participants + activité), `email` (le message avant l'envoi). Événement de flux `{ type: "workspace" }` ; stocké sur le message dans `assistant-chat.tsx`, qui fournit `WorkspaceAskProvider` — un clic écrit une phrase dans la conversation, il n'exécute rien. La prop `canvas` (défaut **faux**) rend le tour d'Adam **sans bulle** ; `/assistant` reste inchangé. |
 | **Adam — montrer (et non lire)** | `lib/assistant/show-tools.ts` : `show_document` (PDF/contrat en visionneuse, image, classeur rendu en tableau — passe par le **contrat** `document.show`, servi par `platform/in-process/adapter.ts`, seul autorisé à toucher Drive, stockage et droits) et `show_table` (colonnes et tri **à la demande** : le modèle choisit la vue, le serveur relit les lignes à la source canonique — sources fermées dans `TABLE_SOURCES`). À ne pas confondre avec `read_document`, qui extrait du TEXTE pour le modèle. |
@@ -3595,6 +3675,44 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Office God Mode — lot 1 : Excel, lu exactement, vérifié, expliqué, comparé (2026-09)
+
+**Ce que le lot rend possible** : « Adam, vérifie le budget 2027 » → structure, recalcul indépendant des 200 000
+formules, constats classés (valeur en dur au milieu d'une colonne de formules en D6, somme qui oublie D10 en D11,
+`*1.19` codé en dur, « 12 » en texte que SOMME ignore) avec adresse et preuve. « D'où vient le TTC en E5 ? » →
+« E5 vaut 26 180, par la formule =SUM(E2:E4). Elle lit E2:E4 (3 cellules : 11 305, 9 500, 3 800). Aucune formule
+n'en dépend. » « Si je change la TVA ? » → « 5 formules en dépendent. » « Qu'est-ce qui a changé depuis la v3 ? »
+→ « 41 changements : 1 formule écrasée par une valeur (K12347), 1 ligne insérée (50002), 3 valeurs modifiées… »
+— et pas cent mille « différences » parce qu'une ligne a été insérée.
+
+**Ce qui a été construit, et ce qui a été mesuré faux en chemin** (`src/lib/artifact/sheets/`, 41 tests,
+`npm run sheets:bench`) : le lecteur en flux d'ExcelJS, essayé d'abord (ne rien recréer), a été écarté sur
+mesure — résultats 0 / « » / FAUX / erreurs jetés, formules partagées perdues, UTF-8 coupé entre deux tampons
+(« S��tif ») ; le lecteur natif (fflate + `TextDecoder` en flux) lit 1,2 M de cellules en 3,5 s, exactement. Le tri
+topologique utilisait `Array.shift()` : quadratique, 16 s sur 200 000 formules — 2,5 s avec une tête d'index. Les
+captures de regex de V8 retenaient les tampons entiers : chaînes aplaties et internées. L'audit signalait la
+« Marge % » d'une ligne de totaux comme incohérente (elle diffère de ses voisines horizontales) : l'incohérence est
+désormais jugée sur les deux axes. La comparaison comptait `SUMIF(Données!D2:D100001)` → `D2:D100002` comme une
+formule modifiée : une fin de plage qui a suivi l'insertion, même depuis une autre feuille, est une plage ajustée.
+Budgets tenus : GRAND (100 000 lignes, 200 033 formules) lecture 3,5 s · graphe 2,5 s · recalcul 6,5 s (0 écart) ·
+audit 2,3 s · comparaison 4,6 s (1 insérée + 3 valeurs + 1 écrasée, exactement) ; LARGE (120 feuilles, 144 722
+formules) lecture 0,9 s · graphe 1,2 s · recalcul 0,6 s · audit 1,1 s · trace jusqu'à la Synthèse 0 ms.
+
+**Le constructeur de classeurs vérifiés** (`build.ts`) : spécification déclarative → xlsx → relu → recalculé →
+valeurs écrites → audité ; `ok` faux si une formule donne une erreur ou si l'audit relève un constat critique ou
+haut. Il refuse un contrôle `SUM(E2:E4)` écrit en dur dans un devis à cinq lignes (plage tronquée) — la fabrique
+documentaire du lot 3 s'appuiera dessus.
+
+**Adam** : quatre lectures (`sheet_audit`, `sheet_trace`, `sheet_diff`, `sheet_read`), droits du Drive par le
+port, cache d'analyses borné en cellules (3 M), capacités `artifact.sheet_*` au catalogue avec point d'entrée
+exigé par test. Les tests de frontière (428), du garde de bundle client et du catalogue de missions passent.
+
+**Mandat 2, mesures de clôture** : banc m7 (neuf missions vagues, fournisseur réel) 31/35 attendus (89 %) pour
+0,38 $ ; banc de paliers (40 missions, concurrence 8 → 16 → 8) 28 succès, 10 fins honnêtes, 2 défauts, création
+95 %, P50 18,5 s, P95 35 s, 16,7 à 19,7 missions/min — les deux défauts venaient d'un plan qui écrivait `query` là
+où `search_documents` lit `question`, refusé deux fois ; le contrat d'entrée **répare** désormais une clé
+synonyme sans ambiguïté (une inconnue, un manquant, même type) et le dit, au lieu de refuser.
 
 ### Adam, chef de cabinet — lot 1 : l'enquête avant le plan, l'attention protégée, la relance par Adam lui-même (2026-09)
 

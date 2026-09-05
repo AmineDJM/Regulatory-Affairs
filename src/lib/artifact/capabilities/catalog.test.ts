@@ -24,7 +24,12 @@
 
 import { describe, it, expect } from "vitest";
 import { CAPACITES_ARTEFACT, LIBELLE_CAPACITE, type CapaciteArtefact } from "@/lib/artifact/capabilities/catalog";
-import * as moteur from "@/lib/artifact/runtime/engine";
+import * as moteurLiveOffice from "@/lib/artifact/runtime/engine";
+import * as moteurExcel from "@/lib/artifact/sheets/analyse";
+import * as constructeurExcel from "@/lib/artifact/sheets/build";
+
+/** Les deux moteurs et le constructeur, réunis : une capacité nomme une fonction de l'un d'eux. */
+const moteur = { ...moteurLiveOffice, ...moteurExcel, ...constructeurExcel };
 
 /**
  * La fonction qui RÉALISE chaque capacité. `save` et `save_as` partagent `sauvegarder` — c'est
@@ -40,6 +45,11 @@ const POINT_D_ENTREE: Record<CapaciteArtefact, keyof typeof moteur> = {
   "artifact.save_as": "sauvegarder",
   "artifact.compare": "comparerDepuis",
   "artifact.close": "fermer",
+  "artifact.sheet_audit": "analyserClasseur",
+  "artifact.sheet_trace": "tracerCellule",
+  "artifact.sheet_diff": "comparerFichiersXlsx",
+  "artifact.sheet_read": "lirePlage",
+  "artifact.sheet_build": "construireClasseurVerifie",
 };
 
 describe("le catalogue des capacités", () => {

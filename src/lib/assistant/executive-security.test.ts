@@ -143,6 +143,12 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // des écrans : quelqu'un qui a accès à un contrat dans le Drive se verrait refuser de le
       // retoucher en parlant. Une règle de plus à maintenir, et une occasion de plus de diverger.
       "artifact_open", "artifact_edit", "artifact_control",
+      // sheet_audit / sheet_trace / sheet_diff / sheet_read : des LECTURES d'un classeur du Drive,
+      // sous le même port et donc sous `canViewDrive`, nœud par nœud. sheet_build ÉCRIT — mais
+      // un NOUVEAU fichier, dans le Drive PERSONNEL de la personne (`creerFichier`), jamais dans
+      // un espace partagé ni par-dessus un document existant : c'est le même geste qu'un
+      // « enregistrer sous » du Live Office, et il porte la même trace d'audit.
+      "sheet_audit", "sheet_trace", "sheet_diff", "sheet_read", "sheet_build",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

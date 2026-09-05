@@ -99,6 +99,14 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   artifact_open: ["DRIVE", "LEGAL", "REGULATORY", "FINANCE"],
   artifact_edit: ["DRIVE", "LEGAL", "REGULATORY", "FINANCE"],
   artifact_control: ["DRIVE", "LEGAL", "REGULATORY", "FINANCE"],
+  // EXCEL GOD MODE — vérifier, expliquer, comparer, lire un classeur du Drive, et en construire un
+  // vérifié. Un budget est financier, un tableau de suivi réglementaire est réglementaire, un
+  // état de marché est commercial : les mêmes domaines que le Live Office.
+  sheet_audit: ["DRIVE", "LEGAL", "REGULATORY", "FINANCE"],
+  sheet_trace: ["DRIVE", "LEGAL", "REGULATORY", "FINANCE"],
+  sheet_diff: ["DRIVE", "LEGAL", "REGULATORY", "FINANCE"],
+  sheet_read: ["DRIVE", "LEGAL", "REGULATORY", "FINANCE"],
+  sheet_build: ["DRIVE", "LEGAL", "REGULATORY", "FINANCE"],
   // « Dans un tableau », « avec la date et le responsable », « trie par échéance » : la demande
   // arrive APRÈS une lecture, dans n'importe quel domaine, et souvent en trois mots. Elle ne
   // survivrait pas à un tour de découverte.
