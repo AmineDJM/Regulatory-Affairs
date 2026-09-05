@@ -57,7 +57,7 @@ export function CorpusAdmin({ sources, hasAnpp }: { sources: Source[]; hasAnpp: 
 
       {importing && (
         <form onSubmit={doImport} className="space-y-2 rounded-xl border border-border bg-card p-4">
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Input name="authority" placeholder="Autorité (ANPP, EMA, ICH…)" defaultValue="ANPP" />
             <Input name="jurisdiction" placeholder="Juridiction (DZ, EU, ICH…)" defaultValue="DZ" />
             <Input name="code" placeholder="Code (ex. Arrêté 2021-05-10) *" required />

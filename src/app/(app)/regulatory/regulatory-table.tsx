@@ -546,7 +546,9 @@ export function RegulatoryTable({
             {s.label} <span className="ml-1 rounded-full bg-secondary px-1.5 text-xs">{counts[s.key]}</span>
           </button>
         ))}
-        <div className="ml-auto flex items-center gap-2">
+        {/* `flex-wrap` + `min-w-0` : « Pleine largeur · Plein écran · Exporter · Colonnes » font
+            380 px sur un écran de 375 — le dernier bouton sortait de l'écran. */}
+        <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
           {anyFilter && (
             <button type="button" onClick={() => setFilters({})} className="inline-flex items-center gap-1 rounded-lg border border-input px-2.5 py-2 text-xs text-muted-foreground hover:bg-secondary">
               <Filter className="h-3.5 w-3.5" /> Effacer les filtres

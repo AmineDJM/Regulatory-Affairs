@@ -68,7 +68,7 @@ export function SendToMailSheet({
           <Label htmlFor="mail-title">Objet du courrier</Label>
           <Input id="mail-title" name="title" defaultValue={name} className="mt-1" />
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <Label htmlFor="mail-direction">Sens</Label>
             <Select id="mail-direction" name="direction" defaultValue="OUTGOING" className="mt-1">
@@ -80,7 +80,7 @@ export function SendToMailSheet({
             <Input id="mail-ref" name="reference" className="mt-1" placeholder="Laissez vide si inconnu" />
           </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <Label htmlFor="mail-sender">Expéditeur</Label>
             <Input id="mail-sender" name="sender" className="mt-1" />

@@ -31,7 +31,7 @@ export default async function PeopleWorkloadPage() {
 
       <AiSynthesis scope="people" />
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Top chargés */}
         <Card>
           <CardHeader><CardTitle>Utilisateurs les plus chargés</CardTitle></CardHeader>

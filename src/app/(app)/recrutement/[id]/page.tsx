@@ -164,7 +164,7 @@ export default async function RecruitmentPage({ params }: { params: { id: string
         <OnboardPanel id={req.id} hiredName={hired.fullName} external={!needsOnboarding(contract)} />
       )}
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>Le besoin</CardTitle></CardHeader>

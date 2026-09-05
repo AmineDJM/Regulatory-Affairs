@@ -31,7 +31,7 @@ export function AdminLimitsForm({ settings }: { settings: AppSettings }) {
       }}
       className="space-y-3"
     >
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label htmlFor="maxUploadMb">Documents / pièces jointes — taille max (Mo)</Label>
           <Input id="maxUploadMb" name="maxUploadMb" type="number" min="1" max="256" defaultValue={settings.maxUploadMb} />
@@ -166,7 +166,7 @@ export function BroadcastComposer({ roles, users }: { roles: Opt[]; users: UserL
       id="bc-form"
       className="space-y-3"
     >
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label htmlFor="title">Titre</Label>
           <Input id="title" name="title" required placeholder="ex. Réunion générale demain 10h" />

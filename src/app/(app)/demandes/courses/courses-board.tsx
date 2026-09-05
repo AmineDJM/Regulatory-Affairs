@@ -76,7 +76,7 @@ export function CoursesBoard({ courses, drivers, others }: { courses: CourseDTO[
       {active.length === 0 ? (
         <EmptyState icon="Car" title="Aucune course en cours" description="Créez une course : elle arrive instantanément dans l'espace du chauffeur." />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {active.map((c) => (
             <div key={c.id} className="surface space-y-2.5 p-4">
               <div className="flex items-start justify-between gap-2">
@@ -182,7 +182,7 @@ export function CoursesBoard({ courses, drivers, others }: { courses: CourseDTO[
               {stops.map((s, i) => (
                 <div key={s.key} className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 p-2.5">
                   <span className="mt-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-semibold">{letter(i)}</span>
-                  <div className="grid flex-1 gap-2 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 flex-1 gap-2 sm:grid-cols-2">
                     <Input name="stopLocation" placeholder={`Lieu du point ${letter(i)} (ex. PCH Alger)`} required aria-label={`Lieu du point ${letter(i)}`} />
                     <Input name="stopTask" placeholder="Quoi faire (ex. déposer le dossier au bureau 12)" aria-label={`Consigne du point ${letter(i)}`} />
                   </div>

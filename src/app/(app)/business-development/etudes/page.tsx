@@ -42,7 +42,7 @@ export default async function MarketResearchListPage() {
       {studies.length === 0 ? (
         <EmptyState icon="FlaskConical" title="Aucune étude de marché" description={canCreate ? "Cliquez sur « New market research » pour démarrer une analyse." : "Les études apparaîtront ici."} />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {studies.map((s) => (
             <Link key={s.id} href={`/business-development/etudes/${s.id}`}>
               <Card className="h-full transition-colors hover:border-primary/40">

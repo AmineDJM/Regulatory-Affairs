@@ -85,9 +85,12 @@ export function BrainCockpit({ risks, kpis, feed, suggestions, pulse }: { risks:
           <input
             value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask()}
             placeholder="Demander à Adventum Brain… (ex. « Pourquoi les congrès sont bloqués ? »)"
-            className="h-10 flex-1 rounded-lg border-0 bg-white/95 px-3.5 text-sm text-neutral-900 shadow-sm placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-white/60"
+            /* `min-w-0` : un <input> a une largeur minimale intrinsèque (celle de son
+               placeholder, ici une phrase entière) et refuse de se comprimer sans cette
+               borne — le bouton « Demander » était poussé hors de l'écran sur téléphone. */
+            className="h-10 min-w-0 flex-1 rounded-lg border-0 bg-white/95 px-3.5 text-sm text-neutral-900 shadow-sm placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-white/60"
           />
-          <Button onClick={ask} disabled={asking} className="bg-white text-primary hover:bg-white/90">{asking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Demander</Button>
+          <Button onClick={ask} disabled={asking} className="shrink-0 bg-white text-primary hover:bg-white/90">{asking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Demander</Button>
         </div>
         <div className="mt-1.5 flex flex-wrap gap-1.5 text-[0.6875rem] opacity-80">
           {["Quels risques critiques aujourd'hui ?", "Montre-moi les fournisseurs qui ralentissent Regulatory", "Quels médecins KOL ne sont plus suivis ?"].map((s) => (
@@ -124,7 +127,7 @@ export function BrainCockpit({ risks, kpis, feed, suggestions, pulse }: { risks:
       {tab === "war" && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold text-muted-foreground">Aujourd'hui, voici ce qui mérite votre attention</h2>
-          {topRisks.length === 0 ? <Empty /> : <div className="grid gap-3 md:grid-cols-2">{topRisks.map((r) => <RiskCard key={r.id} risk={r} onOpen={() => setSelected(r)} onAction={(a) => (a.payload ? setConfirm({ action: a, risk: r }) : undefined)} />)}</div>}
+          {topRisks.length === 0 ? <Empty /> : <div className="grid grid-cols-1 gap-3 md:grid-cols-2">{topRisks.map((r) => <RiskCard key={r.id} risk={r} onOpen={() => setSelected(r)} onAction={(a) => (a.payload ? setConfirm({ action: a, risk: r }) : undefined)} />)}</div>}
         </section>
       )}
 
@@ -133,7 +136,7 @@ export function BrainCockpit({ risks, kpis, feed, suggestions, pulse }: { risks:
           <div className="flex flex-wrap gap-1.5">
             {cats.map((c) => <button key={c} onClick={() => setCat(c)} className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", cat === c ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-secondary")}>{CAT_LABEL[c] ?? c}</button>)}
           </div>
-          {filtered.length === 0 ? <Empty /> : <div className="grid gap-3 md:grid-cols-2">{filtered.map((r) => <RiskCard key={r.id} risk={r} onOpen={() => setSelected(r)} onAction={(a) => (a.payload ? setConfirm({ action: a, risk: r }) : undefined)} />)}</div>}
+          {filtered.length === 0 ? <Empty /> : <div className="grid grid-cols-1 gap-3 md:grid-cols-2">{filtered.map((r) => <RiskCard key={r.id} risk={r} onOpen={() => setSelected(r)} onAction={(a) => (a.payload ? setConfirm({ action: a, risk: r }) : undefined)} />)}</div>}
         </section>
       )}
 
@@ -322,7 +325,7 @@ function RelationsTab({ suggestions }: { suggestions: string[] }) {
           {view === "graph" ? (
             <RelationGraph query={res.query} blocks={res.blocks} />
           ) : (
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {res.blocks.map((b, i) => (
                 <Card key={i}><CardContent className="py-4">
                   <Link href={b.href} className="flex items-center gap-2 font-semibold hover:text-primary"><Icon name={b.icon} className="h-4 w-4 text-primary" /> {b.module}</Link>

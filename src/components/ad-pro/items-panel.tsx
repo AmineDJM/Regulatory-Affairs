@@ -436,7 +436,7 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
     >
       <input type="hidden" name="parent" value={parent} />
       <input type="hidden" name="parentId" value={parentId} />
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <label className="text-xs">
           Nature
           <select name="kind" defaultValue="STAND" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60">
@@ -513,7 +513,7 @@ function EditItemForm({ item, busy, onCancel, onSave }: {
       onSubmit={(e) => { e.preventDefault(); onSave(new FormData(e.currentTarget)); }}
       className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3"
     >
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <label className="text-xs">
           Nature
           <select name="kind" defaultValue={item.kind} className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60">

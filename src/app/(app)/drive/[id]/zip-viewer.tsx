@@ -96,7 +96,7 @@ export function ZipViewer({ id, name }: { id: string; name: string }) {
         <span className="ml-auto shrink-0 text-xs text-muted-foreground">{list.count} fichier·s{list.truncated ? " (aperçu limité)" : ""}</span>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {/* Explorateur de l'archive (navigation dossier par dossier) */}
         <div className="rounded-lg border border-border">
           <div className="relative border-b border-border p-2">

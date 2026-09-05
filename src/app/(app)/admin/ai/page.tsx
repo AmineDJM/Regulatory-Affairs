@@ -114,7 +114,7 @@ export default async function AiControlCenterPage() {
       {/* État des clés / configuration (lecture seule, posées sur Render). */}
       <Card>
         <CardHeader><CardTitle>Configuration & clés</CardTitle></CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2">
+        <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <KeyStatus
             icon={<KeyRound className="h-4 w-4" />}
             label="Claude (Anthropic)"
@@ -196,7 +196,7 @@ export default async function AiControlCenterPage() {
               ))}
             </ul>
           )}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Metric label="Compte" value={adam.connection.address ?? "aucun"} />
             <Metric label="Jeton de reprise" value={adam.connection.hasRefreshToken ? "présent" : "absent"} />
             <Metric label="Droits manquants" value={String(adam.connection.missingScopes.length)} />
@@ -227,7 +227,7 @@ export default async function AiControlCenterPage() {
       </Card>
 
       {/* Usage */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Stat label="Appels (30 j)" value={formatNumber(total30)} icon={<Activity className="h-4 w-4" />} />
         <Stat label="Appels (7 j)" value={formatNumber(total7)} icon={<Activity className="h-4 w-4" />} />
         <Stat label="Taux de succès (30 j)" value={successRate === null ? "—" : `${successRate}%`} icon={<CheckCircle2 className="h-4 w-4" />} />

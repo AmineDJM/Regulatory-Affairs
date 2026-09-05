@@ -89,7 +89,7 @@ export function IdentityBoard({
         )
       )}
 
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {sections.map((s) => (
           <section key={s.key} className="surface overflow-hidden p-0">
             <h2 className="border-b border-border px-3 py-2 text-sm font-semibold sm:px-4">{s.title}</h2>

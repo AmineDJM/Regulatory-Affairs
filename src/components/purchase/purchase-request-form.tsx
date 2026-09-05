@@ -81,7 +81,7 @@ export function PurchaseRequestForm({
 
           <div className="space-y-2">
             {rows.map((r) => (
-              <div key={r.key} className="grid gap-2 rounded-lg border border-border bg-background p-2 sm:grid-cols-[1fr_1fr_5rem_auto]">
+              <div key={r.key} className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-background p-2 sm:grid-cols-[1fr_1fr_5rem_auto]">
                 <label className="text-xs">
                   Article du catalogue
                   <Select

@@ -156,7 +156,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
 
       <Card>
         <CardHeader><CardTitle>Suivi de validation</CardTitle></CardHeader>
-        <CardContent className="grid gap-5 sm:grid-cols-2">
+        <CardContent className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           <ValidationStepper steps={eventValidationSteps(e.status)} />
           <div className="space-y-3 text-sm">
             <Info label="Statut actuel" value={EVENT_STATUS[e.status]?.label ?? e.status} />

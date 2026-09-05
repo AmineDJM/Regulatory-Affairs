@@ -67,7 +67,7 @@ export default async function MonDossierPage() {
       </PageHeader>
       <ModuleTabs tabs={dossierTabs} />
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Card>
           <CardHeader><CardTitle>Mes informations</CardTitle></CardHeader>
           <CardContent className="space-y-2.5 text-sm">

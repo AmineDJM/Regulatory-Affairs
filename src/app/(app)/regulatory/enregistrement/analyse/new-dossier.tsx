@@ -51,7 +51,7 @@ export function NewDossier() {
           <X className="h-4 w-4" />
         </button>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="space-y-1 sm:col-span-2">
           <span className="text-xs font-medium text-muted-foreground">Intitulé du dossier *</span>
           <Input name="title" required placeholder="Ex. Amoxicilline 500 mg gélules — enregistrement" />

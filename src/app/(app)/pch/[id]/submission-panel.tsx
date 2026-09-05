@@ -93,7 +93,7 @@ export function SubmissionPanel({ tenderId, soumissions, canEdit }: {
 
             {ouvert && (
               <div className="space-y-3 border-t border-border px-4 py-3">
-                <ul className="grid gap-1.5 sm:grid-cols-2">
+                <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                   {s.checklist.map((item) => (
                     <li key={item.key}>
                       <label className={`flex items-start gap-2 text-sm ${s.lockedAt || !canEdit ? "cursor-default" : "cursor-pointer"}`}>

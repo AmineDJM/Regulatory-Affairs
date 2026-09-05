@@ -198,7 +198,7 @@ export function OnboardingWizard(props: Props) {
                   return (
                     <div key={group}>
                       <p className="mb-2 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">{group}</p>
-                      <div className="grid gap-2.5 sm:grid-cols-2">
+                      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                         {items.map((g) => (
                           <div key={g.href} className="surface flex gap-3 p-3">
                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
@@ -237,7 +237,7 @@ export function OnboardingWizard(props: Props) {
               {props.guide.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">Commencer maintenant</p>
-                  <div className="grid gap-2.5 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                     {props.guide.slice(0, 4).map((g) => (
                       <button
                         key={g.href}
@@ -323,7 +323,7 @@ function TourFeature({
   preview: React.ReactNode;
 }) {
   return (
-    <div className="grid items-center gap-3 sm:grid-cols-2">
+    <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-2">
       <div>
         <p className="flex items-center gap-2 text-sm font-semibold">
           <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/10 text-primary">{icon}</span>

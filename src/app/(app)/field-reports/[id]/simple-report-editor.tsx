@@ -151,7 +151,7 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
 function Attachments({ detail, readOnly, onDeleted }: { detail: FieldReportDetail; readOnly?: boolean; onDeleted?: () => void }) {
   if (detail.attachments.length === 0) return null;
   return (
-    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
       {detail.attachments.map((a) => (
         <div key={a.id} className="flex items-center gap-2 rounded-lg border border-border bg-card p-2">
           {a.isImage ? (

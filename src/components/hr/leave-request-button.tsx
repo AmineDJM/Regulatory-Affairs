@@ -136,7 +136,7 @@ export function LeaveRequestButton({
 
           {/* OÙ VOUS JOINDRE, ET QUI TIENT LA PLACE — les deux questions que la direction pose
               systématiquement, et qui manquaient à l'écran. */}
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>N° de téléphone</Label>
               <Input

@@ -43,7 +43,7 @@ export function TrainingPanel({ cases }: { cases: CaseRow[] }) {
       {/* Créer une étude de cas — trois champs qui comptent : le produit, l'ISSUE, la LEÇON. */}
       <section className="surface space-y-3 p-4">
         <h2 className="flex items-center gap-2 text-sm font-semibold"><Plus className="h-4 w-4 text-primary" /> Nouvelle étude de cas</h2>
-        <form onSubmit={onCreate} className="grid gap-3 sm:grid-cols-2">
+        <form onSubmit={onCreate} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="space-y-1 sm:col-span-2">
             <Label>Titre *</Label>
             <Input name="title" required placeholder="Ex. Amoxicilline 500 mg gélules — enregistrement 2023" />
@@ -165,7 +165,7 @@ function CaseCard({ c }: { c: CaseRow }) {
         <button type="button" onClick={remove} className="inline-flex items-center gap-1 text-xs text-destructive hover:underline"><Trash2 className="h-3 w-3" /> Supprimer</button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-[12rem,1fr,auto]">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[12rem,1fr,auto]">
         <label className="space-y-1">
           <Label>Issue réelle</Label>
           <Select value={outcome} onChange={(e) => setOutcome(e.target.value as RegCaseOutcome)}>

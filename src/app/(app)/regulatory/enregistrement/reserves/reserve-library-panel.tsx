@@ -69,7 +69,7 @@ export function ReserveLibraryPanel() {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       {/* ── Alimenter ── */}
       <section className="surface space-y-3 p-4">
         <div className="flex items-center gap-2">

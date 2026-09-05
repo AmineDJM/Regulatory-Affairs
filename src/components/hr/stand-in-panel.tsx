@@ -119,7 +119,7 @@ export function StandInButton({
               restent à vous. Votre intérimaire ne reçoit pas non plus plus de droits que vous
               n&apos;en avez vous-même.
             </p>
-            <div className="grid gap-1.5 pt-1 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-1.5 pt-1 sm:grid-cols-2">
               {modules.map((m) => (
                 <label key={m.value} className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5 text-sm">
                   <input

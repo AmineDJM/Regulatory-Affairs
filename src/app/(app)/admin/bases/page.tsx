@@ -88,7 +88,7 @@ export default async function DatabasesPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="rounded-xl border border-border p-3">
               <p className="text-xs text-muted-foreground">Physique / capacité</p>
               <p className="text-lg font-semibold">{fmtBytes(physicalBytes)} <span className="text-sm font-normal text-muted-foreground">/ {settings.driveCapacityGb} Go</span></p>

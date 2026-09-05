@@ -78,7 +78,7 @@ export function SendToLegalSheet({
           <Label htmlFor="legal-title">Titre exact du document</Label>
           <Input id="legal-title" name="title" defaultValue={name} className="mt-1" />
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <Label htmlFor="legal-kind">Nature</Label>
             <Select id="legal-kind" name="kind" defaultValue="CONTRACT" className="mt-1">
@@ -94,7 +94,7 @@ export function SendToLegalSheet({
           <Label htmlFor="legal-party">Partie (fournisseur, client, prestataire)</Label>
           <Input id="legal-party" name="counterparty" className="mt-1" />
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <Label htmlFor="legal-start">Date de début</Label>
             <Input id="legal-start" name="startDate" type="date" className="mt-1" />

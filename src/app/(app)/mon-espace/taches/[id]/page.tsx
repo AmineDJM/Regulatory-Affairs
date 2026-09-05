@@ -116,7 +116,7 @@ export default async function TaskDossierPage({ params }: { params: { id: string
         </Badge>
       </PageHeader>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>Ce qui est demandé</CardTitle></CardHeader>

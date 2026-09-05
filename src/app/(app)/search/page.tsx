@@ -33,7 +33,7 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
       {results.length === 0 ? (
         <EmptyState icon="SearchX" title="Aucun résultat" description="Essayez un autre terme." />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {[...groups.entries()].map(([group, items]) => (
             <Card key={group}>
               <CardHeader className="flex-row items-center justify-between">

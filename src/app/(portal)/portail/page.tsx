@@ -43,7 +43,7 @@ export default async function SupplierPortalPage() {
         {products.length === 0 ? (
           <EmptyState icon="PackageSearch" title="Aucun produit à afficher" description="Vos dossiers d'enregistrement apparaîtront ici dès qu'ils seront partagés par l'équipe réglementaire d'Adventum." />
         ) : (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {products.map((p) => (
               <Card key={p.id}>
                 <CardContent className="space-y-3 p-4">

@@ -55,7 +55,7 @@ export function SupervisionControls({
       <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         <CalendarClock className="h-3.5 w-3.5" /> Supervision Regulatory
       </p>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="space-y-1">
           <Label className="text-xs">Date cible de dépôt</Label>
           <Input type="date" value={sub} onChange={(e) => setSub(e.target.value)} onBlur={saveDates} className="h-8 text-xs" />

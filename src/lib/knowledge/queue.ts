@@ -64,23 +64,39 @@ export async function enqueue(input: EnqueueInput): Promise<string | null> {
     ? null
     : (input.dedupeKey ?? (input.itemId ? `${input.kind}:${input.itemId}` : null));
 
+  const data = {
+    kind: input.kind,
+    itemId: input.itemId ?? null,
+    payload: (input.payload ?? undefined) as object | undefined,
+    priority: input.priority ?? JOB_PRIORITY[input.kind],
+    maxAttempts: MAX_ATTEMPTS,
+    runAfter: new Date(Date.now() + (input.delayMs ?? 0)),
+    dedupeKey,
+  };
+
   try {
-    const job = await prisma.knowledgeJob.create({
-      data: {
-        kind: input.kind,
-        itemId: input.itemId ?? null,
-        payload: (input.payload ?? undefined) as object | undefined,
-        priority: input.priority ?? JOB_PRIORITY[input.kind],
-        maxAttempts: MAX_ATTEMPTS,
-        runAfter: new Date(Date.now() + (input.delayMs ?? 0)),
-        dedupeKey,
-      },
-      select: { id: true },
-    });
-    return job.id;
+    // SANS CLÉ DE DÉDUPLICATION, chaque appel est un travail distinct : on crée, simplement.
+    if (dedupeKey === null) {
+      return (await prisma.knowledgeJob.create({ data, select: { id: true } })).id;
+    }
+
+    // AVEC UNE CLÉ, LE DOUBLON EST LE CAS ORDINAIRE — pas l'exception.
+    //
+    // Un balayage rejoué, une page rechargée, un fichier retouché deux fois : la plupart des
+    // appels tombent sur un travail déjà prévu. Le code le savait et rattrapait l'exception ;
+    // mais Prisma journalise chaque violation d'unicité en `prisma:error` AVANT qu'on l'attrape,
+    // et un audit de cinq minutes en a compté trente-neuf. Un journal qui crie « erreur » à
+    // chaque page vue ne dit plus rien le jour où une vraie erreur arrive.
+    //
+    // `createMany … skipDuplicates` s'écrit `ON CONFLICT DO NOTHING` : le doublon ne lève rien,
+    // ne journalise rien, et la ligne existante est relue pour rendre son identifiant.
+    const { count } = await prisma.knowledgeJob.createMany({ data, skipDuplicates: true });
+    if (count === 0) return null; // déjà prévu — c'est le comportement voulu d'un rejeu
+    const job = await prisma.knowledgeJob.findUnique({ where: { dedupeKey }, select: { id: true } });
+    return job?.id ?? null;
   } catch {
-    // Collision sur `dedupeKey` : le travail est DÉJÀ prévu. Le dire par un `null` plutôt que
-    // par une exception — l'appelant n'a rien à corriger.
+    // Une panne de base, ou une course perdue entre deux processus : la file ne casse jamais
+    // son appelant — un enrichissement optionnel ne doit pas faire échouer un dépôt.
     return null;
   }
 }

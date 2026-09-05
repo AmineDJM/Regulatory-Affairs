@@ -122,7 +122,7 @@ export default async function AdamReglagesPage({
               </p>
             </div>
           ) : health.connection.connected || health.connection.status === "paused" ? (
-            <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-muted-foreground">Compte</dt>
                 <dd className="font-medium">{health.connection.address}</dd>

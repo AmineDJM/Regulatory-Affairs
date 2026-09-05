@@ -87,7 +87,7 @@ export function NewMeetingButton({ users }: { users: UserOption[] }) {
             </div>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="scheduledAt">Date / heure (optionnel)</Label>
               <Input id="scheduledAt" name="scheduledAt" type="datetime-local" />

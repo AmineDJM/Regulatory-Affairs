@@ -72,7 +72,7 @@ export default async function DocumentRequestPage({ params }: { params: { id: st
         {isLate(req) && <Badge tone="danger" dot={false}>en retard</Badge>}
       </PageHeader>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>La demande</CardTitle></CardHeader>

@@ -116,7 +116,7 @@ export function ReplayViewer({
   const current = events[cursor];
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_1fr]">
       {/* LES SESSIONS — celles qui ont une erreur d'abord à l'œil, par leur pastille rouge. */}
       <aside className="surface flex max-h-[70vh] flex-col gap-2 p-3">
         <div className="relative">

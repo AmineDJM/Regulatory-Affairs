@@ -88,7 +88,7 @@ export function SettingsForm({ config, canEdit }: { config: Config; canEdit: boo
     <div className="space-y-5">
       {!canEdit && <p className="text-sm text-muted-foreground">Accès en lecture seule — seuls les éditeurs peuvent modifier les paramètres.</p>}
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* ─────────── Capacité terrain ─────────── */}
         <Card>
           <CardHeader><CardTitle>Capacité terrain (par délégué / mois)</CardTitle></CardHeader>
@@ -123,7 +123,7 @@ export function SettingsForm({ config, canEdit }: { config: Config; canEdit: boo
       <Card>
         <CardHeader><CardTitle>Fréquence cible par palier de potentiel (visites / cycle)</CardTitle></CardHeader>
         <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {TIERS.map((t) => (
               <div key={t.key}>
                 {field(t.label, <input disabled={!canEdit} inputMode="decimal" className={inputCls} value={freq[t.key]} onChange={(e) => setFreq({ ...freq, [t.key]: num(e.target.value, freq[t.key]) })} />, t.hint || undefined)}

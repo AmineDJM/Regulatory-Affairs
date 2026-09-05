@@ -349,7 +349,9 @@ export function blocMarche360(vue: Pch360, metriques: readonly MetricValue[]): R
       ...vue.limites,
       ...(metriques.length === 0 ? ["Les métriques sémantiques n'ont pas pu être calculées sur ce marché."] : []),
     ],
-    href: `/pch/marches/${vue.marche.id}`,
+    // La fiche d'un marché vit sous `/pch/<id>` — `/pch/marches/…` n'a jamais existé, et ce
+    // bloc envoyait donc sur un 404 depuis la fiche 360. Épinglé par `dead-links.test.ts`.
+    href: `/pch/${vue.marche.id}`,
     entityRef: { type: "PCH_TENDER", id: vue.marche.id, label: vue.marche.reference },
     blockId: `e360:PCH_TENDER:${vue.marche.id}`,
     state: "complete",

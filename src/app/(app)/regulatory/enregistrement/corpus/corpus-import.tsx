@@ -162,7 +162,7 @@ export function CorpusImport() {
         <p className="text-xs">Formats : {CORPUS_IMPORT_EXTS.join(", ")}</p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label>Autorité émettrice</Label>
           <Select value={authority} onChange={(e) => setAuthority(e.target.value)} disabled={running}>

@@ -44,7 +44,7 @@ export default async function EventsPage() {
       {events.length === 0 ? (
         <EmptyState icon="Ticket" title="Aucun événement" description={canCreate ? "Créez votre premier événement pour gérer inscriptions, QR codes et check-in." : "Les événements apparaîtront ici."} />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
           {events.map((e) => (
             <Link key={e.id} href={`/events/${e.id}`} className="surface flex flex-col gap-2 p-4 transition-colors hover:bg-secondary/40">
               <div className="flex items-start justify-between gap-2">

@@ -141,7 +141,7 @@ export function AssignmentMatrix({
       {buGroups.map((g) => (
         <div key={g.buName} className="space-y-3">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{g.buName}</h3>
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {g.items.map((k) => {
               const shown = shownProducts(k.repId);
               const load = shown.reduce((s, pid) => s + fteOf(k.repId, pid, k.capacity), 0);

@@ -96,7 +96,7 @@ export function ProductExplorer({ classes, initial, initialTotal }: { classes: s
     <div className="space-y-5">
       {/* Recherche CIBLÉE : on cherche par la case que l'on remplit. */}
       <form onSubmit={onSubmit} className="surface space-y-3 p-3">
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <SuggestField
             label="Molécule" kind="molecule" value={molecule} onChange={setMolecule}
             placeholder="Ex. amoxicilline, paracétamol…"

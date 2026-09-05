@@ -131,7 +131,7 @@ export function ExpenseRowActions({
           }}
           className="w-full space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-2.5"
         >
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-xs sm:col-span-2">
               Objet
               <Input name="label" defaultValue={expense.label} placeholder="Résumé depuis les articles si vide" className="mt-1 h-9" />

@@ -151,7 +151,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
       {/* Rattachement dans la structure + responsable hiérarchique EFFECTIF (N+1 résolu). */}
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Building2 className="h-4 w-4" /> Rattachement &amp; hiérarchie</CardTitle></CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <p className="text-xs text-muted-foreground">Département</p>
             {departmentPath.length > 0 ? (
@@ -186,7 +186,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
         </CardContent>
       </Card>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>{canUpdate ? "Dossier employé" : "Informations"}</CardTitle></CardHeader>

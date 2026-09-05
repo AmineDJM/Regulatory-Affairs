@@ -64,7 +64,7 @@ export function BudgetSettings({
             </Button>
           )}
         </div>
-        <dl className="grid gap-3 text-sm sm:grid-cols-3">
+        <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
           <div><dt className="text-xs text-muted-foreground">Montant</dt><dd className="font-medium tabular-nums">{formatCurrency(overview.envelope.total)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">Période</dt><dd className="font-medium">{formatDate(overview.envelope.periodStart)} → {formatDate(overview.envelope.periodEnd)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">Accès ouverts</dt><dd className="font-medium">{overview.envelope.accessRoles.length + overview.envelope.accessUserIds.length || "—"}</dd></div>

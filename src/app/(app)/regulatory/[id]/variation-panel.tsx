@@ -67,7 +67,7 @@ export function VariationPanel({
 
       {adding && (
         <form action={submitNew} className="space-y-3 rounded-xl border border-border bg-secondary/30 p-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="space-y-1 text-sm">
               <span className="font-medium">Statut de fabrication visé</span>
               <select name="toStatus" required className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm">

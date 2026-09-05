@@ -14,6 +14,7 @@ import { PAYMENT_REQUEST_STATUS, PAYMENT_URGENCY, ENTITY_TYPE_LABELS } from "@/l
 import { canApprove, canResubmit, isOverdue, deadlineLabel, isWithFinance } from "@/lib/finance/payment-request";
 import { isCompanionDossier } from "@/lib/finance/dossier-auto";
 import { entityHref } from "@/lib/entity-href";
+import { existingEntityIds } from "@/lib/entity-exists";
 import { deadlineNatureLabel, deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { PaymentDossier, type PieceView, type EventView } from "./dossier";
 import { AskChief } from "@/components/shared/ask-chief";
@@ -44,6 +45,16 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
     },
   });
   if (!req) notFound();
+
+  // LE LIEN « SE RATTACHE À » N'EST PROPOSÉ QUE SI L'OBJET EXISTE ENCORE. Un dossier compagnon
+  // survit à un congrès effacé ; `entityHref` en ferait un lien vers une page 404 (mesuré par
+  // l'audit navigateur). Un `link` explicite est gardé tel quel : il a été posé par un circuit
+  // qui sait où il mène.
+  const rattachementHref = req.link
+    ? req.link
+    : req.entityType && req.entityId && (await existingEntityIds(req.entityType, [req.entityId])).has(req.entityId)
+      ? entityHref(req.entityType, req.entityId)
+      : null;
 
   const isFinance = user.role === "FINANCE_BUDGET_MANAGER"
     || userCan(user, "FINANCES", "VALIDATE") || userCan(user, "FINANCES", "UPDATE") || hasGlobalView(user.role);
@@ -163,14 +174,17 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
           {/* CE QUI A FAIT NAÎTRE CE PAIEMENT, ouvrable d'un clic. Un dossier compagnon ne porte
               pas de `link` : sa route se DÉDUIT du rattachement (`entityHref`), qui tient la
               table des routes en un seul endroit. La recopier ici l'aurait fait diverger. */}
-          {(req.link || entityHref(req.entityType, req.entityId)) && (
+          {rattachementHref ? (
             <Info
               label="Se rattache à"
-              value={<Link href={req.link || entityHref(req.entityType, req.entityId)!} className="inline-flex items-center gap-1 text-primary hover:underline">
+              value={<Link href={rattachementHref} className="inline-flex items-center gap-1 text-primary hover:underline">
                 {req.entityType ? ENTITY_TYPE_LABELS[req.entityType] ?? req.entityType : "l'objet d'origine"} <ExternalLink className="h-3 w-3" />
               </Link>}
             />
-          )}
+          ) : req.entityType && req.entityId ? (
+            // L'objet d'origine a disparu : on le DIT, au lieu d'un lien qui répond 404.
+            <Info label="Se rattache à" value={`${ENTITY_TYPE_LABELS[req.entityType] ?? req.entityType} — source supprimée`} />
+          ) : null}
           {/* L'ORDRE DE DÉPENSE — le vrai objet du décaissement. On le NOMME : sans lui, un
               dossier compagnon parle d'un paiement dont on ne retrouve pas la trace. */}
           <Info label="Ordre de dépense" value={order?.reference} />

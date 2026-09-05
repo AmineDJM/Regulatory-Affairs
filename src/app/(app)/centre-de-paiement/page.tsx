@@ -11,6 +11,7 @@ import {
 } from "@/lib/payments/authorization";
 import { entityHref } from "@/lib/entity-href";
 import { dossierHrefByOrder } from "@/lib/expense-orders";
+import { existingSources } from "@/lib/entity-exists";
 import { ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { CentreBoard, type CentreOrder } from "./centre-board";
 
@@ -105,6 +106,12 @@ export default async function CentreDePaiementPage() {
   // Tout ordre en porte un désormais, quelle que soit sa provenance (`createExpenseOrder`).
   const dossiers = await dossierHrefByOrder(orders.map((o) => o.id));
 
+  // LA SOURCE EXISTE-T-ELLE ENCORE ? Un ordre survit à la demande, au congrès ou au sponsoring
+  // qui l'a fait naître ; `entityHref` en ferait un lien ordinaire vers une page 404 — l'audit
+  // navigateur en a compté cinquante ici. Une requête par type, et le lien n'est proposé que
+  // pour ce qui s'ouvre vraiment ; le reste est DIT (« source supprimée »), pas caché.
+  const sourceVivante = await existingSources(orders.map((o) => ({ type: o.sourceType, id: o.sourceId })));
+
   const rows: CentreOrder[] = orders.map((o) => ({
     id: o.id,
     reference: o.reference,
@@ -128,8 +135,10 @@ export default async function CentreDePaiementPage() {
     // promotionnel, le dossier réglementaire. Deux objets distincts, deux liens : le dossier dit
     // ce qui justifie le paiement, l'origine dit ce qu'on achète. `entityHref` porte la table des
     // routes, et ce qu'elle ne sait pas ouvrir est DIT (voir `sourceLabel`).
-    sourceHref: entityHref(o.sourceType, o.sourceId),
-    sourceLabel: o.sourceType ? ENTITY_TYPE_LABELS[o.sourceType] ?? o.sourceType : null,
+    sourceHref: sourceVivante(o.sourceType, o.sourceId) ? entityHref(o.sourceType, o.sourceId) : null,
+    sourceLabel: o.sourceType
+      ? `${ENTITY_TYPE_LABELS[o.sourceType] ?? o.sourceType}${o.sourceId && !sourceVivante(o.sourceType, o.sourceId) ? " (source supprimée)" : ""}`
+      : null,
     isMine: o.requestedById === user.id,
     messages: o.centralMessages.map((m) => ({
       id: m.id, decision: m.decision, body: m.body,

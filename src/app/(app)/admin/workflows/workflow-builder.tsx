@@ -100,7 +100,7 @@ export function WorkflowBuilder({ definitions }: { definitions: DefinitionAdminV
           <CardDescription>Nom, description et étapes du circuit. Les identifiants d'étape (slug) sont conservés pour les demandes en cours.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1"><Label>Nom du circuit</Label><Input value={draft.name} onChange={(e) => patchDraft({ name: e.target.value })} /></div>
             <div className="space-y-1"><Label>Description</Label><Input value={draft.description} onChange={(e) => patchDraft({ description: e.target.value })} /></div>
           </div>
@@ -156,7 +156,7 @@ function StepEditor({ index, total, step, onChange, onMove, onRemove }: {
 
       <Textarea value={step.description ?? ""} onChange={(e) => onChange({ description: e.target.value })} placeholder="Description (aide affichée aux acteurs)…" className="min-h-[44px]" />
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label>Qui agit (portée)</Label>
           <Select value={step.actorScope} onChange={(e) => onChange({ actorScope: e.target.value as ActorScope })}>
@@ -216,7 +216,7 @@ function StepEditor({ index, total, step, onChange, onMove, onRemove }: {
         </label>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label>Rôles notifiés à l'entrée</Label>
           <ChipGroup entries={ROLE_ENTRIES} selected={step.notifyRoles} onToggle={(v) => toggleIn("notifyRoles", v)} />

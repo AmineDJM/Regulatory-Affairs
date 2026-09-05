@@ -63,7 +63,7 @@ export default async function LogisticsDetailPage({ params }: { params: { id: st
         <StatusBadge map={LOGISTICS_STATUS} value={order.status} />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>Timeline logistique</CardTitle></CardHeader>

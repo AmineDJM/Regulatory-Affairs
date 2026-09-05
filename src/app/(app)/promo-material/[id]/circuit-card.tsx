@@ -135,7 +135,7 @@ export function PromoCircuitCard({ id, state, tracksDone, showFull, canAct, canD
 
       {/* Les trois chantiers parallèles — le vrai gain du circuit court. */}
       {(inExec || completed) && (
-        <ul className="grid gap-2 sm:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {PROMO_TRACKS.map((t) => {
             const closed = completed || done.includes(t);
             return (

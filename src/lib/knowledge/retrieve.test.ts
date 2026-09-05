@@ -81,9 +81,19 @@ describe("§3 — l'économie du routage, mesurée", () => {
   });
 });
 
+/**
+ * LES QUESTIONS DE CONTENU SONT BORNÉES À LA SOURCE DE LA FIXTURE (`drive_file`).
+ *
+ * Ce que ces tests affirment, c'est que l'entonnoir classe le bon DOCUMENT en tête parmi les
+ * documents. Sans cette borne, ils affirmaient aussi qu'aucun autre contenu de la base locale ne
+ * parle jamais de contrat — ce qui a cessé d'être vrai le jour où le planificateur du serveur a
+ * indexé quatre-vingts e-mails d'acceptation (« Voici le contrat signé ») pendant un audit, et
+ * le premier résultat n'était plus la clause de pénalité. Un test qui dépend de ce que d'autres
+ * ont laissé dans la base n'est pas un test de l'entonnoir.
+ */
 describe("§4 — l'entonnoir", () => {
   it("une question de CONTENU rappelle, reclasse et coupe", async () => {
-    const r = await retrieve({ question: "Que dit le contrat sur la pénalité de retard ?" }, seeAll);
+    const r = await retrieve({ question: "Que dit le contrat sur la pénalité de retard ?", sourceTypes: ["drive_file"] }, seeAll);
     expect(r.route.route).toBe("RAG_ONLY");
     expect(r.skipped).toBe(false);
     expect(r.hits.length).toBeGreaterThan(0);
@@ -95,13 +105,13 @@ describe("§4 — l'entonnoir", () => {
   });
 
   it("chaque résultat porte sa justification", async () => {
-    const r = await retrieve({ question: "Quelle est la durée de préavis prévue ?" }, seeAll);
+    const r = await retrieve({ question: "Quelle est la durée de préavis prévue ?", sourceTypes: ["drive_file"] }, seeAll);
     if (!r.hits.length) return; // index vide sur cette base : rien à prouver ici
     expect(r.hits[0].because.length).toBeGreaterThan(0);
   });
 
   it("le contexte envoyé au modèle est NUMÉROTÉ et borné", async () => {
-    const r = await retrieve({ question: "Que dit le contrat sur la pénalité de retard ?" }, seeAll);
+    const r = await retrieve({ question: "Que dit le contrat sur la pénalité de retard ?", sourceTypes: ["drive_file"] }, seeAll);
     if (!r.hits.length) return;
     const ctx = toContext(r, 100);
     expect(ctx).toMatch(/^\[1\] /);
@@ -113,7 +123,7 @@ describe("§4 — l'entonnoir", () => {
 
 describe("la garde d'accès", () => {
   it("un compte sans droits ne reçoit AUCUN extrait", async () => {
-    const r = await retrieve({ question: "Que dit le contrat sur la pénalité de retard ?" }, seeNone);
+    const r = await retrieve({ question: "Que dit le contrat sur la pénalité de retard ?", sourceTypes: ["drive_file"] }, seeNone);
     expect(r.hits).toHaveLength(0);
     // Et il n'apprend même pas que le document existe : le contexte ne dit rien de plus que
     // « rien trouvé », qui est ce que voit quelqu'un pour qui il n'existe effectivement pas.

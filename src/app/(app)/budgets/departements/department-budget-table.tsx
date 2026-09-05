@@ -74,7 +74,7 @@ export function DepartmentBudgetTable({
       </div>
 
       {/* Qui règle quoi — dit à l'écran, pas seulement appliqué en silence. */}
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {DEPT_BUDGET_KINDS.map((k) => (
           <p key={k} className="flex items-start gap-2 rounded-xl border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
             {!canEditAnywhere(k) && <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
@@ -358,7 +358,7 @@ function RequestForm({ departmentId, path, year, onDone, onError }: {
       className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3"
     >
       <p className="text-sm font-medium">Demander une dotation — {path}</p>
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <label className="text-xs">
           Budget concerné
           <select name="kind" defaultValue="OPERATING" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm">
@@ -417,7 +417,7 @@ function ExpenseForm({ departmentId, path, year, onDone, onError }: {
       className="space-y-2 rounded-xl border border-border bg-secondary/30 p-3"
     >
       <p className="text-sm font-medium">Imputer une dépense — {path}</p>
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <label className="text-xs">
           Budget imputé
           <select name="kind" defaultValue="OPERATING" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm">

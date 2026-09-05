@@ -234,7 +234,7 @@ export default async function AdminPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="rounded-xl border border-border p-3">
                 <p className="text-xs text-muted-foreground">Physique (dédupliqué) / capacité</p>
                 <p className="text-lg font-semibold">{fmtBytes(physicalBytes)} <span className="text-sm font-normal text-muted-foreground">/ {settings.driveCapacityGb} Go</span></p>
@@ -312,7 +312,7 @@ export default async function AdminPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-1">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Settings2 className="h-4 w-4" /> Paramètres</CardTitle>

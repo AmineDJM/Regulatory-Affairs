@@ -106,7 +106,7 @@ export function ExpensePanel({
             </div>
           )}
 
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-xs sm:col-span-2">
               Objet de l&apos;achat
               <Input name="label" placeholder="Facultatif — résumé depuis les articles si vide" className="mt-1 h-9" />

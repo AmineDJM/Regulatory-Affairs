@@ -46,12 +46,12 @@ export function LifecyclePanel({ dossierId, events, obligations, canManage }: { 
       </div>
       {addEv && (
         <form onSubmit={(e) => { e.preventDefault(); submit("ev", new FormData(e.currentTarget), addLifecycleEvent, () => setAddEv(false)); }} className="space-y-2 rounded-xl border border-border bg-card p-3">
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <select name="kind" value={kind} onChange={(e) => setKind(e.target.value)} className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm">{KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
             <select name="operation" className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm"><option value="">Opération (optionnel)</option><option value="NEW">NEW</option><option value="REPLACE">REPLACE</option><option value="DELETE">DELETE</option><option value="APPEND">APPEND</option></select>
           </div>
           <Input name="label" placeholder="Libellé *" required />
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Input name="sequenceNo" type="number" placeholder="N° de séquence" />
             <Input name="effectiveDate" type="date" />
           </div>
@@ -82,7 +82,7 @@ export function LifecyclePanel({ dossierId, events, obligations, canManage }: { 
       {addOb && (
         <form onSubmit={(e) => { e.preventDefault(); submit("ob", new FormData(e.currentTarget), addObligation, () => setAddOb(false)); }} className="space-y-2 rounded-xl border border-border bg-card p-3">
           <Input name="label" placeholder="Obligation / certificat *" required />
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Input name="certType" placeholder="Type (CPP, GMP, AMM…)" />
             <label className="text-xs text-muted-foreground">Échéance <Input name="dueDate" type="date" /></label>
           </div>

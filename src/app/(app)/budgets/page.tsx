@@ -184,7 +184,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: { en
         </Link>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <section className="surface space-y-3 p-4">
           <h2 className="text-sm font-semibold">Comment le budget est réparti</h2>
           {allocSlices.length === 0 ? (

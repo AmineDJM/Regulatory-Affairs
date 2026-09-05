@@ -62,3 +62,6 @@ e2e-screenshots/
 # Sorties du banc de connaissance (fichiers d'essai régénérables à la demande)
 scripts/bench/tmp/
 .e2e-office.json
+
+# Sorties du crawler d'audit UI (rapport, captures, journal serveur) — regénérées à chaque passe
+ui-audit-out/

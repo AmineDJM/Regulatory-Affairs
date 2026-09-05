@@ -64,7 +64,7 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
         <StatusBadge map={AD_PRO_OTHER_STATUS} value={req.status} />
       </PageHeader>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>La demande</CardTitle></CardHeader>

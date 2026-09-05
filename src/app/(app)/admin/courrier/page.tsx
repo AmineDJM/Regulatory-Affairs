@@ -45,7 +45,7 @@ export default async function CourrierAdminPage() {
             </Badge>
           </div>
 
-          <dl className="grid gap-3 sm:grid-cols-2">
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <dt className="text-xs uppercase tracking-wide text-muted-foreground">Fournisseur</dt>
               <dd className="text-sm font-medium">{status.provider ?? "— non choisi —"}</dd>

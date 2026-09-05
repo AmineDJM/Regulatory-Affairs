@@ -97,7 +97,7 @@ function Section({ title, items, empty, icon, muted }: { title: string; items: R
   return (
     <div className="space-y-2">
       <h2 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground">{icon}{title}</h2>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((m) => (
           <Link key={m.id} href={`/meetings/${m.id}`}
             className={`group surface flex flex-col gap-2 rounded-xl border border-border p-4 transition hover:border-primary/40 hover:shadow-sm ${muted ? "opacity-80" : ""}`}>

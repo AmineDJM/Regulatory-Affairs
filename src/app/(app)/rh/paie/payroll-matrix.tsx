@@ -205,7 +205,7 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
             }}
             className="space-y-4"
           >
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {/* LE COÛT EMPLOYEUR REMPLACE LE BRUT comme montant obligatoire : c'est ce que la
                   société décaisse réellement, et donc ce qui pèse sur le budget et fait la masse
                   salariale. Le brut, lui, n'est qu'une ligne du bulletin — l'imputer sous-évaluait
@@ -263,7 +263,7 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
             }}
             className="space-y-4"
           >
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="edit-cost">Coût employeur (DZD) <span className="text-destructive">*</span></Label>
                 <Input

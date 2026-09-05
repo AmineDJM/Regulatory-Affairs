@@ -46,7 +46,11 @@ export function entityHref(type: string | null | undefined, id: string | null | 
     case "EVENT": return `/events/${id}`;
     case "MEDICAL_INFO_DECLARATION": return `/information-medicale/${id}`;
     case "PROMO_MATERIAL": return `/promo-material/${id}`;
-    case "AD_PRO_ITEM": return `/ad-pro/${id}`;
+    // Un POSTE de dépense n'a pas d'écran à lui : il se lit sur la fiche de la demande qui le
+    // porte (sponsoring, congrès, événement), et cette table est pure — elle ne peut pas aller
+    // chercher le parent. `/ad-pro/<id>` n'a JAMAIS existé : chaque clic finissait en 404.
+    // La liste du module est l'adresse honnête, comme `/finances/paiements-a-faire` pour un ordre.
+    case "AD_PRO_ITEM": return "/ad-pro";
     case "CONSULTING_CONTRACT": return `/consulting/${id}`;
     case "RECRUITMENT_REQUEST": return `/recrutement/${id}`;
     case "TRAINING": return "/formations";

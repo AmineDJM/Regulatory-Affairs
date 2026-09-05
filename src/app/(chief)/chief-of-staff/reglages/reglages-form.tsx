@@ -111,7 +111,7 @@ export function ReglagesForm({
 
       <section className="space-y-3">
         <h3 className="text-sm font-semibold">Envoi de courriel</h3>
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {CHOICES.map((c) => {
             const active = c.value === policy;
             return (

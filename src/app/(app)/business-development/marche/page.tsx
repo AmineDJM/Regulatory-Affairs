@@ -56,7 +56,7 @@ export default async function MarketOverviewPage() {
       <p className="text-xs text-muted-foreground">Concentration du marché : <strong>{o.kpis.hhiLabel}</strong> (indice Herfindahl-Hirschman sur les parts des laboratoires).</p>
 
       {/* Momentum */}
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2 text-success"><TrendingUp className="h-4 w-4" /> Classes en croissance</CardTitle><CardDescription>Top dynamiques (part ≥ 0,3 %)</CardDescription></CardHeader>
           <CardContent className="space-y-1.5">

@@ -83,7 +83,7 @@ export default async function ConsultingContractPage({ params }: { params: { id:
         {isOverdue(contract) && <Badge tone="danger" dot={false}>terme dépassé</Badge>}
       </PageHeader>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>Ce qui a été convenu</CardTitle></CardHeader>

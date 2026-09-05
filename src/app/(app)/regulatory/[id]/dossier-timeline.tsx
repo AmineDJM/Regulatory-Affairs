@@ -172,7 +172,7 @@ function StepCard({
           {editing ? (
             <div className="space-y-2">
               <Input value={label} onChange={(e) => setLabel(e.target.value)} className="h-8 text-sm" />
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <Input type="date" value={when} onChange={(e) => setWhen(e.target.value)} className="h-8 text-xs" />
                 <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optionnelle)" className="h-8 text-xs" />
               </div>
@@ -337,7 +337,7 @@ function AddStepSheet({
           <p className="text-xs text-muted-foreground">C&apos;est ce nom qu&apos;on relira dans un an.</p>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Date de l&apos;événement</Label>
             <Input name="occurredAt" type="date" />

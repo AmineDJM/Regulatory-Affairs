@@ -117,7 +117,7 @@ export function ContactsBoard({
             <h2 className="text-sm font-semibold">
               {g.label} <span className="text-xs font-normal text-muted-foreground">({g.items.length})</span>
             </h2>
-            <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {g.items.map((c) => (
                 <li key={c.id} className={cn("group rounded-lg border border-border p-2.5", !c.isActive && "opacity-60")}>
                   <div className="flex items-start gap-2">
@@ -237,7 +237,7 @@ function ContactSheet({
   return (
     <Sheet open onClose={() => !busy && onClose()} width="lg" title={title} description="Seul le nom est obligatoire — un contact s'ajoute vite et se complète ensuite.">
       <form action={onSubmit} className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field name="name" label="Nom / raison sociale" defaultValue={defaults.name} required />
           {/* La nature est LIBRE, avec des suggestions : la réalité invente des métiers plus vite
               qu'une liste fermée ne les prévoit (« sérigraphie », « standiste », « douanes »). */}
@@ -260,7 +260,7 @@ function ContactSheet({
 
         {/* LES IDENTIFIANTS : ce qu'on redemande au fournisseur au moment de monter le dossier de
             paiement — et qu'on finit par chercher sur une vieille facture. */}
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field name="rc" label="RC" defaultValue={defaults.rc} />
           <Field name="nif" label="NIF" defaultValue={defaults.nif} />
           <Field name="rib" label="RIB" defaultValue={defaults.rib} />

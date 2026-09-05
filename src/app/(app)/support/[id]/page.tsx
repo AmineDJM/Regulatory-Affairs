@@ -68,7 +68,7 @@ export default async function SupportDetailPage({ params }: { params: { id: stri
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>Demande</CardTitle></CardHeader>

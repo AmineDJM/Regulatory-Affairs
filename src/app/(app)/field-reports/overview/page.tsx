@@ -49,7 +49,7 @@ export default async function FieldReportsOverviewPage() {
             <CardContent><TrendArea data={ov.byMonth} /></CardContent>
           </Card>
 
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <Card>
               <CardHeader><CardTitle>Top médecins visités</CardTitle></CardHeader>
               <CardContent><HBars data={ov.byDoctor} color="#2563eb" /></CardContent>

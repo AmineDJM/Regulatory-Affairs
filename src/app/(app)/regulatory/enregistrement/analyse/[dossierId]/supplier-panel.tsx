@@ -49,7 +49,7 @@ export function SupplierPanel({ dossierId, requests, canManage }: { dossierId: s
       {creating && (
         <form onSubmit={create} className="space-y-2 rounded-xl border border-border bg-card p-4">
           <Input name="subject" placeholder="Objet de la demande *" required />
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Input name="supplierName" placeholder="Nom du fournisseur" />
             <Input name="supplierEmail" type="email" placeholder="E-mail du fournisseur" />
           </div>

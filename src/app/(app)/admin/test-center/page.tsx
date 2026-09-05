@@ -82,7 +82,7 @@ export default async function TestCenterPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.2fr]">
         <LaunchPanel environment={resolveEnvironment()} />
 
         <Card>
@@ -170,7 +170,7 @@ export default async function TestCenterPage() {
               <CardTitle className="text-base">Différentiel vs run précédent</CardTitle>
               <CardDescription>{d.improvements ?? 0} amélioration(s) · {d.regressions ?? 0} régression(s){d.baselineCommit ? ` · base ${d.baselineCommit.slice(0, 7)}` : ""}</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-1.5 sm:grid-cols-2">
+            <CardContent className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
               {d.diffs.filter((x) => x.classification !== "expected").map((x) => (
                 <div key={x.metric} className="flex items-center justify-between gap-2 rounded-lg border border-border px-2.5 py-1.5 text-sm">
                   <span className="text-muted-foreground">{x.metric}</span>

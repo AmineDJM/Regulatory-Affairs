@@ -113,7 +113,7 @@ export function TrainingBoard({
           <p className="text-sm font-medium">
             {form === "organise" ? "Organiser une formation (RH)" : "Demander une formation"}
           </p>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-xs sm:col-span-2">
               Intitulé <span className="text-destructive">*</span>
               <Input name="title" required placeholder="Ex. Bonnes pratiques de fabrication — module 2" className="mt-1 h-9" />
@@ -265,7 +265,7 @@ export function TrainingBoard({
                     {t.canDecide && (
                       <div className="space-y-2 rounded-lg border border-border bg-background p-2.5">
                         <p className="text-xs font-medium">Votre décision — {CHAIN_STAGE_LABELS[t.stage]}</p>
-                        <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                           {t.stage === "DG" && (
                             <label className="text-xs">
                               Montant accordé (DZD)

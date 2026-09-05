@@ -49,7 +49,7 @@ export function CalendarView({
   const nextHref = `/calendar?y=${month === 11 ? year + 1 : year}&m=${((month + 1) % 12) + 1}`;
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_300px]">
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1">

@@ -129,7 +129,7 @@ export default async function AdminUserPage({ params }: { params: { id: string }
         </CardContent>
       </Card>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-1">
           <CardHeader><CardTitle>Profil</CardTitle></CardHeader>
           <CardContent className="space-y-4">
@@ -147,7 +147,7 @@ export default async function AdminUserPage({ params }: { params: { id: string }
 
         <Card className="lg:col-span-2">
           <CardHeader><CardTitle>Sécurité</CardTitle></CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
+          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <ResetPasswordForm userId={target.id} />
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -162,7 +162,7 @@ export default async function AdminUserPage({ params }: { params: { id: string }
 
       <Card>
         <CardHeader><CardTitle>Accès à des lignes précises</CardTitle></CardHeader>
-        <CardContent className="grid gap-6 md:grid-cols-3">
+        <CardContent className="grid grid-cols-1 gap-6 md:grid-cols-3">
           <RowGrants userId={target.id} entityType="REGULATORY_PRODUCT" title="Dossiers Regulatory"
             options={regProducts.map((p) => ({ id: p.id, label: `${p.reference} — ${p.dci}` }))} selected={grantIds("REGULATORY_PRODUCT")} />
           <RowGrants userId={target.id} entityType="DOCTOR" title="Médecins"

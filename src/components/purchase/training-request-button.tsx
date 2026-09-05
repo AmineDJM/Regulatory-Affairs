@@ -63,7 +63,7 @@ export function TrainingRequestButton({ managerName }: { managerName: string | n
             <Label htmlFor="tr-title">Intitulé de la formation <span className="text-destructive">*</span></Label>
             <Input id="tr-title" name="title" required placeholder="Ex. Bonnes pratiques de fabrication — module avancé" />
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="tr-provider">Organisme / formateur</Label>
               <Input id="tr-provider" name="provider" placeholder="Ex. IFP Formation" />

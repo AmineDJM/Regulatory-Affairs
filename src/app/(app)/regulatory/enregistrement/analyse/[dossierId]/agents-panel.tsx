@@ -44,7 +44,7 @@ export function AgentsPanel({ dossierId, agents, configured }: { dossierId: stri
         Résultat = <strong>PROJET soumis à revue humaine</strong>. Si aucune source active ne fonde une conclusion, l'agent
         s'abstient (« EXIGENCE NON CONFIRMÉE — REVUE HUMAINE REQUISE »).
       </p>
-      <div className="grid gap-1.5 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
         {agents.map((a) => {
           const r = results[a.key];
           return (

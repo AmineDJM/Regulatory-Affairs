@@ -72,8 +72,10 @@ export function DriveToolbar({
     try { window.localStorage.setItem(WIDE_KEY, next ? "1" : "0"); } catch { /* refusé : sans mémoire */ }
   };
 
+  // `flex-wrap` : quatre boutons font 790 px — plus du double d'un téléphone. Sans retour à la
+  // ligne, les deux derniers étaient hors de l'écran, invisibles et inatteignables.
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       {primary}
       {/* « Accès & réglages » vit ICI et non dans le menu « ⋯ » : le panneau y était rendu à
           l'intérieur du menu, et le clic qui l'ouvrait fermait le menu — donc démontait le

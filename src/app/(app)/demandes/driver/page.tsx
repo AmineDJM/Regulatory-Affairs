@@ -30,7 +30,7 @@ export default async function DriverPage() {
       {active.length === 0 ? (
         <EmptyState icon="Car" title="Aucune course en cours" description="Vos courses assignées apparaîtront ici." />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {active.map((m) => {
             const late = m.deadline ? m.deadline < now : false;
             const docs = attachments.get(m.id) ?? [];

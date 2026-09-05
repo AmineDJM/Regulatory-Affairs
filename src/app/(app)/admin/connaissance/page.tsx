@@ -79,7 +79,7 @@ export default async function KnowledgePage() {
       <ModuleTabs tabs={ADMIN_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(admin, t.module, "VIEW") }))} />
 
       {/* ── Ce qu'il faut savoir en deux secondes ─────────────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
           title="Documents indexés"
           value={String(h.total)}
@@ -111,7 +111,7 @@ export default async function KnowledgePage() {
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* ── LA RÉPARTITION PAR MOYEN — le tableau de bord de la doctrine ─────────────── */}
         <Card>
           <CardHeader className="pb-2">

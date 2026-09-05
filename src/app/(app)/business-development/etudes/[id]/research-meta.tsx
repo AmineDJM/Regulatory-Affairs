@@ -53,7 +53,7 @@ export function ResearchMeta({
 
   if (!canEdit) {
     return (
-      <div className="grid gap-3 text-sm sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
         <div><p className="text-xs text-muted-foreground">Sources de données</p><p>{research.sources || "—"}</p></div>
         <div><p className="text-xs text-muted-foreground">Participants</p><p>{research.participants.map((p) => p.name).join(", ") || "—"}</p></div>
         {research.notes && <div className="sm:col-span-2"><p className="text-xs text-muted-foreground">Notes</p><p className="whitespace-pre-wrap">{research.notes}</p></div>}
@@ -63,7 +63,7 @@ export function ResearchMeta({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5 sm:col-span-2">
           <Label>Nom de l&apos;étude</Label>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} onBlur={saveMeta} />

@@ -68,7 +68,7 @@ export function AdoptionTable({ scores }: { scores: AdoptionScore[] }) {
 
             {expanded && (
               <div className="space-y-3 border-t border-border bg-secondary/20 px-4 py-3">
-                <div className="grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-x-6 gap-y-2.5 sm:grid-cols-2">
                   {s.components.map((c) => (
                     <div key={c.key}>
                       <div className="flex items-center justify-between text-xs">

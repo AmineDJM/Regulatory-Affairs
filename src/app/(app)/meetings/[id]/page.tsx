@@ -112,7 +112,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
         <SuperAdminDeleteButton kind="MEETING" id={meeting.id} name={meeting.title} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           {myParticipant && meeting.status !== "ENDED" && (
             <InviteResponse meetingId={meeting.id} current={myParticipant.response} />

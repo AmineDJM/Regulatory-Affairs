@@ -407,7 +407,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ListChecks className="h-4 w-4 text-primary" /> Couverture CTD attendue</CardTitle></CardHeader>
           <CardContent>
-            <div className="grid gap-1.5 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
               {coverage.map((row) => (
                 <div key={`${row.kind}-${row.code}`} className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-sm">
                   {row.present ? <CheckCircle2 className="h-4 w-4 shrink-0 text-success" /> : <XCircle className={`h-4 w-4 shrink-0 ${row.kind === "required" ? "text-destructive" : "text-amber-600"}`} />}
@@ -433,7 +433,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
             </p>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
               {registrationDocs.map((row) => (
                 <div key={row.code} className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-sm">
                   {row.present

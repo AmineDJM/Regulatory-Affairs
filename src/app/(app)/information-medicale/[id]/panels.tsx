@@ -260,7 +260,7 @@ export function SlipsCard({
                       action={(fd) => { fd.set("slipId", sl.id); run(() => requestSlipPayment(undefined, fd)); }}
                       className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-2"
                     >
-                      <div className="grid gap-2 sm:grid-cols-3">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                         <div className="space-y-1">
                           <Label>Montant réel (DZD)</Label>
                           <Input name="amount" inputMode="decimal" required defaultValue={sl.amount ?? ""} className="h-9 text-right tabular-nums" />
@@ -319,7 +319,7 @@ export function SlipsCard({
       {canEdit && (
         <form
           action={(fd) => { fd.set("declarationId", id); run(() => addMedicalInfoSlip(undefined, fd)); }}
-          className="grid gap-2 rounded-lg border border-border bg-secondary/30 p-3 sm:grid-cols-[2fr,1fr,auto]"
+          className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-secondary/30 p-3 sm:grid-cols-[2fr,1fr,auto]"
         >
           <div className="space-y-1">
             <Label>Matériel</Label>
@@ -420,7 +420,7 @@ export function CreateDeclarationButton() {
       className="w-full space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-3"
     >
       <p className="text-sm font-medium">Ouvrir un dossier d&apos;information médicale</p>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="space-y-1">
           <Label>Objet</Label>
           <Input name="label" required placeholder="Ce qu'il y a à déclarer, viser ou verser" className="h-9" />

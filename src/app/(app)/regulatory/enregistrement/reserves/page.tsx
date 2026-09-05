@@ -99,7 +99,7 @@ export default async function ReserveLibraryPage() {
 
       {stats.total > 0 && (
         <>
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <section className="surface space-y-3 p-4">
               <h2 className="text-sm font-semibold">Ce qu&apos;on nous reproche</h2>
               {categorySlices.length === 0
@@ -133,7 +133,7 @@ export default async function ReserveLibraryPage() {
             </section>
           )}
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <StatTable title="Par fournisseur" rows={stats.bySupplier.slice(0, 10)} />
             <StatTable title="Par DCI" rows={stats.byDci.slice(0, 10)} />
           </div>

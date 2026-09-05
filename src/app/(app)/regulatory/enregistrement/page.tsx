@@ -146,7 +146,7 @@ export default async function EnregistrementPage() {
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><ClipboardList className="h-4 w-4 text-primary" /> Pièces du dossier d'enregistrement (arrêté 10 mai 2021, art. 4)</CardTitle></CardHeader>
         <CardContent>
-          <ul className="grid gap-1.5 text-sm md:grid-cols-2">
+          <ul className="grid grid-cols-1 gap-1.5 text-sm md:grid-cols-2">
             {REGISTRATION_DOSSIER_PIECES.map((p) => <li key={p} className="flex gap-2"><span className="text-primary">•</span><span>{p}</span></li>)}
           </ul>
         </CardContent>
@@ -172,7 +172,7 @@ export default async function EnregistrementPage() {
       {/* Décision d'enregistrement */}
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-primary" /> Décision d'enregistrement (art. 40-49)</CardTitle></CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
+        <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <p className="mb-1 text-sm font-medium">Mentions obligatoires</p>
             <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">

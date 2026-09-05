@@ -140,7 +140,7 @@ export default async function PchTenderPage({ params }: { params: { id: string }
       <MarketGaps manques={market.manques} />
       <MarketKpis finances={market.finances} />
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader><CardTitle>Informations</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">

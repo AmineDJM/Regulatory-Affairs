@@ -262,7 +262,7 @@ function ItemSheet({
           <Label htmlFor="stock-name">Article</Label>
           <Input id="stock-name" name="name" defaultValue={item?.name} required placeholder="Ex. Bloc-notes Cardiomax" />
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="stock-type">Type de matériel</Label>
             <Select id="stock-type" name="materialType" defaultValue={item?.materialType ?? ""}>
@@ -356,7 +356,7 @@ function MovementSheet({
             <Input id="mv-recipient" name="recipient" placeholder="Délégué, congrès, agence…" />
           </div>
         )}
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="mv-date">Date</Label>
             <Input id="mv-date" name="occurredAt" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />

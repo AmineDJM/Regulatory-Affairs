@@ -141,7 +141,7 @@ export function ReportEditor({ detail, doctors }: { detail: FieldReportDetail; d
           <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadAttachment(f); e.target.value = ""; }} />
         </div>
         {detail.attachments.length > 0 && (
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {detail.attachments.map((a) => (
               <div key={a.id} className="flex items-center gap-2 rounded-lg border border-border bg-card p-2">
                 {a.isImage ? (

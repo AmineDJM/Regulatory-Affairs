@@ -22,7 +22,7 @@ export function RiskThresholdsForm({ initial }: { initial: RiskThresholds }) {
         action={async (fd) => { setSaving(true); const r = await updateRiskThresholds(fd); setSaving(false); if (r.ok) { setSaved(true); setTimeout(() => setSaved(false), 1800); } }}
         className="border-t border-border px-4 py-4"
       >
-        <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
           {THRESHOLD_FIELDS.map((f) => (
             <label key={f.key} className="space-y-1">
               <span className="block text-xs font-medium">{f.label}</span>

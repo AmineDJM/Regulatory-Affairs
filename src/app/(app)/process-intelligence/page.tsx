@@ -42,7 +42,7 @@ export default async function ProcessIntelligencePage() {
 
       <AiSynthesis scope="overview" />
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Alertes */}
         <Card>
           <CardHeader><CardTitle>Alertes ({o.alerts.length})</CardTitle></CardHeader>
@@ -122,7 +122,7 @@ export default async function ProcessIntelligencePage() {
       </Card>
 
       {/* Par module + validations en attente */}
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <Card>
           <CardHeader><CardTitle>Par module</CardTitle></CardHeader>
           <CardContent className="p-0">

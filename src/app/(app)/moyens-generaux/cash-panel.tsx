@@ -187,7 +187,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
             Elle <strong>s&apos;ajoute</strong> au fond en cours et garde sa date : rien n&apos;est clos, rien ne
             sort de l&apos;écran.
           </p>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-xs">
               Montant remis (DZD)
               <Input name="amount" inputMode="decimal" placeholder="0" required className="mt-1 h-9 text-right tabular-nums" />
@@ -224,7 +224,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
           className="space-y-2 rounded-xl border border-border bg-secondary/30 p-3"
         >
           <p className="text-sm font-medium">Demander une rallonge</p>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-xs">
               Montant demandé (DZD)
               <Input name="amount" inputMode="decimal" required placeholder="0" className="mt-1 h-9 text-right tabular-nums" />
@@ -257,7 +257,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
           className="space-y-2 rounded-xl border border-border bg-secondary/30 p-3"
         >
           <p className="text-sm font-medium">Réglage mensuel de la caisse</p>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-xs">
               Somme remise chaque mois (DZD)
               <Input name="monthlyAmount" inputMode="decimal" required defaultValue={view.plan?.monthlyAmount || ""} className="mt-1 h-9 text-right tabular-nums" />

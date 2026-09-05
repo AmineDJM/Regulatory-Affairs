@@ -76,7 +76,7 @@ export default async function RegulatoryIaAdminPage() {
             <p className="text-sm text-muted-foreground">Aucun appel IA facturé pour le moment.</p>
           ) : (
             <>
-              <div className="grid gap-4 lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <Breakdown title="Par étape" rows={spend.byStep.map((r) => ({ ...r, label: STEP_LABELS[r.key] ?? r.key }))} />
                 <Breakdown title="Par modèle" rows={spend.byModel} />
               </div>

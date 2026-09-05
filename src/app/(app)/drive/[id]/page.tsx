@@ -95,7 +95,7 @@ export default async function DriveFilePage({ params }: { params: { id: string }
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <FileViewer id={node.id} name={node.name} kind={kind} />
           <Card>

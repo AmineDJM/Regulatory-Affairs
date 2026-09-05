@@ -82,14 +82,14 @@ export function MoleculePanel({ molecule, dosage, form }: { molecule: string; do
       </header>
 
       {/* 1. Combien pèse ce marché */}
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
         <Stat label="Marché total" value={fmtDzd(data.total.valueDzd)} hint={`$${formatCompact(data.total.valueUsd)}`} />
         <Stat label="Volume" value={formatNumber(Math.round(data.total.volume))} hint="unités" />
         <Stat label="Acteurs présents" value={String(data.total.players)} hint={`top 3 : ${data.top3Share.toFixed(0)} %`} />
         <Stat label="Concentration" value={concentration} hint={`HHI ${data.hhi}`} tone={concentrationTone} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* 2. Où est le marché : ville ou hôpital */}
         <div className="surface space-y-3 p-4">
           <h3 className="text-sm font-semibold">Marché adressable : ville ou hôpital</h3>
@@ -189,7 +189,7 @@ export function MoleculePanel({ molecule, dosage, form }: { molecule: string; do
 
       {/* Aide à affiner : les dosages et formes réellement présents sur cette molécule. */}
       {(data.dosagesFound.length > 0 || data.formsFound.length > 0) && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {data.formsFound.length > 0 && (
             <FoundList title="Formes présentes sur ce marché" items={data.formsFound.map((f) => ({ label: FORM_LABEL[f.value], value: f.valueDzd }))} total={data.total.valueDzd} />
           )}
