@@ -57,6 +57,9 @@ export const CAPACITES_ARTEFACT = [
   "artifact.pdf_search",
   "artifact.deck_build",
   "artifact.qa",
+  // La fabrique de documents : une pièce commerciale composée, relue et numérotée ; un dossier à trois formats cohérents.
+  "artifact.document_build",
+  "artifact.dossier_build",
 ] as const;
 
 export type CapaciteArtefact = (typeof CAPACITES_ARTEFACT)[number];
@@ -81,6 +84,8 @@ export const LIBELLE_CAPACITE: Record<CapaciteArtefact, string> = {
   "artifact.pdf_search": "Chercher une expression dans tout un PDF et rendre les pages avec un extrait",
   "artifact.deck_build": "Construire un deck « une idée par diapositive » (jusqu'à 250), relu et contrôlé avant écriture",
   "artifact.qa": "Contrôler un document avant livraison : bloquants (brouillon, titre absent, erreur) et avertissements",
+  "artifact.document_build": "Composer un devis, un bon de commande ou une facture (montants calculés, papier en-tête, relecture) prêt à être numéroté et inscrit au registre",
+  "artifact.dossier_build": "Construire un dossier Excel + PowerPoint + Word depuis les mêmes données, cohérence des totaux vérifiée",
 };
 
 /** La cible d'une commande, en schéma strict. */

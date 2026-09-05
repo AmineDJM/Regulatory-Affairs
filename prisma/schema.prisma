@@ -1478,6 +1478,8 @@ model Company {
   productRanges           ProductRange[]
   legalIdentity           CompanyLegalIdentity?
   letterheads             OfficeLetterhead[]
+  documentProfile         CompanyDocumentProfile?
+  documentSequences       DocumentSequence[]
   legalFolders            LegalFolder[]
   mailEntryFolders        MailEntryFolder[]
   medicalDirectories      MedicalDirectory[]
@@ -4392,6 +4394,56 @@ model OfficeLetterhead {
 
   @@index([kind, isActive])
   @@index([companyId])
+}
+
+/// LE PROFIL DOCUMENTAIRE D'UNE SOCIÉTÉ — ce que la fabrique de documents applique d'elle-même
+/// à chaque devis, bon de commande ou facture émis en son nom : préfixes de numérotation, TVA
+/// par défaut, conditions de paiement, validité d'un devis, papier en-tête Word, signataire.
+/// Un par société ; absent = les défauts de `src/lib/artifact/factory/commercial.ts`. Tenu par
+/// ceux qui tiennent la papeterie (`canManageLetterheads`) : une erreur ici part sur toutes les
+/// pièces suivantes.
+model CompanyDocumentProfile {
+  id        String  @id @default(cuid())
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  quotePrefix   String @default("DEV")
+  orderPrefix   String @default("BC")
+  invoicePrefix String @default("FA")
+  /// Taux de TVA par défaut, en fraction (0.19 = 19 %).
+  vatRate       Decimal @default(0.19) @db.Decimal(5, 4)
+  paymentTerms  String?
+  quoteValidityDays Int @default(30)
+  /// Mention libre de pied de page (« Toute réclamation sous 8 jours… »).
+  footerNote    String?
+  /// Le papier en-tête Word appliqué d'office. Nul = le premier en-tête Word actif de la société.
+  letterheadId  String?
+  signatoryName  String?
+  signatoryTitle String?
+  /// Réglages complémentaires (marque, polices, mentions) — extensibles sans migration.
+  settings Json?
+
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// LE COMPTEUR DE NUMÉROTATION des pièces émises : une ligne par société, nature et année,
+/// incrémentée ATOMIQUEMENT (`INSERT … ON CONFLICT DO UPDATE … RETURNING`). Un numéro attribué
+/// ne l'est jamais deux fois — même sous vingt-cinq émissions parallèles — et une pièce
+/// supprimée ne libère pas son numéro : la numérotation d'une facture est continue par
+/// construction, pas par discipline.
+model DocumentSequence {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// `QUOTE` | `PURCHASE_ORDER` | `INVOICE` — la nature Legal de la pièce.
+  kind      String
+  year      Int
+  last      Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, kind, year])
 }
 
 /// Solde d'ouverture d'un compte de trésorerie (Caisse, Banque…). Sert de base de

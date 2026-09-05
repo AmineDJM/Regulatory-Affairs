@@ -191,6 +191,13 @@ export const DECLARED: Record<string, Omit<CapabilityMeta, "id" | "declared" | "
   record_commitment: { domain: "governance", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
   close_commitment: { domain: "governance", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
   export_excel: { domain: "drive", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "MEDIUM", confirmation: "NEVER" },
+  // LA FABRIQUE DE DOCUMENTS. `document_build` : une pièce du registre Legal + un fichier du Drive
+  // par appel ; rejouable (même contenu → même pièce, reconnue par empreinte), groupable (25 bons
+  // de commande = 25 appels d'un éventail), sous la politique de confirmation — une facture émise
+  // au nom de la société n'est pas un rappel. `dossier_build` : trois fichiers du Drive personnel.
+  document_build: { domain: "legal", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: true, batchable: true, latency: "MEDIUM", confirmation: "POLICY_ENGINE" },
+  document_profile: { domain: "legal", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: true, batchable: false, latency: "LOW", confirmation: "POLICY_ENGINE" },
+  dossier_build: { domain: "drive", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: false, latency: "HIGH", confirmation: "NEVER" },
   gdrive_put_internal_file: { domain: "drive", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "MEDIUM", confirmation: "NEVER" },
   watch_entity: { domain: "missions", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
   stop_watch: { domain: "missions", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
@@ -303,6 +310,10 @@ export const AUTONOMES: Record<string, Effect> = {
   // Un classeur VÉRIFIÉ construit dans le Drive personnel : un fichier de plus, supprimable.
   sheet_build: "INTERNAL_REVERSIBLE_WRITE",
   deck_build: "INTERNAL_REVERSIBLE_WRITE",
+  // La fabrique : pièces émises au registre Legal (rejouables par empreinte) et dossiers à trois formats.
+  document_build: "INTERNAL_REVERSIBLE_WRITE",
+  document_profile: "INTERNAL_REVERSIBLE_WRITE",
+  dossier_build: "INTERNAL_REVERSIBLE_WRITE",
   mission_create: "INTERNAL_REVERSIBLE_WRITE",
   run_mission: "INTERNAL_REVERSIBLE_WRITE",
   mission_consolidate: "INTERNAL_REVERSIBLE_WRITE",

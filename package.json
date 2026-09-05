@@ -31,6 +31,7 @@
     "office:bench": "tsx scripts/bench/office-bench.ts",
     "office:sabotage": "tsx scripts/bench/office-sabotage.ts",
     "sheets:bench": "tsx scripts/bench/sheets-bench.ts",
+    "factory:bench": "tsx scripts/bench/factory-bench.ts",
     "audit:reachability": "tsx scripts/audit-runtime-reachability.ts",
     "adam:smoke:provider": "tsx scripts/smoke-provider.ts",
     "adam:smoke:deep": "tsx scripts/deep-smoke.ts",

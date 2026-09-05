@@ -1744,6 +1744,94 @@ pas.
   `ensureDrivePath`, `putDriveFile` — les deux gestes que trois modules réécrivaient),
   `src/lib/drive/document-mirror.ts`.
 
+### Fabrique de documents — devis, bons de commande, factures et dossiers à trois formats (`src/lib/artifact/factory/`)
+
+**Ce que ça permet.** « Fais-moi un devis Adventum pour la Pharmacie Centrale : 100 boîtes d'Amoxicilline à 250 DA,
+40 de Paracétamol à 85,50 avec 10 % de remise » → une pièce COMPOSÉE par le code (pas un gabarit à trous), numérotée
+par le compteur de la société (`DEV-2026-0007`), posée sur son papier en-tête, inscrite au registre Legal, rangée dans
+le Drive en Word et en PDF. « Émets les 25 bons de commande de la liste » → un éventail de 25 appels, 25 pièces,
+25 numéros consécutifs, contrôle qualité 25/25. « Prépare le dossier du comité en Excel, PowerPoint et Word » → trois
+fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou aucun.
+
+- **Les chiffres sont calculés par le code, jamais recopiés d'un modèle** (`commercial.ts`) : HT de ligne, remise de
+  ligne, remise globale répartie au prorata des bases de TVA, TVA par taux (0 / 9 / 19 %, tout autre taux refusé),
+  droit de timbre sur un règlement en espèces (1 %, plancher 5 DZD, plafond 2 500 DZD), TTC, arrondi au centime
+  demi-centime vers le haut stable aux flottants (2,675 → 2,68). La spécification n'a pas de champ « total ». Le
+  montant en lettres est déterministe (`lettres.ts`, usage bancaire algérien : « quarante et un mille trois cents
+  dinars algériens et cinquante centimes »).
+- **Les mentions obligatoires sont vérifiées, pas espérées** (`verifierSpecCommerciale`) : une FACTURE sans siège,
+  RC, NIF, article d'imposition ou NIS de l'émetteur n'est pas produite — le bloquant nomme le champ, à renseigner une
+  fois dans la carte d'identité légale de la société (`CompanyLegalIdentity`). Un devis ou un BC se produit, avec un
+  avertissement. Quantité nulle, prix négatif, remise hors [0 ; 1[, date illisible, échéance antérieure : refusés.
+- **La mise en page est du code** (`build.ts` → `word.ts`) : titre, émetteur et tiers face à face, références
+  (date, échéance ou validité, livraison, pièce amont, mode et conditions de paiement), tableau des lignes à colonnes
+  FIXES dont les colonnes Remise / Unité / TVA n'apparaissent que si une ligne en porte, totaux à droite, somme en
+  lettres, conditions, signatures, mentions de pied (identité complète, banque sur une facture). Le fichier produit
+  est ROUVERT par l'adaptateur du Live Office et passe le contrôle avant livraison ; on y vérifie en plus que le
+  numéro, le nom du tiers, le TTC formaté et la somme en lettres se LISENT. Un reste de brouillon (« TODO ») dans
+  une désignation bloque la pièce.
+- **Le papier en-tête n'est pas une image collée : c'est le fichier lui-même.** `composerDocx({ base })` ouvre le
+  `.docx` de la bibliothèque (`OfficeLetterhead`, type Word, de la société ou commun au groupe), REMPLACE le corps
+  entre `<w:body>` et le `w:sectPr` final, et laisse tout le reste — `header1.xml`, `footer1.xml`, images, styles,
+  relations, marges — intact ; `word.test.ts` le vérifie pièce du ZIP par pièce du ZIP, octet pour octet. Sans papier,
+  un paquet neuf complet (styles, propriétés, A4, marges 2 cm).
+- **Une pièce émise EST une pièce du registre Legal (§17 : pas de second registre).** `emettreDocumentDrive`
+  (`platform/in-process/artifact/factory.ts`) crée un `LegalDocument` de nature QUOTE / PURCHASE_ORDER / INVOICE
+  (référence, titre exact, contrepartie, montant TTC, `direction: IN` pour une facture émise, échéance ou fin de
+  validité, `chainFromId` vers la pièce amont, `driveNodeId` vers le Word) et range la spécification complète, les
+  totaux, la version, l'historique et les identifiants Drive dans `custom.fabrique`. Le registre Legal, la chaîne
+  d'achat, le règlement des factures et l'audit existants s'appliquent tels quels.
+- **Le numéro est attribué après tout ce qui peut échouer, et avec la pièce.** La composition est jouée À BLANC
+  (numéro « PROVISOIRE ») : règles, mise en page, relecture, contrôle. Puis, dans une transaction : le compteur
+  `DocumentSequence` (société × nature × année) avance par `INSERT … ON CONFLICT DO UPDATE … RETURNING` — atomique,
+  dix émissions parallèles donnent dix numéros distincts consécutifs — et la pièce naît au registre en `EN_COURS`.
+  Le fichier s'écrit ensuite ; si l'écriture échoue, la pièce numérotée reste visible sans fichier, et la même
+  demande la RETROUVE par son EMPREINTE (type, société, tiers, lignes, date — pas le numéro) et la termine
+  (`repris`) au lieu de numéroter à nouveau. Une demande identique à une pièce déjà émise rend la pièce existante
+  (`dejaEmis`) sans rien émettre — `forcerDoublon` pour passer outre. Un numéro attribué n'est jamais réutilisé.
+- **Révision, pas réécriture.** `reviserDocumentDrive` : un devis ou un BC se révise — même numéro, nouvelle
+  version du MÊME fichier Drive (la v1 reste ouvrable), `custom.fabrique.version++`, historique (qui, quand,
+  motif), montant et titre mis à jour. Une FACTURE émise ne se réécrit pas : l'outil le dit (avoir ou nouvelle
+  facture).
+- **Le profil documentaire d'une société** (`CompanyDocumentProfile`, outil `document_profile`) : préfixes de
+  numérotation (DEV / BC / FA par défaut), TVA par défaut, conditions de paiement, validité des devis (30 jours),
+  mention de pied, papier en-tête désigné, signataire. Lu par qui voit la société ; réglé par ceux qui tiennent la
+  papeterie (`canManageLetterheads`). L'identité légale vient de la carte Legal, la couleur d'accent de la société.
+- **Le dossier à trois formats** (`canonical.ts`, `dossier.ts`, outil `dossier_build`) : des données canoniques
+  (sections, tableaux à colonnes typées et formules de ligne `[qte]*[pu]*(1+{TVA})` dans une grammaire VÉRIFIABLE —
+  + - * / parenthèses, colonnes, paramètres — chiffres clés, paramètres nommés) dérivent un classeur
+  (`sheets/build.ts` : formules recalculées par le moteur indépendant, valeurs écrites, audit), un deck
+  (`decks/build.ts` : une idée par diapositive, 11 lignes par tableau, le reste dans l'annexe Excel) et une note
+  Word (plan, tableaux, chiffres). `verifierCoherence` compare les TOTAUX du classeur recalculé à ceux que le code a
+  calculés (les mêmes qui figurent dans le deck et la note) : un écart, ou zéro total comparable, et `ok` est faux —
+  aucun des trois fichiers n'est écrit. Une formule hors grammaire est refusée en le disant.
+- **Mêmes droits que l'écran** : `legalWriteAllowed` (Legal ouvre tout, Finances les factures) et
+  `canEditCompanyId` (voir une société ne suffit pas à l'engager). L'outil `document_build` est FERMÉ par
+  `peutEmettrePieces` (`platform/in-process/artifact/factory-access.ts`) : le planificateur ne le voit pas sans le
+  droit ; la garde est rejouée dans le pont au moment d'agir. En mission : `document_build` déclaré (`legal`,
+  `INTERNAL_REVERSIBLE_WRITE`, rejouable par empreinte, groupable, sous politique de confirmation — un accord pour
+  les 25 BC, §8).
+- **Mesuré** (`npm run factory:bench`, budgets tenus) : 200 pièces composées + relues, P50 5,6 ms, P95 9,7 ms,
+  0 refusée ; 50 sur papier en-tête, P50 4,4 ms, 0 pièce du ZIP altérée ; dossier de 6 tableaux × 300 lignes,
+  10 sections, 8 chiffres : 744 ms (3 618 formules recalculées, 25 diapositives, 18 totaux comparés identiques) ;
+  10 000 montants en lettres en 16 ms. Sur base (`factory.test.ts`) : 25 bons de commande émis PAR LE MOTEUR de
+  missions (éventail, lignes passées entières), 25 pièces au registre à numéros consécutifs, 25 fichiers, contrôle
+  qualité arithmétique 25/25, rejouer un appel n'émet rien ; 10 émissions parallèles → BC-2026-0001 à 0010 sans
+  collision ; émission interrompue après numérotation terminée sans second numéro ; facture à identité incomplète
+  refusée sans consommer de numéro.
+- **Ce qui n'est pas prétendu** : le PDF jumeau (`payslip/to-pdf.ts`, pdfkit) rend le texte et les tableaux, pas
+  l'en-tête graphique du papier — l'outil le dit, le `.docx` fait foi pour l'impression (pas de LibreOffice, §104).
+  Le droit de timbre est une constante du code (taux, plancher, plafond) à réviser si la loi change. Le profil
+  documentaire est la fondation du registre de marque (#26 : logo, polices, modèles de lettres et rapports).
+- **Tests** : `factory/{lettres,commercial,word,build,canonical,dossier}.test.ts` (62 cas, purs) et
+  `platform/in-process/artifact/factory.test.ts` (11 cas sur base réelle : droits, émission, doublon, reprise,
+  identité incomplète, papier en-tête, révision, profil, parallélisme, mission de 25, dossier).
+- **Fichiers** : `lib/artifact/factory/lettres.ts`, `commercial.ts`, `word.ts`, `build.ts`, `canonical.ts`,
+  `dossier.ts` ; `platform/in-process/artifact/factory.ts`, `factory-access.ts` ; outils `document_build`,
+  `document_profile`, `dossier_build` dans `lib/assistant/office-capabilities.ts` ; capacités
+  `artifact.document_build`, `artifact.dossier_build` ; migration `20261020090000_fabrique_documentaire`
+  (`CompanyDocumentProfile`, `DocumentSequence`) ; banc `scripts/bench/factory-bench.ts`.
+
 ### Corbeille des suppressions définitives (réversible, Super Admin)
 
 - `superAdminDelete` (bouton « Supprimer définitivement », 25 types d'objets) ne détruit plus : il dépose un
@@ -2973,6 +3061,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Adam — chef de cabinet : missions inédites, attention, relances** | `scripts/bench/adam-mission-bench.ts` (neuf missions vagues via `lancerMission`, carte de score par mission, attendus vérifiés en base, coût par mission ; `BENCH_ONLY`, `BENCH_TOURS`) ; `platform/in-process/missions/situation.ts` (enquête) ; `lib/missions/attention/policy.ts` + `platform/in-process/missions/attention.ts` (porte d'attention) ; `platform/in-process/missions/relance.ts` (échelle de relances) ; `lib/messaging.ts` (`envoyerMessageDirect`, l'unique chemin d'écriture d'un message direct ; module SERVEUR — les écrans importent la part pure `lib/messaging-ui.ts`) ; `lib/events/messaging-events.ts` (`MESSAGE_RECEIVED`) ; `lib/missions/registry/capability-meta.ts` (`AUTONOMES`) ; `lib/assistant/watch-tools.ts` (`watch_entity`, `list_watches`, `stop_watch`) ; `prisma/migrations/20261019090000_adam_surveillances`. |
 | **Excel God Mode — lire, vérifier, expliquer, comparer** | `lib/artifact/sheets/reader.ts` (lecteur natif en flux : fflate + TextDecoder en flux, formules partagées traduites, résultats typés, 1,2 M de cellules en 3,5 s) ; `formula.ts` (analyseur Pratt, A1 ↔ R1C1, `decaler`, `traduireFormulePartagee`) ; `graph.ts` (`construireGraphe`, `rayonImpact`, `precedentsDirects`, Kahn à tête d'index) ; `evaluate.ts` (`recalculer`, `evaluerFormule`, ~100 fonctions + `ALIAS_FR`, `nonCalculees` / `nonVerifiees`) ; `audit.ts` (`auditerClasseur`, 16 codes de constat, `resumerAudit`) ; `diff.ts` (`comparerClasseurs` : alignement patience + R1C1 + plages ajustées) ; `build.ts` (`construireClasseurVerifie` : spécification → xlsx relu, recalculé, valeurs écrites, audité) ; `analyse.ts` (façade : `analyserClasseur`, `tracerCellule`, `comparerFichiersXlsx`, `lirePlage`) ; pont `platform/in-process/artifact/sheets.ts` (droits par le port, cache borné en cellules) ; outils `lib/assistant/office-capabilities.ts` (`sheet_audit`, `sheet_trace`, `sheet_diff`, `sheet_read`) ; banc `scripts/bench/sheets-bench.ts` (`npm run sheets:bench`). |
 | **Word / PowerPoint / PDF à grande échelle** | `lib/artifact/adapters/docx/adapter.ts` (`marquesDePage`, `estimerPages`, `niveauDeTitre` : page de chaque paragraphe, `paginationSource`, `plan`) ; `commands/resolve.ts` (`cible.page` : rang dans la page, texte dans la page) ; `adapters/pptx/adapter.ts` (`ajouterDiapo`, `enregistrerDiapo`) ; `decks/build.ts` (`construireDeckVerifie`, `verifierSpecDeck`) ; `pdf/read.ts` (`lireTextePdf`, `chercherDansPdf`, `planPdf`, `extrairePages`, `plagePages`) ; `versions/diff.ts` (`alignerSequences`, `fragmentModifie`) ; `qa/checks.ts` (`controlerAvantLivraison`) ; `runtime/engine.ts` (`controlerSession`) ; pont `platform/in-process/artifact/documents.ts` (`lirePdfDrive` avec OCR borné, `construireDeckDrive`) et `office.ts` (`controlerDocument`, `inspecterDocument`) ; outils `lib/assistant/office-capabilities.ts` (`pdf_read`, `deck_build`, gestes `controler` / `inspecter`). |
+| **Fabrique de documents — devis, BC, factures, dossiers à trois formats** | `lib/artifact/factory/lettres.ts` (`nombreEnLettres`, `montantEnLettres`) ; `commercial.ts` (`calculerTotaux`, `verifierSpecCommerciale`, `formaterNumero`, `empreinteDocument`, `TIMBRE_FISCAL`, `NATURE_LEGALE`) ; `word.ts` (`paragraphe`, `tableau`, `composerDocx` avec papier en-tête conservé à l'octet près, `papierEnTeteDeDemonstration`) ; `build.ts` (`blocsCommerciaux`, `construireDocumentCommercial` : compose, relit, contrôle) ; `canonical.ts` (`evaluerFormuleLigne`, `calculerTableau`, `verifierSpecCanon`, `versClasseur` / `versDeck` / `versDocument`, `verifierCoherence`) ; `dossier.ts` (`construireDossier`) ; pont `platform/in-process/artifact/factory.ts` (`emettreDocumentDrive`, `reviserDocumentDrive`, `profilDocumentaire`, `definirProfilDocumentaire`, `construireDossierDrive`, compteur `DocumentSequence` atomique) et `factory-access.ts` (`peutEmettrePieces`) ; outils `document_build`, `document_profile`, `dossier_build` ; modèles `CompanyDocumentProfile`, `DocumentSequence` ; banc `scripts/bench/factory-bench.ts` (`npm run factory:bench`). |
 | **Adam — la coque de son bureau (et sa porte de sortie)** | Groupe de routes `app/(chief)/layout.tsx` : coque délibérément VIDE — ni menu latéral, ni barre supérieure, ni barre d'onglets, ni palette, ni bandeaux. `components/chief/{chief-workspace,chief-header,chief-home}.tsx` + `app/chief.css` (jeu de jetons `--chief-*` propre à Adam). **La sortie** : `components/chief/module-switcher.tsx` — une icône dans l'en-tête ouvre la liste des modules que CETTE personne peut ouvrir (champ de filtre, groupé par pôle, Échap / clic dehors referment). Les destinations arrivent par le **contrat de plateforme** (`navigation.destinations` → `in-process/adapter.ts` → `lib/nav-access.ts`), jamais par un import du menu de l'ERP : c'est ce qui garde le cliquet de frontière à 430. Le même `navigationFor` sert la barre latérale de l'ERP — une seule vérité sur « qui a le droit d'aller où ». Tests : `platform/navigation-destinations.test.ts` (dont : une entrée fusionnée mène au premier onglet AUTORISÉ, donc `/ad-pro` pour l'admin et `/congress-international` pour le délégué médical). |
 | **Adam — espace de travail génératif** | `lib/assistant/workspace/protocol.ts` (types de blocs + `WORKSPACE_LIMITS`) ; `compose.ts` (`composeWorkspace` — table de correspondance **fermée** : un outil absent ne compose RIEN, le repli est le texte ; plus la porte `_blocs`, **revalidée champ par champ**, par laquelle une lecture déclare ce qu'elle montre) ; `sheet.ts` (classeur → lignes, ExcelJS, **sans dépendance ERP**) ; `emit.ts` (helpers **purs** de composition : gestes, retards, métriques de charge, étapes) ; `components/chief/workspace/blocks.tsx` + `blocks.css` (feuille autonome à valeurs de repli : les blocs servent aussi `/assistant`, qui ne charge pas `chief.css`) ; `preview-planche.tsx` (la planche de revue visuelle, servie par `/chief-of-staff?apercu=blocs` **uniquement** si `ADAM_BLOCK_PREVIEW=1` — elle n'a pas d'adresse en production). Blocs : `people` (fiche riche : statut, métriques, coordonnées avec provenance), `directory`, `mail`, `agenda`, `queue` (**avec ses boutons Approuver / Refuser**), `record`, `table` (**gestes par ligne**, cartes empilées sur mobile), `timeline`, `progress` (jauges), `document` (PDF, image, feuille), `dossier` (faits + frise de circuit + pièces + participants + activité), `email` (le message avant l'envoi). Événement de flux `{ type: "workspace" }` ; stocké sur le message dans `assistant-chat.tsx`, qui fournit `WorkspaceAskProvider` — un clic écrit une phrase dans la conversation, il n'exécute rien. La prop `canvas` (défaut **faux**) rend le tour d'Adam **sans bulle** ; `/assistant` reste inchangé. |
 | **Adam — montrer (et non lire)** | `lib/assistant/show-tools.ts` : `show_document` (PDF/contrat en visionneuse, image, classeur rendu en tableau — passe par le **contrat** `document.show`, servi par `platform/in-process/adapter.ts`, seul autorisé à toucher Drive, stockage et droits) et `show_table` (colonnes et tri **à la demande** : le modèle choisit la vue, le serveur relit les lignes à la source canonique — sources fermées dans `TABLE_SOURCES`). À ne pas confondre avec `read_document`, qui extrait du TEXTE pour le modèle. |
@@ -3725,6 +3814,40 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Office God Mode — lot 3 : la fabrique de documents — devis, bons de commande, factures, dossiers à trois formats (2026-09)
+
+**Ce que le lot rend possible** : « Fais-moi un devis Adventum pour la Pharmacie Centrale » → une pièce composée
+par le code, numérotée par le compteur de la société, sur son papier en-tête, inscrite au registre Legal (nature
+QUOTE / PURCHASE_ORDER / INVOICE, chaînée à son amont), en Word et en PDF dans le Drive, montants et somme en lettres
+calculés. « Émets les 25 bons de commande » → 25 appels d'un éventail, 25 pièces, numéros consécutifs, contrôle
+qualité 25/25 — et rejouer un appel n'émet rien. « Corrige le devis : quantités doublées » → même numéro, version 2
+du même fichier, historique ; une facture émise ne se réécrit pas. « Prépare le dossier du comité en Excel,
+PowerPoint et Word » → trois fichiers dérivés des mêmes données, totaux du classeur recalculé comparés à ceux du
+code : un écart et rien n'est écrit. « Nos factures commencent par FAC, devis valables 45 jours » → profil
+documentaire de la société, réglé par la papeterie.
+
+**Ce qui a été construit** (`src/lib/artifact/factory/`, 62 tests purs ; `platform/in-process/artifact/factory.ts`,
+11 tests sur base) : `lettres.ts`, `commercial.ts` (calculs, règles, empreinte), `word.ts` (compositeur OOXML,
+papier en-tête recopié à l'octet près), `build.ts` (compose → relit → contrôle), `canonical.ts` + `dossier.ts`
+(données canoniques → classeur / deck / note, cohérence), le pont (compteur atomique `DocumentSequence`, pièce au
+registre Legal dans la transaction du numéro, reprise par empreinte, révision, profil `CompanyDocumentProfile`,
+dossier), trois outils d'Adam, capacités au catalogue, métadonnées de mission, migration idempotente, banc.
+
+**Ce qui a été mesuré** (`npm run factory:bench`) : 200 pièces composées + relues P50 5,6 ms / P95 9,7 ms ; 50 sur
+papier en-tête P50 4,4 ms, 0 pièce du ZIP altérée ; dossier 6 × 300 lignes + 10 sections + 8 chiffres en 744 ms
+(3 618 formules, 25 diapositives, 18 totaux comparés) ; 10 000 montants en lettres en 16 ms. Sur base : 10 émissions
+parallèles → 10 numéros distincts consécutifs ; mission de 25 BC par `avancer` → 25 pièces, QC 25/25.
+
+**Ce qui a été mesuré faux en chemin** : 33 820 DZD attendus pour 28 420 HT × 1,19 (c'est 33 819,80 — l'attente
+était fausse, pas le calcul) ; un total de 78 432,50 attendu là où les lignes font 76 225 (même leçon : le code a
+raison, la tête compte mal — c'est exactement pourquoi les totaux ne sont jamais tapés) ; trois outils ajoutés au
+domaine REGULATORY ont fait sortir une écriture métier du plafond du résolveur de niveau B — les domaines des
+outils de la fabrique ont été resserrés (LEGAL / FINANCE / DRIVE).
+
+**Ce qui n'est pas prétendu** : le PDF jumeau rend texte et tableaux, pas l'en-tête graphique (le `.docx` fait
+foi) ; le droit de timbre est une constante du code ; le profil documentaire est la fondation du registre de marque
+(#26), pas le registre complet.
 
 ### Office God Mode — lot 2 : Word de 300 pages, decks de 120 idées, PDF de 500 pages (2026-09)
 

@@ -58,6 +58,12 @@ describe("powerToolsFor — les pouvoirs suivent les DROITS, pas le rôle", () =
       // aurait été de faire dépendre l'outil d'un module qui n'est pas le sien pour éviter
       // de toucher le test, ce qui aurait ouvert la lecture PCH à qui n'y a pas droit.
       PCH: ["VIEW"],
+      // LEGAL / FINANCES en CRÉATION ajoutés avec `document_build`, premier outil de pouvoir qui
+      // ÉCRIT au registre Legal (une pièce émise est une pièce du registre) : il s'ouvre par
+      // `legalWriteAllowed` — le droit de créer dans Legal, ou dans Finances pour les factures —
+      // et non par une simple lecture. Même geste que pour PCH : compléter le compte omniscient,
+      // jamais rattacher l'outil à un module qui n'est pas le sien.
+      LEGAL: ["VIEW", "CREATE"], FINANCES: ["VIEW", "CREATE"],
     }, "SUPER_ADMIN");
     const names = powerToolsFor(omni).map((t) => t.name);
     expect(new Set(names)).toEqual(new Set(POWER_TOOLS.map((t) => t.def.name)));

@@ -30,9 +30,11 @@ import * as constructeurExcel from "@/lib/artifact/sheets/build";
 import * as lecteurPdf from "@/lib/artifact/pdf/read";
 import * as constructeurDeck from "@/lib/artifact/decks/build";
 import * as controle from "@/lib/artifact/qa/checks";
+import * as fabrique from "@/lib/artifact/factory/build";
+import * as dossier from "@/lib/artifact/factory/dossier";
 
 /** Les moteurs et les constructeurs, réunis : une capacité nomme une fonction de l'un d'eux. */
-const moteur = { ...moteurLiveOffice, ...moteurExcel, ...constructeurExcel, ...lecteurPdf, ...constructeurDeck, ...controle };
+const moteur = { ...moteurLiveOffice, ...moteurExcel, ...constructeurExcel, ...lecteurPdf, ...constructeurDeck, ...controle, ...fabrique, ...dossier };
 
 /**
  * La fonction qui RÉALISE chaque capacité. `save` et `save_as` partagent `sauvegarder` — c'est
@@ -57,6 +59,8 @@ const POINT_D_ENTREE: Record<CapaciteArtefact, keyof typeof moteur> = {
   "artifact.pdf_search": "chercherDansPdf",
   "artifact.deck_build": "construireDeckVerifie",
   "artifact.qa": "controlerAvantLivraison",
+  "artifact.document_build": "construireDocumentCommercial",
+  "artifact.dossier_build": "construireDossier",
 };
 
 describe("le catalogue des capacités", () => {

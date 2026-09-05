@@ -28,6 +28,7 @@
 import type { CommandeArtefact, VueArtefact } from "@/platform/in-process/artifact/view-types";
 import { SCHEMA_COMMANDE } from "@/platform/in-process/artifact/view-types";
 import type { PowerTool } from "@/lib/assistant/power-tools";
+import { peutEmettrePieces } from "@/platform/in-process/artifact/factory-access";
 
 const str = (input: Record<string, unknown>, k: string): string =>
   typeof input[k] === "string" ? (input[k] as string).trim() : "";
@@ -570,6 +571,188 @@ export const OFFICE_TOOLS: PowerTool[] = [
         fait: true, nodeId: r.nodeId, nom: r.nom, version: r.version, tailleOctets: r.taille, dureeMs: r.ms,
         verification: { formules: r.verification.formules, ecarts: r.verification.ecarts, constats: r.verification.constats.length },
         message: `Classeur « ${r.nom} » enregistré dans le Drive : ${r.verification.formules} formule(s) recalculée(s), 0 écart, audit propre.`,
+      });
+    },
+  },
+  {
+    def: {
+      name: "document_build",
+      description:
+        "ÉMET une pièce commerciale au nom d'une société du groupe — DEVIS, BON_DE_COMMANDE ou FACTURE — et "
+        + "l'inscrit au registre Legal : numéro attribué par le compteur de la société (« FA-2026-0007 »), "
+        + "identité légale et papier en-tête de la société appliqués d'office, montants HT / TVA / TTC et somme en "
+        + "lettres CALCULÉS par le code, fichier Word (+ PDF) rangé dans le Drive, pièce chaînée à son amont "
+        + "(`chainFromId` : le devis d'un BC, le BC d'une facture). Donne les LIGNES (désignation, quantité, prix "
+        + "unitaire HT) — jamais un total. UNE pièce par appel : « 25 bons de commande » = 25 appels, un par "
+        + "fournisseur. Une pièce identique déjà émise est rendue telle quelle (`dejaEmis`). Une facture exige les "
+        + "mentions légales complètes de l'émetteur (RC, NIF, AI, NIS, siège) : si elles manquent, rien n'est émis "
+        + "et l'outil dit quoi renseigner dans la carte d'identité Legal de la société.",
+      input_schema: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["DEVIS", "BON_DE_COMMANDE", "FACTURE"] },
+          societe: { type: "string", description: "La société émettrice : nom, nom court ou identifiant. Vide = la société de la personne." },
+          tiers: {
+            type: "object",
+            description: "Le client (devis, facture) ou le fournisseur (bon de commande).",
+            properties: {
+              nom: { type: "string" }, adresse: { type: "string" }, rc: { type: "string" }, nif: { type: "string" }, ai: { type: "string" }, nis: { type: "string" },
+              email: { type: "string" }, telephone: { type: "string" },
+            },
+            required: ["nom"],
+          },
+          lignes: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                designation: { type: "string" },
+                quantite: { type: "number" },
+                unite: { type: "string", description: "boîte, unité, jour, kg…" },
+                prixUnitaire: { type: "number", description: "Prix unitaire HORS TAXES, en DZD." },
+                remise: { type: "number", description: "Remise de ligne en fraction : 0.1 = 10 %." },
+                tva: { type: "number", description: "Taux de TVA en fraction (0, 0.09, 0.19). Vide = le taux par défaut de la société." },
+                reference: { type: "string" },
+              },
+              required: ["designation", "quantite", "prixUnitaire"],
+            },
+          },
+          date: { type: "string", description: "Date d'émission AAAA-MM-JJ. Vide = aujourd'hui." },
+          echeance: { type: "string", description: "Facture : échéance de règlement AAAA-MM-JJ." },
+          validiteJours: { type: "integer", description: "Devis : durée de validité. Vide = celle du profil (30 jours)." },
+          tvaDefaut: { type: "number" },
+          remiseGlobale: { type: "number", description: "Remise sur le total HT, en fraction." },
+          modePaiement: { type: "string", enum: ["VIREMENT", "CHEQUE", "ESPECES", "AUTRE"] },
+          conditionsPaiement: { type: "string", description: "« 30 jours date de facture », « à la commande »." },
+          objet: { type: "string" },
+          referenceAmont: { type: "string", description: "En clair sur la pièce : « Suivant devis n° DEV-2026-0012 »." },
+          chainFromId: { type: "string", description: "Identifiant Legal de la pièce amont (devis → BC → facture)." },
+          livraison: { type: "object", properties: { adresse: { type: "string" }, delai: { type: "string" } } },
+          notes: { type: "string" },
+          dossier: { type: "string", description: "Le dossier du Drive personnel. Vide = « Documents Adam »." },
+          forcerDoublon: { type: "boolean", description: "Émettre même si une pièce identique existe déjà." },
+        },
+        required: ["type", "tiers", "lignes"],
+      },
+    },
+    allowed: (user) => peutEmettrePieces(user),
+    label: "Fabrique — émettre un devis, un bon de commande, une facture",
+    run: async (input, user) => {
+      const { emettreDocumentDrive } = await import("@/platform/in-process/artifact/factory");
+      const r = await emettreDocumentDrive(user, input as never);
+      if (!r.ok) return JSON.stringify({ fait: false, echec: r.echec, message: r.motif, bloquants: r.bloquants, candidats: r.candidats });
+      const libelle = r.type === "FACTURE" ? "Facture" : r.type === "DEVIS" ? "Devis" : "Bon de commande";
+      return JSON.stringify({
+        fait: true, dejaEmis: r.dejaEmis, repris: r.repris, legalDocumentId: r.legalDocumentId, reference: r.reference, type: r.type, version: r.version,
+        societe: r.societe, tiers: r.tiers, docx: r.docx, pdf: r.pdf, totaux: r.totaux, surPapierEnTete: r.surPapierEnTete, avertissements: r.avertissements, dureeMs: r.ms,
+        message: r.dejaEmis
+          ? `${libelle} ${r.reference} existait déjà pour ${r.tiers} : rendu tel quel, rien de nouveau n'a été émis.`
+          : `${libelle} ${r.reference} émis${r.type === "FACTURE" ? "e" : ""} au nom de ${r.societe.nom} pour ${r.tiers} : TTC ${r.totaux.totalTtc.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} DZD, fichier Word${r.pdf ? " et PDF" : ""} dans le Drive, pièce inscrite au registre Legal${r.surPapierEnTete ? ", sur le papier en-tête de la société" : ""}.`,
+      });
+    },
+  },
+
+  {
+    def: {
+      name: "document_profile",
+      description:
+        "LIT ou RÈGLE le profil documentaire d'une société : identité légale telle qu'elle figurera sur les pièces "
+        + "(et ce qui manque pour une facture), préfixes de numérotation (DEV / BC / FA), TVA par défaut, conditions "
+        + "de paiement, validité des devis, papier en-tête Word appliqué, signataire. `geste: lire` pour répondre à "
+        + "« sur quel papier partent nos devis ? » ; `geste: definir` (assistante de direction, Super Admin) pour "
+        + "« nos factures commencent par FAC », « validité des devis : 45 jours ».",
+      input_schema: {
+        type: "object",
+        properties: {
+          geste: { type: "string", enum: ["lire", "definir"] },
+          societe: { type: "string", description: "Nom, nom court ou identifiant. Vide = la société de la personne." },
+          quotePrefix: { type: "string" }, orderPrefix: { type: "string" }, invoicePrefix: { type: "string" },
+          vatRate: { type: "number", description: "Fraction : 0.19." },
+          paymentTerms: { type: "string" }, quoteValidityDays: { type: "integer" }, footerNote: { type: "string" },
+          letterheadId: { type: "string", description: "Identifiant d'un papier en-tête Word de la société (vide = le premier actif)." },
+          signatoryName: { type: "string" }, signatoryTitle: { type: "string" },
+        },
+        required: ["geste"],
+      },
+    },
+    allowed: () => true,
+    label: "Fabrique — profil documentaire d'une société",
+    run: async (input, user) => {
+      const { profilDocumentaire, definirProfilDocumentaire } = await import("@/platform/in-process/artifact/factory");
+      const geste = str(input, "geste") === "definir" ? "definir" : "lire";
+      const r = geste === "definir"
+        ? await definirProfilDocumentaire(user, input as never)
+        : await profilDocumentaire(user, str(input, "societe") || null);
+      if (!r.ok) return JSON.stringify({ fait: false, echec: r.echec, message: r.motif, candidats: r.candidats });
+      const p = r.profil;
+      return JSON.stringify({
+        fait: true, geste, societe: p.societe, identite: p.identite, identiteIncomplete: p.identiteIncomplete, reglages: p.reglages, papierEnTete: p.papierEnTete,
+        message: `${p.societe.nom} : numérotation ${p.reglages.quotePrefix} / ${p.reglages.orderPrefix} / ${p.reglages.invoicePrefix}, TVA ${Math.round(p.reglages.vatRate * 100)} %, devis valables ${p.reglages.quoteValidityDays} jours, papier en-tête ${p.papierEnTete ? `« ${p.papierEnTete.nom} »` : "aucun (pièce composée sans papier)"}${p.identiteIncomplete.length ? ` — identité incomplète pour une facture : ${p.identiteIncomplete.join(", ")}` : ""}.`,
+      });
+    },
+  },
+
+  {
+    def: {
+      name: "dossier_build",
+      description:
+        "CONSTRUIT un dossier à TROIS formats depuis les MÊMES données — un classeur Excel (chiffres, formules "
+        + "recalculées), un deck PowerPoint (une idée par diapositive) et une note Word — et l'enregistre dans le "
+        + "Drive. Les totaux du classeur recalculé sont comparés à ceux que le code a calculés : un seul écart, et "
+        + "AUCUN des trois fichiers n'est écrit. Pour « prépare le dossier du comité : Excel, slides et note ». "
+        + "Les formules de colonne s'écrivent en termes de colonnes et de paramètres ([qte]*[pu], [ht]*(1+{TVA})) "
+        + "avec + - * / seulement : c'est ce qui les rend vérifiables.",
+      input_schema: {
+        type: "object",
+        properties: {
+          nom: { type: "string", description: "Le nom des trois fichiers (sans extension)." },
+          societe: { type: "string", description: "La société : sa couleur et son papier en-tête s'appliquent." },
+          canon: {
+            type: "object",
+            properties: {
+              titre: { type: "string" }, sousTitre: { type: "string" }, date: { type: "string", description: "AAAA-MM-JJ" },
+              sections: { type: "array", items: { type: "object", properties: { titre: { type: "string" }, texte: { type: "string" }, puces: { type: "array", items: { type: "string" } } }, required: ["titre"] } },
+              chiffres: { type: "array", items: { type: "object", properties: { cle: { type: "string" }, libelle: { type: "string" }, valeur: { type: "number" }, format: { type: "string", enum: ["montant", "nombre", "pourcentage", "entier"] } }, required: ["cle", "libelle", "valeur"] } },
+              tableaux: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    cle: { type: "string" }, titre: { type: "string" },
+                    colonnes: { type: "array", items: { type: "object", properties: { cle: { type: "string" }, titre: { type: "string" }, type: { type: "string", enum: ["texte", "nombre", "montant", "pourcentage", "date", "entier"] }, formule: { type: "string" } }, required: ["cle", "titre", "type"] } },
+                    lignes: { type: "array", items: { type: "object" } },
+                    totaux: { type: "array", items: { type: "string" }, description: "Les clés de colonnes à totaliser." },
+                  },
+                  required: ["cle", "titre", "colonnes", "lignes"],
+                },
+              },
+              parametres: { type: "array", items: { type: "object", properties: { nom: { type: "string" }, valeur: {}, libelle: { type: "string" }, format: { type: "string" } }, required: ["nom", "valeur"] } },
+              pied: { type: "array", items: { type: "string" } },
+            },
+            required: ["titre"],
+          },
+          dossier: { type: "string", description: "Le dossier du Drive personnel. Vide = « Documents Adam »." },
+        },
+        required: ["nom", "canon"],
+      },
+    },
+    allowed: () => true,
+    label: "Fabrique — dossier Excel + PowerPoint + Word cohérent",
+    run: async (input, user) => {
+      const { construireDossierDrive } = await import("@/platform/in-process/artifact/factory");
+      const brut = (input.canon && typeof input.canon === "object" ? input.canon : {}) as Record<string, unknown>;
+      const canon = {
+        titre: typeof brut.titre === "string" ? brut.titre : "", sousTitre: typeof brut.sousTitre === "string" ? brut.sousTitre : null,
+        date: typeof brut.date === "string" ? brut.date : null, societe: { nom: "", couleur: null },
+        sections: Array.isArray(brut.sections) ? brut.sections : [], tableaux: Array.isArray(brut.tableaux) ? brut.tableaux : [],
+        chiffres: Array.isArray(brut.chiffres) ? brut.chiffres : [], parametres: Array.isArray(brut.parametres) ? brut.parametres : null,
+        pied: Array.isArray(brut.pied) ? brut.pied : null,
+      };
+      const r = await construireDossierDrive(user, { nom: str(input, "nom"), canon: canon as never, societe: str(input, "societe") || null, dossier: str(input, "dossier") || null });
+      if (!r.ok) return JSON.stringify({ fait: false, echec: r.echec, message: r.motif, bloquants: r.bloquants, candidats: r.candidats });
+      return JSON.stringify({
+        fait: true, classeur: r.classeur, deck: r.deck, note: r.note, coherence: r.coherence, avertissements: r.avertissements, dureeMs: r.ms,
+        message: `Dossier écrit dans le Drive en trois formats : « ${r.classeur.nom} » (${r.classeur.formules} formules recalculées), « ${r.deck.nom} » (${r.deck.diapos} diapositives), « ${r.note.nom} » — ${r.coherence.totauxCompares} total(aux) vérifié(s) identique(s) entre le classeur et le calcul du code.`,
       });
     },
   },

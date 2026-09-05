@@ -110,6 +110,12 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   // Les documents longs : lire un PDF de 500 pages, construire un deck vérifié.
   pdf_read: ["DRIVE", "LEGAL", "REGULATORY", "FINANCE"],
   deck_build: ["DRIVE", "LEGAL", "REGULATORY", "FINANCE"],
+  // La fabrique de documents : une pièce commerciale est un acte Legal / Finance qui finit dans le Drive.
+  // Domaines VOLONTAIREMENT étroits : chaque domaine a un plafond d'outils par niveau, et une
+  // écriture métier (créer une tâche, envoyer) ne doit pas en sortir parce qu'une fabrique y entre.
+  document_build: ["LEGAL", "FINANCE"],
+  document_profile: ["LEGAL"],
+  dossier_build: ["DRIVE", "FINANCE"],
   // « Dans un tableau », « avec la date et le responsable », « trie par échéance » : la demande
   // arrive APRÈS une lecture, dans n'importe quel domaine, et souvent en trois mots. Elle ne
   // survivrait pas à un tour de découverte.

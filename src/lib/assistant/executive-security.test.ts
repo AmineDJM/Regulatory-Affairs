@@ -152,6 +152,11 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // pdf_read : une LECTURE sous `canViewDrive` ; deck_build : un NOUVEAU fichier dans le
       // Drive personnel, comme sheet_build.
       "pdf_read", "deck_build",
+      // document_profile : la LECTURE du profil (numérotation, papier) est ouverte à qui voit la
+      // société ; la DÉFINITION est gardée dans le pont par `canManageLetterheads`, la même règle
+      // que la papeterie. dossier_build : trois NOUVEAUX fichiers dans le Drive personnel, comme
+      // sheet_build et deck_build. document_build n'est PAS ici : il est fermé par `peutEmettrePieces`.
+      "document_profile", "dossier_build",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);
