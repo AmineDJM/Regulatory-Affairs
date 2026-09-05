@@ -198,6 +198,14 @@ export const DECLARED: Record<string, Omit<CapabilityMeta, "id" | "declared" | "
   document_build: { domain: "legal", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: true, batchable: true, latency: "MEDIUM", confirmation: "POLICY_ENGINE" },
   document_profile: { domain: "legal", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: true, batchable: false, latency: "LOW", confirmation: "POLICY_ENGINE" },
   dossier_build: { domain: "drive", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: false, latency: "HIGH", confirmation: "NEVER" },
+  // TEACH ADAM : des écritures internes, réversibles (désactiver, supprimer = un statut), jamais
+  // groupées — une règle s'enseigne une par une. L'AGENT n'y a pas droit (policy/guard.ts) : une
+  // règle est une attestation d'une personne.
+  teach_adam: { domain: "adam", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: false, latency: "LOW", confirmation: "NEVER" },
+  list_rules: { domain: "adam", effect: "READ", idempotent: true, batchable: false, latency: "LOW", confirmation: "NEVER" },
+  update_rule: { domain: "adam", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: false, latency: "LOW", confirmation: "NEVER" },
+  disable_rule: { domain: "adam", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: true, batchable: false, latency: "LOW", confirmation: "NEVER" },
+  delete_rule: { domain: "adam", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: true, batchable: false, latency: "LOW", confirmation: "NEVER" },
   gdrive_put_internal_file: { domain: "drive", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "MEDIUM", confirmation: "NEVER" },
   watch_entity: { domain: "missions", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
   stop_watch: { domain: "missions", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
@@ -314,6 +322,10 @@ export const AUTONOMES: Record<string, Effect> = {
   document_build: "INTERNAL_REVERSIBLE_WRITE",
   document_profile: "INTERNAL_REVERSIBLE_WRITE",
   dossier_build: "INTERNAL_REVERSIBLE_WRITE",
+  teach_adam: "INTERNAL_REVERSIBLE_WRITE",
+  update_rule: "INTERNAL_REVERSIBLE_WRITE",
+  disable_rule: "INTERNAL_REVERSIBLE_WRITE",
+  delete_rule: "INTERNAL_REVERSIBLE_WRITE",
   mission_create: "INTERNAL_REVERSIBLE_WRITE",
   run_mission: "INTERNAL_REVERSIBLE_WRITE",
   mission_consolidate: "INTERNAL_REVERSIBLE_WRITE",

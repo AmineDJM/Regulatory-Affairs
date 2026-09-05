@@ -644,7 +644,7 @@ export const OFFICE_TOOLS: PowerTool[] = [
       const libelle = r.type === "FACTURE" ? "Facture" : r.type === "DEVIS" ? "Devis" : "Bon de commande";
       return JSON.stringify({
         fait: true, dejaEmis: r.dejaEmis, repris: r.repris, legalDocumentId: r.legalDocumentId, reference: r.reference, type: r.type, version: r.version,
-        societe: r.societe, tiers: r.tiers, docx: r.docx, pdf: r.pdf, totaux: r.totaux, surPapierEnTete: r.surPapierEnTete, avertissements: r.avertissements, dureeMs: r.ms,
+        societe: r.societe, tiers: r.tiers, docx: r.docx, pdf: r.pdf, totaux: r.totaux, surPapierEnTete: r.surPapierEnTete, avertissements: r.avertissements, reglesAppliquees: r.reglesAppliquees, dureeMs: r.ms,
         message: r.dejaEmis
           ? `${libelle} ${r.reference} existait déjà pour ${r.tiers} : rendu tel quel, rien de nouveau n'a été émis.`
           : `${libelle} ${r.reference} émis${r.type === "FACTURE" ? "e" : ""} au nom de ${r.societe.nom} pour ${r.tiers} : TTC ${r.totaux.totalTtc.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} DZD, fichier Word${r.pdf ? " et PDF" : ""} dans le Drive, pièce inscrite au registre Legal${r.surPapierEnTete ? ", sur le papier en-tête de la société" : ""}.`,
@@ -686,7 +686,7 @@ export const OFFICE_TOOLS: PowerTool[] = [
       if (!r.ok) return JSON.stringify({ fait: false, echec: r.echec, message: r.motif, candidats: r.candidats });
       const p = r.profil;
       return JSON.stringify({
-        fait: true, geste, societe: p.societe, identite: p.identite, identiteIncomplete: p.identiteIncomplete, reglages: p.reglages, papierEnTete: p.papierEnTete,
+        fait: true, geste, societe: p.societe, identite: p.identite, identiteIncomplete: p.identiteIncomplete, reglages: p.reglages, papierEnTete: p.papierEnTete, reglesAppliquees: p.reglesAppliquees,
         message: `${p.societe.nom} : numérotation ${p.reglages.quotePrefix} / ${p.reglages.orderPrefix} / ${p.reglages.invoicePrefix}, TVA ${Math.round(p.reglages.vatRate * 100)} %, devis valables ${p.reglages.quoteValidityDays} jours, papier en-tête ${p.papierEnTete ? `« ${p.papierEnTete.nom} »` : "aucun (pièce composée sans papier)"}${p.identiteIncomplete.length ? ` — identité incomplète pour une facture : ${p.identiteIncomplete.join(", ")}` : ""}.`,
       });
     },

@@ -342,6 +342,17 @@ export async function personalContext(userId: string): Promise<string> {
   if (memory) lines.push(`\nCE QUE TU AS RETENU DE CETTE PERSONNE (mémoire de vos échanges précédents) :\n${memory}`);
   if (typed) lines.push(typed);
 
+  // ── LES RÈGLES ENSEIGNÉES (Teach Adam, §119) ────────────────────────────────────────
+  //
+  // Ce que la personne, son département et sa société ont APPRIS à Adam : résolu (périmètre,
+  // précédence, dates d'effet) et composé sous budget par le code. Avant les souvenirs : une
+  // règle en vigueur pèse plus qu'un épisode. Import différé pour les mêmes raisons que le
+  // composeur de missions ci-dessous — et parce que la porte des conversations reste légère.
+  const regles = await import("@/platform/in-process/teach/store")
+    .then((m) => m.contexteRegles(userId))
+    .catch(() => "");
+  if (regles) lines.push(`\n${regles}`);
+
   // ── LA MÉMOIRE ÉPISODIQUE, COMPOSÉE SOUS BUDGET ────────────────────────────────────
   //
   // Ce que la note distillée ci-dessus ne sait pas faire : distinguer « ce qui s'est dit en

@@ -53,6 +53,7 @@ import type { DonneesCanoniques } from "@/lib/artifact/factory/canonical";
 import { MIME_DOCX } from "@/lib/artifact/factory/word";
 import { MIME_XLSX } from "@/lib/artifact/adapters/xlsx/adapter";
 import { MIME_PPTX } from "@/lib/artifact/adapters/pptx/adapter";
+import { standardsDocumentaires } from "@/platform/in-process/teach/store";
 
 /** Les causes d'échec que le runtime de missions sait classer (`capability-failure.ts`). */
 type Echec = "NOT_FOUND" | "MISSING_PERMISSION" | "MISSING_INPUT" | "CAPABILITY_FAILURE";
@@ -93,6 +94,8 @@ export interface ProfilDocumentaire {
   identiteIncomplete: string[];
   reglages: ReglagesDocumentaires;
   papierEnTete: { id: string; nom: string } | null;
+  /** Les règles Teach Adam (standards documentaires de la société) qui ont modifié les réglages, et comment. */
+  reglesAppliquees: { id: string; cle: string; effet: string }[];
 }
 
 const REGLAGES_DEFAUT: ReglagesDocumentaires = {
@@ -149,6 +152,27 @@ export async function profilDocumentaire(user: CurrentUser, societe?: string | n
       signatoryName: profil.signatoryName, signatoryTitle: profil.signatoryTitle, existe: true,
     }
     : REGLAGES_DEFAUT;
+  // ── LES STANDARDS ENSEIGNÉS (Teach Adam, §119) ─────────────────────────────────────────
+  //
+  // « Nos factures commencent par FAC », « les devis sont valables 45 jours » : une règle de
+  // périmètre SOCIÉTÉ, posée par la Direction, s'applique par-dessus le profil — c'est la plus
+  // récente des deux volontés, et elle porte le nom de qui l'a dite. Chaque application est
+  // rendue (`reglesAppliquees`) : la pièce dit d'où viennent ses réglages.
+  const reglesAppliquees: ProfilDocumentaire["reglesAppliquees"] = [];
+  const standards = await standardsDocumentaires(user.id, s.id).catch(() => new Map<string, { valeur: unknown; regle: { id: string } }>());
+  const appliquer = (cle: string, f: (v: unknown) => string | null) => {
+    const st = standards.get(cle);
+    if (!st) return;
+    const effet = f(st.valeur);
+    if (effet) reglesAppliquees.push({ id: st.regle.id, cle, effet });
+  };
+  appliquer("validiteDevis", (v) => (typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 365 ? ((reglages.quoteValidityDays = v), `validité des devis : ${v} jours`) : null));
+  appliquer("prefixeFacture", (v) => (typeof v === "string" && /^[A-Za-z0-9]{1,8}$/.test(v) ? ((reglages.invoicePrefix = v.toUpperCase()), `préfixe des factures : ${v.toUpperCase()}`) : null));
+  appliquer("prefixeDevis", (v) => (typeof v === "string" && /^[A-Za-z0-9]{1,8}$/.test(v) ? ((reglages.quotePrefix = v.toUpperCase()), `préfixe des devis : ${v.toUpperCase()}`) : null));
+  appliquer("prefixeBonDeCommande", (v) => (typeof v === "string" && /^[A-Za-z0-9]{1,8}$/.test(v) ? ((reglages.orderPrefix = v.toUpperCase()), `préfixe des bons de commande : ${v.toUpperCase()}`) : null));
+  appliquer("tvaDefaut", (v) => (typeof v === "number" && TAUX_TVA_ADMIS.some((t) => Math.abs(t - v) < 1e-9) ? ((reglages.vatRate = v), `TVA par défaut : ${Math.round(v * 100)} %`) : null));
+  appliquer("conditionsPaiement", (v) => (typeof v === "string" && v.trim() ? ((reglages.paymentTerms = v.trim()), `conditions de paiement : ${v.trim()}`) : null));
+  appliquer("mentionPied", (v) => (typeof v === "string" && v.trim() ? ((reglages.footerNote = v.trim()), "mention de pied de page") : null));
   // Le papier : celui que le profil désigne s'il est toujours actif, sinon le premier de la
   // société, sinon un papier commun au groupe — jamais celui d'une autre société.
   const designe = reglages.letterheadId ? entetes.find((l) => l.id === reglages.letterheadId) ?? null : null;
@@ -177,6 +201,7 @@ export async function profilDocumentaire(user: CurrentUser, societe?: string | n
       identiteIncomplete: MENTIONS_FACTURE.filter((m) => !(partie[m.cle] as string | null)?.trim()).map((m) => m.libelle),
       reglages,
       papierEnTete: papier && papierOctets ? { id: papier.id, nom: papier.name } : null,
+      reglesAppliquees,
     },
   };
 }
@@ -307,6 +332,8 @@ export interface DocumentEmis {
   totaux: ResumeTotaux;
   surPapierEnTete: boolean;
   avertissements: string[];
+  /** Les règles Teach Adam qui ont réglé la pièce (préfixe, validité, TVA…), pour le dire. */
+  reglesAppliquees: { id: string; cle: string; effet: string }[];
   ms: number;
 }
 
@@ -416,7 +443,7 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
           societe: { id: profil.societe.id, nom: profil.societe.nom }, tiers: base.tiers.nom,
           docx: { nodeId: f.docx.nodeId, nom: nomFichier(f.numero, base.tiers.nom, "docx"), version: f.docx.version },
           pdf: f.pdf ? { nodeId: f.pdf.nodeId, nom: nomFichier(f.numero, base.tiers.nom, "pdf"), pages: f.pdf.pages } : null,
-          totaux: f.totaux, surPapierEnTete: f.surPapierEnTete, avertissements: [`Une pièce identique existait déjà (${f.numero}) : elle est rendue, aucune nouvelle pièce n'a été émise.`], ms: Date.now() - debut,
+          totaux: f.totaux, surPapierEnTete: f.surPapierEnTete, avertissements: [`Une pièce identique existait déjà (${f.numero}) : elle est rendue, aucune nouvelle pièce n'a été émise.`], reglesAppliquees: profil.reglesAppliquees, ms: Date.now() - debut,
         };
       }
       return terminerEmission(user, existant.id, { ...f, spec: { ...base, numero: f.numero } }, papierOctets, demande, profil, { repris: true, debut, avertissements: essai.verification.avertissements });
@@ -494,7 +521,7 @@ async function terminerEmission(
     societe: { id: profil.societe.id, nom: profil.societe.nom }, tiers: spec.tiers.nom,
     docx: { nodeId: docx.nodeId, nom: nomDocx, version: docx.version },
     pdf: pdf ? { nodeId: pdf.nodeId, nom: nomFichier(fabrique.numero, spec.tiers.nom, "pdf"), pages: pdf.pages } : null,
-    totaux: finale.totaux, surPapierEnTete: construit.surPapierEnTete, avertissements, ms: Date.now() - ctx.debut,
+    totaux: finale.totaux, surPapierEnTete: construit.surPapierEnTete, avertissements, reglesAppliquees: profil.reglesAppliquees, ms: Date.now() - ctx.debut,
   };
 }
 
@@ -576,7 +603,7 @@ export async function reviserDocumentDrive(
     societe: { id: p.profil.societe.id, nom: p.profil.societe.nom }, tiers: spec.tiers.nom,
     docx: { nodeId: doc.driveNodeId, nom: nomFichier(f.numero, spec.tiers.nom, "docx"), version: ecrit.version },
     pdf: pdf ? { nodeId: pdf.nodeId, nom: nomFichier(f.numero, spec.tiers.nom, "pdf"), pages: pdf.pages } : null,
-    totaux: finale.totaux, surPapierEnTete: construit.surPapierEnTete, avertissements, ms: Date.now() - debut,
+    totaux: finale.totaux, surPapierEnTete: construit.surPapierEnTete, avertissements, reglesAppliquees: p.profil.reglesAppliquees, ms: Date.now() - debut,
   };
 }
 

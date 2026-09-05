@@ -58,6 +58,10 @@ export const DOMAINS: { name: string; paths: string[] }[] = [
   { name: "mail", paths: ["src/lib/mail/", "src/lib/mail-register/", "src/lib/comms/"] },
   { name: "tasks", paths: ["src/lib/tasks/", "src/lib/workflow/", "src/lib/validations/"] },
   { name: "legal", paths: ["src/lib/legal/"] },
+  // `teach/` : la couche de règles enseignées à Adam (Teach Adam) — types, classement,
+  // précédence, composition. Module PUR ; la persistance et les droits vivent dans le pont
+  // (`platform/in-process/teach/`), comme pour `artifact/`.
+  { name: "teach", paths: ["src/lib/teach/"] },
   { name: "knowledge", paths: ["src/lib/knowledge/"] },
   { name: "scheduler", paths: ["src/lib/scheduler/"] },
   { name: "adam", paths: ["src/lib/assistant/", "src/lib/models/", "src/lib/assistant.ts"] },

@@ -74,6 +74,7 @@ export const MEMORY_TOOLS: PowerTool[] = [
         "s'en servira automatiquement. Sinon, `content` en une phrase claire. Types : USER_PREFERENCE (préférence), WORKING_STYLE, " +
         "TERMINOLOGY, ENTITY_ALIAS, STRATEGIC_PRIORITY, RECURRING_INTEREST, REPORTING_PREFERENCE, ORGANIZATIONAL_CONTEXT, EXECUTIVE_PRINCIPLE. " +
         "NE PAS transformer chaque phrase en mémoire : ne retenir que ce qui est explicitement demandé ou manifestement durable. " +
+        "Une RÈGLE de conduite (comment agir, un standard de document, un seuil, un workflow, une correspondance de termes valable pour la société, une exception) se donne à teach_adam, pas ici. " +
         "⚠️ Ne JAMAIS y stocker une donnée métier (salaire, montant, stock) comme vérité — elle se relit à la source.",
       input_schema: {
         type: "object",

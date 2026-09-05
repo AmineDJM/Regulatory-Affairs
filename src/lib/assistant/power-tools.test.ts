@@ -49,7 +49,7 @@ describe("powerToolsFor — les pouvoirs suivent les DROITS, pas le rôle", () =
     // La liste des droits SUIT le registre : chaque nouvel outil déclare le module qui l'ouvre,
     // et ce compte-ci les porte tous (le rôle ne sert qu'aux outils exécutifs, gérés à part).
     const omni = userWith({
-      BUDGETS: ["VIEW"], FINANCES: ["VIEW"], RH: ["VIEW"], WORKSPACE: ["VIEW"],
+      BUDGETS: ["VIEW"], FINANCES: ["VIEW", "CREATE"], RH: ["VIEW"], WORKSPACE: ["VIEW"],
       STOCKS: ["VIEW"], MEDICAL: ["VIEW"], MAIL_REGISTER: ["VIEW"], REGULATORY: ["VIEW"],
       DRIVE: ["VIEW"], CHIEF_OF_STAFF: ["VIEW"],
       // PCH ajouté avec `pch_market_status`, premier outil de POUVOIR ouvert par ce module
@@ -63,7 +63,7 @@ describe("powerToolsFor — les pouvoirs suivent les DROITS, pas le rôle", () =
       // `legalWriteAllowed` — le droit de créer dans Legal, ou dans Finances pour les factures —
       // et non par une simple lecture. Même geste que pour PCH : compléter le compte omniscient,
       // jamais rattacher l'outil à un module qui n'est pas le sien.
-      LEGAL: ["VIEW", "CREATE"], FINANCES: ["VIEW", "CREATE"],
+      LEGAL: ["VIEW", "CREATE"],
     }, "SUPER_ADMIN");
     const names = powerToolsFor(omni).map((t) => t.name);
     expect(new Set(names)).toEqual(new Set(POWER_TOOLS.map((t) => t.def.name)));

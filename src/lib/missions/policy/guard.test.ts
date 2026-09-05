@@ -106,3 +106,22 @@ describe("§32 — le niveau d'approbation découle de l'effet", () => {
     }
   });
 });
+
+/**
+ * §119 — TEACH ADAM. Une règle est l'attestation d'une personne : l'agent ne s'en enseigne pas, n'en
+ * modifie pas, n'en supprime pas. Les lire reste permis — c'est ce qui les fait respecter.
+ */
+describe("garde — l'agent ne s'enseigne pas de règles", () => {
+  it("refuse teach_adam, update_rule, disable_rule et delete_rule à l'agent, et les laisse au PDG", () => {
+    for (const c of ["teach_adam", "update_rule", "disable_rule", "delete_rule"]) {
+      const r = refusPourActeur(c, "INTERNAL_REVERSIBLE_WRITE", adam);
+      expect(r, `« ${c} » devrait être refusée à l'agent`).not.toBeNull();
+      expect(r!.raison).toMatch(/enseigner|règle/);
+      expect(refusPourActeur(c, "INTERNAL_REVERSIBLE_WRITE", pdg), `« ${c} » refusée au PDG`).toBeNull();
+    }
+  });
+  it("laisse l'agent LIRE les règles", () => {
+    expect(refusPourActeur("list_rules", "READ", adam)).toBeNull();
+  });
+});
+

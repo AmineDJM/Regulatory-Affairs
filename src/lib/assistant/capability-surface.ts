@@ -114,6 +114,11 @@ export const VOICE_DIRECT_READS: readonly string[] = [
   "list_decisions",
   "remember",
   "recall_conversation",
+  // TEACH ADAM : « retiens que désormais… » se dit à voix haute au milieu d'une demande ; passer par
+  // l'orchestrateur pour une phrase serait payer une délégation pour rien. Écritures AUTONOMES,
+  // classées ici comme `remember`.
+  "teach_adam",
+  "list_rules",
   // L'ANNUAIRE, ajouté avec les écritures : « c'est quoi le mail d'Alla ? » puis « envoie-lui un
   // mail » est UNE seule intention en deux temps. Résoudre la personne par délégation puis
   // écrire en direct ferait payer un aller-retour d'orchestrateur pour une adresse.

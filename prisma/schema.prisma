@@ -651,6 +651,7 @@ model Department {
   trainings      Training[]
   /// La Business Unit dont ce département est le sous-département, le cas échéant.
   businessUnits  BusinessUnit[]            @relation("BusinessUnitDepartment")
+  adamRules      AdamRule[]
 
   @@unique([companyId, name])
   @@index([parentId])
@@ -1246,6 +1247,8 @@ model User {
   executiveDecisions         ExecutiveDecision[]      @relation("ExecutiveDecisions")
   executiveCommitments       ExecutiveCommitment[]    @relation("ExecutiveCommitments")
   adamWatches                AdamWatch[]              @relation("AdamWatches")
+  adamRulesOwned             AdamRule[]               @relation("AdamRulesOwned")
+  adamRulesSubject           AdamRule[]               @relation("AdamRulesSubject")
   assistantArtifacts         AssistantArtifact[]      @relation("AssistantArtifacts")
   artifactSessions           ArtifactSession[]        @relation("ArtifactSessions")
   assistantActionIntents     AssistantActionIntent[]  @relation("AssistantActionIntents")
@@ -1487,6 +1490,7 @@ model Company {
   DirectoryEntry          DirectoryEntry[]
   products                Product[]
   directives              Directive[]
+  adamRules               AdamRule[]
 
   @@index([isActive])
 }
@@ -4444,6 +4448,59 @@ model DocumentSequence {
   updatedAt DateTime @updatedAt
 
   @@unique([companyId, kind, year])
+}
+
+/// TEACH ADAM — ce qu'une personne a ENSEIGNÉ à Adam (§119) : une règle structurée, bornée à un
+/// périmètre (personne, département, société), datée, versionnée PAR LIGNES — modifier crée une
+/// nouvelle ligne `version + 1` dont `supersedesId` pointe l'ancienne, qui passe en SUPERSEDED ;
+/// supprimer met en DELETED. Rien n'est jamais effacé : « quelle était la règle en mars ? » a une
+/// réponse, et « 100 % des règles récupérables » est une propriété de la table.
+///
+/// Une règle est une ATTESTATION (qui l'a dite, pour qui, depuis quand, d'où) — jamais une
+/// observation d'Adam écrite toute seule (§12). Voir `src/lib/teach/model.ts`.
+model AdamRule {
+  id            String      @id @default(cuid())
+  /// PREFERENCE | COMPANY_RULE | WORKFLOW | CONVENTION | DOCUMENT_STANDARD | VALIDATION_RULE | EXCEPTION | MAPPING | BUSINESS_DEFINITION
+  kind          String
+  /// PERSON | GROUP | COMPANY
+  scope         String
+  /// Qui l'a enseignée — le nom que portera l'audit.
+  ownerId       String
+  owner         User        @relation("AdamRulesOwned", fields: [ownerId], references: [id], onDelete: Cascade)
+  /// PERSON : la personne pour qui elle vaut (l'enseignant lui-même, sauf délégation).
+  subjectUserId String?
+  subject       User?       @relation("AdamRulesSubject", fields: [subjectUserId], references: [id], onDelete: Cascade)
+  companyId     String?
+  company       Company?    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  departmentId  String?
+  department    Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  /// Minuscules, sans accent : general, finance, legal, regulatory, documents, mail, missions, hr…
+  domain        String      @default("general")
+  title         String
+  statement     String      @db.Text
+  /// La part structurée qu'un programme peut appliquer : { cle, valeur, unite } | { de, vers } | { seuil } | { exceptionDe }.
+  params        Json?
+  priority      Int         @default(0)
+  effectiveFrom DateTime    @default(now())
+  effectiveTo   DateTime?
+  /// ACTIVE | DISABLED | SUPERSEDED | DELETED
+  status        String      @default("ACTIVE")
+  version       Int         @default(1)
+  supersedesId  String?     @unique
+  supersedes    AdamRule?   @relation("AdamRuleVersions", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy  AdamRule?   @relation("AdamRuleVersions")
+  /// { threadId, messageId, missionId, citation, mode: TAUGHT | PROPOSED }
+  provenance    Json?
+  updatedById   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([subjectUserId, status])
+  @@index([companyId, status])
+  @@index([departmentId, status])
+  @@index([ownerId, status])
+  @@index([kind, domain])
+  @@index([status, effectiveFrom])
 }
 
 /// Solde d'ouverture d'un compte de trésorerie (Caisse, Banque…). Sert de base de

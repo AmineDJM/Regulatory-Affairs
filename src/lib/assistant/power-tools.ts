@@ -11,6 +11,7 @@ import { EXECUTIVE_READ_TOOLS } from "@/lib/assistant/executive-read-tools";
 
 import { EXECUTIVE_BRIEF_TOOLS } from "@/lib/assistant/executive-brief-tools";
 import { MEMORY_TOOLS } from "@/lib/assistant/memory-tools";
+import { TEACH_TOOLS } from "@/lib/assistant/teach-tools";
 import { THREE_SIXTY_TOOLS } from "@/lib/assistant/three-sixty";
 import { BUSINESS_CAPABILITIES } from "@/lib/assistant/business-capabilities";
 import { OFFICE_TOOLS } from "@/lib/assistant/office-capabilities";
@@ -336,6 +337,10 @@ export const POWER_TOOLS: PowerTool[] = [
   // décisions et d'engagements au siège exécutif). Écriture directe : rien ici ne touche
   // le monde extérieur — c'est la frontière avec ACTION_POLICY.
   ...MEMORY_TOOLS,
+  // TEACH ADAM (§119) : les RÈGLES enseignées — périmètre personnel ouvert à tous (borné à
+  // `user.id`), périmètres département / société gardés dans le pont par le droit de poser des
+  // directives. Écriture directe, jamais un effet externe.
+  ...TEACH_TOOLS,
   // Les VUES 360° (collaborateur, produit, fournisseur) et les INSIGHTS (organisation,
   // délais réels des circuits) — le backend calcule, chaque chiffre porte sa provenance.
   ...THREE_SIXTY_TOOLS,

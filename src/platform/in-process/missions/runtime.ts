@@ -280,11 +280,22 @@ async function lancerMissionInterne(
   const situation = opts.sansEnquete || opts.contexte?.situation
     ? opts.contexte?.situation ?? null
     : await enqueter(user, objectif).catch(() => null);
+  // ── LES RÈGLES ENSEIGNÉES (Teach Adam, §119) ────────────────────────────────────────
+  //
+  // Ce que la personne et sa société ont appris à Adam entre DANS le contexte du planificateur
+  // (`politiques`), avec ce que l'appelant savait déjà. Composé par le code, sous budget, jamais
+  // accumulé : la même règle ne s'y répète pas d'un plan à l'autre.
+  const politiquesEnseignees = await import("@/platform/in-process/teach/store")
+    .then((m) => m.politiquesPourMission(user.id))
+    .catch(() => [] as string[]);
   const contexte: ContextePlanification = {
     aujourdhui: new Date().toLocaleDateString("fr-FR"),
     ...opts.contexte,
     ...(situation ? { situation } : {}),
     ...(formesValidees.length > 0 ? { formesValidees } : {}),
+    ...(politiquesEnseignees.length > 0 || opts.contexte?.politiques?.length
+      ? { politiques: [...(opts.contexte?.politiques ?? []), ...politiquesEnseignees.filter((p) => !(opts.contexte?.politiques ?? []).includes(p))] }
+      : {}),
     demandeur: demandeurDe(user),
   };
 
@@ -844,6 +855,7 @@ async function replanifierMissionInterne(
   const contexteReplan = {
     aujourdhui: new Date().toLocaleDateString("fr-FR"),
     demandeur: demandeurDe(user),
+    politiques: await import("@/platform/in-process/teach/store").then((m) => m.politiquesPourMission(user.id)).catch(() => [] as string[]),
     // CE QUI EST DÉJÀ FAIT : le planificateur doit repartir de là, pas de zéro. Lui cacher
     // l'acquis le ferait renvoyer trente-et-un messages déjà partis — l'idempotence les
     // arrêterait, mais au prix d'un plan illisible et d'un travail inutile.

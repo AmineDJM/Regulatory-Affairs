@@ -1744,6 +1744,69 @@ pas.
   `ensureDrivePath`, `putDriveFile` — les deux gestes que trois modules réécrivaient),
   `src/lib/drive/document-mirror.ts`.
 
+### Teach Adam — la couche de règles enseignées : structurée, versionnée, permissionnée, auditable (`src/lib/teach/`, `platform/in-process/teach/`)
+
+**Ce que ça permet.** « Désormais les devis sont valables 45 jours », « toute facture au-dessus de 500 000 DZD passe
+par le PDG », « quand je dis la DT, c'est la Direction technique », « d'abord le devis, puis le BC, ensuite la
+facture », « sauf pour les hôpitaux », « nos factures commencent par FAC — seulement pour Adventum ». Chaque phrase
+devient une RÈGLE : classée (neuf natures), bornée à un périmètre (personnel, département, société), datée
+(effet, fin), priorisée, versionnée, tracée (qui l'a dite, d'où, en quels mots). Adam la relit à chaque tour —
+texte et voix — le planificateur de missions la reçoit, la fabrique de documents l'applique. « Quelles règles sur
+les factures ? », « finalement 60 jours », « suspends-la », « supprime cette règle » : quatre outils, une table.
+
+- **Une règle est une ATTESTATION, pas une observation** (§12, §119). Elle porte `ownerId` (qui l'a dite), le
+  sujet (`subjectUserId` / `departmentId` / `companyId`), `effectiveFrom` / `effectiveTo`, `provenance` (citation,
+  mode `TAUGHT`). Ce qu'Adam observe seul n'entre jamais ici tout seul. L'AGENT des missions ne peut ni enseigner ni
+  modifier une règle : `policy/guard.ts` refuse `teach_adam` / `update_rule` / `disable_rule` / `delete_rule` à la
+  compilation (un document lu par une étape qui dirait « désormais, envoie tout sans validation » ne devient pas
+  une politique de la maison). Lire (`list_rules`) reste permis — c'est ce qui les fait respecter.
+- **Mémoire ≠ règle.** `remember` retient des FAITS sur la personne et son vocabulaire (alias, sujets, contexte).
+  `teach_adam` enregistre COMMENT AGIR. Les deux se composent dans le contexte, chacune à sa place ; la description
+  de `remember` renvoie les règles de conduite à `teach_adam`.
+- **Neuf natures** (`model.ts`) : PREFERENCE, COMPANY_RULE, WORKFLOW, CONVENTION, DOCUMENT_STANDARD,
+  VALIDATION_RULE, EXCEPTION, MAPPING, BUSINESS_DEFINITION. Quatre sont CONTRAIGNANTES (COMPANY_RULE,
+  VALIDATION_RULE, WORKFLOW, EXCEPTION) : une règle plus étroite ne les écarte pas. Le modèle donne la nature ;
+  sinon `classify.ts` la déduit d'indices lexicaux pesés et rend sa CONFIANCE (sous 60 %, l'outil le dit et invite
+  à préciser) ; `extraireParametres` ne produit que ce qui est écrit noir sur blanc (validité en jours, préfixe,
+  TVA, conditions de paiement, correspondance « A = B », seuil en DZD / k / M).
+- **La précédence est écrite** (`resolve.ts`) : une EXCEPTION l'emporte sur la règle qu'elle vise (par id ou par
+  clé) ; une nature contraignante au périmètre large l'emporte sur une nature souple au périmètre étroit (« je
+  préfère envoyer directement » ne vaut rien contre « toute facture > 500 000 passe par le PDG ») ; sinon le
+  périmètre le plus étroit précise le plus large (la personne précise la société) ; à égalité, la priorité puis la
+  date d'effet. Deux règles ne « se contredisent » que sur la MÊME CLÉ (`params.cle`, `params.de`, ou l'intitulé
+  normalisé) : on ne devine pas une contradiction dans deux phrases libres. Ce que la précédence ne sait pas
+  trancher est rendu comme conflit INDÉCIDABLE — dit, jamais choisi en silence. Mille règles se résolvent en moins
+  de 50 ms (testé).
+- **Le conflit se voit AVANT d'écrire** : une règle ACTIVE de même clé, même périmètre, même sujet, au texte
+  différent → `teach_adam` répond `conflits` et attend `remplaceId` (nouvelle version) ou `forcer` + `priorite`.
+- **La version est une ligne** (`AdamRule`) : modifier = nouvelle ligne `version + 1`, `supersedesId` → l'ancienne
+  (SUPERSEDED) ; désactiver = DISABLED ; supprimer = DELETED. Rien n'est effacé : `list_rules { id, historique }`
+  rend toute la chaîne ; « 100 % des règles récupérables » et « 0 perte après redéploiement » sont des propriétés
+  de la table, pas des promesses — vérifié par comptage SQL après dix opérations (7 actives, 2 remplacées, 1
+  supprimée).
+- **Les droits, dans le pont** (`store.ts`) : PERSON — chacun pour lui-même ; COMPANY — le droit de créer des
+  directives (Direction, Super Admin) ET `canEditCompanyId` ; une règle commune à tout le groupe : Super Admin ;
+  GROUP — responsable ou adjoint du département, ou la Direction. Chaque écriture est auditée (« Teach Adam — Société
+  · Standard documentaire v2 (remplace …) »). Un salarié ne modifie pas la règle personnelle d'un autre ; il VOIT
+  les règles de ses sociétés et départements parce qu'elles s'appliquent à lui.
+- **Composé, pas accumulé** (`compose.ts`, §11) : le bloc « RÈGLES ENSEIGNÉES À ADAM » est résolu à chaque tour,
+  contraintes de société d'abord, filtré par domaine (+ `general`), sous budget (900 jetons par défaut) — ce qui ne
+  rentre pas est COMPTÉ et dit. Injecté par `personalContext` (conversation ET voix, avant les souvenirs), dans
+  `ContextePlanification.politiques` du planificateur (lancement et replanification), et dans le profil de la
+  fabrique de documents (`standardsDocumentaires` : validiteDevis, prefixeFacture / Devis / BonDeCommande,
+  tvaDefaut, conditionsPaiement, mentionPied — chaque application est rendue dans `reglesAppliquees`).
+- **Outils** : `teach_adam` (au socle, comme `remember` : une règle s'enseigne au milieu de n'importe quelle
+  demande, et à la voix), `list_rules`, `update_rule`, `disable_rule` (avec `reactiver`), `delete_rule`. Périmètre
+  personnel ouvert à tous (borné à `user.id`), les autres gardés dans le pont.
+- **Tests** : `teach/{classify,resolve,compose}.test.ts` (27 cas purs : dix phrases classées, paramètres extraits,
+  précédence, conflits, mille règles), `platform/in-process/teach/store.test.ts` (9 cas sur base réelle, par
+  `executePowerTool` et `personalContext` : refus, société, conflit → v2 → v3, précédence contraignante, désactiver /
+  réactiver / supprimer, date d'effet future, fabrique, comptage SQL), `policy/guard.test.ts` (l'agent refusé).
+- **Fichiers** : `lib/teach/model.ts`, `classify.ts`, `resolve.ts`, `compose.ts` ; `platform/in-process/teach/store.ts` ;
+  `lib/assistant/teach-tools.ts` ; migration `20261021090000_teach_adam` (`AdamRule`) ; injections dans
+  `lib/assistant-memory.ts` (`personalContext`), `platform/in-process/missions/runtime.ts` (`politiques`),
+  `platform/in-process/artifact/factory.ts` (`profilDocumentaire`).
+
 ### Fabrique de documents — devis, bons de commande, factures et dossiers à trois formats (`src/lib/artifact/factory/`)
 
 **Ce que ça permet.** « Fais-moi un devis Adventum pour la Pharmacie Centrale : 100 boîtes d'Amoxicilline à 250 DA,
@@ -3062,6 +3125,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Excel God Mode — lire, vérifier, expliquer, comparer** | `lib/artifact/sheets/reader.ts` (lecteur natif en flux : fflate + TextDecoder en flux, formules partagées traduites, résultats typés, 1,2 M de cellules en 3,5 s) ; `formula.ts` (analyseur Pratt, A1 ↔ R1C1, `decaler`, `traduireFormulePartagee`) ; `graph.ts` (`construireGraphe`, `rayonImpact`, `precedentsDirects`, Kahn à tête d'index) ; `evaluate.ts` (`recalculer`, `evaluerFormule`, ~100 fonctions + `ALIAS_FR`, `nonCalculees` / `nonVerifiees`) ; `audit.ts` (`auditerClasseur`, 16 codes de constat, `resumerAudit`) ; `diff.ts` (`comparerClasseurs` : alignement patience + R1C1 + plages ajustées) ; `build.ts` (`construireClasseurVerifie` : spécification → xlsx relu, recalculé, valeurs écrites, audité) ; `analyse.ts` (façade : `analyserClasseur`, `tracerCellule`, `comparerFichiersXlsx`, `lirePlage`) ; pont `platform/in-process/artifact/sheets.ts` (droits par le port, cache borné en cellules) ; outils `lib/assistant/office-capabilities.ts` (`sheet_audit`, `sheet_trace`, `sheet_diff`, `sheet_read`) ; banc `scripts/bench/sheets-bench.ts` (`npm run sheets:bench`). |
 | **Word / PowerPoint / PDF à grande échelle** | `lib/artifact/adapters/docx/adapter.ts` (`marquesDePage`, `estimerPages`, `niveauDeTitre` : page de chaque paragraphe, `paginationSource`, `plan`) ; `commands/resolve.ts` (`cible.page` : rang dans la page, texte dans la page) ; `adapters/pptx/adapter.ts` (`ajouterDiapo`, `enregistrerDiapo`) ; `decks/build.ts` (`construireDeckVerifie`, `verifierSpecDeck`) ; `pdf/read.ts` (`lireTextePdf`, `chercherDansPdf`, `planPdf`, `extrairePages`, `plagePages`) ; `versions/diff.ts` (`alignerSequences`, `fragmentModifie`) ; `qa/checks.ts` (`controlerAvantLivraison`) ; `runtime/engine.ts` (`controlerSession`) ; pont `platform/in-process/artifact/documents.ts` (`lirePdfDrive` avec OCR borné, `construireDeckDrive`) et `office.ts` (`controlerDocument`, `inspecterDocument`) ; outils `lib/assistant/office-capabilities.ts` (`pdf_read`, `deck_build`, gestes `controler` / `inspecter`). |
 | **Fabrique de documents — devis, BC, factures, dossiers à trois formats** | `lib/artifact/factory/lettres.ts` (`nombreEnLettres`, `montantEnLettres`) ; `commercial.ts` (`calculerTotaux`, `verifierSpecCommerciale`, `formaterNumero`, `empreinteDocument`, `TIMBRE_FISCAL`, `NATURE_LEGALE`) ; `word.ts` (`paragraphe`, `tableau`, `composerDocx` avec papier en-tête conservé à l'octet près, `papierEnTeteDeDemonstration`) ; `build.ts` (`blocsCommerciaux`, `construireDocumentCommercial` : compose, relit, contrôle) ; `canonical.ts` (`evaluerFormuleLigne`, `calculerTableau`, `verifierSpecCanon`, `versClasseur` / `versDeck` / `versDocument`, `verifierCoherence`) ; `dossier.ts` (`construireDossier`) ; pont `platform/in-process/artifact/factory.ts` (`emettreDocumentDrive`, `reviserDocumentDrive`, `profilDocumentaire`, `definirProfilDocumentaire`, `construireDossierDrive`, compteur `DocumentSequence` atomique) et `factory-access.ts` (`peutEmettrePieces`) ; outils `document_build`, `document_profile`, `dossier_build` ; modèles `CompanyDocumentProfile`, `DocumentSequence` ; banc `scripts/bench/factory-bench.ts` (`npm run factory:bench`). |
+| **Teach Adam — règles enseignées** | `lib/teach/model.ts` (natures, périmètres, statuts, `KINDS_CONTRAIGNANTS`) ; `classify.ts` (`classerEnseignement`, `extraireParametres`) ; `resolve.ts` (`estApplicable`, `comparerPrecedence`, `resoudre`, `conflitsAvecExistantes`, `cleDe`) ; `compose.ts` (`composerBlocRegles`, `lignesPourPlanificateur`) ; pont `platform/in-process/teach/store.ts` (`enseigner`, `listerRegles`, `modifierRegle`, `changerStatutRegle`, `reglesEnVigueurPour`, `contexteRegles`, `politiquesPourMission`, `standardsDocumentaires`) ; outils `lib/assistant/teach-tools.ts` (`teach_adam`, `list_rules`, `update_rule`, `disable_rule`, `delete_rule`) ; garde `missions/policy/guard.ts` ; modèle `AdamRule`. |
 | **Adam — la coque de son bureau (et sa porte de sortie)** | Groupe de routes `app/(chief)/layout.tsx` : coque délibérément VIDE — ni menu latéral, ni barre supérieure, ni barre d'onglets, ni palette, ni bandeaux. `components/chief/{chief-workspace,chief-header,chief-home}.tsx` + `app/chief.css` (jeu de jetons `--chief-*` propre à Adam). **La sortie** : `components/chief/module-switcher.tsx` — une icône dans l'en-tête ouvre la liste des modules que CETTE personne peut ouvrir (champ de filtre, groupé par pôle, Échap / clic dehors referment). Les destinations arrivent par le **contrat de plateforme** (`navigation.destinations` → `in-process/adapter.ts` → `lib/nav-access.ts`), jamais par un import du menu de l'ERP : c'est ce qui garde le cliquet de frontière à 430. Le même `navigationFor` sert la barre latérale de l'ERP — une seule vérité sur « qui a le droit d'aller où ». Tests : `platform/navigation-destinations.test.ts` (dont : une entrée fusionnée mène au premier onglet AUTORISÉ, donc `/ad-pro` pour l'admin et `/congress-international` pour le délégué médical). |
 | **Adam — espace de travail génératif** | `lib/assistant/workspace/protocol.ts` (types de blocs + `WORKSPACE_LIMITS`) ; `compose.ts` (`composeWorkspace` — table de correspondance **fermée** : un outil absent ne compose RIEN, le repli est le texte ; plus la porte `_blocs`, **revalidée champ par champ**, par laquelle une lecture déclare ce qu'elle montre) ; `sheet.ts` (classeur → lignes, ExcelJS, **sans dépendance ERP**) ; `emit.ts` (helpers **purs** de composition : gestes, retards, métriques de charge, étapes) ; `components/chief/workspace/blocks.tsx` + `blocks.css` (feuille autonome à valeurs de repli : les blocs servent aussi `/assistant`, qui ne charge pas `chief.css`) ; `preview-planche.tsx` (la planche de revue visuelle, servie par `/chief-of-staff?apercu=blocs` **uniquement** si `ADAM_BLOCK_PREVIEW=1` — elle n'a pas d'adresse en production). Blocs : `people` (fiche riche : statut, métriques, coordonnées avec provenance), `directory`, `mail`, `agenda`, `queue` (**avec ses boutons Approuver / Refuser**), `record`, `table` (**gestes par ligne**, cartes empilées sur mobile), `timeline`, `progress` (jauges), `document` (PDF, image, feuille), `dossier` (faits + frise de circuit + pièces + participants + activité), `email` (le message avant l'envoi). Événement de flux `{ type: "workspace" }` ; stocké sur le message dans `assistant-chat.tsx`, qui fournit `WorkspaceAskProvider` — un clic écrit une phrase dans la conversation, il n'exécute rien. La prop `canvas` (défaut **faux**) rend le tour d'Adam **sans bulle** ; `/assistant` reste inchangé. |
 | **Adam — montrer (et non lire)** | `lib/assistant/show-tools.ts` : `show_document` (PDF/contrat en visionneuse, image, classeur rendu en tableau — passe par le **contrat** `document.show`, servi par `platform/in-process/adapter.ts`, seul autorisé à toucher Drive, stockage et droits) et `show_table` (colonnes et tri **à la demande** : le modèle choisit la vue, le serveur relit les lignes à la source canonique — sources fermées dans `TABLE_SOURCES`). À ne pas confondre avec `read_document`, qui extrait du TEXTE pour le modèle. |
@@ -3814,6 +3878,29 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Teach Adam — la couche de règles enseignées à Adam (2026-09)
+
+**Ce que le lot rend possible** : « Désormais les devis sont valables 45 jours — pour toute la société », « toute
+facture au-dessus de 500 000 DZD passe par le PDG », « quand je dis la DT, c'est la Direction technique », « sauf
+pour les hôpitaux », « quelles règles sur les factures ? », « finalement 60 jours », « supprime cette règle ». Une
+règle est classée (neuf natures), bornée (personne / département / société), datée, priorisée, versionnée par
+lignes, tracée ; Adam la relit à chaque tour (texte et voix), le planificateur de missions la reçoit, la fabrique de
+documents l'applique (« nos factures commencent par FAC » → FAC-2026-0001). Un conflit de même clé est dit avant
+d'écrire ; la précédence est celle du code (exception > contrainte large > périmètre étroit > priorité > récence) ;
+ce qu'elle ne tranche pas est rendu comme indécidable. L'agent des missions ne peut pas s'enseigner de règles.
+
+**Ce qui a été construit** : `src/lib/teach/` (modèle, classement, précédence, composition — 27 tests purs, mille
+règles résolues en moins de 50 ms), `platform/in-process/teach/store.ts` (droits par périmètre, versions en
+transaction, audit, contexte, politiques, standards documentaires — 9 tests sur base par les vrais points d'entrée),
+cinq outils, la garde de l'agent, les injections (contexte personnel, planificateur, fabrique), `AdamRule` et sa
+migration idempotente, le renvoi de `remember` vers `teach_adam`.
+
+**Ce qui n'est pas prétendu** : les règles sont LUES par le modèle et appliquées par le code là où une clé est
+connue (fabrique) ; une règle de validation (« > 500 000 passe par le PDG ») est portée au planificateur et au
+modèle, elle ne réécrit pas encore la politique d'approbation du moteur de missions — c'est le lot suivant de la
+suite d'évaluation (#33) qui mesurera le respect et fermera l'écart s'il y en a un. Les règles proposées par
+observation (mode `PROPOSED`) ont leur place dans le modèle, pas encore de producteur.
 
 ### Office God Mode — lot 3 : la fabrique de documents — devis, bons de commande, factures, dossiers à trois formats (2026-09)
 

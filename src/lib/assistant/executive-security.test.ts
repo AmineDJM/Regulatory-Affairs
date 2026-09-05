@@ -74,6 +74,10 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       "search_documents",
       "search_everything", "list_pending_decisions",
       "remember", "list_memories", "forget_memory", "recall_conversation",
+      // Teach Adam : le périmètre PERSONNEL est borné à `user.id` comme la mémoire ; les périmètres
+      // département / société sont gardés DANS le pont (droit de poser des directives, `canEditCompanyId`,
+      // responsable du département) — la même règle pour l'outil et pour tout autre chemin.
+      "teach_adam", "list_rules", "update_rule", "disable_rule", "delete_rule",
       "action_history", "episodic_recall",
       // web_research : le WEB, pas l'ERP. L'outil ne touche à AUCUNE donnée interne — il
       // interroge l'extérieur via le fournisseur de modèle, et son coût est compté à la
