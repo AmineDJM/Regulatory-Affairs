@@ -66,7 +66,9 @@ export function canauxPour(niveau: NiveauSignal): { notification: boolean; push:
     case "SILENCE": return { notification: false, push: false, insistant: false, email: false };
     case "JOURNAL": return { notification: true, push: false, insistant: false, email: false };
     case "INFO": return { notification: true, push: true, insistant: false, email: false };
-    case "ATTENTION": return { notification: true, push: true, insistant: true, email: true };
+    // ATTENTION pousse et écrit, mais n'INSISTE pas : une notification qui reste sur l'écran
+    // jusqu'à un geste est réservée à ce que seule sa décision débloque.
+    case "ATTENTION": return { notification: true, push: true, insistant: false, email: true };
     case "ARBITRAGE": return { notification: true, push: true, insistant: true, email: true };
   }
 }
@@ -143,3 +145,5 @@ export function composerMessage(s: SignalAttention): { titre: string; corps: str
     }
   }
 }
+
+export type { NiveauSignal };

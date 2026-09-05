@@ -2983,7 +2983,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | `approval/scope.ts` | L'empreinte immuable d'un périmètre (§33) |
 | `approval/gate.ts` | La porte fermée par défaut + la notification via le VAPID existant |
 | `events/match.ts` | « Ce fait est-il celui que j'attendais ? » — pur, strict par défaut |
-| `events/router.ts` | Réveil des missions, attente humaine, attentes échues, file de l'ordonnanceur |
+| `events/router.ts` | Réveil des missions (idempotent : une progression déjà complète se finalise), attente humaine, attentes échues, file de l'ordonnanceur ; `rattraperFaitAnterieur` : les faits arrivés AVANT l'attente (fenêtre depuis la dernière écriture amont, faits seuls, jamais le temps) |
 | `goal/evaluate.ts` | Contrôle qualité arithmétique + satisfaction de l'objectif (§20-22). Partitionne les critères : règles vérifiées sur les REÇUS d'abord, juge LLM sur le seul reste sémantique — tout-règles → 0 appel de juge |
 | `goal/rules.ts` | Le juge de RÈGLES : grammaire `[REGLE:CODE:args]`, vérification déterministe sur les reçus (`RECHERCHES_AVEC_REQUETE`, `AUCUNE_ECRITURE`, `SORTIE_STRUCTUREE`). Code inconnu → critère SÉMANTIQUE, jamais deviné |
 | `recovery/strategy.ts` | Douze causes, une échelle par cause, quatre niveaux de certitude |
@@ -3015,12 +3015,13 @@ l'ERP, et la racine de composition du runtime (`boundary-scan.ts` l'exempte, par
 | `relance.ts` | L'ÉCHELLE DE RELANCES : Adam relance lui-même (message interne signé du compte système, un par jour), la hiérarchie au 3ᵉ barreau, le dirigeant seulement au-delà ; une partie externe va directement au dirigeant ; `relancerPersonne` partagé avec les engagements |
 | `provider-waterfall.ts` | La cascade instrumentée du smoke : voie du plan, appels chevauchants, facteur de parallélisme, premier résultat utile — les métriques §18 du chantier latence |
 | `deep-smoke.ts` | Le Deep Live Smoke (`npm run adam:smoke:deep`) : 60-80 missions générées depuis les VRAIES données de l'ERP (~19 genres), même harnais `jouer` que le smoke fournisseur, verdicts SUCCÈS/HONNÊTE/DÉFAUT, nettoyage borné à ses missions. Mode PALIERS (`DEEP_SMOKE_PALIERS="3,5,10"`) : montée en charge par mesure, arrêt auto si défauts ↑ ou P95 ×2, concurrence retenue = maximum SAIN observé ; `carteDeScore` §71 (E2E, création, routes, non-triviales anti-triche, appels gaspillés, jetons/succès) au rapport et au JSON |
-| `sweep.ts` | Le battement des missions : douze par passage, droits RELUS en base, attentes échues journalisées une fois puis RELANCÉES par l'échelle (`relancerAttente`) à chaque battement, idempotent dans la journée |
+| `sweep.ts` | Le battement des missions : douze par passage, droits RELUS en base ; `conduireMission` (avancer → replanifier si BLOCKED/FAILED → signaler au dirigeant un blocage NOUVEAU sans recours, une fois) ; attentes échues journalisées une fois puis RELANCÉES par l'échelle (`relancerAttente`) à chaque battement, idempotent dans la journée |
 | `memory.ts` | Découpage en épisodes, vieillissement par le calendrier, contexte composé sous budget |
 | `commitments.ts` | Les promesses en retard : espacement croissant, le silence quand l'identité n'est pas canonique, et la relance du PROMETTANT par Adam (échelle) — le dirigeant seulement quand l'échelle est épuisée ou sans compte interne |
 | `control.ts` | Les gestes de conduite vus d'Adam — sans accorder ni fournir, qui exigent un clic |
 | `fake-reasoner.ts` | Le seul substitut des bancs : il VALIDE chaque réponse scriptée contre le schéma réellement demandé |
-| `e2e.test.ts` `memory.test.ts` `commitments.test.ts` `relance.test.ts` `situation.test.ts` `attention.test.ts` `launch-resilience.test.ts` `autonomous-dedup.test.ts` `message-wake.test.ts` | Les bancs de bout en bout, depuis les vrais points d'entrée |
+| `e2e.test.ts` `memory.test.ts` `commitments.test.ts` `relance.test.ts` `situation.test.ts` `attention.test.ts` `launch-resilience.test.ts` `autonomous-dedup.test.ts` `message-wake.test.ts` `branche-conditionnelle.test.ts` `watch.test.ts` `evenement-anterieur.test.ts` | Les bancs de bout en bout, depuis les vrais points d'entrée |
+| `crash-matrix.test.ts` `permission-matrix.test.ts` `donnees-modifiees.test.ts` | Les MATRICES et le CHAOS : le crash à chaque frontière d'étape (5/5 reprises, 0 doublon) ; permissions × capacités × confirmation sur le vrai catalogue de tous les rôles ; la cible qui disparaît en cours de mission (rien ne part, la mission ne conclut pas, le dirigeant est prévenu une fois) |
 
 ### Information Fabric (`src/lib/fabric/`) — façade L2
 
@@ -3701,11 +3702,46 @@ tombe). Cibles résolues : dossiers réglementaires, dossiers CTD, tâches, règ
 validations, produits / organisations / personnes du dictionnaire canonique — une référence ambiguë rend des
 candidats, jamais le premier des quatre.
 
+**8. Les matrices d'évaluation — des mesures, pas des intentions.** Trois bancs programmatiques, chacun avec sa
+cible chiffrée : (a) **agir / demander / prévenir** (`attention/decisions.test.ts`) — vingt-quatre situations
+écrites depuis le mandat AVANT de regarder la politique (bruit, utile non urgent, attention, arbitrage), 100 %
+conformes ; au passage, l'insistance (notification qui reste à l'écran) est réservée à l'ARBITRAGE. (b)
+**permissions × capacités × confirmation** (`permission-matrix.test.ts`) — mesuré sur le VRAI catalogue de
+TOUS les rôles : toute écriture du résolveur est classée ≥ `INTERNAL_REVERSIBLE_WRITE`, toute étape à effet
+≥ `EXTERNAL_COMMUNICATION` compile avec un accord, toute écriture non rejouable porte sa clé, l'agent ne compile
+aucune capacité `SECURITY_ADMIN`, un rôle terrain n'en voit aucune de sécurité ni de paiement. La matrice a
+trouvé un défaut réel : un délégué médical VOYAIT `decide_payment` (l'exécution refusait, mais le planificateur
+pouvait le proposer et le compilateur l'acceptait) — les écritures sous condition sont désormais filtrées à
+l'exposition par le MÊME prédicat que l'exécution (`sitsOnPaymentCentre`). (c) **le crash à chaque frontière**
+(`crash-matrix.test.ts`) — la même mission (lecture → accord → un message par salarié → attente → contrôle)
+rejouée cinq fois, tuée après une étape différente à chaque fois (RUNNING, bail expiré, reçu et résultat
+effacés) : 5/5 reprises concluent, 0 message dupliqué, 100 % des intents EXÉCUTÉS, la déduplication comptée.
+Cette matrice a trouvé un second défaut : une attente dont la progression persistée était déjà complète mais
+qui se retrouvait WAITING (reprise après crash) ne se finalisait jamais — le routeur de réveil est désormais
+idempotent sur ce cas.
+
+**8 bis. Les données changent pendant la mission** (`donnees-modifiees.test.ts`, `sweep.ts` `conduireMission`). La
+cible d'un envoi est désactivée entre l'accord et l'exécution : aucun message ne part, l'étape échoue en le
+disant (`INVALID_STEP`, non rejouable), la mission ne se déclare pas terminée. Le banc a trouvé le trou : une
+mission qui passe BLOCKED par déduction d'état (graphe figé) ne prévenait PERSONNE — seule la conclusion par le
+juge signalait. La conduite d'un passage du battement est désormais une fonction (`conduireMission` : avancer,
+replanifier si ça coince, et — si ça coince ENCORE — le dire au dirigeant au moment où le blocage APPARAÎT,
+jamais répété à chaque battement). « Résolu seul » reste au journal ; « coince sans recours » remonte.
+
+**9. Les événements dans le désordre** (`events/router.ts` `rattraperFaitAnterieur`, moteur). La réponse peut
+arriver AVANT que l'attente n'existe — pendant l'accord, pendant la lecture amont, entre deux tours. Avant de
+dormir, une attente regarde si le fait attendu est DÉJÀ au registre, dans une fenêtre qui commence à la fin de
+la dernière dépendance qui ÉCRIT (la demande) — un message antérieur à la demande n'est pas une réponse — ou à
+la création de la mission ; seuls les FAITS règlent une branche ici (le temps reste l'affaire du balayage
+temporel), une progression partielle est persistée, un fait cadré sur une autre mission est ignoré. Journal
+`EVENT_CATCHUP`. Prouvé par l'entrée réelle (`evenement-anterieur.test.ts`) dans les deux sens.
+
 **Ce qui reste, dit avant d'être demandé.** La latence de planification (2,4-3,5 k jetons de sortie, 54-93 s) ;
 `ADAM_PLANNER_ROLE` permet de mesurer un rôle plus rapide. Une réponse qui arrive APRÈS que l'attente s'est
 réglée par le temps (la personne répond le lendemain de la relance) n'est pas encore rattachée à la mission qui
-l'attendait : elle sera journalisée et signalée au lot suivant. La suite d'évaluation chiffrée et le chaos sont
-les lots suivants du même chantier.
+l'attendait : elle sera journalisée et signalée au lot suivant. Le chaos restant (données modifiées en cours de
+mission, dizaines de missions simultanées au-delà des paliers du Deep Smoke) et le banc live des missions
+inédites sont les mesures suivantes du même chantier.
 
 ### Adam mesuré, puis accéléré : le banc, les pré-lectures, le routage par niveau, le coût de premier rang (2026-09)
 

@@ -1796,13 +1796,27 @@ export const RESOLVER_WRITE_NAMES: ReadonlySet<string> = new Set([
  * Les DROITS décident, pas le rôle : `powerToolsFor` et `EXPORT_TOOL` sont bornés par les accès
  * effectifs, et chaque outil revérifie de toute façon à l'exécution.
  */
+/**
+ * LES ÉCRITURES SOUS CONDITION — montrées seulement à qui a le droit de les exécuter.
+ *
+ * L'exécution revérifie toujours (l'action du centre refuse qui ne siège pas). Mais MONTRER une
+ * capacité à quelqu'un qui ne peut pas s'en servir a un coût mesuré par la matrice
+ * permissions × capacités : le planificateur d'une mission la propose, le compilateur l'accepte
+ * (« ouverte au catalogue »), et l'étape échoue à l'exécution — un délégué médical voyait
+ * `decide_payment`. Une capacité interdite à l'acteur doit être un refus de COMPILATION (§3),
+ * donc absente de son catalogue. Le prédicat est LE MÊME que celui de l'exécution.
+ */
+const ECRITURES_SOUS_CONDITION: Record<string, (user: CurrentUser) => boolean> = {
+  decide_payment: (user) => sitsOnPaymentCentre(user),
+};
+
 export function assistantToolsFor(user: CurrentUser): ClaudeToolDef[] {
   return [
     ...READ_TOOLS,
     ...powerToolsFor(user),
     EXPORT_TOOL,
     ...(user.role === "SUPER_ADMIN" ? [...SUPERADMIN_TOOLS, ...SUPERADMIN_WRITE_TOOLS] : []),
-    ...WRITE_TOOLS,
+    ...WRITE_TOOLS.filter((t) => ECRITURES_SOUS_CONDITION[t.name]?.(user) ?? true),
   ];
 }
 

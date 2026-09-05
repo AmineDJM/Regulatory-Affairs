@@ -4,6 +4,7 @@ import type { CurrentUser } from "@/lib/session";
 import { attentesEchues, missionsAFaireAvancer, reveillerAttentesTemporelles } from "@/lib/missions/events/router";
 import { journaliser } from "@/lib/missions/runtime/store";
 import { relancerAttente } from "@/platform/in-process/missions/relance";
+import { porteAttentionPour } from "@/platform/in-process/missions/attention";
 import { avancerMission, rattraperLancementsPerdus, replanifierMission } from "@/platform/in-process/missions/runtime";
 import crypto from "crypto";
 
@@ -110,6 +111,83 @@ export async function proprietaire(userId: string): Promise<CurrentUser | null> 
   };
 }
 
+export interface ConduiteMission {
+  executees: number;
+  deployees: number;
+  replanifie: boolean;
+  /** Le statut à la fin du passage. */
+  statut: string | null;
+  /** Le dirigeant a-t-il été prévenu par ce passage (blocage ou échec NOUVEAU, sans recours) ? */
+  signale: boolean;
+}
+
+/**
+ * CONDUIT UNE MISSION D'UN PASSAGE : avancer, replanifier si elle coince, et — seulement si elle
+ * coince ENCORE — le dire au dirigeant. C'est la séquence du battement, exposée pour qu'un banc
+ * puisse la jouer sur une mission sans balayer toute la base.
+ *
+ * ── LE PLAN NE PASSE PLUS : ON EN ÉCRIT UN AUTRE (§39-40) ──────────────────────────────
+ *
+ * Seulement quand le moteur a épuisé ce qu'il savait faire — réessayer, réparer — et que la
+ * mission s'est arrêtée en échec ou bloquée. Replanifier plus tôt jetterait un plan qui
+ * marchait pour un incident passager ; ne jamais replanifier laisserait la mission morte sur une
+ * étape que le planificateur savait contourner. `replanifierMission` porte ses propres
+ * garde-fous : quatre plans au maximum, et tout ce que le nouveau plan ajoute repasse par
+ * l'accord de la personne (§8). Le battement n'ouvre donc aucune porte — il ne fait que ne pas
+ * abandonner.
+ *
+ * ── ET QUAND ELLE COINCE ENCORE, ON LE DIT — UNE FOIS ───────────────────────────────────
+ *
+ * Mesuré par le banc « données modifiées en cours de mission » : la cible d'un envoi disparaît,
+ * l'étape échoue en le disant, le graphe se fige, la mission passe BLOCKED par déduction d'état —
+ * et PERSONNE n'était prévenu, parce que seule la conclusion par le juge signalait. Ici, un
+ * blocage ou un échec que la replanification n'a pas levé est signalé au moment où il APPARAÎT
+ * (le statut a changé pendant ce passage), jamais répété à chaque battement : « résolu seul »
+ * reste au journal, « coince sans recours » remonte.
+ */
+export async function conduireMission(
+  user: CurrentUser,
+  missionId: string,
+  opts: { maxTours?: number; reasoner?: Parameters<typeof avancerMission>[2] extends infer O ? (O extends { reasoner?: infer R } ? R : never) : never } = {},
+): Promise<ConduiteMission> {
+  const avant = await prisma.mission.findUnique({ where: { id: missionId }, select: { status: true } });
+  const options = { maxTours: opts.maxTours ?? TOURS_PAR_MISSION, ...(opts.reasoner ? { reasoner: opts.reasoner } : {}) };
+  const r = await avancerMission(user, missionId, options);
+  const out: ConduiteMission = { executees: r?.executees ?? 0, deployees: r?.deployees ?? 0, replanifie: false, statut: null, signale: false };
+
+  let apres = await prisma.mission.findUnique({ where: { id: missionId }, select: { status: true, planVersion: true, ownerId: true } });
+  let raisonReplan: string | null = null;
+  if (apres && (apres.status === "FAILED" || apres.status === "BLOCKED")) {
+    const rp = await replanifierMission(user, missionId, opts.reasoner ? { reasoner: opts.reasoner } : undefined).catch(() => null);
+    raisonReplan = rp?.raison ?? null;
+    if (rp?.replanifie) {
+      out.replanifie = true;
+      const r2 = await avancerMission(user, missionId, options).catch(() => null);
+      out.executees += r2?.executees ?? 0;
+      out.deployees += r2?.deployees ?? 0;
+      apres = await prisma.mission.findUnique({ where: { id: missionId }, select: { status: true, planVersion: true, ownerId: true } });
+    }
+  }
+  out.statut = apres?.status ?? null;
+
+  if (apres && (apres.status === "FAILED" || apres.status === "BLOCKED") && avant?.status !== apres.status) {
+    const morte = await prisma.missionStep.findFirst({
+      where: { missionId, status: "FAILED" }, orderBy: { updatedAt: "desc" }, select: { title: true, error: true },
+    });
+    const raison = morte
+      ? `« ${morte.title} » : ${morte.error ?? "en échec"}${raisonReplan ? ` — replanification : ${raisonReplan}` : ""}`
+      : raisonReplan ?? "la mission ne peut plus avancer seule";
+    await porteAttentionPour().signaler({
+      kind: apres.status === "FAILED" ? "MISSION_FAILED" : "MISSION_BLOCKED",
+      missionId, ownerId: apres.ownerId, titre: "", raison,
+      decision: "préciser la demande, replanifier depuis l'écran de la mission, ou l'arrêter",
+      planVersion: apres.planVersion,
+    }).catch(() => undefined);
+    out.signale = true;
+  }
+  return out;
+}
+
 /**
  * FAIT AVANCER LES MISSIONS QUI PEUVENT AVANCER.
  *
@@ -177,30 +255,12 @@ export async function balayerMissions(): Promise<BalayageMissions> {
       // ── LE BAIL — deux battements concurrents ne paient pas deux fois les mêmes tours ──
       if (!(await prendreBail(m.id))) continue;
 
-      const r = await avancerMission(user, m.id, { maxTours: TOURS_PAR_MISSION });
-      if (r && (r.executees > 0 || r.deployees > 0)) {
+      const c = await conduireMission(user, m.id, { maxTours: TOURS_PAR_MISSION });
+      if (c.executees > 0 || c.deployees > 0) {
         out.avancees += 1;
-        out.etapesExecutees += r.executees;
+        out.etapesExecutees += c.executees;
       }
-
-      // ── LE PLAN NE PASSE PLUS : ON EN ÉCRIT UN AUTRE (§39-40) ──────────────────────
-      //
-      // Seulement quand le moteur a épuisé ce qu'il savait faire — réessayer, réparer — et que
-      // la mission s'est arrêtée en échec ou bloquée. Replanifier plus tôt jetterait un plan qui
-      // marchait pour un incident passager ; ne jamais replanifier laisserait la mission morte
-      // sur une étape que le planificateur savait contourner.
-      //
-      // `replanifierMission` porte ses propres garde-fous : quatre plans au maximum, et tout ce
-      // que le nouveau plan ajoute repasse par l'accord de la personne (§8). Le battement
-      // n'ouvre donc aucune porte — il ne fait que ne pas abandonner.
-      const apres = await prisma.mission.findUnique({ where: { id: m.id }, select: { status: true } });
-      if (apres && (apres.status === "FAILED" || apres.status === "BLOCKED")) {
-        const rp = await replanifierMission(user, m.id).catch(() => null);
-        if (rp?.replanifie) {
-          out.replanifiees += 1;
-          await avancerMission(user, m.id, { maxTours: TOURS_PAR_MISSION }).catch(() => null);
-        }
-      }
+      if (c.replanifie) out.replanifiees += 1;
     } catch (e) {
       console.error(`[missions] avancement de ${m.id} échoué`, e);
     } finally {

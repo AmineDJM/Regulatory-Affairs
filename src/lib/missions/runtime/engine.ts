@@ -26,6 +26,8 @@ import {
 import { elargirEntree, memeAppel, type ActionRecours } from "@/lib/missions/recovery/action";
 import { EFFECT_RANK, capabilityMeta, type Effect } from "@/lib/missions/registry/capability-meta";
 import { evaluerCondition, lireCondition } from "@/lib/missions/runtime/condition";
+import { lireAttente, lireProgres } from "@/lib/missions/events/match";
+import { rattraperFaitAnterieur } from "@/lib/missions/events/router";
 import { fabriquerRecu, type ExecutionReceipt } from "@/lib/missions/runtime/receipt";
 
 /**
@@ -75,7 +77,7 @@ export interface StepContext {
 /** Ce qu'un gestionnaire de nœud rend au moteur. Rien d'autre n'est écrit en base par lui. */
 export type StepOutcome =
   | { status: "DONE"; result?: unknown; receipt?: string; recu?: ExecutionReceipt }
-  | { status: "WAITING"; raison: string }
+  | { status: "WAITING"; raison: string; result?: unknown }
   | { status: "SKIPPED"; raison: string }
   /**
    * `recu` SUR UN ÉCHEC AUSSI — « nous avons interrogé cette source et cela n'a rien donné » est
@@ -740,10 +742,32 @@ async function dispatcher(ctx: StepContext, deps: EngineDeps): Promise<StepOutco
       // existence sert à réduire le nombre d'arêtes, pas à produire quoi que ce soit.
       return { status: "DONE", result: { joined: step.dependsOn.length } };
 
-    case "WAIT_EVENT":
-      return h.WAIT_EVENT
-        ? h.WAIT_EVENT(ctx)
-        : { status: "WAITING", raison: `attend l'événement ${String(step.waitFor?.event ?? "?")}` };
+    case "WAIT_EVENT": {
+      if (h.WAIT_EVENT) return h.WAIT_EVENT(ctx);
+      // ── LES FAITS DÉJÀ ARRIVÉS (événements dans le désordre) ────────────────────────────
+      //
+      // Avant de dormir, l'attente regarde si ce qu'elle attend est DÉJÀ au registre — arrivé
+      // pendant l'accord, la lecture amont, ou entre deux tours. La fenêtre commence à la fin
+      // de la dernière dépendance qui ÉCRIT (la demande) : un fait antérieur à la demande n'est
+      // pas une réponse. Une progression partielle (« le contrat ET le devis » : le contrat
+      // déjà là) est persistée avec l'attente.
+      const attente = lireAttente(step.waitFor);
+      if (attente) {
+        const clesEcritures = step.dependsOn.filter((k) => {
+          const d = ctx.mission.steps.find((x) => x.key === k);
+          return d?.capability ? EFFECT_RANK[metaDe(d.capability, deps.catalog).effect] >= EFFECT_RANK.INTERNAL_REVERSIBLE_WRITE : false;
+        });
+        const deja = lireProgres(step.result);
+        const r = await rattraperFaitAnterieur({ missionId: ctx.mission.id, stepKey: step.key, attente, dejaReglees: deja, clesEcritures, maintenant: ctx.clock.now() });
+        if (r.complete && r.fait) {
+          return { status: "DONE", result: { reveillePar: r.fait.type, payload: (r.fait.payload ?? null) as never, attenteProgres: r.reglees, rattrape: true } };
+        }
+        if (r.reglees.length > deja.length) {
+          return { status: "WAITING", raison: `attend l'événement ${String(step.waitFor?.event ?? "?")} (une partie déjà arrivée)`, result: { attenteProgres: r.reglees } };
+        }
+      }
+      return { status: "WAITING", raison: `attend l'événement ${String(step.waitFor?.event ?? "?")}` };
+    }
 
     case "WAIT_INPUT":
       return h.WAIT_INPUT
@@ -960,7 +984,8 @@ async function ecrireSortie(
   }
 
   if (sortie.status === "WAITING") {
-    await prisma.missionStep.update({ where: { id: step.id }, data: base });
+    // Une attente peut porter une PROGRESSION (branches déjà réglées) : elle voyage avec elle.
+    await prisma.missionStep.update({ where: { id: step.id }, data: { ...base, ...(sortie.result !== undefined ? { result: sortie.result as never } : {}) } });
     await journaliser(etat.id, "STEP_WAITING", `Étape « ${step.title} » en attente : ${sortie.raison}`,
       { stepKey: step.key });
     return;

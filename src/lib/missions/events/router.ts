@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { journaliser } from "@/lib/missions/runtime/store";
-import { Attente, FaitObserve, echue, etatAttente, lireAttente, lireProgres } from "@/lib/missions/events/match";
+import { Attente, FaitObserve, correspond, decomposer, echue, etatAttente, lireAttente, lireProgres } from "@/lib/missions/events/match";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -64,7 +64,10 @@ export async function reveillerMissions(fait: FaitObserve): Promise<Reveil[]> {
       const attente = lireAttente(step.waitFor);
       if (!attente) continue;
       const etat = etatAttente(attente, lireProgres(step.result), fait, maintenant);
-      if (etat.nouvelles.length === 0) continue;
+      // Rien de neuf ET pas complète : on passe. Une progression persistée déjà COMPLÈTE sur une
+      // étape encore WAITING (reprise après un crash entre l'écriture et la suite) se finalise :
+      // le réveil est idempotent, jamais une attente figée avec toutes ses branches réglées.
+      if (etat.nouvelles.length === 0 && !etat.complete) continue;
 
       if (!etat.complete) {
         /**
@@ -134,7 +137,10 @@ export async function reveillerAttentesTemporelles(maintenant = new Date()): Pro
       const attente = lireAttente(step.waitFor);
       if (!attente) continue;
       const etat = etatAttente(attente, lireProgres(step.result), null, maintenant);
-      if (etat.nouvelles.length === 0) continue;
+      // Rien de neuf ET pas complète : on passe. Une progression persistée déjà COMPLÈTE sur une
+      // étape encore WAITING (reprise après un crash entre l'écriture et la suite) se finalise :
+      // le réveil est idempotent, jamais une attente figée avec toutes ses branches réglées.
+      if (etat.nouvelles.length === 0 && !etat.complete) continue;
 
       if (!etat.complete) {
         await prisma.missionStep.updateMany({
@@ -265,4 +271,82 @@ export async function missionsAFaireAvancer(limite = 20): Promise<string[]> {
     take: limite,
   });
   return rows.map((r) => r.id);
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES FAITS ARRIVÉS AVANT L'ATTENTE — « événements dans le désordre ».
+ *
+ * Le réveil n'écoute que les étapes déjà WAITING. Or une réponse peut arriver AVANT que
+ * l'attente n'existe : pendant que la mission attend son accord, pendant la lecture qui précède,
+ * entre le plan et le premier tour. Sans rattrapage, la mission attendait un fait déjà inscrit
+ * au registre — jusqu'à l'échéance, puis relançait quelqu'un qui avait répondu.
+ *
+ * ── LA FENÊTRE, OU POURQUOI ON NE RAMASSE PAS N'IMPORTE QUOI ────────────────────────────
+ *
+ * Un fait antérieur à la DEMANDE n'est pas une réponse : le message de Sarah d'hier ne répond
+ * pas à celui qu'on lui envoie ce matin. La fenêtre commence donc à la fin de la dernière
+ * dépendance qui ÉCRIT (la demande elle-même) ; sans écriture en amont, à la création de la
+ * mission — jamais avant. Un fait cadré sur une AUTRE mission est ignoré.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function rattraperFaitAnterieur(opts: {
+  missionId: string;
+  stepKey: string;
+  attente: Attente;
+  dejaReglees: readonly number[];
+  /** Les clés des dépendances qui écrivent (la demande dont on attend la réponse). */
+  clesEcritures: readonly string[];
+  maintenant?: Date;
+}): Promise<{ complete: boolean; reglees: number[]; fait: FaitObserve | null }> {
+  const maintenant = opts.maintenant ?? new Date();
+  const reglees = [...opts.dejaReglees];
+  const types = [...new Set(decomposer(opts.attente).branches.map((b) => b.event).filter((e): e is string => Boolean(e)))];
+  if (types.length === 0) return { complete: false, reglees, fait: null };
+  try {
+    const mission = await prisma.mission.findUnique({ where: { id: opts.missionId }, select: { createdAt: true } });
+    if (!mission) return { complete: false, reglees, fait: null };
+    let depuis = mission.createdAt;
+    if (opts.clesEcritures.length > 0) {
+      const ecritures = await prisma.missionStep.findMany({
+        where: { missionId: opts.missionId, key: { in: [...opts.clesEcritures] } }, select: { completedAt: true },
+      });
+      const fins = ecritures.map((e) => e.completedAt?.getTime() ?? null);
+      // Une écriture amont sans date de fin : la fenêtre ne peut pas s'ouvrir — on n'invente pas.
+      if (fins.some((f) => f === null)) return { complete: false, reglees, fait: null };
+      depuis = new Date(Math.max(depuis.getTime(), ...(fins as number[])));
+    }
+    const faits = await prisma.businessEvent.findMany({
+      where: { type: { in: types }, occurredAt: { gte: depuis }, OR: [{ missionId: null }, { missionId: opts.missionId }] },
+      orderBy: { occurredAt: "asc" }, take: 200,
+      select: { type: true, actorId: true, entityType: true, entityId: true, relatedRefs: true, payload: true, missionId: true },
+    });
+    // LES FAITS SEULS règlent une branche ici — jamais le temps. Une échéance passée est
+    // l'affaire du balayage temporel (une seule source pour « le moment est arrivé ») ; la
+    // laisser régler une branche au passage attribuerait le réveil au premier fait venu, d'un
+    // autre fil, et une branche « sinon » (TIMEOUT) partirait pour une réponse qui n'existe pas.
+    const { mode, branches } = decomposer(opts.attente);
+    const acquis = new Set(reglees.filter((i) => i >= 0 && i < branches.length));
+    for (const f of faits) {
+      const fait: FaitObserve = { type: f.type, actorId: f.actorId, entityType: f.entityType, entityId: f.entityId, relatedRefs: f.relatedRefs, payload: f.payload, missionId: f.missionId };
+      let nouveau = false;
+      for (const [i, b] of branches.entries()) {
+        if (acquis.has(i) || !correspond(b, fait)) continue;
+        acquis.add(i);
+        nouveau = true;
+      }
+      if (!nouveau) continue;
+      const complete = mode === "ANY" ? acquis.size > 0 : acquis.size === branches.length;
+      if (complete) {
+        await journaliser(opts.missionId, "EVENT_CATCHUP",
+          `« ${opts.stepKey} » : le fait attendu (${f.type}) était déjà arrivé, après ${opts.clesEcritures.length > 0 ? "la demande" : "le lancement"} — l'attente est réglée sans attendre.`,
+          { stepKey: opts.stepKey, event: f.type, depuis: depuis.toISOString() });
+        return { complete: true, reglees: [...acquis].sort((a, b) => a - b), fait };
+      }
+    }
+    return { complete: false, reglees: [...acquis].sort((a, b) => a - b), fait: null };
+  } catch (err) {
+    console.error("[missions] rattrapage des faits antérieurs impossible", err);
+    return { complete: false, reglees, fait: null };
+  }
 }
