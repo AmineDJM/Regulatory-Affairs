@@ -31,6 +31,8 @@ export interface Designable {
   index: number;
   /** Ce qu'on lit dedans — sert à `contient`. */
   texte: string;
+  /** La page où l'objet commence, quand le format en a une (Word). */
+  page?: number | null;
 }
 
 export type Resolution<T> =
@@ -73,6 +75,33 @@ export function resoudre<T extends Designable>(
     return o
       ? { etat: "TROUVE", objet: o }
       : { etat: "ABSENT", motif: `le ${quoi} « ${cible.id} » n'existe plus dans ce document` };
+  }
+
+  // 0 — LA PAGE, qui RESTREINT tout le reste. « Le troisième paragraphe de la page 12 » : on ne
+  // garde que la page 12, et le rang se compte à l'intérieur. Une page seule, sans autre
+  // précision, rend ses objets comme candidats : on ne choisit pas pour la personne.
+  const page = cible.page ?? null;
+  if (page !== null) {
+    if (!candidats.some((c) => c.page !== undefined && c.page !== null)) {
+      return { etat: "ABSENT", motif: `ce document n'a pas de pagination connue : désignez le ${quoi} par son rang ou son texte` };
+    }
+    const dansLaPage = candidats.filter((c) => c.page === page);
+    if (dansLaPage.length === 0) {
+      const max = Math.max(...candidats.map((c) => c.page ?? 0));
+      return { etat: "ABSENT", motif: `aucun ${quoi} ne commence page ${page}${max ? ` (le document en compte ${max})` : ""}` };
+    }
+    if (cible.index !== null) {
+      const o = dansLaPage[cible.index - 1];
+      return o
+        ? { etat: "TROUVE", objet: o }
+        : { etat: "ABSENT", motif: `la page ${page} n'a que ${dansLaPage.length} ${quoi}${dansLaPage.length > 1 ? "s" : ""}, pas de n° ${cible.index}` };
+    }
+    if (!cible.contient && !cible.role) {
+      if (dansLaPage.length === 1) return { etat: "TROUVE", objet: dansLaPage[0] };
+      return { etat: "AMBIGU", candidats: dansLaPage.slice(0, 12), motif: `la page ${page} contient ${dansLaPage.length} ${quoi}s — lequel ?` };
+    }
+    // `contient` / `role` : la suite travaille sur la page seulement.
+    candidats = dansLaPage;
   }
 
   // 2 — LE RANG HUMAIN. 1 = le premier (§17).

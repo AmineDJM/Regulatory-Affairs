@@ -27,9 +27,12 @@ import { CAPACITES_ARTEFACT, LIBELLE_CAPACITE, type CapaciteArtefact } from "@/l
 import * as moteurLiveOffice from "@/lib/artifact/runtime/engine";
 import * as moteurExcel from "@/lib/artifact/sheets/analyse";
 import * as constructeurExcel from "@/lib/artifact/sheets/build";
+import * as lecteurPdf from "@/lib/artifact/pdf/read";
+import * as constructeurDeck from "@/lib/artifact/decks/build";
+import * as controle from "@/lib/artifact/qa/checks";
 
-/** Les deux moteurs et le constructeur, réunis : une capacité nomme une fonction de l'un d'eux. */
-const moteur = { ...moteurLiveOffice, ...moteurExcel, ...constructeurExcel };
+/** Les moteurs et les constructeurs, réunis : une capacité nomme une fonction de l'un d'eux. */
+const moteur = { ...moteurLiveOffice, ...moteurExcel, ...constructeurExcel, ...lecteurPdf, ...constructeurDeck, ...controle };
 
 /**
  * La fonction qui RÉALISE chaque capacité. `save` et `save_as` partagent `sauvegarder` — c'est
@@ -50,6 +53,10 @@ const POINT_D_ENTREE: Record<CapaciteArtefact, keyof typeof moteur> = {
   "artifact.sheet_diff": "comparerFichiersXlsx",
   "artifact.sheet_read": "lirePlage",
   "artifact.sheet_build": "construireClasseurVerifie",
+  "artifact.pdf_read": "lireTextePdf",
+  "artifact.pdf_search": "chercherDansPdf",
+  "artifact.deck_build": "construireDeckVerifie",
+  "artifact.qa": "controlerAvantLivraison",
 };
 
 describe("le catalogue des capacités", () => {

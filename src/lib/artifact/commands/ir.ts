@@ -41,9 +41,18 @@ export interface Cible {
   index: number | null;
   contient: string | null;
   role: string | null;
+  /**
+   * La PAGE où chercher (1 = la première) — « le troisième paragraphe de la page 12 ». Quand
+   * elle est donnée, `index` se compte À L'INTÉRIEUR de la page, et `contient` n'y cherche que
+   * là. C'est ce qui rend un document de 300 pages adressable sans en réciter les 6 000
+   * paragraphes. Pour un Word, la page vient de la dernière pagination enregistrée ou d'une
+   * estimation (`DocxModel.paginationSource`).
+   */
+  page?: number | null;
 }
 
-export const CIBLE_VIDE: Cible = { id: null, index: null, contient: null, role: null };
+export const CIBLE_VIDE: Cible = { id: null, index: null, contient: null, role: null, page: null };
+export const ciblePage = (page: number, reste: Partial<Cible> = {}): Cible => ({ ...CIBLE_VIDE, ...reste, page });
 
 export const cibleId = (id: string): Cible => ({ ...CIBLE_VIDE, id });
 export const cibleIndex = (index: number): Cible => ({ ...CIBLE_VIDE, index });
@@ -51,7 +60,7 @@ export const cibleTexte = (contient: string): Cible => ({ ...CIBLE_VIDE, contien
 export const cibleRole = (role: "titre" | "premier" | "dernier"): Cible => ({ ...CIBLE_VIDE, role });
 
 export const cibleVide = (c: Cible | null | undefined): boolean =>
-  !c || (c.id === null && c.index === null && c.contient === null && c.role === null);
+  !c || (c.id === null && c.index === null && c.contient === null && c.role === null && (c.page === null || c.page === undefined));
 
 /** Les opérations reconnues, par format. Une opération absente d'ici n'existe pas. */
 export const OPS_DOCX = [
@@ -98,6 +107,7 @@ export const OPS_PPTX = [
   "pptx.supprimer_diapo",
   "pptx.deplacer_diapo",
   "pptx.dupliquer_diapo",
+  "pptx.ajouter_diapo",
 ] as const;
 
 export const OPS_PDF = [

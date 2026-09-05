@@ -15,14 +15,14 @@ const docx = (p: Partial<DocxModel>): DocxModel => ({
   kind: "DOCX", paragraphs: [], tables: [], images: [],
   pageWidthCm: 21, pageHeightCm: 29.7,
   marginTopCm: 2.5, marginBottomCm: 2.5, marginLeftCm: 2.5, marginRightCm: 2.5,
-  hasHeader: false, hasFooter: false, ...p,
+  hasHeader: false, hasFooter: false, pages: 1, paginationSource: "estimee", plan: [], ...p,
 });
 
 const para = (index: number, text: string, style: Partial<typeof STYLE_NEUTRE> = {}, styleName: string | null = null) => ({
   id: `p${index}`, index, text, alignment: null, styleName,
   style: { ...STYLE_NEUTRE, ...style }, runs: [],
   indentLeftCm: null, indentRightCm: null, spacingBeforePt: null, spacingAfterPt: null,
-  inTable: false, images: [],
+  inTable: false, images: [], page: null, headingLevel: null,
 });
 
 const forme = (i: number, o: Partial<PptxModel["slides"][0]["shapes"][0]>) => ({

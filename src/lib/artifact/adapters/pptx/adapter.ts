@@ -174,6 +174,7 @@ class PptxOuvert implements DocumentOuvert {
       case "pptx.supprimer_diapo": return this.supprimerDiapo(c);
       case "pptx.deplacer_diapo": return this.deplacerDiapo(c);
       case "pptx.dupliquer_diapo": return this.dupliquerDiapo(c);
+      case "pptx.ajouter_diapo": return this.ajouterDiapo(c);
       default: return effetEchec(`opération « ${c.op} » non gérée par l'adaptateur PowerPoint`);
     }
   }
@@ -408,6 +409,131 @@ class PptxOuvert implements DocumentOuvert {
     const spTree = firstDescendant(racine, "p:spTree");
     if (spTree) this.diapos.splice(i + 1, 0, { chemin, racine, spTree });
     return effetOk(`Diapositive ${c.diapo} dupliquée.`, []);
+  }
+
+  /**
+   * ENREGISTRE une nouvelle pièce de diapositive dans le paquet : la pièce, ses relations, sa
+   * déclaration de type et son entrée dans la liste — les quatre, sinon PowerPoint dit
+   * « endommagé ». Partagé par la duplication et l'ajout.
+   */
+  private enregistrerDiapo(xml: string, rels: string | null, apresIndex: number): { chemin: string; num: number } | null {
+    const liste = this.listeDiapos();
+    if (!liste) return null;
+    const numeros = Object.keys(this.zip.files)
+      .map((f) => /^ppt\/slides\/slide(\d+)\.xml$/.exec(f))
+      .filter(Boolean).map((m) => Number(m![1]));
+    const num = (numeros.length ? Math.max(...numeros) : 0) + 1;
+    const chemin = `ppt/slides/slide${num}.xml`;
+    this.zip.file(chemin, xml);
+    if (rels) this.zip.file(`ppt/slides/_rels/slide${num}.xml.rels`, rels);
+
+    const relsFichier = this.zip.file("ppt/_rels/presentation.xml.rels");
+    if (!relsFichier) return null;
+    const relsRacine = parseXml(relsFichier.asText());
+    const relsEl = child(relsRacine, "Relationships");
+    if (!relsEl) return null;
+    const ids = children(relsEl, "Relationship").map((r) => Number((attr(r, "Id") ?? "").replace(/\D/g, "")) || 0);
+    const rId = `rId${(ids.length ? Math.max(...ids) : 0) + 1}`;
+    const rel = element("Relationship", {
+      Id: rId,
+      Type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide",
+      Target: `slides/slide${num}.xml`,
+    });
+    rel.parent = relsEl;
+    relsEl.children.push(rel);
+    markDirty(relsEl);
+    this.zip.file("ppt/_rels/presentation.xml.rels", serializeXml(relsRacine));
+
+    const ct = this.zip.file("[Content_Types].xml");
+    if (ct) {
+      const ctRacine = parseXml(ct.asText());
+      const types = child(ctRacine, "Types");
+      if (types) {
+        const o = element("Override", { PartName: `/${chemin}`, ContentType: "application/vnd.openxmlformats-officedocument.presentationml.slide+xml" });
+        o.parent = types;
+        types.children.push(o);
+        markDirty(types);
+        this.zip.file("[Content_Types].xml", serializeXml(ctRacine));
+      }
+    }
+    const sldIds = children(liste, "p:sldId").map((x) => Number(attr(x, "id")) || 0);
+    const sldId = element("p:sldId", { id: String(Math.max(255, ...sldIds) + 1), "r:id": rId });
+    sldId.parent = liste;
+    const ref = children(liste, "p:sldId")[apresIndex];
+    if (ref) liste.children.splice(liste.children.indexOf(ref) + 1, 0, sldId);
+    else if (apresIndex < 0) liste.children.unshift(sldId);
+    else liste.children.push(sldId);
+    markDirty(liste);
+    return { chemin, num };
+  }
+
+  /**
+   * AJOUTE UNE DIAPOSITIVE « une idée » : un titre, des puces — dans la DISPOSITION de la
+   * diapositive de référence (celle après laquelle on insère, sinon la dernière), donc avec la
+   * charte du masque. Les deux formes créées sont des ESPACES RÉSERVÉS (`p:ph`) : sans
+   * géométrie propre, elles héritent position et taille de la disposition, exactement comme
+   * une diapositive créée dans PowerPoint. Quand la diapositive de référence porte elle-même un
+   * titre ou un corps positionné, on recopie sa géométrie pour rester aligné sur ses voisines.
+   */
+  private ajouterDiapo(c: CommandeArtefact): EffetCommande {
+    const n = this.diapos.length;
+    const refIndex = c.diapo !== null ? c.diapo - 1 : n - 1;
+    const reference = this.diapos[refIndex];
+    if (!reference) return effetEchec(`il n'y a pas de diapositive ${c.diapo}`);
+    const apres = c.position === "avant" ? refIndex - 1 : refIndex;
+
+    const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const xfrmDe = (predicat: (sp: XmlNode) => boolean): string => {
+      const sp = this.formesXml(reference).find(predicat);
+      const xfrm = sp ? firstDescendant(sp, "a:xfrm") : null;
+      const off = xfrm ? child(xfrm, "a:off") : null;
+      const ext = xfrm ? child(xfrm, "a:ext") : null;
+      if (!off || !ext) return "";
+      return `<a:xfrm><a:off x="${attr(off, "x") ?? "0"}" y="${attr(off, "y") ?? "0"}"/><a:ext cx="${attr(ext, "cx") ?? "0"}" cy="${attr(ext, "cy") ?? "0"}"/></a:xfrm>`;
+    };
+    const estCorps = (sp: XmlNode): boolean => {
+      const ph = firstDescendant(sp, "p:ph");
+      if (!ph) return false;
+      const type = attr(ph, "type");
+      return type === "body" || type === "obj" || (type === null && attr(ph, "idx") !== null);
+    };
+    const xfrmTitre = xfrmDe(estTitre);
+    const xfrmCorps = xfrmDe(estCorps) || xfrmDe((sp) => sp.name === "p:sp" && !estTitre(sp) && Boolean(firstDescendant(sp, "p:txBody")));
+    const titre = (c.nom ?? "").trim();
+    const puces = (c.texte ?? "").split("\n").map((l) => l.replace(/^\s*[-•*]\s*/, "").trim()).filter(Boolean);
+    const paragraphes = puces.length
+      ? puces.map((t) => `<a:p><a:r><a:rPr lang="fr-FR" dirty="0"/><a:t>${esc(t)}</a:t></a:r></a:p>`).join("")
+      : `<a:p><a:endParaRPr lang="fr-FR" dirty="0"/></a:p>`;
+    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr><p:sp><p:nvSpPr><p:cNvPr id="2" name="Titre 1"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr>${xfrmTitre}</p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="fr-FR" dirty="0"/><a:t>${esc(titre)}</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="3" name="Contenu 2"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph idx="1"/></p:nvPr></p:nvSpPr><p:spPr>${xfrmCorps}</p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${paragraphes}</p:txBody></p:sp></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
+
+    // Les relations : la DISPOSITION de la diapositive de référence, et elle seule (pas ses
+    // notes, pas ses images — elles appartiennent à l'autre diapositive).
+    const relsSource = this.zip.file(`ppt/slides/_rels/${reference.chemin.split("/").pop()}.rels`);
+    let rels: string | null = null;
+    if (relsSource) {
+      const racine = parseXml(relsSource.asText());
+      const relsEl = child(racine, "Relationships");
+      const layout = relsEl ? children(relsEl, "Relationship").find((r) => (attr(r, "Type") ?? "").endsWith("/slideLayout")) : null;
+      if (layout) {
+        rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="${attr(layout, "Target") ?? "../slideLayouts/slideLayout2.xml"}"/></Relationships>`;
+      }
+    }
+    if (!rels) {
+      const layouts = Object.keys(this.zip.files).filter((f) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(f)).sort();
+      if (layouts.length === 0) return effetEchec("cette présentation n'a aucune disposition : impossible d'y ajouter une diapositive");
+      rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../${layouts[Math.min(1, layouts.length - 1)].slice(4)}"/></Relationships>`;
+    }
+    const piece = this.enregistrerDiapo(xml, rels, apres);
+    if (!piece) return effetEchec("présentation illisible : relations introuvables");
+    const racine = parseXml(xml);
+    const spTree = firstDescendant(racine, "p:spTree");
+    if (!spTree) return effetEchec("la diapositive créée est illisible");
+    this.diapos.splice(apres + 1, 0, { chemin: piece.chemin, racine, spTree });
+    const position = apres + 2;
+    return effetOk(`Diapositive « ${abreger(titre || puces[0] || "", 40)} » ajoutée en position ${position}${puces.length ? ` (${puces.length} puce${puces.length > 1 ? "s" : ""})` : ""}.`, [`s${position}`]);
   }
 
   private listeDiapos(): XmlNode | null {

@@ -232,6 +232,13 @@ export function verifierCommande(c: CommandeArtefact, format: ArtifactFormat): s
       if (c.diapo === null || c.diapo < 1) return "il faut dire quelle diapositive déplacer";
       if (c.versIndex === null || c.versIndex < 1) return "il faut dire à quelle position la mettre (à partir de 1)";
       return null;
+    case "pptx.ajouter_diapo":
+      // `nom` = le titre de la nouvelle diapositive, `texte` = son contenu (une ligne par puce),
+      // `diapo` = après laquelle (vide = à la fin), `position` = avant / apres.
+      if (!c.nom && !c.texte) return "il faut donner au moins un titre (nom) ou un contenu (texte) à la nouvelle diapositive";
+      if (c.diapo !== null && c.diapo < 1) return "la diapositive de référence se compte à partir de 1";
+      if (c.position !== null && !POSITIONS.has(c.position)) return "position attendue : avant ou apres";
+      return null;
 
     // ── PDF ─────────────────────────────────────────────────────────────────────────────
     case "pdf.supprimer_pages":

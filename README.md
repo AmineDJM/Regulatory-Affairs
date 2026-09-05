@@ -1670,6 +1670,55 @@ le refermer à l'octet près. Raisonner sur un classeur — « vérifie ce budge
   évaluateur contre les valeurs d'Excel, graphe à 50 000 formules, audit sur défauts plantés à des
   adresses connues, comparaison avec insertion au milieu, constructeur refusant une formule fausse).
 
+### Word, PowerPoint, PDF à grande échelle — cibler une page sur 300, ajouter une idée sur 120, lire 500 pages (`src/lib/artifact/{adapters,pdf,decks,qa,versions}/`)
+
+- **La carte des pages d'un Word** (`adapters/docx/adapter.ts`). Un `.docx` ne connaît pas ses
+  pages ; Word laisse des marques (`w:lastRenderedPageBreak`) à la sauvegarde, un fichier produit
+  par un programme n'en a aucune. Chaque paragraphe porte donc sa **page** et le modèle dit d'où
+  elle vient : `paginationSource: "word"` (enregistrée) ou `"estimee"` (calculée d'après la taille
+  des caractères et les sauts explicites, ±1 page, annoncée comme telle). Le **plan** (titres,
+  niveaux, rangs, pages) est la carte d'un contrat de 300 pages. **Cibler par page** : `cible.page`
+  restreint la résolution (`commands/resolve.ts`) — « le troisième paragraphe de la page 12 » se
+  compte DANS la page, « celui qui parle de la garantie, page 47 » n'y cherche que là ; une page
+  seule rend ses paragraphes comme candidats, jamais le premier. Le modèle reçoit le plan, le nombre
+  de pages, la source de pagination, et — au-delà de 60 paragraphes — la consigne de viser par page
+  ou par texte ; `artifact_control geste=inspecter` rend une tranche (une page, un texte, un rang).
+- **Ajouter une diapositive « une idée »** (`pptx.ajouter_diapo`) : un titre et des puces, dans la
+  DISPOSITION de ses voisines (donc la charte du masque), sans regénérer la présentation ; pièce,
+  relations, déclaration de type et place dans la liste, vérifiées sur le fichier relu. Cent ajouts
+  d'affilée : < 5 s, 104 diapositives relues.
+- **Le constructeur de decks** (`decks/build.ts`, pptxgenjs) : couverture + une diapositive par
+  idée (titre ≤ 14 mots, ≤ 6 puces de ≤ 25 mots, texte ≤ 90 mots, chiffre clé, tableau ≤ 12 × 8,
+  notes), jusqu'à 250. Les règles éditoriales sont jugées sur la spécification, puis le `.pptx`
+  est **relu** par l'adaptateur et passé au contrôle avant livraison ; `ok` faux ⇒ rien n'est écrit,
+  et la réponse nomme la diapositive et la règle. Mesuré : 121 diapositives construites, relues,
+  contrôlées en moins de 20 s.
+- **Lire un PDF de 500 pages** (`pdf/read.ts`, MuPDF) : le texte natif d'une plage de pages
+  (« 12-15 », 40 pages par appel), la **recherche** d'une expression dans tout le document (accents
+  et casse repliés, pages + extraits), le **plan** (signets), l'**extraction** de pages dans un PDF
+  autonome. Les pages sans texte sont NOMMÉES, pas devinées ; le pont
+  (`in-process/artifact/documents.ts`) les océrise par le moteur de l'ERP (Mistral OCR ou
+  Tesseract), au plus 12 par appel, et dit lesquelles, avec quelle confiance et lesquelles restent
+  à faire. Jamais 500 pages dans un modèle : le modèle voit ce qui répond à la question, cité par page.
+- **La comparaison alignée** (`versions/diff.ts`) : paragraphes alignés par leur contenu
+  (patience), diapositives par titre + nombre de formes, pages par leur texte. Une clause insérée
+  au milieu de 200 paragraphes + une modification + une suppression → **exactement trois**
+  changements, et le texte modifié est dit par son fragment (« particulières. » → « générales. »).
+- **Le contrôle avant livraison** (`qa/checks.ts`, `controlerAvantLivraison`) : BLOQUANTS — reste de
+  brouillon (« [à compléter] », « XXX », « TODO », « lorem ipsum », « {{…}} »), diapositive sans
+  titre, espace réservé non rempli, cellule en erreur, document vide ; AVERTISSEMENTS — section
+  sans contenu, numérotation d'articles qui saute ou se répète, titre trop long, plus de 7 lignes
+  dans une forme, corps < 10 pt, titres dupliqués, orientations mixtes, plus les alertes visuelles.
+  Exposé par `artifact_control geste=controler`, appelé par les constructeurs (deck, classeur)
+  avant toute écriture.
+- **Les outils d'Adam** : `pdf_read` (lire / chercher / plan), `deck_build`, gestes `controler` et
+  `inspecter` d'`artifact_control` ; capacités `artifact.pdf_read`, `artifact.pdf_search`,
+  `artifact.deck_build`, `artifact.qa` au catalogue, chacune avec un point d'entrée exigé par test.
+- **Mesuré** (`npm run office:bench`, section « échelle ») : voir le journal ci-dessous.
+- **Tests** : `adapters/docx/pages.test.ts` (pagination Word et estimée, ciblage par page, cohérence
+  après insertion / suppression), `adapters/pptx/ajouter.test.ts`, `decks/build.test.ts`,
+  `pdf/read.test.ts` (500 pages), `versions/diff.test.ts`, `qa/livraison.test.ts`.
+
 **Tout ce qui entre dans l'ERP entre aussi dans le Drive.** Une pièce importée depuis un sponsoring,
 un appel d'offres ou une demande RH restait accrochée à son objet métier ; six semaines plus tard on
 la cherchait « dans le Drive » — parce que c'est là qu'on cherche les fichiers — et elle n'y était
@@ -2923,6 +2972,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Adam — pré-lectures, cache de prompt, prompt compact, coût** | `lib/assistant/pre-lectures.ts` (décision PURE + exécution bornée : recherche fédérée + documentaire avant le modèle, seconde vague fiche/document, recette réunion) ; `lib/assistant/context/tour.ts` (le contexte du tour voyage avec le message — le préfixe reste cachable) ; `lib/assistant/context/fast-args-contract.test.ts` (clés écrites par le routeur ⊆ clés lues par l'outil) ; `lib/assistant/context/tool-resolver.ts` (niveaux A/B/C ; en C les écritures ne partent que si la phrase nomme un geste — `nommeUnGeste` dans `router.ts` ; description de la découverte par tour) ; `lib/assistant/regulatory-read.ts` (`regulatory_knowledge` : le savoir ANPP est un outil, plus un bloc de prompt) ; `lib/models/telemetry.ts` (contexte de tour, puits d'appels, phases) ; `platform/in-process/telemetry/usage-sink.ts` (une ligne `ModelCallLog` par appel, tamponnée ; `journaliserSessionVocale`) ; `platform/in-process/telemetry/usage-stats.ts` (agrégats de coût du centre de contrôle IA) ; `lib/assistant/voice/cost.ts` (prix d'une session vocale) ; `lib/models/registry.ts` (tarifs publics datés, `ROLE_VOIX`) ; `platform/in-process/missions/crash-between.test.ts` (effet fait, reçu perdu → zéro doublon) ; `scripts/bench/seed-adam-bench.ts` + `adam-live-bench.ts` (`npm run adam:bench:seed`, `npm run adam:bench`) ; tables dans `bench-out/`. |
 | **Adam — chef de cabinet : missions inédites, attention, relances** | `scripts/bench/adam-mission-bench.ts` (neuf missions vagues via `lancerMission`, carte de score par mission, attendus vérifiés en base, coût par mission ; `BENCH_ONLY`, `BENCH_TOURS`) ; `platform/in-process/missions/situation.ts` (enquête) ; `lib/missions/attention/policy.ts` + `platform/in-process/missions/attention.ts` (porte d'attention) ; `platform/in-process/missions/relance.ts` (échelle de relances) ; `lib/messaging.ts` (`envoyerMessageDirect`, l'unique chemin d'écriture d'un message direct ; module SERVEUR — les écrans importent la part pure `lib/messaging-ui.ts`) ; `lib/events/messaging-events.ts` (`MESSAGE_RECEIVED`) ; `lib/missions/registry/capability-meta.ts` (`AUTONOMES`) ; `lib/assistant/watch-tools.ts` (`watch_entity`, `list_watches`, `stop_watch`) ; `prisma/migrations/20261019090000_adam_surveillances`. |
 | **Excel God Mode — lire, vérifier, expliquer, comparer** | `lib/artifact/sheets/reader.ts` (lecteur natif en flux : fflate + TextDecoder en flux, formules partagées traduites, résultats typés, 1,2 M de cellules en 3,5 s) ; `formula.ts` (analyseur Pratt, A1 ↔ R1C1, `decaler`, `traduireFormulePartagee`) ; `graph.ts` (`construireGraphe`, `rayonImpact`, `precedentsDirects`, Kahn à tête d'index) ; `evaluate.ts` (`recalculer`, `evaluerFormule`, ~100 fonctions + `ALIAS_FR`, `nonCalculees` / `nonVerifiees`) ; `audit.ts` (`auditerClasseur`, 16 codes de constat, `resumerAudit`) ; `diff.ts` (`comparerClasseurs` : alignement patience + R1C1 + plages ajustées) ; `build.ts` (`construireClasseurVerifie` : spécification → xlsx relu, recalculé, valeurs écrites, audité) ; `analyse.ts` (façade : `analyserClasseur`, `tracerCellule`, `comparerFichiersXlsx`, `lirePlage`) ; pont `platform/in-process/artifact/sheets.ts` (droits par le port, cache borné en cellules) ; outils `lib/assistant/office-capabilities.ts` (`sheet_audit`, `sheet_trace`, `sheet_diff`, `sheet_read`) ; banc `scripts/bench/sheets-bench.ts` (`npm run sheets:bench`). |
+| **Word / PowerPoint / PDF à grande échelle** | `lib/artifact/adapters/docx/adapter.ts` (`marquesDePage`, `estimerPages`, `niveauDeTitre` : page de chaque paragraphe, `paginationSource`, `plan`) ; `commands/resolve.ts` (`cible.page` : rang dans la page, texte dans la page) ; `adapters/pptx/adapter.ts` (`ajouterDiapo`, `enregistrerDiapo`) ; `decks/build.ts` (`construireDeckVerifie`, `verifierSpecDeck`) ; `pdf/read.ts` (`lireTextePdf`, `chercherDansPdf`, `planPdf`, `extrairePages`, `plagePages`) ; `versions/diff.ts` (`alignerSequences`, `fragmentModifie`) ; `qa/checks.ts` (`controlerAvantLivraison`) ; `runtime/engine.ts` (`controlerSession`) ; pont `platform/in-process/artifact/documents.ts` (`lirePdfDrive` avec OCR borné, `construireDeckDrive`) et `office.ts` (`controlerDocument`, `inspecterDocument`) ; outils `lib/assistant/office-capabilities.ts` (`pdf_read`, `deck_build`, gestes `controler` / `inspecter`). |
 | **Adam — la coque de son bureau (et sa porte de sortie)** | Groupe de routes `app/(chief)/layout.tsx` : coque délibérément VIDE — ni menu latéral, ni barre supérieure, ni barre d'onglets, ni palette, ni bandeaux. `components/chief/{chief-workspace,chief-header,chief-home}.tsx` + `app/chief.css` (jeu de jetons `--chief-*` propre à Adam). **La sortie** : `components/chief/module-switcher.tsx` — une icône dans l'en-tête ouvre la liste des modules que CETTE personne peut ouvrir (champ de filtre, groupé par pôle, Échap / clic dehors referment). Les destinations arrivent par le **contrat de plateforme** (`navigation.destinations` → `in-process/adapter.ts` → `lib/nav-access.ts`), jamais par un import du menu de l'ERP : c'est ce qui garde le cliquet de frontière à 430. Le même `navigationFor` sert la barre latérale de l'ERP — une seule vérité sur « qui a le droit d'aller où ». Tests : `platform/navigation-destinations.test.ts` (dont : une entrée fusionnée mène au premier onglet AUTORISÉ, donc `/ad-pro` pour l'admin et `/congress-international` pour le délégué médical). |
 | **Adam — espace de travail génératif** | `lib/assistant/workspace/protocol.ts` (types de blocs + `WORKSPACE_LIMITS`) ; `compose.ts` (`composeWorkspace` — table de correspondance **fermée** : un outil absent ne compose RIEN, le repli est le texte ; plus la porte `_blocs`, **revalidée champ par champ**, par laquelle une lecture déclare ce qu'elle montre) ; `sheet.ts` (classeur → lignes, ExcelJS, **sans dépendance ERP**) ; `emit.ts` (helpers **purs** de composition : gestes, retards, métriques de charge, étapes) ; `components/chief/workspace/blocks.tsx` + `blocks.css` (feuille autonome à valeurs de repli : les blocs servent aussi `/assistant`, qui ne charge pas `chief.css`) ; `preview-planche.tsx` (la planche de revue visuelle, servie par `/chief-of-staff?apercu=blocs` **uniquement** si `ADAM_BLOCK_PREVIEW=1` — elle n'a pas d'adresse en production). Blocs : `people` (fiche riche : statut, métriques, coordonnées avec provenance), `directory`, `mail`, `agenda`, `queue` (**avec ses boutons Approuver / Refuser**), `record`, `table` (**gestes par ligne**, cartes empilées sur mobile), `timeline`, `progress` (jauges), `document` (PDF, image, feuille), `dossier` (faits + frise de circuit + pièces + participants + activité), `email` (le message avant l'envoi). Événement de flux `{ type: "workspace" }` ; stocké sur le message dans `assistant-chat.tsx`, qui fournit `WorkspaceAskProvider` — un clic écrit une phrase dans la conversation, il n'exécute rien. La prop `canvas` (défaut **faux**) rend le tour d'Adam **sans bulle** ; `/assistant` reste inchangé. |
 | **Adam — montrer (et non lire)** | `lib/assistant/show-tools.ts` : `show_document` (PDF/contrat en visionneuse, image, classeur rendu en tableau — passe par le **contrat** `document.show`, servi par `platform/in-process/adapter.ts`, seul autorisé à toucher Drive, stockage et droits) et `show_table` (colonnes et tri **à la demande** : le modèle choisit la vue, le serveur relit les lignes à la source canonique — sources fermées dans `TABLE_SOURCES`). À ne pas confondre avec `read_document`, qui extrait du TEXTE pour le modèle. |
@@ -3675,6 +3725,38 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Office God Mode — lot 2 : Word de 300 pages, decks de 120 idées, PDF de 500 pages (2026-09)
+
+**Ce que le lot rend possible** : « Réécris le troisième paragraphe de la page 212 » sur un contrat de 6 000
+paragraphes — la page est celle que Word a enregistrée (ou une estimation qui se dit telle), le rang se compte dans
+la page, une page seule rend ses paragraphes comme candidats au lieu de choisir. « Ajoute une diapositive : titre,
+trois puces, après la 60 » dans la disposition et la charte du deck. « Prépare-moi 40 slides pour le comité » →
+un deck « une idée par diapositive » construit, relu par l'adaptateur et contrôlé avant d'être écrit dans le Drive ;
+une règle violée (7 puces, titre de 18 mots, diapo vide) et rien n'est écrit, la diapositive et la règle sont nommées.
+« Que dit la page 47 de ce PDF de 500 pages ? », « où parle-t-on de la garantie ? » → texte natif de la plage
+demandée, pages et extraits de la recherche, plan des signets ; les pages scannées sont océrisées par le moteur de
+l'ERP, au plus douze par appel, en disant lesquelles et avec quelle confiance — jamais cinq cents pages dans un
+modèle. « Qu'est-ce qui a changé entre les deux versions ? » → paragraphes alignés par leur contenu : une clause
+insérée au milieu de 200 + une modification + une suppression font exactement trois changements, le texte modifié
+est dit par son fragment. « Est-ce que je peux l'envoyer ? » → le contrôle avant livraison : bloquants (« [à
+compléter] », « XXX », diapo sans titre, cellule en erreur) et avertissements (section vide, numérotation qui saute,
+titre trop long, corps illisible).
+
+**Mesuré** (`npm run office:bench`, section « échelle », onze budgets, P95) : Word 6 001 ¶ / 301 pages — ouvrir +
+carte des pages + plan 77 ms, réécrire le 3e ¶ de la page 212 + sérialiser 137 ms, comparer deux versions avec une
+insertion au milieu 160 ms (1 changement), contrôle avant livraison 7 ms. PowerPoint — construire + relire +
+contrôler 120 idées 226 ms, ouvrir 121 diapos 64 ms, ajouter une idée + déplacer une diapo + sérialiser 164 ms.
+PDF 500 pages — ouvrir + aperçu de chaque page 22 ms, lire 40 pages 3,8 ms, chercher dans tout le document 16 ms,
+supprimer 3 pages + sérialiser 6 ms. Les cibles §29 tiennent toujours. **Non mesuré** : réseau, blob Drive, OCR
+(deux à cinq secondes par page Tesseract, dit à l'appel).
+
+**Fichiers** : `adapters/docx/adapter.ts` (`marquesDePage`, `estimerPages`, plan), `commands/{ir,resolve}.ts`
+(`cible.page`), `adapters/pptx/adapter.ts` (`ajouterDiapo`), `decks/build.ts`, `pdf/read.ts`, `versions/diff.ts`
+(`alignerSequences`, `fragmentModifie`), `qa/checks.ts` (`controlerAvantLivraison`), pont
+`in-process/artifact/documents.ts` (OCR borné, deck dans le Drive), outils `pdf_read`, `deck_build`, gestes
+`controler` / `inspecter`. Tests : 36 nouveaux cas (pagination Word et estimée, ciblage par page, 104 diapos
+ajoutées, 121 diapos construites, 500 pages lues et cherchées, comparaison alignée, contrôle avant livraison).
 
 ### Office God Mode — lot 1 : Excel, lu exactement, vérifié, expliqué, comparé (2026-09)
 

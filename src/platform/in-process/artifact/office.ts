@@ -24,7 +24,7 @@ import type {
   ContexteMoteur, ResultatEdition, ResultatOuverture, ResultatSauvegarde, SessionPersistee,
 } from "@/lib/artifact/runtime/engine";
 import {
-  annuler, comparerDepuis, editer, fermer, ouvrir, retablir, sauvegarder, viser, vueDeSession,
+  annuler, comparerDepuis, controlerSession, editer, fermer, ouvrir, retablir, sauvegarder, viser, vueDeSession,
 } from "@/lib/artifact/runtime/engine";
 import type { Comparaison } from "@/lib/artifact/versions/diff";
 import type { VueArtefact } from "@/lib/artifact/render/view";
@@ -67,6 +67,49 @@ export const sauvegarderDocument = (
 
 export const vueDocument = (user: CurrentUser, sessionId: string): Promise<VueArtefact | null> =>
   vueDeSession(contexte(user), sessionId);
+
+/** « Est-ce que je peux l'envoyer ? » — le contrôle avant livraison, bloquants et avertissements. */
+export const controlerDocument = (user: CurrentUser, sessionId: string) => controlerSession(contexte(user), sessionId);
+
+/**
+ * « Montre-moi la page 12 », « les paragraphes qui parlent de la garantie », « les diapos 40 à 60 » —
+ * une TRANCHE de la structure, pour les documents que l'aperçu d'ouverture ne peut pas réciter.
+ * Le contenu reste une donnée non fiable (§73) : il ressort emballé par `structureNonFiable`.
+ */
+export async function inspecterDocument(
+  user: CurrentUser, sessionId: string, filtre: { page?: number | null; contient?: string | null; depuis?: number | null; nombre?: number | null },
+): Promise<{ ok: boolean; motif?: string; total: number; structure: string | null }> {
+  const vue = await vueDocument(user, sessionId);
+  if (!vue) return { ok: false, motif: "Cette session n'existe plus.", total: 0, structure: null };
+  const nombre = Math.max(1, Math.min(120, filtre.nombre ?? 40));
+  const depuis = Math.max(1, filtre.depuis ?? 1);
+  const besoin = (filtre.contient ?? "").trim().toLowerCase();
+  const c = vue.contenu;
+  let objets: Record<string, unknown>[] = [];
+  let total = 0;
+  if (c.kind === "DOCX") {
+    let paragraphes = c.blocs.filter((b) => b.type === "paragraphe");
+    if (filtre.page) paragraphes = paragraphes.filter((b) => b.page === filtre.page);
+    if (besoin) paragraphes = paragraphes.filter((b) => b.texte.toLowerCase().includes(besoin));
+    total = paragraphes.length;
+    objets = paragraphes.filter((b) => b.index >= depuis).slice(0, nombre).map((b) => ({ n: b.index, id: b.id, page: b.page, style: b.styleName, texte: b.texte.slice(0, 200) }));
+  } else if (c.kind === "PPTX") {
+    let diapos = c.diapos;
+    if (besoin) diapos = diapos.filter((d) => d.titre.toLowerCase().includes(besoin) || d.formes.some((f) => f.texte.toLowerCase().includes(besoin)));
+    total = diapos.length;
+    objets = diapos.filter((d) => d.index >= depuis).slice(0, nombre).map((d) => ({ n: d.index, titre: d.titre, formes: d.formes.map((f) => ({ id: f.id, nom: f.nom, texte: f.texte.slice(0, 120) })) }));
+  } else if (c.kind === "PDF") {
+    let pages = c.pages;
+    if (filtre.page) pages = pages.filter((p) => p.index === filtre.page);
+    if (besoin) pages = pages.filter((p) => p.apercu.toLowerCase().includes(besoin));
+    total = pages.length;
+    objets = pages.filter((p) => p.index >= depuis).slice(0, nombre).map((p) => ({ n: p.index, apercu: p.apercu }));
+  } else {
+    total = c.feuilles.length;
+    objets = c.feuilles.map((f) => ({ nom: f.nom, lignes: f.lignes, colonnes: f.colonnes }));
+  }
+  return { ok: true, total, structure: wrapUntrusted(JSON.stringify(objets), { source: `Document ${vue.format} — ${vue.nom}`, kind: "document", maxChars: 16_000 }) };
+}
 
 /** « Qu'est-ce que tu as changé ? » (§52) — constaté entre deux états, jamais raconté de mémoire. */
 export const comparerDocument = (user: CurrentUser, sessionId: string, depuis?: number): Promise<Comparaison> =>
@@ -202,17 +245,26 @@ export async function appliquerIntention(
  */
 function structurePourLeModele(vue: VueArtefact): Record<string, unknown> {
   const c = vue.contenu as never as
-    | { kind: "DOCX"; blocs: { id: string; type: string; index: number; texte: string; alignement: string | null; style: { sizePt: number | null; font: string | null; bold: boolean } }[] }
+    | { kind: "DOCX"; blocs: { id: string; type: string; index: number; texte: string; alignement: string | null; page: number | null; style: { sizePt: number | null; font: string | null; bold: boolean } }[]; pages: number; paginationSource: "word" | "estimee"; plan: { niveau: number; texte: string; index: number; page: number | null }[]; paragraphes: number }
     | { kind: "PDF"; pages: { index: number; apercu: string }[] }
     | { kind: "XLSX"; feuilles: { nom: string; lignes: number; colonnes: number; cellules: { ref: string; valeur: string; formule: string | null }[] }[] }
     | { kind: "PPTX"; diapos: { index: number; titre: string; formes: { id: string; index: number; nom: string; role: string; texte: string; xCm: number; yCm: number }[] }[] };
 
   if (c.kind === "DOCX") {
+    const paragraphes = c.blocs.filter((b) => b.type === "paragraphe");
     return {
-      paragraphes: c.blocs.filter((b) => b.type === "paragraphe").slice(0, APERCU_MAX).map((b) => ({
-        n: b.index, id: b.id, texte: b.texte.slice(0, 120),
+      // Un document de 300 pages ne se récite pas : le PLAN (titres + pages) est la carte, et
+      // `cible.page` / `cible.contient` permettent d'atteindre n'importe quel paragraphe sans
+      // les avoir tous lus. Le modèle voit les 60 premiers paragraphes et sait combien il en reste.
+      pages: c.pages,
+      pagination: c.paginationSource === "word" ? "enregistrée par Word" : "estimée (±1 page)",
+      totalParagraphes: c.paragraphes,
+      plan: c.plan.slice(0, 80).map((e) => ({ niveau: e.niveau, titre: e.texte, paragraphe: e.index, page: e.page })),
+      paragraphes: paragraphes.slice(0, APERCU_MAX).map((b) => ({
+        n: b.index, id: b.id, page: b.page, texte: b.texte.slice(0, 120),
         alignement: b.alignement, taillePt: b.style.sizePt, police: b.style.font, gras: b.style.bold,
       })),
+      ...(c.paragraphes > APERCU_MAX ? { suite: `${c.paragraphes - APERCU_MAX} paragraphe(s) non listés : vise-les par page (cible.page + index dans la page) ou par texte (cible.contient), ou demande « inspecter » avec une page.` } : {}),
       tableaux: c.blocs.filter((b) => b.type === "tableau").map((b) => ({ n: b.index, id: b.id, entete: b.texte })),
       images: c.blocs.filter((b) => b.type === "image").map((b) => ({ n: b.index, id: b.id })),
     };

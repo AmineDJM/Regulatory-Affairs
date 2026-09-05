@@ -149,6 +149,9 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // un espace partagé ni par-dessus un document existant : c'est le même geste qu'un
       // « enregistrer sous » du Live Office, et il porte la même trace d'audit.
       "sheet_audit", "sheet_trace", "sheet_diff", "sheet_read", "sheet_build",
+      // pdf_read : une LECTURE sous `canViewDrive` ; deck_build : un NOUVEAU fichier dans le
+      // Drive personnel, comme sheet_build.
+      "pdf_read", "deck_build",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

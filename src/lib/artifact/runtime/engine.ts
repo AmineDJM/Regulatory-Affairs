@@ -35,7 +35,7 @@ import type { CommandeArtefact } from "@/lib/artifact/commands/ir";
 import { compilerCommandes } from "@/lib/artifact/commands/compile";
 import type { DocumentOuvert, EffetCommande } from "@/lib/artifact/adapters/contract";
 import { adaptateurPour, mimeDe } from "@/lib/artifact/adapters/registry";
-import { controlerVisuel, proportionsInitiales } from "@/lib/artifact/qa/checks";
+import { controlerAvantLivraison, controlerVisuel, proportionsInitiales, type ControleLivraison } from "@/lib/artifact/qa/checks";
 import { vueDuModele, type VueArtefact } from "@/lib/artifact/render/view";
 import { comparer, type Comparaison } from "@/lib/artifact/versions/diff";
 import type { PortsArtefact } from "@/lib/artifact/ports";
@@ -618,6 +618,17 @@ export async function comparerDepuis(
 }
 
 /** L'état complet d'une session, tel que le workspace le dessine. */
+/**
+ * LE CONTRÔLE AVANT LIVRAISON d'une session : ce qui BLOQUE (un reste de brouillon, une diapo
+ * sans titre, une cellule en erreur) et ce qui avertit. Ne modifie rien ; la personne décide.
+ */
+export async function controlerSession(ctx: ContexteMoteur, sessionId: string): Promise<(ControleLivraison & { nom: string; format: ArtifactFormat }) | null> {
+  const session = await ctx.magasin.lire(sessionId, ctx.acteur.id);
+  if (!session) return null;
+  const etat = await etatCourant(ctx, session);
+  return { ...controlerAvantLivraison(etat.doc.modele(), etat.proportions), nom: session.name, format: session.format };
+}
+
 export async function vueDeSession(ctx: ContexteMoteur, sessionId: string): Promise<VueArtefact | null> {
   const session = await ctx.magasin.lire(sessionId, ctx.acteur.id);
   if (!session) return null;

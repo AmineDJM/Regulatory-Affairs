@@ -29,6 +29,12 @@ import { docxDeParagraphes, pdfNumerote, pptxDiapos, xlsxVentes } from "@/lib/ar
 import { cibleIndex, cibleRole, commande } from "@/lib/artifact/commands/ir";
 import { decoder } from "@/lib/artifact/commands/nl";
 import { rendrePagePdf } from "@/lib/artifact/render/raster";
+import { chercherDansPdf, lireTextePdf } from "@/lib/artifact/pdf/read";
+import { construireDeckVerifie } from "@/lib/artifact/decks/build";
+import { comparer } from "@/lib/artifact/versions/diff";
+import { controlerAvantLivraison } from "@/lib/artifact/qa/checks";
+import { ciblePage } from "@/lib/artifact/commands/ir";
+import PizZip from "pizzip";
 import { percentiles } from "@/lib/artifact/observability/timing";
 import type { DocumentOuvert } from "@/lib/artifact/adapters/contract";
 import type { CommandeArtefact } from "@/lib/artifact/commands/ir";
@@ -139,6 +145,84 @@ async function main(): Promise<void> {
     });
   }
 
+  // ── L'ÉCHELLE — 300 pages Word, 120 diapositives, 500 pages PDF ─────────────────────
+  //
+  // Les cibles du mandat « Office God Mode », mesurées sur de vrais fichiers. Chaque ligne a un
+  // BUDGET (`SEUILS_ECHELLE`) : un banc qui ne peut pas échouer n'est pas un banc.
+  {
+    // 6 000 paragraphes = ~300 pages, avec les marques de pagination de Word toutes les 20 lignes.
+    const textes = ["Contrat cadre de distribution"];
+    for (let i = 1; i <= 6000; i += 1) textes.push(i % 40 === 1 ? `Article ${Math.ceil(i / 40)} — Dispositions` : `Paragraphe ${i} : le distributeur s'engage à respecter les conditions décrites en annexe, dans les délais convenus entre les parties.`);
+    const base = await docxDeParagraphes(textes, { premierEstTitre: true });
+    const zip = new PizZip(base);
+    let k = 0;
+    zip.file("word/document.xml", zip.file("word/document.xml")!.asText()
+      // Les « Article n » deviennent des titres (Heading1) : c'est ce qui fait le plan.
+      .replace(/<w:p><w:r><w:t xml:space="preserve">(Article \d+ — Dispositions)<\/w:t>/g, '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t xml:space="preserve">$1</w:t>')
+      .replace(/<w:p>(<w:pPr>.*?<\/w:pPr>)?<w:r>/g, (m, pPr: string | undefined) => {
+        k += 1;
+        return k > 1 && (k - 1) % 20 === 0 ? `<w:p>${pPr ?? ""}<w:r><w:lastRenderedPageBreak/></w:r><w:r>` : m;
+      }));
+    const octets = zip.generate({ type: "nodebuffer", compression: "DEFLATE" }) as Buffer;
+    let doc!: DocumentOuvert;
+    await mesurer("DOCX 300 pages : ouvrir + carte des pages + plan", `6 001 ¶ (${Math.round(octets.length / 1024)} Ko)`, 4, async () => {
+      doc = await adaptateurDocx.ouvrir(octets);
+      doc.modele();
+    });
+    const m = doc.modele();
+    if (m.kind === "DOCX" && (m.pages < 290 || m.paginationSource !== "word" || m.plan.length !== 151)) {
+      throw new Error(`carte des pages fausse : ${m.pages} pages (${m.paginationSource}), plan ${m.plan.length}`);
+    }
+    await mesurer("DOCX 300 pages : réécrire le 3e ¶ de la page 212 + sérialiser", "6 001 ¶", 4, async () => {
+      const d = await adaptateurDocx.ouvrir(octets);
+      const e = d.appliquer(commande("docx.texte", { cible: ciblePage(212, { index: 3 }), texte: "Clause révisée." }));
+      if (!e.ok) throw new Error(e.motif ?? "échec");
+      await d.serialiser();
+    });
+    await mesurer("DOCX 300 pages : comparer deux versions (1 insertion au milieu)", "6 001 ¶", 3, async () => {
+      const d = await adaptateurDocx.ouvrir(octets);
+      const avant = d.modele();
+      d.appliquer(commande("docx.inserer_paragraphe", { cible: cibleIndex(3000), texte: "Clause insérée.", position: "apres" }));
+      const c = comparer(avant, d.modele());
+      if (c.changements.length !== 1) throw new Error(`comparaison : ${c.changements.length} changement(s) au lieu de 1`);
+    });
+    await mesurer("DOCX 300 pages : contrôle avant livraison", "6 001 ¶", 4, async () => { controlerAvantLivraison(doc.modele()); });
+  }
+  {
+    const diapos = Array.from({ length: 120 }, (_, i) => ({ titre: `Idée ${i + 1} — un constat par diapositive`, puces: [`Premier point de la diapositive ${i + 1}`, `Deuxième point, chiffré : ${(i * 7) % 100} %`, "Troisième point : la décision attendue"] }));
+    let octets!: Buffer;
+    await mesurer("PPTX 120 diapos : construire + relire + contrôler", "120 idées", 2, async () => {
+      const r = await construireDeckVerifie({ titre: "Revue stratégique", sousTitre: "Comité", diapos });
+      if (!r.verification.ok) throw new Error(r.verification.bloquants.join(" ; "));
+      octets = r.octets;
+    });
+    await mesurer("PPTX 120 diapos : ouvrir + modéliser", `${Math.round(octets.length / 1024)} Ko`, 6, async () => { (await adaptateurPptx.ouvrir(octets)).modele(); });
+    await mesurer("PPTX 120 diapos : ajouter une idée + déplacer une diapo + sérialiser", "121 diapos", 4, async () => {
+      const d = await adaptateurPptx.ouvrir(octets);
+      const e = d.appliquer(commande("pptx.ajouter_diapo", { diapo: 60, nom: "Nouvelle idée", texte: "Un point\nUn autre" }));
+      if (!e.ok) throw new Error(e.motif ?? "échec");
+      d.appliquer(commande("pptx.deplacer_diapo", { diapo: 121, versIndex: 2 }));
+      await d.serialiser();
+    });
+  }
+  {
+    const octets = await pdfNumerote(500);
+    await mesurer("PDF 500 pages : ouvrir + modéliser (aperçu de chaque page)", `${Math.round(octets.length / 1024)} Ko`, 3, async () => { (await adaptateurPdf.ouvrir(octets)).modele(); });
+    await mesurer("PDF 500 pages : lire le texte natif de 40 pages", "pages 231-270", 4, async () => {
+      const l = await lireTextePdf(octets, { pages: "231-270" });
+      if (l.pages.length !== 40 || l.pages[0].texte !== "Page 231") throw new Error("lecture fausse");
+    });
+    await mesurer("PDF 500 pages : chercher une expression dans tout le document", "500 pages", 3, async () => {
+      const r = await chercherDansPdf(octets, "Page 437");
+      if (r.pagesTouchees.join() !== "437") throw new Error(`recherche fausse : ${r.pagesTouchees.join(",")}`);
+    });
+    await mesurer("PDF 500 pages : supprimer 3 pages + sérialiser", "500 pages", 3, async () => {
+      const d = await adaptateurPdf.ouvrir(octets);
+      d.appliquer(commande("pdf.supprimer_pages", { pages: [3, 250, 499] }));
+      await d.serialiser();
+    });
+  }
+
   // ── Le décodeur direct (§30) : le chemin SANS modèle ───────────────────────────────
   await mesurer("Décodage d'une phrase (0 modèle)", "—", 200, async () => {
     decoder("Centre le titre, réduis-le à 16", { format: "DOCX", derniereCible: [], activePage: null, activeSlide: null, activeSheet: null });
@@ -170,8 +254,20 @@ async function main(): Promise<void> {
   console.log(lentesPages.length === 0
     ? `  ✓ le rendu d'une page tient la cible, y compris sur 300 pages`
     : `  ✗ ${lentesPages.map((l) => `${l.taille} : ${l.p95} ms`).join(", ")}`);
+  // ── L'échelle : un budget par ligne ────────────────────────────────────────────────
+  const SEUILS_ECHELLE: [RegExp, number][] = [
+    [/DOCX 300 pages : ouvrir/, 4000], [/DOCX 300 pages : réécrire/, 6000], [/DOCX 300 pages : comparer/, 8000], [/DOCX 300 pages : contrôle/, 1500],
+    [/PPTX 120 diapos : construire/, 20000], [/PPTX 120 diapos : ouvrir/, 3000], [/PPTX 120 diapos : ajouter/, 5000],
+    [/PDF 500 pages : ouvrir/, 6000], [/PDF 500 pages : lire/, 3000], [/PDF 500 pages : chercher/, 8000], [/PDF 500 pages : supprimer/, 3000],
+  ];
+  const horsBudget = lignes.filter((l) => SEUILS_ECHELLE.some(([re, max]) => re.test(l.quoi) && l.p95 > max));
+  console.log(`\nÉCHELLE — 300 pages Word, 120 diapositives, 500 pages PDF : ${SEUILS_ECHELLE.length} budgets`);
+  console.log(horsBudget.length === 0
+    ? "  ✓ tous les budgets d'échelle sont tenus"
+    : `  ✗ ${horsBudget.map((l) => `${l.quoi} ${l.p95} ms`).join(", ")}`);
   console.log("\nNON MESURÉ ICI (dépend de l'hébergement, pas de ce code) : réseau, déchiffrement");
   console.log("du blob Drive, aller-retour d'action serveur. Le chrono du moteur les inclut en production.");
+  if (lentes.length > 0 || lentesPages.length > 0 || horsBudget.length > 0) process.exitCode = 1;
 
   if (lentes.length || lentesPages.length) process.exit(1);
 }

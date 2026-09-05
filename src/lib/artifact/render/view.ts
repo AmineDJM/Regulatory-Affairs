@@ -49,6 +49,8 @@ export interface BlocVue {
   /** Pour une image : ses dimensions. */
   largeurCm: number | null;
   hauteurCm: number | null;
+  /** La page où le bloc commence (Word), d'après `paginationSource`. */
+  page: number | null;
 }
 
 export interface VueDocx {
@@ -62,6 +64,13 @@ export interface VueDocx {
   hasHeader: boolean;
   hasFooter: boolean;
   blocs: BlocVue[];
+  /** Le nombre de pages, et d'où il vient (`word` : enregistré par Word ; `estimee` : calculé, ±1 page). */
+  pages: number;
+  paginationSource: "word" | "estimee";
+  /** Le plan : titres, niveaux, rangs et pages — la carte d'un long document. */
+  plan: { niveau: number; texte: string; index: number; page: number | null }[];
+  /** Le nombre TOTAL de paragraphes de corps — `blocs` peut être tronqué (voir `MAX_BLOCS`). */
+  paragraphes: number;
 }
 
 export interface VuePdf {
@@ -157,7 +166,7 @@ function vueDocx(m: DocxModel): VueDocx {
       alignement: p.alignment, style: p.style, styleName: p.styleName,
       indentLeftCm: p.indentLeftCm, indentRightCm: p.indentRightCm,
       spacingBeforePt: p.spacingBeforePt, spacingAfterPt: p.spacingAfterPt,
-      lignes: [], largeurCm: null, hauteurCm: null,
+      lignes: [], largeurCm: null, hauteurCm: null, page: p.page,
     });
   }
   for (const t of m.tables) {
@@ -169,7 +178,7 @@ function vueDocx(m: DocxModel): VueDocx {
       id: t.id, type: "tableau", index: t.index, texte: t.header.join(" · "),
       alignement: null, style: { bold: false, italic: false, underline: false, sizePt: null, font: null, color: null },
       styleName: null, indentLeftCm: null, indentRightCm: null, spacingBeforePt: null, spacingAfterPt: null,
-      lignes, largeurCm: null, hauteurCm: null,
+      lignes, largeurCm: null, hauteurCm: null, page: null,
     });
   }
   for (const i of m.images) {
@@ -177,7 +186,7 @@ function vueDocx(m: DocxModel): VueDocx {
       id: i.id, type: "image", index: i.index, texte: i.description ?? "",
       alignement: null, style: { bold: false, italic: false, underline: false, sizePt: null, font: null, color: null },
       styleName: null, indentLeftCm: null, indentRightCm: null, spacingBeforePt: null, spacingAfterPt: null,
-      lignes: [], largeurCm: i.widthCm, hauteurCm: i.heightCm,
+      lignes: [], largeurCm: i.widthCm, hauteurCm: i.heightCm, page: null,
     });
   }
   return {
@@ -187,6 +196,7 @@ function vueDocx(m: DocxModel): VueDocx {
     marginLeftCm: m.marginLeftCm, marginRightCm: m.marginRightCm,
     hasHeader: m.hasHeader, hasFooter: m.hasFooter,
     blocs,
+    pages: m.pages, paginationSource: m.paginationSource, plan: m.plan.slice(0, 200), paragraphes: m.paragraphs.length,
   };
 }
 

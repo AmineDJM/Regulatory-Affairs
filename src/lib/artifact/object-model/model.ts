@@ -74,6 +74,23 @@ export interface ParagraphNode {
   inTable: boolean;
   /** Le paragraphe porte-t-il une image ancrée ? */
   images: ImageNode[];
+  /**
+   * La PAGE où le paragraphe commence (1 = la première), d'après la dernière pagination
+   * enregistrée par Word (`w:lastRenderedPageBreak`) ou, à défaut, une estimation —
+   * `DocxModel.paginationSource` dit laquelle. `null` quand rien ne permet de la connaître.
+   */
+  page: number | null;
+  /** Niveau de titre (1 = Titre 1) quand le paragraphe en est un ; `null` pour un corps de texte. */
+  headingLevel: number | null;
+}
+
+/** Une entrée du PLAN d'un document : un titre, son niveau, son rang et sa page. */
+export interface OutlineEntry {
+  niveau: number;
+  texte: string;
+  /** Le rang humain du paragraphe de titre — pour le viser directement. */
+  index: number;
+  page: number | null;
 }
 
 export interface CellNode {
@@ -118,6 +135,17 @@ export interface DocxModel {
   /** Présence d'en-têtes / pieds de page — on ne les édite pas, on garantit qu'ils survivent. */
   hasHeader: boolean;
   hasFooter: boolean;
+  /** Le nombre de pages connu ou estimé, et d'où vient ce chiffre. */
+  pages: number;
+  /**
+   * `word` : Word a enregistré sa pagination (`w:lastRenderedPageBreak`), les pages sont celles
+   * que la personne a vues à la dernière sauvegarde. `estimee` : le fichier vient d'un programme
+   * (aucune marque de page) — on estime d'après la taille des caractères et les sauts explicites,
+   * et on le DIT. Une page « estimée » se donne à ±1 page, jamais comme une certitude.
+   */
+  paginationSource: "word" | "estimee";
+  /** Le plan : les titres, dans l'ordre, avec leur page — la carte d'un document de 300 pages. */
+  plan: OutlineEntry[];
 }
 
 // ─────────────────────────── XLSX ───────────────────────────

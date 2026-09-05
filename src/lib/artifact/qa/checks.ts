@@ -156,3 +156,118 @@ export function proportionsInitiales(m: ArtifactModel): ProportionsInitiales {
   }
   return out;
 }
+
+// ═══════════════════════════ LE CONTRÔLE AVANT LIVRAISON ═══════════════════════════
+//
+// `controlerVisuel` protège la personne PENDANT qu'elle retouche : des alertes, jamais un
+// blocage. Le contrôle avant LIVRAISON est autre chose : un document qui part chez un client, un
+// deck qui passe en comité, un classeur qui va au conseil. Là, certains défauts sont
+// BLOQUANTS — un « [à compléter] » oublié dans un contrat, une diapositive sans titre, une
+// cellule en #REF! — et un appelant honnête (les constructeurs, la fabrique documentaire) ne
+// livre pas tant qu'il en reste. Les autres restent des avertissements : on les dit, la personne
+// décide.
+
+export interface ControleLivraison {
+  bloquants: string[];
+  avertissements: string[];
+  /** Vrai s'il n'y a aucun bloquant. */
+  ok: boolean;
+}
+
+/** Les textes qu'un modèle ou un gabarit laisse derrière lui, et qu'un client ne doit jamais lire. */
+const MARQUEURS_BROUILLON = [
+  /\[\s*(?:à|a) compl[ée]ter\s*\]/i, /\[\s*(?:à|a) v[ée]rifier\s*\]/i, /\[\s*(?:nom|date|montant|client|soci[ée]t[ée])[^\]]{0,30}\]/i,
+  /\bXXX+\b/, /\bTODO\b/, /\bTBD\b/, /\bTBC\b/, /lorem ipsum/i, /\{\{[^}]{1,60}\}\}/, /<\s*ins[ée]rer[^>]{0,40}>/i, /\[\.{3}\]|\[…\]/,
+];
+const MAX_PUCES = 7;
+const MAX_MOTS_TITRE = 14;
+const MAX_MOTS_PUCE = 25;
+const MIN_PT_CORPS = 10;
+
+const compterMots = (t: string): number => t.trim().split(/\s+/).filter(Boolean).length;
+const marqueurDe = (t: string): string | null => {
+  for (const re of MARQUEURS_BROUILLON) { const m = re.exec(t); if (m) return m[0]; }
+  return null;
+};
+
+export function controlerAvantLivraison(m: ArtifactModel, initiales: ProportionsInitiales = {}): ControleLivraison {
+  const bloquants: string[] = [];
+  const avertissements: string[] = [...controlerVisuel(m, initiales)];
+  const bloquer = (s: string) => { if (bloquants.length < 20 && !bloquants.includes(s)) bloquants.push(s); };
+  const avertir = (s: string) => { if (avertissements.length < 20 && !avertissements.includes(s)) avertissements.push(s); };
+
+  if (m.kind === "DOCX") {
+    if (m.paragraphs.length === 0 && m.tables.length === 0) bloquer("Le document est vide.");
+    for (const p of m.paragraphs) {
+      const marque = marqueurDe(p.text);
+      if (marque) bloquer(`¶${p.index}${p.page ? ` (page ${p.page})` : ""} contient un reste de brouillon « ${marque} » : ${abreger(p.text, 50)}`);
+    }
+    for (const t of m.tables) {
+      for (const c of t.cells) { const marque = marqueurDe(c.text); if (marque) bloquer(`Tableau ${t.index}, L${c.row}C${c.col} contient « ${marque} ».`); }
+    }
+    // Un titre sans corps : deux titres qui se suivent au même niveau, ou un titre en fin de document.
+    const titres = m.paragraphs.filter((p) => p.headingLevel !== null);
+    for (let i = 0; i < titres.length; i++) {
+      const t = titres[i];
+      const suivant = m.paragraphs[t.index]; // le paragraphe juste après (index humain = position + 1)
+      if (!t.text.trim()) { avertir(`¶${t.index} est un titre vide.`); continue; }
+      if (!suivant) { avertir(`Le titre « ${abreger(t.text, 40)} » (¶${t.index}) termine le document sans corps de texte.`); continue; }
+      if (suivant.headingLevel !== null && suivant.headingLevel <= t.headingLevel!) avertir(`La section « ${abreger(t.text, 40)} » (¶${t.index}) n'a aucun contenu avant le titre suivant.`);
+    }
+    // La numérotation « Article N » : un trou ou un doublon se voit tout de suite chez un juriste.
+    const articles = m.paragraphs.map((p) => ({ p, m: /^\s*(?:article|art\.)\s+(\d{1,3})\b/i.exec(p.text) })).filter((x) => x.m);
+    for (let i = 1; i < articles.length; i++) {
+      const prev = Number(articles[i - 1].m![1]); const cur = Number(articles[i].m![1]);
+      if (cur === prev) avertir(`Deux « Article ${cur} » (¶${articles[i - 1].p.index} et ¶${articles[i].p.index}).`);
+      else if (cur !== prev + 1) avertir(`La numérotation des articles saute de ${prev} à ${cur} (¶${articles[i].p.index}).`);
+    }
+    if (m.tables.some((t) => t.rows === 0)) avertir("Un tableau est vide.");
+  }
+
+  if (m.kind === "PPTX") {
+    if (m.slides.length === 0) bloquer("La présentation ne contient aucune diapositive.");
+    const titres = new Map<string, number[]>();
+    for (const d of m.slides) {
+      const titre = d.title.trim();
+      if (!titre) bloquer(`Diapo ${d.index} : pas de titre.`);
+      else {
+        const cle = titre.toLowerCase();
+        titres.set(cle, [...(titres.get(cle) ?? []), d.index]);
+        if (compterMots(titre) > MAX_MOTS_TITRE) avertir(`Diapo ${d.index} : le titre fait ${compterMots(titre)} mots — une idée par diapositive tient en une ligne.`);
+      }
+      const textes = d.shapes.filter((f) => f.role === "text" && f.text.trim());
+      if (textes.length <= 1 && !d.shapes.some((f) => f.role === "picture" || f.role === "table" || f.role === "chart")) {
+        avertir(`Diapo ${d.index} : rien d'autre que le titre.`);
+      }
+      for (const f of d.shapes) {
+        if (!f.text.trim()) continue;
+        const marque = marqueurDe(f.text);
+        if (marque) bloquer(`Diapo ${d.index}, « ${abreger(f.name, 20)} » contient un reste de brouillon « ${marque} ».`);
+        if (/cliquez pour (ajouter|modifier)/i.test(f.text)) bloquer(`Diapo ${d.index} : un espace réservé n'a pas été rempli (« ${abreger(f.text, 40)} »).`);
+        const lignes = f.text.split("\n").filter((l) => l.trim());
+        if (lignes.length > MAX_PUCES) avertir(`Diapo ${d.index}, « ${abreger(f.name, 20)} » : ${lignes.length} lignes — au-delà de ${MAX_PUCES}, personne ne lit.`);
+        const longues = lignes.filter((l) => compterMots(l) > MAX_MOTS_PUCE).length;
+        if (longues > 0 && d.title.trim() !== f.text.trim()) avertir(`Diapo ${d.index}, « ${abreger(f.name, 20)} » : ${longues} puce(s) de plus de ${MAX_MOTS_PUCE} mots.`);
+        if (f.style.sizePt !== null && f.style.sizePt < MIN_PT_CORPS && f.text.length > 30) avertir(`Diapo ${d.index}, « ${abreger(f.name, 20)} » : ${f.style.sizePt} pt, illisible en projection.`);
+      }
+    }
+    for (const [titre, indices] of titres) if (indices.length > 1) avertir(`Le titre « ${abreger(titre, 40)} » revient sur les diapos ${indices.join(", ")}.`);
+  }
+
+  if (m.kind === "PDF") {
+    if (m.pages.length === 0) bloquer("Le PDF ne contient aucune page.");
+    const rotations = new Set(m.pages.map((p) => p.rotation));
+    if (rotations.size > 1) avertir(`Les pages n'ont pas toutes la même orientation (rotations ${[...rotations].join("°, ")}°).`);
+    for (const p of m.pages) { const marque = marqueurDe(p.preview); if (marque) bloquer(`Page ${p.index} contient un reste de brouillon « ${marque} ».`); }
+  }
+
+  if (m.kind === "XLSX") {
+    for (const s of m.sheets) {
+      const erreurs = s.cells.filter((c) => /^#(REF|DIV\/0|VALUE|NAME|N\/A|NUM|NULL)!?/i.test(c.value));
+      if (erreurs.length) bloquer(`${s.name} : ${erreurs.length} cellule(s) en erreur (${erreurs.slice(0, 3).map((c) => `${c.ref}=${c.value}`).join(", ")}).`);
+      for (const c of s.cells) { const marque = marqueurDe(c.value); if (marque) bloquer(`${s.name}!${c.ref} contient « ${marque} ».`); }
+    }
+  }
+
+  return { bloquants, avertissements, ok: bloquants.length === 0 };
+}

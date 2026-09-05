@@ -22,7 +22,7 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-import type { ArtifactModel, TextStyle } from "@/lib/artifact/object-model/model";
+import type { ArtifactModel, PptxModel, TextStyle } from "@/lib/artifact/object-model/model";
 import { abreger } from "@/lib/artifact/object-model/text";
 
 export type NatureChangement = "ajout" | "suppression" | "texte" | "forme" | "deplacement";
@@ -60,6 +60,56 @@ function differenceDeStyle(a: TextStyle, b: TextStyle): string[] {
   return dits;
 }
 
+/**
+ * ALIGNE deux suites par leur CONTENU (signatures), pas par leur rang : ancres uniques des deux
+ * côtés, plus longue sous-suite croissante (l'algorithme « patience »), positionnel entre deux
+ * ancres. Un paragraphe inséré au milieu de mille est UNE différence, pas mille — la même idée
+ * que pour les lignes d'un classeur (`sheets/diff.ts`).
+ */
+export function alignerSequences(a: string[], b: string[]): { paires: [number, number][]; seulsA: number[]; seulsB: number[] } {
+  const compteA = new Map<string, number>(); const compteB = new Map<string, number>();
+  for (const s of a) if (s) compteA.set(s, (compteA.get(s) ?? 0) + 1);
+  for (const s of b) if (s) compteB.set(s, (compteB.get(s) ?? 0) + 1);
+  const posB = new Map<string, number>();
+  b.forEach((s, j) => { if (s && compteA.get(s) === 1 && compteB.get(s) === 1) posB.set(s, j); });
+  const ancresA: number[] = []; const ancresB: number[] = [];
+  a.forEach((s, i) => { const j = s ? posB.get(s) : undefined; if (j !== undefined) { ancresA.push(i); ancresB.push(j); } });
+  // Plus longue sous-suite croissante des indices B (O(n log n)).
+  const fin: number[] = []; const prec: number[] = new Array(ancresB.length).fill(-1);
+  for (let i = 0; i < ancresB.length; i++) {
+    let lo = 0, hi = fin.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (ancresB[fin[mid]] < ancresB[i]) lo = mid + 1; else hi = mid; }
+    if (lo > 0) prec[i] = fin[lo - 1];
+    fin[lo] = i;
+  }
+  const garde: number[] = [];
+  for (let k = fin.length ? fin[fin.length - 1] : -1; k !== -1; k = prec[k]) garde.push(k);
+  garde.reverse();
+  const ancres: [number, number][] = garde.map((k) => [ancresA[k], ancresB[k]]);
+  ancres.push([a.length, b.length]);
+  const paires: [number, number][] = []; const seulsA: number[] = []; const seulsB: number[] = [];
+  let ia = 0, ib = 0;
+  for (const [aa, ab] of ancres) {
+    while (ia < aa && ib < ab) { paires.push([ia, ib]); ia++; ib++; }
+    while (ia < aa) { seulsA.push(ia); ia++; }
+    while (ib < ab) { seulsB.push(ib); ib++; }
+    if (aa < a.length && ab < b.length) { paires.push([aa, ab]); ia = aa + 1; ib = ab + 1; }
+  }
+  return { paires, seulsA, seulsB };
+}
+
+/** Le FRAGMENT qui a changé entre deux textes (préfixe et suffixe communs retirés), par mots. */
+export function fragmentModifie(avant: string, apres: string): { avant: string; apres: string } {
+  const a = avant.split(/(\s+)/); const b = apres.split(/(\s+)/);
+  let debut = 0;
+  while (debut < a.length && debut < b.length && a[debut] === b[debut]) debut++;
+  let finA = a.length, finB = b.length;
+  while (finA > debut && finB > debut && a[finA - 1] === b[finB - 1]) { finA--; finB--; }
+  return { avant: a.slice(debut, finA).join("").trim(), apres: b.slice(debut, finB).join("").trim() };
+}
+
+const signatureTexte = (t: string): string => t.replace(/\s+/g, " ").trim().toLowerCase();
+
 export function comparer(avant: ArtifactModel, apres: ArtifactModel): Comparaison {
   if (avant.kind !== apres.kind) {
     return { ok: false, motif: `on ne compare pas un ${avant.kind} à un ${apres.kind}`, changements: [], resume: "" };
@@ -67,15 +117,22 @@ export function comparer(avant: ArtifactModel, apres: ArtifactModel): Comparaiso
   const c: Changement[] = [];
 
   if (avant.kind === "DOCX" && apres.kind === "DOCX") {
-    const n = Math.max(avant.paragraphs.length, apres.paragraphs.length);
-    for (let i = 0; i < n && c.length < MAX_CHANGEMENTS; i += 1) {
+    // Les paragraphes sont ALIGNÉS par leur texte : une insertion au milieu ne décale pas tout.
+    const { paires, seulsA, seulsB } = alignerSequences(avant.paragraphs.map((p) => signatureTexte(p.text)), apres.paragraphs.map((p) => signatureTexte(p.text)));
+    for (const i of seulsA) { if (c.length >= MAX_CHANGEMENTS) break; const a = avant.paragraphs[i]; c.push({ nature: "suppression", objet: `¶${a.index}`, quoi: "paragraphe supprimé", avant: abreger(a.text, 70), apres: null }); }
+    for (const j of seulsB) { if (c.length >= MAX_CHANGEMENTS) break; const b = apres.paragraphs[j]; c.push({ nature: "ajout", objet: `¶${b.index}${b.page ? ` (page ${b.page})` : ""}`, quoi: "paragraphe ajouté", avant: null, apres: abreger(b.text, 70) }); }
+    for (const [i, j] of paires) {
+      if (c.length >= MAX_CHANGEMENTS) break;
       const a = avant.paragraphs[i];
-      const b = apres.paragraphs[i];
-      if (a && !b) { c.push({ nature: "suppression", objet: `¶${a.index}`, quoi: "paragraphe supprimé", avant: abreger(a.text, 70), apres: null }); continue; }
-      if (!a && b) { c.push({ nature: "ajout", objet: `¶${b.index}`, quoi: "paragraphe ajouté", avant: null, apres: abreger(b.text, 70) }); continue; }
-      if (!a || !b) continue;
+      const b = apres.paragraphs[j];
       if (a.text !== b.text) {
-        c.push({ nature: "texte", objet: `¶${b.index}`, quoi: "texte modifié", avant: abreger(a.text, 70), apres: abreger(b.text, 70) });
+        const frag = fragmentModifie(a.text, b.text);
+        const court = frag.avant.length + frag.apres.length < a.text.length + b.text.length;
+        c.push({
+          nature: "texte", objet: `¶${b.index}${b.page ? ` (page ${b.page})` : ""}`,
+          quoi: court ? `texte modifié : « ${abreger(frag.avant || "∅", 40)} » → « ${abreger(frag.apres || "∅", 40)} »` : "texte modifié",
+          avant: abreger(a.text, 70), apres: abreger(b.text, 70),
+        });
       }
       const forme = differenceDeStyle(a.style, b.style);
       if (a.alignment !== b.alignment) {
@@ -115,16 +172,18 @@ export function comparer(avant: ArtifactModel, apres: ArtifactModel): Comparaiso
         objet: "document", quoi: `${avant.pages.length} → ${apres.pages.length} pages`,
         avant: String(avant.pages.length), apres: String(apres.pages.length),
       });
-      // QUELLES pages ont disparu, et pas seulement combien : c'est la question qu'on pose.
-      const restants = new Set(apres.pages.map((p) => p.preview).filter(Boolean));
-      const partis = avant.pages.filter((p) => p.preview && !restants.has(p.preview)).map((p) => p.index);
-      if (partis.length) {
-        c.push({ nature: "suppression", objet: "pages", quoi: `pages retirées : ${partis.slice(0, 20).join(", ")}`, avant: partis.join(", "), apres: null });
-      }
     }
-    for (let i = 0; i < Math.min(avant.pages.length, apres.pages.length) && c.length < MAX_CHANGEMENTS; i += 1) {
-      if (avant.pages[i].rotation !== apres.pages[i].rotation) {
-        c.push({ nature: "forme", objet: `page ${i + 1}`, quoi: `rotation ${avant.pages[i].rotation}° → ${apres.pages[i].rotation}°`, avant: null, apres: null });
+    // QUELLES pages ont bougé, pas seulement combien : alignées par leur texte.
+    const { paires, seulsA, seulsB } = alignerSequences(avant.pages.map((p) => signatureTexte(p.preview)), apres.pages.map((p) => signatureTexte(p.preview)));
+    if (seulsA.length) c.push({ nature: "suppression", objet: "pages", quoi: `pages retirées : ${seulsA.slice(0, 20).map((i) => avant.pages[i].index).join(", ")}${seulsA.length > 20 ? "…" : ""}`, avant: seulsA.map((i) => avant.pages[i].index).join(", "), apres: null });
+    if (seulsB.length) c.push({ nature: "ajout", objet: "pages", quoi: `pages ajoutées : ${seulsB.slice(0, 20).map((j) => apres.pages[j].index).join(", ")}${seulsB.length > 20 ? "…" : ""}`, avant: null, apres: seulsB.map((j) => apres.pages[j].index).join(", ") });
+    for (const [i, j] of paires) {
+      if (c.length >= MAX_CHANGEMENTS) break;
+      if (avant.pages[i].rotation !== apres.pages[j].rotation) {
+        c.push({ nature: "forme", objet: `page ${apres.pages[j].index}`, quoi: `rotation ${avant.pages[i].rotation}° → ${apres.pages[j].rotation}°`, avant: null, apres: null });
+      }
+      if (avant.pages[i].index !== apres.pages[j].index && seulsA.length === 0 && seulsB.length === 0 && c.length < MAX_CHANGEMENTS) {
+        c.push({ nature: "deplacement", objet: `page ${avant.pages[i].index}`, quoi: `déplacée en position ${apres.pages[j].index}`, avant: String(avant.pages[i].index), apres: String(apres.pages[j].index) });
       }
     }
   }
@@ -172,14 +231,23 @@ export function comparer(avant: ArtifactModel, apres: ArtifactModel): Comparaiso
         avant: String(avant.slides.length), apres: String(apres.slides.length),
       });
     }
-    for (let i = 0; i < Math.min(avant.slides.length, apres.slides.length) && c.length < MAX_CHANGEMENTS; i += 1) {
+    const signature = (d: PptxModel["slides"][number]) => `${signatureTexte(d.title)}|${d.shapes.length}`;
+    const { paires, seulsA, seulsB } = alignerSequences(avant.slides.map(signature), apres.slides.map(signature));
+    for (const i of seulsA) { if (c.length >= MAX_CHANGEMENTS) break; c.push({ nature: "suppression", objet: `diapo ${avant.slides[i].index}`, quoi: "diapositive supprimée", avant: abreger(avant.slides[i].title, 50), apres: null }); }
+    for (const j of seulsB) { if (c.length >= MAX_CHANGEMENTS) break; c.push({ nature: "ajout", objet: `diapo ${apres.slides[j].index}`, quoi: "diapositive ajoutée", avant: null, apres: abreger(apres.slides[j].title, 50) }); }
+    for (const [i, j] of paires) {
+      if (c.length >= MAX_CHANGEMENTS) break;
       const a = avant.slides[i];
-      const b = apres.slides[i];
+      const b = apres.slides[j];
+      if (a.index !== b.index && seulsA.length === 0 && seulsB.length === 0) {
+        c.push({ nature: "deplacement", objet: `diapo ${a.index}`, quoi: `déplacée en position ${b.index}`, avant: String(a.index), apres: String(b.index) });
+      }
       for (let k = 0; k < Math.min(a.shapes.length, b.shapes.length) && c.length < MAX_CHANGEMENTS; k += 1) {
         const fa = a.shapes[k];
         const fb = b.shapes[k];
         if (fa.text !== fb.text) {
-          c.push({ nature: "texte", objet: `diapo ${b.index} · ${fb.name}`, quoi: "texte modifié", avant: abreger(fa.text, 60), apres: abreger(fb.text, 60) });
+          const frag = fragmentModifie(fa.text, fb.text);
+          c.push({ nature: "texte", objet: `diapo ${b.index} · ${fb.name}`, quoi: `texte modifié : « ${abreger(frag.avant || "∅", 30)} » → « ${abreger(frag.apres || "∅", 30)} »`, avant: abreger(fa.text, 60), apres: abreger(fb.text, 60) });
         }
         // Un dixième de centimètre est un arrondi de conversion EMU, pas un déplacement.
         if (Math.abs(fa.xCm - fb.xCm) > 0.05 || Math.abs(fa.yCm - fb.yCm) > 0.05) {

@@ -302,6 +302,7 @@ export const AUTONOMES: Record<string, Effect> = {
   artifact_control: "INTERNAL_REVERSIBLE_WRITE",
   // Un classeur VÉRIFIÉ construit dans le Drive personnel : un fichier de plus, supprimable.
   sheet_build: "INTERNAL_REVERSIBLE_WRITE",
+  deck_build: "INTERNAL_REVERSIBLE_WRITE",
   mission_create: "INTERNAL_REVERSIBLE_WRITE",
   run_mission: "INTERNAL_REVERSIBLE_WRITE",
   mission_consolidate: "INTERNAL_REVERSIBLE_WRITE",

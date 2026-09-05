@@ -51,6 +51,12 @@ export const CAPACITES_ARTEFACT = [
   "artifact.sheet_diff",
   "artifact.sheet_read",
   "artifact.sheet_build",
+  // Les documents longs : lire un PDF de 500 pages (natif + OCR ciblé), construire un deck vérifié,
+  // contrôler avant livraison, inspecter une tranche d'un long document.
+  "artifact.pdf_read",
+  "artifact.pdf_search",
+  "artifact.deck_build",
+  "artifact.qa",
 ] as const;
 
 export type CapaciteArtefact = (typeof CAPACITES_ARTEFACT)[number];
@@ -71,6 +77,10 @@ export const LIBELLE_CAPACITE: Record<CapaciteArtefact, string> = {
   "artifact.sheet_diff": "Comparer deux versions d'un classeur : lignes insérées, valeurs, formules modifiées ou écrasées",
   "artifact.sheet_read": "Lire une plage d'un grand classeur en clair",
   "artifact.sheet_build": "Construire un classeur vérifié (formules recalculées, valeurs écrites, audit propre) depuis une spécification",
+  "artifact.pdf_read": "Lire le texte natif d'une plage de pages d'un PDF (500+ pages), avec OCR ciblé des pages scannées",
+  "artifact.pdf_search": "Chercher une expression dans tout un PDF et rendre les pages avec un extrait",
+  "artifact.deck_build": "Construire un deck « une idée par diapositive » (jusqu'à 250), relu et contrôlé avant écriture",
+  "artifact.qa": "Contrôler un document avant livraison : bloquants (brouillon, titre absent, erreur) et avertissements",
 };
 
 /** La cible d'une commande, en schéma strict. */
@@ -82,8 +92,9 @@ const SCHEMA_CIBLE = {
     index: { type: ["integer", "null"], description: "Rang HUMAIN, 1 = le premier. « le troisième paragraphe » → 3." },
     contient: { type: ["string", "null"], description: "Un fragment du texte recherché : « rémunération »." },
     role: { type: ["string", "null"], enum: ["titre", "premier", "dernier", null], description: "Rôle : titre, premier, dernier." },
+    page: { type: ["integer", "null"], description: "La page où chercher (Word, 1 = la première) : « le 3e paragraphe de la page 12 » → page 12, index 3. Le rang se compte DANS la page." },
   },
-  required: ["id", "index", "contient", "role"],
+  required: ["id", "index", "contient", "role", "page"],
 } as const;
 
 const N = ["number", "null"] as const;
