@@ -180,3 +180,12 @@ describe("collection — plusieurs listes ne sont pas toujours une ambiguïté",
     expect(c2.kind).toBe("AMBIGU");
   });
 });
+
+describe("une liste À LA RACINE est une collection", () => {
+  it("le tableau lui-même est la liste : chemin vide → LISTE, chemin écrit → CORRIGEE vers la racine, jamais ABSENTE", () => {
+    const taches = [{ titre: "a" }, { titre: "b" }];
+    expect(resoudreCollection(taches, "")).toEqual({ kind: "LISTE", valeur: taches });
+    expect(resoudreCollection(taches, "items")).toEqual({ kind: "CORRIGEE", valeur: taches, chemin: "." });
+    expect(resoudreCollection([], "taches")).toEqual({ kind: "CORRIGEE", valeur: [], chemin: "." });
+  });
+});

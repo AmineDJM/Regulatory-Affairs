@@ -1398,7 +1398,7 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
     input_schema: {
       type: "object",
       properties: {
-        recipientName: { type: "string", description: "Nom du collègue destinataire." },
+        recipientName: { type: "string", description: "Nom d'UN collègue (une personne, jamais une équipe ni un service : pour écrire à une équipe, lister ses membres avec directory_list et écrire à chacun)." },
         body: { type: "string", description: "Texte du message à envoyer." },
       },
       required: ["recipientName", "body"],
@@ -1540,17 +1540,19 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
   {
     name: "decide_payment",
     description:
-      "PROPOSE de trancher un PAIEMENT au CENTRE DE PAIEMENT : autoriser (APPROVE), refuser (REFUSE), demander une révision du montant " +
-      "(REQUEST_CHANGES, avec proposedAmount) ou une argumentation (REQUEST_INFO). Réservé à qui SIÈGE au centre (PDG, Super Admin). " +
+      "PROPOSE de trancher un PAIEMENT au CENTRE DE PAIEMENT : autoriser (APPROVE) ou refuser (REFUSE) — les deux seules décisions du centre, " +
+      "comme à l'écran. Pour demander une révision ou des pièces, écrire au demandeur (send_message) plutôt que trancher. Réservé à qui SIÈGE au centre (PDG, Super Admin). " +
       "N'exécute rien : la carte de confirmation montre le paiement, le montant et la décision avant tout. " +
       "`reference` = la référence de l'ordre (visible au centre de paiement ou via inspect_record).",
+    // LE SCHÉMA DIT LA VÉRITÉ DU GESTIONNAIRE : il annonçait REQUEST_CHANGES / REQUEST_INFO et un
+    // montant proposé que le centre a retirés (§118-7). Le banc de missions l'a payé : un plan
+    // « demander une révision » compilait, puis échouait à l'exécution après l'accord du dirigeant.
     input_schema: {
       type: "object",
       properties: {
         reference: { type: "string", description: "Référence de l'ordre de dépense à trancher." },
-        decision: { type: "string", enum: ["APPROVE", "REFUSE", "REQUEST_CHANGES", "REQUEST_INFO"], description: "La décision." },
-        note: { type: "string", description: "Le motif — OBLIGATOIRE sauf pour APPROVE : le demandeur le lira." },
-        proposedAmount: { type: "number", description: "Montant proposé en DZD (REQUEST_CHANGES uniquement) — une proposition, jamais une réécriture." },
+        decision: { type: "string", enum: ["APPROVE", "REFUSE"], description: "La décision : autoriser ou refuser." },
+        note: { type: "string", description: "Le motif — OBLIGATOIRE pour REFUSE : le demandeur le lira." },
       },
       required: ["reference", "decision"],
     },

@@ -210,6 +210,9 @@ export interface Resolution {
   };
 }
 
+/** Les gestes de suivi d'un chef de cabinet — montrés au planificateur quelle que soit la demande (sous droits). */
+export const SUIVI_UNIVERSEL: readonly string[] = ["create_task", "plan_reminder", "send_message", "watch_entity", "create_calendar_event"];
+
 const poidsBrief = (b: CapabilityBrief): number =>
   Math.ceil((b.id.length + b.summary.length + b.domain.length + 24) / 3.6);
 
@@ -260,6 +263,24 @@ export function resoudreCapacites(
   };
 
   for (const nom of opts.imposees ?? []) {
+    const b = toutes.find((x) => x.id === nom);
+    if (b) ajouter(b);
+  }
+
+  /**
+   * ── LES GESTES DE SUIVI SONT TOUJOURS VISIBLES ─────────────────────────────────────────
+   *
+   * Mesuré sur le banc : « fais en sorte qu'on ne rate aucune échéance réglementaire critique »
+   * a reçu quinze capacités — paie, salaires, médecins — et AUCUNE pour poser un rappel ou une
+   * tâche : le mot « échéance » n'apparaît pas dans le résumé de `plan_reminder`. Le planificateur
+   * a écrit, honnêtement, « aucune capacité ne permet de créer les rappels » — et la mission s'est
+   * conclue sans suivi. Un chef de cabinet finit presque toute mission par un geste de suivi
+   * (une tâche, un rappel, un message, une surveillance, une réunion) : ces cinq-là ne se
+   * gagnent pas au score, elles sont là — sous les droits de la personne, jamais au-delà — et
+   * elles COMPTENT dans la limite : la borne de §3 reste stricte, ce sont les dernières du
+   * classement global qui leur cèdent la place, pas la lisibilité du catalogue.
+   */
+  for (const nom of SUIVI_UNIVERSEL) {
     const b = toutes.find((x) => x.id === nom);
     if (b) ajouter(b);
   }
@@ -330,6 +351,7 @@ export function resoudreCapacites(
   // les mieux classées plutôt que rien : un planner sans capacité ne produit pas un plan honnête,
   // il produit un plan vide.
   if (retenues.size === 0) for (const n of notes.slice(0, limite)) ajouter(n.b);
+
 
   const capacites = [...retenues.values()];
   const totalCatalogue = toutes.reduce((s, b) => s + poidsBrief(b), 0);

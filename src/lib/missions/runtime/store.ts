@@ -382,9 +382,16 @@ export async function journaliser(
   summary: string,
   detail?: Record<string, unknown>,
   actorId?: string,
+  /**
+   * L'INSTANT DE L'ÉVÉNEMENT, quand l'appelant tient une horloge (la porte d'attention, dont la
+   * cadence et le plafond quotidien se relisent DANS ce journal). Sans lui, l'heure de la base :
+   * en production c'est la même ; sous une horloge simulée, un journal à l'heure réelle rendait
+   * le plafond invérifiable — la journée simulée ne « voyait » aucun signal du jour.
+   */
+  at?: Date,
 ): Promise<void> {
   await prisma.missionEvent.create({
-    data: { missionId, kind, summary, detail: (detail ?? undefined) as never, actorId: actorId ?? null },
+    data: { missionId, kind, summary, detail: (detail ?? undefined) as never, actorId: actorId ?? null, ...(at ? { at } : {}) },
   });
 }
 

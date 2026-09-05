@@ -66,12 +66,17 @@ const estEcriture = (n: string): boolean => RESOLVER_WRITE_NAMES.has(n);
  * du SAVOIR (la forme réelle des sorties), pas une consigne : il se corrige en le lisant.
  */
 const SORTIES: Record<string, string> = {
-  find_documents: "rend { resultats: [{ id, titre, … }], couverture } — éventail sur « resultats »",
+  // Le banc m6 a payé une erreur ICI : « resultats: [{ id }] » alors que la capacité rend
+  // `driveNodeId`. Le planificateur a écrit `{{recherche:contrat.resultats.0.id}}`, le moteur a
+  // répondu « ne rend pas resultats.0.id — champs disponibles : nom, driveNodeId, … ». Ces
+  // formes sont relues dans le code de chaque outil ; en changer une sans relire l'outil, c'est
+  // remettre la devinette que ce tableau existe pour supprimer.
+  find_documents: "rend { resultats: [{ nom, driveNodeId, chemin, confiance, preuve, typeDetecte, … }], couverture } — éventail sur « resultats » ; l'identifiant à donner à read_document est « driveNodeId »",
   search_everything: "rend { resultats: [{ famille, titre, reference, … }], total } — éventail sur « resultats »",
   directory_list: "rend { salaries: [{ id, nom, emails, … }], total } — éventail sur « salaries »",
-  list_my_tasks: "rend { items: [{ id, titre, … }], count } — éventail sur « items »",
-  gmail_search: "rend { messages: [{ id, threadId, objet, … }] } — éventail sur « messages »",
-  search_drive: "rend { items: [{ id, nom, … }], count } — éventail sur « items »",
+  list_my_tasks: "rend une LISTE à la racine : [{ titre, statut, priorite, echeance, assigneA }] — éventail sur la racine (le chemin est ramené à la liste)",
+  gmail_search: "rend { messages: [{ id, filId, de, objet, date, … }] } — éventail sur « messages » ; « filId » est le fil (threadId)",
+  search_drive: "rend { items: [{ nom, driveNodeId, lien, … }], count } — éventail sur « items » ; l'identifiant à donner à read_document est « driveNodeId »",
 };
 
 export interface CatalogueReel extends CapabilityCatalog {

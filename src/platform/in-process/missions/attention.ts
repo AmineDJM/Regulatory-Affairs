@@ -103,9 +103,10 @@ export function porteAttentionPour(deps: DependancesAttention = {}): PorteAttent
         email = await envoyer(signal.ownerId, `[Adam] ${titre}`, `${corps}\n\nOuvrir la mission : /missions/${signal.missionId}`);
         if (email === "envoye") livres.push("email");
       }
+      // JOURNALISÉ À L'HEURE DE LA PORTE : c'est ce journal que la cadence et le plafond relisent.
       await journaliser(signal.missionId, "NOTIFIED", `${niveau} — ${titre} : ${corps}`, {
         niveau, cle, canaux: livres, email, kind: signal.kind, ...(signal.stepKey ? { stepKey: signal.stepKey } : {}),
-      });
+      }, undefined, maintenant);
       return { niveau, canaux: livres, supprime: false };
     },
   };

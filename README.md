@@ -3790,10 +3790,40 @@ vraie base : valeur reçue, reçu, liste vide → ignorée, chemin absent → é
 échéance illisible → échec) ; la matrice permissions × capacités compile désormais chaque écriture avec une
 entrée minimale qui honore son contrat (`exempleEntree`).
 
+**11. La journée simulée, et ce que le banc m6 a encore trouvé** (`journee-simulee.test.ts`, run m6). La
+porte d'attention est mesurée sur une journée chargée, horloge injectée, journal réel : douze missions
+partiellement faites, douze alertes de surveillance, douze blocages — trente-six signaux dignes d'attention —
+puis cinq arbitrages, les mêmes faits redits, et le lendemain. Exactement PLAFOND_QUOTIDIEN (15) poussés,
+vingt et un au journal sans vibrer, les cinq arbitrages poussés malgré le plafond, les redites tues, le
+compteur rouvert le lendemain, cinquante-quatre lignes au journal. Le banc a trouvé un défaut : la porte
+journalisait à l'heure de la BASE, pas à la sienne — sous horloge simulée, le plafond ne voyait aucun signal
+« du jour » (`journaliser` accepte l'instant de l'appelant). Le run m6 du banc de missions inédites (après le
+lot 5) : **27 attendus sur 35 (77 %)**, les neuf missions lancées, 0,12 $ — et six causes précises, toutes
+générales, fermées dans la foulée : (a) la forme de sortie DITE au planificateur pour `find_documents` était
+fausse (`resultats[].id` alors que la capacité rend `driveNodeId` — le moteur l'a dit champ par champ, le
+tableau est corrigé d'après le code, `search_drive` et `gmail_search` avec lui ; `list_my_tasks` rend une
+LISTE à la racine, et une liste à la racine est désormais une collection d'éventail) ; (b) le schéma de
+`decide_payment` promettait REQUEST_CHANGES / REQUEST_INFO que le centre a retirés — le schéma dit la
+vérité du gestionnaire (autoriser / refuser), et le compilateur refuse le reste AVANT l'accord ; (c) le
+rôle à relancer de `plan_reminder` était un texte libre (« Équipe Regulatory ») — c'est une énumération des
+rôles de la maison ; `send_message` dit qu'il écrit à UNE personne et qu'une équipe se déploie en éventail ;
+(d) « Surveille l'appel d'offres PCH 2026/14 » n'avait AUCUNE cible : les appels d'offres (`PchTender`) se
+surveillent — référence sous ses écritures (« AO 2026/14 », « PCH 2026-14 »), échéance de dépôt puis
+d'attribution, suspension, statut, silence, disparition — sous le droit PCH ; (e) « fais en sorte qu'on ne
+rate aucune échéance » recevait quinze capacités et aucune pour poser un rappel ou une tâche (le mot
+« échéance » n'est pas dans le résumé de `plan_reminder`) : les cinq gestes de suivi d'un chef de cabinet
+(tâche, rappel, message, surveillance, réunion) sont toujours montrés, sous droits ; et une porte d'ACCORD
+dans un plan sans écriture sous accord (« 0 étape à autoriser », un arbitrage insistant pour rien) devient une
+jonction, en le disant ; (f) `gmail_prepare_mail` répondait « compte Google non connecté » en phrase, l'étape
+passait DONE et seul le juge final relevait la contradiction : sous contrat FICHE (l'intent préparé), la phrase
+est un échec à l'étape. Le banc lui-même conduit désormais chaque mission comme le battement
+(`conduireMission` : avancer → replanifier → signaler), au lieu du seul `avancerMission` qui sous-estimait
+la reprise.
+
 **Ce qui reste, dit avant d'être demandé.** La latence de planification au rôle par défaut (2,4-3,5 k jetons de
 sortie, 54-93 s) ; `ADAM_PLANNER_ROLE` permet de mesurer un rôle plus rapide, et le mandat 6 (optimiseur de coût
-à qualité d'abord) tranchera le routage. Le chaos restant (dizaines de missions simultanées au-delà des paliers du
-Deep Smoke) et le run suivant du banc live des missions inédites sont les mesures suivantes du même chantier.
+à qualité d'abord) tranchera le routage. Le run m7 du banc (après les six corrections ci-dessus) et la charge en
+paliers (`DEEP_SMOKE_PALIERS`, jusqu'à vingt missions de front) sont les mesures suivantes du même chantier.
 
 ### Adam mesuré, puis accéléré : le banc, les pré-lectures, le routage par niveau, le coût de premier rang (2026-09)
 

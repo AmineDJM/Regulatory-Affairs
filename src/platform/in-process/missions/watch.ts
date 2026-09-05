@@ -33,7 +33,7 @@ import { proprietaire } from "@/platform/in-process/missions/sweep";
 
 export const TYPES_CIBLE = [
   "REGULATORY_PRODUCT", "REGULATORY_DOSSIER", "TASK", "EXPENSE_ORDER", "PAYMENT_REQUEST", "VALIDATION_REQUEST",
-  "PRODUIT", "ORGANISATION", "PERSONNE",
+  "PCH_TENDER", "PRODUIT", "ORGANISATION", "PERSONNE",
 ] as const;
 export type TypeCible = (typeof TYPES_CIBLE)[number];
 
@@ -49,7 +49,18 @@ export interface CibleResolue {
 const LIBELLE_TYPE: Record<TypeCible, string> = {
   REGULATORY_PRODUCT: "dossier réglementaire", REGULATORY_DOSSIER: "dossier CTD", TASK: "tâche",
   EXPENSE_ORDER: "règlement", PAYMENT_REQUEST: "demande de paiement", VALIDATION_REQUEST: "validation",
-  PRODUIT: "produit", ORGANISATION: "organisation", PERSONNE: "personne",
+  PCH_TENDER: "appel d'offres", PRODUIT: "produit", ORGANISATION: "organisation", PERSONNE: "personne",
+};
+
+/**
+ * LES ÉCRITURES D'UNE RÉFÉRENCE DE MARCHÉ. « AO 2026/14 », « 2026-14 », « PCH 2026/14 » désignent le
+ * même appel d'offres ; la base porte UNE forme. On compare des formes NORMALISÉES (chiffres et
+ * lettres, séparateurs effacés), jamais un « contient » sur deux chiffres qui attraperait tout.
+ */
+const formeMarche = (t: string): string => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/^(AO|PCH|MARCHE|APPEL D'OFFRES)\s*/g, "").replace(/[^A-Z0-9]+/g, "");
+const memeMarche = (a: string, b: string): boolean => {
+  const fa = formeMarche(a); const fb = formeMarche(b);
+  return fa.length >= 4 && (fa === fb || fa.endsWith(fb) || fb.endsWith(fa));
 };
 
 const STATUTS_TACHE_OUVERTS = ["REQUESTED", "TODO", "IN_PROGRESS"];
@@ -64,7 +75,8 @@ export async function resoudreCible(user: CurrentUser, reference: string): Promi
   const ref = reference.trim();
   if (ref.length < 2) return { cible: null, candidats: [] };
   const peutRegulatory = userCan(user, "REGULATORY", "VIEW");
-  const [produits, dossiers, ordres, paiements, validations, taches, canoniques] = await Promise.all([
+  const peutPch = userCan(user, "PCH", "VIEW");
+  const [produits, dossiers, ordres, paiements, validations, taches, canoniques, marches] = await Promise.all([
     peutRegulatory ? prisma.regulatoryProduct.findMany({
       where: { OR: [{ reference: { equals: ref, mode: "insensitive" } }, { dci: { contains: ref, mode: "insensitive" } }, { brandName: { contains: ref, mode: "insensitive" } }] },
       select: { id: true, reference: true, dci: true, brandName: true }, take: 6,
@@ -81,6 +93,13 @@ export async function resoudreCible(user: CurrentUser, reference: string): Promi
       select: { id: true, title: true }, orderBy: { createdAt: "desc" }, take: 6,
     }).catch(() => []),
     resoudreEntitesDe(ref).catch(() => []),
+    // LES APPELS D'OFFRES : la référence sous ses écritures, ou le titre. « Surveille l'appel
+    // d'offres PCH 2026/14 » était sans cible avant cette ligne — la surveillance répondait
+    // « rien à surveiller » pour un marché que la maison suit au quotidien.
+    peutPch ? prisma.pchTender.findMany({
+      where: { OR: [{ reference: { contains: ref.replace(/^(AO|PCH)\s*/i, "").replace(/[^0-9]+/g, "/").replace(/^\/|\/$/g, ""), mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
+      select: { id: true, reference: true, title: true, status: true }, take: 8,
+    }).then((rows) => rows.filter((m) => memeMarche(m.reference, ref) || (m.title ?? "").toLowerCase().includes(ref.toLowerCase()))).catch(() => []) : Promise.resolve([]),
   ]);
 
   const candidats: CibleResolue[] = [
@@ -90,6 +109,7 @@ export async function resoudreCible(user: CurrentUser, reference: string): Promi
     ...paiements.map((p) => ({ type: "PAYMENT_REQUEST" as const, id: p.id, ref: p.reference, label: `${p.reference} — ${p.title}`, exact: true })),
     ...validations.map((v) => ({ type: "VALIDATION_REQUEST" as const, id: v.id, ref: v.reference, label: `${v.reference} — ${v.title}`, exact: true })),
     ...taches.map((t) => ({ type: "TASK" as const, id: t.id, ref: null, label: `tâche « ${t.title} »`, exact: t.title.toLowerCase() === ref.toLowerCase() })),
+    ...marches.map((m) => ({ type: "PCH_TENDER" as const, id: m.id, ref: m.reference, label: `appel d'offres ${m.reference}${m.title ? ` — ${m.title}` : ""}`, exact: memeMarche(m.reference, ref) })),
     ...canoniques.map((e) => ({ type: e.type as TypeCible, id: e.id, ref: null, label: `${LIBELLE_TYPE[e.type as TypeCible] ?? e.type} ${e.label}`, exact: e.label.toLowerCase() === ref.toLowerCase() })),
   ];
   const exacts = candidats.filter((c) => c.exact);
@@ -161,6 +181,23 @@ export async function lireEtatCible(user: CurrentUser | null, type: TypeCible, i
         champs: { statut: t.status, titre: t.title }, resume: `tâche « ${t.title} » : ${t.status}${t.dueDate ? `, échéance ${t.dueDate.toISOString().slice(0, 10)}` : ""}`,
       };
     }
+    case "PCH_TENDER": {
+      if (user && !userCan(user, "PCH", "VIEW")) return { existe: true, resume: "droit PCH retiré : lecture impossible", champs: {} };
+      const m = await prisma.pchTender.findUnique({
+        where: { id },
+        select: { reference: true, title: true, status: true, submissionDeadline: true, submittedAt: true, awardDate: true, updatedAt: true },
+      });
+      if (!m) return { existe: false, champs: {} };
+      // L'ÉCHÉANCE QUI COMPTE : le dépôt tant qu'il n'est pas fait, l'attribution ensuite.
+      const echeance = (m.submittedAt ? null : m.submissionDeadline) ?? m.awardDate ?? null;
+      return {
+        existe: true, statut: m.status, terminal: ["COMPLETED", "CANCELLED", "LOST"].includes(m.status), bloque: m.status === "SUSPENDED",
+        echeance: echeance ? echeance.toISOString() : null,
+        dernierChangement: plusRecent(m.updatedAt, m.submittedAt, await dernierFait(["PCH_TENDER"], id)),
+        champs: { statut: m.status, reference: m.reference, depose: Boolean(m.submittedAt) },
+        resume: `appel d'offres ${m.reference}${m.title ? ` — ${m.title}` : ""} : ${m.status}${m.submittedAt ? ", offre déposée" : echeance ? `, dépôt le ${echeance.toISOString().slice(0, 10)}` : ""}`,
+      };
+    }
     case "EXPENSE_ORDER":
     case "PAYMENT_REQUEST":
     case "VALIDATION_REQUEST": {
@@ -212,7 +249,7 @@ export async function creerSurveillance(user: CurrentUser, opts: OptionsSurveill
     return {
       ok: false, candidats,
       raison: candidats.length === 0
-        ? `rien à surveiller sous « ${opts.reference} » — ni dossier réglementaire, ni tâche ouverte, ni règlement, ni entité connue.`
+        ? `rien à surveiller sous « ${opts.reference} » — ni dossier réglementaire, ni appel d'offres, ni tâche ouverte, ni règlement, ni entité connue.`
         : `plusieurs cibles correspondent à « ${opts.reference} » : ${candidats.slice(0, 5).map((c) => c.label).join(" ; ")}. Précisez la référence.`,
     };
   }

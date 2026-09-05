@@ -160,7 +160,10 @@ export const DECLARED: Record<string, Omit<CapabilityMeta, "id" | "declared" | "
   // `idempotent: false` est la VÉRITÉ de ces outils : rappeler `send_message` deux fois envoie
   // deux messages. C'est le MOTEUR qui rend l'ÉTAPE idempotente, en posant une clé unique autour
   // de l'appel. Confondre les deux ferait croire qu'un rejeu est sans danger.
-  gmail_prepare_mail: { domain: "mail", effect: "PREPARE", idempotent: false, batchable: true, latency: "MEDIUM", confirmation: "NEVER" },
+  // UNE FICHE : l'intent préparé (`intentId`, destinataires, objet). Mesuré sur le banc : « le compte
+  // Google n'est pas connecté » revenait en PHRASE, l'étape passait DONE, et seul le juge final
+  // relevait la contradiction — après dix étapes. Sous contrat, la phrase est un échec ICI.
+  gmail_prepare_mail: { domain: "mail", effect: "PREPARE", idempotent: false, batchable: true, latency: "MEDIUM", confirmation: "NEVER", contrat: "FICHE" },
   send_email: { domain: "mail", effect: "EXTERNAL_COMMUNICATION", idempotent: false, batchable: true, latency: "MEDIUM", confirmation: "POLICY_ENGINE" },
   send_message: { domain: "messaging", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
   create_task: { domain: "tasks", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },

@@ -945,7 +945,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           date: { type: "string", description: "Première échéance, AAAA-MM-JJ (heure d'Alger) — si « quand » n'est pas fourni." },
           time: { type: "string", description: "Heure HH:MM (défaut 09:00)." },
           recurrence: { type: "string", enum: [...REMINDER_RECURRENCES], description: "NONE, DAILY, WEEKLY, MONTHLY ou MONTHLY_WEEKDAY." },
-          target_role: { type: "string", description: "Rôle à relancer à chaque échéance (code rôle interne)." },
+          target_role: { type: "string", enum: Object.keys(ROLE_LABELS), description: "Rôle à relancer à chaque échéance (code rôle interne — pas un nom d'équipe : « Équipe Regulatory » se dit HEAD_OF_REGULATORY ou REGULATORY_ASSISTANT)." },
           target_person: { type: "string", description: "Nom d'une personne précise à relancer à chaque échéance." },
           watch_reference: { type: "string", description: "SURVEILLANCE CONDITIONNELLE : référence d'un règlement (ORD-…), d'une demande de paiement (PAY-…), d'une validation (VAL-…) ou fragment du titre d'une tâche. À l'échéance, le rappel RELIT l'entité : encore en attente → il prévient l'utilisateur ; réglée → il le dit et s'éteint. Pour « si ce paiement n'est pas validé sous 48 h, préviens-moi »." },
           note: { type: "string", description: "Le message de la relance / le détail du rappel." },

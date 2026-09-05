@@ -90,6 +90,12 @@ function typeLisible(v: unknown): string {
  */
 export function resoudreCollection(amont: unknown, chemin: string): Collection {
   if (amont === null || amont === undefined) return { kind: "VIDE" };
+  // UNE LISTE À LA RACINE : certaines capacités rendent le tableau lui-même (`list_my_tasks`).
+  // Le chemin écrit par le planificateur ne peut alors désigner que la racine : on le dit
+  // (CORRIGEE, journalisé), au lieu de chercher « items » dans un tableau qui n'a pas de clés.
+  if (Array.isArray(amont)) {
+    return chemin === "" || chemin === "." ? { kind: "LISTE", valeur: amont } : { kind: "CORRIGEE", valeur: amont, chemin: "." };
+  }
 
   const direct = lire(amont, chemin);
   if (Array.isArray(direct)) return { kind: "LISTE", valeur: direct };

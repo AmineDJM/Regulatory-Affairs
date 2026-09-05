@@ -740,6 +740,25 @@ export function compile(
   }
 
   /**
+   * ── LA PORTE D'ACCORD VIDE ──────────────────────────────────────────────────────────
+   *
+   * Banc m6, « aucune échéance réglementaire critique » : un nœud APPROVAL « validation du
+   * dispositif de suivi » dans un plan sans aucune écriture sous accord. Le dirigeant a reçu un
+   * ARBITRAGE — notification insistante, e-mail — pour un périmètre de « 0 étape à autoriser ».
+   * Un accord porte sur des écritures (§8) ; sans écriture, la porte ne garde rien et coûte
+   * l'attention la plus chère de la maison. Elle devient une jonction, et c'est dit.
+   */
+  if (!compiled.some((c) => c.needsApproval)) {
+    for (const c of compiled) {
+      if (c.nodeType !== "APPROVAL") continue;
+      c.nodeType = "JOIN";
+      warnings.push(issue("INVALID_SHAPE", c.key,
+        `« ${c.title} » demandait un accord alors qu'aucune étape du plan n'est sous accord : la porte serait vide. `
+        + `Convertie en jonction — un accord sans écriture coûte l'attention du dirigeant pour rien.`));
+    }
+  }
+
+  /**
    * ── LA QUESTION DE CONFORT AU DEMANDEUR ────────────────────────────────────────────
    *
    * Banc m5, mission « prépare la négociation » : quatre lectures, une note de position, puis

@@ -93,7 +93,7 @@ const SUCCES: VerdictContrat = { etat: "SUCCESS", kind: null, raison: "" };
 const CHAMPS_CONTENU = ["texte", "text", "contenu", "content", "corps", "body", "extrait"];
 
 /** Les noms sous lesquels une FICHE porte son identité. */
-const CHAMPS_IDENTITE = ["id", "reference", "nom", "name", "titre", "title", "artifact_id", "driveNodeId"];
+const CHAMPS_IDENTITE = ["id", "reference", "nom", "name", "titre", "title", "artifact_id", "driveNodeId", "intentId"];
 
 function champTexte(o: Record<string, unknown>, noms: readonly string[]): string | null {
   for (const c of noms) {

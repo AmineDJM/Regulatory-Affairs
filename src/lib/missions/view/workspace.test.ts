@@ -140,8 +140,11 @@ suite("l'écran d'une mission", () => {
   }, 30_000);
 
   it("une étape en attente DIT ce qu'elle attend, sans jargon de moteur", async () => {
+    // La porte GARDE une écriture : une porte d'accord sans écriture sous accord est convertie en
+    // jonction par le compilateur (un accord sur rien coûte l'attention du dirigeant pour rien).
     const id = await creer([
       { key: "porte", title: "Accord", nodeType: "APPROVAL" },
+      { key: "envoi", title: "Message", capability: "send_message", dependsOn: ["porte"], input: { recipientName: "Nadia", body: "Bonjour" } },
       { key: "humain", title: "Le contrat", nodeType: "WAIT_INPUT", waitFor: { ask: "le contrat signé" } },
     ], "attentes lisibles");
     await avancer(id, actor, traceur());

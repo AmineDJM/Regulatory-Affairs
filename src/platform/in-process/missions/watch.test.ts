@@ -24,6 +24,8 @@ const suite = dbOk ? describe : describe.skip;
 const TAG = `__watch${Date.now()}`;
 let pdg: CurrentUser;
 let taskId = "";
+let marcheId = "";
+const refMarche = `AO ${String(Date.now()).slice(-4)}/77`;
 const titreTache = `${TAG} Préparer la réponse ANPP`;
 
 const notifs = () => prisma.notification.findMany({ where: { userId: pdg.id, title: { contains: "Surveillance" } }, orderBy: { createdAt: "asc" }, select: { title: true, body: true, type: true } });
@@ -47,6 +49,7 @@ suite("SURVEILLANCE DURABLE — un problème dit une fois, une fin dite une fois
     await prisma.mission.deleteMany({ where: { ownerId: pdg.id } }).catch(() => {});
     await prisma.businessEvent.deleteMany({ where: { entityType: "TASK", entityId: taskId } }).catch(() => {});
     await prisma.task.deleteMany({ where: { id: taskId } }).catch(() => {});
+    await prisma.pchTender.deleteMany({ where: { id: marcheId } }).catch(() => {});
     await prisma.notification.deleteMany({ where: { userId: pdg.id } }).catch(() => {});
     await prisma.user.deleteMany({ where: { id: pdg.id } }).catch(() => {});
   }, 120_000);
@@ -135,4 +138,25 @@ suite("SURVEILLANCE DURABLE — un problème dit une fois, une fin dite une fois
     await prisma.task.deleteMany({ where: { id: t2.id } });
     await prisma.user.deleteMany({ where: { id: autre.id } });
   }, 120_000);
+  it("un APPEL D'OFFRES se surveille : « PCH 9999/77 », « AO 9999-77 » désignent le même marché, l'échéance est le dépôt, les règles sont celles du type", async () => {
+    const m = await prisma.pchTender.create({
+      data: { reference: refMarche, title: `${TAG} — oncologie`, status: "IN_PROGRESS", submissionDeadline: new Date(Date.now() + 5 * 86_400_000) },
+      select: { id: true },
+    });
+    marcheId = m.id;
+    const dit = refMarche.replace("AO ", "appel d'offres PCH ").replace("/", "-");
+    const r = await creerSurveillance(pdg, { reference: dit, instruction: `Surveille l'${dit} et préviens-moi seulement s'il y a un problème.` });
+    expect(r.ok, r.ok ? "" : r.raison).toBe(true);
+    if (!r.ok) return;
+    expect(r.cible.type).toBe("PCH_TENDER");
+    expect(r.cible.exact).toBe(true);
+    expect(r.cible.ref).toBe(refMarche);
+    expect(r.etat.statut).toBe("IN_PROGRESS");
+    expect(r.etat.echeance).toBeTruthy();
+    expect(r.reglesTexte).toMatch(/échéance à moins de 7 jours/);
+    // Une référence qui ne désigne aucun marché ne trouve rien — jamais « le plus proche ».
+    const rien = await creerSurveillance(pdg, { reference: "appel d'offres PCH 1234/99" });
+    expect(rien.ok).toBe(false);
+  }, 120_000);
+
 });

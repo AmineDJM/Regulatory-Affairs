@@ -179,6 +179,10 @@ export function reglesParDefaut(targetType: string): RegleSurveillance[] {
       return [{ code: "BLOQUE" }, { code: "STATUT_CHANGE" }, { code: "SANS_CHANGEMENT", jours: 14 }, { code: "DISPARU" }];
     case "TASK":
       return [{ code: "ECHEANCE_PROCHE", jours: 3 }, { code: "ECHEANCE_DEPASSEE" }, { code: "SANS_CHANGEMENT", jours: 7 }, { code: "DISPARU" }];
+    // Un appel d'offres se surveille comme un dossier : le dépôt qui approche ou passe, une
+    // suspension, un changement de statut (information), le silence, la disparition.
+    case "PCH_TENDER":
+      return [{ code: "BLOQUE" }, { code: "STATUT_CHANGE" }, { code: "ECHEANCE_PROCHE", jours: 7 }, { code: "ECHEANCE_DEPASSEE" }, { code: "SANS_CHANGEMENT", jours: 14 }, { code: "DISPARU" }];
     case "EXPENSE_ORDER":
     case "PAYMENT_REQUEST":
     case "VALIDATION_REQUEST":

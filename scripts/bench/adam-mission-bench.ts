@@ -155,7 +155,8 @@ function attenteTexte(w: unknown): string | null {
 async function main(): Promise<void> {
   const { prisma } = await import("@/lib/prisma");
   const { getAccess } = await import("@/lib/rbac");
-  const { lancerMission, avancerMission, finaliserLancementDifere } = await import("@/platform/in-process/missions/runtime");
+  const { lancerMission, finaliserLancementDifere } = await import("@/platform/in-process/missions/runtime");
+  const { conduireMission } = await import("@/platform/in-process/missions/sweep");
   const { decider } = await import("@/lib/missions/approval/gate");
   const { chargerEtat } = await import("@/lib/missions/runtime/store");
   const { viderTampon } = await import("@/platform/in-process/telemetry/usage-sink");
@@ -215,14 +216,17 @@ async function main(): Promise<void> {
           const ok = await decider(r.approbation.id, "GRANTED", pdg.id);
           console.log(`  · accord donné (clic simulé) : ${ok}`);
         }
-        // Conduire jusqu'à un état stable — le geste du battement, en boucle.
+        // Conduire jusqu'à un état stable — LE GESTE DU BATTEMENT, en boucle : avancer, replanifier
+        // si ça coince, signaler si ça coince encore (`conduireMission`, ce que `balayerMissions`
+        // fait en production). Mesurer avec `avancerMission` seul sous-estimait le système : une
+        // étape en échec définitif restait BLOCKED là où le battement aurait replanifié.
         let precedent = "";
         for (let i = 0; i < tours; i += 1) {
-          const tick = await avancerMission(pdg, r.missionId, { maxTours: 25 }).catch((e) => { console.log(`  · tour ${i + 1} en erreur : ${String(e).slice(0, 120)}`); return null; });
+          const tick = await conduireMission(pdg, r.missionId, { maxTours: 25 }).catch((e) => { console.log(`  · tour ${i + 1} en erreur : ${String(e).slice(0, 120)}`); return null; });
           const etat = await chargerEtat(r.missionId);
           if (!etat) break;
           const sig = `${etat.status}|${etat.steps.map((s) => `${s.key}:${s.status}`).sort().join(",")}`;
-          console.log(`  · tour ${i + 1} : ${etat.status} · exécutées ${tick?.executees ?? "?"} · échouées ${tick?.echouees ?? "?"} · déployées ${tick?.deployees ?? "?"}`);
+          console.log(`  · tour ${i + 1} : ${etat.status} · exécutées ${tick?.executees ?? "?"} · déployées ${tick?.deployees ?? "?"}${tick?.replanifie ? " · REPLANIFIÉE" : ""}${tick?.signale ? " · dirigeant signalé" : ""}`);
           if (["COMPLETED", "FAILED", "CANCELLED"].includes(etat.status)) break;
           if (sig === precedent) break;
           precedent = sig;
