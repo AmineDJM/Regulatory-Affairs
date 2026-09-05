@@ -125,6 +125,21 @@ export async function recordEvent(input: RecordEventInput): Promise<string | nul
           console.error("[events] extinction de rappel impossible", evt.type, err);
         }),
 
+      // LES RÉPONSES TARDIVES : la personne qu'Adam a relancée répond après que l'attente s'est
+      // réglée par le temps — plus rien ne l'attend, mais rien ne se perd : la réponse rejoint le
+      // journal de la mission et le dirigeant en est informé. Import différé : le pont tire la
+      // porte d'attention.
+      ...(evt.type === "MESSAGE_RECEIVED" || evt.type === "EMAIL_RECEIVED" ? [
+        import("@/platform/in-process/missions/relance")
+          .then((m) => m.observerReponseTardive({
+            type: evt.type, actorId: evt.actorId, entityType: evt.entityType, entityId: evt.entityId,
+            relatedRefs: input.relatedRefs ?? [], payload: input.payload, missionId: input.missionId ?? null,
+          }))
+          .catch((err) => {
+            console.error("[events] réponse tardive : observation impossible", evt.type, err);
+          }),
+      ] : []),
+
       // LES SURVEILLANCES RÉVEILLÉES : un fait qui touche une cible surveillée avance son prochain
       // contrôle à maintenant — « changement ERP → réveil ». Rien n'est évalué ici (la façade
       // n'a pas l'ERP) : le battement relit la cible dans la minute.

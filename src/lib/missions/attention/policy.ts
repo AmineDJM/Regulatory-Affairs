@@ -45,7 +45,9 @@ export function classer(s: SignalAttention): NiveauSignal {
     case "APPROVAL_REQUIRED":
       return s.niveauApprobation === "NORMAL" ? "ATTENTION" : "ARBITRAGE";
     case "PLAN_CHANGED": return "ARBITRAGE";
-    case "QUESTION": return "ARBITRAGE";
+    // Une QUESTION est un arbitrage — sauf quand l'émetteur dit lui-même que c'est une simple
+    // information (une réponse arrivée après la relance : à lire, pas à trancher séance tenante).
+    case "QUESTION": return s.niveauSuggere === "INFO" ? "INFO" : "ARBITRAGE";
     case "WAIT_OVERDUE":
       // Tant qu'Adam relance lui-même, le dirigeant n'a rien à faire : JOURNAL. Quand l'échelle
       // de relances est épuisée (trois), c'est à lui de trancher.
@@ -126,7 +128,9 @@ export function composerMessage(s: SignalAttention): { titre: string; corps: str
     case "PLAN_CHANGED":
       return { titre: `Le plan a changé — ${s.titre}`, corps: borne(`Contexte : ${raison || "de nouvelles étapes ne sont pas couvertes par votre accord."} Décision demandée : approuver la partie modifiée, et elle seule.`, 700) };
     case "QUESTION":
-      return { titre: `Une précision — ${s.titre}`, corps: borne(`${raison || "Une information manque."} ${phrase(s.decision) ? `Décision demandée : ${phrase(s.decision)}` : ""}`.trim(), 700) };
+      return s.niveauSuggere === "INFO"
+        ? { titre: `Réponse après relance — ${s.titre}`, corps: borne(`${raison || "Une réponse est arrivée après la relance."} ${phrase(s.decision) ? `À décider : ${phrase(s.decision)}` : ""}`.trim(), 700) }
+        : { titre: `Une précision — ${s.titre}`, corps: borne(`${raison || "Une information manque."} ${phrase(s.decision) ? `Décision demandée : ${phrase(s.decision)}` : ""}`.trim(), 700) };
     case "WATCH_ALERT":
       return {
         titre: `Surveillance — ${s.titre}`,

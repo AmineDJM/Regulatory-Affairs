@@ -3012,7 +3012,7 @@ l'ERP, et la racine de composition du runtime (`boundary-scan.ts` l'exempte, par
 | `situation.ts` | L'ENQUÊTE : la situation d'un objectif composée par le code sous délai — entités, recherche fédérée, fiches, changements récents, documents, engagements, acteurs — sous les droits de la personne |
 | `attention.ts` | La porte d'attention réalisée : classement, dédup au journal (`NOTIFIED`), plafond du jour, notification/push/e-mail au dirigeant |
 | `watch.ts` | La surveillance durable réalisée : résolution de la cible sous droits (candidats si ambigu), lecture normalisée par type, création avec mission-support (`kind WATCH`), balayage (un problème dit une fois, résolution au journal, fin qui clôt), arrêt |
-| `relance.ts` | L'ÉCHELLE DE RELANCES : Adam relance lui-même (message interne signé du compte système, un par jour), la hiérarchie au 3ᵉ barreau, le dirigeant seulement au-delà ; une partie externe va directement au dirigeant ; `relancerPersonne` partagé avec les engagements |
+| `relance.ts` | L'ÉCHELLE DE RELANCES (+ `observerReponseTardive` : une réponse arrivée après que l'attente s'est réglée par le temps rejoint le journal `LATE_REPLY` et est dite en information) : Adam relance lui-même (message interne signé du compte système, un par jour), la hiérarchie au 3ᵉ barreau, le dirigeant seulement au-delà ; une partie externe va directement au dirigeant ; `relancerPersonne` partagé avec les engagements |
 | `provider-waterfall.ts` | La cascade instrumentée du smoke : voie du plan, appels chevauchants, facteur de parallélisme, premier résultat utile — les métriques §18 du chantier latence |
 | `deep-smoke.ts` | Le Deep Live Smoke (`npm run adam:smoke:deep`) : 60-80 missions générées depuis les VRAIES données de l'ERP (~19 genres), même harnais `jouer` que le smoke fournisseur, verdicts SUCCÈS/HONNÊTE/DÉFAUT, nettoyage borné à ses missions. Mode PALIERS (`DEEP_SMOKE_PALIERS="3,5,10"`) : montée en charge par mesure, arrêt auto si défauts ↑ ou P95 ×2, concurrence retenue = maximum SAIN observé ; `carteDeScore` §71 (E2E, création, routes, non-triviales anti-triche, appels gaspillés, jetons/succès) au rapport et au JSON |
 | `sweep.ts` | Le battement des missions : douze par passage, droits RELUS en base ; `conduireMission` (avancer → replanifier si BLOCKED/FAILED → signaler au dirigeant un blocage NOUVEAU sans recours, une fois) ; attentes échues journalisées une fois puis RELANCÉES par l'échelle (`relancerAttente`) à chaque battement, idempotent dans la journée |
@@ -3728,6 +3728,14 @@ juge signalait. La conduite d'un passage du battement est désormais une fonctio
 replanifier si ça coince, et — si ça coince ENCORE — le dire au dirigeant au moment où le blocage APPARAÎT,
 jamais répété à chaque battement). « Résolu seul » reste au journal ; « coince sans recours » remonte.
 
+**8 ter. La réponse tardive** (`relance.ts` `observerReponseTardive`, registre). Adam a relancé Raihana lundi ;
+l'attente a expiré mercredi ; la mission a poursuivi ; Raihana répond jeudi — plus aucune étape n'attend ce
+fait, et la réponse était PERDUE. Désormais, un message ou un e-mail dont l'auteur a été relancé par Adam pour
+une mission encore vivante, et qu'aucune attente n'attrape, rejoint le journal de la mission (`LATE_REPLY`, la
+réponse conservée telle quelle, jamais interprétée ni exécutée) et le dirigeant en est informé (INFO, une
+fois par fait ; une mission terminée n'est plus concernée). Prouvé par le vrai registre
+(`reponse-tardive.test.ts`).
+
 **9. Les événements dans le désordre** (`events/router.ts` `rattraperFaitAnterieur`, moteur). La réponse peut
 arriver AVANT que l'attente n'existe — pendant l'accord, pendant la lecture amont, entre deux tours. Avant de
 dormir, une attente regarde si le fait attendu est DÉJÀ au registre, dans une fenêtre qui commence à la fin de
@@ -3737,9 +3745,7 @@ temporel), une progression partielle est persistée, un fait cadré sur une autr
 `EVENT_CATCHUP`. Prouvé par l'entrée réelle (`evenement-anterieur.test.ts`) dans les deux sens.
 
 **Ce qui reste, dit avant d'être demandé.** La latence de planification (2,4-3,5 k jetons de sortie, 54-93 s) ;
-`ADAM_PLANNER_ROLE` permet de mesurer un rôle plus rapide. Une réponse qui arrive APRÈS que l'attente s'est
-réglée par le temps (la personne répond le lendemain de la relance) n'est pas encore rattachée à la mission qui
-l'attendait : elle sera journalisée et signalée au lot suivant. Le chaos restant (données modifiées en cours de
+`ADAM_PLANNER_ROLE` permet de mesurer un rôle plus rapide. Le chaos restant (données modifiées en cours de
 mission, dizaines de missions simultanées au-delà des paliers du Deep Smoke) et le banc live des missions
 inédites sont les mesures suivantes du même chantier.
 

@@ -30,6 +30,7 @@ const CAS: Cas[] = [
   { nom: "mission partiellement faite", signal: { ...base, kind: "MISSION_PARTIAL", bilan: bilan(4, 6) }, attendu: "INFO", pourquoi: "une partie reste ouverte : à savoir, pas à trancher tout de suite" },
   { nom: "cible surveillée terminée", signal: { ...base, kind: "WATCH_ENDED" }, attendu: "INFO", pourquoi: "la surveillance se ferme : une information, une fois" },
   { nom: "surveillance : statut changé (info suggérée)", signal: { ...base, kind: "WATCH_ALERT", niveauSuggere: "INFO" }, attendu: "INFO", pourquoi: "un changement de statut est significatif, pas un problème" },
+  { nom: "réponse arrivée après la relance", signal: { ...base, kind: "QUESTION", niveauSuggere: "INFO", raison: "Raihana a répondu après la relance" }, attendu: "INFO", pourquoi: "à lire, pas à trancher séance tenante : rien n'est perdu, personne n'est interrompu" },
   // ── ATTENTION : un problème que le dirigeant doit connaître maintenant ────────────────
   { nom: "mission bloquée", signal: { ...base, kind: "MISSION_BLOCKED", raison: "le fournisseur ne répond pas" }, attendu: "ATTENTION", pourquoi: "la mission ne peut plus avancer seule" },
   { nom: "mission en échec", signal: { ...base, kind: "MISSION_FAILED" }, attendu: "ATTENTION", pourquoi: "un échec se dit" },
@@ -53,7 +54,7 @@ describe("la matrice agir / demander / prévenir — 100 % des décisions confor
     const fautes = CAS.filter((c) => classer(c.signal) !== c.attendu)
       .map((c) => `${c.nom} : obtenu ${classer(c.signal)}, attendu ${c.attendu} (${c.pourquoi})`);
     expect(fautes, `décisions non conformes :\n${fautes.join("\n")}`).toEqual([]);
-    expect(CAS.length).toBeGreaterThanOrEqual(24);
+    expect(CAS.length).toBeGreaterThanOrEqual(25);
   });
   it("les canaux suivent le niveau : JOURNAL est une ligne silencieuse, rien ne part par e-mail avant ATTENTION, rien n'insiste avant ARBITRAGE", () => {
     expect(canauxPour("SILENCE").notification).toBe(false);

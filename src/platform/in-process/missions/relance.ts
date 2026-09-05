@@ -30,7 +30,7 @@ import { journaliser } from "@/lib/missions/runtime/store";
 import { idCompteAgent } from "@/lib/missions/agent/account";
 import { envoyerMessageDirect } from "@/lib/messaging";
 import { porteAttentionPour } from "@/platform/in-process/missions/attention";
-import type { Attente } from "@/lib/missions/events/match";
+import { correspond, lireAttente, type Attente, type FaitObserve } from "@/lib/missions/events/match";
 
 export const CADENCE_RELANCE_MS = 24 * 3600_000;
 export const BARREAUX_AVANT_DIRIGEANT = 3;
@@ -165,4 +165,63 @@ export async function relancerAttente(e: AttenteEchue, maintenant = new Date()):
   await journaliser(e.missionId, "NUDGED", `Barreau ${barreau} : relance envoyée à ${personne.name}${ok ? "" : " (envoi impossible)"}.`,
     { stepKey: e.stepKey, barreau, geste: "RELANCE", destinataire: personne.id });
   return { geste: "RELANCE", barreau, detail: `relance ${barreau} à ${personne.name}` };
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA RÉPONSE TARDIVE — la personne répond APRÈS que l'attente s'est réglée par le temps.
+ *
+ * Adam a relancé Raihana lundi ; l'attente a expiré mercredi ; la mission a poursuivi (relance
+ * par la hiérarchie, ou branche « sinon ») ; Raihana répond jeudi. Plus aucune étape n'attend ce
+ * fait : le réveil ne le voit pas, et la réponse serait PERDUE — exactement ce que « rien perdu »
+ * interdit. Ici, un fait de message ou d'e-mail dont l'auteur a été relancé par Adam pour une
+ * mission encore vivante, et qu'aucune attente n'attrape, est INSCRIT au journal de la mission
+ * (`LATE_REPLY`) et DIT au dirigeant en information — jamais interprété, jamais exécuté.
+ *
+ * Appelée par le registre d'événements, en parallèle du réveil ; ne lève jamais.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const FENETRE_REPONSE_TARDIVE_MS = 14 * 86_400_000;
+const FAITS_DE_REPONSE = new Set(["MESSAGE_RECEIVED", "EMAIL_RECEIVED"]);
+
+export async function observerReponseTardive(fait: FaitObserve & { messageId?: string | null }): Promise<number> {
+  if (!FAITS_DE_REPONSE.has(fait.type) || !fait.actorId) return 0;
+  try {
+    const depuis = new Date(Date.now() - FENETRE_REPONSE_TARDIVE_MS);
+    const relances = await prisma.missionEvent.findMany({
+      where: { kind: "NUDGED", at: { gte: depuis }, detail: { path: ["destinataire"], equals: fait.actorId }, mission: { status: { notIn: ["COMPLETED", "CANCELLED"] } } },
+      select: { missionId: true, detail: true, mission: { select: { ownerId: true, title: true, planVersion: true } } },
+      orderBy: { at: "desc" }, take: 50,
+    });
+    if (relances.length === 0) return 0;
+    const porte = porteAttentionPour();
+    const charge = fait.payload && typeof fait.payload === "object" && !Array.isArray(fait.payload) ? (fait.payload as Record<string, unknown>) : {};
+    const texte = typeof charge.text === "string" ? charge.text : typeof charge.snippet === "string" ? charge.snippet : "";
+    const auteur = typeof charge.from === "string" ? charge.from : "la personne relancée";
+    const idFait = typeof charge.messageId === "string" ? charge.messageId : fait.messageId ?? `${fait.type}:${Date.now()}`;
+    let n = 0;
+    for (const missionId of new Set(relances.map((r) => r.missionId))) {
+      const r = relances.find((x) => x.missionId === missionId)!;
+      // Une attente encore ouverte qui attrape ce fait : c'est le réveil qui s'en charge, pas nous.
+      const attentes = await prisma.missionStep.findMany({ where: { missionId, status: "WAITING", nodeType: "WAIT_EVENT" }, select: { waitFor: true } });
+      if (attentes.some((a) => { const at = lireAttente(a.waitFor); return at !== null && correspond(at, fait); })) continue;
+      // Une même réponse ne se journalise qu'une fois par mission.
+      const deja = await prisma.missionEvent.findFirst({ where: { missionId, kind: "LATE_REPLY", detail: { path: ["fait"], equals: idFait } }, select: { id: true } });
+      if (deja) continue;
+      const stepKey = typeof (r.detail as { stepKey?: unknown })?.stepKey === "string" ? (r.detail as { stepKey: string }).stepKey : null;
+      await journaliser(missionId, "LATE_REPLY",
+        `${auteur} a répondu après la relance${stepKey ? ` (« ${stepKey} »)` : ""} : « ${texte.slice(0, 160)}${texte.length > 160 ? "…" : ""} » — la réponse est conservée ici, rien n'est interprété.`,
+        { fait: idFait, event: fait.type, from: fait.actorId, stepKey, texte: texte.slice(0, 300) });
+      await porte.signaler({
+        kind: "QUESTION", missionId, ownerId: r.mission.ownerId, titre: r.mission.title, stepKey: `reponse:${idFait}`, planVersion: r.mission.planVersion, niveauSuggere: "INFO",
+        raison: `${auteur} a répondu après la relance : « ${texte.slice(0, 200)}${texte.length > 200 ? "…" : ""} ».`,
+        decision: "dire à Adam ce qu'il doit en faire (reprendre, clore, ou ignorer)",
+      }).catch(() => undefined);
+      n += 1;
+    }
+    return n;
+  } catch (e) {
+    console.error("[relance] réponse tardive : observation impossible", e);
+    return 0;
+  }
 }
