@@ -278,6 +278,9 @@ export const AUTONOMES: Record<string, Effect> = {
   // La conduite d'une mission par l'agent est déjà refusée à la compilation (policy/guard.ts) ;
   // l'effet ne fait que dire ce que c'est si quelqu'un la rencontre ailleurs.
   mission_control: "INTERNAL_REVERSIBLE_WRITE",
+  // Les surveillances durables : créer / arrêter sont des écritures internes, réversibles, sans carte.
+  watch_entity: "INTERNAL_REVERSIBLE_WRITE",
+  stop_watch: "INTERNAL_REVERSIBLE_WRITE",
 };
 
 /** Une écriture autonome : exécutée par le chemin des lectures, gardée par une clé d'idempotence. */

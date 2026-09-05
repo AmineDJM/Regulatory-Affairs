@@ -143,6 +143,19 @@ const COMMUN = {
     description: "Les clés des étapes à terminer AVANT celle-ci.",
   },
   completionCondition: str("La condition VÉRIFIABLE de fin. « 33 reçus », pas « bien fait »."),
+  when: {
+    type: ["object", "null"],
+    description: "Étape CONDITIONNELLE : ne part que si l'issue (outcome) ou la sortie (path/op/value) de l'étape amont `step` répond ; sinon elle est ignorée. null pour une étape inconditionnelle.",
+    properties: {
+      step: str("La clé de l'étape amont observée."),
+      outcome: nullableStr("EVENT (attente réglée par un fait), TIMEOUT (réglée par le temps), DONE, FAILED ou SKIPPED. null si seule la sortie compte."),
+      path: nullableStr("Le champ de la sortie amont à tester (« prix », « payload.montant »). null sinon."),
+      op: nullableStr("eq, ne, gt, gte, lt, lte, contains, exists ou empty. null sinon."),
+      value: nullableStr("La valeur comparée, en texte. null pour exists/empty."),
+    },
+    required: ["step", "outcome", "path", "op", "value"],
+    additionalProperties: false,
+  },
 };
 
 /**

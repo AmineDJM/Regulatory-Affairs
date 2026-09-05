@@ -1,0 +1,119 @@
+import type { PowerTool } from "@/lib/assistant/power-tools";
+
+/** Le type de la personne, tel que la boîte à outils le reçoit — sans importer la session (frontière). */
+type Utilisateur = Parameters<PowerTool["run"]>[1];
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * « SURVEILLE CE DOSSIER ET PRÉVIENS-MOI SEULEMENT S'IL Y A UN PROBLÈME » — les trois gestes.
+ *
+ * Ce ne sont pas des rappels (un rappel sonne à une date) : une surveillance RELIT une cible à
+ * sa cadence et dès qu'un fait la touche, applique des RÈGLES codées (échéance qui approche ou
+ * passée, silence, blocage, statut, seuil, disparition) et ne parle que quand la signature du
+ * problème change. Elle survit aux redémarrages (table + mission-support) ; l'écran des missions
+ * la montre ; suspendre / arrêter passent par les gestes de conduite existants.
+ *
+ * Le pont (`platform/in-process/missions/watch.ts`) est chargé à la demande : ce module est tiré
+ * par la boîte à outils entière, et le pont tire la porte d'attention et le registre.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const EXEC = (u: Utilisateur): boolean => u.role === "SUPER_ADMIN" || u.role === "DIRECTION";
+const str = (input: Record<string, unknown>, key: string): string =>
+  typeof input[key] === "string" ? (input[key] as string).trim() : "";
+const num = (input: Record<string, unknown>, key: string): number | null =>
+  typeof input[key] === "number" && Number.isFinite(input[key] as number) ? (input[key] as number) : null;
+
+export const WATCH_TOOLS: PowerTool[] = [
+  {
+    def: {
+      name: "watch_entity",
+      description: "SURVEILLANCE DURABLE : « surveille ce dossier / cette tâche / ce règlement / ce partenaire et préviens-moi seulement s'il y a un problème ». "
+        + "Crée une surveillance qui relit la cible à sa cadence ET dès qu'un fait la touche, applique des règles CODÉES (échéance proche ou dépassée, silence, blocage, statut, seuil, disparition) "
+        + "et ne notifie que quand un problème apparaît, disparaît, ou quand la cible est terminée. Survit aux redémarrages ; visible dans les missions (suspendre / arrêter). "
+        + "Ce n'est PAS un rappel daté (plan_reminder) : ici rien ne sonne tant que tout va bien.",
+      input_schema: {
+        type: "object",
+        properties: {
+          reference: { type: "string", description: "La cible : référence exacte (REG-2026-014, ORD-…, PAY-…, VAL-…), ou nom (molécule, titre de tâche, partenaire, personne). En cas d'ambiguïté l'outil liste les candidats." },
+          label: { type: "string", description: "Le libellé de la surveillance tel que la personne l'a dit (facultatif)." },
+          alert_on: {
+            type: "array", items: { type: "string", enum: ["SANS_CHANGEMENT", "ECHEANCE_PROCHE", "ECHEANCE_DEPASSEE", "STATUT_PARMI", "STATUT_CHANGE", "BLOQUE", "DISPARU", "VALEUR"] },
+            description: "Les règles à appliquer. Absent : les règles par défaut du type de cible (blocage, changement de statut, échéance, silence, disparition).",
+          },
+          silence_days: { type: "number", description: "SANS_CHANGEMENT : nombre de jours sans changement qui vaut alerte (défaut selon le type : 7 à 30)." },
+          deadline_days: { type: "number", description: "ECHEANCE_PROCHE : alerter quand l'échéance est à moins de N jours (défaut 3 à 7)." },
+          statuses: { type: "array", items: { type: "string" }, description: "STATUT_PARMI : les statuts qui déclenchent (ex. BLOCKED, RESPONDING_TO_QUERIES)." },
+          check_every_hours: { type: "number", description: "Cadence de contrôle en heures (défaut 24 ; le registre des faits réveille de toute façon la surveillance dès qu'un fait touche la cible)." },
+          instruction: { type: "string", description: "La phrase de la personne, mot pour mot — devient l'objectif de la mission-support." },
+        },
+        required: ["reference"],
+      },
+    },
+    allowed: EXEC,
+    label: "Surveillance créée",
+    run: async (input, user) => {
+      const reference = str(input, "reference");
+      if (!reference) return "Donnez la cible à surveiller (référence ou nom).";
+      const codes = Array.isArray(input.alert_on) ? (input.alert_on as unknown[]).filter((c): c is string => typeof c === "string") : [];
+      const silence = num(input, "silence_days");
+      const echeance = num(input, "deadline_days");
+      const statuts = Array.isArray(input.statuses) ? (input.statuses as unknown[]).filter((s): s is string => typeof s === "string") : [];
+      // Les règles DITES ; sans rien de dit, le pont applique celles du type.
+      const regles = codes.length > 0
+        ? codes.map((code) => ({
+            code,
+            ...(code === "SANS_CHANGEMENT" && silence ? { jours: silence } : {}),
+            ...(code === "ECHEANCE_PROCHE" && echeance ? { jours: echeance } : {}),
+            ...(code === "STATUT_PARMI" ? { valeurs: statuts } : {}),
+          }))
+        : [
+            ...(silence ? [{ code: "SANS_CHANGEMENT", jours: silence }] : []),
+            ...(echeance ? [{ code: "ECHEANCE_PROCHE", jours: echeance }] : []),
+            ...(statuts.length ? [{ code: "STATUT_PARMI", valeurs: statuts }] : []),
+          ];
+      const { creerSurveillance } = await import("@/platform/in-process/missions/watch");
+      const r = await creerSurveillance(user, {
+        reference, label: str(input, "label") || null, regles: regles.length ? regles : null,
+        checkEveryH: num(input, "check_every_hours"), instruction: str(input, "instruction") || null,
+      });
+      if (!r.ok) return JSON.stringify({ ok: false, message: r.raison, candidats: r.candidats.slice(0, 6).map((c) => ({ type: c.type, label: c.label, reference: c.ref ?? null })) });
+      return JSON.stringify({
+        ok: true, surveillance: r.id, mission: r.missionId, cible: r.cible.label, type: r.cible.type,
+        regles: r.reglesTexte, etatActuel: r.etat.resume ?? null,
+        prochainControle: r.prochainControle.toISOString(),
+        message: `Je surveille ${r.cible.label}. Je ne vous préviendrai que si : ${r.reglesTexte}. Contrôle toutes les ${r.cadenceHeures} h et dès qu'un fait touche la cible ; arrêt : stop_watch.`,
+      });
+    },
+  },
+  {
+    def: {
+      name: "list_watches",
+      description: "Liste les SURVEILLANCES actives de l'utilisateur : cible, règles, cadence, dernier état observé, problème en cours, identifiant (pour stop_watch).",
+      input_schema: { type: "object", properties: {} },
+    },
+    allowed: EXEC,
+    label: "Surveillances listées",
+    run: async (_input, user) => {
+      const { listerSurveillances } = await import("@/platform/in-process/missions/watch");
+      const rows = await listerSurveillances(user);
+      if (rows.length === 0) return "Aucune surveillance active.";
+      return JSON.stringify(rows);
+    },
+  },
+  {
+    def: {
+      name: "stop_watch",
+      description: "Arrête une surveillance (« arrête de surveiller le dossier X »). Donner l'identifiant rendu par list_watches / watch_entity, ou l'identifiant de sa mission.",
+      input_schema: { type: "object", properties: { id: { type: "string", description: "Identifiant de la surveillance ou de sa mission-support." } }, required: ["id"] },
+    },
+    allowed: EXEC,
+    label: "Surveillance arrêtée",
+    run: async (input, user) => {
+      const id = str(input, "id");
+      if (!id) return "Donnez l'identifiant de la surveillance (list_watches).";
+      const { arreterSurveillance } = await import("@/platform/in-process/missions/watch");
+      const r = await arreterSurveillance(user, id);
+      return r.ok ? JSON.stringify({ ok: true, arretee: true, message: `Je ne surveille plus ${r.label}.` }) : "Surveillance introuvable ou déjà arrêtée (list_watches pour vérifier).";
+    },
+  },
+];

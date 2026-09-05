@@ -6,7 +6,9 @@ import type {
   PlannedStep,
   PlannedWorkstream,
 } from "@/lib/missions/planner/contract";
-import { APPROVAL_STRATEGIES, COMPLEXITIES, NODE_TYPES, SCALES } from "@/lib/missions/planner/contract";
+import {
+  APPROVAL_STRATEGIES, COMPLEXITIES, NODE_TYPES, SCALES, ISSUES_CONDITION, OPERATEURS_CONDITION, type IssueCondition, type OperateurCondition,
+} from "@/lib/missions/planner/contract";
 import {
   MISSION_PLAN_SCHEMA_NAME,
   schemaPlanPour,
@@ -211,6 +213,7 @@ interface PlanBrut {
     waitAttachment?: boolean | string | null;
     waitAnyOf?: BrancheBrute[] | null;
     waitAllOf?: BrancheBrute[] | null;
+    when?: { step: string; outcome: string | null; path: string | null; op: string | null; value: string | null } | null;
     outputFields?: { name: string; type: FieldType; description: string }[];
     reasoningRequirement?: string;
     approvalRequirement?: string;
@@ -239,6 +242,7 @@ RÈGLES ABSOLUES
 9. Chaque étape prend la FORME de son nodeType et n'écrit que les champs de cette forme. Une CAPABILITY n'a pas de champs d'attente ; une JOIN n'a ni capacité, ni entrées, ni éventail.
 10. « completionCondition » doit être VÉRIFIABLE : « 33 destinataires ont un reçu », jamais « le travail est bien fait ». C'est elle que le contrôle qualité relit.
 11. « approvalRequirement » est le niveau que tu PROPOSES ; la politique de la maison tranche ensuite, et proposer NONE ne dispense de rien.
+13. Une étape peut être CONDITIONNELLE (when) : elle ne part que si l'issue d'une étape amont est celle attendue — outcome TIMEOUT ou EVENT après une attente composée (« si pas de réponse avant vendredi, relance ; si réponse, remercie » = une attente anyOf [réponse | vendredi], puis deux étapes, l'une when TIMEOUT, l'autre when EVENT), DONE/FAILED, ou un test sur sa sortie (path/op/value : « si le prix dépasse 5 000, demande validation »). Une condition non remplie ignore l'étape et la suite continue. when: null pour une étape inconditionnelle.
 12. Le dirigeant n'est PAS la première source. Ce que la SITUATION établit ne se redemande pas ; ce qu'elle n'établit pas se demande d'abord au RESPONSABLE qu'elle nomme (message interne, tâche), puis au partenaire. Réserve WAIT_INPUT adressé au dirigeant à un ARBITRAGE (un choix, un budget, un engagement externe) ou à une information que ni les données ni le responsable ne peuvent fournir. Une mission qui commence par une question au dirigeant est presque toujours une mission mal enquêtée.`;
 
 function ligne(titre: string, valeurs: readonly string[] | undefined): string {
@@ -453,6 +457,18 @@ function reconstruirePlan(brut: PlanBrut): MissionPlan {
       const schema = schemaDepuisChamps(s.outputFields ?? []);
       if (schema) step.expectedOutputSchema = schema;
       if (s.maxAttempts && s.maxAttempts > 0) step.maxAttempts = s.maxAttempts;
+      // LA CONDITION — retypée ici, refusée au compilateur si elle est incohérente (étape amont
+      // inconnue, opérateur sans champ…) : la reconstruction ne juge pas, elle transporte.
+      if (s.when && typeof s.when.step === "string" && s.when.step.trim()) {
+        const w = s.when;
+        step.when = {
+          step: w.step.trim(),
+          ...(w.outcome && (ISSUES_CONDITION as readonly string[]).includes(w.outcome) ? { outcome: w.outcome as IssueCondition } : {}),
+          ...(w.path ? { path: w.path } : {}),
+          ...(w.op && (OPERATEURS_CONDITION as readonly string[]).includes(w.op) ? { op: w.op as OperateurCondition } : {}),
+          ...(w.value !== null && w.value !== undefined && w.value !== "" ? { value: w.value } : {}),
+        };
+      }
       return step;
     });
 

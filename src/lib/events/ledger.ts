@@ -125,6 +125,17 @@ export async function recordEvent(input: RecordEventInput): Promise<string | nul
           console.error("[events] extinction de rappel impossible", evt.type, err);
         }),
 
+      // LES SURVEILLANCES RÉVEILLÉES : un fait qui touche une cible surveillée avance son prochain
+      // contrôle à maintenant — « changement ERP → réveil ». Rien n'est évalué ici (la façade
+      // n'a pas l'ERP) : le battement relit la cible dans la minute.
+      import("@/lib/missions/watch/router")
+        .then((m) => m.reveillerSurveillances({
+          type: evt.type, entityType: evt.entityType, entityId: evt.entityId, actorId: evt.actorId, relatedRefs: input.relatedRefs ?? [],
+        }))
+        .catch((err) => {
+          console.error("[events] réveil de surveillance impossible", evt.type, err);
+        }),
+
       // LES ÉTATS CHAUDS DÉMENTIS (fabric F5) : les signaux exécutifs précalculés AVANT ce fait
       // ne peuvent plus être servis tels quels. On MARQUE — le prochain lecteur ou le battement
       // paie le recalcul —, et l'invalidation ne touche que les lignes pas encore marquées :

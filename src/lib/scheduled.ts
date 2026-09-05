@@ -21,6 +21,7 @@ import { runScheduledWorkflows } from "@/lib/scheduler/runner";
 import { registerBuiltinWorkflows } from "@/lib/scheduler/handlers";
 import { runAdamInboxSweep } from "@/lib/google/gmail/reconcile";
 import { balayerMissions } from "@/platform/in-process/missions/sweep";
+import { balayerSurveillances } from "@/platform/in-process/missions/watch";
 import { vieillirMemoire } from "@/platform/in-process/missions/memory";
 import { relancerEngagements } from "@/platform/in-process/missions/commitments";
 
@@ -166,6 +167,11 @@ export async function runScheduledJobs(): Promise<void> {
     // l'application ». Sans lui, elle s'arrêterait à la fin de la requête qui l'a lancée.
     // Débrayage : MISSIONS_SWEEP=off.
     await balayerMissions().catch((e) => console.error("[scheduled] balayage des missions échoué", e));
+
+    // LES SURVEILLANCES DURABLES — « surveille ce dossier et préviens-moi seulement s'il y a un
+    // problème ». Relues à leur cadence et dès qu'un fait les touche (le registre avance leur
+    // prochain contrôle) ; seul un changement de signature parle. Même débrayage que les missions.
+    await balayerSurveillances().catch((e) => console.error("[scheduled] balayage des surveillances échoué", e));
 
     // LE VIEILLISSEMENT DE LA MÉMOIRE — le seul des deux mouvements de la mémoire épisodique
     // qui n'ait pas de conversation pour le déclencher.

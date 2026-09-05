@@ -1,14 +1,4 @@
-import {
-  COMPILE_ERRORS,
-  CompileIssue,
-  Complexity,
-  MissionPlan,
-  NODE_TYPES,
-  NodeType,
-  PLAN_LIMITS,
-  PlannedStep,
-  Scale,
-} from "@/lib/missions/planner/contract";
+import { COMPILE_ERRORS, CompileIssue, Complexity, MissionPlan, NODE_TYPES, NodeType, PLAN_LIMITS, PlannedStep, Scale, type StepCondition } from "@/lib/missions/planner/contract";
 import type { ApprovalStrategy, PlannedArtifact, PlannedWorkstream } from "@/lib/missions/planner/contract";
 import { EFFECT_RANK, Effect, effetMaximal } from "@/lib/missions/registry/capability-meta";
 import { effetDuNoeud } from "@/lib/missions/registry/node-effect";
@@ -103,6 +93,8 @@ export interface StepSpec {
    * arithmétique ou typée, donc sans appel de modèle.
    */
   attendu?: { type?: string; nombre?: number; cible?: string };
+  /** L'ÉTAPE CONDITIONNELLE : l'issue ou la sortie amont qui l'autorise à partir (`runtime/condition.ts`). */
+  when?: StepCondition;
   /** Pour une étape ARTIFACT : quel livrable elle produit. */
   artifactKey?: string;
   artifactFormat?: string;
@@ -185,6 +177,7 @@ function specDe(s: PlannedStep): StepSpec | null {
   if (s.completionCondition) spec.completionCondition = s.completionCondition;
   if (s.reasoningRequirement) spec.reasoningRequirement = s.reasoningRequirement;
   if (s.approvalRequirement) spec.approvalRequirement = s.approvalRequirement;
+  if (s.when) spec.when = s.when;
   return Object.keys(spec).length > 0 ? spec : null;
 }
 
@@ -559,6 +552,43 @@ export function compile(
       // LA DÉPENDANCE IMPLICITE. Lire la sortie d'une étape, c'est en dépendre — l'écrire à la
       // main serait un oubli de plus à chaque replan, et l'oubli produirait une lecture de vide.
       if (s.forEach.from && !dependsOn.includes(s.forEach.from)) dependsOn.push(s.forEach.from);
+    }
+
+    // ── LA CONDITION ──────────────────────────────────────────────────────────────────
+    //
+    // Observer l'issue d'une étape, c'est en dépendre : la dépendance est implicite, comme
+    // pour l'éventail. Le reste est de la cohérence de FORME, refusée ici plutôt que découverte
+    // à l'exécution par une étape qui ne partirait jamais sans dire pourquoi.
+    if (s.when) {
+      const w = s.when;
+      const amontConnu = vues.has(w.step) || acquises.has(w.step);
+      if (!w.step || !amontConnu) {
+        issues.push(issue("INVALID_SHAPE", s.key,
+          `la condition observe « ${w.step} », qui n'est pas une étape du plan.`));
+      } else {
+        if (w.step === s.key) {
+          issues.push(issue("INVALID_SHAPE", s.key, "une étape ne peut pas conditionner son propre départ."));
+        }
+        const amont = plan.steps.find((x) => x.key === w.step);
+        const typeAmont = amont ? (amont.nodeType ?? (amont.capability ? "CAPABILITY" : "WORKER")) : null;
+        if ((w.outcome === "EVENT" || w.outcome === "TIMEOUT") && typeAmont && typeAmont !== "WAIT_EVENT") {
+          issues.push(issue("INVALID_SHAPE", s.key,
+            `l'issue ${w.outcome} n'a de sens qu'après une attente d'événement ; « ${w.step} » est un nœud ${typeAmont}.`));
+        }
+        if (w.op && !w.path) {
+          issues.push(issue("INVALID_SHAPE", s.key, `l'opérateur « ${w.op} » exige un champ (path) de la sortie amont.`));
+        }
+        if (w.op && !["exists", "empty"].includes(w.op) && (w.value === undefined || w.value === "")) {
+          issues.push(issue("INVALID_SHAPE", s.key, `l'opérateur « ${w.op} » exige une valeur de comparaison.`));
+        }
+        if (w.path && !w.op) {
+          issues.push(issue("INVALID_SHAPE", s.key, "un champ (path) sans opérateur ne teste rien — préciser op (exists, eq, gt…)."));
+        }
+        if (!w.outcome && !w.op) {
+          issues.push(issue("INVALID_SHAPE", s.key, "une condition doit attendre une issue (outcome) ou tester la sortie (path/op)."));
+        }
+        if (!dependsOn.includes(w.step)) dependsOn.push(w.step);
+      }
     }
 
     if (dependsOn.length > PLAN_LIMITS.depsPerStep) {

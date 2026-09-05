@@ -92,7 +92,7 @@ export interface BalayageMissions {
  * quelqu'un dont on a fermé un module le mardi ne doit pas continuer à s'en servir le mercredi.
  * C'est la propriété qui rend un balayage sans session acceptable.
  */
-async function proprietaire(userId: string): Promise<CurrentUser | null> {
+export async function proprietaire(userId: string): Promise<CurrentUser | null> {
   const u = await prisma.user.findFirst({
     where: { id: userId, isActive: true },
     select: { id: true, name: true, email: true, role: true },

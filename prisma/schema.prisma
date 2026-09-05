@@ -1245,6 +1245,7 @@ model User {
   assistantMemoryItems       AssistantMemoryItem[]    @relation("AssistantMemoryItems")
   executiveDecisions         ExecutiveDecision[]      @relation("ExecutiveDecisions")
   executiveCommitments       ExecutiveCommitment[]    @relation("ExecutiveCommitments")
+  adamWatches                AdamWatch[]              @relation("AdamWatches")
   assistantArtifacts         AssistantArtifact[]      @relation("AssistantArtifacts")
   artifactSessions           ArtifactSession[]        @relation("ArtifactSessions")
   assistantActionIntents     AssistantActionIntent[]  @relation("AssistantActionIntents")
@@ -7416,6 +7417,49 @@ model RegulatoryDossier {
   @@index([status])
 }
 
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// LA SURVEILLANCE DURABLE — « surveille ce dossier et préviens-moi seulement s'il y a un problème ».
+///
+/// Une surveillance est portée par une MISSION (kind WATCH) : c'est elle qui donne le journal
+/// (`MissionEvent`), la porte d'attention (dédoublonnage, plafond, canaux), la conduite
+/// (suspendre, arrêter) et l'écran — on ne recrée rien de tout cela. Cette table porte ce qui
+/// est propre à une surveillance : la cible, les RÈGLES (évaluées par du code, jamais par un
+/// modèle), la cadence, le dernier état observé et la dernière signature de problème signalée
+/// — ce qui rend le « seulement s'il y a un problème » exact : le même problème n'est pas
+/// re-signalé, un problème résolu se dit une fois, et rien ne dépend de la mémoire d'un
+/// processus. Un redémarrage relit la table ; un fait métier qui touche la cible avance
+/// `nextCheckAt` à maintenant (réveil par le registre d'événements).
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model AdamWatch {
+  id            String    @id @default(cuid())
+  ownerId       String
+  owner         User      @relation("AdamWatches", fields: [ownerId], references: [id], onDelete: Cascade)
+  missionId     String    @unique
+  mission       Mission   @relation("MissionWatch", fields: [missionId], references: [id], onDelete: Cascade)
+  label         String
+  /// REGULATORY_PRODUCT | REGULATORY_DOSSIER | TASK | EXPENSE_ORDER | PAYMENT_REQUEST | VALIDATION_REQUEST | PCH_TENDER | PRODUIT | ORGANISATION | PERSONNE
+  targetType    String
+  targetId      String
+  targetRef     String?
+  /// [{ code, jours?, valeurs?, champ?, op?, valeur? }] — voir `lib/missions/watch/rules.ts`.
+  rules         Json
+  /// ACTIVE | CLOSED (la pause passe par la mission-support).
+  status        String    @default("ACTIVE")
+  checkEveryH   Int       @default(24)
+  nextCheckAt   DateTime  @default(now())
+  lastCheckedAt DateTime?
+  lastState     Json?
+  lastSignature String?
+  lastSignalAt  DateTime?
+  closeReason   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, nextCheckAt])
+  @@index([ownerId, status])
+  @@index([targetType, targetId])
+}
+
 /// Une version reçue du dossier (fournisseur V1, V2…). Contient l'archive ORIGINALE figée.
 model RegulatoryDossierVersion {
   id                String   @id @default(cuid())
@@ -10238,6 +10282,8 @@ model Mission {
   workerRuns   MissionWorkerRun[]
   approvals    MissionApproval[]
   commitments2 ExecutiveCommitment[] @relation("MissionCommitments")
+  /// La SURVEILLANCE que cette mission porte (kind WATCH) — journal, porte d'attention, conduite : jamais un second système.
+  watch        AdamWatch?            @relation("MissionWatch")
 
   @@index([ownerId, status])
   @@index([status, updatedAt])

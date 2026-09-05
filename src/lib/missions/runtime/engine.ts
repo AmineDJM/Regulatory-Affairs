@@ -25,6 +25,7 @@ import {
 } from "@/lib/missions/recovery/coordinator";
 import { elargirEntree, memeAppel, type ActionRecours } from "@/lib/missions/recovery/action";
 import { EFFECT_RANK, capabilityMeta, type Effect } from "@/lib/missions/registry/capability-meta";
+import { evaluerCondition, lireCondition } from "@/lib/missions/runtime/condition";
 import { fabriquerRecu, type ExecutionReceipt } from "@/lib/missions/runtime/receipt";
 
 /**
@@ -464,6 +465,21 @@ async function executerUneEtape(
   deps: EngineDeps,
   clock: Clock,
 ): Promise<Sortie> {
+  // ── L'ÉTAPE CONDITIONNELLE : la condition se lit AVANT tout, éventail compris ──────────
+  //
+  // « Si pas de réponse avant vendredi, relance » : l'étape « relance » dépend de l'attente,
+  // et ne part que si l'attente s'est réglée par le TEMPS. Non remplie, elle est IGNORÉE —
+  // le journal dit pourquoi, avec les valeurs — et la suite du plan continue (§37).
+  const condition = lireCondition(step.spec?.when);
+  if (condition) {
+    const amont = etat.steps.find((s) => s.key === condition.step);
+    const verdict = evaluerCondition(condition, amont ? { status: amont.status, result: amont.result } : undefined);
+    if (!verdict.remplie) {
+      await ecrireSortie(etat, step, { status: "SKIPPED", raison: `condition non remplie — ${verdict.raison}` }, clock);
+      return { kind: "etape", echouee: false, dedupliquee: false };
+    }
+  }
+
   // L'ÉVENTAIL SE DÉPLOIE AVANT TOUT AUTRE TRAITEMENT : ce n'est pas une étape à exécuter, c'est
   // une étape qui en fabrique d'autres.
   if (step.forEach) {

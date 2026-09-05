@@ -339,7 +339,9 @@ export interface Enqueteur {
  */
 export type GenreSignal =
   | "MISSION_COMPLETED" | "MISSION_PARTIAL" | "MISSION_BLOCKED" | "MISSION_FAILED"
-  | "APPROVAL_REQUIRED" | "QUESTION" | "WAIT_OVERDUE" | "PLANNING_FAILED" | "BUDGET_HOLD" | "PLAN_CHANGED";
+  | "APPROVAL_REQUIRED" | "QUESTION" | "WAIT_OVERDUE" | "PLANNING_FAILED" | "BUDGET_HOLD" | "PLAN_CHANGED"
+  // La SURVEILLANCE durable : un problème apparaît, un problème disparaît, la cible est terminée.
+  | "WATCH_ALERT" | "WATCH_RESOLVED" | "WATCH_ENDED";
 
 export interface SignalAttention {
   kind: GenreSignal;
@@ -355,6 +357,12 @@ export interface SignalAttention {
   niveauApprobation?: string | null;
   /** L'étape concernée (accord, question, attente) — sert à la clé de dédoublonnage. */
   stepKey?: string | null;
+  /**
+   * LE NIVEAU QUE L'ÉMETTEUR SUGGÈRE, quand il en sait plus que le type du signal — une
+   * surveillance sait si le problème est une information (un statut a changé) ou une attention
+   * (échéance dépassée). La politique reste libre de le dégrader (plafond, cadence).
+   */
+  niveauSuggere?: "JOURNAL" | "INFO" | "ATTENTION" | "ARBITRAGE" | null;
   /** Ce que la mission a fait, pour le compte rendu : étapes faites / total / en échec, effets. */
   bilan?: { faites: number; total: number; echouees: number; effets?: string[]; livrables?: string[]; aSurveiller?: string[] } | null;
   /** Le nombre de jours d'attente ou de relances déjà faites, pour une attente échue. */

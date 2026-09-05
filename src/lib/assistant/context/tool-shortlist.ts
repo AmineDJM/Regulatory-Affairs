@@ -121,6 +121,10 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   record_commitment: ["MISSION"],
   close_commitment: ["MISSION"],
   plan_reminder: ["MISSION"],
+  // Les surveillances durables : même domaine que les rappels et les missions.
+  watch_entity: ["MISSION"],
+  list_watches: ["MISSION"],
+  stop_watch: ["MISSION"],
   list_reminders: ["MISSION"],
   cancel_reminder: ["MISSION"],
   snooze_reminder: ["MISSION"],

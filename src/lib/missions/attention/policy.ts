@@ -50,6 +50,13 @@ export function classer(s: SignalAttention): NiveauSignal {
       // Tant qu'Adam relance lui-même, le dirigeant n'a rien à faire : JOURNAL. Quand l'échelle
       // de relances est épuisée (trois), c'est à lui de trancher.
       return (s.attente?.relances ?? 0) >= 3 ? "ATTENTION" : "JOURNAL";
+    // ── LA SURVEILLANCE : « préviens-moi seulement s'il y a un problème » ────────────────
+    // L'émetteur connaît la gravité (un statut qui change est une information, une échéance
+    // dépassée une attention) ; sans indication, un problème vaut ATTENTION. Un problème
+    // résolu ne dérange personne (journal) ; une cible terminée s'annonce une fois (info).
+    case "WATCH_ALERT": return s.niveauSuggere && s.niveauSuggere !== "JOURNAL" ? s.niveauSuggere : "ATTENTION";
+    case "WATCH_RESOLVED": return "JOURNAL";
+    case "WATCH_ENDED": return "INFO";
   }
 }
 
@@ -118,6 +125,15 @@ export function composerMessage(s: SignalAttention): { titre: string; corps: str
       return { titre: `Le plan a changé — ${s.titre}`, corps: borne(`Contexte : ${raison || "de nouvelles étapes ne sont pas couvertes par votre accord."} Décision demandée : approuver la partie modifiée, et elle seule.`, 700) };
     case "QUESTION":
       return { titre: `Une précision — ${s.titre}`, corps: borne(`${raison || "Une information manque."} ${phrase(s.decision) ? `Décision demandée : ${phrase(s.decision)}` : ""}`.trim(), 700) };
+    case "WATCH_ALERT":
+      return {
+        titre: `Surveillance — ${s.titre}`,
+        corps: borne(`Problème : ${raison || "un signal de surveillance s'est déclenché."} ${phrase(s.decision) ? `Recommandation : ${phrase(s.decision)}` : ""}`.trim(), 700),
+      };
+    case "WATCH_RESOLVED":
+      return { titre: `Surveillance — ${s.titre}`, corps: borne(`Revenu à la normale : ${raison || "le problème signalé n'est plus observé."}`, 700) };
+    case "WATCH_ENDED":
+      return { titre: `Surveillance terminée — ${s.titre}`, corps: borne(`Résultat : ${raison || "la cible surveillée est arrivée à son terme."} Je cesse de la surveiller.`, 700) };
     case "WAIT_OVERDUE": {
       const a = s.attente;
       return {

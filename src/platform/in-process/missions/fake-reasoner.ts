@@ -137,6 +137,8 @@ const DEFAUTS: Record<string, unknown> = {
   // mode strict les fait voyager quand elles ne servent pas.
   waitUntil: null, waitThreadId: null, waitSubject: null, waitAttachment: null,
   waitAnyOf: null, waitAllOf: null,
+  // L'étape conditionnelle — inconditionnelle par défaut.
+  when: null,
 };
 
 type EtapeLibre = Record<string, unknown>;

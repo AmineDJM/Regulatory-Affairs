@@ -39,6 +39,8 @@ describe("le schéma d'étape, en variantes", () => {
     // sait lire — `reconstruirePlan` et le compilateur en dépendent.
     const ATTENDUS = [
       "key", "title", "workstream", "nodeType", "dependsOn", "completionCondition",
+      // L'étape CONDITIONNELLE (`when`, nullable) fait partie du tronc : toute variante peut être gardée.
+      "when",
       "capability", "inputs", "forEach", "outputFields",
       "waitEvent", "waitFrom", "waitEntity", "waitAsk", "waitWithinDays",
       "reasoningRequirement", "approvalRequirement", "maxAttempts",
@@ -87,8 +89,8 @@ describe("le schéma d'étape, en variantes", () => {
     for (const absent of ["waitEvent", "waitFrom", "waitEntity", "waitAsk", "waitWithinDays", "outputFields"]) {
       expect(cap, `une CAPABILITY ne devrait pas écrire « ${absent} »`).not.toContain(absent);
     }
-    // Et un nœud de structure n'écrit QUE le tronc commun.
-    expect(requisDe(VARIANTES_ETAPE.STRUCTURE)).toHaveLength(6);
+    // Et un nœud de structure n'écrit QUE le tronc commun — sept champs, `when` compris.
+    expect(requisDe(VARIANTES_ETAPE.STRUCTURE)).toHaveLength(7);
   });
 
   it("l'éventail est UN champ, pas trois — et il ne peut plus être à moitié rempli", () => {
@@ -109,7 +111,7 @@ describe("le schéma d'étape, en variantes", () => {
 describe("la vérification d'une étape en variantes", () => {
   const capability = {
     key: "lire:dossier", title: "Lire le dossier", workstream: null,
-    dependsOn: [], completionCondition: "le dossier est lu",
+    dependsOn: [], completionCondition: "le dossier est lu", when: null,
     nodeType: "CAPABILITY", capability: "inspect_record",
     inputs: [{ key: "reference", kind: "TEXT", value: "REG-1" }],
     forEach: null, approvalRequirement: "NONE", maxAttempts: null,
@@ -142,7 +144,7 @@ describe("la vérification d'une étape en variantes", () => {
     // compositions) voyagent à `null` quand elles ne servent pas — jamais absentes.
     expect(etape({
       key: "attente:reponse", title: "Attendre la réponse", workstream: null,
-      dependsOn: ["envoi"], completionCondition: "une réponse est arrivée",
+      dependsOn: ["envoi"], completionCondition: "une réponse est arrivée", when: null,
       nodeType: "WAIT_EVENT", waitEvent: "EMAIL_RECEIVED",
       waitFrom: "anpp@sante.dz", waitEntity: null, waitWithinDays: 15,
       waitUntil: null, waitThreadId: null, waitSubject: null, waitAttachment: null,
@@ -153,7 +155,7 @@ describe("la vérification d'une étape en variantes", () => {
   it("une WAIT_EVENT v2 — échéance, pièce exigée et composition ET — passe aussi", () => {
     expect(etape({
       key: "attente:contrat-et-devis", title: "Attendre le contrat ET le devis", workstream: null,
-      dependsOn: ["relance"], completionCondition: "les deux pièces sont arrivées",
+      dependsOn: ["relance"], completionCondition: "les deux pièces sont arrivées", when: null,
       nodeType: "WAIT_EVENT", waitEvent: "EMAIL_RECEIVED",
       waitFrom: null, waitEntity: null, waitWithinDays: 7,
       waitUntil: "2026-09-05T08:00:00.000Z", waitThreadId: "thr_9", waitSubject: null, waitAttachment: "*.pdf",
@@ -168,7 +170,7 @@ describe("la vérification d'une étape en variantes", () => {
   it("un nœud de STRUCTURE ne porte que le tronc commun", () => {
     expect(etape({
       key: "jonction", title: "Attendre les branches", workstream: null,
-      dependsOn: ["a", "b"], completionCondition: "les deux branches sont finies",
+      dependsOn: ["a", "b"], completionCondition: "les deux branches sont finies", when: null,
       nodeType: "JOIN",
     })).toEqual([]);
   });

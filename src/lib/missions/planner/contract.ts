@@ -143,6 +143,39 @@ export interface PlannedStep {
   };
   /** Le planner PROPOSE une approbation ; la politique en décide (§31). */
   approvalRequirement?: "NONE" | "NORMAL" | "SENSITIVE" | "CRITICAL";
+  /**
+   * L'ÉTAPE CONDITIONNELLE — la branche « sinon » d'une attente, la garde d'un seuil.
+   *
+   * « Si Sarah n'a pas répondu avant vendredi, relance-la ; si elle a répondu, remercie-la »
+   * s'écrit : une attente `anyOf [sa réponse | vendredi]`, puis DEUX étapes qui en dépendent,
+   * l'une `when { step, outcome: "TIMEOUT" }`, l'autre `when { step, outcome: "EVENT" }`.
+   * « Si le prix dépasse 5 000, demande validation » : `when { step: "lire-prix", path: "prix",
+   * op: "gt", value: "5000" }` sur l'étape d'approbation. Une condition non remplie IGNORE
+   * l'étape (SKIPPED) : la suite continue, le contrôle qualité ne la compte pas en manque.
+   */
+  when?: StepCondition;
+}
+
+/** L'issue d'une étape amont qu'une condition peut attendre. */
+export const ISSUES_CONDITION = ["EVENT", "TIMEOUT", "DONE", "FAILED", "SKIPPED"] as const;
+export type IssueCondition = (typeof ISSUES_CONDITION)[number];
+/** Les opérateurs d'un test sur la sortie d'une étape amont. */
+export const OPERATEURS_CONDITION = ["eq", "ne", "gt", "gte", "lt", "lte", "contains", "exists", "empty"] as const;
+export type OperateurCondition = (typeof OPERATEURS_CONDITION)[number];
+
+export interface StepCondition {
+  /** L'étape amont observée. Le compilateur en fait une dépendance implicite. */
+  step: string;
+  /**
+   * L'issue attendue : EVENT (une attente réglée par un FAIT), TIMEOUT (réglée par le TEMPS),
+   * DONE, FAILED, SKIPPED. Absente : seule la sortie est testée.
+   */
+  outcome?: IssueCondition;
+  /** Un champ de la sortie de l'étape amont (« prix », « payload.montant », « items.0.statut »). */
+  path?: string;
+  op?: OperateurCondition;
+  /** La valeur de comparaison, toujours en texte ; nombre reconnu quand les deux côtés en sont. */
+  value?: string;
 }
 
 /** Un axe de travail : le regroupement lisible des étapes (§2). */
