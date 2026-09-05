@@ -2942,7 +2942,8 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Catalogues produits — rapprochement** | `lib/products/catalog-match.ts` (pur : `productKey`, `matchScore`, `bestMatches` — le score CHUTE quand les dosages diffèrent + tests) ; `lib/products/link.ts` (cœur partagé écran/API) ; `lib/queries/product-catalog.ts` ; `app/(app)/regulatory/catalogue/`. Champs `BdProduct.regulatoryProductId` / `PromoProduct.regulatoryProductId`. |
 | **API agents — écriture** | `lib/api/registry/operations.ts` (catalogue déclaratif + `validateParams` pur, qui REFUSE au lieu de deviner ; un test exige une portée d'écriture par opération) ; `app/api/v1/operations/[operation]/route.ts` (idempotent) et `app/api/v1/meta/operations/route.ts`. Chaque opération appelle le même cœur métier que l'écran. |
 | **Téléversement direct multipart** | `lib/regulatory/intelligence/upload/object-storage.ts` (`presignUploadPartUrl` — les paramètres de l'opération entrent dans la requête canonique) et `session.ts` (`DIRECT_PART_BYTES`, `DIRECT_CONCURRENCY`, recollage à la finalisation, abandon qui libère les parties) ; `components/layout/upload-manager.tsx` (envoi parallèle + annulation). Voir `docs/UPLOAD_PERFORMANCE.md`. |
-| **Garde-fous de style** | `lib/client-bundle-guard.test.ts` (frontière client/serveur) et `lib/responsive-guard.test.ts` (table large hors conteneur défilant, `col-span` non préfixé dans une grille mono-colonne) — deux tests qui lisent les sources, sans navigateur. |
+| **Garde-fous de style** | `lib/client-bundle-guard.test.ts` (frontière client/serveur) ; `lib/responsive-guard.test.ts` (table large hors conteneur défilant, grille sans colonne de base `grid-cols-1`, `col-span` plus large que la grille parente) ; `lib/ui/class-collision.test.ts` (deux largeurs/hauteurs sur le même élément via une constante de classes) ; `lib/ui/dead-links.test.ts` (tout `href`/`redirect`/`link:` statique doit désigner une route existante, `entityHref` type par type) ; `lib/ui/loading-boundary.test.ts` (aucun `loading.tsx` au-dessus d'une page qui peut `redirect()` — vercel/next.js#63121). Cinq tests qui lisent les sources, sans navigateur. |
+| **Audit UI mesuré (navigateur)** | `scripts/ui-audit/run.ts` (crawler Chromium : TOUTES les routes, 375 px et 1440 px, compte Super Admin éphémère, `next start` sur un port libre, mesure des débordements et des liens morts, rapport `ui-audit-out/report.md` — non versionné) ; `e2e/measure.ts` (LA mesure, partagée : la boîte de chaque élément visible hors d'un conteneur défilant, et les textes d'erreur) ; `e2e/ui-audit.spec.ts` (le cliquet : quarante écrans aux deux largeurs, `npm run test:e2e`) ; `lib/entity-exists.ts` (`existingEntityIds`/`existingSources` — un lien vers un objet supprimé ne s'affiche plus comme un lien) ; `app/(app)/{error,not-found}.tsx` + `app/not-found.tsx` (pages en français, dans la coque) ; `components/layout/nav-progress.tsx` (le fil de progression d'une navigation — SANS frontière Suspense). |
 | **Courrier smart (sans SMTP)** | `lib/mail-smart.ts` (agnostique fournisseur, `buildProviderCall`/`verifyInboundSignature`/`normalizeInbound`) + `mail-smart.test.ts`, `lib/actions/smart-mail-actions.ts` (journal), `app/api/mail/inbound/route.ts` (webhook signé), `app/(app)/admin/courrier/`. Modèles `OutboundEmail`/`InboundEmail`. |
 
 ---
@@ -3525,6 +3526,13 @@ npx tsc --noEmit && npm run build && npx vitest run
 > Les tests d'intégration **skippent proprement** si aucune base n'est disponible (CI verte) et **s'exécutent
 > tous** dès que Postgres est présent — on retombe alors sur le référentiel **2 491 passés / 23 skip**.
 
+- **Écrans (Playwright, Chromium préinstallé)** : `npm run build && npm run test:e2e` rend quarante écrans
+  représentatifs à 375 px et à 1440 px sur le build de production et tombe si un élément visible dépasse,
+  si une page affiche un texte d'erreur, ou si le document répond 5xx (`e2e/ui-audit.spec.ts`). L'audit
+  COMPLET (toutes les routes, liens vérifiés, captures) reste l'affaire du crawler :
+  `npx tsx scripts/ui-audit/run.ts --shots` → `ui-audit-out/report.md`. Ce que le crawler trouve se
+  corrige, puis se fige dans un garde statique (`src/lib/ui/`) — sinon tout revient au prochain écran.
+
 ---
 
 ## 🏗️ Architecture du code
@@ -3574,6 +3582,52 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Rien ne dépasse, rien ne casse, aucun lien mort — l'audit UI mesuré (2026-09)
+
+**On a cessé de juger l'interface à l'œil.** Un crawler (`scripts/ui-audit/run.ts`) ouvre CHAQUE route
+de l'application dans Chromium, à 375 px et à 1440 px, avec un compte Super Admin éphémère, et mesure :
+la boîte de chaque élément visible qui sort de l'écran hors d'un conteneur qui défile, les textes
+d'erreur (les nôtres et ceux de Next), le statut du document, et chaque lien découvert — cliqué, puis
+jugé sur sa réponse. Première passe : **treize écrans qui débordaient, cinquante et un liens morts,
+une page 404 en anglais.** Dernière passe : **zéro, zéro, et une page « Introuvable » en français,
+dans la coque, avec le menu.**
+
+**Ce qui débordait, et pourquoi.** Presque toujours la même cause : une grille qui n'avait de colonnes
+qu'« à partir de `md` » (`grid md:grid-cols-3`) — en dessous, le navigateur crée des colonnes
+implicites dimensionnées sur leur contenu, et un titre long pousse tout hors de l'écran. **Cent
+cinquante et une grilles** ont reçu leur colonne de base (`grid-cols-1`, c'est-à-dire
+`minmax(0, 1fr)`), et `lib/responsive-guard.test.ts` refuse désormais une grille sans elle. Le reste :
+des barres d'outils sans retour à la ligne (Drive, Regulatory, l'en-tête du calendrier), un champ de
+recherche sans `min-w-0`, et des chiffres à vingt-quatre pixels dans des cartes de cent soixante
+(`kpi-card.tsx` : `min-w-0` + `break-words`).
+
+**Les liens morts n'étaient pas des fautes de frappe.** Cinquante sur cinquante et un venaient du centre
+de paiement : « Demande d'origine » pointait vers un objet SUPPRIMÉ — la trace (`sourceType`,
+`sourceId`) survit à l'objet, et `entityHref` en faisait un lien tout à fait normal vers une 404.
+`lib/entity-exists.ts` pose la question avant d'afficher (une requête par type, pas par ligne), et
+l'écran écrit « source supprimée » au lieu d'un lien. Le cinquante et unième était un vrai chemin faux
+(`/e360` → `/pch/[id]`), et `lib/ui/dead-links.test.ts` relit maintenant tous les `href`, `redirect(` et
+`link:` du code contre l'inventaire des routes.
+
+**La leçon la plus chère du lot : `loading.tsx`.** Un squelette d'attente avait été ajouté au niveau de
+la coque. Il enveloppe chaque page dans une frontière Suspense — et sous cette frontière, un
+`redirect()` de page n'est plus une réponse HTTP 307 : la coque est déjà partie, la redirection
+voyage dans le flux et c'est le navigateur qui la rejoue à l'hydratation. Sur Next 14.2 **en
+production seulement**, cette hydratation casse la comptabilité des hooks du routeur (React #310,
+vercel/next.js#63121) : la passe suivante du crawler a compté **vingt-six écrans** — `/aujourdhui`,
+`/finances`, `/medical`, `/office`, `/drive/[id]`… — qui affichaient « Application error » à la place
+de leur redirection. Le mode développement ne le montre pas ; `tsc`, le lint, les tests et le build
+non plus. Le squelette est parti ; l'attente a désormais la forme d'un **fil de progression** en haut
+de l'écran (`components/layout/nav-progress.tsx`), qui n'a besoin d'aucune frontière ; et
+`lib/ui/loading-boundary.test.ts` interdit un `loading.tsx` au-dessus d'une page qui peut rediriger —
+c'est-à-dire presque toutes, `requireModule` redirigeant quand un module est masqué.
+
+**Ce qui reste, et le dit.** Une page qui casse affiche « Cette page n'a pas pu s'afficher », avec
+« Réessayer » et la référence du journal serveur (`app/(app)/error.tsx`) ; une fiche introuvable, une
+page « Introuvable » qui garde le menu. Et pour que rien ne revienne : `e2e/ui-audit.spec.ts` rend
+quarante écrans représentatifs aux deux largeurs sur le build de production (`npm run test:e2e`) et
+tombe au premier pixel qui dépasse.
 
 ### Deux largeurs sur le même élément — le défaut qui casse un écran sans rien dire (2026-09)
 

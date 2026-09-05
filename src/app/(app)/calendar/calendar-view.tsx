@@ -51,10 +51,13 @@ export function CalendarView({
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_300px]">
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1">
+        {/* La rangée PASSE À LA LIGNE : à 375 px, le mois, ses flèches, « Aujourd'hui » et
+            « Nouveau » ne tiennent pas côte à côte — sans `flex-wrap`, « Nouveau » sortait de
+            l'écran (mesuré par l'audit navigateur). */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
             <button onClick={() => router.push(prevHref)} className="rounded-md p-1.5 hover:bg-secondary" aria-label="Mois précédent"><ChevronLeft className="h-5 w-5" /></button>
-            <h2 className="min-w-[180px] text-center text-lg font-semibold">{MONTH_LABELS[month]} {year}</h2>
+            <h2 className="min-w-[8.5rem] text-center text-lg font-semibold">{MONTH_LABELS[month]} {year}</h2>
             <button onClick={() => router.push(nextHref)} className="rounded-md p-1.5 hover:bg-secondary" aria-label="Mois suivant"><ChevronRight className="h-5 w-5" /></button>
             <button onClick={() => router.push("/calendar")} className="ml-2 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary">Aujourd'hui</button>
           </div>

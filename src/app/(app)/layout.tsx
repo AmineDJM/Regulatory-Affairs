@@ -29,6 +29,7 @@ import { isTestUser } from "@/lib/features";
 import { prisma } from "@/lib/prisma";
 import { APP_SCROLL_ID } from "@/lib/use-scroll-lock";
 import { NavDepthTracker } from "@/components/shared/back-link";
+import { NavProgress } from "@/components/layout/nav-progress";
 
 export default async function AppLayout({
   children,
@@ -82,6 +83,10 @@ export default async function AppLayout({
         pendant un appel ne démonte pas la session WebRTC — la conversation continue. */}
     <CallProvider enabled={realtimeVoiceConfigured() && canUseRealtimeVoice(user)}>
     <div className="flex h-screen overflow-hidden bg-background">
+      {/* Le fil de progression d'une navigation — SANS `loading.tsx` : une frontière Suspense
+          au-dessus des pages transformerait chaque `redirect()` en redirection côté navigateur,
+          qui casse en production sur Next 14.2 (voir `nav-progress.tsx`). */}
+      <NavProgress />
       <ActivityTracker />
       {/* LE REJEU DE SESSION — pour le support technique : rembobiner la suite des actions et
           voir où ça a bugué. Aucune valeur de champ n'est lue ; les champs sensibles sont

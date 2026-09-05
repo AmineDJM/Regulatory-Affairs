@@ -71,10 +71,12 @@ export function DossierTimeline({
           </p>
           {canUpdate && (
             <Button
-              size="sm" className="mt-3" disabled={busy}
+              size="sm" className="mt-3 max-w-full" disabled={busy}
               onClick={() => run(() => { const fd = new FormData(); fd.set("productId", productId); return startDossierTimeline(fd); })}
             >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Démarrer la frise (Réserves ANPP 1)
+              {/* Le libellé complet dépasse d'un téléphone (mesuré : 267 px dans 343) ; le nom du
+                  premier cycle est déjà dit en gras juste au-dessus, on ne le répète qu'à partir de `sm`. */}
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Démarrer la frise<span className="hidden sm:inline"> (Réserves ANPP 1)</span>
             </Button>
           )}
         </div>
