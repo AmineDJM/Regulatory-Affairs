@@ -57,9 +57,16 @@ export async function POST(req: Request) {
         const personal = memoryOn ? await personalContext(user.id).catch(() => null) : null;
 
         const t0 = Date.now();
-        const result = await runAssistantStream(user, history, send, { personalContext: personal });
+        const result = await runAssistantStream(user, history, send, {
+          personalContext: personal,
+          turnContext: { ...(threadId ? { threadId } : {}), feature: "assistant" },
+        });
+        const tour = result.turn;
         await logAiUsage({
-          feature: "assistant", userId: user.id, model: aiModel(),
+          feature: "assistant", userId: user.id,
+          // LE MODÈLE RÉELLEMENT SERVI, pas un nom de configuration : le premier appel du tour.
+          model: tour?.llmCalls ? (Object.entries(tour.callsByRole).find(([, n]) => n > 0)?.[0] ?? aiModel()) : aiModel(),
+          provider: "openai",
           ok: result.ok, latencyMs: Date.now() - t0, errorCode: result.ok ? null : result.error ?? "error",
           // Le détail de la boucle : ressenti (1er mot), tours, outils, erreurs, temps outils.
           ttftMs: result.metrics?.ttftMs ?? null,
@@ -67,6 +74,18 @@ export async function POST(req: Request) {
           toolCalls: result.metrics?.toolCalls ?? null,
           toolErrors: result.metrics?.toolErrors ?? null,
           toolLatencyMs: result.metrics?.toolLatencyMs ?? null,
+          // LE COÛT DU TOUR — jetons, cache, réflexion, recherches web, dollars (ou INCONNU).
+          turnId: tour?.turnId ?? null,
+          route: tour?.route ?? null,
+          complexity: tour?.complexity ?? null,
+          threadId,
+          llmCalls: tour?.llmCalls ?? null,
+          inputTokens: tour?.inputTokens ?? null,
+          outputTokens: tour?.outputTokens ?? null,
+          cachedInputTokens: tour?.cachedInputTokens ?? null,
+          reasoningTokens: tour?.reasoningTokens ?? null,
+          webSearchCalls: tour?.webSearchCalls ?? null,
+          costUsd: tour?.costUsd ?? null,
         });
 
         // Mémorisation du fil (helpers scopés par userId) — jamais bloquante.

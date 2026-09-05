@@ -49,7 +49,10 @@ import {
  * boucle parlera la forme neutre, l'import et le pont disparaissent ensemble.
  */
 import { callClaude, callClaudeStream, assistantConfigured as aiConfigured } from "@/lib/models/compat";
-import { withTurn, markPreview, markFinal, logTurn, type TurnRoute } from "@/lib/models/telemetry";
+import { withTurn, markPreview, markFinal, logTurn, recordTool, setTurnContext, summarize, type TurnRoute, type TurnContext, type TurnSummary } from "@/lib/models/telemetry";
+import "@/lib/assistant/usage-sink";
+import { callModel } from "@/lib/models/gateway";
+import { planifierPreLectures, executerPreLectures, PRE_LECTURE_MAX_CHARS } from "@/lib/assistant/pre-lectures";
 import {
   userCan, accessibleModules, hasGlobalView, isRegulatorySupervisor, type Module,
   scopeMedicalDoctors, scopeRegulatory, scopeAdminRequests,
@@ -808,6 +811,8 @@ export interface AssistantResult {
   threadId?: string | null;
   /** Mesures de la boucle (flux uniquement) — journalisées par la route, pas affichées. */
   metrics?: AssistantMetrics;
+  /** Le TOUR mesuré : appels par rôle, jetons, cache, coût (null si un tarif manque) — pour la persistance. */
+  turn?: TurnSummary;
   error?: string;
 }
 
@@ -4591,19 +4596,49 @@ Ta sortie = la réponse finale, rien d'autre.`;
  * révisée. La chaîne de critique n'est JAMAIS exposée. En cas d'échec du second appel, le
  * brouillon d'origine est rendu — la passe ajoute, elle ne retire jamais.
  */
+const CRITIQUE_SCHEMA = {
+  name: "relecture_critique",
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["brouillon_solide", "reponse_finale"],
+    properties: {
+      brouillon_solide: { type: "boolean", description: "vrai si le brouillon peut être remis tel quel" },
+      reponse_finale: { type: "string", description: "LA RÉPONSE FINALE COMPLÈTE à remettre au décideur — jamais la critique, jamais une liste de points à corriger" },
+    },
+  },
+} as const;
+
+/** Ce qui trahit une critique rendue à la place de la réponse — le défaut mesuré au banc. */
+const RESSEMBLE_A_UNE_CRITIQUE = /\b(brouillon|à corriger avant|a corriger avant|le texte à relire|seconde passe)\b/i;
+
 async function reviseHighStakes(
   system: string,
   question: string,
   draft: string,
   model: string | undefined,
 ): Promise<string | null> {
-  const res = await callClaude(
+  // LA SORTIE EST STRUCTURÉE, ET C'EST LE CORRECTIF. En texte libre, le modèle rendait parfois
+  // sa critique (« INCONNU — les montants du brouillon ne sont pas vérifiés… À corriger avant
+  // diffusion ») À LA PLACE de la réponse révisée — mesuré au banc sur « prépare-moi le
+  // comité ». Un schéma sépare les deux champs : le verdict d'un côté, la réponse de l'autre,
+  // et un brouillon jugé solide est rendu tel quel sans être réécrit.
+  const reply = await callModel(
+    "orchestrator",
     [{ role: "user", content: `QUESTION D'ORIGINE :\n${question.slice(0, 2_000)}\n\nBROUILLON DE RÉPONSE À RELIRE :\n${draft}` }],
-    { system: `${system}\n\n${CRITIQUE_ADDENDUM}`, maxTokens: 1400, model },
+    { system: `${system}\n\n${CRITIQUE_ADDENDUM}`, jsonSchema: CRITIQUE_SCHEMA, maxOutputTokens: 1400, ...(model ? { modelOverride: model } : {}) },
   );
-  if (!res.ok || !res.content) return null;
-  const text = textOf(res.content);
-  return text.length >= 80 ? text : null;
+  if (!reply.ok) return null;
+  const brut = reply.blocks.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("").trim();
+  type VerdictCritique = { brouillon_solide?: unknown; reponse_finale?: unknown };
+  let parsed: VerdictCritique | null;
+  try { parsed = JSON.parse(brut) as VerdictCritique | null; } catch { return null; }
+  if (!parsed || typeof parsed !== "object" || parsed.brouillon_solide === true) return null;
+  const texte = typeof parsed.reponse_finale === "string" ? parsed.reponse_finale.trim() : "";
+  if (texte.length < 80) return null;
+  // Une « réponse » qui parle du brouillon est une critique déguisée : le brouillon reste.
+  if (RESSEMBLE_A_UNE_CRITIQUE.test(texte) && !RESSEMBLE_A_UNE_CRITIQUE.test(draft)) return null;
+  return texte;
 }
 
 /**
@@ -4727,6 +4762,27 @@ async function runAssistantImpl(
     // complète avec TOUS les outils : le tour coûte plus cher, il ne rate pas.
     tools = allTools;
     recordOutcome({ fallback: true });
+  }
+
+  // LES PRÉ-LECTURES — même règle qu'en flux (voir pre-lectures.ts) : la voix qui délègue et
+  // le nudge en profitent autant que le texte.
+  if (rollout.mode !== "FAST_READ") {
+    const plansPre = planifierPreLectures(question, { route: rollout.route.route, isMutation: rollout.isMutation, entites: plan.entites });
+    if (plansPre.length > 0) {
+      const faites = await executerPreLectures(plansPre, (tool, input) => executeReadTool(tool, input, user));
+      if (faites.length > 0) {
+        for (const f of faites) {
+          recordTool({ name: f.tool, ms: f.ms, ok: true, parallel: faites.length > 1 });
+          usedTools.push(f.tool);
+          sortiesOutils.push(f.out);
+          const label = READ_LABEL[f.tool] ?? powerToolLabels()[f.tool];
+          if (label && !trace.includes(label)) trace.push(label);
+        }
+        tools = avecOutilsDeclares(tools, allTools, faites.map((f) => f.tool));
+        messages.push({ role: "assistant", content: faites.map((f) => ({ type: "tool_use" as const, id: f.id, name: f.tool, input: f.input })) });
+        messages.push({ role: "user", content: faites.map((f) => ({ type: "tool_result" as const, tool_use_id: f.id, content: stripDisplayPayload(f.out).slice(0, PRE_LECTURE_MAX_CHARS) })) });
+      }
+    }
   }
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
@@ -5033,6 +5089,7 @@ async function runAssistantStreamImpl(
         return null;
       });
       metrics.toolLatencyMs += Date.now() - t0;
+      recordTool({ name: toolName, ms: Date.now() - t0, ok: out !== null });
       if (out !== null) {
         usedTools.push(toolName);
         sortiesOutils.push(out);
@@ -5076,6 +5133,35 @@ async function runAssistantStreamImpl(
       trace.length = 0;
       metrics.ttftMs = null;
       recordOutcome({ fallback: true });
+    }
+
+    // ── LES PRÉ-LECTURES — le code lit avant que le modèle ne demande (pre-lectures.ts) ────
+    // Présentées au modèle comme des appels d'outils déjà faits : il décide la suite avec la
+    // preuve sous les yeux. Mêmes outils, mêmes droits, délai borné, extrait borné.
+    if (rollout.mode !== "FAST_READ") {
+      const plansPre = planifierPreLectures(question, { route: rollout.route.route, isMutation: rollout.isMutation, entites: plan.entites });
+      if (plansPre.length > 0) {
+        for (const p of plansPre) {
+          const label = READ_LABEL[p.tool] ?? powerToolLabels()[p.tool];
+          if (label && !trace.includes(label)) { trace.push(label); emit({ type: "trace", label }); }
+        }
+        const faites = await executerPreLectures(plansPre, (tool, input) => executeReadTool(tool, input, user));
+        if (faites.length > 0) {
+          metrics.toolCalls += faites.length;
+          for (const f of faites) {
+            metrics.toolLatencyMs += f.ms;
+            recordTool({ name: f.tool, ms: f.ms, ok: true, parallel: faites.length > 1 });
+            usedTools.push(f.tool);
+            sortiesOutils.push(f.out);
+            for (const src of extractSources(f.out)) emit({ type: "source", label: src.label, href: src.href });
+            const composed = composeWorkspace(f.tool, f.out);
+            if (composed) emit({ type: "workspace", composition: composed });
+          }
+          tools = avecOutilsDeclares(tools, allTools, faites.map((f) => f.tool));
+          messages.push({ role: "assistant", content: faites.map((f) => ({ type: "tool_use" as const, id: f.id, name: f.tool, input: f.input })) });
+          messages.push({ role: "user", content: faites.map((f) => ({ type: "tool_result" as const, tool_use_id: f.id, content: stripDisplayPayload(f.out).slice(0, PRE_LECTURE_MAX_CHARS) })) });
+        }
+      }
     }
 
     for (let turn = 0; turn < MAX_TURNS; turn++) {
@@ -5191,12 +5277,15 @@ async function runAssistantStreamImpl(
         }
         const label = READ_LABEL[tu.name];
         if (label && !trace.includes(label)) { trace.push(label); emit({ type: "trace", label }); }
+        let okOutil = true;
         const out = await executeReadTool(tu.name, tu.input, user).catch((e) => {
           console.error("[assistant] read tool failed", tu.name, e);
           metrics.toolErrors += 1;
+          okOutil = false;
           return "Erreur lors de la lecture des données.";
         });
         metrics.toolLatencyMs += Date.now() - t0;
+        recordTool({ name: tu.name, ms: Date.now() - t0, ok: okOutil, parallel: toolUses.length > 1 });
         return { tu, out };
       }));
       const results: ClaudeContentBlock[] = [];
@@ -6367,19 +6456,39 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
  *   • `nudge` — proactif, personne n'attend devant l'écran.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+/** Les outils des pré-lectures sont DÉCLARÉS au tour : le modèle voit leurs appels, il peut les rejouer. */
+function avecOutilsDeclares<T extends { name: string }>(tools: T[], all: T[], noms: string[]): T[] {
+  const connus = new Set(tools.map((t) => t.name));
+  const ajout = all.filter((t) => noms.includes(t.name) && !connus.has(t.name));
+  return ajout.length ? [...tools, ...ajout] : tools;
+}
+
 const routeOf = (origin: "text" | "voice" | "nudge" | undefined): TurnRoute =>
   origin === "voice" ? "voice-deep" : origin === "nudge" ? "background" : "text";
+
+export interface AssistantRunOptions {
+  model?: string;
+  personalContext?: string | null;
+  origin?: "text" | "voice" | "nudge";
+  /** De quoi signer le tour (fil, usage) — la personne est toujours ajoutée depuis `user`. */
+  turnContext?: TurnContext;
+}
 
 export function runAssistant(
   user: CurrentUser,
   history: ChatTurn[],
-  opts: { model?: string; personalContext?: string | null; origin?: "text" | "voice" | "nudge" } = {},
+  opts: AssistantRunOptions = {},
 ): Promise<AssistantResult> {
   return withTurn(routeOf(opts.origin), async (trace) => {
+    setTurnContext({ userId: user.id, feature: opts.origin === "nudge" ? "nudge" : "assistant", ...(opts.turnContext ?? {}) });
+    let result: AssistantResult | null = null;
     try {
-      return await runAssistantImpl(user, history, opts);
+      result = await runAssistantImpl(user, history, opts);
+      return result;
     } finally {
       markFinal();
+      // Le résumé du tour VOYAGE avec le résultat : c'est lui que la route persiste (jetons, coût).
+      if (result) result.turn = summarize(trace);
       logTurn(trace);
     }
   });
@@ -6389,16 +6498,20 @@ export function runAssistantStream(
   user: CurrentUser,
   history: ChatTurn[],
   emit: (e: AssistantStreamEvent) => void,
-  opts: { model?: string; personalContext?: string | null; origin?: "text" | "voice" | "nudge" } = {},
+  opts: AssistantRunOptions = {},
 ): Promise<AssistantResult> {
   return withTurn(routeOf(opts.origin), async (trace) => {
+    setTurnContext({ userId: user.id, feature: opts.origin === "nudge" ? "nudge" : "assistant", ...(opts.turnContext ?? {}) });
+    let result: AssistantResult | null = null;
     try {
       // LE PREMIER SIGNE DE VIE est marqué au premier événement réellement diffusé — pas à
       // l'entrée de la fonction. C'est la mesure qui compte : un tour qui met six secondes mais
       // montre quelque chose à 400 ms est vécu comme rapide.
-      return await runAssistantStreamImpl(user, history, (e) => { markPreview(); emit(e); }, opts);
+      result = await runAssistantStreamImpl(user, history, (e) => { markPreview(); emit(e); }, opts);
+      return result;
     } finally {
       markFinal();
+      if (result) result.turn = summarize(trace);
       logTurn(trace);
     }
   });

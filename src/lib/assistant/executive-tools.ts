@@ -281,9 +281,32 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
     label: "Dossier reconstitué",
     run: async (input, user) => {
       void user;
-      const ref = str(input, "reference");
-      if (ref.length < 2) return "Donnez une référence ou un fragment de titre.";
+      // `query` est accepté comme SYNONYME de `reference` : le chemin rapide et la voix ont
+      // longtemps servi ce nom-là, et un outil qui refuse une clé équivalente répond « il me
+      // faut une référence » à quelqu'un qui vient d'en donner une.
+      const brut = str(input, "reference") || str(input, "query");
+      if (brut.length < 2) return "Donnez une référence ou un fragment de titre.";
 
+      /**
+       * LE FRAGMENT SE RELIT SANS SON MOT-CLASSE. « dossier nivolumab », « contrat hetero »,
+       * « le paiement hikma » : le premier mot dit le type, jamais l'identité — et aucun titre,
+       * aucune DCI ne le contient. Quand la lecture littérale ne rend rien, on retente UNE fois
+       * sans lui. Jamais l'inverse : le fragment complet garde la priorité, parce qu'un titre
+       * peut réellement contenir « dossier ».
+       */
+      const nettoyer = (f: string): string =>
+        f.replace(/^(?:(?:le|la|les|l'|l’|mon|ma|mes|ce|cet|cette|ces|du|de|des|d'|d’)\s+)*(?:dossier|produit|contrat|marché|marche|demande|projet|courrier|tâche|tache|paiement|facture|règlement|reglement|fiche)\s+(?:(?:de|du|des|d'|d’|pour|sur|concernant)\s+)?/i, "").trim();
+      const AUCUN = "Aucun dossier ne porte la référence";
+      const premier = await inspecter(brut);
+      if (!premier.startsWith(AUCUN)) return premier;
+      const nettoye = nettoyer(brut);
+      if (nettoye.length >= 2 && nettoye.toLowerCase() !== brut.toLowerCase()) {
+        const second = await inspecter(nettoye);
+        if (!second.startsWith(AUCUN)) return second;
+      }
+      return premier;
+
+      async function inspecter(ref: string): Promise<string> {
       /**
        * L'IDENTIFIANT INTERNE EST RÉSOLU, PAS SEULEMENT LA RÉFÉRENCE — le correctif du Run 4.
        *
@@ -375,7 +398,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       // 3) Document Legal — et sa CHAÎNE devis → BC → facture → règlement.
       const legal = await prisma.legalDocument.findFirst({
         where: { OR: [{ id: ref }, { reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
-        select: { id: true, title: true, reference: true, kind: true, counterparty: true, amount: true, startDate: true, endDate: true, status: true, chainFromId: true, expenseOrderId: true },
+        select: { id: true, title: true, reference: true, kind: true, counterparty: true, amount: true, startDate: true, endDate: true, status: true, chainFromId: true, expenseOrderId: true, notes: true, signedAt: true, effectiveAt: true, driveNodeId: true },
       });
       if (legal) {
         // La chaîne se remonte par requêtes bornées — le fil est court, une boucle serait un gel.
@@ -415,6 +438,13 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           reference: legal.reference, titre: legal.title, partie: legal.counterparty,
           montantDzd: legal.amount != null ? Math.round(toNumber(legal.amount)) : null,
           statut: legal.status,
+          // LES NOTES DE LA FICHE FONT PARTIE DE LA FICHE : préavis, exclusivité, redevance y
+          // sont souvent consignés — les taire, c'est répondre « aucune clause exploitable »
+          // à côté de la clause. Le fichier signé, lui, se LIT (read_document) : on donne la porte.
+          notes: legal.notes ?? null,
+          signeLe: legal.signedAt ? fr(legal.signedAt) : null,
+          effetLe: legal.effectiveAt ? fr(legal.effectiveAt) : null,
+          documentSigne: legal.driveNodeId ? { driveNodeId: legal.driveNodeId, lien: `/drive/${legal.driveNodeId}`, lire: "read_document(driveNodeId)" } : null,
           ...(incoherences.length > 0 ? { incoherences } : {}),
           chaineAchat: fil.length > 1 ? fil : "Pièce isolée — aucun lien devis/BC/facture déclaré.",
           reglement: settlement
@@ -790,6 +820,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       }
 
       return `Aucun dossier ne porte la référence « ${ref} » (essayée comme référence, comme identifiant interne et comme fragment de titre) — ni demande de paiement, ni règlement, ni document Legal, ni matériel promotionnel, ni demande du secrétariat, ni sponsoring, ni dossier Regulatory, ni facture, ni courrier, ni projet, ni tâche. Je préfère le dire plutôt que d'inventer.`;
+      }
     },
   },
 

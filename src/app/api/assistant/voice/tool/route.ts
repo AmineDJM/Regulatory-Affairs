@@ -7,7 +7,7 @@ import {
 import { isDirectOn } from "@/lib/assistant/capability-surface";
 import { canUseRealtimeVoice, capToolOutput, DELEGATE_TOOL_NAME } from "@/lib/assistant/voice-realtime";
 import { delegationLooksReflexive } from "@/lib/assistant/triage";
-import { withTurn, markComplexity, markPreview, markFinal, logTurn } from "@/lib/models/telemetry";
+import { withTurn, markComplexity, markPreview, markFinal, logTurn, setTurnContext } from "@/lib/models/telemetry";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -50,6 +50,7 @@ export async function POST(req: Request) {
   // délégation en produit par construction. La ventilation par rôle le montre sans discussion.
   const delegating = name === DELEGATE_TOOL_NAME;
   return withTurn(delegating ? "voice-deep" : "voice-direct", async (trace) => {
+  setTurnContext({ userId: user.id, feature: "voice", ...(typeof body.threadId === "string" && body.threadId ? { threadId: body.threadId } : {}) });
   try {
     if (name === DELEGATE_TOOL_NAME) {
       const request = typeof input.request === "string" ? input.request.trim() : "";

@@ -1,4 +1,5 @@
 import { classifyReply } from "@/lib/comms/confirmation";
+import { algiersYmd } from "@/lib/calendar-tz";
 
 /**
  * LE ROUTEUR VOCAL — ce que le PDG vient de dire, traduit en UN geste canonique, sans modèle.
@@ -377,7 +378,7 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
         return { kind: "GMAIL_FROM", tool: "gmail_search", args: { from: who }, fast: true, reason: "suivi elliptique (boîte)" };
       }
       if (ctx.lastKind === "RECORD_STATUS") {
-        return { kind: "RECORD_STATUS", tool: "inspect_record", args: { query: who }, fast: true, reason: "suivi elliptique (dossier)" };
+        return { kind: "RECORD_STATUS", tool: "inspect_record", args: { reference: who }, fast: true, reason: "suivi elliptique (dossier)" };
       }
     }
   }
@@ -448,18 +449,24 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
 
   // ── 5. L'AGENDA ─────────────────────────────────────────────────────────────────────────
   if (asksCalendar) {
-    return {
-      kind: "CALENDAR_NEXT", tool: "read_calendar",
-      args: NEXT_WORDS.test(text) ? { horizon: "next" } : {},
-      fast: true, reason: "agenda",
-    };
+    // LE JOUR DEMANDÉ DEVIENT L'ARGUMENT QUE L'OUTIL LIT. « demain » et « aujourd'hui » se
+    // traduisent en date d'Alger ; « prochain » et les formes sans jour laissent l'outil rendre
+    // les prochains événements. L'ancien argument (`horizon`) n'existait pas dans le schéma de
+    // l'outil : il était ignoré en silence, et « mes réunions de demain » rendait celles de la
+    // semaine — le test de contrat routeur → outil l'a attrapé.
+    const jour = /\bdemain\b/.test(text)
+      ? algiersYmd(new Date(Date.now() + 86_400_000))
+      : /\b(aujourd hui|ce matin|cet apres midi|cette apres midi|ce soir|ce midi)\b/.test(text)
+        ? algiersYmd(new Date())
+        : null;
+    return { kind: "CALENDAR_NEXT", tool: "read_calendar", args: jour ? { date: jour } : {}, fast: true, reason: "agenda" };
   }
 
   // ── 6. L'ÉTAT D'UN DOSSIER — « où en est Raltegravir ? » ────────────────────────────────
   if (STATUS_WORDS.test(text)) {
     const subject = subjectAfterStatus(text) ?? ctx.lastSubject ?? null;
     if (subject) {
-      return { kind: "RECORD_STATUS", tool: "inspect_record", args: { query: subject }, fast: true, reason: "état d'un dossier nommé" };
+      return { kind: "RECORD_STATUS", tool: "inspect_record", args: { reference: subject }, fast: true, reason: "état d'un dossier nommé" };
     }
     return { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "état demandé sans sujet identifiable" };
   }
@@ -485,9 +492,22 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
 }
 
 /** Ce qui suit « où en est … » — le sujet, débarrassé des mots de liaison. */
+/**
+ * LE SUJET D'UNE QUESTION D'ÉTAT — sans le mot-classe qui le précède.
+ *
+ * « Où en est le dossier Nivolumab ? » nommait, avant, le sujet « dossier nivolumab » : servi tel
+ * quel à `inspect_record`, ce fragment ne correspond à aucune DCI ni à aucun titre (la fiche
+ * s'appelle « Nivolumab »), et la question la plus fréquente d'un dirigeant finissait en
+ * « il me faut une référence » — mesuré au banc. Le mot-classe (dossier, produit, contrat,
+ * marché, demande, projet, courrier, tâche, paiement, facture) dit le TYPE, jamais l'identité :
+ * on le retire, et le reste est le sujet. Un sujet réduit à rien renonce, comme avant.
+ */
+const SUJET_MOT_CLASSE = /^(?:(?:le |la |les |l |mon |ma |mes |ce |cet |cette |ces )?(?:dossier|produit|contrat|marche|appel d offres|demande|projet|courrier|tache|paiement|facture|reglement|fiche)\s+(?:de |du |des |d |pour |sur |concernant )?)+/;
+
 function subjectAfterStatus(text: string): string | null {
   const m = /(?:ou en est|ou en sont|statut de|statut du|avancement de|avancement du|point sur|etat de|etat du)\s+(?:le |la |les |l |mon |ma |mes )?(.+)$/.exec(text);
   if (!m) return null;
-  const subject = m[1].trim();
+  const brut = m[1].trim();
+  const subject = brut.replace(SUJET_MOT_CLASSE, "").trim() || brut;
   return subject.length >= 3 ? subject : null;
 }

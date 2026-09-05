@@ -44,9 +44,26 @@ export interface ToolTrace {
   parallel?: boolean;
 }
 
+/**
+ * LE CONTEXTE D'UN TOUR — de quoi rattacher chaque appel à une personne, un fil, une mission.
+ *
+ * Des identifiants OPAQUES, posés par l'appelant qui les connaît (la route, le runtime des
+ * missions) ; la passerelle ne sait pas ce qu'ils désignent et n'a pas à le savoir. C'est ce
+ * qui permet un coût PAR MISSION ou PAR FIL sans qu'un seul appel de modèle ait à porter une
+ * notion métier.
+ */
+export interface TurnContext {
+  userId?: string;
+  threadId?: string;
+  missionId?: string;
+  /** L'usage qui paie : « assistant », « voice », « mission », « nudge », « brief »… */
+  feature?: string;
+}
+
 export interface TurnTrace {
   turnId: string;
   route: TurnRoute;
+  context: TurnContext;
   startedAt: number;
   calls: ModelUsage[];
   tools: ToolTrace[];
@@ -84,6 +101,7 @@ export function withTurn<T>(route: TurnRoute, fn: (trace: TurnTrace) => Promise<
   const trace: TurnTrace = {
     turnId: newTurnId(),
     route,
+    context: {},
     startedAt: Date.now(),
     calls: [],
     tools: [],
@@ -94,8 +112,36 @@ export function withTurn<T>(route: TurnRoute, fn: (trace: TurnTrace) => Promise<
   return storage.run(trace, () => fn(trace));
 }
 
+/**
+ * LE PUITS — ce qui reçoit CHAQUE appel de modèle, tour ou pas.
+ *
+ * La passerelle ne persiste rien elle-même (elle ne connaît pas la base) ; elle remet chaque
+ * usage à un puits que le produit a branché. Un appel hors de tout tour (un battement, un
+ * script) est remis quand même : le compteur doit voir tout ce qui a été payé, pas seulement
+ * ce qu'une conversation a demandé. Le puits ne lève jamais vers ici.
+ */
+export type ModelCallSink = (usage: ModelUsage, turn: TurnTrace | undefined) => void;
+let sink: ModelCallSink | null = null;
+
+export function setModelCallSink(fn: ModelCallSink | null): void {
+  sink = fn;
+}
+
+/** Complète le contexte du tour en cours — sans effet hors d'un tour. */
+export function setTurnContext(ctx: TurnContext): void {
+  const t = currentTurn();
+  if (!t) return;
+  for (const [k, v] of Object.entries(ctx)) {
+    if (v != null && v !== "") (t.context as Record<string, string>)[k] = v as string;
+  }
+}
+
 export function recordModelCall(usage: ModelUsage): void {
-  currentTurn()?.calls.push(usage);
+  const t = currentTurn();
+  t?.calls.push(usage);
+  if (sink) {
+    try { sink(usage, t); } catch (err) { console.error("[models] puits d'usage en échec", err); }
+  }
 }
 
 export function recordTool(trace: ToolTrace): void {
@@ -121,6 +167,7 @@ export function markComplexity(level: "A" | "B" | "C"): void {
 export interface TurnSummary {
   turnId: string;
   route: TurnRoute;
+  context: TurnContext;
   complexity: "A" | "B" | "C" | null;
   llmCalls: number;
   callsByRole: Record<ModelRole, number>;
@@ -176,6 +223,7 @@ export function summarize(trace: TurnTrace): TurnSummary {
   return {
     turnId: trace.turnId,
     route: trace.route,
+    context: trace.context,
     complexity: trace.complexity,
     llmCalls: trace.calls.length,
     callsByRole,

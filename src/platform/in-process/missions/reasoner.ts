@@ -1,4 +1,5 @@
 import { callModel } from "@/lib/models/gateway";
+import "@/lib/assistant/usage-sink";
 import { textOf, type ModelRole } from "@/lib/models/contract";
 import type { Reasoner, ReasonRequest, ReasonResult } from "@/lib/missions/ports";
 import { MISSION_MODEL_ROLES, type MissionModelRole } from "@/lib/missions/model/roles";
@@ -126,6 +127,7 @@ export class RaisonneurReel implements Reasoner {
           // sortie restait alors inexplicable — schéma trop lourd, ou réflexion trop longue ?
           reasoningTokens: reply.usage.reasoningTokens,
           cachedInputTokens: reply.usage.cachedInputTokens,
+          costUsd: reply.usage.costUsd,
         }
       : null;
 

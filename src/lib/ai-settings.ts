@@ -95,6 +95,19 @@ export interface AiUsageInput {
   toolCalls?: number | null;
   toolErrors?: number | null;
   toolLatencyMs?: number | null;
+  /** Le COÛT du tour (voir la migration `adam_cout_par_appel`) : agrégats des appels de modèle. */
+  turnId?: string | null;
+  route?: string | null;
+  complexity?: string | null;
+  threadId?: string | null;
+  llmCalls?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  cachedInputTokens?: number | null;
+  reasoningTokens?: number | null;
+  webSearchCalls?: number | null;
+  /** `null` = au moins un appel sans tarif connu — le total est INCONNU, pas nul. */
+  costUsd?: number | null;
 }
 
 /** Journalise un appel IA (best-effort, ne lève jamais). */
@@ -114,6 +127,17 @@ export async function logAiUsage(input: AiUsageInput): Promise<void> {
         toolCalls: input.toolCalls ?? null,
         toolErrors: input.toolErrors ?? null,
         toolLatencyMs: input.toolLatencyMs ?? null,
+        turnId: input.turnId ?? null,
+        route: input.route ?? null,
+        complexity: input.complexity ?? null,
+        threadId: input.threadId ?? null,
+        llmCalls: input.llmCalls ?? null,
+        inputTokens: input.inputTokens ?? null,
+        outputTokens: input.outputTokens ?? null,
+        cachedInputTokens: input.cachedInputTokens ?? null,
+        reasoningTokens: input.reasoningTokens ?? null,
+        webSearchCalls: input.webSearchCalls ?? null,
+        costUsd: input.costUsd ?? null,
       },
     });
   } catch {

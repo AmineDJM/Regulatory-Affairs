@@ -88,6 +88,40 @@ function storageFailure(err: unknown): Error {
 /** Ce qu'a produit une écriture. `deduplicated` = le contenu existait déjà, aucune place NEUVE prise. */
 export interface PutBlobResult { blobId: string; sha256: string; size: number; deduplicated: boolean }
 
+/**
+ * LA COURSE DE DÉDUPLICATION — deux écritures du MÊME contenu au même instant.
+ *
+ * `putBlob` cherche l'empreinte, ne la trouve pas, et crée la ligne. Deux appels parallèles
+ * (deux personnes qui déposent la même pièce, une ingestion qui traite un lot de fichiers
+ * identiques de front) passent tous deux la recherche, et le second `create` tombe sur l'index
+ * unique `sha256` (P2002). Mesuré dans la suite : l'ingestion d'un dossier CTD de mille fichiers
+ * échouait ainsi une fois sur quelques passages. Le contenu existe bel et bien — la bonne réponse
+ * n'est pas une erreur, c'est la ligne gagnante, avec son compteur de références incrémenté.
+ */
+function isUniqueSha256Violation(err: unknown): boolean {
+  const e = err as { code?: string; meta?: { target?: unknown } } | null;
+  if (!e || e.code !== "P2002") return false;
+  const target = e.meta?.target;
+  return Array.isArray(target) ? target.includes("sha256") : typeof target === "string" ? target.includes("sha256") : true;
+}
+
+async function createOrAdoptBlob(
+  data: Parameters<typeof prisma.fileBlob.create>[0]["data"],
+  hash: string,
+  size: number,
+): Promise<PutBlobResult> {
+  try {
+    const blob = await prisma.fileBlob.create({ data, select: { id: true } });
+    return { blobId: blob.id, sha256: hash, size, deduplicated: false };
+  } catch (err) {
+    if (!isUniqueSha256Violation(err)) throw err;
+    const winner = await prisma.fileBlob.findUnique({ where: { sha256: hash }, select: { id: true, size: true } });
+    if (!winner) throw err;
+    await prisma.fileBlob.update({ where: { id: winner.id }, data: { refCount: { increment: 1 } } });
+    return { blobId: winner.id, sha256: hash, size: winner.size, deduplicated: true };
+  }
+}
+
 /** Store bytes (encrypted, deduplicated). Increments the ref-count on reuse. */
 export async function putBlob(plain: Buffer): Promise<PutBlobResult> {
   const hash = sha256(plain);
@@ -113,30 +147,22 @@ export async function putBlob(plain: Buffer): Promise<PutBlobResult> {
         await putObject(key, encrypted);
       }
     } catch (err) { throw storageFailure(err); }
-    const blob = await prisma.fileBlob.create({
-      data: { sha256: hash, size: plain.length, iv, data: null, storageKey: key, refCount: 1 },
-      select: { id: true },
-    });
-    return { blobId: blob.id, sha256: hash, size: plain.length, deduplicated: false };
+    return createOrAdoptBlob({ sha256: hash, size: plain.length, iv, data: null, storageKey: key, refCount: 1 }, hash, plain.length);
   }
 
   // Base, gros fichier → écriture EN TRANCHES (mémoire bornée à une tranche, pas d'hex géant).
   if (plain.length > blobChunkBytes()) return putBlobChunked(plain, hash, iv);
 
   // Base, petit fichier → une seule valeur bytea (chemin historique, rétrocompatible).
-  const blob = await prisma.fileBlob.create({
-    data: { sha256: hash, size: plain.length, iv, data: encryptWhole(plain, iv), refCount: 1 },
-    select: { id: true },
-  });
-  return { blobId: blob.id, sha256: hash, size: plain.length, deduplicated: false };
+  return createOrAdoptBlob({ sha256: hash, size: plain.length, iv, data: encryptWhole(plain, iv), refCount: 1 }, hash, plain.length);
 }
 
 /** Écrit le contenu chiffré en tranches ordonnées (streaming du chiffrement → mémoire bornée). */
 async function putBlobChunked(plain: Buffer, hash: string, iv: Buffer): Promise<PutBlobResult> {
-  const blob = await prisma.fileBlob.create({
-    data: { sha256: hash, size: plain.length, iv, data: null, refCount: 1 },
-    select: { id: true },
-  });
+  const created = await createOrAdoptBlob({ sha256: hash, size: plain.length, iv, data: null, refCount: 1 }, hash, plain.length);
+  // Le contenu venait d'être écrit par un autre appel : ses tranches sont (ou seront) les siennes.
+  if (created.deduplicated) return created;
+  const blob = { id: created.blobId };
   try {
     const cipher = crypto.createCipheriv("aes-256-gcm", masterKey(), iv);
     const step = blobChunkBytes();

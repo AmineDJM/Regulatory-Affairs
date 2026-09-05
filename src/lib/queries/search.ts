@@ -5,6 +5,7 @@ import {
   scopeAdminRequests, scopeCongressIntl, scopeCongressNational,
 } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { hasGlobalView } from "@/lib/rbac";
 import { legalReaderWhere } from "@/lib/legal/readers";
 
 export interface SearchResult {
@@ -45,7 +46,7 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
     tenders, pchOrders, legalDocs, mailEntries,
   ] = await Promise.all([
     userCan(user, "REGULATORY", "VIEW")
-      ? prisma.regulatoryProduct.findMany({ where: { AND: [scopeRegulatory(user), ...(match(["dci", "reference", "brandName"]) as Prisma.RegulatoryProductWhereInput[])] }, take, select: { id: true, dci: true, reference: true, brandName: true } })
+      ? prisma.regulatoryProduct.findMany({ where: { AND: [scopeRegulatory(user), ...(match(["dci", "reference", "brandName", "partnerLab", "manufacturer"]) as Prisma.RegulatoryProductWhereInput[])] }, take, select: { id: true, dci: true, reference: true, brandName: true } })
       : [],
     userCan(user, "REGULATORY", "VIEW")
       ? prisma.regulatoryDossier.findMany({ where: { AND: match(["reference", "title"]) as Prisma.RegulatoryDossierWhereInput[] }, take, select: { id: true, reference: true, title: true } })
@@ -78,7 +79,7 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
       ? prisma.document.findMany({ where: { AND: match(["name"]) as Prisma.DocumentWhereInput[] }, take, select: { id: true, name: true, category: true } })
       : [],
     userCan(user, "WORKSPACE", "VIEW")
-      ? prisma.task.findMany({ where: { AND: [{ assignedToId: user.id }, ...(match(["title", "description"]) as Prisma.TaskWhereInput[])] }, take, select: { id: true, title: true, status: true } })
+      ? prisma.task.findMany({ where: { AND: [hasGlobalView(user) ? {} : { OR: [{ assignedToId: user.id }, { createdById: user.id }] }, ...(match(["title", "description"]) as Prisma.TaskWhereInput[])] }, take, select: { id: true, title: true, status: true } })
       : [],
     userCan(user, "ADMIN_REQUESTS", "VIEW")
       ? prisma.administrativeRequest.findMany({ where: { AND: [scopeAdminRequests(user), { deletedAt: null }, ...(match(["reference", "title", "description"]) as Prisma.AdministrativeRequestWhereInput[])] }, take, select: { id: true, reference: true, title: true } })

@@ -81,9 +81,29 @@ export const DEFAULT_REASONING: Record<ModelRole, ReasoningEffort> = {
  * Tarifs connus, en dollars par million de jetons. Une entrée absente vaut « inconnu », ce qui
  * n'est pas la même chose que gratuit — voir l'en-tête.
  */
-const KNOWN_PRICES: Record<string, { in: number; out: number }> = {
-  "gpt-5.6-luna": { in: 0.2, out: 1.2 },
+/**
+ * TARIFS PUBLICS OPENAI, en dollars par million de jetons — relevés le 2026-09-05 sur la grille
+ * en vigueur depuis la baisse du 2026-08-21 (Sol 4 / 20, Terra 2 / 12, Luna 0,20 / 1,20 ;
+ * lecture de cache à 10 % du tarif d'entrée). Le temps réel est tarifé au TEXTE ici (4 / 24,
+ * cache 0,40) : l'audio (32 / 64) n'est pas compté par cette passerelle, qui ne le transporte
+ * pas — un coût vocal complet se lit dans les journaux de session, jamais ici.
+ *
+ * Ce ne sont pas des estimations : ce sont des prix affichés, datés, et toute variable
+ * `ADAM_PRICE_*` les remplace sans redéploiement le jour où la grille change.
+ */
+const KNOWN_PRICES: Record<string, { in: number; out: number; cachedIn: number }> = {
+  "gpt-5.6-sol": { in: 4, out: 20, cachedIn: 0.4 },
+  "gpt-5.6-terra": { in: 2, out: 12, cachedIn: 0.2 },
+  "gpt-5.6-luna": { in: 0.2, out: 1.2, cachedIn: 0.02 },
+  "gpt-realtime-2.1": { in: 4, out: 24, cachedIn: 0.4 },
 };
+
+/** La fiche tarifaire d'un modèle, un suffixe de date (`gpt-5.6-terra-2026-03-01`) compris. */
+function knownPriceOf(model: string): { in: number; out: number; cachedIn: number } | null {
+  if (KNOWN_PRICES[model]) return KNOWN_PRICES[model];
+  const base = Object.keys(KNOWN_PRICES).find((k) => model.startsWith(`${k}-`));
+  return base ? KNOWN_PRICES[base] : null;
+}
 
 /** Le repli Anthropic, rôle par rôle — l'ancien cerveau, gardé pour pouvoir revenir. */
 const ANTHROPIC_FALLBACK: Record<ModelRole, string> = {
@@ -131,12 +151,15 @@ export function bindingFor(role: ModelRole): ModelBinding {
   const model =
     override || (provider === "anthropic" ? ANTHROPIC_FALLBACK[role] : DEFAULT_MODELS[role]);
 
-  const known = KNOWN_PRICES[model];
+  const known = knownPriceOf(model);
   const priceInPerM = num(`ADAM_PRICE_${role.toUpperCase()}_IN`) ?? known?.in ?? null;
   const priceOutPerM = num(`ADAM_PRICE_${role.toUpperCase()}_OUT`) ?? known?.out ?? null;
-  // Le tarif RÉDUIT des jetons en cache : renseigné par l'exploitation, jamais deviné. Absent,
-  // les jetons en cache restent facturés au tarif plein — voir `costOf` dans le contrat.
-  const priceCachedInPerM = num(`ADAM_PRICE_${role.toUpperCase()}_CACHED_IN`);
+  // Le tarif RÉDUIT des jetons en cache : la grille publique quand le modèle y figure, sinon
+  // l'exploitation — jamais deviné. Absent, les jetons en cache restent facturés au tarif plein
+  // (voir `costOf` dans le contrat). Un tarif d'entrée surchargé SANS tarif de cache surchargé
+  // retombe sur le plein : deux grilles mélangées feraient un coût faux.
+  const surchargeIn = num(`ADAM_PRICE_${role.toUpperCase()}_IN`);
+  const priceCachedInPerM = num(`ADAM_PRICE_${role.toUpperCase()}_CACHED_IN`) ?? (surchargeIn == null ? known?.cachedIn ?? null : null);
 
   return { role, provider, model, reasoning: readReasoning(role), priceInPerM, priceOutPerM, priceCachedInPerM };
 }

@@ -167,10 +167,24 @@ describe("coût — un tarif inconnu vaut `null`, jamais zéro", () => {
   });
 
   /**
-   * Terra n'est pas tarifé dans ce dépôt. Inventer un chiffre plausible serait pire que ne rien
-   * dire : un tableau de bord de coût sert à décider, et il décide alors sur du faux.
+   * Terra et Sol sont tarifés depuis la grille publique du 2026-08-21 (relevée le 2026-09-05) ;
+   * la lecture de cache y vaut 10 % de l'entrée. Un modèle HORS grille reste INCONNU : inventer
+   * un chiffre plausible serait pire que ne rien dire — un tableau de bord de coût sert à
+   * décider, et il déciderait alors sur du faux.
    */
-  it("Terra n'est pas tarifé ici — le coût rapporté est donc INCONNU, pas gratuit", () => {
+  it("Terra est tarifé (2 / 12, cache 0,20) et la remise de cache s'applique à la seule part en cache", () => {
+    const b = bindingFor("orchestrator");
+    expect(b.priceInPerM).toBe(2);
+    expect(b.priceOutPerM).toBe(12);
+    expect(b.priceCachedInPerM).toBe(0.2);
+    expect(costOf(b, 1_000_000, 500_000)).toBeCloseTo(8, 6);
+    expect(costOf(b, 1_000_000, 0, 600_000)).toBeCloseTo(0.4 * 2 + 0.6 * 0.2, 6);
+  });
+
+  it("un suffixe de date garde le tarif ; un modèle hors grille reste INCONNU, pas gratuit", () => {
+    process.env.ADAM_MODEL_ORCHESTRATOR = "gpt-5.6-terra-2026-03-01";
+    expect(bindingFor("orchestrator").priceInPerM).toBe(2);
+    process.env.ADAM_MODEL_ORCHESTRATOR = "modele-inconnu-x";
     const b = bindingFor("orchestrator");
     expect(b.priceInPerM).toBeNull();
     expect(costOf(b, 1_000_000, 500_000)).toBeNull();
@@ -192,10 +206,21 @@ describe("coût — un tarif inconnu vaut `null`, jamais zéro", () => {
    * surestimation assumée, jamais une remise devinée. Renseigné, la remise s'applique à la part
    * en cache et à elle seule.
    */
-  it("les jetons en cache restent au tarif plein tant que leur tarif réduit n'est pas renseigné", () => {
+  it("les jetons en cache restent au tarif plein quand le tarif d'entrée est surchargé sans tarif de cache", () => {
+    process.env.ADAM_PRICE_BULK_IN = "0.2";
+    try {
+      const b = bindingFor("bulk");
+      expect(b.priceCachedInPerM).toBeNull();
+      expect(costOf(b, 1_000_000, 0, 600_000)).toBeCloseTo(0.2, 6); // tout au tarif plein
+    } finally {
+      delete process.env.ADAM_PRICE_BULK_IN;
+    }
+  });
+
+  it("Luna porte son tarif de cache public (0,02) : la part en cache est remisée, elle seule", () => {
     const b = bindingFor("bulk");
-    expect(b.priceCachedInPerM).toBeNull();
-    expect(costOf(b, 1_000_000, 0, 600_000)).toBeCloseTo(0.2, 6); // tout au tarif plein
+    expect(b.priceCachedInPerM).toBe(0.02);
+    expect(costOf(b, 1_000_000, 0, 600_000)).toBeCloseTo(0.4 * 0.2 + 0.6 * 0.02, 6);
   });
 
   it("le tarif réduit du cache se renseigne par variable, et la remise ne touche que la part en cache", () => {

@@ -241,6 +241,8 @@ export interface ReasonUsage {
   outputTokens: number;
   /** Le modèle réellement servi, tel que le fournisseur l'a rapporté. */
   model: string;
+  /** Le coût EXACT de l'appel quand le tarif est connu ; `null` sinon — jamais zéro. */
+  costUsd?: number | null;
   /**
    * LES JETONS DE RÉFLEXION, quand le fournisseur les distingue.
    *

@@ -349,6 +349,7 @@ export async function executerWorker(ctx: StepContext, deps: WorkerDeps): Promis
         modelUsed: res.usage?.model ?? null,
         tokensIn: res.usage?.inputTokens ?? 0,
         tokensOut: res.usage?.outputTokens ?? 0,
+        costUsd: res.usage?.costUsd ?? null,
         endedAt: new Date(),
       },
     }).catch(() => {});
@@ -368,6 +369,7 @@ export async function executerWorker(ctx: StepContext, deps: WorkerDeps): Promis
       modelUsed: res.usage?.model ?? null,
       tokensIn: res.usage?.inputTokens ?? 0,
       tokensOut: res.usage?.outputTokens ?? 0,
+      costUsd: res.usage?.costUsd ?? null,
       endedAt: new Date(),
     },
   }).catch(() => {});

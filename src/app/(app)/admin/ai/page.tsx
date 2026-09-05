@@ -15,6 +15,8 @@ import { formatNumber, formatDateTime } from "@/lib/utils";
 import { AiSettingsForm } from "./ai-settings-form";
 import { AiHealthCheckButton } from "./health-check-button";
 import { adamHealth, type HealthLevel } from "@/lib/google/health";
+import { statistiquesCout, fmtUsd } from "@/lib/assistant/usage-stats";
+import { allBindings } from "@/lib/models/registry";
 
 export const metadata = { title: "Centre de contrôle IA — AMD Internal OS" };
 export const dynamic = "force-dynamic";
@@ -93,6 +95,17 @@ export default async function AiControlCenterPage() {
 
   // Santé de l'API IA — dernière sonde quotidienne (le chatbot en dépend directement).
   const health = await getLatestAiHealth();
+
+  // LE COÛT — la métrique de premier rang : où part l'argent, par modèle, par usage, par personne,
+  // par tour et par mission. Agrégé en base ; « inconnu » quand un tarif manque, jamais zéro.
+  const cout = await statistiquesCout(30).catch(() => null);
+  const liaisons = allBindings();
+  const coutUsers = cout && cout.parPersonne.length
+    ? await prisma.user.findMany({ where: { id: { in: cout.parPersonne.map((p) => p.userId) } }, select: { id: true, name: true } })
+    : [];
+  const nomDe = new Map(coutUsers.map((u) => [u.id, u.name]));
+  const pctCache = (c: { entree: number; cache: number }) => (c.entree > 0 ? `${Math.round((100 * c.cache) / c.entree)} %` : "—");
+  const totalAffiche = (c: { coutUsd: number; sansTarif: number }) => (c.sansTarif > 0 ? `${fmtUsd(c.coutUsd, 2)} + ${c.sansTarif} appel(s) sans tarif` : fmtUsd(c.coutUsd, 2));
 
   // Santé des canaux Google d'Adam. Le calcul est partagé avec les réglages du PDG : deux
   // sources donneraient tôt ou tard deux vérités. Ne lève jamais — cette page doit s'afficher
@@ -225,6 +238,73 @@ export default async function AiControlCenterPage() {
           <AiSettingsForm initial={settings} />
         </CardContent>
       </Card>
+
+      {/* COÛT — où part l'argent. Lu dans ModelCallLog (une ligne par appel) et AiUsageLog (une
+          ligne par tour). Un tarif inconnu s'affiche comme tel : jamais un zéro qui aurait l'air
+          d'un prix. */}
+      {cout && (
+      <Card>
+        <CardHeader><CardTitle>Coût des modèles (30 jours)</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div><p className="text-2xl font-semibold tabular-nums">{totalAffiche(cout.total)}</p><p className="text-xs text-muted-foreground">30 jours · {formatNumber(cout.total.appels)} appels · cache {pctCache(cout.total)}</p></div>
+            <div><p className="text-2xl font-semibold tabular-nums">{totalAffiche(cout.aujourdHui)}</p><p className="text-xs text-muted-foreground">aujourd&apos;hui · {formatNumber(cout.aujourdHui.appels)} appels</p></div>
+            <div><p className="text-2xl font-semibold tabular-nums">{fmtUsd(cout.parTour.moyenUsd)}</p><p className="text-xs text-muted-foreground">par tour de conversation (moy.) · p50 {fmtUsd(cout.parTour.p50Usd)} · p95 {fmtUsd(cout.parTour.p95Usd)}{cout.parTour.toursSansTarif > 0 ? ` · ${cout.parTour.toursSansTarif} tour(s) sans tarif` : ""}</p></div>
+            <div><p className="text-2xl font-semibold tabular-nums">{cout.missions.moyenUsd == null ? "—" : fmtUsd(cout.missions.moyenUsd)}</p><p className="text-xs text-muted-foreground">par mission (moy.) · {formatNumber(cout.missions.missions)} mission(s) · {totalAffiche(cout.missions)}</p></div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div>
+              <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Par modèle</p>
+              {cout.parModele.length === 0 ? <p className="text-sm text-muted-foreground">Aucun appel enregistré.</p> : (
+                <ul className="space-y-1 text-sm">
+                  {cout.parModele.map((m) => (
+                    <li key={m.cle} className="flex items-center justify-between gap-2">
+                      <span className="truncate font-medium">{m.cle}</span>
+                      <span className="shrink-0 text-right text-muted-foreground tabular-nums">{fmtUsd(m.coutUsd, 2)}{m.sansTarif > 0 ? " (+ inconnu)" : ""} · {formatNumber(m.appels)} · cache {pctCache(m)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Par usage</p>
+              {cout.parUsage.length === 0 ? <p className="text-sm text-muted-foreground">—</p> : (
+                <ul className="space-y-1 text-sm">
+                  {cout.parUsage.map((u) => (
+                    <li key={u.cle} className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{u.cle}</span>
+                      <span className="text-muted-foreground tabular-nums">{fmtUsd(u.coutUsd, 2)}{u.sansTarif > 0 ? " (+ inconnu)" : ""} · {formatNumber(u.appels)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Par personne</p>
+              {cout.parPersonne.length === 0 ? <p className="text-sm text-muted-foreground">—</p> : (
+                <ul className="space-y-1 text-sm">
+                  {cout.parPersonne.map((u) => (
+                    <li key={u.userId} className="flex items-center justify-between gap-2">
+                      <span className="truncate font-medium">{nomDe.get(u.userId) ?? (u.userId === "—" ? "hors conversation (battement, missions de fond)" : u.userId)}</span>
+                      <span className="shrink-0 text-muted-foreground tabular-nums">{fmtUsd(u.coutUsd, 2)} · {formatNumber(u.appels)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          <div className="rounded-lg border border-border p-3">
+            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Tarifs en vigueur (par million de jetons)</p>
+            <ul className="grid grid-cols-1 gap-1 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
+              {liaisons.map((b) => (
+                <li key={b.role}><span className="font-medium text-foreground">{b.role}</span> → {b.model} · {b.priceInPerM == null ? "tarif inconnu" : `${b.priceInPerM} $ / ${b.priceOutPerM} $${b.priceCachedInPerM != null ? ` · cache ${b.priceCachedInPerM} $` : ""}`} · effort {b.reasoning}</li>
+              ))}
+            </ul>
+            <p className="mt-1.5 text-xs text-muted-foreground">Un tarif se corrige sans redéploiement (variables ADAM_PRICE_*). Un appel sans tarif rend le total « inconnu » : on ne présente jamais un total partiel comme un total.</p>
+          </div>
+        </CardContent>
+      </Card>
+      )}
 
       {/* Usage */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

@@ -65,3 +65,6 @@ scripts/bench/tmp/
 
 # Sorties du crawler d'audit UI (rapport, captures, journal serveur) — regénérées à chaque passe
 ui-audit-out/
+
+# Sorties du banc Adam (jeu semé localement, mesures) — régénérables
+bench-out/

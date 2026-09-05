@@ -18,6 +18,7 @@ import type { Reasoner } from "@/lib/missions/ports";
 import type { ArtifactSink } from "@/lib/missions/artifacts/build";
 import { acteurDe, catalogueDe } from "@/platform/in-process/missions/catalog";
 import { raisonneur } from "@/platform/in-process/missions/reasoner";
+import { withTurn, setTurnContext } from "@/lib/models/telemetry";
 import { ExecutantReel } from "@/platform/in-process/missions/runner";
 import { depotDrive } from "@/platform/in-process/missions/sink";
 import { registreRecoursDe } from "@/platform/in-process/missions/recovery-registry";
@@ -193,7 +194,24 @@ const titreDe = (objectif: string): string => {
  * pour découvrir la même chose.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-export async function lancerMission(
+/**
+ * CHAQUE ENTRÉE DU RUNTIME OUVRE UN TOUR MESURÉ (« background ») et le signe : personne, mission,
+ * usage. C'est ce qui donne un coût PAR MISSION dans `ModelCallLog` — le planificateur, les
+ * workers, le juge et l'artefact y rattachent leurs appels sans rien savoir de la base. Un tour
+ * déjà ouvert (une mission lancée depuis la conversation) est REJOINT, et le contexte s'y ajoute.
+ */
+export function lancerMission(
+  user: CurrentUser,
+  objectif: string,
+  opts: LancementOptions = {},
+): Promise<ResultatLancement> {
+  return withTurn("background", async () => {
+    setTurnContext({ userId: user.id, feature: "mission" });
+    return lancerMissionInterne(user, objectif, opts);
+  });
+}
+
+async function lancerMissionInterne(
   user: CurrentUser,
   objectif: string,
   opts: LancementOptions = {},
@@ -290,6 +308,7 @@ export async function lancerMission(
     maxConcurrency: CONCURRENCE_PAR_ECHELLE[mission.scale],
     ...(opts.missionId ? { missionId: opts.missionId } : {}),
   });
+  setTurnContext({ missionId });
 
   await journaliser(missionId, "CREATED",
     `Mission planifiée : ${mission.steps.length} étapes, complexité ${mission.complexity}, échelle ${mission.scale}.`,
@@ -503,7 +522,18 @@ export async function rattraperLancementsPerdus(
  * Réentrant : deux appels concurrents se disputent les étapes par réservation en base. C'est ce
  * qui permet à l'ordonnanceur et à l'utilisateur de cliquer en même temps sans dommage.
  */
-export async function avancerMission(
+export function avancerMission(
+  user: CurrentUser,
+  missionId: string,
+  opts: OptionsAssemblage & { maxTours?: number } = {},
+) {
+  return withTurn("background", async () => {
+    setTurnContext({ userId: user.id, missionId, feature: "mission" });
+    return avancerMissionInterne(user, missionId, opts);
+  });
+}
+
+async function avancerMissionInterne(
   user: CurrentUser,
   missionId: string,
   opts: OptionsAssemblage & { maxTours?: number } = {},
@@ -584,7 +614,18 @@ const ETATS_REPLANIFIABLES = new Set(["FAILED", "BLOCKED", "PARTIAL"]);
  */
 const PLANS_MAX = 4;
 
-export async function replanifierMission(
+export function replanifierMission(
+  user: CurrentUser,
+  missionId: string,
+  opts: OptionsAssemblage = {},
+): Promise<ResultatReplanification> {
+  return withTurn("background", async () => {
+    setTurnContext({ userId: user.id, missionId, feature: "mission" });
+    return replanifierMissionInterne(user, missionId, opts);
+  });
+}
+
+async function replanifierMissionInterne(
   user: CurrentUser,
   missionId: string,
   opts: OptionsAssemblage = {},

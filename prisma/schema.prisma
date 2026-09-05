@@ -6821,11 +6821,64 @@ model AiUsageLog {
   toolCalls     Int?
   toolErrors    Int?
   toolLatencyMs Int?
+  /// ── LE COÛT DU TOUR (§coût) ─────────────────────────────────────────────────────────────
+  /// Jetons et coût AGRÉGÉS sur le tour (tous les appels de modèle qu'il a provoqués). `costUsd`
+  /// vaut NULL dès qu'UN appel n'avait pas de tarif — un total partiel se lirait comme un total.
+  /// Le détail appel par appel vit dans `ModelCallLog`, relié par `turnId`.
+  turnId           String?
+  route            String?
+  complexity       String?
+  threadId         String?
+  llmCalls         Int?
+  inputTokens      Int?
+  outputTokens     Int?
+  cachedInputTokens Int?
+  reasoningTokens  Int?
+  webSearchCalls   Int?
+  costUsd          Decimal? @db.Decimal(12, 6)
   createdAt     DateTime @default(now())
 
   @@index([feature])
   @@index([createdAt])
   @@index([userId])
+  @@index([threadId])
+}
+
+/// LE JOURNAL DES APPELS DE MODÈLE — une ligne PAR APPEL, écrite par la passerelle via un puits.
+///
+/// `AiUsageLog` dit ce qu'un TOUR a coûté ; cette table dit à QUEL modèle, dans quel RÔLE, pour
+/// quelle MISSION ou quel FIL, avec combien de jetons en cache. C'est elle qui répond à « où part
+/// l'argent ? » — par modèle, par usage, par personne, par mission — sans recalcul. Aucun contenu
+/// n'y figure : des nombres, des identifiants, un modèle.
+model ModelCallLog {
+  id                String   @id @default(cuid())
+  at                DateTime @default(now())
+  turnId            String?
+  route             String?
+  feature           String?
+  userId            String?
+  threadId          String?
+  missionId         String?
+  role              String
+  provider          String
+  model             String
+  inputTokens       Int
+  outputTokens      Int
+  cachedInputTokens Int      @default(0)
+  reasoningTokens   Int      @default(0)
+  webSearchCalls    Int      @default(0)
+  /// NULL = tarif inconnu pour ce modèle. Jamais zéro par défaut.
+  costUsd           Decimal? @db.Decimal(12, 6)
+  ms                Int      @default(0)
+  attempts          Int      @default(1)
+  incompleteReason  String?
+
+  @@index([at])
+  @@index([userId, at])
+  @@index([missionId])
+  @@index([threadId])
+  @@index([model, at])
+  @@index([turnId])
 }
 
 /// LE TOUR DE PAROLE VOCAL, MESURÉ — un enregistrement PAR TOUR, pas par session.
@@ -10344,7 +10397,8 @@ model MissionWorkerRun {
   error     String?
   tokensIn  Int          @default(0)
   tokensOut Int          @default(0)
-  costUsd   Float        @default(0)
+  /// NULL = tarif inconnu (jamais un zéro qui aurait l'air d'un prix).
+  costUsd   Float?
   startedAt DateTime     @default(now())
   endedAt   DateTime?
 

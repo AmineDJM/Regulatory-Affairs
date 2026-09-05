@@ -74,7 +74,7 @@ export function matchOf(terms: string[], fields: string[]): Record<string, unkno
  * paramètres.
  */
 const FUZZY_TABLES: Record<string, readonly string[]> = {
-  RegulatoryProduct: ["dci", "brandName", "reference", "therapeuticClass"],
+  RegulatoryProduct: ["dci", "brandName", "reference", "therapeuticClass", "partnerLab", "manufacturer"],
   DriveNode: ["name"],
   LegalDocument: ["title", "reference", "counterparty"],
   MedicalDoctor: ["name", "institution"],
@@ -163,8 +163,8 @@ async function familyWhere(
   return { AND: [...scope, { OR: [{ AND: matchOf(terms, fields) }, { id: { in: ids } }] }] };
 }
 
-/** La recherche fédérée. `take` borne CHAQUE famille — pas le total. */
-export async function searchEverything(user: SessionUser, q: string, take = 6): Promise<EverythingResult> {
+/** La recherche fédérée STRICTE : chaque terme doit se retrouver. `take` borne CHAQUE famille — pas le total. */
+export async function searchEverythingStrict(user: SessionUser, q: string, take = 6): Promise<EverythingResult> {
   const terms = parseTerms(q);
   if (terms.length === 0) return { total: 0, parFamille: {}, resultats: [] };
 
@@ -418,5 +418,65 @@ export async function searchEverything(user: SessionUser, q: string, take = 6): 
     // salariés », où ce conseil sur les noms de molécules n'a aucun sens. Le modèle relançait
     // alors le même outil, puis renonçait. La note nomme désormais l'outil qui SAIT répondre.
     note: hits.length === 0 ? emptySearchNote(q) : undefined,
+  };
+}
+
+// ─────────────────────────── L'assouplissement — dit, jamais silencieux ───────────────────────────
+
+/** Mots qui ne désignent rien qu'on puisse chercher dans un titre ou une référence. */
+const MOTS_CREUX = new Set([
+  "les", "des", "une", "pour", "avec", "dans", "sur", "sous", "par", "est", "sont", "qui", "que", "quoi", "quel", "quelle", "quels", "quelles",
+  "cours", "encore", "tout", "tous", "toute", "toutes", "mon", "mes", "notre", "nos", "votre", "vos", "leur", "leurs", "cette", "ces",
+  "aux", "moi", "nous", "vous", "ils", "elles", "elle", "lui", "eux", "dont", "donc", "mais", "car", "comme", "chez", "vers", "entre",
+  "depuis", "avant", "apres", "après", "pendant", "aujourd", "hui", "demain", "hier", "semaine", "mois", "dernier", "derniere", "dernière",
+  "attente", "retard", "bloque", "bloqué", "bloquer", "situation", "point", "etat", "état", "statut", "liste", "dossier", "dossiers",
+]);
+
+const significatif = (t: string): string => {
+  const nu = t.replace(/^(?:[dlnmts]['’])/i, "");
+  const cle = strip(nu).toLowerCase();
+  return nu.length >= 3 && !MOTS_CREUX.has(cle) ? nu : "";
+};
+
+/**
+ * LA RECHERCHE FÉDÉRÉE — stricte d'abord, assouplie ensuite, et elle le DIT.
+ *
+ * Le modèle formule volontiers une requête en phrase (« appel d'offres PCH en cours ») : la
+ * conjonction stricte de tous les mots ne trouve rien, et il conclut « aucun marché ». Mesuré au
+ * banc, sur un marché qui existait. Quand l'expression entière ne rend rien et qu'elle porte
+ * plusieurs mots, on cherche chaque mot PORTEUR séparément (trois au plus, bornés par famille),
+ * on fusionne, et la note nomme l'assouplissement : « aucun résultat pour l'expression entière ;
+ * résultats pour « appel », « PCH » ». Une recherche qui répond à côté sans le dire ferait
+ * prendre un résultat approchant pour un résultat exact.
+ */
+export async function searchEverything(user: SessionUser, q: string, take = 6): Promise<EverythingResult> {
+  const strict = await searchEverythingStrict(user, q, take);
+  if (strict.total > 0) return strict;
+  const termes = parseTerms(q);
+  if (termes.length < 2) return strict;
+  const porteurs = [...new Set(termes.map(significatif).filter(Boolean))].slice(0, 3);
+  if (porteurs.length === 0) return strict;
+  const partiels = await Promise.all(porteurs.map((t) => searchEverythingStrict(user, t, Math.min(take, 4)).catch(() => null)));
+  const vus = new Set<string>();
+  const resultats: EverythingHit[] = [];
+  const trouves: string[] = [];
+  partiels.forEach((r, i) => {
+    if (!r || r.total === 0) return;
+    trouves.push(porteurs[i]);
+    for (const h of r.resultats) {
+      const cle = `${h.famille}|${h.lien}`;
+      if (vus.has(cle)) continue;
+      vus.add(cle);
+      resultats.push(h);
+    }
+  });
+  if (resultats.length === 0) return strict;
+  const parFamille: Record<string, number> = {};
+  for (const h of resultats) parFamille[h.famille] = (parFamille[h.famille] ?? 0) + 1;
+  return {
+    total: resultats.length,
+    parFamille,
+    resultats,
+    note: `Aucun résultat pour l'expression entière « ${q} » ; résultats pour ${trouves.map((t) => `« ${t} »`).join(", ")} — vérifier la pertinence avant de conclure.`,
   };
 }

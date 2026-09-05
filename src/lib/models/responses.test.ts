@@ -535,8 +535,19 @@ describe("12. jetons et coûts restent lisibles après la migration", () => {
     captures = [];
     serveur([reponse({ texte: "ok", usage: { input_tokens: 1_000_000, output_tokens: 1_000_000 } })]);
     const orch = await callModel("orchestrator", [{ role: "user", content: "x" }]);
-    // Terra : tarif inconnu ici. `null`, jamais zéro — un coût faux se cite ensuite comme un fait.
-    expect(orch.usage.costUsd).toBeNull();
+    // Terra : 2 $ + 12 $ par million (grille publique du 2026-08-21).
+    expect(orch.usage.costUsd).toBeCloseTo(14, 6);
+
+    // Un modèle HORS grille : `null`, jamais zéro — un coût faux se cite ensuite comme un fait.
+    captures = [];
+    process.env.ADAM_MODEL_ORCHESTRATOR = "modele-inconnu-x";
+    try {
+      serveur([reponse({ texte: "ok", usage: { input_tokens: 1_000_000, output_tokens: 1_000_000 } })]);
+      const inconnu = await callModel("orchestrator", [{ role: "user", content: "x" }]);
+      expect(inconnu.usage.costUsd).toBeNull();
+    } finally {
+      delete process.env.ADAM_MODEL_ORCHESTRATOR;
+    }
   });
 });
 
@@ -727,12 +738,18 @@ describe("13. la recherche web : l'outil part, les sources et le coût reviennen
     const jetons = (1_000 / 1_000_000) * 0.2 + (500 / 1_000_000) * 1.2;
     expect(luna.usage.costUsd).toBeCloseTo(jetons + 2 * 0.01, 6);
 
-    // Terra worker : tarif des jetons INCONNU dans ce dépôt → le total reste `null`, les
-    // recherches ne fabriquent pas un « total » partiel avec l'air d'un total.
-    serveur([reponseWeb({ recherches: 2, texte: "ok" })]);
-    const terra = await callModel("worker", [{ role: "user", content: "x" }], { webSearch: true });
-    expect(terra.usage.webSearchCalls).toBe(2);
-    expect(terra.usage.costUsd).toBeNull();
+    // Un worker sur un modèle HORS grille tarifaire (mais dont la fiche de capacités est connue
+    // par préfixe, donc qui porte l'outil de recherche) : tarif des jetons INCONNU → le total
+    // reste `null`, les recherches ne fabriquent pas un « total » partiel avec l'air d'un total.
+    process.env.ADAM_MODEL_WORKER = "gpt-5-sans-tarif";
+    try {
+      serveur([reponseWeb({ recherches: 2, texte: "ok" })]);
+      const inconnu = await callModel("worker", [{ role: "user", content: "x" }], { webSearch: true });
+      expect(inconnu.usage.webSearchCalls).toBe(2);
+      expect(inconnu.usage.costUsd).toBeNull();
+    } finally {
+      delete process.env.ADAM_MODEL_WORKER;
+    }
   });
 
   it("le tarif d'une recherche se corrige par variable d'environnement, sans redéploiement", async () => {

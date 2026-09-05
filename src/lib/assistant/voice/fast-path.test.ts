@@ -56,12 +56,20 @@ describe("§7 chemins rapides — les six formes nommées par la mission", () =>
     expect(route("Quelque chose de nouveau dans la boîte ?").kind).toBe("GMAIL_INBOX");
   });
 
-  it("« Mon prochain rendez-vous ? » → Calendar, horizon « next »", () => {
+  it("« Mon prochain rendez-vous ? » → Calendar, les prochains événements (aucun jour imposé)", () => {
     const r = route("Mon prochain rendez-vous ?");
     expect(r.kind).toBe("CALENDAR_NEXT");
     expect(r.tool).toBe("read_calendar");
-    expect(r.args.horizon).toBe("next");
+    // L'outil lit `date` et `limit` — rien d'autre. « prochain » = les prochains événements.
+    expect(r.args).toEqual({});
     expect(r.fast).toBe(true);
+  });
+
+  it("« Mes réunions de demain ? » → Calendar, le JOUR devient l'argument que l'outil lit", () => {
+    const r = route("Mes réunions de demain ?");
+    expect(r.kind).toBe("CALENDAR_NEXT");
+    expect(r.args.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(route("Qu'est-ce que j'ai à l'agenda aujourd'hui ?").args.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it("« C'est quoi mon agenda ? » → Calendar sans horizon imposé", () => {
@@ -74,13 +82,13 @@ describe("§7 chemins rapides — les six formes nommées par la mission", () =>
     const r = route("Où en est Raltegravir ?");
     expect(r.kind).toBe("RECORD_STATUS");
     expect(r.tool).toBe("inspect_record");
-    expect(r.args.query).toBe("raltegravir");
+    expect(r.args.reference).toBe("raltegravir");
     expect(r.fast).toBe(true);
   });
 
   it("« Où en est le dossier Nintedanib ? » — l'article ne fait pas partie du sujet", () => {
-    expect(route("Où en est le dossier Nintedanib ?").args.query).toBe("dossier nintedanib");
-    expect(route("Statut du Raltegravir ?").args.query).toBe("raltegravir");
+    expect(route("Où en est le dossier Nintedanib ?").args.reference).toBe("nintedanib");
+    expect(route("Statut du Raltegravir ?").args.reference).toBe("raltegravir");
   });
 
   it("« Deepak a répondu ? » → la boîte filtrée sur Deepak, sans qu'on prononce « mail »", () => {
@@ -139,7 +147,7 @@ describe("§7 les raccourcis exigent leur objet", () => {
   it("« Où en est… » sans sujet identifiable ne devine pas de dossier", () => {
     const r = route("Où en est-ce ?");
     expect(r.kind).toBe("DELEGATE");
-    expect(r.args.query).toBeUndefined();
+    expect(r.args.reference).toBeUndefined();
   });
 });
 
@@ -164,7 +172,7 @@ describe("§8 survie du contexte", () => {
   it("« Et Nintedanib ? » reprend l'intention du tour précédent (dossier)", () => {
     const r = route("Et Nintedanib ?", { lastKind: "RECORD_STATUS" });
     expect(r.kind).toBe("RECORD_STATUS");
-    expect(r.args.query).toBe("nintedanib");
+    expect(r.args.reference).toBe("nintedanib");
   });
 
   it("« Et Raihana ? » sans tour précédent ne s'invente pas d'intention", () => {
