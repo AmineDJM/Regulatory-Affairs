@@ -239,6 +239,13 @@ export function cheminDirect(demande: string, triage: Triage, ctx: ContexteDirec
   if (!estLectureNue(tete.b.id)) {
     return renonceOuRecherche(`${tete.b.id} n'est pas une lecture nue : elle attend des paramètres qu'il faudrait deviner`);
   }
+  // LE CONTRAT D'ENTRÉE, quand le catalogue le connaît, prime sur la liste de noms : une
+  // capacité qui EXIGE un champ ne tourne pas « sur ses valeurs par défaut », et le compilateur
+  // refuserait de toute façon l'entrée vide (INVALID_INPUT). Autant renoncer ici, avant de payer.
+  const exiges = (tete.b.entrees?.champs ?? []).filter((c) => c.requis).map((c) => c.nom);
+  if (exiges.length > 0) {
+    return renonceOuRecherche(`${tete.b.id} exige ${exiges.map((n) => `« ${n} »`).join(", ")} : le chemin direct ne fabrique pas d'entrée`);
+  }
 
   // ── VERROU 4 — l'effet et le droit, relus au moment de décider ───────────────────────
   if (tete.b.effect !== "READ" && tete.b.effect !== "ANALYZE") {

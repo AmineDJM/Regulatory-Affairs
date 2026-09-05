@@ -1454,8 +1454,9 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
       type: "object",
       properties: {
         title: { type: "string", description: "Intitulé du rendez-vous." },
-        date: { type: "string", description: "Date AAAA-MM-JJ (heure d'Alger)." },
+        date: { type: "string", description: "Date AAAA-MM-JJ (heure d'Alger) — ou donner « quand » en français." },
         time: { type: "string", description: "Heure HH:mm (heure d'Alger). Défaut 09:00 si absent." },
+        quand: { type: "string", description: "L'échéance EN FRANÇAIS, telle que dite (« jeudi prochain à 10h », « demain 14h30 ») : le moteur calcule date et heure (heure d'Alger). Si l'expression n'est pas comprise à coup sûr, l'outil le dit et il faut alors donner date/time." },
         durationMin: { type: "number", description: "Durée en minutes (optionnel)." },
         allDay: { type: "boolean", description: "Journée entière (sans heure)." },
         kind: { type: "string", enum: ["APPOINTMENT", "MEETING", "REMINDER", "DEADLINE", "INFO", "OTHER"], description: "Type d'événement." },
@@ -1464,7 +1465,7 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
         description: { type: "string", description: "Détails / ordre du jour (optionnel)." },
         inviteeNames: { type: "string", description: "Noms des collègues à inviter, séparés par des virgules (optionnel)." },
       },
-      required: ["title", "date"],
+      required: ["title"],
     },
   },
   {
@@ -3320,11 +3321,29 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (!userCan(user, "WORKSPACE", "CREATE")) return { error: "Vous n'avez pas accès au calendrier." };
     const title = asStr(input, "title");
     if (!title) return { error: "Intitulé du rendez-vous manquant." };
-    const date = isoDate(asStr(input, "date"));
-    if (!date) return { error: "Date du rendez-vous manquante ou invalide (AAAA-MM-JJ)." };
+    // « QUAND » EN FRANÇAIS — le même décodeur temporel que les rappels : « jeudi prochain à
+    // 10h » devient une date et une heure d'Alger, ou l'outil dit qu'il n'a pas compris. Une
+    // date explicite l'emporte ; le décodeur ne devine jamais (doctrine Live Office §5).
+    let date = isoDate(asStr(input, "date"));
+    let heureDeduite: string | null = null;
+    const quand = asStr(input, "quand");
+    if (!date && quand) {
+      const { interpreterExpressionTemporelle } = await import("@/lib/temporal");
+      const lu = interpreterExpressionTemporelle(quand, new Date());
+      if (!lu) return { error: `Expression temporelle « ${quand} » non comprise à coup sûr — donnez date (AAAA-MM-JJ) et time (HH:mm, heure d'Alger).` };
+      // L'instant UTC rendu par le décodeur, relu à l'heure d'Alger par Intl — sans importer le
+      // module calendrier de l'ERP (la frontière Adam ↔ ERP est tenue par un plafond, §boundary).
+      const parts = new Intl.DateTimeFormat("sv-SE", {
+        timeZone: "Africa/Algiers", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+      }).format(lu.echeance);
+      const [d, h] = parts.split(" ");
+      date = d;
+      heureDeduite = h && h !== "00:00" ? h.slice(0, 5) : null;
+    }
+    if (!date) return { error: "Date du rendez-vous manquante ou invalide (AAAA-MM-JJ, ou « quand » en français)." };
     pastWarning("La date du rendez-vous", date, warnings);
     const allDay = input.allDay === true;
-    const time = allDay ? null : (asStr(input, "time").match(/^\d{1,2}:\d{2}$/) ? asStr(input, "time") : "09:00");
+    const time = allDay ? null : (asStr(input, "time").match(/^\d{1,2}:\d{2}$/) ? asStr(input, "time") : (heureDeduite ?? "09:00"));
     const durRaw = input.durationMin;
     const durationMin = typeof durRaw === "number" && Number.isFinite(durRaw) && durRaw > 0 ? Math.round(durRaw) : null;
     const eventKind = (asStr(input, "kind") || "APPOINTMENT").toUpperCase();

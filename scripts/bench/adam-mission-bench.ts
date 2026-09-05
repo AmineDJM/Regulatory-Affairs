@@ -29,7 +29,7 @@ interface Carte {
   capacites: string[]; lectures: string[]; ecritures: string[];
   attentes: string[]; approbation: string | null; statut: string | null; planVersion: number | null;
   journal: Record<string, number>; notifications: string[]; replans: number;
-  effets: { messages: number; taches: number; rappels: number; evenements: number; artefacts: number; intents: number; intentsExecutes: number };
+  effets: { messages: number; taches: number; rappels: number; evenements: number; artefacts: number; surveillances: number; intents: number; intentsExecutes: number };
   appels: number; jetons: { entree: number; sortie: number; cache: number }; cout: number | null; ms: number;
   attendus: { id: string; libelle: string; ok: boolean }[];
 }
@@ -99,8 +99,10 @@ const MISSIONS: Mission[] = [
     demande: "Surveille l'appel d'offres PCH 2026/14 et préviens-moi seulement s'il y a un problème.",
     attendus: [
       { id: "lancee", libelle: "mission créée", test: (c) => c.lancee },
-      { id: "veille", libelle: "une attente durable (événement ou échéance) est posée", test: (c) => c.attentes.length > 0 },
-      { id: "silence", libelle: "le dirigeant n'est pas notifié sans problème avéré", test: (c) => c.notifications.filter((n) => !/accord/i.test(n)).length === 0 },
+      { id: "veille", libelle: "une attente durable (événement, échéance ou surveillance) est posée", test: (c) => c.attentes.length + c.effets.surveillances > 0 },
+      // Une ligne JOURNAL (centre de notifications, sans push ni e-mail) n'interrompt personne :
+      // c'est la trace, pas l'alerte. Le silence se mesure sur ce qui dérange (INFO et au-delà).
+      { id: "silence", libelle: "le dirigeant n'est pas dérangé sans problème avéré (rien au-dessus de JOURNAL, hors accord)", test: (c) => c.notifications.filter((n) => !/accord/i.test(n) && !/^JOURNAL/.test(n)).length === 0 },
     ],
   },
   {
@@ -181,7 +183,7 @@ async function main(): Promise<void> {
       id: m.id, demande: m.demande, lancee: false, erreur: null, refus: [], missionId: null, voie: null, complexite: null, echelle: null,
       etapes: 0, workstreams: [], noeuds: {}, capacites: [], lectures: [], ecritures: [], attentes: [], approbation: null, statut: null, planVersion: null,
       journal: {}, notifications: [], replans: 0,
-      effets: { messages: 0, taches: 0, rappels: 0, evenements: 0, artefacts: 0, intents: 0, intentsExecutes: 0 },
+      effets: { messages: 0, taches: 0, rappels: 0, evenements: 0, artefacts: 0, surveillances: 0, intents: 0, intentsExecutes: 0 },
       appels: 0, jetons: { entree: 0, sortie: 0, cache: 0 }, cout: null, ms: 0, attendus: [],
     };
     try {
@@ -254,14 +256,17 @@ async function main(): Promise<void> {
       c.replans = c.journal.REPLANNED ?? 0;
       const intents = await prisma.assistantActionIntent.findMany({ where: { missionId: c.missionId }, select: { status: true } });
       c.effets.intents = intents.length; c.effets.intentsExecutes = intents.filter((i) => i.status === "EXECUTED").length;
-      const [messages, taches, rappels, evenements, artefacts] = await Promise.all([
+      const [messages, taches, rappels, evenements, artefacts, surveillances] = await Promise.all([
         prisma.message.count({ where: { senderId: pdg.id, createdAt: { gte: depuis } } }),
         prisma.task.count({ where: { createdById: pdg.id, createdAt: { gte: depuis } } }),
         prisma.reminder.count({ where: { OR: [{ createdById: pdg.id }, { userId: pdg.id }], createdAt: { gte: depuis } } }),
         prisma.calendarEvent.count({ where: { createdById: pdg.id, createdAt: { gte: depuis } } }),
         prisma.driveNode.count({ where: { createdById: pdg.id, createdAt: { gte: depuis }, NOT: { mimeType: null } } }),
+        // Une surveillance durable est une attente qui vit HORS de la mission qui l'a posée
+        // (mission-support WATCH + AdamWatch) : la compter ici, sinon « veille » ne la voit pas.
+        prisma.adamWatch.count({ where: { ownerId: pdg.id, createdAt: { gte: depuis } } }),
       ]);
-      c.effets = { ...c.effets, messages, taches, rappels, evenements, artefacts };
+      c.effets = { ...c.effets, messages, taches, rappels, evenements, artefacts, surveillances };
       await viderTampon();
       const appels = await prisma.modelCallLog.findMany({ where: { missionId: c.missionId }, select: { inputTokens: true, outputTokens: true, cachedInputTokens: true, costUsd: true } });
       c.appels = appels.length;

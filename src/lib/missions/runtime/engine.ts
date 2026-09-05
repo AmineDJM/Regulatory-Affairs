@@ -11,7 +11,10 @@ import {
 import {
   EtatEtape, EtatMission, chargerEtat, cleIdempotence, compter, journaliser, transitionner,
 } from "@/lib/missions/runtime/store";
-import { entreeIteration, identiteIteration, lire } from "@/lib/missions/runtime/interpolate";
+import {
+  diagnostiquerReferences, entreeIteration, identiteIteration, injecterSorties, lire, referencesDe,
+  type DiagnosticReference, type SortieAmont,
+} from "@/lib/missions/runtime/interpolate";
 import { expliquer, resoudreCollection } from "@/lib/missions/runtime/collection";
 import {
   aReparer, controlerQualite, evaluerObjectif,
@@ -460,6 +463,96 @@ type Sortie =
  * L'écriture suit immédiatement l'exécution, sans regrouper : différer pour « écrire par lot »
  * ferait perdre exactement le travail qu'on cherche à ne pas refaire.
  */
+/** Les nœuds dont l'entrée ou l'attente peut lire la sortie d'une étape amont. */
+const NOEUDS_A_RESOUDRE: ReadonlySet<string> = new Set(["CAPABILITY", "WORKER", "ARTIFACT", "WAIT_EVENT", "WAIT_INPUT"]);
+
+/** Les échéances d'une attente, dans un ordre stable — pour comparer l'écrit et le résolu. */
+function echeancesDe(w: Record<string, unknown> | null): unknown[] {
+  if (!w) return [];
+  const branches = (k: string): unknown[] =>
+    Array.isArray(w[k]) ? (w[k] as unknown[]).map((b) => (b && typeof b === "object" ? (b as Record<string, unknown>).until : undefined)) : [];
+  return [w.until, ...branches("anyOf"), ...branches("allOf")];
+}
+
+/** « 30/11/2026 » → « 2026-11-30 » : la seule forme de date qu'on normalise, parce qu'elle est sans ambiguïté en français. */
+function normaliserDate(u: unknown): unknown {
+  if (typeof u !== "string") return u;
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(u.trim());
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : u;
+}
+
+/**
+ * RÉSOUT LES RÉFÉRENCES D'UNE ÉTAPE contre les sorties de la mission — ou dit pourquoi elle ne
+ * peut pas partir. Pure vis-à-vis de la base : la persistance de l'attente résolue est faite
+ * par l'appelant, une fois, et seulement si quelque chose a changé.
+ */
+function resoudreReferencesEtape(
+  etat: EtatMission,
+  step: EtatEtape,
+): { step: EtatEtape; sortie?: StepOutcome; attenteResolue: boolean } {
+  if (!NOEUDS_A_RESOUDRE.has(step.nodeType)) return { step, attenteResolue: false };
+  if (referencesDe(step.input).length === 0 && referencesDe(step.waitFor).length === 0) return { step, attenteResolue: false };
+
+  const sorties = new Map<string, SortieAmont>();
+  for (const s of etat.steps) if (s.key !== step.key) sorties.set(s.key, { status: s.status, result: s.result });
+  const diagnostics = [...diagnostiquerReferences(step.input, sorties), ...diagnostiquerReferences(step.waitFor, sorties)];
+  const gab = (d: DiagnosticReference) => `{{${d.ref}}}`;
+  const echec = (error: string): StepOutcome => ({ status: "FAILED", error, errorKind: "INVALID_STEP", retryable: false });
+
+  // L'ORDRE EST CELUI DE L'INFORMATION : une faute de plan (étape inconnue, chemin absent) se dit
+  // avant une absence de matière (liste vide, amont non abouti) — sinon le saut la masquerait.
+  const inconnue = diagnostics.find((d) => d.etat === "ETAPE_INCONNUE");
+  if (inconnue) {
+    return { step, attenteResolue: false, sortie: echec(`« ${gab(inconnue)} » désigne une étape « ${inconnue.etape} » absente de la mission.`) };
+  }
+  const absent = diagnostics.find((d) => d.etat === "CHEMIN_ABSENT");
+  if (absent) {
+    const dispo = absent.disponibles.length > 0
+      ? `champs disponibles : ${absent.disponibles.join(", ")}`
+      : "elle ne rend aucun champ à cet endroit";
+    return { step, attenteResolue: false, sortie: echec(`« ${gab(absent)} » : l'étape « ${absent.etape} » a abouti mais ne rend pas « ${absent.chemin} » — ${dispo}.`) };
+  }
+  const vide = diagnostics.find((d) => d.etat === "COLLECTION_VIDE");
+  if (vide) {
+    return { step, attenteResolue: false, sortie: { status: "SKIPPED", raison: `rien à traiter : « ${gab(vide)} » — la liste rendue par l'étape « ${vide.etape} » est vide.` } };
+  }
+  const nonAboutie = diagnostics.find((d) => d.etat === "ETAPE_NON_ABOUTIE");
+  if (nonAboutie && !SYNTHESE.has(step.nodeType)) {
+    return { step, attenteResolue: false, sortie: { status: "SKIPPED", raison: `« ${gab(nonAboutie)} » attend l'étape « ${nonAboutie.etape} », qui n'a pas abouti (${nonAboutie.statut ?? "?"}).` } };
+  }
+
+  const valeurs = new Map<string, unknown>();
+  for (const [k, v] of sorties) if (v.status === "DONE") valeurs.set(k, v.result);
+  const input = injecterSorties(step.input, valeurs) as Record<string, unknown>;
+  const waitFor = step.waitFor ? (injecterSorties(step.waitFor, valeurs) as Record<string, unknown>) : null;
+  const attenteResolue = waitFor !== null && JSON.stringify(waitFor) !== JSON.stringify(step.waitFor);
+
+  if (attenteResolue && step.nodeType === "WAIT_EVENT" && waitFor) {
+    // UNE ÉCHÉANCE DÉRIVÉE DOIT ÊTRE UNE DATE. « {{analyse.dateEcheance}} » qui se résout à
+    // rien, ou à « fin novembre », ferait dormir la mission pour toujours : on échoue tout de
+    // suite, avec la valeur, et la replanification a de quoi corriger.
+    if ("until" in waitFor) waitFor.until = normaliserDate(waitFor.until);
+    for (const k of ["anyOf", "allOf"]) {
+      if (!Array.isArray(waitFor[k])) continue;
+      for (const b of waitFor[k] as unknown[]) {
+        if (b && typeof b === "object" && "until" in (b as Record<string, unknown>)) {
+          (b as Record<string, unknown>).until = normaliserDate((b as Record<string, unknown>).until);
+        }
+      }
+    }
+    const ecrites = echeancesDe(step.waitFor);
+    const resolues = echeancesDe(waitFor);
+    for (let i = 0; i < ecrites.length; i += 1) {
+      if (typeof ecrites[i] !== "string" || referencesDe(ecrites[i]).length === 0) continue;
+      const r = resolues[i];
+      if (typeof r !== "string" || r.trim() === "" || !Number.isFinite(Date.parse(r))) {
+        return { step, attenteResolue: false, sortie: echec(`l'échéance dérivée « ${String(ecrites[i])} » vaut « ${r === undefined || r === null ? "" : String(r)} », qui n'est pas une date lisible : cette attente ne se réveillerait jamais.`) };
+      }
+    }
+  }
+  return { step: { ...step, input, waitFor }, attenteResolue };
+}
+
 async function executerUneEtape(
   etat: EtatMission,
   step: EtatEtape,
@@ -489,17 +582,36 @@ async function executerUneEtape(
     return { kind: "expansion", n };
   }
 
-  const ctx: StepContext = { mission: etat, step, actor, clock };
+  // ── LA TUYAUTERIE ENTRE ÉTAPES : `{{cle_etape.chemin}}` se résout ICI, avant tout appel ──
+  //
+  // Le planificateur compose ses étapes en lisant la sortie des précédentes ; le moteur, lui,
+  // ne résolvait que les alias d'éventail, et « {{analyse:coherence.actionPaiement}} » partait
+  // en toutes lettres vers l'outil (banc m5 : quatre plans sur neuf). Le diagnostic précède
+  // l'injection : un chemin absent ÉCHOUE en nommant les champs rendus, une liste amont vide
+  // IGNORE l'étape, une étape amont non aboutie n'invente rien.
+  const resolution = resoudreReferencesEtape(etat, step);
+  const stepExec = resolution.step;
+  if (resolution.attenteResolue) {
+    // L'ATTENTE DEVIENT CONCRÈTE EN BASE : le balayage temporel lit `waitFor.until` tel quel,
+    // et une référence non résolue ne réveillerait jamais personne.
+    await prisma.missionStep.update({ where: { id: step.id }, data: { waitFor: (stepExec.waitFor ?? null) as never } });
+  }
+
+  const ctx: StepContext = { mission: etat, step: stepExec, actor, clock };
   let sortie: StepOutcome;
-  try {
-    sortie = await dispatcher(ctx, deps);
-  } catch (e) {
-    sortie = {
-      status: "FAILED",
-      error: e instanceof Error ? e.message : String(e),
-      errorKind: "CAPABILITY_FAILURE",
-      retryable: true,
-    };
+  if (resolution.sortie) {
+    sortie = resolution.sortie;
+  } else {
+    try {
+      sortie = await dispatcher(ctx, deps);
+    } catch (e) {
+      sortie = {
+        status: "FAILED",
+        error: e instanceof Error ? e.message : String(e),
+        errorKind: "CAPABILITY_FAILURE",
+        retryable: true,
+      };
+    }
   }
 
   // ── §5 — RÉUSSITE TECHNIQUE ≠ RÉUSSITE SÉMANTIQUE ──────────────────────────────────
@@ -531,7 +643,7 @@ async function executerUneEtape(
 
   // ── §10 — LE RECOURS LOCAL, AVANT D'ÉPUISER L'ÉTAPE ────────────────────────────────
   if (sortie.status === "FAILED") {
-    const repris = await tenterRecours(etat, step, sortie, clock, { registre: deps.registre, acteur: actor, catalog: deps.catalog });
+    const repris = await tenterRecours(etat, stepExec, sortie, clock, { registre: deps.registre, acteur: actor, catalog: deps.catalog });
     if (repris) return { kind: "etape", echouee: false, dedupliquee: false };
   }
 
@@ -1299,18 +1411,28 @@ async function dernierJugement(missionId: string): Promise<JugementAnterieur | n
 }
 
 /** CE QUE LA MISSION A FAIT, en trois nombres et une liste d'effets lus sur les reçus. PUR. */
-export function bilanDe(steps: readonly EtapeObservee[]): { faites: number; total: number; echouees: number; effets: string[] } {
+export function bilanDe(steps: readonly EtapeObservee[]): {
+  faites: number; total: number; echouees: number; effets: string[]; livrables: string[]; effetsExternes: boolean;
+} {
   const reelles = steps.filter((s) => s.nodeType !== "JOIN");
   const faites = reelles.filter((s) => s.status === "DONE").length;
   const echouees = reelles.filter((s) => s.status === "FAILED").length;
   const parCapacite = new Map<string, number>();
+  let effetsExternes = false;
   for (const s of reelles) {
     if (s.status !== "DONE" || !s.recu || !s.recu.capability) continue;
     if (EFFECT_RANK[s.recu.effect] < EFFECT_RANK.INTERNAL_REVERSIBLE_WRITE) continue;
+    // CE QUI A QUITTÉ LA MAISON : une communication externe, un engagement financier, un geste
+    // RH. C'est la ligne qui sépare « la conversation l'a déjà dit » de « le dirigeant doit
+    // savoir » quand la mission s'est terminée dans la foulée de la demande.
+    if (EFFECT_RANK[s.recu.effect] >= EFFECT_RANK.EXTERNAL_COMMUNICATION) effetsExternes = true;
     parCapacite.set(s.recu.capability, (parCapacite.get(s.recu.capability) ?? 0) + 1);
   }
   const effets = [...parCapacite.entries()].map(([c, n]) => (n > 1 ? `${c} ×${n}` : c));
-  return { faites, total: reelles.length, echouees, effets };
+  // LES LIVRABLES : les fabrications abouties. Le message au dirigeant les nomme, et leur
+  // présence suffit à mériter une information — un fichier l'attend.
+  const livrables = reelles.filter((s) => s.nodeType === "ARTIFACT" && s.status === "DONE").map((s) => s.title);
+  return { faites, total: reelles.length, echouees, effets, livrables, effetsExternes };
 }
 
 export async function conclure(
@@ -1406,6 +1528,9 @@ export async function conclure(
     await deps.attention.signaler({
       kind, missionId, ownerId: etat.ownerId, titre: "", raison, bilan, planVersion: etat.planVersion,
       decision: verdict.recoursSuggere ?? null,
+      // LE TEMPS DEPUIS LA DEMANDE : une mission finie dans la foulée n'a pas besoin d'interrompre
+      // — la conversation l'a déjà dit. La politique d'attention tranche avec ce chiffre.
+      dureeMs: etat.createdAt ? Math.max(0, Date.now() - etat.createdAt.getTime()) : null,
     }).catch(() => undefined);
   };
   if (verdict.satisfait) {

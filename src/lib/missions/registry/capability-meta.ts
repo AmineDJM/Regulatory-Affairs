@@ -166,6 +166,31 @@ export const DECLARED: Record<string, Omit<CapabilityMeta, "id" | "declared" | "
   create_task: { domain: "tasks", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
   create_admin_request: { domain: "tasks", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
   create_calendar_event: { domain: "calendar", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "POLICY_ENGINE" },
+  /**
+   * ── LES ÉCRITURES AUTONOMES DÉCLARÉES — répétables, et SANS accord ───────────────────
+   *
+   * Elles ne figuraient qu'au tableau `AUTONOMES` (l'effet seul) : la dérivation prudente les
+   * rendait `batchable: false` et `confirmation: POLICY_ENGINE`. Deux défauts MESURÉS sur le
+   * banc de missions inédites : « un rappel par échéance critique » refusé NOT_BATCHABLE, et
+   * « surveille cet appel d'offres » qui demandait un ACCORD au dirigeant pour poser la
+   * surveillance qu'il venait de demander — puis le notifiait d'être « partiellement faite ».
+   *
+   * La conversation exécute ces capacités sans carte de confirmation ; §7 dit « même politique
+   * de confirmation que l'écran », et « un accord, pas 99 confirmations » (§8) interdit de
+   * demander l'accord pour un export ou un rappel. Elles restent des écritures : clé
+   * d'idempotence, reçu, non-rejeu après panne (autonomous-dedup.test.ts).
+   */
+  plan_reminder: { domain: "tasks", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
+  cancel_reminder: { domain: "tasks", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
+  snooze_reminder: { domain: "tasks", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
+  remember: { domain: "memory", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
+  record_decision: { domain: "governance", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
+  record_commitment: { domain: "governance", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
+  close_commitment: { domain: "governance", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
+  export_excel: { domain: "drive", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "MEDIUM", confirmation: "NEVER" },
+  gdrive_put_internal_file: { domain: "drive", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "MEDIUM", confirmation: "NEVER" },
+  watch_entity: { domain: "missions", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
+  stop_watch: { domain: "missions", effect: "INTERNAL_REVERSIBLE_WRITE", idempotent: false, batchable: true, latency: "LOW", confirmation: "NEVER" },
   search_people: { domain: "directory", effect: "READ", idempotent: true, batchable: true, latency: "LOW", confirmation: "NEVER", contrat: "COLLECTION" },
   search_drive: { domain: "drive", effect: "READ", idempotent: true, batchable: true, latency: "MEDIUM", confirmation: "NEVER", contrat: "COLLECTION" },
   read_document: { domain: "drive", effect: "READ", idempotent: true, batchable: true, latency: "MEDIUM", confirmation: "NEVER", contrat: "CONTENU" },
@@ -320,6 +345,10 @@ export function capabilityMeta(name: string, estEcriture?: (n: string) => boolea
   }
 
   const lecture = EFFECT_RANK[effect] <= EFFECT_RANK.ANALYZE;
+  // UNE ÉCRITURE AUTONOME NON DÉCLARÉE garde la politique de la conversation : pas de carte,
+  // donc pas d'accord de mission (§7). Elle reste prudente sur le reste : non rejouable, non
+  // groupable tant que personne ne l'a qualifiée.
+  const autonome = ecrit === false && Boolean(AUTONOMES[name]);
   return {
     id: name,
     domain: domaineDeduit(name),
@@ -327,7 +356,7 @@ export function capabilityMeta(name: string, estEcriture?: (n: string) => boolea
     idempotent: lecture,
     batchable: lecture,
     latency: "MEDIUM",
-    confirmation: lecture ? "NEVER" : "POLICY_ENGINE",
+    confirmation: lecture || autonome ? "NEVER" : "POLICY_ENGINE",
     // AUCUN CONTRAT DÉRIVÉ. Deviner la forme de sortie d'une capacité inconnue ferait échouer
     // des missions valides pour un défaut imaginaire — l'exact inverse de ce que le contrôle
     // sémantique existe pour empêcher.

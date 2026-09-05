@@ -43,7 +43,11 @@ const PLAN_LECTURE = planScripte({
   workstreams: [],
   steps: [{
     key: "lire", title: "Lire l'annuaire", nodeType: "CAPABILITY",
-    capability: "directory_lookup", completionCondition: "la liste est rendue",
+    // `directory_lookup` EXIGE un nom : depuis que le compilateur tient le contrat d'entrée des
+    // capacités (INVALID_INPUT), un plan scripté sans son entrée obligatoire ne compile plus —
+    // exactement ce qu'un plan de modèle subirait, et c'est voulu.
+    capability: "directory_lookup", inputs: [{ key: "name", kind: "TEXT", value: "Adam" }],
+    completionCondition: "la liste est rendue",
   }],
   expectedArtifacts: [],
   approvalStrategy: "BUNDLE",

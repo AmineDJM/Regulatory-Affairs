@@ -3,6 +3,8 @@ import { assistantToolsFor, RESOLVER_WRITE_NAMES } from "@/lib/assistant";
 import { POWER_TOOLS } from "@/lib/assistant/power-tools";
 import type { CapabilityBrief, CapabilityCatalog, MissionActor } from "@/lib/missions/ports";
 import { capabilityMeta, EFFECT_RANK, type CapabilityMeta, type Effect } from "@/lib/missions/registry/capability-meta";
+import { contratDepuisSchema } from "@/lib/missions/registry/input-contract";
+import type { ContratEntree } from "@/lib/missions/ports";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -122,6 +124,13 @@ export function catalogueDe(user: CurrentUser, opts: OptionsCatalogue = {}): Cat
     return m;
   };
 
+  // LE CONTRAT D'ENTRÉE VIENT DU SCHÉMA DE L'OUTIL — celui que la conversation envoie déjà au
+  // modèle. Pas de second tableau à tenir : quand un outil change une clé, le planificateur et
+  // le compilateur le voient au même instant que la conversation.
+  const contrats = new Map<string, ContratEntree | null>(
+    defs.map((d) => [d.name, contratDepuisSchema((d as { input_schema?: unknown }).input_schema)]),
+  );
+
   const briefs: CapabilityBrief[] = defs.map((d) => {
     const m = meta(d.name);
     return {
@@ -131,6 +140,7 @@ export function catalogueDe(user: CurrentUser, opts: OptionsCatalogue = {}): Cat
       batchable: m.batchable,
       summary: resumer(labels.get(d.name) ? `${labels.get(d.name)}. ${d.description}` : d.description)
         + (SORTIES[d.name] ? ` [${SORTIES[d.name]}]` : ""),
+      entrees: contrats.get(d.name) ?? null,
     };
   });
 
@@ -143,6 +153,7 @@ export function catalogueDe(user: CurrentUser, opts: OptionsCatalogue = {}): Cat
     has: (name) => parNom.has(name),
     allowed: (name, actor) => actor.userId === user.id && parNom.has(name),
     meta,
+    entrees: (name) => contrats.get(name) ?? null,
     brief: (actor, opts) => {
       if (actor.userId !== user.id) return [];
       const filtres = opts?.domains && opts.domains.length > 0

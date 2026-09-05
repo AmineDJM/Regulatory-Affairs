@@ -223,6 +223,23 @@ const titreDe = (objectif: string): string => {
  * workers, le juge et l'artefact y rattachent leurs appels sans rien savoir de la base. Un tour
  * déjà ouvert (une mission lancée depuis la conversation) est REJOINT, et le contexte s'y ajoute.
  */
+/**
+ * LE RÔLE DE PLANIFICATION PEUT ÊTRE FORCÉ PAR L'EXPLOITATION (`ADAM_PLANNER_ROLE`) — pour
+ * mesurer un modèle plus rapide sur le banc, jamais par confort. Absent : la politique des rôles.
+ *
+ * Il s'applique à TOUTES les planifications d'une mission — la première, la reprise après refus
+ * du compilateur, la replanification. Mesuré : forcé sur la première seule, la reprise repartait
+ * au rôle par défaut, dont l'appel dépassait la coupure du mandataire ; deux missions sur neuf
+ * mouraient « non lancées » pour une raison qui n'avait rien à voir avec leur plan.
+ */
+function roleForcePlanification(): { role?: string } {
+  const role = (process.env.ADAM_PLANNER_ROLE ?? "").trim();
+  return role ? { role } : {};
+}
+
+/** La personne qui demande, telle que le planificateur doit la nommer pour lui écrire. */
+const demandeurDe = (u: Pick<CurrentUser, "name" | "email">): string => (u.email ? `${u.name} <${u.email}>` : u.name);
+
 export function lancerMission(
   user: CurrentUser,
   objectif: string,
@@ -268,13 +285,11 @@ async function lancerMissionInterne(
     ...opts.contexte,
     ...(situation ? { situation } : {}),
     ...(formesValidees.length > 0 ? { formesValidees } : {}),
+    demandeur: demandeurDe(user),
   };
 
-  // LE RÔLE DE PLANIFICATION PEUT ÊTRE FORCÉ PAR L'EXPLOITATION (`ADAM_PLANNER_ROLE`) — pour
-  // mesurer un modèle plus rapide sur le banc, jamais par confort. Absent : la politique des rôles.
-  const roleForce = (process.env.ADAM_PLANNER_ROLE ?? "").trim();
   let plan = await planifier(objectif, catalogue, acteur, cerveau, {
-    ...(roleForce ? { role: roleForce } : {}),
+    ...roleForcePlanification(),
     contexte,
     // LE RETRIEVAL SPÉCULATIF (§65) : pendant que le modèle planifie (des secondes), on
     // préchauffe l'annuaire sur les noms propres de l'objectif — des LECTURES, dont le résultat
@@ -339,6 +354,7 @@ async function lancerMissionInterne(
 
   if (!compile1.ok) {
     const secondEssai = await planifier(objectif, catalogue, acteur, cerveau, {
+      ...roleForcePlanification(),
       contexte: { ...contexte, refusPrecedent: compile1.issues.map((i) => `[${i.code}] ${i.stepKey ?? "plan"} : ${i.message}`) },
     });
     if (!secondEssai.ok) {
@@ -827,6 +843,7 @@ async function replanifierMissionInterne(
 
   const contexteReplan = {
     aujourdhui: new Date().toLocaleDateString("fr-FR"),
+    demandeur: demandeurDe(user),
     // CE QUI EST DÉJÀ FAIT : le planificateur doit repartir de là, pas de zéro. Lui cacher
     // l'acquis le ferait renvoyer trente-et-un messages déjà partis — l'idempotence les
     // arrêterait, mais au prix d'un plan illisible et d'un travail inutile.
@@ -845,6 +862,7 @@ async function replanifierMissionInterne(
      * réponse fausse.
      */
     sansCheminDirect: true as const,
+    ...roleForcePlanification(),
   };
   const optionsCompile = {
     // LES ACQUIS SONT DES DÉPENDANCES LÉGITIMES. On vient de dire au planificateur ce qui était

@@ -4,6 +4,7 @@ import type { CurrentUser } from "@/lib/session";
 import { ROLE_LABELS } from "@/lib/labels";
 import { RESOLVER_WRITE_NAMES } from "@/lib/assistant";
 import { EFFECT_RANK } from "@/lib/missions/registry/capability-meta";
+import { exempleEntree } from "@/lib/missions/registry/input-contract";
 import { compile } from "@/lib/missions/compiler/compile";
 import type { MissionPlan } from "@/lib/missions/planner/contract";
 import { catalogueDe, acteurDe } from "@/platform/in-process/missions/catalog";
@@ -44,9 +45,12 @@ async function utilisateur(role: string): Promise<CurrentUser> {
   return { id: `matrice-${role}`, name: `Matrice ${role}`, email: `${role.toLowerCase()}@matrice.test`, role: role as never, access, mustChangePassword: false };
 }
 
-const planUneEtape = (capability: string): MissionPlan => ({
+// L'ENTRÉE MINIMALE HONORE LE CONTRAT de la capacité (registry/input-contract.ts) : depuis que le
+// compilateur refuse une obligatoire manquante (INVALID_INPUT), une étape vide ne compilerait plus,
+// et la matrice mesurerait la présence d'un paramètre au lieu de l'accord et de la clé.
+const planUneEtape = (capability: string, input: Record<string, unknown> = {}): MissionPlan => ({
   objective: `Appeler ${capability}`, acceptance: ["l'appel est fait"], complexity: "A", scale: "S",
-  steps: [{ key: "etape", title: capability, nodeType: "CAPABILITY", capability, input: {}, dependsOn: [], approvalRequirement: "NONE" }],
+  steps: [{ key: "etape", title: capability, nodeType: "CAPABILITY", capability, input, dependsOn: [], approvalRequirement: "NONE" }],
   workstreams: [], expectedArtifacts: [], approvalStrategy: "BUNDLE", gaps: [],
 });
 
@@ -75,7 +79,7 @@ suite("permissions × capacités × confirmation — sur le vrai catalogue, tous
     let ecritures = 0;
     for (const b of cat.brief(acteur)) {
       if (EFFECT_RANK[b.effect] < EFFECT_RANK.INTERNAL_REVERSIBLE_WRITE) continue;
-      const r = compile(planUneEtape(b.id), cat, acteur);
+      const r = compile(planUneEtape(b.id, exempleEntree(cat.entrees?.(b.id))), cat, acteur);
       if (!r.ok) {
         // Une capacité de sécurité refusée à la compilation est la bonne réponse, pas une faute.
         if (b.effect === "SECURITY_ADMIN") continue;
@@ -108,7 +112,7 @@ suite("permissions × capacités × confirmation — sur le vrai catalogue, tous
     for (const b of cat.brief(acteurDe(admin))) {
       if (b.effect !== "SECURITY_ADMIN") continue;
       securite += 1;
-      const r = compile(planUneEtape(b.id), cat, agent);
+      const r = compile(planUneEtape(b.id, exempleEntree(cat.entrees?.(b.id))), cat, agent);
       if (r.ok) fautes.push(`l'agent a compilé ${b.id} (SECURITY_ADMIN)`);
     }
     expect(securite, "le catalogue du Super Admin doit porter des capacités de sécurité à mesurer").toBeGreaterThan(0);

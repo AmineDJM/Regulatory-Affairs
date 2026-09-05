@@ -2971,14 +2971,15 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | `runtime/state.ts` | Machine à états mission + étape, pure et exhaustivement testée |
 | `runtime/store.ts` | Persistance, matérialisation ré-entrante, journal (`MissionEvent`), clé d'idempotence |
 | `runtime/engine.ts` | Le moteur : réservation, reprise, retry, éventail, parallélisme borné, conclusion. `dependanceSatisfaite` : une dépendance MORTE laisse passer une synthèse qui a du matériau, jamais une capacité ni une synthèse sans rien ; `bilanDe` + signaux d'attention à la conclusion ; `metaDe` : l'effet d'un reçu vient du catalogue du composeur |
-| `runtime/interpolate.ts` | Injection d'un élément dans une entrée — pauvre par dessein, sans traversée de prototype |
+| `runtime/interpolate.ts` | Injection d'un élément d'éventail dans une entrée — pauvre par dessein, sans traversée de prototype — et la TUYAUTERIE `{{cle_etape.chemin}}` : `referencesDe`, `resoudreReference` (plus long préfixe), `diagnostiquerReferences` (OK / étape inconnue / non aboutie / chemin absent avec champs disponibles / liste vide), `injecterSorties` |
 | `runtime/condition.ts` | L'étape CONDITIONNELLE, pure : issue d'un amont (EVENT / TIMEOUT / DONE / FAILED / SKIPPED), test de sortie (`comparerValeurs`, `lireChemin` sans prototype), relecture sans confiance |
 | `watch/rules.ts` | Les règles d'une SURVEILLANCE, pures : échéance proche / dépassée, silence, blocage, statut, seuil, disparition, changement ; signature STABLE d'un lot de problèmes ; règles par défaut par type de cible |
 | `watch/router.ts` | « changement ERP → réveil » : un fait qui touche une cible surveillée avance son prochain contrôle à maintenant (appelé par le registre) |
 | `planner/contract.ts` | Ce que le planner a le droit de produire, et les limites opérationnelles ; `StepCondition` (`when`) : l'issue ou la sortie amont qui autorise une étape à partir |
 | `compiler/graph.ts` | Tri topologique, vagues, cycles, ancêtres |
-| `compiler/compile.ts` | Le refus (capacité inconnue/interdite, cycle, forme, **cardinalité**) — et la RÉPARATION : clés hors alphabet ASSAINIES (références réécrites), règles à étape fantôme réparées à candidat unique ou déclassées, WAIT_INPUT converti en synthèse sous plafond de lecture (§28). **Créer la mission est un invariant** |
-| `registry/capability-meta.ts` | Effet, idempotence, groupabilité, latence, confirmation — défaut prudent SANS liste d'écritures, `READ` avec ; `AUTONOMES` : les écritures autonomes de la conversation (rappels, souvenirs, décisions, engagements, dépôt Drive interne, export) exécutées par le chemin des lectures sous garde d'idempotence |
+| `compiler/compile.ts` | Le refus (capacité inconnue/interdite, cycle, forme, **cardinalité**, **entrée hors contrat** `INVALID_INPUT`, référence vers une étape inexistante, question de confort au demandeur) — dépendances implicites des références `{{…}}`, échéance d'attente référencée acceptée — et la RÉPARATION : clés hors alphabet ASSAINIES (références réécrites), règles à étape fantôme réparées à candidat unique ou déclassées, WAIT_INPUT converti en synthèse sous plafond de lecture (§28). **Créer la mission est un invariant** |
+| `registry/capability-meta.ts` | Effet, idempotence, groupabilité, latence, confirmation — défaut prudent SANS liste d'écritures, `READ` avec ; `AUTONOMES` : les écritures autonomes de la conversation (rappels, souvenirs, décisions, engagements, dépôt Drive interne, export) exécutées par le chemin des lectures sous garde d'idempotence — déclarées répétables et SANS accord (même politique que la conversation) |
+| `registry/input-contract.ts` | Le CONTRAT D'ENTRÉE d'une capacité, dérivé de son `input_schema` : `contratDepuisSchema`, `decrireEntrees` (la ligne montrée au planificateur), `verifierEntree` (inconnues, manquantes, invalides, réparations de forme), `exempleEntree` (entrée minimale pour les bancs) |
 | `policy/guard.ts` | §29 : l'auto-escalade est un refus de compilation |
 | `approval/scope.ts` | L'empreinte immuable d'un périmètre (§33) |
 | `approval/gate.ts` | La porte fermée par défaut + la notification via le VAPID existant |
@@ -3744,10 +3745,55 @@ la création de la mission ; seuls les FAITS règlent une branche ici (le temps 
 temporel), une progression partielle est persistée, un fait cadré sur une autre mission est ignoré. Journal
 `EVENT_CATCHUP`. Prouvé par l'entrée réelle (`evenement-anterieur.test.ts`) dans les deux sens.
 
-**Ce qui reste, dit avant d'être demandé.** La latence de planification (2,4-3,5 k jetons de sortie, 54-93 s) ;
-`ADAM_PLANNER_ROLE` permet de mesurer un rôle plus rapide. Le chaos restant (données modifiées en cours de
-mission, dizaines de missions simultanées au-delà des paliers du Deep Smoke) et le banc live des missions
-inédites sont les mesures suivantes du même chantier.
+**10. Le contrat d'entrée, et la tuyauterie entre étapes** (`registry/input-contract.ts` — pur —,
+`runtime/interpolate.ts`, compilateur, moteur, catalogue). Le run m5 du banc (neuf missions, rôle de
+planification forcé à `STANDARD_WORKER` pour tenir sous la coupure du mandataire : plans en 5 à 21 s) a rendu
+20 attendus sur 35 (57 %), et son diagnostic tient en une phrase : **sept des onze écritures qui ont échoué
+écrivaient des clés que l'outil ne lit pas** — `message` pour `body`, `schedule` pour `quand`, `paymentReference`
+pour `reference`, `entity` pour `reference` — et les plans composaient leurs étapes avec `{{analyse:coherence
+.actionPaiement}}`, la forme promise par le schéma du planificateur depuis toujours, que le moteur ne résolvait
+PAS (le motif n'acceptait même pas le deux-points d'une clé d'étape ; la référence partait en toutes lettres vers
+l'outil). Chaque échec arrivait APRÈS l'accord du dirigeant et coûtait une replanification. Désormais : (a) le
+CONTRAT D'ENTRÉE de chaque capacité est dérivé de son `input_schema` — la source que la conversation envoie déjà
+au modèle, pas un second tableau —, montré au planificateur sur la ligne de la capacité (`entrées :
+recipientName* (texte), body* (texte)` ; obligatoires d'abord, énumérations en clair, options bornées) et VÉRIFIÉ
+à la compilation : clé inconnue, obligatoire manquante, valeur hors énumération → `INVALID_INPUT` avec les clés
+admises ; une faute de FORME (« approve » → `APPROVE`, « 12 500 » → 12500) se répare en code et se dit. (b) La
+TUYAUTERIE `{{cle_etape.chemin}}` est résolue par le moteur avant tout appel : clé reconnue par le plus long
+préfixe (deux-points, tirets, points, indices de liste), dépendance implicite posée par le compilateur, référence
+vers une étape inexistante refusée avec les clés du plan. Le DIAGNOSTIC précède l'injection : un chemin absent
+sur une étape aboutie ÉCHOUE en nommant les champs rendus (`INVALID_STEP`, non rejouable — la replanification a
+de quoi corriger) ; une liste amont VIDE ignore l'étape (« rien à traiter ») et la suite continue ; une étape
+amont non aboutie n'invente rien. Le reçu porte l'entrée réellement partie, l'entrée écrite reste celle qui a
+été approuvée. (c) Une ÉCHÉANCE d'attente peut être une référence vers une date LUE (« attends l'échéance du
+contrat que tu viens d'analyser ») : acceptée à la compilation, résolue à l'exécution, l'attente devient
+concrète EN BASE (le balayage temporel la lit telle quelle), et une valeur illisible fait échouer l'attente avec
+la valeur au lieu d'endormir la mission pour toujours. (d) Les écritures AUTONOMES (rappel, export, surveillance,
+souvenir, décision, engagement) sont déclarées répétables et **sans accord** — la même politique que la
+conversation, qui les exécute sans carte (§7) ; le banc demandait un ACCORD au dirigeant pour poser la
+surveillance qu'il venait de demander, et refusait « un rappel par échéance critique » comme non répétable. (e)
+Une attente humaine adressée au DEMANDEUR, posée après une SYNTHÈSE (worker, livrable, contrôle) et dont rien ne
+dépend — jonctions exclues — (« au vu de la note, validez-vous l'orientation ? ») est refusée à la compilation :
+ce n'est pas un arbitrage, c'est une validation de confort — livrer et conclure ; une question dont des étapes
+dépendent, ou adressée à quelqu'un d'autre, ou posée sans amont (« remettez-moi le contrat signé ») ou après des
+actions (« j'ai écrit à tous ; quelle est la référence du marché ? »), reste une attente. (f) Le planificateur connaît le DEMANDEUR (nom
+et adresse) pour lui écrire par son nom exact — il écrivait `to: "propriétaire de la mission"`. (g) Une mission
+terminée DANS LA FOULÉE de la demande (moins de deux minutes), sans livrable ni effet externe, passe au journal
+au lieu de pousser « Mission terminée » sur le téléphone : la conversation vient de le dire ; un fichier qui
+attend ou un e-mail parti restent une information (matrice des décisions : 30 situations, 100 %). (h) Le rôle
+forcé `ADAM_PLANNER_ROLE` s'applique à TOUTES les planifications (première, reprise après refus,
+replanification) — forcé sur la première seule, la reprise repartait au rôle par défaut et deux missions
+mouraient « non lancées » pour une coupure du mandataire. (i) `create_calendar_event` accepte « quand » en
+français par le même décodeur temporel que les rappels. Prouvé : `input-contract.test.ts`,
+`interpolate.test.ts`, `compiler/entrees.test.ts` (12 cas), `runtime/tuyauterie.test.ts` (par `avancer`, sur la
+vraie base : valeur reçue, reçu, liste vide → ignorée, chemin absent → échec nommé, échéance dérivée persistée,
+échéance illisible → échec) ; la matrice permissions × capacités compile désormais chaque écriture avec une
+entrée minimale qui honore son contrat (`exempleEntree`).
+
+**Ce qui reste, dit avant d'être demandé.** La latence de planification au rôle par défaut (2,4-3,5 k jetons de
+sortie, 54-93 s) ; `ADAM_PLANNER_ROLE` permet de mesurer un rôle plus rapide, et le mandat 6 (optimiseur de coût
+à qualité d'abord) tranchera le routage. Le chaos restant (dizaines de missions simultanées au-delà des paliers du
+Deep Smoke) et le run suivant du banc live des missions inédites sont les mesures suivantes du même chantier.
 
 ### Adam mesuré, puis accéléré : le banc, les pré-lectures, le routage par niveau, le coût de premier rang (2026-09)
 

@@ -289,6 +289,15 @@ export const COMPILE_ERRORS = [
   "CARDINALITY",
   /** Le plan dépasse une limite OPÉRATIONNELLE (pas architecturale). */
   "LIMIT_EXCEEDED",
+  /**
+   * L'ENTRÉE NE CORRESPOND PAS AU CONTRAT DE LA CAPACITÉ.
+   *
+   * Une clé que l'outil ne lit pas, une clé exigée absente, une valeur hors énumération, ou une
+   * référence `{{etape.chemin}}` vers une étape qui n'existe pas. Mesuré sur le banc : sept
+   * échecs d'exécution sur onze venaient de là, et tous auraient été refusés ici pour le prix
+   * d'un message précis — au lieu d'un accord du dirigeant suivi d'une replanification.
+   */
+  "INVALID_INPUT",
 ] as const;
 export type CompileError = (typeof COMPILE_ERRORS)[number];
 

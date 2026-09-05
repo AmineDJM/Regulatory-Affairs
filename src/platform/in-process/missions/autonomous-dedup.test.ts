@@ -68,9 +68,11 @@ suite("écritures autonomes — classement, chemin et non-rejeu", () => {
     const cerveau = new RaisonneurScripte([pour("mission.plan", () => ({ ok: true, data: plan }))]);
     const r = await lancerMission(pdg, `Rappelle-moi demain à 8h de valider le budget ${TAG}.`, { reasoner: cerveau, sansEnquete: true });
     if (!r.ok) throw new Error(`mission non lancée : ${r.error}`);
-    // Une écriture interne réversible demande un accord NORMAL — pas SENSITIVE comme avant.
-    expect(r.approbation?.niveau).toBe("NORMAL");
-    expect(await decider(r.approbation!.id, "GRANTED", pdg.id)).toBe(true);
+    // UNE ÉCRITURE AUTONOME NE DEMANDE PAS D'ACCORD — la même politique que la conversation,
+    // qui pose un rappel sans carte de confirmation (§7 : une mission n'est ni une porte
+    // dérobée, ni un guichet plus tatillon que l'écran). Le planificateur avait proposé NORMAL ;
+    // la politique de la maison tranche, et elle tranche « aucun ».
+    expect(r.approbation).toBeNull();
     await avancerMission(pdg, r.missionId, { reasoner: cerveau });
 
     let etat = await chargerEtat(r.missionId);

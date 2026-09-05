@@ -54,6 +54,31 @@ export interface CapabilityBrief {
   batchable: boolean;
   /** Une phrase, à l'impératif. « Envoie un e-mail préparé. » */
   summary: string;
+  /**
+   * CE QU'ELLE ACCEPTE EN ENTRÉE — dérivé du schéma de l'outil, jamais recopié à la main.
+   *
+   * Mesuré sur le banc de missions inédites : sans lui, le planificateur écrivait `message` pour
+   * une capacité qui lit `body`, `schedule` pour une qui lit `quand`, `paymentReference` pour
+   * `reference` — et chaque écriture échouait à l'EXÉCUTION, après l'accord du dirigeant. Le
+   * contrat est montré au planificateur ET vérifié à la compilation (`INVALID_INPUT`).
+   */
+  entrees?: ContratEntree | null;
+}
+
+/** UN CHAMP D'ENTRÉE d'une capacité : son nom exact, son type lisible, s'il est exigé. */
+export interface ChampEntree {
+  nom: string;
+  /** texte, nombre, entier, booléen, liste, objet — ou une union « texte|nombre ». */
+  type: string;
+  requis: boolean;
+  /** Les valeurs admises quand le champ est énuméré (« APPROVE », « REFUSE »…). */
+  valeurs?: readonly string[];
+  description?: string;
+}
+
+/** LE CONTRAT D'ENTRÉE d'une capacité : ce qu'elle accepte, ce qu'elle exige. */
+export interface ContratEntree {
+  champs: readonly ChampEntree[];
 }
 
 /**
@@ -75,6 +100,13 @@ export interface CapabilityCatalog {
    * C'est la mise en œuvre littérale de « ne lui envoie jamais deux mille capacités brutes ».
    */
   brief(actor: MissionActor, opts?: { domains?: readonly string[]; limit?: number }): CapabilityBrief[];
+  /**
+   * LE CONTRAT D'ENTRÉE d'une capacité — `null` quand il n'est pas connu (un catalogue de test,
+   * une capacité sans schéma). Facultatif : un catalogue qui ne le fournit pas ne vérifie rien,
+   * ce qui est le défaut qui ne ment pas (§result-contract : l'ignorance choisit le côté qui ne
+   * fait pas échouer à tort).
+   */
+  entrees?(name: string): ContratEntree | null;
   /**
    * LE PLAFOND SOUS LEQUEL CE CATALOGUE A ÉTÉ CONSTRUIT — `null` quand il n'y en a pas.
    *
@@ -364,7 +396,13 @@ export interface SignalAttention {
    */
   niveauSuggere?: "JOURNAL" | "INFO" | "ATTENTION" | "ARBITRAGE" | null;
   /** Ce que la mission a fait, pour le compte rendu : étapes faites / total / en échec, effets. */
-  bilan?: { faites: number; total: number; echouees: number; effets?: string[]; livrables?: string[]; aSurveiller?: string[] } | null;
+  bilan?: {
+    faites: number; total: number; echouees: number; effets?: string[]; livrables?: string[]; aSurveiller?: string[];
+    /** Au moins un effet a quitté la maison (communication externe, engagement, RH…). */
+    effetsExternes?: boolean;
+  } | null;
+  /** Le temps écoulé entre la demande et ce signal — une mission finie dans la foulée n'interrompt pas. */
+  dureeMs?: number | null;
   /** Le nombre de jours d'attente ou de relances déjà faites, pour une attente échue. */
   attente?: { jours: number; relances: number } | null;
   planVersion?: number | null;

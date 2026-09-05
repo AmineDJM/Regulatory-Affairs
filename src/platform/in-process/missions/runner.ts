@@ -316,7 +316,7 @@ export class ExecutantReel implements CapabilityRunner {
     // pas d'objet, pas d'effet — l'étape échoue, l'échelle de recours décide, et la garde
     // d'idempotence n'inscrit rien qu'une reprise pourrait croire déjà fait.
     if (autonome && !structure) {
-      const message = typeof valeur === "string" ? valeur.slice(0, 300) : "réponse non structurée";
+      const message = messageDeRefus(valeur);
       return {
         ok: false,
         output: valeur,
@@ -444,4 +444,23 @@ export class ExecutantReel implements CapabilityRunner {
       output: { receipt: intentId, message: garde.message, link: garde.link },
     };
   }
+}
+
+/**
+ * CE QU'UNE ÉCRITURE AUTONOME A DIT EN REFUSANT — pour que l'échelle de recours et la
+ * replanification lisent la cause (« Donnez la cible à surveiller ») plutôt que « réponse non
+ * structurée », qui ne dit rien à personne. Le chemin des lectures emballe parfois la phrase
+ * dans un objet (`{ texte }`) : on la ressort ; sinon, un extrait brut.
+ */
+function messageDeRefus(valeur: unknown): string {
+  if (typeof valeur === "string") return valeur.slice(0, 300);
+  if (valeur && typeof valeur === "object" && !Array.isArray(valeur)) {
+    const o = valeur as Record<string, unknown>;
+    for (const k of ["texte", "message", "error", "erreur", "raison", "text"]) {
+      if (typeof o[k] === "string" && (o[k] as string).trim() !== "") return (o[k] as string).slice(0, 300);
+    }
+  }
+  let brut = "";
+  try { brut = JSON.stringify(valeur) ?? ""; } catch { brut = String(valeur); }
+  return `réponse non structurée (${brut.slice(0, 160)})`;
 }

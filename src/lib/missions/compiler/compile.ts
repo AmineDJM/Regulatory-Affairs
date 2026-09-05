@@ -11,6 +11,8 @@ import {
   type ContexteReglesPlan,
 } from "@/lib/missions/goal/rules";
 import { lireAttente } from "@/lib/missions/events/match";
+import { decrireEntrees, estGabarit, verifierEntree } from "@/lib/missions/registry/input-contract";
+import { referencesDe, resoudreReference } from "@/lib/missions/runtime/interpolate";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -157,6 +159,24 @@ function nbDestinataires(input: Record<string, unknown>): number {
     }
   }
   return max;
+}
+
+const normaliserNom = (t: string): string =>
+  t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/** Les façons de désigner la personne qui a demandé la mission — sans la nommer. */
+const MOTS_DEMANDEUR: ReadonlySet<string> = new Set([
+  "moi", "le demandeur", "la demandeuse", "le dirigeant", "la dirigeante", "la direction", "pdg", "le pdg",
+  "dg", "le dg", "directeur general", "le directeur general", "la directrice generale",
+  "proprietaire de la mission", "le proprietaire de la mission", "la proprietaire de la mission",
+]);
+
+/** Une attente humaine sans destinataire, ou adressée au demandeur lui-même. */
+function viseLeDemandeur(from: string, label: string): boolean {
+  const f = normaliserNom(from);
+  if (f === "") return true;
+  if (f === normaliserNom(label)) return true;
+  return MOTS_DEMANDEUR.has(f);
 }
 
 const issue = (code: string, stepKey: string | null, message: string): CompileIssue => {
@@ -419,6 +439,10 @@ export function compile(
       continue;
     }
 
+    // L'ENTRÉE, COPIÉE : les réparations de forme (casse d'une énumération, nombre en texte)
+    // s'appliquent à cette copie, jamais au plan reçu — et c'est elle qui est compilée.
+    const entree: Record<string, unknown> = { ...(s.input ?? {}) };
+
     const forme = FORMES[nodeType];
     if (forme.capacite === "requise" && !s.capability) {
       issues.push(issue("INVALID_SHAPE", s.key, `un nœud ${nodeType} doit nommer une capacité.`));
@@ -446,7 +470,10 @@ export function compile(
       const untils = [w?.until, ...(w?.anyOf ?? []).map((b) => b.until), ...(w?.allOf ?? []).map((b) => b.until)]
         .filter((u): u is string => typeof u === "string" && u.trim() !== "");
       for (const u of untils) {
-        if (!Number.isFinite(Date.parse(u))) {
+        // UNE ÉCHÉANCE PEUT VENIR DES DONNÉES : `{{analyse.dateEcheance}}` se résout à l'exécution
+        // (runtime/interpolate.ts), et le moteur refuse alors une date illisible. Refuser ici la
+        // référence elle-même interdisait « attends l'échéance que tu viens de lire » — mesuré.
+        if (!estGabarit(u) && !Number.isFinite(Date.parse(u))) {
           issues.push(issue("INVALID_SHAPE", s.key,
             `l'échéance « ${u} » n'est pas une date ISO 8601 lisible — cette attente ne se réveillerait jamais.`));
         }
@@ -497,6 +524,38 @@ export function compile(
         idempotent = m.idempotent;
         batchable = m.batchable;
         confirmation = m.confirmation;
+
+        /**
+         * ── LE CONTRAT D'ENTRÉE — refusé ICI, pas découvert à l'exécution ─────────────
+         *
+         * Sept des onze échecs d'écriture du banc m5 étaient des clés que l'outil ne lit pas
+         * (`message` pour `body`, `schedule` pour `quand`, `paymentReference` pour `reference`).
+         * Chacun arrivait APRÈS l'accord du dirigeant et coûtait une replanification. Le
+         * contrat vient du schéma de l'outil (registry/input-contract.ts) ; le message nomme les
+         * clés admises, pour que la correction soit une lecture et non une seconde devinette.
+         * Une faute de FORME (« approve » → APPROVE, « 50 » → 50) se répare en code et se dit.
+         */
+        const contrat = catalog.entrees?.(s.capability) ?? null;
+        if (contrat) {
+          const v = verifierEntree(entree, contrat);
+          for (const r of v.reparations) {
+            entree[r.champ] = r.vers;
+            warnings.push(issue("INVALID_SHAPE", s.key,
+              `« ${r.champ} » : ${JSON.stringify(r.de)} lu comme ${JSON.stringify(r.vers)} (forme corrigée).`));
+          }
+          const liste = (cles: string[]) => cles.map((c) => `« ${c} »`).join(", ");
+          if (v.inconnues.length > 0) {
+            issues.push(issue("INVALID_INPUT", s.key,
+              `« ${s.capability} » ne lit pas ${liste(v.inconnues)}. Ses ${decrireEntrees(contrat)}.`));
+          }
+          if (v.manquantes.length > 0) {
+            issues.push(issue("INVALID_INPUT", s.key,
+              `« ${s.capability} » exige ${liste(v.manquantes)}. Ses ${decrireEntrees(contrat)}.`));
+          }
+          for (const inv of v.invalides) {
+            issues.push(issue("INVALID_INPUT", s.key, `« ${s.capability} », champ « ${inv.champ} » : ${inv.raison}.`));
+          }
+        }
         if (!m.declared) {
           warnings.push(issue("INVALID_SHAPE", s.key,
             `« ${s.capability} » n'a pas de métadonnée déclarée : elle est traitée au plus prudent `
@@ -552,6 +611,36 @@ export function compile(
       // LA DÉPENDANCE IMPLICITE. Lire la sortie d'une étape, c'est en dépendre — l'écrire à la
       // main serait un oubli de plus à chaque replan, et l'oubli produirait une lecture de vide.
       if (s.forEach.from && !dependsOn.includes(s.forEach.from)) dependsOn.push(s.forEach.from);
+    }
+
+    /**
+     * ── LES RÉFÉRENCES `{{etape.chemin}}` : des dépendances implicites, et vérifiées ──────
+     *
+     * Le planificateur compose ses étapes en lisant la sortie des précédentes — c'est la forme
+     * promise par son schéma depuis toujours, et le moteur la résout désormais (runtime/
+     * interpolate.ts). Deux choses se décident ICI : lire une étape, c'est en dépendre (sinon la
+     * lecture précède l'écriture et lit du vide) ; et une référence vers une étape qui n'existe
+     * pas est une faute de plan, refusée avec les clés connues. Le chemin DANS la sortie, lui,
+     * n'est vérifiable qu'à l'exécution : le moteur échoue alors en nommant les champs rendus.
+     */
+    const alias = s.forEach?.as ? new Set([s.forEach.as]) : new Set<string>();
+    const clesConnues = [...vues, ...acquises];
+    for (const ref of [...referencesDe(entree), ...referencesDe(s.waitFor ?? null)]) {
+      const premier = ref.split(".")[0];
+      if (alias.has(premier)) continue;
+      const r = resoudreReference(ref, clesConnues);
+      if (!r) {
+        issues.push(issue("INVALID_INPUT", s.key,
+          `« {{${ref}}} » désigne une étape « ${premier} » qui n'existe pas dans le plan. Une référence `
+          + `s'écrit {{cle_etape.chemin}} avec la clé EXACTE d'une étape amont (clés du plan : `
+          + `${[...vues].slice(0, 12).join(", ")}).`));
+        continue;
+      }
+      if (r.cle === s.key) {
+        issues.push(issue("INVALID_SHAPE", s.key, "une étape ne peut pas lire sa propre sortie."));
+        continue;
+      }
+      if (!dependsOn.includes(r.cle)) dependsOn.push(r.cle);
     }
 
     // ── LA CONDITION ──────────────────────────────────────────────────────────────────
@@ -610,7 +699,7 @@ export function compile(
     // et qui n'est PAS un éventail ne peut avoir qu'un destinataire. Vouloir écrire à trente-
     // trois personnes se déclare avec `forEach` — ce qui produit trente-trois envois séparés,
     // trente-trois clés d'idempotence, trente-trois reçus.
-    const input = s.input ?? {};
+    const input = entree;
     if (EFFECT_RANK[effect] >= EFFECT_RANK.INTERNAL_REVERSIBLE_WRITE) {
       const n = nbDestinataires(input);
       if (n > 1 && !s.forEach) {
@@ -648,6 +737,42 @@ export function compile(
       spec: specDe(s),
       wave: 0,
     });
+  }
+
+  /**
+   * ── LA QUESTION DE CONFORT AU DEMANDEUR ────────────────────────────────────────────
+   *
+   * Banc m5, mission « prépare la négociation » : quatre lectures, une note de position, puis
+   * une attente humaine « validez-vous l'orientation ? » adressée au dirigeant — et RIEN n'en
+   * dépendait. La mission dormait donc sur une question dont la réponse ne servait à personne,
+   * alors que le livrable était prêt. « Mon attention est une ressource rare » : une question
+   * dont la réponse n'alimente aucune étape n'est pas un arbitrage, c'est une validation de
+   * confort. Refusée à la compilation, avec la règle de remplacement.
+   */
+  // LES CONSOMMATEURS d'une étape : ce qui en dépend, jonctions exclues — une JOIN ne lit rien,
+  // et la compter permettrait de « consommer » une réponse en fermant simplement le graphe.
+  const consommateurs = new Map<string, number>();
+  for (const c of compiled) {
+    if (c.nodeType === "JOIN") continue;
+    for (const d of c.dependsOn) consommateurs.set(d, (consommateurs.get(d) ?? 0) + 1);
+  }
+  const typeParCle = new Map(compiled.map((c) => [c.key, c.nodeType]));
+  const SYNTHESE_COMPILE: ReadonlySet<string> = new Set(["WORKER", "ARTIFACT", "QA"]);
+  for (const c of compiled) {
+    // La règle vise la question posée APRÈS UNE SYNTHÈSE (elle dépend d'un worker, d'un livrable
+    // ou d'un contrôle : « au vu de la note, validez-vous ? ») et dont rien ne dépend. Une
+    // attente humaine SANS amont (« attends que je te remette le contrat signé ») ou posée après
+    // des ACTIONS (« j'ai écrit à tous ; quelle est la référence du marché ? ») n'est pas une
+    // validation du travail : elle reste une attente — le demandeur a pu la demander telle quelle.
+    if (c.nodeType !== "WAIT_INPUT" || (consommateurs.get(c.key) ?? 0) > 0) continue;
+    if (!c.dependsOn.some((d) => SYNTHESE_COMPILE.has(typeParCle.get(d) ?? ""))) continue;
+    const from = typeof c.waitFor?.from === "string" ? c.waitFor.from : "";
+    if (!viseLeDemandeur(from, actor.label)) continue;
+    issues.push(issue("INVALID_SHAPE", c.key,
+      `« ${c.title} » pose au demandeur (${actor.label}), une fois le travail de synthèse fait, une `
+      + `question dont la réponse n'alimente aucune étape. Ce n'est pas un arbitrage, c'est une validation `
+      + `de confort : livre le résultat et conclus — le demandeur le lit. Si une décision conditionne `
+      + `vraiment la suite, les étapes qui en dépendent doivent exister et dépendre de cette attente.`));
   }
 
   // ── 4. LE GRAPHE ──────────────────────────────────────────────────────────────────────

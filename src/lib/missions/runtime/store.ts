@@ -42,6 +42,8 @@ export interface MaterialiserOptions {
 export interface EtatMission {
   id: string;
   status: MissionState;
+  /** La naissance de la mission — pour juger si elle s'est terminée « dans la foulée » de la demande. */
+  createdAt?: Date;
   ownerId: string;
   planVersion: number;
   maxConcurrency: number;
@@ -302,6 +304,7 @@ export async function chargerEtat(missionId: string): Promise<EtatMission | null
   return {
     id: m.id,
     status: m.status as MissionState,
+    createdAt: m.createdAt,
     ownerId: m.ownerId,
     planVersion: m.planVersion,
     maxConcurrency: m.maxConcurrency,

@@ -30,13 +30,24 @@ import type { NiveauSignal, SignalAttention } from "@/lib/missions/ports";
  */
 export const NIVEAUX: readonly NiveauSignal[] = ["SILENCE", "JOURNAL", "INFO", "ATTENTION", "ARBITRAGE"];
 
+/** Deux minutes : au-delà, la personne a pu quitter la conversation, et une fin de mission redevient une information. */
+export const DANS_LA_FOULEE_MS = 2 * 60 * 1000;
+
 /** Le niveau d'un signal — la table. */
 export function classer(s: SignalAttention): NiveauSignal {
   switch (s.kind) {
-    case "MISSION_COMPLETED":
+    case "MISSION_COMPLETED": {
+      const livrables = s.bilan?.livrables?.length ?? 0;
+      // TERMINÉE DANS LA FOULÉE DE LA DEMANDE, sans livrable ni effet externe : la personne est
+      // encore là, et la conversation vient de le lui dire. « Surveille cet appel d'offres et
+      // préviens-moi seulement s'il y a un problème » posait la surveillance en cinq secondes —
+      // puis poussait « Mission terminée » sur le téléphone. La ligne au journal suffit ; ce qui
+      // est parti à l'extérieur, ou un fichier qui attend, mérite toujours l'information.
+      if (livrables === 0 && !s.bilan?.effetsExternes && typeof s.dureeMs === "number" && s.dureeMs < DANS_LA_FOULEE_MS) return "JOURNAL";
       // Une mission sans aucun effet ni livrable (une lecture qui s'est faite toute seule) ne
       // vaut pas une interruption : la ligne au centre de notifications suffit.
-      return (s.bilan?.effets?.length ?? 0) + (s.bilan?.livrables?.length ?? 0) > 0 || (s.bilan?.total ?? 0) >= 3 ? "INFO" : "JOURNAL";
+      return (s.bilan?.effets?.length ?? 0) + livrables > 0 || (s.bilan?.total ?? 0) >= 3 ? "INFO" : "JOURNAL";
+    }
     case "MISSION_PARTIAL": return "INFO";
     case "MISSION_BLOCKED": return "ATTENTION";
     case "MISSION_FAILED": return "ATTENTION";
