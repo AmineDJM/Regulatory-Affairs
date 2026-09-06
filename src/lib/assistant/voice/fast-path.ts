@@ -257,6 +257,16 @@ function contactTarget(text: string): string | null {
  */
 export const CALCUL_EXPLICITE = /\b(monte.?carlo|loi (normale|triangulaire|uniforme|log.?normale|de poisson|pert)|probabilite de (perte|perdre|depasser|reussite)|p10|p90|percentile|percentiles|chemin critique|marge par heure|programmation lineaire|nombres entiers|prix marginal|prix marginaux|sac a dos|combien produire|allocation optimale|repartition optimale|affectation optimale|maximiser (la|le|les|notre|nos)|minimiser (la|le|les|notre|nos)|regression (lineaire|logistique|multiple)|test statistique|significativite|intervalle de confiance|composantes principales|k.?moyennes|silhouette|holt.?winters|saisonnalite|tirages|hors echantillon)\b/;
 
+/**
+ * UNE QUESTION DE RELATION EST UNE QUESTION DE GRAPHE (mandat 5 §40).
+ *
+ * « Comment le produit X est-il relié à la société Y ? » — mesuré au banc : la recherche
+ * documentaire y répondait « aucune chaîne n'est enregistrée » alors qu'un lien déclaré existait,
+ * à un intermédiaire de distance. Un faux négatif dit avec aplomb est le pire des résultats :
+ * il ferme la question. Chercher un CHEMIN n'est pas chercher un DOCUMENT.
+ */
+export const RESEAU_EXPLICITE = /\b(relie a|reliee a|relies a|reliees a|lie a|liee a|lies a|liees a|quel lien|quels liens|quelle relation|quelles relations|lien entre|liens entre|relation entre|relations entre|comment sommes nous lies|comment est.?il lie|comment est.?elle liee|chaine d.intermediaires|intermediaires entre|qui connait|qui relie|point de passage|si (il|elle|cette personne|ce contrat|ce fournisseur) (part|saute|disparait))\b/;
+
 const OTHER_DOMAIN = /\b(paiement|paiements|facture|factures|conge|conges|sponsoring|document|documents|fichier|fichiers|dossier|dossiers|contrat|contrats|salaire|salaires|salarie|salaries|employe|employes|commande|commandes|evenement|evenements|demande|demandes|stock|stocks|budget|engagement|engagements|recrutement|courrier|courriers|webhook|webhooks|faits? externes?|docusign|hubspot|iqvia|sap|signature|signatures|enveloppe|enveloppes|connecteur|connecteurs|ingestion|simulation|simule|simuler|monte.?carlo|tirages|optimis\\w*|maximis\\w*|minimis\\w*|allocation|chemin critique|ordonnanc\\w*|planning|gantt|regression|correlation|segmentation|clustering|prevision|previsions|anomalies|statistique|statistiques)\b/;
 
 /**
@@ -374,8 +384,8 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
   // « planning », « dossier », « budget » sont des mots de décor ; « chemin critique », « loi
   // triangulaire », « probabilité de perte » nomment une MÉTHODE. Quand la phrase porte sa
   // propre arithmétique, la lire comme un agenda rend « aucune donnée » — faux, et sûr de soi.
-  if (CALCUL_EXPLICITE.test(text)) {
-    return { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "problème à calculer — les moteurs, pas une lecture" };
+  if (CALCUL_EXPLICITE.test(text) || RESEAU_EXPLICITE.test(text)) {
+    return { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "problème à calculer ou à parcourir — les moteurs, pas une lecture" };
   }
 
   // ── 1. L'ACCORD — « envoie-le », « vas-y », « je confirme » ─────────────────────────────

@@ -110,3 +110,97 @@ export function normalizeCity(raw: string | null | undefined): string | null {
 export function isKnownWilaya(raw: string | null | undefined): boolean {
   return findWilaya(raw) !== null;
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES COORDONNÉES DES CHEFS-LIEUX (mandat 5 §40).
+ *
+ * Ce dépôt n'a pas de service de géocodage, et l'ERP ne stocke pas de coordonnées : il stocke des
+ * WILAYAS. Sans cette table, « montre-moi nos clients sur une carte » resterait une ressource
+ * manquante pour toujours. Avec elle, la wilaya devient un point, et tout le moteur géospatial
+ * s'applique aux données réelles — distances, tournées, territoires, densités.
+ *
+ * Ce que ces points SONT : le chef-lieu, le siège administratif de la wilaya, au centième de degré
+ * (environ un kilomètre). Ce qu'ils NE SONT PAS : le centre de gravité de la wilaya, ni l'adresse
+ * exacte d'un client. Une wilaya du Sud fait la taille d'un pays européen ; y placer un client sur
+ * son chef-lieu peut le déplacer de 300 km. Le code le dit à chaque usage plutôt que de le taire.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export const COORDONNEES_WILAYAS: Readonly<Record<string, { lat: number; lon: number }>> = {
+  "01": { lat: 27.87, lon: -0.29 },   // Adrar
+  "02": { lat: 36.17, lon: 1.33 },    // Chlef
+  "03": { lat: 33.80, lon: 2.87 },    // Laghouat
+  "04": { lat: 35.87, lon: 7.11 },    // Oum El Bouaghi
+  "05": { lat: 35.56, lon: 6.17 },    // Batna
+  "06": { lat: 36.75, lon: 5.08 },    // Béjaïa
+  "07": { lat: 34.85, lon: 5.73 },    // Biskra
+  "08": { lat: 31.62, lon: -2.22 },   // Béchar
+  "09": { lat: 36.47, lon: 2.83 },    // Blida
+  "10": { lat: 36.38, lon: 3.90 },    // Bouira
+  "11": { lat: 22.79, lon: 5.52 },    // Tamanrasset
+  "12": { lat: 35.40, lon: 8.12 },    // Tébessa
+  "13": { lat: 34.88, lon: -1.32 },   // Tlemcen
+  "14": { lat: 35.37, lon: 1.32 },    // Tiaret
+  "15": { lat: 36.72, lon: 4.05 },    // Tizi Ouzou
+  "16": { lat: 36.75, lon: 3.06 },    // Alger
+  "17": { lat: 34.67, lon: 3.26 },    // Djelfa
+  "18": { lat: 36.82, lon: 5.77 },    // Jijel
+  "19": { lat: 36.19, lon: 5.41 },    // Sétif
+  "20": { lat: 34.83, lon: 0.15 },    // Saïda
+  "21": { lat: 36.88, lon: 6.91 },    // Skikda
+  "22": { lat: 35.19, lon: -0.63 },   // Sidi Bel Abbès
+  "23": { lat: 36.90, lon: 7.77 },    // Annaba
+  "24": { lat: 36.46, lon: 7.43 },    // Guelma
+  "25": { lat: 36.37, lon: 6.61 },    // Constantine
+  "26": { lat: 36.26, lon: 2.75 },    // Médéa
+  "27": { lat: 35.93, lon: 0.09 },    // Mostaganem
+  "28": { lat: 35.70, lon: 4.54 },    // M'Sila
+  "29": { lat: 35.40, lon: 0.14 },    // Mascara
+  "30": { lat: 31.95, lon: 5.33 },    // Ouargla
+  "31": { lat: 35.70, lon: -0.63 },   // Oran
+  "32": { lat: 33.68, lon: 1.02 },    // El Bayadh
+  "33": { lat: 26.48, lon: 8.47 },    // Illizi
+  "34": { lat: 36.07, lon: 4.76 },    // Bordj Bou Arréridj
+  "35": { lat: 36.77, lon: 3.48 },    // Boumerdès
+  "36": { lat: 36.77, lon: 8.31 },    // El Tarf
+  "37": { lat: 27.67, lon: -8.15 },   // Tindouf
+  "38": { lat: 35.61, lon: 1.81 },    // Tissemsilt
+  "39": { lat: 33.37, lon: 6.86 },    // El Oued
+  "40": { lat: 35.44, lon: 7.14 },    // Khenchela
+  "41": { lat: 36.29, lon: 7.95 },    // Souk Ahras
+  "42": { lat: 36.59, lon: 2.45 },    // Tipaza
+  "43": { lat: 36.45, lon: 6.26 },    // Mila
+  "44": { lat: 36.26, lon: 1.97 },    // Aïn Defla
+  "45": { lat: 33.27, lon: -0.31 },   // Naâma
+  "46": { lat: 35.30, lon: -1.14 },   // Aïn Témouchent
+  "47": { lat: 32.49, lon: 3.67 },    // Ghardaïa
+  "48": { lat: 35.74, lon: 0.56 },    // Relizane
+  "49": { lat: 29.26, lon: 0.24 },    // Timimoun
+  "50": { lat: 21.33, lon: 0.95 },    // Bordj Badji Mokhtar
+  "51": { lat: 34.42, lon: 5.07 },    // Ouled Djellal
+  "52": { lat: 30.13, lon: -2.17 },   // Béni Abbès
+  "53": { lat: 27.20, lon: 2.48 },    // In Salah
+  "54": { lat: 19.57, lon: 5.77 },    // In Guezzam
+  "55": { lat: 33.11, lon: 6.06 },    // Touggourt
+  "56": { lat: 24.55, lon: 9.48 },    // Djanet
+  "57": { lat: 33.95, lon: 5.92 },    // El M'Ghair
+  "58": { lat: 30.58, lon: 2.88 },    // El Meniaa
+};
+
+/** Les bornes de l'Algérie — tout point hors de là est une erreur de saisie, pas un lieu. */
+export const BORNES_ALGERIE = { sud: 18.9, nord: 37.2, ouest: -8.7, est: 12.1 } as const;
+
+/**
+ * LA WILAYA DEVIENT UN POINT — par son code, son nom, ou un texte qui la contient.
+ * Rend `null` sur ce qu'on ne reconnaît pas : un point faux est pire qu'un point absent.
+ */
+export function coordonneesDe(raw: string | null | undefined): { lat: number; lon: number; wilaya: Wilaya; precision: "chef-lieu" } | null {
+  const w = findWilaya(raw);
+  if (!w) return null;
+  const c = COORDONNEES_WILAYAS[w.code];
+  return c ? { ...c, wilaya: w, precision: "chef-lieu" } : null;
+}
+
+/** L'avertissement à porter partout où un chef-lieu tient lieu d'adresse. */
+export const AVERTISSEMENT_CHEF_LIEU =
+  "Chaque lieu est placé au CHEF-LIEU de sa wilaya, pas à son adresse exacte : dans le Sud, l'écart peut atteindre plusieurs centaines de kilomètres. Les distances sont des ordres de grandeur entre wilayas, pas des trajets.";

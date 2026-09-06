@@ -216,6 +216,10 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   calcul_optimisation: ["DATA", "FINANCE", "GENERAL"],
   calcul_ordonnancement: ["DATA", "MISSION", "CALENDAR", "GENERAL"],
   calcul_statistiques: ["DATA", "FINANCE", "GENERAL"],
+  // Le réseau et la carte (mandat 5 §40) : « comment sommes-nous liés à X », « qui est le point de
+  // passage », « où poser le dépôt » ne sont pas des questions de module — elles traversent tout.
+  reseau_entreprise: ["DATA", "DIRECTORY", "GENERAL"],
+  carte_territoire: ["DATA", "DIRECTORY", "GENERAL"],
   time_travel: ["GENERAL"],
   investigate_event: ["GENERAL"],
   process_insights: ["GENERAL"],

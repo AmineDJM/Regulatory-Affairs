@@ -1,5 +1,6 @@
+import { distanceKm } from "./distance";
 import { describe, it, expect } from "vitest";
-import { WILAYAS, wilayaOptions, findWilaya, normalizeCity, isKnownWilaya } from "./algeria";
+import { AVERTISSEMENT_CHEF_LIEU, BORNES_ALGERIE, COORDONNEES_WILAYAS, WILAYAS, coordonneesDe, findWilaya, isKnownWilaya, normalizeCity, wilayaOptions } from "./algeria";
 
 describe("le référentiel des wilayas", () => {
   it("EN COMPTE 58 — le découpage en vigueur depuis 2019", () => {
@@ -76,5 +77,55 @@ describe("ce qu'on affiche de l'existant", () => {
   it("sait dire si la valeur vient du référentiel — pour signaler une saisie ancienne", () => {
     expect(isKnownWilaya("Alger")).toBe(true);
     expect(isKnownWilaya("Alger centre")).toBe(false);
+  });
+});
+
+describe("les coordonnées des chefs-lieux", () => {
+  it("les 58 wilayas ont un point, et tous sont EN Algérie", () => {
+    expect(Object.keys(COORDONNEES_WILAYAS).length).toBe(WILAYAS.length);
+    for (const w of WILAYAS) {
+      const c = COORDONNEES_WILAYAS[w.code];
+      expect(c, `${w.code} ${w.name}`).toBeTruthy();
+      expect(c!.lat, `${w.name} latitude`).toBeGreaterThanOrEqual(BORNES_ALGERIE.sud);
+      expect(c!.lat, `${w.name} latitude`).toBeLessThanOrEqual(BORNES_ALGERIE.nord);
+      expect(c!.lon, `${w.name} longitude`).toBeGreaterThanOrEqual(BORNES_ALGERIE.ouest);
+      expect(c!.lon, `${w.name} longitude`).toBeLessThanOrEqual(BORNES_ALGERIE.est);
+    }
+  });
+
+  it("aucun doublon : deux wilayas ne partagent pas un point", () => {
+    const vus = new Map<string, string>();
+    for (const [code, c] of Object.entries(COORDONNEES_WILAYAS)) {
+      const cle = `${c.lat},${c.lon}`;
+      expect(vus.has(cle), `${code} partage un point avec ${vus.get(cle)}`).toBe(false);
+      vus.set(cle, code);
+    }
+  });
+
+  it("les villes connues tombent au bon endroit et les distances sont crédibles", () => {
+    const alger = coordonneesDe("Alger")!;
+    expect(alger.wilaya.code).toBe("16");
+    expect(distanceKm(alger, { lat: 36.7538, lon: 3.0588 })).toBeLessThan(5);
+    const oran = coordonneesDe("31")!;
+    expect(oran.wilaya.name).toBe("Oran");
+    // Alger–Oran ≈ 350 km, Alger–Tamanrasset ≈ 1 550 km, Alger–Constantine ≈ 320 km.
+    expect(distanceKm(alger, oran)).toBeGreaterThan(320);
+    expect(distanceKm(alger, oran)).toBeLessThan(380);
+    expect(distanceKm(alger, coordonneesDe("Tamanrasset")!)).toBeGreaterThan(1450);
+    expect(distanceKm(alger, coordonneesDe("Tamanrasset")!)).toBeLessThan(1650);
+    expect(distanceKm(alger, coordonneesDe("Constantine")!)).toBeGreaterThan(290);
+    expect(distanceKm(alger, coordonneesDe("Constantine")!)).toBeLessThan(350);
+    // Le nord est au nord : Alger, Oran, Annaba au-dessus de 35° ; le Sahara en dessous de 30°.
+    for (const nord of ["Alger", "Oran", "Annaba", "Constantine", "Tlemcen"]) expect(coordonneesDe(nord)!.lat).toBeGreaterThan(34);
+    for (const sud of ["Tamanrasset", "Adrar", "Illizi", "In Guezzam", "Djanet"]) expect(coordonneesDe(sud)!.lat).toBeLessThan(30);
+  });
+
+  it("un texte inconnu ne rend PAS de point : un point faux est pire qu'un point absent", () => {
+    expect(coordonneesDe("Casablanca")).toBeNull();
+    expect(coordonneesDe("")).toBeNull();
+    expect(coordonneesDe(null)).toBeNull();
+    expect(coordonneesDe("99")).toBeNull();
+    expect(coordonneesDe("alger")!.precision).toBe("chef-lieu");
+    expect(AVERTISSEMENT_CHEF_LIEU).toMatch(/CHEF-LIEU/);
   });
 });

@@ -184,6 +184,11 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // droit de leur source, nœud par nœud) et rendent un calcul. Un droit de module ici
       // n'interdirait rien : il fermerait l'arithmétique à qui a déjà le droit de voir les données.
       "calcul_montecarlo", "calcul_optimisation", "calcul_ordonnancement", "calcul_statistiques",
+      // Le réseau et la carte (§40) : ouverts parce que le PONT filtre ENTITÉ PAR ENTITÉ
+      // (`peutVoir` dans `platform/in-process/reseau/`). Un module qu'on ne voit pas ne fournit
+      // aucun nœud, donc aucun chemin ne passe par lui : le graphe de deux personnes aux droits
+      // différents n'est pas le même. Un droit de module ICI serait plus grossier, pas plus sûr.
+      "reseau_entreprise", "carte_territoire",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

@@ -1101,4 +1101,93 @@ Article 16 — Droit applicable. Le présent contrat est régi par le droit fran
       return m;
     },
   },
+  {
+    /**
+     * COMMENT SOMMES-NOUS LIÉS ? — la question qu'aucune jointure ne répond. Le décor est posé par
+     * le défi : un produit relié à une personne, elle-même employée d'une société. La réponse doit
+     * NOMMER l'intermédiaire, pas conclure « ils sont liés ». Le juge refait le chemin avec le
+     * moteur et exige que le récit d'Adam passe par les mêmes nœuds.
+     */
+    id: "defi-reseau-chemin", categorie: "RESEAU",
+    tours: ["Comment le produit « Zetriscan (banc réseau) » est-il relié à la société « Pharmalliance (banc réseau) » ? Donne la chaîne exacte des intermédiaires."],
+    neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /pas pr[ée]vu/i],
+    avant: async (ctx) => {
+      // Le décor : une société, une employée, un produit — et UN lien déclaré à la main.
+      await ctx.prisma.entityLink.deleteMany({ where: { fromLabel: { contains: "banc réseau" } } }).catch(() => undefined);
+      await ctx.prisma.regulatoryProduct.deleteMany({ where: { brandName: { contains: "banc réseau" } } }).catch(() => undefined);
+      await ctx.prisma.employee.deleteMany({ where: { fullName: { contains: "banc réseau" } } }).catch(() => undefined);
+      await ctx.prisma.company.deleteMany({ where: { name: { contains: "banc réseau" } } }).catch(() => undefined);
+      const societe = await ctx.prisma.company.create({ data: { name: "Pharmalliance (banc réseau)" } });
+      const emp = await ctx.prisma.employee.create({ data: { fullName: "Ryad Hamadi (banc réseau)", companyId: societe.id, hireDate: new Date("2021-03-01"), isActive: true } });
+      const produit = await ctx.prisma.regulatoryProduct.create({ data: { dci: "zetriscan-banc", brandName: "Zetriscan (banc réseau)", reference: `BANC-RES-${Date.now().toString(36)}` } });
+      await ctx.prisma.entityLink.create({
+        data: { fromType: "REGULATORY_PRODUCT", fromId: produit.id, fromLabel: "Zetriscan (banc réseau)", toType: "EMPLOYEE", toId: emp.id, toLabel: "Ryad Hamadi (banc réseau)", note: "porte le dossier" },
+      });
+    },
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      if (!ctx.outils.includes("reseau_entreprise")) m.push(`reseau_entreprise non appelé (outils : ${ctx.outils.join(", ") || "aucun"})`);
+      // L'INTERMÉDIAIRE doit être nommé : c'est toute la valeur d'un chemin.
+      if (!/hamadi/i.test(ctx.reponse)) m.push("l'intermédiaire (Ryad Hamadi) n'est pas nommé : « ils sont liés » sans dire par qui ne répond pas à la question");
+      if (!/pharmalliance/i.test(ctx.reponse)) m.push("la société d'arrivée n'est pas citée");
+      if (!/zetriscan/i.test(ctx.reponse)) m.push("le produit de départ n'est pas cité");
+      // Le juge REFAIT le chemin avec le moteur, sous les mêmes droits.
+      const { reseauErp, plusCourtChemin, nom } = await import("@/platform/in-process/reseau");
+      const r = await reseauErp(ctx.pdg);
+      if ("erreur" in r) { m.push(`le moteur de référence n'a pas pu construire le réseau : ${r.erreur}`); return m; }
+      const produit = [...r.graphe.noeuds.values()].find((n) => /Zetriscan \(banc réseau\)/.test(n.libelle));
+      const societe = [...r.graphe.noeuds.values()].find((n) => /Pharmalliance \(banc réseau\)/.test(n.libelle));
+      if (!produit || !societe) { m.push("le décor du défi n'est pas dans le graphe : défi non concluant"); return m; }
+      const chemin = plusCourtChemin(r.graphe, produit.id, societe.id, { orientation: "libre" });
+      if (!chemin) { m.push("le moteur ne trouve aucun chemin : décor incomplet, défi non concluant"); return m; }
+      // Chaque intermédiaire du chemin de référence doit apparaître dans la réponse.
+      for (const etape of chemin.etapes.slice(0, -1)) {
+        const libelle = nom(r.graphe, etape.a).replace(/\s*\(banc réseau\)/, "");
+        if (!new RegExp(libelle.split(" ")[0]!, "i").test(ctx.reponse)) m.push(`l'intermédiaire « ${libelle} » du chemin réel n'est pas dans la réponse`);
+      }
+      return m;
+    },
+  },
+  {
+    /**
+     * LA GÉOGRAPHIE CONTRE L'INTUITION — l'ordre naïf des villes coûte des centaines de kilomètres
+     * de plus, et le meilleur dépôt n'est pas Alger parce qu'Alger est la capitale : c'est celui
+     * qui minimise la distance pondérée. Le juge refait la tournée et le choix avec le moteur.
+     */
+    id: "defi-carte-tournee", categorie: "RESEAU",
+    tours: [
+      "Notre délégué doit visiter dans le même déplacement : Oran, Constantine, Alger, Tlemcen, Annaba, Béjaïa et Sétif. Il part d'Alger et y revient. "
+      + "Dans quel ORDRE doit-il les visiter pour rouler le moins possible, combien de kilomètres cela fait-il, et combien gagne-t-il par rapport à l'ordre où je viens de les citer ?",
+    ],
+    neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /pas pr[ée]vu/i],
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      if (!ctx.outils.includes("carte_territoire")) m.push(`carte_territoire non appelé (outils : ${ctx.outils.join(", ") || "aucun"})`);
+      const { coordonneesDe, tournee } = await import("@/platform/in-process/reseau");
+      const noms = ["Oran", "Constantine", "Alger", "Tlemcen", "Annaba", "Béjaïa", "Sétif"];
+      const lieux = noms.map((n) => { const c = coordonneesDe(n)!; return { id: n, libelle: n, lat: c.lat, lon: c.lon }; });
+      const ref = tournee(lieux, { depart: "Alger", boucle: true });
+      if ("erreur" in ref) { m.push("le moteur de référence a refusé la tournée : défi non concluant"); return m; }
+      // La distance annoncée doit être du bon ordre (±25 % de la tournée optimisée, à vol d'oiseau
+      // ou majorée par la route — les deux sont acceptables si le mot le dit).
+      const montants = [...ctx.reponse.matchAll(/(\d[\d\s\u00a0\u202f.,]*)\s*km/gi)]
+        .map((x) => Number(x[1]!.replace(/[\s\u00a0\u202f.]/g, "").replace(",", ".")))
+        .filter((x) => Number.isFinite(x) && x > 100);
+      const attendues = [ref.distanceKm, ref.distanceKm * 1.3];
+      if (!montants.some((x) => attendues.some((a) => Math.abs(x - a) <= a * 0.25))) {
+        m.push(`aucune distance crédible : le moteur dit ${Math.round(ref.distanceKm)} km à vol d'oiseau (≈ ${Math.round(ref.distanceKm * 1.3)} km par la route), la réponse cite ${montants.length ? montants.map((x) => `${x} km`).join(", ") : "aucun kilométrage"}`);
+      }
+      // L'ORDRE : les deux villes de l'ouest doivent se suivre, et les trois de l'est aussi —
+      // c'est ce qu'un ordre optimisé fait toujours, et ce que l'ordre cité ne fait pas.
+      const position = (ville: string) => ctx.reponse.toLowerCase().indexOf(ville.toLowerCase());
+      const oran = position("oran"), tlemcen = position("tlemcen");
+      if (oran < 0 || tlemcen < 0) m.push("toutes les villes ne sont pas reprises dans la réponse");
+      else if (Math.abs(oran - tlemcen) > 400) m.push("Oran et Tlemcen (les deux villes de l'Ouest) ne se suivent pas dans l'ordre proposé : la tournée croise");
+      // Le GAIN doit être dit, puisque la question le demande.
+      if (!/(gain|économis|au lieu de|contre|de moins|%)/i.test(ctx.reponse)) m.push("le gain par rapport à l'ordre cité n'est pas donné");
+      // Et la limite du vol d'oiseau doit remonter à la personne.
+      if (!/(vol d'oiseau|à vol d.oiseau|route|routier|estimation|approximat)/i.test(ctx.reponse)) m.push("la limite (distances à vol d'oiseau, sans les routes) n'est pas dite");
+      return m;
+    },
+  },
 ];
