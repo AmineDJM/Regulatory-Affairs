@@ -210,6 +210,12 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   attach_inbound_event: ["GENERAL"],
   // L'audio et la vidéo (mandat 5 §38) : un enregistrement est un document du Drive, souvent une réunion.
   media_transcript: ["DRIVE", "CALENDAR", "GENERAL"],
+  // Les moteurs de calcul (mandat 5 §39) : le chiffre est produit par le code. L'optimisation et
+  // l'ordonnancement servent aussi une question de finance ou de planning, pas seulement de données.
+  calcul_montecarlo: ["DATA", "FINANCE", "GENERAL"],
+  calcul_optimisation: ["DATA", "FINANCE", "GENERAL"],
+  calcul_ordonnancement: ["DATA", "MISSION", "CALENDAR", "GENERAL"],
+  calcul_statistiques: ["DATA", "FINANCE", "GENERAL"],
   time_travel: ["GENERAL"],
   investigate_event: ["GENERAL"],
   process_insights: ["GENERAL"],

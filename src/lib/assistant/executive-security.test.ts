@@ -179,6 +179,11 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // que la papeterie. dossier_build : trois NOUVEAUX fichiers dans le Drive personnel, comme
       // sheet_build et deck_build. document_build n'est PAS ici : il est fermé par `peutEmettrePieces`.
       "document_profile", "dossier_build",
+      // Les moteurs de calcul (§39) : MÊME RAISON QUE run_analysis — ils ne lisent RIEN. Ils
+      // reçoivent des nombres (déclarés dans l'appel, ou chargés par le bac à sable qui porte le
+      // droit de leur source, nœud par nœud) et rendent un calcul. Un droit de module ici
+      // n'interdirait rien : il fermerait l'arithmétique à qui a déjà le droit de voir les données.
+      "calcul_montecarlo", "calcul_optimisation", "calcul_ordonnancement", "calcul_statistiques",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

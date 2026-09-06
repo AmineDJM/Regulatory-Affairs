@@ -350,3 +350,60 @@ test("un fait externe poussé par webhook (signé) est reçu, rattaché et lisib
   expect(type, r.reponse.slice(0, 300)).toBe(true);
   expect(r.totalMs).toBeLessThan(BUDGET.questionMs);
 });
+
+test("une question de risque posée dans l'interface passe par le moteur : percentiles, probabilité de perte, leviers et rigueur (§39)", async ({ page }) => {
+  test.slow();
+  await login(page, VERITES.pdg.email);
+  await ouvrirBureau(page);
+  const depuis = new Date();
+  const r = await poser(
+    page,
+    "Simulation de risque, avec les chiffres que je te donne. Volume annuel incertain : loi triangulaire entre 8 000 et 20 000 boîtes, 12 000 le plus probable. "
+    + "Prix unitaire : loi normale, moyenne 480 DZD, écart-type 60. Coût variable unitaire : loi PERT entre 300 et 420, mode 340. Coûts fixes 1 600 000 DZD. "
+    + "Quelle est la probabilité de perdre de l'argent, quelle est la fourchette de marge P10–P90, et quel est le levier principal ?",
+    BUDGET.actionMs,
+  );
+  const refus = /je ne peux pas|pas d'outil|pas pr[ée]vu/i.test(r.reponse);
+  expect(refus, r.reponse.slice(0, 300)).toBe(false);
+
+  // LE JUGE REFAIT LA SIMULATION avec le moteur — le même modèle, 100 000 tirages, trois graines.
+  // Le moteur PUR est importé directement : Playwright ne résout pas l'alias `@/` du pont, et
+  // `lib/calcul/` n'en a pas besoin — il n'importe que ses voisins, par chemin relatif.
+  const { simuler } = await import("../src/lib/calcul/montecarlo");
+  const modele = {
+    entrees: {
+      volume: { loi: "triangulaire" as const, min: 8000, mode: 12000, max: 20000 },
+      prix: { loi: "normale" as const, moyenne: 480, ecartType: 60 },
+      cout_variable: { loi: "pert" as const, min: 300, mode: 340, max: 420 },
+    },
+    constantes: { fixes: 1_600_000 },
+    formules: { marge: "volume * (prix - cout_variable) - fixes" },
+    seuils: [{ sens: "inferieur" as const, valeur: 0, libelle: "perte" }],
+  };
+  const refs = [1, 2, 3].map((g) => simuler(modele, { tirages: 100_000, graine: g })).filter((x) => x.ok) as Extract<ReturnType<typeof simuler>, { ok: true }>[];
+  expect(refs.length, "le moteur de référence doit simuler").toBe(3);
+  const pPerte = (refs.reduce((a, x) => a + x.sorties.marge!.pNegatif, 0) / refs.length) * 100;
+  const p10 = refs.reduce((a, x) => a + x.sorties.marge!.percentiles.P10!, 0) / refs.length;
+  const p90 = refs.reduce((a, x) => a + x.sorties.marge!.percentiles.P90!, 0) / refs.length;
+
+  const pourcents = [...r.reponse.matchAll(/(\d{1,3}(?:[.,]\d+)?)\s*(?:%|pour cent)/gi)].map((x) => Number(x[1]!.replace(",", ".")));
+  const probaJuste = pourcents.some((x) => Math.abs(x - pPerte) <= 6);
+  const montants = [...r.reponse.matchAll(/-?\d[\d\s  .,]{2,}/g)]
+    .map((x) => Number(x[0]!.replace(/[\s  .]/g, "").replace(",", ".")))
+    .filter((x) => Number.isFinite(x) && Math.abs(x) > 10_000);
+  const proche = (cible: number) => montants.some((x) => Math.abs(Math.abs(x) - Math.abs(cible)) <= Math.abs(cible) * 0.25);
+  const fourchette = proche(p10) && proche(p90);
+  const levier = /prix/i.test(r.reponse);
+  // La RIGUEUR doit remonter jusqu'à la personne : un chiffre de risque sans son incertitude est une certitude fausse.
+  const rigueur = /(hypoth[èe]se|ind[ée]pendan|tirages|simulation|incertitude|corr[ée]l)/i.test(r.reponse);
+
+  await consigner("calcul-montecarlo-ui", "risque de lancement", pdgId, depuis, r, probaJuste && fourchette && levier,
+    `moteur : perte ${pPerte.toFixed(1)} % · P10 ${Math.round(p10)} · P90 ${Math.round(p90)} — réponse : ${pourcents.map((x) => `${x} %`).join(", ") || "aucun %"}`);
+  expect(probaJuste, `probabilité de perte fausse ou absente (moteur ${pPerte.toFixed(1)} %) — ${r.reponse.slice(0, 400)}`).toBe(true);
+  expect(fourchette, `fourchette P10 ≈ ${Math.round(p10)} / P90 ≈ ${Math.round(p90)} non rendue — ${r.reponse.slice(0, 400)}`).toBe(true);
+  expect(levier, `le levier principal (le prix) n'est pas nommé — ${r.reponse.slice(0, 300)}`).toBe(true);
+  expect(rigueur, `la rigueur (hypothèses, indépendance, tirages) n'est pas reprise — ${r.reponse.slice(0, 300)}`).toBe(true);
+  // Le résultat s'affiche sans déborder : un tableau de percentiles est large.
+  const deborde = (await page.evaluate(MESURE_DEBORDEMENTS)) as { tag: string }[];
+  expect(deborde, JSON.stringify(deborde, null, 1)).toEqual([]);
+});

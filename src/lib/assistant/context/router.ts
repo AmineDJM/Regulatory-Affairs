@@ -1,4 +1,4 @@
-import { routeVoiceUtterance, normalizeUtterance, isOutboundMail, type VoiceContext, type VoiceRouteKind } from "@/lib/assistant/voice/fast-path";
+import { CALCUL_EXPLICITE, routeVoiceUtterance, normalizeUtterance, isOutboundMail, type VoiceContext, type VoiceRouteKind } from "@/lib/assistant/voice/fast-path";
 import type { BudgetTier } from "./budget";
 
 /**
@@ -216,7 +216,7 @@ const DOMAIN_SIGNALS: [Domain, RegExp][] = [
   // sans ambiguïté fait de DATA le domaine PRINCIPAL ; « analyse », « calcule », « tendance »,
   // « par mois » sont des mots de toute question métier — ils ouvrent DATA en domaine SECONDAIRE
   // (voir `DATA_SECONDAIRE`), sans détourner la question de son domaine (finance, tâches…).
-  ["DATA", /\b(requete sql|requetes sql|en sql|sql|graphique|graphiques|camembert|histogramme|nuage de points|visualisation|visualise|visualiser|tableau croise|pivot|cohorte|cohortes|mediane|moyenne mobile|correlation|regression|serie temporelle|series temporelles|percentile|ecart type|python|javascript|bac a sable|scenario|scenarios|simule|simuler|simulation)\b/],
+  ["DATA", /\b(requete sql|requetes sql|en sql|sql|graphique|graphiques|camembert|histogramme|nuage de points|visualisation|visualise|visualiser|tableau croise|pivot|cohorte|cohortes|mediane|moyenne mobile|correlation|regression|serie temporelle|series temporelles|percentile|ecart type|python|javascript|bac a sable|scenario|scenarios|simule|simuler|simulation|monte.?carlo|tirages|percentile|percentiles|probabilite de perte|optimisation|optimiser|optimal|optimale|maximiser|minimiser|programmation lineaire|prix marginal|chemin critique|ordonnancement|ordonnancer|diagramme de gantt|gantt|clustering|segmentation|segmenter|classification|composantes principales|test statistique|significativite|intervalle de confiance|saisonnalite|previsionnel)\b/],
 ];
 
 /**
@@ -345,11 +345,16 @@ export function domainesSecondaires(texteNormalise: string): Domain[] {
 export function consigneCalcul(raw: string): string | null {
   const texte = normalizeUtterance(stripPreamble(raw));
   const signal = DOMAIN_SIGNALS.find(([d]) => d === "DATA")?.[1];
-  if (!(signal && signal.test(texte)) && !DATA_SECONDAIRE.test(texte)) return null;
+  if (!(signal && signal.test(texte)) && !DATA_SECONDAIRE.test(texte) && !CALCUL_EXPLICITE.test(texte)) return null;
   return "CALCUL PAR LE CODE : cette question demande un chiffre DÉRIVÉ (total, écart, variation, tendance, série, scénario, médiane, part, classement) "
     + "ou un graphique. Tout chiffre dérivé sort d'un outil du bac à sable — sql_query (vue globale, jointures/agrégats à la source), "
     + "run_analysis (étapes vérifiées : filtrer, regrouper, série, croissance, tendance, scénario, anomalies, cohortes), run_code (JS/Python isolé) — "
-    + "JAMAIS de tête, même pour une multiplication. Pour « quel graphique ? », appelle chart_advice. Pour MONTRER (graphique, évolution, répartition, tableau de bord, Gantt, réseau, carte), appelle render_view : le code compose la figure sous la réponse — ne dessine jamais un graphique en texte, ne recopie pas ses chiffres. Cite le résultat rendu par l'outil, avec sa source, "
+    + "JAMAIS de tête, même pour une multiplication. "
+    + "MOTEURS DE CALCUL quand la question le demande : calcul_montecarlo (une décision dépend de quantités INCERTAINES : percentiles, probabilité de perte, leviers — ne jamais raisonner sur des moyennes), "
+    + "calcul_optimisation (allouer, mélanger, affecter sous contraintes : optimum ET prix marginaux ; ou un planning sous règles logiques), "
+    + "calcul_ordonnancement (chemin critique, marges, ressources, échéance), calcul_statistiques (régression, test, corrélation, segmentation, ACP, anomalies, prévision validée hors échantillon) — "
+    + "chacun rend sa RIGUEUR (hypothèses, limites, avertissements) : la REPRENDRE dans la réponse, un chiffre livré sans elle se lit comme une certitude qu'il n'est pas. "
+    + "Pour « quel graphique ? », appelle chart_advice. Pour MONTRER (graphique, évolution, répartition, tableau de bord, Gantt, réseau, carte), appelle render_view : le code compose la figure sous la réponse — ne dessine jamais un graphique en texte, ne recopie pas ses chiffres. Cite le résultat rendu par l'outil, avec sa source, "
     + "et dis quand une hypothèse a été appliquée.";
 }
 
@@ -427,6 +432,19 @@ function routerPrincipal(raw: string, ctx: RouterContext = {}): QueryRoute {
   if (MEETING_PREP.test(text)) {
     return build("DEEP_REASONING", "préparation de réunion — lire et synthétiser ce qui attend", {
       domain: "CALENDAR", confidence: 0.85,
+    });
+  }
+
+  // ── 2 ter. UN PROBLÈME À CALCULER EST UN PROBLÈME À CALCULER (mandat 5 §39) ────────────
+  // Mesuré au banc : « Dossier ANPP, planning : la rédaction prend 6 jours… en combien de jours
+  // le dossier part-il ? » partait en lecture d'agenda et répondait « aucune donnée sur le
+  // planning » — alors que la phrase contenait TOUTES ses données. Le décor (« dossier »,
+  // « planning », « produits ») nomme un domaine ; « chemin critique », « loi triangulaire »,
+  // « prix marginal » nomment une MÉTHODE, et la méthode décide. DATA en domaine principal :
+  // c'est là que vivent les moteurs de calcul.
+  if (CALCUL_EXPLICITE.test(text)) {
+    return build("DEEP_REASONING", "problème à calculer — les moteurs de calcul avant toute lecture", {
+      domain: "DATA", confidence: 0.9,
     });
   }
 

@@ -243,7 +243,21 @@ function contactTarget(text: string): string | null {
  * objet. Quand un nom de domaine concurrent est présent, on rend la main : le chemin complet sait
  * lire une facture, un congé ou un document ; le raccourci, non.
  */
-const OTHER_DOMAIN = /\b(paiement|paiements|facture|factures|conge|conges|sponsoring|document|documents|fichier|fichiers|dossier|dossiers|contrat|contrats|salaire|salaires|salarie|salaries|employe|employes|commande|commandes|evenement|evenements|demande|demandes|stock|stocks|budget|engagement|engagements|recrutement|courrier|courriers|webhook|webhooks|faits? externes?|docusign|hubspot|iqvia|sap|signature|signatures|enveloppe|enveloppes|connecteur|connecteurs|ingestion)\b/;
+/**
+ * UN PROBLÈME À CALCULER N'EST PAS UNE LECTURE (mandat 5 §39).
+ *
+ * « Dossier ANPP, planning : la rédaction prend 6 jours… en combien de jours le dossier part-il ? »
+ * porte le mot « planning », et la voie rapide y lisait un AGENDA : `read_calendar` rendait
+ * « aucune donnée sur le planning » — une réponse fausse et sûre d'elle, alors que la phrase
+ * contenait TOUTES ses données. Le banc l'a montré.
+ *
+ * Ces expressions-là nomment une MÉTHODE, jamais un décor : « chemin critique », « loi
+ * triangulaire », « probabilité de perte », « prix marginal » n'ont pas d'autre sens. Quand
+ * l'une d'elles paraît, aucune voie rapide ne prend la main : la question va aux moteurs.
+ */
+export const CALCUL_EXPLICITE = /\b(monte.?carlo|loi (normale|triangulaire|uniforme|log.?normale|de poisson|pert)|probabilite de (perte|perdre|depasser|reussite)|p10|p90|percentile|percentiles|chemin critique|marge par heure|programmation lineaire|nombres entiers|prix marginal|prix marginaux|sac a dos|combien produire|allocation optimale|repartition optimale|affectation optimale|maximiser (la|le|les|notre|nos)|minimiser (la|le|les|notre|nos)|regression (lineaire|logistique|multiple)|test statistique|significativite|intervalle de confiance|composantes principales|k.?moyennes|silhouette|holt.?winters|saisonnalite|tirages|hors echantillon)\b/;
+
+const OTHER_DOMAIN = /\b(paiement|paiements|facture|factures|conge|conges|sponsoring|document|documents|fichier|fichiers|dossier|dossiers|contrat|contrats|salaire|salaires|salarie|salaries|employe|employes|commande|commandes|evenement|evenements|demande|demandes|stock|stocks|budget|engagement|engagements|recrutement|courrier|courriers|webhook|webhooks|faits? externes?|docusign|hubspot|iqvia|sap|signature|signatures|enveloppe|enveloppes|connecteur|connecteurs|ingestion|simulation|simule|simuler|monte.?carlo|tirages|optimis\\w*|maximis\\w*|minimis\\w*|allocation|chemin critique|ordonnanc\\w*|planning|gantt|regression|correlation|segmentation|clustering|prevision|previsions|anomalies|statistique|statistiques)\b/;
 
 /**
  * QUI EST NOMMÉ DERRIÈRE « DE » — et pourquoi on exige la MAJUSCULE.
@@ -354,6 +368,14 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
   // complet : cartes, confirmations, vérifications. On ne gagne pas une seconde là-dessus.
   if (RISKY.test(text)) {
     return { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "vocabulaire sensible — pas de raccourci" };
+  }
+
+  // ── 0 bis. UN PROBLÈME À CALCULER FERME AUSSI LES RACCOURCIS (§39) ──────────────────────
+  // « planning », « dossier », « budget » sont des mots de décor ; « chemin critique », « loi
+  // triangulaire », « probabilité de perte » nomment une MÉTHODE. Quand la phrase porte sa
+  // propre arithmétique, la lire comme un agenda rend « aucune donnée » — faux, et sûr de soi.
+  if (CALCUL_EXPLICITE.test(text)) {
+    return { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "problème à calculer — les moteurs, pas une lecture" };
   }
 
   // ── 1. L'ACCORD — « envoie-le », « vas-y », « je confirme » ─────────────────────────────

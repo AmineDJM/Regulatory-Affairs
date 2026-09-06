@@ -947,4 +947,158 @@ Article 16 — Droit applicable. Le présent contrat est régi par le droit fran
       return m;
     },
   },
+  {
+    /**
+     * LE PIÈGE DES MOYENNES — le défi que seul un vrai moteur passe.
+     *
+     * Avec les valeurs MOYENNES, la marge vaut +178 000 DZD : « c'est rentable ». La simulation dit
+     * autre chose : on perd de l'argent 44 fois sur 100, la fourchette va de −950 000 à +1 380 000,
+     * et le levier n'est pas le volume (12 % de la variance) mais le PRIX (77 %). Un assistant qui
+     * multiplie de tête rend le premier chiffre avec aplomb. Le juge REFAIT la simulation avec le
+     * moteur et compare : la probabilité citée doit être la bonne à quelques points près.
+     */
+    id: "defi-montecarlo-budget", categorie: "CALCUL",
+    tours: [
+      "On étudie le lancement d'un générique en 2027. Le volume annuel est incertain : entre 8 000 et 20 000 boîtes, 12 000 étant le plus probable (loi triangulaire). "
+      + "Le prix de vente unitaire suit une loi normale de moyenne 480 DZD et d'écart-type 60. Le coût variable unitaire est estimé par les achats entre 300 et 420 DZD, 340 étant le plus probable (loi PERT). "
+      + "Les coûts fixes du lancement sont de 1 600 000 DZD, certains. Question de décision : quelle est la probabilité de PERDRE de l'argent sur ce lancement, quelle est la fourchette de marge à 80 % (P10–P90), et sur quel levier faut-il agir en priorité ?",
+    ],
+    neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /pas pr[ée]vu/i],
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      if (!ctx.outils.includes("calcul_montecarlo")) m.push(`calcul_montecarlo non appelé (outils : ${ctx.outils.join(", ") || "aucun"})`);
+      // LE JUGE REFAIT LE CALCUL — le même modèle, le moteur, 100 000 tirages, trois graines.
+      const { simuler } = await import("@/platform/in-process/calcul");
+      const modele = {
+        entrees: {
+          volume: { loi: "triangulaire" as const, min: 8000, mode: 12000, max: 20000 },
+          prix: { loi: "normale" as const, moyenne: 480, ecartType: 60 },
+          cout_variable: { loi: "pert" as const, min: 300, mode: 340, max: 420 },
+        },
+        constantes: { fixes: 1_600_000 },
+        formules: { marge: "volume * (prix - cout_variable) - fixes" },
+        seuils: [{ sens: "inferieur" as const, valeur: 0, libelle: "perte" }],
+      };
+      const refs = [1, 2, 3].map((g) => simuler(modele, { tirages: 100_000, graine: g })).filter((r) => r.ok) as Extract<ReturnType<typeof simuler>, { ok: true }>[];
+      if (refs.length !== 3) { m.push("le moteur de référence n'a pas pu simuler : défi non concluant"); return m; }
+      const pPerte = refs.reduce((a, r) => a + r.sorties.marge!.pNegatif, 0) / refs.length * 100;
+      const p10 = refs.reduce((a, r) => a + r.sorties.marge!.percentiles.P10!, 0) / refs.length;
+      const p90 = refs.reduce((a, r) => a + r.sorties.marge!.percentiles.P90!, 0) / refs.length;
+
+      // La probabilité de perte : un pourcentage cité dans la réponse doit tomber à 6 points près.
+      const pourcents = [...ctx.reponse.matchAll(/(\d{1,3}(?:[.,]\d+)?)\s*(?:%|pour cent)/gi)].map((x) => Number(x[1]!.replace(",", ".")));
+      if (!pourcents.some((x) => Math.abs(x - pPerte) <= 6)) {
+        m.push(`aucune probabilité de perte juste : le moteur dit ${pPerte.toFixed(1)} %, la réponse cite ${pourcents.length ? pourcents.map((x) => `${x} %`).join(", ") : "aucun pourcentage"}`);
+      }
+      // La fourchette P10–P90 : deux nombres de l'ordre attendu, à 25 % près chacun.
+      const montants = [...ctx.reponse.matchAll(/-?\d[\d\s\u00a0\u202f.,]{2,}/g)]
+        .map((x) => Number(x[0]!.replace(/[\s\u00a0\u202f.]/g, "").replace(",", ".")))
+        .filter((x) => Number.isFinite(x) && Math.abs(x) > 10_000);
+      const proche = (cible: number) => montants.some((x) => Math.abs(Math.abs(x) - Math.abs(cible)) <= Math.abs(cible) * 0.25);
+      if (!proche(p10)) m.push(`le bas de fourchette (P10 ≈ ${Math.round(p10).toLocaleString("fr-FR")}) n'est pas cité — montants lus : ${montants.slice(0, 8).join(", ") || "aucun"}`);
+      if (!proche(p90)) m.push(`le haut de fourchette (P90 ≈ ${Math.round(p90).toLocaleString("fr-FR")}) n'est pas cité`);
+      // Le levier : le PRIX porte 77 % de la variance, pas le volume.
+      if (!/prix/i.test(ctx.reponse)) m.push("le levier principal (le prix, 77 % de la variance) n'est pas nommé");
+      const idxPrix = ctx.reponse.toLowerCase().indexOf("levier") >= 0 ? ctx.reponse.toLowerCase() : "";
+      if (idxPrix && /levier[^.]{0,80}volume/i.test(ctx.reponse) && !/levier[^.]{0,80}prix/i.test(ctx.reponse)) m.push("le volume est présenté comme le levier principal : c'est le prix (77 % contre 12 %)");
+      // Le piège des moyennes : la réponse ne doit pas conclure sur la seule marge moyenne.
+      if (!pourcents.length && /178|177/.test(ctx.reponse.replace(/[\s\u00a0\u202f]/g, ""))) m.push("la réponse s'arrête à la marge calculée sur les moyennes (~178 000) sans probabilité : c'est exactement le piège");
+      return m;
+    },
+  },
+  {
+    /**
+     * L'OPTIMUM CONTRE L'INTUITION — le produit à la plus grosse marge unitaire (C, 5 400 DZD) ne
+     * doit PAS être produit : par heure de conditionnement il rapporte 2 700 quand B rapporte 3 875.
+     * L'optimum est exact et unique (A = 200, B = 300, C = 0, marge 1 770 000), le goulot est le
+     * conditionnement (prix marginal 3 500 DZD l'heure) et le principe actif a 300 kg de marge.
+     * Le juge refait le programme avec le solveur : aucune tolérance sur un optimum.
+     */
+    id: "defi-optimisation-allocation", categorie: "CALCUL",
+    tours: [
+      "Plan de production du mois pour Adventum. Trois produits : A rapporte 4 200 DZD de marge par unité, B 3 100 DZD, C 5 400 DZD. "
+      + "La ligne de conditionnement dispose de 480 heures : une unité de A prend 1,2 heure, une de B 0,8 heure, une de C 2 heures. "
+      + "Le stock de principe actif est de 900 kg : A en consomme 1,5 kg par unité, B 1 kg, C 3 kg. "
+      + "Le commercial ne peut pas écouler plus de 200 unités de A, 300 de B et 150 de C. "
+      + "Combien produire de chaque pour maximiser la marge totale, quelle marge cela donne, qu'est-ce qui bloque exactement, et combien vaudrait une HEURE de conditionnement en plus ?",
+    ],
+    neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /pas pr[ée]vu/i],
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      if (!ctx.outils.includes("calcul_optimisation")) m.push(`calcul_optimisation non appelé (outils : ${ctx.outils.join(", ") || "aucun"})`);
+      const { optimiser } = await import("@/platform/in-process/calcul");
+      const ref = optimiser({
+        sens: "max",
+        variables: [{ nom: "A", objectif: 4200, max: 200 }, { nom: "B", objectif: 3100, max: 300 }, { nom: "C", objectif: 5400, max: 150 }],
+        contraintes: [
+          { nom: "conditionnement", coefficients: { A: 1.2, B: 0.8, C: 2 }, comparateur: "<=", valeur: 480 },
+          { nom: "principe actif", coefficients: { A: 1.5, B: 1, C: 3 }, comparateur: "<=", valeur: 900 },
+        ],
+      });
+      if (!ref.ok) { m.push("le solveur de référence a refusé le programme : défi non concluant"); return m; }
+      const plat = ctx.reponse.replace(/[\s\u00a0\u202f]/g, "");
+      if (!nombre(ref.objectif).test(ctx.reponse) && !plat.includes(String(Math.round(ref.objectif)))) {
+        m.push(`la marge optimale ${Math.round(ref.objectif).toLocaleString("fr-FR")} DZD n'est pas citée`);
+      }
+      for (const [nom, attendu] of Object.entries(ref.valeurs)) {
+        if (attendu === 0) continue;
+        const ligne = new RegExp(`${nom}\\b[^.\\n]{0,60}?${Math.round(attendu)}|${Math.round(attendu)}[^.\\n]{0,40}?\\b${nom}\\b`, "i");
+        if (!ligne.test(ctx.reponse)) m.push(`la quantité de ${nom} (${attendu}) n'est pas rendue`);
+      }
+      // C ne doit PAS être produit : sa marge unitaire est la plus forte, son rendement horaire le plus faible.
+      if (/\bC\b[^.\\n]{0,40}?(1[0-9]{2}|[1-9][0-9])\s*unit/i.test(ctx.reponse) && !/\bC\b[^.\n]{0,30}(0|aucune?|pas)/i.test(ctx.reponse)) {
+        m.push("le produit C est produit alors que l'optimum est 0 : la marge unitaire la plus forte n'est pas la plus rentable par heure");
+      }
+      const goulot = ref.goulots[0];
+      if (!goulot) { m.push("le solveur de référence n'a pas trouvé de goulot : défi non concluant"); return m; }
+      if (!/conditionnement/i.test(ctx.reponse)) m.push(`le goulot (« ${goulot.nom} ») n'est pas nommé`);
+      if (!nombre(goulot.prixMarginal).test(ctx.reponse)) m.push(`le prix marginal du goulot (${Math.round(goulot.prixMarginal).toLocaleString("fr-FR")} DZD par heure) n'est pas donné`);
+      return m;
+    },
+  },
+  {
+    /**
+     * LE DÉLAI QUI NE VIENT PAS DU PROJET — par la seule logique des dépendances, le dossier part
+     * en 14 jours et l'échéance à 15 tient. Une fois Sarah prise en compte (elle porte trois tâches
+     * et ne fait qu'une chose à la fois), il part en 19 : l'échéance saute de 4 jours, et la cause
+     * n'est pas le projet, c'est la charge d'une personne. Le juge refait le calendrier.
+     */
+    id: "defi-ordonnancement-critique", categorie: "CALCUL",
+    tours: [
+      "Dossier ANPP Trastuzex, planning. La rédaction du module qualité prend 6 jours. La traduction arabe de la notice prend 4 jours et ne peut commencer qu'une fois la rédaction terminée. "
+      + "La constitution des annexes prend 5 jours et ne dépend de rien. La relecture juridique prend 3 jours et exige la traduction ET les annexes. Le dépôt prend 1 jour, après la relecture. "
+      + "Sarah porte la rédaction, la traduction et les annexes ; Yassine la relecture et le dépôt ; chacun ne fait qu'une chose à la fois. "
+      + "En combien de jours le dossier part-il, quel est le chemin critique, et l'échéance à 15 jours tient-elle ?",
+    ],
+    neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /pas pr[ée]vu/i],
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      if (!ctx.outils.includes("calcul_ordonnancement")) m.push(`calcul_ordonnancement non appelé (outils : ${ctx.outils.join(", ") || "aucun"})`);
+      const { ordonnancer } = await import("@/platform/in-process/calcul");
+      const ref = ordonnancer({
+        taches: [
+          { id: "redaction", duree: 6, ressources: ["Sarah"] },
+          { id: "traduction", duree: 4, apres: ["redaction"], ressources: ["Sarah"] },
+          { id: "annexes", duree: 5, ressources: ["Sarah"] },
+          { id: "relecture", duree: 3, apres: ["traduction", "annexes"], ressources: ["Yassine"] },
+          { id: "depot", duree: 1, apres: ["relecture"], ressources: ["Yassine"] },
+        ],
+        echeance: 15,
+      });
+      if (!ref.ok) { m.push("le moteur de référence a refusé le projet : défi non concluant"); return m; }
+      // Sur la réponse BRUTE : écraser les espaces colle « en 19 jours » en « en19jours » et \b19\b n'y est plus.
+      if (!new RegExp(`(?<![\\d,.])${ref.dureeAvecRessources}(?![\\d])`).test(ctx.reponse)) m.push(`la durée réelle (${ref.dureeAvecRessources} jours, ressources comprises) n'est pas citée`);
+      // Le chemin critique : les trois tâches de tête, dans l'ordre.
+      for (const mot of ["rédaction", "traduction", "relecture"]) {
+        if (!new RegExp(mot, "i").test(ctx.reponse)) m.push(`« ${mot} » manque au chemin critique rendu`);
+      }
+      if (/annexes/i.test(ctx.reponse) && /chemin critique[^.]{0,120}annexes/i.test(ctx.reponse)) m.push("les annexes sont annoncées critiques : elles ont 5 jours de marge dans le calcul logique");
+      // L'échéance : elle NE tient PAS, et le retard est de 4 jours.
+      if (!/(ne tient pas|pas tenue|dépass|manqu|intenable|non tenue|hors délai|au-delà)/i.test(ctx.reponse)) m.push("la réponse ne dit pas que l'échéance à 15 jours ne tient pas");
+      if (!new RegExp(`(?<![\\d,.])${Math.round(ref.echeance!.retard)}(?![\\d])`).test(ctx.reponse)) m.push(`le retard exact (${Math.round(ref.echeance!.retard)} jours) n'est pas chiffré`);
+      // La cause : la disponibilité de Sarah, pas la logique du projet.
+      if (!/sarah/i.test(ctx.reponse)) m.push("la cause du retard (Sarah porte trois tâches et ne peut pas les mener de front) n'est pas nommée");
+      return m;
+    },
+  },
 ];

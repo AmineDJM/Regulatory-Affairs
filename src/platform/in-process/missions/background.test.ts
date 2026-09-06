@@ -154,10 +154,18 @@ suite("ARRIÈRE-PLAN — détachement, panne dite, rattrapage, bail, gouvernance
       statut = (await prisma.mission.findUnique({ where: { id: r.missionId }, select: { status: true } }))!.status;
     }
     expect(statut).toBe("FAILED");
-    const journal = await prisma.missionEvent.findFirst({
-      where: { missionId: r.missionId, kind: "PLANNING_FAILED" }, select: { summary: true },
-    });
+    // Le runtime pose le STATUT d'abord (la personne doit voir la panne tout de suite), le journal
+    // ensuite : lire le journal à l'instant où le statut bascule tombe dans cet intervalle quand la
+    // base est chargée. On attend l'entrée comme on a attendu le statut — l'exigence est la même.
+    let journal: { summary: string } | null = null;
+    for (let i = 0; i < 40 && !journal; i++) {
+      journal = await prisma.missionEvent.findFirst({
+        where: { missionId: r.missionId, kind: "PLANNING_FAILED" }, select: { summary: true },
+      });
+      if (!journal) await new Promise((res) => setTimeout(res, 100));
+    }
     expect(journal).not.toBeNull();
+    expect(journal!.summary).toMatch(/planification/i);
   });
 
   it("« déjà matérialisée » : la finalisation est idempotente — une autre instance a fini le travail", async () => {
