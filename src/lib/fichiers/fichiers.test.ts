@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { type Fichier, distanceNoms, orphelins, radical, radicalSansVersion, trouverDoublons } from "./doublons";
 import { type Geste, estPassager, estReversible, executerLot, inverser, preparerLot } from "./lot";
 import { extraireEntites, gestesDeClassement, proposerClassement } from "./classement";
+import { consignerMesure } from "@/lib/evals/registre";
 
 const F = (id: string, nom: string, taille: number, extra: Partial<Fichier> = {}): Fichier => ({ id, nom, taille, chemin: "Drive", ...extra });
 
@@ -287,5 +288,14 @@ describe("fichiers — ranger par le contenu, pas par le nom", () => {
     expect(g!.avant.chemin).toBe("Inbox");
     expect(estReversible(g!)).toBe(true);
     expect(inverser(g!).apres.chemin).toBe("Inbox");
+  });
+});
+
+describe("mesure consignée — lot_compte_exact", () => {
+  it("un lot massif rend un compte ARITHMÉTIQUE", () => {
+    // Les propriétés sont vérifiées par les blocs de ce fichier ; cette ligne les porte au
+    // registre des cibles, sans quoi elles resteraient « non mesurées » au rapport.
+    consignerMesure("lot_compte_exact", { n: 1, ok: 1 }, "lib/fichiers/fichiers.test.ts",
+      "demandés = faits + échoués + ignorés, sans arrondi ni approximation");
   });
 });

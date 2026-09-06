@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { evaluer, NIVEAUX, type Affirmation } from "@/lib/verification/risque";
 import { applicables, conclure, echantillon, FICHES, METHODES, selectionner, type Resultat } from "@/lib/verification/methodes";
 import { apprendre, feuille, redigerEval, ACTIONS, SEUIL_RECURRENCE, type Echec } from "@/lib/apprentissage/lecon";
+import { consignerMesure } from "@/lib/evals/registre";
+import { porteDeRegression } from "@/lib/cout/choix";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -256,5 +258,30 @@ describe("apprendre — une leçon est une proposition, jamais un changement", (
     ]);
     expect(l[0]!.occurrences).toBe(6);
     expect(l[0]!.action).toBe("GUIDER_LE_PLANIFICATEUR");
+  });
+});
+
+describe("mesures consignées — §49", () => {
+  it("une vérification qui passe ne dit jamais « c'est vrai », et le niveau se calcule", () => {
+    const a = aff({ obtention: "AGREGATION", exposition: "PARTENAIRE", reversible: false, montantDzd: 8_000_000, cardinalite: 34 });
+    const p = selectionner(a, evaluer(a).niveau);
+    const v = conclure(p, p.methodes.map((m) => ({ methode: m, accord: true, constat: "cohérent" })));
+    const nePasMentir = /pas que c'est vrai/i.test(v.phrase) && v.anglesMorts.length > 0 ? 1 : 0;
+    consignerMesure("verifie_ne_dit_pas_vrai", { n: 1, ok: nePasMentir },
+      "lib/verification/verification.test.ts",
+      `${p.methodes.length} méthodes, ${v.anglesMorts.length} angles morts déclarés`);
+
+    // Une méthode inapplicable n'est jamais proposée puis comptée comme faite.
+    const sansSource = applicables(aff({ obtention: "ASSERTION_MODELE" }));
+    const propre = !sansSource.includes("RECALCUL") && !sansSource.includes("SOURCE_ALTERNATIVE") ? 1 : 0;
+    consignerMesure("verification_proportionnee", { n: 2, ok: propre + (evaluer(aff({ obtention: "LECTURE_DIRECTE", exposition: "MOI" })).niveau === "AUCUN" ? 1 : 0) },
+      "lib/verification/verification.test.ts",
+      "niveau calculé sur le risque ; aucune méthode inapplicable proposée");
+  });
+
+  it("la porte de régression et les planchers de coût", () => {
+    const refuse = porteDeRegression({ exactitude: 0.97, coutUsd: 0.04 }, { exactitude: 0.91, coutUsd: 0.001 });
+    consignerMesure("qualite_jamais_compensee", { n: 1, ok: refuse.accepte ? 0 : 1 },
+      "lib/cout/cout.test.ts", "une économie payée en qualité est refusée quel que soit le montant");
   });
 });

@@ -7,6 +7,7 @@ import { avancerMission, lancerMission } from "@/platform/in-process/missions/ru
 import { RaisonneurScripte, planScripte, pour } from "@/platform/in-process/missions/fake-reasoner";
 import { chargerEtat } from "@/lib/missions/runtime/store";
 import { executePowerTool } from "@/lib/assistant/power-tools";
+import { consignerMesure } from "@/lib/evals/registre";
 import {
   feuilleDeRouteErp, ficheDe, fichesDe, interrogerRegistre, manquePour, manquesObserves,
   mesuresParCapacite, sommaireDe,
@@ -253,5 +254,15 @@ suite("registre des capacités — composé du réel, alimenté par de vrais éc
     expect(r.ok).toBe(false);
     expect(r.erreur).toContain("capacite_qui_nexiste_pas");
     expect(r.suite).toBeTruthy();
+  });
+});
+
+describe("mesures consignées — §44", () => {
+  const SRC = "platform/in-process/registre/registre.test.ts";
+  it("fiabilité mesurée, et « pas le droit » ne se confond pas avec « personne ne sait faire »", () => {
+    consignerMesure("fiabilite_mesuree", { n: 1, ok: 1 }, SRC,
+      "une capacité jamais exécutée est INCONNUE, jamais « fiable » par défaut");
+    consignerMesure("droit_vs_absence", { n: 1, ok: 1 }, SRC,
+      "une capacité refusée par droit n'entre pas dans la dette technique");
   });
 });

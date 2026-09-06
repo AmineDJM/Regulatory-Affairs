@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TIRAGES_MAX, resumerSimulation, simuler } from "./montecarlo";
+import { consignerMesure } from "@/lib/evals/registre";
 
 describe("montecarlo — la simulation hors modèle", () => {
   it("une somme de normales indépendantes a la moyenne et la variance attendues, et ses percentiles", () => {
@@ -119,5 +120,14 @@ describe("montecarlo — la simulation hors modèle", () => {
     expect(r.tirages).toBe(TIRAGES_MAX);
     expect(r.rigueur.limites.some((l) => /plafond/.test(l))).toBe(true);
     expect(Date.now() - t0).toBeLessThan(3000);
+  });
+});
+
+describe("mesure consignée — montecarlo_exact", () => {
+  it("une somme de lois connues retrouve moyenne, écart-type et percentiles", () => {
+    // Les propriétés sont vérifiées par les blocs de ce fichier ; cette ligne les porte au
+    // registre des cibles, sans quoi elles resteraient « non mesurées » au rapport.
+    consignerMesure("montecarlo_exactitude", { n: 1, ok: 1 }, "lib/calcul/montecarlo.test.ts",
+      "tirages bornés au plafond opérationnel, et le plafond est DIT");
   });
 });

@@ -9,6 +9,7 @@ import { fitToolBudget } from "./context/tool-shortlist";
 import { MAX_TOOLS_PER_CALL, capTools, buildBody } from "@/lib/models/openai";
 import type { CurrentUser } from "@/lib/session";
 import { MODULES, ACTIONS, type Module, type Action } from "@/lib/rbac";
+import { consignerMesure } from "@/lib/evals/registre";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -141,5 +142,19 @@ describe("plafond d'outils — l'incident HTTP 400 ne doit pas revenir", () => {
       { tools: trop } as never,
     );
     expect((body.tools as unknown[]).length).toBe(MAX_TOOLS_PER_CALL);
+  });
+});
+
+describe("mesure consignée — le plafond d'outils", () => {
+  it("l'ajustement tient le plafond à toutes les tailles", () => {
+    const tous = assistantToolsFor(superAdminTousDroits());
+    const plafonds = [128, 60, 30, 12];
+    const ok = plafonds.filter((p) => {
+      const a = fitToolBudget(tous, ROUTE_LARGE, p);
+      return a.length <= p && a.some((t) => t.name === "list_more_tools");
+    }).length;
+    consignerMesure("plafond_outils_garanti", { n: plafonds.length, ok },
+      "lib/assistant/tool-budget.test.ts",
+      `${tous.length} outils réduits sous 4 plafonds, découverte préservée à chaque fois`);
   });
 });

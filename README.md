@@ -3241,7 +3241,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Moteurs de calcul — simulation, optimisation, ordonnancement, statistiques (§39)** | `lib/calcul/` (PUR, aucun Prisma / RBAC / modèle) : `alea.ts` (graine xoshiro128**, neuf lois, quantiles pour la copule gaussienne, Cholesky), `expression.ts` (formule compilée sans `eval`, erreur POSITIONNÉE, système ordonné par dépendances), `montecarlo.ts` (`simuler` : jusqu'à 200 000 tirages, P1…P99, probabilité de perte et de chaque seuil, sensibilité Spearman + part de variance + tornado, convergence, PIÈGE DES MOYENNES nommé, corrélations par copule), `simplexe.ts` (`optimiser` : deux phases + règle de Bland, séparation-évaluation pour entiers et binaires, PRIX MARGINAUX, contraintes saturées, INFAISABLE / NON BORNÉ argumentés), `ordonnancement.ts` (`ordonnancer` : chemin critique, marges totale et libre, ordonnancement sous ressources, retard imputé à la RESSOURCE et non au projet, échéance chiffrée, cycle rendu), `contraintes.ts` (`resoudreContraintes` : cohérence d'arc + retour arrière MRV, règles logiques, IMPOSSIBILITÉ démontrée avec les règles en cause), `stats.ts` (`regresser`, `regresserLogistique`, `testMoyennes` / `testApparie` / `testIndependance` / `testRangs`, `correlations`, `decrireColonnes` ; lois de Student / Fisher / χ² ; VIF, validation croisée, Breusch-Pagan, Durbin-Watson, fuite de données, effet vs significativité), `ml.ts` (`segmenter` k-moyennes++ et silhouette, `acp`, `detecterAnomalies` par trois regards dont l'aberration LOCALE), `series.ts` (`analyserSerie` : Holt-Winters, période détectée, ruptures, prévision validée HORS ÉCHANTILLON contre la marche naïve), `rigueur.ts` (hypothèses / limites / avertissements, statistiques partagées) ; pont `platform/in-process/calcul/`, outils `assistant/calcul-tools.ts` (`calcul_montecarlo`, `calcul_optimisation`, `calcul_ordonnancement`, `calcul_statistiques` — aucun ne lit la base, les données viennent du bac à sable qui porte leur droit), routage `CALCUL_EXPLICITE` (`voice/fast-path.ts` + `context/router.ts`). Banc : 83 tests à réponses connues, cibles `montecarlo_exactitude` / `optimum_exact` / `rigueur_statistique` / `prevision_hors_echantillon`, défis live `defi-montecarlo-budget`, `defi-optimisation-allocation`, `defi-ordonnancement-critique` (le juge REFAIT le calcul) et un test Playwright dans l'interface |
 | **Réseau et géographie — chemins, centralités, territoires (§40)** | `lib/graphe/` (PUR) : `modele.ts` (nœuds/arêtes typés, VALIDITÉ TEMPORELLE par arête, `auMoment` rend le graphe tel qu'il était, `filtrerRelations`, `voisins`, `degre`, `sommaire`), `chemins.ts` (`plusCourtChemin` Dijkstra sur l'inverse des poids — un lien fort RAPPROCHE —, `cheminsMultiples` (un lien unique ≠ trois liens), `portee` par niveau, `cycles`, `composantes`, `pointsDeRupture` avec ce qui se retrouve ISOLÉ), `mesures.ts` (`pagerank`, `intermediarite` Brandes rapportée au maximum THÉORIQUE, `proximite` Wasserman-Faust, `centralites`, `communautes` Louvain avec modularité) ; `lib/geo/` (PUR) : `distance.ts` (haversine, cap et cardinal, enveloppe, barycentre par les VECTEURS, `dansLaZone`, `aireKm2`, `autour`, `densites` ; `FACTEUR_DETOUR_ROUTIER` déclaré, jamais appliqué en douce), `algeria.ts` (les 58 wilayas + `COORDONNEES_WILAYAS` des chefs-lieux, `coordonneesDe`, `BORNES_ALGERIE`, `AVERTISSEMENT_CHEF_LIEU`), `tournee.ts` (`tournee` plus proche voisin + 2-opt avec le gain sur l'ordre fourni, `territoires` k-moyennes sphériques rééquilibrées sur la CHARGE, `implantationOptimale` point de Weber, `choisirSites` p-médian EXACT et renvoi au solveur entier au-delà) ; pont `platform/in-process/reseau/` (construit le graphe depuis `EntityLink` (liens DÉCLARÉS) et les tables (liens STRUCTURELS) sous les droits — `peutVoir` par type, types refusés NOMMÉS —, `lieuxErp` place médecins/établissements/contacts au chef-lieu), outils `assistant/reseau-tools.ts` (`reseau_entreprise` : chemin, portée, qui_compte, communautés, ruptures, cycles, sommaire, avec `au` pour la date ; `carte_territoire` : répartition, autour, tournée, territoires, implantation), routage `RESEAU_EXPLICITE`. Banc : `graphe/{modele,chemins,mesures}.test.ts` (21), `geo/{distance,tournee,algeria}.test.ts` (33), `platform/in-process/reseau/reseau.test.ts` (6, droits et temps par le vrai point d'entrée), cibles `graphe_droits` / `graphe_temporel` / `point_de_passage` / `geo_exactitude`, défis live `defi-reseau-chemin` et `defi-carte-tournee` |
 | **Fichiers et formats — ranger, dédoublonner, importer, convertir (§41)** | `lib/formats/` (PUR) : `detection.ts` (`detecterEncodage` marque d'ordre / UTF-8 / repli latin-1, `detecterSeparateur` par la RÉGULARITÉ, `detecterEntete`, `detecterLocale` (fr/en/ambigu, jj-mm/mm-jj/ISO), `versNombre`, `versDateIso` qui rend `null` sur une date indécidable), `tableur.ts` (`lireTableur` : lignes typées + RAPPORT — décisions, lignes mal formées, colonnes MÊLÉES ; largeur de référence = en-tête ou modale ; `ecrireCsv` impose le point-virgule en locale française ; `lireJson`/`ecrireJsonl`), `conversion.ts` (`conversion` LOSSLESS / DESTRUCTIF / IMPOSSIBLE avec ce qui est perdu et la ressource manquante, `avertissementConversion`, `conversionsDepuis`) ; `lib/fichiers/` (PUR) : `doublons.ts` (IDENTIQUE / VERSION / RESSEMBLANT, `radicalSansVersion`, `distanceNoms` bornée, `orphelins` — et « supprimer un identique ne libère aucun octet »), `classement.ts` (`proposerClassement` par indices PESÉS et CITÉS dans le nom et le contenu, confiance PLAFONNÉE sans contenu lu, `extraireEntites`, `gestesDeClassement` avec l'origine), `lot.ts` (`preparerLot` : aperçu, refus des gestes non annulables et des suppressions, « à confirmer » sous seuil, plan de retour ; `executerLot` : reprise par reçu, réessais des seuls échecs PASSAGERS, budget de temps, compte ARITHMÉTIQUE) ; pont `platform/in-process/fichiers/` (`recenser` sous `canViewDrive`, `apercuTexte`, `appliquerGeste` sous `canEditDrive` (fichier ET destination) et IDEMPOTENT, `gesteDejaFait`, `dossierPour`, `etatsActuels` — l'état d'avant lu en base ; SUPPRESSION refusée), outils `assistant/fichiers-tools.ts` (`drive_inventaire`, `drive_lot`, `format_lire`, `format_convertir`), routage `contientDonneesCollees`. Banc : `formats/{detection,tableur}.test.ts` (20), `fichiers/fichiers.test.ts` (23), `platform/in-process/fichiers/fichiers.test.ts` (7), cibles `import_detecte` / `conversion_dite` / `lot_compte_exact` / `aucune_suppression`, défis live `defi-import-tableur` et `defi-conversion-perte` |
-| **Registre des capacités et manques nommés (§44)** | `lib/registre/` (PUR) : `fiche.ts` (`composerFiche` — douze rubriques par capacité, `fiabilite.taux = null` tant que rien n'a été MESURÉ ; `interroger` avec les ÉCARTÉES et leur nature (PLAFOND / DROIT / FORME / FIABILITE), marquage sur MOTS ENTIERS ; `detecterManque` au seuil de pertinence 3 ; `sommaireRegistre` qui compte ce qu'on ignore), `manques.ts` (11 natures, `SENS_MANQUE` avec la suite et le fait que ce soit une DETTE ou non, `classer` qui rend INDETERMINE plutôt qu'une nature inventée, `feuilleDeRoute` groupée par nature × capacité et pondérée) ; pont `platform/in-process/registre/` (`mesuresParCapacite` lue sur `MissionStep` — appels, échecs, reprises, p50/p90 ; `fichesDe` sur `POWER_TOOLS` + `assistantToolsFor` pour `autorisee` ; `manquesObserves` / `feuilleDeRouteErp` en LECTURE des `MissionEvent` `STEP_FAILED`) ; classement câblé dans `missions/runtime/engine.ts` ; outil `assistant/registre-tools.ts` (`registre_capacites` : chercher / fiche / manque / feuille_de_route / sommaire). Banc : `lib/registre/registre.test.ts` (20), `platform/in-process/registre/registre.test.ts` (8, depuis `lancerMission`), garde anti-doublon dans `capability-surface.test.ts`, cibles `manque_nomme` / `fiabilite_mesuree` / `droit_vs_absence` / `registre_sans_doublon`, défis live `defi-manque-nomme` et `defi-registre-honnete` |
+| **Registre des capacités et manques nommés (§44)** | `lib/registre/` (PUR) : `fiche.ts` (`composerFiche` — douze rubriques par capacité, `fiabilite.taux = null` tant que rien n'a été MESURÉ ; `interroger` avec les ÉCARTÉES et leur nature (PLAFOND / DROIT / FORME / FIABILITE), TRIÉES par pertinence comme les retenues — non triées, l'exclusion qui répond sortait en vingtième et l'appelant n'en affiche que dix ; marquage sur MOTS ENTIERS ; `detecterManque` au seuil de pertinence 3 OU couverture ≥ 75 % de la demande sur au moins deux mots (`COUVERTURE_FRANCHE` : deux mots sur deux dans un résumé sont la demande ENTIÈRE, et valaient 2 points sous un seuil de 3) ; `sommaireRegistre` qui compte ce qu'on ignore), `manques.ts` (11 natures, `SENS_MANQUE` avec la suite et le fait que ce soit une DETTE ou non, `classer` qui rend INDETERMINE plutôt qu'une nature inventée, `feuilleDeRoute` groupée par nature × capacité et pondérée) ; pont `platform/in-process/registre/` (`mesuresParCapacite` lue sur `MissionStep` — appels, échecs, reprises, p50/p90 ; `fichesDe` sur `POWER_TOOLS` + `assistantToolsFor` pour `autorisee` ; `manquesObserves` / `feuilleDeRouteErp` en LECTURE des `MissionEvent` `STEP_FAILED`) ; classement câblé dans `missions/runtime/engine.ts` ; outil `assistant/registre-tools.ts` (`registre_capacites` : chercher / fiche / manque / feuille_de_route / sommaire). Banc : `lib/registre/registre.test.ts` (20), `platform/in-process/registre/registre.test.ts` (8, depuis `lancerMission`), garde anti-doublon dans `capability-surface.test.ts`, cibles `manque_nomme` / `fiabilite_mesuree` / `droit_vs_absence` / `registre_sans_doublon` / `capacite_jamais_absente_a_tort` / `ecartee_pertinente_en_tete`, défis live `defi-manque-nomme` et `defi-registre-honnete` |
 | **Banc d'autonomie générale (§43)** | `lib/evals/autonomie/` (PUR) : `corpus.ts` (`engendrer` — gabarits × entités RÉELLES lues en base, déterministe par graine, rotation sur les seize familles, aucune phrase répétée ; `capaciteDuCorpus` dit les gabarits ÉCARTÉS faute d'entités), `juges.ts` (`verifierExigences` sur dix formes vérifiables — primitives et domaines lus dans `capabilityMeta`, pas redevinés ; `causer` → les neuf causes du mandat via le registre des manques ; `juger` → réussie / faux succès / violations ; `scoreAutonomie` → sept axes pondérés, sûreté à la moitié, coût et latence HORS du score ; `comparer` refuse deux corpus différents) ; banc `scripts/bench/autonomy-bench.ts` (`npm run autonomy:bench` en profondeur PLAN, `autonomy:bench:complet` en exécution réelle, JSON horodaté dans `bench-out/autonomie/` avec le commit, comparaison N vs N+1 automatique). Cibles `autonomie_reussite` / `autonomie_faux_succes` / `autonomie_droits` / `autonomie_gaps_classes` / `corpus_reproductible` |
 | **Modèle du monde & vérité temporelle (§45)** | `lib/monde/` (PUR) : `temps.ts` (`Intervalle` à bornes INCONNUES et non infinies, `contient` début inclus / fin exclue, `chevauche`, `intersection`, `dureeJours` nulle sur borne ouverte, `fermerIntervalles` — la suite de changements datés devient un historique, valeur d'origine comprise), `faits.ts` (`Fait` sujet/prédicat/objet avec validité ET constat, `histoire: JOURNALISEE | COURANTE` qui interdit la rétro-projection, `auMoment`, `valideA`, `connuA`, `etatA` avec ses INCONNUS, `changements` avant/après, `contradictions` sur les prédicats fonctionnels seulement, `couverture`, `chronologie`) ; pont `platform/in-process/monde/` (`faitsDe` compose AuditLog + valeurs courantes + BusinessEvent + EntityLink sous `userCan(module, VIEW)`, `quiEtait`, `etatAuMoment`, `changementsDe`, `recitDe`, `vraiEtSu`) ; outil `assistant/monde-tools.ts` (`monde_temporel` : qui_etait / etat_a / changements / recit / vrai_et_su). Banc : `lib/monde/monde.test.ts` (14), `platform/in-process/monde/monde.test.ts` (7, écrits par `recordFieldChanges`), cibles `verite_temporelle` / `passe_non_invente` / `vrai_vs_su` |
 | **Contradictions, lignée & questions ouvertes (§46)** | `lib/verite/` (PUR) : `contradiction.ts` (`reconcilier` — contexte d'abord (`PAS_LA_MEME_QUESTION`), dérivées retirées de la concurrence, autorité PAR TYPE DE FAIT (`AUTORITE_DEFAUT` / `AUTORITE_CLAUSE`), fraîcheur ensuite, puis `A_CHERCHER` (ce qui trancherait, nommé) ou `A_TRANCHER` (la question à une personne) — jamais de moyenne ; `direVerdict` rend toujours le POURQUOI), `lignee.ts` (`construire` / `verifier` — sans source le résultat est refusé, cycle bloquant, lignes perdues sans explication signalées — / `raconter` « 41,3 M$ = 3 sources → doublons supprimés → conversion → consolidation » / `detailler`) ; outil `assistant/verite-tools.ts` (`verite_reconcilier` : reconcilier / lignee / ouvertes — les questions ouvertes et les hypothèses à rejuger sont LUES au registre `ExecutiveDecision`, aucune table nouvelle). Banc : `lib/verite/verite.test.ts` (15), `assistant/verite-tools.test.ts` (7), cibles `jamais_de_moyenne` / `meme_question_dabord` / `chiffre_prouve` |
@@ -3249,6 +3249,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Annulation & traçabilité (§48)** | `lib/annulation/` (PUR) : `reversibilite.ts` (dix `NATURES_GESTE`, quatre `REVERSIBILITES` — REVERSIBLE / DELEGUEE / PAR_COMPENSATION / IRREVERSIBLE —, table de verdicts avec raison + compensation + délégataire, `natureDe` : la signature précise l'emporte sur le verbe du journal), `plan.ts` (`composer` — ordre INVERSE, invariant « la valeur actuelle est encore celle d'Adam », cinq `MotifRefus` dont `MODIFIE_DEPUIS` qui NOMME l'auteur du conflit —, `conclure` : compte rendu arithmétique) ; pont `platform/in-process/annulation/` (compare-and-swap dans le `where` du `updateMany`, `VIEW` puis `UPDATE` par module, liste FERMÉE de champs restaurables avec conversion, ré-journalisation par `recordFieldChanges`) ; outil `assistant/annulation-tools.ts` (`annuler_changements` : voir / appliquer). Aucune table nouvelle — `AuditLog` porte déjà l'instruction. Banc : `lib/annulation/annulation.test.ts` (13), `platform/in-process/annulation/annulation.test.ts` (6, par `executePowerTool`), cibles `jamais_ecraser_un_humain` / `annulation_jamais_totale_a_tort` / `annulation_journalisee` / `annulation_sans_droit_propre` |
 | **Vérification proportionnée & apprentissage (§49)** | `lib/verification/` (PUR) : `risque.ts` (`evaluer` — six `OBTENTIONS`, cinq `EXPOSITIONS`, irréversibilité, montant par paliers, échéance ; facteurs signés, `principal` nommé, `limites` toujours non vides ; quatre `NIVEAUX`), `methodes.ts` (sept `METHODES` avec `attrape` / `aveugleA` / `cout` / `pouvoir` / `concluantEnEchec` ; `applicables` refuse d'en proposer une hors sujet, `selectionner` ordonne par pouvoir/coût et porte les angles morts des non-retenues, `conclure` — le négatif l'emporte, une méthode non exécutée ne confirme rien —, `echantillon` déterministe). `lib/apprentissage/lecon.ts` (PUR) : `apprendre` regroupe par cause+nature+capacité, `SEUIL_RECURRENCE = 3`, une correction humaine vaut le seuil, sept `ACTIONS` dont AUCUNE ne touche à un droit, `redigerEval`, `feuille`. Pont `platform/in-process/verification/` (lecture de `MissionEvent.STEP_FAILED`, cloisonnée sur `mission.ownerId` ; AUCUNE fonction d'application). Outil `assistant/verification-tools.ts` (`verifier_avant_de_dire` : programme / conclure / lecons). Banc : `lib/verification/verification.test.ts` (25), `platform/in-process/verification/verification.test.ts` (7), cibles `verifie_ne_dit_pas_vrai` / `negatif_l_emporte` / `verification_proportionnee` / `aucun_apprentissage_silencieux` |
 | **Optimiseur qualité-d'abord (§50)** | `lib/cout/` (PUR) : `plancher.ts` (neuf `CLASSES`, `PLANCHERS` avec exactitude + `erreursArithmetiquesTolerees: 0` partout + `pourquoi` chiffré + `desescaladeAutorisee` + `observationsMin` croissant avec l'enjeu ; `SANS_DESESCALADE`), `choix.ts` (`choisir` — porte de qualité AVANT le tri par prix, cinq `MotifRefus` dont NON_MESURE / MESURE_MAIGRE / MESURE_PERIMEE ; `escalader` exige un constat écrit et monte d'un cran ; `northStar` — coût par réussite, `null` si aucune, `partGachee`, limites ; `porteDeRegression` — une économie payée en qualité est refusée quel que soit le montant). Pont `platform/in-process/cout/` (`coutDe` et `candidates` sur les tarifs RÉELS de `allBindings()`, cache de prompt compté, `realtime` hors course, `decider` = le pipeline complet). Banc : `lib/cout/cout.test.ts` (19), `platform/in-process/cout/cout.test.ts` (9), cibles `plancher_jamais_franchi` / `non_mesure_nest_pas_bon_marche` / `escalade_justifiable` / `qualite_jamais_compensee` / `cout_par_reussite` |
+| **Front-end génératif — planche & angles (mandat 7)** | `lib/planche/` (PUR) : `grammaire.ts` (six `CONTENANTS`, `Noeud` = contenant ou feuille désignant un bloc par index, `compiler` avec neuf `MotifRefus` dont BALISAGE / BLOC_INCONNU / PROFONDEUR / TROP_DE_NOEUDS, chemins lisibles, orphelins signalés sans bloquer ; `raconter` pour la voix ; `repli` qui garde le contenu), `angle.ts` (cinq `ANGLES`, `regarder` — écartées comptées et expliquées, somme partielle à `null`, périodes en ordre CHRONOLOGIQUE, total sur tous les groupes retenus —, `anglesUtiles` qui refuse un champ à un seul groupe ou à autant de groupes que de lignes). Outil `assistant/planche-tools.ts` (`composer_planche` : angles / regarder / agencer ; `KINDS_RENDUS` vérifié contre la vraie table `RENDERERS`). Banc : `lib/planche/planche.test.ts` (21), cibles `composition_libre_rendu_ferme` / `agencement_refuse_garde_le_fond` / `angle_dit_ce_qu_il_ecarte` / `blocs_rendus_sans_derive` |
 | **Résolution d'entités (F9, §24)** | `lib/fabric/entites-score.ts` (scoreur pur : `scorerNom`, `trancher`, `detecterIdentifiant`, `questionDeDesambiguation`) ; `lib/fabric/entites.ts` (`resoudreEntite`, `resoudreMentions`, `contexteEntitesResolues` — dix natures, trigramme) ; pont `platform/in-process/fabric/entites.ts` ; `assistant.ts` (`resolvePerson` par la brique, bloc d'entités résolues dans le contexte du tour) ; `fabric/entites.test.ts` (banc de 60 mentions). |
 | **Teach Adam — règles enseignées** | `lib/teach/model.ts` (natures, périmètres, statuts, `KINDS_CONTRAIGNANTS`) ; `classify.ts` (`classerEnseignement`, `extraireParametres`) ; `resolve.ts` (`estApplicable`, `comparerPrecedence`, `resoudre`, `conflitsAvecExistantes`, `cleDe`) ; `compose.ts` (`composerBlocRegles`, `lignesPourPlanificateur`) ; pont `platform/in-process/teach/store.ts` (`enseigner`, `listerRegles`, `modifierRegle`, `changerStatutRegle`, `reglesEnVigueurPour`, `contexteRegles`, `politiquesPourMission`, `standardsDocumentaires`) ; outils `lib/assistant/teach-tools.ts` (`teach_adam`, `list_rules`, `update_rule`, `disable_rule`, `delete_rule`) ; garde `missions/policy/guard.ts` ; modèle `AdamRule`. |
 | **Adam — la coque de son bureau (et sa porte de sortie)** | Groupe de routes `app/(chief)/layout.tsx` : coque délibérément VIDE — ni menu latéral, ni barre supérieure, ni barre d'onglets, ni palette, ni bandeaux. `components/chief/{chief-workspace,chief-header,chief-home}.tsx` + `app/chief.css` (jeu de jetons `--chief-*` propre à Adam). **La sortie** : `components/chief/module-switcher.tsx` — une icône dans l'en-tête ouvre la liste des modules que CETTE personne peut ouvrir (champ de filtre, groupé par pôle, Échap / clic dehors referment). Les destinations arrivent par le **contrat de plateforme** (`navigation.destinations` → `in-process/adapter.ts` → `lib/nav-access.ts`), jamais par un import du menu de l'ERP : c'est ce qui garde le cliquet de frontière à 430. Le même `navigationFor` sert la barre latérale de l'ERP — une seule vérité sur « qui a le droit d'aller où ». Tests : `platform/navigation-destinations.test.ts` (dont : une entrée fusionnée mène au premier onglet AUTORISÉ, donc `/ad-pro` pour l'admin et `/congress-international` pour le délégué médical). |
@@ -4125,6 +4126,51 @@ on est certain qu'aucune source ne la porte.
   via `record_decision`. Trois cibles (`jamais_de_moyenne`, `meme_question_dabord`,
   `chiffre_prouve`).
 
+### Le front-end génératif : afficher ce qu'on veut, comme on veut — mandat 7
+
+« Adam affiche ce qu'il veut, comme il veut » a une réponse évidente et catastrophique : laisser
+le modèle produire du HTML. Elle échoue sur trois points, et le premier suffit — **le contenu lu
+est une DONNÉE** (§104.10). Un mail, un PDF, une cellule Excel passent par le modèle avant
+d'atteindre l'écran ; si le modèle peut émettre du balisage, une phrase écrite par un tiers dans
+un document le peut aussi, et le jour où elle le fait plus rien ne la distingue de la nôtre.
+
+- **La composition est libre, le rendu est fermé.** Six CONTENANTS — COLONNES, LIGNES, SECTION,
+  ONGLETS, PILE, ACCENT — composables à toute profondeur, autour de FEUILLES qui *désignent* les
+  blocs existants (§35) par leur index. Un arbre de six formes autour de vingt-et-un blocs
+  produit un nombre de mises en page qu'aucune bibliothèque de composants n'atteindra — sans
+  qu'une seule chaîne de caractères issue d'un modèle ne devienne du balisage. « Comme il veut »
+  porte sur l'AGENCEMENT, et c'est exactement ce qui manquait.
+- **`compiler` refuse et NOMME**, comme le compilateur de missions (§118.3) : un bloc que l'écran
+  ne sait pas rendre, une forme inventée, un contenant vide, des onglets sans étiquettes, deux
+  enfants sous un ACCENT (« deux accents n'accentuent plus rien »), et un titre qui contient du
+  balisage — refusé, pas assaini : l'assainissement afficherait proprement `&lt;script&gt;` et
+  passerait à autre chose, alors qu'on veut SAVOIR qu'un modèle ou un contenu injecté a essayé.
+  Le refus dit OÙ par un chemin lisible (`racine > colonnes[1] > section[0]`), jamais un index nu.
+- **Les bornes sont dures.** Un modèle qui se trompe ne produit pas un peu trop, il produit
+  beaucoup trop : 120 nœuds, 6 niveaux, 24 enfants. Un arbre de dix mille nœuds ne casse pas le
+  rendu — il fige le navigateur, et un figeage ressemble à une panne réseau, donc personne ne
+  cherche du côté de la planche.
+- **Un agencement refusé ne fait JAMAIS perdre le contenu.** Les blocs ont coûté des lectures :
+  on retombe sur une pile et on dit ce qui a été refusé, plutôt que de faire semblant d'avoir
+  obéi. Perdre la mise en page est une gêne ; perdre le résultat est une panne.
+- **« Sous l'angle qu'il veut » : cinq angles, calculés sur les lignes DÉJÀ lues.** PAR_VALEUR,
+  PAR_PERIODE, CLASSEMENT, CROISEMENT, ECARTS. Un angle ne relit rien — il ne peut donc pas
+  montrer autre chose que ce qui a été montré. Et il DIT toujours ce qu'il a écarté : « 28 sur
+  34, 6 sans date » se lit, « 28 » ment par omission. Une somme partielle vaut `null` plutôt
+  qu'un nombre qui aurait l'air complet, et le total porte sur tous les groupes retenus, pas
+  seulement sur ceux affichés — l'écart entre les deux est exactement ce qui trompe.
+- **Les angles proposés écartent ce qui n'informe pas** : un champ dont toutes les lignes portent
+  la même valeur ne fait qu'un groupe, un champ presque toujours distinct en fait autant que de
+  lignes. Entre les deux vit l'information. *Défaut trouvé en écrivant ce module :*
+  `new Date(120000)` réussit — c'est le 1er janvier 1970 à 00:02 —, si bien que TOUTE colonne
+  numérique passait pour une colonne de dates et qu'on proposait de grouper les MONTANTS par
+  mois. Un nombre n'est plus une date : l'appelant qui porte des horodatages les convertit, lui
+  seul sachant ce que sa colonne contient.
+- **La liste des blocs rendables ne dérive pas en silence** : un test lit la vraie table
+  `RENDERERS` du composant et compare. Un `composer_planche` qui accepterait un bloc que l'écran
+  ignore afficherait un TROU là où le compilateur a dit oui — et personne ne cherche du côté du
+  compilateur quand un bloc manque.
+
 ### L'optimiseur qualité-d'abord — mandat 6 §50
 
 Un optimiseur de coût converge toujours vers le moins cher : c'est sa définition. Ce qui l'en
@@ -4448,6 +4494,21 @@ qui alimente tout seul la feuille de route technique.
   croisés : mesuré sur le catalogue réel, « faire signer électroniquement ce contrat » trouvait
   une capacité parce qu'elle contient le mot « contrat » dans son résumé — un faux positif ici est
   le pire des résultats, puisqu'il empêche de nommer le manque.
+- **Et le seuil de 3 avait un angle mort, mesuré sur un défi réel.** Deux mots sur deux dans un
+  résumé font 2 points — donc « chemin critique », la demande ENTIÈRE, était sous le seuil, tandis
+  que `chercher` classait `calcul_ordonnancement` PREMIÈRE. Deux réponses du même outil à la même
+  phrase, opposées ; Adam a dit à la personne que le moteur n'existait pas. La règle ajoutée
+  n'abaisse aucun seuil : elle admet aussi une capacité qui COUVRE au moins 75 % de la demande sur
+  au moins deux mots. Les points mesurent la FORCE d'un rapprochement (nom 3, domaine 2, résumé 1) ;
+  la couverture mesure la PART de la demande traitée, et les deux ne se remplacent pas. Mesuré sur
+  quatorze besoins de vérité connue : 1 faux absent et 3 faux présents avant, **0 et 3** après —
+  un seuil simplement abaissé à 2 aurait fait 0 et 5.
+- **Les écartées sont TRIÉES, et ce n'est pas cosmétique.** Elles sortaient dans l'ordre du
+  catalogue : à « exécute une requête SQL » demandé par une déléguée, `sql_query` — la seule
+  exclusion qui répondait — arrivait en position 20 sur 38, et l'outil n'en affiche que dix. Toute
+  la distinction droit/absence était calculée juste et jetée avant d'atteindre le modèle. Le tri
+  corrige aussi le manque lui-même : `detecterManque` le construit à partir de la PREMIÈRE
+  bloquante, donc il nomme désormais `sql_query` au lieu d'une capacité de paie tirée au hasard.
 - **`registre_capacites`** : cinq questions — `chercher` (avec les ÉCARTÉES et leur raison),
   `fiche`, `manque`, `feuille_de_route`, `sommaire`. Interrogeable pendant une mission, jamais figé
   dans le prompt : un registre récité coûte des jetons à chaque tour, vieillit en silence, et ne
@@ -5092,8 +5153,156 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### 200 MISSIONS, 86 ÉCHECS DE « PLANIFICATEUR » — et c'en était UN (2026-09)
+
+Le banc d'autonomie a tourné sur deux cents missions inédites, par le VRAI `lancerMission`. Il se
+déclare lui-même **NON CONCLUANT** : trente-quatre missions ont été mangées par une panne du
+fournisseur (502 en rafale), soit 17 % — au-delà du dixième toléré, le score ne vaut pas. Les
+cent soixante-six restantes, elles, disent quelque chose de précis.
+
+    réussite (réalisables)  36,3 %   ·  faux succès 0  ·  manques classés 100 %
+    PLANIFICATEUR 86 · MODELE 14 · PERMISSION 6 · DONNEE 1
+
+Quatre-vingt-six échecs sur cent sept portaient la même étiquette. On peut lire cela comme
+quatre-vingt-six erreurs de raisonnement d'un modèle. C'était **une** cause, structurelle, et
+elle se voyait à la forme des familles : STATISTIQUES 0/17, LEGAL 0/14, COMPOSITION 0/16,
+REPRESENTATION 2/17. Des zéros pareils ne sont pas du hasard de modèle.
+
+Le message dominant était « le plan ne prévoit pas : CALCUL (primitives : INFORMATION) ». Le
+planificateur ne refusait pas de calculer : **on ne lui montrait pas de quoi calculer.** Il
+reçoit une liste RÉSOLUE (une vingtaine de capacités sur deux cent vingt-neuf — c'est le §3, et
+c'est ce qui rend la mesure possible), et `calcul_statistiques` n'y entrait jamais. Trois causes
+s'additionnaient, aucune n'était le modèle :
+
+1. **Le résumé était coupé à 220 caractères.** C'est sur lui que le résolveur marque. Les 220
+   premiers caractères de `calcul_statistiques` parlent des SOURCES de données ; les mots qui
+   répondent à une vraie question — significativité, corrélations, régression, anomalies, série,
+   prévision — arrivent après la coupe. On garde la coupe et on rattache désormais une QUEUE DE
+   MOTS : les termes distinctifs de la partie coupée, dédupliqués, bornés à douze. Rien n'est
+   écrit à la main, donc rien ne peut se périmer.
+2. **Le rattrapage par préfixe ne s'appliquait pas au résumé** — seulement au nom et au domaine,
+   et seulement quand le score valait ZÉRO. Or le vocabulaire métier d'une capacité vit dans son
+   résumé, et « significati(f) » ne rencontrera jamais « significativité » par égalité stricte.
+   Le préfixe compte maintenant partout, avec un poids MOINDRE qu'une correspondance exacte : un
+   radical partagé est un indice, pas une preuve.
+3. **Personne ne demande « une significativité ».** On demande si l'écart est « significatif ou
+   du bruit », si les mois sont « anormaux », s'il y a un « lien » entre deux choses, on dit
+   « rédige une note » et « fais-moi un tableau de bord ». Aucun de ces mots n'existait dans un
+   résumé. Le dictionnaire de SYNONYMES — prévu exactement pour ça, et qui traduit du français
+   vers du français, jamais vers un nom de capacité — les porte maintenant. Chaque mot de droite
+   a été vérifié présent dans au moins un résumé du catalogue réel : une traduction vers un mot
+   que personne n'emploie ne ferait rien marquer et donnerait l'illusion d'avoir corrigé.
+
+Effet mesuré sur les objectifs exacts du banc : `calcul_statistiques` remonte désormais sur les
+TROIS questions statistiques (zéro avant), les primitives CALCUL montrées passent de 2 à 5, de 2
+à 4 et de 1 à 2, et les capacités jugées pertinentes de 16 à 31. Le test qui tient la propriété
+a d'abord été écrit FAUX — il passait même en retirant les deux corrections, parce qu'avec un
+catalogue où tout marque zéro le départage alphabétique sacrait la bonne réponse. Il porte
+maintenant un leurre alphabétiquement premier et exige un score strictement positif.
+
+**Ce que le banc ne dit pas encore.** Le score reste non concluant tant qu'une panne de
+fournisseur emporte un sixième des missions ; il faudra le rejouer au calme pour connaître
+l'effet réel de ces corrections sur la réussite de bout en bout. Les six violations de droit
+comptées sont à re-vérifier de la même manière que les quatre de la veille — la dernière fois,
+c'était la mesure qui avait tort, pas le moteur.
+
+### LE BANC DE MISSIONS INÉDITES EST CLOS PAR PLUS GRAND QUE LUI (2026-09)
+
+`scripts/bench/adam-mission-bench.ts` — neuf missions vagues lancées par le VRAI `lancerMission`,
+avec carte de score par mission (enquête, plan, attentes, initiative, contact, fin), attendus
+vérifiés en base et coût par mission — reste le banc court, celui qu'on relance en deux minutes
+pour voir si une mission vague tient encore debout.
+
+La MESURE DE RÉFÉRENCE, elle, n'est plus lui : c'est le banc d'autonomie du §43, deux cents
+missions inédites par le même point d'entrée, avec classification de chaque échec en douze causes
+et un score qui refuse de conclure quand une panne de fournisseur a mangé plus d'un dixième des
+missions. Neuf missions donnent une impression ; deux cents donnent un chiffre. Les deux restent
+— le court pour la boucle de travail, le long pour le verdict.
+
+### « Ce n'est pas disponible » — quatre causes distinctes, toutes fausses (2026-09)
+
+Quatre défis live sur quarante-huit tournaient autour d'une seule phrase d'Adam : *« le moteur
+d'ordonnancement n'est pas disponible »*, *« aucune capacité SQL n'est disponible »*. Chaque fois
+la capacité EXISTAIT. Quatre causes indépendantes s'étaient additionnées pour produire la même
+phrase, et aucune n'était celle qu'on soupçonnait.
+
+- **La doctrine anti-« je ne peux pas » n'était branchée QUE sur la voix.** `capabilityDoctrine`
+  — la consigne qui impose d'INTERROGER `registre_capacites` avant de déclarer une impossibilité,
+  et qui sépare « vous n'y avez pas droit » de « rien ne sait le faire » — existait, était testée,
+  et n'atteignait que `voice-realtime.ts`. Le mode TEXTE, celui du navigateur ET celui des
+  missions, ne la recevait pas. C'est exactement le §14 du CLAUDE.md : une brique dont on a
+  cherché l'appelant de production et trouvé UN seul là où il en fallait deux. Elle est désormais
+  dans `systemPrompt`, et un test vérifie que les DEUX surfaces portent la même — pas deux
+  variantes qui divergeront. Effet mesuré au banc : sur le défi SQL, Adam est passé de ZÉRO appel
+  d'outil à deux appels au registre.
+- **Deux constantes du registre se contredisaient.** `MOTS_POUR_CONCLURE = 2` annonçait « deux
+  mots distincts suffisent » ; `PERTINENCE_POUR_CONCLURE = 3` rendait ces deux mots insuffisants
+  s'ils venaient du résumé (1 point chacun). La règle des deux mots ne pouvait donc JAMAIS être
+  satisfaite sans un mot dans le nom. Conséquence : sur « chemin critique » — les deux mots de la
+  demande, présents tous les deux dans le résumé de `calcul_ordonnancement` — la recherche
+  classait la capacité PREMIÈRE pendant que la détection de manque répondait « aucune capacité ne
+  sait faire ça ». Deux réponses du même outil à la même phrase, opposées ; Adam croyait la
+  seconde. La correction n'abaisse aucun seuil : elle ajoute la COUVERTURE (la part de la demande
+  qu'une seule capacité prend en charge, ≥ 75 % sur au moins deux mots). Mesuré sur quatorze
+  besoins de vérité connue — sept présents, sept absents : la règle actuelle faisait 1 faux ABSENT
+  et 3 faux présents, un seuil abaissé à 2 en faisait 0 et 5, la couverture en fait **0 et 3**.
+  Le faux absent est la faute grave : c'est un verdict rendu avec autorité qui alimente une dette
+  technique inexistante. Un faux présent ne conclut rien — il rend des candidats et dit au modèle
+  de juger.
+- **L'exclusion qui répondait sortait en vingtième.** Une déléguée demande une requête SQL.
+  `sql_query` existe, elle n'y a pas droit : le registre le voyait, et la rangeait correctement en
+  écartée/DROIT — **position 20 sur 38**, derrière dix-neuf exclusions sans le moindre rapport,
+  parce que les écartées sortaient dans l'ordre du CATALOGUE. L'outil n'en affiche que dix. La
+  seule exclusion qui répondait à la question n'atteignait jamais le modèle. Le mécanisme du §44
+  fonctionnait ; c'est l'ORDRE qui l'annulait. Les écartées se trient désormais par pertinence,
+  comme les retenues : position 20 → **0**.
+- **Un sommaire de réseau se lisait comme une réponse.** À « comment X est-il relié à Y ? », le
+  sommaire (compter les nœuds et les liens) a été pris pour un constat d'absence — alors qu'un
+  chemin existait à deux pas et que l'analyse « chemin » l'aurait trouvé. La sortie du sommaire
+  porte maintenant sa propre limite : compter n'est pas chercher, et rien ne se conclut d'ici.
+
+**Et deux juges qui avaient tort.** Le défi de la signature électronique accusait Adam de ne pas
+nommer un manque — alors que le produit a GRANDI : le connecteur DocuSign (§36) existe désormais,
+et Adam avait donné la meilleure réponse possible (« la capacité existe, l'intégration n'est pas
+configurée : URL, jeton et identifiant de compte manquent »). Le juge se déclarait lui-même « non
+concluant » — il faisait son travail. Il est réécrit pour interroger le registre et exiger la
+bonne chose SELON ce qu'il y trouve : capacité absente → nommer le manque ; capacité présente mais
+non connectée → dire ce qu'il faut pour l'utiliser. Il ne redeviendra pas caduc au prochain
+connecteur. Le défi d'attente d'événement, lui, ne battait l'ordonnanceur que pendant la
+PLANIFICATION : une mission planifiée doit encore TOURNER avant d'arriver à son étape d'attente,
+et plus rien ne la faisait avancer. Le banc accusait le moteur d'un silence qui venait du banc.
+
 ### La provenance au niveau du fait, la garantie d'enseignement, et la boîte dans le pont (2026-09)
 
+- **Toutes les cibles sont MESURÉES, et le chaos gagne trois situations** : le rapport d'évals
+  comptait vingt-trois cibles « non mesurées » — c'est-à-dire vingt-trois phrases exigeantes que
+  personne ne vérifiait. Chacune est désormais reliée au test qui la prouve : `npm run
+  evals:report` affiche soixante-quatorze lignes, zéro « non mesurée ». Côté résilience, la
+  matrice des sabotages passe de quatorze à dix-sept, avec les trois cas que le mandat nommait
+  et qui manquaient : des ÉVÉNEMENTS DANS LE DÉSORDRE (la fraîcheur se lit sur `occurredAt`,
+  l'instant du fait, jamais sur `createdAt`, l'instant de l'écriture — et l'ancien n'est pas
+  perdu, il fait partie de l'histoire), une ÉCHÉANCE DÉJÀ PASSÉE au réveil (réglée au PREMIER
+  battement, jamais rejouée au suivant), et TRENTE MISSIONS SIMULTANÉES (trente identifiants
+  distincts, trente objectifs distincts, aucune notification par mission — le silence reste la
+  conduite par défaut).
+- **Un « échec de permission » qui n'en était pas** : le banc d'autonomie comptait quatre
+  violations de droit sur deux cents missions, sur la cible la plus grave du mandat. Vérification
+  faite, le compilateur refuse bien une capacité hors catalogue (`UNKNOWN_CAPABILITY`, reproduit
+  à la main) : les capacités incriminées étaient des SKILLS DYNAMIQUES (§36), servis par un cache
+  préchargé au début d'un tour et déjà filtrés par le droit de leur manifeste. Le banc prenait
+  son instantané des droits AVANT que ce cache soit chaud. Rien n'avait été franchi — mais
+  accuser à tort sur la sûreté des permissions est pire qu'une mesure absente : on cherche une
+  faille qui n'existe pas, et le jour où il y en aura une vraie, plus personne ne regardera. Le
+  banc réchauffe le cache avant de mesurer.
+- **Afficher ce qu'on veut, comme on veut, sans laisser un modèle écrire du HTML** (mandat 7) :
+  la composition devient libre — six contenants composables à toute profondeur — pendant que le
+  rendu reste fermé : les feuilles DÉSIGNENT les blocs existants, elles ne les décrivent pas.
+  C'est la seule façon de tenir la promesse sans qu'une phrase écrite par un tiers dans un
+  document puisse devenir du balisage. Un titre qui en contient est refusé, pas assaini ; un
+  agencement invalide retombe sur une pile en le disant, parce que perdre la mise en page est
+  une gêne et perdre le résultat une panne. Côté angles, le même jeu de lignes se relit par
+  valeur, par période, par classement, par croisement ou par écarts — sans jamais retourner en
+  base, et en annonçant toujours combien de lignes ont été écartées et pourquoi.
 - **Économiser sans jamais descendre sous le plancher** (mandat 6 §50) : la hiérarchie
   qualité > coût > latence est tenue par l'ORDRE du calcul — la porte de qualité passe avant le
   tri par prix, et les deux grandeurs ne sont jamais additionnées, donc jamais compensables. La

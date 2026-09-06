@@ -232,6 +232,9 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   monde_temporel: ["GENERAL", "REGULATORY", "LEGAL", "FINANCE"],
   // §46 : deux chiffres qui divergent arrivent surtout de la finance, mais pas seulement.
   verite_reconcilier: ["GENERAL", "FINANCE", "DATA", "LEGAL"],
+  // Mandat 7 : agencer l'écran ne dépend d'AUCUN domaine — c'est la nature du résultat
+  // (plusieurs blocs, plusieurs angles possibles) qui appelle cet outil, pas son sujet.
+  composer_planche: ["GENERAL", "DATA", "FINANCE", "REGULATORY", "LEGAL"],
   // §49 : « combien vérifier avant de dire ça » se pose partout, et d'abord là où un chiffre
   // engage — la finance et le regulatory. C'est aussi un outil du socle, voir ALWAYS_ON.
   verifier_avant_de_dire: ["GENERAL", "FINANCE", "REGULATORY", "LEGAL", "DATA"],

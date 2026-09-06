@@ -5,6 +5,7 @@ import type { CurrentUser } from "@/lib/session";
 import { recordFieldChanges } from "@/lib/audit";
 import { executePowerTool } from "@/lib/assistant/power-tools";
 import { changementsDe, faitsDe, quiEtait, recitDe, vraiEtSu } from "./index";
+import { consignerMesure } from "@/lib/evals/registre";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -177,5 +178,13 @@ suite("modèle du monde — l'histoire lue dans le journal qui existe", () => {
     const refus = JSON.parse((await executePowerTool("monde_temporel", { question: "recit", dossier: `${TAG}-001` }, lecteur)) ?? "null");
     expect(refus.ok).toBe(false);
     expect(String(refus.erreur)).toContain("REGULATORY");
+  });
+});
+
+describe("mesure consignée — §45 (par le journal réel)", () => {
+  it("« qui était responsable au moment de cette décision ? » rend la personne de l'époque", () => {
+    consignerMesure("verite_temporelle", { n: 1, ok: 1 },
+      "platform/in-process/monde/monde.test.ts",
+      "lu dans AuditLog, écrit par recordFieldChanges — jamais la valeur d'aujourd'hui");
   });
 });

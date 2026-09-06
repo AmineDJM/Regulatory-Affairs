@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { consignerMesure } from "@/lib/evals/registre";
 import type { CapabilityBrief, CapabilityCatalog, MissionActor } from "@/lib/missions/ports";
 import type { CapabilityMeta } from "@/lib/missions/registry/capability-meta";
-import { resoudreCapacites, scoreCapacite, jetonsEtendus } from "@/lib/missions/registry/resolve";
+import { resoudreCapacites, scoreCapacite, jetonsEtendus, SYNONYMES } from "@/lib/missions/registry/resolve";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -143,9 +144,15 @@ describe("le seuil de pertinence — ce qu'il coupe, et ce qu'il ne coupe pas", 
     const demande = jetonsEtendus(DEMANDE);
     const carte = CAPACITES.find((c) => c.id === "directory_card")!;
 
-    // La prémisse d'abord : si un jour cette capacité se mettait à marquer, le test ci-dessous
-    // deviendrait vrai pour une raison sans rapport avec le tourniquet.
-    expect(scoreCapacite(carte, demande)).toBe(0);
+    // La prémisse d'abord : si un jour cette capacité se mettait à marquer ASSEZ pour passer le
+    // seuil de remplissage, le test ci-dessous deviendrait vrai pour une raison sans rapport
+    // avec le tourniquet. Ce qu'il faut garantir n'est donc pas « score nul » mais « score sous
+    // le seuil » — depuis que le rattrapage par préfixe existe aussi sur le résumé, « fiche
+    // d'une PERSONNE » attrape un demi-point sur « PERSONNEL », ce qui est un vrai rapprochement
+    // et non du bruit. Le seuil de remplissage vaut max(seuilMinimum, 25 % du meilleur).
+    const meilleurScore = Math.max(...CAPACITES.map((c) => scoreCapacite(c, demande)));
+    const seuilRemplissage = Math.max(2, meilleurScore * 0.25);
+    expect(scoreCapacite(carte, demande)).toBeLessThan(seuilRemplissage);
 
     const avec = idsMontres(STRUCTURE);
     // C'est la panne connue de ce dépôt : montrer de quoi écrire sans montrer à QUI. Le seuil
@@ -186,5 +193,125 @@ describe("le seuil de pertinence — ce qu'il coupe, et ce qu'il ne coupe pas", 
     expect(r.metriques.plannerCapabilitiesExposed).toBeLessThan(r.metriques.capacitesAutorisees);
     expect(r.metriques.capacitesAutorisees).toBe(CAPACITES.length);
     expect(r.metriques.jetonsEvites).toBeGreaterThan(0);
+  });
+});
+
+describe("le rappel du résolveur — ce qu'on ne MONTRE pas ne peut pas être planifié", () => {
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * LE DÉFAUT QUI DOMINAIT LE BANC DES DEUX CENTS MISSIONS.
+   *
+   * Familles STATISTIQUES 0/17, LEGAL 0/14, COMPOSITION 0/16, REPRESENTATION 2/17, et une cause
+   * en tête de toutes les autres : « le plan ne prévoit pas CALCUL ». On a d'abord lu cela comme
+   * quatre-vingt-six échecs de raisonnement du planificateur. C'en était UN, structurel : la
+   * capacité de calcul n'était pas dans la liste qu'on lui montrait.
+   *
+   * Trois causes s'additionnaient, et aucune n'était le modèle :
+   *   1. le RÉSUMÉ était coupé à 220 caractères, et les mots distinctifs d'une capacité sont
+   *      presque toujours à la fin (corrigé dans `catalog.ts` : la queue de mots) ;
+   *   2. le rattrapage par PRÉFIXE ne s'appliquait qu'au nom et au domaine, et seulement quand
+   *      le score valait zéro — or le vocabulaire métier vit dans le résumé ;
+   *   3. personne ne demande « une significativité » : on demande si l'écart est « significatif
+   *      ou du bruit ». Ces mots-là n'existaient dans aucun résumé, et le dictionnaire de
+   *      SYNONYMES — prévu exactement pour ce cas — ne les portait pas.
+   *
+   * Ce test tient la PROPRIÉTÉ, pas les trois corrections : une demande formulée dans les mots
+   * d'une personne doit faire remonter la capacité qui y répond.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  const stat = b("calcul_statistiques", "calcul", "Statistiques et apprentissage. Banc statistique : quartiles, corrélations, régression, significativité, anomalies, série temporelle, prévision.");
+  const rendu = b("render_view", "representation", "Affiche une représentation : tableau, barres, lignes, graphique, carte, répartition.");
+  const doc = b("draft_deliverable", "document", "Rédige un livrable : rapport, note de synthèse, courrier.");
+  // LE LEURRE EST ALPHABÉTIQUEMENT PREMIER, ET C'EST VOULU. Le tri départage les ex æquo par
+  // identifiant : sans lui, un catalogue où TOUT vaut zéro sacrerait « calcul_statistiques »
+  // gagnante par ordre alphabétique, et ce test passerait sans rien mesurer. La première
+  // version de ce bloc avait exactement ce défaut — elle passait même en retirant les deux
+  // corrections qu'elle prétendait tenir.
+  const bruit = [
+    b("aaa_leurre", "logistique", "Lit les stocks et les mouvements."),
+    b("list_emails", "mail", "Liste les e-mails reçus."),
+    b("create_task", "taches", "Crée une tâche assignée."),
+  ];
+  const CATALOGUE = [stat, rendu, doc, ...bruit];
+
+  /** La gagnante, et `null` si RIEN n'a marqué — un score nul n'est pas un choix. */
+  const gagnante = (demande: string): { id: string; s: number } | null => {
+    const d = jetonsEtendus(demande);
+    const top = [...CATALOGUE].map((c) => ({ id: c.id, s: scoreCapacite(c, d) }))
+      .sort((x, y) => y.s - x.s || x.id.localeCompare(y.id))[0]!;
+    return top.s > 0 ? top : null;
+  };
+
+  it("LE TEST QUI COMPTE : les mots d'une personne trouvent le moteur, pas ceux d'un statisticien", () => {
+    // Aucune de ces phrases n'emploie un mot du résumé. Toutes doivent pourtant y mener.
+    for (const demande of [
+      "Est-ce que nos délais se dégradent vraiment, ou est-ce que l'écart est significatif ou du bruit ?",
+      "Y a-t-il un lien entre le prix et le volume vendu ?",
+      "Repère les mois anormaux, ceux qui sortent de l'ordinaire.",
+    ]) {
+      const g = gagnante(demande);
+      expect(g, `« ${demande} » ne marque RIEN`).not.toBeNull();
+      expect(g!.id, demande).toBe("calcul_statistiques");
+      expect(g!.s, `${demande} : marque, mais à zéro`).toBeGreaterThan(0);
+    }
+  });
+
+  it("« montre-moi » veut une REPRÉSENTATION, « rédige » veut un DOCUMENT", () => {
+    for (const [demande, attendue] of [
+      ["Fais-moi un tableau de bord par statut", "render_view"],
+      ["Rédige une note de synthèse sur ce contrat", "draft_deliverable"],
+    ] as const) {
+      const g = gagnante(demande);
+      expect(g, `« ${demande} » ne marque RIEN`).not.toBeNull();
+      expect(g!.id, demande).toBe(attendue);
+      expect(g!.s).toBeGreaterThan(0);
+    }
+  });
+
+  it("le rattrapage par PRÉFIXE vaut aussi dans le résumé, et il vaut moins qu'un mot exact", () => {
+    // La famille de mots que la découpe sépare : « temporel » et « temporelle ». Le
+    // rattrapage ne s'appliquait qu'au nom et au domaine, et seulement à score nul — donc jamais
+    // là où vit le vocabulaire métier. Sans lui, aucun demi-point ; avec lui, la capacité entre
+    // dans la course sans pour autant dépasser une correspondance exacte.
+    // « temporel » n'est PAS une entrée du dictionnaire : on mesure donc le préfixe seul, et pas
+    // un synonyme déguisé. Le résumé porte « temporelle ».
+    expect(SYNONYMES.temporel, "« temporel » doit rester hors du dictionnaire pour ce test").toBeUndefined();
+    const seulPrefixe = jetonsEtendus("temporel");
+    const seulExact = jetonsEtendus("temporelle");
+    const parPrefixe = scoreCapacite(stat, seulPrefixe);
+    const parExact = scoreCapacite(stat, seulExact);
+    expect(parPrefixe, "un préfixe partagé doit marquer").toBeGreaterThan(0);
+    expect(parPrefixe, "un préfixe ne doit JAMAIS peser autant qu'un mot exact").toBeLessThan(parExact);
+  });
+
+  it("mesure consignée — §43 : le rappel du résolveur sur les mots d'une personne", () => {
+    const cas: [string, string][] = [
+      ["Est-ce que l'écart est significatif ou du bruit ?", "calcul_statistiques"],
+      ["Y a-t-il un lien entre le prix et le volume vendu ?", "calcul_statistiques"],
+      ["Repère les mois anormaux, ceux qui sortent de l'ordinaire.", "calcul_statistiques"],
+      ["Est-ce que la tendance se dégrade ?", "calcul_statistiques"],
+      ["Fais-moi un tableau de bord par statut", "render_view"],
+      ["Montre-moi la répartition en graphique", "render_view"],
+      ["Rédige une note de synthèse sur ce contrat", "draft_deliverable"],
+      ["Prépare un rapport pour le comité", "draft_deliverable"],
+    ];
+    const trouves = cas.filter(([demande, attendue]) => gagnante(demande)?.id === attendue);
+    consignerMesure("capacite_montree_au_planificateur", { n: cas.length, ok: trouves.length },
+      "lib/missions/registry/resolve.test.ts",
+      `${trouves.length}/${cas.length} demandes en langue courante font remonter la capacité qui y répond`);
+    expect(trouves).toHaveLength(cas.length);
+  });
+
+  it("le dictionnaire ne traduit JAMAIS vers un nom de capacité", () => {
+    // La règle du fichier : il traduit du français vers du français. Une entrée qui pointerait
+    // vers `calcul_statistiques` serait la table codée en dur que tout ce module refuse — elle
+    // vieillirait en silence le jour où la capacité serait renommée ou scindée.
+    const idsConnus = new Set(CATALOGUE.map((c) => c.id));
+    for (const [mot, cibles] of Object.entries(SYNONYMES)) {
+      for (const cible of cibles) {
+        expect(idsConnus.has(cible), `« ${mot} » → « ${cible} » est un nom de capacité`).toBe(false);
+        expect(cible).not.toMatch(/_/);
+      }
+    }
   });
 });

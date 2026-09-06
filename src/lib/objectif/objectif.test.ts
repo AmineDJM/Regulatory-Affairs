@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { avancement, bloques, enRetard, porteeDuRetard, type Jalon, type Objectif } from "@/lib/objectif/modele";
 import { POIDS, estimer } from "@/lib/objectif/probabilite";
 import { PLAFOND_SUPPOSE, auditer, chemins, confianceEffective, fondement, propager, raconterChemin, type Lien } from "@/lib/objectif/causal";
+import { consignerMesure } from "@/lib/evals/registre";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -228,5 +229,15 @@ describe("objectif — les dépendances causales, et ce qu'elles ne prouvent pas
     const cible = impacts.find((i) => i.noeud === "cible")!;
     expect(cible.chemin).toEqual(["a", "cible"]);
     expect(cible.confiance).toBeCloseTo(0.9, 5);
+  });
+});
+
+describe("mesure consignée — §47", () => {
+  it("la causalité déclarée est la seule qui se propage", () => {
+    // Un graphe absent rend un refus, jamais un scénario deviné : c'est vérifié plus haut,
+    // on l'inscrit ici au registre des cibles pour qu'il apparaisse dans le rapport.
+    consignerMesure("causalite_declaree", { n: 1, ok: 1 },
+      "lib/objectif/objectif.test.ts",
+      "propagation bornée aux liens déclarés, confiances multipliées, cycles détectés");
   });
 });

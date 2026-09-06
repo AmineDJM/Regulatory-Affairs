@@ -33,6 +33,7 @@ import { VERITE_TOOLS } from "@/lib/assistant/verite-tools";
 import { OBJECTIF_TOOLS } from "@/lib/assistant/objectif-tools";
 import { ANNULATION_TOOLS } from "@/lib/assistant/annulation-tools";
 import { VERIFICATION_TOOLS } from "@/lib/assistant/verification-tools";
+import { PLANCHE_TOOLS } from "@/lib/assistant/planche-tools";
 import { executerOutilDynamique, labelsDynamiques, outilsDynamiquesPour } from "@/platform/in-process/skills";
 import { INTELLIGENCE_TOOLS } from "@/lib/assistant/intelligence-tools";
 import { SPECIALIST_TOOLS } from "@/lib/assistant/specialists/tools";
@@ -406,6 +407,7 @@ export const POWER_TOOLS: PowerTool[] = [
   ...OBJECTIF_TOOLS,
   ...ANNULATION_TOOLS,
   ...VERIFICATION_TOOLS,
+  ...PLANCHE_TOOLS,
   ...INTELLIGENCE_TOOLS,
   // §29 — « aucun sans bénéfice mesuré » : l'outil de délégation n'entre au registre que si au
   // moins un spécialiste a une mesure POSITIVE. Un outil qui refuserait toujours serait une

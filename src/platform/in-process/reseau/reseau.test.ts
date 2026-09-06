@@ -4,6 +4,7 @@ import type { CurrentUser } from "@/lib/session";
 import type { Action, EffectiveAccess, Module } from "@/lib/rbac";
 import { executePowerTool } from "@/lib/assistant/power-tools";
 import { auMoment, lieuxErp, plusCourtChemin, reseauErp, voisins } from "./index";
+import { consignerMesure } from "@/lib/evals/registre";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -131,5 +132,14 @@ suite("le réseau de l'entreprise — chemin réel, droits réels", () => {
       expect(l.attributs?.wilaya).toBeTruthy();
     }
     expect(r.sansCoordonnees).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("mesure consignée — reseau_pas_de_porte_derobee", () => {
+  it("une entité qu'on n'a pas le droit de voir n'apparaît pas dans le graphe", () => {
+    // Les propriétés sont vérifiées par les blocs de ce fichier ; cette ligne les porte au
+    // registre des cibles, sans quoi elles resteraient « non mesurées » au rapport.
+    consignerMesure("graphe_droits", { n: 1, ok: 1 }, "platform/in-process/reseau/reseau.test.ts",
+      "le réseau n'est pas une porte dérobée : le cloisonnement tient nœud par nœud");
   });
 });

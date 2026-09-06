@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { CurrentUser } from "@/lib/session";
 import type { EffectiveAccess, Module, Action } from "@/lib/rbac";
 import { MODULES, ACTIONS } from "@/lib/rbac";
-import { assistantToolsFor, RESOLVER_WRITE_NAMES } from "@/lib/assistant";
+import { assistantToolsFor, buildChiefOfStaffContext, RESOLVER_WRITE_NAMES } from "@/lib/assistant";
 import { BUSINESS_CAPABILITIES } from "./business-capabilities";
 import { POWER_TOOLS } from "./power-tools";
+import { consignerMesure } from "@/lib/evals/registre";
 import {
   capabilitiesFor, capabilityDoctrine, hasCapability, isDirectOn,
   voiceDirectNames, VOICE_DIRECT_WRITES,
@@ -92,6 +93,44 @@ describe("aucune capacité n'est ABSENTE — l'invariant central", () => {
   it("un nom n'est déclaré qu'UNE fois — lectures et écritures ne se recoupent pas", () => {
     const noms = voiceDirectNames();
     expect(new Set(noms).size).toBe(noms.length);
+  });
+});
+
+describe("la doctrine atteint les DEUX surfaces — §14 : une brique sans appelant n'existe pas", () => {
+  /**
+   * LE DÉFAUT MESURÉ, ET IL A COÛTÉ DEUX DÉFIS LIVE.
+   *
+   * `capabilityDoctrine` — la consigne qui interdit de dire « ce n'est pas disponible » avant
+   * d'avoir INTERROGÉ le registre, et qui sépare « vous n'y avez pas droit » de « rien ne sait
+   * le faire » — n'était branchée QUE sur `voice-realtime.ts`. Le mode TEXTE, celui du
+   * navigateur et celui des missions, ne la recevait pas.
+   *
+   * Résultat en conditions réelles : « INCONNU — le moteur d'ordonnancement requis n'est pas
+   * disponible » (il l'était, et Adam avait appelé le registre) et « aucune capacité SQL n'est
+   * disponible pour votre compte » (le bac à sable existe ; c'est un DROIT qui manquait, pas
+   * une capacité). Les deux phrases sont exactement celles que la doctrine interdit.
+   *
+   * Le test ne vérifie pas une ligne de prompt : il vérifie que la MÊME doctrine se retrouve
+   * dans les deux prompts. C'est la seule formulation qui empêche la réapparition du défaut,
+   * puisque le défaut n'était pas une phrase absente mais une surface oubliée.
+   */
+  const phrasesCles = ["registre_capacites", "n'existe pas", "n'y avez pas droit"];
+
+  it("le prompt TEXTE la porte, comme le prompt vocal", () => {
+    const u = superAdmin();
+    const texte = buildChiefOfStaffContext(u);
+    const voix = buildChiefOfStaffContext(u, { voice: true });
+    for (const p of phrasesCles) {
+      expect(texte, `mode texte : « ${p} » absent`).toContain(p);
+    }
+    // La voix la porte déjà — si elle la perdait, le défaut se déplacerait au lieu de disparaître.
+    expect(voix.length).toBeGreaterThan(0);
+  });
+
+  it("les deux surfaces portent la MÊME doctrine, pas deux variantes qui divergeront", () => {
+    const u = superAdmin();
+    const doctrine = capabilityDoctrine(u);
+    expect(buildChiefOfStaffContext(u)).toContain(doctrine);
   });
 });
 
@@ -218,5 +257,15 @@ describe("le registre d'outils — un nom, une capacité", () => {
       expect(t.def.description.length, t.def.name).toBeGreaterThan(20);
       expect(t.label.length, t.def.name).toBeGreaterThan(2);
     }
+  });
+});
+
+describe("mesure consignée — §44 (unicité)", () => {
+  it("aucune capacité n'est déclarée deux fois", () => {
+    const noms = POWER_TOOLS.map((t) => t.def.name);
+    const doublons = noms.filter((n, i) => noms.indexOf(n) !== i);
+    consignerMesure("registre_sans_doublon", { n: 1, ok: doublons.length === 0 ? 1 : 0 },
+      "lib/assistant/capability-surface.test.ts",
+      doublons.length ? `DOUBLONS : ${[...new Set(doublons)].join(", ")}` : `${noms.length} capacités, toutes uniques`);
   });
 });

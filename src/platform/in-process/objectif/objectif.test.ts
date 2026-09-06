@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, type EffectiveAccess } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
 import { executePowerTool } from "@/lib/assistant/power-tools";
+import { consignerMesure } from "@/lib/evals/registre";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -22,6 +23,7 @@ let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
 
+const SRC = "platform/in-process/objectif/objectif.test.ts";
 const TAG = `OBJ${Date.now().toString(36).toUpperCase()}`;
 let pdg: CurrentUser;
 let autre: CurrentUser;
@@ -97,6 +99,7 @@ suite("objectif durable — ce qui survit aux missions, par le vrai chemin", () 
 
     // Le facteur négatif PRINCIPAL est nommé — c'est la phrase que le dirigeant retiendra.
     expect(String(etat.probabilite ?? "")).toMatch(/facteur négatif principal/i);
+    consignerMesure("probabilite_jamais_seule", { n: 1, ok: 1 }, SRC, `${facteurs!.length} facteurs, tous avec preuve, facteur négatif principal nommé`);
     expect(Number.isFinite(pourcent(etat.probabilite))).toBe(true);
 
     // Et le chiffre porte ce qu'il N'EST PAS.
@@ -131,6 +134,7 @@ suite("objectif durable — ce qui survit aux missions, par le vrai chemin", () 
 
     const apres = await appel(pdg, { question: "etat", objectif: objectifId });
     expect(pourcent(apres.probabilite)).toBeGreaterThan(pAvant);
+    consignerMesure("rien_ne_se_coche_seul", { n: 1, ok: 1 }, SRC, "un critère ne change que par « constater », avec sa preuve");
   }, 60_000);
 
   it("« que se passe-t-il si… » propage dans les liens DÉCLARÉS, et refuse quand il n'y en a pas", async () => {
@@ -165,6 +169,7 @@ suite("objectif durable — ce qui survit aux missions, par le vrai chemin", () 
     expect(String(ecrit.erreur ?? "")).toMatch(/aucun objectif/i);
     const intact = await appel(pdg, { question: "etat", objectif: objectifId });
     expect(JSON.stringify(intact)).not.toContain("piraté");
+    consignerMesure("objectif_cloisonne", { n: 3, ok: 3 }, SRC, "lecture, liste et écriture refusées à un autre propriétaire, identifiant exact en main");
   }, 60_000);
 
   it("un objectif d'entreprise se tient à la direction — un lecteur est refusé, et on le lui DIT", async () => {

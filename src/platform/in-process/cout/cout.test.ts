@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bindingFor } from "@/lib/models/registry";
 import { candidates, coutDe, decider, northStar, type Mesure, type Profil } from "./index";
+import { consignerMesure } from "@/lib/evals/registre";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -98,5 +99,18 @@ describe("le North Star sur des chiffres de banc", () => {
     expect(n.tauxReussite).toBeCloseTo(0.75, 5);
     expect(n.partGachee).toBeCloseTo(0.24, 5);
     expect(n.phrase).toMatch(/24 % du budget parti dans des missions ratées/);
+  });
+});
+
+describe("mesures consignées — §50", () => {
+  const SRC = "platform/in-process/cout/cout.test.ts";
+  it("une paire non mesurée est écartée, et le North Star refuse de mentir", () => {
+    const d = decider("RECHERCHE", "orchestrator", profil, []) as Exclude<ReturnType<typeof decider>, { erreur: string }>;
+    consignerMesure("non_mesure_nest_pas_bon_marche", { n: 1, ok: d.ecartes.some((e) => e.motif === "NON_MESURE") && !d.desescalade ? 1 : 0 },
+      SRC, `${d.ecartes.length} option(s) moins chères écartées faute de mesure`);
+
+    const rien = northStar({ missions: 12, reussies: 0, coutTotalUsd: 0.9, coutDesEchecsUsd: 0.9 });
+    consignerMesure("cout_par_reussite", { n: 1, ok: rien.coutParReussiteUsd === null && rien.limites.length >= 2 ? 1 : 0 },
+      SRC, "null quand rien n'a réussi, et le ratio dit ce qu'il ne compte pas");
   });
 });

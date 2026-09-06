@@ -4,6 +4,7 @@ import {
   choisir, escalader, northStar, porteDeRegression,
   FRAICHEUR_MAX_JOURS, type Candidate, type Mesure,
 } from "@/lib/cout/choix";
+import { consignerMesure } from "@/lib/evals/registre";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -201,3 +202,20 @@ describe("le North Star et la porte de régression", () => {
 });
 
 const n0 = (xs: readonly string[]): string => xs.join(" ");
+
+describe("mesures consignées — §50 (pur)", () => {
+  const SRC = "lib/cout/cout.test.ts";
+  it("le plancher tient et l'escalade se justifie", () => {
+    const bloque = choisir("FINANCE", moyen, [moyen, pasCher], [mesure({ classe: "FINANCE", exactitude: 1, observations: 1000 })]);
+    const trivial = choisir("TRIVIAL", moyen, [moyen, pasCher], [mesure({ classe: "TRIVIAL", observations: 60 })]);
+    consignerMesure("plancher_jamais_franchi", { n: 2, ok: (bloque.desescalade ? 0 : 1) + (trivial.desescalade ? 1 : 0) },
+      SRC, "FINANCE ne descend pas même à mesure parfaite ; TRIVIAL descend, et c'est là qu'on économise");
+
+    const sans = escalader(pasCher, [moyen, cher], "   ");
+    const avec = escalader(pasCher, [moyen, cher], "le recalcul a donné 41 300 000");
+    const sommet = escalader(cher, [moyen, pasCher], "contrôle raté");
+    const ok = ("refus" in sans ? 1 : 0) + ("retenu" in avec && avec.retenu.modele === "gpt-5.6-terra" ? 1 : 0) + ("refus" in sommet ? 1 : 0);
+    consignerMesure("escalade_justifiable", { n: 3, ok }, SRC,
+      "sans constat : refusée · avec constat : un cran · au sommet : elle s'arrête et le dit");
+  });
+});

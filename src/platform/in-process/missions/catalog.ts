@@ -47,12 +47,75 @@ import type { ContratEntree } from "@/lib/missions/ports";
  * On garde donc deux cent vingt caractères, coupés sur un mot, en commençant par le libellé
  * (qui dit CE QUE C'EST) suivi de la description (qui dit QUAND s'en servir).
  */
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE RÉSUMÉ COUPE LE TEXTE — MAIS PLUS LE VOCABULAIRE.
+ *
+ * ── LE DÉFAUT MESURÉ, ET IL DOMINAIT LE BANC D'AUTONOMIE ────────────────────────────────
+ *
+ * Le résumé est ce sur quoi `resoudreCapacites` MARQUE : c'est lui qui décide si une capacité
+ * est montrée au planificateur. Couper à 220 caractères économise des jetons — et jette les
+ * mots distinctifs, qui sont presque toujours à la fin.
+ *
+ * Cas mesuré : `calcul_statistiques`. Ses 220 premiers caractères parlent des SOURCES de
+ * données (« mêmes sources que run_analysis : source, outil+args, drive, sql, lignes »). Les
+ * mots qui répondent à une vraie question — significativité, corrélations, régression,
+ * anomalies, série, prévision — arrivent après la coupe. Demandez « est-ce que l'écart est
+ * significatif ou du bruit ? » : la capacité qui fait exactement cela ne marquait RIEN, donc
+ * n'était pas montrée, donc ne pouvait pas être planifiée.
+ *
+ * Conséquence au banc des deux cents missions : STATISTIQUES 0/17, et « le plan ne prévoit pas
+ * CALCUL » en tête des causes d'échec. Le planificateur ne refusait pas de calculer : on ne lui
+ * montrait pas de quoi calculer. C'est la même famille de défaut que le registre (§44) — la
+ * capacité existe, elle n'est pas VISIBLE au moment où l'on décide.
+ *
+ * ── LA CORRECTION, ET POURQUOI ELLE NE COÛTE PRESQUE RIEN ───────────────────────────────
+ *
+ * On garde la coupe (le budget de jetons est la raison d'être du brief), et on rattache une
+ * QUEUE DE MOTS : les termes distinctifs de la partie coupée, dédupliqués et bornés à douze.
+ * Le brief reste court, et le vocabulaire de toute la description redevient marquable.
+ *
+ * Elle ne demande aucun entretien : rien n'est écrit à la main capacité par capacité, donc
+ * rien ne peut se périmer quand une description change. Et elle ne pèse que sur les briefs
+ * réellement MONTRÉS (une vingtaine sur deux cent vingt-neuf), pas sur le catalogue entier.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export const RESUME_MAX = 220;
+export const MOTS_QUEUE_MAX = 12;
+/** Les mots vides : les rattacher ferait grossir la queue sans rien rendre marquable. */
+const VIDES = new Set([
+  "aussi", "avec", "cette", "chaque", "comme", "dans", "depuis", "donne", "elle", "entre", "être",
+  "leur", "leurs", "mais", "meme", "mêmes", "pour", "quand", "quel", "quelle", "sans", "selon",
+  "sont", "sous", "toujours", "tous", "toute", "toutes", "jamais", "plutot", "plutôt", "celui",
+  "celle", "ceux", "dont", "elles", "ainsi", "alors", "encore", "autre", "autres", "faire",
+]);
+const ACCENTS_RESUME = /[\u0300-\u036f]/g;
+
+function queueDeMots(reste: string, deja: string): string {
+  const vus = new Set(
+    deja.normalize("NFD").replace(ACCENTS_RESUME, "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean),
+  );
+  const mots: string[] = [];
+  for (const brut of reste.split(/[^\p{L}\p{N}]+/u)) {
+    const norme = brut.normalize("NFD").replace(ACCENTS_RESUME, "").toLowerCase();
+    // Cinq lettres au moins : c'est le seuil sous lequel un mot n'est plus distinctif, et c'est
+    // aussi celui que `scoreCapacite` utilise pour son rattrapage par préfixe.
+    if (norme.length < 5 || VIDES.has(norme) || vus.has(norme)) continue;
+    vus.add(norme);
+    mots.push(brut.toLowerCase());
+    if (mots.length >= MOTS_QUEUE_MAX) break;
+  }
+  return mots.join(" ");
+}
+
 function resumer(texte: string): string {
   const propre = texte.replace(/\s+/g, " ").trim();
-  if (propre.length <= 220) return propre;
-  const coupe = propre.slice(0, 220);
+  if (propre.length <= RESUME_MAX) return propre;
+  const coupe = propre.slice(0, RESUME_MAX);
   const espace = coupe.lastIndexOf(" ");
-  return `${espace > 120 ? coupe.slice(0, espace) : coupe}…`;
+  const garde = espace > 120 ? coupe.slice(0, espace) : coupe;
+  const queue = queueDeMots(propre.slice(garde.length), garde);
+  return queue ? `${garde}… aussi : ${queue}` : `${garde}…`;
 }
 
 const estEcriture = (n: string): boolean => RESOLVER_WRITE_NAMES.has(n);

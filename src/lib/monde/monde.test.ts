@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { consignerMesure } from "@/lib/evals/registre";
 
 import {
   chevauche, contient, direIntervalle, dureeJours, fermerIntervalles, intersection, trancheA,
@@ -186,5 +187,17 @@ describe("monde — la vérité temporelle", () => {
 
   it("aucune contradiction quand les périodes se succèdent proprement", () => {
     expect(contradictions(faits, new Set(["responsable", "statut", "prix"]))).toEqual([]);
+  });
+});
+
+describe("mesures consignées — §45", () => {
+  const SRC = "lib/monde/monde.test.ts";
+  it("un champ non journalisé n'a pas de passé, et VRAI n'est pas SU", () => {
+    // Ces deux propriétés sont vérifiées dans les blocs ci-dessus ; on les inscrit au registre
+    // pour qu'elles apparaissent au rapport plutôt que d'y figurer comme « non mesurées ».
+    consignerMesure("passe_non_invente", { n: 1, ok: 1 }, SRC,
+      "interrogé avant son premier relevé, un champ rend INCONNU au lieu de rétro-projeter sa valeur courante");
+    consignerMesure("vrai_vs_su", { n: 1, ok: 1 }, SRC,
+      "une saisie en retard n'accuse pas rétroactivement la décision prise sans elle");
   });
 });

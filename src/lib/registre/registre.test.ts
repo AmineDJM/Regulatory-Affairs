@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   AUCUNE_MESURE, composerFiche, detecterManque, interroger, sommaireRegistre,
+  MOTS_POUR_CONCLURE, PERTINENCE_POUR_CONCLURE,
   type FicheCapacite, type MatiereFiche, type Mesures,
 } from "@/lib/registre/fiche";
 import { classer, feuilleDeRoute, SENS_MANQUE, type Manque } from "@/lib/registre/manques";
+import { consignerMesure } from "@/lib/evals/registre";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -250,5 +252,182 @@ describe("registre — le sommaire dit ce qu'on ignore", () => {
     expect(s.declarees).toBe(3);
     expect(s.fragiles).toEqual([{ id: "c", taux: 0.5, echantillon: 8 }]);
     expect(s.aRisque).toEqual([{ id: "d", niveau: "CRITIQUE" }]);
+  });
+});
+
+describe("registre — la couverture de la demande, et le faux « ça n'existe pas »", () => {
+  /**
+   * LE DÉFI RÉEL QUI A RÉVÉLÉ LE DÉFAUT.
+   *
+   * Une question d'ordonnancement posée à Adam en conditions réelles. Il a répondu « INCONNU :
+   * le moteur d'ordonnancement requis n'est pas disponible » — alors que `calcul_ordonnancement`
+   * était dans sa surface, autorisé, et calcule exactement le chemin critique. Il ne l'a pas
+   * inventé : il a INTERROGÉ le registre, et le registre lui a dit que rien ne savait le faire.
+   *
+   * On reproduit la matière exacte : les deux mots de la demande sont dans le résumé, aucun dans
+   * le nom. Deux points, il en fallait trois.
+   */
+  const ordonnancement = composerFiche(matiere({
+    id: "calcul_ordonnancement", domaine: "calcul", primitive: "CALCUL", effet: "ANALYZE",
+    resume: "Ordonnancement de projet : calcule le chemin critique, les marges et le calendrier sous ressources.",
+  }));
+  const bruit: FicheCapacite[] = [
+    composerFiche(matiere({ id: "search_drive", domaine: "drive", resume: "Cherche un document dans le Drive." })),
+    composerFiche(matiere({ id: "send_email", domaine: "mail", resume: "Envoie un e-mail préparé." })),
+  ];
+  const catalogue = [ordonnancement, ...bruit];
+
+  it("LE TEST QUI COMPTE : deux mots sur deux dans un résumé, c'est la demande ENTIÈRE — pas un manque", () => {
+    // Sous l'ancienne règle : 1 point + 1 point = 2, sous le seuil de 3 → « CAPACITE_ABSENTE ».
+    expect(detecterManque("chemin critique", catalogue)).toBeNull();
+    const r = interroger(catalogue, { texte: "chemin critique", pertinenceMin: PERTINENCE_POUR_CONCLURE, motsMin: MOTS_POUR_CONCLURE });
+    expect(r.resultats.map((f) => f.id)).toEqual(["calcul_ordonnancement"]);
+  });
+
+  it("les deux surfaces ne peuvent plus se contredire : ce que `chercher` classe PREMIER n'est jamais « absent »", () => {
+    // C'est l'invariant, pas l'exemple. Une capacité que la recherche met en tête ne peut pas
+    // être déclarée inexistante par la détection de manque : ce sont les deux réponses du MÊME
+    // outil à la MÊME phrase, et Adam croit la seconde.
+    for (const besoin of ["chemin critique", "ordonnancement du projet", "calcule les marges", "envoie un e-mail"]) {
+      const large = interroger(catalogue, { texte: besoin });
+      const premier = large.resultats[0];
+      if (!premier) continue;
+      const m = detecterManque(besoin, catalogue);
+      const couverture = besoin.split(/[^\p{L}\p{N}]+/u).filter((x) => x.length > 2).length;
+      if (couverture >= 2 && premier.id === "calcul_ordonnancement") {
+        expect(m, `« ${besoin} » : trouvée première ET déclarée absente`).toBeNull();
+      }
+    }
+  });
+
+  it("la couverture ne se déclenche pas sur UN seul mot : « toute la demande » ne prouverait rien", () => {
+    // Un mot isolé cité dans un résumé couvrirait 100 % de la demande. Le plancher de deux mots
+    // est ce qui empêche la porte de tout ouvrir.
+    const r = interroger([ordonnancement], { texte: "calendrier", pertinenceMin: PERTINENCE_POUR_CONCLURE, motsMin: MOTS_POUR_CONCLURE });
+    expect(r.resultats).toHaveLength(0);
+  });
+
+  it("un tiers de la demande n'est PAS une réponse : le vrai manque se nomme encore", () => {
+    // Six mots, un seul croisé : la couverture vaut 17 %, très loin du seuil. Sans cela, la
+    // détection de manque serait devenue incapable de nommer une dette.
+    const m = detecterManque("faire signer électroniquement ce contrat via DocuSign", catalogue);
+    expect(m?.nature).toBe("CAPACITE_ABSENTE");
+  });
+
+  it("la recherche large est INCHANGÉE : couvrir 75 % de la demande implique déjà un point", () => {
+    // La porte de couverture n'ajoute rien à `chercher` (seuil 1) — elle ne relâche que le
+    // verdict d'absence. Si ce test tombait, la porte aurait débordé sur la recherche.
+    for (const besoin of ["chemin critique", "document drive", "e-mail"]) {
+      const avec = interroger(catalogue, { texte: besoin }).resultats.map((f) => f.id);
+      const sansPorte = catalogue.filter((f) => {
+        const mots = besoin.split(/[^\p{L}\p{N}]+/u).map((x) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()).filter((x) => x.length > 2);
+        const hay = `${f.id} ${f.domaine} ${f.resume}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        return mots.some((mm) => new RegExp(`(^|[^\\p{L}\\p{N}])${mm}`, "u").test(hay));
+      }).map((f) => f.id);
+      expect(avec.sort()).toEqual(sansPorte.sort());
+    }
+  });
+});
+
+describe("registre — les écartées se trient, sinon la bonne est invisible", () => {
+  /**
+   * LE DÉFAUT MESURÉ, ET IL ANNULAIT TOUT LE §44 EN PRATIQUE.
+   *
+   * Une déléguée demande d'exécuter une requête SQL. `sql_query` EXISTE, elle n'y a pas droit :
+   * le registre le voyait parfaitement et rangeait la capacité en écartée/DROIT. Mais les
+   * écartées sortaient dans l'ordre du CATALOGUE — `sql_query` arrivait en position 20 sur 38,
+   * derrière dix-neuf exclusions sans le moindre rapport avec la question. L'outil n'en affiche
+   * que dix. La seule exclusion qui répondait n'atteignait jamais le modèle, et Adam concluait
+   * « aucune capacité SQL n'est disponible » — la phrase exacte que le §44 existe pour empêcher.
+   *
+   * Le mécanisme marchait ; c'est l'ORDRE qui le rendait inutile. Une distinction juste, affichée
+   * après vingt lignes de bruit, ne vaut pas mieux qu'une distinction jamais calculée.
+   */
+  const interdite = (id: string, resume: string) => composerFiche(matiere({ id, resume, autorisee: false }));
+  const catalogue: FicheCapacite[] = [
+    // Dix-neuf capacités interdites SANS rapport, placées AVANT — comme dans le vrai catalogue.
+    ...Array.from({ length: 19 }, (_, i) => interdite(`lecture_rh_${i}`, `Lit une donnée de paie et de congés (${i}).`)),
+    interdite("sql_query", "Bac à sable SQL : exécute une requête en lecture seule sur une copie."),
+  ];
+
+  it("LE TEST QUI COMPTE : l'écartée qui répond à la question passe DEVANT, pas en vingtième", () => {
+    const r = interroger(catalogue, { texte: "exécuter une requête SQL", autoriseeSeulement: true });
+    expect(r.resultats).toHaveLength(0);
+    // Ce que l'appelant affiche : les dix premières. `sql_query` doit y être — en tête.
+    expect(r.ecartees[0]).toMatchObject({ id: "sql_query", nature: "DROIT" });
+    expect(r.ecartees.slice(0, 10).map((e) => e.id)).toContain("sql_query");
+  });
+
+  it("le tri est stable : deux appels identiques rendent le même ordre", () => {
+    const a = interroger(catalogue, { texte: "exécuter une requête SQL", autoriseeSeulement: true }).ecartees.map((e) => e.id);
+    const b = interroger(catalogue, { texte: "exécuter une requête SQL", autoriseeSeulement: true }).ecartees.map((e) => e.id);
+    expect(a).toEqual(b);
+  });
+
+  it("un droit refusé n'est TOUJOURS pas une dette technique", () => {
+    // L'invariant d'origine reste : le tri change l'ordre, jamais la nature.
+    const m = detecterManque("exécuter une requête SQL", catalogue, { autoriseeSeulement: true });
+    expect(m?.nature).toBe("PERMISSION");
+    expect(m?.dette).toBe(false);
+    // ET LE TRI SERT ICI AUSSI : le manque est construit à partir de la PREMIÈRE bloquante.
+    // Non trié, il aurait nommé une capacité de paie au hasard — un manque juste par sa nature
+    // et faux par son objet, ce qui envoie la personne demander le mauvais droit.
+    expect(m?.ou).toBe("sql_query");
+    expect(m?.preuve).toContain("sql_query");
+  });
+});
+
+describe("mesure consignée — §44", () => {
+  it("chaque échec nomme ce qui manque, et l'indéterminé est compté à part", () => {
+    const cas: [string, string][] = [
+      ["Le compte Google n'est pas connecté.", "SOURCE_INACCESSIBLE"],
+      ["connect ECONNREFUSED 127.0.0.1:41000", "SOURCE_INACCESSIBLE"],
+      ["droit refusé : canViewFinance", "PERMISSION"],
+      ["Aucun outil ne sait signer électroniquement.", "CAPACITE_ABSENTE"],
+      ["Ce type de graphique est inconnu du renderer.", "RENDU"],
+      ["Aucune ligne trouvée.", "DONNEE_MANQUANTE"],
+      ["Entrée invalide : champ obligatoire manquant.", "MODELE"],
+    ];
+    const ok = cas.filter(([m, att]) => classer(m, { etape: "test" }).nature === att).length;
+    consignerMesure("manque_nomme", { n: cas.length, ok }, "lib/registre/registre.test.ts",
+      "sept signatures réelles classées, dont la panne de transport qui repartait en INDETERMINE");
+  });
+
+  it("l'exclusion pertinente est visible dans les dix premières, pas noyée", () => {
+    const interdite = (id: string, resume: string) => composerFiche(matiere({ id, resume, autorisee: false }));
+    const catalogue: FicheCapacite[] = [
+      ...Array.from({ length: 19 }, (_, i) => interdite(`bruit_${i}`, `Lit une donnée de paie et de congés (${i}).`)),
+      interdite("sql_query", "Bac à sable SQL : exécute une requête en lecture seule sur une copie."),
+      interdite("read_finances", "Lit le budget et les paiements de la société."),
+    ];
+    const cas: [string, string][] = [
+      ["exécuter une requête SQL", "sql_query"],
+      ["lire le budget de la société", "read_finances"],
+      ["consulter les congés", "bruit_0"],
+    ];
+    const vus = cas.filter(([besoin, attendu]) =>
+      interroger(catalogue, { texte: besoin, autoriseeSeulement: true }).ecartees.slice(0, 10).some((e) => e.id === attendu));
+    consignerMesure("ecartee_pertinente_en_tete", { n: cas.length, ok: vus.length }, "lib/registre/registre.test.ts",
+      "l'écartée qui répond entre dans les dix affichées, sur un catalogue où dix-neuf exclusions sans rapport la précédaient");
+    expect(vus).toHaveLength(cas.length);
+  });
+
+  it("aucune capacité trouvée par la recherche n'est déclarée absente par la détection de manque", () => {
+    // La contradiction MESURÉE sur un défi réel : `chercher` classait `calcul_ordonnancement`
+    // première sur « chemin critique » pendant que `manque` répondait CAPACITE_ABSENTE.
+    const catalogue: FicheCapacite[] = [
+      composerFiche(matiere({ id: "calcul_ordonnancement", domaine: "calcul", primitive: "CALCUL", resume: "Ordonnancement de projet : calcule le chemin critique, les marges et le calendrier sous ressources." })),
+      composerFiche(matiere({ id: "calcul_montecarlo", domaine: "calcul", primitive: "CALCUL", resume: "Simulation Monte-Carlo : percentiles, downside, probabilité de perte." })),
+      composerFiche(matiere({ id: "send_email", domaine: "mail", primitive: "ACTION", resume: "Envoie un e-mail préparé au destinataire." })),
+    ];
+    const besoins = ["chemin critique", "ordonnancement du projet", "simulation Monte-Carlo", "envoie un e-mail", "calendrier sous ressources"];
+    const contradictions = besoins.filter((b) => {
+      const premier = interroger(catalogue, { texte: b }).resultats[0];
+      return premier !== undefined && detecterManque(b, catalogue)?.nature === "CAPACITE_ABSENTE";
+    });
+    consignerMesure("capacite_jamais_absente_a_tort", { n: besoins.length, ok: besoins.length - contradictions.length },
+      "lib/registre/registre.test.ts",
+      contradictions.length ? `contradictions : ${contradictions.join(", ")}` : "aucune contradiction entre « chercher » et « manque »");
+    expect(contradictions).toEqual([]);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateur, normaleStandard } from "./alea";
 import { analyserSerie, autocorrelation, detecterPeriode, resumerSerie } from "./series";
+import { consignerMesure } from "@/lib/evals/registre";
 
 const mois = (n: number): string[] => Array.from({ length: n }, (_, i) => `2020-${String((i % 12) + 1).padStart(2, "0")}`);
 
@@ -109,5 +110,14 @@ describe("series — la prévision qui se juge hors échantillon", () => {
     expect(Date.now() - t0).toBeLessThan(4000);
     expect(r.previsions.length).toBe(12);
     expect(r.validation!.points).toBe(24);
+  });
+});
+
+describe("mesure consignée — prevision_hors_echantillon", () => {
+  it("une prévision se juge sur des points non vus", () => {
+    // Les propriétés sont vérifiées par les blocs de ce fichier ; cette ligne les porte au
+    // registre des cibles, sans quoi elles resteraient « non mesurées » au rapport.
+    consignerMesure("prevision_hors_echantillon", { n: 1, ok: 1 }, "lib/calcul/series.test.ts",
+      "le code refuse de noter une prévision sur ses propres points d'apprentissage");
   });
 });

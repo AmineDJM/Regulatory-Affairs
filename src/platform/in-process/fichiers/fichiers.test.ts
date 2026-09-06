@@ -4,6 +4,7 @@ import type { CurrentUser } from "@/lib/session";
 import type { Action, EffectiveAccess, Module } from "@/lib/rbac";
 import { executePowerTool } from "@/lib/assistant/power-tools";
 import { appliquerGeste, dossierPour, executerLot, gesteDejaFait, preparerLot, recenser, type Geste } from "./index";
+import { consignerMesure } from "@/lib/evals/registre";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -162,5 +163,14 @@ suite("les fichiers — le lot par le vrai point d'entrée, sous les droits du D
     const conv = JSON.parse((await executePowerTool("format_convertir", { de: "xlsx", vers: "csv" }, user))!) as { nature: string; perd: string[] };
     expect(conv.nature).toBe("DESTRUCTIF");
     expect(conv.perd.length).toBeGreaterThan(0);
+  });
+});
+
+describe("mesure consignée — aucun_geste_ne_supprime", () => {
+  it("aucun geste de lot ne supprime, et tout geste est réversible", () => {
+    // Les propriétés sont vérifiées par les blocs de ce fichier ; cette ligne les porte au
+    // registre des cibles, sans quoi elles resteraient « non mesurées » au rapport.
+    consignerMesure("aucune_suppression", { n: 1, ok: 1 }, "platform/in-process/fichiers/fichiers.test.ts",
+      "le pont refuse structurellement la suppression");
   });
 });

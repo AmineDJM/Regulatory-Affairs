@@ -224,6 +224,11 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // journal des missions, cloisonné PAR REQUÊTE sur `mission.ownerId` : les échecs
       // des missions d'autrui ne sortent jamais, et leurs libellés de demande non plus.
       "verifier_avant_de_dire",
+      // La planche (mandat 7) : aucun droit propre parce que cet outil ne LIT RIEN et n'écrit
+      // rien. Il agence des blocs que l'appelant a déjà obtenus sous ses propres droits — les
+      // données ne franchissent aucune nouvelle porte, elles sont réordonnées. Et la
+      // composition ne peut pas produire de balisage : les feuilles DÉSIGNENT des blocs.
+      "composer_planche",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

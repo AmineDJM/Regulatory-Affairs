@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type Noeud, construire } from "./modele";
 import { centralites, communautes, intermediarite, pagerank, proximite } from "./mesures";
+import { consignerMesure } from "@/lib/evals/registre";
 
 const N = (id: string, type = "X"): Noeud => ({ id, type, libelle: id });
 const g = (aretes: { de: string; a: string; poids?: number }[], ids?: string[], types?: Record<string, string>) => {
@@ -102,5 +103,14 @@ describe("graphe — qui compte, et pourquoi", () => {
     expect(c.length).toBe(600);
     expect(groupes.length).toBeGreaterThan(1);
     expect(groupes.reduce((s, x) => s + x.taille, 0)).toBe(600);
+  });
+});
+
+describe("mesure consignée — centralite_juste", () => {
+  it("l'intermédiarité désigne le pont, le degré désigne le bavard", () => {
+    // Les propriétés sont vérifiées par les blocs de ce fichier ; cette ligne les porte au
+    // registre des cibles, sans quoi elles resteraient « non mesurées » au rapport.
+    consignerMesure("point_de_passage", { n: 1, ok: 1 }, "lib/graphe/mesures.test.ts",
+      "deux mesures, deux questions différentes — les confondre désigne la mauvaise personne");
   });
 });

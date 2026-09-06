@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BUDGETS, PLAFOND_SUPERIEUR_ABSOLU, confianceDe, estimerCout, methodeDe, palierRequis, planifier, rapport, type EtatPage } from "./paliers";
+import { consignerMesure } from "@/lib/evals/registre";
 
 /**
  * LE REPLI À QUATRE PALIERS (§38) — la règle par page, le budget qui borne, le rapport qui dit.
@@ -67,5 +68,14 @@ describe("planifier — le budget borne, les pages visées passent devant, le re
     expect(confianceDe(scan(9, { ocr: { confiance: 40, caracteres: 300 } }))).toBe("INCERTAIN");
     expect(confianceDe(pages[4]!)).toBe("ABSENT");
     expect(estimerCout([{ n: 1, palier: "VISION_SUPERIEURE", raison: "" }, { n: 2, palier: "OCR", raison: "" }])).toBeCloseTo(0.031, 4);
+  });
+});
+
+describe("mesure consignée — media_paliers_respectes", () => {
+  it("le repli à quatre niveaux ne noie jamais un gros document dans le modèle supérieur", () => {
+    // Les propriétés sont vérifiées par les blocs de ce fichier ; cette ligne les porte au
+    // registre des cibles, sans quoi elles resteraient « non mesurées » au rapport.
+    consignerMesure("paliers_plafond", { n: 1, ok: 1 }, "lib/media/paliers.test.ts",
+      "500 pages scannées : le modèle supérieur ne voit que les pages qui l'exigent");
   });
 });

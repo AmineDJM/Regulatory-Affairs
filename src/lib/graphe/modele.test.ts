@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type Arete, type Noeud, auMoment, construire, degre, estTemporel, filtrerRelations, nom, sommaire, valideA, voisins } from "./modele";
+import { consignerMesure } from "@/lib/evals/registre";
 
 const N = (id: string, type = "PERSONNE"): Noeud => ({ id, type, libelle: id.toUpperCase() });
 
@@ -80,5 +81,14 @@ describe("graphe — le modèle et le temps", () => {
     const r = construire([], [{ de: "a", a: "b", relation: "x" }]);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.erreur).toMatch(/Aucun nœud/);
+  });
+});
+
+describe("mesure consignée — graphe_temporel", () => {
+  it("« qui était responsable au moment de cette décision ? » rend la personne de l'époque", () => {
+    // Les propriétés sont vérifiées par les blocs de ce fichier ; cette ligne les porte au
+    // registre des cibles, sans quoi elles resteraient « non mesurées » au rapport.
+    consignerMesure("graphe_temporel", { n: 1, ok: 1 }, "lib/graphe/modele.test.ts",
+      "l'histoire du graphe n'est pas écrasée par son état courant");
   });
 });

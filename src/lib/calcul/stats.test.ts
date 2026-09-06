@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateur, normaleStandard } from "./alea";
+import { consignerMesure } from "@/lib/evals/registre";
 import {
   correlations, decrireColonnes, loiFisher, loiKhiDeux, loiStudent, pValeurKhiDeux, pValeurStudent, quantileStudent,
   regresser, regresserLogistique, testApparie, testIndependance, testMoyennes, testRangs,
@@ -263,5 +264,14 @@ describe("stats — description et corrélations", () => {
     const lignes = Array.from({ length: 50 }, () => Object.fromEntries(Array.from({ length: 8 }, (_, j) => [`c${j}`, u() * 10])));
     const { rigueur } = correlations(lignes);
     expect(rigueur.avertissements.some((a) => /pur hasard/.test(a))).toBe(true);
+  });
+});
+
+describe("mesure consignée — rigueur_statistique", () => {
+  it("colinéarité, sur-apprentissage et fuite de données sont NOMMÉS", () => {
+    // Les propriétés sont vérifiées par les blocs de ce fichier ; cette ligne les porte au
+    // registre des cibles, sans quoi elles resteraient « non mesurées » au rapport.
+    consignerMesure("rigueur_statistique", { n: 1, ok: 1 }, "lib/calcul/stats.test.ts",
+      "la rigueur est dite avec le résultat, jamais après");
   });
 });

@@ -353,6 +353,50 @@ function marque(mot: string, tokens: readonly string[]): boolean {
   return false;
 }
 
+/**
+ * LA COUVERTURE — la PART de la demande qu'une seule capacité prend en charge.
+ *
+ * ── LE DÉFAUT MESURÉ, ET IL FAISAIT DIRE « IMPOSSIBLE » À ADAM ──────────────────────────
+ *
+ * Le barème de points mesure la FORCE d'un rapprochement : un mot trouvé dans le NOM vaut trois,
+ * dans le domaine deux, dans le résumé un. C'est juste — mais cela ne mesure PAS la part de la
+ * demande couverte, et les deux ne se remplacent pas.
+ *
+ * Conséquence constatée sur un défi réel : « chemin critique ». Les DEUX mots de la demande —
+ * la demande ENTIÈRE — se trouvent dans le résumé de `calcul_ordonnancement`, qui calcule
+ * précisément le chemin critique. Deux mots dans un résumé font 2 points ; il en fallait 3.
+ * `chercher` la classait donc PREMIÈRE pendant que `manque`, sur la même phrase, répondait
+ * « aucune capacité ne sait faire ça ». Adam a répondu à la personne que le moteur
+ * d'ordonnancement n'était pas disponible. Il l'était.
+ *
+ * Deux constantes se contredisaient : MOTS_POUR_CONCLURE dit « deux mots distincts suffisent »,
+ * PERTINENCE_POUR_CONCLURE rendait ces deux mots insuffisants s'ils venaient du résumé — la
+ * règle des deux mots ne pouvait littéralement JAMAIS être satisfaite sans un mot dans le nom.
+ *
+ * ── POURQUOI LA COUVERTURE, ET PAS UN SEUIL PLUS BAS ────────────────────────────────────
+ *
+ * Descendre le seuil de points à 2 supprimait le faux absent mais ajoutait deux faux présents
+ * (mesuré sur quatorze besoins de vérité connue). La couverture, elle, sépare ce que les points
+ * confondent : une capacité qui répond à TOUTE la demande avec des mots faibles vaut mieux
+ * qu'une capacité qui répond au tiers d'une demande de six mots avec un mot fort.
+ *
+ * Mesure sur les mêmes quatorze besoins — sept présents pour de vrai, sept absents pour de vrai :
+ *   règle actuelle (3 points / 2 mots)   : 1 faux ABSENT, 3 faux présents
+ *   seuil de points abaissé à 2          : 0 faux absent,  5 faux présents
+ *   règle actuelle OU couverture ≥ 0,75  : 0 faux ABSENT,  3 faux présents
+ *
+ * Le faux ABSENT est la faute grave : c'est un verdict rendu avec autorité (« dette technique »)
+ * qui fait dire « je ne peux pas » alors que le moteur existe. Un faux présent, lui, ne conclut
+ * rien : il rend des CANDIDATS et dit au modèle de juger. Les deux erreurs ne se pèsent pas au
+ * même poids, et la règle retenue supprime la grave sans en ajouter une seule autre.
+ *
+ * Le plancher de deux mots garde la couverture honnête : sur une demande d'UN seul mot, « toute
+ * la demande » ne prouve rien — n'importe quel résumé qui cite ce mot couvrirait 100 %.
+ */
+export const COUVERTURE_FRANCHE = 0.75;
+/** Sous deux mots marqués, une couverture de 100 % est un accident de vocabulaire. */
+export const MOTS_POUR_COUVERTURE = 2;
+
 function score(f: FicheCapacite, mots: readonly string[]): { points: number; motsMarques: number } {
   if (!mots.length) return { points: 1, motsMarques: 1 };
   const nom = jetons(f.id);
@@ -383,7 +427,9 @@ export function interroger(fiches: readonly FicheCapacite[], q: Requete = {}): R
   // électroniquement ce contrat via DocuSign »), un seul mot commun ne prouve rien. La règle :
   // à partir de trois mots significatifs, il en faut deux.
   const motsRequis = Math.min(q.motsMin ?? 1, Math.max(1, mots.length - 1));
-  const ecartees: Ecartee[] = [];
+  // LES ÉCARTÉES PORTENT LEUR SCORE. Sans lui, elles sortent dans l'ordre du catalogue —
+  // c'est-à-dire dans un ordre qui n'a rien à voir avec la question posée (voir le tri plus bas).
+  const ecartees: { e: Ecartee; s: number }[] = [];
   const retenues: { f: FicheCapacite; s: number }[] = [];
 
   for (const f of fiches) {
@@ -391,28 +437,34 @@ export function interroger(fiches: readonly FicheCapacite[], q: Requete = {}): R
     if (q.domaine && normaliser(f.domaine) !== normaliser(q.domaine)) continue;
 
     const { points, motsMarques } = score(f, mots);
-    if (points < Math.max(1, q.pertinenceMin ?? 1)) continue;
+    // UNE CAPACITÉ QUI COUVRE LA DEMANDE ENTIÈRE ENTRE, MÊME SANS LE COMPTE DE POINTS.
+    // Le seuil de points mesure la force du rapprochement, pas la part de la demande traitée ;
+    // sans cette porte, « chemin critique » — deux mots sur deux dans le résumé de
+    // `calcul_ordonnancement` — était déclaré ABSENT du registre. Elle ne change rien à la
+    // recherche large (couvrir 75 % de la demande implique au moins un point).
+    const franche = motsMarques >= MOTS_POUR_COUVERTURE && motsMarques / mots.length >= COUVERTURE_FRANCHE;
+    if (!franche && points < Math.max(1, q.pertinenceMin ?? 1)) continue;
     if (motsMarques < motsRequis) continue;
     const s = points;
 
     if (q.effetMax && EFFECT_RANK[f.effet] > EFFECT_RANK[q.effetMax]) {
-      ecartees.push({ id: f.id, nature: "PLAFOND", raison: `effet ${f.effet}, au-dessus du plafond ${q.effetMax} de cette mission` });
+      ecartees.push({ s, e: { id: f.id, nature: "PLAFOND", raison: `effet ${f.effet}, au-dessus du plafond ${q.effetMax} de cette mission` } });
       continue;
     }
     if (q.autoriseeSeulement && f.autorisee === false) {
-      ecartees.push({ id: f.id, nature: "DROIT", raison: "cette personne n'a pas le droit d'appeler cette capacité" });
+      ecartees.push({ s, e: { id: f.id, nature: "DROIT", raison: "cette personne n'a pas le droit d'appeler cette capacité" } });
       continue;
     }
     if (q.groupable === true && !f.groupable) {
-      ecartees.push({ id: f.id, nature: "FORME", raison: "non groupable : un déploiement en éventail serait refusé à la compilation" });
+      ecartees.push({ s, e: { id: f.id, nature: "FORME", raison: "non groupable : un déploiement en éventail serait refusé à la compilation" } });
       continue;
     }
     if (q.rejouable === true && !f.rejouable) {
-      ecartees.push({ id: f.id, nature: "FORME", raison: "non rejouable : un rejeu doublerait l'effet" });
+      ecartees.push({ s, e: { id: f.id, nature: "FORME", raison: "non rejouable : un rejeu doublerait l'effet" } });
       continue;
     }
     if (q.fiabiliteMin !== undefined && f.fiabilite.taux !== null && f.fiabilite.taux < q.fiabiliteMin) {
-      ecartees.push({ id: f.id, nature: "FIABILITE", raison: `fiabilité mesurée ${(f.fiabilite.taux * 100).toFixed(0)} %, sous le seuil demandé` });
+      ecartees.push({ s, e: { id: f.id, nature: "FIABILITE", raison: `fiabilité mesurée ${(f.fiabilite.taux * 100).toFixed(0)} %, sous le seuil demandé` } });
       continue;
     }
     retenues.push({ f, s });
@@ -427,9 +479,23 @@ export function interroger(fiches: readonly FicheCapacite[], q: Requete = {}): R
     || rangLatence[a.f.latence.classeAnnoncee] - rangLatence[b.f.latence.classeAnnoncee]
     || a.f.id.localeCompare(b.f.id));
 
+  // ── LES ÉCARTÉES SE TRIENT COMME LES RETENUES, ET POUR LA MÊME RAISON ──────────────────
+  //
+  // DÉFAUT MESURÉ EN CONDITIONS RÉELLES. À « exécute une requête SQL sur la table User »
+  // demandé par une déléguée, `sql_query` était correctement écartée pour DROIT — en
+  // POSITION 20 sur 38, derrière dix-neuf exclusions sans rapport (read_hr_overview,
+  // person_report, read_stock…) qui ne devaient leur rang qu'à l'ordre du catalogue. L'appelant
+  // n'en montre que dix : la SEULE exclusion qui répondait à la question était invisible.
+  //
+  // Adam a donc répondu « aucune capacité SQL n'est disponible » — la phrase que tout le §44
+  // existe pour empêcher. Le mécanisme fonctionnait ; c'est l'ordre d'affichage qui le
+  // rendait inutile. Une exclusion pertinente cachée derrière un tri arbitraire ne vaut pas
+  // mieux qu'une exclusion non calculée.
+  ecartees.sort((a, b) => b.s - a.s || a.e.id.localeCompare(b.e.id));
+
   return {
     resultats: retenues.slice(0, q.limite ?? 20).map((r) => r.f),
-    ecartees,
+    ecartees: ecartees.map((x) => x.e),
     examinees: fiches.length,
   };
 }

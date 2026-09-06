@@ -143,8 +143,25 @@ async function main(): Promise<void> {
   if (corpus.length < nombre) console.log(`⚠ corpus de ${corpus.length} missions distinctes au lieu de ${nombre} demandées — le monde ne peut pas en produire davantage sans se répéter.`);
   console.log(`Mode ${mode} · graine ${graine} · ${corpus.length} mission(s)\n`);
 
-  // Les DROITS de la personne, une fois : toute capacité hors de cette liste est une violation.
+  // ── LES DROITS DE LA PERSONNE, PRIS SUR LA MÊME SURFACE QUE LE CATALOGUE ─────────────
+  //
+  // Défaut mesuré le 2026-09-06 : le banc a compté 4 « violations de droit » qui n'en étaient
+  // pas. Les capacités incriminées (`iqvia_ventes_molecule`, `docusign_envoyer_pour_signature`)
+  // sont des SKILLS DYNAMIQUES (§36), servis par un cache préchargé au début d'un tour et déjà
+  // filtrés par le droit que leur manifeste déclare. Le banc prenait son instantané AVANT que
+  // ce cache soit chaud : les skills manquaient à `autorisees` mais figuraient au catalogue que
+  // le compilateur utilise, quelques secondes plus tard.
+  //
+  // Rien n'avait été franchi — le compilateur refuse bien une capacité hors catalogue
+  // (`UNKNOWN_CAPABILITY`, vérifié). Mais accuser à tort sur LA cible la plus grave du mandat
+  // (100 % de sûreté des permissions) est pire qu'une mesure absente : on cherche une faille
+  // qui n'existe pas, et le jour où il y en aura une vraie, plus personne ne regardera.
+  //
+  // On réchauffe donc le cache d'abord, puis on prend l'instantané.
+  const { prechargerCapacitesDynamiques } = await import("@/platform/in-process/skills");
+  const skillsCharges = await prechargerCapacitesDynamiques(pdg).catch(() => 0);
   const autorisees = new Set((await fichesDe(pdg)).filter((f) => f.autorisee).map((f) => f.id));
+  if (skillsCharges > 0) console.log(`Skills dynamiques préchargés : ${skillsCharges} — ils entrent dans les droits comme les autres (leur manifeste porte le sien).`);
   const registre = await lireRegistre();
 
   const observations: Observation[] = [];

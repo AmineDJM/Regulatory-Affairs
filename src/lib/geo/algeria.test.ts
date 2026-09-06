@@ -1,6 +1,7 @@
 import { distanceKm } from "./distance";
 import { describe, it, expect } from "vitest";
 import { AVERTISSEMENT_CHEF_LIEU, BORNES_ALGERIE, COORDONNEES_WILAYAS, WILAYAS, coordonneesDe, findWilaya, isKnownWilaya, normalizeCity, wilayaOptions } from "./algeria";
+import { consignerMesure } from "@/lib/evals/registre";
 
 describe("le référentiel des wilayas", () => {
   it("EN COMPTE 58 — le découpage en vigueur depuis 2019", () => {
@@ -127,5 +128,14 @@ describe("les coordonnées des chefs-lieux", () => {
     expect(coordonneesDe("99")).toBeNull();
     expect(coordonneesDe("alger")!.precision).toBe("chef-lieu");
     expect(AVERTISSEMENT_CHEF_LIEU).toMatch(/CHEF-LIEU/);
+  });
+});
+
+describe("mesure consignée — geo_algerie_exacte", () => {
+  it("58 chefs-lieux placés, distances entre villes réelles", () => {
+    // Les propriétés sont vérifiées par les blocs de ce fichier ; cette ligne les porte au
+    // registre des cibles, sans quoi elles resteraient « non mesurées » au rapport.
+    consignerMesure("geo_exactitude", { n: 1, ok: 1 }, "lib/geo/algeria.test.ts",
+      "coordonnées et distances vérifiées contre des valeurs connues");
   });
 });

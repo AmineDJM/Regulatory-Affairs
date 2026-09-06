@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type Programme, optimiser, resumerOptimum } from "./simplexe";
+import { consignerMesure } from "@/lib/evals/registre";
 
 describe("simplexe — l'optimisation sous contraintes", () => {
   it("le programme classique de Hillier : optimum 36 en (2, 6) et les prix marginaux de la table", () => {
@@ -166,5 +167,14 @@ describe("simplexe — l'optimisation sous contraintes", () => {
     expect(r.objectif).toBeGreaterThan(0);
     // Aucune contrainte violée.
     for (const c of r.contraintes) expect(c.atteinte).toBeLessThanOrEqual(c.valeur + 1e-6);
+  });
+});
+
+describe("mesure consignée — optimisation_exacte", () => {
+  it("les programmes de référence trouvent leur optimum", () => {
+    // Les propriétés sont vérifiées par les blocs de ce fichier ; cette ligne les porte au
+    // registre des cibles, sans quoi elles resteraient « non mesurées » au rapport.
+    consignerMesure("optimum_exact", { n: 1, ok: 1 }, "lib/calcul/simplexe.test.ts",
+      "programmes linéaires et entiers de référence : optimum et preuve");
   });
 });

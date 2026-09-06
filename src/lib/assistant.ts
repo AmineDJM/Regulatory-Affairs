@@ -28,6 +28,7 @@ import { calibrerTour } from "@/lib/assistant/confidence/tour";
 import type { Calibration } from "@/lib/assistant/confidence/calibrate";
 import { resoudreEntite, resoudreMentions, contexteEntitesResolues } from "@/platform/in-process/fabric/entites";
 import { MailSendPolicy, type AdminRequestType, type CongressRequestStatus, type Priority, type CalendarEventKind, type HrRequestType, type RegulatoryCategory } from "@prisma/client";
+import { capabilityDoctrine } from "@/lib/assistant/capability-surface";
 import { resultatVide } from "@/lib/assistant/empty-result";
 import { prisma } from "@/lib/prisma";
 import { companyIdForNew, companyScopedWhere } from "@/lib/company";
@@ -2131,6 +2132,8 @@ INTERPRÉTATION DES DEMANDES :
 - DATES : une date déjà passée se SIGNALE et se fait confirmer avant toute action ; les champs de date se remplissent
   en AAAA-MM-JJ.
 - Qualité / pharmacovigilance : prudence, confirmation renforcée, rien de créé automatiquement.
+
+${capabilityDoctrine(user)}
 
 ${CHIEF_STYLE_RULES}
 

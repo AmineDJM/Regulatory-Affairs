@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { classerGeste, natureDe, NATURES_GESTE, REVERSIBILITES } from "@/lib/annulation/reversibilite";
 import { composer, conclure, type Changement, type EtatActuel } from "@/lib/annulation/plan";
+import { consignerMesure } from "@/lib/evals/registre";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -159,5 +160,19 @@ describe("le compte rendu — « tout a tourné » n'est pas « tout est défait
     expect(cr.defaits).toBe(1);
     expect(cr.resume).toMatch(/revenu à son état antérieur/i);
     expect(cr.resume).not.toMatch(/PAS une annulation/i);
+  });
+});
+
+describe("mesures consignées — §48", () => {
+  it("un lot partiellement défaisable ne se conclut jamais par « annulé »", () => {
+    const p = composer(
+      [chg({ id: "ok" }), chg({ id: "mail", resume: "e-mail envoyé", champ: null, entite: null, entiteId: null })],
+      [etat("AWAITING_ANPP")],
+    );
+    const cr = conclure(p, []);
+    const ok = /PAS une annulation complète/i.test(cr.resume) && p.ecartes[0]!.compensation !== null ? 1 : 0;
+    consignerMesure("annulation_jamais_totale_a_tort", { n: 1, ok },
+      "lib/annulation/annulation.test.ts",
+      "compte arithmétique + irréversible nommé avec sa compensation");
   });
 });

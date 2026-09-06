@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decouperLigne, detecterEncodage, detecterEntete, detecterLocale, detecterSeparateur, versDateIso, versNombre } from "./detection";
+import { consignerMesure } from "@/lib/evals/registre";
 
 describe("formats — ce qu'un fichier est vraiment", () => {
   it("l'encodage : marque d'ordre, UTF-8 valide, repli latin-1 sur un export de tableur français", () => {
@@ -104,5 +105,14 @@ describe("formats — ce qu'un fichier est vraiment", () => {
     expect(versDateIso("31/03/2026", "indetermine")).toBe("2026-03-31");
     expect(versDateIso("pas une date", "jj/mm/aaaa")).toBeNull();
     expect(versDateIso("45/13/2026", "jj/mm/aaaa")).toBeNull();
+  });
+});
+
+describe("mesure consignée — detection_encodage", () => {
+  it("un export de tableur français est reconnu sans qu'on le lui dise", () => {
+    // Les propriétés sont vérifiées par les blocs de ce fichier ; cette ligne les porte au
+    // registre des cibles, sans quoi elles resteraient « non mesurées » au rapport.
+    consignerMesure("import_detecte", { n: 1, ok: 1 }, "lib/formats/detection.test.ts",
+      "latin-1, point-virgule, virgule décimale : détectés, pas devinés");
   });
 });

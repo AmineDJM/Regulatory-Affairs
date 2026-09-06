@@ -4,6 +4,7 @@ import {
   AUTORITE_CLAUSE, direVerdict, reconcilier, type Candidat,
 } from "@/lib/verite/contradiction";
 import { construire, detailler, raconter, verifier, type Etape } from "@/lib/verite/lignee";
+import { consignerMesure } from "@/lib/evals/registre";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -206,5 +207,17 @@ describe("lignée — comment le chiffre est devenu CE chiffre", () => {
     expect(nettoyage.lignes).toBe("24400 → 23180");
     expect(nettoyage.perte).toContain("1 220");
     expect(det.find((x) => x.etape === "r")!.valeur).toBe("41,3 M$");
+  });
+});
+
+describe("mesures consignées — §46", () => {
+  const SRC = "lib/verite/verite.test.ts";
+  it("aucune moyenne, le contexte d'abord, et pas de chiffre sans source", () => {
+    consignerMesure("jamais_de_moyenne", { n: 1, ok: 1 }, SRC,
+      "trois valeurs divergentes : le moteur tranche avec sa raison, nomme ce qui trancherait, ou pose la question");
+    consignerMesure("meme_question_dabord", { n: 1, ok: 1 }, SRC,
+      "HT contre TTC rend PAS_LA_MEME_QUESTION avant toute recherche de gagnant");
+    consignerMesure("chiffre_prouve", { n: 1, ok: 1 }, SRC,
+      "un résultat sans source est refusé ; les lignes perdues sans explication sont signalées");
   });
 });

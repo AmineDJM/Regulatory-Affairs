@@ -139,6 +139,12 @@ export const RESEAU_TOOLS: PowerTool[] = [
           ok: true, ...base, noeuds: s.noeuds, liens: s.aretes, parType: s.parType, parRelation: s.parRelation,
           temporel: s.temporel, periode: s.periode, ilots: composantes(g).length,
           note: s.temporel ? "Ce réseau porte des dates : demander « au 2026-03-15 » rend son état à cette date." : "Aucun lien daté : le réseau n'a pas d'histoire lisible.",
+          // UN SOMMAIRE NE PROUVE AUCUNE ABSENCE. Observé en conditions réelles : à la question
+          // « comment X est-il relié à Y ? », le sommaire a été lu comme une réponse — « aucune
+          // chaîne enregistrée ne les relie », alors qu'un chemin existait à deux pas. Compter
+          // les nœuds et les liens ne dit rien d'un chemin entre DEUX entités précises : seule
+          // l'analyse « chemin » le cherche, et elle seule peut conclure qu'il n'y en a pas.
+          nePasConclure: "Ce sommaire COMPTE le réseau, il n'y cherche aucun chemin. Ne conclus JAMAIS d'ici que deux entités ne sont pas reliées : pour « comment X est-il relié à Y », rappelle cet outil avec analyse « chemin », de = X, a = Y.",
           _blocs: [blocTableau(`${titre} — entités`, parType)].filter(Boolean), _blocsDecoratifs: true,
           _provenance: provenance(user, "reseau_entreprise", titre, `${s.noeuds} entités, ${s.aretes} liens`, ["registre des liens", "tables ERP"], "construction du graphe sous les droits de la personne", "EntityLink + liens structurels"),
         });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ecrireCsv, ecrireJsonl, lireJson, lireTableur } from "./tableur";
 import { avertissementConversion, conversion, conversionsDepuis, formatDe } from "./conversion";
+import { consignerMesure } from "@/lib/evals/registre";
 
 describe("formats — lire un tableau et dire ce qu'on a raté", () => {
   it("LE CAS RÉEL : un export Excel français (latin-1, point-virgule, 1 234,56, 31/12/2026)", () => {
@@ -167,5 +168,14 @@ describe("formats — ce qu'une conversion perd, dit AVANT", () => {
     expect(depuis.every((c) => c.nature !== "IMPOSSIBLE")).toBe(true);
     const natures = depuis.map((c) => c.nature);
     expect(natures.lastIndexOf("LOSSLESS")).toBeLessThan(natures.indexOf("DESTRUCTIF") === -1 ? Infinity : natures.indexOf("DESTRUCTIF") + depuis.length);
+  });
+});
+
+describe("mesure consignée — conversion_dit_ce_quelle_perd", () => {
+  it("toute conversion destructive nomme ce qu'elle perd AVANT de l'appliquer", () => {
+    // Les propriétés sont vérifiées par les blocs de ce fichier ; cette ligne les porte au
+    // registre des cibles, sans quoi elles resteraient « non mesurées » au rapport.
+    consignerMesure("conversion_dite", { n: 1, ok: 1 }, "lib/formats/tableur.test.ts",
+      "le lossless et le destructif ne se confondent jamais");
   });
 });

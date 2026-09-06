@@ -52,7 +52,7 @@ const VIDES = new Set([
  * capacité. Ajouter ici un nom de capacité serait une faute : ce dictionnaire traduit du
  * français vers du français.
  */
-const SYNONYMES: Record<string, string[]> = {
+export const SYNONYMES: Record<string, string[]> = {
   // « chacun », « individuellement », « un par un » disent une LISTE : c'est la capacité qui
   // ÉNUMÈRE qu'il faut montrer au planner, pas seulement celle qui envoie. Sans ces entrées, une
   // mission d'envoi individuel recevait de quoi écrire et rien pour savoir à qui.
@@ -114,8 +114,68 @@ const SYNONYMES: Record<string, string[]> = {
   budget: ["budget", "finance"],
   stock: ["stock", "logistique"],
   stocks: ["stock", "logistique"],
-  anomalie: ["anomalie", "controle"],
-  anomalies: ["anomalie", "controle"],
+  anomalie: ["anomalie", "controle", "statistique"],
+  anomalies: ["anomalie", "controle", "statistique"],
+
+  // ── LE VOCABULAIRE DU DOUTE, DE LA FORME ET DU LIVRABLE ────────────────────────────────
+  //
+  // Ajouté après le banc des deux cents missions, où STATISTIQUES faisait 0/17, REPRESENTATION
+  // 2/17 et la cause dominante était « le plan ne prévoit pas CALCUL ». Le planificateur ne
+  // refusait pas de calculer : `calcul_statistiques` ne lui était PAS MONTRÉE, parce qu'une
+  // personne ne demande jamais « une significativité » — elle demande si l'écart est
+  // « significatif ou du bruit », si les mois sont « anormaux », s'il y a un « lien » entre deux
+  // choses. Aucun de ces mots n'apparaît dans un résumé de capacité.
+  //
+  // C'est exactement ce que ce dictionnaire est fait pour : il traduit du français vers du
+  // français, jamais vers un nom de capacité. Chaque mot de droite a été VÉRIFIÉ présent dans
+  // au moins un résumé du catalogue réel — une traduction vers un mot que personne n'emploie
+  // ne ferait rien marquer et donnerait l'illusion d'avoir corrigé quelque chose.
+  significatif: ["statistique", "significativite", "regression"],
+  significative: ["statistique", "significativite", "regression"],
+  significativement: ["statistique", "significativite"],
+  bruit: ["statistique", "significativite"],
+  hasard: ["statistique", "significativite"],
+  aleatoire: ["statistique", "significativite"],
+  correlation: ["statistique", "regression"],
+  correlations: ["statistique", "regression"],
+  correle: ["statistique", "regression"],
+  lien: ["statistique", "regression"],
+  anormal: ["anomalie", "statistique"],
+  anormaux: ["anomalie", "statistique"],
+  anormale: ["anomalie", "statistique"],
+  aberrant: ["anomalie", "statistique"],
+  aberrants: ["anomalie", "statistique"],
+  inhabituel: ["anomalie", "statistique"],
+  inhabituels: ["anomalie", "statistique"],
+  tendance: ["tendance", "serie", "statistique"],
+  tendances: ["tendance", "serie", "statistique"],
+  degrade: ["tendance", "serie", "statistique"],
+  degradent: ["tendance", "serie", "statistique"],
+  evolution: ["tendance", "serie"],
+  evolue: ["tendance", "serie"],
+  prevision: ["serie", "statistique"],
+  prevoir: ["serie", "statistique"],
+  projeter: ["serie", "statistique"],
+  echantillon: ["statistique", "significativite"],
+  // La forme : « montre-moi », « tableau de bord », « graphique » veulent une REPRÉSENTATION.
+  graphique: ["graphique", "representation"],
+  graphiques: ["graphique", "representation"],
+  visualiser: ["graphique", "representation"],
+  visualisation: ["graphique", "representation"],
+  bord: ["graphique", "representation", "tableau"],
+  courbe: ["graphique", "representation"],
+  camembert: ["graphique", "representation"],
+  histogramme: ["graphique", "representation"],
+  ventilation: ["repartition", "graphique"],
+  repartition: ["repartition", "graphique"],
+  // Le livrable : « rédige », « note », « synthèse » veulent un DOCUMENT, pas une lecture.
+  rediger: ["rapport", "synthese", "document"],
+  redige: ["rapport", "synthese", "document"],
+  note: ["rapport", "synthese", "document"],
+  synthese: ["rapport", "synthese", "document"],
+  memo: ["rapport", "synthese", "document"],
+  compte: ["rapport", "synthese"],
+  rendu: ["rapport", "synthese"],
 };
 
 /** Repli d'accents et découpe en jetons signifiants. */
@@ -157,17 +217,36 @@ export function scoreCapacite(brief: CapabilityBrief, demande: Set<string>): num
   for (const t of domaine) if (demande.has(t)) score += 3;
   for (const t of resume) if (demande.has(t)) score += 1;
 
-  // Un préfixe partagé rattrape les familles de mots que la découpe sépare (« notifi… »).
-  if (score === 0) {
-    for (const t of [...nom, ...domaine]) {
+  // ── LE PRÉFIXE COMPTE AUSSI DANS LE RÉSUMÉ, ET C'EST CE QUI MANQUAIT ────────────────────
+  //
+  // DÉFAUT MESURÉ AU BANC DES DEUX CENTS MISSIONS. « Est-ce que l'écart est SIGNIFICATIF ou du
+  // bruit ? » ne marquait pas `calcul_statistiques`, dont le résumé porte pourtant
+  // « SIGNIFICATIVITÉ ». Les deux mots sont la même famille ; l'égalité stricte les sépare, et
+  // `jetonsEtendus` produit « significati » d'un côté, « significativite » de l'autre.
+  //
+  // Le rattrapage par préfixe existait déjà — mais seulement quand le score valait ZÉRO, et
+  // seulement sur le nom et le domaine. Or c'est précisément dans le RÉSUMÉ que vit le
+  // vocabulaire métier d'une capacité, et une capacité qui marque 1 point par ailleurs n'avait
+  // droit à aucun rattrapage. Conséquence : STATISTIQUES 0/17, et « le plan ne prévoit pas
+  // CALCUL » en tête des causes d'échec du banc — le planificateur ne voyait pas le moteur.
+  //
+  // Le poids reste MOINDRE qu'une correspondance exacte : un préfixe partagé est un indice, pas
+  // une preuve. Il élargit ce qu'on MONTRE au planificateur ; il ne décide de rien à sa place,
+  // et la sélection reste bornée par `limite`.
+  const PREFIXE_MIN = 5;
+  const parPrefixe = (mots: readonly string[]): number => {
+    let n = 0;
+    for (const t of mots) {
+      if (t.length < PREFIXE_MIN || demande.has(t)) continue;
       for (const d of demande) {
-        if (t.length >= 5 && d.length >= 5 && (t.startsWith(d.slice(0, 5)) || d.startsWith(t.slice(0, 5)))) {
-          score += 2;
-          break;
-        }
+        if (d.length >= PREFIXE_MIN && (t.startsWith(d.slice(0, PREFIXE_MIN)) || d.startsWith(t.slice(0, PREFIXE_MIN)))) { n += 1; break; }
       }
     }
-  }
+    return n;
+  };
+  score += parPrefixe(nom) * 2;
+  score += parPrefixe(domaine) * 1.5;
+  score += parPrefixe(resume) * 0.5;
   return score;
 }
 

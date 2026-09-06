@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { FAMILLES, capaciteDuCorpus, engendrer, type Monde } from "@/lib/evals/autonomie/corpus";
+import { consignerMesure } from "@/lib/evals/registre";
 import {
   CAUSES, POIDS, causer, comparer, juger, scoreAutonomie, verifierExigences, type Observation,
 } from "@/lib/evals/autonomie/juges";
@@ -395,5 +396,35 @@ describe("l'indisponibilité du fournisseur — le banc refuse d'inventer un cou
     const s = scoreAutonomie([...bonnes, perdue]);
     expect(s.inexploitables).toBe(1);
     expect(s.concluant).toBe(true);
+  });
+});
+
+describe("mesure consignée — §43", () => {
+  it("une panne de fournisseur sort du dénominateur et le banc annonce ses pertes", () => {
+    const differee = juger(obs({ profondeur: "PLAN", differe: true, statut: "PLANNING", etapes: 0, capacites: [], lectures: [], exigences: ["LECTURE"] }));
+    const vraiRefus = juger(obs({ profondeur: "PLAN", lancee: false, statut: null, refus: ["WRONG_CARDINALITY"], exigences: ["LECTURE"] }));
+    const s = scoreAutonomie([
+      ...Array.from({ length: 9 }, (_, i) => juger(obs({ id: `ok${i}`, profondeur: "PLAN", statut: "RUNNING", exigences: [], lectures: ["search_people"], capacites: ["search_people"] }))),
+      ...Array.from({ length: 5 }, () => differee),
+    ]);
+    const ok = (differee.cause === "INDISPONIBLE" ? 1 : 0)
+      + (vraiRefus.cause === "PLANIFICATEUR" ? 1 : 0)
+      + (s.missions === 9 && s.inexploitables === 5 && !s.concluant ? 1 : 0);
+    consignerMesure("panne_jamais_imputee", { n: 3, ok },
+      "lib/evals/autonomie/autonomie.test.ts",
+      "INDISPONIBLE hors dénominateur, vrai refus toujours au planificateur, banc déclaré non concluant");
+  });
+});
+
+describe("mesure consignée — §43 (corpus)", () => {
+  it("le corpus est déterministe, couvre les seize familles et ne se répète pas", () => {
+    const a = engendrer(MONDE, { nombre: 120, graine: 7 });
+    const b = engendrer(MONDE, { nombre: 120, graine: 7 });
+    const memeSuite = JSON.stringify(a.map((m) => m.id)) === JSON.stringify(b.map((m) => m.id));
+    const familles = new Set(a.map((m) => m.famille));
+    const phrases = new Set(a.map((m) => m.demande));
+    const ok = (memeSuite ? 1 : 0) + (familles.size === FAMILLES.length ? 1 : 0) + (phrases.size === a.length ? 1 : 0);
+    consignerMesure("corpus_reproductible", { n: 3, ok }, "lib/evals/autonomie/autonomie.test.ts",
+      `${a.length} missions, ${familles.size}/${FAMILLES.length} familles, ${phrases.size} phrases distinctes`);
   });
 });

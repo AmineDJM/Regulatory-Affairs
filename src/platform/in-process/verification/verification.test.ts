@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, type EffectiveAccess } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
 import { executePowerTool } from "@/lib/assistant/power-tools";
+import { consignerMesure } from "@/lib/evals/registre";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -125,6 +126,9 @@ suite("vérification proportionnée & apprentissage — par le vrai chemin", () 
     });
     expect(faux.issue).toBe("CONTREDIT");
     expect(JSON.stringify(faux.desaccords)).toContain("41 300 000");
+    consignerMesure("negatif_l_emporte", { n: 2, ok: (tout.issue === "CONFIRME" ? 1 : 0) + (faux.issue === "CONTREDIT" ? 1 : 0) },
+      "platform/in-process/verification/verification.test.ts",
+      "un recalcul qui contredit l'emporte sur quatre confirmations");
   }, 60_000);
 
   it("une méthode NON EXÉCUTÉE ne confirme rien — la vérification est dite incomplète", async () => {
@@ -177,6 +181,9 @@ suite("vérification proportionnée & apprentissage — par le vrai chemin", () 
     // ET LA PHRASE QUI COMPTE : rien ne s'applique tout seul.
     expect(String(r.rappel)).toMatch(/PROPOSITIONS/);
     expect(String(r.rappel)).toMatch(/aucune leçon ne peut ouvrir un droit/i);
+    consignerMesure("aucun_apprentissage_silencieux", { n: 2, ok: (aDecider.length === 1 ? 1 : 0) + (/PROPOSITIONS/.test(String(r.rappel)) ? 1 : 0) },
+      "platform/in-process/verification/verification.test.ts",
+      "3 occurrences → une proposition qui attend un accord ; 1 occurrence reste observée");
   }, 90_000);
 
   it("les échecs des missions d'AUTRUI ne sortent jamais — cloisonnement par requête", async () => {

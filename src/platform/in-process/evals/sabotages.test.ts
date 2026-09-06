@@ -9,7 +9,7 @@ import { detecter } from "@/lib/quality/rules";
 import { enseigner, politiquesPourMission, reglesEnVigueurPour } from "@/platform/in-process/teach/store";
 import { executeReadTool } from "@/lib/assistant";
 import { estPanneTransitoire, lancerMission } from "@/platform/in-process/missions/runtime";
-import { planScripte } from "@/platform/in-process/missions/fake-reasoner";
+import { RaisonneurScripte, planScripte, pour } from "@/platform/in-process/missions/fake-reasoner";
 import { signauxFinance } from "@/platform/in-process/intelligence";
 import { balayerSurveillances, creerSurveillance } from "@/platform/in-process/missions/watch";
 import { balayerMissions } from "@/platform/in-process/missions/sweep";
@@ -19,7 +19,7 @@ import { consignerMesure } from "@/lib/evals/registre";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * LA MATRICE DES SABOTAGES (mandat 4 §33) — quatorze situations qui font mentir un assistant
+ * LA MATRICE DES SABOTAGES (mandat 4 §33, étendue §17) — dix-sept situations qui font mentir un assistant
  * ordinaire, jouées contre le VRAI code, jugées par le code.
  *
  * Un sabotage n'est pas une mutation du programme (cela, c'est `office:sabotage`) : c'est une
@@ -27,9 +27,12 @@ import { consignerMesure } from "@/lib/evals/registre";
  * sûre, deux chiffres pour un même fait, une règle qui en contredit une autre, un droit absent, un
  * fournisseur qui tombe, une facture sans commande, une panne pendant une surveillance, un
  * redéploiement, une règle changée en cours de mission, deux spécialistes en désaccord, un plafond
- * de coût atteint, le modèle principal indisponible. Pour chacune, le comportement exigé est déjà
- * une propriété codée quelque part ; ce fichier prouve qu'elle tient, depuis l'entrée réelle, et
- * compte : 14 tenus sur 14 est la cible, tout écart est une régression nommée.
+ * de coût atteint, le modèle principal indisponible — et, depuis §17, trois situations qui
+ * n'étaient pas couvertes : des ÉVÉNEMENTS QUI ARRIVENT DANS LE DÉSORDRE, une ÉCHÉANCE DÉJÀ
+ * PASSÉE au moment où on la découvre, et DES DIZAINES DE MISSIONS EN MÊME TEMPS. Pour chacune,
+ * le comportement exigé est déjà une propriété codée quelque part ; ce fichier prouve qu'elle
+ * tient, depuis l'entrée réelle, et compte : 17 tenus sur 17 est la cible, tout écart est une
+ * régression nommée.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 let dbOk = false;
@@ -41,7 +44,7 @@ const JOUR = 86_400_000;
 let pdg: CurrentUser;
 let lecteur: CurrentUser;
 const tenus = new Set<string>();
-const SABOTAGES = 14;
+const SABOTAGES = 17;
 
 const fait = (p: Partial<FaitCalibrable> & Pick<FaitCalibrable, "id" | "libelle" | "valeur">): FaitCalibrable => ({
   nature: "ERP", outil: "inspect_record", confiance: 0.95, base: "native", fraicheur: "TEMPS_REEL", horodatage: "2026-09-01T00:00:00.000Z", preuveNegative: null, ...p,
@@ -289,7 +292,128 @@ suite("sabotages — quatorze situations adverses, tenues par le code", () => {
     }
   }, 60_000);
 
-  it("le compte : 14 sabotages tenus sur 14", () => {
+  it("15. événements dans le DÉSORDRE : le plus récent gagne, et l'ancien n'écrase jamais le neuf", async () => {
+    // Un webhook rejoué, un relais lent, deux sources qui se doublent : les faits n'arrivent
+    // PAS dans l'ordre où ils se sont produits. La règle est celle du §46 — la fraîcheur se lit
+    // sur `occurredAt`, l'instant du FAIT, jamais sur `createdAt`, l'instant de l'écriture.
+    const t = Date.now();
+    const recent = new Date(t - 1 * JOUR);
+    const ancien = new Date(t - 9 * JOUR);
+
+    // On INSÈRE le récent en premier, puis l'ancien : l'ordre d'arrivée contredit la chronologie.
+    await prisma.businessEvent.create({ data: { type: `${TAG}_STATUT`, sourceDomain: "REGULATORY", entityType: "REGULATORY_PRODUCT", entityId: `${TAG}-p1`, occurredAt: recent, payload: { statut: "AWAITING_ANPP" }, actorId: pdg.id } });
+    await prisma.businessEvent.create({ data: { type: `${TAG}_STATUT`, sourceDomain: "REGULATORY", entityType: "REGULATORY_PRODUCT", entityId: `${TAG}-p1`, occurredAt: ancien, payload: { statut: "IN_PREPARATION" }, actorId: pdg.id } });
+
+    const lus = await prisma.businessEvent.findMany({
+      where: { type: `${TAG}_STATUT` }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true, payload: true },
+    });
+    expect(lus).toHaveLength(2);
+    // Le plus RÉCENT au sens du fait, quel que soit l'ordre d'insertion.
+    expect((lus[0]!.payload as { statut: string }).statut).toBe("AWAITING_ANPP");
+    expect(lus[0]!.occurredAt.getTime()).toBeGreaterThan(lus[1]!.occurredAt.getTime());
+    // Et RIEN N'EST PERDU : l'ancien reste, il fait partie de l'histoire (§45).
+    expect((lus[1]!.payload as { statut: string }).statut).toBe("IN_PREPARATION");
+    tenus.add("evenements_desordre");
+  }, 60_000);
+
+  it("16. échéance DÉJÀ PASSÉE : le battement la règle une fois, ne la rejoue pas, et ne dort pas dessus", async () => {
+    // Le cas se produit à chaque redémarrage après une interruption : des attentes dont la date
+    // est passée pendant que personne ne tournait. Elles doivent se régler AU PREMIER battement
+    // — pas au suivant, et pas deux fois.
+    // Une attente D'ÉVÉNEMENT dont la date butoir est déjà passée : le cas exact d'un
+    // redémarrage après interruption. Le battement règle le temps AVANT tout le reste.
+    const cerveau = planScripte({
+      goal: `Attendre puis conclure ${TAG}`, reasoningComplexity: "A", executionScale: "S",
+      acceptanceCriteria: ["[REGLE:AUCUNE_ECRITURE] l'attente est réglée."],
+      workstreams: [], expectedArtifacts: [], approvalStrategy: "BUNDLE",
+      completionCriteria: "[REGLE:AUCUNE_ECRITURE] l'attente est réglée.", gaps: [], rationale: "banc chaos",
+      steps: [
+        { key: "attente", title: "Attendre une confirmation", nodeType: "WAIT_EVENT", waitEvent: "MESSAGE_RECEIVED", waitFrom: `Personne ${TAG}`, waitUntil: new Date(Date.now() + 3 * JOUR).toISOString(), dependsOn: [], completionCondition: "réponse reçue" },
+        { key: "controle", title: "Contrôle", nodeType: "QA", dependsOn: ["attente"], completionCondition: "fini" },
+      ],
+    });
+    const r = await lancerMission(pdg, `Attends trois jours puis conclus ${TAG}.`, {
+      reasoner: new RaisonneurScripte([pour("mission.plan", () => ({ ok: true, data: cerveau }))]),
+      sansEnquete: true, lectureSeule: true, demarrer: false,
+    });
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    if (!r.ok) return;
+
+    // On fait passer l'échéance DANS LE PASSÉ — comme si le processus avait dormi quatre jours.
+    // Ce que l'étape attend vit dans `waitFor` ({ type, from, entity, until }) : on remonte la
+    // date de butoir sans rien inventer d'autre.
+    const etape = await prisma.missionStep.findFirst({ where: { missionId: r.missionId, key: "attente" }, select: { id: true, waitFor: true } });
+    expect(etape, "l'étape d'attente n'existe pas").toBeTruthy();
+    await prisma.missionStep.update({
+      where: { id: etape!.id },
+      data: {
+        status: "WAITING",
+        waitFor: { ...(etape!.waitFor as Record<string, unknown>), until: new Date(Date.now() - 4 * JOUR).toISOString() },
+      },
+    });
+    const premier = await balayerMissions();
+    expect(premier.examinees).toBeGreaterThanOrEqual(1);
+    const apres = await prisma.missionStep.findFirst({ where: { missionId: r.missionId, key: "attente" }, select: { status: true } });
+    // Réglée au PREMIER battement : elle n'attend plus. Le moteur choisit sa suite (reprise,
+    // relance, échec dit) ; ce qui compte ici est qu'elle ne dorme pas indéfiniment dessus.
+    expect(apres?.status, "l'attente expirée dort encore").not.toBe("WAITING");
+
+    // Et le battement suivant ne la REJOUE pas : rien ne se dédouble.
+    const avantSecond = await prisma.missionEvent.count({ where: { missionId: r.missionId } });
+    await balayerMissions();
+    const apresSecond = await prisma.missionEvent.count({ where: { missionId: r.missionId } });
+    expect(apresSecond - avantSecond, "l'échéance a été rejouée").toBeLessThanOrEqual(3);
+    tenus.add("echeance_expiree");
+  }, 120_000);
+
+  it("17. DES DIZAINES de missions en même temps : rien n'est perdu, rien n'est dupliqué, aucun spam", async () => {
+    // Trente missions lancées d'affilée. Ce qu'on vérifie n'est pas la vitesse : c'est que
+    // chacune existe UNE fois, avec SON objectif, et qu'aucune n'a hérité de l'état d'une autre.
+    const N = 30;
+    const cerveau = (i: number) => planScripte({
+      goal: `Objectif ${i} de ${TAG}`, reasoningComplexity: "A", executionScale: "S",
+      acceptanceCriteria: ["[REGLE:AUCUNE_ECRITURE] la liste est rendue."],
+      workstreams: [], expectedArtifacts: [], approvalStrategy: "BUNDLE",
+      completionCriteria: "[REGLE:AUCUNE_ECRITURE] la liste est rendue.", gaps: [], rationale: "banc chaos",
+      steps: [
+        { key: "liste", title: `Lister ${i}`, nodeType: "CAPABILITY", capability: "directory_list", inputs: [{ key: "department", kind: "TEXT", value: TAG }, { key: "limit", kind: "NUMBER", value: "5" }], dependsOn: [], completionCondition: "la liste est rendue" },
+        { key: "controle", title: "Contrôle", nodeType: "QA", dependsOn: ["liste"], completionCondition: "fini" },
+      ],
+    });
+
+    const lancees = await Promise.all(
+      Array.from({ length: N }, (_, i) => lancerMission(pdg, `Mission simultanée ${i} — ${TAG}`, {
+        reasoner: new RaisonneurScripte([pour("mission.plan", () => ({ ok: true, data: cerveau(i) }))]),
+        sansEnquete: true, lectureSeule: true, demarrer: false,
+      }).catch((e) => ({ ok: false as const, error: String(e) }))),
+    );
+
+    const ok = lancees.filter((x): x is Extract<typeof x, { ok: true }> => x.ok);
+    // RIEN N'EST PERDU : toutes ont abouti à une mission en base.
+    expect(ok.length, `${N - ok.length} mission(s) perdues`).toBe(N);
+
+    // RIEN N'EST DUPLIQUÉ : autant de missions distinctes que d'identifiants rendus.
+    const ids = new Set(ok.map((x) => x.missionId));
+    expect(ids.size).toBe(N);
+    const enBase = await prisma.mission.count({ where: { id: { in: [...ids] } } });
+    expect(enBase).toBe(N);
+
+    // RIEN N'EST MÉLANGÉ : chaque mission porte SON objectif, pas celui d'une voisine.
+    const lignes = await prisma.mission.findMany({ where: { id: { in: [...ids] } }, select: { id: true, goalRaw: true } });
+    const numeros = new Set(lignes.map((l) => /simultanée (\d+)/.exec(l.goalRaw ?? "")?.[1]).filter(Boolean));
+    expect(numeros.size, "deux missions partagent le même objectif").toBe(N);
+
+    // PAS DE SPAM : trente missions ne produisent pas trente notifications au dirigeant. Le
+    // silence est la conduite par défaut (§14) ; ce qui mérite l'attention le dit lui-même.
+    const notifs = await prisma.notification.count({ where: { userId: pdg.id, createdAt: { gte: new Date(Date.now() - 60_000) } } });
+    expect(notifs, `${notifs} notifications pour ${N} missions : c'est du spam`).toBeLessThan(N);
+    tenus.add("missions_simultanees");
+  }, 180_000);
+
+  it("le compte : 17 sabotages tenus sur 17", () => {
     expect([...tenus].sort()).toHaveLength(SABOTAGES);
+    consignerMesure("chaos_tenu", { n: SABOTAGES, ok: tenus.size },
+      "platform/in-process/evals/sabotages.test.ts",
+      `${tenus.size}/${SABOTAGES} situations adverses tenues, dont désordre des événements, échéance expirée et 30 missions simultanées`);
   });
 });
