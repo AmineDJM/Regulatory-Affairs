@@ -199,6 +199,31 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // sans y donner accès est ce qui permet de répondre « vous n'y avez pas droit » au lieu
       // de « rien ne sait le faire ». Aucune donnée métier ne transite : nom, résumé, mesures.
       "registre_capacites",
+      // Le modèle du monde (§45) : le PONT vérifie le module du dossier (`userCan(..., VIEW)`)
+      // AVANT de rendre le moindre fait, et refuse en le disant. Un droit de module ICI serait
+      // plus grossier : la question temporelle traverse Regulatory, Legal, Finance et Workspace,
+      // et chaque dossier est gardé par le sien.
+      "monde_temporel",
+      // La réconciliation (§46) : `reconcilier` et `lignee` ne LISENT rien — ils raisonnent sur
+      // ce qu'Adam vient de lire sous les droits de la personne. La seule branche qui lit
+      // (`ouvertes`) est gardée dans le `run` par le siège exécutif, comme `list_decisions`.
+      "verite_reconcilier",
+      // Les objectifs durables (§47) : aucun droit propre parce que le PONT les réserve au
+      // siège exécutif dans son `run`, comme `list_decisions`, ET cloisonne PAR REQUÊTE sur
+      // `ownerId` — un identifiant deviné ne rend rien. Le tri n'est pas dans l'outil : il est
+      // dans la clause SQL, là où il ne peut pas être oublié.
+      "objectif_durable",
+      // L'annulation (§48) : aucun droit propre parce que le PONT vérifie DEUX droits, module
+      // par module et au moment où il s'en sert — `VIEW` pour composer l'aperçu, `UPDATE` pour
+      // écrire. Un droit d'outil ICI serait plus grossier : annuler un statut Regulatory et
+      // annuler une note de frais ne passent pas par la même porte, et c'est le type de
+      // l'entité qui décide laquelle. L'écriture est en plus conditionnée à la valeur attendue.
+      "annuler_changements",
+      // La vérification (§49) : « programme » et « conclure » ne LISENT RIEN — ils raisonnent
+      // sur ce que l'appelant décrit, donc il n'y a aucune donnée à garder. « lecons » lit le
+      // journal des missions, cloisonné PAR REQUÊTE sur `mission.ownerId` : les échecs
+      // des missions d'autrui ne sortent jamais, et leurs libellés de demande non plus.
+      "verifier_avant_de_dire",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

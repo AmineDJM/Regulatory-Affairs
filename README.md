@@ -3242,6 +3242,13 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Réseau et géographie — chemins, centralités, territoires (§40)** | `lib/graphe/` (PUR) : `modele.ts` (nœuds/arêtes typés, VALIDITÉ TEMPORELLE par arête, `auMoment` rend le graphe tel qu'il était, `filtrerRelations`, `voisins`, `degre`, `sommaire`), `chemins.ts` (`plusCourtChemin` Dijkstra sur l'inverse des poids — un lien fort RAPPROCHE —, `cheminsMultiples` (un lien unique ≠ trois liens), `portee` par niveau, `cycles`, `composantes`, `pointsDeRupture` avec ce qui se retrouve ISOLÉ), `mesures.ts` (`pagerank`, `intermediarite` Brandes rapportée au maximum THÉORIQUE, `proximite` Wasserman-Faust, `centralites`, `communautes` Louvain avec modularité) ; `lib/geo/` (PUR) : `distance.ts` (haversine, cap et cardinal, enveloppe, barycentre par les VECTEURS, `dansLaZone`, `aireKm2`, `autour`, `densites` ; `FACTEUR_DETOUR_ROUTIER` déclaré, jamais appliqué en douce), `algeria.ts` (les 58 wilayas + `COORDONNEES_WILAYAS` des chefs-lieux, `coordonneesDe`, `BORNES_ALGERIE`, `AVERTISSEMENT_CHEF_LIEU`), `tournee.ts` (`tournee` plus proche voisin + 2-opt avec le gain sur l'ordre fourni, `territoires` k-moyennes sphériques rééquilibrées sur la CHARGE, `implantationOptimale` point de Weber, `choisirSites` p-médian EXACT et renvoi au solveur entier au-delà) ; pont `platform/in-process/reseau/` (construit le graphe depuis `EntityLink` (liens DÉCLARÉS) et les tables (liens STRUCTURELS) sous les droits — `peutVoir` par type, types refusés NOMMÉS —, `lieuxErp` place médecins/établissements/contacts au chef-lieu), outils `assistant/reseau-tools.ts` (`reseau_entreprise` : chemin, portée, qui_compte, communautés, ruptures, cycles, sommaire, avec `au` pour la date ; `carte_territoire` : répartition, autour, tournée, territoires, implantation), routage `RESEAU_EXPLICITE`. Banc : `graphe/{modele,chemins,mesures}.test.ts` (21), `geo/{distance,tournee,algeria}.test.ts` (33), `platform/in-process/reseau/reseau.test.ts` (6, droits et temps par le vrai point d'entrée), cibles `graphe_droits` / `graphe_temporel` / `point_de_passage` / `geo_exactitude`, défis live `defi-reseau-chemin` et `defi-carte-tournee` |
 | **Fichiers et formats — ranger, dédoublonner, importer, convertir (§41)** | `lib/formats/` (PUR) : `detection.ts` (`detecterEncodage` marque d'ordre / UTF-8 / repli latin-1, `detecterSeparateur` par la RÉGULARITÉ, `detecterEntete`, `detecterLocale` (fr/en/ambigu, jj-mm/mm-jj/ISO), `versNombre`, `versDateIso` qui rend `null` sur une date indécidable), `tableur.ts` (`lireTableur` : lignes typées + RAPPORT — décisions, lignes mal formées, colonnes MÊLÉES ; largeur de référence = en-tête ou modale ; `ecrireCsv` impose le point-virgule en locale française ; `lireJson`/`ecrireJsonl`), `conversion.ts` (`conversion` LOSSLESS / DESTRUCTIF / IMPOSSIBLE avec ce qui est perdu et la ressource manquante, `avertissementConversion`, `conversionsDepuis`) ; `lib/fichiers/` (PUR) : `doublons.ts` (IDENTIQUE / VERSION / RESSEMBLANT, `radicalSansVersion`, `distanceNoms` bornée, `orphelins` — et « supprimer un identique ne libère aucun octet »), `classement.ts` (`proposerClassement` par indices PESÉS et CITÉS dans le nom et le contenu, confiance PLAFONNÉE sans contenu lu, `extraireEntites`, `gestesDeClassement` avec l'origine), `lot.ts` (`preparerLot` : aperçu, refus des gestes non annulables et des suppressions, « à confirmer » sous seuil, plan de retour ; `executerLot` : reprise par reçu, réessais des seuls échecs PASSAGERS, budget de temps, compte ARITHMÉTIQUE) ; pont `platform/in-process/fichiers/` (`recenser` sous `canViewDrive`, `apercuTexte`, `appliquerGeste` sous `canEditDrive` (fichier ET destination) et IDEMPOTENT, `gesteDejaFait`, `dossierPour`, `etatsActuels` — l'état d'avant lu en base ; SUPPRESSION refusée), outils `assistant/fichiers-tools.ts` (`drive_inventaire`, `drive_lot`, `format_lire`, `format_convertir`), routage `contientDonneesCollees`. Banc : `formats/{detection,tableur}.test.ts` (20), `fichiers/fichiers.test.ts` (23), `platform/in-process/fichiers/fichiers.test.ts` (7), cibles `import_detecte` / `conversion_dite` / `lot_compte_exact` / `aucune_suppression`, défis live `defi-import-tableur` et `defi-conversion-perte` |
 | **Registre des capacités et manques nommés (§44)** | `lib/registre/` (PUR) : `fiche.ts` (`composerFiche` — douze rubriques par capacité, `fiabilite.taux = null` tant que rien n'a été MESURÉ ; `interroger` avec les ÉCARTÉES et leur nature (PLAFOND / DROIT / FORME / FIABILITE), marquage sur MOTS ENTIERS ; `detecterManque` au seuil de pertinence 3 ; `sommaireRegistre` qui compte ce qu'on ignore), `manques.ts` (11 natures, `SENS_MANQUE` avec la suite et le fait que ce soit une DETTE ou non, `classer` qui rend INDETERMINE plutôt qu'une nature inventée, `feuilleDeRoute` groupée par nature × capacité et pondérée) ; pont `platform/in-process/registre/` (`mesuresParCapacite` lue sur `MissionStep` — appels, échecs, reprises, p50/p90 ; `fichesDe` sur `POWER_TOOLS` + `assistantToolsFor` pour `autorisee` ; `manquesObserves` / `feuilleDeRouteErp` en LECTURE des `MissionEvent` `STEP_FAILED`) ; classement câblé dans `missions/runtime/engine.ts` ; outil `assistant/registre-tools.ts` (`registre_capacites` : chercher / fiche / manque / feuille_de_route / sommaire). Banc : `lib/registre/registre.test.ts` (20), `platform/in-process/registre/registre.test.ts` (8, depuis `lancerMission`), garde anti-doublon dans `capability-surface.test.ts`, cibles `manque_nomme` / `fiabilite_mesuree` / `droit_vs_absence` / `registre_sans_doublon`, défis live `defi-manque-nomme` et `defi-registre-honnete` |
+| **Banc d'autonomie générale (§43)** | `lib/evals/autonomie/` (PUR) : `corpus.ts` (`engendrer` — gabarits × entités RÉELLES lues en base, déterministe par graine, rotation sur les seize familles, aucune phrase répétée ; `capaciteDuCorpus` dit les gabarits ÉCARTÉS faute d'entités), `juges.ts` (`verifierExigences` sur dix formes vérifiables — primitives et domaines lus dans `capabilityMeta`, pas redevinés ; `causer` → les neuf causes du mandat via le registre des manques ; `juger` → réussie / faux succès / violations ; `scoreAutonomie` → sept axes pondérés, sûreté à la moitié, coût et latence HORS du score ; `comparer` refuse deux corpus différents) ; banc `scripts/bench/autonomy-bench.ts` (`npm run autonomy:bench` en profondeur PLAN, `autonomy:bench:complet` en exécution réelle, JSON horodaté dans `bench-out/autonomie/` avec le commit, comparaison N vs N+1 automatique). Cibles `autonomie_reussite` / `autonomie_faux_succes` / `autonomie_droits` / `autonomie_gaps_classes` / `corpus_reproductible` |
+| **Modèle du monde & vérité temporelle (§45)** | `lib/monde/` (PUR) : `temps.ts` (`Intervalle` à bornes INCONNUES et non infinies, `contient` début inclus / fin exclue, `chevauche`, `intersection`, `dureeJours` nulle sur borne ouverte, `fermerIntervalles` — la suite de changements datés devient un historique, valeur d'origine comprise), `faits.ts` (`Fait` sujet/prédicat/objet avec validité ET constat, `histoire: JOURNALISEE | COURANTE` qui interdit la rétro-projection, `auMoment`, `valideA`, `connuA`, `etatA` avec ses INCONNUS, `changements` avant/après, `contradictions` sur les prédicats fonctionnels seulement, `couverture`, `chronologie`) ; pont `platform/in-process/monde/` (`faitsDe` compose AuditLog + valeurs courantes + BusinessEvent + EntityLink sous `userCan(module, VIEW)`, `quiEtait`, `etatAuMoment`, `changementsDe`, `recitDe`, `vraiEtSu`) ; outil `assistant/monde-tools.ts` (`monde_temporel` : qui_etait / etat_a / changements / recit / vrai_et_su). Banc : `lib/monde/monde.test.ts` (14), `platform/in-process/monde/monde.test.ts` (7, écrits par `recordFieldChanges`), cibles `verite_temporelle` / `passe_non_invente` / `vrai_vs_su` |
+| **Contradictions, lignée & questions ouvertes (§46)** | `lib/verite/` (PUR) : `contradiction.ts` (`reconcilier` — contexte d'abord (`PAS_LA_MEME_QUESTION`), dérivées retirées de la concurrence, autorité PAR TYPE DE FAIT (`AUTORITE_DEFAUT` / `AUTORITE_CLAUSE`), fraîcheur ensuite, puis `A_CHERCHER` (ce qui trancherait, nommé) ou `A_TRANCHER` (la question à une personne) — jamais de moyenne ; `direVerdict` rend toujours le POURQUOI), `lignee.ts` (`construire` / `verifier` — sans source le résultat est refusé, cycle bloquant, lignes perdues sans explication signalées — / `raconter` « 41,3 M$ = 3 sources → doublons supprimés → conversion → consolidation » / `detailler`) ; outil `assistant/verite-tools.ts` (`verite_reconcilier` : reconcilier / lignee / ouvertes — les questions ouvertes et les hypothèses à rejuger sont LUES au registre `ExecutiveDecision`, aucune table nouvelle). Banc : `lib/verite/verite.test.ts` (15), `assistant/verite-tools.test.ts` (7), cibles `jamais_de_moyenne` / `meme_question_dabord` / `chiffre_prouve` |
+| **Objectif durable & probabilité expliquée (§47)** | `lib/objectif/` (PUR) : `modele.ts` (`Objectif`, critères / jalons / risques / liens, `avancement` — jalons en retard, jalons BLOQUÉS par un prédécesseur non fait, réussites sans preuve —, `porteeDuRetard`), `probabilite.ts` (`estimer` : base = part des critères atteints hors INCONNUS, six facteurs SIGNÉS avec leur preuve, `facteurNegatifPrincipal`, `confiance`, `limites` toujours non vides, bornage [2 %, 98 %]), `causal.ts` (`propager` — confiances multipliées le long du chemin —, `chemins`, `auditer` : flèches sans hypothèse, suppositions, cycles) ; table `ExecutiveObjective` (migration `20261028090000_executive_objectives`) ; pont `platform/in-process/objectif/` (siège exécutif + cloisonnement `ownerId` DANS LA REQUÊTE) ; outil `assistant/objectif-tools.ts` (`objectif_durable` : creer / etat / lister / constater / simuler). Banc : `lib/objectif/objectif.test.ts` (14), `platform/in-process/objectif/objectif.test.ts` (6, par `executePowerTool`), cibles `probabilite_jamais_seule` / `rien_ne_se_coche_seul` / `causalite_declaree` / `objectif_cloisonne` |
+| **Annulation & traçabilité (§48)** | `lib/annulation/` (PUR) : `reversibilite.ts` (dix `NATURES_GESTE`, quatre `REVERSIBILITES` — REVERSIBLE / DELEGUEE / PAR_COMPENSATION / IRREVERSIBLE —, table de verdicts avec raison + compensation + délégataire, `natureDe` : la signature précise l'emporte sur le verbe du journal), `plan.ts` (`composer` — ordre INVERSE, invariant « la valeur actuelle est encore celle d'Adam », cinq `MotifRefus` dont `MODIFIE_DEPUIS` qui NOMME l'auteur du conflit —, `conclure` : compte rendu arithmétique) ; pont `platform/in-process/annulation/` (compare-and-swap dans le `where` du `updateMany`, `VIEW` puis `UPDATE` par module, liste FERMÉE de champs restaurables avec conversion, ré-journalisation par `recordFieldChanges`) ; outil `assistant/annulation-tools.ts` (`annuler_changements` : voir / appliquer). Aucune table nouvelle — `AuditLog` porte déjà l'instruction. Banc : `lib/annulation/annulation.test.ts` (13), `platform/in-process/annulation/annulation.test.ts` (6, par `executePowerTool`), cibles `jamais_ecraser_un_humain` / `annulation_jamais_totale_a_tort` / `annulation_journalisee` / `annulation_sans_droit_propre` |
+| **Vérification proportionnée & apprentissage (§49)** | `lib/verification/` (PUR) : `risque.ts` (`evaluer` — six `OBTENTIONS`, cinq `EXPOSITIONS`, irréversibilité, montant par paliers, échéance ; facteurs signés, `principal` nommé, `limites` toujours non vides ; quatre `NIVEAUX`), `methodes.ts` (sept `METHODES` avec `attrape` / `aveugleA` / `cout` / `pouvoir` / `concluantEnEchec` ; `applicables` refuse d'en proposer une hors sujet, `selectionner` ordonne par pouvoir/coût et porte les angles morts des non-retenues, `conclure` — le négatif l'emporte, une méthode non exécutée ne confirme rien —, `echantillon` déterministe). `lib/apprentissage/lecon.ts` (PUR) : `apprendre` regroupe par cause+nature+capacité, `SEUIL_RECURRENCE = 3`, une correction humaine vaut le seuil, sept `ACTIONS` dont AUCUNE ne touche à un droit, `redigerEval`, `feuille`. Pont `platform/in-process/verification/` (lecture de `MissionEvent.STEP_FAILED`, cloisonnée sur `mission.ownerId` ; AUCUNE fonction d'application). Outil `assistant/verification-tools.ts` (`verifier_avant_de_dire` : programme / conclure / lecons). Banc : `lib/verification/verification.test.ts` (25), `platform/in-process/verification/verification.test.ts` (7), cibles `verifie_ne_dit_pas_vrai` / `negatif_l_emporte` / `verification_proportionnee` / `aucun_apprentissage_silencieux` |
+| **Optimiseur qualité-d'abord (§50)** | `lib/cout/` (PUR) : `plancher.ts` (neuf `CLASSES`, `PLANCHERS` avec exactitude + `erreursArithmetiquesTolerees: 0` partout + `pourquoi` chiffré + `desescaladeAutorisee` + `observationsMin` croissant avec l'enjeu ; `SANS_DESESCALADE`), `choix.ts` (`choisir` — porte de qualité AVANT le tri par prix, cinq `MotifRefus` dont NON_MESURE / MESURE_MAIGRE / MESURE_PERIMEE ; `escalader` exige un constat écrit et monte d'un cran ; `northStar` — coût par réussite, `null` si aucune, `partGachee`, limites ; `porteDeRegression` — une économie payée en qualité est refusée quel que soit le montant). Pont `platform/in-process/cout/` (`coutDe` et `candidates` sur les tarifs RÉELS de `allBindings()`, cache de prompt compté, `realtime` hors course, `decider` = le pipeline complet). Banc : `lib/cout/cout.test.ts` (19), `platform/in-process/cout/cout.test.ts` (9), cibles `plancher_jamais_franchi` / `non_mesure_nest_pas_bon_marche` / `escalade_justifiable` / `qualite_jamais_compensee` / `cout_par_reussite` |
 | **Résolution d'entités (F9, §24)** | `lib/fabric/entites-score.ts` (scoreur pur : `scorerNom`, `trancher`, `detecterIdentifiant`, `questionDeDesambiguation`) ; `lib/fabric/entites.ts` (`resoudreEntite`, `resoudreMentions`, `contexteEntitesResolues` — dix natures, trigramme) ; pont `platform/in-process/fabric/entites.ts` ; `assistant.ts` (`resolvePerson` par la brique, bloc d'entités résolues dans le contexte du tour) ; `fabric/entites.test.ts` (banc de 60 mentions). |
 | **Teach Adam — règles enseignées** | `lib/teach/model.ts` (natures, périmètres, statuts, `KINDS_CONTRAIGNANTS`) ; `classify.ts` (`classerEnseignement`, `extraireParametres`) ; `resolve.ts` (`estApplicable`, `comparerPrecedence`, `resoudre`, `conflitsAvecExistantes`, `cleDe`) ; `compose.ts` (`composerBlocRegles`, `lignesPourPlanificateur`) ; pont `platform/in-process/teach/store.ts` (`enseigner`, `listerRegles`, `modifierRegle`, `changerStatutRegle`, `reglesEnVigueurPour`, `contexteRegles`, `politiquesPourMission`, `standardsDocumentaires`) ; outils `lib/assistant/teach-tools.ts` (`teach_adam`, `list_rules`, `update_rule`, `disable_rule`, `delete_rule`) ; garde `missions/policy/guard.ts` ; modèle `AdamRule`. |
 | **Adam — la coque de son bureau (et sa porte de sortie)** | Groupe de routes `app/(chief)/layout.tsx` : coque délibérément VIDE — ni menu latéral, ni barre supérieure, ni barre d'onglets, ni palette, ni bandeaux. `components/chief/{chief-workspace,chief-header,chief-home}.tsx` + `app/chief.css` (jeu de jetons `--chief-*` propre à Adam). **La sortie** : `components/chief/module-switcher.tsx` — une icône dans l'en-tête ouvre la liste des modules que CETTE personne peut ouvrir (champ de filtre, groupé par pôle, Échap / clic dehors referment). Les destinations arrivent par le **contrat de plateforme** (`navigation.destinations` → `in-process/adapter.ts` → `lib/nav-access.ts`), jamais par un import du menu de l'ERP : c'est ce qui garde le cliquet de frontière à 430. Le même `navigationFor` sert la barre latérale de l'ERP — une seule vérité sur « qui a le droit d'aller où ». Tests : `platform/navigation-destinations.test.ts` (dont : une entrée fusionnée mène au premier onglet AUTORISÉ, donc `/ad-pro` pour l'admin et `/congress-international` pour le délégué médical). |
@@ -4071,6 +4078,328 @@ du Drive, quatre outils — et une règle qui ne se négocie pas : **rien ne se 
   le vrai point d'entrée (droits, idempotence, refus de suppression, aller-retour complet), quatre
   cibles et deux défis live (`defi-import-tableur`, `defi-conversion-perte`).
 
+### Contradictions, lignée et questions ouvertes — mandat 6 §46
+
+L'ERP dit 15 M€, le classeur 17, l'e-mail 16,5. Trois façons de mal s'en sortir : prendre le
+premier trouvé, prendre le plus récent sans le dire, ou faire une moyenne — la seule réponse dont
+on est certain qu'aucune source ne la porte.
+
+- **La première question n'est pas « qui a raison », c'est « est-ce la même question ».** Neuf
+  fois sur dix, trois chiffres différents sont trois réponses à trois questions légèrement
+  différentes : HT contre TTC, périmètre Adventum contre groupe, arrêté au 30 juin contre au
+  31 juillet. Le moteur teste le CONTEXTE en premier et rend `PAS_LA_MEME_QUESTION` — parce que
+  résoudre cela comme un conflit ferait un gagnant et deux perdants là où les trois avaient
+  raison, et masquerait la vraie information : le contexte manquait.
+- **Une valeur DÉRIVÉE n'est pas un témoin.** Un chiffre obtenu en multipliant l'autre par 1,19
+  ne vote pas : le compter doublerait la voix de sa source.
+- **L'autorité est par TYPE DE FAIT, pas générale.** L'ERP fait autorité sur un montant
+  enregistré ; le contrat SIGNÉ fait autorité sur une clause, même si l'ERP dit autre chose. Une
+  hiérarchie unique « ERP > document > e-mail » se tromperait systématiquement sur la deuxième
+  ligne.
+- **Et quand rien ne départage, deux issues, jamais un choix** : `A_CHERCHER` (le code NOMME
+  l'information qui trancherait — « le périmètre exact de chaque valeur ») ou `A_TRANCHER` (la
+  question posée à une personne, avec les options et ce qui les distingue). Un moteur qui
+  conclurait faute de mieux est exactement ce que le mandat interdit.
+- **La lignée d'un chiffre** (`lib/verite/lignee.ts`) : « 41,3 M$ = 3 sources → doublons
+  supprimés → conversion → consolidation ». Ce n'est pas une jolie phrase : c'est la seule forme
+  sous laquelle un dirigeant peut contester UNE étape au lieu de rejeter le chiffre entier — ou,
+  pire, de l'accepter faute de pouvoir le discuter. Chaque étape porte ses lignes entrantes et
+  sortantes, et **une étape qui perd des lignes sans le dire est signalée** : c'est le défaut le
+  plus silencieux, et il explique la plupart des écarts entre deux chiffres censés être le même.
+- **Un résultat qui ne remonte à aucune source est REFUSÉ.** Ce n'est pas un résultat, c'est une
+  affirmation — et `prouve: false` interdit de le présenter comme établi. Les cycles aussi sont
+  bloquants ; les étapes qui ne contribuent à rien sont signalées sans bloquer.
+- **Questions ouvertes et hypothèses : elles EXISTENT déjà.** Une décision `PROPOSED` du registre
+  exécutif EST une question ouverte ; une décision qui porte un résultat attendu et une date de
+  relecture EST une hypothèse, et `update_decision_outcome` la referme avec le résultat RÉEL. Le
+  lot ne crée donc aucune table : il ajoute la LECTURE qui manquait (`ouvertes`), celle qui
+  remonte les questions restées ouvertes et les hypothèses dont la date de relecture est passée
+  sans verdict — c'est-à-dire celles qu'on a oublié de rejuger.
+- **`verite_reconcilier`** : `reconcilier`, `lignee`, `ouvertes`. Les valeurs sont FOURNIES par
+  l'appelant, et c'est délibéré : elles viennent de trois outils différents, appelés sous les
+  droits de la personne, chacun avec sa provenance. Un moteur qui irait les relire lui-même
+  court-circuiterait ces droits et perdrait la provenance. Adam lit, puis confronte.
+- **Banc** : 15 tests purs (les six issues du moteur, l'autorité qui s'inverse sur une clause, la
+  moyenne qui n'apparaît nulle part, la lignée racontée dans l'ordre, le résultat sans source
+  refusé, le cycle bloquant) et 7 tests d'intégration par l'outil réel, questions ouvertes créées
+  via `record_decision`. Trois cibles (`jamais_de_moyenne`, `meme_question_dabord`,
+  `chiffre_prouve`).
+
+### L'optimiseur qualité-d'abord — mandat 6 §50
+
+Un optimiseur de coût converge toujours vers le moins cher : c'est sa définition. Ce qui l'en
+empêche n'est pas une bonne intention, c'est un PLANCHER par classe de tâche.
+
+- **La hiérarchie est écrite, pas espérée : qualité > coût > latence.** Le tri par prix
+  n'intervient qu'APRÈS la porte de qualité, jamais dans le même calcul — deux grandeurs qu'on
+  n'additionne pas ne peuvent pas se compenser. La latence arrive en troisième et ne départage
+  qu'à coût égal.
+- **Neuf classes, neuf planchers, et une raison chiffrée pour chacun.** FINANCE à 99 % parce
+  qu'une erreur de trois dinars se découvre au rapprochement bancaire six semaines plus tard et
+  coûte une demi-journée à deux personnes — sans commune mesure avec l'économie d'un modèle.
+  TRIVIAL à 85 % parce que c'est le SEUL endroit où l'on économise agressivement. Aucune classe,
+  pas même TRIVIAL, ne tolère une erreur d'arithmétique.
+- **LA RÈGLE QUI FAIT TOUT LE TRAVAIL : une paire (classe, modèle) non mesurée n'est pas une
+  option bon marché, c'est une inconnue.** Sans elle, l'optimiseur choisirait systématiquement le
+  moins cher, puisque l'absence de mesure ressemble à l'absence de problème. Trois refus
+  s'ensuivent, chacun avec ses nombres : NON_MESURE, MESURE_MAIGRE (« 100 % sur trois essais est
+  une anecdote » — `observationsMin` monte avec l'enjeu), MESURE_PERIMEE (90 jours : les modèles
+  bougent sous le même nom).
+- **Cinq classes ne se désescaladent JAMAIS**, mesure parfaite sur mille essais comprise :
+  FINANCE, REGULATORY, LEGAL, DECISION, DOCUMENT_EXECUTIF. Un dépôt ne se rejoue pas. Ce n'est
+  pas une exception marginale — c'est la moitié du travail sérieux, et la décision le DIT
+  (« aucune économie n'est cherchée ici, et c'est délibéré »).
+- **L'escalade exige un CONSTAT écrit**, jamais une impression : un verdict de §49, un contrôle
+  qualité raté, une erreur trouvée. Elle monte d'UN cran, et au sommet elle s'arrête en le
+  disant au lieu de réessayer le même. C'est ce qui rend 100 % des appels premium justifiables.
+- **Le North Star est le coût par mission RÉUSSIE**, et il vaut `null` quand rien n'a réussi —
+  le présenter comme nul serait un mensonge. Le seuil exact est un RAPPORT (un modèle K fois
+  moins cher gagne s'il réussit plus de 1/K fois autant), ce que « coût par mission » cache
+  complètement. Et le ratio dit ce qu'il ne compte pas : le temps de la personne qui découvre
+  l'erreur, et la confiance perdue — les deux coûts les plus lourds d'un échec.
+- **Les prix ne sont jamais recopiés.** Les candidates sont construites depuis `allBindings()`,
+  donc depuis la grille datée du registre, remplaçable par variable d'environnement. Un rôle sans
+  tarif connu ne devient pas une candidate : la même règle que pour la qualité.
+
+### Vérifier à proportion du risque, et apprendre sans apprendre tout seul — mandat 6 §49
+
+Vérifier deux fois chaque chiffre double le coût et **fait baisser la qualité perçue** : quand
+tout est marqué « vérifié », plus rien ne l'est. Ne rien vérifier a un coût qui ne se voit qu'une
+fois, très cher. La vérification se CALCULE donc, et le calcul est exposé.
+
+- **Quatre facteurs, et le dernier est celui qu'on oublie.** L'irréversibilité (un e-mail parti,
+  §48), l'exposition (moi → équipe → direction → partenaire → autorité), l'enjeu (montant,
+  échéance réglementaire), et surtout la **FRAGILITÉ DE L'OBTENTION** : un chiffre lu dans une
+  colonne est solide, le même reconstitué par un modèle depuis un PDF scanné ne l'est pas, et
+  c'est indépendant de son importance. La plupart des erreurs coûteuses ne portent pas sur des
+  sujets négligés — elles portent sur des sujets importants dont la donnée a suivi un chemin
+  fragile. Score → AUCUN / LEGER / APPUYE / ADVERSARIAL.
+- **Sept méthodes, et chacune déclare CE QU'ELLE NE VOIT PAS.** C'est plus important que ce
+  qu'elle attrape : la faute la plus coûteuse d'un système de vérification n'est pas de rater une
+  erreur, c'est de faire croire qu'il l'aurait vue. Le SECOND MODÈLE porte la ligne décisive —
+  deux modèles d'accord sur le même contexte ne prouvent rien quand l'erreur est DANS le
+  contexte : leur accord est un écho, pas une preuve. Le RECALCUL passe premier quand il
+  s'applique : gratuit, et le seul qui PROUVE.
+- **Une méthode inapplicable n'est jamais proposée.** Pas de recalcul sur une phrase, pas de
+  source alternative pour une assertion qui n'a pas de première source. Une méthode proposée
+  puis « passée » compterait comme une vérification faite : c'est ainsi qu'un tableau de bord
+  finit par afficher 100 % de couverture sans rien couvrir. Le programme porte aussi les angles
+  morts de ce qu'il n'a PAS fait.
+- **Le sens négatif l'emporte, toujours.** Un recalcul qui contredit bat quatre confirmations —
+  ce n'est pas une voix parmi cinq, c'est une preuve. Un second modèle en désaccord ne tranche
+  pas : c'est un DOUTE, « il faut regarder, pas arbitrer ». Et une méthode qui n'a pas pu
+  s'exécuter ne confirme RIEN : le verdict devient NON_VERIFIE et le dit. Même tout confirmé, la
+  phrase rendue est « aucune méthode ne l'a contredit », jamais « c'est vrai ».
+- **L'échantillonnage est déterministe.** Un tirage aléatoire rendrait deux runs incomparables,
+  donc la mesure impossible. Bornes + pas régulier, et la part échantillonnée suit la fragilité
+  de l'obtention (2 % pour une lecture directe, 50 % pour une assertion de modèle).
+- **Les échecs ne sont pas collectés : ils sont déjà écrits.** `MissionEvent` porte depuis §44 un
+  `STEP_FAILED` avec `detail.manque`. Le Failure Learning System est une LECTURE de ce journal,
+  regroupée par cause + nature + capacité — pas sur le texte de la demande, parce que deux
+  formulations du même défaut resteraient sinon toutes deux sous le seuil, c'est-à-dire
+  invisibles indéfiniment.
+- **La récurrence est le signal, pas l'échec.** Un échec unique est du bruit (un service qui
+  hoquette, un scan raté). Trois fois la même cause est un défaut. Une correction humaine vaut le
+  seuil à elle seule : c'est la meilleure preuve qu'il y avait quelque chose à corriger. Une
+  panne de fournisseur, elle, n'enseigne RIEN et ne produit aucune leçon.
+- **Et rien ne s'applique tout seul (§118.12).** Une leçon est une proposition portant sa preuve,
+  son compte, ses exemples et QUI doit l'approuver. Il n'existe pas d'`appliquerLecon` à appeler
+  par mégarde. La liste d'actions est FERMÉE et aucune ne touche à un droit : la cause PERMISSION
+  ne peut proposer que de POSER LA QUESTION à un humain. Le pire qu'une leçon approuvée puisse
+  faire est d'ajouter un test — et l'eval qu'elle propose attend le MANQUE NOMMÉ tant que la
+  primitive n'existe pas, car un test rouge pour toujours finit ignoré.
+
+### Défaire ce qui a été fait — mandat 6 §48
+
+« Annule ce qu'Adam a modifié sur ce dossier hier » est une demande raisonnable dont la réponse
+honnête est presque toujours PARTIELLE. Le statut revient ; l'e-mail parti chez le partenaire,
+non. Un système qui répondrait « c'est annulé » aurait menti sur la moitié de la phrase, et le
+mensonge ne se verrait qu'au moment où le partenaire répond à un message censé ne pas exister.
+
+- **L'instruction d'annulation existe DÉJÀ.** `AuditLog` porte `field` / `oldValue` / `newValue`
+  pour chacune des cinq cents écritures de l'ERP : défaire, c'est LIRE cette ligne et réécrire
+  l'ancienne valeur. Aucune table de versions n'a été créée — elle redirait la même chose une
+  seconde fois et divergerait (§17).
+- **L'INVARIANT, et c'est le seul qui compte.** On ne défait un changement que si la valeur
+  actuelle est ENCORE celle qu'Adam a écrite. Adam met le dossier à AWAITING_ANPP lundi ; Yassine
+  le passe à BLOCKED mardi parce que l'échantillon est refusé ; l'annulation naïve remettrait
+  IN_PREPARATION et effacerait le travail de Yassine sans que personne ne le voie. Le geste est
+  donc refusé en NOMMANT qui a changé quoi et quand. Techniquement, la condition est dans le
+  `where` du `updateMany` : c'est PostgreSQL qui l'évalue au moment d'écrire, `count === 0`
+  voulant dire « quelqu'un est passé entre l'aperçu et maintenant ». Un `findFirst` suivi d'un
+  `update` laisserait une fenêtre, et c'est exactement pendant cette fenêtre qu'un collègue
+  enregistre depuis son écran (même principe que §104.8).
+- **Quatre réponses, parce que deux mentent.** RÉVERSIBLE (on réécrit) · DÉLÉGUÉE (Live Office
+  §104.3 annule une retouche par REJEU, Teach Adam §31 désactive une version — on ne réécrit pas
+  un second mécanisme) · PAR COMPENSATION (le geste reste, un geste inverse le corrige : un
+  rectificatif, un avoir, une demande de signature révoquée) · IRRÉVERSIBLE (l'e-mail est lu, le
+  virement est à la banque, le dossier appartient à l'autorité). Tout ce qui n'est pas réversible
+  DOIT porter sa compensation ou son délégataire : un « non » sans suite est une impasse, et un
+  test le vérifie pour chacune des dix natures de geste.
+- **La signature l'emporte sur le verbe.** Un paiement exécuté EST un `UPDATE` du champ `status` :
+  le ranger en CHAMP_MODIFIE le rendrait « réversible », c'est-à-dire qu'Adam proposerait de
+  dé-payer un fournisseur. Les signatures précises (virement émis, dépôt ANPP, signature demandée,
+  e-mail envoyé) sont donc testées AVANT l'action générique.
+- **Une annulation est un CHANGEMENT, jamais une gomme.** Elle passe par `recordFieldChanges`,
+  apparaît dans le journal, dans l'historique de l'écran, dans le modèle du monde (§45), et elle
+  est elle-même annulable. La ligne d'origine survit — une couche d'annulation qui réécrirait
+  l'audit serait pire que pas de couche du tout.
+- **Deux temps, et le premier n'écrit rien.** « voir » compose et montre ; « appliquer » n'exécute
+  que ce que « voir » a montré (`changements` borne encore davantage). Ce n'est pas une précaution
+  d'usage : une annulation porte sur des gestes que la personne a oubliés — c'est pour cela
+  qu'elle demande — et la liste est la seule façon qu'elle découvre l'e-mail parti.
+- **Aucun droit propre.** Le pont vérifie `VIEW` sur le module de l'entité pour l'aperçu et
+  `UPDATE` pour l'écriture, au moment de s'en servir. Un VIEWER ne voit rien d'un dossier
+  Regulatory ; la DIRECTION voit une validation et ne peut pas l'annuler ; et un VIEWER PEUT
+  défaire un changement de tâche, parce qu'il peut réellement modifier une tâche. L'outil ne
+  restreint ni plus ni moins que l'écran. Les champs restaurables sont en outre une LISTE FERMÉE
+  avec leur conversion : le nom du champ vient d'une ligne de journal, donc d'une donnée.
+
+### L'objectif durable et sa probabilité expliquée — mandat 6 §47
+
+« Je veux qu'on soit prêts pour l'AO 2027 » n'est pas une mission. Une mission se ferme ; un
+objectif se surveille APRÈS que les missions se sont fermées, et c'est précisément là que tout
+se perd d'habitude : les cinq missions ont réussi, la case n'est pas cochée, et personne ne le
+voit avant l'échéance.
+
+- **Un objectif est une table à lui (`ExecutiveObjective`), et c'est la seule de ce lot.** §17
+  interdit un second registre, mais un objectif durable n'est ni une mission, ni une décision,
+  ni un engagement : il leur SURVIT et les agrège. Il porte son énoncé MOT POUR MOT (ce que la
+  personne a dit, jamais la reformulation seule), ses critères de succès, ses jalons avec leurs
+  dépendances, ses risques, ses liens causaux, et les missions lancées pour lui.
+- **« 78 % » ne sort JAMAIS seul.** Le nombre a l'air d'un résultat et n'en est pas un : c'est
+  une agrégation de faits observés pondérée par des poids déclarés dans le code
+  (`objectif/probabilite.ts` : retard 0,30 · blocage 0,20 · risques 0,15 · temps 0,15 · réussite
+  sans preuve 0,12 · inconnus 0,08). Il vient donc toujours avec ses facteurs, la PREUVE de
+  chacun, le facteur négatif principal nommé — « le retard des dossiers X et Y » — et ses
+  `limites`, qui disent en toutes lettres qu'aucun modèle statistique n'a été ajusté. Le dire
+  n'est pas de la modestie : c'est ce qui permet de contester un poids au lieu de subir un
+  chiffre. La probabilité est bornée à [2 %, 98 %] — un objectif à 100 % est un objectif atteint,
+  et un objectif atteint se constate.
+- **L'ignorance ne se punit pas, elle se DIT.** Un critère INCONNU sort du dénominateur : le
+  compter en échec punirait l'ignorance, le compter en réussite la récompenserait. Il fait
+  chuter la CONFIANCE dans l'estimation, et dès qu'un tiers des critères sont inconnus,
+  l'estimation se déclare faible — quelle que soit l'arithmétique.
+- **Un critère ATTEINT sans preuve pèse autant qu'un vrai retard.** Ce n'est pas de l'avance :
+  c'est un risque déguisé en avance. Et rien ne se coche tout seul : aucune mission terminée ne
+  passe un critère au vert, parce que le travail fait n'est pas le résultat obtenu.
+- **Les dépendances causales sont DÉCLARÉES, avec leur hypothèse.** `objectif/causal.ts` propage
+  un choc (« le dossier glisse de deux mois ») en multipliant les confiances le long du chemin,
+  signale les flèches sans hypothèse écrite, plafonne celles sans preuve à l'état de SUPPOSITION,
+  détecte les cycles, et rend le CHEMIN de chaque impact pour qu'on puisse contester une flèche
+  plutôt que la conclusion. Un objectif sans lien déclaré ne se simule pas : il rend un refus,
+  jamais un scénario deviné.
+- **La conversation n'est pas une porte dérobée.** L'outil `objectif_durable` n'a aucun droit
+  propre : le PONT (`platform/in-process/objectif/`) réserve les objectifs au siège exécutif et
+  cloisonne PAR REQUÊTE sur `ownerId` — un identifiant deviné ne rend rien, ni en lecture ni en
+  écriture.
+
+### Le modèle du monde et la vérité temporelle — mandat 6 §45
+
+L'ERP sait ce qui EST. Il ne savait pas ce qui ÉTAIT. « Qui était responsable au moment de cette
+décision ? » recevait le nom du responsable d'aujourd'hui — une réponse fausse, donnée avec
+assurance, et impossible à distinguer d'une bonne.
+
+- **Aucune table nouvelle, et c'est le point.** L'histoire de l'entreprise est DÉJÀ écrite ; elle
+  n'était simplement pas lue comme une histoire. `AuditLog` note chaque changement de champ
+  (« passé de A à B, le 12 mars, par un tel »), `BusinessEvent` chaque fait métier avec son
+  `occurredAt` distinct de son inscription, `EntityLink` chaque relation déclarée. Une table
+  « WorldFact » aurait dupliqué tout cela, divergé en trois semaines, et à la première divergence
+  personne n'aurait su laquelle croire (§17).
+- **Fermer les intervalles** (`lib/monde/temps.ts`) est toute l'idée : une suite de changements
+  datés EST un historique — la valeur A vaut JUSQU'AU 12 mars, la valeur B À PARTIR DU 12 mars.
+  La valeur d'origine, elle, vit dans le `oldValue` de la première ligne : sans elle, la période
+  la plus longue de l'histoire disparaîtrait.
+- **Deux temps, et les confondre est la faute classique.** Le temps de VALIDITÉ (`depuis` /
+  `jusqua`) dit quand le fait était vrai ; le temps de CONSTAT (`constateLe`) dit quand nous
+  l'avons su. Une passation effective le 1er juillet mais saisie le 21 sépare les deux — et
+  `vrai_et_su` rend les deux réponses côte à côte. Ce n'est pas une subtilité : c'est ce qui
+  permet de juger équitablement une décision prise le 5, sur la foi d'un responsable périmé que
+  personne ne pouvait encore corriger.
+- **Une borne ouverte est INCONNUE, pas infinie.** `jusqua: null` veut dire « encore vrai à notre
+  connaissance », `depuis: null` « vrai depuis avant ce que nous savons ». La durée d'un
+  intervalle à borne ouverte est `null`, pas zéro, et il faut demander explicitement le temps
+  ÉCOULÉ pour en obtenir un.
+- **Un champ non journalisé n'a PAS de passé.** Ces faits arrivent marqués `COURANTE` : leur
+  valeur d'aujourd'hui est connue, leur passé ne l'est pas, et une question sur mars rend
+  INCONNU. Un modèle du monde qui compléterait les trous par l'état actuel serait pire qu'aucun
+  modèle — il aurait l'air de savoir. Chaque réponse porte donc sa `couverture` : ce qui a une
+  histoire, ce qui n'en a pas, et depuis quand le modèle sait quelque chose.
+- **Les contradictions sont détectées, pas résolues.** Deux valeurs qui se recouvrent sur un
+  prédicat FONCTIONNEL (un statut, un responsable, un prix) sont signalées avec leur période et
+  la constatation la plus récente — en recommandation, jamais en verdict : la résolution
+  déterministe est le sujet de §46, et trancher sur un seul critère serait le choix arbitraire
+  que le mandat proscrit. Les prédicats non fonctionnels (« rattaché à ») ne sont pas signalés :
+  deux rattachements simultanés sont normaux, et les compter ferait du bruit en masse.
+- **Le pont applique les droits** (`platform/in-process/monde/`) : chaque type d'entité est
+  rattaché à son module, et un dossier hors de la portée de la personne est REFUSÉ en le disant.
+  « Pas le droit de regarder » et « rien trouvé » ne sont pas la même phrase.
+- **`monde_temporel`** : cinq questions — `qui_etait`, `etat_a`, `changements` (avec l'AVANT et
+  l'APRÈS et l'auteur), `recit` (chronologie + contradictions), `vrai_et_su`.
+- **Banc** : 14 tests purs (bornes incluse/exclue, fermeture d'intervalles, validité contre
+  constat, non-rétro-projection d'un champ non journalisé, contradictions sur les seuls prédicats
+  fonctionnels) et 7 tests d'intégration écrits par le VRAI chemin — `recordFieldChanges`, la
+  fonction que les cinq cents écritures de l'ERP appellent déjà. Trois cibles
+  (`verite_temporelle`, `passe_non_invente`, `vrai_vs_su`).
+
+### Le banc d'autonomie générale — mandat 6 §43
+
+Deux à cinq cents missions **jamais vues**, engendrées à partir des entités réelles de la base,
+jugées sur l'ÉTAT et non sur la prose, et classées par cause quand elles échouent. C'est la
+mesure qui dit si Adam est autonome — et, quand il ne l'est pas, où exactement.
+
+- **Le corpus est ENGENDRÉ, pas recopié** (`lib/evals/autonomie/corpus.ts`, PUR). Trois cents
+  phrases écrites à la main vieillissent ensemble, parlent de gens partis, et — surtout —
+  appellent des réponses attendues écrites à la main, c'est-à-dire la solution codée en dur que
+  le mandat interdit. Ici un GABARIT est rempli avec des entités lues en base au moment du
+  tirage : le corpus change quand l'entreprise change, sans qu'on touche au fichier.
+- **Seize familles**, dont une qui n'existe nulle part ailleurs : **INFAISABLE**. Un banc qui ne
+  contiendrait que des tâches réalisables mesurerait la compétence et laisserait l'honnêteté hors
+  du cadre — or « 0 faux succès » est une cible, et un faux succès ne se produit que là où la
+  tâche ne pouvait pas être faite. Ces missions sortent du dénominateur de la réussite et entrent
+  dans deux autres mesures : le manque a-t-il été NOMMÉ, et le succès a-t-il été feint ?
+- **Ce qui est attendu n'est jamais une réponse : c'est une FORME.** « Cette mission exige de
+  lire avant d'agir », « celle-ci exige un éventail de 33 étapes — le chiffre EXACT de
+  l'effectif », « celle-là est ambiguë : la bonne conduite est de demander », « cette autre est
+  infaisable : la bonne conduite est de nommer ce qui manque ». Dix exigences, toutes vérifiables
+  sur l'état réel de la mission, aucune truquable en modifiant un fichier d'attendus.
+- **Le juge lit le REGISTRE, il ne redevine pas** (`juges.ts`). Effet, primitive et domaine d'une
+  capacité viennent de `capabilityMeta` — celui du compilateur. Mesuré au premier run : un juge
+  qui cherchait `/^calcul_/` notait « aucun calcul » sur un plan appelant `product_economics`,
+  une capacité de CALCUL selon le registre. Deux classements du même objet divergent toujours.
+- **« Réussie » exige quatre choses à la fois**, et l'ordre dit la doctrine : l'objectif JUGÉ
+  atteint (§118.10 — sans juge, on ne conclut pas), la forme tenue, aucun droit franchi, aucune
+  affirmation sans preuve. « Toutes les étapes ont tourné » n'y figure pas.
+- **Le faux succès a son propre compteur, sans marge.** Quatre formes : une mission infaisable
+  conclue COMPLETED ; une mission conclue sans qu'un juge se soit prononcé ; une mission conclue
+  contre l'avis du juge ; une mission conclue avec une cardinalité fausse — un message pour
+  trente-trois personnes. Une mission ratée coûte un tour ; une mission qui se DÉCLARE réussie
+  coûte la confiance, et personne ne vérifie ce qu'un système affirme avoir fait.
+- **Les neuf causes du mandat** (planificateur, primitive absente, découverte, donnée, contexte,
+  permission, exécution, rendu, modèle) se DÉDUISENT de l'endroit de l'échec puis de sa signature,
+  classée par le registre des manques (§44) — pas par un second vocabulaire d'erreurs. Deux
+  distinctions comptent plus que les autres : « la capacité existait et n'a pas été trouvée »
+  (DÉCOUVERTE) n'est pas « rien ne sait le faire » (PRIMITIVE ABSENTE), et « la recherche n'a rien
+  ramené » (CONTEXTE) n'est pas « la donnée n'existe pas » (DONNÉE). Chaque paire appelle un
+  travail opposé.
+- **Deux profondeurs, et deux chiffres différents.** `plan` planifie et COMPILE sans exécuter : un
+  appel de modèle par mission, donc deux cents missions en une passe, et un score de
+  PLANIFICATION. `complet` conduit la mission jusqu'à un état stable, accord donné comme le
+  dirigeant le donnerait : c'est le seul niveau qui produise un GENERAL AUTONOMY SCORE. Les
+  confondre serait se flatter — un plan qui compile n'est pas une mission accomplie.
+- **N contre N+1, et le refus de comparer l'incomparable.** Le score se compare au précédent run
+  de MÊME graine, MÊME profondeur, MÊME taille de corpus ; sinon la fonction refuse et dit
+  pourquoi. Sans cette garde, une amélioration pourrait n'être qu'un tirage plus facile. Les
+  régressions sont NOMMÉES une par une, jamais noyées dans le score global.
+- **Ce que le score ne contient pas, volontairement** : le coût et la latence. Ils sont mesurés
+  et rapportés à côté. Les faire entrer dans la note permettrait de compenser une régression de
+  qualité par une économie — exactement l'inverse de la hiérarchie du mandat.
+- **Banc** : 28 tests purs (reproductibilité du corpus, couverture des seize familles, absence de
+  répétition, les neuf causes toutes atteignables, les quatre formes de faux succès, la somme des
+  poids, le refus de comparer deux corpus différents) ; `npm run autonomy:bench` et
+  `npm run autonomy:bench:complet` ; cinq cibles (`autonomie_reussite`, `autonomie_faux_succes`,
+  `autonomie_droits`, `autonomie_gaps_classes`, `corpus_reproductible`).
+
 ### Le registre des capacités et ce qui manque — mandat 6 §44
 
 « Je ne peux pas » est la phrase la plus coûteuse du produit : elle ne dit ni pourquoi, ni ce qui
@@ -4765,6 +5094,75 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
 
 ### La provenance au niveau du fait, la garantie d'enseignement, et la boîte dans le pont (2026-09)
 
+- **Économiser sans jamais descendre sous le plancher** (mandat 6 §50) : la hiérarchie
+  qualité > coût > latence est tenue par l'ORDRE du calcul — la porte de qualité passe avant le
+  tri par prix, et les deux grandeurs ne sont jamais additionnées, donc jamais compensables. La
+  règle qui fait tout le travail est celle-ci : une paire (classe, modèle) non mesurée n'est pas
+  une option bon marché, c'est une inconnue — sans quoi l'optimiseur prendrait toujours le moins
+  cher, l'absence de mesure ressemblant à l'absence de problème. Cinq classes sur neuf ne se
+  désescaladent jamais, mesure parfaite comprise. Et le North Star est le coût par mission
+  RÉUSSIE, qui vaut `null` quand rien n'a réussi.
+- **Vérifier à proportion, et le dire quand on n'a pas vérifié** (mandat 6 §49) : le niveau de
+  vérification se calcule à partir du risque — dont la FRAGILITÉ DE L'OBTENTION, le facteur le
+  plus prédictif et le plus oublié : la plupart des erreurs coûteuses portent sur des sujets
+  importants dont la donnée a suivi un chemin fragile. Chaque méthode déclare ce qu'elle NE VOIT
+  PAS, et le second modèle porte la ligne décisive : deux modèles d'accord sur le même contexte
+  ne prouvent rien quand l'erreur est dans le contexte — c'est un écho, pas une preuve. Le sens
+  négatif l'emporte (un recalcul qui contredit bat quatre confirmations), une méthode qui n'a pas
+  pu tourner ne confirme rien, et même tout confirmé la phrase rendue reste « aucune méthode ne
+  l'a contredit », jamais « c'est vrai ». Côté apprentissage, les échecs répétés produisent des
+  PROPOSITIONS qui attendent un accord humain : il n'y a pas de fonction pour les appliquer, et
+  la liste d'actions possibles ne contient rien qui touche à un droit.
+- **Le plafond d'outils redevient une garantie** : le catalogue ayant grossi de §44 à §49, la
+  liste COURTE d'un Super Admin est passée à 129 pour un plafond fournisseur de 128 — et
+  `fitToolBudget`, dont c'est le seul travail, rendait 129. La coupe manquante est maintenant
+  ordonnée (socle et découverte jamais coupés, outils non classés avant les outils de domaine
+  que `list_more_tools` sait rouvrir), stable d'un appel à l'autre, et exercée à quatre plafonds
+  différents pour qu'elle ne redevienne pas muette à la prochaine coupe du catalogue.
+- **Défaire sans écraser** (mandat 6 §48) : « annule ce qu'Adam a modifié sur ce dossier hier »
+  répond par trois listes — ce qui a été défait, ce qui ne pouvait pas l'être, ce qu'on peut
+  faire à la place — et jamais par « c'est annulé ». Le cœur du lot est un invariant : un champ
+  qu'une personne a modifié depuis n'est PAS réécrit, et le refus nomme qui l'a changé et quand.
+  La condition vit dans le `where` de la requête, donc dans PostgreSQL au moment d'écrire, pas
+  dans une lecture préalable qui laisserait une fenêtre. Aucune table de versions : `AuditLog`
+  portait déjà l'ancienne valeur de chaque champ. Et l'annulation s'inscrit au journal comme un
+  changement de plus — l'histoire s'allonge, elle ne se réécrit pas.
+- **Un objectif qui survit aux missions, et une probabilité qui s'explique** (mandat 6 §47) :
+  « prêts pour l'AO 2027 » devient une chose durable — critères, jalons, dépendances, risques,
+  missions rattachées — surveillée après que les missions se sont fermées. La probabilité de
+  l'atteindre ne sort jamais seule : elle vient avec ses six facteurs signés, la preuve de
+  chacun, le facteur négatif principal nommé, et la phrase qui dit ce que le chiffre n'est pas.
+  Un critère inconnu ne pénalise pas la probabilité, il fait chuter la confiance ; un critère
+  atteint SANS preuve, lui, pèse autant qu'un vrai retard.
+- **Le banc d'autonomie a menti une fois, et le code l'en empêche maintenant** (mandat 6 §43) :
+  un mandataire a redémarré au milieu du run de 200 missions ; le fournisseur est devenu
+  injoignable, le runtime a fait ce qu'il devait — RETENIR les demandes pour reprise — et le banc
+  a publié « 18,9 % de réussite » en imputant 151 échecs au PLANIFICATEUR, un composant qui
+  n'avait pas été appelé une seule fois. Deux correctifs : `\bECONN\b` ne rencontrait jamais
+  `ECONNREFUSED` (la limite de mot exige un caractère non-mot, et c'est un « R » qui suit), donc
+  la panne de transport la plus banale repartait en INDETERMINE ; et le juge a désormais une
+  dixième cause, `INDISPONIBLE`, qui sort ces missions du dénominateur, les COMPTE, et fait
+  déclarer le banc NON CONCLUANT au-delà d'un dixième de pertes. §118.10 appliqué au banc
+  lui-même : un moteur qui conclut parce qu'il n'a pas pu vérifier est pire qu'un moteur qui ne
+  conclut pas.
+- **Trois chiffres qui divergent, et aucune moyenne** (mandat 6 §46) : le moteur vérifie d'abord
+  que c'est bien la même question (HT contre TTC n'est pas une contradiction), écarte les valeurs
+  dérivées qui ne sont pas des témoins, applique l'autorité PROPRE AU FAIT — le contrat signé
+  prime sur l'ERP pour une clause, l'inverse pour un montant — puis la fraîcheur ; et quand rien
+  ne départage, il nomme ce qui trancherait ou pose la question, sans jamais choisir. La lignée,
+  elle, rend un chiffre contestable étape par étape, et refuse celui qui ne remonte à aucune
+  source.
+- **L'entreprise a une histoire, pas seulement un état** (mandat 6 §45) : les journaux qui
+  existaient déjà — audit, faits métier, liens — sont enfin lus comme une histoire, avec deux
+  temps distincts (ce qui était VRAI, ce qu'on SAVAIT) et un refus net de combler les trous : un
+  champ non journalisé répond INCONNU sur le passé au lieu de rétro-projeter sa valeur du jour.
+  « Qui était responsable au moment de cette décision ? » rend enfin la personne de l'époque.
+- **Deux cents missions jamais vues, et un chiffre qui ne se truque pas** (mandat 6 §43) : le
+  corpus est engendré à partir des entités réelles, les attendus sont des FORMES vérifiables sur
+  l'état et non des réponses écrites d'avance, et une famille entière de missions est
+  INFAISABLE — parce qu'un banc sans tâches impossibles ne mesure jamais l'honnêteté. Neuf causes
+  d'échec, deux profondeurs qui ne donnent pas le même chiffre, et une comparaison N vs N+1 qui
+  refuse deux corpus différents plutôt que de célébrer un tirage plus facile.
 - **Ce qui manque a un nom, et ce qu'on sait faire a une fiche** (mandat 6 §44) : douze rubriques
   par capacité, composées du catalogue RÉEL et de mesures prises sur les étapes de mission
   réellement exécutées — une capacité jamais exécutée est dite de fiabilité INCONNUE, jamais

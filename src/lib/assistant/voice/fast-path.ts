@@ -153,6 +153,21 @@ const PROVENANCE = new RegExp([
 const SELF = /\b(tu t appelles|tu es qui|qui es tu|comment tu t appelles|ton nom|ton adresse|tu as une adresse|ton e mail|ton email|tu es quoi)\b/;
 
 /**
+ * UNE QUESTION SUR LES CAPACITÉS — et pourquoi elle doit DÉSAMORCER la provenance.
+ *
+ * Mesuré au banc (§44) : « Qu'est-ce que tu sais faire en simulation, et sur quoi t'appuies-tu
+ * pour dire que c'est fiable ? » était happée par `PROVENANCE` sur les trois mots « c est
+ * fiable ». Adam répondait en récitant les sources du TOUR PRÉCÉDENT — c'est-à-dire à côté, en
+ * zéro appel de modèle, sans que rien ne le signale.
+ *
+ * La phrase pose deux questions ; la provenance déterministe n'en traite aucune. Attraper une
+ * phrase qu'on comprend mal est PIRE que ne rien attraper : cela empêche le modèle de bien la
+ * traiter, en silence. Quand la question porte sur ce qu'Adam SAIT FAIRE, elle part au modèle,
+ * qui dispose du registre (`registre_capacites`, au socle de la liste courte).
+ */
+export const CAPACITES_QUESTION = /\b(qu est ce que tu (sais|peux) faire|que sais tu faire|que peux tu faire|de quoi (tu es|es tu) capable|tes capacites|quelles capacites|tu sais faire (quoi|en matiere)|tu es capable de faire|ce que tu sais faire)\b/;
+
+/**
  * L'ANNUAIRE — ce qui a coûté deux tours au PDG, en production.
  *
  * « Est-ce que tu as les adresses mail des salariés ? » partait dans la recherche fédérée,
@@ -428,7 +443,9 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
   // Une provenance paraphrasée par un modèle est une provenance inventée à moitié : le code
   // relit le registre des faits du tour précédent et répond (§22 du mandat 4). Testée avant les
   // questions sur Adam et avant le raisonnement : « comment tu sais ça ? » n'est ni l'un ni l'autre.
-  if (PROVENANCE.test(text)) {
+  // La garde `CAPACITES_QUESTION` : une phrase qui demande d'abord CE QU'ADAM SAIT FAIRE n'est
+  // pas une demande de provenance, même quand elle contient « c'est fiable » (défaut mesuré §44).
+  if (PROVENANCE.test(text) && !CAPACITES_QUESTION.test(text)) {
     return { kind: "PROVENANCE", tool: null, args: {}, fast: true, reason: "provenance d'un fait déjà servi — le code relit ses lectures" };
   }
 

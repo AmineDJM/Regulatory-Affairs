@@ -343,6 +343,17 @@ describe("« d'où tu tiens ça ? » — la provenance est une forme déterminis
     expect(routeVoiceUtterance("Quelle est la source du budget 2026 ?").kind).not.toBe("PROVENANCE");
     expect(routeVoiceUtterance("Où en est Lenvatinib ?").kind).not.toBe("PROVENANCE");
     expect(routeVoiceUtterance("Pourquoi Deepak ne répond pas ?").kind).not.toBe("PROVENANCE");
+    // ── LE DÉFAUT MESURÉ AU BANC (§44) ────────────────────────────────────────────────────
+    //
+    // « Qu'est-ce que tu sais faire en simulation, et sur quoi t'appuies-tu pour dire que c'est
+    // fiable ? » posait DEUX questions. Les trois mots « c'est fiable » suffisaient à la faire
+    // happer par la provenance : Adam récitait les sources du tour précédent, en zéro appel de
+    // modèle, à côté du sujet — et rien ne le signalait. Une question sur ce qu'Adam SAIT FAIRE
+    // part au modèle, qui a le registre des capacités au socle de sa liste courte.
+    expect(routeVoiceUtterance("Qu'est-ce que tu sais faire en matière de simulation, et sur quoi t'appuies-tu pour dire que c'est fiable ?").kind).not.toBe("PROVENANCE");
+    expect(routeVoiceUtterance("De quoi tu es capable exactement ? C'est fiable ?").kind).not.toBe("PROVENANCE");
+    // Et la provenance seule reste attrapée : la garde ne l'a pas désarmée.
+    expect(routeVoiceUtterance("C'est fiable ce chiffre ?").kind).toBe("PROVENANCE");
     // « salaire » ferme tous les raccourcis, provenance comprise : le chemin complet garde ses gardes.
     expect(routeVoiceUtterance("D'où tu tiens ce chiffre de salaire ?").kind).toBe("DELEGATE");
   });

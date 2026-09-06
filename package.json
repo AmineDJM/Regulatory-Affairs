@@ -40,7 +40,9 @@
     "adam:bench:seed": "tsx scripts/bench/seed-adam-bench.ts",
     "adam:bench": "tsx scripts/bench/adam-live-bench.ts",
     "test:e2e:live": "playwright test -c playwright.live.config.ts",
-    "adam:bench:defis": "BENCH_SET=defis tsx scripts/bench/adam-live-bench.ts"
+    "adam:bench:defis": "BENCH_SET=defis tsx scripts/bench/adam-live-bench.ts",
+    "autonomy:bench": "tsx scripts/bench/autonomy-bench.ts",
+    "autonomy:bench:complet": "AUTONOMY_MODE=complet tsx scripts/bench/autonomy-bench.ts"
   },
   "prisma": {
     "seed": "tsx prisma/bootstrap.ts"

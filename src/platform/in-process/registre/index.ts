@@ -60,17 +60,47 @@ export type { Manque, NatureManque, LigneFeuilleDeRoute } from "@/lib/registre/m
  * en sens inverse ferait un cycle de modules, et le pattern retenu ailleurs (le pont des skills)
  * est celui-ci — le type au chargement, la valeur à l'appel.
  */
-async function registreDOutils(): Promise<{ tools: readonly { def: { name: string; description: string; input_schema?: unknown }; label?: string }[]; estEcriture: (n: string) => boolean }> {
-  const [{ POWER_TOOLS }, { RESOLVER_WRITE_NAMES }] = await Promise.all([
+interface OutilVu { name: string; description: string; input_schema?: unknown; label?: string }
+
+/**
+ * TOUTE LA SURFACE, PAS SEULEMENT LES OUTILS DE POUVOIR.
+ *
+ * ── LE DÉFAUT MESURÉ, ET IL RENDAIT LE REGISTRE FAUX ────────────────────────────────────
+ *
+ * La première version ne recensait que `POWER_TOOLS` — 138 capacités. Or la surface réelle
+ * offerte à une personne en compte plus de deux cents : les lectures de base, les écritures, les
+ * outils super-admin et les schémas d'opérations par domaine n'y figurent pas.
+ *
+ * Conséquence constatée au banc d'autonomie (§43) : un plan appelant `search_people` — une
+ * lecture parfaitement autorisée — était compté comme une CAPACITÉ HORS DROIT, parce qu'elle
+ * n'existait tout simplement pas dans le registre. Un registre incomplet ne dit pas « je ne sais
+ * pas » : il dit « ça n'existe pas », ce qui est la pire des deux réponses.
+ *
+ * La liste est donc l'UNION de deux sources : `assistantToolsFor(user)` (la surface exacte de
+ * cette personne, donc autorisée par construction) et `POWER_TOOLS` (qui apporte, en plus, les
+ * capacités qu'elle N'A PAS le droit d'appeler — c'est ce qui permet de dire « cela existe,
+ * vous n'y avez pas droit »).
+ *
+ * LA LIMITE, DITE : une capacité hors `POWER_TOOLS` que cette personne n'a pas le droit
+ * d'appeler n'apparaît pas. Le registre ne peut pas l'inventer — la seule liste complète est
+ * celle que l'on construit POUR quelqu'un.
+ */
+async function registreDOutils(user: CurrentUser): Promise<{ tools: OutilVu[]; autorisees: Set<string>; estEcriture: (n: string) => boolean }> {
+  const [{ POWER_TOOLS }, assistant] = await Promise.all([
     import("@/lib/assistant/power-tools"),
     import("@/lib/assistant"),
   ]);
-  return { tools: POWER_TOOLS, estEcriture: (n: string) => RESOLVER_WRITE_NAMES.has(n) };
-}
-
-async function nomsAutorises(user: CurrentUser): Promise<Set<string>> {
-  const { assistantToolsFor } = await import("@/lib/assistant");
-  return new Set(assistantToolsFor(user).map((d) => d.name));
+  const siennes = assistant.assistantToolsFor(user);
+  const autorisees = new Set(siennes.map((d) => d.name));
+  const parNom = new Map<string, OutilVu>();
+  for (const d of siennes) parNom.set(d.name, { name: d.name, description: d.description, input_schema: (d as { input_schema?: unknown }).input_schema });
+  for (const t of POWER_TOOLS) {
+    const vu = parNom.get(t.def.name);
+    // Un outil de pouvoir apporte son LIBELLÉ, que la définition envoyée au modèle ne porte pas.
+    if (vu) { vu.label = t.label; continue; }
+    parNom.set(t.def.name, { name: t.def.name, description: t.def.description, input_schema: (t.def as { input_schema?: unknown }).input_schema, label: t.label });
+  }
+  return { tools: [...parNom.values()], autorisees, estEcriture: (n: string) => assistant.RESOLVER_WRITE_NAMES.has(n) };
 }
 
 /** Le plafond de lignes lues pour mesurer. Une mesure bornée qui dit sa borne vaut mieux qu'un scan. */
@@ -156,24 +186,23 @@ export interface OptionsFiches {
  * dette technique). Aucune donnée métier ne transite : seulement le nom et le résumé de l'outil.
  */
 export async function fichesDe(user: CurrentUser, opts: OptionsFiches = {}): Promise<FicheCapacite[]> {
-  const [mesures, autorisees, { tools, estEcriture }] = await Promise.all([
+  const [mesures, { tools, autorisees, estEcriture }] = await Promise.all([
     opts.mesures ? Promise.resolve(opts.mesures) : mesuresParCapacite(),
-    nomsAutorises(user),
-    registreDOutils(),
+    registreDOutils(user),
   ]);
   const filtre = opts.seulement ? new Set(opts.seulement) : null;
 
   const fiches: FicheCapacite[] = [];
   for (const t of tools) {
-    const nom = t.def.name;
+    const nom = t.name;
     if (filtre && !filtre.has(nom)) continue;
     const m = capabilityMeta(nom, estEcriture);
-    const entrees = contratDepuisSchema((t.def as { input_schema?: unknown }).input_schema);
+    const entrees = contratDepuisSchema(t.input_schema);
     fiches.push(composerFiche({
       id: nom,
       domaine: m.domain,
       primitive: m.primitive,
-      resume: t.label ? `${t.label}. ${t.def.description}` : t.def.description,
+      resume: t.label ? `${t.label}. ${t.description}` : t.description,
       effet: m.effect,
       rejouable: m.idempotent,
       groupable: m.batchable,

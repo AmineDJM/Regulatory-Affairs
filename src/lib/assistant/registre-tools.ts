@@ -126,7 +126,18 @@ export const REGISTRE_TOOLS: PowerTool[] = [
       if (question === "manque") {
         if (!besoin) return JSON.stringify({ ok: false, erreur: "Précisez le besoin." });
         const m = await manquePour(user, besoin);
-        if (!m) return JSON.stringify({ ok: true, manque: null, message: `Le registre a de quoi répondre à « ${besoin} ». Utilisez « chercher » pour la liste.` });
+        if (!m) {
+          // LE REGISTRE A TROUVÉ DES CANDIDATS — il ne dit pas pour autant qu'ils FONT le travail.
+          // Le marquage est lexical ; « enregistrer la conversation » croise `recall_conversation`
+          // sans que celle-ci sache téléphoner. On rend donc les candidats et on dit au modèle que
+          // le jugement lui revient, au lieu de conclure « c'est faisable » à sa place.
+          const proches = await interrogerRegistre(user, { texte: besoin, autoriseeSeulement: true, limite: 6 });
+          return JSON.stringify({
+            ok: true, manque: null,
+            candidats: proches.resultats.map((f) => ({ nom: f.id, resume: f.resume, limites: f.limites.slice(0, 2) })),
+            a_faire: "Lis ces candidats : si AUCUN ne fait réellement ce qui est demandé, dis-le et nomme ce qui manque. Le registre marque des mots, il ne juge pas le sens.",
+          });
+        }
         return JSON.stringify({
           ok: true,
           manque: { nature: m.nature, quoi: m.quoi, ou: m.ou, confiance: m.confiance },

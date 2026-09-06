@@ -74,6 +74,36 @@ describe("plafond d'outils — l'incident HTTP 400 ne doit pas revenir", () => {
     expect(ajustee.length).toBeLessThanOrEqual(MAX_TOOLS_PER_CALL);
   });
 
+  it("même si la LISTE COURTE dépasse, l'ajustement tient le plafond — socle et découverte intacts", () => {
+    // Le défaut mesuré le 2026-09-06 : le catalogue a grossi (§44 à §49), la liste courte d'un
+    // Super Admin en raisonnement profond est passée à 129 pour un plafond de 128, et
+    // `fitToolBudget` rendait 129. Une fonction qui « fait entrer dans le plafond » et qui
+    // dépasse ne protège de rien : elle déplace le 400 là où plus aucun test ne le regarde.
+    //
+    // On force le cas en abaissant le plafond, ce qui l'exerce quelle que soit la taille
+    // future du catalogue — sans quoi ce test redeviendrait muet dès la prochaine coupe.
+    const tous = assistantToolsFor(superAdminTousDroits());
+    for (const plafond of [128, 60, 30, 12]) {
+      const ajustee = fitToolBudget(tous, ROUTE_LARGE, plafond);
+      expect(ajustee.length, `plafond ${plafond}`).toBeLessThanOrEqual(plafond);
+      // LA DÉCOUVERTE SURVIT À TOUTES LES COUPES : c'est ce qui les rend réversibles.
+      expect(ajustee.some((t) => t.name === "list_more_tools"), `plafond ${plafond}`).toBe(true);
+      // ET LE SOCLE AUSSI, tant qu'il tient dans le plafond : amputer `search_everything`
+      // casserait la recherche elle-même, pas seulement un domaine.
+      if (plafond >= 30) {
+        expect(ajustee.some((t) => t.name === "search_everything"), `plafond ${plafond}`).toBe(true);
+      }
+    }
+  });
+
+  it("l'ajustement est STABLE : deux appels identiques rendent la même liste", () => {
+    // Sans quoi une régression de production deviendrait irreproductible en test.
+    const tous = assistantToolsFor(superAdminTousDroits());
+    const a = fitToolBudget(tous, ROUTE_LARGE, 40).map((t) => t.name);
+    const b = fitToolBudget(tous, ROUTE_LARGE, 40).map((t) => t.name);
+    expect(a).toEqual(b);
+  });
+
   it("l'ajustement reste RÉVERSIBLE : la découverte survit à la réduction", () => {
     // Une coupe aveugle rendrait les outils écartés inatteignables pour le tour entier. La
     // liste courte, elle, laisse `list_more_tools` rouvrir un domaine — c'est ce qui rend la

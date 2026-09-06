@@ -877,6 +877,49 @@ model ExecutiveDecision {
 /// Détecté dans la conversation (CR, e-mail lu, réunion) et ENREGISTRÉ par l'assistant sur
 /// proposition — jamais suivi d'une relance automatique sans autorisation : un engagement en
 /// retard se VOIT (alerte au propriétaire), il ne déclenche rien tout seul.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// UN OBJECTIF DURABLE (mandat 6 §47) — et ce n'est PAS une mission.
+///
+/// Une mission a une fin : ses étapes tournent, le juge se prononce, elle se ferme. Un objectif
+/// n'a pas de fin tant qu'il n'est pas atteint, et il SURVIT aux missions qu'on lance pour lui.
+/// « Je veux qu'on soit prêts pour l'AO 2027 » doit continuer d'être surveillé le jour où la
+/// mission se termine « avec succès » sans que l'objectif ait avancé d'un pouce — c'est
+/// exactement le défaut que cette table existe pour empêcher.
+///
+/// Les listes sont en JSON parce qu'on lit et écrit un objectif EN ENTIER : on ne juge jamais un
+/// jalon isolément. Ce qui se FILTRE (propriétaire, état, échéance) est en colonne.
+///
+/// `lastProbability` est un SOUVENIR de la dernière estimation, jamais une vérité : la
+/// probabilité se recalcule à la demande à partir des faits, et elle porte toujours ses limites.
+model ExecutiveObjective {
+  id              String    @id @default(cuid())
+  ownerId         String
+  owner           User      @relation("ExecutiveObjectives", fields: [ownerId], references: [id], onDelete: Cascade)
+  /// L'objectif MOT POUR MOT — c'est lui qui fait foi, pas sa reformulation.
+  statement       String
+  reformulation   String?
+  /// ACTIF | ATTEINT | COMPROMIS | ABANDONNE
+  status          String    @default("ACTIF")
+  horizon         DateTime?
+  /// [{ id, enonce, mesurable, etat, preuve, constateLe }]
+  criteria        Json      @default("[]")
+  /// [{ id, libelle, echeance, etat, dependDe[], missionId, proprietaire }]
+  milestones      Json      @default("[]")
+  /// [{ id, quoi, vraisemblance, impact, parade }]
+  risks           Json      @default("[]")
+  /// [{ de, vers, direction, intensite, confiance, hypothese, preuves[] }]
+  links           Json      @default("[]")
+  missionIds      String[]  @default([])
+  lastProbability Float?
+  lastFactors     Json?
+  lastAssessedAt  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([ownerId, status])
+  @@index([horizon])
+}
+
 model ExecutiveCommitment {
   id            String    @id @default(cuid())
   ownerId       String
@@ -1107,17 +1150,17 @@ model User {
   documents     Document[]
 
   // Admin-managed dynamic access + activity + sessions
-  access             UserAccess[]
+  access                    UserAccess[]
   /// SIÈGE NOMMÉ AU CENTRE DE PAIEMENT — voir `PaymentCentreSeat`.
-  paymentCentreSeat  PaymentCentreSeat?  @relation("PaymentCentreSeatHolder")
+  paymentCentreSeat         PaymentCentreSeat?  @relation("PaymentCentreSeatHolder")
   paymentCentreSeatsGranted PaymentCentreSeat[] @relation("PaymentCentreSeatGranter")
-  rowGrants          RowGrant[]
-  sessions           UserSession[]
-  activityLogs       ActivityLog[]
-  adoptionSnapshots  AdoptionSnapshot[]
-  missionAssignments MissionAssignment[] @relation("MissionAssignee")
-  calendarEvents     CalendarEvent[]     @relation("CalendarOrganizer")
-  calendarInvites    CalendarInvite[]    @relation("CalendarInvitee")
+  rowGrants                 RowGrant[]
+  sessions                  UserSession[]
+  activityLogs              ActivityLog[]
+  adoptionSnapshots         AdoptionSnapshot[]
+  missionAssignments        MissionAssignment[] @relation("MissionAssignee")
+  calendarEvents            CalendarEvent[]     @relation("CalendarOrganizer")
+  calendarInvites           CalendarInvite[]    @relation("CalendarInvitee")
 
   // RH & espace de travail
   employee                Employee?                  @relation("UserEmployee")
@@ -1245,6 +1288,7 @@ model User {
   scheduledWorkflows         ScheduledWorkflow[]      @relation("ScheduledWorkflowOwner")
   assistantMemoryItems       AssistantMemoryItem[]    @relation("AssistantMemoryItems")
   executiveDecisions         ExecutiveDecision[]      @relation("ExecutiveDecisions")
+  executiveObjectives        ExecutiveObjective[]     @relation("ExecutiveObjectives")
   executiveCommitments       ExecutiveCommitment[]    @relation("ExecutiveCommitments")
   adamWatches                AdamWatch[]              @relation("AdamWatches")
   adamRulesOwned             AdamRule[]               @relation("AdamRulesOwned")
@@ -1981,8 +2025,8 @@ model SponsoringRequest {
   /// LA BUSINESS UNIT qui porte cette demande — c'est SON budget Ad&Pro qui est engagé.
   /// Sans elle, la dépense pesait sur un total commercial que personne ne pouvait
   /// répartir : « combien la gamme oncologie a-t-elle dépensé ? » n'avait pas de réponse.
-  businessUnitId String?
-  businessUnit   BusinessUnit? @relation("AdProSponsoringRequest", fields: [businessUnitId], references: [id], onDelete: SetNull)
+  businessUnitId      String?
+  businessUnit        BusinessUnit?    @relation("AdProSponsoringRequest", fields: [businessUnitId], references: [id], onDelete: SetNull)
   custom              Json? // admin-defined dynamic fields
   id                  String           @id @default(cuid())
   companyId           String? // entité de rattachement (Adventum / Pharmagène / …)
@@ -2565,27 +2609,27 @@ model PettyCashTopUpRequest {
 }
 
 model PettyCashAllotment {
-  id           String          @id @default(cuid())
-  departmentId String
-  department   Department      @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  id            String          @id @default(cuid())
+  departmentId  String
+  department    Department      @relation(fields: [departmentId], references: [id], onDelete: Cascade)
   /// Mois concerné, « AAAA-MM ». Une caisse par mois et par détenteur : mélanger deux mois,
   /// c'est perdre la capacité de dire « il restait combien fin juillet ».
-  period       String
-  amount       Decimal         @default(0) @db.Decimal(14, 2)
-  status       PettyCashStatus @default(ALLOTTED)
+  period        String
+  amount        Decimal         @default(0) @db.Decimal(14, 2)
+  status        PettyCashStatus @default(ALLOTTED)
   /// Qui DÉTIENT la caisse (et confirme la réception).
-  holderId     String?
-  holder       User?           @relation("PettyCashHolder", fields: [holderId], references: [id], onDelete: SetNull)
-  receivedAt   DateTime?
-  note         String?
+  holderId      String?
+  holder        User?           @relation("PettyCashHolder", fields: [holderId], references: [id], onDelete: SetNull)
+  receivedAt    DateTime?
+  note          String?
   /// L'ÉCRITURE DE TRÉSORERIE de la remise. Remettre une caisse d'avance SORT de l'argent de la
   /// banque : sans écriture, le livre ignore un décaissement réel et le rapprochement bancaire
   /// décroche. Nul = remise antérieure à cette règle, signalée par le contrôle du livre.
   transactionId String?
-  createdById  String?
-  createdBy    User?           @relation("PettyCashCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  createdById   String?
+  createdBy     User?           @relation("PettyCashCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   expenses DepartmentBudgetExpense[]
   topUps   PettyCashTopUpRequest[]
@@ -2705,8 +2749,8 @@ model CongressInternational {
   /// LA BUSINESS UNIT qui porte cette demande — c'est SON budget Ad&Pro qui est engagé.
   /// Sans elle, la dépense pesait sur un total commercial que personne ne pouvait
   /// répartir : « combien la gamme oncologie a-t-elle dépensé ? » n'avait pas de réponse.
-  businessUnitId String?
-  businessUnit   BusinessUnit? @relation("AdProCongressInternational", fields: [businessUnitId], references: [id], onDelete: SetNull)
+  businessUnitId   String?
+  businessUnit     BusinessUnit?     @relation("AdProCongressInternational", fields: [businessUnitId], references: [id], onDelete: SetNull)
   custom           Json? // admin-defined dynamic fields
   id               String            @id @default(cuid())
   companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
@@ -2774,8 +2818,8 @@ model CongressNational {
   /// LA BUSINESS UNIT qui porte cette demande — c'est SON budget Ad&Pro qui est engagé.
   /// Sans elle, la dépense pesait sur un total commercial que personne ne pouvait
   /// répartir : « combien la gamme oncologie a-t-elle dépensé ? » n'avait pas de réponse.
-  businessUnitId String?
-  businessUnit   BusinessUnit? @relation("AdProCongressNational", fields: [businessUnitId], references: [id], onDelete: SetNull)
+  businessUnitId   String?
+  businessUnit     BusinessUnit?  @relation("AdProCongressNational", fields: [businessUnitId], references: [id], onDelete: SetNull)
   custom           Json? // admin-defined dynamic fields
   id               String         @id @default(cuid())
   companyId        String? // entité de rattachement (Adventum / Pharmagène / …)
@@ -4412,21 +4456,21 @@ model CompanyDocumentProfile {
   companyId String  @unique
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  quotePrefix   String @default("DEV")
-  orderPrefix   String @default("BC")
-  invoicePrefix String @default("FA")
+  quotePrefix       String  @default("DEV")
+  orderPrefix       String  @default("BC")
+  invoicePrefix     String  @default("FA")
   /// Taux de TVA par défaut, en fraction (0.19 = 19 %).
-  vatRate       Decimal @default(0.19) @db.Decimal(5, 4)
-  paymentTerms  String?
-  quoteValidityDays Int @default(30)
+  vatRate           Decimal @default(0.19) @db.Decimal(5, 4)
+  paymentTerms      String?
+  quoteValidityDays Int     @default(30)
   /// Mention libre de pied de page (« Toute réclamation sous 8 jours… »).
-  footerNote    String?
+  footerNote        String?
   /// Le papier en-tête Word appliqué d'office. Nul = le premier en-tête Word actif de la société.
-  letterheadId  String?
-  signatoryName  String?
-  signatoryTitle String?
+  letterheadId      String?
+  signatoryName     String?
+  signatoryTitle    String?
   /// Réglages complémentaires (marque, polices, mentions) — extensibles sans migration.
-  settings Json?
+  settings          Json?
 
   updatedById String?
   createdAt   DateTime @default(now())
@@ -5634,78 +5678,78 @@ enum PchLineStatus {
 }
 
 model PchTenderLine {
-  id                     String                   @id @default(cuid())
+  id                     String                      @id @default(cuid())
   tenderId               String
-  tender                 PchTender                @relation(fields: [tenderId], references: [id], onDelete: Cascade)
-  sortOrder              Int                      @default(0)
+  tender                 PchTender                   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  sortOrder              Int                         @default(0)
   designation            String // produit demandé (libellé du marché)
   dci                    String?
   dosage                 String?
   form                   String? // forme galénique
   // Conditionnement : le marché demande des UNITÉS ; nos produits sont en BOÎTES de N unités.
-  quantityUnits          Int                      @default(0) // quantité demandée (unités)
+  quantityUnits          Int                         @default(0) // quantité demandée (unités)
   unitsPerBox            Int? // « boîte de N » → nombre de boîtes = ceil(unités / N)
   /// Nature de l'unité demandée : « comprimé », « flacon », « seringue », « ampoule »…
   /// Un appel d'offres ne parle pas toujours de comprimés — le dire évite de comparer
   /// des flacons à des comprimés.
   unitLabel              String?
   // Avons-nous ce produit ? + rattachement au produit Regulatory (id + libellé dénormalisé).
-  haveProduct            Boolean                  @default(false)
+  haveProduct            Boolean                     @default(false)
   ourProductId           String?
   ourProduct             String?
-  unitPriceDzd           Decimal?                 @db.Decimal(14, 2) // notre prix unitaire (DZD)
+  unitPriceDzd           Decimal?                    @db.Decimal(14, 2) // notre prix unitaire (DZD)
   /// NOTRE PRIX DE PARTICIPATION, À LA BOÎTE — le chiffre réellement négocié, celui qui figure
   /// sur l'offre. Quand il est saisi, il FAIT FOI et `unitPriceDzd` s'en déduit
   /// (`lib/pch/box-economics.ts`) : l'inverse ferait de 1 000 DZD la boîte de 30 un prix
   /// unitaire de 33,33 puis une boîte à 999,90, un centime perdu à chaque aller-retour.
-  boxPriceDzd            Decimal?                 @db.Decimal(14, 2)
+  boxPriceDzd            Decimal?                    @db.Decimal(14, 2)
   /// NOTRE COÛT D'ACHAT, À LA BOÎTE. Sans lui, on soumissionnait sans que la plateforme sache
   /// si le lot était gagnant ou perdant — la marge se voit désormais AVANT le dépôt.
-  boxCostDzd             Decimal?                 @db.Decimal(14, 2)
+  boxCostDzd             Decimal?                    @db.Decimal(14, 2)
   suppliersInfo          String? // nos fournisseurs + prix (texte)
   // Prix de RÉFÉRENCE verrouillé depuis les réceptions PCH 2025 (vérifié dosage + forme).
-  refPriceDzd            Decimal?                 @db.Decimal(14, 2)
+  refPriceDzd            Decimal?                    @db.Decimal(14, 2)
   refPriceSource         String? // libellé/source de la ligne Réception 2025 rapprochée
   // Enrichissement intelligence marché.
   competitorCount        Int?
-  registeredNomenclature Boolean                  @default(false) // présent à la nomenclature (marché) ?
-  registeredOurs         Boolean                  @default(false) // NOUS avons un produit enregistré correspondant
+  registeredNomenclature Boolean                     @default(false) // présent à la nomenclature (marché) ?
+  registeredOurs         Boolean                     @default(false) // NOUS avons un produit enregistré correspondant
   nomLines               Int? // nombre de lignes nomenclature détectées
-  marketEstimateDzd      Decimal?                 @db.Decimal(18, 2) // estimation de la taille de marché
+  marketEstimateDzd      Decimal?                    @db.Decimal(18, 2) // estimation de la taille de marché
   /// PAYSAGE CONCURRENTIEL, calculé par l'intelligence marché (`analyzeMolecule`) sur le
   /// triplet molécule + dosage + forme de la ligne. Dénormalisé ici pour rester lisible
   /// dans le tableau et dans l'export Excel, sans recalcul à chaque affichage.
   marketOrigin           String? // LOCAL | IMPORT | MIXTE — fabriqué en Algérie ou importé
-  marketVillePct         Decimal?                 @db.Decimal(5, 2) // part du marché de ville (%)
-  marketHopitalPct       Decimal?                 @db.Decimal(5, 2) // part du marché hospitalier (%)
+  marketVillePct         Decimal?                    @db.Decimal(5, 2) // part du marché de ville (%)
+  marketHopitalPct       Decimal?                    @db.Decimal(5, 2) // part du marché hospitalier (%)
   marketHhi              Int? // concentration (Herfindahl) : > 2500 = marché concentré
   competitorsTop         String? // « GSK 45 % · HIKMA 25 % · BIOCARE 14 % »
   // Suivi commercial de la ligne.
-  status                 PchLineStatus            @default(PENDING)
+  status                 PchLineStatus               @default(PENDING)
   /// Quantité SOUMISE si elle diffère de la demandée (on peut soumissionner partiellement).
   submittedQuantityUnits Int?
   /// Quantité ATTRIBUÉE — c'est elle qui rend l'attribution PARTIELLE représentable :
   /// 8 000 demandées, 4 000 gagnées. Nulle = non renseignée (repli : quantité demandée).
   awardedQuantityUnits   Int?
-  awardedUnitPriceDzd    Decimal?                 @db.Decimal(14, 2) // prix d'attribution si gagné
+  awardedUnitPriceDzd    Decimal?                    @db.Decimal(14, 2) // prix d'attribution si gagné
   /// PHOTO de NOTRE produit au moment du DÉPÔT (nom, présentation, dosage, fabricant, n° AMM,
   /// statut réglementaire, prix, quantité). La relation `product` reste DYNAMIQUE ; cette
   /// photo, elle, est figée : si la fiche Regulatory change dans deux ans, l'AO continue de
   /// montrer exactement ce qui a été déposé. Posée par le verrouillage de la soumission.
   submissionSnapshot     Json?
   note                   String?
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
+  createdAt              DateTime                    @default(now())
+  updatedAt              DateTime                    @updatedAt
   /// LE PRODUIT CANONIQUE que cette ligne de marché désigne, quand nous le portons.
   /// NULLABLE et le restera : un AO nomme des produits que nous ne vendons pas, et le libellé
   /// du marché (`designation`) fait foi juridiquement même sans correspondance chez nous.
   /// `ourProductId` (identifiant orphelin, sans relation) est CONSERVÉ le temps de la bascule.
   productId              String?
-  product                Product?                 @relation("TenderLineProduct", fields: [productId], references: [id], onDelete: SetNull)
+  product                Product?                    @relation("TenderLineProduct", fields: [productId], references: [id], onDelete: SetNull)
   adProAllocations       AdProProductAllocation[]
-  sales                  Sale[]                   @relation("SaleTenderLine")
+  sales                  Sale[]                      @relation("SaleTenderLine")
   contractLines          PchContractLine[]
-  orderLines             PchOrderLine[]           @relation("OrderLineTenderLine")
+  orderLines             PchOrderLine[]              @relation("OrderLineTenderLine")
   /// LES BUSINESS UNITS QUI PORTENT CE PRODUIT — voir `PchTenderLineBusinessUnit`.
   businessUnits          PchTenderLineBusinessUnit[]
 
@@ -6055,15 +6099,15 @@ model PromoMaterial {
   /// Sans elle, la dépense pesait sur un total commercial que personne ne pouvait
   /// répartir : « combien la gamme oncologie a-t-elle dépensé ? » n'avait pas de réponse.
   businessUnitId String?
-  businessUnit   BusinessUnit? @relation("AdProPromoMaterial", fields: [businessUnitId], references: [id], onDelete: SetNull)
-  id           String              @id @default(cuid())
-  reference    String              @unique // MP-2026-001
-  title        String
-  description  String?
-  materialType MaterialType? // nature du support (présentoir, poster, vidéo…)
-  companyId    String? // entité (Adventum / Pharmagène / …)
-  company      Company?            @relation(fields: [companyId], references: [id])
-  status       PromoMaterialStatus @default(PROSPECTION_REQUESTED)
+  businessUnit   BusinessUnit?       @relation("AdProPromoMaterial", fields: [businessUnitId], references: [id], onDelete: SetNull)
+  id             String              @id @default(cuid())
+  reference      String              @unique // MP-2026-001
+  title          String
+  description    String?
+  materialType   MaterialType? // nature du support (présentoir, poster, vidéo…)
+  companyId      String? // entité (Adventum / Pharmagène / …)
+  company        Company?            @relation(fields: [companyId], references: [id])
+  status         PromoMaterialStatus @default(PROSPECTION_REQUESTED)
 
   requesterId String? // Marketing — initiateur
   assistantId String? // Assistante de direction en charge
@@ -6521,16 +6565,16 @@ model Event {
   /// LA BUSINESS UNIT qui porte cette demande — c'est SON budget Ad&Pro qui est engagé.
   /// Sans elle, la dépense pesait sur un total commercial que personne ne pouvait
   /// répartir : « combien la gamme oncologie a-t-elle dépensé ? » n'avait pas de réponse.
-  businessUnitId String?
-  businessUnit   BusinessUnit? @relation("AdProEvent", fields: [businessUnitId], references: [id], onDelete: SetNull)
-  id              String      @id @default(cuid())
+  businessUnitId  String?
+  businessUnit    BusinessUnit? @relation("AdProEvent", fields: [businessUnitId], references: [id], onDelete: SetNull)
+  id              String        @id @default(cuid())
   companyId       String? // entité de rattachement (Adventum / Pharmagène / …)
-  company         Company?    @relation(fields: [companyId], references: [id])
+  company         Company?      @relation(fields: [companyId], references: [id])
   name            String
-  type            EventType   @default(CONGRESS)
-  scope           EventScope  @default(NATIONAL)
-  format          EventFormat @default(PRESENTIAL)
-  status          EventStatus @default(DRAFT)
+  type            EventType     @default(CONGRESS)
+  scope           EventScope    @default(NATIONAL)
+  format          EventFormat   @default(PRESENTIAL)
+  status          EventStatus   @default(DRAFT)
   startDate       DateTime?
   endDate         DateTime?
   location        String?
@@ -6540,11 +6584,11 @@ model Event {
   products        String?
   description     String?
   capacity        Int?
-  estimatedBudget Decimal?    @db.Decimal(14, 2)
+  estimatedBudget Decimal?      @db.Decimal(14, 2)
   meetingLink     String? // lien Meet / Zoom / Teams (manuel)
   responsibleId   String?
-  responsible     User?       @relation("EventResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
-  participantIds  String[]    @default([]) // participants Adventum (users)
+  responsible     User?         @relation("EventResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
+  participantIds  String[]      @default([]) // participants Adventum (users)
 
   // ─── Demande de prise en charge (workflow identique aux congrès) ───
   // requestStatus = null → événement organisé directement (sans circuit de financement).
@@ -6915,39 +6959,39 @@ model PushSubscription {
 /// (volume, taux de succès, latence, erreurs) par fonction et par utilisateur.
 /// Best-effort : la journalisation ne doit jamais casser un appel IA.
 model AiUsageLog {
-  id            String   @id @default(cuid())
-  feature       String // assistant | nudge | brain | briefing | process_intel | field_report | voice
-  provider      String   @default("anthropic") // anthropic | openai
-  model         String?
-  userId        String?
-  ok            Boolean
-  latencyMs     Int?
-  errorCode     String? // ex. "HTTP 429", "disabled", "not_configured"
+  id                String   @id @default(cuid())
+  feature           String // assistant | nudge | brain | briefing | process_intel | field_report | voice
+  provider          String   @default("anthropic") // anthropic | openai
+  model             String?
+  userId            String?
+  ok                Boolean
+  latencyMs         Int?
+  errorCode         String? // ex. "HTTP 429", "disabled", "not_configured"
   /// Observabilité de la BOUCLE AGENT (assistant / Chief of Staff) — nuls hors boucle :
   /// délai avant le PREMIER mot (ressenti), nombre de tours modèle↔outils, appels d'outils,
   /// erreurs d'outils, temps total passé DANS les outils. C'est ce qui distingue « le modèle
   /// est lent » de « une requête SQL est lente » quand on dépanne une réponse à 12 s.
-  ttftMs        Int?
-  turns         Int?
-  toolCalls     Int?
-  toolErrors    Int?
-  toolLatencyMs Int?
+  ttftMs            Int?
+  turns             Int?
+  toolCalls         Int?
+  toolErrors        Int?
+  toolLatencyMs     Int?
   /// ── LE COÛT DU TOUR (§coût) ─────────────────────────────────────────────────────────────
   /// Jetons et coût AGRÉGÉS sur le tour (tous les appels de modèle qu'il a provoqués). `costUsd`
   /// vaut NULL dès qu'UN appel n'avait pas de tarif — un total partiel se lirait comme un total.
   /// Le détail appel par appel vit dans `ModelCallLog`, relié par `turnId`.
-  turnId           String?
-  route            String?
-  complexity       String?
-  threadId         String?
-  llmCalls         Int?
-  inputTokens      Int?
-  outputTokens     Int?
+  turnId            String?
+  route             String?
+  complexity        String?
+  threadId          String?
+  llmCalls          Int?
+  inputTokens       Int?
+  outputTokens      Int?
   cachedInputTokens Int?
-  reasoningTokens  Int?
-  webSearchCalls   Int?
-  costUsd          Decimal? @db.Decimal(12, 6)
-  createdAt     DateTime @default(now())
+  reasoningTokens   Int?
+  webSearchCalls    Int?
+  costUsd           Decimal? @db.Decimal(12, 6)
+  createdAt         DateTime @default(now())
 
   @@index([feature])
   @@index([createdAt])
@@ -8707,18 +8751,18 @@ model BusinessUnit {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
-  products PromoProduct[]
+  products               PromoProduct[]
   /// LES KAM de la BU — le rattachement direct, sans étage intermédiaire.
-  reps     SalesRepProfile[]
-  tenders  PchTender[]
+  reps                   SalesRepProfile[]
+  tenders                PchTender[]
   /// LES LOTS D'APPEL D'OFFRES qui lui sont affectés, produit par produit.
-  tenderLines PchTenderLineBusinessUnit[]
+  tenderLines            PchTenderLineBusinessUnit[]
   /// LES DEMANDES Ad&Pro qui engagent son budget.
-  sponsorings           SponsoringRequest[]     @relation("AdProSponsoringRequest")
-  congressNationaux     CongressNational[]      @relation("AdProCongressNational")
-  congressInternationaux CongressInternational[] @relation("AdProCongressInternational")
-  events                Event[]                 @relation("AdProEvent")
-  promoMaterials        PromoMaterial[]         @relation("AdProPromoMaterial")
+  sponsorings            SponsoringRequest[]         @relation("AdProSponsoringRequest")
+  congressNationaux      CongressNational[]          @relation("AdProCongressNational")
+  congressInternationaux CongressInternational[]     @relation("AdProCongressInternational")
+  events                 Event[]                     @relation("AdProEvent")
+  promoMaterials         PromoMaterial[]             @relation("AdProPromoMaterial")
 
   @@index([companyId])
   @@index([supervisorId])
@@ -8816,12 +8860,12 @@ model SfeSettings {
 
 // Profil de KAM / délégué — configuration INDIVIDUELLE (équipe, capacité surchargée, ETP contractuel).
 model SalesRepProfile {
-  id             String        @id @default(cuid())
-  repId          String        @unique // utilisateur KAM / délégué
+  id              String        @id @default(cuid())
+  repId           String        @unique // utilisateur KAM / délégué
   /// LA BU DU KAM — son équipe, son superviseur et son canal en un seul rattachement.
-  businessUnitId String?
-  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
-  region         String?
+  businessUnitId  String?
+  businessUnit    BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
+  region          String?
   /// ANTI-SPAM DES ALERTES DE SUPERVISION. Une alerte qui se répète chaque nuit se fait
   /// couper — et c'est la VRAIE qu'on rate ensuite. On garde donc la dernière alerte
   /// envoyée (sa clé : `type:AAAA-MM`) : la même ne repart pas dans le même cycle.
@@ -8831,12 +8875,12 @@ model SalesRepProfile {
   capDaysPerMonth Int?
   capVisitsPerDay Int?
   capFieldPct     Int?
-  fteBudget       Decimal    @default(1) @db.Decimal(6, 2) // ETP contractuel (temps plein = 1,0)
+  fteBudget       Decimal       @default(1) @db.Decimal(6, 2) // ETP contractuel (temps plein = 1,0)
   seniority       String? // libellé libre : junior / senior / expert…
-  isActive        Boolean    @default(true)
+  isActive        Boolean       @default(true)
   note            String?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@index([businessUnitId])
 }
@@ -8854,12 +8898,12 @@ model SalesRepProfile {
 /// balayage peut repasser, il réécrit la même ligne (`@@unique`) tant que le mois n'est pas
 /// clos, et cesse d'y toucher une fois `closedAt` posé.
 model SalesRepMonthlyKpi {
-  id     String @id @default(cuid())
-  repId  String // utilisateur KAM / délégué (résolu en requête, comme PromotionAssignment)
-  year   Int
-  month  Int // 1..12
+  id    String  @id @default(cuid())
+  repId String // utilisateur KAM / délégué (résolu en requête, comme PromotionAssignment)
+  year  Int
+  month Int // 1..12
   /// LA BU AU MOMENT du mois — photographiée, jamais relue depuis le profil courant.
-  buId String?
+  buId  String?
 
   panelSize      Int @default(0)
   capacity       Int @default(0) // visites/mois (capacité terrain nette)
@@ -9504,7 +9548,7 @@ model DocumentRequest {
   /// `PURCHASE_ORDER`, `QUOTE`, `DELIVERY_NOTE`, `CONTRACT`, `PROOF`, `OTHER`). C'est elle qui
   /// décide si la pièce, une fois acceptée, rejoint le registre des engagements (Legal).
   /// Voir `src/lib/legal/from-piece.ts`.
-  kind String @default("OTHER")
+  kind            String  @default("OTHER")
   /// La pièce Legal née de cette demande, quand il y en a une. Elle rend le classement
   /// IDEMPOTENT (on n'enregistre pas deux fois) et TRAÇABLE (le fil dit où la pièce est allée).
   legalDocumentId String?
@@ -9608,13 +9652,13 @@ model PaymentRequest {
   company     Company? @relation(fields: [companyId], references: [id])
 
   /// L'échéance CONVENUE, quand elle existe.
-  dueDate DateTime?
+  dueDate        DateTime?
   /// CE QUE CETTE ÉCHÉANCE PÈSE, dit par celui qui l'a négociée. Deux dates identiques ne
   /// valent pas la même chose : le 15 d'un fournisseur mensuel n'est pas le 15 d'une quittance
   /// dont le retard coûte une pénalité. Voir `src/lib/finance/deadline-nature.ts`.
   deadlineNature PaymentDeadlineNature @default(MODERATE)
   /// À défaut de date : le degré d'urgence, discuté.
-  urgency PaymentUrgency @default(WHEN_POSSIBLE)
+  urgency        PaymentUrgency        @default(WHEN_POSSIBLE)
 
   /// LE MOYEN DE PAIEMENT FIGURE SUR LE DOCUMENT — déclaré par celui qui a la pièce sous les
   /// yeux. Sans lui, la comptabilité sait quoi payer mais pas comment : la facture est conforme,

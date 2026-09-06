@@ -86,7 +86,21 @@ const REGLES: Regle[] = [
   { nature: "API_EXTERNE", re: /\b(cl[ée] (API|OPENAI|ANTHROPIC)|non configur|quota|facturation|HTTP [45]\d\d|connecteur|non branch|webhook|signature invalide|token)\b/i },
   // « le compte Google n'est pas connecté » est le message REÉL du pont Google, mesuré sur le banc
   // §41 : la première version n'attrapait que « compte … non connecté » et le rangeait INDETERMINE.
-  { nature: "SOURCE_INACCESSIBLE", re: /\b(indisponible|injoignable|d[ée]lai d[ée]pass|timeout|ECONN|r[ée]seau|service|compte[^.]{0,40}(?:non|n'est pas|pas) connect|suspendu|hors ligne)\b/i },
+  //
+  // ── LE `\b` APRÈS `ECONN`, ET CE QU'IL A COÛTÉ ──────────────────────────────────────
+  //
+  // `\bECONN\b` ne rencontre JAMAIS `ECONNREFUSED` : la limite de mot exige un caractère non-mot
+  // après « ECONN », et c'est un « R » qui suit. La panne de transport la plus banale — celle qui
+  // arrive quand un mandataire redémarre — repartait donc en INDETERMINE, c'est-à-dire, une fois
+  // traduite en cause, en « le modèle a mal compris ». Mesuré au banc d'autonomie du 2026-09-06 :
+  // 98 missions sur 200 rangées au débit du PLANIFICATEUR alors que le fournisseur ne répondait
+  // plus. Un classement faux est pire qu'une absence de classement, parce qu'il oriente la
+  // feuille de route vers un défaut qui n'existe pas.
+  //
+  // Les signatures ajoutées sont celles RÉELLEMENT observées dans les journaux, pas une liste
+  // théorique : `ECONNREFUSED`, `ECONNRESET`, `502 upstream request failed`, `fetch failed`,
+  // `socket hang up`, `EAI_AGAIN`, `ETIMEDOUT`, `overloaded`.
+  { nature: "SOURCE_INACCESSIBLE", re: /(?:\b(?:indisponible|injoignable|d[ée]lai d[ée]pass|timeout|r[ée]seau|service|suspendu|hors ligne|socket hang up|fetch failed|overloaded|upstream)|compte[^.]{0,40}(?:non|n'est pas|pas) connect|\b(?:ECONN|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE)\w*)/i },
   // AVANT « DONNÉE MANQUANTE », et l'ordre est le correctif : « champ obligatoire manquant » est
   // un appel MAL FORMÉ, pas une donnée absente de l'ERP. Le mot « manquant » est trop général
   // pour l'emporter sur une signature précise — et confondre les deux enverrait une faute de
@@ -120,6 +134,29 @@ export function classer(echec: string, contexte: { capacite?: string | null; eta
     };
   }
   return { nature: "INDETERMINE", quoi: texte.slice(0, 80), ou, preuve: texte.slice(0, 400), confiance: 0.2, suite: SENS_MANQUE.INDETERMINE.suite, dette: true };
+}
+
+/**
+ * UN MANQUE DONT LA NATURE EST DÉJÀ CONNUE — sans passer par les signatures.
+ *
+ * `classer` sert quand on ne dispose que d'un message d'échec. Quand l'appelant SAIT ce qui
+ * manque — le banc d'autonomie sait qu'un plan sans lecture est une faute de planification — le
+ * faire passer par des expressions régulières ne peut que le ranger moins bien : « le plan ne
+ * prévoit pas de lecture » ne ressemble à aucune signature, et revenait INDETERMINE.
+ *
+ * Un seul endroit continue de FABRIQUER un manque, et c'est ici : deux constructeurs finiraient
+ * par porter deux jeux de champs.
+ */
+export function manqueConnu(nature: NatureManque, quoi: string, contexte: { capacite?: string | null; etape?: string | null; preuve?: string } = {}): Manque {
+  const sens = SENS_MANQUE[nature];
+  return {
+    nature, quoi,
+    ou: contexte.capacite || contexte.etape || "(inconnue)",
+    preuve: (contexte.preuve ?? quoi).slice(0, 400),
+    // Une nature ÉTABLIE par le code, pas devinée d'un texte : la confiance est pleine.
+    confiance: 1,
+    suite: sens.suite, dette: sens.defaut,
+  };
 }
 
 export interface LigneFeuilleDeRoute {

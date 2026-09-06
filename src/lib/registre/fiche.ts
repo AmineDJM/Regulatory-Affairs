@@ -301,6 +301,16 @@ export interface Requete {
    * le NOM de la capacité, ou plusieurs mots croisés.
    */
   pertinenceMin?: number;
+  /**
+   * COMBIEN DE MOTS DISTINCTS DOIVENT MARQUER — la garde qui manquait.
+   *
+   * Un seul mot suffit à atteindre trois points quand il tombe dans le NOM d'une capacité. Sur le
+   * catalogue complet, « faire signer électroniquement ce contrat via DocuSign » trouvait ainsi
+   * une capacité dont le nom contient « contrat » : le registre concluait qu'il savait signer.
+   * Exiger deux mots distincts sépare « cette capacité parle du même sujet » de « cette capacité
+   * fait ce qu'on demande ».
+   */
+  motsMin?: number;
   limite?: number;
 }
 
@@ -343,18 +353,19 @@ function marque(mot: string, tokens: readonly string[]): boolean {
   return false;
 }
 
-function score(f: FicheCapacite, mots: readonly string[]): number {
-  if (!mots.length) return 1;
+function score(f: FicheCapacite, mots: readonly string[]): { points: number; motsMarques: number } {
+  if (!mots.length) return { points: 1, motsMarques: 1 };
   const nom = jetons(f.id);
   const resume = jetons(f.resume);
   const domaine = jetons(f.domaine);
-  let s = 0;
+  let points = 0;
+  let motsMarques = 0;
   for (const mot of mots) {
-    if (marque(mot, nom)) s += 3;
-    else if (marque(mot, domaine)) s += 2;
-    else if (marque(mot, resume)) s += 1;
+    if (marque(mot, nom)) { points += 3; motsMarques += 1; }
+    else if (marque(mot, domaine)) { points += 2; motsMarques += 1; }
+    else if (marque(mot, resume)) { points += 1; motsMarques += 1; }
   }
-  return s;
+  return { points, motsMarques };
 }
 
 /**
@@ -367,6 +378,11 @@ function score(f: FicheCapacite, mots: readonly string[]): number {
  */
 export function interroger(fiches: readonly FicheCapacite[], q: Requete = {}): Reponse {
   const mots = (q.texte ?? "").split(/[^\p{L}\p{N}]+/u).map(normaliser).filter((m) => m.length > 2);
+  // LE SEUIL DE MOTS S'ADAPTE À LA LONGUEUR DE LA DEMANDE. Sur deux mots (« cherche document »),
+  // en exiger deux reviendrait à n'accepter qu'un synonyme parfait ; sur six (« faire signer
+  // électroniquement ce contrat via DocuSign »), un seul mot commun ne prouve rien. La règle :
+  // à partir de trois mots significatifs, il en faut deux.
+  const motsRequis = Math.min(q.motsMin ?? 1, Math.max(1, mots.length - 1));
   const ecartees: Ecartee[] = [];
   const retenues: { f: FicheCapacite; s: number }[] = [];
 
@@ -374,8 +390,10 @@ export function interroger(fiches: readonly FicheCapacite[], q: Requete = {}): R
     if (q.primitive && f.primitive !== q.primitive) continue;
     if (q.domaine && normaliser(f.domaine) !== normaliser(q.domaine)) continue;
 
-    const s = score(f, mots);
-    if (s < Math.max(1, q.pertinenceMin ?? 1)) continue;
+    const { points, motsMarques } = score(f, mots);
+    if (points < Math.max(1, q.pertinenceMin ?? 1)) continue;
+    if (motsMarques < motsRequis) continue;
+    const s = points;
 
     if (q.effetMax && EFFECT_RANK[f.effet] > EFFECT_RANK[q.effetMax]) {
       ecartees.push({ id: f.id, nature: "PLAFOND", raison: `effet ${f.effet}, au-dessus du plafond ${q.effetMax} de cette mission` });
@@ -432,9 +450,11 @@ export function interroger(fiches: readonly FicheCapacite[], q: Requete = {}): R
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 export const PERTINENCE_POUR_CONCLURE = 3;
+/** Deux mots distincts au moins : un seul mot commun ne fait pas une capacité qui répond. */
+export const MOTS_POUR_CONCLURE = 2;
 
 export function detecterManque(besoin: string, fiches: readonly FicheCapacite[], q: Requete = {}): Manque | null {
-  const r = interroger(fiches, { pertinenceMin: PERTINENCE_POUR_CONCLURE, ...q, texte: q.texte ?? besoin });
+  const r = interroger(fiches, { pertinenceMin: PERTINENCE_POUR_CONCLURE, motsMin: MOTS_POUR_CONCLURE, ...q, texte: q.texte ?? besoin });
   if (r.resultats.length > 0) return null;
 
   const bloquantes = r.ecartees.filter((e) => e.nature === "PLAFOND" || e.nature === "DROIT");
@@ -446,7 +466,17 @@ export function detecterManque(besoin: string, fiches: readonly FicheCapacite[],
   if (autres.length > 0) {
     return classer(`aucune capacité utilisable pour « ${besoin} » : ${autres[0]!.raison}`, { capacite: autres[0]!.id });
   }
-  return classer(`aucune capacité ne sait faire « ${besoin} » (${r.examinees} examinées)`, { capacite: null, etape: besoin });
+  // ── LA LIMITE DE CETTE DÉTECTION, ET ELLE EST DITE ────────────────────────────────────
+  //
+  // Le marquage est LEXICAL. Sur un catalogue de deux cents capacités aux descriptions riches,
+  // beaucoup de demandes croisent deux mots quelque part : « enregistrer la conversation »
+  // rencontre `recall_conversation` sans que celle-ci sache téléphoner. La détection préalable
+  // est donc un SIGNAL, pas un verdict — d'où une confiance délibérément moyenne, et un
+  // `interroger` qui rend les candidats pour que le modèle tranche (c'est lui qui décide QUOI ;
+  // le code décide COMMENT). Le verdict SÛR, lui, vient d'ailleurs : un refus de droit, un refus
+  // de compilation, un échec d'exécution — trois choses que le code CONSTATE.
+  const m = classer(`aucune capacité ne sait faire « ${besoin} » (${r.examinees} examinées)`, { capacite: null, etape: besoin });
+  return { ...m, confiance: 0.6 };
 }
 
 /**

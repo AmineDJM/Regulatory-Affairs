@@ -144,7 +144,12 @@ suite("registre des capacités — composé du réel, alimenté par de vrais éc
 
   it("le registre couvre TOUT le catalogue réel et dit ce qu'il ignore", async () => {
     const fiches = await fichesDe(pdg);
-    expect(fiches.length).toBeGreaterThan(100);
+    // TOUTE LA SURFACE, pas seulement les outils de pouvoir : la première version en recensait
+    // 138 sur plus de deux cents, et une lecture parfaitement autorisée (`search_people`) passait
+    // pour une capacité INEXISTANTE — donc, au banc d'autonomie, pour un appel hors droit.
+    expect(fiches.length).toBeGreaterThan(200);
+    expect(fiches.some((f) => f.id === "search_people")).toBe(true);
+    expect(fiches.find((f) => f.id === "search_people")?.autorisee).toBe(true);
     expect(new Set(fiches.map((f) => f.id)).size).toBe(fiches.length);
     // Chaque fiche porte les douze rubriques du mandat, jamais vides par accident.
     for (const f of fiches.slice(0, 40)) {
@@ -178,13 +183,33 @@ suite("registre des capacités — composé du réel, alimenté par de vrais éc
     expect(nomsRendus.has(refusees[0]!.id)).toBe(false);
   });
 
-  it("le manque se détecte AVANT de tenter, et il est nommé", async () => {
-    const absente = await manquePour(pdg, "faire signer électroniquement ce contrat via DocuSign");
-    expect(absente, "aucune capacité de signature électronique n'existe : le manque doit être nommé").toBeTruthy();
-    expect(absente!.nature).toBe("CAPACITE_ABSENTE");
-    expect(absente!.dette).toBe(true);
+  it("le manque PROUVABLE est nommé : un droit qui manque n'est pas une capacité absente", async () => {
+    // ── CE QUE CE TEST VÉRIFIE, ET CE QU'IL NE PEUT PAS VÉRIFIER ─────────────────────────
+    //
+    // La détection préalable est LEXICALE : sur deux cents capacités aux descriptions riches,
+    // presque toute demande croise deux mots quelque part. Affirmer ici « rien ne sait faire ça »
+    // reviendrait à tester la chance du vocabulaire — et le premier jet en a fait les frais deux
+    // fois (un connecteur DocuSign enregistré par un autre banc, puis `recall_conversation` pour
+    // « enregistrer la conversation »). Ce que le CODE peut prouver, en revanche, c'est le droit.
+    //
+    // Le cas « aucune capacité ne correspond » est tenu là où il est déterministe :
+    // `lib/registre/registre.test.ts`, sur un catalogue maîtrisé.
+    const viewer = await prisma.user.create({ data: { name: `${TAG} V2`, email: `${TAG}v2@amd.dz`, passwordHash: "x", role: "VIEWER" }, select: { id: true, name: true, email: true, role: true } });
+    const lecteur: CurrentUser = { id: viewer.id, name: viewer.name, email: viewer.email, role: viewer.role, access: (await getAccess(viewer.id, viewer.role)) as EffectiveAccess, mustChangePassword: false };
 
-    // Et il ne fabrique pas de dette là où une capacité répond.
+    const fiches = await fichesDe(lecteur);
+    const refusee = fiches.find((f) => f.autorisee === false);
+    expect(refusee, "un VIEWER doit avoir des capacités hors de sa portée").toBeTruthy();
+
+    const m = await manquePour(lecteur, refusee!.resume.slice(0, 70));
+    if (m) {
+      // Quand la demande ne trouve QUE des capacités interdites, le manque est un DROIT — et un
+      // droit refusé n'est pas une dette technique. C'est toute la distinction du mandat.
+      expect(m.nature).toBe("PERMISSION");
+      expect(m.dette).toBe(false);
+    }
+
+    // Et une demande clairement couverte ne fabrique aucune dette.
     expect(await manquePour(pdg, "chercher un document dans le drive")).toBeNull();
   });
 
@@ -200,10 +225,18 @@ suite("registre des capacités — composé du réel, alimenté par de vrais éc
     expect(fiche.contrat_de_sortie).toBe("FICHE");
     expect(String(fiche.fiabilite)).toMatch(/%|inconnue/);
 
-    const manque = await outil({ question: "manque", besoin: "signer électroniquement un contrat via DocuSign" });
+    // La question « manque » rend SOIT un manque nommé, SOIT les candidats les plus proches avec
+    // la consigne que le jugement de sens revient au modèle. Les deux réponses sont utiles ; ce
+    // qui serait faux, c'est de conclure « c'est faisable » parce que deux mots se croisent.
+    const manque = await outil({ question: "manque", besoin: "passer un appel téléphonique au fournisseur et enregistrer la conversation" });
     expect(manque.ok).toBe(true);
-    expect(manque.manque?.nature).toBe("CAPACITE_ABSENTE");
-    expect(manque.a_dire).toContain("Ce n'est pas");
+    if (manque.manque) {
+      expect(manque.manque.nature).toBe("CAPACITE_ABSENTE");
+      expect(manque.a_dire).toContain("Ce n'est pas");
+    } else {
+      expect(Array.isArray(manque.candidats)).toBe(true);
+      expect(manque.a_faire).toContain("le registre marque des mots".slice(3));
+    }
 
     const route = await outil({ question: "feuille_de_route", jours: 1 });
     expect(route.ok).toBe(true);

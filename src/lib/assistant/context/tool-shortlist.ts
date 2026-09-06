@@ -227,6 +227,20 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   // §44 : la question qu'on pose AVANT de dire « je ne peux pas ». Elle n'appartient à aucun
   // domaine parce qu'elle porte sur tous — et notamment sur ceux où Adam croit ne rien savoir faire.
   registre_capacites: ["GENERAL", "ADMIN", "DATA"],
+  // §45 : l'histoire d'un dossier. Transverse par nature — une question temporelle arrive
+  // aussi bien du Regulatory que du Legal ou de la Finance.
+  monde_temporel: ["GENERAL", "REGULATORY", "LEGAL", "FINANCE"],
+  // §46 : deux chiffres qui divergent arrivent surtout de la finance, mais pas seulement.
+  verite_reconcilier: ["GENERAL", "FINANCE", "DATA", "LEGAL"],
+  // §49 : « combien vérifier avant de dire ça » se pose partout, et d'abord là où un chiffre
+  // engage — la finance et le regulatory. C'est aussi un outil du socle, voir ALWAYS_ON.
+  verifier_avant_de_dire: ["GENERAL", "FINANCE", "REGULATORY", "LEGAL", "DATA"],
+  // §48 : « annule ce que tu as fait sur ce dossier » arrive de n'importe quel module —
+  // c'est la nature du geste, pas le domaine du dossier, qui appelle cet outil.
+  annuler_changements: ["GENERAL", "REGULATORY", "LEGAL", "FINANCE", "ADMIN"],
+  // §47 : un objectif durable traverse tout — « prêts pour l'AO 2027 » tient du regulatory,
+  // du legal et de la finance à la fois. C'est ce qui le distingue d'une mission.
+  objectif_durable: ["GENERAL", "REGULATORY", "LEGAL", "FINANCE"],
   drive_lot: ["DRIVE", "GENERAL"],
   format_lire: ["DATA", "DRIVE", "GENERAL"],
   format_convertir: ["DATA", "DRIVE", "GENERAL"],
@@ -576,9 +590,46 @@ export function fitToolBudget<T extends { name: string }>(
 ): (T | typeof DISCOVERY_TOOL)[] {
   if (tools.length <= max) return tools;
   const court = shortlistTools(tools, route);
+  if (court.length <= max) {
+    console.warn(
+      `[assistant] ${tools.length} outils dépassent le plafond de ${max} — repli sur la liste `
+      + `courte (${court.length}), réversible par découverte. Domaine : ${route.domain}.`,
+    );
+    return court;
+  }
+
+  // ── QUAND LA LISTE COURTE ELLE-MÊME NE TIENT PLUS ────────────────────────────────────
+  //
+  // Mesuré le 2026-09-06 : le catalogue a grossi (§44 à §49) et la liste courte d'un Super
+  // Admin en raisonnement profond est passée à 129 pour un plafond de 128. Une fonction qui
+  // s'appelle « fait entrer dans le plafond » et qui rend 129 ne protège de rien — elle
+  // déplace le 400 d'un cran, là où plus aucun test ne le regarde.
+  //
+  // La coupe est donc ICI, et elle est ORDONNÉE, pas arbitraire :
+  //   1. le SOCLE (`ALWAYS_ON`) ne se coupe jamais — c'est ce qui reste vrai dans tous les
+  //      domaines, et l'amputer casserait la recherche elle-même ;
+  //   2. la DÉCOUVERTE ne se coupe jamais — c'est elle qui rend la réduction réversible ;
+  //   3. viennent ensuite les outils NON CLASSÉS : `list_more_tools` ne sait pas les rouvrir
+  //      (il travaille par domaine), donc on les garde tant qu'on peut ;
+  //   4. on coupe en dernier les outils CLASSÉS des domaines ouverts — les seuls que la
+  //      découverte sait ramener dans la boucle.
+  //
+  // L'ordre à l'intérieur d'un rang est celui de la liste reçue, donc stable : deux appels
+  // identiques envoient la même liste, sans quoi une régression deviendrait irreproductible.
+  const socle = new Set<string>(ALWAYS_ON);
+  const rang = (t: { name: string }): number => {
+    if (t.name === DISCOVERY_TOOL.name || socle.has(t.name)) return 0;
+    if (!(t.name in TOOL_DOMAINS) && !DOMAINES_DYNAMIQUES.has(t.name)) return 1;
+    return 2;
+  };
+  const ordonnee = court
+    .map((t, i) => ({ t, i, r: rang(t) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i);
+  const garde = ordonnee.slice(0, max).sort((a, b) => a.i - b.i).map((x) => x.t);
   console.warn(
-    `[assistant] ${tools.length} outils dépassent le plafond de ${max} — repli sur la liste `
-    + `courte (${court.length}), réversible par découverte. Domaine : ${route.domain}.`,
+    `[assistant] la liste COURTE elle-même dépasse le plafond (${court.length} > ${max}) : `
+    + `coupe ordonnée à ${garde.length}, socle et découverte préservés. Domaine : ${route.domain}. `
+    + `${court.length - garde.length} outil(s) de domaine restent atteignables par list_more_tools.`,
   );
-  return court;
+  return garde;
 }
