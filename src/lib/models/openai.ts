@@ -41,9 +41,10 @@ interface OaToolCall {
   function?: { name?: string; arguments?: string };
 }
 
+type OaPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail?: "low" | "high" | "auto" } };
 interface OaMessage {
   role: string;
-  content?: string | null;
+  content?: string | OaPart[] | null;
   tool_calls?: OaToolCall[];
   tool_call_id?: string;
 }
@@ -149,7 +150,17 @@ export function toOpenAiMessages(turns: ModelTurn[], system?: string): OaMessage
       });
     }
     const text = texts.map((t) => t.text).join("");
-    if (text) out.push({ role: "user", content: sanitizeForModel(text) });
+    const images = turn.content.filter((b): b is Extract<ModelBlock, { type: "image" }> => b.type === "image");
+    if (images.length) {
+      // Une image se joint au texte du même tour, en PARTIES : le texte d'abord, puis les images.
+      out.push({
+        role: "user",
+        content: [
+          ...(text ? [{ type: "text" as const, text: sanitizeForModel(text) }] : []),
+          ...images.map((i) => ({ type: "image_url" as const, image_url: { url: `data:${i.mime};base64,${i.data}`, ...(i.detail ? { detail: i.detail } : {}) } })),
+        ],
+      });
+    } else if (text) out.push({ role: "user", content: sanitizeForModel(text) });
   }
 
   return out;
@@ -158,7 +169,8 @@ export function toOpenAiMessages(turns: ModelTurn[], system?: string): OaMessage
 /** La réponse du fournisseur → les blocs NEUTRES. */
 export function toBlocks(msg: OaMessage | undefined): ModelBlock[] {
   const blocks: ModelBlock[] = [];
-  const text = (msg?.content ?? "").trim();
+  const brut = msg?.content;
+  const text = (typeof brut === "string" ? brut : Array.isArray(brut) ? brut.map((p) => (p.type === "text" ? p.text : "")).join("") : "").trim();
   if (text) blocks.push({ type: "text", text });
   for (const [i, call] of (msg?.tool_calls ?? []).entries()) {
     const name = call.function?.name;

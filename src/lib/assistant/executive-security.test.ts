@@ -170,6 +170,10 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // pdf_read : une LECTURE sous `canViewDrive` ; deck_build : un NOUVEAU fichier dans le
       // Drive personnel, comme sheet_build.
       "pdf_read", "deck_build",
+      // media_transcript (§38) : MÊME RAISON QUE pdf_read — un enregistrement est un fichier du Drive, lu
+      // sous `canViewDrive` nœud par nœud par le port ; la transcription est rangée sous la version du
+      // fichier et ne s'ouvre qu'à qui ouvre le fichier. Aucun droit de module ne dirait mieux.
+      "media_transcript",
       // document_profile : la LECTURE du profil (numérotation, papier) est ouverte à qui voit la
       // société ; la DÉFINITION est gardée dans le pont par `canManageLetterheads`, la même règle
       // que la papeterie. dossier_build : trois NOUVEAUX fichiers dans le Drive personnel, comme

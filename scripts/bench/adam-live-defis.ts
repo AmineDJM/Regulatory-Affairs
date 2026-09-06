@@ -909,4 +909,42 @@ Article 16 — Droit applicable. Le présent contrat est régi par le droit fran
       return m;
     },
   },
+  {
+    id: "defi-media-reunion", categorie: "MEDIAS",
+    tours: ["Dans l'enregistrement « Réunion budget 2027 (banc) » du Drive, où exactement parle-t-on du budget marketing ? Donne l'instant (mm:ss), qui parle si tu le sais, et ce qui est dit."],
+    neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /pas pr[ée]vu/i],
+    avant: async (ctx) => {
+      // UNE VRAIE VOIX : le moteur de synthèse du fournisseur fabrique l'audio ; le moteur de parole le relira. Rien de simulé.
+      const key = process.env.OPENAI_API_KEY; if (!key) throw new Error("OPENAI_API_KEY absent : pas de voix de synthèse pour le défi médias");
+      const base = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
+      const texte = "Bonjour à tous, on commence par le point réglementaire. Le dossier Trastuzex est complet, il part à l'agence lundi. Il reste la traduction arabe de la notice. Passons maintenant au budget marketing. Le budget marketing deux mille vingt-sept doit baisser de dix pour cent. Je propose de couper le congrès de Marseille et de garder celui d'Alger. Très bien, décision prise : on garde Alger et on coupe Marseille. Dernier point, le recrutement du délégué de Constantine. Yassine, tu envoies la fiche de poste à la direction des ressources humaines avant vendredi.";
+      const res = await fetch(`${base}/audio/speech`, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model: process.env.TTS_MODEL ?? "tts-1", voice: "onyx", input: texte, response_format: "mp3", speed: 1.05 }), signal: AbortSignal.timeout(90_000) });
+      if (!res.ok) throw new Error(`voix de synthèse indisponible (HTTP ${res.status}) : ${(await res.text().catch(() => "")).slice(0, 200)}`);
+      const octets = Buffer.from(await res.arrayBuffer());
+      const existants = await ctx.prisma.driveNode.findMany({ where: { ownerId: ctx.pdg.id, name: { startsWith: "Réunion budget 2027 (banc)" } }, select: { id: true } });
+      if (existants.length) { await ctx.prisma.mediaTranscript.deleteMany({ where: { nodeId: { in: existants.map((e) => e.id) } } }).catch(() => undefined); await ctx.prisma.driveNode.deleteMany({ where: { id: { in: existants.map((e) => e.id) } } }); }
+      await deposer(ctx, "Réunion budget 2027 (banc).mp3", "audio/mpeg", octets, "");
+    },
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      if (!ctx.outils.includes("media_transcript")) m.push(`media_transcript non appelé (outils : ${ctx.outils.join(", ") || "aucun"})`);
+      if (!/\b\d{1,2}:\d{2}\b/.test(ctx.reponse)) m.push("aucun instant mm:ss dans la réponse");
+      if (!/budget marketing/i.test(ctx.reponse)) m.push("la réponse ne cite pas le passage sur le budget marketing");
+      const noeud = await ctx.prisma.driveNode.findFirst({ where: { ownerId: ctx.pdg.id, name: { startsWith: "Réunion budget 2027 (banc)" } }, select: { id: true } });
+      const t = noeud ? await ctx.prisma.mediaTranscript.findFirst({ where: { nodeId: noeud.id } }) : null;
+      if (!t) m.push("aucune transcription persistée (MediaTranscript) pour l'enregistrement");
+      else {
+        const segments = t.segments as { debut: number; texte: string }[];
+        const cible = segments.find((s) => /budget marketing/i.test(s.texte));
+        if (!cible) m.push("le moteur de parole n'a pas reconnu « budget marketing » : rien à situer");
+        else {
+          // L'instant cité par Adam doit être celui du segment (à trente secondes près : un segment peut être long).
+          const cites = [...ctx.reponse.matchAll(/\b(\d{1,2}):(\d{2})\b/g)].map((x) => Number(x[1]) * 60 + Number(x[2]));
+          if (!cites.some((c) => Math.abs(c - cible.debut) <= 30)) m.push(`l'instant cité (${cites.join(", ") || "aucun"} s) ne correspond pas au segment « budget marketing » (${Math.round(cible.debut)} s)`);
+        }
+        if (!t.texte.includes("[0")) m.push("le texte indexé n'est pas horodaté");
+      }
+      return m;
+    },
+  },
 ];

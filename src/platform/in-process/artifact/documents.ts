@@ -27,9 +27,9 @@ import { portsArtefact } from "@/platform/in-process/artifact/ports";
 
 export const OCR_PAGES_MAX = 12;
 
-type Resolution = { ok: true; fiche: FicheDocument; version: number } | { ok: false; motif: string; candidats?: { nodeId: string; nom: string; format: string | null }[] };
+export type Resolution = { ok: true; fiche: FicheDocument; version: number } | { ok: false; motif: string; candidats?: { nodeId: string; nom: string; format: string | null }[] };
 
-async function resoudrePdf(user: CurrentUser, cible: { nodeId?: string | null; nom?: string | null; version?: number | null }): Promise<Resolution> {
+export async function resoudrePdf(user: CurrentUser, cible: { nodeId?: string | null; nom?: string | null; version?: number | null }): Promise<Resolution> {
   const estPdf = (f: FicheDocument) => f.format === "PDF" || /\.pdf$/i.test(f.nom);
   if (cible.nodeId) {
     const fiche = await portsArtefact.documents.decrire(user.id, cible.nodeId);

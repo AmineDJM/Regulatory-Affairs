@@ -208,6 +208,8 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   // Les faits externes (mandat 5 §37) : lecture sous la vue globale ; le rattachement est un geste de personne.
   inbound_events: ["GENERAL", "DATA", "SOURCES", "MAIL"],
   attach_inbound_event: ["GENERAL"],
+  // L'audio et la vidéo (mandat 5 §38) : un enregistrement est un document du Drive, souvent une réunion.
+  media_transcript: ["DRIVE", "CALENDAR", "GENERAL"],
   time_travel: ["GENERAL"],
   investigate_event: ["GENERAL"],
   process_insights: ["GENERAL"],

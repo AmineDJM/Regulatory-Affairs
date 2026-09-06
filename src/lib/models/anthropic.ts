@@ -37,7 +37,8 @@ import {
 type AnthropicBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-  | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean };
+  | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } };
 
 /** Forme neutre → forme Anthropic. */
 export function toAnthropicMessages(turns: ModelTurn[]): { role: string; content: unknown }[] {
@@ -50,6 +51,7 @@ export function toAnthropicMessages(turns: ModelTurn[]): { role: string; content
             .map((b): AnthropicBlock | null => {
               if (b.type === "text") return { type: "text", text: sanitizeForModel(b.text) };
               if (b.type === "tool_call") return { type: "tool_use", id: b.id, name: b.name, input: b.args ?? {} };
+              if (b.type === "image") return { type: "image", source: { type: "base64", media_type: b.mime, data: b.data } };
               return {
                 type: "tool_result",
                 tool_use_id: b.callId,

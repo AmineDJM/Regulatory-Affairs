@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import { extractText } from "@/lib/regulatory/intelligence/extract/extract-text";
 import { callLuna, canOcr, lunaConfigured, lunaModel, ocrDocument } from "@/platform/in-process/media";
 import { recordModelCall } from "@/lib/models/telemetry";
+import { estMedia, formatHorodatage, texteHorodate, transcrireAvecSegments } from "@/platform/in-process/media";
 
 /**
  * Lecture de PIÈCES JOINTES pour l'assistant : extrait un TEXTE exploitable d'un fichier
@@ -52,6 +53,8 @@ function cap(name: string, text: string, emptyNote: string | null): AttachmentTe
 export async function extractAttachmentText(name: string, buffer: Buffer): Promise<AttachmentText> {
   const ext = extOf(name);
   try {
+    // UNE PIÈCE AUDIO OU VIDÉO (§38) : la parole devient un texte HORODATÉ — jamais un fait vérifié.
+    if (estMedia(name)) return lireMedia(name, buffer);
     if (ext === "pptx") {
       const t = await extractPptx(buffer);
       return cap(name, t, "Aucun texte détecté dans la présentation.");
@@ -66,6 +69,19 @@ export async function extractAttachmentText(name: string, buffer: Buffer): Promi
   } catch {
     return { name, text: "", note: "Lecture du fichier impossible.", truncated: false };
   }
+}
+
+// ─────────────────────────── Audio et vidéo (mandat 5 §38) ───────────────────────────
+
+/** Une note vocale ou une réunion jointe au message : segments horodatés, bornés — la recherche fine passe par le Drive et `media_transcript`. */
+async function lireMedia(name: string, buffer: Buffer): Promise<AttachmentText> {
+  const t0 = Date.now();
+  const r = await transcrireAvecSegments(buffer, name);
+  if (!r.ok) return { name, text: "", note: r.configured ? `Audio / vidéo non transcrit : ${r.erreur}` : "Audio / vidéo non transcrit : transcription non configurée.", truncated: false };
+  const texte = texteHorodate(r.segments, { locuteurs: false });
+  const out = cap(name, texte, "Enregistrement sans parole reconnue.");
+  const duree = r.dureeS ? ` — ${formatHorodatage(r.dureeS)}` : "";
+  return { ...out, note: `Transcription ${r.modele}${duree}, ${r.segments.length} segment(s)${r.horodate ? " horodatés" : " (sans horodatage)"}, ${Date.now() - t0} ms — ce n'est pas un fait vérifié : à citer comme PROBABLE, avec l'instant.` };
 }
 
 // ─────────────────────────── Images, photos, scans (mandat 4 §30) ───────────────────────────

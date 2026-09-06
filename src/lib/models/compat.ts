@@ -96,13 +96,16 @@ const toTools = (tools: ClaudeToolDef[] | undefined): ModelToolDef[] | undefined
   tools?.length ? tools.map((t) => ({ name: t.name, description: t.description, parameters: t.input_schema })) : undefined;
 
 const toClaudeBlocks = (blocks: ModelBlock[]): ClaudeContentBlock[] =>
-  blocks.map((b): ClaudeContentBlock =>
-    b.type === "text"
-      ? { type: "text", text: b.text }
-      : b.type === "tool_call"
-        ? { type: "tool_use", id: b.id, name: b.name, input: b.args }
-        : { type: "tool_result", tool_use_id: b.callId, content: b.content, ...(b.isError ? { is_error: true } : {}) },
-  );
+  blocks
+    // Une IMAGE (§38) n'a pas de forme dans l'ancien contrat : elle entre au modèle, elle n'en sort jamais.
+    .filter((b): b is Exclude<ModelBlock, { type: "image" }> => b.type !== "image")
+    .map((b): ClaudeContentBlock =>
+      b.type === "text"
+        ? { type: "text", text: b.text }
+        : b.type === "tool_call"
+          ? { type: "tool_use", id: b.id, name: b.name, input: b.args }
+          : { type: "tool_result", tool_use_id: b.callId, content: b.content, ...(b.isError ? { is_error: true } : {}) },
+    );
 
 /**
  * `stop: "tools"` → `stopReason: "tool_use"`.

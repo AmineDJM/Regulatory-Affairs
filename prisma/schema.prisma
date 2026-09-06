@@ -7606,6 +7606,35 @@ model IngestedEvent {
   @@index([type, receivedAt])
 }
 
+/// LA TRANSCRIPTION D'UN MÉDIA du Drive (mandat 5 §38) — segments horodatés, locuteurs, chapitres,
+/// extraction (décisions, engagements, actions, entités), texte indexé. Une par version de fichier :
+/// retranscrire la même version ne coûte rien, une nouvelle version fait une nouvelle transcription.
+model MediaTranscript {
+  id          String   @id @default(cuid())
+  nodeId      String
+  version     Int
+  nom         String
+  langue      String?
+  dureeS      Int?
+  modele      String
+  /// [{ debut, fin, texte, locuteur }]
+  segments    Json
+  /// [{ debut, fin, titre, de, a }]
+  chapitres   Json
+  /// [{ locuteur, secondes, part, segments }]
+  locuteurs   Json
+  /// { decisions, engagements, actions, entites, questions } — instants en secondes
+  extraction  Json?
+  texte       String   @db.Text
+  coutUsd     Float?
+  horodate    Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([nodeId, version])
+  @@index([createdAt])
+}
+
 model AdamWatch {
   id            String    @id @default(cuid())
   ownerId       String

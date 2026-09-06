@@ -126,7 +126,14 @@ export interface ModelToolDef {
 export type ModelBlock =
   | { type: "text"; text: string }
   | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
-  | { type: "tool_result"; callId: string; content: string; isError?: boolean };
+  | { type: "tool_result"; callId: string; content: string; isError?: boolean }
+  /**
+   * UNE IMAGE À FAIRE LIRE (§38) — une page rastérisée, une capture, une photo — en base64, avec
+   * son type MIME. Portée par un tour UTILISATEUR seulement ; chaque fournisseur la traduit dans
+   * sa forme (`image_url`, `input_image`, `source: base64`). Le palier supérieur de la lecture
+   * visuelle passe par ici : mêmes portes (rôle, protocole, place, télémétrie) que le texte.
+   */
+  | { type: "image"; mime: string; data: string; detail?: "low" | "high" };
 
 /** Un tour de conversation. `system` est passé à part : les deux API le traitent à part. */
 export interface ModelTurn {

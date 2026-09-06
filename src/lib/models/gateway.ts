@@ -1,4 +1,5 @@
 import {
+  type ModelBlock,
   type ModelCallOptions,
   type ModelReply,
   type ModelRole,
@@ -171,10 +172,19 @@ function preparerOpenAi(
  * L'ESTIMATION DE JETONS D'UN APPEL, pour la RÉSERVATION (§61) — l'entrée au caractère près
  * (c'est ce qu'on va sérialiser de toute façon), la sortie au plafond envoyé.
  */
+/** Ce qu'une IMAGE pèse dans l'estimation (§38) : ~1 000 jetons de vision — jamais sa longueur en base64, qui ferait refuser la place. */
+const CHARS_PAR_IMAGE = 4_000;
+
 function estimationDe(turns: ModelTurn[], opts: ModelCallOptions): number {
   let chars = opts.system?.length ?? 0;
   for (const t of turns) {
-    chars += typeof t.content === "string" ? t.content.length : JSON.stringify(t.content).length;
+    if (typeof t.content === "string") { chars += t.content.length; continue; }
+    for (const b of t.content) {
+      if (b.type === "text") chars += b.text.length;
+      else if (b.type === "tool_result") chars += b.content.length;
+      else if (b.type === "tool_call") chars += JSON.stringify(b.args ?? {}).length + b.name.length;
+      else chars += CHARS_PAR_IMAGE;
+    }
   }
   return estimerJetons(chars, opts.maxOutputTokens ?? null);
 }
@@ -285,6 +295,35 @@ export async function askModelJson<T>(
   opts: Omit<ModelCallOptions, "tools" | "jsonSchema"> = {},
 ): Promise<{ data: T | null; reply: ModelReply }> {
   const reply = await callModel(role, [{ role: "user", content: prompt }], { ...opts, jsonSchema: schema });
+  if (!reply.ok) return { data: null, reply };
+  const raw = textOf(reply.blocks);
+  if (!raw) return { data: null, reply };
+  try {
+    return { data: JSON.parse(raw) as T, reply };
+  } catch {
+    return { data: null, reply };
+  }
+}
+
+/**
+ * UNE RÉPONSE JSON À PARTIR D'IMAGES (§38) — le palier SUPÉRIEUR de la lecture visuelle : une
+ * page rastérisée illisible en dessous, une capture, un tableau photographié. Mêmes portes que le
+ * texte (rôle, protocole, place, télémétrie, coût) ; les images voyagent en blocs du tour
+ * utilisateur. Le nombre d'images est BORNÉ ici : le plafond du §38 n'est pas une consigne.
+ */
+export const IMAGES_MAX_PAR_APPEL = 8;
+export async function askModelJsonAvecImages<T>(
+  role: ModelRole,
+  prompt: string,
+  images: readonly { mime: string; data: string; detail?: "low" | "high" }[],
+  schema: { name: string; schema: Record<string, unknown> },
+  opts: Omit<ModelCallOptions, "tools" | "jsonSchema"> = {},
+): Promise<{ data: T | null; reply: ModelReply }> {
+  const blocs: ModelBlock[] = [
+    { type: "text", text: prompt },
+    ...images.slice(0, IMAGES_MAX_PAR_APPEL).map((i): ModelBlock => ({ type: "image", mime: i.mime, data: i.data, ...(i.detail ? { detail: i.detail } : {}) })),
+  ];
+  const reply = await callModel(role, [{ role: "user", content: blocs }], { ...opts, jsonSchema: schema });
   if (!reply.ok) return { data: null, reply };
   const raw = textOf(reply.blocks);
   if (!raw) return { data: null, reply };

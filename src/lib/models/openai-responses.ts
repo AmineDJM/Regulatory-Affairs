@@ -110,8 +110,9 @@ interface RespPayload {
 }
 
 /** Un élément d'entrée. Trois formes, exactement celles dont une boucle d'agent a besoin. */
+type RespInputPart = { type: "input_text"; text: string } | { type: "input_image"; image_url: string; detail?: "low" | "high" | "auto" };
 type RespInputItem =
-  | { role: "user" | "assistant"; content: string }
+  | { role: "user" | "assistant"; content: string | RespInputPart[] }
   | { type: "function_call"; call_id: string; name: string; arguments: string }
   | { type: "function_call_output"; call_id: string; output: string };
 
@@ -168,7 +169,17 @@ export function toResponsesInput(turns: ModelTurn[]): RespInputItem[] {
       });
     }
     const texte = sanitizeForModel(textes.map((t) => t.text).join(""));
-    if (texte) out.push({ role: "user", content: texte });
+    const images = turn.content.filter((b): b is Extract<ModelBlock, { type: "image" }> => b.type === "image");
+    if (images.length) {
+      // Une image (§38) : le texte et les images du tour dans UN élément, en parties typées.
+      out.push({
+        role: "user",
+        content: [
+          ...(texte ? [{ type: "input_text" as const, text: texte }] : []),
+          ...images.map((i) => ({ type: "input_image" as const, image_url: `data:${i.mime};base64,${i.data}`, ...(i.detail ? { detail: i.detail } : {}) })),
+        ],
+      });
+    } else if (texte) out.push({ role: "user", content: texte });
   }
 
   return out;

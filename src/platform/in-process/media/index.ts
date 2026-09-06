@@ -6,3 +6,6 @@
  */
 export { ocrDocument, canOcr, type OcrResult, type OcrPage } from "@/lib/regulatory/intelligence/ocr/ocr-engine";
 export { callLuna, lunaConfigured, lunaModel, type LunaCallInput, type LunaImage, type LunaResult } from "@/lib/openai-luna";
+// L'audio et la vidéo (mandat 5 §38) : la parole en segments horodatés et sa mise en forme — pour Adam, par le pont.
+export { estMedia, estVideo, transcrireAvecSegments, type ResultatStt } from "@/lib/media/stt";
+export { formatHorodatage, texteHorodate, type Segment } from "@/lib/media/transcription";
