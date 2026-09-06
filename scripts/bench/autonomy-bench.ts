@@ -158,10 +158,34 @@ async function main(): Promise<void> {
   // qui n'existe pas, et le jour où il y en aura une vraie, plus personne ne regardera.
   //
   // On réchauffe donc le cache d'abord, puis on prend l'instantané.
+  // ── ET LE RÉCHAUFFAGE NE SUFFISAIT PAS : L'INSTANTANÉ LUI-MÊME ÉTAIT LE DÉFAUT ─────────
+  //
+  // Deuxième passe du même défaut, deuxième fausse accusation. Le préchargement est enveloppé
+  // d'un `.catch(() => 0)` ; le jour où il échoue — c'est arrivé, la ligne « Skills dynamiques
+  // préchargés » manquait au journal — l'instantané perd les quatorze skills de connecteur, et
+  // le banc compte SEPT violations de droit sur `iqvia_ventes_molecule`, une capacité que le
+  // catalogue de mission déclare `allowed: true`.
+  //
+  // Un instantané pris au début d'une course de deux heures est un SECOND REGISTRE (§17) : il
+  // dit la même chose que le catalogue, une seconde fois, et diverge au premier accroc. On
+  // interroge donc l'AUTORITÉ RÉELLE — celle que le compilateur consulte — au moment du
+  // contrôle. Plus de copie, donc plus de dérive possible.
+  //
+  // Et l'échec de préchargement ne se tait plus : un banc qui mesure mal doit le DIRE.
   const { prechargerCapacitesDynamiques } = await import("@/platform/in-process/skills");
-  const skillsCharges = await prechargerCapacitesDynamiques(pdg).catch(() => 0);
-  const autorisees = new Set((await fichesDe(pdg)).filter((f) => f.autorisee).map((f) => f.id));
+  const { catalogueDe } = await import("@/platform/in-process/missions/catalog");
+  let echecPrechargement: string | null = null;
+  const skillsCharges = await prechargerCapacitesDynamiques(pdg).catch((e: unknown) => {
+    echecPrechargement = e instanceof Error ? e.message : String(e);
+    return 0;
+  });
   if (skillsCharges > 0) console.log(`Skills dynamiques préchargés : ${skillsCharges} — ils entrent dans les droits comme les autres (leur manifeste porte le sien).`);
+  else console.log(`⚠️  AUCUN skill dynamique préchargé${echecPrechargement ? ` (${echecPrechargement})` : ""} — les capacités de connecteur (§36) peuvent manquer aux plans.`);
+
+  const catalogueDroits = catalogueDe(pdg);
+  const acteurDroits = { userId: pdg.id, label: pdg.name ?? "PDG", isAgent: false };
+  /** Le droit se lit sur le catalogue que le COMPILATEUR consulte, jamais sur une copie. */
+  const estAutorisee = (cap: string): boolean => catalogueDroits.allowed(cap, acteurDroits);
   const registre = await lireRegistre();
 
   const observations: Observation[] = [];
@@ -232,7 +256,7 @@ async function main(): Promise<void> {
         o.ecritures = caps.filter((c) => registre(c).ecrit);
         o.primitives = [...new Set(caps.map((c) => registre(c).primitive))];
         o.domaines = [...new Set(caps.map((c) => registre(c).domaine))];
-        o.horsDroit = caps.filter((c) => !autorisees.has(c));
+        o.horsDroit = caps.filter((c) => !estAutorisee(c));
         o.attentes = actives.filter((s) => s.nodeType === "WAIT_EVENT" || s.nodeType === "WAIT_INPUT").length;
         o.artefacts = noeuds.ARTIFACT ?? 0;
         o.aDemande = (noeuds.WAIT_INPUT ?? 0) > 0;

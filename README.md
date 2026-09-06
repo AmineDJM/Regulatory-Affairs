@@ -5234,11 +5234,23 @@ a d'abord été écrit FAUX — il passait même en retirant les deux correction
 catalogue où tout marque zéro le départage alphabétique sacrait la bonne réponse. Il porte
 maintenant un leurre alphabétiquement premier et exige un score strictement positif.
 
+**Et les « sept violations de droit » étaient fausses, pour la deuxième fois.** Vérification
+faite : les sept portent toutes sur `iqvia_ventes_molecule`, que le catalogue de mission — celui
+que le COMPILATEUR consulte — déclare `allowed: true`. La veille, le défaut était l'ORDRE (on
+prenait l'instantané des droits avant de réchauffer le cache des skills) ; cette fois c'est
+l'instantané LUI-MÊME. Il est pris une fois, au début d'une course de deux heures, derrière un
+`.catch(() => 0)` : le jour où le préchargement échoue — c'est arrivé, la ligne « Skills
+dynamiques préchargés » manque au journal — les quatorze capacités de connecteur disparaissent
+des droits, et le banc accuse le moteur sur la cible la plus grave du mandat.
+
+Un instantané est un SECOND REGISTRE (§17) : il redit ce que le catalogue sait déjà et diverge au
+premier accroc. Le contrôle interroge désormais l'autorité réelle au moment de vérifier, et un
+préchargement raté ne se tait plus. `autonomie_droits` à 95,8 % est donc un artefact de mesure,
+pas une faille — et il faudra le relire sur une course faite avec le contrôle corrigé.
+
 **Ce que le banc ne dit pas encore.** Le score reste non concluant tant qu'une panne de
 fournisseur emporte un sixième des missions ; il faudra le rejouer au calme pour connaître
-l'effet réel de ces corrections sur la réussite de bout en bout. Les six violations de droit
-comptées sont à re-vérifier de la même manière que les quatre de la veille — la dernière fois,
-c'était la mesure qui avait tort, pas le moteur.
+l'effet réel de ces corrections sur la réussite de bout en bout.
 
 ### LE BANC DE MISSIONS INÉDITES EST CLOS PAR PLUS GRAND QUE LUI (2026-09)
 
