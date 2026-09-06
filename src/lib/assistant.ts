@@ -4693,12 +4693,14 @@ async function runAssistantImpl(
   const highStakes = isHighStakesQuestion(question);
   // PLAN DE LA QUESTION (déterministe) : domaine, intention, SUIVI ELLIPTIQUE (« et SD ? » =
   // même intention, entité substituée), investigation impliquée — la carte avant les outils.
+  const tPlan = Date.now();
   const plan = queryPlan(question, history.filter((h) => h.role === "user").slice(0, -1).map((h) => h.content));
+  addPhase("plan_question", Date.now() - tPlan);
   // LES ENTITÉS DE LA QUESTION, RÉSOLUES PAR LE CODE (fabric F9) : « Hetero » devient UNE ligne,
   // « Nadir » devient une question quand deux Nadir existent — le modèle reçoit des identifiants
   // certains et l'ordre de demander quand c'est ambigu, au lieu de deviner.
   const entitesResolues = plan.entites.length
-    ? await resoudreMentions(plan.entites).then(contexteEntitesResolues).catch(() => null)
+    ? await timedPhase("entites", () => resoudreMentions(plan.entites).then(contexteEntitesResolues).catch(() => null))
     : null;
   const planCtx = [queryPlanContext(plan), entitesResolues, consigneCalcul(question), consigneSignaux(question)].filter(Boolean).join("\n\n") || null;
   // OBSERVABILITÉ du planner — domaine/intention/suivi UNIQUEMENT (jamais le texte de la
@@ -4713,7 +4715,9 @@ async function runAssistantImpl(
   // LE PRÉFIXE STABLE : consignes + identité. Tout ce qui change à chaque message part avec le
   // message (context/tour.ts) — c'est ce qui rend le cache de prompt effectif sur les outils et
   // l'historique, pas seulement sur le début des consignes.
+  const tSys = Date.now();
   const system = [systemPrompt(user), identite].filter(Boolean).join("\n\n");
+  addPhase("consignes", Date.now() - tSys);
   const contexteTour = composerContexteTour([
     opts.personalContext ? `CONTEXTE PERSONNEL\n${opts.personalContext}` : null,
     workingSet,
@@ -4730,14 +4734,18 @@ async function runAssistantImpl(
   // Le Super Admin dispose d'outils exclusifs (vision globale de tous les comptes).
   // LES SKILLS DE LA PERSONNE (§36) — connecteurs, micro-outils, playbooks — sont chargés AVANT la liste :
   // sans ce préchargement, `assistantToolsFor` ne verrait que le cœur.
-  await prechargerCapacitesDynamiques(user).catch(() => 0);
+  await timedPhase("skills", () => prechargerCapacitesDynamiques(user).catch(() => 0));
+  const tOutils = Date.now();
   let allTools = assistantToolsFor(user);
+  addPhase("catalogue", Date.now() - tOutils);
 
   // ── LA DÉCISION D'AIGUILLAGE ──────────────────────────────────────────────────────────────
   // Elle ne décide QUE de la liste d'outils envoyée au modèle. Les droits, l'approbation,
   // l'audit et l'idempotence sont ailleurs et ne bougent pas d'un pouce.
   const turnStartedAt = Date.now();
+  const tRoutage = Date.now();
   const rollout = decideRollout(question, { userId: user.id, ctx: { modality: opts.origin === "voice" ? "voice" : "text" } });
+  addPhase("routage", Date.now() - tRoutage);
   // `tools` est MUTABLE : la découverte (`list_more_tools`) peut rouvrir un domaine en cours de
   // boucle, et c'est ce qui rend la liste courte réversible plutôt qu'amputante.
   // ── LE RÉSOLVEUR D'OUTILS ────────────────────────────────────────────────────────────────
@@ -4748,8 +4756,10 @@ async function runAssistantImpl(
   // Les deux garde-fous restent DERRIÈRE, et c'est volontaire : `fitToolBudget` puis `capTools`
   // ne se déclenchent plus en fonctionnement normal, mais un filet qu'on retire parce qu'il ne
   // sert plus est un filet qu'on regrettera au prochain lot d'outils.
+  const tResolv = Date.now();
   const resolved = resolveTools(allTools, question, rollout.route, { ecritures: RESOLVER_WRITE_NAMES });
   let tools = fitToolBudget(resolved.tools, rollout.route) as typeof allTools;
+  addPhase("resolveur", Date.now() - tResolv);
   const trace: string[] = [];
   // Ce que la boucle appelle VRAIMENT — la seule vérité contre laquelle comparer la liste courte.
   const usedTools: string[] = [];
@@ -5148,12 +5158,14 @@ async function runAssistantStreamImpl(
   }
 
   const highStakes = isHighStakesQuestion(question);
+  const tPlan = Date.now();
   const plan = queryPlan(question, history.filter((h) => h.role === "user").slice(0, -1).map((h) => h.content));
+  addPhase("plan_question", Date.now() - tPlan);
   // LES ENTITÉS DE LA QUESTION, RÉSOLUES PAR LE CODE (fabric F9) : « Hetero » devient UNE ligne,
   // « Nadir » devient une question quand deux Nadir existent — le modèle reçoit des identifiants
   // certains et l'ordre de demander quand c'est ambigu, au lieu de deviner.
   const entitesResolues = plan.entites.length
-    ? await resoudreMentions(plan.entites).then(contexteEntitesResolues).catch(() => null)
+    ? await timedPhase("entites", () => resoudreMentions(plan.entites).then(contexteEntitesResolues).catch(() => null))
     : null;
   const planCtx = [queryPlanContext(plan), entitesResolues, consigneCalcul(question), consigneSignaux(question)].filter(Boolean).join("\n\n") || null;
   // OBSERVABILITÉ du planner — domaine/intention/suivi UNIQUEMENT (jamais le texte de la
@@ -5168,7 +5180,9 @@ async function runAssistantStreamImpl(
   // LE PRÉFIXE STABLE : consignes + identité. Tout ce qui change à chaque message part avec le
   // message (context/tour.ts) — c'est ce qui rend le cache de prompt effectif sur les outils et
   // l'historique, pas seulement sur le début des consignes.
+  const tSys = Date.now();
   const system = [systemPrompt(user), identite].filter(Boolean).join("\n\n");
+  addPhase("consignes", Date.now() - tSys);
   const contexteTour = composerContexteTour([
     opts.personalContext ? `CONTEXTE PERSONNEL\n${opts.personalContext}` : null,
     workingSet,
@@ -5184,15 +5198,19 @@ async function runAssistantStreamImpl(
   const surete = safetyIdentifierFor(user.id);
   // LES SKILLS DE LA PERSONNE (§36) — connecteurs, micro-outils, playbooks — sont chargés AVANT la liste :
   // sans ce préchargement, `assistantToolsFor` ne verrait que le cœur.
-  await prechargerCapacitesDynamiques(user).catch(() => 0);
+  await timedPhase("skills", () => prechargerCapacitesDynamiques(user).catch(() => 0));
+  const tOutils = Date.now();
   let allTools = assistantToolsFor(user);
+  addPhase("catalogue", Date.now() - tOutils);
 
   // ── LE MÊME AIGUILLAGE QU'EN VARIANTE NON DIFFUSÉE ────────────────────────────────────────
   // C'est ICI que passe la quasi-totalité du trafic réel : l'interface et la voix appellent le
   // flux, pas `runAssistant`. Un aiguillage branché d'un seul côté n'aurait rien activé du tout
   // (§22 : « Voice est une modalité, pas un deuxième cerveau »).
   const turnStartedAt = Date.now();
+  const tRoutage = Date.now();
   const rollout = decideRollout(question, { userId: user.id, ctx: { modality: opts.origin === "voice" ? "voice" : "text" } });
+  addPhase("routage", Date.now() - tRoutage);
   // ── LE RÉSOLVEUR D'OUTILS ────────────────────────────────────────────────────────────────
   // On n'envoie plus « ce qui tient » mais « ce que la demande peut appeler » : niveau A/B/C et
   // domaines cités décident. Mesuré sur vingt demandes types : une salutation part avec 0 schéma
@@ -5201,8 +5219,10 @@ async function runAssistantStreamImpl(
   // Les deux garde-fous restent DERRIÈRE, et c'est volontaire : `fitToolBudget` puis `capTools`
   // ne se déclenchent plus en fonctionnement normal, mais un filet qu'on retire parce qu'il ne
   // sert plus est un filet qu'on regrettera au prochain lot d'outils.
+  const tResolv = Date.now();
   const resolved = resolveTools(allTools, question, rollout.route, { ecritures: RESOLVER_WRITE_NAMES });
   let tools = fitToolBudget(resolved.tools, rollout.route) as typeof allTools;
+  addPhase("resolveur", Date.now() - tResolv);
   const trace: string[] = [];
   const usedTools: string[] = [];
   // LES SORTIES BRUTES DU TOUR — la matière de la réparation des liens : un « [Ouvrir](/regulatory/) »

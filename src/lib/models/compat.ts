@@ -1,6 +1,9 @@
 import { callModel, streamModel } from "./gateway";
 import { roleConfigured } from "./registry";
 import type { ModelBlock, ModelRole, ModelToolDef, ModelTurn, ReasoningEffort } from "./contract";
+// La passerelle reste SANS dépendance métier : cet import est local à `models/`,
+// comme l'exige `models.test.ts` — c'est ce qui la garde portable.
+import { timedPhase } from "./telemetry";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -138,7 +141,7 @@ const options = (opts: CompatOptions) => ({
 });
 
 export async function callClaude(messages: ClaudeMessage[], opts: CompatOptions = {}): Promise<ClaudeRawResult> {
-  const reply = await callModel(opts.role ?? "orchestrator", toTurns(messages), options(opts));
+  const reply = await timedPhase("modele", () => callModel(opts.role ?? "orchestrator", toTurns(messages), options(opts)));
   return {
     ok: reply.ok,
     configured: reply.configured,
@@ -153,7 +156,15 @@ export async function callClaudeStream(
   onText: (chunk: string) => void,
   opts: CompatOptions = {},
 ): Promise<ClaudeRawResult> {
-  const reply = await streamModel(opts.role ?? "orchestrator", toTurns(messages), options(opts), onText);
+  /**
+   * LE TEMPS PASSÉ DANS LE MODÈLE, COMPTÉ ICI ET NULLE PART AILLEURS.
+   *
+   * Instrumenter chaque appelant aurait laissé passer celui qu'on oublie — et c'est toujours
+   * celui-là qui explique les six secondes. La passerelle est le seul point par lequel tout
+   * appel passe : la phase « modele » y est donc exhaustive par construction. Ce qui reste
+   * en dehors d'elle est, par soustraction, le temps que NOTRE code a consommé.
+   */
+  const reply = await timedPhase("modele", () => streamModel(opts.role ?? "orchestrator", toTurns(messages), options(opts), onText));
   return {
     ok: reply.ok,
     configured: reply.configured,

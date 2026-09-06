@@ -43,6 +43,7 @@
     "adam:bench:defis": "BENCH_SET=defis tsx scripts/bench/adam-live-bench.ts",
     "autonomy:bench": "tsx scripts/bench/autonomy-bench.ts",
     "bench:plan": "tsx scripts/bench/plan-couverture.ts",
+    "bench:latence": "tsx scripts/bench/latence-ttuv.ts",
     "autonomy:bench:complet": "AUTONOMY_MODE=complet tsx scripts/bench/autonomy-bench.ts"
   },
   "prisma": {
