@@ -270,6 +270,22 @@ export interface ResolutionOptions {
   seuilRelatif?: number;
   /** Le plancher absolu — en dessous, un seul mot commun ne fait pas une pertinence. */
   seuilMinimum?: number;
+  /**
+   * LES PRIMITIVES QUE LA DEMANDE EXIGE — une garantie de VISIBILITÉ, pas un filtre.
+   *
+   * Une demande qui réclame un chiffre doit voir une capacité qui calcule. Ce n'était garanti
+   * par rien, et le défaut était structurel : `run_analysis`, `run_code`, `sql_query`,
+   * `calcul_statistiques` et `chart_advice` retombent tous sur le domaine « autre »
+   * (`domaineDeduit` ne les reconnaît pas), leurs identifiants sont anglais quand la demande est
+   * française, et le tourniquet ne retient que deux à cinq domaines. Une demande de statistiques
+   * pouvait donc n'avoir AUCUNE capacité de calcul sous les yeux — après quoi la consigne
+   * « ne jamais calculer de tête » ne laissait au planificateur qu'un `gaps` honnête.
+   *
+   * On force donc la meilleure capacité de chaque primitive exigée, comme `SUIVI_UNIVERSEL`
+   * force les gestes de suivi : sous les droits de la personne, jamais au-delà, et comptée dans
+   * la limite. Rien n'est retiré du catalogue — une garantie de plancher n'est pas un filtre.
+   */
+  primitivesRequises?: readonly string[];
 }
 
 export interface Resolution {
@@ -362,6 +378,24 @@ export function resoudreCapacites(
   for (const nom of SUIVI_UNIVERSEL) {
     const b = toutes.find((x) => x.id === nom);
     if (b) ajouter(b);
+  }
+
+  /**
+   * ── CE QUE LA DEMANDE EXIGE EST TOUJOURS VISIBLE ───────────────────────────────────────
+   *
+   * La MEILLEURE capacité de chaque primitive exigée, au score de la demande. « Meilleure » et
+   * non « la première du catalogue » : entre `run_analysis` et `calcul_statistiques`, c'est la
+   * demande qui doit trancher, pas l'ordre alphabétique.
+   *
+   * Aucune capacité de cette primitive dans les droits de la personne ? On n'en invente pas :
+   * la liste reste ce qu'elle est, le planificateur le constate et l'écrit dans `gaps`. C'est
+   * une garantie de visibilité, jamais une promesse de capacité.
+   */
+  for (const p of opts.primitivesRequises ?? []) {
+    const deja = [...retenues.values()].some((b) => b.primitive === p);
+    if (deja) continue;
+    const meilleure = notes.find((n) => n.b.primitive === p);
+    if (meilleure) ajouter(meilleure.b);
   }
 
   // ── LA SÉLECTION EST UN TOURNIQUET ENTRE DOMAINES, PAS UN CLASSEMENT GLOBAL ──────────

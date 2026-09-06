@@ -43,7 +43,7 @@ async function missionAvec(opts: {
   const m = await prisma.mission.create({
     data: {
       kind: "RUNTIME", title: MARQUE, objective: MARQUE, goalRaw: MARQUE,
-      ownerId: await proprietaire(), status: opts.statut, planVersion: opts.planVersion ?? 1,
+      ownerId: await proprietaire(), status: opts.statut as never, planVersion: opts.planVersion ?? 1,
       acceptance: [] as never,
     },
     select: { id: true },

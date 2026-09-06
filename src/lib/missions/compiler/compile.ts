@@ -1,6 +1,6 @@
 import { COMPILE_ERRORS, CompileIssue, Complexity, MissionPlan, NODE_TYPES, NodeType, PLAN_LIMITS, PlannedStep, Scale, type StepCondition } from "@/lib/missions/planner/contract";
 import type { ApprovalStrategy, PlannedArtifact, PlannedWorkstream } from "@/lib/missions/planner/contract";
-import { EFFECT_RANK, Effect, effetMaximal } from "@/lib/missions/registry/capability-meta";
+import { EFFECT_RANK, Effect, effetMaximal, type Primitive } from "@/lib/missions/registry/capability-meta";
 import { effetDuNoeud } from "@/lib/missions/registry/node-effect";
 import type { CapabilityCatalog, MissionActor } from "@/lib/missions/ports";
 import { layout } from "@/lib/missions/compiler/graph";
@@ -258,6 +258,16 @@ export interface OptionsCompilation {
   effetMax?: Effect;
   /** Les clés d'étapes déjà présentes ET abouties dans la mission (plans antérieurs). */
   acquises?: ReadonlySet<string>;
+  /**
+   * LES PRIMITIVES QUE LA DEMANDE EXIGE (§56) — lues dans la phrase par `planner/primitives.ts`.
+   *
+   * Le compilateur refuse un plan qui n'en couvre aucune étape, À LA CONDITION que le catalogue
+   * en offre une. La condition n'est pas un détail : exiger une primitive que personne ne sait
+   * exécuter enfermerait la mission dans une boucle de replanifications identiques. Quand la
+   * capacité n'existe pas, ce n'est plus une faute de plan, c'est un MANQUE — et le planificateur
+   * le déclare dans `gaps`, ce qui est la bonne réponse.
+   */
+  primitivesRequises?: readonly Primitive[];
 }
 
 /** L'alphabet d'une clé d'étape — la même contrainte que le refus de forme, mais APPLIQUÉE. */
@@ -862,6 +872,64 @@ export function compile(
       + `question dont la réponse n'alimente aucune étape. Ce n'est pas un arbitrage, c'est une validation `
       + `de confort : livre le résultat et conclus — le demandeur le lit. Si une décision conditionne `
       + `vraiment la suite, les étapes qui en dépendent doivent exister et dépendre de cette attente.`));
+  }
+
+  /**
+   * ── 3 bis. LE PLAN COUVRE-T-IL CE QUE LA DEMANDE EXIGE ? (§56) ────────────────────────
+   *
+   * Jusqu'ici, les deux seuls contrôles « le plan fait quelque chose » étaient : au moins une
+   * étape, et au moins un critère d'acceptation. Un plan « lire → répondre » compilait donc
+   * parfaitement pour une demande qui réclamait un chiffre ou une pièce, et l'absence n'était
+   * constatée qu'à la toute fin — par le contrôle arithmétique, après que toutes les étapes
+   * avaient tourné et coûté. Pire : si le modèle avait omis `expectedArtifacts`, ce dernier
+   * filet ne se déclenchait même pas et la mission concluait sans le livrable demandé.
+   *
+   * TROIS CONDITIONS avant de refuser, et chacune évite un refus à tort :
+   *   1. la demande exige la primitive de façon SÛRE (les hésitations n'arrivent pas ici) ;
+   *   2. le catalogue offre une capacité de cette primitive à CET acteur — sinon c'est un
+   *      manque à déclarer, pas une faute de plan, et refuser boucherait la seule issue ;
+   *   3. aucune étape du plan ne porte cette primitive.
+   *
+   * Le refus part au planificateur par `refusPrecedent` : c'est une correction, pas une mort.
+   */
+  /**
+   * SOUS PLAFOND DE LECTURE, ON N'EXIGE NI PIÈCE NI ACTION.
+   *
+   * Une mission plafonnée à ANALYZE s'est vu dire « tu ne produis AUCUN fichier, tu n'écris
+   * rien ». Lui reprocher ensuite de ne pas produire de document serait une contradiction, et
+   * une contradiction qui BOUCLE : le refus repart au planificateur, qui ne peut pas y répondre.
+   * Mesuré : « Lis ce document et fais-m'en un rapport » en lecture seule était refusé sans
+   * issue. Le plafond retire l'exigence, il ne la déplace pas.
+   */
+  const produireInterdit = opts.effetMax ? EFFECT_RANK[opts.effetMax] < EFFECT_RANK.PREPARE : false;
+  const requises = (opts.primitivesRequises ?? [])
+    .filter((p) => !(produireInterdit && (p === "DOCUMENT" || p === "ACTION")));
+  if (requises.length > 0 && issues.length === 0) {
+    const couvertes = new Set<string>();
+    for (const e of compiled) {
+      /**
+       * UN NŒUD ARTIFACT PORTE LA PRIMITIVE DOCUMENT SANS PORTER DE CAPACITÉ.
+       *
+       * C'est LUI qui fabrique le fichier — le compilateur le sait déjà, puisqu'il lui applique
+       * le plafond d'effet pour cette raison exacte. Ne compter que les capacités faisait donc
+       * refuser des plans qui produisaient bel et bien le livrable demandé : quatre tests l'ont
+       * dit immédiatement, et ils avaient raison.
+       */
+      if (e.nodeType === "ARTIFACT") { couvertes.add("DOCUMENT"); continue; }
+      if (!e.capability) continue;
+      const p = catalog.meta(e.capability).primitive;
+      if (p) couvertes.add(p);
+    }
+    const offertes = new Set<string>();
+    for (const b of catalog.brief(actor, { limit: 1000 })) if (b.primitive) offertes.add(b.primitive);
+
+    for (const p of requises) {
+      if (couvertes.has(p) || !offertes.has(p)) continue;
+      issues.push(issue("MISSING_PRIMITIVE", null,
+        `la demande exige la primitive ${p}, une capacité ${p} est disponible, et AUCUNE étape du `
+        + `plan n'en porte. Ajoute l'étape qui manque — ou, si aucune capacité listée ne convient `
+        + `réellement, dis-le dans « gaps » plutôt que de conclure sans.`));
+    }
   }
 
   // ── 4. LE GRAPHE ──────────────────────────────────────────────────────────────────────

@@ -298,6 +298,20 @@ export const COMPILE_ERRORS = [
    * d'un message précis — au lieu d'un accord du dirigeant suivi d'une replanification.
    */
   "INVALID_INPUT",
+  /**
+   * LE PLAN NE COUVRE PAS UNE PRIMITIVE QUE LA DEMANDE EXIGE (§56).
+   *
+   * « Combien de dossiers sont en retard ? Fais-moi un graphique. » exige un CALCUL et une
+   * REPRÉSENTATION. Un plan « lire → répondre » compilait pourtant sans réserve : les deux seuls
+   * contrôles de couverture étaient « au moins une étape » et « au moins un critère ». L'absence
+   * n'apparaissait qu'à la fin, au contrôle arithmétique, après que tout avait tourné et coûté —
+   * et pas du tout si le modèle avait omis d'annoncer un livrable.
+   *
+   * Ce refus n'est prononcé que si une capacité de cette primitive est RÉELLEMENT disponible
+   * pour l'acteur. Sinon ce n'est pas une faute de plan, c'est un manque : le planificateur le
+   * déclare dans `gaps`, et refuser boucherait la seule issue honnête.
+   */
+  "MISSING_PRIMITIVE",
 ] as const;
 export type CompileError = (typeof COMPILE_ERRORS)[number];
 

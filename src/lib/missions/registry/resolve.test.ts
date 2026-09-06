@@ -315,3 +315,80 @@ describe("le rappel du résolveur — ce qu'on ne MONTRE pas ne peut pas être p
     }
   });
 });
+
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * CE QUE LA DEMANDE EXIGE EST-IL SEULEMENT VISIBLE ? (§56)
+ *
+ * ── LE DÉFAUT, ET IL EXPLIQUE STATISTIQUES 0/17 À LUI SEUL ──────────────────────────────
+ *
+ * La consigne du planificateur ordonne « un calcul sur des lignes lues se fait avec
+ * `run_analysis` ou `run_code`, jamais de tête ». Or la VISIBILITÉ de ces capacités n'était
+ * garantie par rien, et trois mécanismes se liguaient contre elles :
+ *
+ *   • `domaineDeduit` ne reconnaît ni `run_analysis`, ni `run_code`, ni `sql_query`, ni
+ *     `calcul_statistiques` : toutes retombent sur le domaine « autre » ;
+ *   • le tourniquet ne retient que deux à cinq domaines, et « autre » ne gagne jamais les points
+ *     de domaine ;
+ *   • leurs identifiants sont anglais quand la demande est française.
+ *
+ * Une demande de statistiques pouvait donc n'avoir AUCUNE capacité de calcul sous les yeux —
+ * après quoi le planificateur écrivait, honnêtement, qu'il manquait une capacité.
+ *
+ * Le plancher force la MEILLEURE capacité de chaque primitive exigée. Il n'ouvre aucun droit :
+ * il puise dans ce que le catalogue de la personne contient déjà.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("le plancher de visibilité — une demande chiffrée voit de quoi calculer", () => {
+  /** Un catalogue où la capacité de calcul est TOUT ce qu'il y a de moins trouvable au score. */
+  const catalogueSourd: CapabilityCatalog = {
+    has: () => true,
+    allowed: () => true,
+    meta: (id) => ({ id, domain: "autre", effect: "READ", batchable: false, idempotent: true } as CapabilityMeta),
+    brief: () => [
+      { ...b("dossiers_liste", "regulatory", "Liste des dossiers réglementaires en retard, échéances, statuts"), primitive: "INFORMATION" },
+      { ...b("dossier_fiche", "regulatory", "Fiche détaillée d'un dossier réglementaire en retard"), primitive: "INFORMATION" },
+      { ...b("dossier_pieces", "regulatory", "Pièces attachées à un dossier réglementaire"), primitive: "INFORMATION" },
+      { ...b("dossier_historique", "regulatory", "Historique des mouvements d'un dossier"), primitive: "INFORMATION" },
+      // Aucun mot commun avec une demande française : ni « calcul », ni « combien », ni « total ».
+      { ...b("run_analysis", "autre", "Run an analysis over rows"), primitive: "CALCUL" },
+      { ...b("chart_advice", "autre", "Advise on chart type"), primitive: "REPRESENTATION" },
+    ],
+  };
+  const acteur: MissionActor = { userId: "u", label: "PDG", isAgent: false };
+  const DEMANDE = "Combien de dossiers réglementaires sont en retard, et quel est le taux ?";
+
+  it("LE TEST QUI COMPTE : sans plancher, la capacité de calcul n'est PAS montrée", () => {
+    // Le contre-exemple d'abord : il interdit qu'un jour ce test passe parce que le montage a
+    // changé et que `run_analysis` se serait mise à marquer des points toute seule.
+    const sans = resoudreCapacites(DEMANDE, catalogueSourd, acteur, { limite: 4, maxDomaines: 2 });
+    expect(sans.capacites.map((c) => c.id)).not.toContain("run_analysis");
+  });
+
+  it("avec le plancher, elle l'est — et rien n'a été ouvert au-delà des droits", () => {
+    const avec = resoudreCapacites(DEMANDE, catalogueSourd, acteur, {
+      limite: 4, maxDomaines: 2, primitivesRequises: ["CALCUL"],
+    });
+    expect(avec.capacites.map((c) => c.id)).toContain("run_analysis");
+    // La limite reste STRICTE : le plancher prend une place, il n'en ajoute pas.
+    expect(avec.capacites.length).toBeLessThanOrEqual(4);
+    // Et il ne fait apparaître que ce que le catalogue contenait déjà.
+    const connus = new Set(catalogueSourd.brief(acteur).map((x) => x.id));
+    for (const c of avec.capacites) expect(connus.has(c.id)).toBe(true);
+  });
+
+  it("une primitive exigée que la personne n'a PAS n'invente rien", () => {
+    const avec = resoudreCapacites(DEMANDE, catalogueSourd, acteur, {
+      limite: 4, maxDomaines: 2, primitivesRequises: ["DOCUMENT"],
+    });
+    expect(avec.capacites.every((c) => c.primitive !== "DOCUMENT")).toBe(true);
+  });
+
+  it("une primitive déjà couverte par le score ne consomme pas une place de plus", () => {
+    const avec = resoudreCapacites(DEMANDE, catalogueSourd, acteur, {
+      limite: 6, maxDomaines: 3, primitivesRequises: ["CALCUL", "CALCUL"],
+    });
+    expect(avec.capacites.filter((c) => c.id === "run_analysis")).toHaveLength(1);
+  });
+});

@@ -22,6 +22,7 @@ import { rolePourPlanification } from "@/lib/missions/model/roles";
 import { estimerJetons } from "@/lib/missions/memory/budget";
 import { budgetsDe, trier, type Profil } from "@/lib/missions/planner/triage";
 import { cheminDirect } from "@/lib/missions/planner/direct";
+import { direExigences, exigencesDe } from "@/lib/missions/planner/primitives";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -80,6 +81,8 @@ export interface ContextePlanification {
   dejaFait?: readonly string[];
   /** Pour une seconde tentative : ce que le compilateur a refusé. */
   refusPrecedent?: readonly string[];
+  /** Ce que le CODE a lu dans la demande (§56) — les primitives exigées, et le mot qui les dit. */
+  exigences?: string | null;
   /** Aujourd'hui, du point de vue de l'appelant. Injecté, jamais lu de l'horloge ici. */
   aujourdhui?: string;
   /**
@@ -341,6 +344,10 @@ export function composerContexte(
     ligne("TON PLAN PRÉCÉDENT A ÉTÉ REFUSÉ. Corrige EXACTEMENT ces points :", ctx.refusPrecedent),
     `\n\nCAPACITÉS DISPONIBLES (les seules — nom exact obligatoire) :\n${capacites}`,
     "\n\nChaque capacité porte sa PRIMITIVE entre crochets (information, calcul, document, représentation, action, orchestration) : compose au niveau des primitives — une demande jamais vue est une lecture + un calcul + une pièce + une action, pas une fonctionnalité qui manque. Un calcul sur des lignes lues se fait avec `run_analysis` ou `run_code`, jamais de tête.",
+    // CE QUE LE CODE A LU DANS LA DEMANDE. Dit APRÈS la liste des capacités, donc juste avant
+    // que le modèle n'écrive : c'est la dernière chose lue, et elle nomme le mot qui l'a
+    // déclenchée pour qu'elle soit contestable plutôt qu'assénée.
+    ctx.exigences ? `\n\n${ctx.exigences}` : "",
   ]
     .filter(Boolean)
     .join("");
@@ -537,10 +544,19 @@ export async function planifier(
    */
   const triage = trier(objectif);
   const budgets = budgetsDe(triage.profil);
+  /**
+   * CE QUE LA DEMANDE EXIGE, LU PAR LE CODE (§56).
+   *
+   * Déduit avant la résolution, parce qu'il en change le résultat : une demande qui réclame un
+   * chiffre doit VOIR une capacité qui calcule, sans quoi la consigne « ne calcule jamais de
+   * tête » ne laisse au planificateur qu'un manque honnête.
+   */
+  const exigences = exigencesDe(objectif);
   const resolution = resoudreCapacites(objectif, catalogue, acteur, {
     limite: budgets.limite,
     maxDomaines: budgets.maxDomaines,
     parDomaine: budgets.parDomaine,
+    primitivesRequises: exigences.map((e) => e.primitive),
     ...opts,
     // L'ENQUÊTE ÉLARGIT LE CATALOGUE MONTRÉ : une entité reconnue (un produit, un contrat) appelle
     // ses capacités, que les mots de la demande les nomment ou non. « Dossier Trastuzumab » ne
@@ -575,7 +591,7 @@ export async function planifier(
       ],
     }
     : ctx;
-  const contexte = composerContexte(objectif, liste, ctxAvecPlafond);
+  const contexte = composerContexte(objectif, liste, { ...ctxAvecPlafond, exigences: direExigences(exigences) });
   const role = opts.role ?? rolePourPlanification("B");
 
   const metriquesBase = {

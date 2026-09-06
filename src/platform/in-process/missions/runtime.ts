@@ -3,6 +3,7 @@ import { PLANNER_PROMPT_VERSION } from "@/lib/missions/planner/plan";
 import { prechargerCapacitesDynamiques } from "@/platform/in-process/skills";
 import { assurerFormes } from "@/platform/in-process/missions/formes";
 import { estReplanifiable, PLANS_MAX } from "@/lib/missions/runtime/replan";
+import { exigencesFermes } from "@/lib/missions/planner/primitives";
 import type { CurrentUser } from "@/lib/session";
 import { compile } from "@/lib/missions/compiler/compile";
 import { planifier, type ContextePlanification, type MetriquesPlanification } from "@/lib/missions/planner/plan";
@@ -366,7 +367,12 @@ async function lancerMissionInterne(
    * pendant que le rapport annonçait « lecture seule ». Le plafond porte maintenant sur l'effet
    * de l'étape, quelle que soit sa nature.
    */
-  const plafond = opts.lectureSeule ? { effetMax: "ANALYZE" as const } : {};
+  const plafond = {
+    ...(opts.lectureSeule ? { effetMax: "ANALYZE" as const } : {}),
+    // CE QUE LA DEMANDE EXIGE (§56) — lu dans la phrase par le code, jamais déclaré par le
+    // modèle : la déclaration serait faite par la partie qu'elle doit contraindre.
+    primitivesRequises: exigencesFermes(objectif),
+  };
   let compile1 = compile(plan.plan, catalogue, agent, plafond);
 
   if (!compile1.ok) {
@@ -933,6 +939,9 @@ async function replanifierMissionInterne(
     // retrouverait le droit d'écrire à la deuxième version de son plan — une porte dérobée qui
     // ne s'ouvrirait qu'après un échec, donc au pire moment.
     ...(opts.lectureSeule ? { effetMax: "ANALYZE" as const } : {}),
+    // LES EXIGENCES SURVIVENT AU REPLAN. Un plan v2 qui oublierait à nouveau le calcul serait
+    // refusé comme le v1 : la barre ne se relâche pas parce qu'on a déjà échoué une fois.
+    primitivesRequises: exigencesFermes(objectif),
   };
 
   const plan = await planifier(objectif, catalogue, acteur, cerveau, optionsPlan);
