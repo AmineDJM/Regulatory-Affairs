@@ -5153,6 +5153,39 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### LE BANC DES DÉFIS PASSE DE 43/48 À 46/48 — et les deux restants ne sont pas ce qu'ils disent (2026-09)
+
+Quarante-huit défis live, jugés par du code sur des effets vérifiés en base, contre le vrai
+fournisseur. **46/48 (96 %)**, contre 43/48 avant les corrections. Premier mot P50 8,68 s,
+P95 24,15 s ; 4,38 $ pour le banc entier ; 61 % de cache.
+
+Les CINQ échecs d'avant sont tous fermés, et par des causes différentes :
+
+| Défi | Ce qui le débloque |
+|---|---|
+| `defi-ordonnancement-critique` | la doctrine dans le prompt TEXTE — Adam appelle enfin `calcul_ordonnancement`, rend 19 jours, l'échéance qui ne tient pas, les 4 jours de retard et la cause (Sarah porte trois tâches) |
+| `defi-sql-refus` | le tri des écartées — `sql_query` remonte en tête, et le refus se dit comme un DROIT |
+| `defi-manque-nomme` | le juge réécrit : le connecteur DocuSign existe, Adam avait raison |
+| `defi-reseau-chemin` | le sommaire porte sa limite : compter n'est pas chercher un chemin |
+| `defi-evenement-attente` | le banc bat l'ordonnanceur tant que la mission n'est pas garée |
+
+Les deux qui restent ont été **vérifiés un par un**, parce qu'un banc live est stochastique et
+qu'un échec isolé ne prouve rien :
+
+- **`defi-conversion-perte` était un défaut du JUGE.** Adam a écrit « conservez impérativement le
+  .xlsx » et « le classeur d'ORIGINE » — exactement la consigne attendue. Le juge n'acceptait que
+  l'infinitif « conserver » et l'adjectif « original » : il notait une conjugaison, pas la sûreté.
+  Radicaux désormais.
+- **`defi-representation-dashboard` est une INSTABILITÉ RÉELLE, et le rejeu l'a prouvé.** Adam
+  rassemble bien les chiffres avec `sql_query`, puis écrit le tableau de bord en TEXTE au lieu
+  d'appeler `render_view`. Rejoué trois fois : deux réussites, un échec — soit **2 sur 4** en
+  comptant la passe du banc. Ce n'est donc pas du bruit, et il aurait été confortable de le
+  classer ainsi après un seul rejeu réussi. Le mode d'échec est identique à chaque fois : les
+  lignes viennent d'un SQL ad hoc, et rien dans ce chemin ne rappelle que l'écran sait les
+  afficher. La sortie de `sql_query` porte désormais ce rappel — même remède que le sommaire de
+  réseau : c'est le RÉSULTAT qui dit ce qu'on peut en faire, pas une consigne de plus dans le
+  prompt.
+
 ### 200 MISSIONS, 86 ÉCHECS DE « PLANIFICATEUR » — et c'en était UN (2026-09)
 
 Le banc d'autonomie a tourné sur deux cents missions inédites, par le VRAI `lancerMission`. Il se

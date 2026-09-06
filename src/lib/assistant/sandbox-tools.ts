@@ -195,6 +195,19 @@ export const SANDBOX_TOOLS: PowerTool[] = [
       return JSON.stringify({
         ok: true, titre, source: "base ERP, lecture seule", isolation: r.isolation, relations: r.relations, ms: r.ms,
         rendu: blocs.length ? `à l'écran sous la réponse : ${[bloc ? "le tableau" : null, blocViz ? `le graphique (${graphique.type})` : null].filter(Boolean).join(" et ")} — ne pas les recopier` : undefined,
+        // ── UN TABLEAU PAR REQUÊTE N'EST PAS UN TABLEAU DE BORD ────────────────────────────
+        //
+        // DÉFAUT MESURÉ (2 échecs sur 4 passes du défi « mini tableau de bord »). La ligne
+        // `rendu` ci-dessus est utile pour UNE requête : elle évite de recopier en texte ce que
+        // l'écran montre déjà. Sur une demande COMPOSÉE — « les tâches par statut, les réunions
+        // par mois, les dossiers par statut » — elle produit l'effet inverse : après sept
+        // requêtes, Adam lit « l'écran montre déjà » et conclut en prose. Sept tableaux empilés
+        // ne sont pas un tableau de bord, et `render_view` est précisément ce qui en compose un.
+        //
+        // On le dit dans le RÉSULTAT plutôt que dans le prompt, comme le sommaire de réseau dit
+        // qu'il ne cherche aucun chemin : c'est au moment où l'on tient les lignes que le rappel
+        // sert, et il ne coûte rien aux tours qui n'en ont pas besoin.
+        ...(blocs.length ? { composer: "Ce tableau vaut pour CETTE requête. Si la demande porte sur un tableau de bord, une comparaison ou plusieurs angles à la fois, des tableaux séparés n'y répondent pas : compose la vue avec `render_view`." } : {}),
         colonnes: r.colonnes, lignesTotal: r.lignes.length, tronque: r.tronque,
         lignes: r.lignes.slice(0, LIGNES_MODELE),
         ...(r.lignes.length > LIGNES_MODELE ? { note: `${LIGNES_MODELE} lignes montrées sur ${r.lignes.length} ; le tableau affiché en montre 50 — agréger dans la requête pour tout voir` } : {}),
