@@ -5153,6 +5153,33 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### AVANT / APRÈS SUR LES QUATRE FAMILLES MORTES : 2 réussites deviennent 21 (2026-09)
+
+Le mandat demande un avant/après, pas une intuition. Les corrections de rappel du résolveur ont
+donc été rejouées sur EXACTEMENT les mêmes missions : même graine, même corpus, filtré sur les
+quatre familles qui faisaient près de zéro.
+
+| Famille | avant | après |
+|---|---|---|
+| STATISTIQUES | **0** / 17 | **6** / 12 |
+| LEGAL | **0** / 14 | **7** / 14 |
+| REPRESENTATION | 2 / 17 | **7** / 17 |
+| COMPOSITION | **0** / 16 | **1** / 13 |
+| **total** | **2 réussites** | **21 réussites** |
+
+Sur le dénominateur du banc — les missions exploitables — cela fait 37,5 % contre 3 % avant.
+Trois autres chiffres comptent autant : **zéro faux succès**, **100 % des manques classés**, et
+**zéro violation de droit** (contre sept) — la correction du contrôle des permissions se vérifie
+donc sur une course réelle, et pas seulement en raisonnement.
+
+**Ce que cela ne dit PAS.** 37,5 % reste très loin des 95 % visés, et le banc se déclare encore
+NON CONCLUANT (huit missions sur soixante-quatre emportées par le fournisseur, soit 12,5 %,
+au-delà du dixième toléré). PLANIFICATEUR reste la première cause avec vingt-huit échecs : montrer
+le moteur au planificateur était NÉCESSAIRE, ce n'est pas SUFFISANT. COMPOSITION, à 1 sur 13,
+n'a presque pas bougé — c'est la famille qui demande d'enchaîner plusieurs primitives, et le
+défaut y est ailleurs que dans la visibilité des capacités. C'est le prochain fil à tirer, et il
+est nommé plutôt que masqué par une moyenne qui a monté.
+
 ### LE BANC DES DÉFIS PASSE DE 43/48 À 46/48 — et les deux restants ne sont pas ce qu'ils disent (2026-09)
 
 Quarante-huit défis live, jugés par du code sur des effets vérifiés en base, contre le vrai
