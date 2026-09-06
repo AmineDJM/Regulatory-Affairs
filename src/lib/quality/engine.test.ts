@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { consignerMesure } from "@/lib/evals/registre";
 import { prisma } from "@/lib/prisma";
 import { balayerQualite } from "./engine";
 import { REGLES, REGLES_SANS_DETECTEUR, DETECTEURS_SANS_REGLE, detecter } from "./rules";
@@ -127,6 +128,7 @@ describe("moteur de qualité des données — banc d'anomalies plantées", () =>
     const taux = 1 - manques.length / attendus.length;
     console.log(`   · détection ${attendus.length - manques.length}/${attendus.length} (${Math.round(taux * 100)} %) en ${r.ms} ms · ${r.constats} constats, ${r.nouveaux} nouveaux`);
     expect(manques, `anomalies plantées NON détectées : ${manques.map(([a, b]) => `${a}:${b}`).join(", ")}`).toEqual([]);
+    consignerMesure("anomalies_critiques", { n: attendus.length, ok: attendus.length - manques.length }, "lib/quality/engine.test.ts");
     // Les témoins propres ne déclenchent rien.
     const surTemoins = ouverts.filter((o) => o.entiteId === ids.temoin || o.entiteId === ids.ctemoin);
     expect(surTemoins, `faux positifs sur les témoins : ${surTemoins.map((o) => `${o.regle} — ${o.titre}`).join(" | ")}`).toEqual([]);

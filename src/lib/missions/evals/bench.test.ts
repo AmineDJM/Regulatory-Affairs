@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { consignerMesure } from "@/lib/evals/registre";
 import { prisma } from "@/lib/prisma";
 import { avancer } from "@/lib/missions/runtime/engine";
 import { chargerEtat, materialiser } from "@/lib/missions/runtime/store";
@@ -520,15 +521,27 @@ suite("BANC D'ESSAI — Mission Runtime", () => {
     expect(faitsAvantCrash).toBeGreaterThan(0);
     expect(faitsAvantCrash).toBeLessThan(500);
 
-    // Phase 2 : le nouveau processus finit le travail — sans REFAIRE une seule unité.
+    // Phase 2 : le nouveau processus finit le travail — sans REFAIRE une seule unité. Comme en
+    // production, un processus BAT plusieurs fois : sous la charge d'une suite complète (base
+    // partagée), un battement peut rendre la main avant la fin — mesuré : 330 envois sur 500 en
+    // un seul appel. Rebattre n'assouplit rien : l'invariant reste 500 exactement, zéro rejouée.
     const t2 = traceur({ gens: 500 });
-    const r2 = await avancer(id, actor, { runner: t2.runner });
+    let r2 = await avancer(id, actor, { runner: t2.runner });
+    for (let battement = 0; battement < 8; battement++) {
+      const e = await chargerEtat(id);
+      if (!e || ["COMPLETED", "FAILED", "CANCELLED"].includes(e.status)) break;
+      const encore = await avancer(id, actor, { runner: t2.runner });
+      r2 = { ...encore, executees: r2.executees + encore.executees, tours: r2.tours + encore.tours };
+      if (encore.executees === 0) break;
+    }
     const dureeMs = Date.now() - debut;
     const heapDeltaMo = Math.round((process.memoryUsage().heapUsed - heapAvant) / 1_048_576);
 
     const envois1 = t1.appels.filter((a) => a.capability === "send_message");
     const envois2 = t2.appels.filter((a) => a.capability === "send_message");
-    expect(envois1.length + envois2.length).toBe(500);
+    const etatFinal = await chargerEtat(id);
+    const enEchec = etatFinal?.steps.filter((s) => s.status === "FAILED").slice(0, 3).map((s) => `${s.key}: ${s.errorKind ?? "?"} ${s.error ?? ""}`) ?? [];
+    expect(envois1.length + envois2.length, `mission ${etatFinal?.status}, ${r2.tours} vagues, échecs : ${enEchec.join(" | ") || "aucun"}`).toBe(500);
     const rejouees = envois2.filter((a) => envois1.some((b) => b.stepKey === a.stepKey));
     KPI.etapesRejouees += rejouees.length;
     expect(rejouees).toHaveLength(0);
@@ -552,6 +565,7 @@ suite("BANC D'ESSAI — Mission Runtime", () => {
   it("LES DEUX INVARIANTS VALENT ZÉRO", () => {
     expect(KPI.prematureStops).toBe(0);
     expect(KPI.knownMismatchStops).toBe(0);
+    consignerMesure("faux_succes", { valeur: KPI.knownMismatchStops }, "lib/missions/evals/bench.test.ts", `${KPI.scenarios} scénarios`);
     expect(KPI.etapesRejouees).toBe(0);
   });
 });

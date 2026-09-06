@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { observabiliteMission } from "@/platform/in-process/missions/observabilite";
 import { resolveDriveAccess } from "@/lib/drive";
 import { retrieve, type AccessFilter } from "@/lib/knowledge/retrieve";
 import { userCan, MODULES, ACTIONS, hasGlobalView, getAccess, type Module, type Action, type SessionUser } from "@/lib/rbac";
@@ -711,6 +712,7 @@ async function etatMission(userId: string, missionId?: string): Promise<Platform
       enAttenteDeVous: v.enAttenteDeVous,
       sousMissions: v.sousMissions.length,
       bloc: v,
+      observabilite: await observabiliteMission(missionId, userId).catch(() => null),
     },
   };
 }

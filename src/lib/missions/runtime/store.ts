@@ -34,6 +34,8 @@ export interface MaterialiserOptions {
   goalRaw: string;
   parentMissionId?: string | null;
   maxConcurrency?: number;
+  /** Des CLÉS supplémentaires de la carte du plan (version du prompt, politiques servies) — fusionnées, jamais substituées. */
+  planMetaExtra?: Record<string, unknown>;
   /** Quand elle est fournie, on MET À JOUR cette mission au lieu d'en créer une (replan). */
   missionId?: string;
 }
@@ -148,7 +150,7 @@ export async function materialiser(
     scale: compiled.scale,
     maxConcurrency: opts.maxConcurrency ?? 6,
     parentMissionId: opts.parentMissionId ?? null,
-    planMeta: compiled.planMeta as never,
+    planMeta: { ...compiled.planMeta, ...(opts.planMetaExtra ?? {}) } as never,
   };
 
   const mission = opts.missionId

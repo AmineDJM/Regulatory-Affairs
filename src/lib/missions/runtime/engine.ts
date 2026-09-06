@@ -4,6 +4,7 @@ import type {
 } from "@/lib/missions/ports";
 import { verifierAvantAgir } from "@/lib/missions/agent/principal";
 import { systemClock } from "@/lib/missions/ports";
+import { prendreBail } from "@/lib/missions/runtime/bail";
 import { limitesDe, ordonnancer } from "@/lib/missions/runtime/scheduler";
 import {
   MissionState, STEP_TERMINAL, StepState, assertStepTransition, deduireEtat,
@@ -162,6 +163,11 @@ export interface TickResult {
   toursExecutants: number;
   /** Combien d'étapes étaient prêtes et n'ont pas eu de place. La file d'attente, mesurée. */
   differees: number;
+  /**
+   * Vrai quand une AUTRE instance vivante conduit cette mission : ce processus n'a pas pris le
+   * bail et n'a rien fait (§ bail). Ce n'est ni une pause ni un échec — c'est « pas moi ».
+   */
+  bailRefuse?: boolean;
 }
 
 const estTerminal = (s: StepState): boolean => STEP_TERMINAL.has(s);
@@ -231,6 +237,16 @@ export async function avancer(
     res.tours = tour + 1;
     const etat = await chargerEtat(missionId);
     if (!etat) throw new Error(`mission introuvable : ${missionId}`);
+
+    // LE BAIL, À CHAQUE VAGUE. Une autre instance vivante la conduit ? On passe — sans toucher à
+    // rien. Le renouvellement à chaque vague est ce qui protège une mission longue : le bail ne
+    // meurt qu'avec le processus qui le tenait.
+    if (!(await prendreBail(missionId, clock.now()))) {
+      res.bailRefuse = true;
+      res.status = etat.status;
+      res.enPause = true;
+      return res;
+    }
 
     if (etat.status === "COMPLETED" || etat.status === "CANCELLED") {
       res.status = etat.status;

@@ -30,6 +30,7 @@
     "adam:boundary": "tsx scripts/adam-boundary.ts",
     "office:bench": "tsx scripts/bench/office-bench.ts",
     "office:sabotage": "tsx scripts/bench/office-sabotage.ts",
+    "evals:report": "tsx scripts/evals-report.ts",
     "sheets:bench": "tsx scripts/bench/sheets-bench.ts",
     "factory:bench": "tsx scripts/bench/factory-bench.ts",
     "audit:reachability": "tsx scripts/audit-runtime-reachability.ts",

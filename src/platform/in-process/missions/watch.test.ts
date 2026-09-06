@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { consignerMesure } from "@/lib/evals/registre";
 import { prisma } from "@/lib/prisma";
 import { getAccess, type EffectiveAccess } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
@@ -285,6 +286,7 @@ suite("SURVEILLANCE DURABLE — un problème dit une fois, une fin dite une fois
     expect(bilan.examinees).toBeGreaterThanOrEqual(ids.length);
     const apres = await prisma.adamWatch.findMany({ where: { id: { in: ids } }, select: { lastCheckedAt: true, nextCheckAt: true, status: true } });
     expect(apres.length).toBe(ids.length);
+    consignerMesure("watches_restaures", { n: ids.length, ok: apres.filter((w) => w.status === "ACTIVE" && w.lastCheckedAt !== null && w.lastCheckedAt >= t0).length }, "platform/in-process/missions/watch.test.ts");
     for (const w of apres) { expect(w.lastCheckedAt && w.lastCheckedAt >= t0).toBe(true); expect(w.nextCheckAt > new Date()).toBe(true); expect(w.status).toBe("ACTIVE"); }
     // Le même balayage rejoué (second worker, redéploiement) ne relit aucune des nôtres.
     const avant = new Map(apres.map((w, i) => [ids[i], w.lastCheckedAt?.getTime()]));

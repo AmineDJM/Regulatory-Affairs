@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { consignerMesure } from "@/lib/evals/registre";
 import { readFileSync } from "node:fs";
 import { prisma } from "@/lib/prisma";
 import { resoudreEntite, resoudreMentions, contexteEntitesResolues } from "./entites";
@@ -152,6 +153,8 @@ describe("résolution d'entités — banc réaliste sur la vraie base (F9)", () 
     if (echecs.length) console.log(echecs.map((e) => `     ✗ ${e}`).join("\n"));
     expect(taux, echecs.join("\n")).toBeGreaterThanOrEqual(0.95);
     expect(p95).toBeLessThan(300);
+    consignerMesure("entites_ambigues", { n: cas.length, ok: cas.length - echecs.length }, "lib/fabric/entites.test.ts");
+    consignerMesure("entite_simple_p95", { valeur: p95 }, "lib/fabric/entites.test.ts");
   }, 120_000);
 
   it("l'ambiguïté devient une QUESTION qui distingue, et le contexte du planificateur l'ordonne", async () => {

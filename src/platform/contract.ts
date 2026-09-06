@@ -292,6 +292,61 @@ export interface MissionStatusView {
   enAttenteDeVous: string | null;
   sousMissions: number;
   bloc: unknown;
+  /** Le journal par action (§33) — présent quand une mission précise est demandée. */
+  observabilite?: ObservabiliteMission | null;
+}
+
+/** LA DÉCISION DE PERMISSION qu'une action a rencontrée — constatée, jamais déduite d'une phrase. */
+export type DecisionPermission = "ACCORDEE" | "REFUSEE" | "ACCORD_REQUIS" | "ACCORDEE_PAR_HUMAIN" | "SANS_OBJET";
+
+/**
+ * UNE ACTION DE MISSION, OBSERVÉE (§33) : les treize champs du mandat, tels que le code les a
+ * CONSTATÉS — un champ que la mission n'a pas produit est `null`, jamais rempli par déduction.
+ */
+export interface ActionObservee {
+  etape: string;
+  titre: string;
+  nodeType: string;
+  statut: string;
+  /** L'outil (la capacité) appelé. */
+  outil: string | null;
+  /** La version du prompt du planificateur qui a produit l'étape. */
+  promptVersion: string | null;
+  /** La source interrogée (domaine du registre), depuis le reçu. */
+  source: string | null;
+  /** SUCCES | VIDE | ECHEC | INDETERMINE, depuis le reçu. */
+  issue: string | null;
+  tentatives: number;
+  maxTentatives: number;
+  latenceMs: number | null;
+  debut: string | null;
+  fin: string | null;
+  decisionPermission: DecisionPermission;
+  /** La certitude qu'un reçu autorise : CERTAIN (trouvé ou preuve d'absence), PROBABLE (dédoublonné), HYPOTHESE (indéterminé), MANQUANT (échec). */
+  certitude: "CERTAIN" | "PROBABLE" | "HYPOTHESE" | "MANQUANT" | null;
+  /** Les règles enseignées servies au planificateur pour cette mission (les mêmes pour toutes ses actions). */
+  reglesUtilisees: string[];
+  sousAgent: { role: string; modele: string | null; statut: string; coutUsd: number | null } | null;
+  modele: string | null;
+  coutUsd: number | null;
+  erreur: string | null;
+  erreurKind: string | null;
+  resultats: number | null;
+}
+
+export interface ObservabiliteMission {
+  missionId: string;
+  planVersion: number;
+  promptVersion: string | null;
+  reglesUtilisees: string[];
+  /** Les modèles réellement appelés pour cette mission (journal des appels), avec leur coût quand il est connu. */
+  modeles: { modele: string; appels: number; coutUsd: number | null }[];
+  appelsModele: number;
+  appelsOutil: number;
+  coutUsd: number | null;
+  actions: ActionObservee[];
+  /** Les treize champs du mandat, pour qu'un lecteur (ou un test) vérifie qu'aucun ne manque. */
+  champs: readonly string[];
 }
 
 /** Une mission en cours, en une ligne. */

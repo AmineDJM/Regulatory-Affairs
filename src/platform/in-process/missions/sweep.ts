@@ -6,37 +6,15 @@ import { journaliser } from "@/lib/missions/runtime/store";
 import { relancerAttente } from "@/platform/in-process/missions/relance";
 import { porteAttentionPour } from "@/platform/in-process/missions/attention";
 import { avancerMission, rattraperLancementsPerdus, replanifierMission } from "@/platform/in-process/missions/runtime";
-import crypto from "crypto";
 
 /**
- * L'IDENTITÉ DE CETTE INSTANCE — ce que le BAIL écrit en base. Deux battements (deux workers,
- * un déploiement qui chevauche) ne font pas avancer la même mission en même temps : le premier
- * qui prend le bail travaille, l'autre passe. La SÛRETÉ ne dépend pas du bail — les étapes se
- * réservent une à une en base — mais sans lui, deux instances paieraient deux fois les mêmes
- * tours de moteur.
+ * LE BAIL vit dans le moteur (`runtime/bail.ts`) : c'est `avancer` qui le prend et le renouvelle
+ * à chaque vague, pour QUICONQUE conduit une mission — battement, conversation, banc. Le balayage
+ * le prend AVANT d'examiner une mission (ne pas payer un chargement pour rien) et le REND quand
+ * son passage est fini. Réexporté ici pour les appelants historiques.
  */
-const INSTANCE = `${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
-const BAIL_MS = 90_000;
-
-/** Prend le bail d'une mission — atomique : la base tranche entre deux prétendants. */
-export async function prendreBail(missionId: string, maintenant = new Date()): Promise<boolean> {
-  const r = await prisma.mission.updateMany({
-    where: {
-      id: missionId,
-      OR: [{ leaseUntil: null }, { leaseUntil: { lt: maintenant } }, { leaseOwner: INSTANCE }],
-    },
-    data: { leaseOwner: INSTANCE, leaseUntil: new Date(maintenant.getTime() + BAIL_MS) },
-  });
-  return r.count === 1;
-}
-
-/** Rend le bail — seulement le sien : rendre le bail d'un autre le lui volerait. */
-export async function rendreBail(missionId: string): Promise<void> {
-  await prisma.mission.updateMany({
-    where: { id: missionId, leaseOwner: INSTANCE },
-    data: { leaseOwner: null, leaseUntil: null },
-  }).catch(() => undefined);
-}
+export { prendreBail, rendreBail } from "@/lib/missions/runtime/bail";
+import { prendreBail, rendreBail } from "@/lib/missions/runtime/bail";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════

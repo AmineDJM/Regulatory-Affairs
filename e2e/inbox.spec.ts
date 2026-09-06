@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { consignerMesure } from "../src/lib/evals/registre";
 import { PrismaClient } from "@prisma/client";
 import { E2E } from "./global-setup";
 import { MESURE_DEBORDEMENTS } from "./measure";
@@ -56,6 +57,7 @@ test("les trois cartes réelles, classées, chargées dans le budget ; les filtr
   const ms = Number(await page.locator("[data-testid='inbox-timing']").getAttribute("data-ms"));
   console.log(`   · composition ${ms} ms · navigation jusqu'à la première carte ${navigationMs} ms`);
   expect(ms).toBeLessThan(1_500);
+  consignerMesure("inbox_chargement_p95", { valeur: ms }, "e2e/inbox.spec.ts", "un chargement mesuré dans la page (pas un P95 sur N)");
 
   // Les filtres : « Pour information » ne montre que la notification.
   await page.getByTestId("inbox-filter-FYI").click();
@@ -159,6 +161,7 @@ test("sur un téléphone, le retour visuel d'un geste arrive en moins de 150 ms 
   });
   expect(delaiMs, `retour visuel après ${Math.round(delaiMs)} ms`).toBeGreaterThanOrEqual(0);
   expect(delaiMs).toBeLessThan(150);
+  consignerMesure("feedback_mobile", { valeur: delaiMs }, "e2e/inbox.spec.ts", "clic → data-etat, 390 px");
   await expect(carte).toHaveAttribute("data-etat", /fait|erreur/, { timeout: 15_000 });
   await contexte.close();
 });

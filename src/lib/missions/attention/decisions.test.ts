@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { consignerMesure } from "@/lib/evals/registre";
 import { classer, canauxPour, type NiveauSignal } from "@/lib/missions/attention/policy";
 import type { SignalAttention } from "@/lib/missions/ports";
 
@@ -61,6 +62,7 @@ describe("la matrice agir / demander / prévenir — 100 % des décisions confor
       .map((c) => `${c.nom} : obtenu ${classer(c.signal)}, attendu ${c.attendu} (${c.pourquoi})`);
     expect(fautes, `décisions non conformes :\n${fautes.join("\n")}`).toEqual([]);
     expect(CAS.length).toBeGreaterThanOrEqual(25);
+    consignerMesure("conduite_attention", { n: CAS.length, ok: CAS.length - fautes.length }, "lib/missions/attention/decisions.test.ts");
   });
   it("les canaux suivent le niveau : JOURNAL est une ligne silencieuse, rien ne part par e-mail avant ATTENTION, rien n'insiste avant ARBITRAGE", () => {
     expect(canauxPour("SILENCE").notification).toBe(false);

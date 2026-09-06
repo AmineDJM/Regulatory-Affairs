@@ -58,6 +58,8 @@ export interface TurnContext {
   missionId?: string;
   /** L'usage qui paie : « assistant », « voice », « mission », « nudge », « brief »… */
   feature?: string;
+  /** La VERSION DU PROMPT système qui a servi le tour — relier une régression à un texte, pas à une date. */
+  promptVersion?: string;
 }
 
 export interface TurnTrace {
@@ -67,6 +69,8 @@ export interface TurnTrace {
   startedAt: number;
   calls: ModelUsage[];
   tools: ToolTrace[];
+  /** Les outils REFUSÉS PAR LE DROIT pendant le tour — la décision de permission, comptée et nommée. */
+  refus: string[];
   /** Temps jusqu'au premier signe de vie affiché (texte ou bloc). */
   firstPreviewMs: number | null;
   finalMs: number | null;
@@ -111,6 +115,7 @@ export function withTurn<T>(route: TurnRoute, fn: (trace: TurnTrace) => Promise<
     startedAt: Date.now(),
     calls: [],
     tools: [],
+    refus: [],
     firstPreviewMs: null,
     finalMs: null,
     complexity: null,
@@ -155,6 +160,11 @@ export function recordTool(trace: ToolTrace): void {
   currentTurn()?.tools.push(trace);
 }
 
+/** Un outil demandé et REFUSÉ par le droit : la décision de permission est un fait du tour, elle se compte. */
+export function recordPermissionRefusal(name: string): void {
+  currentTurn()?.refus.push(name);
+}
+
 /** Le premier signe de vie. Seul le PREMIER compte : après, l'utilisateur regarde déjà. */
 export function markPreview(): void {
   const t = currentTurn();
@@ -192,6 +202,8 @@ export interface TurnSummary {
   llmCalls: number;
   callsByRole: Record<ModelRole, number>;
   toolCalls: number;
+  /** Combien d'outils le droit a refusés sur ce tour (voir `recordPermissionRefusal`). */
+  permissionsRefusees: number;
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens: number;
@@ -250,6 +262,7 @@ export function summarize(trace: TurnTrace): TurnSummary {
     llmCalls: trace.calls.length,
     callsByRole,
     toolCalls: trace.tools.length,
+    permissionsRefusees: trace.refus.length,
     inputTokens,
     outputTokens,
     cachedInputTokens,

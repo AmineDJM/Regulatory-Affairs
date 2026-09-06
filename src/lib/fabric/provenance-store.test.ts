@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { consignerMesure } from "@/lib/evals/registre";
 import { prisma } from "@/lib/prisma";
 import { consignerProvenance, relireProvenance, repondreDouTuTiensCa } from "./provenance-store";
 import { extraireFaits, faitCalcule } from "./provenance";
@@ -76,5 +77,6 @@ describe("provenance-store — consigner, relire, répondre", () => {
     const p95 = durees[Math.floor(durees.length * 0.95) - 1] ?? durees[durees.length - 1];
     console.log(`   · provenance lookup : P50 ${durees[Math.floor(durees.length / 2)]} ms · P95 ${p95} ms (base locale, sans réseau)`);
     expect(p95).toBeLessThan(500);
+    consignerMesure("provenance_lookup_p95", { valeur: p95 }, "lib/fabric/provenance-store.test.ts");
   });
 });

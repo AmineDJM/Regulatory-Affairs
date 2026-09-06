@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { consignerMesure } from "@/lib/evals/registre";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { getAccess, type EffectiveAccess } from "@/lib/rbac";
@@ -158,5 +159,15 @@ suite("CRASH À CHAQUE FRONTIÈRE — la reprise conclut, sans doublon, quelle q
     }
     // Le tableau est la mesure : 5 frontières, 5 reprises, 0 doublon.
     expect(bilan.filter((b) => b.statut === "COMPLETED")).toHaveLength(frontieres.length);
+    // LES MESURES §33 : la reprise déterministe, et « 0 action sans preuve » — une étape de capacité
+    // terminée porte son reçu structuré (ou la marque DEDUPLIQUE, qui EST la preuve qu'un reçu existe
+    // ailleurs). Le MODÈLE d'un éventail (`forEach` posé) n'agit pas lui-même : ses preuves sont les reçus
+    // de ses filles `clé#n`, qui sont comptées ; il est donc exclu du dénominateur, pas exempté.
+    consignerMesure("workflows_deterministes", { n: bilan.length, ok: bilan.filter((b) => b.statut === "COMPLETED").length }, "platform/in-process/missions/crash-matrix.test.ts");
+    const feuilles = { mission: { ownerId: pdg.id }, status: "DONE" as const, nodeType: "CAPABILITY", forEach: { equals: Prisma.AnyNull } };
+    const faites = await prisma.missionStep.count({ where: feuilles });
+    const sansPreuve = await prisma.missionStep.count({ where: { ...feuilles, receipt: null, receiptData: { equals: Prisma.AnyNull } } });
+    expect(sansPreuve, "une étape DONE sans reçu ni marque de dédoublonnage").toBe(0);
+    consignerMesure("action_sans_preuve", { n: faites, ok: faites - sansPreuve }, "platform/in-process/missions/crash-matrix.test.ts");
   }, 300_000);
 });

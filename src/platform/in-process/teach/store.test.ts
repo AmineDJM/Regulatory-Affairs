@@ -8,6 +8,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { consignerMesure } from "@/lib/evals/registre";
 import { prisma } from "@/lib/prisma";
 import { getAccess } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
@@ -185,6 +186,7 @@ suite("Teach Adam — enseigner, retrouver, départager, réviser, supprimer", (
     const rows = await prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*)::bigint AS n FROM "AdamRule" WHERE "ownerId" IN (${pdg.id}, ${emp.id})`;
     // emp : préférence, pref 10 jours, contournement, dd/mm (supprimée), rapports futurs = 5 ; pdg : v1, v2, v3, validation, FAC = 5.
     expect(Number(rows[0].n)).toBe(10);
+    consignerMesure("regles_versionnees", { n: 10, ok: Math.min(10, Number(rows[0].n)) }, "platform/in-process/teach/store.test.ts");
     const statuts = await prisma.adamRule.groupBy({ by: ["status"], where: { ownerId: { in: [pdg.id, emp.id] } }, _count: true });
     const parStatut = Object.fromEntries(statuts.map((s) => [s.status, s._count]));
     expect(parStatut).toEqual({ ACTIVE: 7, SUPERSEDED: 2, DELETED: 1 });

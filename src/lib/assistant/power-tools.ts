@@ -1,4 +1,5 @@
 import type { ClaudeToolDef } from "@/lib/ai";
+import { recordPermissionRefusal } from "@/lib/models/telemetry";
 import type { CurrentUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { getEnvelopes, getEnvelopesGrandTotal, getBudgetOverview } from "@/lib/queries/budget";
@@ -432,7 +433,11 @@ export async function executePowerTool(
 ): Promise<string | null> {
   const tool = POWER_TOOLS.find((t) => t.def.name === name);
   if (!tool) return null;
-  if (!tool.allowed(user)) return "Ce module ne vous est pas ouvert : je ne peux pas consulter cette information.";
+  if (!tool.allowed(user)) {
+    // LA DÉCISION DE PERMISSION EST OBSERVÉE (§33) : refusée, nommée, comptée sur le tour.
+    recordPermissionRefusal(name);
+    return "Ce module ne vous est pas ouvert : je ne peux pas consulter cette information.";
+  }
   try {
     return await tool.run(input, user);
   } catch (err) {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { consignerMesure } from "@/lib/evals/registre";
 import {
   ancresNominales, ancresNumeriques, expliquerFait, extraireFaits, faitCalcule, faitsDuTour, familleDe, normaliserDate,
   repondreProvenance, LIMITE_FAITS_PAR_TOUR, type FaitSource,
@@ -209,5 +210,36 @@ describe("« D'où tu tiens ça ? » — la réponse est composée par le code",
     expect(expliquerFait(ext)).toMatch(/source externe/);
     const r = repondreProvenance({ question: "Ta source ?", tours: [{ createdAt: LU, question: null, faits: [ext] }] });
     expect(r.texte).toMatch(/citée, pas garantie/);
+  });
+});
+
+describe("§33 — 100 % des faits critiques portent leur provenance", () => {
+  it("sur un tour réaliste (produits, document OCR, annuaire, calcul), chaque fait dit sa nature, son outil, sa confiance, sa base, sa fraîcheur, sa date d'observation et son ancrage", () => {
+    const lignes = Array.from({ length: 8 }, (_, i) => ({ reference: `PRD-${i}`, dci: `Molécule ${i}`, lien: `/regulatory/${i}` }));
+    const faits = faitsDuTour([
+      { outil: "search_products", sortie: JSON.stringify({ produits: lignes }) },
+      { outil: "read_document", sortie: JSON.stringify({ fichier: "facture.pdf", page: 2, extractedBy: "ocr", confiance: 0.6, date: "2026-06-01", lien: "/drive/x", montant: "142 800" }) },
+      { outil: "directory_lookup", sortie: JSON.stringify({ personne: { nom: "Raihana Cherif", email: "raihana@adventum.dz", poste: "Regulatory" }, source: "annuaire" }) },
+      { outil: "search_products", sortie: JSON.stringify({ message: "Aucun produit." }) },
+    ], { acteur: ACTEUR });
+    const sure = faits.find((f) => f.outil === "search_products" && f.libelle === "PRD-0")!;
+    const ocr = faits.find((f) => f.outil === "read_document")!;
+    const total = faitCalcule({ outil: "finance_totals", acteur: ACTEUR, libelle: "Total", valeur: 142_800, entrees: [sure, ocr], transformation: "somme", formule: "a + b" });
+    const tous: FaitSource[] = [...faits, total];
+    expect(tous.length).toBeGreaterThanOrEqual(6);
+    const complet = (f: FaitSource): boolean =>
+      typeof f.id === "string" && f.id.length > 0
+      && typeof f.nature === "string" && f.nature.length > 0
+      && typeof f.outil === "string" && f.outil.length > 0
+      && Number.isFinite(f.confiance) && f.confiance >= 0 && f.confiance <= 1
+      && typeof f.base === "string" && f.base.length > 0
+      && typeof f.fraicheur === "string" && f.fraicheur.length > 0
+      && typeof f.observeLe === "string" && !Number.isNaN(Date.parse(f.observeLe))
+      && f.acteur === ACTEUR
+      // L'ANCRAGE : une famille de source, un lien, un locator ou une lignée de calcul — au moins un.
+      && (f.famille !== null || f.href !== null || f.locator !== null || f.calcul !== null);
+    const incomplets = tous.filter((f) => !complet(f));
+    expect(incomplets.map((f) => `${f.outil}:${f.libelle}`), "faits sans provenance complète").toEqual([]);
+    consignerMesure("provenance_faits_critiques", { n: tous.length, ok: tous.length - incomplets.length }, "lib/fabric/provenance.test.ts");
   });
 });

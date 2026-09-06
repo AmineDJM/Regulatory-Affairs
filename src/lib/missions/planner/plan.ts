@@ -338,6 +338,7 @@ export function composerContexte(
     ligne("DÉJÀ EXÉCUTÉ — ne le replanifie pas :", ctx.dejaFait),
     ligne("TON PLAN PRÉCÉDENT A ÉTÉ REFUSÉ. Corrige EXACTEMENT ces points :", ctx.refusPrecedent),
     `\n\nCAPACITÉS DISPONIBLES (les seules — nom exact obligatoire) :\n${capacites}`,
+    "\n\nChaque capacité porte sa PRIMITIVE entre crochets (information, calcul, document, représentation, action, orchestration) : compose au niveau des primitives — une demande jamais vue est une lecture + un calcul + une pièce + une action, pas une fonctionnalité qui manque. Un calcul sur des lignes lues se fait avec `run_analysis` ou `run_code`, jamais de tête.",
   ]
     .filter(Boolean)
     .join("");
@@ -679,3 +680,11 @@ export async function planifier(
   }
   return { ok: true, plan, metriques };
 }
+
+/**
+ * LA VERSION DU PROMPT DU PLANIFICATEUR (§33) — estampillée dans `planMeta.promptVersion` de chaque
+ * mission au lancement et à chaque replan. À incrémenter à CHAQUE changement du texte de consigne ou du
+ * schéma : c'est ce qui permet de dire « les missions planifiées sous la 2026-09-06.1 » quand on cherche
+ * l'origine d'une régression.
+ */
+export const PLANNER_PROMPT_VERSION = "2026-09-06.1";

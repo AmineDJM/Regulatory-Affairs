@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+import { consignerMesure } from "@/lib/evals/registre";
 import { getAccess, type EffectiveAccess } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
 import { ROLE_LABELS } from "@/lib/labels";
@@ -55,6 +56,9 @@ const planUneEtape = (capability: string, input: Record<string, unknown> = {}): 
 });
 
 suite("permissions × capacités × confirmation — sur le vrai catalogue, tous les rôles", () => {
+  // LA MESURE §33 : n = capacités jugées (écritures du résolveur + capacités de sécurité), ok = sans faute.
+  const tally = { n: 0, ok: 0 };
+  afterAll(() => { if (tally.n > 0) consignerMesure("permissions", tally, "platform/in-process/missions/permission-matrix.test.ts"); });
   it("les rôles sont ceux du produit (le test n'est pas vide)", () => {
     expect(ROLES.length).toBeGreaterThanOrEqual(8);
     expect(ROLES).toContain("SUPER_ADMIN");
@@ -92,6 +96,7 @@ suite("permissions × capacités × confirmation — sur le vrai catalogue, tous
       if (!s.idempotent && !s.needsIdempotencyKey) fautes.push(`${b.id} non rejouable compile SANS clé d'idempotence`);
     }
     expect(ecritures).toBeGreaterThan(10);
+    tally.n += ecritures; tally.ok += ecritures - fautes.length;
     expect(fautes, fautes.join("\n")).toEqual([]);
   });
 
@@ -116,6 +121,7 @@ suite("permissions × capacités × confirmation — sur le vrai catalogue, tous
       if (r.ok) fautes.push(`l'agent a compilé ${b.id} (SECURITY_ADMIN)`);
     }
     expect(securite, "le catalogue du Super Admin doit porter des capacités de sécurité à mesurer").toBeGreaterThan(0);
+    tally.n += securite; tally.ok += securite - fautes.length;
     expect(fautes, fautes.join("\n")).toEqual([]);
   });
 

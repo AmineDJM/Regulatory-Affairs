@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { PLANNER_PROMPT_VERSION } from "@/lib/missions/planner/plan";
 import type { CurrentUser } from "@/lib/session";
 import { compile } from "@/lib/missions/compiler/compile";
 import { planifier, type ContextePlanification, type MetriquesPlanification } from "@/lib/missions/planner/plan";
@@ -389,6 +390,8 @@ async function lancerMissionInterne(
     ownerId: user.id,
     title: titre,
     goalRaw: objectif,
+    // L'OBSERVABILITÉ (§33) : quelle version de consigne a planifié, quelles règles enseignées elle a lues.
+    planMetaExtra: { promptVersion: PLANNER_PROMPT_VERSION, politiques: contexte.politiques ?? [] },
     maxConcurrency: CONCURRENCE_PAR_ECHELLE[mission.scale],
     ...(opts.missionId ? { missionId: opts.missionId } : {}),
   });
@@ -932,6 +935,7 @@ async function replanifierMissionInterne(
     goalRaw: objectif,
     missionId,
     maxConcurrency: CONCURRENCE_PAR_ECHELLE[c.mission.scale],
+    planMetaExtra: { promptVersion: PLANNER_PROMPT_VERSION, politiques: contexteReplan.politiques ?? [] },
   });
 
   // ── §8 : CE QUI N'EST PLUS COUVERT REPASSE À L'ACCORD, ET RIEN D'AUTRE ─────────────
