@@ -57,6 +57,8 @@ import {
  */
 import { callClaude, callClaudeStream, assistantConfigured as aiConfigured } from "@/lib/models/compat";
 import { withTurn, markPreview, markFinal, logTurn, recordTool, setTurnContext, summarize, addPhase, timedPhase, type TurnRoute, type TurnContext, type TurnSummary } from "@/lib/models/telemetry";
+import { ADAM_PROMPT_VERSION } from "@/lib/assistant/prompt-version";
+import { complementDeLimite, gardeImpossibilite, RAPPEL_DECOUVERTE } from "@/lib/assistant/limites";
 import "@/platform/in-process/telemetry/usage-sink";
 import { callModel } from "@/lib/models/gateway";
 import { planifierPreLectures, executerPreLectures, PRE_LECTURE_MAX_CHARS } from "@/lib/assistant/pre-lectures";
@@ -4565,6 +4567,7 @@ function textOf(blocks: ClaudeContentBlock[]): string {
 const CRITIQUE_LABEL = "Relecture critique de la conclusion";
 /** L'étape visible quand la garantie d'enseignement rappelle le modèle à l'outil (§119). */
 const TEACH_GARDE_LABEL = "Vérification : l'enseignement doit passer par l'outil";
+const DECOUVERTE_LABEL = "Carte complète des capacités relue";
 /** L'étape visible quand « d'où tu tiens ça ? » se répond depuis le registre des lectures (F8). */
 const PROVENANCE_LABEL = "Provenance relue dans le registre des lectures";
 
@@ -4826,6 +4829,7 @@ async function runAssistantImpl(
 
   // La garantie d'enseignement (§119) ne rappelle le modèle qu'UNE fois par tour.
   let rappelEnseignement = false;
+    let redecouvert = false;
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const res = await callClaude(messages, { system, tools, maxTokens: 1400, model: opts.model, reasoning: effortPourNiveau(resolved.level), promptCacheKey: cacheKey, safetyIdentifier: surete });
     if (!res.ok || !res.content) {
@@ -4838,7 +4842,7 @@ async function runAssistantImpl(
     // Pas d'outil → réponse finale. Question à fort enjeu + réponse substantielle → SECONDE
     // PASSE CRITIQUE avant remise (davantage de calcul quand ça compte ; jamais l'inverse).
     if (res.stopReason !== "tool_use" || toolUses.length === 0) {
-      const brut = textOf(blocks) || "D'accord.";
+      let brut = textOf(blocks) || "D'accord.";
       // LA GARANTIE D'ENSEIGNEMENT (§119) — même règle qu'en flux : un « règle enregistrée » se prouve par un outil.
       const verdictTeach = gardeEnseignement({
         question, reponse: brut, outilsUtilises: usedTools,
@@ -4853,6 +4857,19 @@ async function runAssistantImpl(
         continue;
       }
       if (verdictTeach === "DEMENTIR") return avecProvenance({ configured: true, ok: true, reply: DEMENTI_ENSEIGNEMENT, trace });
+      // ── LA DÉCOUVERTE AVANT L'IMPOSSIBLE (§34) — « je ne peux pas » sans un seul outil appelé n'est
+      // pas une réponse : le serveur remet la carte complète et exige un second essai, une fois.
+      const verdictImp = gardeImpossibilite({ question, reponse: brut, outilsUtilises: usedTools, outilsDisponibles: allTools.map((t) => t.name), dejaRedecouvert: redecouvert });
+      if (verdictImp === "REDECOUVRIR") {
+        redecouvert = true;
+        trace.push(DECOUVERTE_LABEL);
+        const carte = runDiscovery({}, allTools);
+        tools = avecOutilsDeclares(tools, allTools, carte.unlock);
+        messages.push({ role: "assistant", content: blocks });
+        messages.push({ role: "user", content: `${RAPPEL_DECOUVERTE}\n\n${carte.text}` });
+        continue;
+      }
+      if (verdictImp === "ACCEPTER") { const c = complementDeLimite(brut, allTools.length); if (c) brut = `${brut}\n\n${c}`; }
       const reply = reparerReponse(brut);
       if (highStakes && reply.length >= CRITIQUE_MIN_DRAFT) {
         const revised = await reviseHighStakes(systemComplet, question, reply, opts.model, cacheKey).catch(() => null);
@@ -5312,6 +5329,7 @@ async function runAssistantStreamImpl(
 
     // La garantie d'enseignement (§119) ne rappelle le modèle qu'UNE fois par tour.
     let rappelEnseignement = false;
+    let redecouvert = false;
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       metrics.turns = turn + 1;
       // Le texte part AU FIL DE L'EAU. Si le tour se révèle finalement être un appel d'outil,
@@ -5339,7 +5357,7 @@ async function runAssistantStreamImpl(
         // réelle sur trois modules. La réparation est déterministe (préfixe strict, candidat
         // UNIQUE) ; quand elle a corrigé un texte déjà diffusé, le client le remplace (`reset`),
         // exactement comme la passe critique.
-        const redige = textOf(blocks) || "D'accord.";
+        let redige = textOf(blocks) || "D'accord.";
         // ── LA GARANTIE D'ENSEIGNEMENT (§119) ─────────────────────────────────────────────
         // « Règle enregistrée » sans qu'aucun outil Teach n'ait tourné dans CE tour n'est pas une
         // réponse, c'est un faux succès (mesuré en suite live : l'historique portait la même
@@ -5363,6 +5381,20 @@ async function runAssistantStreamImpl(
           emit({ type: "delta", text: DEMENTI_ENSEIGNEMENT });
           return avecProvenance({ configured: true, ok: true, reply: DEMENTI_ENSEIGNEMENT, trace, metrics });
         }
+        // ── LA DÉCOUVERTE AVANT L'IMPOSSIBLE (§34) — même règle qu'hors flux : la carte complète est
+        // remise une fois ; le texte déjà diffusé était un refus prématuré, le client l'efface (`reset`).
+        const verdictImp = gardeImpossibilite({ question, reponse: redige, outilsUtilises: usedTools, outilsDisponibles: allTools.map((t) => t.name), dejaRedecouvert: redecouvert });
+        if (verdictImp === "REDECOUVRIR") {
+          redecouvert = true;
+          if (streamed) emit({ type: "reset" });
+          if (!trace.includes(DECOUVERTE_LABEL)) { trace.push(DECOUVERTE_LABEL); emit({ type: "trace", label: DECOUVERTE_LABEL }); }
+          const carte = runDiscovery({}, allTools);
+          tools = avecOutilsDeclares(tools, allTools, carte.unlock);
+          messages.push({ role: "assistant", content: blocks });
+          messages.push({ role: "user", content: `${RAPPEL_DECOUVERTE}\n\n${carte.text}` });
+          continue;
+        }
+        if (verdictImp === "ACCEPTER") { const c = complementDeLimite(redige, allTools.length); if (c) { redige = `${redige}\n\n${c}`; if (streamed) { emit({ type: "reset" }); streamed = false; } } }
         const reparation = reparerReponse(redige);
         const reply = reparation.texte;
         // Rien n'a été diffusé (réponse vide côté modèle) → on envoie le repli d'un trait.
@@ -6674,7 +6706,7 @@ export function runAssistant(
   opts: AssistantRunOptions = {},
 ): Promise<AssistantResult> {
   return withTurn(routeOf(opts.origin), async (trace) => {
-    setTurnContext({ userId: user.id, feature: opts.origin === "nudge" ? "nudge" : "assistant", ...(opts.turnContext ?? {}) });
+    setTurnContext({ userId: user.id, feature: opts.origin === "nudge" ? "nudge" : "assistant", promptVersion: ADAM_PROMPT_VERSION, ...(opts.turnContext ?? {}) });
     let result: AssistantResult | null = null;
     try {
       result = await runAssistantImpl(user, history, opts);
@@ -6695,7 +6727,7 @@ export function runAssistantStream(
   opts: AssistantRunOptions = {},
 ): Promise<AssistantResult> {
   return withTurn(routeOf(opts.origin), async (trace) => {
-    setTurnContext({ userId: user.id, feature: opts.origin === "nudge" ? "nudge" : "assistant", ...(opts.turnContext ?? {}) });
+    setTurnContext({ userId: user.id, feature: opts.origin === "nudge" ? "nudge" : "assistant", promptVersion: ADAM_PROMPT_VERSION, ...(opts.turnContext ?? {}) });
     let result: AssistantResult | null = null;
     try {
       // LE PREMIER SIGNE DE VIE est marqué au premier événement réellement diffusé — pas à

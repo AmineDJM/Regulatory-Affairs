@@ -799,4 +799,29 @@ Article 16 — Droit applicable. Le présent contrat est régi par le droit fran
       return m;
     },
   },
+  // ── AUTONOMIE GÉNÉRALISTE (§34) : calculer plutôt que dire « impossible », composer plutôt que refuser ──
+  {
+    id: "defi-autonomie-calcul", categorie: "AUTONOMIE",
+    tours: ["Calcule la médiane et le 90e centile des montants des ordres de dépense enregistrés cette année, et dis-moi combien dépassent 1 000 000 DZD. Montre ton calcul."],
+    doitUneDe: [/m[ée]diane/i],
+    neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /pas pr[ée]vu/i, /hors de mes/i],
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      if (!ctx.outils.some((o) => ["run_analysis", "run_code", "sql_query", "finance_totals"].includes(o))) m.push(`aucun outil de calcul appelé (outils : ${ctx.outils.join(", ") || "aucun"})`);
+      if (!/\d/.test(ctx.reponse)) m.push("aucun chiffre dans la réponse");
+      if (!/centile|p90|90/i.test(ctx.reponse)) m.push("le 90e centile n'est pas dit");
+      return m;
+    },
+  },
+  {
+    id: "defi-autonomie-composition", categorie: "AUTONOMIE",
+    tours: ["Combien d'heures de réunion ai-je eues ces 30 derniers jours, et avec qui le plus souvent ? Donne le total et le classement."],
+    neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /pas pr[ée]vu/i, /hors de mes/i, /impossible/i],
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      if (ctx.outils.length === 0) m.push("aucun outil appelé : la réponse n'est pas calculée");
+      if (!/\d/.test(ctx.reponse)) m.push("aucun chiffre (total d'heures) dans la réponse");
+      return m;
+    },
+  },
 ];

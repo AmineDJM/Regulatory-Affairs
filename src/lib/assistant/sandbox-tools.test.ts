@@ -112,6 +112,23 @@ describe("run_code et chart_advice", () => {
     expect(out.ok).toBe(false);
     expect(out.erreur).toMatch(/process/);
   });
+  it("LA PORTE DE QUALITÉ (§34) : un calcul FAUX n'est pas exposé (l'étape « tests » refuse et dit la correction) ; une forme fausse non plus ; un calcul juste passe avec son rapport", async () => {
+    const attentes = [{ chemin: "total", op: "egal", valeur: 390_000, libelle: "total des montants" }];
+    const faux = JSON.parse((await executePowerTool("run_code", { langage: "js", source: { lignes }, code: "return { total: lib.sum(data.map(d => d.montant)) * 1.19 };", attentes }, salarie))!);
+    expect(faux.ok).toBe(false);
+    expect(faux.resultat).toBeUndefined();
+    expect(faux.porte.refusePar).toBe("tests");
+    expect(faux.porte.tests).toBe("0/1");
+    expect(faux.erreur).toMatch(/corriger le calcul, pas l'attente/);
+    const forme = JSON.parse((await executePowerTool("run_code", { langage: "js", source: { lignes }, code: "return [1, 2, 3];", schema: { forme: "objet", cles: ["total"] } }, salarie))!);
+    expect(forme.ok).toBe(false);
+    expect(forme.porte.refusePar).toBe("validation");
+    const juste = JSON.parse((await executePowerTool("run_code", { langage: "js", source: { lignes }, code: "return { total: lib.sum(data.map(d => d.montant)), n: data.length };", attentes, schema: { forme: "objet", cles: ["total", "n"] } }, salarie))!);
+    expect(juste.ok).toBe(true);
+    expect(juste.resultat).toEqual({ total: 390_000, n: 4 });
+    expect(juste.porte).toMatchObject({ expose: true, refusePar: null, tests: "1/1" });
+    expect(juste.porte.etapes).toHaveLength(4);
+  });
   it("chart_advice recommande, et juge trompeuse une spec à axe tronqué en 3D", async () => {
     const out = JSON.parse((await executePowerTool("chart_advice", {
       lignes: [{ societe: "A", total: 900 }, { societe: "B", total: 300 }, { societe: "C", total: 150 }], question: "compare les sociétés",

@@ -15,6 +15,7 @@ export {
 } from "@/lib/sandbox/analyse";
 export { recommanderGraphique, verifierGraphique, type SpecGraphique, type Alerte, type TypeGraphique } from "@/lib/sandbox/viz";
 export { appliquerEtapes, mesureDe, filtreDe, OPS_PIPELINE, MODE_EMPLOI_PIPELINE, ETAPES_MAX, type ResultatPipeline, type JournalEtape } from "@/lib/sandbox/pipeline";
+export { passerLaPorte, inspecter, tester, valider, type Attente, type SchemaSortie, type RapportPorte } from "@/lib/sandbox/porte";
 
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";

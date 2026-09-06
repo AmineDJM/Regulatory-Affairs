@@ -71,6 +71,26 @@ export const EFFECT_RANK: Record<Effect, number> = {
 /** L'ordre de grandeur de la latence — sert au pool, pas à l'affichage. */
 export type LatencyClass = "LOW" | "MEDIUM" | "HIGH";
 
+/**
+ * LES SIX PRIMITIVES (mandat 5 §34) — « primitives > features ». Une capacité EST d'abord l'une
+ * de ces six choses ; c'est à ce niveau que le planificateur compose, et c'est ce qui rend une
+ * demande jamais vue planifiable : il ne cherche pas la fonctionnalité qui porte le nom de la
+ * demande, il assemble information + calcul + document + représentation + action + orchestration.
+ */
+export const PRIMITIVES = ["INFORMATION", "CALCUL", "DOCUMENT", "REPRESENTATION", "ACTION", "ORCHESTRATION"] as const;
+export type Primitive = (typeof PRIMITIVES)[number];
+
+/** La primitive d'une capacité, déduite de son nom et de son effet — jamais « autre ». */
+export function primitiveDeduite(name: string, effect: Effect): Primitive {
+  const n = name.toLowerCase();
+  if (/mission|watch|schedule|planifi|orchestr|delegate|consult_specialists|workflow/.test(n)) return "ORCHESTRATION";
+  if (/chart|graph|visual|dashboard|render|show_|display|timeline/.test(n)) return "REPRESENTATION";
+  if (/run_code|run_analysis|sql_query|calcul|compute|simulat|forecast|statist|product_economics|_intelligence$|business_story|totals?/.test(n)) return "CALCUL";
+  if (/report|export|docx|pptx|xlsx|pdf|document_profile|create_document|generate_|draft|deliverable|office_|edit_document|artifact/.test(n)) return "DOCUMENT";
+  if (EFFECT_RANK[effect] >= EFFECT_RANK.PREPARE) return "ACTION";
+  return "INFORMATION";
+}
+
 export interface CapabilityMeta {
   id: string;
   domain: string;
@@ -100,6 +120,8 @@ export interface CapabilityMeta {
   contrat: Contrat;
   /** Vrai quand la métadonnée a été DÉCLARÉE ; faux quand elle a été dérivée ou devinée. */
   declared: boolean;
+  /** L'une des six primitives (§34) — le niveau où le planificateur compose. */
+  primitive: Primitive;
 }
 
 /**
@@ -110,7 +132,7 @@ export interface CapabilityMeta {
  * Le reste est dérivé, et le test d'architecture exige qu'une capacité UTILISÉE par une
  * mission soit déclarée — c'est là que la rigueur est nécessaire, pas partout.
  */
-export const DECLARED: Record<string, Omit<CapabilityMeta, "id" | "declared" | "contrat"> & { contrat?: Contrat }> = {
+export const DECLARED: Record<string, Omit<CapabilityMeta, "id" | "declared" | "contrat" | "primitive"> & { contrat?: Contrat }> = {
   // ─────────── Lectures canoniques ───────────
   /**
    * ── LES CONTRATS DÉCLARÉS ICI ONT TOUS ÉTÉ LUS DANS LE CODE DE L'OUTIL ─────────────────
@@ -345,7 +367,7 @@ export function capabilityMeta(name: string, estEcriture?: (n: string) => boolea
   // L'ORDRE DU SPREAD COMPTE : `contrat` vient APRÈS, sinon un `contrat: undefined` absent de la
   // déclaration écraserait le défaut et rendrait le champ non défini là où le type promet une
   // valeur. Le genre d'inversion qui ne casse rien au typecheck et tout à l'exécution.
-  if (declared) return { id: name, declared: true, ...declared, contrat: declared.contrat ?? "LIBRE" };
+  if (declared) return { id: name, declared: true, ...declared, contrat: declared.contrat ?? "LIBRE", primitive: primitiveDeduite(name, declared.effect) };
 
   // Dérivation. L'ordre compte : la liste d'écritures du résolveur l'emporte sur le préfixe,
   // parce qu'elle est tenue par le code qui exécute, et non par une convention de nommage.
@@ -391,6 +413,7 @@ export function capabilityMeta(name: string, estEcriture?: (n: string) => boolea
     // sémantique existe pour empêcher.
     contrat: "LIBRE",
     declared: false,
+    primitive: primitiveDeduite(name, effect),
   };
 }
 

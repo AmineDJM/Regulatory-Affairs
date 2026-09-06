@@ -3232,6 +3232,8 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Spécialistes et calibration (§29)** | `lib/assistant/confidence/calibrate.ts` (pur : `Certitude` CERTAIN / PROBABLE / HYPOTHESE / MANQUANT / CONTRADICTION → `Conduite` AGIR / VERIFIER / CHERCHER / DEMANDER / ARBITRER ; `certitudeDuFait` depuis la base et la confiance d'un fait F8 — une lecture de modèle ou le web n'est jamais certaine —, `contradictionsDe` (même libellé, deux valeurs), `manquantsDe` (ancres de la question sans fait), `calibrer` (le maillon faible gouverne), `enjeuDe`), `confidence/tour.ts` (`calibrerTour` : le résultat du tour porte `calibration`, la trace la dit, une proposition sous MANQUANT / CONTRADICTION reçoit un avertissement AVANT confirmation), `lib/assistant/specialists/registry.ts` (neuf spécialistes définis, `actif` seulement après mesure : Regulatory, Legal, Finance ; Data, Recherche, Documents, Excel, Web, Contrôle inactifs et le disent), `specialists/run.ts` (`deleguer` : worker éphémère, liste FERMÉE d'outils de lecture ∩ ceux de la personne, `maxTours`, délai, chaque outil par `executeReadTool` et tracé `recordTool`, rapport calibré depuis ses faits), `specialists/tools.ts` (`consult_specialists` : 1 à 4 demandes en parallèle, `specialiste:<id>` dans la trace du tour, `_provenance` fusionnée, `ADAM_SPECIALISTS=off` pour mesurer sans) ; résolveur : les outils du geste de surveillance passent toujours quand la phrase le demande (`estDemandeDeSurveillance`), les écritures du domaine principal devant ses lectures au niveau B |
 | **Voix, multimodal, mobile (§30)** | Voix : `assistant/voice-realtime.ts` (`realtimeToolsFor` = `assistantToolsFor`, LE MÊME registre et les MÊMES droits que le texte ; `delegate_to_chief_of_staff` fait tourner l'orchestrateur texte complet avec l'historique du fil), `api/assistant/voice/tool` (chaque appel d'outil revient sur le serveur authentifié, `executePowerTool` revérifie), `voice/turn` (`rememberExchange` sur le même `threadId` : voix → clavier → Excel, un seul fil). Multimodal : `platform/in-process/media/index.ts` (pont : `ocrDocument`, `callLuna`), `lib/assistant-files.ts` (`lireImageOuScan` : image ou scan → OCR réel Tesseract local avec secours vision sur les pages faibles, puis LECTURE VISUELLE Luna (type de pièce, texte, chiffres, lisibilité, alertes) quand le texte est mince ou de faible confiance ; la note dit la méthode, la confiance, le temps, et « PROBABLE, chiffres à confirmer » — elle VOYAGE avec le texte jusqu'au modèle ; usage Luna compté dans le tour), `buildAttachmentContext` (la note accompagne le texte). Mobile : `components/chief/inbox/inbox-view.tsx` (`data-etat` sur la carte : repos / en_cours / fait / erreur — l'état optimiste est posé de façon SYNCHRONE au toucher), `e2e/inbox.spec.ts` (390 px : retour visuel mesuré dans la page < 150 ms, puis l'écriture serveur). Banc : `assistant-files.multimodal.test.ts` (2, PNG rendu par sharp → OCR sans modèle), défi live `defi-multimodal-facture` (une photo de facture jointe au tour, par le MÊME chemin que le navigateur : fournisseur, numéro et TTC lus, dits probables, jamais « FAIT VÉRIFIÉ ») |
 | **Meeting Intelligence (§32)** | `platform/in-process/meetings/index.ts` (`niveauReunionPour` : règle Teach `niveauReunion` en vigueur, sinon défaut du rôle ; `composerBriefReunion` : LIGHT → tâches ouvertes par participant ; STANDARD → + dernière réunion du même sujet (notes, actions et leur sort sur la tâche créée, responsables, échéances), décisions liées, engagements ; CHIEF_OF_STAFF → + historique, fonctions, dossiers (dictionnaire d'entités), décisions à obtenir (validations en attente, étapes de mission WAITING), risques et contradictions (signaux §27 nommant ces entités/personnes), engagements en retard, questions ouvertes calculées, suivi jusqu'à l'occurrence suivante), `lib/meetings/niveau.ts` (pur : `niveauDepuisTexte`, `niveauDepuisRegles`, `niveauParDefaut`, `CONTENU_PAR_NIVEAU`), `teach/classify.ts` (`extraireParametres` → `{ cle: "niveauReunion", valeur }` quand la phrase parle du brief de réunion), `in-process/teach/store.ts` (canonise la valeur), `assistant/executive-brief-tools.ts` (`pre_meeting_brief` : `title`, `niveau` imposable) ; cloisonné à VOS réunions, VOS engagements, VOS décisions, VOS validations. Banc : `pre-meeting-brief.test.ts` (5), `niveau.test.ts` (3), défi live `defi-reunion-chef-de-cabinet` |
+| **Suite d'évaluation, sabotages, observabilité (§33)** | `lib/evals/cibles.ts` (pur : `CIBLES` — 17 cibles avec exigence, sens, unité, invariant, fichier de mesure ; `mesurer`, `verdictSuite`, `rendreTableau`), `lib/evals/registre.ts` (`consignerMesure` → `bench-out/evals/<cible>.json`, `lireMesures`), `scripts/evals-report.ts` (`npm run evals:report` : tableau, RAPPORT.md, P50 du dernier banc live, sortie 1 sur cible manquée ou non mesurée sauf `--souple`) ; mesures posées dans `permission-matrix`, `crash-matrix` (+ invariant « 0 étape DONE sans reçu »), `fabric/entites`, `quality/engine`, `attention/decisions`, `fabric/provenance` (+ test 100 % des faits), `fabric/provenance-store`, `teach/store`, `missions/watch`, `evals/bench`, `e2e/inbox` ; `platform/in-process/evals/sabotages.test.ts` (14 situations adverses jouées contre le vrai code) ; `platform/in-process/missions/observabilite.ts` (`observabiliteMission` : treize champs par action depuis `MissionStep`, `MissionWorkerRun`, `ModelCallLog`, `MissionApproval`, `planMeta`), `missions/planner/plan.ts` (`PLANNER_PROMPT_VERSION` estampillée avec les politiques dans `planMeta` par `materialiser({ planMetaExtra })`), `assistant/prompt-version.ts` (`ADAM_PROMPT_VERSION` dans le contexte du tour), `models/telemetry.ts` (`recordPermissionRefusal`, `permissionsRefusees` dans le résumé du tour), `platform/contract.ts` (`ActionObservee`, `ObservabiliteMission`, `MissionStatusView.observabilite`) |
+| **Autonomie généraliste (§34)** | `missions/registry/capability-meta.ts` (`PRIMITIVES`, `primitiveDeduite`, `CapabilityMeta.primitive` — INFORMATION / CALCUL / DOCUMENT / REPRESENTATION / ACTION / ORCHESTRATION), `registry/resolve.ts` (`listerPourPlanner` affiche la primitive), `platform/in-process/missions/catalog.ts` (`CapabilityBrief.primitive`) ; `assistant/limites.ts` (`gardeImpossibilite` : « impossible » sans outil → `runDiscovery` côté serveur + `RAPPEL_DECOUVERTE` + déblocage des outils, une fois ; `classerLimite` : PERMISSION / RESSOURCE / DONNÉE / CAPACITÉ, précision ; `complementDeLimite`) branchée dans `assistant.ts` (deux boucles, trace « Carte complète des capacités relue ») ; `sandbox/porte.ts` (`inspecter`, `tester`, `valider`, `passerLaPorte` : inspect → execute → test → validate → expose, refus nommé, correction dite) branchée dans `run_code` (`attentes`, `schema`, `porte` dans la réponse). Banc : `porte.test.ts` (6), `limites.test.ts` (6), `primitives.test.ts` (2), `sandbox-tools.test.ts` (+1), défis live `defi-autonomie-calcul`, `defi-autonomie-composition` |
 | **Résolution d'entités (F9, §24)** | `lib/fabric/entites-score.ts` (scoreur pur : `scorerNom`, `trancher`, `detecterIdentifiant`, `questionDeDesambiguation`) ; `lib/fabric/entites.ts` (`resoudreEntite`, `resoudreMentions`, `contexteEntitesResolues` — dix natures, trigramme) ; pont `platform/in-process/fabric/entites.ts` ; `assistant.ts` (`resolvePerson` par la brique, bloc d'entités résolues dans le contexte du tour) ; `fabric/entites.test.ts` (banc de 60 mentions). |
 | **Teach Adam — règles enseignées** | `lib/teach/model.ts` (natures, périmètres, statuts, `KINDS_CONTRAIGNANTS`) ; `classify.ts` (`classerEnseignement`, `extraireParametres`) ; `resolve.ts` (`estApplicable`, `comparerPrecedence`, `resoudre`, `conflitsAvecExistantes`, `cleDe`) ; `compose.ts` (`composerBlocRegles`, `lignesPourPlanificateur`) ; pont `platform/in-process/teach/store.ts` (`enseigner`, `listerRegles`, `modifierRegle`, `changerStatutRegle`, `reglesEnVigueurPour`, `contexteRegles`, `politiquesPourMission`, `standardsDocumentaires`) ; outils `lib/assistant/teach-tools.ts` (`teach_adam`, `list_rules`, `update_rule`, `disable_rule`, `delete_rule`) ; garde `missions/policy/guard.ts` ; modèle `AdamRule`. |
 | **Adam — la coque de son bureau (et sa porte de sortie)** | Groupe de routes `app/(chief)/layout.tsx` : coque délibérément VIDE — ni menu latéral, ni barre supérieure, ni barre d'onglets, ni palette, ni bandeaux. `components/chief/{chief-workspace,chief-header,chief-home}.tsx` + `app/chief.css` (jeu de jetons `--chief-*` propre à Adam). **La sortie** : `components/chief/module-switcher.tsx` — une icône dans l'en-tête ouvre la liste des modules que CETTE personne peut ouvrir (champ de filtre, groupé par pôle, Échap / clic dehors referment). Les destinations arrivent par le **contrat de plateforme** (`navigation.destinations` → `in-process/adapter.ts` → `lib/nav-access.ts`), jamais par un import du menu de l'ERP : c'est ce qui garde le cliquet de frontière à 430. Le même `navigationFor` sert la barre latérale de l'ERP — une seule vérité sur « qui a le droit d'aller où ». Tests : `platform/navigation-destinations.test.ts` (dont : une entrée fusionnée mène au premier onglet AUTORISÉ, donc `/ad-pro` pour l'admin et `/congress-international` pour le délégué médical). |
@@ -3590,6 +3592,108 @@ du dossier d'un chef de cabinet. Le niveau se **choisit** — et il s'**enseigne
   `defi-reunion-chef-de-cabinet` (tour 1 enseigne, la base porte `params.cle = niveauReunion` ; tour 2 le brief
   passe par `pre_meeting_brief`, nomme la participante, rapporte l'action de la dernière réunion et
   l'engagement en retard).
+
+### Suite d'évaluation, sabotages et observabilité par action — mandat 4 §33
+
+Un chiffre exigé sans mesure est une intention ; une mesure sans seuil est une courbe. La suite relie
+les deux, et le code rend le verdict.
+
+- **Dix-sept cibles, un registre** (`lib/evals/cibles.ts`, pur) : les dix chiffres du mandat (100 %
+  sécurité des permissions, 0 faux succès, 0 action sans preuve, ≥ 99 % de reprise déterministe, ≥ 95 %
+  d'entités résolues, ≥ 95 % d'anomalies critiques détectées, ≥ 95 % de conduites agir / attendre /
+  prévenir / demander conformes, 100 % de provenance des faits critiques, 100 % de règles récupérables,
+  100 % de surveillances restaurées), plus les sabotages tenus, les actions observables, et cinq
+  latences (entité P95 < 300 ms, provenance P95 < 500 ms, boîte de décision < 1,5 s, retour mobile
+  < 150 ms, premier mot au banc des défis — cliquet ≤ 8 s, 6,3 s mesuré). `mesurer` juge une observation
+  (`{ n, ok }` ou `{ valeur }`) contre sa cible ; `verdictSuite` n'est atteint que si TOUT est mesuré et
+  atteint ; `rendreTableau` dit « NON MESURÉE » et « INVARIANT CASSÉ » en toutes lettres.
+- **Les mesures naissent là où le comportement se prouve.** Chaque matrice existante appelle
+  `consignerMesure` (`lib/evals/registre.ts`) au moment où elle compte : permissions × capacités,
+  crash à chaque frontière (reprise, et « 0 étape DONE sans reçu » — nouvel invariant asserté),
+  résolution d'entités et son P95, moteur de qualité, politique d'attention, provenance (un tour réaliste :
+  100 % des faits portent nature, outil, confiance, base, fraîcheur, date, ancrage), relecture de
+  provenance, magasin de règles, surveillances après redémarrage, sabotages, observabilité, et les deux
+  parcours Playwright de la boîte. Une mesure = un fichier `bench-out/evals/<cible>.json` (dernier
+  passage fait foi, écriture atomique, jamais bloquante).
+- **`npm run evals:report`** relit ces fichiers, ajoute le P50 du premier mot du dernier banc live, imprime
+  le tableau (exigence, mesuré, verdict, où et quand), l'écrit dans `bench-out/evals/RAPPORT.md`, et sort
+  en erreur sur une cible manquée — ou non mesurée, sauf `--souple`. Trois règles tenues par
+  `cibles.test.ts` : une cible non mesurée n'est jamais réussie ; un invariant casse au premier cas ; un
+  dénominateur nul ne vaut pas 100 %.
+- **Quatorze sabotages, tenus par le vrai code** (`platform/in-process/evals/sabotages.test.ts`) : mauvaise
+  entité (deux « Ahmed » → aucun retenu, une question), doublons (deux fiches au même nom détectées,
+  jamais fusionnées), source obsolète ou non sûre (OCR / lecture de modèle → jamais CERTAIN, vérifier),
+  contradiction (15 M vs 17 M → CONTRADICTION, arbitrage), règle conflictuelle (refusée et dite ;
+  remplacer crée la v2, garde la v1), permission refusée (la phrase le dit, la décision est comptée),
+  fournisseur indisponible (HTTP 503 à la planification → talon PLANNING, PLANNING_DEFERRED, rien de
+  perdu), facture sans BC (signal finance), crash pendant une surveillance (relue une fois, pas deux),
+  redéploiement (règles et surveillances relues depuis la base), règle mise à jour en cours de mission
+  (le planificateur relit les politiques à chaque plan), sous-agents en désaccord (CONTRADICTION ; aucun
+  spécialiste actif sans bénéfice mesuré), coût trop élevé (plafond atteint → BUDGET_HOLD, l'étape ne
+  tourne pas), modèle principal indisponible (HTTP 503 → `ok: false`, arrêt `error`, classé transitoire,
+  jamais une exception ni un faux texte).
+- **L'observabilité par action** (`platform/in-process/missions/observabilite.ts`) compose, SANS nouvelle
+  table, les treize champs du mandat pour chaque étape : modèle et sous-agent (`MissionWorkerRun`),
+  version du prompt du planificateur et règles enseignées servies (`planMeta.promptVersion`,
+  `planMeta.politiques`, estampillés au lancement et au replan), outil, source, issue, latence et
+  nombre de résultats (le reçu structuré), tentatives, erreur et cause (`MissionStep`), décision de
+  permission (REFUSEE sur `MISSING_PERMISSION`, ACCORD_REQUIS / ACCORDEE_PAR_HUMAIN par les accords,
+  SANS_OBJET hors capacité), certitude que le reçu autorise (trouvé ou preuve d'absence → CERTAIN,
+  dédoublonné → PROBABLE, indéterminé → HYPOTHESE, échec → MANQUANT). Un champ non produit vaut `null`,
+  jamais déduit. Le contrat `mission.status` porte `observabilite` ; côté conversation, chaque tour porte
+  `promptVersion` (`lib/assistant/prompt-version.ts`) et compte `permissionsRefusees`
+  (`recordPermissionRefusal` dans `executePowerTool`).
+- **Banc** : `cibles.test.ts` (4), `sabotages.test.ts` (15, ~2,4 s), `observabilite.test.ts` (2 : une mission
+  lancée et conduite par l'entrée de production, treize champs présents, cloisonnement ; un tour où le
+  droit refuse un outil est compté et porte sa version de prompt), mesures dans neuf matrices et deux
+  parcours Playwright.
+
+### Autonomie généraliste — mandat 5 §34
+
+Un assistant qui a des fonctionnalités répond « je ne peux pas » dès que la demande ne porte pas le
+nom d'un bouton. Un assistant qui a des PRIMITIVES compose. Ce lot rend la composition structurelle,
+et interdit au code de laisser passer un « impossible » non vérifié.
+
+- **Six primitives, portées par chaque capacité** (`missions/registry/capability-meta.ts` :
+  `PRIMITIVES`, `primitiveDeduite`, `CapabilityMeta.primitive`) — INFORMATION, CALCUL, DOCUMENT,
+  REPRESENTATION, ACTION, ORCHESTRATION. Le brief du planificateur (`registry/resolve.ts`,
+  `listerPourPlanner`) les affiche en tête de chaque ligne : le planificateur ne cherche plus la
+  fonctionnalité qui porte le nom de la demande, il assemble une lecture, un calcul, une pièce, une
+  représentation, une action, une orchestration. `primitives.test.ts` : chaque capacité déclarée en
+  porte une, jamais « autre ».
+- **La découverte avant l'impossible** (`assistant/limites.ts`, `gardeImpossibilite`, branchée dans
+  les deux boucles de `assistant.ts` à côté de la garantie d'enseignement). Quand le modèle conclut
+  « je ne peux pas / je n'ai pas d'outil / ce n'est pas prévu » SANS avoir appelé un seul outil, le
+  serveur ne le croit pas : il exécute lui-même la découverte (`runDiscovery`, la carte complète des
+  capacités ouvertes à cette personne, droits déjà appliqués), la remet au modèle avec un ordre de
+  second essai (`RAPPEL_DECOUVERTE`), et débloque les outils correspondants pour la suite du tour.
+  Une fois : après la carte, le refus est accepté — mais un refus de capacité imprécis reçoit le
+  complément du serveur (« la carte complète a été relue ; une capacité qui manque est une lacune à
+  combler, pas un non prévu »). Un refus qui nomme déjà sa limite (droit, ressource, donnée) n'est
+  pas rejoué. La trace le dit (« Carte complète des capacités relue »).
+- **Une limite a une nature** (`classerLimite`) : PERMISSION (un droit manque), RESSOURCE (python3
+  absent, clé non configurée, pièce sans texte), DONNÉE (rien dans la base), CAPACITÉ (aucune brique
+  ne fait cela). « Pas codé », « pas prévu », « pas dans mes fonctions » sont classés imprécis : ce
+  sont des aveux qui cachent l'une des quatre. Le classement sert la réponse, le journal des lacunes
+  (§44) et le banc.
+- **Le code comme outil passe une porte de qualité** (`sandbox/porte.ts`, pur : generate → INSPECT →
+  EXECUTE → TEST → VALIDATE → expose). `run_code` accepte des `attentes` (assertions closes lues par
+  le serveur sur le résultat : égal, différent, supérieur, inférieur, entre, contient, longueur,
+  non vide, type) et un `schema` (forme promise : objet avec clés, liste bornée, nombre, texte). Le
+  serveur inspecte d'abord (taille, interdits que l'isolation ne couvre pas — réseau, fichiers,
+  processus, évaluation dynamique, boucle sans borne, `return` / `result` absents), exécute dans le
+  bac, teste, valide (nombres finis, forme, clés), et n'EXPOSE le résultat que si tout tient. Sinon
+  la réponse dit l'étape qui a refusé et la correction — « corriger le calcul, pas l'attente » — et le
+  résultat n'est pas rendu : un chiffre faux avec l'air d'un chiffre juste est le défaut que la porte
+  supprime. Le rapport (`porte.etapes`, `tests`) voyage avec le résultat.
+- **Zéro contournement des permissions** : rien de nouveau n'ouvre un droit — la découverte ne montre
+  que ce qui est déjà ouvert, `run_code` ne lit que des données venues d'une lecture canonique
+  (revérifiée), du Drive (nœud par nœud) ou d'une requête SQL sous vue globale ; la matrice
+  permissions × capacités (§33) reste à 100 %.
+- **Banc** : `porte.test.ts` (6), `limites.test.ts` (6), `primitives.test.ts` (2), `sandbox-tools.test.ts`
+  (+1 : faux résultat non exposé, forme fausse non exposée, calcul juste exposé avec son rapport),
+  défis live `defi-autonomie-calcul` (médiane et P90 calculés par un outil, jamais « impossible ») et
+  `defi-autonomie-composition` (heures de réunion par participant : lecture + calcul composés).
 
 ### Information Fabric (`src/lib/fabric/`) — façade L2
 
@@ -4144,6 +4248,8 @@ npx prisma migrate deploy
 
 ## ✅ Tests & qualité
 
+- **Suite d'évaluation (§33)** : `npm test` et `npm run test:e2e` déposent les mesures des cibles dans `bench-out/evals/` ; `npm run evals:report` imprime le tableau des dix-sept cibles (exigence, mesuré, verdict, où) et échoue sur une cible manquée ou non mesurée (`--souple` tolère les non mesurées).
+
 - **Vitest** : tests RBAC (purs, CI-safe) + **tests d'intégration** des workflows critiques contre une vraie base
   Postgres (mock de session) — information médicale, dossiers, directives, support, OnlyOffice (JWT), stockage
   durable, validation des imports Drive, score d'adoption anti-gaming, atterrissage sûr, matériel promotionnel,
@@ -4217,6 +4323,21 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
 
 ### La provenance au niveau du fait, la garantie d'enseignement, et la boîte dans le pont (2026-09)
 
+- **Primitives plutôt que fonctionnalités, la découverte avant l'impossible, et une porte de qualité
+  sur le code** (mandat 5 §34) : chaque capacité porte l'une des six primitives et le planificateur
+  compose à ce niveau ; « je ne peux pas » sans un seul outil appelé déclenche, côté serveur, la
+  relecture de la carte complète et un second essai — une limite acceptée doit dire sa nature (droit,
+  ressource, donnée, capacité), jamais « pas prévu » ; `run_code` inspecte, exécute, teste contre des
+  attentes closes, valide la forme promise, et n'expose un résultat que si tout tient.
+- **La suite d'évaluation compte, les sabotages tiennent, chaque action se lit** (mandat 4 §33) :
+  dix-sept cibles dans un registre pur, mesurées par les matrices existantes au moment où elles
+  comptent (`consignerMesure`), relues par `npm run evals:report` qui dit « non mesurée » plutôt que
+  « réussie » ; quatorze situations adverses (mauvaise entité, doublons, source non sûre, contradiction,
+  règle conflictuelle, permission refusée, fournisseur indisponible, facture sans BC, crash pendant une
+  surveillance, redéploiement, règle changée en cours de mission, sous-agents en désaccord, plafond de
+  coût, modèle indisponible) jouées contre le vrai code, 14/14 ; et un journal par action de mission —
+  treize champs constatés, jamais déduits — servi par `mission.status`, avec la version du prompt et les
+  règles enseignées estampillées dans le plan, et la décision de permission comptée sur chaque tour.
 - **Le brief de réunion a trois niveaux, et c'est la personne qui enseigne le sien** (mandat 4 §32) :
   LIGHT (réunion, ordre du jour, tâches ouvertes par participant), STANDARD (+ notes de la dernière réunion
   du même sujet, actions et leur sort calculé sur la tâche créée, décisions liées, engagements), CHIEF OF

@@ -372,7 +372,7 @@ export function resoudreCapacites(
 /** Les capacités, mises en forme pour le prompt. Une ligne chacune — c'est tout le propos. */
 export function listerPourPlanner(capacites: readonly CapabilityBrief[]): string {
   return capacites
-    .map((c) => `- ${c.id} [${c.domain} · effet ${c.effect}${c.batchable ? " · répétable" : ""}] — ${c.summary}`
+    .map((c) => `- ${c.id} [${c.primitive ? `${c.primitive.toLowerCase()} · ` : ""}${c.domain} · effet ${c.effect}${c.batchable ? " · répétable" : ""}] — ${c.summary}`
       // LE CONTRAT D'ENTRÉE, SUR LA MÊME LIGNE. C'est ce qui remplace la devinette des clés
       // (`message` pour `body`) par une lecture : le planificateur ne peut plus ignorer ce que
       // l'outil lit, et le compilateur refuse ce qui s'en écarte (INVALID_INPUT).

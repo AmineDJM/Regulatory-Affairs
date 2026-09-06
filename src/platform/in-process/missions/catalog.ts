@@ -141,6 +141,7 @@ export function catalogueDe(user: CurrentUser, opts: OptionsCatalogue = {}): Cat
     return {
       id: d.name,
       domain: m.domain,
+      primitive: m.primitive,
       effect: m.effect,
       batchable: m.batchable,
       summary: resumer(labels.get(d.name) ? `${labels.get(d.name)}. ${d.description}` : d.description)

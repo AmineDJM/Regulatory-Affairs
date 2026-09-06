@@ -104,6 +104,7 @@ const catalogue: CapabilityCatalog = {
       confirmation: "NEVER",
       contrat: "LIBRE",
       declared: false,
+      primitive: "INFORMATION",
     }) satisfies CapabilityMeta,
   brief: () => [...CAPACITES],
 };

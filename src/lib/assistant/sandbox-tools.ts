@@ -33,6 +33,7 @@ import {
   appliquerEtapes, OPS_PIPELINE, MODE_EMPLOI_PIPELINE,
   recommanderGraphique, verifierGraphique, decrire,
   lireLignesDrive, aVueGlobale,
+  passerLaPorte, type Attente, type SchemaSortie,
   type Ligne, type SpecGraphique,
 } from "@/platform/in-process/sandbox";
 
@@ -251,6 +252,7 @@ export const SANDBOX_TOOLS: PowerTool[] = [
         + "JavaScript : fil isolé, contexte vide (data, lib{sum,mean,median,min,max,round,groupBy,sortBy,uniq,countBy,pick,toNumber,month,daysBetween}, console.log), 5 s, 128 Mo, "
         + "le code doit `return` un résultat JSON. Python : processus isolé aux limites noyau (pas de fichiers, pas de réseau, pas de sous-processus), 8 s ; "
         + "le code lit `data` et pose `result` ; disponible seulement si le serveur a python3 (dit dans la réponse). "
+        + "PORTE DE QUALITÉ : déclare des `attentes` (assertions closes sur le résultat) et un `schema` (forme promise) — le serveur inspecte, exécute, teste, valide, et n'EXPOSE le résultat que si tout tient ; sinon il dit l'étape qui a refusé et la correction à faire, et tu corriges le code (pas l'attente). "
         + "Données : même « source » que run_analysis (lecture, drive, sql, lignes) ou « donnees » libres. Rien n'est écrit nulle part.",
       input_schema: {
         type: "object",
@@ -260,6 +262,8 @@ export const SANDBOX_TOOLS: PowerTool[] = [
           source: { type: "object", description: "{ source | outil+args | drive(+feuille) | sql | lignes } — devient `data`." },
           donnees: { description: "Données libres si aucune source — devient `data`." },
           titre: { type: "string" },
+          attentes: { type: "array", description: "LA PORTE DE QUALITÉ : des assertions closes sur le résultat, lues par le serveur — [{ chemin: 'total', op: 'egal'|'different'|'superieur'|'inferieur'|'entre'|'contient'|'longueur'|'nonVide'|'type', valeur?, bornes?: [min,max], libelle? }]. Une attente non tenue = résultat NON exposé, avec la correction à faire.", items: { type: "object" } },
+          schema: { type: "object", description: "La FORME promise du résultat : { forme: 'objet'|'liste'|'nombre'|'texte'|'quelconque', cles?: [...], max? }. Une forme fausse = résultat non exposé." },
         },
         required: ["code"],
       },
@@ -284,13 +288,22 @@ export const SANDBOX_TOOLS: PowerTool[] = [
         const dispo = sonderPython();
         if (!dispo.disponible) return JSON.stringify({ ok: false, langage, erreur: `Python indisponible sur ce serveur : ${dispo.raison}. Réécrire en JavaScript (langage: "js").` });
       }
-      const r = langage === "python" ? await executerPython(code, data) : await executerJs(code, data);
+      // LA PORTE DE QUALITÉ (§34) : inspecter → exécuter → tester → valider → exposer. Un résultat
+      // qui ne passe pas n'est pas rendu ; l'étape qui a refusé et la correction le sont.
+      const attentes = (Array.isArray(input.attentes) ? input.attentes.filter(isObj) : []) as unknown as Attente[];
+      const schema = (isObj(input.schema) ? input.schema : null) as SchemaSortie | null;
+      const porte = await passerLaPorte({
+        code, langage, data, attentes, schema,
+        executer: async (c, d) => { const x = langage === "python" ? await executerPython(c, d) : await executerJs(c, d); return { ok: x.ok, resultat: x.resultat, erreur: x.erreur, ms: x.ms, journal: x.journal }; },
+      });
+      const r = { ok: porte.expose, resultat: porte.expose ? porte.resultat : undefined, ms: porte.etapes.find((e) => e.etape === "execution")?.ms ?? 0, erreur: porte.expose ? undefined : porte.correction ?? porte.etapes[porte.etapes.length - 1]?.detail, journal: [] as string[], notes: [] as string[] };
       const lignes = Array.isArray(r.resultat) ? (r.resultat as unknown[]).filter(isObj) : [];
       const bloc = lignes.length >= 2 ? blocTableau(titre, lignes) : null;
       const brut = JSON.stringify(r.resultat ?? null);
       return JSON.stringify({
         ok: r.ok, langage, titre, source: origine, ms: r.ms,
-        isolation: "isolation" in r ? r.isolation : "fil isolé, contexte vide, mémoire et délai bornés",
+        isolation: langage === "python" ? "processus isolé, limites noyau" : "fil isolé, contexte vide, mémoire et délai bornés",
+        porte: { expose: porte.expose, refusePar: porte.refusePar, correction: porte.correction, tests: `${porte.testsPasses}/${porte.testsTotal}`, etapes: porte.etapes.map((e) => `${e.etape} : ${e.ok ? "ok" : "REFUS"} — ${e.detail}`) },
         ...(langage === "python" ? { python: { version: sonderPython().version, modules: sonderPython().modules } } : {}),
         ...(r.erreur ? { erreur: r.erreur } : {}),
         journal: r.journal, notes: r.notes,

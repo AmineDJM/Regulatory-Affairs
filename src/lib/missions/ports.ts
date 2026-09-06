@@ -50,6 +50,8 @@ export interface MissionActor {
 export interface CapabilityBrief {
   id: string;
   domain: string;
+  /** L'une des six primitives (§34) : INFORMATION, CALCUL, DOCUMENT, REPRESENTATION, ACTION, ORCHESTRATION. */
+  primitive?: string;
   effect: Effect;
   batchable: boolean;
   /** Une phrase, à l'impératif. « Envoie un e-mail préparé. » */
