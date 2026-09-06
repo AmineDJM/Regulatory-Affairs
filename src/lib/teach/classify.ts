@@ -11,6 +11,7 @@
  */
 
 import type { Kind } from "@/lib/teach/model";
+import { niveauDepuisTexte, parleDuBriefDeReunion } from "@/lib/meetings/niveau";
 
 const plier = (s: string): string => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
@@ -69,6 +70,11 @@ export function extraireParametres(texte: string, kind: Kind): Record<string, un
   // droit, c'est une règle de société — et la fabrique doit quand même en tirer « 45 jours ».
   // Mesuré au banc des défis : la règle était enregistrée, et le devis sortait à 30 jours.
   if (kind !== "MAPPING" && kind !== "VALIDATION_RULE") {
+    // LE NIVEAU DE BRIEF DE RÉUNION (§32) : « pour mes réunions, briefing de chef de cabinet ».
+    if (parleDuBriefDeReunion(t)) {
+      const niveau = niveauDepuisTexte(t);
+      if (niveau) return { cle: "niveauReunion", valeur: niveau };
+    }
     const validite = /devis[^.]{0,60}?(?:valable|validite)[^0-9]{0,20}(\d{1,3})\s*jours?|validite[^0-9]{0,30}(\d{1,3})\s*jours?/.exec(t);
     if (validite) return { cle: "validiteDevis", valeur: Number(validite[1] ?? validite[2]), unite: "jours" };
     const prefixe = /(factures?|devis|bons? de commande)[^.]{0,40}?(?:commencent? par|prefixe|numerot\w* en)\s*[«"']?\s*([a-z0-9]{1,8})\b/.exec(t);

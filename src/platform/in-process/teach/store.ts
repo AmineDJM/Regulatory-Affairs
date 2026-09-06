@@ -35,6 +35,7 @@ import {
 } from "@/lib/teach/model";
 import { cleDe, conflitsAvecExistantes, resoudre, type Resolution } from "@/lib/teach/resolve";
 import { composerBlocRegles, lignesPourPlanificateur } from "@/lib/teach/compose";
+import { NIVEAUX, niveauDepuisTexte } from "@/lib/meetings/niveau";
 
 export type { Kind, Regle, Scope, Statut } from "@/lib/teach/model";
 export { DOMAINES_SUGGERES, KINDS, LIBELLE_KIND, LIBELLE_SCOPE, LIBELLE_STATUT, SCOPES } from "@/lib/teach/model";
@@ -126,7 +127,11 @@ export async function politiquesPourMission(userId: string, domaine?: string | n
 const CLES_DOCUMENTAIRES = new Set(["validiteDevis", "prefixeFacture", "prefixeDevis", "prefixeBonDeCommande", "tvaDefaut", "conditionsPaiement", "mentionPied"]);
 
 const plierCle = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
-const CLE_CANONIQUE = new Map([...CLES_DOCUMENTAIRES].map((c) => [plierCle(c), c]));
+/** Les clés que le pont sait canoniser : les standards documentaires, et le niveau de brief de réunion (§32). */
+const CLES_CONNUES = new Set([...CLES_DOCUMENTAIRES, "niveauReunion"]);
+/** Les VARIANTES que le modèle écrit pour une clé connue — mesuré au banc : `{ niveau: "CHIEF_OF_STAFF" }` pour le niveau de brief. */
+const ALIAS_CLES: Record<string, string> = { niveau: "niveauReunion", niveaubrief: "niveauReunion", niveaudebrief: "niveauReunion", niveaubriefing: "niveauReunion", niveaureunions: "niveauReunion", briefreunion: "niveauReunion", meetinglevel: "niveauReunion", brieflevel: "niveauReunion" };
+const CLE_CANONIQUE = new Map([...[...CLES_CONNUES].map((c) => [plierCle(c), c] as const), ...Object.entries(ALIAS_CLES).map(([a, c]) => [plierCle(a), c] as const)]);
 
 /**
  * NORMALISE les paramètres reçus du modèle. `cle` est repliée sur une clé connue quand elle en
@@ -144,7 +149,12 @@ export function normaliserParams(fournis: unknown, extraits: Record<string, unkn
     // LA FORME PLATE : le modèle écrit parfois `{ validiteDevis: 45, unite: "jours" }` au lieu de
     // `{ cle, valeur }`. Une seule clé documentaire connue parmi les propriétés = c'est elle.
     const connues = Object.keys(brut).filter((k) => CLE_CANONIQUE.has(plierCle(k)));
-    if (connues.length !== 1) return brut;
+    if (connues.length !== 1) {
+      // Aucune clé connue (ou plusieurs) dans la forme plate, mais le TEXTE en porte une : c'est le texte
+      // qui a raison — mesuré au banc, `{ niveau: … }` sans clé aurait laissé une règle sans structure.
+      if (connues.length === 0 && extraits && typeof extraits.cle === "string" && CLES_CONNUES.has(extraits.cle)) return extraits;
+      return brut;
+    }
     const [k] = connues;
     const valeur = brut[k];
     delete brut[k];
@@ -155,7 +165,7 @@ export function normaliserParams(fournis: unknown, extraits: Record<string, unkn
   const canon = CLE_CANONIQUE.get(plierCle(cleBrute));
   if (!canon) {
     // Clé inconnue alors que le texte porte une clé connue : c'est le texte qui a raison.
-    if (extraits && typeof extraits.cle === "string" && CLES_DOCUMENTAIRES.has(extraits.cle)) return extraits;
+    if (extraits && typeof extraits.cle === "string" && CLES_CONNUES.has(extraits.cle)) return extraits;
     return brut;
   }
   const cle: string = canon;
@@ -170,6 +180,10 @@ export function normaliserParams(fournis: unknown, extraits: Record<string, unkn
     if (Number.isFinite(n)) brut.valeur = n > 1 ? n / 100 : n;
   }
   if (cle.startsWith("prefixe") && typeof valeur === "string") brut.valeur = valeur.trim().toUpperCase();
+  if (cle === "niveauReunion" && typeof valeur === "string") {
+    const v = valeur.trim().toUpperCase().replace(/[\s-]+/g, "_");
+    brut.valeur = (NIVEAUX as readonly string[]).includes(v) ? v : niveauDepuisTexte(valeur) ?? valeur;
+  }
   return brut;
 }
 

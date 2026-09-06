@@ -748,4 +748,55 @@ Article 16 — Droit applicable. Le présent contrat est régi par le droit fran
       return m;
     },
   },
+  // ── MEETING INTELLIGENCE (§32) : le niveau s'ENSEIGNE, puis le brief le respecte ──
+  {
+    id: "defi-reunion-chef-de-cabinet", categorie: "REUNION",
+    tours: [
+      "Pour mes réunions, je veux désormais un briefing de chef de cabinet — complet, avec l'historique, les décisions à obtenir et les engagements en retard.",
+      "Prépare-moi la réunion « Point budget T3 (banc) ».",
+    ],
+    doit: [/caisse/i],
+    doitUneDe: [/geler|gel /i],
+    neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /aucune réunion/i],
+    avant: async (ctx) => {
+      const { prisma, pdg, delegue } = ctx;
+      await prisma.adamRule.deleteMany({ where: { ownerId: pdg.id, params: { path: ["cle"], equals: "niveauReunion" } } });
+      await prisma.meeting.deleteMany({ where: { slug: { in: ["banc-point-budget-t3", "banc-point-budget-t2"] } } });
+      await prisma.task.deleteMany({ where: { title: { endsWith: "(banc)" }, createdById: pdg.id, assignedToId: delegue.id } });
+      await prisma.executiveCommitment.deleteMany({ where: { ownerId: pdg.id, what: { endsWith: "(banc)" } } });
+      await prisma.executiveDecision.deleteMany({ where: { ownerId: pdg.id, title: { endsWith: "(banc)" } } });
+      const faite = await prisma.task.create({ data: { title: "Envoyer le tableau des enveloppes (banc)", status: "DONE", createdById: pdg.id, assignedToId: delegue.id, completedAt: new Date(Date.now() - 20 * 864e5) } });
+      await prisma.task.create({ data: { title: "Préparer l'état de la caisse d'avance (banc)", status: "IN_PROGRESS", createdById: pdg.id, assignedToId: delegue.id, dueDate: new Date(Date.now() + 864e5) } });
+      await prisma.meeting.create({ data: {
+        title: "Point budget T2 (banc)", slug: "banc-point-budget-t2", publicToken: "banc-point-budget-t2-tok", status: "ENDED",
+        scheduledAt: new Date(Date.now() - 30 * 864e5), endedAt: new Date(Date.now() - 30 * 864e5 + 36e5), organizerId: pdg.id,
+        summary: "Décidé : geler la caisse d'avance jusqu'au point budget T3. Action : envoyer le tableau des enveloppes avant la fin du mois.",
+        participants: { create: [{ userId: delegue.id, response: "ACCEPTED" }] },
+        proposals: { create: [{ title: "Envoyer le tableau des enveloppes (banc)", status: "ACCEPTED", assigneeId: delegue.id, createdTaskId: faite.id }] },
+      } });
+      await prisma.meeting.create({ data: {
+        title: "Point budget T3 (banc)", slug: "banc-point-budget-t3", publicToken: "banc-point-budget-t3-tok", status: "SCHEDULED",
+        description: "Arbitrer l'enveloppe congrès et la caisse d'avance.", scheduledAt: new Date(Date.now() + 2 * 864e5), organizerId: pdg.id,
+        participants: { create: [{ userId: delegue.id, response: "ACCEPTED" }] },
+      } });
+      await prisma.executiveDecision.create({ data: { ownerId: pdg.id, title: "Geler la caisse d'avance (banc)", decision: "Gel jusqu'au point budget T3", status: "DECIDED", decidedAt: new Date(Date.now() - 29 * 864e5) } });
+      await prisma.executiveCommitment.create({ data: { ownerId: pdg.id, who: delegue.name, what: "Transmettre le budget révisé congrès (banc)", status: "OPEN", dueAt: new Date(Date.now() - 5 * 864e5) } });
+    },
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      const regle = await ctx.prisma.adamRule.findFirst({ where: { ownerId: ctx.user.id, status: "ACTIVE", createdAt: { gte: ctx.t0 } }, orderBy: { createdAt: "desc" }, select: { params: true, statement: true } });
+      if (!regle) m.push("aucune règle enseignée au premier tour");
+      else {
+        const p = (regle.params ?? {}) as { cle?: string; valeur?: string };
+        if (p.cle !== "niveauReunion") m.push(`la règle n'est pas structurée (params.cle = ${p.cle ?? "absent"}, attendu niveauReunion) : ${regle.statement}`);
+        else if (p.valeur !== "CHIEF_OF_STAFF") m.push(`niveau appris ${p.valeur} au lieu de CHIEF_OF_STAFF`);
+      }
+      if (!ctx.outils.includes("pre_meeting_brief")) m.push(`le brief n'a pas été lu par pre_meeting_brief (outils : ${ctx.outils.join(", ") || "aucun"})`);
+      const prenom = ctx.delegue.name.split(/\s+/)[0];
+      if (!new RegExp(prenom, "i").test(ctx.reponse)) m.push(`la participante ${prenom} n'est pas nommée`);
+      if (!/budget révisé|budget revise/i.test(ctx.reponse)) m.push("l'engagement en retard (budget révisé congrès) n'est pas rapporté — niveau chef de cabinet non appliqué");
+      if (!/tableau des enveloppes/i.test(ctx.reponse)) m.push("l'action de la dernière réunion (tableau des enveloppes) n'est pas rapportée");
+      return m;
+    },
+  },
 ];

@@ -135,14 +135,19 @@ test("sur un téléphone, le retour visuel d'un geste arrive en moins de 150 ms 
   // Mandat 4 §30 : « feedback < 150 ms ». La carte passe en « en_cours » de façon SYNCHRONE au
   // toucher (état optimiste), le serveur répond ensuite. On mesure dans la page, du clic au
   // premier rendu de l'attribut `data-etat`, à la précision d'une image (requestAnimationFrame).
+  // Le test « Vu » qui précède a marqué la notification LUE : elle a quitté la boîte. On la remet
+  // non lue pour que la carte existe — c'est la même carte, le même geste en place (« Vu »), et
+  // c'est ce geste-là qu'on chronomètre (pas un bouton « ouvrir », qui navigue au lieu d'agir).
+  await prisma.notification.updateMany({ where: { title: E2E.inboxNotificationTitle }, data: { isRead: false } });
   const contexte = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const page = await contexte.newPage();
   await login(page);
   await page.goto("/chief-of-staff/inbox");
   const carte = page.locator("[data-testid='inbox-card']", { hasText: E2E.inboxNotificationTitle }).first();
   await expect(carte).toBeVisible({ timeout: 20_000 });
+  await expect(carte.getByTestId("inbox-option-vu")).toBeVisible();
   const delaiMs = await carte.evaluate(async (li) => {
-    const bouton = li.querySelector("button");
+    const bouton = li.querySelector("[data-testid='inbox-option-vu']");
     if (!bouton) return -1;
     const t0 = performance.now();
     (bouton as HTMLButtonElement).click();

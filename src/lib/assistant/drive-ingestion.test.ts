@@ -104,7 +104,10 @@ suite("ingestion Drive — le contenu rend trouvable ce que le nom cache", () =>
     // Second passage : plus aucun candidat non indexé parmi nos fixtures.
     const remaining = await prisma.driveNode.count({ where: { id: { in: [nodeId, orphanNodeId] }, textIndex: null } });
     expect(remaining).toBe(0);
-  });
+    // 0,9 s seul ; la RÉPARATION du PDF cassé par mupdf et le balayage de 50 nœuds ont dépassé les
+    // 5 s par défaut sous la charge d'une suite complète en parallèle (mesuré). Le budget dit le travail
+    // réel, il ne cache pas une boucle : le second passage est mesuré par `remaining`.
+  }, 20_000);
 
   it("débrayage : ASSISTANT_DRIVE_INGESTION=off → aucun travail", async () => {
     const prev = process.env.ASSISTANT_DRIVE_INGESTION;

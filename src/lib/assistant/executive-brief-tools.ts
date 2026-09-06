@@ -24,7 +24,8 @@ import { chainOf, type ChainDoc } from "@/lib/legal/chain";
  *   • `create_report` : le RAPPORT CONSOLIDÉ d'un dossier (« regroupe-moi tout sur le contrat X »)
  *     — un vrai .docx déposé dans le Drive, pas un pavé de chat qui se perd ;
  *   • `pre_meeting_brief` : arriver PRÉPARÉ — la réunion + les points OUVERTS avec chaque
- *     participant (tâches entre vous, engagements suivis), cloisonné à VOS réunions.
+ *     participant, à TROIS NIVEAUX appris par Teach Adam (LIGHT / STANDARD / CHIEF_OF_STAFF, §32 :
+ *     `platform/in-process/meetings`), cloisonné à VOS réunions.
  */
 
 const EXEC = (u: CurrentUser): boolean => u.role === "SUPER_ADMIN" || u.role === "DIRECTION";
@@ -316,93 +317,33 @@ export const EXECUTIVE_BRIEF_TOOLS: PowerTool[] = [
     def: {
       name: "pre_meeting_brief",
       description:
-        "LE BRIEF AVANT RÉUNION : la prochaine réunion (ou celle dont le titre est donné) avec, POUR CHAQUE PARTICIPANT, " +
-        "les points OUVERTS qui vous lient — tâches en cours entre vous (avec statut et échéance) et engagements suivis " +
-        "le concernant. Pour arriver préparé : « prépare-moi ma réunion », « brief avant le point avec X ». " +
-        "Ne montre que VOS réunions (organisées ou sur invitation) — l'ordre du jour reste la description de la réunion.",
+        "LE BRIEF AVANT RÉUNION, à TROIS NIVEAUX — le niveau est APPRIS (Teach Adam : « pour mes réunions, je veux un brief de chef de cabinet ») " +
+        "ou déduit du rôle. LIGHT : la réunion, l'ordre du jour, les tâches ouvertes entre vous et chaque participant. STANDARD : + les notes " +
+        "de la dernière réunion du même sujet, les actions qui en sont sorties et leur sort, les responsables, les échéances, les décisions liées, " +
+        "les engagements suivis. CHIEF_OF_STAFF : + l'historique, les personnes (fonction, département), les dossiers concernés, les décisions à " +
+        "obtenir (validations en attente, missions qui attendent), les risques calculés et les contradictions à trancher, les engagements en retard, " +
+        "les questions ouvertes, le suivi jusqu'à la réunion suivante. Pour « prépare-moi ma réunion », « brief avant le point avec X ». " +
+        "Ne montre que VOS réunions (organisées ou sur invitation) — l'ordre du jour reste la description de la réunion. Restituer le brief " +
+        "dans l'ordre du niveau, sans inventer ce que les champs vides ne disent pas.",
       input_schema: {
         type: "object",
         properties: {
           title: { type: "string", description: "Titre (ou morceau du titre) de la réunion — sans lui : la PROCHAINE réunion." },
+          niveau: { type: "string", enum: ["LIGHT", "STANDARD", "CHIEF_OF_STAFF"], description: "Imposer un niveau pour CE brief seulement (« fais-moi un brief léger ») — sinon le niveau appris." },
         },
       },
     },
     allowed: () => true, // strictement cloisonné : seules les réunions organisées par MOI ou où JE suis invité
     label: "Brief de réunion préparé",
     run: async (input, user) => {
-      const q = str(input, "title");
-      const meetings = await prisma.meeting.findMany({
-        where: {
-          status: { in: ["SCHEDULED", "LIVE"] },
-          OR: [{ organizerId: user.id }, { participants: { some: { userId: user.id } } }],
-          ...(q ? { title: { contains: q, mode: "insensitive" } } : { scheduledAt: { gte: new Date(Date.now() - 3_600_000) } }),
-        },
-        orderBy: { scheduledAt: "asc" },
-        take: 3,
-        include: {
-          organizer: { select: { id: true, name: true } },
-          participants: { include: { user: { select: { id: true, name: true } } } },
-        },
+      const { composerBriefReunion } = await import("@/platform/in-process/meetings");
+      const niveau = str(input, "niveau");
+      const r = await composerBriefReunion(user, {
+        titre: str(input, "title") || null,
+        niveau: niveau === "LIGHT" || niveau === "STANDARD" || niveau === "CHIEF_OF_STAFF" ? niveau : null,
       });
-      if (meetings.length === 0) {
-        return q
-          ? `Aucune réunion à venir dont le titre contient « ${q} » parmi les vôtres.`
-          : "Aucune réunion à venir parmi les vôtres — rien à préparer.";
-      }
-      const m = meetings[0];
-      const others = m.participants.filter((p) => p.userId !== user.id).slice(0, 8);
-
-      // PAR PARTICIPANT : les points OUVERTS entre nous — tâches vivantes (dans les deux sens)
-      // et engagements suivis le concernant. Bornés, avec preuves (statut, échéance).
-      const perPerson = await Promise.all(others.map(async (p) => {
-        const [tasks, commitments] = await Promise.all([
-          prisma.task.findMany({
-            where: {
-              status: { in: ["REQUESTED", "TODO", "IN_PROGRESS"] },
-              OR: [
-                { createdById: user.id, assignedToId: p.userId },
-                { createdById: p.userId, assignedToId: user.id },
-              ],
-            },
-            orderBy: { createdAt: "desc" },
-            take: 5,
-            select: { title: true, status: true, dueDate: true },
-          }).catch(() => []),
-          prisma.executiveCommitment.findMany({
-            where: {
-              ownerId: user.id,
-              OR: [{ who: { contains: p.user.name, mode: "insensitive" } }, { toWhom: { contains: p.user.name, mode: "insensitive" } }],
-            },
-            orderBy: { createdAt: "desc" },
-            take: 4,
-            select: { who: true, what: true, status: true, dueAt: true },
-          }).catch(() => []),
-        ]);
-        return {
-          nom: p.user.name,
-          reponse: p.response,
-          ...(tasks.length > 0 ? {
-            tachesEntreNous: tasks.map((t) => ({ titre: t.title, statut: t.status, echeance: t.dueDate ? frDate(t.dueDate) : null })),
-          } : {}),
-          ...(commitments.length > 0 ? {
-            engagements: commitments.map((c) => ({ qui: c.who, quoi: c.what, statut: c.status, echeance: c.dueAt ? frDate(c.dueAt) : null })),
-          } : {}),
-        };
-      }));
-
-      return JSON.stringify({
-        reunion: {
-          titre: m.title,
-          quand: frDate(m.scheduledAt),
-          statut: m.status,
-          organisateur: m.organizer.name,
-          ...(m.inPerson ? { lieu: m.location ?? "présentiel" } : {}),
-          ...(m.description ? { ordreDuJour: m.description.slice(0, 600) } : {}),
-        },
-        participants: perPerson,
-        ...(meetings.length > 1 ? { autresReunionsTrouvees: meetings.slice(1).map((x) => `${x.title} (${frDate(x.scheduledAt)})`) } : {}),
-        rappel: "Points calculés sur l'ERP (tâches, engagements) — l'ordre du jour est la description de la réunion, rien n'est inventé.",
-      });
+      if (!r.ok) return r.message;
+      return JSON.stringify(r.brief);
     },
   },
 

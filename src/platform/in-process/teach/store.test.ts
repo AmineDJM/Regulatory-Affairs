@@ -250,5 +250,11 @@ describe("normalisation — la forme plate du modèle", () => {
     expect(normaliserParams({ validite_devis: "45 jours" }, null)).toEqual({ cle: "validiteDevis", valeur: 45 });
     // Deux clés connues à plat : on ne devine pas laquelle porte la règle.
     expect(normaliserParams({ validiteDevis: 45, tvaDefaut: 19 }, null)).toEqual({ validiteDevis: 45, tvaDefaut: 19 });
+    // Le niveau de brief de réunion (§32) : la forme plate du modèle (`niveau`) est une variante connue ;
+    // une forme plate SANS clé connue s'efface devant le texte quand le texte porte la clé.
+    expect(normaliserParams({ niveau: "chef de cabinet" }, null)).toEqual({ cle: "niveauReunion", valeur: "CHIEF_OF_STAFF" });
+    expect(normaliserParams({ niveau: "CHIEF_OF_STAFF" }, null)).toEqual({ cle: "niveauReunion", valeur: "CHIEF_OF_STAFF" });
+    expect(normaliserParams({ cle: "niveau_reunion", valeur: "light" }, null)).toEqual({ cle: "niveauReunion", valeur: "LIGHT" });
+    expect(normaliserParams({ style: "complet" }, { cle: "niveauReunion", valeur: "CHIEF_OF_STAFF" })).toEqual({ cle: "niveauReunion", valeur: "CHIEF_OF_STAFF" });
   });
 });
