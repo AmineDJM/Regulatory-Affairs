@@ -338,6 +338,9 @@ function contexteReglesDuPlan(plan: MissionPlan, acquises: ReadonlySet<string>):
   return { clesEtapes, clesAvecRequete, sortiesStructurees };
 }
 
+/** Les capacités qui rendent une LISTE (recherche, annuaire, exploration) — jamais un identifiant sûr en `.0.id`. */
+const CAPACITES_LISTE = /^(search_|find_|list_|directory_list$|explore_|browse_|lookup_)/i;
+
 export function compile(
   planBrut: MissionPlan,
   catalog: CapabilityCatalog,
@@ -641,6 +644,34 @@ export function compile(
         continue;
       }
       if (!dependsOn.includes(r.cle)) dependsOn.push(r.cle);
+    }
+
+    /**
+     * ── L'ENTITÉ D'UNE ATTENTE NE SE LIT PAS DANS UNE RECHERCHE (§37) ──────────────────────
+     *
+     * Mesuré au banc : « attends la signature du contrat Mouffok » donnait
+     * `entity: "CONTRACT:{{recherche.resultats.0.reference}}"` — une recherche rend une LISTE, sans
+     * identifiant sûr à cet endroit ; l'attente échouait à la résolution, la mission se bloquait,
+     * et la replanification contournait la tâche. Le refus est ICI, avec la correction : un
+     * identifiant CONNU, ou `subject`/`from` pour cibler sans identifiant. Lire l'identifiant d'une
+     * étape qui CRÉE ou LIT un dossier précis (`inspect_record`, `create_*`) reste permis.
+     */
+    if (nodeType === "WAIT_EVENT" && s.waitFor) {
+      const w = s.waitFor;
+      const entites = [w.entity, ...(w.anyOf ?? []).map((b) => b.entity), ...(w.allOf ?? []).map((b) => b.entity)]
+        .filter((e): e is string => typeof e === "string" && estGabarit(e));
+      for (const e of entites) {
+        for (const ref of referencesDe({ e })) {
+          const r = resoudreReference(ref, clesConnues);
+          const source = r ? plan.steps.find((x) => x.key === r.cle) : undefined;
+          if (source?.capability && CAPACITES_LISTE.test(source.capability)) {
+            issues.push(issue("INVALID_INPUT", s.key,
+              `l'entité de l'attente « ${e} » se lit dans « ${source.key} » (${source.capability}), qui rend une LISTE sans `
+              + "identifiant sûr : l'attente échouerait à l'exécution. Donner un TYPE:id déjà connu du contexte, ou laisser "
+              + "l'entité vide et cibler l'attente par `subject` (fragment du titre ou de l'objet attendu) et `from`."));
+          }
+        }
+      }
     }
 
     // ── LA CONDITION ──────────────────────────────────────────────────────────────────

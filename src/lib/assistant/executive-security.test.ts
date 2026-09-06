@@ -86,6 +86,13 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // opérations sont pures et le code tourne isolé, sans base ni réseau. `sql_query`, lui,
       // EST gardé (vue globale) : c'est le seul des quatre qui touche la base directement.
       "run_analysis", "run_code", "chart_advice",
+      // render_view : même raison — il ne lit rien par lui-même (lignes d'une lecture relancée sous SON droit,
+      // fichier sous `canViewDrive`, SQL sous la vue globale) et ne fait que REPRÉSENTER ce qui a été lu.
+      "render_view",
+      // create_skill / list_skills : du code dans le bac à sable et une liste — aussi inoffensifs que run_code.
+      // promote_skill / drop_skill : le PÉRIMÈTRE et la propriété sont gardés dans le pont (`promouvoirSkill`,
+      // vue globale pour COMPANY) et l'agent en est exclu à la compilation (`policy/guard.ts`).
+      "create_skill", "list_skills", "promote_skill", "drop_skill",
       // web_research : le WEB, pas l'ERP. L'outil ne touche à AUCUNE donnée interne — il
       // interroge l'extérieur via le fournisseur de modèle, et son coût est compté à la
       // recherche (usage.webSearchCalls) et plafonnable par mission. Le fermer ne protégerait

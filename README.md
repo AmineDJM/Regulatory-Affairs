@@ -3234,6 +3234,9 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Meeting Intelligence (§32)** | `platform/in-process/meetings/index.ts` (`niveauReunionPour` : règle Teach `niveauReunion` en vigueur, sinon défaut du rôle ; `composerBriefReunion` : LIGHT → tâches ouvertes par participant ; STANDARD → + dernière réunion du même sujet (notes, actions et leur sort sur la tâche créée, responsables, échéances), décisions liées, engagements ; CHIEF_OF_STAFF → + historique, fonctions, dossiers (dictionnaire d'entités), décisions à obtenir (validations en attente, étapes de mission WAITING), risques et contradictions (signaux §27 nommant ces entités/personnes), engagements en retard, questions ouvertes calculées, suivi jusqu'à l'occurrence suivante), `lib/meetings/niveau.ts` (pur : `niveauDepuisTexte`, `niveauDepuisRegles`, `niveauParDefaut`, `CONTENU_PAR_NIVEAU`), `teach/classify.ts` (`extraireParametres` → `{ cle: "niveauReunion", valeur }` quand la phrase parle du brief de réunion), `in-process/teach/store.ts` (canonise la valeur), `assistant/executive-brief-tools.ts` (`pre_meeting_brief` : `title`, `niveau` imposable) ; cloisonné à VOS réunions, VOS engagements, VOS décisions, VOS validations. Banc : `pre-meeting-brief.test.ts` (5), `niveau.test.ts` (3), défi live `defi-reunion-chef-de-cabinet` |
 | **Suite d'évaluation, sabotages, observabilité (§33)** | `lib/evals/cibles.ts` (pur : `CIBLES` — 17 cibles avec exigence, sens, unité, invariant, fichier de mesure ; `mesurer`, `verdictSuite`, `rendreTableau`), `lib/evals/registre.ts` (`consignerMesure` → `bench-out/evals/<cible>.json`, `lireMesures`), `scripts/evals-report.ts` (`npm run evals:report` : tableau, RAPPORT.md, P50 du dernier banc live, sortie 1 sur cible manquée ou non mesurée sauf `--souple`) ; mesures posées dans `permission-matrix`, `crash-matrix` (+ invariant « 0 étape DONE sans reçu »), `fabric/entites`, `quality/engine`, `attention/decisions`, `fabric/provenance` (+ test 100 % des faits), `fabric/provenance-store`, `teach/store`, `missions/watch`, `evals/bench`, `e2e/inbox` ; `platform/in-process/evals/sabotages.test.ts` (14 situations adverses jouées contre le vrai code) ; `platform/in-process/missions/observabilite.ts` (`observabiliteMission` : treize champs par action depuis `MissionStep`, `MissionWorkerRun`, `ModelCallLog`, `MissionApproval`, `planMeta`), `missions/planner/plan.ts` (`PLANNER_PROMPT_VERSION` estampillée avec les politiques dans `planMeta` par `materialiser({ planMetaExtra })`), `assistant/prompt-version.ts` (`ADAM_PROMPT_VERSION` dans le contexte du tour), `models/telemetry.ts` (`recordPermissionRefusal`, `permissionsRefusees` dans le résumé du tour), `platform/contract.ts` (`ActionObservee`, `ObservabiliteMission`, `MissionStatusView.observabilite`) |
 | **Autonomie généraliste (§34)** | `missions/registry/capability-meta.ts` (`PRIMITIVES`, `primitiveDeduite`, `CapabilityMeta.primitive` — INFORMATION / CALCUL / DOCUMENT / REPRESENTATION / ACTION / ORCHESTRATION), `registry/resolve.ts` (`listerPourPlanner` affiche la primitive), `platform/in-process/missions/catalog.ts` (`CapabilityBrief.primitive`) ; `assistant/limites.ts` (`gardeImpossibilite` : « impossible » sans outil → `runDiscovery` côté serveur + `RAPPEL_DECOUVERTE` + déblocage des outils, une fois ; `classerLimite` : PERMISSION / RESSOURCE / DONNÉE / CAPACITÉ, précision ; `complementDeLimite`) branchée dans `assistant.ts` (deux boucles, trace « Carte complète des capacités relue ») ; `sandbox/porte.ts` (`inspecter`, `tester`, `valider`, `passerLaPorte` : inspect → execute → test → validate → expose, refus nommé, correction dite) branchée dans `run_code` (`attentes`, `schema`, `porte` dans la réponse). Banc : `porte.test.ts` (6), `limites.test.ts` (6), `primitives.test.ts` (2), `sandbox-tools.test.ts` (+1), défis live `defi-autonomie-calcul`, `defi-autonomie-composition` |
+| **Représentations dynamiques (§35)** | `assistant/workspace/protocol.ts` (blocs `viz` — dix-sept formes : barres, barres_empilees, courbe, aires, nuage, histogramme, secteurs, cascade, entonnoir, heatmap, gantt, matrice, graphe, arbre, flux, carte, cartes — et `dashboard` ; `VIZ_TYPES`, familles de données, bornes `WORKSPACE_LIMITS.viz*`/`tuiles`), `workspace/viz-block.ts` (lecteur `readVizBlock`/`readDashboardBlock` : famille exigée, bornes, arcs orphelins, dates inversées et `href` externes écartés ; constructeurs `construireViz` : agrégation, pivot, ordre chronologique/valeur, classes d'effectif, secteurs → 5 + « Autres », réseau de/à, arbre parent/enfant, lieux lat/lon, colonnes résolues sans casse ni accents et REFUSÉES si introuvables), `assistant/view-tools.ts` (`render_view` : `auto` via `recommanderGraphique`, alertes `verifierGraphique` + `alertesLocales`, `donnees` structurées relues, `tuiles` → `dashboard`, `_blocsDecoratifs`, aperçu chiffré pour le modèle), `sandbox-tools.ts` (`run_analysis`/`sql_query` rendent le graphique recommandé sous leur tableau, `rendu`), `context/router.ts` (MONTRER → `render_view`), `components/chief/workspace/blocks/viz-figure.tsx` (UN rendu SVG/HTML pour les dix-sept formes : barre toujours à zéro, courbe sans zéro qui le dit, `<title>` par élément, données en clair, liste proportionnelle sur téléphone), `blocks/viz.tsx` (alertes avant la figure), `DashboardBlock` (`blocks.tsx`, tuiles par le registre), `planche-viz.ts`. Banc : `viz-block.test.ts` (12), `view-tools.test.ts` (7), `viz-figure.test.ts` (28, mesure `representations_rendues`), Playwright `chief-godmode.spec.ts` (planche aux cinq largeurs, 390 px sans débordement), live `adam-live.spec.ts` (graphique puis tableau de bord dans l'UI), défis `defi-representation-graphique`, `defi-representation-dashboard` |
+| **Runtime de plugins et de skills (§36)** | `lib/skills/manifest.ts` (le manifeste : id, plugin, version, primitive, effet, domaine, entrées (schéma), sorties, permissions (module/action/vue globale/rôles), risques (niveau, irréversible, externe), coût, dépendances (NOMS de configuration, jamais des valeurs), événements, validations, limites, exécuteur `http` | `code` | `playbook` ; `validerManifest` dit tout ce qui est faux ; `IDENTIFIANTS_INTERDITS`, `OUTILS_INTERDITS_PLAYBOOK` ; `nomOutil`, `exigeConfirmation`, `schemaOutil` (+ `confirmer`), `fiche`, `disponibilite`), `lib/skills/gabarit.ts` (`{{entree.x}}`, `{{config.CLE}}`, `{{etapes.alias.champ}}` — un trou garde son type, un manque est compté), `lib/skills/plugins/` (DocuSign, SAP, HubSpot, IQVIA, PCH : neuf capacités déclarées, aucune URL ni jeton), `platform/in-process/skills/index.ts` (le runtime : chargement par personne — connecteurs + `AdamSkill` + règles WORKFLOW à part `playbook` —, `autorise` (RBAC du manifeste, revérifié à l'exécution), `declarerMetaDynamique`/`declarerDomaineDynamique`, HTTP déclaratif (chemin encodé, auth par configuration, délai 15 s, 200 Ko), code par la porte de qualité, playbook = lectures composées (profondeur 3, écriture refusée), aperçu + `confirmer: true` pour tout effet ≥ écriture, `preparerAppelMission` (le runner pose l'accord), débit `parMinute`/`parJour`, cache par empreinte (règles + micro-outils), `creerMicroSkill` (porte sur l'exemple, TEMP 24 h, versions), `promouvoirSkill` (PERSON/GROUP/COMPANY, vue globale pour COMPANY), `supprimerSkill`, `listerSkills`, audit), `assistant/skill-tools.ts` (`create_skill`, `list_skills`, `promote_skill`, `drop_skill`), `prisma` `AdamSkill` (+ migration `20261025090000_adam_skills`). Crochets du cœur : `capability-meta.ts` (`declarerMetaDynamique`, `AUTONOMES` des gestes de skill), `tool-shortlist.ts` (`declarerDomaineDynamique`, `domainesDe`), `context/discovery.ts`, `power-tools.ts` (`powerToolsFor` + `executePowerTool` repli dynamique, `powerToolLabels`), `assistant.ts` et `missions/runtime.ts` (`prechargerCapacitesDynamiques`), `missions/runner.ts`, `policy/guard.ts` (`promote_skill`/`drop_skill` interdits à l'agent). Banc : `manifest.test.ts` (7), `skills.test.ts` (8, depuis les vrais points d'entrée), défi live `defi-skill-micro-outil` |
+| **Ingestion universelle d'événements et omnicanal (§37)** | `lib/events/catalogue.ts` (le CATALOGUE des faits : ~31 types canoniques — ERP, communications, systèmes externes —, `normaliserType`, `typesPour`, `RESUME_POUR_PLANNER`), `lib/events/ingestion.ts` (le pur : `normaliserLot(source, corps)` pour `docusign`, `sap`, `hubspot`, `pch`, `iqvia`, `signature`, `generic` → `FaitNormalise` (type, émetteur, références SÛRES « TYPE:id », mentions libres, charge nettoyée de tout secret et bornée, confidentialité), `decider(refs, candidats)` avec `SEUIL_SUR` 0,85 / `SEUIL_DOUTE` 0,5 → SURE · A_VERIFIER · SANS_ASSOCIATION), `platform/in-process/events/ingestion.ts` (le pont : `autoriser` (secret par source `EVENTS_WEBHOOK_SECRET_<SOURCE>` sinon commun, HMAC-SHA256 du corps brut ; sans secret 503, signature fausse 401), `ingerer` (RÉCLAMATION `IngestedEvent (source, externalId)` unique AVANT toute conséquence → exactly-once, `associer` par `resoudreMentions` (§24) — CERTAIN rattache, PROBABLE/AMBIGU à vérifier, INCONNU oublié —, `recordEvent` (registre canonique → réveil des missions, réconciliation, engagements), statut final), `listerEvenementsRecus`, `resumeIngestion`, `rattacherEvenement` (levée de doute par une personne, vue globale, met à jour le fait et réveille), `signer`), `app/api/events/inbound/[source]/route.ts` (400/503/401/400/200, comptes seulement), `assistant/inbound-tools.ts` (`inbound_events` (vue globale), `attach_inbound_event` (geste de personne, interdit à l'agent)), `prisma` `IngestedEvent` (+ migration `20261026090000_ingested_events`). Planificateur : `planner/schema.ts` et `planner/plan.ts` lisent le catalogue (WAIT_EVENT quasi universel). OMNICANAL : `missions/attention/policy.ts` (`canauxPour(niveau, prefs)` : canal préféré, heures de silence, connecteurs branchés, confidentialité → `Canaux` avec `connecteur`, `differe`, `corpsNeutre`, `canalIndisponible` ; `lireCanal`, `lireHeuresSilence`, `dansLeSilence`, `corpsNeutrePour`), `platform/in-process/missions/attention.ts` (`preferencesDe` : règles Teach `canalPrefere` / `heuresSilence` + `connecteursMessagerie` ; confidentialité déduite des capacités HR_SENSITIVE ; envoi par le runtime des skills `<canal>_envoyer_message` sous les droits de la personne ; journal `NOTIFIED` enrichi), `platform/in-process/missions/proprietaire.ts`, `ports.ts` (`SignalAttention.confidentiel`), `lib/skills/plugins/messagerie.ts` (Slack, Teams, WhatsApp, SMS — `auth` basique, `corpsForme: formulaire`, chemin vide), `platform/in-process/teach/store.ts` + `lib/teach/classify.ts` + `assistant/teach-tools.ts` (clés `canalPrefere`, `heuresSilence`). Banc : `lib/events/ingestion.test.ts` (8), `platform/in-process/events/ingestion.test.ts` (5, dont la route et une mission réveillée), `policy.test.ts` (+6), `attention.test.ts` (+3), `skills.test.ts` (+2), `manifest.test.ts` (+1), `store.test.ts`/`classify.test.ts` (+), défi live `defi-evenement-attente`, banc live Playwright (webhook signé → Adam) |
 | **Résolution d'entités (F9, §24)** | `lib/fabric/entites-score.ts` (scoreur pur : `scorerNom`, `trancher`, `detecterIdentifiant`, `questionDeDesambiguation`) ; `lib/fabric/entites.ts` (`resoudreEntite`, `resoudreMentions`, `contexteEntitesResolues` — dix natures, trigramme) ; pont `platform/in-process/fabric/entites.ts` ; `assistant.ts` (`resolvePerson` par la brique, bloc d'entités résolues dans le contexte du tour) ; `fabric/entites.test.ts` (banc de 60 mentions). |
 | **Teach Adam — règles enseignées** | `lib/teach/model.ts` (natures, périmètres, statuts, `KINDS_CONTRAIGNANTS`) ; `classify.ts` (`classerEnseignement`, `extraireParametres`) ; `resolve.ts` (`estApplicable`, `comparerPrecedence`, `resoudre`, `conflitsAvecExistantes`, `cleDe`) ; `compose.ts` (`composerBlocRegles`, `lignesPourPlanificateur`) ; pont `platform/in-process/teach/store.ts` (`enseigner`, `listerRegles`, `modifierRegle`, `changerStatutRegle`, `reglesEnVigueurPour`, `contexteRegles`, `politiquesPourMission`, `standardsDocumentaires`) ; outils `lib/assistant/teach-tools.ts` (`teach_adam`, `list_rules`, `update_rule`, `disable_rule`, `delete_rule`) ; garde `missions/policy/guard.ts` ; modèle `AdamRule`. |
 | **Adam — la coque de son bureau (et sa porte de sortie)** | Groupe de routes `app/(chief)/layout.tsx` : coque délibérément VIDE — ni menu latéral, ni barre supérieure, ni barre d'onglets, ni palette, ni bandeaux. `components/chief/{chief-workspace,chief-header,chief-home}.tsx` + `app/chief.css` (jeu de jetons `--chief-*` propre à Adam). **La sortie** : `components/chief/module-switcher.tsx` — une icône dans l'en-tête ouvre la liste des modules que CETTE personne peut ouvrir (champ de filtre, groupé par pôle, Échap / clic dehors referment). Les destinations arrivent par le **contrat de plateforme** (`navigation.destinations` → `in-process/adapter.ts` → `lib/nav-access.ts`), jamais par un import du menu de l'ERP : c'est ce qui garde le cliquet de frontière à 430. Le même `navigationFor` sert la barre latérale de l'ERP — une seule vérité sur « qui a le droit d'aller où ». Tests : `platform/navigation-destinations.test.ts` (dont : une entrée fusionnée mène au premier onglet AUTORISÉ, donc `/ad-pro` pour l'admin et `/congress-international` pour le délégué médical). |
@@ -3694,6 +3697,156 @@ et interdit au code de laisser passer un « impossible » non vérifié.
   (+1 : faux résultat non exposé, forme fausse non exposée, calcul juste exposé avec son rapport),
   défis live `defi-autonomie-calcul` (médiane et P90 calculés par un outil, jamais « impossible ») et
   `defi-autonomie-composition` (heures de réunion par participant : lecture + calcul composés).
+
+### Représentations dynamiques — mandat 5 §35
+
+Une représentation n'est pas un composant : c'est une FORME (une donnée) rendue par UN rendu
+générique. Ajouter un graphique n'ajoute pas un fichier React — il ajoute un cas au lecteur (les
+données que la forme exige) et un cas au dessin. Le modèle nomme ; le code charge, agrège, choisit,
+vérifie, compose, relit, dessine.
+
+- **Le protocole** (`workspace/protocol.ts`) : le bloc `viz` porte `type` (dix-sept formes : barres,
+  barres empilées, courbe, aires, nuage, histogramme, secteurs, cascade, entonnoir, heatmap, Gantt,
+  matrice, graphe, arbre, flux/Sankey, carte, cartes) et `donnees` (une famille par forme :
+  catégories + séries, points, grille, cellules, tâches, nœuds + arcs, arbre, lieux, cartes) ; le bloc
+  `dashboard` porte des tuiles qui sont des blocs ordinaires (une représentation, des jauges, un
+  tableau…). Bornes : 40 catégories, 6 séries, 400 points, 60 nœuds, 120 arcs, 40 tâches, 6 tuiles.
+- **Le lecteur** (`workspace/viz-block.ts`) relit ce qu'un outil déclare, famille par famille : forme
+  inconnue, famille qui ne correspond pas, arc vers un nœud absent, date inversée, `href` externe →
+  refusé, jamais « affiché à peu près ». Une tuile invalide tombe, les autres restent ; pas de tableau
+  de bord dans un tableau de bord.
+- **Les constructeurs** (`construireViz`) vont des LIGNES à la forme : agrégation (somme, moyenne,
+  compte, min, max) par catégorie, pivot d'une colonne en séries ou en colonnes, ordre chronologique
+  pour le temps et par valeur pour les catégories, classes d'effectif à pas lisible, secteurs ramenés
+  à cinq parts + « Autres », réseau depuis de/à, arbre depuis parent/enfant, lieux depuis lat/lon. Les
+  colonnes se résolvent sans casse ni accents ; une colonne introuvable est REFUSÉE avec la liste des
+  colonnes — jamais devinée.
+- **`render_view`** (`assistant/view-tools.ts`) : le modèle nomme (forme ou `auto`, colonnes, source —
+  la même que `run_analysis` : lecture relancée sous son droit, fichier du Drive sous `canViewDrive`,
+  SQL sous la vue globale, lignes déjà obtenues) ; le code charge, agrège, choisit
+  (`recommanderGraphique`), vérifie ce qui tromperait (`verifierGraphique` : axe tronqué, camembert à
+  trop de parts, double axe, cumul non dit… + contrôles locaux), compose et RELIT le bloc par le même
+  lecteur que tout `_blocs`. Le modèle ne reçoit jamais le bloc (`_blocsDecoratifs`) : un aperçu
+  chiffré (forme, premières catégories et valeurs, alertes) lui permet de présenter la figure en une
+  phrase, sans la recopier. `donnees` déjà structurées (un réseau, un arbre, des lieux, des
+  indicateurs) passent par le lecteur tel quel ; `tuiles` → un `dashboard`, source partagée, tuile
+  invalide DITE. Aucun droit propre : représenter n'est pas lire, la source porte le sien.
+- **À la volée** : `run_analysis` et `sql_query` rendent AUSSI le graphique recommandé sous leur
+  tableau (`rendu` le dit au modèle) — une analyse se voit, elle ne se lit pas seulement.
+- **Le rendu** (`components/chief/workspace/blocks/viz-figure.tsx`) : UN composant SVG/HTML pour les
+  dix-sept formes, sans dépendance. Une barre part TOUJOURS de zéro ; une courbe dont l'axe ne part
+  pas de zéro le DIT sous l'axe ; les alertes se lisent AVANT la figure (`blocks/viz.tsx`) ; chaque
+  élément porte sa valeur exacte en `<title>` ; les séries ont leurs données en clair (`<details>`).
+  Sur téléphone, les séries passent en liste proportionnelle (un SVG réduit à 320 px n'est pas une
+  lecture) ; les autres formes défilent horizontalement plutôt que de rétrécir ; matrice, arbre et
+  indicateurs sont en HTML et se plient seuls. Le tableau de bord (`DashboardBlock`) place ses tuiles
+  par le REGISTRE des rendus — il ne dessine rien lui-même.
+- **Banc** : `viz-block.test.ts` (lecteur, bornes, constructeurs), `view-tools.test.ts` (auto, formes,
+  alertes, données structurées, tuiles, `run_analysis` + graphique), `viz-figure.test.ts` (les dix-sept
+  formes de la planche rendues sans NaN, éléments comptés, mesure `representations_rendues` dans le
+  rapport des cibles), planche `?apercu=blocs` capturée aux cinq largeurs et vérifiée à 390 px
+  (`chief-godmode.spec.ts`), live : un graphique puis un tableau de bord demandés dans l'UI
+  (`adam-live.spec.ts`), défis `defi-representation-graphique`, `defi-representation-dashboard`.
+
+### Runtime de plugins et de skills — mandat 5 §36
+
+Un skill DÉCLARE ce qu'il sait faire ; le cœur ne le connaît pas par son nom, il le découvre. Trois
+provenances, un seul format de manifeste, un seul runtime.
+
+- **Le manifeste** (`lib/skills/manifest.ts`) : entrées (schéma), sorties, permissions (module, action,
+  vue globale, rôles), risques (niveau, irréversible, externe), coût (latence, estimation), dépendances
+  (les NOMS de configuration qui rendent le skill disponible — jamais une URL ni un jeton), événements,
+  validations (attentes closes, forme promise), limites (débit) et l'exécuteur : `http` déclaratif
+  (chemin et corps à gabarits, authentification par configuration), `code` dans le bac (porte de
+  qualité), `playbook` (une suite de LECTURES existantes). `validerManifest` dit tout ce qui est faux ;
+  un id qui ressemble à une capacité de contrôle, d'enseignement ou de sécurité est refusé à la
+  déclaration.
+- **Les connecteurs déclarés** (`lib/skills/plugins/`) : DocuSign (envoyer à signer, statut), SAP (lire,
+  créer une commande d'achat), HubSpot (contact, transaction), IQVIA (ventes de marché), PCH (appels
+  d'offres, dépôt d'offre). Ajouter un connecteur = ajouter un manifeste ; le cœur n'a pas bougé pour
+  ces cinq-là et ne bougera pas pour le sixième. Non configuré, un connecteur reste DÉCLARÉ : l'appel
+  dit la ressource qui manque (`clé de configuration … non configurée`), jamais « pas prévu ».
+- **Le runtime** (`platform/in-process/skills/index.ts`) charge la carte d'UNE personne (connecteurs +
+  micro-outils + playbooks), l'autorise (le RBAC du manifeste, revérifié à chaque exécution), et
+  DÉCLARE au registre ce que le cœur doit savoir sans le connaître : la méta de mission (effet,
+  latence, primitive, confirmation) et le domaine de la liste courte — un connecteur est donc vu par
+  le planificateur (`catalogueDe`), la conversation (`assistantToolsFor`) et la liste courte du
+  domaine, sans une ligne de plus dans le cœur. Le cache par personne est invalidé par EMPREINTE
+  (règles WORKFLOW + micro-outils) : un playbook enseigné à l'instant est là au tour suivant.
+- **Les règles qui ne se négocient pas** : un effet qui écrit, communique ou engage rend un APERÇU
+  (cible, corps — jamais un en-tête ni un secret) et n'exécute qu'avec `confirmer: true` après
+  l'accord explicite de la personne ; dans une mission, c'est le RUNNER qui pose cet accord après la
+  porte d'approbation (`preparerAppelMission`), jamais le modèle. Le chemin HTTP encode chaque valeur
+  (une entrée ne réécrit pas l'URL) ; délai 15 s, réponse bornée ; débit `parMinute`/`parJour` compté ;
+  une écriture exécutée s'inscrit à l'audit au nom de la personne.
+- **Les micro-outils d'Adam** (`create_skill` → `AdamSkill`) : du code (JS, ou Python si le serveur l'a)
+  avec un EXEMPLE d'entrée et des attentes closes ; le serveur inspecte, exécute, teste, valide — et
+  n'expose l'outil (`skill_<nom>`) que si tout tient. TEMPORAIRE 24 h, visible du créateur seul,
+  compté à l'usage ; la forme promise vaut à chaque appel, les attentes de l'exemple ne sont pas
+  rejouées. PROMOUVOIR (`promote_skill`, PERSON / GROUP / COMPANY — vue globale pour la société) et
+  JETER sont des gestes de PERSONNE : `policy/guard.ts` les refuse à l'agent à la compilation.
+- **Teach Adam → playbook** : une règle WORKFLOW dont `params.playbook` porte `entrees`, `etapes`
+  (`alias`, `outil`, `args` à gabarits) et `sortie` devient l'outil `playbook_<id>` : des lectures
+  composées, versionnées avec la règle ; une étape d'écriture est refusée (elle passe par la
+  proposition habituelle) ; profondeur bornée à trois.
+- **Banc** : `manifest.test.ts` (validation, connecteurs, gabarits), `skills.test.ts` (découverte par
+  la conversation, le planificateur et la liste courte ; RBAC ; HTTP avec `fetch` injecté — encodage,
+  auth, 404, non configuré ; aperçu puis exécution confirmée, audit, débit ; cycle du micro-outil ;
+  promotion refusée à l'agent et à un tiers ; playbook enseigné puis exécuté, écriture refusée),
+  défi live `defi-skill-micro-outil` (créer, tester, utiliser dans le même fil).
+
+### Ingestion universelle d'événements et communication omnicanale — mandat 5 §37
+
+Un fait entre par UNE porte, quelle que soit sa provenance, et une mission peut attendre n'importe
+lequel. `Event → identify → normalize → authorize → associate → trigger`.
+
+- **Le catalogue** (`lib/events/catalogue.ts`) : ~31 types canoniques — l'ERP (pièce déposée,
+  validation, tâche faite, paiement, livraison, statut réglementaire, contrat, appel d'offres), les
+  communications (e-mail, message, réunion) et les systèmes externes (signature envoyée / étape /
+  complète / refusée, commande d'achat SAP créée ou modifiée, facture reçue, transaction et contact
+  CRM, données de marché IQVIA, livraison fournisseur, webhook non catalogué). Le planificateur le
+  LIT (`planner/schema.ts`, `planner/plan.ts`) : `WAIT_EVENT` est quasi universel, et un fait inconnu
+  entre quand même sous son nom brut (`WEBHOOK_RECEIVED`, `typeBrut`).
+- **Le pur** (`lib/events/ingestion.ts`) : sept sources (`docusign`, `sap`, `hubspot`, `pch`, `iqvia`,
+  `signature`, `generic`) ramenées à UNE forme — type, émetteur, références SÛRES « TYPE:id » (nos
+  champs personnalisés chez le fournisseur), mentions LIBRES à résoudre, charge nettoyée de tout secret
+  et bornée, confidentialité détectée. `decider` : une référence sûre ou un candidat ≥ 0,85 rattache ;
+  entre 0,5 et 0,85 c'est À VÉRIFIER — jamais rattaché en silence ; en dessous, rien.
+- **Le pont** (`platform/in-process/events/ingestion.ts`) : AUTORISER (secret par source
+  `EVENTS_WEBHOOK_SECRET_<SOURCE>`, sinon `EVENTS_WEBHOOK_SECRET` ; sans secret la source est FERMÉE,
+  503 ; HMAC-SHA256 du corps brut, 401 sinon), DÉDOUBLONNER (la ligne `IngestedEvent (source,
+  externalId)` est RÉCLAMÉE avant toute conséquence : deux livraisons simultanées n'inscrivent qu'un
+  fait — mesuré), ASSOCIER (la résolution d'entités du §24 : CERTAIN rattache, PROBABLE et AMBIGU
+  s'inscrivent à vérifier avec leurs candidats, INCONNU s'oublie), INSCRIRE et RÉVEILLER par
+  `recordEvent` — le registre canonique (§17), qui réveille lui-même les missions, réconcilie les
+  tâches et ferme les engagements. Un fait « à vérifier » entre SANS ses références douteuses : la
+  mission qui attend « une signature » repart, celle qui attend « LA signature du contrat X » attend
+  qu'une personne lève le doute (`rattacherEvenement`, vue globale, audit, réveil).
+- **La route** `POST /api/events/inbound/{source}` — publique, jamais ouverte : source inconnue 400,
+  sans secret 503, signature fausse 401, corps hors JSON 400 ; en réponse des COMPTES (reçus, acceptés,
+  doublons, rejetés, à vérifier), jamais le détail d'un refus.
+- **Dans la conversation** : `inbound_events` (vue globale) montre les faits reçus avec leur statut
+  d'association et leurs candidats ; `attach_inbound_event` est le geste de PERSONNE qui rattache —
+  `policy/guard.ts` le refuse à l'agent à la compilation : un document lu par une mission ne décide
+  pas à qui appartient une signature.
+- **L'omnicanal, natif au moteur** : la table du niveau (`canauxPour`) est corrigée par ce que la
+  personne a ENSEIGNÉ — clé `canalPrefere` (ERP seul, e-mail, Slack, Teams, WhatsApp, SMS ;
+  « slack:#direction » porte la destination), clé `heuresSilence` (« pas de notification entre 22 h et
+  7 h ») —, par ce qui est BRANCHÉ (les connecteurs de messagerie du §36, configurés et ouverts à
+  elle : un canal préféré non branché laisse la table et le dit), et par la CONFIDENTIALITÉ (un signal
+  marqué tel, ou une mission qui touche une capacité HR_SENSITIVE : le détail reste au centre de
+  notifications, l'extérieur reçoit un corps neutre). Les heures de silence retiennent le push et le
+  message (dit au journal, `differe`), gardent la notification et l'e-mail ; l'ARBITRAGE ne se laisse
+  ni taire ni déplacer. Le connecteur est appelé par le runtime des skills (`<canal>_envoyer_message`,
+  sous les droits de la personne) — la porte ne connaît ni Slack ni Twilio.
+- **Banc** : `lib/events/ingestion.test.ts` (catalogue, sept sources, nettoyage, seuils),
+  `platform/in-process/events/ingestion.test.ts` (autorisation, mission WAIT_EVENT réveillée par une
+  enveloppe DocuSign référencée puis relivraison dédoublonnée, course de deux livraisons, mention
+  ambiguë → à vérifier → rattachement humain → réveil, la route), `policy.test.ts` et
+  `attention.test.ts` (canal préféré, silence, non branché, confidentiel), `skills.test.ts` (Slack JSON
+  bearer, SMS basique + formulaire, non configuré), défi live `defi-evenement-attente` (Adam planifie
+  une attente de signature, le webhook la réveille), banc live Playwright (webhook signé → 401 / 200 /
+  doublon → Adam cite le fait dans l'interface).
 
 ### Information Fabric (`src/lib/fabric/`) — façade L2
 
@@ -4323,6 +4476,26 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
 
 ### La provenance au niveau du fait, la garantie d'enseignement, et la boîte dans le pont (2026-09)
 
+- **Un fait entre par une porte, et une mission peut attendre n'importe lequel** (mandat 5 §37) :
+  catalogue de ~31 faits canoniques lu par le planificateur (`WAIT_EVENT` quasi universel), ingestion
+  universelle des webhooks (DocuSign, SAP, HubSpot, PCH, IQVIA, e-signature, générique) — signature
+  HMAC obligatoire, réclamation exactly-once avant toute conséquence, association par la résolution
+  d'entités (sûr rattaché, douteux à vérifier par une personne, jamais en silence), registre canonique
+  qui réveille ; communication omnicanale gouvernée par les règles enseignées (canal préféré, heures de
+  silence), les connecteurs branchés (Slack, Teams, WhatsApp, SMS) et la confidentialité (corps neutre
+  hors de l'ERP), l'arbitrage restant intouchable.
+- **Un skill déclare, le cœur découvre** (mandat 5 §36) : un format de manifeste pour trois
+  provenances — cinq connecteurs déclarés (DocuSign, SAP, HubSpot, IQVIA, PCH) sans une ligne dans le
+  cœur, des micro-outils créés par Adam derrière la porte de qualité et promus par une personne, des
+  playbooks enseignés qui composent des lectures ; effet, domaine et droit viennent du manifeste, un
+  effet qui engage rend un aperçu et exige la confirmation, une ressource absente est dite.
+- **Une représentation est une forme, pas un composant** (mandat 5 §35) : dix-sept formes (barres,
+  courbes, aires, nuage, histogramme, secteurs, cascade, entonnoir, heatmap, Gantt, matrice, réseau,
+  arbre, flux, carte, indicateurs) et le mini-tableau de bord rendus par UN rendu générique ; le
+  modèle nomme, le code charge sous le droit de la source, agrège, choisit la forme, signale ce qui
+  tromperait, compose et relit le bloc — le modèle n'en reçoit qu'un aperçu chiffré ; `run_analysis`
+  et `sql_query` rendent désormais leur graphique recommandé sous le tableau ; sur téléphone les
+  séries se lisent en liste proportionnelle.
 - **Primitives plutôt que fonctionnalités, la découverte avant l'impossible, et une porte de qualité
   sur le code** (mandat 5 §34) : chaque capacité porte l'une des six primitives et le planificateur
   compose à ce niveau ; « je ne peux pas » sans un seul outil appelé déclenche, côté serveur, la

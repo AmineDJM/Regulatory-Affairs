@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
+import { createHmac } from "node:crypto";
 import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { VERITES, BENCH_PASSWORD } from "../scripts/bench/seed-adam-bench";
@@ -207,7 +208,9 @@ test("une règle enseignée dans l'UI s'applique au tour suivant — avec ou san
 
 test("une action proposée se confirme d'un clic, et la tâche existe en base", async ({ page }) => {
   test.slow();
-  await prisma.task.deleteMany({ where: { title: { contains: "banc UI" } } });
+  // Le modèle garde la SUBSTANCE du titre (Hetero Labs, GMP) mais peut laisser tomber la parenthèse
+  // « (banc UI) » : la tâche se retrouve par sa substance et sa date, la fidélité du titre est NOTÉE.
+  await prisma.task.deleteMany({ where: { title: { contains: "Hetero Labs", mode: "insensitive" }, createdAt: { gte: new Date(Date.now() - 24 * 3600 * 1000) } } });
   // Les intentions du passage précédent partent avec leurs tâches : un reçu « exécutée hier » pour
   // une tâche qu'on vient d'effacer n'est pas un état de production, c'est un reste de banc.
   await prisma.assistantActionIntent.deleteMany({ where: { userId: pdgId, OR: [{ summary: { contains: "banc UI" } }, { title: { contains: "banc UI" } }] } });
@@ -216,7 +219,7 @@ test("une action proposée se confirme d'un clic, et la tâche existe en base", 
   const depuis = new Date();
   const r = await poser(page, "Crée une tâche pour Raihana Cherif : relancer Hetero Labs pour le certificat GMP Trastuzex (banc UI), échéance vendredi prochain.", BUDGET.actionMs);
   // Rien n'est écrit avant le clic.
-  expect(await prisma.task.count({ where: { title: { contains: "banc UI" } } }), "écriture SANS confirmation").toBe(0);
+  expect(await prisma.task.count({ where: { title: { contains: "Hetero", mode: "insensitive" }, createdAt: { gte: depuis } } }), "écriture SANS confirmation").toBe(0);
   const confirmer = page.getByRole("button", { name: /confirmer/i }).first();
   await expect(confirmer, `pas de carte à confirmer — réponse : ${r.reponse}`).toBeVisible({ timeout: 10_000 });
   const tClic = Date.now();
@@ -224,8 +227,10 @@ test("une action proposée se confirme d'un clic, et la tâche existe en base", 
   await expect(page.getByRole("button", { name: /confirmer/i })).toHaveCount(0, { timeout: 30_000 });
   await expect(page.locator("text=/effectu|cré|Fait|✔/i").last()).toBeVisible({ timeout: 30_000 });
   const clicMs = Date.now() - tClic;
-  const tache = await prisma.task.findFirst({ where: { title: { contains: "banc UI" }, createdAt: { gte: depuis } }, select: { id: true, assignedToId: true, dueDate: true, title: true } });
-  await consigner("action-confirmee", "tâche Raihana", pdgId, depuis, r, Boolean(tache), `clic → exécutée en ${(clicMs / 1000).toFixed(1)}s${tache ? `, échéance ${tache.dueDate?.toISOString().slice(0, 10) ?? "—"}` : ""}`);
+  const tache = await prisma.task.findFirst({ where: { title: { contains: "Hetero", mode: "insensitive" }, createdAt: { gte: depuis } }, select: { id: true, assignedToId: true, dueDate: true, title: true } });
+  const titreFidele = Boolean(tache?.title.includes("banc UI"));
+  await consigner("action-confirmee", "tâche Raihana", pdgId, depuis, r, Boolean(tache), `clic → exécutée en ${(clicMs / 1000).toFixed(1)}s${tache ? `, échéance ${tache.dueDate?.toISOString().slice(0, 10) ?? "—"}, titre ${titreFidele ? "fidèle" : `sans la parenthèse : « ${tache.title} »`}` : ""}`);
+  expect(tache?.title ?? "", "le titre garde la substance demandée (GMP)").toMatch(/GMP/i);
   expect(tache, "la tâche n'existe pas en base après confirmation").not.toBeNull();
   expect(tache?.assignedToId, "assignée à Raihana").toBe(raihanaId);
   expect(tache?.dueDate, "avec une échéance").not.toBeNull();
@@ -286,4 +291,62 @@ test("téléphone 390 px : un brief demandé et rendu sans débordement horizont
   expect(debordements, JSON.stringify(debordements, null, 1)).toEqual([]);
   expect(r.reponse.length).toBeGreaterThan(80);
   await contexte.close();
+});
+
+test("une représentation demandée dans l'UI : la figure est composée par le code et rendue sous la réponse, puis un mini tableau de bord", async ({ page }) => {
+  test.slow();
+  await login(page, VERITES.pdg.email);
+  await ouvrirBureau(page);
+  const d1 = new Date();
+  const r1 = await poser(page, "Montre-moi en graphique la répartition des tâches par statut.", BUDGET.questionMs);
+  const figures = await page.locator('[data-testid="turn-workspace"] figure.chief-viz').count();
+  const refus = /je ne peux pas|pas d'outil|pas pr[ée]vu|impossible d'afficher/i.test(r1.reponse);
+  const dessine = /```|[▇█▓■]{3,}/.test(r1.reponse);
+  const c1 = await consigner("render-view-ui", "graphique tâches par statut", pdgId, d1, r1, figures > 0 && !refus && !dessine, `${figures} figure(s) rendue(s)`);
+  expect(refus, `refus : ${r1.reponse.slice(0, 300)}`).toBe(false);
+  expect(dessine, "le graphique ne se dessine pas en texte").toBe(false);
+  expect(figures, "une figure composée par le code doit être rendue dans la conversation").toBeGreaterThan(0);
+  expect(c1.appels, "un graphique tient en quelques appels").toBeLessThanOrEqual(6);
+
+  const d2 = new Date();
+  const r2 = await poser(page, "Fais-moi un mini tableau de bord : les tâches par statut, et les réunions par mois sur les six derniers mois.", BUDGET.actionMs);
+  const tuiles = await page.locator('[data-testid="turn-workspace"] .chief-dashboard .chief-tuile').count();
+  const figuresApres = await page.locator('[data-testid="turn-workspace"] figure.chief-viz').count();
+  const rendu = tuiles >= 2 || figuresApres - figures >= 2;
+  await consigner("render-view-dashboard-ui", "mini tableau de bord", pdgId, d2, r2, rendu, tuiles >= 2 ? `${tuiles} tuiles` : `${figuresApres - figures} figure(s) séparée(s)`);
+  expect(rendu, `un tableau de bord (ou deux figures) doit être rendu — réponse : ${r2.reponse.slice(0, 300)}`).toBe(true);
+});
+
+test("un fait externe poussé par webhook (signé) est reçu, rattaché et lisible par Adam dans l'interface — ingestion universelle (§37)", async ({ page, request }) => {
+  const secret = process.env.EVENTS_WEBHOOK_SECRET ?? "banc-live-webhook-secret";
+  const externalId = `pay-ui-${Date.now().toString(36)}`;
+  const corps = JSON.stringify({ type: "PAYMENT_RECEIVED", externalId, from: { email: "tresorerie@banque-test.dz", name: "Banque test" }, payload: { montant: 2_450_000, devise: "DZD", reference: externalId, objet: "Règlement facture Trastuzex — banc live" } });
+  const signature = `sha256=${createHmac("sha256", secret).update(corps, "utf8").digest("hex")}`;
+  // Sans signature : refusé. Avec : accepté, compté.
+  const refuse = await request.post("/api/events/inbound/generic", { data: corps, headers: { "content-type": "application/json" } });
+  expect(refuse.status()).toBe(401);
+  const t0 = Date.now();
+  const ok = await request.post("/api/events/inbound/generic", { data: corps, headers: { "content-type": "application/json", "x-webhook-signature": signature } });
+  const ingestionMs = Date.now() - t0;
+  expect(ok.status()).toBe(200);
+  expect(await ok.json()).toMatchObject({ ok: true, recus: 1, acceptes: 1 });
+  const ligne = await prisma.ingestedEvent.findUnique({ where: { source_externalId: { source: "generic", externalId } } });
+  expect(ligne?.status).toBe("ACCEPTED");
+  expect(ligne?.businessEventId).toBeTruthy();
+  // La relivraison est un doublon : un seul fait au registre.
+  const bis = await request.post("/api/events/inbound/generic", { data: corps, headers: { "content-type": "application/json", "x-webhook-signature": signature } });
+  expect(await bis.json()).toMatchObject({ ok: true, doublons: 1 });
+
+  await login(page, VERITES.pdg.email);
+  await ouvrirBureau(page);
+  const depuis = new Date();
+  const r = await poser(page, `Quels faits externes sont arrivés par webhook dans la dernière heure ? Donne pour chacun la source, le type et la référence externe (par exemple ${externalId.slice(0, 6)}…).`, BUDGET.questionMs);
+  const cite = r.reponse.includes(externalId);
+  const type = /PAYMENT_RECEIVED|paiement re[cç]u/i.test(r.reponse);
+  const refus = /je ne peux pas|pas d'outil|pas pr[ée]vu/i.test(r.reponse);
+  await consigner("ingestion webhook → Adam", "faits externes reçus", pdgId, depuis, r, cite && type && !refus, `ingestion ${ingestionMs} ms · référence citée ${cite ? "oui" : "non"} · type ${type ? "oui" : "non"}`);
+  expect(refus, r.reponse.slice(0, 300)).toBe(false);
+  expect(cite, r.reponse.slice(0, 300)).toBe(true);
+  expect(type, r.reponse.slice(0, 300)).toBe(true);
+  expect(r.totalMs).toBeLessThan(BUDGET.questionMs);
 });

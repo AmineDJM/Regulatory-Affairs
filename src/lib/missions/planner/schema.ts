@@ -1,3 +1,4 @@
+import { RESUME_POUR_PLANNER } from "@/lib/events/catalogue";
 import { COMPLEXITIES, NODE_TYPES, SCALES, APPROVAL_STRATEGIES } from "@/lib/missions/planner/contract";
 import { EFFECT_RANK, type Effect } from "@/lib/missions/registry/capability-meta";
 import { EFFET_NOEUD } from "@/lib/missions/registry/node-effect";
@@ -237,7 +238,7 @@ const ETAPE_WORKER = objet({
 const BRANCHE_ATTENTE = {
   type: "object",
   properties: {
-    event: nullableStr("Le type de fait (EMAIL_RECEIVED, DOCUMENT_UPLOADED…). null si seule l'échéance compte."),
+    event: nullableStr(`Le type de fait — un type du catalogue (${RESUME_POUR_PLANNER}). null si seule l'échéance compte.`),
     from: nullableStr("De qui. null si indifférent."),
     entity: nullableStr("L'entité concernée, en TYPE:id. null sinon."),
     until: nullableStr("Échéance ISO 8601 (calculée depuis la date du jour du contexte). null sinon."),
@@ -263,16 +264,21 @@ const BRANCHES = (sens: string) => ({
 const ETAPE_WAIT_EVENT = objet({
   ...COMMUN,
   nodeType: typeConst("WAIT_EVENT"),
-  waitEvent: str("Le type de fait attendu (par ex. EMAIL_RECEIVED). « TEMPS » si seule l'échéance waitUntil compte."),
+  waitEvent: str(`Le type de fait attendu — un type du catalogue : ${RESUME_POUR_PLANNER}. Les faits externes (signature DocuSign ou e-signature, commande ou facture SAP, appel d'offres PCH, transaction CRM, données IQVIA, webhook) arrivent par l'ingestion universelle. « TEMPS » si seule l'échéance waitUntil compte.`),
   waitFrom: nullableStr("De qui l'on attend le fait (nom, identifiant ou adresse). null si indifférent."),
-  waitEntity: nullableStr("L'entité concernée, en TYPE:id. null sinon."),
+  waitEntity: nullableStr(
+    "L'entité concernée, en TYPE:id — UNIQUEMENT un identifiant déjà CONNU (ENTITÉS ACTIVES, SUJET EN COURS, ou l'identifiant "
+    + "rendu par une étape qui CRÉE ou LIT un dossier précis). JAMAIS un gabarit vers une étape de RECHERCHE (search_*, find_*, "
+    + "list_*) : une recherche rend une liste, pas un identifiant sûr — l'attente échouerait. Sans identifiant connu : null, et "
+    + "cibler l'attente par waitSubject (fragment du titre / de l'objet) et waitFrom.",
+  ),
   waitWithinDays: DELAI,
   waitUntil: nullableStr(
     "RÉVEIL TEMPOREL, ISO 8601 : « attends jusqu'à demain 9h » → calcule l'instant depuis la date du jour "
     + "du contexte. Se COMBINE avec un fait : fait OU échéance, le premier arrivé. null sinon.",
   ),
   waitThreadId: nullableStr("E-mail : le FIL exact attendu (threadId) — le préférer aux heuristiques. null sinon."),
-  waitSubject: nullableStr("E-mail : fragment d'objet attendu, insensible à la casse. null sinon."),
+  waitSubject: nullableStr("Fragment du TITRE ou de l'OBJET attendu, insensible à la casse — l'objet d'un e-mail, le titre d'une enveloppe de signature, d'un document, d'un appel d'offres (« Contrat Consulting Mouffok »). C'est le bon ciblage quand l'identifiant n'est pas connu. null sinon."),
   waitAttachment: {
     type: ["boolean", "string", "null"],
     description: "E-mail : pièce jointe EXIGÉE — true ou un motif de nom (« *.pdf »). Un e-mail sans la pièce ne règle pas l'attente. null sinon.",

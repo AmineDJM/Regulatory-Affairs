@@ -35,6 +35,13 @@ describe("les paramètres extraits — seulement ce qui est écrit noir sur blan
     expect(extraireParametres("Les bons de commande sont numérotés en PO", "DOCUMENT_STANDARD")).toEqual({ cle: "prefixeBonDeCommande", valeur: "PO" });
     expect(extraireParametres("La TVA par défaut est de 9 %", "DOCUMENT_STANDARD")).toEqual({ cle: "tvaDefaut", valeur: 0.09 });
     expect(extraireParametres("Paiement à 45 jours fin de mois", "DOCUMENT_STANDARD")).toEqual({ cle: "conditionsPaiement", valeur: "45 jours fin de mois" });
+    // Les canaux (§37) : le canal préféré et les heures de silence se lisent quelle que soit la nature.
+    expect(extraireParametres("Préviens-moi par Slack quand une mission bloque", "PREFERENCE")).toEqual({ cle: "canalPrefere", valeur: "slack" });
+    expect(extraireParametres("Pour les alertes, contacte-moi plutôt sur WhatsApp", "PREFERENCE")).toEqual({ cle: "canalPrefere", valeur: "whatsapp" });
+    expect(extraireParametres("Mon canal de notification préféré : e-mail", "PREFERENCE")).toEqual({ cle: "canalPrefere", valeur: "email" });
+    expect(extraireParametres("Pas de notification entre 22h et 7h", "PREFERENCE")).toEqual({ cle: "heuresSilence", valeur: { de: 22, a: 7 } });
+    expect(extraireParametres("Ne pas me déranger de 21 h à 8 h", "COMPANY_RULE")).toEqual({ cle: "heuresSilence", valeur: { de: 21, a: 8 } });
+    expect(extraireParametres("Quand je dis Slack, c'est le canal direction", "MAPPING")).not.toMatchObject({ cle: "canalPrefere" });
   });
   it("lit une correspondance et un seuil", () => {
     expect(extraireParametres("Quand je dis la DT, c'est la Direction technique", "MAPPING")).toEqual({ de: "la dt", vers: "la direction technique" });

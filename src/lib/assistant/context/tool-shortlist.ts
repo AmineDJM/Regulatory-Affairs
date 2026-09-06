@@ -198,6 +198,16 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   run_analysis: ["DATA"],
   run_code: ["DATA"],
   chart_advice: ["DATA"],
+  // La représentation générique (mandat 5 §35) : dix-sept formes et le mini-tableau de bord, composés par le code.
+  render_view: ["DATA", "GENERAL"],
+  // Les micro-outils et skills (mandat 5 §36) : créer et lister sont ouverts ; promouvoir et jeter sont des gestes de personne.
+  create_skill: ["DATA", "GENERAL", "TEACH"],
+  list_skills: ["TEACH", "GENERAL"],
+  promote_skill: ["TEACH"],
+  drop_skill: ["TEACH"],
+  // Les faits externes (mandat 5 §37) : lecture sous la vue globale ; le rattachement est un geste de personne.
+  inbound_events: ["GENERAL", "DATA", "SOURCES", "MAIL"],
+  attach_inbound_event: ["GENERAL"],
   time_travel: ["GENERAL"],
   investigate_event: ["GENERAL"],
   process_insights: ["GENERAL"],
@@ -358,6 +368,15 @@ export const TOOL_DOMAINS_RESTE: Record<string, Domain[]> = {
 /** Le classement COMPLET — c'est celui-ci que le résolveur consulte. */
 export const TOOL_DOMAINS_ALL: Record<string, Domain[]> = { ...TOOL_DOMAINS, ...TOOL_DOMAINS_RESTE };
 
+/**
+ * LES DOMAINES DYNAMIQUES (§36) — ceux des connecteurs, micro-outils et playbooks, posés par le pont
+ * des skills au chargement. Un outil dynamique classé entre dans la liste courte de son domaine comme
+ * un outil du cœur ; non classé, il serait conservé (le défaut sûr) — mais il l'est toujours.
+ */
+const DOMAINES_DYNAMIQUES = new Map<string, Domain[]>();
+export function declarerDomaineDynamique(name: string, domains: Domain[]): void { DOMAINES_DYNAMIQUES.set(name, domains); }
+export const domainesDe = (name: string): Domain[] | undefined => TOOL_DOMAINS_ALL[name] ?? DOMAINES_DYNAMIQUES.get(name);
+
 export const ALWAYS_ON = [
   "search_everything", "inspect_record", "resolve_person", "remember",
   // AJOUTÉ AU SOCLE, et ce n'est pas une facilité. `search_everything` trouve OÙ un document est
@@ -466,6 +485,9 @@ export function shortlistNames(route: Pick<QueryRoute, "route" | "domain" | "sec
   for (const [name, domains] of Object.entries(TOOL_DOMAINS)) {
     if (domains.some((d) => wanted.includes(d))) keep.add(name);
   }
+  for (const [name, domains] of DOMAINES_DYNAMIQUES) {
+    if (domains.some((d) => wanted.includes(d))) keep.add(name);
+  }
   // Le raisonnement profond voit large — c'est sa raison d'être.
   if (route.route === "DEEP_REASONING") for (const n of EXECUTIVE) keep.add(n);
 
@@ -486,7 +508,7 @@ export function shortlistTools<T extends { name: string }>(
 ): (T | typeof DISCOVERY_TOOL)[] {
   if (route.route === "FAST_DETERMINISTIC") return [];
   const names = new Set(shortlistNames(route));
-  const kept = tools.filter((t) => names.has(t.name) || !(t.name in TOOL_DOMAINS));
+  const kept = tools.filter((t) => names.has(t.name) || (!(t.name in TOOL_DOMAINS) && !DOMAINES_DYNAMIQUES.has(t.name)));
   return [...kept, DISCOVERY_TOOL];
 }
 

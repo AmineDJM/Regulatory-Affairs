@@ -1249,6 +1249,7 @@ model User {
   adamWatches                AdamWatch[]              @relation("AdamWatches")
   adamRulesOwned             AdamRule[]               @relation("AdamRulesOwned")
   adamRulesSubject           AdamRule[]               @relation("AdamRulesSubject")
+  adamSkills                 AdamSkill[]              @relation("AdamSkills")
   assistantArtifacts         AssistantArtifact[]      @relation("AssistantArtifacts")
   artifactSessions           ArtifactSession[]        @relation("ArtifactSessions")
   assistantActionIntents     AssistantActionIntent[]  @relation("AssistantActionIntents")
@@ -7539,6 +7540,72 @@ model RegulatoryDossier {
 /// processus. Un redémarrage relit la table ; un fait métier qui touche la cible avance
 /// `nextCheckAt` à maintenant (réveil par le registre d'événements).
 /// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// UN MICRO-OUTIL CRÉÉ PAR ADAM (mandat 5 §36) : du code passé par la porte de qualité, exposé comme
+/// outil TEMPORAIRE à son créateur, puis PROMU par une personne (jamais par l'agent) ou jeté.
+/// Les connecteurs déclarés (`lib/skills/plugins/`) et les playbooks enseignés (règles WORKFLOW)
+/// ne vivent pas ici : ils n'ont pas de code à garder.
+model AdamSkill {
+  id           String    @id @default(cuid())
+  slug         String
+  ownerId      String
+  owner        User      @relation("AdamSkills", fields: [ownerId], references: [id], onDelete: Cascade)
+  /// PERSON | GROUP | COMPANY — le périmètre de visibilité une fois PROMU.
+  scope        String    @default("PERSON")
+  companyId    String?
+  departmentId String?
+  title        String
+  description  String    @db.Text
+  domain       String    @default("DATA")
+  /// js | python
+  langage      String
+  code         String    @db.Text
+  inputSchema  Json
+  exemple      Json?
+  attentes     Json?
+  schemaSortie Json?
+  /// TEMP | PROMOTED | DROPPED
+  status       String    @default("TEMP")
+  version      Int       @default(1)
+  usageCount   Int       @default(0)
+  lastUsedAt   DateTime?
+  expiresAt    DateTime?
+  promotedById String?
+  promotedAt   DateTime?
+  /// { threadId, missionId, porte: { tests, etapes } }
+  provenance   Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([ownerId, slug])
+  @@index([status, scope])
+  @@index([companyId, status])
+  @@index([departmentId, status])
+}
+
+/// UN FAIT REÇU DE L'EXTÉRIEUR (mandat 5 §37) — ce qu'un webhook a livré, sa source, son identifiant
+/// fournisseur (exactly-once), ce qu'on en a décidé (accepté, doublon, rejeté, à vérifier) et le fait
+/// du registre qu'il est devenu. Le registre canonique reste `BusinessEvent` (§17) : ceci est la
+/// trace de RÉCEPTION, pas un second registre.
+model IngestedEvent {
+  id              String   @id @default(cuid())
+  source          String
+  externalId      String
+  type            String
+  /// ACCEPTED | DUPLICATE | REJECTED | A_VERIFIER | SANS_ASSOCIATION
+  status          String
+  confidence      Float?
+  businessEventId String?
+  refs            String[] @default([])
+  candidats       Json?
+  payload         Json?
+  reason          String?
+  receivedAt      DateTime @default(now())
+
+  @@unique([source, externalId])
+  @@index([status, receivedAt])
+  @@index([type, receivedAt])
+}
+
 model AdamWatch {
   id            String    @id @default(cuid())
   ownerId       String

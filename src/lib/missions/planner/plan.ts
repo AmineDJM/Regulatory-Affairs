@@ -1,3 +1,4 @@
+import { RESUME_POUR_PLANNER } from "@/lib/events/catalogue";
 import type { CapabilityCatalog, MissionActor, Reasoner, Situation } from "@/lib/missions/ports";
 import type {
   ApprovalStrategy,
@@ -329,6 +330,7 @@ export function composerContexte(
     ligne("CE QUI A DÉJÀ ÉTÉ DÉCIDÉ OU RETENU :", ctx.memoire),
     ligne("RÈGLES DE LA MAISON :", ctx.politiques),
     ligne("LIVRABLES ATTENDUS :", ctx.livrablesAttendus),
+    `\n\nFAITS QU'UNE ÉTAPE WAIT_EVENT PEUT ATTENDRE (types exacts — ERP, e-mail, agenda, Drive, et systèmes externes par l'ingestion universelle : signatures, SAP, HubSpot, PCH, IQVIA, webhooks) : ${RESUME_POUR_PLANNER}. Une mission qui attend un fait dort sans consommer de modèle ; elle repart quand le fait arrive.`,
     rendreSituation(ctx.situation),
     ligne(
       "FORMES DE PLANS QUI ONT DÉJÀ RÉUSSI ICI (indication SEULEMENT — si la demande s'y prête, "

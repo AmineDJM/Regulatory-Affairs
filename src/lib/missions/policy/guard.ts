@@ -69,6 +69,8 @@ const MOTIFS: { test: RegExp; raison: string }[] = [
    * respecter.
    */
   { test: /^(teach_adam|update_rule|disable_rule|delete_rule)$/i, raison: "s'enseigner une règle à elle-même, ou modifier une règle enseignée par une personne" },
+  { test: /^(promote_skill|drop_skill)$/i, raison: "promouvoir ou jeter un micro-outil — c'est une personne qui juge ce qui devient durable" },
+  { test: /^attach_inbound_event$/i, raison: "rattacher un fait externe à une entité — c'est une personne qui lève un doute d'association ; un document lu ne décide pas à qui appartient une signature" },
 ];
 
 export interface RefusPolitique {

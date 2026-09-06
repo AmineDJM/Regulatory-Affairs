@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { PLANNER_PROMPT_VERSION } from "@/lib/missions/planner/plan";
+import { prechargerCapacitesDynamiques } from "@/platform/in-process/skills";
 import type { CurrentUser } from "@/lib/session";
 import { compile } from "@/lib/missions/compiler/compile";
 import { planifier, type ContextePlanification, type MetriquesPlanification } from "@/lib/missions/planner/plan";
@@ -248,6 +249,7 @@ export function lancerMission(
 ): Promise<ResultatLancement> {
   return withTurn("background", async () => {
     setTurnContext({ userId: user.id, feature: "mission" });
+    await prechargerCapacitesDynamiques(user).catch(() => 0);
     return lancerMissionInterne(user, objectif, opts);
   });
 }
@@ -653,6 +655,7 @@ export function avancerMission(
 ) {
   return withTurn("background", async () => {
     setTurnContext({ userId: user.id, missionId, feature: "mission" });
+    await prechargerCapacitesDynamiques(user).catch(() => 0);
     return avancerMissionInterne(user, missionId, opts);
   });
 }
@@ -767,6 +770,7 @@ export function replanifierMission(
 ): Promise<ResultatReplanification> {
   return withTurn("background", async () => {
     setTurnContext({ userId: user.id, missionId, feature: "mission" });
+    await prechargerCapacitesDynamiques(user).catch(() => 0);
     return replanifierMissionInterne(user, missionId, opts);
   });
 }

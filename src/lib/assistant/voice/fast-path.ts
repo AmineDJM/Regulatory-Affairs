@@ -243,7 +243,7 @@ function contactTarget(text: string): string | null {
  * objet. Quand un nom de domaine concurrent est présent, on rend la main : le chemin complet sait
  * lire une facture, un congé ou un document ; le raccourci, non.
  */
-const OTHER_DOMAIN = /\b(paiement|paiements|facture|factures|conge|conges|sponsoring|document|documents|fichier|fichiers|dossier|dossiers|contrat|contrats|salaire|salaires|salarie|salaries|employe|employes|commande|commandes|evenement|evenements|demande|demandes|stock|stocks|budget|engagement|engagements|recrutement|courrier|courriers)\b/;
+const OTHER_DOMAIN = /\b(paiement|paiements|facture|factures|conge|conges|sponsoring|document|documents|fichier|fichiers|dossier|dossiers|contrat|contrats|salaire|salaires|salarie|salaries|employe|employes|commande|commandes|evenement|evenements|demande|demandes|stock|stocks|budget|engagement|engagements|recrutement|courrier|courriers|webhook|webhooks|faits? externes?|docusign|hubspot|iqvia|sap|signature|signatures|enveloppe|enveloppes|connecteur|connecteurs|ingestion)\b/;
 
 /**
  * QUI EST NOMMÉ DERRIÈRE « DE » — et pourquoi on exige la MAJUSCULE.

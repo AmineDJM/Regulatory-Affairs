@@ -272,3 +272,14 @@ describe("compositions anyOf / allOf — l'état se calcule, la progression se P
     expect(lireAttente({ until: "2026-09-01T10:00:00.000Z" })?.until).toBe("2026-09-01T10:00:00.000Z");
   });
 });
+
+describe("l'émetteur d'un fait EXTERNE (§37) — le système ou le nom du signataire désignent aussi bien que l'adresse", () => {
+  it("« from: DocuSign » et « from: Karim Mouffok » règlent la même signature ; « from: Nadia » non", () => {
+    const fait = { type: "SIGNATURE_COMPLETED", actorId: null, relatedRefs: ["DOCUMENT:ckdoc1"], payload: { from: "k@mouffok.dz", fromName: "Karim Mouffok", systeme: "docusign", source: "docusign", subject: "Contrat Consulting Mouffok" } };
+    expect(correspond({ event: "SIGNATURE_COMPLETED", from: "DocuSign" }, fait)).toBe(true);
+    expect(correspond({ event: "SIGNATURE_COMPLETED", from: "Karim Mouffok" }, fait)).toBe(true);
+    expect(correspond({ event: "SIGNATURE_COMPLETED", from: "k@mouffok.dz", entity: "DOCUMENT:ckdoc1" }, fait)).toBe(true);
+    expect(correspond({ event: "SIGNATURE_COMPLETED", from: "Nadia" }, fait)).toBe(false);
+    expect(correspond({ event: "SIGNATURE_COMPLETED", entity: "DOCUMENT:autre" }, fait)).toBe(false);
+  });
+});

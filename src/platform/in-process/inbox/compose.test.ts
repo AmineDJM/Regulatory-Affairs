@@ -62,7 +62,10 @@ suite("la boîte de décision — composée depuis les files réelles", () => {
       signature: `${TAG}|doublon_factures|f2`, href: "/legal/x", montant: 125000, status: "OPEN",
     } })).id;
     constatProposeId = (await prisma.dataQualityFinding.create({ data: {
-      regle: "contrat_actif_echu", famille: "STATUT_IMPOSSIBLE", criticite: "HAUTE", confiance: 0.9, resolution: "PROPOSE", entite: "LegalDocument", entiteId: `${TAG}-c1`,
+      // CRITIQUE et confiance maximale : la file « qualité » de la boîte ne garde que les cinq constats les plus
+      // graves, les plus sûrs, les plus récents — sur une base de test que d'autres suites peuplent de constats
+      // HAUTE, un constat HAUTE à 0,9 sortait du cinq de tête et la carte manquait. Mesuré.
+      regle: "contrat_actif_echu", famille: "STATUT_IMPOSSIBLE", criticite: "CRITIQUE", confiance: 0.99, resolution: "PROPOSE", entite: "LegalDocument", entiteId: `${TAG}-c1`,
       module: "LEGAL", titre: `${TAG} Contrat Kwality : ACTIF mais échu depuis 30 j`, detail: "Terme passé, statut encore ACTIF.",
       signature: `${TAG}|contrat_actif_echu|c1`, href: "/legal/y", status: "OPEN",
       correction: { entite: "LegalDocument", entiteId: `${TAG}-c1`, champ: "status", avant: "ACTIVE", apres: "EXPIRED", description: "Passer le contrat Kwality en EXPIRÉ." },
@@ -124,7 +127,7 @@ suite("la boîte de décision — composée depuis les files réelles", () => {
     expect(humain?.options.find((o) => o.id === "ignorer")?.saisie?.obligatoire).toBe(true);
     const propose = par(`qualite:${constatProposeId}`);
     expect(propose?.genre).toBe("CHOOSE");
-    expect(propose?.urgence).toBe("HAUTE");
+    expect(propose?.urgence).toBe("CRITIQUE");
     expect(propose?.recommandation?.optionId).toBe("corriger");
     expect(propose?.options[0]).toMatchObject({ id: "corriger", geste: { kind: "qualite.corriger", constatId: constatProposeId } });
 

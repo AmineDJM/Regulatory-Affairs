@@ -408,6 +408,13 @@ export interface SignalAttention {
   /** Le nombre de jours d'attente ou de relances déjà faites, pour une attente échue. */
   attente?: { jours: number; relances: number } | null;
   planVersion?: number | null;
+  /**
+   * LE CONTENU NE DOIT PAS SORTIR DE L'ERP (rémunération, santé, litige…) : les canaux externes
+   * (e-mail, Slack, WhatsApp, SMS) portent un corps neutre — « une mission requiert votre attention » —
+   * et le détail reste dans le centre de notifications. Sans indication, la porte le déduit des
+   * capacités de la mission (effet HR_SENSITIVE).
+   */
+  confidentiel?: boolean | null;
 }
 
 export type NiveauSignal = "SILENCE" | "JOURNAL" | "INFO" | "ATTENTION" | "ARBITRAGE";

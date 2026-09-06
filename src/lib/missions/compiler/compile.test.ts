@@ -597,3 +597,25 @@ describe("le plafond d'effet porte sur l'ÉTAPE, pas seulement sur la capacité"
     expect(r.mission.steps[0].nodeType).toBe("WAIT_INPUT");
   });
 });
+
+describe("§37 — l'entité d'une attente ne se lit pas dans une recherche", () => {
+  it("un WAIT_EVENT dont l'entité vient d'une étape « liste » est REFUSÉ, avec la correction (identifiant connu, ou subject/from)", () => {
+    const r = compile(plan([
+      { key: "gens", title: "Chercher", capability: "directory_list", input: { q: "Mouffok" } },
+      { key: "attente", title: "Sa réponse", nodeType: "WAIT_EVENT", dependsOn: ["gens"], waitFor: { event: "EMAIL_RECEIVED", entity: "USER:{{gens.items.0.id}}" } },
+    ]), catalogue(), pdg);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    const i = r.issues.find((x) => x.code === "INVALID_INPUT" && x.stepKey === "attente");
+    expect(i?.message).toMatch(/LISTE/);
+    expect(i?.message).toMatch(/subject/);
+  });
+  it("le CONTRE-EXEMPLE : l'identifiant rendu par une lecture de dossier précis (inspect_record) reste permis, et la dépendance est implicite", () => {
+    const r = compile(plan([
+      { key: "dossier", title: "Lire le dossier", capability: "inspect_record", input: { reference: "REG-1" } },
+      { key: "attente", title: "Sa signature", nodeType: "WAIT_EVENT", waitFor: { event: "SIGNATURE_COMPLETED", entity: "LEGAL_DOCUMENT:{{dossier.id}}" } },
+    ]), catalogue(), pdg);
+    expect(r.ok, r.ok ? "" : r.issues.map((i) => i.message).join(" | ")).toBe(true);
+    if (r.ok) expect(r.mission.steps.find((s) => s.key === "attente")?.dependsOn).toContain("dossier");
+  });
+});

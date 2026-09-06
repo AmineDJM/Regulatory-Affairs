@@ -824,4 +824,89 @@ Article 16 — Droit applicable. Le présent contrat est régi par le droit fran
       return m;
     },
   },
+  // ── REPRÉSENTATIONS (§35) : montrer par le code — une figure rendue, jamais dessinée en texte ──
+  {
+    id: "defi-representation-graphique", categorie: "REPRESENTATION",
+    tours: ["Montre-moi en graphique la répartition des tâches par statut."],
+    neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /pas pr[ée]vu/i, /impossible d'afficher/i],
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      if (!ctx.outils.some((o) => ["render_view", "run_analysis", "sql_query"].includes(o))) m.push(`aucun outil de représentation appelé (outils : ${ctx.outils.join(", ") || "aucun"})`);
+      if (/```|[▇█▓■]{3,}/.test(ctx.reponse)) m.push("le graphique est dessiné en texte au lieu d'être rendu à l'écran");
+      return m;
+    },
+  },
+  {
+    id: "defi-representation-dashboard", categorie: "REPRESENTATION",
+    tours: ["Fais-moi un mini tableau de bord : les tâches par statut, les réunions par mois sur les six derniers mois, et les dossiers réglementaires par statut."],
+    neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /pas pr[ée]vu/i],
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      if (!ctx.outils.includes("render_view")) m.push(`render_view non appelé (outils : ${ctx.outils.join(", ") || "aucun"})`);
+      if (!/tableau de bord|tuile|graphique|figure|repr[ée]sentation/i.test(ctx.reponse)) m.push("la réponse ne présente pas le tableau de bord rendu");
+      return m;
+    },
+  },
+  // ── SKILLS (§36) : un micro-outil créé, passé par la porte de qualité, puis utilisé — dans le même fil ──
+  {
+    id: "defi-skill-micro-outil", categorie: "SKILLS",
+    tours: ["Crée-toi un micro-outil réutilisable qui calcule la TVA à 19 % et le TTC d'un montant HT (teste-le sur 100 000 DZD : le TTC doit faire 119 000), puis applique-le à 125 000 DZD et donne-moi le TTC."],
+    neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /pas pr[ée]vu/i],
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      if (!ctx.outils.includes("create_skill")) m.push(`create_skill non appelé (outils : ${ctx.outils.join(", ") || "aucun"})`);
+      if (!ctx.outils.some((o) => o.startsWith("skill_"))) m.push("le micro-outil créé n'a pas été utilisé (aucun outil skill_*)");
+      if (!/148[\s\u00a0\u202f.,]?750/.test(ctx.reponse)) m.push("le TTC de 125 000 DZD (148 750) n'est pas dans la réponse");
+      // Créé OU révisé pendant ce tour : un banc rejoué retrouve l'outil de la passe précédente et le révise (version + 1).
+      const skills = await ctx.prisma.adamSkill.count({ where: { ownerId: ctx.user.id, updatedAt: { gte: ctx.t0 }, status: "TEMP" } });
+      if (skills === 0) m.push("aucun micro-outil TEMPORAIRE créé en base pour cette personne");
+      return m;
+    },
+  },
+  {
+    id: "defi-evenement-attente", categorie: "EVENEMENTS",
+    tours: ["Lance une mission en arrière-plan : dès que la signature électronique du contrat consulting Mouffok sera complète (DocuSign), crée-moi une tâche « Archiver le contrat Mouffok signé ». Ne fais rien avant que la signature soit arrivée."],
+    neDoitPas: [/je ne peux pas/i, /pas possible/i, /pas pr[ée]vu/i],
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      if (!ctx.outils.includes("run_mission")) m.push(`run_mission non appelé (outils : ${ctx.outils.join(", ") || "aucun"})`);
+      // La mission et son étape d'ATTENTE : le planificateur a lu le catalogue et choisi un type de signature.
+      const attendre = async <T,>(f: () => Promise<T | null>, ms: number): Promise<T | null> => { const fin = Date.now() + ms; for (;;) { const v = await f(); if (v) return v; if (Date.now() > fin) return null; await new Promise((r) => setTimeout(r, 2_000)); } };
+      // Une mission lancée en arrière-plan se planifie au battement ; si le fournisseur a lâché pendant la
+      // planification (PLANNING_DEFERRED), c'est le battement suivant qui réessaie — ici, on le donne nous-mêmes,
+      // comme l'ordonnanceur le ferait : c'est le chemin de production, pas un contournement.
+      const { balayerMissions } = await import("@/platform/in-process/missions/sweep");
+      let battements = 0;
+      const etape = await attendre(async () => {
+        const mission = await ctx.prisma.mission.findFirst({ where: { ownerId: ctx.user.id, createdAt: { gte: ctx.t0 } }, orderBy: { createdAt: "desc" }, select: { id: true, status: true, createdAt: true, steps: { select: { key: true, nodeType: true, status: true, waitFor: true } } } });
+        const e = mission?.steps.find((s) => s.nodeType === "WAIT_EVENT" && s.status === "WAITING");
+        if (mission && e) return { missionId: mission.id, statut: mission.status, cle: e.key, waitFor: e.waitFor as { event?: string | null; entity?: string | null; anyOf?: { event?: string | null }[] } | null };
+        if (mission && (mission.status === "PLANNING" || mission.status === "DRAFT") && Date.now() - mission.createdAt.getTime() > 20_000 && battements < 3) {
+          battements += 1;
+          await balayerMissions().catch(() => undefined);
+        }
+        return null;
+      }, 150_000);
+      if (!etape) { m.push("aucune mission avec une étape WAIT_EVENT en attente (WAITING) créée pour cette personne en 150 s (battements donnés : " + battements + ")"); return m; }
+      const types = [etape.waitFor?.event, ...(etape.waitFor?.anyOf ?? []).map((b) => b.event)].filter((t): t is string => Boolean(t));
+      if (!types.some((t) => /SIGNATURE_COMPLETED|CONTRACT_SIGNED/.test(t))) m.push(`l'attente ne porte pas sur une signature (types : ${types.join(", ") || "aucun"})`);
+      const tachesAvant = await ctx.prisma.task.count({ where: { createdAt: { gte: ctx.t0 }, title: { contains: "Mouffok", mode: "insensitive" } } });
+      if (tachesAvant > 0) m.push(`${tachesAvant} tâche(s) « Mouffok » créée(s) AVANT la signature : la mission n'a pas attendu`);
+      // LE FAIT ARRIVE — par l'ingestion universelle, comme DocuSign le pousserait.
+      const { ingerer } = await import("@/platform/in-process/events/ingestion");
+      const ref = etape.waitFor?.entity && /^[A-Z_]+:[A-Za-z0-9_-]+$/.test(etape.waitFor.entity) ? etape.waitFor.entity : null;
+      const r = await ingerer("docusign", {
+        event: "envelope-completed",
+        data: { envelopeId: `env-defi-${Date.now().toString(36)}`, envelopeSummary: { status: "completed", emailSubject: "Contrat Consulting Mouffok", completedDateTime: new Date().toISOString(), recipients: { signers: [{ name: "Karim Mouffok", email: "k@mouffok.dz", status: "completed" }] }, ...(ref ? { customFields: { textCustomFields: [{ name: "erpRef", value: ref }] } } : {}) } },
+      });
+      if (r.acceptes + r.sansAssociation !== 1) m.push(`le fait DocuSign n'a pas été accepté : ${JSON.stringify(r.faits[0])}`);
+      const reveil = await attendre(async () => {
+        const e = await ctx.prisma.missionStep.findFirst({ where: { missionId: etape.missionId, key: etape.cle }, select: { status: true, result: true } });
+        return e && e.status !== "WAITING" ? e : null;
+      }, 20_000);
+      if (!reveil) m.push(`l'étape « ${etape.cle} » dort encore 20 s après l'arrivée de la signature (types attendus : ${types.join(", ")})`);
+      else if (!/SIGNATURE_COMPLETED|CONTRACT_SIGNED/.test(JSON.stringify(reveil.result ?? {}))) m.push(`l'étape a bougé sans porter le fait qui l'a réveillée : ${JSON.stringify(reveil.result)}`);
+      return m;
+    },
+  },
 ];

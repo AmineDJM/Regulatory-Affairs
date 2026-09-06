@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cadenceMs, canauxPour, classer, cleDe, composerMessage, PLAFOND_QUOTIDIEN } from "@/lib/missions/attention/policy";
+import { cadenceMs, canauxPour, classer, cleDe, composerMessage, corpsNeutrePour, dansLeSilence, lireCanal, lireHeuresSilence, PLAFOND_QUOTIDIEN } from "@/lib/missions/attention/policy";
 import type { SignalAttention } from "@/lib/missions/ports";
 
 const base = (kind: SignalAttention["kind"], extra: Partial<SignalAttention> = {}): SignalAttention => ({
@@ -32,8 +32,9 @@ describe("politique d'attention — la table agir / informer / arbitrer", () => 
 
 describe("politique d'attention — canaux, cadence, clé", () => {
   it("l'e-mail ne part qu'à partir d'ATTENTION, le push insistant aussi ; JOURNAL ne pousse pas", () => {
-    expect(canauxPour("JOURNAL")).toEqual({ notification: true, push: false, insistant: false, email: false });
-    expect(canauxPour("INFO")).toEqual({ notification: true, push: true, insistant: false, email: false });
+    const rien = { connecteur: null, corpsNeutre: false, differe: false, canalIndisponible: null };
+    expect(canauxPour("JOURNAL")).toEqual({ notification: true, push: false, insistant: false, email: false, ...rien });
+    expect(canauxPour("INFO")).toEqual({ notification: true, push: true, insistant: false, email: false, ...rien });
     expect(canauxPour("ATTENTION").email).toBe(true);
     expect(canauxPour("ARBITRAGE").insistant).toBe(true);
     expect(canauxPour("SILENCE").notification).toBe(false);
@@ -73,5 +74,59 @@ describe("politique d'attention — la compression exécutive", () => {
     const m = composerMessage(base("MISSION_COMPLETED", { raison: "x".repeat(2_000), bilan: { faites: 1, total: 1, echouees: 0 } }));
     expect(m.corps.length).toBe(700);
     expect(m.corps.endsWith("…")).toBe(true);
+  });
+});
+
+describe("l'omnicanal (§37) — canal préféré, disponibilité, confidentialité ; l'arbitrage ne se laisse ni taire ni déplacer", () => {
+  it("lit un canal sous toutes ses écritures, et une destination après les deux-points", () => {
+    expect(lireCanal("Slack")).toEqual({ canal: "slack", destinataire: null });
+    expect(lireCanal("slack:#direction")).toEqual({ canal: "slack", destinataire: "#direction" });
+    expect(lireCanal("E-mail")).toEqual({ canal: "email", destinataire: null });
+    expect(lireCanal("texto")).toEqual({ canal: "sms", destinataire: null });
+    expect(lireCanal({ canal: "whatsapp", destinataire: "+213661000000" })).toEqual({ canal: "whatsapp", destinataire: "+213661000000" });
+    expect(lireCanal("pigeon")).toBeNull();
+  });
+  it("lit des heures de silence, y compris une plage qui passe minuit", () => {
+    expect(lireHeuresSilence("22h-7h")).toEqual({ de: 22, a: 7 });
+    expect(lireHeuresSilence("de 22 h à 7 h")).toEqual({ de: 22, a: 7 });
+    expect(lireHeuresSilence("22:00-07:00")).toEqual({ de: 22, a: 7 });
+    expect(lireHeuresSilence({ de: 13, a: 14 })).toEqual({ de: 13, a: 14 });
+    expect(lireHeuresSilence("toujours")).toBeNull();
+    expect(dansLeSilence(23, { de: 22, a: 7 })).toBe(true);
+    expect(dansLeSilence(3, { de: 22, a: 7 })).toBe(true);
+    expect(dansLeSilence(7, { de: 22, a: 7 })).toBe(false);
+    expect(dansLeSilence(12, { de: 22, a: 7 })).toBe(false);
+    expect(dansLeSilence(13, { de: 13, a: 14 })).toBe(true);
+  });
+  it("le canal préféré : e-mail dès INFO ; ERP seul ferme l'e-mail ; un connecteur BRANCHÉ remplace l'e-mail, sauf pour l'arbitrage qui garde les deux", () => {
+    expect(canauxPour("INFO", { canalPrefere: "email" }).email).toBe(true);
+    expect(canauxPour("ATTENTION", { canalPrefere: "notification" }).email).toBe(false);
+    expect(canauxPour("ARBITRAGE", { canalPrefere: "notification" })).toMatchObject({ push: true, insistant: true, email: false });
+    const slack = canauxPour("ATTENTION", { canalPrefere: "slack", connecteurs: ["slack"] });
+    expect(slack).toMatchObject({ connecteur: "slack", email: false, notification: true, canalIndisponible: null });
+    const arbitrage = canauxPour("ARBITRAGE", { canalPrefere: "slack:#direction", connecteurs: ["slack"] });
+    expect(arbitrage).toMatchObject({ connecteur: "slack", email: true, insistant: true });
+    // Le journal ne sort jamais de l'ERP, quel que soit le canal préféré.
+    expect(canauxPour("JOURNAL", { canalPrefere: "slack", connecteurs: ["slack"] }).connecteur).toBeNull();
+  });
+  it("un connecteur préféré NON branché laisse la table du niveau et le dit", () => {
+    const c = canauxPour("ATTENTION", { canalPrefere: "whatsapp", connecteurs: [] });
+    expect(c).toMatchObject({ connecteur: null, email: true, canalIndisponible: "whatsapp" });
+  });
+  it("les heures de silence retiennent le push et le message (et le disent), gardent la notification et l'e-mail, et n'atteignent pas l'arbitrage", () => {
+    const nuit = { heuresSilence: { de: 22, a: 7 }, heure: 2 };
+    expect(canauxPour("INFO", nuit)).toMatchObject({ notification: true, push: false, differe: true });
+    expect(canauxPour("ATTENTION", { ...nuit, canalPrefere: "slack", connecteurs: ["slack"] })).toMatchObject({ push: false, connecteur: null, email: false, differe: true });
+    expect(canauxPour("ARBITRAGE", { ...nuit, canalPrefere: "slack", connecteurs: ["slack"] })).toMatchObject({ push: true, connecteur: "slack", email: true, differe: false });
+    expect(canauxPour("INFO", { heuresSilence: { de: 22, a: 7 }, heure: 10 })).toMatchObject({ push: true, differe: false });
+  });
+  it("la confidentialité : tout ce qui sort de l'ERP porte un corps neutre, la notification garde le détail", () => {
+    expect(canauxPour("ATTENTION", { confidentiel: true })).toMatchObject({ email: true, corpsNeutre: true, notification: true });
+    expect(canauxPour("INFO", { confidentiel: true })).toMatchObject({ email: false, corpsNeutre: false });
+    expect(canauxPour("INFO", { confidentiel: true, canalPrefere: "sms", connecteurs: ["sms"] })).toMatchObject({ connecteur: "sms", corpsNeutre: true });
+    const neutre = corpsNeutrePour("ARBITRAGE", "/missions/m1");
+    expect(neutre).toMatch(/décision vous attend/);
+    expect(neutre).toMatch(/confidentiel/);
+    expect(neutre).not.toMatch(/salaire|Trastuzex/);
   });
 });

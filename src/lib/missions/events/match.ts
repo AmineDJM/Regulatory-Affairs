@@ -77,8 +77,14 @@ export function designe(attendu: string, candidats: readonly string[]): boolean 
   return a.length >= 4 && candidats.some((c) => c.includes(a));
 }
 
-/** Les champs d'une charge utile susceptibles de porter l'émetteur. Explicites, pas devinés. */
-const CHAMPS_EMETTEUR = ["from", "fromAddress", "senderEmail", "sender", "email", "personId", "employeeId", "userId"];
+/**
+ * Les champs d'une charge utile susceptibles de porter l'émetteur. Explicites, pas devinés.
+ * `fromName` et `systeme`/`source` (§37) : « la signature de Karim Mouffok » et « la signature
+ * complète DocuSign » sont deux façons légitimes de nommer d'où vient un fait externe — mesuré au
+ * banc : le planificateur écrit `from: "DocuSign"`, et un fait qui ne portait que l'adresse du
+ * signataire ne réveillait pas la mission.
+ */
+const CHAMPS_EMETTEUR = ["from", "fromAddress", "senderEmail", "sender", "email", "personId", "employeeId", "userId", "fromName", "senderName", "systeme", "source"];
 
 /**
  * LES ÉMETTEURS PLAUSIBLES D'UN FAIT — exporté, parce que les ENGAGEMENTS posent exactement la

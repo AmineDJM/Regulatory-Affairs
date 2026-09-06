@@ -308,10 +308,14 @@ suite("Mission Runtime — le réveil TEMPOREL et les attentes composées (Run 4
 
   it("WAIT_FOR_TIME — « reviens demain 10 h » dort, l'horloge VIRTUELLE passe, la mission repart (§19, §41, §44)", async () => {
     const t = traceur();
+    // L'ÉCHÉANCE EST DANS LE FUTUR RÉEL : d'autres fichiers de test donnent le battement temporel à
+    // l'horloge réelle (`reveillerAttentesTemporelles(new Date())`) sur la même base ; une échéance
+    // déjà passée serait réglée par eux entre deux lignes d'ici — mesuré : la mission finissait BLOQUÉE.
+    const echeance = new Date(Date.now() + 2 * 24 * 3600_000);
     const id = await creer([
       { key: "analyser", title: "Analyser", capability: "inspect_record", input: { reference: "REG-1" } },
       { key: "attendre", title: "Attendre demain 10 h", nodeType: "WAIT_EVENT", dependsOn: ["analyser"],
-        waitFor: { until: "2026-09-01T09:00:00.000Z" } },
+        waitFor: { until: echeance.toISOString() } },
       { key: "revenir", title: "Revenir avec la synthèse", capability: "inspect_record", input: { reference: "REG-1" }, dependsOn: ["attendre"] },
     ], "reviens demain");
 
@@ -320,14 +324,14 @@ suite("Mission Runtime — le réveil TEMPOREL et les attentes composées (Run 4
     expect(t.appels.map((a) => a.stepKey)).toEqual(["analyser"]);
 
     // AVANT l'échéance : rien ne bouge — le temps n'est pas encore passé.
-    expect(await reveillerAttentesTemporelles(new Date("2026-09-01T08:59:00.000Z"))).toEqual([]);
+    expect(await reveillerAttentesTemporelles(new Date(echeance.getTime() - 60_000))).toEqual([]);
 
     // L'échéance passe (horloge INJECTÉE — le test dure des millisecondes, pas un jour).
-    const reveils = await reveillerAttentesTemporelles(new Date("2026-09-01T09:00:01.000Z"));
+    const reveils = await reveillerAttentesTemporelles(new Date(echeance.getTime() + 1_000));
     expect(reveils).toEqual([{ missionId: id, stepKey: "attendre" }]);
 
     // §41 — le MÊME balayage rejoué (déploiement, second worker) ne réveille pas deux fois.
-    expect(await reveillerAttentesTemporelles(new Date("2026-09-01T09:05:00.000Z"))).toEqual([]);
+    expect(await reveillerAttentesTemporelles(new Date(echeance.getTime() + 5 * 60_000))).toEqual([]);
 
     const t2 = traceur();
     await avancer(id, actor2, { runner: t2.runner });

@@ -50,6 +50,13 @@ describe("§7 chemins rapides — les six formes nommées par la mission", () =>
     expect(r.fast).toBe(true);
   });
 
+  it("« Quels faits externes sont arrivés par webhook dans la dernière heure ? » → PAS la boîte : un webhook n'est pas du courrier (§37)", () => {
+    const r = routeVoiceUtterance("Quels faits externes sont arrivés par webhook dans la dernière heure ?");
+    expect(r.fast).toBe(false);
+    expect(routeVoiceUtterance("Qu'est-ce qu'on a reçu de DocuSign ce matin ?").fast).toBe(false);
+    expect(routeVoiceUtterance("Une enveloppe signée est-elle arrivée ?").fast).toBe(false);
+  });
+
   it("« Tu as reçu des mails aujourd'hui ? » → même route (la tournure ne change rien)", () => {
     expect(route("Tu as reçu des mails aujourd'hui ?").kind).toBe("GMAIL_INBOX");
     expect(route("J'ai du courriel ?").kind).toBe("GMAIL_INBOX");

@@ -62,6 +62,9 @@ export default defineConfig({
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "banc-live-cle-presente-mais-non-utilisee",
       NODE_USE_ENV_PROXY: "1",
       TZ: "UTC",
+      // L'ingestion universelle (§37) : la route des webhooks est FERMÉE sans secret ; le banc en pose un
+      // et signe ses propres livraisons avec (voir e2e-live/adam-live.spec.ts).
+      EVENTS_WEBHOOK_SECRET: process.env.EVENTS_WEBHOOK_SECRET ?? "banc-live-webhook-secret",
     },
   },
 });

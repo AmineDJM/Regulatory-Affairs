@@ -20,6 +20,10 @@ import { DOCUMENT_DISCOVERY_TOOLS, KNOWLEDGE_TOOLS } from "@/lib/assistant/docum
 import { SOURCE_MAP_TOOLS } from "@/lib/assistant/source-map";
 import { QUALITY_TOOLS } from "@/lib/assistant/quality-tools";
 import { SANDBOX_TOOLS } from "@/lib/assistant/sandbox-tools";
+import { VIEW_TOOLS } from "@/lib/assistant/view-tools";
+import { SKILL_TOOLS } from "@/lib/assistant/skill-tools";
+import { INBOUND_TOOLS } from "@/lib/assistant/inbound-tools";
+import { executerOutilDynamique, labelsDynamiques, outilsDynamiquesPour } from "@/platform/in-process/skills";
 import { INTELLIGENCE_TOOLS } from "@/lib/assistant/intelligence-tools";
 import { SPECIALIST_TOOLS } from "@/lib/assistant/specialists/tools";
 import { specialistesActifs } from "@/lib/assistant/specialists/registry";
@@ -377,6 +381,10 @@ export const POWER_TOOLS: PowerTool[] = [
   // LE BAC À SABLE (mandat 4 §25) : SQL en lecture seule (vue globale), analyse par étapes vérifiées,
   // code isolé, conseil de visualisation. Rien n'écrit.
   ...SANDBOX_TOOLS,
+  ...VIEW_TOOLS,
+  ...SKILL_TOOLS,
+  // LES FAITS EXTERNES (mandat 5 §37) : ce que l'ingestion universelle a reçu, et la levée de doute par une personne.
+  ...INBOUND_TOOLS,
   ...INTELLIGENCE_TOOLS,
   // §29 — « aucun sans bénéfice mesuré » : l'outil de délégation n'entre au registre que si au
   // moins un spécialiste a une mesure POSITIVE. Un outil qui refuserait toujours serait une
@@ -413,12 +421,14 @@ export const POWER_TOOLS: PowerTool[] = [
 
 /** Les outils réellement ouverts à CETTE personne — évalués à chaque conversation. */
 export function powerToolsFor(user: CurrentUser): ClaudeToolDef[] {
-  return POWER_TOOLS.filter((t) => t.allowed(user)).map((t) => t.def);
+  // LES OUTILS DYNAMIQUES (§36) — connecteurs, micro-outils, playbooks — viennent du pont des skills,
+  // déjà filtrés par le droit que leur manifeste déclare ; préchargés au début du tour.
+  return [...POWER_TOOLS.filter((t) => t.allowed(user)).map((t) => t.def), ...outilsDynamiquesPour(user).filter((t) => t.allowed(user)).map((t) => t.def)];
 }
 
 /** Libellés de trace des outils ouverts (pour l'UI « ce que l'assistant a consulté »). */
 export function powerToolLabels(): Record<string, string> {
-  return Object.fromEntries(POWER_TOOLS.map((t) => [t.def.name, t.label]));
+  return { ...labelsDynamiques(), ...Object.fromEntries(POWER_TOOLS.map((t) => [t.def.name, t.label])) };
 }
 
 /**
@@ -432,7 +442,14 @@ export async function executePowerTool(
   user: CurrentUser,
 ): Promise<string | null> {
   const tool = POWER_TOOLS.find((t) => t.def.name === name);
-  if (!tool) return null;
+  if (!tool) {
+    // Un skill dynamique (§36) : le pont revérifie le droit du manifeste et exécute ; `null` sinon.
+    try { return await executerOutilDynamique(name, input, user); } catch (err) {
+      console.error(`[assistant] skill ${name} failed`, err);
+      const cause = err instanceof Error && err.message.trim() !== "" ? ` Cause technique : ${err.message.slice(0, 220)}` : "";
+      return `Le skill « ${name} » a échoué.${cause}`;
+    }
+  }
   if (!tool.allowed(user)) {
     // LA DÉCISION DE PERMISSION EST OBSERVÉE (§33) : refusée, nommée, comptée sur le tour.
     recordPermissionRefusal(name);

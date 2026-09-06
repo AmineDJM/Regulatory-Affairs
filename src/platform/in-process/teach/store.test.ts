@@ -259,4 +259,13 @@ describe("normalisation — la forme plate du modèle", () => {
     expect(normaliserParams({ cle: "niveau_reunion", valeur: "light" }, null)).toEqual({ cle: "niveauReunion", valeur: "LIGHT" });
     expect(normaliserParams({ style: "complet" }, { cle: "niveauReunion", valeur: "CHIEF_OF_STAFF" })).toEqual({ cle: "niveauReunion", valeur: "CHIEF_OF_STAFF" });
   });
+  it("les canaux (§37) : « canal: Slack » devient canalPrefere slack ; une destination reste ; « 22h-7h » devient { de: 22, a: 7 }", async () => {
+    const { normaliserParams } = await import("./store");
+    expect(normaliserParams({ canal: "Slack" }, null)).toEqual({ cle: "canalPrefere", valeur: "slack" });
+    expect(normaliserParams({ cle: "canal_prefere", valeur: "slack:#direction" }, null)).toEqual({ cle: "canalPrefere", valeur: "slack:#direction" });
+    expect(normaliserParams({ cle: "canalPrefere", valeur: "E-mail" }, null)).toEqual({ cle: "canalPrefere", valeur: "email" });
+    expect(normaliserParams({ heuresSilence: "22h-7h" }, null)).toEqual({ cle: "heuresSilence", valeur: { de: 22, a: 7 } });
+    expect(normaliserParams({ cle: "silence", valeur: { de: 21, a: 8 } }, null)).toEqual({ cle: "heuresSilence", valeur: { de: 21, a: 8 } });
+    expect(normaliserParams({ cle: "quiet_hours", valeur: "de 23 h à 6 h" }, null)).toEqual({ cle: "heuresSilence", valeur: { de: 23, a: 6 } });
+  });
 });

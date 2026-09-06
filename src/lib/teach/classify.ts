@@ -17,6 +17,9 @@ const plier = (s: string): string => s.normalize("NFD").replace(/[\u0300-\u036f]
 
 interface Indice { kind: Kind; motif: RegExp; poids: number; libelle: string }
 
+/** Les mots d'un canal → sa forme canonique (celle que la porte d'attention lit). */
+const CANAL_CANONIQUE: Record<string, string> = { slack: "slack", teams: "teams", whatsapp: "whatsapp", sms: "sms", texto: "sms", email: "email", "e-mail": "email", mail: "email", courriel: "email", notification: "notification", erp: "notification" };
+
 /** L'ordre compte peu : les poids se cumulent par nature, la plus lourde l'emporte. */
 const INDICES: Indice[] = [
   { kind: "EXCEPTION", motif: /\b(sauf|excepte|a l'exception|hormis|par exception|ne s'applique pas)\b/, poids: 5, libelle: "« sauf / à l'exception »" },
@@ -74,6 +77,17 @@ export function extraireParametres(texte: string, kind: Kind): Record<string, un
     if (parleDuBriefDeReunion(t)) {
       const niveau = niveauDepuisTexte(t);
       if (niveau) return { cle: "niveauReunion", valeur: niveau };
+    }
+    // LE CANAL PRÉFÉRÉ ET LES HEURES DE SILENCE (§37) : « préviens-moi par Slack », « pas de notification entre 22 h et 7 h ».
+    const canal = /(?:previens|preveni|notifie|alerte|contacte|joins|ecris|envoie|prevenez|notifiez)[- ]?(?:moi|le|la|nous)?[^.]{0,40}?(?:par|sur|via|en)\s+(slack|teams|whatsapp|sms|texto|e-?mail|mail|courriel|notification)\b/.exec(t)
+      ?? /\b(?:canal|notifications?)\b[^.]{0,30}?(?:prefere|par defaut|uniquement|seulement|:)\s*[«"']?\s*(slack|teams|whatsapp|sms|texto|e-?mail|mail|courriel|notification|erp)\b/.exec(t)
+      ?? /\b(slack|teams|whatsapp|sms|texto|e-?mail|mail|courriel)\b[^.]{0,20}?\b(?:de preference|plutot|uniquement|seulement|par defaut)\b/.exec(t);
+    if (canal) return { cle: "canalPrefere", valeur: CANAL_CANONIQUE[canal[1]!] ?? canal[1] };
+    const silence = /(?:pas de|aucune?|jamais de|sans|plus de)\s+(?:notifications?|push|messages?|alertes?|relances?|sms|appels?)[^.]{0,40}?(?:entre|de|apres|a partir de)\s+(\d{1,2})\s*h?(?:\s?\d{2})?\s*(?:et|a|jusqu'a|-)\s*(\d{1,2})\s*h?/.exec(t)
+      ?? /(?:silence|ne pas (?:me )?deranger|tranquille|heures? de silence)[^.]{0,30}?(?:entre|de)\s+(\d{1,2})\s*h?[^0-9]{1,12}(\d{1,2})\s*h?/.exec(t);
+    if (silence) {
+      const de = Number(silence[1]); const a = Number(silence[2]);
+      if (de >= 0 && de <= 24 && a >= 0 && a <= 24 && de !== a) return { cle: "heuresSilence", valeur: { de: de % 24, a: a % 24 } };
     }
     const validite = /devis[^.]{0,60}?(?:valable|validite)[^0-9]{0,20}(\d{1,3})\s*jours?|validite[^0-9]{0,30}(\d{1,3})\s*jours?/.exec(t);
     if (validite) return { cle: "validiteDevis", valeur: Number(validite[1] ?? validite[2]), unite: "jours" };

@@ -322,6 +322,13 @@ const PREFIXES: { test: (n: string) => boolean; effect: Effect }[] = [
  */
 export const AUTONOMES: Record<string, Effect> = {
   plan_reminder: "INTERNAL_REVERSIBLE_WRITE",
+  // Les gestes sur les micro-outils (§36) : une ligne en base, réversible ; promouvoir et jeter sont
+  // en plus interdits à l'agent (`policy/guard.ts`).
+  create_skill: "INTERNAL_REVERSIBLE_WRITE",
+  promote_skill: "INTERNAL_REVERSIBLE_WRITE",
+  drop_skill: "INTERNAL_REVERSIBLE_WRITE",
+  // Le rattachement d'un fait externe (§37) : une ligne du registre complétée, réversible ; interdit à l'agent (`policy/guard.ts`).
+  attach_inbound_event: "INTERNAL_REVERSIBLE_WRITE",
   cancel_reminder: "INTERNAL_REVERSIBLE_WRITE",
   snooze_reminder: "INTERNAL_REVERSIBLE_WRITE",
   remember: "INTERNAL_REVERSIBLE_WRITE",
@@ -362,7 +369,21 @@ export const AUTONOMES: Record<string, Effect> = {
 /** Une écriture autonome : exécutée par le chemin des lectures, gardée par une clé d'idempotence. */
 export const estAutonome = (name: string): boolean => Object.prototype.hasOwnProperty.call(AUTONOMES, name);
 
+/**
+ * LA MÉTA DÉCLARÉE PAR UN SKILL (§36) — ce que le registre apprend d'un connecteur, d'un micro-outil ou
+ * d'un playbook sans le connaître par son nom. Le pont des skills la pose au chargement ; ici on ne
+ * fait que la servir, avant toute dérivation par préfixe : un manifeste qui dit « FINANCIAL_COMMITMENT »
+ * ne sera jamais pris pour une lecture parce que son nom commence par « lire_ ».
+ */
+const DYNAMIQUES = new Map<string, CapabilityMeta>();
+export function declarerMetaDynamique(name: string, meta: Omit<CapabilityMeta, "id" | "declared">): void {
+  DYNAMIQUES.set(name, { id: name, declared: true, ...meta });
+}
+export const metaDynamique = (name: string): CapabilityMeta | null => DYNAMIQUES.get(name) ?? null;
+
 export function capabilityMeta(name: string, estEcriture?: (n: string) => boolean): CapabilityMeta {
+  const dyn = DYNAMIQUES.get(name);
+  if (dyn) return dyn;
   const declared = Object.prototype.hasOwnProperty.call(DECLARED, name) ? DECLARED[name] : null;
   // L'ORDRE DU SPREAD COMPTE : `contrat` vient APRÈS, sinon un `contrat: undefined` absent de la
   // déclaration écraserait le défaut et rendrait le champ non défini là où le type promet une

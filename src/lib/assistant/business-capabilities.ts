@@ -338,6 +338,8 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
         + "cardinalité), puis un moteur durable l'exécute — reprise après panne, idempotence, contrôle qualité, "
         + "et vérification que l'objectif est réellement atteint. "
         + "NE PAS l'utiliser pour une action unique dont tu connais déjà le geste : fais-la directement. "
+        + "« Dès que / quand [la signature, le paiement, la réponse, la livraison, la commande] arrive, fais X » EST une mission : une étape "
+        + "WAIT_EVENT qui dort jusqu'au fait, puis l'action — PAS une surveillance (watch_entity ne fait que prévenir, elle n'agit jamais). "
         + "DÉFINITION : une mission est un GRAPHE d'étapes persistées, pas une boucle de conversation — "
         + "elle survit à la fermeture de l'application, reprend après une panne à l'étape exacte où elle "
         + "s'était arrêtée, et ne conclut QUE si le contrôle arithmétique passe ET qu'un juge a vérifié les "

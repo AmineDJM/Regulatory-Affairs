@@ -22,6 +22,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { lireCanal, lireHeuresSilence } from "@/lib/missions/attention/policy";
 import type { CurrentUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
@@ -127,10 +128,16 @@ export async function politiquesPourMission(userId: string, domaine?: string | n
 const CLES_DOCUMENTAIRES = new Set(["validiteDevis", "prefixeFacture", "prefixeDevis", "prefixeBonDeCommande", "tvaDefaut", "conditionsPaiement", "mentionPied"]);
 
 const plierCle = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
-/** Les clés que le pont sait canoniser : les standards documentaires, et le niveau de brief de réunion (§32). */
-const CLES_CONNUES = new Set([...CLES_DOCUMENTAIRES, "niveauReunion"]);
+/** Les clés de la communication omnicanale (§37) : le canal préféré et les heures de silence, lues par la porte d'attention. */
+const CLES_CANAUX = ["canalPrefere", "heuresSilence"] as const;
+/** Les clés que le pont sait canoniser : les standards documentaires, le niveau de brief de réunion (§32), les canaux (§37). */
+const CLES_CONNUES = new Set([...CLES_DOCUMENTAIRES, "niveauReunion", ...CLES_CANAUX]);
 /** Les VARIANTES que le modèle écrit pour une clé connue — mesuré au banc : `{ niveau: "CHIEF_OF_STAFF" }` pour le niveau de brief. */
-const ALIAS_CLES: Record<string, string> = { niveau: "niveauReunion", niveaubrief: "niveauReunion", niveaudebrief: "niveauReunion", niveaubriefing: "niveauReunion", niveaureunions: "niveauReunion", briefreunion: "niveauReunion", meetinglevel: "niveauReunion", brieflevel: "niveauReunion" };
+const ALIAS_CLES: Record<string, string> = {
+  niveau: "niveauReunion", niveaubrief: "niveauReunion", niveaudebrief: "niveauReunion", niveaubriefing: "niveauReunion", niveaureunions: "niveauReunion", briefreunion: "niveauReunion", meetinglevel: "niveauReunion", brieflevel: "niveauReunion",
+  canal: "canalPrefere", canalprefere: "canalPrefere", canaldenotification: "canalPrefere", canalnotification: "canalPrefere", canalnotifications: "canalPrefere", canaldecommunication: "canalPrefere", preferredchannel: "canalPrefere", channel: "canalPrefere",
+  heuressilence: "heuresSilence", heuresdesilence: "heuresSilence", heuredesilence: "heuresSilence", silence: "heuresSilence", nepasderanger: "heuresSilence", plagesilence: "heuresSilence", plagedesilence: "heuresSilence", quiethours: "heuresSilence", horairessilence: "heuresSilence",
+};
 const CLE_CANONIQUE = new Map([...[...CLES_CONNUES].map((c) => [plierCle(c), c] as const), ...Object.entries(ALIAS_CLES).map(([a, c]) => [plierCle(a), c] as const)]);
 
 /**
@@ -183,6 +190,15 @@ export function normaliserParams(fournis: unknown, extraits: Record<string, unkn
   if (cle === "niveauReunion" && typeof valeur === "string") {
     const v = valeur.trim().toUpperCase().replace(/[\s-]+/g, "_");
     brut.valeur = (NIVEAUX as readonly string[]).includes(v) ? v : niveauDepuisTexte(valeur) ?? valeur;
+  }
+  // LES CANAUX (§37) : « Slack », « e-mail », « slack:#direction » → canonique ; « 22h-7h » → { de: 22, a: 7 }.
+  if (cle === "canalPrefere") {
+    const c = lireCanal(valeur);
+    if (c) brut.valeur = c.destinataire ? `${c.canal}:${c.destinataire}` : c.canal;
+  }
+  if (cle === "heuresSilence") {
+    const h = lireHeuresSilence(valeur);
+    if (h) brut.valeur = h;
   }
   return brut;
 }

@@ -169,6 +169,8 @@ export function nommeUnGeste(texteNormalise: string): boolean {
 const SELF = /\b(tu t appelles|tu es qui|qui es tu|comment tu t appelles|ton nom|ton adresse|tu as une adresse|ton e mail|ton email|tu es quoi)\b/;
 
 const DOMAIN_SIGNALS: [Domain, RegExp][] = [
+  // Les FAITS EXTERNES (§37) : ce qu'un webhook ou un connecteur a poussé — jamais du courrier, même si « arrivé » et « reçu » s'y disent aussi.
+  ["SOURCES", /\b(webhook|webhooks|faits? externes?|evenements? (externes?|recus?|entrants?)|docusign|hubspot|iqvia|e ?signature|signature electronique|enveloppe (signee|completee)|ingestion)\b/],
   ["MAIL", /\b(mail|mails|email|emails|e mail|courriel|courriels|boite|messagerie|repondu|repond|repondre|a ecrit|ecrit|expediteur|destinataire|fil|thread)\b/],
   ["CALENDAR", /\b(rendez vous|rdv|agenda|calendrier|reunion|reunions|planning|creneau|disponibilite|dispo)\b/],
   // « L'appel d'offres PCH » : les outils du PCH (`pch_operation`, `pch_market_status`) sont classés
@@ -347,7 +349,7 @@ export function consigneCalcul(raw: string): string | null {
   return "CALCUL PAR LE CODE : cette question demande un chiffre DÉRIVÉ (total, écart, variation, tendance, série, scénario, médiane, part, classement) "
     + "ou un graphique. Tout chiffre dérivé sort d'un outil du bac à sable — sql_query (vue globale, jointures/agrégats à la source), "
     + "run_analysis (étapes vérifiées : filtrer, regrouper, série, croissance, tendance, scénario, anomalies, cohortes), run_code (JS/Python isolé) — "
-    + "JAMAIS de tête, même pour une multiplication. Pour « quel graphique ? », appelle chart_advice. Cite le résultat rendu par l'outil, avec sa source, "
+    + "JAMAIS de tête, même pour une multiplication. Pour « quel graphique ? », appelle chart_advice. Pour MONTRER (graphique, évolution, répartition, tableau de bord, Gantt, réseau, carte), appelle render_view : le code compose la figure sous la réponse — ne dessine jamais un graphique en texte, ne recopie pas ses chiffres. Cite le résultat rendu par l'outil, avec sa source, "
     + "et dis quand une hypothèse a été appliquée.";
 }
 

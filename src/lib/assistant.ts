@@ -59,6 +59,7 @@ import { callClaude, callClaudeStream, assistantConfigured as aiConfigured } fro
 import { withTurn, markPreview, markFinal, logTurn, recordTool, setTurnContext, summarize, addPhase, timedPhase, type TurnRoute, type TurnContext, type TurnSummary } from "@/lib/models/telemetry";
 import { ADAM_PROMPT_VERSION } from "@/lib/assistant/prompt-version";
 import { complementDeLimite, gardeImpossibilite, RAPPEL_DECOUVERTE } from "@/lib/assistant/limites";
+import { prechargerCapacitesDynamiques } from "@/platform/in-process/skills";
 import "@/platform/in-process/telemetry/usage-sink";
 import { callModel } from "@/lib/models/gateway";
 import { planifierPreLectures, executerPreLectures, PRE_LECTURE_MAX_CHARS } from "@/lib/assistant/pre-lectures";
@@ -4724,7 +4725,10 @@ async function runAssistantImpl(
   const cacheKey = `adam:${user.id}`;
   const surete = safetyIdentifierFor(user.id);
   // Le Super Admin dispose d'outils exclusifs (vision globale de tous les comptes).
-  const allTools = assistantToolsFor(user);
+  // LES SKILLS DE LA PERSONNE (§36) — connecteurs, micro-outils, playbooks — sont chargés AVANT la liste :
+  // sans ce préchargement, `assistantToolsFor` ne verrait que le cœur.
+  await prechargerCapacitesDynamiques(user).catch(() => 0);
+  let allTools = assistantToolsFor(user);
 
   // ── LA DÉCISION D'AIGUILLAGE ──────────────────────────────────────────────────────────────
   // Elle ne décide QUE de la liste d'outils envoyée au modèle. Les droits, l'approbation,
@@ -4938,6 +4942,15 @@ async function runAssistantImpl(
         }),
       };
     }));
+    // UN MICRO-OUTIL CRÉÉ DANS LE TOUR EST UTILISABLE DANS LE TOUR (§36) : la liste complète est
+    // recomposée et le nouvel outil exposé au modèle — sans cela, le modèle qui vient de le créer
+    // ne peut pas l'appeler et retombe sur run_code (mesuré au banc : defi-skill-micro-outil).
+    const nes = outilsCreesParmi(settled.map((s) => ({ name: s.tu.name, out: s.out })));
+    if (nes.length) {
+      await prechargerCapacitesDynamiques(user).catch(() => 0);
+      allTools = assistantToolsFor(user);
+      tools = avecOutilsDeclares(tools, allTools, nes);
+    }
     const results: ClaudeContentBlock[] = [];
     for (const { tu, out } of settled) {
       if (READ_LABEL[tu.name] && !trace.includes(READ_LABEL[tu.name])) trace.push(READ_LABEL[tu.name]);
@@ -5166,7 +5179,10 @@ async function runAssistantStreamImpl(
   const systemComplet = contexteTour ? `${system}${contexteTour}` : system;
   const cacheKey = `adam:${user.id}`;
   const surete = safetyIdentifierFor(user.id);
-  const allTools = assistantToolsFor(user);
+  // LES SKILLS DE LA PERSONNE (§36) — connecteurs, micro-outils, playbooks — sont chargés AVANT la liste :
+  // sans ce préchargement, `assistantToolsFor` ne verrait que le cœur.
+  await prechargerCapacitesDynamiques(user).catch(() => 0);
+  let allTools = assistantToolsFor(user);
 
   // ── LE MÊME AIGUILLAGE QU'EN VARIANTE NON DIFFUSÉE ────────────────────────────────────────
   // C'est ICI que passe la quasi-totalité du trafic réel : l'interface et la voix appellent le
@@ -5495,6 +5511,13 @@ async function runAssistantStreamImpl(
         recordTool({ name: tu.name, ms: Date.now() - t0, ok: okOutil, parallel: toolUses.length > 1 });
         return { tu, out };
       }));
+      // Même règle qu'en mode non flux : un micro-outil créé dans le tour est exposé dans le tour.
+      const nes = outilsCreesParmi(settled.map((s) => ({ name: s.tu.name, out: s.out })));
+      if (nes.length) {
+        await prechargerCapacitesDynamiques(user).catch(() => 0);
+        allTools = assistantToolsFor(user);
+        tools = avecOutilsDeclares(tools, allTools, nes);
+      }
       const results: ClaudeContentBlock[] = [];
       for (const { tu, out } of settled) { sortiesOutils.push(out); lectures.push({ outil: tu.name, sortie: out }); }
       for (const { tu, out } of settled) {
@@ -6683,6 +6706,22 @@ question de relance obligatoire ; à un remerciement, réponds simplement. N'inv
 }
 
 /** Les outils des pré-lectures sont DÉCLARÉS au tour : le modèle voit leurs appels, il peut les rejouer. */
+/**
+ * LES OUTILS NÉS DANS LE TOUR : les noms `skill_…` que `create_skill` vient de rendre (ok: true).
+ * Pur, tolérant : une sortie qui n'est pas du JSON n'expose rien.
+ */
+export function outilsCreesParmi(sorties: readonly { name: string; out: string }[]): string[] {
+  const noms: string[] = [];
+  for (const s of sorties) {
+    if (s.name !== "create_skill") continue;
+    try {
+      const j = JSON.parse(s.out) as { ok?: unknown; outil?: unknown };
+      if (j && j.ok === true && typeof j.outil === "string" && /^skill_[a-z0-9_]+$/.test(j.outil)) noms.push(j.outil);
+    } catch { /* pas du JSON : rien à exposer */ }
+  }
+  return [...new Set(noms)];
+}
+
 function avecOutilsDeclares<T extends { name: string }>(tools: T[], all: T[], noms: string[]): T[] {
   const connus = new Set(tools.map((t) => t.name));
   const ajout = all.filter((t) => noms.includes(t.name) && !connus.has(t.name));

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { preparerAppelMission } from "@/platform/in-process/skills";
 import type { CurrentUser } from "@/lib/session";
 import { buildProposal, executeReadTool, performAction, RESOLVER_WRITE_NAMES } from "@/lib/assistant";
 import { executeIntentGuarded, intentSummary } from "@/lib/assistant/action-intents";
@@ -190,7 +191,10 @@ export class ExecutantReel implements CapabilityRunner {
     // les écritures AUTONOMES (rappels, souvenirs, exports), que le chemin des intents ne connaît
     // pas. Leur effet, lui, reste une écriture : approbation demandée, jamais groupées, et gardées
     // ci-dessous par une clé d'idempotence pour ne pas être rejouées après une panne.
-    return estEcriture(call.capability) ? this.ecrire(call) : this.lire(call);
+    // UN SKILL QUI ÉCRIT OU ENGAGE (§36) exige `confirmer: true` : dans une mission, cet accord a été donné
+    // par la porte d'approbation — le RUNNER le pose, jamais le modèle.
+    const appel = { ...call, input: preparerAppelMission(this.user.id, call.capability, call.input) };
+    return estEcriture(appel.capability) ? this.ecrire(appel) : this.lire(appel);
   }
   /**
    * LA GARDE DES ÉCRITURES AUTONOMES — « ce rappel a-t-il déjà été posé par cette étape ? »

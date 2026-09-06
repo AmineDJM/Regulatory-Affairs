@@ -31,7 +31,9 @@ export const WATCH_TOOLS: PowerTool[] = [
         + "la réponse de X à mon e-mail / l'arrivée du document Y, et préviens-moi seulement s'il y a un problème ». "
         + "Crée une surveillance qui relit la cible à sa cadence ET dès qu'un fait la touche, applique des règles CODÉES (échéance proche ou dépassée, silence, blocage, statut, seuil, disparition) "
         + "et ne notifie que quand un problème apparaît, disparaît, ou quand la cible est terminée. Survit aux redémarrages ; visible dans les missions (suspendre / arrêter). "
-        + "Ce n'est PAS un rappel daté (plan_reminder) : ici rien ne sonne tant que tout va bien.",
+        + "Ce n'est PAS un rappel daté (plan_reminder) : ici rien ne sonne tant que tout va bien. "
+        + "UNE SURVEILLANCE PRÉVIENT, ELLE N'AGIT PAS : « dès que / quand [un fait] arrive, FAIS [une action] » (créer une tâche, envoyer, classer, "
+        + "relancer, archiver) est une MISSION — run_mission — qui ATTEND le fait (WAIT_EVENT) puis agit. Ne pose pas une surveillance à la place.",
       input_schema: {
         type: "object",
         properties: {
