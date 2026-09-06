@@ -188,7 +188,7 @@ export function blocsCommerciaux(spec: SpecDocumentCommercial, t: TotauxCommerci
  */
 export async function construireDocumentCommercial(
   spec: SpecDocumentCommercial,
-  opts: { base?: Buffer | null; maintenant?: Date } = {},
+  opts: { base?: Buffer | null; maintenant?: Date; police?: string | null; logo?: { octets: Buffer; png: boolean; largeurCm: number } | null } = {},
 ): Promise<DocumentCommercialConstruit> {
   const debut = Date.now();
   const regles = verifierSpecCommerciale(spec);
@@ -204,6 +204,8 @@ export async function construireDocumentCommercial(
     titre: `${LIBELLE_TYPE[spec.type]} ${spec.numero}`,
     auteur: spec.emetteur.nom,
     couleurTitres: spec.couleur ?? undefined,
+    police: opts.police ?? undefined,
+    logo: opts.base && opts.base.length > 0 ? null : opts.logo ?? null,
     maintenant: opts.maintenant,
   });
 

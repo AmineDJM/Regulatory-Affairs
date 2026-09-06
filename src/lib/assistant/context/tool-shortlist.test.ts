@@ -37,7 +37,7 @@ describe("parité : aucun outil ne disparaît en silence", () => {
 });
 
 describe("le socle rend toute question possible, même sur un domaine mal deviné", () => {
-  const domaines = ["MAIL", "CALENDAR", "REGULATORY", "FINANCE", "HR", "DRIVE", "LEGAL", "MISSION", "DIRECTORY", "ADMIN", "GENERAL"] as const;
+  const domaines = ["MAIL", "CALENDAR", "REGULATORY", "FINANCE", "HR", "DRIVE", "LEGAL", "MISSION", "DIRECTORY", "ADMIN", "TEACH", "SOURCES", "QUALITE", "DATA", "GENERAL"] as const;
 
   it.each(domaines)("domaine %s : recherche universelle, fiche, personne", (domain) => {
     const names = shortlistNames({ route: "STRUCTURED_QUERY", domain });

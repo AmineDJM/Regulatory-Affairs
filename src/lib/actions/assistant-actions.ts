@@ -21,6 +21,7 @@ import {
   deleteThread as deleteThreadScoped, forgetEverything,
   distillationDue, countMessages, recentMessages, getMemory, saveMemory,
   type ThreadSummary, type StoredMessage,
+  contexteReglesSeules,
 } from "@/lib/assistant-memory";
 import { getDailyBrief } from "@/lib/daily-brief";
 import { extractAttachmentText, buildAttachmentContext, type AttachmentText } from "@/lib/assistant-files";
@@ -29,6 +30,7 @@ import {
   runAssistant, performAction, payloadRequiresStrongConfirm, executeReadTool,
   type AssistantActionPayload, type AssistantResult, type ChatTurn, type ExecuteResult, type ProposedAction,
 } from "@/lib/assistant";
+import { consignerProvenance } from "@/platform/in-process/fabric/provenance";
 import { composeWorkspace } from "@/lib/assistant/workspace/compose";
 import { directIntent, intentArgs, intentPhrase } from "@/lib/assistant/workspace/direct-intents";
 import type { WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
@@ -298,7 +300,7 @@ export async function assistantChat(
     // Mémoire personnelle (derrière le drapeau de version) : identité, rattachement,
     // hiérarchie et ce que l'assistant a retenu de CETTE personne.
     const memoryOn = await featureEnabled(FEATURES.ASSISTANT_MEMORY.key, user.id);
-    const personal = memoryOn ? await personalContext(user.id).catch(() => null) : null;
+    const personal = memoryOn ? await personalContext(user.id).catch(() => null) : await contexteReglesSeules(user.id);
 
     const t0 = Date.now();
     const res = await runAssistant(user, turns, { personalContext: personal });
@@ -306,14 +308,18 @@ export async function assistantChat(
       feature: "assistant", userId: user.id, model: aiModel(),
       ok: res.ok, latencyMs: Date.now() - t0, errorCode: res.ok ? null : res.error ?? "error",
     });
+    const lastUser = [...turns].reverse().find((t) => t.role === "user")?.content ?? "";
     // Persistance du fil — uniquement pour SON propriétaire (helpers scopés par userId).
     if (memoryOn && res.ok && res.reply) {
       try {
-        const lastUser = [...turns].reverse().find((t) => t.role === "user")?.content ?? "";
         res.threadId = await rememberExchange(user.id, threadId ?? null, lastUser, res.reply);
       } catch (e) {
         console.error("[assistant] mémorisation impossible (non bloquant)", e);
       }
+    }
+    // LA PROVENANCE DU TOUR (F8) — indépendante du drapeau mémoire.
+    if (res.provenance) {
+      await consignerProvenance({ userId: user.id, threadId: res.threadId ?? threadId ?? null, question: lastUser, faits: res.provenance });
     }
     return res;
   } catch (err) {

@@ -67,7 +67,7 @@ const strings = (input: Record<string, unknown>, key: string): string[] => {
  * par tout montrer.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-const TABLE_SOURCES: Record<string, { tool: string; keys: readonly string[]; titre: string; args?: readonly string[] }> = {
+export const TABLE_SOURCES: Record<string, { tool: string; keys: readonly string[]; titre: string; args?: readonly string[] }> = {
   dossiers_regulatory: { tool: "regulatory_portfolio", keys: ["dossiers"], titre: "Dossiers Regulatory", args: ["partner"] },
   charge_regulatory: { tool: "regulatory_workload", keys: ["repartition"], titre: "Charge Regulatory", args: ["person"] },
   courriers: { tool: "search_courriers", keys: [], titre: "Courriers", args: ["query", "direction", "month"] },
@@ -80,7 +80,7 @@ const TABLE_SOURCES: Record<string, { tool: string; keys: readonly string[]; tit
 const fold = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 
 /** Les lignes d'une sortie d'outil : un tableau nu, ou le premier tableau sous une clé connue. */
-function rowsOf(raw: string, keys: readonly string[]): Record<string, unknown>[] {
+export function rowsOf(raw: string, keys: readonly string[]): Record<string, unknown>[] {
   let data: unknown;
   try { data = JSON.parse(raw); } catch { return []; }
   if (Array.isArray(data)) return data.filter((r): r is Record<string, unknown> => typeof r === "object" && r !== null);

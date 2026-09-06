@@ -13,6 +13,10 @@ import bcrypt from "bcryptjs";
 export const E2E = {
   email: "__e2e__user@test.dz",
   password: "E2e!MotDePasse#2026",
+  /** Le compte qui TIENT la papeterie (assistante de direction) — le registre de marque se règle par lui. */
+  papeterieEmail: "__e2e__papeterie@test.dz",
+  /** Un compte qui LIT sans régler (simple lecteur, sans société) — le registre de marque doit lui rester fermé. */
+  lecteurEmail: "__e2e__lecteur@test.dz",
   inviteValid: "__e2e__invite-valide-token",
   inviteExpired: "__e2e__invite-expiree-token",
   inviteeValid: "__e2e__invitee@test.dz",
@@ -26,6 +30,15 @@ export const E2E = {
   docxName: "__e2e__ Contrat Consulting Mouffok.docx",
   pdfName: "__e2e__ Dossier ANPP.pdf",
   pdfPages: 10,
+  /** Le décor de la BOÎTE DE DÉCISION : une validation à son tour, une notification, un engagement. */
+  /** Le décor de « d'où tu tiens ça ? » (F8) : un tour déjà consigné, avec deux faits sourcés. */
+  provenanceLabel: "PRD-E2E-TEMOIN — Produit témoin",
+  provenanceTotal: "Total décaissé témoin E2E",
+  provenanceQuestion: "__e2e__ Où en est le produit témoin ?",
+  inboxValidationRef: "__e2e__VAL-1",
+  inboxValidationTitle: "__e2e__ Avance sur frais — mission Oran",
+  inboxNotificationTitle: "__e2e__ Rapport d'inventaire déposé",
+  inboxCommitmentWho: "__e2e__ Khaled Mansouri",
   /**
    * LE SECRET DE SESSION DU RUN E2E — et la raison pour laquelle il est ici.
    *
@@ -53,6 +66,17 @@ export default async function globalSetup(): Promise<void> {
         passwordHash: await bcrypt.hash(E2E.password, 10),
         role: "DIRECTION",
       },
+    });
+
+    const papeterie = await prisma.user.create({
+      data: { name: "__e2e__ Papeterie", email: E2E.papeterieEmail, passwordHash: await bcrypt.hash(E2E.password, 10), role: "DIRECTION_ASSISTANT" },
+    });
+    // Le compte papeterie VOIT la première société active : le registre de marque suit le périmètre
+    // de la personne, et un compte sans société n'aurait rien à régler. L'accès part avec le compte.
+    const premiere = await prisma.company.findFirst({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true } });
+    if (premiere) await prisma.userCompanyAccess.create({ data: { userId: papeterie.id, companyId: premiere.id, canEdit: true } });
+    await prisma.user.create({
+      data: { name: "__e2e__ Lecteur", email: E2E.lecteurEmail, passwordHash: await bcrypt.hash(E2E.password, 10), role: "VIEWER" },
     });
 
     const invitee = await prisma.user.create({
@@ -88,6 +112,62 @@ export default async function globalSetup(): Promise<void> {
         },
       });
     }
+    // ── LE DÉCOR DE LA BOÎTE DE DÉCISION (§21) ─────────────────────────────────────
+    //
+    // Une validation À SON TOUR (mode parallèle, échéance dépassée : la carte doit sortir en
+    // tête, CRITIQUE), une notification non lue marquée importante, un engagement en retard.
+    // Trois genres de cartes, trois lignes réelles — et le clic « Approuver » de la spec doit
+    // changer l'état de l'étape en base, pas seulement l'écran.
+    await prisma.executiveCommitment.deleteMany({ where: { who: { startsWith: "__e2e__" } } });
+    await prisma.notification.deleteMany({ where: { title: { startsWith: "__e2e__" } } });
+    await prisma.validationRequest.deleteMany({ where: { reference: { startsWith: "__e2e__" } } });
+    await prisma.validationRequest.create({
+      data: {
+        reference: E2E.inboxValidationRef, module: "Finances", objectType: "EXPENSE",
+        title: E2E.inboxValidationTitle, description: "Déplacement de deux jours à Oran : hôtel, carburant, péages.",
+        amount: 120_000, priority: "HIGH", requesterId: invitee.id, mode: "PARALLEL", status: "PENDING",
+        deadline: new Date(Date.now() - 86_400_000),
+        steps: { create: [{ order: 1, validatorId: testeur.id, status: "PENDING" }] },
+      },
+    });
+    await prisma.notification.create({
+      // PAS en pop-up plein écran : ce mode recouvre les écrans de l'ERP jusqu'à accusé de
+      // réception, et les autres specs cliquent sur ces écrans. La carte n'en a pas besoin.
+      data: { userId: testeur.id, title: E2E.inboxNotificationTitle, body: "Le rapport d'inventaire de Rouiba est dans le Drive.", link: "/drive", popup: false },
+    });
+    await prisma.executiveCommitment.create({
+      data: { ownerId: testeur.id, who: E2E.inboxCommitmentWho, toWhom: "le PDG", what: "régler la facture Hikma sous 10 jours", dueAt: new Date(Date.now() - 3 * 86_400_000), status: "OPEN", source: "comité du 28/08" },
+    });
+
+    // ── LE DÉCOR DE LA PROVENANCE (F8) ─────────────────────────────────────────────
+    //
+    // Un tour DÉJÀ consigné pour le testeur : une fiche ERP (Regulatory, temps réel) et un total
+    // calculé avec sa lignée. La spec pose « D'où tu tiens ça ? » dans le bureau d'Adam : la
+    // réponse doit venir du code — sans appel de modèle — et citer ces deux faits.
+    await prisma.assistantProvenance.deleteMany({ where: { userId: testeur.id } });
+    const lu = new Date().toISOString();
+    await prisma.assistantProvenance.create({
+      data: {
+        userId: testeur.id, question: E2E.provenanceQuestion, nombre: 2,
+        faits: [
+          {
+            id: "search_products:/regulatory/__e2e__", libelle: E2E.provenanceLabel, valeur: "statut : SUBMITTED · priorite : HAUTE",
+            nature: "ERP", famille: "REGULATORY", outil: "search_products", href: "/regulatory", locator: null,
+            horodatage: "2026-08-12T00:00:00.000Z", observeLe: lu, confiance: 1, base: "metadata", fraicheur: "TEMPS_REEL",
+            autorite: "L'AVANCEMENT réglementaire d'un dossier, l'identité canonique d'un produit.", preuveNegative: true,
+            acteur: testeur.id, calcul: null,
+          },
+          {
+            id: "finance_totals:calcul:__e2e__", libelle: E2E.provenanceTotal, valeur: "142 800 DZD",
+            nature: "CALCUL", famille: "FINANCE", outil: "finance_totals", href: "/finances", locator: null,
+            horodatage: "2026-07-03T00:00:00.000Z", observeLe: lu, confiance: 1, base: "calcul", fraicheur: "TEMPS_REEL",
+            autorite: "Ce qui a été PAYÉ, quand, à qui — et ce qui reste dû.", preuveNegative: true, acteur: testeur.id,
+            calcul: { entrees: ["PAY-E2E-1", "PAY-E2E-2", "PAY-E2E-3"], transformation: "somme côté base de 3 écriture(s) RÉGLÉE(s)", formule: "Σ montant (direction, statut SETTLED, période, filtres)", calculeLe: lu },
+          },
+        ],
+      },
+    });
+
     // ── LE DÉCOR DU LIVE OFFICE ────────────────────────────────────────────────────
     //
     // Délégué à `scripts/e2e/office-seed.ts`, lancé sous `tsx` : le chargeur TypeScript de

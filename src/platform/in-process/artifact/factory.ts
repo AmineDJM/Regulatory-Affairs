@@ -49,6 +49,7 @@ import {
   type LigneCommerciale, type ModePaiement, type PartieCommerciale, type SpecDocumentCommercial, type TotauxCommerciaux, type TypeDocumentCommercial,
 } from "@/lib/artifact/factory/commercial";
 import { construireDossier } from "@/lib/artifact/factory/dossier";
+import { charteDe, lireMarque, mentionsDe, resumerMarque, signatairePour, type Charte, type Marque } from "@/lib/brand/model";
 import type { DonneesCanoniques } from "@/lib/artifact/factory/canonical";
 import { MIME_DOCX } from "@/lib/artifact/factory/word";
 import { MIME_XLSX } from "@/lib/artifact/adapters/xlsx/adapter";
@@ -96,6 +97,17 @@ export interface ProfilDocumentaire {
   papierEnTete: { id: string; nom: string } | null;
   /** Les règles Teach Adam (standards documentaires de la société) qui ont modifié les réglages, et comment. */
   reglesAppliquees: { id: string; cle: string; effet: string }[];
+  /** LE REGISTRE DE MARQUE (§26) : ce que la société dit d'elle-même, et la charte effective qui en découle. */
+  marque: Marque;
+  charte: Charte;
+  resumeMarque: string;
+}
+
+/** Ce que la fabrique pose SUR la pièce : le papier en-tête, ou à défaut la police et le logo de la marque. */
+export interface Habillage {
+  base: Buffer | null;
+  police: string | null;
+  logo: { octets: Buffer; png: boolean; largeurCm: number } | null;
 }
 
 const REGLAGES_DEFAUT: ReglagesDocumentaires = {
@@ -110,7 +122,7 @@ const plier = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").
  * personne ; sinon celle de la personne pour l'ARGENT (`moneyEntityOf` : sa fiche, pas son
  * écran). Plusieurs correspondances = on demande, on ne choisit pas.
  */
-async function resoudreSociete(userId: string, societe?: string | null): Promise<{ ok: true; societe: CompanyLite } | EchecFabrique> {
+export async function resoudreSociete(userId: string, societe?: string | null): Promise<{ ok: true; societe: CompanyLite } | EchecFabrique> {
   const miennes = await getMyCompanies(userId);
   if (miennes.length === 0) return echec("MISSING_PERMISSION", "Aucune société du groupe ne vous est ouverte : impossible d'émettre une pièce.");
   const voulu = (societe ?? "").trim();
@@ -133,7 +145,7 @@ const MENTIONS_FACTURE: { cle: keyof PartieCommerciale; libelle: string }[] = [
 ];
 
 /** LE PROFIL DOCUMENTAIRE d'une société : identité légale, réglages, papier en-tête. */
-export async function profilDocumentaire(user: CurrentUser, societe?: string | null): Promise<{ ok: true; profil: ProfilDocumentaire; papierOctets: Buffer | null } | EchecFabrique> {
+export async function profilDocumentaire(user: CurrentUser, societe?: string | null): Promise<{ ok: true; profil: ProfilDocumentaire; papierOctets: Buffer | null; logo: Habillage["logo"]; habillage: Habillage } | EchecFabrique> {
   const r = await resoudreSociete(user.id, societe);
   if (!r.ok) return r;
   const s = r.societe;
@@ -151,7 +163,11 @@ export async function profilDocumentaire(user: CurrentUser, societe?: string | n
       paymentTerms: profil.paymentTerms, quoteValidityDays: profil.quoteValidityDays, footerNote: profil.footerNote, letterheadId: profil.letterheadId,
       signatoryName: profil.signatoryName, signatoryTitle: profil.signatoryTitle, existe: true,
     }
-    : REGLAGES_DEFAUT;
+    // UNE COPIE, jamais la constante : les standards enseignés ci-dessous ÉCRIVENT dans `reglages`.
+    // Sans copie, la première société qui appliquait « 60 jours » le laissait dans les défauts du
+    // processus — et toute société sans profil héritait de 60 jours, règle supprimée ou non.
+    // Trouvé par le banc des défis : « la fabrique applique encore 60 jours » sans aucune règle.
+    : { ...REGLAGES_DEFAUT };
   // ── LES STANDARDS ENSEIGNÉS (Teach Adam, §119) ─────────────────────────────────────────
   //
   // « Nos factures commencent par FAC », « les devis sont valables 45 jours » : une règle de
@@ -178,6 +194,15 @@ export async function profilDocumentaire(user: CurrentUser, societe?: string | n
   const designe = reglages.letterheadId ? entetes.find((l) => l.id === reglages.letterheadId) ?? null : null;
   const papier = designe ?? letterheadsFor(entetes, "word", s.id).find((l) => l.companyId === s.id || l.companyId === null) ?? null;
   const papierOctets = papier ? await getBlob(papier.blobId) : null;
+  // LA MARQUE (§26) : lue dans `settings.marque` du profil ; la charte effective tranche marque >
+  // pastille de la société > défauts. Le logo n'est chargé que s'il servira : sans papier en-tête.
+  const marque = lireMarque(profil?.settings);
+  const charte = charteDe(marque, s.color);
+  let logo: Habillage["logo"] = null;
+  if (marque.logo && !(papierOctets && papierOctets.length > 0)) {
+    const octets = await getBlob(marque.logo.blobId).catch(() => null);
+    if (octets && octets.length > 0) logo = { octets: Buffer.from(octets), png: marque.logo.mime === "image/png", largeurCm: marque.logo.largeurCm };
+  }
   const partie: PartieCommerciale = {
     nom: identite?.legalName?.trim() || s.name,
     formeJuridique: identite?.legalForm ?? null,
@@ -192,16 +217,21 @@ export async function profilDocumentaire(user: CurrentUser, societe?: string | n
     banque: [identite?.bankName, identite?.bankAgency].filter(Boolean).join(" — ") || null,
     rib: identite?.rib ?? null,
   };
+  const papierEffectif = papierOctets && papierOctets.length > 0 ? papierOctets : null;
   return {
     ok: true,
-    papierOctets: papierOctets && papierOctets.length > 0 ? papierOctets : null,
+    papierOctets: papierEffectif,
+    logo,
+    habillage: { base: papierEffectif, police: charte.policeTexte, logo },
     profil: {
-      societe: { id: s.id, nom: s.name, couleur: s.color },
+      // La couleur de la société telle que la fabrique l'applique EST l'accent de la charte.
+      societe: { id: s.id, nom: s.name, couleur: charte.accent },
       identite: partie,
       identiteIncomplete: MENTIONS_FACTURE.filter((m) => !(partie[m.cle] as string | null)?.trim()).map((m) => m.libelle),
       reglages,
       papierEnTete: papier && papierOctets ? { id: papier.id, nom: papier.name } : null,
       reglesAppliquees,
+      marque, charte, resumeMarque: resumerMarque(marque, charte),
     },
   };
 }
@@ -366,11 +396,20 @@ function specDepuisDemande(d: DemandeDocument, p: ProfilDocumentaire): Omit<Spec
     referenceAmont: d.referenceAmont ?? null,
     livraison: d.livraison ?? null,
     notes: d.notes ?? null,
-    signataire: p.reglages.signatoryName ? { nom: p.reglages.signatoryName, qualite: p.reglages.signatoryTitle } : null,
-    piedDePage: p.reglages.footerNote ? [p.reglages.footerNote] : null,
-    couleur: p.societe.couleur,
+    // LA MARQUE tranche : le signataire du type de pièce, sinon celui par défaut, sinon celui du
+    // profil ; les mentions choisies par la société s'ajoutent à la note de pied ; l'accent est
+    // celui de la charte (marque > pastille > défaut).
+    signataire: signatairePour(p.marque, d.type, p.reglages.signatoryName ? { nom: p.reglages.signatoryName, qualite: p.reglages.signatoryTitle } : null),
+    piedDePage: [...(p.reglages.footerNote ? [p.reglages.footerNote] : []), ...mentionsDe(p.marque, p.identite)].filter(Boolean).length
+      ? [...(p.reglages.footerNote ? [p.reglages.footerNote] : []), ...mentionsDe(p.marque, p.identite)]
+      : null,
+    couleur: p.charte.accent,
   };
 }
+
+/** La même composition, offerte aux TESTS : rejouer la spec d'une demande sans numéroter ni écrire au registre. */
+export const specDepuisDemandePourTest = (d: Partial<DemandeDocument> & { type: TypeDocumentCommercial }, p: ProfilDocumentaire): Omit<SpecDocumentCommercial, "numero"> =>
+  specDepuisDemande(d as DemandeDocument, p);
 
 function echeanceLegale(spec: Omit<SpecDocumentCommercial, "numero">): Date | null {
   if (spec.type === "FACTURE" && spec.echeance) return new Date(`${spec.echeance}T00:00:00Z`);
@@ -406,7 +445,7 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
   }
   const p = await profilDocumentaire(user, demande.societe);
   if (!p.ok) return p;
-  const { profil, papierOctets } = p;
+  const { profil, papierOctets, habillage } = p;
   if (!(await canEditCompanyId(user.id, profil.societe.id))) return echec("MISSING_PERMISSION", `Vous voyez ${profil.societe.nom} sans pouvoir l'engager : la pièce ne peut pas être émise en son nom.`);
 
   const base = specDepuisDemande(demande, profil);
@@ -415,13 +454,18 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
   if (regles.bloquants.length > 0) {
     return echec("MISSING_INPUT", `${LIBELLE_TYPE[type]} non émis${type === "FACTURE" ? "e" : ""} : ${regles.bloquants.slice(0, 4).join(" ; ")}`, { bloquants: regles.bloquants });
   }
-  if (demande.chainFromId) {
-    const amont = await prisma.legalDocument.findUnique({ where: { id: demande.chainFromId }, select: { id: true, companyId: true } });
+  // Un `chainFromId` VIDE n'est pas un chaînage : le modèle envoie volontiers "" pour « aucune
+  // pièce amont », et une chaîne vide passait le test de présence puis violait la clé étrangère
+  // au moment d'écrire — mesuré au banc des défis : « erreur technique », aucun devis émis.
+  const chainFromId = (demande.chainFromId ?? "").trim() || null;
+  demande = { ...demande, chainFromId };
+  if (chainFromId) {
+    const amont = await prisma.legalDocument.findUnique({ where: { id: chainFromId }, select: { id: true, companyId: true } });
     if (!amont) return echec("NOT_FOUND", "La pièce amont (devis / bon de commande) n'existe plus.");
     if (amont.companyId && amont.companyId !== profil.societe.id) return echec("MISSING_INPUT", "La pièce amont appartient à une autre société.");
   }
   // LA RÉPÉTITION À BLANC : tout ce qui peut bloquer bloque ICI, avant qu'un numéro existe.
-  const essai = await construireDocumentCommercial(provisoire, { base: papierOctets });
+  const essai = await construireDocumentCommercial(provisoire, habillage);
   if (!essai.verification.ok || !essai.totaux) {
     return echec("CAPABILITY_FAILURE", `${LIBELLE_TYPE[type]} non émis${type === "FACTURE" ? "e" : ""} : ${essai.verification.bloquants.slice(0, 4).join(" ; ")}`, { bloquants: essai.verification.bloquants });
   }
@@ -446,7 +490,7 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
           totaux: f.totaux, surPapierEnTete: f.surPapierEnTete, avertissements: [`Une pièce identique existait déjà (${f.numero}) : elle est rendue, aucune nouvelle pièce n'a été émise.`], reglesAppliquees: profil.reglesAppliquees, ms: Date.now() - debut,
         };
       }
-      return terminerEmission(user, existant.id, { ...f, spec: { ...base, numero: f.numero } }, papierOctets, demande, profil, { repris: true, debut, avertissements: essai.verification.avertissements });
+      return terminerEmission(user, existant.id, { ...f, spec: { ...base, numero: f.numero } }, habillage, demande, profil, { repris: true, debut, avertissements: essai.verification.avertissements });
     }
   }
 
@@ -481,16 +525,16 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
     });
     return { id: doc.id, fabrique };
   });
-  return terminerEmission(user, cree.id, cree.fabrique, papierOctets, demande, profil, { repris: false, debut, avertissements: essai.verification.avertissements });
+  return terminerEmission(user, cree.id, cree.fabrique, habillage, demande, profil, { repris: false, debut, avertissements: essai.verification.avertissements });
 }
 
 /** Compose la pièce numérotée, l'écrit dans le Drive (+ PDF), et clôt l'émission au registre. */
 async function terminerEmission(
-  user: CurrentUser, legalDocumentId: string, fabrique: Fabrique, papierOctets: Buffer | null, demande: DemandeDocument, profil: ProfilDocumentaire,
+  user: CurrentUser, legalDocumentId: string, fabrique: Fabrique, habillage: Habillage, demande: DemandeDocument, profil: ProfilDocumentaire,
   ctx: { repris: boolean; debut: number; avertissements: string[] },
 ): Promise<DocumentEmis | EchecFabrique> {
   const spec = fabrique.spec;
-  const construit = await construireDocumentCommercial(spec, { base: papierOctets });
+  const construit = await construireDocumentCommercial(spec, habillage);
   if (!construit.verification.ok || !construit.totaux) {
     return echec("CAPABILITY_FAILURE", `La pièce ${fabrique.numero} est numérotée au registre mais son fichier n'a pas pu être composé : ${construit.verification.bloquants.slice(0, 3).join(" ; ")}`, { bloquants: construit.verification.bloquants });
   }
@@ -567,7 +611,7 @@ export async function reviserDocumentDrive(
   };
   const regles = verifierSpecCommerciale(spec);
   if (regles.bloquants.length > 0) return echec("MISSING_INPUT", `Révision refusée : ${regles.bloquants.slice(0, 4).join(" ; ")}`, { bloquants: regles.bloquants });
-  const construit = await construireDocumentCommercial(spec, { base: p.papierOctets });
+  const construit = await construireDocumentCommercial(spec, p.habillage);
   if (!construit.verification.ok || !construit.totaux) return echec("CAPABILITY_FAILURE", `Révision refusée : ${construit.verification.bloquants.slice(0, 4).join(" ; ")}`, { bloquants: construit.verification.bloquants });
 
   const version = f.version + 1;
@@ -629,14 +673,18 @@ export async function construireDossierDrive(
   const debut = Date.now();
   let canon = opts.canon;
   let papier: Buffer | null = null;
+  let habillage: Habillage | null = null;
   if (opts.societe) {
     const p = await profilDocumentaire(user, opts.societe);
     if (!p.ok) return p;
     papier = p.papierOctets;
+    habillage = p.habillage;
+    // La charte de la société (marque > pastille) colore le dossier ; une couleur demandée
+    // explicitement dans les données canoniques garde la main.
     canon = { ...canon, societe: { nom: p.profil.identite.nom, couleur: canon.societe?.couleur ?? p.profil.societe.couleur } };
   }
   if (!canon.societe?.nom) canon = { ...canon, societe: { nom: user.name ?? "Adam", couleur: null } };
-  const d = await construireDossier(canon, { base: papier });
+  const d = await construireDossier(canon, { base: papier, police: habillage?.police ?? null, logo: habillage?.logo ?? null });
   if (!d.ok) return echec("CAPABILITY_FAILURE", `Le dossier n'a pas été écrit : ${d.bloquants.slice(0, 5).join(" ; ")}`, { bloquants: d.bloquants });
   const nom = opts.nom.trim().replace(/\.(xlsx|pptx|docx)$/i, "") || canon.titre.trim() || "Dossier Adam";
   const dossier = opts.dossier?.trim() || undefined;

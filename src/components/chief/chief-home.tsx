@@ -1,6 +1,7 @@
 "use client";
 
-import { Mail, ListChecks, FileText, Search, CalendarPlus } from "lucide-react";
+import Link from "next/link";
+import { Mail, ListChecks, FileText, Search, CalendarPlus, Inbox } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 /**
@@ -46,9 +47,11 @@ export interface ChiefHomeProps {
   onPick: (prompt: string) => void;
   /** Ce qui attend une décision — affiché SEULEMENT s'il y a quelque chose (§51). */
   attention?: { count: number; label: string; prompt: string }[];
+  /** La boîte de décision (§21) : le nombre de cartes et la porte pour y aller. Absente = rien à trancher. */
+  inbox?: { count: number; href: string } | null;
 }
 
-export function ChiefHome({ userName, onPick, attention = [] }: ChiefHomeProps) {
+export function ChiefHome({ userName, onPick, attention = [], inbox = null }: ChiefHomeProps) {
   const firstName = (userName ?? "").trim().split(/\s+/)[0] || "";
   const urgent = attention.filter((a) => a.count > 0);
 
@@ -78,10 +81,26 @@ export function ChiefHome({ userName, onPick, attention = [] }: ChiefHomeProps) 
       {/* CE QUI ATTEND UNE DÉCISION — rien du tout quand il n'y a rien.
           Un cadre vide qui annonce « aucune décision urgente » occupe de la place pour dire
           qu'il n'a rien à dire ; on préfère le silence (§51). */}
-      {urgent.length > 0 && (
+      {(urgent.length > 0 || (inbox && inbox.count > 0)) && (
         <div className="mt-10 md:mt-12">
           <p className="chief-section">Ce qui t&apos;attend</p>
           <div className="mt-3 flex flex-col gap-1.5">
+            {/* LA BOÎTE DE DÉCISION D'ABORD : les cartes se tranchent d'un clic, sans un tour de
+                conversation. Les amorces qui suivent restent pour ce qui demande une réponse. */}
+            {inbox && inbox.count > 0 && (
+              <Link href={inbox.href} className="chief-card chief-card-interactive flex items-center gap-3 px-4 py-3 text-left" data-testid="home-inbox">
+                <span
+                  className="grid h-7 min-w-[28px] place-items-center rounded-lg px-1.5 text-[13px] font-semibold tabular-nums"
+                  style={{ backgroundColor: "hsl(var(--chief-accent-soft))", color: "hsl(var(--chief-accent))" }}
+                >
+                  {inbox.count}
+                </span>
+                <span className="chief-body flex-1 text-[14.5px]" style={{ color: "hsl(var(--chief-text))" }}>
+                  à trancher dans la boîte de décision
+                </span>
+                <Inbox className="h-4 w-4 flex-shrink-0" aria-hidden style={{ color: "hsl(var(--chief-text-tertiary))" }} />
+              </Link>
+            )}
             {urgent.map((a) => (
               <button
                 key={a.label}

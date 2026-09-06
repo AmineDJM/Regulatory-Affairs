@@ -187,6 +187,21 @@ export function reglesParDefaut(targetType: string): RegleSurveillance[] {
     case "PAYMENT_REQUEST":
     case "VALIDATION_REQUEST":
       return [{ code: "STATUT_CHANGE" }, { code: "SANS_CHANGEMENT", jours: 7 }, { code: "DISPARU" }];
+    // Un CONTRAT ou une FACTURE (Legal) : l'échéance qui approche ou passe, le changement de
+    // statut (renouvelé, réglé — information), la disparition.
+    case "LEGAL_DOCUMENT":
+      return [{ code: "ECHEANCE_PROCHE", jours: 30 }, { code: "ECHEANCE_DEPASSEE" }, { code: "STATUT_CHANGE" }, { code: "DISPARU" }];
+    // Une ENVELOPPE budgétaire : dépassée (bloqué → arbitrage), 80 % consommés (seuil), santé
+    // qui change (information), fin de période proche, disparition.
+    case "BUDGET_ENVELOPE":
+      return [{ code: "BLOQUE" }, { code: "VALEUR", champ: "consommePct", op: "gte", valeur: "80" }, { code: "STATUT_CHANGE" }, { code: "ECHEANCE_PROCHE", jours: 15 }, { code: "DISPARU" }];
+    // Une RÉPONSE E-MAIL attendue : la réponse arrive (information, et la surveillance se clôt
+    // d'elle-même) ; sinon, cinq jours de silence valent relance.
+    case "EMAIL_THREAD":
+      return [{ code: "STATUT_CHANGE" }, { code: "SANS_CHANGEMENT", jours: 5 }, { code: "DISPARU" }];
+    // Un DOCUMENT attendu au Drive : il arrive (information, clôture) ; sinon, sept jours d'absence.
+    case "DRIVE_ATTENDU":
+      return [{ code: "STATUT_CHANGE" }, { code: "SANS_CHANGEMENT", jours: 7 }, { code: "DISPARU" }];
     default:
       return [{ code: "SANS_CHANGEMENT", jours: 30 }, { code: "DISPARU" }];
   }

@@ -40,7 +40,7 @@ export type RouteClass =
 /** Le domaine métier — il sert à ne charger QUE les outils de ce domaine (§23, §24). */
 export type Domain =
   | "MAIL" | "CALENDAR" | "REGULATORY" | "FINANCE" | "HR"
-  | "DRIVE" | "LEGAL" | "MISSION" | "DIRECTORY" | "ADMIN" | "GENERAL";
+  | "DRIVE" | "LEGAL" | "MISSION" | "DIRECTORY" | "ADMIN" | "TEACH" | "SOURCES" | "QUALITE" | "DATA" | "GENERAL";
 
 export interface QueryRoute {
   route: RouteClass;
@@ -55,6 +55,12 @@ export interface QueryRoute {
   /** 0..1. En dessous de 0,5, le routeur dit qu'il ne sait pas plutôt que d'inventer. */
   confidence: number;
   reason: string;
+  /**
+   * Les domaines OUVERTS EN PLUS du principal — sans le détrôner. « Analyse les dépenses par
+   * mois » reste une question de finance ; elle ouvre AUSSI le bac à sable (DATA), pour que le
+   * calcul se fasse par le code et non de tête. Absent = rien de plus.
+   */
+  secondaires?: Domain[];
 }
 
 export interface RouterContext extends VoiceContext {
@@ -143,7 +149,7 @@ const STRUCTURED = /\b(qui gere|qui s occupe|qui est|qui sont|qui a|qui travaill
  * d'écriture et, pire, ferait passer une simple consultation par les gardes de confirmation.
  * La liste ci-dessous ne contient donc que des gestes qui laissent une trace.
  */
-const VERBES_D_ECRITURE = "surveille|surveilles|surveillez|surveiller|demande|demandez|demander|dis|dites|ecris|ecrivez|ecrire|envoie|envoyez|envoyer|transmets|transmet|transmettre|transfere|transferer|relance|relancer|appelle|appelez|appeler|assigne|assignes|assigner|attribue|attribuer|confie|confier|reassigne|prepare|prepares|preparer|redige|rediger|ajoute|ajouter|cree|creer|planifie|planifier|programme|programmer|invite|inviter|reponds|repondez|repondre|rappelle|note|noter|marque|marquer|change|changer|modifie|modifier|mets|met|mettre|deplace|deplacer|renomme|renommer|masque|masquer|reserve|reserver|commande|commander|valide|valider|approuve|approuver|refuse|refuser|rejette|rejeter|annule|annuler|supprime|supprimer|efface|effacer|detruis|detruire|archive|archiver|paie|payer|regle|regler|rembourse|rembourser|augmente|augmenter|active|activer|desactive|desactiver|exporte|exporter|genere|generer";
+const VERBES_D_ECRITURE = "surveille|surveilles|surveillez|surveiller|demande|demandez|demander|dis|dites|ecris|ecrivez|ecrire|envoie|envoyez|envoyer|transmets|transmet|transmettre|transfere|transferer|relance|relancer|appelle|appelez|appeler|assigne|assignes|assigner|attribue|attribuer|confie|confier|reassigne|prepare|prepares|preparer|redige|rediger|ajoute|ajouter|cree|creer|planifie|planifier|programme|programmer|invite|inviter|reponds|repondez|repondre|rappelle|note|noter|marque|marquer|change|changer|modifie|modifier|mets|met|mettre|deplace|deplacer|renomme|renommer|masque|masquer|reserve|reserver|commande|commander|valide|valider|approuve|approuver|refuse|refuser|rejette|rejeter|annule|annuler|supprime|supprimer|efface|effacer|detruis|detruire|archive|archiver|paie|payer|regle|regler|rembourse|rembourser|augmente|augmenter|active|activer|desactive|desactiver|exporte|exporter|genere|generer|construis|construire|construisez|generez|produis|produire|batis|batir|exportez";
 const ACTION = new RegExp(`^(${VERBES_D_ECRITURE})\\b`);
 /**
  * LA PHRASE NOMME-T-ELLE UN GESTE QUI LAISSE UNE TRACE — n'importe où, pas seulement en tête ?
@@ -174,7 +180,10 @@ const DOMAIN_SIGNALS: [Domain, RegExp][] = [
   // s'emparait d'un ordre de paiement. Le banc l'a montré sur « Paie la facture de Pharmagene ».
   ["HR", /\b(salarie|salaries|employe|employes|conge|conges|la paie|fiche de paie|bulletin de paie|salaire|recrute|recruter|recrutement|embauche|embaucher|effectif|equipe|departement|contrat de travail)\b/],
   ["DRIVE", /\b(drive|document|documents|fichier|fichiers|piece jointe|dossier partage|pdf|excel|word|powerpoint|presentation|appel d offres)\b/],
-  ["LEGAL", /\b(contrat|contrats|bon de commande|bons de commande|juridique|legal|clause|avenant|renouvele|renouvellement|courrier|courriers)\b/],
+  // « Fais-moi un devis » : la fabrique documentaire (`document_build`) est classée LEGAL et
+  // FINANCE, mais « devis » ne figurait dans aucun signal — le tour partait sans elle. Mesuré au
+  // banc des défis : Adam calculait le TTC de tête et n'émettait rien.
+  ["LEGAL", /\b(contrat|contrats|bon de commande|bons de commande|juridique|legal|clause|avenant|renouvele|renouvellement|courrier|courriers|devis|charte|charte graphique|logo|registre de marque|mentions legales|signataire|signataires|papier en-tete|papier a en-tete|profil documentaire|numerotation)\b/],
   // « TÂCHE » MANQUAIT, et c'est le mot le plus courant pour la chose. `create_task`,
   // `list_my_tasks`, `update_task` et `task_operation` sont tous classés MISSION — mais la
   // phrase « les tâches de Raihana » ne menait à AUCUN domaine, donc à aucun de ces outils.
@@ -187,6 +196,25 @@ const DOMAIN_SIGNALS: [Domain, RegExp][] = [
   ["MISSION", /\b(mission|missions|tache|taches|todo|to do|a faire|engagement|engagements|promesse|en attente de|waiting|relance|suivi|rappel|rappels|rappelle|rappeler|pense bete)\b/],
   ["DIRECTORY", /\b(annuaire|coordonnees|adresse de|numero de|telephone de|contact|contacts|joindre|joins|contacter)\b/],
   ["ADMIN", /\b(compte|comptes|role|roles|droit|droits|permission|permissions|parametre|parametres|module|modules|circuit|circuits)\b/],
+  // TEACH ADAM (§119). Les outils `teach_adam` / `list_rules` / … étaient classés GENERAL, et
+  // GENERAL n'est JAMAIS servi : ni quand un autre domaine est reconnu, ni dans le repli « tous
+  // les domaines », qui l'exclut. « Règle pour toute la société : … » partait donc sans aucun
+  // moyen d'enregistrer la règle, et Adam répondait « trou de capacité ». Le banc des défis l'a
+  // montré ; les tests sur base, qui appelaient l'outil directement, ne pouvaient pas le voir
+  // (§14 : partir du vrai point d'entrée). Un domaine à eux, déclenché par le vocabulaire de
+  // la consigne durable — jamais par « toujours » ou « jamais » seuls, trop courants.
+  ["TEACH", /\b(regle|regles|desormais|dorenavant|retiens|retenir|retenez|a partir de maintenant|a l avenir|standard|standards|convention|conventions|politique interne|enseigne|enseigner|enseignee|enseignees|apprends|apprendre|consigne permanente|consigne durable|pour toute la societe|pour toute l entreprise|pour tout le groupe|a l echelle de la societe|a l echelle du groupe|au niveau de la societe|au niveau du groupe)\b/],
+  // LES SOURCES ET LEUR FRAÎCHEUR (F8). `source_map` était classé GENERAL — donc jamais servi,
+  // comme les outils Teach avant lui : « où pourrait vivre X ? », « tes données datent de quand ? »,
+  // « c'est fiable ? » n'atteignaient jamais la carte des sources.
+  ["SOURCES", /\b(source|sources|provenance|fiable|fiabilite|synchronise|synchronisee|synchronisees|fraicheur|datent|preuve negative|ou chercher|ou pourrait vivre|ou pourrait se trouver)\b/],
+  // LA QUALITÉ DES DONNÉES (mandat 4 §23) : « qu'est-ce qui cloche dans nos données ? », « des doublons ? »
+  ["QUALITE", /\b(anomalie|anomalies|doublon|doublons|incoherence|incoherences|incoherent|incoherents|qualite des donnees|qualite de donnees|donnees perimees|donnee perimee|champ manquant|champs manquants|orphelin|orphelins|aberrant|aberrante|aberrants|aberrantes|nettoyage des donnees|fiches incompletes|fiche incomplete)\b/],
+  // LE BAC À SABLE (mandat 4 §25) : SQL, graphiques, code, statistique NOMMÉE. Seul le vocabulaire
+  // sans ambiguïté fait de DATA le domaine PRINCIPAL ; « analyse », « calcule », « tendance »,
+  // « par mois » sont des mots de toute question métier — ils ouvrent DATA en domaine SECONDAIRE
+  // (voir `DATA_SECONDAIRE`), sans détourner la question de son domaine (finance, tâches…).
+  ["DATA", /\b(requete sql|requetes sql|en sql|sql|graphique|graphiques|camembert|histogramme|nuage de points|visualisation|visualise|visualiser|tableau croise|pivot|cohorte|cohortes|mediane|moyenne mobile|correlation|regression|serie temporelle|series temporelles|percentile|ecart type|python|javascript|bac a sable|scenario|scenarios|simule|simuler|simulation)\b/],
 ];
 
 /**
@@ -276,7 +304,85 @@ const TIER_OF: Record<RouteClass, BudgetTier> = {
  * contrat indien a-t-il traîné ? » est une question causale, pas une chasse au document), et le
  * DÉTERMINISTE en premier parce qu'il est le seul à être PROUVÉ par un banc.
  */
+/**
+ * LE VOCABULAIRE DU CALCUL, large : il n'emporte pas le domaine (une question de finance reste une
+ * question de finance) mais ouvre le bac à sable EN PLUS. C'est ce qui évite le choix impossible
+ * entre « router toute analyse vers DATA » (et perdre les lectures du métier) et « ne jamais
+ * ouvrir DATA » (et laisser le modèle faire l'arithmétique de tête).
+ */
+const DATA_SECONDAIRE = /\b(analyse|analyser|analyses|analytique|statistique|statistiques|tendance|tendances|croissance|evolution|evolue|par mois|mensuel|mensuelle|par trimestre|par an|annuel|calcule|calculer|calcul|recalcule|projection|projette|prevision|previsions|distribution|agrege|agreger|regroupe par|regrouper par|top \d+|classement|moyenne|total par|somme par|repartition|comparaison|compare|simule|simuler|simulation|scenario|scenarios|courbe|courbes|barres|graphique|graphiques|serie|series|anomalie|anomalies|aberrant|aberrantes)\b/;
+
+// LA SURVEILLANCE se demande dans le vocabulaire de sa cible — « surveille le contrat Sofradis »
+// est LEGAL, « préviens-moi si le dossier bloque » est REGULATORY — et l'outil qui la crée
+// (`watch_entity`) vit dans MISSION. Sans ce second domaine, le modèle improvisait : une règle
+// enseignée (« préviens-moi » pris pour une consigne durable) au lieu d'une ligne de surveillance.
+// Le banc l'a montré ; on ouvre MISSION en plus, sans détourner la question de sa cible.
+const SURVEILLANCE_SECONDAIRE = /\b(surveille|surveiller|surveillance|surveilles|previens[- ]moi|previens[- ]moi|prevenir|alerte[- ]moi|alertez[- ]moi|tiens[- ]moi au courant|tenez[- ]moi au courant|s.?il y a un probleme|des qu.?(il|elle|ca|cela|le|la|les|un|une) .{0,40}\b(arrive|arrivera|change|changera|repond|repondra|bouge|tombe|passe))\b/;
+
+/** Une DEMANDE DE SURVEILLANCE (« surveille… », « préviens-moi quand… ») — le geste est `watch_entity`, quel que soit le domaine de la cible. */
+export function estDemandeDeSurveillance(texteNormalise: string): boolean {
+  return SURVEILLANCE_SECONDAIRE.test(texteNormalise);
+}
+
+/** Les domaines à ouvrir EN PLUS pour cette phrase (déjà normalisée). Vide le plus souvent. */
+export function domainesSecondaires(texteNormalise: string): Domain[] {
+  const out: Domain[] = [];
+  // Le GESTE d'abord : « surveille… » ouvre MISSION avant DATA — au plafond du niveau, le dernier
+  // domaine secondaire tombe le premier, et c'est l'outil du geste qui tombait.
+  if (SURVEILLANCE_SECONDAIRE.test(texteNormalise)) out.push("MISSION");
+  if (DATA_SECONDAIRE.test(texteNormalise)) out.push("DATA");
+  return out;
+}
+
+/**
+ * LA CONSIGNE DE CALCUL — injectée dans le contexte du tour quand la question demande un chiffre
+ * DÉRIVÉ. Le banc l'a montré : sans elle, « simule +8 % » se résout par une lecture canonique et
+ * une multiplication de tête. Un modèle qui calcule de tête se trompe en silence ; un outil
+ * rend un résultat, une provenance et un tableau. `null` quand la question ne calcule rien.
+ */
+export function consigneCalcul(raw: string): string | null {
+  const texte = normalizeUtterance(stripPreamble(raw));
+  const signal = DOMAIN_SIGNALS.find(([d]) => d === "DATA")?.[1];
+  if (!(signal && signal.test(texte)) && !DATA_SECONDAIRE.test(texte)) return null;
+  return "CALCUL PAR LE CODE : cette question demande un chiffre DÉRIVÉ (total, écart, variation, tendance, série, scénario, médiane, part, classement) "
+    + "ou un graphique. Tout chiffre dérivé sort d'un outil du bac à sable — sql_query (vue globale, jointures/agrégats à la source), "
+    + "run_analysis (étapes vérifiées : filtrer, regrouper, série, croissance, tendance, scénario, anomalies, cohortes), run_code (JS/Python isolé) — "
+    + "JAMAIS de tête, même pour une multiplication. Pour « quel graphique ? », appelle chart_advice. Cite le résultat rendu par l'outil, avec sa source, "
+    + "et dis quand une hypothèse a été appliquée.";
+}
+
+const ETAT_SIGNAUX = /\b(en retard|retards?|bloques?|bloquees?|blocages?|pieces? manquantes?|manquant|manquantes?|manque|echeances?|arrive a echeance|arrivent a echeance|expire|expirent|justificatifs?|depasse|depassement|depassements|qu.?est.?ce qui cloche|cloche|signaux|signal|alertes?|a risque|risques?|rythme|denonc\w*|reconduction|tacite|penalites?|obligations?|bloqueurs?|reserves?|relanc\w*)\b/;
+const CIBLES_METIER = /\b(dossiers? reglementaires?|dossiers?|regulatory|anpp|ctd|contrats?|avenants?|factures?|bons? de commande|bc|budgets?|enveloppes?|paiements?|demandes? de paiement|ordres? de depense|tresorerie|finances?|legal|juridique)\b/;
+
+/**
+ * LA CONSIGNE « SIGNAUX PAR LE CODE » (mandat 4 §27), jumelle de `consigneCalcul` : l'ÉTAT des
+ * dossiers, contrats et budgets — retards, blocages, pièces manquantes, échéances, dépassements —
+ * se lit dans les règles de l'intelligence métier, jamais dans un document retrouvé ni de mémoire.
+ * Le banc l'a montré : une note de portefeuille indexée au Drive répondait à la place des signaux,
+ * avec des dossiers d'hier et sans le dossier en retard d'aujourd'hui. Un document est une photo
+ * datée ; un signal est calculé maintenant, avec son calcul. `null` hors sujet.
+ */
+export function consigneSignaux(raw: string): string | null {
+  const texte = normalizeUtterance(stripPreamble(raw));
+  if (SURVEILLANCE_SECONDAIRE.test(texte)) {
+    return "SURVEILLANCE : « surveille… », « préviens-moi si / quand… », « alerte-moi… » demandent une SURVEILLANCE DURABLE — appelle watch_entity "
+      + "(ou expected_document pour un document attendu). Ce n'est ni une alerte immédiate à rédiger, ni une règle à enseigner : sans watch_entity, rien ne surveille.";
+  }
+  if (!(ETAT_SIGNAUX.test(texte) && CIBLES_METIER.test(texte))) return null;
+  return "SIGNAUX PAR LE CODE : l'état des dossiers réglementaires, des contrats et des budgets (retards en jours, blocages, pièces manquantes, "
+    + "échéances, dénonciation, dépassements, justificatifs, factures sans BC) se lit dans regulatory_intelligence / legal_intelligence / "
+    + "finance_intelligence — calculé maintenant, avec son calcul — JAMAIS dans un document retrouvé (une note est une photo datée) ni de mémoire. "
+    + "Cite chaque référence et chaque chiffre tels que l'outil les rend ; lis parEntite pour n'oublier aucun dossier.";
+}
+
 export function routeQuery(raw: string, ctx: RouterContext = {}): QueryRoute {
+  const base = routerPrincipal(raw, ctx);
+  if (base.route === "FAST_DETERMINISTIC" || base.domain === "DATA") return base;
+  const secondaires = domainesSecondaires(normalizeUtterance(stripPreamble(raw)));
+  return secondaires.length ? { ...base, secondaires } : base;
+}
+
+function routerPrincipal(raw: string, ctx: RouterContext = {}): QueryRoute {
   // Le décapage sert TOUT ce qui suit, mais l'accord se juge sur la phrase brute : « Oui. » est
   // une réponse entière, pas un préambule.
   const clean = stripPreamble(raw);
@@ -299,7 +405,7 @@ export function routeQuery(raw: string, ctx: RouterContext = {}): QueryRoute {
   // réclame un résultat en cours. Ces deux-là passent avant tout le reste, sinon la porte
   // suivante (l'ordre) les avalerait.
   const rawFast = routeVoiceUtterance(raw, ctx);
-  if (rawFast.fast && (rawFast.kind === "APPROVE_PENDING" || rawFast.kind === "RESUME_DELIVERY")) {
+  if (rawFast.fast && (rawFast.kind === "APPROVE_PENDING" || rawFast.kind === "RESUME_DELIVERY" || rawFast.kind === "PROVENANCE")) {
     return build("FAST_DETERMINISTIC", rawFast.reason, { fastKind: rawFast.kind, confidence: 0.95 });
   }
 

@@ -47,7 +47,14 @@ export const TEACH_TOOLS: PowerTool[] = [
         + "pour Adventum » — Direction / Super Admin). Nature (kind) si tu la connais, sinon Adam classe et le dit. "
         + "Une règle de même clé déjà en vigueur est signalée comme CONFLIT : renvoyer alors `remplaceId` (nouvelle version) "
         + "ou `forcer` avec une `priorite`. Ne JAMAIS enseigner une règle de société sans que la personne l'ait demandé "
-        + "explicitement pour la société.",
+        + "explicitement pour la société. APPELLE cet outil même si une règle semblable figure dans l'historique de la "
+        + "conversation : l'historique n'est pas la base, une règle a pu être supprimée depuis — sans appel, rien n'est enregistré. "
+        + "SEULE EXCEPTION : la CHARTE GRAPHIQUE d'une société (couleur d'accent, polices, logo, mentions légales de pied, signataires "
+        + "des devis / factures) se règle avec `document_profile` (geste definir, champ `marque`) — « règle la charte d'Adventum » "
+        + "appelle document_profile. TOUT LE RESTE est une règle à enseigner ICI, même formulé pour toute la société : "
+        + "« nos devis sont valables 45 jours », « paiement à 60 jours », « termine toujours par… » → teach_adam, jamais document_profile. "
+        + "PAS UNE RÈGLE NON PLUS : « surveille X et préviens-moi s'il y a un problème » est une SURVEILLANCE (watch_entity) — une ligne "
+        + "durable qui relit X ; l'enseigner comme règle ne surveillerait rien.",
       input_schema: {
         type: "object",
         properties: {
@@ -58,7 +65,7 @@ export const TEACH_TOOLS: PowerTool[] = [
           departement: { type: "string", description: "GROUP : nom, code ou identifiant du département. Vide = celui de la personne." },
           domaine: { type: "string", description: `Un domaine : ${DOMAINES_SUGGERES.join(", ")}. Vide = general.` },
           title: { type: "string", description: "Intitulé court. Vide = dérivé de la règle." },
-          params: { type: "object", description: "Part structurée : { cle, valeur, unite } (standard), { de, vers } (correspondance), { seuil, devise } (validation), { exceptionDe } (exception)." },
+          params: { type: "object", description: "Part structurée. Standard documentaire : { cle, valeur, unite } avec cle EXACTEMENT parmi validiteDevis (valeur en jours, nombre), prefixeFacture / prefixeDevis / prefixeBonDeCommande (valeur : le préfixe), tvaDefaut (fraction : 0.19), conditionsPaiement (texte), mentionPied (texte). Correspondance : { de, vers }. Validation : { seuil, devise }. Exception : { exceptionDe }. Vide = Adam extrait du texte." },
           priorite: { type: "integer", description: "-100 à 100 ; 0 par défaut. Départage deux règles de même périmètre." },
           effectiveFrom: { type: "string", description: "AAAA-MM-JJ. Vide = maintenant." },
           effectiveTo: { type: "string", description: "AAAA-MM-JJ. Vide = sans fin." },

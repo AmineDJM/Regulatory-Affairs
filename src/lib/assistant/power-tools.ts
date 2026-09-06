@@ -17,6 +17,11 @@ import { BUSINESS_CAPABILITIES } from "@/lib/assistant/business-capabilities";
 import { OFFICE_TOOLS } from "@/lib/assistant/office-capabilities";
 import { DOCUMENT_DISCOVERY_TOOLS, KNOWLEDGE_TOOLS } from "@/lib/assistant/document-discovery";
 import { SOURCE_MAP_TOOLS } from "@/lib/assistant/source-map";
+import { QUALITY_TOOLS } from "@/lib/assistant/quality-tools";
+import { SANDBOX_TOOLS } from "@/lib/assistant/sandbox-tools";
+import { INTELLIGENCE_TOOLS } from "@/lib/assistant/intelligence-tools";
+import { SPECIALIST_TOOLS } from "@/lib/assistant/specialists/tools";
+import { specialistesActifs } from "@/lib/assistant/specialists/registry";
 import { WHAT_IF_TOOLS } from "@/lib/assistant/what-if";
 import { DELIVERABLE_TOOLS } from "@/lib/assistant/deliverables";
 import { CORPUS_TOOLS } from "@/lib/assistant/corpus-tools";
@@ -366,6 +371,16 @@ export const POWER_TOOLS: PowerTool[] = [
   // LA CARTE DES SOURCES (fabric F3) : où vit chaque famille d'information, qui fait autorité,
   // et jusqu'à quand les sources dérivées sont synchronisées. Consulter avant de fouiller.
   ...SOURCE_MAP_TOOLS,
+  // LA QUALITÉ DES DONNÉES (mandat 4 §23) : les anomalies trouvées par le moteur, classées, sous les droits.
+  ...QUALITY_TOOLS,
+  // LE BAC À SABLE (mandat 4 §25) : SQL en lecture seule (vue globale), analyse par étapes vérifiées,
+  // code isolé, conseil de visualisation. Rien n'écrit.
+  ...SANDBOX_TOOLS,
+  ...INTELLIGENCE_TOOLS,
+  // §29 — « aucun sans bénéfice mesuré » : l'outil de délégation n'entre au registre que si au
+  // moins un spécialiste a une mesure POSITIVE. Un outil qui refuserait toujours serait une
+  // capacité sans appelant réel (§118.14) ; un outil absent ne coûte ni jeton ni confusion.
+  ...(specialistesActifs().length > 0 ? SPECIALIST_TOOLS : []),
   // SIMULATION (jamais mutative), ÉTAT CONSOLIDÉ de l'entreprise, tri de l'ATTENTION du PDG.
   ...WHAT_IF_TOOLS,
   // LIVRABLES UNIVERSELS : vrais .docx/.xlsx/.pptx depuis UNE spec (cohérence par construction),

@@ -51,6 +51,12 @@ export default defineConfig({
       // s'interdit. Cette variable ouvre une route de démonstration qui, sans elle, rend 404 :
       // en production, elle n'a pas d'adresse.
       ADAM_BLOCK_PREVIEW: "1",
+      // LE COMPOSEUR D'ADAM S'OUVRE (F8). La spec « d'où tu tiens ça ? » tape une phrase dans le
+      // bureau d'Adam et attend une réponse DÉTERMINISTE : le code relit le registre des faits,
+      // sans un seul appel de modèle. Sans clé présente, le champ est désactivé ; la clé ici est
+      // un jalon, pas un secret : aucune requête ne part vers un fournisseur dans cette suite.
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "e2e-cle-presente-mais-non-utilisee",
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "e2e-cle-presente-mais-non-utilisee",
     },
   },
 });

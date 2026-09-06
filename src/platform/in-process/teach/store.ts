@@ -122,15 +122,68 @@ export async function politiquesPourMission(userId: string, domaine?: string | n
   return lignesPourPlanificateur(resolution.enVigueur, domaine ?? null);
 }
 
+/** Les clés que la fabrique documentaire sait appliquer (voir `profilDocumentaire`). */
+const CLES_DOCUMENTAIRES = new Set(["validiteDevis", "prefixeFacture", "prefixeDevis", "prefixeBonDeCommande", "tvaDefaut", "conditionsPaiement", "mentionPied"]);
+
+const plierCle = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+const CLE_CANONIQUE = new Map([...CLES_DOCUMENTAIRES].map((c) => [plierCle(c), c]));
+
+/**
+ * NORMALISE les paramètres reçus du modèle. `cle` est repliée sur une clé connue quand elle en
+ * est une variante (« validite_devis », « Validité devis » → `validiteDevis`) ; les valeurs
+ * numériques attendues sont coercées (« 45 jours » → 45 ; une TVA « 19 » → 0,19). Une clé
+ * inconnue alors que le TEXTE porte une clé connue : c'est le texte qui a raison. Sans
+ * paramètres du modèle, l'extraction du texte fait foi.
+ */
+export function normaliserParams(fournis: unknown, extraits: Record<string, unknown> | null): Record<string, unknown> | null {
+  const brut = fournis && typeof fournis === "object" && !Array.isArray(fournis) && Object.keys(fournis as object).length ? { ...(fournis as Record<string, unknown>) } : null;
+  if (!brut) return extraits;
+  let cleBrute: string;
+  if (typeof brut.cle === "string") cleBrute = brut.cle;
+  else {
+    // LA FORME PLATE : le modèle écrit parfois `{ validiteDevis: 45, unite: "jours" }` au lieu de
+    // `{ cle, valeur }`. Une seule clé documentaire connue parmi les propriétés = c'est elle.
+    const connues = Object.keys(brut).filter((k) => CLE_CANONIQUE.has(plierCle(k)));
+    if (connues.length !== 1) return brut;
+    const [k] = connues;
+    const valeur = brut[k];
+    delete brut[k];
+    cleBrute = CLE_CANONIQUE.get(plierCle(k)) as string;
+    brut.cle = cleBrute;
+    brut.valeur = valeur;
+  }
+  const canon = CLE_CANONIQUE.get(plierCle(cleBrute));
+  if (!canon) {
+    // Clé inconnue alors que le texte porte une clé connue : c'est le texte qui a raison.
+    if (extraits && typeof extraits.cle === "string" && CLES_DOCUMENTAIRES.has(extraits.cle)) return extraits;
+    return brut;
+  }
+  const cle: string = canon;
+  brut.cle = cle;
+  const valeur = brut.valeur;
+  if (cle === "validiteDevis" && typeof valeur === "string") {
+    const n = Number.parseInt(valeur, 10);
+    if (Number.isFinite(n)) brut.valeur = n;
+  }
+  if (cle === "tvaDefaut") {
+    const n = typeof valeur === "string" ? Number.parseFloat(valeur.replace(",", ".")) : Number(valeur);
+    if (Number.isFinite(n)) brut.valeur = n > 1 ? n / 100 : n;
+  }
+  if (cle.startsWith("prefixe") && typeof valeur === "string") brut.valeur = valeur.trim().toUpperCase();
+  return brut;
+}
+
 /** Les standards documentaires de périmètre société qu'un programme peut appliquer, par clé. */
 export async function standardsDocumentaires(userId: string, companyId: string): Promise<Map<string, { valeur: unknown; regle: RegleVue }>> {
   const { resolution } = await reglesEnVigueurPour(userId);
   const out = new Map<string, { valeur: unknown; regle: RegleVue }>();
   for (const r of resolution.enVigueur) {
-    if (r.kind !== "DOCUMENT_STANDARD" || r.scope !== "COMPANY") continue;
+    // La NATURE n'est pas le critère : une règle de société classée COMPANY_RULE qui dit « devis
+    // valables 45 jours » porte une clé documentaire, et c'est la clé qui compte pour la fabrique.
+    if (r.scope !== "COMPANY") continue;
     if (r.companyId !== null && r.companyId !== companyId) continue;
     const cle = r.params && typeof r.params.cle === "string" ? r.params.cle : null;
-    if (cle && r.params && "valeur" in r.params) out.set(cle, { valeur: r.params.valeur, regle: r });
+    if (cle && CLES_DOCUMENTAIRES.has(cle) && r.params && "valeur" in r.params) out.set(cle, { valeur: r.params.valeur, regle: r });
   }
   return out;
 }
@@ -240,9 +293,23 @@ const titreDepuis = (statement: string): string => {
 };
 
 /** ENSEIGNE une règle : classe, borne, vérifie le droit, détecte le conflit, écrit (une version). */
+/**
+ * CE QUI N'EST PAS UNE RÈGLE : la charte d'une société (couleurs, polices, logo, mentions de pied,
+ * signataires) et son profil documentaire sont des RÉGLAGES, tenus par le registre de marque
+ * (§26) et relus par la fabrique. Enregistrés comme règle, ils ne s'appliqueraient à rien — le
+ * banc l'a montré : « règle la charte d'Adventum » finissait en règle personnelle, et le devis
+ * suivant partait sans la charte. Le refus NOMME l'outil qui convient ; le modèle enchaîne.
+ */
+const VOCABULAIRE_MARQUE = /\b(charte|charte graphique|couleur d'accent|couleur secondaire|couleur de la societe|couleurs? de la marque|logo|police des titres|police du texte|polices?|typographie|mentions? (legales?|de pied)|signataires?|signent? les (devis|factures|bons)|papier (a )?en-tete|registre de marque)\b/i;
+const plierTexte = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
 export async function enseigner(user: CurrentUser, d: DemandeEnseignement): Promise<RegleEnseignee | EchecTeach> {
   const statement = (d.statement ?? "").replace(/\s+/g, " ").trim();
   if (!statement) return echec("MISSING_INPUT", "Rien à enseigner : donnez la règle en une phrase.");
+  if (VOCABULAIRE_MARQUE.test(plierTexte(statement))) {
+    return echec("MISSING_INPUT", "Ce n'est pas une règle à enseigner : c'est la CHARTE (couleurs, polices, logo, mentions de pied, signataires) ou le profil documentaire de la société. "
+      + "Appelez `document_profile` avec `geste: \"definir\"`, `societe` et le champ `marque` ({ couleurAccent, policeTitres, policeTexte, mentionsLegales: [...], signataire, signatairesParType: { DEVIS: {nom, qualite} } }) : la fabrique l'appliquera d'elle-même à chaque pièce.");
+  }
   if (statement.length > MAX_STATEMENT) return echec("MISSING_INPUT", `La règle fait ${statement.length} caractères (maximum ${MAX_STATEMENT}) : au-delà, c'est un document, pas une règle — le déposer et enseigner « appliquer le document X ».`);
   if (d.kind && !estKind(d.kind)) return echec("MISSING_INPUT", `Nature inconnue « ${d.kind} » (${KINDS.join(", ")}).`);
   if (d.scope && !estScope(d.scope)) return echec("MISSING_INPUT", `Périmètre inconnu « ${d.scope} » (${SCOPES.join(", ")}).`);
@@ -267,7 +334,11 @@ export async function enseigner(user: CurrentUser, d: DemandeEnseignement): Prom
   if (a === "INVALIDE") return echec("MISSING_INPUT", `Date de fin « ${d.effectiveTo} » illisible (AAAA-MM-JJ).`);
   if (de && a && a <= de) return echec("MISSING_INPUT", "La fin de validité précède la date d'effet.");
   const priority = Math.max(-100, Math.min(100, Math.round(Number(d.priorite ?? 0)) || 0));
-  const params = d.params && typeof d.params === "object" && !Array.isArray(d.params) && Object.keys(d.params).length ? d.params : extraireParametres(statement, kind);
+  // Les paramètres du MODÈLE sont normalisés avant d'être crus : il écrit « validite_devis » ou
+  // « 45 jours » là où la fabrique attend `validiteDevis` et 45. Mesuré au banc des défis : la
+  // règle était bien en base, et le devis sortait quand même à 30 jours. Ce que le texte dit
+  // (l'extracteur) l'emporte sur une clé inconnue ; une clé connue garde sa valeur, coercée.
+  const params = normaliserParams(d.params, extraireParametres(statement, kind));
   const title = (d.title ?? "").trim().slice(0, MAX_TITLE) || titreDepuis(statement);
   const subjectUserId = scope === "PERSON" ? user.id : null;
   const provenance: Provenance = { ...(d.provenance ?? {}), citation: (d.citation ?? statement).slice(0, MAX_CITATION), mode: d.provenance?.mode ?? "TAUGHT" };

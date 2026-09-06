@@ -40,6 +40,8 @@ export interface ChiefWorkspaceProps {
   settingsHref: string | null;
   /** Ce qui attend une décision — calculé côté serveur, affiché seulement s'il y en a. */
   attention: { count: number; label: string; prompt: string }[];
+  /** La boîte de décision (§21) : compte des cartes à trancher et sa porte. */
+  inbox?: { count: number; href: string } | null;
   /** Adam voit-il des données à jour ? Le point de l'en-tête, et rien de plus bavard. */
   freshness: { label: string; tone: "ok" | "warn" | "off" };
   /** Les modules où cette personne peut aller — la porte de sortie du bureau (voir l'en-tête). */
@@ -57,6 +59,7 @@ export function ChiefWorkspace({
   initialCallRef,
   settingsHref,
   attention,
+  inbox = null,
   freshness,
   destinations,
 }: ChiefWorkspaceProps) {
@@ -74,8 +77,8 @@ export function ChiefWorkspace({
   const openHistory = React.useCallback(() => setHistoryOpen(true), []);
 
   const emptyState = React.useMemo(
-    () => <ChiefHome userName={userName} onPick={pick} attention={attention} />,
-    [userName, pick, attention],
+    () => <ChiefHome userName={userName} onPick={pick} attention={attention} inbox={inbox} />,
+    [userName, pick, attention, inbox],
   );
 
   return (

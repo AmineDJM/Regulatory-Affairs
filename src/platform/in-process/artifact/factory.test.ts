@@ -194,6 +194,16 @@ suite("la fabrique de documents — émission, registre, Drive, reprise, révisi
     if (!refus.ok) expect(refus.motif).toMatch(/ne se réécrit pas/);
   }, 90_000);
 
+  it("un chainFromId VIDE n'est pas un chaînage : la pièce s'émet, sans violer la clé étrangère", async () => {
+    // Le modèle envoie volontiers "" pour « pas de pièce amont » ; ce cas-là violait la clé
+    // étrangère au moment d'écrire au registre — mesuré au banc des défis.
+    const r = await emettreDocumentDrive(user, { ...demande(), type: "DEVIS", chainFromId: "   " });
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    if (!r.ok) return;
+    const doc = await prisma.legalDocument.findUnique({ where: { id: r.legalDocumentId }, select: { chainFromId: true, kind: true } });
+    expect(doc).toMatchObject({ kind: "QUOTE", chainFromId: null });
+  }, 60_000);
+
   it("le profil documentaire : lu par tous, réglé par la papeterie seulement, appliqué aux pièces suivantes", async () => {
     const lu = await profilDocumentaire(user, companyId);
     expect(lu.ok).toBe(true);

@@ -1,5 +1,6 @@
 import type { PowerTool } from "@/lib/assistant/power-tools";
 import type { CurrentUser } from "@/lib/session";
+import { faitCalcule, declarerProvenance } from "@/platform/in-process/fabric/provenance";
 import { prisma } from "@/lib/prisma";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { platformScope } from "@/lib/company";
@@ -560,10 +561,11 @@ export const EXECUTIVE_READ_TOOLS: PowerTool[] = [
 
       const cFrom = str(input, "compare_from");
       const cTo = str(input, "compare_to");
+      let p2: Awaited<ReturnType<typeof sumPeriod>> | null = null;
       if (YMD_RE.test(cFrom) && YMD_RE.test(cTo)) {
         const a = new Date(`${cFrom}T00:00:00Z`);
         const b = new Date(new Date(`${cTo}T00:00:00Z`).getTime() + 86_400_000);
-        const p2 = await sumPeriod(a, b);
+        p2 = await sumPeriod(a, b);
         const ecart = p1.total - p2.total;
         out.comparaison = {
           periode: { du: cFrom, au: cTo },
@@ -572,6 +574,36 @@ export const EXECUTIVE_READ_TOOLS: PowerTool[] = [
           ecartPct: p2.total > 0 ? Math.round((ecart / p2.total) * 1000) / 10 : null,
         };
       }
+      // LA LIGNÉE DU TOTAL (F8) : un agrégat déclare ses entrées, sa transformation, sa formule et sa
+      // date — « d'où tu tiens les 142 800 ? » se répond « somme de N écritures réglées, Σ montant,
+      // calculée le … », pas « de la base ».
+      const lignee = (rows: { reference: string | null; date: Date; counterparty: string | null }[]) =>
+        rows.slice(0, 200).map((r) => r.reference ?? `${r.date.toISOString().slice(0, 10)} ${r.counterparty ?? ""}`.trim());
+      const periode = out.periode as { du: string; au: string };
+      const totalFait = faitCalcule({
+        outil: "finance_totals", acteur: user.id,
+        libelle: `Total ${out.sens as string} (${out.filtre as string}) du ${periode.du} au ${periode.au}`,
+        valeur: `${Math.round(p1.total)} DZD`, entrees: lignee(p1.rows),
+        transformation: `somme côté base de ${p1.rows.length} écriture(s) RÉGLÉE(s)`,
+        formule: "Σ montant (direction, statut SETTLED, période, filtres)", href: "/finances",
+      });
+      const faits = [totalFait];
+      if (p2) {
+        const comparaison = out.comparaison as { periode: { du: string; au: string }; totalDzd: number; ecartDzd: number };
+        const totalCompare = faitCalcule({
+          outil: "finance_totals", acteur: user.id,
+          libelle: `Total ${out.sens as string} (${out.filtre as string}) du ${comparaison.periode.du} au ${comparaison.periode.au}`,
+          valeur: `${comparaison.totalDzd} DZD`, entrees: lignee(p2.rows),
+          transformation: `somme côté base de ${p2.rows.length} écriture(s) RÉGLÉE(s)`,
+          formule: "Σ montant (direction, statut SETTLED, période, filtres)", href: "/finances",
+        });
+        faits.push(totalCompare, faitCalcule({
+          outil: "finance_totals", acteur: user.id, libelle: "Écart entre les deux périodes",
+          valeur: `${comparaison.ecartDzd} DZD`, entrees: [totalFait, totalCompare],
+          transformation: "différence des deux totaux", formule: "T1 − T2", href: "/finances",
+        }));
+      }
+      out._provenance = declarerProvenance(faits);
       return JSON.stringify(out);
     },
   },

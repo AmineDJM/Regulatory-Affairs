@@ -644,6 +644,9 @@ classify("COVERED", "update_regulatory_product", [
   "regulatory-actions:setRegulatoryLock",
 ]);
 classify("COVERED", "create_admin_request", ["admin-request-actions:createRequest"]);
+// LE REGISTRE DE MARQUE (§26) : la charte (couleurs, polices, coordonnées, mentions, signataires) se règle en
+// parlant — `document_profile` (geste definir, champ `marque`), même validation, même audit que l'écran.
+classify("COVERED", "document_profile (geste definir, champ marque)", ["brand-actions:enregistrerMarque"]);
 classify("COVERED", "create_task (planifiée, circuit demande)", ["task-actions:requestTask"]);
 classify("COVERED", "update_task", ["task-actions:updateTaskStatus", "task-actions:startTask"]);
 classify("COVERED", "create_dossier", ["dossier-actions:createDossier"]);
@@ -1001,6 +1004,9 @@ classify("COVERED", "mission_status (l'écran d'une mission dit ce qu'elle atten
 
 // ── EXCLUDED : pas un travail d'assistant — raison donnée, pas un oubli. ──
 const X = (note: string, keys: string[]) => classify("EXCLUDED", note, keys);
+X("DÉPOSER LE LOGO D'UNE SOCIÉTÉ est le dépôt d'un FICHIER image (PNG ou JPEG, octets vérifiés) : la conversation ne "
+  + "transporte pas d'image de marque, et un modèle n'en fabrique pas une. L'écran Administration › Marque & modèles le fait, "
+  + "sous le même droit (Direction ou papeterie), avec le même audit.", ["brand-actions:deposerLogo"]);
 X("PURGE IRRÉVERSIBLE DE LA FILE DES RÈGLEMENTS. Vider l'historique efface des ordres de dépense en bloc ; le geste n'a pas d'annulation et ne se discute pas — il se décide devant l'écran, en voyant combien de lignes partent. Le rendre appelable par Adam l'exposerait à l'injection : un document lu par une étape pourrait contenir « vide l'historique des règlements ». Les écritures de trésorerie survivent, mais ce n'est pas une raison pour donner la commande à un modèle. Un clic du Super Admin sur /finances/paiements-a-faire.", [
   "expense-actions:purgeSettledExpenseOrders",
 ]);

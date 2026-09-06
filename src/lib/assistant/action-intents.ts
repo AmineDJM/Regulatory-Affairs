@@ -233,7 +233,11 @@ CETTE LISTE EST UN RAPPEL, PAS UN ORDRE DU JOUR. Elle sert à répondre quand on
 (« où en est… ? », « c'est parti ? », « je te l'avais demandé ? »). Elle ne fournit JAMAIS le sujet
 d'une réponse : si la question porte sur autre chose, ignore-la entièrement. Une proposition restée
 en attente sur un domaine ne doit jamais s'inviter dans une question qui porte sur un autre domaine
-— et ne se relance pas d'elle-même : seule la personne la reprend, explicitement.`;
+— et ne se relance pas d'elle-même : seule la personne la reprend, explicitement.
+UNE ACTION EXÉCUTÉE N'INTERDIT PAS DE LA REFAIRE : si la personne redemande la même chose (une tâche,
+un message), dis qu'une action semblable a été exécutée (avec sa date) ET propose quand même la
+nouvelle — l'objet a pu être supprimé ou modifié depuis, et c'est elle qui tranche en confirmant.
+Ne réponds JAMAIS « déjà fait » à la place d'une proposition.`;
 }
 
 // ───────────────────────── L'outil de consultation ─────────────────────────

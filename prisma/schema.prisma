@@ -11474,3 +11474,94 @@ model ArtifactOperation {
   @@unique([sessionId, operationId])
   @@index([sessionId, seq])
 }
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// LA PROVENANCE D'UN TOUR — les faits qu'Adam a SERVIS, avec leur source (F8, mandat 4 §22).
+///
+/// Une ligne par tour de conversation : les faits lus (fiche, page, message, calcul) avec leur
+/// famille, leur date propre, l'instant de lecture, la confiance, la fraîcheur et l'outil (donc
+/// les droits) qui les a lus. C'est la matière de « D'où tu tiens ça ? » — relue par le code,
+/// jamais paraphrasée par un modèle. `userId` cloisonne : la provenance d'une personne n'est
+/// jamais servie à une autre. Un tour SANS lecture s'inscrit aussi (`nombre` = 0) : « je n'ai
+/// rien lu » est une réponse, et la ligne vide empêche de citer un tour plus ancien à sa place.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model AssistantProvenance {
+  id        String   @id @default(cuid())
+  userId    String
+  threadId  String?
+  turnId    String?
+  /// Les premiers caractères de la question — pour dire « au tour où vous demandiez… ».
+  question  String?
+  faits     Json
+  nombre    Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([threadId, createdAt])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// LA QUALITÉ DES DONNÉES — un CONSTAT par anomalie, à signature stable (mandat 4 §23).
+///
+/// Le moteur (`lib/quality/engine.ts`) balaie la base par règles ; chaque défaut trouvé devient
+/// une ligne OPEN, ou compte une occurrence de plus s'il existait déjà. Une correction SÛRE
+/// (AUTO) est appliquée et journalisée (`fixLog`, audit) ; une correction concrète (PROPOSE)
+/// attend un clic ; une décision (HUMAIN) attend une personne. Un défaut disparu passe RESOLVED
+/// de lui-même ; un défaut écarté par une personne reste DISMISSED avec son motif — il ne
+/// revient pas la nuit suivante.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model DataQualityFinding {
+  id           String    @id @default(cuid())
+  regle        String
+  famille      String
+  criticite    String
+  confiance    Float
+  resolution   String
+  entite       String
+  entiteId     String
+  /// Le module RBAC qui gouverne la visibilité du constat.
+  module       String
+  titre        String
+  detail       String
+  signature    String    @unique
+  href         String?
+  correction   Json?
+  montant      Decimal?  @db.Decimal(14, 2)
+  /// OPEN | FIXED | DISMISSED | RESOLVED
+  status       String    @default("OPEN")
+  firstSeenAt  DateTime  @default(now())
+  lastSeenAt   DateTime  @default(now())
+  occurrences  Int       @default(1)
+  reopenCount  Int       @default(0)
+  resolvedAt   DateTime?
+  /// « auto » (correction AUTO), « disparu » (défaut plus observé), ou l'identifiant de la personne.
+  resolvedById String?
+  resolvedBy   String?
+  motif        String?
+  fixLog       Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status, criticite])
+  @@index([regle, status])
+  @@index([module, status])
+  @@index([entite, entiteId])
+}
+
+/// Le journal des BALAYAGES : quand, quel mode (FULL la nuit, LIGHT toutes les heures pour le
+/// risque financier immédiat), combien par règle, en combien de temps — l'observabilité du moteur.
+model DataQualitySweep {
+  id         String    @id @default(cuid())
+  mode       String
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  ms         Int?
+  regles     Json?
+  constats   Int       @default(0)
+  nouveaux   Int       @default(0)
+  corriges   Int       @default(0)
+  resolus    Int       @default(0)
+  erreurs    Int       @default(0)
+
+  @@index([mode, startedAt])
+}

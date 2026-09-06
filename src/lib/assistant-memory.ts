@@ -374,3 +374,18 @@ export async function personalContext(userId: string): Promise<string> {
   );
   return lines.join("\n");
 }
+
+/**
+ * LES RÈGLES SEULES — pour une personne dont la mémoire personnelle n'est PAS activée.
+ *
+ * Une règle enseignée (Teach Adam, §119) n'est pas un souvenir : c'est l'attestation d'une
+ * personne, et elle s'applique que le drapeau « mémoire » soit posé ou non. Sans ce repli, la
+ * route de conversation ne passait `personalContext` — qui porte le bloc de règles — qu'aux
+ * comptes en mode test tant que le drapeau restait au stade TEST : une règle « pour toute la
+ * société » posée par la Direction n'atteignait alors personne. `null` quand rien ne s'applique,
+ * pour ne pas dépenser un bloc vide.
+ */
+export async function contexteReglesSeules(userId: string): Promise<string | null> {
+  const regles = await import("@/platform/in-process/teach/store").then((m) => m.contexteRegles(userId)).catch(() => "");
+  return regles ? regles : null;
+}

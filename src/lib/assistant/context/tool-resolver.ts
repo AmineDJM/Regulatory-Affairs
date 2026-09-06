@@ -1,4 +1,4 @@
-import { detectDomains, nommeUnGeste, type Domain, type QueryRoute } from "./router";
+import { estDemandeDeSurveillance, detectDomains, domainesSecondaires, nommeUnGeste, type Domain, type QueryRoute } from "./router";
 import { normalizeUtterance } from "@/lib/assistant/voice/fast-path";
 import { TOOL_DOMAINS_ALL, ALWAYS_ON, EXECUTIVE, CAPABILITIES, DISCOVERY_TOOL, descriptionDecouverte } from "./tool-shortlist";
 
@@ -68,10 +68,13 @@ export type RequestLevel = "AUCUN" | "A" | "B" | "C";
  */
 /** Tous les domaines métier — le repli quand la phrase n'en désigne aucun. */
 const TOUS_DOMAINES: Domain[] = [
-  "MAIL", "CALENDAR", "REGULATORY", "FINANCE", "HR", "DRIVE", "LEGAL", "MISSION", "DIRECTORY", "ADMIN",
+  "MAIL", "CALENDAR", "REGULATORY", "FINANCE", "HR", "DRIVE", "LEGAL", "MISSION", "DIRECTORY", "ADMIN", "TEACH", "SOURCES", "QUALITE", "DATA",
 ];
 
 export const LEVEL_CAP: Record<RequestLevel, number> = { AUCUN: 0, A: 15, B: 30, C: 40 };
+
+/** Les outils du geste de surveillance — toujours présents quand la phrase le demande. */
+const OUTILS_SURVEILLANCE = ["watch_entity", "list_watches", "stop_watch"] as const;
 
 /**
  * LES FORMULES QUI NE DEMANDENT RIEN.
@@ -166,7 +169,7 @@ const estEcriture = (nom: string, ecritures: ReadonlySet<string>): boolean => ec
 export function resolveTools<T extends { name: string }>(
   tools: T[],
   question: string,
-  route: Pick<QueryRoute, "route" | "domain" | "confidence">,
+  route: Pick<QueryRoute, "route" | "domain" | "confidence" | "secondaires">,
   opts: { ecritures?: ReadonlySet<string>; knownEntities?: { name: string; domain: Domain }[] } = {},
 ): ResolvedTools<T> {
   const ecritures = opts.ecritures ?? new Set<string>();
@@ -180,7 +183,10 @@ export function resolveTools<T extends { name: string }>(
   // domaine ; la phrase, elle, peut en toucher plusieurs, et un B qui en cite deux doit servir
   // les deux. `GENERAL` n'ajoute rien : c'est l'aveu du routeur qu'il n'a rien reconnu.
   const detectes = detectDomains(normalizeUtterance(question), opts.knownEntities);
-  const domains: Domain[] = [...new Set([...detectes, route.domain])].filter((d) => d !== "GENERAL");
+  // … puis les domaines SECONDAIRES (le bac à sable quand la phrase demande un calcul, une
+  // tendance, un graphique) : en dernier, pour ne jamais passer devant le métier de la question.
+  const secondaires = [...(route.secondaires ?? []), ...domainesSecondaires(normalizeUtterance(question))];
+  const domains: Domain[] = [...new Set([...detectes, route.domain, ...secondaires])].filter((d) => d !== "GENERAL");
 
   // AUCUN DOMAINE RECONNU N'EST PAS UNE DEMANDE ÉTROITE — c'est une demande qu'on n'a pas su
   // lire. Les distinguer est tout l'enjeu : sans cela, « audite l'ensemble des demandes
@@ -204,12 +210,20 @@ export function resolveTools<T extends { name: string }>(
   //    définition. Et quand la question C débouche malgré tout sur une écriture, la découverte
   //    (`list_more_tools`) la rouvre — un appel de plus dans ce cas-là, pas 17 000 jetons de
   //    plus dans tous les autres.
-  const veutEcritures = level === "B" || (level === "C" && nommeUnGeste(normalizeUtterance(question)));
+  const texteNormalise = normalizeUtterance(question);
+  const veutEcritures = level === "B" || (level === "C" && nommeUnGeste(texteNormalise));
   for (const [nom, ds] of Object.entries(TOOL_DOMAINS_ALL)) {
     if (!ds.some((d) => effectifs.includes(d))) continue;
     if (!veutEcritures && estEcriture(nom, ecritures)) continue;
     garde.add(nom);
   }
+  // LE GESTE DE SURVEILLANCE PASSE TOUJOURS (§28). « Préviens-moi quand le CPP arrivera dans le
+  // dossier » est classé par sa cible (REGULATORY, DRIVE…) et, au plafond du niveau, l'outil du
+  // geste — rangé dans MISSION, troisième domaine — tombait le premier : le modèle répondait
+  // « aucune surveillance disponible » avec l'outil à un rang de là. Le banc l'a montré une fois sur
+  // deux ; un geste qui dépend du tirage n'est pas un geste.
+  const surveillance = estDemandeDeSurveillance(texteNormalise);
+  if (surveillance) for (const n of OUTILS_SURVEILLANCE) garde.add(n);
 
   // ── LA HAUTEUR, pour C seulement. Une question causale ne tient dans aucun domaine : la
   //    borner à un domaine serait l'erreur symétrique de celle qu'on corrige.
@@ -229,6 +243,14 @@ export function resolveTools<T extends { name: string }>(
     // quand elle sert le plus : le modèle refaisait la séquence longue sans savoir qu'un
     // raccourci existait. Voir `CAPABILITIES` dans `tool-shortlist.ts`.
     if (i >= 0 && (CAPABILITIES as readonly string[]).includes(nom)) return 0.5;
+    if (surveillance && (OUTILS_SURVEILLANCE as readonly string[]).includes(nom)) return 0.5;
+    // UN B NOMME SON GESTE : les ÉCRITURES du domaine principal sont la raison même du niveau.
+    // Au même rang que ses lectures, elles tombaient les dernières (l'ordre du registre met les
+    // lectures avant) dès qu'une lecture de plus entrait dans le domaine — le banc l'a montré le
+    // jour où trois lectures d'intelligence métier ont rejoint REGULATORY / LEGAL / FINANCE : « crée
+    // une tâche » ne recevait plus aucun outil d'écriture. Une lecture de moins coûte un appel de
+    // découverte ; une écriture de moins rend le geste impossible.
+    if (i === 0 && veutEcritures && estEcriture(nom, ecritures)) return 0.9;
     if (i === 0) return 1;
     if (i > 0) return 1 + i;
     return EXECUTIVE.includes(nom) ? 90 : 99;

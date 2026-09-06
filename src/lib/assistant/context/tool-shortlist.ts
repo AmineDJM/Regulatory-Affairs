@@ -1,5 +1,9 @@
 import type { Domain, QueryRoute } from "./router";
 import { MAX_TOOLS_PER_CALL } from "@/lib/models/openai";
+import { specialistesActifs } from "@/lib/assistant/specialists/registry";
+
+/** §29 : la délégation aux spécialistes n'est exposée que si un spécialiste a un bénéfice mesuré. */
+const SPECIALISTES_EXPOSES = specialistesActifs().length > 0;
 
 /**
  * NE PAS DÉCRIRE 77 OUTILS POUR RÉPONDRE « OUI, TROIS MAILS » (§23, §24).
@@ -54,6 +58,11 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
 
   // ── Réglementaire ───────────────────────────────────────────────────────────────────────
   regulatory_portfolio: ["REGULATORY"],
+  regulatory_intelligence: ["REGULATORY"],
+  // `consult_specialists` (§29) n'est classé que s'il est au registre — voir `SPECIALISTES_EXPOSES` plus bas.
+  ...(SPECIALISTES_EXPOSES ? { consult_specialists: ["REGULATORY", "LEGAL", "FINANCE", "GENERAL"] as Domain[] } : {}),
+  legal_intelligence: ["LEGAL"],
+  finance_intelligence: ["FINANCE"],
   regulatory_workload: ["REGULATORY", "HR"],
   regulatory_knowledge: ["REGULATORY"],
   product_360: ["REGULATORY"],
@@ -114,7 +123,9 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   // Domaines VOLONTAIREMENT étroits : chaque domaine a un plafond d'outils par niveau, et une
   // écriture métier (créer une tâche, envoyer) ne doit pas en sortir parce qu'une fabrique y entre.
   document_build: ["LEGAL", "FINANCE"],
-  document_profile: ["LEGAL"],
+  // Le profil documentaire et le REGISTRE DE MARQUE (§26) : « règle la charte », « nos devis sont signés
+  // par… » commencent souvent par le vocabulaire de Teach Adam — l'outil doit être là aussi.
+  document_profile: ["LEGAL", "TEACH"],
   dossier_build: ["DRIVE", "FINANCE"],
   // « Dans un tableau », « avec la date et le responsable », « trie par échéance » : la demande
   // arrive APRÈS une lecture, dans n'importe quel domaine, et souvent en trois mots. Elle ne
@@ -180,18 +191,24 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   list_pending_decisions: ["GENERAL"],
   what_changed: ["GENERAL"],
   // La carte des sources (fabric F3) : transverse par nature, comme la recherche fédérée.
-  source_map: ["GENERAL"],
+  source_map: ["SOURCES"],
+  data_quality: ["QUALITE"],
+  // Le bac à sable (mandat 4 §25) : SQL en lecture seule, analyse par étapes, code isolé, conseil de graphique.
+  sql_query: ["DATA"],
+  run_analysis: ["DATA"],
+  run_code: ["DATA"],
+  chart_advice: ["DATA"],
   time_travel: ["GENERAL"],
   investigate_event: ["GENERAL"],
   process_insights: ["GENERAL"],
   simulate_scenario: ["GENERAL"],
   create_report: ["GENERAL"],
   remember: ["GENERAL"],
-  teach_adam: ["GENERAL"],
-  list_rules: ["GENERAL"],
-  update_rule: ["GENERAL"],
-  disable_rule: ["GENERAL"],
-  delete_rule: ["GENERAL"],
+  teach_adam: ["TEACH"],
+  list_rules: ["TEACH"],
+  update_rule: ["TEACH"],
+  disable_rule: ["TEACH"],
+  delete_rule: ["TEACH"],
   forget_memory: ["GENERAL"],
   list_memories: ["GENERAL"],
   recall_conversation: ["GENERAL"],
@@ -384,7 +401,10 @@ export const EXECUTIVE = [
  * jamais hors de son domaine : une capacité produit n'a rien à faire dans une question de
  * congés, et le rang ne la sort pas de son domaine.
  */
-export const CAPABILITIES = ["product_economics", "pch_market_status", "business_story"] as const;
+// Les trois lectures d'intelligence métier (§27) sont des CAPACITÉS au même titre : « quels dossiers
+// sont en retard ? » se répondait par une séquence d'`inspect_record` — et, au plafond du niveau A,
+// l'outil qui remplace la séquence tombait le dernier parce qu'il est entré le dernier au registre.
+export const CAPABILITIES = ["product_economics", "pch_market_status", "business_story", "regulatory_intelligence", "legal_intelligence", "finance_intelligence", ...(SPECIALISTES_EXPOSES ? ["consult_specialists"] : [])] as readonly string[];
 
 /**
  * L'ÉCHAPPATOIRE QUI PRÉSERVE LA PARITÉ. Sans elle, la liste courte serait une amputation ; avec
@@ -403,7 +423,7 @@ export const DISCOVERY_TOOL = {
     properties: {
       domain: {
         type: "string",
-        description: "Domaine cherché : MAIL, CALENDAR, REGULATORY, FINANCE, HR, DRIVE, LEGAL, MISSION, DIRECTORY, ADMIN — ou vide pour tout.",
+        description: "Domaine cherché : MAIL, CALENDAR, REGULATORY, FINANCE, HR, DRIVE, LEGAL, MISSION, DIRECTORY, ADMIN, TEACH (règles enseignées à Adam), SOURCES (carte des sources, fraîcheur), QUALITE (anomalies de données), DATA (analyse, SQL en lecture seule, code isolé, graphiques) — ou vide pour tout.",
       },
     },
   },
@@ -428,7 +448,7 @@ export function descriptionDecouverte(ouverts: readonly Domain[] | null, avecEcr
 }
 
 /** Les noms d'outils que cette route mérite. Rendu séparément du filtrage, pour être testable. */
-export function shortlistNames(route: Pick<QueryRoute, "route" | "domain">): string[] {
+export function shortlistNames(route: Pick<QueryRoute, "route" | "domain" | "secondaires">): string[] {
   // Une route déterministe n'appelle aucun modèle : elle n'a besoin d'aucun schéma.
   if (route.route === "FAST_DETERMINISTIC") return [];
 
@@ -439,7 +459,9 @@ export function shortlistNames(route: Pick<QueryRoute, "route" | "domain">): str
   // repartaient dans chaque liste, et la « liste courte » ne raccourcissait rien. Le test l'a
   // montré en une ligne (raisonnement profond et requête simple donnaient le MÊME nombre d'outils).
   // Ce qui est vraiment universel tient dans le socle ci-dessus ; le reste se découvre.
-  const wanted: Domain[] = [route.domain];
+  // … plus les domaines SECONDAIRES que le routeur a ouverts (le bac à sable sur une question
+  // de finance qui demande un calcul) : additifs, ils ne détrônent jamais le principal.
+  const wanted: Domain[] = [route.domain, ...(route.secondaires ?? [])];
 
   for (const [name, domains] of Object.entries(TOOL_DOMAINS)) {
     if (domains.some((d) => wanted.includes(d))) keep.add(name);
@@ -460,7 +482,7 @@ export function shortlistNames(route: Pick<QueryRoute, "route" | "domain">): str
  */
 export function shortlistTools<T extends { name: string }>(
   tools: T[],
-  route: Pick<QueryRoute, "route" | "domain">,
+  route: Pick<QueryRoute, "route" | "domain" | "secondaires">,
 ): (T | typeof DISCOVERY_TOOL)[] {
   if (route.route === "FAST_DETERMINISTIC") return [];
   const names = new Set(shortlistNames(route));
@@ -498,7 +520,7 @@ export function shortlistTools<T extends { name: string }>(
  */
 export function fitToolBudget<T extends { name: string }>(
   tools: T[],
-  route: Pick<QueryRoute, "route" | "domain">,
+  route: Pick<QueryRoute, "route" | "domain" | "secondaires">,
   max = MAX_TOOLS_PER_CALL,
 ): (T | typeof DISCOVERY_TOOL)[] {
   if (tools.length <= max) return tools;

@@ -27,14 +27,15 @@ export const WATCH_TOOLS: PowerTool[] = [
   {
     def: {
       name: "watch_entity",
-      description: "SURVEILLANCE DURABLE : « surveille ce dossier / cette tâche / ce règlement / ce partenaire et préviens-moi seulement s'il y a un problème ». "
+      description: "SURVEILLANCE DURABLE : « surveille ce dossier / cette tâche / ce règlement / ce partenaire / ce contrat / cette facture / cette enveloppe budgétaire / "
+        + "la réponse de X à mon e-mail / l'arrivée du document Y, et préviens-moi seulement s'il y a un problème ». "
         + "Crée une surveillance qui relit la cible à sa cadence ET dès qu'un fait la touche, applique des règles CODÉES (échéance proche ou dépassée, silence, blocage, statut, seuil, disparition) "
         + "et ne notifie que quand un problème apparaît, disparaît, ou quand la cible est terminée. Survit aux redémarrages ; visible dans les missions (suspendre / arrêter). "
         + "Ce n'est PAS un rappel daté (plan_reminder) : ici rien ne sonne tant que tout va bien.",
       input_schema: {
         type: "object",
         properties: {
-          reference: { type: "string", description: "La cible : référence exacte (REG-2026-014, ORD-…, PAY-…, VAL-…), ou nom (molécule, titre de tâche, partenaire, personne). En cas d'ambiguïté l'outil liste les candidats." },
+          reference: { type: "string", description: "La cible : référence exacte (REG-2026-014, ORD-…, PAY-…, VAL-…, n° de facture ou de BC), ou nom (molécule, titre de tâche, partenaire, personne, titre ou contrepartie d'un contrat, nom d'enveloppe budgétaire, objet ou correspondant d'un fil e-mail de VOTRE boîte). Pour un document attendu : le motif du nom (voir expected_document). En cas d'ambiguïté l'outil liste les candidats." },
           label: { type: "string", description: "Le libellé de la surveillance tel que la personne l'a dit (facultatif)." },
           alert_on: {
             type: "array", items: { type: "string", enum: ["SANS_CHANGEMENT", "ECHEANCE_PROCHE", "ECHEANCE_DEPASSEE", "STATUT_PARMI", "STATUT_CHANGE", "BLOQUE", "DISPARU", "VALEUR"] },
@@ -45,6 +46,12 @@ export const WATCH_TOOLS: PowerTool[] = [
           statuses: { type: "array", items: { type: "string" }, description: "STATUT_PARMI : les statuts qui déclenchent (ex. BLOCKED, RESPONDING_TO_QUERIES)." },
           check_every_hours: { type: "number", description: "Cadence de contrôle en heures (défaut 24 ; le registre des faits réveille de toute façon la surveillance dès qu'un fait touche la cible)." },
           instruction: { type: "string", description: "La phrase de la personne, mot pour mot — devient l'objectif de la mission-support." },
+          expected_document: {
+            type: "object",
+            properties: { folder: { type: "string", description: "Le dossier Drive où on l'attend (nom). Absent : tout le Drive lisible." }, name_contains: { type: "string", description: "Ce que le nom du fichier doit contenir (ex. « CPP Nivolex »)." } },
+            required: ["name_contains"],
+            description: "DOCUMENT ATTENDU : surveille l'ARRIVÉE d'un fichier au Drive. Rien tant qu'il n'est pas là (sauf silence_days d'absence, défaut 7) ; quand il arrive, une information et la surveillance se clôt.",
+          },
         },
         required: ["reference"],
       },
@@ -72,9 +79,11 @@ export const WATCH_TOOLS: PowerTool[] = [
             ...(statuts.length ? [{ code: "STATUT_PARMI", valeurs: statuts }] : []),
           ];
       const { creerSurveillance } = await import("@/platform/in-process/missions/watch");
+      const ed = input.expected_document && typeof input.expected_document === "object" ? (input.expected_document as Record<string, unknown>) : null;
+      const attendu = ed && typeof ed.name_contains === "string" && ed.name_contains.trim() ? { motif: ed.name_contains.trim(), dossier: typeof ed.folder === "string" ? ed.folder.trim() || null : null } : null;
       const r = await creerSurveillance(user, {
         reference, label: str(input, "label") || null, regles: regles.length ? regles : null,
-        checkEveryH: num(input, "check_every_hours"), instruction: str(input, "instruction") || null,
+        checkEveryH: num(input, "check_every_hours"), instruction: str(input, "instruction") || null, attendu,
       });
       if (!r.ok) return JSON.stringify({ ok: false, message: r.raison, candidats: r.candidats.slice(0, 6).map((c) => ({ type: c.type, label: c.label, reference: c.ref ?? null })) });
       return JSON.stringify({

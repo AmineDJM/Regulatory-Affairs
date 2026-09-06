@@ -221,6 +221,12 @@ export interface OptionsComposition {
   /** Marges en centimètres (sans papier en-tête). */
   margesCm?: { haut: number; bas: number; gauche: number; droite: number };
   maintenant?: Date;
+  /**
+   * LE LOGO DE MARQUE (registre §26), posé dans l'en-tête de page d'un paquet NEUF — un PNG ou un
+   * JPEG, à la largeur voulue. Ignoré avec `base` : le papier en-tête porte déjà le sien, et on ne
+   * fusionne jamais deux images dans un document qu'on ne fait que remplir.
+   */
+  logo?: { octets: Buffer; png: boolean; largeurCm: number } | null;
 }
 
 export interface ResultatComposition {
@@ -265,14 +271,58 @@ export function composerDocx(o: OptionsComposition): ResultatComposition {
   const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="${NS_W}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${corps}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="${twips(m.haut)}" w:right="${twips(m.droite)}" w:bottom="${twips(m.bas)}" w:left="${twips(m.gauche)}" w:header="708" w:footer="708" w:gutter="0"/><w:cols w:space="708"/></w:sectPr></w:body></w:document>`;
   const zip = new PizZip();
-  zip.file("[Content_Types].xml", CONTENT_TYPES);
+  const logo = o.logo && o.logo.octets.length > 0 ? o.logo : null;
+  const ext = logo ? (logo.png ? "png" : "jpeg") : null;
+  zip.file("[Content_Types].xml", logo
+    ? CONTENT_TYPES.replace("</Types>", `<Default Extension="${ext}" ContentType="image/${ext}"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>`)
+    : CONTENT_TYPES);
   zip.folder("_rels")!.file(".rels", RELS);
   zip.folder("docProps")!.file("core.xml", core(o.titre ?? "Document", o.auteur ?? "Adam", o.maintenant ?? new Date()));
   const word = zip.folder("word")!;
-  word.file("document.xml", document);
+  word.file("document.xml", logo ? document.replace("<w:sectPr>", '<w:sectPr><w:headerReference w:type="default" r:id="rIdLogoHeader"/>') : document);
   word.file("styles.xml", styles(o.police ?? "Calibri", o.taillePt ?? 10.5, hex(o.couleurTitres, "0B2545")));
-  word.folder("_rels")!.file("document.xml.rels", DOC_RELS);
+  word.folder("_rels")!.file("document.xml.rels", logo
+    ? DOC_RELS.replace("</Relationships>", '<Relationship Id="rIdLogoHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/></Relationships>')
+    : DOC_RELS);
+  if (logo && ext) {
+    word.file("header1.xml", enTeteLogo(logo.largeurCm, logo.octets, logo.png));
+    word.folder("_rels")!.file("header1.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.${ext}"/></Relationships>`);
+    word.folder("media")!.file(`logo.${ext}`, logo.octets);
+  }
   return { octets: zip.generate({ type: "nodebuffer", compression: "DEFLATE" }) as Buffer, surPapierEnTete: false, piecesConservees: [] };
+}
+
+/** Les dimensions d'un PNG ou d'un JPEG, lues dans les octets — pour garder les proportions du logo. */
+export function dimensionsImage(octets: Buffer, png: boolean): { largeur: number; hauteur: number } | null {
+  if (png) {
+    if (octets.length < 24) return null;
+    return { largeur: octets.readUInt32BE(16), hauteur: octets.readUInt32BE(20) };
+  }
+  // JPEG : le premier marqueur SOFn (C0–C3, C5–C7, C9–CB, CD–CF) porte hauteur puis largeur.
+  let i = 2;
+  while (i + 9 < octets.length) {
+    if (octets[i] !== 0xff) { i += 1; continue; }
+    const m = octets[i + 1];
+    if ((m >= 0xc0 && m <= 0xc3) || (m >= 0xc5 && m <= 0xc7) || (m >= 0xc9 && m <= 0xcb) || (m >= 0xcd && m <= 0xcf)) {
+      return { hauteur: octets.readUInt16BE(i + 5), largeur: octets.readUInt16BE(i + 7) };
+    }
+    const taille = octets.readUInt16BE(i + 2);
+    i += 2 + taille;
+  }
+  return null;
+}
+
+const EMU_PAR_CM = 360_000;
+
+/** L'en-tête de page qui porte le logo : une image en ligne, à gauche, à la largeur demandée, proportions gardées. */
+function enTeteLogo(largeurCm: number, octets: Buffer, png: boolean): string {
+  const dims = dimensionsImage(octets, png);
+  const ratio = dims && dims.largeur > 0 && dims.hauteur > 0 ? dims.hauteur / dims.largeur : 0.35;
+  const cx = Math.round(Math.min(8, Math.max(1, largeurCm)) * EMU_PAR_CM);
+  const cy = Math.max(1, Math.round(cx * ratio));
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr xmlns:w="${NS_W}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:p><w:pPr><w:spacing w:after="120"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="1" name="Logo"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="1" name="logo"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdLogo"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:hdr>`;
 }
 
 /**

@@ -10,6 +10,12 @@ import {
   type EtatCible, type Probleme, type RegleSurveillance,
 } from "@/lib/missions/watch/rules";
 import { porteAttentionPour } from "@/platform/in-process/missions/attention";
+import { companyScopedWhere } from "@/lib/company";
+import { legalReaderWhere } from "@/lib/legal/readers";
+import { getBudgetOverview, getEnvelopes } from "@/lib/queries/budget";
+import { santeBudget } from "@/lib/finance/intelligence";
+import { canViewDrive, resolveDriveAccess } from "@/lib/drive";
+import { toNumber } from "@/lib/utils";
 import { proprietaire } from "@/platform/in-process/missions/sweep";
 
 /**
@@ -34,6 +40,9 @@ import { proprietaire } from "@/platform/in-process/missions/sweep";
 export const TYPES_CIBLE = [
   "REGULATORY_PRODUCT", "REGULATORY_DOSSIER", "TASK", "EXPENSE_ORDER", "PAYMENT_REQUEST", "VALIDATION_REQUEST",
   "PCH_TENDER", "PRODUIT", "ORGANISATION", "PERSONNE",
+  // Mandat 4 §28 : un contrat ou une facture, une enveloppe budgétaire, une réponse e-mail
+  // attendue, un document attendu au Drive.
+  "LEGAL_DOCUMENT", "BUDGET_ENVELOPE", "EMAIL_THREAD", "DRIVE_ATTENDU",
 ] as const;
 export type TypeCible = (typeof TYPES_CIBLE)[number];
 
@@ -50,7 +59,11 @@ const LIBELLE_TYPE: Record<TypeCible, string> = {
   REGULATORY_PRODUCT: "dossier réglementaire", REGULATORY_DOSSIER: "dossier CTD", TASK: "tâche",
   EXPENSE_ORDER: "règlement", PAYMENT_REQUEST: "demande de paiement", VALIDATION_REQUEST: "validation",
   PCH_TENDER: "appel d'offres", PRODUIT: "produit", ORGANISATION: "organisation", PERSONNE: "personne",
+  LEGAL_DOCUMENT: "engagement Legal", BUDGET_ENVELOPE: "enveloppe budgétaire", EMAIL_THREAD: "fil e-mail", DRIVE_ATTENDU: "document attendu",
 };
+
+/** Un DOCUMENT ATTENDU : le motif de son nom, et le dossier Drive où on l'attend (sinon, tout le Drive lisible). */
+export interface AttenteDocument { dossier?: string | null; motif: string }
 
 /**
  * LES ÉCRITURES D'UNE RÉFÉRENCE DE MARCHÉ. « AO 2026/14 », « 2026-14 », « PCH 2026/14 » désignent le
@@ -71,12 +84,29 @@ const STATUTS_TACHE_OUVERTS = ["REQUESTED", "TODO", "IN_PROGRESS"];
  * quatre » (doctrine du décodeur : surveiller la mauvaise cible en annonçant le contraire est le
  * défaut le plus coûteux).
  */
-export async function resoudreCible(user: CurrentUser, reference: string): Promise<{ cible: CibleResolue | null; candidats: CibleResolue[] }> {
+export async function resoudreCible(user: CurrentUser, reference: string, opts: { attendu?: AttenteDocument | null } = {}): Promise<{ cible: CibleResolue | null; candidats: CibleResolue[] }> {
+  // UN DOCUMENT ATTENDU n'est pas une entité qui existe : c'est un motif de nom et un dossier.
+  if (opts.attendu?.motif?.trim()) {
+    const motif = opts.attendu.motif.trim();
+    const dossier = opts.attendu.dossier?.trim() || null;
+    if (!dossier) return { cible: { type: "DRIVE_ATTENDU", id: "*", ref: motif, label: `document « ${motif} » attendu dans le Drive`, exact: true }, candidats: [] };
+    const dossiers = await prisma.driveNode.findMany({ where: { type: "FOLDER", isTrashed: false, name: { contains: dossier, mode: "insensitive" } }, select: { id: true, name: true }, take: 8 }).catch(() => []);
+    const visibles: { id: string; name: string }[] = [];
+    for (const d of dossiers) if (canViewDrive(await resolveDriveAccess(user, d.id))) visibles.push(d);
+    const candidats: CibleResolue[] = visibles.map((d) => ({ type: "DRIVE_ATTENDU" as const, id: d.id, ref: motif, label: `document « ${motif} » attendu dans « ${d.name} »`, exact: d.name.toLowerCase() === dossier.toLowerCase() }));
+    const exacts = candidats.filter((c) => c.exact);
+    if (exacts.length === 1) return { cible: exacts[0], candidats };
+    if (candidats.length === 1) return { cible: candidats[0], candidats };
+    return { cible: null, candidats };
+  }
   const ref = reference.trim();
   if (ref.length < 2) return { cible: null, candidats: [] };
   const peutRegulatory = userCan(user, "REGULATORY", "VIEW");
   const peutPch = userCan(user, "PCH", "VIEW");
-  const [produits, dossiers, ordres, paiements, validations, taches, canoniques, marches] = await Promise.all([
+  const peutLegal = userCan(user, "LEGAL", "VIEW");
+  const peutBudgets = userCan(user, "BUDGETS", "VIEW");
+  const lecteursLegal = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
+  const [produits, dossiers, ordres, paiements, validations, taches, canoniques, marches, engagements, enveloppes, courriels] = await Promise.all([
     peutRegulatory ? prisma.regulatoryProduct.findMany({
       where: { OR: [{ reference: { equals: ref, mode: "insensitive" } }, { dci: { contains: ref, mode: "insensitive" } }, { brandName: { contains: ref, mode: "insensitive" } }] },
       select: { id: true, reference: true, dci: true, brandName: true }, take: 6,
@@ -100,7 +130,22 @@ export async function resoudreCible(user: CurrentUser, reference: string): Promi
       where: { OR: [{ reference: { contains: ref.replace(/^(AO|PCH)\s*/i, "").replace(/[^0-9]+/g, "/").replace(/^\/|\/$/g, ""), mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
       select: { id: true, reference: true, title: true, status: true }, take: 8,
     }).then((rows) => rows.filter((m) => memeMarche(m.reference, ref) || (m.title ?? "").toLowerCase().includes(ref.toLowerCase()))).catch(() => []) : Promise.resolve([]),
+    // LES ENGAGEMENTS LEGAL (contrat, BC, facture) : sous l'entité ET les lecteurs désignés — la
+    // même porte que l'écran Legal. Seuls les ACTIFS se surveillent : un contrat renouvelé a une suite.
+    peutLegal ? companyScopedWhere(user.id, {
+      AND: [...(lecteursLegal ? [lecteursLegal] : []), { status: "ACTIVE" as const },
+        { OR: [{ reference: { equals: ref, mode: "insensitive" as const } }, { title: { contains: ref, mode: "insensitive" as const } }, { counterparty: { contains: ref, mode: "insensitive" as const } }] }],
+    }).then((where) => prisma.legalDocument.findMany({ where, select: { id: true, reference: true, title: true, kind: true, counterparty: true }, take: 6 })).catch(() => []) : Promise.resolve([]),
+    // LES ENVELOPPES : celles que la personne voit (gestionnaire, ou ouvertes à son rôle / à elle).
+    peutBudgets ? getEnvelopes(user).then((rows) => rows.filter((e) => e.name.toLowerCase().includes(ref.toLowerCase())).slice(0, 6)).catch(() => []) : Promise.resolve([]),
+    // LES FILS E-MAIL de la boîte connectée de la personne — jamais celle d'un autre.
+    prisma.emailRecord.findMany({
+      where: { connection: { userId: user.id }, OR: [{ subject: { contains: ref, mode: "insensitive" } }, { fromAddress: { contains: ref, mode: "insensitive" } }, { fromName: { contains: ref, mode: "insensitive" } }, { toAddresses: { has: ref.toLowerCase() } }] },
+      orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }], select: { threadId: true, subject: true, fromAddress: true, fromName: true, toAddresses: true, direction: true }, take: 30,
+    }).catch(() => []),
   ]);
+  const fils = new Map<string, (typeof courriels)[number]>();
+  for (const m of courriels) if (!fils.has(m.threadId)) fils.set(m.threadId, m);
 
   const candidats: CibleResolue[] = [
     ...produits.map((p) => ({ type: "REGULATORY_PRODUCT" as const, id: p.id, ref: p.reference, label: `${p.reference} — ${p.dci}${p.brandName ? ` (${p.brandName})` : ""}`, exact: p.reference.toLowerCase() === ref.toLowerCase() })),
@@ -111,6 +156,9 @@ export async function resoudreCible(user: CurrentUser, reference: string): Promi
     ...taches.map((t) => ({ type: "TASK" as const, id: t.id, ref: null, label: `tâche « ${t.title} »`, exact: t.title.toLowerCase() === ref.toLowerCase() })),
     ...marches.map((m) => ({ type: "PCH_TENDER" as const, id: m.id, ref: m.reference, label: `appel d'offres ${m.reference}${m.title ? ` — ${m.title}` : ""}`, exact: memeMarche(m.reference, ref) })),
     ...canoniques.map((e) => ({ type: e.type as TypeCible, id: e.id, ref: null, label: `${LIBELLE_TYPE[e.type as TypeCible] ?? e.type} ${e.label}`, exact: e.label.toLowerCase() === ref.toLowerCase() })),
+    ...engagements.map((d) => ({ type: "LEGAL_DOCUMENT" as const, id: d.id, ref: d.reference, label: `${d.kind === "INVOICE" ? "facture" : d.kind === "PURCHASE_ORDER" ? "bon de commande" : d.kind === "QUOTE" ? "devis" : "contrat"} ${d.reference ? `${d.reference} — ` : ""}${d.title}${d.counterparty ? ` (${d.counterparty})` : ""}`, exact: (d.reference ?? "").toLowerCase() === ref.toLowerCase() || d.title.toLowerCase() === ref.toLowerCase() })),
+    ...enveloppes.map((e) => ({ type: "BUDGET_ENVELOPE" as const, id: e.id, ref: null, label: `enveloppe « ${e.name} » (${e.periodStart.slice(0, 10)} → ${e.periodEnd.slice(0, 10)})`, exact: e.name.toLowerCase() === ref.toLowerCase() })),
+    ...[...fils.values()].slice(0, 6).map((m) => ({ type: "EMAIL_THREAD" as const, id: m.threadId, ref: m.subject ?? null, label: `fil e-mail « ${m.subject ?? "(sans objet)"} » (${m.direction === "INBOUND" ? (m.fromName ?? m.fromAddress) : (m.toAddresses[0] ?? "destinataire")})`, exact: (m.subject ?? "").toLowerCase() === ref.toLowerCase() })),
   ];
   const exacts = candidats.filter((c) => c.exact);
   if (exacts.length === 1) return { cible: exacts[0], candidats };
@@ -142,8 +190,78 @@ const plusRecent = (...dates: (Date | null | undefined)[]): string | null => {
  * type dit son statut, s'il est terminal ou bloqué, son échéance et son dernier changement ; les
  * règles (façade) ne voient que cela.
  */
-export async function lireEtatCible(user: CurrentUser | null, type: TypeCible, id: string): Promise<EtatCible> {
+export async function lireEtatCible(user: CurrentUser | null, type: TypeCible, id: string, contexte: { ref?: string | null; creeLe?: Date | null } = {}): Promise<EtatCible> {
   switch (type) {
+    case "LEGAL_DOCUMENT": {
+      if (user && !userCan(user, "LEGAL", "VIEW")) return { existe: true, resume: "droit LEGAL retiré : lecture impossible", champs: {} };
+      const d = await prisma.legalDocument.findUnique({ where: { id }, select: { reference: true, title: true, kind: true, status: true, counterparty: true, endDate: true, paidDate: true, amount: true, updatedAt: true } });
+      if (!d) return { existe: false, champs: {} };
+      const payee = d.kind === "INVOICE" && Boolean(d.paidDate);
+      const statut = payee ? "PAYEE" : d.status;
+      return {
+        existe: true, statut, terminal: d.status !== "ACTIVE" || payee, bloque: false,
+        echeance: d.endDate ? d.endDate.toISOString() : null,
+        dernierChangement: plusRecent(d.updatedAt, d.paidDate, await dernierFait(d.kind === "INVOICE" ? ["LEGAL_DOCUMENT", "INVOICE"] : ["LEGAL_DOCUMENT"], id)),
+        champs: { statut, kind: d.kind, reference: d.reference, montant: toNumber(d.amount), contrepartie: d.counterparty },
+        resume: `${d.reference ? `${d.reference} — ` : ""}${d.title}${d.counterparty ? ` (${d.counterparty})` : ""} : ${statut}${d.endDate ? `, fin ${d.endDate.toISOString().slice(0, 10)}` : ""}`,
+      };
+    }
+    case "BUDGET_ENVELOPE": {
+      if (user && !userCan(user, "BUDGETS", "VIEW")) return { existe: true, resume: "droit BUDGETS retiré : lecture impossible", champs: {} };
+      const e = await prisma.budgetEnvelope.findUnique({ where: { id }, select: { name: true, isActive: true, periodStart: true, periodEnd: true, totalAmount: true, updatedAt: true } });
+      if (!e) return { existe: false, champs: {} };
+      const vue = user ? await getBudgetOverview(user, id).catch(() => null) : null;
+      if (user && !vue) return { existe: true, resume: `enveloppe « ${e.name} » : non lisible (enveloppe fermée à ce compte)`, champs: {} };
+      const alloue = toNumber(e.totalAmount); const consomme = vue?.totals.consumed ?? 0; const engage = vue?.totals.committed ?? 0;
+      const sante = santeBudget({ id, nom: e.name, alloue, consomme, engage, debut: e.periodStart, fin: e.periodEnd });
+      const consommePct = alloue > 0 ? Math.round((consomme / alloue) * 100) : 0;
+      return {
+        existe: true, statut: sante.sante, terminal: !e.isActive || e.periodEnd.getTime() < Date.now(), bloque: sante.sante === "DEPASSE",
+        echeance: e.periodEnd.toISOString(), dernierChangement: plusRecent(e.updatedAt, await dernierFait(["BUDGET"], id)),
+        champs: { statut: sante.sante, consommePct, alloue, consomme, engage, calcul: sante.calcul },
+        resume: `enveloppe « ${e.name} » : ${consommePct} % consommé — ${sante.calcul}`,
+      };
+    }
+    case "EMAIL_THREAD": {
+      const msgs = await prisma.emailRecord.findMany({
+        where: { threadId: id, ...(user ? { connection: { userId: user.id } } : {}) },
+        orderBy: [{ sentAt: "asc" }, { createdAt: "asc" }], select: { direction: true, sentAt: true, createdAt: true, fromAddress: true, fromName: true, subject: true },
+      });
+      if (!msgs.length) return { existe: false, champs: {} };
+      const dernier = msgs[msgs.length - 1];
+      let dernierSortant = -1;
+      msgs.forEach((m, i) => { if (m.direction === "OUTBOUND") dernierSortant = i; });
+      const attendue = dernierSortant >= 0 && !msgs.slice(dernierSortant + 1).some((m) => m.direction === "INBOUND");
+      const statut = attendue ? "SANS_REPONSE" : "REPONDU";
+      const quand = (dernier.sentAt ?? dernier.createdAt).toISOString();
+      return {
+        existe: true, statut, terminal: statut === "REPONDU", bloque: false, dernierChangement: quand,
+        champs: { statut, messages: msgs.length, dernierExpediteur: dernier.fromName ?? dernier.fromAddress },
+        resume: `fil « ${msgs[0].subject ?? "(sans objet)"} » : ${attendue ? `sans réponse depuis l'envoi du ${quand.slice(0, 10)}` : `réponse de ${dernier.fromName ?? dernier.fromAddress} le ${quand.slice(0, 10)}`}`,
+      };
+    }
+    case "DRIVE_ATTENDU": {
+      const motif = (contexte.ref ?? "").trim();
+      if (!motif) return { existe: false, champs: {} };
+      const dossier = id === "*" ? null : await prisma.driveNode.findUnique({ where: { id }, select: { name: true, isTrashed: true, updatedAt: true } });
+      if (id !== "*" && (!dossier || dossier.isTrashed)) return { existe: false, champs: {} };
+      if (id !== "*" && user && !canViewDrive(await resolveDriveAccess(user, id))) return { existe: true, resume: `dossier « ${dossier?.name ?? id} » : non lisible`, champs: {} };
+      const fichiers = await prisma.driveNode.findMany({
+        where: {
+          type: "FILE", isTrashed: false, name: { contains: motif, mode: "insensitive" },
+          ...(id !== "*" ? { parentId: id } : {}),
+          ...(user && id === "*" ? { OR: [{ ownerId: user.id }, { createdById: user.id }, { shares: { some: { userId: user.id } } }] } : {}),
+        },
+        orderBy: { createdAt: "desc" }, take: 3, select: { id: true, name: true, createdAt: true },
+      });
+      const statut = fichiers.length ? "PRESENT" : "ABSENT";
+      return {
+        existe: true, statut, terminal: statut === "PRESENT", bloque: false,
+        dernierChangement: fichiers[0]?.createdAt?.toISOString() ?? contexte.creeLe?.toISOString() ?? dossier?.updatedAt?.toISOString() ?? null,
+        champs: { statut, motif, fichier: fichiers[0]?.name ?? null },
+        resume: `document « ${motif} » ${statut === "PRESENT" ? `présent : ${fichiers[0].name}` : "toujours absent"}${dossier ? ` dans « ${dossier.name} »` : " dans le Drive"}`,
+      };
+    }
     case "REGULATORY_PRODUCT": {
       if (user && !userCan(user, "REGULATORY", "VIEW")) return { existe: true, resume: "droit REGULATORY retiré : lecture impossible", champs: {} };
       const p = await prisma.regulatoryProduct.findUnique({
@@ -232,6 +350,8 @@ export interface OptionsSurveillance {
   checkEveryH?: number | null;
   /** La phrase de la personne, mot pour mot — c'est l'objectif de la mission-support. */
   instruction?: string | null;
+  /** Un DOCUMENT ATTENDU : la cible n'existe pas encore, on surveille son arrivée. */
+  attendu?: AttenteDocument | null;
 }
 
 export type ResultatCreation =
@@ -244,12 +364,12 @@ export type ResultatCreation =
  * premier état relu tout de suite (le prochain battement comparera à celui-là).
  */
 export async function creerSurveillance(user: CurrentUser, opts: OptionsSurveillance): Promise<ResultatCreation> {
-  const { cible, candidats } = await resoudreCible(user, opts.reference);
+  const { cible, candidats } = await resoudreCible(user, opts.reference, { attendu: opts.attendu ?? null });
   if (!cible) {
     return {
       ok: false, candidats,
       raison: candidats.length === 0
-        ? `rien à surveiller sous « ${opts.reference} » — ni dossier réglementaire, ni appel d'offres, ni tâche ouverte, ni règlement, ni entité connue.`
+        ? `rien à surveiller sous « ${opts.reference} » — ni dossier réglementaire, ni appel d'offres, ni tâche ouverte, ni règlement, ni contrat ou facture actifs, ni enveloppe budgétaire, ni fil e-mail de votre boîte, ni entité connue.`
         : `plusieurs cibles correspondent à « ${opts.reference} » : ${candidats.slice(0, 5).map((c) => c.label).join(" ; ")}. Précisez la référence.`,
     };
   }
@@ -260,7 +380,7 @@ export async function creerSurveillance(user: CurrentUser, opts: OptionsSurveill
   });
   const dites = lireRegles(opts.regles ?? []);
   const regles = dites.length > 0 ? dites : reglesParDefaut(cible.type);
-  const etat = await lireEtatCible(user, cible.type, cible.id);
+  const etat = await lireEtatCible(user, cible.type, cible.id, { ref: cible.ref ?? null, creeLe: new Date() });
   if (existante) {
     // On COMPLÈTE (règles, libellé) au lieu de créer : la surveillance existante garde son histoire.
     await prisma.adamWatch.update({ where: { id: existante.id }, data: { rules: regles as never, label: opts.label?.trim() || existante.label, nextCheckAt: new Date() } });
@@ -328,7 +448,7 @@ export async function balayerSurveillances(maintenant = new Date(), opts: { max?
         continue;
       }
       const type = w.targetType as TypeCible;
-      const etat = await lireEtatCible(owner, type, w.targetId);
+      const etat = await lireEtatCible(owner, type, w.targetId, { ref: w.targetRef, creeLe: w.createdAt });
       const precedent = lireEtat(w.lastState);
       const regles = lireRegles(w.rules);
       const problemes = evaluerRegles(etat, regles, precedent, maintenant);
@@ -355,7 +475,7 @@ export async function balayerSurveillances(maintenant = new Date(), opts: { max?
         const raison = `${etat.resume ?? w.label} — ${problemes.map((p) => p.detail).join(" ; ")}`;
         await porte.signaler({
           kind: "WATCH_ALERT", missionId: w.missionId, ownerId: w.ownerId, titre: w.label, raison,
-          decision: recommandationPour(problemes), stepKey: signature, niveauSuggere: gravite,
+          decision: recommandationPour(problemes, type), stepKey: signature, niveauSuggere: gravite,
         }).catch(() => undefined);
         await prisma.adamWatch.update({ where: { id: w.id }, data: { ...base, lastSignature: signature, lastSignalAt: maintenant } });
         await journaliser(w.missionId, "WATCH_CHECKED", `Problème(s) : ${problemes.map((p) => p.detail).join(" ; ")}.`,
@@ -396,9 +516,13 @@ export async function balayerSurveillances(maintenant = new Date(), opts: { max?
 }
 
 /** La recommandation d'un chef de cabinet, depuis les codes — pas depuis un modèle. */
-function recommandationPour(problemes: readonly Probleme[]): string {
+function recommandationPour(problemes: readonly Probleme[], type?: TypeCible): string {
   const codes = new Set(problemes.map((p) => p.code));
   if (codes.has("DISPARU")) return "vérifier si la cible a été supprimée ou renommée, puis relancer la surveillance sur la bonne référence";
+  if (type === "EMAIL_THREAD" && codes.has("SANS_CHANGEMENT")) return "relancer le correspondant — un brouillon peut être préparé, l'envoi reste humain";
+  if (type === "DRIVE_ATTENDU" && codes.has("SANS_CHANGEMENT")) return "demander le document à qui doit le déposer, avec une date";
+  if (type === "BUDGET_ENVELOPE" && (codes.has("BLOQUE") || codes.has("VALEUR"))) return "arbitrer : geler les engagements, réallouer entre catégories, ou rallonger l'enveloppe";
+  if (type === "LEGAL_DOCUMENT" && (codes.has("ECHEANCE_PROCHE") || codes.has("ECHEANCE_DEPASSEE"))) return "décider : renouveler, renégocier ou laisser expirer — et vérifier le préavis de dénonciation";
   if (codes.has("BLOQUE")) return "demander au responsable ce qui bloque et ce qu'il lui faut";
   if (codes.has("ECHEANCE_DEPASSEE")) return "trancher : repousser l'échéance, réassigner, ou clore";
   if (codes.has("ECHEANCE_PROCHE")) return "s'assurer auprès du responsable que l'échéance tiendra";

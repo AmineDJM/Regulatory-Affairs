@@ -380,3 +380,60 @@
   .chief-quick,
   .chief-card-interactive { transition: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   LA BOÎTE DE DÉCISION (§21) — des cartes qui tiennent sur un téléphone, des boutons qu'on
+   atteint au pouce, et pas une ombre de plus que nécessaire.
+   ═══════════════════════════════════════════════════════════════════════════════════════════ */
+.chief-inbox-page { padding: 16px 16px 48px; max-width: var(--chief-workspace-max, 920px); margin: 0 auto; width: 100%; }
+.chief-inbox-tete { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 14px; }
+.chief-inbox-tete .chief-title { margin: 0; }
+.chief-inbox-filtres { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+.chief-inbox-timing { margin-left: auto; }
+.chief-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px;
+  border: 1px solid hsl(var(--chief-border-subtle)); background: hsl(var(--chief-surface)); color: hsl(var(--chief-text-secondary));
+  font-size: 13px; line-height: 1; cursor: pointer;
+}
+.chief-chip[aria-selected="true"] { border-color: hsl(var(--chief-accent-border)); background: hsl(var(--chief-accent-soft)); color: hsl(var(--chief-accent)); }
+.chief-chip-n { font-variant-numeric: tabular-nums; font-weight: 600; }
+.chief-inbox-liste { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.chief-inbox-carte { padding: 14px 14px 12px; }
+.chief-inbox-entete { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
+.chief-badge {
+  display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em;
+  background: hsl(var(--chief-surface-sunken)); color: hsl(var(--chief-text-secondary)); border: 1px solid hsl(var(--chief-border-subtle));
+}
+.chief-badge[data-genre="APPROVE"], .chief-badge[data-genre="CHOOSE"] { background: hsl(var(--chief-accent-soft)); color: hsl(var(--chief-accent)); border-color: hsl(var(--chief-accent-border)); }
+.chief-badge-urgence[data-urgence="CRITIQUE"] { background: hsl(var(--chief-danger-soft)); color: hsl(var(--chief-danger)); border-color: transparent; }
+.chief-badge-urgence[data-urgence="HAUTE"] { background: hsl(var(--chief-warning-soft)); color: hsl(var(--chief-warning)); border-color: transparent; }
+.chief-inbox-sujet { font-size: 16px; font-weight: 600; line-height: 1.35; margin: 0 0 4px; color: hsl(var(--chief-text)); overflow-wrap: anywhere; }
+.chief-inbox-contexte { font-size: 14px; line-height: 1.5; margin: 0 0 4px; color: hsl(var(--chief-text-secondary)); overflow-wrap: anywhere; }
+.chief-inbox-raison { margin: 0 0 8px; }
+.chief-inbox-faits { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0 0 10px; font-size: 13px; }
+.chief-inbox-faits dt { color: hsl(var(--chief-text-tertiary)); }
+.chief-inbox-faits dd { margin: 0; color: hsl(var(--chief-text-secondary)); overflow-wrap: anywhere; }
+.chief-inbox-lien { color: hsl(var(--chief-accent)); text-decoration: underline; text-underline-offset: 2px; }
+.chief-inbox-reco { font-size: 13.5px; line-height: 1.45; margin: 0 0 10px; padding: 8px 10px; border-radius: var(--chief-radius-control); background: hsl(var(--chief-success-soft)); color: hsl(var(--chief-text)); }
+.chief-inbox-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chief-btn {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 14px; border-radius: var(--chief-radius-control);
+  font-size: 14px; font-weight: 600; border: 1px solid transparent; cursor: pointer; transition: background-color var(--chief-duration-micro) var(--chief-ease);
+}
+.chief-btn:disabled { opacity: 0.55; cursor: default; }
+.chief-btn-primaire { background: hsl(var(--chief-accent)); color: hsl(var(--chief-accent-fg)); }
+.chief-btn-primaire:hover:not(:disabled) { background: hsl(var(--chief-accent-hover)); }
+.chief-btn-danger { background: hsl(var(--chief-danger-soft)); color: hsl(var(--chief-danger)); }
+.chief-btn-neutre { background: hsl(var(--chief-surface)); color: hsl(var(--chief-text)); border-color: hsl(var(--chief-border)); }
+.chief-btn-reco { box-shadow: 0 0 0 2px hsl(var(--chief-success-soft)); }
+.chief-inbox-saisie { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.chief-inbox-textarea { width: 100%; max-width: 100%; border: 1px solid hsl(var(--chief-border)); border-radius: var(--chief-radius-control); padding: 8px 10px; font: inherit; font-size: 14px; background: hsl(var(--chief-surface)); color: hsl(var(--chief-text)); resize: vertical; }
+.chief-inbox-issue { margin: 8px 0 0; font-size: 13.5px; }
+.chief-inbox-issue[data-etat="fait"] { color: hsl(var(--chief-success)); }
+.chief-inbox-issue[data-etat="erreur"] { color: hsl(var(--chief-danger)); }
+.chief-inbox-vide { padding: 24px 4px; color: hsl(var(--chief-text-secondary)); }
+@media (max-width: 480px) {
+  .chief-inbox-page { padding: 12px 12px 40px; }
+  .chief-inbox-actions .chief-btn { flex: 1 1 calc(50% - 8px); }
+  .chief-inbox-timing { margin-left: 0; width: 100%; }
+}

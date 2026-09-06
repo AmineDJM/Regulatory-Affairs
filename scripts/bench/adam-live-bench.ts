@@ -6,6 +6,7 @@
  *   BENCH_ONLY=fast-nivolumab,perm-salaire npx tsx scripts/bench/adam-live-bench.ts
  *   BENCH_REPEAT=3 npx tsx scripts/bench/adam-live-bench.ts   # trois passes (P50/P95 plus fiables)
  *   BENCH_TAG=apres npx tsx scripts/bench/adam-live-bench.ts  # étiquette du fichier de sortie
+ *   BENCH_SET=defis npx tsx scripts/bench/adam-live-bench.ts  # les DÉFIS à effets vérifiés (adam-live-defis.ts)
  *
  * ── CE QU'IL MESURE, ET COMMENT ──────────────────────────────────────────────────────────
  *
@@ -26,10 +27,28 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 import fs from "node:fs";
+import { consignerProvenance } from "@/lib/fabric";
 import path from "node:path";
 
+type CurrentUser = import("@/lib/session").CurrentUser;
+type ProposedAction = import("@/lib/assistant").ProposedAction;
+
+/** Ce qu'un DÉFI reçoit pour préparer son décor et JUGER son effet (base, Drive, fichiers). */
+export interface ContexteDefi {
+  prisma: import("@prisma/client").PrismaClient;
+  user: CurrentUser;
+  pdg: CurrentUser;
+  delegue: CurrentUser;
+  /** L'instant d'avant le premier tour : « créé depuis t0 » est le critère de tout effet. */
+  t0: Date;
+  reponse: string;
+  proposition: ProposedAction | null;
+  outils: string[];
+  confirmation: { ok: boolean; message?: string; error?: string } | null;
+}
+
 type Verdict = { ok: boolean; motif: string };
-interface Cas {
+export interface Cas {
   id: string;
   categorie: string;
   /** Les tours, envoyés l'un après l'autre dans le même fil (l'historique s'accumule). */
@@ -46,10 +65,18 @@ interface Cas {
   attendProposition?: boolean;
   /** Le tour ne doit PAS appeler d'outil (salutation). */
   sansOutil?: boolean;
+  /** Préparation du cas (décor, nettoyage), avant que t0 ne soit pris. */
+  avant?: (ctx: ContexteDefi) => Promise<void>;
+  /** Après le dernier tour : CONFIRMER la proposition rendue, comme un clic sur « Confirmer ». */
+  confirmer?: boolean;
+  /** Le juge de l'EFFET : ce que la base, le Drive ou le fichier produit doivent porter. Rend les motifs d'échec. */
+  verifier?: (ctx: ContexteDefi) => Promise<string[]>;
+  /** Des PIÈCES JOINTES au premier tour (image, scan, fichier) — lues par le MÊME chemin que le navigateur (`extractAttachmentText`). */
+  piecesJointes?: (ctx: ContexteDefi) => Promise<{ name: string; buffer: Buffer }[]>;
 }
 
-const NON_TROUVE = [/aucun(e)? (trace|dossier|résultat|produit|fiche)/i, /n[’']existe/i, /introuvable/i, /je ne (trouve|dispose|vois)/i, /pas (de|d'une?) (dossier|trace|produit)/i, /n'existe pas/i, /pas trouvé/i, /non trouvé/i, /aucun enregistrement/i, /ne figure/i];
-const REFUS = [/pas (ouvert|autorisé|accès|accessible|le droit|habilité)/i, /hors de votre périmètre/i, /réservé/i, /ne peux pas (consulter|vous communiquer|accéder)/i, /droit RH/i, /n'ai pas accès/i, /non autorisé/i, /confidentiel/i, /ne (vous )?(sont|est) pas accessible/i];
+export const NON_TROUVE = [/aucun(e)? (trace|dossier|résultat|produit|fiche)/i, /n[’']existe/i, /introuvable/i, /je ne (trouve|dispose|vois)/i, /pas (de|d'une?) (dossier|trace|produit)/i, /n'existe pas/i, /pas trouvé/i, /non trouvé/i, /aucun enregistrement/i, /ne figure/i];
+export const REFUS = [/pas (ouvert|autorisé|accès|accessible|le droit|habilité)/i, /hors de votre périmètre/i, /réservé/i, /ne peux pas (consulter|vous communiquer|accéder)/i, /droit RH/i, /n'ai pas accès/i, /non autorisé/i, /confidentiel/i, /ne (vous )?(sont|est) pas accessible/i];
 
 export const CAS: Cas[] = [
   { id: "salut", categorie: "TRIVIAL", tours: ["Bonjour Adam"], sansOutil: true, neDoitPas: [/erreur/i] },
@@ -94,7 +121,6 @@ async function main(): Promise<void> {
   const { personalContext } = await import("@/lib/assistant-memory");
   const { rememberExchange } = await import("@/lib/actions/assistant-actions");
   const { VERITES } = await import("./seed-adam-bench");
-  type CurrentUser = import("@/lib/session").CurrentUser;
 
   const charger = async (email: string): Promise<CurrentUser> => {
     const row = await prisma.user.findUnique({ where: { email } });
@@ -106,14 +132,18 @@ async function main(): Promise<void> {
 
   const only = (process.env.BENCH_ONLY ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const repeat = Math.max(1, Number(process.env.BENCH_REPEAT ?? "1") || 1);
-  const cas = only.length ? CAS.filter((c) => only.includes(c.id)) : CAS;
+  // BENCH_SET=base (les vingt cas historiques) · defis (les défis à effets vérifiés) · tout (défaut).
+  const { DEFIS } = await import("./adam-live-defis");
+  const set = (process.env.BENCH_SET ?? "tout").toLowerCase();
+  const catalogue: Cas[] = set === "defis" ? DEFIS : set === "base" ? CAS : [...CAS, ...DEFIS];
+  const cas = only.length ? catalogue.filter((c) => only.includes(c.id)) : catalogue;
 
   interface Mesure {
     id: string; categorie: string; passe: number; ok: boolean; motif: string;
     premierSigneMs: number | null; premierMotMs: number | null; totalMs: number;
     appels: number; parRole: Record<string, number>; outils: string[];
     entree: number; sortie: number; cache: number; raisonnement: number; coutUsd: number | null;
-    reponse: string; proposition: string | null; erreur: string | null;
+    reponse: string; proposition: string | null; confirmation: string | null; erreur: string | null;
     phases: Record<string, number>;
   }
   const mesures: Mesure[] = [];
@@ -121,13 +151,31 @@ async function main(): Promise<void> {
   for (let passe = 1; passe <= repeat; passe++) {
     for (const c of cas) {
       const user = c.qui === "delegue" ? delegue : pdg;
+      const ctx: ContexteDefi = { prisma, user, pdg, delegue, t0: new Date(), reponse: "", proposition: null, outils: [], confirmation: null };
+      if (c.avant) {
+        try { await c.avant(ctx); } catch (e) {
+          const motif = `préparation en erreur : ${(e as Error).message}`;
+          console.log(`FAIL ${c.id.padEnd(20)} ${c.categorie.padEnd(18)} ${motif}`);
+          mesures.push({ id: c.id, categorie: c.categorie, passe, ok: false, motif, premierSigneMs: null, premierMotMs: null, totalMs: 0, appels: 0, parRole: {}, outils: [], entree: 0, sortie: 0, cache: 0, raisonnement: 0, coutUsd: 0, reponse: "", proposition: null, confirmation: null, erreur: null, phases: {} });
+          continue;
+        }
+      }
+      ctx.t0 = new Date();
+      let propositionObj: ProposedAction | null = null;
       const tachesAvant = await prisma.task.count();
       const rappelsAvant = await prisma.assistantReminder.count().catch(() => 0);
       const history: { role: "user" | "assistant"; content: string }[] = [];
       let threadId: string | null = null;
       let derniere: Mesure | null = null;
-      for (const tour of c.tours) {
-        history.push({ role: "user", content: tour });
+      let pieces: string | null = null;
+      if (c.piecesJointes) {
+        const { extractAttachmentText, buildAttachmentContext } = await import("@/lib/assistant-files");
+        const lues = [];
+        for (const pj of await c.piecesJointes(ctx)) lues.push(await extractAttachmentText(pj.name, pj.buffer));
+        pieces = buildAttachmentContext(lues);
+      }
+      for (const [iTour, tour] of c.tours.entries()) {
+        history.push({ role: "user", content: iTour === 0 && pieces ? `${tour}\n\n${pieces}` : tour });
         const t0 = Date.now();
         let premierSigne: number | null = null;
         let premierMot: number | null = null;
@@ -151,15 +199,19 @@ async function main(): Promise<void> {
         const totalMs = Date.now() - t0;
         const reply = result.reply || texte;
         if (result.proposal) proposition = `${result.proposal.payload?.kind ?? "?"} — ${result.proposal.title}`;
+        propositionObj = (result as { proposals?: ProposedAction[] }).proposals?.[0] ?? result.proposal ?? propositionObj;
         if (result.error) erreur = result.error;
         history.push({ role: "assistant", content: reply });
         if (result.ok && reply) threadId = await rememberExchange(user.id, threadId, tour, reply).catch(() => threadId);
+        // LA PROVENANCE DU TOUR — le banc fait ce que fait la route (F8) : sans cela, « d'où tu
+        // tiens ça ? » au tour suivant ne trouverait rien, et le banc jugerait un chemin qui n'existe pas.
+        if (result.provenance) await consignerProvenance({ userId: user.id, threadId, question: tour, faits: result.provenance }).catch(() => undefined);
         derniere = {
           id: c.id, categorie: c.categorie, passe, ok: false, motif: "",
           premierSigneMs: premierSigne, premierMotMs: premierMot, totalMs,
           appels: resume.llmCalls, parRole: resume.callsByRole, outils,
           entree: resume.inputTokens, sortie: resume.outputTokens, cache: resume.cachedInputTokens, raisonnement: resume.reasoningTokens, coutUsd: resume.costUsd,
-          reponse: reply, proposition, erreur, phases,
+          reponse: reply, proposition, confirmation: null, erreur, phases,
         };
       }
       if (!derniere) continue;
@@ -178,11 +230,28 @@ async function main(): Promise<void> {
         if (tachesApres !== tachesAvant || rappelsApres !== rappelsAvant) motifs.push("ÉCRITURE SANS CONFIRMATION");
       }
       if (c.sansOutil && m.appels > 1) motifs.push(`${m.appels} appels de modèle pour une salutation`);
+      // ── LA CONFIRMATION, comme un clic : l'intent stocké, exécuté sous son reçu ──
+      if (c.confirmer) {
+        if (!propositionObj?.intentId) motifs.push("rien à confirmer : aucune proposition avec intent");
+        else {
+          const { executeIntentGuarded } = await import("@/lib/assistant/action-intents");
+          const { performAction } = await import("@/lib/assistant");
+          const r = await executeIntentGuarded(user, propositionObj.intentId, (stored) => performAction(user, stored as Parameters<typeof performAction>[1]));
+          ctx.confirmation = r ? { ok: r.ok, message: r.message, error: r.error } : { ok: false, error: "intent introuvable" };
+          m.confirmation = r ? (r.ok ? `OK — ${r.message ?? ""}` : `ÉCHEC — ${r.error ?? ""}`) : "intent introuvable";
+          if (!r?.ok) motifs.push(`confirmation refusée : ${r?.error ?? "intent introuvable"}`);
+        }
+      }
+      // ── LE JUGE DE L'EFFET : la base, le Drive, le fichier — jamais le récit d'Adam ──
+      if (c.verifier) {
+        try { motifs.push(...await c.verifier({ ...ctx, reponse: rep, proposition: propositionObj, outils: m.outils })); }
+        catch (e) { motifs.push(`vérification en erreur : ${(e as Error).message}`); }
+      }
       m.ok = motifs.length === 0;
       m.motif = motifs.join(" ; ");
       mesures.push(m);
       const roles = Object.entries(m.parRole).filter(([, n]) => n > 0).map(([r, n]) => `${r}×${n}`).join(" ");
-      console.log(`${m.ok ? "PASS" : "FAIL"} ${c.id.padEnd(20)} ${c.categorie.padEnd(18)} 1er signe ${fmtMs(m.premierSigneMs).padStart(6)} · 1er mot ${fmtMs(m.premierMotMs).padStart(6)} · total ${fmtMs(m.totalMs).padStart(7)} · ${String(m.appels)} appel(s) [${roles}] · ${m.entree}/${m.sortie} jetons (cache ${m.cache}, raison. ${m.raisonnement}) · ${fmtUsd(m.coutUsd)} · outils [${m.outils.join(", ")}] · phases ${Object.entries(m.phases).map(([k, v]) => `${k} ${v}ms`).join(" ")}${m.ok ? "" : `\n     ↳ ${m.motif}\n     ↳ « ${m.reponse.slice(0, 220).replace(/\s+/g, " ")} »`}`);
+      console.log(`${m.ok ? "PASS" : "FAIL"} ${c.id.padEnd(20)} ${c.categorie.padEnd(18)} 1er signe ${fmtMs(m.premierSigneMs).padStart(6)} · 1er mot ${fmtMs(m.premierMotMs).padStart(6)} · total ${fmtMs(m.totalMs).padStart(7)} · ${String(m.appels)} appel(s) [${roles}] · ${m.entree}/${m.sortie} jetons (cache ${m.cache}, raison. ${m.raisonnement}) · ${fmtUsd(m.coutUsd)} · outils [${m.outils.join(", ")}] · phases ${Object.entries(m.phases).map(([k, v]) => `${k} ${v}ms`).join(" ")}${m.confirmation ? `\n     ↳ confirmation : ${m.confirmation}` : ""}${m.ok ? "" : `\n     ↳ ${m.motif}\n     ↳ « ${m.reponse.slice(0, 220).replace(/\s+/g, " ")} »`}`);
     }
   }
 
@@ -208,7 +277,7 @@ async function main(): Promise<void> {
   const tag = (process.env.BENCH_TAG ?? "run").replace(/[^a-z0-9_-]/gi, "");
   const out = path.join(process.cwd(), "bench-out", `adam-bench-${tag}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
   fs.mkdirSync(path.dirname(out), { recursive: true });
-  fs.writeFileSync(out, JSON.stringify({ tag, at: new Date().toISOString(), mesures, tableau: lignes.join("\n") }, null, 2));
+  fs.writeFileSync(out, JSON.stringify({ tag, set, at: new Date().toISOString(), mesures, tableau: lignes.join("\n") }, null, 2));
   console.log(`\nJSON : ${out}`);
   const echecs = mesures.filter((m) => !m.ok).length;
   process.exitCode = echecs > 0 ? 1 : 0;

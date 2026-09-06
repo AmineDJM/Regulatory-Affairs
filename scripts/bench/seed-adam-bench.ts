@@ -119,6 +119,9 @@ async function nettoyer(m: Manifest): Promise<void> {
     await prisma.assistantMemory.deleteMany({ where: { userId: { in: ids } } }).catch(() => undefined);
     await prisma.assistantActionIntent.deleteMany({ where: { userId: { in: ids } } }).catch(() => undefined);
     await prisma.mission.deleteMany({ where: { ownerId: { in: ids } } }).catch(() => undefined);
+    // Ce que les DÉFIS du banc live ont produit : règles enseignées, fichiers émis ou déposés.
+    await prisma.adamRule.deleteMany({ where: { OR: [{ ownerId: { in: ids } }, { subjectUserId: { in: ids } }] } }).catch(() => undefined);
+    await prisma.driveNode.deleteMany({ where: { ownerId: { in: ids } } }).catch(() => undefined);
     return prisma.user.deleteMany({ where: { id: { in: ids } } });
   });
   await del("company", (ids) => prisma.company.deleteMany({ where: { id: { in: ids } } }));
@@ -194,6 +197,20 @@ async function semer(): Promise<void> {
   await prisma.department.update({ where: { id: dFIN }, data: { headId: E.khaled } });
   await prisma.department.update({ where: { id: dVENTES }, data: { headId: E.sofiane } });
   await prisma.department.update({ where: { id: dDG }, data: { headId: E.pdg } });
+
+  // LE PDG ENGAGE SES SOCIÉTÉS. L'écriture sur une entité se donne explicitement dans l'ERP
+  // (`canEditCompany` : l'appartenance donne la lecture, pas l'écriture). Sans ces lignes, le PDG
+  // du banc VOYAIT Adventum sans pouvoir émettre une pièce ni poser une règle en son nom — les
+  // défis « fabrique » et « règle de société » tombaient sur un refus de droits, pas sur Adam.
+  // C'est exactement ce que l'écran d'administration des accès accorde à un dirigeant. La
+  // déléguée, elle, ne reçoit rien : c'est ce que les cas de permission mesurent.
+  for (const companyId of [adventum.id, pharmagene.id]) {
+    await prisma.userCompanyAccess.upsert({
+      where: { userId_companyId: { userId: U.pdg, companyId } },
+      update: { canEdit: true },
+      create: { userId: U.pdg, companyId, canEdit: true },
+    });
+  }
 
   // ── Produits Regulatory (circuit ANPP coché = la même source que l'écran) ─────────────
   const wf = (done: string[], enCours?: string, dates: Record<string, string> = {}) => {

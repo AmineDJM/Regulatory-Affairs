@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, Bot, Building2, Coins, Columns3, Database, Factory, Gauge, HardDrive, History, Layers, Library, Mail, MessageSquare, Network, Rocket, Settings2, ShieldCheck, Trash2, Workflow } from "lucide-react";
+import { Palette, Activity, Bot, Building2, Coins, Columns3, Database, Factory, Gauge, HardDrive, History, Layers, Library, Mail, MessageSquare, Network, Rocket, Settings2, ShieldCheck, Trash2, Workflow, ScanSearch } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -74,6 +74,12 @@ export default async function AdminPage() {
             </Link>
             <Link href="/admin/access">
               <Button variant="outline"><ShieldCheck className="h-4 w-4" /> Accès par module</Button>
+            </Link>
+            <Link href="/admin/qualite">
+              <Button variant="outline"><ScanSearch className="h-4 w-4" /> Qualité des données</Button>
+            </Link>
+            <Link href="/admin/marque">
+              <Button variant="outline"><Palette className="h-4 w-4" /> Marque & modèles</Button>
             </Link>
             <Link href="/admin/settings">
               <Button variant="outline"><Settings2 className="h-4 w-4" /> Réglages & diffusion</Button>

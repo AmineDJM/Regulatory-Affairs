@@ -586,7 +586,10 @@ export const OFFICE_TOOLS: PowerTool[] = [
         + "unitaire HT) — jamais un total. UNE pièce par appel : « 25 bons de commande » = 25 appels, un par "
         + "fournisseur. Une pièce identique déjà émise est rendue telle quelle (`dejaEmis`). Une facture exige les "
         + "mentions légales complètes de l'émetteur (RC, NIF, AI, NIS, siège) : si elles manquent, rien n'est émis "
-        + "et l'outil dit quoi renseigner dans la carte d'identité Legal de la société.",
+        + "et l'outil dit quoi renseigner dans la carte d'identité Legal de la société. "
+        + "C'est une écriture INTERNE et versionnée (le registre garde chaque version, rien ne part vers un tiers) : "
+        + "quand la demande est explicite (« fais-moi un devis… »), APPELLE l'outil — n'écris pas une « proposition de "
+        + "devis » en texte et n'attends pas de confirmation ; la pièce émise EST la réponse.",
       input_schema: {
         type: "object",
         properties: {
@@ -594,7 +597,7 @@ export const OFFICE_TOOLS: PowerTool[] = [
           societe: { type: "string", description: "La société émettrice : nom, nom court ou identifiant. Vide = la société de la personne." },
           tiers: {
             type: "object",
-            description: "Le client (devis, facture) ou le fournisseur (bon de commande).",
+            description: "Le client (devis, facture) ou le fournisseur (bon de commande). Son NOM suffit : adresse et identifiants fiscaux sont facultatifs — ne les exige pas, ne les cherche pas avant d'émettre.",
             properties: {
               nom: { type: "string" }, adresse: { type: "string" }, rc: { type: "string" }, nif: { type: "string" }, ai: { type: "string" }, nis: { type: "string" },
               email: { type: "string" }, telephone: { type: "string" },
@@ -656,11 +659,16 @@ export const OFFICE_TOOLS: PowerTool[] = [
     def: {
       name: "document_profile",
       description:
-        "LIT ou RÈGLE le profil documentaire d'une société : identité légale telle qu'elle figurera sur les pièces "
+        "LIT ou RÈGLE le profil documentaire ET LE REGISTRE DE MARQUE d'une société : identité légale telle qu'elle figurera sur les pièces "
         + "(et ce qui manque pour une facture), préfixes de numérotation (DEV / BC / FA), TVA par défaut, conditions "
-        + "de paiement, validité des devis, papier en-tête Word appliqué, signataire. `geste: lire` pour répondre à "
-        + "« sur quel papier partent nos devis ? » ; `geste: definir` (assistante de direction, Super Admin) pour "
-        + "« nos factures commencent par FAC », « validité des devis : 45 jours ».",
+        + "de paiement, validité des devis, papier en-tête Word appliqué, signataire — et la CHARTE : couleur d'accent, couleur secondaire, "
+        + "polices (titres, texte), coordonnées imprimées (adresse, téléphone, e-mail, site), mentions légales de pied de page, signataires par type "
+        + "de pièce (DEVIS, BON_DE_COMMANDE, FACTURE, LETTRE, RAPPORT), logo déposé. La charte s'APPLIQUE D'ELLE-MÊME à chaque devis, BC, facture et "
+        + "dossier émis au nom de la société. `geste: lire` pour « quelle est notre charte ? », « sur quel papier partent nos devis ? » ; "
+        + "`geste: definir` (assistante de direction, Super Admin) pour « nos factures commencent par FAC », « couleur d'accent #0B6E4F », "
+        + "« les devis sont signés par Amel Haddad, Directrice commerciale ». Le logo se dépose dans l'écran Administration › Marque, pas ici. "
+        + "PAS POUR UNE RÈGLE : « règle pour toute la société : nos devis sont valables 45 jours », « paiement à 60 jours », "
+        + "« termine toujours par… » sont des règles à ENSEIGNER (`teach_adam`, périmètre société) — pas un réglage de profil.",
       input_schema: {
         type: "object",
         properties: {
@@ -671,6 +679,10 @@ export const OFFICE_TOOLS: PowerTool[] = [
           paymentTerms: { type: "string" }, quoteValidityDays: { type: "integer" }, footerNote: { type: "string" },
           letterheadId: { type: "string", description: "Identifiant d'un papier en-tête Word de la société (vide = le premier actif)." },
           signatoryName: { type: "string" }, signatoryTitle: { type: "string" },
+          marque: {
+            type: "object",
+            description: "La charte à régler (champs optionnels, null efface) : { couleurAccent, couleurSecondaire, policeTitres, policeTexte, adresse, telephone, email, siteWeb, mentionsLegales: [..], signataire: {nom, qualite}, signatairesParType: { DEVIS: {nom, qualite}, FACTURE: … } }.",
+          },
         },
         required: ["geste"],
       },
@@ -680,13 +692,25 @@ export const OFFICE_TOOLS: PowerTool[] = [
     run: async (input, user) => {
       const { profilDocumentaire, definirProfilDocumentaire } = await import("@/platform/in-process/artifact/factory");
       const geste = str(input, "geste") === "definir" ? "definir" : "lire";
-      const r = geste === "definir"
+      // LA MARQUE d'abord, quand le geste en règle une : refus nommés, puis le profil relu la porte.
+      let marqueRefus: string[] = [];
+      let marqueChamps: string[] = [];
+      if (geste === "definir" && input.marque && typeof input.marque === "object") {
+        const { definirMarque } = await import("@/platform/in-process/brand");
+        const m = await definirMarque(user, { societe: str(input, "societe") || null, modification: input.marque });
+        if (!m.ok) return JSON.stringify({ fait: false, echec: m.echec, message: m.motif, candidats: m.candidats });
+        marqueRefus = m.refus; marqueChamps = m.champsModifies;
+      }
+      const reglagesDemandes = ["quotePrefix", "orderPrefix", "invoicePrefix", "vatRate", "paymentTerms", "quoteValidityDays", "footerNote", "letterheadId", "signatoryName", "signatoryTitle"].some((k) => input[k] !== undefined);
+      const r = geste === "definir" && reglagesDemandes
         ? await definirProfilDocumentaire(user, input as never)
         : await profilDocumentaire(user, str(input, "societe") || null);
       if (!r.ok) return JSON.stringify({ fait: false, echec: r.echec, message: r.motif, candidats: r.candidats });
       const p = r.profil;
       return JSON.stringify({
         fait: true, geste, societe: p.societe, identite: p.identite, identiteIncomplete: p.identiteIncomplete, reglages: p.reglages, papierEnTete: p.papierEnTete, reglesAppliquees: p.reglesAppliquees,
+        marque: p.marque, charte: p.charte, resumeMarque: p.resumeMarque,
+        ...(marqueChamps.length ? { marqueModifiee: marqueChamps } : {}), ...(marqueRefus.length ? { marqueRefus } : {}),
         message: `${p.societe.nom} : numérotation ${p.reglages.quotePrefix} / ${p.reglages.orderPrefix} / ${p.reglages.invoicePrefix}, TVA ${Math.round(p.reglages.vatRate * 100)} %, devis valables ${p.reglages.quoteValidityDays} jours, papier en-tête ${p.papierEnTete ? `« ${p.papierEnTete.nom} »` : "aucun (pièce composée sans papier)"}${p.identiteIncomplete.length ? ` — identité incomplète pour une facture : ${p.identiteIncomplete.join(", ")}` : ""}.`,
       });
     },

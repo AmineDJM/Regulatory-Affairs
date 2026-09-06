@@ -315,3 +315,28 @@ describe("§16 le doute délègue", () => {
     }
   });
 });
+
+describe("« d'où tu tiens ça ? » — la provenance est une forme déterministe (F8)", () => {
+  it("reconnaît les demandes de source, à l'écrit comme à l'oral", () => {
+    for (const q of [
+      "D'où tu tiens ça ?", "D'où tu sors ce chiffre ?", "D'où vient ce montant ?", "Ta source ?", "Tes sources ?",
+      "Quelle est ta source ?", "Cite tes sources.", "Sur quoi tu te bases ?", "Comment tu sais ça ?",
+      "Tu es sûr de ce chiffre ?", "C'est fiable ?", "Prouve-le.", "Qui te l'a dit ?", "Dis-moi d'où ça vient.",
+      "D'où vous tenez cette information ?",
+    ]) {
+      const r = routeVoiceUtterance(q);
+      expect(r.kind, q).toBe("PROVENANCE");
+      expect(r.fast, q).toBe(true);
+      expect(r.tool, q).toBeNull();
+    }
+  });
+
+  it("ne confond ni une question causale, ni le budget, ni une lecture, ni un mot sensible", () => {
+    expect(routeVoiceUtterance("D'où vient ce retard ?").kind).not.toBe("PROVENANCE");
+    expect(routeVoiceUtterance("Quelle est la source du budget 2026 ?").kind).not.toBe("PROVENANCE");
+    expect(routeVoiceUtterance("Où en est Lenvatinib ?").kind).not.toBe("PROVENANCE");
+    expect(routeVoiceUtterance("Pourquoi Deepak ne répond pas ?").kind).not.toBe("PROVENANCE");
+    // « salaire » ferme tous les raccourcis, provenance comprise : le chemin complet garde ses gardes.
+    expect(routeVoiceUtterance("D'où tu tiens ce chiffre de salaire ?").kind).toBe("DELEGATE");
+  });
+});

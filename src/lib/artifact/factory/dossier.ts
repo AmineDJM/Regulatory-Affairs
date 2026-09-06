@@ -42,7 +42,7 @@ const rien = Buffer.alloc(0);
  */
 export async function construireDossier(
   canon: DonneesCanoniques,
-  opts: { base?: Buffer | null; maintenant?: Date } = {},
+  opts: { base?: Buffer | null; maintenant?: Date; police?: string | null; logo?: { octets: Buffer; png: boolean; largeurCm: number } | null } = {},
 ): Promise<DossierConstruit> {
   const debut = Date.now();
   const regles = verifierSpecCanon(canon);
@@ -81,7 +81,8 @@ export async function construireDossier(
   // 3 — La note, relue.
   const { octets: octetsNote } = composerDocx({
     blocs: versDocument(canon), base: opts.base ?? null, titre: canon.titre, auteur: canon.societe.nom,
-    couleurTitres: canon.societe.couleur ?? undefined, maintenant: opts.maintenant,
+    couleurTitres: canon.societe.couleur ?? undefined, police: opts.police ?? undefined,
+    logo: opts.base && opts.base.length > 0 ? null : opts.logo ?? null, maintenant: opts.maintenant,
   });
   const ouvert = await adaptateurDocx.ouvrir(octetsNote);
   const m = ouvert.modele() as DocxModel;

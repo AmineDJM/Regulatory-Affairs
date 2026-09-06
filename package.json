@@ -37,7 +37,9 @@
     "adam:smoke:deep": "tsx scripts/deep-smoke.ts",
     "fabric:bench": "tsx scripts/fabric-bench.ts",
     "adam:bench:seed": "tsx scripts/bench/seed-adam-bench.ts",
-    "adam:bench": "tsx scripts/bench/adam-live-bench.ts"
+    "adam:bench": "tsx scripts/bench/adam-live-bench.ts",
+    "test:e2e:live": "playwright test -c playwright.live.config.ts",
+    "adam:bench:defis": "BENCH_SET=defis tsx scripts/bench/adam-live-bench.ts"
   },
   "prisma": {
     "seed": "tsx prisma/bootstrap.ts"

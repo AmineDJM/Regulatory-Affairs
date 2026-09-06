@@ -20,6 +20,13 @@
 
 // Un SEUL import du schéma : deux déclarations vers le même module comptaient deux
 // franchissements de frontière pour une seule dépendance réelle (cf. `platform/boundary-scan`).
+import { extraireBlocRegles, gardeEnseignement, OUTILS_ENSEIGNEMENT, RAPPEL_ENSEIGNEMENT, DEMENTI_ENSEIGNEMENT } from "@/platform/in-process/teach/bloc";
+import { extraireFaits, faitsDuTour, repondreDouTuTiensCa, resumerFait, type FaitSource } from "@/platform/in-process/fabric/provenance";
+import { routeVoiceUtterance } from "@/lib/assistant/voice/fast-path";
+import { consigneCalcul, consigneSignaux } from "@/lib/assistant/context/router";
+import { calibrerTour } from "@/lib/assistant/confidence/tour";
+import type { Calibration } from "@/lib/assistant/confidence/calibrate";
+import { resoudreEntite, resoudreMentions, contexteEntitesResolues } from "@/platform/in-process/fabric/entites";
 import { MailSendPolicy, type AdminRequestType, type CongressRequestStatus, type Priority, type CalendarEventKind, type HrRequestType, type RegulatoryCategory } from "@prisma/client";
 import { resultatVide } from "@/lib/assistant/empty-result";
 import { prisma } from "@/lib/prisma";
@@ -815,6 +822,14 @@ export interface AssistantResult {
   metrics?: AssistantMetrics;
   /** Le TOUR mesuré : appels par rôle, jetons, cache, coût (null si un tarif manque) — pour la persistance. */
   turn?: TurnSummary;
+  /**
+   * LES FAITS SERVIS dans ce tour, avec leur provenance (F8) — consignés par l'entrée pour
+   * « d'où tu tiens ça ? ». `[]` = un tour qui n'a rien lu (consigné tel quel) ; `null`/absent =
+   * rien à consigner (réponse déterministe, accord parlé).
+   */
+  provenance?: FaitSource[] | null;
+  /** LA CALIBRATION du tour (§29) : certitude (certain … contradiction) et conduite (agir … arbitrer), décidées par le code. */
+  calibration?: Calibration | null;
   error?: string;
 }
 
@@ -2158,14 +2173,29 @@ async function findPeople(query: string, limit = 8): Promise<PersonMatch[]> {
   return users.map((u) => ({ id: u.id, name: u.name, title: u.title, department: u.department?.name ?? null, role: u.role }));
 }
 
-/** Résout un nom OU une fonction en un utilisateur unique pour l'assignation. */
+/**
+ * Résout un nom OU une fonction en un utilisateur unique pour l'assignation.
+ *
+ * LA BRIQUE DE RÉSOLUTION (fabric F9) tranche d'abord — fautes de frappe, ordre des mots,
+ * homonymes : CERTAIN ou PROBABLE = un compte ; AMBIGU = la liste, jamais un choix à la place de
+ * la personne. La recherche par FONCTION (« le DAF ») reste celle de l'annuaire des comptes.
+ */
 async function resolvePerson(query: string): Promise<{ id: string; name: string } | { ambiguous: PersonMatch[] } | null> {
   const q = query.trim().toLowerCase();
   const matches = await findPeople(query, 8);
-  if (matches.length === 0) return null;
-  // Correspondance exacte sur le nom ou la fonction → prioritaire.
   const exact = matches.filter((m) => m.name.toLowerCase() === q || (m.title ?? "").toLowerCase() === q);
   if (exact.length === 1) return { id: exact[0].id, name: exact[0].name };
+  const r = await resoudreEntite(query, { types: ["PERSONNE"] }).catch(() => null);
+  if (r && (r.verdict === "CERTAIN" || r.verdict === "PROBABLE") && r.retenu) {
+    // La brique rend l'identifiant du COMPTE quand il existe (un salarié sans compte ne peut rien recevoir).
+    const compte = await prisma.user.findUnique({ where: { id: r.retenu.id }, select: { id: true, name: true, isActive: true } }).catch(() => null);
+    if (compte?.isActive) return { id: compte.id, name: compte.name };
+  }
+  if (r && r.verdict === "AMBIGU" && r.candidats.length) {
+    const comptes = await prisma.user.findMany({ where: { id: { in: r.candidats.map((c) => c.id) }, isActive: true }, select: { id: true, name: true, title: true, role: true, department: { select: { name: true } } } }).catch(() => []);
+    if (comptes.length >= 2) return { ambiguous: comptes.map((u) => ({ id: u.id, name: u.name, title: u.title, department: u.department?.name ?? null, role: u.role })) };
+  }
+  if (matches.length === 0) return null;
   if (matches.length === 1) return { id: matches[0].id, name: matches[0].name };
   return { ambiguous: matches };
 }
@@ -2194,7 +2224,11 @@ async function resolvePerson(query: string): Promise<{ id: string; name: string 
  *   • le style tac-au-tac — c'est une réponse d'une phrase qu'on attend, pas un rapport ;
  *   • l'interdiction d'inventer — la seule règle de sécurité qui compte quand on lit.
  */
-function fastReadSystem(user: CurrentUser): string {
+function fastReadSystem(user: CurrentUser, blocRegles: string | null = null): string {
+  // Les règles enseignées (Teach Adam) valent sur CE chemin aussi : une consigne de forme
+  // (« termine par Prochaine étape ») s'applique à une réponse d'une ligne comme à une longue.
+  // Le reste du contexte personnel (identité, souvenirs) n'entre pas : il coûte et ne sert pas ici.
+  const regles = blocRegles ? `\n\n${blocRegles}` : "";
   return `Tu es Adam, le chef de cabinet de ${user.name}.
 
 On vient d'interroger la source CANONIQUE pour lui, et son résultat t'est donné ci-dessous.
@@ -2206,7 +2240,7 @@ RÈGLES DE CE TOUR :
 - Réponds à partir du RÉSULTAT fourni, et de rien d'autre. Tu n'as pas d'autre source ici.
 - Si le résultat est vide, dis-le simplement — n'invente aucun nom, aucune adresse, aucun chiffre.
 - Ne mentionne jamais l'outil, la requête technique, ni le format des données.
-- Pas de préambule, pas de « voici », pas de question finale.`;
+- Pas de préambule, pas de « voici », pas de question finale.${regles}`;
 }
 
 function observeRollout(
@@ -2386,6 +2420,10 @@ export async function executeReadTool(name: string, input: Record<string, unknow
         select: {
           reference: true, dci: true, brandName: true, status: true, therapeuticClass: true,
           category: true, companyId: true, company: { select: { name: true, shortName: true } },
+          // Le responsable et la priorité : sans eux, « un tableau de tous les dossiers avec leur
+          // responsable » coûtait une fiche complète (`product_360`) PAR produit — mesuré au banc
+          // des défis : sept appels et dix-sept secondes pour sept lignes.
+          priority: true, responsible: { select: { name: true } },
         },
         take, orderBy: { createdAt: "desc" },
       });
@@ -2408,7 +2446,13 @@ export async function executeReadTool(name: string, input: Record<string, unknow
           categorie: p.category,
           entite: p.company?.shortName ?? p.company?.name ?? null,
           statut: REGULATORY_STATUS[p.status]?.label ?? p.status,
+          priorite: p.priority ?? null,
+          responsable: p.responsible?.name ?? null,
         })),
+        // Une liste coupée qui ne le dit pas devient « les 40 produits » dans la réponse.
+        ...(products.length >= take
+          ? { avertissement: `Liste TRONQUÉE à ${take} (portefeuille : ${total}) : pour un inventaire complet, rappeler avec un limit plus grand. Ne jamais présenter une liste tronquée comme complète.` }
+          : {}),
       });
     }
     case "search_events": {
@@ -4519,6 +4563,10 @@ function textOf(blocks: ClaudeContentBlock[]): string {
 
 /** L'étiquette de la seconde passe — visible dans la trace : le travail en plus se DIT. */
 const CRITIQUE_LABEL = "Relecture critique de la conclusion";
+/** L'étape visible quand la garantie d'enseignement rappelle le modèle à l'outil (§119). */
+const TEACH_GARDE_LABEL = "Vérification : l'enseignement doit passer par l'outil";
+/** L'étape visible quand « d'où tu tiens ça ? » se répond depuis le registre des lectures (F8). */
+const PROVENANCE_LABEL = "Provenance relue dans le registre des lectures";
 
 /** Sous ce volume, la réponse est un fait simple — une relecture n'apporterait rien. */
 const CRITIQUE_MIN_DRAFT = 350;
@@ -4595,7 +4643,7 @@ async function reviseHighStakes(
 async function runAssistantImpl(
   user: CurrentUser,
   history: ChatTurn[],
-  opts: { model?: string; personalContext?: string | null; origin?: "text" | "voice" | "nudge" } = {},
+  opts: { model?: string; personalContext?: string | null; origin?: "text" | "voice" | "nudge"; turnContext?: TurnContext } = {},
 ): Promise<AssistantResult> {
   if (!aiConfigured()) return { configured: false, ok: false, reply: "", trace: [] };
 
@@ -4628,11 +4676,24 @@ async function runAssistantImpl(
     return { configured: true, ok: true, reply, trace: [] };
   }
 
+  // « D'OÙ TU TIENS ÇA ? » — même règle qu'en flux : le code relit ses lectures, sans modèle (F8).
+  if (routeVoiceUtterance(question).kind === "PROVENANCE") {
+    const p = await repondreDouTuTiensCa(user.id, question, { threadId: opts.turnContext?.threadId ?? null });
+    console.info("[assistant] provenance", { userId: user.id, ms: p.ms, faits: p.faits.length, cible: p.cible, toursLus: p.toursLus });
+    return { configured: true, ok: true, reply: p.texte, trace: [PROVENANCE_LABEL], provenance: null };
+  }
+
   const highStakes = isHighStakesQuestion(question);
   // PLAN DE LA QUESTION (déterministe) : domaine, intention, SUIVI ELLIPTIQUE (« et SD ? » =
   // même intention, entité substituée), investigation impliquée — la carte avant les outils.
   const plan = queryPlan(question, history.filter((h) => h.role === "user").slice(0, -1).map((h) => h.content));
-  const planCtx = queryPlanContext(plan);
+  // LES ENTITÉS DE LA QUESTION, RÉSOLUES PAR LE CODE (fabric F9) : « Hetero » devient UNE ligne,
+  // « Nadir » devient une question quand deux Nadir existent — le modèle reçoit des identifiants
+  // certains et l'ordre de demander quand c'est ambigu, au lieu de deviner.
+  const entitesResolues = plan.entites.length
+    ? await resoudreMentions(plan.entites).then(contexteEntitesResolues).catch(() => null)
+    : null;
+  const planCtx = [queryPlanContext(plan), entitesResolues, consigneCalcul(question), consigneSignaux(question)].filter(Boolean).join("\n\n") || null;
   // OBSERVABILITÉ du planner — domaine/intention/suivi UNIQUEMENT (jamais le texte de la
   // question) : le taux de résolution des suivis elliptiques se lit dans les logs.
   if (plan.domaine || plan.intention || plan.suiviElliptique) {
@@ -4687,6 +4748,15 @@ async function runAssistantImpl(
   const sortiesOutils: string[] = [];
   const reparerReponse = (brut: string): string =>
     reparerLiensInternes(brut, collecterLiensInternes(sortiesOutils)).texte;
+  // LA PROVENANCE DU TOUR (F8) : chaque lecture est gardée avec son outil, et relue en faits typés
+  // au moment de conclure — le résultat les porte, l'entrée les consigne.
+  const lectures: { outil: string; sortie: string }[] = [];
+  const avecProvenance = <T extends AssistantResult>(r: T): T => {
+    const faits = faitsDuTour(lectures, { acteur: user.id });
+    // LA CALIBRATION DU TOUR (§29) : le code dit ce que le tour a établi et ce que ça commande.
+    const { resultat, calibration } = calibrerTour(question, faits, r);
+    return { ...resultat, provenance: faits, calibration };
+  };
   let discoveryCalls = 0;
 
   try {
@@ -4697,7 +4767,7 @@ async function runAssistantImpl(
       { role: "bulk", system: salutationSystem(user, identite), tools: [], maxTokens: 160, reasoning: "none", promptCacheKey: cacheKey, safetyIdentifier: surete },
     );
     const texte = res.ok && res.content ? textOf(res.content).trim() : "";
-    if (texte) return { configured: true, ok: true, reply: texte, trace };
+    if (texte) return avecProvenance({ configured: true, ok: true, reply: texte, trace });
   }
 
   // ── LE CHEMIN RAPIDE — la source canonique d'abord, le modèle ensuite ────────────────────
@@ -4712,17 +4782,18 @@ async function runAssistantImpl(
     if (out !== null) {
       usedTools.push(toolName);
       sortiesOutils.push(out);
+      lectures.push({ outil: toolName, sortie: out });
       const label = READ_LABEL[toolName] ?? powerToolLabels()[toolName];
       if (label) trace.push(label);
       const phraser = (role: "bulk" | "orchestrator") => callClaude(
         [{ role: "user", content: `DEMANDE : ${question}\n\nRÉSULTAT DE LA SOURCE CANONIQUE :\n${stripDisplayPayload(out)}` }],
-        { role, system: fastReadSystem(user), tools: [], maxTokens: 700, model: opts.model, reasoning: role === "bulk" ? "none" : "low", promptCacheKey: cacheKey, safetyIdentifier: surete },
+        { role, system: fastReadSystem(user, extraireBlocRegles(opts.personalContext)), tools: [], maxTokens: 700, model: opts.model, reasoning: role === "bulk" ? "none" : "low", promptCacheKey: cacheKey, safetyIdentifier: surete },
       );
       let res = await phraser("bulk");
       if (!res.ok || !res.content || !textOf(res.content).trim()) res = await phraser("orchestrator");
       if (res.ok && res.content) {
         const reply = reparerReponse(textOf(res.content).trim());
-        if (reply) return { configured: true, ok: true, reply, trace };
+        if (reply) return avecProvenance({ configured: true, ok: true, reply, trace });
       }
     }
     // ÉCHEC DU RACCOURCI = REPLI, jamais une réponse fausse (§4). On retombe sur la boucle
@@ -4742,6 +4813,7 @@ async function runAssistantImpl(
           recordTool({ name: f.tool, ms: f.ms, ok: true, parallel: faites.length > 1 });
           usedTools.push(f.tool);
           sortiesOutils.push(f.out);
+          lectures.push({ outil: f.tool, sortie: f.out });
           const label = READ_LABEL[f.tool] ?? powerToolLabels()[f.tool];
           if (label && !trace.includes(label)) trace.push(label);
         }
@@ -4752,6 +4824,8 @@ async function runAssistantImpl(
     }
   }
 
+  // La garantie d'enseignement (§119) ne rappelle le modèle qu'UNE fois par tour.
+  let rappelEnseignement = false;
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const res = await callClaude(messages, { system, tools, maxTokens: 1400, model: opts.model, reasoning: effortPourNiveau(resolved.level), promptCacheKey: cacheKey, safetyIdentifier: surete });
     if (!res.ok || !res.content) {
@@ -4764,13 +4838,28 @@ async function runAssistantImpl(
     // Pas d'outil → réponse finale. Question à fort enjeu + réponse substantielle → SECONDE
     // PASSE CRITIQUE avant remise (davantage de calcul quand ça compte ; jamais l'inverse).
     if (res.stopReason !== "tool_use" || toolUses.length === 0) {
-      const reply = reparerReponse(textOf(blocks) || "D'accord.");
+      const brut = textOf(blocks) || "D'accord.";
+      // LA GARANTIE D'ENSEIGNEMENT (§119) — même règle qu'en flux : un « règle enregistrée » se prouve par un outil.
+      const verdictTeach = gardeEnseignement({
+        question, reponse: brut, outilsUtilises: usedTools,
+        outilsDisponibles: allTools.map((t) => t.name), dejaRappele: rappelEnseignement,
+      });
+      if (verdictTeach === "RAPPELER") {
+        rappelEnseignement = true;
+        trace.push(TEACH_GARDE_LABEL);
+        tools = avecOutilsDeclares(tools, allTools, [...OUTILS_ENSEIGNEMENT]);
+        messages.push({ role: "assistant", content: blocks });
+        messages.push({ role: "user", content: RAPPEL_ENSEIGNEMENT });
+        continue;
+      }
+      if (verdictTeach === "DEMENTIR") return avecProvenance({ configured: true, ok: true, reply: DEMENTI_ENSEIGNEMENT, trace });
+      const reply = reparerReponse(brut);
       if (highStakes && reply.length >= CRITIQUE_MIN_DRAFT) {
         const revised = await reviseHighStakes(systemComplet, question, reply, opts.model, cacheKey).catch(() => null);
         trace.push(CRITIQUE_LABEL);
-        return { configured: true, ok: true, reply: revised ? reparerReponse(revised) : reply, trace };
+        return avecProvenance({ configured: true, ok: true, reply: revised ? reparerReponse(revised) : reply, trace });
       }
-      return { configured: true, ok: true, reply, trace };
+      return avecProvenance({ configured: true, ok: true, reply, trace });
     }
 
     // Actions d'écriture demandées → TOUTES interceptées et proposées (rien n'est exécuté) —
@@ -4802,7 +4891,7 @@ async function runAssistantImpl(
         || (okProposals.length === 1
           ? `Je propose : « ${okProposals[0].title} ». Confirmez-vous ?`
           : `Je propose ${okProposals.length} actions — confirmez-les une à une, ou toutes d'un coup.`);
-      return { configured: true, ok: true, reply, trace, proposal: okProposals[0], proposals: okProposals };
+      return avecProvenance({ configured: true, ok: true, reply, trace, proposal: okProposals[0], proposals: okProposals });
     }
 
     // Outils de lecture → exécutés EN PARALLÈLE (les sous-lectures d'une question complexe sont
@@ -4837,13 +4926,15 @@ async function runAssistantImpl(
       if (READ_LABEL[tu.name] && !trace.includes(READ_LABEL[tu.name])) trace.push(READ_LABEL[tu.name]);
       usedTools.push(tu.name);
       sortiesOutils.push(out);
-      results.push({ type: "tool_result", tool_use_id: tu.id, content: out });
+      lectures.push({ outil: tu.name, sortie: out });
+      // Même règle qu'en flux : la charge d'affichage et la lignée ne partent pas au modèle.
+      results.push({ type: "tool_result", tool_use_id: tu.id, content: stripDisplayPayload(out) });
     }
     messages.push({ role: "assistant", content: blocks });
     messages.push({ role: "user", content: results });
   }
 
-  return { configured: true, ok: true, reply: "Je n'ai pas pu finaliser la demande en peu d'étapes. Reformulez en précisant l'objectif.", trace };
+  return avecProvenance({ configured: true, ok: true, reply: "Je n'ai pas pu finaliser la demande en peu d'étapes. Reformulez en précisant l'objectif.", trace });
   } catch (err) {
     console.error("[assistant] runAssistant failed", err);
     return { configured: true, ok: false, reply: "", trace, error: "Une erreur est survenue côté assistant. Reformulez votre demande ou réessayez dans un instant." };
@@ -4862,7 +4953,7 @@ export type AssistantStreamEvent =
   /** Le texte déjà affiché n'était qu'un préambule à un appel d'outil : le client l'efface. */
   | { type: "reset" }
   /** Une SOURCE consultée (lien interne) — alimente le panneau CONTEXTE du Chief of Staff. */
-  | { type: "source"; label: string; href: string }
+  | { type: "source"; label: string; href: string; detail?: string }
   /**
    * L'ESPACE DE TRAVAIL — des blocs TYPÉS construits à partir d'une source canonique.
    *
@@ -4923,6 +5014,19 @@ export function extractSources(raw: string): { label: string; href: string }[] {
 }
 
 /**
+ * LES SOURCES D'UN RÉSULTAT, AVEC LEUR DÉTAIL DE PROVENANCE (F8) : la même marche que
+ * `extractSources` (liens internes seulement), enrichie par la fabric — famille, date propre,
+ * fraîcheur, confiance — pour que le panneau « Sources consultées » dise d'où ET de quand.
+ */
+function sourcesDuResultat(outil: string, out: string, acteur: string): { label: string; href: string; detail?: string }[] {
+  const faits = extraireFaits(outil, out, { acteur });
+  return extractSources(out).map((s) => {
+    const f = faits.find((x) => x.href === s.href);
+    return f ? { ...s, detail: resumerFait(f) } : s;
+  });
+}
+
+/**
  * VARIANTE STREAMING de `runAssistant` — même boucle agent, même garde-fous, mais la réponse
  * est poussée **au fil de sa génération** au lieu d'arriver en un bloc.
  *
@@ -4967,7 +5071,7 @@ async function runAssistantStreamImpl(
   user: CurrentUser,
   history: ChatTurn[],
   emit: (e: AssistantStreamEvent) => void,
-  opts: { model?: string; personalContext?: string | null; origin?: "text" | "voice" | "nudge" } = {},
+  opts: { model?: string; personalContext?: string | null; origin?: "text" | "voice" | "nudge"; turnContext?: TurnContext } = {},
 ): Promise<AssistantResult> {
   if (!aiConfigured()) return { configured: false, ok: false, reply: "", trace: [] };
 
@@ -4999,9 +5103,26 @@ async function runAssistantStreamImpl(
     return { configured: true, ok: true, reply, trace: [], metrics: { ttftMs: 0, turns: 0, toolCalls: 0, toolErrors: 0, toolLatencyMs: 0 } };
   }
 
+  // ── « D'OÙ TU TIENS ÇA ? » — LE CODE RÉPOND, DEPUIS LE REGISTRE DES LECTURES (F8) ──────────
+  // Une provenance paraphrasée par un modèle serait une provenance inventée à moitié : aucun
+  // appel ici. La lecture est indexée et cloisonnée par personne ; ce tour ne consigne rien.
+  if (routeVoiceUtterance(question).kind === "PROVENANCE") {
+    const p = await repondreDouTuTiensCa(user.id, question, { threadId: opts.turnContext?.threadId ?? null });
+    console.info("[assistant] provenance", { userId: user.id, ms: p.ms, faits: p.faits.length, cible: p.cible, toursLus: p.toursLus });
+    emit({ type: "trace", label: PROVENANCE_LABEL });
+    emit({ type: "delta", text: p.texte });
+    return { configured: true, ok: true, reply: p.texte, trace: [PROVENANCE_LABEL], provenance: null, metrics: { ttftMs: p.ms, turns: 0, toolCalls: 0, toolErrors: 0, toolLatencyMs: p.ms } };
+  }
+
   const highStakes = isHighStakesQuestion(question);
   const plan = queryPlan(question, history.filter((h) => h.role === "user").slice(0, -1).map((h) => h.content));
-  const planCtx = queryPlanContext(plan);
+  // LES ENTITÉS DE LA QUESTION, RÉSOLUES PAR LE CODE (fabric F9) : « Hetero » devient UNE ligne,
+  // « Nadir » devient une question quand deux Nadir existent — le modèle reçoit des identifiants
+  // certains et l'ordre de demander quand c'est ambigu, au lieu de deviner.
+  const entitesResolues = plan.entites.length
+    ? await resoudreMentions(plan.entites).then(contexteEntitesResolues).catch(() => null)
+    : null;
+  const planCtx = [queryPlanContext(plan), entitesResolues, consigneCalcul(question), consigneSignaux(question)].filter(Boolean).join("\n\n") || null;
   // OBSERVABILITÉ du planner — domaine/intention/suivi UNIQUEMENT (jamais le texte de la
   // question) : le taux de résolution des suivis elliptiques se lit dans les logs.
   if (plan.domaine || plan.intention || plan.suiviElliptique) {
@@ -5053,6 +5174,14 @@ async function runAssistantStreamImpl(
   const sortiesOutils: string[] = [];
   const reparerReponse = (brut: string): { texte: string; repares: number } =>
     reparerLiensInternes(brut, collecterLiensInternes(sortiesOutils));
+  // LA PROVENANCE DU TOUR (F8) — même mécanisme qu'en variante non diffusée.
+  const lectures: { outil: string; sortie: string }[] = [];
+  const avecProvenance = <T extends AssistantResult>(r: T): T => {
+    const faits = faitsDuTour(lectures, { acteur: user.id });
+    // LA CALIBRATION DU TOUR (§29) : le code dit ce que le tour a établi et ce que ça commande.
+    const { resultat, calibration } = calibrerTour(question, faits, r);
+    return { ...resultat, provenance: faits, calibration };
+  };
   let discoveryCalls = 0;
   const started = Date.now();
   const metrics: AssistantMetrics = { ttftMs: null, turns: 0, toolCalls: 0, toolErrors: 0, toolLatencyMs: 0 };
@@ -5073,7 +5202,7 @@ async function runAssistantStreamImpl(
       const texte = res.ok && res.content ? textOf(res.content).trim() : "";
       if (texte) {
         if (!streamed) emit({ type: "delta", text: texte });
-        return { configured: true, ok: true, reply: texte, trace, metrics };
+        return avecProvenance({ configured: true, ok: true, reply: texte, trace, metrics });
       }
       if (streamed) emit({ type: "reset" });
       metrics.ttftMs = null;
@@ -5099,7 +5228,8 @@ async function runAssistantStreamImpl(
       if (out !== null) {
         usedTools.push(toolName);
         sortiesOutils.push(out);
-        for (const s of extractSources(out)) emit({ type: "source", label: s.label, href: s.href });
+        lectures.push({ outil: toolName, sortie: out });
+        for (const s of sourcesDuResultat(toolName, out, user.id)) emit({ type: "source", ...s });
         // L'ESPACE DE TRAVAIL PART AVANT LE TEXTE. La donnée est déjà lue ; la faire attendre
         // la rédaction du modèle ferait patienter le PDG devant un écran vide alors que la
         // réponse est là. Il lit le tableau pendant qu'Adam formule.
@@ -5119,7 +5249,7 @@ async function runAssistantStreamImpl(
             if (metrics.ttftMs == null) metrics.ttftMs = Date.now() - started;
             emit({ type: "delta", text: chunk });
           },
-          { role, system: fastReadSystem(user), tools: [], maxTokens: 700, model: opts.model, reasoning: role === "bulk" ? "none" : "low", promptCacheKey: cacheKey, safetyIdentifier: surete },
+          { role, system: fastReadSystem(user, extraireBlocRegles(opts.personalContext)), tools: [], maxTokens: 700, model: opts.model, reasoning: role === "bulk" ? "none" : "low", promptCacheKey: cacheKey, safetyIdentifier: surete },
         );
         let res = await phraser("bulk");
         if (!res.ok || !res.content || !textOf(res.content).trim()) {
@@ -5136,7 +5266,7 @@ async function runAssistantStreamImpl(
               emit({ type: "reset" });
               emit({ type: "delta", text: reply });
             }
-            return { configured: true, ok: true, reply, trace, metrics };
+            return avecProvenance({ configured: true, ok: true, reply, trace, metrics });
           }
         }
         // Le raccourci a parlé pour rien : ce qui a été diffusé n'est pas la réponse.
@@ -5168,7 +5298,8 @@ async function runAssistantStreamImpl(
             recordTool({ name: f.tool, ms: f.ms, ok: true, parallel: faites.length > 1 });
             usedTools.push(f.tool);
             sortiesOutils.push(f.out);
-            for (const src of extractSources(f.out)) emit({ type: "source", label: src.label, href: src.href });
+            lectures.push({ outil: f.tool, sortie: f.out });
+            for (const src of sourcesDuResultat(f.tool, f.out, user.id)) emit({ type: "source", ...src });
             const composed = composeWorkspace(f.tool, f.out);
             if (composed) emit({ type: "workspace", composition: composed });
           }
@@ -5179,6 +5310,8 @@ async function runAssistantStreamImpl(
       }
     }
 
+    // La garantie d'enseignement (§119) ne rappelle le modèle qu'UNE fois par tour.
+    let rappelEnseignement = false;
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       metrics.turns = turn + 1;
       // Le texte part AU FIL DE L'EAU. Si le tour se révèle finalement être un appel d'outil,
@@ -5207,6 +5340,29 @@ async function runAssistantStreamImpl(
         // UNIQUE) ; quand elle a corrigé un texte déjà diffusé, le client le remplace (`reset`),
         // exactement comme la passe critique.
         const redige = textOf(blocks) || "D'accord.";
+        // ── LA GARANTIE D'ENSEIGNEMENT (§119) ─────────────────────────────────────────────
+        // « Règle enregistrée » sans qu'aucun outil Teach n'ait tourné dans CE tour n'est pas une
+        // réponse, c'est un faux succès (mesuré en suite live : l'historique portait la même
+        // règle, supprimée depuis). Le modèle reçoit une fois l'ordre d'appeler l'outil ; s'il
+        // ne le fait toujours pas, la réponse dit la vérité.
+        const verdictTeach = gardeEnseignement({
+          question, reponse: redige, outilsUtilises: usedTools,
+          outilsDisponibles: allTools.map((t) => t.name), dejaRappele: rappelEnseignement,
+        });
+        if (verdictTeach === "RAPPELER") {
+          rappelEnseignement = true;
+          if (streamed) emit({ type: "reset" });
+          if (!trace.includes(TEACH_GARDE_LABEL)) { trace.push(TEACH_GARDE_LABEL); emit({ type: "trace", label: TEACH_GARDE_LABEL }); }
+          tools = avecOutilsDeclares(tools, allTools, [...OUTILS_ENSEIGNEMENT]);
+          messages.push({ role: "assistant", content: blocks });
+          messages.push({ role: "user", content: RAPPEL_ENSEIGNEMENT });
+          continue;
+        }
+        if (verdictTeach === "DEMENTIR") {
+          if (streamed) emit({ type: "reset" });
+          emit({ type: "delta", text: DEMENTI_ENSEIGNEMENT });
+          return avecProvenance({ configured: true, ok: true, reply: DEMENTI_ENSEIGNEMENT, trace, metrics });
+        }
         const reparation = reparerReponse(redige);
         const reply = reparation.texte;
         // Rien n'a été diffusé (réponse vide côté modèle) → on envoie le repli d'un trait.
@@ -5227,10 +5383,10 @@ async function runAssistantStreamImpl(
           if (revised && revised !== reply) {
             emit({ type: "reset" });
             emit({ type: "delta", text: revised });
-            return { configured: true, ok: true, reply: revised, trace, metrics };
+            return avecProvenance({ configured: true, ok: true, reply: revised, trace, metrics });
           }
         }
-        return { configured: true, ok: true, reply, trace, metrics };
+        return avecProvenance({ configured: true, ok: true, reply, trace, metrics });
       }
 
       // Actions d'écriture → TOUTES interceptées et proposées (rien n'est exécuté). Plusieurs
@@ -5266,7 +5422,7 @@ async function runAssistantStreamImpl(
             ? `Je propose : « ${okProposals[0].title} ». Confirmez-vous ?`
             : `Je propose ${okProposals.length} actions — confirmez-les une à une, ou toutes d'un coup.`);
         if (!streamed) emit({ type: "delta", text: reply });
-        return { configured: true, ok: true, reply, trace, proposal: okProposals[0], proposals: okProposals, metrics };
+        return avecProvenance({ configured: true, ok: true, reply, trace, proposal: okProposals[0], proposals: okProposals, metrics });
       }
 
       // Outils de lecture : le préambule éventuel est effacé, chaque étape est annoncée dès son
@@ -5308,11 +5464,11 @@ async function runAssistantStreamImpl(
         return { tu, out };
       }));
       const results: ClaudeContentBlock[] = [];
-      for (const { out } of settled) sortiesOutils.push(out);
+      for (const { tu, out } of settled) { sortiesOutils.push(out); lectures.push({ outil: tu.name, sortie: out }); }
       for (const { tu, out } of settled) {
         // Les SOURCES consultées alimentent le panneau CONTEXTE : chaque dossier lu devient un
         // lien cliquable, au moment même où l'assistant le lit.
-        for (const s of extractSources(out)) emit({ type: "source", label: s.label, href: s.href });
+        for (const s of sourcesDuResultat(tu.name, out, user.id)) emit({ type: "source", ...s });
         // Le même espace de travail sur le chemin complet : que l'annuaire ait été choisi par
         // le code ou par le modèle, il s'affiche de la même façon. Une donnée canonique ne
         // change pas de nature selon le chemin qui l'a atteinte.
@@ -5327,7 +5483,7 @@ async function runAssistantStreamImpl(
       messages.push({ role: "user", content: results });
     }
 
-    return { configured: true, ok: true, reply: "Je n'ai pas pu finaliser la demande en peu d'étapes. Reformulez en précisant l'objectif.", trace, metrics };
+    return avecProvenance({ configured: true, ok: true, reply: "Je n'ai pas pu finaliser la demande en peu d'étapes. Reformulez en précisant l'objectif.", trace, metrics });
   } catch (err) {
     console.error("[assistant] runAssistantStream failed", err);
     return { configured: true, ok: false, reply: "", trace, metrics, error: "Une erreur est survenue côté assistant. Reformulez votre demande ou réessayez dans un instant." };

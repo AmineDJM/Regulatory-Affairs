@@ -79,6 +79,13 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // responsable du département) — la même règle pour l'outil et pour tout autre chemin.
       "teach_adam", "list_rules", "update_rule", "disable_rule", "delete_rule",
       "action_history", "episodic_recall",
+      // run_analysis / run_code / chart_advice : MÊME RAISON QUE `show_table`, et elle est structurelle.
+      // Aucun des trois ne lit quoi que ce soit par lui-même : les lignes viennent d'une LECTURE
+      // relancée par `executePowerTool` (qui revérifie SON droit), d'un fichier du Drive vérifié
+      // nœud par nœud (`canViewDrive`), ou d'une requête SQL qui exige la vue globale. Les
+      // opérations sont pures et le code tourne isolé, sans base ni réseau. `sql_query`, lui,
+      // EST gardé (vue globale) : c'est le seul des quatre qui touche la base directement.
+      "run_analysis", "run_code", "chart_advice",
       // web_research : le WEB, pas l'ERP. L'outil ne touche à AUCUNE donnée interne — il
       // interroge l'extérieur via le fournisseur de modèle, et son coût est compté à la
       // recherche (usage.webSearchCalls) et plafonnable par mission. Le fermer ne protégerait

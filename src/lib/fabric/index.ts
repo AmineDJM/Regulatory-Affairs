@@ -13,3 +13,10 @@ export {
 export { SOURCES, fraicheurDe, type DescripteurSource, type Fraicheur } from "@/lib/fabric/registry";
 export { lireEtatChaud, rechaufferEtatChaud, invaliderEtatsChauds, type LectureChaude } from "@/lib/fabric/hot-state";
 export { creerLoteur, loteurNoeudsDrive, type Loteur, type MesureLoteur } from "@/lib/fabric/bulk";
+export {
+  extraireFaits, faitsDuTour, faitCalcule, declarerProvenance, expliquerFait, repondreProvenance,
+  type FaitSource, type TourProvenance, type NatureSource,
+} from "@/lib/fabric/provenance";
+export { consignerProvenance, relireProvenance, repondreDouTuTiensCa } from "@/lib/fabric/provenance-store";
+export { resoudreEntite, resoudreMentions, contexteEntitesResolues, type ResolutionEntite } from "@/lib/fabric/entites";
+export { TYPES_ENTITE, LIBELLE_TYPE, LIBELLE_VERDICT, trancher, scorerNom, type TypeEntite, type Candidat, type Verdict } from "@/lib/fabric/entites-score";

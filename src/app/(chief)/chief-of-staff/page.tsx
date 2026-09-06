@@ -7,6 +7,8 @@ import { featureEnabled, FEATURES } from "@/lib/features";
 import { getActionCenter } from "@/lib/queries/action-center";
 import { ensurePrimaryThread } from "@/lib/assistant-memory";
 import { inProcessPlatform, principalOf } from "@/platform/in-process/adapter";
+import { composerInbox } from "@/platform/in-process/inbox/compose";
+import { aTrancher } from "@/lib/assistant/inbox/model";
 import { ChiefWorkspace } from "@/components/chief/chief-workspace";
 import { BlockPreviewPlanche } from "@/components/chief/workspace/preview-planche";
 
@@ -79,12 +81,16 @@ export default async function ChiefOfStaffPage({
   // Chacun devient une PHRASE qu'Adam peut traiter, pas un lien vers un autre écran : on ne
   // sort pas du bureau d'Adam pour savoir ce qu'Adam sait déjà.
   const now = new Date();
-  const [toDecide, centreAwaiting, commitmentsLate, decisionsToReview] = await Promise.all([
+  const [toDecide, centreAwaiting, commitmentsLate, decisionsToReview, boite] = await Promise.all([
     getActionCenter(user).then((c) => c.items.length).catch(() => 0),
     prisma.expenseOrder.count({ where: { centralStatus: "AWAITING" } }).catch(() => 0),
     prisma.executiveCommitment.count({ where: { ownerId: user.id, status: "OPEN", dueAt: { lt: now } } }).catch(() => 0),
     prisma.executiveDecision.count({ where: { ownerId: user.id, status: { in: ["PROPOSED", "DECIDED"] }, reviewDate: { lte: now } } }).catch(() => 0),
+    // LA BOÎTE DE DÉCISION, composée par le même code que sa page : le nombre affiché ici est
+    // exactement le nombre de cartes qui attendent un geste là-bas (§21) — pas une seconde formule.
+    composerInbox(user).then((v) => aTrancher(v.compte)).catch(() => 0),
   ]);
+  const inbox = { count: boite, href: "/chief-of-staff/inbox" };
 
   const attention = [
     { count: toDecide, label: "décision(s) à prendre", prompt: "Sur quoi dois-je me concentrer ce matin ?" },
@@ -122,6 +128,7 @@ export default async function ChiefOfStaffPage({
       initialCallRef={startCall ? ref || "" : null}
       settingsHref={hasGlobalView(user) ? "/chief-of-staff/reglages" : null}
       attention={attention}
+      inbox={inbox}
       freshness={freshness}
       destinations={destinations}
     />

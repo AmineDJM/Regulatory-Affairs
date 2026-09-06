@@ -41,6 +41,8 @@ export type VoiceRouteKind =
   /** « les salariés et leurs mails » — LE registre, en tableau. */
   | "DIRECTORY_LIST"
   /** Tout le reste : le modèle décide. */
+  /** « D'où tu tiens ça ? » — la provenance d'un fait déjà servi : le code répond depuis le registre du tour, sans modèle. */
+  | "PROVENANCE"
   | "DELEGATE";
 
 export interface VoiceRoute {
@@ -133,6 +135,21 @@ const COMPLEX = /\b(pourquoi|comment ca se fait|comment se fait il|comment on en
  * « Assistant IA » et n'avoir « pas d'adresse propre » — et il n'a rien à faire dans un raccourci
  * de lecture : il se répond avec ce que le serveur sait de l'identité d'Adam.
  */
+/**
+ * « D'OÙ TU TIENS ÇA ? » — les formes fermées par lesquelles une personne demande la SOURCE de
+ * ce qu'Adam vient de dire. Volontairement étroites : « d'où vient ce retard ? » est une question
+ * causale (le modèle), pas une demande de provenance ; « la source du budget » parle du budget.
+ */
+const PROVENANCE = new RegExp([
+  "\\bd ou (tu |vous )?(tiens|tenez|sors|sortez|sais|savez|tires|tirez) (tu |vous )?(ca|cela|ce|cette|ces|le|la|les)\\b",
+  "\\bd ou (vient|viennent|sort|sortent) (ce|cette|ces) (chiffre|chiffres|montant|montants|nombre|info|information|infos|donnee|donnees|date|total|valeur|resultat|reponse|conclusion)\\b",
+  "\\b(ta|tes) sources?\\b", "\\bquelle est ta source\\b", "\\bquelles sont tes sources\\b", "\\bcite (tes|les) sources\\b",
+  "\\bsur quoi (tu |vous )?(te|vous) (bases|basez|fondes|fondez)\\b",
+  "\\bcomment (tu |vous )?(le |la )?(sais|savez)( tu| vous)?( ca| cela)?$",
+  "\\b(tu es|t es|vous etes) sur(e|s)? de (ca|cela|ce chiffre|cette info|cette information|ce montant|cette date)\\b",
+  "\\bc est fiable\\b", "\\bprouve (le|la|moi)\\b", "\\bqui te l a dit\\b", "\\bdis moi (d ou|ou) (ca|cela) vient\\b",
+].join("|"));
+
 const SELF = /\b(tu t appelles|tu es qui|qui es tu|comment tu t appelles|ton nom|ton adresse|tu as une adresse|ton e mail|ton email|tu es quoi)\b/;
 
 /**
@@ -178,6 +195,8 @@ const LIST_WORD = /\b(liste|lister|tous|toutes|annuaire|chacun|donne|donne moi|m
  * doit suivre le chemin structuré.
  */
 const WORKS_AT = /\bqui (travaille|bosse|est) (au|a la|aux|dans|chez)\s+(.+)$/;
+/** Les mots qui disent qu'on parle d'un DOCUMENT — la porte de l'annuaire ne s'ouvre pas dessus. */
+const DOC_CONTEXT = /\b(drive|document|documents|fichier|fichiers|note|notes|pdf|classeur|deck|presentation|resume|resumer|contrat|rapport|compte rendu|pv)\b/;
 
 /** Les mots qui occupent la place d'un nom sans en être un — cf. `personAfter`. */
 const NOT_A_NAME = new Set([
@@ -344,6 +363,14 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
     return { kind: "APPROVE_PENDING", tool: null, args: {}, fast: true, reason: "accord sur l'envoi en attente" };
   }
 
+  // ── 1 bis-a. « D'OÙ TU TIENS ÇA ? » — LA PROVENANCE SE LIT, ELLE NE SE RAISONNE PAS ─────
+  // Une provenance paraphrasée par un modèle est une provenance inventée à moitié : le code
+  // relit le registre des faits du tour précédent et répond (§22 du mandat 4). Testée avant les
+  // questions sur Adam et avant le raisonnement : « comment tu sais ça ? » n'est ni l'un ni l'autre.
+  if (PROVENANCE.test(text)) {
+    return { kind: "PROVENANCE", tool: null, args: {}, fast: true, reason: "provenance d'un fait déjà servi — le code relit ses lectures" };
+  }
+
   // ── 1 ter. NI UNE EXPLICATION, NI UNE QUESTION SUR ADAM ─────────────────────────────────
   // Testées après l'accord (« envoie-le » reste une approbation) et avant toute lecture.
   if (SELF.test(text)) {
@@ -401,7 +428,12 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
   const plural = PEOPLE_PLURAL.test(text);
   // Trois entrées, et aucune n'est le simple mot « mail » : c'est ce qui empêche la boîte du PDG
   // d'être confondue avec le registre des personnes.
-  if (contactOnly || mailAsContact || (plural && LIST_WORD.test(text)) || WORKS_AT.test(text)) {
+  // « Résume-moi la note fournisseur Kwality QUI EST DANS mon Drive » : le relatif porte sur la
+  // note, pas sur une personne — mais `WORKS_AT` y lisait « qui est dans <service> » et rendait
+  // l'annuaire, en route rapide, sans un mot au modèle. Un document nommé dans la phrase ferme
+  // cette porte : on parle d'une chose à lire, pas de quelqu'un à joindre.
+  const parleDUnDocument = DOC_CONTEXT.test(text);
+  if (contactOnly || mailAsContact || (plural && LIST_WORD.test(text)) || (WORKS_AT.test(text) && !parleDUnDocument)) {
     const wantsList = /\bannuaire\b/.test(text)
       || (plural && (contactOnly || mailAsContact || LIST_WORD.test(text)));
 

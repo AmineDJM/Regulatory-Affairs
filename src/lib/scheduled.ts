@@ -16,6 +16,8 @@ import { runAssistantReminders } from "@/lib/assistant/reminders";
 import { runDriveIngestionSweep } from "@/lib/assistant/drive-ingestion";
 import { balayerMentions } from "@/lib/fabric";
 import { rechaufferAlertes } from "@/lib/assistant/hot-alerts";
+import { balayageQualiteSiDu } from "@/lib/quality/engine";
+import { mettreEnCacheClausesSiDu } from "@/platform/in-process/intelligence";
 import { runKnowledgeSweep, enqueueBacklogs, enqueueStalled, refreshEntityIndex } from "@/lib/knowledge/worker";
 import { runScheduledWorkflows } from "@/lib/scheduler/runner";
 import { registerBuiltinWorkflows } from "@/lib/scheduler/handlers";
@@ -128,6 +130,15 @@ export async function runScheduledJobs(): Promise<void> {
     // recalculent ici, en avance — la question « qu'est-ce qui cloche ? » trouve un état
     // déjà payé, avec son instant de calcul et son coût mesurés.
     await rechaufferAlertes().catch(() => undefined);
+    // QUALITÉ DES DONNÉES (mandat 4 §23) : les règles LÉGÈRES (doublons de factures, montants
+    // contradictoires, statuts de paiement impossibles, comptes actifs de salariés partis) toutes
+    // les heures ; le balayage COMPLET la nuit. Les corrections SÛRES s'appliquent seules et se
+    // journalisent ; le reste attend une personne — dans la boîte de décision et l'écran d'admin.
+    await balayageQualiteSiDu().catch((e) => console.error("[scheduled] qualité des données", e));
+    // INTELLIGENCE LEGAL (mandat 4 §27) : les clauses des engagements actifs dont le texte indexé a
+    // changé sont relues une fois par jour et mises en réserve dans `custom.intelligence` — les
+    // lectures du jour (Adam, boîte de décision) trouvent des clauses déjà lues au lieu de les relire.
+    await mettreEnCacheClausesSiDu().catch((e) => console.error("[scheduled] réserve des clauses", e));
 
     // LA COUCHE DE CONNAISSANCE — elle avance à son rythme, derrière tout le reste.
     //

@@ -189,4 +189,66 @@ suite("Teach Adam — enseigner, retrouver, départager, réviser, supprimer", (
     const parStatut = Object.fromEntries(statuts.map((s) => [s.status, s._count]));
     expect(parStatut).toEqual({ ACTIVE: 7, SUPERSEDED: 2, DELETED: 1 });
   }, 60_000);
+
+  it("les règles s'appliquent SANS le drapeau « mémoire » : le repli de la conversation porte le bloc de règles, et rien d'autre", async () => {
+    const { contexteReglesSeules } = await import("@/lib/assistant-memory");
+    const sansRegle = await utilisateur("vierge", "SALES_USER");
+    const avecRegle = await utilisateur("regle", "SALES_USER");
+    const r = await appel("teach_adam", { statement: "Je préfère qu'on me réponde en trois lignes maximum." }, avecRegle);
+    expect(r.fait, JSON.stringify(r)).toBe(true);
+    const bloc = await contexteReglesSeules(avecRegle.id);
+    expect(bloc).not.toBeNull();
+    expect(bloc).toContain("RÈGLES ENSEIGNÉES À ADAM");
+    expect(bloc).toContain("trois lignes maximum");
+    // Rien d'autre que les règles : ni identité, ni souvenirs.
+    expect(bloc).not.toMatch(/souvenirs?|mémoire distillée|rattachement/i);
+    // Un compte sans règle : null, pas un bloc vide qui coûterait des jetons.
+    expect(await contexteReglesSeules(sansRegle.id)).toBeNull();
+    // Et les DEUX portes de conversation utilisent ce repli quand la mémoire n'est pas activée —
+    // c'est ce qui rend une règle « pour toute la société » effective pour tout le monde.
+    const fs = await import("node:fs");
+    const route = fs.readFileSync("src/app/api/assistant/stream/route.ts", "utf8");
+    const action = fs.readFileSync("src/lib/actions/assistant-actions.ts", "utf8");
+    expect(route).toMatch(/memoryOn \? personalBrut : await contexteReglesSeules\(user\.id\)/);
+    expect(action).toMatch(/memoryOn \? await personalContext\(user\.id\)\.catch\(\(\) => null\) : await contexteReglesSeules\(user\.id\)/);
+  }, 60_000);
+
+  it("les paramètres écrits par le modèle sont normalisés : « validite_devis » / « 45 jours » deviennent la clé et le nombre que la fabrique applique", async () => {
+    // Une société VIERGE de toute règle : le test précédent a laissé une validité de 60 jours
+    // en vigueur sur l'autre, et c'est la normalisation qu'on mesure ici, pas la précédence.
+    const c2 = await prisma.company.create({ data: { name: `${TAG} Pharma 2`, shortName: `${TAG.slice(0, 10)}2` } });
+    const r = await appel("teach_adam", { statement: "Pour toute la société, les devis sont valables 45 jours.", scope: "COMPANY", societe: c2.id, params: { cle: "validite_devis", valeur: "45 jours", unite: "jours" } }, pdg);
+    expect(r.fait, JSON.stringify(r)).toBe(true);
+    const id = (r.regle as { id: string }).id;
+    const row = await prisma.adamRule.findUnique({ where: { id } });
+    expect(row?.params).toEqual({ cle: "validiteDevis", valeur: 45, unite: "jours" });
+    const prof = await profilDocumentaire(pdg, c2.id);
+    expect(prof.ok).toBe(true);
+    if (prof.ok) {
+      expect(prof.profil.reglages.quoteValidityDays).toBe(45);
+      expect(prof.profil.reglesAppliquees.some((a) => a.id === id)).toBe(true);
+    }
+    // Et une société SANS règle ni profil garde les défauts (30 jours) : appliquer un standard à
+    // une société ne doit jamais écrire dans les défauts partagés du processus.
+    const c3 = await prisma.company.create({ data: { name: `${TAG} Pharma 3`, shortName: `${TAG.slice(0, 10)}3` } });
+    const vierge = await profilDocumentaire(pdg, c3.id);
+    expect(vierge.ok).toBe(true);
+    if (vierge.ok) {
+      expect(vierge.profil.reglages.quoteValidityDays).toBe(30);
+      expect(vierge.profil.reglesAppliquees).toEqual([]);
+    }
+    await prisma.adamRule.deleteMany({ where: { companyId: c2.id } });
+    await prisma.company.delete({ where: { id: c2.id } });
+    await prisma.company.delete({ where: { id: c3.id } });
+  }, 60_000);
+});
+
+describe("normalisation — la forme plate du modèle", () => {
+  it("« { validiteDevis: 45, unite: 'jours' } » devient « { cle: validiteDevis, valeur: 45, unite } »", async () => {
+    const { normaliserParams } = await import("./store");
+    expect(normaliserParams({ validiteDevis: 45, unite: "jours" }, null)).toEqual({ cle: "validiteDevis", valeur: 45, unite: "jours" });
+    expect(normaliserParams({ validite_devis: "45 jours" }, null)).toEqual({ cle: "validiteDevis", valeur: 45 });
+    // Deux clés connues à plat : on ne devine pas laquelle porte la règle.
+    expect(normaliserParams({ validiteDevis: 45, tvaDefaut: 19 }, null)).toEqual({ validiteDevis: 45, tvaDefaut: 19 });
+  });
 });

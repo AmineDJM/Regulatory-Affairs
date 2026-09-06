@@ -1807,6 +1807,104 @@ les factures ? », « finalement 60 jours », « suspends-la », « supprime cet
   `lib/assistant-memory.ts` (`personalContext`), `platform/in-process/missions/runtime.ts` (`politiques`),
   `platform/in-process/artifact/factory.ts` (`profilDocumentaire`).
 
+**Ce que le banc des défis a corrigé (2026-09) — six défauts invisibles aux tests sur base, visibles au vrai point
+d'entrée (§14).** (1) Les cinq outils Teach Adam étaient classés `GENERAL`, un domaine que le résolveur d'outils ne
+sert jamais : « Règle pour toute la société : … » partait sans aucun moyen d'enregistrer la règle, et Adam répondait
+« trou de capacité ». Un domaine `TEACH` (`context/router.ts` : règle, désormais, retiens, pour toute la société…,
+`tool-shortlist.ts`, `tool-resolver.ts`, `discovery.ts`). (2) La VOIE RAPIDE (une lecture canonique formulée par le
+petit modèle) ne recevait pas le contexte personnel, donc pas les règles : « termine par Prochaine étape » valait
+pour la boucle complète et pas pour la question la plus courante. `extraireBlocRegles` (`lib/teach/compose.ts`, via
+`platform/in-process/teach/bloc.ts`) rend le seul bloc de règles à `fastReadSystem`. (3) Les règles ne passaient au
+modèle que si le drapeau « mémoire » était actif pour la personne : `contexteReglesSeules` (`assistant-memory.ts`)
+est le repli des deux portes de conversation — une attestation s'applique sans drapeau. (4) Le modèle écrit
+`validite_devis` et « 45 jours » là où la fabrique attend `validiteDevis` et 45 : `normaliserParams` replie la clé
+sur une clé connue, coerce la valeur, et laisse le TEXTE l'emporter sur une clé inconnue ; les paramètres
+documentaires se lisent quelle que soit la nature (une COMPANY_RULE qui dit « 45 jours » règle la fabrique). (5) Un
+`chainFromId` vide (« pas de pièce amont ») violait une clé étrangère au moment d'écrire au registre : normalisé en
+`null` avant tout. (6) « Fais-moi un devis » ne portait aucun signal LEGAL (`devis` ajouté) ; `document_build`
+dit désormais qu'il s'appelle directement et que le nom du tiers suffit. Chaque cause a son test ; le banc des défis
+(`BENCH_SET=defis`) rejoue la chaîne complète : 15 défis, effets vérifiés en base.
+
+### Moteur de qualité des données (`src/lib/quality/`, `src/platform/in-process/quality/`, `/admin/qualite`)
+
+Un moteur PERMANENT (mandat 4 §23) qui balaie la base par règles déterministes et fait de chaque
+défaut un CONSTAT à signature stable : doublons (salariés par e-mail ou par nom, fournisseurs
+sans leurs formes juridiques, dossiers réglementaires à DCI triée + dosage + forme +
+conditionnement, factures — même référence, ou même contrepartie + même montant sous 45 j),
+champs manquants (salarié, fournisseur, facture/BC sans montant ou contrepartie, contrat actif
+sans terme, dossier sans responsable), données périmées (dossier sans mouvement depuis 180 j,
+tâche en retard de 60 j), statuts impossibles (contrat ACTIF échu, ordre PAYÉ sans date ni
+écriture, demande décidée sans décideur, validation APPROUVÉE avec étape en attente), relations
+cassées (tâche / dossier / produit confié à un compte désactivé), documents orphelins (fichier
+vivant dans un dossier à la corbeille, pièce Drive d'un document légal à la corbeille), dates
+incohérentes (contrat, essai, naissance après embauche, tâche terminée avant création, cibles
+réglementaires inversées), montants contradictoires (facture ≠ bon de commande chaîné sans
+avenant, règlement ≠ facture, ordre payé ≠ écriture — écart > 1 %), valeurs aberrantes (écriture
+≤ 0, montant à 8× la médiane de sa catégorie sur ≥ 8 écritures, salaire nul ou à 6× la médiane),
+incohérences entre modules (salarié inactif au compte actif, département RH ≠ département du
+compte). Vingt-trois règles, chacune BORNÉE (`take`, fenêtres) : le balayage est un service de
+fond, pas une charge.
+
+- **Trois résolutions, et la structure les tient.** AUTO = correction sûre, réversible, sans
+  jugement (plier un e-mail en majuscules) : appliquée par le moteur, avant / après dans l'audit ;
+  PROPOSE = correction CONCRÈTE à confirmer d'un clic (passer un contrat échu en EXPIRÉ,
+  désactiver le compte d'un salarié parti, aligner un département) ; HUMAIN = décision (fusionner,
+  distinguer, régler). `resolutionEffective` rétrograde une règle AUTO sous 95 % de confiance en
+  proposition, et une proposition sans correction en décision. Les correcteurs (`fix.ts`) sont une
+  liste FERMÉE de sept champs : relecture de la valeur courante, refus si elle a changé, écriture,
+  audit signé (« le moteur » ou la personne). Le moteur ne fusionne, ne supprime, ne réaffecte
+  jamais.
+- **Idempotent et mémoriel.** Même défaut revu = une occurrence de plus (signature unique), jamais
+  une ligne de plus ; écarté par une personne (DISMISSED, motif obligatoire) = ne revient pas ;
+  corrigé ou disparu qui réapparaît = ROUVERT (la correction n'a pas tenu, et ça se voit) ; plus
+  observé = RESOLVED « disparu » — seulement quand la règle a vraiment tourné. Chaque balayage
+  laisse une ligne `DataQualitySweep` (mode, durée, compteurs par règle, erreurs).
+- **Cadence.** Le battement (`scheduled.ts` → `balayageQualiteSiDu`) lance les règles LÉGÈRES
+  (doublons de factures, montants contradictoires, statuts de paiement, comptes actifs de salariés
+  partis) toutes les heures et le balayage COMPLET la nuit (ou dès le premier battement s'il n'y en
+  a jamais eu) ; le dernier passage se relit en base au redémarrage. `DATA_QUALITY_DISABLED=1` coupe.
+- **Trois appelants réels.** L'écran `/admin/qualite` (constats sous les droits de la personne :
+  un salaire aberrant reste derrière RH ; filtres statut / famille / criticité / règle ; Corriger /
+  Écarter / Rouvrir ; balayage à la main pour la vue globale) ; la **boîte de décision**, qui prend
+  les constats CRITIQUES et HAUTS (cinq au plus) en cartes CHOOSE (correction proposée →
+  « Corriger » recommandé) ou REVIEW (« Ouvrir la fiche », « Écarter » avec motif) ; l'outil
+  `data_quality` d'Adam (domaine `QUALITE` : « qu'est-ce qui cloche dans nos données ? », « des
+  doublons de factures ? ») qui lit compteurs, constats et date du dernier balayage — et ne corrige
+  rien. Le pont est `platform/in-process/quality/` (frontière Adam ↔ ERP inchangée).
+- **Mesuré.** `quality/engine.test.ts` plante 29 anomalies dans la vraie base (une par règle au
+  moins) et 2 témoins propres : **29/29 détectées (100 %)** en ~220 ms, **0 constat sur les
+  témoins**, idempotence (occurrences, pas de doublon de ligne), correction AUTO appliquée et
+  auditée, correction PROPOSÉE d'un clic sous les droits, écart tenu au balayage suivant, défaut
+  disparu fermé seul, compte sans droit aveugle. `model.test.ts` : clés de rapprochement, e-mails,
+  médiane et aberrance, résolution effective.
+
+### Boîte de décision — l'Executive Inbox (`src/lib/assistant/inbox/`, `src/platform/in-process/inbox/`, `/chief-of-staff/inbox`)
+
+**Ce que ça permet.** Tout ce qui attend UN geste du dirigeant, en cartes qui se tranchent d'un clic — depuis le
+bureau d'Adam (« Ce qui t'attend » → la boîte), sur ordinateur comme au pouce sur un téléphone. Cinq genres :
+**À approuver** (validation à mon tour, ordre au centre de paiement, accord de mission), **À trancher** (une
+mission attend une réponse), **À revoir** (engagement en retard, décision dont la date de revue est passée, dossier
+qui presse), **Pour information** (notification non lue : « Vu »), À refuser. Chaque carte porte le sujet, deux
+lignes de contexte, la RAISON pour laquelle elle remonte maintenant, l'échéance et son délai lisible, l'URGENCE
+calculée, l'impact (montant, nombre d'étapes), la SOURCE (lien vers le module) et, quand une règle du code la
+justifie, une RECOMMANDATION qui dit pourquoi (accord de mission de niveau normal ; engagement en retard → relancer).
+
+- **Aucune nouvelle source, aucune écriture propre.** `composerInbox` (`platform/in-process/inbox/compose.ts`) relit les files des
+  modules — `getPendingValidations` (à MON tour seulement), `expenseOrder` en `AWAITING` pour qui siège au centre,
+  `approbationsEnAttente`, missions `WAITING_INPUT`, notifications non lues, décisions à revoir, engagements en
+  retard, le reste du centre d'action — huit lectures en parallèle, chacune mesurée (`sources[].ms`).
+- **Une option = le geste canonique du module.** `agirSurCarte` (`platform/in-process/inbox/actions.ts`) vérifie la FORME
+  du geste (`estGesteValide`, `lib/assistant/inbox/model.ts`) et le remet à `decideValidation`, `decidePayment`,
+  `deciderAccordMission`, `fournirElementMission`, `markNotificationRead` : mêmes droits, mêmes états (« ce n'est pas
+  encore votre tour »), mêmes messages. Refuser ou demander une modification EXIGE un motif avant d'exécuter.
+- **L'urgence est arithmétique** (`urgenceDe`) : échéance dépassée → critique ; < 1 jour → haute ; niveau de
+  mission CRITICAL → critique ; montant ≥ 10 MDZD → haute au moins ; une information sans échéance reste basse.
+  L'ordre (`ordonner`) : urgence, puis ce qui bloque quelqu'un, puis le retard, puis l'ancienneté — stable.
+- **Mesuré.** `lib/assistant/inbox/model.test.ts` (10 tests purs), `platform/in-process/inbox/compose.test.ts` (chaque genre naît d'une ligne
+  réelle ; un autre compte ne voit pas ces cartes ; composition P95 46 ms sur base locale, budget 1,5 s),
+  `e2e/inbox.spec.ts` (Playwright, sans IA : ordre, filtres, motif exigé, « Approuver » ÉCRIT l'étape en base et la
+  carte disparaît au rechargement, « Vu » marque la notification lue, 390 px sans débordement, porte depuis le bureau).
+
 ### Fabrique de documents — devis, bons de commande, factures et dossiers à trois formats (`src/lib/artifact/factory/`)
 
 **Ce que ça permet.** « Fais-moi un devis Adventum pour la Pharmacie Centrale : 100 boîtes d'Amoxicilline à 250 DA,
@@ -3125,6 +3223,15 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Excel God Mode — lire, vérifier, expliquer, comparer** | `lib/artifact/sheets/reader.ts` (lecteur natif en flux : fflate + TextDecoder en flux, formules partagées traduites, résultats typés, 1,2 M de cellules en 3,5 s) ; `formula.ts` (analyseur Pratt, A1 ↔ R1C1, `decaler`, `traduireFormulePartagee`) ; `graph.ts` (`construireGraphe`, `rayonImpact`, `precedentsDirects`, Kahn à tête d'index) ; `evaluate.ts` (`recalculer`, `evaluerFormule`, ~100 fonctions + `ALIAS_FR`, `nonCalculees` / `nonVerifiees`) ; `audit.ts` (`auditerClasseur`, 16 codes de constat, `resumerAudit`) ; `diff.ts` (`comparerClasseurs` : alignement patience + R1C1 + plages ajustées) ; `build.ts` (`construireClasseurVerifie` : spécification → xlsx relu, recalculé, valeurs écrites, audité) ; `analyse.ts` (façade : `analyserClasseur`, `tracerCellule`, `comparerFichiersXlsx`, `lirePlage`) ; pont `platform/in-process/artifact/sheets.ts` (droits par le port, cache borné en cellules) ; outils `lib/assistant/office-capabilities.ts` (`sheet_audit`, `sheet_trace`, `sheet_diff`, `sheet_read`) ; banc `scripts/bench/sheets-bench.ts` (`npm run sheets:bench`). |
 | **Word / PowerPoint / PDF à grande échelle** | `lib/artifact/adapters/docx/adapter.ts` (`marquesDePage`, `estimerPages`, `niveauDeTitre` : page de chaque paragraphe, `paginationSource`, `plan`) ; `commands/resolve.ts` (`cible.page` : rang dans la page, texte dans la page) ; `adapters/pptx/adapter.ts` (`ajouterDiapo`, `enregistrerDiapo`) ; `decks/build.ts` (`construireDeckVerifie`, `verifierSpecDeck`) ; `pdf/read.ts` (`lireTextePdf`, `chercherDansPdf`, `planPdf`, `extrairePages`, `plagePages`) ; `versions/diff.ts` (`alignerSequences`, `fragmentModifie`) ; `qa/checks.ts` (`controlerAvantLivraison`) ; `runtime/engine.ts` (`controlerSession`) ; pont `platform/in-process/artifact/documents.ts` (`lirePdfDrive` avec OCR borné, `construireDeckDrive`) et `office.ts` (`controlerDocument`, `inspecterDocument`) ; outils `lib/assistant/office-capabilities.ts` (`pdf_read`, `deck_build`, gestes `controler` / `inspecter`). |
 | **Fabrique de documents — devis, BC, factures, dossiers à trois formats** | `lib/artifact/factory/lettres.ts` (`nombreEnLettres`, `montantEnLettres`) ; `commercial.ts` (`calculerTotaux`, `verifierSpecCommerciale`, `formaterNumero`, `empreinteDocument`, `TIMBRE_FISCAL`, `NATURE_LEGALE`) ; `word.ts` (`paragraphe`, `tableau`, `composerDocx` avec papier en-tête conservé à l'octet près, `papierEnTeteDeDemonstration`) ; `build.ts` (`blocsCommerciaux`, `construireDocumentCommercial` : compose, relit, contrôle) ; `canonical.ts` (`evaluerFormuleLigne`, `calculerTableau`, `verifierSpecCanon`, `versClasseur` / `versDeck` / `versDocument`, `verifierCoherence`) ; `dossier.ts` (`construireDossier`) ; pont `platform/in-process/artifact/factory.ts` (`emettreDocumentDrive`, `reviserDocumentDrive`, `profilDocumentaire`, `definirProfilDocumentaire`, `construireDossierDrive`, compteur `DocumentSequence` atomique) et `factory-access.ts` (`peutEmettrePieces`) ; outils `document_build`, `document_profile`, `dossier_build` ; modèles `CompanyDocumentProfile`, `DocumentSequence` ; banc `scripts/bench/factory-bench.ts` (`npm run factory:bench`). |
+| **Boîte de décision (Executive Inbox)** | `lib/assistant/inbox/model.ts` (genres, urgence, ordre, recommandations, `estGesteValide`) ; `platform/in-process/inbox/compose.ts` (`composerInbox` : huit files mesurées) ; `platform/in-process/inbox/actions.ts` (`agirSurCarte` → actions canoniques) ; `components/chief/inbox/inbox-view.tsx` ; page `(chief)/chief-of-staff/inbox` ; porte dans `chief-home.tsx` ; `e2e/inbox.spec.ts`. |
+| **Provenance au niveau du fait (F8)** | `lib/fabric/provenance.ts` (vocabulaire `FaitSource`, `extraireFaits`, `faitCalcule`, `repondreProvenance`, `resumerFait`) ; `lib/fabric/provenance-store.ts` (`consignerProvenance`, `relireProvenance`, `repondreDouTuTiensCa`) ; pont `platform/in-process/fabric/provenance.ts` ; `voice/fast-path.ts` (forme `PROVENANCE`) ; `assistant.ts` (branche déterministe, `lectures`, `avecProvenance`, `sourcesDuResultat`) ; entrées `api/assistant/stream/route.ts`, `actions/assistant-actions.ts`, `api/assistant/voice/tool/route.ts` ; `executive-read-tools.ts` (`finance_totals._provenance`) ; migration `20261022090000_provenance_faits` ; `e2e/provenance.spec.ts`. |
+| **Qualité des données (§23)** | `lib/quality/model.ts` (vocabulaire pur : familles, criticités, résolutions, clés de rapprochement, e-mails, médiane) ; `rules.ts` (catalogue de 23 règles + détecteurs Prisma bornés) ; `engine.ts` (`balayerQualite`, `balayageQualiteSiDu`, `derniersBalayages`) ; `fix.ts` (correcteurs — liste fermée, audit) ; `read.ts` (`lireConstats`, `compterConstats` sous les droits) ; `decide.ts` (`corrigerConstat`, `ignorerConstat`, `rouvrirConstat`) ; pont `platform/in-process/quality/{index,actions}.ts` ; outil `assistant/quality-tools.ts` (`data_quality`, domaine `QUALITE`) ; cartes dans `platform/in-process/inbox/compose.ts` ; écran `app/(app)/admin/qualite/` ; migration `20261023090000_data_quality` ; `quality/engine.test.ts` (banc d'anomalies plantées). |
+| **Bac à sable d'exécution (§25)** | `lib/sandbox/analyse.ts` (opérations pures), `pipeline.ts` (`appliquerEtapes` : la spec du modèle compilée, refus dits), `viz.ts` (`recommanderGraphique`, `verifierGraphique`), `sql.ts` (`executerSqlLectureSeule` : forme → plan → transaction READ ONLY + rôle → volume ; `verifierVerrouLectureSeule`), `js.ts` (`executerJs` : fil + vm au contexte vide), `python.ts` (`sonderPython`, `executerPython` : processus `-I`, limites noyau) ; pont `platform/in-process/sandbox/index.ts` (`lireLignesDrive` sous `canViewDrive`, `journaliserSql`, `aVueGlobale`) ; outils `assistant/sandbox-tools.ts` (`sql_query` gardé par la vue globale, `run_analysis`, `run_code`, `chart_advice`) ; routeur : domaine `DATA` + `QueryRoute.secondaires` + `consigneCalcul` ; résolveur d'outils : domaines secondaires ; migration `20261024090000_sandbox_role` (rôle `amd_sandbox_ro`, best-effort) ; tests `sandbox/*.test.ts`, `assistant/sandbox-tools.test.ts` ; défis live `defi-sql-comptage`, `defi-analyse-serie`, `defi-scenario`, `defi-graphique`, `defi-code-python`, `defi-sql-refus` ; spec live « le bac à sable dans l'UI ». |
+| **Registre de marque (§26)** | `lib/brand/model.ts` (`Marque`, `validerMarque`, `lireMarque`, `charteDe`, `mentionsDe`, `signatairePour`, `resumerMarque`) ; pont `platform/in-process/brand/index.ts` (`marqueDe`, `definirMarque`, `definirLogo`, `logoOctets`, `marqueEtCharte`) ; application dans `platform/in-process/artifact/factory.ts` (`profilDocumentaire.marque/charte/habillage`, `specDepuisDemande`, `construireDossierDrive`) et `lib/artifact/factory/{word,build,dossier}.ts` (`logo`, `police`) ; outil `assistant/office-capabilities.ts` (`document_profile.marque`) ; écran `app/(app)/admin/marque/`, actions `lib/actions/brand-actions.ts`, route `api/marque/[companyId]/logo` ; routeur : vocabulaire de la marque dans `LEGAL` ; tests `brand/model.test.ts`, `in-process/brand/brand.test.ts`, `e2e/marque.spec.ts`, défi `defi-marque`. |
+| **Intelligence métier (§27)** | `lib/utils/signaux.ts` (socle : `Signal`, gravités, `trierSignaux`, `resumerSignaux`, `graviteParJours`), `lib/legal/clauses.ts` (pur : `extraireClauses`, `obligationsDe`, `comparerClauses`, `risquesDe` — durée, reconduction tacite, préavis, exclusivité, pénalités, résiliation, paiement, confidentialité, droit applicable, chaque clause avec son extrait et sa confiance), `lib/finance/intelligence.ts` (pur : `santeBudget`, `signauxBudget`, `justificatifsManquants`, `echeancesPaiement` selon la nature FIXED/IMPORTANT/MODERATE), pont `platform/in-process/intelligence/index.ts` (`signauxLegal` sous `companyScopedWhere` + `legalReaderWhere`, clauses depuis `custom.intelligence` ou `DriveTextIndex` à la volée — 12 au plus ; `signauxFinance` sous BUDGETS/FINANCES : enveloppes via `getBudgetOverview`, ordres `requiresInvoice` sans facture, demandes de paiement par échéance, factures sans BC, BC sans facture, écart facture/BC via `amountDrift` ; `signauxRegulatory` sous `regulatoryVisibleWhere` : étapes bloquées/en retard, pièces manquantes, dépôt cible, partenaire en retard, réponse à l'agence attendue, sans activité ; espace CTD sous `regCan("regulatory.finding.view")` : `submissionReadiness`, réserves OPEN, fournisseurs SENT, obligations ; `intelligenceComplete` ; `mettreEnCacheClausesSiDu` dans le battement), outils Adam `assistant/intelligence-tools.ts` (`regulatory_intelligence`, `legal_intelligence`, `finance_intelligence` — `allowed` = même porte que l'écran, `_blocs` tableau, `_provenance` calcul), boîte de décision : source `intelligence` (état chaud 10 min, signaux CRITIQUE/HAUTE, 5 au plus, cartes REVIEW « Ouvrir la fiche » / « Demander à Adam ») |
+| **Spécialistes et calibration (§29)** | `lib/assistant/confidence/calibrate.ts` (pur : `Certitude` CERTAIN / PROBABLE / HYPOTHESE / MANQUANT / CONTRADICTION → `Conduite` AGIR / VERIFIER / CHERCHER / DEMANDER / ARBITRER ; `certitudeDuFait` depuis la base et la confiance d'un fait F8 — une lecture de modèle ou le web n'est jamais certaine —, `contradictionsDe` (même libellé, deux valeurs), `manquantsDe` (ancres de la question sans fait), `calibrer` (le maillon faible gouverne), `enjeuDe`), `confidence/tour.ts` (`calibrerTour` : le résultat du tour porte `calibration`, la trace la dit, une proposition sous MANQUANT / CONTRADICTION reçoit un avertissement AVANT confirmation), `lib/assistant/specialists/registry.ts` (neuf spécialistes définis, `actif` seulement après mesure : Regulatory, Legal, Finance ; Data, Recherche, Documents, Excel, Web, Contrôle inactifs et le disent), `specialists/run.ts` (`deleguer` : worker éphémère, liste FERMÉE d'outils de lecture ∩ ceux de la personne, `maxTours`, délai, chaque outil par `executeReadTool` et tracé `recordTool`, rapport calibré depuis ses faits), `specialists/tools.ts` (`consult_specialists` : 1 à 4 demandes en parallèle, `specialiste:<id>` dans la trace du tour, `_provenance` fusionnée, `ADAM_SPECIALISTS=off` pour mesurer sans) ; résolveur : les outils du geste de surveillance passent toujours quand la phrase le demande (`estDemandeDeSurveillance`), les écritures du domaine principal devant ses lectures au niveau B |
+| **Voix, multimodal, mobile (§30)** | Voix : `assistant/voice-realtime.ts` (`realtimeToolsFor` = `assistantToolsFor`, LE MÊME registre et les MÊMES droits que le texte ; `delegate_to_chief_of_staff` fait tourner l'orchestrateur texte complet avec l'historique du fil), `api/assistant/voice/tool` (chaque appel d'outil revient sur le serveur authentifié, `executePowerTool` revérifie), `voice/turn` (`rememberExchange` sur le même `threadId` : voix → clavier → Excel, un seul fil). Multimodal : `platform/in-process/media/index.ts` (pont : `ocrDocument`, `callLuna`), `lib/assistant-files.ts` (`lireImageOuScan` : image ou scan → OCR réel Tesseract local avec secours vision sur les pages faibles, puis LECTURE VISUELLE Luna (type de pièce, texte, chiffres, lisibilité, alertes) quand le texte est mince ou de faible confiance ; la note dit la méthode, la confiance, le temps, et « PROBABLE, chiffres à confirmer » — elle VOYAGE avec le texte jusqu'au modèle ; usage Luna compté dans le tour), `buildAttachmentContext` (la note accompagne le texte). Mobile : `components/chief/inbox/inbox-view.tsx` (`data-etat` sur la carte : repos / en_cours / fait / erreur — l'état optimiste est posé de façon SYNCHRONE au toucher), `e2e/inbox.spec.ts` (390 px : retour visuel mesuré dans la page < 150 ms, puis l'écriture serveur). Banc : `assistant-files.multimodal.test.ts` (2, PNG rendu par sharp → OCR sans modèle), défi live `defi-multimodal-facture` (une photo de facture jointe au tour, par le MÊME chemin que le navigateur : fournisseur, numéro et TTC lus, dits probables, jamais « FAIT VÉRIFIÉ ») |
+| **Résolution d'entités (F9, §24)** | `lib/fabric/entites-score.ts` (scoreur pur : `scorerNom`, `trancher`, `detecterIdentifiant`, `questionDeDesambiguation`) ; `lib/fabric/entites.ts` (`resoudreEntite`, `resoudreMentions`, `contexteEntitesResolues` — dix natures, trigramme) ; pont `platform/in-process/fabric/entites.ts` ; `assistant.ts` (`resolvePerson` par la brique, bloc d'entités résolues dans le contexte du tour) ; `fabric/entites.test.ts` (banc de 60 mentions). |
 | **Teach Adam — règles enseignées** | `lib/teach/model.ts` (natures, périmètres, statuts, `KINDS_CONTRAIGNANTS`) ; `classify.ts` (`classerEnseignement`, `extraireParametres`) ; `resolve.ts` (`estApplicable`, `comparerPrecedence`, `resoudre`, `conflitsAvecExistantes`, `cleDe`) ; `compose.ts` (`composerBlocRegles`, `lignesPourPlanificateur`) ; pont `platform/in-process/teach/store.ts` (`enseigner`, `listerRegles`, `modifierRegle`, `changerStatutRegle`, `reglesEnVigueurPour`, `contexteRegles`, `politiquesPourMission`, `standardsDocumentaires`) ; outils `lib/assistant/teach-tools.ts` (`teach_adam`, `list_rules`, `update_rule`, `disable_rule`, `delete_rule`) ; garde `missions/policy/guard.ts` ; modèle `AdamRule`. |
 | **Adam — la coque de son bureau (et sa porte de sortie)** | Groupe de routes `app/(chief)/layout.tsx` : coque délibérément VIDE — ni menu latéral, ni barre supérieure, ni barre d'onglets, ni palette, ni bandeaux. `components/chief/{chief-workspace,chief-header,chief-home}.tsx` + `app/chief.css` (jeu de jetons `--chief-*` propre à Adam). **La sortie** : `components/chief/module-switcher.tsx` — une icône dans l'en-tête ouvre la liste des modules que CETTE personne peut ouvrir (champ de filtre, groupé par pôle, Échap / clic dehors referment). Les destinations arrivent par le **contrat de plateforme** (`navigation.destinations` → `in-process/adapter.ts` → `lib/nav-access.ts`), jamais par un import du menu de l'ERP : c'est ce qui garde le cliquet de frontière à 430. Le même `navigationFor` sert la barre latérale de l'ERP — une seule vérité sur « qui a le droit d'aller où ». Tests : `platform/navigation-destinations.test.ts` (dont : une entrée fusionnée mène au premier onglet AUTORISÉ, donc `/ad-pro` pour l'admin et `/congress-international` pour le délégué médical). |
 | **Adam — espace de travail génératif** | `lib/assistant/workspace/protocol.ts` (types de blocs + `WORKSPACE_LIMITS`) ; `compose.ts` (`composeWorkspace` — table de correspondance **fermée** : un outil absent ne compose RIEN, le repli est le texte ; plus la porte `_blocs`, **revalidée champ par champ**, par laquelle une lecture déclare ce qu'elle montre) ; `sheet.ts` (classeur → lignes, ExcelJS, **sans dépendance ERP**) ; `emit.ts` (helpers **purs** de composition : gestes, retards, métriques de charge, étapes) ; `components/chief/workspace/blocks.tsx` + `blocks.css` (feuille autonome à valeurs de repli : les blocs servent aussi `/assistant`, qui ne charge pas `chief.css`) ; `preview-planche.tsx` (la planche de revue visuelle, servie par `/chief-of-staff?apercu=blocs` **uniquement** si `ADAM_BLOCK_PREVIEW=1` — elle n'a pas d'adresse en production). Blocs : `people` (fiche riche : statut, métriques, coordonnées avec provenance), `directory`, `mail`, `agenda`, `queue` (**avec ses boutons Approuver / Refuser**), `record`, `table` (**gestes par ligne**, cartes empilées sur mobile), `timeline`, `progress` (jauges), `document` (PDF, image, feuille), `dossier` (faits + frise de circuit + pièces + participants + activité), `email` (le message avant l'envoi). Événement de flux `{ type: "workspace" }` ; stocké sur le message dans `assistant-chat.tsx`, qui fournit `WorkspaceAskProvider` — un clic écrit une phrase dans la conversation, il n'exécute rien. La prop `canvas` (défaut **faux**) rend le tour d'Adam **sans bulle** ; `/assistant` reste inchangé. |
@@ -3307,9 +3414,149 @@ l'ERP, et la racine de composition du runtime (`boundary-scan.ts` l'exempte, par
 | `e2e.test.ts` `memory.test.ts` `commitments.test.ts` `relance.test.ts` `situation.test.ts` `attention.test.ts` `launch-resilience.test.ts` `autonomous-dedup.test.ts` `message-wake.test.ts` `branche-conditionnelle.test.ts` `watch.test.ts` `evenement-anterieur.test.ts` | Les bancs de bout en bout, depuis les vrais points d'entrée |
 | `crash-matrix.test.ts` `permission-matrix.test.ts` `donnees-modifiees.test.ts` | Les MATRICES et le CHAOS : le crash à chaque frontière d'étape (5/5 reprises, 0 doublon) ; permissions × capacités × confirmation sur le vrai catalogue de tous les rôles ; la cible qui disparaît en cours de mission (rien ne part, la mission ne conclut pas, le dirigeant est prévenu une fois) |
 
+### Le bac à sable d'exécution (`src/lib/sandbox/`) — domaine (mandat 4 §25)
+
+Adam CALCULE, il n'affirme pas. Quatre briques, une frontière : rien ici n'écrit. Le SQL est en
+lecture seule et borné à une liste blanche relue dans le PLAN d'exécution ; le JavaScript tourne
+dans un fil isolé au contexte vide ; le Python dans un processus aux limites posées par le noyau,
+et il est déclaré absent quand il l'est ; les opérations d'analyse sont pures et fermées ; la
+visualisation recommande et DIT ce qui tromperait. Les droits ne vivent pas ici : le SQL exige la
+vue globale (vérifiée dans `sql.ts`), et les données d'entrée du code arrivent d'une lecture
+canonique (`executePowerTool` revérifie), d'un fichier du Drive (`canViewDrive`, nœud par nœud,
+dans le pont) ou d'une requête SQL. Une lecture SQL libre s'inscrit à l'audit sous un nom — un
+refus aussi.
+
+| Fichier | Rôle |
+|---|---|
+| `analyse.ts` | Les opérations PURES : lecture des nombres à la française (espaces fines, virgule, devise) et des dates, `decrire`, `regrouper` (count/sum/avg/min/max/median/p90/distinct, valeurs ignorées DITES), `croiser`, `filtrer`, `trier` (illisibles toujours en dernier), `serie` (mois vides comblés), `moyenneMobile`, `croissance` (null sur base nulle), `cumul`, `tendance` (pente, R²), `rang`, `anomalies` (z robuste médiane/MAD, n ≥ 8), `cohortes` (rétention), `scenario` (hypothèses dites, base intacte) |
+| `pipeline.ts` | La spec d'un modèle COMPILÉE en étapes fermées : `appliquerEtapes` relit chaque champ, applique ce qui est valide dans l'ordre, et NOMME ce qu'il refuse (opération inconnue, colonne absente — avec les colonnes réelles, agrégat inexistant) sans arrêter le lot ; 16 opérations, 20 étapes au plus, mode d'emploi rendu au modèle |
+| `viz.ts` | Le bon graphique pour la FORME des données et l'INTENTION de la question (courbe, barres, barres empilées, secteurs ≤ 6 parts, nuage, histogramme, cascade, tableau) avec la raison ; `verifierGraphique` signale ce qui TROMPE : axe tronqué sur des barres, camembert à trop de parts / négatif / pas un tout, double axe, 3D, log non dit, cumul non dit, trop de séries, courbe sans temps ou à deux points |
+| `sql.ts` | Le SQL en LECTURE SEULE : quatre verrous — la FORME (un SELECT/WITH, sans point-virgule ni commentaire, fonctions système refusées), le PLAN (`EXPLAIN (FORMAT JSON)` avant l'exécution, chaque relation dans la liste blanche — une table sensible cachée dans une CTE ou un alias n'échappe pas), la TRANSACTION (`READ ONLY`, `statement_timeout`, rôle `amd_sandbox_ro` pris quand il existe, l'isolation OBTENUE dite dans la réponse), le VOLUME (LIMIT imposé, colonnes sensibles masquées même renommées). Réservé à la vue globale. `verifierVerrouLectureSeule` tente une écriture dans la transaction même du bac et exige qu'elle échoue — mesuré, pas supposé |
+| `js.ts` | Le JavaScript isolé : `worker_threads` avec `env: {}` et `resourceLimits`, `vm` au contexte VIDE (`data` recopié par JSON, `lib` définie dans le fil, `console.log` borné), génération de code depuis une chaîne interdite, délai dur, résultat ≤ 1 Mo ; la forme refuse `require`, `process`, `globalThis`, `import(`, `eval(`, `Function(` en nommant le mot |
+| `python.ts` | Le Python isolé, MESURÉ : `sonderPython` constate python3 (version, modules de calcul présents) ou dit pourquoi il manque ; processus `-I`, environnement réduit, limites noyau posées avant la première ligne (mémoire, CPU, taille de fichier 0 = aucune écriture, processus 0 = aucun fork), SIGKILL au délai, résultat sur un descripteur séparé des `print` ; la forme refuse fichiers, réseau, système |
+| `index.ts` | La façade ; le pont `platform/in-process/sandbox/` porte `lireLignesDrive` (CSV/TSV/XLSX/XLSM, en-têtes dédoublonnés, cellules typées, un nom ambigu rend les CANDIDATS), `journaliserSql` (audit) et `aVueGlobale` |
+| `analyse.test.ts` `pipeline.test.ts` `viz.test.ts` `js.test.ts` `python.test.ts` `sql.test.ts` | 12 + 12 + 9 + 7 + 7 + 9 tests : opérations, compilation des étapes (refus dits), pièges de visualisation, échappatoires JS fermées (sonde `proc\u0065ss` qui contourne la forme pour éprouver le vm), délais durs, Python sauté — pas vert par défaut — quand il manque, et sur la vraie base : table sensible refusée par le plan (directe, CTE, alias), écriture impossible (forme puis sonde du verrou), masquage, troncature, délai, CTE + fenêtre + agrégat par mois |
+
+Côté Adam (`lib/assistant/sandbox-tools.ts`, domaine `DATA` du routeur) : `sql_query` (vue globale, audité, tableau composé par le code, provenance de calcul F8), `run_analysis` (source = lecture canonique / `outil` de lecture / fichier Drive / SQL / lignes fournies — une écriture nommée comme source est refusée), `run_code` (JS ou Python sur les mêmes sources), `chart_advice` (recommande et juge une spec). Le vocabulaire sans ambiguïté (SQL, graphique, cohorte, scénario, médiane…) fait de `DATA` le domaine principal ; le vocabulaire large (analyse, calcule, tendance, par mois…) l'ouvre en domaine SECONDAIRE sans détrôner le métier de la question (`QueryRoute.secondaires`, repris par le résolveur d'outils), et la consigne `consigneCalcul` rappelle au modèle que tout chiffre dérivé sort d'un outil — jamais de tête.
+
+### Le registre de marque (`src/lib/brand/` + `platform/in-process/brand/`) — mandat 4 §26
+
+Ce qu'une société DIT d'elle-même sur chaque pièce émise en son nom, et que la fabrique applique
+d'elle-même : couleur d'accent et secondaire, polices des titres et du texte, logo, coordonnées
+telles qu'elle veut les imprimer, mentions légales de pied de page, qui signe quoi (par type de
+pièce). Le profil documentaire (préfixes, TVA, validité, papier en-tête, signataire) en était la
+fondation ; la marque vit dans son `settings.marque` — prévu « extensible sans migration » — et
+la **charte effective** tranche : marque > pastille de la société > défauts de la maison, avec
+les alertes de contraste WCAG calculées (un accent trop pâle sur blanc, un texte illisible dans
+un en-tête de tableau).
+
+| Fichier | Rôle |
+|---|---|
+| `brand/model.ts` | PUR, sans import : `Marque`, `validerMarque` (modification partielle appliquée champ par champ, refus NOMMÉS — couleur non hexadécimale, police hors des polices sûres acceptée mais dite, e-mail invalide, type de pièce inconnu, plus de huit mentions), `lireMarque` (tolérant : un JSON étranger revient à vide), `charteDe` (accent effectif + origine + contraste), `mentionsDe` (coordonnées choisies sinon carte Legal, puis mentions libres — jamais une identité inventée), `signatairePour` (type > défaut > profil), `resumerMarque` |
+| `in-process/brand/index.ts` | Le pont : `marqueDe` (qui voit la société lit), `definirMarque` (`peutReglerMarque` = Direction ou papeterie, audit au nom de la personne, refus rendus), `definirLogo` (PNG ou JPEG 2 Mo au plus, octets VÉRIFIÉS contre le type déclaré, SVG refusé — Word ne l'insère pas sans conversion — stockage chiffré du Drive), `logoOctets`, `marqueEtCharte` |
+| `artifact/factory.ts` (pont) | `profilDocumentaire` PORTE `marque`, `charte`, `resumeMarque` et un `habillage` (papier en-tête, sinon police et logo) ; la spec d'une pièce prend l'accent de la charte, les mentions de la marque et le signataire du type ; `emettre`, `reviser` et `construireDossierDrive` passent l'habillage à la fabrique |
+| `artifact/factory/word.ts` | `composerDocx` accepte un `logo` : dans un paquet NEUF, un en-tête de page (`header1.xml`, image en ligne à la largeur voulue, proportions lues dans les octets PNG/JPEG) ; avec un papier en-tête, rien n'est injecté — le papier porte le sien |
+| `assistant/office-capabilities.ts` | `document_profile` lit et RÈGLE aussi la marque (`marque: {…}`), rend `charte` et `resumeMarque` ; « quelle est notre charte ? », « couleur d'accent #0B6E4F », « les devis sont signés par… » |
+| `app/(app)/admin/marque/` + `actions/brand-actions.ts` + `api/marque/[companyId]/logo` | L'écran Administration › Marque & modèles : une carte par société (accent, polices, logo, résumé, alertes), le formulaire de la charte et le dépôt du logo pour qui tient la papeterie, lecture seule pour les autres ; l'aperçu du logo servi sous le droit de voir la société |
+| `brand/model.test.ts` (10) · `in-process/brand/brand.test.ts` (4, sur base) · `e2e/marque.spec.ts` (4) · défi live `defi-marque` | Validation et contraste ; refus sans papeterie, modification partielle relue, audit, devis construit avec l'accent dans les styles + mention + signataire du type dans le texte, SVG refusé / PNG dans l'en-tête ; l'écran de bout en bout (Direction lit, assistante règle, relecture après rechargement, alerte de contraste, logo déposé/affiché/retiré, 390 px sans débordement) ; en conditions réelles : « règle la charte d'Adventum… » puis « fais-moi un devis Adventum… » → le fichier Word porte l'accent, la mention et la signataire |
+
+**Ce qui n'est pas prétendu** : le logo de marque n'entre que dans les pièces SANS papier en-tête (un papier déposé fait foi) ; les livrables de mission (`missions/artifacts`) gardent leur thème propre ; un modèle Word/Excel/PowerPoint de la société reste un papier en-tête déposé (`OfficeLetterhead`), la marque ne le régénère pas.
+
+### L'intelligence métier (`src/lib/legal/clauses.ts`, `src/lib/finance/intelligence.ts`, `platform/in-process/intelligence/`) — mandat 4 §27
+
+Regulatory, Legal et Finance produisent des **signaux** de la même forme (`src/lib/utils/signaux.ts`,
+socle sans import) : un code, une gravité (critique / haute / normale / basse), un titre, un détail,
+une échéance, un montant, l'entité, sa fiche, ce qu'il y a à FAIRE — et **le calcul en clair**
+(« 62 % consommé à 50 % du temps », « fin 2027-03-31 − préavis 6 mois = 2026-09-30 »). Sans calcul
+lisible, un signal est une opinion, et Adam n'en a pas.
+
+| Où | Ce que ça fait |
+|---|---|
+| `legal/clauses.ts` (pur) | Lit un contrat FRANÇAIS phrase par phrase : durée, reconduction tacite (et sa période), préavis, exclusivité (et son territoire, ou son absence), pénalités (taux, période, plafond), résiliation, paiement, confidentialité après terme, non-concurrence, garantie, droit applicable, responsabilité. Chaque clause porte son **extrait** (la preuve), sa position et sa confiance (SURE / PROBABLE / A_VERIFIER — un mot-clé sans valeur est signalé, jamais complété). `obligationsDe` date les obligations depuis la FIN du contrat (dénonciation = fin − préavis, exclusivité au terme, confidentialité après), `comparerClauses` compare un avenant en VALEURS (36 → 60 mois, pénalité modifiée, exclusivité retirée), `risquesDe` nomme les risques (pénalité sans plafond, tacite sans préavis, droit étranger, responsabilité illimitée). |
+| `finance/intelligence.ts` (pur) | `santeBudget` : rythme consommé vs calendrier, projection linéaire d'atterrissage (jamais sous 5 % du temps écoulé : SANS_RYTHME), écart projeté ; `signauxBudget` : dépassement (critique), rythme à risque (haute au-delà de 20 % d'écart projeté), catégorie dépassée, prévision incohérente (sous le réel) ou optimiste ; `justificatifsManquants` : ordre réglé sans la facture exigée (haute), à régler (normale) ; `echeancesPaiement` : la gravité dépend de la NATURE de l'échéance (date imposée critique une semaine avant, importante trois jours avant, modérée la veille), en retard = critique si imposée. |
+| `in-process/intelligence/index.ts` | Le pont, sous les droits : **Legal** — engagements ACTIFS visibles (entité + lecteurs désignés), clauses depuis la réserve `custom.intelligence` ou, à défaut, depuis `DriveTextIndex` à la volée (12 au plus par lecture, les plus proches de leur échéance d'abord), signaux `contrat_echu_actif`, `contrat_echeance`, `denonciation_a_decider`, `reconduction_acquise`, `tacite_sans_preavis`, `obligation_*` (dès que la fin entre dans l'horizon, tant qu'elles courent), `risque_*`, `avenant_clauses_modifiees`. **Finance** — enveloppes (8 au plus) via `getBudgetOverview`, ordres `requiresInvoice` sans facture chaînée (`LegalDocument.expenseOrderId`), demandes de paiement et ordres PENDING par échéance, `facture_sans_bc`, `bc_sans_facture`, `ecart_facture_bc` (> 10 %, haute > 25 %). **Regulatory** — dossiers ouverts visibles : `dossier_bloque`, `etape_bloquee`, `etape_en_retard` (jours dits), `pieces_manquantes`, `depot_en_retard` / `depot_proche`, `fournisseur_en_retard` / `fournisseur_echeance` (échéance externe), `reponse_attendue` (frise sans réponse après réserves), `dossier_sans_activite` (60 j) ; espace d'analyse CTD (sociétés activées, `regCan("regulatory.finding.view")`) : `bloqueurs_soumission` (`submissionReadiness`, 25 dossiers au plus), `reserves_sans_reponse`, `fournisseur_sans_reponse` / `relance_fournisseur`, `obligation_en_retard` / `obligation_echeance`, `dossier_en_erreur`. `intelligenceComplete` lit les trois ; `mettreEnCacheClausesSiDu` relit une fois par jour, dans le battement, les clauses des engagements dont le texte indexé a changé. Les jours sont **signés par troncature** : « il y a 15 j » ne devient jamais 16 à minuit passé de quelques heures. |
+| `assistant/intelligence-tools.ts` | `regulatory_intelligence`, `legal_intelligence`, `finance_intelligence` — `allowed` = la porte de l'écran (REGULATORY / LEGAL / FINANCES ou BUDGETS en lecture), filtres `gravite`, `code`, `filtre`, `horizonJours`, sortie : résumé chiffré, `parCode`, portée lue (« rien à signaler » a un dénominateur), limites dites (sans droit, sans texte, à la volée), signaux avec calcul et fiche, `_blocs` tableau, `_provenance` du calcul. Domaines de la shortlist : REGULATORY / LEGAL / FINANCE. |
+| `in-process/inbox/compose.ts` | Dixième source `intelligence` : les signaux CRITIQUE/HAUTE des trois lectures (mode léger : pas d'extraction à la volée, 3 enveloppes, 5 readiness), en **état chaud** dix minutes, cinq cartes REVIEW au plus — « Ouvrir la fiche », « Demander à Adam » (la phrase porte le titre du signal). |
+| `scheduled.ts` | `mettreEnCacheClausesSiDu()` après le balayage qualité : la réserve des clauses, jamais dans une requête. |
+| `legal/clauses.test.ts` (8) · `finance/intelligence.test.ts` (7) · `in-process/intelligence/intelligence.test.ts` (6, sur base : contrat déposé et indexé → dénonciation = fin − 6 mois, risque sans plafond, confidentialité ; ordre réglé sans facture HAUTE ; date imposée à 3 j CRITIQUE ; étape en retard de 40 j HAUTE ; porte VIEWER vide ; réserve idempotente ; outils avec `_blocs` et provenance) · défis live `defi-legal-clauses`, `defi-finance-signaux`, `defi-regulatory-signaux` (la date de dénonciation, les références et montants du décor, le retard de 40 j et la pièce CPP doivent être DITS) | Le banc. |
+
+**Ce qui n'est pas prétendu** : les clauses sont lues par des motifs FRANÇAIS déterministes — un
+contrat en anglais, un scan sans texte ou une clause formulée autrement rendent « sans texte » ou
+A_VERIFIER, jamais une valeur devinée ; une enveloppe sans prévision déclarée n'a pas de signal de
+prévision (le rythme seul est jugé) ; les dossiers CTD ne sont lus que pour les sociétés où l'espace
+d'analyse est activé. Aucun signal ne déclenche d'effet : relancer, dénoncer, régler restent des gestes
+humains ou des actions confirmées.
+
+### Les spécialistes et la calibration de confiance (`src/lib/assistant/specialists/`, `confidence/`) — mandat 4 §29
+
+**La calibration est arithmétique, et le maillon faible gouverne.** Chaque fait servi dans un tour
+porte sa base (structuré dans l'ERP, natif d'un document, OCR, lecture de modèle, web, calcul,
+déclaré par un outil) et sa confiance. `certitudeDuFait` en fait un état : CERTAIN (ERP, calcul,
+déclaré, confiance ≥ 0,85), PROBABLE (document, déduction), HYPOTHÈSE (mémoire d'un modèle, web,
+faible confiance — jamais plus que PROBABLE quoi qu'en dise le score). `calibrer` juge le lot : une
+CONTRADICTION (un même libellé, deux valeurs, deux outils) l'emporte sur tout, puis MANQUANT (une
+ancre de la question — montant, référence, nom — qu'aucun fait ne porte, ou rien de lu), puis le
+fait le plus faible du lot. Chaque état COMMANDE une conduite : agir, vérifier avant d'agir, chercher
+encore, demander à la personne, arbitrer. L'enjeu module à la marge (une question courte sans
+conséquence agit sur un probable). Le même vocabulaire que l'étiquette de réponse (FAIT VÉRIFIÉ /
+FAIT DÉRIVÉ / ESTIMATION / INCONNU) et que l'échelle des missions (TROUVÉ / DÉDUIT / CANDIDAT /
+INCONNU) — la table `EQUIVALENCES` le dit.
+
+| Où | Ce que ça fait |
+|---|---|
+| `confidence/calibrate.ts` (pur) | Le vocabulaire, `certitudeDuFait`, `contradictionsDe`, `manquantsDe`, `calibrer`, `enjeuDe`, `expliquerCalibration`. |
+| `confidence/tour.ts` | `calibrerTour` : à la fin d'un tour (les deux boucles), les faits F8 sont calibrés contre les ancres de la question ; le résultat porte `calibration`, la trace montre « Certitude : … → … », et toute action proposée sous MANQUANT ou CONTRADICTION reçoit un avertissement que la carte affiche AVANT confirmation. Le code le dit ; on ne compte pas sur le modèle. |
+| `specialists/registry.ts` (pur) | Neuf spécialistes : mission d'une phrase, liste FERMÉE d'outils de lecture, budget de tours et de sortie, `actif`, `benefice`, `quand`. Un spécialiste n'est offert au modèle qu'après une mesure POSITIVE au banc ; quatre ont été mesurés (négatif, voir ci-dessous), cinq attendent une mesure — tous définis et testés, aucun actif. |
+| `specialists/run.ts` | `deleguer` : un worker éphémère (rôle `worker`, sans réflexion) qui ne voit que ses outils ∩ ceux de la personne, jamais une écriture ; chaque appel d'outil repasse par `executeReadTool` (mêmes droits) et par `recordTool` (même trace) ; un outil hors périmètre est refusé sans être exécuté ; `maxTours` et un délai bornent, et un rapport incomplet le DIT ; ses lectures sont relues en faits et calibrées. |
+| `specialists/tools.ts` | `consult_specialists` : 1 à 4 demandes en parallèle, un rapport calibré par spécialiste (certitude, conduite, motif, outils, tours, ms, faits), `specialiste:<id>` dans la trace du tour, `_provenance` fusionnée pour « d'où tu tiens ça ? ». Fermé tant qu'aucun spécialiste n'est actif, fermé à un compte sans module ; `ADAM_SPECIALISTS=off` retire l'outil pour mesurer le tour sans lui. |
+| Banc | `calibrate.test.ts` (5), `specialists/registry.test.ts` (3), `specialists/run.test.ts` (3, modèle scripté) ; défi live `defi-specialistes` (un point qui croise contrat, finances et dossiers, jugé sur les faits du décor et sur une certitude dite), joué AVEC et SANS spécialistes. |
+
+**La mesure** : offert vs non offert, sur le banc live (bench-out, 2026-09-06). Point multi-domaines `defi-specialistes` (contrat + finances + dossiers), 2 × 2 tours : l'orchestrateur n'a JAMAIS délégué (0/4) — il appelle lui-même `legal_intelligence`, `regulatory_intelligence` et `finance_intelligence` dans la même vague (3 appels, 18 à 24 s, 0,05 à 0,11 $), et les faits sont justes dans les quatre cas. Trois documents à lire intégralement `defi-specialistes-documents`, 2 × 2 tours : 0/4 délégation, 2 appels, 10 à 11 s, 0,03 à 0,06 $, mêmes lectures avec ou sans. Aucun bénéfice mesurable — ni coût, ni latence, ni qualité : les capacités d'intelligence (§27) et le parallélisme des outils dans une vague font déjà le travail qu'un sous-agent ferait. Conclusion tenue par le code : AUCUN spécialiste n'est actif, `consult_specialists` n'est pas exposé tant qu'aucun ne l'est ; le mécanisme (registre, worker, trace, calibration) reste branché et testé, et s'active spécialiste par spécialiste sur une mesure POSITIVE (coût ou latence en baisse à qualité égale, ou qualité en hausse, sur un défi qui le déclenche).
+
+**Ce qui n'est pas prétendu** : la calibration classe des faits déjà lus, elle ne relit rien et ne
+tranche aucune contradiction — c'est le chantier §49 (vérification indépendante) qui recalcule ; les
+spécialistes inactifs ne sont pas « à venir », ils sont mesurables et attendent une mesure ; un
+spécialiste actif reste un appel de plus, et la description de l'outil dit quand il ne paie pas.
+
+### Voix omniprésente, multimodal, mobile exécutif — mandat 4 §30
+
+**La voix n'est pas un second Adam.** La session temps réel reçoit `realtimeToolsFor(user)`, construit
+depuis `assistantToolsFor` — le registre du texte, borné par les mêmes droits ; chaque appel d'outil
+revient sur le serveur authentifié (`api/assistant/voice/tool`) où `executePowerTool` revérifie le
+module ; une demande qui dépasse les lectures rapides est DÉLÉGUÉE à l'orchestrateur texte complet,
+avec l'historique du fil, et ses actions reviennent en propositions à confirmer à l'écran. Le tour
+vocal écrit dans le MÊME fil (`voice/turn` → `rememberExchange(threadId)`) : ce qu'on a dit à la voix,
+on le retrouve au clavier, et le classeur ouvert ensuite dans le canvas est le même. Missions,
+mémoire, règles enseignées, surveillances : un seul état, deux entrées.
+
+**Une image devient du texte, jamais une invention.** Une photo, un scan, une capture jointe au
+message passe par `lireImageOuScan` : l'OCR réel de la maison (Tesseract local, données de langue
+embarquées, secours vision Luna sur les pages faibles — le même moteur que l'ingestion
+réglementaire), puis, si le texte est mince ou de faible confiance (une photo, un tableau, un
+graphique, un manuscrit), une LECTURE VISUELLE par Luna qui rend le type de pièce, le texte lisible,
+les chiffres avec leur libellé, la lisibilité et des alertes — sous un schéma JSON, rien n'est
+complété. La note dit la méthode, la confiance et le temps, et surtout : « ce n'est pas un fait
+vérifié, à citer comme PROBABLE, chiffres à confirmer » — et cette note VOYAGE avec le texte jusqu'au
+modèle (`buildAttachmentContext`). La calibration (§29) fait le reste : un chiffre lu sur une photo
+n'est jamais CERTAIN. Le même chemin sert le banc (`piecesJointes` d'un défi) : `defi-multimodal-facture`
+joint une facture rendue en PNG et exige le fournisseur, le numéro et le TTC, dits probables. Une
+image devient une entrée de mission par la même porte : le contenu lu est dans le message, et
+l'objectif de la mission que le tour lance le porte.
+
+**Le téléphone répond avant le serveur.** La boîte de décision pose l'état « en cours » de façon
+synchrone au toucher (état optimiste) ; la carte l'expose (`data-etat`) et le test mobile de
+`e2e/inbox.spec.ts` mesure DANS la page, du clic au premier rendu, que le retour visuel arrive en
+moins de 150 ms — puis que l'écriture serveur suit (« fait » ou « erreur »). Parler, brief, alertes,
+approuver, répondre, ouvrir un document, commenter, assigner, suivre, source : chacun a sa porte
+mobile déjà mesurée à 390 px (chief-ui, chief-godmode, inbox, live).
+
+**Ce qui n'est pas prétendu** : l'OCR local lit des documents imprimés nets ; une photo de travers,
+un manuscrit difficile passent par la lecture visuelle du modèle, qui reste une HYPOTHÈSE ou un
+PROBABLE, jamais un fait ; l'audio et la vidéo (transcription, diarisation) sont le chantier §38.
+
 ### Information Fabric (`src/lib/fabric/`) — façade L2
 
-L'information vient à Adam ; Adam ne court plus après. Cinq briques DÉTERMINISTES (zéro appel
+L'information vient à Adam ; Adam ne court plus après. Six briques DÉTERMINISTES (zéro appel
 de modèle), consommées par les mêmes points d'entrée qu'avant — audit, décisions et mesures
 complètes : `docs/INFORMATION_FABRIC.md`.
 
@@ -3321,12 +3568,64 @@ complètes : `docs/INFORMATION_FABRIC.md`.
 | `mentions.ts` | Les liens document ↔ entité CANONIQUE, extraits à l'INGESTION (dictionnaire déterministe : produits DCI+marque, personnes nom complet, laboratoires) → table `EntityMention`. « Tout ce qui est relié à X » = une lecture d'index, et les ALIAS se franchissent (Keytruda ↔ pembrolizumab) |
 | `hot-state.ts` | Les états chauds PRÉCALCULÉS (`AssistantHotState`) : écriture au travers + TTL + invalidation par fait métier (4ᵉ conséquence de `recordEvent`) + coût MESURÉ persisté. `subjectId` est une clé de DROITS — jamais servi à un autre |
 | `bulk.ts` | Le loteur de lectures : N demandes logiques d'un même tour → K requêtes physiques (`findMany` découpé), mesure {logiques, physiques} par opération — affichée dans la couverture de `find_documents` |
+| `provenance.ts` | **La provenance au niveau du fait (F8)** : chaque fait servi dans un tour porte sa SOURCE (ERP, document, e-mail, fil, page PDF, cellule, pièce, réunion, personne, externe, calcul), sa **date propre**, l'instant de lecture, la confiance et son fondement (structuré / texte extrait / OCR / modèle), la fraîcheur (table vivante ou copie indexée), l'autorité et la preuve négative **du registre**, et l'outil — donc les droits — qui l'a lu. Extraction déterministe des sorties d'outils (liens internes seulement ; une adresse externe est citée, jamais suivie) + faits **déclarés** par les outils (`_provenance`, revalidés champ par champ). Un fait CALCULÉ (`faitCalcule`) porte ses entrées, la transformation, la formule, la date, et hérite de la **pire** confiance de ses entrées. `repondreProvenance` compose « D'où tu tiens ça ? » — par le code, jamais par un modèle |
+| `provenance-store.ts` | Table `AssistantProvenance` (migration `20261022090000`) : une ligne par tour (même vide : « je n'ai rien lu » est une réponse), cloisonnée par personne, relue en une requête indexée (six tours au plus) — **P95 mesuré 5 ms** en local ; rétention 30 jours |
+| `entites-score.ts` | **La résolution d'entités — le scoreur pur (F9)** : une mention → des candidats notés par épreuve décroissante (identique, sans générique ni forme juridique, ordre des mots, acronyme, sous-ensemble de jetons, faute de frappe bornée), puis TRANCHÉS : CERTAIN (haut et nettement devant, ou seul candidat qui DÉSIGNE), PROBABLE (dit comme tel), AMBIGU (la **question** qui distingue les candidats — jamais un choix à la place de la personne), INCONNU. Une ressemblance de frappe ne concurrence pas une désignation ; un identifiant n'a pas de concurrent |
+| `entites.ts` | **La brique qui LIT** : dix natures (personnes, sociétés, fournisseurs, produits, molécules, marques, hôpitaux, institutions, partenaires, médecins), trois passes bornées par nature — identifiant exact (e-mail, domaine, référence), nom (contenu), **trigramme** `pg_trgm` + `unaccent` pour les fautes —, alias marque ↔ DCI par la brique produits, molécules triées (« A + B » = « B + A »). **Aucune écriture** (test statique) : deux lignes qui se ressemblent sont une question ou un constat du moteur de qualité, jamais une fusion silencieuse. Banc réaliste : **60/60 mentions résolues, P95 12 ms** |
 | `scripts/fabric-bench.ts` | `npm run fabric:bench` — six voies dans le même run, sélectivité contrôlée, corpus étiqueté et nettoyé, ce qui n'est pas mesuré est dit |
 
 Consommateurs côté Adam : `assistant/hot-alerts.ts` (signaux exécutifs chauds, réchauffés au
 battement pour les dirigeants actifs), `assistant/source-map.ts`, `document-discovery.ts`
 (FTS + alias + hydratation en lot). Côté ERP : `events/ledger.ts` (invalidation),
 `scheduled.ts` (balayage des mentions + réchauffage).
+
+#### « De qui, de quoi parle-t-on ? » — la résolution d'entités (F9, mandat 4 §24)
+
+- **Le code résout avant que le modèle ne devine.** Les mentions d'une question (`queryPlan.entites`)
+  passent par `resoudreMentions` dans les deux boucles de conversation ; le bloc « ENTITÉS RÉSOLUES
+  PAR LE CODE » arrive avec le plan : ce qui est CERTAIN (avec l'identifiant), ce qui est PROBABLE
+  (à dire, à vérifier avant d'écrire), ce qui est AMBIGU (« deux Nadir : Nadir Benali — RH, Nadir
+  Cherif — Ventes. Laquelle ? » — **ne pas choisir à sa place**). `resolvePerson` (l'assignation
+  d'une tâche) tranche par la brique : fautes, ordre des mots, homonymes → un compte, ou la liste.
+- **Jamais de fusion silencieuse.** La brique n'a aucun chemin d'écriture ; les doublons
+  probables remontent au moteur de qualité (§23) et attendent une personne.
+- **Mesuré.** `fabric/entites-score.test.ts` (identifiants, déshabillage, épreuves, verdicts,
+  dédoublonnage) ; `fabric/entites.test.ts` plante des entités réalistes (accents, traits
+  d'union, formes juridiques, acronymes, alias, homonymes, distracteurs proches) et soumet **60
+  mentions** telles qu'on les tape : **60/60 résolues (100 %)**, P50 3 ms, **P95 12 ms** (objectif
+  ≥ 95 % et < 300 ms) ; l'ambiguïté rend une question qui distingue.
+
+#### « D'où tu tiens ça ? » — la provenance se lit, elle ne se raisonne pas (F8, mandat 4 §22)
+
+- **Chaque tour consigne ses faits.** Les deux boucles de conversation gardent chaque lecture avec
+  son outil (`lectures`), et le résultat du tour porte `provenance` (`faitsDuTour`, ≤ 40 faits) ;
+  les trois entrées — route de flux, action serveur, outil vocal — le consignent par
+  `consignerProvenance`, **quel que soit le drapeau mémoire**. Le pont est
+  `platform/in-process/fabric/provenance.ts` (aucun import direct Adam → fabric : le plafond de
+  frontière ne bouge pas).
+- **La question est une forme déterministe.** « D'où tu tiens ça ? », « ta source ? », « comment tu
+  sais ça ? », « tu es sûr de ce chiffre ? » sont reconnues par le routeur vocal (`PROVENANCE`),
+  classées `FAST_DETERMINISTIC` dès la phrase brute, et les deux boucles répondent AVANT tout
+  appel de modèle : `repondreDouTuTiensCa` relit le registre (fil, puis personne) et compose la
+  réponse. Sans ancre, seul le **dernier** tour compte — même vide — parce que citer un tour plus
+  ancien à la place du dernier serait mentir sur la source de la dernière réponse ; un nombre
+  (« les 142 800 ») ou un nom cité remonte sur les six derniers tours jusqu'au fait qui le porte.
+  Zéro appel de modèle, zéro consignation pour ce tour. « D'où vient ce retard ? » reste une
+  question causale (modèle).
+- **Le panneau « Sources consultées » dit d'où ET de quand** : l'événement `source` porte un
+  `detail` (« Regulatory · donnée du 12/08/2026 · temps réel »), calculé par la même extraction.
+- **Un agrégat déclare sa lignée.** `finance_totals` pose `_provenance` : total = somme côté base
+  de N écritures réglées, formule, entrées (références), date — et l'écart entre deux périodes
+  cite ses deux totaux. `stripDisplayPayload` retire `_provenance` de ce que le modèle lit.
+- **`source_map` était mort.** Classé GENERAL (jamais servi), il rejoint le domaine `SOURCES`
+  (« où pourrait vivre X ? », « tes données datent de quand ? », « c'est fiable ? »).
+- **Mesuré.** `fabric/provenance.test.ts` (16 tests : natures, locators, externe cité non suivi,
+  confiance OCR, `_provenance` revalidée, calcul et pire confiance, dates sans année devinée,
+  ancres, réponses), `provenance-store.test.ts` (consignation, dernier tour vide, ancres,
+  cloisonnement, **P95 5 ms sur 40 lectures**), routeur vocal + routeur (formes positives et
+  négatives), `e2e/provenance.spec.ts` (la question dans le bureau d'Adam : deux faits cités,
+  source, date, lignée, `ModelCallLog` inchangé, une seule ligne consignée), suite live
+  (« d'où tu tiens ça ? » après une vraie question : zéro appel, < 4 s), défi `defi-provenance`.
 
 ## 💰 Budgets, enveloppes & sous-catégories
 
@@ -3879,6 +4178,112 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### La provenance au niveau du fait, la garantie d'enseignement, et la boîte dans le pont (2026-09)
+
+- **Le registre de marque existe, et la fabrique l'applique d'elle-même** (mandat 4 §26) :
+  couleurs, polices, logo, coordonnées imprimées, mentions légales, signataires par type de pièce
+  — dans `settings.marque` du profil documentaire, réglés par la Direction ou qui tient la papeterie (écran
+  Administration › Marque & modèles, ou en parlant à Adam — « règle la charte d'Adventum » n'est pas une règle Teach, et Teach le dit), relus par la fabrique à chaque devis,
+  BC, facture et dossier : accent dans les styles, mentions et signataire dans le texte, logo dans
+  l'en-tête d'un paquet neuf. Contraste WCAG calculé et dit. Banc : 14 tests, 4 parcours
+  Playwright, un défi live où la charte réglée au premier tour se retrouve dans le Word du second.
+- **Une photo devient des chiffres, dits probables — et la voix n'est qu'une seconde entrée**
+  (mandat 4 §30) : image ou scan joint → OCR réel local (secours vision sur les pages faibles), puis
+  lecture visuelle par le modèle sous schéma quand le texte est mince ; la note « PROBABLE, chiffres
+  à confirmer » voyage jusqu'au modèle, la calibration interdit le CERTAIN. Le banc joint une facture
+  rendue en PNG par le même chemin que le navigateur. Voix : même registre d'outils, mêmes droits,
+  même fil (`threadId`) ; mobile : le retour visuel d'un geste est mesuré sous 150 ms dans la page.
+- **La certitude est décidée par le code, et les spécialistes travaillent en parallèle** (mandat 4
+  §29) : cinq états (certain, probable, hypothèse, manquant, contradiction) calculés depuis la base
+  et la confiance des faits F8 — le maillon faible gouverne, une lecture de modèle n'est jamais
+  certaine —, cinq conduites (agir, vérifier, chercher, demander, arbitrer) ; le tour porte sa
+  calibration, la trace la dit, une action proposée sous manquant ou contradiction est avertie
+  avant confirmation. `consult_specialists` délègue à des workers éphémères Regulatory, Legal,
+  Finance, Documents (outils de lecture fermés, mêmes droits, même trace, rapports calibrés) ; cinq autres
+  sont définis et attendent une mesure. Mesuré au banc (2 × 2 tours sur deux défis) : l'orchestrateur n'a jamais délégué et fait aussi bien seul (3 lectures d'intelligence en parallèle, ou trois documents lus dans la vague) — aucun spécialiste actif, l'outil n'est pas exposé, le mécanisme attend une mesure positive.
+- **La surveillance couvre ce que le mandat nomme** (mandat 4 §28) : contrat ou facture, enveloppe
+  budgétaire, réponse e-mail attendue, document attendu au Drive — en plus des dossiers, tâches,
+  règlements, appels d'offres et entités canoniques. Chaque cible a ses règles de code et sa fin
+  naturelle (renouvelé, réglée, répondu, présent) ; l'e-mail ne se lit que dans la boîte de la
+  personne ; la restauration après redémarrage est mesurée (toutes relues une fois, aucune deux).
+  Deux défis live : un contrat surveillé en une phrase, un document attendu dans un dossier.
+- **L'intelligence métier calcule, elle n'opine pas** (mandat 4 §27) : Regulatory, Legal et
+  Finance parlent le même signal (`lib/utils/signaux.ts`), avec gravité, échéance, montant, fiche,
+  action et CALCUL en clair. Legal lit les clauses d'un contrat français (durée, tacite, préavis,
+  exclusivité, pénalités, confidentialité…) avec extrait et confiance, date les obligations depuis
+  la fin (dénonciation = fin − préavis), compare un avenant en valeurs, nomme les risques ; Finance
+  juge le rythme d'une enveloppe contre le calendrier et projette l'atterrissage, trouve l'ordre réglé
+  sans la facture exigée, grade une échéance selon sa nature ; Regulatory nomme l'étape en retard et
+  de combien, la pièce manquante, le dépôt dépassé, le partenaire en retard, les bloqueurs de
+  soumission, les réserves et obligations. Trois outils Adam sous la porte de l'écran, une dixième
+  source de la boîte de décision (état chaud), une réserve nocturne des clauses. Banc : 21 tests
+  dont 6 sur base depuis le vrai point d'entrée (contrat déposé et indexé), 3 défis live jugés sur
+  les chiffres du décor.
+- **Le bac à sable d'exécution existe, et il ne peut pas écrire** (mandat 4 §25) : SQL en lecture
+  seule (forme, plan, transaction READ ONLY + rôle, volume ; vue globale ; audité), JavaScript en
+  fil isolé au contexte vide, Python en processus aux limites noyau et déclaré absent quand il
+  manque, seize opérations d'analyse pures compilées depuis la spec du modèle (refus dits), et
+  la visualisation qui recommande et dénonce ce qui trompe. Quatre outils d'Adam (`sql_query`,
+  `run_analysis`, `run_code`, `chart_advice`), le domaine `DATA` ouvert en secondaire sur toute
+  question qui calcule, et la consigne « jamais de tête ». Banc : 56 tests unitaires et sur base,
+  six défis live (SQL compté et vérifié en base, série mensuelle, scénario +8 % jugé à
+  l'arithmétique, graphique, code, refus SQL de la déléguée), un tour SQL dans l'interface.
+- **La résolution d'entités est une brique de la fabric** (F9, mandat 4 §24) : dix natures,
+  identifiants, alias, trigramme, verdicts CERTAIN / PROBABLE / AMBIGU (question) / INCONNU,
+  aucune écriture ; les mentions d'une question sont résolues par le code avant le modèle, et
+  l'assignation d'une tâche passe par elle. Banc : 60/60 mentions, P95 12 ms.
+- **Le moteur de qualité des données tourne** (mandat 4 §23) : vingt-trois règles déterministes
+  bornées, constats à signature stable, trois résolutions tenues par la structure (AUTO appliqué
+  et audité, PROPOSE d'un clic, HUMAIN), balayage horaire léger + nocturne complet, écran
+  `/admin/qualite`, cartes dans la boîte de décision, outil `data_quality` d'Adam. Banc : 29
+  anomalies plantées, 29 détectées, 0 faux positif sur les témoins.
+
+- **« D'où tu tiens ça ? » a une réponse, et c'est le code qui la donne** (F8, mandat 4 §22).
+  Chaque tour consigne ses faits typés (source, date propre, lecture, confiance, fraîcheur,
+  autorité, droits, lignée d'un calcul) dans `AssistantProvenance` ; la question est une forme
+  déterministe des deux boucles, sans appel de modèle — P95 de relecture 5 ms, tour complet dans
+  le navigateur sous 5 s (spec) ; le panneau Sources dit d'où et de quand ; `finance_totals`
+  déclare la lignée de ses totaux ; `source_map` sort du domaine GENERAL qui ne le servait jamais.
+- **Un « règle enregistrée » se prouve par un outil** (`lib/teach/garde.ts`). La suite live a
+  mesuré un faux succès : le modèle affirmait avoir retenu une règle en relisant l'historique
+  d'une conversation où la même règle — supprimée depuis — avait été enseignée la veille. Les
+  deux boucles vérifient désormais : énoncé d'enseignement + prétention + aucun outil Teach
+  appelé → le modèle reçoit UNE fois l'ordre d'appeler l'outil ; s'il ne le fait toujours pas, la
+  réponse dit la vérité. Le rappel d'actions récentes précise aussi qu'une action EXÉCUTÉE
+  n'interdit pas de la reproposer (« déjà fait le … » + carte), et la suite live repart d'un état
+  sans les intentions du passage précédent.
+- **La boîte de décision vit dans le pont.** Sa première version ajoutait cinq franchissements
+  de frontière Adam → ERP ; composer la boîte EST connaître l'ERP : `platform/in-process/inbox/`
+  porte le composeur et le geste, `lib/assistant/inbox/model.ts` le vocabulaire pur, les pages
+  n'importent que le pont — plafond inchangé (428). La carte tranchée reste affichée avec son
+  issue (la revalidation de l'action la retirait de la file sous le doigt), et le bureau d'Adam
+  compte les cartes « à trancher » par la même fonction que l'en-tête de la boîte.
+
+### Le banc des défis, la boîte de décision, et six défauts que seul le vrai point d'entrée montrait (2026-09)
+
+**Ce que le lot rend possible** : juger Adam sur ses EFFETS et non sur son récit. Quinze défis
+(`scripts/bench/adam-live-defis.ts`, `BENCH_SET=defis npm run adam:bench`) enchaînent une journée : enseigner une
+règle personnelle et la voir appliquée au tour suivant, poser une règle de société, la réviser (v2, l'ancienne
+SUPERSEDED), la lister, émettre un devis qui DOIT la respecter, refuser l'émission et la règle de société à une
+déléguée, supprimer la règle (la ligne reste, DELETED), construire un classeur et un deck depuis la base, centrer
+un titre dans un `.docx` et l'enregistrer (le fichier relu porte `w:jc center`), résister à une injection glissée
+dans une note lue, comparer trois dossiers, calculer un TTC. Chaque verdict est une lecture de la base, du Drive ou
+du fichier produit. Une suite Playwright LIVE (`npm run test:e2e:live`, `playwright.live.config.ts`,
+`e2e-live/adam-live.spec.ts`) pose les mêmes défis dans le vrai navigateur — clic sur « Confirmer », devis au
+registre, règle appliquée dans l'interface — et lit le coût de chaque tour dans `ModelCallLog`.
+
+**Ce que le banc a trouvé, et qui est corrigé** : les outils Teach Adam n'étaient jamais présentés au modèle
+(domaine `GENERAL`, jamais servi) ; la voie rapide ignorait les règles ; les règles dépendaient du drapeau
+« mémoire » ; le modèle écrit `validite_devis` / « 45 jours » (normalisés) ; un `chainFromId` vide violait une clé
+étrangère ; « devis » n'était pas un signal de domaine ; le PDG du banc voyait sa société sans pouvoir l'engager
+(le seed lui donne désormais les droits d'écriture que l'écran d'administration accorde à un dirigeant) ; la
+sélection PF versée par une migration rendait « tous les dossiers » ambigu — le juge compte avec le périmètre de
+l'outil, pas en SQL brut. Score : 4/15 à la première passe, 14/15 puis 15/15 après corrections, à environ 0,27 $
+la chaîne complète.
+
+**La boîte de décision** (`/chief-of-staff/inbox`) : voir la section dédiée — cartes composées par le code depuis
+les files des modules, gestes canoniques, urgence arithmétique, P95 de composition 46 ms.
+
 ### Teach Adam — la couche de règles enseignées à Adam (2026-09)
 
 **Ce que le lot rend possible** : « Désormais les devis sont valables 45 jours — pour toute la société », « toute
@@ -4111,7 +4516,19 @@ un problème n'est dit qu'une fois, sa résolution passe au journal, la fin de l
 la surveillance. Deux sabotages le tiennent (dédoublonnage neutralisé, réveil du registre neutralisé → le banc
 tombe). Cibles résolues : dossiers réglementaires, dossiers CTD, tâches, règlements, demandes de paiement,
 validations, produits / organisations / personnes du dictionnaire canonique — une référence ambiguë rend des
-candidats, jamais le premier des quatre.
+candidats, jamais le premier des quatre. **Mandat 4 §28** : quatre cibles de plus, chacune avec ses règles par
+défaut et sa fin naturelle — un **contrat ou une facture** Legal (sous l'entité et les lecteurs désignés ;
+échéance à 30 j, dépassée, changement de statut ; « renouvelé » ou « réglée » clôt), une **enveloppe budgétaire**
+(celles que la personne voit ; `consommePct ≥ 80` par la règle VALEUR, dépassée = bloquée → arbitrage, santé qui
+change, fin de période ; le calcul du rythme est dans l'état), une **réponse e-mail attendue** (un fil de SA boîte
+connectée, jamais celle d'un autre ; `SANS_REPONSE` tant qu'aucun message entrant ne suit le dernier sortant, cinq
+jours de silence valent relance — brouillon possible, envoi humain ; la réponse clôt), un **document attendu** au
+Drive (`expected_document` : motif de nom + dossier ; `ABSENT` sept jours vaut relance, `PRESENT` clôt — la cible
+n'existe pas encore, c'est son arrivée qu'on surveille). La recommandation portée par la porte d'attention dépend
+du type (relancer le correspondant, demander le document, arbitrer l'enveloppe, décider du renouvellement). **100 %
+des surveillances restaurées après redémarrage** est une propriété mesurée, pas déclarée : la seule vérité est la
+ligne durable et son `nextCheckAt` ; le test rend six surveillances dues, un balayage neuf les relit toutes, le
+même balayage rejoué n'en relit aucune (`in-process/missions/watch.test.ts`, 10 cas).
 
 **8. Les matrices d'évaluation — des mesures, pas des intentions.** Trois bancs programmatiques, chacun avec sa
 cible chiffrée : (a) **agir / demander / prévenir** (`attention/decisions.test.ts`) — vingt-quatre situations
@@ -4244,7 +4661,10 @@ mémoire de fil, anti-hallucination, actions, préparation de comité — contre
 jetable dont la vérité terrain est connue (`npm run adam:bench:seed`, gardé : base locale + `BENCH_SEED_ALLOW=1`,
 manifeste incrémental, `--clean`). Chaque tour traverse `runAssistantStream` comme le navigateur et rend un
 verdict déterministe, le premier signe de vie, le premier mot, le total, les appels par rôle, les jetons, la
-part en cache, le coût et les outils appelés. Tables AVANT/APRÈS dans `bench-out/`.
+part en cache, le coût et les outils appelés. Tables AVANT/APRÈS dans `bench-out/`. Depuis, un second jeu — les
+DÉFIS (`scripts/bench/adam-live-defis.ts`, `BENCH_SET=defis`) — juge les EFFETS (règle en base, devis au registre,
+fichier produit, paragraphe centré dans le `.docx`, injection sans effet), et une suite Playwright LIVE
+(`npm run test:e2e:live`) rejoue des défis dans le vrai navigateur, coût par tour lu dans `ModelCallLog`.
 
 | Mesure (20 tours, cache chaud) | AVANT | APRÈS pré-lectures + routage | FINAL (prompt compact + routage resserré) |
 |---|---|---|---|

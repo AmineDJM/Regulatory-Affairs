@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/session";
 import { personalContext, getThreadMessages } from "@/lib/assistant-memory";
+import { consignerProvenance } from "@/platform/in-process/fabric/provenance";
 import {
   runAssistant, extractSources, executeReadTool, buildProposal, RESOLVER_WRITE_NAMES,
   type ChatTurn, type ProposedAction,
@@ -73,7 +74,9 @@ export async function POST(req: Request) {
         { role: "user" as const, content: request },
       ];
       const personal = await personalContext(user.id).catch(() => null);
-      const result = await runAssistant(user, history, { personalContext: personal, origin: "voice" });
+      const result = await runAssistant(user, history, { personalContext: personal, origin: "voice", turnContext: { ...(threadId ? { threadId } : {}), feature: "assistant" } });
+      // LA PROVENANCE DU TOUR (F8) — la voix consigne comme le texte : « d'où tu tiens ça ? » vaut à l'oral.
+      if (result.provenance) await consignerProvenance({ userId: user.id, threadId, question: request, faits: result.provenance });
 
       const proposals: ProposedAction[] = result.proposals ?? (result.proposal ? [result.proposal] : []);
       const output = JSON.stringify({

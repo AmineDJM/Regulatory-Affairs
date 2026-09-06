@@ -603,8 +603,14 @@ export function composeWorkspace(tool: string, raw: string): WorkspaceCompositio
 export function stripDisplayPayload(raw: string): string {
   const data = parse(raw);
   if (data === null || Array.isArray(data)) return raw;
-  if (data._blocsDecoratifs !== true || !("_blocs" in data)) return raw;
-  const { _blocs, _blocsDecoratifs, ...reste } = data;
+  // `_provenance` (F8) est une LIGNÉE déclarée pour le registre des faits, jamais une donnée à
+  // raisonner : elle part toujours — jusqu'à deux cents références d'écritures n'ont rien à faire
+  // dans le contexte d'un modèle qui a déjà le total et le nombre d'écritures.
+  const decoratifs = data._blocsDecoratifs === true && "_blocs" in data;
+  if (!decoratifs && !("_provenance" in data)) return raw;
+  const { _blocs, _blocsDecoratifs, _provenance, ...reste } = data;
+  void _provenance;
+  if (!decoratifs) return JSON.stringify({ ...reste, ...("_blocs" in data ? { _blocs, _blocsDecoratifs } : {}) });
   void _blocs; void _blocsDecoratifs;
   return JSON.stringify(reste);
 }

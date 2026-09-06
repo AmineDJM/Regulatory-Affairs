@@ -3,9 +3,10 @@ import { userCan } from "@/lib/rbac";
 import { aiModel } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { featureEnabled, FEATURES } from "@/lib/features";
-import { personalContext } from "@/lib/assistant-memory";
+import { personalContext, contexteReglesSeules } from "@/lib/assistant-memory";
 import { runAssistantStream, type ChatTurn, type AssistantStreamEvent } from "@/lib/assistant";
 import { rememberExchange } from "@/lib/actions/assistant-actions";
+import { consignerProvenance } from "@/platform/in-process/fabric/provenance";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -60,7 +61,8 @@ export async function POST(req: Request) {
           send({ type: "done", result: { configured: true, ok: false, reply: "", trace: [], error: "L'assistant IA est actuellement désactivé par l'administrateur." } });
           return;
         }
-        const personal = memoryOn ? personalBrut : null;
+        // Les RÈGLES enseignées ne dépendent pas du drapeau mémoire : une attestation s'applique toujours.
+        const personal = memoryOn ? personalBrut : await contexteReglesSeules(user.id);
 
         const t0 = Date.now();
         const result = await runAssistantStream(user, history, send, {
@@ -94,10 +96,18 @@ export async function POST(req: Request) {
           costUsd: tour?.costUsd ?? null,
         });
 
+        const lastUser = [...history].reverse().find((t) => t.role === "user")?.content ?? "";
         // Mémorisation du fil (helpers scopés par userId) — jamais bloquante.
         if (memoryOn && result.ok && result.reply) {
-          const lastUser = [...history].reverse().find((t) => t.role === "user")?.content ?? "";
           result.threadId = await rememberExchange(user.id, threadId, lastUser, result.reply);
+        }
+        // LA PROVENANCE DU TOUR (F8) — consignée quel que soit le drapeau mémoire : « d'où tu tiens
+        // ça ? » doit avoir une réponse même pour un compte sans mémoire personnelle.
+        if (result.provenance) {
+          await consignerProvenance({
+            userId: user.id, threadId: result.threadId ?? threadId, turnId: tour?.turnId ?? null,
+            question: lastUser, faits: result.provenance,
+          });
         }
         send({ type: "done", result });
       } catch (err) {

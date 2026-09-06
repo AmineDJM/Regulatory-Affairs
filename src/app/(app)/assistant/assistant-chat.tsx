@@ -194,7 +194,7 @@ export function AssistantChat({
   const [input, setInput] = React.useState("");
   const [sending, setSending] = React.useState(false);
   /** Les SOURCES consultées pendant la conversation (liens internes), les plus récentes d'abord. */
-  const [sources, setSources] = React.useState<{ label: string; href: string }[]>([]);
+  const [sources, setSources] = React.useState<{ label: string; href: string; detail?: string }[]>([]);
   const [attachments, setAttachments] = React.useState<PendingAttach[]>([]);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [dragOver, setDragOver] = React.useState(false);
@@ -556,7 +556,7 @@ export function AssistantChat({
           setStreaming((s) => ({ text: s?.text ?? "", trace: s?.trace.includes(evt.label) ? s.trace : [...(s?.trace ?? []), evt.label], workspace: s?.workspace ?? [] }));
         } else if (evt.type === "source") {
           // Le panneau CONTEXTE se remplit au moment même où l'assistant consulte.
-          setSources((prev) => (prev.some((s) => s.href === evt.href) ? prev : [{ label: evt.label, href: evt.href }, ...prev].slice(0, 30)));
+          setSources((prev) => (prev.some((s) => s.href === evt.href) ? prev : [{ label: evt.label, href: evt.href, detail: evt.detail }, ...prev].slice(0, 30)));
         } else if (evt.type === "workspace") {
           // La donnée est là AVANT la phrase : on l'affiche tout de suite, elle n'attend pas
           // qu'Adam ait fini de la commenter.
@@ -940,7 +940,7 @@ export function AssistantChat({
 
 /** Le volet CONTEXTE du Chief of Staff : sources consultées + actions proposées du fil. */
 function ExecutivePanel({ sources, messages, showShortcuts = true }: {
-  sources: { label: string; href: string }[];
+  sources: { label: string; href: string; detail?: string }[];
   messages: Msg[];
   /**
    * LES RACCOURCIS VERS LES MODULES DE L'ERP. Ils ont leur place sur la page Assistant, qui vit
@@ -970,7 +970,11 @@ function ExecutivePanel({ sources, messages, showShortcuts = true }: {
                 <Link key={s.href + s.label} href={s.href}
                   className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition hover:bg-secondary">
                   <ArrowRight className="h-3 w-3 shrink-0 text-primary" />
-                  <span className="min-w-0 flex-1 truncate" title={s.label}>{s.label}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate" title={s.label}>{s.label}</span>
+                    {/* D'OÙ ET DE QUAND (F8) : famille, date propre, fraîcheur, confiance — la provenance se lit sans la demander. */}
+                    {s.detail && <span className="block truncate text-[10px] text-muted-foreground" title={s.detail} data-testid="source-detail">{s.detail}</span>}
+                  </span>
                 </Link>
               ))}
             </div>

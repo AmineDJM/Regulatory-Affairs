@@ -28,7 +28,7 @@ export const DISCOVERY_TOOL_NAME = DISCOVERY_TOOL.name;
 
 const KNOWN_DOMAINS: Domain[] = [
   "MAIL", "CALENDAR", "REGULATORY", "FINANCE", "HR",
-  "DRIVE", "LEGAL", "MISSION", "DIRECTORY", "ADMIN", "GENERAL",
+  "DRIVE", "LEGAL", "MISSION", "DIRECTORY", "ADMIN", "TEACH", "SOURCES", "QUALITE", "DATA", "GENERAL",
 ];
 
 export interface DiscoveryResult {

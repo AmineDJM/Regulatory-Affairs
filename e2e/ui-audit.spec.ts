@@ -32,7 +32,7 @@ const ROUTES = [
   "/legal", "/courriers", "/dossiers", "/drive", "/calendar",
   "/medical/ma-journee", "/medical/annuaire", "/information-medicale", "/promo-material",
   "/planning", "/planning/affectations", "/pch", "/events", "/sponsoring",
-  "/admin", "/admin/access", "/admin/ai", "/admin/connaissance", "/admin/diagnostic",
+  "/admin", "/admin/access", "/admin/marque", "/admin/ai", "/admin/connaissance", "/admin/diagnostic",
   "/process-intelligence", "/adventum-brain",
 ] as const;
 

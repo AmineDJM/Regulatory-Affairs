@@ -290,3 +290,17 @@ describe("le budget de contexte — choisir, pas tronquer", () => {
     expect(rendu.indexOf("RÈGLE")).toBeLessThan(rendu.indexOf("PREUVE"));
   });
 });
+
+describe("provenance (F8) — « d'où tu tiens ça ? » est déterministe, avant le raisonnement", () => {
+  it("classe la demande de source en FAST_DETERMINISTIC / PROVENANCE, sans outil", () => {
+    for (const q of ["D'où tu tiens ça ?", "Ta source ?", "Comment tu sais ça ?", "Tu es sûr de ce chiffre ?"]) {
+      const r = routeQuery(q);
+      expect(r.route, q).toBe("FAST_DETERMINISTIC");
+      expect(r.fastKind, q).toBe("PROVENANCE");
+      expect(r.tool, q).toBeNull();
+    }
+  });
+  it("laisse la question causale au raisonnement", () => {
+    expect(routeQuery("D'où vient ce retard sur le dossier ?").route).not.toBe("FAST_DETERMINISTIC");
+  });
+});

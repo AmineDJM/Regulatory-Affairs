@@ -68,3 +68,26 @@ export function composerBlocRegles(enVigueur: readonly Regle[], opts: OptionsBlo
 export function lignesPourPlanificateur(enVigueur: readonly Regle[], domaine?: string | null, max = 12): string[] {
   return filtrerParDomaine(enVigueur, domaine).slice(0, max).map((r) => `${LIBELLE_KIND[r.kind]} (${LIBELLE_SCOPE[r.scope]}, ${r.id}) : ${r.statement.trim()}`);
 }
+
+/** L'en-tête exact du bloc — le repère par lequel on le retrouve dans un contexte déjà composé. */
+export const EN_TETE_BLOC_REGLES = "RÈGLES ENSEIGNÉES À ADAM (Teach Adam)";
+
+/**
+ * EXTRAIT le bloc de règles d'un contexte personnel déjà composé, sans relire la base.
+ *
+ * La voie RAPIDE de la conversation (une lecture canonique formulée par un petit modèle) ne
+ * reçoit pas le contexte personnel : l'identité et les souvenirs n'y servent à rien et coûtent
+ * des jetons. Les RÈGLES, elles, disent comment répondre — « termine par Prochaine étape »
+ * s'applique aussi à une réponse d'une ligne. Mesuré au banc des défis : la règle était bien en
+ * base, appliquée par la boucle complète, et ignorée dès que la question prenait le raccourci.
+ * Le bloc se termine à la première ligne vide qui suit son en-tête, ou à la fin du texte.
+ */
+export function extraireBlocRegles(contexte: string | null | undefined): string | null {
+  if (!contexte) return null;
+  const debut = contexte.indexOf(EN_TETE_BLOC_REGLES);
+  if (debut < 0) return null;
+  const reste = contexte.slice(debut);
+  const fin = reste.search(/\n\s*\n/);
+  const bloc = (fin >= 0 ? reste.slice(0, fin) : reste).trim();
+  return bloc.length > EN_TETE_BLOC_REGLES.length ? bloc : null;
+}

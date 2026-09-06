@@ -64,7 +64,11 @@ export function classerEnseignement(texte: string): Classement {
  */
 export function extraireParametres(texte: string, kind: Kind): Record<string, unknown> | null {
   const t = plier(texte);
-  if (kind === "DOCUMENT_STANDARD") {
+  // LES PARAMÈTRES DOCUMENTAIRES SE LISENT QUELLE QUE SOIT LA NATURE. « Règle pour toute la
+  // société : nos devis sont valables 45 jours » est classée COMPANY_RULE par le modèle — à bon
+  // droit, c'est une règle de société — et la fabrique doit quand même en tirer « 45 jours ».
+  // Mesuré au banc des défis : la règle était enregistrée, et le devis sortait à 30 jours.
+  if (kind !== "MAPPING" && kind !== "VALIDATION_RULE") {
     const validite = /devis[^.]{0,60}?(?:valable|validite)[^0-9]{0,20}(\d{1,3})\s*jours?|validite[^0-9]{0,30}(\d{1,3})\s*jours?/.exec(t);
     if (validite) return { cle: "validiteDevis", valeur: Number(validite[1] ?? validite[2]), unite: "jours" };
     const prefixe = /(factures?|devis|bons? de commande)[^.]{0,40}?(?:commencent? par|prefixe|numerot\w* en)\s*[«"']?\s*([a-z0-9]{1,8})\b/.exec(t);

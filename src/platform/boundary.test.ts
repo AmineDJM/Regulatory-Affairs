@@ -82,6 +82,28 @@ import { scanBoundary, ADAM_PATHS, BRIDGE_PATHS } from "./boundary-scan";
  * Ses deux ops qui écrivaient le pli (`set_date`, `delete_entry`) ont rejoint `impl-mail.ts`, où
  * vivent déjà créer / corriger / classer / relier — deux fichiers ne se partagent plus la même
  * action serveur. Solde : +1 − 1 = 0, le plafond ne bouge pas.
+ *
+ * 428 → 428 (2026-09-05, boîte de décision §21) : la première version posait CINQ franchissements
+ * (page et vue de la boîte → session, file composée, action, modèle ; bureau → porte d'accord des
+ * missions). Le remède n'a pas été le plafond : composer la boîte EST connaître l'ERP — le
+ * composeur (`in-process/inbox/compose.ts`) et le geste (`in-process/inbox/actions.ts`) vivent
+ * donc dans le pont, le vocabulaire pur (`lib/assistant/inbox/model.ts`) côté Adam, et les pages
+ * n'importent que le pont. Solde : 0.
+ *
+ * 428 → 428 (2026-09-06, provenance au niveau du fait F8) : la conversation, ses trois entrées et
+ * l'outil `finance_totals` consomment la fabric par le pont `in-process/fabric/provenance.ts`, la
+ * garantie d'enseignement par `in-process/teach/bloc.ts`. Solde : 0.
+ *
+ * 428 → 428 (2026-09-06, qualité des données §23) : l'outil `data_quality`, les cartes de la boîte
+ * et l'écran d'administration passent par `in-process/quality/`. Solde : 0.
+ *
+ * 428 → 428 (2026-09-06, résolution d'entités F9) : `assistant.ts` consomme la brique par
+ * `in-process/fabric/entites.ts`. Solde : 0.
+ *
+ * 428 → 428 (2026-09-06, bac à sable §25) : la première version de `sandbox-tools.ts` importait
+ * `session` (type) et `rbac` (`hasGlobalView`) — DEUX franchissements, mesurés à 430. Le type de
+ * l'acteur se dérive de `PowerTool.run`, le garde de la vue globale arrive par le pont
+ * (`in-process/sandbox/aVueGlobale`). Solde : 0.
  */
 const DEBT_CEILING = 428;
 
