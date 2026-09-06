@@ -5184,7 +5184,8 @@ qu'un échec isolé ne prouve rien :
   lignes viennent d'un SQL ad hoc, et rien dans ce chemin ne rappelle que l'écran sait les
   afficher. La sortie de `sql_query` porte désormais ce rappel — même remède que le sommaire de
   réseau : c'est le RÉSULTAT qui dit ce qu'on peut en faire, pas une consigne de plus dans le
-  prompt.
+  prompt. **Mesuré après correctif : 4 passes sur 4** (contre 2 sur 4 avant). Quatre tirages
+  restent quatre tirages — mais le mode d'échec, lui, ne s'est plus présenté.
 
 ### 200 MISSIONS, 86 ÉCHECS DE « PLANIFICATEUR » — et c'en était UN (2026-09)
 
