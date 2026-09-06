@@ -782,10 +782,32 @@ async function tenterRecours(
     resolveurs,
   });
 
-  // Seul « réessayer » réarme l'étape ici. Demander à un humain, escalader, replanifier
-  // (localement ou globalement) et bloquer sont des ÉTATS de mission : ils passent par
-  // l'écriture normale de la sortie, qui porte déjà le motif exact — et par le balayage.
-  if (recours.geste !== "REESSAYER") return false;
+  /**
+   * ── UN BARREAU QUE LE MOTEUR N'EXÉCUTE PAS DOIT QUAND MÊME ÊTRE CONSOMMÉ ────────────
+   *
+   * Seul « réessayer » réarme l'étape ici. Demander à un humain, escalader, replanifier
+   * (localement ou globalement) et bloquer sont des ÉTATS de mission : ils passent par
+   * l'écriture normale de la sortie, qui porte déjà le motif exact — et par le balayage.
+   *
+   * Mais l'inscription à l'HISTORIQUE se faisait après ce filtre. Le barreau n'était donc pas
+   * consommé, et `prochaineStrategie`, qui choisit « le premier non tenté », reproposait
+   * exactement le même à la tentative suivante. L'échelle bouclait au lieu de descendre : pour
+   * NOT_FOUND, INSUFFICIENT_DATA, CAPABILITY_FAILURE, INCOMPATIBLE_RESULT et QA_FAILED, elle
+   * atteignait `REPLAN_LOCAL` en deuxième ou troisième position et s'y arrêtait — les barreaux
+   * suivants (DEMANDER_HUMAIN, DECLARER_INCONNU) étaient structurellement inatteignables.
+   *
+   * L'historique est inscrit, le JOURNAL non : `STEP_RECOVERY` ne dit que des recours qui ont
+   * réellement changé quelque chose, et cet invariant-là tient (un lecteur du fil doit pouvoir
+   * vérifier qu'un recours en était un). Mémoire de l'échelle et record des actes sont deux
+   * choses, et les confondre ferait mentir l'un des deux.
+   */
+  const consommer = async (): Promise<false> => {
+    if (!("strategie" in recours)) return false; // BLOQUER ne consomme rien : il n'y a plus d'échelle.
+    const h = noter(historique, { strategie: recours.strategie, source: "source" in recours ? recours.source : null, kind }, clock.now());
+    await prisma.missionStep.update({ where: { id: step.id }, data: { recovery: h as never } });
+    return false;
+  };
+  if (recours.geste !== "REESSAYER") return consommer();
 
   const suivant = noter(historique, { strategie: recours.strategie, source: recours.source, kind }, clock.now());
   const majCapacite = appliquer(recours.action, step.capability, entree);
@@ -802,7 +824,13 @@ async function tenterRecours(
    */
   const rejeuTechnique = recours.action.type === "REJEU";
   const identique = majCapacite.capability === step.capability && memeAppel(majCapacite.input, entree);
-  if (identique && !rejeuTechnique) return false;
+  if (identique && !rejeuTechnique) {
+    // Le barreau n'a rien changé — mais il a été TENTÉ. Ne pas le consommer le ferait
+    // reproposer indéfiniment, ce qui est la panne d'échelle décrite ci-dessus. Rien au
+    // journal : il n'y a pas eu de recours, seulement un barreau qui n'avait rien à offrir.
+    await prisma.missionStep.update({ where: { id: step.id }, data: { recovery: suivant as never } });
+    return false;
+  }
 
   await prisma.missionStep.update({
     where: { id: step.id },

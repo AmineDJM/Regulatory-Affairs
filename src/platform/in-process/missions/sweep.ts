@@ -66,6 +66,7 @@ export interface BalayageMissions {
 // `proprietaire` vit dans son propre module : la porte d'attention l'emploie aussi, sans dépendre du balayage.
 export { proprietaire } from "@/platform/in-process/missions/proprietaire";
 import { proprietaire } from "@/platform/in-process/missions/proprietaire";
+import { estReplanifiable } from "@/lib/missions/runtime/replan";
 
 export interface ConduiteMission {
   executees: number;
@@ -113,7 +114,12 @@ export async function conduireMission(
 
   let apres = await prisma.mission.findUnique({ where: { id: missionId }, select: { status: true, planVersion: true, ownerId: true } });
   let raisonReplan: string | null = null;
-  if (apres && (apres.status === "FAILED" || apres.status === "BLOCKED")) {
+  // PARTIAL EST REPLANIFIABLE, et il ne l'était pas ici. C'est l'état d'une composition à
+  // moitié faite — lecture réussie, calcul ou document mort — c'est-à-dire le cas le plus
+  // fréquent de la famille. `replanifierMission` l'accepte (ETATS_REPLANIFIABLES), la voie
+  // manuelle l'acceptait, le battement non : la mission tournait en rond sans jamais atteindre
+  // le planificateur qui savait la réécrire.
+  if (apres && estReplanifiable(apres.status)) {
     const rp = await replanifierMission(user, missionId, opts.reasoner ? { reasoner: opts.reasoner } : undefined).catch(() => null);
     raisonReplan = rp?.raison ?? null;
     if (rp?.replanifie) {

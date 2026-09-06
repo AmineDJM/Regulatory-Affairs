@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { PLANNER_PROMPT_VERSION } from "@/lib/missions/planner/plan";
 import { prechargerCapacitesDynamiques } from "@/platform/in-process/skills";
 import { assurerFormes } from "@/platform/in-process/missions/formes";
+import { estReplanifiable, PLANS_MAX } from "@/lib/missions/runtime/replan";
 import type { CurrentUser } from "@/lib/session";
 import { compile } from "@/lib/missions/compiler/compile";
 import { planifier, type ContextePlanification, type MetriquesPlanification } from "@/lib/missions/planner/plan";
@@ -750,21 +751,8 @@ export interface ResultatReplanification {
   rouvertes?: string[];
 }
 
-/** Les états d'où une replanification a un sens. Ailleurs, il n'y a rien à replanifier. */
-const ETATS_REPLANIFIABLES = new Set(["FAILED", "BLOCKED", "PARTIAL"]);
-
-/**
- * COMBIEN DE PLANS AVANT DE S'ARRÊTER.
- *
- * §9 dit qu'on ne s'arrête jamais à la première difficulté — il dit aussi que l'échelle de
- * recours a des barreaux, et qu'on peut les épuiser. Sans plafond, une mission qui échoue pour
- * une raison que le planificateur ne peut pas voir (un service tiers en panne, un droit retiré)
- * se réécrirait indéfiniment, en payant un appel de modèle à chaque tour de battement.
- *
- * Quatre plans, c'est trois corrections. Au-delà, ce n'est plus le plan qui est en cause, et la
- * bonne réponse est de le DIRE à la personne plutôt que de continuer à essayer sans elle.
- */
-const PLANS_MAX = 4;
+// Les deux constantes vivent dans `lib/missions/runtime/replan.ts` : le BATTEMENT en a besoin
+// pour sa requête de sélection, et il ne peut pas importer ce fichier-ci.
 
 export function replanifierMission(
   user: CurrentUser,
@@ -779,6 +767,39 @@ export function replanifierMission(
   });
 }
 
+/**
+ * CE QUE LE JUGE A REPROCHÉ AU PLAN PRÉCÉDENT — en français, prêt pour le planificateur.
+ *
+ * Trois sources, toutes déjà écrites, aucune jusqu'ici transmise : le verdict (`goalVerdict`),
+ * le recours que le juge a suggéré (`recoursSuggere`, journalisé), et les manques arithmétiques
+ * du contrôle qualité (`aReparer`, journalisé aussi). Sans elles, une replanification déclenchée
+ * par un refus de juge est un appel de modèle payé pour redécouvrir le même plan.
+ */
+async function pourquoiLeJugeARefuse(missionId: string): Promise<string[]> {
+  const [mission, refus] = await Promise.all([
+    prisma.mission.findUnique({ where: { id: missionId }, select: { goalVerdict: true, goalSatisfied: true } }).catch(() => null),
+    prisma.missionEvent.findFirst({
+      where: { missionId, kind: "GOAL_UNSATISFIED" }, orderBy: { at: "desc" }, select: { detail: true },
+    }).catch(() => null),
+  ]);
+  const lignes: string[] = [];
+  if (mission && mission.goalSatisfied === false && mission.goalVerdict) {
+    lignes.push(`[OBJECTIF NON ATTEINT] le juge a refusé le plan précédent : ${mission.goalVerdict}`);
+  }
+  const detail = (refus?.detail ?? null) as Record<string, unknown> | null;
+  const recours = detail?.recoursSuggere;
+  if (typeof recours === "string" && recours.trim()) {
+    lignes.push(`[RECOURS SUGGÉRÉ PAR LE JUGE] ${recours.trim()}`);
+  }
+  const aReparer = detail?.aReparer;
+  if (Array.isArray(aReparer)) {
+    for (const x of aReparer.slice(0, 8)) {
+      if (typeof x === "string" && x.trim()) lignes.push(`[CONTRÔLE QUALITÉ] ${x.trim()}`);
+    }
+  }
+  return lignes;
+}
+
 async function replanifierMissionInterne(
   user: CurrentUser,
   missionId: string,
@@ -789,7 +810,7 @@ async function replanifierMissionInterne(
     select: { id: true, title: true, status: true, goalRaw: true, objective: true, planVersion: true },
   });
   if (!m) return { replanifie: false, raison: "Mission introuvable — ou elle ne vous appartient pas." };
-  if (!ETATS_REPLANIFIABLES.has(m.status)) {
+  if (!estReplanifiable(m.status)) {
     return { replanifie: false, raison: `Une mission ${m.status} n'a rien à replanifier.` };
   }
   if (m.planVersion >= PLANS_MAX) {
@@ -863,6 +884,8 @@ async function replanifierMissionInterne(
   const cerveau = opts.reasoner ?? raisonneur;
   const objectif = m.goalRaw || m.objective;
 
+  const refusDuJuge = await pourquoiLeJugeARefuse(missionId);
+
   const contexteReplan = {
     aujourdhui: new Date().toLocaleDateString("fr-FR"),
     demandeur: demandeurDe(user),
@@ -871,7 +894,22 @@ async function replanifierMissionInterne(
     // l'acquis le ferait renvoyer trente-et-un messages déjà partis — l'idempotence les
     // arrêterait, mais au prix d'un plan illisible et d'un travail inutile.
     dejaFait: abouties.map((s) => `${s.key} : ${s.title}`).slice(0, 60),
-    refusPrecedent: bloquees.map((s) => `[${s.errorKind ?? "ÉCHEC"}] ${s.key} : ${s.error ?? "sans motif"}`),
+    /**
+     * ── POURQUOI LE PLAN PRÉCÉDENT N'A PAS SUFFI ──────────────────────────────────────
+     *
+     * Les étapes bloquées disent « ce qui a cassé ». Elles ne disent RIEN quand rien n'a
+     * cassé — et c'est exactement le cas `objectifManque` : toutes les étapes abouties, le
+     * juge qui refuse. `refusPrecedent` partait alors VIDE, et le planificateur était rappelé
+     * sur le même objectif sans la moindre indication de ce qui manquait. Il réécrivait le
+     * même plan, forcément : rien ne lui avait dit ce qui n'allait pas.
+     *
+     * Le verdict du juge et son recours suggéré existaient pourtant en base depuis toujours —
+     * relus jusqu'ici seulement pour REFUSER de replanifier, jamais pour aider à le faire.
+     */
+    refusPrecedent: [
+      ...bloquees.map((s) => `[${s.errorKind ?? "ÉCHEC"}] ${s.key} : ${s.error ?? "sans motif"}`),
+      ...refusDuJuge,
+    ],
   };
   const optionsPlan = {
     contexte: contexteReplan,

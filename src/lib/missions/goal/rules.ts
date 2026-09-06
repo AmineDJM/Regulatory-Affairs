@@ -403,3 +403,48 @@ export function partitionnerCriteres(
   }
   return { regles, semantiques };
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * CE QUI SURVIT À UNE REPLANIFICATION — la barre, pas la tuyauterie.
+ *
+ * ── POURQUOI CE FILTRE EXISTE ───────────────────────────────────────────────────────────
+ *
+ * Les critères d'acceptation sont écrits par le PLANIFICATEUR. Sur une replanification, c'est
+ * donc le même modèle, sur le même objectif, qui réécrit la barre à laquelle il vient d'être
+ * recalé — et rien ne l'empêchait d'en écrire une plus basse, puis de conclure COMPLETED
+ * dessus. Il faut donc reporter les exigences du plan précédent.
+ *
+ * ── MAIS TOUT NE SE REPORTE PAS, ET LE CONFONDRE CASSE TOUT ─────────────────────────────
+ *
+ * Une RÈGLE porte des clés d'étape : `[REGLE:RECHERCHES_AVEC_REQUETE:recherche-drive,…]`. Ces
+ * clés appartiennent au plan qui les a produites. Reportée telle quelle dans un plan qui ne
+ * contient plus ces étapes, la règle devient INSATISFIABLE PAR CONSTRUCTION — la mission est
+ * condamnée avant d'avoir commencé. Mesuré : un report naïf faisait passer une mission de
+ * COMPLETED à BLOCKED, et le scénario anti-triche le voyait comme une divergence de verdict.
+ *
+ * La distinction est donc celle-ci :
+ *
+ *   • un critère SÉMANTIQUE (« l'absence est démontrée, sources citées ») dit CE QU'ON VEUT.
+ *     Il ne connaît aucune étape, il survit toujours ;
+ *   • une RÈGLE qui NOMME des étapes dit COMMENT on le vérifiera dans CE plan-là. Elle ne
+ *     survit que si l'une au moins des étapes qu'elle nomme est encore là ;
+ *   • une règle SANS argument (`[REGLE:AUCUNE_ECRITURE]`) ne nomme rien : c'est une exigence
+ *     sur la mission entière, elle survit.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function criteresQuiSurvivent(
+  anciens: readonly string[],
+  clesDuPlan: ReadonlySet<string>,
+): string[] {
+  const gardes: string[] = [];
+  for (const c of anciens) {
+    const m = c.match(GRAMMAIRE);
+    if (!m) { gardes.push(c); continue; }          // sémantique : la barre elle-même.
+    const args = (m[2] ?? "").trim();
+    if (args === "") { gardes.push(c); continue; } // règle sans cible : porte sur la mission.
+    const nommees = args.split(/[:,]/).map((x) => x.trim()).filter(Boolean);
+    if (nommees.some((k) => clesDuPlan.has(k))) gardes.push(c);
+  }
+  return gardes;
+}

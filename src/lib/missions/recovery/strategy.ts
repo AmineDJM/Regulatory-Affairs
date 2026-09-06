@@ -67,6 +67,52 @@ export const ERROR_KINDS = [
    * l'échelle ci-dessous.
    */
   "QA_FAILED",
+
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════
+   * LES MOTIFS QUE LE MOTEUR ÉMETTAIT SANS QUE L'ÉCHELLE LES CONNAISSE.
+   *
+   * `tenterRecours` commence par `if (!ERROR_KINDS.includes(kind)) return false;`. Onze motifs
+   * réellement écrits par le runtime n'y figuraient pas : pour eux, la doctrine §9 (« on ne
+   * s'arrête jamais à la première difficulté ») était intégralement inopérante — pas même une
+   * ligne `STEP_RECOVERY`. Et ce sont exactement les motifs des familles qui échouaient :
+   *
+   *   • `INVALID_STEP` — la référence morte `{{etape.champ}}`, le cas le plus fréquent de la
+   *     famille COMPOSITION. Le moteur nommait parfaitement le défaut et tuait la mission.
+   *   • `ARTIFACT_QA_FAILED` — « un classeur sans aucune feuille exploitable », rejoué trois
+   *     fois À L'IDENTIQUE parce que `retryable: true` sans échelle signifie « refais pareil ».
+   *
+   * Le recensement se fait par le code, pas de mémoire : `taxinomie.test.ts` relit les sources
+   * et exige que tout `errorKind:` émis figure ici. Un motif ajouté demain sans son barreau
+   * fait tomber la suite au lieu de désarmer la persévérance en silence.
+   * ═════════════════════════════════════════════════════════════════════════════════════
+   */
+  /** Le plan est fautif : référence morte, entrée malformée, collection vide en amont. */
+  "INVALID_STEP",
+  /** La cible désignée par l'étape n'existe pas — un dossier, une personne, une référence. */
+  "TARGET_NOT_FOUND",
+  /** Le modèle a rendu une spécification d'artefact inexploitable. */
+  "ARTIFACT_SPEC_INVALID",
+  /** La fabrication du fichier a échoué côté code. */
+  "ARTIFACT_BUILD_FAILED",
+  /** Le fichier a été fabriqué mais il est vide ou incontrôlable — la MATIÈRE manquait. */
+  "ARTIFACT_QA_FAILED",
+  /** L'écriture du fichier au Drive a échoué. Infrastructure, pas contenu. */
+  "ARTIFACT_STORE_FAILED",
+  /** L'appel n'a pas répondu dans le délai. Transitoire jusqu'à preuve du contraire. */
+  "TIMEOUT",
+  /** Le fournisseur de modèle est indisponible. */
+  "MODEL_UNAVAILABLE",
+  /** Le modèle a répondu, mais pas conformément au schéma imposé. */
+  "MODEL_OUTPUT_INVALID",
+  /** Aucun exécutant de worker n'est branché. Faute de DÉPLOIEMENT, pas de mission. */
+  "MISSING_WORKER",
+  /** Aucune fabrique d'artefact n'est branchée. Faute de déploiement également. */
+  "MISSING_ARTIFACT",
+  /** Une partie des branches d'un éventail a échoué. */
+  "PARTIAL_FANOUT",
+  /** Un humain a REFUSÉ. Ce n'est pas une panne : c'est une décision, et elle tient. */
+  "APPROVAL_REFUSED",
 ] as const;
 export type ErrorKind = (typeof ERROR_KINDS)[number];
 
@@ -184,6 +230,44 @@ export const ECHELLE: Record<ErrorKind, readonly Strategy[]> = {
    * tentative pour l'apprendre. On élargit, on change de grenier, puis on récrit localement.
    */
   QA_FAILED: ["ELARGIR", "AUTRE_SOURCE", "REPLAN_LOCAL", "REPLANIFIER", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+
+  // ── LE PLAN EST FAUTIF — chercher ailleurs ne répare pas un câblage ────────────────
+  //
+  // Une référence morte ou une entrée malformée ne se soigne pas en changeant de grenier : ce
+  // qui est faux, c'est le PLAN. On relit d'abord l'acquis (ADAPTER, sans appel), puis on
+  // récrit la partie fautive, puis tout.
+  INVALID_STEP: ["ADAPTER", "REPLAN_LOCAL", "REPLANIFIER", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+  TARGET_NOT_FOUND: ["AUTRE_SOURCE", "ELARGIR", "REPLAN_LOCAL", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+
+  // ── LE LIVRABLE ────────────────────────────────────────────────────────────────────
+  //
+  // `ARTIFACT_QA_FAILED` est le cas mesuré : le classeur est vide parce que les DONNÉES amont
+  // manquaient, pas parce que la fabrication a raté. Le rejouer à l'identique redit la même
+  // chose en consommant une tentative — d'où l'élargissement d'abord, exactement comme QA_FAILED.
+  ARTIFACT_QA_FAILED: ["ELARGIR", "AUTRE_SOURCE", "REPLAN_LOCAL", "REPLANIFIER", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+  ARTIFACT_SPEC_INVALID: ["RETRY", "REPLAN_LOCAL", "REPLANIFIER", "DEMANDER_HUMAIN", "DECLARER_INCONNU"],
+  ARTIFACT_BUILD_FAILED: ["RETRY", "REPLAN_LOCAL", "REPLANIFIER", "ESCALADER"],
+  ARTIFACT_STORE_FAILED: ["RETRY", "RETRY_BACKOFF", "ESCALADER"],
+
+  // ── PANNES DE FOURNISSEUR ET D'HORLOGE — refaire a un sens, découper aussi ─────────
+  TIMEOUT: ["RETRY", "RETRY_BACKOFF", "DECOUPER", "ESCALADER"],
+  MODEL_UNAVAILABLE: ["RETRY", "RETRY_BACKOFF", "ESCALADER"],
+  MODEL_OUTPUT_INVALID: ["RETRY", "ADAPTER", "REPLAN_LOCAL", "ESCALADER"],
+
+  // ── FAUTES DE DÉPLOIEMENT — aucune insistance ne branche un exécutant absent ───────
+  MISSING_WORKER: ["ESCALADER"],
+  MISSING_ARTIFACT: ["ESCALADER"],
+
+  PARTIAL_FANOUT: ["RETRY", "AUTRE_SOURCE", "REPLAN_LOCAL", "ESCALADER"],
+
+  /**
+   * UN REFUS HUMAIN N'EST PAS UNE PANNE — et surtout, ce n'est pas un obstacle à contourner.
+   *
+   * Redemander serait faire pression ; replanifier pour atteindre le même effet par un autre
+   * chemin serait précisément le contournement que §108 interdit. La seule suite honnête est de
+   * DIRE que ce n'a pas été fait, et pourquoi.
+   */
+  APPROVAL_REFUSED: ["DECLARER_INCONNU"],
 };
 
 /**

@@ -272,7 +272,26 @@ suite("Mission Runtime — le réveil par événement", () => {
     // dire « rien à faire » en un tour, et rater une mission prête coûterait bien plus cher.
     expect(candidates).toContain(dormante);
 
+    /**
+     * ── APRÈS EXÉCUTION, LA MISSION RESTE CANDIDATE — ET C'EST LA CORRECTION ───────────
+     *
+     * Son unique étape est DONE, mais sans juge configuré la mission finit BLOCKED : le
+     * travail a eu lieu, l'objectif n'est pas déclaré atteint. Cette assertion exigeait
+     * autrefois qu'une telle mission SORTE de la sélection — ce qui l'enfermait, puisque le
+     * battement est le seul chemin automatique vers la replanification. C'était le cas
+     * CENTRAL de la famille COMPOSITION : plan incomplet, toutes les étapes vertes, juge qui
+     * refuse, mission morte sur place sans jamais revoir le planificateur.
+     *
+     * Ce qui doit sortir de la sélection, c'est ce qui n'a plus rien à attendre de personne :
+     * une mission TERMINÉE. C'est cela qu'on vérifie maintenant.
+     */
     await avancer(neuve, actor, { runner: t.runner });
+    const apres = await chargerEtat(neuve);
+    expect(apres!.status).toBe("BLOCKED");
+    expect(apres!.steps.every((x) => x.status === "DONE")).toBe(true);
+    expect(await missionsAFaireAvancer(200)).toContain(neuve);
+
+    await prisma.mission.update({ where: { id: neuve }, data: { status: "COMPLETED" } });
     expect(await missionsAFaireAvancer(200)).not.toContain(neuve);
   }, 30_000);
 });

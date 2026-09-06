@@ -3,6 +3,7 @@ import { prendreBail } from "@/lib/missions/runtime/bail";
 import type { CompiledMission, CompiledStep, StepSpec } from "@/lib/missions/compiler/compile";
 import { MissionState, StepState, assertTransition } from "@/lib/missions/runtime/state";
 import { lireRecu, type ExecutionReceipt } from "@/lib/missions/runtime/receipt";
+import { criteresQuiSurvivent } from "@/lib/missions/goal/rules";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -154,13 +155,34 @@ export async function materialiser(
     planMeta: { ...compiled.planMeta, ...(opts.planMetaExtra ?? {}) } as never,
   };
 
+  /**
+   * ── UN REPLAN N'ABAISSE JAMAIS LA BARRE (§10) ──────────────────────────────────────────
+   *
+   * Le plan v2 peut AJOUTER une exigence — c'est souvent ce que le juge a demandé. Il ne peut
+   * pas en RETIRER une : sans quoi la partie recalée réécrirait elle-même la barre, et
+   * conclurait COMPLETED dessus. L'union est transitive, donc l'exigence d'origine survit à
+   * toutes les réécritures.
+   *
+   * `criteresQuiSurvivent` écarte les règles liées à des étapes que le nouveau plan n'a plus :
+   * les reporter condamnerait la mission avant qu'elle commence. La barre voyage, la tuyauterie
+   * qui la vérifiait non — elle est reconstruite par le compilateur pour le plan courant.
+   */
+  const ligne = opts.missionId
+    ? await prisma.mission.findUnique({ where: { id: opts.missionId }, select: { acceptance: true } }).catch(() => null)
+    : null;
+  const anciens: string[] = Array.isArray(ligne?.acceptance)
+    ? (ligne.acceptance as unknown[]).filter((x): x is string => typeof x === "string")
+    : [];
+  const clesReportables = new Set(compiled.steps.map((e) => e.key));
+  const acceptanceCumulee = [...new Set([...criteresQuiSurvivent(anciens, clesReportables), ...compiled.acceptance])];
+
   const mission = opts.missionId
     ? await prisma.mission.update({
         where: { id: opts.missionId },
         // LE REPLAN INCRÉMENTE LA VERSION plutôt que d'effacer l'ancienne (§21). Les étapes déjà
         // faites gardent leur version : c'est ce qui permet de dire « ceci a été fait sous le
         // plan 1 » au lieu de laisser croire que le plan actuel a tout produit.
-        data: { ...donneesMission, planVersion: { increment: 1 } },
+        data: { ...donneesMission, acceptance: acceptanceCumulee, planVersion: { increment: 1 } },
       })
     : await prisma.mission.create({
         data: { ...donneesMission, ownerId: opts.ownerId, status: "PLANNING" },

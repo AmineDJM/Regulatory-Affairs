@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { journaliser } from "@/lib/missions/runtime/store";
 import { Attente, FaitObserve, correspond, decomposer, echue, etatAttente, lireAttente, lireProgres } from "@/lib/missions/events/match";
+import { ETATS_REPLANIFIABLES, PLANS_MAX } from "@/lib/missions/runtime/replan";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -261,7 +262,23 @@ export async function missionsAFaireAvancer(limite = 20): Promise<string[]> {
       // il suffirait qu'un appelant oublie le filtre pour qu'elle reparte. Le seul endroit qui
       // répond « qui peut avancer ? » doit répondre juste.
       status: { notIn: ["COMPLETED", "CANCELLED", "PAUSED"] },
-      steps: { some: { status: { in: ["PENDING", "FAILED"] } } },
+      OR: [
+        { steps: { some: { status: { in: ["PENDING", "FAILED"] } } } },
+        /**
+         * ── LA MISSION DONT TOUT A ABOUTI ET QUE LE JUGE A REFUSÉE ────────────────────
+         *
+         * Elle ne porte AUCUNE étape PENDING ni FAILED : le premier filtre ne la voyait pas,
+         * donc le battement ne la conduisait pas, donc `replanifierMission` — qui prévoit
+         * pourtant ce cas sous le nom `objectifManque` — n'était jamais appelée pour elle.
+         * Une mission de composition dont le plan a simplement oublié l'étape CALCUL ou
+         * DOCUMENT mourait BLOCKED après son unique tour de lancement, et `PLANS_MAX = 4`
+         * laissait croire à trois corrections qui n'avaient aucun chemin pour arriver.
+         *
+         * Le plafond de plans est DANS la requête : une mission qui les a épuisés cesse
+         * d'être candidate, au lieu de revenir à chaque battement se faire refuser.
+         */
+        { status: { in: [...ETATS_REPLANIFIABLES] }, planVersion: { lt: PLANS_MAX } },
+      ],
     },
     select: { id: true },
     // LA PRIORITÉ D'ABORD (« celle-ci devient prioritaire »), l'ancienneté ensuite — une
