@@ -49,8 +49,33 @@ export interface Exigence {
 }
 
 const ACCENTS = /[̀-ͯ]/g;
-export const normaliser = (t: string): string =>
-  ` ${t.normalize("NFD").replace(ACCENTS, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+
+/**
+ * LES IDIOMES QUI PORTENT UN MOT-MARQUEUR SANS EN PORTER LE SENS.
+ *
+ * « par rapport à » est une comparaison, pas un rapport. Mesuré sur le corpus du banc : « mets
+ * Annaba en évidence PAR RAPPORT aux autres » se lisait comme une demande de document. Ici la
+ * conséquence était bénigne (le mot ne comptait qu'en POSSIBLE), mais la même phrase avec un
+ * verbe de production aurait exigé un DOCUMENT et fait refuser un plan correct.
+ *
+ * On neutralise donc l'idiome AVANT toute recherche, plutôt que d'écarter le mot partout : « fais
+ * un rapport » doit continuer de compter.
+ */
+const IDIOMES_SANS_SENS: readonly RegExp[] = [
+  / par rapport (a|au|aux) /g,   // comparaison — ce n'est pas une pièce à produire
+  / rapport de force /g,
+  / compte tenu /g,
+  / se rendre compte /g,
+];
+
+export const normaliser = (t: string): string => {
+  // « œ » et « æ » ne se décomposent pas en NFD : sans cette ligne, « coup d'œil » devient
+  // « coup d il » et aucun marqueur ne peut l'atteindre.
+  const lettres = t.normalize("NFD").replace(ACCENTS, "").toLowerCase().replace(/œ/g, "oe").replace(/æ/g, "ae");
+  let n = ` ${lettres.replace(/[^a-z0-9]+/g, " ").trim()} `;
+  for (const i of IDIOMES_SANS_SENS) n = n.replace(i, " ");
+  return n;
+};
 
 /**
  * LES MARQUEURS. Chaque entrée est un RADICAL cherché comme début de mot : « calcul » attrape
@@ -87,13 +112,30 @@ const MARQUEURS: Record<Primitive, { sure: readonly string[]; possible: readonly
    * « montre-moi » seul ne suffit pas : il sert aussi bien à « montre-moi le contrat ». C'est
    * le nom de l'objet visuel qui tranche.
    */
+  /**
+   * REPRESENTATION — on demande à VOIR, et on ne nomme pas toujours la forme.
+   *
+   * « montre-moi » seul ne suffit pas : il sert aussi bien à « montre-moi le contrat ». C'est le
+   * nom de l'objet visuel qui tranche — OU une tournure qui ne peut vouloir dire que « rends-moi
+   * cela visible ».
+   *
+   * Ces tournures-là ont été trouvées en confrontant le détecteur à des demandes réelles, et
+   * elles manquaient : « sur une carte », « en un coup d'œil », « sous la forme la plus lisible »,
+   * « dessine-moi ». Ce sont des idiomes du français courant, pas des phrases recopiées : chacun
+   * exprime la MISE EN FORME et rien d'autre, et les négatifs du jeu de test (« montre-moi le
+   * contrat », « fais-moi voir la facture ») vérifient qu'ils n'attrapent pas une simple lecture.
+   */
   REPRESENTATION: {
     sure: [
       "graphique", "graphiques", "courbe", "histogramme", "camembert", "diagramme", "nuage de points",
       "tableau de bord", "dashboard", "visualis", "heatmap", "chronologie", "timeline", "gantt",
       "cartographie", "carte geographique", "matrice", "entonnoir", "waterfall",
+      // Les idiomes du VOIR — aucun ne peut désigner une lecture de document.
+      "sur une carte", "sur la carte", "en un coup d oeil", "d un coup d oeil",
+      "sous la forme", "sous quelle forme", "sous forme de", "choisis la forme",
+      "dessine", "trace moi", "trace la", "visuellement", "graphiquement",
     ],
-    possible: ["tableau", "tableaux", "vue", "panorama", "apercu visuel"],
+    possible: ["tableau", "tableaux", "vue", "panorama", "apercu visuel", "fais moi voir", "montre moi"],
   },
 
   /**
@@ -168,7 +210,16 @@ const VERBES_PRODUCTION: readonly string[] = [
  */
 const AUXILIAIRES = new Set(["a", "as", "ai", "ont", "avez", "avons", "avait", "avaient", "aura", "auront", "est", "sont", "etait"]);
 
-/** Le verbe est-il DEMANDÉ (impératif, souhait) plutôt que RACONTÉ (passé composé) ? */
+/**
+ * « FAIS-MOI VOIR » MONTRE, IL NE PRODUIT PAS.
+ *
+ * Le verbe « faire » suivi de « voir » est une demande de MONTRER, pas de fabriquer : « fais-moi
+ * voir la facture de mars » ne demande à personne d'émettre une facture. Sans cette exception, un
+ * verbe de production et un nom de pièce se rencontraient dans une phrase de simple consultation.
+ */
+const SUIVIS_QUI_MONTRENT = /^\s*(moi\s+)?voir\b/;
+
+/** Le verbe est-il DEMANDÉ (impératif, souhait) plutôt que RACONTÉ (passé composé) ou MONTRÉ ? */
 function verbeDemande(demandeNorm: string, verbe: string): boolean {
   const v = normaliser(verbe).trim();
   if (v === "") return false;
@@ -176,7 +227,8 @@ function verbeDemande(demandeNorm: string, verbe: string): boolean {
   while (i !== -1) {
     const avant = demandeNorm.slice(0, i).trim().split(" ");
     const precedent = avant[avant.length - 1] ?? "";
-    if (!AUXILIAIRES.has(precedent)) return true;
+    const apres = demandeNorm.slice(i + 1 + v.length);
+    if (!AUXILIAIRES.has(precedent) && !SUIVIS_QUI_MONTRENT.test(apres)) return true;
     i = demandeNorm.indexOf(` ${v}`, i + 1);
   }
   return false;

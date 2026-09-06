@@ -5153,6 +5153,76 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### LA COMPOSITION : trois ruptures dans la chaîne, aucune dans le modèle (2026-09)
+
+**Le problème.** La famille COMPOSITION faisait 1 réussite sur 13. Un plan de composition
+enchaîne des étapes : la seconde lit la sortie de la première. Trois choses cassaient cette
+chaîne, et aucune n'était un défaut de raisonnement du modèle.
+
+**1 — Le planificateur ne savait pas ce que les capacités RENDENT.** La seule source était une
+table écrite à la main : SIX capacités sur deux cent vingt-neuf. Pour les autres, il devinait un
+nom de champ ; la devinette tombait à l'EXÉCUTION, après l'accord du dirigeant, en tuant la
+mission (`INVALID_STEP`, non rejouable). La forme s'apprend désormais de ce que chaque capacité
+a RÉELLEMENT rendu — `MissionStep.result` porte déjà la matière, c'est la table où le registre
+lit la fiabilité (§17 : pas de seconde table, pas d'entretien, et un outil qui change de sortie
+réapprend seul). Une forme ne contient JAMAIS de valeur métier, seulement des noms de champs et
+des types : elle part dans le prompt, et un montant ou un nom de salarié qui s'y glisserait
+ferait fuiter par la description ce que les droits protègent. Vérifié sur données piégées, puis
+sur les sorties réelles de la base. **6 → 56 capacités montrées avec leur sortie, sur 226.**
+
+**2 — Le compilateur ne vérifiait que la CLÉ, jamais le CHAMP.** Il le pouvait pourtant pour la
+moitié des cas, sans rien apprendre : un WORKER rend EXACTEMENT les champs de son schéma (bâti
+avec `additionalProperties: false` et imposé au fournisseur en mode strict — sans `outputFields`
+c'est le schéma minimal, trois champs), une JONCTION rend `{ joined }`. La forme d'un worker est
+donc une CONSTANTE de compilation, et c'est le cas le plus fréquent : l'étape CALCUL d'une
+composition est presque toujours un worker. `compiler/sorties.ts` refuse maintenant la référence
+morte AVANT l'exécution, en nommant les champs disponibles — et le refus repart au planificateur
+comme une correction, pas comme une mort. **La règle qui gouverne tout le module : on ne refuse
+QUE ce qu'on sait faux.** Une ignorance ne refuse rien ; un refus à tort frapperait d'abord les
+capacités neuves, c'est-à-dire tout skill fraîchement branché.
+
+Au passage, une JONCTION ne coupe plus les données : elle sert à réduire les ARÊTES du graphe,
+pas le flux. Le plan naturel « 3 lectures → JONCTION → calcul » faisait arriver `{ joined: 3 }`
+au lieu des trois lectures, et l'artefact aval finissait sur « un classeur sans aucune feuille
+exploitable ».
+
+**3 — La boucle « ça n'a pas marché → nouveau plan » n'était jamais atteinte.** La requête du
+battement exigeait une étape PENDING ou FAILED. Le cas CENTRAL de la famille n'en a aucune :
+toutes les étapes abouties, le contrôle qualité vert, et le juge qui refuse parce que le plan a
+oublié une primitive. `replanifierMission` prévoit explicitement ce cas — personne ne l'appelait.
+PARTIAL, l'état d'une composition à moitié faite, était déclaré replanifiable et ne l'était que
+par la voie manuelle. Et onze motifs d'échec sur dix-sept sortaient de la taxinomie de recours,
+dont `INVALID_STEP` et `ARTIFACT_QA_FAILED` : pour eux, la persévérance (§9) était inopérante,
+pas même une ligne au journal. L'échelle, enfin, bouclait sur un barreau qu'elle n'inscrivait
+pas, rendant les suivants inatteignables.
+
+**4 — Rien ne vérifiait que le plan répond à la demande.** Les deux seuls contrôles de couverture
+étaient « au moins une étape » et « au moins un critère ». Un plan « lire → répondre » compilait
+donc pour une demande qui réclamait un chiffre ou une pièce. Le code lit maintenant la demande
+(`planner/primitives.ts`, du français d'entreprise ordinaire), GARANTIT qu'une capacité de la
+primitive exigée est montrée — elles retombaient toutes sur le domaine « autre » et le tourniquet
+les écartait — et REFUSE un plan qui n'en porte aucune. Quatre conditions avant de refuser, dont
+deux venues d'échecs immédiats : un nœud ARTIFACT couvre DOCUMENT (c'est lui qui fabrique le
+fichier), et sous plafond de lecture on n'exige ni pièce ni action, sans quoi le refus boucle.
+
+**Ce qui n'a PAS été fait.** Aucune règle par famille d'évaluation, aucun alias construit sur une
+phrase de banc, aucun contournement de juge. Le détecteur de primitives est jugé sur un jeu TENU
+À L'ÉCART — vingt-cinq demandes écrites après le dictionnaire, dans d'autres tournures et
+d'autres métiers, dont six négatifs de lecture pure, parce qu'une exigence inventée enferme une
+mission correcte aussi sûrement qu'une exigence manquée laisse passer un plan qui ne répond pas.
+Un cas qui a servi à corriger le vocabulaire a QUITTÉ ce jeu : on n'ajuste pas sur ce qui juge.
+
+**Ce que les tests tiennent.** Contrefactuels systématiques : référence morte désactivée → 4
+tests tombent ; requête du battement remise en l'état → 2 ; taxinomie remise en l'état → 3 ;
+contrôle de couverture désactivé → 2 ; plancher de visibilité désactivé → 2. Deux tests qui
+VERROUILLAIENT un défaut ont été corrigés, pas contournés : l'un affirmait qu'une référence morte
+devait compiler, l'autre qu'une mission BLOCKED dont tout a abouti devait rester invisible au
+battement — ce qui l'enfermait.
+
+**Cibles d'évals : +9.** `reference_morte_avant_execution`, `reference_licite_jamais_refusee`,
+`capacite_forme_connue`, `forme_sortie_apprise`, `motif_echec_avec_recours`,
+`mission_replanifiable_atteinte`, `primitive_exigee_deduite`, `plan_couvre_objectif`.
+
 ### AVANT / APRÈS SUR LES QUATRE FAMILLES MORTES : 2 réussites deviennent 21 (2026-09)
 
 Le mandat demande un avant/après, pas une intuition. Les corrections de rappel du résolveur ont

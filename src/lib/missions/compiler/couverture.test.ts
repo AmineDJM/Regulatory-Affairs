@@ -44,7 +44,7 @@ function catalogueDe(primitives: Record<string, string>): CapabilityCatalog {
   return {
     has: (n) => noms.includes(n),
     allowed: () => true,
-    meta: (n) => ({ ...capabilityMeta(n), primitive: primitives[n] ?? "INFORMATION" }),
+    meta: (n) => ({ ...capabilityMeta(n), primitive: (primitives[n] ?? "INFORMATION") as never }),
     brief: () => briefs,
   };
 }

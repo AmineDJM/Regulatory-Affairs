@@ -61,6 +61,28 @@ const MISE_AU_POINT: Cas[] = [
   ["Envoie-moi le rapport que Yassine a préparé", []],
   ["Où est passée la facture de mars ?", []],
   ["Ouvre le PDF du dossier et dis-moi ce qu'il contient", []],
+  /**
+   * « PAR RAPPORT À » EST UNE COMPARAISON, PAS UN RAPPORT.
+   *
+   * Trouvé en confrontant le détecteur à des demandes réelles : le mot « rapport » comptait à
+   * l'intérieur de l'idiome. Bénin ici (POSSIBLE seulement), mais la même phrase avec un verbe
+   * de production aurait exigé un DOCUMENT et fait refuser un plan correct.
+   */
+  ["Mets Annaba en évidence par rapport aux autres wilayas", []],
+  ["Prépare-moi la position de Sofradis par rapport à ses concurrents", []],
+
+  /**
+   * LES IDIOMES DU VOIR — demander une forme sans nommer de graphique.
+   *
+   * Les négatifs qui suivent immédiatement sont ce qui les rend sûrs : « montre-moi le contrat »
+   * et « fais-moi voir la facture » ne demandent aucune mise en forme.
+   */
+  ["Montre-moi sur une carte où se concentrent nos ventes", ["REPRESENTATION"]],
+  ["Je veux voir en un coup d'œil quels dossiers se percutent", ["REPRESENTATION"]],
+  ["Présente l'écart sous la forme qui le rend le plus lisible", ["REPRESENTATION"]],
+  ["Dessine-moi qui parle à qui dans cette affaire", ["REPRESENTATION"]],
+  ["Montre-moi le contrat signé avec Sofradis", []],
+  ["Fais-moi voir la facture de mars", []],
 ];
 
 /**
