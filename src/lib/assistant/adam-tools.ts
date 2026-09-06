@@ -584,10 +584,26 @@ export const ADAM_TOOLS: PowerTool[] = [
 
   {
     def: {
-      name: "mission_status",
+      // ── RENOMMÉ : IL S'APPELAIT `mission_status`, COMME UN AUTRE ──────────────────────
+      //
+      // Deux capacités portaient ce nom : celle-ci (la SOLLICITATION — qui a répondu, qui
+      // manque) et celle du Mission Runtime (`business-capabilities.ts` — les étapes, les
+      // éventails, l'avancement). Le registre en envoyait DEUX au modèle, avec deux schémas
+      // qui ne s'accordent pas (`missionId` ici, `mission` là), et l'aiguillage n'en atteignait
+      // qu'une : celle-ci était donc morte à l'exécution, et sa description faisait écrire au
+      // modèle une clé que l'autre ignore — la réponse revenait alors sur TOUTES les missions
+      // au lieu de celle demandée. Un faux succès silencieux.
+      //
+      // Les deux répondent à des questions différentes et méritent d'exister ; ce sont les
+      // NOMS qui ne pouvaient pas coexister. `capability-surface.test.ts` interdit désormais
+      // le doublon, pour que la question ne se repose pas.
+      name: "mission_participants",
       description:
-        "État d'une mission (ou de toutes) : qui a répondu, qui manque, ce qui a été demandé, quelle est la prochaine action. "
-        + "C'est la réponse à « alors ? », « où ça en est ? », « qui n'a pas répondu ? ».",
+        "QUI A RÉPONDU ET QUI MANQUE sur une mission de sollicitation : ce qui a été demandé à chacun, "
+        + "qui a répondu et ce qu'il dit, qui n'a pas répondu et depuis quand, les relances envoyées, "
+        + "les demandes consolidées et la prochaine action. "
+        + "C'est la réponse à « qui n'a pas répondu ? ». Pour l'AVANCEMENT des étapes d'une mission "
+        + "du moteur (éventails, sous-missions, ce qui attend votre accord), c'est `mission_status`.",
       input_schema: {
         type: "object",
         properties: {
@@ -596,7 +612,7 @@ export const ADAM_TOOLS: PowerTool[] = [
       },
     },
     allowed: EXEC,
-    label: "Mission consultée",
+    label: "Participants d'une mission",
     run: async (input, user) => {
       const missionId = str(input, "missionId");
       if (missionId) {

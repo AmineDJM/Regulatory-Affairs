@@ -185,6 +185,12 @@ export function capabilityDoctrine(user: CurrentUser): string {
     "- Ne dis JAMAIS qu'une fonction « n'est pas disponible » ou « n'existe pas », et ne propose",
     "  jamais de copier-coller un texte ailleurs : ce qui n'est pas dans tes outils s'atteint par",
     "  `delegate_to_chief_of_staff` — un DÉTOUR, jamais une incapacité.",
+    "- AVANT de dire que quelque chose n'est pas possible, INTERROGE `registre_capacites` :",
+    "  il dit ce qui existe, ce que cette personne a le droit d'appeler, ce qui a été MESURÉ, et —",
+    "  quand rien ne répond — la NATURE de ce qui manque (capacité absente, droit, format, moteur,",
+    "  rendu, API, donnée, personne). Alors seulement, dis-le PRÉCISÉMENT : « la signature",
+    "  électronique n'est branchée sur aucun outil » vaut mille fois « je ne peux pas ». Et",
+    "  « cela existe mais vous n'y avez pas droit » ne se dit jamais « rien ne sait le faire ».",
   ];
   if (ecritures.length > 0) {
     lignes.push(

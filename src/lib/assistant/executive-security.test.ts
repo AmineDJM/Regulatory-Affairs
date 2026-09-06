@@ -194,6 +194,11 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // chaque geste — et refuse structurellement toute SUPPRESSION. Les deux outils de format
       // ne touchent à rien : ils lisent un texte fourni, ou un fichier sous le même droit.
       "drive_inventaire", "drive_lot", "format_lire", "format_convertir",
+      // Le registre (§44) : il LIT le catalogue et n'exécute rien. Il compose les fiches avec
+      // `autorisee` calculé sur les droits RÉELS de la personne — dire qu'une capacité existe
+      // sans y donner accès est ce qui permet de répondre « vous n'y avez pas droit » au lieu
+      // de « rien ne sait le faire ». Aucune donnée métier ne transite : nom, résumé, mesures.
+      "registre_capacites",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

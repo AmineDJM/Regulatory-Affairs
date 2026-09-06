@@ -17,6 +17,7 @@ import {
   type DiagnosticReference, type SortieAmont,
 } from "@/lib/missions/runtime/interpolate";
 import { expliquer, resoudreCollection } from "@/lib/missions/runtime/collection";
+import { classer } from "@/lib/registre/manques";
 import {
   aReparer, controlerQualite, evaluerObjectif,
   type EtapeObservee, type JugeObjectif, type JugementAnterieur,
@@ -1106,8 +1107,17 @@ async function ecrireSortie(
         ...(sortie.retryable ? {} : { attempt: step.maxAttempts }),
       },
     });
+    // ── LE MANQUE EST NOMMÉ ICI, PAS PLUS TARD (§44) ─────────────────────────────────────
+    //
+    // « L'étape a échoué » ne répare rien ; « le format .xls n'est pas lisible sur ce serveur »
+    // se répare et se chiffre. Le classement se fait AU MOMENT de l'échec, où le message est
+    // encore entier, et voyage dans le détail de l'événement que le journal écrit déjà — pas
+    // dans une table de manques qui dirait la même chose une seconde fois (§17).
     await journaliser(etat.id, "STEP_FAILED", `Étape « ${step.title} » en échec : ${sortie.error}`,
-      { stepKey: step.key, errorKind: sortie.errorKind, retryable: sortie.retryable });
+      {
+        stepKey: step.key, errorKind: sortie.errorKind, retryable: sortie.retryable,
+        manque: classer(sortie.error, { capacite: step.capability ?? null, etape: step.key }),
+      });
     return;
   }
 

@@ -140,6 +140,8 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
 
   // ── Missions, engagements, rappels ──────────────────────────────────────────────────────
   mission_status: ["MISSION"],
+  // La sollicitation (« qui n'a pas répondu ? ») — distincte de l'avancement des étapes.
+  mission_participants: ["MISSION"],
   run_mission: ["MISSION"],
   mission_control: ["MISSION"],
   mission_create: ["MISSION"],
@@ -222,6 +224,9 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   carte_territoire: ["DATA", "DIRECTORY", "GENERAL"],
   // Les fichiers et les formats (mandat 5 §41) : ranger, dédoublonner, importer, convertir.
   drive_inventaire: ["DRIVE", "DATA", "GENERAL"],
+  // §44 : la question qu'on pose AVANT de dire « je ne peux pas ». Elle n'appartient à aucun
+  // domaine parce qu'elle porte sur tous — et notamment sur ceux où Adam croit ne rien savoir faire.
+  registre_capacites: ["GENERAL", "ADMIN", "DATA"],
   drive_lot: ["DRIVE", "GENERAL"],
   format_lire: ["DATA", "DRIVE", "GENERAL"],
   format_convertir: ["DATA", "DRIVE", "GENERAL"],
@@ -401,6 +406,13 @@ export const ALWAYS_ON = [
   // contrat sur… ? » sans aucun moyen d'aboutir — quel que soit le domaine détecté, et alors
   // même que la réponse était indexée. Une asymétrie de ce genre ne se répare pas par domaine.
   "search_documents",
+  // §44 — LA QUESTION QU'ON POSE AVANT DE DIRE « JE NE PEUX PAS ». Elle appartient au socle par
+  // le même critère que les autres : « aucune question ne doit devenir IMPOSSIBLE quand le
+  // domaine est mal deviné ». Un manque de capacité peut surgir dans n'importe quel domaine — la
+  // signature électronique arrive par une question juridique, un format illisible par une
+  // question de finance — et c'est justement quand le domaine est mal deviné qu'Adam risque de
+  // conclure à l'impossible. Le registre coûte un schéma par appel et évite une phrase fausse.
+  "registre_capacites",
 ] as const;
 
 /**

@@ -3241,6 +3241,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Moteurs de calcul — simulation, optimisation, ordonnancement, statistiques (§39)** | `lib/calcul/` (PUR, aucun Prisma / RBAC / modèle) : `alea.ts` (graine xoshiro128**, neuf lois, quantiles pour la copule gaussienne, Cholesky), `expression.ts` (formule compilée sans `eval`, erreur POSITIONNÉE, système ordonné par dépendances), `montecarlo.ts` (`simuler` : jusqu'à 200 000 tirages, P1…P99, probabilité de perte et de chaque seuil, sensibilité Spearman + part de variance + tornado, convergence, PIÈGE DES MOYENNES nommé, corrélations par copule), `simplexe.ts` (`optimiser` : deux phases + règle de Bland, séparation-évaluation pour entiers et binaires, PRIX MARGINAUX, contraintes saturées, INFAISABLE / NON BORNÉ argumentés), `ordonnancement.ts` (`ordonnancer` : chemin critique, marges totale et libre, ordonnancement sous ressources, retard imputé à la RESSOURCE et non au projet, échéance chiffrée, cycle rendu), `contraintes.ts` (`resoudreContraintes` : cohérence d'arc + retour arrière MRV, règles logiques, IMPOSSIBILITÉ démontrée avec les règles en cause), `stats.ts` (`regresser`, `regresserLogistique`, `testMoyennes` / `testApparie` / `testIndependance` / `testRangs`, `correlations`, `decrireColonnes` ; lois de Student / Fisher / χ² ; VIF, validation croisée, Breusch-Pagan, Durbin-Watson, fuite de données, effet vs significativité), `ml.ts` (`segmenter` k-moyennes++ et silhouette, `acp`, `detecterAnomalies` par trois regards dont l'aberration LOCALE), `series.ts` (`analyserSerie` : Holt-Winters, période détectée, ruptures, prévision validée HORS ÉCHANTILLON contre la marche naïve), `rigueur.ts` (hypothèses / limites / avertissements, statistiques partagées) ; pont `platform/in-process/calcul/`, outils `assistant/calcul-tools.ts` (`calcul_montecarlo`, `calcul_optimisation`, `calcul_ordonnancement`, `calcul_statistiques` — aucun ne lit la base, les données viennent du bac à sable qui porte leur droit), routage `CALCUL_EXPLICITE` (`voice/fast-path.ts` + `context/router.ts`). Banc : 83 tests à réponses connues, cibles `montecarlo_exactitude` / `optimum_exact` / `rigueur_statistique` / `prevision_hors_echantillon`, défis live `defi-montecarlo-budget`, `defi-optimisation-allocation`, `defi-ordonnancement-critique` (le juge REFAIT le calcul) et un test Playwright dans l'interface |
 | **Réseau et géographie — chemins, centralités, territoires (§40)** | `lib/graphe/` (PUR) : `modele.ts` (nœuds/arêtes typés, VALIDITÉ TEMPORELLE par arête, `auMoment` rend le graphe tel qu'il était, `filtrerRelations`, `voisins`, `degre`, `sommaire`), `chemins.ts` (`plusCourtChemin` Dijkstra sur l'inverse des poids — un lien fort RAPPROCHE —, `cheminsMultiples` (un lien unique ≠ trois liens), `portee` par niveau, `cycles`, `composantes`, `pointsDeRupture` avec ce qui se retrouve ISOLÉ), `mesures.ts` (`pagerank`, `intermediarite` Brandes rapportée au maximum THÉORIQUE, `proximite` Wasserman-Faust, `centralites`, `communautes` Louvain avec modularité) ; `lib/geo/` (PUR) : `distance.ts` (haversine, cap et cardinal, enveloppe, barycentre par les VECTEURS, `dansLaZone`, `aireKm2`, `autour`, `densites` ; `FACTEUR_DETOUR_ROUTIER` déclaré, jamais appliqué en douce), `algeria.ts` (les 58 wilayas + `COORDONNEES_WILAYAS` des chefs-lieux, `coordonneesDe`, `BORNES_ALGERIE`, `AVERTISSEMENT_CHEF_LIEU`), `tournee.ts` (`tournee` plus proche voisin + 2-opt avec le gain sur l'ordre fourni, `territoires` k-moyennes sphériques rééquilibrées sur la CHARGE, `implantationOptimale` point de Weber, `choisirSites` p-médian EXACT et renvoi au solveur entier au-delà) ; pont `platform/in-process/reseau/` (construit le graphe depuis `EntityLink` (liens DÉCLARÉS) et les tables (liens STRUCTURELS) sous les droits — `peutVoir` par type, types refusés NOMMÉS —, `lieuxErp` place médecins/établissements/contacts au chef-lieu), outils `assistant/reseau-tools.ts` (`reseau_entreprise` : chemin, portée, qui_compte, communautés, ruptures, cycles, sommaire, avec `au` pour la date ; `carte_territoire` : répartition, autour, tournée, territoires, implantation), routage `RESEAU_EXPLICITE`. Banc : `graphe/{modele,chemins,mesures}.test.ts` (21), `geo/{distance,tournee,algeria}.test.ts` (33), `platform/in-process/reseau/reseau.test.ts` (6, droits et temps par le vrai point d'entrée), cibles `graphe_droits` / `graphe_temporel` / `point_de_passage` / `geo_exactitude`, défis live `defi-reseau-chemin` et `defi-carte-tournee` |
 | **Fichiers et formats — ranger, dédoublonner, importer, convertir (§41)** | `lib/formats/` (PUR) : `detection.ts` (`detecterEncodage` marque d'ordre / UTF-8 / repli latin-1, `detecterSeparateur` par la RÉGULARITÉ, `detecterEntete`, `detecterLocale` (fr/en/ambigu, jj-mm/mm-jj/ISO), `versNombre`, `versDateIso` qui rend `null` sur une date indécidable), `tableur.ts` (`lireTableur` : lignes typées + RAPPORT — décisions, lignes mal formées, colonnes MÊLÉES ; largeur de référence = en-tête ou modale ; `ecrireCsv` impose le point-virgule en locale française ; `lireJson`/`ecrireJsonl`), `conversion.ts` (`conversion` LOSSLESS / DESTRUCTIF / IMPOSSIBLE avec ce qui est perdu et la ressource manquante, `avertissementConversion`, `conversionsDepuis`) ; `lib/fichiers/` (PUR) : `doublons.ts` (IDENTIQUE / VERSION / RESSEMBLANT, `radicalSansVersion`, `distanceNoms` bornée, `orphelins` — et « supprimer un identique ne libère aucun octet »), `classement.ts` (`proposerClassement` par indices PESÉS et CITÉS dans le nom et le contenu, confiance PLAFONNÉE sans contenu lu, `extraireEntites`, `gestesDeClassement` avec l'origine), `lot.ts` (`preparerLot` : aperçu, refus des gestes non annulables et des suppressions, « à confirmer » sous seuil, plan de retour ; `executerLot` : reprise par reçu, réessais des seuls échecs PASSAGERS, budget de temps, compte ARITHMÉTIQUE) ; pont `platform/in-process/fichiers/` (`recenser` sous `canViewDrive`, `apercuTexte`, `appliquerGeste` sous `canEditDrive` (fichier ET destination) et IDEMPOTENT, `gesteDejaFait`, `dossierPour`, `etatsActuels` — l'état d'avant lu en base ; SUPPRESSION refusée), outils `assistant/fichiers-tools.ts` (`drive_inventaire`, `drive_lot`, `format_lire`, `format_convertir`), routage `contientDonneesCollees`. Banc : `formats/{detection,tableur}.test.ts` (20), `fichiers/fichiers.test.ts` (23), `platform/in-process/fichiers/fichiers.test.ts` (7), cibles `import_detecte` / `conversion_dite` / `lot_compte_exact` / `aucune_suppression`, défis live `defi-import-tableur` et `defi-conversion-perte` |
+| **Registre des capacités et manques nommés (§44)** | `lib/registre/` (PUR) : `fiche.ts` (`composerFiche` — douze rubriques par capacité, `fiabilite.taux = null` tant que rien n'a été MESURÉ ; `interroger` avec les ÉCARTÉES et leur nature (PLAFOND / DROIT / FORME / FIABILITE), marquage sur MOTS ENTIERS ; `detecterManque` au seuil de pertinence 3 ; `sommaireRegistre` qui compte ce qu'on ignore), `manques.ts` (11 natures, `SENS_MANQUE` avec la suite et le fait que ce soit une DETTE ou non, `classer` qui rend INDETERMINE plutôt qu'une nature inventée, `feuilleDeRoute` groupée par nature × capacité et pondérée) ; pont `platform/in-process/registre/` (`mesuresParCapacite` lue sur `MissionStep` — appels, échecs, reprises, p50/p90 ; `fichesDe` sur `POWER_TOOLS` + `assistantToolsFor` pour `autorisee` ; `manquesObserves` / `feuilleDeRouteErp` en LECTURE des `MissionEvent` `STEP_FAILED`) ; classement câblé dans `missions/runtime/engine.ts` ; outil `assistant/registre-tools.ts` (`registre_capacites` : chercher / fiche / manque / feuille_de_route / sommaire). Banc : `lib/registre/registre.test.ts` (20), `platform/in-process/registre/registre.test.ts` (8, depuis `lancerMission`), garde anti-doublon dans `capability-surface.test.ts`, cibles `manque_nomme` / `fiabilite_mesuree` / `droit_vs_absence` / `registre_sans_doublon`, défis live `defi-manque-nomme` et `defi-registre-honnete` |
 | **Résolution d'entités (F9, §24)** | `lib/fabric/entites-score.ts` (scoreur pur : `scorerNom`, `trancher`, `detecterIdentifiant`, `questionDeDesambiguation`) ; `lib/fabric/entites.ts` (`resoudreEntite`, `resoudreMentions`, `contexteEntitesResolues` — dix natures, trigramme) ; pont `platform/in-process/fabric/entites.ts` ; `assistant.ts` (`resolvePerson` par la brique, bloc d'entités résolues dans le contexte du tour) ; `fabric/entites.test.ts` (banc de 60 mentions). |
 | **Teach Adam — règles enseignées** | `lib/teach/model.ts` (natures, périmètres, statuts, `KINDS_CONTRAIGNANTS`) ; `classify.ts` (`classerEnseignement`, `extraireParametres`) ; `resolve.ts` (`estApplicable`, `comparerPrecedence`, `resoudre`, `conflitsAvecExistantes`, `cleDe`) ; `compose.ts` (`composerBlocRegles`, `lignesPourPlanificateur`) ; pont `platform/in-process/teach/store.ts` (`enseigner`, `listerRegles`, `modifierRegle`, `changerStatutRegle`, `reglesEnVigueurPour`, `contexteRegles`, `politiquesPourMission`, `standardsDocumentaires`) ; outils `lib/assistant/teach-tools.ts` (`teach_adam`, `list_rules`, `update_rule`, `disable_rule`, `delete_rule`) ; garde `missions/policy/guard.ts` ; modèle `AdamRule`. |
 | **Adam — la coque de son bureau (et sa porte de sortie)** | Groupe de routes `app/(chief)/layout.tsx` : coque délibérément VIDE — ni menu latéral, ni barre supérieure, ni barre d'onglets, ni palette, ni bandeaux. `components/chief/{chief-workspace,chief-header,chief-home}.tsx` + `app/chief.css` (jeu de jetons `--chief-*` propre à Adam). **La sortie** : `components/chief/module-switcher.tsx` — une icône dans l'en-tête ouvre la liste des modules que CETTE personne peut ouvrir (champ de filtre, groupé par pôle, Échap / clic dehors referment). Les destinations arrivent par le **contrat de plateforme** (`navigation.destinations` → `in-process/adapter.ts` → `lib/nav-access.ts`), jamais par un import du menu de l'ERP : c'est ce qui garde le cliquet de frontière à 430. Le même `navigationFor` sert la barre latérale de l'ERP — une seule vérité sur « qui a le droit d'aller où ». Tests : `platform/navigation-destinations.test.ts` (dont : une entrée fusionnée mène au premier onglet AUTORISÉ, donc `/ad-pro` pour l'admin et `/congress-international` pour le délégué médical). |
@@ -4070,6 +4071,72 @@ du Drive, quatre outils — et une règle qui ne se négocie pas : **rien ne se 
   le vrai point d'entrée (droits, idempotence, refus de suppression, aller-retour complet), quatre
   cibles et deux défis live (`defi-import-tableur`, `defi-conversion-perte`).
 
+### Le registre des capacités et ce qui manque — mandat 6 §44
+
+« Je ne peux pas » est la phrase la plus coûteuse du produit : elle ne dit ni pourquoi, ni ce qui
+manque, ni ce qu'il faudrait pour que ce soit possible. Ce lot la remplace par deux choses qui se
+vérifient — une **fiche** par capacité, composée du réel, et un **manque nommé** à chaque échec,
+qui alimente tout seul la feuille de route technique.
+
+- **La règle qui tient tout le lot : MESURÉ, ou rien.** Une capacité jamais exécutée n'a pas une
+  fiabilité de 100 % — elle a une fiabilité INCONNUE. `fiabilite.taux` vaut `null` tant que
+  l'échantillon est vide, et le tri ne remonte pas les capacités jamais essayées au sommet. Même
+  principe pour la latence (la classe annoncée est une intention, le p50 une observation) et pour
+  la DÉPENSE : le code classe la nature du coût — rien, un quota, une facture — et ne remplit un
+  montant que lorsqu'il a été mesuré. Inventer « 0,003 $ » ferait un tableau de bord crédible et
+  faux.
+- **Douze rubriques par capacité** (`lib/registre/fiche.ts`, PUR) : nom, résumé, domaine,
+  primitive, effet, entrées EXACTES (tirées du schéma de l'outil, pas recopiées), contrat de
+  sortie, rejouabilité, groupabilité, politique de confirmation, latence annoncée ET mesurée,
+  dépense, fiabilité mesurée avec son échantillon, risque avec ses raisons, LIMITES, événements
+  laissés, dépendances, et `autorisee` pour CETTE personne.
+- **La rubrique qui compte est « limites ».** Elle dit ce qu'on ne garantit pas : « aucun contrat
+  de sortie : *elle a répondu* ne se distingue pas de *elle a réussi* », « non groupable : une
+  collection de trois cents exige trois cents étapes », « jamais exécutée en mission : sa
+  fiabilité est INCONNUE — ce n'est pas *bonne* ». Un registre qui ne dirait que ses forces
+  laisserait croire que l'inconnu est petit.
+- **Les mesures viennent de `MissionStep`** (`platform/in-process/registre/`), la seule table où
+  une capacité laisse une trace complète — tentée, réussie, rejouée, chronométrée. Pas de compteur
+  maison à côté (§17 : le jour où deux chiffres divergent, personne ne sait lequel croire). La
+  limite est DITE : la conversation n'écrit pas d'étape, donc une capacité que seule la
+  conversation utilise reste « jamais mesurée ».
+- **Onze natures de manque** (`lib/registre/manques.ts`, PUR), et elles ne se confondent pas :
+  source inaccessible, permission, capacité absente, moteur de calcul, format de fichier, rendu,
+  API externe, donnée manquante, entrée humaine, modèle, indéterminé. Une PERMISSION refusée est
+  une décision de sécurité qui a fonctionné, pas une dette ; une CAPACITÉ ABSENTE est du code à
+  écrire. Les ranger ensemble sous « erreur » est exactement ce qui fait qu'une feuille de route
+  ne sort jamais des incidents. Un échec non reconnu rend INDETERMINE et se compte à part : un
+  manque mal rangé pollue la feuille de route plus sûrement qu'un manque non rangé, qui se voit.
+- **Le manque est nommé AU MOMENT de l'échec**, dans le détail de l'événement `STEP_FAILED` que le
+  moteur écrit déjà (`missions/runtime/engine.ts`). Pas de table « CapabilityGap » : la feuille de
+  route est une LECTURE de ces événements, groupée par `nature × capacité` et classée par
+  fréquence pondérée (une capacité absente pèse trois fois une panne de service, parce qu'elle ne
+  se répare que par du code).
+- **Détecter le manque AVANT de tenter** (`detecterManque`) : trois réponses, et elles appellent
+  trois suites opposées — une capacité répond ; une capacité existe mais le droit ou le plafond de
+  la mission l'écarte (PERMISSION, pas une dette) ; rien ne correspond (CAPACITE_ABSENTE, du code
+  à écrire). Le seuil de pertinence est à 3, c'est-à-dire un marquage sur le NOM ou plusieurs mots
+  croisés : mesuré sur le catalogue réel, « faire signer électroniquement ce contrat » trouvait
+  une capacité parce qu'elle contient le mot « contrat » dans son résumé — un faux positif ici est
+  le pire des résultats, puisqu'il empêche de nommer le manque.
+- **`registre_capacites`** : cinq questions — `chercher` (avec les ÉCARTÉES et leur raison),
+  `fiche`, `manque`, `feuille_de_route`, `sommaire`. Interrogeable pendant une mission, jamais figé
+  dans le prompt : un registre récité coûte des jetons à chaque tour, vieillit en silence, et ne
+  peut pas porter ce qui change — la fiabilité mesurée, le dernier échec.
+- **Ce que le recensement a trouvé du premier coup** : `mission_status` était déclaré DEUX fois —
+  la mission de sollicitation (`adam-tools.ts`, clé `missionId`) et le Mission Runtime
+  (`business-capabilities.ts`, clé `mission`). Le modèle recevait deux outils de même nom avec des
+  schémas incompatibles, l'aiguillage n'en atteignait qu'un, et une réponse pouvait revenir sur
+  TOUTES les missions au lieu de celle demandée. Le premier a été renommé `mission_participants`,
+  et `capability-surface.test.ts` interdit désormais le doublon. C'est exactement ce qu'un registre
+  interrogeable doit faire remonter : le défaut a été trouvé par un test, pas par un incident.
+- **Banc** : 20 tests purs (les onze natures, la feuille de route, les fiches, l'interrogation, le
+  tri honnête de l'inconnu), 8 tests d'intégration depuis le VRAI point d'entrée — une mission
+  lancée par `lancerMission`, une étape qui échoue vraiment, le manque relu dans le journal, la
+  fiabilité mesurée sur l'étape réelle, un VIEWER qui voit ce qu'il n'a pas le droit d'appeler.
+  Quatre cibles (`manque_nomme`, `fiabilite_mesuree`, `droit_vs_absence`, `registre_sans_doublon`)
+  et deux défis live (`defi-manque-nomme`, `defi-registre-honnete`).
+
 ### Information Fabric (`src/lib/fabric/`) — façade L2
 
 L'information vient à Adam ; Adam ne court plus après. Six briques DÉTERMINISTES (zéro appel
@@ -4698,6 +4765,15 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
 
 ### La provenance au niveau du fait, la garantie d'enseignement, et la boîte dans le pont (2026-09)
 
+- **Ce qui manque a un nom, et ce qu'on sait faire a une fiche** (mandat 6 §44) : douze rubriques
+  par capacité, composées du catalogue RÉEL et de mesures prises sur les étapes de mission
+  réellement exécutées — une capacité jamais exécutée est dite de fiabilité INCONNUE, jamais
+  « fiable ». Onze natures de manque, classées AU MOMENT de l'échec dans le journal qui existe
+  (§17), et une feuille de route qui n'est qu'une LECTURE de ces événements, avec la dette
+  technique SÉPARÉE de l'exploitation. « Cela existe mais vous n'y avez pas droit » et « rien ne
+  sait le faire » ne se confondent plus. Le recensement a trouvé, du premier coup, deux capacités
+  déclarées sous le même nom (`mission_status`) avec des schémas incompatibles — renommée, et
+  interdite par un test.
 - **Douze mille fichiers ne sont pas douze mille clics** (mandat 5 §41) : recensement,
   dédoublonnage en trois natures (identique, version, ressemblant — et supprimer un identique ne
   libère aucun octet, le stockage le partage déjà), classement par le CONTENU avec l'indice cité

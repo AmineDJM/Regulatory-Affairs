@@ -4,6 +4,7 @@ import type { EffectiveAccess, Module, Action } from "@/lib/rbac";
 import { MODULES, ACTIONS } from "@/lib/rbac";
 import { assistantToolsFor, RESOLVER_WRITE_NAMES } from "@/lib/assistant";
 import { BUSINESS_CAPABILITIES } from "./business-capabilities";
+import { POWER_TOOLS } from "./power-tools";
 import {
   capabilitiesFor, capabilityDoctrine, hasCapability, isDirectOn,
   voiceDirectNames, VOICE_DIRECT_WRITES,
@@ -179,5 +180,43 @@ describe("les capacités métier — la porte est la VUE GLOBALE, pas un module"
       .map((c) => c.def.name)
       .sort();
     expect(gardeesParVueGlobale).toEqual(["business_story", "pch_market_status", "product_economics"]);
+  });
+});
+
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * DEUX CAPACITÉS NE PEUVENT PAS PORTER LE MÊME NOM.
+ *
+ * ── LE DÉFAUT MESURÉ, ET IL ÉTAIT EN PRODUCTION ─────────────────────────────────────────
+ *
+ * `mission_status` était déclaré DEUX fois : la mission de sollicitation (`adam-tools.ts`, clé
+ * `missionId`) et le Mission Runtime (`business-capabilities.ts`, clé `mission`). Trois
+ * conséquences, toutes silencieuses :
+ *
+ *   1. le modèle recevait deux outils de même nom avec des schémas incompatibles ;
+ *   2. l'aiguillage (`POWER_TOOLS.find`) n'en atteignait qu'un — l'autre était mort ;
+ *   3. le modèle pouvait écrire `missionId`, que le vivant ignore : la réponse revenait alors
+ *      sur TOUTES les missions au lieu de celle demandée. Une réponse plausible et fausse.
+ *
+ * Ce test existe pour que le doublon soit un ÉCHEC DE TEST et non une découverte tardive. Il a
+ * été trouvé par le recensement du registre (§44), pas par un incident : c'est exactement ce
+ * qu'un registre interrogeable doit faire remonter.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("le registre d'outils — un nom, une capacité", () => {
+  it("aucun nom de capacité n'est déclaré deux fois", () => {
+    const compte = new Map<string, number>();
+    for (const t of POWER_TOOLS) compte.set(t.def.name, (compte.get(t.def.name) ?? 0) + 1);
+    const doublons = [...compte.entries()].filter(([, n]) => n > 1).map(([n]) => n);
+    expect(doublons, `capacités déclarées plusieurs fois : ${doublons.join(", ")}`).toEqual([]);
+  });
+
+  it("chaque capacité porte un nom, une description et un libellé", () => {
+    for (const t of POWER_TOOLS) {
+      expect(t.def.name, JSON.stringify(t.def).slice(0, 120)).toMatch(/^[a-z][a-z0-9_]*$/);
+      expect(t.def.description.length, t.def.name).toBeGreaterThan(20);
+      expect(t.label.length, t.def.name).toBeGreaterThan(2);
+    }
   });
 });
