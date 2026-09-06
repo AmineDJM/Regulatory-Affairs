@@ -1190,4 +1190,53 @@ Article 16 — Droit applicable. Le présent contrat est régi par le droit fran
       return m;
     },
   },
+  {
+    /**
+     * L'IMPORT QUI SE TROMPE EN SILENCE — un export de tableur français : latin-1, points-virgules,
+     * « 1 234,56 », « 31/12/2026 ». Lu comme de l'UTF-8 à virgules, il devient une colonne unique
+     * pleine de « Ã© » et des montants en texte. Adam doit LIRE juste, et DIRE ce qu'il a détecté.
+     */
+    id: "defi-import-tableur", categorie: "FICHIERS",
+    tours: [
+      "J'ai reçu un export de notre distributeur, je te le recopie tel quel. Combien font les montants au total, et quelle est la plus grosse ligne ? "
+      + "Dis-moi aussi ce que tu as dû deviner pour le lire.\n\n"
+      + "client;montant;echeance\nPharmacie Belkacem;1 234,56;31/12/2026\nClinique El Azhar;12 000,00;15/03/2026\nDépôt Société Générale;890,10;01/06/2026",
+    ],
+    neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /pas pr[ée]vu/i],
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      // Le total exact : 1 234,56 + 12 000,00 + 890,10 = 14 124,66.
+      const plat = ctx.reponse.replace(/[\s\u00a0\u202f]/g, "");
+      if (!/14[.,]?124[.,]66|14124[.,]66/.test(plat)) m.push("le total exact (14 124,66) n'est pas donné : les montants n'ont pas été lus comme des nombres français");
+      if (!/12[\s\u00a0\u202f.,]?000/.test(ctx.reponse) || !/azhar/i.test(ctx.reponse)) m.push("la plus grosse ligne (Clinique El Azhar, 12 000,00) n'est pas identifiée");
+      // Ce qu'il a « dû deviner » : le séparateur, la virgule décimale, l'ordre des dates.
+      const dit = /(point.virgule|separateur|séparateur|virgule d[ée]cimale|jour\/mois|jj\/mm|format fran[çc]ais|locale)/i.test(ctx.reponse);
+      if (!dit) m.push("la réponse ne dit RIEN de ce qui a été détecté (séparateur, virgule décimale, ordre des dates) alors que la question le demandait");
+      // Et surtout : les accents ne doivent pas être abîmés dans la réponse.
+      if (/Ã©|Ã¨|Ã |Â°/.test(ctx.reponse)) m.push("des caractères abîmés (Ã©) apparaissent : l'encodage a été mal lu");
+      return m;
+    },
+  },
+  {
+    /**
+     * CE QU'UNE CONVERSION PERD — la question a l'air anodine, la réponse ne doit pas l'être.
+     * Un classeur en CSV, c'est une feuille sur dix et zéro formule. Un assistant qui répond
+     * « oui, je convertis » sans le dire fait perdre un trimestre de travail à quelqu'un.
+     */
+    id: "defi-conversion-perte", categorie: "FICHIERS",
+    tours: ["Je veux convertir notre classeur budgétaire (un .xlsx avec plusieurs onglets et des formules) en CSV pour l'envoyer à un partenaire. Qu'est-ce que ça implique exactement ?"],
+    neDoitPas: [/je ne peux pas/i, /pas pr[ée]vu/i],
+    verifier: async (ctx) => {
+      const m: string[] = [];
+      // Le juge REFAIT le raisonnement avec la table des pertes.
+      const { conversion } = await import("@/platform/in-process/fichiers");
+      const c = conversion("xlsx", "csv");
+      if (c.nature !== "DESTRUCTIF") { m.push("la table de référence ne dit plus que xlsx → csv est destructif : défi non concluant"); return m; }
+      if (!/(perd|perte|destructi|ne conserve pas|disparai)/i.test(ctx.reponse)) m.push("la réponse ne dit pas que la conversion PERD quelque chose");
+      if (!/(feuille|onglet)/i.test(ctx.reponse)) m.push("la perte des autres feuilles/onglets n'est pas dite");
+      if (!/formule/i.test(ctx.reponse)) m.push("la perte des formules n'est pas dite");
+      if (!/(garder|conserver|original|sauvegard)/i.test(ctx.reponse)) m.push("la réponse ne dit pas de GARDER l'original");
+      return m;
+    },
+  },
 ];

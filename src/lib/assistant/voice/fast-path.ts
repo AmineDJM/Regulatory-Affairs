@@ -267,6 +267,29 @@ export const CALCUL_EXPLICITE = /\b(monte.?carlo|loi (normale|triangulaire|unifo
  */
 export const RESEAU_EXPLICITE = /\b(relie a|reliee a|relies a|reliees a|lie a|liee a|lies a|liees a|quel lien|quels liens|quelle relation|quelles relations|lien entre|liens entre|relation entre|relations entre|comment sommes nous lies|comment est.?il lie|comment est.?elle liee|chaine d.intermediaires|intermediaires entre|qui connait|qui relie|point de passage|si (il|elle|cette personne|ce contrat|ce fournisseur) (part|saute|disparait))\b/;
 
+/**
+ * DES DONNÉES COLLÉES DANS LE MESSAGE (mandat 5 §41).
+ *
+ * « J'ai reçu un export de notre distributeur, je te le recopie » suivi de trois lignes
+ * séparées par des points-virgules : mesuré au banc, le mot « reçu » envoyait la question à la
+ * BOÎTE MAIL, qui répondait « le compte Google n'est pas connecté ». La personne avait pourtant
+ * mis toutes ses données dans la phrase.
+ *
+ * Deux lignes ou plus portant le MÊME séparateur au même endroit, ce n'est pas une phrase :
+ * c'est un tableau. On ne va pas chercher ailleurs ce qu'on a déjà sous les yeux.
+ */
+export function contientDonneesCollees(raw: string): boolean {
+  const lignes = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 3);
+  if (lignes.length < 2) return false;
+  for (const sep of [";", "\t", "|"]) {
+    const avec = lignes.filter((l) => l.split(sep).length >= 3);
+    if (avec.length >= 2) return true;
+  }
+  // La virgule demande plus de prudence : une phrase en contient. On exige une RÉGULARITÉ stricte.
+  const parVirgule = lignes.map((l) => l.split(",").length).filter((n) => n >= 3);
+  return parVirgule.length >= 3 && new Set(parVirgule).size === 1;
+}
+
 const OTHER_DOMAIN = /\b(paiement|paiements|facture|factures|conge|conges|sponsoring|document|documents|fichier|fichiers|dossier|dossiers|contrat|contrats|salaire|salaires|salarie|salaries|employe|employes|commande|commandes|evenement|evenements|demande|demandes|stock|stocks|budget|engagement|engagements|recrutement|courrier|courriers|webhook|webhooks|faits? externes?|docusign|hubspot|iqvia|sap|signature|signatures|enveloppe|enveloppes|connecteur|connecteurs|ingestion|simulation|simule|simuler|monte.?carlo|tirages|optimis\\w*|maximis\\w*|minimis\\w*|allocation|chemin critique|ordonnanc\\w*|planning|gantt|regression|correlation|segmentation|clustering|prevision|previsions|anomalies|statistique|statistiques)\b/;
 
 /**
@@ -386,6 +409,12 @@ export function routeVoiceUtterance(raw: string, ctx: VoiceContext = {}): VoiceR
   // propre arithmétique, la lire comme un agenda rend « aucune donnée » — faux, et sûr de soi.
   if (CALCUL_EXPLICITE.test(text) || RESEAU_EXPLICITE.test(text)) {
     return { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "problème à calculer ou à parcourir — les moteurs, pas une lecture" };
+  }
+
+  // ── 0 ter. LES DONNÉES SONT DÉJÀ LÀ (§41) ───────────────────────────────────────────────
+  // Un tableau collé dans le message se lit ; il ne se cherche pas dans la boîte mail.
+  if (contientDonneesCollees(raw)) {
+    return { kind: "DELEGATE", tool: null, args: {}, fast: false, reason: "des données sont collées dans le message — elles se lisent, elles ne se cherchent pas" };
   }
 
   // ── 1. L'ACCORD — « envoie-le », « vas-y », « je confirme » ─────────────────────────────

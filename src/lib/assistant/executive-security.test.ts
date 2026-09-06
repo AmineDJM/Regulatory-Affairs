@@ -189,6 +189,11 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // aucun nœud, donc aucun chemin ne passe par lui : le graphe de deux personnes aux droits
       // différents n'est pas le même. Un droit de module ICI serait plus grossier, pas plus sûr.
       "reseau_entreprise", "carte_territoire",
+      // Les fichiers (§41) : `drive_inventaire` recense sous `canViewDrive` NŒUD PAR NŒUD, et
+      // `drive_lot` revérifie `canEditDrive` sur le fichier ET sur le dossier d'arrivée avant
+      // chaque geste — et refuse structurellement toute SUPPRESSION. Les deux outils de format
+      // ne touchent à rien : ils lisent un texte fourni, ou un fichier sous le même droit.
+      "drive_inventaire", "drive_lot", "format_lire", "format_convertir",
     ]);
     const bare = userWith({});
     const names = powerToolsFor(bare).map((t) => t.name);

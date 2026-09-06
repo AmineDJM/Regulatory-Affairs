@@ -220,6 +220,11 @@ export const TOOL_DOMAINS: Record<string, Domain[]> = {
   // passage », « où poser le dépôt » ne sont pas des questions de module — elles traversent tout.
   reseau_entreprise: ["DATA", "DIRECTORY", "GENERAL"],
   carte_territoire: ["DATA", "DIRECTORY", "GENERAL"],
+  // Les fichiers et les formats (mandat 5 §41) : ranger, dédoublonner, importer, convertir.
+  drive_inventaire: ["DRIVE", "DATA", "GENERAL"],
+  drive_lot: ["DRIVE", "GENERAL"],
+  format_lire: ["DATA", "DRIVE", "GENERAL"],
+  format_convertir: ["DATA", "DRIVE", "GENERAL"],
   time_travel: ["GENERAL"],
   investigate_event: ["GENERAL"],
   process_insights: ["GENERAL"],

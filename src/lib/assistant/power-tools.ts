@@ -26,6 +26,7 @@ import { INBOUND_TOOLS } from "@/lib/assistant/inbound-tools";
 import { MEDIA_TOOLS } from "@/lib/assistant/media-tools";
 import { CALCUL_TOOLS } from "@/lib/assistant/calcul-tools";
 import { RESEAU_TOOLS } from "@/lib/assistant/reseau-tools";
+import { FICHIERS_TOOLS } from "@/lib/assistant/fichiers-tools";
 import { executerOutilDynamique, labelsDynamiques, outilsDynamiquesPour } from "@/platform/in-process/skills";
 import { INTELLIGENCE_TOOLS } from "@/lib/assistant/intelligence-tools";
 import { SPECIALIST_TOOLS } from "@/lib/assistant/specialists/tools";
@@ -392,6 +393,7 @@ export const POWER_TOOLS: PowerTool[] = [
   ...MEDIA_TOOLS,
   ...CALCUL_TOOLS,
   ...RESEAU_TOOLS,
+  ...FICHIERS_TOOLS,
   ...INTELLIGENCE_TOOLS,
   // §29 — « aucun sans bénéfice mesuré » : l'outil de délégation n'entre au registre que si au
   // moins un spécialiste a une mesure POSITIVE. Un outil qui refuserait toujours serait une

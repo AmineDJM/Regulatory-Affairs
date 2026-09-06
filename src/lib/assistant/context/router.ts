@@ -1,4 +1,4 @@
-import { CALCUL_EXPLICITE, RESEAU_EXPLICITE, routeVoiceUtterance, normalizeUtterance, isOutboundMail, type VoiceContext, type VoiceRouteKind } from "@/lib/assistant/voice/fast-path";
+import { CALCUL_EXPLICITE, RESEAU_EXPLICITE, contientDonneesCollees, routeVoiceUtterance, normalizeUtterance, isOutboundMail, type VoiceContext, type VoiceRouteKind } from "@/lib/assistant/voice/fast-path";
 import type { BudgetTier } from "./budget";
 
 /**
@@ -216,7 +216,7 @@ const DOMAIN_SIGNALS: [Domain, RegExp][] = [
   // sans ambiguïté fait de DATA le domaine PRINCIPAL ; « analyse », « calcule », « tendance »,
   // « par mois » sont des mots de toute question métier — ils ouvrent DATA en domaine SECONDAIRE
   // (voir `DATA_SECONDAIRE`), sans détourner la question de son domaine (finance, tâches…).
-  ["DATA", /\b(requete sql|requetes sql|en sql|sql|graphique|graphiques|camembert|histogramme|nuage de points|visualisation|visualise|visualiser|tableau croise|pivot|cohorte|cohortes|mediane|moyenne mobile|correlation|regression|serie temporelle|series temporelles|percentile|ecart type|python|javascript|bac a sable|scenario|scenarios|simule|simuler|simulation|monte.?carlo|tirages|percentile|percentiles|probabilite de perte|optimisation|optimiser|optimal|optimale|maximiser|minimiser|programmation lineaire|prix marginal|chemin critique|ordonnancement|ordonnancer|diagramme de gantt|gantt|clustering|segmentation|segmenter|classification|composantes principales|test statistique|significativite|intervalle de confiance|saisonnalite|previsionnel|reseau|graphe|chemin le plus court|relations indirectes|centralite|intermediaire|communautes|carte|cartographie|geographique|distance|kilometres|tournee|itineraire|territoire|territoires|implantation|depot|wilaya|wilayas|densite|proximite geographique)\b/],
+  ["DATA", /\b(requete sql|requetes sql|en sql|sql|graphique|graphiques|camembert|histogramme|nuage de points|visualisation|visualise|visualiser|tableau croise|pivot|cohorte|cohortes|mediane|moyenne mobile|correlation|regression|serie temporelle|series temporelles|percentile|ecart type|python|javascript|bac a sable|scenario|scenarios|simule|simuler|simulation|monte.?carlo|tirages|percentile|percentiles|probabilite de perte|optimisation|optimiser|optimal|optimale|maximiser|minimiser|programmation lineaire|prix marginal|chemin critique|ordonnancement|ordonnancer|diagramme de gantt|gantt|clustering|segmentation|segmenter|classification|composantes principales|test statistique|significativite|intervalle de confiance|saisonnalite|previsionnel|reseau|graphe|chemin le plus court|relations indirectes|centralite|intermediaire|communautes|carte|cartographie|geographique|distance|kilometres|tournee|itineraire|territoire|territoires|implantation|depot|wilaya|wilayas|densite|proximite geographique|doublon|doublons|dedupliqu\\w*|orphelin|orphelins|ranger|classer|classement|renommer|deplacer|archiver|convertir|conversion|import|importer|export|exporter|encodage|separateur|delimiteur|csv|xlsx|json|fichiers)\b/],
 ];
 
 /**
@@ -455,6 +455,16 @@ function routerPrincipal(raw: string, ctx: RouterContext = {}): QueryRoute {
   // Un chemin se calcule dans le graphe des relations, il ne se trouve pas dans un document.
   if (RESEAU_EXPLICITE.test(text)) {
     return build("DEEP_REASONING", "question de relation — le graphe des liens avant toute recherche", {
+      domain: "DATA", confidence: 0.9,
+    });
+  }
+
+  // ── 2 quinquies. UN TABLEAU COLLÉ DANS LE MESSAGE (mandat 5 §41) ───────────────────────
+  // Mesuré au banc : « j'ai reçu un export, je te le recopie » suivi de lignes en
+  // points-virgules partait lire la BOÎTE MAIL et répondait que le compte Google n'était pas
+  // connecté — alors que les données étaient dans la phrase.
+  if (contientDonneesCollees(clean)) {
+    return build("DEEP_REASONING", "des données sont collées dans le message — les lire plutôt que les chercher", {
       domain: "DATA", confidence: 0.9,
     });
   }
