@@ -106,6 +106,10 @@ const KIND_WEIGHT: Record<WorkspaceBlockKind, number> = {
   artifact: 72,
   document: 55,   // une pièce à relire avant de valider
   progress: 45,   // des jauges : un constat, pas une décision
+  // LES REPRÉSENTATIONS (§35) : un tableau de bord est une RÉPONSE composée — devant les jauges
+  // qu'il contient souvent ; une figure seule passe juste devant le tableau qu'elle accompagne.
+  dashboard: 48,
+  viz: 42,
   table: 40,
   timeline: 35,
   record: 35,

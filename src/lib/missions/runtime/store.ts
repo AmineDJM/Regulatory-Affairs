@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { prendreBail } from "@/lib/missions/runtime/bail";
 import type { CompiledMission, CompiledStep, StepSpec } from "@/lib/missions/compiler/compile";
 import { MissionState, StepState, assertTransition } from "@/lib/missions/runtime/state";
 import { lireRecu, type ExecutionReceipt } from "@/lib/missions/runtime/receipt";
@@ -166,6 +167,12 @@ export async function materialiser(
       });
 
   const version = mission.planVersion;
+
+  // LE BAIL DÈS LA NAISSANCE. L'instance qui écrit le plan est celle qui va le conduire : sans
+  // bail, un battement voisin (autre processus, autre déploiement) pouvait prendre la mission
+  // entre l'écriture des étapes et le premier tour — mesuré sur le banc : une mission qui devait
+  // dormir jusqu'à demain 10 h se retrouvait BLOQUÉE par un exécutant qui n'était pas le sien.
+  await prendreBail(mission.id);
 
   // ── 1. LES NŒUDS ────────────────────────────────────────────────────────────────────
   for (const s of compiled.steps) {

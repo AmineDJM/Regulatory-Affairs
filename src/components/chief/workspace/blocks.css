@@ -1082,3 +1082,68 @@
 /* « Demandé », pas « fait » : la modification part en conversation et attend sa confirmation.
    Écrire « Modifié » ici serait un mensonge d'une seconde, et le pire endroit pour mentir. */
 .chief-field-sent { font-size: 12.5px; font-style: italic; color: hsl(var(--chief-accent, 245 72% 58%)); }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   LA REPRÉSENTATION GÉNÉRIQUE (§35) — un seul rendu, dix-sept formes. Les couleurs viennent des
+   jetons du thème (accent, succès, attention, alerte) : un graphique ne rivalise pas avec la
+   conversation, il s'y tient. Sur téléphone, les séries se lisent en liste (libellé, valeur,
+   barre proportionnelle) — un SVG réduit à 320 px n'est pas une lecture, c'est un timbre.
+   ═══════════════════════════════════════════════════════════════════════════════════════════ */
+.chief-viz { margin: 0; min-width: 0; }
+.chief-viz-svg { display: block; width: 100%; height: auto; font-family: inherit; }
+.chief-viz-scroll { overflow-x: auto; }
+.chief-viz-scroll .chief-viz-svg { min-width: 440px; }
+.chief-viz-secteurs { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.chief-viz-donut { width: 200px; height: 200px; flex: 0 0 auto; }
+.chief-viz-legende { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0 0; font-size: 12px; color: hsl(var(--chief-text-secondary, 220 12% 42%)); }
+.chief-viz-secteurs .chief-viz-legende { flex-direction: column; gap: 6px; margin: 0; flex: 1 1 180px; }
+.chief-viz-legende li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.chief-viz-legende-label { color: hsl(var(--chief-text, 220 40% 13%)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chief-viz-legende-valeur { margin-left: auto; font-variant-numeric: tabular-nums; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); white-space: nowrap; }
+.chief-viz-pastille { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+.chief-viz-alertes { display: flex; flex-direction: column; gap: 6px; margin: 0 0 10px; font-size: 12px; color: hsl(var(--chief-text-secondary, 220 12% 42%)); line-height: 1.45; }
+.chief-viz-alertes li { display: flex; gap: 8px; align-items: baseline; }
+.chief-viz-donnees { margin-top: 8px; font-size: 12px; }
+.chief-viz-donnees summary { cursor: pointer; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); }
+.chief-viz-donnees .chief-table { margin-top: 6px; }
+.chief-viz-mini { display: flex; flex-direction: column; gap: 8px; }
+.chief-viz-mini-tete { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; color: hsl(var(--chief-text, 220 40% 13%)); }
+.chief-viz-mini-valeur { font-variant-numeric: tabular-nums; color: hsl(var(--chief-text-secondary, 220 12% 42%)); white-space: nowrap; }
+.chief-viz-mini-barre, .chief-viz-mini-series { display: flex; gap: 2px; height: 8px; margin-top: 4px; border-radius: 999px; background-color: hsl(var(--chief-surface-sunken, 220 30% 96.5%)); overflow: hidden; }
+.chief-viz-mini-barre span, .chief-viz-mini-series span { display: block; height: 100%; border-radius: 999px; }
+.chief-viz-matrice td.chief-viz-cellule { text-align: center; }
+.chief-viz-cellule-succes { background-color: hsl(var(--chief-success, 152 55% 38%) / 0.12); }
+.chief-viz-cellule-attention { background-color: hsl(var(--chief-warning, 35 90% 45%) / 0.14); }
+.chief-viz-cellule-alerte { background-color: hsl(var(--chief-danger, 0 65% 52%) / 0.12); }
+.chief-arbre { font-size: 13px; color: hsl(var(--chief-text, 220 40% 13%)); }
+.chief-arbre ul { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%)); }
+.chief-arbre li { margin: 4px 0; }
+.chief-arbre summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; }
+.chief-arbre summary::-webkit-details-marker { display: none; }
+.chief-arbre summary::before { content: "▸"; font-size: 10px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); transition: transform 150ms var(--chief-ease, cubic-bezier(0.32, 0.72, 0, 1)); }
+.chief-arbre details[open] > summary::before { transform: rotate(90deg); }
+.chief-arbre-feuille { padding-left: 18px; }
+.chief-arbre-libelle { display: inline-flex; gap: 8px; align-items: baseline; min-width: 0; }
+.chief-arbre-valeur { font-variant-numeric: tabular-nums; font-size: 12px; color: hsl(var(--chief-text-secondary, 220 12% 42%)); }
+.chief-arbre-compte { font-size: 11px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); }
+.chief-viz-cartes { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.chief-viz-carte { display: block; min-width: 0; padding: 10px 12px; border: 1px solid hsl(var(--chief-border-subtle, 218 25% 93.5%)); border-radius: var(--chief-radius-control, 14px); background-color: hsl(var(--chief-surface-sunken, 220 30% 96.5%)); text-decoration: none; color: inherit; }
+.chief-viz-carte-titre { margin: 0; font-size: 11.5px; color: hsl(var(--chief-text-tertiary, 220 10% 58%)); }
+.chief-viz-carte-valeur { margin: 2px 0 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em; color: hsl(var(--chief-text, 220 40% 13%)); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.chief-viz-carte-detail { margin: 2px 0 0; font-size: 11.5px; color: hsl(var(--chief-text-secondary, 220 12% 42%)); }
+.chief-viz-carte-succes { border-color: hsl(var(--chief-success, 152 55% 38%) / 0.45); }
+.chief-viz-carte-attention { border-color: hsl(var(--chief-warning, 35 90% 45%) / 0.5); }
+.chief-viz-carte-alerte { border-color: hsl(var(--chief-danger, 0 65% 52%) / 0.45); }
+
+/* Le mini-tableau de bord : une grille de tuiles, chaque tuile un bloc ordinaire, plus discret. */
+.chief-dashboard { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.chief-dashboard-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.chief-tuile { min-width: 0; }
+.chief-tuile > .chief-block { height: 100%; padding: 12px 14px; animation: none; background-color: hsl(var(--chief-surface-sunken, 220 30% 96.5%)); }
+.chief-tuile .chief-block-title { font-size: 12.5px; }
+.chief-tuile .chief-viz-scroll .chief-viz-svg { min-width: 360px; }
+@media (max-width: 720px) {
+  .chief-dashboard, .chief-dashboard-3 { grid-template-columns: minmax(0, 1fr); }
+}
+.chief-viz > .chief-only-narrow { flex-direction: column; }
+.chief-viz .chief-viz-mini { width: 100%; }

@@ -6,6 +6,7 @@ import { WorkspaceBlocks, WorkspaceAskProvider } from "./blocks";
 import { TurnWorkspaceView } from "./turn-workspace";
 import { SCENARIOS } from "./scenarios";
 import { PLANCHE_GODMODE } from "./planche-godmode";
+import { PLANCHE_VIZ } from "./planche-viz";
 import { composeTurn } from "@/lib/assistant/workspace/turn";
 import type { WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
 
@@ -309,7 +310,7 @@ export function BlockPreviewPlanche() {
             Catalogue des blocs
           </h2>
           <div className="flex flex-col gap-10">
-            {[...PLANCHE_GODMODE, ...PLANCHE].map((p) => (
+            {[...PLANCHE_GODMODE, ...PLANCHE_VIZ, ...PLANCHE].map((p) => (
               <section key={p.titre} data-planche={p.composition.blocks[0].kind}>
                 <h3 className="mb-2 text-[13px] font-semibold" style={{ color: "hsl(var(--chief-text-secondary))" }}>
                   {p.titre}

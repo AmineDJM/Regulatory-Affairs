@@ -670,7 +670,87 @@ type WorkspaceBlockShape =
       /** La vue complète — pages, blocs, feuilles ou diapositives, avec leurs styles résolus. */
       vue: VueArtefact;
       actions?: WorkspaceAction[];
+    }
+  /**
+   * UNE REPRÉSENTATION (§35) — la forme est une donnée, le rendu est générique. `raison` dit pourquoi
+   * cette forme ; `alertes` dit ce qui pourrait tromper (axe tronqué, trop de parts, échelle) : le
+   * serveur les calcule (`sandbox/viz.ts`), le client les montre, personne ne les cache.
+   */
+  | {
+      kind: "viz";
+      title: string;
+      type: VizType;
+      donnees: VizDonnees;
+      unite?: string | null;
+      axeYdepartZero?: boolean;
+      note?: string | null;
+      raison?: string | null;
+      alertes?: string[];
+      source?: string | null;
+      actions?: WorkspaceAction[];
+    }
+  /** UN MINI-TABLEAU DE BORD : des tuiles (représentations, jauges, tableaux, fiches) sur une grille — composé à la volée, jamais un écran dédié. */
+  | {
+      kind: "dashboard";
+      title: string;
+      colonnes?: 2 | 3;
+      tuiles: WorkspaceBlock[];
+      note?: string | null;
+      actions?: WorkspaceAction[];
     };
+
+
+// ─────────────────────────── LA REPRÉSENTATION GÉNÉRIQUE (mandat 5 §35) ───────────────────────────
+//
+// UN SEUL bloc, `viz`, et UN SEUL rendu pour dix-sept formes : barres, barres empilées, courbe, aires,
+// nuage, histogramme, secteurs, cascade, entonnoir, heatmap, Gantt, matrice, graphe, arbre, flux,
+// carte, cartes. La forme est une DONNÉE (`type`), pas un composant : ajouter une représentation ne
+// crée pas un fichier React, elle ajoute un cas au rendu générique. Les données sont NORMALISÉES par
+// le serveur (`workspace/viz-block.ts`) : catégories + séries, points, cellules, tâches, nœuds et arcs,
+// arbre, lieux, cartes — bornées, typées, jamais du HTML ni du code.
+
+export type WorkspaceTone = "neutre" | "succes" | "attention" | "alerte";
+
+export const VIZ_TYPES = [
+  "barres", "barres_empilees", "courbe", "aires", "nuage", "histogramme", "secteurs", "cascade", "entonnoir",
+  "heatmap", "gantt", "matrice", "graphe", "arbre", "flux", "carte", "cartes",
+] as const;
+export type VizType = (typeof VIZ_TYPES)[number];
+
+export interface VizSerie { label: string; valeurs: (number | null)[]; ton?: WorkspaceTone }
+export interface VizPoint { x: number; y: number; label?: string | null; taille?: number | null; groupe?: string | null }
+export interface VizTache { label: string; debut: string; fin: string; groupe?: string | null; progression?: number | null; ton?: WorkspaceTone }
+export interface VizNoeud { id: string; label: string; type?: string | null; poids?: number | null; ton?: WorkspaceTone; href?: string | null }
+export interface VizArc { de: string; a: string; label?: string | null; poids?: number | null }
+export interface VizArbre { label: string; valeur?: number | null; ton?: WorkspaceTone; enfants?: VizArbre[] }
+export interface VizLieu { label: string; lat: number; lon: number; valeur?: number | null; ton?: WorkspaceTone }
+export interface VizCarte { titre: string; valeur: string; detail?: string | null; ton?: WorkspaceTone; href?: string | null }
+
+/** Les données d'une représentation — une famille par forme, toutes optionnelles, le lecteur exige la bonne. */
+export interface VizDonnees {
+  /** barres, barres_empilees, courbe, aires, histogramme, secteurs, cascade, entonnoir. */
+  categories?: string[];
+  series?: VizSerie[];
+  /** nuage. */
+  points?: VizPoint[];
+  /** heatmap (valeurs) et matrice (cellules) : lignes × colonnes. */
+  lignes?: string[];
+  colonnes?: string[];
+  valeurs?: (number | null)[][];
+  cellules?: string[][];
+  tons?: (WorkspaceTone | null)[][];
+  /** gantt. */
+  taches?: VizTache[];
+  /** graphe, flux. */
+  noeuds?: VizNoeud[];
+  arcs?: VizArc[];
+  /** arbre. */
+  racine?: VizArbre;
+  /** carte (schématique : positions relatives, jamais un fond de carte prétendu exact). */
+  lieux?: VizLieu[];
+  /** cartes (indicateurs). */
+  cartes?: VizCarte[];
+}
 
 /**
  * LE BLOC TEL QU'IL CIRCULE — sa forme, PLUS son identité et son état.
@@ -695,6 +775,17 @@ export interface WorkspaceComposition {
  * manque — et l'écran métier reste la destination pour tout voir.
  */
 export const WORKSPACE_LIMITS = {
+  /** Représentations (§35) : ce qu'un regard tient — au-delà, c'est un export, pas une vue. */
+  vizCategories: 40,
+  vizSeries: 6,
+  vizPoints: 400,
+  vizTaches: 40,
+  vizNoeuds: 60,
+  vizArcs: 120,
+  vizCellules: 40,
+  vizCartes: 8,
+  vizArbre: 80,
+  tuiles: 6,
   tableRows: 50,
   people: 6,
   mails: 12,

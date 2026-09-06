@@ -11,6 +11,7 @@ import {
   TONES, tonOf, type Json,
 } from "./read";
 import { readGodmodeBlock } from "./compose-godmode";
+import { readDashboardBlock, readVizBlock } from "./viz-block";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -521,6 +522,11 @@ function readBlock(v: unknown): WorkspaceBlock | null {
     if (steps.length === 0) return null;
     return { kind: "timeline", title, steps };
   }
+
+  // LA REPRÉSENTATION GÉNÉRIQUE (§35) : une forme parmi dix-sept, ses données relues par famille ;
+  // et le mini-tableau de bord, dont chaque tuile repasse par CE lecteur.
+  if (v.kind === "viz") return readVizBlock(v, title);
+  if (v.kind === "dashboard") return readDashboardBlock(v, title, readBlock);
 
   // LES BLOCS RICHES (story, 360, comparaison, mission, alerte) sont relus dans un module à
   // part : leur validation est longue, et la mêler aux sept traducteurs ci-dessus aurait donné

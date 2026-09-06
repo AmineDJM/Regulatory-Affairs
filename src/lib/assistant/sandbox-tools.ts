@@ -25,6 +25,7 @@
  */
 
 import type { PowerTool } from "@/lib/assistant/power-tools";
+import { construireViz } from "@/lib/assistant/workspace/viz-block";
 import { TABLE_SOURCES, rowsOf } from "@/lib/assistant/show-tools";
 import { faitCalcule, declarerProvenance } from "@/platform/in-process/fabric/provenance";
 import {
@@ -76,7 +77,7 @@ function lignesDeSortie(raw: string): Ligne[] {
 }
 
 /** CHARGER les lignes depuis la source déclarée — chaque chemin porte SON droit. */
-async function chargerLignes(input: Record<string, unknown>, user: Acteur): Promise<Chargement | { erreur: string }> {
+export async function chargerLignes(input: Record<string, unknown>, user: Acteur): Promise<Chargement | { erreur: string }> {
   const src = isObj(input.source) ? input.source : input;
   if (Array.isArray(src.lignes) || Array.isArray(input.lignes)) {
     const lignes = ((Array.isArray(src.lignes) ? src.lignes : input.lignes) as unknown[]).filter(isObj).slice(0, 20_000);
@@ -118,7 +119,7 @@ async function chargerLignes(input: Record<string, unknown>, user: Acteur): Prom
 }
 
 /** LE TABLEAU AFFICHÉ — composé par le code depuis les lignes calculées. */
-function blocTableau(titre: string, lignes: readonly Ligne[]): Record<string, unknown> | null {
+export function blocTableau(titre: string, lignes: readonly Ligne[]): Record<string, unknown> | null {
   if (!lignes.length) return null;
   const compte = new Map<string, number>();
   for (const l of lignes) for (const k of Object.keys(l)) compte.set(k, (compte.get(k) ?? 0) + 1);
@@ -136,9 +137,17 @@ function formaterCellule(v: unknown): string {
   return String(v).slice(0, 80);
 }
 
-function graphiqueEtAlertes(lignes: readonly Ligne[], question: string, titre: string): { graphique: Pick<SpecGraphique, "type" | "x" | "y" | "serie" | "axeYdepartZero" | "raison">; alertes: string[] } {
+function graphiqueEtAlertes(lignes: readonly Ligne[], question: string, titre: string): { graphique: Pick<SpecGraphique, "type" | "x" | "y" | "serie" | "axeYdepartZero" | "raison">; alertes: string[]; blocViz: Record<string, unknown> | null } {
   const spec = recommanderGraphique(lignes, question, titre);
-  return { graphique: { type: spec.type, x: spec.x, y: spec.y, serie: spec.serie ?? null, axeYdepartZero: spec.axeYdepartZero, raison: spec.raison }, alertes: verifierGraphique(spec, lignes).map((a) => `${a.gravite} · ${a.message}`) };
+  const alertes = verifierGraphique(spec, lignes).map((a) => `${a.gravite} · ${a.message}`);
+  // LE GRAPHIQUE RECOMMANDÉ EST RENDU (§35), pas seulement conseillé : le même bloc `viz` que
+  // `render_view`, composé par le code depuis les lignes calculées — le modèle n'a rien à dessiner.
+  let blocViz: Record<string, unknown> | null = null;
+  if (spec.type !== "tableau") {
+    const c = construireViz({ type: spec.type, x: spec.x, y: spec.y, serie: spec.serie ?? null }, lignes);
+    if (!("erreur" in c)) blocViz = { kind: "viz", title: titre, type: spec.type, donnees: c.donnees, axeYdepartZero: spec.axeYdepartZero, raison: spec.raison, alertes, note: c.notes.join(" · ") || null };
+  }
+  return { graphique: { type: spec.type, x: spec.x, y: spec.y, serie: spec.serie ?? null, axeYdepartZero: spec.axeYdepartZero, raison: spec.raison }, alertes, blocViz };
 }
 
 function provenanceCalcul(user: Acteur, outil: string, libelle: string, valeur: number | string, entrees: readonly string[], transformation: string, formule: string) {
@@ -180,16 +189,18 @@ export const SANDBOX_TOOLS: PowerTool[] = [
       const r = await executerSqlLectureSeule(user, sql, { limite });
       await journaliserSql(user, sql, r);
       if (!r.ok) return JSON.stringify({ ok: false, erreur: r.erreur, ms: r.ms, tablesAutorisees: [...TABLES_AUTORISEES], regle: "un seul SELECT/WITH, sans point-virgule ni commentaire, colonnes entre guillemets doubles" });
-      const { graphique, alertes } = graphiqueEtAlertes(r.lignes, str(input, "question"), titre);
+      const { graphique, alertes, blocViz } = graphiqueEtAlertes(r.lignes, str(input, "question"), titre);
       const bloc = blocTableau(titre, r.lignes);
+      const blocs = [bloc, blocViz].filter((b): b is Record<string, unknown> => Boolean(b));
       return JSON.stringify({
         ok: true, titre, source: "base ERP, lecture seule", isolation: r.isolation, relations: r.relations, ms: r.ms,
+        rendu: blocs.length ? `à l'écran sous la réponse : ${[bloc ? "le tableau" : null, blocViz ? `le graphique (${graphique.type})` : null].filter(Boolean).join(" et ")} — ne pas les recopier` : undefined,
         colonnes: r.colonnes, lignesTotal: r.lignes.length, tronque: r.tronque,
         lignes: r.lignes.slice(0, LIGNES_MODELE),
         ...(r.lignes.length > LIGNES_MODELE ? { note: `${LIGNES_MODELE} lignes montrées sur ${r.lignes.length} ; le tableau affiché en montre 50 — agréger dans la requête pour tout voir` } : {}),
         profil: decrire(r.lignes).colonnes.map((c) => ({ nom: c.nom, type: c.type, distincts: c.distincts })),
         graphique, alertes,
-        ...(bloc ? { _blocs: [bloc], _blocsDecoratifs: true } : {}),
+        ...(blocs.length ? { _blocs: blocs, _blocsDecoratifs: true } : {}),
         _provenance: provenanceCalcul(user, "sql_query", titre, `${r.lignes.length} ligne(s)`, r.relations.map((t) => `table ${t}`), "requête SQL en lecture seule", sql),
       });
     },
@@ -227,18 +238,20 @@ export const SANDBOX_TOOLS: PowerTool[] = [
       const charge = await chargerLignes(input, user);
       if ("erreur" in charge) return JSON.stringify({ ok: false, erreur: charge.erreur });
       const r = appliquerEtapes(charge.lignes, etapes);
-      const { graphique, alertes } = graphiqueEtAlertes(r.lignes, str(input, "question"), titre);
+      const { graphique, alertes, blocViz } = graphiqueEtAlertes(r.lignes, str(input, "question"), titre);
       const bloc = blocTableau(titre, r.lignes);
+      const blocs = [bloc, blocViz].filter((b): b is Record<string, unknown> => Boolean(b));
       return JSON.stringify({
         ok: r.erreurs.length === 0 || r.journal.length > 0,
         titre, source: charge.origine, ...(charge.note ? { avertissement: charge.note } : {}),
+        rendu: blocs.length ? `à l'écran sous la réponse : ${[bloc ? "le tableau" : null, blocViz ? `le graphique (${graphique.type})` : null].filter(Boolean).join(" et ")} — ne pas les recopier` : undefined,
         lignesEntree: charge.lignes.length, colonnesEntree: Object.keys(charge.lignes[0] ?? {}).slice(0, 40),
         etapes: r.journal, etapesRefusees: r.erreurs, ignores: r.ignores,
         resultats: r.resultats,
         lignesTotal: r.lignes.length, lignes: r.lignes.slice(0, LIGNES_MODELE),
         ...(r.lignes.length > LIGNES_MODELE ? { note: `${LIGNES_MODELE} lignes montrées sur ${r.lignes.length} ; le tableau affiché en montre 50` } : {}),
         graphique, alertes,
-        ...(bloc ? { _blocs: [bloc], _blocsDecoratifs: true } : {}),
+        ...(blocs.length ? { _blocs: blocs, _blocsDecoratifs: true } : {}),
         _provenance: provenanceCalcul(user, "run_analysis", titre, `${r.lignes.length} ligne(s)`, charge.provenance, r.journal.map((j) => j.op).join(" → ") || "aucune étape", JSON.stringify(etapes)),
       });
     },

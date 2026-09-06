@@ -27,7 +27,7 @@ const VIEWPORTS = [
 ];
 
 /** Les blocs riches, par le `data-planche` que la planche pose sur chaque section. */
-const BLOCS = ["story", "entity360", "comparison", "mission", "alerte"] as const;
+const BLOCS = ["story", "entity360", "comparison", "mission", "alerte", "viz", "dashboard"] as const;
 
 async function login(page: Page) {
   await page.goto("/login");
@@ -263,5 +263,31 @@ test.describe("GOD MODE — les objets riches", () => {
     const story = page.locator("[data-planche='story']").first();
     const jalon = story.locator("[data-testid='story-toggle']").first();
     if (await jalon.count()) await expect(jalon).toHaveAttribute("aria-expanded", /true|false/);
+  });
+});
+
+test.describe("REPRÉSENTATIONS (§35) — dix-sept formes, un rendu", () => {
+  test("la planche rend chaque forme en SVG ou en HTML, le tableau de bord en grille, et rien ne déborde à 390 px", async ({ page }) => {
+    await login(page);
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    await ouvrirPlanche(page);
+
+    const formes = await page.locator("[data-planche='viz'] figure.chief-viz").evaluateAll((els) => els.map((e) => e.getAttribute("data-viz")));
+    // Dix-sept formes distinctes, et pas un composant React par forme : un seul attribut les distingue.
+    expect(new Set(formes).size).toBeGreaterThanOrEqual(17);
+    expect(await page.locator("[data-planche='viz'] svg.chief-viz-svg:visible").count()).toBeGreaterThanOrEqual(12);
+    // Une barre porte sa valeur exacte : ce qui se voit se relit.
+    await expect(page.locator("[data-planche='viz'] figure[data-viz='barres'] rect title").first()).toHaveText(/Tâches : \d+/);
+    // Le tableau de bord : quatre tuiles, chacune un bloc ordinaire.
+    const bord = page.locator("[data-planche='dashboard']").first();
+    await expect(bord.locator(".chief-tuile")).toHaveCount(4);
+    await expect(bord.locator(".chief-tuile .chief-gauge").first()).toBeVisible();
+
+    // 390 px : les séries passent en liste proportionnelle, le SVG large se cache, le document ne déborde pas.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator("[data-planche='viz'] figure[data-viz='barres'] .chief-viz-mini").first()).toBeVisible();
+    await expect(page.locator("[data-planche='viz'] figure[data-viz='barres'] .chief-only-wide svg").first()).toBeHidden();
+    const deborde = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(deborde).toBeLessThanOrEqual(0);
   });
 });

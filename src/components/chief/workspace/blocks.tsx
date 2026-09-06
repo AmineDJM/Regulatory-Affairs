@@ -18,6 +18,7 @@ import { StoryBlock } from "./blocks/story";
 import { Entity360Block } from "./blocks/entity360";
 import { AlerteBlock, ComparisonBlock, MissionBlock } from "./blocks/decision";
 import { ArtifactBlock } from "./blocks/artifact";
+import { VizBlock } from "./blocks/viz";
 
 export { WorkspaceAskProvider };
 
@@ -916,6 +917,24 @@ function DocumentBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "document" }>
  * LE REGISTRE. Le type de retour force l'exhaustivité : si le protocole gagne un type de bloc
  * sans rendu, la compilation échoue ici — pas à l'exécution, et pas sur l'écran du PDG.
  */
+/**
+ * UN MINI-TABLEAU DE BORD (§35) — des tuiles sur une grille, chacune rendue par le REGISTRE : le
+ * tableau de bord ne sait rien dessiner lui-même, il place. Une tuile est un bloc ordinaire (une
+ * représentation, des jauges, un tableau, une fiche), relue par le même lecteur que les autres.
+ */
+function DashboardBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "dashboard" }> }) {
+  return (
+    <Card title={b.title} meta={`${b.tuiles.length} tuile${b.tuiles.length > 1 ? "s" : ""}`} actions={b.actions}>
+      <div className={`chief-dashboard${b.colonnes === 3 ? " chief-dashboard-3" : ""}`} data-tuiles={b.tuiles.length}>
+        {b.tuiles.map((t, i) => (
+          <div key={t.blockId ?? i} className="chief-tuile"><WorkspaceOneBlock b={t} /></div>
+        ))}
+      </div>
+      {b.note ? <p className="chief-block-note">{b.note}</p> : null}
+    </Card>
+  );
+}
+
 const RENDERERS: { [K in WorkspaceBlock["kind"]]: (p: { b: Extract<WorkspaceBlock, { kind: K }> }) => React.ReactElement } = {
   story: StoryBlock,
   entity360: Entity360Block,
@@ -936,6 +955,8 @@ const RENDERERS: { [K in WorkspaceBlock["kind"]]: (p: { b: Extract<WorkspaceBloc
   planification: PlanificationBlock,
   email: EmailBlock,
   artifact: ArtifactBlock,
+  viz: VizBlock,
+  dashboard: DashboardBlock,
 };
 
 /**
