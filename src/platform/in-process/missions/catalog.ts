@@ -5,6 +5,8 @@ import type { CapabilityBrief, CapabilityCatalog, MissionActor } from "@/lib/mis
 import { capabilityMeta, EFFECT_RANK, type CapabilityMeta, type Effect } from "@/lib/missions/registry/capability-meta";
 import { contratDepuisSchema } from "@/lib/missions/registry/input-contract";
 import type { ContratEntree } from "@/lib/missions/ports";
+import { formeConnue } from "@/platform/in-process/missions/formes";
+import { direForme, type Forme } from "@/lib/missions/registry/formes";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -121,12 +123,40 @@ function resumer(texte: string): string {
 const estEcriture = (n: string): boolean => RESOLVER_WRITE_NAMES.has(n);
 
 /**
- * LA FORME DE SORTIE DES CAPACITÉS QUI PRODUISENT DES LISTES — dite au planificateur, pas devinée.
+ * CE QU'ON DIT AU PLANIFICATEUR DE LA SORTIE D'UNE CAPACITÉ.
  *
- * Un éventail se déploie sur un CHEMIN (`forEachPath`). Le planificateur écrivait « documents »
- * pour une capacité qui rend `resultats`, et l'éventail refusait de choisir entre deux listes.
- * Nommer la liste dans le résumé coûte quelques mots et supprime la devinette. Ce tableau est
- * du SAVOIR (la forme réelle des sorties), pas une consigne : il se corrige en le lisant.
+ * L'observation prime, la table écrite à la main sert de secours. L'ordre compte : l'inverse
+ * ferait mentir six capacités le jour où un outil change de champ sans que personne ne relise
+ * ce fichier — précisément le vieillissement silencieux qui rend une table manuelle dangereuse.
+ */
+function direSortie(nom: string): string | null {
+  const apprise = direForme(formeConnue(nom));
+  if (apprise) return apprise;
+  return SORTIES[nom] ?? null;
+}
+
+/** La forme observée, pour le compilateur. `null` quand la capacité n'a jamais été mesurée. */
+function sortieObservee(nom: string): Forme | null {
+  const f = formeConnue(nom);
+  return f.observations > 0 ? f : null;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA FORME DE SORTIE — OBSERVÉE d'abord, écrite à la main seulement en secours.
+ *
+ * Un éventail se déploie sur un CHEMIN (`forEachPath`), et une étape aval lit `{{amont.champ}}`.
+ * Pour écrire l'un ou l'autre, le planificateur doit savoir ce que l'amont rend. Il ne le savait
+ * que pour les SIX capacités de la table ci-dessous — sur deux cent vingt-neuf. Pour les autres
+ * il devinait, et une devinette fausse tuait la mission à l'exécution.
+ *
+ * `formeConnue` (pont vers `MissionStep.result`, §17 : pas de seconde table) rend maintenant la
+ * forme RÉELLEMENT observée. Elle PRIME sur la table : ce qu'une capacité a rendu bat ce qu'on a
+ * écrit d'elle, et une capacité dont la sortie change réapprend sa forme sans que personne
+ * n'édite ce fichier. La table reste pour les capacités qui n'ont encore jamais tourné —
+ * `formes.test.ts` vérifie que l'apprentissage retrouve ces six formes-là, chemin d'éventail
+ * compris, ce qui rend le socle jetable le jour où elles auront toutes tourné.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 const SORTIES: Record<string, string> = {
   // Le banc m6 a payé une erreur ICI : « resultats: [{ id }] » alors que la capacité rend
@@ -208,7 +238,7 @@ export function catalogueDe(user: CurrentUser, opts: OptionsCatalogue = {}): Cat
       effect: m.effect,
       batchable: m.batchable,
       summary: resumer(labels.get(d.name) ? `${labels.get(d.name)}. ${d.description}` : d.description)
-        + (SORTIES[d.name] ? ` [${SORTIES[d.name]}]` : ""),
+        + (direSortie(d.name) ? ` [${direSortie(d.name)}]` : ""),
       entrees: contrats.get(d.name) ?? null,
     };
   });
@@ -223,6 +253,7 @@ export function catalogueDe(user: CurrentUser, opts: OptionsCatalogue = {}): Cat
     allowed: (name, actor) => actor.userId === user.id && parNom.has(name),
     meta,
     entrees: (name) => contrats.get(name) ?? null,
+    sortie: (name) => sortieObservee(name),
     brief: (actor, opts) => {
       if (actor.userId !== user.id) return [];
       const filtres = opts?.domains && opts.domains.length > 0

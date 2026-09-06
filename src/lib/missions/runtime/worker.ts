@@ -4,6 +4,7 @@ import type { EtatEtape, EtatMission } from "@/lib/missions/runtime/store";
 import type { StepContext, StepOutcome } from "@/lib/missions/runtime/engine";
 import { rolePourEtape, type MissionModelRole, type ReasoningRequirement } from "@/lib/missions/model/roles";
 import { estimerJetons } from "@/lib/missions/memory/budget";
+import { SCHEMA_WORKER_MINIMAL } from "@/lib/missions/runtime/sorties";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -81,30 +82,11 @@ export interface WorkerSpecification {
 }
 
 /**
- * LE SCHÉMA MINIMAL, quand le plan n'en fournit pas.
- *
- * `incertitudes` n'est pas décoratif : c'est le champ qui permet à la discipline épistémique
- * (§63 — TROUVÉ / DÉDUIT / CANDIDAT / INCONNU) de survivre à un worker. Sans lui, tout ce qu'un
- * modèle rend a l'air également sûr.
+ * LE SCHÉMA MINIMAL vit dans un module PUR — le compilateur en a besoin pour refuser une
+ * référence morte avant l'exécution, et il ne peut pas tirer Prisma ni le fournisseur derrière
+ * lui. Réexporté ici pour que les appelants historiques ne changent pas de porte.
  */
-export const SCHEMA_WORKER_MINIMAL: Record<string, unknown> = {
-  type: "object",
-  properties: {
-    resultat: { type: "string", description: "Le résultat demandé, en français." },
-    faits: {
-      type: "array",
-      items: { type: "string" },
-      description: "Les faits sur lesquels tu t'appuies, tirés des entrées. Aucun fait inventé.",
-    },
-    incertitudes: {
-      type: "array",
-      items: { type: "string" },
-      description: "Ce dont tu n'es pas sûr, ou ce qui manquait. Vide si tout était fourni.",
-    },
-  },
-  required: ["resultat", "faits", "incertitudes"],
-  additionalProperties: false,
-};
+export { SCHEMA_WORKER_MINIMAL };
 
 const CONSIGNE_WORKER = `Tu es un exécutant de mission. Tu reçois un objectif précis et des entrées, tu rends un résultat structuré, et c'est tout.
 
@@ -167,6 +149,44 @@ export function hydraterEventail(s: EtatEtape, mission: EtatMission): Record<str
   return { ...o, resultats };
 }
 
+/**
+ * LES DONNÉES AMONT D'UNE ÉTAPE — et elles TRAVERSENT les jonctions.
+ *
+ * ── LE DÉFAUT MESURÉ ────────────────────────────────────────────────────────────────────
+ *
+ * Le schéma offre le nœud JOIN au planificateur avec pour toute description « JOIN attend ses
+ * dépendances ». Il écrit donc, très naturellement, « 3 lectures → JONCTION → calcul ». À
+ * l'exécution une jonction ne rend qu'un compteur (`{ joined: 3 }`) : le worker de calcul
+ * recevait CE compteur au lieu des trois lectures, ne pouvait rien en tirer, et l'artefact aval
+ * partait au modèle de mise en forme avec des données vides — « un classeur sans aucune feuille
+ * exploitable », l'échec littéralement nommé au banc.
+ *
+ * La correction est ici et non dans la consigne : une jonction sert à réduire le nombre
+ * d'ARÊTES du graphe, jamais à couper le flux de données. On la traverse donc, et l'amont d'un
+ * worker est l'ensemble des étapes PORTEUSES qu'il atteint à travers elles.
+ */
+export function amontDeLEtape(
+  mission: EtatMission,
+  depend: readonly string[],
+): Record<string, unknown> {
+  const amont: Record<string, unknown> = {};
+  const vus = new Set<string>();
+  const file = [...depend];
+  while (file.length > 0) {
+    const d = file.shift() as string;
+    if (vus.has(d)) continue;
+    vus.add(d);
+    const s = mission.steps.find((x) => x.key === d);
+    if (!s) continue;
+    if (s.nodeType === "JOIN") {
+      for (const p of s.dependsOn) file.push(p);
+      continue;
+    }
+    if (s.result !== null && s.result !== undefined) amont[d] = hydraterEventail(s, mission) ?? s.result;
+  }
+  return amont;
+}
+
 /** Construit la spécification d'un worker à partir de l'état réel de la mission. */
 export function specifier(
   mission: EtatMission,
@@ -174,11 +194,7 @@ export function specifier(
   opts: { contraintes?: readonly string[]; timeoutMs?: number } = {},
 ): WorkerSpecification {
   const besoin = (step.spec?.reasoningRequirement ?? "LIGHT") as ReasoningRequirement;
-  const amont: Record<string, unknown> = {};
-  for (const d of step.dependsOn) {
-    const s = mission.steps.find((x) => x.key === d);
-    if (s && s.result !== null && s.result !== undefined) amont[d] = hydraterEventail(s, mission) ?? s.result;
-  }
+  const amont = amontDeLEtape(mission, step.dependsOn);
 
   return {
     missionId: mission.id,

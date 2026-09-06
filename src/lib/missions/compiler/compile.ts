@@ -13,6 +13,7 @@ import {
 import { lireAttente } from "@/lib/missions/events/match";
 import { decrireEntrees, estGabarit, verifierEntree } from "@/lib/missions/registry/input-contract";
 import { referencesDe, resoudreReference } from "@/lib/missions/runtime/interpolate";
+import { direRefus, sortieAttendue, verdictChemin, type SortieEtape } from "@/lib/missions/compiler/sorties";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -433,6 +434,25 @@ export function compile(
     vues.add(s.key);
   }
 
+  /**
+   * ── CE QUE CHAQUE ÉTAPE VA RENDRE, calculé UNE fois pour tout le plan ─────────────────
+   *
+   * Une référence `{{a.b}}` se juge sur la sortie de « a ». Le calcul est mémoïsé parce qu'un
+   * plan de trente étapes lit cinq fois la même amont, et qu'une forme apprise vient d'un cache
+   * dont la lecture, si elle est gratuite, ne l'est pas au point d'être refaite cent fois.
+   */
+  const parCle = new Map(plan.steps.map((e) => [e.key, e]));
+  const sorties = new Map<string, SortieEtape>();
+  const sortieDe = (cle: string): SortieEtape | null => {
+    const deja = sorties.get(cle);
+    if (deja) return deja;
+    const e = parCle.get(cle);
+    if (!e) return null; // Une étape ACQUISE d'un plan précédent : on n'a pas sa définition ici.
+    const v = sortieAttendue(e, catalog.sortie ? (n) => catalog.sortie!(n) : undefined);
+    sorties.set(cle, v);
+    return v;
+  };
+
   // ── 3. CHAQUE ÉTAPE, UNE PAR UNE ──────────────────────────────────────────────────────
   const compiled: CompiledStep[] = [];
   for (const s of plan.steps) {
@@ -621,10 +641,12 @@ export function compile(
      *
      * Le planificateur compose ses étapes en lisant la sortie des précédentes — c'est la forme
      * promise par son schéma depuis toujours, et le moteur la résout désormais (runtime/
-     * interpolate.ts). Deux choses se décident ICI : lire une étape, c'est en dépendre (sinon la
-     * lecture précède l'écriture et lit du vide) ; et une référence vers une étape qui n'existe
-     * pas est une faute de plan, refusée avec les clés connues. Le chemin DANS la sortie, lui,
-     * n'est vérifiable qu'à l'exécution : le moteur échoue alors en nommant les champs rendus.
+     * interpolate.ts). Trois choses se décident ICI : lire une étape, c'est en dépendre (sinon la
+     * lecture précède l'écriture et lit du vide) ; une référence vers une étape qui n'existe pas
+     * est une faute de plan, refusée avec les clés connues ; et le CHAMP lui-même est refusé
+     * quand le compilateur sait qu'il n'existera pas (`compiler/sorties.ts`). Ce dernier
+     * contrôle est arrivé tard : le moteur savait déjà nommer les champs rendus, mais il le
+     * faisait à l'exécution, après l'accord du dirigeant, en tuant la mission.
      */
     const alias = s.forEach?.as ? new Set([s.forEach.as]) : new Set<string>();
     const clesConnues = [...vues, ...acquises];
@@ -642,6 +664,23 @@ export function compile(
       if (r.cle === s.key) {
         issues.push(issue("INVALID_SHAPE", s.key, "une étape ne peut pas lire sa propre sortie."));
         continue;
+      }
+      /**
+       * ── LE CHAMP, PAS SEULEMENT LA CLÉ (§54) ────────────────────────────────────────
+       *
+       * Ce contrôle refuse UNIQUEMENT ce que le compilateur SAIT faux : un worker rend
+       * exactement les champs de son schéma, une jonction rend son compteur, une capacité
+       * rend ce qu'elle a été observée rendre. Une ignorance ne refuse rien — `verdictChemin`
+       * rend `null` dans ce cas, et c'est la propriété qui empêche d'échanger un défaut
+       * mesuré contre un refus à tort sur toutes les capacités neuves.
+       */
+      const sortieAmont = sortieDe(r.cle);
+      if (sortieAmont && r.chemin) {
+        const mort = verdictChemin(sortieAmont, r.chemin);
+        if (mort) {
+          issues.push(issue("INVALID_INPUT", s.key, direRefus(r.cle, ref, mort)));
+          continue;
+        }
       }
       if (!dependsOn.includes(r.cle)) dependsOn.push(r.cle);
     }

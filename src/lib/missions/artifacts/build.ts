@@ -8,6 +8,7 @@ import { rendre } from "@/lib/missions/artifacts/render";
 import { controlerClasseur, type ControleArtefact } from "@/lib/missions/artifacts/verify";
 import { SCHEMA_ARTEFACT } from "@/lib/missions/artifacts/schema";
 import { rolePourEtape } from "@/lib/missions/model/roles";
+import { amontDeLEtape } from "@/lib/missions/runtime/worker";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -209,12 +210,10 @@ async function composerSpec(ctx: StepContext, deps: ArtifactDeps): Promise<SpecO
   }
 
   // LES DONNÉES VIENNENT DES ÉTAPES AMONT, et elles seules. Le worker de mise en forme reçoit
-  // ces données et décide de la STRUCTURE ; il n'a rien d'autre à inventer.
-  const amont: Record<string, unknown> = {};
-  for (const d of step.dependsOn) {
-    const s = mission.steps.find((x) => x.key === d);
-    if (s?.result !== null && s?.result !== undefined) amont[d] = s.result;
-  }
+  // ces données et décide de la STRUCTURE ; il n'a rien d'autre à inventer. La lecture TRAVERSE
+  // les jonctions (`amontDeLEtape`) : une jonction ne rend qu'un compteur, et un artefact qui
+  // ne recevait que ce compteur produisait un classeur sans aucune feuille exploitable.
+  const amont = amontDeLEtape(mission, step.dependsOn);
   if (Object.keys(amont).length === 0) {
     return {
       error: `l'étape « ${step.title} » doit produire un fichier mais ne dépend d'aucune étape qui produise des données`,

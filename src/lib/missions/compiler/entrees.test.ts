@@ -108,7 +108,15 @@ describe("la tuyauterie {{cle_etape.chemin}}, vue du compilateur", () => {
   it("lire une étape, c'est en dépendre : la dépendance est ajoutée, deux-points et indices compris", () => {
     const r = compile(plan([
       { key: "recherche:contrat", title: "Chercher", capability: "directory_list", input: {} },
-      { key: "analyse:coherence", title: "Analyser", nodeType: "WORKER", dependsOn: ["recherche:contrat"] },
+      // Le worker DÉCLARE `verdict` : sans cette déclaration il rendrait les trois champs du
+      // schéma minimal, et le compilateur refuserait `{{analyse:coherence.verdict}}` — à raison.
+      {
+        key: "analyse:coherence", title: "Analyser", nodeType: "WORKER", dependsOn: ["recherche:contrat"],
+        expectedOutputSchema: {
+          type: "object", properties: { verdict: { type: "string" } },
+          required: ["verdict"], additionalProperties: false,
+        },
+      },
       { key: "lecture", title: "Lire", capability: "inspect_record", input: { reference: "{{recherche:contrat.salaries.0.reference}} / {{analyse:coherence.verdict}}" } },
     ]), catalogue, pdg);
     expect(r.ok, messages(r).join(" | ")).toBe(true);
@@ -140,7 +148,13 @@ describe("la tuyauterie {{cle_etape.chemin}}, vue du compilateur", () => {
 
   it("une échéance d'attente peut être une référence vers une date lue ; l'attente dépend alors de cette étape", () => {
     const r = compile(plan([
-      { key: "analyse:renouvellement", title: "Analyser", nodeType: "WORKER" },
+      {
+        key: "analyse:renouvellement", title: "Analyser", nodeType: "WORKER",
+        expectedOutputSchema: {
+          type: "object", properties: { dateEcheance: { type: "string" } },
+          required: ["dateEcheance"], additionalProperties: false,
+        },
+      },
       { key: "attente:renouvellement", title: "Attendre l'échéance", nodeType: "WAIT_EVENT", waitFor: { until: "{{analyse:renouvellement.dateEcheance}}" } },
     ]), catalogue, pdg);
     expect(r.ok, messages(r).join(" | ")).toBe(true);

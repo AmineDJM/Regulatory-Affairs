@@ -1,4 +1,5 @@
 import type { CapabilityMeta, Effect } from "@/lib/missions/registry/capability-meta";
+import type { Forme } from "@/lib/missions/registry/formes";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -109,6 +110,14 @@ export interface CapabilityCatalog {
    * fait pas échouer à tort).
    */
   entrees?(name: string): ContratEntree | null;
+  /**
+   * LA FORME DE SORTIE OBSERVÉE d'une capacité — `null` quand elle n'a jamais été mesurée.
+   *
+   * Facultatif comme `entrees`, et pour la même raison : un catalogue qui ne la fournit pas ne
+   * fait rien refuser de plus. Ce qu'elle porte n'est JAMAIS une valeur métier — des noms de
+   * champs et des types, rien d'autre — parce qu'elle part dans le prompt du planificateur.
+   */
+  sortie?(name: string): Forme | null;
   /**
    * LE PLAFOND SOUS LEQUEL CE CATALOGUE A ÉTÉ CONSTRUIT — `null` quand il n'y en a pas.
    *

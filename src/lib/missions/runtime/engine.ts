@@ -32,6 +32,7 @@ import { elargirEntree, memeAppel, type ActionRecours } from "@/lib/missions/rec
 import { EFFECT_RANK, capabilityMeta, type Effect } from "@/lib/missions/registry/capability-meta";
 import { evaluerCondition, lireCondition } from "@/lib/missions/runtime/condition";
 import { lireAttente, lireProgres } from "@/lib/missions/events/match";
+import { resultatJonction } from "@/lib/missions/runtime/sorties";
 import { rattraperFaitAnterieur } from "@/lib/missions/events/router";
 import { fabriquerRecu, type ExecutionReceipt } from "@/lib/missions/runtime/receipt";
 
@@ -868,8 +869,10 @@ async function dispatcher(ctx: StepContext, deps: EngineDeps): Promise<StepOutco
   switch (step.nodeType) {
     case "JOIN":
       // Une jonction ne fait rien : ses dépendances étant terminées, elle l'est aussi. Son
-      // existence sert à réduire le nombre d'arêtes, pas à produire quoi que ce soit.
-      return { status: "DONE", result: { joined: step.dependsOn.length } };
+      // existence sert à réduire le nombre d'arêtes, pas à produire quoi que ce soit — les
+      // DONNÉES, elles, la traversent (`amontDeLEtape`), et le compilateur refuse d'y lire
+      // autre chose que son compteur.
+      return { status: "DONE", result: resultatJonction(step.dependsOn.length) };
 
     case "WAIT_EVENT": {
       if (h.WAIT_EVENT) return h.WAIT_EVENT(ctx);
