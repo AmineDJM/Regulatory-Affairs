@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { apercuDesSources, SOURCES_MIN, TITRE_PAR_DEFAUT } from "./apercu";
+import { apercuDesSources, POIDS_APERCU, SOURCES_MIN, TITRE_PAR_DEFAUT } from "./apercu";
+import { composeTurn } from "./turn";
+import type { WorkspaceBlock } from "./protocol";
 import { composeWorkspace } from "./compose";
 import { WORKSPACE_LIMITS } from "./protocol";
 import { extractSources } from "@/lib/assistant";
@@ -150,5 +152,52 @@ describe("LE TEST QUI COMPTE : l'aperçu ne révèle rien de plus que le panneau
       "sorties de lecture rendues visibles à l'instant où elles rendent — mesuré auparavant à 13 742 ms de rétention sur l'analyse Regulatory");
 
     expect(sorties.filter(([o, out], i) => (apercuDesSources(o, extractSources(out)) !== null) !== attendus[i]).map(([o]) => o)).toEqual([]);
+  });
+});
+
+describe("UN APERÇU N'EST JAMAIS LE SUJET — le défaut trouvé par le banc live", () => {
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   * CE QUE LE BANC LIVE A VU, ET QU'AUCUN TEST UNITAIRE NE VOYAIT.
+   *
+   * « Fais-moi un mini tableau de bord : les tâches par statut, et les réunions par mois. »
+   * Adam a parfaitement travaillé — deux figures, trois tableaux, une réponse chiffrée et
+   * labellisée FAIT DÉRIVÉ. Et le test Playwright a échoué.
+   *
+   * La cause n'était pas dans la composition mais dans le CLASSEMENT. L'aperçu emprunte la
+   * forme `queue` — des lignes titrées et liées, exactement ce qu'il faut montrer — et
+   * héritait donc de son POIDS : 80, celui d'une file de décisions, contre 42 pour une figure.
+   * « Recherche fédérée effectuée » prenait la tête devant le graphique demandé.
+   *
+   * C'est une régression que le lot précédent avait introduite, et seule l'exécution dans le
+   * vrai produit pouvait la montrer : les deux modules étaient justes séparément.
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("l'aperçu déclare un poids INFÉRIEUR à celui d'une figure", () => {
+    const c = apercuDesSources("find_documents", S(3))!;
+    expect(c.blocks[0]!.poids).toBe(POIDS_APERCU);
+    // 42 est le poids d'une figure dans `turn.ts` ; l'aperçu doit passer dessous.
+    expect(POIDS_APERCU).toBeLessThan(42);
+  });
+
+  it("LE TEST QUI COMPTE : dans un tour réel, la FIGURE prend la tête, pas l'aperçu", () => {
+    // On passe par `composeTurn`, celui qui décide vraiment de l'ordre à l'écran — pas par une
+    // relecture du poids. Un test qui vérifierait la constante sans le classement raterait
+    // exactement ce que le banc live a trouvé.
+    const apercu = apercuDesSources("find_documents", S(4), "Découverte documentaire")!;
+    const figure: WorkspaceBlock = {
+      kind: "viz",
+      title: "Tâches par statut",
+      type: "barres",
+      donnees: { categories: ["À faire", "Terminé"], series: [{ label: "Tâches", valeurs: [7, 12] }] },
+    };
+    // L'aperçu arrive EN PREMIER, comme dans le vrai tour : c'est la lecture qui rend d'abord,
+    // la figure ne vient qu'après l'analyse. Un tri qui suivrait l'ordre d'arrivée échouerait ici.
+    const tour = composeTurn({
+      compositions: [apercu, { source: "compute_series", blocks: [figure] }],
+      proposals: [],
+    });
+    expect(tour.lead?.block.kind, "l'aperçu a pris la tête devant la figure").toBe("viz");
+    expect(tour.rest.map((s) => s.block.kind)).toContain("queue");
   });
 });

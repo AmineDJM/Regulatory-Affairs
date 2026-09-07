@@ -91,6 +91,20 @@ export interface WorkspaceBlockMeta {
   /** D'où vient l'information — « Contrat signé », « FinanceTransaction ». Discret. */
   provenance?: string | null;
   certitude?: WorkspaceCertainty;
+  /**
+   * LE POIDS D'AFFICHAGE, quand le GENRE ne suffit pas à dire l'importance.
+   *
+   * `turn.ts` classe les blocs par nature : une alerte passe devant un brouillon, un brouillon
+   * devant une figure. C'est juste dans l'immense majorité des cas — mais un même genre peut
+   * porter deux rôles. Mesuré au banc live : l'aperçu des sources lues emprunte la forme
+   * `queue` (des lignes titrées et liées), et héritait donc du poids d'une FILE DE DÉCISIONS —
+   * 80 contre 42 pour une figure. Résultat : « Recherche fédérée effectuée » prenait la tête
+   * devant le graphique que la personne venait de demander.
+   *
+   * Plutôt qu'un genre de plus dans le protocole et dans l'écran, un bloc peut dire qu'il n'est
+   * PAS le sujet. Absent, le genre décide comme avant.
+   */
+  poids?: number;
 }
 
 /** Une coordonnée : adresse, téléphone, WhatsApp — avec sa PROVENANCE, qui se dit toujours. */

@@ -244,7 +244,10 @@ export function composeTurn(input: {
       const key = `${block.kind}::${blockTitle(block).toLowerCase()}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      slots.push({ block, proposals: [], weight: KIND_WEIGHT[block.kind] ?? 10 });
+      // LE BLOC PEUT DIRE QU'IL N'EST PAS LE SUJET (`poids`). Le genre décide par défaut ; un
+      // aperçu de sources, qui emprunte la forme d'une file, ne doit pas hériter du poids d'une
+      // décision en attente — mesuré au banc live, il passait devant la figure demandée.
+      slots.push({ block, proposals: [], weight: block.poids ?? KIND_WEIGHT[block.kind] ?? 10 });
     }
   }
 

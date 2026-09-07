@@ -1,4 +1,4 @@
-import { askClaudeCheap, aiConfigured, type AiTextResult } from "@/lib/ai";
+import { askClaudeCheap, aiConfigured, cleModeleRequise, type AiTextResult } from "@/lib/ai";
 import { prisma } from "@/lib/prisma";
 import {
   getDossierKnowledge, getDossierDocuments, searchDossierPassages, pageForOffset,
@@ -212,11 +212,32 @@ export async function askDossier(
   const missing = [...new Set(missingRows.map((r) => r.sectionCode).filter((s): s is string => !!s))];
   const overview = buildOverview(k, missing, docs);
 
-  if (!configured) {
-    return { ok: true, configured, answer: "L'assistant conversationnel nécessite une clé IA (ANTHROPIC_API_KEY). Les passages trouvés sont listés en sources ci-dessous — aucune réponse n'est simulée.", citations };
-  }
+  /**
+   * L'ORDRE DES DEUX ABSTENTIONS, ET POURQUOI IL ÉTAIT INVERSÉ.
+   *
+   * « Aucun passage ne correspond » est vrai INDÉPENDAMMENT de la configuration : sans passage,
+   * aucun appel n'aurait lieu de toute façon. En testant la clé d'abord, on répondait « ajoutez
+   * une clé » à quelqu'un dont la vraie réponse était « ce dossier ne contient rien là-dessus » —
+   * et il serait allé poser une clé pour rien.
+   */
   if (citations.length === 0 && (!k || k.facts.length === 0)) {
     return { ok: true, configured, answer: "Je ne trouve aucun passage correspondant dans les documents déjà lus de ce dossier. Les fichiers encore « en attente d'extraction » ou « en revue manuelle » ne sont pas encore interrogeables.", citations: [] };
+  }
+
+  /**
+   * LA CLÉ NE CONCERNE QUE LE MOTEUR PAR DÉFAUT.
+   *
+   * `aiFn` est injectable : la revue CTD lui passe `lunaReviewFn`, les tests passent le leur. Un
+   * appelant qui FOURNIT son moteur n'a pas à être arrêté parce que la clé du moteur par défaut
+   * manque — c'est la garde que tenaient déjà `arbitrate-facts`, `ai-facts`, `draft` et
+   * `simulator/run` (`!aiConfigured() && aiFn === …`), et ce fichier était le seul à l'oublier.
+   *
+   * Le nom de la clé suit le FOURNISSEUR ACTIF : annoncer `ANTHROPIC_API_KEY` sur un déploiement
+   * OpenAI envoie corriger la mauvaise ligne de configuration.
+   */
+  if (!configured && aiFn === askClaudeCheap) {
+    const cle = cleModeleRequise();
+    return { ok: true, configured, answer: `L'assistant conversationnel nécessite une clé IA (${cle}). Les passages trouvés sont listés en sources ci-dessous — aucune réponse n'est simulée.`, citations };
   }
 
   const res = await aiFn(buildPrompt(q, citations, overview, history), { system: SYSTEM, maxTokens: 1200, temperature: 0.1 });

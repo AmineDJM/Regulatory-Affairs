@@ -1,13 +1,55 @@
 /**
- * Couche IA partagée (Anthropic / Claude) — **serveur uniquement**.
+ * ═════════════════════════════════════════════════════════════════════════════════════
+ * LA COUCHE IA HISTORIQUE — aujourd'hui une FAÇADE sur la passerelle, et plus un second chemin.
  *
- * La clé n'est jamais exposée au client : tous les appels passent par des routes
- * serveur ou des server actions qui importent ce module. Sans `ANTHROPIC_API_KEY`,
- * les fonctions renvoient `{ configured: false }` et l'UI affiche un état
- * « IA non configurée » plutôt que de planter — la clé se pose sur Render.
+ * ── CE QUI A ÉTÉ MESURÉ, ET POURQUOI CE FICHIER A CHANGÉ DE NATURE ──────────────────
  *
- * Réutilisé par : Process Intelligence (synthèse), Rapports vocaux (analyse), Chatbot.
+ * `models/gateway.ts` porte en tête : « LA PASSERELLE — le SEUL endroit d'Adam qui parle à un
+ * fournisseur de modèle ». C'était faux. Ce module ouvrait sa propre connexion HTTP vers
+ * Anthropic, et VINGT-SEPT appelants passaient par là — dont la distillation de la mémoire, le
+ * découpage en épisodes, le brief quotidien, l'analyse de contrat, l'extraction des lignes
+ * d'appel d'offres, l'arbitrage de faits et le simulateur d'examen.
+ *
+ * Le banc live l'a rendu visible d'un coup : à chaque tour, `[ai] anthropic error 401`. Le
+ * déploiement tourne sur OpenAI (`ADAM_MODEL_PROVIDER` vaut `openai` par défaut) ; ce chemin-là
+ * partait chez Anthropic quoi qu'il arrive. Trois conséquences, aucune visible à l'écran :
+ *
+ *   1. **La capacité ne s'exécutait pas.** La mémoire durable d'Adam était branchée, appelée,
+ *      et morte à l'arrivée. `catch` silencieux — par dessein, la mémoire ne doit pas casser un
+ *      tour — donc rien ne le disait.
+ *   2. **Le coût était FAUX.** `recordModelCall` vit dans la passerelle. Ces appels-là n'y
+ *      passant pas, ils ne comptaient ni en jetons, ni en dollars : un total partiel présenté
+ *      comme un total, ce que `contract.ts` interdit en toutes lettres.
+ *   3. **L'abstention était malhonnête.** `aiConfigured()` lisait `ANTHROPIC_API_KEY`. Sur un
+ *      déploiement OpenAI parfaitement configuré, une demi-douzaine de modules répondaient
+ *      « pas de clé → pas d'IA » alors que le modèle était là.
+ *
+ * ── CE QUE CE FICHIER FAIT MAINTENANT ───────────────────────────────────────
+ *
+ * Il traduit deux PALIERS historiques en deux RÔLES du registre, et rien d'autre :
+ *
+ *   • palier QUALITÉ (`askClaude`)  → rôle `worker` ;
+ *   • palier ÉCO     (`askClaudeCheap`) → rôle `bulk`.
+ *
+ * Les vingt-sept appelants ne changent pas d'une ligne : même signature, même `AiTextResult`.
+ * Ce qu'ils gagnent, ils l'obtiennent par la passerelle et sans le demander — le fournisseur
+ * actif, la télémétrie, le coût, la file d'attente, le budget de sortie, le choix de protocole.
+ *
+ * Le nom `askClaude` reste : le renommer toucherait vingt-sept fichiers pour ne rien prouver.
+ * Ce qu'il désigne, c'est « une question, une réponse en texte, au palier qualité ».
+ * ════════════════════════════════════════════════════════════════════════════════════
  */
+
+import { askModel } from "./models/gateway";
+import { bindingFor, roleConfigured } from "./models/registry";
+import type { ModelRole } from "./models/contract";
+import {
+  callClaude as appelPasserelle,
+  callClaudeStream as fluxPasserelle,
+  type ClaudeMessage as MessageClaude,
+  type ClaudeRawResult as ResultatClaude,
+  type CompatOptions,
+} from "./models/compat";
 
 // Assainissement partagé avec la voie Luna — défini à part pour que les deux fournisseurs
 // s'en servent sans se tirer l'un l'autre dans leur graphe d'imports.
@@ -21,121 +63,117 @@ export interface AiTextResult {
   error?: string;
 }
 
-// Deux PALIERS de modèle pour maîtriser drastiquement le coût sans sacrifier la qualité là
-// où elle compte réellement :
-//  - PALIER QUALITÉ (raisonnement) : revue CTD exigeante (14 agents), simulateur d'examen,
-//    réponse aux réserves, assistant conversationnel, cockpit Adventum Brain. Surchargable
-//    par AI_MODEL.
-//  - PALIER ÉCO : tâches MÉCANIQUES — extraction structurée, résumé, brouillon d'e-mail,
-//    Q&R ANCRÉE sur des sources, nudge proactif. Modèle bon marché (≈ 3× moins cher en
-//    entrée ET en sortie). Surchargable par AI_MODEL_CHEAP. Les garde-fous en aval (schéma
-//    Zod, ancrage des preuves, citations RAG) rendent ces tâches sûres sur un petit modèle.
-const QUALITY_MODEL = "claude-sonnet-4-6";
-const CHEAP_MODEL = "claude-haiku-4-5";
+/**
+ * LES DEUX PALIERS, exprimés en RÔLES du registre — pas en noms de modèles.
+ *
+ * Un nom de modèle écrit ici serait faux le jour où le registre change, et il y en aurait deux
+ * à corriger. Un rôle, lui, désigne une INTENTION : `worker` pour ce qui demande du
+ * raisonnement (revue CTD, simulateur, réponse aux réserves, brain, analyse de contrat),
+ * `bulk` pour ce qui est mécanique (extraction, résumé, brouillon, Q&R ancrée, mémoire).
+ *
+ * Le repli en aval — schéma, ancrage des preuves, citations — est ce qui rend le palier ÉCO sûr
+ * sur ces tâches-là. Il n'a pas changé.
+ */
+const ROLE_QUALITE: ModelRole = "worker";
+const ROLE_ECO: ModelRole = "bulk";
 
+/**
+ * L'IA est-elle utilisable ? La question porte sur le FOURNISSEUR ACTIF, pas sur Anthropic.
+ *
+ * Elle lisait `ANTHROPIC_API_KEY`. Sur un déploiement OpenAI — le défaut — une demi-douzaine de
+ * modules bien écrits (`arbitrate-facts`, `ai-facts`, `draft`, `simulator/run`) s'abstenaient
+ * honnêtement d'un travail qu'ils pouvaient parfaitement faire. Une abstention fondée sur une
+ * clé qu'on n'utilise pas n'est pas de la prudence, c'est une panne silencieuse.
+ */
 export function aiConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return roleConfigured(ROLE_QUALITE);
 }
 
 /**
- * RAISON EXACTE d'un refus de l'API, au lieu d'un code nu.
+ * LE NOM DE LA CLÉ QUI MANQUE — demandé souvent, gravé nulle part.
  *
- * « Erreur IA (HTTP 400) » ne dit pas quoi corriger — ni à l'utilisateur, ni à celui qui
- * dépanne : un 400 peut être un texte trop long, un paramètre invalide, un contenu illisible.
- * L'API renvoie toujours la raison dans son corps ; on la remonte telle quelle.
+ * Trois écrans annonçaient « ANTHROPIC_API_KEY absente » sur un déploiement qui tourne chez
+ * OpenAI. Chacun avait recopié le nom. Le renvoyer d\'ici évite la quatrième recopie, et évite
+ * surtout que `regulatory/` ait à interroger le registre des modèles pour une chaîne de
+ * caractères — ce qui créait un cycle entre deux domaines (`domains.test.ts` l\'a refusé).
  */
-function apiErrorMessage(status: number, body: string): string {
-  try {
-    const parsed = JSON.parse(body) as { error?: { message?: string; type?: string } };
-    const msg = parsed.error?.message?.trim();
-    if (msg) return `Erreur IA (HTTP ${status}) : ${msg.slice(0, 300)}`;
-  } catch {
-    /* corps non JSON — on retombe sur l'extrait brut ci-dessous */
-  }
-  const raw = body.replace(/\s+/g, " ").trim().slice(0, 200);
-  return raw ? `Erreur IA (HTTP ${status}) : ${raw}` : `Erreur IA (HTTP ${status}).`;
+export function cleModeleRequise(): "ANTHROPIC_API_KEY" | "OPENAI_API_KEY" {
+  return bindingFor(ROLE_QUALITE).provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
 }
 
+/**
+ * ANCIENNES VARIABLES `AI_MODEL` / `AI_MODEL_CHEAP` — dites, pas ignorées en douce.
+ *
+ * Elles nommaient un modèle pour une passerelle qui ne décide plus. C'est `ADAM_MODEL_WORKER` /
+ * `ADAM_MODEL_BULK` qui le font, dans le registre. Les honorer ici rendrait un nom de modèle
+ * Anthropic à un appel qui part chez OpenAI : un 404 au lieu d'une réponse.
+ *
+ * Le silence serait pire que le changement : quelqu'un a posé cette variable en pensant régler
+ * quelque chose. On le dit une fois, au démarrage, à l'endroit où on la lit.
+ */
+let legsAnnonce = false;
+function annoncerLegs(): void {
+  if (legsAnnonce) return;
+  legsAnnonce = true;
+  const posees = ["AI_MODEL", "AI_MODEL_CHEAP"].filter((k) => process.env[k]);
+  if (posees.length === 0) return;
+  console.warn(
+    `[ai] ${posees.join(" et ")} n'a plus d'effet : le modèle est choisi par le registre ` +
+    `(ADAM_MODEL_WORKER / ADAM_MODEL_BULK). Modèles en vigueur : ` +
+    `${bindingFor(ROLE_QUALITE).model} (qualité), ${bindingFor(ROLE_ECO).model} (éco).`,
+  );
+}
 
-/** Modèle du palier QUALITÉ (raisonnement) — revue CTD, simulateur, assistant, Brain. */
+/** Le modèle qui SERT le palier qualité — celui qui répondra, pas celui qu'on croyait. */
 export function aiModel(): string {
-  return process.env.AI_MODEL ?? QUALITY_MODEL;
+  annoncerLegs();
+  return bindingFor(ROLE_QUALITE).model;
 }
 
-/** Modèle du palier ÉCO (tâches mécaniques) — ~3× moins cher, largement suffisant ici. */
+/** Le modèle qui SERT le palier éco. Journalisé tel quel dans `AiUsage`. */
 export function aiModelCheap(): string {
-  return process.env.AI_MODEL_CHEAP ?? CHEAP_MODEL;
+  annoncerLegs();
+  return bindingFor(ROLE_ECO).model;
 }
 
 interface AskOptions {
   system?: string;
   maxTokens?: number;
   temperature?: number;
-  model?: string;
-}
-
-interface AnthropicBlock {
-  type: string;
-  text?: string;
-}
-
-/** Appel texte simple à Claude. Renvoie le texte concaténé des blocs de réponse. */
-export async function askClaude(prompt: string, opts: AskOptions = {}): Promise<AiTextResult> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return { ok: false, configured: false, error: "Clé ANTHROPIC_API_KEY non configurée." };
-
-  const base = process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com";
-  const model = opts.model ?? aiModel();
-  // Prompt caching du bloc system STABLE : quand le même system est réutilisé dans la fenêtre
-  // de cache (analyses en lot, tours successifs d'un chat de dossier, agents en série), le préfixe
-  // est relu à ~0,1× de son coût. Sans réutilisation l'effet est neutre (préfixe court ignoré, ou
-  // surcoût d'écriture négligeable). Même principe que callClaude côté assistant.
-  const system = opts.system
-    ? [{ type: "text" as const, text: opts.system, cache_control: { type: "ephemeral" as const } }]
-    : undefined;
-
-  try {
-    const res = await fetch(`${base.replace(/\/$/, "")}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: opts.maxTokens ?? 1024,
-        temperature: opts.temperature ?? 0.3,
-        ...(system ? { system } : {}),
-        messages: [{ role: "user", content: sanitizeForModel(prompt) }],
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error("[ai] anthropic error", res.status, body.slice(0, 300));
-      return { ok: false, configured: true, error: apiErrorMessage(res.status, body) };
-    }
-    const data = (await res.json()) as { content?: AnthropicBlock[] };
-    const text = (data.content ?? [])
-      .filter((b) => b.type === "text" && typeof b.text === "string")
-      .map((b) => b.text as string)
-      .join("\n")
-      .trim();
-    return { ok: true, configured: true, text };
-  } catch (err) {
-    console.error("[ai] call failed", err);
-    return { ok: false, configured: true, error: "Appel à l'IA impossible (réseau)." };
-  }
 }
 
 /**
- * Variante ÉCO de `askClaude` : identique, mais route sur le modèle bon marché par défaut
- * (tâches mécaniques : extraction, résumé, brouillon, Q&R ancrée). Un `opts.model` explicite
- * reste prioritaire (les tests injectent leur propre fonction, donc inchangés).
+ * UNE QUESTION, UNE RÉPONSE EN TEXTE, au palier demandé.
+ *
+ * `sanitizeForModel` reste appliqué ICI en plus de la passerelle : les deux barrières ne
+ * protègent pas de la même chose et aucune ne coûte assez pour qu'on choisisse.
+ */
+async function demander(role: ModelRole, prompt: string, opts: AskOptions): Promise<AiTextResult> {
+  if (!roleConfigured(role)) {
+    const cle = bindingFor(role).provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
+    return { ok: false, configured: false, error: `Clé ${cle} non configurée.` };
+  }
+  const { text, reply } = await askModel(role, sanitizeForModel(prompt), {
+    system: opts.system,
+    maxOutputTokens: opts.maxTokens ?? 1024,
+    temperature: opts.temperature ?? 0.3,
+  });
+  if (!reply.ok || text === null) {
+    return { ok: false, configured: reply.configured, error: reply.error ?? "Appel à l'IA impossible." };
+  }
+  return { ok: true, configured: true, text: text.trim() };
+}
+
+/** Palier QUALITÉ (raisonnement) — revue CTD, simulateur, brain, analyse de contrat. */
+export async function askClaude(prompt: string, opts: AskOptions = {}): Promise<AiTextResult> {
+  return demander(ROLE_QUALITE, prompt, opts);
+}
+
+/**
+ * Palier ÉCO (tâches mécaniques) — extraction, résumé, brouillon, Q&R ancrée, mémoire durable.
  */
 export async function askClaudeCheap(prompt: string, opts: AskOptions = {}): Promise<AiTextResult> {
-  return askClaude(prompt, { ...opts, model: opts.model ?? aiModelCheap() });
+  return demander(ROLE_ECO, prompt, opts);
 }
 
 // ─────────────────────────── Sonde de santé (test quotidien du chatbot) ───────────────────────────
@@ -150,280 +188,71 @@ export interface AiHealthResult {
 }
 
 /**
- * PING RÉEL de l'API IA (un `POST /v1/messages` minimal). Contrairement à `askClaude`,
- * renvoie le message d'erreur EXACT (statut HTTP + `error.message` de l'API, ou l'erreur
- * réseau) — pour que le Super Admin sache précisément quoi corriger (clé, crédit, réseau).
+ * PING RÉEL DU FOURNISSEUR ACTIF — et pourquoi il ne pouvait pas rester câblé sur Anthropic.
+ *
+ * L'écran d'administration lit cette fonction pour dire « l'IA répond » ou « voici quoi
+ * corriger ». Elle pingait `api.anthropic.com` avec le modèle rendu par `aiModel()`. Le jour où
+ * `aiModel()` a cessé de mentir — il rend désormais le modèle qui SERT, donc un modèle OpenAI —
+ * ce ping serait parti demander `gpt-5.6-terra` à Anthropic. Un 404, et un écran qui annonce une
+ * panne pendant que le produit fonctionne : le pire des deux mondes, car on corrige le mauvais
+ * problème.
+ *
+ * En passant par la passerelle, le ping interroge le fournisseur qui répondra vraiment, et le
+ * message d'erreur remonté est celui de l'API (statut + `error.message`), pas un code nu.
+ * Il paie huit jetons sur le rôle `bulk` : un diagnostic ne se fait pas sur le modèle cher.
  */
 export async function aiSelfTest(): Promise<AiHealthResult> {
-  const model = aiModel();
-  const key = process.env.ANTHROPIC_API_KEY;
+  const { model, provider } = bindingFor(ROLE_ECO);
   const started = Date.now();
-  if (!key) {
-    return { ok: false, configured: false, model, latencyMs: 0, error: "Clé ANTHROPIC_API_KEY absente : le chatbot et toutes les fonctions IA sont désactivés. Ajoutez la clé (Render → variables d'environnement)." };
+  if (!roleConfigured(ROLE_ECO)) {
+    const cle = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
+    return {
+      ok: false, configured: false, model, latencyMs: 0,
+      error: `Clé ${cle} absente : le chatbot et toutes les fonctions IA sont désactivés. Ajoutez la clé (Render → variables d'environnement).`,
+    };
   }
-  const base = (process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com").replace(/\/$/, "");
-  try {
-    const res = await fetch(`${base}/v1/messages`, {
-      method: "POST",
-      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: 8, messages: [{ role: "user", content: "ping" }] }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const latencyMs = Date.now() - started;
-    if (res.ok) {
-      await res.json().catch(() => null); // draine le corps
-      return { ok: true, configured: true, model, latencyMs, status: res.status };
-    }
-    const raw = (await res.text().catch(() => "")).slice(0, 500);
-    let detail = raw;
-    try { detail = (JSON.parse(raw) as { error?: { message?: string } })?.error?.message ?? raw; } catch { /* corps non-JSON */ }
-    return { ok: false, configured: true, model, latencyMs, status: res.status, error: `HTTP ${res.status} — ${detail || res.statusText}` };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, configured: true, model, latencyMs: Date.now() - started, error: `Échec réseau lors de l'appel à l'IA : ${msg}` };
-  }
+  const { text, reply } = await askModel(ROLE_ECO, "ping", { maxOutputTokens: 8, temperature: 0 });
+  const latencyMs = Date.now() - started;
+  if (reply.ok && text !== null) return { ok: true, configured: true, model, latencyMs, status: 200 };
+  return { ok: false, configured: reply.configured, model, latencyMs, error: reply.error ?? "Le modèle n'a rien renvoyé." };
 }
 
 // ─────────────────────────── Tool-use (boucle agent — Chatbot) ───────────────────────────
 
-export interface ClaudeToolDef {
-  name: string;
-  description: string;
-  input_schema: Record<string, unknown>;
-}
-
-export type ClaudeContentBlock =
-  | { type: "text"; text: string }
-  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-  | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean };
-
-export interface ClaudeMessage {
-  role: "user" | "assistant";
-  content: string | ClaudeContentBlock[];
-}
-
-export interface ClaudeRawResult {
-  ok: boolean;
-  configured: boolean;
-  stopReason?: string;
-  content?: ClaudeContentBlock[];
-  error?: string;
-}
-
-interface CallOptions {
-  system?: string;
-  tools?: ClaudeToolDef[];
-  maxTokens?: number;
-  temperature?: number;
-  model?: string;
-  /**
-   * Délai maximal PAR TENTATIVE (ms). Le défaut (60 s) convient aux appels courts ; la boucle
-   * agent du dossier — prompt gonflé par les pièces jointes mémorisées + 3000 jetons de sortie —
-   * peut légitimement dépasser et doit demander plus, sinon l'écran finit sur « Appel à l'IA
-   * impossible (réseau ou délai dépassé) » alors que le modèle répondait.
-   */
-  timeoutMs?: number;
-}
-
 /**
- * Appel bas niveau à l'API Messages avec support des outils (function calling) et
- * d'un historique multi-tours. Utilisé par la boucle agent de l'assistant : on lui
- * passe la conversation + les définitions d'outils, il renvoie les blocs bruts
- * (texte et/ou `tool_use`) et le `stop_reason` pour piloter la boucle. Serveur uniquement.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'APPEL AVEC OUTILS — RÉEXPORTÉ, plus réimplémenté.
+ *
+ * `models/compat.ts` porte exactement les mêmes types et la même signature ; il les traduit vers
+ * la passerelle. Ce fichier en tenait une SECONDE copie, câblée en dur sur Anthropic, avec sa
+ * propre boucle de reprise et son propre décodeur d'événements — et un appelant de production
+ * qui l'utilisait encore : la boucle agent du dossier Regulatory (`knowledge/dossier-agent.ts`).
+ *
+ * Deux implémentations de la même chose divergent toujours, et c'est la moins regardée qui garde
+ * le défaut. Celle-ci avait le sien : elle ne comptait aucun jeton, et elle partait chez un
+ * fournisseur que le déploiement n'utilise pas.
+ *
+ * Le RÔLE par défaut est `worker` et non `orchestrator` : ces appelants-ci ne tiennent pas une
+ * conversation, ils font un travail de fond. C'est la seule différence avec `compat`, et elle
+ * porte sur qui paie.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-export async function callClaude(messages: ClaudeMessage[], opts: CallOptions = {}): Promise<ClaudeRawResult> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return { ok: false, configured: false, error: "Clé ANTHROPIC_API_KEY non configurée." };
+export type { ClaudeToolDef, ClaudeContentBlock, ClaudeMessage, ClaudeRawResult } from "./models/compat";
 
-  const base = process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com";
-  const model = opts.model ?? aiModel();
-  // Prompt caching (GA) du préfixe STABLE system+outils. La boucle agent de
-  // l'assistant rappelle l'API plusieurs fois avec le même system et les mêmes
-  // outils ; en posant un point de cache `cache_control` sur le bloc system (qui,
-  // dans l'ordre de rendu outils→system→messages, couvre AUSSI les outils), les
-  // tours suivants — et les messages suivants dans la fenêtre de 5 min — relisent
-  // ce préfixe à ~0,1× du coût et surtout bien plus vite (latence réduite).
-  const system = opts.system
-    ? [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }]
-    : undefined;
-  // Même assainissement que `askClaude` : les résultats d'outils rapportent du texte EXTRAIT de
-  // documents, qui peut contenir des caractères invalides suffisants à faire refuser la requête.
-  const cleanMessages: ClaudeMessage[] = messages.map((m) => ({
-    role: m.role,
-    content:
-      typeof m.content === "string"
-        ? sanitizeForModel(m.content)
-        : m.content.map((b) =>
-            b.type === "text" ? { ...b, text: sanitizeForModel(b.text) }
-            : b.type === "tool_result" ? { ...b, content: sanitizeForModel(b.content) }
-            : b),
-  }));
-  const payload = JSON.stringify({
-    model,
-    max_tokens: opts.maxTokens ?? 1400,
-    temperature: opts.temperature ?? 0.2,
-    ...(system ? { system } : {}),
-    ...(opts.tools?.length ? { tools: opts.tools } : {}),
-    messages: cleanMessages,
-  });
+type CallOptions = Omit<CompatOptions, "role">;
 
-  // Jusqu'à 3 tentatives : on réessaie sur surcharge / limite de débit (429, 529,
-  // 500/502/503) et sur timeout réseau, avec un léger backoff. Chaque appel est
-  // borné par un timeout pour ne jamais bloquer la requête serveur indéfiniment.
-  const MAX_ATTEMPTS = 3;
-  let lastError = "Appel à l'IA impossible (réseau).";
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      const res = await fetch(`${base.replace(/\/$/, "")}/v1/messages`, {
-        method: "POST",
-        headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: payload,
-        signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
-      });
-
-      if (res.ok) {
-        const data = (await res.json()) as { content?: ClaudeContentBlock[]; stop_reason?: string };
-        return { ok: true, configured: true, stopReason: data.stop_reason, content: data.content ?? [] };
-      }
-
-      const body = await res.text().catch(() => "");
-      console.error("[ai] anthropic tools error", res.status, body.slice(0, 300));
-      const retryable = res.status === 429 || res.status === 529 || res.status >= 500;
-      lastError = apiErrorMessage(res.status, body);
-      if (!retryable || attempt === MAX_ATTEMPTS) return { ok: false, configured: true, error: lastError };
-    } catch (err) {
-      console.error(`[ai] tools call failed (attempt ${attempt})`, err);
-      lastError = "Appel à l'IA impossible (réseau ou délai dépassé).";
-      if (attempt === MAX_ATTEMPTS) return { ok: false, configured: true, error: lastError };
-    }
-    await new Promise((r) => setTimeout(r, 600 * attempt)); // backoff léger
-  }
-  return { ok: false, configured: true, error: lastError };
+/** Appel avec outils et historique multi-tours. Serveur uniquement. */
+export async function callClaude(messages: MessageClaude[], opts: CallOptions = {}): Promise<ResultatClaude> {
+  return appelPasserelle(messages, { ...opts, role: ROLE_QUALITE });
 }
 
-/**
- * Variante STREAMING de `callClaude` : identique en entrée et en sortie, mais le texte est
- * remonté **au fil de l'eau** via `onText` au lieu d'attendre la fin de la génération.
- *
- * C'est ce qui fait la différence entre « rien pendant huit secondes puis un pavé » et une
- * réponse qui s'écrit sous les yeux. Le résultat final reste le même objet que `callClaude`
- * (blocs reconstitués + `stop_reason`), pour que la boucle agent n'ait rien à changer :
- * les `tool_use` sont réassemblés à partir des fragments JSON reçus.
- *
- * Pas de réessai automatique ici : une fois que du texte a commencé à s'afficher, on ne peut
- * pas le rejouer proprement. En cas d'échec AVANT le premier caractère, l'appelant peut
- * retomber sur `callClaude`.
- */
+/** Variante STREAMING : même entrée, même sortie, le texte arrive au fil de l'eau. */
 export async function callClaudeStream(
-  messages: ClaudeMessage[],
+  messages: MessageClaude[],
   onText: (chunk: string) => void,
   opts: CallOptions = {},
-): Promise<ClaudeRawResult> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return { ok: false, configured: false, error: "Clé ANTHROPIC_API_KEY non configurée." };
-
-  const base = process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com";
-  const system = opts.system
-    ? [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }]
-    : undefined;
-  // Même assainissement que `callClaude` : du texte EXTRAIT (OCR) transite aussi par le flux, et
-  // un seul substitut orphelin suffit à faire refuser TOUTE la requête (400).
-  const cleanMessages: ClaudeMessage[] = messages.map((m) => ({
-    role: m.role,
-    content:
-      typeof m.content === "string"
-        ? sanitizeForModel(m.content)
-        : m.content.map((b) =>
-            b.type === "text" ? { ...b, text: sanitizeForModel(b.text) }
-            : b.type === "tool_result" ? { ...b, content: sanitizeForModel(b.content) }
-            : b),
-  }));
-  const payload = JSON.stringify({
-    model: opts.model ?? aiModel(),
-    max_tokens: opts.maxTokens ?? 1400,
-    temperature: opts.temperature ?? 0.2,
-    stream: true,
-    ...(system ? { system } : {}),
-    ...(opts.tools?.length ? { tools: opts.tools } : {}),
-    messages: cleanMessages,
-  });
-
-  try {
-    const res = await fetch(`${base.replace(/\/$/, "")}/v1/messages`, {
-      method: "POST",
-      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: payload,
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
-    });
-    if (!res.ok || !res.body) {
-      const body = await res.text().catch(() => "");
-      console.error("[ai] anthropic stream error", res.status, body.slice(0, 300));
-      return { ok: false, configured: true, error: `Erreur IA (HTTP ${res.status}).` };
-    }
-
-    // Reconstitution des blocs : le texte arrive par fragments, l'entrée d'un outil aussi
-    // (JSON partiel, à concaténer avant d'être analysé).
-    const blocks: ClaudeContentBlock[] = [];
-    const partialJson = new Map<number, string>();
-    let stopReason: string | undefined;
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      // Les événements SSE sont séparés par une ligne vide.
-      let sep: number;
-      while ((sep = buffer.indexOf("\n\n")) !== -1) {
-        const raw = buffer.slice(0, sep);
-        buffer = buffer.slice(sep + 2);
-        const line = raw.split("\n").find((l) => l.startsWith("data:"));
-        if (!line) continue;
-        let evt: Record<string, unknown>;
-        try { evt = JSON.parse(line.slice(5).trim()) as Record<string, unknown>; } catch { continue; }
-
-        const type = evt.type;
-        const index = typeof evt.index === "number" ? evt.index : 0;
-
-        if (type === "content_block_start") {
-          const block = evt.content_block as ClaudeContentBlock | undefined;
-          if (block) {
-            blocks[index] = block.type === "text" ? { type: "text", text: "" } : block;
-            if (block.type === "tool_use") partialJson.set(index, "");
-          }
-        } else if (type === "content_block_delta") {
-          const delta = evt.delta as { type?: string; text?: string; partial_json?: string } | undefined;
-          if (delta?.type === "text_delta" && typeof delta.text === "string") {
-            const b = blocks[index];
-            if (b && b.type === "text") b.text += delta.text;
-            onText(delta.text);
-          } else if (delta?.type === "input_json_delta" && typeof delta.partial_json === "string") {
-            partialJson.set(index, (partialJson.get(index) ?? "") + delta.partial_json);
-          }
-        } else if (type === "content_block_stop") {
-          const b = blocks[index];
-          const json = partialJson.get(index);
-          if (b && b.type === "tool_use" && json !== undefined) {
-            try { b.input = json ? (JSON.parse(json) as Record<string, unknown>) : {}; } catch { b.input = {}; }
-          }
-        } else if (type === "message_delta") {
-          const d = evt.delta as { stop_reason?: string } | undefined;
-          if (d?.stop_reason) stopReason = d.stop_reason;
-        } else if (type === "error") {
-          const e = evt.error as { message?: string } | undefined;
-          return { ok: false, configured: true, error: e?.message ?? "Erreur IA pendant la génération." };
-        }
-      }
-    }
-
-    return { ok: true, configured: true, stopReason, content: blocks.filter(Boolean) };
-  } catch (err) {
-    console.error("[ai] stream call failed", err);
-    return { ok: false, configured: true, error: "Appel à l'IA impossible (réseau ou délai dépassé)." };
-  }
+): Promise<ResultatClaude> {
+  return fluxPasserelle(messages, onText, { ...opts, role: ROLE_QUALITE });
 }
 
 // ─────────────────────────── Speech-to-text (Whisper / OpenAI) ───────────────────────────

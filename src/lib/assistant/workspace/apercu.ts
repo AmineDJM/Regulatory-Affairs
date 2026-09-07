@@ -58,6 +58,9 @@ export const SOURCES_MIN = 2;
 /** Le libellé de repli, quand l'appelant n'a pas de nom d'écran pour cette lecture. */
 export const TITRE_PAR_DEFAUT = "Éléments trouvés";
 
+/** Sous la figure (42) et sous le tableau : un aperçu accompagne la réponse, il ne la remplace pas. */
+export const POIDS_APERCU = 20;
+
 /**
  * LE BLOC D'APERÇU, ou `null` s'il n'y a rien d'honnête à montrer.
  *
@@ -97,6 +100,14 @@ export function apercuDesSources(
       // le dit à l'écran, et `state` empêche de le confondre avec un chargement en cours.
       state: "complete",
       certitude: "fait",
+      /**
+       * UN APERÇU N'EST JAMAIS LE SUJET. Il emprunte la forme d'une file (`queue`) parce que
+       * des lignes titrées et liées sont exactement ce qu'il faut montrer — mais il en héritait
+       * aussi le POIDS, celui d'une décision en attente. Mesuré au banc live : « Recherche
+       * fédérée effectuée » prenait la tête devant le graphique demandé. Il pèse donc moins
+       * qu'une figure (42), moins qu'un tableau : c'est du contexte, pas la réponse.
+       */
+      poids: POIDS_APERCU,
     }],
   };
 }

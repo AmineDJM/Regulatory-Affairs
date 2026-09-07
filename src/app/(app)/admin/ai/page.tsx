@@ -2,7 +2,7 @@ import { BrainCircuit, KeyRound, CheckCircle2, XCircle, Activity, Mic, HeartPuls
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { aiConfigured, sttConfigured, aiModel } from "@/lib/ai";
+import { aiConfigured, sttConfigured, aiModel, cleModeleRequise } from "@/lib/ai";
 import { realtimeVoiceConfigured, REALTIME_VOICE_MODEL } from "@/lib/assistant/voice-realtime";
 import { getLatestAiHealth } from "@/lib/ai-health";
 import { getAiSettings } from "@/lib/ai-settings";
@@ -128,11 +128,16 @@ export default async function AiControlCenterPage() {
       <Card>
         <CardHeader><CardTitle>Configuration & clés</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {/*
+            LE FOURNISSEUR ACTIF, PAS UN NOM GRAVÉ. L'étiquette disait « Claude (Anthropic) » et
+            le défaut « ANTHROPIC_API_KEY absente » sur un déploiement qui tourne chez OpenAI :
+            un administrateur cherchant la panne serait allé poser la mauvaise clé.
+          */}
           <KeyStatus
             icon={<KeyRound className="h-4 w-4" />}
-            label="Claude (Anthropic)"
+            label={`Modèle de raisonnement (${cleModeleRequise() === "ANTHROPIC_API_KEY" ? "Anthropic" : "OpenAI"})`}
             ok={aiConfigured()}
-            detail={aiConfigured() ? `Modèle : ${aiModel()}` : "ANTHROPIC_API_KEY absente"}
+            detail={aiConfigured() ? `Modèle : ${aiModel()}` : `${cleModeleRequise()} absente`}
           />
           <KeyStatus
             icon={<Mic className="h-4 w-4" />}

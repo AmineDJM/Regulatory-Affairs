@@ -13,11 +13,21 @@ const TAG = `test-chat-${Date.now()}`;
 let companyId = "";
 let versionId = "";
 let docId = "";
-const prevKey = process.env.ANTHROPIC_API_KEY;
+/**
+ * AUCUNE CLE N\'EST POSEE ICI, ET C\'EST LE SUJET.
+ *
+ * La version precedente ecrivait `ANTHROPIC_API_KEY = "sk-test"` en `beforeAll`, avec en
+ * commentaire « rend aiConfigured() vrai -> l\'aiFn injectee est appelee ». Devoir poser une cle
+ * pour qu\'un moteur INJECTE soit appele disait le defaut a voix haute : le code de production
+ * bloquait sur la cle du moteur PAR DEFAUT alors qu\'on lui en fournissait un autre. Les quatre
+ * autres appelants injectables du module (`arbitrate-facts`, `ai-facts`, `draft`,
+ * `simulator/run`) tenaient deja la bonne garde ; celui-ci ne la tenait pas.
+ *
+ * Le test tourne donc SANS cle. S\'il repasse au rouge, c\'est que la garde est revenue.
+ */
 
 describe("askDossier — Q&R sourcée, page exacte, abstention", () => {
   beforeAll(async () => {
-    process.env.ANTHROPIC_API_KEY = "sk-test"; // rend aiConfigured() vrai → l'aiFn injectée est appelée
     companyId = (await prisma.company.create({ data: { name: `${TAG}-co` }, select: { id: true } })).id;
     const dossierId = (await prisma.regulatoryDossier.create({ data: { companyId, reference: `${TAG}-ref`, title: "DTF+3TC", createdById: "u" }, select: { id: true } })).id;
     versionId = (await prisma.regulatoryDossierVersion.create({ data: { dossierId, versionNo: 1, createdById: "u", fileCount: 1 }, select: { id: true } })).id;
@@ -42,7 +52,6 @@ describe("askDossier — Q&R sourcée, page exacte, abstention", () => {
   });
 
   afterAll(async () => {
-    if (prevKey === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = prevKey;
     await prisma.regulatoryDossier.deleteMany({ where: { companyId } }).catch(() => undefined);
     await prisma.company.deleteMany({ where: { id: companyId } }).catch(() => undefined);
   });
@@ -73,5 +82,27 @@ describe("askDossier — Q&R sourcée, page exacte, abstention", () => {
     expect(aiFn).not.toHaveBeenCalled(); // rien de sourcé → pas d'appel IA, pas d'invention
     expect(r.citations).toHaveLength(0);
     expect(r.answer.toLowerCase()).toContain("aucun passage");
+  });
+
+  it("« aucun passage » passe AVANT « il manque une cle » — l'ordre inverse envoyait corriger la mauvaise chose", async () => {
+    /**
+     * Le defaut mesure : la garde de configuration etait testee la PREMIERE. Quelqu'un dont le
+     * dossier ne contient simplement rien sur le sujet recevait « l'assistant necessite une cle
+     * IA » et serait alle poser une cle pour rien. Sans passage, aucun appel n'aurait lieu de
+     * toute facon : la cle n'est pas la raison, et le dire est faux.
+     *
+     * On force ici le moteur PAR DEFAUT (pas d'`aiFn`), le seul cas ou la garde s'applique.
+     */
+    const avant = { o: process.env.OPENAI_API_KEY, a: process.env.ANTHROPIC_API_KEY };
+    try {
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
+      const r = await askDossier(versionId, "chromatographie ionique du palladium");
+      expect(r.answer.toLowerCase(), "la reponse parle de la cle au lieu de l'absence de passage").toContain("aucun passage");
+      expect(r.answer.toLowerCase()).not.toContain("api_key");
+    } finally {
+      if (avant.o === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = avant.o;
+      if (avant.a === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = avant.a;
+    }
   });
 });
