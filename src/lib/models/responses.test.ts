@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { callModel, streamModel } from "./gateway";
+import { oublierCoupures } from "./openai-responses";
 import { bindingFor } from "./registry";
 import { protocolFor, protocolViolation, needsResponses, isReasoningModel } from "./protocol";
 import { supportsWebSearch, validateModelRequest } from "./capabilities";
@@ -788,5 +789,64 @@ describe("13. la recherche web : l'outil part, les sources et le coût reviennen
     expect(morceaux.join("")).toBe("Le chiffre est 42.");
     expect(r.usage.webSearchCalls).toBe(1);
     expect(r.webSources).toEqual([{ url: "https://c.example/rapport", title: "Rapport annuel" }]);
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UNE COUPURE D'INTERMÉDIAIRE N'EST PAS UN REFUS DU MODÈLE.
+ *
+ * MESURÉ, pas supposé : le même appel de planification rendait 502 à 30 s EXACTEMENT, trois
+ * fois sur trois — pendant que dix petits appels passaient, qu'une charge de 1,3 Mo passait, et
+ * que la MÊME requête en flux passait en 39 s. Ce n'est donc ni le modèle, ni la taille : c'est
+ * un intermédiaire qui ferme une connexion restée muette une demi-minute.
+ *
+ * Deux propriétés, et la seconde compte autant que la première : le recours EXISTE (on rejoue
+ * en flux, pas à l'identique), et il ne se REPAIE pas (le chemin coupé est noté, l'appel suivant
+ * part en flux sans redécouvrir le silence). Sans la seconde, chaque planification coûterait
+ * 30 s de rien.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("le recours à la coupure d'intermédiaire", () => {
+  beforeEach(() => { oublierCoupures(); });
+  afterEach(() => { vi.unstubAllGlobals(); oublierCoupures(); });
+
+  /** Un flux SSE minimal qui porte le même texte qu'une réponse simple. */
+  const fluxSSE = (texte: string): string => [
+    `data: ${JSON.stringify({ type: "response.output_text.delta", delta: texte })}`,
+    `data: ${JSON.stringify({ type: "response.completed", response: { id: "resp_flux", status: "completed", output: [{ type: "message", id: "m1", role: "assistant", content: [{ type: "output_text", text: texte }] }], usage: { input_tokens: 10, output_tokens: 5, input_tokens_details: { cached_tokens: 0 } } } })}`,
+    "data: [DONE]", "",
+  ].join("\n\n");
+
+  it("un 502 rejoue EN FLUX — et le chemin coupé n'est pas redécouvert à l'appel suivant", async () => {
+    const vus: { flux: boolean }[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as { stream?: boolean };
+      vus.push({ flux: body.stream === true });
+      if (!body.stream) return new Response("upstream request failed", { status: 502 });
+      return new Response(fluxSSE("PLAN"), { status: 200, headers: { "content-type": "text/event-stream" } });
+    });
+
+    const r1 = await callModel("orchestrator", [{ role: "user", content: "Fais le plan." }], { maxTokens: 256 });
+    expect(r1.ok, r1.error).toBe(true);
+    expect(textOf(r1.blocks)).toContain("PLAN");
+    // Le premier appel a essayé le chemin simple, PUIS le flux.
+    expect(vus.map((v) => v.flux)).toEqual([false, true]);
+
+    const r2 = await callModel("orchestrator", [{ role: "user", content: "Fais le plan." }], { maxTokens: 256 });
+    expect(r2.ok).toBe(true);
+    // Le second appel part DIRECTEMENT en flux : le silence de 30 s ne se paie pas deux fois.
+    expect(vus.slice(2).map((v) => v.flux)).toEqual([true]);
+  });
+
+  it("un 4xx du modèle n'est PAS traité comme une coupure — on ne masque pas un vrai refus", async () => {
+    const vus: boolean[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      vus.push((JSON.parse(String(init.body)) as { stream?: boolean }).stream === true);
+      return new Response(JSON.stringify({ error: { message: "Invalid schema" } }), { status: 400 });
+    });
+    const r = await callModel("orchestrator", [{ role: "user", content: "Fais le plan." }], { maxTokens: 256 });
+    expect(r.ok).toBe(false);
+    expect(vus.some((f) => f)).toBe(false);
   });
 });
