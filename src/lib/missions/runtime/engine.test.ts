@@ -661,11 +661,18 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
 
   it("un WORKER sans exécutant échoue franchement, il n'est pas silencieusement ignoré", async () => {
     const t = traceur();
-    const id = await creerMission([{ key: "w", title: "Rédiger", nodeType: "WORKER" }], "worker absent");
+    // L'étape de lecture n'est pas décorative : le compilateur refuse un plan fait UNIQUEMENT de
+    // travaux de modèle (il ne pourrait répondre que de mémoire). Elle ne change rien à ce qui est
+    // testé ici — le WORKER reste sans exécutant, et c'est lui qu'on regarde.
+    const id = await creerMission([
+      { key: "src", title: "Lire l'annuaire", capability: "directory_list" },
+      { key: "w", title: "Rédiger", nodeType: "WORKER", dependsOn: ["src"] },
+    ], "worker absent");
     await avancer(id, actor, { runner: t.runner });
     const etat = await chargerEtat(id);
-    expect(etat!.steps[0].status).toBe("FAILED");
-    expect(etat!.steps[0].errorKind).toBe("MISSING_WORKER");
+    const w = etat!.steps.find((s) => s.key === "w")!;
+    expect(w.status).toBe("FAILED");
+    expect(w.errorKind).toBe("MISSING_WORKER");
   });
 
   it("un WORKER branché rend un résultat structuré que la suite peut lire", async () => {

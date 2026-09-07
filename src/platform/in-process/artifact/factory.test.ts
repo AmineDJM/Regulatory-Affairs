@@ -19,7 +19,8 @@ import type { DocxModel } from "@/lib/artifact/object-model/model";
 import { papierEnTeteDeDemonstration } from "@/lib/artifact/factory/word";
 import { portsArtefact } from "@/platform/in-process/artifact/ports";
 import {
-  construireDossierDrive, definirProfilDocumentaire, emettreDocumentDrive, profilDocumentaire, reviserDocumentDrive, type DemandeDocument,
+  construireDossierDrive, definirProfilDocumentaire, emettreDocumentDrive, manquesDIdentite, profilDocumentaire, reviserDocumentDrive,
+  type DemandeDocument, type ProfilDocumentaire,
 } from "@/platform/in-process/artifact/factory";
 import { peutEmettrePieces } from "@/platform/in-process/artifact/factory-access";
 import { avancer } from "@/lib/missions/runtime/engine";
@@ -317,4 +318,50 @@ suite("la fabrique de documents — émission, registre, Drive, reprise, révisi
     expect(note.paragraphs[0].text).toBe("Revue commerciale T3");
     for (const n of [r.classeur.nodeId, r.deck.nodeId, r.note.nodeId]) expect(await portsArtefact.documents.decrire(user.id, n)).toBeTruthy();
   }, 90_000);
+});
+
+/**
+ * LE « BC ADVENTUM GÉNÉRIQUE » — un livrable techniquement valide et commercialement inutilisable.
+ *
+ * Les totaux étaient justes, le .docx s'ouvrait, et la pièce ne portait ni RC, ni NIF, ni logo,
+ * ni papier en-tête. Rien dans la réponse ne le disait. Le code CONNAISSAIT ces trois manques
+ * (`identiteIncomplete`, `papierEnTete`, `marque.logo`) et ne les recopiait nulle part.
+ *
+ * Ce test tient l'invariant dans les deux sens — c'est le second sens qui compte : une société
+ * complète ne doit pas récolter un avertissement, sinon le bruit tuerait la règle.
+ */
+describe("une pièce qui ne porte pas la charte de la société le DIT", () => {
+  const profilNu = (o: Partial<ProfilDocumentaire> = {}): ProfilDocumentaire => ({
+    societe: { id: "s1", nom: "Adventum Pharma", couleur: "#0f766e" },
+    identite: { nom: "Adventum Pharma" },
+    identiteIncomplete: ["siège social", "RC", "NIF"],
+    reglages: { quotePrefix: "DEV", orderPrefix: "BC", invoicePrefix: "FA", vatRate: 0.19, paymentTerms: "", quoteValidityDays: 30, footerNote: null, letterheadId: null, signatoryName: null, signatoryTitle: null, existe: false },
+    papierEnTete: null,
+    reglesAppliquees: [],
+    marque: { logo: null } as ProfilDocumentaire["marque"],
+    charte: {} as ProfilDocumentaire["charte"],
+    resumeMarque: "",
+    ...o,
+  });
+
+  it("nomme ce qui manque ET où le renseigner", () => {
+    const m = manquesDIdentite(profilNu());
+    expect(m.join(" ")).toMatch(/siège social, RC, NIF/);
+    expect(m.join(" ")).toMatch(/Legal → Sociétés/);
+    expect(m.join(" ")).toMatch(/mise en page est NEUTRE/);
+    expect(m.join(" ")).toMatch(/Aucun profil documentaire/);
+  });
+
+  it("se tait quand la société est complète — sans quoi l'avertissement deviendrait du bruit", () => {
+    expect(manquesDIdentite(profilNu({
+      identiteIncomplete: [],
+      papierEnTete: { id: "l1", nom: "En-tête Adventum" },
+      reglages: { ...profilNu().reglages, existe: true },
+    }))).toEqual([]);
+  });
+
+  it("un logo suffit à porter la charte, même sans papier en-tête", () => {
+    const avecLogo = profilNu({ identiteIncomplete: [], reglages: { ...profilNu().reglages, existe: true }, marque: { logo: { blobId: "b1" } } as ProfilDocumentaire["marque"] });
+    expect(manquesDIdentite(avecLogo)).toEqual([]);
+  });
 });

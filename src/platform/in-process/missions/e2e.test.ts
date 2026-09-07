@@ -472,9 +472,19 @@ suite("BOUT EN BOUT — d'une phrase à une mission terminée", () => {
       executionScale: "S",
       acceptanceCriteria: [CRITERE],
       workstreams: [],
+      // Le v2 CONTOURNE « recherche » et « lecture » — c'est ce qu'on teste — mais il va tout de
+      // même chercher AILLEURS : le compilateur refuse un plan fait uniquement de travaux de
+      // modèle, qui ne pourrait répondre que de mémoire. C'est aussi la bonne conduite ici.
       steps: [{
+        key: "ailleurs", title: "Chercher la pièce dans l'annuaire", workstream: null,
+        nodeType: "CAPABILITY", capability: "directory_lookup",
+        inputs: [{ key: "name", kind: "TEXT", value: "Personne Inexistante" }],
+        dependsOn: [],
+        completionCondition: "L'annuaire a été consulté.",
+        approvalRequirement: "NONE", maxAttempts: 1,
+      }, {
         key: "bilan", title: "Restituer ce qui a pu être établi", workstream: null,
-        nodeType: "WORKER", dependsOn: [],
+        nodeType: "WORKER", dependsOn: ["ailleurs"],
         outputFields: [{ name: "bilan", type: "string", description: "Ce qui a pu être établi." }],
         completionCondition: "Le bilan est écrit.",
         reasoningRequirement: "LIGHT", maxAttempts: 1,

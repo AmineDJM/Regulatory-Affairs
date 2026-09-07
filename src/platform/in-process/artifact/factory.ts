@@ -144,6 +144,55 @@ const MENTIONS_FACTURE: { cle: keyof PartieCommerciale; libelle: string }[] = [
   { cle: "adresse", libelle: "siège social" }, { cle: "rc", libelle: "RC" }, { cle: "nif", libelle: "NIF" }, { cle: "ai", libelle: "article d'imposition" }, { cle: "nis", libelle: "NIS" },
 ];
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UNE PIÈCE QUI NE RESSEMBLE PAS À LA SOCIÉTÉ LE DIT — sinon elle passe pour la sienne.
+ *
+ * ── LE DÉFAUT MESURÉ ────────────────────────────────────────────────────────────────────
+ *
+ * « Fais-moi un BC Adventum. » Le .docx sort valide : les totaux sont justes, la TVA est bonne,
+ * le fichier s'ouvre. Et il est GÉNÉRIQUE — pas de logo, pas de papier en-tête, pas de RC ni de
+ * NIF, une mise en page neutre. Rien dans la réponse ne le disait. C'est un faux succès de la
+ * pire espèce : le livrable existe, il est techniquement correct, et il ne va pas à la banque.
+ *
+ * ── POURQUOI LE CODE LE SAVAIT DÉJÀ, ET SE TAISAIT ──────────────────────────────────────
+ *
+ * `profilDocumentaire` calcule `identiteIncomplete`, connaît `papierEnTete`, connaît la marque.
+ * Ces trois faits étaient rendus dans le profil… et jamais recopiés dans `avertissements`. Seule
+ * la FACTURE bloquait sur les mentions manquantes ; un devis et un bon de commande sortaient en
+ * silence. Le contrôle existait, il ne parlait pas.
+ *
+ * ── LA RÈGLE ────────────────────────────────────────────────────────────────────────────
+ *
+ * Toute pièce émise sans les marques d'identité de la société porte un avertissement qui NOMME
+ * ce qui manque ET où le renseigner. Ce n'est pas un refus : la pièce reste utile, et le PDG
+ * décide. Mais il décide en le sachant.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function manquesDIdentite(profil: ProfilDocumentaire): string[] {
+  const out: string[] = [];
+  if (profil.identiteIncomplete.length > 0) {
+    out.push(
+      `Cette pièce sort SANS ${profil.identiteIncomplete.join(", ")} de ${profil.societe.nom} : `
+      + `renseignez la carte d'identité de la société (Legal → Sociétés) et les pièces suivantes les porteront.`,
+    );
+  }
+  if (!profil.papierEnTete && !profil.marque.logo) {
+    out.push(
+      `Aucun papier en-tête ni logo n'est enregistré pour ${profil.societe.nom} : la mise en page est NEUTRE, `
+      + `elle ne porte pas la charte de la société. Téléversez l'en-tête (Bureautique → Papiers en-tête) ou le logo `
+      + `(profil documentaire) pour que la pièce ressemble vraiment à ${profil.societe.nom}.`,
+    );
+  }
+  if (!profil.reglages.existe) {
+    out.push(
+      `Aucun profil documentaire n'est défini pour ${profil.societe.nom} : préfixe de numérotation, TVA, conditions `
+      + `de paiement et validité viennent des valeurs par défaut, pas de vos usages.`,
+    );
+  }
+  return out;
+}
+
 /** LE PROFIL DOCUMENTAIRE d'une société : identité légale, réglages, papier en-tête. */
 export async function profilDocumentaire(user: CurrentUser, societe?: string | null): Promise<{ ok: true; profil: ProfilDocumentaire; papierOctets: Buffer | null; logo: Habillage["logo"]; habillage: Habillage } | EchecFabrique> {
   const r = await resoudreSociete(user.id, societe);
@@ -542,7 +591,7 @@ async function terminerEmission(
   const nomDocx = nomFichier(fabrique.numero, spec.tiers.nom, "docx");
   const docx = await portsArtefact.documents.creerFichier(user.id, { nom: nomDocx, octets: construit.octets, mime: MIME_DOCX, dossier });
   let pdf: Fabrique["pdf"] = null;
-  const avertissements = [...ctx.avertissements];
+  const avertissements = [...ctx.avertissements, ...manquesDIdentite(profil)];
   if (!demande.sansPdf) {
     const conv = await docxToPdf(construit.octets);
     if (conv.ok) {
@@ -618,7 +667,7 @@ export async function reviserDocumentDrive(
   const resume = `v${version}${opts.motif?.trim() ? ` — ${opts.motif.trim()}` : ""}`;
   const ecrit = await portsArtefact.documents.ecrireVersion(user.id, doc.driveNodeId, construit.octets, { mime: MIME_DOCX, resume });
   let pdf = f.pdf;
-  const avertissements = [...regles.avertissements, ...construit.verification.avertissements];
+  const avertissements = [...regles.avertissements, ...construit.verification.avertissements, ...manquesDIdentite(p.profil)];
   const conv = await docxToPdf(construit.octets);
   if (conv.ok) {
     if (pdf) {
@@ -674,11 +723,15 @@ export async function construireDossierDrive(
   let canon = opts.canon;
   let papier: Buffer | null = null;
   let habillage: Habillage | null = null;
+  // Un dossier exécutif porte la charte de la société ou dit qu'il ne la porte pas — même règle
+  // que les pièces commerciales : un livrable neutre présenté comme « le vôtre » est un faux succès.
+  const manques: string[] = [];
   if (opts.societe) {
     const p = await profilDocumentaire(user, opts.societe);
     if (!p.ok) return p;
     papier = p.papierOctets;
     habillage = p.habillage;
+    manques.push(...manquesDIdentite(p.profil));
     // La charte de la société (marque > pastille) colore le dossier ; une couleur demandée
     // explicitement dans les données canoniques garde la main.
     canon = { ...canon, societe: { nom: p.profil.identite.nom, couleur: canon.societe?.couleur ?? p.profil.societe.couleur } };
@@ -703,6 +756,6 @@ export async function construireDossierDrive(
     deck: { nodeId: deck.nodeId, nom: `${nom}.pptx`, diapos: d.deck.verification?.diapos ?? 0 },
     note: { nodeId: note.nodeId, nom: `${nom}.docx`, pages: d.note.verification?.pages ?? 0 },
     coherence: { totauxCompares: d.coherence?.totauxCompares ?? 0 },
-    avertissements: d.avertissements, ms: Date.now() - debut,
+    avertissements: [...d.avertissements, ...manques], ms: Date.now() - debut,
   };
 }

@@ -225,9 +225,12 @@ suite("VÉRITÉ & PREUVE — les dix non-régressions du lot truth/evidence", ()
      * un WORKER qui établit le constat (appel 3) — accepté. Trois appels de plan comptés sur
      * l'instrument : ni deux (le refus aurait été jeté), ni un.
      */
-    const planV3 = plan([{
+    // Le v3 CHERCHE avant de conclure : le compilateur refuse un plan fait uniquement de travaux
+    // de modèle (il ne pourrait répondre que de mémoire). C'est aussi le bon comportement métier
+    // ici — la pièce demandée est introuvable, on regarde ailleurs AVANT d'établir le constat.
+    const planV3 = plan([{ ...LECTURE, key: "ailleurs", title: "Chercher la pièce ailleurs" }, {
       key: "constat", title: "Établir le constat de ce qui a pu être lu", workstream: null,
-      nodeType: "WORKER", dependsOn: [],
+      nodeType: "WORKER", dependsOn: ["ailleurs"],
       outputFields: [{ name: "constat", type: "string", description: "Ce qui a pu être établi." }],
       completionCondition: "Le constat est écrit.",
       reasoningRequirement: "LIGHT", maxAttempts: 1,

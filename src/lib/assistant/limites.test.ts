@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classerLimite, complementDeLimite, gardeImpossibilite, paraitImpossibilite, RAPPEL_DECOUVERTE } from "./limites";
+import { classerLimite, complementDeLimite, gardeAbsence, gardeImpossibilite, paraitImpossibilite, RAPPEL_DECOUVERTE, RAPPEL_ELARGISSEMENT } from "./limites";
 
 /**
  * LES LIMITES DITES JUSTE — la découverte avant l'impossible (une fois), l'acceptation après, et
@@ -53,5 +53,48 @@ describe("classer une limite", () => {
     expect(complementDeLimite("Ce n'est pas prévu dans mes fonctions.", 42)).toMatch(/42 capacités ouvertes/);
     expect(complementDeLimite("Le module FINANCES ne vous est pas ouvert.", 42)).toBeNull();
     expect(complementDeLimite("Voici le tableau demandé.", 42)).toBeNull();
+  });
+});
+
+/**
+ * NOT_FOUND ≠ VERIFIED_ABSENT. Le cas fondateur : une question sur ce qui existe autour d'une
+ * personne, UNE recherche, zéro résultat, et « je n'ai rien trouvé » remis comme une réponse.
+ * La donnée était là, sous un autre libellé.
+ *
+ * Le deuxième test est celui qui compte autant : une CONCLUSION tirée de données bien lues
+ * (« aucun dossier n'est en retard ») n'est pas une absence de résultat. Faire réélargir là
+ * ferait payer un tour de plus pour rien, à chaque bilan.
+ */
+describe("une absence ne s'affirme qu'après élargissement", () => {
+  it("« je n'ai rien trouvé » après une seule façon de chercher rouvre la recherche", () => {
+    expect(gardeAbsence({ reponse: "Je n'ai rien trouvé concernant Radia sur les réseaux sociaux.", outilsUtilises: ["find_documents"], dejaElargi: false })).toBe("ELARGIR");
+    expect(gardeAbsence({ reponse: "Aucun contrat ne correspond à ce nom.", outilsUtilises: ["search_legal"], dejaElargi: false })).toBe("ELARGIR");
+    expect(gardeAbsence({ reponse: "Ce document est introuvable.", outilsUtilises: ["find_documents", "read_document"], dejaElargi: false })).toBe("ELARGIR");
+  });
+
+  it("une CONCLUSION n'est pas une absence de résultat — et n'est jamais rouverte", () => {
+    for (const r of [
+      "Aucun dossier n'est en retard : les 69 sont dans les délais.",
+      "Aucune anomalie sur le budget du T3.",
+      "Aucun paiement ne dépasse l'enveloppe validée.",
+      "Voici les quatre contrats qui arrivent à échéance.",
+    ]) {
+      expect(gardeAbsence({ reponse: r, outilsUtilises: ["read_budget"], dejaElargi: false }), r).toBe("RAS");
+    }
+  });
+
+  it("elle se tait quand la recherche a déjà été élargie, ou quand aucun outil n'a tourné", () => {
+    const abs = "Je n'ai rien trouvé.";
+    expect(gardeAbsence({ reponse: abs, outilsUtilises: ["a", "b", "c"], dejaElargi: false })).toBe("RAS");
+    expect(gardeAbsence({ reponse: abs, outilsUtilises: ["a"], dejaElargi: true })).toBe("RAS");
+    // Zéro outil appartient à `gardeImpossibilite` : deux gardes sur le même cas se contrediraient.
+    expect(gardeAbsence({ reponse: abs, outilsUtilises: [], dejaElargi: false })).toBe("RAS");
+  });
+
+  it("l'échelle rendue au modèle nomme des MANIÈRES de chercher, pas des outils", () => {
+    for (const barreau of [/EXACT/, /APPROCHÉ/, /ALIAS/, /PAR LA PERSONNE/, /PAR L'HISTOIRE/, /ENTITÉS LIÉES/, /AUTRES GRENIERS/]) {
+      expect(RAPPEL_ELARGISSEMENT).toMatch(barreau);
+    }
+    expect(RAPPEL_ELARGISSEMENT).toMatch(/Une absence se prouve, elle ne se constate pas/);
   });
 });

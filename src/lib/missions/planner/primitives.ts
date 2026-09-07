@@ -273,16 +273,28 @@ const PIECES: readonly string[] = [
   /**
    * LES PIÈCES QU'ON NOMME SANS LES NOMMER PRÉCISÉMENT.
    *
-   * « Prépare une NOTE pour Mehdi », « mets ça dans un DOCUMENT que je puisse faire circuler »,
-   * « je veux la LISTE des montants supérieurs à un million ». Trois mots génériques qui
-   * désignent bel et bien un livrable — et qui manquaient, si bien qu'un verbe de production
-   * suivi de l'un d'eux n'exigeait rien.
+   * « Prépare une NOTE pour Mehdi », « mets ça dans un DOCUMENT que je puisse faire circuler ».
+   * Deux mots génériques qui désignent bel et bien un livrable — et qui manquaient, si bien
+   * qu'un verbe de production suivi de l'un d'eux n'exigeait rien.
    *
    * Le garde-fou reste le même et il suffit : une pièce ne compte QU'accompagnée d'un verbe qui
-   * la fait naître. « Prends note », « lis le document », « donne-moi la liste » ne déclenchent
-   * donc rien — aucun de ces verbes ne produit.
+   * la fait naître. « Prends note », « lis le document » ne déclenchent donc rien — aucun de ces
+   * verbes ne produit.
+   *
+   * ── « LISTE » A ÉTÉ AJOUTÉ PUIS RETIRÉ, ET LA MESURE DIT POURQUOI ────────────────────
+   *
+   * Le mot y a figuré une journée. Le banc de reprise après panne a fait tomber la faute :
+   * « Écris à chaque salarié (crash après liste:salaries) » exigeait un DOCUMENT — verbe
+   * « écris » + mot « liste ». Personne ne demandait de livrable ; le plan a été refusé pour une
+   * pièce que la phrase ne réclamait pas.
+   *
+   * Le mot est trop courant pour porter une exigence : une liste est presque toujours une VUE
+   * (« la liste des dossiers en retard »), rarement un fichier. Le sur-déclenchement coûte un
+   * refus de plan ; l'absence ne coûte qu'une exigence non détectée, que le modèle satisfait
+   * de lui-même la plupart du temps. On garde le moins cher des deux — la même leçon que
+   * `PIECES_FAUX_AMIS` pour « tableau de bord ».
    */
-  "note", "document", "liste",
+  "note", "document",
 ];
 const VERBES_PRODUCTION: readonly string[] = [
   "fais", "faire", "fait moi", "prepare", "preparer", "genere", "generer", "produis", "produire",
@@ -358,6 +370,32 @@ const sansFauxAmis = (norm: string): string => {
   return n;
 };
 
+/**
+ * LES FAUX AMIS DU CALCUL — quand l'adjectif qualifie LA DEMANDE, pas LA DONNÉE.
+ *
+ * « Anormal », « atypique », « inhabituel » appellent un CALCUL parce qu'ils supposent une norme
+ * à établir : « repère les mois anormaux » exige une moyenne et une dispersion. Mais les mêmes
+ * mots qualifient parfois la FORME du travail demandé, et là ils n'exigent rien du tout.
+ *
+ * MESURÉ : « Organise une mise en regard INHABITUELLE des périmètres de Sarah et de Karim » a
+ * exigé un CALCUL. Le plan — chercher, puis contrôler — a été refusé pour une primitive que
+ * personne ne réclamait. L'adjectif portait sur la mise en regard, pas sur les périmètres.
+ *
+ * La règle reste étroite : on n'efface l'adjectif que lorsqu'il suit immédiatement un nom de
+ * TRAVAIL (analyse, angle, mise en regard, présentation…). « Des montants inhabituels » n'est
+ * pas touché, et c'est exactement le cas qu'on veut garder.
+ */
+const CALCUL_FAUX_AMIS: readonly RegExp[] = [
+  / (?:analyse|approche|angle|mise en regard|comparaison|presentation|restitution|lecture|maniere|facon|vision|regard|format|forme)s? (?:inhabituell?e?s?|atypiques?|anormale?s?|originale?s?|nouvelle?s?)/g,
+];
+
+/** La demande, vue par la recherche de CALCUL : l'adjectif qui qualifie le travail est effacé. */
+const sansFauxAmisCalcul = (norm: string): string => {
+  let n = norm;
+  for (const r of CALCUL_FAUX_AMIS) n = n.replace(r, " ");
+  return n;
+};
+
 /** Le verbe est-il DEMANDÉ (impératif, souhait) plutôt que RACONTÉ (passé composé) ou MONTRÉ ? */
 function verbeDemande(demandeNorm: string, verbe: string): boolean {
   const v = normaliser(verbe).trim();
@@ -391,11 +429,13 @@ export function exigencesDe(demande: string): Exigence[] {
   const norm = normaliser(demande);
   const out: Exigence[] = [];
   const pourPieces = sansFauxAmis(norm);
+  const pourCalcul = sansFauxAmisCalcul(norm);
   const piece = PIECES.find((r) => trouve(pourPieces, r));
   const produit = VERBES_PRODUCTION.find((v) => verbeDemande(norm, v));
   for (const p of PRIMITIVES) {
     const m = MARQUEURS[p];
-    const sur = m.sure.find((r) => trouve(norm, r));
+    const texte = p === "CALCUL" ? pourCalcul : norm;
+    const sur = m.sure.find((r) => trouve(texte, r));
     if (sur) { out.push({ primitive: p, certitude: "SURE", declencheur: sur }); continue; }
     // « Montre-le » : le pronom dit que c'est le RÉSULTAT qu'on veut voir, pas une pièce.
     if (p === "REPRESENTATION" && MONTRER_LE_RESULTAT.test(norm)) {
@@ -412,7 +452,7 @@ export function exigencesDe(demande: string): Exigence[] {
       out.push({ primitive: p, certitude: "POSSIBLE", declencheur: piece });
       continue;
     }
-    const pos = m.possible.find((r) => trouve(norm, r));
+    const pos = m.possible.find((r) => trouve(texte, r));
     if (pos) out.push({ primitive: p, certitude: "POSSIBLE", declencheur: pos });
   }
   return out;

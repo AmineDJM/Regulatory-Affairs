@@ -36,7 +36,10 @@ const suite = dbOk ? describe : describe.skip;
 const TAG = `__bypassdep${Date.now()}`;
 
 const catalogue: CapabilityCatalog = {
-  has: () => false,
+  // Une lecture réelle est CONNUE du catalogue : le compilateur refuse un plan fait uniquement de
+  // travaux de modèle (il ne pourrait répondre que de mémoire). Ce qui est testé ici — la
+  // dépendance contournée — ne change pas d'un iota.
+  has: (n) => n === "directory_list",
   allowed: () => true,
   meta: (n) => capabilityMeta(n),
   brief: () => [],
@@ -55,6 +58,7 @@ const planPrepareConclut = (objectif: string): MissionPlan => ({
   complexity: "B",
   scale: "S",
   steps: [
+    { key: "source", title: "Lire l'annuaire", capability: "directory_list", input: {}, dependsOn: [], approvalRequirement: "NONE", reasoningRequirement: "NONE" },
     { key: "preparer", title: "Préparer le matériau", nodeType: "WORKER", dependsOn: [], approvalRequirement: "NONE", reasoningRequirement: "LIGHT", expectedOutputSchema: SCHEMA_NOTE },
     { key: "conclure", title: "Conclure malgré tout", nodeType: "WORKER", dependsOn: ["preparer"], approvalRequirement: "NONE", reasoningRequirement: "LIGHT", expectedOutputSchema: SCHEMA_NOTE },
   ],

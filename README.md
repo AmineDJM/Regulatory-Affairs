@@ -5153,6 +5153,62 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### L'EMPREINTE D'UNE MUTATION NE DÉPASSE JAMAIS CELLE DE LA DEMANDE (2026-09)
+
+**Le problème, mesuré dans le vrai chat.** « Retire l'adresse e-mail d'Allaeddine » a produit
+« Je propose : SUPPRIMER DÉFINITIVEMENT l'employé Allaeddine ». Un champ demandé, une personne
+proposée — avec ses pièces, ses commentaires, sa cascade non restaurable. Rien ne part sans clic,
+mais la carte annonçait une suppression sous une demande qui disait « retirer une adresse ».
+`cible-designee.ts` ne voit pas cette faute : la cible était la BONNE, c'est la PORTÉE qui était
+fausse.
+
+**La même faute a la même forme partout** — « corrige son numéro dans l'annuaire » → désactiver
+son COMPTE ; « change la cellule B12 » → supprimer la LIGNE ; « supprime le dossier X » → un LOT.
+
+**La règle.** `src/lib/mutations/empreinte.ts` (module PUR, zéro import, au socle) compare deux
+axes indépendants : la **profondeur** (CHAMP < ENREGISTREMENT) et la **cardinalité** (UN /
+PLUSIEURS). Une opération dont l'un des deux dépasse ce que la demande énonce est refusée, avec
+l'opération plus étroite nommée. Les confondre rendrait la règle fausse : « supprime ces trois
+dossiers » et « supprime le dossier REG-2026-014 » ont la même profondeur et des cardinalités
+opposées (même distinction qu'au compilateur de missions, §118.3).
+
+La tête du groupe nominal décide, et elle est la PREMIÈRE : « l'adresse e-mail d'Allaeddine »
+contient le mot « mail », qui nomme aussi un enregistrement (un message). Compter les mots
+reconnus rendait ENREGISTREMENT ; comparer leurs POSITIONS rend CHAMP.
+
+**Trois surfaces, une règle** : les propositions d'écriture de la conversation
+(`lib/assistant.ts`, les deux boucles), la compilation d'un plan de mission
+(`missions/compiler/compile.ts`, contre l'objectif que le plan énonce lui-même) et les commandes
+Live Office (`artifact_edit` : une commande `*.supprimer_*` détruit un contenant).
+
+**Le silence n'interdit rien.** `empreinteDemandee` rend `null` sur tout ce qu'elle ne lit pas à
+coup sûr, et un `null` LAISSE PASSER — mesuré sur 1 985 phrases françaises du dépôt : 81 % muet.
+Une garde qui refuserait « supprime Allaeddine » faute d'avoir su lire serait désactivée en une
+semaine, et la protection mourrait avec elle. Les créations ne sont jamais pesées : « crée une
+tâche pour corriger l'adresse d'Allaeddine » nomme un champ et propose une création — c'est
+légitime, et la refuser mesurerait la ressemblance des mots au lieu de l'effet.
+
+Test : `src/lib/mutations/empreinte.test.ts` (les trois pannes réelles + ce que la règle laisse
+passer, qui compte autant).
+
+### NOT_FOUND N'EST PAS VERIFIED_ABSENT (2026-09)
+
+**Le problème.** Une question sur ce qui existe autour d'une personne, UNE recherche, zéro
+résultat, et « je n'ai rien trouvé » remis comme une réponse. La donnée était là, sous un autre
+libellé.
+
+**Le piège était dans le code de la garde.** `limites.ts` comptait « aucune donnée » parmi les
+refus HONNÊTES : `gardeImpossibilite` rendait RAS et `classerLimite` rendait `DONNEE` avec
+`precise: true`. Le code CERTIFIAIT qu'une absence est une limite bien dite, sans jamais regarder
+ce qui avait été cherché.
+
+**La règle.** `gardeAbsence` : si la réponse affirme n'avoir pas TROUVÉ alors que le tour n'a
+essayé qu'une ou deux façons de chercher, le serveur rend l'échelle d'élargissement (exact →
+approché → alias → par la personne → par l'histoire → entités liées → autres greniers) et exige
+un second essai. Une fois. Deux garde-fous : une CONCLUSION (« aucun dossier n'est en retard »)
+n'est pas une absence de résultat, et une phrase qui porte sur une source déjà lue (« aucune
+réserve dans ce document ») non plus. Mesure sur 29 476 phrases du dépôt : 0,8 % déclenchent.
+
 ### LA COMPOSITION : trois ruptures dans la chaîne, aucune dans le modèle (2026-09)
 
 **Le problème.** La famille COMPOSITION faisait 1 réussite sur 13. Un plan de composition

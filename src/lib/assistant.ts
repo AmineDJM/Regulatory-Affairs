@@ -61,7 +61,7 @@ import { apercuDesSources } from "@/lib/assistant/workspace/apercu";
 import { candidatsMontres, verdictCible, type Candidat } from "@/lib/assistant/cible-designee";
 import { withTurn, markPreview, markFinal, logTurn, recordTool, setTurnContext, summarize, addPhase, timedPhase, type TurnRoute, type TurnContext, type TurnSummary } from "@/lib/models/telemetry";
 import { ADAM_PROMPT_VERSION } from "@/lib/assistant/prompt-version";
-import { complementDeLimite, gardeImpossibilite, RAPPEL_DECOUVERTE } from "@/lib/assistant/limites";
+import { complementDeLimite, gardeAbsence, gardeImpossibilite, RAPPEL_DECOUVERTE, RAPPEL_ELARGISSEMENT } from "@/lib/assistant/limites";
 import { prechargerCapacitesDynamiques } from "@/platform/in-process/skills";
 import "@/platform/in-process/telemetry/usage-sink";
 import { callModel } from "@/lib/models/gateway";
@@ -126,6 +126,7 @@ import {
 import { executiveBriefing } from "@/lib/assistant/executive-tools";
 import { conversationWorkingSet, isHighStakesQuestion, queryPlan, queryPlanContext } from "@/lib/assistant/reasoning";
 import { persistActionIntents, recentActionIntentsContext, retirerCaduquesAvantLeTour } from "@/lib/assistant/action-intents";
+import { verdictEmpreinte } from "@/lib/mutations/empreinte";
 import { toNumber } from "@/lib/utils";
 import {
   sitsOnPaymentCentre, applyDecision, CENTRAL_STATUS_LABEL, CENTRAL_DECISION_LABEL,
@@ -2293,7 +2294,26 @@ function observeRollout(
   }
 }
 
-export async function executeReadTool(name: string, input: Record<string, unknown>, user: CurrentUser): Promise<string> {
+export async function executeReadTool(name: string, input: Record<string, unknown>, user: CurrentUser, demande?: string): Promise<string> {
+  /**
+   * ── L'EMPREINTE VAUT AUSSI POUR LES OUTILS QU'ON EXÉCUTE SANS CARTE ───────────────────
+   *
+   * `artifact_edit` n'est pas une écriture ERP : il modifie le document OUVERT, la retouche est
+   * réversible d'un `annuler`, et c'est pourquoi il part sans confirmation. Mais « change la
+   * cellule B12 » suivi de `xlsx.supprimer_ligne` détruit douze cellules sur une demande qui en
+   * visait une — la même faute que « retire son e-mail » suivi de la suppression de la personne
+   * (§104.7 le dit déjà pour les documents : modifier le mauvais paragraphe en annonçant que
+   * c'est fait est le défaut le plus coûteux de tout ce système).
+   *
+   * `demande` est OPTIONNEL, et c'est délibéré : les appelants qui n'ont pas de phrase humaine
+   * (une étape de mission, une compétence, une situation) passent `undefined`, la règle est
+   * muette, et rien ne change pour eux.
+   */
+  if (demande) {
+    const emp = verdictEmpreinte(demande, name, undefined, input);
+    if (!emp.ok) return JSON.stringify({ fait: false, refus: emp.refus });
+  }
+
   // Outils de POUVOIR (budget, finances, RH, file de décisions) : le droit est revérifié
   // à l'exécution — la liste envoyée au modèle est une suggestion, pas une autorisation.
   const power = await executePowerTool(name, input, user);
@@ -4584,6 +4604,7 @@ const CRITIQUE_LABEL = "Relecture critique de la conclusion";
 /** L'étape visible quand la garantie d'enseignement rappelle le modèle à l'outil (§119). */
 const TEACH_GARDE_LABEL = "Vérification : l'enseignement doit passer par l'outil";
 const DECOUVERTE_LABEL = "Carte complète des capacités relue";
+const ELARGISSEMENT_LABEL = "Recherche élargie avant de conclure à une absence";
 /** L'étape visible quand « d'où tu tiens ça ? » se répond depuis le registre des lectures (F8). */
 const PROVENANCE_LABEL = "Provenance relue dans le registre des lectures";
 
@@ -4870,7 +4891,9 @@ async function runAssistantImpl(
 
   // La garantie d'enseignement (§119) ne rappelle le modèle qu'UNE fois par tour.
   let rappelEnseignement = false;
-    let redecouvert = false;
+  let redecouvert = false;
+  // Une absence ne s'affirme qu'une fois la recherche élargie — et l'élargissement n'a lieu qu'UNE fois.
+  let elargi = false;
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const res = await callClaude(messages, { system, tools, maxTokens: 1400, model: opts.model, reasoning: effortPourNiveau(resolved.level), promptCacheKey: cacheKey, safetyIdentifier: surete });
     if (!res.ok || !res.content) {
@@ -4898,6 +4921,22 @@ async function runAssistantImpl(
         continue;
       }
       if (verdictTeach === "DEMENTIR") return avecProvenance({ configured: true, ok: true, reply: DEMENTI_ENSEIGNEMENT, trace });
+      /**
+       * ── NOT_FOUND N'EST PAS VERIFIED_ABSENT ──────────────────────────────────────────
+       *
+       * « Je n'ai rien trouvé » après UNE façon de chercher n'est pas une preuve d'absence,
+       * et c'est pourtant ainsi que la personne va le lire. Le serveur rend l'échelle
+       * d'élargissement et exige un second essai — une fois. (`limites.ts`)
+       */
+      if (gardeAbsence({ reponse: brut, outilsUtilises: usedTools, dejaElargi: elargi }) === "ELARGIR") {
+        elargi = true;
+        trace.push(ELARGISSEMENT_LABEL);
+        const carteEl = runDiscovery({}, allTools);
+        tools = avecOutilsDeclares(tools, allTools, carteEl.unlock);
+        messages.push({ role: "assistant", content: blocks });
+        messages.push({ role: "user", content: `${RAPPEL_ELARGISSEMENT}\n\n${carteEl.text}` });
+        continue;
+      }
       // ── LA DÉCOUVERTE AVANT L'IMPOSSIBLE (§34) — « je ne peux pas » sans un seul outil appelé n'est
       // pas une réponse : le serveur remet la carte complète et exige un second essai, une fois.
       const verdictImp = gardeImpossibilite({ question, reponse: brut, outilsUtilises: usedTools, outilsDisponibles: allTools.map((t) => t.name), dejaRedecouvert: redecouvert });
@@ -4938,6 +4977,16 @@ async function runAssistantImpl(
         const vus: Candidat[] = [...lectures.flatMap((l) => extractSources(l.sortie)), ...candidatsMontres(history)];
         const v = verdictCible(question, `${p.title} ${p.fields.map((f) => f.value).join(" ")}`, vus);
         if (!v.designee) { failures.push({ id: w.id, error: v.question }); continue; }
+        /**
+         * ── L'EMPREINTE RÉELLE NE DÉPASSE JAMAIS L'EMPREINTE DEMANDÉE ──────────────────
+         *
+         * Mesuré dans le vrai chat : « Retire l'adresse e-mail d'Allaeddine » a produit
+         * « Je propose : SUPPRIMER DÉFINITIVEMENT l'employé Allaeddine ». Un champ demandé,
+         * une personne proposée. `verdictCible` ne voit pas cette faute — la cible était la
+         * BONNE ; c'est la PORTÉE qui était fausse. (`mutations/empreinte.ts`)
+         */
+        const emp = verdictEmpreinte(question, w.name, p.title, w.input);
+        if (!emp.ok) { failures.push({ id: w.id, error: emp.refus }); continue; }
         okProposals.push(p);
       }
       if (okProposals.length === 0) {
@@ -4982,7 +5031,7 @@ async function runAssistantImpl(
       }
       return {
         tu,
-        out: await executeReadTool(tu.name, tu.input, user).catch((e) => {
+        out: await executeReadTool(tu.name, tu.input, user, question).catch((e) => {
           console.error("[assistant] read tool failed", tu.name, e);
           return "Erreur lors de la lecture des données.";
         }),
@@ -5421,6 +5470,8 @@ async function runAssistantStreamImpl(
     // La garantie d'enseignement (§119) ne rappelle le modèle qu'UNE fois par tour.
     let rappelEnseignement = false;
     let redecouvert = false;
+    // Une absence ne s'affirme qu'une fois la recherche élargie — et l'élargissement n'a lieu qu'UNE fois.
+    let elargi = false;
     /**
      * ── POURQUOI TOUTES LES RONDES PAIENT LE MÊME EFFORT — une hypothèse RÉFUTÉE ───────
      *
@@ -5488,6 +5539,25 @@ async function runAssistantStreamImpl(
           emit({ type: "delta", text: DEMENTI_ENSEIGNEMENT });
           return avecProvenance({ configured: true, ok: true, reply: DEMENTI_ENSEIGNEMENT, trace, metrics });
         }
+        /**
+         * ── NOT_FOUND N'EST PAS VERIFIED_ABSENT ──────────────────────────────────────────
+         *
+         * « Je n'ai rien trouvé » après UNE façon de chercher n'est pas une preuve d'absence,
+         * et c'est pourtant ainsi que la personne va le lire. Le serveur rend l'échelle
+         * d'élargissement et exige un second essai — une fois. (`limites.ts`)
+         */
+        if (gardeAbsence({ reponse: redige, outilsUtilises: usedTools, dejaElargi: elargi }) === "ELARGIR") {
+          elargi = true;
+          // Le texte déjà diffusé annonçait une absence non vérifiée : le client l'efface (`reset`),
+          // exactement comme pour un refus prématuré — sans quoi la personne lirait les deux.
+          if (streamed) { emit({ type: "reset" }); streamed = false; }
+          if (!trace.includes(ELARGISSEMENT_LABEL)) { trace.push(ELARGISSEMENT_LABEL); emit({ type: "trace", label: ELARGISSEMENT_LABEL }); }
+          const carteEl = runDiscovery({}, allTools);
+          tools = avecOutilsDeclares(tools, allTools, carteEl.unlock);
+          messages.push({ role: "assistant", content: blocks });
+          messages.push({ role: "user", content: `${RAPPEL_ELARGISSEMENT}\n\n${carteEl.text}` });
+          continue;
+        }
         // ── LA DÉCOUVERTE AVANT L'IMPOSSIBLE (§34) — même règle qu'hors flux : la carte complète est
         // remise une fois ; le texte déjà diffusé était un refus prématuré, le client l'efface (`reset`).
         const verdictImp = gardeImpossibilite({ question, reponse: redige, outilsUtilises: usedTools, outilsDisponibles: allTools.map((t) => t.name), dejaRedecouvert: redecouvert });
@@ -5554,6 +5624,16 @@ async function runAssistantStreamImpl(
         const vus: Candidat[] = [...lectures.flatMap((l) => extractSources(l.sortie)), ...candidatsMontres(history)];
           const v = verdictCible(question, `${p.title} ${p.fields.map((f) => f.value).join(" ")}`, vus);
           if (!v.designee) { failures.push({ id: w.id, error: v.question }); continue; }
+          /**
+           * ── L'EMPREINTE RÉELLE NE DÉPASSE JAMAIS L'EMPREINTE DEMANDÉE ──────────────────
+           *
+           * Mesuré dans le vrai chat : « Retire l'adresse e-mail d'Allaeddine » a produit
+           * « Je propose : SUPPRIMER DÉFINITIVEMENT l'employé Allaeddine ». Un champ demandé,
+           * une personne proposée. `verdictCible` ne voit pas cette faute — la cible était la
+           * BONNE ; c'est la PORTÉE qui était fausse. (`mutations/empreinte.ts`)
+           */
+          const emp = verdictEmpreinte(question, w.name, p.title, w.input);
+          if (!emp.ok) { failures.push({ id: w.id, error: emp.refus }); continue; }
           okProposals.push(p);
         }
         // Tout a échoué → on réinjecte les erreurs pour laisser le modèle se corriger.
@@ -5608,7 +5688,7 @@ async function runAssistantStreamImpl(
         const label = READ_LABEL[tu.name];
         if (label && !trace.includes(label)) { trace.push(label); emit({ type: "trace", label }); }
         let okOutil = true;
-        const out = await executeReadTool(tu.name, tu.input, user).catch((e) => {
+        const out = await executeReadTool(tu.name, tu.input, user, question).catch((e) => {
           console.error("[assistant] read tool failed", tu.name, e);
           metrics.toolErrors += 1;
           okOutil = false;

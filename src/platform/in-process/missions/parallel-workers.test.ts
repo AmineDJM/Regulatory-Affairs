@@ -40,7 +40,10 @@ const suite = dbOk ? describe : describe.skip;
 const TAG = `__parwork${Date.now()}`;
 
 const catalogue: CapabilityCatalog = {
-  has: () => false,
+  // Une lecture réelle est CONNUE du catalogue : le compilateur refuse un plan fait uniquement de
+  // travaux de modèle (il ne pourrait répondre que de mémoire). Elle ne touche pas ce qu'on mesure
+  // ici — la lecture n'est pas de classe MODELE, elle ne prend donc rien au plafond des workers.
+  has: (n) => n === "directory_list",
   allowed: () => true,
   meta: (n) => capabilityMeta(n),
   brief: () => [],
@@ -59,6 +62,7 @@ const planDeuxWorkers = (objectif: string): MissionPlan => ({
   complexity: "B",
   scale: "S",
   steps: [
+    { key: "source", title: "Lire l'annuaire", capability: "directory_list", input: {}, dependsOn: [], approvalRequirement: "NONE", reasoningRequirement: "NONE" },
     { key: "note-a", title: "Rédiger la note A", nodeType: "WORKER", dependsOn: [], approvalRequirement: "NONE", reasoningRequirement: "LIGHT", expectedOutputSchema: SCHEMA_NOTE },
     { key: "note-b", title: "Rédiger la note B", nodeType: "WORKER", dependsOn: [], approvalRequirement: "NONE", reasoningRequirement: "LIGHT", expectedOutputSchema: SCHEMA_NOTE },
   ],

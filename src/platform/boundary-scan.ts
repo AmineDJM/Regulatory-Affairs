@@ -104,6 +104,13 @@ const NEUTRAL = new Set([
   // ET les attentes de mission de l'ERP peuvent le consommer — le ranger d'un côté forcerait
   // l'autre à traverser.
   "src/lib/temporal",
+  // `mutations/empreinte` compare l'empreinte d'une écriture (profondeur × cardinalité) à celle
+  // que la demande énonce. Du texte comparé à un nom d'opération — zéro import, sans état, sans
+  // base, sans règle métier : le même cas que `name-match` et `temporal`. Il est ici parce que
+  // les DEUX côtés en ont besoin et n'ont pas le droit de se parler : la conversation refuse une
+  // carte trop large, le compilateur de missions refuse une étape trop large. Le ranger d'un
+  // côté forcerait l'autre à en écrire une seconde version, qui divergerait (§118.5).
+  "src/lib/mutations/empreinte",
 ]);
 
 export interface Violation {

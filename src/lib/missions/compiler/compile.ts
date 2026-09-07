@@ -14,6 +14,7 @@ import { lireAttente } from "@/lib/missions/events/match";
 import { decrireEntrees, estGabarit, verifierEntree } from "@/lib/missions/registry/input-contract";
 import { referencesDe, resoudreReference } from "@/lib/missions/runtime/interpolate";
 import { direRefus, sortieAttendue, verdictChemin, type SortieEtape } from "@/lib/missions/compiler/sorties";
+import { verdictEmpreinte } from "@/lib/mutations/empreinte";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -627,6 +628,29 @@ export function compile(
         + `porte sur ce qui SORT, pas sur la façon dont l'étape est écrite.`));
     }
 
+    /**
+     * ── L'EMPREINTE D'UNE ÉTAPE NE DÉPASSE PAS CELLE DE L'OBJECTIF (§118.3) ───────────
+     *
+     * Le compilateur refuse déjà une CARDINALITÉ fausse — « 33 destinataires dans une étape au
+     * lieu de 33 étapes ». La faute symétrique est une PROFONDEUR fausse, et elle a été mesurée
+     * dans la conversation : « retire l'adresse e-mail d'Allaeddine » a produit une proposition
+     * de SUPPRESSION de la personne. Un champ demandé, un enregistrement détruit.
+     *
+     * Ici, la comparaison se fait contre l'objectif que le plan énonce LUI-MÊME. C'est ce qui la
+     * rend sûre : si le modèle a compris « supprimer l'employé », son objectif le dit et l'étape
+     * passe. Elle ne se déclenche que quand le plan se contredit — l'objectif parle d'un champ,
+     * l'étape détruit la ligne. `mutations/empreinte.ts` reste muet sur tout ce qu'il ne lit pas
+     * à coup sûr, et un muet n'interdit rien.
+     */
+    if (s.capability) {
+      const emp = verdictEmpreinte(planBrut.objective ?? "", s.capability, s.title);
+      if (!emp.ok) {
+        issues.push(issue("FORBIDDEN_EFFECT", s.key,
+          `« ${s.title} » : ${emp.refus} Vise le champ, pas la ligne — ou dis dans « gaps » qu'aucune `
+          + `capacité ne sait le faire à cette échelle.`));
+      }
+    }
+
     // ── L'ÉVENTAIL ────────────────────────────────────────────────────────────────────
     const dependsOn = [...new Set(s.dependsOn ?? [])];
     if (s.forEach) {
@@ -998,6 +1022,20 @@ export function compile(
    * (un nœud `ARTIFACT` produit un vrai fichier sans en porter). Elle refuse un seul cas :
    * QUE des étapes de raisonnement. Si la réponse ne demande ni source, ni pièce, ni effet,
    * ce n'est pas une mission — c'est une réponse de conversation, et le triage l'y renvoie.
+   *
+   * ── POURQUOI `MISSING_PRIMITIVE` NE SUFFIT PAS, ET C'EST MESURÉ ───────────────────
+   *
+   * La couverture des primitives (§56) semblait devoir attraper ce cas : un plan sans lecture
+   * ne couvre pas INFORMATION. Elle ne le peut pas. `MARQUEURS.INFORMATION` est VIDE, sur
+   * cette justification écrite dans `planner/primitives.ts` : « toute demande veut de
+   * l'information, en faire une exigence n'apprendrait rien à personne ». Conséquence
+   * mesurée sur dix demandes factuelles (« où en est-on du budget », « qui a fait avancer les
+   * dossiers », « quels contrats arrivent à échéance ») : ZÉRO exigence INFORMATION, donc
+   * zéro refus. La primitive jugée trop évidente pour être exigée est celle qu'on n'exige
+   * jamais — et c'est par là que la mission répond de mémoire.
+   *
+   * Cette règle-ci ne lit pas la demande : elle regarde le PLAN. C'est ce qui la rend robuste
+   * à un détecteur aveugle, et c'est pourquoi elle vit ici et non dans les marqueurs.
    *
    * Le refus repart au planificateur avec la seule issue utile : nommer la source.
    */

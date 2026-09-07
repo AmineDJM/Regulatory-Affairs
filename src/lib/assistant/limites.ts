@@ -118,3 +118,119 @@ export function complementDeLimite(reponse: string, outilsDisponibles: number): 
   }
   return null;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+ * NOT_FOUND N'EST PAS VERIFIED_ABSENT — la troisième règle de ce fichier.
+ *
+ * ── LE DÉFAUT MESURÉ ────────────────────────────────────────────────────────────────────
+ *
+ * On demande à Adam ce qui existe sur les réseaux sociaux, chez une personne nommée Radia. Une
+ * recherche, zéro résultat, et la réponse tombe : « je n'ai rien trouvé ». La donnée était là,
+ * sous un autre libellé, rattachée à quelqu'un d'autre, dans un autre grenier.
+ *
+ * ── LE PIÈGE, ET IL ÉTAIT DANS CE FICHIER ───────────────────────────────────────────────
+ *
+ * `LIMITE_NOMMEE` compte « aucune donnée » parmi les refus HONNÊTES — donc `gardeImpossibilite`
+ * rend RAS, et `classerLimite` rend `DONNEE` avec `precise: true`. Autrement dit : le code
+ * CERTIFIAIT qu'une absence est une limite bien dite, sans jamais regarder ce qui avait été
+ * cherché. Une recherche unique et infructueuse valait preuve d'inexistence.
+ *
+ * ── LA RÈGLE ────────────────────────────────────────────────────────────────────────────
+ *
+ * Une absence ne s'affirme qu'après ÉLARGISSEMENT. Si la réponse dit « je n'ai rien trouvé »
+ * alors que le tour n'a essayé qu'une ou deux façons de chercher, le serveur ne prend pas sa
+ * parole : il rend l'échelle d'élargissement et exige un second essai. Une fois. Après quoi
+ * l'absence est acceptée — elle aura été cherchée.
+ *
+ * Deux garde-fous contre le faux positif :
+ *   • on distingue l'absence de LA CHOSE CHERCHÉE (« je n'ai trouvé aucun contrat ») de
+ *     l'absence d'une PROPRIÉTÉ (« aucun dossier n'est en retard »), qui est une CONCLUSION
+ *     tirée de données bien lues et qu'il serait absurde de faire rechercher ;
+ *   • rien ne se déclenche sans qu'un outil ait tourné : le tour sans aucun outil appartient à
+ *     `gardeImpossibilite`, et deux gardes sur le même cas se contrediraient.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * COMBIEN DE FAÇONS DE CHERCHER SUFFISENT À NE PLUS ÉLARGIR.
+ *
+ * L'échelle compte sept barreaux (exact, approché, alias, créateur/assigné, historique, entités
+ * liées, autres greniers). Conclure à l'absence après un ou deux, ce n'est pas avoir vérifié :
+ * c'est avoir essayé. Au-delà, l'élargissement est en cours et le forcer coûterait un tour sans
+ * rien apprendre — le seuil est donc un compromis assumé, pas une vérité.
+ */
+export const FACONS_AVANT_ABSENCE = 2;
+
+/** L'absence de CE QU'ON CHERCHAIT — jamais l'absence d'une propriété dans ce qu'on a lu. */
+const ABSENCE_DE_LA_CHOSE = [
+  /\bje n'ai (?:rien |pas |malheureusement |)(?:pu |)(?:trouve|retrouve|repere|localise|identifie|deniche)/,
+  /\baucun\w*(?: [a-z']{1,14}){0,4} (?:ne (?:correspond|existe|figure|apparait|ressort)|n'(?:existe|apparait|est enregistre)|n'a ete (?:trouve|retrouve))/,
+  /\brien (?:n'a ete trouve|ne correspond|n'apparait|ne figure|de tel|n'existe)/,
+  /\b(?:est |sont |reste |demeure |)introuvables?\b/,
+  /\b(?:aucune|pas de) trace\b/,
+  /\bn'(?:existe|apparait|figure) pas (?:dans|en base|au registre|a l'erp|dans l'erp)/,
+];
+
+/**
+ * DEUX FAÇONS DONT UNE PHRASE D'ABSENCE N'EST PAS UN ÉCHEC DE RECHERCHE.
+ *
+ * • ELLE PORTE SUR UNE SOURCE DÉJÀ LUE. « Aucune réserve n'a été trouvée DANS CE DOCUMENT » est
+ *   le résultat d'une lecture réussie : le document a été ouvert, il ne contient pas la chose.
+ *   Faire réélargir là ferait payer un tour à chaque analyse de pièce.
+ * • LA CHOSE A FINALEMENT ÉTÉ TROUVÉE. « Introuvable dans Legal, mais je l'ai retrouvé au
+ *   Drive » contient les deux phrases ; seule la seconde compte.
+ */
+const SOURCE_DEJA_LUE = /\bdans (?:ce|cet|cette|le|la|les|leur) (?:document|fichier|piece|contrat|rapport|texte|pdf|classeur|tableau|courrier|mail|compte rendu|proces verbal)\b/;
+const TROUVE_MALGRE_TOUT = [
+  /\bj'ai (?:bien |finalement |en revanche |tout de meme |quand meme |)(?:trouve|retrouve|localise|repere)/,
+  /\bje l'ai (?:trouve|retrouve|localise)/,
+  /\b(?:le|la|les) voici\b/,
+  /\ben revanche\b/,
+];
+
+export type VerdictAbsence = "RAS" | "ELARGIR";
+
+export interface EntreeAbsence {
+  reponse: string;
+  /** Les outils appelés pendant le tour, doublons compris — c'est la DIVERSITÉ qui compte. */
+  outilsUtilises: readonly string[];
+  dejaElargi: boolean;
+}
+
+/** La réponse affirme-t-elle n'avoir pas TROUVÉ (et non pas : n'avoir rien constaté) ? */
+export function affirmeUneAbsence(reponse: string): boolean {
+  const t = plier(reponse);
+  if (!ABSENCE_DE_LA_CHOSE.some((r) => r.test(t))) return false;
+  if (SOURCE_DEJA_LUE.test(t)) return false;
+  return !TROUVE_MALGRE_TOUT.some((r) => r.test(t));
+}
+
+/**
+ * LA GARDE. Rend ELARGIR quand une absence est affirmée après trop peu de façons de chercher.
+ * Muette sur tout le reste — y compris sur un tour sans outil, qui relève de l'autre garde.
+ */
+export function gardeAbsence(e: EntreeAbsence): VerdictAbsence {
+  if (e.dejaElargi) return "RAS";
+  if (e.outilsUtilises.length === 0) return "RAS";
+  if (!affirmeUneAbsence(e.reponse)) return "RAS";
+  const facons = new Set(e.outilsUtilises).size;
+  if (facons > FACONS_AVANT_ABSENCE) return "RAS";
+  return "ELARGIR";
+}
+
+/**
+ * L'ÉCHELLE, RENDUE AU MODÈLE. Elle nomme des MANIÈRES de chercher, pas des outils : les outils
+ * changent d'un profil à l'autre, la manière de chercher non. C'est ce qui la garde générale.
+ */
+export const RAPPEL_ELARGISSEMENT =
+  "CONTRÔLE DU SERVEUR : tu conclus à une absence après une seule façon de chercher. « Je n'ai rien trouvé au premier "
+  + "essai » n'est PAS « cela n'existe pas » — et c'est la seconde phrase que la personne va lire. Reprends MAINTENANT, "
+  + "en montant l'échelle tant qu'il reste un barreau :\n"
+  + "  1. EXACT — le libellé donné, tel quel.\n"
+  + "  2. APPROCHÉ — orthographe, accents, majuscules, singulier/pluriel, mot partiel, ordre des mots inversé.\n"
+  + "  3. ALIAS — prénom seul, nom seul, initiales, diminutif, ancien nom, sigle, nom commercial contre nom de molécule.\n"
+  + "  4. PAR LA PERSONNE — créateur, responsable, assigné, participant, destinataire, demandeur.\n"
+  + "  5. PAR L'HISTOIRE — ce qui a changé, le journal des événements, les éléments archivés ou supprimés.\n"
+  + "  6. PAR LES ENTITÉS LIÉES — la société, le dossier, le produit, le contrat, la demande qui s'y rattache.\n"
+  + "  7. AUTRES GRENIERS — Drive, courriers, pièces jointes des mails, RH, Finances, Legal, Regulatory, corpus.\n"
+  + "Si, après avoir vraiment élargi, il n'y a toujours rien : dis-le en NOMMANT ce que tu as cherché et où — "
+  + "« aucune trace sous X, Y ni Z, dans le Drive, les courriers et Legal ». Une absence se prouve, elle ne se constate pas.";

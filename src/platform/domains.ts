@@ -103,7 +103,25 @@ const SOCLE = [
   "src/lib/crypto/", "src/lib/ai-text", "src/lib/name-match", "src/platform/",
   "src/lib/api/registry/entities",
   "src/lib/storage/",
+  "src/lib/mutations/",
 ];
+
+/**
+ * POURQUOI `mutations/` EST AU SOCLE — et pourquoi ce n'est pas un passe-droit.
+ *
+ * Il n'y contient qu'une règle, et elle n'a pas de métier : l'empreinte réelle d'une écriture ne
+ * dépasse jamais l'empreinte demandée (profondeur × cardinalité). C'est du texte comparé à un nom
+ * d'opération — zéro import, comme `name-match`.
+ *
+ * Le déclencheur est le même que pour `storage/` : DEUX couches en ont besoin et elles n'ont pas
+ * le droit de se parler. La conversation (`assistant/`, L1) doit refuser une carte trop large ;
+ * le compilateur de missions (`missions/`, L2 — qui n'importe JAMAIS `assistant/`) doit refuser
+ * une étape trop large. Laisser la règle chez Adam aurait obligé le compilateur à en écrire une
+ * seconde, qui aurait divergé — exactement ce que §118.5 interdit.
+ *
+ * L'OBLIGATION qui vient avec : `scanSocle()` échoue si un fichier de `mutations/` importe un
+ * domaine ou une façade. La règle restera donc pure, ou elle cassera le test.
+ */
 
 /**
  * POURQUOI `storage/` A CHANGÉ DE CÔTÉ — et pourquoi ce n'est pas une façon de faire baisser
