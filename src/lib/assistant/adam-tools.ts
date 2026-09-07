@@ -1002,10 +1002,39 @@ export const ADAM_TOOLS: PowerTool[] = [
         })),
       ];
       const unique = [...new Map(candidates.map((c) => [c.adresse.toLowerCase(), c])).values()];
-      if (unique.length === 0) return JSON.stringify({ resultat: "aucune correspondance", precision: `Rien pour « ${q} » : ni compte, ni contact, ni message reçu.` });
+      /**
+       * ═══════════════════════════════════════════════════════════════════════════════════
+       * LA FORME DE LA SORTIE NE DÉPEND PAS DU RÉSULTAT — sinon aucun plan ne peut la lire.
+       *
+       * ── LE DÉFAUT, MESURÉ DEUX FOIS SUR LA CHAÎNE HUMAINE LIVE ────────────────────────
+       *
+       * Cet outil rendait DEUX formes incompatibles : `{certain, candidats}` quand il trouvait,
+       * `{resultat, precision}` quand il ne trouvait rien. Une mission écrit ses références au
+       * moment de PLANIFIER, avant de savoir ce que la recherche va rendre. Les deux paris ont
+       * échoué le même jour :
+       *
+       *   « {{annuaire:amel.resultat}} » — champs disponibles : certain, candidats.
+       *   « {{annuaire:yacine.candidats.0.nom}} » — champs disponibles : resultat, precision.
+       *
+       * Chaque échec a coûté une étape morte PLUS une replanification complète : plan v4,
+       * 46 étapes, 0,33 $ pour une mission qui en valait 0,20. Le planificateur n'avait pas
+       * tort — la question n'avait pas de bonne réponse.
+       *
+       * Une sortie dont la FORME dépend de la DONNÉE est un contrat qu'on ne peut pas honorer.
+       * On rend donc toujours les mêmes clés, et c'est la VALEUR qui dit l'absence : une liste
+       * vide. Le moteur sait déjà quoi en faire — « si la liste amont est vide, l'étape est
+       * simplement ignorée » (règle 15 du planificateur), au lieu d'échouer sur un champ absent.
+       * ═══════════════════════════════════════════════════════════════════════════════════
+       */
       return JSON.stringify({
         candidats: unique,
         certain: unique.length === 1,
+        resultat: unique.length === 0
+          ? "aucune correspondance"
+          : `${unique.length} correspondance${unique.length > 1 ? "s" : ""}`,
+        precision: unique.length === 0
+          ? `Rien pour « ${q} » : ni compte, ni contact, ni message reçu.`
+          : unique.map((c) => `${c.nom} (${c.source})`).join(", "),
         consigne: unique.length > 1 ? "Plusieurs correspondances : demander laquelle plutôt que de choisir." : undefined,
       });
     },

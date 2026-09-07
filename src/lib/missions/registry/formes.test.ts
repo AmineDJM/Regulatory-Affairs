@@ -98,6 +98,39 @@ describe("zéro observation n'est pas une forme vide", () => {
     expect(direForme(FORME_INCONNUE)).toBeNull();
   });
 
+  /**
+   * UNE SORTIE SANS AUCUN CHAMP GARANTI N'EST PAS UN CONTRAT — et ça se dit en clair.
+   *
+   * MESURÉ live : `resolve_person` rendait `{certain, candidats}` quand il trouvait et
+   * `{resultat, precision}` sinon. La forme apprise était donc, honnêtement,
+   * `{ candidats?, certain?, precision?, resultat? }` — quatre champs occasionnels, pas un seul
+   * sûr. Le planificateur écrit ses références AVANT de savoir ce que la recherche rendra : il
+   * a parié deux fois et perdu deux fois, chaque perte coûtant une étape morte ET une
+   * replanification complète (plan v4, 46 étapes, 0,33 $ contre 0,20 $).
+   *
+   * Le « ? » disait déjà vrai, mais noyé dans une énumération il se lit comme un catalogue
+   * d'options. On le dit donc en toutes lettres, et on nomme la sortie sûre.
+   */
+  it("quand AUCUN champ n'est garanti, la forme le DIT et nomme la sortie sûre", () => {
+    const f = formeDe([
+      { certain: true, candidats: [{ nom: "A", adresse: "a@x" }] },
+      { resultat: "aucune correspondance", precision: "rien" },
+    ]);
+    const dite = direForme(f) ?? "";
+    expect(dite).toMatch(/AUCUN de ces champs/);
+    expect(dite).toMatch(/candidats/);
+
+    // ET ELLE SE TAIT DÈS QU'UN CHAMP TIENT : une alerte qui crie toujours n'est plus lue.
+    const stable = formeDe([
+      { certain: true, candidats: [{ nom: "A", adresse: "a@x" }], resultat: "1 correspondance" },
+      { certain: false, candidats: [], resultat: "aucune correspondance" },
+    ]);
+    expect(direForme(stable) ?? "").not.toMatch(/AUCUN de ces champs/);
+
+    // Une seule observation ne prouve rien : on n'alerte pas sur un échantillon de un.
+    expect(direForme(formeDe([{ a: 1 }])) ?? "").not.toMatch(/AUCUN de ces champs/);
+  });
+
   it("LE TEST QUI COMPTE : on ne refuse JAMAIS un chemin sur une ignorance", () => {
     // `null` = « je ne sais pas ». Rendre `false` ici ferait refuser à la compilation des plans
     // parfaitement corrects, simplement parce que la capacité n'a jamais tourné — on aurait

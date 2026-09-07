@@ -212,7 +212,33 @@ export function direForme(f: Forme): string | null {
     const ev = f.liste
       ? ` — éventail sur « ${f.liste.chemin} », dont les éléments portent { ${f.liste.elements.map(nom).join(", ")} }`
       : "";
-    return `rend { ${racine} }${ev} (${vu})`;
+    /**
+     * ── UNE SORTIE SANS AUCUN CHAMP GARANTI N'EST PAS UN CONTRAT ────────────────────────
+     *
+     * MESURÉ sur la chaîne humaine live. `resolve_person` rendait DEUX formes selon la donnée :
+     * `{certain, candidats}` quand il trouvait, `{resultat, precision}` sinon. La forme apprise
+     * était donc, honnêtement, `{ candidats?, certain?, precision?, resultat? }` — QUATRE champs
+     * occasionnels et pas un seul sûr. Le planificateur, qui écrit ses références AVANT de
+     * savoir ce que la recherche rendra, n'avait aucune bonne réponse. Il a parié deux fois :
+     *
+     *   « {{annuaire:amel.resultat}} » — champs disponibles : certain, candidats.
+     *   « {{annuaire:yacine.candidats.0.nom}} » — champs disponibles : resultat, precision.
+     *
+     * Chaque pari perdu a coûté une étape morte ET une replanification entière (plan v4,
+     * 46 étapes, 0,33 $ au lieu de 0,20 $).
+     *
+     * Le « ? » disait déjà la vérité, mais noyé dans une énumération il se lit comme un
+     * catalogue d'options. Quand AUCUN champ n'est garanti, on le dit en clair et on nomme la
+     * sortie sûre : l'éventail, dont les éléments, eux, ont des champs constants. C'est aussi
+     * le signal que la capacité a un contrat à réparer — un module qui change de forme selon
+     * son résultat est un contrat qu'aucun appelant ne peut honorer.
+     */
+    const aucunSur = f.champs.length > 0 && f.observations > 1 && f.champs.every((c) => !c.toujours);
+    const alerte = aucunSur
+      ? ` — ATTENTION : AUCUN de ces champs n'est présent à chaque fois ; n'écris de référence sur aucun`
+        + (f.liste ? `, passe par l'éventail « ${f.liste.chemin} »` : `, fais-la lire par une étape WORKER`)
+      : "";
+    return `rend { ${racine} }${ev}${alerte} (${vu})`;
   }
   return null;
 }

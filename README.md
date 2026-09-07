@@ -5153,6 +5153,47 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### UNE SORTIE QUI CHANGE DE FORME SELON SON RÉSULTAT N'EST PAS UN CONTRAT (2026-09)
+
+**Le problème, mesuré deux fois dans la même mission live.** Deux étapes sont mortes sur une
+référence :
+
+```
+« {{annuaire:amel.resultat}} »        — champs disponibles : certain, candidats.
+« {{annuaire:yacine.candidats.0.nom}} » — champs disponibles : resultat, precision.
+```
+
+Le planificateur n'avait pas tort : la question n'avait pas de bonne réponse. `resolve_person`
+rendait `{certain, candidats}` quand il trouvait quelqu'un et `{resultat, precision}` sinon —
+deux formes incompatibles, choisies par la DONNÉE. Or une mission écrit ses références au moment
+de PLANIFIER, avant de savoir ce que la recherche rendra. Chaque pari perdu a coûté une étape
+morte ET une replanification entière : plan v4, 46 étapes, 0,33 $ pour une mission qui en vaut
+0,20 $.
+
+**Le mécanisme des formes apprises n'était pas en faute — il disait vrai.** Interrogé sur les
+40 dernières exécutions, il rendait exactement :
+
+```
+rend { candidats?, certain?, precision?, resultat? } — éventail sur « candidats » (vu sur 40 exécutions)
+```
+
+Quatre champs occasionnels, pas un seul sûr. Le « ? » portait l'information, mais noyé dans une
+énumération il se lit comme un catalogue d'options plutôt que comme un avertissement. `direForme`
+le dit désormais en toutes lettres quand AUCUN champ n'est garanti, et nomme la sortie sûre :
+l'éventail, dont les éléments ont, eux, des champs constants.
+
+**La correction du contrat.** `resolve_person` rend toujours les mêmes clés ; c'est la VALEUR qui
+dit l'absence — une liste vide, que le moteur sait déjà traiter (règle 15 du planificateur : « si
+la liste amont est vide, l'étape est simplement ignorée »), au lieu d'échouer sur un champ absent.
+
+**Le recensement, parce qu'un défaut nommé une fois se répare.** Sur les 65 capacités réellement
+observées en base (avec le filtre de production : l'étape parente d'un éventail rend l'enveloppe
+du moteur, pas la sortie de l'outil), **11 n'ont aucun champ garanti** — `create_report`,
+`inspect_record`, `list_commitments`, `person_report`, `product_360`, `recall_conversation`,
+`regulatory_workload`, `search_documents`, `search_products`, `what_changed`, plus
+`resolve_person` désormais réparée. Toutes ont la même forme de défaut : une réponse « trouvé »
+et une réponse « rien trouvé » qui ne partagent aucune clé.
+
 ### LA GARDE DE SORTIE ÉTAIT DÉSARMÉE DANS TOUS LES BANCS (2026-09)
 
 **Le problème, trouvé en réparant un verdict.** Le banc de la chaîne humaine rendait

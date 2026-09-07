@@ -6342,7 +6342,27 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     const body = (payload.body ?? "").trim().slice(0, 8000);
     if (!body) return { ok: false, error: "Message vide." };
     const recipientId = await activeUserId(payload.recipientId);
-    if (!recipientId || recipientId === user.id) return { ok: false, error: "Destinataire invalide." };
+    /**
+     * UN REFUS QUI NE DIT PAS LEQUEL NE SERT À PERSONNE (§118.9).
+     *
+     * MESURÉ live : une mission a fini PARTIAL sur « Destinataire invalide. » — quatre mots qui
+     * ne disent ni QUI, ni POURQUOI, ni QUOI FAIRE. Le planificateur, qui reçoit ce texte pour
+     * replanifier, n'en tire rien ; l'échelle de recours n'a aucun barreau à saisir. Les deux
+     * causes sont pourtant distinctes et appellent des suites opposées : un destinataire
+     * introuvable ou désactivé se cherche autrement (annuaire, responsable du dossier), tandis
+     * que s'écrire à soi-même est une faute de plan qu'aucune recherche ne réparera.
+     */
+    if (!recipientId) {
+      return {
+        ok: false,
+        error: `Destinataire « ${String(payload.recipientId ?? "").slice(0, 60) || "(vide)"} » introuvable ou désactivé : `
+          + `aucun compte actif ne correspond. Résous la personne d'abord (resolve_person) et écris à `
+          + `l'identifiant qu'il rend — ou, si elle n'existe pas dans l'ERP, dis-le plutôt que de choisir quelqu'un d'autre.`,
+      };
+    }
+    if (recipientId === user.id) {
+      return { ok: false, error: "Le destinataire est l'auteur du message : on ne s'écrit pas à soi-même. Vise la personne concernée." };
+    }
 
     // UN SEUL CHEMIN D'ÉCRITURE (`envoyerMessageDirect`) : conversation, message, et LE FAIT
     // `MESSAGE_RECEIVED` — le message d'une mission à un collègue, et sa réponse plus tard, sont
