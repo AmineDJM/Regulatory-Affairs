@@ -119,6 +119,52 @@ const TENU_A_LECART: Cas[] = [
   ["Calcule le coût moyen par dossier et mets-moi ça dans un graphique", ["CALCUL", "REPRESENTATION"]],
   ["Quel pourcentage de nos contrats arrive à échéance cette année ? Fais un tableau de bord.", ["CALCUL", "REPRESENTATION"]],
 
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * LES HUIT CLASSES DE QUESTION QUANTITATIVE — dans d'autres métiers que celui du banc.
+   *
+   * ── CE QUE CES CAS MESURENT, ET CE QU'ILS NE MESURENT PAS ──────────────────────────
+   *
+   * Ils ont été écrits EN MÊME TEMPS que les huit classes : ils mesurent donc la COUVERTURE
+   * de chaque classe, pas la généralisation aveugle. Le dire est plus utile que de les ranger
+   * dans le jeu tenu à l'écart pour se donner un meilleur chiffre — c'est le jeu au-dessus,
+   * écrit avant, qui juge la généralisation.
+   *
+   * Ce qu'ils protègent vraiment : que chaque classe reste énonçable AILLEURS. Aucune de ces
+   * phrases ne parle de pharmacie ; si l'une cessait de passer, c'est que la classe se serait
+   * refermée sur le vocabulaire d'un seul métier — et redeviendrait la table de phrases que le
+   * mandat interdit.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  // 1. relation entre deux grandeurs
+  ["Y a-t-il un lien entre l'ancienneté des équipes et le taux d'absentéisme ?", ["CALCUL"]],
+  // 2. comparaison de magnitudes
+  ["Cette machine nous coûte plus cher en maintenance qu'elle ne rapporte ?", ["CALCUL"]],
+  // 3. part d'un tout
+  ["Quelle proportion du chiffre vient de nos trois plus gros clients ?", ["CALCUL"]],
+  // 4. ce qui sort de l'ordinaire
+  ["Repère les semaines anormales sur la ligne de conditionnement", ["CALCUL"]],
+  // 5. échantillon et signification
+  ["L'écart entre les deux agences tient-il à la taille de l'échantillon ?", ["CALCUL"]],
+  // 6. probabilité et incertitude
+  ["Quelle est la probabilité de livrer avant la fin du trimestre ?", ["CALCUL"]],
+  // 7. optimisation sous contrainte
+  ["Où placer l'atelier pour minimiser les déplacements des équipes ?", ["CALCUL"]],
+  // 8. projection et atterrissage
+  ["À ce rythme, est-ce qu'on va tenir le budget de formation ?", ["CALCUL"]],
+  // Les verbes qui RASSEMBLENT produisent une pièce — dans un autre métier que le banc.
+  ["Consolide les trois relevés dans un seul classeur", ["DOCUMENT"]],
+  ["Rends-moi un tableau des habilitations qui expirent", ["DOCUMENT"]],
+  /**
+   * « Montre-le » porte sur le RÉSULTAT, pas sur un objet à ouvrir.
+   *
+   * J'attendais CALCUL ici aussi — à tort. « Comparer » reste POSSIBLE à dessein : on compare
+   * deux clauses, deux versions, deux candidats, et rien de tout cela ne se chiffre. C'était
+   * MON attente qui était fausse ; la retenue du détecteur est ce qui empêche d'enfermer une
+   * mission de comparaison qualitative.
+   */
+  ["Compare l'absentéisme des deux sites et montre-le", ["REPRESENTATION"]],
+
   // — NÉGATIFS : lecture pure, aucun chiffre, aucun visuel, aucune pièce à produire —
   ["Est-ce qu'on a déjà travaillé avec ce laboratoire ?", []],
   ["Dis-moi où en est la demande d'autorisation de Kabylia", []],
@@ -126,6 +172,21 @@ const TENU_A_LECART: Cas[] = [
   ["Qui a validé cette dépense et quand ?", []],
   ["Cherche s'il existe une clause d'exclusivité dans cet accord", []],
   ["Préviens Yassine que la réunion est décalée", []],
+  // Les négatifs qui gardent les huit classes : chacun porte un mot proche d'une classe sans
+  // en porter le sens. Ils sont la moitié qui compte — une exigence SÛRE fait refuser un plan.
+  ["Prends note de ce que je te dis et rappelle-le-moi demain", []],
+  ["Lis le document que Karim a déposé hier", []],
+  ["Donne-moi la liste des personnes présentes à la réunion", []],
+  /**
+   * CELUI-CI EST PASSÉ DES NÉGATIFS AUX POSITIFS, et il fallait le dire.
+   *
+   * Je l'avais écrit comme un piège : un tableau de bord qui EXISTE DÉJÀ ne se fabrique pas.
+   * Mais le montrer EST un acte de représentation — le plan doit porter une étape qui l'affiche
+   * (`show_document`, `render_view`), et l'exiger ne refuse aucun plan correct. Exiger DOCUMENT
+   * l'aurait été ; c'est ce que `PIECES_FAUX_AMIS` empêche, et c'est le vrai piège.
+   */
+  ["Montre-moi le tableau de bord que Yacine a préparé", ["REPRESENTATION"]],
+  ["Le fournisseur a un rapport de force plus favorable depuis le rachat", []],
 ];
 
 function evaluer(jeu: Cas[]): { justes: number; rates: string[] } {
@@ -166,6 +227,33 @@ describe("les primitives exigées se lisent dans la demande", () => {
     for (const [d] of negatifs) {
       expect(exigencesFermes(d).filter((p) => p !== "INFORMATION"), `« ${d} » a déclenché une exigence`).toEqual([]);
     }
+  });
+});
+
+/**
+ * LES FAUX POSITIFS, MESURÉS SUR UN CORPUS ÉCRIT POUR AUTRE CHOSE.
+ *
+ * `corpus-def.QUESTIONS` sert au banc de connaissance : vingt-cinq questions de LECTURE écrites
+ * des mois avant ce dictionnaire, et jamais pour lui. C'est le seul jeu de ce fichier que
+ * personne n'a pu ajuster — et c'est donc le meilleur juge du sur-déclenchement.
+ *
+ * CINQ d'entre elles exigent bel et bien un CALCUL (« combien de réserves », « le montant
+ * total », « le chiffre d'affaires », « le total hors taxes ») : ce ne sont pas des faux
+ * positifs, ce sont des questions chiffrées. Le cliquet porte donc sur ce nombre : élargir le
+ * vocabulaire ne doit pas en ajouter une sixième sans qu'on l'ait vue.
+ *
+ * Mesuré à l'ajout des huit classes de question quantitative : 5 avant, 5 après.
+ */
+describe("le vocabulaire élargi ne crie pas au loup", () => {
+  it("un corpus de LECTURE écrit pour un autre banc ne déclenche pas plus qu'avant", async () => {
+    const { QUESTIONS } = await import("@/../scripts/bench/corpus-def");
+    const textes = (QUESTIONS as unknown as { q: string }[]).map((x) => x.q).filter(Boolean);
+    expect(textes.length).toBeGreaterThanOrEqual(20);
+    const declenchees = textes.filter((t) => exigencesFermes(t).some((p) => p !== "INFORMATION"));
+    consignerMesure("primitive_faux_positifs", { n: textes.length, ok: textes.length - declenchees.length },
+      "lib/missions/planner/primitives.test.ts",
+      "questions de LECTURE (banc de connaissance) qui NE déclenchent aucune exigence à tort");
+    expect(declenchees.length, `déclenchées : ${declenchees.join(" | ")}`).toBeLessThanOrEqual(5);
   });
 });
 
