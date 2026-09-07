@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compile } from "./compile";
-import { exigencesFermes } from "@/lib/missions/planner/primitives";
+import { exigencesFermes, formatsLivrablesDemandes } from "@/lib/missions/planner/primitives";
 import type { CapabilityBrief, CapabilityCatalog, MissionActor } from "@/lib/missions/ports";
 import type { MissionPlan, PlannedStep } from "@/lib/missions/planner/contract";
 import { capabilityMeta } from "@/lib/missions/registry/capability-meta";
@@ -104,6 +104,87 @@ describe("un plan qui n'a pas l'étape que la demande réclame est refusé", () 
     const avecDoc = catalogueDe({ directory_list: "INFORMATION", create_report: "DOCUMENT" });
     const r = compile(plan([lecture]), avecDoc, pdg, { primitivesRequises: ["DOCUMENT"], effetMax: "ANALYZE" });
     expect(r.ok, messages(r)).toBe(true);
+  });
+
+  /**
+   * LE COMPILATEUR DIT TOUT CE QU'IL SAIT EN UNE FOIS — mesuré sur la chaîne humaine live.
+   *
+   * Cette vérification était gardée par `issues.length === 0`. Conséquence observée : plan 1
+   * refusé sur la FORME d'une attente, le planificateur corrige exactement ce qu'on lui
+   * reproche, et le plan 2 découvre alors un MISSING_PRIMITIVE dont personne ne lui avait
+   * parlé. Deux essais, deux reproches distincts, mission morte avant d'exister — tuée par
+   * l'ORDRE des objections du compilateur, pas par l'incompétence du modèle.
+   *
+   * Un compilateur qui distille ses reproches fait payer un aller-retour de planification par
+   * objection. Il les dit ensemble.
+   */
+  it("un plan qui a DEUX défauts indépendants s'en voit reprocher DEUX, pas un seul", () => {
+    const avecDoc = catalogueDe({ directory_list: "INFORMATION", create_report: "DOCUMENT" });
+    // Défaut 1 : une attente d'événement qui ne dit pas QUEL événement (forme).
+    // Défaut 2 : la demande réclame une pièce, aucune étape ne la produit (couverture).
+    const r = compile(plan([
+      lecture,
+      { key: "w", title: "Son retour", nodeType: "WAIT_EVENT", dependsOn: ["lire"] } as PlannedStep,
+    ]), avecDoc, pdg, { primitivesRequises: ["DOCUMENT"] });
+    expect(r.ok).toBe(false);
+    expect(messages(r)).toContain("INVALID_SHAPE");
+    expect(messages(r)).toContain("MISSING_PRIMITIVE");
+  });
+
+  /**
+   * LA PRUDENCE RESTE, DÉPLACÉE : une capacité INVENTÉE n'apporte pas sa primitive.
+   *
+   * Sans cette condition, lever la garde aurait ouvert un trou : `create_report_pro`, nom
+   * plausible et inexistant, se serait vu dériver DOCUMENT de son propre nom et aurait
+   * « couvert » l'exigence — le manque réel disparaissant derrière une invention.
+   */
+  it("une capacité que le catalogue ne connaît pas ne couvre RIEN", () => {
+    const avecDoc = catalogueDe({ directory_list: "INFORMATION", create_report: "DOCUMENT" });
+    const r = compile(plan([
+      lecture,
+      { key: "faux", title: "Produire", capability: "create_report_pro", input: {}, dependsOn: ["lire"] } as PlannedStep,
+    ]), avecDoc, pdg, { primitivesRequises: ["DOCUMENT"] });
+    expect(r.ok).toBe(false);
+    expect(messages(r)).toContain("UNKNOWN_CAPABILITY");
+    expect(messages(r)).toContain("MISSING_PRIMITIVE");
+  });
+
+  /**
+   * AUTANT DE PIÈCES QUE LA DEMANDE EN NOMME — la fausse cardinalité, un cran plus haut.
+   *
+   * MESURÉ live : « fais-moi un fichier Excel ET une présentation PowerPoint » a produit UNE
+   * étape de livrable — le PowerPoint. Le classeur n'existait nulle part, et la couverture (§56)
+   * n'avait rien à redire : elle demande qu'UNE étape porte DOCUMENT, et une suffisait. C'est
+   * « 33 destinataires dans une étape au lieu de 33 étapes » (§118.3) appliqué aux pièces.
+   */
+  it("deux formats nommés exigent deux étapes qui produisent une pièce", () => {
+    const avecDoc = catalogueDe({ directory_list: "INFORMATION", create_report: "DOCUMENT" });
+    const DEUX = "Consolide et fais-moi un fichier Excel et une présentation PowerPoint.";
+    const formats = formatsLivrablesDemandes(DEUX);
+    expect(formats).toEqual(["Excel", "PowerPoint"]);
+
+    const art = (key: string): PlannedStep =>
+      ({ key, title: key, nodeType: "ARTIFACT", dependsOn: ["lire"], input: {} } as unknown as PlannedStep);
+
+    const une = compile(plan([lecture, art("piece1")]), avecDoc, pdg,
+      { primitivesRequises: exigencesFermes(DEUX), formatsLivrables: formats });
+    expect(une.ok).toBe(false);
+    expect(messages(une)).toContain("Excel, PowerPoint");
+
+    const deux = compile(plan([lecture, art("piece1"), art("piece2")]), avecDoc, pdg,
+      { primitivesRequises: exigencesFermes(DEUX), formatsLivrables: formats });
+    expect(deux.ok, messages(deux)).toBe(true);
+  });
+
+  /**
+   * ET ELLE SE TAIT PARTOUT AILLEURS. Une garde de cardinalité qui se déclenche sur une phrase
+   * ordinaire ferait refuser des plans corrects — elle serait retirée dans la semaine.
+   */
+  it("un seul format, aucun format, ou une pièce déjà existante : aucune exigence de nombre", () => {
+    expect(formatsLivrablesDemandes("Fais-moi un fichier Excel des dossiers en retard.")).toEqual([]);
+    expect(formatsLivrablesDemandes("Où en est le dossier Mouffok ?")).toEqual([]);
+    // Pas de verbe de production : on ne FABRIQUE pas, on transmet.
+    expect(formatsLivrablesDemandes("Envoie-moi l'Excel et le PowerPoint que Yacine a préparés.")).toEqual([]);
   });
 
   it("aucune exigence : le compilateur se comporte exactement comme avant", () => {

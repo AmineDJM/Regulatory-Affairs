@@ -314,6 +314,54 @@ const VERBES_PRODUCTION: readonly string[] = [
 ];
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * COMBIEN DE LIVRABLES ? — la cardinalité des PIÈCES, pas seulement leur existence.
+ *
+ * ── LE DÉFAUT, MESURÉ SUR LA CHAÎNE HUMAINE LIVE ────────────────────────────────────────
+ *
+ * « … fais-moi un fichier Excel ET une présentation PowerPoint. » Le plan a produit UNE seule
+ * étape de livrable : le PowerPoint. Le classeur n'existait nulle part. La couverture (§56) ne
+ * voyait rien à redire — elle demande qu'une étape PORTE la primitive DOCUMENT, et une suffit.
+ *
+ * C'est exactement la faute que §118.3 nomme d'un cran plus bas : « 33 destinataires dans une
+ * étape au lieu de 33 étapes ». Deux fichiers demandés, un fichier planifié.
+ *
+ * ── POURQUOI COMPTER LES FORMATS ET RIEN D'AUTRE ────────────────────────────────────────
+ *
+ * Un format NOMMÉ est un fait de la phrase, pas une interprétation : « Excel » et « PowerPoint »
+ * sont deux pièces, on ne peut pas les confondre ni les fusionner. Compter les MOTS de pièce
+ * (« rapport », « note », « document ») serait au contraire du décompte à l'aveugle : deux mots
+ * peuvent désigner la même chose (« un rapport, une note de synthèse »).
+ *
+ * La fonction est donc SILENCIEUSE dès qu'elle n'est pas sûre — un seul format, ou aucun, ne
+ * porte aucune exigence de nombre (§104.5 : attraper une phrase qu'on comprend mal est pire que
+ * ne rien attraper). Elle n'ajoute une contrainte QUE dans le cas où la phrase est explicite.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const FAMILLES_FORMAT: readonly { nom: string; mots: readonly string[] }[] = [
+  { nom: "Excel", mots: ["excel", "xlsx", "xls", "classeur", "feuille de calcul", "tableur"] },
+  { nom: "PowerPoint", mots: ["powerpoint", "pptx", "ppt", "presentation", "diapositive", "diapositives", "slides"] },
+  { nom: "Word", mots: ["word", "docx", "traitement de texte"] },
+  { nom: "PDF", mots: ["pdf"] },
+  { nom: "CSV", mots: ["csv"] },
+];
+
+/**
+ * LES FORMATS DE LIVRABLE EXPLICITEMENT NOMMÉS — vide s'il y en a moins de deux.
+ *
+ * Rendre `["PowerPoint"]` pour une demande à un seul format ne servirait à rien : la couverture
+ * existante le couvre déjà. On ne rend donc quelque chose QUE quand le nombre est la question.
+ */
+export function formatsLivrablesDemandes(demande: string): string[] {
+  const norm = normaliser(demande);
+  if (!VERBES_PRODUCTION.some((v) => verbeDemande(norm, v))) return [];
+  const vus = FAMILLES_FORMAT
+    .filter((f) => f.mots.some((m) => new RegExp(`(^| )${m}( |$)`).test(norm)))
+    .map((f) => f.nom);
+  return vus.length >= 2 ? vus : [];
+}
+
+/**
  * UN AUXILIAIRE DEVANT LE VERBE RACONTE, IL NE DEMANDE PAS.
  *
  * « Envoie-moi le rapport que Yassine A PRÉPARÉ » nomme une pièce et un verbe de production —

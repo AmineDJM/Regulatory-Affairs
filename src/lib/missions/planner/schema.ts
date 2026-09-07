@@ -164,7 +164,8 @@ const COMMUN = {
  *
  * Sans description : elle ne dirait que ce que la valeur dit déjà, et serait payée huit fois.
  */
-const typeConst = (n: string) => ({ type: "string", enum: [n] });
+const typeConst = (n: string, description?: string) =>
+  (description ? { type: "string", enum: [n], description } : { type: "string", enum: [n] });
 
 /**
  * L'ÉVENTAIL, EN UN SEUL CHAMP AU LIEU DE TROIS.
@@ -315,10 +316,28 @@ const ETAPE_STRUCTURE = objet({
   nodeType: enumOf(["QA", "JOIN"], "QA contrôle et compte ; JOIN attend ses dépendances."),
 });
 
-/** La production d'un fichier : le modèle décrit, le code fabrique. */
+/**
+ * La production d'un fichier : le modèle décrit, le code fabrique.
+ *
+ * ── POURQUOI CETTE VARIANTE PORTE UNE DESCRIPTION, ET PAS LES SIX AUTRES ────────────────
+ *
+ * WORKER, WAIT_EVENT, JOIN, APPROVAL sont expliqués dans les RÈGLES du prompt. ARTIFACT ne
+ * l'était NULLE PART : ni règle, ni description de schéma — `typeConst` n'en portait pas.
+ * MESURÉ sur la chaîne humaine live : la demande dit « fais-moi un fichier Excel et une
+ * présentation PowerPoint », le contexte dit « cette demande EXIGE DOCUMENT », et le plan
+ * revient sans une seule étape qui produise un fichier. Deux fois. Le modèle savait QUOI on
+ * lui demandait ; personne ne lui avait dit AVEC QUOI le faire.
+ *
+ * Le compilateur, lui, comptait déjà ce nœud comme portant DOCUMENT. L'exigence et le moyen
+ * de la satisfaire vivaient dans le même code sans jamais se rencontrer chez le modèle.
+ */
 const ETAPE_ARTIFACT = objet({
   ...COMMUN,
-  nodeType: typeConst("ARTIFACT"),
+  nodeType: typeConst("ARTIFACT",
+    "L'étape qui PRODUIT UN FICHIER livrable (classeur Excel, présentation PowerPoint, document Word, PDF, CSV). "
+    + "Tu décris la pièce et ce qu'elle doit contenir dans `title` et `inputs` ; le code la fabrique et la dépose "
+    + "dans le Drive. C'est la SEULE forme d'étape qui rend un fichier : une étape WORKER rédige un contenu, "
+    + "elle ne produit aucune pièce. Chaque fichier demandé = une étape ARTIFACT."),
   inputs: ENTREES,
 });
 

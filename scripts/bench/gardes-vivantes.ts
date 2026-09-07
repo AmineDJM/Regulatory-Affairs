@@ -25,8 +25,8 @@ interface Cas {
   demande: string;
   /** Ce qu'on refuse de voir dans la carte proposée. */
   actionsInterdites?: string[];
-  /** L'étape de trace qui prouve que la garde a servi. */
-  traceAttendue?: string;
+  /** L'étape de trace exigée SEULEMENT si la réponse affirme une absence. */
+  traceAttendueSiAbsence?: string;
   /** Ce que la réponse doit contenir (au moins un). */
   motsAttendus?: string[];
 }
@@ -45,7 +45,9 @@ const CAS: Cas[] = [
   {
     cle: "absence-non-verifiee",
     demande: "Qu'est-ce qu'on a sur les réseaux sociaux du côté de Radia ?",
-    traceAttendue: "Recherche élargie",
+    // La garde n'a de raison de servir QUE si Adam conclut à une absence. S'il trouve quelque
+    // chose du premier coup, elle est restée muette — et c'est un succès, pas un échec.
+    traceAttendueSiAbsence: "Recherche élargie",
   },
 ];
 
@@ -53,6 +55,7 @@ async function main() {
   const { prisma } = await import("@/lib/prisma");
   const { getAccess } = await import("@/lib/rbac");
   const { runAssistant } = await import("@/lib/assistant");
+  const { affirmeUneAbsence } = await import("@/lib/assistant/limites");
   const { VERITES } = await import("./seed-adam-bench");
   type CurrentUser = import("@/lib/session").CurrentUser;
 
@@ -76,7 +79,10 @@ async function main() {
     const trace = (r.trace ?? []).join(" · ");
     const plier = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
     const interdit = (c.actionsInterdites ?? []).find((a) => plier(`${carte} ${texte}`).includes(plier(a)));
-    const traceOk = !c.traceAttendue || plier(trace).includes(plier(c.traceAttendue));
+    // « A-t-il conclu à une absence ? » se lit avec le MÊME détecteur que la garde elle-même :
+    // le banc ne doit pas juger sur une seconde définition qui divergerait de la première.
+    const affirmeAbsence = c.traceAttendueSiAbsence ? affirmeUneAbsence(texte) : false;
+    const traceOk = !affirmeAbsence || plier(trace).includes(plier(c.traceAttendueSiAbsence!));
     const motOk = !c.motsAttendus || c.motsAttendus.some((m) => plier(texte).includes(plier(m)));
     const ok = !interdit && traceOk && motOk;
     if (!ok) echecs += 1;
@@ -87,7 +93,7 @@ async function main() {
     console.log(`     trace    : ${trace || "(vide)"}`);
     console.log(`     réponse  : ${texte.replace(/\s+/g, " ").slice(0, 260)}`);
     if (interdit) console.log(`     ✗ ACTION INTERDITE PROPOSÉE : « ${interdit} »`);
-    if (!traceOk) console.log(`     ✗ étape de garde absente : « ${c.traceAttendue} »`);
+    if (!traceOk) console.log(`     ✗ absence affirmée SANS élargissement : « ${c.traceAttendueSiAbsence} » manque à la trace`);
     if (!motOk) console.log(`     ✗ aucun mot attendu : ${c.motsAttendus?.join(" / ")}`);
     console.log("");
     lignes.push({ cle: c.cle, demande: c.demande, ok, ms, carte, trace, reponse: texte });

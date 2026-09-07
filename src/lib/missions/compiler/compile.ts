@@ -269,6 +269,12 @@ export interface OptionsCompilation {
    * le déclare dans `gaps`, ce qui est la bonne réponse.
    */
   primitivesRequises?: readonly Primitive[];
+  /**
+   * LES FORMATS DE LIVRABLE que la demande NOMME explicitement, quand elle en nomme plusieurs
+   * (`formatsLivrablesDemandes`). Vide dans tous les autres cas — et un tableau vide n'exige
+   * rien. Voir la règle de cardinalité des pièces plus bas.
+   */
+  formatsLivrables?: readonly string[];
 }
 
 /** L'alphabet d'une clé d'étape — la même contrainte que le refus de forme, mais APPLIQUÉE. */
@@ -925,10 +931,28 @@ export function compile(
    * Mesuré : « Lis ce document et fais-m'en un rapport » en lecture seule était refusé sans
    * issue. Le plafond retire l'exigence, il ne la déplace pas.
    */
+  /**
+   * LE COMPILATEUR DIT TOUT CE QU'IL SAIT EN UNE FOIS.
+   *
+   * Cette vérification était gardée par `issues.length === 0` : elle ne parlait que d'un plan
+   * par ailleurs valide. MESURÉ sur la chaîne humaine live : le premier plan est refusé pour la
+   * forme de ses attentes, le planificateur corrige, et le SECOND plan découvre alors un
+   * MISSING_PRIMITIVE dont le premier refus n'avait pas dit un mot. Deux essais, deux reproches
+   * différents, mission morte — tuée par l'ORDRE dans lequel le compilateur formule ses
+   * objections, pas par l'incompétence du modèle.
+   *
+   * Un compilateur qui distille ses reproches n'est pas plus prudent, il est plus cher : il fait
+   * payer un aller-retour de planification par objection. On les dit toutes ensemble, et le
+   * planificateur corrige tout en un tour.
+   *
+   * LA PRUDENCE RESTE, DÉPLACÉE AU BON ENDROIT : seules les capacités que le catalogue CONNAÎT
+   * comptent comme couverture. Sinon une capacité inventée — déjà refusée par UNKNOWN_CAPABILITY
+   * — apporterait sa primitive dérivée de son nom et masquerait le manque réel.
+   */
   const produireInterdit = opts.effetMax ? EFFECT_RANK[opts.effetMax] < EFFECT_RANK.PREPARE : false;
   const requises = (opts.primitivesRequises ?? [])
     .filter((p) => !(produireInterdit && (p === "DOCUMENT" || p === "ACTION")));
-  if (requises.length > 0 && issues.length === 0) {
+  if (requises.length > 0) {
     const couvertes = new Set<string>();
     for (const e of compiled) {
       /**
@@ -940,7 +964,7 @@ export function compile(
        * dit immédiatement, et ils avaient raison.
        */
       if (e.nodeType === "ARTIFACT") { couvertes.add("DOCUMENT"); continue; }
-      if (!e.capability) continue;
+      if (!e.capability || !catalog.has(e.capability)) continue;
       const p = catalog.meta(e.capability).primitive;
       if (p) couvertes.add(p);
     }
@@ -953,6 +977,35 @@ export function compile(
         `la demande exige la primitive ${p}, une capacité ${p} est disponible, et AUCUNE étape du `
         + `plan n'en porte. Ajoute l'étape qui manque — ou, si aucune capacité listée ne convient `
         + `réellement, dis-le dans « gaps » plutôt que de conclure sans.`));
+    }
+  }
+
+  /**
+   * ── 3 ter. AUTANT DE PIÈCES QUE LA DEMANDE EN NOMME (§118.3, un cran plus haut) ────────
+   *
+   * MESURÉ sur la chaîne humaine live : « fais-moi un fichier Excel ET une présentation
+   * PowerPoint » a produit UNE étape de livrable — le PowerPoint. Le classeur n'existait nulle
+   * part, et la couverture (§56) n'avait rien à redire : elle demande qu'UNE étape porte la
+   * primitive DOCUMENT, et une suffisait.
+   *
+   * C'est la « fausse cardinalité » de §118.3 appliquée aux pièces : deux fichiers demandés,
+   * un fichier planifié. La mission a fini PARTIAL — honnêtement, le juge l'a vu — mais le
+   * livrable manquant, lui, ne s'est pas fabriqué tout seul.
+   *
+   * La contrainte n'existe QUE quand la phrase nomme plusieurs formats DISTINCTS : c'est un
+   * fait de la demande, pas une lecture. Silencieuse partout ailleurs.
+   */
+  const formats = opts.formatsLivrables ?? [];
+  if (formats.length >= 2 && !produireInterdit) {
+    const porteuses = compiled.filter((e) =>
+      e.nodeType === "ARTIFACT"
+      || (e.capability && catalog.has(e.capability) && catalog.meta(e.capability).primitive === "DOCUMENT"));
+    if (porteuses.length < formats.length) {
+      issues.push(issue("MISSING_PRIMITIVE", null,
+        `la demande nomme ${formats.length} livrables de formats différents (${formats.join(", ")}) `
+        + `et le plan n'a que ${porteuses.length} étape(s) qui produisent une pièce. Une étape ne rend `
+        + `qu'UN fichier : il en faut une par format demandé. Ajoute l'étape ARTIFACT manquante — ou, `
+        + `si l'un de ces formats est hors de portée, dis-le dans « gaps » plutôt que de le laisser tomber.`));
     }
   }
 
@@ -1045,6 +1098,55 @@ export function compile(
       + `une source, n'appelle une capacité ni ne produit de pièce. Un plan de cette forme ne peut `
       + `répondre que de mémoire, donc inventer. Ajoute l'étape qui va CHERCHER la donnée — ou, si `
       + `aucune source disponible ne la porte, dis-le dans « gaps » plutôt que de conclure sans.`));
+  }
+
+  /**
+   * ── PLUSIEURS RÉPONSES ATTENDUES : CHACUNE DOIT DIRE CE QU'ELLE ATTEND ───────────────
+   *
+   * MESURÉ sur le banc de la chaîne humaine, et c'est un faux succès du pire genre. Le plan
+   * attendait deux retours :
+   *
+   *     attente:retour-nivolex     ← { event: MESSAGE_RECEIVED, from: "Amel Haddad"    }
+   *     attente:retour-trastuzex   ← { event: MESSAGE_RECEIVED, from: "Raihana Cherif" }
+   *
+   * Raihana a répondu : « Nivolex : il manque le CPP légalisé. (Trastuzex NON TRAITÉ.) » —
+   * et l'attente TRASTUZEX s'est réglée. Le message venait de la bonne personne ; il disait
+   * exactement le contraire de ce qu'on attendait d'elle. La mission a compté une réponse
+   * qu'elle n'a jamais reçue.
+   *
+   * ── LA RÈGLE ────────────────────────────────────────────────────────────────────────
+   *
+   * Quand une mission attend PLUSIEURS réponses humaines, chacune doit porter un critère de
+   * plus que l'expéditeur : le sujet attendu, l'entité concernée, le fil, ou la pièce exigée.
+   * Sans cela, le premier message venu règle une branche au hasard parmi celles qu'il touche,
+   * et « toutes les attentes sont levées » cesse de vouloir dire « tout est arrivé » (§118.10).
+   *
+   * ── POURQUOI SEULEMENT À PARTIR DE DEUX ─────────────────────────────────────────────
+   *
+   * Parce qu'une mission qui n'attend QU'UNE réponse ne peut pas se tromper de branche : le
+   * risque existe (« je regarde ça demain » règle l'attente), mais il relève du jugement de
+   * complétude, pas de la forme du plan. Refuser toute attente sans sujet interdirait le cas
+   * légitime « préviens-moi dès qu'il répond », et une règle qu'on désactive ne protège rien.
+   */
+  const attentesHumaines = compiled.filter((c) => {
+    const w = c.waitFor;
+    if (!w || typeof w.from !== "string" || !w.from.trim()) return false;
+    return !w.until; // une attente TEMPORELLE ne se règle pas sur un message
+  });
+  if (attentesHumaines.length >= 2) {
+    for (const c of attentesHumaines) {
+      const w = c.waitFor!;
+      const discrimine = Boolean(w.subject || w.entity || w.threadId || w.attachment
+        || (w.anyOf ?? []).some((b) => b.subject || b.entity || b.threadId || b.attachment)
+        || (w.allOf ?? []).some((b) => b.subject || b.entity || b.threadId || b.attachment));
+      if (discrimine) continue;
+      issues.push(issue("INVALID_SHAPE", c.key,
+        `cette mission attend ${attentesHumaines.length} réponses humaines, et « ${c.key} » n'attend `
+        + `que « ${w.from} » — sans dire QUOI. N'importe quel message de cette personne la réglera, `
+        + `y compris « je ne l'ai pas fait » : la mission compterait une réponse qu'elle n'a pas `
+        + `reçue. Ajoute ce qui distingue CETTE attente — waitSubject (un fragment du sujet ou de `
+        + `la référence attendue), waitEntity, waitThreadId ou waitAttachment.`));
+    }
   }
 
   if (issues.length > 0) return { ok: false, issues };

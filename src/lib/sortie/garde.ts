@@ -90,15 +90,51 @@ export class SortieInterdite extends Error {
  * de production FONCTIONNE (contre un serveur factice local, jamais contre l'extérieur). Il est
  * volontairement pénible à écrire, et `garde.test.ts` vérifie qu'aucun code de PRODUCTION ne le
  * pose : c'est une clé de test, pas une porte dérobée.
+ *
+ * ── LE TROU MESURÉ, ET POURQUOI IL A TENU SI LONGTEMPS ──────────────────────────────────
+ *
+ * Ces signaux couvraient `vitest` et Playwright. Ils ne couvraient PAS
+ * `npx tsx scripts/bench/…` — c'est-à-dire précisément les bancs qui lancent de VRAIES
+ * missions, sur de VRAIES lignes de personnes, avec de VRAIES adresses. Pendant tout ce temps,
+ * la protection de ces bancs-là n'était pas la garde : c'était l'espoir que chaque script soit
+ * inoffensif. Une convention, exactement ce que ce fichier dit refuser.
+ *
+ * Il a tenu parce que le verdict qui devait le voir était une tautologie
+ * (`sorties.every(() => true)`) : il rendait « vrai » garde armée ou non. Un contrôle qui ne
+ * peut pas échouer ne protège de rien — il RASSURE, ce qui est pire que se taire.
+ *
+ * ON NE CORRIGE PAS ÇA EN AJOUTANT UNE VARIABLE À CHAQUE SCRIPT. Un banc futur l'oublierait,
+ * et l'oubli est exactement ce contre quoi on se protège. On lit un FAIT du processus : le
+ * script d'entrée vit-il sous `scripts/bench/` ? C'est structurel, ça vaut pour les bancs qui
+ * existent comme pour ceux qui n'ont pas encore été écrits, et personne n'a à s'en souvenir.
  */
-export function sortiesInterdites(env: NodeJS.ProcessEnv = process.env): boolean {
+
+/**
+ * LE PROCESSUS EST-IL UN BANC ? — lu dans son point d'entrée, pas dans une convention.
+ *
+ * `argv[1]` est le script que Node exécute. `npm_lifecycle_script` couvre l'entrée par
+ * `npm run …`. Les deux sont des faits du lancement, pas des déclarations d'intention.
+ */
+export function estUnBancDeMesure(
+  env: NodeJS.ProcessEnv = process.env,
+  argv: readonly string[] = process.argv,
+): boolean {
+  const chemins = [argv[1] ?? "", env.npm_lifecycle_script ?? ""].join(" ").replace(/\\/g, "/");
+  return /(^|[\s/])scripts\/bench\//.test(chemins);
+}
+
+export function sortiesInterdites(
+  env: NodeJS.ProcessEnv = process.env,
+  argv: readonly string[] = process.argv,
+): boolean {
   if (env.ADAM_SORTIE_AUTORISEE === "1") return false;
   return (
     env.ADAM_SORTIE_INTERDITE === "1" ||
     env.NODE_ENV === "test" ||
     Boolean(env.VITEST) ||
     Boolean(env.PLAYWRIGHT) ||
-    Boolean(env.PLAYWRIGHT_TEST_BASE_URL)
+    Boolean(env.PLAYWRIGHT_TEST_BASE_URL) ||
+    estUnBancDeMesure(env, argv)
   );
 }
 

@@ -5153,6 +5153,64 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### LA GARDE DE SORTIE ÉTAIT DÉSARMÉE DANS TOUS LES BANCS (2026-09)
+
+**Le problème, trouvé en réparant un verdict.** Le banc de la chaîne humaine rendait
+« ✓ ZÉRO sortie réelle ». L'assertion s'écrivait `sorties.every(() => true)` : une tautologie —
+vraie garde armée, vraie garde désarmée, vraie sur une liste vide. En la remplaçant par la
+question qui compte (`sortiesInterdites()`), le banc a répondu **GARDE DÉSARMÉE**.
+
+`sortiesInterdites()` reconnaissait `NODE_ENV=test`, `VITEST`, `PLAYWRIGHT` et un levier
+explicite. Aucun de ces signaux n'existe sous `npx tsx scripts/bench/…` — c'est-à-dire dans les
+bancs qui lancent de VRAIES missions, sur de VRAIES lignes de personnes, avec de VRAIES adresses.
+Ce qui protégeait ces bancs-là n'était pas la garde : c'était l'espoir que chaque script soit
+inoffensif. Une convention, exactement ce que `lib/sortie/garde.ts` dit refuser.
+
+**La correction n'ajoute pas une variable à poser.** Un banc écrit demain l'oublierait, et
+l'oubli est précisément le risque. `estUnBancDeMesure()` lit un FAIT du lancement — le script
+d'entrée vit-il sous `scripts/bench/` (`argv[1]` ou `npm_lifecycle_script`) — et arme la garde
+sans que personne ait à s'en souvenir. `garde.test.ts` pin les deux moitiés : un banc arme, le
+serveur de production **n'arme pas** (une garde qui s'arme partout serait retirée dans la
+semaine), et un chemin qui contient le mot « bench » sans être un banc ne compte pas.
+
+**Ce que ça change dans la doctrine.** Une assertion dont on ne sait pas nommer le cas qui la
+ferait tomber n'est pas une assertion (CLAUDE.md §118.17).
+
+### UNE MISSION LÉGITIME MOURAIT DE L'ORDRE DES OBJECTIONS DU COMPILATEUR (2026-09)
+
+**Le problème, mesuré en live.** « Demande à Regulatory les pièces manquantes de Nivolex et
+Trastuzex, attends leur retour, relance ce qui manque, puis demande à Khaled le prix de cession,
+puis à Sofiane les marchés publics, consolide, fais-moi un Excel et un PowerPoint. » Résultat :
+`✗ non lancée : le plan proposé reste refusé après correction`. Trois causes empilées :
+
+1. **Le compilateur distillait ses reproches.** La couverture des primitives (§56) était gardée
+   par `issues.length === 0`. Plan 1 refusé sur la forme d'une attente → le planificateur corrige
+   exactement cela → plan 2 découvre un `MISSING_PRIMITIVE` dont le premier refus n'avait pas dit
+   un mot. La garde est déplacée là où elle sert vraiment : seules les capacités que le catalogue
+   **connaît** comptent comme couverture, sinon une capacité inventée apporterait sa primitive
+   dérivée de son nom et masquerait le manque réel.
+2. **Le budget de correction était un chiffre, pas un critère.** Il y avait exactement DEUX
+   essais. Le modèle progressait à chaque tour ; c'est le compteur qui a rendu l'arrêt. Désormais :
+   tant que le refus CHANGE, on continue ; dès qu'il REVIENT identique (signature `code@étape`),
+   on s'arrête — le planificateur est bloqué, un tour de plus ne produirait que la même réponse,
+   plus chère. Plafond opérationnel à 3 corrections, et chaque tour repasse par le MÊME
+   compilateur : la persévérance n'autorise aucun relâchement de règle.
+3. **Le moyen de satisfaire l'exigence n'était écrit nulle part.** Le contexte disait bien
+   « cette demande EXIGE DOCUMENT ». Mais `ARTIFACT` — la seule forme d'étape qui produit un
+   fichier — n'était décrit ni dans les règles du prompt ni dans le schéma (`typeConst` ne portait
+   pas de `description`). Le modèle savait QUOI on lui demandait, personne ne lui avait dit AVEC
+   QUOI le faire. Règle 17 ajoutée, et la variante `ARTIFACT` porte enfin sa description.
+
+**Et une quatrième, côté produit, trouvée au tour précédent.** Deux attentes ne se distinguant
+que par leur clé sont, pour le routeur d'événements, la même attente écrite deux fois : le
+message « Nivolex : il manque le CPP légalisé. (Trastuzex non traité.) » levait AUSSI l'attente
+Trastuzex. Le compilateur refuse maintenant, à la compilation, deux attentes humaines qui ne
+disent que DE QUI sans dire QUOI (`waitSubject`, `waitEntity`, `waitThreadId`, `waitAttachment`).
+
+**Résultat mesuré** : la mission se lance (29 étapes), les quatre personnes sont sollicitées
+nominativement, et le plan discrimine ses attentes par sujet (`allOf` : Amel/Nivolex,
+Raihana/Trastuzex) — exactement ce que la nouvelle règle exige.
+
 ### L'EMPREINTE D'UNE MUTATION NE DÉPASSE JAMAIS CELLE DE LA DEMANDE (2026-09)
 
 **Le problème, mesuré dans le vrai chat.** « Retire l'adresse e-mail d'Allaeddine » a produit

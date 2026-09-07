@@ -42,9 +42,23 @@
 import fs from "node:fs";
 import path from "node:path";
 
-/** Ce qu'une personne répond quand Adam la sollicite — et ce que le banc en attend. */
+/**
+ * CE QU'UNE PERSONNE RÉPOND — rangé par DOMAINE, pas par identité.
+ *
+ * Première version : une file d'attente `[raihana, raihana, khaled, sofiane]` consommée dans
+ * l'ordre. Le plan a légitimement réparti Regulatory entre DEUX personnes (Amel pour Nivolex,
+ * Raihana pour Trastuzex) ; le banc, lui, répondait toujours « Raihana ». L'attente qui nommait
+ * Amel n'a jamais été levée, la mission a stagné, et le banc a conclu « 1/4 réponses
+ * consommées » — un chiffre qui parlait du banc, pas d'Adam.
+ *
+ * Désormais c'est le PLAN qui décide qui parle : on lit le `from` de l'attente et cette
+ * personne-là répond, avec ce que son domaine sait. C'est exactement la réalité — le dirigeant
+ * ne choisit pas qui, dans Regulatory, traitera quel dossier.
+ */
+type Domaine = "REGULATORY" | "FINANCE" | "MARCHES";
+
 interface Personnage {
-  cle: string;
+  domaine: Domaine;
   /** Ce que la réponse APPORTE, en clair : sert au message et au jugement de la consolidation. */
   apporte: string;
   /** Mots que la relance doit contenir si cette réponse est jugée incomplète. */
@@ -81,7 +95,7 @@ async function main(): Promise<void> {
   const { reveillerMissions } = await import("@/lib/missions/events/router");
   const { lireAttente } = await import("@/lib/missions/events/match");
   const { viderTampon } = await import("@/platform/in-process/telemetry/usage-sink");
-  const { tentativesSortantes, oublierTentativesSortantes } = await import("@/lib/sortie/garde");
+  const { tentativesSortantes, oublierTentativesSortantes, sortiesInterdites } = await import("@/lib/sortie/garde");
   const { VERITES } = await import("./seed-adam-bench");
   type CurrentUser = import("@/lib/session").CurrentUser;
 
@@ -105,11 +119,45 @@ async function main(): Promise<void> {
    * doit aller chercher. Le second passage complète.
    */
   const SCENARIO: Personnage[] = [
-    { cle: "raihana", apporte: "Nivolex : il manque le CPP légalisé. (Trastuzex non traité.)", manquant: ["trastuzex", "9015"] },
-    { cle: "raihana", apporte: "Trastuzex : certificat GMP du fabricant expiré depuis le 30/06/2026." },
-    { cle: "khaled", apporte: "Prix de cession Nivolex 84 500 DZD, Trastuzex 61 200 DZD ; forecast 2027 : 1 240 et 890 unités." },
-    { cle: "sofiane", apporte: "Deux marchés PCH concernés : AO-2026-114 (Nivolex, attribué) et AO-2026-131 (Trastuzex, en cours)." },
+    { domaine: "REGULATORY", apporte: "Nivolex : il manque le CPP légalisé. (Trastuzex non traité.)", manquant: ["trastuzex", "9015"] },
+    { domaine: "REGULATORY", apporte: "Trastuzex : certificat GMP du fabricant expiré depuis le 30/06/2026." },
+    { domaine: "FINANCE", apporte: "Prix de cession Nivolex 84 500 DZD, Trastuzex 61 200 DZD ; forecast 2027 : 1 240 et 890 unités." },
+    { domaine: "MARCHES", apporte: "Deux marchés PCH concernés : AO-2026-114 (Nivolex, attribué) et AO-2026-131 (Trastuzex, en cours)." },
   ];
+
+  /** Le domaine d'une personne — c'est ce qu'elle SAIT, indépendamment de qui le plan sollicite. */
+  const domaineDe = (nom: string): Domaine => {
+    const n = nom.toLowerCase();
+    if (n.includes("khaled") || n.includes("mansouri")) return "FINANCE";
+    if (n.includes("sofiane") || n.includes("kaci")) return "MARCHES";
+    return "REGULATORY";
+  };
+
+  /** La personne que l'attente NOMME — le banc ne choisit pas, il lit. */
+  const quiRepondA = (from: string | undefined): typeof gens[number] | undefined => {
+    if (!from) return undefined;
+    const f = from.toLowerCase();
+    return gens.find((g) => f.includes(g.name.toLowerCase()) || g.name.toLowerCase().split(" ").some((m) => m.length >= 4 && f.includes(m)))
+      ?? gens.find((g) => g.email.toLowerCase() === f);
+  };
+
+  /** Ce qu'une attente dit, une fois lue — au premier niveau ou dans une branche composée. */
+  type Attente = {
+    event?: string; from?: string; entity?: string; subject?: string; attachment?: unknown;
+    anyOf?: Attente[]; allOf?: Attente[];
+  };
+
+  /**
+   * LES BRANCHES D'UNE ATTENTE, À PLAT. Une attente simple en rend une : elle-même. Un `allOf`
+   * ou un `anyOf` en rend autant qu'il porte de conditions — chacune nomme quelqu'un et dit
+   * quoi, donc chacune appelle une réponse.
+   */
+  const branches = (a: Attente): Attente[] => {
+    const sous = [...(a.allOf ?? []), ...(a.anyOf ?? [])];
+    if (sous.length === 0) return [a];
+    // Une branche composée peut l'être à son tour ; l'événement du parent sert de défaut.
+    return sous.flatMap((b) => branches({ event: a.event, ...b }));
+  };
 
   oublierTentativesSortantes();
   const depuis = new Date();
@@ -117,7 +165,8 @@ async function main(): Promise<void> {
   const journal: Etape[] = [];
   const relances: string[] = [];
   const sollicites = new Set<string>();
-  let indexScenario = 0;
+  const consommes = new Set<number>();
+  const relancesAttendues: string[] = [];
 
   console.log(`\n══════════ CHAÎNE HUMAINE ══════════\n${DEMANDE}\n`);
 
@@ -213,25 +262,57 @@ async function main(): Promise<void> {
     if (["COMPLETED", "FAILED", "CANCELLED"].includes(etat.status)) { journal.push(e); break; }
 
     // ── LES HUMAINS RÉPONDENT ──────────────────────────────────────────────────────────
-    if (attentes.length > 0 && indexScenario < SCENARIO.length) {
-      const perso = SCENARIO[indexScenario];
-      const qui = parNom(perso.cle === "raihana" ? "raihana" : perso.cle === "khaled" ? "khaled" : "sofiane");
-      // On répond à CHAQUE attente ouverte avec le fait qui la satisfait : on lit son type et
-      // son émetteur attendus plutôt que d'en inventer — un humain répond à ce qu'on lui a
-      // demandé, pas à ce que le banc imagine.
+    if (attentes.length > 0 && consommes.size < SCENARIO.length) {
+      // On répond à CHAQUE attente ouverte : la personne est celle que l'attente NOMME, et le
+      // contenu est le prochain que son domaine n'a pas encore donné. Un humain répond de ce
+      // qu'il sait, à qui le lui demande — le banc n'invente ni l'un ni l'autre.
       for (const a of attentes) {
-        const att = lireAttente(a.waitFor) as { event?: string; from?: string; entity?: string; subject?: string; attachment?: unknown } | null;
-        if (!att?.event) continue;
+        const brute = lireAttente(a.waitFor) as Attente | null;
+        if (!brute) continue;
+        /**
+         * UNE ATTENTE COMPOSÉE EST PLUSIEURS ATTENTES — le banc les joue TOUTES.
+         *
+         * Première version : on lisait `att.from` au premier niveau. Le plan, lui, avait
+         * parfaitement fait son travail : UNE étape « retours Regulatory » portant un `allOf`
+         * de deux branches, l'une nommant Amel avec le sujet Nivolex, l'autre Raihana avec le
+         * sujet Trastuzex — exactement la discrimination que le compilateur exige désormais.
+         * Le banc a lu `from: undefined`, écrit « nomme —, inconnu du jeu d'essai », et rendu
+         * 0/4. Un chiffre qui parlait du banc et accusait le produit.
+         */
+        for (const att of branches(brute)) {
+        if (!att.event) continue;
+        const qui = quiRepondA(att.from);
+        if (!qui) { console.log(`      ⚠ attente « ${a.key} » nomme « ${att.from ?? "—"} », inconnu du jeu d'essai`); continue; }
+        const dom = domaineDe(qui.name);
+        /**
+         * LE SAVOIR D'UNE PERSONNE NE S'ÉPUISE PAS PARCE QU'ON L'A DÉJÀ INTERROGÉE.
+         *
+         * Première version : un contenu par domaine, consommé une fois. Le plan a légitimement
+         * demandé à Khaled le prix de Nivolex ET celui de Trastuzex — deux attentes distinctes,
+         * chacune nommant l'entité concernée. Le banc a répondu à la première, n'a plus rien
+         * trouvé pour la seconde, et l'a laissée ouverte : « 2 attentes non levées », un chiffre
+         * qui parlait du banc.
+         *
+         * Un humain à qui l'on redemande répond de nouveau. On prend donc le prochain contenu
+         * non encore donné de son domaine, et à défaut le DERNIER — celui qui contient tout ce
+         * qu'il sait. L'ORDRE reste garanti pour Regulatory : son premier retour est partiel,
+         * le second complète, et la relance doit passer entre les deux.
+         */
+        const duDomaine = SCENARIO.map((sc, idx) => ({ sc, idx })).filter((e) => e.sc.domaine === dom);
+        if (duDomaine.length === 0) continue;
+        const choisi = duDomaine.find((e) => !consommes.has(e.idx)) ?? duDomaine[duDomaine.length - 1];
+        const i = choisi.idx;
+        const perso = choisi.sc;
         const fait = {
           type: att.event,
-          actorId: qui?.id ?? null,
+          actorId: qui.id,
           entityType: null as string | null,
           entityId: null as string | null,
           relatedRefs: ["REG-2026-9011", "REG-2026-9015", att.entity ?? ""].filter(Boolean),
           missionId,
           payload: {
-            from: qui?.name ?? perso.cle,
-            fromEmail: qui?.email ?? null,
+            from: qui.name,
+            fromEmail: qui.email,
             subject: att.subject ?? "Retour — pièces et données demandées",
             body: perso.apporte,
             text: perso.apporte,
@@ -243,15 +324,18 @@ async function main(): Promise<void> {
         const reveils = await reveillerMissions(fait);
         e.reveils += reveils.length;
         if (reveils.length) {
-          e.quiRepond = qui?.name ?? perso.cle;
-          console.log(`      ✓ ${qui?.name ?? perso.cle} répond : « ${perso.apporte.slice(0, 90)} » → ${reveils.length} attente(s) levée(s)`);
+          consommes.add(i);
+          if (perso.manquant) relancesAttendues.push(...perso.manquant);
+          e.quiRepond = qui.name;
+          console.log(`      ✓ ${qui.name} répond : « ${perso.apporte.slice(0, 90)} » → ${reveils.length} attente(s) levée(s)`);
+        } else {
+          console.log(`      ⚠ ${qui.name} a répondu, aucune attente levée — le fait produit ne correspond pas à « ${a.attente.slice(0, 90)} »`);
+        }
         }
       }
-      if (e.reveils > 0) indexScenario += 1;
-      else console.log(`      ⚠ aucune attente levée par la réponse de ${qui?.name ?? perso.cle} — l'attente ne correspond pas au fait produit`);
     }
 
-    const sig = `${etat.status}|${etat.steps.map((s) => `${s.key}:${s.status}`).sort().join(",")}|${indexScenario}`;
+    const sig = `${etat.status}|${etat.steps.map((s) => `${s.key}:${s.status}`).sort().join(",")}|${consommes.size}`;
     journal.push(e);
     if (sig === precedent) { console.log("  · état stable et plus rien à répondre — arrêt"); break; }
     precedent = sig;
@@ -266,12 +350,31 @@ async function main(): Promise<void> {
   const relanceCiblee = attenduRelance.some((m) => textesApresPremiereReponse.toLowerCase().includes(m));
   if (relanceCiblee) relances.push(attenduRelance.join("/"));
 
-  // ── LES LIVRABLES — ON LES OUVRE ─────────────────────────────────────────────────────
-  const fichiers = await prisma.driveNode.findMany({
-    where: { createdById: pdg.id, createdAt: { gte: depuis }, NOT: { mimeType: null } },
-    select: { id: true, name: true, mimeType: true, size: true },
-    orderBy: { createdAt: "asc" },
+  /**
+   * ── LES LIVRABLES — ON LES OUVRE, ET ON LES TROUVE PAR LE REGISTRE DE LA MISSION ──────
+   *
+   * Première version : « les nœuds Drive créés depuis le début du run ». Elle a rendu
+   * « ✗ aucun .xlsx produit » sur un run où le classeur ÉTAIT produit, VÉRIFIÉ et déposé —
+   * mais dans un fichier du MÊME nom qu'un run précédent. Le Drive a fait ce qu'il doit faire :
+   * même nom, même dossier ⇒ nouvelle VERSION du même nœud, pas un nœud de plus. Le banc
+   * regardait la date de naissance du nœud et concluait à l'absence du fichier.
+   *
+   * On demande donc à la mission ce qu'ELLE a produit — `MissionArtifact`, son registre — et on
+   * ouvre les nœuds qu'elle nomme. C'est plus direct et plus vrai : si le registre ne connaît
+   * pas un livrable, c'est un défaut réel du produit (§118.10), pas un artefact de mesure.
+   */
+  const registre = await prisma.missionArtifact.findMany({
+    where: { missionId },
+    select: { key: true, driveNodeId: true, status: true, fileName: true, format: true, byteSize: true },
   });
+  const fichiers = (await prisma.driveNode.findMany({
+    where: { id: { in: registre.map((a) => a.driveNodeId).filter((x): x is string => Boolean(x)) } },
+    select: { id: true, name: true, mimeType: true, size: true },
+  }));
+  const sansDepot = registre.filter((a) => !a.driveNodeId);
+  if (sansDepot.length > 0) {
+    console.log(`  ⚠ ${sansDepot.length} livrable(s) au registre SANS nœud Drive : ${sansDepot.map((a) => `${a.key} (${a.status})`).join(", ")}`);
+  }
   const ouvrable = async (id: string, nom: string): Promise<{ ok: boolean; detail: string }> => {
     try {
       // ON OUVRE VRAIMENT LE FICHIER : version courante → blob → octets. Vérifier la ligne en
@@ -306,16 +409,58 @@ async function main(): Promise<void> {
   const sorties = tentativesSortantes();
 
   const verdicts: Verdict[] = [
-    { id: "lancee", libelle: "mission lancée et conduite", ok: true, detail: `${missionId} · statut ${mrow?.status} · plan v${mrow?.planVersion}` },
+    /**
+     * « LANCÉE ET CONDUITE » — et le verdict le VÉRIFIE.
+     *
+     * Il s'écrivait `ok: true`. Comme la ligne n'est atteinte que si le lancement a réussi,
+     * elle était vraie par construction : un point sur dix offert, qui ne pouvait rien dire.
+     * Deuxième tautologie du même fichier, trouvée en cherchant la première.
+     *
+     * Ce qui compte n'est pas que la mission EXISTE, c'est que le moteur l'ait FAIT AVANCER :
+     * un plan matérialisé en étapes, et au moins une étape sortie de l'état initial.
+     */
+    { id: "lancee", libelle: "mission lancée ET conduite (le moteur l'a fait avancer)",
+      ok: (etatFinal?.steps.length ?? 0) > 0 && (etatFinal?.steps ?? []).some((s) => s.status !== "PENDING"),
+      detail: `${missionId} · statut ${mrow?.status} · plan v${mrow?.planVersion} · ${etatFinal?.steps.length ?? 0} étape(s), `
+        + `${(etatFinal?.steps ?? []).filter((s) => s.status !== "PENDING").length} sortie(s) de PENDING` },
     { id: "trois", libelle: "les TROIS personnes sont sollicitées", ok: sollicites.size >= 3, detail: [...sollicites].join(", ") || "aucune" },
     { id: "attente-levee", libelle: "au moins une attente est levée par une réponse humaine", ok: journal.some((j) => j.reveils > 0), detail: `${journal.reduce((s, j) => s + j.reveils, 0)} réveil(s)` },
     { id: "relance", libelle: "la relance vise le MANQUANT (Trastuzex), pas tout", ok: relanceCiblee, detail: relanceCiblee ? `mentionne ${attenduRelance.join("/")}` : "aucune trace du manquant" },
-    { id: "consolide", libelle: "la mission atteint la consolidation (pas bloquée à la 1re attente)", ok: indexScenario >= 3, detail: `${indexScenario}/${SCENARIO.length} réponses consommées` },
+    /**
+     * LA CONSOLIDATION SE JUGE AUX ATTENTES LEVÉES, PAS AUX CONTENUS CONSOMMÉS.
+     *
+     * Depuis qu'une personne peut répondre plusieurs fois, `consommes` ne mesure plus l'avancée
+     * de la mission — il mesure la variété du jeu d'essai. Ce qui dit que la chaîne a progressé,
+     * c'est le nombre d'attentes que des réponses humaines ont RÉELLEMENT levées, et qu'aucune
+     * ne reste ouverte à la fin.
+     */
+    { id: "consolide", libelle: "la chaîne va jusqu'au bout : toutes les attentes humaines sont levées",
+      ok: journal.reduce((n, j) => n + j.reveils, 0) >= 4 && (journal[journal.length - 1]?.attentes.length ?? 1) === 0,
+      detail: `${journal.reduce((n, j) => n + j.reveils, 0)} attente(s) levée(s) · ${journal[journal.length - 1]?.attentes.length ?? "?"} encore ouverte(s) à l'arrêt · ${consommes.size}/${SCENARIO.length} contenus distincts donnés` },
     { id: "xlsx", libelle: "le classeur Excel existe ET s'ouvre", ok: vXlsx.ok, detail: vXlsx.detail },
     { id: "pptx", libelle: "le PowerPoint existe ET s'ouvre", ok: vPptx.ok, detail: vPptx.detail },
     { id: "retour", libelle: "Adam revient vers le dirigeant", ok: notifs.length > 0, detail: notifs.map((n) => n.summary.slice(0, 70)).join(" | ") || "aucune notification" },
-    { id: "sortie", libelle: "ZÉRO sortie réelle", ok: sorties.every((s) => true), detail: `${sorties.length} tentative(s) interceptée(s) avant tout transport` },
-    { id: "termine", libelle: "la mission n'est ni FAILED ni bloquée", ok: !["FAILED", "CANCELLED"].includes(mrow?.status ?? ""), detail: mrow?.status ?? "?" },
+    /**
+     * ZÉRO SORTIE RÉELLE — et le verdict le PROUVE au lieu de le supposer.
+     *
+     * Première version : `ok: sorties.every(() => true)`. Une tautologie : elle rendait `true`
+     * même sur une liste vide, même garde désarmée. Un verdict qui ne peut pas échouer ne
+     * mesure rien — c'est précisément le faux succès que ce banc est censé traquer.
+     *
+     * Ce qui empêche un courriel de partir, ce n'est pas le nombre de tentatives : c'est que
+     * la garde soit ARMÉE. On le lui demande.
+     */
+    { id: "sortie", libelle: "ZÉRO sortie réelle (garde de sortie armée)", ok: sortiesInterdites(), detail: sortiesInterdites() ? `garde armée · ${sorties.length} tentative(s) interceptée(s) avant tout transport` : "GARDE DÉSARMÉE — un envoi a pu partir" },
+    /**
+     * TROISIÈME TAUTOLOGIE DU MÊME FICHIER — celle-ci MENTAIT dans son libellé.
+     *
+     * « la mission n'est ni FAILED ni bloquée » testait `!["FAILED","CANCELLED"].includes(...)` :
+     * BLOCKED passait au vert, sous une phrase qui disait le contraire. Le run 10/10 portait donc
+     * « ✓ ni FAILED ni bloquée — BLOCKED ». Un verdict qui contredit son propre libellé est pire
+     * qu'un verdict absent : il fait passer une mission bloquée pour une mission réussie.
+     */
+    { id: "termine", libelle: "la mission n'est ni FAILED, ni annulée, ni BLOQUÉE",
+      ok: !["FAILED", "CANCELLED", "BLOCKED"].includes(mrow?.status ?? ""), detail: mrow?.status ?? "?" },
   ];
 
   console.log("\n─────────── VERDICT ───────────");

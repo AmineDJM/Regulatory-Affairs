@@ -827,13 +827,13 @@ describe("le recours à la coupure d'intermédiaire", () => {
       return new Response(fluxSSE("PLAN"), { status: 200, headers: { "content-type": "text/event-stream" } });
     });
 
-    const r1 = await callModel("orchestrator", [{ role: "user", content: "Fais le plan." }], { maxTokens: 256 });
+    const r1 = await callModel("orchestrator", [{ role: "user", content: "Fais le plan." }], { maxOutputTokens: 256 });
     expect(r1.ok, r1.error).toBe(true);
     expect(textOf(r1.blocks)).toContain("PLAN");
     // Le premier appel a essayé le chemin simple, PUIS le flux.
     expect(vus.map((v) => v.flux)).toEqual([false, true]);
 
-    const r2 = await callModel("orchestrator", [{ role: "user", content: "Fais le plan." }], { maxTokens: 256 });
+    const r2 = await callModel("orchestrator", [{ role: "user", content: "Fais le plan." }], { maxOutputTokens: 256 });
     expect(r2.ok).toBe(true);
     // Le second appel part DIRECTEMENT en flux : le silence de 30 s ne se paie pas deux fois.
     expect(vus.slice(2).map((v) => v.flux)).toEqual([true]);
@@ -845,7 +845,7 @@ describe("le recours à la coupure d'intermédiaire", () => {
       vus.push((JSON.parse(String(init.body)) as { stream?: boolean }).stream === true);
       return new Response(JSON.stringify({ error: { message: "Invalid schema" } }), { status: 400 });
     });
-    const r = await callModel("orchestrator", [{ role: "user", content: "Fais le plan." }], { maxTokens: 256 });
+    const r = await callModel("orchestrator", [{ role: "user", content: "Fais le plan." }], { maxOutputTokens: 256 });
     expect(r.ok).toBe(false);
     expect(vus.some((f) => f)).toBe(false);
   });

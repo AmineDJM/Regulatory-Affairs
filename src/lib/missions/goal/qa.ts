@@ -111,8 +111,31 @@ const contourneesDe = (m: EtatMission): ReadonlySet<string> =>
  * mission qu'on lui passe. C'est délibéré — un contrôle qui refait ses propres requêtes pourrait
  * voir un état différent de celui que le moteur vient de décider.
  */
-export async function controleComplet(mission: EtatMission): Promise<RapportComplet> {
-  const steps = observer(mission);
+export async function controleComplet(
+  mission: EtatMission,
+  opts: { portee?: ReadonlySet<string> } = {},
+): Promise<RapportComplet> {
+  /**
+   * ── UN CONTRÔLE JUGE CE QU'IL PEUT VOIR : SES ANCÊTRES ────────────────────────────────
+   *
+   * MESURÉ sur la chaîne humaine live. Le plan plaçait « Vérifier la présence des deux
+   * livrables » AU MILIEU du graphe, avec « Informer Yacine » APRÈS. Le contrôle a compté
+   * `notification:yacine` parmi les étapes manquantes — une étape qui DÉPEND DE LUI et qui,
+   * par construction, ne peut pas être finie avant qu'il ait rendu son verdict. Verdict :
+   * « 15/16 étapes effectives abouties, 1 manquante », mission BLOQUÉE. Les deux fichiers
+   * étaient produits et s'ouvraient.
+   *
+   * Un contrôle placé ailleurs qu'en dernier était donc STRUCTURELLEMENT condamné : il se
+   * reprochait son propre aval. Ce n'est pas une tolérance qu'on ajoute, c'est une portée
+   * qu'on corrige — un nœud QA affirme « tout ce dont je dépends a abouti », jamais « la
+   * mission est finie », ce qu'il n'est pas en position de savoir.
+   *
+   * `portee` absente = la mission entière : c'est le contrôle de FIN, qui a le droit et le
+   * devoir de tout regarder. La préséance négative (§10) ne change pas d'un iota — un contrôle
+   * dans sa portée peut toujours interdire de conclure.
+   */
+  const dansPortee = (k: string): boolean => !opts.portee || opts.portee.has(k);
+  const steps = observer(mission).filter((s) => dansPortee(s.key));
   const base = controlerQualite(steps, contourneesDe(mission));
   const constats: Constat[] = [];
 
@@ -122,7 +145,7 @@ export async function controleComplet(mission: EtatMission): Promise<RapportComp
   // qu'une itération n'a jamais été créée — donc qu'une personne n'a jamais rien reçu, sans
   // qu'aucune étape ne soit en échec. C'est le silence le plus dangereux du runtime.
   for (const s of mission.steps) {
-    if (!s.forEach) continue;
+    if (!s.forEach || !dansPortee(s.key)) continue;
     const annonce = lireNombre(s.result, "expanded");
     const filles = mission.steps.filter((f) => f.key.startsWith(`${s.key}#`));
     if (annonce === null) continue;
@@ -144,6 +167,7 @@ export async function controleComplet(mission: EtatMission): Promise<RapportComp
   const parDestinataire = new Map<string, string[]>();
   const multiples: string[] = [];
   for (const s of mission.steps) {
+    if (!dansPortee(s.key)) continue;
     if (s.forEach) continue; // le modèle n'envoie rien : ses filles le font
     if (!estEffetExterne(s)) continue;
     const dests = destinatairesDe(s.input);
@@ -183,9 +207,9 @@ export async function controleComplet(mission: EtatMission): Promise<RapportComp
   // externe, seul le second compte — c'est la différence entre « on a appelé l'envoi » et
   // « le fournisseur a accepté le message ».
   const sansRecu = mission.steps
-    .filter((s) => s.status === "DONE" && !s.forEach && estEffetExterne(s) && !s.receipt)
+    .filter((s) => dansPortee(s.key) && s.status === "DONE" && !s.forEach && estEffetExterne(s) && !s.receipt)
     .map((s) => s.key);
-  if (mission.steps.some((s) => estEffetExterne(s))) {
+  if (mission.steps.some((s) => dansPortee(s.key) && estEffetExterne(s))) {
     constats.push({
       controle: "RECUS",
       ok: sansRecu.length === 0,

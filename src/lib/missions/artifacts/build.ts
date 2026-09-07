@@ -197,7 +197,7 @@ async function composerSpec(ctx: StepContext, deps: ArtifactDeps): Promise<SpecO
   const entree = step.input;
 
   if (Array.isArray(entree.sheets) || Array.isArray(entree.summary)) {
-    const s = parserSpec({ key: step.key, title: step.title, format: "XLSX", ...entree });
+    const s = parserSpec({ key: cleDuLivrable(mission, step), title: step.title, format: "XLSX", ...entree });
     if ("error" in s) return { error: s.error, retryable: false };
     return s;
   }
@@ -249,11 +249,49 @@ async function composerSpec(ctx: StepContext, deps: ArtifactDeps): Promise<SpecO
 
   const s = parserSpec({
     ...res.data,
-    key: String(res.data.key || step.key),
+    // L'IDENTITÉ D'UN LIVRABLE APPARTIENT AU CODE (§118.1), voir `cleDuLivrable`.
+    key: cleDuLivrable(mission, step),
     format,
   });
   if ("error" in s) return { error: s.error, retryable: true };
   return s;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA CLÉ D'UN LIVRABLE — décidée par le CODE, jamais par le modèle.
+ *
+ * ── LE DÉFAUT, MESURÉ SUR LA CHAÎNE HUMAINE LIVE ────────────────────────────────────────
+ *
+ * La clé s'écrivait `String(res.data.key || step.key)` : le modèle de mise en forme la
+ * proposait. Une mission a produit DEUX livrables — un classeur et une présentation — sur le
+ * même sujet. Les deux modèles ont dérivé leur clé du même titre :
+ * `consolidation_nivolex_trastuzex`. L'`upsert` porte sur `missionId_key` : la seconde ligne a
+ * ÉCRASÉ la première. Résultat en base : UNE ligne pour DEUX fichiers, au format du dernier
+ * arrivé, et un PowerPoint de 74 Ko déposé dans le Drive dont le registre de la mission ne
+ * savait plus rien. Aucune étape n'a échoué.
+ *
+ * Une clé est une IDENTITÉ de persistance : c'est une décision de COMMENT, pas de QUOI. Un
+ * modèle qui la choisit peut, sans faute apparente, faire disparaître un livrable.
+ *
+ * ── ET ELLE DOIT ÊTRE CELLE QUE LE PLAN A ANNONCÉE ──────────────────────────────────────
+ *
+ * Le contrôle qualité compare les clés de `expectedArtifacts` aux lignes en base. Avec une clé
+ * inventée, la comparaison échouait TOUJOURS — le contrôle ARTEFACTS ne pouvait pas passer,
+ * même avec un seul livrable parfaitement produit. On prend donc la clé que le plan a liée à
+ * CETTE étape (`fromStep`), et la clé d'étape sinon : unique par construction dans les deux cas.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function cleDuLivrable(mission: { planMeta?: Record<string, unknown> }, step: { key: string }): string {
+  const liste = Array.isArray(mission.planMeta?.expectedArtifacts) ? mission.planMeta!.expectedArtifacts : [];
+  for (const a of liste as unknown[]) {
+    if (!a || typeof a !== "object" || Array.isArray(a)) continue;
+    const o = a as Record<string, unknown>;
+    if (typeof o.fromStep === "string" && o.fromStep === step.key && typeof o.key === "string" && o.key.trim()) {
+      return o.key;
+    }
+  }
+  return step.key;
 }
 
 /**

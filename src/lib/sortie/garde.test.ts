@@ -72,6 +72,31 @@ describe("la porte de sortie refuse, et dit ce qui serait parti", () => {
     ]);
   });
 
+  /**
+   * LE TROU MESURÉ SUR UN VRAI BANC — et il ne se rebouche pas avec une variable de plus.
+   *
+   * `npx tsx scripts/bench/chaine-humaine.ts` lance de VRAIES missions, sur de VRAIES lignes de
+   * personnes, avec de VRAIES adresses. Aucun des signaux d'alors (`NODE_ENV`, `VITEST`,
+   * `PLAYWRIGHT`) n'y était posé : la garde était DÉSARMÉE pendant tous ces bancs. Ce qui
+   * protégeait n'était pas ce fichier, c'était l'espoir que chaque script soit inoffensif.
+   *
+   * Le signal est donc un FAIT du lancement — le script d'entrée vit sous `scripts/bench/` —
+   * et pas une déclaration à ne pas oublier : un banc écrit demain est couvert sans rien faire.
+   */
+  it("un banc lancé par `tsx scripts/bench/…` arme la garde SANS qu'on ait rien à poser", () => {
+    const nu = {} as NodeJS.ProcessEnv;
+    expect(sortiesInterdites(nu, ["node", "/home/user/app/scripts/bench/chaine-humaine.ts"])).toBe(true);
+    expect(sortiesInterdites(nu, ["node", "C:\\app\\scripts\\bench\\office.ts"])).toBe(true);
+    expect(sortiesInterdites({ ...nu, npm_lifecycle_script: "tsx scripts/bench/adam.ts" }, ["node", "/x/npm-cli.js"])).toBe(true);
+
+    // CE QU'IL NE FAUT SURTOUT PAS ARMER : le serveur de production. Une garde qui s'arme
+    // partout bloquerait les envois réels — elle serait retirée dans la semaine.
+    expect(sortiesInterdites(nu, ["node", "/app/.next/server/index.js"])).toBe(false);
+    expect(sortiesInterdites(nu, ["node", "/app/scripts/seed.ts"])).toBe(false);
+    // Un chemin qui CONTIENT le mot « bench » sans être un banc ne compte pas.
+    expect(sortiesInterdites(nu, ["node", "/app/src/benchmarks/run.ts"])).toBe(false);
+  });
+
   it("la clé d'ouverture existe, elle est explicite, et elle N'EST POSÉE PAR AUCUN CODE DE PRODUCTION", () => {
     // Un test peut vouloir exercer le chemin de production contre un serveur factice LOCAL.
     // La clé existe pour ça — mais si du code de production pouvait la poser, la garde

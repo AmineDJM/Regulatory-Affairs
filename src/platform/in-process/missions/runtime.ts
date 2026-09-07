@@ -3,7 +3,7 @@ import { PLANNER_PROMPT_VERSION } from "@/lib/missions/planner/plan";
 import { prechargerCapacitesDynamiques } from "@/platform/in-process/skills";
 import { assurerFormes } from "@/platform/in-process/missions/formes";
 import { estReplanifiable, PLANS_MAX } from "@/lib/missions/runtime/replan";
-import { exigencesFermes } from "@/lib/missions/planner/primitives";
+import { exigencesFermes, formatsLivrablesDemandes } from "@/lib/missions/planner/primitives";
 import type { CurrentUser } from "@/lib/session";
 import { compile } from "@/lib/missions/compiler/compile";
 import { planifier, type ContextePlanification, type MetriquesPlanification } from "@/lib/missions/planner/plan";
@@ -12,6 +12,7 @@ import { avancer, type EngineDeps, type StepContext, type StepOutcome } from "@/
 import { executerWorker } from "@/lib/missions/runtime/worker";
 import { executerArtefact } from "@/lib/missions/artifacts/build";
 import { controleComplet } from "@/lib/missions/goal/qa";
+import { ancetres } from "@/lib/missions/compiler/graph";
 import { JugeReel } from "@/lib/missions/goal/judge";
 import { perimetre } from "@/lib/missions/approval/scope";
 import { demanderApprobation, porteApprobation, reouvrirSiChange } from "@/lib/missions/approval/gate";
@@ -144,7 +145,22 @@ async function controleQualite(ctx: StepContext): Promise<StepOutcome> {
   const etat = await chargerEtat(ctx.mission.id);
   if (!etat) return { status: "FAILED", error: "mission introuvable", errorKind: "INVALID_STEP", retryable: false };
 
-  const rapport = await controleComplet(etat);
+  /**
+   * LE NŒUD QA JUGE SES ANCÊTRES, PAS TOUTE LA MISSION.
+   *
+   * Il tourne AU MILIEU du graphe : ce qui vient après lui est PENDING par construction — y
+   * compris les étapes qui dépendent de lui. Sans portée, il se reprochait son propre aval et
+   * bloquait une mission dont tous les livrables étaient produits (mesuré : « 15/16 étapes
+   * effectives abouties, 1 manquante » = « Informer Yacine », en aval du contrôle).
+   *
+   * Le contrôle de FIN de mission, lui, passe par `conclure` et regarde tout : c'est là que
+   * « la mission est-elle finie ? » a un sens.
+   */
+  const portee = new Set([
+    ...ancetres(etat.steps.map((s) => ({ key: s.key, dependsOn: s.dependsOn })), ctx.step.key),
+    ctx.step.key,
+  ]);
+  const rapport = await controleComplet(etat, { portee });
   await journaliser(ctx.mission.id, "QA", rapport.resume, {
     stepKey: ctx.step.key,
     ok: rapport.ok,
@@ -372,27 +388,74 @@ async function lancerMissionInterne(
     // CE QUE LA DEMANDE EXIGE (§56) — lu dans la phrase par le code, jamais déclaré par le
     // modèle : la déclaration serait faite par la partie qu'elle doit contraindre.
     primitivesRequises: exigencesFermes(objectif),
+    // COMBIEN de pièces, pas seulement « une pièce » : « un Excel ET un PowerPoint » = deux.
+    formatsLivrables: formatsLivrablesDemandes(objectif),
   };
   let compile1 = compile(plan.plan, catalogue, agent, plafond);
 
-  if (!compile1.ok) {
-    const secondEssai = await planifier(objectif, catalogue, acteur, cerveau, {
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * ON NE S'ARRÊTE PAS À LA PREMIÈRE DIFFICULTÉ — MAIS ON NE TOURNE PAS EN ROND (§118.9).
+   *
+   * Il y avait exactement DEUX essais : plan, refus, correction, refus, mort. MESURÉ sur la
+   * chaîne humaine live : le premier plan est refusé sur la forme de ses attentes, le
+   * planificateur corrige CORRECTEMENT, et le second refus porte sur autre chose. Le modèle
+   * progressait à chaque tour ; c'est le compteur qui a rendu l'arrêt. Une mission légitime
+   * — collecter auprès de trois personnes puis produire un classeur et un deck — est morte
+   * avant d'exister.
+   *
+   * LE CRITÈRE N'EST DONC PAS UN NOMBRE D'ESSAIS, C'EST LE PROGRÈS. Tant que le refus CHANGE,
+   * le planificateur répare quelque chose et mérite un tour de plus. Dès qu'il REVIENT
+   * identique, il est bloqué : un tour supplémentaire ne produira que la même réponse, plus
+   * chère. Le plafond, lui, reste opérationnel (§118.2) : il borne le coût, il ne définit pas
+   * la persévérance.
+   *
+   * ET LA PERSÉVÉRANCE N'AUTORISE RIEN. Chaque tour repasse par le MÊME compilateur, sous la
+   * même politique et le même acteur. On ne relâche aucune règle pour finir par accepter.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  const CORRECTIONS_MAX = 3;
+  /**
+   * LA SIGNATURE D'UN REFUS PORTE SES CODES, PAS SES CLÉS D'ÉTAPE.
+   *
+   * Un planificateur qui reprend son plan renomme presque toujours ses clés. Signer
+   * `code@étape` aurait donc rendu chaque refus « nouveau » et le détecteur de répétition ne
+   * se serait jamais déclenché : on aurait payé les trois corrections à chaque fois, y compris
+   * face à un mur. Ce qui dit « c'est le même mur », c'est l'ensemble des CODES.
+   */
+  const signature = (issues: readonly { code: string }[]): string =>
+    [...new Set(issues.map((i) => i.code))].sort().join("|");
+  const refusVus = new Set<string>();
+  let corrections = 0;
+  let repetition = false;
+
+  while (!compile1.ok && corrections < CORRECTIONS_MAX) {
+    const sig = signature(compile1.issues);
+    if (refusVus.has(sig)) { repetition = true; break; }
+    refusVus.add(sig);
+    corrections += 1;
+
+    const essai = await planifier(objectif, catalogue, acteur, cerveau, {
       ...roleForcePlanification(),
       contexte: { ...contexte, refusPrecedent: compile1.issues.map((i) => `[${i.code}] ${i.stepKey ?? "plan"} : ${i.message}`) },
     });
-    if (!secondEssai.ok) {
-      return { ok: false, error: secondEssai.error, refus: compile1.issues, metriques: secondEssai.metriques };
+    if (!essai.ok) {
+      return { ok: false, error: essai.error, refus: compile1.issues, metriques: essai.metriques };
     }
-    plan = secondEssai;
+    plan = essai;
     compile1 = compile(plan.plan, catalogue, agent, plafond);
-    if (!compile1.ok) {
-      return {
-        ok: false,
-        error: `le plan proposé reste refusé après correction : ${compile1.issues.map((i) => i.message).join(" ; ")}`,
-        refus: compile1.issues,
-        metriques: plan.metriques,
-      };
-    }
+  }
+
+  if (!compile1.ok) {
+    const pourquoi = repetition
+      ? `le planificateur bute deux fois sur le même refus après ${corrections} correction(s)`
+      : `le plan reste refusé après ${corrections} correction(s)`;
+    return {
+      ok: false,
+      error: `${pourquoi} : ${compile1.issues.map((i) => i.message).join(" ; ")}`,
+      refus: compile1.issues,
+      metriques: plan.metriques,
+    };
   }
 
   const mission = compile1.mission;
@@ -942,6 +1005,9 @@ async function replanifierMissionInterne(
     // LES EXIGENCES SURVIVENT AU REPLAN. Un plan v2 qui oublierait à nouveau le calcul serait
     // refusé comme le v1 : la barre ne se relâche pas parce qu'on a déjà échoué une fois.
     primitivesRequises: exigencesFermes(objectif),
+    // La replanification est soumise à la MÊME cardinalité de pièces que le lancement :
+    // un plan v2 qui perd le classeur serait accepté là où le v1 l'aurait été refusé.
+    formatsLivrables: formatsLivrablesDemandes(objectif),
   };
 
   const plan = await planifier(objectif, catalogue, acteur, cerveau, optionsPlan);

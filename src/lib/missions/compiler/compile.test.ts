@@ -259,6 +259,51 @@ describe("compilateur — forme des nœuds", () => {
     expect(r.ok).toBe(true);
   });
 
+  /**
+   * LE DÉFAUT QU'UNE VRAIE MISSION A PRODUIT, PAS UN CAS DE LABORATOIRE.
+   *
+   * Chaîne humaine live : « demande les pièces manquantes de Nivolex ET Trastuzex ». Le plan a
+   * ouvert deux attentes, chacune `{event: MESSAGE_RECEIVED, from: "Raihana Cherif"}`. Raihana a
+   * répondu « Nivolex : il manque le CPP légalisé. (Trastuzex non traité.) » — et le moteur a levé
+   * LES DEUX. La mission a compté un retour Trastuzex dont le message disait le contraire.
+   *
+   * Deux attentes ne se distinguant que par leur clé sont, pour le routeur d'événements, la même
+   * attente écrite deux fois. Le refus est donc à la COMPILATION, avant qu'un fait n'arrive : le
+   * plan doit dire QUOI, pas seulement DE QUI.
+   */
+  it("deux attentes sur la MÊME personne doivent dire ce qu'elles attendent chacune", () => {
+    const deuxFois = (a: Record<string, unknown>, b: Record<string, unknown>): PlannedStep[] => [
+      { key: "d1", title: "Demande Nivolex", capability: "send_message" },
+      { key: "d2", title: "Demande Trastuzex", capability: "send_message" },
+      { key: "w1", title: "Retour Nivolex", nodeType: "WAIT_EVENT", dependsOn: ["d1"], waitFor: a },
+      { key: "w2", title: "Retour Trastuzex", nodeType: "WAIT_EVENT", dependsOn: ["d2"], waitFor: b },
+    ] as unknown as PlannedStep[];
+
+    const indistinctes = compile(plan(deuxFois(
+      { event: "EMAIL_RECEIVED", from: "Raihana Cherif" },
+      { event: "EMAIL_RECEIVED", from: "Raihana Cherif" },
+    )), catalogue(), pdg);
+    expect(indistinctes.ok).toBe(false);
+    expect(codes(indistinctes)).toContain("INVALID_SHAPE");
+    // Les DEUX sont nommées : aucune n'est « la bonne » par défaut.
+    expect(indistinctes.ok === false && indistinctes.issues.filter((i) => i.stepKey === "w1" || i.stepKey === "w2")).toHaveLength(2);
+
+    // Ce que la règle LAISSE PASSER — sinon elle interdirait d'attendre deux personnes.
+    const discriminees = compile(plan(deuxFois(
+      { event: "EMAIL_RECEIVED", from: "Raihana Cherif", subject: "REG-2026-9011" },
+      { event: "EMAIL_RECEIVED", from: "Raihana Cherif", subject: "REG-2026-9015" },
+    )), catalogue(), pdg);
+    expect(discriminees.ok, JSON.stringify(discriminees.ok === false ? discriminees.issues : [])).toBe(true);
+
+    // Une SEULE attente non discriminée reste légitime : rien ne peut être confondu avec elle.
+    const seule = compile(plan([
+      { key: "d1", title: "Demande", capability: "send_message" },
+      { key: "w1", title: "Son retour", nodeType: "WAIT_EVENT", dependsOn: ["d1"],
+        waitFor: { event: "EMAIL_RECEIVED", from: "Raihana Cherif" } },
+    ] as unknown as PlannedStep[]), catalogue(), pdg);
+    expect(seule.ok).toBe(true);
+  });
+
   it("un nœud qui n'appelle pas de capacité ne peut pas en nommer une", () => {
     const r = compile(plan([
       { key: "q", title: "Q", nodeType: "QA", capability: "directory_list" },
