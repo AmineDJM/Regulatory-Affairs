@@ -5384,6 +5384,22 @@ async function runAssistantStreamImpl(
     // La garantie d'enseignement (§119) ne rappelle le modèle qu'UNE fois par tour.
     let rappelEnseignement = false;
     let redecouvert = false;
+    /**
+     * ── POURQUOI TOUTES LES RONDES PAIENT LE MÊME EFFORT — une hypothèse RÉFUTÉE ───────
+     *
+     * L'intuition était forte : sur une analyse, trois rondes sur cinq ne font que désigner la
+     * lecture suivante (86, 113 et 176 jetons de sortie) et paient pourtant onze secondes de
+     * raisonnement premium. Un « cliquet » a donc été construit — routage bon marché, rejeu à
+     * l'étage de la demande dès qu'une ronde rend du texte — puis mesuré au banc À TÉMOIN
+     * (`npm run bench:ab`, six demandes, chacune jouée éteint / éteint / allumé).
+     *
+     * LE RÉSULTAT A REFUSÉ L'HYPOTHÈSE : +36 % d'appels, +19 % de latence. Et pour une raison
+     * qu'il fallait entendre — à effort réduit, le modèle n'appelle pas les mêmes outils moins
+     * cher, il en appelle DAVANTAGE, en plus de rondes (« multi » : 3 appels → 7). Choisir la
+     * lecture suivante N'EST PAS une tâche mécanique : c'est le raisonnement qui fait tenir le
+     * plan d'outils en peu d'étapes. Le cliquet a été retiré ; ce commentaire reste pour que
+     * l'intuition ne soit pas reconstruite une troisième fois sans banc.
+     */
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       metrics.turns = turn + 1;
       // Le texte part AU FIL DE L'EAU. Si le tour se révèle finalement être un appel d'outil,

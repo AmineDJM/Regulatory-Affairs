@@ -44,7 +44,8 @@
     "autonomy:bench": "tsx scripts/bench/autonomy-bench.ts",
     "bench:plan": "tsx scripts/bench/plan-couverture.ts",
     "bench:latence": "tsx scripts/bench/latence-ttuv.ts",
-    "autonomy:bench:complet": "AUTONOMY_MODE=complet tsx scripts/bench/autonomy-bench.ts"
+    "autonomy:bench:complet": "AUTONOMY_MODE=complet tsx scripts/bench/autonomy-bench.ts",
+    "bench:ab": "tsx scripts/bench/ab-temoin.ts"
   },
   "prisma": {
     "seed": "tsx prisma/bootstrap.ts"

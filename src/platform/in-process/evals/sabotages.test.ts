@@ -358,11 +358,23 @@ suite("sabotages — quatorze situations adverses, tenues par le code", () => {
     // relance, échec dit) ; ce qui compte ici est qu'elle ne dorme pas indéfiniment dessus.
     expect(apres?.status, "l'attente expirée dort encore").not.toBe("WAITING");
 
-    // Et le battement suivant ne la REJOUE pas : rien ne se dédouble.
-    const avantSecond = await prisma.missionEvent.count({ where: { missionId: r.missionId } });
+    /**
+     * ET LE BATTEMENT SUIVANT NE LA REJOUE PAS.
+     *
+     * On compte les RÉVEILS D'ÉCHÉANCE (`TIME_WAKE`), pas tous les événements de la mission.
+     * La première version comptait tout et tolérait « au plus trois » ; elle est tombée sous
+     * charge (neuf événements) alors que le moteur se comportait parfaitement : entre les deux
+     * battements, la mission avait simplement AVANCÉ, et chaque avancée écrit son
+     * `STATE_CHANGED`. Compter le progrès pour détecter un rejeu confond ce qui marche avec ce
+     * qui se dédouble — et un test qui tombe quand tout va bien finit par être ignoré.
+     *
+     * Le nouveau compte est à la fois plus JUSTE et plus STRICT : zéro réveil supplémentaire,
+     * là où l'ancien en tolérait trois de n'importe quelle sorte.
+     */
+    const reveils = () => prisma.missionEvent.count({ where: { missionId: r.missionId, kind: "TIME_WAKE" } });
+    const avantSecond = await reveils();
     await balayerMissions();
-    const apresSecond = await prisma.missionEvent.count({ where: { missionId: r.missionId } });
-    expect(apresSecond - avantSecond, "l'échéance a été rejouée").toBeLessThanOrEqual(3);
+    expect(await reveils() - avantSecond, "l'échéance a été rejouée").toBe(0);
     tenus.add("echeance_expiree");
   }, 120_000);
 
