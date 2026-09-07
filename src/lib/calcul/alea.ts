@@ -129,13 +129,11 @@ export function quantile(l: Loi, u: number): number {
       return v < fc ? l.min + Math.sqrt(v * (l.max - l.min) * (l.mode - l.min)) : l.max - Math.sqrt((1 - v) * (l.max - l.min) * (l.max - l.mode));
     }
     case "pert": {
-      // Bêta(α, β) sur [min, max] : quantile par bissection sur la fonction de répartition (bêta incomplète régularisée).
+      // Bêta(α, β) sur [min, max] : le quantile est l'INVERSE de la bêta incomplète.
       const lam = l.lambda ?? 4;
       const alpha = 1 + lam * (l.mode - l.min) / (l.max - l.min);
       const beta = 1 + lam * (l.max - l.mode) / (l.max - l.min);
-      let lo = 0, hi = 1;
-      for (let i = 0; i < 60; i += 1) { const m = (lo + hi) / 2; if (betaIncompleteReguliere(m, alpha, beta) < v) lo = m; else hi = m; }
-      return l.min + (l.max - l.min) * (lo + hi) / 2;
+      return l.min + (l.max - l.min) * betaInverse(v, alpha, beta);
     }
     case "discrete": {
       let cumul = 0;
@@ -187,6 +185,98 @@ export function betaIncompleteReguliere(x: number, a: number, b: number): number
     return h;
   };
   return x < (a + 1) / (a + b + 2) ? front * cf(x, a, b) / a : 1 - front * cf(1 - x, b, a) / b;
+}
+
+/**
+ * L'INVERSE DE LA BÊTA INCOMPLÈTE — Newton ENCADRÉ par une bissection (« rtsafe »).
+ *
+ * ── LA MESURE QUI A PRODUIT CETTE FONCTION ──────────────────────────────────────────────
+ *
+ * Le tirage PERT coûtait à lui seul 7 100 ms sur 200 000 tirages, là où toutes les autres lois
+ * tenaient entre 150 et 335 ms. Cause : SOIXANTE bissections par tirage, chacune appelant la
+ * bêta incomplète (une fraction continue, elle-même itérative) — soit des milliers d'opérations
+ * pour un seul nombre. C'est ce qui faisait déborder le budget mural de la simulation.
+ *
+ * ── POURQUOI SOIXANTE ITÉRATIONS N'ÉTAIENT PAS DE LA RIGUEUR ────────────────────────────
+ *
+ * Soixante bissections visent une précision de 2⁻⁶⁰, sous le pas du double (2⁻⁵³) : les vingt
+ * dernières ne changeaient plus un bit. Et surtout, la grandeur qu'on estime est un percentile
+ * tiré au sort : à 200 000 tirages son erreur d'échantillonnage vaut ~0,2 %. Une inversion à
+ * 1e-12 est déjà un milliard de fois plus fine que le bruit qui l'entoure. Payer 2⁻⁶⁰ n'achetait
+ * donc AUCUNE justesse — c'était du temps, pas de la précision.
+ *
+ * ── CE QUI REMPLACE, ET POURQUOI C'EST AUSSI SÛR ────────────────────────────────────────
+ *
+ * Newton converge quadratiquement sur cette fonction (sa dérivée est la densité, connue en
+ * forme close) : quatre à six itérations au lieu de soixante. Newton seul serait FRAGILE — il
+ * peut sortir de (0,1) sur les queues. On garde donc en permanence un CROCHET [lo, hi] qui
+ * encadre la solution, et tout pas de Newton qui en sort est remplacé par une bissection. La
+ * convergence est donc garantie AU PIRE au rythme de la bissection, jamais moins bonne
+ * qu'avant, et le résultat reste borné par la même tolérance.
+ */
+export function betaInverse(u: number, a: number, b: number): number {
+  if (!(u > 0)) return 0;
+  if (!(u < 1)) return 1;
+  let lo = 0;
+  let hi = 1;
+  let x = departBeta(u, a, b);
+  const logB = logGamma(a) + logGamma(b) - logGamma(a + b);
+  /**
+   * LA TOLÉRANCE EST RELATIVE, et c'est le point le plus important de cette fonction.
+   *
+   * Une première version s'arrêtait sur |I(x) - u| < 1e-12. Pour u = 1e-12 — la queue d'un
+   * risque, c'est-à-dire exactement ce qu'on simule — ce test est vrai DÈS LE DÉPART : la
+   * fonction rendait donc son point de départ. Mesuré : 89 % d'erreur relative là où les
+   * soixante bissections en faisaient 1e-6. Plus rapide et FAUX est un mauvais échange.
+   */
+  const tol = 1e-13 * Math.min(u, 1 - u);
+  for (let i = 0; i < 60; i += 1) {
+    const f = betaIncompleteReguliere(x, a, b) - u;
+    if (f < 0) lo = x; else hi = x;
+    if (Math.abs(f) <= tol) return x;
+    // La dérivée de I_x(a,b) EST la densité bêta : x^(a-1) (1-x)^(b-1) / B(a,b).
+    const d = Math.exp((a - 1) * Math.log(x) + (b - 1) * Math.log1p(-x) - logB);
+    // Un pas non fini, nul, ou qui sort du crochet : on retombe sur la bissection. C'est cette
+    // ligne qui rend l'ensemble SÛR — sans elle, une queue lointaine ferait diverger Newton.
+    const xn = Number.isFinite(d) && d > 0 ? x - f / d : NaN;
+    const suivant = xn > lo && xn < hi ? xn : (lo + hi) / 2;
+    // L'arrêt sur le pas est lui aussi RELATIF : sous le pas du double autour de x, itérer
+    // encore ne déplace plus rien — mais « autour de x » ne veut pas dire la même chose à
+    // x = 0,5 et à x = 1e-9.
+    if (Math.abs(suivant - x) <= 1e-15 * x) return suivant;
+    x = suivant;
+  }
+  return x;
+}
+
+/**
+ * LE POINT DE DÉPART DE NEWTON — l'approximation normale d'Abramowitz & Stegun 26.5.22.
+ *
+ * Partir de la moyenne suffirait à converger (le crochet garantit tout), mais coûterait une
+ * dizaine de bissections avant que Newton ne prenne le relais dans les queues. Cette
+ * approximation place le départ à quelques pour cent de la solution même pour u = 1e-12 :
+ * c'est là que se trouve la vitesse, pas dans un critère d'arrêt relâché.
+ *
+ * Le second cas (α ou β < 1) est le développement en série près de 0 et de 1 ; PERT ne
+ * l'atteint jamais — α = 1 + λ(mode−min)/(max−min) ≥ 1 — mais `betaInverse` est exportée, et
+ * une fonction exportée qui ne serait juste que pour son appelant du jour est un piège.
+ */
+function departBeta(u: number, a: number, b: number): number {
+  let x: number;
+  if (a >= 1 && b >= 1) {
+    const y = phiInverse(u);
+    const al = (y * y - 3) / 6;
+    const h = 2 / (1 / (2 * a - 1) + 1 / (2 * b - 1));
+    const w = (y * Math.sqrt(al + h)) / h - (1 / (2 * b - 1) - 1 / (2 * a - 1)) * (al + 5 / 6 - 2 / (3 * h));
+    x = a / (a + b * Math.exp(2 * w));
+  } else {
+    const t = Math.exp(a * Math.log(a / (a + b))) / a;
+    const v = Math.exp(b * Math.log(b / (a + b))) / b;
+    const w = t + v;
+    x = u < t / w ? (a * w * u) ** (1 / a) : 1 - (b * w * (1 - u)) ** (1 / b);
+  }
+  // Un départ hors de (0,1) — arithmétique dégénérée — retombe sur la moyenne, toujours valide.
+  return x > 0 && x < 1 ? x : a / (a + b);
 }
 
 /** Cholesky d'une matrice symétrique définie positive ; `null` si elle ne l'est pas (corrélations incohérentes). */

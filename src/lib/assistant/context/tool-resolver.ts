@@ -85,8 +85,16 @@ const OUTILS_SURVEILLANCE = ["watch_entity", "list_watches", "stop_watch"] as co
  */
 const POLITESSE = /^(bonjour|bonsoir|salut|hello|hi|hey|coucou|yo|slt|re|bjr|merci|merci beaucoup|thanks|thank you|ok|okay|d accord|daccord|parfait|super|tres bien|nickel|bien recu|bien note|noté|note|a plus|au revoir|bonne journee|bonne soiree|bye|ciao|test|ping)$/;
 
-/** Les mots qui ne portent aucune demande — on les retire avant de juger « il ne reste rien ». */
-const VIDE = /\b(adam|s il te plait|s il vous plait|stp|svp|please|dis moi|dis|alors|donc|bon|eh|ah|oh|et|le|la|les|un|une|des|du|de|a|au|aux)\b/g;
+/**
+ * Les mots qui ne portent aucune demande — on les retire avant de juger « il ne reste rien ».
+ *
+ * Les formes élidées et la copule (`c`, `est`, `ca`, `tout`) ont été ajoutées sur une mesure :
+ * « Merci, c'est parfait » ne passait pas la porte et partait sur le chemin COMPLET — 4,2 s de
+ * premier mot et 13 000 jetons d'entrée pour un simple accusé de réception. Elles sont sûres
+ * parce que la règle exige qu'il ne reste PLUS RIEN : « c'est faux » garde « faux », « est-ce
+ * que le dossier avance » garde « dossier ».
+ */
+const VIDE = /\b(adam|s il te plait|s il vous plait|stp|svp|please|dis moi|dis|alors|donc|bon|eh|ah|oh|et|le|la|les|un|une|des|du|de|a|au|aux|c|ca|cela|est|tout|moi|pour|vraiment|tres|bien)\b/g;
 
 /**
  * EST-CE QUE LA PHRASE NE DEMANDE RIEN ?

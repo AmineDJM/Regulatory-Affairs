@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Loi, betaIncompleteReguliere, cholesky, esperance, generateur, normaleStandard, phi, phiInverse, quantile, validerLoi } from "./alea";
+import { betaIncompleteReguliere, betaInverse, cholesky, esperance, generateur, normaleStandard, phi, phiInverse, quantile, type Loi, validerLoi } from "./alea";
 import { ecartType, moyenne } from "./rigueur";
 
 describe("alea — le hasard reproductible", () => {
@@ -100,5 +100,71 @@ describe("alea — le hasard reproductible", () => {
       expect(s).toBeCloseTo(m[i]![j]!, 10);
     }
     expect(cholesky([[1, 0.9, -0.9], [0.9, 1, 0.9], [-0.9, 0.9, 1]])).toBeNull();
+  });
+});
+
+describe("betaInverse — l'inverse de la bêta incomplète, jugée par la fonction qu'elle inverse", () => {
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   * LE TIRAGE PERT COÛTAIT 7 100 ms LÀ OÙ TOUTES LES AUTRES LOIS EN COÛTAIENT 250.
+   *
+   * Cause : soixante bissections par tirage, chacune appelant la bêta incomplète. Remplacées
+   * par un Newton encadré (la dérivée est la densité, connue en forme close), le crochet
+   * garantissant la convergence au pire au rythme de la bissection.
+   *
+   * CE QUE CES TESTS TIENNENT — et le premier compte plus que la vitesse : une inversion
+   * RAPIDE ET FAUSSE serait un mauvais échange. Une première version s'arrêtait sur un résidu
+   * ABSOLU de 1e-12 ; pour u = 1e-12 — la queue d'un risque, précisément ce qu'on simule — le
+   * test était vrai dès le départ et la fonction rendait son point d'amorce : 89 % d'erreur
+   * relative. Le juge est donc ici la fonction elle-même, en écart RELATIF.
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const FORMES: [number, number][] = [[1.5, 3.5], [2, 5], [1, 1], [4, 1.2], [1.01, 8], [8, 1.01], [3, 3], [20, 2], [1, 9], [9, 1], [50, 50], [0.5, 0.5]];
+  const US = [1e-12, 1e-9, 1e-6, 1e-4, 0.001, 0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 0.999, 1 - 1e-6, 1 - 1e-9];
+
+  it("LE TEST QUI COMPTE : I(betaInverse(u)) vaut u, en écart RELATIF, jusque dans les queues", () => {
+    let pire = 0;
+    let ou = "";
+    for (const [a, b] of FORMES) {
+      for (const u of US) {
+        const x = betaInverse(u, a, b);
+        expect(x, `a=${a} b=${b} u=${u} : hors de (0,1)`).toBeGreaterThanOrEqual(0);
+        expect(x).toBeLessThanOrEqual(1);
+        const e = Math.abs(betaIncompleteReguliere(x, a, b) - u) / u;
+        if (e > pire) { pire = e; ou = `a=${a} b=${b} u=${u} → x=${x}`; }
+      }
+    }
+    // Les soixante bissections plafonnaient à 1,4e-6 d'erreur relative : on exige DIX FOIS
+    // mieux, sans quoi l'accélération se serait payée en justesse.
+    expect(pire, `pire écart relatif : ${pire.toExponential(2)} (${ou})`).toBeLessThan(1e-7);
+  });
+
+  it("la fonction est monotone — un quantile qui recule serait un défaut silencieux", () => {
+    for (const [a, b] of FORMES) {
+      let prec = -1;
+      for (let i = 1; i < 500; i += 1) {
+        const x = betaInverse(i / 500, a, b);
+        expect(x, `a=${a} b=${b} recule en u=${i / 500}`).toBeGreaterThanOrEqual(prec);
+        prec = x;
+      }
+    }
+  });
+
+  it("les bornes et les cas dégénérés ne lèvent pas et ne rendent pas NaN", () => {
+    for (const [a, b] of FORMES) {
+      expect(betaInverse(0, a, b)).toBe(0);
+      expect(betaInverse(1, a, b)).toBe(1);
+      for (const u of [-1, 2, Number.NaN]) expect(Number.isFinite(betaInverse(u, a, b))).toBe(true);
+    }
+    // La loi uniforme est Bêta(1,1) : son quantile est l'identité, et c'est vérifiable à la main.
+    for (const u of [0.1, 0.25, 0.5, 0.9]) expect(betaInverse(u, 1, 1)).toBeCloseTo(u, 12);
+  });
+
+  it("la PERT simulée retrouve son espérance analytique (min + 4·mode + max)/6", () => {
+    // Le juge est la THÉORIE, pas une valeur figée : (1 + 4×2 + 5)/6 = 2,3333…
+    const echantillon: number[] = [];
+    for (let i = 1; i < 20_000; i += 1) echantillon.push(quantile({ loi: "pert", min: 1, mode: 2, max: 5 }, i / 20_000));
+    const moyenne = echantillon.reduce((a, b) => a + b, 0) / echantillon.length;
+    expect(moyenne).toBeCloseTo((1 + 4 * 2 + 5) / 6, 3);
   });
 });

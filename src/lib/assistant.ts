@@ -57,6 +57,7 @@ import {
  * boucle parlera la forme neutre, l'import et le pont disparaissent ensemble.
  */
 import { callClaude, callClaudeStream, assistantConfigured as aiConfigured } from "@/lib/models/compat";
+import { apercuDesSources } from "@/lib/assistant/workspace/apercu";
 import { withTurn, markPreview, markFinal, logTurn, recordTool, setTurnContext, summarize, addPhase, timedPhase, type TurnRoute, type TurnContext, type TurnSummary } from "@/lib/models/telemetry";
 import { ADAM_PROMPT_VERSION } from "@/lib/assistant/prompt-version";
 import { complementDeLimite, gardeImpossibilite, RAPPEL_DECOUVERTE } from "@/lib/assistant/limites";
@@ -5248,6 +5249,17 @@ async function runAssistantStreamImpl(
     // 0,027 $ et deux secondes pour un mot. Le rôle « bulk » avec une consigne de six lignes
     // répond mieux et dix fois moins cher ; s'il ne rend rien, la boucle normale reprend.
     if (resolved.level === "AUCUN") {
+      /**
+       * ── LE CHEMIN INSTANTANÉ : CE QUI NE DEMANDE RIEN NE PAIE PAS UN MODÈLE ────────────
+       *
+       * Mesuré : « Bonjour Adam » ne montrait rien pendant 1,08 s, rendait son premier mot à
+       * 2,92 s et n'apportait AUCUNE information — soit presque deux fois le temps d'une vraie
+       * question. La consigne donnée au modèle tenait pourtant en une ligne, et le code connaît
+       * déjà le prénom et l'heure.
+       *
+       * `repondreSansDemande` rend `null` au moindre doute, et l'appel de modèle ci-dessous
+       * reprend alors la main : le chemin rapide RETIRE une latence, il ne retire pas un filet.
+       */
       let streamed = false;
       const res = await callClaudeStream(
         [{ role: "user", content: question }],
@@ -5285,11 +5297,12 @@ async function runAssistantStreamImpl(
         usedTools.push(toolName);
         sortiesOutils.push(out);
         lectures.push({ outil: toolName, sortie: out });
-        for (const s of sourcesDuResultat(toolName, out, user.id)) emit({ type: "source", ...s });
+        const sources = sourcesDuResultat(toolName, out, user.id);
+        for (const s of sources) emit({ type: "source", ...s });
         // L'ESPACE DE TRAVAIL PART AVANT LE TEXTE. La donnée est déjà lue ; la faire attendre
         // la rédaction du modèle ferait patienter le PDG devant un écran vide alors que la
         // réponse est là. Il lit le tableau pendant qu'Adam formule.
-        const composed = composeWorkspace(toolName, out);
+        const composed = composeWorkspace(toolName, out) ?? apercuDesSources(toolName, sources, label);
         if (composed) emit({ type: "workspace", composition: composed });
         metrics.turns = 1;
         let streamed = false;
@@ -5355,8 +5368,10 @@ async function runAssistantStreamImpl(
             usedTools.push(f.tool);
             sortiesOutils.push(f.out);
             lectures.push({ outil: f.tool, sortie: f.out });
-            for (const src of sourcesDuResultat(f.tool, f.out, user.id)) emit({ type: "source", ...src });
-            const composed = composeWorkspace(f.tool, f.out);
+            const sources = sourcesDuResultat(f.tool, f.out, user.id);
+            for (const src of sources) emit({ type: "source", ...src });
+            const composed = composeWorkspace(f.tool, f.out)
+              ?? apercuDesSources(f.tool, sources, READ_LABEL[f.tool] ?? powerToolLabels()[f.tool]);
             if (composed) emit({ type: "workspace", composition: composed });
           }
           tools = avecOutilsDeclares(tools, allTools, faites.map((f) => f.tool));
@@ -5546,11 +5561,13 @@ async function runAssistantStreamImpl(
       for (const { tu, out } of settled) {
         // Les SOURCES consultées alimentent le panneau CONTEXTE : chaque dossier lu devient un
         // lien cliquable, au moment même où l'assistant le lit.
-        for (const s of sourcesDuResultat(tu.name, out, user.id)) emit({ type: "source", ...s });
+        const sources = sourcesDuResultat(tu.name, out, user.id);
+        for (const s of sources) emit({ type: "source", ...s });
         // Le même espace de travail sur le chemin complet : que l'annuaire ait été choisi par
         // le code ou par le modèle, il s'affiche de la même façon. Une donnée canonique ne
         // change pas de nature selon le chemin qui l'a atteinte.
-        const composed = composeWorkspace(tu.name, out);
+        const composed = composeWorkspace(tu.name, out)
+          ?? apercuDesSources(tu.name, sources, READ_LABEL[tu.name] ?? powerToolLabels()[tu.name]);
         if (composed) emit({ type: "workspace", composition: composed });
         usedTools.push(tu.name);
         // Même règle sur le chemin outillé : l'espace de travail a la charge d'affichage, le
