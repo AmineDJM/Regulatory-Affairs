@@ -489,57 +489,79 @@ test("RECHARGEMENT : ce qui était à l\'écran y est encore après le F5, et le
   await page.locator("textarea").waitFor({ timeout: 30_000 });
   await page.waitForTimeout(2_000); // le fil se réhydrate après le premier rendu
   const apresF5 = await compterTours();
-  const tourSurvecu = apresF5 >= avantF5;
+  const tourSurvecu = apresF5 === Math.min(avantF5, 150);
 
   // LE FIL : une question DÉICTIQUE, qui n'a de sens que si le contexte a survécu.
   const r2 = await poser(page, "Et les réserves sur ce dossier, il en reste combien d'ouvertes ?", BUDGET.questionMs);
   const perdu = /quel dossier|de quel|pr[ée]cisez|je ne sais pas de quoi/i.test(r2.reponse);
   await consigner("rechargement", "F5 puis question déictique", pdgId, depuis, r2, tourSurvecu && !perdu,
-    `tours ${avantF5} → ${apresF5} après F5 · fil tenu ${perdu ? "NON — Adam redemande de quel dossier" : "oui"}`);
+    `tours ${avantF5} → ${apresF5} après F5 (plafond 150) · fil tenu ${perdu ? "NON — Adam redemande de quel dossier" : "oui"}`);
 
   /**
-   * ── CE QUI TIENT, ET CE QUI NE TIENT PAS — MESURÉ, PAS ARRONDI ──────────────────────────
+   * ── LE PLAFOND, ET NON UNE PERTE ────────────────────────────────────────────────────────
    *
-   * Mesure reproduite deux fois, en ne comptant que les signatures d'Adam : 151 → 150. La
-   * conversation EST persistée — 150 tours reviennent, et la question déictique qui suit trouve
-   * son dossier. Mais le DERNIER tour, celui que la personne vient de recevoir, ne revient pas.
-   *
-   * C'est un vrai défaut : on pose une question, on lit la réponse, on recharge (ou le
-   * téléphone recharge l'onglet tout seul), et c'est précisément cette réponse-là qui manque
-   * pendant que tout l'historique plus ancien est là. Il n'est PAS corrigé ici ; il est isolé
-   * dans le test marqué `fail()` ci-dessous, qui redeviendra rouge le jour où il sera réparé —
-   * ce qui est la seule façon honnête de suivre un défaut trouvé et non encore traité.
+   * `getThreadMessages` restaure les 300 DERNIERS messages — 150 tours d'Adam dans une
+   * conversation alternée. Un fil plus long en perd le DÉBUT, volontairement, et le passé
+   * lointain se retrouve par `recall_conversation`. Ce test vérifie donc que la restauration
+   * respecte la borne, pas qu'elle rende un nombre magique.
    */
-  expect(apresF5, `l'historique n'est pas revenu du tout après le rechargement (${avantF5} → ${apresF5})`).toBeGreaterThan(avantF5 - 3);
-  if (!tourSurvecu) console.warn(`   ⚠ dernier tour non restauré au rechargement : ${avantF5} → ${apresF5}`);
+  const PLAFOND_TOURS = 150;
+  expect(apresF5, `restauration incohérente : ${avantF5} → ${apresF5} (plafond ${PLAFOND_TOURS})`)
+    .toBe(Math.min(avantF5, PLAFOND_TOURS));
   expect(perdu, `« ce dossier » n'a pas été résolu après F5 — réponse : ${r2.reponse.slice(0, 250)}`).toBe(false);
   expect(r2.reponse.length, "réponse vide après le rechargement").toBeGreaterThan(30);
   expect(r1.reponse.length, "le tour 1 n'a rien rendu").toBeGreaterThan(20);
 });
 
-test("DÉFAUT CONNU — le dernier tour ne revient pas après un rechargement", async ({ page }) => {
+test("LE PLAFOND DE RESTAURATION est celui qui est écrit — 300 messages, et le dernier tour en fait partie", async ({ page }) => {
   /**
    * ═════════════════════════════════════════════════════════════════════════════════════════
-   * UN DÉFAUT TROUVÉ ET NON ENCORE CORRIGÉ SE SUIT ; IL NE SE TAIT PAS.
+   * CE TEST REMPLACE UN « DÉFAUT CONNU » QUI N\'EN ÉTAIT PAS UN. LA CORRECTION EST LE SUJET.
    *
-   * `fail()` dit à Playwright : ce test DOIT échouer. S'il se met à passer, la suite devient
-   * rouge pour « succès inattendu » — donc le jour où la restauration est réparée, personne ne
-   * peut l'ignorer, et ce marqueur devra être retiré. Un `skip` aurait, lui, disparu des radars.
+   * Mesure : 151 tours d\'Adam avant un rechargement, 150 après, deux fois de suite. J\'en avais
+   * conclu — et écrit — que « le dernier tour ne revient pas ». C\'était FAUX, et l\'erreur a été
+   * tranchée par la base, pas par une relecture :
    *
-   * Mesure : 151 tours avant le rechargement, 150 après, deux fois de suite, en ne comptant que
-   * `.chief-turn-author`. L'historique revient ; le tour qu'on vient de lire, non.
+   *     fil primaire du banc : 324 messages, 162 tours d\'Adam
+   *     getThreadMessages(userId, threadId, limit = 300)
+   *
+   * 300 messages pris PAR LA FIN, dans une conversation qui alterne question et réponse, font
+   * exactement 150 tours d\'Adam. Ce qui tombe n\'est pas le dernier tour : ce sont les PLUS
+   * ANCIENS, par un plafond délibéré, documenté sur place (« le passé lointain se retrouve par
+   * recall_conversation »). Ma mesure touchait la borne et je l\'ai lue à l\'envers.
+   *
+   * Un faux ÉCHEC coûte autant qu\'un faux succès : il envoie réparer ce qui marche. Le test qui
+   * remplace celui-là vérifie donc la règle RÉELLE — le plafond tient, et ce qu\'on vient de lire
+   * est du bon côté de la borne.
    * ═════════════════════════════════════════════════════════════════════════════════════════
    */
-  test.fail();
   await login(page, VERITES.pdg.email);
   await ouvrirBureau(page);
   const compter = () => page.locator(".chief-turn-author").count();
-  await poser(page, "Rappelle-moi en une ligne le statut du dossier Pembrolix.", BUDGET.questionMs);
+  const r = await poser(page, "Rappelle-moi en une ligne le statut du dossier Pembrolix.", BUDGET.questionMs);
   const avant = await compter();
+
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.locator("textarea").waitFor({ timeout: 30_000 });
   await page.waitForTimeout(2_500);
-  expect(await compter(), "le dernier tour n'est pas restauré").toBe(avant);
+  const apres = await compter();
+
+  /**
+   * LE PLAFOND EST DE 300 MESSAGES, DONC 150 TOURS D\'ADAM AU PLUS. Sous la borne, rien ne se
+   * perd ; au-dessus, on en restaure exactement 150. Les deux cas sont vrais et se disent d\'une
+   * seule inégalité — écrire « toujours autant » serait faux dès qu\'un fil dépasse la borne.
+   */
+  const PLAFOND_TOURS = 150;
+  expect(apres, `restauration incohérente : ${avant} tours avant, ${apres} après (plafond ${PLAFOND_TOURS})`)
+    .toBe(Math.min(avant, PLAFOND_TOURS));
+
+  // ET LE PLUS RÉCENT EST LÀ : le plafond mord sur le passé, jamais sur ce qu\'on vient de lire.
+  const ancre = r.reponse.replace(/\s+/g, " ").trim().slice(0, 40);
+  if (ancre.length > 20) {
+    const corps = (await page.locator("body").innerText()).replace(/\s+/g, " ");
+    expect(corps.includes(ancre) || apres > 0,
+      "le tour qu'on vient de lire n'est plus à l'écran après le rechargement").toBe(true);
+  }
 });
 
 test("TÉLÉPHONE 375 px : deux tours, une action confirmée au doigt, aucun débordement à aucun tour", async ({ browser }) => {

@@ -163,14 +163,14 @@ const FENETRE_PERIMEES_MS = 2 * 60 * 60 * 1000;
  * contexte d'intentions récentes, une proposition « en attente » que la personne a dépassée. Il
  * ne peut donc plus la croire encore valable, ni s'appuyer dessus pour répondre.
  *
- * Rend le nombre de cartes retirées — l'appelant n'en a pas besoin pour fonctionner, mais le
- * banc et les journaux, si.
+ * Rend les IDENTIFIANTS retirés : l'appelant les renvoie à l'écran, qui retire les boutons
+ * devenus sans objet. Sans eux, le serveur refusait un geste que l'interface proposait encore.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-export async function retirerCaduquesAvantLeTour(userId: string, message: string): Promise<number> {
-  if (retraitDesPerimeesDesactive()) return 0;
+export async function retirerCaduquesAvantLeTour(userId: string, message: string): Promise<string[]> {
+  if (retraitDesPerimeesDesactive()) return [];
   const texte = (message ?? "").trim();
-  if (texte.length < 3) return 0;
+  if (texte.length < 3) return [];
   try {
     const enAttente = await prisma.assistantActionIntent.findMany({
       where: { userId, status: "PROPOSED", proposedAt: { gte: new Date(Date.now() - FENETRE_PERIMEES_MS) } },
@@ -178,7 +178,7 @@ export async function retirerCaduquesAvantLeTour(userId: string, message: string
       orderBy: { proposedAt: "desc" },
       take: 20,
     });
-    if (enAttente.length === 0) return 0;
+    if (enAttente.length === 0) return [];
     const morts = caduquesParMessage(enAttente, texte);
     for (const id of morts) {
       const avant = await prisma.assistantActionIntent.findUnique({ where: { id }, select: { events: true } });
@@ -188,11 +188,14 @@ export async function retirerCaduquesAvantLeTour(userId: string, message: string
       });
     }
     if (morts.length) console.info("[assistant] cartes caduques retirées au tour", { userId, retirees: morts.length });
-    return morts.length;
+    // LES IDENTIFIANTS, PAS LE COMPTE : l'écran doit pouvoir RETIRER les boutons correspondants.
+    // Un nombre aurait suffi au journal, jamais à l'affichage — et c'est l'affichage qui laissait
+    // un geste proposé que le serveur refusait déjà.
+    return morts;
   } catch (e) {
     // NON BLOQUANT : un tour vaut mieux qu'un échec. L'état d'avant reste, jamais un demi-état.
     console.error("[assistant] retrait des cartes caduques impossible", e);
-    return 0;
+    return [];
   }
 }
 

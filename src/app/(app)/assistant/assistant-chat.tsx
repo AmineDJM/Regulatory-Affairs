@@ -464,6 +464,9 @@ export function AssistantChat({
         actionResults: proposals.length ? proposals.map(() => undefined) : undefined,
         actionLinks: proposals.length ? proposals.map(() => undefined) : undefined,
       }]);
+      // LE TOUR NOMME LES CARTES QU'IL REND CADUQUES : on les éteint AVANT de rendre la main,
+      // pour qu'aucune frappe rapide ne tombe sur un bouton que le serveur refuse déjà.
+      if (res.perimees?.length) eteindrePerimees(res.perimees);
       if (res.threadId) { setThreadId(res.threadId); void refreshThreads(); }
       return res.reply || null;
     }
@@ -671,6 +674,34 @@ export function AssistantChat({
     } finally {
       confirmingAllRef.current.delete(msg.id);
     }
+  };
+
+  /**
+   * LES CARTES QUE LE SERVEUR VIENT DE RETIRER S'ÉTEIGNENT ICI.
+   *
+   * Mesuré au banc live : le PDG propose une tâche pour Raihana, puis dit « non, finalement
+   * Amel ». Le serveur annule la première (`CANCELLED` ; `executeIntentGuarded` la refuse), mais
+   * l'écran continuait de PEINDRE son bouton. Aucune écriture fausse — le serveur tenait — mais
+   * une interface qui offre un geste voué au refus, et l'ancienne carte restait la plus haute.
+   *
+   * On ne DEVINE rien côté client : on éteint exactement les identifiants que le tour a nommés
+   * (`perimees`). C'est le serveur qui décide ce qui est caduc ; l'écran ne fait que suivre.
+   */
+  const eteindrePerimees = (ids: string[]) => {
+    if (!ids.length) return;
+    const morts = new Set(ids);
+    setMessages((m) => m.map((x) => {
+      if (!x.proposals?.length || !x.actionStates) return x;
+      const actionStates = [...x.actionStates];
+      let touche = false;
+      x.proposals.forEach((a, i) => {
+        if (a.intentId && morts.has(a.intentId) && actionStates[i] !== "done") {
+          actionStates[i] = "cancelled";
+          touche = true;
+        }
+      });
+      return touche ? { ...x, actionStates } : x;
+    }));
   };
 
   const cancel = (msgId: number, index: number, intentId?: string) => {

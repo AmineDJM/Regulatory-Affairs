@@ -822,6 +822,16 @@ export interface AssistantResult {
    * Chacune s'exécute (ou s'annule) individuellement ; la confirmation groupée les enchaîne.
    */
   proposals?: ProposedAction[];
+  /**
+   * LES CARTES DES TOURS PRÉCÉDENTS QUE CE TOUR REND CADUQUES — leurs identifiants d'intention.
+   *
+   * Le banc live a montré la scène : une tâche proposée pour Raihana, puis « non, finalement
+   * Amel ». Le serveur retire bien la première (`CANCELLED`, et `executeIntentGuarded` la
+   * refuse), mais l'écran continuait de PEINDRE son bouton — un geste offert que le serveur
+   * refusera. Ces identifiants voyagent donc jusqu'au client, qui éteint les boutons devenus
+   * sans objet. La sécurité vivait déjà côté serveur ; ce qui manquait, c'était de le DIRE.
+   */
+  perimees?: string[];
   /** Fil de conversation dans lequel l'échange a été mémorisé (mémoire personnelle). */
   threadId?: string | null;
   /** Mesures de la boucle (flux uniquement) — journalisées par la route, pas affichées. */
@@ -4676,7 +4686,7 @@ async function runAssistantImpl(
    * pour répondre. Mesuré au banc live : la carte « tâche pour Raihana, vendredi » a survécu à
    * « non, finalement Amel, et lundi », et le clic l'a exécutée telle quelle.
    */
-  await retirerCaduquesAvantLeTour(user.id, String(messages[messages.length - 1]?.content ?? ""));
+  const perimees = await retirerCaduquesAvantLeTour(user.id, String(messages[messages.length - 1]?.content ?? ""));
   const [intentsCtx, identite] = await Promise.all([
     recentActionIntentsContext(user.id).catch(() => null),
     assistantIdentityContext(user).catch(() => null),
@@ -4786,7 +4796,10 @@ async function runAssistantImpl(
     const faits = faitsDuTour(lectures, { acteur: user.id });
     // LA CALIBRATION DU TOUR (§29) : le code dit ce que le tour a établi et ce que ça commande.
     const { resultat, calibration } = calibrerTour(question, faits, r);
-    return { ...resultat, provenance: faits, calibration };
+    // LES CARTES DEVENUES CADUQUES VOYAGENT AVEC LE TOUR — ici et nulle part ailleurs, parce que
+    // c'est le seul passage commun à toutes les sorties de ce chemin. Les poser sur chaque
+    // `return` aurait laissé passer celui qu'on oublie, et c'est toujours celui-là qui compte.
+    return { ...resultat, provenance: faits, calibration, ...(perimees.length ? { perimees } : {}) };
   };
   let discoveryCalls = 0;
 
@@ -5153,7 +5166,7 @@ async function runAssistantStreamImpl(
   // appel de modèle, c'est-à-dire avant le premier mot. Mesuré en phase « contexte ».
   const tCtx = Date.now();
   // Même règle qu'en non-streaming, et pour la même raison : le retrait précède le modèle.
-  await retirerCaduquesAvantLeTour(user.id, String(messages[messages.length - 1]?.content ?? ""));
+  const perimees = await retirerCaduquesAvantLeTour(user.id, String(messages[messages.length - 1]?.content ?? ""));
   const [intentsCtx, spoken, identite] = await Promise.all([
     recentActionIntentsContext(user.id).catch(() => null),
     // UN ACCORD CONCLUT — même règle qu'en variante non diffusée, et pour la même raison : c'est
@@ -5258,7 +5271,10 @@ async function runAssistantStreamImpl(
     const faits = faitsDuTour(lectures, { acteur: user.id });
     // LA CALIBRATION DU TOUR (§29) : le code dit ce que le tour a établi et ce que ça commande.
     const { resultat, calibration } = calibrerTour(question, faits, r);
-    return { ...resultat, provenance: faits, calibration };
+    // LES CARTES DEVENUES CADUQUES VOYAGENT AVEC LE TOUR — ici et nulle part ailleurs, parce que
+    // c'est le seul passage commun à toutes les sorties de ce chemin. Les poser sur chaque
+    // `return` aurait laissé passer celui qu'on oublie, et c'est toujours celui-là qui compte.
+    return { ...resultat, provenance: faits, calibration, ...(perimees.length ? { perimees } : {}) };
   };
   let discoveryCalls = 0;
   const started = Date.now();
