@@ -4,6 +4,7 @@ import nodemailer from "nodemailer";
 import { simpleParser } from "mailparser";
 import type { MailAccount } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { exigerSortieAutorisee, sortieAutorisee } from "@/lib/sortie/garde";
 
 /**
  * Couche e-mail — **serveur uniquement** (jamais côté client). Connexion par
@@ -574,6 +575,13 @@ export interface MailAttachment { filename: string; content: Buffer; contentType
 export interface SendOptions { to: string; cc?: string; subject: string; text?: string; html?: string; attachments?: MailAttachment[] }
 
 export async function sendMail(account: MailAccount, opts: SendOptions): Promise<void> {
+  // LA GARDE D'ABORD — avant de composer, avant de déchiffrer le mot de passe SMTP, avant
+  // d'ouvrir quoi que ce soit. Un banc qui échoue APRÈS avoir lu un identifiant a déjà fait
+  // une chose de trop.
+  exigerSortieAutorisee("COURRIEL", opts.to, {
+    apercu: `« ${opts.subject} »${opts.attachments?.length ? ` + ${opts.attachments.length} pièce(s)` : ""}`,
+    origine: "mail:sendMail",
+  });
   const mail = {
     from: account.displayName ? `"${account.displayName}" <${account.email}>` : account.email,
     to: opts.to,

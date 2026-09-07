@@ -42,6 +42,13 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       DATABASE_URL: DB_URL,
+      // ── LE KILL SWITCH SORTANT (`src/lib/sortie/garde.ts`) ──────────────────────────
+      // Le banc pilote un VRAI serveur : tout y est vrai sauf l'intention. C'est exactement le
+      // cas où un envoi part pour de bon. Le serveur est donc démarré avec les sorties
+      // INTERDITES — la porte refuse AVANT d'ouvrir un transport, quel que soit l'adaptateur.
+      // Sans cette ligne, `PLAYWRIGHT` ne franchit pas la frontière de processus et le serveur
+      // se croirait en production : la garde ne verrait rien.
+      ADAM_SORTIE_INTERDITE: "1",
       NEXTAUTH_URL: "http://localhost:3100",
       // MÊME source que le seed (`E2E.authSecret`) : la clé de chiffrement des blobs Drive en
       // est dérivée, et deux valeurs différentes rendent les fichiers du seed illisibles.

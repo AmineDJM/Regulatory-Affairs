@@ -1,5 +1,6 @@
 import webpush from "web-push";
 import { prisma } from "./prisma";
+import { sortieAutorisee } from "@/lib/sortie/garde";
 
 /**
  * Notifications **push** (Web Push / PWA) — serveur uniquement.
@@ -89,6 +90,10 @@ export interface PushPayload {
 
 /** Pousse une notification à tous les appareils d'un utilisateur (best-effort). */
 export async function sendPushToUser(userId: string, payload: PushPayload): Promise<void> {
+  // Une notification poussée est « au mieux » : elle ne doit pas faire tomber une mission. On
+  // prend donc la variante qui NE LÈVE PAS — mais qui enregistre quand même la tentative, pour
+  // que le banc puisse dire ce qu'Adam aurait notifié.
+  if (!sortieAutorisee("NOTIFICATION_PUSH", userId, { apercu: payload.title, origine: "push:sendPushToUser" })) return;
   if (!(await ensureVapid())) return;
   try {
     const subs = await prisma.pushSubscription.findMany({ where: { userId } });

@@ -61,6 +61,13 @@ export default defineConfig({
       // s'ouvre avec un champ désactivé et « IA non configurée » — mesuré à la première passe.
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "banc-live-cle-presente-mais-non-utilisee",
       NODE_USE_ENV_PROXY: "1",
+      // ── LE KILL SWITCH SORTANT (`src/lib/sortie/garde.ts`) ──────────────────────────
+      // Le banc pilote un VRAI serveur : tout y est vrai sauf l'intention. C'est exactement le
+      // cas où un envoi part pour de bon. Le serveur est donc démarré avec les sorties
+      // INTERDITES — la porte refuse AVANT d'ouvrir un transport, quel que soit l'adaptateur.
+      // Sans cette ligne, `PLAYWRIGHT` ne franchit pas la frontière de processus et le serveur
+      // se croirait en production : la garde ne verrait rien.
+      ADAM_SORTIE_INTERDITE: "1",
       TZ: "UTC",
       // L'ingestion universelle (§37) : la route des webhooks est FERMÉE sans secret ; le banc en pose un
       // et signe ses propres livraisons avec (voir e2e-live/adam-live.spec.ts).

@@ -58,6 +58,22 @@ let infos: unknown[][];
 const realFetch = global.fetch;
 
 beforeEach(() => {
+  /**
+   * LE SEUL ENDROIT OÙ LA PORTE DE SORTIE S'OUVRE, ET POURQUOI C'EST LÉGITIME ICI.
+   *
+   * `sortie/garde.ts` interdit tout envoi pendant un test — c'est ce qui garantit qu'aucune
+   * personne réelle n'est contactée. Or ce fichier a précisément pour objet de vérifier le
+   * CHEMIN D'ENVOI : que l'appel se fait en deux temps, que le corps porte les destinataires,
+   * qu'un échec à la seconde étape dit « le message est resté dans vos brouillons ». Sans cette
+   * clé, on ne testerait plus l'envoi, on testerait la garde — et le jour où le fournisseur
+   * Microsoft changerait de forme, personne ne le verrait.
+   *
+   * Ce n'est pas une exception de confort : `global.fetch` est ENTIÈREMENT bouché juste
+   * au-dessus, aucune socket n'est ouverte, aucune adresse réelle n'existe dans ce fichier. La
+   * clé est retirée après chaque cas, et `garde.test.ts` vérifie qu'aucun code de PRODUCTION
+   * ne peut la poser.
+   */
+  process.env.ADAM_SORTIE_AUTORISEE = "1";
   logs = [];
   infos = [];
   vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => { logs.push(a); });
@@ -65,6 +81,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete process.env.ADAM_SORTIE_AUTORISEE;
   vi.restoreAllMocks();
   global.fetch = realFetch;
 });
