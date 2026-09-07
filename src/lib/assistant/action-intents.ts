@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import type { PowerTool } from "@/lib/assistant/power-tools";
+import { caduquesParMessage, propositionsPerimees, retraitDesPerimeesDesactive, type PropositionComparable } from "@/lib/assistant/proposition-perimee";
 
 /**
  * ACTION INTENTS — la machine d'état SERVEUR unique des actions de l'assistant.
@@ -89,7 +90,110 @@ export async function persistActionIntents(
       out.push(null);
     }
   }
+  await retirerPerimees(userId, seeds, out).catch((e) => console.error("[assistant] retrait des propositions périmées impossible", e));
   return out;
+}
+
+/**
+ * LES CARTES QUE CE LOT REND CADUQUES SONT RETIRÉES — mesuré dans le vrai chat.
+ *
+ * Le banc live a joué la scène : une tâche proposée pour Raihana, puis « non, finalement Amel, et
+ * lundi ». Les DEUX cartes restaient exécutables, et un clic sur la première a créé la tâche que
+ * le PDG venait d'annuler — la mauvaise personne, la mauvaise échéance, et un reçu qui dit
+ * « fait ». La règle (`proposition-perimee.ts`) ne lit pas la phrase : elle compare les DEUX
+ * propositions, et ne retire que ce qui est de même nature ET de même sujet.
+ *
+ * Le retrait passe par CANCELLED, l'état qui existe déjà pour « jamais exécutée » (§5 : ne rien
+ * recréer). L'événement journalisé porte la raison, pour que l'audit distingue une annulation
+ * décidée par la personne d'un retrait décidé par le code.
+ *
+ * NON BLOQUANT : la proposition nouvelle est déjà écrite quand on arrive ici. Une panne de
+ * retrait laisse l'état d'AVANT, jamais un état à moitié appliqué.
+ */
+async function retirerPerimees(userId: string, seeds: IntentSeed[], ids: (string | null)[]): Promise<void> {
+  if (retraitDesPerimeesDesactive()) return;
+  const nouvelles: PropositionComparable[] = seeds.flatMap((seed, i) => {
+    const id = ids[i];
+    return id ? [{ id, kind: seed.kind, title: seed.title, summary: intentSummary(seed) }] : [];
+  });
+  if (nouvelles.length === 0) return;
+
+  // LA FENÊTRE : les propositions encore en attente de CETTE personne. Une carte vieille de
+  // plusieurs jours n'est plus à l'écran ; la retirer n'aiderait personne et brouillerait l'audit.
+  const enAttente = await prisma.assistantActionIntent.findMany({
+    where: {
+      userId, status: "PROPOSED",
+      id: { notIn: nouvelles.map((n) => n.id) },
+      proposedAt: { gte: new Date(Date.now() - FENETRE_PERIMEES_MS) },
+    },
+    select: { id: true, kind: true, title: true, summary: true },
+    orderBy: { proposedAt: "desc" },
+    take: 20,
+  });
+  const morts = propositionsPerimees(nouvelles, enAttente);
+  if (morts.length === 0) return;
+
+  for (const id of morts) {
+    const avant = await prisma.assistantActionIntent.findUnique({ where: { id }, select: { events: true } });
+    await prisma.assistantActionIntent.updateMany({
+      // `status: "PROPOSED"` dans le filtre : si la personne a confirmé entre-temps, on ne
+      // touche à rien. Une écriture lancée ne s'annule pas depuis ici.
+      where: { id, status: "PROPOSED" },
+      data: { status: "CANCELLED", decidedAt: new Date(), events: pushEvent(avant?.events, "CANCELLED_SUPERSEDED") as object },
+    });
+  }
+  console.info("[assistant] propositions périmées retirées", { userId, retirees: morts.length, parLot: nouvelles.length });
+}
+
+/** Deux heures : au-delà, la carte n'est plus sous les yeux de personne. */
+const FENETRE_PERIMEES_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * AU DÉBUT DE CHAQUE TOUR : LA CARTE DONT LA PERSONNE VIENT DE REPARLER N'A PLUS COURS.
+ *
+ * `retirerPerimees` ne s'exécute que quand le tour PRODUIT une proposition. Le banc live a
+ * montré le cas plus grave, et plus fréquent : le tour n'en produit AUCUNE. « Non, finalement
+ * pas Raihana : c'est Amel Haddad, et l'échéance c'est lundi » a reçu une réponse en texte, et
+ * la carte du tour précédent — Raihana, vendredi — est restée seule et cliquable. Le journal
+ * des intentions du tour fautif ne porte qu'une ligne : la preuve qu'il n'y a jamais eu de
+ * seconde proposition à comparer.
+ *
+ * Le retrait a lieu AVANT le modèle, et c'est le point : Adam ne reçoit alors plus, dans son
+ * contexte d'intentions récentes, une proposition « en attente » que la personne a dépassée. Il
+ * ne peut donc plus la croire encore valable, ni s'appuyer dessus pour répondre.
+ *
+ * Rend le nombre de cartes retirées — l'appelant n'en a pas besoin pour fonctionner, mais le
+ * banc et les journaux, si.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function retirerCaduquesAvantLeTour(userId: string, message: string): Promise<number> {
+  if (retraitDesPerimeesDesactive()) return 0;
+  const texte = (message ?? "").trim();
+  if (texte.length < 3) return 0;
+  try {
+    const enAttente = await prisma.assistantActionIntent.findMany({
+      where: { userId, status: "PROPOSED", proposedAt: { gte: new Date(Date.now() - FENETRE_PERIMEES_MS) } },
+      select: { id: true, kind: true, title: true, summary: true },
+      orderBy: { proposedAt: "desc" },
+      take: 20,
+    });
+    if (enAttente.length === 0) return 0;
+    const morts = caduquesParMessage(enAttente, texte);
+    for (const id of morts) {
+      const avant = await prisma.assistantActionIntent.findUnique({ where: { id }, select: { events: true } });
+      await prisma.assistantActionIntent.updateMany({
+        where: { id, status: "PROPOSED" },
+        data: { status: "CANCELLED", decidedAt: new Date(), events: pushEvent(avant?.events, "CANCELLED_SUPERSEDED") as object },
+      });
+    }
+    if (morts.length) console.info("[assistant] cartes caduques retirées au tour", { userId, retirees: morts.length });
+    return morts.length;
+  } catch (e) {
+    // NON BLOQUANT : un tour vaut mieux qu'un échec. L'état d'avant reste, jamais un demi-état.
+    console.error("[assistant] retrait des cartes caduques impossible", e);
+    return 0;
+  }
 }
 
 export interface IntentExecuteResult {

@@ -125,7 +125,7 @@ import {
 } from "@/lib/assistant/power-tools";
 import { executiveBriefing } from "@/lib/assistant/executive-tools";
 import { conversationWorkingSet, isHighStakesQuestion, queryPlan, queryPlanContext } from "@/lib/assistant/reasoning";
-import { persistActionIntents, recentActionIntentsContext } from "@/lib/assistant/action-intents";
+import { persistActionIntents, recentActionIntentsContext, retirerCaduquesAvantLeTour } from "@/lib/assistant/action-intents";
 import { toNumber } from "@/lib/utils";
 import {
   sitsOnPaymentCentre, applyDecision, CENTRAL_STATUS_LABEL, CENTRAL_DECISION_LABEL,
@@ -4668,6 +4668,15 @@ async function runAssistantImpl(
   // + ACTIONS RÉCENTES : l'état CANONIQUE serveur des dernières intentions — « est-ce que je
   // te l'avais déjà demandé ? » se répond depuis cet état, jamais de mémoire.
   const workingSet = conversationWorkingSet(history);
+  /**
+   * LES CARTES DÉPASSÉES PARTENT AVANT LE MODÈLE, PAS APRÈS.
+   *
+   * L'ordre compte : si le retrait venait après, Adam recevrait dans `intentsCtx` une
+   * proposition « en attente » que la personne vient de corriger, et pourrait s'appuyer dessus
+   * pour répondre. Mesuré au banc live : la carte « tâche pour Raihana, vendredi » a survécu à
+   * « non, finalement Amel, et lundi », et le clic l'a exécutée telle quelle.
+   */
+  await retirerCaduquesAvantLeTour(user.id, String(messages[messages.length - 1]?.content ?? ""));
   const [intentsCtx, identite] = await Promise.all([
     recentActionIntentsContext(user.id).catch(() => null),
     assistantIdentityContext(user).catch(() => null),
@@ -5143,6 +5152,8 @@ async function runAssistantStreamImpl(
   // identité d'envoi. Elles étaient en file : trois allers-retours de base avant le premier
   // appel de modèle, c'est-à-dire avant le premier mot. Mesuré en phase « contexte ».
   const tCtx = Date.now();
+  // Même règle qu'en non-streaming, et pour la même raison : le retrait précède le modèle.
+  await retirerCaduquesAvantLeTour(user.id, String(messages[messages.length - 1]?.content ?? ""));
   const [intentsCtx, spoken, identite] = await Promise.all([
     recentActionIntentsContext(user.id).catch(() => null),
     // UN ACCORD CONCLUT — même règle qu'en variante non diffusée, et pour la même raison : c'est

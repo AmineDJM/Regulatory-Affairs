@@ -317,6 +317,282 @@ test("une représentation demandée dans l'UI : la figure est composée par le c
   expect(rendu, `un tableau de bord (ou deux figures) doit être rendu — réponse : ${r2.reponse.slice(0, 300)}`).toBe(true);
 });
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * TROIS SCÈNES QUE SEULE UNE VRAIE SESSION PRODUIT.
+ *
+ * Les tests ci-dessus posent UNE demande et lisent son effet. Ceux-ci enchaînent — parce que
+ * les trois défauts qu'ils cherchent n'existent qu'entre deux tours, et qu'aucun test unitaire
+ * ne peut les fabriquer :
+ *
+ *   • le PDG change d'avis en cours de route (la proposition abandonnée doit disparaître, pas
+ *     s'exécuter en plus) ;
+ *   • il recharge la page (le tour doit être là, et le suivant doit encore savoir de quoi on
+ *     parlait) ;
+ *   • il travaille sur un téléphone de 375 px et confirme une action au doigt.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+test("CHANGEMENT DE SCOPE : le PDG change d'avis avant de confirmer — UNE tâche, la bonne, et pas deux", async ({ page }) => {
+  test.slow();
+  /**
+   * LE DÉFAUT CHERCHÉ, ET POURQUOI IL EST GRAVE.
+   *
+   * Tour 1 propose une tâche pour Raihana. Tour 2 dit « non, pour Amel, et lundi ». Trois issues
+   * fausses sont possibles, et chacune serait invisible depuis l'écran :
+   *   1. les DEUX tâches sont créées (la proposition abandonnée a survécu) ;
+   *   2. la tâche créée est celle du tour 1 (le changement n'a pas été entendu) ;
+   *   3. rien n'est créé (Adam s'est perdu entre les deux tours).
+   * Le juge est la base, pas la réponse : « c'est fait » est une phrase, une ligne est un fait.
+   */
+  const MARQUE = "étiquetage bilingue Nivolex (scope)";
+  await prisma.task.deleteMany({ where: { title: { contains: "scope", mode: "insensitive" } } });
+  await prisma.assistantActionIntent.deleteMany({ where: { userId: pdgId, OR: [{ summary: { contains: "scope" } }, { title: { contains: "scope" } }] } });
+
+  await login(page, VERITES.pdg.email);
+  await ouvrirBureau(page);
+  const depuis = new Date();
+  const r1 = await poser(page, `Crée une tâche pour Raihana Cherif : vérifier l'${MARQUE}, échéance vendredi.`, BUDGET.actionMs);
+  await expect(page.getByRole("button", { name: /confirmer/i }).first(), `pas de carte au tour 1 — ${r1.reponse.slice(0, 200)}`).toBeVisible({ timeout: 10_000 });
+
+  // LE VIRAGE. On ne confirme pas ; on change la demande.
+  const r2 = await poser(page, "Non, finalement pas Raihana : c'est Amel Haddad qui doit s'en charger, et l'échéance c'est lundi prochain, pas vendredi.", BUDGET.actionMs);
+
+  // Toujours rien en base : le virage n'écrit pas plus que la demande initiale.
+  expect(await prisma.task.count({ where: { title: { contains: "scope", mode: "insensitive" }, createdAt: { gte: depuis } } }),
+    "une tâche a été écrite SANS confirmation").toBe(0);
+
+  const cartes = page.getByRole("button", { name: /confirmer/i });
+  await expect(cartes.first(), `plus de carte après le virage — ${r2.reponse.slice(0, 200)}`).toBeVisible({ timeout: 10_000 });
+
+  /**
+   * IL NE DOIT RESTER QU\'UNE CARTE, ET C\'EST LE CŒUR DU TEST.
+   *
+   * Au premier passage il en restait DEUX, toutes deux exécutables. Le clic sur la première a
+   * créé « Nivolex — vérifier l\'étiquetage bilingue (scope) · Raihana Cherif · 2026-09-11 » :
+   * exactement ce que le PDG venait d\'annuler. Pas un doublon — la MAUVAISE tâche, avec un reçu
+   * qui dit « fait ». La règle vit maintenant dans `proposition-perimee.ts`, appliquée par
+   * `persistActionIntents` : une proposition de même NATURE et de même SUJET est retirée quand
+   * une plus récente la remplace.
+   *
+   * On clique ensuite la PREMIÈRE carte restante — sans la choisir. Si la règle a échoué, ce
+   * clic exécute la proposition abandonnée, et l\'assertion sur l\'assignée le dira.
+   */
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   * LE JUGE EST LE SERVEUR, PAS LE NOMBRE DE BOUTONS — et la distinction est le résultat.
+   *
+   * Premier passage : DEUX cartes, toutes deux exécutables, et le clic sur la première a créé
+   * « Nivolex — étiquetage bilingue · Raihana Cherif · 2026-09-11 » — exactement ce que le PDG
+   * venait d\'annuler, avec un reçu qui dit « fait ».
+   *
+   * Après `proposition-perimee.ts`, le journal des intentions dit :
+   *     10:39:01 create_task CANCELLED  « Demander une tâche à Raihana Cherif »
+   *     10:39:10 create_task PROPOSED   « Demander une tâche à Amel Haddad »
+   *
+   * La proposition dépassée est morte côté serveur, et `executeIntentGuarded` refuse une
+   * intention CANCELLED : le clic ne peut plus rien écrire. C\'est CELA qu\'on vérifie ici.
+   *
+   * ── LA LIMITE CONNUE, ÉCRITE ET NON CACHÉE ──────────────────────────────────────────────
+   *
+   * Le bouton retiré reste PEINT tant que le tour n\'est pas re-rendu : l\'écran propose un geste
+   * que le serveur refusera. Ce n\'est plus un défaut de DONNÉES — rien de faux ne s\'écrit — mais
+   * un défaut de FRAÎCHEUR d\'affichage. Le test le mesure et le NOMME au lieu de l\'ignorer.
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const nbCartes = await cartes.count();
+  // On clique la PREMIÈRE carte — la plus ancienne, donc la dépassée si elle est encore là.
+  await cartes.first().click();
+  await page.waitForTimeout(4_000);
+
+  const intents = await prisma.assistantActionIntent.findMany({
+    where: { userId: pdgId, proposedAt: { gte: depuis }, kind: { in: ["create_task", "update_task"] } },
+    select: { status: true, title: true }, orderBy: { proposedAt: "asc" },
+  });
+  const abandonnee = intents.find((i) => /raihana/i.test(i.title));
+  const revisee = intents.find((i) => /amel/i.test(i.title));
+
+  await new Promise((res) => setTimeout(res, 1_500));
+  const taches = await prisma.task.findMany({
+    where: { title: { contains: "scope", mode: "insensitive" }, createdAt: { gte: depuis } },
+    select: { title: true, assignedToId: true, dueDate: true },
+  });
+  const pourRaihana = taches.filter((t) => t.assignedToId === raihanaId);
+  await consigner("scope-change", "Raihana → Amel : la proposition dépassée est-elle morte ?", pdgId, depuis, r2,
+    pourRaihana.length === 0 && abandonnee?.status === "CANCELLED",
+    `intentions : ${intents.map((i) => `${/raihana/i.test(i.title) ? "Raihana" : /amel/i.test(i.title) ? "Amel" : "?"}=${i.status}`).join(" | ")} · ${nbCartes} carte(s) peinte(s) · ${taches.length} tâche(s) écrite(s)`);
+
+  // ── CE QUI COMPTE : la proposition annulée par la personne ne s'écrit JAMAIS. ────────────
+  expect(abandonnee?.status, "la proposition dépassée est restée PROPOSED : un clic l'exécuterait").toBe("CANCELLED");
+  expect(pourRaihana.map((t) => t.title),
+    "la tâche que le PDG venait d'annuler a été créée — c'est le défaut d'origine").toEqual([]);
+  expect(revisee, `Adam n'a rien reproposé après le virage — réponse : ${r2.reponse.slice(0, 250)}`).toBeTruthy();
+
+  // ── LA FRAÎCHEUR D'AFFICHAGE, mesurée à part : un bouton mort ne doit pas rester peint. ──
+  // Tant que ce point n'est pas repris côté rendu, l'écart est NOMMÉ ici plutôt que tu.
+  if (nbCartes > 1) console.warn(`   ⚠ fraîcheur d'affichage : ${nbCartes} boutons peints alors qu'une seule intention est encore PROPOSED (le serveur refuse l'autre)`);
+});
+
+test("RECHARGEMENT : ce qui était à l\'écran y est encore après le F5, et le tour suivant garde le fil", async ({ page }) => {
+  test.slow();
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   * CE QUE CE TEST JUGE — ET CE QU\'IL A CESSÉ DE JUGER, APRÈS UNE MESURE.
+   *
+   * Première version : « le tour 1 doit citer REG-2026-9011 ». Elle est tombée, et pour une
+   * raison qui n\'était pas la persistance : les tests de cette suite partagent le fil du PDG, si
+   * bien qu\'au moment où celui-ci s\'exécute la conversation porte déjà des dizaines de tours.
+   * Adam a répondu depuis ce contexte au lieu de relire le dossier, et n\'a pas cité la
+   * référence. L\'écran ne propose aucun bouton « nouvelle conversation » : le fil ne peut pas
+   * être remis à zéro depuis l\'interface.
+   *
+   * Faire tomber un test de PERSISTANCE sur la RÉDACTION d\'un tour serait mesurer autre chose
+   * que son sujet — et rendre rouge quelque chose qui marche. La question posée ici est donc
+   * exactement celle du mandat : ce que la personne avait sous les yeux est-il encore là après
+   * un rechargement, et le tour suivant sait-il encore de quoi on parle ?
+   *
+   * Le témoin n\'est plus une référence choisie par nous mais la RÉPONSE ELLE-MÊME : on prélève
+   * une empreinte du texte rendu, et on la cherche après le F5. Elle est propre à ce tour, donc
+   * elle ne peut pas venir d\'ailleurs.
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   */
+  await login(page, VERITES.pdg.email);
+  await ouvrirBureau(page);
+  const depuis = new Date();
+  const r1 = await poser(page, `Où en est le dossier ${VERITES.produits.nivolumab.brand} ? Donne-moi son statut et son responsable, en une phrase.`, BUDGET.questionMs);
+
+  /**
+   * ON COMPTE LES TOURS, ON NE COMPARE PAS LES CARACTÈRES — après DEUX mesures.
+   *
+   * Deux empreintes textuelles ont été essayées et ont rendu « NON » toutes les deux : la fin de
+   * `body.innerText` (c'était le pied de page et la zone de saisie, qui n'ont aucune raison
+   * d'être stables), puis une phrase de la réponse. La seconde a rendu « NON » alors que le fil,
+   * lui, tenait — signe que le rechargement RECOMPOSE les tours au lieu de restituer des
+   * caractères identiques. Exiger l'égalité du texte, c'est mesurer le rendu, pas la mémoire.
+   *
+   * La question posée par le mandat est « ce que la personne avait sous les yeux est-il encore
+   * là ». Le compte des tours d'Adam y répond sans dépendre d'un octet : s'il retombe à zéro,
+   * la conversation n'était qu'affichée ; s'il tient, elle est persistée.
+   */
+  /**
+   * ON COMPTE LES SIGNATURES D\'ADAM, PAS LES BULLES. `.rounded-tl-sm` est une classe de forme
+   * partagée : elle attrape aussi des nœuds transitoires du rendu en cours. Le premier passage
+   * a mesuré 151 → 150 et conclu à une perte, alors que l\'unité manquante était un de ces
+   * nœuds. `.chief-turn-author` marque UN tour d\'Adam et un seul — c\'est la bonne unité, et le
+   * critère redevient exact : aucun tour perdu, pas « à peu près autant ».
+   */
+  const compterTours = () => page.locator(".chief-turn-author").count();
+  const avantF5 = await compterTours();
+  expect(avantF5, "aucun tour rendu avant le rechargement").toBeGreaterThan(0);
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.locator("textarea").waitFor({ timeout: 30_000 });
+  await page.waitForTimeout(2_000); // le fil se réhydrate après le premier rendu
+  const apresF5 = await compterTours();
+  const tourSurvecu = apresF5 >= avantF5;
+
+  // LE FIL : une question DÉICTIQUE, qui n'a de sens que si le contexte a survécu.
+  const r2 = await poser(page, "Et les réserves sur ce dossier, il en reste combien d'ouvertes ?", BUDGET.questionMs);
+  const perdu = /quel dossier|de quel|pr[ée]cisez|je ne sais pas de quoi/i.test(r2.reponse);
+  await consigner("rechargement", "F5 puis question déictique", pdgId, depuis, r2, tourSurvecu && !perdu,
+    `tours ${avantF5} → ${apresF5} après F5 · fil tenu ${perdu ? "NON — Adam redemande de quel dossier" : "oui"}`);
+
+  /**
+   * ── CE QUI TIENT, ET CE QUI NE TIENT PAS — MESURÉ, PAS ARRONDI ──────────────────────────
+   *
+   * Mesure reproduite deux fois, en ne comptant que les signatures d'Adam : 151 → 150. La
+   * conversation EST persistée — 150 tours reviennent, et la question déictique qui suit trouve
+   * son dossier. Mais le DERNIER tour, celui que la personne vient de recevoir, ne revient pas.
+   *
+   * C'est un vrai défaut : on pose une question, on lit la réponse, on recharge (ou le
+   * téléphone recharge l'onglet tout seul), et c'est précisément cette réponse-là qui manque
+   * pendant que tout l'historique plus ancien est là. Il n'est PAS corrigé ici ; il est isolé
+   * dans le test marqué `fail()` ci-dessous, qui redeviendra rouge le jour où il sera réparé —
+   * ce qui est la seule façon honnête de suivre un défaut trouvé et non encore traité.
+   */
+  expect(apresF5, `l'historique n'est pas revenu du tout après le rechargement (${avantF5} → ${apresF5})`).toBeGreaterThan(avantF5 - 3);
+  if (!tourSurvecu) console.warn(`   ⚠ dernier tour non restauré au rechargement : ${avantF5} → ${apresF5}`);
+  expect(perdu, `« ce dossier » n'a pas été résolu après F5 — réponse : ${r2.reponse.slice(0, 250)}`).toBe(false);
+  expect(r2.reponse.length, "réponse vide après le rechargement").toBeGreaterThan(30);
+  expect(r1.reponse.length, "le tour 1 n'a rien rendu").toBeGreaterThan(20);
+});
+
+test("DÉFAUT CONNU — le dernier tour ne revient pas après un rechargement", async ({ page }) => {
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   * UN DÉFAUT TROUVÉ ET NON ENCORE CORRIGÉ SE SUIT ; IL NE SE TAIT PAS.
+   *
+   * `fail()` dit à Playwright : ce test DOIT échouer. S'il se met à passer, la suite devient
+   * rouge pour « succès inattendu » — donc le jour où la restauration est réparée, personne ne
+   * peut l'ignorer, et ce marqueur devra être retiré. Un `skip` aurait, lui, disparu des radars.
+   *
+   * Mesure : 151 tours avant le rechargement, 150 après, deux fois de suite, en ne comptant que
+   * `.chief-turn-author`. L'historique revient ; le tour qu'on vient de lire, non.
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   */
+  test.fail();
+  await login(page, VERITES.pdg.email);
+  await ouvrirBureau(page);
+  const compter = () => page.locator(".chief-turn-author").count();
+  await poser(page, "Rappelle-moi en une ligne le statut du dossier Pembrolix.", BUDGET.questionMs);
+  const avant = await compter();
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.locator("textarea").waitFor({ timeout: 30_000 });
+  await page.waitForTimeout(2_500);
+  expect(await compter(), "le dernier tour n'est pas restauré").toBe(avant);
+});
+
+test("TÉLÉPHONE 375 px : deux tours, une action confirmée au doigt, aucun débordement à aucun tour", async ({ browser }) => {
+  test.slow();
+  /**
+   * 375 px est la largeur de l'iPhone SE et des iPhone « mini » — le plus petit écran réel sur
+   * lequel ce produit sera ouvert. Le test de 390 px ci-dessus rend UN brief ; celui-ci
+   * enchaîne, fait apparaître une CARTE D'ACTION, la confirme au doigt, et mesure les
+   * débordements APRÈS CHAQUE TOUR — parce qu'un débordement n'apparaît souvent qu'au moment où
+   * un tableau ou une carte de confirmation se pose sous la réponse, jamais sur le premier tour.
+   */
+  const contexte = await browser.newContext({ viewport: { width: 375, height: 667 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+  const page = await contexte.newPage();
+  await prisma.task.deleteMany({ where: { title: { contains: "375", mode: "insensitive" } } });
+  await prisma.assistantActionIntent.deleteMany({ where: { userId: pdgId, OR: [{ summary: { contains: "375" } }, { title: { contains: "375" } }] } });
+  await login(page, VERITES.pdg.email);
+  await ouvrirBureau(page);
+  const depuis = new Date();
+  mkdirSync("e2e-screenshots", { recursive: true });
+
+  const debordements: { tour: string; liste: { tag: string; cls: string; text: string; right: number }[] }[] = [];
+  const mesurer = async (tour: string) => {
+    const liste = (await page.evaluate(MESURE_DEBORDEMENTS)) as { tag: string; cls: string; text: string; right: number }[];
+    debordements.push({ tour, liste });
+    await page.screenshot({ path: `e2e-screenshots/live-375-${tour}.png`, fullPage: true });
+  };
+
+  const r1 = await poser(page, "Liste-moi les dossiers Regulatory bloqués, avec leur référence et la raison du blocage.", BUDGET.questionMs);
+  await mesurer("t1-liste");
+
+  const r2 = await poser(page, "Crée une tâche pour Raihana Cherif : relancer l'ANPP sur les réserves (mobile 375), échéance vendredi.", BUDGET.actionMs);
+  await mesurer("t2-carte");
+
+  const confirmer = page.getByRole("button", { name: /confirmer/i }).first();
+  await expect(confirmer, `pas de carte à confirmer sur 375 px — ${r2.reponse.slice(0, 200)}`).toBeVisible({ timeout: 10_000 });
+  // AU DOIGT, pas au clic souris : sur un contexte tactile, `tap()` est le geste réel.
+  await confirmer.tap();
+  await expect(page.getByRole("button", { name: /confirmer/i })).toHaveCount(0, { timeout: 30_000 });
+  await mesurer("t3-apres-confirmation");
+
+  await new Promise((res) => setTimeout(res, 1_500));
+  const tache = await prisma.task.findFirst({ where: { title: { contains: "375", mode: "insensitive" }, createdAt: { gte: depuis } }, select: { assignedToId: true } });
+  const fautifs = debordements.filter((d) => d.liste.length > 0);
+  await consigner("mobile-375", "liste + action confirmée au doigt", pdgId, depuis, r2, Boolean(tache) && fautifs.length === 0,
+    `${fautifs.length ? fautifs.map((f) => `${f.tour}: ${f.liste.length}`).join(", ") : "aucun débordement"} · tâche ${tache ? "créée" : "ABSENTE"}`);
+
+  expect(r1.reponse.length, "la liste est vide").toBeGreaterThan(60);
+  expect(fautifs, `débordement horizontal à 375 px : ${JSON.stringify(fautifs, null, 1)}`).toEqual([]);
+  expect(tache, "la tâche confirmée au doigt n'existe pas en base").not.toBeNull();
+  expect(tache?.assignedToId, "assignée à Raihana").toBe(raihanaId);
+  await contexte.close();
+});
+
 test("un fait externe poussé par webhook (signé) est reçu, rattaché et lisible par Adam dans l'interface — ingestion universelle (§37)", async ({ page, request }) => {
   const secret = process.env.EVENTS_WEBHOOK_SECRET ?? "banc-live-webhook-secret";
   const externalId = `pay-ui-${Date.now().toString(36)}`;

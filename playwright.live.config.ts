@@ -55,11 +55,16 @@ export default defineConfig({
       NEXTAUTH_SECRET: SECRET,
       AUTH_SECRET: SECRET,
       OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "",
-      // `aiConfigured()` (la porte de l'ÉCRAN : champ de saisie actif ou non) teste la présence
-      // d'une clé Anthropic, héritage de la première version d'Adam ; en production elle est
-      // posée. Le banc, lui, passe par le mandataire OpenAI. Sans cette ligne, l'interface
-      // s'ouvre avec un champ désactivé et « IA non configurée » — mesuré à la première passe.
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "banc-live-cle-presente-mais-non-utilisee",
+      // AUCUNE CLÉ ANTHROPIC ICI — et son absence est une PREUVE.
+      //
+      // Cette ligne existait : `ANTHROPIC_API_KEY: "banc-live-cle-presente-mais-non-utilisee"`,
+      // avec en commentaire « la porte de l'ÉCRAN teste la présence d'une clé Anthropic,
+      // héritage de la première version d'Adam ; sans cette ligne l'interface s'ouvre avec un
+      // champ désactivé ». Poser une clé FACTICE pour qu'un écran s'active est l'aveu que la
+      // porte regardait la mauvaise chose : `aiConfigured()` interroge désormais le FOURNISSEUR
+      // ACTIF. Si le champ de saisie s'active encore, c'est que la clé OpenAI ci-dessus suffit,
+      // et donc que le banc mesure le vrai chemin. Si quelqu'un remet la porte sur Anthropic,
+      // toute cette suite tombe au premier test.
       NODE_USE_ENV_PROXY: "1",
       // ── LE KILL SWITCH SORTANT (`src/lib/sortie/garde.ts`) ──────────────────────────
       // Le banc pilote un VRAI serveur : tout y est vrai sauf l'intention. C'est exactement le
