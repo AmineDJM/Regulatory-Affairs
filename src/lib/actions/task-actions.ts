@@ -7,7 +7,7 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import {
-  canRespond, canDoWork, canComment, declineSummary,
+  canRespond, canDoWork, canComment, declineSummary, peutRelancer, relanceTitre,
   ACCEPTED_STATUS, DECLINED_STATUS,
 } from "@/lib/tasks/request-flow";
 import { createTaskRecord } from "@/lib/tasks/create-core";
@@ -335,6 +335,79 @@ export async function reopenTaskWork(formData: FormData): Promise<ActionResult> 
     actorId: user.id, action: "UPDATE", module: "Espace de travail", entityType: "TASK", entityId: id,
     summary: `Travail rouvert — « ${task.title} »`,
   });
+  revalidatePath("/mon-espace");
+  revalidatePath(`/mon-espace/taches/${id}`);
+  return { ok: true };
+}
+
+/**
+ * RELANCER quelqu'un sur une demande qu'on lui a faite.
+ *
+ * Ce que le geste produit, et pourquoi chacun des trois :
+ *
+ * 1. **Une notification qui INTERROMPT** — la même que la demande elle-même. Une relance
+ *    déposée dans la cloche derrière quarante autres n'est pas une relance.
+ * 2. **Une ligne dans le fil de la tâche** — la relance devient une trace lisible par les deux
+ *    parties. Sans elle, on relance trois fois et personne ne peut dire combien de fois.
+ * 3. **Le compteur** — pour dire « 3ᵉ relance » sans le recompter, et pour tenir le délai.
+ *
+ * La règle (qui, quand) est PURE et partagée avec l'écran : `peutRelancer`. Le serveur la
+ * rejoue — un bouton ne décide de rien — et rend le MOTIF du refus, que le bouton affiche.
+ */
+export async function relanceTaskRequest(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Tâche introuvable." };
+
+  const task = await prisma.task.findUnique({
+    where: { id },
+    select: {
+      title: true, status: true, requestedAt: true, assignedToId: true, createdById: true,
+      lastNudgeAt: true, nudgeCount: true, dueDate: true,
+    },
+  });
+  if (!task) return { ok: false, error: "Tâche introuvable." };
+
+  const verdict = peutRelancer(task, user.id);
+  if (!verdict.ok) return { ok: false, error: verdict.raison };
+
+  const rang = (task.nudgeCount ?? 0) + 1;
+  const enAttenteDeReponse = task.status === "REQUESTED";
+  const corps = enAttenteDeReponse
+    ? `${task.title} — ${user.name} attend toujours votre réponse (accepter ou refuser).`
+    : `${task.title} — ${user.name} attend toujours ce travail.`;
+
+  await prisma.task.update({ where: { id }, data: { lastNudgeAt: new Date(), nudgeCount: rang } });
+
+  if (task.assignedToId) {
+    await prisma.notification.create({
+      data: {
+        userId: task.assignedToId, type: "ASSIGNMENT",
+        title: relanceTitre(rang), body: corps,
+        link: `/mon-espace/taches/${id}`,
+        // Elle INTERROMPT : c'est le sens même d'une relance. La demande initiale interrompt
+        // déjà ; une relance qui, elle, ne le ferait pas serait plus faible que ce qu'elle
+        // rappelle.
+        popup: true,
+      },
+    }).catch(() => undefined);
+  }
+
+  // La relance s'écrit DANS la tâche. Un rappel qui part par message vit ailleurs que ce
+  // qu'il concerne : trois semaines plus tard, personne ne peut dire s'il a été fait.
+  await prisma.taskComment.create({
+    data: {
+      taskId: id, authorId: user.id,
+      body: rang <= 1 ? "Relance — cette demande attend toujours." : `Relance (${rang}ᵉ) — cette demande attend toujours.`,
+    },
+  }).catch(() => undefined);
+
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Espace de travail", entityType: "TASK", entityId: id,
+    field: "relance", newValue: String(rang),
+    summary: `Relance ${rang} — « ${task.title} »`,
+  });
+
   revalidatePath("/mon-espace");
   revalidatePath(`/mon-espace/taches/${id}`);
   return { ok: true };

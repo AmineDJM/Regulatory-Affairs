@@ -5,6 +5,7 @@ import type { EntityType, LegalDocKind, LegalDocStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { resolveParties, findPartyByName } from "@/lib/queries/company-contacts";
 import { recordAudit } from "@/lib/audit";
 import { companyIdForNew } from "@/lib/company";
 import { canRenew, canCancel, validateDates, proposeRenewalDates } from "@/lib/legal/lifecycle";
@@ -60,7 +61,10 @@ function readFields(formData: FormData) {
     title: fdStr(formData, "title"),
     reference: fdStr(formData, "reference"),
     kind,
-    counterparty: fdStr(formData, "counterparty"),
+    // LA PARTIE VIENT DE L'ANNUAIRE. `counterparty` reste la colonne d'AFFICHAGE (recherche,
+    // exports, briefs, outils d'Adam la lisent telle quelle) : le serveur la DÉDUIT de la
+    // sélection, plus bas. La lire aussi du formulaire rouvrirait la porte du texte libre.
+    counterpartyIds: formData.getAll("counterpartyIds").map(String).filter(Boolean),
     startDate: fdDate(formData, "startDate"),
     endDate: fdDate(formData, "endDate"),
     notes: fdStr(formData, "notes"),
@@ -101,6 +105,17 @@ export async function createLegalDocument(
   const chainErr = await checkChainFrom(f.chainFromId);
   if (chainErr) return { ok: false, error: chainErr };
 
+  // AU MOINS UNE PARTIE, CHOISIE DANS L'ANNUAIRE. Un engagement sans partie identifiée est un
+  // engagement qu'on ne peut ni rattacher au contrat précédent, ni relancer : c'est le défaut
+  // qu'on ferme ici. Le sélecteur permet de créer le contact sans quitter la saisie — l'exigence
+  // n'enferme donc personne.
+  const { counterpartyIds, ...reste } = f;
+  const parties = await resolveParties(user.id, counterpartyIds);
+  if (!parties.ok) return { ok: false, error: parties.error };
+  if (parties.ids.length === 0) {
+    return { ok: false, error: "Choisissez au moins une partie dans l'annuaire de l'entreprise (« Créer un contact » l'y ajoute si elle en est absente)." };
+  }
+
   // LE NŒUD DU DRIVE EST VÉRIFIÉ AVANT D'ÊTRE ÉCRIT. L'identifiant vient d'un champ de
   // formulaire : sans contrôle, on référencerait un fichier corbeillé, inexistant, ou qu'on n'a
   // pas le droit de lire — et la fiche montrerait un lien mort ou, pire, une pièce d'ailleurs.
@@ -116,7 +131,8 @@ export async function createLegalDocument(
   const companyId = await companyIdForNew(user.id);
   const created = await prisma.legalDocument.create({
     data: {
-      ...f, title,
+      ...reste, title,
+      counterpartyIds: parties.ids, counterparty: parties.text,
       companyId,
       // Le fichier du Drive est RÉFÉRENCÉ, jamais recopié.
       driveNodeId,
@@ -175,7 +191,7 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   // LA NATURE ACTUELLE COMPTE AUTANT QUE LA DEMANDÉE : sans elle, la comptabilité pourrait
   // rebaptiser un bail en « facture » pour s'ouvrir le droit de le modifier.
   const avant = await prisma.legalDocument.findUnique({
-    where: { id }, select: { kind: true, expenseOrderId: true },
+    where: { id }, select: { kind: true, expenseOrderId: true, counterparty: true, counterpartyIds: true },
   });
   if (!avant) return { ok: false, error: "Document introuvable." };
   if (!peutEcrire(user, "UPDATE", avant.kind) || !peutEcrire(user, "UPDATE", f.kind)) {
@@ -191,10 +207,28 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   const reglement = canMarkPaidDirectly({ paidDate: f.paidDate, expenseOrderId: avant.expenseOrderId });
   if (!reglement.ok) return { ok: false, error: reglement.error };
 
+  // LES PARTIES, ET LA TOLÉRANCE QUE L'HISTORIQUE EXIGE.
+  //
+  // Exiger une partie d'annuaire sur une pièce déposée AVANT que ce champ existe la rendrait
+  // impossible à corriger : on ne pourrait plus rectifier une date sans d'abord retrouver le
+  // prestataire de 2023. Une pièce qui portait déjà un nom en texte garde donc le droit d'être
+  // enregistrée telle quelle — et le formulaire, lui, invite à la rattacher.
+  const { counterpartyIds, ...reste } = f;
+  const parties = await resolveParties(user.id, counterpartyIds);
+  if (!parties.ok) return { ok: false, error: parties.error };
+  const heritage = avant.counterpartyIds.length === 0 && Boolean(avant.counterparty?.trim());
+  if (parties.ids.length === 0 && !heritage) {
+    return { ok: false, error: "Choisissez au moins une partie dans l'annuaire de l'entreprise (« Créer un contact » l'y ajoute si elle en est absente)." };
+  }
+
   await prisma.legalDocument.update({
     where: { id },
     data: {
-      ...f, title,
+      ...reste, title,
+      counterpartyIds: parties.ids,
+      // Sans sélection ET avec un nom hérité, on ne l'EFFACE pas : perdre le seul renseignement
+      // qu'on avait sur la partie serait plus grave que de le garder imparfait.
+      counterparty: parties.ids.length > 0 ? parties.text : avant.counterparty,
       // Changer les dates rouvre la surveillance : on efface le dernier rappel pour que la
       // nouvelle échéance soit annoncée à son tour.
       lastRemindedAt: null,
@@ -240,11 +274,32 @@ export async function editLegalDocument(
  * dessus. Supprimer la fiche Legal ne supprime donc jamais le fichier.
  */
 export async function attachDriveNodeToLegal(input: {
-  driveNodeId: string; title?: string; kind?: string; counterparty?: string;
+  driveNodeId: string; title?: string; kind?: string;
+  /** Les parties, choisies dans l'annuaire — jamais un nom tapé à la main. */
+  counterpartyIds?: string[];
+  /**
+   * Le NOM d'une partie, pour les appelants qui n'ont que cela (Adam). Il est RÉSOLU contre
+   * l'annuaire, sans ambiguïté possible : introuvable ou multiple, l'action est refusée en le
+   * disant. Un modèle propose un nom ; il n'ouvre pas une porte au texte libre.
+   */
+  counterpartyName?: string;
   startDate?: string; endDate?: string; reference?: string; notes?: string;
 }): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "LEGAL", "CREATE")) return { ok: false, error: "Non autorisé à alimenter Legal." };
+
+  // MÊME EXIGENCE QUE LE FORMULAIRE DU MODULE. Une seconde porte plus permissive redeviendrait
+  // celle qu'on emprunte — et le texte libre serait revenu par la fenêtre.
+  const parNom = input.counterpartyName?.trim()
+    ? await findPartyByName(user.id, input.counterpartyName)
+    : null;
+  if (parNom && !parNom.ok) return { ok: false, error: parNom.error };
+  const idsDemandes = [...(input.counterpartyIds ?? []), ...(parNom?.ok ? [parNom.id] : [])];
+  const parties = await resolveParties(user.id, idsDemandes);
+  if (!parties.ok) return { ok: false, error: parties.error };
+  if (parties.ids.length === 0) {
+    return { ok: false, error: "Choisissez au moins une partie dans l'annuaire de l'entreprise." };
+  }
 
   const node = await prisma.driveNode.findUnique({
     where: { id: input.driveNodeId },
@@ -272,7 +327,7 @@ export async function attachDriveNodeToLegal(input: {
       title: (input.title ?? "").trim() || node.name,
       reference: input.reference?.trim() || null,
       kind: parseKind(input.kind ?? null),
-      counterparty: input.counterparty?.trim() || null,
+      counterpartyIds: parties.ids, counterparty: parties.text,
       startDate: start, endDate: end,
       notes: input.notes?.trim() || null,
       driveNodeId: node.id,
@@ -320,7 +375,7 @@ export async function renewLegalDocument(formData: FormData): Promise<ActionResu
         title: fdStr(formData, "title") ?? previous.title,
         reference: fdStr(formData, "reference") ?? previous.reference,
         kind: previous.kind,
-        counterparty: previous.counterparty,
+        counterparty: previous.counterparty, counterpartyIds: previous.counterpartyIds,
         startDate, endDate,
         amount: previous.amount,
         notes: fdStr(formData, "notes"),

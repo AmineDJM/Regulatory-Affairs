@@ -3,6 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Paperclip, ExternalLink } from "lucide-react";
 import { requireUser } from "@/lib/session";
+import { listPartyOptions } from "@/lib/queries/company-contacts";
+import { PartyLink } from "@/components/directory/party-link";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { companyScopedWhere } from "@/lib/company";
@@ -204,6 +206,11 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     effectiveAt: doc.effectiveAt,
   };
 
+  // L'ANNUAIRE — avec les parties DÉJÀ retenues, même retirées de l'annuaire depuis : une partie
+  // à un contrat signé ne disparaît pas du contrat parce qu'on ne travaille plus avec elle.
+  const partyOptions = await listPartyOptions(user.id, { includeIds: doc.counterpartyIds });
+  const canCreateContact = userCan(user, "GENERAL_MEANS", "CREATE");
+
   const fields = legalFields({
     title: doc.title,
     reference: doc.reference ?? undefined,
@@ -220,7 +227,8 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     notes: doc.notes ?? undefined,
     folderId: doc.folderId ?? undefined,
     chainFromId: doc.chainFromId ?? undefined,
-  }, "edit", [], folderOptions, chainCandidates);
+  }, "edit", [], folderOptions, chainCandidates, false,
+     { options: partyOptions, canCreate: canCreateContact, selected: doc.counterpartyIds });
 
   return (
     <div className="space-y-5">
@@ -264,7 +272,15 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
           <Card>
             <CardHeader><CardTitle>L&apos;engagement</CardTitle></CardHeader>
             <CardContent className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
-              <Info label="Partie" value={doc.counterparty} />
+              {/* LE NOM SEUL — et il s'ouvre sur le mail et le contact. */}
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Partie</p>
+                <PartyLink
+                  parties={partyOptions.filter((o) => doc.counterpartyIds.includes(o.id))}
+                  fallback={doc.counterparty}
+                  className="font-medium"
+                />
+              </div>
               <Info label="Début" value={doc.startDate ? formatDate(doc.startDate) : null} />
               <div className="min-w-0">
                 <p className="text-xs text-muted-foreground">Échéance</p>

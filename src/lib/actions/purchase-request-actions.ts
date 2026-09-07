@@ -12,6 +12,7 @@ import { buildRef } from "@/lib/refs";
 import {
   cleanLines, estimatedTotal, summarize, purchaseStage, canWithdraw, type PurchaseLine,
 } from "@/lib/general-means/purchase-request";
+import { journaliserDemandeAchat } from "@/lib/general-means/purchase-journal";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 /**
@@ -134,6 +135,10 @@ export async function createPurchaseRequest(
     summary: `Demande d'achat ${reference} — ${title} · validateur ${manager.fullName}`,
   });
 
+  // LE JOURNAL DU SUPER ADMIN — la demande y est copiée ENTIÈREMENT, dès son dépôt. Il vit à
+  // part de la demande, qui peut être retirée ou supprimée ; lui ne s'efface pas.
+  await journaliserDemandeAchat({ requestId: created.id, event: "SUBMITTED", actorId: user.id });
+
   revalidatePath(PATH);
   revalidatePath("/demandes");
   revalidatePath("/demandes/approvals");
@@ -185,6 +190,7 @@ export async function withdrawPurchaseRequest(formData: FormData): Promise<Actio
     entityType: "ADMIN_REQUEST", entityId: id,
     summary: `Demande d'achat ${req.reference} retirée par son auteur`,
   });
+  await journaliserDemandeAchat({ requestId: id, event: "WITHDRAWN", actorId: user.id });
   revalidatePath(PATH);
   revalidatePath("/demandes/approvals");
   return { ok: true };

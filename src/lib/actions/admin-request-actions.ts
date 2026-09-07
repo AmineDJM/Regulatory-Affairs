@@ -7,6 +7,7 @@ import type { AdminRequestType, AdminRequestStatus, Priority, AdminApprovalStatu
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { journaliserDemandeAchat } from "@/lib/general-means/purchase-journal";
 import { companyIdForNew } from "@/lib/company";
 import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
@@ -255,6 +256,14 @@ export async function decideApproval(formData: FormData): Promise<ActionResult> 
     if (uid && uid !== user.id) await notifyUser({ userId: uid, type: "GENERIC", title: `Validation : ${decision === "APPROVED" ? "acceptée" : decision === "REJECTED" ? "refusée" : "modif. demandée"}`, body: req.reference, link: `/demandes/${req.id}` });
   }
   await recordAudit({ actorId: user.id, action: decision === "REJECTED" ? "REFUSE" : "VALIDATE", module: "Demandes administratives", entityType: "ADMIN_REQUEST", entityId: req.id, summary: `Validation ${decision}` });
+  // LE JOURNAL DES ACHATS suit la décision, pas seulement le dépôt : « qui a dit oui » est la
+  // moitié de la question qu'on lui pose. Il ignore de lui-même les demandes d'une autre nature.
+  await journaliserDemandeAchat({
+    requestId: req.id,
+    event: decision === "APPROVED" ? "APPROVED" : decision === "REJECTED" ? "REJECTED" : "CHANGES_REQUESTED",
+    actorId: user.id,
+    note: fdStr(formData, "comment"),
+  });
   revalidatePath(`/demandes/${req.id}`);
   revalidatePath("/demandes/approvals");
   revalidatePath("/finances/paiements-a-faire");

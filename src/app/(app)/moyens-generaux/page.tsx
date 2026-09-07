@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
 import { getGeneralMeans, resolveGeneralMeansDepartment, LIST_LIMIT } from "@/lib/queries/general-means";
+import { getAppSettings } from "@/lib/settings";
 import { generalMeansBudgetTargets } from "@/lib/general-means/budget-targets";
 import { normalizeYear, DEPT_BUDGET_LABEL, budgetHealth, consumedPercent } from "@/lib/department-budget";
 import { PageHeader } from "@/components/shared/page-header";
@@ -15,6 +16,7 @@ import { formatCurrency } from "@/lib/utils";
 import { CashPanel } from "./cash-panel";
 import { ExpensePanel } from "./expense-panel";
 import { DepartmentSwitcher } from "./department-switcher";
+import { ServiceSwitch } from "./service-switch";
 import { SuppliesManager } from "../demandes/supplies-manager";
 import { ExpenseTable } from "./expense-table";
 
@@ -108,7 +110,12 @@ export default async function MoyensGenerauxPage({
   // humaines, l'administration) passe donc de l'un à l'autre ; l'utilisatrice quotidienne, elle,
   // reste sur le sien — la liste ne lui est pas proposée, et les budgets des autres ne lui sont
   // pas ouverts.
-  const departments = view.canAllot
+  // SEUL LE SUPER ADMIN CHANGE DE DÉPARTEMENT. Pour tout le monde, les moyens généraux sont
+  // ceux de la société : un sélecteur de département dirait le contraire, et l'on se demanderait
+  // à quelle caisse on a affaire.
+  const pilote = user.role === "SUPER_ADMIN" || user.secondaryRole === "SUPER_ADMIN";
+  const serviceCourant = pilote ? (await getAppSettings()).generalMeansDepartmentId : null;
+  const departments = pilote
     ? await prisma.department.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [];
 
@@ -139,19 +146,31 @@ export default async function MoyensGenerauxPage({
 
   return (
     <div className="space-y-5">
+      {/* Le département ne figure au titre que pour le Super Admin : c'est le seul pour qui
+          « lequel ? » est une question. Pour les autres, il n'y en a qu'un. */}
       <PageHeader
-        title={`Moyens généraux — ${view.department.path}`}
+        title={pilote ? `Moyens généraux — ${view.department.path}` : "Moyens généraux"}
         description="La caisse à deux horizons — l'exercice (l'année) et le mois — et le détail des dépenses avec leurs justificatifs. Tout achat porte sa facture ou son bon de paiement."
       >
-        {departments.length > 1 && <DepartmentSwitcher departments={departments} current={view.department.id} year={year} />}
+        {pilote && departments.length > 1 && (
+          <DepartmentSwitcher departments={departments} current={view.department.id} year={year} />
+        )}
+        {/* QUEL DÉPARTEMENT TIENT LES MOYENS GÉNÉRAUX DE LA SOCIÉTÉ — le réglage qui décide où
+            tout le monde atterrit. Il n'appartient qu'au Super Admin. */}
+        {pilote && (
+          <ServiceSwitch
+            departmentId={view.department.id} departmentName={view.department.path}
+            current={serviceCourant}
+          />
+        )}
         {canManageCatalog && <SuppliesManager articles={catalogRows} />}
         {/* L'ANNUAIRE DE L'ENTREPRISE — l'imprimeur, le transitaire, l'agence de voyage. C'est ce
             service qui traite avec eux : sa porte est ici. */}
-        <Link href="/moyens-generaux/annuaire" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary">
+        <Link href="/mon-espace/annuaire" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary">
           <BookUser className="h-4 w-4" /> Annuaire de l&apos;entreprise
         </Link>
         {/* Un lien vers un écran qu'on ne peut pas ouvrir est pire qu'une absence de lien. */}
-        {userCan(user, "BUDGETS", "VIEW") && (
+        {pilote && userCan(user, "BUDGETS", "VIEW") && (
           <Link href="/budgets/departements" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary">
             <ExternalLink className="h-4 w-4" /> Budgets par département
           </Link>

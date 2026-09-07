@@ -95,6 +95,10 @@ export function creationNotices(input: {
 
 export interface TaskLike {
   status: string;
+  /** Dernière relance envoyée par le demandeur — porte l'anti-spam. */
+  lastNudgeAt?: string | Date | null;
+  /** Combien de fois on a déjà relancé (pour le dire : « 3ᵉ relance »). */
+  nudgeCount?: number;
   /** Non nul = née d'une demande faite à quelqu'un (et non créée directement). */
   requestedAt?: string | Date | null;
   assignedToId?: string | null;
@@ -173,8 +177,83 @@ export function commentsSummary(count: number): string {
  * `start`    — « Démarrer » : réservé aux tâches ORDINAIRES, jamais aux demandes acceptées
  * `complete` — terminer une tâche ordinaire d'un clic depuis la liste
  * `dossier`  — ouvrir un projet à partir de la tâche : ordinaire uniquement
+ * `relance`  — rappeler sa demande à celui qui ne l'a pas encore traitée (DEMANDEUR seul)
  */
-export type TaskAction = "respond" | "open" | "start" | "complete" | "dossier";
+export type TaskAction = "respond" | "open" | "start" | "complete" | "dossier" | "relance";
+
+/**
+ * RELANCER — le geste qui manquait, et la raison pour laquelle il est BORNÉ.
+ *
+ * « Tâches que j'ai demandées » disait où en était chaque demande, et rien de plus : pour
+ * rappeler la sienne, il fallait sortir de l'écran et écrire un message — hors de la tâche, là
+ * où plus rien ne le compte. La relance rentre donc dans la demande : une notification qui
+ * INTERROMPT (comme la demande elle-même : elle attend une réponse), une ligne dans le fil, et
+ * un compteur.
+ *
+ * ── POURQUOI UN DÉLAI, ET POURQUOI CELUI-LÀ ─────────────────────────────────────────────────
+ *
+ * Un bouton qu'on peut presser trois fois de suite fabrique trois pop-up identiques, et la
+ * quatrième — celle qui comptait — se ferme sans être lue. Quatre heures, c'est le temps qu'il
+ * faut pour qu'une relance dise quelque chose de neuf : on peut relancer le matin puis en fin
+ * de journée, on ne peut pas marteler. Le délai court depuis la DEMANDE elle-même, pas
+ * seulement depuis la dernière relance : relancer quelqu'un dans la minute qui suit l'envoi
+ * n'est pas une relance, c'est du bruit.
+ */
+export const RELANCE_DELAI_MS = 4 * 60 * 60 * 1000;
+
+/** Les statuts qui laissent une relance avoir du sens : la demande est encore en l'air. */
+export function relanceOuverte(t: TaskLike): boolean {
+  if (!isRequest(t)) return false;
+  return t.status !== "DONE" && t.status !== "DECLINED" && t.status !== "CANCELLED";
+}
+
+const auMs = (d: string | Date | null | undefined): number | null => {
+  if (!d) return null;
+  const ms = d instanceof Date ? d.getTime() : new Date(d).getTime();
+  return Number.isFinite(ms) ? ms : null;
+};
+
+/** Le moment à partir duquel une relance redevient possible. */
+export function prochaineRelance(t: TaskLike): number | null {
+  const base = Math.max(auMs(t.lastNudgeAt) ?? 0, auMs(t.requestedAt) ?? 0);
+  return base > 0 ? base + RELANCE_DELAI_MS : null;
+}
+
+/**
+ * QUI peut relancer, et QUAND — la même règle des deux côtés de la frontière.
+ *
+ * Elle rend un MOTIF quand elle refuse : un bouton qui ne fait rien et ne dit rien envoie
+ * cliquer une seconde fois, puis chercher la panne là où il n'y en a pas.
+ */
+export function peutRelancer(
+  t: TaskLike,
+  userId: string,
+  now: number = Date.now(),
+): { ok: true } | { ok: false; raison: string } {
+  if (!relanceOuverte(t)) {
+    return { ok: false, raison: "Cette demande est close — il n'y a plus personne à relancer." };
+  }
+  if (!t.createdById || t.createdById !== userId) {
+    return { ok: false, raison: "Seule la personne qui a fait la demande peut la relancer." };
+  }
+  if (t.assignedToId === userId) {
+    return { ok: false, raison: "Cette demande est la vôtre — vous n'avez personne à relancer." };
+  }
+  const prochaine = prochaineRelance(t);
+  if (prochaine !== null && now < prochaine) {
+    const heures = Math.max(1, Math.ceil((prochaine - now) / 3_600_000));
+    return {
+      ok: false,
+      raison: `Trop tôt : vous pourrez relancer dans ${heures} h. Une relance qui suit la précédente de quelques minutes ne se lit plus.`,
+    };
+  }
+  return { ok: true };
+}
+
+/** Le mot de la relance, tel qu'il arrive à la personne — le rang le rend honnête. */
+export function relanceTitre(rang: number): string {
+  return rang <= 1 ? "Relance : votre demande attend" : `${rang}ᵉ relance : votre demande attend`;
+}
 
 export function taskActions(
   t: TaskLike,
@@ -185,9 +264,16 @@ export function taskActions(
 
   if (isRequest(t)) {
     // Le parcours d'une demande, du début à la fin — sans jamais de « Démarrer ».
-    if (awaitingResponse(t)) return canRespond(t, userId) ? ["respond", "open"] : ["open"];
+    //
+    // La RELANCE s'ajoute pour le demandeur tant que la demande est en l'air : le bouton
+    // s'affiche même quand le délai n'est pas écoulé, et c'est délibéré. Le masquer laisserait
+    // croire que relancer n'existe pas ; le serveur, lui, dit en une phrase quand ce sera
+    // possible — un refus qui s'explique vaut mieux qu'un bouton qui a disparu.
+    const relance: TaskAction[] = relanceOuverte(t) && t.createdById === userId && t.assignedToId !== userId
+      ? ["relance"] : [];
+    if (awaitingResponse(t)) return canRespond(t, userId) ? ["respond", "open"] : [...relance, "open"];
     if (t.status === "DECLINED" || t.status === "CANCELLED") return ["open"];
-    return ["open"];
+    return [...relance, "open"];
   }
 
   const mine = t.assignedToId === userId || t.createdById === userId || (t.participantIds ?? []).includes(userId);

@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { canAccessEntity } from "@/lib/entity-access";
 import { deleteFileByKey } from "@/lib/storage";
 import { createMailEntryFor, updateMailEntryFor, setMailDateFor, type MailFields } from "@/lib/mail-register/write";
+import { resolveParties } from "@/lib/queries/company-contacts";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFormFiles } from "@/lib/documents";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
@@ -36,13 +37,42 @@ function fdDateTime(formData: FormData, key: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * L'EXPÉDITEUR ET LE DESTINATAIRE VIENNENT DE L'ANNUAIRE.
+ *
+ * Le sélecteur pose un champ caché par contact retenu (un seul de chaque côté : un pli part d'un
+ * endroit et arrive à un autre). Les colonnes texte `sender` / `recipient` restent la valeur
+ * AFFICHÉE — recherche, exports et journal les lisent telles quelles — et c'est le serveur qui
+ * les tient à jour à partir du contact choisi. Jamais l'inverse : les relire du formulaire
+ * rouvrirait la porte du texte libre.
+ */
+async function readParties(userId: string, formData: FormData) {
+  const un = (key: string) => formData.getAll(key).map(String).filter(Boolean).slice(0, 1);
+  const expediteur = await resolveParties(userId, un("senderContactId"));
+  const destinataire = await resolveParties(userId, un("recipientContactId"));
+  if (!expediteur.ok) return { ok: false as const, error: expediteur.error };
+  if (!destinataire.ok) return { ok: false as const, error: destinataire.error };
+  return {
+    ok: true as const,
+    // `undefined` quand le champ n'était pas proposé : on ne détache alors personne.
+    data: {
+      ...(formData.has("senderContactId")
+        ? { senderContactId: expediteur.ids[0] ?? null, sender: expediteur.text || null }
+        : {}),
+      ...(formData.has("recipientContactId")
+        ? { recipientContactId: destinataire.ids[0] ?? null, recipient: destinataire.text || null }
+        : {}),
+    } satisfies Partial<MailFields>,
+  };
+}
+
 function readFields(formData: FormData): MailFields {
   return {
     title: fdStr(formData, "title") ?? "",
     reference: fdStr(formData, "reference"),
     direction: parseDirection(fdStr(formData, "direction")),
-    sender: fdStr(formData, "sender"),
-    recipient: fdStr(formData, "recipient"),
+    // `sender` / `recipient` NE SE LISENT PLUS DU FORMULAIRE : ils sont déduits du contact
+    // d'annuaire choisi (voir `readParties`), et fusionnés par l'appelant.
     sentAt: fdDateTime(formData, "sentAt"),
     receivedAt: fdDate(formData, "receivedAt"),
     acknowledgedAt: fdDate(formData, "acknowledgedAt"),
@@ -80,7 +110,10 @@ export async function createMailEntry(
     }
   }
 
+  const parties = await readParties(user.id, formData);
+  if (!parties.ok) return { ok: false, error: parties.error };
   const r = await createMailEntryFor(user, {
+    ...parties.data,
     ...readFields(formData),
     driveNodeId,
     sourceType: (fdStr(formData, "sourceType") as EntityType | null) ?? null,
@@ -110,7 +143,9 @@ export async function editMailEntry(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  const r = await updateMailEntryFor(user, id, readFields(formData));
+  const parties = await readParties(user.id, formData);
+  if (!parties.ok) return { ok: false, error: parties.error };
+  const r = await updateMailEntryFor(user, id, { ...readFields(formData), ...parties.data });
   if (r.ok) { revalidatePath("/courriers"); revalidatePath(`/courriers/${id}`); }
   return r;
 }

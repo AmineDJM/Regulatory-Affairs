@@ -1,5 +1,6 @@
 import { Filter } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { hiddenByScopeMessage } from "@/lib/company-visibility";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -39,6 +40,9 @@ export default async function CourriersPage({ searchParams }: { searchParams?: {
   const user = await requireModule("MAIL_REGISTER");
   const canCreate = userCan(user, "MAIL_REGISTER", "CREATE");
   const canEdit = userCan(user, "MAIL_REGISTER", "UPDATE");
+  // L'ANNUAIRE DE L'ENTREPRISE — d'où l'expéditeur et le destinataire se choisissent.
+  const partyOptions = canCreate ? await listPartyOptions(user.id) : [];
+  const canCreateContact = userCan(user, "GENERAL_MEANS", "CREATE");
 
   // Le dossier ouvert : « none » = les plis non classés, un identifiant = ce dossier, absent = tout.
   const unfiledOnly = searchParams?.dossier === "none";
@@ -159,6 +163,7 @@ export default async function CourriersPage({ searchParams }: { searchParams?: {
             fields={mailFields(
               { ...(openFolderId ? { folderId: openFolderId } : {}), ...(entiteParDefaut ? { companyId: entiteParDefaut } : {}) },
               "create", companyOpts, partnerOpts, routing.departments, routing.people, folderOptions,
+              { options: partyOptions, canCreate: canCreateContact },
             )}
             redirectBase="/courriers"
           />

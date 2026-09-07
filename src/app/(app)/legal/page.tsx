@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
+import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { companyScopedWhere, getMyCompanies, companyLabel } from "@/lib/company";
@@ -88,6 +89,11 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
       readers: { select: { userId: true } },
     },
   });
+
+  // L'ANNUAIRE DE L'ENTREPRISE — d'où les PARTIES se choisissent. Il n'est chargé que pour qui
+  // peut déposer une pièce : la liste ne sert qu'au formulaire.
+  const partyOptions = canCreate ? await listPartyOptions(user.id) : [];
+  const canCreateContact = userCan(user, "GENERAL_MEANS", "CREATE");
 
   // Les personnes désignables comme lecteurs : les comptes actifs, sauf soi-même — on a déjà
   // accès à ce qu'on dépose, et se proposer dans sa propre liste ne veut rien dire.
@@ -197,6 +203,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
               { folderId: openFolderId ?? undefined, kind: nature || undefined },
               "create", people, folderOptions, chainCandidates,
               facturesSeules,
+              { options: partyOptions, canCreate: canCreateContact },
             )}
             redirectBase="/legal"
           />

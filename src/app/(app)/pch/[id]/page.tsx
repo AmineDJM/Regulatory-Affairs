@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Mail } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { aiConfigured } from "@/lib/ai";
 import { prisma } from "@/lib/prisma";
 import { getPchTenderDetail } from "@/lib/queries/pch";
@@ -78,13 +79,15 @@ export default async function PchTenderPage({ params }: { params: { id: string }
   const canMail = userCan(user, "MAIL_REGISTER", "CREATE");
   // La facture d'un bon reste une pièce FINANCES : le bouton n'apparaît qu'avec ce droit-là.
   const canInvoice = userCan(user, "FINANCES", "CREATE");
-  const [mailCompanies, mailPartners, mailRouting] = canMail
+  const [mailCompanies, mailPartners, mailRouting, mailParties] = canMail
     ? await Promise.all([
         getMyCompanies(user.id),
         prisma.mailPartner.findMany({ where: { isActive: true }, select: { id: true, name: true, kind: true }, orderBy: { name: "asc" } }),
         mailRoutingOptions(),
+        // L'annuaire de l'entreprise : le destinataire du pli s'y choisit, comme au registre.
+        listPartyOptions(user.id),
       ])
-    : [[], [], { departments: [], people: [] }];
+    : [[], [], { departments: [], people: [] }, []];
   const mailFormFields = canMail
     ? [
         ...mailFields(
@@ -94,6 +97,8 @@ export default async function PchTenderPage({ params }: { params: { id: string }
           mailPartners.map((x) => ({ value: x.id, label: x.kind ? `${x.name} — ${x.kind}` : x.name })),
           mailRouting.departments,
           mailRouting.people,
+          [],
+          { options: mailParties, canCreate: userCan(user, "GENERAL_MEANS", "CREATE") },
         ),
         { type: "hidden", name: "sourceType", value: "PCH_TENDER" } as const,
         { type: "hidden", name: "sourceId", value: t.id } as const,

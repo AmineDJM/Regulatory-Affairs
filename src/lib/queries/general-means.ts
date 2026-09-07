@@ -6,6 +6,7 @@ import { headedDepartmentIds } from "@/lib/queries/department-budget";
 import { nextRechargeDate, type PettyCashStatus } from "@/lib/petty-cash";
 import { continuousCash, remittanceSpent, type ContinuousCash, type CashRemittance } from "@/lib/general-means/continuous-cash";
 import { isFullyClassified } from "@/lib/budget/imputation";
+import { getAppSettings } from "@/lib/settings";
 
 /**
  * MOYENS GÉNÉRAUX — la lecture consolidée d'un département : son budget, ses dépenses, sa
@@ -177,7 +178,23 @@ export async function openRemittances(
  * de son propre département pour voir sa caisse.
  */
 export async function resolveGeneralMeansDepartment(user: SessionUser, requested?: string | null): Promise<string | null> {
-  if (requested) return requested;
+  // LES MOYENS GÉNÉRAUX SONT CEUX DE TOUT LE MONDE.
+  //
+  // Chacun arrivait sur les moyens généraux DE SON DÉPARTEMENT : autant de caisses que de
+  // directions, alors qu'il n'y a qu'un service qui achète et qui décaisse. On demandait des
+  // cartouches à une caisse, on les recevait d'une autre, et personne ne savait laquelle était
+  // « la bonne ». Le service désigné (réglé par le Super Admin) est donc la porte de tous.
+  //
+  // Le découpage par département n'a pas disparu — il reste la façon dont l'argent est IMPUTÉ,
+  // et le Super Admin continue de passer d'un département à l'autre pour tenir les budgets. Mais
+  // lui seul : c'est ce que `requested` traduit ici.
+  const superAdmin = user.role === "SUPER_ADMIN" || user.secondaryRole === "SUPER_ADMIN";
+  if (requested && superAdmin) return requested;
+  const { generalMeansDepartmentId } = await getAppSettings();
+  if (generalMeansDepartmentId) return generalMeansDepartmentId;
+
+  // Aucun service désigné : on retombe sur l'ancien comportement plutôt que sur un écran vide.
+  // Une plateforme qui n'a pas encore été réglée doit continuer de fonctionner.
   const headed = await headedDepartmentIds(user.id);
   if (headed.length > 0) return headed[0];
   // La caisse qu'on détient désigne le département aussi sûrement qu'un rattachement.

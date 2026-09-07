@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { DrivePickerField } from "@/components/drive/drive-picker";
+import { PartyPicker } from "@/components/directory/party-picker";
+import type { PartyOption, PartyArity } from "@/lib/contacts/parties";
 import type { ActionResult } from "@/lib/actions/types";
 import { cn } from "@/lib/utils";
 
@@ -72,7 +74,26 @@ export type FieldDef =
   // L'EXPLORATEUR DU DRIVE, ouvert par-dessus le formulaire : on désigne un dossier ou un
   // fichier qui existe déjà plutôt que d'en téléverser une copie. Le champ ne transporte qu'un
   // identifiant de nœud — le fichier, lui, ne bouge pas.
-  | { type: "drivepicker"; name: string; label: string; hint?: string; full?: boolean };
+  | { type: "drivepicker"; name: string; label: string; hint?: string; full?: boolean }
+  // LA PARTIE, CHOISIE DANS L'ANNUAIRE DE L'ENTREPRISE — et non plus tapée à la main.
+  //
+  // Une partie à un contrat, l'expéditeur d'un pli, son destinataire : trois champs de texte
+  // libre où l'on écrivait trois orthographes du même prestataire, sans jamais un numéro. Ce
+  // champ n'affiche que le NOM (une fiche n'a pas à porter un pavé de coordonnées) mais ce nom
+  // s'ouvre sur le mail et le contact — et le prestataire absent de l'annuaire s'y CRÉE, sans
+  // perdre le formulaire à moitié rempli.
+  | {
+      type: "parties"; name: string; label: string;
+      options: PartyOption[];
+      defaultValue?: string[];
+      /** `1` pour un expéditeur ou un destinataire ; « many » pour les parties d'un contrat. */
+      arity?: PartyArity;
+      /** Le droit d'écriture de l'annuaire, calculé au serveur — jamais deviné ici. */
+      canCreate?: boolean;
+      required?: boolean;
+      placeholder?: string;
+      hint?: string; full?: boolean;
+    };
 
 /**
  * Les champs QUI S'AFFICHENT — tous sauf le champ caché.
@@ -285,7 +306,7 @@ export function RecordForm({
   const dv = (field: FieldDef): string | number | undefined => {
     const p = prefill[field.name];
     if (p !== undefined) return p;
-    if (field.type === "multiselect") return undefined;
+    if (field.type === "multiselect" || field.type === "parties") return undefined;
     return "defaultValue" in field ? field.defaultValue : undefined;
   };
 
@@ -404,6 +425,14 @@ export function RecordForm({
                 </label>
               ) : field.type === "multiselect" ? (
                 <MultiSelectField field={field} />
+              ) : field.type === "parties" ? (
+                <>
+                  <PartyPicker
+                    name={field.name} options={field.options} defaultValue={field.defaultValue}
+                    arity={field.arity} canCreate={field.canCreate} placeholder={field.placeholder}
+                  />
+                  {field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
+                </>
               ) : (
                 <>
                   <Input

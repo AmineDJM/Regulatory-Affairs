@@ -21,7 +21,7 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
  * dont personne ne se sert.
  */
 
-const PATH = "/moyens-generaux/annuaire";
+const PATH = "/mon-espace/annuaire";
 
 /** Les champs libres d'un contact, lus une seule fois — création et modification s'accordent. */
 function readContact(formData: FormData) {

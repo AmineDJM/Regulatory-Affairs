@@ -4894,6 +4894,11 @@ model Task {
   // parcours de celui d'une tâche ordinaire créée directement.
   requestedAt        DateTime?
   respondedAt        DateTime? // acceptation ou refus, horodatés
+  /// RELANCE — le demandeur rappelle sa demande à celui qui ne l'a pas encore traitée.
+  /// Un seul horodatage suffit à tenir l'anti-spam ; le compteur, lui, se lit dans le fil
+  /// (chaque relance y laisse un message) et sert à dire « 3ᵉ relance » sans le recompter.
+  lastNudgeAt        DateTime?
+  nudgeCount         Int           @default(0)
   declineReason      String? // motif du refus — FACULTATIF : dire non ne se justifie pas
   /// Compte rendu de la personne qui a fait le travail, TOUJOURS modifiable après validation.
   completionNote     String?
@@ -6915,6 +6920,14 @@ model AppSetting {
   directiveReaderUserIds        String[] @default([])
   directiveIssuerRoles          String[] @default([])
   directiveIssuerUserIds        String[] @default([])
+  /// LE SERVICE DES MOYENS GÉNÉRAUX — un seul, pour toute la société.
+  ///
+  /// Les moyens généraux ne sont pas « ceux de mon département » : c'est UN service qui achète
+  /// et décaisse pour tout le monde. Chacun arrive donc sur la MÊME caisse, quel que soit son
+  /// rattachement. Le découpage par département n'a pas disparu — il reste la façon dont
+  /// l'argent est imputé — mais il ne se PILOTE plus que depuis le compte Super Admin.
+  /// Nul = aucun service désigné ; on retombe alors sur le rattachement, comme avant.
+  generalMeansDepartmentId      String?
   // Clés VAPID (Web Push) auto-générées et persistées si non fournies par l'environnement.
   // La clé privée reste côté serveur ; la publique est servie via /api/push/key.
   vapidPublicKey                String?
@@ -9814,7 +9827,15 @@ model LegalDocument {
   reference         String? // référence interne / n° de BC
   title             String // le titre EXACT, tel qu'il figure sur la pièce
   kind              LegalDocKind          @default(CONTRACT)
-  counterparty      String? // l'autre partie (fournisseur, client, prestataire)
+  counterparty      String? // l'autre partie, telle qu'elle s'AFFICHE (nom ou institution)
+  /// LES PARTIES, CHOISIES DANS L'ANNUAIRE DE L'ENTREPRISE — une ou plusieurs.
+  ///
+  /// Identifiants bruts de `CompanyContact` (même patron léger que `Task.participantIds`) :
+  /// c'est ce lien qui permet d'ouvrir le nom affiché et d'y lire le mail et le contact, au
+  /// lieu d'une chaîne saisie à la main qu'aucun écran ne peut rattacher à personne.
+  /// `counterparty` reste le TEXTE affiché — recherche, exports et briefs le lisent tel quel —
+  /// et le serveur le tient à jour à partir de cette liste.
+  counterpartyIds   String[]              @default([])
   /// Dates FACULTATIVES : beaucoup d'engagements n'ont pas de terme (statuts, police tacite).
   /// `endDate` nul = sans échéance — jamais « expiré », jamais rappelé.
   startDate         DateTime?
@@ -10001,52 +10022,57 @@ enum MailDirection {
 /// l'ACCUSÉ (`acknowledgedAt`). Aucune n'est obligatoire : un courrier qu'on vient de déposer
 /// n'a encore ni arrivée ni accusé.
 model MailEntry {
-  custom          Json?
-  id              String           @id @default(cuid())
-  companyId       String?
-  company         Company?         @relation(fields: [companyId], references: [id])
-  reference       String? // n° de chrono
-  title           String
-  direction       MailDirection
-  sender          String? // expéditeur (surtout pour un entrant)
-  recipient       String? // destinataire (surtout pour un sortant)
-  sentAt          DateTime? // date ET heure de départ
-  receivedAt      DateTime? // date d'arrivée
-  acknowledgedAt  DateTime? // date d'accusé de réception
-  carrier         String? // porteur / transporteur (coursier, poste, e-mail…)
+  custom             Json?
+  id                 String           @id @default(cuid())
+  companyId          String?
+  company            Company?         @relation(fields: [companyId], references: [id])
+  reference          String? // n° de chrono
+  title              String
+  direction          MailDirection
+  sender             String? // expéditeur, tel qu'il s'AFFICHE (nom ou institution)
+  recipient          String? // destinataire, tel qu'il s'AFFICHE
+  /// L'EXPÉDITEUR ET LE DESTINATAIRE, CHOISIS DANS L'ANNUAIRE DE L'ENTREPRISE.
+  /// Identifiants bruts de `CompanyContact` : le nom affiché s'ouvre et donne le mail et le
+  /// contact. Les colonnes texte ci-dessus restent la valeur AFFICHÉE, tenue par le serveur.
+  senderContactId    String?
+  recipientContactId String?
+  sentAt             DateTime? // date ET heure de départ
+  receivedAt         DateTime? // date d'arrivée
+  acknowledgedAt     DateTime? // date d'accusé de réception
+  carrier            String? // porteur / transporteur (coursier, poste, e-mail…)
   /// LE PARTENAIRE CONCERNÉ, s'il y en a un — choisi dans la liste du module (`MailPartner`).
   /// Facultatif : beaucoup de plis sont internes ou n'engagent personne d'extérieur.
-  partnerId       String?
-  partner         MailPartner?     @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+  partnerId          String?
+  partner            MailPartner?     @relation(fields: [partnerId], references: [id], onDelete: SetNull)
   /// LA DIRECTION CONCERNÉE — le département que le pli vise. Un courrier arrive au registre,
   /// mais il s'adresse à quelqu'un : sans cette colonne, l'assistante doit se souvenir de qui
   /// l'attendait, et un pli non relevé ne se retrouve que par son objet.
-  departmentId    String?
-  department      Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  departmentId       String?
+  department         Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   /// LA PERSONNE CONCERNÉE. Indépendante de la direction, et les deux se cumulent : un contrat
   /// vise « la Direction Générale » ET son directeur, une convocation vise une seule personne.
-  concernedUserId String?
-  concernedUser   User?            @relation("MailEntryConcerned", fields: [concernedUserId], references: [id], onDelete: SetNull)
-  notes           String?
+  concernedUserId    String?
+  concernedUser      User?            @relation("MailEntryConcerned", fields: [concernedUserId], references: [id], onDelete: SetNull)
+  notes              String?
   /// LE FICHIER RESTE DANS LE DRIVE : on le référence, on ne le duplique pas. Deux copies
   /// auraient divergé dès la première correction, et plus personne n'aurait su laquelle fait foi.
-  driveNodeId     String?
-  driveNode       DriveNode?       @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
+  driveNodeId        String?
+  driveNode          DriveNode?       @relation(fields: [driveNodeId], references: [id], onDelete: SetNull)
   /// LE DOSSIER DE CLASSEMENT, s'il y en a un. Un dossier RANGE, il n'autorise pas : le
   /// cloisonnement par entité reste la seule règle d'accès. `SET NULL` : supprimer un dossier
   /// déclasse ses plis, il ne les efface jamais.
-  folderId        String?
-  folder          MailEntryFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  sourceType      EntityType?
-  sourceId        String?
-  pieces          MailEntryPiece[]
+  folderId           String?
+  folder             MailEntryFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  sourceType         EntityType?
+  sourceId           String?
+  pieces             MailEntryPiece[]
   /// « RELIER À… » — un pli peut concerner PLUSIEURS objets (le marché ET son contrat ET un
   /// BC). `sourceType/sourceId` reste la relation de NAISSANCE ; ceci est le classement.
-  createdById     String?
-  createdBy       User?            @relation("MailEntryCreator", fields: [createdById], references: [id])
-  updatedById     String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  createdById        String?
+  createdBy          User?            @relation("MailEntryCreator", fields: [createdById], references: [id])
+  updatedById        String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
   @@index([companyId, direction])
   @@index([sentAt])
@@ -11704,4 +11730,49 @@ model DataQualitySweep {
   erreurs    Int       @default(0)
 
   @@index([mode, startedAt])
+}
+
+/// LE JOURNAL DES DEMANDES D'ACHAT AUX MOYENS GÉNÉRAUX — pour le Super Admin, et lui seul.
+///
+/// La demande elle-même vit dans `AdministrativeRequest` : c'est elle qui circule, se valide,
+/// se retire, et parfois SE SUPPRIME (`deletedAt`). Un journal qui la lirait en direct
+/// disparaîtrait donc avec elle — et un journal qui s'efface n'est pas un journal.
+///
+/// Ici, chaque geste (dépôt, validation, refus, retrait) écrit UNE LIGNE de plus, avec la
+/// COPIE COMPLÈTE de ce que la demande disait à cet instant (`snapshot` : intitulé, lignes,
+/// quantités, prix estimés, motif, validateur, département imputé). Rien n'est mis à jour, rien
+/// n'est supprimé : on ajoute. C'est ce qui permet de répondre, six mois plus tard, à « qui a
+/// demandé quoi, quand, à combien, et qui a dit oui » — même si la demande a été retirée.
+///
+/// Ce n'est pas un second registre des demandes : personne ne travaille depuis ce journal, il
+/// ne pilote rien. C'est la trace.
+model PurchaseRequestLogEntry {
+  id             String   @id @default(cuid())
+  /// La demande d'origine. Identifiant BRUT, sans relation : la ligne doit survivre à la
+  /// suppression de la demande — une clé étrangère la ferait disparaître avec elle.
+  requestId      String
+  reference      String
+  /// SUBMITTED | APPROVED | REJECTED | WITHDRAWN | UPDATED
+  event          String
+  title          String
+  /// Qui a demandé, et qui a posé ce geste-ci (ce n'est pas toujours la même personne).
+  requesterId    String?
+  requesterName  String
+  actorId        String?
+  actorName      String
+  /// Le département auquel l'achat est imputé, au moment du geste (nom figé : un département
+  /// renommé ou supprimé ne doit pas rendre la ligne illisible).
+  departmentId   String?
+  departmentName String?
+  /// Total estimé au moment du geste, en DZD. Nul = la demande n'en portait pas.
+  estimatedTotal Decimal? @db.Decimal(14, 2)
+  /// Le mot du validateur, quand il y en a un.
+  note           String?
+  /// LA COPIE COMPLÈTE — tout ce que la demande portait à cet instant.
+  snapshot       Json
+  createdAt      DateTime @default(now())
+
+  @@index([requestId])
+  @@index([createdAt])
+  @@index([requesterId])
 }

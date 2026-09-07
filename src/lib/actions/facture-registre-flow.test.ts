@@ -67,6 +67,13 @@ function fd(values: Record<string, string>): FormData {
 suite("Une facture est un document légal de nature « facture »", () => {
   let adminId = "";
   let compta: CurrentUser | null = null;
+  /**
+   * LA PARTIE VIENT DE L'ANNUAIRE — le formulaire ne la tape plus.
+   *
+   * Le test crée donc un vrai contact et passe son identifiant, exactement comme le sélecteur.
+   * L'écrire en texte ici ne prouverait plus rien : le serveur le refuserait, et c'est le but.
+   */
+  let partieId = "";
 
   beforeAll(async () => {
     const u = await prisma.user.create({
@@ -79,6 +86,11 @@ suite("Une facture est un document légal de nature « facture »", () => {
       select: { id: true },
     });
     compta = comptable(c.id, `${TAG}compta`);
+    const contact = await prisma.companyContact.create({
+      data: { name: `${TAG} Froid Industriel SPA`, kind: "Prestataire", createdById: adminId },
+      select: { id: true },
+    });
+    partieId = contact.id;
     ACTOR = await actorFor(adminId, "SUPER_ADMIN");
   }, 60_000);
 
@@ -91,6 +103,7 @@ suite("Une facture est un document légal de nature « facture »", () => {
     await prisma.expenseOrder.deleteMany({ where: { label: { contains: TAG } } }).catch(() => {});
     await prisma.paymentRequest.deleteMany({ where: { title: { contains: TAG } } }).catch(() => {});
     await prisma.financeTransaction.deleteMany({ where: { label: { contains: TAG } } }).catch(() => {});
+    await prisma.companyContact.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
   }, 60_000);
 
@@ -98,7 +111,7 @@ suite("Une facture est un document légal de nature « facture »", () => {
     ACTOR = await actorFor(adminId, "SUPER_ADMIN");
     const r = await createLegalDocument(undefined, fd({
       title: `${TAG} Maintenance climatisation`, kind: "INVOICE", reference: "F-2026-501",
-      counterparty: "Froid Industriel SPA", amount: "180000", direction: "OUT",
+      counterpartyIds: partieId, amount: "180000", direction: "OUT",
       startDate: "2026-03-01", endDate: "2026-04-15",
     }));
     expect(r.ok, r.error).toBe(true);
@@ -113,7 +126,7 @@ suite("Une facture est un document légal de nature « facture »", () => {
 
   it("MARQUER RÉGLÉE ÉCRIT AU LIVRE — et dé-marquer RETIRE l'écriture", async () => {
     const r = await createLegalDocument(undefined, fd({
-      title: `${TAG} Fournitures`, kind: "INVOICE", amount: "45000", direction: "OUT", counterparty: "Papeterie",
+      title: `${TAG} Fournitures`, kind: "INVOICE", amount: "45000", direction: "OUT", counterpartyIds: partieId,
     }));
     expect(r.ok, r.error).toBe(true);
 
@@ -124,7 +137,10 @@ suite("Une facture est un document légal de nature « facture »", () => {
     const tx = await prisma.financeTransaction.findUniqueOrThrow({ where: { id: apres.settlementTxId! } });
     expect(tx.direction).toBe("OUT");
     expect(Number(tx.amount)).toBe(45_000);
-    expect(tx.counterparty).toBe("Papeterie");
+    // Le nom écrit au livre est celui de la PARTIE CHOISIE dans l'annuaire — plus une chaîne
+    // saisie à la main, qui pouvait s'écrire de trois façons sur trois factures du même
+    // fournisseur.
+    expect(tx.counterparty).toBe(`${TAG} Froid Industriel SPA`);
 
     // Re-marquer ne DOUBLE pas l'écriture : l'état est déjà cohérent.
     await setInvoicePaid({ id: r.id!, paidDate: "2026-05-04" });
@@ -139,7 +155,7 @@ suite("Une facture est un document légal de nature « facture »", () => {
   it("UNE FACTURE DÉJÀ RÉGLÉE NE PART PAS AU RÈGLEMENT — elle décaisserait une seconde fois", async () => {
     const r = await createLegalDocument(undefined, fd({
       title: `${TAG} Déjà payée`, kind: "INVOICE", amount: "90000", direction: "OUT",
-      counterparty: "Prestataire", paidDate: "2026-04-01",
+      counterpartyIds: partieId, paidDate: "2026-04-01",
     }));
     expect(r.ok, r.error).toBe(true);
     // La saisie a posteriori a inscrit son mouvement dès la création.
@@ -152,7 +168,7 @@ suite("Une facture est un document légal de nature « facture »", () => {
 
   it("ET RÉCIPROQUEMENT : une facture PARTIE au règlement refuse la date posée à la main", async () => {
     const r = await createLegalDocument(undefined, fd({
-      title: `${TAG} Au circuit`, kind: "INVOICE", amount: "120000", direction: "OUT", counterparty: "Fournisseur",
+      title: `${TAG} Au circuit`, kind: "INVOICE", amount: "120000", direction: "OUT", counterpartyIds: partieId,
     }));
     expect(r.ok, r.error).toBe(true);
 
@@ -169,7 +185,7 @@ suite("Une facture est un document légal de nature « facture »", () => {
     // …et depuis le formulaire ORDINAIRE, qui est l'autre porte vers le même champ.
     const form = await updateLegalDocument(fd({
       id: r.id!, title: `${TAG} Au circuit`, kind: "INVOICE", amount: "120000",
-      direction: "OUT", counterparty: "Fournisseur", paidDate: "2026-06-01",
+      direction: "OUT", counterpartyIds: partieId, paidDate: "2026-06-01",
     }));
     expect(form.ok).toBe(false);
     expect(form.error).toMatch(/centre de paiement/);
@@ -181,7 +197,7 @@ suite("Une facture est un document légal de nature « facture »", () => {
   it("le vocabulaire « facture » d'Adam et des fiches écrit dans le MÊME registre", async () => {
     const r = await createInvoice(undefined, fd({
       title: `${TAG} Prestation réglementaire`, number: "AV-2026-77", amount: "500000",
-      direction: "IN", counterparty: "Laboratoire Client", issueDate: "2026-02-10", dueDate: "2026-03-10",
+      direction: "IN", counterpartyIds: partieId, issueDate: "2026-02-10", dueDate: "2026-03-10",
     }));
     expect(r.ok, r.error).toBe(true);
     const doc = await prisma.legalDocument.findUniqueOrThrow({ where: { id: r.id! } });
@@ -196,6 +212,7 @@ suite("Une facture est un document légal de nature « facture »", () => {
     ACTOR = compta;
     const facture = await createLegalDocument(undefined, fd({
       title: `${TAG} Facture de la comptable`, kind: "INVOICE", amount: "20000", direction: "OUT",
+      counterpartyIds: partieId,
     }));
     expect(facture.ok, facture.error).toBe(true);
 
@@ -208,7 +225,7 @@ suite("Une facture est un document légal de nature « facture »", () => {
 
   it("ET ELLE NE REBAPTISE PAS UN BAIL EN FACTURE POUR S'OUVRIR LA PORTE", async () => {
     ACTOR = await actorFor(adminId, "SUPER_ADMIN");
-    const bail = await createLegalDocument(undefined, fd({ title: `${TAG} Bail Alger`, kind: "LEASE" }));
+    const bail = await createLegalDocument(undefined, fd({ title: `${TAG} Bail Alger`, kind: "LEASE", counterpartyIds: partieId }));
     expect(bail.ok, bail.error).toBe(true);
 
     ACTOR = compta;

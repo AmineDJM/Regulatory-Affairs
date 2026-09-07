@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Palette, Activity, Bot, Building2, Coins, Columns3, Database, Factory, Gauge, HardDrive, History, Layers, Library, Mail, MessageSquare, Network, Rocket, Settings2, ShieldCheck, Trash2, Workflow, ScanSearch } from "lucide-react";
+import { Palette, Activity, Bot, Building2, Coins, Columns3, Database, Factory, Gauge, HardDrive, History, Layers, Library, Mail, MessageSquare, Network, Rocket, Settings2, ShieldCheck, Trash2, Workflow, ScanSearch, ScrollText } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -89,6 +89,11 @@ export default async function AdminPage() {
             </Link>
             <Link href="/admin/versions">
               <Button variant="outline"><Rocket className="h-4 w-4" /> Versions (test → prod)</Button>
+            </Link>
+            {/* LE JOURNAL DES DEMANDES D'ACHAT — la trace complète de ce que chacun demande aux
+                moyens généraux, séparée de la file où on les traite. */}
+            <Link href="/admin/achats">
+              <Button variant="outline"><ScrollText className="h-4 w-4" /> Journal des demandes d&apos;achat</Button>
             </Link>
             <Link href="/admin/courrier">
               <Button variant="outline"><Mail className="h-4 w-4" /> Courrier (envoi sans SMTP)</Button>

@@ -54,6 +54,15 @@ export interface AppSettings {
   directiveIssuerUserIds: string[];
   /** Modules RETIRÉS de la plateforme (menu ET adresse). Voir `lib/modules-visibility.ts`. */
   hiddenModules: string[];
+  /**
+   * LE SERVICE DES MOYENS GÉNÉRAUX — un seul, pour toute la société.
+   *
+   * Les moyens généraux ne sont pas « ceux de mon département » : c'est un service qui achète et
+   * décaisse pour tout le monde. Chacun arrive donc sur la MÊME caisse. Le découpage par
+   * département reste la façon dont l'argent est IMPUTÉ, mais il ne se pilote plus que depuis le
+   * compte Super Admin. Nul = aucun service désigné, on retombe sur le rattachement.
+   */
+  generalMeansDepartmentId: string | null;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -86,6 +95,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   directiveIssuerUserIds: [],
   regEnrollmentRoles: [],
   hiddenModules: [],
+  generalMeansDepartmentId: null,
 };
 
 export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
@@ -117,6 +127,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       directiveIssuerUserIds: row.directiveIssuerUserIds ?? [],
       regEnrollmentRoles: row.regEnrollmentRoles ?? [],
       hiddenModules: row.hiddenModules ?? [],
+      generalMeansDepartmentId: row.generalMeansDepartmentId ?? null,
     };
   } catch {
     return DEFAULT_APP_SETTINGS;

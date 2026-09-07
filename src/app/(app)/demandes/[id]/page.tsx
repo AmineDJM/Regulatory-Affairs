@@ -147,7 +147,9 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                 deadline: req.deadline ? req.deadline.toISOString().slice(0, 10) : null,
                 fields: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v == null ? "" : String(v)])),
               }}
-              typeFields={(REQUEST_TYPE_FIELDS[req.type] ?? []).map((f) => ({ type: f.type, name: f.name, label: f.label, full: f.full, options: "options" in f ? f.options : undefined }))}
+              typeFields={(REQUEST_TYPE_FIELDS[req.type] ?? []).map((f) => ({ type: f.type, name: f.name, label: f.label, full: f.full, // `parties` porte aussi des `options`, mais ce sont des contacts d'annuaire, pas des
+                // couples valeur/libellé : les demandes administratives n'en ont pas.
+                options: "options" in f && f.type !== "parties" ? f.options : undefined }))}
             />
           )}
 

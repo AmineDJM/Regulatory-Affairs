@@ -3,10 +3,10 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Play, Check, FolderKanban, MapPin, Navigation, Timer, X, Users, ArrowRight, MessageSquareQuote, Trash2 } from "lucide-react";
-import { updateTaskStatus, startTask, respondTaskRequest, deleteTask } from "@/lib/actions/task-actions";
+import { Loader2, Play, Check, FolderKanban, MapPin, Navigation, Timer, X, Users, ArrowRight, MessageSquareQuote, Trash2, BellRing } from "lucide-react";
+import { updateTaskStatus, startTask, respondTaskRequest, deleteTask, relanceTaskRequest } from "@/lib/actions/task-actions";
 import { createDossierFromTask } from "@/lib/actions/dossier-actions";
-import { taskActions, declineSummary, requestStage } from "@/lib/tasks/request-flow";
+import { taskActions, declineSummary, requestStage, peutRelancer } from "@/lib/tasks/request-flow";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +36,18 @@ export interface TaskItem {
   involved?: string | null;
   /** Le lecteur peut la SUPPRIMER (il l'a créée, ou est Super Admin) — calculé côté serveur. */
   canDelete?: boolean;
+  // ── QUI EST QUI ────────────────────────────────────────────────────────────────────────────
+  // Les identifiants du responsable, du créateur et des participants VOYAGENT avec la ligne.
+  // Sans eux, `taskActions` ne peut dire ni « c'est ma tâche » ni « c'est ma demande » : elle
+  // rendait donc une liste vide, et les boutons d'une tâche ordinaire (« Démarrer »,
+  // « Terminer ») ne s'affichaient jamais. C'est ce qui rend la RELANCE possible, et c'est
+  // aussi ce qui répare ces deux boutons-là.
+  assignedToId?: string | null;
+  createdById?: string | null;
+  participantIds?: string[];
+  /** Dernière relance envoyée, et leur nombre — l'anti-spam se juge ici comme au serveur. */
+  lastNudgeAt?: string | null;
+  nudgeCount?: number;
 }
 
 function mapsUrl(address: string) {
@@ -67,6 +79,37 @@ function ActionForm({ action, fields, children, className }: { action: (fd: Form
         {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : children}
       </button>
     </form>
+  );
+}
+
+/**
+ * RELANCER — le bouton qui DIT quand il refuse.
+ *
+ * Il reste visible même trop tôt : le masquer laisserait croire que relancer n'existe pas, et
+ * l'on retournerait écrire un message ailleurs. Quand le délai n'est pas écoulé, le serveur
+ * rend la phrase qui explique — et le titre du bouton la porte déjà, avant le clic.
+ */
+function RelanceButton({ t, userId }: { t: TaskItem; userId: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+  const verdict = peutRelancer(t, userId);
+  const rang = t.nudgeCount ?? 0;
+  return (
+    <button type="button" disabled={busy}
+      title={verdict.ok
+        ? "Rappeler cette demande — la personne reçoit une alerte, et la relance s'inscrit dans le fil"
+        : verdict.raison}
+      onClick={async () => {
+        setBusy(true);
+        const fd = new FormData(); fd.set("id", t.id);
+        const r = await relanceTaskRequest(fd);
+        setBusy(false);
+        if (r.ok) router.refresh(); else window.alert(r.error ?? "Relance impossible.");
+      }}
+      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50">
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BellRing className="h-3.5 w-3.5" />}
+      {rang > 0 ? `Relancer (${rang})` : "Relancer"}
+    </button>
   );
 }
 
@@ -206,6 +249,7 @@ export function TaskList({
               {show("complete") && (
                 <ActionForm action={updateTaskStatus} fields={{ id: t.id, status: "DONE" }}><Check className="h-3.5 w-3.5" /> {t.address ? "Arrivé / fait" : "Terminer"}</ActionForm>
               )}
+              {show("relance") && userId && <RelanceButton t={t} userId={userId} />}
               {show("dossier") && <CreateDossierButton id={t.id} />}
               {t.canDelete && !readOnly && <DeleteTaskButton id={t.id} title={t.title} />}
             </div>

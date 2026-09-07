@@ -5,6 +5,8 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { companyScopedWhere } from "@/lib/company";
+import { listPartyOptions } from "@/lib/queries/company-contacts";
+import { PartyLink } from "@/components/directory/party-link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -111,6 +113,12 @@ export default async function MailEntryPage({ params }: { params: { id: string }
   const self = { type: "MAIL_ENTRY" as const, id: entry.id };
   const linkViews = await linkedViews(self, await linksOf(self));
 
+  // L'ANNUAIRE — avec l'expéditeur et le destinataire DÉJÀ retenus, même retirés depuis.
+  const partyOptions = await listPartyOptions(user.id, {
+    includeIds: [entry.senderContactId, entry.recipientContactId].filter((x): x is string => Boolean(x)),
+  });
+  const canCreateContact = userCan(user, "GENERAL_MEANS", "CREATE");
+
   const dir = MAIL_DIRECTION[entry.direction];
   const fields = mailFields({
     title: entry.title,
@@ -134,6 +142,13 @@ export default async function MailEntryPage({ params }: { params: { id: string }
     routing.departments,
     routing.people,
     folderOptions,
+    {
+      options: partyOptions, canCreate: canCreateContact,
+      selected: {
+        sender: entry.senderContactId ? [entry.senderContactId] : [],
+        recipient: entry.recipientContactId ? [entry.recipientContactId] : [],
+      },
+    },
   );
 
   return (
@@ -173,8 +188,15 @@ export default async function MailEntryPage({ params }: { params: { id: string }
           <Card>
             <CardHeader><CardTitle>Le pli</CardTitle></CardHeader>
             <CardContent className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
-              <Info label="Expéditeur" value={entry.sender} />
-              <Info label="Destinataire" value={entry.recipient} />
+              {/* LE NOM SEUL — et il s'ouvre sur le mail et le contact. */}
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Expéditeur</p>
+                <PartyLink parties={partyOptions.filter((o) => o.id === entry.senderContactId)} fallback={entry.sender} className="font-medium" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Destinataire</p>
+                <PartyLink parties={partyOptions.filter((o) => o.id === entry.recipientContactId)} fallback={entry.recipient} className="font-medium" />
+              </div>
               {/* À QUI LE PLI S'ADRESSE EN INTERNE — la question qu'on pose au registre le plus
                   souvent (« qui devait traiter ça ? »). Les deux se cumulent et sont facultatives :
                   un contrat vise la Direction Générale ET son directeur, une convocation une seule

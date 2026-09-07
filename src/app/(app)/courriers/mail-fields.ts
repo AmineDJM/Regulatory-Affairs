@@ -1,5 +1,6 @@
 import type { FieldDef } from "@/components/shared/create-record-button";
 import { MAIL_DIRECTION } from "@/lib/labels";
+import type { PartyOption } from "@/lib/contacts/parties";
 
 /**
  * LES CHAMPS D'UN COURRIER — une seule définition pour la création ET la modification.
@@ -25,6 +26,15 @@ export function mailFields(
   people: { value: string; label: string }[] = [],
   /** Dossiers de classement du registre, indentés selon leur profondeur. */
   folders: { value: string; label: string }[] = [],
+  /**
+   * L'ANNUAIRE DE L'ENTREPRISE — d'où l'expéditeur et le destinataire se CHOISISSENT.
+   *
+   * Ils étaient du texte libre : trois orthographes du même correspondant, aucune ne portant un
+   * numéro. `canCreate` est le droit d'écriture de l'annuaire, calculé au serveur : sans lui, le
+   * bouton « Créer un contact » n'apparaît pas — un bouton qui mène à un refus est pire qu'un
+   * bouton absent.
+   */
+  parties: { options: PartyOption[]; canCreate: boolean; selected?: Partial<Record<"sender" | "recipient", string[]>> } = { options: [], canCreate: false },
 ): FieldDef[] {
   const v = (k: string) => values[k] ?? undefined;
   return [
@@ -70,8 +80,27 @@ export function mailFields(
           placeholder: "— Aucune —", defaultValue: v("concernedUserId"),
         }] as FieldDef[])
       : []),
-    { type: "text", name: "sender", label: "Expéditeur", defaultValue: v("sender") },
-    { type: "text", name: "recipient", label: "Destinataire", defaultValue: v("recipient") },
+    // EXPÉDITEUR ET DESTINATAIRE — un seul chacun, choisi dans l'annuaire de l'entreprise. Un
+    // pli part d'un endroit et arrive à un autre : la cardinalité n'est pas celle des parties
+    // d'un contrat, qui sont réellement plusieurs.
+    {
+      type: "parties", name: "senderContactId", label: "Expéditeur", arity: 1,
+      options: parties.options, canCreate: parties.canCreate,
+      defaultValue: parties.selected?.sender ?? [],
+      placeholder: "Chercher l\u2019expéditeur dans l\u2019annuaire…",
+      hint: v("sender") && !(parties.selected?.sender ?? []).length
+        ? `Correspondant enregistré en texte : « ${v("sender")} ». Choisissez-le dans l\u2019annuaire pour qu\u2019on puisse le joindre.`
+        : undefined,
+    },
+    {
+      type: "parties", name: "recipientContactId", label: "Destinataire", arity: 1,
+      options: parties.options, canCreate: parties.canCreate,
+      defaultValue: parties.selected?.recipient ?? [],
+      placeholder: "Chercher le destinataire dans l\u2019annuaire…",
+      hint: v("recipient") && !(parties.selected?.recipient ?? []).length
+        ? `Correspondant enregistré en texte : « ${v("recipient")} ». Choisissez-le dans l\u2019annuaire pour qu\u2019on puisse le joindre.`
+        : undefined,
+    },
     // Le départ porte l'HEURE : c'est ce qui départage deux plis du même jour.
     { type: "datetime-local", name: "sentAt", label: "Départ (date et heure)", defaultValue: v("sentAt") },
     { type: "date", name: "receivedAt", label: "Arrivée", defaultValue: v("receivedAt") },

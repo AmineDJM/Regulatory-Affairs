@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { LEGAL_DOC_KIND } from "@/lib/labels";
 import { attachDriveNodeToLegal } from "@/lib/actions/legal-actions";
+import { PartyPicker } from "@/components/directory/party-picker";
 
 /**
  * DÉCLARER UN FICHIER DU DRIVE DANS LEGAL — SANS EN FAIRE DE COPIE.
@@ -51,7 +52,8 @@ export function SendToLegalSheet({
       driveNodeId: nodeId,
       title: String(fd.get("title") ?? ""),
       kind: String(fd.get("kind") ?? "CONTRACT"),
-      counterparty: String(fd.get("counterparty") ?? ""),
+      // LA PARTIE VIENT DE L'ANNUAIRE — le sélecteur pose des champs cachés nommés.
+      counterpartyIds: fd.getAll("counterpartyIds").map(String).filter(Boolean),
       reference: String(fd.get("reference") ?? ""),
       startDate: String(fd.get("startDate") ?? ""),
       endDate: String(fd.get("endDate") ?? ""),
@@ -92,7 +94,9 @@ export function SendToLegalSheet({
         </div>
         <div>
           <Label htmlFor="legal-party">Partie (fournisseur, client, prestataire)</Label>
-          <Input id="legal-party" name="counterparty" className="mt-1" />
+          {/* Le sélecteur va chercher l'annuaire lui-même : cet écran vit dans une ligne du
+              Drive, à cinq composants clients de toute page serveur. */}
+          <div className="mt-1"><PartyPicker name="counterpartyIds" arity="many" /></div>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>

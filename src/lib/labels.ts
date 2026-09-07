@@ -1434,6 +1434,11 @@ export const WORKSPACE_TABS: NavTab[] = [
   { module: "WORKSPACE", label: "Aujourd'hui", href: "/aujourdhui", feature: "home_today" },
   { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace" },
   { module: "WORKSPACE", label: "Mon dossier RH", href: "/mon-dossier" },
+  // L'ANNUAIRE — un onglet à part, et à sa place. Les numéros de l'imprimeur, du transitaire et
+  // de l'agence de voyage vivaient dans les téléphones de trois personnes, puis derrière le
+  // module des Moyens généraux : deux façons différentes de les rendre introuvables. Ici, tout
+  // le monde les LIT ; les corriger demande toujours le droit correspondant.
+  { module: "WORKSPACE", label: "Annuaire", href: "/mon-espace/annuaire" },
   // Les ordres de mission et les pièces demandées ne sont PLUS des onglets : ils s'affichent
   // en SECTIONS dans « Mon espace » (les pages /missions et /pieces survivent — liens et
   // notifications y pointent encore).
@@ -1630,7 +1635,7 @@ export const MEDICAL_TABS: NavTab[] = [
 export const NAVIGATION: NavItem[] = [
   // Pilotage — « Mon espace » regroupe désormais Mon travail, Mon espace, Dashboard, Calendrier
   // et Directives (onglets). `match` couvre ces routes pour l'état actif de la barre latérale.
-  { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-travail", "/mon-dossier", "/missions", "/directives", "/pieces"] },
+  { module: "WORKSPACE", label: "Mon espace", href: "/mon-espace", icon: "LayoutGrid", group: "Pilotage", tabs: WORKSPACE_TABS, match: ["/mon-travail", "/mon-dossier", "/missions", "/directives", "/pieces", "/mon-espace/annuaire"] },
   { module: "WORKSPACE", label: "Agenda", href: "/calendar", icon: "CalendarDays", group: "Pilotage", tabs: AGENDA_TABS, match: ["/meetings"] },
   // Assistant IA : MODULE À PART ENTIÈRE (l'ancienne bulle flottante a été retirée) —
   // page plein écran avec dictée vocale et lecture de pièces jointes.
@@ -1683,10 +1688,13 @@ export const NAVIGATION: NavItem[] = [
   {
     module: "GENERAL_MEANS", label: "Moyens généraux", href: "/moyens-generaux", icon: "ShoppingBasket",
     group: "Pôles", pole: "ADMINISTRATION",
-    // L'ANNUAIRE DE L'ENTREPRISE s'atteint depuis les Moyens généraux — c'est le service qui
-    // traite avec l'imprimeur, le transitaire et l'agence de voyage. Il reste dans le PÉRIMÈTRE
-    // de cette entrée (`match`) pour que le menu ne se désélectionne pas en y entrant.
-    match: ["/moyens-generaux/annuaire"],
+    // L'ANNUAIRE DE L'ENTREPRISE A DÉMÉNAGÉ DANS « MON ESPACE » (onglet à part).
+    //
+    // C'est un carnet d'adresses, pas un outil de caisse : l'imprimeur, le transitaire et
+    // l'agence de voyage sont cherchés par tout le monde, et le ranger derrière un module que
+    // la plupart des gens n'ouvrent jamais revenait à le rendre introuvable pour ceux à qui il
+    // sert. Les Moyens généraux gardent un lien vers lui — c'est le service qui traite avec eux
+    // —, mais l'écran vit désormais où on le cherche.
   },
   // FINANCES — DEUX SOUS-MODULES, DANS LE MENU et nulle part ailleurs.
   //

@@ -120,12 +120,16 @@ describe("une entrée de menu porte le MÊME module que sa page", () => {
     expect(accessible(["GENERAL_MEANS"]).map((n) => n.label)).toContain("Moyens généraux");
   });
 
-  it("l'ANNUAIRE d'entreprise reste dans le périmètre de cette entrée", () => {
-    // Il est gardé par `requireModule("GENERAL_MEANS")` : le laisser hors du `match` ferait
-    // se désélectionner le menu en y entrant, sur un écran qu'on vient pourtant d'ouvrir.
+  it("l'ANNUAIRE d'entreprise est un ONGLET de « Mon espace », dans son périmètre", () => {
+    // Il a quitté les Moyens généraux : c'est un carnet d'adresses que tout le monde consulte,
+    // pas un outil de caisse. Le laisser hors du `match` ferait se désélectionner le menu en y
+    // entrant, sur un écran qu'on vient pourtant d'ouvrir.
     const mg = NAVIGATION.find((n) => n.href === "/moyens-generaux")!;
     expect(mg.module).toBe("GENERAL_MEANS");
-    expect(mg.match).toContain("/moyens-generaux/annuaire");
+    expect(mg.match ?? []).not.toContain("/moyens-generaux/annuaire");
+    const espace = NAVIGATION.find((n) => n.href === "/mon-espace")!;
+    expect(espace.match).toContain("/mon-espace/annuaire");
+    expect((espace.tabs ?? []).map((t) => t.href)).toContain("/mon-espace/annuaire");
   });
 });
 

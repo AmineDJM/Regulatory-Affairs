@@ -105,8 +105,9 @@ describe("taskActions — ce qui est proposé, et surtout ce qui ne l'est plus",
     const pending = { ...REQ, status: "REQUESTED" };
     expect(taskActions(pending, "amine")).toContain("respond");
     expect(taskActions(pending, "chef")).not.toContain("respond");
-    // Le demandeur peut quand même ouvrir : c'est sa demande.
-    expect(taskActions(pending, "chef")).toEqual(["open"]);
+    // Le demandeur peut quand même ouvrir : c'est sa demande. Et la RELANCER — c'est le seul
+    // geste qu'il ait sur une demande en attente, et il lui manquait.
+    expect(taskActions(pending, "chef")).toEqual(["relance", "open"]);
   });
 
   it("une demande refusée s'ouvre encore — c'est là qu'on lit le motif", () => {

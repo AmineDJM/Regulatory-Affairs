@@ -27,8 +27,17 @@ export interface MailFields {
   title: string;
   reference?: string | null;
   direction?: MailDirection;
+  /**
+   * L'EXPÉDITEUR ET LE DESTINATAIRE, tels qu'ils s'AFFICHENT. Le formulaire ne les saisit plus :
+   * ils sont DÉDUITS des contacts choisis dans l'annuaire (`senderContactId` /
+   * `recipientContactId`). Ils restent dans les champs parce que la recherche, les exports et le
+   * journal les lisent tels quels — et parce qu'Adam et l'import savent nommer sans choisir.
+   */
   sender?: string | null;
   recipient?: string | null;
+  /** Les contacts d'annuaire retenus. `null` = aucun ; `undefined` = le champ n'a pas été proposé. */
+  senderContactId?: string | null;
+  recipientContactId?: string | null;
   sentAt?: Date | null;
   receivedAt?: Date | null;
   acknowledgedAt?: Date | null;
@@ -166,6 +175,8 @@ export async function createMailEntryFor(user: SessionUser, f: MailFields): Prom
       direction: f.direction ?? "OUTGOING",
       sender: f.sender ?? null,
       recipient: f.recipient ?? null,
+      senderContactId: f.senderContactId ?? null,
+      recipientContactId: f.recipientContactId ?? null,
       sentAt: f.sentAt ?? null,
       receivedAt: f.receivedAt ?? null,
       acknowledgedAt: f.acknowledgedAt ?? null,
@@ -254,6 +265,10 @@ export async function updateMailEntryFor(user: SessionUser, id: string, f: MailF
     // Le classement se corrige comme le reste ; il ne se journalise pas par son nom (un dossier
     // n'est pas une donnée métier du pli, c'est un rangement).
     ...(f.folderId !== undefined ? { folderId: f.folderId ?? null } : {}),
+    // Les contacts d'annuaire, même précaution : `undefined` = le formulaire ne les proposait
+    // pas (correction d'une date depuis le tableau), et l'on ne détache alors personne.
+    ...(f.senderContactId !== undefined ? { senderContactId: f.senderContactId ?? null } : {}),
+    ...(f.recipientContactId !== undefined ? { recipientContactId: f.recipientContactId ?? null } : {}),
   };
   // LA DIRECTION ET LA PERSONNE, ELLES, SE JOURNALISENT — mais par leur nom. Réorienter un pli de
   // la Direction Commerciale vers les Finances est exactement ce qu'on vient chercher dans ce

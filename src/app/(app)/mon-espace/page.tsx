@@ -85,6 +85,9 @@ export default async function MonEspacePage() {
     requestedAt: t.requestedAt ? t.requestedAt.toISOString() : null,
     declineReason: t.declineReason, completionNote: t.completionNote,
     involved: involvedText(t.participantIds, t.readerIds),
+    // QUI EST QUI — sans ces trois-là, aucun bouton ne peut savoir si la ligne vous appartient.
+    assignedToId: t.assignedToId, createdById: t.createdById, participantIds: t.participantIds,
+    lastNudgeAt: t.lastNudgeAt ? t.lastNudgeAt.toISOString() : null, nudgeCount: t.nudgeCount,
     // Supprimer = retirer SA saisie : le créateur (ou l'admin). Une tâche reçue se REFUSE.
     canDelete: t.createdById === user.id || user.role === "SUPER_ADMIN",
   });

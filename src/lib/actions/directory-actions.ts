@@ -21,7 +21,7 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
  * courrier de l'entreprise : ça se trace comme un geste de sécurité, pas comme une préférence.
  */
 
-const PATH = "/moyens-generaux/annuaire";
+const PATH = "/mon-espace/annuaire";
 
 /** Le refus, dit une fois — même phrase partout, pour que la règle soit lisible. */
 const DENIED = "Vous n'avez pas le droit de modifier l'annuaire de l'entreprise.";

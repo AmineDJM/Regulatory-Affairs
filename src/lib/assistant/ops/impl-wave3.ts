@@ -389,7 +389,9 @@ export const LEGAL3_OPS_IMPL: Record<string, OpImpl> = {
         kind: args.kind ?? undefined,
         startDate: args.startDate ?? undefined,
         endDate: args.endDate ?? undefined,
-        counterparty: args.counterparty ?? undefined,
+        // Le nom est RÉSOLU contre l'annuaire par l'action : introuvable ou ambigu, elle refuse
+        // et le dit. Un modèle propose un nom, il ne crée pas une partie.
+        counterpartyName: args.counterparty ?? undefined,
         notes: args.notes ?? undefined,
       });
       if (!r.ok) return { ok: false, error: r.error ?? "Le rattachement a été refusé." };

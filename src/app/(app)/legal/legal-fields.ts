@@ -1,6 +1,7 @@
 import type { FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { LEGAL_DOC_KIND } from "@/lib/labels";
+import type { PartyOption } from "@/lib/contacts/parties";
 
 /**
  * LES CHAMPS D'UN DOCUMENT LÉGAL — une seule définition pour la création ET la modification.
@@ -30,6 +31,13 @@ export function legalFields(
    * la proposer laisserait enregistrer un bail qu'on ne pourrait plus ni voir ni corriger.
    */
   invoiceOnly = false,
+  /**
+   * L'ANNUAIRE DE L'ENTREPRISE — d'où les PARTIES se choisissent, une ou plusieurs.
+   *
+   * `selected` porte celles déjà retenues sur la pièce ; `canCreate` est le droit d'écriture de
+   * l'annuaire, calculé au serveur.
+   */
+  parties: { options: PartyOption[]; canCreate: boolean; selected?: string[] } = { options: [], canCreate: false },
 ): FieldDef[] {
   const v = (k: string) => values[k] ?? undefined;
   const facture = invoiceOnly || v("kind") === "INVOICE";
@@ -43,7 +51,18 @@ export function legalFields(
     ...(invoiceOnly
       ? ([{ type: "hidden", name: "kind", value: "INVOICE" }] as FieldDef[])
       : ([{ type: "select", name: "kind", label: "Nature", options: optionsFromMap(LEGAL_DOC_KIND), defaultValue: v("kind") ?? "CONTRACT" }] as FieldDef[])),
-    { type: "text", name: "counterparty", label: "Partie (fournisseur, client, prestataire)", full: true, defaultValue: v("counterparty") },
+    // LA PARTIE SE CHOISIT — elle ne se tape plus. Une ou plusieurs (co-traitance, groupement,
+    // avenant tripartite), et le nom affiché s'ouvre sur le mail et le contact.
+    {
+      type: "parties", name: "counterpartyIds", label: "Partie (fournisseur, client, prestataire)",
+      required: true, full: true, arity: "many",
+      options: parties.options, canCreate: parties.canCreate,
+      defaultValue: parties.selected ?? [],
+      placeholder: "Chercher la partie dans l\u2019annuaire — un métier, un nom, un numéro…",
+      hint: v("counterparty") && !(parties.selected ?? []).length
+        ? `Partie enregistrée en texte : « ${v("counterparty")} ». Choisissez-la dans l\u2019annuaire pour qu\u2019on puisse la joindre.`
+        : "Choisissez-la dans l\u2019annuaire de l\u2019entreprise. Absente ? « Créer un contact » l\u2019y ajoute sans quitter cette saisie.",
+    },
     { type: "date", name: "startDate", label: facture ? "Date d’émission" : "Date de début (facultative)", defaultValue: v("startDate") },
     { type: "date", name: "endDate", label: facture ? "Échéance de règlement" : "Date de fin — vide = sans échéance", defaultValue: v("endDate") },
     { type: "number", name: "amount", label: "Montant (DZD)", defaultValue: v("amount") },
