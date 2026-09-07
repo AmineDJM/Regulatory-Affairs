@@ -391,9 +391,15 @@ describe("le COMPILATEUR ne meurt plus d'une faute de FORME du modèle — les d
       objective: "objectif de test",
       acceptance: ["[REGLE:SORTIE_STRUCTUREE:fantome:trouve] La sortie est rendue."],
       complexity: "A", scale: "S",
-      steps: [{ key: "vraie-etape", title: "Travailler", nodeType: "WORKER", dependsOn: [],
-        approvalRequirement: "NONE", reasoningRequirement: "LIGHT",
-        expectedOutputSchema: { type: "object", properties: { trouve: { type: "boolean" } } } }],
+      // Une étape de LECTURE en plus du travail : un plan fait uniquement de travaux de modèle
+      // est désormais refusé (il ne pourrait répondre que de mémoire). Ce que ce cas mesure —
+      // la règle citant une étape fantôme — n'en dépend pas.
+      steps: [
+        { key: "chercher", title: "Chercher", nodeType: "CAPABILITY", capability: "search_everything", dependsOn: [] },
+        { key: "vraie-etape", title: "Travailler", nodeType: "WORKER", dependsOn: [],
+          approvalRequirement: "NONE", reasoningRequirement: "LIGHT",
+          expectedOutputSchema: { type: "object", properties: { trouve: { type: "boolean" } } } },
+      ],
       workstreams: [], expectedArtifacts: [], approvalStrategy: "BUNDLE", gaps: [],
     }, catalogue, acteur);
     expect(r.ok, r.ok ? "" : JSON.stringify((r as { issues: unknown }).issues)).toBe(true);
@@ -424,6 +430,9 @@ describe("le COMPILATEUR ne meurt plus d'une faute de FORME du modèle — les d
       acceptance: ["critère sémantique."],
       complexity: "A", scale: "S",
       steps: [
+        // Même raison qu'au-dessus : le plan porte une lecture, sans quoi il serait refusé pour
+        // une raison qui n'a rien à voir avec la normalisation des clés qu'on mesure ici.
+        { key: "chercher", title: "Chercher", nodeType: "CAPABILITY", capability: "search_everything", dependsOn: [] },
         { key: "recherche federée", title: "A", nodeType: "WORKER", dependsOn: [], reasoningRequirement: "LIGHT" },
         { key: "recherche fédérée", title: "B", nodeType: "WORKER", dependsOn: [], reasoningRequirement: "LIGHT" },
       ],
@@ -431,7 +440,9 @@ describe("le COMPILATEUR ne meurt plus d'une faute de FORME du modèle — les d
     }, catalogue, acteur);
     expect(r.ok, r.ok ? "" : JSON.stringify((r as { issues: unknown }).issues)).toBe(true);
     if (!r.ok) return;
-    const cles = r.mission.steps.map((s) => s.key).sort();
+    // Les DEUX clés qui se normalisent pareil, sans l'étape de lecture ajoutée pour que le plan
+    // soit d'une forme acceptable : ce sont elles qu'on mesure.
+    const cles = r.mission.steps.map((s) => s.key).filter((k) => k !== "chercher").sort();
     expect(cles).toHaveLength(2);
     expect(new Set(cles).size).toBe(2);
     expect(cles[0]).toBe("recherche-federee");

@@ -977,6 +977,38 @@ export function compile(
       + `une information ou un effet nouveau — sinon, ne rends AUCUN plan.`));
   }
 
+  /**
+   * ── UN PLAN QUI NE TOUCHE AUCUNE SOURCE NE PEUT RIEN AFFIRMER ───────────────────────
+   *
+   * ── LE DÉFAUT, MESURÉ ─────────────────────────────────────────────────────────────
+   *
+   * Le garde ci-dessus exige qu'une étape PRODUISE quelque chose — et il compte `WORKER`
+   * parmi les productives, à juste titre : un travail de modèle produit du texte. Mais un plan
+   * fait UNIQUEMENT de `WORKER` ne produit que cela : du texte tiré de la mémoire du modèle.
+   * Aucune source lue, aucun fichier écrit, aucune donnée de l'entreprise touchée.
+   *
+   * Au banc d'autonomie, cette forme revient sur des demandes qui portent explicitement sur la
+   * société — « où en est-on du budget », « qui a fait avancer les dossiers ». Le plan compile,
+   * s'exécute, et rend une réponse bien écrite sur une entreprise imaginaire. C'est le faux
+   * succès le plus coûteux : il ne ressemble pas à une erreur.
+   *
+   * ── POURQUOI CETTE RÈGLE NE PEUT PAS REFUSER UN PLAN CORRECT ──────────────────────
+   *
+   * Elle n'exige pas de LECTURE (une mission peut légitimement n'écrire que), ni de capacité
+   * (un nœud `ARTIFACT` produit un vrai fichier sans en porter). Elle refuse un seul cas :
+   * QUE des étapes de raisonnement. Si la réponse ne demande ni source, ni pièce, ni effet,
+   * ce n'est pas une mission — c'est une réponse de conversation, et le triage l'y renvoie.
+   *
+   * Le refus repart au planificateur avec la seule issue utile : nommer la source.
+   */
+  if (compiled.length > 0 && compiled.every((c) => c.nodeType === "WORKER")) {
+    issues.push(issue("INVALID_SHAPE", null,
+      `les ${compiled.length} étape(s) du plan sont toutes des travaux de modèle : aucune ne lit `
+      + `une source, n'appelle une capacité ni ne produit de pièce. Un plan de cette forme ne peut `
+      + `répondre que de mémoire, donc inventer. Ajoute l'étape qui va CHERCHER la donnée — ou, si `
+      + `aucune source disponible ne la porte, dis-le dans « gaps » plutôt que de conclure sans.`));
+  }
+
   if (issues.length > 0) return { ok: false, issues };
 
   const maxEffect = effetMaximal(compiled.map((c) => c.effect));

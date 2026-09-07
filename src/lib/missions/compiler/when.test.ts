@@ -67,8 +67,15 @@ describe("compilateur — l'étape conditionnelle", () => {
     expect(sansChamp.ok).toBe(false);
     const sansValeur = compile(plan([worker("lire"), worker("x", { when: { step: "lire", path: "prix", op: "gt" } })]), catalogue, acteur);
     expect(sansValeur.ok).toBe(false);
-    // exists / empty n'exigent pas de valeur.
-    const exists = compile(plan([worker("lire"), worker("x", { when: { step: "lire", path: "items", op: "exists" } })]), catalogue, acteur);
+    /**
+     * exists / empty n'exigent pas de valeur.
+     *
+     * Le plan porte une ATTENTE en plus des deux travaux : un plan fait UNIQUEMENT de travaux de
+     * modèle est désormais refusé (il ne pourrait répondre que de mémoire). Le raccourci d'ici
+     * décrivait donc une forme que le compilateur ne doit plus accepter — c'était le fixture qui
+     * était irréaliste, pas la règle.
+     */
+    const exists = compile(plan([attente, worker("lire"), worker("x", { when: { step: "lire", path: "items", op: "exists" } })]), catalogue, acteur);
     expect(exists.ok, messages(exists)).toBe(true);
   });
 });
