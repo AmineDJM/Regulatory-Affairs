@@ -58,6 +58,7 @@ import {
  */
 import { callClaude, callClaudeStream, assistantConfigured as aiConfigured } from "@/lib/models/compat";
 import { apercuDesSources } from "@/lib/assistant/workspace/apercu";
+import { candidatsMontres, verdictCible, type Candidat } from "@/lib/assistant/cible-designee";
 import { withTurn, markPreview, markFinal, logTurn, recordTool, setTurnContext, summarize, addPhase, timedPhase, type TurnRoute, type TurnContext, type TurnSummary } from "@/lib/models/telemetry";
 import { ADAM_PROMPT_VERSION } from "@/lib/assistant/prompt-version";
 import { complementDeLimite, gardeImpossibilite, RAPPEL_DECOUVERTE } from "@/lib/assistant/limites";
@@ -4905,8 +4906,17 @@ async function runAssistantImpl(
       const failures: { id: string; error: string }[] = [];
       for (const w of writes) {
         const p = await buildProposal(w.name, w.input, user);
-        if ("error" in p) failures.push({ id: w.id, error: p.error });
-        else okProposals.push(p);
+        if ("error" in p) { failures.push({ id: w.id, error: p.error }); continue; }
+        // MÊME PORTE QUE LE CHEMIN EN FLUX (`cible-designee.ts`) : une cible ambiguë rend des
+        // candidats. Deux chemins, une seule règle — sans quoi la protection dépendrait de
+        // l'existence d'un flux, ce qui n'a rien à voir avec la sûreté d'une écriture.
+        // LES CANDIDATS SONT CEUX QUE LA CONVERSATION A MONTRÉS, pas seulement ceux de ce
+        // tour-ci. Mesuré : la liste est produite au tour PRÉCÉDENT, et au tour où l'écriture
+        // se propose Adam n'a souvent rien relu — la règle voyait zéro candidat et s'ouvrait.
+        const vus: Candidat[] = [...lectures.flatMap((l) => extractSources(l.sortie)), ...candidatsMontres(history)];
+        const v = verdictCible(question, `${p.title} ${p.fields.map((f) => f.value).join(" ")}`, vus);
+        if (!v.designee) { failures.push({ id: w.id, error: v.question }); continue; }
+        okProposals.push(p);
       }
       if (okProposals.length === 0) {
         // On réinjecte les erreurs pour laisser Claude se corriger.
@@ -5500,8 +5510,24 @@ async function runAssistantStreamImpl(
         const failures: { id: string; error: string }[] = [];
         for (const w of writes) {
           const p = await buildProposal(w.name, w.input, user);
-          if ("error" in p) failures.push({ id: w.id, error: p.error });
-          else okProposals.push(p);
+          if ("error" in p) { failures.push({ id: w.id, error: p.error }); continue; }
+          /**
+           * ── UNE CIBLE AMBIGUË REND DES CANDIDATS (§104.7, étendu à TOUTE écriture) ──────
+           *
+           * Mesuré au banc des intentions courtes : « Corrige ça » après une liste de documents
+           * rendait « Je propose : ANNULER le devis DEV-2026-0038 ». Le PDG n'avait nommé aucune
+           * pièce ; Adam en a choisi une, et a transformé « corrige » en « annule ». Rien ne part
+           * sans clic — mais un clic réflexe annulait un devis.
+           *
+           * La porte refuse la proposition et rend la QUESTION, avec les candidats nommés.
+           */
+          // LES CANDIDATS SONT CEUX QUE LA CONVERSATION A MONTRÉS, pas seulement ceux de ce
+        // tour-ci. Mesuré : la liste est produite au tour PRÉCÉDENT, et au tour où l'écriture
+        // se propose Adam n'a souvent rien relu — la règle voyait zéro candidat et s'ouvrait.
+        const vus: Candidat[] = [...lectures.flatMap((l) => extractSources(l.sortie)), ...candidatsMontres(history)];
+          const v = verdictCible(question, `${p.title} ${p.fields.map((f) => f.value).join(" ")}`, vus);
+          if (!v.designee) { failures.push({ id: w.id, error: v.question }); continue; }
+          okProposals.push(p);
         }
         // Tout a échoué → on réinjecte les erreurs pour laisser le modèle se corriger.
         if (okProposals.length === 0) {
