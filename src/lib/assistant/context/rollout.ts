@@ -96,6 +96,31 @@ export function bucketOf(userId: string, utterance: string): number {
   return h % 100;
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * VINGT POUR CENT — et ce que MONTER À CENT a réellement donné, mesuré.
+ *
+ * Le chiffre vient du mandat (« I authorize a 20% canary for the remaining READ-ONLY
+ * traffic ») : c'est une autorisation d'exploitation, pas une constante technique. La question
+ * « faut-il la monter ? » a donc été posée au banc à témoin plutôt que tranchée d'intuition —
+ * `AB_ENV="CHIEF_ROUTER_CANARY=100" npm run bench:ab`, six demandes, chaque demande jouée
+ * ÉTEINT / ÉTEINT / ALLUMÉ pour connaître le bruit du modèle avant de lire l'écart.
+ *
+ *   UN passage  : coût −33 %, latence −25 %, outils 3/6 contre 4/6 au témoin.
+ *   DEUX passages : coût −13 %, latence −7 %, outils 8/12 contre 10/12 au témoin.
+ *
+ * LE GAIN FOND QUAND ON MESURE PLUS. Le −33 % du premier passage était en grande partie du
+ * bruit — et l'accord d'outils reste DEUX POINTS SOUS le témoin, c'est-à-dire que le canary
+ * élargi change des lectures d'une façon que le non-déterminisme du modèle n'explique pas
+ * (une analyse gagne `search_products`, une composition échange `registre_capacites` contre
+ * `render_view`).
+ *
+ * Un gain de 13 % qui déplace des lectures ne justifie pas de tourner, depuis le code, un
+ * réglage qu'un humain a posé pour de la production. Le défaut RESTE à 20 ; la variable
+ * d'environnement existe pour que la décision appartienne à l'exploitation, et cette mesure
+ * est là pour qu'elle soit prise avec un chiffre plutôt qu'avec une impression.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
 export const DEFAULT_CANARY_PERCENT = 20;
 
 /** Le pourcentage effectif : réglage d'environnement, borné, avec le défaut de la mission. */
