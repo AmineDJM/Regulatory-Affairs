@@ -221,8 +221,29 @@ export async function controleComplet(
     });
   }
 
-  // ── 4. LES ARTEFACTS ────────────────────────────────────────────────────────────────
-  const attendus = artefactsAttendus(mission);
+  /**
+   * ── 4. LES ARTEFACTS — DANS LA PORTÉE, comme tout le reste ───────────────────────────
+   *
+   * MESURÉ sur la chaîne budgétaire : un nœud QA placé au milieu du graphe exigeait TOUS les
+   * livrables annoncés par le plan, y compris ceux que produisent des étapes situées APRÈS lui.
+   * « 2/2 étapes effectives abouties » et pourtant « 1 anomalie — ARTEFACTS » : le document
+   * Word existait et s'ouvrait, il n'était simplement pas encore fabriqué au moment du contrôle.
+   *
+   * C'est le même défaut que la complétude, corrigé un cran plus loin — et il avait survécu
+   * parce que ce contrôle-là ne lit pas les étapes mais `planMeta`. Un contrôle ne réclame que
+   * les pièces que SES ancêtres devaient produire.
+   */
+  const attendus = artefactsAttendus(mission).filter((k) => {
+    if (!opts.portee) return true;
+    const liste = Array.isArray(mission.planMeta?.expectedArtifacts) ? mission.planMeta!.expectedArtifacts : [];
+    const decl = (liste as unknown[]).find((a) =>
+      a && typeof a === "object" && !Array.isArray(a) && (a as Record<string, unknown>).key === k);
+    const from = decl && typeof (decl as Record<string, unknown>).fromStep === "string"
+      ? String((decl as Record<string, unknown>).fromStep) : null;
+    // Un livrable dont le plan ne dit PAS quelle étape le produit reste exigible partout :
+    // on ne relâche jamais une exigence faute de savoir où la placer.
+    return !from || opts.portee.has(from);
+  });
   if (attendus.length > 0) {
     const enBase = await prisma.missionArtifact.findMany({
       where: { missionId: mission.id },

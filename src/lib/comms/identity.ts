@@ -46,9 +46,24 @@ export type IdentityRefusal =
   | { error: "needs-reconnect"; message: string }
   | { error: "not-yours"; message: string };
 
+/**
+ * ── UN REFUS QUI NE LAISSE QU'UN GESTE HUMAIN EST UNE IMPASSE POUR UNE MISSION (§118.9) ──
+ *
+ * MESURÉ live (chaîne budgétaire) : le plan a choisi l'E-MAIL pour solliciter trois collègues
+ * INTERNES. Aucune boîte n'étant connectée, les trois étapes ont échoué sur ce texte — qui ne
+ * propose qu'une action du PDG dans un écran de réglages. Une mission autonome n'a pas ce
+ * barreau-là : elle a replanifié trois fois, a réessayé le même canal, et s'est bloquée sans
+ * qu'aucune attente ne s'ouvre. Zéro sollicitation pour un mur de configuration.
+ *
+ * Or le recours existait et il était immédiat : la messagerie INTERNE de l'ERP, toujours
+ * disponible, et c'est le canal naturel entre collègues. Le refus le nomme désormais — un
+ * garde-fou qui bloque doit dire par où passer, sinon il ne bloque pas, il abandonne.
+ */
 export const NO_IDENTITY_MESSAGE =
-  "Aucune adresse d'envoi n'est connectée pour Adam : je ne peux donc envoyer aucun message. "
-  + "Ouvrez « Chief of Staff → Réglages » et connectez le compte Google d'Adam — je préparerai ensuite le message normalement.";
+  "Aucune adresse d'envoi n'est connectée pour Adam : aucun COURRIEL ne peut partir. "
+  + "Pour un collègue INTERNE, passe par la messagerie interne de l'ERP (send_message) — elle est "
+  + "toujours disponible et c'est le canal normal entre collègues. L'e-mail ne sert qu'à l'extérieur, "
+  + "et il faudra alors connecter le compte Google d'Adam dans « Chief of Staff → Réglages ».";
 
 const REFUSALS: Record<IdentityRefusal["error"], string> = {
   "not-connected": NO_IDENTITY_MESSAGE,

@@ -64,6 +64,34 @@ describe("le nœud QA juge ses ancêtres, pas la mission entière", () => {
     expect(fin.base.manquants.map((m) => m.key)).toEqual(["notifie"]);
   });
 
+  /**
+   * LE MÊME DÉFAUT, UN CRAN PLUS LOIN — trouvé sur la chaîne budgétaire, pas sur celle-ci.
+   *
+   * La complétude était corrigée ; les ARTEFACTS ne l'étaient pas, parce que ce contrôle-là ne
+   * lit pas les étapes mais `planMeta`. Un QA au milieu du graphe réclamait donc le document
+   * Word que produit une étape située APRÈS lui : « 2/2 étapes effectives abouties » et
+   * pourtant « 1 anomalie — ARTEFACTS », sur un fichier qui existait et s'ouvrait.
+   */
+  it("un livrable produit APRÈS le contrôle ne lui est pas réclamé", async () => {
+    const { controleComplet } = await import("@/lib/missions/goal/qa");
+    const m = mission([
+      etape({ key: "collecte", status: "DONE", dependsOn: [] }),
+      etape({ key: "controle", status: "RUNNING", nodeType: "QA", capability: null, dependsOn: ["collecte"] }),
+      etape({ key: "doc", status: "PENDING", nodeType: "ARTIFACT", capability: null, dependsOn: ["controle"] }),
+    ] as unknown as EtatEtape[]);
+    (m as { planMeta: Record<string, unknown> }).planMeta = {
+      expectedArtifacts: [{ key: "synthese", format: "DOCX", title: "Synthèse", fromStep: "doc" }],
+    };
+
+    const dansPortee = await controleComplet(m, { portee: new Set(["collecte", "controle"]) });
+    expect(dansPortee.ok, dansPortee.resume).toBe(true);
+
+    // À la FIN, le même livrable est exigible — et manque, puisque rien ne l'a produit.
+    const fin = await controleComplet(m);
+    expect(fin.ok).toBe(false);
+    expect(fin.constats.find((c) => c.controle === "ARTEFACTS")?.ok).toBe(false);
+  });
+
   it("la préséance négative ne bouge pas : un AMONT en échec bloque toujours", async () => {
     const { controleComplet } = await import("@/lib/missions/goal/qa");
     const casse = mission([

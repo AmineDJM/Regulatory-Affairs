@@ -55,14 +55,48 @@ import path from "node:path";
  * personne-là répond, avec ce que son domaine sait. C'est exactement la réalité — le dirigeant
  * ne choisit pas qui, dans Regulatory, traitera quel dossier.
  */
-type Domaine = "REGULATORY" | "FINANCE" | "MARCHES";
-
 interface Personnage {
-  domaine: Domaine;
+  /**
+   * LE DOMAINE — une étiquette libre, propre à la chaîne. Le banc ne connaît pas les métiers :
+   * il sait seulement qu'une personne appartient à un domaine et que son domaine porte un savoir.
+   */
+  domaine: string;
   /** Ce que la réponse APPORTE, en clair : sert au message et au jugement de la consolidation. */
   apporte: string;
   /** Mots que la relance doit contenir si cette réponse est jugée incomplète. */
   manquant?: string[];
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UNE CHAÎNE, ET LE BANC EN CONNAÎT PLUSIEURS (§91).
+ *
+ * ── POURQUOI CE DESCRIPTEUR EXISTE ──────────────────────────────────────────────────────
+ *
+ * La première chaîne — Regulatory → Finance → Marchés → Excel + PowerPoint — passe 10/10.
+ * Cela ne prouve RIEN sur l'architecture tant qu'une SECONDE, structurellement différente, ne
+ * passe pas avec le même moteur et sans une ligne de code de plus. « Si seul un scénario
+ * marche, c'est un échec architectural » : le banc doit donc pouvoir en jouer plusieurs, et le
+ * juge ne doit rien savoir des métiers.
+ *
+ * Ce que la chaîne B change EXPRÈS, pour que ce ne soit pas la même mission déguisée :
+ *   • d'autres domaines (RH, Finance, Supply Chain) et d'autres personnes ;
+ *   • un livrable d'un AUTRE format (un document Word, pas un classeur + un deck) ;
+ *   • une collecte à TROIS sources indépendantes au lieu de deux dossiers d'un même service ;
+ *   • le manquant porté par une AUTRE personne que la première interrogée.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+interface Chaine {
+  cle: string;
+  demande: string;
+  /** Qui répond quoi. L'ordre compte À L'INTÉRIEUR d'un domaine : partiel d'abord, complément ensuite. */
+  personnages: Personnage[];
+  /** Le domaine d'une personne, lu sur son nom — c'est ce qu'elle SAIT, pas qui l'interroge. */
+  domaineDe: (nom: string) => string;
+  /** Les clés de `VERITES.personnes` qui jouent dans cette chaîne. */
+  acteurs: string[];
+  /** Les extensions de fichier que la demande réclame. Le juge ouvre CHACUNE. */
+  livrables: string[];
 }
 
 interface Etape {
@@ -77,12 +111,79 @@ interface Etape {
 
 interface Verdict { id: string; libelle: string; ok: boolean; detail: string }
 
-const DEMANDE =
-  "Demande à l'équipe Regulatory les pièces manquantes des dossiers Nivolex (REG-2026-9011) et Trastuzex (REG-2026-9015). "
-  + "Attends leur retour et relance ce qui manque. "
-  + "Ensuite demande à Khaled Mansouri le prix de cession et le forecast de ces deux produits. "
-  + "Ensuite demande à Sofiane Kaci l'état des marchés publics qui les concernent. "
-  + "Quand tu as tout, consolide, fais-moi un fichier Excel et une présentation PowerPoint, et reviens vers moi.";
+/** La pièce interne qui PROUVE le format — un ZIP Office quelconque ne prouve rien. */
+const PIECE_CLE: Record<string, string> = {
+  ".xlsx": "xl/workbook.xml",
+  ".pptx": "ppt/presentation.xml",
+  ".docx": "word/document.xml",
+};
+
+const CHAINES: Chaine[] = [
+  {
+    cle: "regulatory",
+    demande:
+      "Demande à l'équipe Regulatory les pièces manquantes des dossiers Nivolex (REG-2026-9011) et Trastuzex (REG-2026-9015). "
+      + "Attends leur retour et relance ce qui manque. "
+      + "Ensuite demande à Khaled Mansouri le prix de cession et le forecast de ces deux produits. "
+      + "Ensuite demande à Sofiane Kaci l'état des marchés publics qui les concernent. "
+      + "Quand tu as tout, consolide, fais-moi un fichier Excel et une présentation PowerPoint, et reviens vers moi.",
+    /**
+     * Regulatory répond D'ABORD sur Nivolex seul : Trastuzex manque, et c'est ce que la relance
+     * doit aller chercher. Le second passage complète.
+     */
+    personnages: [
+      { domaine: "REGULATORY", apporte: "Nivolex : il manque le CPP légalisé. (Trastuzex non traité.)", manquant: ["trastuzex", "9015"] },
+      { domaine: "REGULATORY", apporte: "Trastuzex : certificat GMP du fabricant expiré depuis le 30/06/2026." },
+      { domaine: "FINANCE", apporte: "Prix de cession Nivolex 84 500 DZD, Trastuzex 61 200 DZD ; forecast 2027 : 1 240 et 890 unités." },
+      { domaine: "MARCHES", apporte: "Deux marchés PCH concernés : AO-2026-114 (Nivolex, attribué) et AO-2026-131 (Trastuzex, en cours)." },
+    ],
+    domaineDe: (nom) => {
+      const n = nom.toLowerCase();
+      if (n.includes("khaled") || n.includes("mansouri")) return "FINANCE";
+      if (n.includes("sofiane") || n.includes("kaci")) return "MARCHES";
+      return "REGULATORY";
+    },
+    acteurs: ["raihana", "amel", "khaled", "sofiane"],
+    livrables: [".xlsx", ".pptx"],
+  },
+  {
+    /**
+     * LA CHAÎNE B — celle qui dit si l'architecture GÉNÉRALISE ou si elle a appris la première.
+     *
+     * Rien n'y ressemble à la chaîne A : d'autres personnes, d'autres domaines (RH, Finance,
+     * Supply Chain), TROIS sources indépendantes au lieu de deux dossiers d'un même service, un
+     * livrable d'un autre format (un document Word, ni classeur ni deck), et le MANQUANT porté
+     * par la Supply Chain — pas par la première personne interrogée. Aucune ligne du moteur ne
+     * la connaît : si elle passe, c'est le moteur qui marche, pas la mémoire du banc.
+     */
+    cle: "budget",
+    demande:
+      "Prépare le dossier de révision budgétaire 2027. Demande à Nesrine Boudiaf l'effectif prévu et la masse salariale, "
+      + "à Khaled Mansouri le budget consommé à date et le reste à engager, "
+      + "et à Mehdi Larbi le coût logistique prévisionnel par produit. "
+      + "Attends leurs retours et relance ce qui manque. "
+      + "Quand tu as les trois, consolide et fais-moi un document Word de synthèse, puis reviens vers moi.",
+    personnages: [
+      { domaine: "RH", apporte: "Effectif prévu 2027 : 47 personnes (+4 vs 2026). Masse salariale prévisionnelle : 118 400 000 DZD." },
+      { domaine: "FINANCE", apporte: "Budget 2026 consommé à date : 71 %. Reste à engager : 24 300 000 DZD." },
+      // LE MANQUANT EST ICI, chez la TROISIÈME personne — pas chez la première comme en chaîne A.
+      { domaine: "LOGISTIQUE", apporte: "Coût logistique Nivolex : 3 100 DZD/unité. (Trastuzex : chiffre non consolidé, je reviens vers vous.)", manquant: ["trastuzex", "logistique"] },
+      { domaine: "LOGISTIQUE", apporte: "Coût logistique Trastuzex : 2 750 DZD/unité, transport réfrigéré inclus." },
+    ],
+    domaineDe: (nom) => {
+      const n = nom.toLowerCase();
+      if (n.includes("nesrine") || n.includes("boudiaf")) return "RH";
+      if (n.includes("mehdi") || n.includes("larbi")) return "LOGISTIQUE";
+      return "FINANCE";
+    },
+    acteurs: ["nesrine", "khaled", "mehdi"],
+    livrables: [".docx"],
+  },
+];
+
+/** La chaîne jouée — `CHAINE=budget` pour la seconde. Le banc n'en privilégie aucune. */
+const CHAINE: Chaine = CHAINES.find((c) => c.cle === (process.env.CHAINE ?? "regulatory")) ?? CHAINES[0];
+const DEMANDE = CHAINE.demande;
 
 async function main(): Promise<void> {
   const { prisma } = await import("@/lib/prisma");
@@ -106,32 +207,20 @@ async function main(): Promise<void> {
     mustChangePassword: row.mustChangePassword, access: await getAccess(row.id, row.role),
   } as unknown as CurrentUser;
 
+  // LES ACTEURS DE CETTE CHAÎNE — lus dans son descripteur, jamais figés dans le banc.
+  const emails = CHAINE.acteurs.map((k) => (VERITES.personnes as Record<string, { email: string }>)[k]?.email).filter(Boolean);
   const gens = await prisma.user.findMany({
-    where: { email: { in: [VERITES.personnes.raihana.email, VERITES.personnes.amel.email, VERITES.personnes.khaled.email, VERITES.personnes.sofiane.email] } },
+    where: { email: { in: emails } },
     select: { id: true, name: true, email: true },
   });
-  const parNom = (frag: string) => gens.find((g) => g.name.toLowerCase().includes(frag));
+  if (gens.length < emails.length) {
+    console.log(`  ✗ jeu d'essai incomplet : ${gens.length}/${emails.length} acteurs de la chaîne « ${CHAINE.cle} » en base.`);
+    await prisma.$disconnect();
+    process.exit(2);
+  }
 
-  /**
-   * LES TROIS PERSONNAGES, ET CE QU'ILS SAVENT.
-   *
-   * Regulatory répond D'ABORD sur Nivolex seul : Trastuzex manque, et c'est ce que la relance
-   * doit aller chercher. Le second passage complète.
-   */
-  const SCENARIO: Personnage[] = [
-    { domaine: "REGULATORY", apporte: "Nivolex : il manque le CPP légalisé. (Trastuzex non traité.)", manquant: ["trastuzex", "9015"] },
-    { domaine: "REGULATORY", apporte: "Trastuzex : certificat GMP du fabricant expiré depuis le 30/06/2026." },
-    { domaine: "FINANCE", apporte: "Prix de cession Nivolex 84 500 DZD, Trastuzex 61 200 DZD ; forecast 2027 : 1 240 et 890 unités." },
-    { domaine: "MARCHES", apporte: "Deux marchés PCH concernés : AO-2026-114 (Nivolex, attribué) et AO-2026-131 (Trastuzex, en cours)." },
-  ];
-
-  /** Le domaine d'une personne — c'est ce qu'elle SAIT, indépendamment de qui le plan sollicite. */
-  const domaineDe = (nom: string): Domaine => {
-    const n = nom.toLowerCase();
-    if (n.includes("khaled") || n.includes("mansouri")) return "FINANCE";
-    if (n.includes("sofiane") || n.includes("kaci")) return "MARCHES";
-    return "REGULATORY";
-  };
+  const SCENARIO: Personnage[] = CHAINE.personnages;
+  const domaineDe = CHAINE.domaineDe;
 
   /** La personne que l'attente NOMME — le banc ne choisit pas, il lit. */
   const quiRepondA = (from: string | undefined): typeof gens[number] | undefined => {
@@ -168,9 +257,9 @@ async function main(): Promise<void> {
   const consommes = new Set<number>();
   const relancesAttendues: string[] = [];
 
-  console.log(`\n══════════ CHAÎNE HUMAINE ══════════\n${DEMANDE}\n`);
+  console.log(`\n══════════ CHAÎNE HUMAINE « ${CHAINE.cle} » ══════════\n${DEMANDE}\n`);
 
-  let r = await lancerMission(pdg, DEMANDE, { titre: "[BENCH chaine] collecte multi-personnes" });
+  let r = await lancerMission(pdg, DEMANDE, { titre: `[BENCH chaine:${CHAINE.cle}] collecte multi-personnes` });
   if (!r.ok) { console.log(`  ✗ non lancée : ${r.error}`); process.exit(2); }
   const missionId = r.missionId;
 
@@ -346,7 +435,18 @@ async function main(): Promise<void> {
   const textesApresPremiereReponse = (etatFinal?.steps ?? [])
     .map((s) => `${s.title} ${JSON.stringify(s.result ?? {})}`)
     .join(" \n ");
-  const attenduRelance = SCENARIO[0].manquant ?? [];
+  /**
+   * LE MANQUANT EST CELUI QUE LA CHAÎNE DÉCLARE — pas celui de la première personne.
+   *
+   * Il s'écrivait `SCENARIO[0].manquant`. C'était une hypothèse de la chaîne A, où la réponse
+   * incomplète vient bien de la première personne interrogée. La chaîne B place le manquant chez
+   * la TROISIÈME (Supply Chain) — exprès, pour que ce ne soit pas la même mission déguisée. Le
+   * juge a répondu « ✗ la relance vise le MANQUANT (—) » : il ne cherchait rien.
+   *
+   * C'est exactement ce que §91 sert à trouver : ce n'était pas le moteur qui avait mémorisé la
+   * chaîne A, c'était le BANC. On lit donc le manquant là où il est déclaré, où qu'il soit.
+   */
+  const attenduRelance = SCENARIO.flatMap((p) => p.manquant ?? []);
   const relanceCiblee = attenduRelance.some((m) => textesApresPremiereReponse.toLowerCase().includes(m));
   if (relanceCiblee) relances.push(attenduRelance.join("/"));
 
@@ -390,15 +490,26 @@ async function main(): Promise<void> {
       if (!zip) return { ok: false, detail: `${nom} : pas une archive Office` };
       const z = await JSZip.loadAsync(buf);
       const pieces = Object.keys(z.files);
-      const attendu = /\.xlsx$/i.test(nom) ? "xl/workbook.xml" : /\.pptx$/i.test(nom) ? "ppt/presentation.xml" : null;
+      // La PIÈCE qui prouve le format : un ZIP Office quelconque ne dit rien, celle-ci si.
+      const attendu = PIECE_CLE[(nom.match(/\.[a-z0-9]+$/i)?.[0] ?? "").toLowerCase()] ?? null;
       const ok = attendu ? pieces.includes(attendu) : pieces.length > 0;
       return { ok, detail: `${nom} : ${pieces.length} pièces${attendu ? `, ${attendu} ${ok ? "présent" : "ABSENT"}` : ""}` };
     } catch (err) { return { ok: false, detail: `${nom} : ${String(err).slice(0, 90)}` }; }
   };
-  const xlsx = fichiers.find((f) => /\.xlsx$/i.test(f.name));
-  const pptx = fichiers.find((f) => /\.pptx$/i.test(f.name));
-  const vXlsx = xlsx ? await ouvrable(xlsx.id, xlsx.name) : { ok: false, detail: "aucun .xlsx produit" };
-  const vPptx = pptx ? await ouvrable(pptx.id, pptx.name) : { ok: false, detail: "aucun .pptx produit" };
+
+  /**
+   * UN VERDICT PAR LIVRABLE QUE LA CHAÎNE RÉCLAME — ni plus, ni moins.
+   *
+   * La chaîne A veut un classeur ET un deck, la chaîne B un document Word. Un banc qui cherche
+   * toujours un `.xlsx` accuserait la chaîne B d'un manque que personne ne lui a demandé, et
+   * laisserait la chaîne A muette sur un format oublié. Le descripteur dit ce qu'on ouvre.
+   */
+  const verdictsLivrables: Verdict[] = [];
+  for (const ext of CHAINE.livrables) {
+    const f = fichiers.find((x) => x.name.toLowerCase().endsWith(ext));
+    const v = f ? await ouvrable(f.id, f.name) : { ok: false, detail: `aucun ${ext} produit` };
+    verdictsLivrables.push({ id: ext.slice(1), libelle: `le livrable ${ext} existe ET s'ouvre`, ok: v.ok, detail: v.detail });
+  }
 
   const events = await prisma.missionEvent.findMany({ where: { missionId }, select: { kind: true, summary: true }, orderBy: { at: "asc" } });
   const notifs = events.filter((x) => x.kind === "NOTIFIED");
@@ -423,9 +534,10 @@ async function main(): Promise<void> {
       ok: (etatFinal?.steps.length ?? 0) > 0 && (etatFinal?.steps ?? []).some((s) => s.status !== "PENDING"),
       detail: `${missionId} · statut ${mrow?.status} · plan v${mrow?.planVersion} · ${etatFinal?.steps.length ?? 0} étape(s), `
         + `${(etatFinal?.steps ?? []).filter((s) => s.status !== "PENDING").length} sortie(s) de PENDING` },
-    { id: "trois", libelle: "les TROIS personnes sont sollicitées", ok: sollicites.size >= 3, detail: [...sollicites].join(", ") || "aucune" },
+    { id: "sollicitees", libelle: `les ${CHAINE.acteurs.length} personnes de la chaîne sont sollicitées`,
+      ok: sollicites.size >= CHAINE.acteurs.length, detail: [...sollicites].join(", ") || "aucune" },
     { id: "attente-levee", libelle: "au moins une attente est levée par une réponse humaine", ok: journal.some((j) => j.reveils > 0), detail: `${journal.reduce((s, j) => s + j.reveils, 0)} réveil(s)` },
-    { id: "relance", libelle: "la relance vise le MANQUANT (Trastuzex), pas tout", ok: relanceCiblee, detail: relanceCiblee ? `mentionne ${attenduRelance.join("/")}` : "aucune trace du manquant" },
+    { id: "relance", libelle: `la relance vise le MANQUANT (${attenduRelance.join("/") || "—"}), pas tout`, ok: relanceCiblee, detail: relanceCiblee ? `mentionne ${attenduRelance.join("/")}` : "aucune trace du manquant" },
     /**
      * LA CONSOLIDATION SE JUGE AUX ATTENTES LEVÉES, PAS AUX CONTENUS CONSOMMÉS.
      *
@@ -435,10 +547,9 @@ async function main(): Promise<void> {
      * ne reste ouverte à la fin.
      */
     { id: "consolide", libelle: "la chaîne va jusqu'au bout : toutes les attentes humaines sont levées",
-      ok: journal.reduce((n, j) => n + j.reveils, 0) >= 4 && (journal[journal.length - 1]?.attentes.length ?? 1) === 0,
+      ok: journal.reduce((n, j) => n + j.reveils, 0) >= CHAINE.acteurs.length && (journal[journal.length - 1]?.attentes.length ?? 1) === 0,
       detail: `${journal.reduce((n, j) => n + j.reveils, 0)} attente(s) levée(s) · ${journal[journal.length - 1]?.attentes.length ?? "?"} encore ouverte(s) à l'arrêt · ${consommes.size}/${SCENARIO.length} contenus distincts donnés` },
-    { id: "xlsx", libelle: "le classeur Excel existe ET s'ouvre", ok: vXlsx.ok, detail: vXlsx.detail },
-    { id: "pptx", libelle: "le PowerPoint existe ET s'ouvre", ok: vPptx.ok, detail: vPptx.detail },
+    ...verdictsLivrables,
     { id: "retour", libelle: "Adam revient vers le dirigeant", ok: notifs.length > 0, detail: notifs.map((n) => n.summary.slice(0, 70)).join(" | ") || "aucune notification" },
     /**
      * ZÉRO SORTIE RÉELLE — et le verdict le PROUVE au lieu de le supposer.

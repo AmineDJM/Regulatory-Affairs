@@ -5153,6 +5153,43 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### DEUX CHAÎNES HUMAINES, ET LA SECONDE A TROUVÉ CINQ DÉFAUTS (2026-09)
+
+**Pourquoi une seconde chaîne.** La chaîne Regulatory → Finance → Marchés → Excel + PowerPoint
+passait 10/10, deux fois de suite. Cela ne dit rien de l'architecture : « si seul un scénario
+marche, c'est un échec architectural ». Le banc joue donc deux chaînes (`CHAINE=budget`), et la
+seconde ne partage rien avec la première — RH + Finance + Supply Chain, TROIS sources
+indépendantes au lieu de deux dossiers d'un même service, un **document Word** au lieu d'un
+classeur et d'un deck, et le manquant chez la TROISIÈME personne au lieu de la première.
+
+**Elle est passée sans une ligne de code de plus** : trois attentes ouvertes en parallèle,
+chacune nommant sa personne et son sujet, les trois réponses consommées, la relance ciblée sur le
+coût logistique manquant, le `.docx` produit et rouvert (`word/document.xml` présent), le
+dirigeant informé. C'est le moteur, pas la mémoire du banc.
+
+**Et elle a trouvé ce qu'un seul scénario ne pouvait pas révéler :**
+
+1. **Le banc avait mémorisé la chaîne A.** Il lisait le manquant dans `SCENARIO[0]` — vrai pour
+   A, faux pour B où il est chez la troisième personne. Verdict rendu : « la relance vise le
+   MANQUANT (—) » : il ne cherchait rien.
+2. **Le contrôle ARTEFACTS n'était pas dans la portée.** La complétude l'était depuis la chaîne
+   A ; les artefacts non, parce que ce contrôle-là ne lit pas les étapes mais `planMeta`. Un QA au
+   milieu du graphe réclamait le Word que produit une étape située APRÈS lui.
+3. **`« Nom <adresse> »` n'était pas lu.** « Destinataire « Yacine Benali <yacine.benali@…> »
+   introuvable ou ambigu » — pour le PDG, qui EST en base, avec son adresse dans la chaîne même.
+   C'est la forme que tout client de courrier emploie ; le refus était artificiel.
+4. **Le plan écrivait au DEMANDEUR.** Une fois l'adresse lue, l'étape a échoué sur « on ne s'écrit
+   pas à soi-même » : « reviens vers moi » n'appelle aucune étape, le moteur notifie le demandeur
+   de lui-même. Règle 16 complétée.
+5. **L'e-mail choisi pour trois collègues internes, sans boîte connectée.** Trois étapes mortes,
+   trois replanifications sur le même mur, zéro attente ouverte — et un refus qui ne proposait
+   qu'un geste du PDG dans un écran de réglages. Un garde-fou qui bloque doit dire par où passer :
+   il nomme désormais la messagerie interne, toujours disponible, et la règle 19 le dit au plan.
+
+**Mesure, sans cueillir la bonne graine.** Chaîne A : 10/10, 10/10, 9/10, 9/10, 9/10. Chaîne B :
+7/9, 5/9, puis 8/9 après ces corrections. La variance vient du plan — le planificateur produit
+25 à 58 étapes pour la même demande — et elle est réelle : elle est notée, pas lissée.
+
 ### UNE SORTIE QUI CHANGE DE FORME SELON SON RÉSULTAT N'EST PAS UN CONTRAT (2026-09)
 
 **Le problème, mesuré deux fois dans la même mission live.** Deux étapes sont mortes sur une

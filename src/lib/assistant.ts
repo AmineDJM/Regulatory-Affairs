@@ -2199,7 +2199,24 @@ async function findPeople(query: string, limit = 8): Promise<PersonMatch[]> {
  * homonymes : CERTAIN ou PROBABLE = un compte ; AMBIGU = la liste, jamais un choix à la place de
  * la personne. La recherche par FONCTION (« le DAF ») reste celle de l'annuaire des comptes.
  */
-async function resolvePerson(query: string): Promise<{ id: string; name: string } | { ambiguous: PersonMatch[] } | null> {
+async function resolvePerson(brut: string): Promise<{ id: string; name: string } | { ambiguous: PersonMatch[] } | null> {
+  /**
+   * ── « Nom <adresse> » EST UNE DÉSIGNATION VALIDE, PAS UNE ÉNIGME ──────────────────────
+   *
+   * MESURÉ live (chaîne budgétaire) : une mission a échoué sur
+   * « Destinataire « Yacine Benali <yacine.benali@adventum-bench.dz> » introuvable ou ambigu ».
+   * Yacine Benali est le PDG, il EST en base, et son adresse était là, dans la chaîne même.
+   * Adam avait la personne ; c'est le lecteur qui ne savait pas lire la forme la plus naturelle
+   * qu'un modèle emploie pour désigner un destinataire — celle de tous les clients de courrier.
+   *
+   * Un « je ne peux pas » de cette espèce est artificiel (§63) : rien ne manquait. On détache
+   * donc l'adresse du libellé, on résout sur le NOM, et l'adresse sert de recours EXACT —
+   * une adresse n'est pas un indice flou, c'est un identifiant.
+   */
+  const mailbox = brut.match(/^\s*(.*?)\s*<\s*([^<>\s]+@[^<>\s]+)\s*>\s*$/);
+  const query = (mailbox?.[1] || brut).trim() || brut.trim();
+  const adresse = mailbox?.[2]?.toLowerCase() ?? null;
+
   const q = query.trim().toLowerCase();
   const matches = await findPeople(query, 8);
   const exact = matches.filter((m) => m.name.toLowerCase() === q || (m.title ?? "").toLowerCase() === q);
@@ -2213,6 +2230,15 @@ async function resolvePerson(query: string): Promise<{ id: string; name: string 
   if (r && r.verdict === "AMBIGU" && r.candidats.length) {
     const comptes = await prisma.user.findMany({ where: { id: { in: r.candidats.map((c) => c.id) }, isActive: true }, select: { id: true, name: true, title: true, role: true, department: { select: { name: true } } } }).catch(() => []);
     if (comptes.length >= 2) return { ambiguous: comptes.map((u) => ({ id: u.id, name: u.name, title: u.title, department: u.department?.name ?? null, role: u.role })) };
+  }
+  // L'ADRESSE TRANCHE, ET ELLE NE TRANCHE QU'À L'EXACT. Elle sert quand le nom n'a rien donné
+  // comme quand il en a donné trop : entre deux homonymes, l'adresse désigne sans ambiguïté.
+  if (adresse) {
+    const parAdresse = await prisma.user.findFirst({
+      where: { email: { equals: adresse, mode: "insensitive" }, isActive: true },
+      select: { id: true, name: true },
+    }).catch(() => null);
+    if (parAdresse) return parAdresse;
   }
   if (matches.length === 0) return null;
   if (matches.length === 1) return { id: matches[0].id, name: matches[0].name };
