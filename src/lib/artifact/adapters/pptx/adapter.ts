@@ -26,12 +26,18 @@ import { STYLE_NEUTRE, cmEnEmu, emuEnCm } from "@/lib/artifact/object-model/mode
 import { abreger } from "@/lib/artifact/object-model/text";
 import type { CommandeArtefact } from "@/lib/artifact/commands/ir";
 import { resoudre } from "@/lib/artifact/commands/resolve";
-import type { AdaptateurArtefact, DocumentOuvert, EffetCommande, Validation } from "@/lib/artifact/adapters/contract";
+import type {
+  AdaptateurArtefact, DocumentOuvert, EffetCommande, RessourceBinaire, Validation,
+} from "@/lib/artifact/adapters/contract";
+import { lireImage, tailleInsertion } from "@/lib/artifact/object-model/image";
+import {
+  assurerNamespacesDiapo, formeImage, poserMediaDiapo, prochainIdForme, repointerImageDiapo,
+} from "@/lib/artifact/adapters/pptx/media";
 import { effetEchec, effetOk } from "@/lib/artifact/adapters/contract";
 import type { XmlNode } from "@/lib/artifact/object-model/xml";
 import {
   attr, child, children, cloneNode, descendants, element, ensureChild, firstDescendant,
-  markDirty, parseXml, removeChild, serializeXml, setAttr, textNode, textOf,
+  insertAfter, markDirty, parseXml, removeChild, serializeXml, setAttr, textNode, textOf,
 } from "@/lib/artifact/object-model/xml";
 
 export const MIME_PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -121,6 +127,12 @@ function estTitre(sp: XmlNode): boolean {
 class PptxOuvert implements DocumentOuvert {
   format = "PPTX" as const;
   private modeleCache: PptxModel | null = null;
+  /** Les octets résolus par le moteur pour le lot en cours (§104.9). */
+  private ressources: ReadonlyMap<string, RessourceBinaire> = new Map();
+
+  fournirRessources(res: ReadonlyMap<string, RessourceBinaire>): void {
+    this.ressources = res;
+  }
 
   constructor(
     private zip: PizZip,
@@ -175,6 +187,8 @@ class PptxOuvert implements DocumentOuvert {
       case "pptx.deplacer_diapo": return this.deplacerDiapo(c);
       case "pptx.dupliquer_diapo": return this.dupliquerDiapo(c);
       case "pptx.ajouter_diapo": return this.ajouterDiapo(c);
+      case "pptx.inserer_image": return this.insererImage(c);
+      case "pptx.remplacer_image": return this.remplacerImage(c);
       default: return effetEchec(`opération « ${c.op} » non gérée par l'adaptateur PowerPoint`);
     }
   }
@@ -307,6 +321,95 @@ class PptxOuvert implements DocumentOuvert {
     if (!t.ok) return t.echec;
     removeChild(t.d.spTree, t.forme.noeud);
     return effetOk(`Diapo ${c.diapo} : ${t.forme.modele?.name ?? "forme"} supprimée.`, []);
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * POSER UNE IMAGE SUR UNE DIAPOSITIVE.
+   *
+   * Sans position demandée, on CENTRE : c'est le seul placement qu'on puisse choisir sans se
+   * tromper — une image posée en haut à gauche par défaut recouvre le titre une fois sur deux.
+   * Et la taille est bornée à ce qui TIENT dans la diapositive : une image qui déborde n'est
+   * pas « presque bien », elle est coupée à la projection.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  private insererImage(c: CommandeArtefact): EffetCommande {
+    const i = (c.diapo ?? 1) - 1;
+    const d = this.diapos[i];
+    if (!d) return effetEchec(`il n'y a pas de diapositive ${c.diapo}`);
+
+    const ref = c.imageSource ?? "";
+    const res = this.ressources.get(ref);
+    if (!res) return effetEchec(`le fichier source « ${ref} » n'a pas pu être lu (introuvable, ou vous n'y avez pas accès)`);
+    const img = lireImage(res.octets);
+    if (!img) {
+      return effetEchec(
+        `« ${res.nom} » n'est pas une image que PowerPoint sache afficher `
+        + "(formats acceptés : PNG, JPEG, GIF, BMP, TIFF, WEBP)",
+      );
+    }
+
+    const taille = tailleInsertion(img, { largeurCm: c.largeurCm, hauteurCm: c.hauteurCm }, this.largeurCm * 0.8);
+    const largeur = Math.min(taille.largeurCm, this.largeurCm);
+    const hauteur = Math.min(taille.hauteurCm, this.hauteurCm);
+    const x = c.xCm ?? (this.largeurCm - largeur) / 2;
+    const y = c.yCm ?? (this.hauteurCm - hauteur) / 2;
+
+    let pose;
+    try {
+      pose = poserMediaDiapo(this.zip, d.chemin, res.octets, img);
+    } catch (e) {
+      return effetEchec(`l'image n'a pas pu être rangée dans la présentation : ${(e as Error).message}`);
+    }
+    assurerNamespacesDiapo(d.racine);
+
+    const pic = formeImage({
+      rId: pose.rId, xCm: x, yCm: y, largeurCm: largeur, hauteurCm: hauteur,
+      nom: res.nom, alt: c.imageAlt ?? res.nom, id: prochainIdForme(d.spTree),
+    });
+    insertAfter(d.spTree, d.spTree.children[d.spTree.children.length - 1] ?? null, pic);
+    return effetOk(
+      `Diapo ${i + 1} : image « ${res.nom} » posée, ${largeur.toFixed(1)} × ${hauteur.toFixed(1)} cm.`,
+      [],
+    );
+  }
+
+  /**
+   * REMPLACER UNE IMAGE — la place et la taille ne bougent pas (même règle que Word).
+   *
+   * On refuse sur une forme qui n'est pas une image : un cadre de graphique ou un tableau porte
+   * ses données ailleurs, et y glisser un `a:blip` produirait une diapositive que PowerPoint
+   * répare en perdant l'objet.
+   */
+  private remplacerImage(c: CommandeArtefact): EffetCommande {
+    const ref = c.imageSource ?? "";
+    const res = this.ressources.get(ref);
+    if (!res) return effetEchec(`le fichier source « ${ref} » n'a pas pu être lu (introuvable, ou vous n'y avez pas accès)`);
+    const img = lireImage(res.octets);
+    if (!img) return effetEchec(`« ${res.nom} » n'est pas une image que PowerPoint sache afficher`);
+
+    const t = this.ciblerForme(c);
+    if (!t.ok) return t.echec;
+    if (t.forme.modele?.role !== "picture") {
+      return effetEchec(
+        `« ${t.forme.modele?.name ?? "cette forme"} » n'est pas une image `
+        + `(c'est ${t.forme.modele?.role === "chart" ? "un graphique" : t.forme.modele?.role === "table" ? "un tableau" : "une autre forme"})`,
+      );
+    }
+
+    let pose;
+    try {
+      pose = poserMediaDiapo(this.zip, t.d.chemin, res.octets, img);
+    } catch (e) {
+      return effetEchec(`l'image n'a pas pu être rangée dans la présentation : ${(e as Error).message}`);
+    }
+    if (!repointerImageDiapo(t.forme.noeud, pose.rId)) {
+      return effetEchec("cette forme ne porte pas d'image incorporée");
+    }
+    return effetOk(
+      `Diapo ${c.diapo} : ${t.forme.modele?.name ?? "image"} remplacée par « ${res.nom} », même place et même taille.`,
+      [t.forme.id],
+    );
   }
 
   private supprimerDiapo(c: CommandeArtefact): EffetCommande {

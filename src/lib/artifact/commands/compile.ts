@@ -271,6 +271,19 @@ export function verifierCommande(c: CommandeArtefact, format: ArtifactFormat): s
       if (c.diapo !== null && c.diapo < 1) return "la diapositive de référence se compte à partir de 1";
       if (c.position !== null && !POSITIONS.has(c.position)) return "position attendue : avant ou apres";
       return null;
+    case "pptx.inserer_image":
+      // La DIAPOSITIVE est obligatoire : « mets le logo » sur un deck de quarante pages ne dit
+      // pas où. Le reste — position, taille — se déduit si on ne le donne pas.
+      if (c.diapo === null || c.diapo < 1) return "il faut dire SUR QUELLE diapositive (1 = la première)";
+      if (!c.imageSource) return "il faut dire QUELLE image insérer (le fichier source)";
+      if (c.largeurCm !== null && c.largeurCm <= 0) return "la largeur doit être positive";
+      if (c.hauteurCm !== null && c.hauteurCm <= 0) return "la hauteur doit être positive";
+      return null;
+    case "pptx.remplacer_image":
+      if (c.diapo === null || c.diapo < 1) return "il faut dire SUR QUELLE diapositive (1 = la première)";
+      if (cibleVide(c.cible)) return "il faut dire QUELLE image remplacer";
+      if (!c.imageSource) return "il faut dire par quelle image la remplacer (le fichier source)";
+      return null;
 
     // ── PDF ─────────────────────────────────────────────────────────────────────────────
     case "pdf.supprimer_pages":

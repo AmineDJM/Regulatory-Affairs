@@ -137,6 +137,9 @@ export const OPS_PPTX = [
   "pptx.deplacer_diapo",
   "pptx.dupliquer_diapo",
   "pptx.ajouter_diapo",
+  /** Poser une image sur une diapositive, et remplacer celle qui y est (même famille que Word). */
+  "pptx.inserer_image",
+  "pptx.remplacer_image",
 ] as const;
 
 export const OPS_PDF = [

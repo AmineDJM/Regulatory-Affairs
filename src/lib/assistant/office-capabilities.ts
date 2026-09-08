@@ -120,6 +120,9 @@ export const OFFICE_TOOLS: PowerTool[] = [
         + "suffit : la hauteur suit le rapport de l'image. Sans taille, elle entre à sa taille naturelle, "
         + "bornée par la largeur utile de la page. Si le nom désigne plusieurs fichiers, l'outil rend les "
         + "candidats : redemande. "
+        + "IMAGES (PowerPoint) : `pptx.inserer_image` et `pptx.remplacer_image`, avec `diapo` "
+        + "OBLIGATOIRE (1 = la première). Sans position, l'image est centrée et bornée à la "
+        + "diapositive. Remplacer garde la place et la taille de l'image visée. "
         + "N'ENREGISTRE PAS : la modification est visible tout de suite, mais elle ne part au Drive que "
         + "sur `artifact_save`.",
       input_schema: {
