@@ -5153,6 +5153,72 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### LE PROMPT DU WORKER COUPAIT SES ENTRÉES EN PLEIN MILIEU (2026-09)
+
+**Le faux succès parfait, mesuré sur la chaîne humaine.** Khaled Mansouri répond « prix de cession
+Nivolex 84 500 DZD, Trastuzex 61 200 DZD ; forecast 2027 : 1 240 et 890 unités ». Sofiane Kaci
+répond « AO-2026-114 … AO-2026-131 ». Les attentes se règlent. L'étape de consolidation rend
+pourtant « prix de cession : NON FOURNIS », et les deux livrables sont bâtis là-dessus : **0 chiffre
+du jeu d'essai sur 6** dans le classeur, 0 sur 6 dans le deck. Toutes les étapes vertes, les fichiers
+s'ouvrent, la QA passe. Quatre personnes dérangées pour un document qui déclare n'avoir rien reçu.
+
+**La cause, et ce n'était pas le modèle.** `composerPromptWorker` écrivait
+`JSON.stringify(input, null, 2).slice(0, 6000)` — une coupe brute, au milieu du JSON, sans un mot.
+Deux dossiers ERP de ~8 800 caractères mangeaient le budget ; les deux réponses humaines, trois
+lignes chacune, n'atteignaient jamais le modèle. `MissionWorkerRun.input` gardait l'entrée COMPLÈTE :
+c'est ce qui a fait accuser le modèle trois runs de suite.
+
+**Ce qui remplace la coupe** (`lib/missions/runtime/entrees.ts`, module pur) : le budget se répartit
+ENTRE les clés au sens max-min (les petites d'abord, leur surplus aux grandes) — aucune clé ne
+disparaît ; une coupe se DIT à l'endroit exact (« son absence ici ne prouve rien, ne conclus pas
+qu'il n'existe pas ») ; rien n'est coupé tant qu'il reste de la place.
+
+**Mesuré, deux chaînes qui ne partagent ni domaine, ni format, ni personne** : A (Regulatory →
+Finance → Marchés, xlsx + pptx) 9/12 → **11/12**, `.xlsx` 0/6 → **6/6**, `.pptx` 0/6 → 5/6 ;
+B (RH + Finance + Supply Chain, docx) **9/10**, `.docx` **4/4**. Le banc lui-même s'arrêtait à « le
+fichier s'ouvre » : il ouvre désormais la pièce et y cherche les chiffres que les gens ont donnés,
+en comparant des NOMBRES à des NOMBRES (une aiguille cherchée dans une soupe de chiffres se trouve
+toujours — §118.24).
+
+**Trois autres étages, pris au même endroit.** Le contrôle `RETOURS_PERDUS` (`goal/qa.ts`) refuse un
+retour humain dont aucun chiffre n'apparaît dans une seule SORTIE de la mission — jamais dans les
+entrées, que le moteur vient de remplir. La parole d'une personne se lit au premier niveau
+(`runtime/reponse.ts` : `{ reponseDe, contenu, pieces }`, toujours les trois) au lieu de
+`payload.body` sous `attenteProgres`. Et la règle 21 du planificateur : ce qu'on fait dire à
+quelqu'un, on le lit — pas de recherche dans la messagerie pour retrouver une réponse déjà en main.
+
+### UN « JE NE PEUX PAS » ARTIFICIEL, ET DEUX REFUS MUETS (2026-09)
+
+**Banc d'autonomie, 80 missions, même graine : réussite des réalisables 77,0 % → 81,1 %**
+(score 89,8 → 90,3 ; COMPOSITION 3/5 → 5/5, FINANCE 4/5 → 5/5 ; 0 faux succès, 0 violation de droit,
+0 fait sans provenance).
+
+- **Une exigence déduite d'un mot tuait la mission.** « Sors-moi … la date d'échéance … UN TABLEAU »
+  exige DOCUMENT ; le planificateur comprend un tableau à l'écran, planifie `show_table`, et la
+  mission meurt sans rien livrer. On distingue désormais la NATURE du reproche : une faute de plan
+  reste mortelle, une exigence de couverture laisse partir la mission avec la lacune DÉCLARÉE.
+- **`outcome: EVENT` derrière un WAIT_INPUT** : le refus disait la faute, pas le remède. Il donne
+  maintenant l'issue à écrire selon le type réel du nœud amont.
+- **`watch_entity` recevant un critère** (« les dossiers dont l'échéance tombe dans 60 jours ») :
+  une surveillance porte sur UNE cible ; un ensemble se surveille en listant d'abord, puis une par
+  fiche — un éventail. Dit dans le refus ET dans la fiche de l'outil, avant l'essai.
+- **Une capacité qui déclare son échec a échoué** (`{ ok: false }`), mais seulement quand elle
+  ÉCRIT : sur une lecture, `ok: false` peut être une réponse (« non conforme »).
+- **Le banc notait en échec la conduite exigée** : une écriture PLANIFIÉE mais arrêtée sur une porte
+  d'approbation n'est pas une écriture, et une limite nommée à l'EXÉCUTION (« connecteur iqvia non
+  configuré : IQVIA_BASE_URL, IQVIA_API_KEY ») vaut un manque annoncé — une ressource absente ne se
+  voit pas depuis un catalogue.
+
+### UNE PIÈCE QUI N'A PAS L'AIR OFFICIELLE LE DIT (2026-09)
+
+Un BC Adventum émis par le chemin de production : structure juste (titre, blocs émetteur /
+fournisseur, tableau de lignes, HT / TVA / TTC, somme en lettres, mentions de rappel, signatures),
+mais **aucun papier en-tête déposé, bloc émetteur réduit au seul nom, aucun signataire**. Le code le
+savait — `surPapierEnTete: false`, « Identité de l'émetteur incomplète : l'adresse du siège, le RC,
+le NIF, l'article d'imposition, le NIS » — et le disait dans un champ JSON pendant que la phrase
+annonçait « pièce inscrite au registre Legal ». C'est la phrase qu'un modèle reprend. La réserve
+entre désormais dans la phrase, avec le geste exact qui la lève, et se tait quand tout est en règle.
+
 ### UN DÉMENTI DISPARAISSAIT EN SILENCE (2026-09)
 
 **Le cas adverse, joué en live sur les deux chaînes** (`ADVERSAIRE=contradiction`) : Khaled répond
