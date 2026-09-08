@@ -37,7 +37,7 @@ export const WATCH_TOOLS: PowerTool[] = [
       input_schema: {
         type: "object",
         properties: {
-          reference: { type: "string", description: "La cible : référence exacte (REG-2026-014, ORD-…, PAY-…, VAL-…, n° de facture ou de BC), ou nom (molécule, titre de tâche, partenaire, personne, titre ou contrepartie d'un contrat, nom d'enveloppe budgétaire, objet ou correspondant d'un fil e-mail de VOTRE boîte). Pour un document attendu : le motif du nom (voir expected_document). En cas d'ambiguïté l'outil liste les candidats." },
+          reference: { type: "string", description: "UNE cible, jamais un critère. Une surveillance relit CETTE fiche et ne parle que d'elle : « les dossiers dont l'échéance tombe dans 60 jours » n'est pas une cible — lister d'abord les fiches, puis une surveillance PAR fiche (en mission : un déploiement en éventail sur la liste). Référence exacte (REG-2026-014, ORD-…, PAY-…, VAL-…, n° de facture ou de BC), ou nom (molécule, titre de tâche, partenaire, personne, titre ou contrepartie d'un contrat, nom d'enveloppe budgétaire, objet ou correspondant d'un fil e-mail de VOTRE boîte). Pour un document attendu : le motif du nom (voir expected_document). En cas d'ambiguïté l'outil liste les candidats." },
           label: { type: "string", description: "Le libellé de la surveillance tel que la personne l'a dit (facultatif)." },
           alert_on: {
             type: "array", items: { type: "string", enum: ["SANS_CHANGEMENT", "ECHEANCE_PROCHE", "ECHEANCE_DEPASSEE", "STATUT_PARMI", "STATUT_CHANGE", "BLOQUE", "DISPARU", "VALEUR"] },

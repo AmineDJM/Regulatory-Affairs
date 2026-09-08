@@ -368,8 +368,25 @@ export async function creerSurveillance(user: CurrentUser, opts: OptionsSurveill
   if (!cible) {
     return {
       ok: false, candidats,
+      /**
+       * ── LE REFUS NOMME LE RECOURS (§118.19) ──────────────────────────────────────────
+       *
+       * MESURÉ sur le banc d'autonomie : « Surveille les dossiers dont l'échéance tombe dans
+       * les soixante jours et préviens-moi seulement si l'un d'eux devient vraiment
+       * dangereux. » Le plan a passé la PHRASE comme `reference`. Aucune fiche ne s'appelle
+       * ainsi : refus, et le refus disait seulement ce qu'il avait cherché. La mission est
+       * morte sur une demande parfaitement réalisable.
+       *
+       * Une surveillance porte sur UNE cible — c'est sa définition, pas une limite à lever :
+       * elle relit CETTE fiche, compare à SON dernier état, et ne parle que d'elle. Un
+       * ENSEMBLE se surveille en listant d'abord, puis une surveillance par fiche. Le moteur
+       * sait déjà le faire : c'est un déploiement en éventail. Le refus le dit donc.
+       */
       raison: candidats.length === 0
         ? `rien à surveiller sous « ${opts.reference} » — ni dossier réglementaire, ni appel d'offres, ni tâche ouverte, ni règlement, ni contrat ou facture actifs, ni enveloppe budgétaire, ni fil e-mail de votre boîte, ni entité connue.`
+          + ` Une surveillance porte sur UNE cible nommée. Pour un ENSEMBLE défini par un critère`
+          + ` (« les dossiers dont l'échéance tombe dans 60 jours »), LISTER d'abord les fiches concernées,`
+          + ` puis poser une surveillance PAR fiche — en mission, c'est un déploiement en éventail sur la liste.`
         : `plusieurs cibles correspondent à « ${opts.reference} » : ${candidats.slice(0, 5).map((c) => c.label).join(" ; ")}. Précisez la référence.`,
     };
   }

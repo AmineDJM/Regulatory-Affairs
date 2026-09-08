@@ -130,6 +130,29 @@ suite("SURVEILLANCE DURABLE — un problème dit une fois, une fin dite une fois
     expect(await listerSurveillances(pdg)).toHaveLength(0);
   }, 120_000);
 
+  /**
+   * ── UN CRITÈRE N'EST PAS UNE CIBLE, ET LE REFUS DOIT DIRE LE RECOURS (§118.19) ────────
+   *
+   * MESURÉ sur le banc d'autonomie : « Surveille les dossiers dont l'échéance tombe dans les
+   * soixante jours et préviens-moi seulement si l'un d'eux devient vraiment dangereux. » Le
+   * plan a passé la PHRASE comme `reference`. Aucune fiche ne s'appelle ainsi : refus, et le
+   * refus ne disait que ce qu'il avait cherché. La mission est morte sur une demande
+   * parfaitement réalisable — il suffisait de lister d'abord, puis de surveiller chaque fiche.
+   */
+  it("un CRITÈRE au lieu d'une cible : le refus nomme le recours — lister, puis une surveillance par fiche", async () => {
+    const r = await creerSurveillance(pdg, {
+      reference: "Dossiers réglementaires dont l'échéance tombe dans les 60 jours à compter du 08/09/2026",
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.raison).toContain("UNE cible");
+    expect(r.raison).toContain("éventail");
+    // ET LE CAS QUI LE FAIT TOMBER : une cible AMBIGUË ne reçoit pas ce conseil, elle reçoit
+    // ses candidats — un conseil hors sujet ferait chercher une liste là où il faut choisir.
+    const ambigu = await creerSurveillance(pdg, { reference: `${TAG} Relire` });
+    if (!ambigu.ok && ambigu.candidats.length > 0) expect(ambigu.raison).not.toContain("éventail");
+  }, 60_000);
+
   it("arrêter : la sienne seulement, et la mission-support est annulée", async () => {
     const r = await creerSurveillance(pdg, { reference: titreTache });
     // La tâche est DONE : elle n'est plus « ouverte », donc introuvable par titre — le refus est dit.
