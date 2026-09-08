@@ -170,6 +170,15 @@ describe("un plan qui n'a pas l'étape que la demande réclame est refusé", () 
       { primitivesRequises: exigencesFermes(DEUX), formatsLivrables: formats });
     expect(une.ok).toBe(false);
     expect(messages(une)).toContain("Excel, PowerPoint");
+    /**
+     * LE CODE DU REFUS COMPTE AUTANT QUE LE REFUS. Il a porté `MISSING_PRIMITIVE`, et la
+     * tolérance « une exigence de couverture ne tue pas une mission » (§118.29) l'a laissé
+     * passer au run suivant : le classeur demandé n'a jamais existé, la mission a conclu
+     * PARTIAL. Deux pièces demandées et une planifiée est une CARDINALITÉ fausse — elle tue le
+     * plan, comme « 33 destinataires dans un seul envoi ».
+     */
+    expect(messages(une)).toContain("CARDINALITY");
+    expect(messages(une)).not.toContain("MISSING_PRIMITIVE");
 
     const deux = compile(plan([lecture, art("piece1"), art("piece2")]), avecDoc, pdg,
       { primitivesRequises: exigencesFermes(DEUX), formatsLivrables: formats });

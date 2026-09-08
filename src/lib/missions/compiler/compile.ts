@@ -1015,7 +1015,20 @@ export function compile(
       e.nodeType === "ARTIFACT"
       || (e.capability && catalog.has(e.capability) && catalog.meta(e.capability).primitive === "DOCUMENT"));
     if (porteuses.length < formats.length) {
-      issues.push(issue("MISSING_PRIMITIVE", null,
+      /**
+       * ── LE CODE DU REFUS EST « CARDINALITY », ET IL A COÛTÉ UN LIVRABLE DE L'APPRENDRE ──
+       *
+       * Cette règle a d'abord porté `MISSING_PRIMITIVE`, comme la couverture. Puis la tolérance
+       * de §118.29 est arrivée — « une exigence de COUVERTURE ne tue pas une mission » — et elle
+       * a laissé passer, au run suivant de la chaîne humaine, un plan qui ne produisait QUE le
+       * PowerPoint. La personne avait demandé un classeur ET une présentation : le classeur n'a
+       * jamais existé, et la mission a conclu PARTIAL.
+       *
+       * « Deux pièces demandées, une pièce planifiée » n'est pas une couverture incomplète :
+       * c'est une CARDINALITÉ fausse, la même faute que « trente-trois destinataires dans un
+       * seul envoi » (§118.3). Elle tue le plan, et c'est ce que dit son code.
+       */
+      issues.push(issue("CARDINALITY", null,
         `la demande nomme ${formats.length} livrables de formats différents (${formats.join(", ")}) `
         + `et le plan n'a que ${porteuses.length} étape(s) qui produisent une pièce. Une étape ne rend `
         + `qu'UN fichier : il en faut une par format demandé. Ajoute l'étape ARTIFACT manquante — ou, `
