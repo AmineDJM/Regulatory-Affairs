@@ -481,6 +481,36 @@ async function phase2(): Promise<void> {
       + `${Math.round(avancement.part * 100)} %`,
   });
 
+  // ── 10 bis. L'ATTENTE A RÉVEILLÉ LA BONNE BRANCHE ────────────────────────────────────
+  //
+  // CE QUI FERAIT TOMBER CE VERDICT : un réveil qui règle une attente d'une AUTRE mission, ou
+  // qui remet en marche une étape sans rapport avec l'événement. `reveillerMissions` borne par
+  // `missionId` ; ce qu'on vérifie ici, c'est que la borne tient sur un vrai run, et que les
+  // étapes réveillées appartiennent bien à un JALON (donc à une branche identifiée).
+  const reveils = await prisma.missionEvent.findMany({
+    where: { missionId: avant.missionId, kind: { in: ["EVENT_WAKE", "EVENT_PARTIAL"] } },
+    select: { detail: true },
+  });
+  const clesReveillees = reveils
+    .map((e) => (e.detail as { stepKey?: string } | null)?.stepKey)
+    .filter((k): k is string => typeof k === "string");
+  const etapesReveillees = clesReveillees.length > 0
+    ? await prisma.missionStep.findMany({
+        where: { missionId: avant.missionId, key: { in: clesReveillees } },
+        select: { key: true, milestoneId: true, status: true },
+      })
+    : [];
+  const horsJalon = etapesReveillees.filter((e) => e.milestoneId === null);
+  verdicts.push({
+    id: "attente",
+    libelle: "WAIT : une réponse humaine réveille une étape de la BONNE branche",
+    ok: clesReveillees.length === 0 || horsJalon.length === 0,
+    detail: clesReveillees.length === 0
+      ? "aucune attente n'a été levée sur ce run — la mission n'en a pas ouvert (non mesuré, pas un échec)"
+      : `${clesReveillees.length} réveil(s) · ${etapesReveillees.length} étape(s) retrouvée(s), `
+        + `${horsJalon.length} hors de tout jalon (0 attendu)`,
+  });
+
   // ── 11. ISOLATION MULTI-MISSIONS ─────────────────────────────────────────────────────
   const fuites = avant.missionTemoinId
     ? await prisma.missionStep.count({

@@ -44,6 +44,48 @@ describe("le plafond GLOBAL de replans n'existe plus (§118.42)", () => {
   });
 });
 
+describe("une mission longue reste VISIBLE et REPRENABLE", () => {
+  it("le battement voit une mission dont un JALON est vivant, même sans étape en attente", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : la branche retirée de `missionsAFaireAvancer`. MESURÉ en
+     * live : jalon 1 compilé, ses onze étapes terminées, jalons 2 à 7 pas encore compilés — donc
+     * zéro étape PENDING ou FAILED et un statut RUNNING non replanifiable. Aucune branche ne la
+     * voyait, le battement ne la reprenait jamais, et la mission mourait à son PREMIER jalon.
+     */
+    const router = lire("src/lib/missions/events/router.ts");
+    expect(router).toMatch(/milestones2:\s*\{\s*some:\s*\{\s*statut:\s*\{\s*notIn:/);
+  });
+
+  it("un jalon BLOQUÉ est REPRIS tant que son budget local l'autorise", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : `reprendreJalonsBloques` supprimée, ou appelée hors de la
+     * boucle. `frontiere()` écarte les jalons BLOCKED de ses courants — à juste titre, ils ne
+     * peuvent pas travailler en l'état — donc SANS cette reprise ils y restent pour toujours,
+     * leur descendance n'est jamais libérée, et la mission meurt sur une difficulté LOCALE
+     * qu'un sous-plan différent aurait contournée.
+     */
+    const pilote = lire("src/platform/in-process/missions/horizon.ts");
+    expect(pilote).toContain("async function reprendreJalonsBloques(");
+    expect(pilote, "la reprise n'est jamais appelée depuis la boucle")
+      .toContain("const reprises = await reprendreJalonsBloques(missionId);");
+    // La reprise est un REPLAN, pas un re-run : `planVersion: 0` = « pas encore compilé ».
+    expect(pilote).toMatch(/marquerJalon\(j\.id, "PENDING", \{ planVersion: 0/);
+    // Et le budget reste LOCAL, jugé au progrès sur les CAUSES d'échec.
+    expect(pilote).toContain("peutReplanifier({ replans: j.replans, dernierRefus: j.dernierRefus }, signature)");
+  });
+
+  it("la compilation d'un jalon prend le BAIL — deux pilotes ne compilent pas le même", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : le bail retiré du pilote. MESURÉ : le lancement laisse un
+     * tour d'horizon en arrière-plan, le battement reprend la mission dans la seconde, et deux
+     * appels de planificateur sont payés pour un seul sous-plan. `avancer` prenait déjà le bail
+     * pour les ÉTAPES ; la compilation, elle, passait à travers.
+     */
+    const pilote = lire("src/platform/in-process/missions/horizon.ts");
+    expect(pilote).toContain("if (!(await prendreBail(missionId)))");
+  });
+});
+
 describe("la compilation d'un jalon ne détruit pas les autres", () => {
   it("`materialiser` borne le CONTOURNEMENT au périmètre du jalon", () => {
     /**
