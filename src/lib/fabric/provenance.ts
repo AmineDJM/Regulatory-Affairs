@@ -357,6 +357,9 @@ function premierObjetParlant(data: Obj): Obj | null {
  * UN FAIT CALCULÉ — le total, l'écart, la moyenne. Il n'est pas « un chiffre de plus » : il porte
  * ses entrées, la transformation, la formule et l'instant du calcul, et sa confiance est celle
  * de sa PIRE entrée — un total de lignes sûres et d'une ligne OCR n'est pas plus sûr que l'OCR.
+ * TROIS propriétés suivent la pire entrée, et il fallait les trois : la confiance, la DATE (la
+ * donnée la plus ancienne date le calcul) et la FRAÎCHEUR. Les deux premières étaient là ; la
+ * troisième manquait, et un total bâti sur une copie de mars se déclarait « temps réel ».
  */
 export function faitCalcule(args: {
   outil: string; acteur: string; libelle: string; valeur: number | string;
@@ -369,6 +372,13 @@ export function faitCalcule(args: {
   const desc = familleDe(args.outil);
   const famille = args.famille ?? desc?.famille ?? null;
   const horodatages = faits.map((f) => f.horodatage).filter((h): h is string => Boolean(h)).sort();
+  // LA FRAÎCHEUR SUIT LA MÊME RÈGLE QUE LA CONFIANCE ET LA DATE : la pire entrée gouverne. Un
+  // total calculé sur une COPIE indexée est lui-même une copie indexée — la source a pu bouger
+  // depuis, et le total ne le sait pas plus que la ligne dont il vient. Sans entrée qui le dise,
+  // on ne suppose rien : c'est la famille de l'outil qui parle, comme avant.
+  const fraicheur: NatureFraicheur = faits.some((f) => f.fraicheur === "INDEXEE")
+    ? "INDEXEE"
+    : fraicheurDeFamille(famille);
   return {
     id: `${args.outil}:calcul:${args.libelle.slice(0, 40)}`,
     libelle: args.libelle.slice(0, 120),
@@ -379,7 +389,7 @@ export function faitCalcule(args: {
     // La date propre d'un calcul est celle de sa donnée la plus ANCIENNE : c'est elle qui le date.
     horodatage: horodatages[0] ?? null,
     observeLe, confiance, base: "calcul",
-    fraicheur: fraicheurDeFamille(famille),
+    fraicheur,
     autorite: desc?.autorite ?? null,
     preuveNegative: desc?.preuveNegative ?? null,
     acteur: args.acteur,

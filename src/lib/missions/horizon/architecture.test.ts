@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -144,10 +144,44 @@ describe("le socle de l'horizon reste PUR", () => {
     }
   });
 
-  it("`fraicheur` n'importe QUE le hachage du socle Node", () => {
+  it("`fraicheur` n'importe que le hachage de Node et les DURÉES du socle — rien de lourd", () => {
+    /**
+     * CE QUE CETTE ASSERTION PROTÈGE : la pureté, pas une liste. Le raisonnement de fraîcheur
+     * doit rester testable sans base et exécutable dans la conversation.
+     *
+     * Les durées de crédibilité ont DÉMÉNAGÉ au socle (`lib/fraicheur/ages.ts`) le jour où la
+     * calibration de confiance en a eu besoin : la conversation n'a pas le droit d'importer les
+     * missions, et deux tables séparées auraient divergé (§118.5). L'autorisation ne se donne
+     * donc pas à l'aveugle — le test suivant vérifie que ce module du socle est LUI-MÊME pur.
+     */
     const src = lire("src/lib/missions/horizon/fraicheur.ts");
     const imports = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
-    expect(imports).toEqual(["node:crypto"]);
+    expect(imports.sort()).toEqual(["@/lib/fraicheur/ages", "node:crypto"]);
+  });
+
+  it("les DURÉES du socle n'importent RIEN — sinon l'autorisation ci-dessus serait un trou", () => {
+    const src = lire("src/lib/fraicheur/ages.ts");
+    const imports = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
+    expect(imports, "le module des durées a pris une dépendance : la pureté fuit par lui").toEqual([]);
+  });
+
+  it("il n'existe qu'UNE table de durées de crédibilité dans le dépôt", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : quelqu'un recopie `AGES_CREDIBLES_H` « pour ne pas
+     * importer ». Le jour où l'une dit 24 h et l'autre 72, personne ne sait laquelle a raison —
+     * et c'est exactement le second registre que §118.5 interdit.
+     */
+    const definitions: string[] = [];
+    const parcourir = (dir: string) => {
+      for (const e of readdirSync(dir)) {
+        const p = join(dir, e);
+        if (statSync(p).isDirectory()) { parcourir(p); continue; }
+        if (!p.endsWith(".ts") || p.endsWith(".test.ts")) continue;
+        if (/(export\s+)?const AGES_CREDIBLES_H\s*[:=]/.test(readFileSync(p, "utf8"))) definitions.push(p);
+      }
+    };
+    parcourir("src");
+    expect(definitions).toEqual(["src/lib/fraicheur/ages.ts"]);
   });
 });
 

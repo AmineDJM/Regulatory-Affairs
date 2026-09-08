@@ -106,6 +106,36 @@ describe("provenance au niveau du fait — extraction déterministe depuis les s
     expect(total.nature).toBe("CALCUL");
   });
 
+  it("un fait calculé sur une COPIE indexée est lui-même une copie indexée", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : laisser la fraîcheur d'un calcul venir de la famille de
+     * l'OUTIL qui l'a fait. Un total bâti sur l'index de contenu se déclarerait « temps réel »
+     * alors que sa donnée vient d'une copie que le Drive a pu réviser depuis — et la
+     * calibration, qui ne périme que les copies, ne verrait rien à relire.
+     */
+    const indexe: FaitSource = extraireFaits(
+      "find_documents",
+      JSON.stringify({ fichier: "contrat-hetero.pdf", extrait: "clause 7", date: "2026-03-02", lien: "/drive/f/x" }),
+      { acteur: ACTEUR },
+    )[0];
+    expect(indexe.fraicheur, "l'entrée n'est pas une copie indexée : le test ne prouve rien").toBe("INDEXEE");
+    const derive = faitCalcule({
+      outil: "run_python", acteur: ACTEUR, libelle: "Engagement total", valeur: "1 200 000 DZD",
+      entrees: [indexe], transformation: "somme des clauses", formule: "Σ montant",
+    });
+    expect(derive.fraicheur).toBe("INDEXEE");
+    expect(derive.horodatage).toBe(indexe.horodatage);
+  });
+
+  it("un calcul sur des lectures VIVANTES ne devient pas une copie", () => {
+    // La symétrie compte autant : élargir la péremption à tout calcul ferait relire des totaux
+    // que rien ne date, et un avertissement permanent cesse d'être lu.
+    const vivant: FaitSource = extraireFaits("read_finances", JSON.stringify({ reference: "PAY-9", montant: "10 000 DZD", lien: "/finances/p9" }), { acteur: ACTEUR })[0];
+    expect(vivant.fraicheur).toBe("TEMPS_REEL");
+    const total = faitCalcule({ outil: "finance_totals", acteur: ACTEUR, libelle: "Total", valeur: 10_000, entrees: [vivant], transformation: "somme", formule: "Σ" });
+    expect(total.fraicheur).toBe("TEMPS_REEL");
+  });
+
   it("le tour dédoublonne et se borne", () => {
     const lignes = Array.from({ length: 60 }, (_, i) => ({ reference: `PRD-${i}`, lien: `/regulatory/${i}` }));
     const faits = faitsDuTour([

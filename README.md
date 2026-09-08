@@ -5194,6 +5194,53 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### UNE DONNÉE A UN ÂGE — ET RIEN, NULLE PART, NE S'EN SOUVENAIT (2026-09)
+
+`FaitCalibrable` portait `fraicheur` et `horodatage` **depuis le premier jour** : déclarés sur
+l'interface, lus par personne. Conséquence mesurable : un fait extrait d'une **copie indexée il y
+a six mois** avait `base: "metadata"` et une confiance de 0,95, donc il sortait `CERTAIN` →
+`AGIR`, annoncé **« FAIT VÉRIFIÉ »**. Adam proposait de résilier sur une clause que le Drive avait
+pu réviser entre-temps, et la carte d'action ne disait rien. C'est le faux succès de la mission de
+trois semaines qui conclut sur un forecast périmé, **un cran plus haut** : une seule phrase de
+conversation, sans aucune étape en échec pour le signaler.
+
+**PÉRIMÉ est un état, pas un degré de confiance.** L'âge et la provenance sont deux axes : les
+confondre perdrait l'un des deux, et la conduite n'est pas la même — sur une provenance faible on
+**cherche ailleurs**, sur une donnée vieille on **relit la même source**. D'où un sixième état
+(`PERIME`) et une sixième conduite (`RELIRE`), rangés entre « probable » et « hypothèse » : une
+copie datée reste la lecture d'une vraie source, là où une hypothèse est la mémoire d'un modèle.
+
+**La moitié de la règle est dans ce qui NE périme pas.** Trois conditions, toutes nécessaires :
+il faut une **copie** (une lecture en temps réel ne périme pas de la date de sa donnée — une
+facture de 2024 EST de 2024, la table était vivante au moment de la lecture) ; une date qui **se
+lit** (sans elle on ne déclare rien, et une date future est une saisie fautive, pas une
+péremption) ; et un dépassement du seuil de sa **nature** — un chiffre financier tient 24 h, un
+statut réglementaire 72, une parole humaine une semaine, une fiche ERP deux, un document trente.
+Un seuil unique serait faux dans les deux sens : il ferait relire ce qui est stable et laisserait
+passer ce qui bouge.
+
+Les durées vivent au **socle** (`src/lib/fraicheur/ages.ts`, zéro import) parce que la
+conversation et le moteur de missions en ont besoin **sans avoir le droit de se parler** : deux
+tables auraient divergé, et le jour où l'une dit 24 h et l'autre 72, personne ne saurait laquelle
+fait foi.
+
+**Trois corollaires, trouvés en branchant.** (1) Un **calcul** héritait déjà de la pire confiance
+de ses entrées et de leur date la plus ancienne — pas de leur fraîcheur : un total bâti sur une
+copie de mars se déclarait « temps réel ». Les trois propriétés vont ensemble. (2) Ce même calcul
+se juge sur le budget le **plus large**, parce que `faitCalcule` ne garde pas la nature de l'entrée
+qui gouverne : annoncer périmé un total de deux jours ferait une réserve permanente, et une
+réserve permanente cesse d'être lue. (3) L'avertissement atteint la **carte d'action**, pas
+seulement la trace — la trace se déplie, la carte est ce que la personne confirme.
+
+**Mesuré** : 12 tests sur la calibration (dont la date illisible, la date future, le seuil par
+nature, l'ordre des états), 3 sur le point d'entrée réel `calibrerTour` — un test qui n'appellerait
+que `calibrer` dirait que le calcul est juste sans dire qu'il arrive quelque part — et 2 sur la
+propagation de fraîcheur dans un fait calculé, dont la symétrie (un calcul sur des lectures
+vivantes ne devient pas une copie). **Au passage** : la liste des modules déclarés « neutres » à la
+frontière Adam ↔ ERP se défendait par la phrase « sans état, sans base, sans règle métier » que
+rien ne vérifiait — ajouter `import { prisma }` dans l'un d'eux aurait fait traverser la frontière
+à tout ce qui l'importe sans qu'aucun compteur bouge. Un test le tient désormais.
+
 ### UN LIVRABLE DE MISSION EST MAINTENANT OUVERT, PAS SEULEMENT RENIFLÉ (2026-09)
 
 Le contrôle d'un Word, d'un PowerPoint ou d'un PDF produit par une mission était : **plus de

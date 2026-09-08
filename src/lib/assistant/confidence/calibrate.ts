@@ -1,14 +1,34 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * LA CALIBRATION DE CONFIANCE (mandat 4 §29) — pure, sans import.
+ * LA CALIBRATION DE CONFIANCE (mandat 4 §29) — pure, un seul import : les durées du socle.
  *
- * Ce qu'Adam sait se range en cinq états, et chacun COMMANDE une conduite :
+ * Ce qu'Adam sait se range en six états, et chacun COMMANDE une conduite :
  *
  *   CERTAIN        → AGIR       (lu dans l'ERP ou calculé par le code, frais, sous droits)
  *   PROBABLE       → VÉRIFIER   (un document indexé, une lecture OCR, une déduction)
+ *   PERIME         → RELIRE     (une COPIE indexée plus vieille que sa nature ne le permet)
  *   HYPOTHÈSE      → CHERCHER   (la mémoire d'un modèle, le web, une estimation)
  *   MANQUANT       → DEMANDER   (aucun fait pour ce que la question exige)
  *   CONTRADICTION  → ARBITRER   (deux sources, deux valeurs, un même libellé)
+ *
+ * ── POURQUOI « PÉRIMÉ » EST UN ÉTAT ET NON UN DEGRÉ DE CONFIANCE ────────────────────────
+ *
+ * Un fait lu dans une copie indexée il y a six mois avait `base: "metadata"` et une confiance
+ * de 0,95 : il sortait CERTAIN, et Adam agissait dessus en annonçant « FAIT VÉRIFIÉ ». La date
+ * était pourtant là, dans `horodatage` — déclarée sur l'interface, lue par personne. C'est le
+ * même faux succès que §118.46, un cran plus haut : rien, nulle part, ne se souvenait de QUAND.
+ *
+ * L'ÂGE ET LA PROVENANCE SONT DEUX AXES (§118.16). Un fait peut être certain-et-vieux ; les
+ * confondre perdrait l'un des deux. Et la conduite n'est pas la même : sur une provenance
+ * faible on CHERCHE ailleurs, sur une donnée vieille on RELIT la même source.
+ *
+ * ── CE QUI NE VIEILLIT PAS, ET C'EST LA MOITIÉ DE LA RÈGLE ─────────────────────────────
+ *
+ * Une lecture en TEMPS RÉEL ne périme pas de la date de sa donnée : une facture de 2024 EST de
+ * 2024, elle n'est pas « périmée » — la table était vivante au moment de la lecture. Seule une
+ * COPIE indexée vieillit, parce que la source a pu bouger depuis sans que la copie le sache.
+ * Et un fait dont on ne lit pas la date à coup sûr n'est JAMAIS déclaré périmé : une garde qui
+ * refuse ce qu'elle ne comprend pas est désactivée dans la semaine (§118.16).
  *
  * La règle est ARITHMÉTIQUE et se relit : le maillon le plus faible gouverne. Vingt faits
  * certains et un fait de mémoire font une réponse « hypothèse » — parce que c'est celui-là qu'on
@@ -18,17 +38,20 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-export type Certitude = "CERTAIN" | "PROBABLE" | "HYPOTHESE" | "MANQUANT" | "CONTRADICTION";
-export type Conduite = "AGIR" | "VERIFIER" | "CHERCHER" | "DEMANDER" | "ARBITRER";
+import { AGES_CREDIBLES_H, direDuree } from "@/lib/fraicheur/ages";
+
+export type Certitude = "CERTAIN" | "PROBABLE" | "PERIME" | "HYPOTHESE" | "MANQUANT" | "CONTRADICTION";
+export type Conduite = "AGIR" | "VERIFIER" | "RELIRE" | "CHERCHER" | "DEMANDER" | "ARBITRER";
 export type Enjeu = "FAIBLE" | "NORMAL" | "ELEVE";
 
-export const CERTITUDES: readonly Certitude[] = ["CERTAIN", "PROBABLE", "HYPOTHESE", "MANQUANT", "CONTRADICTION"];
-export const CONDUITE_PAR_CERTITUDE: Record<Certitude, Conduite> = { CERTAIN: "AGIR", PROBABLE: "VERIFIER", HYPOTHESE: "CHERCHER", MANQUANT: "DEMANDER", CONTRADICTION: "ARBITRER" };
-export const LIBELLE_CERTITUDE: Record<Certitude, string> = { CERTAIN: "certain", PROBABLE: "probable", HYPOTHESE: "hypothèse", MANQUANT: "manquant", CONTRADICTION: "contradiction" };
-export const LIBELLE_CONDUITE: Record<Conduite, string> = { AGIR: "agir", VERIFIER: "vérifier avant d'agir", CHERCHER: "chercher encore", DEMANDER: "demander à la personne", ARBITRER: "arbitrer la contradiction" };
+export const CERTITUDES: readonly Certitude[] = ["CERTAIN", "PROBABLE", "PERIME", "HYPOTHESE", "MANQUANT", "CONTRADICTION"];
+export const CONDUITE_PAR_CERTITUDE: Record<Certitude, Conduite> = { CERTAIN: "AGIR", PROBABLE: "VERIFIER", PERIME: "RELIRE", HYPOTHESE: "CHERCHER", MANQUANT: "DEMANDER", CONTRADICTION: "ARBITRER" };
+export const LIBELLE_CERTITUDE: Record<Certitude, string> = { CERTAIN: "certain", PROBABLE: "probable", PERIME: "périmé", HYPOTHESE: "hypothèse", MANQUANT: "manquant", CONTRADICTION: "contradiction" };
+export const LIBELLE_CONDUITE: Record<Conduite, string> = { AGIR: "agir", VERIFIER: "vérifier avant d'agir", RELIRE: "relire la source avant d'agir", CHERCHER: "chercher encore", DEMANDER: "demander à la personne", ARBITRER: "arbitrer la contradiction" };
 /** Le même état, dans les autres vocabulaires de la maison : l'étiquette de réponse, l'échelle des missions. */
 export const EQUIVALENCES: Record<Certitude, { reponse: string; mission: string }> = {
-  CERTAIN: { reponse: "FAIT VÉRIFIÉ", mission: "TROUVÉ" }, PROBABLE: { reponse: "FAIT DÉRIVÉ", mission: "DÉDUIT" }, HYPOTHESE: { reponse: "ESTIMATION / HYPOTHÈSE", mission: "CANDIDAT" },
+  CERTAIN: { reponse: "FAIT VÉRIFIÉ", mission: "TROUVÉ" }, PROBABLE: { reponse: "FAIT DÉRIVÉ", mission: "DÉDUIT" },
+  PERIME: { reponse: "FAIT DATÉ, À RELIRE", mission: "DÉDUIT" }, HYPOTHESE: { reponse: "ESTIMATION / HYPOTHÈSE", mission: "CANDIDAT" },
   MANQUANT: { reponse: "INCONNU", mission: "INCONNU" }, CONTRADICTION: { reponse: "INCOHÉRENCE À SIGNALER", mission: "—" },
 };
 
@@ -50,6 +73,15 @@ export interface FaitCalibrable {
 
 export interface Contradiction { libelle: string; valeurs: string[]; outils: string[] }
 
+/** Une COPIE indexée plus vieille que ce que sa nature autorise — avec de quoi le dire. */
+export interface FaitPerime {
+  libelle: string;
+  outil: string;
+  ageH: number;
+  seuilH: number;
+  phrase: string;
+}
+
 export interface Calibration {
   certitude: Certitude;
   conduite: Conduite;
@@ -59,6 +91,8 @@ export interface Calibration {
   parCertitude: Record<"CERTAIN" | "PROBABLE" | "HYPOTHESE", number>;
   contradictions: Contradiction[];
   manquants: string[];
+  /** Les copies trop vieilles pour leur nature. Vide quand rien n'est datable à coup sûr. */
+  perimes: FaitPerime[];
 }
 
 const plier = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -102,20 +136,93 @@ export function manquantsDe(faits: readonly FaitCalibrable[], requis: readonly s
   });
 }
 
-const RANG: Record<Certitude, number> = { CERTAIN: 0, PROBABLE: 1, HYPOTHESE: 2, MANQUANT: 3, CONTRADICTION: 4 };
+/**
+ * LA NATURE D'UN FAIT, dans le vocabulaire des durées du socle.
+ *
+ * Le registre des sources parle en `NatureSource` (ERP, DOCUMENT, EMAIL…), les durées parlent en
+ * familles de péremption. Ce n'est pas une bijection et il n'y a pas à en faire une : un e-mail
+ * et une réunion vieillissent comme une parole humaine, une page de PDF comme un document.
+ */
+const NATURE_VERS_AGE: Record<string, string> = {
+  ERP: "ERP", PERSONNE: "ERP",
+  DOCUMENT: "DOCUMENT", PAGE_PDF: "DOCUMENT", PIECE: "DOCUMENT", CELLULE: "DOCUMENT",
+  EMAIL: "HUMAIN", FIL: "HUMAIN", REUNION: "HUMAIN",
+  EXTERNE: "AUTRE", DATE: "AUTRE",
+  /**
+   * UN CALCUL SE JUGE SUR LE BUDGET LE PLUS LARGE, et c'est une décision, pas un oubli.
+   *
+   * `faitCalcule` date un total par sa donnée la plus ANCIENNE et lui donne la fraîcheur de sa
+   * PIRE entrée — mais il ne garde pas la NATURE de cette entrée. On ne peut donc pas lire quel
+   * seuil gouverne. Le ranger dans « AUTRE » (48 h) enverrait relire un total bâti sur des
+   * documents au bout de deux jours, alors que les documents eux-mêmes tiennent trente : c'est
+   * du bruit, et un avertissement qu'on voit trop souvent cesse d'être lu (§118.32).
+   *
+   * Sous-signaler est ici le côté sûr : quand les entrées sont dans le même lot — elles y sont
+   * dès que l'outil les déclare avec le total — elles sont jugées sur LEUR seuil, plus strict,
+   * et c'est ce jugement-là qui parle.
+   */
+  CALCUL: "DOCUMENT",
+};
+
+/**
+ * LES FAITS PÉRIMÉS — et les trois conditions, toutes nécessaires.
+ *
+ *   1. C'est une COPIE (`fraicheur: "INDEXEE"`). Une lecture en temps réel ne périme pas de la
+ *      date de sa donnée : une facture de 2024 EST de 2024, la table était vivante.
+ *   2. Sa date se LIT (`horodatage` valide). Sans date, on ne déclare rien — deviner ferait
+ *      dire « périmé » sur une donnée d'hier, et la garde serait retirée dans la semaine.
+ *   3. Elle dépasse ce que sa nature autorise. Un document indexé tient trente jours, un
+ *      chiffre financier vingt-quatre heures : un seuil unique serait faux dans les deux sens.
+ *
+ * `maintenant` arrive en paramètre : ce module reste pur, et un test peut vieillir une donnée
+ * sans attendre.
+ */
+export function perimesDe(faits: readonly FaitCalibrable[], maintenant: Date = new Date()): FaitPerime[] {
+  const out: FaitPerime[] = [];
+  for (const f of faits) {
+    if (f.preuveNegative) continue;
+    if ((f.fraicheur || "").toUpperCase() !== "INDEXEE") continue;
+    const t = f.horodatage ? Date.parse(f.horodatage) : NaN;
+    if (!Number.isFinite(t)) continue;
+    const ageH = (maintenant.getTime() - t) / 3_600_000;
+    // Une date FUTURE n'est pas une péremption : c'est une donnée mal saisie, et l'annoncer
+    // périmée enverrait relire pour rien. On se tait — le contrôle qualité des données la voit.
+    if (ageH < 0) continue;
+    const cle = NATURE_VERS_AGE[(f.nature || "").toUpperCase()] ?? "AUTRE";
+    const seuilH = AGES_CREDIBLES_H[cle] ?? AGES_CREDIBLES_H.AUTRE;
+    if (ageH < seuilH) continue;
+    out.push({
+      libelle: f.libelle, outil: f.outil, ageH, seuilH,
+      phrase: `« ${f.libelle} » vient d'une copie indexée datée d'il y a ${direDuree(ageH)} `
+        + `(${f.outil}) ; une donnée de cette nature n'est plus tenue pour fraîche au-delà de ${direDuree(seuilH)}.`,
+    });
+  }
+  return out.sort((a, b) => b.ageH - a.ageH);
+}
+
+/**
+ * L'ORDRE DES ÉTATS, du plus fort au plus faible. PÉRIMÉ passe APRÈS probable et AVANT
+ * hypothèse : une copie datée reste une lecture d'une vraie source, là où une hypothèse est la
+ * mémoire d'un modèle. Le rang commande `plusFaible`, donc ce que gouverne le maillon faible.
+ */
+const RANG: Record<Certitude, number> = { CERTAIN: 0, PROBABLE: 1, PERIME: 2, HYPOTHESE: 3, MANQUANT: 4, CONTRADICTION: 5 };
 export const plusFaible = (a: Certitude, b: Certitude): Certitude => (RANG[a] >= RANG[b] ? a : b);
 
 /**
  * CALIBRER un lot de faits — pour un tour, un rapport de spécialiste, une étape de mission.
  * `requis` : les ancres de la question (montant, référence, nom) ; sans fait qui les porte, MANQUANT.
  */
-export function calibrer(faits: readonly FaitCalibrable[], opts: { requis?: readonly string[]; enjeu?: Enjeu } = {}): Calibration {
+export function calibrer(
+  faits: readonly FaitCalibrable[],
+  opts: { requis?: readonly string[]; enjeu?: Enjeu; maintenant?: Date } = {},
+): Calibration {
   const enjeu = opts.enjeu ?? "NORMAL";
   const utiles = faits.filter((f) => !f.preuveNegative);
   const parCertitude = { CERTAIN: 0, PROBABLE: 0, HYPOTHESE: 0 };
   for (const f of utiles) parCertitude[certitudeDuFait(f)] += 1;
   const contradictions = contradictionsDe(utiles);
   const manquants = manquantsDe(faits, opts.requis ?? []);
+  const perimes = perimesDe(utiles, opts.maintenant ?? new Date());
   let certitude: Certitude;
   let motif: string;
   if (contradictions.length) {
@@ -131,6 +238,14 @@ export function calibrer(faits: readonly FaitCalibrable[], opts: { requis?: read
   } else if (parCertitude.HYPOTHESE > 0) {
     certitude = "HYPOTHESE";
     motif = `${parCertitude.HYPOTHESE} fait(s) de mémoire, du web ou à faible confiance dans le lot (${parCertitude.CERTAIN} certain(s), ${parCertitude.PROBABLE} probable(s)) : le maillon faible gouverne`;
+  } else if (perimes.length) {
+    // APRÈS l'hypothèse et avant le probable : une copie vieille reste une lecture d'une vraie
+    // source, mais on ne peut pas AGIR dessus sans l'avoir relue. La conduite est RELIRE, pas
+    // CHERCHER : on sait exactement où retourner.
+    certitude = "PERIME";
+    motif = perimes.length === 1
+      ? perimes[0].phrase
+      : `${perimes.length} copies indexées trop anciennes, la plus vieille de ${direDuree(perimes[0].ageH)} : ${perimes[0].libelle}`;
   } else if (parCertitude.PROBABLE > 0) {
     certitude = "PROBABLE";
     motif = `${parCertitude.PROBABLE} fait(s) lus dans un document ou déduits, ${parCertitude.CERTAIN} certain(s)`;
@@ -142,7 +257,7 @@ export function calibrer(faits: readonly FaitCalibrable[], opts: { requis?: read
   // Un enjeu FAIBLE (une lecture sans conséquence) ne fait pas vérifier un fait probable ; un enjeu
   // ÉLEVÉ ne fait pas agir sur une hypothèse — la table dit déjà CHERCHER.
   if (certitude === "PROBABLE" && enjeu === "FAIBLE") conduite = "AGIR";
-  return { certitude, conduite, motif, enjeu, faits: faits.length, parCertitude, contradictions, manquants };
+  return { certitude, conduite, motif, enjeu, faits: faits.length, parCertitude, contradictions, manquants, perimes };
 }
 
 /** L'ENJEU d'une demande, depuis ce qu'on en sait : une action proposée ou un montant fort pèse ; une question courte pèse peu. */

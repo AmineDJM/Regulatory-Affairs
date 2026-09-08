@@ -3,9 +3,9 @@
  *
  * Les faits du tour (F8) sont calibrés contre les ANCRES de la question (montants, références,
  * noms) : un montant demandé qu'aucun fait ne porte rend le tour MANQUANT. Le résultat porte la
- * calibration ; une action proposée sous MANQUANT ou CONTRADICTION reçoit un avertissement que
- * l'écran montre AVANT la confirmation — le code le dit, on ne compte pas sur le modèle pour
- * l'avoir dit.
+ * calibration ; une action proposée sous MANQUANT, CONTRADICTION ou PÉRIMÉ reçoit un
+ * avertissement que l'écran montre AVANT la confirmation — le code le dit, on ne compte pas sur
+ * le modèle pour l'avoir dit.
  */
 
 import { ancresNominales, ancresNumeriques, type FaitSource } from "@/platform/in-process/fabric/provenance";
@@ -34,7 +34,19 @@ export function calibrerTour<T extends ResultatCalibrable>(question: string, fai
   const requis = [...ancresNumeriques(question), ...ancresNominales(question)].slice(0, 8);
   // Sans lecture, un tour de salutation ou d'accord n'est pas « manquant » : rien n'était exigé.
   const calibration = faits.length || requis.length ? calibrer(faits, { requis: faits.length ? requis : [], enjeu }) : calibrer(faits, { enjeu });
-  const avertissement = calibration.certitude === "MANQUANT" || calibration.certitude === "CONTRADICTION"
+  /**
+   * TROIS ÉTATS AVERTISSENT LA PROPOSITION, et trois seulement.
+   *
+   * MANQUANT, CONTRADICTION et PÉRIMÉ ont ceci de commun qu'AGIR MAINTENANT est fautif : il
+   * manque un fait, deux faits se contredisent, ou celui sur lequel on s'appuie vient d'une
+   * copie que la source a pu réviser depuis. Les trois se lèvent par un geste précis.
+   *
+   * PROBABLE n'avertit PAS : c'est l'état NORMAL d'une lecture de document, et une réserve
+   * portée par presque toutes les cartes devient du bruit qu'on cesse de lire (§118.32).
+   */
+  const avertissement = calibration.certitude === "MANQUANT"
+    || calibration.certitude === "CONTRADICTION"
+    || calibration.certitude === "PERIME"
     ? `Calibration : ${expliquerCalibration(calibration)} — à lever avant de confirmer.`
     : null;
   const annoter = <P extends { warnings: string[] }>(p: P): P => (avertissement && !p.warnings.includes(avertissement) ? { ...p, warnings: [...p.warnings, avertissement] } : p);

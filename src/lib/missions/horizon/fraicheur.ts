@@ -32,6 +32,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { AGES_CREDIBLES_H, direDuree } from "@/lib/fraicheur/ages";
 
 /** Les quatre niveaux de §118.9 — seul TROUVE autorise à agir. */
 export const CONFIANCES = ["TROUVE", "DEDUIT", "CANDIDAT", "INCONNU"] as const;
@@ -81,29 +82,11 @@ function canonique(v: unknown): string {
 }
 
 /**
- * COMBIEN DE TEMPS UNE DONNÉE RESTE CRÉDIBLE — par NATURE de source, pas par réglage global.
- *
- * Un identifiant de dossier ne périme pas de la même manière qu'un forecast ou qu'une réponse
- * humaine. Un seul délai pour tout serait faux dans les deux sens : il ferait relire des choses
- * stables et laisserait passer des choses volatiles.
- *
- * Ces durées disent « à partir de quand il faut REGARDER », pas « à partir de quand c'est
- * faux ». Rien n'est invalidé sur la seule foi d'une horloge : c'est l'empreinte qui tranche.
+ * LES DURÉES DE CRÉDIBILITÉ vivent au SOCLE (`lib/fraicheur/ages.ts`) : la conversation en a
+ * besoin aussi, et elle n'a pas le droit d'importer les missions. On les réexporte ici pour que
+ * les appelants de ce module ne changent pas d'adresse — la table, elle, est UNE.
  */
-export const AGES_CREDIBLES_H: Readonly<Record<string, number>> = {
-  /** Un chiffre financier bouge à chaque clôture, à chaque révision. */
-  FINANCE: 24,
-  /** Un statut réglementaire change au rythme des dépôts. */
-  REGULATORY: 72,
-  /** Ce qu'une personne a dit reste ce qu'elle a dit — mais elle peut se reprendre (§118.22). */
-  HUMAIN: 168,
-  /** Une fiche ERP structurelle (nom, RC, adresse) bouge rarement. */
-  ERP: 336,
-  /** Un document déposé ne change pas ; c'est sa VERSION qui change. */
-  DOCUMENT: 720,
-  /** Ce qu'on ne sait pas classer se regarde vite : l'ignorance ne se lit pas comme stabilité. */
-  AUTRE: 48,
-};
+export { AGES_CREDIBLES_H } from "@/lib/fraicheur/ages";
 
 /** La nature lue dans le préfixe de la source — « ERP:RegulatoryDossier:… », « humain:Khaled ». */
 export function natureDe(source: string): keyof typeof AGES_CREDIBLES_H {
@@ -150,18 +133,13 @@ export function aRegarder(
       entree: e,
       ageH,
       aRegarder: true,
-      phrase: `« ${e.cle} » vient de ${e.source} et a été lu il y a ${dire(ageH)} ; `
-        + `une donnée de nature ${nature} n'est plus tenue pour fraîche au-delà de ${dire(seuil)}.`,
+      phrase: `« ${e.cle} » vient de ${e.source} et a été lu il y a ${direDuree(ageH)} ; `
+        + `une donnée de nature ${nature} n'est plus tenue pour fraîche au-delà de ${direDuree(seuil)}.`,
     });
   }
   return out.sort((a, b) => b.ageH - a.ageH);
 }
 
-function dire(heures: number): string {
-  if (heures < 1) return `${Math.round(heures * 60)} min`;
-  if (heures < 48) return `${Math.round(heures)} h`;
-  return `${Math.round(heures / 24)} jours`;
-}
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════

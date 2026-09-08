@@ -83,7 +83,7 @@ const isBridge = (f: string) => BRIDGE_PATHS.some((p) => f.startsWith(p));
  * défendre. `utils` et `labels` sont du formatage ; `prisma-enums` n'existe pas, et c'est
  * volontaire — un énuméré généré EST une dépendance au schéma.
  */
-const NEUTRAL = new Set([
+export const NEUTRAL = new Set([
   "src/lib/utils",
   "src/lib/labels",
   // `ai-text` est un ASSAINISSEUR de trois expressions régulières, sans état, sans base et sans
@@ -127,6 +127,14 @@ const NEUTRAL = new Set([
   // de se parler.
   "src/lib/personnes/joignabilite",
   "src/lib/personnes/autonomie-proprietaire",
+  // `fraicheur/ages` porte les durées au bout desquelles une donnée cesse d'être tenue pour
+  // fraîche, par famille de source. Une table de nombres et une mise en forme de durée — zéro
+  // import, sans état, sans base, sans règle métier. Même critère que `mutations/empreinte`,
+  // et pour la même raison exactement : la conversation périme un fait indexé, le moteur de
+  // missions date ses lectures (§118.46), et les deux n'ont pas le droit de se parler. Deux
+  // tables séparées auraient divergé, et le jour où l'une dit 24 h et l'autre 72, personne ne
+  // saurait laquelle fait foi (§118.5).
+  "src/lib/fraicheur/ages",
 ]);
 
 export interface Violation {

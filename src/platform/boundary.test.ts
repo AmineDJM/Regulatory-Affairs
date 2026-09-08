@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
-import { scanBoundary, ADAM_PATHS, BRIDGE_PATHS } from "./boundary-scan";
+import { scanBoundary, ADAM_PATHS, BRIDGE_PATHS, NEUTRAL } from "./boundary-scan";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -146,6 +146,42 @@ describe("frontière Adam ↔ ERP", () => {
   it("le pont est UNIQUE — un second pont serait la fin de la frontière", () => {
     expect(BRIDGE_PATHS).toHaveLength(1);
     expect(BRIDGE_PATHS[0]).toBe("src/platform/in-process/");
+  });
+
+  /**
+   * LA LISTE NEUTRE EST UNE PORTE, et une porte qu'on n'inspecte pas finit ouverte.
+   *
+   * Chaque entrée se défend par la même phrase — « sans état, sans base, sans règle métier » —
+   * et jusqu'ici RIEN ne le vérifiait : ajouter `import { prisma }` dans `temporal.ts` aurait
+   * fait traverser la frontière à tout ce qui l'importe, sans qu'aucun compteur bouge. C'est
+   * exactement la forme du §118.17 : une exception écrite, jamais tenue.
+   *
+   * Ce qu'on exige, et pourquoi ces trois choses-là : le module EXISTE (une entrée périmée
+   * blanchirait un chemin qui ne veut plus rien dire) ; il ne connaît pas le schéma ; et il
+   * n'importe AUCUNE VALEUR du dépôt hors de la liste elle-même. Un `import type` reste permis
+   * — il s'efface à la compilation, donc il ne fait rien traverser à l'exécution — et c'est ce
+   * qui laisse passer `labels`, qui nomme les actions du RBAC sans en dépendre.
+   */
+  it("les modules déclarés NEUTRES le sont vraiment — la porte se referme", () => {
+    const fautes: string[] = [];
+    for (const mod of NEUTRAL) {
+      const fichier = `${mod}.ts`;
+      if (!fs.existsSync(fichier)) { fautes.push(`${mod} : déclaré neutre, mais le fichier n'existe pas`); continue; }
+      const src = fs.readFileSync(fichier, "utf8");
+      const dossier = mod.slice(0, mod.lastIndexOf("/"));
+      for (const m of src.matchAll(/(?:^|\n)\s*import\s+(type\s+)?[^;]*?from\s+["']([^"']+)["']/g)) {
+        const [, typeSeul, spec] = m;
+        if (spec === "@prisma/client") { fautes.push(`${mod} : importe @prisma/client — c'est le schéma de l'ERP`); continue; }
+        if (typeSeul) continue; // Un type s'efface à la compilation : rien ne traverse.
+        const cible = spec.startsWith("@/") ? spec.replace("@/", "src/")
+          : spec.startsWith("./") ? `${dossier}/${spec.slice(2)}`
+            : spec.startsWith("../") ? null
+              : null;
+        if (cible === null && (spec.startsWith("./") || spec.startsWith("../"))) { fautes.push(`${mod} : import relatif « ${spec} » non résolu`); continue; }
+        if (cible && !NEUTRAL.has(cible)) fautes.push(`${mod} : importe « ${spec} » (valeur), qui n'est pas neutre`);
+      }
+    }
+    expect(fautes, "un module neutre a cessé de l'être : le sortir de NEUTRAL, ou lui retirer sa dépendance").toEqual([]);
   });
 
   it("le périmètre d'Adam couvre bien tout le produit", () => {
