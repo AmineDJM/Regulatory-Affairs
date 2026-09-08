@@ -104,6 +104,7 @@ const SOCLE = [
   "src/lib/api/registry/entities",
   "src/lib/storage/",
   "src/lib/mutations/",
+  "src/lib/personnes/",
 ];
 
 /**
@@ -121,6 +122,23 @@ const SOCLE = [
  *
  * L'OBLIGATION qui vient avec : `scanSocle()` échoue si un fichier de `mutations/` importe un
  * domaine ou une façade. La règle restera donc pure, ou elle cassera le test.
+ */
+
+/**
+ * POURQUOI `personnes/` EST AU SOCLE — même critère que `mutations/`, même obligation.
+ *
+ * Il ne contient qu'une LECTURE, sans métier : traduire ce qu'un modèle, un plan ou un éventail a
+ * mis dans une entrée « qui » en une désignation — `« Nom <adresse> »`, un nom, une adresse, ou
+ * `null` quand rien ne s'y lit à coup sûr. Zéro import, comme `name-match`.
+ *
+ * Le déclencheur est mesuré : une étape de mission résout une personne, l'éventail déploie
+ * l'objet candidat sur `recipientName`, et le lecteur — qui attendait une chaîne — refuse
+ * « Destinataire «  » introuvable » sur quelqu'un dont il tient le nom ET l'adresse. La
+ * conversation (`assistant/`, L1) et le compilateur de missions (`missions/`, L2, qui n'importe
+ * JAMAIS `assistant/`) ont tous deux besoin de cette lecture. La laisser chez Adam aurait obligé
+ * le moteur à en écrire une seconde, qui aurait divergé — ce que §118.5 interdit.
+ *
+ * L'OBLIGATION : `scanSocle()` échoue si `personnes/` importe un domaine ou une façade.
  */
 
 /**

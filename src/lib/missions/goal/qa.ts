@@ -273,25 +273,50 @@ export async function controleComplet(
    * parce que ce contrôle-là ne lit pas les étapes mais `planMeta`. Un contrôle ne réclame que
    * les pièces que SES ancêtres devaient produire.
    */
+  const declares = Array.isArray(mission.planMeta?.expectedArtifacts) ? mission.planMeta!.expectedArtifacts : [];
+  /** L'étape que le plan désigne comme productrice d'un livrable, ou `null`. */
+  const etapeProductrice = (k: string): string | null => {
+    const decl = (declares as unknown[]).find((a) =>
+      a && typeof a === "object" && !Array.isArray(a) && (a as Record<string, unknown>).key === k);
+    return decl && typeof (decl as Record<string, unknown>).fromStep === "string"
+      ? String((decl as Record<string, unknown>).fromStep) : null;
+  };
   const attendus = artefactsAttendus(mission).filter((k) => {
     if (!opts.portee) return true;
-    const liste = Array.isArray(mission.planMeta?.expectedArtifacts) ? mission.planMeta!.expectedArtifacts : [];
-    const decl = (liste as unknown[]).find((a) =>
-      a && typeof a === "object" && !Array.isArray(a) && (a as Record<string, unknown>).key === k);
-    const from = decl && typeof (decl as Record<string, unknown>).fromStep === "string"
-      ? String((decl as Record<string, unknown>).fromStep) : null;
     // Un livrable dont le plan ne dit PAS quelle étape le produit reste exigible partout :
     // on ne relâche jamais une exigence faute de savoir où la placer.
+    const from = etapeProductrice(k);
     return !from || opts.portee.has(from);
   });
   if (attendus.length > 0) {
     const enBase = await prisma.missionArtifact.findMany({
       where: { missionId: mission.id },
-      select: { key: true, status: true, byteSize: true, title: true },
+      select: { key: true, status: true, byteSize: true, title: true, step: { select: { key: true } } },
     });
     const parCle = new Map(enBase.map((a) => [a.key, a]));
+    /**
+     * ── CE CONTRÔLE NE POUVAIT PLUS PASSER APRÈS UN REPLAN QUI RENOMME ─────────────────
+     *
+     * MESURÉ. Plan v1 annonce `excel-consolidation` ; plan v4 le rebaptise
+     * `excel-consolidation-final`. La FABRIQUE, elle, ne crée pas un second fichier — c'est
+     * `identiteDuLivrable` (#88) : elle réécrit la pièce EXISTANTE, qui garde donc sa clé v1.
+     * Le contrôle réclamait la clé v4, la base portait la clé v1, et « 2 livrables annoncés ne
+     * sont pas produits » tombait sur DEUX fichiers présents, complets et vérifiés. Deux
+     * mécanismes du même dépôt en désaccord sur l'identité d'une pièce.
+     *
+     * On raccorde le contrôle à la règle de la fabrique par le lien CAUSAL, pas par un
+     * rapprochement de noms : la pièce que produit l'étape `fromStep` satisfait l'attente que
+     * cette même étape devait honorer. `MissionArtifact.stepId` porte l'étape RÉELLE qui a
+     * écrit le fichier — une pièce périmée d'un plan précédent ne peut donc pas satisfaire une
+     * attente que personne n'a honorée : elle pointerait vers l'ancienne étape.
+     */
+    const parEtape = new Map(enBase.filter((a) => a.step?.key).map((a) => [a.step!.key, a]));
+    const trouve = (k: string) => parCle.get(k) ?? (() => {
+      const from = etapeProductrice(k);
+      return from ? parEtape.get(from) : undefined;
+    })();
     const manquants = attendus.filter((k) => {
-      const a = parCle.get(k);
+      const a = trouve(k);
       return !a || a.status !== "VERIFIED" || a.byteSize <= 0;
     });
     constats.push({

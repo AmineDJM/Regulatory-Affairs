@@ -1267,6 +1267,28 @@ async function deployerEventail(
   const clesVues = new Set<string>();
   const doublons: string[] = [];
   const cles: string[] = [];
+
+  /**
+   * ── CE QUE LES FILLES D'UN PLAN PRÉCÉDENT DEVIENNENT ────────────────────────────────────
+   *
+   * `update: {}` plus bas est juste pour une REPRISE : un second déploiement après panne doit
+   * retrouver ses filles, jamais les remettre à zéro. Il est faux pour un REPLAN.
+   *
+   * Quand un nouveau plan reprend la mère, `materialiser` la réarme (§118.33). Elle redéploie —
+   * et retrouve ses filles EN ÉCHEC, figées au plan précédent. Elles ne se termineront jamais,
+   * la mère les attend, le regroupement recompte 0/1, et la mission remeurt exactement comme
+   * avant : le trou d'un cran plus bas. Une fille appartient à la version de plan de sa mère ;
+   * quand la mère change de version, ses filles en ÉCHEC repartent avec elle — les ABOUTIES
+   * restent acquises (pas de second envoi), et leur clé d'idempotence n'est jamais touchée.
+   */
+  const filles = await prisma.missionStep.findMany({
+    where: { missionId: etat.id, key: { startsWith: `${step.key}#` } },
+    select: { key: true, status: true, planVersion: true },
+  });
+  const aReprendre = new Map(filles
+    .filter((f) => f.status === "FAILED" && f.planVersion < step.planVersion)
+    .map((f) => [f.key, f] as const));
+
   for (const [i, element] of collection.entries()) {
     const cle = `${step.key}#${identiteIteration(element, i)}`;
     if (clesVues.has(cle)) {
@@ -1302,6 +1324,20 @@ async function deployerEventail(
       update: {},
     });
 
+    if (aReprendre.has(cle)) {
+      await prisma.missionStep.update({
+        where: { missionId_key: { missionId: etat.id, key: cle } },
+        data: {
+          status: "PENDING", attempt: 0, error: null, errorKind: null,
+          startedAt: null, completedAt: null, supersededAt: null,
+          planVersion: step.planVersion,
+          title: `${step.title} — ${identiteIteration(element, i)}`,
+          input: entreeIteration(step.input, as, element) as never,
+          spec: (step.spec ?? undefined) as never,
+        },
+      });
+    }
+
     // Les filles héritent des dépendances du modèle, pas du modèle lui-même : dépendre de lui
     // fermerait un cycle, puisque lui attend ses filles.
     for (const d of step.dependsOn) {
@@ -1323,12 +1359,16 @@ async function deployerEventail(
     where: { id: step.id },
     data: { status: "WAITING", result: { expanded: cles.length, keys: cles } as never },
   });
+  const reprises = cles.filter((c) => aReprendre.has(c));
   await journaliser(etat.id, "FANOUT",
     `« ${step.title} » déployée en ${cles.length} étapes individuelles.`
+    + (reprises.length > 0
+      ? ` ${reprises.length} itération(s) en échec sous le plan précédent sont REPRISES par celui-ci : ${reprises.slice(0, 5).join(", ")}.`
+      : "")
     + (doublons.length > 0
       ? ` ${doublons.length} élément(s) partageaient une identité déjà déployée — fusionnés, pas dupliqués : ${[...new Set(doublons)].slice(0, 5).join(", ")}.`
       : ""),
-    { stepKey: step.key, count: cles.length, ...(doublons.length > 0 ? { fusionnes: doublons.length } : {}) });
+    { stepKey: step.key, count: cles.length, ...(doublons.length > 0 ? { fusionnes: doublons.length } : {}), ...(reprises.length > 0 ? { reprises: reprises.length } : {}) });
 
   return cles.length;
 }
@@ -1651,8 +1691,30 @@ async function synchroniserEtat(missionId: string, etat: EtatMission): Promise<M
     status: s.status, nodeType: s.nodeType, attempt: s.attempt, maxAttempts: s.maxAttempts,
     contournee: s.contournee,
   })));
-  if (deduit !== etat.status) await transitionner(missionId, deduit);
+  if (deduit !== etat.status) await transitionner(missionId, deduit, raisonDeLEtat(deduit, etat));
   return deduit;
+}
+
+/**
+ * POURQUOI LA MISSION EST DANS CET ÉTAT — dit au journal, pas seulement déduit.
+ *
+ * Un `STATE_CHANGED | RUNNING → BLOCKED` sans motif ne ressemble à rien et ne se range nulle
+ * part (§118.31 : un manque non classé est un manque invisible). Mesuré : une mission a alterné
+ * « le moteur prend la main » et « RUNNING → BLOCKED » jusqu'au dernier tour, sans qu'aucune
+ * ligne ne dise que deux étapes en échec définitif barraient la route à tout le plan.
+ *
+ * On ne dit QUE ce qu'on lit dans l'état — jamais une cause devinée.
+ */
+function raisonDeLEtat(deduit: MissionState, etat: EtatMission): string | undefined {
+  if (deduit !== "BLOCKED") return undefined;
+  const vivantes = etat.steps.filter((s) => !s.contournee);
+  const echouees = vivantes.filter((s) => s.status === "FAILED");
+  const enAttentePlan = vivantes.filter((s) => s.status === "PENDING");
+  if (echouees.length === 0) return undefined;
+  const noms = echouees.slice(0, 4).map((s) => s.key).join(", ");
+  const reste = echouees.length > 4 ? ` (+${echouees.length - 4})` : "";
+  return `${echouees.length} étape(s) en échec définitif — ${noms}${reste} — et `
+    + `${enAttentePlan.length} étape(s) encore en attente : rien ne peut plus démarrer tout seul.`;
 }
 
 /**

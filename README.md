@@ -7949,6 +7949,84 @@ fréquente comprise), entités 1 ms alias franchis, précalculé 1 ms, lot 2 ms 
 pièce — l'écart du loteur a GRANDI avec le réseau, comme prédit. Rapport final complet
 (A–V du mandat, états honnêtes) : `docs/INFORMATION_FABRIC.md`.
 
+### LE PLAN MORT-NÉ — une replanification qui ne pouvait pas démarrer, et le destinataire illisible (2026-09)
+
+**Le symptôme.** Chaîne humaine « regulatory », mission `cmtsdqc17…` : `5/12`, statut BLOCKED,
+plan v2, **41 étapes dont 12 seulement sorties de PENDING, 0 réveil, 0 attente levée, aucun
+`.xlsx`, aucun `.pptx`**. Pire que les runs précédents (9/12, 11/12, 10/12), et sans un seul
+signal disant pourquoi.
+
+**La première cause, dans le journal.** `STEP_FAILED — Destinataire «  » introuvable ou ambigu.`
+Le destinataire n'était pas introuvable : c'était l'objet rendu par `resolve_person`,
+`{ nom: "Amel Haddad", adresse: "amel.haddad@…", source, detail }`, déployé tel quel par
+l'éventail sur l'entrée `recipientName`. Le lecteur attendait une CHAÎNE, `asStr` a rendu `""`,
+et le refus a annoncé introuvable quelqu'un dont il tenait le nom ET l'adresse. Deux collègues
+n'ont jamais reçu leur demande.
+
+**La seconde cause, qui rendait la première fatale.** Les deux envois ayant épuisé leurs
+tentatives, la mission a replanifié — correctement. Le plan v2 REPREND les deux envois et
+accroche ses six attentes dessus. Mais `materialiser` faisait `upsert … update: {}` : « une étape
+déjà terminée n'est pas réécrite ». Juste pour un ACQUIS — un envoi parti ne repart pas —
+**mortel pour un ÉCHEC**. Les deux lignes sont restées FAILED ; une étape FAILED ne se termine
+jamais ; ses dépendantes ne deviennent jamais READY. Vérifié arête par arête en base : les
+**dix-huit étapes** du plan v2, profondeur 12, descendaient TOUTES de ces deux lignes. **Pas une
+racine exécutable.** Le moteur a repris la main, n'a rien trouvé à faire, et `deduireEtat` a
+rendu BLOCKED — honnêtement, sur un plan mort-né.
+
+**Les trois corrections.**
+
+1. **`src/lib/personnes/designation.ts`** — module PUR au socle (zéro import), aux côtés de
+   `mutations/empreinte.ts` et pour la même raison : la conversation (L1) et le moteur de
+   missions (L2) en ont besoin tous les deux et n'ont pas le droit de se parler. Il TRADUIT une
+   désignation (`« Nom <adresse> »`, un objet candidat, un nom, une adresse) au lieu de la
+   refuser, rend `null` sur ce qu'il ne lit pas à coup sûr, et ne devine JAMAIS : une liste d'UN
+   candidat désigne cette personne, une liste de PLUSIEURS n'en désigne aucune. Le refus montre
+   désormais ce qu'il a REÇU, au lieu d'un `«  »` trompeur.
+2. **`resolve_person` porte `retenu`** — la personne sur qui AGIR : un élément quand la
+   résolution est certaine, liste VIDE sinon (le moteur ignore une étape dont la liste amont est
+   vide). Un plan qui déployait son envoi sur `candidats` écrivait à la bonne personne tant qu'il
+   n'y en avait qu'une, et aurait écrit à TROIS homonymes le jour où il y en a trois.
+3. **`materialiser` RÉARME** ce que le nouveau plan reprend : statut, tentatives et motif
+   d'échec à zéro pour les seules étapes FAILED — DONE et SKIPPED restent acquis, RUNNING
+   appartient à l'exécutant en cours, CANCELLED est une décision humaine. La clé d'idempotence
+   est CONSERVÉE : une étape peut échouer après avoir produit son effet, et c'est le reçu qui
+   empêche le doublon, pas le statut. Un `BLOCKED` déduit dit maintenant ce qu'il a lu — combien
+   d'étapes en échec définitif barrent la route à combien d'étapes en attente.
+
+**Et le banc a été rendu honnête.** Il ne donnait son accord qu'UNE fois, au lancement. Le plan
+v2 a rouvert deux étapes à l'approbation (`APPROVAL_REOPENED`, `NOTIFIED ARBITRAGE`) — ce que la
+porte DOIT faire — et personne n'a répondu. Un banc qui ne répond jamais à une question légitime
+ne mesure pas l'autonomie, il mesure sa propre absence. Il répond désormais à chaque tour.
+
+**Mesure après correction, même scénario, même jeu d'essai.** `5/12` → **`11/12`**. Les quatre
+personnes sollicitées, **4/4 attentes levées**, 4/4 contenus distincts donnés, le `.xlsx` ET le
+`.pptx` produits, ouverts, et portant **6/6** des chiffres du jeu d'essai chacun (le `.pptx` était
+à 5/6 au meilleur run précédent). Zéro sortie réelle, 10 tentatives interceptées.
+
+**Ce que ce run a révélé de plus, et qui est corrigé.** Le seul contrôle encore rouge est le
+statut final : BLOCKED. Deux causes, toutes deux des FAUX NÉGATIFS — l'inverse du faux succès,
+moins dangereux mais il empêche une mission juste de conclure.
+
+1. **Le plan a cherché dans le Drive une pièce qu'il venait de produire**, sous un titre qu'il
+   avait inventé (« Consolidation Nivolex–Trastuzex — 08-09-2026 » ; le fichier s'appelle
+   `Consolidation_Nivolex_Trastuzex.xlsx`). Zéro résultat, lu comme une absence, et le juge a
+   conclu « contradiction relevée ». Trois replanifications pour ne pas retrouver ses propres
+   fichiers. L'étape ARTIFACT rend pourtant `driveNodeId`, `fileName`, `artifactId` : la règle 22
+   du planificateur dit désormais de RÉFÉRER `{{produire:excel.driveNodeId}}`, jamais de chercher.
+2. **Le contrôle ARTEFACTS ne pouvait plus passer après un replan qui renomme.**
+   `identiteDuLivrable` (#88) garde exprès la clé d'origine — c'est ce qui évite un second
+   fichier ; `artefactsAttendus` réclamait la clé du dernier plan. Deux mécanismes du même dépôt
+   en désaccord sur l'identité d'une pièce. Le raccord est CAUSAL (`MissionArtifact.stepId`), pas
+   nominal : une pièce périmée pointe vers l'ancienne étape et ne satisfait rien.
+
+**Fichiers.** `src/lib/personnes/designation.ts` (+ test), `src/lib/assistant.ts`
+(`resolve` lit une désignation, `gmail_prepare_mail` la sépare), `src/lib/assistant/adam-tools.ts`
+(`retenu`), `src/lib/missions/runtime/store.ts` (réarmement), `src/lib/missions/runtime/engine.ts`
+(`raisonDeLEtat` + réarmement des filles d'éventail), `src/lib/missions/planner/plan.ts`
+(règle 22), `src/lib/missions/goal/qa.ts` (raccord causal des livrables),
+`src/platform/boundary-scan.ts` + `domains.ts` (le socle),
+`scripts/bench/chaine-humaine.ts` (accords rouverts).
+
 ### MISSION RUNTIME — exécuter une mission gigantesque devient une propriété codée (2026-09)
 
 **Le problème.** Adam savait mener une conversation, appeler cent soixante-cinq outils et

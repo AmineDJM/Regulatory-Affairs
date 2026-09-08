@@ -93,6 +93,33 @@ d("Construction d'action proposée (confirmation)", () => {
     expect(p.warnings.length).toBe(0);
   });
 
+  /**
+   * LE CAS MESURÉ LIVE : une étape de mission a résolu la personne, l'éventail a déployé
+   * l'OBJET candidat sur `assigneeName`, et le lecteur a refusé « introuvable » une personne
+   * dont il tenait le nom et l'adresse. Le point d'entrée de PRODUCTION est `buildProposal`
+   * (§118.14) : c'est lui qu'on interroge, pas la fonction pure toute seule.
+   */
+  it("un candidat RÉSOLU (objet nom + adresse) est un destinataire, pas une énigme", async () => {
+    const candidat = { nom: carla.name, adresse: carla.email, source: "compte ERP", detail: "MEDICAL_DELEGATE" };
+    const p = (await buildProposal("create_task", { title: `${MARK} Objet résolu`, assigneeName: candidat }, bob)) as ProposedAction;
+    expect("error" in p).toBe(false);
+    expect(p.payload.kind === "create_task" && p.payload.assigneeId).toBe(carla.id);
+    expect(p.warnings.length).toBe(0);
+  });
+
+  it("un éventail d'UN candidat désigne cette personne ; de PLUSIEURS, personne", async () => {
+    const un = (await buildProposal("create_task", { title: `${MARK} Un`, assigneeName: [{ nom: carla.name, adresse: carla.email }] }, bob)) as ProposedAction;
+    expect(un.payload.kind === "create_task" && un.payload.assigneeId).toBe(carla.id);
+
+    const deux = (await buildProposal("create_task", {
+      title: `${MARK} Deux`,
+      assigneeName: [{ nom: carla.name, adresse: carla.email }, { nom: bob.name, adresse: bob.email }],
+    }, bob)) as ProposedAction;
+    // Choisir l'un des deux à la place d'un humain serait pire que refuser.
+    expect(deux.payload.kind === "create_task" && deux.payload.assigneeId).toBeNull();
+    expect(deux.warnings.some((w) => w.includes("illisible"))).toBe(true);
+  });
+
   it("create_task signale un destinataire introuvable (jamais inventé)", async () => {
     const p = (await buildProposal("create_task", { title: `${MARK} X`, assigneeName: "Personne Inexistante ZZZ" }, bob)) as ProposedAction;
     expect(p.warnings.length).toBeGreaterThan(0);

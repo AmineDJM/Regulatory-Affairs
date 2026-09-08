@@ -140,6 +140,7 @@ import {
   MODULE_LABELS, ENTITY_TYPE_LABELS, doctorDisplayName,
 } from "@/lib/labels";
 import { getAppSettings } from "@/lib/settings";
+import { designationDePersonne, lirePersonne, direCeQuiEstArrive } from "@/lib/personnes/designation";
 import { DATASETS, isExportDataset, exportDatasetToDrive } from "@/lib/assistant/exports";
 import {
   WRITABLE_SETTINGS, parseSettingValue, parseRegFieldValue, regFieldSpec, settingSpec,
@@ -2768,10 +2769,26 @@ async function mailApprovalCard(
 export async function buildProposal(toolName: string, input: Record<string, unknown>, user: CurrentUser): Promise<ProposedAction | { error: string }> {
   const warnings: string[] = [];
 
-  /** Résout un nom d'assignation et alimente les avertissements. */
-  async function resolve(label: string, raw: string): Promise<{ id: string | null; name: string | null }> {
-    const name = raw.trim();
-    if (!name) return { id: null, name: null };
+  /**
+   * Résout une DÉSIGNATION de personne et alimente les avertissements.
+   *
+   * Elle n'arrive pas toujours en chaîne. Un éventail de mission déploie la sortie de
+   * `resolve_person` — un objet `{ nom, adresse, source, detail }` — directement sur l'entrée.
+   * Le lecteur d'avant appelait `asStr`, obtenait `""`, et refusait « Destinataire «  »
+   * introuvable » sur une personne dont il tenait le nom ET l'adresse. `designationDePersonne`
+   * traduit ; il rend `null` sur ce qu'il ne lit pas à coup sûr, et le refus dit alors ce qu'il
+   * a réellement reçu au lieu d'un vide trompeur.
+   */
+  async function resolve(label: string, brut: unknown): Promise<{ id: string | null; name: string | null }> {
+    const name = designationDePersonne(brut);
+    if (!name) {
+      // « Rien fourni » n'est pas « fourni et illisible » : le premier est banal, le second est
+      // une anomalie qui doit se voir.
+      const vide = brut === undefined || brut === null || (typeof brut === "string" && !brut.trim())
+        || (Array.isArray(brut) && brut.length === 0);
+      if (!vide) warnings.push(`${label} illisible : ${direCeQuiEstArrive(brut)} — ni nom ni adresse exploitable.`);
+      return { id: null, name: null };
+    }
     const r = await resolvePerson(name);
     if (!r) {
       warnings.push(`${label} « ${name} » introuvable dans l'annuaire — à préciser.`);
@@ -3050,7 +3067,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
   if (toolName === "create_task") {
     const title = asStr(input, "title");
     if (!title) return { error: "Intitulé de tâche manquant." };
-    const assignee = await resolve("Destinataire", asStr(input, "assigneeName"));
+    const assignee = await resolve("Destinataire", input.assigneeName);
     const due = asStr(input, "dueDate") ? isoDate(asStr(input, "dueDate")) : null;
     const priority = asStr(input, "priority") ? normPriority(asStr(input, "priority")) : null;
     // LE MÊME CIRCUIT QUE L'ÉCRAN : pour un collègue, c'est une DEMANDE qui s'accepte ou se
@@ -3080,7 +3097,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
   if (toolName === "create_dossier") {
     const title = asStr(input, "title");
     if (!title) return { error: "Sujet du dossier manquant." };
-    const assignee = await resolve("Responsable", asStr(input, "assigneeName"));
+    const assignee = await resolve("Responsable", input.assigneeName);
     const due = asStr(input, "dueDate") ? isoDate(asStr(input, "dueDate")) : null;
     const priority = asStr(input, "priority") ? normPriority(asStr(input, "priority")) : null;
     const category = asStr(input, "category") || null;
@@ -3105,8 +3122,8 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     const title = asStr(input, "title");
     if (!validTypes.includes(type)) return { error: "Type de demande invalide." };
     if (!title) return { error: "Titre de demande manquant." };
-    const assignee = await resolve("Responsable", asStr(input, "assigneeName"));
-    const concerned = await resolve("Personne concernée", asStr(input, "concernedName"));
+    const assignee = await resolve("Responsable", input.assigneeName);
+    const concerned = await resolve("Personne concernée", input.concernedName);
     const startDate = asStr(input, "startDate") ? isoDate(asStr(input, "startDate")) : null;
     const endDate = asStr(input, "endDate") ? isoDate(asStr(input, "endDate")) : null;
     const deadline = asStr(input, "deadline") ? isoDate(asStr(input, "deadline")) : null;
@@ -3138,8 +3155,8 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (!userCan(user, "MESSAGING", "VIEW")) return { error: "Vous n'avez pas accès à la messagerie." };
     const body = asStr(input, "body");
     if (!body) return { error: "Le message est vide." };
-    const recipient = await resolve("Destinataire", asStr(input, "recipientName"));
-    if (!recipient.id) return { error: `Destinataire « ${asStr(input, "recipientName")} » introuvable ou ambigu — précisez le bon collègue (search_people).` };
+    const recipient = await resolve("Destinataire", input.recipientName);
+    if (!recipient.id) return { error: `Destinataire « ${direCeQuiEstArrive(input.recipientName)} » introuvable ou ambigu — précisez le bon collègue (search_people).` };
     return {
       kind: "send_message", module: "MESSAGING", title: "Envoyer un message", warnings,
       fields: [
@@ -3194,15 +3211,19 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     // — préparer, ANNONCER, attendre un « je confirme » en français, PUIS afficher la carte —
     // faisait confirmer deux fois le même envoi. Ici il n'y a qu'un accord possible : celui de
     // la carte.
+    // Le destinataire arrive en chaîne, en « Nom <adresse> », ou en objet résolu par une étape
+    // de mission : on le SÉPARE avant de décider, au lieu de le refuser parce qu'il n'a pas la
+    // forme attendue.
     const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
-    const rawTo = asStr(input, "to");
-    if (!rawTo) return { error: "À qui ?" };
+    const lu = lirePersonne(input.to);
+    if (!lu) return { error: `À qui ? (reçu : ${direCeQuiEstArrive(input.to)})` };
+    const rawTo = lu.nom ?? lu.adresse ?? "";
 
     // LE DESTINATAIRE PEUT ÊTRE UN NOM. « Envoie un mail à Raihana » doit marcher : on interroge
     // l'annuaire interne AVANT de renoncer. Deux adresses vérifiées et aucun indice pour
     // trancher → UNE question courte, jamais un choix au hasard.
-    let to = rawTo.toLowerCase();
-    if (!isEmail(rawTo)) {
+    let to = (lu.adresse ?? rawTo).toLowerCase();
+    if (!lu.adresse) {
       const people = await findDirectoryPeople(rawTo, 3);
       if (people.length === 0) return { error: `Aucune trace de « ${rawTo} » dans l'annuaire — donnez-moi son adresse.` };
       if (people.length > 1) {
@@ -3543,10 +3564,11 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     const fields: { label: string; value: string }[] = [{ label: "Tâche", value: task.title }];
     const payload: Extract<AssistantActionPayload, { kind: "update_task" }> = { kind: "update_task", taskId: task.id, taskTitle: task.title };
 
-    const assigneeRaw = asStr(input, "assigneeName");
-    if (assigneeRaw) {
-      const a = await resolve("Nouveau responsable", assigneeRaw);
-      if (!a.id) return { error: `Responsable « ${assigneeRaw} » introuvable ou ambigu (search_people).` };
+    const assigneeFourni = input.assigneeName !== undefined && input.assigneeName !== null
+      && !(typeof input.assigneeName === "string" && !input.assigneeName.trim());
+    if (assigneeFourni) {
+      const a = await resolve("Nouveau responsable", input.assigneeName);
+      if (!a.id) return { error: `Responsable « ${direCeQuiEstArrive(input.assigneeName)} » introuvable ou ambigu (search_people).` };
       payload.assigneeId = a.id; payload.assigneeName = a.name;
       fields.push({ label: "Assignée à", value: `${task.assignedTo?.name ?? "personne"} → ${a.name}` });
     }
@@ -3599,10 +3621,11 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
       payload.status = status;
       fields.push({ label: "Statut", value: `${ADMIN_REQUEST_STATUS[req.status]?.label ?? req.status} → ${ADMIN_REQUEST_STATUS[status as keyof typeof ADMIN_REQUEST_STATUS]?.label ?? status}` });
     }
-    const assigneeRaw = asStr(input, "assigneeName");
-    if (assigneeRaw) {
-      const a = await resolve("Nouveau responsable", assigneeRaw);
-      if (!a.id) return { error: `Responsable « ${assigneeRaw} » introuvable ou ambigu (search_people).` };
+    const assigneeFourni = input.assigneeName !== undefined && input.assigneeName !== null
+      && !(typeof input.assigneeName === "string" && !input.assigneeName.trim());
+    if (assigneeFourni) {
+      const a = await resolve("Nouveau responsable", input.assigneeName);
+      if (!a.id) return { error: `Responsable « ${direCeQuiEstArrive(input.assigneeName)} » introuvable ou ambigu (search_people).` };
       payload.assigneeId = a.id; payload.assigneeName = a.name;
       fields.push({ label: "Responsable", value: `${req.assignedTo?.name ?? "personne"} → ${a.name}` });
     }

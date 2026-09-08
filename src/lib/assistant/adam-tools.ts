@@ -965,7 +965,10 @@ export const ADAM_TOOLS: PowerTool[] = [
       name: "resolve_person",
       description:
         "Résout une personne (« Deepak ») vers son ADRESSE, en croisant les comptes ERP, l'annuaire d'entreprise, les fournisseurs, les contacts Google et l'historique des messages. "
-        + "À utiliser AVANT de préparer un message quand on ne connaît que le prénom. Ne devine jamais : rend les candidats quand il y a doute.",
+        + "À utiliser AVANT de préparer un message quand on ne connaît que le prénom. Ne devine jamais : rend les candidats quand il y a doute. "
+        + "SORTIE, toujours les mêmes clés : retenu (liste — LA personne à qui écrire, un élément si la résolution est certaine, VIDE sinon), "
+        + "candidats (toutes les pistes, y compris en cas de doute), certain (booléen), resultat, precision. "
+        + "Pour AGIR sur la personne, déployer l'étape suivante sur « retenu » — jamais sur « candidats », qui vaudrait un envoi par homonyme.",
       input_schema: {
         type: "object",
         properties: { name: { type: "string", description: "Nom, prénom ou fragment." } },
@@ -1026,7 +1029,21 @@ export const ADAM_TOOLS: PowerTool[] = [
        * simplement ignorée » (règle 15 du planificateur), au lieu d'échouer sur un champ absent.
        * ═══════════════════════════════════════════════════════════════════════════════════
        */
+      /**
+       * ── `retenu` : CE SUR QUOI ON AGIT, ET RIEN D'AUTRE ────────────────────────────────
+       *
+       * `candidats` est la liste du DOUTE. Un plan qui veut écrire à la personne n'avait qu'elle
+       * pour cible : il déployait donc son envoi sur `candidats`. Tant qu'il n'y en a qu'un, ça
+       * marche par chance ; à trois homonymes, le même plan écrit à TROIS personnes — la
+       * cardinalité fausse que le compilateur existe pour refuser (§118.3), mais côté données,
+       * là où il ne peut rien voir.
+       *
+       * `retenu` porte donc UNE personne quand la résolution est certaine, et une liste VIDE
+       * sinon. Le moteur sait déjà quoi faire d'une liste vide : « si la liste amont est vide,
+       * l'étape est ignorée » — au lieu d'écrire au mauvais destinataire.
+       */
       return JSON.stringify({
+        retenu: unique.length === 1 ? unique : [],
         candidats: unique,
         certain: unique.length === 1,
         resultat: unique.length === 0

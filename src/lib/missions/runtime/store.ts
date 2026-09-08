@@ -222,6 +222,47 @@ export async function materialiser(
     });
   }
 
+  /**
+   * ── 1 ter. UNE ÉTAPE QUE LE NOUVEAU PLAN REPREND EST RÉARMÉE ────────────────────────────
+   *
+   * L'invariant ci-dessus — « une étape terminée n'est pas réécrite » — est juste pour un
+   * ACQUIS : un envoi parti ne repart pas. Appliqué à un ÉCHEC, il tue la mission, et c'est
+   * mesuré.
+   *
+   * Chaîne regulatory, mission cmtsdqc17… : deux envois échouent (destinataire illisible), le
+   * plan v2 les REPREND et accroche ses six attentes dessus. L'upsert laisse les deux lignes en
+   * FAILED. Une étape FAILED ne se termine jamais ; ses dépendantes ne deviennent jamais
+   * READY ; et comme TOUT le plan v2 en descend, il n'a pas UNE seule racine exécutable.
+   * 18 étapes compilées, profondeur 12, zéro exécutable. Le moteur a repris la main, n'a rien
+   * trouvé à faire, et `deduireEtat` a rendu BLOCKED — honnêtement, sur un plan mort-né. Aucun
+   * réveil, aucune attente levée, aucun livrable, et pas un seul événement disant pourquoi.
+   *
+   * Reprendre une étape dans un plan, c'est demander qu'elle soit RE-tentée. On la réarme donc :
+   * statut, compteur de tentatives et motif d'échec repartent à zéro.
+   *
+   * DEUX BORNES :
+   *   — SEUL l'échec est réarmé. DONE et SKIPPED restent acquis (pas de second envoi),
+   *     RUNNING appartient à l'exécutant en cours, CANCELLED est une décision humaine ;
+   *   — `idempotencyKey` est CONSERVÉE. Une étape peut échouer APRÈS avoir produit son effet ;
+   *     c'est le reçu (`AssistantActionIntent`, §118.5) qui empêche le doublon, pas le statut.
+   */
+  const REARMABLES = ["FAILED"];
+  const areArmer = await prisma.missionStep.findMany({
+    where: { missionId: mission.id, key: { in: compiled.steps.map((s) => s.key) }, status: { in: REARMABLES } },
+    select: { id: true, key: true, attempt: true },
+  });
+  if (areArmer.length > 0) {
+    await prisma.missionStep.updateMany({
+      where: { id: { in: areArmer.map((s) => s.id) } },
+      data: { status: "PENDING", attempt: 0, error: null, errorKind: null, startedAt: null, completedAt: null, planVersion: version },
+    });
+    await journaliser(mission.id, "PLAN_COMPILED",
+      `Plan v${version} : ${areArmer.length} étape(s) en échec sont REPRISES par le nouveau plan et `
+      + `réarmées — sans quoi tout ce qui en dépend resterait à jamais inexécutable : `
+      + `${areArmer.map((s) => s.key).join(", ")}.`,
+      { planVersion: version, rearmees: areArmer.map((s) => ({ key: s.key, tentativesPrecedentes: s.attempt })) });
+  }
+
   const enBase = await prisma.missionStep.findMany({
     where: { missionId: mission.id },
     select: { id: true, key: true, status: true },

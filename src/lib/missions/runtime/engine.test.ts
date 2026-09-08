@@ -798,6 +798,115 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     expect(r.status).toBe("COMPLETED");
   });
 
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   * LE PLAN MORT-NÉ — mesuré live (chaîne regulatory, mission cmtsdqc17…).
+   *
+   * Un envoi échoue, ses tentatives sont épuisées. Le plan v2 le REPREND et accroche tout le
+   * reste dessus. Avant correction, l'upsert laissait la ligne en FAILED : une étape FAILED ne
+   * se termine jamais, ses dépendantes ne deviennent jamais READY, et un plan de dix-huit
+   * étapes n'avait PAS UNE racine exécutable. La mission tournait BLOCKED sans un seul appel.
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("une étape en ÉCHEC que le nouveau plan REPREND est réarmée — sinon tout ce qui en dépend est mort", async () => {
+    const steps: PlannedStep[] = [
+      { key: "envoi", title: "Envoi", capability: "send_message", input: { to: "x" } },
+      { key: "suite", title: "Suite", capability: "inspect_record", dependsOn: ["envoi"] },
+    ];
+    const id = await creerMission(steps, "plan mort-né");
+
+    // L'envoi échoue DÉFINITIVEMENT : plus aucune tentative.
+    const t = traceur({ echouer: (c) => (c.stepKey === "envoi" ? { kind: "VALIDATION", message: "destinataire illisible", retryable: false } : null) });
+    await avancer(id, actor, { runner: t.runner });
+    const apres = await chargerEtat(id);
+    expect(apres!.steps.find((x) => x.key === "envoi")!.status).toBe("FAILED");
+    expect(apres!.steps.find((x) => x.key === "suite")!.status).toBe("PENDING");
+
+    // LE PLAN v2 REPREND l'envoi et y accroche une nouvelle étape.
+    const v2: PlannedStep[] = [
+      { key: "envoi", title: "Envoi (corrigé)", capability: "send_message", input: { to: "y" } },
+      { key: "suite", title: "Suite", capability: "inspect_record", dependsOn: ["envoi"] },
+    ];
+    const plan: MissionPlan = { objective: "plan mort-né", acceptance: ["fait"], complexity: "B", scale: "M", steps: v2 };
+    const r = compile(plan, catalogue, actor);
+    if (!r.ok) throw new Error("plan refusé");
+    await materialiser(r.mission, { ownerId, title: "plan mort-né", goalRaw: "plan mort-né", missionId: id });
+
+    const rearme = await chargerEtat(id);
+    const envoi = rearme!.steps.find((x) => x.key === "envoi")!;
+    expect(envoi.status).toBe("PENDING");
+    expect(envoi.attempt).toBe(0);
+    expect(envoi.title).toBe("Envoi (corrigé)");
+
+    // ET LE PLAN v2 TOURNE VRAIMENT : les deux étapes sont APPELÉES et ABOUTISSENT. C'est ce
+    // qui distingue un plan vivant d'un plan mort-né — pas le statut final de la mission, qui
+    // dépend du juge d'objectif (absent de ce banc, §118.10).
+    const t2 = traceur();
+    await avancer(id, actor, { runner: t2.runner });
+    expect(t2.appels.map((c) => c.stepKey).sort()).toEqual(["envoi", "suite"]);
+    const fini = await chargerEtat(id);
+    expect(fini!.steps.filter((x) => x.status === "DONE").map((x) => x.key).sort()).toEqual(["envoi", "suite"]);
+  });
+
+  /**
+   * LE MÊME TROU, UN CRAN PLUS BAS. La mère réarmée redéploie et retrouve ses FILLES en échec,
+   * figées au plan précédent : elles ne se termineraient jamais, la mère les attendrait, et le
+   * regroupement recompterait 0/1 — la mission remourrait exactement comme avant.
+   */
+  it("un ÉVENTAIL réarmé reprend ses filles en échec, et garde ses filles abouties", async () => {
+    const steps: PlannedStep[] = [
+      { key: "liste", title: "Lister", capability: "directory_list" },
+      {
+        key: "msg", title: "Msg", capability: "send_message",
+        forEach: { from: "liste", path: "employes", as: "e" }, input: { to: "{{e.id}}" },
+      },
+    ];
+    const gens = { employes: [{ id: "u1" }, { id: "u2" }] };
+    // u1 aboutit, u2 échoue définitivement.
+    const t = traceur({
+      sortie: (c) => (c.stepKey === "liste" ? gens : { ok: true }),
+      echouer: (c) => (c.stepKey.endsWith("#u2") ? { kind: "VALIDATION", message: "destinataire illisible", retryable: false } : null),
+    });
+    const id = await creerMission(steps, "éventail mort-né");
+    await avancer(id, actor, { runner: t.runner });
+    const apres = await chargerEtat(id);
+    expect(apres!.steps.find((x) => x.key === "msg#u1")!.status).toBe("DONE");
+    expect(apres!.steps.find((x) => x.key === "msg#u2")!.status).toBe("FAILED");
+
+    // PLAN v2 : il reprend l'éventail.
+    const plan: MissionPlan = { objective: "éventail mort-né", acceptance: ["fait"], complexity: "B", scale: "M", steps };
+    const r = compile(plan, catalogue, actor);
+    if (!r.ok) throw new Error("plan refusé");
+    await materialiser(r.mission, { ownerId, title: "éventail mort-né", goalRaw: "éventail mort-né", missionId: id });
+
+    const t2 = traceur({ sortie: (c) => (c.stepKey === "liste" ? gens : { ok: true }) });
+    await avancer(id, actor, { runner: t2.runner });
+    const fin = await chargerEtat(id);
+    expect(fin!.steps.find((x) => x.key === "msg#u2")!.status).toBe("DONE");
+    // L'ACQUIS N'EST PAS REJOUÉ : u1 n'a pas reçu de second message.
+    expect(t2.appels.filter((c) => c.stepKey === "msg#u1")).toHaveLength(0);
+    expect(t2.appels.filter((c) => c.stepKey === "msg#u2")).toHaveLength(1);
+  });
+
+  it("une étape ABOUTIE que le nouveau plan reprend n'est JAMAIS rejouée (pas de second envoi)", async () => {
+    const steps: PlannedStep[] = [{ key: "envoi", title: "Envoi", capability: "send_message", input: { to: "x" } }];
+    const id = await creerMission(steps, "acquis préservé");
+    const t = traceur();
+    await avancer(id, actor, { runner: t.runner });
+    expect(t.appels).toHaveLength(1);
+
+    const plan: MissionPlan = { objective: "acquis préservé", acceptance: ["fait"], complexity: "B", scale: "M", steps };
+    const r = compile(plan, catalogue, actor);
+    if (!r.ok) throw new Error("plan refusé");
+    await materialiser(r.mission, { ownerId, title: "acquis préservé", goalRaw: "acquis préservé", missionId: id });
+
+    const etat = await chargerEtat(id);
+    expect(etat!.steps.find((x) => x.key === "envoi")!.status).toBe("DONE");
+    const t2 = traceur();
+    await avancer(id, actor, { runner: t2.runner });
+    expect(t2.appels).toHaveLength(0);
+  });
+
   it("une recompilation du MÊME plan ne duplique aucune étape et n'en rejoue aucune", async () => {
     const t = traceur();
     const steps: PlannedStep[] = [

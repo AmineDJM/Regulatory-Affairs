@@ -111,6 +111,14 @@ const NEUTRAL = new Set([
   // carte trop large, le compilateur de missions refuse une étape trop large. Le ranger d'un
   // côté forcerait l'autre à en écrire une seconde version, qui divergerait (§118.5).
   "src/lib/mutations/empreinte",
+  // `personnes/designation` traduit ce qu'un modèle, un plan ou un éventail a mis dans une
+  // entrée « qui » en une désignation — `« Nom <adresse> »`, un nom, une adresse — et rend
+  // `null` sur ce qu'il ne lit pas à coup sûr. De la lecture de chaîne : zéro import, sans état,
+  // sans base, sans règle métier. Il est ici pour la raison de `mutations/empreinte`, mot pour
+  // mot : les DEUX côtés en ont besoin et n'ont pas le droit de se parler — la conversation
+  // résout un destinataire, le moteur de missions aussi. Le ranger d'un côté forcerait l'autre
+  // à en écrire une seconde version, qui divergerait (§118.5).
+  "src/lib/personnes/designation",
 ]);
 
 export interface Violation {

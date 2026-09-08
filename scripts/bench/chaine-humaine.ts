@@ -374,8 +374,42 @@ async function main(): Promise<void> {
 
   const TOURS_MAX = Number(process.env.CHAINE_TOURS ?? "14") || 14;
   let precedent = "";
+  let accordsDonnes = r.approbation ? 1 : 0;
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * UN HUMAIN QUI EST LÀ RÉPOND — y compris quand le plan change.
+   *
+   * Le banc ne donnait son accord qu'UNE fois, au lancement. Mesuré : la mission
+   * cmtsdqc17… a échoué sur deux envois, replanifié (plan v2), et la porte a fait exactement ce
+   * qu'elle doit faire — `APPROVAL_REOPENED`, deux étapes non couvertes par l'accord précédent,
+   * `NOTIFIED ARBITRAGE`. Personne n'a répondu. La mission a tourné en BLOCKED jusqu'au dernier
+   * tour : 0 réveil, 0 attente levée, aucun livrable.
+   *
+   * Le verdict aurait accusé Adam d'un blocage dont la cause était le banc : il notifiait un
+   * humain absent. Un banc qui ne répond jamais à une question légitime ne mesure pas
+   * l'autonomie, il mesure sa propre absence. On répond donc à CHAQUE tour — c'est un clic,
+   * et la doctrine dit qu'un changement matériel rouvre la partie modifiée, pas qu'il tue la
+   * mission (§118.8).
+   */
+  async function repondreAuxAccords(): Promise<number> {
+    const enAttente = await prisma.missionApproval.findMany({
+      where: { missionId, status: "PENDING" },
+      select: { id: true, summary: true },
+      orderBy: { createdAt: "asc" },
+    }).catch(() => []);
+    for (const a of enAttente) {
+      const ok = await decider(a.id, "GRANTED", pdg.id).catch(() => false);
+      if (ok) {
+        accordsDonnes += 1;
+        console.log(`  · accord ROUVERT donné (clic ${accordsDonnes}) : ${a.summary.slice(0, 90)}`);
+      }
+    }
+    return enAttente.length;
+  }
 
   for (let tour = 1; tour <= TOURS_MAX; tour += 1) {
+    await repondreAuxAccords();
     const tick = await conduireMission(pdg, missionId, { maxTours: 25 }).catch((e) => {
       console.log(`  · tour ${tour} en erreur : ${String(e).slice(0, 140)}`); return null;
     });
