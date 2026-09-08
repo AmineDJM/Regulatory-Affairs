@@ -235,6 +235,53 @@ describe("la mission — plusieurs gestes, une confirmation", () => {
     expect(b.etapes[0].etat).toBe("a-faire");
   });
 
+  it("lit l'HORIZON sous la forme EXACTE que rend `vueMission` (§118.50)", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : un lecteur qui n'accepterait que `jalons` à plat. La carte
+     * d'une mission longue vient de la BASE (`vueMission` → `_blocs`), pas d'une rédaction de
+     * modèle : elle porte `horizon.jalons`. Ne lire que la forme aplatie ferait disparaître
+     * l'horizon du seul chemin réel, en silence — et l'écran retomberait sur les étapes du
+     * sous-plan courant, c'est-à-dire « presque fini » sur six semaines de travail.
+     */
+    const b = bloc({
+      kind: "mission", title: "Homologation", subtitle: "en cours — jalon 3/7",
+      etapes: [{ id: "1", label: "Demander les chiffres", etat: "fait" }],
+      horizon: {
+        jalons: [
+          { ordre: 1, titre: "Réunir les pièces", resultat: "les six pièces sont au dossier", etat: "fait", compile: true },
+          { ordre: 7, titre: "Déposer", resultat: "le dépôt est accusé", etat: "a-faire", compile: false },
+        ],
+        part: 0.28, franchis: 2, aboutis: 2, ecartes: 0, total: 7, bloques: 0,
+      },
+    });
+    if (b?.kind !== "mission") throw new Error("mission attendue");
+    expect(b.jalons).toHaveLength(2);
+    expect(b.jalons?.[0].resultat).toBe("les six pièces sont au dossier");
+    // `compile: false` doit SURVIVRE : c'est lui qui fait dire « ce jalon n'existe que comme
+    // intention » plutôt que de laisser lire un travail oublié.
+    expect(b.jalons?.[1].compile).toBe(false);
+  });
+
+  it("un état de JALON inconnu retombe sur « à faire » — jamais sur « fait »", () => {
+    const b = bloc({
+      kind: "mission", title: "M",
+      etapes: [{ id: "1", label: "E", etat: "a-faire" }],
+      jalons: [{ ordre: 1, titre: "J", etat: "ignore" }],
+    });
+    if (b?.kind !== "mission") throw new Error("mission attendue");
+    // « ignoré » n'existe pas pour un jalon : un jalon écarté est ÉCARTÉ, jamais sauté.
+    expect(b.jalons?.[0].etat).toBe("a-faire");
+  });
+
+  it("une mission COURTE n'a pas de jalons — et c'est la bonne réponse", () => {
+    const b = bloc({
+      kind: "mission", title: "M",
+      etapes: [{ id: "1", label: "E", etat: "fait" }],
+    });
+    if (b?.kind !== "mission") throw new Error("mission attendue");
+    expect(b.jalons).toBeUndefined();
+  });
+
   it("porte l'erreur actionnable d'une étape échouée", () => {
     const b = bloc({
       kind: "mission", title: "M", state: "failed",

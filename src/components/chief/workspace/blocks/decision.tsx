@@ -92,6 +92,33 @@ export function MissionBlock({ b }: { b: Mission }) {
 
   return (
     <Card title={b.title} meta={b.subtitle ?? undefined} actions={b.actions}>
+      {/* ── L'HORIZON D'ABORD (§118.50) ────────────────────────────────────────────────
+          Sur une mission longue, les étapes qui suivent sont celles du jalon COURANT — les
+          jalons suivants n'ont pas encore d'étapes, par construction. Montrer les étapes
+          seules ferait lire « 4/5 », donc « presque fini », sur une mission qui a six semaines
+          devant elle. Absent d'une mission courte, et c'est la bonne réponse. */}
+      {b.jalons?.length ? (
+        <ol className="chief-mission" data-testid="mission-jalons">
+          {b.jalons.map((j) => {
+            const Icon = ETAPE_ICON[j.etat];
+            return (
+              <li key={j.ordre} className="chief-mission-step" data-etat={j.etat} data-testid="mission-jalon">
+                <Icon className={`chief-mission-icon${j.etat === "en-cours" ? " chief-mission-spin" : ""}`} aria-hidden />
+                <div className="chief-mission-body">
+                  <span className="chief-mission-label">{j.ordre}. {j.titre}</span>
+                  {/* LE RÉSULTAT ATTENDU, pas le titre : c'est lui que le contrôle de fin
+                      comparera au réel. */}
+                  {j.resultat ? <span className="chief-mission-detail">{j.resultat}</span> : null}
+                  {j.compile === false ? (
+                    <span className="chief-mission-detail">pas encore de sous-plan — ce jalon n&apos;existe que comme intention</span>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
+
       <ol className="chief-mission" data-testid="mission">
         {b.etapes.map((e) => {
           const Icon = ETAPE_ICON[e.etat];

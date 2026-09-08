@@ -163,6 +163,23 @@ describe("la modification en deux temps", () => {
     expect(bloc).not.toContain("appliquerModification(");
   });
 
+  it("un bouton n'est cliquable qu'une fois son geste BRANCHÉ", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : des boutons actifs dès le rendu serveur. Entre le rendu et
+     * l'hydratation, ils ont l'air cliquables et ne font RIEN — on clique, il ne se passe rien,
+     * et l'on ne sait pas si le geste est parti. Attrapé en vrai par le banc Playwright, où le
+     * clic sur « Voir l'effet exact » arrivait avant l'hydratation : l'aperçu n'apparaissait
+     * jamais. Ce n'était pas un défaut de banc, c'était le défaut qu'il a trouvé.
+     */
+    const c = lire(CONTROLES);
+    expect(c).toMatch(/function useInteractif\(\)/);
+    expect(c).toMatch(/React\.useEffect\(\(\) => setPret\(true\), \[\]\)/);
+    // Aucun bouton de geste ne se contente de `disabled={enCours !== null}` : tous attendent
+    // l'hydratation. Un seul oubli suffit à rendre un geste muet une demi-seconde.
+    expect(c).not.toMatch(/disabled=\{enCours !== null\}/);
+    expect(c).not.toMatch(/disabled=\{vide \|\| enCours !== null\}/);
+  });
+
   it("l'écran n'offre « Appliquer » qu'APRÈS un aperçu reconnu", () => {
     /**
      * CE QUI FERAIT TOMBER CE TEST : un bouton « Appliquer » toujours actif. On invaliderait

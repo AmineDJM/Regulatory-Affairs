@@ -22,6 +22,15 @@ import { E2E } from "./global-setup";
  *   • une lecture VIEILLE de trois semaines : le faux succès silencieux (§118.41) ;
  *   • trente lignes de comptabilité de moteur : le journal doit les écarter et le DIRE ;
  *   • un ACCORD en attente : décidable depuis le centre, sans ouvrir la mission.
+ *
+ * ── UNE PRÉCAUTION D'EXPLOITATION, APPRISE EN LA SUBISSANT ──────────────────────────────
+ *
+ * Le serveur que Playwright démarre fait tourner l'ORDONNANCEUR de l'ERP contre la MÊME base
+ * que la suite unitaire. Lancer `vitest` pendant qu'il vit fait balayer par ce battement des
+ * missions que d'autres tests viennent de créer : `attention.test.ts` a compté deux
+ * notifications au lieu d'une, pour une mission qu'il croyait à lui seul. Ce n'est pas un
+ * défaut du produit — c'est le produit qui fait son travail sur une base partagée. On ne fait
+ * donc pas tourner les deux en même temps.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -132,7 +141,17 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  if (missionId) await prisma.mission.delete({ where: { id: missionId } }).catch(() => {});
+  /**
+   * ON SUSPEND AVANT DE SUPPRIMER. Le décor est une mission VIVANTE : le battement du serveur
+   * peut être en train de la faire avancer au moment du nettoyage, et la supprimer sous ses
+   * pieds lui fait écrire au journal d'une mission qui n'existe plus (contrainte de clé
+   * étrangère, attrapée et journalée par le moteur). La pause est LUE par `avancer` : elle
+   * ferme la fenêtre au lieu de la subir.
+   */
+  if (missionId) {
+    await prisma.mission.update({ where: { id: missionId }, data: { status: "PAUSED" } }).catch(() => {});
+    await prisma.mission.delete({ where: { id: missionId } }).catch(() => {});
+  }
   await prisma.$disconnect();
 });
 
@@ -214,17 +233,37 @@ test("MODIFIER : l'aperçu dit l'empreinte EXACTE avant d'écrire quoi que ce so
 
   const apercu = page.locator("[data-testid='mission-modification-apercu']");
   await expect(apercu).toBeVisible({ timeout: 20_000 });
-  /**
-   * L'APERÇU N'ÉCRIT RIEN — c'est la propriété qui le rend sûr à appeler autant de fois qu'on
-   * reformule sa phrase. On le vérifie EN BASE, pas sur l'écran : un aperçu qui invaliderait
-   * en douce serait indiscernable d'un aperçu honnête tant qu'on ne regarde que la page.
-   */
-  const apres = await prisma.missionStep.findFirst({
-    where: { missionId, key: "relire" }, select: { status: true },
-  });
-  expect(apres?.status).toBe("PENDING");
   await expect(apercu).toContainText(/étape\(s\) à refaire/);
   await expect(apercu).toContainText(/préservée\(s\)/);
+
+  /**
+   * L'APERÇU N'ÉCRIT RIEN — c'est la propriété qui le rend sûr à appeler autant de fois qu'on
+   * reformule sa phrase. On le vérifie EN BASE, pas sur l'écran : un aperçu qui invaliderait en
+   * douce serait indiscernable d'un aperçu honnête tant qu'on ne regarde que la page.
+   *
+   * ── POURQUOI ON NE REGARDE PAS LE STATUT D'UNE ÉTAPE ────────────────────────────────
+   *
+   * On l'a fait, et c'était une assertion FAUSSE : la mission du décor est VIVANTE, le
+   * battement du serveur la fait avancer, et l'étape `relire` passait légitimement de PENDING
+   * à FAILED entre les deux lectures. Le banc accusait l'aperçu d'une écriture que le moteur
+   * avait faite — et l'aurait faite aussi sans lui. On vérifie donc les marques que SEULE une
+   * modification pose, et qu'aucun tour de moteur ne peut produire : la consigne ajoutée à
+   * l'objectif, le jalon rouvert (`planVersion` remis à zéro), et l'événement au journal.
+   */
+  const m = await prisma.mission.findUnique({
+    where: { id: missionId }, select: { goalRaw: true, replanBloque: true },
+  });
+  expect(m?.goalRaw).toBe("Obtenir l'homologation Nivolex pour 2027");
+
+  const jalon3 = await prisma.missionMilestone.findFirst({
+    where: { missionId, ordre: 3 }, select: { planVersion: true, statut: true },
+  });
+  expect(jalon3?.planVersion, "un jalon a été rouvert par un simple APERÇU").toBe(2);
+
+  const modifs = await prisma.missionEvent.count({
+    where: { missionId, kind: { in: ["MISSION_MODIFIED", "MODIFICATION_REFUSEE"] } },
+  });
+  expect(modifs, "l'aperçu a écrit au journal ce que seule une modification écrit").toBe(0);
 });
 
 test("sur un TÉLÉPHONE, rien ne déborde", async ({ browser }) => {

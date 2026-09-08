@@ -559,6 +559,23 @@ type WorkspaceBlockShape =
          */
         actions?: WorkspaceAction[];
       }[];
+      /**
+       * L'HORIZON D'UNE MISSION LONGUE (§118.50) — absent d'une mission courte, et c'est la
+       * bonne réponse.
+       *
+       * Sans lui, la carte d'une mission de sept jalons montre les étapes du sous-plan COURANT
+       * et rien d'autre : « 4/5 » sur une mission qui a six semaines devant elle. Le
+       * `resultat` est ce qu'on doit pouvoir CONSTATER — c'est lui, pas le titre, que le
+       * contrôle de fin comparera au réel, donc c'est lui qu'on montre.
+       */
+      jalons?: {
+        ordre: number;
+        titre: string;
+        resultat?: string | null;
+        etat: "a-faire" | "en-cours" | "fait" | "echec";
+        /** Le sous-plan de ce jalon est-il écrit ? Faux = il n'existe que comme intention. */
+        compile?: boolean;
+      }[];
       /** Le geste unique qui confirme l'ensemble. Absent une fois la mission exécutée. */
       confirmation?: WorkspaceAction | null;
       actions?: WorkspaceAction[];

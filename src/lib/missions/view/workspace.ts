@@ -339,6 +339,7 @@ export async function missionsEnCours(ownerId: string, limite = 5) {
       id: true, title: true, status: true, updatedAt: true,
       // Même règle que `vueMission` : ce que le plan courant a contourné ne compte pas.
       steps: { where: { supersededAt: null }, select: { status: true, key: true } },
+      milestones2: { select: { statut: true } },
     },
     orderBy: { updatedAt: "desc" },
     take: limite,
@@ -349,12 +350,27 @@ export async function missionsEnCours(ownerId: string, limite = 5) {
       m.steps.filter((s) => s.key.includes("#")).map((s) => s.key.slice(0, s.key.indexOf("#"))),
     );
     const reelles = m.steps.filter((s) => !modeles.has(s.key));
+
+    /**
+     * SUR UNE MISSION LONGUE, LE RATIO D'ÉTAPES EST UN MENSONGE (§118.51).
+     *
+     * « 5/5 » y désigne les étapes du jalon COURANT — les suivants n'en ont pas encore, par
+     * construction. Adam répondrait « c'est fini » à « où tu en es ? » sur une mission qui a
+     * six jalons devant elle. Quand la mission a un horizon, c'est LUI qui compte, et le
+     * dénominateur dit lequel des deux on lit.
+     */
+    const vivants = m.milestones2.filter((j) => j.statut !== "CANCELLED");
+    const franchis = vivants.filter((j) => j.statut === "DONE" || j.statut === "SKIPPED").length;
+    const parJalons = m.milestones2.length > 0;
+
     return {
       id: m.id,
       titre: m.title,
       etat: MISSION_STATUS_LABEL[m.status],
-      faites: reelles.filter((s) => s.status === "DONE").length,
-      total: reelles.length,
+      faites: parJalons ? franchis : reelles.filter((s) => s.status === "DONE").length,
+      total: parJalons ? m.milestones2.length : reelles.length,
+      /** Ce que le ratio COMPTE — sans quoi « 2/7 » ne dit pas s'il parle d'étapes ou de jalons. */
+      unite: parJalons ? ("jalons" as const) : ("étapes" as const),
       depuis: m.updatedAt,
     };
   });

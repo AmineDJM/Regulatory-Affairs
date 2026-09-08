@@ -56,6 +56,13 @@ export const GODMODE_LIMITS = {
   comparisonRows: 20,
   /** Une mission de plus de douze gestes n'est plus une mission, c'est un projet. */
   missionSteps: 12,
+  /**
+   * LES JALONS D'UNE MISSION LONGUE. Le plafond est plus haut que celui des étapes parce
+   * qu'un jalon est une LIGNE, pas un geste : vingt jalons se lisent, vingt gestes ne se
+   * confirment pas. Il vaut celui du planificateur de jalons (`JALONS_MAX`) — au-delà, la
+   * carte ne dirait plus le même horizon que la mission.
+   */
+  missionJalons: 20,
 } as const;
 
 const STORY_KINDS = new Set<string>([
@@ -71,6 +78,8 @@ const BLOCK_STATES = new Set<string>([
   "loading", "partial", "complete", "awaiting_confirmation", "sending", "executed", "failed",
 ]);
 const ETAPE_ETATS = new Set<string>(["a-faire", "en-cours", "fait", "echec", "ignore"]);
+// Un JALON ne connaît pas « ignoré » : un jalon écarté est ÉCARTÉ (donc franchi), jamais sauté.
+const JALON_ETATS = new Set<string>(["a-faire", "en-cours", "fait", "echec"]);
 const ALERTE_TONS = new Set<string>(["info", "attention", "alerte"]);
 
 /**
@@ -518,12 +527,43 @@ function readMission(v: Json, title: string): WorkspaceBlock | null {
   }
   if (etapes.length === 0) return null;
 
+  /**
+   * L'HORIZON, QUAND IL Y EN A UN (§118.50).
+   *
+   * Deux formes acceptées et c'est délibéré : `jalons` à plat, pour un bloc composé par le
+   * modèle, et `horizon.jalons`, la forme exacte que rend `vueMission`. Le second est le
+   * chemin RÉEL — la carte d'une mission dans la conversation vient de la base, pas d'une
+   * rédaction — et exiger que l'appelant l'aplatisse aurait ajouté un endroit où se tromper.
+   */
+  const sourceJalons = arr(v.jalons).length > 0
+    ? arr(v.jalons)
+    : isObj(v.horizon) ? arr((v.horizon as Json).jalons) : [];
+  const jalons: NonNullable<Mission["jalons"]> = [];
+  for (const j of sourceJalons) {
+    if (!isObj(j)) continue;
+    const ordre = typeof j.ordre === "number" && Number.isFinite(j.ordre) ? Math.trunc(j.ordre) : null;
+    const titre = clip(s(j.titre) ?? s(j.title), 120);
+    if (ordre === null || !titre) continue;
+    const etat = s(j.etat);
+    jalons.push({
+      ordre, titre,
+      ...(clip(s(j.resultat), WORKSPACE_LIMITS.snippetChars)
+        ? { resultat: clip(s(j.resultat), WORKSPACE_LIMITS.snippetChars) } : {}),
+      // Même règle que pour une étape : un état inconnu retombe sur « à faire ». Afficher
+      // « fait » sur un jalon dont on ne sait rien annoncerait un résultat jamais constaté.
+      etat: (etat && JALON_ETATS.has(etat) ? etat : "a-faire") as NonNullable<Mission["jalons"]>[number]["etat"],
+      ...(j.compile === true ? { compile: true } : j.compile === false ? { compile: false } : {}),
+    });
+    if (jalons.length >= GODMODE_LIMITS.missionJalons) break;
+  }
+
   const conf: WorkspaceAction | undefined = actionsOf(v.confirmation ? [v.confirmation] : [], 1)[0];
   const actions = actionsOf(v.actions, WORKSPACE_LIMITS.blockActions);
   return {
     kind: "mission", title,
     ...(clip(s(v.subtitle) ?? s(v.sousTitre), 160) ? { subtitle: clip(s(v.subtitle) ?? s(v.sousTitre), 160) } : {}),
     etapes,
+    ...(jalons.length ? { jalons } : {}),
     ...(conf ? { confirmation: conf } : {}),
     ...(actions.length ? { actions } : {}),
     ...readMeta(v),

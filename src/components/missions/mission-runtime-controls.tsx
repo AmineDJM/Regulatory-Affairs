@@ -35,7 +35,32 @@ import {
 
 type Etat = { message: string; ok: boolean } | null;
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UN BOUTON N'EST CLIQUABLE QU'UNE FOIS SON GESTE BRANCHÉ.
+ *
+ * ── LE DÉFAUT, ET IL S'EST VU EN VRAI ───────────────────────────────────────────────────
+ *
+ * Ces contrôles sont rendus par le SERVEUR puis hydratés par le navigateur. Entre les deux, le
+ * bouton est là, il a l'air actif, et il ne fait RIEN : le gestionnaire n'existe pas encore.
+ * On clique, il ne se passe rien, et l'on ne sait pas si le geste est parti. Mesuré sur le banc
+ * Playwright — le clic sur « Voir l'effet exact » arrivait avant l'hydratation et l'aperçu
+ * n'apparaissait jamais ; ce n'est pas un défaut de banc, c'est le défaut qu'il a attrapé.
+ *
+ * `useEffect` ne s'exécute QUE dans le navigateur, après hydratation : le drapeau est donc
+ * exactement « ce bouton peut maintenant agir ». Un bouton désactivé qui s'active vaut mieux
+ * qu'un bouton actif qui ne répond pas — le premier fait attendre une demi-seconde, le second
+ * apprend à ne plus faire confiance aux boutons.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+function useInteractif(): boolean {
+  const [pret, setPret] = React.useState(false);
+  React.useEffect(() => setPret(true), []);
+  return pret;
+}
+
 function useGeste() {
+  const pret = useInteractif();
   const [enCours, setEnCours] = React.useState<string | null>(null);
   const [etat, setEtat] = React.useState<Etat>(null);
 
@@ -58,7 +83,7 @@ function useGeste() {
     }
   }, []);
 
-  return { enCours, etat, lancer };
+  return { enCours, etat, lancer, pret };
 }
 
 function Message({ etat }: { etat: Etat }) {
@@ -72,7 +97,7 @@ function Message({ etat }: { etat: Etat }) {
 
 /** L'ACCORD — deux boutons, et rien d'autre. La question posée n'a que deux réponses. */
 export function AccordControls({ approvalId, resume }: { approvalId: string; resume: string }) {
-  const { enCours, etat, lancer } = useGeste();
+  const { enCours, etat, lancer, pret } = useGeste();
   return (
     <div data-testid="mission-accord">
       <p className="text-sm text-slate-700">{resume}</p>
@@ -80,7 +105,7 @@ export function AccordControls({ approvalId, resume }: { approvalId: string; res
         <button
           type="button"
           className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-          disabled={enCours !== null}
+          disabled={!pret || enCours !== null}
           onClick={() => lancer("accorder", () => deciderAccordMission(approvalId, "GRANTED"))}
         >
           {enCours === "accorder" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
@@ -89,7 +114,7 @@ export function AccordControls({ approvalId, resume }: { approvalId: string; res
         <button
           type="button"
           className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 disabled:opacity-60"
-          disabled={enCours !== null}
+          disabled={!pret || enCours !== null}
           onClick={() => lancer("refuser", () => deciderAccordMission(approvalId, "REFUSED"))}
         >
           {enCours === "refuser" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
@@ -106,7 +131,7 @@ export function ElementControls(
   { missionId, stepKey, question }: { missionId: string; stepKey: string; question: string },
 ) {
   const [texte, setTexte] = React.useState("");
-  const { enCours, etat, lancer } = useGeste();
+  const { enCours, etat, lancer, pret } = useGeste();
   const vide = texte.trim() === "";
 
   return (
@@ -130,7 +155,7 @@ export function ElementControls(
         <button
           type="submit"
           className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-          disabled={vide || enCours !== null}
+          disabled={!pret || vide || enCours !== null}
         >
           {enCours === "fournir" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           Fournir
@@ -149,7 +174,7 @@ export function ElementControls(
  * sur un bouton qui ne peut rien faire.
  */
 export function ConduiteControls({ missionId, statut }: { missionId: string; statut: string }) {
-  const { enCours, etat, lancer } = useGeste();
+  const { enCours, etat, lancer, pret } = useGeste();
   const terminee = statut === "COMPLETED" || statut === "CANCELLED";
   if (terminee) return null;
 
@@ -159,7 +184,7 @@ export function ConduiteControls({ missionId, statut }: { missionId: string; sta
         <button
           type="button"
           className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-60"
-          disabled={enCours !== null}
+          disabled={!pret || enCours !== null}
           onClick={() => lancer("reprendre", () => reprendreMission(missionId))}
         >
           {enCours === "reprendre" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
@@ -169,7 +194,7 @@ export function ConduiteControls({ missionId, statut }: { missionId: string; sta
         <button
           type="button"
           className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-60"
-          disabled={enCours !== null}
+          disabled={!pret || enCours !== null}
           onClick={() => lancer("pause", () => mettreMissionEnPause(missionId))}
         >
           {enCours === "pause" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pause className="h-4 w-4" />}
@@ -179,7 +204,7 @@ export function ConduiteControls({ missionId, statut }: { missionId: string; sta
       <button
         type="button"
         className="inline-flex items-center gap-1.5 rounded-md border border-rose-300 px-3 py-1.5 text-sm text-rose-700 disabled:opacity-60"
-        disabled={enCours !== null}
+        disabled={!pret || enCours !== null}
         onClick={() => {
           // UNE SEULE CONFIRMATION, et elle dit ce qui ne sera PAS défait. « Êtes-vous sûr ? »
           // ne renseigne sur rien ; ce qui compte, c'est que les envois partis restent partis.
@@ -206,7 +231,7 @@ export function ConduiteControls({ missionId, statut }: { missionId: string; sta
  * autorisation — donc il n'a pas la lourdeur d'un accord.
  */
 export function PrioriteControls({ missionId, priorite }: { missionId: string; priorite: number }) {
-  const { enCours, etat, lancer } = useGeste();
+  const { enCours, etat, lancer, pret } = useGeste();
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="mission-priorite">
       <span className="inline-flex items-center gap-1 text-xs text-slate-500">
@@ -215,7 +240,7 @@ export function PrioriteControls({ missionId, priorite }: { missionId: string; p
       <button
         type="button"
         className="rounded-md border border-slate-300 px-2 py-1 text-xs disabled:opacity-60"
-        disabled={enCours !== null || priorite >= 10}
+        disabled={!pret || enCours !== null || priorite >= 10}
         onClick={() => lancer("monter", () => changerPrioriteMission(missionId, priorite + 1))}
       >
         {enCours === "monter" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Faire passer devant"}
@@ -224,7 +249,7 @@ export function PrioriteControls({ missionId, priorite }: { missionId: string; p
         <button
           type="button"
           className="rounded-md border border-slate-300 px-2 py-1 text-xs disabled:opacity-60"
-          disabled={enCours !== null}
+          disabled={!pret || enCours !== null}
           onClick={() => lancer("normale", () => changerPrioriteMission(missionId, 0))}
         >
           {enCours === "normale" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Priorité normale"}
@@ -269,10 +294,11 @@ export function ModificationControls({ missionId }: { missionId: string }) {
   const [apercu, setApercu] = React.useState<ApercuModification | null>(null);
   const [enCours, setEnCours] = React.useState<string | null>(null);
   const [erreur, setErreur] = React.useState<string | null>(null);
+  const interactif = useInteractif();
 
   const choix = GENRES.find((g) => g.valeur === genre)!;
   const besoinSecond = genre === "REMPLACER" || genre === "AJOUTER";
-  const pret = cible.trim() !== "" && (!besoinSecond || remplacant.trim() !== "");
+  const pret = interactif && cible.trim() !== "" && (!besoinSecond || remplacant.trim() !== "");
 
   async function voir() {
     setEnCours("voir"); setErreur(null); setApercu(null);
@@ -354,7 +380,7 @@ export function ModificationControls({ missionId }: { missionId: string }) {
           <button
             type="button"
             className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-            disabled={enCours !== null}
+            disabled={!pret || enCours !== null}
             onClick={() => void appliquer()}
           >
             {enCours === "appliquer" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Appliquer"}

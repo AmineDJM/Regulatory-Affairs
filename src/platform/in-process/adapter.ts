@@ -723,7 +723,7 @@ async function etatMission(userId: string, missionId?: string): Promise<Platform
       kind: "mission.status",
       data: null,
       missions: liste.map((m) => ({
-        id: m.id, titre: m.titre, etat: m.etat, avancement: `${m.faites}/${m.total}`,
+        id: m.id, titre: m.titre, etat: m.etat, avancement: `${m.faites}/${m.total} ${m.unite}`,
       })),
     };
   }
