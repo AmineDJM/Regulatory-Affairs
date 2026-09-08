@@ -38,6 +38,26 @@ function blocArtefact(vue: { blockId: string; nom: string; revision: number }): 
   return { kind: "artifact", title: vue.nom, vue, blockId: vue.blockId, version: vue.revision };
 }
 
+/**
+ * CE QUI EMPÊCHE UNE PIÈCE D'AVOIR L'AIR OFFICIELLE — dit dans la phrase, pas dans un champ.
+ *
+ * On ne juge ni le style ni la mise en page : deux FAITS, tous deux lus dans la réponse de la
+ * fabrique. Pas de papier en-tête (le fichier est un paquet neuf, sans logo ni pied de page) ;
+ * identité de l'émetteur incomplète (la fabrique nomme elle-même les mentions absentes). Rien
+ * d'autre, et silence total quand les deux sont en règle.
+ */
+export function reserveDeMarque(r: { surPapierEnTete: boolean; avertissements: readonly string[]; societe: { nom: string } }): string {
+  const identite = r.avertissements.find((a) => a.startsWith("Identité de l'émetteur incomplète"));
+  const bouts: string[] = [];
+  if (!r.surPapierEnTete) {
+    bouts.push(`aucun papier en-tête n'est déposé pour ${r.societe.nom} — le fichier n'a ni logo ni pied de page`
+      + " (Administration › Marque pour en déposer un, puis document_profile pour le désigner)");
+  }
+  if (identite) bouts.push(identite.replace(/\.$/, ""));
+  if (bouts.length === 0) return "";
+  return ` RÉSERVE — la pièce est valide et numérotée, mais elle ne ressemble PAS encore à un document officiel : ${bouts.join(" ; ")}.`;
+}
+
 export const OFFICE_TOOLS: PowerTool[] = [
   {
     def: {
@@ -519,6 +539,7 @@ export const OFFICE_TOOLS: PowerTool[] = [
     },
   },
 
+
   {
     def: {
       name: "sheet_build",
@@ -667,9 +688,25 @@ export const OFFICE_TOOLS: PowerTool[] = [
       return JSON.stringify({
         fait: true, dejaEmis: r.dejaEmis, repris: r.repris, legalDocumentId: r.legalDocumentId, reference: r.reference, type: r.type, version: r.version,
         societe: r.societe, tiers: r.tiers, docx: r.docx, pdf: r.pdf, totaux: r.totaux, surPapierEnTete: r.surPapierEnTete, avertissements: r.avertissements, reglesAppliquees: r.reglesAppliquees, dureeMs: r.ms,
+        /**
+         * ── UNE PIÈCE QUI N'A PAS L'AIR OFFICIELLE DOIT LE DIRE DANS SA PHRASE ──────────
+         *
+         * MESURÉ : un bon de commande Adventum émis sans papier en-tête, sans adresse de
+         * siège, sans RC ni NIF, sans signataire — un document générique. Le code le SAVAIT :
+         * `surPapierEnTete: false` et « Identité de l'émetteur incomplète : … » figuraient
+         * dans la réponse. Mais la PHRASE, elle, disait « pièce inscrite au registre Legal »
+         * sans une réserve, et c'est la phrase que le modèle reprend.
+         *
+         * Une pièce commerciale sort au nom de la société : la remettre en la présentant comme
+         * finie alors qu'elle ne porte pas l'identité de l'émetteur, c'est le défaut de
+         * confiance le plus cher — celui qu'on ne voit qu'en ouvrant le fichier devant un
+         * tiers. La réserve entre donc dans la phrase, avec le geste EXACT qui la lève.
+         */
         message: r.dejaEmis
           ? `${libelle} ${r.reference} existait déjà pour ${r.tiers} : rendu tel quel, rien de nouveau n'a été émis.`
-          : `${libelle} ${r.reference} émis${r.type === "FACTURE" ? "e" : ""} au nom de ${r.societe.nom} pour ${r.tiers} : TTC ${r.totaux.totalTtc.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} DZD, fichier Word${r.pdf ? " et PDF" : ""} dans le Drive, pièce inscrite au registre Legal${r.surPapierEnTete ? ", sur le papier en-tête de la société" : ""}.`,
+          : `${libelle} ${r.reference} émis${r.type === "FACTURE" ? "e" : ""} au nom de ${r.societe.nom} pour ${r.tiers} : TTC ${r.totaux.totalTtc.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} DZD, fichier Word${r.pdf ? " et PDF" : ""} dans le Drive, pièce inscrite au registre Legal${r.surPapierEnTete ? ", sur le papier en-tête de la société" : ""}.`
+            + reserveDeMarque(r),
+        ...(reserveDeMarque(r) ? { consigne: "REPRENDRE la réserve dans la réponse : une pièce sans identité ni papier en-tête part au nom de la société et ne ressemble pas à un document officiel. Dire ce qui manque et où le renseigner." } : {}),
       });
     },
   },
