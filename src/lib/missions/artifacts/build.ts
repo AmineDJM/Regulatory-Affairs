@@ -197,7 +197,8 @@ async function composerSpec(ctx: StepContext, deps: ArtifactDeps): Promise<SpecO
   const entree = step.input;
 
   if (Array.isArray(entree.sheets) || Array.isArray(entree.summary)) {
-    const s = parserSpec({ key: cleDuLivrable(mission, step), title: step.title, format: "XLSX", ...entree });
+    const id = await identiteDuLivrable(mission, step, "XLSX");
+    const s = parserSpec({ key: id.key, title: step.title, format: "XLSX", ...(id.fileName ? { fileName: id.fileName } : {}), ...entree });
     if ("error" in s) return { error: s.error, retryable: false };
     return s;
   }
@@ -222,6 +223,7 @@ async function composerSpec(ctx: StepContext, deps: ArtifactDeps): Promise<SpecO
   }
 
   const format = String(entree.format ?? step.spec?.artifactFormat ?? "XLSX").toUpperCase();
+  const identite = await identiteDuLivrable(mission, step, format);
   const res = await deps.reasoner.reason<Record<string, unknown>>({
     role: rolePourEtape(step.spec?.reasoningRequirement ?? "LIGHT"),
     schemaName: "artefact_spec",
@@ -249,12 +251,75 @@ async function composerSpec(ctx: StepContext, deps: ArtifactDeps): Promise<SpecO
 
   const s = parserSpec({
     ...res.data,
-    // L'IDENTITÉ D'UN LIVRABLE APPARTIENT AU CODE (§118.1), voir `cleDuLivrable`.
-    key: cleDuLivrable(mission, step),
+    // L'IDENTITÉ D'UN LIVRABLE APPARTIENT AU CODE (§118.1), voir `cleDuLivrable`. Et un livrable
+    // ACTUALISÉ est une nouvelle version du même fichier, jamais un second — voir `identiteDuLivrable`.
+    key: identite.key,
+    ...(identite.fileName ? { fileName: identite.fileName } : {}),
     format,
   });
   if ("error" in s) return { error: s.error, retryable: true };
   return s;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UN SEUL LIVRABLE PAR FORMAT ET PAR MISSION — versionné, jamais dédoublé (#88).
+ *
+ * ── LE DÉFAUT, LU DANS LE PLAN D'UN RUN RÉEL ────────────────────────────────────────────
+ *
+ * La chaîne humaine produit `artifact:excel-consolidation` (plan v1). Une réponse arrive après
+ * coup, la mission REPLANIFIE, et le plan v2 écrit `artifact:excel-consolidation-maj`. Deux
+ * clés, deux titres, donc deux noms de fichier : DEUX classeurs dans le Drive, sur le même
+ * sujet, avec des chiffres différents. C'est exactement « quatre fichiers qui divergent » —
+ * et la personne qui ouvre le mauvais lit des chiffres périmés sans le savoir.
+ *
+ * ── LA RÈGLE, ET SES DEUX GARDE-FOUS ────────────────────────────────────────────────────
+ *
+ * Un livrable actualisé est une nouvelle VERSION du même fichier. On reprend donc la clé ET le
+ * nom de fichier du livrable existant : `depositBufferToDrive` versionne un fichier de même nom
+ * dans le même dossier, la v1 reste ouvrable, et l'`upsert` sur `missionId_key` met à jour la
+ * MÊME ligne du registre.
+ *
+ * Deux conditions, et elles suffisent à ne jamais fondre deux livrables distincts :
+ *
+ *   1. Le nouveau vient d'un plan PLUS RÉCENT. Deux classeurs voulus par la même personne
+ *      (« un par produit ») sont planifiés dans le MÊME plan : ils gardent leurs deux clés.
+ *   2. Le plan courant ne déclare qu'UN livrable de ce format. Si la replanification en veut
+ *      deux, elle le dit, et on ne touche à rien.
+ *
+ * Sans l'une ou l'autre, on ne fait rien : ne pas fusionner coûte un fichier en trop ; fusionner
+ * à tort ÉCRASE un livrable que personne ne réclamait — le sens de la prudence est clair.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function identiteDuLivrable(
+  mission: { id: string; planMeta?: Record<string, unknown> },
+  step: { id: string; key: string },
+  format: string,
+): Promise<{ key: string; fileName?: string }> {
+  const cle = cleDuLivrable(mission, step);
+
+  // Combien de livrables de CE format le plan courant annonce-t-il ? Deux ⇒ on ne fusionne pas.
+  const liste = Array.isArray(mission.planMeta?.expectedArtifacts) ? mission.planMeta!.expectedArtifacts : [];
+  const duFormat = (liste as unknown[]).filter((a) =>
+    a && typeof a === "object" && !Array.isArray(a)
+    && String((a as Record<string, unknown>).format ?? "").toUpperCase() === format.toUpperCase());
+  if (duFormat.length > 1) return { key: cle };
+
+  try {
+    const courant = await prisma.missionStep.findUnique({ where: { id: step.id }, select: { planVersion: true } });
+    if (!courant) return { key: cle };
+    const anciens = await prisma.missionArtifact.findMany({
+      where: { missionId: mission.id, format, key: { not: cle } },
+      select: { key: true, fileName: true, step: { select: { planVersion: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+    const precedent = anciens.find((a) => (a.step?.planVersion ?? 0) < courant.planVersion);
+    if (!precedent) return { key: cle };
+    return { key: precedent.key, fileName: precedent.fileName ?? undefined };
+  } catch {
+    // Une lecture qui échoue ne doit pas empêcher de produire : on retombe sur la clé du plan.
+    return { key: cle };
+  }
 }
 
 /**
