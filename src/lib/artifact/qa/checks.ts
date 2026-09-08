@@ -93,7 +93,10 @@ export function controlerVisuel(m: ArtifactModel, initiales: ProportionsInitiale
         if (f.xCm < -0.2 || f.yCm < -0.2) {
           ajouter(`Diapo ${d.index} : « ${abreger(f.name, 24)} » sort du cadre par la gauche ou par le haut.`);
         }
-        if (f.text && f.style.sizePt && f.widthCm > 0 && f.heightCm > 0) {
+        // L'HEURISTIQUE DE DÉBORDEMENT NE VAUT QUE POUR DU TEXTE. Depuis que le modèle porte
+        // aussi le contenu des TABLEAUX (une cellule par ligne), l'appliquer à un tableau de
+        // douze lignes annoncerait un débordement à chaque diapositive de données.
+        if (f.role === "text" && f.text && f.style.sizePt && f.widthCm > 0 && f.heightCm > 0) {
           const parLigne = Math.max(1, Math.floor((f.widthCm / (f.style.sizePt * 0.019)) || 1));
           const lignes = Math.ceil(f.text.length / parLigne);
           // Une ligne de N points occupe environ N × 0,049 cm de haut (interligne compris).
@@ -241,9 +244,14 @@ export function controlerAvantLivraison(m: ArtifactModel, initiales: Proportions
       }
       for (const f of d.shapes) {
         if (!f.text.trim()) continue;
+        // LE RESTE DE BROUILLON SE CHERCHE PARTOUT, y compris dans un TABLEAU : c'est le seul
+        // défaut de cette liste qui part chez le destinataire sans que rien ne le trahisse.
         const marque = marqueurDe(f.text);
         if (marque) bloquer(`Diapo ${d.index}, « ${abreger(f.name, 20)} » contient un reste de brouillon « ${marque} ».`);
         if (/cliquez pour (ajouter|modifier)/i.test(f.text)) bloquer(`Diapo ${d.index} : un espace réservé n'a pas été rempli (« ${abreger(f.text, 40)} »).`);
+        // Les règles ÉDITORIALES qui suivent parlent de puces et de corps de texte. Un tableau
+        // de douze lignes n'est pas « douze puces que personne ne lira » : c'est un tableau.
+        if (f.role !== "text") continue;
         const lignes = f.text.split("\n").filter((l) => l.trim());
         if (lignes.length > MAX_PUCES) avertir(`Diapo ${d.index}, « ${abreger(f.name, 20)} » : ${lignes.length} lignes — au-delà de ${MAX_PUCES}, personne ne lit.`);
         const longues = lignes.filter((l) => compterMots(l) > MAX_MOTS_PUCE).length;

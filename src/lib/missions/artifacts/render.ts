@@ -1,7 +1,9 @@
 import JSZip from "jszip";
-import PptxGenJS from "pptxgenjs";
 import { buildSimplePdf, parsePdfBody } from "@/lib/pdf/simple-pdf";
 import type { ArtefactSpec, FeuilleSpec } from "@/lib/missions/artifacts/spec";
+import { construireDeckVerifie } from "@/lib/artifact/decks/build";
+import { versDeckExecutif } from "@/lib/missions/artifacts/deck";
+import { ligneDeTotaux } from "@/lib/missions/artifacts/totaux";
 import { construireClasseur } from "@/lib/missions/artifacts/xlsx";
 
 /**
@@ -11,8 +13,8 @@ import { construireClasseur } from "@/lib/missions/artifacts/xlsx";
  * ── CE QUI EST RÉUTILISÉ, ET CE QUI NE POUVAIT PAS L'ÊTRE ───────────────────────────────
  *
  * Le PDF réutilise `src/lib/pdf/simple-pdf.ts` tel quel : c'est un domaine de l'ERP, une façade
- * a le droit de l'appeler, et il fait exactement ce qu'il faut. Le PPTX réutilise `pptxgenjs`,
- * la même bibliothèque que le reste du produit.
+ * a le droit de l'appeler, et il fait exactement ce qu'il faut. Le PPTX ne dessine plus rien :
+ * il TRADUIT vers `artifact/decks/build.ts`, le constructeur de decks unique (§118.60).
  *
  * Le DOCX est écrit ici, et c'est une duplication PARTIELLE assumée : `assistant/deliverables.ts`
  * sait déjà écrire du DOCX, mais il vit du côté ADAM de la frontière (voir `boundary-scan.ts`).
@@ -66,8 +68,24 @@ export async function rendre(spec: ArtefactSpec): Promise<RenduArtefact> {
       return { buffer, mime: MIMES.PDF, detail: { sections: (spec.summary ?? []).length } };
     }
     case "PPTX": {
-      const buffer = await rendrePptx(spec);
-      return { buffer, mime: MIMES.PPTX, detail: { diapositives: 1 + (spec.summary ?? []).length } };
+      // `diapositives` était calculé — `1 + summary.length` — donc FAUX dès qu'une section
+      // débordait sur deux diapositives ou qu'un tableau en ajoutait une. On rapporte
+      // maintenant ce que le constructeur a réellement écrit, relu dans le fichier.
+      const d = await rendrePptx(spec);
+      // LE CONSTRUCTEUR A REFUSÉ : il rend zéro octet. Laisser passer ce vide ferait échouer
+      // l'étape sur « taille : 0 octets », un message qui ne dit rien à personne. On remonte la
+      // RAISON — c'est elle qui permet au planificateur de refaire autre chose (§118.30).
+      if (d.buffer.length === 0) {
+        throw new Error(`le deck a été refusé par le contrôle éditorial : ${d.bloquants.join(" ; ")}`);
+      }
+      return {
+        buffer: d.buffer, mime: MIMES.PPTX,
+        detail: {
+          diapositives: d.diapositives,
+          ...(d.bloquants.length > 0 ? { bloquants: d.bloquants } : {}),
+          ...(d.avertissements.length > 0 ? { avertissements: d.avertissements } : {}),
+        },
+      };
     }
     case "ZIP": {
       const r = await rendreZip(spec);
@@ -92,9 +110,13 @@ export function rendreCsv(spec: ArtefactSpec): Buffer {
     const s = v === null || v === undefined ? "" : String(v);
     return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
+  // LA LIGNE DE TOTAUX EST CALCULÉE ICI (§118.59) : le CSV n'a pas de formules, et `totals`
+  // n'est plus une intention que seul le classeur honore.
+  const totaux = ligneDeTotaux(f);
   const lignes = [
     f.columns.map((c) => echapper(c.header)).join(";"),
     ...f.rows.map((r) => f.columns.map((c) => echapper(r[c.key])).join(";")),
+    ...(totaux ? [f.columns.map((c, i) => echapper(i === 0 ? totaux.libelle : totaux.valeurs[c.key] ?? "")).join(";")] : []),
   ];
   // BOM UTF-8 : sans lui, Excel en français affiche « Rémunération » en mojibake.
   return Buffer.from(`﻿${lignes.join("\r\n")}\r\n`, "utf8");
@@ -120,6 +142,10 @@ function tableauDocx(f: FeuilleSpec, maxLignes = 200): string {
     .map((b) => `<w:${b} w:val="single" w:sz="4" w:color="D5DAE0"/>`).join("")}</w:tblBorders>`;
   const corps = f.rows.slice(0, maxLignes).map((r) =>
     ligne(f.columns.map((c) => (r[c.key] === null || r[c.key] === undefined ? "" : String(r[c.key]))), false));
+  // La ligne de totaux, CALCULÉE — sans elle, la promotion (§118.59) ferait disparaître du
+  // rapport un total que le classeur, lui, affiche.
+  const totaux = ligneDeTotaux(f);
+  if (totaux) corps.push(ligne(f.columns.map((c, i) => (i === 0 ? totaux.libelle : String(totaux.valeurs[c.key] ?? ""))), true));
   const debordement = f.rows.length > maxLignes
     ? para(`(${f.rows.length - maxLignes} lignes supplémentaires — voir le classeur.)`, { size: 16, color: "5B6470" })
     : "";
@@ -181,6 +207,8 @@ export function rendrePdf(spec: ArtefactSpec): Buffer {
       lignes.push(f.columns.map((c) => (r[c.key] ?? "")).join(" | "));
     }
     if (f.rows.length > 120) lignes.push(`- (${f.rows.length - 120} lignes supplémentaires)`);
+    const totaux = ligneDeTotaux(f);
+    if (totaux) lignes.push(f.columns.map((c, i) => (i === 0 ? totaux.libelle : totaux.valeurs[c.key] ?? "")).join(" | "));
     lignes.push("");
   }
   if (spec.sources && spec.sources.length > 0) {
@@ -194,36 +222,50 @@ export function rendrePdf(spec: ArtefactSpec): Buffer {
 
 // ─────────────────────────────────────── PPTX ──────────────────────────────────────
 
-export async function rendrePptx(spec: ArtefactSpec): Promise<Buffer> {
-  const pptx = new PptxGenJS();
-  pptx.layout = "LAYOUT_16x9";
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE DECK — celui des quatre rendus qui passe devant un comité, et le seul qui se taisait.
+ *
+ * ── TROIS OMISSIONS, MESURÉES, TOUTES DANS CE SEUL RENDU (§118.60) ──────────────────────
+ *
+ * Le schéma EXIGE du modèle des sources : « au moins une entrée dès qu'il y a des chiffres ».
+ * Le classeur leur donne une feuille, le Word une section, le PDF un bloc. Le PowerPoint les
+ * jetait — `spec.sources` n'apparaissait pas une seule fois ici. Un deck de conseil dont on ne
+ * peut pas dire d'où viennent les chiffres n'est pas défendable en séance : la première question
+ * posée est celle-là. Il coupait aussi deux fois en silence — dix lignes sur quarante, quatre
+ * feuilles sur douze — là où le Word DIT ce qu'il laisse. Une coupe silencieuse se lit comme une
+ * exhaustivité (§118.52).
+ *
+ * ── ET LA CAUSE ÉTAIT PLUS PROFONDE : IL Y AVAIT DEUX CONSTRUCTEURS DE DECKS ────────────
+ *
+ * `artifact/decks/build.ts` tient les règles éditoriales comme des BLOQUANTS, relit le fichier
+ * produit avec l'adaptateur de production et le soumet au contrôle de livraison. Il sert la
+ * capacité `artifact.deck_build` d'Adam et la fabrique de dossiers de comité. Celui-ci dessinait
+ * à la main — et c'est celui-ci qui produit le deck qu'une MISSION envoie. Deux exigences de
+ * qualité selon l'origine du fichier, et celle des missions prenait du retard : sept puces d'un
+ * côté, six de l'autre, pour la même règle (§118.5).
+ *
+ * Il ne reste donc ici qu'une TRADUCTION (`deck.ts`) vers le constructeur unique. Ce qui est
+ * gagné au passage n'est pas cosmétique : notes du présentateur, chiffre clé, thème, refus d'un
+ * deck hors règles — et un compte de diapositives MESURÉ au lieu d'être estimé.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
 
-  const couverture = pptx.addSlide();
-  couverture.background = { color: "0B2545" };
-  couverture.addText(spec.title, { x: 0.6, y: 2.2, w: 8.8, h: 1.2, fontSize: 32, bold: true, color: "FFFFFF" });
-  couverture.addText(new Date().toLocaleDateString("fr-FR"), { x: 0.6, y: 3.4, fontSize: 14, color: "9FB3C8" });
+export interface DeckRendu {
+  buffer: Buffer;
+  diapositives: number;
+  bloquants: string[];
+  avertissements: string[];
+}
 
-  for (const s of spec.summary ?? []) {
-    const slide = pptx.addSlide();
-    slide.addText(s.heading, { x: 0.5, y: 0.4, w: 9, h: 0.7, fontSize: 24, bold: true, color: "0B2545" });
-    // LES PARAGRAPHES DEVIENNENT DES PUCES BORNÉES : un mur de texte sur une diapositive est
-    // illisible, et le déborder sur une seconde vaut mieux que le compresser en corps 8.
-    const puces = [...s.bullets, ...s.paragraphs.map((p) => p.slice(0, 220))].slice(0, 7);
-    slide.addText(puces.map((t) => ({ text: t, options: { bullet: true, breakLine: true } })), {
-      x: 0.7, y: 1.3, w: 8.6, h: 4, fontSize: 14, color: "26313D",
-    });
-  }
-
-  for (const f of (spec.sheets ?? []).slice(0, 4)) {
-    const slide = pptx.addSlide();
-    slide.addText(f.name, { x: 0.5, y: 0.4, w: 9, h: 0.6, fontSize: 22, bold: true, color: "0B2545" });
-    const entete = f.columns.map((c) => ({ text: c.header, options: { bold: true, color: "FFFFFF", fill: { color: "0B2545" } } }));
-    const corps = f.rows.slice(0, 10).map((r) => f.columns.map((c) => ({ text: String(r[c.key] ?? "") })));
-    slide.addTable([entete, ...corps], { x: 0.5, y: 1.2, w: 9, fontSize: 10, border: { pt: 0.5, color: "D5DAE0" } });
-  }
-
-  const out = await pptx.write({ outputType: "nodebuffer" });
-  return out as Buffer;
+export async function rendrePptx(spec: ArtefactSpec): Promise<DeckRendu> {
+  const construit = await construireDeckVerifie(versDeckExecutif(spec));
+  return {
+    buffer: construit.octets,
+    diapositives: construit.verification.diapos,
+    bloquants: construit.verification.bloquants,
+    avertissements: construit.verification.avertissements,
+  };
 }
 
 // ─────────────────────────────────────── ZIP ───────────────────────────────────────

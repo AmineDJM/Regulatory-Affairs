@@ -24,6 +24,8 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
+import { promouvoirTotaux, type EcartTotal } from "@/lib/missions/artifacts/totaux";
+
 export const FORMATS_ARTEFACT = ["XLSX", "DOCX", "PDF", "PPTX", "CSV", "ZIP"] as const;
 export type FormatArtefact = (typeof FORMATS_ARTEFACT)[number];
 
@@ -102,6 +104,13 @@ export interface ArtefactSpec {
   sheets?: FeuilleSpec[];
   charts?: GraphiqueSpec[];
   sources?: string[];
+  /**
+   * Ce que le PARSEUR a constaté en remettant la spec d'aplomb : un total annoncé qui ne tombe
+   * pas sur ses propres lignes, une ligne d'agrégat reconnue sans avoir pu être traduite. Le
+   * contrôle du livrable les lit — il n'a pas d'autre moyen de savoir ce que le modèle avait
+   * écrit avant qu'on le corrige (voir `totaux.ts`).
+   */
+  constats?: { ecarts: EcartTotal[]; suspectes: string[] };
 }
 
 const texte = (v: unknown, max: number): string =>
@@ -160,6 +169,8 @@ export function parserSpec(brut: Record<string, unknown>): ArtefactSpec | { erro
   const format = dansListe(FORMATS_ARTEFACT, brut.format, "XLSX");
 
   const sheets: FeuilleSpec[] = [];
+  const ecarts: EcartTotal[] = [];
+  const suspectes: string[] = [];
   for (const rawSheet of (Array.isArray(brut.sheets) ? brut.sheets : []).slice(0, 12)) {
     if (!rawSheet || typeof rawSheet !== "object") continue;
     const s = rawSheet as Record<string, unknown>;
@@ -235,10 +246,19 @@ export function parserSpec(brut: Record<string, unknown>): ArtefactSpec | { erro
       for (const [k, v] of Object.entries(s.totals as Record<string, unknown>)) accepterTotal(k, v);
     }
 
+    // UN TOTAL ÉCRIT COMME UNE LIGNE DE DONNÉES redevient une OPÉRATION (§118.59). Ici, parce
+    // que c'est la porte unique par laquelle passe toute spec, quel que soit son format : la
+    // réparer plus bas la réparerait pour le classeur et pas pour le tableau du rapport Word.
+    const promotion = promouvoirTotaux({ nomFeuille: name, columns, rows, totals });
+    if (promotion?.suspecte) suspectes.push(promotion.suspecte);
+    if (promotion?.ecarts.length) ecarts.push(...promotion.ecarts);
+    const lignes = promotion ? promotion.rows : rows;
+    const agregats = promotion ? promotion.totals : totals;
+
     sheets.push({
-      name, columns, rows,
+      name, columns, rows: lignes,
       computed: computed.length > 0 ? computed : undefined,
-      totals: Object.keys(totals).length > 0 ? totals : undefined,
+      totals: Object.keys(agregats).length > 0 ? agregats : undefined,
       note: texte(s.note, 400) || undefined,
     });
   }
@@ -292,6 +312,7 @@ export function parserSpec(brut: Record<string, unknown>): ArtefactSpec | { erro
     sheets: sheets.length > 0 ? sheets : undefined,
     charts: charts.length > 0 ? charts : undefined,
     sources: (Array.isArray(brut.sources) ? brut.sources : []).map((x) => texte(x, 300)).filter(Boolean).slice(0, 40),
+    ...(ecarts.length > 0 || suspectes.length > 0 ? { constats: { ecarts, suspectes } } : {}),
   };
 }
 

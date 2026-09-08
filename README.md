@@ -5194,6 +5194,86 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### UN TOTAL ÉCRIT COMME UNE DONNÉE — un chiffre faux, VERIFIED, dans un fichier qui n'est pas un tableur (2026-09)
+
+Le contrat dit au modèle : « tu n'écris jamais de formule Excel, déclare `totals` et le code écrira la bonne ».
+Il ne disait rien de ce qu'il fait **quand il ne suit pas** — et ce qu'il fait, mesuré sur un run, est d'écrire
+le total comme une **troisième ligne de données** : `["TOTAL", "170000"]`, `totals: []`.
+
+Le classeur produit portait alors **zéro formule**, aucune cellule en erreur, aucun reste de brouillon, et le
+contrôle rendait `ok: true` → **VERIFIED**, le seul statut qui vaut preuve d'achèvement. Deux choses étaient
+fausses dans ce fichier, et la seconde est la pire :
+
+- il n'est **pas fonctionnel** — on change une hypothèse, le total ne bouge pas : c'est la *photographie* d'un
+  tableur ;
+- le total est **faux**. 84 500 + 91 000 = **175 500**, pas 170 000. Personne ne l'a vu, parce qu'aucun code
+  n'avait comparé le chiffre annoncé à ses propres lignes.
+
+**Ce qui a changé.** `src/lib/missions/artifacts/totaux.ts` — module pur — **traduit** au lieu de refuser : la
+ligne sort de `rows`, entre dans `totals`, et le code écrit `SUM(D2:D3)` avec le bon D et le bon 3. Le
+vocabulaire est **fermé** (« Total », « Total général », « Moyenne ») ; « Total 2026 » et « Sous-total » ne sont
+**pas** traduits — promouvoir un sous-total ferait une plage débordant sur le groupe suivant, c'est-à-dire un
+chiffre faux **muni d'une formule**. Ce qu'on reconnaît sans savoir le traduire est **dit**, jamais deviné. Et
+l'écart devient un point de contrôle **en échec** : la formule répare l'affichage, elle ne dit pas si le modèle a
+mal compté ou perdu une ligne.
+
+**Deux contrôles voisins étaient complices.** La « réconciliation » s'écrivait `point("reconciliation:…", true, …)`
+— vraie garde armée ou non, vraie sur un fichier faux. Et la ligne qui l'excusait déclarait « les formules ne sont
+pas ÉVALUÉES (aucun moteur de calcul Excel dans le dépôt) » : **c'était faux**. `src/lib/artifact/sheets/` porte
+un lexeur, un parseur, un graphe de dépendances et `recalculer()`, éprouvés sur 50 000 formules. Le contrôle qui
+décide de VERIFIED déclarait une impossibilité que le dossier d'à côté démentait — un « je ne peux pas »
+**artificiel écrit dans le code**. Le classeur produit est désormais **rouvert par notre propre lecteur**, ses
+formules **recalculées**, et la valeur obtenue comparée à la somme refaite depuis la spec : deux chemins
+indépendants, un seul nombre. Un **sabotage** (une cellule de données falsifiée dans le fichier, plage intacte)
+le fait tomber — sans lui, on ne saurait pas nommer le cas qui ferait échouer l'assertion.
+
+### DEUX TROUS TROUVÉS EN RELISANT LE CORRECTIF LUI-MÊME (2026-09)
+
+**Une réparation déplace une donnée ; il faut la retrouver chez tous ceux qui la lisaient.** La promotion du total
+(ci-dessus) le sort de `rows` pour en faire une opération — juste pour le classeur, qui écrit une formule. Mais le
+Word, le PDF, le CSV et le deck ne rendent que `rows` et n'avaient **jamais** lu `totals` : la promotion, seule,
+faisait disparaître le total de **quatre livrables sur cinq**. Aucun contrôle de structure ne l'aurait vu — le fichier
+s'ouvre, il est simplement amputé. Les quatre formats sans moteur de formules reçoivent donc la ligne **calculée**,
+et le libellé (« TOTAL », « MOYENNE ») est commun aux cinq.
+
+**Et le contrôle avant livraison ne voyait pas dans les tableaux d'une diapositive.** Une forme PowerPoint ordinaire
+porte un `p:txBody` ; un tableau (`p:graphicFrame` → `a:tbl`) porte un `a:txBody` **par cellule**, et l'adaptateur ne
+lisait que le premier — donc `text: ""` pour tout tableau de diapositive. Le Word inspecte ses cellules depuis
+toujours. Un « [à compléter] » posé dans un tableau franchissait la porte et partait **en comité**, dans le seul
+format qu'on projette devant une assemblée. La lecture couvre maintenant les deux corps de texte, et le contrôle a été
+scindé : le reste de brouillon se cherche **partout**, les règles éditoriales (six puces, vingt-cinq mots) ne
+s'appliquent qu'au **texte** — douze lignes de tableau ne sont pas douze puces.
+
+### LE DECK ÉTAIT LE PARENT PAUVRE DES QUATRE RENDUS — et c'est celui qu'on projette (2026-09)
+
+Le schéma **exige** des sources du modèle (« au moins une entrée dès qu'il y a des chiffres »). Le classeur leur
+donne une feuille, le Word une section, le PDF un bloc — **le PowerPoint les jetait** : `spec.sources`
+n'apparaissait pas une seule fois dans `rendrePptx`. Un deck dont on ne peut pas dire d'où vient le chiffre ne se
+défend pas en séance : c'est la première question posée.
+
+Il coupait aussi **deux fois en silence** — dix lignes sur quarante, quatre feuilles sur douze — là où le Word
+**dit** ce qu'il laisse (« 30 lignes supplémentaires — voir le classeur »). Une coupe silencieuse se lit comme une
+exhaustivité : le lecteur croit voir le tableau, il en voit le quart.
+
+La cause n'est pas trois oublis indépendants : ce rendu-là a été écrit comme un **aperçu**, et c'est lui qui passe
+en comité. Corriger `rendrePptx` répare le cas ; `render-complet.test.ts` répare la **classe** — il boucle sur les
+**quatre** formats, donne à chacun une spec plus grosse que toutes ses limites, **rouvre** le fichier avec
+l'adaptateur de production et exige d'y lire la source déclarée et le compte de ce qui n'a pas tenu. Le prochain
+format ajouté ne pourra pas recommencer.
+
+**Et la cause était plus profonde : il y avait deux constructeurs de decks.** `src/lib/artifact/decks/build.ts` tient
+les règles éditoriales comme des **bloquants**, relit le fichier produit avec l'adaptateur de production et le soumet
+au contrôle de livraison — il sert la capacité `artifact.deck_build` d'Adam et la fabrique de dossiers de comité.
+`rendrePptx` dessinait à la main, et c'est **lui** qui produit le deck qu'une mission envoie. Les deux avaient divergé
+exactement là où on l'attend : **sept puces d'un côté, six de l'autre**, pour la même règle.
+
+Le rendu des missions ne dessine plus rien : il **traduit** (`artifacts/deck.ts`) vers le constructeur unique, et la
+traduction ne jette jamais — treize puces deviennent trois diapositives, un paragraphe de 300 mots devient des corps
+successifs, un tableau de 40 lignes montre ses douze premières **en le disant dans son titre** (les notes sont pour le
+présentateur ; l'assemblée voit la diapositive). Un test pousse chaque borne et exige zéro bloquant. Gagné au passage,
+sans une ligne de plus : notes du présentateur, chiffre clé, thème — et un compte de diapositives **mesuré**, là où
+`detail.diapositives` valait `1 + summary.length`, faux dès qu'une section débordait.
+
 ### UNE DONNÉE A UN ÂGE — ET RIEN, NULLE PART, NE S'EN SOUVENAIT (2026-09)
 
 `FaitCalibrable` portait `fraicheur` et `horodatage` **depuis le premier jour** : déclarés sur

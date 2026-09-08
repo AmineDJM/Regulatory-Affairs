@@ -242,7 +242,9 @@ async function composerSpec(ctx: StepContext, deps: ArtifactDeps): Promise<SpecO
       "Tu mets en forme un livrable d'entreprise à partir de DONNÉES déjà collectées.\n\n"
       + "RÈGLES\n"
       + "1. Toutes les valeurs des lignes viennent des données fournies. N'invente AUCUN chiffre, nom ou date.\n"
-      + "2. Tu n'écris JAMAIS de formule Excel : déclare `totals` et `computed`, le code écrira les formules justes.\n"
+      + "2. Tu n'écris JAMAIS de formule Excel, et JAMAIS de ligne « TOTAL » dans `rows` : déclare `totals` et\n"
+      + "   `computed`, le code écrira les formules justes. Une ligne de total écrite à la main est un chiffre\n"
+      + "   mort — il ne se recalcule pas — et il sera comparé à la somme de tes lignes.\n"
       + "3. Les colonnes numériques portent le type `number`, `money` (DZD) ou `percent` — jamais `text`.\n"
       + "4. La synthèse commence par la réponse, pas par la méthode.\n"
       + "5. Écris en français.",

@@ -4,6 +4,10 @@ import type { ArtefactSpec } from "@/lib/missions/artifacts/spec";
 import type { ArtifactModel } from "@/lib/artifact/object-model/model";
 import { adaptateurPour } from "@/lib/artifact/adapters/registry";
 import { controlerAvantLivraison } from "@/lib/artifact/qa/checks";
+import { direEcart } from "@/lib/missions/artifacts/totaux";
+import { lireClasseur } from "@/lib/artifact/sheets/reader";
+import { construireGraphe, idDe } from "@/lib/artifact/sheets/graph";
+import { recalculer } from "@/lib/artifact/sheets/evaluate";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -56,6 +60,7 @@ const point = (nom: string, ok: boolean, detail: string) => ({ nom, ok, detail }
 export async function controlerClasseur(buffer: Buffer, spec: ArtefactSpec): Promise<ControleArtefact> {
   const points: ControleArtefact["points"] = [];
   const nonVerifie: string[] = [];
+  const avertissements: string[] = [];
 
   if (buffer.length === 0) {
     return { ok: false, points: [point("fichier", false, "le fichier produit est vide")], nonVerifie };
@@ -171,29 +176,47 @@ export async function controlerClasseur(buffer: Buffer, spec: ArtefactSpec): Pro
           : `formule « ${formule || "absente"} » : elle ne couvre pas exactement les ${f.rows.length} lignes`,
       ));
 
-      // La valeur ATTENDUE, recalculée depuis la spec — c'est la réconciliation demandée.
-      if (agregat === "SUM" || agregat === "AVG") {
-        const nombres = f.rows.map((r) => r[cle]).filter((x): x is number => typeof x === "number");
-        if (nombres.length === f.rows.length && nombres.length > 0) {
-          const somme = nombres.reduce((s, n) => s + n, 0);
-          const attendu = agregat === "SUM" ? somme : somme / nombres.length;
-          points.push(point(
-            `reconciliation:${f.name}.${cle}`,
-            true,
-            `${agregat} attendu = ${Math.round(attendu * 100) / 100} sur ${nombres.length} valeurs`,
-          ));
-        } else {
-          nonVerifie.push(
-            `Le total « ${cle} » de « ${f.name} » ne peut pas être réconcilié : la colonne contient des valeurs non numériques.`,
-          );
-        }
+      // LA RÉCONCILIATION EST PLUS BAS, et c'est tout le changement : celle qui vivait ici
+      // s'écrivait `point(..., true, ...)` — un verdict qui ne pouvait pas échouer, donc qui ne
+      // protégeait de rien (§118.17). Elle compare maintenant la valeur RECALCULÉE du classeur
+      // à la somme refaite depuis la spec, et elle peut tomber.
+      if ((agregat === "SUM" || agregat === "AVG")
+        && f.rows.map((r) => r[cle]).filter((x) => typeof x === "number").length !== f.rows.length) {
+        nonVerifie.push(
+          `Le total « ${cle} » de « ${f.name} » ne peut pas être réconcilié : la colonne contient des valeurs non numériques.`,
+        );
       }
     }
   }
-  nonVerifie.push(
-    "Les formules ne sont pas ÉVALUÉES (aucun moteur de calcul Excel dans le dépôt) : "
-    + "leur plage et leur fonction sont vérifiées, leur résultat sera calculé à l'ouverture.",
-  );
+  // ── 5 ter. ON ÉVALUE LES FORMULES. Pour de bon (§118.59). ──────────────────────────
+  //
+  // Cette ligne disait, jusqu'à ce jour : « les formules ne sont pas ÉVALUÉES (aucun moteur de
+  // calcul Excel dans le dépôt) ». C'était FAUX, et c'est le genre de fausseté qui coûte le
+  // plus cher : `artifact/sheets/` porte un lexeur, un parseur, un graphe de dépendances et
+  // `recalculer()`, éprouvés sur des classeurs de 50 000 formules. Le contrôle qui décide de
+  // VERIFIED déclarait une impossibilité que le dépôt d'à côté démentait — un « je ne peux
+  // pas » artificiel, écrit dans le code plutôt que dans une phrase de modèle.
+  //
+  // On rouvre donc le classeur PRODUIT avec notre propre lecteur, on recalcule ses formules, et
+  // on compare le résultat à la somme refaite depuis les lignes de la spec. Deux chemins
+  // indépendants — le classeur d'un côté, la spec de l'autre — qui doivent tomber sur le même
+  // nombre. C'est ce qui fait la différence entre « la formule a la bonne PLAGE » et « le
+  // classeur AFFICHERA le bon chiffre ».
+  const evaluation = await evaluerLeClasseur(buffer, spec);
+  points.push(...evaluation.points);
+  nonVerifie.push(...evaluation.nonVerifie);
+
+  // ── 5 bis. CE QUE LE PARSEUR A DÛ REMETTRE D'APLOMB (§118.59) ───────────────────────
+  //
+  // Un total annoncé par le modèle qui ne tombe pas sur ses propres lignes est une erreur
+  // ARITHMÉTIQUE mesurée : soit un chiffre est faux, soit une ligne manque. Le classeur porte
+  // maintenant la formule, donc il AFFICHERA le bon total — et c'est précisément pourquoi il
+  // faut le dire ici : sans cette ligne, la correction effacerait la trace de la faute, et le
+  // classeur repartirait VERIFIED avec, peut-être, une ligne de données en moins.
+  for (const e of spec.constats?.ecarts ?? []) {
+    points.push(point(`arithmetique:${e.feuille}.${e.colonne}`, false, direEcart(e)));
+  }
+  for (const s of spec.constats?.suspectes ?? []) avertissements.push(s);
 
   // ── 6. LES GRAPHIQUES SONT-ILS COMPLETS ? ───────────────────────────────────────────
   const attendus = (spec.charts ?? []).length;
@@ -216,7 +239,87 @@ export async function controlerClasseur(buffer: Buffer, spec: ArtefactSpec): Pro
     ));
   }
 
-  return { ok: points.every((p) => p.ok), points, nonVerifie };
+  return {
+    ok: points.every((p) => p.ok), points, nonVerifie,
+    ...(avertissements.length > 0 ? { avertissements } : {}),
+  };
+}
+
+/**
+ * ÉVALUE LES FORMULES DU CLASSEUR PRODUIT, avec le moteur de `artifact/sheets/`.
+ *
+ * Ce que ce contrôle peut affirmer et ce qu'il ne peut pas est tenu par le moteur lui-même :
+ * `recalculer` range dans `nonVerifiees` toute formule dont il ne connaît pas une fonction, et
+ * `fonctionsInconnues` les nomme. On recopie cette limite dans `nonVerifie` plutôt que de la
+ * lisser — un contrôle qui compte pour réussi ce qu'il n'a pas su calculer est précisément le
+ * genre de vert qui ne protège de rien (§118.17).
+ */
+async function evaluerLeClasseur(
+  buffer: Buffer, spec: ArtefactSpec,
+): Promise<{ points: ControleArtefact["points"]; nonVerifie: string[] }> {
+  const points: ControleArtefact["points"] = [];
+  const nonVerifie: string[] = [];
+
+  let classeur;
+  try {
+    classeur = await lireClasseur(buffer);
+  } catch (e) {
+    nonVerifie.push(`Les formules n'ont pas pu être recalculées : ${e instanceof Error ? e.message : "erreur de lecture"}.`);
+    return { points, nonVerifie };
+  }
+  const graphe = construireGraphe(classeur);
+  if (graphe.ordre.length === 0) return { points, nonVerifie };
+  const recalcul = recalculer(classeur, graphe);
+
+  points.push(point(
+    "recalcul",
+    recalcul.circulaires.length === 0,
+    recalcul.circulaires.length === 0
+      ? `${recalcul.metriques.formules} formule(s) recalculées en ${recalcul.metriques.ms} ms, aucune référence circulaire`
+      : `${recalcul.circulaires.length} cellule(s) en référence circulaire : Excel refusera de les calculer`,
+  ));
+  if (recalcul.fonctionsInconnues.length > 0) {
+    nonVerifie.push(
+      `${recalcul.nonVerifiees.length} formule(s) n'ont pas pu être recalculées ici : `
+      + `fonction(s) ${recalcul.fonctionsInconnues.slice(0, 6).join(", ")} hors du moteur. Excel les calculera.`,
+    );
+  }
+
+  // LE TOTAL, VALEUR CONTRE VALEUR. La spec dit ce que les lignes contiennent ; le classeur dit
+  // ce que sa formule produit. Deux chemins indépendants, un seul nombre attendu.
+  for (const f of spec.sheets ?? []) {
+    if (!f.totals || f.rows.length === 0) continue;
+    const feuille = classeur.feuilles.find((x) => x.nom === f.name);
+    if (!feuille) continue;
+    const cles = [...f.columns.map((c) => c.key), ...(f.computed ?? []).map((c) => c.key)];
+    const ligneTotaux = 1 + f.rows.length + 1;
+
+    for (const [cle, agregat] of Object.entries(f.totals)) {
+      if (agregat !== "SUM" && agregat !== "AVG") continue;
+      const colIdx = cles.indexOf(cle) + 1;
+      if (colIdx <= 0) continue;
+      const nombres = f.rows.map((r) => r[cle]).filter((x): x is number => typeof x === "number");
+      if (nombres.length !== f.rows.length || nombres.length === 0) continue;
+
+      const somme = nombres.reduce((s, n) => s + n, 0);
+      const attendu = agregat === "SUM" ? somme : somme / nombres.length;
+      const calcule = recalcul.valeurs.get(idDe(feuille.index, ligneTotaux, colIdx));
+      if (typeof calcule !== "number") {
+        nonVerifie.push(`Le total « ${cle} » de « ${f.name} » n'a pas pu être recalculé ici.`);
+        continue;
+      }
+      const ok = Math.abs(calcule - attendu) <= Math.max(1e-6, Math.abs(attendu) * 1e-9);
+      points.push(point(
+        `reconciliation:${f.name}.${cle}`,
+        ok,
+        ok
+          ? `la formule donne ${Math.round(calcule * 100) / 100}, les ${nombres.length} lignes donnent la même chose`
+          : `la formule donne ${Math.round(calcule * 100) / 100}, les ${nombres.length} lignes de la spec donnent ${Math.round(attendu * 100) / 100}`,
+      ));
+    }
+  }
+
+  return { points, nonVerifie };
 }
 
 /**

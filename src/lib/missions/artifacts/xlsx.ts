@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
 import type { ArtefactSpec, FeuilleSpec, GraphiqueSpec, TypeColonne } from "@/lib/missions/artifacts/spec";
+import { libelleDeTotaux } from "@/lib/missions/artifacts/totaux";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -132,7 +133,9 @@ function ecrireFeuille(wb: ExcelJS.Workbook, f: FeuilleSpec): Disposition {
   if (f.totals && f.rows.length > 0) {
     ligneTotaux = derniereLigne + 1;
     const ligne = ws.getRow(ligneTotaux);
-    ligne.getCell(1).value = "TOTAL";
+    // Le libellé vient de `totaux.ts` : le Word, le PDF, le CSV et le deck nomment la même
+    // ligne, et deux endroits qui la nomment séparément finissent par la nommer autrement.
+    ligne.getCell(1).value = libelleDeTotaux(f.totals);
     ligne.font = { bold: true };
     ligne.fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT } };
     for (const [cle, agregat] of Object.entries(f.totals)) {

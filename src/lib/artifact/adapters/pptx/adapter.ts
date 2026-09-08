@@ -115,8 +115,16 @@ function lireForme(sp: XmlNode, slide: number, index: number): ShapeNode {
     return Number.isFinite(v) ? emuEnCm(v) : 0;
   };
   // Les `a:t` sont les fragments de texte ; on insère un saut par paragraphe.
-  const texte = children(firstDescendant(sp, "p:txBody") ?? element("x"), "a:p")
-    .map((p) => descendants(p, "a:t").map(textOf).join(""))
+  //
+  // DEUX CORPS DE TEXTE, ET LE SECOND ÉTAIT INVISIBLE. Une forme ordinaire porte un
+  // `p:txBody` ; un TABLEAU (`p:graphicFrame` → `a:tbl`) porte un `a:txBody` par CELLULE. Ne
+  // lire que le premier `p:txBody` rendait donc `text: ""` pour tout tableau de diapositive —
+  // et le contrôle avant livraison, qui cherche les restes de brouillon dans `f.text`, ne
+  // pouvait pas voir un « [à compléter] » ou un « {{client}} » posé dans un tableau. Il partait
+  // en comité. On lit les deux, dans l'ordre du document.
+  const corps = [...descendants(sp, "p:txBody"), ...descendants(sp, "a:txBody")];
+  const texte = (corps.length > 0 ? corps : [element("x")])
+    .flatMap((b) => children(b, "a:p").map((p) => descendants(p, "a:t").map(textOf).join("")))
     .join("\n")
     .trim();
   return {

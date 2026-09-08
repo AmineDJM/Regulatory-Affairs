@@ -43,7 +43,9 @@ const LIGNE = objet(
       items: { type: "string" },
       description:
         "Les valeurs de la ligne, DANS L'ORDRE DES COLONNES et en même nombre. "
-        + "Écris les nombres sans séparateur de milliers (« 4200000 »). Une case vide vaut \"\".",
+        + "Écris les nombres sans séparateur de milliers (« 4200000 »). Une case vide vaut \"\". "
+        + "N'écris JAMAIS ici une ligne « TOTAL », « Somme » ou « Moyenne » : un total est une opération, "
+        + "il se déclare dans `totals` et c'est le code qui écrit la formule.",
     },
   },
   "Une ligne du tableau.",

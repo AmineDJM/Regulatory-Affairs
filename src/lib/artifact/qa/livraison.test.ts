@@ -66,3 +66,48 @@ describe("le contrôle avant livraison", () => {
     expect(c.avertissements).toContain("Le titre « résultats 2026 » revient sur les diapos 1, 4.");
   });
 });
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UN RESTE DE BROUILLON DANS UN TABLEAU DE DIAPOSITIVE — le trou qu'on vient de fermer.
+ *
+ * Le Word inspecte ses cellules de tableau depuis toujours. Le PowerPoint ne pouvait PAS : une
+ * forme ordinaire porte un `p:txBody`, un tableau (`p:graphicFrame` → `a:tbl`) porte un
+ * `a:txBody` par CELLULE, et l'adaptateur ne lisait que le premier. Tout tableau de diapositive
+ * arrivait donc au contrôle avec `text: ""`. Un « [à compléter] » ou un « {{client}} » posé dans
+ * un tableau passait la porte et partait en comité — dans le SEUL format qu'on projette devant
+ * une assemblée.
+ *
+ * CE QUI FERAIT TOMBER CE TEST : revenir à un seul corps de texte par forme. L'assertion tombe
+ * sur le tableau, pas sur le texte, exactement là où le trou était.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("le contrôle voit DANS les tableaux d'une diapositive", () => {
+  const avecTableau = (texteTableau: string): PptxModel => ({
+    kind: "PPTX", slideWidthCm: 33.87, slideHeightCm: 19.05,
+    slides: [{
+      id: "s1", index: 1, title: "Ventes 2026",
+      shapes: [
+        forme(1, "Ventes 2026"),
+        forme(2, "Le portefeuille progresse."),
+        forme(3, texteTableau, { role: "table", heightCm: 8 }),
+      ],
+    }],
+  });
+
+  it("bloque un « [à compléter] » qui n'est QUE dans le tableau", () => {
+    const c = controlerAvantLivraison(avecTableau("Produit\nCA\nNivolex\n[à compléter]\nTrastuzex\n91000"));
+    expect(c.ok, "un tableau à trous part en comité").toBe(false);
+    expect(c.bloquants.join(" ")).toContain("à compléter");
+  });
+
+  it("un tableau bien rempli ne déclenche AUCUNE règle de puces", () => {
+    // Douze lignes de tableau ne sont pas « douze puces que personne ne lira » : les règles
+    // éditoriales parlent de corps de texte. Les confondre remplirait le rapport d'un
+    // avertissement par diapositive de données — et on cesserait de le lire (§118.32).
+    const lignes = Array.from({ length: 12 }, (_, i) => `Produit ${i + 1}\n${1000 + i}`).join("\n");
+    const c = controlerAvantLivraison(avecTableau(`Produit\nCA\n${lignes}`));
+    expect(c.ok).toBe(true);
+    expect(c.avertissements.filter((a) => /puce|lignes —|illisible/.test(a))).toEqual([]);
+  });
+});
