@@ -10906,6 +10906,11 @@ model MissionArtifact {
   driveNodeId String?
   /// La spec structurée qui l'a produit — re-générer repart toujours d'elle.
   spec        Json         @default("{}")
+  /// Empreinte des DONNÉES AMONT dont ce livrable est issu. Deux livrables d'une même
+  /// mission bâtis sur la même empreinte portent le même contenu : le second ne rappelle
+  /// pas le modèle, il RE-REND le premier dans son format. C'est ce qui empêche un
+  /// classeur et un deck du même jour d'annoncer deux chiffres (#88).
+  inputsHash  String?
   /// PENDING | BUILT | VERIFIED | REJECTED
   status      String       @default("PENDING")
   /// Ce que le contrôle a réellement vérifié, point par point.

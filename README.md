@@ -5194,6 +5194,26 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### LE CLASSEUR DISAIT 100, LE DECK DISAIT 999 — et les deux étaient VERIFIED (2026-09)
+
+`identiteDuLivrable` réglait le cas du **replan** : un livrable actualisé est une nouvelle version du même fichier.
+Restait l'autre moitié, jamais regardée — les livrables **frères** d'un même plan. Le classeur et le deck descendent
+des mêmes étapes amont, et chacun appelait le modèle de son côté : deux appels, deux specs. Rien ne les comparait,
+puisque chaque livrable est contrôlé **seul**. Mesuré avec un raisonneur qui change de chiffre au second appel :
+**100 dans l'un, 999 dans l'autre**, tous deux ouverts, contrôlés, VERIFIED. C'est « quatre fichiers qui divergent »
+à l'intérieur d'une seule mission — et c'est pire qu'entre deux missions, parce qu'ils portent la même date et le
+même titre.
+
+La spec est déjà **indépendante du format** (`summary`, `sheets`, `charts`, `sources`) : le classeur, le Word, le PDF
+et le deck sont quatre **rendus** d'un même contenu. Le second livrable re-rend donc le premier au lieu de le refaire.
+
+**Et la première version ne convergeait pas.** Une simple vérification « un frère a-t-il déjà composé ? » suppose une
+séquence : les deux étapes deviennent prêtes au même battement, aucune ne voit la ligne de l'autre, et le test passait
+une fois sur deux. On **réserve** donc avant de composer (une ligne PENDING, sans fichier, portant l'empreinte des
+données amont), puis on **désigne** l'auteur de la base : la plus ancienne, à égalité la clé la plus petite. Comme
+chacun réserve avant de lire, tous voient le même premier — sans verrou. L'attente est bornée et n'échoue jamais :
+bloquer une mission pour une cohérence coûterait plus cher que le défaut.
+
 ### « OCÉRISEZ-LE D'ABORD » — la capacité était dans le répertoire d'à côté (2026-09)
 
 L'ingestion du **corpus** réglementaire refusait tout scan : *« Document image (scanné) : le corpus attend un texte

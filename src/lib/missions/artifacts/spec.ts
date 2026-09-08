@@ -111,6 +111,12 @@ export interface ArtefactSpec {
    * écrit avant qu'on le corrige (voir `totaux.ts`).
    */
   constats?: { ecarts: EcartTotal[]; suspectes: string[] };
+  /**
+   * Empreinte des DONNÉES AMONT dont ce livrable est issu. C'est elle qui permet au deck d'une
+   * mission de RE-RENDRE le contenu de son classeur au lieu de le refaire — et donc d'annoncer
+   * les mêmes chiffres (#88).
+   */
+  inputsHash?: string;
 }
 
 const texte = (v: unknown, max: number): string =>
@@ -313,6 +319,7 @@ export function parserSpec(brut: Record<string, unknown>): ArtefactSpec | { erro
     charts: charts.length > 0 ? charts : undefined,
     sources: (Array.isArray(brut.sources) ? brut.sources : []).map((x) => texte(x, 300)).filter(Boolean).slice(0, 40),
     ...(ecarts.length > 0 || suspectes.length > 0 ? { constats: { ecarts, suspectes } } : {}),
+    ...(typeof brut.inputsHash === "string" && brut.inputsHash ? { inputsHash: brut.inputsHash } : {}),
   };
 }
 

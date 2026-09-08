@@ -65,6 +65,9 @@ export interface ArtifactDeps {
 
 export const DOSSIER_LIVRABLES = "Livrables de mission";
 
+/** Combien de temps un livrable attend la base canonique d'un frère avant de composer la sienne. */
+const ATTENTE_BASE_MS = 20_000;
+
 const sha = (b: Buffer): string => createHash("sha256").update(b).digest("hex");
 
 /**
@@ -97,12 +100,12 @@ export async function executerArtefact(ctx: StepContext, deps: ArtifactDeps): Pr
     create: {
       missionId: mission.id, stepId: step.id, key: spec.key, title: spec.title,
       format: spec.format, fileName: fichier, byteSize: rendu.buffer.length,
-      sha256: sha(rendu.buffer), spec: spec as never, status: "BUILT",
+      sha256: sha(rendu.buffer), spec: spec as never, status: "BUILT", inputsHash: spec.inputsHash ?? null,
     },
     update: {
       stepId: step.id, title: spec.title, format: spec.format, fileName: fichier,
       byteSize: rendu.buffer.length, sha256: sha(rendu.buffer), spec: spec as never,
-      status: "BUILT", driveNodeId: null, qaReport: undefined,
+      status: "BUILT", driveNodeId: null, qaReport: undefined, inputsHash: spec.inputsHash ?? null,
     },
     select: { id: true },
   });
@@ -234,6 +237,51 @@ async function composerSpec(ctx: StepContext, deps: ArtifactDeps): Promise<SpecO
 
   const format = String(entree.format ?? step.spec?.artifactFormat ?? "XLSX").toUpperCase();
   const identite = await identiteDuLivrable(mission, step, format);
+
+  // ── UNE BASE CANONIQUE PAR MISSION (#88, §118.65) ───────────────────────────────────
+  //
+  // Le classeur et le deck d'une même mission descendent des MÊMES étapes amont, et chacun
+  // appelait le modèle de son côté. Deux appels, deux specs : l'un pouvait retenir douze lignes
+  // et l'autre dix, l'un arrondir et l'autre non, les synthèses se contredire — et rien ne les
+  // comparait, puisque chaque livrable est contrôlé SEUL. C'est « quatre fichiers qui
+  // divergent » à l'intérieur d'une seule mission. Mesuré : 100 dans le classeur, 999 dans le
+  // deck, les deux VERIFIED.
+  //
+  // ── POURQUOI ON RÉSERVE AVANT DE COMPOSER ───────────────────────────────────────────
+  //
+  // Une simple vérification « un frère a-t-il déjà composé ? » NE CONVERGE PAS : les deux
+  // étapes deviennent prêtes au même battement, aucune ne voit la ligne de l'autre, et le test
+  // passait une fois sur deux. Un test qui dépend de l'ordonnancement ne prouve rien.
+  //
+  // On RÉSERVE donc d'abord — une ligne PENDING, sans fichier, portant l'empreinte — puis on
+  // DÉSIGNE l'auteur de la base : la ligne la plus ancienne, à égalité la clé la plus petite.
+  // Comme chacun réserve avant de lire, tous ceux qui lisent voient le même premier, et la
+  // désignation est la même pour tout le monde. Une ligne réservée sans octets n'est jamais
+  // comptée comme un livrable produit : `goal/qa.ts` exige VERIFIED et `byteSize > 0`.
+  const empreinte = createHash("sha256").update(JSON.stringify(amont)).digest("hex");
+  await prisma.missionArtifact.upsert({
+    where: { missionId_key: { missionId: mission.id, key: identite.key } },
+    create: {
+      missionId: mission.id, stepId: step.id, key: identite.key, title: step.title,
+      format, fileName: identite.fileName ?? "", status: "PENDING", inputsHash: empreinte,
+    },
+    update: { inputsHash: empreinte, stepId: step.id },
+    select: { id: true },
+  });
+
+  const auteur = await prisma.missionArtifact.findFirst({
+    where: { missionId: mission.id, inputsHash: empreinte },
+    orderBy: [{ createdAt: "asc" }, { key: "asc" }],
+    select: { key: true, format: true, fileName: true },
+  });
+  // LE FORMAT DOIT DIFFÉRER. Deux livrables de MÊME format sur les mêmes données sont deux
+  // découpages voulus (« un classeur par produit »), pas une duplication (§118.36) : chacun
+  // compose alors le sien.
+  if (auteur && auteur.key !== identite.key && auteur.format !== format) {
+    const repris = await attendreLaBase({ mission, step, cleAuteur: auteur.key, empreinte, format, identite });
+    if (repris) return repris;
+  }
+
   const res = await deps.reasoner.reason<Record<string, unknown>>({
     role: rolePourEtape(step.spec?.reasoningRequirement ?? "LIGHT"),
     schemaName: "artefact_spec",
@@ -267,10 +315,64 @@ async function composerSpec(ctx: StepContext, deps: ArtifactDeps): Promise<SpecO
     // ACTUALISÉ est une nouvelle version du même fichier, jamais un second — voir `identiteDuLivrable`.
     key: identite.key,
     ...(identite.fileName ? { fileName: identite.fileName } : {}),
-    format,
+    format, inputsHash: empreinte,
   });
   if ("error" in s) return { error: s.error, retryable: true };
+
+  // LA BASE EST PUBLIÉE DÈS QU'ELLE EXISTE, avant le rendu : c'est ce que les frères attendent.
+  await prisma.missionArtifact.update({
+    where: { missionId_key: { missionId: mission.id, key: s.key } },
+    data: { spec: s as never, title: s.title, format: s.format, inputsHash: empreinte },
+    select: { id: true },
+  }).catch(() => undefined);
   return s;
+}
+
+/**
+ * ATTEND LA BASE CANONIQUE d'un livrable frère, puis la reprend dans CE format.
+ *
+ * L'attente est bornée et n'échoue jamais : si la base n'arrive pas — l'auteur a planté, ou il
+ * met plus longtemps qu'un appel de modèle raisonnable — on rend `null` et l'appelant compose la
+ * sienne. Bloquer une mission pour une COHÉRENCE serait payer plus cher que le défaut.
+ */
+async function attendreLaBase(args: {
+  mission: StepContext["mission"];
+  step: StepContext["step"];
+  cleAuteur: string;
+  empreinte: string;
+  format: string;
+  identite: { key: string; fileName?: string };
+}): Promise<ArtefactSpec | null> {
+  const { mission, step, cleAuteur, empreinte, format, identite } = args;
+  const debut = Date.now();
+  while (Date.now() - debut < ATTENTE_BASE_MS) {
+    const auteur = await prisma.missionArtifact.findUnique({
+      where: { missionId_key: { missionId: mission.id, key: cleAuteur } },
+      select: { spec: true, format: true, fileName: true },
+    });
+    const brut = auteur?.spec;
+    if (brut && typeof brut === "object" && Object.keys(brut).length > 0) {
+      const s = parserSpec({
+        ...(brut as Record<string, unknown>),
+        key: identite.key,
+        ...(identite.fileName ? { fileName: identite.fileName } : {}),
+        format, inputsHash: empreinte,
+      });
+      // Une spec déjà validée se REPARSE sans surprise ; si elle ne passe plus, on ne bloque
+      // pas le livrable — l'appelant compose la sienne.
+      if ("error" in s) return null;
+      // LA REPRISE EST DITE. Une économie silencieuse est indistinguable d'un bug le jour où
+      // les deux fichiers devaient différer (§118.52).
+      await journaliser(
+        mission.id, "ARTIFACT_CANONIQUE",
+        `Le livrable ${format} reprend le contenu du ${auteur!.format} « ${auteur!.fileName || cleAuteur} » : mêmes données amont, donc mêmes chiffres.`,
+        { etape: step.key, format, depuis: auteur!.format, base: cleAuteur },
+      ).catch(() => undefined);
+      return s;
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  return null;
 }
 
 /**
