@@ -69,25 +69,72 @@ suite("what_changed — le diff tracé depuis une date, l'état actuel en face",
 
   it("« depuis 7 jours » : SEULS les changements de la fenêtre remontent, avec qui a agi et l'état actuel", async () => {
     const out = JSON.parse(await tool.run({ reference: REF, since: "7" }, exec(ceoId)));
-    const events = JSON.stringify(out.changements.significatifs);
+    const events = JSON.stringify(out.changements);
     expect(events).toContain("Montant corrigé");
     expect(events).toContain("Première validation rendue");
     expect(events).not.toContain("Demande soumise"); // antérieur à la fenêtre
-    expect(out.changements.total).toBe(2);
+    expect(out.changements).toHaveLength(2);
     expect(out.quiAAgi[0]).toMatchObject({ nom: `${TAG} Nadia`, actions: 2 });
     expect(out.etatActuel.statut).toBe("SUBMITTED");
     expect(out.lien).toBe(`/validations/paiements/${payId}`);
+    expect(out.borne, "le journal n'a pas buté sur sa borne").toBeNull();
   });
 
   it("aucun changement dans la fenêtre → réponse honnête, jamais un diff inventé", async () => {
     const out = JSON.parse(await tool.run({ reference: REF, since: "1" }, exec(ceoId)));
-    expect(out.reponse).toMatch(/Aucun changement SIGNIFICATIF tracé/);
+    expect(out.changements).toEqual([]);
+    expect(out.precision).toMatch(/Aucun changement SIGNIFICATIF tracé/);
+    expect(out.precision).toMatch(/journal ne capture/);
     expect(out.etatActuel).toBeTruthy();
-    expect(out.rappel).toMatch(/journal ne capture/);
   });
 
-  it("référence inconnue → refus honnête", async () => {
-    const out = await tool.run({ reference: `${TAG}-fantome`, since: "7" }, exec(ceoId));
-    expect(out).toMatch(/Aucun dossier/);
+  it("référence inconnue → un refus, oui, mais dans la MÊME forme", async () => {
+    const out = JSON.parse(await tool.run({ reference: `${TAG}-fantome`, since: "7" }, exec(ceoId)));
+    expect(out.precision).toMatch(/Aucun dossier/);
+    expect(out.precision, "l'absence de sujet ne doit pas se lire « rien n'a changé »").toMatch(/SUJET est introuvable/);
+    expect(out.changements).toEqual([]);
+  });
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * LE CONTRAT : LES MÊMES CLÉS, TOUJOURS (§118.20).
+   *
+   * CE QUI FERAIT TOMBER CE TEST : rendre une phrase au lieu d'un objet sur un refus, omettre
+   * `etapesFranchies` quand la liste est vide, ou remplacer `changements` par un compteur. Ce
+   * sont les trois formes que cet outil rendait vraiment, et le planificateur — qui écrit ses
+   * références AVANT de savoir ce que la lecture rendra — ne pouvait pas les deviner : une
+   * référence sur `faits` mourait le jour où le flux était vide, une sur
+   * `changements.significatifs` le jour où il ne l'était pas.
+   *
+   * On compare les JEUX DE CLÉS de cinq situations qui n'ont rien en commun — le flux, un
+   * dossier plein, un dossier vide, une date illisible, un sujet inconnu — et on exige qu'ils
+   * soient IDENTIQUES.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("cinq situations, un seul jeu de clés — la forme ne dépend jamais de la donnée", async () => {
+    const situations: [string, Record<string, unknown>][] = [
+      ["flux", {}],
+      ["dossier plein", { reference: REF, since: "7" }],
+      ["dossier vide", { reference: REF, since: "1" }],
+      ["date illisible", { reference: REF, since: "avant-hier peut-être" }],
+      ["sujet inconnu", { reference: `${TAG}-fantome`, since: "7" }],
+    ];
+    const vues: [string, string[]][] = [];
+    for (const [nom, args] of situations) {
+      const brut = await tool.run(args, exec(ceoId));
+      let objet: Record<string, unknown>;
+      try { objet = JSON.parse(brut) as Record<string, unknown>; } catch {
+        throw new Error(`« ${nom} » ne rend pas de JSON : ${brut.slice(0, 120)}`);
+      }
+      vues.push([nom, Object.keys(objet).sort()]);
+    }
+    const [, reference] = vues[0]!;
+    for (const [nom, cles] of vues) {
+      expect(cles, `« ${nom} » ne rend pas les mêmes clés que « ${vues[0]![0]} »`).toEqual(reference);
+    }
+    // Et la forme est bien celle qu'on a annoncée, pas un jeu de clés vide qui coïnciderait.
+    expect(reference).toContain("changements");
+    expect(reference).toContain("precision");
+    expect(reference).toContain("etapesFranchies");
   });
 });

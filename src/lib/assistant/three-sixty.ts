@@ -58,6 +58,37 @@ const median = (xs: number[]): number | null => {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 };
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UNE VUE 360 REND TOUJOURS LES MÊMES CLÉS (§118.20) — c'est la VALEUR qui dit l'absence.
+ *
+ * Les trois vues de ce fichier rendaient QUATRE formes chacune : une PHRASE quand le nom était
+ * trop court, une PHRASE quand rien ne correspondait, un objet `{ambigu, candidates}` quand
+ * plusieurs fiches correspondaient, et le grand objet quand une seule était trouvée. Le
+ * planificateur écrit ses références AVANT de savoir laquelle il obtiendra : `{{p360.fiche}}`
+ * meurt sur une homonymie, `{{p360.candidates}}` meurt quand la recherche réussit — et une
+ * étape morte coûte une replanification entière.
+ *
+ * Les clés sont donc l'UNION, toujours présentes : le grand objet à `null` quand il n'y a rien
+ * à mettre, `candidats` à vide quand il n'y a pas d'homonymie, et `precision` qui dit toujours
+ * ce qui s'est passé. Le supplément — `retenu` — porte la personne ou le produit sur qui AGIR :
+ * un élément quand c'est certain, liste VIDE sinon (§118.34). Collapser une liste de plusieurs
+ * homonymes choisirait la cible à la place d'un humain.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+function vue360(
+  cles: readonly string[],
+  r: { retenu?: Record<string, unknown>[]; candidats?: Record<string, unknown>[]; precision: string } & Record<string, unknown>,
+): string {
+  const socle: Record<string, unknown> = {};
+  for (const c of cles) socle[c] = null;
+  return JSON.stringify({ ...socle, ...r, retenu: r.retenu ?? [], candidats: r.candidats ?? [], precision: r.precision });
+}
+
+const CLES_PERSONNE = ["identite", "contrat", "soldeCongesJours", "remuneration", "dossiersRegulatoryDirects", "accesSansResponsabilite", "activiteObservee", "dependance", "chargeDeTravail", "documentsRH", "lien"] as const;
+const CLES_PRODUIT = ["syntheseExecutive", "fiche", "reglementaire", "stock", "activiteRecente", "commentaires", "lien"] as const;
+const CLES_FOURNISSEUR = ["fournisseur", "relation", "depensesPayees", "enAttente", "legal", "derniersPaiements"] as const;
+
 export const THREE_SIXTY_TOOLS: PowerTool[] = [
   // ───────────────────────── EMPLOYEE 360 ─────────────────────────
   {
@@ -79,17 +110,19 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
     label: "Vue 360° d'un collaborateur",
     run: async (input, user) => {
       const name = str(input, "name");
-      if (name.length < 2) return "Donnez le nom du collaborateur.";
+      if (name.length < 2) return vue360(CLES_PERSONNE, { precision: "Le nom du collaborateur n'a pas été donné : rien n'a été cherché." });
       const candidates = await prisma.employee.findMany({
         where: { fullName: { contains: name, mode: "insensitive" } },
         select: { id: true, fullName: true, position: true, isActive: true },
         take: 6,
       });
-      if (candidates.length === 0) return `Aucun employé « ${name} » dans le registre RH.`;
+      if (candidates.length === 0) return vue360(CLES_PERSONNE, { precision: `Aucun employé « ${name} » dans le registre RH.` });
       if (candidates.length > 1) {
-        return JSON.stringify({
-          ambigu: `${candidates.length} employés correspondent — préciser le nom complet.`,
-          candidates: candidates.map((c) => ({ nom: c.fullName, poste: c.position, actif: c.isActive })),
+        // Plusieurs homonymes : on les NOMME, et `retenu` reste vide — désigner à la place d'un
+        // humain, c'est ce que §118.34 interdit exactement.
+        return vue360(CLES_PERSONNE, {
+          candidats: candidates.map((c) => ({ nom: c.fullName, poste: c.position, actif: c.isActive })),
+          precision: `${candidates.length} employés correspondent à « ${name} » — préciser le nom complet. Aucune fiche n'est retenue.`,
         });
       }
 
@@ -109,7 +142,7 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
           user: { select: { id: true, role: true } },
         },
       });
-      if (!emp) return `Aucun employé « ${name} » dans le registre RH.`;
+      if (!emp) return vue360(CLES_PERSONNE, { precision: `Aucun employé « ${name} » dans le registre RH.` });
 
       const now = new Date();
 
@@ -294,7 +327,7 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
     label: "Vue 360° d'un produit",
     run: async (input, _user) => {
       const q = str(input, "product");
-      if (q.length < 2) return "Donnez la référence, la DCI ou le nom commercial.";
+      if (q.length < 2) return vue360(CLES_PRODUIT, { precision: "Ni référence, ni DCI, ni nom commercial n'a été donné : rien n'a été cherché." });
       const candidates = await prisma.regulatoryProduct.findMany({
         where: {
           OR: [
@@ -306,11 +339,11 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
         select: { id: true, reference: true, dci: true, brandName: true, dosage: true, dosageUnit: true },
         take: 6,
       });
-      if (candidates.length === 0) return `Aucun produit « ${q} » au portefeuille (ni référence, ni DCI, ni nom commercial).`;
+      if (candidates.length === 0) return vue360(CLES_PRODUIT, { precision: `Aucun produit « ${q} » au portefeuille (ni référence, ni DCI, ni nom commercial).` });
       if (candidates.length > 1) {
-        return JSON.stringify({
-          ambigu: `${candidates.length} produits correspondent — préciser (référence ou dosage).`,
-          candidates: candidates.map((c) => ({ reference: c.reference, dci: c.dci, nom: c.brandName, dosage: c.dosage ? `${c.dosage} ${c.dosageUnit ?? ""}`.trim() : null })),
+        return vue360(CLES_PRODUIT, {
+          candidats: candidates.map((c) => ({ reference: c.reference, dci: c.dci, nom: c.brandName, dosage: c.dosage ? `${c.dosage} ${c.dosageUnit ?? ""}`.trim() : null })),
+          precision: `${candidates.length} produits correspondent à « ${q} » — préciser (référence ou dosage). Aucun n'est retenu.`,
         });
       }
 
@@ -326,7 +359,7 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
           steps: { orderBy: { order: "asc" }, select: { type: true, status: true, plannedDate: true, actualDate: true, comment: true, missingDocs: true, responsible: true } },
         },
       });
-      if (!p) return `Produit introuvable.`;
+      if (!p) return vue360(CLES_PRODUIT, { precision: `Produit « ${q} » introuvable à la relecture de sa fiche.` });
 
       const now = new Date();
 
@@ -425,7 +458,7 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
     label: "Vue 360° d'un fournisseur",
     run: async (input, _user) => {
       const name = str(input, "name");
-      if (name.length < 2) return "Donnez le nom du fournisseur.";
+      if (name.length < 2) return vue360(CLES_FOURNISSEUR, { precision: "Le nom du fournisseur n'a pas été donné : rien n'a été cherché." });
       const ci = { contains: name, mode: "insensitive" as const };
 
       const [paidOrders, pendingOrders, openRequests, legalDocs] = await Promise.all([
@@ -452,7 +485,10 @@ export const THREE_SIXTY_TOOLS: PowerTool[] = [
       ]);
 
       if (paidOrders.length === 0 && pendingOrders.length === 0 && openRequests.length === 0 && legalDocs.length === 0) {
-        return `Aucune trace de « ${name} » — ni règlement, ni demande de paiement, ni document Legal ne porte ce nom. Vérifier l'orthographe (ou chercher via search_everything).`;
+        return vue360(CLES_FOURNISSEUR, {
+          precision: `Aucune trace de « ${name} » — ni règlement, ni demande de paiement, ni document Legal ne porte ce nom. `
+            + "Vérifier l'orthographe (ou chercher via search_everything).",
+        });
       }
 
       // Dépenses payées PAR ANNÉE — additionnées ici, en base : jamais à la main par le modèle.

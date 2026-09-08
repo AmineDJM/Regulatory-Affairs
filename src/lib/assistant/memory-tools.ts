@@ -251,20 +251,35 @@ export const MEMORY_TOOLS: PowerTool[] = [
     allowed: () => true,
     label: "Archives de conversation consultées",
     run: async (input, user) => {
+      /**
+       * UNE SEULE FORME (§118.20) : les clés ne changent pas selon ce qu'on trouve. Cet outil
+       * rendait une PHRASE quand la requête était trop courte ou vide de résultats, et un OBJET
+       * sinon — un plan qui écrit `{{archives.extraits.0.extrait}}` mourait donc exactement le
+       * jour où il n'y avait rien à citer. C'est la liste VIDE qui dit l'absence, et `precision`
+       * qui dit pourquoi : « rien trouvé » et « je n'ai pas cherché » ne se corrigent pas de la
+       * même façon.
+       */
+      const repondre = (extraits: Record<string, unknown>[], precision: string): string =>
+        JSON.stringify({ recherche: str(input, "query"), total: extraits.length, extraits, precision });
+
       const q = str(input, "query");
-      if (q.length < 2) return "Donnez au moins deux caractères.";
+      if (q.length < 2) {
+        return repondre([], "La liste est vide parce que la RECHERCHE n'a pas été posée : donner au moins deux caractères.");
+      }
       const rawLimit = typeof input.limit === "number" ? input.limit : 8;
       const hits = await searchOwnMessages(user.id, q, Math.min(Math.max(Math.round(rawLimit), 1), 20));
-      if (hits.length === 0) return `Aucune trace de « ${q} » dans vos conversations.`;
-      return JSON.stringify({
-        total: hits.length,
-        extraits: hits.map((h) => ({
+      if (hits.length === 0) {
+        return repondre([], `Aucune trace de « ${q} » dans vos conversations — la recherche a bien eu lieu, sur vos messages seuls.`);
+      }
+      return repondre(
+        hits.map((h) => ({
           conversation: h.threadTitle,
           date: h.when,
           qui: h.role === "user" ? "vous" : "l'assistant",
           extrait: h.snippet,
         })),
-      });
+        `${hits.length} extrait(s) de VOS conversations — pas celles des autres.`,
+      );
     },
   },
 
@@ -557,13 +572,20 @@ export const MEMORY_TOOLS: PowerTool[] = [
         take: limit,
         select: { id: true, who: true, toWhom: true, what: true, dueAt: true, promisedAt: true, status: true, source: true, relatedRef: true, evidence: true },
       });
-      if (rows.length === 0) {
-        return overdueOnly ? "Aucun engagement en retard." : "Aucun engagement suivi ne correspond.";
-      }
       const now = Date.now();
       const STATUS_FR: Record<string, string> = { OPEN: "ouvert", DONE: "tenu", BROKEN: "non tenu", CANCELLED: "annulé" };
+      // UNE SEULE FORME (§118.20) : « aucun engagement » rendait une PHRASE, et une étape qui
+      // référençait `engagements` mourait le jour où il n'y en avait pas — c'est-à-dire le jour
+      // où la réponse était la meilleure nouvelle possible.
+      if (rows.length === 0) {
+        return JSON.stringify({
+          total: 0, engagements: [],
+          precision: overdueOnly ? "Aucun engagement en retard." : "Aucun engagement suivi ne correspond à ce filtre.",
+        });
+      }
       return JSON.stringify({
         total: rows.length,
+        precision: `${rows.length} engagement(s) suivis${overdueOnly ? " et en retard" : ""} — l'issue se constate, elle ne se suppose pas.`,
         engagements: rows.map((r) => ({
           id: r.id,
           qui: r.who,

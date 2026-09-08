@@ -356,10 +356,14 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
       if (findings.size === 0) {
         const total = await prisma.driveTextIndex.count();
         // COUVERTURE EXPLICITE : « aucune trace » n'est prononçable qu'avec elle — et jamais
-        // au-delà de ce qu'elle couvre réellement.
+        // au-delà de ce qu'elle couvre réellement. Les CLÉS sont celles du cas plein (§118.20) :
+        // `illisibles`, `indexTextuel` et `hydratation` existent aussi ici, à zéro et à null —
+        // un plan qui les référence ne meurt pas le jour où la recherche ne trouve rien.
         return JSON.stringify({
           recherche: query,
           resultats: [],
+          illisibles: 0,
+          indexTextuel: `${total} fichier(s) du Drive indexés en texte — l'index s'enrichit à chaque lecture.`,
           couverture: {
             sourcesInterrogees: [
               "noms de fichiers du Drive (périmètre ACL)",
@@ -372,8 +376,9 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
               "recherche fédérée métier (search_everything)",
               "investigation d'événement (investigate_event)",
             ],
+            hydratation: null,
           },
-          reponse: `Aucun document pour « ${query} » dans les sources couvertes ci-dessus. NE PAS conclure « aucune trace » tout court : dire ce qui a été couvert, et interroger une source restante si elle est pertinente.`,
+          rappel: `Aucun document pour « ${query} » dans les sources couvertes ci-dessus. NE PAS conclure « aucune trace » tout court : dire ce qui a été couvert, et interroger une source restante si elle est pertinente.`,
         });
       }
 
@@ -409,13 +414,16 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
           lien: `/drive/${f.nodeId}`,
           driveNodeId: f.nodeId,
           confiance: f.confiance,
-          typeDetecte: f.docKind && f.docKind !== "unknown" ? DOC_KIND_LABEL[f.docKind as DocKind] ?? f.docKind : undefined,
-          preuve: f.excerpt ?? (f.confiance === "FAIBLE" ? "correspondance sur le NOM seulement — contenu non vérifiable" : undefined),
+          // `null`, jamais `undefined` : `JSON.stringify` efface une clé indéfinie, et un élément
+          // de liste dont les clés changent d'un élément à l'autre est le défaut §118.20 un cran
+          // plus bas — l'éventail déploie ces objets tels quels sur les étapes suivantes.
+          typeDetecte: f.docKind && f.docKind !== "unknown" ? DOC_KIND_LABEL[f.docKind as DocKind] ?? f.docKind : null,
+          preuve: f.excerpt ?? (f.confiance === "FAIBLE" ? "correspondance sur le NOM seulement — contenu non vérifiable" : null),
           termesDansContenu: `${f.matchedInContent}/${tokens.length}`,
-          entiteLiee: f.entiteLiee,
-          note: f.note ?? undefined,
+          entiteLiee: f.entiteLiee ?? null,
+          note: f.note ?? null,
         })),
-        illisibles: unreadable || undefined,
+        illisibles: unreadable,
         indexTextuel: `${total} fichier(s) du Drive indexés en texte — l'index s'enrichit à chaque lecture.`,
         couverture: {
           sourcesInterrogees: [
@@ -425,11 +433,16 @@ export const DOCUMENT_DISCOVERY_TOOLS: PowerTool[] = [
             ...(semanticUsed ? ["similarité SÉMANTIQUE (repli — le lexical n'avait rien par le contenu)"] : []),
             "lecture de vérification bornée des meilleurs candidats",
           ],
+          sourcesRestantes: [
+            "fichiers JAMAIS indexés (l'index grandit à chaque lecture et par l'ingestion planifiée)",
+            "recherche fédérée métier (search_everything)",
+            "investigation d'événement (investigate_event)",
+          ],
           // La mesure du LOT (fabric F6) : N hydratations logiques servies en K requêtes.
           // Dite, jamais affirmée — c'est le compteur du loteur de CETTE recherche.
           hydratation: (() => {
             const m = noeudsEnLot.mesure();
-            return m.logiques > 0 ? `${m.logiques} candidat(s) hydratés en ${m.physiques} requête(s) (lot fabric)` : undefined;
+            return m.logiques > 0 ? `${m.logiques} candidat(s) hydratés en ${m.physiques} requête(s) (lot fabric)` : null;
           })(),
         },
         rappel: "Le nom d'un fichier est un INDICE, pas une preuve : ne conclure qu'à partir des résultats HAUTE/MOYENNE (contenu vérifié), et lire le document (read_document) avant d'en citer un chiffre.",
@@ -465,8 +478,30 @@ export const KNOWLEDGE_TOOLS: PowerTool[] = [
     allowed: () => true,
     label: "Contenu des documents consulté",
     run: async (input, user) => {
+      /**
+       * ── UNE SEULE FORME, QUOI QU'IL ARRIVE (§118.20) ──────────────────────────────────
+       *
+       * Cet outil rendait une PHRASE dans trois cas (question trop courte, service indisponible,
+       * aucun extrait) et un OBJET quand il trouvait. Un plan qui écrit `{{docs.extraits.0.ou}}`
+       * meurt donc le jour où la recherche ne rend rien — et une étape morte coûte une
+       * replanification entière. Les clés sont les mêmes partout ; c'est la liste `extraits`,
+       * vide, qui dit l'absence, et `precision` qui dit POURQUOI elle est vide : « aucun
+       * extrait » et « je n'ai pas cherché » se ressemblent pour qui lit la réponse, et ne se
+       * corrigent pas de la même façon.
+       */
+      const repondre = (r: {
+        question: string; examines: number;
+        extraits?: { document: string | null; ou: string | null; extrait: string; pourquoi: readonly string[] }[];
+        precision: string;
+      }): string => JSON.stringify({ question: r.question, examines: r.examines, rendus: r.extraits?.length ?? 0, extraits: r.extraits ?? [], precision: r.precision });
+
       const question = typeof input.question === "string" ? input.question.trim() : "";
-      if (question.length < 3) return "Donnez la question telle qu'elle a été posée.";
+      if (question.length < 3) {
+        return repondre({
+          question, examines: 0,
+          precision: "La liste est vide parce que la QUESTION n'a pas été fournie — donner la question telle qu'elle a été posée.",
+        });
+      }
 
       // PAR LE CONTRAT, PAS PAR L'INDEX. Adam demande « cherche dans les documents » ; il ne
       // sait pas qu'il existe un routeur, un index trigramme et un reclassement, et il n'a pas
@@ -478,20 +513,26 @@ export const KNOWLEDGE_TOOLS: PowerTool[] = [
         .catch(() => null);
       const r = res?.kind === "document.search" ? res : null;
 
-      if (!r) return "La recherche documentaire est momentanément indisponible.";
+      if (!r) {
+        return repondre({
+          question, examines: 0,
+          precision: "La recherche documentaire est momentanément indisponible : la liste est vide parce que la SOURCE n'a pas répondu, "
+            + "pas parce qu'aucun document ne correspond. Réessayer, ou passer par search_everything.",
+        });
+      }
       if (r.extracts.length === 0) {
-        // DIRE CE QUI A ÉTÉ CHERCHÉ, pas seulement qu'on n'a rien trouvé : « aucun extrait » et
-        // « je n'ai pas cherché » se ressemblent pour qui lit la réponse, et ne se corrigent pas
-        // de la même façon.
-        return `Aucun extrait ne correspond, sur ${r.examined} document(s) examiné(s). `
-          + "Le contenu n'est peut-être pas encore indexé, ou la personne n'y a pas accès.";
+        return repondre({
+          question, examines: r.examined,
+          precision: `Aucun extrait ne correspond, sur ${r.examined} document(s) examiné(s). `
+            + "Le contenu n'est peut-être pas encore indexé, ou la personne n'y a pas accès.",
+        });
       }
 
-      return JSON.stringify({
+      return repondre({
         question,
         examines: r.examined,
-        rendus: r.extracts.length,
         extraits: r.extracts.map((e: DocumentExtract) => ({ document: e.document, ou: e.at, extrait: e.text, pourquoi: e.because })),
+        precision: `${r.extracts.length} extrait(s) rendus sur ${r.examined} document(s) examiné(s) — citer depuis l'extrait, pas depuis le titre.`,
       });
     },
   },

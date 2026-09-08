@@ -130,8 +130,14 @@ suite("vues 360° et découverte documentaire — chemin réel", () => {
   });
 
   it("supplier_360 dit l'absence plutôt que d'inventer ; process_insights ne fabrique pas de moyenne sans cas clos", async () => {
-    const none = await executePowerTool("supplier_360", { name: `${TAG}-fournisseur-inconnu` }, asUser(ceoId, "DIRECTION"));
-    expect(none).toMatch(/Aucune trace/);
+    // §118.20 : le refus garde la FORME de la réponse — mêmes clés, valeurs vides. Une phrase
+    // nue tuerait toute référence qu'un plan aurait écrite sur `depensesPayees` ou `legal`.
+    const none = JSON.parse((await executePowerTool("supplier_360", { name: `${TAG}-fournisseur-inconnu` }, asUser(ceoId, "DIRECTION"))) ?? "{}");
+    expect(none.precision).toMatch(/Aucune trace/);
+    expect(none.retenu).toEqual([]);
+    expect(none.candidats).toEqual([]);
+    expect(none, "les clés de la réponse pleine doivent exister, à null").toHaveProperty("depensesPayees");
+    expect(none).toHaveProperty("legal");
 
     const proc = await executePowerTool("process_insights", {}, asUser(ceoId, "DIRECTION"));
     expect(proc).toContain("fenetre"); // la fenêtre est annoncée ; les sections vides disent « aucun cas clos »
