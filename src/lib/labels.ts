@@ -1640,6 +1640,12 @@ export const NAVIGATION: NavItem[] = [
   // Assistant IA : MODULE À PART ENTIÈRE (l'ancienne bulle flottante a été retirée) —
   // page plein écran avec dictée vocale et lecture de pièces jointes.
   { module: "WORKSPACE", label: "Assistant IA", href: "/assistant", icon: "Sparkles", group: "Pilotage" },
+  // LE CENTRE DE MISSIONS — le PARC de ce qu'Adam exécute. Il vit à côté de l'assistant et pas
+  // dedans : une mission est un objet de l'ERP (identifiant, propriétaire, étapes, livrables,
+  // journal), et la ranger dans la conversation ferait dépendre son écran de l'assistant, ce
+  // que le cliquet de frontière mesure et fait baisser lot après lot. `/missions/<id>` — où
+  // pointent toutes ses notifications — reste son adresse ; ceci en est la liste, qui manquait.
+  { module: "WORKSPACE", label: "Missions d'Adam", href: "/centre-de-missions", icon: "Radar", group: "Pilotage", match: ["/centre-de-missions"] },
   // « MY CHIEF OF STAFF » — l'interface exécutive de pilotage, réservée au PDG et au Super
   // Admin (module CHIEF_OF_STAFF). Même moteur que l'assistant, mais les outils d'un chef de
   // cabinet : histoire complète d'un dossier, lecture des documents, bilans, rappels planifiés,

@@ -996,6 +996,23 @@ classify("COVERED", "mission_control (pause / reprise / arrêt / refus d'autoris
   // Tout ce que le nouveau plan apporte repasse par `reouvrirSiChange` (§8), donc par la
   // personne. Au pire, une injection qui la déclencherait produit une demande d'accord de plus.
   "mission-runtime-actions:replanifierMissionAction",
+  /**
+   * LA PRIORITÉ est un ORDRE DE PASSAGE, pas une autorisation. Le battement sert les priorités
+   * hautes d'abord et l'ancienneté ensuite : relever une mission n'en condamne aucune autre, et
+   * une injection qui la déclencherait ferait au pire passer un dossier devant un autre — ce
+   * qui se voit sur l'écran du centre, et se remet à zéro d'un clic.
+   */
+  "mission-runtime-actions:changerPrioriteMission",
+  /**
+   * MODIFIER UNE MISSION — l'aperçu ne fait que LIRE (`prevoirModification` n'écrit rien), et
+   * l'application ne peut RIEN faire sortir : elle invalide des étapes et rouvre des jalons,
+   * dont tout ce qui sortirait repasserait par `reouvrirSiChange` (§8), donc par un accord
+   * humain. C'est un geste qui RÉDUIT ou RÉORIENTE, jamais un geste qui engage — et il porte
+   * la même empreinte bornée que la conversation (§118.48) : une cible reconnue nulle part ne
+   * touche à rien.
+   */
+  "mission-runtime-actions:prevoirModificationMission",
+  "mission-runtime-actions:appliquerModificationMission",
 ]);
 // La LECTURE de ses accords en attente est la même information que `mission_status` rend déjà.
 classify("COVERED", "mission_status (l'écran d'une mission dit ce qu'elle attend de vous)", [

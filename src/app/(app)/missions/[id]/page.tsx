@@ -42,8 +42,11 @@ export default async function MissionRuntimePage({ params }: { params: { id: str
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-      <Link href="/missions" className="inline-flex w-fit items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900">
-        <ArrowLeft className="h-4 w-4" aria-hidden /> Toutes les missions
+      {/* LE RETOUR VA AU CENTRE DE MISSIONS, PAS À `/missions`. Ce dernier est le module RH —
+          ordres de mission, congrès, accompagnants : le lien historique menait à une liste qui
+          ne contiendrait JAMAIS la mission qu'on vient de quitter. */}
+      <Link href="/centre-de-missions" className="inline-flex w-fit items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900">
+        <ArrowLeft className="h-4 w-4" aria-hidden /> Toutes les missions d&apos;Adam
       </Link>
 
       <MissionRuntimePanel user={user} missionId={params.id} />

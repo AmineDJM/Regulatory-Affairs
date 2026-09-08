@@ -7,6 +7,9 @@ import { fournirEntree } from "@/lib/missions/events/router";
 import { annuler, mettreEnPause, reprendre } from "@/lib/missions/runtime/control";
 import { vueMission } from "@/lib/missions/view/workspace";
 import { avancerMission, replanifierMission } from "@/platform/in-process/missions/runtime";
+import { prioriserMission } from "@/platform/in-process/missions/control";
+import { appliquerModification, prevoirModification } from "@/platform/in-process/missions/modifier";
+import { GENRES_MODIFICATION, type EmpreinteModification, type GenreModification } from "@/lib/missions/horizon/modification";
 import { approuver, candidats, modeleFaisantAutorite, LIBELLE_TYPE, type TypeModele } from "@/lib/missions/templates/registry";
 
 /**
@@ -197,6 +200,117 @@ export async function replanifierMissionAction(missionId: string): Promise<Resul
   const r = await replanifierMission(user, missionId);
   if (!r.replanifie) return { ok: false, message: r.raison };
   return { ok: true, statut: await relancer(user, missionId), message: r.raison };
+}
+
+/**
+ * CHANGE LA PRIORITÉ (« celle-ci passe devant »).
+ *
+ * Le battement sert les priorités hautes d'abord, l'ancienneté ensuite : relever une mission ne
+ * fait mourir de faim aucune autre. Le geste ne fait RIEN sortir et ne franchit aucun droit —
+ * c'est un ordre de passage, pas une autorisation.
+ */
+export async function changerPrioriteMission(
+  missionId: string,
+  priorite: number,
+): Promise<ResultatMission> {
+  const user = await requireUser();
+  if (!userCan(user, "WORKSPACE", "VIEW")) return REFUS;
+  if (!Number.isFinite(priorite)) return { ok: false, message: "Priorité illisible." };
+  const r = await prioriserMission(user, missionId, priorite);
+  return { ok: r.fait, message: r.message, statut: r.statut };
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * MODIFIER UNE MISSION EN COURS — en DEUX temps, et c'est le sujet (§118.48).
+ *
+ * ── POURQUOI L'APERÇU EST UNE ACTION À PART ─────────────────────────────────────────────
+ *
+ * « Finalement Amel à la place de Deepak » a une EMPREINTE : des étapes visées, leur
+ * descendance à réécrire, des jalons rouverts, ce qui est PRÉSERVÉ, et ce qui est DÉJÀ PARTI
+ * et ne sera donc pas rejoué. Appliquer d'abord et raconter ensuite demanderait à la personne
+ * de faire confiance à un résumé écrit après coup ; ici elle lit l'empreinte AVANT, et c'est
+ * elle qui décide si le périmètre est le bon.
+ *
+ * `prevoirModification` n'écrit RIEN — c'est ce qui rend l'aperçu sûr à appeler aussi souvent
+ * qu'on reformule sa phrase.
+ *
+ * ── CE QUE L'APERÇU NE DEVINE PAS ───────────────────────────────────────────────────────
+ *
+ * Une cible reconnue nulle part ne touche à RIEN, et le dit. Deviner choisirait la branche à
+ * jeter à la place d'un humain — sur une mission qui a déjà envoyé des demandes à trois
+ * personnes, se tromper de branche coûte ces trois demandes.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface DemandeModificationEcran {
+  genre: GenreModification;
+  cible: string;
+  remplacant?: string | null;
+  ajout?: string | null;
+  motif?: string | null;
+}
+
+export interface ApercuModification {
+  ok: boolean;
+  message: string;
+  empreinte: EmpreinteModification | null;
+}
+
+export async function prevoirModificationMission(
+  missionId: string,
+  demande: DemandeModificationEcran,
+): Promise<ApercuModification> {
+  const user = await requireUser();
+  if (!userCan(user, "WORKSPACE", "VIEW")) return { ok: false, message: REFUS.message, empreinte: null };
+  if (!GENRES_MODIFICATION.includes(demande.genre)) {
+    return { ok: false, message: "Modification inconnue.", empreinte: null };
+  }
+
+  const empreinte = await prevoirModification(user, missionId, {
+    genre: demande.genre,
+    cible: (demande.cible ?? "").trim(),
+    remplacant: demande.remplacant?.trim() || null,
+    ajout: demande.ajout?.trim() || null,
+    motif: demande.motif?.trim() || null,
+  });
+  if (!empreinte) {
+    return { ok: false, message: "Mission introuvable — ou elle ne vous appartient pas.", empreinte: null };
+  }
+  return { ok: empreinte.reconnue, message: empreinte.resume, empreinte };
+}
+
+/**
+ * APPLIQUE la modification — le geste qui écrit, après l'aperçu.
+ *
+ * Ce qui est déjà PARTI n'est jamais rejoué : `appliquerModification` le nomme et l'exclut. Une
+ * modification est aussi une information NEUVE, donc elle rouvre le droit de replanifier
+ * (§118.42) : une mission qu'un refus répété avait close repart quand on lui donne autre chose.
+ */
+export async function appliquerModificationMission(
+  missionId: string,
+  demande: DemandeModificationEcran,
+): Promise<ResultatMission & { empreinte: EmpreinteModification | null }> {
+  const user = await requireUser();
+  if (!userCan(user, "WORKSPACE", "VIEW")) return { ...REFUS, empreinte: null };
+  if (!GENRES_MODIFICATION.includes(demande.genre)) {
+    return { ok: false, message: "Modification inconnue.", empreinte: null };
+  }
+
+  const r = await appliquerModification(user, missionId, {
+    genre: demande.genre,
+    cible: (demande.cible ?? "").trim(),
+    remplacant: demande.remplacant?.trim() || null,
+    ajout: demande.ajout?.trim() || null,
+    motif: demande.motif?.trim() || null,
+  });
+  if (!r.fait) return { ok: false, message: r.message, empreinte: r.empreinte };
+
+  return {
+    ok: true,
+    message: r.message,
+    empreinte: r.empreinte,
+    statut: await relancer(user, missionId),
+  };
 }
 
 /** ARRÊTE. Ce qui a déjà été fait reste fait — la fonction sous-jacente le dit aussi. */

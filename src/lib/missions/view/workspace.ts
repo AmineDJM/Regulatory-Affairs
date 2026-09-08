@@ -102,6 +102,8 @@ export interface VueMission {
     fichier: string; octets: number; driveNodeId: string | null;
   }[];
   avancement: { faites: number; total: number; echouees: number };
+  /** Combien d'étapes le plan courant a contournées — dites, jamais tues. */
+  contournees: number;
   /**
    * ═══════════════════════════════════════════════════════════════════════════════════════
    * L'HORIZON — vide pour une mission courte, et c'est la bonne réponse.
@@ -123,9 +125,17 @@ export interface VueMission {
       compile: boolean;
       etapes: number;
     }[];
-    /** Combien de jalons aboutis (ou écartés) sur ceux qui comptent. */
+    /** Combien de jalons FRANCHIS (aboutis ou écartés) sur ceux qui comptent. */
     part: number;
+    /**
+     * `franchis` est le numérateur de `part` — le chiffre à afficher à côté de la jauge, sinon
+     * l'écran montre « 1/4 » sous une barre à 50 %. `aboutis` reste à part : un jalon ÉCARTÉ
+     * est derrière nous, il n'a pas été accompli, et confondre les deux serait exactement le
+     * mensonge qu'on refuse pour une étape SKIPPED.
+     */
+    franchis: number;
     aboutis: number;
+    ecartes: number;
     total: number;
     bloques: number;
   } | null;
@@ -160,12 +170,23 @@ export async function vueMission(missionId: string, ownerId: string): Promise<Vu
     select: {
       id: true, title: true, status: true, goalVerdict: true, planVersion: true,
       steps: {
+        /**
+         * CE QUE LE PLAN COURANT A CONTOURNÉ N'EST PAS « À FAIRE ».
+         *
+         * Une étape `supersededAt` appartient à un plan périmé : le nouveau plan a tourné
+         * autour. L'afficher « à faire » est le miroir exact du mensonge qu'on refuse plus
+         * haut pour SKIPPED — annoncer en attente ce que plus personne n'a l'intention de
+         * faire — et elle fausse le dénominateur, donc le ratio que la personne lit. Le
+         * contrôle qualité du moteur les écarte déjà ; l'écran doit dire la même chose.
+         */
+        where: { supersededAt: null },
         select: {
           key: true, title: true, status: true, nodeType: true, receipt: true,
           error: true, errorKind: true, attempt: true, maxAttempts: true,
         },
         orderBy: [{ createdAt: "asc" }, { key: "asc" }],
       },
+      _count: { select: { steps: { where: { supersededAt: { not: null } } } } },
       subMissions: {
         select: {
           id: true, title: true, status: true,
@@ -249,7 +270,9 @@ export async function vueMission(missionId: string, ownerId: string): Promise<Vu
           etapes: j.steps.length,
         })),
         part: denominateur === 0 ? 0 : (jalonsAboutis + jalonsEcartes) / denominateur,
+        franchis: jalonsAboutis + jalonsEcartes,
         aboutis: jalonsAboutis,
+        ecartes: jalonsEcartes,
         total: comptes.length,
         bloques: comptes.filter((j) => j.statut === "BLOCKED").length,
       }
@@ -296,6 +319,7 @@ export async function vueMission(missionId: string, ownerId: string): Promise<Vu
       fichier: a.fileName, octets: a.byteSize, driveNodeId: a.driveNodeId,
     })),
     avancement: { faites, total: reelles.length, echouees },
+    contournees: m._count.steps,
   };
 }
 
@@ -313,7 +337,8 @@ export async function missionsEnCours(ownerId: string, limite = 5) {
     },
     select: {
       id: true, title: true, status: true, updatedAt: true,
-      steps: { select: { status: true, key: true } },
+      // Même règle que `vueMission` : ce que le plan courant a contourné ne compte pas.
+      steps: { where: { supersededAt: null }, select: { status: true, key: true } },
     },
     orderBy: { updatedAt: "desc" },
     take: limite,

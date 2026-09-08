@@ -3372,6 +3372,11 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | `registry/resolve.ts` | §3 — pas de déversement d'outils : un tour de rôle par domaine, borné, mesuré (`plannerCapabilitiesExposed`) |
 | `runtime/worker.ts` | L'étape qui RÉDIGE : faits établis, contexte partagé vs spécifique, économie mesurée ; `hydraterEventail` — un worker aval d'un éventail reçoit les résultats des FILLES, pas seulement `{expanded}` |
 | `runtime/control.ts` | §39-40 — la main humaine : suspendre, reprendre, arrêter. Cloisonné par `ownerId` dans le `where` |
+| `view/workspace.ts` | L'écran d'UNE mission, construit par le serveur : étapes réelles (les filles d'un éventail, jamais leur modèle), livrables avec l'état de leur CONTRÔLE, **horizon** (jalons, résultat attendu, `franchis`/`aboutis`/`ecartes`), pause, attente actionnable. Aucun modèle : l'état est en base, donc exact |
+| `view/control.ts` | Le PARC (§118.50) : `centreDeMissions` (compte exact en UNE requête SQL, éventails et étapes contournées écartés ; ce qui attend une personne en tête), `journalDeMission` (bruit du moteur nommé et COMPTÉ, genre inconnu affiché), `attentesDeMission` (toutes, avec de qui et combien de relances), `lecturesAgeesDeMission` (la fraîcheur, §118.41) |
+| `view/duree.ts` | « il y a 3 j », « dans 4 h » — module PUR, zéro import, « maintenant » en argument : une durée se lit, un âge en heures se décide |
+| `horizon/jalon.ts` `budget.ts` `fraicheur.ts` `modification.ts` | Le socle PUR de la mission longue : frontière et avancement des jalons, budget local jugé au progrès, empreinte de fraîcheur et âges crédibles, empreinte d'une modification (profondeur × cardinalité) |
+| `horizon/store.ts` | La persistance des jalons et des entrées datées — ré-entrante, idempotente par empreinte |
 | `goal/qa.ts` | Le contrôle arithmétique complet : cardinalité, destinataires, reçus, doublons, artefacts |
 | `goal/judge.ts` | §12-13 — le juge structuré (`satisfied`, `confidence`, `criteria[]`, `missing[]`). Un critère sans preuve est NON_DÉMONTRÉ |
 | `artifacts/spec.ts` `xlsx.ts` `verify.ts` `render.ts` `build.ts` | Le livrable est CONSTRUIT, puis ROUVERT et CONTRÔLÉ (formules, plages, graphiques) avant d'être déposé |
@@ -7948,6 +7953,51 @@ FTS 6 ms P50 contre 64 au scan (et elle gagne PARTOUT sur l'infra réelle, conjo
 fréquente comprise), entités 1 ms alias franchis, précalculé 1 ms, lot 2 ms contre 102 à la
 pièce — l'écart du loteur a GRANDI avec le réseau, comme prédit. Rapport final complet
 (A–V du mandat, états honnêtes) : `docs/INFORMATION_FABRIC.md`.
+
+### LE CENTRE DE MISSIONS — un moteur qu'on peut enfin CONDUIRE (2026-09)
+
+**Le trou, dit sans enjoliver.** Le lot précédent a livré l'horizon : jalons, compilation
+paresseuse, fraîcheur des lectures, modification chirurgicale. Tout cela était calculé, testé,
+mesuré sur une mission longue réelle — et **invisible**. `VueMission.horizon` existait ; aucun
+écran ne le rendait, donc la page d'une mission de sept jalons affichait « 4/5 étapes », c'est-à-dire
+les étapes du sous-plan COURANT : « presque fini » sur six semaines de travail restant.
+`listerAccordsMission`, écrite pour un écran, n'avait **aucun appelant de production** : un accord
+ne se donnait qu'en arrivant par le lien d'une notification, une mission à la fois. Et une mission
+d'exécution avait une adresse (`/missions/<id>`, où pointent toutes ses notifications) sans aucune
+**liste** — le lien « Toutes les missions » menait à `/missions`, le module RH des ordres de mission,
+qui ne contiendrait jamais la mission qu'on venait de quitter.
+
+| Ce qui manquait | Ce qui existe maintenant |
+| --- | --- |
+| Aucune liste des missions d'exécution | `/centre-de-missions` — le parc, ce qui attend une personne EN TÊTE, puis ce qui est bloqué, puis la priorité, puis la date |
+| L'accord ne se donnait qu'une mission à la fois | Les accords en attente sont **décidables depuis le centre** (`listerAccordsMission` a enfin un appelant) |
+| L'horizon calculé, jamais affiché | Les jalons, leur **résultat attendu** (celui que le contrôle jugera), et « pas encore de sous-plan — ce jalon n'existe que comme intention » |
+| Une seule attente montrée | **Toutes**, avec de qui, depuis quand, et combien de relances déjà parties |
+| Le journal, illisible ou absent | Filtré (le bruit est nommé, un genre inconnu s'affiche), les répétitions repliées, **et ce qui a été écarté est compté** |
+| La fraîcheur, en base et nulle part | « le forecast a été lu il y a 21 jours » — le faux succès qui n'a aucune signature d'échec |
+| La pause, sans mémoire à l'écran | Depuis quand, pourquoi, et ce qu'elle a interrompu |
+| Modifier : seulement par la conversation | Un **aperçu qui n'écrit rien** (étapes à refaire, préservées, déjà parties donc non rejouées), puis « Appliquer » |
+
+**Les comptes, et pourquoi ils sont le vrai sujet.** Un tableau de bord ment par son
+dénominateur : compter un MODÈLE d'éventail pour un donne « 2/2 » sur trente-trois envois dont
+deux ont raté ; garder les étapes d'un plan PÉRIMÉ fait RECULER l'avancement à chaque
+replanification ; prendre les étapes du sous-plan pour l'avancement d'une mission longue fait lire
+« presque fini » ; et confondre ABOUTI avec FRANCHI affichait « 1/4 » sous une jauge à 50 %
+(un jalon écarté comme sans objet est derrière nous sans avoir été accompli). Le compte du parc
+se fait en **une requête SQL** qui écarte les modèles d'éventail par le préfixe de clé — sans
+`LIKE`, qu'une clé contenant un joker casserait — et jamais en chargeant les étapes : une mission
+MASSIVE en a trois mille, et l'écran n'en affiche qu'un ratio. Les deux vues calculent désormais
+la même chose, et un test les compare (§118.51).
+
+**Mesuré, écrans ouverts.** `e2e/mission-control.spec.ts` — Playwright contre le **build de
+production**, base réelle, zéro appel de modèle, décor posé et retiré par la spec : le parc affiche
+« 2/7 jalons » (jamais un ratio d'étapes), l'accord critique est décidable sur place, les sept
+jalons sont rendus dont quatre qui « n'existent que comme intention », l'attente nomme Khaled et
+ses deux relances, la lecture de 21 jours est signalée, l'étape contournée est dite sans compter,
+le journal montre la ligne utile et déclare « 30 lignes de comptabilité du moteur écartées »,
+l'aperçu de modification rend son empreinte **et la base est vérifiée inchangée après** — et rien
+ne déborde à 375 px. 4/4. Suite unitaire : 42 tests de vue (dont 13 d'architecture qui cherchent
+les POINTS D'APPEL, pas les corps).
 
 ### L'HORIZON — une mission cesse d'être un plan et devient un objectif découpé (2026-09)
 

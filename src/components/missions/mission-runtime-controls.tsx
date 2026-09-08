@@ -1,10 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Check, Loader2, Pause, Play, Send, Square, X } from "lucide-react";
+import { Check, Flag, Loader2, Pause, Play, Send, Square, Wand2, X } from "lucide-react";
 import {
-  arreterMission, deciderAccordMission, fournirElementMission,
-  mettreMissionEnPause, reprendreMission,
+  appliquerModificationMission, arreterMission, changerPrioriteMission,
+  deciderAccordMission, fournirElementMission, mettreMissionEnPause,
+  prevoirModificationMission, reprendreMission,
+  type ApercuModification,
 } from "@/lib/actions/mission-runtime-actions";
 
 /**
@@ -192,5 +194,202 @@ export function ConduiteControls({ missionId, statut }: { missionId: string; sta
       </button>
       <Message etat={etat} />
     </div>
+  );
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA PRIORITÉ — « celle-ci passe devant ».
+ *
+ * Le battement sert les priorités hautes d'abord et l'ancienneté ensuite : relever une mission
+ * ne condamne aucune autre à ne jamais tourner. C'est un ordre de passage, pas une
+ * autorisation — donc il n'a pas la lourdeur d'un accord.
+ */
+export function PrioriteControls({ missionId, priorite }: { missionId: string; priorite: number }) {
+  const { enCours, etat, lancer } = useGeste();
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="mission-priorite">
+      <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+        <Flag className="h-3.5 w-3.5" aria-hidden /> priorité {priorite}
+      </span>
+      <button
+        type="button"
+        className="rounded-md border border-slate-300 px-2 py-1 text-xs disabled:opacity-60"
+        disabled={enCours !== null || priorite >= 10}
+        onClick={() => lancer("monter", () => changerPrioriteMission(missionId, priorite + 1))}
+      >
+        {enCours === "monter" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Faire passer devant"}
+      </button>
+      {priorite !== 0 ? (
+        <button
+          type="button"
+          className="rounded-md border border-slate-300 px-2 py-1 text-xs disabled:opacity-60"
+          disabled={enCours !== null}
+          onClick={() => lancer("normale", () => changerPrioriteMission(missionId, 0))}
+        >
+          {enCours === "normale" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Priorité normale"}
+        </button>
+      ) : null}
+      <Message etat={etat} />
+    </div>
+  );
+}
+
+const GENRES: { valeur: "REMPLACER" | "RETIRER" | "AJOUTER" | "RAFRAICHIR"; libelle: string; aide: string }[] = [
+  { valeur: "REMPLACER", libelle: "Remplacer", aide: "« Amel à la place de Deepak »" },
+  { valeur: "RETIRER", libelle: "Retirer", aide: "« annule uniquement le PowerPoint »" },
+  { valeur: "AJOUTER", libelle: "Ajouter", aide: "« ajoute une analyse financière »" },
+  { valeur: "RAFRAICHIR", libelle: "Relire une source", aide: "« utilise maintenant le nouveau forecast »" },
+];
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * MODIFIER LA MISSION EN COURS — en deux temps, et le premier n'écrit rien (§118.48).
+ *
+ * ── POURQUOI ON MONTRE L'EMPREINTE AVANT D'APPLIQUER ────────────────────────────────────
+ *
+ * « Finalement Amel à la place de Deepak » ne veut pas dire « recommence tout ». La modification
+ * a une empreinte exacte — les étapes où Deepak est NOMMÉ, leur descendance, les jalons
+ * rouverts — et surtout deux choses que seule une machine peut établir sans se tromper : ce qui
+ * est PRÉSERVÉ, et ce qui est DÉJÀ PARTI et ne sera donc pas rejoué. La personne lit cela AVANT
+ * de confirmer ; lui demander de faire confiance à un résumé écrit APRÈS serait lui demander de
+ * signer les yeux fermés.
+ *
+ * ── ET SI LA CIBLE N'EST RECONNUE NULLE PART ────────────────────────────────────────────
+ *
+ * On ne touche à RIEN et on le dit. Deviner choisirait la branche à jeter à la place d'un
+ * humain — sur une mission qui a déjà sollicité trois personnes, se tromper coûte ces trois
+ * demandes, et il n'y a pas de bouton pour les reprendre.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function ModificationControls({ missionId }: { missionId: string }) {
+  const [genre, setGenre] = React.useState<(typeof GENRES)[number]["valeur"]>("REMPLACER");
+  const [cible, setCible] = React.useState("");
+  const [remplacant, setRemplacant] = React.useState("");
+  const [apercu, setApercu] = React.useState<ApercuModification | null>(null);
+  const [enCours, setEnCours] = React.useState<string | null>(null);
+  const [erreur, setErreur] = React.useState<string | null>(null);
+
+  const choix = GENRES.find((g) => g.valeur === genre)!;
+  const besoinSecond = genre === "REMPLACER" || genre === "AJOUTER";
+  const pret = cible.trim() !== "" && (!besoinSecond || remplacant.trim() !== "");
+
+  async function voir() {
+    setEnCours("voir"); setErreur(null); setApercu(null);
+    try {
+      setApercu(await prevoirModificationMission(missionId, {
+        genre, cible, remplacant: genre === "REMPLACER" ? remplacant : null,
+        ajout: genre === "AJOUTER" ? remplacant : null,
+      }));
+    } catch { setErreur("L'aperçu n'a pas abouti. Réessayez."); }
+    finally { setEnCours(null); }
+  }
+
+  async function appliquer() {
+    setEnCours("appliquer"); setErreur(null);
+    try {
+      const r = await appliquerModificationMission(missionId, {
+        genre, cible, remplacant: genre === "REMPLACER" ? remplacant : null,
+        ajout: genre === "AJOUTER" ? remplacant : null,
+      });
+      if (!r.ok) { setErreur(r.message); return; }
+      // ON RECHARGE : une modification rouvre des jalons et invalide des étapes. Recomposer
+      // cet état côté client donnerait un écran plausible et faux.
+      window.location.reload();
+    } catch { setErreur("La modification n'a pas abouti. Réessayez."); }
+    finally { setEnCours(null); }
+  }
+
+  return (
+    <details className="mt-4 rounded-md border border-slate-200 p-3" data-testid="mission-modification">
+      <summary className="cursor-pointer text-sm font-medium text-slate-800">
+        <Wand2 className="mr-1.5 inline h-4 w-4" aria-hidden /> Modifier cette mission
+      </summary>
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {GENRES.map((g) => (
+          <button
+            key={g.valeur}
+            type="button"
+            className={`rounded-md border px-2 py-1 text-xs ${
+              genre === g.valeur ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 text-slate-700"
+            }`}
+            onClick={() => { setGenre(g.valeur); setApercu(null); }}
+          >
+            {g.libelle}
+          </button>
+        ))}
+      </div>
+      <p className="mt-1 text-xs text-slate-500">{choix.aide}</p>
+
+      <div className="mt-2 space-y-2">
+        <input
+          value={cible}
+          onChange={(e) => { setCible(e.target.value); setApercu(null); }}
+          className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+          placeholder={genre === "AJOUTER" ? "Ce à quoi ça se rattache" : "Ce qui est visé (une personne, un livrable, une source)"}
+          aria-label="Cible de la modification"
+        />
+        {besoinSecond ? (
+          <input
+            value={remplacant}
+            onChange={(e) => { setRemplacant(e.target.value); setApercu(null); }}
+            className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+            placeholder={genre === "REMPLACER" ? "Par qui / par quoi" : "Ce qu'on ajoute, en clair"}
+            aria-label={genre === "REMPLACER" ? "Remplaçant" : "Ajout"}
+          />
+        ) : null}
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-60"
+          disabled={!pret || enCours !== null}
+          onClick={() => void voir()}
+        >
+          {enCours === "voir" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Voir l'effet exact"}
+        </button>
+        {apercu?.ok ? (
+          <button
+            type="button"
+            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+            disabled={enCours !== null}
+            onClick={() => void appliquer()}
+          >
+            {enCours === "appliquer" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Appliquer"}
+          </button>
+        ) : null}
+      </div>
+
+      {apercu ? (
+        <div
+          className={`mt-2 rounded-md border p-2 text-sm ${
+            apercu.ok ? "border-slate-300 bg-slate-50 text-slate-700" : "border-amber-300 bg-amber-50 text-amber-900"
+          }`}
+          data-testid="mission-modification-apercu"
+          role="status"
+        >
+          <p>{apercu.message}</p>
+          {apercu.empreinte ? (
+            <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
+              <li>{apercu.empreinte.aRecompiler.length} étape(s) à refaire · {apercu.empreinte.preservees.length} préservée(s)</li>
+              {apercu.empreinte.jalonsTouches.length > 0 ? (
+                <li>jalon(s) rouvert(s) : {apercu.empreinte.jalonsTouches.join(", ")}</li>
+              ) : null}
+              {/* CE QUI EST DÉJÀ PARTI EST NOMMÉ, jamais rejoué en silence : un envoi effectué
+                  ne se reprend pas, et le taire ferait croire qu'il n'a pas eu lieu. */}
+              {apercu.empreinte.effetsIrreversibles.length > 0 ? (
+                <li className="text-slate-800">
+                  déjà parti, donc non rejoué : {apercu.empreinte.effetsIrreversibles.join(", ")}
+                </li>
+              ) : null}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      {erreur ? <p className="mt-2 text-sm text-rose-700" role="status">{erreur}</p> : null}
+    </details>
   );
 }

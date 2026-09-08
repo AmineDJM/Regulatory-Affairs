@@ -1,10 +1,14 @@
 import { AlertTriangle, Check, CircleAlert, FileSpreadsheet, Loader2, X } from "lucide-react";
 import type { CurrentUser } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
 import { vueMission } from "@/lib/missions/view/workspace";
+import { attentesDeMission, journalDeMission, lecturesAgeesDeMission } from "@/lib/missions/view/control";
 import { approbationsEnAttente } from "@/lib/missions/approval/gate";
-import { MISSION_STATUS_LABEL } from "@/lib/comms/missions";
-import type { MissionStatus } from "@prisma/client";
-import { AccordControls, ConduiteControls, ElementControls } from "./mission-runtime-controls";
+import {
+  AccordControls, ConduiteControls, ElementControls, ModificationControls, PrioriteControls,
+} from "./mission-runtime-controls";
+import { MissionHorizon, MissionPause } from "./mission-horizon";
+import { MissionAttentes, MissionCout, MissionJournal, MissionLectures } from "./mission-journal";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -50,6 +54,17 @@ export async function MissionRuntimePanel({ user, missionId }: { user: CurrentUs
   const vue = await vueMission(missionId, user.id);
   if (!vue) return null;
 
+  const maintenant = new Date();
+  const [attentes, journal, lectures, chiffres] = await Promise.all([
+    attentesDeMission(missionId, user.id),
+    journalDeMission(missionId, user.id),
+    lecturesAgeesDeMission(missionId, user.id, maintenant),
+    prisma.mission.findFirst({
+      where: { id: missionId, ownerId: user.id },
+      select: { priority: true, costUsd: true, modelCalls: true },
+    }),
+  ]);
+
   // L'accord se cherche dans la liste de CETTE personne : l'identifiant de mission ne suffit
   // pas à en obtenir un, et c'est voulu.
   const accord = vue.attente?.nodeType === "APPROVAL"
@@ -68,21 +83,27 @@ export async function MissionRuntimePanel({ user, missionId }: { user: CurrentUs
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="truncate text-base font-semibold text-slate-900">{vue.title}</h2>
-          <p className="mt-0.5 text-sm text-slate-600">
-            {MISSION_STATUS_LABEL[vue.statut as MissionStatus] ?? vue.statut}
-            {" — "}
-            {faites}/{total} étapes
-            {echouees > 0 ? `, ${echouees} en échec` : ""}
-          </p>
+          {/* LE SOUS-TITRE VIENT DE LA VUE, PAS D'UN CALCUL LOCAL. Sur une mission longue il
+              dit « jalon 3/7 » ; le recomposer ici en « faites/total » redirait les étapes du
+              sous-plan courant, c'est-à-dire « presque fini » sur une mission de six semaines
+              (§118.40). Deux endroits qui calculent la même phrase finissent par diverger. */}
+          <p className="mt-0.5 text-sm text-slate-600">{vue.subtitle}</p>
         </div>
         <ConduiteControls missionId={missionId} statut={vue.statut} />
       </header>
 
       {/* LA JAUGE COMPTE LES ÉTAPES RÉELLES. Une mission de trente-trois envois dont deux ont
-          échoué affiche 31/33 — jamais « 2/2 étapes du plan ». */}
-      <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100" aria-hidden>
-        <div className="h-full rounded-full bg-slate-900" style={{ width: `${pourcent}%` }} />
-      </div>
+          échoué affiche 31/33 — jamais « 2/2 étapes du plan ». Sur une mission à horizon, c'est
+          la jauge des JALONS qui fait foi (plus bas) : celle-ci ne parle que du sous-plan en
+          cours, et l'écran le dit au lieu de laisser croire le contraire. */}
+      {vue.horizon ? null : (
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100" aria-hidden>
+          <div className="h-full rounded-full bg-slate-900" style={{ width: `${pourcent}%` }} />
+        </div>
+      )}
+
+      {vue.pause ? <MissionPause pause={vue.pause} maintenant={maintenant} /> : null}
+      {vue.horizon ? <MissionHorizon horizon={vue.horizon} /> : null}
 
       {/* ── CE QUI ATTEND LA PERSONNE, EN PREMIER ─────────────────────────────────────── */}
       {accord ? (
@@ -107,6 +128,11 @@ export async function MissionRuntimePanel({ user, missionId }: { user: CurrentUs
       ) : null}
 
       {/* ── LES ÉTAPES ───────────────────────────────────────────────────────────────── */}
+      {vue.horizon ? (
+        <h3 className="mt-4 text-sm font-medium text-slate-800">
+          Le jalon en cours — {faites}/{total} étapes{echouees > 0 ? `, ${echouees} en échec` : ""}
+        </h3>
+      ) : null}
       <ol className="mt-4 space-y-1.5">
         {vue.etapes.map((e) => {
           const Icon = ETAPE_ICON[e.etat];
@@ -129,6 +155,21 @@ export async function MissionRuntimePanel({ user, missionId }: { user: CurrentUs
           );
         })}
       </ol>
+
+      {/* CE QUE LE PLAN COURANT A CONTOURNÉ. Ces étapes ne sont plus « à faire » — un plan
+          neuf a tourné autour — mais les taire ferait disparaître du travail que quelqu'un
+          avait demandé. On les compte, sans les remettre dans le dénominateur. */}
+      {vue.contournees > 0 ? (
+        <p className="mt-2 text-xs text-slate-500" data-testid="mission-contournees">
+          {vue.contournees} étape(s) d&apos;un plan précédent ont été contournées par le plan courant.
+        </p>
+      ) : null}
+
+      {attentes && attentes.length > 0 ? (
+        <MissionAttentes attentes={attentes} maintenant={maintenant} />
+      ) : null}
+
+      {lectures && lectures.length > 0 ? <MissionLectures lectures={lectures} /> : null}
 
       {/* ── LES LIVRABLES, avec l'état de leur contrôle ───────────────────────────────── */}
       {vue.livrables.length > 0 ? (
@@ -163,6 +204,20 @@ export async function MissionRuntimePanel({ user, missionId }: { user: CurrentUs
           {vue.sousMissions.length} sous-mission(s) :{" "}
           {vue.sousMissions.map((s) => `${s.titre} (${s.avancement})`).join(", ")}
         </p>
+      ) : null}
+
+      {journal ? <MissionJournal journal={journal} maintenant={maintenant} /> : null}
+
+      <MissionCout usd={chiffres?.costUsd ?? 0} appels={chiffres?.modelCalls ?? 0} />
+
+      {/* LES GESTES DE CONDUITE FINE. Ils ne sont proposés que sur une mission VIVANTE :
+          repriorisier ou modifier une mission terminée n'a pas de sens, et un bouton qui ne
+          peut rien faire apprend à ne plus faire confiance aux boutons. */}
+      {vue.statut !== "COMPLETED" && vue.statut !== "CANCELLED" ? (
+        <div className="mt-4 border-t border-slate-100 pt-3">
+          <PrioriteControls missionId={missionId} priorite={chiffres?.priority ?? 0} />
+          <ModificationControls missionId={missionId} />
+        </div>
       ) : null}
     </section>
   );
