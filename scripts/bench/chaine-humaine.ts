@@ -269,6 +269,7 @@ async function main(): Promise<void> {
   /** Le cas adverse joué — `ADVERSAIRE=contradiction`. Vide = la chaîne nominale. */
   const ADVERSAIRE = (process.env.ADVERSAIRE ?? "").trim();
   let dementiEnvoye = false;
+  let anticipeEnvoye: string | null = null;
 
   oublierTentativesSortantes();
   const depuis = new Date();
@@ -339,6 +340,36 @@ async function main(): Promise<void> {
   if (r.approbation) {
     await decider(r.approbation.id, "GRANTED", pdg.id);
     console.log(`  · accord donné (UN clic) : ${r.approbation.niveau}`);
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * LE CAS ADVERSE « DÉSORDRE » — la réponse arrive AVANT la question (§90).
+   *
+   * Réaliste et fréquent : quelqu'un anticipe. Le dirigeant a parlé du sujet en réunion, la
+   * personne envoie son chiffre de son propre chef, et la mission n'a pas encore ouvert
+   * l'attente qui l'aurait consommé.
+   *
+   * Ce qu'on redoute précisément : le message tombe dans le vide, PUIS la mission demande la
+   * même chose et attend pour toujours une réponse qu'elle a DÉJÀ reçue. Personne ne voit rien
+   * — ni échec, ni retard visible : une mission qui dort sur une information qu'elle possède.
+   */
+  if (ADVERSAIRE === "desordre") {
+    const premier = SCENARIO[0];
+    const qui = gens.find((g) => domaineDe(g.name) === premier.domaine);
+    if (qui) {
+      const reveils = await reveillerMissions({
+        type: "MESSAGE_RECEIVED", actorId: qui.id, entityType: null, entityId: null,
+        relatedRefs: [], missionId,
+        payload: {
+          from: qui.name, fromEmail: qui.email,
+          subject: "Sans attendre votre demande", body: premier.apporte, text: premier.apporte,
+          hasAttachments: false,
+        },
+      });
+      anticipeEnvoye = premier.apporte;
+      console.log(`  ⚡ ANTICIPATION : ${qui.name} répond AVANT qu'on lui demande — « ${premier.apporte.slice(0, 70)} » → ${reveils.length} réveil(s)`);
+    }
   }
 
   const TOURS_MAX = Number(process.env.CHAINE_TOURS ?? "14") || 14;
@@ -642,6 +673,35 @@ async function main(): Promise<void> {
             : ancienSeul
               ? `FAUX SUCCÈS : seul l'ancien chiffre (${c.ancien}) circule, le démenti n'a laissé aucune trace`
               : "ni l'ancien ni le nouveau chiffre ne circulent — rien à juger",
+      } as Verdict;
+    })()] : []),
+    /**
+     * ── LA RÉPONSE ANTICIPÉE N'EST PAS PERDUE (§90) ─────────────────────────────────────
+     *
+     * Le pire cas n'est pas qu'elle soit ignorée : c'est que la mission demande ENSUITE la même
+     * chose et attende pour toujours une information qu'elle a déjà reçue. Une mission qui dort
+     * sur ce qu'elle possède, sans échec ni retard visible.
+     *
+     * Deux issues acceptables : le message est CONSIGNÉ (il reste lisible avant de conclure),
+     * ou la mission n'est pas restée suspendue à cette attente-là à l'arrêt. Rien des deux —
+     * message évaporé ET attente encore ouverte — est le défaut.
+     */
+    ...(ADVERSAIRE === "desordre" && anticipeEnvoye ? [(() => {
+      const corpus = [
+        ...(etatFinal?.steps ?? []).map((x) => `${x.title} ${JSON.stringify(x.result ?? {})}`),
+        ...events.map((x) => x.summary ?? ""),
+      ].join(" \n ").toLowerCase();
+      const consigne = corpus.includes("hors attente") || corpus.includes("event_orphelin");
+      const ouvertes = journal[journal.length - 1]?.attentes.length ?? 0;
+      return {
+        id: "anticipation",
+        libelle: "une réponse ARRIVÉE AVANT la demande n'est ni perdue ni suivie d'une attente éternelle",
+        ok: consigne || ouvertes === 0,
+        detail: consigne
+          ? `consignée au journal${ouvertes === 0 ? " ; aucune attente ouverte à l'arrêt" : ` ; ${ouvertes} attente(s) encore ouverte(s)`}`
+          : ouvertes === 0
+            ? "non consignée, mais la mission ne dort sur aucune attente"
+            : `PERDUE : rien au journal, et ${ouvertes} attente(s) encore ouverte(s) — la mission dort sur une information qu'elle a reçue`,
       } as Verdict;
     })()] : []),
     ...verdictsLivrables,
