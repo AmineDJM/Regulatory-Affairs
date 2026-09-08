@@ -119,6 +119,14 @@ const NEUTRAL = new Set([
   // résout un destinataire, le moteur de missions aussi. Le ranger d'un côté forcerait l'autre
   // à en écrire une seconde version, qui divergerait (§118.5).
   "src/lib/personnes/designation",
+  // `personnes/joignabilite` lit une déclaration (« email:a@x.dz, b@y.dz ») et rend les
+  // adresses valides ; `personnes/autonomie-proprietaire` dit si un geste est couvert par
+  // l'autonomie que la personne a accordée pour être jointe. Deux lectures de chaînes et une
+  // liste fermée — zéro import, sans état, sans base, sans règle métier. Même critère que
+  // `mutations/empreinte` : la conversation ET le moteur en ont besoin, et n'ont pas le droit
+  // de se parler.
+  "src/lib/personnes/joignabilite",
+  "src/lib/personnes/autonomie-proprietaire",
 ]);
 
 export interface Violation {
