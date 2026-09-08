@@ -97,6 +97,16 @@ export function verifierCommande(c: CommandeArtefact, format: ArtifactFormat): s
       if (cibleVide(c.cible)) return "il faut dire QUEL paragraphe espacer";
       if (c.avantPt === null && c.apresPt === null) return "il faut donner un espacement avant et/ou après";
       return null;
+    case "docx.interligne":
+      if (cibleVide(c.cible)) return "il faut dire QUEL paragraphe aérer";
+      if (c.interligne === null) return "il faut donner l'interligne (1 = simple, 1,5, 2 = double)";
+      if (c.interligne < 0.5 || c.interligne > 5) return `interligne ${c.interligne} aberrant : entre 0,5 et 5`;
+      return null;
+    case "docx.cellule_bordure":
+      if (cibleVide(c.cible)) return "il faut dire QUEL tableau";
+      if (c.ligne === null || c.colonne === null) return "il faut dire quelle LIGNE et quelle COLONNE (1-indexées)";
+      if (!c.bordure) return "il faut dire quels côtés border (haut, bas, gauche, droite, contour, tout, aucun)";
+      return null;
     case "docx.retrait":
       if (cibleVide(c.cible)) return "il faut dire QUEL paragraphe décaler";
       if (c.gaucheCm === null && c.droiteCm === null) return "il faut donner un retrait gauche et/ou droit";
@@ -178,6 +188,10 @@ export function verifierCommande(c: CommandeArtefact, format: ArtifactFormat): s
       return null;
     case "xlsx.fusionner":
       if (!c.plage || !analyserPlage(c.plage)) return "il faut donner la plage à fusionner";
+      return null;
+    case "xlsx.bordure":
+      if (!c.plage && (c.ligne === null || c.colonne === null)) return "il faut une plage (A1:C4) ou une ligne et une colonne";
+      if (!c.bordure) return "il faut dire quels côtés border (haut, bas, gauche, droite, contour, tout, aucun)";
       return null;
     case "xlsx.trier":
       if (!c.plage || !analyserPlage(c.plage)) return "il faut donner la plage à trier";

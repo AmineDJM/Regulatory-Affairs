@@ -30,6 +30,7 @@
 import type { ArtifactFormat } from "@/lib/artifact/object-model/model";
 import { normaliserTexte } from "@/lib/artifact/object-model/text";
 import type { CommandeArtefact, Cible } from "@/lib/artifact/commands/ir";
+import { lireDistanceCm, lireInterligne, lirePoints, sansMesures } from "@/lib/artifact/commands/quantites";
 import { CIBLE_VIDE, cibleId, cibleIndex, cibleRole, commande } from "@/lib/artifact/commands/ir";
 
 /** Ce que le décodeur sait du contexte : où la personne regarde, ce qu'elle vient de toucher. */
@@ -80,9 +81,16 @@ const NOMBRES_ECRITS: Record<string, number> = {
   dernier: -1, derniere: -1, dernière: -1,
 };
 
-/** « le troisième », « le 3ᵉ », « 12 » → 3, 3, 12. `null` quand rien n'est dit. */
+/**
+ * « le troisième », « le 3ᵉ », « 12 » → 3, 3, 12. `null` quand rien n'est dit.
+ *
+ * LES MESURES SONT RETIRÉES D'ABORD. « décale le paragraphe 3 de 1,2 cm » donnait 1 — le
+ * chiffre des unités de la distance — et déplaçait donc le paragraphe 1 en annonçant que
+ * c'était fait. La mauvaise cible annoncée comme faite est le défaut le plus coûteux de tout
+ * ce système (§104.7).
+ */
 function rang(phrase: string): number | null {
-  const chiffres = /\b(\d{1,4})\b/.exec(phrase);
+  const chiffres = /\b(\d{1,4})\b/.exec(sansMesures(phrase));
   if (chiffres) return Number(chiffres[1]);
   for (const [mot, n] of Object.entries(NOMBRES_ECRITS)) {
     if (new RegExp(`\\b${mot}\\b`).test(phrase)) return n;
@@ -90,8 +98,32 @@ function rang(phrase: string): number | null {
   return null;
 }
 
-/** L'amplitude demandée : « un peu », « beaucoup », rien. */
+/**
+ * LE MOT VISÉ À L'INTÉRIEUR DE LA CIBLE — « uniquement le troisième mot », « le dernier mot ».
+ *
+ * `null` quand la phrase ne parle pas d'un mot : la mise en forme porte alors sur toute la
+ * cible, comme avant. Attraper un « mot » qu'on comprend mal serait PIRE que ne rien attraper
+ * (§104.5) — on n'accepte donc que « le Nᵉ mot » et « le dernier mot », rien d'autre.
+ */
+function motVise(p: string): number | null {
+  if (!/\bmots?\b/.test(p)) return null;
+  if (/\b(dernier|derniere|dernière)\s+mots?\b/.test(p)) return -1;
+  const avant = /([\wéèêàûîôç]+)\s+mots?\b/i.exec(sansMesures(p));
+  if (!avant) return null;
+  const n = rang(avant[1]!);
+  return n !== null && n >= 1 && n <= 500 ? n : null;
+}
+
+/**
+ * L'amplitude demandée, en centimètres.
+ *
+ * UNE MESURE ÉCRITE L'EMPORTE TOUJOURS. « décale de 1,2 cm » vaut 1,2 cm, pas « un pas
+ * normal » : une édition de précision qui arrondit n'est pas une édition de précision. Les
+ * mots d'amplitude ne servent que lorsque la personne n'a PAS chiffré.
+ */
 function amplitude(p: string): number {
+  const mesure = lireDistanceCm(p);
+  if (mesure !== null) return mesure;
   if (/\b(beaucoup|nettement|franchement|bien plus|largement)\b/.test(p)) return PAS_GRAND_CM;
   if (/\b(un peu|legerement|légèrement|un chouia|un poil|petit peu)\b/.test(p)) return PAS_PETIT_CM;
   return PAS_NORMAL_CM;
@@ -222,6 +254,15 @@ export function decoder(phrase: string, ctx: ContexteDecodage): IntentionDirecte
     if (/\b(aligne|alignement)\b.*\b(a droite|à droite)\b/.test(p)) {
       return { genre: "commandes", commandes: [commande("docx.align", { cible: cibleDe(p, ctx), alignement: "right" })] };
     }
+    // « augmente l'interligne de ce paragraphe », « interligne 1,5 », « double interligne ».
+    // AVANT « remonte / descends » : sans cela, « augmente l'interligne » n'était rien, et la
+    // personne obtenait de l'air AUTOUR du paragraphe au lieu d'en avoir ENTRE ses lignes.
+    {
+      const inter = lireInterligne(p);
+      if (inter !== null) {
+        return { genre: "commandes", commandes: [commande("docx.interligne", { cible: cibleDe(p, ctx), interligne: inter })] };
+      }
+    }
     // « remonte un peu le tableau » / « descends-le »
     if (/\b(remonte|remonter|monte|fais remonter)\b/.test(p) || /\b(descends|descendre|baisse)\b/.test(p)) {
       const remonte = /\b(remonte|remonter|monte|fais remonter)\b/.test(p);
@@ -246,6 +287,38 @@ export function decoder(phrase: string, ctx: ContexteDecodage): IntentionDirecte
     }
     // « réduis-le à 16 », « mets-le en 14 », « passe le titre à 20 »
     const taille = /\b(?:a|à|en|de)\s*(\d{1,3})\s*(?:pt|points?)?\b/.exec(p);
+    /**
+     * « UNIQUEMENT LE TROISIÈME MOT EN ARIAL 10 » — police ET taille, sur CE mot seulement.
+     *
+     * Avant, la phrase tombait sur la règle de police ou celle de taille, qui repeignaient tout
+     * le paragraphe : quarante mots changés pour un mot demandé, et la personne ne s'en
+     * apercevait qu'en relisant. L'empreinte réelle ne dépasse jamais l'empreinte demandée
+     * (§118.16) — ici sur l'axe de la PROFONDEUR : un mot < un paragraphe.
+     */
+    {
+      const mot = motVise(p);
+      if (mot !== null) {
+        const nomPolice = /\b(?:en|police)\s+([A-Z][A-Za-zÀ-ÿ]{2,}(?:\s+[A-Z][A-Za-zÀ-ÿ]*){0,2})/.exec(phrase);
+        /**
+         * « EN ARIAL 10 » : le nombre suit le NOM DE POLICE, pas « en » ou « à ». La règle
+         * générale de taille (`\ben\s*(\d+)`) ne le voyait donc pas, et le mot sortait à la
+         * bonne police mais à la taille d'avant — une demande à moitié faite, annoncée entière.
+         */
+        const apresPolice = nomPolice ? /(\d{1,3})\s*(?:pt|points?)?\s*$/.exec(phrase.trim()) : null;
+        const pt = taille ? Number(taille[1]) : apresPolice ? Number(apresPolice[1]) : null;
+        const rendu = {
+          cible: { ...cibleDe(p, ctx), mot },
+          ...(nomPolice ? { police: nomPolice[1]!.trim() } : {}),
+          ...(pt !== null && pt >= 4 && pt <= 200 ? { taillePt: pt } : {}),
+          ...(/\b(gras)\b/.test(p) ? { gras: true } : {}),
+          ...(/\bitalique\b/.test(p) ? { italique: true } : {}),
+        };
+        const aQuelqueChose = "police" in rendu || "taillePt" in rendu || "gras" in rendu || "italique" in rendu;
+        if (aQuelqueChose) {
+          return { genre: "commandes", commandes: [commande("docx.format_texte", rendu)] };
+        }
+      }
+    }
     if (taille && /\b(taille|reduis|réduis|agrandis|passe|mets|met|police)\b/.test(p)) {
       const pt = Number(taille[1]);
       if (pt >= 4 && pt <= 200) {

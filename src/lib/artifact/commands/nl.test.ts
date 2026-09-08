@@ -188,3 +188,81 @@ describe("ce que le décodeur laisse au modèle", () => {
     expect(i).toBeNull();
   });
 });
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'ÉDITION DE PRÉCISION — les phrases exactes demandées.
+ *
+ * Le décodeur savait décaler « un peu » (0,5 cm) ou « beaucoup » (2 cm). Il ne savait pas lire
+ * « de 1,2 cm » : la phrase portait la mesure, il la remplaçait par son estimation. Et `rang()`
+ * prenait le PREMIER nombre — « le paragraphe 3 de 1,2 cm » lui donnait 1, donc il déplaçait le
+ * paragraphe 1 en annonçant que c'était fait (§104.7).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("édition de PRÉCISION — la mesure écrite l'emporte sur l'estimation", () => {
+  const ctx = ctxDocx;
+
+  it("« décale ce titre de 1,2 cm à droite » décale de 1,2 cm, pas d'un pas standard", () => {
+    const r = decoder("décale ce titre de 1,2 cm à droite", ctx);
+    expect(r?.genre).toBe("commandes");
+    if (r?.genre !== "commandes") return;
+    expect(r.commandes[0].op).toBe("docx.retrait");
+    expect(r.commandes[0].gaucheCm).toBeCloseTo(1.2, 3);
+  });
+
+  it("« décale de 4 mm à gauche » est un décalage NÉGATIF de 0,4 cm", () => {
+    const r = decoder("décale le titre de 4 mm à gauche", ctx);
+    if (r?.genre !== "commandes") throw new Error("non décodé");
+    expect(r.commandes[0].gaucheCm).toBeCloseTo(-0.4, 3);
+  });
+
+  it("SANS mesure, l'estimation qualitative reste — on n'a rien cassé", () => {
+    const r = decoder("décale le titre un peu à droite", ctx);
+    if (r?.genre !== "commandes") throw new Error("non décodé");
+    expect(r.commandes[0].gaucheCm).toBeGreaterThan(0);
+    expect(r.commandes[0].gaucheCm).toBeLessThan(1);
+  });
+
+  it("LE DÉFAUT SILENCIEUX : « le paragraphe 3 de 1,2 cm » vise le 3, jamais le 1", () => {
+    const r = decoder("décale le paragraphe 3 de 1,2 cm à droite", ctx);
+    if (r?.genre !== "commandes") throw new Error("non décodé");
+    expect(r.commandes[0].cible?.index).toBe(3);
+    expect(r.commandes[0].gaucheCm).toBeCloseTo(1.2, 3);
+  });
+
+  it("« augmente l'interligne de ce paragraphe à 1,5 » règle l'air ENTRE les lignes", () => {
+    const r = decoder("augmente l'interligne de ce paragraphe à 1,5", ctx);
+    if (r?.genre !== "commandes") throw new Error("non décodé");
+    expect(r.commandes[0].op).toBe("docx.interligne");
+    expect(r.commandes[0].interligne).toBe(1.5);
+  });
+
+  it("« double interligne » vaut 2", () => {
+    const r = decoder("mets le titre en double interligne", ctx);
+    if (r?.genre !== "commandes") throw new Error("non décodé");
+    expect(r.commandes[0].op).toBe("docx.interligne");
+    expect(r.commandes[0].interligne).toBe(2);
+  });
+
+  it("« uniquement le troisième mot en Arial 10 » ne repeint PAS le paragraphe entier", () => {
+    const r = decoder("uniquement le troisième mot en Arial 10", ctx);
+    if (r?.genre !== "commandes") throw new Error("non décodé");
+    expect(r.commandes[0].op).toBe("docx.format_texte");
+    expect(r.commandes[0].cible?.mot).toBe(3);
+    expect(r.commandes[0].police).toBe("Arial");
+    expect(r.commandes[0].taillePt).toBe(10);
+  });
+
+  it("« le dernier mot en gras » vise le dernier, pas tout le paragraphe", () => {
+    const r = decoder("mets le dernier mot en gras", ctx);
+    if (r?.genre !== "commandes") throw new Error("non décodé");
+    expect(r.commandes[0].cible?.mot).toBe(-1);
+    expect(r.commandes[0].gras).toBe(true);
+  });
+
+  it("SANS « mot », la mise en forme porte sur toute la cible — l'ancien comportement", () => {
+    const r = decoder("mets le titre en gras", ctx);
+    if (r?.genre !== "commandes") throw new Error("non décodé");
+    expect(r.commandes[0].cible?.mot ?? null).toBeNull();
+  });
+});

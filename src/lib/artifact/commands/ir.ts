@@ -49,9 +49,17 @@ export interface Cible {
    * estimation (`DocxModel.paginationSource`).
    */
   page?: number | null;
+  /**
+   * LE MOT visé À L'INTÉRIEUR de la cible, 1-indexé — « uniquement le troisième mot en Arial 10 ».
+   *
+   * C'est ce qui distingue une édition de PRÉCISION d'une mise en forme de paragraphe : sans
+   * lui, « le troisième mot en Arial » repeint les quarante mots du paragraphe, et la personne
+   * ne s'en aperçoit qu'en relisant. Un nombre négatif compte depuis la fin (-1 = le dernier).
+   */
+  mot?: number | null;
 }
 
-export const CIBLE_VIDE: Cible = { id: null, index: null, contient: null, role: null, page: null };
+export const CIBLE_VIDE: Cible = { id: null, index: null, contient: null, role: null, page: null, mot: null };
 export const ciblePage = (page: number, reste: Partial<Cible> = {}): Cible => ({ ...CIBLE_VIDE, ...reste, page });
 
 export const cibleId = (id: string): Cible => ({ ...CIBLE_VIDE, id });
@@ -78,6 +86,15 @@ export const OPS_DOCX = [
   "docx.supprimer_ligne",
   "docx.image_taille",
   "docx.supprimer_image",
+  /**
+   * L'INTERLIGNE — « augmente l'interligne de ce paragraphe », « interligne 1,5 ».
+   * Distinct de `docx.espacement`, qui règle l'air AUTOUR du paragraphe (avant / après) :
+   * ici c'est l'air ENTRE ses lignes. Les confondre donne un paragraphe qui s'éloigne du
+   * précédent alors qu'on voulait l'aérer lui-même.
+   */
+  "docx.interligne",
+  /** La bordure d'UNE cellule — « change seulement la bordure de cette cellule ». */
+  "docx.cellule_bordure",
 ] as const;
 
 export const OPS_XLSX = [
@@ -92,6 +109,8 @@ export const OPS_XLSX = [
   "xlsx.figer",
   "xlsx.fusionner",
   "xlsx.trier",
+  /** La bordure d'une cellule ou d'une plage — sans toucher au reste de son style. */
+  "xlsx.bordure",
   "xlsx.ajouter_feuille",
   "xlsx.renommer_feuille",
   "xlsx.supprimer_feuille",
@@ -161,6 +180,12 @@ export interface CommandeArtefact {
   hauteurCm: number | null;
   avantPt: number | null;
   apresPt: number | null;
+  /** L'interligne, en MULTIPLES de la ligne : 1 = simple, 1,5, 2 = double. */
+  interligne: number | null;
+  /** Les côtés à border : « haut », « bas », « gauche », « droite », « contour », « tout », « aucun ». */
+  bordure: string | null;
+  /** Le style du trait : « fin », « epais », « double », « pointille ». */
+  bordureStyle: string | null;
   gaucheCm: number | null;
   droiteCm: number | null;
 
@@ -197,7 +222,7 @@ export const COMMANDE_VIDE: Omit<CommandeArtefact, "op"> = {
   cible: null, cible2: null,
   alignement: null, gras: null, italique: null, souligne: null, taillePt: null, police: null, couleur: null,
   xCm: null, yCm: null, dxCm: null, dyCm: null, largeurCm: null, hauteurCm: null,
-  avantPt: null, apresPt: null, gaucheCm: null, droiteCm: null,
+  avantPt: null, apresPt: null, interligne: null, bordure: null, bordureStyle: null, gaucheCm: null, droiteCm: null,
   texte: null, chercher: null, remplacer: null, formule: null, formatNombre: null, remplissage: null,
   feuille: null, plage: null, ligne: null, colonne: null, pages: null, ordre: null, diapo: null, versIndex: null,
   position: null, direction: null, pas: null, degres: null, opacite: null, tout: null, nom: null,
