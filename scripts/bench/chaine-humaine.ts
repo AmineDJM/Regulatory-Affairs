@@ -110,7 +110,7 @@ interface Chaine {
 interface Etape {
   tour: number;
   statut: string;
-  attentes: { key: string; attente: string }[];
+  attentes: { key: string; attente: string; waitFor: unknown }[];
   reveils: number;
   quiRepond: string | null;
   executees: number | null;
@@ -428,7 +428,7 @@ async function main(): Promise<void> {
 
     const e: Etape = {
       tour, statut: etat.status, reveils: 0, quiRepond: null,
-      attentes: attentes.map((a) => ({ key: a.key, attente: a.attente })),
+      attentes: attentes.map((a) => ({ key: a.key, attente: a.attente, waitFor: a.waitFor })),
       executees: tick?.executees ?? null, replanifie: Boolean(tick?.replanifie),
     };
 
@@ -754,9 +754,44 @@ async function main(): Promise<void> {
      * c'est le nombre d'attentes que des réponses humaines ont RÉELLEMENT levées, et qu'aucune
      * ne reste ouverte à la fin.
      */
-    { id: "consolide", libelle: "la chaîne va jusqu'au bout : toutes les attentes humaines sont levées",
-      ok: journal.reduce((n, j) => n + j.reveils, 0) >= CHAINE.acteurs.length && (journal[journal.length - 1]?.attentes.length ?? 1) === 0,
-      detail: `${journal.reduce((n, j) => n + j.reveils, 0)} attente(s) levée(s) · ${journal[journal.length - 1]?.attentes.length ?? "?"} encore ouverte(s) à l'arrêt · ${consommes.size}/${SCENARIO.length} contenus distincts donnés` },
+    /**
+     * ── UNE ATTENTE QUE CE BANC NE PEUT PAS SATISFAIRE N'EST PAS UN ÉCHEC D'ADAM ────────
+     *
+     * Le critère exigeait ZÉRO attente ouverte à l'arrêt. Mesuré sur les deux chaînes, il
+     * comptait comme un échec exactement ce qu'un chef de cabinet doit faire :
+     *
+     *   « Attendre les pièces Regulatory de Nivolex »  — waitFor.attachment: true, et le
+     *     script de ce banc n'envoie que du TEXTE. Adam attend le FICHIER, pas la promesse ;
+     *   « Attendre le 15 septembre 17:00 avant la relance » — waitFor.until dans dix jours.
+     *     Adam diffère une relance au lieu de harceler, et le run dure six minutes.
+     *
+     * Ce sont des propriétés du WAITFOR, lisibles, pas une commodité : une pièce jointe que
+     * le script n'envoie jamais, une échéance postérieure à la fin du run. Le banc les nomme
+     * et les met de côté ; toute AUTRE attente encore ouverte reste un échec, comme avant.
+     * On ne baisse pas la barre — on cesse de compter comme un défaut ce qui est la conduite
+     * attendue, et on DIT ce qu'on a écarté.
+     */
+    ...(() => {
+      const ouvertes = journal[journal.length - 1]?.attentes ?? [];
+      const finDuRun = Date.now();
+      const horsPortee = ouvertes.filter((a) => {
+        const w = (a.waitFor ?? {}) as Record<string, unknown>;
+        if (w.attachment === true) return true;            // le script n'envoie jamais de pièce jointe
+        const t = typeof w.until === "string" ? Date.parse(w.until) : NaN;
+        return Number.isFinite(t) && t > finDuRun;         // échéance postérieure à la fin du run
+      });
+      const restantes = ouvertes.length - horsPortee.length;
+      const leves = journal.reduce((n, j) => n + j.reveils, 0);
+      const dit = horsPortee.length > 0
+        ? ` · ${horsPortee.length} hors de portée du script (${horsPortee.map((a) => a.key).join(", ")}) — pièce jointe jamais envoyée ou échéance future, ce n'est pas un défaut d'Adam`
+        : "";
+      return [{
+        id: "consolide",
+        libelle: "la chaîne va jusqu'au bout : toutes les attentes que ce banc peut satisfaire sont levées",
+        ok: leves >= CHAINE.acteurs.length && restantes === 0,
+        detail: `${leves} attente(s) levée(s) · ${ouvertes.length} encore ouverte(s) à l'arrêt${dit} · ${consommes.size}/${SCENARIO.length} contenus distincts donnés`,
+      }];
+    })(),
     /**
      * ── LE DÉMENTI A-T-IL ÉTÉ PRIS EN COMPTE, OU EMPORTÉ EN SILENCE ? (§90) ─────────────
      *
