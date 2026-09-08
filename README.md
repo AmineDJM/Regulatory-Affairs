@@ -7949,6 +7949,49 @@ fréquente comprise), entités 1 ms alias franchis, précalculé 1 ms, lot 2 ms 
 pièce — l'écart du loteur a GRANDI avec le réseau, comme prédit. Rapport final complet
 (A–V du mandat, états honnêtes) : `docs/INFORMATION_FABRIC.md`.
 
+### L'HORIZON — une mission cesse d'être un plan et devient un objectif découpé (2026-09)
+
+**Le défaut, et il n'était pas de taille.** Une mission était UN plan compilé d'avance. Ça tient
+à trente étapes. À trois cents, le plan ne rentre plus dans une fenêtre de modèle — et bien avant
+ça, il devient FAUX : le planificateur écrit l'étape 200 sans savoir ce que l'étape 40 aura
+trouvé, donc il invente ses références. Un destinataire pas encore identifié, un chiffre pas
+encore reçu, un fichier qui n'existe pas. Un plan monolithique de mission longue est un plan qui
+parie sur trois semaines d'inconnu.
+
+**Ce qui remplace.** Un objectif durable est découpé en JALONS — un titre et le résultat qu'on
+doit pouvoir CONSTATER — et seuls ceux que la frontière atteint sont compilés en étapes. La
+compilation paresseuse ne réduit pas un coût : elle rend le plan du jalon 7 informé par le
+jalon 6. Mesuré en live sur « prépare le dossier de l'appel d'offres PCH 2026/14 » : **7 jalons,
+le premier avec 11 étapes, le dernier avec 0** — parce qu'il n'existe encore que comme intention.
+
+**La fin du plafond global de replans.** `PLANS_MAX = 4` bornait la mission ENTIÈRE : sur sept
+jalons, un seul qui s'y reprend à quatre fois consommait le budget des six autres. Ce qui décide
+maintenant est le PROGRÈS — tant que le refus CHANGE, un tour de plus vaut son prix ; dès qu'il
+revient identique, c'est fini. `Mission.replanBloque` porte ce verdict, la REQUÊTE du battement
+le lit, et il se remet à faux dès qu'une information neuve arrive.
+
+**Ce que le banc en deux processus a trouvé, et que rien d'autre n'aurait vu.**
+
+| # | Ce qui était cassé | Ce que ça coûtait |
+|---|---|---|
+| 1 | La mission longue était **invisible au battement entre deux jalons** — zéro étape PENDING, statut RUNNING non replanifiable | Elle mourait à son **premier jalon** : toute la compilation paresseuse était du code sans effet |
+| 2 | Un **jalon BLOQUÉ n'était jamais repris** — le moteur réessayait les étapes, personne ne réessayait le jalon | Une difficulté LOCALE tuait la mission entière |
+| 3 | La **fraîcheur était du code mort**, et son test en était complice (il lisait le corps, pas l'appelant) | 53 étapes abouties, 2 332 reçus, **ZÉRO entrée datée** |
+
+**Le troisième est le plus instructif** : `daterLEntree` était écrite, commentée, et couverte par
+un test au vert. Son APPEL avait été perdu dans une édition. Le test d'architecture cherche
+maintenant le point d'appel, et à l'endroit exact où il doit être.
+
+**Ce qui a été confirmé, sur la même mission live** : pause honorée (51 → 51 étapes abouties
+pendant la pause), reprise qui dit depuis combien de temps et ce qu'elle a interrompu, et
+modification chirurgicale — « Nesrine à la place de Hetero » : **16 étapes sur 50 invalidées, 32
+préservées, 2 jalons rouverts sur 7, 2 effets déjà partis nommés et exclus, reçus identiques
+avant et après**. Zéro sortie réelle, garde armée.
+
+`npm run bench:horizon` — `PHASE=1` puis `PHASE=2` dans un **processus neuf**. « Ça survit à un
+redémarrage » ne se démontre pas dans le processus qui vient de tout écrire : il mesurerait sa
+propre mémoire.
+
 ### LE PLAN MORT-NÉ — une replanification qui ne pouvait pas démarrer, et le destinataire illisible (2026-09)
 
 **Le symptôme.** Chaîne humaine « regulatory », mission `cmtsdqc17…` : `5/12`, statut BLOCKED,

@@ -109,6 +109,35 @@ describe("le socle de l'horizon reste PUR", () => {
   });
 });
 
+describe("la fraîcheur a un APPELANT DE PRODUCTION (§118.14)", () => {
+  it("les entrées vieillies entrent dans les CONTRAINTES du sous-plan suivant", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : `entreesAVerifier` supprimée du contexte de planification.
+     * `MissionInput` redeviendrait une table qu'on remplit et que personne ne lit — l'exemple
+     * même de la brique écrite, testée, et sans effet. La fraîcheur ne sert que si elle CHANGE
+     * un plan.
+     */
+    const pilote = lire("src/platform/in-process/missions/horizon.ts");
+    expect(pilote).toContain("const perimees = await entreesAVerifier(mission.id);");
+    expect(pilote).toMatch(/contraintes: perimees/);
+    expect(pilote, "la fraîcheur ne passe pas par le module qui la juge").toContain("aRegarder(entrees, new Date())");
+  });
+
+  it("le pilote ne relit RIEN de sa propre autorité — il énonce, le plan décide", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : quelqu'un fait relire le pilote « pour aller plus vite ».
+     * On produirait alors des lectures hors plan, sans étape pour les porter ni reçu pour les
+     * prouver — c'est-à-dire des faits sans provenance, exactement ce que tout le registre de
+     * preuves existe pour empêcher.
+     */
+    const pilote = lire("src/platform/in-process/missions/horizon.ts");
+    const f = pilote.slice(pilote.indexOf("async function entreesAVerifier"));
+    const corps = f.slice(0, f.indexOf("\n}"));
+    expect(corps, "`entreesAVerifier` exécute une capacité au lieu de se contenter de dire")
+      .not.toMatch(/executer|runner|\.lire\(|capabilit/i);
+  });
+});
+
 describe("l'arrêt d'une mission ferme aussi son horizon", () => {
   it("`annuler` annule les jalons vivants", () => {
     /**

@@ -45,8 +45,10 @@ import {
 } from "@/lib/missions/horizon/jalon";
 import { peutReplanifier, signatureRefus } from "@/lib/missions/horizon/budget";
 import {
-  aDesJalons, compterReplan, ecrireJalons, lireJalons, marquerJalon, type JalonPersiste,
+  aDesJalons, compterReplan, ecrireJalons, lireEntrees, lireJalons, marquerJalon,
+  type JalonPersiste,
 } from "@/lib/missions/horizon/store";
+import { aRegarder } from "@/lib/missions/horizon/fraicheur";
 import { chargerEtat, journaliser, materialiser, transitionner } from "@/lib/missions/runtime/store";
 import { evaluerObjectif, type EtapeObservee } from "@/lib/missions/goal/evaluate";
 import { lireRecu } from "@/lib/missions/runtime/receipt";
@@ -388,6 +390,7 @@ async function compilerJalon(
 
   const acquis = await acquisDeLaMission(mission.id);
   const echecs = await echecsDuJalon(mission.id, jalon.id);
+  const perimees = await entreesAVerifier(mission.id);
   const politiques = await import("@/platform/in-process/teach/store")
     .then((m) => m.politiquesPourMission(user.id))
     .catch(() => [] as string[]);
@@ -413,6 +416,19 @@ async function compilerJalon(
      * jusqu'à celui qui peut le réparer.
      */
     ...(echecs.length > 0 ? { refusPrecedent: echecs } : {}),
+    /**
+     * ── CE QUI A VIEILLI DEPUIS QU'ON L'A LU (§118.46) ────────────────────────────────
+     *
+     * C'est ICI que la fraîcheur devient une propriété du produit et cesse d'être une table.
+     * Le module `fraicheur.ts` DIT ce qui est vieux ; il ne décide pas de relire — relire coûte
+     * des appels et peut avoir des effets. Le bon endroit pour décider, c'est le PLAN : on
+     * énonce la contrainte, le planificateur écrit l'étape de relecture si elle sert, et cette
+     * étape passe par les mêmes droits, les mêmes reçus, la même politique que les autres.
+     *
+     * L'alternative — relire d'autorité depuis le pilote — ferait des lectures hors plan, sans
+     * étape pour les porter ni reçu pour les prouver. La contrainte, elle, se lit dans le plan.
+     */
+    ...(perimees.length > 0 ? { contraintes: perimees } : {}),
   };
 
   const consigne = consigneDuJalon(objectif, jalon, tous);
@@ -528,6 +544,26 @@ async function compilerJalon(
   return { compile: true, bloque: false, raison: "sous-plan écrit" };
 }
 
+
+
+/**
+ * CE QUE LA MISSION A LU IL Y A TROP LONGTEMPS POUR SA NATURE — dit au planificateur.
+ *
+ * Une mission de trois semaines lit son forecast le jour 1 et le réutilise le jour 19. Le
+ * chiffre a très bien pu bouger, et rien dans la mission ne le sait. Ces phrases-là entrent dans
+ * les CONTRAINTES du sous-plan suivant : c'est lui qui décidera s'il faut relire, et l'étape de
+ * relecture aura ses droits, son reçu et sa trace comme n'importe quelle autre.
+ *
+ * Bornée à cinq : au-delà, ce n'est plus une contrainte, c'est un catalogue que le modèle
+ * survole. On garde les plus vieilles — `aRegarder` les rend déjà triées.
+ */
+async function entreesAVerifier(missionId: string): Promise<string[]> {
+  const entrees = await lireEntrees(missionId).catch(() => []);
+  if (entrees.length === 0) return [];
+  return aRegarder(entrees, new Date())
+    .slice(0, 5)
+    .map((v) => `DONNÉE À REVÉRIFIER AVANT DE T'EN SERVIR — ${v.phrase}`);
+}
 
 /** Ce qui a échoué sur CE jalon, en français, prêt pour le planificateur. */
 async function echecsDuJalon(missionId: string, milestoneId: string): Promise<string[]> {
