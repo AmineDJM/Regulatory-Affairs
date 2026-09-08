@@ -23,10 +23,24 @@ describe("isImportableExt", () => {
     expect(isImportableExt("PDF")).toBe(true);
   });
 
-  it("refuse une image — le corpus attend un texte sélectionnable, pas un scan", () => {
-    expect(isImportableExt("png")).toBe(false);
-    expect(isImportableExt("jpg")).toBe(false);
+  it("ACCEPTE une image — une page du Journal officiel scannée porte le même droit (§118.63)", () => {
+    /**
+     * Cette assertion disait l'inverse : « le corpus attend un texte sélectionnable, pas un
+     * scan ». C'était la politique, et elle est tombée avec le refus qui l'accompagnait
+     * (« Océrisez-le d'abord ») — le moteur OCR vit dans le répertoire voisin et tourne en
+     * production. Refuser une image à l'EXTENSION revenait à décider qu'une connaissance existe
+     * selon le format dans lequel quelqu'un l'a reçue.
+     */
+    expect(isImportableExt("png")).toBe(true);
+    expect(isImportableExt("jpg")).toBe(true);
+    expect(isImportableExt("TIFF")).toBe(true);
+  });
+
+  it("refuse ce dont on ne tire AUCUN texte, image ou pas", () => {
     expect(isImportableExt("doc")).toBe(false); // binaire hérité : pas d'extraction fiable
+    expect(isImportableExt("exe")).toBe(false);
+    expect(isImportableExt("zip")).toBe(false); // une archive s'inspecte, elle ne s'ingère pas
+    expect(isImportableExt("")).toBe(false);
   });
 });
 

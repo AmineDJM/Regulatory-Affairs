@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { extractText } from "../extract/extract-text";
-import { canOcr, ocrDocument } from "../ocr/ocr-engine";
+import { lireTexteOuOcr } from "../extract/texte-ou-ocr";
 import { inspectZip } from "../ingest/zip-inspector";
 import { classifyDocument } from "../ctd/classify";
 import { detectContainedSections } from "../ctd/detect-sections";
@@ -40,19 +39,12 @@ export async function ingestCaseFile(input: {
     return { filename, status: "FAILED", error: `${Math.round(input.buffer.length / 1048576)} Mo — au-delà de la limite de ${MAX_MB} Mo.` };
   }
 
-  const extracted = await extractText(ext, input.buffer);
-  let text = (extracted.text ?? "").trim();
   // Un COURRIER ANPP est presque toujours un scan : le refuser reviendrait à exclure la pièce la
-  // plus précieuse de l'entraînement. Même OCR réel que les lettres de réserves — et si l'OCR ne
-  // rend rien d'exploitable, on refuse en le disant : un précédent illisible n'apprend rien.
-  if ((extracted.status === "OCR_REQUIRED" || text.length < 300) && canOcr(ext)) {
-    try {
-      const ocr = await ocrDocument({ ext, buffer: input.buffer });
-      if (ocr.text.trim().length > text.length) text = ocr.text.trim();
-    } catch {
-      /* OCR indisponible → le verdict « texte trop court » ci-dessous dira quoi corriger */
-    }
-  }
+  // plus précieuse de l'entraînement. Ces dix lignes vivaient ICI, et l'ingestion du CORPUS —
+  // l'autre porte d'entrée — refusait les scans en renvoyant la personne les océriser elle-même.
+  // Un seul lecteur, donc, appelé par les deux (§118.63).
+  const lecture = await lireTexteOuOcr(ext, input.buffer, { seuilOcr: 300 });
+  const text = lecture.texte;
   if (text.length < 300) {
     return { filename, status: "FAILED", error: `Texte illisible ou trop court (${text.length} caractères), même après OCR.` };
   }

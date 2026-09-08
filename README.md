@@ -5194,6 +5194,32 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### « OCÉRISEZ-LE D'ABORD » — la capacité était dans le répertoire d'à côté (2026-09)
+
+L'ingestion du **corpus** réglementaire refusait tout scan : *« Document image (scanné) : le corpus attend un texte
+sélectionnable. Océrisez-le d'abord. »* Le moteur OCR vit dans `intelligence/ocr/` — deux moteurs, aucune clé
+nécessaire pour le repli — et il tourne **en production** sur les documents de dossier. Mieux : `training/ingest-case.ts`,
+le fichier voisin, l'autre porte d'entrée de la connaissance, l'appelait déjà, avec la bonne raison en commentaire
+(« un courrier ANPP est presque toujours un scan »).
+
+Deux ingestions, une capacité branchée d'un seul côté : on renvoyait une personne faire à la main ce que le logiciel
+savait faire, à un mètre de là. La réponse n'est pas de recopier les dix lignes — elles auraient divergé comme le
+reste — mais de n'avoir **qu'un lecteur** (`extract/texte-ou-ocr.ts`) que les deux appellent. Les **images** entrent
+aussi : refuser un arrêté photographié à son extension revenait à décider qu'une connaissance existe selon le format
+dans lequel quelqu'un l'a reçue.
+
+Un texte océrisé n'est pas pour autant une lecture de la loi : la **méthode** et la **confiance** sont persistées
+(`RegulatorySourceVersion.extractionMethod` / `extractionConfidence`) et affichées sur les deux écrans — sans quoi une
+source lue à 63 % est indiscernable d'un arrêté copié du Journal officiel. Le motif de refus, enfin, se construit
+depuis la liste des formats : écrit à la main, il **mentait déjà** (« PDF, DOCX, TXT, MD, HTML, XLSX » alors que CSV
+et XLS passaient).
+
+**Et six octets arrêtaient le serveur.** `BM????` dans une archive : sharp refuse l'en-tête, le code disait
+« best-effort : on OCR l'image brute si sharp échoue », et donnait ces octets à Tesseract — dont le worker Node
+**émet** un `error`, c'est-à-dire une exception non rattrapée, c'est-à-dire l'arrêt du processus. Le test passait :
+ses assertions étaient vraies, le crash arrivait après. *Sharp qui renonce à optimiser* n'est pas *sharp qui ne sait
+pas lire* : dans le second cas, ces octets ne sont pas une image et on ne les présente pas au moteur.
+
 ### UN TOTAL ÉCRIT COMME UNE DONNÉE — un chiffre faux, VERIFIED, dans un fichier qui n'est pas un tableur (2026-09)
 
 Le contrat dit au modèle : « tu n'écris jamais de formule Excel, déclare `totals` et le code écrira la bonne ».

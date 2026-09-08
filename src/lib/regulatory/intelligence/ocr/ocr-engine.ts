@@ -80,6 +80,22 @@ export async function rasterizePdf(buffer: Buffer, maxPages: number): Promise<{ 
  * pleines. Un léger `sharpen` compense le flou de numérisation — sans seuillage brutal, qui
  * détruirait les documents gris.
  */
+/**
+ * CES OCTETS SONT-ILS UNE IMAGE ? La seule question qui décide si on ose les donner au moteur.
+ *
+ * `sharp` lit l'en-tête ; s'il n'y arrive pas, aucun décodeur n'y arrivera. On répond `false`
+ * plutôt que de propager : un contrôle qui lève là où il devait trancher ne tranche rien.
+ */
+export async function estUneImage(buffer: Buffer): Promise<boolean> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const meta = await sharp(buffer).metadata();
+    return Boolean(meta.width && meta.height);
+  } catch {
+    return false;
+  }
+}
+
 async function preprocess(buffer: Buffer): Promise<Buffer> {
   const sharp = (await import("sharp")).default;
   const base = sharp(buffer).rotate(); // applique l'orientation EXIF
@@ -158,12 +174,31 @@ async function ocrWithTesseract(input: { ext: string; buffer: Buffer; langs?: st
   let total = 1;
   let failedPages = 0;
 
+  const illisible = (index: number) => {
+    pages.push({ page: index + 1, text: "", confidence: 0, chars: 0, lowConfidence: true }); // → revue humaine
+  };
+
   const recognizeOne = async (raw: Buffer, index: number): Promise<void> => {
     let img = raw;
     try {
       img = await preprocess(img);
-    } catch {
-      /* pré-traitement best-effort : on OCR l'image brute si sharp échoue */
+    } catch (err) {
+      // ── CE QUI SE PASSAIT ICI FAISAIT TOMBER LE PROCESSUS ────────────────────────────
+      //
+      // « Pré-traitement best-effort : on OCR l'image brute si sharp échoue » est juste quand
+      // sharp renonce à OPTIMISER. C'est faux quand il ne reconnaît même pas l'en-tête : ces
+      // octets ne sont pas une image, et Tesseract, lui, ne se contente pas de rejeter la
+      // promesse — son worker Node émet un événement `error`, et un `error` sans écouteur est
+      // une EXCEPTION NON RATTRAPÉE : le serveur s'arrête. Mesuré sur six octets « BM???? »
+      // dans une archive, exactement le genre de fichier qu'une personne dépose.
+      //
+      // On distingue donc les deux : sharp ne sait pas LIRE le fichier → la page est illisible,
+      // on ne la présente pas au moteur. Sharp a échoué APRÈS l'avoir lue → on tente le brut.
+      if (!(await estUneImage(raw))) {
+        console.error("[reg-ocr] page ignorée — ces octets ne sont pas une image", index + 1, err instanceof Error ? err.message : err);
+        illisible(index);
+        return;
+      }
     }
     try {
       const { data } = await worker.recognize(img);
@@ -172,7 +207,7 @@ async function ocrWithTesseract(input: { ext: string; buffer: Buffer; langs?: st
       pages.push({ page: index + 1, text, confidence, chars: text.length, lowConfidence: confidence < LOW_CONFIDENCE });
     } catch (err) {
       console.error("[reg-ocr] reconnaissance page échouée", index + 1, err instanceof Error ? err.message : err);
-      pages.push({ page: index + 1, text: "", confidence: 0, chars: 0, lowConfidence: true }); // illisible → revue humaine
+      illisible(index);
     }
   };
 

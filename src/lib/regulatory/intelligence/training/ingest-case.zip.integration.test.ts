@@ -64,10 +64,14 @@ describe("ingestCaseArchive — un ZIP de produit passé, déplié pièce par pi
     const byName = (f: string) => results.find((r) => r.filename.includes(f))!;
     expect(byName("reserve en fr.txt").status).toBe("INGESTED");
     expect(byName("tracker.txt").status).toBe("INGESTED");
-    // L'exécutable est bloqué par l'inspection ; le format inconnu est ignoré avec son motif.
+    // L'exécutable est bloqué par l'inspection, avec son motif.
     expect(byName("script.exe").status).toBe("FAILED");
+    // L'IMAGE, elle, n'est plus refusée pour son FORMAT (§118.63) : elle est désormais un
+    // candidat que l'OCR tente de lire. Ces six octets n'étant pas un bitmap, elle est refusée
+    // pour ce qu'elle est VRAIMENT — illisible — et non pour ce qu'elle porte comme extension.
     expect(byName("photo.bmp").status).toBe("FAILED");
-    expect(byName("photo.bmp").error).toContain("ignoré");
+    expect(byName("photo.bmp").error).toMatch(/illisible|trop court/i);
+    expect(byName("photo.bmp").error, "le refus parle encore du format").not.toMatch(/format|ignoré/i);
 
     // Les pièces ingérées portent leurs sections CTD repérées (c'est ce qui route les précédents).
     const docs = await prisma.regulatoryCaseDoc.findMany({ where: { caseId }, select: { filename: true, sections: true } });

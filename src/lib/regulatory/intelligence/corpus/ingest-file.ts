@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { extractText } from "../extract/extract-text";
+import { lireTexteOuOcr, type MoteurOcr } from "../extract/texte-ou-ocr";
 import { splitIntoSections } from "./import";
 import {
-  CORPUS_IMPORT_EXTS, extOf, titleFromFilename, codeFromTitle,
+  CORPUS_IMPORT_EXTS, extOf, titleFromFilename, codeFromTitle, libelleFormats,
   type FileIngestResult,
 } from "./import-formats";
 
@@ -55,6 +55,8 @@ export interface ImportFileInput {
   /** Titre imposé ; à défaut, déduit du nom de fichier. */
   title?: string | null;
   userId?: string | null;
+  /** Moteur OCR injecté — TESTS uniquement : un test n'a ni réseau ni données de langue. */
+  ocr?: MoteurOcr;
 }
 
 export async function ingestCorpusFile(input: ImportFileInput): Promise<FileIngestResult> {
@@ -62,26 +64,31 @@ export async function ingestCorpusFile(input: ImportFileInput): Promise<FileInge
   const ext = extOf(filename);
 
   if (!(CORPUS_IMPORT_EXTS as readonly string[]).includes(ext)) {
-    return { filename, status: "FAILED", error: `Format « ${ext || "inconnu"} » non pris en charge (PDF, DOCX, TXT, MD, HTML, XLSX).` };
+    return { filename, status: "FAILED", error: `Format « ${ext || "inconnu"} » non pris en charge (${libelleFormats()}).` };
   }
   if (input.buffer.length > MAX_MB * 1024 * 1024) {
     return { filename, status: "FAILED", error: `${Math.round(input.buffer.length / 1048576)} Mo — au-delà de la limite de ${MAX_MB} Mo.` };
   }
 
-  // 1) Texte. Un PDF scanné rend un texte vide : on le DIT plutôt que de créer une version creuse
-  //    qui gonflerait le corpus sans jamais rien apporter à une recherche.
-  const extracted = await extractText(ext, input.buffer);
-  const text = (extracted.text ?? "").trim();
-  if (extracted.status === "OCR_REQUIRED" || (text.length < 500 && extracted.status !== "TEXT_EXTRACTED")) {
+  // 1) TEXTE — natif, et OCR quand il n'y en a pas (§118.63).
+  //
+  // Ce bloc disait : « Document image (scanné) : le corpus attend un texte sélectionnable.
+  // Océrisez-le d'abord. » Le moteur OCR vit dans le répertoire voisin, il tourne en production
+  // sur les documents de dossier, et l'ingestion d'ENTRAÎNEMENT l'appelait déjà. On renvoyait
+  // donc une personne faire à la main ce que le logiciel savait faire, à un mètre de là.
+  const lecture = await lireTexteOuOcr(ext, input.buffer, { seuilOcr: 500, ocr: input.ocr });
+  const text = lecture.texte;
+  if (text.length < 500) {
     return {
       filename, status: "FAILED",
-      error: extracted.status === "OCR_REQUIRED"
-        ? "Document image (scanné) : le corpus attend un texte sélectionnable. Océrisez-le d'abord."
-        : `Texte illisible ou trop court (${text.length} caractères).`,
+      methode: lecture.methode,
+      ...(lecture.confiance !== null ? { confiance: lecture.confiance } : {}),
+      error: lecture.methode === "ocr"
+        ? `L'OCR n'a lu que ${text.length} caractères sur ${lecture.pages ?? 0} page(s) — le scan est probablement illisible.`
+        : lecture.statutNatif === "OCR_REQUIRED"
+          ? "Document image sans texte, et l'OCR n'a rien pu en tirer (moteur indisponible ou page vide)."
+          : `Texte trop court (${text.length} caractères) — un texte réglementaire en fait davantage.`,
     };
-  }
-  if (text.length < 500) {
-    return { filename, status: "FAILED", error: `Texte trop court (${text.length} caractères) — un texte réglementaire en fait davantage.` };
   }
 
   const title = (input.title ?? "").trim() || titleFromFilename(filename);
@@ -131,6 +138,11 @@ export async function ingestCorpusFile(input: ImportFileInput): Promise<FileInge
         status: "ACTIVE", // l'import par l'administrateur VAUT activation
         hash,
         originalText: text.slice(0, 5_000_000),
+        // D'OÙ VIENT CE TEXTE. Sans ces deux colonnes, une source reconnue par OCR à 63 % est
+        // indiscernable d'un arrêté copié depuis le Journal officiel — et Adam la citerait avec
+        // la même assurance (§104.15).
+        extractionMethod: lecture.methode,
+        extractionConfidence: lecture.confiance,
         supersedesId: latest?.id ?? null,
         publishedAt: new Date(),
         approvedById: input.userId ?? null,
@@ -153,7 +165,12 @@ export async function ingestCorpusFile(input: ImportFileInput): Promise<FileInge
       });
     }
 
-    return { filename, status: "INGESTED", sourceVersionId: version.id, sections: sections.length, chars: text.length };
+    return {
+      filename, status: "INGESTED", sourceVersionId: version.id, sections: sections.length, chars: text.length,
+      methode: lecture.methode,
+      ...(lecture.confiance !== null ? { confiance: lecture.confiance } : {}),
+      ...(lecture.aRelire ? { aRelire: true } : {}),
+    };
   } catch (e) {
     console.error("[corpus] import de fichier impossible", filename, e);
     return { filename, status: "FAILED", error: "Enregistrement en base impossible." };

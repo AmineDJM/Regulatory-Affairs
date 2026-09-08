@@ -37,6 +37,8 @@ type Row = {
   state: "pending" | "running" | FileIngestStatus;
   message?: string;
   sections?: number;
+  /** Un scan reconnu par OCR ne se lit pas comme un texte natif : l'écran le DIT (§118.63). */
+  ocr?: { confiance?: number; aRelire?: boolean };
 };
 
 const ACCEPT = CORPUS_IMPORT_EXTS.map((e) => `.${e}`).join(",");
@@ -86,7 +88,10 @@ export function CorpusImport() {
           fd.set("language", language);
           const res = await importCorpusFileAction(fd);
           setRows((prev) => prev.map((r) => (r.id === row.id
-            ? { ...r, state: res.status, message: res.error, sections: res.sections }
+            ? {
+              ...r, state: res.status, message: res.error, sections: res.sections,
+              ...(res.methode === "ocr" ? { ocr: { confiance: res.confiance, aRelire: res.aRelire } } : {}),
+            }
             : r)));
         } catch {
           // Un échec réseau reste un échec DE CE FICHIER : la file continue.
@@ -233,6 +238,7 @@ export function CorpusImport() {
                   <p className="text-xs text-muted-foreground">
                     {Math.max(1, Math.round(r.file.size / 1024))} Ko
                     {r.state === "INGESTED" && ` · ${r.sections ?? 0} section(s) · ACTIF — utilisé par les analyses`}
+                    {r.ocr && ` · texte OCÉRISÉ${typeof r.ocr.confiance === "number" ? ` (confiance ${r.ocr.confiance} %)` : ""}${r.ocr.aRelire ? " — des pages méritent une relecture" : ""}`}
                     {r.state === "UNCHANGED" && " · contenu identique à la version connue — rien créé"}
                     {r.message && ` · ${r.message}`}
                   </p>

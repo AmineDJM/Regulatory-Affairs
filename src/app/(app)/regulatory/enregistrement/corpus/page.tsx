@@ -41,7 +41,11 @@ export default async function CorpusPage() {
       id: true, code: true, title: true, authority: true, jurisdiction: true, sourceUrl: true,
       versions: {
         orderBy: { createdAt: "desc" }, take: 1,
-        select: { id: true, version: true, status: true, createdAt: true, _count: { select: { sections: true } } },
+        select: {
+        id: true, version: true, status: true, createdAt: true,
+        extractionMethod: true, extractionConfidence: true,
+        _count: { select: { sections: true } },
+      },
       },
     },
   });
@@ -125,7 +129,11 @@ export default async function CorpusPage() {
 
 type SourceWithVersion = {
   id: string; code: string; title: string; authority: string; jurisdiction: string; sourceUrl: string | null;
-  versions: { id: string; version: string; status: string; createdAt: Date; _count: { sections: number } }[];
+  versions: {
+    id: string; version: string; status: string; createdAt: Date;
+    extractionMethod: string | null; extractionConfidence: number | null;
+    _count: { sections: number };
+  }[];
 };
 
 function SourceRow({ source: s }: { source: SourceWithVersion }) {
@@ -139,6 +147,12 @@ function SourceRow({ source: s }: { source: SourceWithVersion }) {
       {v && (
         <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
           v. {v.version} · {v._count.sections} section(s) · {formatDate(v.createdAt)}
+          {/* UN TEXTE OCÉRISÉ N'EST PAS UNE LECTURE DE LA LOI. Sans cette mention, une source
+              reconnue à 63 % de confiance est indiscernable d'un arrêté copié du Journal
+              officiel — et on la cite avec la même assurance (§104.15, §118.63). */}
+          {v.extractionMethod === "ocr" && (
+            <> · <span className="font-medium text-amber-700">océrisé{typeof v.extractionConfidence === "number" ? ` — confiance ${Math.round(v.extractionConfidence)} %` : ""}</span></>
+          )}
         </span>
       )}
     </li>

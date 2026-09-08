@@ -7918,6 +7918,11 @@ model RegulatorySourceVersion {
   status       RegSourceStatus @default(DRAFT)
   hash         String? // sha-256 du texte original
   originalText String? // texte intégral (peut être volumineux)
+  /// D'où vient le texte : "texte" (natif) ou "ocr" (scan reconnu). Une source océrisée n'est
+  /// pas une lecture de la loi : l'écran le dit, et Adam ne la cite pas comme un texte natif.
+  extractionMethod     String?
+  /// Confiance moyenne de l'OCR (0-100). NULL pour un texte natif.
+  extractionConfidence Float?
   supersedesId String? // version remplacée
   approvedById String?
   approvedAt   DateTime?

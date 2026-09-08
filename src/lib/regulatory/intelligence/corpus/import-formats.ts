@@ -15,7 +15,26 @@
  * lourd.
  */
 
-export const CORPUS_IMPORT_EXTS = ["pdf", "docx", "txt", "md", "html", "htm", "csv", "xlsx", "xls"] as const;
+/**
+ * LES IMAGES SONT DES SOURCES. Un arrêté photographié ou une page du Journal officiel scannée en
+ * PNG portent exactement le même droit qu'un PDF ; les refuser à l'extension revenait à décider
+ * qu'une connaissance existe selon le format dans lequel quelqu'un l'a reçue. Le moteur OCR du
+ * dossier voisin les lit — la porte s'ouvre donc aussi pour elles.
+ */
+export const CORPUS_OCR_EXTS = ["png", "jpg", "jpeg", "webp", "tif", "tiff", "bmp"] as const;
+
+export const CORPUS_IMPORT_EXTS = [
+  "pdf", "docx", "txt", "md", "html", "htm", "csv", "xlsx", "xls", ...CORPUS_OCR_EXTS,
+] as const;
+
+/**
+ * La liste des formats, DITE — pour que le motif de refus ne puisse pas mentir. Elle était
+ * écrite à la main dans deux messages (« PDF, DOCX, TXT, MD, HTML, XLSX ») et avait déjà cessé
+ * d'être vraie : ni CSV ni XLS n'y figuraient, alors qu'ils passaient.
+ */
+export function libelleFormats(): string {
+  return CORPUS_IMPORT_EXTS.map((e) => e.toUpperCase()).join(", ");
+}
 
 export type CorpusImportExt = (typeof CORPUS_IMPORT_EXTS)[number];
 
@@ -29,6 +48,15 @@ export interface FileIngestResult {
   chars?: number;
   /** Motif d'échec, en clair — c'est ce qui dit quoi corriger avant de réessayer. */
   error?: string;
+  /**
+   * D'où vient le texte. Un scan reconnu par OCR n'est pas une lecture de la loi : l'écran le
+   * DIT, sans quoi une source citée à 63 % de confiance ressemble à un texte natif (§104.15).
+   */
+  methode?: "texte" | "ocr";
+  /** Confiance moyenne de l'OCR (0-100). Absente pour un texte natif. */
+  confiance?: number;
+  /** Vrai quand l'OCR juge que des pages méritent une relecture humaine. */
+  aRelire?: boolean;
 }
 
 /** Extension en minuscules, sans le point. Vide si le nom n'en porte pas. */
