@@ -33,7 +33,8 @@ import { abreger, normaliserTexte } from "@/lib/artifact/object-model/text";
 import { cibleVide, type CommandeArtefact } from "@/lib/artifact/commands/ir";
 import { resoudre } from "@/lib/artifact/commands/resolve";
 import type {
-  AdaptateurArtefact, DocumentOuvert, EffetCommande, ExtractionImage, RessourceBinaire, Validation,
+  AdaptateurArtefact, DesignationImage, DocumentOuvert, EffetCommande, ExtractionImage,
+  RessourceBinaire, Validation,
 } from "@/lib/artifact/adapters/contract";
 import { lireImage, tailleInsertion } from "@/lib/artifact/object-model/image";
 import {
@@ -782,7 +783,8 @@ class DocxOuvert implements DocumentOuvert {
     return effetOk(`Ligne ${c.ligne} du tableau ${t.t.index} supprimée.`, [t.t.id]);
   }
 
-  private ciblerImage(c: CommandeArtefact) {
+  /** Ne lit QUE la cible : une lecture d'image n'est pas une commande (voir `DesignationImage`). */
+  private ciblerImage(c: { cible: CommandeArtefact["cible"] }) {
     const r = resoudre(c.cible, this.designablesImages(), { libelle: "image" });
     if (r.etat === "TROUVE") return { ok: true as const, i: r.objet };
     const candidats = r.etat === "AMBIGU" ? r.candidats.map((x) => ({ id: x.id, libelle: `image ${x.index}` })) : [];
@@ -796,8 +798,8 @@ class DocxOuvert implements DocumentOuvert {
    * page 4 », « celle qui parle du tampon ». Un ciblage séparé finirait par diverger, et
    * « remplace la 2ᵉ image » ne toucherait plus la même que « lis la 2ᵉ image ».
    */
-  async extraireImage(c: CommandeArtefact): Promise<ExtractionImage> {
-    const t = this.ciblerImage(c);
+  async extraireImage(d: DesignationImage): Promise<ExtractionImage> {
+    const t = this.ciblerImage(d);
     if (!t.ok) return extractionEchec(t.echec.motif ?? "image introuvable", t.echec.candidats);
     const oct = octetsDeLImage(this.etat.zip, t.i.noeud);
     if (!oct) {

@@ -28,8 +28,10 @@
 import type { PdfModel, PdfPageNode } from "@/lib/artifact/object-model/model";
 import { abreger } from "@/lib/artifact/object-model/text";
 import type { CommandeArtefact } from "@/lib/artifact/commands/ir";
-import type { AdaptateurArtefact, DocumentOuvert, EffetCommande, Validation } from "@/lib/artifact/adapters/contract";
-import { effetEchec, effetOk } from "@/lib/artifact/adapters/contract";
+import type {
+  AdaptateurArtefact, DesignationImage, DocumentOuvert, EffetCommande, ExtractionImage, Validation,
+} from "@/lib/artifact/adapters/contract";
+import { effetEchec, effetOk, extractionEchec } from "@/lib/artifact/adapters/contract";
 
 export const MIME_PDF = "application/pdf";
 
@@ -244,6 +246,51 @@ class PdfOuvert implements DocumentOuvert {
       ajouterFlux(this.doc, page, flux, ressources);
     }
     return effetOk(`Filigrane « ${abreger(texte, 30)} » appliqué sur ${pages.length} page${pages.length > 1 ? "s" : ""}.`, []);
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * UNE PAGE DE PDF DEVIENT UNE IMAGE — et c'est le bon geste, pas un pis-aller.
+   *
+   * Un PDF porte souvent des dizaines d'images par page : le logo, un filet, une puce, et LE
+   * tampon qu'on veut lire. Les énumérer obligerait la personne à désigner « la 7ᵉ image de
+   * la page 4 », qu'elle ne peut pas connaître — et le tampon d'un scan n'est PAS une image
+   * incorporée : la page ENTIÈRE en est une.
+   *
+   * On rend donc la PAGE, rastérisée, ce qui est exactement ce que « lis le tampon page 4 »
+   * demande. La limite est réelle et se dit : on ne sait pas isoler une illustration précise
+   * dans une page (§34 — une limitation se nomme, jamais « pas codé »).
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  async extraireImage(d: DesignationImage): Promise<ExtractionImage> {
+    const total = this.doc.countPages();
+    const demandees = d.pages && d.pages.length ? d.pages : (d.cible?.page ? [d.cible.page] : []);
+    if (demandees.length === 0) {
+      return extractionEchec(`il faut dire QUELLE page lire (ce document en compte ${total})`);
+    }
+    if (demandees.length > 1) {
+      // On ne fusionne pas : une lecture porte sur UNE image, et rendre la première des
+      // quatre serait le défaut que §104.7 interdit.
+      return extractionEchec(
+        `une lecture porte sur UNE page à la fois — ${demandees.length} ont été demandées (${demandees.join(", ")}) : redemandez page par page`,
+      );
+    }
+    const page = demandees[0];
+    if (page < 1 || page > total) {
+      return extractionEchec(`ce document n'a pas de page ${page} (il en compte ${total})`);
+    }
+    const { rendrePagePdf } = await import("@/lib/artifact/render/raster");
+    const rendue = await rendrePagePdf(await this.serialiser(), page);
+    if (!rendue) return extractionEchec(`la page ${page} n'a pas pu être rendue en image`);
+    return {
+      ok: true,
+      image: {
+        octets: rendue.png,
+        nom: `page-${page}.png`,
+        description: null,
+        ou: `page ${page}`,
+      },
+    };
   }
 
   async serialiser(): Promise<Buffer> {

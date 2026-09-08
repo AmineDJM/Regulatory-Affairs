@@ -1582,12 +1582,39 @@ coûte **quelques millisecondes** au lieu d'un aller-retour de conversion.
   7,6 ms P95 ; « centre + 16 pt + Aptos » 9,2 ms ; suppression de 3 pages dans un PDF de 300 pages
   23,5 ms ; rendu d'une page 36,5 ms. **Non mesuré et dit franchement** : réseau, déchiffrement du
   blob, aller-retour d'action serveur — ils dépendent de l'hébergement, pas de ce code.
-- **Sabotages** (`npm run office:sabotage`) : neuf défauts plausibles réintroduits un par un
+- **Les images : poser, remplacer, supprimer — sur les trois formats bureautiques.** « Mets le logo
+  Adventum en haut du contrat », « remplace le logo de la diapo 3 », « le tampon en B2 de la feuille
+  Synthèse ». La commande porte le **nom** du fichier source, jamais ses octets : le moteur le résout
+  à travers le port (donc sous les droits de la personne) et dépose les octets juste avant
+  d'appliquer, ce qui garde le journal léger et rejouable (§104.3). Un nom qui désigne deux fichiers
+  ne fait pas choisir la machine — elle rend les candidats. La taille suit le rapport de l'image,
+  bornée par la largeur utile de la page (Word), la diapositive (PowerPoint) ou la **zone
+  d'impression déclarée** (Excel). Excel est le format qui en demande le plus : l'image n'entre pas
+  dans la feuille, elle vit dans une partie **dessin** à côté, et trois pièges y sont silencieux —
+  `<drawing>` inséré à la fin détruit un tableau structuré (le schéma exige `tableParts` après),
+  une seconde partie dessin fait disparaître l'image précédente, et une relation écrite dans la
+  feuille au lieu du dessin donne un cadre vide.
+- **Lire ce qu'une image MONTRE** (`lireImageDuDocument`, geste `lire_image`). Un contrat scanné, un
+  tampon d'homologation, un graphique collé dans un deck, une photo d'étiquette dans un classeur :
+  le texte du fichier n'en dit RIEN, et c'est souvent là qu'est la réponse. L'adaptateur sait **où**
+  sont les octets (`extraireImage`, même ciblage que les commandes) ; il ne sait pas les lire — c'est
+  le **port de vision** qui le fait, rempli par le repli à quatre paliers DÉJÀ en place (§38), pour
+  qu'une image d'un document et une photo jointe à la conversation aient la même qualité de lecture.
+  Un PDF se lit **page par page** : un scan n'a pas d'image incorporée, la page entière en est une.
+  Le texte lu ressort emballé (`wrapUntrusted`) et la **note de méthode** — OCR ou modèle, confiance,
+  durée — voyage avec lui : ce n'est jamais un fait vérifié. Une installation sans port de vision le
+  DIT au lieu de répondre « lu, rien dedans », qui ferait conclure que le tampon est vierge.
+- **Sabotages** (`npm run office:sabotage`) : quinze défauts plausibles réintroduits un par un
   (décalage d'un rang, suppression croissante, annulation qui ne rejoue pas, police non écrite,
   sauvegarde qui n'écrit rien, session régénérée, idempotence vérifiée trop tard, style Excel
-  modifié sur place, arbre XML toujours reconstruit). **9/9 font tomber la suite.**
+  modifié sur place, arbre XML toujours reconstruit, relation d'image non déclarée, relation
+  PowerPoint dans la mauvaise diapositive, `<drawing>` en fin de feuille, seconde partie dessin,
+  lecture qui rend la première image au lieu de celle qu'on vise, lecture sans vision qui répond
+  « rien dedans »). **15/15 font tomber la suite.**
 - **Fichiers** : `src/lib/artifact/{object-model,commands,adapters/{docx,xlsx,pptx,pdf},render,qa,
-  runtime,capabilities,observability}/`, ports remplis par `src/platform/in-process/artifact/`,
+  runtime,capabilities,observability}/` (dont `object-model/image.ts` — lecture d'en-têtes PNG /
+  JPEG / GIF / BMP / TIFF / WEBP, `null` sur ce qu'il ne reconnaît pas à coup sûr — et
+  `adapters/{docx,pptx,xlsx}/media.ts`), ports remplis par `src/platform/in-process/artifact/`,
   outils Adam dans `src/lib/assistant/office-capabilities.ts`, UI
   `src/components/chief/workspace/blocks/artifact.tsx`.
 
@@ -5157,6 +5184,42 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### LES IMAGES DANS UN DOCUMENT — LES POSER, ET LIRE CE QU'ELLES MONTRENT (2026-09)
+
+**Poser.** « Mets le logo Adventum en haut du contrat », « remplace celui de la diapo 3 », « le
+tampon en B2 de la feuille Synthèse » : Word, PowerPoint et Excel, insertion, remplacement,
+suppression. La commande porte le **nom** du fichier source, jamais ses octets — le moteur le résout
+par le port, sous les droits de la personne, et un nom qui désigne deux fichiers rend les
+**candidats** au lieu de coller le logo de 2019 dans un contrat de 2027.
+
+**Excel demandait six endroits, pas quatre**, et trois de ses pièges ne font aucun bruit : le schéma
+d'une feuille est une SÉQUENCE, si bien qu'un `<drawing>` ajouté « à la fin » d'une feuille portant
+un tableau structuré produit un classeur qu'Excel *répare* en perdant le tableau ; une feuille ne
+renvoie qu'à UNE partie dessin, si bien qu'en créer une seconde fait disparaître l'image d'hier sans
+erreur ni trace ; et la relation vers les octets appartient au dessin — écrite dans la feuille, elle
+donne un cadre vide. Sans taille demandée, on borne à la **zone d'impression que le classeur
+déclare** (`pageSetup` + `pageMargins`) : une feuille n'a pas de bord à l'écran, mais elle s'imprime.
+
+**Lire.** Un contrat scanné, un tampon d'homologation, un graphique collé, une photo d'étiquette : le
+texte du fichier n'en dit rien, et c'est souvent là qu'est la réponse. `extraireImage` sort les
+octets par le **même ciblage** que les commandes (« la 2ᵉ image » désigne le même objet qu'on lise ou
+qu'on remplace) ; un **port de vision** les lit, rempli par le repli à quatre paliers déjà en place
+(§38) plutôt que par un second chemin qui prendrait du retard. Un PDF se lit page par page — un scan
+n'a pas d'image incorporée, la page ENTIÈRE en est une. Le texte ressort emballé comme une donnée non
+fiable, la **note de méthode** voyage avec lui, et une installation sans port de vision le DIT au
+lieu de répondre « lu, rien dedans » — qui ferait conclure que le tampon est vierge alors que rien
+n'a été tenté.
+
+**Un défaut trouvé par un test, et il était en production** : « ce document ne contient aucun
+image ». Le refus était juste ; il était écrit dans une langue que personne ne parle, et c'est la
+phrase qu'une personne lit et qu'un modèle reprend. Les accords vivent maintenant dans
+`commands/resolve.ts`, la liste des libellés est explicite, et un test d'architecture refuse tout
+libellé passé à `resoudre` sans genre déclaré.
+
+**Mesuré** : 19 tests Excel, 11 de lecture d'image par le vrai point d'entrée, 5 d'accord de langue,
+4 de bout en bout sur classeur (source cherchée par son nom, journal sans octets, rejeu, annulation) ;
+fidélité vérifiée pièce par pièce ; banc de sabotage **15/15** attrapés (6 nouveaux).
 
 ### LE PROMPT DU WORKER COUPAIT SES ENTRÉES EN PLEIN MILIEU (2026-09)
 

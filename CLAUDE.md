@@ -148,8 +148,37 @@ et le refermer en `.docx` — le même, avec ses styles, ses images et ses en-t�
 11. **Un seul bloc par document.** Même `blockId`, `version++`. Trois retouches ne font pas trois
     cartes qui s'empilent : la même se transforme.
 12. **Deux bancs, et ils tournent.** `npm run office:bench` mesure (et dit ce qu'il NE mesure pas :
-    réseau, déchiffrement). `npm run office:sabotage` réintroduit neuf défauts plausibles et exige
+    réseau, déchiffrement). `npm run office:sabotage` réintroduit quinze défauts plausibles et exige
     que la suite tombe — un sabotage qui passe est un trou, pas un succès.
+13. **Une image entre par sa RÉFÉRENCE et sort par ses OCTETS, jamais l'inverse.** Une commande
+    d'insertion porte le NOM du fichier ; c'est le moteur qui le résout à travers le port, donc sous
+    les droits de la personne, et qui dépose les octets juste avant d'appliquer. Mettre le `Buffer`
+    dans la commande ferait peser des mégaoctets au journal, rejoués à CHAQUE ouverture (§104.3).
+    Symétriquement, POSER et LIRE une image passent par le même ciblage : deux chemins de
+    désignation finiraient par diverger, et « remplace la 2ᵉ image » ne toucherait plus la même que
+    « lis la 2ᵉ image ».
+14. **Excel ne met pas l'image DANS la feuille, il la met à côté.** Six endroits, pas quatre : les
+    octets, le type de la partie image, une partie DESSIN et son type déclaré, les relations du
+    dessin vers l'image, celles de la feuille vers le dessin, et `<drawing>` dans la feuille. Trois
+    pièges, chacun silencieux : le schéma d'une feuille est une SÉQUENCE (`tableParts` doit rester
+    APRÈS — l'ajouter « à la fin » fait perdre le tableau structuré, qu'Excel « répare » sans rien
+    dire) ; une feuille ne renvoie qu'à UN dessin (créer une seconde partie fait disparaître
+    l'image précédente) ; la relation vers les octets appartient au DESSIN (dans la feuille, elle
+    donne un cadre vide). Sans taille demandée, on borne à la zone d'impression que le classeur
+    DÉCLARE : une feuille n'a pas de bord à l'écran, mais un classeur s'imprime.
+15. **Une lecture d'image n'est jamais un fait vérifié — et une absence de lecteur n'est pas une
+    lecture vide.** Le texte et la NOTE de méthode voyagent ensemble : livrer la sortie d'un OCR
+    sans dire d'où elle vient la fait citer comme une certitude (§29). Et un composeur sans port de
+    vision doit DIRE qu'il ne sait pas regarder : répondre « lu, rien dedans » ferait conclure que
+    le tampon est vierge alors que RIEN n'a été tenté — le faux succès parfait. Le contenu lu reste
+    une DONNÉE (`wrapUntrusted`) ; la note, qui vient de notre code, reste dehors.
+16. **Un refus qu'on lit de travers est un refus qu'on croit moins.** « ce document ne contient
+    aucun image » est passé en production : le refus était JUSTE, il était simplement écrit dans
+    une langue que personne ne parle — et c'est la phrase qu'une personne lit et qu'un modèle
+    reprend. Les accords vivent dans `commands/resolve.ts`, la liste des libellés est EXPLICITE, et
+    un test d'architecture refuse tout libellé passé à `resoudre` sans genre déclaré : deviner
+    d'après la terminaison marcherait sur « image » et échouerait sur « page » comme sur
+    « graphique ».
 
 `src/lib/missions/` est déclaré **façade (L2)** dans `src/platform/domains.ts` : il n'importe jamais `assistant/`. Les capacités lui arrivent par un **port** (`missions/ports.ts`), ce qui l'empêche structurellement de s'en octroyer une. Côté Adam, l'accès passe par le **contrat de plateforme** (`mission.status`), jamais par un import direct — `boundary.test.ts` le vérifie.
 

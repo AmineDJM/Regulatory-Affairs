@@ -27,7 +27,7 @@ import { abreger } from "@/lib/artifact/object-model/text";
 import type { CommandeArtefact } from "@/lib/artifact/commands/ir";
 import { resoudre } from "@/lib/artifact/commands/resolve";
 import type {
-  AdaptateurArtefact, DocumentOuvert, EffetCommande, ExtractionImage, RessourceBinaire, Validation,
+  AdaptateurArtefact, DocumentOuvert, DesignationImage, EffetCommande, ExtractionImage, RessourceBinaire, Validation,
 } from "@/lib/artifact/adapters/contract";
 import { lireImage, tailleInsertion } from "@/lib/artifact/object-model/image";
 import {
@@ -214,8 +214,8 @@ class PptxOuvert implements DocumentOuvert {
    * n'est PAS une image. Rendre « rien lu » pour un cadre de graphique enverrait chercher un
    * défaut d'OCR là où il n'y a simplement pas de pixels.
    */
-  async extraireImage(c: CommandeArtefact): Promise<ExtractionImage> {
-    const t = this.ciblerForme(c);
+  async extraireImage(d: DesignationImage): Promise<ExtractionImage> {
+    const t = this.ciblerForme(d);
     if (!t.ok) return extractionEchec(t.echec.motif ?? "forme introuvable", t.echec.candidats);
     const role = t.forme.modele?.role;
     if (role && role !== "picture") {
@@ -236,12 +236,13 @@ class PptxOuvert implements DocumentOuvert {
         octets: oct.octets,
         nom: oct.nom,
         description: descriptionDeForme(t.forme.noeud),
-        ou: `diapositive ${c.diapo ?? 1}, forme ${t.forme.index}`,
+        ou: `diapositive ${d.diapo ?? 1}, forme ${t.forme.index}`,
       },
     };
   }
 
-  private ciblerForme(c: CommandeArtefact) {
+  /** Ne lit QUE la diapositive et la cible — c'est tout ce qu'un ciblage demande. */
+  private ciblerForme(c: { cible: CommandeArtefact["cible"]; diapo: number | null }) {
     const i = (c.diapo ?? 1) - 1;
     const d = this.diapos[i];
     if (!d) return { ok: false as const, echec: effetEchec(`il n'y a pas de diapositive ${c.diapo}`) };

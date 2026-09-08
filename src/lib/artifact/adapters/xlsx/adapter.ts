@@ -36,7 +36,8 @@ import {
 import { normaliserTexte } from "@/lib/artifact/object-model/text";
 import type { CommandeArtefact } from "@/lib/artifact/commands/ir";
 import type {
-  AdaptateurArtefact, DocumentOuvert, EffetCommande, ExtractionImage, RessourceBinaire, Validation,
+  AdaptateurArtefact, DesignationImage, DocumentOuvert, EffetCommande, ExtractionImage,
+  RessourceBinaire, Validation,
 } from "@/lib/artifact/adapters/contract";
 import { effetEchec, effetOk, extractionEchec } from "@/lib/artifact/adapters/contract";
 import { resoudre } from "@/lib/artifact/commands/resolve";
@@ -825,7 +826,7 @@ class XlsxOuvert implements DocumentOuvert {
    * CELLULE : la personne dit « le logo », « la photo du produit » ou « l'image en B2 », et les
    * trois doivent atteindre le même objet.
    */
-  private ciblerImage(f: Feuille, c: CommandeArtefact) {
+  private ciblerImage(f: Feuille, c: { cible: CommandeArtefact["cible"] }) {
     const dessin = ouvrirDessinFeuille(this.zip, f.chemin, f.ws);
     if (!dessin || dessin.images.length === 0) {
       return { ok: false as const, echec: effetEchec(`la feuille « ${f.nom} » ne contient aucune image`) };
@@ -939,12 +940,12 @@ class XlsxOuvert implements DocumentOuvert {
    * scanné collé dans un onglet, le graphique exporté d'un autre outil : le classeur PORTE
    * l'information, et aucune cellule n'en dit rien.
    */
-  async extraireImage(c: CommandeArtefact): Promise<ExtractionImage> {
-    const f = this.feuille(c.feuille);
+  async extraireImage(d: DesignationImage): Promise<ExtractionImage> {
+    const f = this.feuille(d.feuille);
     if (!f) {
-      return extractionEchec(c.feuille ? `ce classeur n'a pas de feuille « ${c.feuille} »` : "ce classeur n'aucune feuille");
+      return extractionEchec(d.feuille ? `ce classeur n'a pas de feuille « ${d.feuille} »` : "ce classeur n'a aucune feuille");
     }
-    const t = this.ciblerImage(f, c);
+    const t = this.ciblerImage(f, d);
     if (!t.ok) return extractionEchec(t.echec.motif ?? "image introuvable", t.echec.candidats);
     const oct = octetsDeLImageFeuille(this.zip, t.dessin.chemin, t.i.pic);
     if (!oct) {

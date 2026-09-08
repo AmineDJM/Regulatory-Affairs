@@ -28,7 +28,9 @@ import { getBlob, putBlob } from "@/lib/drive-storage";
 import { canEditDrive, canViewDrive, resolveDriveAccess } from "@/lib/drive";
 import { getAccess, type SessionUser } from "@/lib/rbac";
 import { formatDeFichier } from "@/lib/artifact/adapters/registry";
-import type { FicheDocument, PortAudit, PortDocuments, PortsArtefact, VersionEcrite } from "@/lib/artifact/ports";
+import type {
+  FicheDocument, PortAudit, PortDocuments, PortVision, PortsArtefact, VersionEcrite,
+} from "@/lib/artifact/ports";
 
 /** Le dossier où atterrissent les « enregistrer sous » quand la personne n'en désigne pas. */
 const DOSSIER_DEFAUT = "Documents Adam";
@@ -175,4 +177,28 @@ const audit: PortAudit = {
   },
 };
 
-export const portsArtefact: PortsArtefact = { documents, audit };
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA VISION — et pourquoi elle n'écrit pas une ligne de lecture d'image de plus.
+ *
+ * Le repli à quatre niveaux (§38) existe déjà et il est éprouvé : parser déterministe, OCR
+ * réel Tesseract, secours vision sur les pages faibles, LECTURE VISUELLE par le modèle quand
+ * le texte est mince — avec sa note de méthode et de confiance. C'est le chemin qu'emprunte
+ * une photo de facture jointe à la conversation.
+ *
+ * Une image sortie d'un document POSE EXACTEMENT LE MÊME PROBLÈME. Écrire ici un second
+ * chemin donnerait deux qualités de lecture selon l'endroit d'où vient l'image, et l'un des
+ * deux prendrait du retard sur l'autre. On appelle donc le même code, et la note qu'il produit
+ * — celle qui dit « PROBABLE, chiffres à confirmer » — remonte telle quelle.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const vision: PortVision = {
+  async lire(userId, octets, nom) {
+    void userId; // Les droits ont été vérifiés à l'OUVERTURE du document : ici, on lit des octets.
+    const { extractAttachmentText } = await import("@/lib/assistant-files");
+    const r = await extractAttachmentText(nom, octets);
+    return { texte: r.text, note: r.note };
+  },
+};
+
+export const portsArtefact: PortsArtefact = { documents, audit, vision };

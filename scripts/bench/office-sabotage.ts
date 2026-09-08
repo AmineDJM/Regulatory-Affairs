@@ -22,7 +22,9 @@
  *   8. la relation d'image jamais déclarée — Word annonce un document endommagé ;
  *   9. la relation d'image écrite dans les rels d'une AUTRE diapositive — cadre vide ;
  *  10. `<drawing>` ajouté à la fin d'une feuille Excel — le tableau structuré disparaît ;
- *  11. une seconde partie dessin par image — la précédente disparaît, sans erreur.
+ *  11. une seconde partie dessin par image — la précédente disparaît, sans erreur ;
+ *  12. la LECTURE d'image qui rend les octets de la première image au lieu de celle qu'on vise ;
+ *  13. une installation sans vision qui répond « lu, rien dedans » au lieu de dire qu'elle ne lit pas.
  *
  * ── COMMENT LE LIRE ─────────────────────────────────────────────────────────────────────
  *
@@ -153,6 +155,22 @@ const SABOTAGES: Sabotage[] = [
     cherche: "  const existant = dessinDeLaFeuille(zip, cheminFeuille, ws);\n  const cheminDessin = existant ?? prochainDessin(zip);",
     remplace: "  const existant: string | null = null;\n  const cheminDessin = prochainDessin(zip);",
     tests: ["src/lib/artifact/adapters/xlsx/image.test.ts"],
+  },
+  {
+    nom: "Lecture d'image — on rend la PREMIÈRE image au lieu de celle qu'on désigne",
+    defaut: "« lis le tampon » lit le logo, et Adam annonce le contenu du tampon : un faux succès parfait",
+    fichier: "src/lib/artifact/adapters/docx/media.ts",
+    cherche: '    if (attr(r, "Id") !== rId) continue;',
+    remplace: '    if (attr(r, "Type") !== TYPE_IMAGE) continue;',
+    tests: ["src/lib/artifact/runtime/lire-image.test.ts"],
+  },
+  {
+    nom: "Lecture d'image — sans vision branchée, on répond « lu, rien dedans »",
+    defaut: "rien n'a été tenté, mais le modèle conclut que le tampon est vierge",
+    fichier: "src/lib/artifact/runtime/engine.ts",
+    cherche: '  const vision = ctx.ports.vision;\n  if (!vision) {',
+    remplace: '  const vision = ctx.ports.vision;\n  if (false && !vision) {',
+    tests: ["src/lib/artifact/runtime/lire-image.test.ts"],
   },
 ];
 

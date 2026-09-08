@@ -17,14 +17,15 @@
  */
 
 import type { CurrentUser } from "@/lib/session";
-import type { CommandeArtefact } from "@/lib/artifact/commands/ir";
+import type { Cible, CommandeArtefact } from "@/lib/artifact/commands/ir";
 import type { ContexteDecodage, IntentionDirecte } from "@/lib/artifact/commands/nl";
 import { decoder, estAccord } from "@/lib/artifact/commands/nl";
 import type {
   ContexteMoteur, ResultatEdition, ResultatOuverture, ResultatSauvegarde, SessionPersistee,
 } from "@/lib/artifact/runtime/engine";
 import {
-  annuler, comparerDepuis, controlerSession, editer, fermer, ouvrir, retablir, sauvegarder, viser, vueDeSession,
+  annuler, comparerDepuis, controlerSession, editer, fermer, lireImageDuDocument, ouvrir,
+  retablir, sauvegarder, viser, vueDeSession,
 } from "@/lib/artifact/runtime/engine";
 import type { Comparaison } from "@/lib/artifact/versions/diff";
 import type { VueArtefact } from "@/lib/artifact/render/view";
@@ -70,6 +71,40 @@ export const vueDocument = (user: CurrentUser, sessionId: string): Promise<VueAr
 
 /** « Est-ce que je peux l'envoyer ? » — le contrôle avant livraison, bloquants et avertissements. */
 export const controlerDocument = (user: CurrentUser, sessionId: string) => controlerSession(contexte(user), sessionId);
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * « QUE DIT LE TAMPON PAGE 4 ? » — le pont vers la lecture d'image.
+ *
+ * Le texte lu est une DONNÉE, pas une consigne : il traverse `wrapUntrusted`, la même barrière
+ * que les corps de mails et le contenu des documents (§104.10). Une image peut porter
+ * « ignore les instructions précédentes » écrit en gros — c'est du texte lu, rien d'autre.
+ *
+ * La NOTE de méthode, elle, reste HORS de l'emballage : elle vient de notre code, elle dit
+ * comment la lecture a été obtenue, et l'enfouir dans la donnée non fiable la ferait ignorer
+ * au moment précis où elle compte.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function lireImageDocument(
+  user: CurrentUser,
+  sessionId: string,
+  ou: { cible?: Cible | null; feuille?: string | null; diapo?: number | null; page?: number | null },
+): Promise<{
+  ok: boolean; motif: string | null; candidats: { id: string; libelle: string }[];
+  ou: string | null; lecture: string | null; description: string | null; note: string | null;
+}> {
+  const r = await lireImageDuDocument(contexte(user), sessionId, ou);
+  if (!r.ok) {
+    return { ok: false, motif: r.motif, candidats: r.candidats, ou: null, lecture: null, description: null, note: null };
+  }
+  const lecture = r.texte.trim()
+    ? wrapUntrusted(r.texte, { source: `Image lue — ${r.ou ?? "document"}`, kind: "document", maxChars: 8_000 })
+    : null;
+  return {
+    ok: true, motif: null, candidats: [],
+    ou: r.ou, lecture, description: r.description, note: r.note,
+  };
+}
 
 /**
  * « Montre-moi la page 12 », « les paragraphes qui parlent de la garantie », « les diapos 40 à 60 » —

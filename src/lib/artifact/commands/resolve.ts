@@ -53,6 +53,38 @@ export interface OptionsResolution<T> {
 }
 
 /**
+ * LES NOMS FÉMININS que ce module sait accorder. « ce document ne contient aucun image » est
+ * sorti en production : le refus est juste, il est simplement écrit dans une langue que
+ * personne ne parle, et un refus qu'on ne peut pas lire sans buter dessus est un refus qu'on
+ * croit moins.
+ *
+ * La liste est EXPLICITE et vérifiée par `resolve.test.ts` : tout libellé passé à `resoudre`
+ * dans le dépôt doit figurer ici ou dans `MASCULINS`. Deviner le genre d'après la terminaison
+ * marcherait sur « image » et « forme », et échouerait sur « page » comme sur « graphique ».
+ */
+const FEMININS = new Set([
+  "image", "forme", "diapositive", "page", "cellule", "feuille", "ligne", "colonne", "zone",
+]);
+
+/** Les mots que l'on accorde au masculin. Séparés des féminins pour qu'un oubli se VOIE. */
+export const MASCULINS = new Set([
+  "élément", "paragraphe", "tableau", "graphique", "objet", "titre", "document",
+]);
+
+export const LIBELLES_CONNUS = new Set([...FEMININS, ...MASCULINS]);
+
+/** Les accords dont ce module a besoin. Un libellé inconnu retombe au masculin — jamais une erreur. */
+function accords(quoi: string) {
+  const f = FEMININS.has(quoi);
+  return {
+    aucun: f ? "aucune" : "aucun",
+    quel: f ? "quelle" : "quel",
+    le: f ? "la" : "le",
+    lequel: f ? "laquelle" : "lequel",
+  };
+}
+
+/**
  * RÉSOUT une cible parmi des candidats.
  *
  * `contient` est comparé sur du texte NORMALISÉ (accents repliés, casse et espaces ignorés) :
@@ -66,15 +98,16 @@ export function resoudre<T extends Designable>(
   opts: OptionsResolution<T> = {},
 ): Resolution<T> {
   const quoi = opts.libelle ?? "élément";
-  if (candidats.length === 0) return { etat: "ABSENT", motif: `ce document ne contient aucun ${quoi}` };
-  if (!cible) return { etat: "ABSENT", motif: `il faut dire quel ${quoi}` };
+  const a = accords(quoi);
+  if (candidats.length === 0) return { etat: "ABSENT", motif: `ce document ne contient ${a.aucun} ${quoi}` };
+  if (!cible) return { etat: "ABSENT", motif: `il faut dire ${a.quel} ${quoi}` };
 
   // 1 — L'IDENTIFIANT. Un clic, ou une reprise de cible ; sans ambiguïté possible.
   if (cible.id) {
     const o = candidats.find((c) => c.id === cible.id);
     return o
       ? { etat: "TROUVE", objet: o }
-      : { etat: "ABSENT", motif: `le ${quoi} « ${cible.id} » n'existe plus dans ce document` };
+      : { etat: "ABSENT", motif: `${a.le} ${quoi} « ${cible.id} » n'existe plus dans ce document` };
   }
 
   // 0 — LA PAGE, qui RESTREINT tout le reste. « Le troisième paragraphe de la page 12 » : on ne
@@ -83,12 +116,12 @@ export function resoudre<T extends Designable>(
   const page = cible.page ?? null;
   if (page !== null) {
     if (!candidats.some((c) => c.page !== undefined && c.page !== null)) {
-      return { etat: "ABSENT", motif: `ce document n'a pas de pagination connue : désignez le ${quoi} par son rang ou son texte` };
+      return { etat: "ABSENT", motif: `ce document n'a pas de pagination connue : désignez ${a.le} ${quoi} par son rang ou son texte` };
     }
     const dansLaPage = candidats.filter((c) => c.page === page);
     if (dansLaPage.length === 0) {
       const max = Math.max(...candidats.map((c) => c.page ?? 0));
-      return { etat: "ABSENT", motif: `aucun ${quoi} ne commence page ${page}${max ? ` (le document en compte ${max})` : ""}` };
+      return { etat: "ABSENT", motif: `${a.aucun} ${quoi} ne commence page ${page}${max ? ` (le document en compte ${max})` : ""}` };
     }
     if (cible.index !== null) {
       const o = dansLaPage[cible.index - 1];
@@ -98,7 +131,7 @@ export function resoudre<T extends Designable>(
     }
     if (!cible.contient && !cible.role) {
       if (dansLaPage.length === 1) return { etat: "TROUVE", objet: dansLaPage[0] };
-      return { etat: "AMBIGU", candidats: dansLaPage.slice(0, 12), motif: `la page ${page} contient ${dansLaPage.length} ${quoi}s — lequel ?` };
+      return { etat: "AMBIGU", candidats: dansLaPage.slice(0, 12), motif: `la page ${page} contient ${dansLaPage.length} ${quoi}s — ${a.lequel} ?` };
     }
     // `contient` / `role` : la suite travaille sur la page seulement.
     candidats = dansLaPage;
@@ -126,10 +159,10 @@ export function resoudre<T extends Designable>(
         return {
           etat: "AMBIGU",
           candidats: partiels.slice(0, 8),
-          motif: `${partiels.length} ${quoi}s contiennent « ${cible.contient} » — lequel ?`,
+          motif: `${partiels.length} ${quoi}s contiennent « ${cible.contient} » — ${a.lequel} ?`,
         };
       }
-      return { etat: "ABSENT", motif: `aucun ${quoi} ne contient « ${cible.contient} »` };
+      return { etat: "ABSENT", motif: `${a.aucun} ${quoi} ne contient « ${cible.contient} »` };
     }
   }
 
@@ -150,7 +183,7 @@ export function resoudre<T extends Designable>(
     return { etat: "ABSENT", motif: `rôle « ${cible.role} » non compris` };
   }
 
-  return { etat: "ABSENT", motif: `il faut dire quel ${quoi}` };
+  return { etat: "ABSENT", motif: `il faut dire ${a.quel} ${quoi}` };
 }
 
 /** Message court à redire à la personne quand la résolution n'a pas abouti. */

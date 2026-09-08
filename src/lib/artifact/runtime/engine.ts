@@ -31,7 +31,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { ArtifactFormat, ArtifactModel } from "@/lib/artifact/object-model/model";
-import type { CommandeArtefact } from "@/lib/artifact/commands/ir";
+import type { Cible, CommandeArtefact } from "@/lib/artifact/commands/ir";
 import { compilerCommandes } from "@/lib/artifact/commands/compile";
 import type { DocumentOuvert, EffetCommande, RessourceBinaire } from "@/lib/artifact/adapters/contract";
 import { adaptateurPour, mimeDe } from "@/lib/artifact/adapters/registry";
@@ -707,6 +707,93 @@ export async function comparerDepuis(
   const origine = await adaptateurPour(session.format).ouvrir(octets);
   const etat = await etatCourant(ctx, session);
   return comparer(origine.modele(), etat.doc.modele());
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * « QUE DIT LE TAMPON SUR LA PAGE 4 ? » — LIRE une image que le document PORTE.
+ *
+ * ── POURQUOI CE CHEMIN, ET PAS « JOINDRE LE FICHIER À LA CONVERSATION » ─────────────────
+ *
+ * Un contrat scanné, un tampon d'homologation, un graphique collé dans un deck, une photo
+ * d'étiquette dans un classeur : le texte du fichier n'en dit RIEN. Aujourd'hui la seule
+ * façon de les lire était de télécharger le document et de le rejoindre en pièce — c'est-à-dire
+ * de sortir du document ouvert, donc du contexte, des droits vérifiés et de la session.
+ *
+ * ── LE PARTAGE DES RÔLES, QUI EST LA RAISON D'ÊTRE DE CETTE FONCTION ───────────────────
+ *
+ * L'ADAPTATEUR sait OÙ sont les octets et rien d'autre. Le PORT sait les lire et ne sait rien
+ * du document. Le moteur les met bout à bout — et c'est ici, et seulement ici, que les droits
+ * ont déjà été vérifiés : `magasin.lire` refuse une session qui n'est pas à cette personne.
+ *
+ * Ce que la fonction ne fait JAMAIS : conclure. Elle rend le texte lu ET la note qui dit
+ * comment il a été obtenu. Un OCR et un modèle de vision se trompent ; livrer leur sortie
+ * sans sa méthode la ferait citer comme une certitude (§29).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface ResultatLectureImage {
+  ok: boolean;
+  motif: string | null;
+  /** Candidats à départager quand la désignation visait plusieurs images (§104.7). */
+  candidats: { id: string; libelle: string }[];
+  /** Où l'image se trouve, en clair — « diapositive 3, forme 2 », « page 4 ». */
+  ou: string | null;
+  texte: string;
+  /** Ce que l'auteur du document avait écrit comme texte alternatif, s'il y en a un. */
+  description: string | null;
+  /** Méthode, confiance, durée. Voyage AVEC le texte, toujours. */
+  note: string | null;
+}
+
+const echecLecture = (motif: string, candidats: { id: string; libelle: string }[] = []): ResultatLectureImage =>
+  ({ ok: false, motif, candidats, ou: null, texte: "", description: null, note: null });
+
+export async function lireImageDuDocument(
+  ctx: ContexteMoteur,
+  sessionId: string,
+  ou: { cible?: Cible | null; feuille?: string | null; diapo?: number | null; page?: number | null },
+): Promise<ResultatLectureImage> {
+  const session = await ctx.magasin.lire(sessionId, ctx.acteur.id);
+  if (!session) return echecLecture("Aucun document ouvert sous cette référence.");
+
+  const vision = ctx.ports.vision;
+  if (!vision) {
+    // PAS « la lecture a échoué » : rien n'a été tenté. Un composeur sans vision est une
+    // limite d'INSTALLATION, et la nommer envoie au bon endroit (§34).
+    return echecLecture("la lecture d'image n'est pas branchée sur cette installation — les octets sont là, mais rien ici ne sait les regarder");
+  }
+
+  const etat = await etatCourant(ctx, session);
+  if (!etat.doc.extraireImage) {
+    return echecLecture(`le format ${session.format} ne porte pas d'image lisible de cette façon`);
+  }
+
+  // LE WORKING SET COMPLÈTE la demande, il ne la remplace pas : « lis le tampon » alors qu'on
+  // regarde la page 4 vise la page 4, et « lis le tampon page 7 » vise la 7 (§104.4).
+  const extrait = await etat.doc.extraireImage({
+    cible: ou.cible ?? null,
+    feuille: ou.feuille ?? session.activeSheet ?? null,
+    diapo: ou.diapo ?? session.activeSlide ?? null,
+    pages: ou.page ? [ou.page] : (session.activePage ? [session.activePage] : null),
+  });
+  if (!extrait.ok) return echecLecture(extrait.motif, extrait.candidats);
+
+  const lue = await vision.lire(ctx.acteur.id, extrait.image.octets, extrait.image.nom);
+  await ctx.ports.audit.tracer({
+    userId: ctx.acteur.id,
+    action: "artifact.image.lire",
+    cible: session.nodeId,
+    detail: `${session.name} — ${extrait.image.ou}`,
+  });
+  return {
+    ok: true,
+    motif: null,
+    candidats: [],
+    ou: extrait.image.ou,
+    texte: lue.texte,
+    description: extrait.image.description,
+    note: lue.note,
+  };
 }
 
 /** L'état complet d'une session, tel que le workspace le dessine. */

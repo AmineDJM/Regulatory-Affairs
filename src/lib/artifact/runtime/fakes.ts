@@ -23,6 +23,17 @@ export interface DriveFaux {
   fichiers: Map<string, { nom: string; versions: VersionFausse[] }>;
   audit: { userId: string; action: string; cible: string; detail: string }[];
   droitEcriture: boolean;
+  /**
+   * CE QUE LA VISION « VOIT » — indexé par la TAILLE des octets qu'on lui donne.
+   *
+   * La taille, et pas le nom : c'est le seul lien qui prouve que les octets sortis du document
+   * sont bien ceux qui arrivent au port. Indexer par nom laisserait passer un adaptateur qui
+   * rend l'image 1 quand on demande la 3 — les deux s'appellent `image1.png` dans leur zip
+   * respectif, et le test resterait vert sur le défaut qu'il existe pour attraper.
+   */
+  vision?: Map<number, { texte: string; note: string | null }>;
+  /** Les lectures demandées, dans l'ordre — pour vérifier qu'on n'appelle pas le modèle pour rien. */
+  lectures?: { nom: string; taille: number }[];
 }
 
 export function portsMemoire(drive: DriveFaux): PortsArtefact {
@@ -71,6 +82,13 @@ export function portsMemoire(drive: DriveFaux): PortsArtefact {
     },
     audit: {
       async tracer(opts) { drive.audit.push(opts); },
+    },
+    vision: {
+      async lire(_userId, octets, nom) {
+        drive.lectures?.push({ nom, taille: octets.length });
+        const vu = drive.vision?.get(octets.length);
+        return vu ?? { texte: "", note: "aucun texte lisible (image d'essai sans contenu)" };
+      },
     },
   };
 }

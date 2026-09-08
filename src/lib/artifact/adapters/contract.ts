@@ -19,7 +19,7 @@
  */
 
 import type { ArtifactFormat, ArtifactModel } from "@/lib/artifact/object-model/model";
-import type { CommandeArtefact } from "@/lib/artifact/commands/ir";
+import type { Cible, CommandeArtefact } from "@/lib/artifact/commands/ir";
 
 /** Ce qu'une commande a produit — dit à la personne ce qui a bougé, en une phrase. */
 export interface EffetCommande {
@@ -79,6 +79,19 @@ export interface ImageExtraite {
   ou: string;
 }
 
+/**
+ * CE QUI DÉSIGNE l'image à lire. Les MÊMES champs que ceux d'une commande — et c'est voulu :
+ * « la 2ᵉ image » doit atteindre le même objet qu'on lise ou qu'on remplace. Mais LIRE n'est
+ * pas une opération : lui faire porter un `op` obligerait à en inventer un, et ce mensonge
+ * finirait par être exécuté quelque part.
+ */
+export interface DesignationImage {
+  cible: Cible | null;
+  feuille: string | null;
+  diapo: number | null;
+  pages: number[] | null;
+}
+
 export type ExtractionImage =
   | { ok: true; image: ImageExtraite }
   | { ok: false; motif: string; candidats: { id: string; libelle: string }[] };
@@ -113,7 +126,7 @@ export interface DocumentOuvert {
    * n'en implémente pas, et le moteur DIT alors précisément ce qui manque plutôt que de laisser
    * croire que la lecture a eu lieu (§34 : une limitation se nomme, jamais « pas codé »).
    */
-  extraireImage?(c: CommandeArtefact): Promise<ExtractionImage>;
+  extraireImage?(d: DesignationImage): Promise<ExtractionImage>;
   /** Rend les octets du document dans son format d'origine. */
   serialiser(): Promise<Buffer>;
   /** Rouvre les octets produits pour vérifier qu'ils sont lisibles (§48, sauvegarde atomique). */

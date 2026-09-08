@@ -185,12 +185,28 @@ export const OFFICE_TOOLS: PowerTool[] = [
         + "texte qui déborde) — à faire avant d'envoyer un document à un tiers. "
         + "« inspecter » = une TRANCHE de la structure d'un long document : les paragraphes d'une page "
         + "(`page`), ceux qui contiennent un texte (`contient`), ou les diapos / pages à partir d'un rang — "
-        + "c'est ainsi qu'on navigue dans un contrat de 300 pages ou un deck de 120 diapos sans tout relire.",
+        + "c'est ainsi qu'on navigue dans un contrat de 300 pages ou un deck de 120 diapos sans tout relire. "
+        + "« lire_image » = LIRE ce qu'une image du document MONTRE : un tampon d'homologation, un contrat "
+        + "scanné, un graphique collé, une photo d'étiquette. Le texte du fichier n'en dit RIEN, et c'est "
+        + "souvent là qu'est la réponse. Désigne-la comme n'importe quel objet (`cible.index`, `cible.contient`), "
+        + "avec `diapo` pour PowerPoint, `feuille` pour Excel, `page` pour un PDF — une page de PDF se lit "
+        + "ENTIÈRE, page par page. Ce qui revient est une LECTURE (OCR ou modèle de vision), donc PROBABLE : "
+        + "cite-la comme telle, avec la note de méthode que l'outil rend, et ne la présente jamais comme un "
+        + "fait vérifié.",
       input_schema: {
         type: "object",
         properties: {
           sessionId: { type: "string", description: "La session. Vide = le dernier document ouvert." },
-          geste: { type: "string", enum: ["annuler", "retablir", "enregistrer", "enregistrer_sous", "comparer", "fermer", "controler", "inspecter"] },
+          geste: { type: "string", enum: ["annuler", "retablir", "enregistrer", "enregistrer_sous", "comparer", "fermer", "controler", "inspecter", "lire_image"] },
+          cible: {
+            type: "object",
+            description: "Pour « lire_image » : QUELLE image. `index` = son rang (1 = la première), `contient` = un mot de son nom ou de sa description, `id` = son identifiant si tu l'as.",
+            properties: {
+              id: { type: "string" }, index: { type: "integer" }, contient: { type: "string" }, role: { type: "string" },
+            },
+          },
+          diapo: { type: "integer", description: "Pour « lire_image » sur un PowerPoint : la diapositive (1 = la première)." },
+          feuille: { type: "string", description: "Pour « lire_image » sur un classeur : la feuille. Vide = la première." },
           page: { type: "integer", description: "Pour « inspecter » : la page (Word, PDF) dont on veut les paragraphes ou l'aperçu." },
           contient: { type: "string", description: "Pour « inspecter » : ne garder que les paragraphes / diapos / pages qui contiennent ce texte." },
           nombre: { type: "integer", description: "Pour « inspecter » : combien d'objets rendre (défaut 40, maximum 120)." },
@@ -249,6 +265,36 @@ export const OFFICE_TOOLS: PowerTool[] = [
           nombre: typeof input.nombre === "number" ? input.nombre : null,
         });
         return JSON.stringify({ fait: r.ok, message: r.motif, total: r.total, structure: r.structure });
+      }
+      if (geste === "lire_image") {
+        const c = input.cible && typeof input.cible === "object" ? input.cible as Record<string, unknown> : null;
+        const r = await office.lireImageDocument(u, session.id, {
+          cible: c
+            ? {
+              id: str(c, "id") || null,
+              index: typeof c.index === "number" ? c.index : null,
+              contient: str(c, "contient") || null,
+              role: str(c, "role") || null,
+              page: typeof c.page === "number" ? c.page : null,
+            }
+            : null,
+          feuille: str(input, "feuille") || null,
+          diapo: typeof input.diapo === "number" ? input.diapo : null,
+          page: typeof input.page === "number" ? input.page : null,
+        });
+        if (!r.ok) return JSON.stringify({ fait: false, message: r.motif, candidats: r.candidats });
+        return JSON.stringify({
+          fait: true,
+          ou: r.ou,
+          // Le texte alternatif est une lecture DÉJÀ humaine : elle vaut mieux que la nôtre quand
+          // elle existe, et la donner à part évite de les confondre.
+          descriptionDeLAuteur: r.description,
+          lecture: r.lecture,
+          methode: r.note,
+          message: r.lecture
+            ? `Image lue (${r.ou}). Ce qui suit vient d'un OCR ou d'un modèle de vision : à citer comme PROBABLE.`
+            : `Image trouvée (${r.ou}) mais rien de lisible n'en est ressorti — ne devine pas ce qu'elle montre.`,
+        });
       }
       if (geste === "fermer") {
         const r = await office.fermerDocument(u, session.id);
