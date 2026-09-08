@@ -151,6 +151,54 @@ export function hydraterEventail(s: EtatEtape, mission: EtatMission): Record<str
 }
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE PARENT D'UN ÉVENTAIL, VU PAR CE QUI EN DÉPEND — et le défaut que ça ferme.
+ *
+ * ── LE CAS, MESURÉ EN LIVE ──────────────────────────────────────────────────────────────
+ *
+ * Le plan écrit « lis les contrats Hetero » (`lire:contrats-hetero`), puis « consolide
+ * `{{lire:contrats-hetero.texte}}` ». C'est parfaitement écrit : `read_document` rend bien
+ * `{ nom, lien, texte }`. Mais à l'exécution, l'étape se DÉMULTIPLIE — un document, une fille —
+ * et le parent ne rend plus le document : il rend la comptabilité du déploiement,
+ * `{ done, keys, failed, expanded }`. La référence tombe alors sur « l'étape a abouti mais ne
+ * rend pas « texte » », et TOUTE la descendance meurt : 24 étapes sur une seule mission.
+ *
+ * Le planificateur n'a rien fait de faux. Il ne PEUT pas savoir, en écrivant le plan, si la
+ * recherche amont rendra un document ou vingt — c'est exactement le §118.20 (« une sortie dont
+ * la FORME dépend de la DONNÉE n'est pas un contrat »), vu du côté du déploiement.
+ *
+ * ── CE QU'ON REND, ET POURQUOI C'EST LA BONNE RÉPONSE ───────────────────────────────────
+ *
+ * On garde la comptabilité (`done`, `keys`, `failed`, `expanded` : quelqu'un peut légitimement
+ * la vouloir), on ajoute `resultats` (les filles par clé), et on REMONTE chaque champ des
+ * filles comme une LISTE. `{{parent.texte}}` vaut alors les textes des vingt documents — ce qui
+ * est précisément ce que « le texte de ce que tu as lu » veut dire quand il y en a vingt.
+ *
+ * Un champ de la comptabilité n'est JAMAIS écrasé : `done` reste le compte, même si une fille
+ * portait un champ `done`. La comptabilité est le contrat du moteur ; les champs remontés sont
+ * une commodité, et une commodité ne recouvre pas un contrat.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function vueParentEventail(s: EtatEtape, mission: EtatMission): Record<string, unknown> | null {
+  const base = hydraterEventail(s, mission);
+  if (!base) return null;
+  const resultats = base.resultats as Record<string, unknown> | undefined;
+  if (!resultats) return base;
+
+  const parChamp = new Map<string, unknown[]>();
+  for (const v of Object.values(resultats)) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+    for (const [champ, valeur] of Object.entries(v as Record<string, unknown>)) {
+      const l = parChamp.get(champ);
+      if (l) l.push(valeur); else parChamp.set(champ, [valeur]);
+    }
+  }
+  const out: Record<string, unknown> = { ...base };
+  for (const [champ, valeurs] of parChamp) if (!(champ in out)) out[champ] = valeurs;
+  return out;
+}
+
+/**
  * LES DONNÉES AMONT D'UNE ÉTAPE — et elles TRAVERSENT les jonctions.
  *
  * ── LE DÉFAUT MESURÉ ────────────────────────────────────────────────────────────────────
@@ -183,7 +231,7 @@ export function amontDeLEtape(
       for (const p of s.dependsOn) file.push(p);
       continue;
     }
-    if (s.result !== null && s.result !== undefined) amont[d] = hydraterEventail(s, mission) ?? s.result;
+    if (s.result !== null && s.result !== undefined) amont[d] = vueParentEventail(s, mission) ?? s.result;
   }
   return amont;
 }

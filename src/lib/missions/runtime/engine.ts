@@ -36,6 +36,7 @@ import { lireAttente, lireProgres } from "@/lib/missions/events/match";
 import { resultatJonction } from "@/lib/missions/runtime/sorties";
 import { rattraperFaitAnterieur } from "@/lib/missions/events/router";
 import { fabriquerRecu, type ExecutionReceipt } from "@/lib/missions/runtime/receipt";
+import { vueParentEventail } from "@/lib/missions/runtime/worker";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -530,8 +531,22 @@ function resoudreReferencesEtape(
   if (!NOEUDS_A_RESOUDRE.has(step.nodeType)) return { step, attenteResolue: false };
   if (referencesDe(step.input).length === 0 && referencesDe(step.waitFor).length === 0) return { step, attenteResolue: false };
 
+  /**
+   * LE PARENT D'UN ÉVENTAIL EST VU PAR SES FILLES, pas par sa comptabilité (§118.20).
+   *
+   * Sans `vueParentEventail`, `{{lire:contrats.texte}}` tombe sur `{ done, keys, failed,
+   * expanded }` dès que l'étape amont s'est démultipliée — et toute sa descendance meurt sur
+   * « l'étape a abouti mais ne rend pas « texte » ». Mesuré : 24 étapes tuées sur une seule
+   * mission par une référence que le planificateur avait écrite JUSTE.
+   *
+   * `vueParentEventail` rend `null` sur une étape qui n'est pas un parent d'éventail : les
+   * étapes ordinaires gardent exactement leur résultat, au bit près.
+   */
   const sorties = new Map<string, SortieAmont>();
-  for (const s of etat.steps) if (s.key !== step.key) sorties.set(s.key, { status: s.status, result: s.result });
+  for (const s of etat.steps) {
+    if (s.key === step.key) continue;
+    sorties.set(s.key, { status: s.status, result: vueParentEventail(s, etat) ?? s.result });
+  }
   const diagnostics = [...diagnostiquerReferences(step.input, sorties), ...diagnostiquerReferences(step.waitFor, sorties)];
   const gab = (d: DiagnosticReference) => `{{${d.ref}}}`;
   const echec = (error: string): StepOutcome => ({ status: "FAILED", error, errorKind: "INVALID_STEP", retryable: false });
