@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { lireReponse } from "@/lib/missions/runtime/reponse";
 import { journaliser } from "@/lib/missions/runtime/store";
 import { Attente, FaitObserve, correspond, decomposer, echue, etatAttente, lireAttente, lireProgres } from "@/lib/missions/events/match";
-import { ETATS_REPLANIFIABLES, PLANS_MAX } from "@/lib/missions/runtime/replan";
+import { ETATS_REPLANIFIABLES } from "@/lib/missions/runtime/replan";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -109,6 +109,28 @@ export async function reveillerMissions(fait: FaitObserve): Promise<Reveil[]> {
         `« ${step.title} » : l'événement attendu (${fait.type}) est arrivé.`,
         { stepKey: step.key, event: fait.type });
       reveils.push({ missionId: step.missionId, stepKey: step.key });
+    }
+
+    /**
+     * ── UNE INFORMATION NEUVE ROUVRE LE DROIT DE REPLANIFIER (§118.42) ────────────────────
+     *
+     * `replanBloque` dit « le planificateur a buté deux fois sur le même refus ». Cette phrase
+     * n'est vraie que TANT QUE rien n'a changé. Une réponse humaine qui arrive change tout : le
+     * refus portait sur un plan écrit sans elle.
+     *
+     * C'est ici, et pas dans le balayage des échéances : le TEMPS QUI PASSE n'est pas une
+     * information neuve. Une mission bloquée sur un refus de compilation ne se débloque pas
+     * parce qu'on a attendu — elle se débloque parce que quelqu'un a répondu.
+     *
+     * On ne relance rien : c'est le battement qui conduit. On lui rend le droit de regarder
+     * cette mission, qu'un blocage devenu périmé lui interdisait.
+     */
+    const reveillees = [...new Set(reveils.map((r) => r.missionId))];
+    if (reveillees.length > 0) {
+      await prisma.mission.updateMany({
+        where: { id: { in: reveillees }, replanBloque: true },
+        data: { replanBloque: false, replanRefus: null },
+      }).catch(() => undefined);
     }
 
     /**
@@ -325,13 +347,20 @@ export async function missionsAFaireAvancer(limite = 20): Promise<string[]> {
          * donc le battement ne la conduisait pas, donc `replanifierMission` — qui prévoit
          * pourtant ce cas sous le nom `objectifManque` — n'était jamais appelée pour elle.
          * Une mission de composition dont le plan a simplement oublié l'étape CALCUL ou
-         * DOCUMENT mourait BLOCKED après son unique tour de lancement, et `PLANS_MAX = 4`
-         * laissait croire à trois corrections qui n'avaient aucun chemin pour arriver.
+         * DOCUMENT mourait BLOCKED après son unique tour de lancement.
          *
-         * Le plafond de plans est DANS la requête : une mission qui les a épuisés cesse
-         * d'être candidate, au lieu de revenir à chaque battement se faire refuser.
+         * ── CE QUI ARRÊTE LA BOUCLE, ET CE QUI NE L'ARRÊTE PLUS (§118.42) ────────────
+         *
+         * Ce n'était PAS un plafond de plans. Un compteur global tuait une mission de sept
+         * jalons parce qu'un seul d'entre eux s'y reprenait à quatre fois. C'est maintenant
+         * `replanBloque` : vrai quand le planificateur a buté DEUX FOIS SUR LE MÊME REFUS,
+         * c'est-à-dire quand un tour de plus rendrait la même réponse, plus chère.
+         *
+         * Et il se remet à FAUX dès qu'une information neuve arrive — une réponse humaine, un
+         * événement, une consigne. C'est la différence entre « il tourne en rond » et « on ne
+         * lui avait rien donné de nouveau », et un compteur ne savait pas la faire.
          */
-        { status: { in: [...ETATS_REPLANIFIABLES] }, planVersion: { lt: PLANS_MAX } },
+        { status: { in: [...ETATS_REPLANIFIABLES] }, replanBloque: false },
       ],
     },
     select: { id: true },

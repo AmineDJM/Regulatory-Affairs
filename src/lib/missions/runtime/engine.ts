@@ -257,6 +257,24 @@ export async function avancer(
       return res;
     }
 
+    /**
+     * ── LA PAUSE EST HONORÉE ICI, ET NULLE PART AILLEURS ──────────────────────────────────
+     *
+     * `PAUSED` existait dans la machine à états depuis toujours, et AUCUN code ne le lisait :
+     * on pouvait poser le statut, le battement reprenait la mission au tour suivant comme si
+     * de rien n'était. Un état qu'aucun code n'honore est une promesse d'écran, pas une
+     * propriété du système.
+     *
+     * On sort SANS toucher à quoi que ce soit — c'est ce qui rend la reprise exacte : les
+     * étapes gardent leur statut, leurs reçus et leurs attentes, et « reprends demain » repart
+     * de l'état réel plutôt que d'un état reconstruit.
+     */
+    if (etat.status === "PAUSED") {
+      res.status = "PAUSED";
+      res.enPause = true;
+      return res;
+    }
+
     await demarrer(etat);
 
     // LES DEUX REMISES EN FILE D'ABORD, PUIS UNE RELECTURE. L'ordre inverse ferait travailler le
@@ -1173,6 +1191,74 @@ async function ecrireSortie(
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * DATER CE QUE LA MISSION VIENT DE LIRE (§118.41) — la fraîcheur, à sa seule source honnête.
+ *
+ * ── POURQUOI ICI, ET NULLE PART AILLEURS ────────────────────────────────────────────────
+ *
+ * Le REÇU est la seule chose de ce moteur qui dise ce qui a RÉELLEMENT été interrogé : la
+ * source, la requête telle qu'elle est partie, et une empreinte du résultat. Tout autre endroit
+ * — le payload du plan, le titre de l'étape, ce qu'un modèle en dit — décrirait une intention.
+ * Une fraîcheur bâtie sur une intention daterait des lectures qui n'ont pas eu lieu.
+ *
+ * ── CE QU'ON ENREGISTRE, ET CE QU'ON N'ENREGISTRE PAS ───────────────────────────────────
+ *
+ * Seulement les LECTURES (`READ`, `ANALYZE`). Un envoi ou une écriture ne « périment » pas :
+ * ils ont eu lieu, et les dater n'aurait aucun sens. Seulement quand le reçu porte une SOURCE
+ * et une EMPREINTE : sans l'une des deux, on ne pourrait répondre ni « d'où ça vient ? » ni
+ * « est-ce encore ça ? », et une ligne qui ne répond à aucune des deux questions est du bruit.
+ *
+ * ── POURQUOI L'EMPREINTE VIENT DU REÇU, ET N'EST PAS RECALCULÉE ─────────────────────────
+ *
+ * `resultHash` est déjà l'empreinte de ce résultat. En recalculer une seconde, autrement,
+ * créerait deux empreintes du même fait qui divergeraient le jour où l'une des deux fonctions
+ * changerait — et c'est exactement la divergence que la fraîcheur existe pour détecter.
+ *
+ * ── ÇA NE PEUT PAS FAIRE ÉCHOUER UNE ÉTAPE ──────────────────────────────────────────────
+ *
+ * L'écriture est en `catch`. Une étape réussie dont la trace de fraîcheur échoue reste réussie :
+ * l'inverse ferait perdre un travail réel pour une ligne d'observabilité.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const EFFETS_LECTURE: ReadonlySet<string> = new Set(["READ", "ANALYZE"]);
+
+async function daterLEntree(
+  missionId: string,
+  step: EtatEtape,
+  // La sortie est TOUJOURS un DONE ici — c'est le seul appelant. Le type le dit, plutôt que de
+  // laisser un `sortie.recu` qui n'existe pas sur les autres formes de la même union.
+  sortie: Extract<StepOutcome, { status: "DONE" }>,
+): Promise<void> {
+  const recu = sortie.recu;
+  if (!recu || !EFFETS_LECTURE.has(recu.effect)) return;
+  if (!recu.source || !recu.resultHash) return;
+  try {
+    const { inscrireEntree } = await import("@/lib/missions/horizon/store");
+    const ligne = await prisma.missionStep.findUnique({
+      where: { id: step.id }, select: { milestoneId: true },
+    });
+    await inscrireEntree({
+      missionId,
+      milestoneId: ligne?.milestoneId ?? null,
+      stepKey: step.key,
+      // LA CLÉ MÉTIER : ce qui identifie LA MÊME donnée d'une lecture à l'autre. La requête en
+      // fait partie — deux lectures de la même source sur deux dossiers différents ne sont pas
+      // la même donnée, et les confondre ferait crier au changement à chaque tour.
+      cle: `${recu.capability ?? step.capability ?? step.nodeType}:${(recu.query ?? step.key).slice(0, 120)}`,
+      source: recu.source,
+      // L'EMPREINTE VIENT DU REÇU : on lui passe `resultHash` comme VALEUR, donc l'empreinte
+      // inscrite est une fonction stable de celle du reçu. Recalculer une empreinte du résultat
+      // par un autre chemin créerait deux vérités qui divergeraient un jour.
+      valeur: recu.resultHash,
+      apercu: `${recu.resultCount ?? "?"} résultat(s) — ${(recu.query ?? "").slice(0, 200)}`,
+      confiance: "TROUVE",
+    });
+  } catch {
+    // Silencieux À DESSEIN : voir l'en-tête. Le journal de l'étape a déjà dit ce qui compte.
+  }
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
  * LE DÉPLOIEMENT EN ÉVENTAIL (§10) — trente-trois étapes réelles, nées d'une seule.
  *
  * C'est ici que « le même code pour 3 et pour 3 000 » cesse d'être une intention. Le plan porte
@@ -1577,6 +1663,27 @@ export async function conclure(
   const encoreEnCours = observees.some((s) => !STEP_TERMINAL.has(s.status)
     && !(s.status === "FAILED" && s.attempt >= s.maxAttempts));
   if (encoreEnCours) return synchroniserEtat(missionId, etat);
+
+  /**
+   * ── L'HORIZON OUVERT : « ce jalon est fini » n'est pas « la mission est finie » ─────────
+   *
+   * Sur une mission longue, les étapes en base sont celles du ou des jalons COMPILÉS — les
+   * suivants n'existent encore que comme intentions. Toutes terminales signifie donc « ce
+   * sous-plan a fini », et rien d'autre.
+   *
+   * Sans cette porte, une mission de sept jalons se ferait juger au bout du premier : le juge
+   * lirait l'objectif ENTIER, ne verrait qu'un septième du travail, refuserait — honnêtement —
+   * et la mission mourrait BLOCKED avec six jalons jamais écrits. C'est le faux échec
+   * symétrique du faux succès de §118.10, et il coûte exactement aussi cher.
+   *
+   * `WAITING_DEPENDENCY` est l'état exact : la mission attend son prochain sous-plan. Elle n'a
+   * ni échoué, ni fini, et elle ne travaille pas — le pilote d'horizon la reprendra.
+   */
+  if (etat.horizonOuvert) {
+    await transitionner(missionId, "WAITING_DEPENDENCY",
+      "le sous-plan courant est terminé ; il reste des jalons à compiler");
+    return "WAITING_DEPENDENCY";
+  }
 
   const qa = controlerQualite(observees, clesContournees);
   /**

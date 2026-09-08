@@ -1,7 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { missionsAFaireAvancer } from "@/lib/missions/events/router";
-import { PLANS_MAX } from "@/lib/missions/runtime/replan";
 import { consignerMesure } from "@/lib/evals/registre";
 
 /**
@@ -38,12 +37,13 @@ async function proprietaire(): Promise<string> {
 }
 
 async function missionAvec(opts: {
-  statut: string; planVersion?: number; etapes: { statut: string }[];
+  statut: string; planVersion?: number; replanBloque?: boolean; etapes: { statut: string }[];
 }): Promise<string> {
   const m = await prisma.mission.create({
     data: {
       kind: "RUNTIME", title: MARQUE, objective: MARQUE, goalRaw: MARQUE,
       ownerId: await proprietaire(), status: opts.statut as never, planVersion: opts.planVersion ?? 1,
+      replanBloque: opts.replanBloque ?? false,
       acceptance: [] as never,
     },
     select: { id: true },
@@ -76,12 +76,24 @@ siBase("la requête du battement atteint ce qui doit être replanifié", () => {
     expect(await missionsAFaireAvancer(500)).toContain(id);
   });
 
-  it("LE TEST QUI COMPTE : le plafond de plans ARRÊTE la boucle, il ne la déguise pas", async () => {
+  it("LE TEST QUI COMPTE : le refus RÉPÉTÉ arrête la boucle, il ne la déguise pas", async () => {
     // Sans cette borne DANS la requête, une mission définitivement bloquée redeviendrait
-    // candidate à chaque battement pour se faire refuser un cinquième plan — un travail nul,
+    // candidate à chaque battement pour se faire refuser un plan de plus — un travail nul,
     // répété toutes les minutes, sur chaque mission morte du produit.
-    const epuisee = await missionAvec({ statut: "BLOCKED", planVersion: PLANS_MAX, etapes: [{ statut: "DONE" }] });
-    expect(await missionsAFaireAvancer(500)).not.toContain(epuisee);
+    const bloquee = await missionAvec({ statut: "BLOCKED", replanBloque: true, etapes: [{ statut: "DONE" }] });
+    expect(await missionsAFaireAvancer(500)).not.toContain(bloquee);
+  });
+
+  /**
+   * LA FIN DU PLAFOND GLOBAL (§118.42), tenue par la requête RÉELLE.
+   *
+   * Une mission longue compile un sous-plan par jalon : sa `planVersion` monte avec le nombre de
+   * jalons franchis, pas avec le nombre d'erreurs. Sous l'ancien `planVersion < PLANS_MAX`, une
+   * mission de huit jalons cessait d'être candidate au cinquième — pour avoir AVANCÉ.
+   */
+  it("une planVersion élevée ne disqualifie plus : c'est le PROGRÈS qui compte, pas le compteur", async () => {
+    const longue = await missionAvec({ statut: "BLOCKED", planVersion: 9, etapes: [{ statut: "DONE" }] });
+    expect(await missionsAFaireAvancer(500)).toContain(longue);
   });
 
   it("une mission terminée ou suspendue n'est jamais candidate — la borne d'origine tient", async () => {

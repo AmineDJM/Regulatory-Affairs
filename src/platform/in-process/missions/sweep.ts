@@ -109,6 +109,42 @@ export async function conduireMission(
 ): Promise<ConduiteMission> {
   const avant = await prisma.mission.findUnique({ where: { id: missionId }, select: { status: true } });
   const options = { maxTours: opts.maxTours ?? TOURS_PAR_MISSION, ...(opts.reasoner ? { reasoner: opts.reasoner } : {}) };
+
+  /**
+   * ── UNE MISSION À JALONS SE CONDUIT PAR SON HORIZON (§118.40) ─────────────────────────
+   *
+   * `avancerMission` seul exécuterait les étapes du jalon COURANT, puis s'arrêterait : les
+   * jalons suivants n'ont pas encore d'étapes, donc le moteur ne voit plus rien à faire. Le
+   * battement reprendrait la mission à chaque tour pour ne rien trouver, et une mission de sept
+   * jalons resterait bloquée au premier — la compilation paresseuse serait écrite, testée, et
+   * sans effet en production (§118.14).
+   *
+   * Le pilote d'horizon, lui, compile la frontière suivante PUIS appelle le même
+   * `avancerMission`. Il n'exécute rien lui-même : le moteur reste le seul exécutant.
+   */
+  const { aDesJalons, conduireHorizon } = await import("@/platform/in-process/missions/horizon");
+  if (await aDesJalons(missionId).catch(() => false)) {
+    const tour = await conduireHorizon(user, missionId, options);
+    const apresH = await prisma.mission.findUnique({
+      where: { id: missionId }, select: { status: true, planVersion: true, ownerId: true },
+    });
+    const sortie: ConduiteMission = {
+      executees: tour.compiles + tour.aboutis, deployees: 0, replanifie: tour.compiles > 0,
+      statut: apresH?.status ?? tour.statut, signale: false,
+    };
+    if (apresH && (apresH.status === "FAILED" || apresH.status === "BLOCKED") && avant?.status !== apresH.status) {
+      await porteAttentionPour().signaler({
+        kind: apresH.status === "FAILED" ? "MISSION_FAILED" : "MISSION_BLOCKED",
+        missionId, ownerId: apresH.ownerId, titre: "",
+        raison: tour.arret ?? `${tour.avancement.bloques} jalon(s) bloqué(s) sur ${tour.avancement.total}`,
+        decision: "préciser la demande, reprendre le jalon bloqué, ou arrêter la mission",
+        planVersion: apresH.planVersion,
+      }).catch(() => undefined);
+      sortie.signale = true;
+    }
+    return sortie;
+  }
+
   const r = await avancerMission(user, missionId, options);
   const out: ConduiteMission = { executees: r?.executees ?? 0, deployees: r?.deployees ?? 0, replanifie: false, statut: null, signale: false };
 

@@ -3,7 +3,9 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { ECHELLE, ERROR_KINDS, prochaineStrategie, type ErrorKind, type Strategy } from "@/lib/missions/recovery/strategy";
 import { criteresQuiSurvivent } from "@/lib/missions/goal/rules";
-import { ETATS_REPLANIFIABLES, PLANS_MAX, estReplanifiable } from "@/lib/missions/runtime/replan";
+import {
+  ETATS_REPLANIFIABLES, PLANS_MAX_PLAT, estReplanifiable, peutReplanifierMission, signatureDuRefus,
+} from "@/lib/missions/runtime/replan";
 import { consignerMesure } from "@/lib/evals/registre";
 
 /**
@@ -111,7 +113,7 @@ describe("la taxinomie des échecs est EXHAUSTIVE — recensée par le code, pas
   });
 });
 
-describe("les états qui méritent un plan de plus, et le plafond qui arrête la boucle", () => {
+describe("les états qui méritent un plan de plus, et ce qui arrête la boucle", () => {
   it("PARTIAL est replanifiable — c'est l'état d'une composition à moitié faite", () => {
     expect(estReplanifiable("PARTIAL")).toBe(true);
     expect(estReplanifiable("BLOCKED")).toBe(true);
@@ -121,9 +123,46 @@ describe("les états qui méritent un plan de plus, et le plafond qui arrête la
     expect([...ETATS_REPLANIFIABLES]).toEqual(["FAILED", "BLOCKED", "PARTIAL"]);
   });
 
-  it("le plafond de plans est fini : la boucle s'arrête par construction", () => {
-    expect(PLANS_MAX).toBeGreaterThan(1);
-    expect(Number.isFinite(PLANS_MAX)).toBe(true);
+  /**
+   * CE QUI ARRÊTE LA BOUCLE N'EST PLUS UN COMPTEUR (§118.42).
+   *
+   * L'ancienne assertion — « le plafond est fini, donc ça s'arrête » — était vraie et sans
+   * intérêt : elle ne pouvait tomber que si quelqu'un écrivait `Infinity`. Ce qui doit être
+   * tenu, c'est le comportement : le même refus deux fois ferme, un refus qui change ouvre,
+   * et un jalon qui a épuisé son budget ne condamne pas la mission entière.
+   */
+  it("le même refus deux fois ferme la porte — c'est le seul arrêt normal", () => {
+    const v = peutReplanifierMission(
+      { planVersion: 2, replanRefus: "CARDINALITY", replanBloque: false }, "CARDINALITY");
+    expect(v.autorise).toBe(false);
+    expect(v.motif).toBe("REPETITION");
+  });
+
+  it("un refus qui CHANGE ouvre un tour de plus, même tardivement", () => {
+    const v = peutReplanifierMission(
+      { planVersion: 6, replanRefus: "CYCLE", replanBloque: false }, "MISSING_PRIMITIVE");
+    expect(v.autorise).toBe(true);
+    expect(v.motif).toBe("PROGRES");
+  });
+
+  it("`replanBloque` est ce que la base retient : la fin est une propriété de la requête", () => {
+    const v = peutReplanifierMission({ planVersion: 1, replanRefus: "X", replanBloque: true }, null);
+    expect(v.autorise).toBe(false);
+    expect(v.motif).toBe("DEJA_BLOQUE");
+  });
+
+  it("le plafond restant est OPÉRATIONNEL et fini — il borne la dépense, pas la persévérance", () => {
+    expect(PLANS_MAX_PLAT).toBeGreaterThan(1);
+    expect(Number.isFinite(PLANS_MAX_PLAT)).toBe(true);
+    const v = peutReplanifierMission(
+      { planVersion: PLANS_MAX_PLAT, replanRefus: null, replanBloque: false }, null);
+    expect(v.motif).toBe("PLAFOND");
+    expect(v.phrase).toContain("opérationnel");
+  });
+
+  it("la signature porte les CODES : un renommage de clés ne déguise pas le même mur", () => {
+    expect(signatureDuRefus([{ code: "CYCLE" }, { code: "CARDINALITY" }]))
+      .toBe(signatureDuRefus([{ code: "CARDINALITY" }, { code: "CYCLE" }, { code: "CYCLE" }]));
   });
 });
 

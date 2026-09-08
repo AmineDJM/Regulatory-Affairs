@@ -40,6 +40,17 @@ export interface MaterialiserOptions {
   planMetaExtra?: Record<string, unknown>;
   /** Quand elle est fournie, on MET À JOUR cette mission au lieu d'en créer une (replan). */
   missionId?: string;
+  /**
+   * LE JALON DONT CE PLAN EST LE SOUS-PLAN — la clé de la compilation paresseuse.
+   *
+   * Quand elle est présente, TOUT ce que cette fonction fait de destructeur est borné à ce
+   * jalon : seules ses étapes peuvent être contournées, seules ses étapes sont réarmées. Sans
+   * cette borne, compiler le jalon 2 marquerait « contournées » toutes les étapes du jalon 1 —
+   * elles ne figurent pas dans `compiled.steps` — et la mission perdrait son propre acquis à
+   * chaque jalon franchi. C'est le défaut le plus destructeur que la compilation par jalons
+   * pouvait introduire, et il est fermé ici, à sa source.
+   */
+  milestoneId?: string | null;
 }
 
 /** Ce que le moteur relit au démarrage : l'état exact, sans rien reconstruire de mémoire. */
@@ -60,6 +71,18 @@ export interface EtatMission {
    * que les livrables annoncés existent) et par le juge (qui lit le critère de fin).
    */
   planMeta: Record<string, unknown>;
+  /**
+   * L'HORIZON EST-IL ENCORE OUVERT — reste-t-il un jalon qui n'a pas abouti ?
+   *
+   * C'est ce qui empêche `conclure` de juger une mission longue à la fin de son PREMIER jalon.
+   * Sans ce booléen, une mission de sept jalons conclurait au bout du premier : toutes ses
+   * étapes seraient terminales, le juge lirait l'objectif entier et le déclarerait non atteint,
+   * et la mission mourrait BLOCKED avec six jalons jamais compilés. Le faux échec symétrique
+   * du faux succès.
+   *
+   * `false` pour une mission courte, qui n'a pas de jalons du tout : rien ne change pour elle.
+   */
+  horizonOuvert: boolean;
   steps: EtatEtape[];
 }
 
@@ -214,6 +237,7 @@ export async function materialiser(
         spec: (s.spec ?? undefined) as never,
         needsIdempotencyKey: s.needsIdempotencyKey,
         planVersion: version,
+        milestoneId: opts.milestoneId ?? null,
         status: "PENDING",
       },
       // UNE ÉTAPE DÉJÀ TERMINÉE N'EST PAS RÉÉCRITE — c'est l'invariant qui protège du double
@@ -254,7 +278,11 @@ export async function materialiser(
   if (areArmer.length > 0) {
     await prisma.missionStep.updateMany({
       where: { id: { in: areArmer.map((s) => s.id) } },
-      data: { status: "PENDING", attempt: 0, error: null, errorKind: null, startedAt: null, completedAt: null, planVersion: version },
+      data: {
+        status: "PENDING", attempt: 0, error: null, errorKind: null,
+        startedAt: null, completedAt: null, planVersion: version,
+        ...(opts.milestoneId ? { milestoneId: opts.milestoneId } : {}),
+      },
     });
     await journaliser(mission.id, "PLAN_COMPILED",
       `Plan v${version} : ${areArmer.length} étape(s) en échec sont REPRISES par le nouveau plan et `
@@ -263,11 +291,22 @@ export async function materialiser(
       { planVersion: version, rearmees: areArmer.map((s) => ({ key: s.key, tentativesPrecedentes: s.attempt })) });
   }
 
+  /**
+   * LA PORTÉE DU CONTOURNEMENT SUIT LE JALON.
+   *
+   * `enBase` sert à deux choses : retrouver les identifiants pour écrire les arêtes (il faut
+   * alors TOUTES les étapes, y compris celles des autres jalons, parce qu'un sous-plan peut
+   * légitimement dépendre d'un acquis d'un jalon précédent), et décider ce que le nouveau plan
+   * a contourné (il faut alors les étapes DE CE JALON seulement). Deux questions, deux listes.
+   */
   const enBase = await prisma.missionStep.findMany({
     where: { missionId: mission.id },
-    select: { id: true, key: true, status: true },
+    select: { id: true, key: true, status: true, milestoneId: true },
   });
   const parCle = new Map(enBase.map((s) => [s.key, s]));
+  const duPerimetre = opts.milestoneId
+    ? enBase.filter((s) => s.milestoneId === opts.milestoneId)
+    : enBase;
 
   // Le rafraîchissement des étapes NON commencées : titre, entrée, dépendances peuvent avoir
   // changé au replan. Celles qui tournent ou sont finies gardent ce sous quoi elles ont tourné.
@@ -317,7 +356,7 @@ export async function materialiser(
    */
   const clesDuPlan = new Set(compiled.steps.map((s) => s.key));
   const ACQUIS: readonly string[] = ["DONE", "SKIPPED"];
-  const contournees = enBase.filter((s) => !clesDuPlan.has(s.key) && !ACQUIS.includes(s.status));
+  const contournees = duPerimetre.filter((s) => !clesDuPlan.has(s.key) && !ACQUIS.includes(s.status));
   if (contournees.length > 0) {
     await prisma.missionStep.updateMany({
       where: { id: { in: contournees.map((s) => s.id) }, supersededAt: null },
@@ -373,6 +412,12 @@ export async function chargerEtat(missionId: string): Promise<EtatMission | null
   });
   if (!m) return null;
 
+  // UNE SEULE QUESTION, INDEXÉE : reste-t-il un jalon vivant ? On ne charge pas les jalons ici —
+  // le pilote d'horizon les lit quand il en a besoin, et le moteur n'a besoin que du booléen.
+  const jalonsVivants = await prisma.missionMilestone.count({
+    where: { missionId, statut: { notIn: ["DONE", "SKIPPED", "CANCELLED"] } },
+  });
+
   return {
     id: m.id,
     status: m.status as MissionState,
@@ -384,6 +429,7 @@ export async function chargerEtat(missionId: string): Promise<EtatMission | null
     goalRaw: m.goalRaw ?? m.objective,
     objective: m.objective,
     planMeta: asObj(m.planMeta),
+    horizonOuvert: jalonsVivants > 0,
     steps: m.steps.map((s) => ({
       id: s.id,
       key: s.key,

@@ -10548,12 +10548,38 @@ model Mission {
   /// par le juge — quatre informations qui naissent ensemble et dont aucune ne s'interroge seule.
   planMeta        Json      @default("{}")
 
+  /// LA PAUSE SAIT DEPUIS QUAND, POURQUOI, ET D'OÙ ELLE REPART.
+  ///
+  /// `PAUSED` existait comme statut sans rien pour le décrire : on ne pouvait ni l'afficher
+  /// honnêtement (« en pause » depuis quand ?) ni le reprendre (reprendre VERS quel état ?).
+  /// `pausedFrom` garde le statut d'avant la pause, ce qui rend « reprends-la demain » exact au
+  /// lieu d'être une re-déduction qui pourrait diverger.
+  pausedAt        DateTime?
+  pausedReason    String?
+  pausedFrom      String?
+
+  /// LA PERSÉVÉRANCE SE JUGE AU PROGRÈS, PAS AU NOMBRE D'ESSAIS (§118.18).
+  ///
+  /// `replanRefus` est la signature du dernier refus de compilation — ses CODES, jamais ses
+  /// clés d'étape : un planificateur qui reprend son plan renomme presque toujours ses clés,
+  /// et signer `code@étape` rendrait chaque refus « nouveau ».
+  ///
+  /// `replanBloque` est ce que lit la requête du battement. Vrai = le refus s'est répété (ou
+  /// le plafond opérationnel local est atteint) : un tour de plus rendrait la même réponse,
+  /// plus chère. Il se remet à FAUX dès qu'une information neuve arrive — réponse humaine,
+  /// événement, modification demandée : c'est la différence entre « il tourne en rond » et
+  /// « on ne lui avait rien donné de nouveau ».
+  replanRefus     String?
+  replanBloque    Boolean   @default(false)
+
   artifacts    MissionArtifact[]
   participants MissionParticipant[]
   events       MissionEvent[]
   emails       EmailRecord[]
   intents      OutboundMailIntent[]
   steps        MissionStep[]
+  milestones2  MissionMilestone[]
+  inputs       MissionInput[]
   workerRuns   MissionWorkerRun[]
   approvals    MissionApproval[]
   commitments2 ExecutiveCommitment[] @relation("MissionCommitments")
@@ -10564,6 +10590,7 @@ model Mission {
   @@index([status, updatedAt])
   @@index([kind, status])
   @@index([parentMissionId])
+  @@index([status, replanBloque])
 }
 
 /// ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -10579,6 +10606,11 @@ model MissionStep {
   mission             Mission   @relation(fields: [missionId], references: [id], onDelete: Cascade)
   /// Le regroupement logique — sert à l'affichage ET au replan ciblé.
   workstream          String    @default("default")
+  /// LE JALON auquel cette étape appartient. NULLABLE : une mission courte n'a pas de jalons,
+  /// et tout le corpus antérieur continue de tourner. C'est cette colonne qui rend la
+  /// replanification LOCALE : on recompile les étapes d'UN jalon sans toucher aux autres.
+  milestoneId         String?
+  milestone           MissionMilestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
   /// La clé STABLE dans le plan : c'est elle que les dépendances désignent, et c'est elle qui
   /// rend la compilation RÉ-ENTRANTE (recompiler ne duplique pas, il retrouve).
   key                 String
@@ -10649,6 +10681,7 @@ model MissionStep {
   @@unique([idempotencyKey])
   @@index([missionId, status])
   @@index([missionId, workstream])
+  @@index([milestoneId])
   @@index([status])
 }
 
@@ -10679,6 +10712,112 @@ model MissionPlanPattern {
   updatedAt        DateTime @updatedAt
 
   @@index([statut, succes])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// UN JALON — l'unité de PLANIFICATION PARESSEUSE (§118.40).
+///
+/// Une mission de trois semaines n'est pas un DAG de trois cents étapes compilé le premier jour.
+/// C'est un OBJECTIF DURABLE découpé en jalons, dont un seul (ou quelques-uns, quand ils sont
+/// indépendants) est compilé en étapes à la fois. Les suivants existent comme INTENTION —
+/// un titre et un résultat attendu — pas comme instructions.
+///
+/// Trois propriétés en découlent, et aucune n'est un effet de bord :
+///
+///   • La taille d'une mission cesse d'être bornée par la fenêtre du modèle. Le planificateur
+///     ne voit jamais que le jalon courant plus le contour des autres.
+///   • La replanification devient LOCALE : « finalement Amel à la place de Deepak » ne
+///     recompile que les jalons qui dépendent de Deepak. Les autres gardent leurs étapes, leurs
+///     reçus et leurs effets déjà produits.
+///   • Le budget anti-boucle est LOCAL (`replans`, `dernierRefus`). Un plafond GLOBAL de
+///     replans tuait une mission de vingt jalons parce qu'un seul d'entre eux s'y reprenait à
+///     quatre fois. Ce qui compte n'est pas le NOMBRE d'essais mais le PROGRÈS : tant que le
+///     refus CHANGE, le planificateur répare et mérite un tour (§118.18).
+///
+/// `dependsOn` porte les ORDRES (pas les ids) : un jalon se décrit avant que ses voisins
+/// existent en base, et l'ordre est ce que la personne lit à l'écran.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model MissionMilestone {
+  id           String    @id @default(cuid())
+  missionId    String
+  mission      Mission   @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  /// Rang 1-indexé — l'ordre dans lequel la personne le lit.
+  ordre        Int
+  titre        String
+  /// CE QU'ON DOIT POUVOIR CONSTATER quand ce jalon est atteint. C'est ce que le contrôle
+  /// d'issue compare au réel — jamais « les étapes ont tourné » (§118.10).
+  resultat     String    @db.Text
+  /// PENDING | ACTIVE | DONE | SKIPPED | BLOCKED | CANCELLED
+  statut       String    @default("PENDING")
+  /// 0 = pas encore compilé en sous-plan. C'est la marque de la compilation PARESSEUSE.
+  planVersion  Int       @default(0)
+  /// Les ORDRES des jalons dont celui-ci dépend. Vide = il peut partir dès que la mission part.
+  dependsOn    Int[]     @default([])
+  /// Le budget anti-boucle, LOCAL au jalon.
+  replans      Int       @default(0)
+  /// Le dernier refus rencontré ici. Tant qu'il CHANGE, le planificateur répare et mérite un
+  /// tour ; dès qu'il REVIENT identique, il est bloqué (§118.18).
+  dernierRefus String?   @db.Text
+  compiledAt   DateTime?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  notes        Json      @default("{}")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  steps  MissionStep[]
+  inputs MissionInput[]
+
+  @@unique([missionId, ordre])
+  @@index([missionId, statut])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// UNE ENTRÉE DE MISSION ET SA FRAÎCHEUR (§118.41).
+///
+/// Une mission longue travaille sur des données qui CHANGENT sous elle. Le forecast lu le jour 1
+/// n'est pas celui du jour 18 ; le responsable d'un dossier a pu partir ; un prix a été révisé.
+/// Sans mémoire de ce qu'elle a lu, une mission conclut silencieusement sur une vérité périmée —
+/// et c'est le faux succès le plus difficile à voir, parce que TOUTES les étapes sont vertes.
+///
+/// On garde donc, par donnée importante : d'où elle vient, sa version côté source, QUAND elle a
+/// été lue, et son EMPREINTE. L'empreinte suffit à répondre « est-ce encore vrai ? » sans
+/// stocker une copie de la donnée — ce qui ferait de cette table un second registre (§118.5).
+///
+/// `stepKey` dit QUELLE branche dépend de cette lecture : c'est ce lien, et lui seul, qui permet
+/// d'invalider LOCALEMENT quand la source a bougé, au lieu de tout replanifier.
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model MissionInput {
+  id           String            @id @default(cuid())
+  missionId    String
+  mission      Mission           @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  milestoneId  String?
+  milestone    MissionMilestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  /// L'étape qui a lu cette donnée — pour savoir QUELLE branche devient obsolète.
+  stepKey      String?
+  /// Le nom métier de la donnée : « forecast:NIVOLEX-2027 », « responsable:REG-2026-9011 ».
+  cle          String
+  /// D'où elle vient : « ERP:RegulatoryDossier:REG-2026-9011 », « humain:Khaled Mansouri ».
+  source       String
+  /// La version de la source quand elle en a une (updatedAt, n° de révision, ETag).
+  version      String?
+  /// L'EMPREINTE de la valeur lue. C'est elle qui dit « ça a changé » sans stocker la donnée.
+  empreinte    String
+  /// Un digest lisible, borné — pour l'écran et le journal, jamais pour recalculer.
+  apercu       String?
+  /// TROUVE | DEDUIT | CANDIDAT | INCONNU (§118.9) — seul TROUVE autorise à agir.
+  confiance    String            @default("TROUVE")
+  retrievedAt  DateTime          @default(now())
+  /// La date à laquelle la donnée est VRAIE, quand elle diffère de la date de lecture.
+  effectiveAt  DateTime?
+  /// Renseigné quand une lecture plus fraîche l'a remplacée : la branche qui en dépend est
+  /// alors à réévaluer.
+  supersededAt DateTime?
+  createdAt    DateTime          @default(now())
+
+  @@index([missionId, cle])
+  @@index([missionId, supersededAt])
+  @@index([stepKey])
 }
 
 model MissionStepDep {

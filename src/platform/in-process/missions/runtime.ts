@@ -2,8 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { PLANNER_PROMPT_VERSION } from "@/lib/missions/planner/plan";
 import { prechargerCapacitesDynamiques } from "@/platform/in-process/skills";
 import { assurerFormes } from "@/platform/in-process/missions/formes";
-import { estReplanifiable, PLANS_MAX } from "@/lib/missions/runtime/replan";
+import { estReplanifiable, peutReplanifierMission, signatureDuRefus } from "@/lib/missions/runtime/replan";
 import { exigencesFermes, formatsLivrablesDemandes } from "@/lib/missions/planner/primitives";
+import { trier } from "@/lib/missions/planner/triage";
 import type { CurrentUser } from "@/lib/session";
 import { compile } from "@/lib/missions/compiler/compile";
 import { planifier, type ContextePlanification, type MetriquesPlanification } from "@/lib/missions/planner/plan";
@@ -187,6 +188,14 @@ export interface LancementOptions extends OptionsAssemblage {
   missionId?: string;
   /** Sauter l'enquête (bancs qui mesurent le planificateur seul). Jamais en production. */
   sansEnquete?: boolean;
+  /**
+   * INTERDIT L'HORIZON — la mission sera compilée d'un seul plan, comme avant.
+   *
+   * Deux usages, et aucun n'est du confort : un banc qui mesure le planificateur monolithique,
+   * et le PILOTE D'HORIZON lui-même, qui appelle `lancerMission` quand le découpage rend moins
+   * de trois jalons. Sans ce drapeau, il se rappellerait indéfiniment.
+   */
+  sansHorizon?: boolean;
 }
 
 /**
@@ -221,7 +230,7 @@ export type ResultatLancement =
     }
   | { ok: false; error: string; refus?: CompileIssue[]; metriques?: MetriquesPlanification };
 
-const titreDe = (objectif: string): string => {
+export const titreDe = (objectif: string): string => {
   const t = objectif.replace(/\s+/g, " ").trim();
   return t.length <= 90 ? t : `${t.slice(0, 87)}…`;
 };
@@ -270,9 +279,91 @@ export function lancerMission(
     setTurnContext({ userId: user.id, feature: "mission" });
     await prechargerCapacitesDynamiques(user).catch(() => 0);
     await assurerFormes();
+    const parJalons = await tenterHorizon(user, objectif, opts);
+    if (parJalons) return parJalons;
     return lancerMissionInterne(user, objectif, opts);
   });
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'HORIZON D'ABORD, QUAND LA DEMANDE EN A LA FORME (§118.40).
+ *
+ * ── LA PORTE, ET POURQUOI ELLE EST PURE ─────────────────────────────────────────────────
+ *
+ * `trier()` lit la demande sans modèle, sans base, sans réseau, et rend `COMPLEXE` sur
+ * exactement les formes qui font les missions longues : plusieurs sources, un arbitrage ET un
+ * enchaînement, une écriture répétée sur un éventail, ou quatre propositions et plus. C'est le
+ * même triage qui ouvre déjà les budgets du planificateur — on ne fabrique pas un second
+ * classement qui divergerait du premier.
+ *
+ * Cette porte ne décide PAS que la mission aura des jalons. Elle décide seulement qu'on paie le
+ * découpage, qui coûte quelques centaines de jetons. C'est le DÉCOUPAGE qui tranche : moins de
+ * trois jalons et l'on revient au chemin classique, sans qu'aucune structure inutile n'ait été
+ * écrite en base.
+ *
+ * ── CE QUI SE PASSE QUAND ON DÉCOUPE ────────────────────────────────────────────────────
+ *
+ * On rend la main DÈS QUE la mission existe avec ses jalons, et le premier tour de frontière
+ * tourne derrière. Une mission de trois semaines ne doit pas faire attendre la conversation :
+ * ce qu'on lui promet, c'est qu'elle est enregistrée et qu'elle avance — pas qu'elle est finie.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+async function tenterHorizon(
+  user: CurrentUser,
+  objectif: string,
+  opts: LancementOptions,
+): Promise<ResultatLancement | null> {
+  if (opts.sansHorizon) return null;
+  if (trier(objectif).profil !== "COMPLEXE") return null;
+
+  try {
+    const { ouvrirHorizon, conduireHorizon } = await import("@/platform/in-process/missions/horizon");
+    const h = await ouvrirHorizon(user, objectif, {
+      missionId: opts.missionId, titre: opts.titre,
+      reasoner: opts.reasoner, sansEnquete: opts.sansEnquete,
+    });
+    if (!h.ok || h.voie !== "HORIZON" || !h.missionId) return null;
+
+    const missionId = h.missionId;
+    setTurnContext({ missionId });
+    if (opts.demarrer !== false) {
+      // LE PREMIER TOUR DE FRONTIÈRE TOURNE DERRIÈRE : la conversation est rendue tout de suite.
+      // Une erreur ici ne perd rien — la mission et ses jalons sont en base, et le battement
+      // reprendra exactement où le tour s'est arrêté.
+      setImmediate(() => {
+        void conduireHorizon(user, missionId, opts).catch((e) => {
+          console.error(`[missions] premier tour d'horizon de ${missionId} échoué`, e);
+        });
+      });
+    }
+    return {
+      ok: true, missionId, titre: h.titre ?? titreDe(objectif),
+      etapes: 0, complexite: "C", echelle: "XL", approbation: null,
+      metriques: METRIQUES_HORIZON, gaps: [], differe: true,
+    };
+  } catch (e) {
+    /**
+     * L'HORIZON NE FAIT JAMAIS ÉCHOUER UN LANCEMENT.
+     *
+     * S'il ne peut pas découper — modèle indisponible, découpage incohérent deux fois —, on
+     * revient au chemin classique, qui marchait avant lui. Une porte d'optimisation qui casse
+     * le chemin nominal est une régression, pas une amélioration.
+     */
+    console.warn(`[missions] horizon indisponible, chemin classique : ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+}
+
+/** Le lancement par jalons ne PLANIFIE pas d'étapes : ses chiffres de plan sont donc nuls. */
+const METRIQUES_HORIZON: MetriquesPlanification = {
+  plannerCapabilitiesExposed: 0, plannerSchemaTokens: 0, plannerContextTokens: 0,
+  plannerCatalogueChars: 0, capacitesAutorisees: 0, jetonsEvites: 0,
+  domaines: [], role: "COMPLEX_PLANNER", latencyMs: 0,
+  // `usage: null` = NON MESURÉ ICI, jamais zéro : les jetons du découpage sont écrits au journal
+  // de la mission (`MILESTONES_PLANNED`), et ceux des sous-plans à chaque `MILESTONE_COMPILED`.
+  usage: null, voie: "MODELE", profil: "COMPLEXE", refusDirect: null,
+};
 
 async function lancerMissionInterne(
   user: CurrentUser,
@@ -928,19 +1019,26 @@ async function replanifierMissionInterne(
 ): Promise<ResultatReplanification> {
   const m = await prisma.mission.findFirst({
     where: { id: missionId, ownerId: user.id, kind: "RUNTIME" },
-    select: { id: true, title: true, status: true, goalRaw: true, objective: true, planVersion: true },
+    select: {
+      id: true, title: true, status: true, goalRaw: true, objective: true, planVersion: true,
+      replanRefus: true, replanBloque: true,
+    },
   });
   if (!m) return { replanifie: false, raison: "Mission introuvable — ou elle ne vous appartient pas." };
   if (!estReplanifiable(m.status)) {
     return { replanifie: false, raison: `Une mission ${m.status} n'a rien à replanifier.` };
   }
-  if (m.planVersion >= PLANS_MAX) {
-    return {
-      replanifie: false,
-      raison: `${m.planVersion} plans ont déjà été essayés. Ce n'est plus le plan qui est en cause — `
-        + `il faut regarder ce qui bloque avant d'en écrire un cinquième.`,
-    };
-  }
+  /**
+   * ── LA PORTE D'ENTRÉE : LE PROGRÈS, PLUS UN COMPTEUR (§118.42) ────────────────────────
+   *
+   * On n'entre pas ici avec un refus de compilation en main — il n'existera qu'après l'appel du
+   * planificateur. On vérifie donc les deux verdicts qui ne dépendent PAS du refus : la mission
+   * est-elle déjà déclarée bloquée (le même refus est déjà revenu deux fois), et le plafond
+   * OPÉRATIONNEL est-il atteint. La comparaison de signature, elle, se fait plus bas, quand le
+   * compilateur a parlé.
+   */
+  const porte = peutReplanifierMission(m, null);
+  if (!porte.autorise) return { replanifie: false, raison: porte.phrase };
 
   const etat = await chargerEtat(missionId);
   if (!etat) return { replanifie: false, raison: "État de mission illisible." };
@@ -1092,6 +1190,34 @@ async function replanifierMissionInterne(
     }
     const c2 = compile(secondEssai.plan, catalogue, agent, optionsCompile);
     if (!c2.ok) {
+      /**
+       * ── LE REFUS QUI REVIENT IDENTIQUE FERME LA PORTE, ET LE DIT ────────────────────
+       *
+       * Deux plans, deux refus. Si les CODES sont les mêmes, le planificateur n'a rien réparé
+       * et un troisième tour rendrait la même réponse : on inscrit `replanBloque`, et le
+       * battement cesse de reprendre cette mission à chaque tour pour lui refuser un plan.
+       *
+       * Si les codes ont CHANGÉ, on n'inscrit rien : la mission reste candidate, parce que le
+       * planificateur progressait. C'est exactement ce que le plafond global ne savait pas
+       * distinguer, et ce qu'il faisait payer à toutes les missions longues.
+       *
+       * `replanRefus` garde la dernière signature dans les deux cas : c'est la référence de la
+       * comparaison suivante.
+       */
+      const signature = signatureDuRefus(c2.issues);
+      const repetition = signatureDuRefus(c.issues) === signature;
+      await prisma.mission.update({
+        where: { id: missionId },
+        data: { replanRefus: signature, replanBloque: repetition },
+      }).catch(() => undefined);
+      await journaliser(missionId, repetition ? "REPLAN_BLOCKED" : "REPLAN_SKIPPED",
+        repetition
+          ? `Le compilateur oppose deux fois le même refus (${signature}) : le planificateur n'a rien `
+            + `réparé, un plan de plus rendrait la même réponse. La mission ne sera plus reprise tant `
+            + `qu'une information neuve n'arrivera pas.`
+          : `Le plan corrigé reste refusé, mais sur d'autres motifs (${signatureDuRefus(c.issues)} → `
+            + `${signature}) : le planificateur progresse, la mission reste candidate.`,
+        { signature, repetition });
       return {
         replanifie: false,
         raison: `Le nouveau plan reste refusé après correction : `
@@ -1102,6 +1228,11 @@ async function replanifierMissionInterne(
   }
 
   await transitionner(missionId, "PLANNING", "Replanification après échec sans recours");
+  // UN PLAN QUI PASSE EFFACE LE BLOCAGE : la mission a retrouvé un chemin, et le refus dont on
+  // se souvenait ne décrit plus sa situation.
+  await prisma.mission.update({
+    where: { id: missionId }, data: { replanRefus: null, replanBloque: false },
+  }).catch(() => undefined);
   await materialiser(c.mission, {
     ownerId: user.id,
     title: m.title,

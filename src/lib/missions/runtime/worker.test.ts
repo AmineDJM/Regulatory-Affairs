@@ -26,7 +26,8 @@ const etape = (over: Partial<EtatEtape>): EtatEtape => ({
 
 const mission = (steps: EtatEtape[]): EtatMission => ({
   id: "m-1", status: "RUNNING", ownerId: "u-1", planVersion: 1, maxConcurrency: 4,
-  acceptance: [], goalRaw: "objectif", objective: "objectif", planMeta: {}, steps,
+  acceptance: [], goalRaw: "objectif", objective: "objectif", planMeta: {},
+  horizonOuvert: false, steps,
 });
 
 describe("hydraterEventail — le parent déployé rend les résultats de ses filles", () => {

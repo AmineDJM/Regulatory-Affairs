@@ -73,9 +73,29 @@ export async function mettreEnPause(
   }
 
   await transitionner(missionId, "PAUSED", motif ? `Suspendue : ${motif}` : "Suspendue à la demande");
-  await journaliser(missionId, "NOTE",
-    motif ? `Mise en pause — ${motif}` : "Mise en pause", { motif: motif ?? null }, ownerId);
-  return { ok: true, depuis, vers: "PAUSED", message: "Mission suspendue. Elle repartira où elle s'est arrêtée." };
+  /**
+   * LA PAUSE PORTE SA DATE, SON MOTIF ET SON ÉTAT D'ORIGINE.
+   *
+   * Sans ces trois champs, `PAUSED` est un mot sans contenu : l'écran ne peut pas dire « en
+   * pause depuis mardi, parce qu'on attend l'avis du juriste », et la reprise ne peut que
+   * DEVINER d'où repartir. `pausedFrom` n'est pas là pour restaurer l'état d'avant — on repart
+   * par RUNNING, voir `reprendre` — mais pour pouvoir DIRE ce qu'on a interrompu : une mission
+   * suspendue en pleine attente et une mission suspendue en plein travail ne se reprennent pas
+   * avec la même phrase.
+   */
+  await prisma.mission.updateMany({
+    where: { id: missionId, ownerId },
+    data: { pausedAt: new Date(), pausedReason: motif ?? null, pausedFrom: depuis },
+  });
+  await journaliser(missionId, "PAUSED",
+    motif ? `Mise en pause — ${motif}` : "Mise en pause",
+    { motif: motif ?? null, depuis }, ownerId);
+  return {
+    ok: true, depuis, vers: "PAUSED",
+    message: depuis.startsWith("WAITING")
+      ? "Mission suspendue pendant qu'elle attendait. Elle repartira en attendant toujours la même chose."
+      : "Mission suspendue. Elle repartira où elle s'est arrêtée.",
+  };
 }
 
 /**
@@ -93,9 +113,33 @@ export async function reprendre(missionId: string, ownerId: string): Promise<Res
     return { ok: false, depuis, vers: depuis, message: `Cette mission n'est pas en pause (${depuis}).` };
   }
 
+  const trace = await prisma.mission.findUnique({
+    where: { id: missionId }, select: { pausedAt: true, pausedReason: true, pausedFrom: true },
+  });
   await transitionner(missionId, "RUNNING", "Reprise à la demande");
-  await journaliser(missionId, "NOTE", "Reprise", undefined, ownerId);
-  return { ok: true, depuis, vers: "RUNNING", message: "Mission reprise." };
+  /**
+   * ON EFFACE LA TRACE DE PAUSE, ET ON ROUVRE LE DROIT DE REPLANIFIER.
+   *
+   * Une mission suspendue pendant des jours a très bien pu voir son contexte changer : la
+   * personne a répondu, la source a bougé, la contrainte a sauté. Garder `replanBloque` la
+   * condamnerait à un refus décidé dans un monde qui n'existe plus (§118.42).
+   */
+  await prisma.mission.updateMany({
+    where: { id: missionId, ownerId },
+    data: { pausedAt: null, pausedReason: null, pausedFrom: null, replanBloque: false, replanRefus: null },
+  });
+  const duree = trace?.pausedAt
+    ? Math.max(0, Math.round((Date.now() - trace.pausedAt.getTime()) / 60_000))
+    : null;
+  await journaliser(missionId, "RESUMED", "Reprise",
+    { pausedFrom: trace?.pausedFrom ?? null, motif: trace?.pausedReason ?? null, minutesEnPause: duree }, ownerId);
+  return {
+    ok: true, depuis, vers: "RUNNING",
+    message: duree === null
+      ? "Mission reprise."
+      : `Mission reprise après ${duree < 60 ? `${duree} min` : `${Math.round(duree / 60)} h`} de pause`
+        + `${trace?.pausedFrom ? `, là où elle en était (${trace.pausedFrom})` : ""}.`,
+  };
 }
 
 /**
@@ -124,6 +168,18 @@ export async function annuler(
   await prisma.missionStep.updateMany({
     where: { missionId, status: { in: ["PENDING", "READY"] } },
     data: { status: "CANCELLED" },
+  });
+  /**
+   * LES JALONS VIVANTS SONT ANNULÉS AVEC ELLE.
+   *
+   * Sans cette ligne, une mission arrêtée garderait un horizon OUVERT : `chargerEtat` rendrait
+   * `horizonOuvert: true` pour toujours, et le pilote reprendrait indéfiniment une mission que
+   * quelqu'un a explicitement arrêtée — le geste d'arrêt le plus important du produit, rendu
+   * inopérant par une table qu'il ne connaissait pas.
+   */
+  await prisma.missionMilestone.updateMany({
+    where: { missionId, statut: { notIn: ["DONE", "SKIPPED", "CANCELLED"] } },
+    data: { statut: "CANCELLED", completedAt: new Date() },
   });
 
   await transitionner(missionId, "CANCELLED", motif ? `Arrêtée : ${motif}` : "Arrêtée à la demande");
