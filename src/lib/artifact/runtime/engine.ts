@@ -33,7 +33,7 @@ import { randomUUID } from "node:crypto";
 import type { ArtifactFormat, ArtifactModel } from "@/lib/artifact/object-model/model";
 import type { CommandeArtefact } from "@/lib/artifact/commands/ir";
 import { compilerCommandes } from "@/lib/artifact/commands/compile";
-import type { DocumentOuvert, EffetCommande } from "@/lib/artifact/adapters/contract";
+import type { DocumentOuvert, EffetCommande, RessourceBinaire } from "@/lib/artifact/adapters/contract";
 import { adaptateurPour, mimeDe } from "@/lib/artifact/adapters/registry";
 import { controlerAvantLivraison, controlerVisuel, proportionsInitiales, type ControleLivraison } from "@/lib/artifact/qa/checks";
 import { vueDuModele, type VueArtefact } from "@/lib/artifact/render/view";
@@ -247,6 +247,78 @@ export async function ouvrir(
 }
 
 /** Rejoue la base + les opérations non annulées, ou rend l'état déjà en cache. */
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * RÉSOUDRE LES OCTETS QU'UN LOT VA POSER — ici, et nulle part ailleurs.
+ *
+ * ── POURQUOI LE MOTEUR, ET PAS L'ADAPTATEUR ─────────────────────────────────────────────
+ *
+ * Parce que résoudre veut dire LIRE UN FICHIER, donc franchir une porte de droits. Un
+ * adaptateur qui saurait le faire serait un adaptateur capable de lire un document auquel la
+ * personne n'a pas accès, puis de le coller dans un autre (§104.9). Le port `documents.lire`
+ * reçoit l'identifiant de la personne et refuse pour elle ; on passe par lui, toujours.
+ *
+ * ── POURQUOI À CHAQUE REJEU, ET PAS UNE FOIS POUR TOUTES ────────────────────────────────
+ *
+ * L'état d'un document est un REJEU (§104.3). Si la source d'une image devient illisible entre
+ * deux ouvertures — droit retiré, fichier supprimé — le rejeu doit ÉCHOUER sur cette opération
+ * et le dire, pas ressusciter des octets mis en cache. Une image qu'on n'a plus le droit de
+ * lire ne doit pas continuer d'apparaître dans un document qu'on rouvre.
+ *
+ * Une référence introuvable n'est pas une erreur ICI : c'est l'adaptateur qui refusera, avec le
+ * motif exact et le nom de la source. Échouer ici rendrait le lot entier muet.
+ */
+interface ResolutionRessources {
+  trouvees: Map<string, RessourceBinaire>;
+  /** Les références qui désignent PLUSIEURS fichiers — on ne choisit pas (§104.7). */
+  ambigues: Map<string, { id: string; libelle: string }[]>;
+}
+
+async function resoudreRessources(
+  ctx: ContexteMoteur,
+  commandes: readonly CommandeArtefact[],
+): Promise<ResolutionRessources> {
+  const refs = new Set<string>();
+  for (const c of commandes) if (c.imageSource) refs.add(c.imageSource);
+  const res: ResolutionRessources = { trouvees: new Map(), ambigues: new Map() };
+  if (refs.size === 0) return res;
+
+  for (const ref of refs) {
+    // 1. L'IDENTIFIANT D'ABORD. Exact, sans ambiguïté possible — et c'est ce que rend
+    //    `artifact.inspect` quand la personne a déjà désigné le fichier.
+    let fiche = await ctx.ports.documents.decrire(ctx.acteur.id, ref).catch(() => null);
+
+    /**
+     * 2. LE NOM ENSUITE. Une personne dit « le logo Adventum », pas un cuid. On cherche donc
+     *    dans SON Drive — le port filtre par ses droits, un fichier qu'elle ne peut pas voir
+     *    n'est pas un candidat.
+     *
+     *    UN SEUL résultat désigne ce fichier. PLUSIEURS n'en désignent aucun : coller la
+     *    mauvaise image dans un contrat et annoncer que c'est fait est exactement le défaut
+     *    que §104.7 interdit. On rend les candidats, la personne tranche.
+     */
+    if (!fiche) {
+      const trouves = await ctx.ports.documents.chercher(ctx.acteur.id, ref, 5).catch(() => []);
+      if (trouves.length === 1) fiche = trouves[0];
+      else if (trouves.length > 1) {
+        res.ambigues.set(ref, trouves.map((f) => ({ id: f.nodeId, libelle: f.nom })));
+        continue;
+      }
+    }
+    if (!fiche) continue;
+
+    const octets = await ctx.ports.documents.lire(ctx.acteur.id, fiche.nodeId, fiche.version).catch(() => null);
+    if (!octets) continue;
+    res.trouvees.set(ref, { octets, nom: fiche.nom });
+  }
+  return res;
+}
+
+/** Dépose les ressources sur l'adaptateur quand il sait en recevoir — sinon, rien à faire. */
+function armerRessources(doc: DocumentOuvert, res: ReadonlyMap<string, RessourceBinaire>): void {
+  doc.fournirRessources?.(res);
+}
+
 async function etatCourant(ctx: ContexteMoteur, session: SessionPersistee): Promise<EtatOuvert> {
   const enCache = CACHE.get(session.id);
   if (enCache && enCache.revision === session.revision) return enCache;
@@ -257,6 +329,8 @@ async function etatCourant(ctx: ContexteMoteur, session: SessionPersistee): Prom
   const proportions = proportionsInitiales(doc.modele());
 
   const ops = await ctx.magasin.operations(session.id);
+  // Les octets dont le REJEU a besoin, relus sous les droits COURANTS de la personne.
+  armerRessources(doc, (await resoudreRessources(ctx, ops.filter((o) => !o.undone).map((o) => o.command))).trouvees);
   for (const op of ops) {
     if (op.undone) continue;
     // Un rejeu qui échoue ne doit pas rendre la session inutilisable : on le note et on continue.
@@ -305,6 +379,8 @@ export async function editer(
   const clesConnues = new Set(dejaFaites.map((o) => o.operationId));
 
   const etat = await etatCourant(ctx, session);
+  const ressources = await resoudreRessources(ctx, compile.commandes);
+  armerRessources(etat.doc, ressources.trouvees);
   const effets: EffetCommande[] = [];
   let revision = session.revision;
   let seq = seqDepart;
@@ -327,6 +403,22 @@ export async function editer(
      */
     if (clesConnues.has(cle)) {
       effets.push({ ok: false, resume: "", motif: "Cette modification a déjà été appliquée.", touches: [], candidats: [] });
+      continue;
+    }
+
+    /**
+     * UNE SOURCE AMBIGUË S'ARRÊTE ICI, avec ses candidats.
+     *
+     * L'adaptateur ne saurait dire que « le fichier n'a pas pu être lu » — il ne connaît ni le
+     * Drive ni la recherche. Le moteur, lui, sait qu'il y avait DEUX « logo Adventum », et
+     * c'est cette information-là qui permet de trancher en une phrase au lieu d'aller chercher.
+     */
+    const candidats = cmd.imageSource ? ressources.ambigues.get(cmd.imageSource) : undefined;
+    if (candidats) {
+      effets.push({
+        ok: false, resume: "", touches: [], candidats,
+        motif: `« ${cmd.imageSource} » désigne ${candidats.length} fichiers : lequel ?`,
+      });
       continue;
     }
 

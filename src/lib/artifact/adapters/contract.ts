@@ -47,10 +47,34 @@ export interface Validation {
 }
 
 /**
+ * DES OCTETS QU'UNE COMMANDE VA POSER DANS LE DOCUMENT — une image, aujourd'hui.
+ *
+ * La commande ne porte qu'une RÉFÉRENCE (§104.3 : l'état est un rejeu, et un journal qui
+ * contiendrait des mégaoctets d'image serait rejoué à chaque ouverture). C'est le moteur qui
+ * résout la référence en octets, à travers le port — donc sous les droits de la personne — et
+ * qui les dépose ici juste avant d'appliquer. L'adaptateur ne sait toujours pas ce qu'est un
+ * Drive, et c'est la propriété qui l'empêche d'écrire sans passer par les autorisations.
+ */
+export interface RessourceBinaire {
+  octets: Buffer;
+  /** Le nom d'origine — sert à nommer la partie du zip lisiblement, jamais à deviner le type. */
+  nom: string;
+}
+
+/**
  * UN DOCUMENT OUVERT. L'état vit ici, pas dans le runtime : c'est l'adaptateur qui sait ce qu'il
  * doit garder en mémoire entre deux commandes (un arbre XML, un classeur ExcelJS, un PDF mupdf).
  */
 export interface DocumentOuvert {
+  /**
+   * REÇOIT les octets dont le prochain lot de commandes a besoin, indexés par référence.
+   *
+   * Facultatif : un adaptateur qui ne pose jamais de binaire (le PDF) ne l'implémente pas, et
+   * le moteur n'a pas à savoir lesquels le font. Une référence absente de la table fait échouer
+   * la commande AVEC SON MOTIF — jamais une insertion d'octets vides, qui produirait un
+   * document que le lecteur annonce endommagé.
+   */
+  fournirRessources?(res: ReadonlyMap<string, RessourceBinaire>): void;
   format: ArtifactFormat;
   /** Le modèle courant, recalculé après chaque commande appliquée. */
   modele(): ArtifactModel;

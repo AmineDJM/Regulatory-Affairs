@@ -145,6 +145,14 @@ export const SCHEMA_COMMANDE = {
     pas: { type: I }, degres: { type: I, enum: [90, 180, 270, -90, -180, -270, null] },
     opacite: { type: N }, tout: { type: B },
     nom: { type: S, description: "Nom d'une nouvelle feuille, ou nouveau nom." },
+    /**
+     * LA SOURCE D'UNE IMAGE — un NOM de fichier ou son identifiant Drive, jamais des octets.
+     *
+     * Le modèle dit « le logo Adventum » ; le code cherche ce fichier dans le Drive DE LA
+     * PERSONNE, et s'il en trouve plusieurs il rend les candidats au lieu d'en choisir un.
+     */
+    imageSource: { type: S, description: "Le fichier image à poser : son NOM (« logo Adventum ») ou son identifiant Drive." },
+    imageAlt: { type: S, description: "Texte de remplacement de l'image (accessibilité). Vide = le nom du fichier." },
   },
   required: [
     "op", "cible", "cible2", "alignement", "gras", "italique", "souligne", "taillePt", "police",
@@ -152,6 +160,7 @@ export const SCHEMA_COMMANDE = {
     "gaucheCm", "droiteCm", "texte", "chercher", "remplacer", "formule", "formatNombre",
     "remplissage", "feuille", "plage", "ligne", "colonne", "pages", "ordre", "diapo", "versIndex",
     "position", "direction", "pas", "degres", "opacite", "tout", "nom",
+    "imageSource", "imageAlt",
   ],
 } as const;
 

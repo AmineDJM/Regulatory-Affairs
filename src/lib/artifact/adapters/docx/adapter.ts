@@ -32,7 +32,11 @@ import {
 import { abreger, normaliserTexte } from "@/lib/artifact/object-model/text";
 import { cibleVide, type CommandeArtefact } from "@/lib/artifact/commands/ir";
 import { resoudre } from "@/lib/artifact/commands/resolve";
-import type { AdaptateurArtefact, DocumentOuvert, EffetCommande, Validation } from "@/lib/artifact/adapters/contract";
+import type {
+  AdaptateurArtefact, DocumentOuvert, EffetCommande, RessourceBinaire, Validation,
+} from "@/lib/artifact/adapters/contract";
+import { lireImage, tailleInsertion } from "@/lib/artifact/object-model/image";
+import { assurerNamespacesDessin, paragrapheImage, poserMedia, repointerImage } from "@/lib/artifact/adapters/docx/media";
 import { effetEchec, effetOk } from "@/lib/artifact/adapters/contract";
 import type { XmlNode } from "@/lib/artifact/object-model/xml";
 import {
@@ -494,9 +498,19 @@ const libelleParagraphe = (p: ParagraphNode): string => `¶${p.index} ${abreger(
 class DocxOuvert implements DocumentOuvert {
   format = "DOCX" as const;
   private etat: EtatDocx;
+  /**
+   * LES OCTETS QUE LE MOTEUR A RÉSOLUS pour le lot en cours (§104.9 : l'adaptateur ne connaît
+   * pas le Drive). Vidée à chaque nouveau lot par `fournirRessources` : garder les octets d'un
+   * lot précédent ferait réussir une insertion dont la source n'est plus lisible.
+   */
+  private ressources: ReadonlyMap<string, RessourceBinaire> = new Map();
 
   constructor(zip: PizZip, racine: XmlNode) {
     this.etat = construireEtat(zip, racine);
+  }
+
+  fournirRessources(res: ReadonlyMap<string, RessourceBinaire>): void {
+    this.ressources = res;
   }
 
   modele(): DocxModel { return this.etat.modele; }
@@ -540,6 +554,8 @@ class DocxOuvert implements DocumentOuvert {
       case "docx.supprimer_ligne": return this.supprimerLigne(c);
       case "docx.image_taille": return this.imageTaille(c);
       case "docx.supprimer_image": return this.supprimerImage(c);
+      case "docx.inserer_image": return this.insererImage(c);
+      case "docx.remplacer_image": return this.remplacerImage(c);
       default: return effetEchec(`opération « ${c.op} » non gérée par l'adaptateur Word`);
     }
   }
@@ -787,6 +803,150 @@ class DocxOuvert implements DocumentOuvert {
     const ext = firstDescendant(t.i.noeud, "a:ext");
     if (ext) { setAttr(ext, "cx", String(cmEnEmu(l))); setAttr(ext, "cy", String(cmEnEmu(h))); }
     return effetOk(`Image ${t.i.index} → ${l.toFixed(1)} × ${h.toFixed(1)} cm.`, [t.i.id]);
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * INSÉRER UNE IMAGE — « mets le logo Adventum en haut », « ajoute ce graphique ici ».
+   *
+   * ── CE QUI SE PASSE, ET DANS QUEL ORDRE ──────────────────────────────────────────────
+   *
+   * Les octets arrivent RÉSOLUS (le moteur les a lus à travers le port, donc sous les droits
+   * de la personne). On lit leur en-tête pour connaître le type et le RAPPORT — sans lui,
+   * une largeur donnée seule produirait une image écrasée. On pose la partie, la relation et
+   * le type de contenu, puis le paragraphe.
+   *
+   * ── POURQUOI UN PARAGRAPHE À ELLE SEULE ──────────────────────────────────────────────
+   *
+   * Parce que c'est ce qu'on veut voir : une image insérée DANS un paragraphe de texte se
+   * glisse entre deux mots, à la hauteur de la ligne. Un paragraphe dédié, centré, est le
+   * geste que « mets le logo ici » désigne. Le reste — la faire flotter, l'habiller de texte
+   * — n'a pas de formulation naturelle et n'est donc pas offert (§104.5).
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  private insererImage(c: CommandeArtefact): EffetCommande {
+    const ref = c.imageSource ?? "";
+    const res = this.ressources.get(ref);
+    if (!res) {
+      // NOMMER la référence manquante : « image introuvable » enverrait chercher dans le
+      // document, alors que ce qui manque est le FICHIER SOURCE, ailleurs.
+      return effetEchec(`le fichier source « ${ref} » n'a pas pu être lu (introuvable, ou vous n'y avez pas accès)`);
+    }
+    const img = lireImage(res.octets);
+    if (!img) {
+      return effetEchec(
+        `« ${res.nom} » n'est pas une image que Word sache afficher `
+        + "(formats acceptés : PNG, JPEG, GIF, BMP, TIFF, WEBP)",
+      );
+    }
+
+    const m = this.etat.modele;
+    const largeurUtile = Math.max(1, m.pageWidthCm - m.marginLeftCm - m.marginRightCm);
+    const taille = tailleInsertion(img, { largeurCm: c.largeurCm, hauteurCm: c.hauteurCm }, largeurUtile);
+
+    let pose;
+    try {
+      pose = poserMedia(this.etat.zip, res.octets, img);
+    } catch (e) {
+      return effetEchec(`l'image n'a pas pu être rangée dans le document : ${(e as Error).message}`);
+    }
+    assurerNamespacesDessin(this.etat.racine);
+
+    const p = paragrapheImage({
+      rId: pose.rId,
+      largeurCm: taille.largeurCm,
+      hauteurCm: taille.hauteurCm,
+      alt: c.imageAlt ?? res.nom,
+      // Les identifiants de dessin doivent être uniques : on repart du nombre d'images DÉJÀ
+      // présentes, plus un. Deux `docPr` identiques passent l'ouverture et font râler Word à
+      // la première retouche — le genre de défaut qu'on découvre chez le destinataire.
+      docPrId: this.etat.images.length + 1,
+      nom: res.nom,
+      alignement: "center",
+    });
+
+    const body = this.etat.body;
+    if (cibleVide(c.cible)) {
+      // SANS CIBLE = À LA FIN, comme pour un paragraphe — mais AVANT `w:sectPr`, qui doit
+      // rester le dernier enfant du corps sous peine de voir Word « réparer » la section.
+      const sectPr = child(body, "w:sectPr");
+      if (sectPr) insertBefore(body, sectPr, p);
+      else insertAfter(body, body.children[body.children.length - 1] ?? null, p);
+      markDirty(body);
+      return effetOk(
+        `Image « ${res.nom} » ajoutée à la fin du document, ${taille.largeurCm.toFixed(1)} × ${taille.hauteurCm.toFixed(1)} cm.`,
+        [],
+      );
+    }
+
+    const t = this.ciblerParagraphe(c);
+    if (!t.ok) return t.echec;
+    const parent = t.p.noeud.parent;
+    if (!parent) return effetEchec("paragraphe détaché du document");
+    if (c.position === "avant") insertBefore(parent, t.p.noeud, p);
+    else insertAfter(parent, t.p.noeud, p);
+    return effetOk(
+      `Image « ${res.nom} » insérée ${c.position === "avant" ? "avant" : "après"} ${libelleParagraphe(t.p.modele)}, `
+      + `${taille.largeurCm.toFixed(1)} × ${taille.hauteurCm.toFixed(1)} cm.`,
+      [t.p.id],
+    );
+  }
+
+  /**
+   * REMPLACER UNE IMAGE — et pourquoi ce n'est PAS « supprimer puis insérer ».
+   *
+   * L'image en place porte une taille, un alignement, parfois un habillage, réglés par
+   * quelqu'un. Les refaire à l'identique après suppression est impossible : on ne sait pas ce
+   * qui a été réglé à la main. On garde donc le dessin et l'on ne déplace que le lien vers les
+   * octets — l'empreinte de la modification est exactement « le contenu de cette image ».
+   */
+  private remplacerImage(c: CommandeArtefact): EffetCommande {
+    const ref = c.imageSource ?? "";
+    const res = this.ressources.get(ref);
+    if (!res) return effetEchec(`le fichier source « ${ref} » n'a pas pu être lu (introuvable, ou vous n'y avez pas accès)`);
+    const img = lireImage(res.octets);
+    if (!img) return effetEchec(`« ${res.nom} » n'est pas une image que Word sache afficher`);
+
+    const t = this.ciblerImage(c);
+    if (!t.ok) return t.echec;
+
+    let pose;
+    try {
+      pose = poserMedia(this.etat.zip, res.octets, img);
+    } catch (e) {
+      return effetEchec(`l'image n'a pas pu être rangée dans le document : ${(e as Error).message}`);
+    }
+    if (!repointerImage(t.i.noeud, pose.rId)) {
+      return effetEchec("cet objet n'est pas une image incorporée (c'est peut-être une forme ou un graphique)");
+    }
+
+    // LA TAILLE NE BOUGE PAS, sauf demande explicite : « remplace le logo » ne dit pas
+    // « redimensionne-le ». Si le nouveau fichier a un autre rapport, l'image sera déformée —
+    // et c'est un fait qu'on ANNONCE plutôt que de corriger dans le dos de la personne.
+    const rapportAvant = t.i.modele.heightCm > 0 ? t.i.modele.widthCm / t.i.modele.heightCm : null;
+    const rapportApres = img.largeurPx / img.hauteurPx;
+    const deforme = rapportAvant !== null && Math.abs(rapportAvant - rapportApres) / rapportApres > 0.02;
+
+    if (c.largeurCm !== null || c.hauteurCm !== null) {
+      const taille = tailleInsertion(img, { largeurCm: c.largeurCm, hauteurCm: c.hauteurCm }, 100);
+      const extent = child(t.i.noeud, "wp:extent");
+      if (extent) {
+        setAttr(extent, "cx", String(cmEnEmu(taille.largeurCm)));
+        setAttr(extent, "cy", String(cmEnEmu(taille.hauteurCm)));
+      }
+      const ext = firstDescendant(t.i.noeud, "a:ext");
+      if (ext) { setAttr(ext, "cx", String(cmEnEmu(taille.largeurCm))); setAttr(ext, "cy", String(cmEnEmu(taille.hauteurCm))); }
+      return effetOk(
+        `Image ${t.i.index} remplacée par « ${res.nom} », ${taille.largeurCm.toFixed(1)} × ${taille.hauteurCm.toFixed(1)} cm.`,
+        [t.i.id],
+      );
+    }
+
+    return effetOk(
+      `Image ${t.i.index} remplacée par « ${res.nom} », même emplacement et même taille.`
+      + (deforme ? " Attention : la nouvelle image n'a pas les mêmes proportions — elle sera étirée tant qu'on ne redonne pas de taille." : ""),
+      [t.i.id],
+    );
   }
 
   private supprimerImage(c: CommandeArtefact): EffetCommande {

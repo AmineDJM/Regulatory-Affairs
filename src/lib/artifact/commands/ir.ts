@@ -87,6 +87,16 @@ export const OPS_DOCX = [
   "docx.image_taille",
   "docx.supprimer_image",
   /**
+   * INSÉRER UNE IMAGE, et REMPLACER celle qui est là.
+   *
+   * Deux opérations et non une, parce que ce ne sont pas les mêmes gestes : insérer ajoute un
+   * paragraphe, remplacer garde la place, la taille et l'habillage de l'image existante — ce
+   * qu'on veut quand on dit « remplace le logo ». Les fondre obligerait à supprimer puis
+   * réinsérer, donc à perdre la mise en page que quelqu'un avait réglée.
+   */
+  "docx.inserer_image",
+  "docx.remplacer_image",
+  /**
    * L'INTERLIGNE — « augmente l'interligne de ce paragraphe », « interligne 1,5 ».
    * Distinct de `docx.espacement`, qui règle l'air AUTOUR du paragraphe (avant / après) :
    * ici c'est l'air ENTRE ses lignes. Les confondre donne un paragraphe qui s'éloigne du
@@ -207,6 +217,19 @@ export interface CommandeArtefact {
   diapo: number | null;
   versIndex: number | null;
 
+  /**
+   * LA SOURCE D'UNE IMAGE — une RÉFÉRENCE, jamais les octets (§104.3).
+   *
+   * L'état d'un document est un REJEU : les commandes sont journalisées et rejouées à chaque
+   * ouverture. Y mettre les octets d'une image ferait un journal de plusieurs mégaoctets par
+   * insertion, rejoué à chaque fois. La commande porte donc l'identifiant du fichier source ;
+   * c'est le MOTEUR qui en résout les octets, à travers le port — donc sous les droits de la
+   * personne, à chaque application comme à chaque rejeu.
+   */
+  imageSource: string | null;
+  /** Le texte de remplacement (accessibilité) — ce que Word appelle « description ». */
+  imageAlt: string | null;
+
   // Divers.
   position: string | null;
   direction: string | null;
@@ -225,6 +248,7 @@ export const COMMANDE_VIDE: Omit<CommandeArtefact, "op"> = {
   avantPt: null, apresPt: null, interligne: null, bordure: null, bordureStyle: null, gaucheCm: null, droiteCm: null,
   texte: null, chercher: null, remplacer: null, formule: null, formatNombre: null, remplissage: null,
   feuille: null, plage: null, ligne: null, colonne: null, pages: null, ordre: null, diapo: null, versIndex: null,
+  imageSource: null, imageAlt: null,
   position: null, direction: null, pas: null, degres: null, opacite: null, tout: null, nom: null,
 };
 

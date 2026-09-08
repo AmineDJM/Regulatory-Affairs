@@ -156,6 +156,24 @@ export function verifierCommande(c: CommandeArtefact, format: ArtifactFormat): s
     case "docx.supprimer_image":
       if (cibleVide(c.cible)) return "il faut dire QUELLE image supprimer";
       return null;
+    case "docx.inserer_image":
+      /**
+       * PAS DE CIBLE EXIGÉE, comme pour `docx.inserer_paragraphe` : sans cible, l'image entre à
+       * la FIN du document. C'est le geste complet sur un papier en-tête au corps vide, et
+       * exiger un paragraphe rendrait impossible la première image d'une lettre qui n'en a pas.
+       */
+      if (!c.imageSource) return "il faut dire QUELLE image insérer (le fichier source)";
+      if (c.position !== null && !POSITIONS.has(c.position)) return "position attendue : avant ou apres";
+      if (c.largeurCm !== null && c.largeurCm <= 0) return "la largeur doit être positive";
+      if (c.hauteurCm !== null && c.hauteurCm <= 0) return "la hauteur doit être positive";
+      return null;
+    case "docx.remplacer_image":
+      // ICI la cible est OBLIGATOIRE : « remplace l'image » sur un document qui en a quatre
+      // n'en désigne aucune, et en choisir une reviendrait à modifier la mauvaise en annonçant
+      // que c'est fait — le défaut le plus coûteux de tout ce système (§104.7).
+      if (cibleVide(c.cible)) return "il faut dire QUELLE image remplacer";
+      if (!c.imageSource) return "il faut dire par quelle image la remplacer (le fichier source)";
+      return null;
 
     // ── XLSX ────────────────────────────────────────────────────────────────────────────
     case "xlsx.valeur":

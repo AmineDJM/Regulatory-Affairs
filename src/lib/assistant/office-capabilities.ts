@@ -114,6 +114,12 @@ export const OFFICE_TOOLS: PowerTool[] = [
         + "CIBLAGE : donne `cible.id` quand tu l'as (le plus sûr), sinon `cible.index` (le rang humain), "
         + "sinon `cible.contient` (un bout de texte), sinon `cible.role` (titre / premier / dernier). "
         + "Si plusieurs objets correspondent, l'outil te rendra les candidats : redemande, ne choisis pas. "
+        + "IMAGES (Word) : `docx.inserer_image` pose une image, `docx.remplacer_image` change celle qui "
+        + "est déjà là en gardant sa place et sa taille. Dans les deux cas, `imageSource` est le NOM du "
+        + "fichier image (« logo Adventum ») ou son identifiant Drive — jamais des octets. Une largeur "
+        + "suffit : la hauteur suit le rapport de l'image. Sans taille, elle entre à sa taille naturelle, "
+        + "bornée par la largeur utile de la page. Si le nom désigne plusieurs fichiers, l'outil rend les "
+        + "candidats : redemande. "
         + "N'ENREGISTRE PAS : la modification est visible tout de suite, mais elle ne part au Drive que "
         + "sur `artifact_save`.",
       input_schema: {

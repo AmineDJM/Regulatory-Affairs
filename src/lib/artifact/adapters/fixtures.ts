@@ -12,6 +12,7 @@
  * par le banc de performance.
  */
 
+import { deflateSync } from "node:zlib";
 import PizZip from "pizzip";
 import ExcelJS from "exceljs";
 import { chargerMupdf } from "@/lib/artifact/adapters/pdf/adapter";
@@ -58,6 +59,63 @@ export async function docxDeParagraphes(textes: string[], opts: OptionsDocx = {}
   word.folder("_rels")!.file("document.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
   return zip.generate({ type: "nodebuffer", compression: "DEFLATE" }) as Buffer;
+}
+
+/**
+ * UN PNG RÉEL de `l` × `h`, uni.
+ *
+ * Vraiment un PNG : signature, IHDR, IDAT compressé par `zlib`, IEND, et les CRC de chaque
+ * bloc. Des octets bidons passeraient notre propre lecteur d'en-tête — qui ne lit que les
+ * seize premiers — et masqueraient le seul défaut qui compte vraiment : un fichier que Word
+ * accepte de recevoir mais refuse d'afficher.
+ */
+export function pngUni(l: number, h: number, rvb: [number, number, number] = [11, 87, 208]): Buffer {
+  const brut = Buffer.alloc(h * (1 + l * 3));
+  for (let y = 0; y < h; y++) {
+    const ligne = y * (1 + l * 3);
+    brut[ligne] = 0; // filtre « aucun »
+    for (let x = 0; x < l; x++) {
+      brut[ligne + 1 + x * 3] = rvb[0];
+      brut[ligne + 2 + x * 3] = rvb[1];
+      brut[ligne + 3 + x * 3] = rvb[2];
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(l, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8;   // 8 bits par canal
+  ihdr[9] = 2;   // couleur vraie (RVB)
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    blocPng("IHDR", ihdr),
+    blocPng("IDAT", deflateSync(brut)),
+    blocPng("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function blocPng(type: string, donnees: Buffer): Buffer {
+  const entete = Buffer.alloc(8);
+  entete.writeUInt32BE(donnees.length, 0);
+  entete.write(type, 4, "latin1");
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([entete.subarray(4), donnees])), 0);
+  return Buffer.concat([entete, donnees, crc]);
+}
+
+const TABLE_CRC = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(b: Buffer): number {
+  let c = 0xffffffff;
+  for (const octet of b) c = TABLE_CRC[(c ^ octet) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
 }
 
 /** Un PDF de `n` pages, chacune portant « Page k » — c'est ce qui rend les rangs VÉRIFIABLES. */
