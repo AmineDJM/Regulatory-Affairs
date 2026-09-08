@@ -234,3 +234,123 @@ export const RAPPEL_ELARGISSEMENT =
   + "  7. AUTRES GRENIERS — Drive, courriers, pièces jointes des mails, RH, Finances, Legal, Regulatory, corpus.\n"
   + "Si, après avoir vraiment élargi, il n'y a toujours rien : dis-le en NOMMANT ce que tu as cherché et où — "
   + "« aucune trace sous X, Y ni Z, dans le Drive, les courriers et Legal ». Une absence se prouve, elle ne se constate pas.";
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UNE PROMESSE SANS OBJET DURABLE EST UN FAUX SUCCÈS — la troisième garde de cette famille.
+ *
+ * ── CE QUI L'A FAIT ÉCRIRE ──────────────────────────────────────────────────────────────
+ *
+ * Mesuré en conversation, et c'est le reproche qui pique le plus :
+ *
+ *     « Je t'avais dit de me rappeler hier quand t'as des réponses mais tu l'as pas fait. »
+ *     — « Tu as raison : je ne t'ai pas prévenu. Aucun rappel ni suivi conditionnel n'était
+ *        planifié. »
+ *
+ * Adam avait dit oui. Rien n'avait été créé. Aucune étape en échec, aucun signal, aucune trace :
+ * la promesse vivait dans une phrase, et une phrase ne survit pas à la fin du tour. C'est le
+ * faux succès le plus coûteux, parce que la personne, elle, a ARRÊTÉ d'y penser.
+ *
+ * Les deux gardes voisines traitent le même défaut ailleurs : `gardeImpossibilite` refuse un
+ * « je ne peux pas » que rien n'a vérifié, `gardeAbsence` refuse un « rien trouvé » après une
+ * seule façon de chercher. Celle-ci refuse un « je te préviens » que rien ne tient.
+ *
+ * ── CE QUI LA FAIT SE TAIRE, ET C'EST LA MOITIÉ DU TRAVAIL ──────────────────────────────
+ *
+ * Un refus à tort coûte un aller-retour et de la confiance (§118.27). Elle ne parle donc que
+ * sur un engagement à la PREMIÈRE personne et au FUTUR — « je te préviens », « je reviens vers
+ * toi », « dès que X répond, je t'écris ». Elle se tait sur le passé (« je t'ai prévenu »), sur
+ * ce qui est livré dans le tour (« je te le montre ci-dessous »), sur une promesse RAPPORTÉE
+ * (« Radia dit qu'elle reviendra vers toi ») et dès qu'un objet durable existe. Ce sont les
+ * seules façons dont une promesse survit à la fin du tour, et c'est pour cela qu'on peut les
+ * compter.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/**
+ * LES OUTILS QUI FONT SURVIVRE UNE PROMESSE À LA FIN DU TOUR. La liste est FERMÉE : ouverte,
+ * n'importe quelle lecture passerait pour un suivi.
+ */
+export const OUTILS_DURABLES: readonly string[] = [
+  "plan_reminder",       // un rappel daté, éventuellement conditionnel, sur le canal demandé
+  "watch_entity",        // une surveillance : rien ne sonne tant que tout va bien
+  "run_mission",         // une mission qui ATTEND un fait puis agit
+  "record_commitment",   // un engagement au registre, suivi jusqu'à son issue
+  "record_decision",     // une décision à relire à une date
+];
+
+/** « Je te préviens » — première personne, futur, et c'est ADAM qui s'engage. */
+const PROMESSE = [
+  /\bje (?:te|vous) (?:previen|previendrai|tiendrai|rappellerai|reviendrai|relancerai|alerterai|informerai|notifierai)/,
+  /\bje (?:reviens|repasse) vers (?:toi|vous)\b/,
+  /\bje (?:te|vous) tiens au courant\b/,
+  /\bje (?:te|vous) (?:le |la |les |)(?:dis|signale|remonte|fais savoir) (?:des|de|si|quand|apres|lorsque)\b/,
+  /\bje (?:vais |)(?:surveille|surveiller|suivre|suis)\b[^.\n]{0,40}\bet (?:je |)(?:te|vous)\b/,
+  /\bdes (?:qu'|que )[^.\n]{0,60}\bje (?:te|vous)\b/,
+  /\bje m'en occupe et (?:je |)(?:te|vous)\b/,
+];
+
+/** Ce qui RESSEMBLE à une promesse sans en être une — et ferait refuser à tort. */
+const PAS_UNE_PROMESSE = [
+  // Le PASSÉ : le compte rendu d'un suivi déjà fait.
+  /\bje (?:t'|vous )ai (?:prevenu|informe|rappele|alerte|tenu au courant)/,
+  // Le TOUR LUI-MÊME : ce qui est livré ici n'a pas besoin de survivre.
+  /\bje (?:te|vous) (?:le |la |les |)(?:montre|donne|liste|affiche|presente)\b[^.\n]{0,30}\b(?:ci-dessous|ici|maintenant|tout de suite)\b/,
+  // La promesse de QUELQU'UN D'AUTRE, rapportée : ce n'est pas Adam qui s'engage.
+  /\b(?:il|elle|ils|elles) (?:dit|indique|annonce|ecrit) qu'(?:il|elle)s? (?:reviendra|reviendront|previendra)/,
+];
+
+export type VerdictPromesse = "RAS" | "SANS_OBJET";
+
+export interface EntreePromesse {
+  reponse: string;
+  /** Les outils appelés pendant le tour, doublons compris. */
+  outilsUtilises: readonly string[];
+  dejaRappele: boolean;
+}
+
+/** La réponse ENGAGE-t-elle Adam à revenir plus tard ? */
+export function prometUnSuivi(reponse: string): boolean {
+  const t = plier(reponse);
+  if (!PROMESSE.some((r) => r.test(t))) return false;
+  return !PAS_UNE_PROMESSE.some((r) => r.test(t));
+}
+
+/**
+ * LA GARDE. Rend SANS_OBJET quand une promesse est faite et qu'AUCUN objet durable ne la porte.
+ * Une seule relance : au second passage la réponse tient, et c'est le complément du serveur
+ * (`avertirPromesseSansObjet`) qui l'empêche de rester nue.
+ */
+export function gardePromesse(e: EntreePromesse): VerdictPromesse {
+  if (e.dejaRappele) return "RAS";
+  if (!prometUnSuivi(e.reponse)) return "RAS";
+  if (e.outilsUtilises.some((o) => OUTILS_DURABLES.includes(o))) return "RAS";
+  return "SANS_OBJET";
+}
+
+export const RAPPEL_PROMESSE =
+  "CONTRÔLE DU SERVEUR : tu viens de promettre de revenir vers la personne (« je te préviens », « je te rappelle », "
+  + "« dès que… »), et AUCUN objet durable n'a été créé dans ce tour. Une promesse qui ne vit que dans une phrase "
+  + "meurt à la fin du tour — la personne, elle, arrête d'y penser. C'est déjà arrivé, et le reproche a été : "
+  + "« je t'avais dit de me rappeler quand t'as des réponses, tu l'as pas fait ».\n"
+  + "DEUX ISSUES, PAS TROIS :\n"
+  + "  1. CRÉE l'objet MAINTENANT, celui qui correspond :\n"
+  + "     · une date, une heure, un délai → `plan_reminder` (« dans 2 minutes », « demain 9h », « chaque vendredi ») ; "
+  + "il porte aussi `canal` (« email » pour un envoi dans sa boîte) et une échelle de relances ;\n"
+  + "     · « préviens-moi SI / QUAND X change, répond, arrive » → `watch_entity` : rien ne sonne tant que tout va bien ;\n"
+  + "     · « quand X arrive, FAIS Y » → `run_mission` : une surveillance prévient, elle n'agit pas ;\n"
+  + "     · quelqu'un s'est engagé envers toi → `record_commitment`, suivi jusqu'à son issue.\n"
+  + "  2. Si aucun ne convient, DIS-LE en clair : « je ne pourrai pas revenir vers toi tout seul là-dessus », "
+  + "et propose le geste qui le rendrait possible. Ne laisse pas la promesse debout sans rien derrière.";
+
+/**
+ * LE COMPLÉMENT, quand la seconde tentative promet encore sans rien créer. On ne censure pas la
+ * réponse : on ajoute la seule phrase qui manque — celle que la personne doit lire pour ne pas
+ * compter sur un suivi qui n'existe pas.
+ */
+export function avertirPromesseSansObjet(reponse: string, outilsUtilises: readonly string[]): string | null {
+  if (!prometUnSuivi(reponse)) return null;
+  if (outilsUtilises.some((o) => OUTILS_DURABLES.includes(o))) return null;
+  return "⚠️ Rien n'a été programmé pour ce suivi : aucun rappel, aucune surveillance, aucune mission. "
+    + "Il ne survivra pas à cette conversation — demandez-moi de poser un rappel ou une surveillance si vous voulez que j'y revienne.";
+}

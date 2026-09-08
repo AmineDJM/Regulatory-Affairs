@@ -61,7 +61,7 @@ import { apercuDesSources } from "@/lib/assistant/workspace/apercu";
 import { candidatsMontres, verdictCible, type Candidat } from "@/lib/assistant/cible-designee";
 import { withTurn, markPreview, markFinal, logTurn, recordTool, setTurnContext, summarize, addPhase, timedPhase, type TurnRoute, type TurnContext, type TurnSummary } from "@/lib/models/telemetry";
 import { ADAM_PROMPT_VERSION } from "@/lib/assistant/prompt-version";
-import { complementDeLimite, gardeAbsence, gardeImpossibilite, RAPPEL_DECOUVERTE, RAPPEL_ELARGISSEMENT } from "@/lib/assistant/limites";
+import { avertirPromesseSansObjet, complementDeLimite, OUTILS_DURABLES, gardeAbsence, gardeImpossibilite, gardePromesse, RAPPEL_DECOUVERTE, RAPPEL_ELARGISSEMENT, RAPPEL_PROMESSE } from "@/lib/assistant/limites";
 import { prechargerCapacitesDynamiques } from "@/platform/in-process/skills";
 import "@/platform/in-process/telemetry/usage-sink";
 import { callModel } from "@/lib/models/gateway";
@@ -4654,6 +4654,7 @@ const CRITIQUE_LABEL = "Relecture critique de la conclusion";
 const TEACH_GARDE_LABEL = "Vérification : l'enseignement doit passer par l'outil";
 const DECOUVERTE_LABEL = "Carte complète des capacités relue";
 const ELARGISSEMENT_LABEL = "Recherche élargie avant de conclure à une absence";
+const PROMESSE_LABEL = "Suivi promis : un objet durable exigé";
 /** L'étape visible quand « d'où tu tiens ça ? » se répond depuis le registre des lectures (F8). */
 const PROVENANCE_LABEL = "Provenance relue dans le registre des lectures";
 
@@ -4941,6 +4942,7 @@ async function runAssistantImpl(
   // La garantie d'enseignement (§119) ne rappelle le modèle qu'UNE fois par tour.
   let rappelEnseignement = false;
   let redecouvert = false;
+  let promesseRappelee = false;
   // Une absence ne s'affirme qu'une fois la recherche élargie — et l'élargissement n'a lieu qu'UNE fois.
   let elargi = false;
   for (let turn = 0; turn < MAX_TURNS; turn++) {
@@ -4988,6 +4990,21 @@ async function runAssistantImpl(
       }
       // ── LA DÉCOUVERTE AVANT L'IMPOSSIBLE (§34) — « je ne peux pas » sans un seul outil appelé n'est
       // pas une réponse : le serveur remet la carte complète et exige un second essai, une fois.
+      /**
+       * ── UNE PROMESSE SANS OBJET DURABLE ─────────────────────────────────────────────
+       *
+       * « Je te préviens dès qu'ils répondent » sans rappel, sans surveillance et sans
+       * mission ne survit pas à la fin du tour — et la personne, elle, arrête d'y penser.
+       * Le serveur exige l'objet, ou l'aveu. Une fois. (`limites.ts`)
+       */
+      if (gardePromesse({ reponse: brut, outilsUtilises: usedTools, dejaRappele: promesseRappelee }) === "SANS_OBJET") {
+        promesseRappelee = true;
+        trace.push(PROMESSE_LABEL);
+        tools = avecOutilsDeclares(tools, allTools, [...OUTILS_DURABLES]);
+        messages.push({ role: "assistant", content: blocks });
+        messages.push({ role: "user", content: RAPPEL_PROMESSE });
+        continue;
+      }
       const verdictImp = gardeImpossibilite({ question, reponse: brut, outilsUtilises: usedTools, outilsDisponibles: allTools.map((t) => t.name), dejaRedecouvert: redecouvert });
       if (verdictImp === "REDECOUVRIR") {
         redecouvert = true;
@@ -4999,6 +5016,8 @@ async function runAssistantImpl(
         continue;
       }
       if (verdictImp === "ACCEPTER") { const c = complementDeLimite(brut, allTools.length); if (c) brut = `${brut}\n\n${c}`; }
+      // La promesse a survécu au rappel : on ne la censure pas, on ajoute la phrase qui manque.
+      { const p = avertirPromesseSansObjet(brut, usedTools); if (p) brut = `${brut}\n\n${p}`; }
       const reply = reparerReponse(brut);
       if (highStakes && reply.length >= CRITIQUE_MIN_DRAFT) {
         const revised = await reviseHighStakes(systemComplet, question, reply, opts.model, cacheKey).catch(() => null);
@@ -5519,6 +5538,7 @@ async function runAssistantStreamImpl(
     // La garantie d'enseignement (§119) ne rappelle le modèle qu'UNE fois par tour.
     let rappelEnseignement = false;
     let redecouvert = false;
+    let promesseRappelee = false;
     // Une absence ne s'affirme qu'une fois la recherche élargie — et l'élargissement n'a lieu qu'UNE fois.
     let elargi = false;
     /**
@@ -5609,6 +5629,17 @@ async function runAssistantStreamImpl(
         }
         // ── LA DÉCOUVERTE AVANT L'IMPOSSIBLE (§34) — même règle qu'hors flux : la carte complète est
         // remise une fois ; le texte déjà diffusé était un refus prématuré, le client l'efface (`reset`).
+        // ── UNE PROMESSE SANS OBJET DURABLE — même règle qu'hors flux. Le texte déjà diffusé
+        // promettait un suivi qui n'existe pas : le client l'efface (`reset`).
+        if (gardePromesse({ reponse: redige, outilsUtilises: usedTools, dejaRappele: promesseRappelee }) === "SANS_OBJET") {
+          promesseRappelee = true;
+          if (streamed) { emit({ type: "reset" }); streamed = false; }
+          if (!trace.includes(PROMESSE_LABEL)) { trace.push(PROMESSE_LABEL); emit({ type: "trace", label: PROMESSE_LABEL }); }
+          tools = avecOutilsDeclares(tools, allTools, [...OUTILS_DURABLES]);
+          messages.push({ role: "assistant", content: blocks });
+          messages.push({ role: "user", content: RAPPEL_PROMESSE });
+          continue;
+        }
         const verdictImp = gardeImpossibilite({ question, reponse: redige, outilsUtilises: usedTools, outilsDisponibles: allTools.map((t) => t.name), dejaRedecouvert: redecouvert });
         if (verdictImp === "REDECOUVRIR") {
           redecouvert = true;
@@ -5621,6 +5652,7 @@ async function runAssistantStreamImpl(
           continue;
         }
         if (verdictImp === "ACCEPTER") { const c = complementDeLimite(redige, allTools.length); if (c) { redige = `${redige}\n\n${c}`; if (streamed) { emit({ type: "reset" }); streamed = false; } } }
+        { const p = avertirPromesseSansObjet(redige, usedTools); if (p) { redige = `${redige}\n\n${p}`; if (streamed) { emit({ type: "reset" }); streamed = false; } } }
         const reparation = reparerReponse(redige);
         const reply = reparation.texte;
         // Rien n'a été diffusé (réponse vide côté modèle) → on envoie le repli d'un trait.

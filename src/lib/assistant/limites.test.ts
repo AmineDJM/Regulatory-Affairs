@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classerLimite, complementDeLimite, gardeAbsence, gardeImpossibilite, paraitImpossibilite, RAPPEL_DECOUVERTE, RAPPEL_ELARGISSEMENT } from "./limites";
+import { classerLimite, complementDeLimite, gardeAbsence, gardeImpossibilite, paraitImpossibilite, RAPPEL_DECOUVERTE, RAPPEL_ELARGISSEMENT, prometUnSuivi, gardePromesse, avertirPromesseSansObjet, OUTILS_DURABLES } from "./limites";
 
 /**
  * LES LIMITES DITES JUSTE — la découverte avant l'impossible (une fois), l'acceptation après, et
@@ -96,5 +96,65 @@ describe("une absence ne s'affirme qu'après élargissement", () => {
       expect(RAPPEL_ELARGISSEMENT).toMatch(barreau);
     }
     expect(RAPPEL_ELARGISSEMENT).toMatch(/Une absence se prouve, elle ne se constate pas/);
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UNE PROMESSE SANS OBJET DURABLE — la troisième garde, et ce qui la fait SE TAIRE.
+ *
+ * Mesuré : « Je t'avais dit de me rappeler hier quand t'as des réponses mais tu l'as pas
+ * fait. » — « Tu as raison : aucun rappel ni suivi conditionnel n'était planifié. » Adam avait
+ * dit oui, rien n'avait été créé, et rien n'avait signalé le vide.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("une promesse ne vit pas dans une phrase", () => {
+  const durable = ["gmail_search", "plan_reminder"];
+  const lecture = ["gmail_search", "inspect_record"];
+
+  it("« je te préviens dès qu'ils répondent » sans rien de durable est refusé", () => {
+    const r = "Je te préviens dès qu'ils répondent.";
+    expect(prometUnSuivi(r)).toBe(true);
+    expect(gardePromesse({ reponse: r, outilsUtilises: lecture, dejaRappele: false })).toBe("SANS_OBJET");
+  });
+
+  it("la même phrase AVEC un rappel posé ne dit rien — l'objet existe", () => {
+    expect(gardePromesse({ reponse: "Je te préviens dès qu'ils répondent.", outilsUtilises: durable, dejaRappele: false })).toBe("RAS");
+  });
+
+  /**
+   * CE QUI FERAIT TOMBER CES TROIS-LÀ : élargir les motifs jusqu'à attraper le passé, le tour
+   * lui-même ou la promesse de quelqu'un d'autre. Un refus à tort coûte un aller-retour et de
+   * la confiance (§118.27) — et une garde qui crie tout le temps finit désactivée.
+   */
+  it("se tait sur le PASSÉ — « je t'ai prévenu » n'engage rien", () => {
+    expect(prometUnSuivi("Je t'ai prévenu hier soir, tu as reçu la notification.")).toBe(false);
+  });
+
+  it("se tait sur ce qui est livré DANS le tour", () => {
+    expect(prometUnSuivi("Je te le montre ci-dessous : trois dossiers en retard.")).toBe(false);
+  });
+
+  it("se tait sur la promesse de QUELQU'UN D'AUTRE", () => {
+    expect(prometUnSuivi("Radia dit qu'elle reviendra vers toi avec l'heure.")).toBe(false);
+  });
+
+  it("une seule relance : au second passage la garde laisse passer", () => {
+    expect(gardePromesse({ reponse: "Je te rappellerai vendredi.", outilsUtilises: lecture, dejaRappele: true })).toBe("RAS");
+  });
+
+  it("si la promesse survit au rappel, le serveur AJOUTE la phrase qui manque", () => {
+    const p = avertirPromesseSansObjet("Je te tiens au courant.", lecture);
+    expect(p).toMatch(/Rien n'a été programmé/);
+    expect(p).toMatch(/ne survivra pas à cette conversation/);
+    // Et il se tait dès qu'un objet durable porte la promesse.
+    expect(avertirPromesseSansObjet("Je te tiens au courant.", durable)).toBeNull();
+  });
+
+  it("les outils durables sont ceux qui SURVIVENT au tour — la liste est fermée", () => {
+    expect(OUTILS_DURABLES).toContain("plan_reminder");
+    expect(OUTILS_DURABLES).toContain("watch_entity");
+    expect(OUTILS_DURABLES).toContain("run_mission");
+    expect(OUTILS_DURABLES, "une lecture n'est pas un suivi").not.toContain("gmail_search");
   });
 });
