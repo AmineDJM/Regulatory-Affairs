@@ -193,7 +193,7 @@ async function runQuery(principal: Principal, q: PlatformQuery): Promise<Platfor
     }
 
     case "document.show":
-      return showDocument(q);
+      return showDocument(principal, q);
 
     case "document.search":
       return searchDocuments(principal, q.question, q.limit ?? 5);
@@ -298,13 +298,13 @@ function humanSize(bytes: number | null | undefined): string | null {
  * l'adaptateur est chargé à chaque tour d'Adam, y compris quand aucun document n'est demandé.
  */
 async function showDocument(
+  principal: Principal,
   q: Extract<PlatformQuery, { kind: "document.show" }>,
 ): Promise<Extract<PlatformQueryResult, { kind: "document.show" }>> {
   const refuse = (refusal: string) => ({ kind: "document.show" as const, document: null, refusal });
 
-  const [{ getCurrentUser }, { resolveDriveAccess, canViewDrive }, { getBlob }, { readFileByKey }, { canAccessEntity }, { sheetPreview }] =
+  const [{ resolveDriveAccess, canViewDrive }, { getBlob }, { readFileByKey }, { canAccessEntity }, { sheetPreview }] =
     await Promise.all([
-      import("@/lib/session"),
       import("@/lib/drive"),
       import("@/lib/drive-storage"),
       import("@/lib/storage"),
@@ -312,11 +312,38 @@ async function showDocument(
       import("@/lib/assistant/workspace/sheet"),
     ]);
 
-  // L'IDENTITÉ SE RELIT ICI, à la source. Le `Principal` sert à filtrer ; il n'ouvre aucun
-  // fichier. Les fonctions de droits du Drive attendent l'utilisateur canonique, et c'est
-  // exactement ce qu'on veut : aucune traduction ne s'interpose entre la demande et la porte.
-  const user = await getCurrentUser();
-  if (!user) return refuse("Session expirée — reconnectez-vous.");
+  /**
+   * ── L'IDENTITÉ SE RELIT À LA SOURCE — MAIS LA SOURCE N'EST PAS LA SESSION HTTP ─────────
+   *
+   * La première version appelait `getCurrentUser()`, qui lit les en-têtes de la requête. Dans
+   * une CONVERSATION c'est juste ; dans une MISSION, il n'y a pas de requête — le moteur tourne
+   * sur un battement, un webhook ou un processus détaché. Mesuré sur un run live : chaque étape
+   * qui ouvrait un document mourait sur « `headers` was called outside a request scope », et le
+   * jalon entier passait BLOCKED. Un « je ne peux pas » purement artificiel : la personne
+   * existe, ses droits existent, et rien ne manquait qu'un en-tête HTTP.
+   *
+   * La source canonique des DROITS, c'est `getAccess` — qui les relit EN BASE, à l'instant.
+   * C'est plus fort que la session, pas moins : le rôle porté par un jeton peut être périmé
+   * après une promotion, celui de la base ne l'est jamais. C'est déjà le motif employé par
+   * `destinationsOf` juste au-dessus, pour exactement cette raison.
+   *
+   * Le `Principal` ne fabrique donc AUCUN droit : il ne fournit qu'un identifiant, et tout ce
+   * qui autorise est relu derrière. Chaque nœud du Drive repasse ensuite par `canViewDrive`, et
+   * chaque pièce jointe par `canAccessEntity` — être PDG n'ouvre toujours pas un fichier privé
+   * qu'aucun partage ne lui donne.
+   */
+  const acces = await getAccess(principal.id, principal.role as UserRole);
+  const enBase = await prisma.user.findUnique({
+    where: { id: principal.id },
+    select: { id: true, name: true, email: true, role: true, secondaryRole: true, mustChangePassword: true },
+  });
+  if (!enBase) return refuse("Compte introuvable.");
+  const user = {
+    ...enBase,
+    role: acces.role ?? enBase.role,
+    secondaryRole: acces.secondaryRole ?? enBase.secondaryRole,
+    access: acces,
+  } as unknown as CurrentUser;
 
   let nodeId = q.driveNodeId?.trim() ?? "";
   let subtitle: string | null = null;

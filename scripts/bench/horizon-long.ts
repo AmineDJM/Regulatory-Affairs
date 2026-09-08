@@ -207,7 +207,17 @@ async function phase1(): Promise<void> {
 
   // ── 1. DÉPART ────────────────────────────────────────────────────────────────────────
   const t0 = Date.now();
-  const r = await lancerMission(pdg, DEMANDE, { titre: "[BENCH horizon] AO PCH 2026/14 — Nivolex" });
+  /**
+   * `demarrer: false` — LE BANC EST LE SEUL CONDUCTEUR.
+   *
+   * Sans cela, le lancement laisse un premier tour d'horizon tourner en arrière-plan pendant que
+   * le banc conduit lui aussi. Le BAIL empêche le double travail, mais le banc lirait quand même
+   * des instantanés pris au milieu d'un tour qu'il n'a pas lancé — et un banc qui mesure une
+   * course mesure la course, pas le produit.
+   */
+  const r = await lancerMission(pdg, DEMANDE, {
+    titre: "[BENCH horizon] AO PCH 2026/14 — Nivolex", demarrer: false,
+  });
   if (!r.ok) { console.log(`  ✗ non lancée : ${r.error}`); process.exit(2); }
   const missionId = r.missionId;
   console.log(`  mission ${missionId} — lancée en ${Math.round((Date.now() - t0) / 1000)} s`);
@@ -287,12 +297,31 @@ async function phase1(): Promise<void> {
   // ── 5. ON AVANCE, LES HUMAINS RÉPONDENT ──────────────────────────────────────────────
   const marche = await conduireJusquaStable(pdg, missionId, 10);
   const jalons2 = await jalonsDe(missionId);
-  const compiles = jalons2.filter((j) => j.planVersion > 0).length;
+  /**
+   * ON COMPTE LES ÉVÉNEMENTS, PAS L'INSTANTANÉ.
+   *
+   * `planVersion > 0` est un état MOUVANT : une reprise locale le remet à 0 pour faire écrire un
+   * sous-plan neuf, et un banc qui lit à cet instant voit « pas compilé » un jalon qui l'a été
+   * trois fois. Le JOURNAL, lui, ne se dédit pas : chaque `MILESTONE_COMPILED` est un sous-plan
+   * réellement écrit, et c'est exactement ce que « progressivement » veut dire.
+   */
+  const compiles = await prisma.missionEvent.count({
+    where: { missionId, kind: "MILESTONE_COMPILED" },
+  });
+  const ordresCompiles = new Set(
+    (await prisma.missionEvent.findMany({
+      where: { missionId, kind: "MILESTONE_COMPILED" }, select: { detail: true },
+    })).map((e) => (e.detail as { ordre?: number } | null)?.ordre).filter((o) => o !== undefined),
+  );
   verdicts.push({
     id: "frontiere",
     libelle: "FRONTIÈRE : les sous-plans s'écrivent PROGRESSIVEMENT, à mesure que l'amont aboutit",
-    ok: compiles > 1 && compiles <= jalons2.length,
-    detail: `${compiles}/${jalons2.length} jalons compilés après ${marche.tours} tour(s) · `
+    // DEUX conditions, et il faut les deux : plusieurs sous-plans écrits (c'est progressif), ET
+    // au moins un jalon qui n'en a AUCUN (c'est paresseux — sinon tout aurait été compilé
+    // d'avance et « progressivement » ne décrirait que l'ordre d'écriture).
+    ok: compiles > 1 && ordresCompiles.size < jalons2.length,
+    detail: `${compiles} sous-plan(s) écrit(s) sur ${ordresCompiles.size} jalon(s) distincts, `
+      + `${jalons2.length - ordresCompiles.size} jamais compilé(s) — après ${marche.tours} tour(s) · `
       + jalons2.map((j) => `${j.ordre}:${j.statut}(${j.etapes})`).join(" "),
   });
 
@@ -364,6 +393,7 @@ async function phase1(): Promise<void> {
     { titre: "[BENCH horizon] revue contrats fournisseurs" });
   const missionTemoinId = r2.ok ? r2.missionId : "";
   if (missionTemoinId) await conduireMission(pdg, missionTemoinId, { maxTours: 6 }).catch(() => null);
+  void conduireMission;
 
   const sorties = tentativesSortantes();
   verdicts.push({

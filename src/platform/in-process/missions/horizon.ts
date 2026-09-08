@@ -50,6 +50,7 @@ import {
 } from "@/lib/missions/horizon/store";
 import { aRegarder } from "@/lib/missions/horizon/fraicheur";
 import { chargerEtat, journaliser, materialiser, transitionner } from "@/lib/missions/runtime/store";
+import { prendreBail } from "@/lib/missions/runtime/bail";
 import { evaluerObjectif, type EtapeObservee } from "@/lib/missions/goal/evaluate";
 import { lireRecu } from "@/lib/missions/runtime/receipt";
 import { agentPour } from "@/lib/missions/agent/principal";
@@ -219,6 +220,26 @@ async function conduireHorizonInterne(
     });
     if (!mission) { res.arret = "mission introuvable"; return res; }
     res.statut = mission.status;
+
+    /**
+     * ── LE BAIL PROTÈGE AUSSI LA COMPILATION, PAS SEULEMENT L'EXÉCUTION ──────────────────
+     *
+     * MESURÉ : le lancement laisse un premier tour d'horizon en arrière-plan (`setImmediate`),
+     * et le battement peut reprendre la même mission dans la seconde. `avancer` prend le bail à
+     * chaque vague — les ÉTAPES ne partaient donc jamais deux fois — mais `compilerJalon`, lui,
+     * ne le prenait pas. Deux pilotes compilaient le MÊME jalon : deux appels de planificateur
+     * payés pour un seul sous-plan, une `planVersion` qui saute, et un état si mouvant qu'un
+     * banc lisant l'instantané voyait un jalon DONE avec `planVersion: 0`.
+     *
+     * `materialiser` est ré-entrante, donc rien n'était CASSÉ — mais compiler deux fois est du
+     * gaspillage pur, et un état qui se contredit à une seconde d'intervalle est illisible pour
+     * un écran comme pour un contrôle.
+     */
+    if (!(await prendreBail(missionId))) {
+      res.arret = "une autre instance conduit déjà cette mission";
+      res.avancement = avancement(await lireJalons(missionId));
+      return res;
+    }
 
     // LA PAUSE ET L'ANNULATION SONT HONORÉES ICI AUSSI. Le moteur les honore de son côté ; si
     // seul lui le faisait, ce pilote continuerait à PAYER des sous-plans pour une mission
