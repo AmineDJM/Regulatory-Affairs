@@ -100,6 +100,18 @@ export interface VueMission {
   livrables: {
     key: string; titre: string; format: string; statut: string;
     fichier: string; octets: number; driveNodeId: string | null;
+    /**
+     * CE QUE LE FICHIER CONTIENT VRAIMENT — « 3 paragraphes non vides », « 5 diapositives ».
+     * Le contrôle l'écrit à la fabrication ; sans cette ligne il restait dans `qaReport`, lu
+     * par personne (§118.50 : une donnée que rien n'affiche est du code mort).
+     */
+    contenu: string | null;
+    /** Ce qui a été vu sans bloquer : une numérotation d'articles qui saute, une diapo chargée. */
+    avertissements: string[];
+    /** Ce qu'on n'a PAS pu vérifier — dit, jamais compté comme réussi (§34). */
+    nonVerifie: string[];
+    /** Le format se rend-il dans le workspace ? Décide entre l'ouvrir et le montrer au Drive. */
+    ouvrable: boolean;
   }[];
   avancement: { faites: number; total: number; echouees: number };
   /** Combien d'étapes le plan courant a contournées — dites, jamais tues. */
@@ -196,7 +208,7 @@ export async function vueMission(missionId: string, ownerId: string): Promise<Vu
       artifacts: {
         select: {
           key: true, title: true, format: true, status: true,
-          fileName: true, byteSize: true, driveNodeId: true,
+          fileName: true, byteSize: true, driveNodeId: true, qaReport: true,
         },
         orderBy: { createdAt: "asc" },
       },
@@ -314,10 +326,15 @@ export async function vueMission(missionId: string, ownerId: string): Promise<Vu
           titre: attente.title,
         }
       : null,
-    livrables: m.artifacts.map((a) => ({
-      key: a.key, titre: a.title, format: a.format, statut: a.status,
-      fichier: a.fileName, octets: a.byteSize, driveNodeId: a.driveNodeId,
-    })),
+    livrables: m.artifacts.map((a) => {
+      const r = lireRapport(a.qaReport);
+      return {
+        key: a.key, titre: a.title, format: a.format, statut: a.status,
+        fichier: a.fileName, octets: a.byteSize, driveNodeId: a.driveNodeId,
+        contenu: r.contenu, avertissements: r.avertissements, nonVerifie: r.nonVerifie,
+        ouvrable: FORMATS_RENDUS.has(a.format),
+      };
+    }),
     avancement: { faites, total: reelles.length, echouees },
     contournees: m._count.steps,
   };
@@ -374,4 +391,35 @@ export async function missionsEnCours(ownerId: string, limite = 5) {
       depuis: m.updatedAt,
     };
   });
+}
+
+
+/** Les formats que le Live Office sait OUVRIR et dessiner — les autres se voient au Drive. */
+const FORMATS_RENDUS = new Set(["DOCX", "XLSX", "PPTX", "PDF"]);
+
+/**
+ * LE RAPPORT DE CONTRÔLE, tel qu'un écran peut le lire.
+ *
+ * `qaReport` est un JSON écrit par la fabrique. On n'en tire que ce qu'une personne veut savoir :
+ * ce que le fichier CONTIENT, ce qui a été vu sans bloquer, ce qu'on n'a pas su vérifier. Un
+ * rapport illisible ou d'une ancienne forme ne casse pas l'écran — il rend simplement moins.
+ */
+function lireRapport(brut: unknown): { contenu: string | null; avertissements: string[]; nonVerifie: string[] } {
+  const vide = { contenu: null, avertissements: [] as string[], nonVerifie: [] as string[] };
+  if (!brut || typeof brut !== "object" || Array.isArray(brut)) return vide;
+  const o = brut as Record<string, unknown>;
+  const textes = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 8) : [];
+  const points = Array.isArray(o.points) ? o.points : [];
+  const contenu = points.find((p) =>
+    p && typeof p === "object" && (p as Record<string, unknown>).nom === "contenu");
+  const detail = contenu && typeof (contenu as Record<string, unknown>).detail === "string"
+    ? String((contenu as Record<string, unknown>).detail)
+    : null;
+  return {
+    // Le détail porte le résumé du modèle PUIS le JSON technique : on ne montre que le premier.
+    contenu: detail ? detail.split(" — {")[0] : null,
+    avertissements: textes(o.avertissements),
+    nonVerifie: textes(o.nonVerifie),
+  };
 }

@@ -5217,10 +5217,20 @@ Ce que le rapport dit n'est plus une taille : **« 3 paragraphes non vides », �
 une diapo à douze puces) sont remontés sans bloquer. Un format qu'on n'ouvre pas — ZIP, CSV — le
 DIT au lieu de se déclarer vérifié.
 
-**Mesuré** : 13 tests, dont un qui vérifie que la fabrique APPELLE bien le contrôle (§118.49 : un
-test qui lit le corps d'une fonction sans chercher son appelant est vert sur du code mort) ; deux
-sabotages joués — « le contrôle avant livraison ne bloque plus rien » fait tomber 3 tests, « on ne
-rouvre plus le fichier » en fait tomber 9.
+**Et le rapport ATTEINT l'écran.** Il était écrit à la fabrication, rangé dans `qaReport`, et lu
+par personne : la page d'une mission affichait « vérifié », un mot que rien ne distingue d'un
+fichier qui s'ouvre et ne contient rien. Elle montre maintenant ce que le contrôle a VU, et les
+avertissements qui ne bloquent pas. **Le lien, lui, OUVRE le document** (`/office/live/<node>`)
+au lieu de mener à sa fiche au Drive : un livrable qu'on ne peut que télécharger n'est pas
+inspecté, on le range dans un coin et on le croit. Les formats que le Live Office ne dessine pas
+(ZIP, CSV) restent au Drive, qui est ce qu'on sait faire pour eux.
+
+**Mesuré** : 13 tests sur le contrôle, dont un qui vérifie que la fabrique APPELLE bien le
+contrôle (§118.49 : un test qui lit le corps d'une fonction sans chercher son appelant est vert
+sur du code mort) ; 2 tests sur le rapport qui atteint la vue (dont un rapport illisible, qui doit
+rendre moins sans casser l'écran) ; une spec Playwright qui lit les lignes à l'écran et l'adresse
+du lien. Deux sabotages joués — « le contrôle avant livraison ne bloque plus rien » fait tomber
+3 tests, « on ne rouvre plus le fichier » en fait tomber 9.
 
 ### LES IMAGES DANS UN DOCUMENT — LES POSER, ET LIRE CE QU'ELLES MONTRENT (2026-09)
 

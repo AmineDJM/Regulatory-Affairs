@@ -179,19 +179,43 @@ export async function MissionRuntimePanel({ user, missionId }: { user: CurrentUs
             {vue.livrables.map((l) => {
               const etat = LIVRABLE_ETAT[l.statut] ?? { texte: l.statut, classe: "text-slate-500" };
               return (
-                <li key={l.key} className="flex items-center gap-2 text-sm" data-testid="mission-livrable">
-                  <FileSpreadsheet className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-                  {/* LE LIEN N'EXISTE QUE SI LE FICHIER EST RANGÉ. Un lien mort vaut moins qu'un
-                      libellé honnête : la personne cliquerait, échouerait, et perdrait confiance
-                      dans les autres liens de l'écran. */}
-                  {l.driveNodeId ? (
-                    <a className="truncate text-slate-800 underline" href={`/drive?file=${l.driveNodeId}`}>
-                      {l.fichier}
-                    </a>
-                  ) : (
-                    <span className="truncate text-slate-800">{l.fichier}</span>
-                  )}
-                  <span className={`shrink-0 text-xs ${etat.classe}`}>{etat.texte}</span>
+                <li key={l.key} className="text-sm" data-testid="mission-livrable">
+                  <div className="flex items-center gap-2">
+                    <FileSpreadsheet className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                    {/* LE LIEN N'EXISTE QUE SI LE FICHIER EST RANGÉ. Un lien mort vaut moins qu'un
+                        libellé honnête : la personne cliquerait, échouerait, et perdrait confiance
+                        dans les autres liens de l'écran.
+
+                        ET IL OUVRE LE DOCUMENT, pas sa fiche. Un livrable qu'on ne peut que
+                        TÉLÉCHARGER n'est pas inspecté : on le range dans un coin et on le croit.
+                        Les quatre formats que le Live Office dessine s'ouvrent donc dans le
+                        workspace, où l'on VOIT les pages, les diapositives et les images ; les
+                        autres restent au Drive, qui est ce qu'on sait faire pour eux. */}
+                    {l.driveNodeId ? (
+                      <a
+                        className="truncate text-slate-800 underline"
+                        href={l.ouvrable ? `/office/live/${l.driveNodeId}` : `/drive?file=${l.driveNodeId}`}
+                        data-ouvrable={l.ouvrable ? "1" : "0"}
+                      >
+                        {l.fichier}
+                      </a>
+                    ) : (
+                      <span className="truncate text-slate-800">{l.fichier}</span>
+                    )}
+                    <span className={`shrink-0 text-xs ${etat.classe}`}>{etat.texte}</span>
+                  </div>
+                  {/* CE QUE LE CONTRÔLE A VU. Sans ces trois lignes, « vérifié » est un mot :
+                      la personne ne peut pas distinguer un rapport de douze pages d'un fichier
+                      qui s'ouvre et ne contient rien. */}
+                  {l.contenu ? (
+                    <p className="ml-6 text-xs text-slate-500" data-testid="livrable-contenu">{l.contenu}</p>
+                  ) : null}
+                  {l.avertissements.map((a) => (
+                    <p key={a} className="ml-6 text-xs text-amber-700" data-testid="livrable-avertissement">⚠ {a}</p>
+                  ))}
+                  {l.nonVerifie.map((n) => (
+                    <p key={n} className="ml-6 text-xs text-slate-400">Non vérifié : {n}</p>
+                  ))}
                 </li>
               );
             })}

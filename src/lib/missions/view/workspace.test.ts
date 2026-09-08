@@ -170,6 +170,84 @@ suite("l'écran d'une mission", () => {
     expect(v.sousMissions[0].avancement).toBe("2/2");
   }, 30_000);
 
+  it("un livrable DIT ce qu'il contient, et s'OUVRE au lieu de se télécharger", async () => {
+    /**
+     * ═══════════════════════════════════════════════════════════════════════════════════════
+     * CE QUE CE TEST EXISTE POUR ATTRAPER.
+     *
+     * Le rapport de contrôle était écrit à la fabrication, rangé dans `qaReport`, et lu par
+     * PERSONNE : l'écran affichait « vérifié », un mot que rien ne distingue d'un fichier qui
+     * s'ouvre et ne contient rien (§118.50 — une donnée que rien n'affiche est du code mort).
+     *
+     * Et le lien menait au DRIVE, c'est-à-dire à la fiche du fichier. Un livrable qu'on ne peut
+     * que TÉLÉCHARGER n'est pas inspecté : on le range dans un coin et on le croit. Les quatre
+     * formats que le Live Office dessine s'ouvrent donc dans le workspace, où l'on VOIT les
+     * pages, les diapositives et les images.
+     * ═══════════════════════════════════════════════════════════════════════════════════════
+     */
+    const id = await creer(
+      [{ key: "liste", title: "Lister", capability: "directory_list" }],
+      "Mission avec livrable",
+    );
+    await prisma.missionArtifact.create({
+      data: {
+        missionId: id, key: "rapport", title: "Rapport trimestriel", format: "DOCX",
+        fileName: "Rapport.docx", byteSize: 41_000, status: "VERIFIED", driveNodeId: "node-42",
+        sha256: "x", spec: {},
+        qaReport: {
+          ok: true,
+          points: [
+            { nom: "livrable", ok: true, detail: "rien qui bloque l'envoi" },
+            { nom: "contenu", ok: true, detail: "12 paragraphe(s) non vides, 2 tableau(x), 1 image(s), 4 page(s) — {\"x\":1}" },
+          ],
+          avertissements: ["La numérotation des articles saute de 1 à 3 (¶7)."],
+          nonVerifie: [],
+        },
+      },
+    });
+    // Un second livrable dans un format que le workspace ne dessine pas.
+    await prisma.missionArtifact.create({
+      data: {
+        missionId: id, key: "archive", title: "Pièces", format: "ZIP", fileName: "Pieces.zip",
+        byteSize: 900, status: "VERIFIED", driveNodeId: "node-43", sha256: "y", spec: {},
+        qaReport: { ok: true, points: [], nonVerifie: ["Le format ZIP n'est pas ouvert."] },
+      },
+    });
+
+    const vue = await vueMission(id, ownerId);
+    const doc = vue!.livrables.find((l) => l.key === "rapport")!;
+    expect(doc.contenu, "le rapport de contrôle n'atteint pas l'écran").toBe(
+      "12 paragraphe(s) non vides, 2 tableau(x), 1 image(s), 4 page(s)",
+    );
+    expect(doc.avertissements).toEqual(["La numérotation des articles saute de 1 à 3 (¶7)."]);
+    expect(doc.ouvrable, "un Word doit s'OUVRIR dans le workspace, pas se télécharger").toBe(true);
+
+    const zip = vue!.livrables.find((l) => l.key === "archive")!;
+    expect(zip.ouvrable, "un ZIP n'est pas dessinable : il reste au Drive").toBe(false);
+    expect(zip.nonVerifie.join(" ")).toContain("n'est pas ouvert");
+  });
+
+  it("un rapport de contrôle illisible ne casse pas l'écran — il rend moins", async () => {
+    // Un artefact d'une ancienne forme, ou un JSON qu'on ne sait pas lire. L'écran doit
+    // continuer de montrer le livrable : refuser d'afficher serait pire que rendre moins.
+    const id = await creer(
+      [{ key: "liste", title: "Lister", capability: "directory_list" }],
+      "Mission au rapport illisible",
+    );
+    await prisma.missionArtifact.create({
+      data: {
+        missionId: id, key: "vieux", title: "Ancien", format: "XLSX", fileName: "a.xlsx",
+        byteSize: 100, status: "VERIFIED", driveNodeId: null, sha256: "z", spec: {},
+        qaReport: ["une forme inattendue"],
+      },
+    });
+    const vue = await vueMission(id, ownerId);
+    const l = vue!.livrables[0];
+    expect(l.fichier).toBe("a.xlsx");
+    expect(l.contenu).toBeNull();
+    expect(l.avertissements).toEqual([]);
+  });
+
   it("PERSONNE NE LIT LA MISSION D'UN AUTRE, même en connaissant son identifiant", async () => {
     const id = await creer([{ key: "a", title: "A", capability: "directory_list" }], "cloisonnée");
     expect(await vueMission(id, ownerId)).not.toBeNull();

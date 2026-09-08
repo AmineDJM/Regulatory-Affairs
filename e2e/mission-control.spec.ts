@@ -135,8 +135,25 @@ test.beforeAll(async () => {
   await prisma.missionEvent.create({
     data: { missionId, kind: "GAP_DECLARED", summary: "__e2e__ aucun modèle de dossier ANPP approuvé" },
   });
+  /**
+   * UN LIVRABLE CONTRÔLÉ, avec son rapport. Le `qaReport` est ce que la fabrique écrit quand
+   * elle OUVRE le fichier produit ; l'écran doit en montrer le contenu et l'avertissement,
+   * faute de quoi « vérifié » est un mot que rien ne distingue d'un fichier vide.
+   */
   await prisma.missionArtifact.create({
-    data: { missionId, key: "dossier", title: "__e2e__ Dossier ANPP", format: "DOCX", fileName: "__e2e__dossier.docx", byteSize: 4096, status: "BUILT" },
+    data: {
+      missionId, key: "dossier", title: "__e2e__ Dossier ANPP", format: "DOCX",
+      fileName: "__e2e__dossier.docx", byteSize: 4096, status: "VERIFIED", driveNodeId: "node-e2e",
+      qaReport: {
+        ok: true,
+        points: [
+          { nom: "livrable", ok: true, detail: "rien qui bloque l'envoi" },
+          { nom: "contenu", ok: true, detail: "12 paragraphe(s) non vides, 2 tableau(x), 0 image(s), 4 page(s) — {}" },
+        ],
+        avertissements: ["__e2e__ la numérotation des articles saute de 1 à 3 (¶7)."],
+        nonVerifie: [],
+      },
+    },
   });
 });
 
@@ -220,6 +237,34 @@ test("l'ÉCRAN de la mission montre l'horizon, les attentes, l'âge des lectures
 
   // LE COÛT — zéro serait une valeur ; ici c'est 37 appels.
   await expect(page.locator("[data-testid='mission-cout']")).toContainText("37 appel(s)");
+});
+
+test("le LIVRABLE dit ce qu'il contient, et son lien OUVRE le document", async ({ page }) => {
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════
+   * CE QUE CETTE SPEC EXISTE POUR ATTRAPER.
+   *
+   * L'écran affichait « vérifié » — un mot que rien ne distingue d'un fichier qui s'ouvre et ne
+   * contient rien —, et son lien menait à la FICHE du fichier au Drive. Un livrable qu'on ne
+   * peut que télécharger n'est pas inspecté : on le range dans un coin et on le croit.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════
+   */
+  await login(page);
+  await page.goto(`/missions/${missionId}`);
+
+  const livrable = page.getByTestId("mission-livrable").first();
+  await expect(livrable).toBeVisible();
+
+  // CE QU'IL CONTIENT, pas sa taille.
+  await expect(livrable.getByTestId("livrable-contenu"))
+    .toHaveText("12 paragraphe(s) non vides, 2 tableau(x), 0 image(s), 4 page(s)");
+  // L'AVERTISSEMENT est dit sans bloquer.
+  await expect(livrable.getByTestId("livrable-avertissement")).toContainText("saute de 1 à 3");
+
+  // ET LE LIEN OUVRE LE DOCUMENT dans le workspace, où l'on VOIT les pages.
+  const lien = livrable.getByRole("link");
+  await expect(lien).toHaveAttribute("href", "/office/live/node-e2e");
+  await expect(lien).toHaveAttribute("data-ouvrable", "1");
 });
 
 test("MODIFIER : l'aperçu dit l'empreinte EXACTE avant d'écrire quoi que ce soit", async ({ page }) => {
