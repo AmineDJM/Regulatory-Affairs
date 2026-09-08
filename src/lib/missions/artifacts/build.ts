@@ -5,7 +5,9 @@ import type { StepContext, StepOutcome } from "@/lib/missions/runtime/engine";
 import { journaliser } from "@/lib/missions/runtime/store";
 import { nomFichier, parserSpec, type ArtefactSpec } from "@/lib/missions/artifacts/spec";
 import { rendre } from "@/lib/missions/artifacts/render";
-import { controlerClasseur, type ControleArtefact } from "@/lib/missions/artifacts/verify";
+import {
+  controlerClasseur, ouvrirEtControler, type ControleArtefact,
+} from "@/lib/missions/artifacts/verify";
 import { SCHEMA_ARTEFACT } from "@/lib/missions/artifacts/schema";
 import { rolePourEtape } from "@/lib/missions/model/roles";
 import { amontDeLEtape } from "@/lib/missions/runtime/worker";
@@ -105,10 +107,18 @@ export async function executerArtefact(ctx: StepContext, deps: ArtifactDeps): Pr
     select: { id: true },
   });
 
-  // ── 2. CONTRÔLE — AVANT le dépôt, jamais après ─────────────────────────────────────
+  /**
+   * ── 2. CONTRÔLE — AVANT le dépôt, jamais après ─────────────────────────────────────
+   *
+   * DEUX contrôles pour un classeur, et ce n'est pas une redondance : `controlerClasseur`
+   * confronte le fichier à la SPEC (les feuilles annoncées, le nombre de lignes, les totaux
+   * recalculés depuis les données) ; `ouvrirEtControler` l'ouvre avec l'adaptateur et pose la
+   * question du destinataire — s'ouvre-t-il, reste-t-il un « [à compléter] », une cellule en
+   * `#REF!`. Aucun des deux ne voit ce que voit l'autre.
+   */
   const controle = spec.format === "XLSX"
-    ? await controlerClasseur(rendu.buffer, spec)
-    : controleGenerique(rendu.buffer, spec, rendu.detail);
+    ? fusionner(await controlerClasseur(rendu.buffer, spec), await ouvrirEtControler(rendu.buffer, spec.format, rendu.detail))
+    : await ouvrirEtControler(rendu.buffer, spec.format, rendu.detail);
 
   if (!controle.ok) {
     await prisma.missionArtifact.update({
@@ -366,39 +376,16 @@ export function cleDuLivrable(mission: { planMeta?: Record<string, unknown> }, s
  * de son format, et qu'il n'est pas ridiculement petit. On ne prétend pas relire un PPTX comme
  * on relit un classeur — le faire à moitié donnerait un faux sentiment de vérification.
  */
-function controleGenerique(buffer: Buffer, spec: ArtefactSpec, detail: Record<string, unknown>): ControleArtefact {
-  const points: ControleArtefact["points"] = [];
-  const tete = buffer.subarray(0, 4);
-  const signatures: Record<string, Buffer> = {
-    DOCX: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
-    PPTX: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
-    ZIP: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
-    PDF: Buffer.from("%PDF"),
-  };
-  const attendue = signatures[spec.format];
 
-  points.push({
-    nom: "taille",
-    ok: buffer.length > 200,
-    detail: `${buffer.length} octets`,
-  });
-  if (attendue) {
-    points.push({
-      nom: "signature",
-      ok: tete.equals(attendue),
-      detail: tete.equals(attendue)
-        ? `signature ${spec.format} correcte`
-        : `signature inattendue (${tete.toString("hex")}) : le fichier n'est pas un ${spec.format} valide`,
-    });
-  }
-  points.push({ nom: "contenu", ok: true, detail: JSON.stringify(detail) });
-
+/**
+ * RÉUNIT deux contrôles. Un point en échec chez l'un fait échouer l'ensemble : on ne compense
+ * jamais un refus par une réussite ailleurs — c'est ainsi qu'un livrable faux passe.
+ */
+function fusionner(a: ControleArtefact, b: ControleArtefact): ControleArtefact {
   return {
-    ok: points.every((p) => p.ok),
-    points,
-    nonVerifie: [
-      `Le format ${spec.format} n'est pas relu en profondeur : seules sa signature et sa taille sont vérifiées. `
-      + `Seul le classeur XLSX fait l'objet d'un contrôle complet (feuilles, formules, totaux, graphiques).`,
-    ],
+    ok: a.ok && b.ok,
+    points: [...a.points, ...b.points],
+    nonVerifie: [...a.nonVerifie, ...b.nonVerifie],
+    avertissements: [...(a.avertissements ?? []), ...(b.avertissements ?? [])],
   };
 }

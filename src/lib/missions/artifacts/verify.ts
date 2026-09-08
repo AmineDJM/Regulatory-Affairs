@@ -1,6 +1,9 @@
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
 import type { ArtefactSpec } from "@/lib/missions/artifacts/spec";
+import type { ArtifactModel } from "@/lib/artifact/object-model/model";
+import { adaptateurPour } from "@/lib/artifact/adapters/registry";
+import { controlerAvantLivraison } from "@/lib/artifact/qa/checks";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -35,6 +38,11 @@ export interface ControleArtefact {
   points: { nom: string; ok: boolean; detail: string }[];
   /** Ce qu'on n'a PAS pu vérifier. Dit, jamais compté comme réussi. */
   nonVerifie: string[];
+  /**
+   * Ce qu'on a VU sans que cela bloque : une diapo trop chargée, une numérotation d'articles
+   * qui saute. Facultatif — un contrôle qui n'en produit pas n'a pas à écrire un tableau vide.
+   */
+  avertissements?: string[];
 }
 
 const point = (nom: string, ok: boolean, detail: string) => ({ nom, ok, detail });
@@ -246,4 +254,118 @@ function normaliserChemin(p: string): string {
     else out.push(seg);
   }
   return out.join("/");
+}
+
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * ON OUVRE LE LIVRABLE — comme le destinataire l'ouvrira.
+ *
+ * ── CE QUI TENAIT LIEU DE CONTRÔLE AVANT, ET CE QUE ÇA LAISSAIT PASSER ──────────────────
+ *
+ * Un Word, un PowerPoint ou un PDF produit par une mission était contrôlé ainsi : plus de
+ * 200 octets, et les quatre premiers octets valent `PK\x03\x04` (ou `%PDF`). C'est vrai d'une
+ * archive vide. Passaient donc en VERIFIED — le seul statut qui compte comme preuve
+ * d'achèvement (§118.10) :
+ *
+ *   • un document sans un seul paragraphe ;
+ *   • une présentation sans une seule diapositive ;
+ *   • un PDF sans page ;
+ *   • un contrat qui porte encore « [à compléter] », « XXX » ou « {{client}} ».
+ *
+ * Les quatre sont des livraisons faites à quelqu'un. Le dernier est le pire : il est plausible,
+ * il s'ouvre, il s'imprime, et il part chez un tiers avec le trou dedans.
+ *
+ * ── POURQUOI CE CONTRÔLE-CI ET PAS UN AUTRE ─────────────────────────────────────────────
+ *
+ * `controlerAvantLivraison` existe déjà, il est éprouvé, et c'est LUI qui répond à la question
+ * « est-ce que je peux l'envoyer ? » quand une personne édite un document dans le Live Office.
+ * Un livrable de mission pose exactement la même question — la seule différence est que
+ * personne ne le relit avant qu'il parte. En écrire un second donnerait deux exigences de
+ * qualité selon l'origine du fichier, et celle des missions prendrait du retard (§118.5).
+ *
+ * L'ADAPTATEUR de production ouvre les octets. C'est ce qui rend le contrôle honnête : si le
+ * fichier ne se modélise pas ici, il ne s'ouvrira pas non plus dans le workspace ni chez le
+ * destinataire.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function ouvrirEtControler(
+  buffer: Buffer, format: ArtefactSpec["format"], detail: Record<string, unknown> = {},
+): Promise<ControleArtefact> {
+  const points: ControleArtefact["points"] = [];
+  const nonVerifie: string[] = [];
+
+  // ── 1. LES OCTETS. Nommer une signature fausse évite de faire porter le refus à
+  //       l'adaptateur, dont le message parlerait d'XML là où le fichier n'est pas un zip.
+  const SIGNATURES: Record<string, Buffer> = {
+    DOCX: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+    PPTX: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+    XLSX: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+    ZIP: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+    PDF: Buffer.from("%PDF"),
+  };
+  points.push(point("taille", buffer.length > 200, `${buffer.length} octets`));
+  const attendue = SIGNATURES[format];
+  if (attendue) {
+    const tete = buffer.subarray(0, attendue.length);
+    points.push(point("signature", tete.equals(attendue),
+      tete.equals(attendue)
+        ? `signature ${format} correcte`
+        : `signature inattendue (${tete.toString("hex")}) : le fichier n'est pas un ${format} valide`));
+  }
+  if (!points.every((p) => p.ok)) {
+    return { ok: false, points, nonVerifie };
+  }
+
+  // ── 2. LE FICHIER S'OUVRE-T-IL VRAIMENT ? ───────────────────────────────────────────
+  const lisible = format === "DOCX" || format === "PPTX" || format === "XLSX" || format === "PDF";
+  if (!lisible) {
+    // ZIP, CSV… : on ne prétend pas les modéliser. La limite est DITE (§34), pas maquillée
+    // en réussite.
+    points.push(point("contenu", true, JSON.stringify(detail)));
+    return {
+      ok: true, points,
+      nonVerifie: [`Le format ${format} n'est pas ouvert : seules sa signature et sa taille sont vérifiées.`],
+    };
+  }
+
+  let modele;
+  try {
+    const doc = await adaptateurPour(format).ouvrir(buffer);
+    const v = await doc.valider();
+    points.push(point("relecture", v.ok, v.ok ? "le fichier se rouvre et se relit" : v.problemes.join(" ; ")));
+    if (!v.ok) return { ok: false, points, nonVerifie };
+    modele = doc.modele();
+  } catch (e) {
+    points.push(point("ouverture", false,
+      `le fichier ne s'ouvre pas : ${e instanceof Error ? e.message : "erreur"} — le destinataire verrait « fichier endommagé »`));
+    return { ok: false, points, nonVerifie };
+  }
+
+  // ── 3. EST-IL LIVRABLE ? Le même contrôle que pour un document qu'une personne envoie.
+  const livraison = controlerAvantLivraison(modele);
+  points.push(point("livrable", livraison.ok,
+    livraison.ok
+      ? "aucun reste de brouillon, aucune section vide, rien qui bloque l'envoi"
+      : livraison.bloquants.join(" ; ")));
+
+  points.push(point("contenu", true, `${resumerModele(modele)} — ${JSON.stringify(detail)}`));
+
+  return {
+    ok: points.every((p) => p.ok),
+    points,
+    nonVerifie,
+    avertissements: livraison.avertissements,
+  };
+}
+
+/** Ce que le fichier contient VRAIMENT, en une ligne — le rapport doit pouvoir se lire. */
+function resumerModele(m: ArtifactModel): string {
+  if (m.kind === "DOCX") {
+    const paras = m.paragraphs.filter((p) => p.text.trim()).length;
+    return `${paras} paragraphe(s) non vides, ${m.tables.length} tableau(x), ${m.images.length} image(s), ${m.pages} page(s)`;
+  }
+  if (m.kind === "PPTX") return `${m.slides.length} diapositive(s)`;
+  if (m.kind === "PDF") return `${m.pages.length} page(s)`;
+  return `${m.sheets.length} feuille(s), ${m.sheets.reduce((n, s) => n + s.cells.length, 0)} cellule(s) remplies`;
 }

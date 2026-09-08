@@ -5194,6 +5194,34 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### UN LIVRABLE DE MISSION EST MAINTENANT OUVERT, PAS SEULEMENT RENIFLÉ (2026-09)
+
+Le contrôle d'un Word, d'un PowerPoint ou d'un PDF produit par une mission était : **plus de
+200 octets, et les quatre premiers valent `PK\x03\x04`** (ou `%PDF`). C'est vrai d'une archive
+vide. Passaient donc en `VERIFIED` — le seul statut qui vaut preuve d'achèvement — un document
+sans un seul paragraphe, une présentation sans diapositive, un PDF sans page, et surtout **un
+contrat portant encore « [à compléter] », « XXX » ou « {{client}} »**. Les quatre partent chez
+quelqu'un ; le dernier est le pire, parce qu'il s'ouvre, s'imprime, a l'air fini, et le trou est
+dedans.
+
+Le livrable est désormais **ouvert par l'adaptateur de production**, modélisé, et soumis à
+`controlerAvantLivraison` — le MÊME contrôle qui répond « est-ce que je peux l'envoyer ? » quand
+une personne édite un document dans le Live Office. En écrire un second aurait donné deux
+exigences de qualité selon l'origine du fichier, et celle des missions aurait pris du retard.
+Pour un classeur, les deux contrôles coexistent sans se recouvrir : `controlerClasseur` confronte
+le fichier à la SPEC (feuilles annoncées, nombre de lignes, totaux recalculés), l'ouverture pose
+la question du destinataire (s'ouvre-t-il, reste-t-il un `#REF!`).
+
+Ce que le rapport dit n'est plus une taille : **« 3 paragraphes non vides », « 5 diapositives »,
+« 2 feuilles, 41 cellules remplies »**. Les avertissements (une numérotation d'articles qui saute,
+une diapo à douze puces) sont remontés sans bloquer. Un format qu'on n'ouvre pas — ZIP, CSV — le
+DIT au lieu de se déclarer vérifié.
+
+**Mesuré** : 13 tests, dont un qui vérifie que la fabrique APPELLE bien le contrôle (§118.49 : un
+test qui lit le corps d'une fonction sans chercher son appelant est vert sur du code mort) ; deux
+sabotages joués — « le contrôle avant livraison ne bloque plus rien » fait tomber 3 tests, « on ne
+rouvre plus le fichier » en fait tomber 9.
+
 ### LES IMAGES DANS UN DOCUMENT — LES POSER, ET LIRE CE QU'ELLES MONTRENT (2026-09)
 
 **Poser.** « Mets le logo Adventum en haut du contrat », « remplace celui de la diapo 3 », « le
