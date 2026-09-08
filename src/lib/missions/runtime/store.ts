@@ -292,7 +292,7 @@ export async function materialiser(
   }
 
   /**
-   * LA PORTÉE DU CONTOURNEMENT SUIT LE JALON.
+   * LA PORTÉE DU CONTOURNEMENT SUIT LE JALON. (§118.43)
    *
    * `enBase` sert à deux choses : retrouver les identifiants pour écrire les arêtes (il faut
    * alors TOUTES les étapes, y compris celles des autres jalons, parce qu'un sous-plan peut

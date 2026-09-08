@@ -259,7 +259,7 @@ export async function avancer(
     }
 
     /**
-     * ── LA PAUSE EST HONORÉE ICI, ET NULLE PART AILLEURS ──────────────────────────────────
+     * ── LA PAUSE EST HONORÉE ICI, ET NULLE PART AILLEURS (§118.45) ───────────────────────
      *
      * `PAUSED` existait dans la machine à états depuis toujours, et AUCUN code ne le lisait :
      * on pouvait poser le statut, le battement reprenait la mission au tour suivant comme si
@@ -1682,7 +1682,7 @@ export async function conclure(
   if (encoreEnCours) return synchroniserEtat(missionId, etat);
 
   /**
-   * ── L'HORIZON OUVERT : « ce jalon est fini » n'est pas « la mission est finie » ─────────
+   * ── « CE JALON EST FINI » N'EST PAS « LA MISSION EST FINIE » (§118.44) ─────────────────
    *
    * Sur une mission longue, les étapes en base sont celles du ou des jalons COMPILÉS — les
    * suivants n'existent encore que comme intentions. Toutes terminales signifie donc « ce

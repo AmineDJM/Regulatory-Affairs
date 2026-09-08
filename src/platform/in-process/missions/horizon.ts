@@ -324,7 +324,7 @@ async function conduireHorizonInterne(
  * échoué. Les étapes mortes restent au dossier ; `materialiser` les contournera si le nouveau
  * plan ne les reprend pas, et les RÉARMERA s'il les reprend (§118.33).
  *
- * ── ET LE BUDGET RESTE LOCAL, JUGÉ AU PROGRÈS ───────────────────────────────────────────
+ * ── ET LE BUDGET RESTE LOCAL, JUGÉ AU PROGRÈS (§118.47) ────────────────────────────────
  *
  * La signature d'un blocage, ici, est l'ensemble des CAUSES d'échec (`errorKind`) — pas les
  * clés d'étapes, qui changent à chaque plan. Tant que les causes CHANGENT, un sous-plan de plus
@@ -438,7 +438,7 @@ async function compilerJalon(
      */
     ...(echecs.length > 0 ? { refusPrecedent: echecs } : {}),
     /**
-     * ── CE QUI A VIEILLI DEPUIS QU'ON L'A LU (§118.46) ────────────────────────────────
+     * ── CE QUI A VIEILLI DEPUIS QU'ON L'A LU (§118.41) ────────────────────────────────
      *
      * C'est ICI que la fraîcheur devient une propriété du produit et cesse d'être une table.
      * Le module `fraicheur.ts` DIT ce qui est vieux ; il ne décide pas de relire — relire coûte

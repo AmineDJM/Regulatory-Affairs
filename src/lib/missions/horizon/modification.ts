@@ -17,7 +17,7 @@
  * déjà produits, les accords déjà donnés. C'est ruineux, c'est lent, et c'est faux : un plan
  * neuf n'a aucune raison de reproduire les décisions qu'un humain avait déjà validées.
  *
- * ── LA RÈGLE, ET C'EST LA MÊME QUE §118.16 ──────────────────────────────────────────────
+ * ── LA RÈGLE, ET C'EST CELLE DE §118.16, APPLIQUÉE À UNE MISSION (§118.48) ──────────────
  *
  * L'empreinte RÉELLE d'une modification ne dépasse jamais l'empreinte DEMANDÉE. Deux axes, et
  * ils ne se confondent pas :

@@ -362,7 +362,7 @@ export async function missionsAFaireAvancer(limite = 20): Promise<string[]> {
          */
         { status: { in: [...ETATS_REPLANIFIABLES] }, replanBloque: false },
         /**
-         * ── LA MISSION LONGUE ENTRE DEUX JALONS ──────────────────────────────────────
+         * ── LA MISSION LONGUE ENTRE DEUX JALONS (§118.46) ───────────────────────────
          *
          * MESURÉ SUR UN RUN LIVE : une mission de sept jalons, jalon 1 compilé et ses onze
          * étapes toutes terminées, jalons 2 à 7 pas encore compilés — donc ZÉRO étape PENDING

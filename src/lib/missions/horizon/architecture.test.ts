@@ -151,7 +151,7 @@ describe("le socle de l'horizon reste PUR", () => {
   });
 });
 
-describe("la fraîcheur a un APPELANT DE PRODUCTION (§118.14)", () => {
+describe("la fraîcheur a un APPELANT DE PRODUCTION (§118.14, §118.49)", () => {
   it("les entrées vieillies entrent dans les CONTRAINTES du sous-plan suivant", () => {
     /**
      * CE QUI FERAIT TOMBER CE TEST : `entreesAVerifier` supprimée du contexte de planification.
