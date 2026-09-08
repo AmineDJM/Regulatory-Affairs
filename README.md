@@ -8019,6 +8019,28 @@ moins dangereux mais il empêche une mission juste de conclure.
    en désaccord sur l'identité d'une pièce. Le raccord est CAUSAL (`MissionArtifact.stepId`), pas
    nominal : une pièce périmée pointe vers l'ancienne étape et ne satisfait rien.
 
+**Deux défauts de plus, trouvés par les runs de vérification eux-mêmes.** Le plan de la chaîne
+budget écrivait DEUX étapes ARTIFACT au même format — un dossier Word avant les réponses, un
+second après, le second descendant du premier. En base : 1 519 et 2 735 octets, le premier vide
+de tout ce qui avait été collecté. Le compilateur refuse désormais deux pièces du même format
+dont l'une descend de l'autre (§88) — le critère est la DESCENDANCE, pas le format : deux
+contrats indépendants restent légitimes. Et le banc comptait comme un échec deux conduites
+correctes : attendre le FICHIER promis (`waitFor.attachment`, que son script n'envoie jamais) et
+différer une relance au 15 septembre. Il les nomme et les écarte ; toute autre attente ouverte
+reste un échec.
+
+**Mesure finale, code gelé, deux chaînes sans domaine, format ni personne en commun.**
+
+| | avant | après |
+|---|---|---|
+| chaîne A (Regulatory, 4 personnes, XLSX + PPTX) | 5/12 | **12/12** |
+| chiffres collectés dans le `.xlsx` / le `.pptx` | 0/6 · 0/6 | **6/6 · 6/6** |
+| coût du run qui conclut | 0,4459 $ · 20 appels | **0,2164 $ · 13 appels** |
+| chaîne B (Finance + RH + Supply, DOCX) | 8/10, `.docx` 0/4 | **9/10, `.docx` 4/4, UN seul fichier** |
+
+Gardes tenues sur tous les runs : 0 sortie réelle (22 tentatives interceptées), 0 violation de
+droit, 0 faux succès.
+
 **Fichiers.** `src/lib/personnes/designation.ts` (+ test), `src/lib/assistant.ts`
 (`resolve` lit une désignation, `gmail_prepare_mail` la sépare), `src/lib/assistant/adam-tools.ts`
 (`retenu`), `src/lib/missions/runtime/store.ts` (réarmement), `src/lib/missions/runtime/engine.ts`
