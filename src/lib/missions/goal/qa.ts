@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { EtatMission } from "@/lib/missions/runtime/store";
 import { controlerQualite, type EtapeObservee, type RapportQA } from "@/lib/missions/goal/evaluate";
 import { EFFECT_RANK, capabilityMeta, type Effect } from "@/lib/missions/registry/capability-meta";
+import { lireReponse } from "@/lib/missions/runtime/reponse";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -38,6 +39,7 @@ export const CONTROLES = [
   "RECUS",
   "DOUBLONS",
   "ARTEFACTS",
+  "RETOURS_PERDUS",
   "COMPLETUDE",
 ] as const;
 export type Controle = (typeof CONTROLES)[number];
@@ -103,6 +105,44 @@ const observer = (m: EtatMission): EtapeObservee[] =>
 
 const contourneesDe = (m: EtatMission): ReadonlySet<string> =>
   new Set(m.steps.filter((s) => s.contournee).map((s) => s.key));
+
+/**
+ * CE QUE LA PERSONNE A ÉCRIT — et RIEN d'autre de l'enveloppe.
+ *
+ * Premier essai : les chiffres de tout le résultat sérialisé. Trois tests d'architecture sont
+ * tombés, et ils avaient raison — un fait dont le payload portait `documents: ["CDI-2026-014"]`
+ * se voyait reprocher la disparition de « 014 ». Une référence de pièce jointe n'est pas un
+ * fait que la mission promet de reporter ; la PHRASE d'une personne, si. On ne lit donc que
+ * `contenu` (corps + sujet), le champ que `lireReponse` garantit toujours présent.
+ */
+function paroleDe(result: unknown): string {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return "";
+  const o = result as Record<string, unknown>;
+  if (typeof o.contenu === "string") return o.contenu;
+  return lireReponse(o.payload).contenu;
+}
+
+/** Les nœuds qui recueillent la parole d'une personne. Leur résultat EST ce qu'elle a dit. */
+const NOEUDS_ATTENTE = new Set(["WAIT_EVENT", "WAIT_INPUT"]);
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES FAITS CHIFFRÉS D'UN TEXTE — même lecture des deux côtés, sinon la comparaison ment.
+ *
+ * « 84 500 » écrit à la française se recolle sur UNE espace ; deux valeurs voisines séparées
+ * par plus d'une espace ne se recollent pas en un nombre qui n'a jamais existé. Les millésimes
+ * (1900-2099) sont écartés : ils sont dans la demande, les retrouver ne prouve rien. Sous trois
+ * chiffres, un nombre n'identifie rien — un « 3 » se retrouve partout par hasard.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function faitsChiffres(texte: string): string[] {
+  let t = texte;
+  for (let k = 0; k < 4; k += 1) t = t.replace(/(\d)[   ](\d{3})(?!\d)/g, "$1$2");
+  const vus = (t.match(/\d[\d.,]*/g) ?? [])
+    .map((x) => x.replace(/[^0-9]/g, ""))
+    .filter((x) => x.length >= 3 && !/^(19|20)\d\d$/.test(x));
+  return [...new Set(vus)];
+}
 
 /**
  * LE CONTRÔLE COMPLET.
@@ -264,7 +304,63 @@ export async function controleComplet(
     });
   }
 
-  // ── 5. COMPLÉTUDE ───────────────────────────────────────────────────────────────────
+  // ── 5. LES RETOURS COLLECTÉS SURVIVENT-ILS ? ────────────────────────────────────────
+  //
+  // ── LE FAUX SUCCÈS PARFAIT, MESURÉ SUR LA CHAÎNE HUMAINE LIVE (§89) ──────────────────
+  //
+  // Khaled Mansouri répond « Prix de cession Nivolex 84 500 DZD, Trastuzex 61 200 DZD ;
+  // forecast 2027 : 1 240 et 890 unités ». Sofiane Kaci répond « AO-2026-114 … AO-2026-131 ».
+  // Les deux attentes se règlent, et le moteur fait EXACTEMENT son travail : l'étape de
+  // consolidation reçoit les deux payloads dans son entrée — vérifié dans `WorkerRun.input`,
+  // « 84 500 » y est. Sa sortie écrit pourtant :
+  //
+  //     « Commercial : prix de cession en DZD, forecast et hypothèses NON FOURNIS. »
+  //     « Khaled Mansouri a été sollicité … ; AUCUN RETOUR n'est fourni. »
+  //
+  // Les deux livrables ont été bâtis là-dessus : 0 chiffre du jeu d'essai sur 6 dans le
+  // classeur, 0 sur 6 dans le deck. Toutes les étapes vertes, les fichiers s'ouvrent, la QA
+  // passe. C'est le faux succès le plus coûteux qui soit : la mission a dérangé quatre
+  // personnes, reçu leurs réponses, et livré un document qui déclare ne rien avoir reçu.
+  //
+  // ── POURQUOI CE CONTRÔLE NE PEUT PAS ÊTRE UNE TAUTOLOGIE (§118.17) ───────────────────
+  //
+  // On ne regarde QUE des SORTIES. Chercher le chiffre dans les ENTRÉES le trouverait toujours
+  // — c'est le moteur qui les y a mises, et le contrôle serait vrai garde armée ou non. La
+  // seule exception est l'entrée d'une étape à effet EXTERNE qui a abouti : là, le fait a
+  // quitté le système vers une personne, ce qui est bien une survie.
+  //
+  // Le seuil est le plus prudent qui existe : on n'exige pas que chaque chiffre survive, mais
+  // qu'AU MOINS UN survive quelque part. Une consolidation choisit ce qu'elle montre ; elle ne
+  // choisit pas d'oublier tout ce qu'on vient de lui donner.
+  const attentes = mission.steps
+    .filter((s) => dansPortee(s.key) && NOEUDS_ATTENTE.has(s.nodeType) && s.status === "DONE" && s.result)
+    .map((s) => ({ step: s, apportes: faitsChiffres(paroleDe(s.result)) }));
+  if (attentes.length > 0) {
+    const sorties = mission.steps
+      .filter((s) => dansPortee(s.key) && s.status === "DONE" && !NOEUDS_ATTENTE.has(s.nodeType))
+      .map((s) => JSON.stringify(s.result ?? null)
+        + (estEffetExterne(s) ? ` ${JSON.stringify(s.input ?? null)}` : ""))
+      .join(" ");
+    const chiffresDesSorties = new Set(faitsChiffres(sorties));
+    const perdues = attentes.filter((a) =>
+      a.apportes.length > 0 && !a.apportes.some((c) => chiffresDesSorties.has(c)));
+    // Aucune sortie downstream du tout : il n'y a rien à reprocher, la mission n'a pas fini.
+    if (sorties.length > 2) {
+      constats.push({
+        controle: "RETOURS_PERDUS",
+        ok: perdues.length === 0,
+        message: perdues.length === 0
+          ? `${attentes.length} retour(s) humain(s) recueilli(s) : leurs chiffres se retrouvent en aval.`
+          : `${perdues.length} retour(s) humain(s) recueilli(s) puis PERDU(S) — aucun de leurs chiffres `
+            + `n'apparaît dans une seule sortie de la mission : `
+            + perdues.map((a) => `« ${a.step.title} » (${a.apportes.slice(0, 4).join(", ")})`).join(" ; ")
+            + `. La personne a répondu et la mission conclut sans sa réponse.`,
+        stepKeys: perdues.map((a) => a.step.key),
+      });
+    }
+  }
+
+  // ── 6. COMPLÉTUDE ───────────────────────────────────────────────────────────────────
   constats.push({
     controle: "COMPLETUDE",
     ok: base.ok,

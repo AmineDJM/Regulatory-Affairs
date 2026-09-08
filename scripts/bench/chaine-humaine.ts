@@ -582,11 +582,107 @@ async function main(): Promise<void> {
    * toujours un `.xlsx` accuserait la chaîne B d'un manque que personne ne lui a demandé, et
    * laisserait la chaîne A muette sur un format oublié. Le descripteur dit ce qu'on ouvre.
    */
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * « IL S'OUVRE » N'EST PAS « IL PORTE CE QU'ON A COLLECTÉ » (§89).
+   *
+   * Le verdict s'arrêtait à la structure : archive valide, `xl/workbook.xml` présent, verdict
+   * vert. C'est exactement le défaut nommé au mandat — « un échec QUALITATIF, même si le DOCX
+   * était valide ». Une consolidation qui ne contient AUCUN des chiffres que trois personnes
+   * viennent de donner est un livrable vide qui passe tous les contrôles de forme.
+   *
+   * On ouvre donc le fichier et on cherche DEDANS les chiffres du jeu d'essai — ceux, et rien
+   * d'autre : ils sont la seule chose dont on sache avec certitude qu'elle DEVAIT y être. Le
+   * verdict ne juge ni la mise en page ni le style, qui ne se mesurent pas ici ; il refuse le
+   * cas où la donnée collectée n'est pas arrivée dans la pièce.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  /**
+   * UN CHIFFRE CHERCHÉ DANS UNE SOUPE DE CHIFFRES SE TROUVE TOUJOURS (§118.17).
+   *
+   * La première version retirait TOUS les caractères non numériques du fichier et cherchait
+   * l'aiguille dans la botte : dans un `.xlsx` qui porte quelques dizaines de milliers de
+   * chiffres, « 890 » se trouve par accident à peu près à coup sûr. Ce contrôle-là ne pouvait
+   * pas échouer, donc il ne protégeait de rien.
+   *
+   * On compare donc des NOMBRES à des NOMBRES : le fichier est découpé en jetons numériques,
+   * et un chiffre attendu compte s'il apparaît dans l'UN d'eux. « 84 500 » écrit « 84500,00 »
+   * compte encore ; « 84500 » noyé entre deux valeurs voisines, non.
+   *
+   * Les millésimes (1900-2099) sont ÉCARTÉS des attendus : ils figurent déjà dans la demande,
+   * les retrouver ne prouve aucune collecte.
+   */
+  /**
+   * UN CHIFFRE CHERCHÉ DANS UNE SOUPE DE CHIFFRES SE TROUVE TOUJOURS (§118.17).
+   *
+   * Première version : on retirait TOUS les caractères non numériques du fichier et on cherchait
+   * l'aiguille dans la botte. Dans un `.xlsx` qui porte quelques dizaines de milliers de chiffres,
+   * « 890 » s'y trouve par accident à peu près à coup sûr — un contrôle qui ne peut pas échouer.
+   *
+   * On compare donc des NOMBRES à des NOMBRES, des deux côtés avec la MÊME lecture :
+   *
+   *   • « 84 500 » écrit à la française se recolle — mais seulement sur UNE espace. Après le
+   *     retrait des balises, deux valeurs voisines (`<v>84500</v><v>61200</v>`) sont séparées
+   *     par DEUX espaces au moins : elles ne se recollent pas en un nombre qui n'existe pas.
+   *   • un attendu compte s'il apparaît dans l'UN des jetons du fichier, pas dans leur
+   *     concaténation : « 84500,00 » compte, « 84500 » à cheval sur deux cellules, non.
+   *   • les millésimes (1900-2099) sont ÉCARTÉS des attendus : ils figurent déjà dans la
+   *     demande, les retrouver ne prouve aucune collecte.
+   *
+   * CE QU'IL NE MESURE PAS, dit une fois : un nombre coupé par Word en deux runs de texte
+   * (« 84 » puis « 500 ») n'est pas recollé — les fichiers du banc sont ÉCRITS par Adam, pas
+   * réédités dans Word. Le biais va donc vers le manque, jamais vers le faux vert.
+   */
+  const nombresDe = (texte: string): string[] => {
+    let t = texte;
+    for (let k = 0; k < 4; k += 1) t = t.replace(/(\d)[   ](\d{3})(?!\d)/g, "$1$2");
+    return (t.match(/\d[\d.,]*/g) ?? []).map((x) => x.replace(/[^0-9]/g, "")).filter((x) => x.length >= 2);
+  };
+  const millesime = (x: string): boolean => /^(19|20)\d\d$/.test(x);
+  const chiffresAttendus = [...new Set(SCENARIO.flatMap((p) => nombresDe(p.apporte)))]
+    .filter((x) => x.length >= 3 && !millesime(x));
+
+  const jetonsDuFichier = async (id: string): Promise<string[] | null> => {
+    try {
+      const { getBlob } = await import("@/lib/drive-storage");
+      const v = await prisma.fileVersion.findFirst({ where: { nodeId: id }, orderBy: { version: "desc" }, select: { blobId: true } });
+      if (!v) return null;
+      const buf = await getBlob(v.blobId);
+      if (!buf) return null;
+      const { default: JSZip } = await import("jszip");
+      const z = await JSZip.loadAsync(buf);
+      // Les pièces qui portent du TEXTE. Les relations et le manifeste n'en portent pas ; les
+      // styles et les thèmes portent des nombres qui ne sont pas des données (tailles, teintes).
+      const parts = Object.keys(z.files).filter((k) =>
+        /\.xml$/i.test(k) && !/_rels|\[Content_Types\]|theme|styles|settings|fontTable|docProps/i.test(k));
+      const morceaux = await Promise.all(parts.slice(0, 200).map((k) => z.files[k]!.async("string").catch(() => "")));
+      return nombresDe(morceaux.join(" ").replace(/<[^>]+>/g, " "));
+    } catch { return null; }
+  };
+
   const verdictsLivrables: Verdict[] = [];
   for (const ext of CHAINE.livrables) {
     const f = fichiers.find((x) => x.name.toLowerCase().endsWith(ext));
     const v = f ? await ouvrable(f.id, f.name) : { ok: false, detail: `aucun ${ext} produit` };
     verdictsLivrables.push({ id: ext.slice(1), libelle: `le livrable ${ext} existe ET s'ouvre`, ok: v.ok, detail: v.detail });
+
+    // Un banc qui ne sait pas quoi chercher le DIT et échoue : se taire ferait passer pour
+    // « rien à vérifier » ce qui est en réalité « la vérification n'a pas eu lieu ».
+    const jetons = f && v.ok ? await jetonsDuFichier(f.id) : null;
+    const dedans = jetons === null ? [] : chiffresAttendus.filter((c) => jetons.some((t) => t.includes(c)));
+    verdictsLivrables.push({
+      id: `${ext.slice(1)}-contenu`,
+      libelle: `le livrable ${ext} PORTE les chiffres collectés, pas seulement une mise en page`,
+      // La moitié suffit : une synthèse exécutive choisit ce qu'elle montre. Zéro, en revanche,
+      // veut dire que rien de ce que les gens ont dit n'est arrivé dans la pièce.
+      ok: chiffresAttendus.length > 0 && jetons !== null && dedans.length * 2 >= chiffresAttendus.length,
+      detail: chiffresAttendus.length === 0
+        ? "le jeu d'essai ne porte aucun chiffre à retrouver — le contrôle de contenu est AVEUGLE"
+        : jetons === null
+          ? `${f ? f.name : ext} : contenu illisible, rien n'a pu être vérifié`
+          : `${dedans.length}/${chiffresAttendus.length} chiffres du jeu d'essai retrouvés parmi ${jetons.length} nombres du fichier`
+            + (dedans.length === 0 ? " — LIVRABLE VIDE DE LA COLLECTE" : ` (${dedans.slice(0, 4).join(", ")})`),
+    });
   }
 
   const events = await prisma.missionEvent.findMany({ where: { missionId }, select: { kind: true, summary: true }, orderBy: { at: "asc" } });

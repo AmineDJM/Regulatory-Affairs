@@ -129,10 +129,34 @@ const estEcriture = (n: string): boolean => RESOLVER_WRITE_NAMES.has(n);
  * ferait mentir six capacités le jour où un outil change de champ sans que personne ne relise
  * ce fichier — précisément le vieillissement silencieux qui rend une table manuelle dangereuse.
  */
+/**
+ * ── UNE FORME INCONNUE DOIT SE DIRE, SINON ELLE SE DEVINE ───────────────────────────────
+ *
+ * MESURÉ sur le banc d'autonomie (graine 43, mission `analyse_inhabituelle-002`). La fiche de
+ * `inspect_drive_folder` n'annonçait AUCUNE sortie : jamais observée dans cette base, absente
+ * de la table de secours. Le planificateur a donc écrit ce qui lui semblait naturel,
+ * « {{lecture:drive-inventaire.apercuLot}} », et le moteur a répondu à l'exécution :
+ *
+ *   l'étape « lecture:drive-inventaire » a abouti mais ne rend pas « apercuLot » — champs
+ *   disponibles : ok, place, titre, dossiers, fichiers, parFormat, plusGrosFichiers, …
+ *
+ * Le compilateur ne pouvait rien refuser : il ne refuse QUE ce qu'il sait faux (`sorties.ts`),
+ * et il ne savait rien. Le silence de la fiche s'est donc lu comme une permission de deviner —
+ * et la mission a payé un plan entier pour une devinette que personne n'avait invitée.
+ *
+ * On ne comble pas ce trou par une table écrite à la main : son entretien est intenable, c'est
+ * la leçon de `SORTIES` ci-dessous. On dit l'ignorance, et on nomme le geste SÛR — référencer
+ * l'étape entière, que le moteur sait toujours résoudre. §118.19 : ce que le compilateur exige,
+ * le contexte doit dire comment le satisfaire ; ici, ce qu'il ne PEUT pas exiger, il l'évite en
+ * retirant au modèle la seule raison de deviner.
+ */
+export const SORTIE_INCONNUE_DITE =
+  "forme de sortie INCONNUE (jamais observée) — réfère l'étape ENTIÈRE « {{cle}} », ne devine aucun nom de champ";
+
 function direSortie(nom: string): string | null {
   const apprise = direForme(formeConnue(nom));
   if (apprise) return apprise;
-  return SORTIES[nom] ?? null;
+  return SORTIES[nom] ?? SORTIE_INCONNUE_DITE;
 }
 
 /** La forme observée, pour le compilateur. `null` quand la capacité n'a jamais été mesurée. */

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type {
   CapabilityCatalog, CapabilityRunner, Clock, MissionActor, RegistreRecours, PorteAttention,
 } from "@/lib/missions/ports";
+import { lireReponse } from "@/lib/missions/runtime/reponse";
 import { verifierAvantAgir } from "@/lib/missions/agent/principal";
 import { systemClock } from "@/lib/missions/ports";
 import { prendreBail } from "@/lib/missions/runtime/bail";
@@ -920,7 +921,7 @@ async function dispatcher(ctx: StepContext, deps: EngineDeps): Promise<StepOutco
         const deja = lireProgres(step.result);
         const r = await rattraperFaitAnterieur({ missionId: ctx.mission.id, stepKey: step.key, attente, dejaReglees: deja, clesEcritures, maintenant: ctx.clock.now() });
         if (r.complete && r.fait) {
-          return { status: "DONE", result: { reveillePar: r.fait.type, payload: (r.fait.payload ?? null) as never, attenteProgres: r.reglees, rattrape: true } };
+          return { status: "DONE", result: { reveillePar: r.fait.type, ...lireReponse(r.fait.payload), payload: (r.fait.payload ?? null) as never, attenteProgres: r.reglees, rattrape: true } };
         }
         if (r.reglees.length > deja.length) {
           return { status: "WAITING", raison: `attend l'événement ${String(step.waitFor?.event ?? "?")} (une partie déjà arrivée)`, result: { attenteProgres: r.reglees } };
@@ -1038,7 +1039,9 @@ async function executerCapacite(ctx: StepContext, deps: EngineDeps): Promise<Ste
    * (`LIBRE`, le défaut) n'est pas contrôlée : on ne vérifie pas une promesse qui n'a pas été
    * faite.
    */
-  const verdict = out.ok ? verifierContrat(meta.contrat, out.output, out.structured) : null;
+  const verdict = out.ok
+    ? verifierContrat(meta.contrat, out.output, out.structured, EFFECT_RANK[meta.effect] >= EFFECT_RANK.PREPARE)
+    : null;
   const honore = verdict === null || verdict.etat === "SUCCESS";
 
   const recu = fabriquerRecu({

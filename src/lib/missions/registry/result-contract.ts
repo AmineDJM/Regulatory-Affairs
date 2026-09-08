@@ -104,6 +104,25 @@ function champTexte(o: Record<string, unknown>, noms: readonly string[]): string
 }
 
 /**
+ * L'ÉCHEC QUE L'OUTIL DÉCLARE LUI-MÊME. Rend la preuve textuelle, ou `null` quand rien n'est dit.
+ *
+ * Trois signaux seulement, et tous les trois sont sans ambiguïté possible : `ok: false`,
+ * `success: false`, et un `error` / `erreur` porteur de texte. Un `ok` absent ne dit rien ;
+ * un `error: null` ne dit rien ; un objet inconnu ne dit rien. On ne devine pas.
+ */
+export function echecDeclare(sortie: unknown): string | null {
+  if (!sortie || typeof sortie !== "object" || Array.isArray(sortie)) return null;
+  const o = sortie as Record<string, unknown>;
+  if (o.ok === false) return "ok: false";
+  if (o.success === false) return "success: false";
+  for (const c of ["error", "erreur"]) {
+    const v = o[c];
+    if (typeof v === "string" && v.trim() !== "") return `${c}: « ${v.slice(0, 120)} »`;
+  }
+  return null;
+}
+
+/**
  * VÉRIFIE QU'UN RÉSULTAT TECHNIQUEMENT RÉUSSI HONORE LE CONTRAT DE SA CAPACITÉ.
  *
  * `structure` dit si la capacité a rendu du JSON (`true`) ou une phrase nue (`false`). C'est
@@ -115,7 +134,42 @@ export function verifierContrat(
   contrat: Contrat,
   sortie: unknown,
   structure?: boolean,
+  effetEcrivain?: boolean,
 ): VerdictContrat {
+  /**
+   * ── UNE CAPACITÉ QUI DIT ELLE-MÊME AVOIR ÉCHOUÉ A ÉCHOUÉ — contrat ou pas ─────────────
+   *
+   * MESURÉ sur le banc d'autonomie (graine 43, `regulatory-028`). `watch_entity` a rendu
+   * `{ ok: false, … }` ; sans contrat déclaré, rien ne l'a lu. L'étape est passée DONE avec un
+   * reçu SUCCES, et c'est le JUGE d'objectif qui a dû rattraper : « la seule tentative de
+   * création de surveillance a échoué (ok:false), alors que l'objectif exige une surveillance
+   * active ». Il l'a vu — mais un juge est cher, faillible, et n'existe pas sur toutes les
+   * missions. Le faux succès était déjà écrit dans le registre de preuves.
+   *
+   * Ce n'est PAS une lecture de sens (§104.5) : on ne cherche pas « introuvable » dans une
+   * phrase, on ne traduit rien. On lit un champ dont la valeur `false` n'a qu'une signification
+   * possible, écrite par l'outil lui-même. Tout le reste — un `ok` absent, une phrase, un objet
+   * qu'on ne comprend pas — reste un succès, comme avant : l'ignorance ne refuse jamais.
+   *
+   * ── ET SEULEMENT SUR UN EFFET QUI ÉCRIT (`effetEcrivain`) ─────────────────────────────
+   *
+   * Sur une LECTURE, `ok: false` est ambigu : un contrôle de conformité qui rend
+   * `{ ok: false, motifs: [...] }` a parfaitement abouti, et sa réponse est « non ». Le refuser
+   * ferait échouer une mission correcte pour un résultat correct — le refus à tort, strictement
+   * pire que le défaut qu'on corrige. Sur une ÉCRITURE, il n'y a pas de second sens : l'outil
+   * dit que l'effet n'a pas eu lieu. L'appelant transporte donc la nature de l'effet, plutôt
+   * que ce fichier ne l'importe — `capability-meta.ts` dépend déjà de lui.
+   */
+  const dit = effetEcrivain ? echecDeclare(sortie) : null;
+  if (dit) {
+    return {
+      etat: "INCOMPATIBLE_RESULT",
+      kind: "INCOMPATIBLE_RESULT",
+      raison: `la capacité déclare elle-même n'avoir pas abouti (${dit})`
+        + " — l'appel a abouti au transport, l'effet n'a pas eu lieu.",
+    };
+  }
+
   // RIEN N'EST PROMIS ⇒ RIEN N'EST VÉRIFIÉ. Ce n'est pas une tolérance, c'est l'honnêteté :
   // contrôler une forme que personne n'a déclarée reviendrait à l'inventer.
   if (contrat === "LIBRE") return SUCCES;

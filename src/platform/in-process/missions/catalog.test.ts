@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CurrentUser } from "@/lib/session";
 import { MODULES, type Action, type EffectiveAccess, type Module } from "@/lib/rbac";
 import { DECLARED } from "@/lib/missions/registry/capability-meta";
-import { catalogueDe, acteurDe } from "@/platform/in-process/missions/catalog";
+import { catalogueDe, acteurDe, SORTIE_INCONNUE_DITE } from "@/platform/in-process/missions/catalog";
 import { resoudreCapacites } from "@/lib/missions/registry/resolve";
 
 /**
@@ -44,6 +44,22 @@ function utilisateur(role: CurrentUser["role"], modules: readonly Module[] = MOD
 }
 
 describe("le catalogue réel — ce qu'une mission peut atteindre", () => {
+  /**
+   * LE CAS QUI FAIT TOMBER CETTE ASSERTION (§118.17) : une capacité dont la fiche ne dit RIEN de
+   * sa sortie. C'est l'état où le planificateur devinait — mesuré sur `inspect_drive_folder`,
+   * qui a coûté une mission entière du banc d'autonomie sur un champ « apercuLot » inventé. Le
+   * cache des formes est FROID sous vitest : ce test lit donc exactement l'état d'un déploiement
+   * neuf, celui où la devinette est la plus probable.
+   */
+  it("AUCUNE fiche de capacité ne reste muette sur sa sortie — l'ignorance se dit, elle ne se devine pas", () => {
+    const pdg = utilisateur("SUPER_ADMIN");
+    const catalogue = catalogueDe(pdg);
+    const muettes = catalogue.brief(acteurDe(pdg)).filter((b) => !/\[rend |\[forme de sortie INCONNUE/.test(b.summary));
+    expect(muettes.map((b) => b.id)).toEqual([]);
+    // Et l'ignorance dit le geste SÛR, pas seulement qu'elle ignore.
+    expect(SORTIE_INCONNUE_DITE).toContain("réfère l'étape ENTIÈRE");
+  });
+
   it("TOUTE capacité DÉCLARÉE existe réellement dans le registre d'outils", () => {
     const pdg = utilisateur("SUPER_ADMIN");
     const catalogue = catalogueDe(pdg);

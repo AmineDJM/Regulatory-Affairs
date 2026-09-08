@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { lireReponse } from "@/lib/missions/runtime/reponse";
 import { journaliser } from "@/lib/missions/runtime/store";
 import { Attente, FaitObserve, correspond, decomposer, echue, etatAttente, lireAttente, lireProgres } from "@/lib/missions/events/match";
 import { ETATS_REPLANIFIABLES, PLANS_MAX } from "@/lib/missions/runtime/replan";
@@ -95,6 +96,8 @@ export async function reveillerMissions(fait: FaitObserve): Promise<Reveil[]> {
           completedAt: maintenant,
           result: {
             reveillePar: fait.type,
+            // La parole de la personne AVANT l'enveloppe : c'est elle qu'une étape aval doit lire.
+            ...lireReponse(fait.payload),
             payload: (fait.payload ?? null) as never,
             attenteProgres: etat.reglees,
           } as never,
@@ -208,7 +211,9 @@ export async function reveillerAttentesTemporelles(maintenant = new Date()): Pro
         data: {
           status: "DONE",
           completedAt: maintenant,
-          result: { reveillePar: "TEMPS", instant: maintenant.toISOString(), attenteProgres: etat.reglees } as never,
+          // MÊMES CLÉS QUE L'ATTENTE RÉGLÉE PAR UN FAIT (§118.20) : personne n'a répondu, et
+          // c'est la VALEUR qui le dit — pas l'absence du champ.
+          result: { reveillePar: "TEMPS", ...lireReponse(null), instant: maintenant.toISOString(), attenteProgres: etat.reglees } as never,
         },
       });
       if (r.count !== 1) continue;
