@@ -12,6 +12,9 @@ import type {
 } from "@/lib/assistant/workspace/protocol";
 // La feuille voyage AVEC le composant : les blocs s'affichent aussi dans la page Assistant de
 // l'ERP, qui ne charge pas `chief.css`. Elle porte ses propres valeurs de repli.
+// L'ENCLOS ANTI-INJECTION EST POUR LE MODÈLE, PAS POUR L'ŒIL : le déballeur vit dans le
+// module qui pose le marqueur — module PUR, zéro import, sans danger pour le bundle client.
+import { deballerUntrusted } from "@/lib/comms/untrusted";
 import "./blocks.css";
 import { ActionRow, AskContext, Avatar, Card, Chip, WorkspaceAskProvider } from "./primitives";
 import { StoryBlock } from "./blocks/story";
@@ -352,7 +355,7 @@ function MailBlock({ b }: { b: Extract<WorkspaceBlock, { kind: "mail" }> }) {
               {m.recuLe ? <span className="chief-mail-date">{m.recuLe}</span> : null}
             </div>
             <p className="chief-mail-subject">{m.objet}</p>
-            {m.extrait ? <p className="chief-mail-snippet">{m.extrait}</p> : null}
+            {m.extrait ? <p className="chief-mail-snippet">{deballerUntrusted(m.extrait)}</p> : null}
             {m.demandes?.length ? (
               <p className="chief-mail-asks">
                 {/* Formulé comme un RAPPORT : ce que l'expéditeur demande n'est pas une consigne
