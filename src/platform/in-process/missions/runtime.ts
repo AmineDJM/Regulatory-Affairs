@@ -446,6 +446,48 @@ async function lancerMissionInterne(
     compile1 = compile(plan.plan, catalogue, agent, plafond);
   }
 
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * UNE EXIGENCE DÉDUITE D'UN MOT NE DOIT PAS TUER UNE MISSION (§63 du mandat).
+   *
+   * ── LE CAS, REPRODUIT EN DIRECT ─────────────────────────────────────────────────────
+   *
+   *   « Sors-moi, pour chaque contrat en cours, la date d'échéance, la clause de
+   *     renouvellement et la pénalité de retard. UN TABLEAU, et dis-moi combien de contrats
+   *     n'ont pas ces informations. »
+   *
+   * `exigencesFermes` y lit une pièce (« tableau » + verbe de production) et exige DOCUMENT.
+   * Le planificateur, lui, comprend un TABLEAU À L'ÉCRAN — ce qui est une lecture au moins
+   * aussi juste — et n'écrit pas d'étape ARTIFACT. Le compilateur refuse, le planificateur
+   * refait le même plan, et la mission meurt sans avoir rien livré. Zéro valeur rendue sur une
+   * demande parfaitement réalisable : le « je ne peux pas » artificiel, dans sa forme la plus
+   * coûteuse.
+   *
+   * ── CE QUI EST FAIT, ET CE QUI N'EST PAS FAIT ───────────────────────────────────────
+   *
+   * On ne devine PAS le livrable à la place du modèle (§104.5) : ajouter une étape ARTIFACT
+   * d'un format inventé serait pire. On ne baisse pas non plus l'exigence en silence, ce qui
+   * ramènerait le défaut que §56 existe pour corriger.
+   *
+   * On distingue la nature des reproches. Une faute STRUCTURELLE — cycle, capacité inventée,
+   * référence morte, cardinalité fausse — reste mortelle : le plan est faux, l'exécuter ne
+   * produirait rien de bon. Une exigence de COUVERTURE déduite d'un mot de la phrase est d'une
+   * autre espèce : le plan est exécutable, il livre peut-être moins que ce que le mot laissait
+   * entendre. Dans ce seul cas, la mission part — et la lacune est DÉCLARÉE, journalisée, et
+   * remise au dirigeant avec le résultat. Il lit « voici le tableau à l'écran, je n'ai pas
+   * produit de fichier », au lieu de ne rien lire du tout.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  const COUVERTURE = new Set(["MISSING_PRIMITIVE"]);
+  let lacunesDeCouverture: string[] = [];
+  if (!compile1.ok && compile1.issues.every((i) => COUVERTURE.has(i.code))) {
+    const sansExigence = compile(plan.plan, catalogue, agent, { ...plafond, primitivesRequises: [], formatsLivrables: [] });
+    if (sansExigence.ok) {
+      lacunesDeCouverture = compile1.issues.map((i) => i.message);
+      compile1 = sansExigence;
+    }
+  }
+
   if (!compile1.ok) {
     const pourquoi = repetition
       ? `le planificateur bute deux fois sur le même refus après ${corrections} correction(s)`
@@ -459,6 +501,8 @@ async function lancerMissionInterne(
   }
 
   const mission = compile1.mission;
+  // AVANT LA MATÉRIALISATION : la lacune voyage avec le plan, elle n'est pas un commentaire.
+  for (const l of lacunesDeCouverture) mission.gaps.push(l);
   const titre = opts.titre ?? titreDe(mission.objective || objectif);
   const missionId = await materialiser(mission, {
     ownerId: user.id,
@@ -470,6 +514,14 @@ async function lancerMissionInterne(
     ...(opts.missionId ? { missionId: opts.missionId } : {}),
   });
   setTurnContext({ missionId });
+  // LA LACUNE EST DITE AU JOURNAL — elle est déjà dans `mission.gaps`, donc persistée avec le
+  // plan et remontée à l'appelant : le dirigeant la lit avec le résultat, pas à la place.
+  for (const l of lacunesDeCouverture) {
+    await journaliser(missionId, "GAP_DECLARED",
+      `Le plan part sans satisfaire une exigence lue dans la demande : ${l} `
+      + `La mission s'exécute et livre ce qu'elle peut ; ce point-là reste ouvert.`,
+      { lacune: "COUVERTURE" });
+  }
   if (situation) {
     await journaliser(missionId, "INVESTIGATED", resumerSituation(situation), {
       entites: situation.entites.slice(0, 8).map((e) => `${e.type}:${e.label}`),
