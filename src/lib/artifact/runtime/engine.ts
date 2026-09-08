@@ -32,6 +32,8 @@
 import { randomUUID } from "node:crypto";
 import type { ArtifactFormat, ArtifactModel } from "@/lib/artifact/object-model/model";
 import type { Cible, CommandeArtefact } from "@/lib/artifact/commands/ir";
+import { CIBLE_VIDE } from "@/lib/artifact/commands/ir";
+import { lireImage } from "@/lib/artifact/object-model/image";
 import { compilerCommandes } from "@/lib/artifact/commands/compile";
 import type { DocumentOuvert, EffetCommande, RessourceBinaire } from "@/lib/artifact/adapters/contract";
 import { adaptateurPour, mimeDe } from "@/lib/artifact/adapters/registry";
@@ -794,6 +796,31 @@ export async function lireImageDuDocument(
     description: extrait.image.description,
     note: lue.note,
   };
+}
+
+/**
+ * LES OCTETS D'UNE IMAGE, SANS LA LIRE — ce dont le workspace a besoin pour l'AFFICHER.
+ *
+ * `lireImageDuDocument` appelle le port de vision, ce qui coûte un OCR ; afficher une image
+ * n'en demande pas. Le chemin est le même à cela près : mêmes droits (`magasin.lire` refuse une
+ * session qui n'est pas à cette personne), même état courant, même extraction.
+ */
+export async function octetsImageDeSession(
+  ctx: ContexteMoteur, sessionId: string, imageId: string,
+): Promise<{ ok: true; octets: Buffer; mime: string } | { ok: false; motif: string }> {
+  const session = await ctx.magasin.lire(sessionId, ctx.acteur.id);
+  if (!session) return { ok: false, motif: "session" };
+  const etat = await etatCourant(ctx, session);
+  if (!etat.doc.extraireImage) return { ok: false, motif: `le format ${session.format} ne porte pas d'image affichable` };
+
+  const extrait = await etat.doc.extraireImage({
+    cible: { ...CIBLE_VIDE, id: imageId }, feuille: null, diapo: null, pages: null,
+  });
+  if (!extrait.ok) return { ok: false, motif: extrait.motif };
+  const lue = lireImage(extrait.image.octets);
+  // Un type inconnu est SERVI en `application/octet-stream` : le navigateur n'affichera rien,
+  // ce qui est honnête. Deviner `image/png` ferait afficher un cadre cassé sans explication.
+  return { ok: true, octets: extrait.image.octets, mime: lue?.mime ?? "application/octet-stream" };
 }
 
 /** L'état complet d'une session, tel que le workspace le dessine. */

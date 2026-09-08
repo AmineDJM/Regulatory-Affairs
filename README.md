@@ -1594,6 +1594,15 @@ coûte **quelques millisecondes** au lieu d'un aller-retour de conversion.
   `<drawing>` inséré à la fin détruit un tableau structuré (le schéma exige `tableParts` après),
   une seconde partie dessin fait disparaître l'image précédente, et une relation écrite dans la
   feuille au lieu du dessin donne un cadre vide.
+- **Et le workspace la MONTRE.** Il dessinait un cadre gris portant « Image — 4,0 × 2,0 cm » : la
+  personne ne pouvait pas distinguer le logo de 2019 de celui de 2027, donc pas VÉRIFIER ce
+  qu'Adam venait de faire. `/api/artifact/<session>/image/<id>` sert les octets de l'état COURANT
+  (pas la version Drive : après « remplace le logo », l'écran doit montrer le nouveau), sous
+  l'identifiant de SESSION — le moteur ne rend une session qu'à la personne à qui elle est. Le
+  type vient de l'EN-TÊTE, jamais du nom. Sur une feuille Excel, les images se montrent en BANDE
+  sous la grille avec leur cellule écrite plutôt que superposées : les largeurs de colonnes de
+  l'aperçu sont approchées, et une image posée à côté de sa vraie cellule ferait corriger un
+  décalage qui n'existe que dans l'aperçu.
 - **Lire ce qu'une image MONTRE** (`lireImageDuDocument`, geste `lire_image`). Un contrat scanné, un
   tampon d'homologation, un graphique collé dans un deck, une photo d'étiquette dans un classeur :
   le texte du fichier n'en dit RIEN, et c'est souvent là qu'est la réponse. L'adaptateur sait **où**
@@ -1604,13 +1613,13 @@ coûte **quelques millisecondes** au lieu d'un aller-retour de conversion.
   Le texte lu ressort emballé (`wrapUntrusted`) et la **note de méthode** — OCR ou modèle, confiance,
   durée — voyage avec lui : ce n'est jamais un fait vérifié. Une installation sans port de vision le
   DIT au lieu de répondre « lu, rien dedans », qui ferait conclure que le tampon est vierge.
-- **Sabotages** (`npm run office:sabotage`) : quinze défauts plausibles réintroduits un par un
+- **Sabotages** (`npm run office:sabotage`) : seize défauts plausibles réintroduits un par un
   (décalage d'un rang, suppression croissante, annulation qui ne rejoue pas, police non écrite,
   sauvegarde qui n'écrit rien, session régénérée, idempotence vérifiée trop tard, style Excel
   modifié sur place, arbre XML toujours reconstruit, relation d'image non déclarée, relation
   PowerPoint dans la mauvaise diapositive, `<drawing>` en fin de feuille, seconde partie dessin,
   lecture qui rend la première image au lieu de celle qu'on vise, lecture sans vision qui répond
-  « rien dedans »). **15/15 font tomber la suite.**
+  « rien dedans », workspace qui sert toujours la première image). **16/16 font tomber la suite.**
 - **Fichiers** : `src/lib/artifact/{object-model,commands,adapters/{docx,xlsx,pptx,pdf},render,qa,
   runtime,capabilities,observability}/` (dont `object-model/image.ts` — lecture d'en-têtes PNG /
   JPEG / GIF / BMP / TIFF / WEBP, `null` sur ce qu'il ne reconnaît pas à coup sûr — et
@@ -5219,7 +5228,7 @@ libellé passé à `resoudre` sans genre déclaré.
 
 **Mesuré** : 19 tests Excel, 11 de lecture d'image par le vrai point d'entrée, 5 d'accord de langue,
 4 de bout en bout sur classeur (source cherchée par son nom, journal sans octets, rejeu, annulation) ;
-fidélité vérifiée pièce par pièce ; banc de sabotage **15/15** attrapés (6 nouveaux).
+fidélité vérifiée pièce par pièce ; banc de sabotage **16/16** attrapés (7 nouveaux).
 
 ### LE PROMPT DU WORKER COUPAIT SES ENTRÉES EN PLEIN MILIEU (2026-09)
 

@@ -22,7 +22,7 @@ import {
 } from "@/lib/artifact/adapters/fixtures";
 import { cibleIndex, cibleTexte, commande } from "@/lib/artifact/commands/ir";
 import {
-  editer, lireImageDuDocument, oublierSession, ouvrir, type ContexteMoteur,
+  editer, lireImageDuDocument, octetsImageDeSession, oublierSession, ouvrir, type ContexteMoteur,
 } from "@/lib/artifact/runtime/engine";
 import { magasinMemoire, portsMemoire, type DriveFaux } from "@/lib/artifact/runtime/fakes";
 
@@ -202,5 +202,85 @@ describe("ce que la lecture ne fait jamais", () => {
     const r = await lireImageDuDocument(autre, sessionId, { cible: cibleIndex(1) });
     expect(r.ok).toBe(false);
     expect(drive.lectures).toHaveLength(0);
+  });
+});
+
+describe("servir l'image au workspace", () => {
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════
+   * CE QUE CE BLOC EXISTE POUR ATTRAPER : un cadre gris à la place de l'image.
+   *
+   * Le workspace dessinait « Image — 4,0 × 2,0 cm ». La personne ne pouvait donc pas distinguer
+   * le logo de 2019 de celui de 2027 : elle ne pouvait pas VÉRIFIER, et « c'est fait » redevenait
+   * une parole à croire — exactement ce qu'aucun écran de ce produit n'a le droit de demander.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("les octets servis sont ceux de l'image, avec le type lu dans l'EN-TÊTE", async () => {
+    await contexte({ nom: "Dossier.docx", octets: await docxDeParagraphes(["Dossier"]) });
+    await editer(ctx, sessionId, [
+      commande("docx.inserer_image", { imageSource: "logo Adventum", largeurCm: 4 }),
+      commande("docx.inserer_image", { imageSource: "tampon ANPP", largeurCm: 3 }),
+    ]);
+    const m = { ...ctx };
+    const r1 = await octetsImageDeSession(m, sessionId, "img1");
+    const r2 = await octetsImageDeSession(m, sessionId, "img2");
+    expect(r1.ok && r2.ok).toBe(true);
+    if (!r1.ok || !r2.ok) return;
+    expect(r1.octets.equals(LOGO), "la 1re image servie n'est pas le logo").toBe(true);
+    expect(r2.octets.equals(TAMPON), "la 2e image servie n'est pas le tampon").toBe(true);
+    expect(r1.mime).toBe("image/png");
+    // Et AUCUN appel au lecteur : afficher une image ne doit pas coûter un OCR.
+    expect(drive.lectures).toHaveLength(0);
+  });
+
+  it("l'image d'une session qui n'est pas à moi n'est pas servie", async () => {
+    await contexte({ nom: "Dossier.docx", octets: await docxDeParagraphes(["Dossier"]) });
+    await editer(ctx, sessionId, [commande("docx.inserer_image", { imageSource: "tampon ANPP", largeurCm: 3 })]);
+    const autre: ContexteMoteur = { ...ctx, acteur: { id: "u-stagiaire", libelle: "Quelqu'un d'autre" } };
+    const r = await octetsImageDeSession(autre, sessionId, "img1");
+    expect(r.ok).toBe(false);
+  });
+
+  it("un identifiant qui n'existe plus est refusé — jamais des octets au hasard", async () => {
+    await contexte({ nom: "Dossier.docx", octets: await docxDeParagraphes(["Dossier"]) });
+    await editer(ctx, sessionId, [commande("docx.inserer_image", { imageSource: "tampon ANPP", largeurCm: 3 })]);
+    const r = await octetsImageDeSession(ctx, sessionId, "img9");
+    expect(r.ok).toBe(false);
+  });
+
+  it("après un REMPLACEMENT, ce sont les NOUVEAUX octets qui sont servis", async () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : servir la version Drive au lieu de l'état courant. Après
+     * « remplace le logo », l'écran montrerait l'ancien, et la personne conclurait que rien
+     * n'a été fait — puis referait la commande.
+     */
+    await contexte({ nom: "Dossier.docx", octets: await docxDeParagraphes(["Dossier"]) });
+    await editer(ctx, sessionId, [commande("docx.inserer_image", { imageSource: "logo Adventum", largeurCm: 4 })]);
+    const avant = await octetsImageDeSession(ctx, sessionId, "img1");
+    expect(avant.ok && avant.octets.equals(LOGO)).toBe(true);
+
+    await editer(ctx, sessionId, [
+      commande("docx.remplacer_image", { cible: cibleIndex(1), imageSource: "tampon ANPP" }),
+    ]);
+    const apres = await octetsImageDeSession(ctx, sessionId, "img1");
+    expect(apres.ok).toBe(true);
+    if (!apres.ok) return;
+    expect(apres.octets.equals(TAMPON), "on sert encore l'ancienne image").toBe(true);
+  });
+
+  it("le classeur sert la sienne, désignée par l'identifiant du MODÈLE", async () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : deux identifiants pour le même objet — celui que le modèle
+     * publie et celui que le ciblage accepte. Le clic de la personne enverrait le premier, le
+     * ciblage ne le reconnaîtrait pas, et l'image ne s'afficherait jamais.
+     */
+    await contexte({ nom: "Ventes.xlsx", octets: await xlsxVentes() });
+    await editer(ctx, sessionId, [
+      commande("xlsx.inserer_image", { feuille: "Ventes", plage: "E2", imageSource: "tampon ANPP", largeurCm: 3 }),
+    ]);
+    const r = await octetsImageDeSession(ctx, sessionId, "s1.img1");
+    expect(r.ok, r.ok ? "" : r.motif).toBe(true);
+    if (!r.ok) return;
+    expect(r.octets.equals(TAMPON)).toBe(true);
   });
 });

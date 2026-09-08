@@ -7,7 +7,7 @@ import { E2E } from "./global-setup";
  * variable d'environnement : `process.env` posé par `globalSetup` ne traverse pas jusqu'aux
  * workers Playwright, qui sont des processus distincts.
  */
-const NOEUDS: { docxNode: string; pdfNode: string } = JSON.parse(readFileSync(".e2e-office.json", "utf8"));
+const NOEUDS: { docxNode: string; pdfNode: string; docxImageNode: string } = JSON.parse(readFileSync(".e2e-office.json", "utf8"));
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -160,5 +160,62 @@ test.describe("Live Office — PDF", () => {
     const debord = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(debord).toBeLessThanOrEqual(1);
     await page.screenshot({ path: "e2e-screenshots/office-pdf-telephone.png" });
+  });
+});
+
+test.describe("Live Office — l'image est VUE, pas décrite", () => {
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════
+   * CE QUE CETTE SPEC EXISTE POUR ATTRAPER.
+   *
+   * Le workspace dessinait un cadre gris portant « Image — 6,0 × 3,0 cm ». La personne ne
+   * pouvait donc pas distinguer le logo de 2019 de celui de 2027 : elle ne pouvait pas VÉRIFIER
+   * ce qu'Adam venait de faire, et « c'est fait » redevenait une parole à croire.
+   *
+   * Un test unitaire prouve que la route rend les bons octets. Il ne peut PAS prouver que le
+   * navigateur les affiche : une URL mal formée, un `Content-Type` refusé, une CSP, un `src`
+   * relatif — tout cela passe le test unitaire et donne une image cassée à l'écran. D'où
+   * `naturalWidth`, que seul un vrai navigateur peut rendre.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════
+   */
+  test("le navigateur charge vraiment les octets de l'image du document", async ({ page }) => {
+    await page.setViewportSize(BUREAU);
+    await login(page);
+    await page.goto(`/office/live/${NOEUDS.docxImageNode}`);
+    await expect(page.locator(".artifact")).toHaveAttribute("data-format", "DOCX");
+
+    const img = page.locator(".artifact-image").first();
+    await expect(img).toBeVisible();
+
+    // L'ADRESSE porte la session et la révision — sans la révision, le navigateur re-servirait
+    // l'image d'avant un remplacement, et la personne croirait que rien n'a bougé.
+    const src = await img.getAttribute("src");
+    expect(src).toMatch(/^\/api\/artifact\/[^/]+\/image\/[^?]+\?r=\d+$/);
+
+    // LES OCTETS SONT ARRIVÉS. `naturalWidth > 0` est faux sur une image cassée, et c'est la
+    // seule assertion que ni la route ni le composant ne peuvent satisfaire à eux seuls.
+    await expect.poll(async () => img.evaluate((e) => (e as HTMLImageElement).naturalWidth), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+    expect(await img.evaluate((e) => (e as HTMLImageElement).naturalWidth)).toBe(240);
+    expect(await img.evaluate((e) => (e as HTMLImageElement).naturalHeight)).toBe(120);
+
+    // Et le cadre de secours n'est PAS affiché : il ne sort que si les octets manquent.
+    await expect(page.locator(".artifact-image-cadre")).toHaveCount(0);
+
+    await page.screenshot({ path: "e2e-screenshots/office-image-bureau.png", fullPage: true });
+  });
+
+  test("sur téléphone aussi, et sans débordement horizontal", async ({ page }) => {
+    await page.setViewportSize(TELEPHONE);
+    await login(page);
+    await page.goto(`/office/live/${NOEUDS.docxImageNode}`);
+    const img = page.locator(".artifact-image").first();
+    await expect(img).toBeVisible();
+    await expect.poll(async () => img.evaluate((e) => (e as HTMLImageElement).naturalWidth), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+
+    const debordement = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(debordement, "la page défile horizontalement à 390 px").toBeLessThanOrEqual(1);
+    await page.screenshot({ path: "e2e-screenshots/office-image-telephone.png", fullPage: true });
   });
 });

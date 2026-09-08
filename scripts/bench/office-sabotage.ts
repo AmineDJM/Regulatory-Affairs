@@ -24,7 +24,8 @@
  *  10. `<drawing>` ajouté à la fin d'une feuille Excel — le tableau structuré disparaît ;
  *  11. une seconde partie dessin par image — la précédente disparaît, sans erreur ;
  *  12. la LECTURE d'image qui rend les octets de la première image au lieu de celle qu'on vise ;
- *  13. une installation sans vision qui répond « lu, rien dedans » au lieu de dire qu'elle ne lit pas.
+ *  13. une installation sans vision qui répond « lu, rien dedans » au lieu de dire qu'elle ne lit pas ;
+ *  14. le workspace qui sert TOUJOURS la première image, quelle que soit celle qu'on lui demande.
  *
  * ── COMMENT LE LIRE ─────────────────────────────────────────────────────────────────────
  *
@@ -170,6 +171,14 @@ const SABOTAGES: Sabotage[] = [
     fichier: "src/lib/artifact/runtime/engine.ts",
     cherche: '  const vision = ctx.ports.vision;\n  if (!vision) {',
     remplace: '  const vision = ctx.ports.vision;\n  if (false && !vision) {',
+    tests: ["src/lib/artifact/runtime/lire-image.test.ts"],
+  },
+  {
+    nom: "Workspace — on sert toujours la PREMIÈRE image du document",
+    defaut: "l'écran montre le logo là où le document porte le tampon : la personne « vérifie » autre chose",
+    fichier: "src/lib/artifact/runtime/engine.ts",
+    cherche: "    cible: { ...CIBLE_VIDE, id: imageId }, feuille: null, diapo: null, pages: null,",
+    remplace: "    cible: { ...CIBLE_VIDE, index: 1 }, feuille: null, diapo: null, pages: null,",
     tests: ["src/lib/artifact/runtime/lire-image.test.ts"],
   },
 ];

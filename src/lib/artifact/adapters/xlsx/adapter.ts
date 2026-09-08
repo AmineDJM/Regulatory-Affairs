@@ -831,8 +831,12 @@ class XlsxOuvert implements DocumentOuvert {
     if (!dessin || dessin.images.length === 0) {
       return { ok: false as const, echec: effetEchec(`la feuille « ${f.nom} » ne contient aucune image`) };
     }
+    // L'IDENTIFIANT EST CELUI DU MODÈLE, pas un autre : c'est celui que le workspace renvoie
+    // quand la personne clique sur l'image. Deux identifiants pour le même objet feraient
+    // échouer le clic — le geste le plus sûr de tous (§104.7) — au profit du texte.
+    const rang = this.feuilles.indexOf(f) + 1;
     const designables = dessin.images.map((i) => ({
-      id: `${f.nom}.img${i.index}`, index: i.index,
+      id: `s${rang}.img${i.index}`, index: i.index,
       texte: [i.nom, i.description ?? "", i.ancre ?? ""].join(" ").trim(),
       image: i,
     }));

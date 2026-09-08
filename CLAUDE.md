@@ -148,7 +148,7 @@ et le refermer en `.docx` — le même, avec ses styles, ses images et ses en-t�
 11. **Un seul bloc par document.** Même `blockId`, `version++`. Trois retouches ne font pas trois
     cartes qui s'empilent : la même se transforme.
 12. **Deux bancs, et ils tournent.** `npm run office:bench` mesure (et dit ce qu'il NE mesure pas :
-    réseau, déchiffrement). `npm run office:sabotage` réintroduit quinze défauts plausibles et exige
+    réseau, déchiffrement). `npm run office:sabotage` réintroduit seize défauts plausibles et exige
     que la suite tombe — un sabotage qui passe est un trou, pas un succès.
 13. **Une image entre par sa RÉFÉRENCE et sort par ses OCTETS, jamais l'inverse.** Une commande
     d'insertion porte le NOM du fichier ; c'est le moteur qui le résout à travers le port, donc sous
@@ -172,7 +172,15 @@ et le refermer en `.docx` — le même, avec ses styles, ses images et ses en-t�
     vision doit DIRE qu'il ne sait pas regarder : répondre « lu, rien dedans » ferait conclure que
     le tampon est vierge alors que RIEN n'a été tenté — le faux succès parfait. Le contenu lu reste
     une DONNÉE (`wrapUntrusted`) ; la note, qui vient de notre code, reste dehors.
-16. **Un refus qu'on lit de travers est un refus qu'on croit moins.** « ce document ne contient
+16. **Un cadre gris n'est pas un rendu.** Le workspace dessinait « Image — 4,0 × 2,0 cm » à la
+    place de l'image : la personne ne pouvait pas distinguer le logo de 2019 de celui de 2027,
+    donc pas VÉRIFIER ce qu'Adam venait de faire — et « c'est fait » redevenait une parole à
+    croire, ce qu'aucun écran de ce produit n'a le droit de demander. Les octets servis sont ceux
+    de l'état COURANT et non de la version Drive (après un remplacement, l'écran doit montrer le
+    nouveau), l'adresse porte l'identifiant de SESSION (le moteur ne rend une session qu'à la
+    personne à qui elle est) et la révision (sans quoi le navigateur re-sert l'image d'avant), et
+    le type vient de l'EN-TÊTE — un `.png` qui contient du JPEG existe.
+17. **Un refus qu'on lit de travers est un refus qu'on croit moins.** « ce document ne contient
     aucun image » est passé en production : le refus était JUSTE, il était simplement écrit dans
     une langue que personne ne parle — et c'est la phrase qu'une personne lit et qu'un modèle
     reprend. Les accords vivent dans `commands/resolve.ts`, la liste des libellés est EXPLICITE, et

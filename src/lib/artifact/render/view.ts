@@ -94,6 +94,8 @@ export interface VueXlsx {
       id: string; ref: string; row: number; col: number; valeur: string;
       formule: string | null; style: TextStyle; fond: string | null; align: string | null; format: string | null;
     }[];
+    /** Les images posées sur la feuille — avec la CELLULE où elles s'accrochent. */
+    images: { id: string; index: number; nom: string; ancre: string | null; largeurCm: number; hauteurCm: number }[];
   }[];
 }
 
@@ -219,6 +221,10 @@ function vueXlsx(m: XlsxModel): VueXlsx {
       cellules: s.cells.slice(0, MAX_CELLULES_VUE).map((c) => ({
         id: c.id, ref: c.ref, row: c.row, col: c.col, valeur: c.value,
         formule: c.formula, style: c.style, fond: c.fill, align: c.align, format: c.numFmt,
+      })),
+      images: s.images.map((i) => ({
+        id: i.id, index: i.index, nom: i.name, ancre: i.anchorRef,
+        largeurCm: i.widthCm, hauteurCm: i.heightCm,
       })),
     })),
   };

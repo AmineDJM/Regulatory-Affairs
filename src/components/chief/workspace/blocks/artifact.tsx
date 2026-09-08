@@ -131,7 +131,7 @@ export function ArtifactBlock({ b }: { b: BlocArtefact }) {
 
       <div className="artifact-scene" data-occupe={occupe ? "1" : "0"}>
         {vue.contenu.kind === "DOCX" && (
-          <SceneDocx contenu={vue.contenu} zoom={zoom} surbrillance={vue.surbrillance}
+          <SceneDocx vue={vue} contenu={vue.contenu} zoom={zoom} surbrillance={vue.surbrillance}
             onCliquer={(id) => appliquer(() => viserArtefact(vue.sessionId, { selection: [id] }))} />
         )}
         {vue.contenu.kind === "PDF" && (
@@ -280,8 +280,8 @@ function styleDuBloc(b: BlocVue): React.CSSProperties {
   };
 }
 
-function SceneDocx({ contenu, zoom, surbrillance, onCliquer }: {
-  contenu: VueDocx; zoom: number; surbrillance: string[]; onCliquer: (id: string) => void;
+function SceneDocx({ vue, contenu, zoom, surbrillance, onCliquer }: {
+  vue: VueArtefact; contenu: VueDocx; zoom: number; surbrillance: string[]; onCliquer: (id: string) => void;
 }) {
   const enSurbrillance = new Set(surbrillance);
   return (
@@ -302,7 +302,8 @@ function SceneDocx({ contenu, zoom, surbrillance, onCliquer }: {
           </p>
         )}
         {contenu.blocs.map((b) => (
-          <BlocDocx key={b.id} b={b} actif={enSurbrillance.has(b.id)} onCliquer={onCliquer} />
+          <BlocDocx key={b.id} b={b} actif={enSurbrillance.has(b.id)} onCliquer={onCliquer}
+            sessionId={vue.sessionId} revision={vue.revision} />
         ))}
       </div>
     </div>
@@ -321,7 +322,50 @@ function SceneDocx({ contenu, zoom, surbrillance, onCliquer }: {
  * première image, `3` le troisième paragraphe. C'est ce que §17 demande — que le numéro affiché
  * soit celui qu'on prononce.
  */
-function BlocDocx({ b, actif, onCliquer }: { b: BlocVue; actif: boolean; onCliquer: (id: string) => void }) {
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'IMAGE DU DOCUMENT, VRAIMENT AFFICHÉE.
+ *
+ * Un cadre gris disant « Image — 4,0 × 2,0 cm » n'est pas un rendu : la personne ne peut pas
+ * distinguer le logo de 2019 de celui de 2027, donc elle ne peut pas VÉRIFIER ce qu'Adam vient
+ * de faire — et « c'est fait » redevient une parole à croire, ce qu'aucun écran de ce produit
+ * n'a le droit de demander.
+ *
+ * La révision est dans l'URL : sans elle, le navigateur re-servirait l'image d'AVANT le
+ * remplacement, et la personne croirait que rien ne s'est passé (même raison que pour les pages
+ * de PDF). Si les octets ne se servent pas — format inconnu, image liée et non incorporée — le
+ * `<img>` échoue et l'on RETOMBE sur le cadre, avec sa taille : montrer un cadre vide sans rien
+ * dire ferait croire à une image blanche.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+function ImageDocument({ sessionId, revision, id, alt, largeurPx, hauteurPx }: {
+  sessionId: string; revision: number; id: string; alt: string;
+  largeurPx: number; hauteurPx: number;
+}) {
+  const [casse, setCasse] = React.useState(false);
+  const style = { width: `${largeurPx}px`, height: `${hauteurPx}px` } as React.CSSProperties;
+  if (casse) {
+    return (
+      <div className="artifact-image-cadre" style={style}>
+        <span>{alt || "Image"} — aperçu indisponible</span>
+      </div>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- octets servis à la volée, hors optimiseur Next.
+    <img
+      src={`/api/artifact/${sessionId}/image/${encodeURIComponent(id)}?r=${revision}`}
+      alt={alt || "Image du document"}
+      className="artifact-image"
+      style={style}
+      onError={() => setCasse(true)}
+    />
+  );
+}
+
+function BlocDocx({ b, actif, onCliquer, sessionId, revision }: {
+  b: BlocVue; actif: boolean; onCliquer: (id: string) => void; sessionId: string; revision: number;
+}) {
   const classe = `artifact-bloc${actif ? " artifact-bloc-actif" : ""}`;
   const prefixe = b.type === "tableau" ? "T" : b.type === "image" ? "I" : "";
   const quoi = b.type === "tableau" ? "Tableau" : b.type === "image" ? "Image" : "Paragraphe";
@@ -349,10 +393,8 @@ function BlocDocx({ b, actif, onCliquer }: { b: BlocVue; actif: boolean; onCliqu
     return (
       <div className={classe} data-id={b.id} onClick={() => onCliquer(b.id)} role="presentation">
         {rang}
-        <div className="artifact-image-cadre"
-          style={{ width: `${(b.largeurCm ?? 4) * PX_PAR_CM}px`, height: `${(b.hauteurCm ?? 3) * PX_PAR_CM}px` }}>
-          <span>{b.texte || "Image"} — {(b.largeurCm ?? 0).toFixed(1)} × {(b.hauteurCm ?? 0).toFixed(1)} cm</span>
-        </div>
+        <ImageDocument sessionId={sessionId} revision={revision} id={b.id} alt={b.texte}
+          largeurPx={(b.largeurCm ?? 4) * PX_PAR_CM} hauteurPx={(b.hauteurCm ?? 3) * PX_PAR_CM} />
       </div>
     );
   }
@@ -452,7 +494,11 @@ function ScenePptx({ vue, contenu, zoom, onDiapo, onForme }: {
                 color: f.style.color ? `#${f.style.color}` : undefined,
                 textAlign: (f.align ?? undefined) as React.CSSProperties["textAlign"],
               }}>
-              {f.role === "picture" ? <span className="artifact-forme-media">Image</span>
+              {f.role === "picture"
+                ? (
+                  <ImageDocument sessionId={vue.sessionId} revision={vue.revision} id={f.id} alt={f.nom}
+                    largeurPx={f.largeurCm * PX_PAR_CM * echelle} hauteurPx={f.hauteurCm * PX_PAR_CM * echelle} />
+                )
                 : f.role === "chart" ? <span className="artifact-forme-media">Graphique</span>
                   : f.role === "table" ? <span className="artifact-forme-media">Tableau</span>
                     : f.texte}
@@ -539,6 +585,28 @@ function SceneXlsx({ vue, contenu, onFeuille, onCellule }: {
           </tbody>
         </table>
       </div>
+      {feuille.images.length > 0 && (
+        /**
+         * LES IMAGES DE LA FEUILLE, EN BANDE — et pourquoi PAS posées sur la grille.
+         *
+         * La grille est un APERÇU : les largeurs de colonnes y sont approchées, et les lignes
+         * ont toutes la même hauteur. Superposer les images à leur position calculée les
+         * placerait donc à côté de leur vraie cellule, et la personne corrigerait un décalage
+         * qui n'existe que dans l'aperçu. On les montre à part, chacune avec SA cellule écrite
+         * — ce qui répond à la seule question qu'on se pose : « laquelle, et où ? ».
+         */
+        <div className="artifact-images-feuille">
+          {feuille.images.map((i) => (
+            <button key={i.id} type="button" className="artifact-image-vignette"
+              onClick={() => onCellule(i.id)} title={i.nom}>
+              <ImageDocument sessionId={vue.sessionId} revision={vue.revision} id={i.id} alt={i.nom}
+                largeurPx={Math.min(140, i.largeurCm * PX_PAR_CM)}
+                hauteurPx={Math.min(140, i.largeurCm * PX_PAR_CM) * (i.hauteurCm / Math.max(0.01, i.largeurCm))} />
+              <span className="artifact-image-ancre">{i.ancre ?? `image ${i.index}`}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {(feuille.lignes > LIGNES_VUE_MAX || feuille.colonnes > COLONNES_VUE_MAX) && (
         <p className="artifact-legende">
           Aperçu des {nbLignes} premières lignes et {nbColonnes} premières colonnes — la feuille

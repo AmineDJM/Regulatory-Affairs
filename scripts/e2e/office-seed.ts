@@ -17,11 +17,14 @@
 
 import { prisma } from "@/lib/prisma";
 import { putBlob, getBlob } from "@/lib/drive-storage";
-import { docxDeParagraphes, pdfNumerote } from "@/lib/artifact/adapters/fixtures";
+import { docxDeParagraphes, pdfNumerote, pngUni } from "@/lib/artifact/adapters/fixtures";
+import { adaptateurDocx } from "@/lib/artifact/adapters/docx/adapter";
+import { commande } from "@/lib/artifact/commands/ir";
 
 const DOSSIER = "__e2e__ Live Office";
 const NOM_DOCX = "__e2e__ Contrat Consulting Mouffok.docx";
 const NOM_PDF = "__e2e__ Dossier ANPP.pdf";
+const NOM_LOGO = "__e2e__ logo Adventum.png";
 const PAGES_PDF = 10;
 
 async function main(): Promise<void> {
@@ -98,7 +101,28 @@ async function main(): Promise<void> {
   );
   const pdfNode = await deposer(NOM_PDF, await pdfNumerote(PAGES_PDF), "application/pdf");
 
-  process.stdout.write(JSON.stringify({ docxNode, pdfNode }));
+  /**
+   * UN WORD QUI PORTE UNE IMAGE — pour que l'E2E puisse vérifier qu'on la VOIT.
+   *
+   * L'image est posée par le CODE DE PRODUCTION (l'adaptateur, la vraie commande), pas par un
+   * XML écrit à la main : un décor fabriqué autrement ne prouverait rien sur ce que produit
+   * l'insertion réelle. Les octets sont ceux d'un PNG valide, dont on connaît la couleur — ce
+   * qui permet à la spec de vérifier qu'elle regarde bien CETTE image.
+   */
+  const logo = pngUni(240, 120, [11, 87, 208]);
+  const doc = await adaptateurDocx.ouvrir(
+    await docxDeParagraphes(["Note de service", "Le logo figure ci-dessous."]),
+  );
+  doc.fournirRessources?.(new Map([["logo", { octets: logo, nom: NOM_LOGO }]]));
+  const pose = doc.appliquer(commande("docx.inserer_image", { imageSource: "logo", largeurCm: 6, imageAlt: "logo Adventum" }));
+  if (!pose.ok) throw new Error(`Le décor E2E n'a pas pu poser l'image : ${pose.motif}`);
+  const docxImageNode = await deposer(
+    "__e2e__ Note avec logo.docx",
+    await doc.serialiser(),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  );
+
+  process.stdout.write(JSON.stringify({ docxNode, pdfNode, docxImageNode }));
 }
 
 main()

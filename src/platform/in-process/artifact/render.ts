@@ -11,6 +11,7 @@ import type { CurrentUser } from "@/lib/session";
 import { adaptateurPour } from "@/lib/artifact/adapters/registry";
 import { compilerCommandes } from "@/lib/artifact/commands/compile";
 import { rendrePagePdf } from "@/lib/artifact/render/raster";
+import { octetsImageDeSession } from "@/lib/artifact/runtime/engine";
 import { portsArtefact } from "@/platform/in-process/artifact/ports";
 import { magasinSessions } from "@/platform/in-process/artifact/store";
 
@@ -48,4 +49,39 @@ export async function rendrePageArtefact(
   const rendu = await rendrePagePdf(await doc.serialiser(), page, opts);
   if (!rendu) return { ok: false, statut: 404, motif: "cette page n'existe plus" };
   return { ok: true, png: rendu.png };
+}
+
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES OCTETS D'UNE IMAGE DU DOCUMENT — pour que le workspace la MONTRE.
+ *
+ * Un cadre gris annonçant « Image — 4,0 × 2,0 cm » n'est pas un rendu : la personne ne peut pas
+ * distinguer le logo de 2019 de celui de 2027, donc elle ne peut pas VÉRIFIER ce qu'Adam vient
+ * de faire, et « c'est fait » redevient une parole qu'il faut croire.
+ *
+ * ── POURQUOI CETTE FONCTION NE REJOUE RIEN ELLE-MÊME ────────────────────────────────────
+ *
+ * La route des pages de PDF reconstruit l'état à la main, parce qu'un PDF n'a besoin d'aucune
+ * ressource extérieure. Une image, si : le rejeu doit RELIRE les octets de la source à travers
+ * le port. `etatCourant` le fait déjà, avec les droits courants de la personne. En réécrire une
+ * seconde version ici donnerait deux chemins de rejeu qui divergeraient — et le jour où ils
+ * divergent, le workspace affiche une image que le document ne contient pas.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface ResultatImage {
+  ok: boolean;
+  statut: number;
+  motif?: string;
+  octets?: Buffer;
+  mime?: string;
+}
+
+export async function octetsImageArtefact(
+  user: CurrentUser, sessionId: string, imageId: string,
+): Promise<ResultatImage> {
+  const { contexte } = await import("@/platform/in-process/artifact/office");
+  const r = await octetsImageDeSession(contexte(user), sessionId, imageId);
+  if (!r.ok) return { ok: false, statut: 404, motif: r.motif === "session" ? "session introuvable" : r.motif };
+  return { ok: true, statut: 200, octets: r.octets, mime: r.mime };
 }
