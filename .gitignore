@@ -63,6 +63,12 @@ e2e-screenshots/
 scripts/bench/tmp/
 .e2e-office.json
 
+# Le PASSE-PLAT du banc d'horizon long : la phase 1 y écrit l'identifiant de la mission et
+# l'état qu'elle a mesuré, la phase 2 le relit depuis un PROCESSUS NEUF. C'est un artefact de
+# mesure, propre à une machine et à un instant — le versionner ferait relire à la phase 2 la
+# mission de quelqu'un d'autre.
+.horizon-long.json
+
 # Sorties du crawler d'audit UI (rapport, captures, journal serveur) — regénérées à chaque passe
 ui-audit-out/
 
