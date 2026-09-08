@@ -164,6 +164,21 @@ export interface SheetCellNode {
   align: Alignment | null;
 }
 
+/**
+ * UNE IMAGE POSÉE SUR UNE FEUILLE. Excel ne met jamais l'image DANS la feuille : il l'accroche
+ * à une cellule par une partie « dessin » à côté. `anchorRef` est cette cellule, en notation
+ * humaine — c'est par elle que la personne en parle (« le logo en B2 »).
+ */
+export interface SheetImageNode {
+  id: string;
+  index: number;
+  name: string;
+  anchorRef: string | null;
+  widthCm: number;
+  heightCm: number;
+  description: string | null;
+}
+
 export interface SheetNode {
   id: string;
   index: number;
@@ -175,6 +190,7 @@ export interface SheetNode {
   frozenRows: number;
   frozenCols: number;
   merges: string[];
+  images: SheetImageNode[];
 }
 
 export interface XlsxModel {

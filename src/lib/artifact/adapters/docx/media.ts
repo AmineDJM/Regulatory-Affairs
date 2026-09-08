@@ -24,7 +24,7 @@
 import type PizZip from "pizzip";
 import type { XmlNode } from "@/lib/artifact/object-model/xml";
 import {
-  attr, children, element, insertAfter, parseXml, serializeXml, setAttr,
+  attr, children, descendants, element, insertAfter, parseXml, serializeXml, setAttr,
 } from "@/lib/artifact/object-model/xml";
 import { cmEnEmu } from "@/lib/artifact/object-model/model";
 import type { ImageLue } from "@/lib/artifact/object-model/image";
@@ -228,4 +228,30 @@ export function repointerImage(noeud: XmlNode, rId: string): boolean {
   if (blips.length === 0) return false;
   for (const b of blips) setAttr(b, "r:embed", rId);
   return true;
+}
+
+/**
+ * LES OCTETS D'UNE IMAGE DÉJÀ DANS LE DOCUMENT — pour la LIRE (§104.9 : lire, pas comprendre).
+ *
+ * On remonte la chaîne exacte que Word suit : `a:blip/@r:embed` → la relation de ce rId → la
+ * partie du zip. Deviner « word/media/image1.png » depuis le rang de l'image marcherait sur un
+ * document simple et rendrait la MAUVAISE image dès qu'un média a été remplacé — l'ordre des
+ * parties ne suit pas l'ordre d'apparition.
+ */
+export function octetsDeLImage(zip: PizZip, noeud: XmlNode): { octets: Buffer; nom: string } | null {
+  const blip = descendants(noeud, "a:blip")[0] ?? null;
+  const rId = blip ? attr(blip, "r:embed") ?? attr(blip, "r:link") : null;
+  if (!rId) return null;
+  const racine = racineDe(partiesRels(zip), "Relationships");
+  if (!racine) return null;
+  for (const r of children(racine, "Relationship")) {
+    if (attr(r, "Id") !== rId) continue;
+    const cible = (attr(r, "Target") ?? "").replace(/^\//, "");
+    // `media/image3.png` est relatif à `word/` — le dossier de `document.xml`, pas de `_rels/`.
+    const chemin = cible.startsWith("word/") ? cible : `word/${cible.replace(/^\.\.\//, "")}`;
+    const f = zip.file(chemin);
+    if (!f) return null;
+    return { octets: Buffer.from(f.asUint8Array()), nom: chemin.slice(chemin.lastIndexOf("/") + 1) };
+  }
+  return null;
 }

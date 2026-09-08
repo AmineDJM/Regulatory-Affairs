@@ -18,7 +18,11 @@
  *   4. la police qui n'est plus écrite ;
  *   5. la sauvegarde qui n'écrit pas de version ;
  *   6. un identifiant de session régénéré à chaque tour ;
- *   7. l'idempotence vérifiée APRÈS application (le vrai défaut trouvé en construisant).
+ *   7. l'idempotence vérifiée APRÈS application (le vrai défaut trouvé en construisant) ;
+ *   8. la relation d'image jamais déclarée — Word annonce un document endommagé ;
+ *   9. la relation d'image écrite dans les rels d'une AUTRE diapositive — cadre vide ;
+ *  10. `<drawing>` ajouté à la fin d'une feuille Excel — le tableau structuré disparaît ;
+ *  11. une seconde partie dessin par image — la précédente disparaît, sans erreur.
  *
  * ── COMMENT LE LIRE ─────────────────────────────────────────────────────────────────────
  *
@@ -117,6 +121,38 @@ const SABOTAGES: Sabotage[] = [
     cherche: "export function serializeXml(node: XmlNode): string {\n  if (node.raw !== null) return node.raw;",
     remplace: "export function serializeXml(node: XmlNode): string {\n  if (node.raw !== null && node.type !== \"element\") return node.raw;",
     tests: ["src/lib/artifact/adapters/fidelity.test.ts"],
+  },
+  {
+    nom: "Word — la relation d'image n'est jamais déclarée",
+    defaut: "les octets sont dans le zip, le paragraphe pointe un rId qui n'existe pas : Word dit « document endommagé »",
+    fichier: "src/lib/artifact/adapters/docx/media.ts",
+    cherche: "  zip.file(RELS, serializeXml(doc));\n  return { rId, cible: `media/${nom}` };",
+    remplace: "  return { rId, cible: `media/${nom}` };",
+    tests: ["src/lib/artifact/adapters/docx/image.test.ts"],
+  },
+  {
+    nom: "PowerPoint — la relation atterrit dans les rels de la PREMIÈRE diapositive",
+    defaut: "l'image est posée sur la diapo 3 mais sa relation est écrite pour la 1 : cadre VIDE, découvert en présentant",
+    fichier: "src/lib/artifact/adapters/pptx/media.ts",
+    cherche: "  const chemin = cheminRels(cheminDiapo);",
+    remplace: '  const chemin = cheminRels("ppt/slides/slide1.xml");',
+    tests: ["src/lib/artifact/adapters/pptx/image.test.ts"],
+  },
+  {
+    nom: "Excel — `<drawing>` ajouté à la FIN de la feuille",
+    defaut: "le schéma veut `tableParts` après : Excel « répare » le classeur et perd le tableau structuré",
+    fichier: "src/lib/artifact/adapters/xlsx/media.ts",
+    cherche: "    const apres = ws.children.find((k) => k.type === \"element\" && APRES_DRAWING.includes(k.name));\n    if (apres) insertBefore(ws, apres, balise);\n    else insertAfter(ws, ws.children[ws.children.length - 1] ?? null, balise);",
+    remplace: "    insertAfter(ws, ws.children[ws.children.length - 1] ?? null, balise);",
+    tests: ["src/lib/artifact/adapters/xlsx/image.test.ts"],
+  },
+  {
+    nom: "Excel — une seconde partie dessin à chaque image",
+    defaut: "une feuille ne renvoie qu'à UN dessin : la seconde image fait disparaître la première, sans erreur ni trace",
+    fichier: "src/lib/artifact/adapters/xlsx/media.ts",
+    cherche: "  const existant = dessinDeLaFeuille(zip, cheminFeuille, ws);\n  const cheminDessin = existant ?? prochainDessin(zip);",
+    remplace: "  const existant: string | null = null;\n  const cheminDessin = prochainDessin(zip);",
+    tests: ["src/lib/artifact/adapters/xlsx/image.test.ts"],
   },
 ];
 

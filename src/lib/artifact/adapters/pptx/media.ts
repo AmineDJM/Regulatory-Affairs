@@ -149,3 +149,29 @@ export function repointerImageDiapo(sp: XmlNode, rId: string): boolean {
   for (const b of blips) setAttr(b, "r:embed", rId);
   return true;
 }
+
+/**
+ * LES OCTETS D'UNE IMAGE D'UNE DIAPOSITIVE — même chaîne que Word, mais les relations de CETTE
+ * diapositive. Chercher dans un autre fichier de relations rendrait l'image d'une autre page,
+ * et rien ne le signalerait : le rId `rId2` existe sur presque toutes les diapositives.
+ */
+export function octetsDeLImageDiapo(
+  zip: PizZip, cheminDiapo: string, sp: XmlNode,
+): { octets: Buffer; nom: string } | null {
+  const blip = descendants(sp, "a:blip")[0] ?? null;
+  const rId = blip ? attr(blip, "r:embed") ?? attr(blip, "r:link") : null;
+  if (!rId) return null;
+  const f = zip.file(cheminRels(cheminDiapo));
+  if (!f) return null;
+  const racine = racineDe(parseXml(f.asText()), "Relationships");
+  if (!racine) return null;
+  for (const r of children(racine, "Relationship")) {
+    if (attr(r, "Id") !== rId) continue;
+    const cible = (attr(r, "Target") ?? "").replace(/^\//, "");
+    const chemin = cible.startsWith("ppt/") ? cible : `ppt/${cible.replace(/^\.\.\//, "")}`;
+    const p = zip.file(chemin);
+    if (!p) return null;
+    return { octets: Buffer.from(p.asUint8Array()), nom: chemin.slice(chemin.lastIndexOf("/") + 1) };
+  }
+  return null;
+}

@@ -145,6 +145,26 @@ export async function xlsxVentes(): Promise<Buffer> {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
+/**
+ * UN CLASSEUR AVEC UN TABLEAU STRUCTURÉ — la forme qui piège l'insertion d'image.
+ *
+ * ExcelJS écrit `<tableParts>` en DERNIER dans la feuille, comme le veut le schéma. Une balise
+ * `<drawing>` ajoutée « à la fin » atterrirait donc APRÈS, et Excel « réparerait » le classeur
+ * à l'ouverture en perdant le tableau. Aucun classeur sans tableau ne peut révéler ce défaut.
+ */
+export async function xlsxAvecTableau(): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Suivi");
+  ws.addTable({
+    name: "Dossiers",
+    ref: "A1",
+    headerRow: true,
+    columns: [{ name: "Dossier" }, { name: "Statut" }],
+    rows: [["Nivolex", "En cours"], ["Trastuzex", "Déposé"], ["Pembrolex", "À déposer"]],
+  });
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
 /** Une présentation réelle, avec masque, titre et corps sur chaque diapositive. */
 export async function pptxDiapos(n = 4): Promise<Buffer> {
   const { default: pptxgen } = await import("pptxgenjs");

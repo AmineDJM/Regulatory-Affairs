@@ -123,6 +123,12 @@ export const OFFICE_TOOLS: PowerTool[] = [
         + "IMAGES (PowerPoint) : `pptx.inserer_image` et `pptx.remplacer_image`, avec `diapo` "
         + "OBLIGATOIRE (1 = la première). Sans position, l'image est centrée et bornée à la "
         + "diapositive. Remplacer garde la place et la taille de l'image visée. "
+        + "IMAGES (Excel) : `xlsx.inserer_image`, `xlsx.remplacer_image`, `xlsx.supprimer_image`. "
+        + "Une image de classeur s'accroche à une CELLULE : mets-la dans `plage` (« B2 »), "
+        + "A1 par défaut ; `feuille` désigne la feuille, la première sinon. Sans taille, l'image "
+        + "est bornée à la zone d'impression déclarée par le classeur — au-delà, elle sort de la "
+        + "page à l'impression. Pour remplacer ou supprimer, `cible` désigne l'image par son rang, "
+        + "son nom ou la cellule où elle est (« l'image en B2 »). "
         + "N'ENREGISTRE PAS : la modification est visible tout de suite, mais elle ne part au Drive que "
         + "sur `artifact_save`.",
       input_schema: {

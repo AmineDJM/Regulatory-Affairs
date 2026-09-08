@@ -62,6 +62,31 @@ export interface RessourceBinaire {
 }
 
 /**
+ * DES OCTETS D'IMAGE SORTIS DU DOCUMENT — pour la LIRE, jamais pour la modifier.
+ *
+ * Un contrat scanné, un tampon, un graphique collé dans un deck, une photo d'étiquette : le
+ * document PORTE l'information et le texte du fichier n'en dit rien. L'adaptateur sait où sont
+ * les octets ; il ne sait pas les lire — c'est le port de vision qui le fait, et lui seul
+ * (§104.9 : `artifact/` ne connaît ni modèle, ni OCR, ni réseau).
+ */
+export interface ImageExtraite {
+  octets: Buffer;
+  /** Le nom de la partie ou du fichier — sert à deviner le type, jamais à l'affirmer. */
+  nom: string;
+  /** Le texte alternatif que l'auteur a mis, quand il y en a un : une lecture DÉJÀ humaine. */
+  description: string | null;
+  /** Où elle se trouve, en clair : « page 2 », « diapositive 3 », « feuille Ventes, B2 ». */
+  ou: string;
+}
+
+export type ExtractionImage =
+  | { ok: true; image: ImageExtraite }
+  | { ok: false; motif: string; candidats: { id: string; libelle: string }[] };
+
+export const extractionEchec = (motif: string, candidats: { id: string; libelle: string }[] = []): ExtractionImage =>
+  ({ ok: false, motif, candidats });
+
+/**
  * UN DOCUMENT OUVERT. L'état vit ici, pas dans le runtime : c'est l'adaptateur qui sait ce qu'il
  * doit garder en mémoire entre deux commandes (un arbre XML, un classeur ExcelJS, un PDF mupdf).
  */
@@ -80,6 +105,15 @@ export interface DocumentOuvert {
   modele(): ArtifactModel;
   /** Applique UNE commande. L'adaptateur ne connaît ni les sessions, ni l'annulation. */
   appliquer(c: CommandeArtefact): EffetCommande;
+  /**
+   * SORT les octets d'une image du document, désignée comme n'importe quel objet (§104.7 :
+   * une cible ambiguë rend des candidats, jamais « la première des quatre »).
+   *
+   * Facultatif, et ce n'est pas une commodité : un format qui n'a pas d'images incorporées
+   * n'en implémente pas, et le moteur DIT alors précisément ce qui manque plutôt que de laisser
+   * croire que la lecture a eu lieu (§34 : une limitation se nomme, jamais « pas codé »).
+   */
+  extraireImage?(c: CommandeArtefact): Promise<ExtractionImage>;
   /** Rend les octets du document dans son format d'origine. */
   serialiser(): Promise<Buffer>;
   /** Rouvre les octets produits pour vérifier qu'ils sont lisibles (§48, sauvegarde atomique). */

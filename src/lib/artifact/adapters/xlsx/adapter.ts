@@ -27,14 +27,25 @@
  */
 
 import PizZip from "pizzip";
-import type { Alignment, SheetCellNode, SheetNode, TextStyle, XlsxModel } from "@/lib/artifact/object-model/model";
+import type {
+  Alignment, SheetCellNode, SheetImageNode, SheetNode, TextStyle, XlsxModel,
+} from "@/lib/artifact/object-model/model";
 import {
   STYLE_NEUTRE, analyserPlage, cellulesDePlage, formerRef, analyserRef, nombreEnColonne,
 } from "@/lib/artifact/object-model/model";
 import { normaliserTexte } from "@/lib/artifact/object-model/text";
 import type { CommandeArtefact } from "@/lib/artifact/commands/ir";
-import type { AdaptateurArtefact, DocumentOuvert, EffetCommande, Validation } from "@/lib/artifact/adapters/contract";
-import { effetEchec, effetOk } from "@/lib/artifact/adapters/contract";
+import type {
+  AdaptateurArtefact, DocumentOuvert, EffetCommande, ExtractionImage, RessourceBinaire, Validation,
+} from "@/lib/artifact/adapters/contract";
+import { effetEchec, effetOk, extractionEchec } from "@/lib/artifact/adapters/contract";
+import { resoudre } from "@/lib/artifact/commands/resolve";
+import { lireImage, tailleInsertion } from "@/lib/artifact/object-model/image";
+import {
+  detacherDessinSiVide, enregistrerDessin, octetsDeLImageFeuille, ouvrirDessinFeuille,
+  poserImageFeuille, poserMediaDessin, redimensionnerImageFeuille, repointerImageFeuille,
+  retirerImageFeuille,
+} from "@/lib/artifact/adapters/xlsx/media";
 import type { XmlNode } from "@/lib/artifact/object-model/xml";
 import {
   attr, child, children, cloneNode, element, ensureChild, insertBefore, markDirty,
@@ -53,6 +64,8 @@ interface Feuille {
   nom: string;
   chemin: string;
   racine: XmlNode;
+  /** L'élément `worksheet` lui-même — c'est LUI qui porte `<drawing>`, pas la racine du document. */
+  ws: XmlNode;
   sheetData: XmlNode;
 }
 
@@ -157,6 +170,8 @@ function styleDeXf(st: StylesClasseur | null, idx: number): { style: TextStyle; 
 class XlsxOuvert implements DocumentOuvert {
   format = "XLSX" as const;
   private modeleCache: XlsxModel | null = null;
+  /** Les octets que le moteur a résolus pour le lot en cours (§104.9) — voir `contract.ts`. */
+  private ressources: ReadonlyMap<string, RessourceBinaire> = new Map();
 
   constructor(
     private zip: PizZip,
@@ -165,6 +180,10 @@ class XlsxOuvert implements DocumentOuvert {
     private chaines: string[],
     private styles: StylesClasseur | null,
   ) {}
+
+  fournirRessources(res: ReadonlyMap<string, RessourceBinaire>): void {
+    this.ressources = res;
+  }
 
   modele(): XlsxModel {
     if (this.modeleCache) return this.modeleCache;
@@ -212,8 +231,14 @@ class XlsxOuvert implements DocumentOuvert {
     const pane = sheetViews ? child(children(sheetViews, "sheetView")[0] ?? element("x"), "pane") : null;
     const merges = ws ? children(child(ws, "mergeCells") ?? element("x"), "mergeCell").map((m) => attr(m, "ref") ?? "").filter(Boolean) : [];
 
+    const images: SheetImageNode[] = (ouvrirDessinFeuille(this.zip, f.chemin, f.ws)?.images ?? [])
+      .map((i) => ({
+        id: `s${index}.img${i.index}`, index: i.index, name: i.nom, anchorRef: i.ancre,
+        widthCm: i.largeurCm, heightCm: i.hauteurCm, description: i.description,
+      }));
+
     return {
-      id: `s${index}`, index, name: f.nom, rows: maxRow, cols: maxCol, cells,
+      id: `s${index}`, index, name: f.nom, rows: maxRow, cols: maxCol, cells, images,
       columnWidths: largeurs,
       frozenRows: pane ? Number(attr(pane, "ySplit") ?? "0") || 0 : 0,
       frozenCols: pane ? Number(attr(pane, "xSplit") ?? "0") || 0 : 0,
@@ -256,6 +281,9 @@ class XlsxOuvert implements DocumentOuvert {
       case "xlsx.ajouter_feuille": return this.ajouterFeuille(c);
       case "xlsx.renommer_feuille": return this.renommerFeuille(f!, c);
       case "xlsx.supprimer_feuille": return this.supprimerFeuille(f!);
+      case "xlsx.inserer_image": return this.insererImage(f!, c);
+      case "xlsx.remplacer_image": return this.remplacerImage(f!, c);
+      case "xlsx.supprimer_image": return this.supprimerImage(f!, c);
       default: return effetEchec(`opération « ${c.op} » non gérée par l'adaptateur Excel`);
     }
   }
@@ -721,7 +749,7 @@ class XlsxOuvert implements DocumentOuvert {
     }
     const racine = parseXml(contenu);
     const ws = child(racine, "worksheet")!;
-    this.feuilles.push({ nom, chemin, racine, sheetData: child(ws, "sheetData")! });
+    this.feuilles.push({ nom, chemin, racine, ws, sheetData: child(ws, "sheetData")! });
     return effetOk(`Feuille « ${nom} » ajoutée.`, []);
   }
 
@@ -747,6 +775,192 @@ class XlsxOuvert implements DocumentOuvert {
     // On laisse le fichier de feuille dans le ZIP : le retirer casserait les identifiants de
     // relation des feuilles suivantes. Excel ignore une pièce qui n'est plus référencée.
     return effetOk(`Feuille « ${f.nom} » supprimée.`, []);
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * LES IMAGES D'UN CLASSEUR — « mets le logo Adventum en B2 de la feuille Synthèse ».
+   *
+   * ── LA LARGEUR SUR LAQUELLE ON BORNE, ET POURQUOI CELLE-LÀ ────────────────────────────
+   *
+   * Une feuille n'a pas de bord : elle s'étend indéfiniment vers la droite, donc une image
+   * large n'y est jamais « coupée » à l'écran. Mais un classeur S'IMPRIME, et là il y a un
+   * bord — la zone d'impression, que le fichier DÉCLARE (`pageSetup`, `pageMargins`). C'est
+   * sur elle qu'on borne une image dont personne n'a donné la taille : au-delà, l'image sort
+   * de la page à l'impression, et cela ne se découvre qu'une fois le classeur imprimé.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  private largeurImprimableCm(f: Feuille): number {
+    // Formats de papier OOXML, en centimètres, portrait. Ce qu'on ne connaît pas retombe sur A4 :
+    // c'est le papier du pays, et se tromper de format ne fait que borner un peu plus ou un peu moins.
+    const PAPIERS: Record<number, [number, number]> = {
+      1: [21.59, 27.94], // Letter
+      5: [21.59, 35.56], // Legal
+      8: [29.7, 42.0], // A3
+      9: [21.0, 29.7], // A4
+      11: [14.8, 21.0], // A5
+    };
+    const setup = child(f.ws, "pageSetup");
+    const marges = child(f.ws, "pageMargins");
+    const papier = PAPIERS[Number(setup ? attr(setup, "paperSize") : NaN)] ?? PAPIERS[9];
+    const paysage = (setup ? attr(setup, "orientation") : null) === "landscape";
+    const largeurPapier = paysage ? papier[1] : papier[0];
+    // Les marges sont en POUCES dans OOXML ; la valeur par défaut d'Excel est 0,7 pouce.
+    const pouce = 2.54;
+    const gauche = Number(marges ? attr(marges, "left") : NaN);
+    const droite = Number(marges ? attr(marges, "right") : NaN);
+    const perdu = ((Number.isFinite(gauche) ? gauche : 0.7) + (Number.isFinite(droite) ? droite : 0.7)) * pouce;
+    return Math.max(2, largeurPapier - perdu);
+  }
+
+  /** La cellule d'ancrage demandée — « B2 », ou ligne + colonne, ou A1 par défaut. */
+  private ancrage(c: CommandeArtefact): { ligne: number; colonne: number } {
+    const p = c.plage ? analyserPlage(c.plage) : null;
+    if (p) return { ligne: p.from.row, colonne: p.from.col };
+    return { ligne: c.ligne ?? 1, colonne: c.colonne ?? 1 };
+  }
+
+  /**
+   * DÉSIGNER une image d'une feuille. Le texte cherché réunit le NOM, la DESCRIPTION et la
+   * CELLULE : la personne dit « le logo », « la photo du produit » ou « l'image en B2 », et les
+   * trois doivent atteindre le même objet.
+   */
+  private ciblerImage(f: Feuille, c: CommandeArtefact) {
+    const dessin = ouvrirDessinFeuille(this.zip, f.chemin, f.ws);
+    if (!dessin || dessin.images.length === 0) {
+      return { ok: false as const, echec: effetEchec(`la feuille « ${f.nom} » ne contient aucune image`) };
+    }
+    const designables = dessin.images.map((i) => ({
+      id: `${f.nom}.img${i.index}`, index: i.index,
+      texte: [i.nom, i.description ?? "", i.ancre ?? ""].join(" ").trim(),
+      image: i,
+    }));
+    const r = resoudre(c.cible, designables, { libelle: "image" });
+    if (r.etat === "TROUVE") return { ok: true as const, dessin, i: r.objet.image, id: r.objet.id };
+    const candidats = r.etat === "AMBIGU"
+      ? r.candidats.map((x) => ({
+        id: x.id,
+        libelle: x.image.ancre ? `${x.image.nom} (${x.image.ancre})` : x.image.nom,
+      }))
+      : [];
+    return { ok: false as const, echec: effetEchec(r.motif, candidats) };
+  }
+
+  private insererImage(f: Feuille, c: CommandeArtefact): EffetCommande {
+    const ref = c.imageSource ?? "";
+    const res = this.ressources.get(ref);
+    if (!res) {
+      return effetEchec(`le fichier source « ${ref} » n'a pas pu être lu (introuvable, ou vous n'y avez pas accès)`);
+    }
+    const img = lireImage(res.octets);
+    if (!img) {
+      return effetEchec(
+        `« ${res.nom} » n'est pas une image qu'Excel sache afficher `
+        + "(formats acceptés : PNG, JPEG, GIF, BMP, TIFF, WEBP)",
+      );
+    }
+    const a = this.ancrage(c);
+    const taille = tailleInsertion(img, { largeurCm: c.largeurCm, hauteurCm: c.hauteurCm }, this.largeurImprimableCm(f));
+
+    let pose;
+    try {
+      pose = poserImageFeuille(this.zip, f.chemin, f.ws, res.octets, img, {
+        ligne: a.ligne, colonne: a.colonne,
+        largeurCm: taille.largeurCm, hauteurCm: taille.hauteurCm,
+        nom: res.nom, alt: c.imageAlt ?? null,
+      });
+    } catch (e) {
+      return effetEchec(`l'image n'a pas pu être rangée dans le classeur : ${(e as Error).message}`);
+    }
+    return effetOk(
+      `Image « ${res.nom} » posée en ${formerRef(a.ligne, a.colonne)} de ${f.nom}, `
+      + `${taille.largeurCm.toFixed(1)} × ${taille.hauteurCm.toFixed(1)} cm.`,
+      [`${f.nom}.img${pose.ancrages}`],
+    );
+  }
+
+  private remplacerImage(f: Feuille, c: CommandeArtefact): EffetCommande {
+    const ref = c.imageSource ?? "";
+    const res = this.ressources.get(ref);
+    if (!res) return effetEchec(`le fichier source « ${ref} » n'a pas pu être lu (introuvable, ou vous n'y avez pas accès)`);
+    const img = lireImage(res.octets);
+    if (!img) return effetEchec(`« ${res.nom} » n'est pas une image qu'Excel sache afficher`);
+
+    const t = this.ciblerImage(f, c);
+    if (!t.ok) return t.echec;
+
+    let pose;
+    try {
+      pose = poserMediaDessin(this.zip, t.dessin.chemin, res.octets, img);
+    } catch (e) {
+      return effetEchec(`l'image n'a pas pu être rangée dans le classeur : ${(e as Error).message}`);
+    }
+    if (!repointerImageFeuille(t.i.pic, pose.rId)) {
+      return effetEchec("cet objet n'est pas une image incorporée (c'est peut-être une forme ou un graphique)");
+    }
+
+    // MÊME RÈGLE QUE WORD : la taille ne bouge pas sans demande, et une déformation s'ANNONCE
+    // plutôt que de se corriger dans le dos de la personne.
+    const rapportAvant = t.i.hauteurCm > 0 ? t.i.largeurCm / t.i.hauteurCm : null;
+    const rapportApres = img.largeurPx / img.hauteurPx;
+    const deforme = rapportAvant !== null && Math.abs(rapportAvant - rapportApres) / rapportApres > 0.02;
+
+    if (c.largeurCm !== null || c.hauteurCm !== null) {
+      const taille = tailleInsertion(img, { largeurCm: c.largeurCm, hauteurCm: c.hauteurCm }, this.largeurImprimableCm(f));
+      redimensionnerImageFeuille(t.i, taille.largeurCm, taille.hauteurCm);
+      enregistrerDessin(this.zip, t.dessin);
+      return effetOk(
+        `Image ${t.i.index} de ${f.nom} remplacée par « ${res.nom} », `
+        + `${taille.largeurCm.toFixed(1)} × ${taille.hauteurCm.toFixed(1)} cm.`,
+        [t.id],
+      );
+    }
+    enregistrerDessin(this.zip, t.dessin);
+    return effetOk(
+      `Image ${t.i.index} de ${f.nom} remplacée par « ${res.nom} », même cellule et même taille.`
+      + (deforme ? " Attention : la nouvelle image n'a pas les mêmes proportions — elle sera étirée tant qu'on ne redonne pas de taille." : ""),
+      [t.id],
+    );
+  }
+
+  private supprimerImage(f: Feuille, c: CommandeArtefact): EffetCommande {
+    const t = this.ciblerImage(f, c);
+    if (!t.ok) return t.echec;
+    if (!retirerImageFeuille(t.dessin, t.i)) return effetEchec("cette image est détachée du dessin de la feuille");
+    t.dessin.images = t.dessin.images.filter((x) => x !== t.i);
+    enregistrerDessin(this.zip, t.dessin);
+    detacherDessinSiVide(this.zip, f.chemin, f.ws, t.dessin);
+    const ou = t.i.ancre ? ` (${t.i.ancre})` : "";
+    return effetOk(`Image ${t.i.index}${ou} supprimée de ${f.nom}.`, []);
+  }
+
+  /**
+   * SORT LES OCTETS d'une image d'une feuille — pour la lire. Le tampon d'un bon de commande
+   * scanné collé dans un onglet, le graphique exporté d'un autre outil : le classeur PORTE
+   * l'information, et aucune cellule n'en dit rien.
+   */
+  async extraireImage(c: CommandeArtefact): Promise<ExtractionImage> {
+    const f = this.feuille(c.feuille);
+    if (!f) {
+      return extractionEchec(c.feuille ? `ce classeur n'a pas de feuille « ${c.feuille} »` : "ce classeur n'aucune feuille");
+    }
+    const t = this.ciblerImage(f, c);
+    if (!t.ok) return extractionEchec(t.echec.motif ?? "image introuvable", t.echec.candidats);
+    const oct = octetsDeLImageFeuille(this.zip, t.dessin.chemin, t.i.pic);
+    if (!oct) {
+      return extractionEchec(
+        "cette image n'est pas incorporée dans le classeur (elle est liée à un fichier extérieur) : il n'y a pas d'octets à lire ici",
+      );
+    }
+    return {
+      ok: true,
+      image: {
+        octets: oct.octets,
+        nom: oct.nom,
+        description: t.i.description,
+        ou: t.i.ancre ? `feuille ${f.nom}, image en ${t.i.ancre}` : `feuille ${f.nom}, image ${t.i.index}`,
+      },
+    };
   }
 
   async serialiser(): Promise<Buffer> {
@@ -836,7 +1050,7 @@ export const adaptateurXlsx: AdaptateurArtefact = {
       if (!ws) continue;
       // Une feuille vide peut n'avoir aucun `sheetData` : on le crée pour pouvoir y écrire.
       const sheetData = child(ws, "sheetData") ?? ensureChild(ws, "sheetData", ["sheetPr", "dimension", "sheetViews", "sheetFormatPr", "cols"]);
-      feuilles.push({ nom, chemin, racine, sheetData });
+      feuilles.push({ nom, chemin, racine, ws, sheetData });
     }
     if (feuilles.length === 0) throw new Error("Aucune feuille lisible dans ce classeur.");
     return new XlsxOuvert(zip, workbook, feuilles, lireChainesPartagees(zip), lireStyles(zip));

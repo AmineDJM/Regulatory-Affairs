@@ -138,7 +138,7 @@ describe("Excel", () => {
     kind: "XLSX",
     sheets: [{
       id: "s1", index: 1, name: "Ventes", rows: 5, cols: 3, columnWidths: [],
-      frozenRows: 0, frozenCols: 0, merges: [],
+      frozenRows: 0, frozenCols: 0, merges: [], images: [],
       cells: cellules.map((c) => ({
         id: `s1.${c.ref}`, ref: c.ref, row: 1, col: 1, value: c.value,
         formula: c.formula ?? null, numFmt: null, style: { ...STYLE_NEUTRE }, fill: null, align: null,

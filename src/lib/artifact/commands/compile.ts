@@ -225,6 +225,22 @@ export function verifierCommande(c: CommandeArtefact, format: ArtifactFormat): s
     case "xlsx.supprimer_feuille":
       if (!c.feuille) return "il faut dire quelle feuille supprimer";
       return null;
+    case "xlsx.inserer_image":
+      // LA CELLULE est facultative — « mets le logo dans la feuille Ventes » se pose en A1, qui
+      // est le coin que tout le monde regarde. Ce qui n'est PAS facultatif, c'est la source :
+      // sans elle, il n'y a rien à poser.
+      if (!c.imageSource) return "il faut dire QUELLE image insérer (le fichier source)";
+      if (c.plage && !analyserPlage(c.plage)) return "la cellule d'ancrage doit être une référence valide (par exemple B2)";
+      if (c.largeurCm !== null && c.largeurCm <= 0) return "la largeur doit être positive";
+      if (c.hauteurCm !== null && c.hauteurCm <= 0) return "la hauteur doit être positive";
+      return null;
+    case "xlsx.remplacer_image":
+      if (cibleVide(c.cible)) return "il faut dire QUELLE image remplacer (son rang, son nom, ou la cellule où elle est)";
+      if (!c.imageSource) return "il faut dire par quelle image la remplacer (le fichier source)";
+      return null;
+    case "xlsx.supprimer_image":
+      if (cibleVide(c.cible)) return "il faut dire QUELLE image supprimer (son rang, son nom, ou la cellule où elle est)";
+      return null;
 
     // ── PPTX ────────────────────────────────────────────────────────────────────────────
     case "pptx.texte":

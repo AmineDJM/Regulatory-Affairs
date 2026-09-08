@@ -33,11 +33,13 @@ import { abreger, normaliserTexte } from "@/lib/artifact/object-model/text";
 import { cibleVide, type CommandeArtefact } from "@/lib/artifact/commands/ir";
 import { resoudre } from "@/lib/artifact/commands/resolve";
 import type {
-  AdaptateurArtefact, DocumentOuvert, EffetCommande, RessourceBinaire, Validation,
+  AdaptateurArtefact, DocumentOuvert, EffetCommande, ExtractionImage, RessourceBinaire, Validation,
 } from "@/lib/artifact/adapters/contract";
 import { lireImage, tailleInsertion } from "@/lib/artifact/object-model/image";
-import { assurerNamespacesDessin, paragrapheImage, poserMedia, repointerImage } from "@/lib/artifact/adapters/docx/media";
-import { effetEchec, effetOk } from "@/lib/artifact/adapters/contract";
+import {
+  assurerNamespacesDessin, octetsDeLImage, paragrapheImage, poserMedia, repointerImage,
+} from "@/lib/artifact/adapters/docx/media";
+import { effetEchec, effetOk, extractionEchec } from "@/lib/artifact/adapters/contract";
 import type { XmlNode } from "@/lib/artifact/object-model/xml";
 import {
   attr, child, children, cloneNode, descendants, element, ensureChild, firstDescendant,
@@ -785,6 +787,35 @@ class DocxOuvert implements DocumentOuvert {
     if (r.etat === "TROUVE") return { ok: true as const, i: r.objet };
     const candidats = r.etat === "AMBIGU" ? r.candidats.map((x) => ({ id: x.id, libelle: `image ${x.index}` })) : [];
     return { ok: false as const, echec: effetEchec(r.motif, candidats) };
+  }
+
+  /**
+   * SORT LES OCTETS d'une image du document — pour la lire, pas pour la changer.
+   *
+   * On passe par le MÊME ciblage que les commandes : « la deuxième image », « celle de la
+   * page 4 », « celle qui parle du tampon ». Un ciblage séparé finirait par diverger, et
+   * « remplace la 2ᵉ image » ne toucherait plus la même que « lis la 2ᵉ image ».
+   */
+  async extraireImage(c: CommandeArtefact): Promise<ExtractionImage> {
+    const t = this.ciblerImage(c);
+    if (!t.ok) return extractionEchec(t.echec.motif ?? "image introuvable", t.echec.candidats);
+    const oct = octetsDeLImage(this.etat.zip, t.i.noeud);
+    if (!oct) {
+      // LIÉE, PAS INCORPORÉE : Word sait afficher une image qui vit sur un disque réseau. Le
+      // fichier ne la contient PAS — le dire, plutôt que de rendre une lecture vide.
+      return extractionEchec(
+        `l'image ${t.i.index} n'est pas incorporée dans le document (elle est liée à un fichier extérieur) : il n'y a pas d'octets à lire ici`,
+      );
+    }
+    return {
+      ok: true,
+      image: {
+        octets: oct.octets,
+        nom: oct.nom,
+        description: t.i.modele.description,
+        ou: `image ${t.i.index} du document`,
+      },
+    };
   }
 
   private imageTaille(c: CommandeArtefact): EffetCommande {

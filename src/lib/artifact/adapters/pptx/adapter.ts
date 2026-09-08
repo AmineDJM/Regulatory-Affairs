@@ -27,13 +27,13 @@ import { abreger } from "@/lib/artifact/object-model/text";
 import type { CommandeArtefact } from "@/lib/artifact/commands/ir";
 import { resoudre } from "@/lib/artifact/commands/resolve";
 import type {
-  AdaptateurArtefact, DocumentOuvert, EffetCommande, RessourceBinaire, Validation,
+  AdaptateurArtefact, DocumentOuvert, EffetCommande, ExtractionImage, RessourceBinaire, Validation,
 } from "@/lib/artifact/adapters/contract";
 import { lireImage, tailleInsertion } from "@/lib/artifact/object-model/image";
 import {
-  assurerNamespacesDiapo, formeImage, poserMediaDiapo, prochainIdForme, repointerImageDiapo,
+  assurerNamespacesDiapo, formeImage, poserMediaDiapo, prochainIdForme, repointerImageDiapo, octetsDeLImageDiapo,
 } from "@/lib/artifact/adapters/pptx/media";
-import { effetEchec, effetOk } from "@/lib/artifact/adapters/contract";
+import { effetEchec, effetOk, extractionEchec } from "@/lib/artifact/adapters/contract";
 import type { XmlNode } from "@/lib/artifact/object-model/xml";
 import {
   attr, child, children, cloneNode, descendants, element, ensureChild, firstDescendant,
@@ -53,6 +53,18 @@ interface Diapo {
   racine: XmlNode;
   /** L'arbre des formes (`p:spTree`) — tout ce qui est visible en descend. */
   spTree: XmlNode;
+}
+
+/** Comment NOMMER un rôle dans un refus — « ce n'est pas une image, c'est un graphique ». */
+const LIBELLE_ROLE: Record<string, string> = {
+  text: "une zone de texte", table: "un tableau", chart: "un graphique", other: "un autre objet",
+};
+
+/** Le texte alternatif d'une forme, quand l'auteur en a mis un — une lecture DÉJÀ humaine. */
+function descriptionDeForme(sp: XmlNode): string | null {
+  const nv = firstDescendant(sp, "p:cNvPr");
+  const d = nv ? attr(nv, "descr") : null;
+  return d && d.trim() ? d : null;
 }
 
 /** Le rôle d'une forme, tel qu'un humain le nommerait. */
@@ -194,6 +206,41 @@ class PptxOuvert implements DocumentOuvert {
   }
 
   /** Résout une forme sur la diapositive visée. */
+  /**
+   * SORT LES OCTETS d'une image d'une diapositive — même ciblage que les commandes (§104.7).
+   *
+   * Le rôle est vérifié AVANT d'aller chercher les octets : un graphique et un tableau sont des
+   * formes comme les autres, et « lis le graphique de la diapo 3 » désigne souvent un objet qui
+   * n'est PAS une image. Rendre « rien lu » pour un cadre de graphique enverrait chercher un
+   * défaut d'OCR là où il n'y a simplement pas de pixels.
+   */
+  async extraireImage(c: CommandeArtefact): Promise<ExtractionImage> {
+    const t = this.ciblerForme(c);
+    if (!t.ok) return extractionEchec(t.echec.motif ?? "forme introuvable", t.echec.candidats);
+    const role = t.forme.modele?.role;
+    if (role && role !== "picture") {
+      return extractionEchec(
+        `« ${t.forme.modele?.name ?? "cette forme"} » n'est pas une image mais ${LIBELLE_ROLE[role] ?? "un autre objet"} : `
+        + "il n'y a pas d'image à lire ici",
+      );
+    }
+    const oct = octetsDeLImageDiapo(this.zip, t.d.chemin, t.forme.noeud);
+    if (!oct) {
+      return extractionEchec(
+        "cette image n'est pas incorporée dans la présentation (elle est liée à un fichier extérieur) : il n'y a pas d'octets à lire ici",
+      );
+    }
+    return {
+      ok: true,
+      image: {
+        octets: oct.octets,
+        nom: oct.nom,
+        description: descriptionDeForme(t.forme.noeud),
+        ou: `diapositive ${c.diapo ?? 1}, forme ${t.forme.index}`,
+      },
+    };
+  }
+
   private ciblerForme(c: CommandeArtefact) {
     const i = (c.diapo ?? 1) - 1;
     const d = this.diapos[i];

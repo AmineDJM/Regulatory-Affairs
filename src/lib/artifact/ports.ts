@@ -68,7 +68,34 @@ export interface PortAudit {
   }): Promise<void>;
 }
 
+/**
+ * CE QU'UNE IMAGE PORTE, une fois lue. Le TEXTE et la NOTE voyagent ensemble, toujours : ce qui
+ * vient d'un OCR ou d'un modèle n'est jamais un fait vérifié, et une lecture livrée sans sa
+ * méthode ni sa confiance sera citée comme une certitude (§29, calibration).
+ */
+export interface LectureImage {
+  texte: string;
+  /** Méthode, confiance, durée — la phrase qui accompagne le texte jusqu'au modèle. */
+  note: string | null;
+}
+
+/**
+ * LA LECTURE D'UNE IMAGE. `artifact/` sort les octets ; il ne sait pas ce qu'ils montrent.
+ *
+ * Ce port existe pour que le domaine n'importe NI l'OCR, NI le modèle vision, NI le réseau —
+ * exactement la raison qui a fait sortir le Drive du domaine. Le composeur le remplit avec le
+ * repli multimodal DÉJÀ en place (§38 : parser → OCR ciblé → modèle rapide), qu'on ne récrit pas.
+ */
+export interface PortVision {
+  lire(userId: string, octets: Buffer, nom: string): Promise<LectureImage>;
+}
+
 export interface PortsArtefact {
   documents: PortDocuments;
   audit: PortAudit;
+  /**
+   * Facultatif : un composeur qui ne branche pas la vision fait dire au moteur que la lecture
+   * d'image n'est pas disponible ICI — pas qu'elle a échoué, et surtout pas qu'elle a réussi.
+   */
+  vision?: PortVision;
 }

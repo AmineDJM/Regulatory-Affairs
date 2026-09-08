@@ -124,6 +124,14 @@ export const OPS_XLSX = [
   "xlsx.ajouter_feuille",
   "xlsx.renommer_feuille",
   "xlsx.supprimer_feuille",
+  /**
+   * Poser une image sur une feuille, remplacer celle qui y est, la retirer. `plage` porte la
+   * CELLULE d'ancrage (« B2 ») : dans un classeur, une image se pose sur une cellule, pas à un
+   * rang de paragraphe.
+   */
+  "xlsx.inserer_image",
+  "xlsx.remplacer_image",
+  "xlsx.supprimer_image",
 ] as const;
 
 export const OPS_PPTX = [

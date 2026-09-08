@@ -16,7 +16,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import PizZip from "pizzip";
-import { docxDeParagraphes, pngUni } from "@/lib/artifact/adapters/fixtures";
+import { docxDeParagraphes, pngUni, xlsxAvecTableau } from "@/lib/artifact/adapters/fixtures";
 import { cibleIndex, commande } from "@/lib/artifact/commands/ir";
 import type { DocxModel } from "@/lib/artifact/object-model/model";
 import {
@@ -177,5 +177,98 @@ describe("le journal, le rejeu et l'annulation", () => {
     expect(imagesDuFichier(enregistre)).toHaveLength(0);
     const zip = new PizZip(enregistre);
     expect(zip.file("word/document.xml")!.asText()).not.toContain("<w:drawing>");
+  });
+});
+
+describe("le même chemin, sur un CLASSEUR", () => {
+  /**
+   * CE QUE CE BLOC AJOUTE À `xlsx/image.test.ts` : celui-là part d'un adaptateur et de
+   * ressources posées à la main. Ici on part du VRAI point d'entrée — `ouvrir`, `editer`,
+   * `sauvegarder` — donc la source se cherche dans le Drive, la commande est journalisée, et
+   * le rejeu doit relire les octets. Un format branché à moitié se voit ici et nulle part
+   * ailleurs (§118.14 : une capacité sans appelant réel n'existe pas).
+   */
+  async function contexteClasseur() {
+    await contexte([
+      { nodeId: "contrat", nom: "Suivi dossiers.xlsx", octets: await xlsxAvecTableau() },
+      { nodeId: "logo", nom: "logo Adventum.png", octets: LOGO },
+    ]);
+    await ouvrirContrat();
+  }
+
+  function imagesDuClasseur(octets: Buffer): string[] {
+    const zip = new PizZip(octets);
+    return Object.keys(zip.files).filter((k) => k.startsWith("xl/media/"));
+  }
+
+  it("« mets le logo en B2 » : la source se cherche par son NOM, et la pièce est posée", async () => {
+    await contexteClasseur();
+    const r = await editer(ctx, sessionId, [
+      commande("xlsx.inserer_image", { feuille: "Suivi", plage: "B2", imageSource: "logo Adventum", largeurCm: 4 }),
+    ]);
+    expect(r.ok, r.motif ?? "").toBe(true);
+    expect(r.vue?.format).toBe("XLSX");
+    expect(r.effets[0].resume).toContain("logo Adventum.png");
+    expect(r.effets[0].resume).toContain("B2");
+
+    const s = await sauvegarder(ctx, sessionId, {});
+    expect(s.ok).toBe(true);
+    const enregistre = drive.fichiers.get("contrat")!.versions.at(-1)!.octets;
+    expect(imagesDuClasseur(enregistre)).toHaveLength(1);
+    // Le tableau structuré a survécu : c'est LUI que la mauvaise place de `<drawing>` détruit.
+    const feuille = new PizZip(enregistre).file("xl/worksheets/sheet1.xml")!.asText();
+    expect(feuille).toContain("<tableParts");
+    expect(feuille.indexOf("<drawing")).toBeLessThan(feuille.indexOf("<tableParts"));
+    // Et l'ancrage est bien B2 — colonne 1, ligne 1, 0-indexées dans le fichier.
+    const dessin = new PizZip(enregistre).file("xl/drawings/drawing1.xml")!.asText();
+    expect(dessin).toMatch(/<xdr:col>1<\/xdr:col>/);
+    expect(dessin).toMatch(/<xdr:row>1<\/xdr:row>/);
+  });
+
+  it("le journal ne porte que la référence, et le REJEU relit les octets", async () => {
+    await contexteClasseur();
+    await editer(ctx, sessionId, [
+      commande("xlsx.inserer_image", { feuille: "Suivi", plage: "B2", imageSource: "logo", largeurCm: 4 }),
+    ]);
+    const ops = await ctx.magasin.operations(sessionId);
+    expect(JSON.stringify(ops[0].command).length).toBeLessThan(1_000);
+
+    oublierSession(sessionId);
+    const r2 = await editer(ctx, sessionId, [
+      commande("xlsx.valeur", { feuille: "Suivi", plage: "D1", texte: "Vérifié" }),
+    ]);
+    expect(r2.ok, r2.motif ?? "").toBe(true);
+    await sauvegarder(ctx, sessionId, {});
+    expect(imagesDuClasseur(drive.fichiers.get("contrat")!.versions.at(-1)!.octets)).toHaveLength(1);
+  });
+
+  it("annuler l'insertion la fait VRAIMENT disparaître du classeur", async () => {
+    await contexteClasseur();
+    await editer(ctx, sessionId, [
+      commande("xlsx.inserer_image", { feuille: "Suivi", plage: "B2", imageSource: "logo", largeurCm: 4 }),
+    ]);
+    expect((await annuler(ctx, sessionId)).ok).toBe(true);
+    await sauvegarder(ctx, sessionId, {});
+    const enregistre = drive.fichiers.get("contrat")!.versions.at(-1)!.octets;
+    expect(imagesDuClasseur(enregistre)).toHaveLength(0);
+    const zip = new PizZip(enregistre);
+    expect(zip.file("xl/worksheets/sheet1.xml")!.asText()).not.toContain("<drawing");
+    expect(zip.file("xl/drawings/drawing1.xml")).toBeNull();
+  });
+
+  it("deux fichiers pour un même nom : la machine NE CHOISIT PAS non plus dans un classeur", async () => {
+    await contexte([
+      { nodeId: "contrat", nom: "Suivi.xlsx", octets: await xlsxAvecTableau() },
+      { nodeId: "l1", nom: "logo Adventum 2019.png", octets: LOGO },
+      { nodeId: "l2", nom: "logo Adventum 2027.png", octets: pngUni(200, 200) },
+    ]);
+    await ouvrirContrat();
+    const r = await editer(ctx, sessionId, [
+      commande("xlsx.inserer_image", { feuille: "Suivi", plage: "B2", imageSource: "logo Adventum", largeurCm: 4 }),
+    ]);
+    expect(r.ok).toBe(false);
+    expect(r.effets[0].motif).toContain("2 fichiers");
+    await sauvegarder(ctx, sessionId, {});
+    expect(imagesDuClasseur(drive.fichiers.get("contrat")!.versions.at(-1)!.octets)).toHaveLength(0);
   });
 });
