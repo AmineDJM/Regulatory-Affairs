@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { ecartDeContrat } from "@/lib/skills/contrat-sortie";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { recordPermissionRefusal } from "@/lib/models/telemetry";
@@ -477,8 +478,21 @@ export async function executer(s: SkillCharge, input: Json, user: CurrentUser, o
   if (exigeConfirmation(m)) {
     await recordAudit({ actorId: user.id, action: "EXPORT", module: "ASSISTANT", entityId: s.nom, summary: `Skill « ${m.titre} » (${m.plugin}, ${m.effect}) ${sortie.ok ? "exécuté" : "en échec"} sur accord de la personne.` }).catch(() => undefined);
   }
+  /**
+   * LE CONTRAT DÉCLARÉ, CONFRONTÉ À CE QUI SORT (§118.20 appliqué aux capacités qu'on n'a PAS
+   * écrites). `sorties.cles` vit dans le manifeste depuis le début et servait à DÉCRIRE l'outil
+   * au modèle ; personne ne le comparait à ce que l'exécution rendait vraiment. Un skill créé
+   * par Adam — micro-outil promu, connecteur déclaré, playbook enseigné — pouvait donc annoncer
+   * `{ montant, devise }` et livrer `{ erreur }`, et le cœur n'a aucun endroit où aller le
+   * corriger : c'est précisément ce qui rend un runtime de skills extensible.
+   *
+   * On CONSTATE, on ne répare pas : combler avec des `null` fabriquerait une sortie que la
+   * capacité n'a jamais produite, et le plan croirait tenir une valeur.
+   */
+  const ecart = ecartDeContrat({ outil: s.nom, clesDeclarees: m.sorties.cles, resultat: sortie.resultat, ok: Boolean(sortie.ok) });
   return JSON.stringify({
     ...sortie, outil: s.nom, source: sourceLisible(s), ms,
+    ...(ecart ? { _contrat: ecart.phrase, _contratManquantes: ecart.manquantes } : {}),
     ...(sortie.ok && sortie.resultat !== undefined
       ? { _provenance: declarerProvenance([faitCalcule({ outil: s.nom, acteur: user.id, libelle: m.titre, valeur: resumeDe(sortie.resultat), entrees: [sourceLisible(s)], transformation: `skill ${s.source} · ${m.executeur.type}`, formule: JSON.stringify(entree).slice(0, 300) })]) }
       : {}),

@@ -21,7 +21,7 @@ import {
 } from "@/lib/assistant/regulatory-read";
 import { geste, retardJours, retardLabel } from "@/lib/assistant/workspace/emit";
 import { resultatIndisponible } from "@/lib/assistant/capability-failure";
-import { resultatVide } from "@/lib/assistant/empty-result";
+import { resultatListe, resultatVide } from "@/lib/assistant/empty-result";
 import { fichierALire, fichiersDe } from "@/lib/assistant/artifact-ref";
 import { invoiceSettlementState, INVOICE_SETTLEMENT } from "@/lib/labels";
 
@@ -285,7 +285,14 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       // longtemps servi ce nom-là, et un outil qui refuse une clé équivalente répond « il me
       // faut une référence » à quelqu'un qui vient d'en donner une.
       const brut = str(input, "reference") || str(input, "query");
-      if (brut.length < 2) return "Donnez une référence ou un fragment de titre.";
+      if (brut.length < 2) {
+        // MÊME FORME QUE LES ONZE FICHES (§118.20) : une phrase nue tuerait toute référence
+        // qu'un plan aurait écrite sur `type` ou `precision`.
+        return JSON.stringify({
+          type: null, reference: brut, trouve: false,
+          precision: "Aucune référence ni fragment de titre n'a été donné : rien n'a été cherché.",
+        });
+      }
 
       /**
        * LE FRAGMENT SE RELIT SANS SON MOT-CLASSE. « dossier nivolumab », « contrat hetero »,
@@ -296,17 +303,44 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
        */
       const nettoyer = (f: string): string =>
         f.replace(/^(?:(?:le|la|les|l'|l’|mon|ma|mes|ce|cet|cette|ces|du|de|des|d'|d’)\s+)*(?:dossier|produit|contrat|marché|marche|demande|projet|courrier|tâche|tache|paiement|facture|règlement|reglement|fiche)\s+(?:(?:de|du|des|d'|d’|pour|sur|concernant)\s+)?/i, "").trim();
-      const AUCUN = "Aucun dossier ne porte la référence";
+      /**
+       * ── LE RETRY NE SE DÉCIDE PLUS SUR UN PRÉFIXE DE CHAÎNE (§118.20) ─────────────────
+       *
+       * `inspecter` rendait une phrase commençant par « Aucun dossier ne porte » quand il ne
+       * trouvait rien, et du JSON sinon — et le second essai se décidait en comparant ce
+       * PRÉFIXE. Deux défauts dans la même ligne : la forme de la sortie dépendait de la donnée
+       * (un plan ne pouvait rien écrire contre elle), et le contrôle de flux du fichier tenait à
+       * une chaîne de caractères que n'importe quelle reformulation aurait cassée en silence.
+       * `inspecter` DIT désormais s'il a trouvé, et rend toujours la même forme.
+       */
       const premier = await inspecter(brut);
-      if (!premier.startsWith(AUCUN)) return premier;
+      if (premier.trouve) return premier.charge;
       const nettoye = nettoyer(brut);
       if (nettoye.length >= 2 && nettoye.toLowerCase() !== brut.toLowerCase()) {
         const second = await inspecter(nettoye);
-        if (!second.startsWith(AUCUN)) return second;
+        if (second.trouve) return second.charge;
       }
-      return premier;
+      return premier.charge;
 
-      async function inspecter(ref: string): Promise<string> {
+      async function inspecter(ref: string): Promise<{ trouve: boolean; charge: string }> {
+      /**
+       * UNE SEULE FORME POUR ONZE TYPES DE FICHE. Chaque branche a ses champs propres — une
+       * demande de paiement et un contrat n'ont pas les mêmes —, mais QUATRE clés existent
+       * toujours : `type` (null quand rien n'est trouvé), `reference`, `trouve` et `precision`.
+       * Un plan peut les référencer sans parier sur ce que la lecture rendra.
+       */
+      const fiche = (o: Record<string, unknown> & { precision?: string }): { trouve: boolean; charge: string } => {
+        const trouve = o.type != null;
+        return {
+          trouve,
+          charge: JSON.stringify({
+            type: null, reference: ref, ...o, trouve,
+            precision: o.precision ?? (trouve
+              ? `Fiche « ${String(o.type)} » relue dans l'ERP — ce qui n'y figure pas n'a pas été tracé.`
+              : "Aucune fiche ne correspond."),
+          }),
+        };
+      };
       /**
        * L'IDENTIFIANT INTERNE EST RÉSOLU, PAS SEULEMENT LA RÉFÉRENCE — le correctif du Run 4.
        *
@@ -342,7 +376,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
             select: { createdAt: true, steps: { select: { status: true, decidedAt: true, order: true, validator: { select: { name: true } } } } },
           }),
         ]);
-        return JSON.stringify({
+        return fiche({
           type: "Demande de paiement",
           // L'ÉTAT EXÉCUTIF D'ABORD — « où est le paiement ? » = qui le bloque, depuis quand,
           // la prochaine étape, les signaux. Dérivé de la chronologie tracée (executive-state.ts).
@@ -379,7 +413,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       });
       if (order) {
         const timeline = await auditOf("EXPENSE_ORDER", order.id);
-        return JSON.stringify({
+        return fiche({
           type: "Règlement (ordre de dépense)",
           etatExecutif: paymentExecutiveState({
             status: order.status, dueDate: null, createdAt: order.createdAt, validations: [],
@@ -433,7 +467,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
             ? prisma.expenseOrder.findUnique({ where: { id: legal.expenseOrderId }, select: { reference: true, status: true, centralStatus: true, paidDate: true } })
             : Promise.resolve(null),
         ]);
-        return JSON.stringify({
+        return fiche({
           type: "Document Legal", nature: legal.kind,
           reference: legal.reference, titre: legal.title, partie: legal.counterparty,
           montantDzd: legal.amount != null ? Math.round(toNumber(legal.amount)) : null,
@@ -464,7 +498,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       });
       if (promo) {
         const [timeline, docs] = await Promise.all([auditOf("PROMO_MATERIAL", promo.id), documentsOf("PROMO_MATERIAL", promo.id)]);
-        return JSON.stringify({
+        return fiche({
           type: "Matériel promotionnel",
           reference: promo.reference, titre: promo.title,
           circuit: promo.circuitState ?? promo.status,
@@ -484,7 +518,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       });
       if (req) {
         const [timeline, docs] = await Promise.all([auditOf("ADMIN_REQUEST", req.id), documentsOf("ADMIN_REQUEST", req.id)]);
-        return JSON.stringify({
+        return fiche({
           type: "Demande du secrétariat",
           reference: req.reference, titre: req.title, nature: req.type, statut: req.status,
           responsable: req.assignedTo?.name ?? null,
@@ -529,7 +563,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
               })
             : Promise.resolve(null),
         ]);
-        return JSON.stringify({
+        return fiche({
           type: "Sponsoring (Ad&Pro)",
           reference: spo.reference,
           institution: spo.institution, medecin: spo.doctor, specialite: spo.specialty, ville: spo.city,
@@ -676,7 +710,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           ],
         };
 
-        return JSON.stringify({
+        return fiche({
           type: "Dossier Regulatory",
           reference: reg.reference, dci: reg.dci, nomCommercial: reg.brandName,
           statut: reg.status, priorite: reg.priority,
@@ -717,7 +751,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       });
       if (invoice) {
         const etat = invoiceSettlementState(invoice);
-        return JSON.stringify({
+        return fiche({
           type: "Facture (document légal)",
           numero: invoice.reference, objet: invoice.title,
           sens: invoice.direction === "IN" ? "émise (on encaisse)" : "reçue (on paie)",
@@ -747,7 +781,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         },
       });
       if (mail) {
-        return JSON.stringify({
+        return fiche({
           type: "Courrier (registre)",
           reference: mail.reference, objet: mail.title,
           sens: mail.direction === "OUTGOING" ? "Départ" : "Arrivée",
@@ -781,7 +815,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       });
       if (dossier) {
         const [timeline, docs] = await Promise.all([auditOf("DOSSIER", dossier.id), documentsOf("DOSSIER", dossier.id)]);
-        return JSON.stringify({
+        return fiche({
           type: "Projet délégué",
           reference: dossier.reference, sujet: dossier.title, categorie: dossier.category,
           statut: dossier.status, priorite: dossier.priority,
@@ -806,7 +840,7 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         orderBy: { createdAt: "desc" },
       });
       if (task) {
-        return JSON.stringify({
+        return fiche({
           type: "Tâche",
           titre: task.title, detail: task.description,
           statut: task.status, priorite: task.priority,
@@ -819,7 +853,12 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         });
       }
 
-      return `Aucun dossier ne porte la référence « ${ref} » (essayée comme référence, comme identifiant interne et comme fragment de titre) — ni demande de paiement, ni règlement, ni document Legal, ni matériel promotionnel, ni demande du secrétariat, ni sponsoring, ni dossier Regulatory, ni facture, ni courrier, ni projet, ni tâche. Je préfère le dire plutôt que d'inventer.`;
+      return fiche({
+        precision: `Aucun dossier ne porte la référence « ${ref} » (essayée comme référence, comme identifiant interne `
+          + "et comme fragment de titre) — ni demande de paiement, ni règlement, ni document Legal, ni matériel "
+          + "promotionnel, ni demande du secrétariat, ni sponsoring, ni dossier Regulatory, ni facture, ni courrier, "
+          + "ni projet, ni tâche. Je préfère le dire plutôt que d'inventer.",
+      });
       }
     },
   },
@@ -853,7 +892,13 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         where: { name: { contains: name, mode: "insensitive" }, isActive: true },
         select: { id: true, name: true, role: true },
       });
-      if (!person) return `Aucun compte actif ne porte le nom « ${name} ».`;
+      if (!person) {
+        // §118.20 : un plan qui référence `personne` ne meurt pas parce que le nom est inconnu.
+        return JSON.stringify({
+          personne: null, retenu: [], candidats: [],
+          precision: `Aucun compte actif ne porte le nom « ${name} ».`,
+        });
+      }
 
       const now = new Date();
       const [emp, tasksOpen, tasksDone, tasksLate, requests, validationsDecided, auditCount, lastAudit] = await Promise.all([
@@ -1051,7 +1096,13 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         else if (payment) { watchType = "PAYMENT_REQUEST"; watchId = payment.id; watchLabel = `${payment.reference} — ${payment.title}`; }
         else if (validation) { watchType = "VALIDATION_REQUEST"; watchId = validation.id; watchLabel = `${validation.reference} — ${validation.title}`; }
         else if (task) { watchType = "TASK"; watchId = task.id; watchLabel = task.title; }
-        else return `Rien à surveiller sous « ${watchRaw} » — ni règlement, ni demande de paiement, ni validation, ni tâche ouverte. Vérifier la référence (inspect_record).`;
+        else {
+          return JSON.stringify({
+            cree: null, rappel: null, surveille: null,
+            precision: `Rien à surveiller sous « ${watchRaw} » — ni règlement, ni demande de paiement, ni validation, `
+              + "ni tâche ouverte. Aucun rappel n'a été créé. Vérifier la référence (inspect_record).",
+          });
+        }
       }
 
       // L'ÉCHELLE DE RELANCES — bornée (6 barreaux, 1 h à 30 jours chacun) : une échelle
@@ -1135,15 +1186,17 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         include: { targetUser: { select: { name: true } } },
         take: 50,
       });
-      if (rows.length === 0) return "Aucun rappel planifié.";
-      return JSON.stringify(rows.map((r) => ({
+      // §118.20 : cet outil rendait une PHRASE quand la liste était vide et un TABLEAU NU
+      // sinon — deux formes qui n'ont pas même la même NATURE. `resultatListe` donne aux deux
+      // la même enveloppe : `items`, `count`, `message`.
+      return resultatListe(rows.map((r) => ({
         id: r.id, rappel: r.title,
         prochaineEcheance: formatAlgiersDue(r.dueAt),
         recurrence: RECURRENCE_LABEL[r.recurrence as ReminderRecurrence] ?? r.recurrence,
         relanceLeRole: r.targetRole ? ROLE_LABELS[r.targetRole] ?? r.targetRole : null,
         relanceLaPersonne: r.targetUser?.name ?? null,
         surveille: r.watchLabel ?? null,
-      })));
+      })), rows.length === 0 ? "Aucun rappel planifié." : `${rows.length} rappel(s) actif(s).`);
     },
   },
 

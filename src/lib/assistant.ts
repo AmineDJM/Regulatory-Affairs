@@ -29,7 +29,7 @@ import type { Calibration } from "@/lib/assistant/confidence/calibrate";
 import { resoudreEntite, resoudreMentions, contexteEntitesResolues } from "@/platform/in-process/fabric/entites";
 import { MailSendPolicy, type AdminRequestType, type CongressRequestStatus, type Priority, type CalendarEventKind, type HrRequestType, type RegulatoryCategory } from "@prisma/client";
 import { capabilityDoctrine } from "@/lib/assistant/capability-surface";
-import { resultatVide } from "@/lib/assistant/empty-result";
+import { resultatListe, resultatVide } from "@/lib/assistant/empty-result";
 import { prisma } from "@/lib/prisma";
 import { companyIdForNew, companyScopedWhere } from "@/lib/company";
 import { buildRef, createWithRetry } from "@/lib/refs";
@@ -2501,11 +2501,10 @@ export async function executeReadTool(name: string, input: Record<string, unknow
           { totalPortefeuille: total },
         );
       }
-      return JSON.stringify({
-        total_portefeuille: total,
-        renvoyes: products.length,
-        tronque: products.length >= take,
-        produits: products.map((p) => ({
+      // MÊME ENVELOPPE QUE LE CAS VIDE (§118.20) : `items` / `count` / `message` dans les deux,
+      // et ce qui est propre au portefeuille à côté. Avant, les deux sorties de cette capacité
+      // n'avaient pas une seule clé en commun.
+      const lignes = products.map((p) => ({
           reference: p.reference, dci: p.dci, nomCommercial: p.brandName ?? null,
           classeTherapeutique: p.therapeuticClass ?? null,
           categorie: p.category,
@@ -2513,11 +2512,18 @@ export async function executeReadTool(name: string, input: Record<string, unknow
           statut: REGULATORY_STATUS[p.status]?.label ?? p.status,
           priorite: p.priority ?? null,
           responsable: p.responsible?.name ?? null,
-        })),
-        // Une liste coupée qui ne le dit pas devient « les 40 produits » dans la réponse.
-        ...(products.length >= take
-          ? { avertissement: `Liste TRONQUÉE à ${take} (portefeuille : ${total}) : pour un inventaire complet, rappeler avec un limit plus grand. Ne jamais présenter une liste tronquée comme complète.` }
-          : {}),
+      }));
+      return resultatListe(lignes, `${lignes.length} produit(s) sur un portefeuille de ${total}.`, {
+        total_portefeuille: total,
+        renvoyes: lignes.length,
+        tronque: lignes.length >= take,
+        produits: lignes,
+        // Une liste coupée qui ne le dit pas devient « les 40 produits » dans la réponse. `null`
+        // et non l'absence de clé : `JSON.stringify` efface une clé indéfinie, et une clé qui
+        // apparaît selon la donnée est le défaut qu'on répare ici.
+        avertissement: lignes.length >= take
+          ? `Liste TRONQUÉE à ${take} (portefeuille : ${total}) : pour un inventaire complet, rappeler avec un limit plus grand. Ne jamais présenter une liste tronquée comme complète.`
+          : null,
       });
     }
     case "search_events": {

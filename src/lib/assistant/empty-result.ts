@@ -46,3 +46,29 @@
 export function resultatVide(message: string, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({ items: [], count: 0, message, ...extra });
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * ET LA MÊME FORME QUAND ON TROUVE (§118.20) — sinon la moitié du travail est perdue.
+ *
+ * `resultatVide` donnait au runtime un compte MESURÉ quand la liste était vide. Mais le cas
+ * PLEIN, lui, rendait ce que chaque capacité avait envie : `{ produits }` ici, `{ collegues }`
+ * là, `{ taches }` ailleurs — jamais `items`, jamais `count`. Résultat : les deux sorties d'une
+ * même capacité n'avaient PAS UNE CLÉ EN COMMUN. Le planificateur écrit ses références avant de
+ * savoir si la recherche trouvera quelque chose : `{{produits.produits.0.reference}}` mourait le
+ * jour où il n'y avait rien, et `{{produits.items}}` le jour où il y avait quelque chose. Une
+ * étape morte coûte une replanification complète.
+ *
+ * Une seule enveloppe, donc, dans les DEUX cas : `items` (la liste, vide ou non), `count` (son
+ * compte, mesuré et non déduit d'une tournure de phrase) et `message` (la phrase pour l'humain).
+ * Ce que la capacité a de PROPRE — le total du portefeuille, un avertissement de troncature —
+ * s'ajoute à côté, sans jamais remplacer l'enveloppe.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function resultatListe(
+  items: readonly unknown[],
+  message: string,
+  extra: Record<string, unknown> = {},
+): string {
+  return JSON.stringify({ items, count: items.length, message, ...extra });
+}

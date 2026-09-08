@@ -104,7 +104,14 @@ export const MEMORY_TOOLS: PowerTool[] = [
         structuredData = { alias, target };
         if (!content) content = `${alias} = ${target}`;
       }
-      if (!content) return "Rien à retenir : donner `content`, ou `alias` + `target` pour un terme maison.";
+      // §118.20 : même forme qu'un enregistrement réussi — une phrase nue tuerait toute
+      // référence qu'un plan aurait écrite sur `retenu`.
+      if (!content) {
+        return JSON.stringify({
+          retenu: null, type: null, id: null,
+          precision: "Rien à retenir : donner `content`, ou `alias` + `target` pour un terme maison.",
+        });
+      }
       if (content.length > 600) content = content.slice(0, 600);
 
       // Un alias déjà connu se MET À JOUR (« finalement, la DT c'est la Direction Technique ») —
@@ -217,11 +224,16 @@ export const MEMORY_TOOLS: PowerTool[] = [
           select: { id: true, content: true },
           take: 8,
         });
-        if (matches.length === 0) return `Aucune mémoire ne contient « ${ref} ».`;
+        // §118.20 : une seule forme — `oublie` porte ce qui a été oublié (null si rien),
+        // `candidats` l'ambiguïté (vide si aucune), `precision` toujours la phrase.
+        if (matches.length === 0) {
+          return JSON.stringify({ oublie: null, candidats: [], precision: `Aucune mémoire ne contient « ${ref} ».` });
+        }
         if (matches.length > 1) {
           return JSON.stringify({
-            ambigu: `${matches.length} mémoires contiennent « ${ref} » — préciser laquelle (par son id).`,
-            candidates: matches.map((m) => ({ id: m.id, contenu: m.content })),
+            oublie: null,
+            candidats: matches.map((m) => ({ id: m.id, contenu: m.content })),
+            precision: `${matches.length} mémoires contiennent « ${ref} » — préciser laquelle (par son id). Aucune n'a été oubliée.`,
           });
         }
         victim = matches[0];
@@ -229,7 +241,7 @@ export const MEMORY_TOOLS: PowerTool[] = [
       // Désactivée, pas effacée : l'audit garde la trace, et « oublie » reste réversible côté admin.
       await prisma.assistantMemoryItem.update({ where: { id: victim.id }, data: { active: false } });
       await recordAudit({ actorId: user.id, action: "UPDATE", module: "Assistant IA", summary: `Mémoire oubliée — ${victim.content.slice(0, 120)}` });
-      return JSON.stringify({ oublie: victim.content });
+      return JSON.stringify({ oublie: victim.content, candidats: [], precision: "Mémoire désactivée, pas effacée : l'audit garde la trace." });
     },
   },
   {
@@ -453,16 +465,24 @@ export const MEMORY_TOOLS: PowerTool[] = [
           select: { id: true, title: true },
           take: 6,
         });
-        if (matches.length === 0) return `Aucune décision du registre ne correspond à « ${ref} ».`;
+        if (matches.length === 0) {
+          return JSON.stringify({ decision: null, misAJour: false, candidats: [], precision: `Aucune décision du registre ne correspond à « ${ref} ».` });
+        }
         if (matches.length > 1) {
-          return JSON.stringify({ ambigu: "Plusieurs décisions correspondent — préciser par l'id.", candidates: matches.map((m) => ({ id: m.id, titre: m.title })) });
+          return JSON.stringify({
+            decision: null, misAJour: false,
+            candidats: matches.map((m) => ({ id: m.id, titre: m.title })),
+            precision: "Plusieurs décisions correspondent — préciser par l'id. Aucune n'a été modifiée.",
+          });
         }
         target = matches[0];
       }
 
       const actualOutcome = str(input, "actual_outcome");
       const reviewOn = str(input, "review_on") ? dateOf(str(input, "review_on"), "09:00") : null;
-      if (str(input, "review_on") && !reviewOn) return "Date de relecture illisible (AAAA-MM-JJ).";
+      if (str(input, "review_on") && !reviewOn) {
+        return JSON.stringify({ decision: null, misAJour: false, candidats: [], precision: "Date de relecture illisible (AAAA-MM-JJ)." });
+      }
       const rawStatus = str(input, "status");
       const status = ["DECIDED", "REVIEWED", "ABANDONED"].includes(rawStatus) ? rawStatus : actualOutcome ? "REVIEWED" : null;
 
@@ -478,7 +498,7 @@ export const MEMORY_TOOLS: PowerTool[] = [
         },
       });
       await recordAudit({ actorId: user.id, action: "UPDATE", module: "Assistant IA", summary: `Décision « ${target.title.slice(0, 100)} » — résultat/statut consigné` });
-      return JSON.stringify({ decision: target.title, misAJour: true, ...(status ? { statut: status } : {}) });
+      return JSON.stringify({ decision: target.title, misAJour: true, candidats: [], statut: status ?? null, precision: "Décision mise à jour au registre." });
     },
   },
 
@@ -641,11 +661,14 @@ export const MEMORY_TOOLS: PowerTool[] = [
           select: { id: true, who: true, what: true },
           take: 6,
         });
-        if (matches.length === 0) return `Aucun engagement ouvert ne correspond à « ${ref} ».`;
+        if (matches.length === 0) {
+          return JSON.stringify({ engagement: null, issue: null, candidats: [], precision: `Aucun engagement ouvert ne correspond à « ${ref} ».` });
+        }
         if (matches.length > 1) {
           return JSON.stringify({
-            ambigu: "Plusieurs engagements correspondent — préciser par l'id.",
-            candidates: matches.map((m) => ({ id: m.id, qui: m.who, quoi: m.what })),
+            engagement: null, issue: null,
+            candidats: matches.map((m) => ({ id: m.id, qui: m.who, quoi: m.what })),
+            precision: "Plusieurs engagements correspondent — préciser par l'id. Aucun n'a été clos.",
           });
         }
         target = matches[0];
@@ -657,7 +680,7 @@ export const MEMORY_TOOLS: PowerTool[] = [
       });
       const FR: Record<string, string> = { DONE: "tenu", BROKEN: "non tenu", CANCELLED: "annulé" };
       await recordAudit({ actorId: user.id, action: "UPDATE", module: "Assistant IA", summary: `Engagement ${FR[outcome]} — ${target.who} : ${target.what.slice(0, 100)}` });
-      return JSON.stringify({ engagement: `${target.who} — ${target.what}`, issue: FR[outcome] });
+      return JSON.stringify({ engagement: `${target.who} — ${target.what}`, issue: FR[outcome], candidats: [], precision: `Engagement ${FR[outcome]} — l'issue est constatée, pas supposée.` });
     },
   },
 ];

@@ -282,12 +282,35 @@ export const REGULATORY_READ_TOOLS: PowerTool[] = [
         });
       }
 
+      /**
+       * UNE SEULE FORME (§118.20) : cet outil rendait une PHRASE sur une personne inconnue,
+       * `{ambigu, candidats}` sur une homonymie, et un grand objet quand il trouvait. Un plan
+       * qui écrit `{{charge.dossiersGeresDirectement.total}}` mourait sur l'homonymie ; un plan
+       * qui écrit `{{charge.candidats}}` mourait quand la recherche réussissait. Les clés ne
+       * changent plus, `retenu` porte la personne sur qui AGIR (§118.34) — un élément quand
+       * c'est certain, liste VIDE sinon —, et `precision` dit toujours ce qui s'est passé.
+       */
+      const repondrePersonne = (r: Partial<Record<string, unknown>> & { precision: string }): string =>
+        JSON.stringify({
+          personne: null, retenu: [], candidats: [],
+          dossiersGeresDirectement: null, assistantSur: null, accesSansResponsabilite: null,
+          fraicheur: { source: "table Regulatory (périmètre de votre écran)", luLe: now },
+          ...r,
+        });
+
       const candidates = await resolveUserByName(person);
-      if (!candidates.length) return `Aucune personne active « ${person} » (comptes et registre RH consultés).`;
+      if (!candidates.length) {
+        return repondrePersonne({
+          precision: `Aucune personne active « ${person} » (comptes et registre RH consultés). `
+            + "La charge est vide parce que la PERSONNE est introuvable, pas parce qu'elle n'a aucun dossier.",
+        });
+      }
       if (candidates.length > 1 && new Set(candidates.map((c) => c.id)).size > 1) {
-        return JSON.stringify({
-          ambigu: `${candidates.length} personnes correspondent — préciser le nom.`,
+        // Plusieurs homonymes : on les NOMME et `retenu` reste vide — désigner à la place d'un
+        // humain est exactement ce que §118.34 interdit.
+        return repondrePersonne({
           candidats: candidates.map((c) => c.name),
+          precision: `${candidates.length} personnes correspondent à « ${person} » — préciser le nom. Aucune n'est retenue.`,
         });
       }
 
@@ -344,8 +367,11 @@ export const REGULATORY_READ_TOOLS: PowerTool[] = [
           }
         : null;
 
-      return JSON.stringify({
+      return repondrePersonne({
         personne: target.name,
+        retenu: [{ nom: target.name, id: target.id }],
+        precision: `Charge Regulatory de ${target.name} : dossiers dont elle est RESPONSABLE DÉSIGNÉE, `
+          + "assistanat et accès sans responsabilité comptés séparément — un accès n'est pas une charge.",
         dossiersGeresDirectement: {
           definition: "dossiers dont elle est RESPONSABLE DÉSIGNÉE (colonne « Chargé du dossier » de l'écran)",
           total: load.total,

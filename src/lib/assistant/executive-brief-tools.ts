@@ -68,11 +68,15 @@ export const EXECUTIVE_BRIEF_TOOLS: PowerTool[] = [
       // État chaud (fabric F5) : précalculé au battement, invalidé par les faits métier.
       const lecture = await alertesExecutivesChaudes(user);
       const kept = lecture.valeur.filter((a) => rank[a.criticite] <= threshold);
-      if (kept.length === 0) return `Aucun signal au-dessus de ce seuil — rien ne cloche sur les détecteurs (${fraicheurDeLecture(lecture)}).`;
+      // §118.20 : mêmes clés dans les deux cas — c'est la LISTE vide qui dit qu'il n'y a rien,
+      // et « rien ne cloche » est justement la réponse qu'on veut pouvoir référencer.
       return JSON.stringify({
         seuil: min,
         signaux: kept,
         fraicheur: fraicheurDeLecture(lecture),
+        precision: kept.length === 0
+          ? `Aucun signal au-dessus de ce seuil — rien ne cloche sur les détecteurs (${fraicheurDeLecture(lecture)}).`
+          : `${kept.length} signal(aux) au-dessus du seuil ${min}.`,
         note: "Criticité calculée sur des seuils simples (âge, priorité, niveau) — les détails portent l'âge exact.",
       });
     },
@@ -160,8 +164,22 @@ export const EXECUTIVE_BRIEF_TOOLS: PowerTool[] = [
     allowed: EXEC,
     label: "Rapport consolidé généré",
     run: async (input, user) => {
+      /**
+       * UNE SEULE FORME (§118.20) : `create_report` rendait une PHRASE quand la référence
+       * manquait ou ne désignait rien, et un objet quand il produisait le fichier. Un plan qui
+       * écrit `{{rapport.lien}}` mourait donc exactement le jour où le dossier n'existait pas —
+       * et une étape morte coûte une replanification complète. Les clés ne changent plus ; c'est
+       * `fichier: null` qui dit qu'aucune pièce n'a été produite, et `precision` qui dit pourquoi.
+       */
+      const repondre = (r: Partial<Record<string, unknown>> & { precision: string }): string =>
+        JSON.stringify({
+          fichier: null, dossier: null, emplacement: null, lien: null, contenu: null, ...r,
+        });
+
       const ref = str(input, "reference");
-      if (ref.length < 2) return "Donnez la référence du dossier à consolider.";
+      if (ref.length < 2) {
+        return repondre({ precision: "Aucune référence de dossier n'a été donnée : rien n'a été consolidé, rien n'a été cherché." });
+      }
 
       // Le rapport suit LES MÊMES pistes qu'inspect_record : Legal d'abord (la chaîne y vit),
       // puis demande de paiement, puis règlement. On consolide — on n'invente rien.
@@ -288,7 +306,11 @@ export const EXECUTIVE_BRIEF_TOOLS: PowerTool[] = [
       }
 
       if (!subject) {
-        return `Aucune pièce Legal ni demande de paiement ne porte « ${ref} » — vérifier la référence avec search_everything ou inspect_record avant de générer un rapport.`;
+        return repondre({
+          precision: `Aucune pièce Legal ni demande de paiement ne porte « ${ref} » : aucun fichier n'a été produit parce que `
+            + "le SUJET est introuvable, pas parce que la consolidation a échoué. Vérifier la référence avec "
+            + "search_everything ou inspect_record avant de générer un rapport.",
+        });
       }
 
       const stamp = new Date().toISOString().slice(0, 10);
@@ -304,12 +326,14 @@ export const EXECUTIVE_BRIEF_TOOLS: PowerTool[] = [
         actorId: user.id, action: "CREATE", module: "Assistant IA",
         summary: `Rapport consolidé « ${subject} » généré via le Chief of Staff → Drive / ${filename}`,
       }).catch(() => undefined);
-      return JSON.stringify({
+      return repondre({
         fichier: filename,
         dossier: subject,
         emplacement: "Drive personnel, dossier « Rapports IA »",
         lien: `/drive/${nodeId}`,
         contenu: "Fiche, chaîne d'achat, validateurs, règlement, pièces, timeline.",
+        precision: `Rapport consolidé pour « ${subject} » — Fiche, chaîne d'achat, validateurs, règlement, pièces, timeline. `
+          + "Rien n'y est inventé : ce qui n'a pas été trouvé n'y figure pas.",
       });
     },
   },
