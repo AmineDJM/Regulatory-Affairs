@@ -29,7 +29,8 @@ let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
 
-const TAG = `__ops6c__${Date.now()}`;
+const PREFIXE = "__ops6c__";
+const TAG = `${PREFIXE}${Date.now()}`;
 const domainArgs = (p: { payload: unknown }) => (p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>).args;
 
 let saId = "";
@@ -72,13 +73,13 @@ suite("ops vague 6c — planning force de vente (SFE)", () => {
   });
 
   afterAll(async () => {
-    await prisma.productForecast.deleteMany({ where: { product: { name: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.promotionAssignment.deleteMany({ where: { product: { name: { startsWith: TAG } } } }).catch(() => {});
+    await prisma.productForecast.deleteMany({ where: { product: { name: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.promotionAssignment.deleteMany({ where: { product: { name: { startsWith: PREFIXE } } } }).catch(() => {});
     await prisma.promoCycle.deleteMany({ where: { year: 2033 } }).catch(() => {});
     const testUsers = await prisma.user.findMany({ where: { email: { startsWith: "__ops6c__" } }, select: { id: true } }).catch(() => []);
     await prisma.salesRepProfile.deleteMany({ where: { repId: { in: testUsers.map((u) => u.id) } } }).catch(() => {});
-    await prisma.promoProduct.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.businessUnit.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
+    await prisma.promoProduct.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.businessUnit.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: "__ops6c__" } } }).catch(() => {});
   });
 

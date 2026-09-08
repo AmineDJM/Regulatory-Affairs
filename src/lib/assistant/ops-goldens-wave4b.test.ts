@@ -31,7 +31,8 @@ let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
 
-const TAG = `__ops4b__${Date.now()}`;
+const PREFIXE = "__ops4b__";
+const TAG = `${PREFIXE}${Date.now()}`;
 const domainArgs = (p: { payload: unknown }) => (p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>).args;
 
 let saId = "";
@@ -56,6 +57,37 @@ const sa = () => userWith({
 }, "SUPER_ADMIN", saId, `${TAG} Amine`);
 
 suite("ops vague 4b — Annuaire médical, Gammes, Études de marché", () => {
+  /**
+   * LE MÉNAGE SE FAIT SUR LE PRÉFIXE STABLE, PAS SUR L'ÉTIQUETTE DE CE RUN — et AVANT de semer.
+   *
+   * L'étiquette porte l'horodatage du run (`__xxx__<Date.now()>`). Un ménage qui s'y accroche ne
+   * peut, par construction, jamais ramasser les lignes d'un run PRÉCÉDENT : le jour où un `beforeAll`
+   * expire sous la charge de la suite complète, ses lignes restent en base POUR TOUJOURS. Et elles
+   * ne dorment pas — la résolution d'une cible par son nom trouve alors DEUX « Journée HTA » et
+   * refuse, honnêtement, de choisir. Mesuré : sept tests rouges dans un fichier que personne n'avait
+   * touché, à cause d'un événement oublié par une exécution morte des heures plus tôt.
+   *
+   * Balayer sur le préfixe, avant ET après, rend le fichier auto-réparant : un run qui meurt ne
+   * pénalise que lui-même.
+   */
+  const balayer = async () => {
+    await prisma.marketResearchPresentationVersion.deleteMany({ where: { presentation: { title: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.marketResearchPresentation.deleteMany({ where: { title: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.marketResearchPlayer.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.marketResearchRow.deleteMany({ where: { product: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.marketResearch.deleteMany({ where: { title: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.medicalVisit.deleteMany({ where: { doctor: { name: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.medicalDoctor.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.medicalDirectory.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.medicalDelegatePlan.deleteMany({ where: { delegate: { email: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.regulatoryProduct.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.productRange.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.company.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: PREFIXE } } }).catch(() => {});
+  };
+  beforeAll(balayer);
+  afterAll(balayer);
+
   beforeAll(async () => {
     const [s, d] = await Promise.all([
       prisma.user.create({ data: { name: `${TAG} Amine`, email: `${TAG}s@t.dz`, passwordHash: "x", role: "SUPER_ADMIN" } }),
@@ -111,21 +143,6 @@ suite("ops vague 4b — Annuaire médical, Gammes, Études de marché", () => {
     presentationId = presentation.id;
   });
 
-  afterAll(async () => {
-    await prisma.marketResearchPresentationVersion.deleteMany({ where: { presentation: { title: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.marketResearchPresentation.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
-    await prisma.marketResearchPlayer.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.marketResearchRow.deleteMany({ where: { product: { startsWith: TAG } } }).catch(() => {});
-    await prisma.marketResearch.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
-    await prisma.medicalVisit.deleteMany({ where: { doctor: { name: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.medicalDoctor.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.medicalDirectory.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.medicalDelegatePlan.deleteMany({ where: { delegate: { email: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.regulatoryProduct.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.productRange.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.company.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
-  });
 
   describe("Annuaire — praticiens en FUSION, visites champ-par-champ", () => {
     it("update_doctor : changer le SEUL téléphone rejoue grade, segmentation, produits cibles ET délégué", async () => {

@@ -68,7 +68,8 @@ let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
 
-const TAG = `__ops__${Date.now()}`;
+const PREFIXE = "__ops__";
+const TAG = `${PREFIXE}${Date.now()}`;
 let ownerId = "";
 let colleagueId = "";
 let outsiderId = "";
@@ -183,27 +184,27 @@ suite("ops de domaine & lots — goldens (fixtures partagées)", () => {
   });
 
   afterAll(async () => {
-    const tasks = await prisma.task.findMany({ where: { title: { startsWith: TAG } }, select: { id: true } });
+    const tasks = await prisma.task.findMany({ where: { title: { startsWith: PREFIXE } }, select: { id: true } });
     await prisma.auditLog.deleteMany({ where: { entityId: { in: tasks.map((t) => t.id) } } }).catch(() => {});
-    await prisma.task.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
-    await prisma.notification.deleteMany({ where: { body: { startsWith: TAG } } }).catch(() => {});
-    await prisma.driveNode.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.pettyCashTopUpRequest.deleteMany({ where: { allotment: { department: { name: { startsWith: TAG } } } } }).catch(() => {});
-    await prisma.pettyCashAllotment.deleteMany({ where: { department: { name: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.departmentBudgetRequest.deleteMany({ where: { department: { name: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.department.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.expenseOrder.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.regulatoryProduct.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.company.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.meeting.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
-    await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG } } }).catch(() => {});
-    await prisma.mailEntry.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
-    await prisma.mailEntryFolder.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.legalDocument.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
-    await prisma.supplier.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.sponsoringRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.businessDevelopmentOpportunity.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
+    await prisma.task.deleteMany({ where: { title: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.notification.deleteMany({ where: { body: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.driveNode.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.pettyCashTopUpRequest.deleteMany({ where: { allotment: { department: { name: { startsWith: PREFIXE } } } } }).catch(() => {});
+    await prisma.pettyCashAllotment.deleteMany({ where: { department: { name: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.departmentBudgetRequest.deleteMany({ where: { department: { name: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.department.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.expenseOrder.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.regulatoryProduct.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.company.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.meeting.deleteMany({ where: { title: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.employee.deleteMany({ where: { fullName: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.mailEntry.deleteMany({ where: { title: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.mailEntryFolder.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.legalDocument.deleteMany({ where: { title: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.supplier.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.sponsoringRequest.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.businessDevelopmentOpportunity.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: PREFIXE } } }).catch(() => {});
   });
 
   describe("ops Drive — résolution par nom, ACL réelle, CRITIQUE", () => {

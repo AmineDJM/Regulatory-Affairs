@@ -29,7 +29,8 @@ let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
 
-const TAG = `__ops7b__${Date.now()}`;
+const PREFIXE = "__ops7b__";
+const TAG = `${PREFIXE}${Date.now()}`;
 const domainArgs = (p: { payload: unknown }) => (p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>).args;
 
 let saId = "";
@@ -46,6 +47,35 @@ const sa = () => userWith({
 }, "SUPER_ADMIN", saId, `${TAG} Amine`);
 
 suite("ops vague 7b — réunions avancées, agenda, commentaires", () => {
+  /**
+   * LE MÉNAGE SE FAIT SUR LE PRÉFIXE STABLE, PAS SUR L'ÉTIQUETTE DE CE RUN — et AVANT de semer.
+   *
+   * L'étiquette porte l'horodatage du run (`__xxx__<Date.now()>`). Un ménage qui s'y accroche ne
+   * peut, par construction, jamais ramasser les lignes d'un run PRÉCÉDENT : le jour où un `beforeAll`
+   * expire sous la charge de la suite complète, ses lignes restent en base POUR TOUJOURS. Et elles
+   * ne dorment pas — la résolution d'une cible par son nom trouve alors DEUX « Journée HTA » et
+   * refuse, honnêtement, de choisir. Mesuré : sept tests rouges dans un fichier que personne n'avait
+   * touché, à cause d'un événement oublié par une exécution morte des heures plus tôt.
+   *
+   * Balayer sur le préfixe, avant ET après, rend le fichier auto-réparant : un run qui meurt ne
+   * pénalise que lui-même.
+   */
+  const balayer = async () => {
+    await prisma.comment.deleteMany({ where: { body: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.bdProject.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.calendarInvite.deleteMany({ where: { event: { title: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.calendarEvent.deleteMany({ where: { title: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.conversationMember.deleteMany({ where: { conversation: { title: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.conversation.deleteMany({ where: { title: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.meetingTaskProposal.deleteMany({ where: { meeting: { title: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.meetingMessage.deleteMany({ where: { meeting: { title: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.meetingParticipant.deleteMany({ where: { meeting: { title: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.meeting.deleteMany({ where: { title: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: PREFIXE } } }).catch(() => {});
+  };
+  beforeAll(balayer);
+  afterAll(balayer);
+
   beforeAll(async () => {
     const [s, c] = await Promise.all([
       prisma.user.create({ data: { name: `${TAG} Amine`, email: `${TAG}s@t.dz`, passwordHash: "x", role: "SUPER_ADMIN" } }),
@@ -95,19 +125,6 @@ suite("ops vague 7b — réunions avancées, agenda, commentaires", () => {
     commentId = comment.id;
   });
 
-  afterAll(async () => {
-    await prisma.comment.deleteMany({ where: { body: { startsWith: TAG } } }).catch(() => {});
-    await prisma.bdProject.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.calendarInvite.deleteMany({ where: { event: { title: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.calendarEvent.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
-    await prisma.conversationMember.deleteMany({ where: { conversation: { title: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.conversation.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
-    await prisma.meetingTaskProposal.deleteMany({ where: { meeting: { title: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.meetingMessage.deleteMany({ where: { meeting: { title: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.meetingParticipant.deleteMany({ where: { meeting: { title: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.meeting.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
-    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
-  });
 
   it("update_meeting : changer le SEUL titre rejoue la description, le LIEN et l'HORAIRE en heure d'Alger (UTC 09:00 → 10:00 local)", async () => {
     const p = await buildProposal("meeting_operation", {

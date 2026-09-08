@@ -30,7 +30,8 @@ let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
 
-const TAG = `__ops2b__${Date.now()}`;
+const PREFIXE = "__ops2b__";
+const TAG = `${PREFIXE}${Date.now()}`;
 const domainArgs = (p: { payload: unknown }) => (p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>).args;
 
 let rhUserId = "";
@@ -49,6 +50,36 @@ const sa = () => userWith({}, "SUPER_ADMIN", rhUserId, `${TAG} Meriem`);
 const other = () => userWith({ WORKSPACE: ["VIEW", "CREATE", "UPDATE"] }, "MEDICAL_DELEGATE", otherId, `${TAG} Sofiane`);
 
 suite("ops vague 2b — recrutement, formations, missions, pièces, information médicale", () => {
+  /**
+   * LE MÉNAGE SE FAIT SUR LE PRÉFIXE STABLE, PAS SUR L'ÉTIQUETTE DE CE RUN — et AVANT de semer.
+   *
+   * L'étiquette porte l'horodatage du run (`__xxx__<Date.now()>`). Un ménage qui s'y accroche ne
+   * peut, par construction, jamais ramasser les lignes d'un run PRÉCÉDENT : le jour où un `beforeAll`
+   * expire sous la charge de la suite complète, ses lignes restent en base POUR TOUJOURS. Et elles
+   * ne dorment pas — la résolution d'une cible par son nom trouve alors DEUX « Journée HTA » et
+   * refuse, honnêtement, de choisir. Mesuré : sept tests rouges dans un fichier que personne n'avait
+   * touché, à cause d'un événement oublié par une exécution morte des heures plus tôt.
+   *
+   * Balayer sur le préfixe, avant ET après, rend le fichier auto-réparant : un run qui meurt ne
+   * pénalise que lui-même.
+   */
+  const balayer = async () => {
+    await prisma.recruitmentCandidate.deleteMany({ where: { fullName: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.recruitmentInfoRequest.deleteMany({ where: { request: { reference: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.recruitmentRequest.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.trainingParticipant.deleteMany({ where: { training: { reference: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.training.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.missionAssignment.deleteMany({ where: { entityId: eventId } }).catch(() => {});
+    await prisma.event.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.sponsoringRequest.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.documentRequest.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.medicalInfoDocRequest.deleteMany({ where: { declaration: { reference: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.medicalInfoDeclaration.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: PREFIXE } } }).catch(() => {});
+  };
+  beforeAll(balayer);
+  afterAll(balayer);
+
   beforeAll(async () => {
     const [r, o] = await Promise.all([
       prisma.user.create({ data: { name: `${TAG} Meriem`, email: `${TAG}r@t.dz`, passwordHash: "x", role: "FINANCE_BUDGET_MANAGER" } }),
@@ -99,20 +130,6 @@ suite("ops vague 2b — recrutement, formations, missions, pièces, information 
     declarationId = decl.id;
   });
 
-  afterAll(async () => {
-    await prisma.recruitmentCandidate.deleteMany({ where: { fullName: { startsWith: TAG } } }).catch(() => {});
-    await prisma.recruitmentInfoRequest.deleteMany({ where: { request: { reference: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.recruitmentRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.trainingParticipant.deleteMany({ where: { training: { reference: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.training.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.missionAssignment.deleteMany({ where: { entityId: eventId } }).catch(() => {});
-    await prisma.event.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.sponsoringRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.documentRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.medicalInfoDocRequest.deleteMany({ where: { declaration: { reference: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.medicalInfoDeclaration.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
-  });
 
   describe("recrutement — candidats par nom, gestes bornés", () => {
     it("create_recruitment : contrat obligatoire ; la chaîne hiérarchique est annoncée", async () => {

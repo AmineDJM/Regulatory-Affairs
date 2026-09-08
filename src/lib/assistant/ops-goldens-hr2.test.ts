@@ -35,7 +35,8 @@ let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
 
-const TAG = `__opshr2__${Date.now()}`;
+const PREFIXE = "__opshr2__";
+const TAG = `${PREFIXE}${Date.now()}`;
 const domainArgs = (p: { payload: unknown }) => (p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>).args;
 
 let rhId = "";
@@ -50,6 +51,32 @@ const sa = () => userWith({}, "SUPER_ADMIN", rhId, `${TAG} Lamia`);
 const outsider = () => userWith({ WORKSPACE: ["VIEW"] }, "MEDICAL_DELEGATE", accountId, `${TAG} Farid`);
 
 suite("ops RH 2 — PATCH fiche employé, congés, dossier RH, intérim, accès (goldens)", () => {
+  /**
+   * LE MÉNAGE SE FAIT SUR LE PRÉFIXE STABLE, PAS SUR L'ÉTIQUETTE DE CE RUN — et AVANT de semer.
+   *
+   * L'étiquette porte l'horodatage du run (`__xxx__<Date.now()>`). Un ménage qui s'y accroche ne
+   * peut, par construction, jamais ramasser les lignes d'un run PRÉCÉDENT : le jour où un `beforeAll`
+   * expire sous la charge de la suite complète, ses lignes restent en base POUR TOUJOURS. Et elles
+   * ne dorment pas — la résolution d'une cible par son nom trouve alors DEUX « Journée HTA » et
+   * refuse, honnêtement, de choisir. Mesuré : sept tests rouges dans un fichier que personne n'avait
+   * touché, à cause d'un événement oublié par une exécution morte des heures plus tôt.
+   *
+   * Balayer sur le préfixe, avant ET après, rend le fichier auto-réparant : un run qui meurt ne
+   * pénalise que lui-même.
+   */
+  const balayer = async () => {
+    await prisma.employeeDocument.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.hrDocumentRequest.deleteMany({ where: { employee: { fullName: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.leaveRequest.deleteMany({ where: { employee: { fullName: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.salaryAdvance.deleteMany({ where: { employee: { fullName: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.employee.deleteMany({ where: { fullName: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.userAccess.deleteMany({ where: { user: { email: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.userSession.deleteMany({ where: { user: { email: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: PREFIXE } } }).catch(() => {});
+  };
+  beforeAll(balayer);
+  afterAll(balayer);
+
   beforeAll(async () => {
     const [r, a] = await Promise.all([
       prisma.user.create({ data: { name: `${TAG} Lamia`, email: `${TAG}r@t.dz`, passwordHash: "x", role: "FINANCE_BUDGET_MANAGER" } }),
@@ -102,16 +129,6 @@ suite("ops RH 2 — PATCH fiche employé, congés, dossier RH, intérim, accès 
     docId = doc.id;
   });
 
-  afterAll(async () => {
-    await prisma.employeeDocument.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.hrDocumentRequest.deleteMany({ where: { employee: { fullName: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.leaveRequest.deleteMany({ where: { employee: { fullName: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.salaryAdvance.deleteMany({ where: { employee: { fullName: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG } } }).catch(() => {});
-    await prisma.userAccess.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.userSession.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
-  });
 
   describe("PATCH SEMANTICS — fiche employé", () => {
     it("changer le POSTE seul : diff montré, TOUT le reste rejoué (salaires, contrat, drapeaux, actif)", async () => {

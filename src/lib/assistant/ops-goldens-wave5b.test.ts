@@ -31,7 +31,8 @@ let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
 
-const TAG = `__ops5b__${Date.now()}`;
+const PREFIXE = "__ops5b__";
+const TAG = `${PREFIXE}${Date.now()}`;
 const domainArgs = (p: { payload: unknown }) => (p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>).args;
 
 let saId = "";
@@ -53,6 +54,33 @@ const sa = () => userWith({
 }, "SUPER_ADMIN", saId, `${TAG} Amine`);
 
 suite("ops vague 5b — prises en charge, matériel promotionnel, stock", () => {
+  /**
+   * LE MÉNAGE SE FAIT SUR LE PRÉFIXE STABLE, PAS SUR L'ÉTIQUETTE DE CE RUN — et AVANT de semer.
+   *
+   * L'étiquette porte l'horodatage du run (`__xxx__<Date.now()>`). Un ménage qui s'y accroche ne
+   * peut, par construction, jamais ramasser les lignes d'un run PRÉCÉDENT : le jour où un `beforeAll`
+   * expire sous la charge de la suite complète, ses lignes restent en base POUR TOUJOURS. Et elles
+   * ne dorment pas — la résolution d'une cible par son nom trouve alors DEUX « Journée HTA » et
+   * refuse, honnêtement, de choisir. Mesuré : sept tests rouges dans un fichier que personne n'avait
+   * touché, à cause d'un événement oublié par une exécution morte des heures plus tôt.
+   *
+   * Balayer sur le préfixe, avant ET après, rend le fichier auto-réparant : un run qui meurt ne
+   * pénalise que lui-même.
+   */
+  const balayer = async () => {
+    await prisma.promoStockMovement.deleteMany({ where: { item: { name: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.promoStockItem.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.promoMaterial.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.careQuote.deleteMany({ where: { supplier: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.careCell.deleteMany({ where: { beneficiary: { lastName: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.careBeneficiary.deleteMany({ where: { lastName: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.congressNational.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.medicalDoctor.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: PREFIXE } } }).catch(() => {});
+  };
+  beforeAll(balayer);
+  afterAll(balayer);
+
   beforeAll(async () => {
     const s = await prisma.user.create({ data: { name: `${TAG} Amine`, email: `${TAG}s@t.dz`, passwordHash: "x", role: "SUPER_ADMIN" } });
     saId = s.id;
@@ -94,17 +122,6 @@ suite("ops vague 5b — prises en charge, matériel promotionnel, stock", () => 
     await prisma.promoStockMovement.create({ data: { itemId: item.id, kind: "RECEIPT", delta: 100, reason: "Livraison initiale" } });
   });
 
-  afterAll(async () => {
-    await prisma.promoStockMovement.deleteMany({ where: { item: { name: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.promoStockItem.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.promoMaterial.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.careQuote.deleteMany({ where: { supplier: { startsWith: TAG } } }).catch(() => {});
-    await prisma.careCell.deleteMany({ where: { beneficiary: { lastName: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.careBeneficiary.deleteMany({ where: { lastName: { startsWith: TAG } } }).catch(() => {});
-    await prisma.congressNational.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.medicalDoctor.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
-  });
 
   describe("prises en charge — personnes et décisions PAR personne", () => {
     it("add_care_person : le praticien de l'ANNUAIRE se résout (doctorId) ; un inconnu devient PROFIL LIBRE (lastName)", async () => {

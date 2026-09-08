@@ -32,7 +32,8 @@ let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
 
-const TAG = `__ops5__${Date.now()}`;
+const PREFIXE = "__ops5__";
+const TAG = `${PREFIXE}${Date.now()}`;
 const domainArgs = (p: { payload: unknown }) => (p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>).args;
 
 let saId = "";
@@ -56,6 +57,32 @@ const sa = () => userWith({
 }, "SUPER_ADMIN", saId, `${TAG} Amine`);
 
 suite("ops vague 5a — Events, circuits Ad&Pro, postes, Consulting", () => {
+  /**
+   * LE MÉNAGE SE FAIT SUR LE PRÉFIXE STABLE, PAS SUR L'ÉTIQUETTE DE CE RUN — et AVANT de semer.
+   *
+   * L'étiquette porte l'horodatage du run (`__xxx__<Date.now()>`). Un ménage qui s'y accroche ne
+   * peut, par construction, jamais ramasser les lignes d'un run PRÉCÉDENT : le jour où un `beforeAll`
+   * expire sous la charge de la suite complète, ses lignes restent en base POUR TOUJOURS. Et elles
+   * ne dorment pas — la résolution d'une cible par son nom trouve alors DEUX « Journée HTA » et
+   * refuse, honnêtement, de choisir. Mesuré : sept tests rouges dans un fichier que personne n'avait
+   * touché, à cause d'un événement oublié par une exécution morte des heures plus tôt.
+   *
+   * Balayer sur le préfixe, avant ET après, rend le fichier auto-réparant : un run qui meurt ne
+   * pénalise que lui-même.
+   */
+  const balayer = async () => {
+    await prisma.consultingTask.deleteMany({ where: { label: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.consultingContract.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.adProItem.deleteMany({ where: { label: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.congressNational.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.sponsoringRequest.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.eventRegistration.deleteMany({ where: { lastName: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.event.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: PREFIXE } } }).catch(() => {});
+  };
+  beforeAll(balayer);
+  afterAll(balayer);
+
   beforeAll(async () => {
     const [s, pm] = await Promise.all([
       prisma.user.create({ data: { name: `${TAG} Amine`, email: `${TAG}s@t.dz`, passwordHash: "x", role: "SUPER_ADMIN" } }),
@@ -102,16 +129,6 @@ suite("ops vague 5a — Events, circuits Ad&Pro, postes, Consulting", () => {
     taskId = contract.tasks[0].id;
   });
 
-  afterAll(async () => {
-    await prisma.consultingTask.deleteMany({ where: { label: { startsWith: TAG } } }).catch(() => {});
-    await prisma.consultingContract.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.adProItem.deleteMany({ where: { label: { startsWith: TAG } } }).catch(() => {});
-    await prisma.congressNational.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.sponsoringRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.eventRegistration.deleteMany({ where: { lastName: { startsWith: TAG } } }).catch(() => {});
-    await prisma.event.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
-  });
 
   describe("Events — FUSION de la fiche, inscriptions", () => {
     it("update_event : changer le SEUL statut rejoue type, format, lieu, capacité et budget (les enums-pièges compris)", async () => {

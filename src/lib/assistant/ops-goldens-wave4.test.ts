@@ -30,7 +30,8 @@ let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
 
-const TAG = `__ops4__${Date.now()}`;
+const PREFIXE = "__ops4__";
+const TAG = `${PREFIXE}${Date.now()}`;
 const domainArgs = (p: { payload: unknown }) => (p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>).args;
 
 let saId = "";
@@ -53,6 +54,39 @@ const sa = () => userWith({
 const other = () => userWith({ WORKSPACE: ["VIEW"] }, "MEDICAL_DELEGATE", otherId, `${TAG} Walid`);
 
 suite("ops vague 4a — Regulatory reste, PCH, Stocks, Ventes, Logistique", () => {
+  /**
+   * LE MÉNAGE SE FAIT SUR LE PRÉFIXE STABLE, PAS SUR L'ÉTIQUETTE DE CE RUN — et AVANT de semer.
+   *
+   * L'étiquette porte l'horodatage du run (`__xxx__<Date.now()>`). Un ménage qui s'y accroche ne
+   * peut, par construction, jamais ramasser les lignes d'un run PRÉCÉDENT : le jour où un `beforeAll`
+   * expire sous la charge de la suite complète, ses lignes restent en base POUR TOUJOURS. Et elles
+   * ne dorment pas — la résolution d'une cible par son nom trouve alors DEUX « Journée HTA » et
+   * refuse, honnêtement, de choisir. Mesuré : sept tests rouges dans un fichier que personne n'avait
+   * touché, à cause d'un événement oublié par une exécution morte des heures plus tôt.
+   *
+   * Balayer sur le préfixe, avant ET après, rend le fichier auto-réparant : un run qui meurt ne
+   * pénalise que lui-même.
+   */
+  const balayer = async () => {
+    await prisma.stockSnapshot.deleteMany({ where: { annex: { name: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.stockSnapshot.deleteMany({ where: { product: { reference: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.stockAnnex.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.pchOrder.deleteMany({ where: { tender: { reference: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.pchTenderLine.deleteMany({ where: { tender: { reference: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.pchTender.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.bdProduct.deleteMany({ where: { dci: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.bdRange.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.bdProject.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.regulatoryVariation.deleteMany({ where: { product: { reference: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.regulatoryProduct.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.logisticsOrder.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.supplier.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.sale.deleteMany({ where: { product: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: PREFIXE } } }).catch(() => {});
+  };
+  beforeAll(balayer);
+  afterAll(balayer);
+
   beforeAll(async () => {
     const [s, o] = await Promise.all([
       prisma.user.create({ data: { name: `${TAG} Amine`, email: `${TAG}s@t.dz`, passwordHash: "x", role: "SUPER_ADMIN" } }),
@@ -113,23 +147,6 @@ suite("ops vague 4a — Regulatory reste, PCH, Stocks, Ventes, Logistique", () =
     shipmentId = shipment.id;
   });
 
-  afterAll(async () => {
-    await prisma.stockSnapshot.deleteMany({ where: { annex: { name: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.stockSnapshot.deleteMany({ where: { product: { reference: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.stockAnnex.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.pchOrder.deleteMany({ where: { tender: { reference: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.pchTenderLine.deleteMany({ where: { tender: { reference: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.pchTender.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.bdProduct.deleteMany({ where: { dci: { startsWith: TAG } } }).catch(() => {});
-    await prisma.bdRange.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.bdProject.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.regulatoryVariation.deleteMany({ where: { product: { reference: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.regulatoryProduct.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.logisticsOrder.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.supplier.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.sale.deleteMany({ where: { product: { startsWith: TAG } } }).catch(() => {});
-    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
-  });
 
   describe("Regulatory — reste du dossier", () => {
     it("set_step_note : l'étape se donne par NUMÉRO (« 6 » = Demande de présoumission) ; « aucune » efface", async () => {

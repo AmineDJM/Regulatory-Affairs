@@ -32,7 +32,8 @@ let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
 
-const TAG = `__opsfin__${Date.now()}`;
+const PREFIXE = "__opsfin__";
+const TAG = `${PREFIXE}${Date.now()}`;
 const domainArgs = (p: { payload: unknown }) => (p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>).args;
 
 let finId = "";
@@ -52,6 +53,41 @@ const rh = () => userWith({ RH: ["VIEW", "UPDATE"] }, "FINANCE_BUDGET_MANAGER", 
 const outsider = () => userWith({ WORKSPACE: ["VIEW"] }, "MEDICAL_DELEGATE", colleagueId, `${TAG} Sara`);
 
 suite("ops FINANCES vague 1 — budgets, caisse, paiements, écritures, paie (goldens)", () => {
+  /**
+   * LE MÉNAGE SE FAIT SUR LE PRÉFIXE STABLE, PAS SUR L'ÉTIQUETTE DE CE RUN — et AVANT de semer.
+   *
+   * L'étiquette porte l'horodatage du run (`__xxx__<Date.now()>`). Un ménage qui s'y accroche ne
+   * peut, par construction, jamais ramasser les lignes d'un run PRÉCÉDENT : le jour où un `beforeAll`
+   * expire sous la charge de la suite complète, ses lignes restent en base POUR TOUJOURS. Et elles
+   * ne dorment pas — la résolution d'une cible par son nom trouve alors DEUX « Journée HTA » et
+   * refuse, honnêtement, de choisir. Mesuré : sept tests rouges dans un fichier que personne n'avait
+   * touché, à cause d'un événement oublié par une exécution morte des heures plus tôt.
+   *
+   * Balayer sur le préfixe, avant ET après, rend le fichier auto-réparant : un run qui meurt ne
+   * pénalise que lui-même.
+   */
+  const balayer = async () => {
+    await prisma.paymentPiece.deleteMany({ where: { request: { reference: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.paymentRequestEvent.deleteMany({ where: { request: { reference: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.paymentRequest.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.document.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.payrollEntry.deleteMany({ where: { employee: { fullName: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.employee.deleteMany({ where: { fullName: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.budgetExpenseLine.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.budgetCategoryLine.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.budgetEnvelope.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.financeTransaction.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.treasuryAccount.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.legalDocument.deleteMany({ where: { title: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.expenseOrder.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.pettyCashPlan.deleteMany({ where: { department: { name: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.pettyCashAllotment.deleteMany({ where: { department: { name: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.department.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: PREFIXE } } }).catch(() => {});
+  };
+  beforeAll(balayer);
+  afterAll(balayer);
+
   beforeAll(async () => {
     const [f, c, v] = await Promise.all([
       prisma.user.create({ data: { name: `${TAG} Nadia`, email: `${TAG}f@t.dz`, passwordHash: "x", role: "FINANCE_BUDGET_MANAGER" } }),
@@ -139,25 +175,6 @@ suite("ops FINANCES vague 1 — budgets, caisse, paiements, écritures, paie (go
     });
   });
 
-  afterAll(async () => {
-    await prisma.paymentPiece.deleteMany({ where: { request: { reference: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.paymentRequestEvent.deleteMany({ where: { request: { reference: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.paymentRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.document.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.payrollEntry.deleteMany({ where: { employee: { fullName: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG } } }).catch(() => {});
-    await prisma.budgetExpenseLine.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.budgetCategoryLine.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.budgetEnvelope.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.financeTransaction.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.treasuryAccount.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.legalDocument.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
-    await prisma.expenseOrder.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.pettyCashPlan.deleteMany({ where: { department: { name: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.pettyCashAllotment.deleteMany({ where: { department: { name: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.department.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
-  });
 
   describe("budgets — enveloppes, catégories, imputations (FUSION, CRITIQUE)", () => {
     it("create_envelope : nom + montant proposés, porte BUDGETS", async () => {

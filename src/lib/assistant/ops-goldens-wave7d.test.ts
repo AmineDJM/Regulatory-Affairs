@@ -32,7 +32,8 @@ let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
 
-const TAG = `__ops7d__${Date.now()}`;
+const PREFIXE = "__ops7d__";
+const TAG = `${PREFIXE}${Date.now()}`;
 const domainArgs = (p: { payload: unknown }) => (p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>).args;
 
 let saId = "";
@@ -106,16 +107,16 @@ suite("ops vague 7d — administration profonde", () => {
 
   afterAll(async () => {
     if (aiBefore) await prisma.aiSetting.update({ where: { id: "global" }, data: { masterEnabled: aiBefore.masterEnabled } }).catch(() => {});
-    await prisma.customFieldDef.deleteMany({ where: { label: { startsWith: TAG } } }).catch(() => {});
+    await prisma.customFieldDef.deleteMany({ where: { label: { startsWith: PREFIXE } } }).catch(() => {});
     await prisma.rowGrant.deleteMany({ where: { entityId: { in: [productAId, productBId] } } }).catch(() => {});
-    await prisma.regulatoryProduct.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.mailEntry.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
-    await prisma.driveNode.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.department.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG } } }).catch(() => {});
-    await prisma.companyLegalIdentity.deleteMany({ where: { company: { name: { startsWith: TAG } } } }).catch(() => {});
-    await prisma.company.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
-    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
+    await prisma.regulatoryProduct.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.mailEntry.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.driveNode.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.department.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.employee.deleteMany({ where: { fullName: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.companyLegalIdentity.deleteMany({ where: { company: { name: { startsWith: PREFIXE } } } }).catch(() => {});
+    await prisma.company.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: PREFIXE } } }).catch(() => {});
   });
 
   it("update_company : renommer SEUL rejoue nom court, couleur et activation (FUSION)", async () => {
