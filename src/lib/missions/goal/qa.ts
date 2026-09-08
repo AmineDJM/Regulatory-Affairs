@@ -336,10 +336,19 @@ export async function controleComplet(
     .filter((s) => dansPortee(s.key) && NOEUDS_ATTENTE.has(s.nodeType) && s.status === "DONE" && s.result)
     .map((s) => ({ step: s, apportes: faitsChiffres(paroleDe(s.result)) }));
   if (attentes.length > 0) {
+    // CE QUI COMPTE COMME SURVIE. La sortie d'une étape, toujours. Son ENTRÉE, seulement quand
+    // l'étape a produit un EFFET — un envoi, une écriture ERP, un fichier : là, ce qui est entré
+    // est ce qui a été écrit, et le fait a quitté la mission. L'entrée d'un WORKER, jamais : le
+    // moteur vient de l'y injecter, et la compter rendrait le contrôle toujours vrai (§118.17) —
+    // c'est-à-dire vrai dans le cas EXACT qu'il existe pour attraper.
+    const aProduitUnEffet = (s: EtatMission["steps"][number]): boolean =>
+      s.nodeType === "ARTIFACT"
+      || (s.capability !== null
+        && EFFECT_RANK[s.recu?.effect ?? capabilityMeta(s.capability).effect] >= EFFECT_RANK.INTERNAL_REVERSIBLE_WRITE);
     const sorties = mission.steps
       .filter((s) => dansPortee(s.key) && s.status === "DONE" && !NOEUDS_ATTENTE.has(s.nodeType))
       .map((s) => JSON.stringify(s.result ?? null)
-        + (estEffetExterne(s) ? ` ${JSON.stringify(s.input ?? null)}` : ""))
+        + (aProduitUnEffet(s) ? ` ${JSON.stringify(s.input ?? null)}` : ""))
       .join(" ");
     const chiffresDesSorties = new Set(faitsChiffres(sorties));
     const perdues = attentes.filter((a) =>

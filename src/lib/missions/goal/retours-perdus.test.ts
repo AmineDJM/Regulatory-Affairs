@@ -111,6 +111,21 @@ describe("un retour humain recueilli ne se perd pas en silence", () => {
     expect(constat(r)!.ok).toBe(true);
   });
 
+  it("une ÉCRITURE ERP qui pose le chiffre compte aussi — le fait a quitté la mission", async () => {
+    const { controleComplet } = await import("@/lib/missions/goal/qa");
+    const r = await controleComplet(mission([
+      attente,
+      etape({
+        key: "poser-prix", status: "DONE", capability: "update_record",
+        // Ce que l'écriture reçoit EST ce qu'elle écrit ; sa sortie n'est qu'un accusé.
+        input: { entite: "PRODUIT:nivolex", champ: "prixCession", valeur: "84 500" },
+        result: { updated: true }, receipt: "rec-2",
+        recu: { effect: "INTERNAL_REVERSIBLE_WRITE", issue: "SUCCES" } as unknown as EtatEtape["recu"],
+      }),
+    ]));
+    expect(constat(r)!.ok).toBe(true);
+  });
+
   it("une attente sans aucun chiffre ne peut rien perdre — le contrôle ne l'invente pas", async () => {
     const { controleComplet } = await import("@/lib/missions/goal/qa");
     const r = await controleComplet(mission([

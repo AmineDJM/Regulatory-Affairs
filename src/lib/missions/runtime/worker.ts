@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { rendreEntrees } from "@/lib/missions/runtime/entrees";
 import type { Reasoner } from "@/lib/missions/ports";
 import type { EtatEtape, EtatMission } from "@/lib/missions/runtime/store";
 import type { StepContext, StepOutcome } from "@/lib/missions/runtime/engine";
@@ -240,9 +241,12 @@ export function composerPromptWorker(spec: WorkerSpecification): { partage: stri
   const specifique = [
     `TON OBJECTIF PRÉCIS : ${spec.objective}`,
     spec.completionCondition ? `\nCE QUI FERA QUE C'EST FINI : ${spec.completionCondition}` : "",
-    `\nTES ENTRÉES :\n${JSON.stringify(spec.specific.input, null, 2).slice(0, 6000)}`,
+    // AUCUNE ENTRÉE NE DISPARAÎT, ET CE QUI EST COUPÉ LE DIT (`runtime/entrees.ts`). La coupe
+    // brute d'avant mangeait les réponses humaines derrière deux dossiers ERP, et le modèle
+    // écrivait « non fourni » sur ce qu'on venait d'aller chercher auprès de quatre personnes.
+    `\nTES ENTRÉES :\n${rendreEntrees(spec.specific.input)}`,
     Object.keys(spec.specific.amont).length > 0
-      ? `\nRÉSULTATS DES ÉTAPES DONT TU DÉPENDS :\n${JSON.stringify(spec.specific.amont).slice(0, 6000)}`
+      ? `\nRÉSULTATS DES ÉTAPES DONT TU DÉPENDS :\n${rendreEntrees(spec.specific.amont)}`
       : "",
   ].filter(Boolean).join("\n");
 
