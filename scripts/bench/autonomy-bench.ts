@@ -196,7 +196,8 @@ async function main(): Promise<void> {
     const o: Observation = {
       id: m.id, famille: m.famille, profondeur: mode, exigences: m.exigences, cardinalite: m.cardinalite,
       lancee: false, differe: false, erreurLancement: null, refus: [], statut: null, etapes: 0, noeuds: {},
-      capacites: [], primitives: [], domaines: [], lectures: [], ecritures: [], attentes: 0, artefacts: 0, iterations: 0,
+      capacites: [], primitives: [], domaines: [], lectures: [], ecritures: [], ecrituresFaites: [], limitesNommees: [],
+      attentes: 0, artefacts: 0, iterations: 0,
       horsDroit: [], echecs: [], jugeSatisfait: null, aDemande: false, aDemandeAccord: false,
       faitsSansProvenance: 0, manqueNomme: false, reprises: 0, appelsModele: 0, coutUsd: null, ms: 0,
     };
@@ -254,6 +255,21 @@ async function main(): Promise<void> {
         o.capacites = caps;
         o.lectures = caps.filter((c) => !registre(c).ecrit);
         o.ecritures = caps.filter((c) => registre(c).ecrit);
+        // CE QUI A RÉELLEMENT ÉCRIT, et non ce que le plan prévoyait : une étape arrêtée sur une
+        // porte d'approbation n'a rien engagé, et s'y arrêter est la conduite exigée.
+        o.ecrituresFaites = [...new Set(actives
+          .filter((s) => s.status === "DONE" && s.capability && registre(s.capability).ecrit)
+          .map((s) => s.capability!))];
+        // LA LIMITE QUE L'OUTIL A NOMMÉE en s'y cassant les dents : `{ limite, manquantes }`,
+        // le vocabulaire que les capacités emploient déjà pour dire « une ressource manque ».
+        o.limitesNommees = actives.flatMap((s) => {
+          const r = s.result;
+          if (!r || typeof r !== "object" || Array.isArray(r)) return [];
+          const o2 = r as Record<string, unknown>;
+          const manquantes = Array.isArray(o2.manquantes) ? o2.manquantes.map(String) : [];
+          if (typeof o2.limite !== "string" && manquantes.length === 0) return [];
+          return [`${s.key} : ${String(o2.limite ?? "LIMITE")}${manquantes.length > 0 ? ` (${manquantes.join(", ")})` : ""}`];
+        });
         o.primitives = [...new Set(caps.map((c) => registre(c).primitive))];
         o.domaines = [...new Set(caps.map((c) => registre(c).domaine))];
         o.horsDroit = caps.filter((c) => !estAutorisee(c));

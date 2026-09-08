@@ -36,7 +36,7 @@ const MONDE: Monde = {
 const obs = (o: Partial<Observation>): Observation => ({
   id: "t", famille: "FINANCE", profondeur: "COMPLET", exigences: [], cardinalite: null,
   lancee: true, differe: false, erreurLancement: null, refus: [],
-  statut: "COMPLETED", etapes: 3, noeuds: {}, capacites: [], primitives: [], domaines: [], lectures: [], ecritures: [],
+  statut: "COMPLETED", etapes: 3, noeuds: {}, capacites: [], primitives: [], domaines: [], lectures: [], ecritures: [], ecrituresFaites: [], limitesNommees: [],
   attentes: 0, artefacts: 0, iterations: 0, horsDroit: [], echecs: [],
   jugeSatisfait: true, aDemande: false, aDemandeAccord: false, faitsSansProvenance: 0,
   manqueNomme: false, reprises: 0, appelsModele: 1, coutUsd: 0.01, ms: 1000, ...o,
@@ -189,6 +189,44 @@ describe("banc d'autonomie — le verdict", () => {
     expect(t[0]!.ok).toBe(true);
     const sans = verifierExigences(obs({ exigences: ["CALCUL"], capacites: ["search_everything"], primitives: ["INFORMATION"] }));
     expect(sans[0]!.ok).toBe(false);
+  });
+
+  /**
+   * ── DEUX ASSERTIONS QUI TOMBAIENT SUR LA BONNE CONDUITE (§118.17) ────────────────────
+   *
+   * Mesuré sur le banc du 08/09, famille INFAISABLE, 2/6. Les quatre « échecs » étaient des
+   * réussites : deux missions arrêtées sur une porte d'approbation sans rien avoir écrit, deux
+   * missions qui ont nommé la ressource manquante en toutes lettres (« connecteur iqvia non
+   * configuré : IQVIA_BASE_URL, IQVIA_API_KEY »). Une assertion qui punit la conduite exigée
+   * pousse à réparer ce qui marche : c'est le pire défaut qu'un banc puisse avoir.
+   */
+  it("une écriture PLANIFIÉE mais arrêtée sur une approbation ne compte pas comme une écriture", () => {
+    const arrete = verifierExigences(obs({
+      exigences: ["INFAISABLE"], profondeur: "PLAN", manqueNomme: true,
+      ecritures: ["docusign_envoyer_pour_signature"], ecrituresFaites: [],
+    }));
+    expect(arrete.find((e) => e.exigence === "INFAISABLE")!.ok).toBe(true);
+
+    // ET LE CAS QUI LA FAIT TOMBER : la même capacité, RÉELLEMENT exécutée.
+    const faite = verifierExigences(obs({
+      exigences: ["INFAISABLE"], profondeur: "PLAN", manqueNomme: true,
+      ecritures: ["docusign_envoyer_pour_signature"], ecrituresFaites: ["docusign_envoyer_pour_signature"],
+    }));
+    expect(faite.find((e) => e.exigence === "INFAISABLE")!.ok).toBe(false);
+  });
+
+  it("une limite nommée À L'EXÉCUTION vaut un manque annoncé — une ressource absente ne se voit pas d'avance", () => {
+    const nommee = verifierExigences(obs({
+      exigences: ["INFAISABLE"], profondeur: "PLAN", manqueNomme: false,
+      limitesNommees: ["lecture:iqvia : RESSOURCE (IQVIA_BASE_URL, IQVIA_API_KEY)"],
+    }));
+    const v = nommee.find((e) => e.exigence === "INFAISABLE")!;
+    expect(v.ok).toBe(true);
+    expect(v.constat).toContain("IQVIA_BASE_URL");
+
+    // LE CAS QUI LA FAIT TOMBER : rien d'annoncé, rien de nommé, et la mission a tourné.
+    const muette = verifierExigences(obs({ exigences: ["INFAISABLE"], profondeur: "PLAN", manqueNomme: false }));
+    expect(muette.find((e) => e.exigence === "INFAISABLE")!.ok).toBe(false);
   });
 
   it("« plusieurs sources » se compte en DOMAINES du registre, pas en préfixes de noms", () => {
