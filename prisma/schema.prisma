@@ -10177,6 +10177,11 @@ model AssistantReminder {
   watchType    String?
   watchId      String?
   watchLabel   String?
+  /// PAR OÙ le rappel arrive : NOTIFICATION (défaut — notification interne + push), EMAIL, ou
+  /// LES_DEUX. L'e-mail ne part que vers les adresses que la personne a DÉCLARÉES pour elle-même
+  /// et sous la nature RAPPEL, l'une des huit qu'elle a autorisées sans confirmation (§118.39) ;
+  /// sans adresse lisible, le rappel retombe sur la notification et le DIT.
+  channel      String    @default("NOTIFICATION")
   active       Boolean   @default(true)
   lastFiredAt  DateTime?
   /// ÉCHELLE DE RELANCES — heures après chaque tir (« rappelle demain ; si rien, +48 h puis

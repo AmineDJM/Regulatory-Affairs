@@ -212,13 +212,46 @@ export async function runAssistantReminders(now: Date = new Date()): Promise<voi
           : `C'est réglé (${watch.detail}) — surveillance terminée.`)
       : null;
 
+    const corps = watchLine ?? r.note ?? (r.recurrence !== "NONE" ? `Rappel ${RECURRENCE_LABEL[r.recurrence as ReminderRecurrence] ?? ""}.` : undefined);
+
+    /**
+     * ── LE CANAL DEMANDÉ, ET LE DIRE QUAND IL N'A PAS PU SERVIR ───────────────────────────
+     *
+     * Un rappel ne connaissait que la notification interne. « Envoie-moi un mail dans deux
+     * minutes » recevait donc « je ne peux pas programmer un e-mail différé dans cette
+     * session » — vrai du mécanisme, faux de l'architecture : l'ordonnanceur vise la minute,
+     * la boîte connectée sait envoyer, et le dirigeant a AUTORISÉ par écrit la nature RAPPEL
+     * sans confirmation (§118.39). Il ne manquait que la jonction.
+     *
+     * L'envoi passe par la porte de l'autonomie : nature RAPPEL, destinataires limités aux
+     * adresses que la personne a déclarées pour elle-même. Ce qui n'a pas pu partir est DIT
+     * dans la notification — un e-mail promis et jamais reçu, sans un mot, est pire que pas
+     * d'e-mail du tout.
+     */
+    let noteCanal: string | null = null;
+    if (r.channel === "EMAIL" || r.channel === "LES_DEUX") {
+      const { ecrireAuProprietaire } = await import("@/platform/in-process/courrier/proprietaire");
+      const envoi = await ecrireAuProprietaire({
+        ownerId: r.userId, nature: "RAPPEL",
+        sujet: `Rappel — ${r.title}`,
+        corps: [corps, r.link ? `Ouvrir : ${r.link}` : null].filter(Boolean).join("\n\n") || r.title,
+      }).catch((e) => {
+        console.error("[reminders] mail owner failed", e);
+        return { issue: "echec" as const, motif: "l'envoi a échoué", destinataires: [] as string[] };
+      });
+      if (envoi.issue !== "envoye") noteCanal = `E-mail non envoyé : ${envoi.motif}.`;
+      // EMAIL SEUL et l'envoi a réussi : la notification interne serait un doublon. Elle reste
+      // dans tous les autres cas — y compris l'échec, qui est justement ce qu'il faut voir.
+      if (r.channel === "EMAIL" && envoi.issue === "envoye") continue;
+    }
+
     // Le pop-up passe par la diffusion ciblée (`broadcastNotification`), la seule porte qui
     // sache l'afficher en plein écran : un rappel qu'on a demandé mérite d'interrompre.
     await broadcastNotification({
       audience: "USERS",
       userIds: [r.userId],
       title: `Rappel — ${r.title}`,
-      body: watchLine ?? r.note ?? (r.recurrence !== "NONE" ? `Rappel ${RECURRENCE_LABEL[r.recurrence as ReminderRecurrence] ?? ""}.` : undefined),
+      body: [corps, noteCanal].filter(Boolean).join(" — ") || undefined,
       link: r.link ?? "/chief-of-staff",
       popup: true,
     }).catch((e) => console.error("[reminders] notify owner failed", e));

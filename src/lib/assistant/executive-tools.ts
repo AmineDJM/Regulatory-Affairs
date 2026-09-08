@@ -928,6 +928,9 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         "`recurrence` : NONE (une fois), DAILY, WEEKLY, MONTHLY (même quantième), MONTHLY_WEEKDAY (même Nième jour de semaine — " +
         "pour « chaque premier lundi du mois », donner comme première échéance un premier lundi). " +
         "`target_role` (rôle à RELANCER) et/ou `target_person` (personne NOMMÉE à relancer) — sans eux, seul l'utilisateur est prévenu. " +
+        "`canal` : par où le rappel ARRIVE — « notification » (défaut : notification interne + push), « email » (dans sa boîte), " +
+        "« les_deux ». OUI, un e-mail différé est possible, à la minute près : « envoie-moi un mail dans 2 minutes », " +
+        "« réveille-moi à 20h45 par mail » = plan_reminder avec quand=« dans 2 minutes » et canal=« email ». " +
         "`link` (optionnel) = page interne à rouvrir. Calculer soi-même la date exacte à partir de la date du jour donnée en contexte. " +
         "Pour un POINT QUOTIDIEN (« tous les jours à 8h fais-moi mon point ») : DAILY à 08:00, link=/chief-of-staff, note « Point du matin ».",
       input_schema: {
@@ -947,6 +950,12 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           recurrence: { type: "string", enum: [...REMINDER_RECURRENCES], description: "NONE, DAILY, WEEKLY, MONTHLY ou MONTHLY_WEEKDAY." },
           target_role: { type: "string", enum: Object.keys(ROLE_LABELS), description: "Rôle à relancer à chaque échéance (code rôle interne — pas un nom d'équipe : « Équipe Regulatory » se dit HEAD_OF_REGULATORY ou REGULATORY_ASSISTANT)." },
           target_person: { type: "string", description: "Nom d'une personne précise à relancer à chaque échéance." },
+          canal: {
+            type: "string", enum: ["notification", "email", "les_deux"],
+            description: "Par où le rappel arrive chez l'utilisateur : « notification » (défaut), « email », « les_deux ». "
+              + "L'e-mail part vers les adresses que la personne a DÉCLARÉES pour elle-même ; sans adresse lisible ou sans boîte "
+              + "connectée, le rappel retombe sur la notification et le DIT — il ne disparaît jamais en silence.",
+          },
           watch_reference: { type: "string", description: "SURVEILLANCE CONDITIONNELLE : référence d'un règlement (ORD-…), d'une demande de paiement (PAY-…), d'une validation (VAL-…) ou fragment du titre d'une tâche. À l'échéance, le rappel RELIT l'entité : encore en attente → il prévient l'utilisateur ; réglée → il le dit et s'éteint. Pour « si ce paiement n'est pas validé sous 48 h, préviens-moi »." },
           note: { type: "string", description: "Le message de la relance / le détail du rappel." },
           link: { type: "string", description: "Lien interne (/regulatory, /legal/…)." },
@@ -1064,9 +1073,17 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
           }
         : null;
 
+      /**
+       * LE CANAL — « notification » (défaut), « email », « les_deux ». On ne DEVINE pas : une
+       * valeur non reconnue retombe sur la notification, jamais sur un envoi. Un e-mail parti
+       * par erreur d'interprétation ne se rattrape pas.
+       */
+      const canalDemande = str(input, "canal").toLowerCase();
+      const channel = canalDemande === "email" ? "EMAIL" : canalDemande === "les_deux" ? "LES_DEUX" : "NOTIFICATION";
+
       const created = await prisma.assistantReminder.create({
         data: {
-          userId: user.id, title, dueAt, recurrence,
+          userId: user.id, title, dueAt, recurrence, channel,
           targetRole: roleRaw || null,
           targetUserId,
           watchType, watchId, watchLabel,
@@ -1092,7 +1109,12 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         extinction: stopFrom
           ? `s'éteint tout seul dès qu'un e-mail ${input.stop_needs_attachment === true ? "AVEC pièce jointe " : ""}arrive de « ${stopFrom} »`
           : null,
-        note: "À l'échéance : pop-up pour vous" + (relances.length ? ` et relance envoyée à ${relances.join(" et ")}` : "")
+        canal: channel === "EMAIL" ? "e-mail" : channel === "LES_DEUX" ? "e-mail et notification" : "notification",
+        note: "À l'échéance : "
+          + (channel === "NOTIFICATION" ? "pop-up pour vous"
+            : channel === "EMAIL" ? "un e-mail vers vos adresses déclarées (sans adresse lisible, la notification prend le relais et le dit)"
+              : "un e-mail vers vos adresses déclarées ET un pop-up")
+          + (relances.length ? ` et relance envoyée à ${relances.join(" et ")}` : "")
           + (watchLabel ? `. Surveillance : si « ${watchLabel} » est réglé d'ici là, le rappel le dit et s'éteint ; sinon il vous prévient (vous seul).` : "") + ".",
       });
     },

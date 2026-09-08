@@ -24,8 +24,10 @@
  */
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
-import { getMailAccount, sendMail } from "@/lib/mail";
 import { lireAdressesDeContact } from "@/lib/personnes/joignabilite";
+// LE MÊME transport que les rappels — en écrire un second donnerait deux façons d'envoyer un
+// e-mail au dirigeant, qui divergeraient (§118.5).
+import { envoyerParBoiteConnectee, type IssueEnvoi } from "@/platform/in-process/courrier/proprietaire";
 import { journaliser } from "@/lib/missions/runtime/store";
 import { capabilityMeta } from "@/lib/missions/registry/capability-meta";
 import {
@@ -38,7 +40,7 @@ import { connecteursMessagerie, executerOutilDynamique } from "@/platform/in-pro
 import { outilDeCanal, type CanalMessagerie } from "@/lib/skills/plugins";
 import { proprietaire } from "@/platform/in-process/missions/proprietaire";
 
-export type IssueEnvoi = "envoye" | "sans-boite" | "echec";
+export type { IssueEnvoi };
 export type IssueConnecteur = "envoye" | "echec" | "non-configure" | "sans-destinataire";
 
 /** Ce que la porte a appris de la personne : son canal, sa destination sur ce canal, ses heures de silence, ses connecteurs. */
@@ -77,39 +79,6 @@ export function heureLocale(d: Date, fuseau = FUSEAU_ATTENTION): number {
   }
 }
 
-/**
- * ── ADAM S'ÉCRIVAIT À LUI-MÊME ──────────────────────────────────────────────────────────
- *
- * Ce chemin écrivait `to: compte.email` : la boîte de l'ERP, à elle-même. La personne ne
- * voyait rien tant qu'elle n'ouvrait pas CETTE boîte-là. Pendant ce temps sa préférence de
- * canal portait déjà une destination — `lireCanal` la rendait, les connecteurs Slack, Teams,
- * WhatsApp la recevaient — et le seul canal qui en avait besoin la jetait.
- *
- * On envoie donc là où la personne a dit qu'on la joint : la première adresse déclarée, les
- * autres en copie. Sans déclaration, on retombe exactement sur l'ancien comportement — c'est
- * une capacité qu'on ajoute, pas un envoi qu'on redirige au hasard.
- */
-async function envoyerParBoiteConnectee(
-  ownerId: string,
-  sujet: string,
-  corps: string,
-  adresses: readonly string[] = [],
-): Promise<IssueEnvoi> {
-  const compte = await getMailAccount(ownerId).catch(() => null);
-  if (!compte) return "sans-boite";
-  const [principale, ...copies] = adresses;
-  try {
-    await sendMail(compte, {
-      to: principale ?? compte.email,
-      ...(copies.length > 0 ? { cc: copies.join(", ") } : {}),
-      subject: sujet,
-      text: corps,
-    });
-    return "envoye";
-  } catch {
-    return "echec";
-  }
-}
 
 /**
  * LE CONNECTEUR, par le runtime des skills : le même outil `<canal>_envoyer_message` que la
