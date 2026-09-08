@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classerLimite, complementDeLimite, gardeAbsence, gardeImpossibilite, paraitImpossibilite, RAPPEL_DECOUVERTE, RAPPEL_ELARGISSEMENT, prometUnSuivi, gardePromesse, avertirPromesseSansObjet, OUTILS_DURABLES } from "./limites";
+import { classerLimite, complementDeLimite, gardeAbsence, gardeImpossibilite, paraitImpossibilite, RAPPEL_DECOUVERTE, RAPPEL_ELARGISSEMENT, prometUnSuivi, gardePromesse, avertirPromesseSansObjet, OUTILS_DURABLES, absenceDiteVerifiee, avertirAbsenceNonProuvable } from "./limites";
 
 /**
  * LES LIMITES DITES JUSTE — la découverte avant l'impossible (une fois), l'acceptation après, et
@@ -156,5 +156,51 @@ describe("une promesse ne vit pas dans une phrase", () => {
     expect(OUTILS_DURABLES).toContain("watch_entity");
     expect(OUTILS_DURABLES).toContain("run_mission");
     expect(OUTILS_DURABLES, "une lecture n'est pas un suivi").not.toContain("gmail_search");
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * « FAIT VÉRIFIÉ : aucun X » — la plus forte étiquette sur ce qu'on n'a PAS vu.
+ *
+ * Mesuré : « FAIT VÉRIFIÉ : aucun rappel ni suivi conditionnel n'était planifié. » Cette
+ * phrase-là était juste — la table des rappels fait foi sur son propre contenu — mais RIEN dans
+ * le code ne le savait au moment de l'écrire. La même phrase après une recherche dans l'index
+ * de contenu du Drive aurait porté la même étiquette, et elle aurait été fausse.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("une absence n'est « vérifiée » que si une source peut la démontrer", () => {
+  const affirmation = "FAIT VÉRIFIÉ : aucun rappel n'était planifié.";
+
+  it("sans source capable de démontrer une absence, l'étiquette est nuancée", () => {
+    const n = avertirAbsenceNonProuvable({ reponse: affirmation, faitsProuvantUneAbsence: 0 });
+    expect(n).toMatch(/ne permet de DÉMONTRER une absence/);
+    expect(n, "la reformulation juste doit être donnée, pas seulement le reproche")
+      .toMatch(/rien trouvé dans ce que j'ai pu consulter/);
+  });
+
+  it("AVEC une source qui fait foi sur l'absence, on se tait — « vérifié » est le mot juste", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : nuancer tout le temps. Affaiblir une réponse correcte
+     * apprend à ignorer la nuance, et la garde suivante ne sera plus lue (§118.32).
+     */
+    expect(avertirAbsenceNonProuvable({ reponse: affirmation, faitsProuvantUneAbsence: 2 })).toBeNull();
+  });
+
+  it("une absence dite SANS étiquette forte ne déclenche rien — c'est déjà honnête", () => {
+    expect(absenceDiteVerifiee("Je n'ai rien trouvé sur ce contrat.")).toBe(false);
+    expect(avertirAbsenceNonProuvable({ reponse: "Je n'ai rien trouvé sur ce contrat.", faitsProuvantUneAbsence: 0 })).toBeNull();
+  });
+
+  it("une étiquette forte SANS absence ne déclenche rien — un fait positif se vérifie très bien", () => {
+    expect(absenceDiteVerifiee("FAIT VÉRIFIÉ : le montant est de 142 800 DZD.")).toBe(false);
+  });
+
+  it("la garde est branchée au PASSAGE COMMUN des deux boucles, pas sur un return (§118.49)", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("src/lib/assistant.ts", "utf8");
+    // Deux chemins de réponse, deux `avecProvenance` : la garde doit être dans les DEUX.
+    expect(src.split("avertirAbsenceNonProuvable({").length - 1, "un des deux chemins ne l'appelle pas").toBe(2);
+    expect(src).toMatch(/f\.preuveNegative === true/);
   });
 });

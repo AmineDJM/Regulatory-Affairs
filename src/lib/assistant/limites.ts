@@ -354,3 +354,88 @@ export function avertirPromesseSansObjet(reponse: string, outilsUtilises: readon
   return "⚠️ Rien n'a été programmé pour ce suivi : aucun rappel, aucune surveillance, aucune mission. "
     + "Il ne survivra pas à cette conversation — demandez-moi de poser un rappel ou une surveillance si vous voulez que j'y revienne.";
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * « FAIT VÉRIFIÉ : aucun X » — la plus forte étiquette posée sur ce qu'on n'a PAS vu.
+ *
+ * ── LE CAS MESURÉ ───────────────────────────────────────────────────────────────────────
+ *
+ *     « FAIT VÉRIFIÉ : aucun rappel ni suivi conditionnel n'était planifié. »
+ *
+ * Cette phrase-là était juste : la table des rappels fait foi sur son propre contenu. Mais RIEN
+ * dans le code ne le savait au moment de l'écrire — la même phrase après une recherche dans
+ * l'index de contenu du Drive aurait porté la même étiquette, et elle aurait été fausse.
+ *
+ * ── CE QUE LE SOCLE SAIT DÉJÀ, ET QUE PERSONNE NE CONFRONTAIT ───────────────────────────
+ *
+ * `DescripteurSource.preuveNegative` dit, source par source, si une absence y est DÉMONTRABLE :
+ * vrai quand un compte exhaustif est possible (une table bornée par un WHERE), faux quand la
+ * couverture est partielle par nature. L'index de contenu ne couvre que les fichiers déjà
+ * ingérés : « pas dans l'index » n'est PAS « pas dans le Drive ». Chaque fait du tour porte ce
+ * booléen. Il ne restait qu'à le lire avant de laisser passer le mot « vérifié ».
+ *
+ * ── POURQUOI CETTE GARDE-CI NE FAIT PAS RECOMMENCER LE TOUR ─────────────────────────────
+ *
+ * Les trois autres exigent un second essai parce qu'il RESTE quelque chose à faire : chercher
+ * ailleurs, élargir, créer l'objet. Ici le travail est fait — c'est le MOT qui est trop fort.
+ * Refaire le tour ne changerait rien et coûterait un aller-retour (§118.27). On corrige donc
+ * l'étiquette, et on dit ce qui a été couvert : une absence honnête se dit « rien trouvé dans
+ * ce que j'ai pu lire », jamais « cela n'existe pas ».
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** Les formulations qui donnent à une phrase la force d'un fait établi. */
+const ETIQUETTE_FORTE = [
+  /\bfait verifie\b/,
+  /\b(?:c'est |)(?:verifie|confirme) (?:et |)(?:certain|sur|exact)\b/,
+  /\bavec certitude\b/,
+  /\bde maniere certaine\b/,
+  /\bje confirme (?:qu'|que )(?:il n'y a|aucun|rien|nul)/,
+];
+
+export interface EntreeAbsenceProuvable {
+  reponse: string;
+  /**
+   * Combien de faits du tour viennent d'une source où une absence est DÉMONTRABLE
+   * (`preuveNegative`). Compté par l'appelant : ce module reste pur.
+   */
+  faitsProuvantUneAbsence: number;
+}
+
+/**
+ * TOUTE affirmation négative, et pas seulement l'échec d'une recherche.
+ *
+ * `affirmeUneAbsence` (au-dessus) est volontairement étroite : elle sert à faire RECHERCHER
+ * encore, et l'élargir ferait relancer une recherche sur « aucun rappel n'était planifié » —
+ * une phrase qui ne demande rien de tel. Ici la question est autre : la phrase AFFIRME-t-elle
+ * que quelque chose n'existe pas ? Deux questions, deux détecteurs ; les confondre casserait
+ * l'une des deux gardes.
+ */
+const AFFIRMATION_NEGATIVE = [
+  /\baucun\w*\b/,
+  /\brien n(?:'|e )/,
+  /\bil n'y a (?:pas|aucun)/,
+  /\bpas de\b/,
+  /\bn'(?:existe|etait|est|a ete) (?:pas|jamais)\b/,
+];
+
+/** La réponse affirme-t-elle une absence AVEC la force d'un fait établi ? */
+export function absenceDiteVerifiee(reponse: string): boolean {
+  const t = plier(reponse);
+  if (!AFFIRMATION_NEGATIVE.some((r) => r.test(t))) return false;
+  return ETIQUETTE_FORTE.some((r) => r.test(t));
+}
+
+/**
+ * LE COMPLÉMENT. `null` quand tout va bien — y compris quand une source fait RÉELLEMENT foi sur
+ * l'absence, cas dans lequel « vérifié » est le mot juste et le taire serait affaiblir une
+ * réponse correcte.
+ */
+export function avertirAbsenceNonProuvable(e: EntreeAbsenceProuvable): string | null {
+  if (!absenceDiteVerifiee(e.reponse)) return null;
+  if (e.faitsProuvantUneAbsence > 0) return null;
+  return "⚠️ Nuance sur la formulation : aucune des sources lues ici ne permet de DÉMONTRER une absence — "
+    + "elles ne couvrent qu'une partie de ce qui existe (un index ne connaît que ce qui a été ingéré). "
+    + "À lire comme « rien trouvé dans ce que j'ai pu consulter », pas comme « cela n'existe pas ».";
+}

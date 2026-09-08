@@ -61,7 +61,7 @@ import { apercuDesSources } from "@/lib/assistant/workspace/apercu";
 import { candidatsMontres, verdictCible, type Candidat } from "@/lib/assistant/cible-designee";
 import { withTurn, markPreview, markFinal, logTurn, recordTool, setTurnContext, summarize, addPhase, timedPhase, type TurnRoute, type TurnContext, type TurnSummary } from "@/lib/models/telemetry";
 import { ADAM_PROMPT_VERSION } from "@/lib/assistant/prompt-version";
-import { avertirPromesseSansObjet, complementDeLimite, OUTILS_DURABLES, gardeAbsence, gardeImpossibilite, gardePromesse, RAPPEL_DECOUVERTE, RAPPEL_ELARGISSEMENT, RAPPEL_PROMESSE } from "@/lib/assistant/limites";
+import { avertirAbsenceNonProuvable, avertirPromesseSansObjet, complementDeLimite, OUTILS_DURABLES, gardeAbsence, gardeImpossibilite, gardePromesse, RAPPEL_DECOUVERTE, RAPPEL_ELARGISSEMENT, RAPPEL_PROMESSE } from "@/lib/assistant/limites";
 import { prechargerCapacitesDynamiques } from "@/platform/in-process/skills";
 import "@/platform/in-process/telemetry/usage-sink";
 import { callModel } from "@/lib/models/gateway";
@@ -4870,7 +4870,23 @@ async function runAssistantImpl(
     // LES CARTES DEVENUES CADUQUES VOYAGENT AVEC LE TOUR — ici et nulle part ailleurs, parce que
     // c'est le seul passage commun à toutes les sorties de ce chemin. Les poser sur chaque
     // `return` aurait laissé passer celui qu'on oublie, et c'est toujours celui-là qui compte.
-    return { ...resultat, provenance: faits, calibration, ...(perimees.length ? { perimees } : {}) };
+    /**
+     * ── « FAIT VÉRIFIÉ : aucun X » (§118.57) ────────────────────────────────────────────
+     *
+     * La plus forte étiquette posée sur ce qu'on n'a PAS vu. Le socle sait déjà, source par
+     * source, si une absence y est DÉMONTRABLE (`preuveNegative` : une table bornée oui, un
+     * index de contenu non — « pas dans l'index » n'est pas « pas dans le Drive »). Aucun
+     * fait du tour ne le permet ? Le mot est trop fort, et on le dit. Ici, dans le passage
+     * commun : ailleurs, on manquerait la sortie qu'on oublie.
+     */
+    const prouvables = faits.filter((f) => f.preuveNegative === true).length;
+    const nuance = typeof (resultat as { reply?: unknown }).reply === "string"
+      ? avertirAbsenceNonProuvable({ reponse: (resultat as { reply: string }).reply, faitsProuvantUneAbsence: prouvables })
+      : null;
+    const final = nuance
+      ? { ...resultat, reply: `${(resultat as { reply: string }).reply}\n\n${nuance}` }
+      : resultat;
+    return { ...final, provenance: faits, calibration, ...(perimees.length ? { perimees } : {}) };
   };
   let discoveryCalls = 0;
 
@@ -5391,7 +5407,23 @@ async function runAssistantStreamImpl(
     // LES CARTES DEVENUES CADUQUES VOYAGENT AVEC LE TOUR — ici et nulle part ailleurs, parce que
     // c'est le seul passage commun à toutes les sorties de ce chemin. Les poser sur chaque
     // `return` aurait laissé passer celui qu'on oublie, et c'est toujours celui-là qui compte.
-    return { ...resultat, provenance: faits, calibration, ...(perimees.length ? { perimees } : {}) };
+    /**
+     * ── « FAIT VÉRIFIÉ : aucun X » (§118.57) ────────────────────────────────────────────
+     *
+     * La plus forte étiquette posée sur ce qu'on n'a PAS vu. Le socle sait déjà, source par
+     * source, si une absence y est DÉMONTRABLE (`preuveNegative` : une table bornée oui, un
+     * index de contenu non — « pas dans l'index » n'est pas « pas dans le Drive »). Aucun
+     * fait du tour ne le permet ? Le mot est trop fort, et on le dit. Ici, dans le passage
+     * commun : ailleurs, on manquerait la sortie qu'on oublie.
+     */
+    const prouvables = faits.filter((f) => f.preuveNegative === true).length;
+    const nuance = typeof (resultat as { reply?: unknown }).reply === "string"
+      ? avertirAbsenceNonProuvable({ reponse: (resultat as { reply: string }).reply, faitsProuvantUneAbsence: prouvables })
+      : null;
+    const final = nuance
+      ? { ...resultat, reply: `${(resultat as { reply: string }).reply}\n\n${nuance}` }
+      : resultat;
+    return { ...final, provenance: faits, calibration, ...(perimees.length ? { perimees } : {}) };
   };
   let discoveryCalls = 0;
   const started = Date.now();
