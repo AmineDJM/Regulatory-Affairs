@@ -107,11 +107,60 @@ export async function reveillerMissions(fait: FaitObserve): Promise<Reveil[]> {
         { stepKey: step.key, event: fait.type });
       reveils.push({ missionId: step.missionId, stepKey: step.key });
     }
+
+    /**
+     * ═══════════════════════════════════════════════════════════════════════════════════════
+     * UN FAIT ADRESSÉ À UNE MISSION QUE PLUS AUCUNE ATTENTE NE CONSOMME NE DISPARAÎT PAS.
+     *
+     * ── LE DÉFAUT, MESURÉ SUR LE CAS ADVERSE « CONTRADICTION » (§90) ──────────────────────
+     *
+     * Khaled répond « prix de cession Nivolex : 84 500 DZD », l'attente se règle, la mission
+     * avance. Puis Khaled se reprend : « Correction : c'est 91 000, pas 84 500. » Ce second
+     * message n'a plus d'attente à régler — et cette fonction ne regarde QUE les étapes
+     * `WAITING`. Elle a donc rendu `[]`, silencieusement. Vérifié en base après deux runs
+     * live : le chiffre corrigé n'apparaît NULLE PART, ni dans une étape, ni dans le journal,
+     * ni dans une notification. La mission a conclu sur un chiffre que son auteur avait
+     * démenti — aucune étape en échec, aucun signal. C'est le faux succès parfait.
+     *
+     * ── CE QU'ON FAIT, ET CE QU'ON NE FAIT PAS ────────────────────────────────────────────
+     *
+     * On JOURNALISE. Pas de seconde table (§118.5) : `MissionEvent` EST le journal, et le
+     * contrôle comme le compte rendu exécutif le relisent. On ne rejoue pas la mission, on ne
+     * réécrit aucun résultat, on n'invente aucune décision — ce serait décider à la place d'un
+     * humain sur la foi d'un message. Le fait devient VISIBLE, ce qu'il n'était pas.
+     *
+     * ── POURQUOI CE FILET NE PEUT PAS DEVENIR DU BRUIT ────────────────────────────────────
+     *
+     * Il ne se déclenche QUE si le fait NOMME cette mission (`fait.missionId`). Un événement
+     * ERP quelconque, qui traverse toutes les missions ouvertes, n'écrit rien : il n'est adressé
+     * à aucune. Seul ce qui visait déjà cette mission-là et n'a trouvé personne est consigné.
+     */
+    if (fait.missionId && reveils.length === 0) {
+      const apercu = apercuDuFait(fait);
+      await journaliser(fait.missionId, "EVENT_ORPHELIN",
+        `Message reçu HORS ATTENTE (${fait.type})${apercu ? ` : ${apercu}` : ""} — aucune attente ouverte ne l'attendait. `
+        + `Il n'a modifié aucune étape ; à relire avant de conclure.`,
+        { event: fait.type, from: apercuExpediteur(fait), horsAttente: true });
+    }
     return reveils;
   } catch (err) {
     console.error("[missions] réveil impossible", fait.type, err);
     return [];
   }
+}
+
+/** Le texte d'un fait, borné — assez pour qu'un humain reconnaisse le message, jamais le corps entier. */
+function apercuDuFait(fait: FaitObserve): string {
+  const p = (fait.payload ?? {}) as Record<string, unknown>;
+  const bout = [p.subject, p.body, p.text].find((x) => typeof x === "string" && x.trim() !== "");
+  const t = typeof bout === "string" ? bout.replace(/\s+/g, " ").trim() : "";
+  return t.length > 220 ? `${t.slice(0, 220)}…` : t;
+}
+
+function apercuExpediteur(fait: FaitObserve): string | null {
+  const p = (fait.payload ?? {}) as Record<string, unknown>;
+  const q = [p.from, p.fromName, p.fromEmail].find((x) => typeof x === "string" && x.trim() !== "");
+  return typeof q === "string" ? q.slice(0, 120) : null;
 }
 
 /**

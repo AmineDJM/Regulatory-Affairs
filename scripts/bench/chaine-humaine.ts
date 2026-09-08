@@ -97,6 +97,14 @@ interface Chaine {
   acteurs: string[];
   /** Les extensions de fichier que la demande réclame. Le juge ouvre CHACUNE. */
   livrables: string[];
+  /**
+   * LE DÉMENTI — joué seulement sous `ADVERSAIRE=contradiction` (§90).
+   *
+   * La même personne se reprend et donne un AUTRE chiffre pour la même chose. C'est le cas le
+   * plus dangereux de toute la chaîne, parce qu'il ne casse RIEN : aucune étape n'échoue, la
+   * mission conclut, et un chiffre faux part dans le livrable sans que personne ne le voie.
+   */
+  contradiction?: { domaine: string; apporte: string; ancien: string; nouveau: string };
 }
 
 interface Etape {
@@ -145,6 +153,11 @@ const CHAINES: Chaine[] = [
     },
     acteurs: ["raihana", "amel", "khaled", "sofiane"],
     livrables: [".xlsx", ".pptx"],
+    contradiction: {
+      domaine: "FINANCE",
+      apporte: "Correction : le prix de cession Nivolex est 91 000 DZD, pas 84 500. Merci de rectifier.",
+      ancien: "84 500", nouveau: "91 000",
+    },
   },
   {
     /**
@@ -178,6 +191,11 @@ const CHAINES: Chaine[] = [
     },
     acteurs: ["nesrine", "khaled", "mehdi"],
     livrables: [".docx"],
+    contradiction: {
+      domaine: "FINANCE",
+      apporte: "Correction : le reste à engager est 19 800 000 DZD, pas 24 300 000. Rectification après clôture partielle.",
+      ancien: "24 300 000", nouveau: "19 800 000",
+    },
   },
 ];
 
@@ -247,6 +265,10 @@ async function main(): Promise<void> {
     // Une branche composée peut l'être à son tour ; l'événement du parent sert de défaut.
     return sous.flatMap((b) => branches({ event: a.event, ...b }));
   };
+
+  /** Le cas adverse joué — `ADVERSAIRE=contradiction`. Vide = la chaîne nominale. */
+  const ADVERSAIRE = (process.env.ADVERSAIRE ?? "").trim();
+  let dementiEnvoye = false;
 
   oublierTentativesSortantes();
   const depuis = new Date();
@@ -417,6 +439,31 @@ async function main(): Promise<void> {
           if (perso.manquant) relancesAttendues.push(...perso.manquant);
           e.quiRepond = qui.name;
           console.log(`      ✓ ${qui.name} répond : « ${perso.apporte.slice(0, 90)} » → ${reveils.length} attente(s) levée(s)`);
+
+          /**
+           * ── LE DÉMENTI, JUSTE APRÈS LA RÉPONSE QU'IL CONTREDIT (§90) ──────────────────
+           *
+           * La personne se reprend : même sujet, autre chiffre. Le fait part par la MÊME porte
+           * que le premier (`reveillerMissions`) — c'est un message de plus, rien de spécial.
+           * Ce qui est mesuré ensuite n'est pas qu'il « arrive », c'est ce que la mission en
+           * FAIT : le chiffre corrigé doit se retrouver quelque part, ou la divergence être
+           * dite. Emporter silencieusement l'ancien serait le faux succès parfait — aucune
+           * étape en échec, un livrable produit, et un chiffre faux dedans.
+           */
+          if (ADVERSAIRE === "contradiction" && CHAINE.contradiction && dom === CHAINE.contradiction.domaine && !dementiEnvoye) {
+            dementiEnvoye = true;
+            const c = CHAINE.contradiction;
+            const reveils2 = await reveillerMissions({
+              type: att.event, actorId: qui.id, entityType: null, entityId: null,
+              relatedRefs: [att.entity ?? ""].filter(Boolean), missionId,
+              payload: {
+                from: qui.name, fromEmail: qui.email,
+                subject: `Correction — ${att.subject ?? "retour précédent"}`,
+                body: c.apporte, text: c.apporte, hasAttachments: false,
+              },
+            });
+            console.log(`      ⚡ DÉMENTI de ${qui.name} : « ${c.apporte.slice(0, 80)} » → ${reveils2.length} réveil(s)`);
+          }
         } else {
           console.log(`      ⚠ ${qui.name} a répondu, aucune attente levée — le fait produit ne correspond pas à « ${a.attente.slice(0, 90)} »`);
         }
@@ -549,6 +596,54 @@ async function main(): Promise<void> {
     { id: "consolide", libelle: "la chaîne va jusqu'au bout : toutes les attentes humaines sont levées",
       ok: journal.reduce((n, j) => n + j.reveils, 0) >= CHAINE.acteurs.length && (journal[journal.length - 1]?.attentes.length ?? 1) === 0,
       detail: `${journal.reduce((n, j) => n + j.reveils, 0)} attente(s) levée(s) · ${journal[journal.length - 1]?.attentes.length ?? "?"} encore ouverte(s) à l'arrêt · ${consommes.size}/${SCENARIO.length} contenus distincts donnés` },
+    /**
+     * ── LE DÉMENTI A-T-IL ÉTÉ PRIS EN COMPTE, OU EMPORTÉ EN SILENCE ? (§90) ─────────────
+     *
+     * Le cas adverse le plus dangereux de la chaîne : la personne se reprend, la mission ne
+     * casse RIEN, conclut, et le livrable porte l'ancien chiffre. Aucune étape en échec, aucun
+     * signal — le faux succès parfait.
+     *
+     * Deux issues sont acceptables et une seule ne l'est pas :
+     *   • le NOUVEAU chiffre est repris quelque part (résultats d'étapes, notifications) ;
+     *   • ou la DIVERGENCE est dite (contradiction, correction, rectification, écart…).
+     * Ne rien faire, en gardant l'ancien, est le seul échec.
+     */
+    ...(ADVERSAIRE === "contradiction" && CHAINE.contradiction ? [(() => {
+      const c = CHAINE.contradiction;
+      const corpus = [
+        ...(etatFinal?.steps ?? []).map((x) => `${x.title} ${JSON.stringify(x.result ?? {})}`),
+        ...events.map((x) => `${x.summary ?? ""} `),
+      ].join(" \n ").toLowerCase();
+      /**
+       * CE VERDICT A ÉTÉ FAUX UNE FOIS — ET C'EST INSTRUCTIF.
+       *
+       * Première version : « le nouveau chiffre est repris OU un mot de divergence apparaît
+       * quelque part ». Il est passé au VERT sur les deux chaînes… en accrochant des mots qui
+       * n'avaient rien à voir : « contradiction relevée » (le juge parlant d'AUTRE chose) et
+       * « écart » (un écart facture/BC des données ERP). Vérification en base : ni 91 000 ni
+       * 19 800 000 n'existaient nulle part. Le démenti avait bel et bien disparu.
+       *
+       * Un mot-clé cherché dans tout le corpus n'est pas une preuve : il mesure le vocabulaire
+       * ambiant. On exige donc une trace de CE message-ci — son chiffre corrigé, ou le journal
+       * du fait hors attente que le routeur écrit désormais pour lui.
+       */
+      const chiffre = (v: string) => corpus.includes(v.toLowerCase()) || corpus.includes(v.replace(/\s/g, "").toLowerCase());
+      const repris = chiffre(c.nouveau);
+      const consigne = corpus.includes("hors attente") || corpus.includes("event_orphelin");
+      const ancienSeul = chiffre(c.ancien) && !repris && !consigne;
+      return {
+        id: "contradiction",
+        libelle: "un démenti est REPRIS ou CONSIGNÉ — jamais emporté en silence",
+        ok: repris || consigne,
+        detail: repris
+          ? `le chiffre corrigé (${c.nouveau}) circule`
+          : consigne
+            ? "le message hors attente est consigné au journal de la mission (à relire avant de conclure)"
+            : ancienSeul
+              ? `FAUX SUCCÈS : seul l'ancien chiffre (${c.ancien}) circule, le démenti n'a laissé aucune trace`
+              : "ni l'ancien ni le nouveau chiffre ne circulent — rien à juger",
+      } as Verdict;
+    })()] : []),
     ...verdictsLivrables,
     { id: "retour", libelle: "Adam revient vers le dirigeant", ok: notifs.length > 0, detail: notifs.map((n) => n.summary.slice(0, 70)).join(" | ") || "aucune notification" },
     /**

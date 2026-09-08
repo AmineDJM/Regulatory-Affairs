@@ -5153,6 +5153,34 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### UN DÉMENTI DISPARAISSAIT EN SILENCE (2026-09)
+
+**Le cas adverse, joué en live sur les deux chaînes** (`ADVERSAIRE=contradiction`) : Khaled répond
+« prix de cession Nivolex : 84 500 DZD », l'attente se règle, la mission avance. Puis Khaled se
+reprend : « Correction : c'est 91 000, pas 84 500. »
+
+**Le second message n'a rien produit.** `reveillerMissions` ne regarde que les étapes `WAITING` :
+plus aucune attente ne l'attendait, la fonction a rendu `[]`. Vérifié en base après deux runs :
+ni `91 000` ni `19 800 000` (le démenti de la chaîne budgétaire) n'apparaissent nulle part — ni
+étape, ni journal, ni notification. La mission aurait conclu sur un chiffre que son auteur avait
+démenti, sans qu'aucune étape échoue. C'est le faux succès parfait : rien à voir, rien à corriger.
+
+**Le routeur consigne désormais** : quand un fait NOMME une mission (`fait.missionId`) et qu'aucune
+attente ne l'a consommé, il écrit un `MissionEvent` `EVENT_ORPHELIN` avec l'expéditeur et un aperçu
+borné — « à relire avant de conclure ». Pas de seconde table (§118.5), pas de rejeu, aucune décision
+prise à la place d'un humain sur la foi d'un message : le fait devient VISIBLE, ce qu'il n'était pas.
+Le filet ne peut pas devenir du bruit — un événement ERP quelconque, qui traverse toutes les missions
+ouvertes, n'écrit rien : il n'est adressé à aucune.
+
+**Et le verdict qui devait le voir était lui-même un faux succès.** Première version : « le nouveau
+chiffre est repris OU un mot de divergence apparaît ». Vert sur les deux chaînes — en accrochant
+« contradiction relevée » (le juge parlant d'AUTRE chose) et « écart » (un écart facture/BC des
+données ERP). Un mot-clé cherché dans tout le corpus mesure le vocabulaire ambiant, pas le fait.
+Le verdict exige maintenant une trace de CE message : son chiffre corrigé, ou son entrée au journal.
+Troisième tautologie retirée de ce banc.
+
+**Mesure après correction** : chaîne A 10/11, chaîne B 8/10, le démenti consigné dans les deux cas.
+
 ### DEUX CHAÎNES HUMAINES, ET LA SECONDE A TROUVÉ CINQ DÉFAUTS (2026-09)
 
 **Pourquoi une seconde chaîne.** La chaîne Regulatory → Finance → Marchés → Excel + PowerPoint
