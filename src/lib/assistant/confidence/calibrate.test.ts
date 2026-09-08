@@ -69,6 +69,36 @@ describe("calibration de confiance — le maillon faible gouverne", () => {
 const MAINTENANT = new Date("2026-09-08T12:00:00.000Z");
 const ilYA = (heures: number) => new Date(MAINTENANT.getTime() - heures * 3_600_000).toISOString();
 
+describe("une estimation n'est jamais un fait", () => {
+  it("un P90 de simulation sort HYPOTHÈSE → chercher, jamais CERTAIN → agir", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : laisser `base: "estimation"` tomber dans la branche
+     * `confiance >= 0.85 && base === "calcul" | "metadata" | …`. Une simulation a une confiance
+     * de 1 par construction (ses entrées sont des lois, pas des faits) : elle atterrirait donc
+     * en CERTAIN, et la réponse porterait « FAIT VÉRIFIÉ » sur un chiffre qui décrit 2027.
+     */
+    const p90 = fait({ libelle: "Marge 2027 — P90", valeur: "12 400 000", nature: "CALCUL", base: "estimation", confiance: 1, outil: "calcul_montecarlo" });
+    expect(certitudeDuFait(p90)).toBe("HYPOTHESE");
+    const c = calibrer([p90], { maintenant: MAINTENANT });
+    expect(c.certitude).toBe("HYPOTHESE");
+    expect(c.conduite).toBe("CHERCHER");
+  });
+
+  it("une estimation dans un lot de faits certains gouverne le lot — le maillon faible", () => {
+    // C'est celui qu'on aurait cité sans le savoir : « la marge sera de 12,4 M » à côté de
+    // douze chiffres lus dans l'ERP se lit comme le treizième.
+    const surs = Array.from({ length: 12 }, (_, i) => fait({ libelle: `Écriture ${i}`, valeur: String(i), confiance: 0.98 }));
+    const prevision = fait({ libelle: "Chiffre d'affaires T4", valeur: "41 300 000", nature: "CALCUL", base: "estimation", confiance: 1, outil: "calcul_statistiques" });
+    expect(calibrer(surs, { maintenant: MAINTENANT }).certitude).toBe("CERTAIN");
+    expect(calibrer([...surs, prevision], { maintenant: MAINTENANT }).certitude).toBe("HYPOTHESE");
+  });
+
+  it("un CALCUL déterministe reste certain — sinon toute somme deviendrait une hypothèse", () => {
+    const somme = fait({ libelle: "Total décaissé", valeur: "142 800", nature: "CALCUL", base: "calcul", confiance: 0.95, outil: "finance_totals" });
+    expect(certitudeDuFait(somme)).toBe("CERTAIN");
+  });
+});
+
 describe("une copie indexée vieillit ; une lecture en temps réel, non", () => {
   it("une copie de document vieille de six mois n'est plus CERTAINE — elle est PÉRIMÉE, et on RELIT", () => {
     const vieux = fait({

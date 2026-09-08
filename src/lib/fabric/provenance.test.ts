@@ -127,6 +127,27 @@ describe("provenance au niveau du fait — extraction déterministe depuis les s
     expect(derive.horodatage).toBe(indexe.horodatage);
   });
 
+  it("une ESTIMATION n'est pas un calcul — un P90 ne se lit pas comme une somme", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : rendre `base: "calcul"` pour une simulation. La confiance
+     * d'un fait calculé est la PIRE de ses ENTRÉES, et les entrées d'une simulation sont des
+     * LOIS, pas des faits — donc `Math.min()` d'une liste vide, donc 1. Le P90 sortirait avec
+     * une confiance de 100 % et la même étiquette qu'une ligne lue dans l'ERP.
+     */
+    const p90 = faitCalcule({
+      outil: "calcul_montecarlo", acteur: ACTEUR, libelle: "Marge 2027 — P90", valeur: "12 400 000 DZD",
+      entrees: ["volume ~ lognormale", "prix ~ triangulaire"], transformation: "simulation de Monte-Carlo, 100000 tirages",
+      formule: "volume * prix - couts", estimation: true,
+    });
+    expect(p90.base).toBe("estimation");
+    expect(p90.confiance, "aucune entrée n'est un fait : la confiance ne rachète rien").toBe(1);
+    expect(expliquerFait(p90)).toContain("estimation du serveur");
+    expect(expliquerFait(p90)).toContain("sous les hypothèses déclarées");
+    // Et la somme d'à côté, elle, reste un calcul.
+    const somme = faitCalcule({ outil: "finance_totals", acteur: ACTEUR, libelle: "Total", valeur: 10, entrees: ["PAY-1"], transformation: "somme", formule: "Σ" });
+    expect(somme.base).toBe("calcul");
+  });
+
   it("un calcul sur des lectures VIVANTES ne devient pas une copie", () => {
     // La symétrie compte autant : élargir la péremption à tout calcul ferait relire des totaux
     // que rien ne date, et un avertissement permanent cesse d'être lu.

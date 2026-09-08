@@ -53,8 +53,14 @@ const rendreRigueur = (r: Rigueur) => ({
   consigne: "Reprendre les avertissements dans la réponse : un chiffre donné sans eux se lit comme une certitude qu'il n'est pas.",
 });
 
-const provenance = (user: Acteur, outil: string, libelle: string, valeur: number | string, entrees: readonly string[], transformation: string, formule: string) =>
-  declarerProvenance([faitCalcule({ outil, acteur: user.id, libelle, valeur, entrees, transformation, formule: formule.slice(0, 300) })]);
+/**
+ * `estimation` distingue ce que les données CONTIENNENT de ce qu'elles SUGGÈRENT. Une somme,
+ * une régression sur des points observés, un chemin critique décrivent ce qui EST ; un tirage
+ * de Monte-Carlo et une prévision décrivent ce qui n'a pas encore eu lieu. Sans ce drapeau, la
+ * calibration lisait un P90 comme une lecture de l'ERP et l'annonçait « FAIT VÉRIFIÉ ».
+ */
+const provenance = (user: Acteur, outil: string, libelle: string, valeur: number | string, entrees: readonly string[], transformation: string, formule: string, estimation = false) =>
+  declarerProvenance([faitCalcule({ outil, acteur: user.id, libelle, valeur, entrees, transformation, formule: formule.slice(0, 300), estimation })]);
 
 /** Un histogramme rendu à l'écran : le code compose la figure depuis les classes calculées. */
 function blocHistogramme(titre: string, classes: readonly { de: number; a: number; n: number }[]): Record<string, unknown> | null {
@@ -148,7 +154,7 @@ export const CALCUL_TOOLS: PowerTool[] = [
         rigueur: rendreRigueur(r.rigueur),
         _blocs: blocs, _blocsDecoratifs: true,
         _provenance: provenance(user, "calcul_montecarlo", `${titre} — ${r.sortie}`, `moyenne ${arrondi(s.moyenne, 2)}, P10 ${arrondi(s.percentiles.P10 ?? s.min, 2)}, P90 ${arrondi(s.percentiles.P90 ?? s.max, 2)}`,
-          r.entrees.map((e) => `${e.nom} ~ ${e.loi}`), `simulation de Monte-Carlo, ${r.tirages} tirages, graine ${r.graine}`, JSON.stringify(modele.formules)),
+          r.entrees.map((e) => `${e.nom} ~ ${e.loi}`), `simulation de Monte-Carlo, ${r.tirages} tirages, graine ${r.graine}`, JSON.stringify(modele.formules), true),
       });
     },
   },
@@ -551,7 +557,7 @@ export const CALCUL_TOOLS: PowerTool[] = [
             blocTableau(`${titre} — prévision`, tab),
           ].filter((b): b is Record<string, unknown> => Boolean(b)),
           _blocsDecoratifs: true,
-          _provenance: provenance(user, "calcul_statistiques", titre, r.previsions.length ? `prochain pas ${arrondi(r.previsions[0]!.valeur, 2)}` : `${r.n} points`, charge.provenance, `lissage exponentiel${r.periode ? ` saisonnier (période ${r.periode})` : ""}, validation hors échantillon`, `modèle ${r.modele}`),
+          _provenance: provenance(user, "calcul_statistiques", titre, r.previsions.length ? `prochain pas ${arrondi(r.previsions[0]!.valeur, 2)}` : `${r.n} points`, charge.provenance, `lissage exponentiel${r.periode ? ` saisonnier (période ${r.periode})` : ""}, validation hors échantillon`, `modèle ${r.modele}`, true),
         });
       }
 

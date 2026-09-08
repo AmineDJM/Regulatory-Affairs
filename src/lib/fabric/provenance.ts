@@ -41,8 +41,15 @@ export const NATURES_SOURCE: readonly NatureSource[] = [
 ] as const;
 
 /** Sur quoi repose la confiance : `metadata` = structuré dans l'ERP ; `declare` = posé par un outil qui l'a mesuré. */
-export type BaseConfiance = "metadata" | "native" | "ocr" | "luna" | "terra" | "calcul" | "externe" | "declare";
-const BASES: readonly BaseConfiance[] = ["metadata", "native", "ocr", "luna", "terra", "calcul", "externe", "declare"];
+/**
+ * `calcul` et `estimation` se distinguent, et c'est la distinction qui compte le plus ici :
+ * un CALCUL rend ce que les données CONTIENNENT (une somme de douze écritures réglées), une
+ * ESTIMATION rend ce qu'elles SUGGÈRENT sous des hypothèses déclarées (un P90 tiré de lois
+ * choisies, une prévision extrapolée). Les deux sortent d'un moteur déterministe et sont
+ * rejouables ; une seule décrit quelque chose qui a eu lieu.
+ */
+export type BaseConfiance = "metadata" | "native" | "ocr" | "luna" | "terra" | "calcul" | "estimation" | "externe" | "declare";
+const BASES: readonly BaseConfiance[] = ["metadata", "native", "ocr", "luna", "terra", "calcul", "estimation", "externe", "declare"];
 
 export type NatureFraicheur = "TEMPS_REEL" | "INDEXEE" | "INCONNUE";
 
@@ -365,6 +372,13 @@ export function faitCalcule(args: {
   outil: string; acteur: string; libelle: string; valeur: number | string;
   entrees: readonly (FaitSource | string)[]; transformation: string; formule: string;
   href?: string | null; famille?: string | null; observeLe?: Date;
+  /**
+   * VRAI quand la valeur porte sur ce qui N'A PAS ENCORE EU LIEU, ou sur ce qu'on n'a pas
+   * observé : un tirage de Monte-Carlo, une prévision, une probabilité. C'est l'appelant qui
+   * le sait — le moteur, lui, ne voit qu'un nombre. Le laisser deviner ferait passer un P90
+   * pour une somme.
+   */
+  estimation?: boolean;
 }): FaitSource {
   const observeLe = (args.observeLe ?? new Date()).toISOString();
   const faits = args.entrees.filter((e): e is FaitSource => typeof e !== "string");
@@ -388,7 +402,7 @@ export function faitCalcule(args: {
     locator: null,
     // La date propre d'un calcul est celle de sa donnée la plus ANCIENNE : c'est elle qui le date.
     horodatage: horodatages[0] ?? null,
-    observeLe, confiance, base: "calcul",
+    observeLe, confiance, base: args.estimation ? "estimation" : "calcul",
     fraicheur,
     autorite: desc?.autorite ?? null,
     preuveNegative: desc?.preuveNegative ?? null,
@@ -441,7 +455,7 @@ function dateHumaine(iso: string | null, avecHeure = false): string | null {
 const LIBELLE_BASE: Record<BaseConfiance, string> = {
   metadata: "donnée structurée de l'ERP", native: "texte extrait par le code", ocr: "reconnaissance de caractères",
   luna: "lecture par un modèle de vision", terra: "lecture par un modèle avancé", calcul: "calcul du serveur",
-  externe: "source externe", declare: "mesuré par l'outil",
+  estimation: "estimation du serveur, sous les hypothèses déclarées", externe: "source externe", declare: "mesuré par l'outil",
 };
 
 const LIBELLE_NATURE: Record<NatureSource, string> = {
@@ -454,7 +468,8 @@ export function expliquerFait(f: FaitSource): string {
   const famille = f.famille ? (LIBELLE_FAMILLE[f.famille] ?? f.famille) : null;
   const morceaux: string[] = [];
   if (f.nature === "CALCUL" && f.calcul) {
-    morceaux.push(`calcul du serveur : ${f.calcul.transformation} sur ${f.calcul.entrees.length} entrée(s)`);
+    const quoi = f.base === "estimation" ? "estimation du serveur" : "calcul du serveur";
+    morceaux.push(`${quoi} : ${f.calcul.transformation} sur ${f.calcul.entrees.length} entrée(s)`);
     morceaux.push(`formule ${f.calcul.formule}`);
     morceaux.push(`calculé le ${dateHumaine(f.calcul.calculeLe, true) ?? "—"}`);
     if (f.horodatage) morceaux.push(`donnée la plus ancienne du ${dateHumaine(f.horodatage)}`);

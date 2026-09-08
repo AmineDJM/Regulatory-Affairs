@@ -5232,8 +5232,24 @@ qui gouverne : annoncer périmé un total de deux jours ferait une réserve perm
 réserve permanente cesse d'être lue. (3) L'avertissement atteint la **carte d'action**, pas
 seulement la trace — la trace se déplie, la carte est ce que la personne confirme.
 
-**Mesuré** : 12 tests sur la calibration (dont la date illisible, la date future, le seuil par
-nature, l'ordre des états), 3 sur le point d'entrée réel `calibrerTour` — un test qui n'appellerait
+**ET UNE ESTIMATION PORTAIT LA MÊME ÉTIQUETTE QU'UNE LECTURE DE L'ERP.** `faitCalcule` donne à
+un total la pire confiance de ses ENTRÉES ; les entrées d'une simulation sont des **lois**, pas
+des faits — donc `Math.min()` d'une liste vide, donc **1**. Un P90 de Monte-Carlo et une prévision
+de série sortaient à 100 % de confiance, `CERTAIN` → `AGIR`, annoncés « FAIT VÉRIFIÉ ». Le moteur
+le savait pourtant : il écrit ses hypothèses, ses limites et ses avertissements à côté du chiffre,
+et l'en-tête de `calcul-tools.ts` dit qu'« un P90 sans le nombre de tirages est un chiffre qui a
+l'air sûr ». C'est la calibration qui le contredisait, avec le seul mot que la personne lit.
+
+La ligne de partage n'est ni le moteur ni le déterminisme — une simulation à graine fixe se rejoue
+à l'identique : **un calcul dit ce que les données CONTIENNENT, une estimation ce qu'elles
+SUGGÈRENT** sous des hypothèses déclarées. Une somme d'écritures réglées, une régression sur des
+points observés, un chemin critique décrivent ce qui EST ; un tirage et une prévision décrivent ce
+qui n'a pas encore eu lieu. Le drapeau est posé par l'APPELANT, jamais deviné : le moteur ne voit
+qu'un nombre.
+
+**Mesuré** : 16 tests sur la calibration (dont la date illisible, la date future, le seuil par
+nature, l'ordre des états, le budget d'un calcul, un P90 qui ne peut plus sortir certain, et la
+symétrie — une somme déterministe reste certaine), 3 sur le point d'entrée réel `calibrerTour` — un test qui n'appellerait
 que `calibrer` dirait que le calcul est juste sans dire qu'il arrive quelque part — et 2 sur la
 propagation de fraîcheur dans un fait calculé, dont la symétrie (un calcul sur des lectures
 vivantes ne devient pas une copie). **Au passage** : la liste des modules déclarés « neutres » à la

@@ -101,6 +101,21 @@ const chiffres = (s: string): string => s.replace(/[^0-9]/g, "");
 /** LA CERTITUDE D'UN FAIT : d'où il vient et à quel point la source le tient. */
 export function certitudeDuFait(f: Pick<FaitCalibrable, "confiance" | "base" | "nature">): "CERTAIN" | "PROBABLE" | "HYPOTHESE" {
   const base = (f.base || "").toLowerCase();
+  /**
+   * UNE ESTIMATION N'EST JAMAIS UN FAIT, quel que soit le nombre de tirages.
+   *
+   * Un P90 de Monte-Carlo et une prévision de série sortaient avec `base: "calcul"` et une
+   * confiance de 1 — parce que `faitCalcule` prend la PIRE confiance de ses entrées, et que
+   * les entrées d'une simulation sont des LOIS, pas des faits. Ils sortaient donc CERTAIN →
+   * AGIR, annoncés « FAIT VÉRIFIÉ » : le même mot que pour une ligne lue dans l'ERP. Le
+   * moteur, lui, le savait — il écrit ses hypothèses et ses limites à côté du chiffre, et
+   * l'en-tête de `calcul-tools.ts` dit en toutes lettres qu'« un P90 sans le nombre de
+   * tirages est un chiffre qui a l'air sûr ». La calibration le contredisait.
+   *
+   * La confiance ne rachète RIEN ici, et c'est voulu : elle mesure la qualité du modèle, pas
+   * la vérité du monde. Cent mille tirages ne transforment pas une projection en mesure.
+   */
+  if (base === "estimation") return "HYPOTHESE";
   // Une lecture de modèle (Luna / Terra) ou le web n'est JAMAIS certaine : au mieux probable.
   if (base === "luna" || base === "terra" || base === "externe" || f.nature === "EXTERNE") return f.confiance >= 0.9 ? "PROBABLE" : "HYPOTHESE";
   if (f.confiance >= 0.85 && (base === "metadata" || base === "native" || base === "calcul" || base === "declare")) return "CERTAIN";
