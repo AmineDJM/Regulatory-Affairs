@@ -25,6 +25,7 @@
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
 import { getMailAccount, sendMail } from "@/lib/mail";
+import { lireAdressesDeContact } from "@/lib/personnes/joignabilite";
 import { journaliser } from "@/lib/missions/runtime/store";
 import { capabilityMeta } from "@/lib/missions/registry/capability-meta";
 import {
@@ -43,13 +44,18 @@ export type IssueConnecteur = "envoye" | "echec" | "non-configure" | "sans-desti
 /** Ce que la porte a appris de la personne : son canal, sa destination sur ce canal, ses heures de silence, ses connecteurs. */
 export interface PreferencesPersonne extends PreferencesCanaux {
   destinataire: string | null;
+  /**
+   * OÙ JOINDRE LA PERSONNE PAR E-MAIL — les adresses qu'ELLE a déclarées, dans l'ordre.
+   * Vide quand elle n'en a déclaré aucune : l'envoi retombe alors sur la boîte connectée.
+   */
+  adressesDeContact: string[];
   /** Les règles qui ont parlé — pour le journal : « pourquoi Slack ? parce que la règle X ». */
   regles: string[];
 }
 
 export interface DependancesAttention {
   /** L'envoi d'e-mail, injectable : les tests ne montent pas de SMTP. Défaut : la boîte connectée de la personne. */
-  envoyerMail?: (ownerId: string, sujet: string, corps: string) => Promise<IssueEnvoi>;
+  envoyerMail?: (ownerId: string, sujet: string, corps: string, adresses: readonly string[]) => Promise<IssueEnvoi>;
   /** L'envoi par connecteur (Slack, Teams, WhatsApp, SMS), injectable. Défaut : le runtime des skills, sous les droits de la personne. */
   envoyerConnecteur?: (canal: CanalMessagerie, ownerId: string, texte: string, destinataire: string | null) => Promise<IssueConnecteur>;
   /** Les préférences de la personne, injectables. Défaut : ses règles enseignées + ses connecteurs branchés. */
@@ -71,11 +77,34 @@ export function heureLocale(d: Date, fuseau = FUSEAU_ATTENTION): number {
   }
 }
 
-async function envoyerParBoiteConnectee(ownerId: string, sujet: string, corps: string): Promise<IssueEnvoi> {
+/**
+ * ── ADAM S'ÉCRIVAIT À LUI-MÊME ──────────────────────────────────────────────────────────
+ *
+ * Ce chemin écrivait `to: compte.email` : la boîte de l'ERP, à elle-même. La personne ne
+ * voyait rien tant qu'elle n'ouvrait pas CETTE boîte-là. Pendant ce temps sa préférence de
+ * canal portait déjà une destination — `lireCanal` la rendait, les connecteurs Slack, Teams,
+ * WhatsApp la recevaient — et le seul canal qui en avait besoin la jetait.
+ *
+ * On envoie donc là où la personne a dit qu'on la joint : la première adresse déclarée, les
+ * autres en copie. Sans déclaration, on retombe exactement sur l'ancien comportement — c'est
+ * une capacité qu'on ajoute, pas un envoi qu'on redirige au hasard.
+ */
+async function envoyerParBoiteConnectee(
+  ownerId: string,
+  sujet: string,
+  corps: string,
+  adresses: readonly string[] = [],
+): Promise<IssueEnvoi> {
   const compte = await getMailAccount(ownerId).catch(() => null);
   if (!compte) return "sans-boite";
+  const [principale, ...copies] = adresses;
   try {
-    await sendMail(compte, { to: compte.email, subject: sujet, text: corps });
+    await sendMail(compte, {
+      to: principale ?? compte.email,
+      ...(copies.length > 0 ? { cc: copies.join(", ") } : {}),
+      subject: sujet,
+      text: corps,
+    });
     return "envoye";
   } catch {
     return "echec";
@@ -109,13 +138,20 @@ async function envoyerParSkill(canal: CanalMessagerie, ownerId: string, texte: s
 
 /** Les préférences de la personne : ses règles enseignées (canal, silence) et ses connecteurs réellement branchés. */
 export async function preferencesDe(ownerId: string, maintenant: Date): Promise<PreferencesPersonne> {
-  const out: PreferencesPersonne = { canalPrefere: null, destinataire: null, heuresSilence: null, heure: heureLocale(maintenant), connecteurs: [], confidentiel: false, regles: [] };
+  const out: PreferencesPersonne = { canalPrefere: null, destinataire: null, adressesDeContact: [], heuresSilence: null, heure: heureLocale(maintenant), connecteurs: [], confidentiel: false, regles: [] };
   const regles = await reglesEnVigueurPour(ownerId).catch(() => null);
   for (const r of regles?.resolution.enVigueur ?? []) {
     const cle = r.params && typeof r.params.cle === "string" ? r.params.cle : null;
     if (cle === "canalPrefere") {
       const c = lireCanal(r.params?.valeur);
-      if (c) { out.canalPrefere = c.canal; out.destinataire = c.destinataire; out.regles.push(`canal : ${r.statement.slice(0, 120)}`); }
+      if (c) {
+        out.canalPrefere = c.canal;
+        out.destinataire = c.destinataire;
+        // La MÊME déclaration porte la ou les adresses : « email:a@x.dz, b@y.dz ».
+        const lues = lireAdressesDeContact(r.params?.valeur);
+        if (lues.length > 0) out.adressesDeContact = lues;
+        out.regles.push(`canal : ${r.statement.slice(0, 120)}`);
+      }
     } else if (cle === "heuresSilence") {
       const h: HeuresSilence | null = lireHeuresSilence(r.params?.valeur);
       if (h) { out.heuresSilence = h; out.regles.push(`silence : ${r.statement.slice(0, 120)}`); }
@@ -203,7 +239,12 @@ export function porteAttentionPour(deps: DependancesAttention = {}): PorteAttent
       }
       let email: IssueEnvoi | "non-requis" = "non-requis";
       if (canaux.email) {
-        email = await envoyer(signal.ownerId, `[Adam] ${canaux.corpsNeutre ? "Une mission requiert votre attention" : titre}`, corpsExterne);
+        email = await envoyer(
+          signal.ownerId,
+          `[Adam] ${canaux.corpsNeutre ? "Une mission requiert votre attention" : titre}`,
+          corpsExterne,
+          prefs?.adressesDeContact ?? [],
+        );
         if (email === "envoye") livres.push("email");
       }
       let connecteur: { canal: string; issue: IssueConnecteur } | null = null;
@@ -219,6 +260,7 @@ export function porteAttentionPour(deps: DependancesAttention = {}): PorteAttent
       // pourquoi le corps était neutre (confidentiel).
       await journaliser(signal.missionId, "NOTIFIED", `${niveau} — ${titre} : ${corps}`, {
         niveau, cle, canaux: livres, email, kind: signal.kind,
+        ...(prefs?.adressesDeContact.length ? { adressesDeContact: prefs.adressesDeContact } : {}),
         ...(signal.stepKey ? { stepKey: signal.stepKey } : {}),
         ...(connecteur ? { connecteur } : {}),
         ...(canaux.differe ? { differe: true, heuresSilence: prefs?.heuresSilence ?? null } : {}),

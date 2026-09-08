@@ -100,13 +100,54 @@ suite("porte d'attention — niveaux, canaux, dédoublonnage, plafond", () => {
     expect(arb.canaux).toContain("email");
   }, 60_000);
 
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * ADAM S'ÉCRIVAIT À LUI-MÊME.
+   *
+   * Le chemin e-mail écrivait `to: compte.email` — la boîte de l'ERP, à elle-même. La personne
+   * ne voyait rien tant qu'elle n'ouvrait pas CETTE boîte. Sa préférence de canal portait
+   * pourtant déjà l'adresse : `lireCanal` la rendait, Slack et WhatsApp la recevaient, et le
+   * seul canal qui en avait besoin la jetait.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("L'E-MAIL PART LÀ OÙ LA PERSONNE A DIT QU'ON LA JOINT — la première adresse, les autres en copie", async () => {
+    const m = await prisma.mission.create({ data: { kind: "RUNTIME", status: "RUNNING", title: `${TAG} Où me joindre`, objective: "x", goalRaw: "x", ownerId: ownerCanaux, planVersion: 1 }, select: { id: true } });
+    const envois: { adresses: readonly string[] }[] = [];
+    const porte = porteAttentionPour({
+      envoyerMail: async (_o, _s, _c, adresses) => { envois.push({ adresses }); return "envoye"; },
+      preferences: async () => ({
+        canalPrefere: "email", destinataire: "perso@exemple.dz",
+        adressesDeContact: ["perso@exemple.dz", "pro@exemple.dz"],
+        heuresSilence: null, heure: 10, connecteurs: [], confidentiel: false, regles: [],
+      }),
+    });
+    await porte.signaler({ kind: "APPROVAL_REQUIRED", missionId: m.id, ownerId: ownerCanaux, titre: "", planVersion: 1, niveauApprobation: "SENSITIVE", raison: "3 e-mails externes", stepKey: "accord" });
+    expect(envois).toHaveLength(1);
+    expect(envois[0].adresses).toEqual(["perso@exemple.dz", "pro@exemple.dz"]);
+  }, 60_000);
+
+  it("SANS déclaration, rien ne change : la liste est vide et l'envoi retombe sur la boîte connectée", async () => {
+    const m = await prisma.mission.create({ data: { kind: "RUNTIME", status: "RUNNING", title: `${TAG} Sans adresse`, objective: "x", goalRaw: "x", ownerId: ownerCanaux, planVersion: 1 }, select: { id: true } });
+    const envois: { adresses: readonly string[] }[] = [];
+    const porte = porteAttentionPour({
+      envoyerMail: async (_o, _s, _c, adresses) => { envois.push({ adresses }); return "envoye"; },
+      preferences: async () => ({
+        canalPrefere: "email", destinataire: null, adressesDeContact: [],
+        heuresSilence: null, heure: 10, connecteurs: [], confidentiel: false, regles: [],
+      }),
+    });
+    await porte.signaler({ kind: "APPROVAL_REQUIRED", missionId: m.id, ownerId: ownerCanaux, titre: "", planVersion: 1, niveauApprobation: "SENSITIVE", raison: "3 e-mails externes", stepKey: "accord" });
+    expect(envois).toHaveLength(1);
+    expect(envois[0].adresses).toEqual([]);
+  }, 60_000);
+
   it("OMNICANAL (§37) : le canal préféré Slack, branché, remplace l'e-mail dès ATTENTION ; la règle est au journal ; le corps part avec le lien", async () => {
     const m = await prisma.mission.create({ data: { kind: "RUNTIME", status: "RUNNING", title: `${TAG} Dossier Slack`, objective: "x", goalRaw: "x", ownerId: ownerCanaux, planVersion: 1 }, select: { id: true } });
     const mails: string[] = []; const messages: { canal: string; texte: string; destinataire: string | null }[] = [];
     const porte = porteAttentionPour({
       envoyerMail: async (_o, sujet) => { mails.push(sujet); return "envoye"; },
       envoyerConnecteur: async (canal, _o, texte, destinataire) => { messages.push({ canal, texte, destinataire }); return "envoye"; },
-      preferences: async () => ({ canalPrefere: "slack", destinataire: "#direction", heuresSilence: null, heure: 10, connecteurs: ["slack"], confidentiel: false, regles: ["canal : préviens-moi par Slack"] }),
+      preferences: async () => ({ canalPrefere: "slack", destinataire: "#direction", adressesDeContact: [], heuresSilence: null, heure: 10, connecteurs: ["slack"], confidentiel: false, regles: ["canal : préviens-moi par Slack"] }),
     });
     const r = await porte.signaler({ kind: "MISSION_BLOCKED", missionId: m.id, ownerId: ownerCanaux, titre: "", planVersion: 1, raison: "Le certificat GMP est introuvable.", bilan: { faites: 3, total: 5, echouees: 1 } });
     expect(r.niveau).toBe("ATTENTION");
@@ -123,7 +164,7 @@ suite("porte d'attention — niveaux, canaux, dédoublonnage, plafond", () => {
     const nuit = porteAttentionPour({
       envoyerMail: async (_o, sujet) => { mails.push(sujet); return "envoye"; },
       envoyerConnecteur: async (canal) => { messages.push(canal); return "envoye"; },
-      preferences: async () => ({ canalPrefere: "whatsapp", destinataire: null, heuresSilence: { de: 22, a: 7 }, heure: 2, connecteurs: ["whatsapp"], confidentiel: false, regles: [] }),
+      preferences: async () => ({ canalPrefere: "whatsapp", destinataire: null, adressesDeContact: [], heuresSilence: { de: 22, a: 7 }, heure: 2, connecteurs: ["whatsapp"], confidentiel: false, regles: [] }),
     });
     const r = await nuit.signaler({ kind: "MISSION_PARTIAL", missionId: m.id, ownerId: ownerCanaux, titre: "", planVersion: 1, raison: "Deux envois sur trois.", bilan: { faites: 2, total: 3, echouees: 1 } });
     expect(r.niveau).toBe("INFO");
@@ -138,7 +179,7 @@ suite("porte d'attention — niveaux, canaux, dédoublonnage, plafond", () => {
 
     const nonBranche = porteAttentionPour({
       envoyerMail: async () => "envoye", envoyerConnecteur: async () => "envoye",
-      preferences: async () => ({ canalPrefere: "teams", destinataire: null, heuresSilence: null, heure: 10, connecteurs: [], confidentiel: false, regles: [] }),
+      preferences: async () => ({ canalPrefere: "teams", destinataire: null, adressesDeContact: [], heuresSilence: null, heure: 10, connecteurs: [], confidentiel: false, regles: [] }),
     });
     const m2 = await prisma.mission.create({ data: { kind: "RUNTIME", status: "RUNNING", title: `${TAG} Dossier Teams`, objective: "x", goalRaw: "x", ownerId: ownerCanaux, planVersion: 1 }, select: { id: true } });
     const r2 = await nonBranche.signaler({ kind: "MISSION_FAILED", missionId: m2.id, ownerId: ownerCanaux, titre: "", planVersion: 1, raison: "Échec." });
@@ -153,7 +194,7 @@ suite("porte d'attention — niveaux, canaux, dédoublonnage, plafond", () => {
     const porte = porteAttentionPour({
       envoyerMail: async (_o, sujet, corps) => { mails.push({ sujet, corps }); return "envoye"; },
       envoyerConnecteur: async (_c, _o, texte) => { messages.push(texte); return "envoye"; },
-      preferences: async () => ({ canalPrefere: "sms", destinataire: "+213661000000", heuresSilence: null, heure: 10, connecteurs: ["sms"], confidentiel: false, regles: [] }),
+      preferences: async () => ({ canalPrefere: "sms", destinataire: "+213661000000", adressesDeContact: [], heuresSilence: null, heure: 10, connecteurs: ["sms"], confidentiel: false, regles: [] }),
     });
     const r = await porte.signaler({ kind: "APPROVAL_REQUIRED", missionId: m.id, ownerId: ownerCanaux, titre: "", planVersion: 1, stepKey: "accord", niveauApprobation: "SENSITIVE", raison: "Augmentation de 40 000 DZD pour Mme K.", confidentiel: true });
     expect(r.niveau).toBe("ARBITRAGE");
