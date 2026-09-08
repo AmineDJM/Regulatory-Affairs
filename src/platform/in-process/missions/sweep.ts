@@ -156,8 +156,30 @@ export async function conduireMission(
   // manuelle l'acceptait, le battement non : la mission tournait en rond sans jamais atteindre
   // le planificateur qui savait la réécrire.
   if (apres && estReplanifiable(apres.status)) {
-    const rp = await replanifierMission(user, missionId, opts.reasoner ? { reasoner: opts.reasoner } : undefined).catch(() => null);
+    /**
+     * ── UN REPLAN QUI DÉCLINE NE DOIT PAS DÉCLINER EN SILENCE ─────────────────────────
+     *
+     * MESURÉ SUR UN RUN LIVE. Deux `send_message` échouent (« Destinataire "Équipe
+     * Regulatory" introuvable ou ambigu »), la mission passe BLOCKED avec onze étapes en
+     * attente, le battement la reprend cinq fois — et le journal ne porte NI `REPLANNED`, NI
+     * `REPLAN_SKIPPED`. Le `.catch(() => null)` avalait aussi bien une exception qu'un refus,
+     * et `raison` n'allait nulle part quand la mission n'était pas en train de CHANGER
+     * d'état : la notification plus bas ne part qu'à la TRANSITION.
+     *
+     * Résultat : une mission de dix-sept étapes meurt sur un nom de destinataire, et rien
+     * dans le journal ne dit pourquoi le planificateur n'a pas repris la main. Un filtre
+     * silencieux ne laisse aucune trace de ce qu'il retire (§118.52) — et ici il retirait la
+     * seule information qui permettait de comprendre.
+     */
+    const rp = await replanifierMission(user, missionId, opts.reasoner ? { reasoner: opts.reasoner } : undefined)
+      .catch((e) => ({ replanifie: false as const, raison: `la replanification a levé : ${e instanceof Error ? e.message : "erreur"}` }));
     raisonReplan = rp?.raison ?? null;
+    if (!rp?.replanifie) {
+      await journaliser(missionId, "REPLAN_SKIPPED",
+        `Le planificateur n'a pas repris la main sur une mission ${apres.status} : ${raisonReplan ?? "aucune raison rendue"}.`,
+        { statut: apres.status, planVersion: apres.planVersion },
+      ).catch(() => undefined);
+    }
     if (rp?.replanifie) {
       out.replanifie = true;
       const r2 = await avancerMission(user, missionId, options).catch(() => null);
