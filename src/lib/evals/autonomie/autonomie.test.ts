@@ -200,6 +200,30 @@ describe("banc d'autonomie — le verdict", () => {
    * configuré : IQVIA_BASE_URL, IQVIA_API_KEY »). Une assertion qui punit la conduite exigée
    * pousse à réparer ce qui marche : c'est le pire défaut qu'un banc puisse avoir.
    */
+  /**
+   * UN MANQUE NON CLASSÉ EST UN MANQUE INVISIBLE (#69). « mission BLOCKED sans étape en échec »
+   * ne ressemblait à aucune signature et repartait en INDETERMINE — 89 % de classement au run
+   * du 08/09. La cause était pourtant écrite dans l'état : soit un outil a nommé sa limite,
+   * soit le juge a refusé l'objectif.
+   */
+  it("une mission bloquée sur une RESSOURCE nommée est imputée au connecteur, pas au planificateur", async () => {
+    const { causer } = await import("@/lib/evals/autonomie/juges");
+    const r = causer(obs({
+      statut: "BLOCKED", jugeSatisfait: false, exigences: [],
+      limitesNommees: ["lecture:iqvia : RESSOURCE (IQVIA_BASE_URL, IQVIA_API_KEY)"],
+    }))!;
+    expect(r.manque!.nature).toBe("API_EXTERNE");
+    expect(r.manque!.quoi).toContain("IQVIA_BASE_URL");
+    expect(r.cause).not.toBe("PLANIFICATEUR");
+  });
+
+  it("tout a abouti et le juge a refusé : c'est le PLAN qui ne couvrait pas l'objectif", async () => {
+    const { causer } = await import("@/lib/evals/autonomie/juges");
+    const r = causer(obs({ statut: "BLOCKED", jugeSatisfait: false, exigences: [] }))!;
+    expect(r.manque!.nature).toBe("MODELE");
+    expect(r.manque!.quoi).toContain("le juge a refusé");
+  });
+
   it("une écriture PLANIFIÉE mais arrêtée sur une approbation ne compte pas comme une écriture", () => {
     const arrete = verifierExigences(obs({
       exigences: ["INFAISABLE"], profondeur: "PLAN", manqueNomme: true,

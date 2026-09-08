@@ -264,7 +264,40 @@ export function causer(o: Observation, ratees: readonly Tenue[] = []): { cause: 
     // faire deviner par des signatures qui ne reconnaîtraient pas cette phrase.
     return { cause: "PLANIFICATEUR", manque: manqueConnu("MODELE", `le plan ne prévoit pas : ${quoi}`, { etape: "plan" }) };
   }
+  /**
+   * ── « MISSION BLOCKED SANS ÉTAPE EN ÉCHEC » N'EST PAS UNE CAUSE ──────────────────────
+   *
+   * MESURÉ : la phrase ne ressemblait à aucune signature, `classer` rendait INDETERMINE, et le
+   * taux de classement tombait à 89 %. Or dans ce cas précis la cause est CONNUE, écrite noir
+   * sur blanc dans l'état de la mission — il suffisait de la lire au lieu de la faire deviner
+   * par un texte.
+   *
+   * Deux situations, deux causes distinctes, et l'ordre compte :
+   *
+   *  1. UN OUTIL A NOMMÉ SA LIMITE (`{ limite, manquantes }`). `iqvia_ventes_molecule` :
+   *     « connecteur iqvia non configuré : IQVIA_BASE_URL, IQVIA_API_KEY ». C'est un service
+   *     tiers absent — API_EXTERNE — et la suite est « brancher le connecteur », pas « écrire
+   *     un eval ». L'imputer au planificateur enverrait la dette au mauvais endroit.
+   *  2. TOUT A ABOUTI ET LE JUGE A REFUSÉ (§118.10). Les étapes ont tourné, l'objectif n'est
+   *     pas atteint : c'est le plan qui ne le couvrait pas. MODELE.
+   *
+   * Reste `classer`, pour ce qui n'entre dans ni l'un ni l'autre — et un INDETERMINE résiduel
+   * est alors un vrai aveu, pas un fourre-tout.
+   */
   if (o.statut && TERMINAUX_KO.has(o.statut)) {
+    const limite = o.limitesNommees[0];
+    if (limite) {
+      return {
+        cause: DE_NATURE.API_EXTERNE,
+        manque: manqueConnu("API_EXTERNE", `ressource non configurée — ${limite}`, { etape: limite.split(" : ")[0] || "plan" }),
+      };
+    }
+    if (o.jugeSatisfait === false) {
+      return {
+        cause: DE_NATURE.MODELE,
+        manque: manqueConnu("MODELE", "toutes les étapes ont abouti et le juge a refusé l'objectif — le plan ne le couvrait pas", { etape: "plan" }),
+      };
+    }
     return { cause: "PLANIFICATEUR", manque: classer(`mission ${o.statut} sans étape en échec`, { etape: "plan" }) };
   }
   return null;

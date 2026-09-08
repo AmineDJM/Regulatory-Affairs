@@ -771,8 +771,22 @@ export function compile(
         const amont = plan.steps.find((x) => x.key === w.step);
         const typeAmont = amont ? (amont.nodeType ?? (amont.capability ? "CAPABILITY" : "WORKER")) : null;
         if ((w.outcome === "EVENT" || w.outcome === "TIMEOUT") && typeAmont && typeAmont !== "WAIT_EVENT") {
+          /**
+           * ── LE REFUS NOMME L'ISSUE JUSTE (§118.19) ────────────────────────────────────
+           *
+           * MESURÉ, mission `ambigue-042` : le plan branchait `outcome: EVENT` derrière un
+           * WAIT_INPUT. Le refus disait la faute et pas le remède ; le planificateur a refait
+           * le même plan, et la mission est morte. EVENT et TIMEOUT sont les deux issues d'une
+           * attente d'ÉVÉNEMENT — celle qui peut se régler par un fait OU par le temps. Une
+           * question posée à quelqu'un (WAIT_INPUT) n'a pas ces deux sorties : elle aboutit,
+           * ou pas. Le refus donne donc l'issue à écrire, en toutes lettres.
+           */
+          const juste = typeAmont === "WAIT_INPUT"
+            ? `une question à quelqu'un aboutit ou n'aboutit pas : écris outcome: "DONE" (la réponse est là) ou "SKIPPED"`
+            : `pour un nœud ${typeAmont}, les issues possibles sont "DONE", "FAILED" et "SKIPPED"`;
           issues.push(issue("INVALID_SHAPE", s.key,
-            `l'issue ${w.outcome} n'a de sens qu'après une attente d'événement ; « ${w.step} » est un nœud ${typeAmont}.`));
+            `l'issue ${w.outcome} n'a de sens qu'après une attente d'événement (WAIT_EVENT, qui peut se régler par un fait ou par le temps) ; `
+            + `« ${w.step} » est un nœud ${typeAmont} — ${juste}.`));
         }
         if (w.op && !w.path) {
           issues.push(issue("INVALID_SHAPE", s.key, `l'opérateur « ${w.op} » exige un champ (path) de la sortie amont.`));
