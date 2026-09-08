@@ -255,6 +255,9 @@ async function conduireHorizonInterne(
     res.aboutis += fermes.aboutis;
     res.bloques += fermes.bloques;
 
+    // ── 4. REPRENDRE CE QUI A BLOQUÉ — localement, tant que son budget l'autorise ─────────
+    const reprises = await reprendreJalonsBloques(missionId);
+
     /**
      * RIEN N'A BOUGÉ : ON REND LA MAIN, ET CE N'EST PAS UN ÉCHEC.
      *
@@ -263,7 +266,7 @@ async function conduireHorizonInterne(
      * pas encore répondu. Le battement reprendra, ou un événement réveillera la branche.
      */
     if (compilesCeTour === 0 && fermes.aboutis === 0 && fermes.bloques === 0
-      && (tourMoteur?.executees ?? 0) === 0) {
+      && reprises === 0 && (tourMoteur?.executees ?? 0) === 0) {
       res.avancement = avancement(await lireJalons(missionId));
       res.arret = "rien de neuf : la mission attend";
       return res;
@@ -273,6 +276,76 @@ async function conduireHorizonInterne(
   res.arret = `${TOURS_MAX} tours de frontière dans un seul appel — la suite au prochain battement`;
   res.avancement = avancement(await lireJalons(missionId));
   return res;
+}
+
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * REPRENDRE UN JALON QUI A BLOQUÉ — la replanification LOCALE, et c'est le cœur du Lot A.
+ *
+ * ── LE DÉFAUT, MESURÉ SUR UN RUN LIVE ───────────────────────────────────────────────────
+ *
+ * Le jalon 1 d'une mission de sept passe BLOCKED : quelques étapes ont épuisé leurs tentatives.
+ * `frontiere()` écarte les jalons BLOCKED de ses « courants » — à juste titre, ils ne peuvent
+ * pas travailler en l'état. Mais RIEN ne les reprenait : ils restaient bloqués pour toujours,
+ * leur descendance n'était jamais libérée, et la mission mourait sur une difficulté LOCALE
+ * qu'un sous-plan différent aurait très bien pu contourner. C'est exactement le « on ne s'arrête
+ * jamais à la première difficulté » de §118.9, appliqué au mauvais niveau : le moteur réessayait
+ * les ÉTAPES, personne ne réessayait le JALON.
+ *
+ * ── LA REPRISE EST UN REPLAN, PAS UN RE-RUN ─────────────────────────────────────────────
+ *
+ * On ne relance pas les mêmes étapes : elles ont épuisé leurs tentatives, les relancer
+ * produirait le même échec. On remet le jalon à PENDING avec `planVersion: 0` — la marque
+ * « pas encore compilé » — et la frontière lui écrira un sous-plan NEUF, informé de ce qui a
+ * échoué. Les étapes mortes restent au dossier ; `materialiser` les contournera si le nouveau
+ * plan ne les reprend pas, et les RÉARMERA s'il les reprend (§118.33).
+ *
+ * ── ET LE BUDGET RESTE LOCAL, JUGÉ AU PROGRÈS ───────────────────────────────────────────
+ *
+ * La signature d'un blocage, ici, est l'ensemble des CAUSES d'échec (`errorKind`) — pas les
+ * clés d'étapes, qui changent à chaque plan. Tant que les causes CHANGENT, un sous-plan de plus
+ * vaut son prix ; dès qu'elles reviennent identiques, ce jalon bute sur un vrai mur et le dire
+ * vaut mieux que payer un tour de plus.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+async function reprendreJalonsBloques(missionId: string): Promise<number> {
+  const jalons = await lireJalons(missionId);
+  const bloques = jalons.filter((j) => j.statut === "BLOCKED");
+  if (bloques.length === 0) return 0;
+
+  let reprises = 0;
+  for (const j of bloques) {
+    const mortes = await prisma.missionStep.findMany({
+      where: { missionId, milestoneId: j.id, status: "FAILED", supersededAt: null },
+      select: { key: true, errorKind: true, error: true },
+    });
+    /**
+     * LA SIGNATURE D'UN BLOCAGE : ses CAUSES, triées et dédoublonnées. Un jalon bloqué SANS
+     * étape morte l'a été par le juge (« le résultat n'est pas constatable ») — sa signature
+     * est alors ce refus-là, et non un vide qui se confondrait avec « aucune cause connue ».
+     */
+    const signature = mortes.length > 0
+      ? [...new Set(mortes.map((m) => m.errorKind ?? "ECHEC"))].sort().join("|")
+      : "OBJECTIF_NON_CONSTATE";
+    const verdict = peutReplanifier({ replans: j.replans, dernierRefus: j.dernierRefus }, signature);
+    if (!verdict.autorise) {
+      // ON NE RÉPÈTE PAS LE MESSAGE À CHAQUE TOUR : le jalon reste BLOCKED, son motif est déjà
+      // au journal, et le redire à chaque battement rendrait le fil illisible.
+      continue;
+    }
+    await compterReplan(j.id, signature);
+    await marquerJalon(j.id, "PENDING", { planVersion: 0, dernierRefus: signature });
+    reprises += 1;
+    await journaliser(missionId, "MILESTONE_RETRY",
+      `Jalon ${j.ordre} (« ${j.titre} ») est repris : ${verdict.phrase} `
+      + (mortes.length > 0
+        ? `${mortes.length} étape(s) avaient épuisé leurs tentatives (${signature}) — un sous-plan `
+          + `NEUF va être écrit, informé de cet échec.`
+        : `Son résultat n'était pas constatable — un sous-plan neuf va viser autrement.`),
+      { ordre: j.ordre, signature, replans: j.replans + 1, etapesMortes: mortes.map((m) => m.key) });
+  }
+  return reprises;
 }
 
 /**
@@ -314,6 +387,7 @@ async function compilerJalon(
   const agent = agentPour({ initiatedBy: user.id, executedBy: user.id, label: user.name });
 
   const acquis = await acquisDeLaMission(mission.id);
+  const echecs = await echecsDuJalon(mission.id, jalon.id);
   const politiques = await import("@/platform/in-process/teach/store")
     .then((m) => m.politiquesPourMission(user.id))
     .catch(() => [] as string[]);
@@ -330,6 +404,15 @@ async function compilerJalon(
      * live : la mission relançait une recherche pour retrouver une réponse déjà en main.
      */
     dejaFait: acquis.lignes,
+    /**
+     * CE QUI A ÉCHOUÉ LA FOIS PRÉCÉDENTE SUR CE JALON — et pourquoi ça ne peut pas manquer.
+     *
+     * Un jalon repris (`reprendreJalonsBloques`) est repris PARCE QUE quelque chose a cassé. Si
+     * le planificateur ne le sait pas, il réécrit le même sous-plan : on paie un appel pour
+     * redécouvrir le même mur. C'est la version locale du défaut §118.18 — le refus doit voyager
+     * jusqu'à celui qui peut le réparer.
+     */
+    ...(echecs.length > 0 ? { refusPrecedent: echecs } : {}),
   };
 
   const consigne = consigneDuJalon(objectif, jalon, tous);
@@ -443,6 +526,18 @@ async function compilerJalon(
   }
 
   return { compile: true, bloque: false, raison: "sous-plan écrit" };
+}
+
+
+/** Ce qui a échoué sur CE jalon, en français, prêt pour le planificateur. */
+async function echecsDuJalon(missionId: string, milestoneId: string): Promise<string[]> {
+  const mortes = await prisma.missionStep.findMany({
+    where: { missionId, milestoneId, status: "FAILED" },
+    select: { key: true, title: true, error: true, errorKind: true },
+    take: 12,
+  });
+  return mortes.map((m) =>
+    `[${m.errorKind ?? "ÉCHEC"}] « ${m.title} » (${m.key}) : ${m.error ?? "sans motif"}`);
 }
 
 /**

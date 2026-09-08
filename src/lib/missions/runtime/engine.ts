@@ -1140,6 +1140,8 @@ async function ecrireSortie(
     });
     await journaliser(etat.id, "STEP_DONE", `Étape « ${step.title} » terminée.`,
       { stepKey: step.key, receipt: sortie.receipt ?? null });
+    // LA FRAÎCHEUR SE PREND ICI, sur le reçu de l'étape qui vient d'aboutir (§118.41).
+    await daterLEntree(etat.id, step, sortie);
     return;
   }
 

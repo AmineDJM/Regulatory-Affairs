@@ -102,7 +102,48 @@ export interface VueMission {
     fichier: string; octets: number; driveNodeId: string | null;
   }[];
   avancement: { faites: number; total: number; echouees: number };
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * L'HORIZON — vide pour une mission courte, et c'est la bonne réponse.
+   *
+   * Sans lui, l'écran d'une mission longue ment par omission : il montre les étapes du jalon
+   * COURANT et rien d'autre, donc « 4 étapes sur 5 » sur une mission qui en a six semaines
+   * devant elle. La personne lit « presque fini » et se trompe complètement.
+   *
+   * `part` porte l'avancement RÉEL — sur les jalons, pas sur les étapes du sous-plan en cours.
+   * `resultat` est ce qu'on doit pouvoir constater : c'est lui, et pas le titre, que le contrôle
+   * de fin compare au réel (§118.10), donc c'est lui que l'écran doit montrer.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  horizon: {
+    jalons: {
+      ordre: number; titre: string; resultat: string;
+      statut: string; etat: "fait" | "en-cours" | "a-faire" | "echec";
+      /** Le sous-plan de ce jalon est-il écrit ? Faux = il n'existe encore que comme intention. */
+      compile: boolean;
+      etapes: number;
+    }[];
+    /** Combien de jalons aboutis (ou écartés) sur ceux qui comptent. */
+    part: number;
+    aboutis: number;
+    total: number;
+    bloques: number;
+  } | null;
+  /** La pause, quand il y en a une — depuis quand, pourquoi, et ce qu'elle a interrompu. */
+  pause: { depuis: string; motif: string | null; interrompue: string | null } | null;
 }
+
+/** L'état d'un jalon, dans le même vocabulaire que celui d'une étape. */
+const ETAT_JALON: Record<string, "fait" | "en-cours" | "a-faire" | "echec"> = {
+  DONE: "fait",
+  ACTIVE: "en-cours",
+  PENDING: "a-faire",
+  // ÉCARTÉ n'est pas FAIT : marquer accompli ce qui n'a pas eu lieu est le mensonge le plus
+  // coûteux d'un tableau de bord — la même règle que pour une étape SKIPPED, plus haut.
+  SKIPPED: "a-faire",
+  CANCELLED: "a-faire",
+  BLOCKED: "echec",
+};
 
 /**
  * L'ÉTAT COMPLET D'UNE MISSION, prêt à afficher.
@@ -138,6 +179,14 @@ export async function vueMission(missionId: string, ownerId: string): Promise<Vu
         },
         orderBy: { createdAt: "asc" },
       },
+      milestones2: {
+        select: {
+          id: true, ordre: true, titre: true, resultat: true, statut: true, planVersion: true,
+          steps: { select: { id: true } },
+        },
+        orderBy: { ordre: "asc" },
+      },
+      pausedAt: true, pausedReason: true, pausedFrom: true,
     },
   });
   if (!m) return null;
@@ -177,15 +226,54 @@ export async function vueMission(missionId: string, ownerId: string): Promise<Vu
 
   const attente = m.steps.find((s) => s.status === "WAITING" && (s.nodeType === "APPROVAL" || s.nodeType === "WAIT_INPUT"));
 
+  /**
+   * L'HORIZON, QUAND IL Y EN A UN — et le SOUS-TITRE qui en découle.
+   *
+   * Une mission longue affichée « 4/5 étapes » ment : ce sont les étapes du jalon COURANT.
+   * Quand l'horizon existe, c'est LUI qui donne l'avancement, et les étapes deviennent le
+   * détail du jalon en cours. Sans ce basculement, la personne lit « presque fini » sur une
+   * mission qui a six semaines devant elle — et ce n'est pas un défaut d'affichage : c'est une
+   * décision prise sur un chiffre faux.
+   */
+  const comptes = m.milestones2.length > 0 ? m.milestones2 : null;
+  const annules = comptes?.filter((j) => j.statut === "CANCELLED").length ?? 0;
+  const denominateur = comptes ? Math.max(0, comptes.length - annules) : 0;
+  const jalonsAboutis = comptes?.filter((j) => j.statut === "DONE").length ?? 0;
+  const jalonsEcartes = comptes?.filter((j) => j.statut === "SKIPPED").length ?? 0;
+  const horizon: VueMission["horizon"] = comptes
+    ? {
+        jalons: comptes.map((j) => ({
+          ordre: j.ordre, titre: j.titre, resultat: j.resultat, statut: j.statut,
+          etat: ETAT_JALON[j.statut] ?? "a-faire",
+          compile: j.planVersion > 0,
+          etapes: j.steps.length,
+        })),
+        part: denominateur === 0 ? 0 : (jalonsAboutis + jalonsEcartes) / denominateur,
+        aboutis: jalonsAboutis,
+        total: comptes.length,
+        bloques: comptes.filter((j) => j.statut === "BLOCKED").length,
+      }
+    : null;
+
+  const sousTitre = horizon
+    ? `${MISSION_STATUS_LABEL[m.status]} — jalon ${Math.min(jalonsAboutis + jalonsEcartes + 1, horizon.total)}/${horizon.total}`
+      + (horizon.bloques > 0 ? `, ${horizon.bloques} bloqué(s)` : "")
+      + (reelles.length > 0 ? ` · ${faites}/${reelles.length} étapes du jalon en cours` : "")
+    : `${MISSION_STATUS_LABEL[m.status]} — ${faites}/${reelles.length} étapes`
+      + (echouees > 0 ? `, ${echouees} en échec` : "")
+      + (m.planVersion > 1 ? ` (plan v${m.planVersion})` : "");
+
   return {
     kind: "mission",
+    horizon,
+    pause: m.pausedAt
+      ? { depuis: m.pausedAt.toISOString(), motif: m.pausedReason, interrompue: m.pausedFrom }
+      : null,
     // L'IDENTIFIANT DE LA MISSION FAIT L'IDENTITÉ DU BLOC : c'est ce qui la met à jour sur place.
     blockId: `mission:${m.id}`,
     title: m.title,
     statut: m.status,
-    subtitle: `${MISSION_STATUS_LABEL[m.status]} — ${faites}/${reelles.length} étapes`
-      + (echouees > 0 ? `, ${echouees} en échec` : "")
-      + (m.planVersion > 1 ? ` (plan v${m.planVersion})` : ""),
+    subtitle: sousTitre,
     etapes,
     sousMissions: m.subMissions.map((sm) => ({
       id: sm.id,

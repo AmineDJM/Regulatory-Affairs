@@ -47,7 +47,8 @@
     "autonomy:bench:complet": "AUTONOMY_MODE=complet tsx scripts/bench/autonomy-bench.ts",
     "bench:ab": "tsx scripts/bench/ab-temoin.ts",
     "bench:intentions": "tsx scripts/bench/intentions-courtes.ts",
-    "bench:chaine": "tsx scripts/bench/chaine-humaine.ts"
+    "bench:chaine": "tsx scripts/bench/chaine-humaine.ts",
+    "bench:horizon": "tsx scripts/bench/horizon-long.ts"
   },
   "prisma": {
     "seed": "tsx prisma/bootstrap.ts"

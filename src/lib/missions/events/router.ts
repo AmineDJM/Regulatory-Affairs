@@ -361,6 +361,21 @@ export async function missionsAFaireAvancer(limite = 20): Promise<string[]> {
          * lui avait rien donné de nouveau », et un compteur ne savait pas la faire.
          */
         { status: { in: [...ETATS_REPLANIFIABLES] }, replanBloque: false },
+        /**
+         * ── LA MISSION LONGUE ENTRE DEUX JALONS ──────────────────────────────────────
+         *
+         * MESURÉ SUR UN RUN LIVE : une mission de sept jalons, jalon 1 compilé et ses onze
+         * étapes toutes terminées, jalons 2 à 7 pas encore compilés — donc ZÉRO étape PENDING
+         * ou FAILED en base, et un statut RUNNING qui n'est pas replanifiable. Aucune des deux
+         * branches précédentes ne la voyait. Le battement ne la reprenait jamais, et la mission
+         * mourait à son PREMIER jalon : la compilation paresseuse était écrite, testée, et sans
+         * effet en production (§118.14).
+         *
+         * C'est l'état NORMAL d'une mission longue entre deux jalons, pas une anomalie. Un
+         * jalon vivant EST du travail à faire, exactement comme une étape PENDING — il n'a
+         * simplement pas encore d'étapes, parce que c'est le principe.
+         */
+        { milestones2: { some: { statut: { notIn: ["DONE", "SKIPPED", "CANCELLED"] } } } },
       ],
     },
     select: { id: true },

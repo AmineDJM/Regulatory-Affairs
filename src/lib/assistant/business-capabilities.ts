@@ -501,6 +501,12 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
         + "d'autorisation, et les étapes concernées ne s'exécuteront pas ; « replanifier » fait réécrire le "
         + "plan d'une mission bloquée ou en échec — ce que le nouveau plan ajoute repasse par l'accord de "
         + "la personne, donc rien ne part sans elle. "
+        + "« modifier » CHANGE UNE MISSION EN COURS SANS TOUT REFAIRE : « finalement Amel à la place de "
+        + "Deepak » (genre `remplacer`), « annule uniquement le PowerPoint » (`retirer`), « ajoute une "
+        + "analyse financière » (`ajouter`), « utilise le nouveau forecast » (`rafraichir`). Seules les "
+        + "étapes qui NOMMENT la cible et ce qui en dépend sont reprises ; le reste garde son travail, "
+        + "ses reçus et ses effets déjà produits, et ce qui est DÉJÀ parti est nommé, jamais renvoyé. "
+        + "Une cible que le plan ne nomme nulle part ne touche à RIEN et le dit : ne devine pas à sa place. "
         + "N'ACCORDE JAMAIS une autorisation et ne fournit jamais un élément demandé avec cet outil : "
         + "ces deux gestes-là exigent un clic de la personne sur l'écran de la mission — dis-le-lui.",
       input_schema: {
@@ -509,7 +515,7 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
           missionId: { type: "string", description: "L'identifiant de la mission." },
           geste: {
             type: "string",
-            enum: ["pause", "reprendre", "arreter", "refuser", "replanifier", "prioriser", "plafonner_modele"],
+            enum: ["pause", "reprendre", "arreter", "refuser", "replanifier", "prioriser", "plafonner_modele", "modifier"],
             description: "Le geste demandé. « prioriser » la fait passer devant (valeur dans `priorite`) ; "
               + "« plafonner_modele » borne ses appels de modèle (« ne dépense plus de modèle dessus ») — "
               + "`plafond` en nombre d'appels, 0 pour geler, absent pour RETIRER le plafond.",
@@ -517,6 +523,19 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
           motif: { type: "string", description: "Pourquoi — repris dans le journal de la mission." },
           priorite: { type: "number", description: "Pour « prioriser » : -10 à 10, 0 = normal." },
           plafond: { type: "number", description: "Pour « plafonner_modele » : le nombre d'appels autorisés. Absent = retirer le plafond." },
+          modification: {
+            type: "string",
+            enum: ["remplacer", "retirer", "ajouter", "rafraichir"],
+            description: "Pour « modifier » : la nature du changement.",
+          },
+          cible: {
+            type: "string",
+            description: "Pour « modifier » : CE QUI EST VISÉ, dans les mots de la personne — « Deepak », "
+              + "« le PowerPoint », « le forecast NIVOLEX ». Écris ce qu'elle a dit, pas une reformulation : "
+              + "c'est ce texte qui est cherché dans les étapes du plan.",
+          },
+          remplacant: { type: "string", description: "Pour « modifier »/`remplacer` : qui ou quoi prend la place." },
+          ajout: { type: "string", description: "Pour « modifier »/`ajouter` : le travail qui s'ajoute, en une phrase." },
         },
         required: ["missionId", "geste"],
       },
@@ -549,6 +568,31 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
       if (geste === "plafonner_modele") {
         const cap = typeof input.plafond === "number" ? input.plafond : null;
         return JSON.stringify(await ctl.plafonnerModeleMission(user, missionId, cap));
+      }
+      /**
+       * ── « MODIFIER » EST ICI POUR LA MÊME RAISON QUE « REPLANIFIER » ────────────────────
+       *
+       * Il ne peut RIEN faire sortir sans accord. Une modification invalide des étapes et
+       * rouvre le jalon touché ; le sous-plan qui suit repasse par le compilateur, la politique
+       * d'acteur ET `reouvrirSiChange`. Une injection qui la déclencherait obtiendrait donc, au
+       * pire, une demande d'accord de plus — ce qui se voit, et se refuse d'un clic.
+       *
+       * Et l'empreinte ne dépasse jamais la demande (§118.16) : une cible que le plan ne nomme
+       * nulle part ne touche à rien, et ce qui est déjà parti est nommé plutôt que rejoué.
+       */
+      if (geste === "modifier") {
+        const mod = await import("@/platform/in-process/missions/modifier");
+        const nature = (str(input, "modification") || "remplacer").toUpperCase();
+        const genres = ["REMPLACER", "RETIRER", "AJOUTER", "RAFRAICHIR"] as const;
+        const genre = (genres as readonly string[]).includes(nature)
+          ? (nature as (typeof genres)[number]) : "REMPLACER";
+        return JSON.stringify(await mod.appliquerModification(user, missionId, {
+          genre,
+          cible: str(input, "cible"),
+          remplacant: str(input, "remplacant") || null,
+          ajout: str(input, "ajout") || null,
+          motif,
+        }));
       }
 
       // LE REFUS QUI COMPTE. Il est explicite et il ORIENTE : une personne à qui l'on dit

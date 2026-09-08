@@ -382,16 +382,41 @@ suite("LA MAIN HUMAINE SUR UNE MISSION — accord, élément, pause, reprise, ar
     expect(messages, "un replan ne défait aucun envoi déjà parti").toBe(SALARIES.length);
   }, 300_000);
 
-  it("§9 — on n'écrit pas un cinquième plan : l'échelle de recours a des barreaux", async () => {
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * §9 — CE QUI ARRÊTE LA BOUCLE EST LE PROGRÈS, PLUS UN COMPTEUR (§118.42).
+   *
+   * L'ancienne version de ce test posait `planVersion: 4` et attendait « quatre plans ont déjà
+   * été essayés ». Elle tenait un plafond GLOBAL qui tuait une mission de sept jalons parce
+   * qu'un seul d'entre eux s'y reprenait — la mission mourait pour avoir AVANCÉ.
+   *
+   * Les deux directions sont tenues ici, et il faut les deux : sans la seconde, on aurait
+   * seulement remplacé un compteur par un booléen sans prouver qu'il laisse passer.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("§9 — un refus qui REVIENT IDENTIQUE ferme la porte, et le dit", async () => {
     ACTEUR = pdg;
     const missionId = await lancer();
-    // Quatre plans déjà essayés, et une mission en échec : le plafond doit parler.
     await prisma.mission.update({
-      where: { id: missionId }, data: { status: "FAILED", planVersion: 4 },
+      where: { id: missionId },
+      data: { status: "FAILED", replanBloque: true, replanRefus: "CARDINALITY" },
     });
     const r = await replanifierMissionAction(missionId);
     expect(r.ok).toBe(false);
-    expect(r.message).toMatch(/plans ont déjà été essayés/);
+    expect(r.message).toMatch(/deux fois sur le même refus/);
+    expect(r.message, "le refus dit ce qui le lèverait").toMatch(/information\s+neuve/);
+  }, 300_000);
+
+  it("§9 — une planVersion élevée ne ferme RIEN : une mission longue en compile une par jalon", async () => {
+    ACTEUR = pdg;
+    const missionId = await lancer();
+    await prisma.mission.update({
+      where: { id: missionId }, data: { status: "FAILED", planVersion: 9, replanBloque: false },
+    });
+    const r = await replanifierMissionAction(missionId);
+    // Elle peut être refusée pour une autre raison (aucune étape épuisée), mais JAMAIS parce
+    // qu'un compteur de plans aurait été atteint : c'est cette phrase-là qui ne doit plus exister.
+    expect(r.message).not.toMatch(/plans ont déjà été (essayés|écrits)/);
   }, 300_000);
 
   it("§6 — une MISSION ne peut pas s'accorder elle-même : refus de COMPILATION", () => {
