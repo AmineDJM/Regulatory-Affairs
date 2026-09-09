@@ -49,7 +49,8 @@
     "bench:ab": "tsx scripts/bench/ab-temoin.ts",
     "bench:intentions": "tsx scripts/bench/intentions-courtes.ts",
     "bench:chaine": "tsx scripts/bench/chaine-humaine.ts",
-    "bench:horizon": "tsx scripts/bench/horizon-long.ts"
+    "bench:horizon": "tsx scripts/bench/horizon-long.ts",
+    "bench:live": "NODE_OPTIONS=\"--require ./scripts/proxy-dispatcher.cjs\" tsx --"
   },
   "prisma": {
     "seed": "tsx prisma/bootstrap.ts"
@@ -109,6 +110,7 @@
     "tailwindcss": "3.4.13",
     "tsx": "4.19.1",
     "typescript": "5.6.2",
+    "undici": "^6.28.1",
     "vitest": "2.1.2"
   }
 }
