@@ -1384,6 +1384,28 @@ async function deployerEventail(
    * quand la mère change de version, ses filles en ÉCHEC repartent avec elle — les ABOUTIES
    * restent acquises (pas de second envoi), et leur clé d'idempotence n'est jamais touchée.
    */
+  /**
+   * ── UNE FILLE APPARTIENT AU JALON DE SA MÈRE (§118.68) ─────────────────────────────────
+   *
+   * MESURÉ LIVE, mission `cmttsao1f…`. Le jalon 1 s'appelle « les pièces réglementaires sont
+   * officiellement SOLLICITÉES ». Le plan déploie l'envoi en éventail ; les deux filles
+   * partent, aboutissent, et leur résultat dit « Message envoyé à Amel Haddad ». Le juge du
+   * jalon, lui, ne charge que les étapes qui portent son `milestoneId` — donc la MÈRE, jamais
+   * les filles. `attestationEffets` a lu leurs zéro reçu et a conclu, honnêtement :
+   *
+   *   « toutes les capacités appelées sont des lectures : AUCUNE écriture et AUCUN envoi.
+   *     Aucune demande traçable n'est donc démontrée comme ayant été produite. »
+   *
+   * Le jalon a été refusé DEUX FOIS pour avoir fait exactement ce qu'on lui demandait : le
+   * faux ÉCHEC symétrique du faux succès (§118.44), et il coûte aussi cher — une reprise de
+   * jalon, un sous-plan neuf, une porte d'accord rouverte et un appel de juge à chaque tour.
+   *
+   * Tout le travail réel d'une mission massive vit dans les filles : les en priver de leur
+   * jalon rend ce travail invisible à ce qui le juge, le compte et le contourne.
+   */
+  const mere = await prisma.missionStep.findUnique({
+    where: { id: step.id }, select: { milestoneId: true },
+  });
   const filles = await prisma.missionStep.findMany({
     where: { missionId: etat.id, key: { startsWith: `${step.key}#` } },
     select: { key: true, status: true, planVersion: true },
@@ -1420,6 +1442,8 @@ async function deployerEventail(
         // donc c'est elle qui doit porter le schéma de sortie exigé et sa condition de fin.
         spec: (step.spec ?? undefined) as never,
         planVersion: step.planVersion,
+        // LE JALON DE LA MÈRE — sans quoi le travail réel est invisible au juge du jalon.
+        milestoneId: mere?.milestoneId ?? null,
         status: "PENDING",
       },
       // UNE ITÉRATION DÉJÀ CRÉÉE N'EST PAS RÉÉCRITE : un second déploiement (reprise après
@@ -1437,6 +1461,9 @@ async function deployerEventail(
           title: `${step.title} — ${identiteIteration(element, i)}`,
           input: entreeIteration(step.input, as, element) as never,
           spec: (step.spec ?? undefined) as never,
+          // UNE FILLE RÉARMÉE SUIT SA MÈRE, jalon compris : un replan peut avoir déplacé la
+          // mère d'un jalon à l'autre, et une fille restée sur l'ancien serait jugée deux fois.
+          milestoneId: mere?.milestoneId ?? null,
         },
       });
     }

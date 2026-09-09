@@ -387,7 +387,20 @@ export async function materialiser(
    */
   const clesDuPlan = new Set(compiled.steps.map((s) => s.key));
   const ACQUIS: readonly string[] = ["DONE", "SKIPPED"];
-  const contournees = duPerimetre.filter((s) => !clesDuPlan.has(s.key) && !ACQUIS.includes(s.status));
+  /**
+   * LES FILLES D'UN ÉVENTAIL NE SONT PAS « CONTOURNÉES » : ELLES APPARTIENNENT À LEUR MÈRE.
+   *
+   * Un plan ne LISTE jamais une fille — elle naît à l'exécution, de la liste que l'amont a
+   * rendue. Sans cette ligne, la fille d'une mère parfaitement reprise serait marquée
+   * contournée à chaque replan, disparaîtrait du comptage de sa mère, et l'éventail
+   * recompterait « 0/2 » sur deux envois réellement partis. C'est le trou qu'ouvre le fait de
+   * leur donner enfin un `milestoneId` (§118.68) : sans lui, elles étaient hors périmètre par
+   * accident, et l'accident tenait lieu de règle.
+   *
+   * Le contournement d'une mère, lui, reste : c'est le geste juste quand le plan l'abandonne.
+   */
+  const contournees = duPerimetre.filter((s) =>
+    !clesDuPlan.has(s.key) && !ACQUIS.includes(s.status) && !s.key.includes("#"));
   if (contournees.length > 0) {
     await prisma.missionStep.updateMany({
       where: { id: { in: contournees.map((s) => s.id) }, supersededAt: null },

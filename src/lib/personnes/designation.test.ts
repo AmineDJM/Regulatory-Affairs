@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { designationDePersonne, direCeQuiEstArrive } from "@/lib/personnes/designation";
+import { designationDePersonne, direCeQuiEstArrive, collectifDesigne, CONSEIL_COLLECTIF } from "@/lib/personnes/designation";
 
 describe("designationDePersonne — le cas MESURÉ qui a tué la chaîne", () => {
   it("LE CANDIDAT RENDU PAR resolve_person EST UN DESTINATAIRE, PAS UNE ÉNIGME", () => {
@@ -68,5 +68,66 @@ describe("direCeQuiEstArrive — un refus montre ce qu'il a REÇU", () => {
   it("rien reçu se dit « (rien) », et un pavé est borné", () => {
     expect(direCeQuiEstArrive(undefined)).toBe("(rien)");
     expect(direCeQuiEstArrive("x".repeat(500)).length).toBeLessThanOrEqual(160);
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════
+ * UN COLLECTIF N'EST PAS UNE PERSONNE (§118.68)
+ *
+ * MESURÉ LIVE, deux missions, trois fois : `recipientName: "Équipe Regulatory"`. Le refus
+ * disait « précisez le bon collègue » — une phrase écrite pour un humain devant un écran. Le
+ * planificateur l'a suivie et a posé la question au DIRIGEANT ; la mission s'est arrêtée là,
+ * en attente d'une réponse que personne n'avait à donner, alors que l'annuaire connaît ces
+ * personnes.
+ * ═══════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("collectifDesigne", () => {
+  it("LE CAS MESURÉ, et ses voisins de la même famille", () => {
+    expect(collectifDesigne("Équipe Regulatory")).toBe("equipe");
+    expect(collectifDesigne("l'équipe Regulatory")).toBe("equipe");
+    expect(collectifDesigne("Service Financier")).toBe("service");
+    expect(collectifDesigne("Département Qualité")).toBe("departement");
+    expect(collectifDesigne("Direction Commerciale")).toBe("direction");
+    expect(collectifDesigne("Pôle Achats")).toBe("pole");
+    expect(collectifDesigne("Comité de direction")).toBe("comite");
+  });
+
+  it("lit aussi l'objet que `resolve_person` rend, comme le reste du module", () => {
+    expect(collectifDesigne({ nom: "Équipe Regulatory" })).toBe("equipe");
+  });
+
+  /**
+   * CE QUI FERAIT TOMBER CETTE GARDE : élargir le vocabulaire ou lâcher la position de tête.
+   * Un refus à tort ici empêche un envoi parfaitement légitime — pire que le défaut corrigé
+   * (§118.27).
+   */
+  it("une PERSONNE n'est jamais prise pour un groupe", () => {
+    for (const nom of [
+      "Amel Haddad", "Khaled Mansouri", "Sofiane Kaci",
+      "Amel Haddad <amel@adventum.dz>", "Jean-Pierre Équipe", "Yacine Direction",
+    ]) {
+      expect(collectifDesigne(nom), nom).toBeNull();
+    }
+  });
+
+  it("un mot collectif SEUL ne désigne rien — ni personne, ni groupe nommé : on se tait", () => {
+    // Le refus générique est déjà juste ; ajouter un conseil sur un vide serait du bruit (§118.32).
+    expect(collectifDesigne("Équipe")).toBeNull();
+    expect(collectifDesigne("la direction")).toBeNull();
+    expect(collectifDesigne("")).toBeNull();
+    expect(collectifDesigne(null)).toBeNull();
+  });
+
+  it("« Regulatory » seul n'est pas un collectif — ce peut être un identifiant de compte", () => {
+    expect(collectifDesigne("Regulatory")).toBeNull();
+    expect(collectifDesigne("regulatory@adventum.dz")).toBeNull();
+  });
+
+  it("le conseil nomme les DEUX gestes : lire l'annuaire, PUIS déployer en éventail", () => {
+    // Sans le second, le plan corrigé écrirait un seul envoi à N personnes — §118.3.
+    expect(CONSEIL_COLLECTIF).toMatch(/search_people|directory_list|resolve_person/);
+    expect(CONSEIL_COLLECTIF).toContain("ÉVENTAIL");
+    expect(CONSEIL_COLLECTIF).toContain("Ne demande pas ce nom au demandeur");
   });
 });

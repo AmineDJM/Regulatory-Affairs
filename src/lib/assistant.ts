@@ -140,7 +140,9 @@ import {
   MODULE_LABELS, ENTITY_TYPE_LABELS, doctorDisplayName,
 } from "@/lib/labels";
 import { getAppSettings } from "@/lib/settings";
-import { designationDePersonne, lirePersonne, direCeQuiEstArrive } from "@/lib/personnes/designation";
+import {
+  designationDePersonne, lirePersonne, direCeQuiEstArrive, collectifDesigne, CONSEIL_COLLECTIF,
+} from "@/lib/personnes/designation";
 import { DATASETS, isExportDataset, exportDatasetToDrive } from "@/lib/assistant/exports";
 import {
   WRITABLE_SETTINGS, parseSettingValue, parseRegFieldValue, regFieldSpec, settingSpec,
@@ -3162,7 +3164,21 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     const body = asStr(input, "body");
     if (!body) return { error: "Le message est vide." };
     const recipient = await resolve("Destinataire", input.recipientName);
-    if (!recipient.id) return { error: `Destinataire « ${direCeQuiEstArrive(input.recipientName)} » introuvable ou ambigu — précisez le bon collègue (search_people).` };
+    if (!recipient.id) {
+      /**
+       * UN REFUS NOMME LE REMÈDE DE CELUI QUI LE LIT (§118.68).
+       *
+       * « Précisez le bon collègue » est écrit pour une personne devant un écran. Dans une
+       * MISSION, c'est le planificateur qui lit — et il l'a suivi à la lettre : le sous-plan
+       * suivant posait la question au DIRIGEANT, et la mission s'est arrêtée là. Quand la
+       * désignation est un COLLECTIF, le remède est le même pour les deux lecteurs et il est
+       * ailleurs : lister les personnes, puis déployer.
+       */
+      const collectif = collectifDesigne(input.recipientName);
+      return { error: collectif
+        ? `Destinataire « ${direCeQuiEstArrive(input.recipientName)} » : « ${collectif} » désigne un GROUPE, pas une personne. ${CONSEIL_COLLECTIF}`
+        : `Destinataire « ${direCeQuiEstArrive(input.recipientName)} » introuvable ou ambigu — précisez le bon collègue (search_people).` };
+    }
     return {
       kind: "send_message", module: "MESSAGING", title: "Envoyer un message", warnings,
       fields: [

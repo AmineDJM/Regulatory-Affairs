@@ -939,6 +939,88 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
   });
 
   /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   * UNE FILLE APPARTIENT AU JALON DE SA MÈRE (§118.68) — sinon le travail réel est invisible.
+   *
+   * MESURÉ LIVE, mission `cmttsao1f…`. Le jalon 1 s'appelle « les pièces réglementaires sont
+   * officiellement SOLLICITÉES ». L'envoi est déployé en éventail, les deux filles partent et
+   * aboutissent (« Message envoyé à Amel Haddad »). Le juge du jalon ne charge que les étapes
+   * portant son `milestoneId` — la MÈRE, jamais les filles — et `attestationEffets` a conclu,
+   * honnêtement, « AUCUNE écriture et AUCUN envoi ». Le jalon a été refusé DEUX FOIS pour
+   * avoir fait exactement ce qu'on lui demandait.
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("les filles d'un ÉVENTAIL portent le jalon de leur mère — c'est là que vit le travail réel", async () => {
+    const steps: PlannedStep[] = [
+      { key: "liste", title: "Lister", capability: "directory_list" },
+      {
+        key: "msg", title: "Msg", capability: "send_message",
+        forEach: { from: "liste", path: "employes", as: "e" }, input: { to: "{{e.id}}" },
+        dependsOn: ["liste"],
+      } as unknown as PlannedStep,
+    ];
+    const id = await creerMission(steps, "éventail et jalon");
+
+    // La mère porte un jalon — comme après une compilation paresseuse (`opts.milestoneId`).
+    const jalon = await prisma.missionMilestone.create({
+      data: { missionId: id, ordre: 1, titre: "Sollicitations parties", resultat: "les demandes sont envoyées" },
+    });
+    await prisma.missionStep.updateMany({ where: { missionId: id, key: "msg" }, data: { milestoneId: jalon.id } });
+
+    const t = traceur({ sortie: (c) => (c.stepKey === "liste" ? { employes: [{ id: "e1" }, { id: "e2" }] } : { ok: true }) });
+    await avancer(id, actor, { runner: t.runner });
+
+    const filles = await prisma.missionStep.findMany({
+      where: { missionId: id, key: { startsWith: "msg#" } },
+      select: { key: true, milestoneId: true, status: true },
+    });
+    expect(filles).toHaveLength(2);
+    // CE QUI FERAIT TOMBER CE TEST : recréer une fille sans `milestoneId`. Le juge du jalon
+    // relirait alors un registre d'effets VIDE et refuserait un jalon qui a réussi.
+    for (const f of filles) expect(f.milestoneId, f.key).toBe(jalon.id);
+    expect(filles.every((f) => f.status === "DONE")).toBe(true);
+  });
+
+  /**
+   * ET LE CONTOURNEMENT NE LES EMPORTE PAS. Leur `milestoneId` les fait entrer dans le
+   * périmètre de `materialiser` (§118.43) ; un plan ne LISTE jamais une fille, donc sans garde
+   * chaque replan la marquerait contournée, elle disparaîtrait du comptage de sa mère, et
+   * l'éventail recompterait « 0/2 » sur deux envois réellement partis.
+   */
+  it("un replan ne contourne PAS les filles d'un éventail que la mère reprend", async () => {
+    const steps: PlannedStep[] = [
+      { key: "liste", title: "Lister", capability: "directory_list" },
+      {
+        key: "msg", title: "Msg", capability: "send_message",
+        forEach: { from: "liste", path: "employes", as: "e" }, input: { to: "{{e.id}}" },
+        dependsOn: ["liste"],
+      } as unknown as PlannedStep,
+    ];
+    const id = await creerMission(steps, "éventail et contournement");
+    const jalon = await prisma.missionMilestone.create({
+      data: { missionId: id, ordre: 1, titre: "Envois", resultat: "les demandes sont envoyées" },
+    });
+    await prisma.missionStep.updateMany({ where: { missionId: id, key: "msg" }, data: { milestoneId: jalon.id } });
+
+    const t = traceur({ sortie: (c) => (c.stepKey === "liste" ? { employes: [{ id: "e1" }, { id: "e2" }] } : { ok: true }) });
+    await avancer(id, actor, { runner: t.runner });
+
+    const plan: MissionPlan = { objective: "éventail et contournement", acceptance: ["fait"], complexity: "B", scale: "M", steps };
+    const r = compile(plan, catalogue, actor);
+    if (!r.ok) throw new Error("plan refusé");
+    await materialiser(r.mission, {
+      ownerId, title: "éventail et contournement", goalRaw: "éventail", missionId: id, milestoneId: jalon.id,
+    });
+
+    const filles = await prisma.missionStep.findMany({
+      where: { missionId: id, key: { startsWith: "msg#" } },
+      select: { key: true, supersededAt: true },
+    });
+    expect(filles).toHaveLength(2);
+    for (const f of filles) expect(f.supersededAt, f.key).toBeNull();
+  });
+
+  /**
    * LE MÊME TROU, UN CRAN PLUS BAS. La mère réarmée redéploie et retrouve ses FILLES en échec,
    * figées au plan précédent : elles ne se termineraient jamais, la mère les attendrait, et le
    * regroupement recompterait 0/1 — la mission remourrait exactement comme avant.
