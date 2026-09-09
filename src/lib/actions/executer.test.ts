@@ -235,13 +235,13 @@ suite("ARGUMENTS — l'exécuteur appelle positionnellement, et l'effet est en b
     const r = await executerAction(ACTEUR, "notification-actions:markNotificationRead",
       { id: notifId, quoiQueCeSoit: "x" });
     expect(r.ok).toBe(false);
-    expect(r.motif).toBe("entree");
+    if (!r.ok) expect(r.motif).toBe("entree");
   });
 
   it("les surfaces humaines sont refusées ICI aussi, pas seulement dans la garde", async () => {
     ACTEUR = await acteur(userId, "SUPER_ADMIN");
     const r = await executerAction(ACTEUR, "adam-settings-actions:setAdamOutboundPaused", { paused: false });
     expect(r.ok, "l'interrupteur de sortie d'Adam a été atteint par le chemin générique").toBe(false);
-    expect(r.motif).toBe("interdite");
+    if (!r.ok) expect(r.motif).toBe("interdite");
   });
 });

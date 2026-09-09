@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { contratsDuFichier, decrireAction, direContrat, lireArguments, type TableEnums } from "./contrat";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import {
+  contratsDuFichier, decrireAction, direContrat, helpersDuFichier, lireArguments,
+  HELPERS_PARTAGES, type TableEnums,
+} from "./contrat";
 import { scannerContrats } from "./contrat-scan";
 import { CONTRATS_ACTIONS, CONTRAT_PAR_ID } from "./contrat.genere";
 import { ACTION_CLASSIFICATION } from "@/lib/assistant/action-registry";
@@ -23,17 +28,31 @@ import { ACTION_CLASSIFICATION } from "@/lib/assistant/action-registry";
 /**
  * LE PLAFOND, mesuré le 09/09/2026 sur 715 actions.
  *
- * 117 → 77 (même jour, lecture des ARGUMENTS) : 638 appelables (89 %), 77 illisibles —
- *   27 dont les noms de champs sont calculés à l'exécution,
+ * 117 → 77 (lecture des ARGUMENTS) : les refus IMPRIMAIENT la signature qu'ils déclaraient ne
+ *   pas savoir lire. 40 actions traduites (§118.34).
+ * 77 → 46 (lecture des LECTEURS et du RÉCEPTEUR) : 669 appelables (94 %), 46 illisibles —
  *   27 à entrée typée que la signature ne dit pas à coup sûr (objet littéral, type importé,
- *      valeur par défaut) — plus UNE refusée pour son paramètre `userId` (§ identité d'acteur),
- *   23 sans lecture de champ trouvée.
- * Les 67 refus « entrée typée » IMPRIMAIENT la signature qu'ils déclaraient ne pas savoir
- * lire ; 40 sont désormais traduites (§118.34) et le reste dit ce qui manque.
+ *      valeur par défaut) — dont UNE refusée pour son paramètre `userId` (identité d'acteur),
+ *   14 dont les noms de champs sont VRAIMENT calculés (`formData.get(\`act_${'{'}m}_${'{'}a}\`)`),
+ *    5 dont les champs sont lus dans une fonction déléguée.
+ *
+ * ── POURQUOI CE CHIFFRE DESCEND À CHAQUE FOIS QU'ON REGARDE ──────────────────────────────
+ *
+ * Aucune des trois baisses ne vient de la source : les trois viennent du LECTEUR. Il ne
+ * connaissait que quatre helpers sur quatorze, et son détecteur de dynamisme s'armait sur
+ * `.get|.has` SANS REGARDER LE RÉCEPTEUR — donc `PROJECT_TEXT.has(field)`, un ENSEMBLE,
+ * faisait passer une action pour incompréhensible. 19 refus sur 27 étaient de ce genre.
+ *
+ * ── ET POURQUOI IL DOIT DESCENDRE AVEC LA MESURE ─────────────────────────────────────────
+ *
+ * Ce plafond a été LAISSÉ à 77 le temps d'un sabotage, et le sabotage n'est pas tombé : le
+ * catalogue de lecteurs désarmé faisait perdre 18 actions (669 → 651) et 651 restait sous 77.
+ * Un cliquet qui ne peut plus se déclencher ne protège de rien — il rassure, ce qui est pire
+ * (§118.17). Il descend donc au chiffre MESURÉ, et c'est ce qui rend le sabotage détectable.
  *
  * Il ne se relève JAMAIS sans une justification écrite ici, dans la même revue de code.
  */
-const PLAFOND_ILLISIBLES = 77;
+const PLAFOND_ILLISIBLES = 46;
 
 describe("CONTRAT D'ACTION — la dérivation LIT la source, elle ne l'invente pas", () => {
   // Une source ÉCRITE ICI : c'est le seul endroit où je connais la vérité indépendamment du
@@ -313,6 +332,70 @@ describe("ARGUMENTS — un appel positionnel se lit tout entier, ou pas du tout"
     for (const c of parArgs) {
       if (c.illisible) expect(c.champs, `${c.id} annonce des champs alors qu'elle est illisible`).toEqual([]);
       else expect(c.champs.length, `${c.id} est décrite sans un seul champ`).toBeGreaterThan(0);
+    }
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * CE QUI LIT UN CHAMP DOIT ÊTRE VU — le cliquet qui empêche le trou de se rouvrir.
+ *
+ * La dérivation ne connaissait que quatre lecteurs (`fdStr`, `fdNum`, `fdDate`, `fdBool`) ; le
+ * parc en compte quatorze, et 23 actions étaient déclarées « aucune lecture de champ trouvée »
+ * alors qu'elles nommaient tout en clair (`str(formData, "priority")`, dix-huit fois dans le
+ * seul `regulatory-actions.ts`). Le catalogue est désormais DÉRIVÉ par fichier
+ * (`helpersDuFichier`), donc auto-entretenu — pour les helpers LOCAUX.
+ *
+ * Reste un trou, et c'est celui que ce banc ferme : un helper défini dans un module PARTAGÉ et
+ * importé serait invisible à `helpersDuFichier`. Le manque irait dans le sens DANGEREUX — non
+ * pas refuser, mais déclarer COMPLÈTE une liste de champs amputée, alors qu'un champ manquant
+ * peut être celui qui AIGUILLE l'écriture (`kind === "project"` choisit la table). On exige
+ * donc que tout lecteur employé dans le parc soit soit partagé et CONNU (`types.ts`), soit
+ * défini dans le fichier qui s'en sert.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("LECTEURS DE CHAMP — aucun ne peut passer inaperçu", () => {
+  it("tout helper qui lit un formulaire est connu, ou défini là où il sert", () => {
+    const dir = join(process.cwd(), "src/lib/actions");
+    const inconnus: string[] = [];
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith(".ts") || f.endsWith(".test.ts") || f.includes("genere")) continue;
+      const source = readFileSync(join(dir, f), "utf8");
+      // SEULS LES FICHIERS D'ACTIONS — et la directive est un fait de POSITION, pas de
+      // PRÉSENCE : elle ouvre le fichier. Deux versions de ce filtre ont échoué avant celle-ci,
+      // toutes deux sur `contrat.ts`, qui cite « use server » dans sa propre prose et donne
+      // `str(formData, "id")` en exemple. Le banc reproduisait, deux fois, le défaut qu'il
+      // existe pour attraper : s'accrocher à une forme sans regarder OÙ elle est.
+      if (!/^\s*["']use server["']/.test(source)) continue;
+      const locaux = helpersDuFichier(source);
+      for (const m of source.matchAll(/\b([A-Za-z_]\w*)\s*\(\s*(\w+)\s*,\s*"[^"]+"\s*\)/g)) {
+        const nom = m[1]!;
+        // On ne retient que ce qui RESSEMBLE à une lecture : le 1er argument porte un nom de
+        // formulaire. Un appel métier (`creerX(dossier, "REF")`) n'a rien à faire ici.
+        if (!/^(formData|fd|form|data)$/.test(m[2]!)) continue;
+        if (nom in HELPERS_PARTAGES || nom in locaux) continue;
+        // DÉFINI DANS LE FICHIER MAIS PAS COMME LECTEUR : c'est un choix, pas un oubli.
+        // `createStockLocation(formData, "ANNEX")` prend une VALEUR en second argument
+        // (`kind: "HOSPITAL" | "ANNEX"`), pas une clé — et c'est exactement ce qui empêche la
+        // dérivation d'inventer un champ nommé « ANNEX ». Le danger est ailleurs : un nom
+        // dont la définition n'est PAS dans le fichier, donc importée, donc invisible.
+        if (new RegExp(`(?:function|const)\\s+${nom}\\b`).test(source)) continue;
+        inconnus.push(`${f}: ${nom}(${m[2]}, "…")`);
+      }
+    }
+    expect(
+      [...new Set(inconnus)],
+      "Un lecteur de champ n'est ni partagé et connu, ni défini dans son fichier : la dérivation "
+        + "l'ignorera et déclarera des listes de champs AMPUTÉES en les présentant comme complètes. "
+        + "Le déclarer dans `TYPE_PAR_HELPER` (s'il est partagé) ou le définir sur place.",
+    ).toEqual([]);
+  });
+
+  it("les helpers PARTAGÉS vivent tous dans `types.ts` — un seul endroit à surveiller", () => {
+    const types = readFileSync(join(process.cwd(), "src/lib/actions/types.ts"), "utf8");
+    for (const nom of Object.keys(HELPERS_PARTAGES)) {
+      expect(types, `${nom} est déclaré partagé mais n'est pas défini dans types.ts`)
+        .toMatch(new RegExp(`(?:function|const)\\s+${nom}\\b`));
     }
   });
 });

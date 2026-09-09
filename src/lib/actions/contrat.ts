@@ -61,7 +61,18 @@ export interface PorteLue {
   verbe: string | null;
   /** Le type d'entité d'un `canAccessEntity`, quand il y en a un. */
   entite: string | null;
-  /** Les gardes reconnues, telles qu'écrites (`requireAdmin`, `requireChief`…). */
+  /**
+   * Les gardes RECONNUES, telles qu'écrites (`requireAdmin`, `requireChief`…).
+   *
+   * ⚠ Une liste VIDE ne veut PAS dire « action sans protection » — seulement « aucune garde
+   * d'une forme que la dérivation sait nommer ». Mesuré : `setRegulatoryLock` (le cadenas d'un
+   * dossier confidentiel) sort avec `gardes: []` alors que son corps appelle
+   * `holdsRegulatoryLock(user)`, et `saveOrgNode` teste `user.role !== "SUPER_ADMIN"` en clair.
+   * Ce champ sert à DÉCRIRE et à faire trouver une action, jamais à décider si on l'autorise :
+   * la décision appartient à l'action elle-même, que l'exécuteur appelle telle quelle (§118.74).
+   * Bâtir une garde là-dessus refuserait 182 actions à tort et, pire, ferait croire qu'une
+   * liste vide est un fait.
+   */
   gardes: readonly string[];
   /**
    * LE MODULE EN FRANÇAIS, lu sur `recordAudit({ module })` — 434 actions le déclarent.
@@ -216,7 +227,7 @@ export function enumsLocaux(source: string): TableEnums {
 // LA LECTURE D'UNE ACTION
 // ───────────────────────────────────────────────────────────────────────────────────────────
 
-const TYPE_PAR_HELPER: Readonly<Record<string, TypeChamp>> = {
+export const HELPERS_PARTAGES: Readonly<Record<string, TypeChamp>> = {
   fdStr: "texte", fdNum: "nombre", fdDate: "date", fdBool: "booleen",
 };
 
@@ -232,10 +243,18 @@ const estReference = (nom: string): boolean => nom === "id" || /[a-z0-9]Id$/.tes
  * qu'un retour à la ligne n'est pas un guillemet. Un détecteur trop large aurait fermé la
  * porte à 90 % du parc en annonçant l'avoir ouverte.
  */
-function lectureDynamique(corps: string): boolean {
-  return /\b(?:fdStr|fdNum|fdDate|fdBool)\s*\(\s*[A-Za-z0-9_]+\s*,\s*(?!\s*")[A-Za-z_`$]/.test(corps)
-    || /\.(?:get|getAll|has)\s*\(\s*(?!\s*")[A-Za-z_`$]/.test(corps)
-    || /\.entries\(\)/.test(corps);
+function lectureDynamique(corps: string, lecteurs: readonly string[], formulaires: readonly string[]): boolean {
+  const ech = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const noms = lecteurs.map(ech).join("|");
+  // (a) UN LECTEUR appelé avec une clé qui n'est pas un littéral.
+  if (new RegExp(`\\b(?:${noms})\\s*\\(\\s*[A-Za-z0-9_]+\\s*,\\s*(?!\\s*")[A-Za-z_\`$]`).test(corps)) return true;
+  if (formulaires.length === 0) return false;
+  const fd = formulaires.map(ech).join("|");
+  // (b) LE FORMULAIRE LUI-MÊME interrogé sur une clé calculée — le récepteur compte : sans lui,
+  //     `PROJECT_TEXT.has(field)` (un ENSEMBLE) faisait passer l'action pour dynamique.
+  if (new RegExp(`\\b(?:${fd})\\s*\\.\\s*(?:get|getAll|has)\\s*\\(\\s*(?!\\s*")[A-Za-z_\`$]`).test(corps)) return true;
+  // (c) LE FORMULAIRE PARCOURU : on ne sait alors rien annoncer.
+  return new RegExp(`\\b(?:${fd})\\s*\\.\\s*(?:entries|keys|forEach)\\s*\\(`).test(corps);
 }
 
 /** Une action qui touche la base — lu sur les appels réellement présents. */
@@ -283,6 +302,47 @@ function lirePorte(corps: string, constantes: Readonly<Record<string, string>>):
  * fournir — deux actions de l'ERP prennent `(id, prev, formData)`, et deviner leur premier
  * argument reviendrait à choisir la cible à la place d'un humain. On le DIT au lieu de tenter.
  */
+/**
+ * LE NOM SOUS LEQUEL LE FORMULAIRE ARRIVE — et ses alias directs.
+ *
+ * Sans lui, le détecteur de lecture dynamique s'armait sur `.get|.getAll|.has` SANS REGARDER
+ * LE RÉCEPTEUR, donc sur n'importe quel `.has(variable)` du corps. Mesuré : 19 des 27 actions
+ * déclarées « noms de champs calculés à l'exécution » ne l'étaient pas du tout — leurs `.has`
+ * portaient sur des ENSEMBLES (`PROJECT_TEXT.has(field)`, `CREATOR_DELETABLE.has(kind)`),
+ * c'est-à-dire des tests d'appartenance sans le moindre rapport avec un formulaire. Une garde
+ * armée sur une forme qui ignore son récepteur refuse ce qu'elle n'a pas regardé.
+ *
+ * Les ALIAS comptent : `const fd = formData` est du même objet, et fermer les yeux dessus
+ * ferait déclarer COMPLÈTE une liste de champs qui ne l'est pas — le sens dangereux de
+ * l'erreur, car un champ manquant peut être celui qui AIGUILLE l'écriture (`kind === "project"`
+ * choisit la table). On ne suit pas une déstructuration ni un passage par argument : ce qu'on
+ * ne relie pas au formulaire à coup sûr ne déclenche rien, et c'est la limite ASSUMÉE de ce
+ * lecteur — elle est ici pour qu'on la lise avant de s'y fier.
+ */
+export function nomsDuFormulaire(signature: string, corps: string): string[] {
+  const rang = rangDuFormulaire(signature);
+  if (rang === null) return [];
+  const params: string[] = [];
+  let prof = 0, cur = "";
+  for (const c of signature) {
+    if ("<([{".includes(c)) prof++;
+    else if (">)]}".includes(c)) prof--;
+    if (c === "," && prof === 0) { params.push(cur); cur = ""; continue; }
+    cur += c;
+  }
+  if (cur.trim()) params.push(cur);
+  const nom = /(\w+)\s*:/.exec(params[rang] ?? "")?.[1];
+  if (!nom) return [];
+  const noms = new Set([nom]);
+  // Les alias DIRECTS, autant de fois qu'il en faut (`const a = formData; const b = a;`).
+  for (let i = 0; i < 3; i++) {
+    for (const m of corps.matchAll(/(?:const|let)\s+(\w+)\s*=\s*(\w+)\s*;/g)) {
+      if (noms.has(m[2]!)) noms.add(m[1]!);
+    }
+  }
+  return [...noms];
+}
+
 export function rangDuFormulaire(signature: string): 0 | 1 | null {
   if (!/FormData/.test(signature)) return null;
   const params: string[] = [];
@@ -309,6 +369,8 @@ export function decrireAction(
   src: SourceAction,
   constantes: Readonly<Record<string, string>> = {},
   enums: TableEnums = {},
+  /** Les lecteurs de champ RECONNUS dans ce fichier, en plus des quatre helpers partagés. */
+  lecteursDuFichier: Readonly<Record<string, TypeChamp>> = {},
 ): ContratAction {
   const { fichier, fonction, signature, corps } = src;
   const base = {
@@ -339,14 +401,15 @@ export function decrireAction(
 
   const appel = rang === 0 ? "formulaire" as const : "etat-formulaire" as const;
 
-  if (lectureDynamique(corps)) {
+  const lecteurs = { ...HELPERS_PARTAGES, ...lecteursDuFichier };
+  if (lectureDynamique(corps, Object.keys(lecteurs), nomsDuFormulaire(signature, corps))) {
     return {
       ...base, appel, champs: [],
       illisible: "les noms de champs sont calculés à l'exécution — la source ne les énonce pas",
     };
   }
 
-  const champs = lireChamps(corps, enums);
+  const champs = lireChamps(corps, enums, lecteurs);
   if (champs.length === 0) {
     return {
       ...base, appel, champs: [],
@@ -356,7 +419,7 @@ export function decrireAction(
   return { ...base, appel, champs, illisible: null };
 }
 
-function lireChamps(corps: string, enums: TableEnums): ChampAction[] {
+function lireChamps(corps: string, enums: TableEnums, lecteurs: Readonly<Record<string, TypeChamp>>): ChampAction[] {
   const parNom = new Map<string, ChampAction>();
   /** Le nom de variable sous lequel un champ a été rangé — pour retrouver sa garde et son cast. */
   const variableDe = new Map<string, string>();
@@ -376,12 +439,14 @@ function lireChamps(corps: string, enums: TableEnums): ChampAction[] {
     }
   };
 
-  for (const m of corps.matchAll(/(?:const|let)\s+([A-Za-z_0-9]+)\s*=\s*(?:await\s+)?(fdStr|fdNum|fdDate|fdBool)\s*\(\s*[A-Za-z0-9_]+\s*,\s*"([^"]+)"/g)) {
-    poser(m[3]!, TYPE_PAR_HELPER[m[2]!]!);
+  // LES LECTEURS SONT CEUX DU FICHIER, pas une liste de quatre noms (voir `helpersDuFichier`).
+  const noms = Object.keys(lecteurs).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  for (const m of corps.matchAll(new RegExp(`(?:const|let)\\s+([A-Za-z_0-9]+)\\s*=\\s*(?:await\\s+)?(${noms})\\s*\\(\\s*[A-Za-z0-9_]+\\s*,\\s*"([^"]+)"`, "g"))) {
+    poser(m[3]!, lecteurs[m[2]!]!);
     variableDe.set(m[3]!, m[1]!);
   }
-  for (const m of corps.matchAll(/\b(fdStr|fdNum|fdDate|fdBool)\s*\(\s*[A-Za-z0-9_]+\s*,\s*"([^"]+)"/g)) {
-    poser(m[2]!, TYPE_PAR_HELPER[m[1]!]!);
+  for (const m of corps.matchAll(new RegExp(`\\b(${noms})\\s*\\(\\s*[A-Za-z0-9_]+\\s*,\\s*"([^"]+)"`, "g"))) {
+    poser(m[2]!, lecteurs[m[1]!]!);
   }
   for (const m of corps.matchAll(/\.getAll\s*\(\s*"([^"]+)"/g)) poser(m[1]!, "liste");
   for (const m of corps.matchAll(/\.(?:get|has)\s*\(\s*"([^"]+)"/g)) poser(m[1]!, "texte");
@@ -424,6 +489,56 @@ function valeursAdmisesInline(corps: string, nom: string, enums: TableEnums): re
 }
 
 /** Les `const X = "…"` d'un fichier — pour résoudre `userCan(user, MODULE, …)`. */
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * QUI LIT UN CHAMP DE FORMULAIRE ? — la question posée à la SOURCE, pas à une liste.
+ *
+ * Le lecteur ne connaissait que `fdStr`, `fdNum`, `fdDate`, `fdBool`. Or le parc en compte
+ * QUATORZE : `str` (114 appels), `num` (30), `int` (9), `list`, `readIds`, `fd`, `posInt`,
+ * `fdList`, `parseIds`, `checked`, `fdDateTime`… Résultat mesuré : 23 actions déclarées
+ * « aucune lecture de champ trouvée dans le corps » — dont DIX-HUIT du seul
+ * `regulatory-actions.ts`, où chaque champ est pourtant nommé en clair
+ * (`str(formData, "priority")`). Le refus était celui du LECTEUR, pas de la source : §118.78,
+ * une seconde fois, à un autre étage.
+ *
+ * ── SUR QUOI LA RECONNAISSANCE S'ARME ────────────────────────────────────────────────────
+ *
+ * Pas sur une liste de noms — elle serait fausse au quinzième helper, EN SILENCE (§118.73).
+ * Sur la DÉFINITION : une fonction dont le premier paramètre est un `FormData` et le second
+ * une clé `string`. C'est exactement ce qu'est un lecteur de champ, et c'est ce qui distingue
+ * `str(formData, "id")` de `createStockLocation(formData, "ANNEX")` — dont le second
+ * paramètre est une union de littéraux (`"HOSPITAL" | "ANNEX"`), donc une VALEUR et non une
+ * clé. Ce faux positif existe dans le parc ; sans ce point, on aurait déclaré un champ nommé
+ * « ANNEX » qui n'a jamais existé.
+ *
+ * Le TYPE vient du type de RETOUR déclaré. Un helper qui n'en déclare pas rend « texte » :
+ * ce n'est pas une supposition, c'est le medium — un `FormData` ne transporte que du texte, et
+ * `enFormulaire` sérialise tout. Se tromper de type sur un champ de formulaire coûte une
+ * indication au modèle, jamais un appel faux (contrairement aux ARGUMENTS positionnels, où le
+ * type gouverne la valeur réellement passée — d'où la rigueur inverse là-bas).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function helpersDuFichier(source: string): Record<string, TypeChamp> {
+  const out: Record<string, TypeChamp> = {};
+  // `function NAME(p: FormData, k: string): RET` ET `const NAME = (p: FormData, k: string): RET =>`
+  const re = /(?:function|const)\s+([A-Za-z_][\w]*)\s*(?:=\s*)?(?:async\s*)?\(\s*\w+\s*:\s*FormData\s*,\s*\w+\s*:\s*string\s*\)\s*(?::\s*([^={\n]+))?/g;
+  for (const m of source.matchAll(re)) {
+    const retour = (m[2] ?? "").trim();
+    out[m[1]!] = typeDuRetour(retour);
+  }
+  return out;
+}
+
+/** Ce qu'un type de retour dit du champ. Inconnu → « texte », la nature même d'un formulaire. */
+function typeDuRetour(retour: string): TypeChamp {
+  const t = retour.replace(/\s+/g, " ").replace(/Promise<(.*)>/, "$1").trim();
+  if (/^(?:readonly )?string\s*\[\]/.test(t)) return "liste";
+  if (/^number\b/.test(t)) return "nombre";
+  if (/^Date\b/.test(t)) return "date";
+  if (/^boolean\b/.test(t)) return "booleen";
+  return "texte";
+}
+
 export function constantesDuFichier(source: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const m of source.matchAll(/^const\s+([A-Za-z_][A-Za-z_0-9]*)\s*(?::[^=]+)?=\s*"([^"]+)"/gm)) out[m[1]!] = m[2]!;
@@ -434,7 +549,8 @@ export function constantesDuFichier(source: string): Record<string, string> {
 export function contratsDuFichier(fichier: string, source: string, enumsSchema: TableEnums = {}): ContratAction[] {
   const constantes = constantesDuFichier(source);
   const enums = { ...enumsSchema, ...enumsLocaux(source) };
-  return decouperActions(fichier, source).map((a) => decrireAction(a, constantes, enums));
+  const lecteurs = helpersDuFichier(source);
+  return decouperActions(fichier, source).map((a) => decrireAction(a, constantes, enums, lecteurs));
 }
 
 /**
