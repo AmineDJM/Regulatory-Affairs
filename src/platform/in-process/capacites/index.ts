@@ -30,3 +30,6 @@ export {
   type CapaciteTrouvee, type EntreeRefusee,
 } from "@/lib/actions/generique";
 export { executerAction, type ResultatGenerique } from "@/lib/actions/executer";
+// LA RELECTURE APRÈS ÉCRITURE — « c'est fait » n'est pas une preuve (§104.16). Elle relit
+// par le MÊME chemin que l'écran (`porteeEntite`), donc sous les droits de la personne.
+export { relireApresEcriture, type Relecture } from "@/lib/cibles/relire";

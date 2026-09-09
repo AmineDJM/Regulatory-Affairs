@@ -13,9 +13,12 @@ vi.mock("@/lib/session", () => ({ requireUser: async () => ACTEUR, getUser: asyn
 // qu'aucun test n'ait tourné : le cycle ne vient pas de ce lot, il se révèle à toute nouvelle
 // porte d'entrée dans `ops/`.
 import "@/lib/assistant";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
 import { CAPABILITY_OPS_IMPL } from "./impl-capabilite";
+import { CONTRATS_ACTIONS } from "@/platform/in-process/capacites";
 import { DOMAIN_TOOLS } from "./index";
 import { OPS_CATALOG } from "./catalog";
 
@@ -149,5 +152,76 @@ suite("DE LA CARTE À LA LIGNE EN BASE — le trajet complet", () => {
     );
     expect((r as { error: string }).error).toContain("PURCHASE");
     expect(await prisma.administrativeRequest.findFirst({ where: { title: `${TAG}z` } })).toBeNull();
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * APRÈS L'ÉCRITURE, ON RELIT — et « c'est fait » cesse d'être une parole à croire.
+ *
+ * L'exécution rendait `« createRequest exécutée. »`. Rien, dans cette phrase, ne permettait à
+ * la personne de CONSTATER ce qui avait changé : elle devait croire Adam. §104.16 l'interdit —
+ * « c'est fait » redevient une parole à croire, ce qu'aucun écran de ce produit n'a le droit
+ * de demander — et le retour de l'action, qui portait l'identifiant écrit, était jeté.
+ *
+ * Ce banc exige que la phrase porte une VALEUR RELUE EN BASE, et qu'elle le dise franchement
+ * quand elle n'a rien pu relire. Il part du VRAI point d'entrée (`run.execute`), jamais de
+ * `relireApresEcriture` prise seule : c'est la rencontre qui est la propriété (§118.49).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+suite("RELECTURE — la phrase porte ce qui a été CONSTATÉ, ou dit qu'elle n'a rien constaté", () => {
+  let pdgId = "";
+
+  beforeAll(async () => {
+    const pdg = await prisma.user.create({
+      data: { name: `${TAG}relu`, email: `${TAG}relu@t.dz`, role: "SUPER_ADMIN", passwordHash: "x" },
+    });
+    pdgId = pdg.id;
+  });
+
+  afterAll(async () => {
+    await prisma.administrativeRequest.deleteMany({ where: { title: { startsWith: TAG } } });
+    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } });
+  });
+
+  it("la phrase porte des valeurs RELUES en base, pas un « exécutée » nu", async () => {
+    ACTEUR = await acteur(pdgId, "SUPER_ADMIN");
+    const brouillon = await run.propose(
+      { action: "admin-request-actions:createRequest",
+        champs: JSON.stringify({ title: `${TAG}Relecture`, type: "PURCHASE", priority: "HIGH" }) },
+      ACTEUR,
+    );
+    const carte = brouillon as Exclude<typeof brouillon, { error: string }>;
+    const fait = await run.execute(carte.args, ACTEUR);
+    expect(fait.ok, fait.error).toBe(true);
+
+    // LE CAS QUI FERAIT TOMBER CETTE ASSERTION : revenir à `« … exécutée. »`. La personne
+    // devrait alors croire Adam sur parole, et un `update` qui n'a touché aucune ligne se
+    // lirait exactement comme un succès.
+    expect(fait.message, "la phrase ne porte aucune valeur relue : « c'est fait » est une parole")
+      .toContain(`${TAG}Relecture`);
+    expect(fait.message).toMatch(/relu dans votre périmètre/);
+    // ET CE QUI EST RELU EST CE QUI EST EN BASE — pas ce qu'on a envoyé.
+    const ligne = await prisma.administrativeRequest.findFirstOrThrow({ where: { title: `${TAG}Relecture` } });
+    expect(fait.message).toContain(ligne.id);
+    expect(fait.message).toContain("PURCHASE");
+  });
+
+  it("la RELECTURE passe par la portée de la personne — jamais un accès privilégié", async () => {
+    // Relire avec un accès élargi montrerait une ligne que la personne n'a pas le droit de
+    // voir : un contournement de permission introduit par un geste de VÉRIFICATION, c'est-à-dire
+    // au pire endroit possible. Le module ne connaît qu'un chemin, celui de l'écran.
+    const relire = readFileSync(join(process.cwd(), "src/lib/cibles/relire.ts"), "utf8");
+    expect(relire, "la relecture doit composer la portée par ligne comme l'écran").toContain("porteeEntite");
+    expect(relire, "la relecture doit vérifier le droit de lecture de l'entité").toContain("canReadEntity");
+    expect(relire, "aucune lecture hors portée").not.toMatch(/findUnique|findFirstOrThrow/);
+  });
+
+  it("ce qui n'écrit RIEN ne prétend pas avoir été relu", async () => {
+    ACTEUR = await acteur(pdgId, "SUPER_ADMIN");
+    const lecture = CONTRATS_ACTIONS.find((c) => !c.illisible && !c.ecrit && c.champs.length === 0);
+    expect(lecture, "aucune action de lecture sans entrée dans le parc — le banc ne prouve rien").toBeTruthy();
+    const fait = await run.execute({ action: lecture!.id, champs: "{}" }, ACTEUR);
+    if (fait.ok) expect(fait.message).not.toMatch(/relu dans votre périmètre/);
   });
 });

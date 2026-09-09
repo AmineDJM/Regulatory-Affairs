@@ -1,7 +1,7 @@
 import type { OpImpl, OpProposalDraft } from "./types";
 import {
   CONTRAT_PAR_ID, CONTRATS_ACTIONS, direContrat, chercherCapacites,
-  interdictionGenerique, validerEntree, executerAction, type ContratAction,
+  interdictionGenerique, validerEntree, executerAction, relireApresEcriture, type ContratAction,
 } from "@/platform/in-process/capacites";
 
 /**
@@ -124,13 +124,44 @@ export const CAPABILITY_OPS_IMPL: Record<string, OpImpl> = {
       };
     },
 
+    /**
+     * APRÈS L'ÉCRITURE, ON RELIT — et si l'on ne peut pas, on le DIT.
+     *
+     * La première version rendait `« setRegulatoryPriority exécutée. »`. La personne n'avait
+     * qu'une parole : rien ne lui permettait de constater ce qui avait changé. C'est ce que
+     * §104.16 interdit — et le retour de l'action, qui porte l'identifiant écrit, était jeté.
+     *
+     * Trois phrases possibles, et JAMAIS « fait » tout court : ce qui a été constaté, ce qui
+     * a été fait sans pouvoir être constaté, ou l'échec. La distinction compte plus que la
+     * relecture elle-même : une action qui rend `ok` sans qu'on puisse rien relire reste un
+     * succès ANNONCÉ, et l'annoncer comme vérifié serait le faux succès qu'on vient de fermer
+     * ailleurs (§118.25).
+     */
     async execute(args, user) {
       const id = args.action ?? "";
       const lus = lireChamps(args.champs ?? "");
       if (!lus.ok) return { ok: false, error: lus.erreur };
       const r = await executerAction(user, id, lus.champs);
       if (!r.ok) return { ok: false, error: r.message };
-      return { ok: true, message: `${r.contrat.fonction} exécutée.` };
+
+      // Sur une action qui n'écrit rien, il n'y a rien à relire et ce n'est pas une lacune.
+      if (!r.contrat.ecrit) return { ok: true, message: `${r.contrat.fonction} exécutée.` };
+
+      const vu = await relireApresEcriture(user, r.contrat.modelesEcrits, lus.champs, r.retour)
+        .catch(() => null);
+      if (!vu) {
+        return {
+          ok: true,
+          message: `${r.contrat.fonction} exécutée. Je n'ai PAS pu relire la ligne pour vous la `
+            + `montrer — l'écriture a bien eu lieu, mais je ne la constate pas d'ici.`,
+        };
+      }
+      const apercu = vu.champs.slice(0, 12).map((c) => `${c.nom} : ${c.valeur}`).join(" · ");
+      return {
+        ok: true,
+        message: `${r.contrat.fonction} exécutée, et relu dans votre périmètre — `
+          + `${vu.libelle} ${vu.id} → ${apercu}`,
+      };
     },
   },
 };
