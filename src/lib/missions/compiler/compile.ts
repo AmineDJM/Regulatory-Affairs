@@ -15,6 +15,7 @@ import { decrireEntrees, estGabarit, verifierEntree } from "@/lib/missions/regis
 import { referencesDe, resoudreReference } from "@/lib/missions/runtime/interpolate";
 import { direRefus, sortieAttendue, verdictChemin, type SortieEtape } from "@/lib/missions/compiler/sorties";
 import { verdictEmpreinte } from "@/lib/mutations/empreinte";
+import { auMoinsUnePartira, direCondition, estInconditionnelle, nombreGaranti } from "@/lib/missions/compiler/garanties";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -968,6 +969,14 @@ export function compile(
     .filter((p) => !(produireInterdit && (p === "DOCUMENT" || p === "ACTION")));
   if (requises.length > 0) {
     const couvertes = new Set<string>();
+    const porteuses = new Map<string, CompiledStep[]>();
+    const porteusesDe = (p: string): CompiledStep[] => {
+      const deja = porteuses.get(p);
+      if (deja) return deja;
+      const neuve: CompiledStep[] = [];
+      porteuses.set(p, neuve);
+      return neuve;
+    };
     for (const e of compiled) {
       /**
        * UN NŒUD ARTIFACT PORTE LA PRIMITIVE DOCUMENT SANS PORTER DE CAPACITÉ.
@@ -977,16 +986,59 @@ export function compile(
        * refuser des plans qui produisaient bel et bien le livrable demandé : quatre tests l'ont
        * dit immédiatement, et ils avaient raison.
        */
-      if (e.nodeType === "ARTIFACT") { couvertes.add("DOCUMENT"); continue; }
+      if (e.nodeType === "ARTIFACT") { porteusesDe("DOCUMENT").push(e); continue; }
       if (!e.capability || !catalog.has(e.capability)) continue;
       const p = catalog.meta(e.capability).primitive;
-      if (p) couvertes.add(p);
+      if (p) porteusesDe(p).push(e);
+    }
+    /**
+     * ── UNE ÉTAPE CONDITIONNELLE PROPOSE ; ELLE NE PROMET PAS (§118.67) ──────────────────
+     *
+     * MESURÉ, mission `cmttakgtd…`, neuf versions de plan. Les DEUX étapes ARTIFACT étaient
+     * conditionnées à la complétude des données amont ; une personne n'a pas tout donné, et
+     * les deux sont sorties SKIPPED. Zéro fichier, zéro étape en échec, mission non bloquée,
+     * journal muet. Le dirigeant a demandé un registre et n'a rien reçu — sans que rien ne le
+     * dise. Le compilateur avait pourtant validé la couverture : il comptait le nœud ARTIFACT
+     * comme portant DOCUMENT sans jamais regarder sa condition.
+     *
+     * La couverture d'une exigence FERME se compte donc sur ce que le plan GARANTIT. Deux
+     * étapes conditionnelles comptent ENSEMBLE quand leurs conditions ne peuvent pas être
+     * fausses en même temps — c'est la forme que la règle 18 IMPOSE pour une relance, et la
+     * refuser serait un refus à tort (§118.27).
+     */
+    // SEUL WAIT_EVENT compte : c'est la seule attente qui puisse se régler par un FAIT ou par le
+    // TEMPS, et le contrôle de forme ci-dessus refuse déjà EVENT / TIMEOUT derrière tout le reste.
+    const attentes = new Set(compiled.filter((c) => c.nodeType === "WAIT_EVENT").map((c) => c.key));
+    const estUneAttente = (cle: string) => attentes.has(cle);
+    for (const [p, etapes] of porteuses) {
+      if (auMoinsUnePartira(etapes.map((e) => ({ key: e.key, when: e.spec?.when ?? null })), estUneAttente)) couvertes.add(p);
     }
     const offertes = new Set<string>();
     for (const b of catalog.brief(actor, { limit: 1000 })) if (b.primitive) offertes.add(b.primitive);
 
     for (const p of requises) {
       if (couvertes.has(p) || !offertes.has(p)) continue;
+      /**
+       * ── LE REFUS NOMME LA FAUTE **ET** LE REMÈDE (§118.19, §118.30) ────────────────────
+       *
+       * « Aucune étape n'en porte » serait FAUX quand des étapes en portent mais sont toutes
+       * conditionnelles — et un refus qu'on lit de travers est un refus qu'on croit moins
+       * (§104.17). Le planificateur qui l'entend ajouterait une étape de plus, tout aussi
+       * conditionnelle, et perdrait un aller-retour sur un reproche mal formulé.
+       */
+      const conditionnelles = porteuses.get(p) ?? [];
+      if (conditionnelles.length > 0) {
+        issues.push(issue("MISSING_PRIMITIVE", conditionnelles[0]?.key ?? null,
+          `la demande exige la primitive ${p} sans condition, et les ${conditionnelles.length} étape(s) `
+          + `du plan qui la portent sont TOUTES conditionnelles : `
+          + `${conditionnelles.map((e) => `« ${e.key} » (${direCondition(e.spec?.when ?? null)})`).join(", ")}. `
+          + `Si aucune de ces conditions n'est remplie, la mission ne produit RIEN et personne n'est `
+          + `prévenu. Une étape au moins doit partir quoi qu'il arrive : retire la condition de celle `
+          + `qui porte le résultat et fais-lui DIRE ce qui manque, plutôt que de ne rien rendre. Deux `
+          + `étapes conditionnelles ne suffisent que si leurs conditions s'excluent — les deux issues `
+          + `d'une même attente (EVENT / TIMEOUT), ou le même test en « eq » et en « ne ».`));
+        continue;
+      }
       issues.push(issue("MISSING_PRIMITIVE", null,
         `la demande exige la primitive ${p}, une capacité ${p} est disponible, et AUCUNE étape du `
         + `plan n'en porte. Ajoute l'étape qui manque — ou, si aucune capacité listée ne convient `
@@ -1011,9 +1063,34 @@ export function compile(
    */
   const formats = opts.formatsLivrables ?? [];
   if (formats.length >= 2 && !produireInterdit) {
-    const porteuses = compiled.filter((e) =>
+    const piecesDuPlan = compiled.filter((e) =>
       e.nodeType === "ARTIFACT"
       || (e.capability && catalog.has(e.capability) && catalog.meta(e.capability).primitive === "DOCUMENT"));
+    /**
+     * ── DEUX FAUTES DISTINCTES, DEUX CODES (§118.67) ───────────────────────────────────
+     *
+     * « Deux formats demandés, une étape écrite » est une CARDINALITÉ fausse : le plan est
+     * faux, il ne peut pas livrer, et le refus est mortel.
+     *
+     * « Deux étapes écrites, une seule qui partira à coup sûr » est autre chose : le plan est
+     * exécutable, il livre peut-être moins que ce que la demande nomme. C'est une exigence de
+     * COUVERTURE (§118.29) — elle vaut un aller-retour de planification, jamais la mort d'une
+     * mission. Confondre les deux ferait payer une pièce entière pour un « peut-être ».
+     */
+    const attentesLivrables = new Set(compiled.filter((c) => c.nodeType === "WAIT_EVENT").map((c) => c.key));
+    const garanties = nombreGaranti(
+      piecesDuPlan.map((e) => ({ key: e.key, when: e.spec?.when ?? null })),
+      (cle) => attentesLivrables.has(cle));
+    if (piecesDuPlan.length >= formats.length && garanties < formats.length) {
+      const incertaines = piecesDuPlan.filter((e) => !estInconditionnelle({ key: e.key, when: e.spec?.when ?? null }));
+      issues.push(issue("MISSING_PRIMITIVE", incertaines[0]?.key ?? null,
+        `la demande nomme ${formats.length} livrables (${formats.join(", ")}) et le plan écrit bien `
+        + `${piecesDuPlan.length} étape(s) qui produisent une pièce — mais ${garanties} seulement partira(ont) `
+        + `à coup sûr : ${incertaines.map((e) => `« ${e.key} » (${direCondition(e.spec?.when ?? null)})`).join(", ")}. `
+        + `Un livrable qu'on a demandé ne se conditionne pas à la qualité de ce qu'on a collecté : `
+        + `produis-le avec ce que tu as et fais-lui DIRE ce qui manque.`));
+    }
+    const porteuses = piecesDuPlan;
     if (porteuses.length < formats.length) {
       /**
        * ── LE CODE DU REFUS EST « CARDINALITY », ET IL A COÛTÉ UN LIVRABLE DE L'APPRENDRE ──

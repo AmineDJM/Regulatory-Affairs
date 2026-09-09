@@ -849,6 +849,96 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
   });
 
   /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   * LE MÊME TROU, SUR L'AUTRE STATUT TERMINAL-MAIS-VIDE (§118.67).
+   *
+   * SKIPPED figurait parmi les ACQUIS, avec la justification de DONE — « pas de second
+   * envoi ». Elle est fausse : une étape ignorée n'a JAMAIS envoyé. Le moteur écarte AVANT
+   * d'exécuter, dans les quatre cas qui produisent ce statut.
+   *
+   * MESURÉ, mission `cmttakgtd…` : les deux étapes ARTIFACT sont ignorées parce que la
+   * complétude des données amont vaut `false`. Gelées, elles ne peuvent plus revenir — le
+   * plan suivant, celui que le compilateur vient d'obliger à retirer la condition, les
+   * retrouve terminales et le livrable est mort pour toujours. Sans étape en échec, donc
+   * sans que rien ne le dise.
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("une étape IGNORÉE que le nouveau plan REPREND est réarmée — il ne s'était rien passé", async () => {
+    const conditionnel: PlannedStep[] = [
+      { key: "lire", title: "Lire les retours", capability: "directory_list" },
+      {
+        key: "produire", title: "Produire le registre", capability: "inspect_record", dependsOn: ["lire"],
+        when: { step: "lire", path: "donneesCompletes", op: "eq", value: "true" },
+      } as unknown as PlannedStep,
+    ];
+    const id = await creerMission(conditionnel, "livrable conditionnel");
+
+    // La personne n'a pas tout donné : la condition est FAUSSE, l'étape est ignorée.
+    const t = traceur({ sortie: (c) => (c.stepKey === "lire" ? { donneesCompletes: false } : { ok: true }) });
+    await avancer(id, actor, { runner: t.runner });
+    const apres = await chargerEtat(id);
+    expect(apres!.steps.find((x) => x.key === "produire")!.status).toBe("SKIPPED");
+    expect(t.appels.map((c) => c.stepKey)).toEqual(["lire"]);
+
+    // LE PLAN v2 — celui que le compilateur oblige à écrire — REPREND le livrable SANS condition.
+    const v2: PlannedStep[] = [
+      { key: "lire", title: "Lire les retours", capability: "directory_list" },
+      { key: "produire", title: "Produire le registre (ce qu'on a)", capability: "inspect_record", dependsOn: ["lire"] },
+    ];
+    const plan: MissionPlan = { objective: "livrable conditionnel", acceptance: ["fait"], complexity: "B", scale: "M", steps: v2 };
+    const r = compile(plan, catalogue, actor);
+    if (!r.ok) throw new Error("plan refusé");
+    await materialiser(r.mission, { ownerId, title: "livrable conditionnel", goalRaw: "livrable conditionnel", missionId: id });
+
+    const rearme = await chargerEtat(id);
+    const produire = rearme!.steps.find((x) => x.key === "produire")!;
+    expect(produire.status).toBe("PENDING");
+    expect(produire.title).toBe("Produire le registre (ce qu'on a)");
+    // LA CONDITION A DISPARU AVEC LE RAFRAÎCHISSEMENT : une étape réarmée reprend la spec du
+    // plan courant, sinon elle serait ignorée de nouveau sur la condition d'un plan périmé.
+    expect((produire.spec as { when?: unknown } | null)?.when).toBeUndefined();
+    // L'ACQUIS RESTE ACQUIS : `lire` a abouti, elle n'est pas rejouée.
+    expect(rearme!.steps.find((x) => x.key === "lire")!.status).toBe("DONE");
+
+    // ET LE LIVRABLE EST RÉELLEMENT PRODUIT : c'est la seule chose qui compte pour le dirigeant.
+    const t2 = traceur();
+    await avancer(id, actor, { runner: t2.runner });
+    expect(t2.appels.map((c) => c.stepKey)).toEqual(["produire"]);
+    const fini = await chargerEtat(id);
+    expect(fini!.steps.find((x) => x.key === "produire")!.status).toBe("DONE");
+  });
+
+  /**
+   * ET LE RÉARMEMENT NE RELANCE PAS UNE BRANCHE À TORT. La condition est RÉÉVALUÉE sur l'état
+   * amont COURANT : une relance ignorée parce que la personne avait répondu est ignorée de
+   * nouveau — pour un test pur, sans appel de modèle et sans message parti.
+   */
+  it("une étape réarmée dont la condition est toujours fausse est ignorée de nouveau, sans effet", async () => {
+    const steps: PlannedStep[] = [
+      { key: "lire", title: "Lire", capability: "directory_list" },
+      {
+        key: "relancer", title: "Relancer", capability: "send_message", input: { to: "x" }, dependsOn: ["lire"],
+        when: { step: "lire", path: "sansReponse", op: "eq", value: "true" },
+      } as unknown as PlannedStep,
+    ];
+    const id = await creerMission(steps, "relance conditionnelle");
+    const t = traceur({ sortie: (c) => (c.stepKey === "lire" ? { sansReponse: false } : { ok: true }) });
+    await avancer(id, actor, { runner: t.runner });
+    expect((await chargerEtat(id))!.steps.find((x) => x.key === "relancer")!.status).toBe("SKIPPED");
+
+    const plan: MissionPlan = { objective: "relance conditionnelle", acceptance: ["fait"], complexity: "B", scale: "M", steps };
+    const r = compile(plan, catalogue, actor);
+    if (!r.ok) throw new Error("plan refusé");
+    await materialiser(r.mission, { ownerId, title: "relance conditionnelle", goalRaw: "relance", missionId: id });
+
+    const t2 = traceur();
+    await avancer(id, actor, { runner: t2.runner });
+    // AUCUN ENVOI. La branche est ré-évaluée et ré-écartée : c'est un test pur, pas un effet.
+    expect(t2.appels.map((c) => c.stepKey)).toEqual([]);
+    expect((await chargerEtat(id))!.steps.find((x) => x.key === "relancer")!.status).toBe("SKIPPED");
+  });
+
+  /**
    * LE MÊME TROU, UN CRAN PLUS BAS. La mère réarmée redéploie et retrouve ses FILLES en échec,
    * figées au plan précédent : elles ne se termineraient jamais, la mère les attendrait, et le
    * regroupement recompterait 0/1 — la mission remourrait exactement comme avant.

@@ -63,6 +63,8 @@ export interface JalonPersiste extends Jalon {
   id: string;
   replans: number;
   dernierRefus: string | null;
+  /** TOUS les refus déjà rencontrés ici — le progrès se juge dessus, pas sur le seul dernier. */
+  refusVus: string[];
   compiledAt: Date | null;
   startedAt: Date | null;
   completedAt: Date | null;
@@ -84,6 +86,7 @@ export async function lireJalons(missionId: string): Promise<JalonPersiste[]> {
     dependsOn: l.dependsOn,
     replans: l.replans,
     dernierRefus: l.dernierRefus,
+    refusVus: l.refusVus ?? [],
     compiledAt: l.compiledAt,
     startedAt: l.startedAt,
     completedAt: l.completedAt,
@@ -99,7 +102,18 @@ export async function aDesJalons(missionId: string): Promise<boolean> {
 export async function marquerJalon(
   id: string,
   statut: StatutJalon,
-  extra: { compiledAt?: Date; planVersion?: number; dernierRefus?: string | null; notes?: Record<string, unknown> } = {},
+  /**
+   * `refusVus: null` REMET L'HISTOIRE À ZÉRO — et c'est la seule façon de le faire.
+   *
+   * Une modification d'objectif ou une reprise sur information neuve rend caduque toute la
+   * carte des murs déjà rencontrés (§118.42) : les garder ferait refuser, comme « déjà vu »,
+   * un refus qui porte désormais sur une autre demande. Passer un tableau le REMPLACE ;
+   * l'omettre ne touche à rien.
+   */
+  extra: {
+    compiledAt?: Date; planVersion?: number; dernierRefus?: string | null;
+    refusVus?: readonly string[] | null; notes?: Record<string, unknown>;
+  } = {},
 ): Promise<void> {
   const maintenant = new Date();
   await prisma.missionMilestone.update({
@@ -109,6 +123,7 @@ export async function marquerJalon(
       ...(extra.planVersion !== undefined ? { planVersion: extra.planVersion } : {}),
       ...(extra.compiledAt ? { compiledAt: extra.compiledAt } : {}),
       ...(extra.dernierRefus !== undefined ? { dernierRefus: extra.dernierRefus } : {}),
+      ...(extra.refusVus !== undefined ? { refusVus: { set: [...(extra.refusVus ?? [])] } } : {}),
       ...(extra.notes ? { notes: extra.notes as never } : {}),
       ...(statut === "ACTIVE" ? { startedAt: maintenant } : {}),
       ...(statut === "DONE" || statut === "SKIPPED" || statut === "CANCELLED"
@@ -118,10 +133,24 @@ export async function marquerJalon(
 }
 
 /** Un sous-plan de plus a été écrit pour ce jalon — le budget est LOCAL (§118.42). */
+/**
+ * UN SOUS-PLAN DE PLUS — et le refus qui l'a motivé entre dans l'HISTOIRE du jalon.
+ *
+ * `dernierRefus` répond « qu'est-ce qui vient d'être opposé ? » ; `refusVus` répond « où
+ * sommes-nous déjà passés ? ». Les deux, parce qu'une oscillation A → B → A → B change à chaque
+ * tour et ne progresse jamais : sans l'histoire, elle passe pour du progrès jusqu'au plafond.
+ *
+ * `push` ne dédoublonne pas — c'est voulu : la LISTE dit combien de fois on est repassé au même
+ * endroit, et `peutReplanifier` n'a besoin que de l'appartenance. Un `Set` perdrait le compte.
+ */
 export async function compterReplan(id: string, signatureRefus: string | null): Promise<void> {
   await prisma.missionMilestone.update({
     where: { id },
-    data: { replans: { increment: 1 }, dernierRefus: signatureRefus },
+    data: {
+      replans: { increment: 1 },
+      dernierRefus: signatureRefus,
+      ...(signatureRefus ? { refusVus: { push: signatureRefus } } : {}),
+    },
   });
 }
 

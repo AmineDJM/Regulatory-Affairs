@@ -47,3 +47,53 @@ describe("le budget est LOCAL et se juge au PROGRÈS", () => {
     expect(peutReplanifier({ replans: 0, dernierRefus: null }, null).autorise).toBe(true);
   });
 });
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UNE OSCILLATION N'EST PAS UN PROGRÈS (§118.67)
+ *
+ * MESURÉ, mission `cmttakgtd…` : « Le refus a changé (INVALID_SHAPE → OBJECTIF_NON_CONSTATE) »
+ * écrit DEUX fois pour le même jalon. Ne comparer qu'au DERNIER refus ne retient qu'un pas
+ * d'histoire — A → B → A → B change à chaque tour et ne progresse jamais. Cinq sous-plans,
+ * neuf versions de plan, huit verdicts de juge (chacun un appel de modèle), 1,10 $.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("le progrès se juge sur TOUTE l'histoire des refus", () => {
+  it("un refus DÉJÀ RENCONTRÉ arrête la boucle, même s'il n'est pas celui du tour précédent", () => {
+    const v = peutReplanifier(
+      { replans: 3, dernierRefus: "OBJECTIF_NON_CONSTATE", refusVus: ["INVALID_SHAPE", "OBJECTIF_NON_CONSTATE"] },
+      "INVALID_SHAPE");
+    expect(v.autorise).toBe(false);
+    expect(v.motif).toBe("REPETITION");
+    // LE REFUS MONTRE LE CHEMIN PARCOURU : « on revient sur ses pas » ne se démontre pas sans lui.
+    expect(v.phrase).toContain("DÉJÀ été rencontré");
+    expect(v.phrase).toContain("INVALID_SHAPE → OBJECTIF_NON_CONSTATE → INVALID_SHAPE");
+  });
+
+  it("un refus VRAIMENT NEUF passe, même après deux murs différents", () => {
+    // CE QUI FERAIT TOMBER CE TEST : refuser dès qu'il y a de l'histoire. Ce serait un plafond
+    // déguisé en règle de progrès, et un refus à tort coûte une mission (§118.27).
+    const v = peutReplanifier(
+      { replans: 2, dernierRefus: "INVALID_SHAPE", refusVus: ["MISSING_PRIMITIVE", "INVALID_SHAPE"] },
+      "CARDINALITY");
+    expect(v.autorise).toBe(true);
+    expect(v.motif).toBe("PROGRES");
+  });
+
+  it("sans historique, le comportement est EXACTEMENT l'ancien", () => {
+    // L'absence de `refusVus` ne doit rien durcir : les jalons d'avant la colonne, et les
+    // appels qui ne la passent pas, doivent se comporter comme avant.
+    expect(peutReplanifier({ replans: 1, dernierRefus: "A" }, "B").autorise).toBe(true);
+    expect(peutReplanifier({ replans: 1, dernierRefus: "A" }, "A").autorise).toBe(false);
+  });
+
+  it("le tout premier refus passe, avec un historique vide", () => {
+    expect(peutReplanifier({ replans: 0, dernierRefus: null, refusVus: [] }, "INVALID_SHAPE").motif).toBe("PROGRES");
+  });
+
+  it("la répétition IMMÉDIATE garde son message à elle — deux causes, deux phrases", () => {
+    const v = peutReplanifier({ replans: 2, dernierRefus: "A", refusVus: ["A"] }, "A");
+    expect(v.motif).toBe("REPETITION");
+    expect(v.phrase).toContain("même refus qu'au tour précédent");
+  });
+});

@@ -54,6 +54,14 @@ export interface EtatBudget {
   replans: number;
   /** La signature du dernier refus rencontré ici — `null` au premier passage. */
   dernierRefus: string | null;
+  /**
+   * TOUS les refus déjà rencontrés sur ce jalon, celui-ci compris.
+   *
+   * Optionnel pour une raison précise : les tests de ce module décrivent des situations de
+   * budget, pas des historiques de base, et beaucoup n'ont qu'un pas à raconter. Absent = on
+   * retombe sur la comparaison au dernier refus, c'est-à-dire l'ancien comportement.
+   */
+  refusVus?: readonly string[];
 }
 
 export interface VerdictBudget {
@@ -93,6 +101,31 @@ export function peutReplanifier(
       motif: "REPETITION",
       phrase: `Le compilateur oppose exactement le même refus qu'au tour précédent (${refus}). `
         + `Le planificateur n'a rien réparé : un tour de plus rendrait la même réponse, plus chère.`,
+    };
+  }
+  /**
+   * ── UNE OSCILLATION N'EST PAS UN PROGRÈS (§118.67) ──────────────────────────────────
+   *
+   * Ne comparer qu'au DERNIER refus ne retient qu'un pas d'histoire. A → B → A → B change à
+   * chaque tour et ne progresse jamais : la boucle tourne jusqu'au plafond opérationnel, en
+   * payant une planification par tour.
+   *
+   * MESURÉ, mission `cmttakgtd…` : « Le refus a changé (INVALID_SHAPE → OBJECTIF_NON_CONSTATE) »
+   * écrit DEUX fois pour le même jalon — cinq sous-plans, neuf versions de plan, huit verdicts
+   * de juge (chacun un appel de modèle), 1,10 $ contre 0,10 $ pour une mission comparable.
+   *
+   * « REVIENT identique » (§118.18) veut dire REVIENT : un refus déjà rencontré ici, même s'il
+   * n'est pas celui du tour précédent, prouve qu'on tourne en rond. Le mur est le même, on l'a
+   * juste contourné par l'autre côté.
+   */
+  const vus = etat.refusVus ?? [];
+  if (vus.includes(refus)) {
+    return {
+      autorise: false,
+      motif: "REPETITION",
+      phrase: `Ce refus (${refus}) a DÉJÀ été rencontré sur ce jalon — le dernier tour en opposait `
+        + `un autre (${etat.dernierRefus ?? "aucun"}), mais on revient sur ses pas : `
+        + `${[...new Set(vus)].join(" → ")} → ${refus}. Alterner entre deux murs n'est pas progresser.`,
     };
   }
   return {

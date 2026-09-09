@@ -10768,6 +10768,11 @@ model MissionMilestone {
   /// Le dernier refus rencontré ici. Tant qu'il CHANGE, le planificateur répare et mérite un
   /// tour ; dès qu'il REVIENT identique, il est bloqué (§118.18).
   dernierRefus String?   @db.Text
+  /// TOUS les refus déjà rencontrés sur ce jalon. Ne comparer qu'au DERNIER laisse une
+  /// oscillation A → B → A → B passer pour du progrès indéfiniment — mesuré en live : « le
+  /// refus a changé (INVALID_SHAPE → OBJECTIF_NON_CONSTATE) » écrit DEUX fois pour le même
+  /// jalon, cinq sous-plans, neuf versions, 1,10 $ (§118.67).
+  refusVus     String[]  @default([])
   compiledAt   DateTime?
   startedAt    DateTime?
   completedAt  DateTime?

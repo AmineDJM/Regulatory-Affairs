@@ -50,6 +50,7 @@ import {
 } from "@/lib/missions/horizon/store";
 import { aRegarder } from "@/lib/missions/horizon/fraicheur";
 import { chargerEtat, journaliser, materialiser, transitionner } from "@/lib/missions/runtime/store";
+import { peutEncoreAvancer } from "@/lib/missions/runtime/impasse";
 import { prendreBail } from "@/lib/missions/runtime/bail";
 import { evaluerObjectif, type EtapeObservee } from "@/lib/missions/goal/evaluate";
 import { lireRecu } from "@/lib/missions/runtime/receipt";
@@ -351,7 +352,7 @@ async function reprendreJalonsBloques(missionId: string): Promise<number> {
     const signature = mortes.length > 0
       ? [...new Set(mortes.map((m) => m.errorKind ?? "ECHEC"))].sort().join("|")
       : "OBJECTIF_NON_CONSTATE";
-    const verdict = peutReplanifier({ replans: j.replans, dernierRefus: j.dernierRefus }, signature);
+    const verdict = peutReplanifier({ replans: j.replans, dernierRefus: j.dernierRefus, refusVus: j.refusVus }, signature);
     if (!verdict.autorise) {
       // ON NE RÉPÈTE PAS LE MESSAGE À CHAQUE TOUR : le jalon reste BLOCKED, son motif est déjà
       // au journal, et le redire à chaque battement rendrait le fil illisible.
@@ -395,7 +396,7 @@ async function compilerJalon(
   opts: LancementOptions,
 ): Promise<{ compile: boolean; bloque: boolean; raison: string }> {
   const objectif = mission.goalRaw || mission.objective;
-  const budget = peutReplanifier({ replans: jalon.replans, dernierRefus: jalon.dernierRefus }, null);
+  const budget = peutReplanifier({ replans: jalon.replans, dernierRefus: jalon.dernierRefus, refusVus: jalon.refusVus }, null);
   if (!budget.autorise) {
     await marquerJalon(jalon.id, "BLOCKED");
     await journaliser(mission.id, "MILESTONE_BLOCKED",
@@ -485,12 +486,16 @@ async function compilerJalon(
   // ── LA BOUCLE DE CORRECTION, BORNÉE PAR LE PROGRÈS ──────────────────────────────────────
   let dernier = jalon.dernierRefus;
   let replans = jalon.replans;
+  // L'HISTOIRE DES MURS, tenue en mémoire pendant la boucle ET persistée par `compterReplan` :
+  // une oscillation entre deux refus change à chaque tour et ne progresse jamais (§118.67).
+  const vus = [...jalon.refusVus];
   while (!c.ok) {
     const signature = signatureRefus(c.issues);
-    const verdict = peutReplanifier({ replans, dernierRefus: dernier }, signature);
+    const verdict = peutReplanifier({ replans, dernierRefus: dernier, refusVus: vus }, signature);
     await compterReplan(jalon.id, signature);
     replans += 1;
     dernier = signature;
+    vus.push(signature);
     if (!verdict.autorise) {
       await marquerJalon(jalon.id, "BLOCKED", { dernierRefus: signature });
       await journaliser(mission.id, "MILESTONE_BLOCKED",
@@ -686,7 +691,32 @@ async function fermerJalonsAboutis(
     },
   });
 
-  const TERMINAL = new Set(["DONE", "SKIPPED", "CANCELLED"]);
+  /**
+   * ── UNE ÉTAPE DERRIÈRE UN MUR N'EST PAS DU TRAVAIL À VENIR (§118.67) ───────────────────
+   *
+   * MESURÉ, mission `cmtta95k1…` : deux envois en échec DÉFINITIF (« Équipe Regulatory »
+   * n'est pas une personne) et ONZE étapes PENDING qui en descendaient. La mission le voyait
+   * — `deduireEtat` a rendu BLOCKED et l'a dit — mais ici, ces onze étapes comptaient comme
+   * du travail en cours : le jalon restait ACTIVE, `reprendreJalonsBloques` ne le voyait
+   * jamais, et la reprise de jalon (§118.47) n'a JAMAIS pu se déclencher. Cinq passages du
+   * battement, zéro replan, dix-sept étapes mortes sur un nom de destinataire.
+   *
+   * La question est le GRAPHE, pas le comptage : `etapesEnImpasse` remonte des échecs
+   * définitifs vers ce qui en descend. On charge donc TOUTES les étapes de la mission — une
+   * étape de ce jalon peut dépendre d'un acquis, ou d'un mort, d'un jalon précédent.
+   */
+  const toutes = await prisma.missionStep.findMany({
+    where: { missionId, supersededAt: null },
+    select: {
+      key: true, status: true, attempt: true, maxAttempts: true,
+      deps: { select: { dependsOn: { select: { key: true } } } },
+    },
+  });
+  const graphe = toutes.map((e) => ({
+    key: e.key, status: e.status, attempt: e.attempt, maxAttempts: e.maxAttempts,
+    dependsOn: e.deps.map((d) => d.dependsOn.key),
+  }));
+
   let aboutis = 0;
   let bloques = 0;
 
@@ -695,9 +725,8 @@ async function fermerJalonsAboutis(
     // AUCUNE ÉTAPE = le sous-plan n'a rien produit en base : on ne conclut pas, on laisse le
     // moteur (ou le tour suivant) faire son travail. Fermer ici serait conclure sur du vide.
     if (siennes.length === 0) continue;
-    const encore = siennes.some((e) => !TERMINAL.has(e.status)
-      && !(e.status === "FAILED" && e.attempt >= e.maxAttempts));
-    if (encore) continue;
+    const cles = new Set(siennes.map((e) => e.key));
+    if (peutEncoreAvancer(graphe.filter((e) => cles.has(e.key)), graphe)) continue;
 
     const verdict = await jugerJalon(user, missionId, j, siennes, opts);
     if (verdict.atteint) {

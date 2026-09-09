@@ -196,6 +196,113 @@ describe("un plan qui n'a pas l'étape que la demande réclame est refusé", () 
     expect(formatsLivrablesDemandes("Envoie-moi l'Excel et le PowerPoint que Yacine a préparés.")).toEqual([]);
   });
 
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════
+   * UNE ÉTAPE CONDITIONNELLE PROPOSE ; ELLE NE PROMET PAS (§118.67)
+   *
+   * MESURÉ, mission `cmttakgtd…`, banc réel, neuf versions de plan. Les DEUX étapes ARTIFACT
+   * étaient conditionnées à la complétude des données amont :
+   *
+   *   produire:registre-tracabilite-initial     SKIPPED
+   *     « condition non remplie — normaliser:retour-initial.donneesCompletes : false ≠ true »
+   *   produire:registre-tracabilite-correction  SKIPPED
+   *     « condition non remplie — normaliser:retour-correction.donneesCompletes : false ≠ true »
+   *
+   * Une personne n'a pas tout donné. Zéro fichier, ZÉRO étape en échec, mission non bloquée,
+   * journal muet : le faux succès parfait. Le compilateur avait validé la couverture parce
+   * qu'il comptait un nœud ARTIFACT sans jamais regarder sa condition.
+   * ═════════════════════════════════════════════════════════════════════════════════════
+   */
+  describe("un livrable CONDITIONNEL ne couvre pas une exigence FERME", () => {
+    const avecDoc = catalogueDe({ directory_list: "INFORMATION", create_report: "DOCUMENT" });
+    const art = (key: string, when?: unknown): PlannedStep =>
+      ({ key, title: key, nodeType: "ARTIFACT", dependsOn: ["lire"], input: {}, ...(when ? { when } : {}) } as unknown as PlannedStep);
+
+    it("LE CAS MESURÉ : deux pièces, deux conditions indépendantes, aucune garantie", () => {
+      const r = compile(plan([
+        lecture,
+        art("produire:registre-initial", { step: "lire", path: "donneesCompletes", op: "eq", value: "true" }),
+        art("produire:registre-correction", { step: "lire", path: "autreChamp", op: "eq", value: "true" }),
+      ]), avecDoc, pdg, { primitivesRequises: ["DOCUMENT"] });
+      expect(r.ok).toBe(false);
+      expect(messages(r)).toContain("MISSING_PRIMITIVE");
+      // LE REFUS MONTRE CE QU'IL A LU, et nomme le remède — sans quoi le planificateur
+      // ajouterait une TROISIÈME étape tout aussi conditionnelle (§118.30).
+      expect(messages(r)).toContain("TOUTES conditionnelles");
+      expect(messages(r)).toContain("produire:registre-initial");
+      expect(messages(r)).toContain("donneesCompletes");
+      expect(messages(r)).toContain("retire la condition");
+    });
+
+    it("une pièce INCONDITIONNELLE couvre, comme avant", () => {
+      const r = compile(plan([lecture, art("piece")]), avecDoc, pdg, { primitivesRequises: ["DOCUMENT"] });
+      expect(r.ok, messages(r)).toBe(true);
+    });
+
+    /**
+     * LE REFUS À TORT QU'IL FALLAIT ÉVITER (§118.27). La règle 18 du planificateur IMPOSE la
+     * forme conditionnelle pour l'alternative d'une attente composée : relance en TIMEOUT,
+     * suite en EVENT. Refuser cette forme-là aurait cassé la seule manière juste d'écrire
+     * « si pas de réponse vendredi… », et 25 tests d'architecture l'avaient déjà dit une fois.
+     */
+    it("deux pièces sur les DEUX issues d'une même attente : une partira, donc c'est couvert", () => {
+      const attente: PlannedStep =
+        ({ key: "attendre:khaled", title: "Son retour", nodeType: "WAIT_EVENT", dependsOn: ["lire"],
+           waitFor: { anyOf: [{ event: "MESSAGE_RECEIVED", from: "Khaled" }, { until: "2026-09-12T17:00:00Z" }] } } as unknown as PlannedStep);
+      const r = compile(plan([
+        lecture, attente,
+        ({ key: "produire:avec", title: "Avec sa réponse", nodeType: "ARTIFACT", dependsOn: ["attendre:khaled"], input: {},
+           when: { step: "attendre:khaled", outcome: "EVENT" } } as unknown as PlannedStep),
+        ({ key: "produire:sans", title: "Sans sa réponse", nodeType: "ARTIFACT", dependsOn: ["attendre:khaled"], input: {},
+           when: { step: "attendre:khaled", outcome: "TIMEOUT" } } as unknown as PlannedStep),
+      ]), avecDoc, pdg, { primitivesRequises: ["DOCUMENT"] });
+      expect(r.ok, messages(r)).toBe(true);
+    });
+
+    /**
+     * DEUX FORMATS DEMANDÉS, DEUX BRANCHES QUI S'EXCLUENT : une seule partira. Le plan est
+     * exécutable — c'est donc une exigence de COUVERTURE (§118.29), pas une cardinalité fausse.
+     * Confondre les deux ferait mourir une mission là où un aller-retour suffit.
+     */
+    it("deux étapes écrites mais une seule garantie : COUVERTURE, jamais CARDINALITY", () => {
+      const DEUX = "Consolide et fais-moi un fichier Excel et une présentation PowerPoint.";
+      const attente: PlannedStep =
+        ({ key: "attendre:khaled", title: "Son retour", nodeType: "WAIT_EVENT", dependsOn: ["lire"],
+           waitFor: { anyOf: [{ event: "MESSAGE_RECEIVED", from: "Khaled" }, { until: "2026-09-12T17:00:00Z" }] } } as unknown as PlannedStep);
+      const r = compile(plan([
+        lecture, attente,
+        ({ key: "produire:excel", title: "Excel", nodeType: "ARTIFACT", dependsOn: ["attendre:khaled"], input: {},
+           when: { step: "attendre:khaled", outcome: "EVENT" } } as unknown as PlannedStep),
+        ({ key: "produire:ppt", title: "PowerPoint", nodeType: "ARTIFACT", dependsOn: ["attendre:khaled"], input: {},
+           when: { step: "attendre:khaled", outcome: "TIMEOUT" } } as unknown as PlannedStep),
+      ]), avecDoc, pdg, { primitivesRequises: exigencesFermes(DEUX), formatsLivrables: formatsLivrablesDemandes(DEUX) });
+      expect(r.ok).toBe(false);
+      expect(messages(r)).toContain("MISSING_PRIMITIVE");
+      expect(messages(r)).toContain("1 seulement partira");
+      expect(messages(r)).not.toContain("CARDINALITY");
+    });
+
+    it("deux formats, deux pièces INCONDITIONNELLES : rien à redire", () => {
+      const DEUX = "Consolide et fais-moi un fichier Excel et une présentation PowerPoint.";
+      const r = compile(plan([lecture, art("produire:excel"), art("produire:ppt")]), avecDoc, pdg,
+        { primitivesRequises: exigencesFermes(DEUX), formatsLivrables: formatsLivrablesDemandes(DEUX) });
+      expect(r.ok, messages(r)).toBe(true);
+    });
+
+    /**
+     * LA GARDE SE TAIT QUAND RIEN N'EST EXIGÉ. Une demande qui ne réclame aucune pièce laisse
+     * le planificateur libre de conditionner son livrable : c'est son droit, et une garde qui
+     * se déclenche sur un plan correct est retirée dans la semaine.
+     */
+    it("aucune exigence ferme : un livrable conditionnel passe sans un mot", () => {
+      const r = compile(plan([
+        lecture,
+        art("produire:annexe", { step: "lire", path: "gros", op: "eq", value: "true" }),
+      ]), avecDoc, pdg, {});
+      expect(r.ok, messages(r)).toBe(true);
+    });
+  });
+
   it("aucune exigence : le compilateur se comporte exactement comme avant", () => {
     expect(compile(plan([lecture]), AVEC_CALCUL, pdg).ok).toBe(true);
     expect(compile(plan([lecture]), AVEC_CALCUL, pdg, { primitivesRequises: [] }).ok).toBe(true);

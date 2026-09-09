@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { prendreBail } from "@/lib/missions/runtime/bail";
 import type { CompiledMission, CompiledStep, StepSpec } from "@/lib/missions/compiler/compile";
@@ -264,16 +265,35 @@ export async function materialiser(
    * Reprendre une étape dans un plan, c'est demander qu'elle soit RE-tentée. On la réarme donc :
    * statut, compteur de tentatives et motif d'échec repartent à zéro.
    *
+   * ── UNE ÉTAPE IGNORÉE N'EST PAS UN ACQUIS : IL NE S'EST RIEN PASSÉ (§118.67) ───────────
+   *
+   * SKIPPED figurait ici parmi les acquis, avec la même justification que DONE — « pas de
+   * second envoi ». Elle est FAUSSE : une étape ignorée n'a jamais envoyé. Le moteur écarte
+   * AVANT d'exécuter, dans les quatre cas qui produisent ce statut (condition non remplie,
+   * éventail sur une liste vide, éventail dont la source n'a pas abouti, contrôleur qualité
+   * absent). Aucun effet, aucun reçu, rien à protéger.
+   *
+   * MESURÉ, mission `cmttakgtd…` : les deux étapes ARTIFACT sont ignorées parce que la
+   * complétude des données amont vaut `false`. Gelées en SKIPPED, elles ne peuvent plus
+   * revenir : un plan v10 qui les REPREND les retrouve terminales, et le livrable est mort
+   * pour toujours — sans qu'aucune étape soit en échec, donc sans que rien ne le dise. C'est
+   * §118.33 à l'identique, sur l'autre statut terminal-mais-vide.
+   *
+   * Réarmer ne relance pas la branche à tort : la condition est RÉÉVALUÉE sur l'état amont
+   * COURANT. Une relance ignorée parce que la personne avait répondu sera ignorée de nouveau,
+   * pour un test pur, sans appel de modèle. Ce qui change, c'est le cas où l'amont a bougé
+   * entre-temps — précisément celui qu'un replan existe pour rattraper.
+   *
    * DEUX BORNES :
-   *   — SEUL l'échec est réarmé. DONE et SKIPPED restent acquis (pas de second envoi),
-   *     RUNNING appartient à l'exécutant en cours, CANCELLED est une décision humaine ;
+   *   — DONE reste acquis (pas de second envoi), RUNNING appartient à l'exécutant en cours,
+   *     CANCELLED est une décision humaine ;
    *   — `idempotencyKey` est CONSERVÉE. Une étape peut échouer APRÈS avoir produit son effet ;
    *     c'est le reçu (`AssistantActionIntent`, §118.5) qui empêche le doublon, pas le statut.
    */
-  const REARMABLES = ["FAILED"];
+  const REARMABLES = ["FAILED", "SKIPPED"];
   const areArmer = await prisma.missionStep.findMany({
     where: { missionId: mission.id, key: { in: compiled.steps.map((s) => s.key) }, status: { in: REARMABLES } },
-    select: { id: true, key: true, attempt: true },
+    select: { id: true, key: true, attempt: true, status: true },
   });
   if (areArmer.length > 0) {
     await prisma.missionStep.updateMany({
@@ -285,10 +305,10 @@ export async function materialiser(
       },
     });
     await journaliser(mission.id, "PLAN_COMPILED",
-      `Plan v${version} : ${areArmer.length} étape(s) en échec sont REPRISES par le nouveau plan et `
-      + `réarmées — sans quoi tout ce qui en dépend resterait à jamais inexécutable : `
-      + `${areArmer.map((s) => s.key).join(", ")}.`,
-      { planVersion: version, rearmees: areArmer.map((s) => ({ key: s.key, tentativesPrecedentes: s.attempt })) });
+      `Plan v${version} : ${areArmer.length} étape(s) en échec ou ignorées sont REPRISES par le nouveau `
+      + `plan et réarmées — sans quoi tout ce qui en dépend resterait à jamais inexécutable : `
+      + `${areArmer.map((s) => `${s.key} (${s.status})`).join(", ")}.`,
+      { planVersion: version, rearmees: areArmer.map((s) => ({ key: s.key, statutPrecedent: s.status, tentativesPrecedentes: s.attempt })) });
   }
 
   /**
@@ -308,8 +328,19 @@ export async function materialiser(
     ? enBase.filter((s) => s.milestoneId === opts.milestoneId)
     : enBase;
 
-  // Le rafraîchissement des étapes NON commencées : titre, entrée, dépendances peuvent avoir
-  // changé au replan. Celles qui tournent ou sont finies gardent ce sous quoi elles ont tourné.
+  /**
+   * ── UN REPLAN DOIT POUVOIR RETIRER, PAS SEULEMENT AJOUTER (§118.67) ───────────────────
+   *
+   * Le rafraîchissement des étapes NON commencées : titre, entrée, dépendances peuvent avoir
+   * changé au replan. Celles qui tournent ou sont finies gardent ce sous quoi elles ont tourné.
+   *
+   * `?? undefined` sur une colonne JSON était un piège SILENCIEUX : pour Prisma, `undefined`
+   * signifie « ne touche pas à ce champ », pas « mets-le à vide ». Une étape dont le nouveau
+   * plan RETIRE la condition, l'attente ou l'éventail gardait donc l'ancienne — et le plan v2
+   * écrit exactement pour lever une condition ne la levait pas. Mesuré au banc : l'étape
+   * réarmée reprenait le `when` du plan v1 et se faisait ignorer une seconde fois, sur une
+   * condition qu'aucun plan ne portait plus. `Prisma.DbNull` dit VIDE.
+   */
   for (const s of compiled.steps) {
     const ligne = parCle.get(s.key);
     if (!ligne || ligne.status !== "PENDING") continue;
@@ -322,9 +353,9 @@ export async function materialiser(
         capability: s.capability,
         input: s.input as never,
         maxAttempts: s.maxAttempts,
-        waitFor: (s.waitFor ?? undefined) as never,
-        forEach: (s.forEach ?? undefined) as never,
-        spec: (s.spec ?? undefined) as never,
+        waitFor: (s.waitFor ?? Prisma.DbNull) as never,
+        forEach: (s.forEach ?? Prisma.DbNull) as never,
+        spec: (s.spec ?? Prisma.DbNull) as never,
         needsIdempotencyKey: s.needsIdempotencyKey,
         planVersion: version,
       },

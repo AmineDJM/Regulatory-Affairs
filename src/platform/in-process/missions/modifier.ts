@@ -216,7 +216,9 @@ export async function appliquerModification(
     } else {
       // REMIS À PENDING AVEC `planVersion: 0` : c'est la marque « pas encore compilé », donc la
       // frontière le reprendra et un sous-plan NEUF sera écrit — avec la nouvelle cible.
-      await marquerJalon(j.id, "PENDING", { planVersion: 0, dernierRefus: null });
+      // L'HISTOIRE DES MURS AUSSI : la demande a changé, les refus d'avant portaient sur une autre
+      // demande, et les garder ferait refuser comme « déjà vu » un mur qui n'existe plus (§118.42).
+      await marquerJalon(j.id, "PENDING", { planVersion: 0, dernierRefus: null, refusVus: null });
     }
   }
 

@@ -56,6 +56,30 @@ describe("une mission longue reste VISIBLE et REPRENABLE", () => {
     expect(router).toMatch(/milestones2:\s*\{\s*some:\s*\{\s*statut:\s*\{\s*notIn:/);
   });
 
+  /**
+   * ── ET IL FAUT ENCORE QU'IL DEVIENNE BLOQUÉ (§118.67) ─────────────────────────────────
+   *
+   * La reprise ci-dessous ne voit QUE les jalons BLOCKED. Or `fermerJalonsAboutis` ne jugeait
+   * un jalon que si aucune de ses étapes n'était « encore en cours » — et onze étapes PENDING
+   * derrière deux échecs définitifs comptaient comme du travail à venir. Le jalon restait
+   * ACTIVE pour toujours, la reprise n'était jamais atteinte, et toute la §118.47 était du
+   * code mort en production (§118.14). C'est §118.49 : un test qui vérifie le CORPS d'un
+   * mécanisme sans vérifier son POINT D'APPEL ne teste rien.
+   */
+  it("`fermerJalonsAboutis` demande au GRAPHE si le jalon peut encore avancer, pas à un comptage", () => {
+    const h = lire("src/platform/in-process/missions/horizon.ts");
+    expect(h, "le pilote n'importe pas la règle d'impasse").toContain('from "@/lib/missions/runtime/impasse"');
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : revenir au `siennes.some(...)` d'origine, ou appeler
+     * `peutEncoreAvancer` sur le seul lot du jalon — une étape condamnée par un mort d'un
+     * AUTRE jalon redeviendrait alors du travail à venir, et le jalon se figerait à nouveau.
+     */
+    expect(h, "la porte du jugement de jalon ne consulte pas l'impasse")
+      .toMatch(/if \(peutEncoreAvancer\(graphe\.filter\(.+\), graphe\)\) continue;/);
+    expect(h, "le graphe d'impasse est construit sans les arêtes de dépendance")
+      .toMatch(/dependsOn: e\.deps\.map\(\(d\) => d\.dependsOn\.key\)/);
+  });
+
   it("un jalon BLOQUÉ est REPRIS tant que son budget local l'autorise", () => {
     /**
      * CE QUI FERAIT TOMBER CE TEST : `reprendreJalonsBloques` supprimée, ou appelée hors de la
@@ -70,8 +94,11 @@ describe("une mission longue reste VISIBLE et REPRENABLE", () => {
       .toContain("const reprises = await reprendreJalonsBloques(missionId);");
     // La reprise est un REPLAN, pas un re-run : `planVersion: 0` = « pas encore compilé ».
     expect(pilote).toMatch(/marquerJalon\(j\.id, "PENDING", \{ planVersion: 0/);
-    // Et le budget reste LOCAL, jugé au progrès sur les CAUSES d'échec.
-    expect(pilote).toContain("peutReplanifier({ replans: j.replans, dernierRefus: j.dernierRefus }, signature)");
+    // Et le budget reste LOCAL, jugé au progrès sur les CAUSES d'échec — et sur TOUTE leur
+    // histoire : sans `refusVus`, une oscillation A → B → A → B passe pour du progrès à chaque
+    // tour et la boucle ne s'arrête qu'au plafond opérationnel (§118.67).
+    expect(pilote).toContain(
+      "peutReplanifier({ replans: j.replans, dernierRefus: j.dernierRefus, refusVus: j.refusVus }, signature)");
   });
 
   it("la compilation d'un jalon prend le BAIL — deux pilotes ne compilent pas le même", () => {
