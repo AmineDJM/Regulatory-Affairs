@@ -73,6 +73,27 @@ describe("une mission longue reste VISIBLE et REPRENABLE", () => {
    * refuse. Reprise, replanification, nouveau refus : la mission n'a jamais dépassé son
    * PREMIER jalon. Ce que le juge EXIGE, la consigne doit dire comment le SATISFAIRE (§118.19).
    */
+  /**
+   * MESURÉ LIVE, mission `cmtttwj1r…` : « le planificateur n'a rien rendu » écrit TROIS FOIS
+   * pour le même jalon, à 08:22, 08:26 et 08:27. Le jalon restait PENDING/planVersion 0, la
+   * frontière le reprenait, le planificateur échouait à l'identique — et RIEN ne comptait : le
+   * budget local ne s'incrémente que lorsque le COMPILATEUR refuse. Boucle sans fin, un appel
+   * de planification par tour, et le battement annonçant « la mission attend ».
+   */
+  it("un plan VIDE consomme le budget local du jalon — sinon la boucle n'a pas de fin", () => {
+    const h = lire("src/platform/in-process/missions/horizon.ts");
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : retirer `compterReplan` de la branche `!plan.ok`, ou lui
+     * rendre sa signature vide. Le jalon repartirait indéfiniment sur le même échec, sans que
+     * la règle de progrès (§118.18) puisse jamais le voir.
+     */
+    const branche = h.slice(h.indexOf("if (!plan.ok) {"), h.indexOf("const plafond = {"));
+    expect(branche, "un plan vide ne porte pas de signature").toContain('"PLAN_VIDE"');
+    expect(branche, "un plan vide ne consomme pas le budget local").toContain("await compterReplan(jalon.id, signature)");
+    expect(branche, "la répétition d'un plan vide ne bloque pas le jalon").toContain('marquerJalon(jalon.id, "BLOCKED"');
+    expect(branche, "un jalon bloqué par un plan vide ne le dit pas").toContain('"MILESTONE_BLOCKED"');
+  });
+
   it("la consigne d'un jalon dit que solliciter sans attendre le fera juger trop tôt", () => {
     const h = lire("src/platform/in-process/missions/horizon.ts");
     // CE QUI FERAIT TOMBER CE TEST : retirer ce bout de la consigne. Le sous-plan redeviendrait

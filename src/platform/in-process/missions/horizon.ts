@@ -462,9 +462,36 @@ async function compilerJalon(
     sansCheminDirect: true,
   });
   if (!plan.ok) {
+    /**
+     * ── UN PLANIFICATEUR QUI NE REND RIEN EST UN REFUS, PAS UN NON-ÉVÉNEMENT (§118.70) ───
+     *
+     * MESURÉ LIVE, mission `cmtttwj1r…` : « le planificateur n'a rien rendu (Le plan rendu ne
+     * contient aucune étape exploitable) » écrit TROIS FOIS, à 08:22, 08:26 et 08:27. Le jalon
+     * restait PENDING avec `planVersion: 0`, la frontière le reprenait au tour suivant, le
+     * planificateur échouait à l'identique — et rien ne comptait. Ce chemin-ci ne consommait
+     * PAS le budget local : celui-ci ne s'incrémente que lorsque le COMPILATEUR refuse. Une
+     * boucle sans fin au prix d'un appel de planification par tour, et le battement rendait
+     * « rien de neuf : la mission attend » sur une mission dont le planificateur venait
+     * d'échouer trois fois.
+     *
+     * C'est §118.18 sur la seule porte qui l'ignorait. Un plan vide porte donc sa signature —
+     * elle entre dans l'histoire du jalon, la répétition l'arrête, et l'arrêt se DIT.
+     */
+    const signature = "PLAN_VIDE";
+    const verdict = peutReplanifier(
+      { replans: jalon.replans, dernierRefus: jalon.dernierRefus, refusVus: jalon.refusVus }, signature);
+    await compterReplan(jalon.id, signature);
+    if (!verdict.autorise) {
+      await marquerJalon(jalon.id, "BLOCKED", { dernierRefus: signature });
+      await journaliser(mission.id, "MILESTONE_BLOCKED",
+        `Jalon ${jalon.ordre} (« ${jalon.titre} ») : ${verdict.phrase} `
+        + `Le planificateur ne rend plus rien d'exploitable pour ce jalon (${plan.error}).`,
+        { ordre: jalon.ordre, motif: verdict.motif, signature });
+      return { compile: false, bloque: true, raison: verdict.phrase };
+    }
     await journaliser(mission.id, "MILESTONE_PLAN_FAILED",
-      `Jalon ${jalon.ordre} : le planificateur n'a rien rendu (${plan.error}).`,
-      { ordre: jalon.ordre });
+      `Jalon ${jalon.ordre} : le planificateur n'a rien rendu (${plan.error}). ${verdict.phrase}`,
+      { ordre: jalon.ordre, signature, replans: jalon.replans + 1 });
     return { compile: false, bloque: false, raison: plan.error };
   }
 

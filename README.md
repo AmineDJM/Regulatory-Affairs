@@ -8403,6 +8403,14 @@ résultat dès que plus aucune étape ne peut avancer : un sous-plan qui envoie 
 s'arrête se fait juger une seconde après, sur un résultat que personne n'a eu le temps de produire.
 La consigne du jalon le dit maintenant, avec le geste qui retient le juge.
 
+**9. Un planificateur qui ne rend rien était un non-événement.** « Le planificateur n'a rien
+rendu » écrit **trois fois** pour le même jalon : il restait `PENDING`/`planVersion: 0`, la
+frontière le reprenait, l'échec se répétait — et rien ne comptait, parce que le budget local ne
+s'incrémente que lorsque le **compilateur** refuse. Un appel de planification par tour,
+indéfiniment, pendant que le battement annonçait « rien de neuf : la mission attend ». Un plan vide
+porte désormais sa signature (`PLAN_VIDE`), entre dans l'histoire du jalon, et sa répétition le
+bloque en le disant.
+
 **Mesuré, même banc, même demande, avant → après :** 0 personne sollicitée → **4** ; 0,45 $ →
 **0,15 $** ; question au dirigeant → aucune. Fichiers : `compiler/garanties.ts`,
 `runtime/impasse.ts`, `personnes/designation.ts`, `horizon/budget.ts`, `runtime/store.ts`,
