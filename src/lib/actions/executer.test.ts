@@ -183,3 +183,65 @@ suite("EXÉCUTION GÉNÉRIQUE — l'action de l'écran, appelée par son contrat
     expect(ouvertes.length).toBeGreaterThan(500);
   });
 });
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'APPEL POSITIONNEL, PAR LE VRAI POINT D'ENTRÉE.
+ *
+ * `enArguments` est vérifiée à part, sur des contrats fabriqués. Ça ne prouve RIEN sur la
+ * production : ce qui compte est qu'`executerAction` CHOISISSE cette branche et appelle
+ * réellement `f(a, b)`. Sans ce banc, la traduction pourrait être parfaite et l'exécuteur
+ * continuer de passer un `FormData` au premier rang — l'action recevrait un objet là où elle
+ * attend un identifiant, et `deleteDocument` supprimerait au hasard (§118.49).
+ *
+ * On part donc d'une action à ARGUMENTS réelle, on l'appelle, et on constate EN BASE.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+suite("ARGUMENTS — l'exécuteur appelle positionnellement, et l'effet est en base", () => {
+  let userId = "", notifId = "";
+
+  beforeAll(async () => {
+    const u = await prisma.user.create({
+      data: { name: `${TAG}notif`, email: `${TAG}notif@t.dz`, role: "SUPER_ADMIN", passwordHash: "x" },
+    });
+    userId = u.id;
+    const n = await prisma.notification.create({
+      data: { userId, title: `${TAG}à lire`, body: "corps", type: "GENERIC", isRead: false },
+    });
+    notifId = n.id;
+  });
+
+  afterAll(async () => {
+    await prisma.notification.deleteMany({ where: { title: { startsWith: TAG } } });
+    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } });
+  });
+
+  it("`markNotificationRead(id)` — un seul argument, et la ligne CHANGE", async () => {
+    ACTEUR = await acteur(userId, "SUPER_ADMIN");
+    const contrat = CONTRATS_ACTIONS.find((c) => c.id === "notification-actions:markNotificationRead");
+    expect(contrat?.appel, "cette action n'est plus à arguments — le banc ne prouve plus rien").toBe("arguments");
+    expect(contrat?.illisible, "elle n'est plus descriptible").toBeNull();
+
+    const r = await executerAction(ACTEUR, "notification-actions:markNotificationRead", { id: notifId });
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    const ligne = await prisma.notification.findUniqueOrThrow({ where: { id: notifId } });
+    // SANS la branche positionnelle, l'action aurait reçu un `FormData` : `where: { id: {} }`,
+    // aucune ligne touchée, et le retour aurait pu rester d'apparence normale.
+    expect(ligne.isRead, "la notification n'a pas été marquée lue : l'appel n'est pas positionnel").toBe(true);
+  });
+
+  it("une entrée INCONNUE est refusée AVANT l'appel — jamais glissée dans un rang", async () => {
+    ACTEUR = await acteur(userId, "SUPER_ADMIN");
+    const r = await executerAction(ACTEUR, "notification-actions:markNotificationRead",
+      { id: notifId, quoiQueCeSoit: "x" });
+    expect(r.ok).toBe(false);
+    expect(r.motif).toBe("entree");
+  });
+
+  it("les surfaces humaines sont refusées ICI aussi, pas seulement dans la garde", async () => {
+    ACTEUR = await acteur(userId, "SUPER_ADMIN");
+    const r = await executerAction(ACTEUR, "adam-settings-actions:setAdamOutboundPaused", { paused: false });
+    expect(r.ok, "l'interrupteur de sortie d'Adam a été atteint par le chemin générique").toBe(false);
+    expect(r.motif).toBe("interdite");
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contratsDuFichier, decrireAction, direContrat, type TableEnums } from "./contrat";
+import { contratsDuFichier, decrireAction, direContrat, lireArguments, type TableEnums } from "./contrat";
 import { scannerContrats } from "./contrat-scan";
 import { CONTRATS_ACTIONS, CONTRAT_PAR_ID } from "./contrat.genere";
 import { ACTION_CLASSIFICATION } from "@/lib/assistant/action-registry";
@@ -21,13 +21,19 @@ import { ACTION_CLASSIFICATION } from "@/lib/assistant/action-registry";
  */
 
 /**
- * LE PLAFOND, mesuré le 09/09/2026 sur 715 actions : 598 appelables (84 %), 117 illisibles —
- *   65 à entrée typée (elles ne passent pas par un formulaire),
- *   28 dont les noms de champs sont calculés à l'exécution,
- *   24 sans lecture de champ trouvée.
+ * LE PLAFOND, mesuré le 09/09/2026 sur 715 actions.
+ *
+ * 117 → 77 (même jour, lecture des ARGUMENTS) : 638 appelables (89 %), 77 illisibles —
+ *   27 dont les noms de champs sont calculés à l'exécution,
+ *   27 à entrée typée que la signature ne dit pas à coup sûr (objet littéral, type importé,
+ *      valeur par défaut) — plus UNE refusée pour son paramètre `userId` (§ identité d'acteur),
+ *   23 sans lecture de champ trouvée.
+ * Les 67 refus « entrée typée » IMPRIMAIENT la signature qu'ils déclaraient ne pas savoir
+ * lire ; 40 sont désormais traduites (§118.34) et le reste dit ce qui manque.
+ *
  * Il ne se relève JAMAIS sans une justification écrite ici, dans la même revue de code.
  */
-const PLAFOND_ILLISIBLES = 117;
+const PLAFOND_ILLISIBLES = 77;
 
 describe("CONTRAT D'ACTION — la dérivation LIT la source, elle ne l'invente pas", () => {
   // Une source ÉCRITE ICI : c'est le seul endroit où je connais la vérité indépendamment du
@@ -222,5 +228,91 @@ describe("CONTRAT D'ACTION — le parc réel, et le cliquet qui ne remonte pas",
     expect(direContrat(illisible)).toMatch(/non appelable directement/);
     const lisible = vivants.find((c) => !c.illisible && c.champs.length > 2)!;
     expect(direContrat(lisible)).toContain(lisible.champs[0]!.nom);
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LIRE UNE SIGNATURE — et refuser tout entier ce qu'on ne lit pas tout entier.
+ *
+ * 67 refus imprimaient la signature qu'ils déclaraient ne pas savoir lire. Ce qui suit mesure
+ * les deux moitiés : ce qu'on traduit maintenant, et ce qu'on continue de refuser — le second
+ * comptant plus que le premier, parce qu'un appel positionnel mal lu ne DÉGRADE pas, il
+ * DÉCALE.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("ARGUMENTS — un appel positionnel se lit tout entier, ou pas du tout", () => {
+  const champs = (sig: string) => {
+    const r = lireArguments(sig);
+    return "champs" in r ? r.champs : null;
+  };
+  const refus = (sig: string) => {
+    const r = lireArguments(sig);
+    return "refus" in r ? r.refus : null;
+  };
+
+  it("les types simples se lisent, DANS L'ORDRE — c'est l'ordre qui fait l'appel", () => {
+    expect(champs("id: string, name: string, path?: string")).toEqual([
+      { nom: "id", type: "reference", obligatoire: true, valeurs: null },
+      { nom: "name", type: "texte", obligatoire: true, valeurs: null },
+      { nom: "path", type: "texte", obligatoire: false, valeurs: null },
+    ]);
+  });
+
+  it("booléen, nombre et liste gardent leur nature — « on » n'est pas un booléen", () => {
+    expect(champs("paused: boolean")).toEqual([{ nom: "paused", type: "booleen", obligatoire: true, valeurs: null }]);
+    expect(champs("year: number, month: number")?.map((c) => c.type)).toEqual(["nombre", "nombre"]);
+    expect(champs("ids: string[]")?.[0]?.type).toBe("liste");
+  });
+
+  it("une union de littéraux DONNE ses valeurs admises — on ne les devine pas", () => {
+    expect(champs('decision: "GRANTED" | "REFUSED"')).toEqual([
+      { nom: "decision", type: "texte", obligatoire: true, valeurs: ["GRANTED", "REFUSED"] },
+    ]);
+  });
+
+  it("`| null` accepte l'absence de VALEUR, jamais l'absence d'ARGUMENT", () => {
+    // Sauter le rang décalerait tous les suivants : le champ reste obligatoire.
+    expect(champs("threadId: string | null")?.[0]?.obligatoire).toBe(true);
+    expect(champs("q: string | undefined")?.[0]?.obligatoire).toBe(false);
+  });
+
+  it("`missionId` désigne une mission des DEUX côtés — pas deux conventions selon l'appel", () => {
+    expect(champs("missionId: string")?.[0]?.type).toBe("reference");
+    expect(champs("motif: string")?.[0]?.type).toBe("texte");
+  });
+
+  it("UN paramètre illisible rend TOUTE la signature illisible", () => {
+    // LE CAS QUI FERAIT TOMBER CETTE ASSERTION : une lecture partielle. Elle rendrait ici
+    // [id, title] pour une fonction dont le second argument est un objet — l'appel passerait
+    // le titre au rang de l'objet, et l'action écrirait n'importe quoi sans une erreur.
+    expect(champs("id: string, input: { title?: string; kind?: string }")).toBeNull();
+    expect(refus("id: string, input: { title?: string }")).toMatch(/n'est pas une valeur simple/);
+  });
+
+  it("une valeur par défaut n'est pas une entrée — c'est un calcul du code", () => {
+    // `now = new Date()` : la remplir depuis une demande ferait écrire une date choisie par un
+    // modèle là où le code voulait « maintenant ».
+    expect(champs("departmentId: string, now = new Date()")).toBeNull();
+    expect(refus("now = new Date()")).toMatch(/valeur par défaut/);
+  });
+
+  it("SÉCURITÉ : un paramètre qui porte l'identité de l'ACTEUR ferme la signature", () => {
+    // Une action qui reçoit son auteur au lieu de le lire dans la session fait confiance à son
+    // appelant. Le bouton est un appelant sûr, un modèle ne l'est pas : accepter ce paramètre
+    // permettrait d'écrire dans la mémoire de quelqu'un d'autre.
+    expect(champs("userId: string, threadId: string, contenu: string")).toBeNull();
+    expect(refus("userId: string, contenu: string")).toMatch(/identité de l'ACTEUR/);
+    // Et la garde ne déborde PAS sur les identifiants d'objets, qui sont tout le parc.
+    expect(champs("taskId: string, employeeId: string")).not.toBeNull();
+  });
+
+  it("le parc réel : les actions à arguments décrites portent des champs, les autres AUCUN", () => {
+    const parArgs = CONTRATS_ACTIONS.filter((c) => c.appel === "arguments");
+    expect(parArgs.length).toBeGreaterThan(60);
+    for (const c of parArgs) {
+      if (c.illisible) expect(c.champs, `${c.id} annonce des champs alors qu'elle est illisible`).toEqual([]);
+      else expect(c.champs.length, `${c.id} est décrite sans un seul champ`).toBeGreaterThan(0);
+    }
   });
 });

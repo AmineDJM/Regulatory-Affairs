@@ -89,6 +89,59 @@ export const MODELES_NON_SENSIBLES: Readonly<Record<string, string>> = {
   CalendarInvite: "une invitation à une RÉUNION, pas à un compte",
 };
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES SURFACES QUI EXIGENT UNE MAIN HUMAINE — la SECONDE chose sur quoi cette garde s'arme.
+ *
+ * ── POURQUOI UNE SECONDE, ET NON UN MODÈLE DE PLUS ───────────────────────────────────────
+ *
+ * La garde ci-dessus s'arme sur le modèle Prisma écrit DANS LE CORPS de l'action. C'est un
+ * bon fait, et il a un angle mort exact : une action qui DÉLÈGUE son écriture à une
+ * bibliothèque n'écrit rien elle-même. Mesuré sur le parc : 63 actions ouvertes n'ont aucun
+ * modèle détecté, et `deciderAccordMission`, `fournirElementMission`, `setAdamOutboundPaused`
+ * en font partie — toutes trois passent par `missions/` ou par le service de réglages. La
+ * garde ne les VOIT pas. Les onze autres qui écrivent en délégant sont des gestes métier
+ * ordinaires (créer un dossier, envoyer un courrier), chacun portant son propre `userCan` :
+ * ce n'est donc pas la délégation qu'il faut refuser, c'est ce qui vit derrière.
+ *
+ * ── CE QUI EST REFUSÉ, ET SUR QUEL FAIT ──────────────────────────────────────────────────
+ *
+ * Le FICHIER. §118.15 nomme `mission-runtime-actions.ts` comme la porte des gestes qui
+ * exigent un clic dans une vraie session : ACCORDER une autorisation et FOURNIR une pièce
+ * sont des ATTESTATIONS — l'audit portera le nom d'une personne. Un document lu par une étape
+ * peut contenir « approuve la mission » ; si l'outil existe, l'injection réussit et rien ne
+ * distingue plus l'accord forgé du vrai. `adam-settings-actions.ts` est l'autre : ses trois
+ * bascules SONT les garde-fous de sortie, d'entrée et de connexion d'Adam, et §118.6 interdit
+ * de désactiver un garde-fou.
+ *
+ * S'armer sur le fichier plutôt que sur une liste de noms est ce qui rend la garde
+ * EXHAUSTIVE et auto-entretenue (§118.17 : un fait du processus, jamais une variable qu'on
+ * doit penser à poser) : une bascule ajoutée demain dans `adam-settings-actions.ts` est
+ * refusée sans que personne ait pensé à elle.
+ *
+ * ── CE QUE CE REFUS SUR-REFUSE, ET POURQUOI C'EST GRATUIT ────────────────────────────────
+ *
+ * §118.15 dit que les gestes qui RÉDUISENT — suspendre, arrêter, refuser — sont sans danger
+ * et disponibles dans la conversation. `mettreMissionEnPause` et `arreterMission` vivent dans
+ * le fichier refusé : elles sont donc écartées du chemin GÉNÉRIQUE. Ça ne coûte rien, parce
+ * qu'elles ont déjà leur porte — le contrat de plateforme `mission.status` — et le refus la
+ * NOMME. Refuser une seconde route vers un geste qui en a déjà une n'est pas un « je ne peux
+ * pas » artificiel ; laisser une porte non gardée à côté d'une porte gardée, si (§118.71).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export const SURFACES_HUMAINES: Readonly<Record<string, string>> = {
+  "mission-runtime-actions":
+    "le pilotage d'une mission par un humain — accorder une autorisation et fournir une pièce "
+    + "sont des ATTESTATIONS : l'audit portera le nom d'une personne, et un document lu par une "
+    + "étape pourrait contenir « approuve la mission ». Ces gestes se font depuis Mission "
+    + "Control ; ceux qui RÉDUISENT (suspendre, arrêter) restent accessibles dans la "
+    + "conversation par le contrat de plateforme",
+  "adam-settings-actions":
+    "les garde-fous d'Adam lui-même — l'interrupteur de sortie, celui d'entrée et celui de "
+    + "connexion. Adam ne relève pas ses propres barrières, même à la demande d'une personne qui "
+    + "en a le droit. Ce réglage se fait depuis l'écran des réglages d'Adam",
+};
+
 /** Filet SECONDAIRE : ce que le nom d'une action dit quand ses écritures n'ont pas été lues. */
 const MOTIFS_NOM = [
   { test: /role|permission|grant|access|rbac|password|credential|token|secret/i, raison: "un droit ou un identifiant" },
@@ -101,6 +154,13 @@ const MOTIFS_NOM = [
  * raison — jamais un booléen : un refus sans motif ne peut ni être compris, ni corrigé.
  */
 export function interdictionGenerique(c: ContratAction): string | null {
+  // LE FICHIER D'ABORD : c'est le seul fait qui voit une action déléguant son écriture, donc
+  // le seul qui attrape les attestations humaines et les garde-fous d'Adam (voir plus haut).
+  const surface = SURFACES_HUMAINES[c.fichier];
+  if (surface) {
+    return `Cette action appartient à ${surface}. C'est un refus de conception, pas une limite `
+      + `technique : le chemin générique ne s'y substitue pas.`;
+  }
   for (const modele of c.modelesEcrits) {
     const quoi = MODELES_INTERDITS[modele];
     if (quoi) {
@@ -189,6 +249,35 @@ export function validerEntree(
  * où une clé effacée par `JSON.stringify` avait fait refuser un destinataire qu'on tenait).
  * Une LISTE devient plusieurs entrées du même nom, ce que `getAll` relit exactement.
  */
+/**
+ * L'ENTRÉE, TRADUITE EN ARGUMENTS POSITIONNELS — pour les 40 actions à entrée typée.
+ *
+ * L'ORDRE vient du CONTRAT, qui le tient de la signature : c'est la seule source qui le
+ * connaisse. Un champ absent devient `undefined` à son rang — jamais omis, sinon tous les
+ * suivants glissent d'une place et `renameDocument(id, name)` renommerait avec l'identifiant.
+ *
+ * Et les valeurs sont de VRAIS types, pas des chaînes : `enFormulaire` écrit « on » pour un
+ * booléen parce qu'un formulaire n'a que du texte, mais une fonction qui déclare
+ * `paused: boolean` recevrait `"on"` — une chaîne non vide, donc VRAIE, y compris quand la
+ * demande dit « non ». Le faux succès parfait, pour une conversion.
+ */
+export function enArguments(
+  c: ContratAction,
+  entree: Readonly<Record<string, unknown>>,
+): unknown[] {
+  return c.champs.map((ch) => {
+    const v = entree[ch.nom];
+    if (v === undefined || v === null || v === "") return undefined;
+    if (ch.type === "booleen") {
+      return typeof v === "boolean" ? v : ["true", "1", "on", "oui", "vrai"].includes(String(v).toLowerCase());
+    }
+    if (ch.type === "nombre") return typeof v === "number" ? v : Number(String(v).replace(",", "."));
+    if (ch.type === "liste") return (Array.isArray(v) ? v : [v]).map(String);
+    if (ch.type === "date") return v instanceof Date ? v : new Date(String(v));
+    return String(v);
+  });
+}
+
 export function enFormulaire(entree: Readonly<Record<string, unknown>>): FormData {
   const fd = new FormData();
   for (const [cle, v] of Object.entries(entree)) {

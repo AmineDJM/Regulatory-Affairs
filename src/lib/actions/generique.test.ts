@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  MODELES_INTERDITS, MODELES_NON_SENSIBLES,
-  interdictionGenerique, validerEntree, enFormulaire, chercherCapacites, motsUtiles,
+  MODELES_INTERDITS, MODELES_NON_SENSIBLES, SURFACES_HUMAINES,
+  interdictionGenerique, validerEntree, enArguments, enFormulaire, chercherCapacites, motsUtiles,
 } from "./generique";
 import { scannerContrats } from "./contrat-scan";
-import type { ContratAction } from "./contrat";
+import { CONTRAT_PAR_ID } from "./contrat.genere";
+import type { ChampAction, ContratAction } from "./contrat";
+
+/** Le parc RÉEL, tel que l'artefact le porte — le seul qui dise si la garde protège vraiment. */
+const CONTRATS_ACTIONS: ContratAction[] = [...CONTRAT_PAR_ID.values()];
 
 const contrat = (p: Partial<ContratAction>): ContratAction => ({
   id: "f:a", fichier: "f", fonction: "a", appel: "formulaire", champs: [],
@@ -161,5 +165,110 @@ describe("CHEMIN GÉNÉRIQUE — la découverte trouve, et dit ce qu'elle ne fer
   it("les mots vides sont retirés, les accents repliés", () => {
     expect(motsUtiles("Crée un dossier réglementaire pour le produit")).toEqual(
       ["cree", "dossier", "reglementaire", "produit"]);
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'ANGLE MORT DE LA GARDE — ce que la lecture des ARGUMENTS a rendu atteignable.
+ *
+ * En ouvrant 40 actions à entrée typée, cinq gestes que la doctrine réserve à une main
+ * humaine sont devenus descriptibles : `deciderAccordMission` et `fournirElementMission`
+ * (§118.15 : accorder une autorisation et fournir une pièce sont des ATTESTATIONS — l'audit
+ * portera le nom d'une personne), et les trois interrupteurs d'Adam (§118.6 : on ne désactive
+ * pas un garde-fou).
+ *
+ * La garde sur le MODÈLE ÉCRIT ne pouvait pas les voir : toutes les cinq délèguent leur
+ * écriture, donc leur corps n'écrit aucun modèle Prisma. C'est un angle mort du FAIT sur
+ * lequel elle s'arme, pas une lacune de sa liste — d'où un SECOND fait, le fichier.
+ *
+ * Le banc part du contrat RÉEL (`contrat.genere`), pas d'un contrat fabriqué à la main : un
+ * test qui s'injecte son propre cas ne dirait pas si la garde protège le parc.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("SURFACES HUMAINES — ouvrir une lecture ne doit pas ouvrir une porte", () => {
+  const parId = new Map(CONTRATS_ACTIONS.map((c) => [c.id, c]));
+  const parcId = (id: string) => {
+    const c = parId.get(id);
+    // Un identifiant devenu faux rendrait le test VERT en ne testant rien (§118.17).
+    expect(c, `${id} n'existe plus dans le parc — ce banc ne prouve plus rien`).toBeTruthy();
+    return c!;
+  };
+
+  for (const [id, quoi] of [
+    ["mission-runtime-actions:deciderAccordMission", "accorder une autorisation"],
+    ["mission-runtime-actions:fournirElementMission", "fournir une pièce"],
+    ["mission-runtime-actions:approuverModeleOperationnel", "approuver un modèle"],
+    ["adam-settings-actions:setAdamOutboundPaused", "l'interrupteur de sortie"],
+    ["adam-settings-actions:setAdamInboundPaused", "l'interrupteur d'entrée"],
+    ["adam-settings-actions:setAdamConnectionPaused", "l'interrupteur de connexion"],
+  ] as [string, string][]) {
+    it(`${quoi} est REFUSÉ au chemin générique (${id.split(":")[1]})`, () => {
+      const c = parcId(id);
+      // Le point de la démonstration : elle est DESCRIPTIBLE (donc atteignable sans la garde)
+      // et elle n'écrit AUCUN modèle (donc invisible à la garde des modèles).
+      expect(c.illisible, "cette action n'est plus descriptible — le banc ne prouve plus rien").toBeNull();
+      expect(c.modelesEcrits, "elle écrit un modèle : ce n'est plus le cas d'angle mort").toEqual([]);
+      const refus = interdictionGenerique(c);
+      expect(refus, `${id} passe la garde`).toBeTruthy();
+      expect(refus, "le refus doit nommer le geste humain qui reste possible").toMatch(/Mission Control|réglages d'Adam/);
+    });
+  }
+
+  it("SABOTAGE : sans le fait « fichier », les six passeraient", () => {
+    // LE CAS QUI FAIT TOMBER L'ASSERTION PRÉCÉDENTE, joué : on retire la surface du contrat
+    // (en la renommant) et l'on constate que plus RIEN ne les arrête — ni les modèles écrits
+    // (il n'y en a pas), ni le filet des noms (`deciderAccordMission` n'a aucun mot-clé de
+    // droit). Sans ce sabotage, on ne saurait pas nommer ce qui fait tenir la garde.
+    for (const id of [
+      "mission-runtime-actions:deciderAccordMission",
+      "adam-settings-actions:setAdamOutboundPaused",
+    ]) {
+      const c = parcId(id);
+      expect(interdictionGenerique({ ...c, fichier: "un-autre-fichier" })).toBeNull();
+    }
+  });
+
+  it("la garde ne DÉBORDE pas : le reste du parc reste ouvert", () => {
+    const refusees = CONTRATS_ACTIONS.filter((c) => !c.illisible && interdictionGenerique(c));
+    const parSurface = refusees.filter((c) => c.fichier in SURFACES_HUMAINES);
+    expect(parSurface.length, "les deux surfaces comptent 19 actions au total").toBeLessThanOrEqual(19);
+    // Un refus à tort coûte plus cher que le défaut qu'on corrige (§118.27) : l'immense
+    // majorité du parc descriptible doit rester appelable.
+    const ouvertes = CONTRATS_ACTIONS.filter((c) => !c.illisible && !interdictionGenerique(c));
+    expect(ouvertes.length).toBeGreaterThan(550);
+  });
+});
+
+/**
+ * L'ENTRÉE TRADUITE EN ARGUMENTS — l'ordre et les TYPES, qui sont deux façons de se tromper
+ * en silence.
+ */
+describe("enArguments — le rang et la nature, pas seulement la valeur", () => {
+  const aArguments = (champs: ChampAction[]): ContratAction => ({
+    id: "x:y", fichier: "x", fonction: "y", appel: "arguments", champs,
+    porte: { module: null, verbe: null, entite: null, gardes: [], moduleFr: null },
+    ecrit: false, modelesEcrits: [], audit: false, illisible: null,
+  });
+  const ch = (nom: string, type: ChampAction["type"]): ChampAction =>
+    ({ nom, type, obligatoire: false, valeurs: null });
+
+  it("un champ absent occupe SON RANG — il n'est pas omis", () => {
+    // LE CAS QUI FERAIT TOMBER CETTE ASSERTION : un `filter` sur les valeurs présentes.
+    // `renameDocument(id, name, path)` sans `name` renommerait alors avec le chemin.
+    expect(enArguments(aArguments([ch("id", "texte"), ch("name", "texte"), ch("path", "texte")]),
+      { id: "a", path: "/p" })).toEqual(["a", undefined, "/p"]);
+  });
+
+  it("un booléen reste un BOOLÉEN — « on » serait vrai même pour « non »", () => {
+    const bascule = aArguments([ch("paused", "booleen")]);
+    expect(enArguments(bascule, { paused: "false" })).toEqual([false]);
+    expect(enArguments(bascule, { paused: "oui" })).toEqual([true]);
+    expect(enArguments(bascule, { paused: true })).toEqual([true]);
+  });
+
+  it("un nombre reste un NOMBRE, une liste reste une LISTE", () => {
+    expect(enArguments(aArguments([ch("year", "nombre"), ch("ids", "liste")]), { year: "2026", ids: "a" }))
+      .toEqual([2026, ["a"]]);
   });
 });

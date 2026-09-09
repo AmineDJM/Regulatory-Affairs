@@ -328,10 +328,13 @@ export function decrireAction(
     if (signature === "") {
       return { ...base, appel: "sans-entree", champs: [], illisible: null };
     }
-    return {
-      ...base, appel: "arguments", champs: [],
-      illisible: `entrée typée (${signature}) — cette action ne s'appelle pas par un formulaire`,
-    };
+    const lue = lireArguments(signature);
+    return "champs" in lue
+      ? { ...base, appel: "arguments" as const, champs: lue.champs, illisible: null }
+      : {
+          ...base, appel: "arguments" as const, champs: [],
+          illisible: `entrée typée (${signature}) — ${lue.refus}`,
+        };
   }
 
   const appel = rang === 0 ? "formulaire" as const : "etat-formulaire" as const;
@@ -447,4 +450,121 @@ export function direContrat(c: ContratAction): string {
     return `${ch.nom} : ${ch.type}${val}${marque}`;
   };
   return `${c.id} — ${c.champs.map(champ).join(" ; ")}`;
+}
+
+// ───────────────────────────────────────────────────────────────────────────────────────────
+// UNE ACTION À ARGUMENTS SE LIT AUSSI
+// ───────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * 67 REFUS IMPRIMAIENT LA SIGNATURE QU'ILS DÉCLARAIENT NE PAS SAVOIR LIRE.
+ *
+ * « entrée typée (missionId: string) — cette action ne s'appelle pas par un formulaire » :
+ * le nom du paramètre, son type et son rang étaient DANS le message. C'est un « je ne peux
+ * pas » artificiel écrit dans le CODE, comme le contrôle des livrables qui déclarait « aucun
+ * moteur de calcul Excel dans le dépôt » alors que le dossier d'à côté en portait un
+ * (§118.59) et comme l'ingestion qui renvoyait océriser à la main (§118.63). On TRADUIT au
+ * lieu de refuser (§118.34).
+ *
+ * ── POURQUOI LA LECTURE EST TOUT-OU-RIEN ─────────────────────────────────────────────────
+ *
+ * Un formulaire est NOMMÉ : une clé manquante arrive vide et l'action s'en plaint. Un appel
+ * positionnel est MUET : un argument manquant devient `undefined` au bon rang, et la fonction
+ * part quand même. Un paramètre mal lu ne dégrade donc pas la lecture — il DÉCALE tous les
+ * suivants, et `renameDocument(id, name)` appelé de travers renomme avec l'identifiant.
+ * Un seul paramètre illisible rend TOUTE la signature illisible : ici, lire quatre paramètres
+ * sur cinq est strictement pire que n'en lire aucun.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** Ce qu'on sait traduire — et rien d'autre. Un type absent d'ici rend la signature illisible. */
+const TYPES_SIMPLES: Readonly<Record<string, TypeChamp>> = {
+  string: "texte", number: "nombre", boolean: "booleen", Date: "date",
+  "string[]": "liste", "readonly string[]": "liste",
+};
+
+/**
+ * L'IDENTITÉ DE L'ACTEUR, reconnue au NOM du paramètre — et refusée.
+ *
+ * Toute action d'écran tient son acteur de la SESSION (`requireUser`) ; celle qui le reçoit en
+ * argument fait confiance à son appelant. Le bouton est un appelant sûr, un modèle ne l'est
+ * pas : ouvrir ce paramètre, c'est permettre d'agir au nom de quelqu'un d'autre — exactement
+ * ce qu'`executerAction` refuse déjà en ne transmettant PAS `user` (§118.7).
+ *
+ * La liste est FERMÉE et COURTE, parce qu'une garde large — « tout paramètre finissant par
+ * Id » — refuserait `missionId`, `taskId`, `messageId`, c'est-à-dire la quasi-totalité du
+ * parc, pour se protéger d'un risque qu'aucune de ces actions ne porte. Une seule action est
+ * dans ce cas aujourd'hui (`rememberExchange`), et le refus la NOMME avec sa raison.
+ */
+const IDENTITE_ACTEUR = /^(userId|actorId|asUser|onBehalfOf|accountId|sessionUserId|impersonate\w*)$/i;
+
+/** Découpe une liste de paramètres au niveau ZÉRO — un `{ a: string }` ne se coupe pas en deux. */
+function decouperParametres(signature: string): string[] {
+  const out: string[] = [];
+  let prof = 0, cur = "";
+  for (const ch of signature) {
+    if ("{<([".includes(ch)) prof++;
+    else if ("}>)]".includes(ch)) prof--;
+    if (ch === "," && prof === 0) { out.push(cur); cur = ""; continue; }
+    cur += ch;
+  }
+  if (cur.trim()) out.push(cur);
+  return out;
+}
+
+/** Une union de littéraux (`"GRANTED" | "REFUSED"`) — les valeurs admises, lues sans les deviner. */
+function litterauxUnion(type: string): string[] | null {
+  const parts = type.split("|").map((p) => p.trim());
+  if (parts.length < 2 || !parts.every((p) => /^"[^"]*"$/.test(p))) return null;
+  return parts.map((p) => p.slice(1, -1));
+}
+
+/** Le résultat d'une lecture de signature : des champs, ou la RAISON exacte du refus (§118.30). */
+export type LectureArguments = { champs: ChampAction[] } | { refus: string };
+
+export function lireArguments(signature: string): LectureArguments {
+  const champs: ChampAction[] = [];
+  for (const brut of decouperParametres(signature)) {
+    const p = brut.replace(/\/\*[\s\S]*?\*\//g, "").trim().replace(/,$/, "");
+    if (!p) continue;
+    if (p.startsWith("...")) return { refus: `le paramètre « ${p.slice(0, 30)} » est variadique` };
+    // UNE VALEUR PAR DÉFAUT (`now = new Date()`) : le rang existe, mais sa valeur est calculée
+    // à l'appel. La remplir depuis une demande ferait écrire une date choisie par un modèle là
+    // où le code voulait « maintenant ».
+    const avantType = p.split(":")[0] ?? "";
+    if (avantType.includes("=") || /[^=!<>]=[^=>]/.test(p)) {
+      return { refus: `le paramètre « ${avantType.split("=")[0]!.trim()} » a une valeur par défaut` };
+    }
+    const m = /^(\w+)(\?)?\s*:\s*([\s\S]+)$/.exec(p);
+    if (!m) return { refus: `« ${p.slice(0, 40)} » n'est pas un nom simple typé` };
+    const nom = m[1]!;
+    let optionnel = Boolean(m[2]);
+    let type = m[3]!.replace(/\s+/g, " ").trim();
+
+    if (IDENTITE_ACTEUR.test(nom)) {
+      return {
+        refus: `le paramètre « ${nom} » porte l'identité de l'ACTEUR — une action qui reçoit son `
+          + `auteur au lieu de le lire dans la session ne s'appelle que depuis un écran`,
+      };
+    }
+    if (/\|\s*undefined$/.test(type)) { type = type.replace(/\|\s*undefined$/, "").trim(); optionnel = true; }
+    // `| null` dit qu'on accepte l'ABSENCE DE VALEUR, jamais l'absence d'ARGUMENT : sauter le
+    // rang décalerait tous les suivants. Le champ reste donc obligatoire.
+    if (/\|\s*null$/.test(type)) type = type.replace(/\|\s*null$/, "").trim();
+
+    const valeurs = litterauxUnion(type);
+    const simple = valeurs ? "texte" as const : TYPES_SIMPLES[type];
+    if (!simple) return { refus: `le type de « ${nom} » (${type}) n'est pas une valeur simple` };
+    // MÊME RÈGLE DE RÉFÉRENCE QUE LE FORMULAIRE : `missionId` désigne une mission des deux
+    // côtés. Deux conventions selon la façon d'appeler feraient qu'« arrête la mission de
+    // consolidation » se résoudrait dans un cas et exigerait un cuid dans l'autre.
+    champs.push({
+      nom,
+      type: simple === "texte" && !valeurs && estReference(nom) ? "reference" : simple,
+      obligatoire: !optionnel,
+      valeurs: valeurs ?? null,
+    });
+  }
+  return champs.length ? { champs } : { refus: "aucun paramètre lisible" };
 }

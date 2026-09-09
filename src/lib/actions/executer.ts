@@ -1,7 +1,7 @@
 import type { CurrentUser } from "@/lib/session";
 import { CONTRAT_PAR_ID } from "./contrat.genere";
 import { MODULES_ACTIONS } from "./aiguillage.genere";
-import { interdictionGenerique, validerEntree, enFormulaire, type EntreeRefusee } from "./generique";
+import { interdictionGenerique, validerEntree, enArguments, enFormulaire, type EntreeRefusee } from "./generique";
 import type { ContratAction } from "./contrat";
 
 /**
@@ -125,12 +125,16 @@ export async function executerAction(
     // `useActionState` et reçoivent l'état précédent AVANT le formulaire. Se tromper d'arité
     // ferait passer le FormData en premier argument, et l'action lirait un état là où on lui
     // donne des données — sans erreur, sans effet.
-    const fd = enFormulaire(entree);
     const retour = contrat.appel === "sans-entree"
       ? await (fn as () => unknown)()
-      : contrat.appel === "etat-formulaire"
-        ? await (fn as (p: unknown, f: FormData) => unknown)(undefined, fd)
-        : await (fn as (f: FormData) => unknown)(fd);
+      // À ARGUMENTS : l'ordre vient du contrat, qui le tient de la signature. Sans cette
+      // branche, une action à entrée typée recevrait un `FormData` au premier rang — et
+      // `deleteDocument(formData)` supprimerait un document dont l'identifiant est un objet.
+      : contrat.appel === "arguments"
+        ? await (fn as (...a: unknown[]) => unknown)(...enArguments(contrat, entree))
+        : contrat.appel === "etat-formulaire"
+          ? await (fn as (p: unknown, f: FormData) => unknown)(undefined, enFormulaire(entree))
+          : await (fn as (f: FormData) => unknown)(enFormulaire(entree));
     const refuse = echecDeclare(contrat, retour);
     if (refuse) return { ok: false, motif: "refusee", contrat, retour, message: refuse };
     return { ok: true, contrat, retour };
