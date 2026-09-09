@@ -57,7 +57,7 @@ const OPS_PAR_ACTION: ReadonlyMap<string, { tool: string; op: string; uiLabel: s
   return m;
 })();
 
-const direOpsCouvrantes = (id: string): string => {
+export const direOpsCouvrantes = (id: string): string => {
   const ops = OPS_PAR_ACTION.get(id) ?? [];
   if (ops.length === 0) return "";
   return ` L'op ${ops.map((o) => `\`${o.tool}/${o.op}\` (« ${o.uiLabel} »)`).join(" ou ")} `
