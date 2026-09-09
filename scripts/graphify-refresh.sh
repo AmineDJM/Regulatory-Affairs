@@ -10,6 +10,25 @@ export PATH="$HOME/.local/bin:$PATH"
 # Conteneur éphémère (Claude Code web) : le CLI n'est pas persistant → auto-install.
 command -v graphify >/dev/null 2>&1 || python3 -m pip install --user --quiet graphifyy
 
+# ── LA TABLE D'AIGUILLAGE EST ÉCARTÉE DU SCAN, ET C'EST MESURÉ ─────────────────────────────
+#
+# `src/lib/actions/aiguillage.genere.ts` porte 119 `import()` à spécificateur littéral — un par
+# fichier d'actions. L'extracteur suit chaque import dynamique ; sur ce fichier-là il ne termine
+# JAMAIS (bloqué à 200 s comme à 3 600 s). Isolé par élimination : sans lui, l'extraction rend
+# 18 103 nœuds en moins de 300 s ; avec lui seul en plus, elle bloque. Le gros fichier de données
+# voisin (`contrat.genere.json`, 390 ko) n'y est pour RIEN — c'était mon hypothèse de départ, et
+# la mesure l'a démentie.
+#
+# On n'a PAS déformé le code de production pour plaire à l'outil : les 119 spécificateurs
+# littéraux existent pour que l'empaqueteur voie chaque chemin sans tirer tout le parc (voir
+# `scripts/actions-contrat.ts`). C'est la CARTE qui a une limite, et une table d'aiguillage
+# générée ne lui apprend rien sur l'architecture — elle la répète.
+AIGUILLAGE="src/lib/actions/aiguillage.genere.ts"
+ECART="$(mktemp -d)"
+restaurer() { [ -f "$ECART/aiguillage.genere.ts" ] && mv "$ECART/aiguillage.genere.ts" "$AIGUILLAGE"; rm -rf "$ECART"; }
+trap restaurer EXIT
+[ -f "$AIGUILLAGE" ] && mv "$AIGUILLAGE" "$ECART/"
+
 # Semer le cache incrémental versionné localement (utile intra-session).
 rm -rf src/graphify-out
 mkdir -p src/graphify-out graphify-out

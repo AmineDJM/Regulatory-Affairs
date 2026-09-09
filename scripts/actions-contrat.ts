@@ -14,23 +14,43 @@ import { scannerContrats } from "../src/lib/actions/contrat-scan";
 const contrats = scannerContrats();
 const illisibles = contrats.filter((c) => c.illisible);
 
-// Une ligne par action : un diff de ce fichier NOMME l'action dont le contrat a bougé, au lieu
-// d'un pavé que personne ne relit. C'est ce qui rend l'artefact revu au lieu d'accepté.
-const entete = `// ⚠️  FICHIER GÉNÉRÉ — ne pas éditer à la main.
-// Produit par \`npm run actions:contrat\` depuis la SOURCE de src/lib/actions/.
-// Le cliquet \`src/lib/actions/contrat.test.ts\` redérive et compare : toute dérive échoue.
-import type { ContratAction } from "./contrat";
+/**
+ * LES CONTRATS SORTENT EN JSON, PAS EN TYPESCRIPT — et ce n'est pas cosmétique.
+ *
+ * La première version écrivait un `.ts` de 349 ko : 715 littéraux d'objet denses, une ligne
+ * chacun. Mesuré : l'extraction de Graphify — la carte d'architecture dont TOUT le travail
+ * suivant dépend pour se repérer — passait de 60 secondes à un blocage INDÉFINI. Retirer ce
+ * seul fichier la fait revenir en moins de 300 s (18 103 nœuds). Un analyseur d'AST doit typer
+ * ce que le compilateur typerait ; 349 ko de littéraux, c'est du travail qu'aucun humain ne lui
+ * demandait.
+ *
+ * Une DONNÉE générée est une donnée : elle sort en `.json`, et un module de trois lignes
+ * l'importe en lui redonnant son type. La ligne par action est conservée — un diff doit
+ * continuer de nommer l'action dont le contrat a bougé.
+ */
+const lignes = contrats.map((c) => "  " + JSON.stringify(c)).join(",\n");
+writeFileSync(
+  join(process.cwd(), "src", "lib", "actions", "contrat.genere.json"),
+  `[\n${lignes}\n]\n`,
+  "utf8",
+);
 
-export const CONTRATS_ACTIONS: readonly ContratAction[] = [
-${contrats.map((c) => "  " + JSON.stringify(c)).join(",\n")}
-];
+const chargeur = `// ⚠️  Module de CHARGEMENT — les données vivent dans \`contrat.genere.json\`, produit par
+// \`npm run actions:contrat\` depuis la SOURCE de src/lib/actions/. Le cliquet
+// \`contrat.test.ts\` redérive et compare : toute dérive échoue.
+//
+// Pourquoi du JSON et non du TypeScript : 715 littéraux d'objet en \`.ts\` faisaient BLOQUER
+// l'extraction Graphify indéfiniment (mesuré). Une donnée générée est une donnée.
+import type { ContratAction } from "./contrat";
+import donnees from "./contrat.genere.json";
+
+export const CONTRATS_ACTIONS: readonly ContratAction[] = donnees as readonly ContratAction[];
 
 /** Index par id — \`fichier:fonction\`, la même clé que le registre de parité. */
 export const CONTRAT_PAR_ID: ReadonlyMap<string, ContratAction> =
   new Map(CONTRATS_ACTIONS.map((c) => [c.id, c]));
 `;
-
-writeFileSync(join(process.cwd(), "src", "lib", "actions", "contrat.genere.ts"), entete, "utf8");
+writeFileSync(join(process.cwd(), "src", "lib", "actions", "contrat.genere.ts"), chargeur, "utf8");
 
 /**
  * LA TABLE D'AIGUILLAGE — un spécificateur STATIQUE par fichier, chargé PARESSEUSEMENT.
