@@ -3408,6 +3408,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | `src/lib/actions/aiguillage.genere.ts` | Table d'aiguillage : un spécificateur littéral par fichier, chargé paresseusement. Écartée du scan Graphify (voir `scripts/graphify-refresh.sh`). |
 | `src/platform/in-process/capacites/` | Le **port** : la seule porte par laquelle Adam atteint tout cela. Réexporte, n'ajoute aucune logique. |
 | `src/lib/assistant/ops/impl-capabilite.ts` | L'op `capability_operation.run` — propose une carte de confirmation, puis exécute **et RELIT**. Son refus fait la découverte. Trois phrases possibles, jamais « fait » tout court : ce qui a été constaté, ce qui a été fait sans pouvoir être constaté, ou l'échec. |
+| `src/lib/assistant/ops/capabilite-parc.test.ts` | Le banc du PARC : les **601** actions ouvertes passent par la carte de confirmation, entrée fabriquée depuis leur propre contrat, zéro écriture. Tient trois propriétés — ce que le contrat déclare suffisant est accepté, chaque carte porte l'action visée et ce qu'elle touche, aucune action refusée par conception ne construit de carte. |
 | `src/lib/cibles/relire.ts` | La relecture APRÈS écriture (§104.16 : « c'est fait » n'est pas une preuve). Identifiant lu sur le RETOUR d'abord (une création n'en a pas en entrée), entité DÉRIVÉE du modèle écrit, lecture par `porteeEntite` + `canReadEntity` — le chemin de l'écran, jamais un accès privilégié. `null` quand la ligne ne se désigne pas à coup sûr, et l'appelant le DIT. |
 
 ### Mission Runtime (`src/lib/missions/`) — façade L2

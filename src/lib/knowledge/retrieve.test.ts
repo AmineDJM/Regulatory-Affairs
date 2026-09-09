@@ -76,8 +76,24 @@ describe("§3 — l'économie du routage, mesurée", () => {
     // ferait échouer un test sur une propriété que personne ne ressent ; l'ignorer masquerait une
     // vraie régression. On chauffe donc explicitement, et on mesure le régime établi.
     await retrieve({ question: "chauffe" }, seeAll);
-    const r = await retrieve({ question: "Quel est le statut du dossier ?" }, seeAll);
-    expect(r.timings.routeMs).toBeLessThan(1);
+
+    // ON GARDE LE MINIMUM DE CINQ MESURES, et ce n'est pas une façon d'être indulgent.
+    //
+    // Ce cas est tombé dans une suite complète et a repassé 3 fois sur 3 en isolation : la
+    // cause était la CHARGE de la machine, pas le code — la suite tournait alors 710 fichiers
+    // en parallèle. Une assertion de temps qui dépend de l'ordonnanceur ne mesure pas la
+    // propriété qu'elle annonce ; elle mesure l'humeur du processeur, et une régression réelle
+    // s'y perdrait dans le bruit comme un faux échec s'y invente.
+    //
+    // Le MINIMUM est la bonne statistique ici : le bruit d'ordonnancement ne fait qu'AJOUTER du
+    // temps, jamais en retirer. Le plus petit des cinq est donc le plus proche du coût réel du
+    // code, et si le routage devient vraiment plus lent, ses cinq mesures montent ensemble.
+    // Une moyenne, elle, resterait contaminée par le pire échantillon.
+    const mesures: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      mesures.push((await retrieve({ question: "Quel est le statut du dossier ?" }, seeAll)).timings.routeMs);
+    }
+    expect(Math.min(...mesures), `mesures : ${mesures.map((m) => m.toFixed(3)).join(", ")} ms`).toBeLessThan(1);
   });
 });
 
