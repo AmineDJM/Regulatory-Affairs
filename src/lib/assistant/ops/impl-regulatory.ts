@@ -523,12 +523,39 @@ export const REGULATORY_OPS_IMPL: Record<string, OpImpl> = {
       if ("error" in product) return product;
       const entity = opStr(input, "entity");
       const segmentsRaw = opStr(input, "segments");
-      if (!entity && !segmentsRaw) return { error: "Donnez l'entité (champ « entity ») et/ou les segments thérapeutiques (champ « segments », séparés par des virgules)." };
+      const projetRaw = opStr(input, "project");
+      if (!entity && !segmentsRaw && !projetRaw) {
+        return { error: "Donnez l'entité (champ « entity »), les segments thérapeutiques (champ « segments », séparés par des virgules) et/ou le projet BD (champ « project » ; « aucun » pour le retirer)." };
+      }
       let company: { id: string; name: string } | null = null;
       if (entity) {
         const c = await resolveCompanyByName(entity);
         if ("error" in c) return c;
         company = c;
+      }
+      // ── LE PROJET BD ─────────────────────────────────────────────────────────────────────
+      //
+      // On ne DEVINE jamais : un seul projet correspondant est retenu, PLUSIEURS n'en désignent
+      // aucun et le refus les nomme — choisir à la place d'un humain rangerait le dossier dans
+      // le mauvais projet en annonçant que c'est fait (§118.34). « Aucun » / « sans projet »
+      // RETIRE le classement, et c'est un geste voulu, distinct de « ne pas y toucher ».
+      let projet: { id: string; name: string } | null | "RETIRER" = null;
+      if (projetRaw) {
+        const q = projetRaw.trim().toLowerCase();
+        if (["aucun", "aucune", "sans projet", "rien", "null", "-"].includes(q)) projet = "RETIRER";
+        else {
+          const tous = await prisma.bdProject.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } });
+          const exact = tous.filter((pr) => pr.name.toLowerCase() === q);
+          const partiels = tous.filter((pr) => pr.name.toLowerCase().includes(q));
+          const retenus = exact.length > 0 ? exact : partiels;
+          if (retenus.length === 0) {
+            return { error: `Aucun projet ne correspond à « ${projetRaw} ». Projets existants : ${tous.map((pr) => pr.name).join(", ") || "aucun"}. Les projets se créent dans Business Development › Projets.` };
+          }
+          if (retenus.length > 1) {
+            return { error: `Plusieurs projets correspondent à « ${projetRaw} » : ${retenus.map((pr) => pr.name).join(", ")}. Précisez lequel.` };
+          }
+          projet = retenus[0]!;
+        }
       }
       const segments = segmentsRaw ? segmentsRaw.split(/[;,]/).map((s) => s.trim()).filter(Boolean) : null;
       return {
@@ -537,12 +564,19 @@ export const REGULATORY_OPS_IMPL: Record<string, OpImpl> = {
           { label: "Dossier", value: `${product.reference} — ${product.dci}` },
           ...(company ? [{ label: "Entité", value: company.name }] : []),
           ...(segments ? [{ label: "Segments", value: segments.join(", ") }] : []),
+          ...(projet ? [{ label: "Projet BD", value: projet === "RETIRER" ? "— retiré —" : projet.name }] : []),
         ],
         warnings: [
           ...(company ? ["Changer l'ENTITÉ déplace le dossier d'une société à l'autre — réservé au Super Admin (même règle que l'écran)."] : []),
           ...(segments ? ["La liste des segments est REMPLACÉE ; un segment hors référentiel est ignoré (liste blanche de l'Administration)."] : []),
         ],
-        args: { id: product.id, companyId: company?.id ?? null, segments: segments ? segments.join(",") : null, reference: product.reference },
+        args: {
+          id: product.id, companyId: company?.id ?? null,
+          segments: segments ? segments.join(",") : null,
+          // Chaîne VIDE = « retirer », absent = « ne pas y toucher » : le serveur lit `has`.
+          bdProjectId: projet === "RETIRER" ? "" : (projet?.id ?? null),
+          reference: product.reference,
+        },
         successMessage: `Classement de ${product.reference} mis à jour.`,
         link: productLink(product.id),
         revalidate: REG_REVALIDATE,
@@ -555,6 +589,7 @@ export const REGULATORY_OPS_IMPL: Record<string, OpImpl> = {
       if (args.segments !== null && args.segments !== undefined) {
         for (const s of (args.segments ?? "").split(",").filter(Boolean)) fd.append("segments", s);
       }
+      if (args.bdProjectId !== null && args.bdProjectId !== undefined) fd.set("bdProjectId", args.bdProjectId);
       const r = await setRegulatoryClassification(fd);
       if (!r.ok) return { ok: false, error: r.error ?? "Le classement a été refusé." };
       return { ok: true, revalidate: REG_REVALIDATE };

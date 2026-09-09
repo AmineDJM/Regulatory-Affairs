@@ -934,10 +934,13 @@ export const OPS_CATALOG: OpMeta[] = [
   },
   {
     tool: "regulatory_operation", op: "set_classification", module: "Regulatory",
-    uiLabel: "Entité & segments thérapeutiques du dossier",
-    aliases: ["segments thérapeutiques du dossier", "change l'entité du dossier", "classement du dossier réglementaire"],
+    uiLabel: "Entité, segments thérapeutiques & projet BD du dossier",
+    aliases: [
+      "segments thérapeutiques du dossier", "change l'entité du dossier", "classement du dossier réglementaire",
+      "range ce dossier dans le projet", "projet bd du dossier",
+    ],
     risk: "NORMAL",
-    summary: "Met à jour le classement d'un dossier : segments thérapeutiques (liste REMPLACÉE) et/ou entité — changer l'ENTITÉ déplace le dossier d'une société à l'autre (Super Admin, même règle que l'écran).",
+    summary: "Met à jour le classement d'un dossier : segments thérapeutiques (liste REMPLACÉE), entité, et/ou PROJET BD (champ « project » — le nom du projet nommé dans Business Development › Projets ; « aucun » le retire). Changer l'ENTITÉ déplace le dossier d'une société à l'autre (Super Admin, même règle que l'écran) ; le projet et les segments sont de simples étiquettes de classement.",
     gate: (u) => userCan(u, "REGULATORY", "UPDATE"),
     gateNote: "le changement d'entité exige le Super Admin",
     covers: ["regulatory-actions:setRegulatoryClassification"],

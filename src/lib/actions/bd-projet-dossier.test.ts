@@ -10,6 +10,7 @@ import { getAccess, type SessionUser } from "@/lib/rbac";
 import { setRegulatoryClassification } from "./regulatory-actions";
 import { setRegulatoryHiddenColumns } from "./settings-actions";
 import { getAppSettings } from "@/lib/settings";
+import { buildProposal, performAction, type AssistantActionPayload } from "@/lib/assistant";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -146,5 +147,103 @@ suite("Colonnes masquées du tableau Regulatory — le réglage de la maison", (
     const r = await setRegulatoryHiddenColumns(cols("reference"));
     expect(r.ok).toBe(false);
     expect(r.error).toContain("identifie la ligne");
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * « RANGE CE DOSSIER DANS LE PROJET ONCOLOGIE 2027 » — par le chemin d'Adam.
+ *
+ * L'op `set_classification` DÉCLARE couvrir `setRegulatoryClassification`. Ajouter un axe de
+ * classement à l'action sans l'ajouter à l'op aurait rendu cette déclaration à moitié fausse :
+ * la parité aurait affiché 100 % sur une capacité que la conversation ne sait pas atteindre
+ * (§118.14). Ces essais partent donc de `buildProposal` — le vrai point d'entrée — et vérifient
+ * EN BASE ce que la confirmation a écrit.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+suite("Adam range un dossier dans un projet BD", () => {
+  let pdgId = "", produitId = "", reference = "", projetNom = "", autreNom = "";
+
+  beforeAll(async () => {
+    const pdg = await prisma.user.create({
+      data: { name: `${TAG}chief`, email: `${TAG}chief@t.dz`, role: "SUPER_ADMIN", passwordHash: "x" },
+    });
+    pdgId = pdg.id;
+    const company = await prisma.company.create({ data: { name: `${TAG}coa` } });
+    reference = `${TAG}REG-9`;
+    projetNom = `${TAG}Oncologie 2027`;
+    autreNom = `${TAG}Oncologie 2028`;
+    const [p] = await Promise.all([
+      prisma.regulatoryProduct.create({
+        data: { reference, dci: "Trastuzex", companyId: company.id, createdById: pdg.id },
+        select: { id: true },
+      }),
+      prisma.bdProject.create({ data: { name: projetNom, createdById: pdg.id } }),
+      prisma.bdProject.create({ data: { name: autreNom, createdById: pdg.id } }),
+    ]);
+    produitId = p.id;
+  }, 120_000);
+
+  afterAll(async () => {
+    await prisma.auditLog.deleteMany({ where: { actor: { email: { startsWith: TAG } } } }).catch(() => {});
+    await prisma.assistantActionIntent.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
+    await prisma.regulatoryProduct.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
+    await prisma.bdProject.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
+    await prisma.company.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
+  }, 120_000);
+
+  it("propose puis ÉCRIT le classement — et le projet apparaît dans la carte de confirmation", async () => {
+    const chief = await acteur(pdgId, "SUPER_ADMIN");
+    ACTOR = chief;
+    const p = await buildProposal("regulatory_operation", { op: "set_classification", reference, project: projetNom }, chief);
+    expect("error" in p, "error" in p ? String((p as { error: string }).error) : "").toBe(false);
+    if ("error" in p) return;
+    // LA CARTE MONTRE LE NOM DU PROJET : on ne confirme pas un identifiant technique.
+    expect(p.fields.some((f) => f.label === "Projet BD" && f.value === projetNom)).toBe(true);
+
+    const r = await performAction(chief, p.payload as AssistantActionPayload);
+    expect(r.ok, r.error).toBe(true);
+    const row = await prisma.regulatoryProduct.findUnique({ where: { id: produitId }, select: { bdProject: { select: { name: true } } } });
+    expect(row?.bdProject?.name).toBe(projetNom);
+  });
+
+  /**
+   * ON NE DEVINE JAMAIS. « Oncologie » correspond à DEUX projets : choisir le premier rangerait
+   * le dossier dans le mauvais en annonçant que c'est fait (§118.34). Le refus les NOMME.
+   */
+  it("REFUSE un nom qui correspond à plusieurs projets, et les nomme", async () => {
+    const chief = await acteur(pdgId, "SUPER_ADMIN");
+    ACTOR = chief;
+    const p = await buildProposal("regulatory_operation", { op: "set_classification", reference, project: `${TAG}Oncologie` }, chief);
+    expect("error" in p).toBe(true);
+    if ("error" in p) {
+      expect(p.error).toContain("Plusieurs projets");
+      expect(p.error).toContain(projetNom);
+      expect(p.error).toContain(autreNom);
+    }
+  });
+
+  it("REFUSE un projet inexistant, et dit où les projets se créent", async () => {
+    const chief = await acteur(pdgId, "SUPER_ADMIN");
+    ACTOR = chief;
+    const p = await buildProposal("regulatory_operation", { op: "set_classification", reference, project: "Projet Fantôme" }, chief);
+    expect("error" in p).toBe(true);
+    if ("error" in p) expect(p.error).toContain("Business Development");
+  });
+
+  it("« aucun » RETIRE le classement — c'est un geste voulu, pas un « ne pas y toucher »", async () => {
+    const chief = await acteur(pdgId, "SUPER_ADMIN");
+    ACTOR = chief;
+    const pose = await buildProposal("regulatory_operation", { op: "set_classification", reference, project: projetNom }, chief);
+    if (!("error" in pose)) await performAction(chief, pose.payload as AssistantActionPayload);
+
+    const p = await buildProposal("regulatory_operation", { op: "set_classification", reference, project: "aucun" }, chief);
+    expect("error" in p).toBe(false);
+    if ("error" in p) return;
+    const r = await performAction(chief, p.payload as AssistantActionPayload);
+    expect(r.ok, r.error).toBe(true);
+    const row = await prisma.regulatoryProduct.findUnique({ where: { id: produitId }, select: { bdProjectId: true } });
+    expect(row?.bdProjectId).toBeNull();
   });
 });

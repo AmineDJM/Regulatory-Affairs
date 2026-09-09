@@ -222,7 +222,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
     def: {
       name: "regulatory_operation",
       description:
-        "DOSSIERS REGULATORY au-delà des champs simples — création de dossier, participants, commentaires, détail des étapes de la chronologie, checklist de présoumission, variations de fabrication, BV, classement (entité/segments), par les actions canoniques (verrous Super Admin inclus). "
+        "DOSSIERS REGULATORY au-delà des champs simples — création de dossier, participants, commentaires, détail des étapes de la chronologie, checklist de présoumission, variations de fabrication, BV, classement (entité/segments/projet BD), par les actions canoniques (verrous Super Admin inclus). "
         + `Champ « op » : ${opsSummary("regulatory_operation")}. `
         + "Le dossier se donne par référence REG-AAAA-NNN ou DCI. (Les champs simples — statut, priorité, dates, chargé du dossier, étapes ANPP — ont leurs outils dédiés : update_regulatory_product, assign_regulatory_responsible, set_regulatory_step.)",
       input_schema: {
@@ -243,6 +243,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           amount: { type: "string", description: "request_bv : montant ATTENDU du bon (DZD) ; request_quittance : montant RÉEL de la quittance (DZD)." },
           bvType: { type: "string", description: "request_bv : BV, BV1, BV2… (défaut BV)." },
           segments: { type: "string", description: "set_classification : segments thérapeutiques séparés par des virgules (liste REMPLACÉE)." },
+          project: { type: "string", description: "set_classification : PROJET BD du dossier — le nom d'un projet de Business Development › Projets. « aucun » retire le classement. Un nom qui correspond à plusieurs projets est refusé, pas deviné." },
           brandName: { type: "string", description: "create_product : nom de marque." },
           form: { type: "string", description: "create_product : forme pharmaceutique." },
           dosage: { type: "string", description: "create_product : dosage." },
