@@ -8341,6 +8341,74 @@ avant et après**. Zéro sortie réelle, garde armée.
 redémarrage » ne se démontre pas dans le processus qui vient de tout écrire : il mesurerait sa
 propre mémoire.
 
+### LE PLANIFICATEUR ET LE REPLANIFICATEUR — huit défauts, tous mesurés sur des missions réelles (2026-09)
+
+**Le symptôme, en trois phrases.** Le dirigeant demande un registre : il ne reçoit **rien**, et
+rien ne le lui dit. Une mission de dix-sept étapes meurt sur un nom de destinataire sans qu'aucun
+replan ne se déclenche. Une autre brûle neuf versions de plan et 1,10 $ à tourner entre deux murs.
+Aucun de ces trois runs n'a une seule étape en échec qui explique la fin.
+
+**1. Le livrable CONDITIONNEL** (mission `cmttakgtd…`, 9 versions). Les DEUX étapes `ARTIFACT`
+sont `SKIPPED` sur « `normaliser:retour-initial.donneesCompletes` : false ≠ true ». Une personne
+n'a pas tout donné, donc zéro fichier — et zéro étape en échec, mission non bloquée, journal muet.
+Le compilateur comptait un nœud `ARTIFACT` comme couvrant `DOCUMENT` **sans regarder sa
+condition**. `src/lib/missions/compiler/garanties.ts` (pur) ne pose plus qu'une question — *au
+moins une de ces étapes partira-t-elle, quoi qu'il arrive ?* — et n'admet que trois paires de
+conditions qui s'excluent **exactement** : `EVENT`/`TIMEOUT` sur une attente d'événement,
+`eq`/`ne`, `exists`/`empty`. Pas `gt`/`lte` : sur une valeur non numérique, `comparerValeurs`
+rend faux **des deux côtés**. C'est cette précision qui laisse passer la forme que la règle 18 du
+planificateur IMPOSE pour une relance — refuser à tort coûte plus cher que le défaut corrigé.
+
+**2. `SKIPPED` n'est pas un acquis.** `materialiser` le gelait avec l'argument de `DONE` (« pas de
+second envoi »), qui est faux : le moteur écarte **avant** d'exécuter. Un plan v10 qui reprenait le
+livrable le retrouvait terminal — mort pour toujours.
+
+**3. Un replan ne pouvait pas RETIRER.** `?? undefined` sur une colonne JSON signifie, pour Prisma,
+« ne touche pas à ce champ ». L'étape réarmée reprenait le `when` du plan v1 et se faisait ignorer
+une seconde fois, sur une condition qu'aucun plan ne portait plus. `Prisma.DbNull` dit VIDE.
+Trouvé par le test du point 2 — pas par relecture.
+
+**4. Une étape derrière un mur n'est pas du travail à venir** (mission `cmtta95k1…`). Deux envois
+en échec définitif et **onze étapes `PENDING` qui en descendaient**. La mission le voyait
+(`BLOCKED`) ; le jalon comptait ces onze étapes comme du travail en cours, restait `ACTIVE` pour
+toujours, et la reprise de jalon (§118.47) — écrite, testée — n'a **jamais** pu se déclencher.
+`src/lib/missions/runtime/impasse.ts` (pur) remonte le graphe depuis les échecs définitifs, et ne
+contamine jamais `WAITING` (un événement peut encore la réveiller) ni `SKIPPED` (ses descendantes
+partent, §37).
+
+**5. Une oscillation n'est pas un progrès.** « Le refus a changé (`INVALID_SHAPE` →
+`OBJECTIF_NON_CONSTATE`) » a été écrit **deux fois** pour le même jalon : ne comparer qu'au dernier
+refus ne retient qu'un pas d'histoire. `MissionMilestone.refusVus` porte toute l'histoire ; une
+modification d'objectif la remet à zéro.
+
+**6. Un refus nomme le remède de celui qui le LIT.** `recipientName: "Équipe Regulatory"` →
+`send_message` refuse, à juste titre, et dit « précisez le bon collègue ». C'est une phrase écrite
+pour une personne devant un écran ; dans une mission, c'est le **planificateur** qui lit, et il l'a
+suivie — le sous-plan suivant posait la question **au dirigeant**, alors que l'annuaire connaît ces
+personnes. `personnes/designation.ts` reconnaît un nom de groupe à un fait du texte (vocabulaire
+fermé, mot collectif en tête, suivi de quelque chose : « Direction Benali » est un patronyme) et le
+refus donne les **deux** gestes : lister, PUIS déployer en éventail.
+
+**7. Une fille d'éventail appartient au jalon de sa mère.** Jalon « les pièces sont officiellement
+SOLLICITÉES » : les deux filles partent, aboutissent, leur résultat dit « Message envoyé à Amel
+Haddad ». Le juge du jalon ne charge que les étapes portant son `milestoneId` — la mère, jamais les
+filles — et `attestationEffets` a conclu, honnêtement, « AUCUNE écriture et AUCUN envoi ». Refusé
+**deux fois pour avoir réussi**. Tout le travail réel d'une mission massive vit dans les filles.
+Corollaire (§118.61) : leur donner un `milestoneId` les fait entrer dans le périmètre de
+`materialiser`, or un plan ne LISTE jamais une fille — sans garde, chaque replan l'aurait marquée
+contournée et l'éventail recompterait « 0/2 » sur deux envois partis.
+
+**8. Solliciter sans attendre n'est pas un jalon, c'est une moitié de jalon.** Le juge relit le
+résultat dès que plus aucune étape ne peut avancer : un sous-plan qui envoie ses demandes et
+s'arrête se fait juger une seconde après, sur un résultat que personne n'a eu le temps de produire.
+La consigne du jalon le dit maintenant, avec le geste qui retient le juge.
+
+**Mesuré, même banc, même demande, avant → après :** 0 personne sollicitée → **4** ; 0,45 $ →
+**0,15 $** ; question au dirigeant → aucune. Fichiers : `compiler/garanties.ts`,
+`runtime/impasse.ts`, `personnes/designation.ts`, `horizon/budget.ts`, `runtime/store.ts`,
+`runtime/engine.ts`, `platform/…/horizon.ts`, `planner/plan.ts` (règles 23 et 24). Migration
+`20261103090000_milestone_refus_vus`. Doctrine §118.67 à §118.69.
+
 ### LE PLAN MORT-NÉ — une replanification qui ne pouvait pas démarrer, et le destinataire illisible (2026-09)
 
 **Le symptôme.** Chaîne humaine « regulatory », mission `cmtsdqc17…` : `5/12`, statut BLOCKED,

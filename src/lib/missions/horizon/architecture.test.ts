@@ -66,6 +66,23 @@ describe("une mission longue reste VISIBLE et REPRENABLE", () => {
    * code mort en production (§118.14). C'est §118.49 : un test qui vérifie le CORPS d'un
    * mécanisme sans vérifier son POINT D'APPEL ne teste rien.
    */
+  /**
+   * MESURÉ LIVE, TROIS RUNS DE SUITE : le sous-plan du jalon 1 envoie ses demandes et
+   * s'ARRÊTE. Toutes ses étapes étant terminales, le juge se déclenche dans la seconde, sur un
+   * résultat (« les dossiers sont COMPLÉTÉS ») que personne n'a eu le temps de produire — et
+   * refuse. Reprise, replanification, nouveau refus : la mission n'a jamais dépassé son
+   * PREMIER jalon. Ce que le juge EXIGE, la consigne doit dire comment le SATISFAIRE (§118.19).
+   */
+  it("la consigne d'un jalon dit que solliciter sans attendre le fera juger trop tôt", () => {
+    const h = lire("src/platform/in-process/missions/horizon.ts");
+    // CE QUI FERAIT TOMBER CE TEST : retirer ce bout de la consigne. Le sous-plan redeviendrait
+    // libre de solliciter sans attendre, et le jalon se ferait refuser à chaque tour.
+    expect(h, "la consigne ne dit pas QUAND le résultat est relu")
+      .toMatch(/plus aucune de tes étapes ne peut avancer/);
+    expect(h, "la consigne ne nomme pas le geste qui retient le juge")
+      .toMatch(/WAIT_INPUT \/ WAIT_EVENT/);
+  });
+
   it("`fermerJalonsAboutis` demande au GRAPHE si le jalon peut encore avancer, pas à un comptage", () => {
     const h = lire("src/platform/in-process/missions/horizon.ts");
     expect(h, "le pilote n'importe pas la règle d'impasse").toContain('from "@/lib/missions/runtime/impasse"');

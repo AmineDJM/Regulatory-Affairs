@@ -619,6 +619,27 @@ function consigneDuJalon(objectif: string, jalon: JalonPersiste, tous: readonly 
     `OBJECTIF DURABLE DE LA MISSION (cadre, pas la demande d'aujourd'hui) :\n${objectif}`,
     `CE QUI EST DEMANDÉ MAINTENANT — jalon ${jalon.ordre} : ${jalon.titre}`,
     `RÉSULTAT À OBTENIR (c'est là-dessus que ce jalon sera jugé) :\n${jalon.resultat}`,
+    /**
+     * ── CE QUE LE JUGE EXIGE, LA CONSIGNE DOIT DIRE COMMENT LE SATISFAIRE (§118.19) ─────
+     *
+     * MESURÉ LIVE, trois runs de suite. Le jalon 1 s'appelle « les dossiers sont COMPLÉTÉS » —
+     * un résultat qui dépend d'une réponse humaine. Le sous-plan a envoyé les demandes, puis
+     * s'est ARRÊTÉ : aucune attente. Toutes ses étapes étant terminales, le jalon a été jugé
+     * immédiatement, sur un résultat que personne n'avait encore eu le temps de produire, et
+     * refusé — honnêtement. Puis repris, replanifié, rejugé, refusé encore : la mission n'a
+     * jamais dépassé son PREMIER jalon, à chaque fois pour la même raison.
+     *
+     * Le juge ne se déclenche que lorsque plus AUCUNE étape ne peut avancer. Une attente
+     * ouverte le retient donc — c'est elle, et elle seule, qui donne au monde le temps de
+     * rendre le résultat attendu. Un sous-plan qui sollicite sans attendre demande à être
+     * jugé sur ce qu'il vient tout juste de demander.
+     */
+    `COMMENT CE JALON SERA JUGÉ, ET CE QUE ÇA T'IMPOSE : le résultat ci-dessus est relu quand `
+    + `plus aucune de tes étapes ne peut avancer. Si ce résultat dépend d'une réponse, d'une `
+    + `pièce ou d'un fait qui n'a pas encore eu lieu, ton sous-plan DOIT porter l'attente `
+    + `(WAIT_INPUT / WAIT_EVENT) qui la reçoit — sinon il sera jugé une seconde après avoir `
+    + `envoyé sa demande, sur un résultat que personne n'a eu le temps de produire, et refusé. `
+    + `Solliciter sans attendre n'est pas un jalon, c'est une moitié de jalon.`,
   ];
   if (suivants.length > 0) {
     bouts.push(
