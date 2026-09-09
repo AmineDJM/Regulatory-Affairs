@@ -1,4 +1,5 @@
 import { accessibleModules, userCan, seesLockedRegulatory, type SessionUser } from "@/lib/rbac";
+import { estCheminMaintenu } from "@/lib/modules-retired";
 import { NAVIGATION, type NavItem } from "@/lib/labels";
 import { canSeeRegEnrollment } from "@/lib/org-chart-access";
 import { getAppSettings } from "@/lib/settings";
@@ -105,13 +106,29 @@ export async function navigationFor(user: SessionUser): Promise<NavItem[]> {
   // le module disparaît AVEC ses enfants — mais un enfant interdit ne fait pas disparaître le
   // parent.
   const allowedChildren = (n: NavItem): NavItem[] =>
-    (n.children ?? []).filter((c) => (!c.gate || gateOpen[c.gate]) && modules.includes(c.module));
+    (n.children ?? []).filter((c) => (!c.gate || gateOpen[c.gate]) && moduleOuvert(c));
+
+  /**
+   * L'ENTRÉE EST-ELLE OUVERTE ? Le droit de module, OU un sous-module qui survit à un retrait.
+   *
+   * Un module retiré ne figure jamais dans `accessibleModules` — c'est la garde de
+   * `modules-retired.ts`, et elle reste. Mais un sous-module NOMMÉ peut lui survivre (« BD ›
+   * Projets », redemandé après le retrait de Market Intelligence). Sans cette seconde branche,
+   * l'écran existerait, ses actions marcheraient, et AUCUN menu n'y mènerait : le code mort de
+   * §118.50, avec le travail déjà fait.
+   *
+   * La porte du sous-module vit dans l'écran et dans ses actions ; ici on décide de l'AFFICHAGE.
+   * Montrer une entrée qu'on n'a pas le droit d'ouvrir serait un défaut d'écran, pas une faille :
+   * c'est pourquoi la liste des chemins maintenus est courte, fermée, et justifiée à sa source.
+   */
+  const moduleOuvert = (n: { module: string; href: string }): boolean =>
+    modules.includes(n.module as (typeof modules)[number]) || estCheminMaintenu(n.href);
 
   return NAVIGATION.reduce<NavItem[]>((acc, n) => {
     if (n.gate && !gateOpen[n.gate]) return acc;
     const kids = allowedChildren(n);
     if (!n.tabs) {
-      if (modules.includes(n.module)) acc.push(kids.length ? { ...n, children: kids } : { ...n, children: undefined });
+      if (moduleOuvert(n)) acc.push(kids.length ? { ...n, children: kids } : { ...n, children: undefined });
       return acc;
     }
     // Entrées fusionnées (`tabs`) : visibles si l'utilisateur a accès à au moins un onglet ; le

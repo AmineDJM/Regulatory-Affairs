@@ -195,7 +195,11 @@ describe("aucune route n'a changé — les liens historiques restent valides", (
     for (const expected of [
       "/regulatory", "/regulatory/enregistrement", "/moyens-generaux", "/finances", "/rh",
       "/budgets", "/sales", "/medical", "/planning", "/field-reports", "/sponsoring",
-      "/information-medicale", "/business-development", "/pch", "/logistics", "/stocks",
+      "/information-medicale", "/pch", "/logistics", "/stocks",
+      // BUSINESS_DEVELOPMENT est retiré du service et sa racine n'a plus d'entrée : c'est
+      // « Projets », le sous-module qui lui survit, qui porte désormais le pôle
+      // (`modules-retired.ts`, SOUS_MODULES_MAINTENUS).
+      "/business-development/projets",
     ]) {
       expect(reachable, expected).toContain(expected);
     }

@@ -224,7 +224,7 @@ export function motsUtiles(texte: string): string[] {
 function motsDuContrat(c: ContratAction): string[] {
   return motsUtiles(
     `${c.fichier.replace(/-actions$/, "")} ${c.fonction.replace(/([a-z0-9])([A-Z])/g, "$1 $2")} `
-    + `${c.porte.module ?? ""} ${c.champs.map((x) => x.nom).join(" ")}`,
+    + `${c.porte.module ?? ""} ${c.porte.moduleFr ?? ""} ${c.champs.map((x) => x.nom).join(" ")}`,
   );
 }
 

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { BdProjectStatus, BdSourcing, Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, canManageBdProjects } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -37,7 +37,10 @@ export async function createBdProject(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
+  // LE REGISTRE DE PROJETS survit au retrait de Business Development (`modules-retired.ts`) :
+  // il porte donc sa PROPRE porte, qui ne passe pas par le module. Passer par `userCan(MODULE)`
+  // refuserait tout le monde, Super Admin compris, et l'écran serait inatteignable.
+  if (!canManageBdProjects(user)) return { ok: false, error: "Réservé au Super Admin." };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom du projet est obligatoire." };
   const statusRaw = fdStr(formData, "status");
@@ -94,7 +97,7 @@ export async function deleteBdProject(formData: FormData): Promise<ActionResult>
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  if (!userCan(user, MODULE, "DELETE")) return { ok: false, error: "Non autorisé." };
+  if (!canManageBdProjects(user)) return { ok: false, error: "Réservé au Super Admin." };
   if (!(await canAccessEntity(user, "BD_PROJECT", id, "DELETE"))) return { ok: false, error: "Non autorisé." };
   const before = await prisma.bdProject.findUnique({ where: { id }, select: { name: true } });
 

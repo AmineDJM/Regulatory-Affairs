@@ -10,6 +10,7 @@ import { getAccess, type SessionUser } from "@/lib/rbac";
 import { executerAction, resoudreFonction, echecDeclare } from "./executer";
 import { CONTRATS_ACTIONS } from "./contrat.genere";
 import { interdictionGenerique } from "./generique";
+import { isRetiredModule } from "@/lib/modules-retired";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -161,20 +162,14 @@ suite("EXÉCUTION GÉNÉRIQUE — l'action de l'écran, appelée par son contrat
     expect(r.ok === false && r.motif).toBe("inconnue");
   });
 
-  it("DETTE MESURÉE — les actions d'un module RETIRÉ refusent tout le monde", async () => {
-    // Trouvé en écrivant ce banc : `BUSINESS_DEVELOPMENT` est retiré du service (2026-09,
-    // « Market Intelligence »), donc `getAccess` ne l'accorde à personne — Super Admin compris —
-    // et ses 34 actions rendent « Non autorisé. » quoi qu'il arrive. Ce n'est PAS un défaut du
-    // chemin générique : c'est la garde de `modules-retired.ts` qui fonctionne. Mais l'écran
-    // « BD › Projets » demandé par le dirigeant vit dans ce module, donc il est INATTEIGNABLE.
-    // Le test constate le fait pour qu'il cesse d'être invisible ; la décision de rouvrir le
-    // module appartient au dirigeant, pas au code.
-    ACTEUR = await acteur(pdgId, "SUPER_ADMIN");
-    const r = await executerAction(ACTEUR, "bd-project-actions:createBdProject", { name: `${TAG}dette` });
-    expect(r.ok).toBe(false);
-    expect(r.ok === false && r.motif).toBe("refusee");
-    expect(await prisma.bdProject.findFirst({ where: { name: `${TAG}dette` } })).toBeNull();
-    console.info("[MODULE_RETIRE] BUSINESS_DEVELOPMENT est retiré : « BD › Projets » et ses actions refusent tout le monde.");
+  it("UN MODULE RETIRÉ refuse tout le monde, Super Admin compris", () => {
+    // Écrit d'abord comme une DETTE : `BUSINESS_DEVELOPMENT` est retiré du service (2026-09),
+    // donc l'écran « BD › Projets » que le dirigeant avait demandé était inatteignable — code
+    // mort poussé en production (§118.14, §118.50). Le dirigeant a tranché : rouvrir Projets,
+    // et LUI SEUL. La preuve de la réouverture vit dans `bd-projets-maintenu.test.ts` ; ce
+    // qui reste ici est la moitié qu'on aurait pu perdre en réparant — Market Intelligence
+    // doit rester fermé, sans quoi l'empreinte réelle dépasserait la demande (§118.16).
+    expect(isRetiredModule("BUSINESS_DEVELOPMENT")).toBe(true);
   });
 
   it("MESURE — combien d'actions le chemin générique ouvre réellement", () => {

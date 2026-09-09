@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArrowUpRight, FolderKanban } from "lucide-react";
-import { requireModule } from "@/lib/session";
-import { userCan, scopeBdProject } from "@/lib/rbac";
+import { requireUser } from "@/lib/session";
+import { scopeBdProject, canViewBdProjects, canManageBdProjects } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { createBdProject } from "@/lib/actions/bd-project-actions";
@@ -43,8 +44,12 @@ export const dynamic = "force-dynamic";
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 export default async function BdProjetsPage() {
-  const user = await requireModule("BUSINESS_DEVELOPMENT");
-  const canCreate = userCan(user, "BUSINESS_DEVELOPMENT", "CREATE");
+  // BUSINESS_DEVELOPMENT est RETIRÉ du service : `requireModule` renverrait tout le monde,
+  // Super Admin compris. Ce sous-module a été redemandé et survit au retrait, donc il porte sa
+  // propre porte — voir `modules-retired.ts` et `canViewBdProjects` dans `rbac.ts`.
+  const user = await requireUser();
+  if (!canViewBdProjects(user)) redirect("/?denied=BUSINESS_DEVELOPMENT");
+  const canCreate = canManageBdProjects(user);
 
   const [projects, dossiers] = await Promise.all([
     prisma.bdProject.findMany({

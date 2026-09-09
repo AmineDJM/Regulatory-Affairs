@@ -945,6 +945,32 @@ export function userCan(user: SessionUser, module: Module, action: Action): bool
   return user.access.modules.get(module)?.actions.has(action) ?? false;
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * BD › PROJETS — le sous-module qui survit au retrait de Business Development.
+ *
+ * Le module est retiré du service (`modules-retired.ts`, 2026-09) et le reste : `userCan` répond
+ * NON sur `BUSINESS_DEVELOPMENT` pour tout le monde. Ces deux portes-ci ne passent donc PAS par
+ * lui — sans quoi rouvrir Projets rouvrirait aussi Market Intelligence, ses actions serveur et
+ * l'accès générique d'Adam au module entier : l'empreinte réelle dépasserait la demande.
+ *
+ * VOIR — quiconque voit Regulatory. L'écran est une LECTURE Regulatory du registre de projets
+ * (« ce projet contient quels dossiers, et où en est chacun ? ») et les dossiers qu'il affiche
+ * passent déjà par `regulatoryVisibleWhere` : il ne montre rien de plus que le tableau Regulatory.
+ *
+ * GÉRER — le Super Admin, et lui seul. C'est la demande telle qu'elle a été formulée : « classer
+ * chaque dossier par projet que LE SUPER ADMIN a nommé/créé ». Nommer un projet est un geste de
+ * référentiel : la liste doit être stable pour que le classement veuille dire quelque chose.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function canViewBdProjects(user: SessionUser): boolean {
+  return userCan(user, "REGULATORY", "VIEW");
+}
+
+export function canManageBdProjects(user: SessionUser): boolean {
+  return user.role === "SUPER_ADMIN";
+}
+
 /** Modules the user can at least view — drives the sidebar. */
 export function accessibleModules(user: SessionUser): Module[] {
   return MODULES.filter((m) => user.access.modules.has(m));
@@ -1076,7 +1102,24 @@ export function scopeCongressNational(user: SessionUser): Prisma.CongressNationa
  *  propriétaire du projet + les projets explicitement accordés (RowGrant). */
 export function scopeBdProject(user: SessionUser): Prisma.BdProjectWhereInput {
   const m = user.access.modules.get("BUSINESS_DEVELOPMENT");
-  if (!m) return { id: "__none__" };
+  /**
+   * LE MODULE EST RETIRÉ, LE REGISTRE NE L'EST PAS.
+   *
+   * Sans cette branche, la portée rend « rien » à TOUT LE MONDE — c'est la conséquence
+   * mécanique du retrait, et elle atteint quatre lecteurs : l'écran Projets, la porte par
+   * ligne, la liste déroulante « Projet » de Regulatory, et la fiche d'un projet. Un écran qui
+   * s'ouvre et ne montre jamais rien est PIRE qu'un écran fermé : il se lit comme « il n'y a
+   * aucun projet », et personne ne va chercher plus loin.
+   *
+   * C'est §118.61 : déplacer une garde oblige à retrouver TOUS ceux qui lisaient l'ancienne.
+   * Ici la question s'est posée en exécutant — le Super Admin ne pouvait pas renommer le projet
+   * qu'il venait de créer.
+   *
+   * Le registre est une liste d'ÉTIQUETTES : ce qu'un projet contient (les dossiers) reste filtré
+   * par `regulatoryVisibleWhere`, donc l'ouvrir à qui voit Regulatory ne montre rien de plus que
+   * le tableau Regulatory.
+   */
+  if (!m) return canViewBdProjects(user) ? {} : { id: "__none__" };
   if (m.scope === "ALL") return {};
   const ors: Prisma.BdProjectWhereInput[] = [{ ownerId: user.id }];
   const ids = grantsFor(user, "BD_PROJECT");

@@ -10,7 +10,7 @@ import type { ContratAction } from "./contrat";
 
 const contrat = (p: Partial<ContratAction>): ContratAction => ({
   id: "f:a", fichier: "f", fonction: "a", appel: "formulaire", champs: [],
-  porte: { module: null, verbe: null, entite: null, gardes: [] },
+  porte: { module: null, verbe: null, entite: null, moduleFr: null, gardes: [] },
   ecrit: true, modelesEcrits: [], audit: false, illisible: null, ...p,
 });
 

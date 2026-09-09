@@ -1812,13 +1812,10 @@ export const NAVIGATION: NavItem[] = [
   // écran, avec sa propre question. Le tableau stratégique demande « où en est ce projet ? » ;
   // « Projets » demande « qu'est-ce que ce projet contient, dossier par dossier ? ». Le
   // classement se pose dans Regulatory, il se LIT ici.
-  {
-    module: "BUSINESS_DEVELOPMENT", label: "Market Intelligence", href: "/business-development", icon: "Lightbulb",
-    group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche"],
-    children: [
-      { module: "BUSINESS_DEVELOPMENT", label: "Projets", href: "/business-development/projets", icon: "FolderKanban", group: "Pôles", pole: "BUSINESS_DEV" },
-    ],
-  },
+  // MARKET INTELLIGENCE est RETIRÉ du service (2026-09) ; « Projets » a été redemandé et lui
+  // survit seul (`modules-retired.ts`, SOUS_MODULES_MAINTENUS). L'entrée n'est donc plus un
+  // parent avec un enfant — le parent ouvrirait une adresse qui ne s'ouvre plus.
+  { module: "BUSINESS_DEVELOPMENT", label: "Projets", href: "/business-development/projets", icon: "FolderKanban", group: "Pôles", pole: "BUSINESS_DEV" },
   // L'EXPLORATEUR PRODUITS — module à part, et non plus une sous-page d'Intelligence marché.
   // On ne l'ouvre pas « en analysant le marché » : on l'ouvre parce qu'on cherche UN produit,
   // UNE molécule, UN laboratoire. C'était le geste le plus fréquent du pôle, et il fallait deux

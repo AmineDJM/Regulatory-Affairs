@@ -7,19 +7,7 @@ import { recruitmentViewer } from "@/lib/recruitment/access";
 import { isOwnBusiness } from "@/lib/ad-pro/attachments";
 import { getMyCompanies } from "@/lib/company";
 import {
-  userCan,
-  hasGlobalView,
-  scopeRegulatory,
-  scopeMedicalDoctors,
-  scopeMedicalVisits,
-  scopeSales,
-  scopeBusinessDevelopment,
-  scopeBdProject,
-  scopeSupport,
-  scopeDossiers,
-  type Action,
-  type Module,
-  type SessionUser,
+  userCan, hasGlobalView, scopeRegulatory, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeBdProject, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser, canViewBdProjects, canManageBdProjects,
 } from "@/lib/rbac";
 
 /** Maps a polymorphic entity type to its owning module. */
@@ -163,6 +151,20 @@ export async function canAccessEntity(
     // saurait plus laquelle a servi à la décision.
     if (r.askedToId !== user.id) return false;
     return action === "VIEW" || (r.status !== "ACCEPTED" && r.status !== "CANCELLED");
+  }
+
+  // PROJET BD : l'accès ne vient PAS du module, parce que le module est RETIRÉ du service
+  // (`modules-retired.ts`, 2026-09) et que le registre des projets, lui, a été redemandé. La
+  // porte de module ci-dessous répondrait NON à tout le monde, Super Admin compris, et l'écran
+  // « BD › Projets » serait inatteignable. Les portes propres au sous-module maintenu sont
+  // `canViewBdProjects` / `canManageBdProjects` ; la portée par ligne reste `scopeBdProject`.
+  if (entityType === "BD_PROJECT") {
+    const permis = action === "VIEW" ? canViewBdProjects(user) : canManageBdProjects(user);
+    if (!permis) return false;
+    const found = await prisma.bdProject.findFirst({
+      where: { id: entityId, ...scopeBdProject(user) }, select: { id: true },
+    });
+    return Boolean(found);
   }
 
   // DEMANDE DE PAIEMENT : l'accès ne vient PAS d'un module, mais du CERCLE du dossier.
@@ -335,13 +337,6 @@ export async function canAccessEntity(
     case "BD_OPPORTUNITY": {
       const found = await prisma.businessDevelopmentOpportunity.findFirst({
         where: { id: entityId, ...scopeBusinessDevelopment(user) },
-        select: { id: true },
-      });
-      return Boolean(found);
-    }
-    case "BD_PROJECT": {
-      const found = await prisma.bdProject.findFirst({
-        where: { id: entityId, ...scopeBdProject(user) },
         select: { id: true },
       });
       return Boolean(found);

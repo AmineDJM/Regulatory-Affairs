@@ -63,6 +63,17 @@ export interface PorteLue {
   entite: string | null;
   /** Les gardes reconnues, telles qu'écrites (`requireAdmin`, `requireChief`…). */
   gardes: readonly string[];
+  /**
+   * LE MODULE EN FRANÇAIS, lu sur `recordAudit({ module })` — 434 actions le déclarent.
+   *
+   * Ce n'est pas un doublon du module RBAC : celui-là est une clé technique
+   * (`BUSINESS_DEVELOPMENT`), celui-ci est le mot que la personne emploie (« Business
+   * Development »), et c'est LUI que la recherche par intention doit rencontrer. Trouvé en
+   * cassant la découverte : déplacer la garde d'une action a fait disparaître son module RBAC
+   * du contrat, et « crée un projet business development » a cessé de trouver l'action — alors
+   * que le mot était toujours écrit deux lignes plus bas, dans son audit.
+   */
+  moduleFr: string | null;
 }
 
 export interface ContratAction {
@@ -240,6 +251,8 @@ function modelesEcrits(corps: string): string[] {
 
 function lirePorte(corps: string, constantes: Readonly<Record<string, string>>): PorteLue {
   let module: string | null = null, verbe: string | null = null, entite: string | null = null;
+  const audit = /recordAudit\s*\(\s*\{[^}]*?\bmodule\s*:\s*(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/s.exec(corps);
+  const moduleFr = audit ? (audit[1] ?? constantes[audit[2]!] ?? null) : null;
   const gardes = new Set<string>();
 
   const rc = /userCan\s*\(\s*[A-Za-z0-9_.]+\s*,\s*(?:"([A-Z_]+)"|([A-Z_0-9]+))\s*,\s*"([A-Z_]+)"/g;
@@ -260,7 +273,7 @@ function lirePorte(corps: string, constantes: Readonly<Record<string, string>>):
   for (const g of corps.matchAll(/\b(require[A-Z][A-Za-z]*|assert[A-Z][A-Za-z]*|can[A-Z][A-Za-z]*|has[A-Z][A-Za-z]*|is[A-Z][A-Za-z]*)\s*\(/g)) {
     if (g[1] !== "requireUser") gardes.add(g[1]!);
   }
-  return { module, verbe, entite, gardes: [...gardes].sort() };
+  return { module, verbe, entite, moduleFr, gardes: [...gardes].sort() };
 }
 
 /**
@@ -410,7 +423,7 @@ function valeursAdmisesInline(corps: string, nom: string, enums: TableEnums): re
 /** Les `const X = "…"` d'un fichier — pour résoudre `userCan(user, MODULE, …)`. */
 export function constantesDuFichier(source: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const m of source.matchAll(/^const\s+([A-Z_][A-Z_0-9]*)\s*(?::[^=]+)?=\s*"([^"]+)"/gm)) out[m[1]!] = m[2]!;
+  for (const m of source.matchAll(/^const\s+([A-Za-z_][A-Za-z_0-9]*)\s*(?::[^=]+)?=\s*"([^"]+)"/gm)) out[m[1]!] = m[2]!;
   return out;
 }
 
