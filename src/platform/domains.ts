@@ -105,6 +105,7 @@ const SOCLE = [
   "src/lib/storage/",
   "src/lib/mutations/",
   "src/lib/personnes/",
+  "src/lib/vues/",
 ];
 
 /**
@@ -139,6 +140,28 @@ const SOCLE = [
  * le moteur à en écrire une seconde, qui aurait divergé — ce que §118.5 interdit.
  *
  * L'OBLIGATION : `scanSocle()` échoue si `personnes/` importe un domaine ou une façade.
+ */
+
+/**
+ * POURQUOI `vues/` EST AU SOCLE — même critère que `mutations/` et `personnes/`.
+ *
+ * Il ne contient que des CATALOGUES D'AFFICHAGE : les colonnes d'un tableau configurable, leur
+ * en-tête français, leurs alias, et celles qui ne se masquent jamais. Zéro import, zéro règle
+ * métier — la même nature que `api/registry/entities`, déjà au socle pour cette raison.
+ *
+ * Le déclencheur est mesuré, et c'est TROIS couches, pas deux : « dans Regulatory, supprime la
+ * colonne classe thérapeutique » doit être compris par la CONVERSATION (`assistant/`, L1) pour
+ * valider le réglage, par l'ÉCRAN Regulatory pour ne plus rendre la colonne, et par la CONSOLE
+ * D'ADMINISTRATION pour proposer la même liste de cases. Aucune des trois n'a le droit
+ * d'importer les deux autres. Laisser le catalogue chez Regulatory obligeait Adam à traverser
+ * la frontière — `boundary.test.ts` l'a refusé, à juste titre : c'est exactement l'import
+ * direct que le contrat de plateforme existe pour empêcher.
+ *
+ * ET LE DÉFAUT QU'ON ÉVITE : deux listes de colonnes divergent à la première ajoutée — le
+ * tableau montre « Projet » et Adam répond « colonne inconnue » (§118.5).
+ *
+ * L'OBLIGATION qui vient avec : `scanSocle()` échoue si `vues/` importe un domaine ou une
+ * façade. Un catalogue qui se mettrait à lire la base cesserait d'y avoir sa place.
  */
 
 /**

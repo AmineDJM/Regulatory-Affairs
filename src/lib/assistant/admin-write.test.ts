@@ -4,6 +4,7 @@ import {
   parseSettingValue, parseRegFieldValue, renderSettingValue, describeChange,
 } from "./admin-write";
 import { MODULES } from "@/lib/rbac";
+import { LIBELLES_COLONNES } from "@/lib/vues/colonnes-regulatory";
 import { RETIRED_MODULE_KEYS, isRetiredModule } from "@/lib/modules-retired";
 import { ROLE_LABELS, MODULE_LABELS } from "@/lib/labels";
 
@@ -160,5 +161,57 @@ describe("couverture — le catalogue reste cohérent avec la plateforme", () =>
       const r = parseSettingValue("hiddenModules", (MODULE_LABELS as Record<string, string>)[m], ctx);
       expect(r.ok, m).toBe(false);
     }
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * « DANS REGULATORY, SUPPRIME LA COLONNE CLASSE THÉRAPEUTIQUE » — par le chemin d'Adam.
+ *
+ * Le réglage est un levier de PLATEFORME comme les autres : même liste blanche, même relecture
+ * de la valeur, même refus nommé. Ce qui ferait tomber ces essais : accepter un libellé qu'on
+ * ne reconnaît pas (Adam annoncerait « c'est fait » sur une colonne qui n'a pas bougé), ou
+ * laisser masquer la référence.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("Colonnes du tableau Regulatory — le réglage qu'Adam peut poser", () => {
+  it("est déclaré dans la liste blanche, et sa fiche dit ce qu'il fait", () => {
+    const spec = settingSpec("regulatoryHiddenColumns");
+    expect(spec).not.toBeNull();
+    expect(spec?.kind).toBe("regColumns");
+    // La fiche NOMME les colonnes : ce que le code EXIGE, le contexte doit dire comment le
+    // satisfaire (§118.19) — sinon le modèle invente un nom de colonne et se fait refuser.
+    expect(spec?.hint).toContain("Classe thérapeutique");
+    expect(spec?.warning ?? "").toContain("TOUT LE MONDE");
+  });
+
+  it("lit les colonnes par leur en-tête français, et rend leurs clés", () => {
+    const r = parseSettingValue("regulatoryHiddenColumns", "Classe thérapeutique", ctx);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toEqual(["therapeuticClass"]);
+  });
+
+  it("REFUSE un libellé inconnu au lieu de l'ignorer", () => {
+    const r = parseSettingValue("regulatoryHiddenColumns", "Classe thérapeutique, Colonne du milieu", ctx);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("Colonne du milieu");
+  });
+
+  it("REFUSE de masquer la référence — elle identifie la ligne", () => {
+    const r = parseSettingValue("regulatoryHiddenColumns", "Référence", ctx);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("identifie la ligne");
+  });
+
+  it("une valeur vide remet toutes les colonnes", () => {
+    const r = parseSettingValue("regulatoryHiddenColumns", "", ctx);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toEqual([]);
+  });
+
+  it("la carte de confirmation montre l'EN-TÊTE, jamais la clé technique", () => {
+    // Sans la table de libellés, la personne confirmerait « therapeuticClass → (aucun) ».
+    expect(renderSettingValue(["therapeuticClass"], LIBELLES_COLONNES)).toBe("Classe thérapeutique");
+    expect(renderSettingValue([], LIBELLES_COLONNES)).toBe("(aucun)");
   });
 });

@@ -135,6 +135,19 @@ export const NEUTRAL = new Set([
   // tables séparées auraient divergé, et le jour où l'une dit 24 h et l'autre 72, personne ne
   // saurait laquelle fait foi (§118.5).
   "src/lib/fraicheur/ages",
+  // `vues/colonnes-regulatory` est un CATALOGUE D'AFFICHAGE : la clé de chaque colonne du
+  // tableau Regulatory, son en-tête français, ses alias, et celles qu'on ne masque jamais. Une
+  // table de chaînes et un résolveur de libellé — zéro import, sans état, sans base, sans règle
+  // métier. Il n'apprend rien à Adam sur l'ERP : les COLONNES d'un écran ne sont pas les
+  // DOSSIERS qu'il montre, et rien ici ne dit ce qu'un dossier contient.
+  //
+  // Il est ici parce que TROIS couches en ont besoin et qu'aucune n'a le droit d'importer les
+  // deux autres : la conversation valide « supprime la colonne classe thérapeutique », l'écran
+  // Regulatory cesse de la rendre, et la console d'administration propose la même liste de
+  // cases. Le laisser du côté Regulatory forçait Adam à traverser — ce cliquet l'a refusé, et
+  // il avait raison. Deux listes de colonnes divergent à la première ajoutée : le tableau
+  // montre « Projet » et Adam répond « colonne inconnue » (§118.5).
+  "src/lib/vues/colonnes-regulatory",
 ]);
 
 export interface Violation {

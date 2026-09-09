@@ -7,6 +7,7 @@ import { recordAudit } from "@/lib/audit";
 import { DEFAULT_APP_SETTINGS } from "@/lib/settings";
 import { fdNum, type ActionResult } from "@/lib/actions/types";
 import { normalizeHidden } from "@/lib/modules-visibility";
+import { COLONNES_REGULATORY, COLONNES_INAMOVIBLES, enTeteColonne } from "@/lib/vues/colonnes-regulatory";
 
 /** Réglages d'instance (limites de taille d'upload). **Super Admin uniquement.** */
 export async function saveAppSettings(formData: FormData): Promise<ActionResult> {
@@ -98,6 +99,51 @@ export async function setRegulatoryTherapeuticSegments(formData: FormData): Prom
   await recordAudit({
     actorId: admin.id, action: "UPDATE", module: "Administration",
     summary: `Segments thérapeutiques Regulatory — ${segments.length} segment(s)`,
+  });
+  revalidatePath("/admin");
+  revalidatePath("/regulatory");
+  revalidatePath("/regulatory/pipeline");
+  return { ok: true };
+}
+
+/**
+ * LES COLONNES DU TABLEAU REGULATORY — celles que la maison retire, pour tout le monde.
+ *
+ * À distinguer de la préférence d'affichage locale au navigateur, qui reste et qui dit « je ne
+ * veux pas voir ça sur MON écran ». Celle-ci dit « cette colonne n'a pas lieu d'être dans cette
+ * maison » : elle vaut sur les DEUX sous-modules (Suivi de dossiers et Pipeline) et elle survit
+ * au vidage du cache.
+ *
+ * Le catalogue des clés vit dans `lib/regulatory/colonnes.ts` — le même que lit l'écran et que
+ * lit Adam. On refuse ici ce qu'il refuse là : une clé inconnue (le formulaire ne fait pas foi)
+ * et la RÉFÉRENCE, qui identifie la ligne.
+ *
+ * AUCUNE DONNÉE N'EST EFFACÉE : la colonne disparaît du tableau, les valeurs restent sur les
+ * fiches et reviennent dès qu'on la remet.
+ *
+ * **Super Admin uniquement.**
+ */
+export async function setRegulatoryHiddenColumns(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  const demandees = formData.getAll("columns").map(String).filter(Boolean);
+  const cles: string[] = [];
+  for (const k of demandees) {
+    if (!COLONNES_REGULATORY.some((c) => c.key === k)) return { ok: false, error: `Colonne inconnue : ${k}.` };
+    if (COLONNES_INAMOVIBLES.includes(k)) {
+      return { ok: false, error: "La référence identifie la ligne : elle ne se masque pas." };
+    }
+    cles.push(k);
+  }
+  const colonnes = [...new Set(cles)];
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", regulatoryHiddenColumns: colonnes, updatedById: admin.id },
+    update: { regulatoryHiddenColumns: colonnes, updatedById: admin.id },
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: `Colonnes masquées du tableau Regulatory — ${colonnes.length === 0 ? "aucune" : colonnes.map(enTeteColonne).join(", ")}`,
   });
   revalidatePath("/admin");
   revalidatePath("/regulatory");

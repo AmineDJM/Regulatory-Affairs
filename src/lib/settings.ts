@@ -29,6 +29,11 @@ export interface AppSettings {
   regulatorySupervisorRoles: string[];
   /** Segments thérapeutiques proposés par le tableau Regulatory. VIDE = la liste par défaut. */
   regulatoryTherapeuticSegments: string[];
+  /**
+   * COLONNES RETIRÉES du tableau Regulatory — Suivi de dossiers ET Pipeline, pour tout le monde.
+   * Ce n'est pas la préférence d'affichage locale au navigateur : voir `regulatory/colonnes.ts`.
+   */
+  regulatoryHiddenColumns: string[];
   /** Rôles autorisés à CRÉER des « Demandes à Regulatory » (en plus du PRIM). Regulatory RÉPOND mais ne crée pas. */
   /** Rôles autorisés à CRÉER des catégories de Drive (espaces partagés en onglets). En plus du Super Admin. */
   driveSpaceCreatorRoles: string[];
@@ -79,6 +84,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   regEnrollmentEnabled: false,
   regulatorySupervisorRoles: [],
   regulatoryTherapeuticSegments: [],
+  regulatoryHiddenColumns: [],
   driveSpaceCreatorRoles: [],
   fieldReportsOverviewRoles: [],
   orgChartViewerRoles: [],
@@ -113,6 +119,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       regEnrollmentEnabled: row.regEnrollmentEnabled,
       regulatorySupervisorRoles: row.regulatorySupervisorRoles ?? [],
       regulatoryTherapeuticSegments: row.regulatoryTherapeuticSegments ?? [],
+      regulatoryHiddenColumns: row.regulatoryHiddenColumns ?? [],
       driveSpaceCreatorRoles: row.driveSpaceCreatorRoles ?? [],
       fieldReportsOverviewRoles: row.fieldReportsOverviewRoles ?? [],
       orgChartViewerRoles: row.orgChartViewerRoles ?? [],

@@ -110,6 +110,26 @@ export async function getBdProjects(user: SessionUser): Promise<BdProjectDTO[]> 
   return projects.map(toDTO);
 }
 
+/**
+ * LES PROJETS PROPOSABLES — juste `{ id, name }`, pour le menu « Projet » du tableau Regulatory.
+ *
+ * Pourquoi pas `getBdProjects` : celui-là charge gammes, produits, marché et investissements
+ * pour construire le tableau stratégique. En faire tourner l'équivalent à chaque affichage du
+ * tableau Regulatory paierait tout ce travail pour deux colonnes de texte.
+ *
+ * MÊME PORTE que le module BD (`scopeBdProject`) : le classement se LIT dans Regulatory parce
+ * qu'il est écrit sur le dossier, mais la LISTE des projets appartient à Business Development.
+ * Quelqu'un sans accès au module reçoit une liste vide — et le tableau retombe alors sur
+ * l'affichage en texte du projet déjà posé, sans menu.
+ */
+export async function getBdProjectOptions(user: SessionUser): Promise<{ id: string; name: string }[]> {
+  return prisma.bdProject.findMany({
+    where: scopeBdProject(user),
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
 export async function getBdProject(user: SessionUser, id: string): Promise<BdProjectDTO | null> {
   const project = await prisma.bdProject.findFirst({
     where: { id, ...scopeBdProject(user) },

@@ -11,6 +11,7 @@ import { visibleStages, defaultStage, type RegStage } from "@/lib/regulatory/sta
 import { dossierReceivedLabel, dossierReceivedOptions, DOSSIER_RECEIVED_HINT, DOSSIER_RECEIVED_YES } from "@/lib/regulatory/dossier-received";
 import { setFocusMode, useFocusState } from "@/components/layout/focus-mode";
 import { PartagerButton } from "@/components/shared/partager-button";
+import { COLONNES_REGULATORY, colonnesVisibles, type CleColonneRegulatory } from "@/lib/vues/colonnes-regulatory";
 
 export interface RegulatoryRow {
   id: string;
@@ -25,6 +26,9 @@ export interface RegulatoryRow {
   therapeuticSegments: string[];
   companyId: string;
   companyName: string;
+  /** PROJET BD — le classement stratégique, vide quand le dossier n'est rattaché à aucun. */
+  bdProjectId: string;
+  bdProjectName: string;
   supplier: string;
   category: string;
   /** Niveau industriel qui FAIT FOI (variation obtenue prioritaire sur la déclaration). */
@@ -63,51 +67,65 @@ const STATUS_OPTS = Object.keys(REGULATORY_STATUS).map((v) => ({ value: v, label
 const CATEGORY_OPTS = Object.keys(REGULATORY_CATEGORY).map((v) => ({ value: v, label: lbl(REGULATORY_CATEGORY as never, v) }));
 const STAGE_OPTS = Object.keys(MANUFACTURING_STATUS).map((v) => ({ value: v, label: MANUFACTURING_STATUS[v] }));
 
-type Col = {
-  key: string;
-  header: string;
+type Comportement = {
   text: (r: RegulatoryRow) => string; // valeur texte (recherche + filtre + tri)
   raw?: (r: RegulatoryRow) => string; // valeur brute pour un filtre « select »
   options?: { value: string; label: string }[]; // filtre déroulant façon Excel
   /** Colonne dont les choix ne sont connus qu'à l'exécution (les personnes assignables). */
-  dynamic?: "people" | "companies" | "segments";
+  dynamic?: "people" | "companies" | "segments" | "projects";
 };
 
-// TITRES voulus par le métier : « Statut » = importation / packaging / full process (la
-// profondeur industrielle), « Niveau de process » = pré-soumission / déposé / … (l'avancement
-// de la procédure). Les contenus ne bougent pas — seuls les intitulés étaient inversés.
-const COLS: Col[] = [
-  { key: "reference", header: "Référence", text: (r) => r.reference },
-  { key: "dci", header: "DCI / Marque", text: (r) => `${r.dci} ${r.brandName}` },
-  { key: "dosage", header: "Dosage / Forme", text: (r) => [r.dosage, r.form].filter(Boolean).join(" · ") },
-  { key: "packaging", header: "Conditionnement", text: (r) => r.packaging },
-  { key: "therapeuticClass", header: "Classe thérapeutique", text: (r) => r.therapeuticClass },
-  { key: "company", header: "Entité", text: (r) => r.companyName, raw: (r) => r.companyId || "—", dynamic: "companies" },
-  { key: "segments", header: "Segments thérapeutiques", text: (r) => r.therapeuticSegments.join(", "), dynamic: "segments" },
-  { key: "category", header: "Catégorie", text: (r) => lbl(REGULATORY_CATEGORY as never, r.category), raw: (r) => r.category, options: CATEGORY_OPTS },
-  { key: "supplier", header: "Fournisseur", text: (r) => r.supplier },
-  {
-    key: "manufacturingStatus", header: "Statut",
+type Col = Comportement & { key: string; header: string };
+
+/**
+ * LE COMPORTEMENT DE CHAQUE COLONNE — ce que cet écran sait faire d'elle.
+ *
+ * L'ORDRE et les EN-TÊTES ne vivent PAS ici : ils sont dans `lib/regulatory/colonnes.ts`, que
+ * l'écran ET Adam lisent. Deux listes de colonnes divergeraient à la première ajoutée — le
+ * tableau montrerait « Projet » et Adam répondrait « colonne inconnue » (§118.5).
+ *
+ * `Record<CleColonneRegulatory, …>` : ajouter une colonne au catalogue sans lui donner de
+ * comportement ici fait échouer le TYPECHECK, pas l'écran.
+ *
+ * TITRES voulus par le métier : « Statut » = importation / packaging / full process (la
+ * profondeur industrielle), « Niveau de process » = pré-soumission / déposé / … (l'avancement
+ * de la procédure).
+ */
+const COMPORTEMENTS: Record<CleColonneRegulatory, Comportement> = {
+  reference: { text: (r) => r.reference },
+  dci: { text: (r) => `${r.dci} ${r.brandName}` },
+  dosage: { text: (r) => [r.dosage, r.form].filter(Boolean).join(" · ") },
+  packaging: { text: (r) => r.packaging },
+  therapeuticClass: { text: (r) => r.therapeuticClass },
+  company: { text: (r) => r.companyName, raw: (r) => r.companyId || "—", dynamic: "companies" },
+  // « Projet » — le classement stratégique nommé dans Business Development.
+  project: { text: (r) => r.bdProjectName, raw: (r) => r.bdProjectId || "—", dynamic: "projects" },
+  segments: { text: (r) => r.therapeuticSegments.join(", "), dynamic: "segments" },
+  category: { text: (r) => lbl(REGULATORY_CATEGORY as never, r.category), raw: (r) => r.category, options: CATEGORY_OPTS },
+  supplier: { text: (r) => r.supplier },
+  manufacturingStatus: {
     text: (r) => MANUFACTURING_STATUS[r.manufacturingStatus] ?? r.manufacturingStatus,
     raw: (r) => r.manufacturingStatus, options: STAGE_OPTS,
   },
-  { key: "priority", header: "Priorité", text: (r) => lbl(PRIORITY as never, r.priority), raw: (r) => r.priority, options: PRIORITY_OPTS },
-  { key: "status", header: "Niveau de process", text: (r) => lbl(REGULATORY_STATUS as never, r.status), raw: (r) => r.status, options: STATUS_OPTS },
+  priority: { text: (r) => lbl(PRIORITY as never, r.priority), raw: (r) => r.priority, options: PRIORITY_OPTS },
+  status: { text: (r) => lbl(REGULATORY_STATUS as never, r.status), raw: (r) => r.status, options: STATUS_OPTS },
   // « Chargé du dossier » : la personne qui le porte. Modifiable ici même — c'est la question
   // qu'on se pose en balayant la liste, pas une fois entré dans la fiche.
-  { key: "responsible", header: "Chargé du dossier", text: (r) => r.responsible, raw: (r) => r.responsibleId || "—", dynamic: "people" },
+  responsible: { text: (r) => r.responsible, raw: (r) => r.responsibleId || "—", dynamic: "people" },
   // « DOSSIER REÇU » — Yes / No, non modifiable : elle répond au FAIT (une archive CTD
   // téléversée), pas à ce que quelqu'un pense. Une case à cocher aurait dérivé dès le premier
   // « je coche en attendant l'envoi promis ».
-  {
-    key: "dossierReceived", header: "Dossier reçu",
+  dossierReceived: {
     text: (r) => dossierReceivedLabel(r.dossierReceived),
     raw: (r) => dossierReceivedLabel(r.dossierReceived),
     options: dossierReceivedOptions(),
   },
-  { key: "targetSubmissionDate", header: "Date cible dépôt", text: (r) => r.targetSubmissionDate ?? "" },
-  { key: "targetDate", header: "Date cible enreg.", text: (r) => r.targetDate ?? "" },
-];
+  targetSubmissionDate: { text: (r) => r.targetSubmissionDate ?? "" },
+  targetDate: { text: (r) => r.targetDate ?? "" },
+};
+
+/** Toutes les colonnes du catalogue, munies de leur comportement. */
+const COLS: Col[] = COLONNES_REGULATORY.map((c) => ({ key: c.key, header: c.header, ...COMPORTEMENTS[c.key] }));
 
 /** Préférence LOCALE de colonnes masquées (par navigateur) — clé de stockage. */
 const HIDDEN_COLS_KEY = "amd-reg-hidden-cols";
@@ -138,6 +156,8 @@ export function RegulatoryTable({
   assignableUsers = [],
   companies = [],
   segments = [],
+  projects = [],
+  colonnesMasquees = [],
   stageTabs = true,
   crossExport = null,
 }: {
@@ -146,6 +166,16 @@ export function RegulatoryTable({
   companies?: { id: string; name: string }[];
   /** Segments thérapeutiques proposés par le menu « Segments » (liste effective, admin ou défaut). */
   segments?: string[];
+  /** Les PROJETS BD nommés par la direction — le menu de la colonne « Projet ». */
+  projects?: { id: string; name: string }[];
+  /**
+   * COLONNES RETIRÉES PAR LA MAISON — réglage de plateforme, pas préférence d'écran.
+   *
+   * Il se CUMULE avec la préférence locale au navigateur : le réglage retire la colonne du
+   * tableau (et du menu « Colonnes », sans quoi on la rallumerait sans effet), la préférence
+   * n'agit que sur ce qui reste. Voir `lib/regulatory/colonnes.ts`.
+   */
+  colonnesMasquees?: readonly string[];
   canEditPriority?: boolean;
   canAssign?: boolean;
   canLock?: boolean;
@@ -244,7 +274,7 @@ export function RegulatoryTable({
   const toggleCol = (key: string) => {
     const hiding = !hiddenCols.includes(key);
     const next = hiding ? [...hiddenCols, key] : hiddenCols.filter((k) => k !== key);
-    if (next.length >= COLS.length) return; // toujours au moins une colonne visible
+    if (next.length >= colsDuTableau.length) return; // toujours au moins une colonne visible
     setHiddenCols(next);
     try { window.localStorage.setItem(HIDDEN_COLS_KEY, JSON.stringify(next)); } catch { /* stockage local indisponible */ }
     // Masquer une colonne retire aussi son filtre : un filtre invisible qui vide la liste
@@ -252,7 +282,14 @@ export function RegulatoryTable({
     if (hiding) setFilters((f) => ({ ...f, [key]: "" }));
   };
 
-  const visibleCols = COLS.filter((c) => !hiddenCols.includes(c.key));
+  // LE RÉGLAGE DE LA MAISON D'ABORD, la préférence de l'écran ensuite. Une colonne retirée par
+  // le réglage ne doit pas apparaître dans le menu « Colonnes » : on l'y rallumerait sans effet,
+  // et un bouton qui ne fait rien coûte plus cher qu'un bouton absent.
+  const colsDuTableau = React.useMemo(() => {
+    const gardees = new Set(colonnesVisibles(colonnesMasquees).map((c) => c.key));
+    return COLS.filter((c) => gardees.has(c.key));
+  }, [colonnesMasquees]);
+  const visibleCols = colsDuTableau.filter((c) => !hiddenCols.includes(c.key));
   // Compté sur TOUTES les lignes, pas sur celles qui passent le filtre courant : un dossier
   // caché par un filtre reste caché à l'équipe, et c'est ce total-là qui compte.
   const lockedCount = rows.filter((r) => r.isLocked).length;
@@ -371,7 +408,7 @@ export function RegulatoryTable({
   /** Confier le dossier à quelqu'un. Un refus du serveur se DIT — sinon le menu revient
    *  silencieusement en arrière et personne ne comprend pourquoi. */
   /** Entité et segments se corrigent EN LISANT la liste — c'est là qu'on s'en aperçoit. */
-  async function changeClassification(id: string, fields: { companyId?: string; segments?: string[] }) {
+  async function changeClassification(id: string, fields: { companyId?: string; segments?: string[]; bdProjectId?: string }) {
     setBusyId(id);
     setAssignError(null);
     const fd = new FormData();
@@ -381,6 +418,9 @@ export function RegulatoryTable({
     // Un tableau vide n'enverrait aucune clé : sans ce marqueur, « retirer tous les segments »
     // serait indiscernable de « ne pas y toucher ».
     if (fields.segments !== undefined && fields.segments.length === 0) fd.append("segments", "");
+    // Chaîne VIDE = « sans projet », et c'est un geste voulu : `formData.has` distingue déjà
+    // « on n'y touche pas » de « on le retire », donc la clé part telle quelle.
+    if (fields.bdProjectId !== undefined) fd.set("bdProjectId", fields.bdProjectId);
     const res = await setRegulatoryClassification(fd);
     setBusyId(null);
     if (!res.ok) setAssignError(res.error ?? "Modification impossible.");
@@ -456,6 +496,26 @@ export function RegulatoryTable({
                 {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             ) : r.companyName || "—"}
+          </td>
+        );
+      case "project":
+        return (
+          <td key={key} className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+            {/* LE PROJET est une ÉTIQUETTE de classement — il n'ouvre ni ne ferme aucun accès,
+                contrairement à l'entité. Il suit donc le droit de MODIFIER le dossier, comme
+                les segments, et non le privilège structurel. Le serveur le revérifie. */}
+            {canAssign && projects.length > 0 ? (
+              <select
+                value={r.bdProjectId}
+                onChange={(e) => changeClassification(r.id, { bdProjectId: e.target.value })}
+                disabled={busyId === r.id}
+                aria-label="Projet BD du dossier"
+                className="h-7 max-w-[11rem] rounded border border-input bg-background px-1 text-xs"
+              >
+                <option value="">— Sans projet —</option>
+                {projects.map((pr) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+              </select>
+            ) : (r.bdProjectName || "—")}
           </td>
         );
       case "segments":
@@ -636,7 +696,7 @@ export function RegulatoryTable({
               <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-border bg-popover p-2 shadow-md">
                 <p className="px-1 pb-1.5 text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Colonnes affichées</p>
                 <ul className="max-h-72 space-y-0.5 overflow-y-auto">
-                  {COLS.map((c) => {
+                  {colsDuTableau.map((c) => {
                     const visible = !hiddenCols.includes(c.key);
                     const lastVisible = visible && visibleCols.length === 1;
                     return (

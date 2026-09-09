@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegulatoryTherapeuticSegmentsForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, OrgChartViewersForm, HiddenModulesForm, PipelineAccessForm, DirectiveAccessForm } from "./admin-settings-forms";
+import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegulatoryTherapeuticSegmentsForm, RegulatoryHiddenColumnsForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, OrgChartViewersForm, HiddenModulesForm, PipelineAccessForm, DirectiveAccessForm } from "./admin-settings-forms";
 import { MODULES } from "@/lib/rbac";
 import { MODULE_LABELS } from "@/lib/labels";
 import { isHideable } from "@/lib/modules-visibility";
@@ -79,6 +79,16 @@ export default async function AdminSettingsPage() {
         </CardHeader>
         <CardContent>
           <RegulatoryTherapeuticSegmentsForm segments={settings.regulatoryTherapeuticSegments} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Layers className="h-4 w-4" /> Regulatory — Colonnes du tableau</CardTitle>
+          <p className="text-sm text-muted-foreground">Les colonnes retirées du tableau Regulatory, dans le <strong>Suivi de dossiers</strong> comme dans le <strong>Pipeline</strong>, pour tout le monde. À ne pas confondre avec le bouton « Colonnes » du tableau, qui reste : celui-là est une préférence de navigateur. <strong>Aucune donnée n&apos;est effacée</strong> — les valeurs restent sur les fiches et reviennent dès qu&apos;on remet la colonne. La <strong>référence</strong> ne se masque pas : elle identifie la ligne.</p>
+        </CardHeader>
+        <CardContent>
+          <RegulatoryHiddenColumnsForm hidden={settings.regulatoryHiddenColumns} />
         </CardContent>
       </Card>
 

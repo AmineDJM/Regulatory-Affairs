@@ -148,6 +148,7 @@ import {
   WRITABLE_SETTINGS, parseSettingValue, parseRegFieldValue, regFieldSpec, settingSpec,
   renderSettingValue,
 } from "@/lib/assistant/admin-write";
+import { LIBELLES_COLONNES } from "@/lib/vues/colonnes-regulatory";
 
 // ───────────────────────────── Types publics ─────────────────────────────
 
@@ -1084,8 +1085,11 @@ const SUPERADMIN_WRITE_TOOLS: ClaudeToolDef[] = [
       + "confirmation requise. Réglages modifiables : aiExternalActionsDisabled (oui/non — ARRÊT D'URGENCE des actions "
       + "externes de l'IA), maxUploadMb, maxDriveUploadMb, driveCapacityGb, "
       + "driveUserQuotaGb, budgetTotalMode (FIXED/FLEXIBLE), budgetFixedTotal, regEnrollmentEnabled (oui/non), "
-      + "regulatorySupervisorRoles, regulatoryTherapeuticSegments, regEnrollmentRoles, driveSpaceCreatorRoles, "
+      + "regulatorySupervisorRoles, regulatoryTherapeuticSegments, regulatoryHiddenColumns, regEnrollmentRoles, driveSpaceCreatorRoles, "
       + "fieldReportsOverviewRoles, orgChartViewerRoles, hiddenModules. "
+      + "regulatoryHiddenColumns retire des COLONNES du tableau Regulatory (Suivi de dossiers ET Pipeline) "
+      + "pour tout le monde — elles se donnent par leur en-tête (« Classe thérapeutique », « Fournisseur »…), "
+      + "et une liste vide les remet toutes. C'est un réglage de la MAISON, pas un masquage d'écran. "
       + "Les listes de rôles et de modules se donnent par leur NOM FRANÇAIS, séparés par des virgules "
       + "(ex. « Direction, Responsable Réglementaire »). Une liste vide retire tout le monde. "
       + "Ces réglages REMPLACENT la valeur existante : lire d'abord la valeur actuelle avec "
@@ -2977,7 +2981,13 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (!parsed.ok) return { error: parsed.error };
 
     const current = (await getAppSettings()) as unknown as Record<string, unknown>;
-    const labels = spec.kind === "roles" ? ROLE_LABELS : spec.kind === "modules" ? (MODULE_LABELS as Record<string, string>) : {};
+    const labels =
+      spec.kind === "roles" ? ROLE_LABELS
+      : spec.kind === "modules" ? (MODULE_LABELS as Record<string, string>)
+      // Sans cette branche, la carte annoncerait « therapeuticClass » à quelqu'un qui vient de
+      // dire « supprime la classe thérapeutique » — une confirmation qu'on donne sans avoir lu.
+      : spec.kind === "regColumns" ? LIBELLES_COLONNES
+      : {};
     const before = renderSettingValue(current[key], labels);
     const after = renderSettingValue(parsed.value, labels);
     if (before === after) return { error: `« ${spec.label} » vaut déjà ${after}.` };

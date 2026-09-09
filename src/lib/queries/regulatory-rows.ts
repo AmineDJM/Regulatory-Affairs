@@ -56,6 +56,8 @@ export async function getRegulatoryRows(user: SessionUser) {
         assistant: { select: { name: true } },
         supplier: { select: { name: true } },
         company: { select: { id: true, name: true, shortName: true, color: true } },
+        // LE PROJET BD — le classement stratégique du dossier (sous-module « Projets »).
+        bdProject: { select: { id: true, name: true } },
         // Variations : c'est la variation OBTENUE qui fait foi sur le niveau de process.
         variations: { select: { toStatus: true, status: true, decisionDate: true, createdAt: true } },
       },
@@ -109,6 +111,8 @@ export async function getRegulatoryRows(user: SessionUser) {
       therapeuticSegments: p.therapeuticSegments ?? [],
       companyId: p.companyId ?? "",
       companyName: p.company?.shortName ?? p.company?.name ?? "",
+      bdProjectId: p.bdProject?.id ?? "",
+      bdProjectName: p.bdProject?.name ?? "",
       supplier: p.supplier?.name ?? "",
       category: p.category,
       // RÈGLE : une variation OBTENUE fait foi ; sinon, le niveau déclaré sur la fiche.

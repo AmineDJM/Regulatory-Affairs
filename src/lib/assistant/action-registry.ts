@@ -654,6 +654,12 @@ classify("COVERED", "create_calendar_event", ["calendar-actions:createCalendarEv
 classify("COVERED", "create_hr_request", ["hr-document-actions:requestHrDocument"]);
 classify("COVERED", "create_congress_request", ["congress-request-actions:createCongressRequest"]);
 classify("COVERED", "send_message", ["messaging-actions:sendMessage", "messaging-actions:createDirect"]);
+// PARTAGER UN ÉLÉMENT PAR LA MESSAGERIE : l'action prépare la conversation puis appelle
+// `sendMessage`, l'écrivain unique. Ce qu'elle produit — un message portant une référence et,
+// le cas échéant, des pièces du Drive — `send_message` le produit déjà en conversation, où l'on
+// dit simplement « envoie le dossier REG-2026-041 à Amel ». Le geste d'écran ajoute le
+// confort du bouton, pas une capacité de plus.
+classify("COVERED", "send_message", ["partage-actions:partagerParMessagerie"]);
 classify("COVERED", "send_email", ["mail-actions:sendMailAction", "microsoft-mail-actions:sendMessage", "smart-mail-actions:sendMail"]);
 classify("COVERED", "create_notification", ["notification-actions:sendBroadcast"]);
 classify("COVERED", "update_platform_setting", [
@@ -662,6 +668,10 @@ classify("COVERED", "update_platform_setting", [
   "settings-actions:setDriveSpaceCreatorRoles", "settings-actions:setFieldReportsOverviewRoles",
   "settings-actions:setDirectiveAccess", "settings-actions:setOrgChartViewers", "settings-actions:saveDriveStorageSettings",
   "settings-actions:setHiddenModules",
+  // « Dans Regulatory, supprime la colonne classe thérapeutique » : MÊME réglage et MÊME
+  // catalogue (`vues/colonnes-regulatory`) que la console d'administration — un autre chemin
+  // vers le même levier, jamais un levier caché.
+  "settings-actions:setRegulatoryHiddenColumns",
 ]);
 classify("COVERED", "find_documents / inspect_drive_folder (lecture)", ["drive-browse-actions:browseDrive"]);
 classify("COVERED", "update_salary", ["payroll-hr-actions:updatePayrollEntry"]);
@@ -1193,6 +1203,11 @@ X("LA NOTE DE FRAIS SE CORRIGE, SE ROUVRE ET SE RÉCLAME DEVANT L'ÉCRAN — les
 ]);
 X("SÉCURITÉ : exige un mot de passe EN CLAIR pour le compte portail fournisseur — un mot de passe ne transite jamais par une conversation (même règle que les comptes internes, résolus par lien d'invitation) ; geste réservé à l'écran Admin", [
   "supplier-actions:createSupplierUser",
+]);
+X("L'ANNUAIRE DU PANNEAU DE PARTAGE : une LECTURE d'écran — la liste des personnes à cocher, chargée à l'ouverture "
+  + "du panneau. En conversation on nomme la personne (« envoie ça à Amel »), et `search_people` la résout déjà ; "
+  + "en ouvrir une seconde porte donnerait deux annuaires pour une seule question (§17).", [
+  "partage-actions:listerDestinatairesPartage",
 ]);
 X("boîte Microsoft PERSONNELLE : ces gestes visent un messageId Graph opaque de l'écran — le Chief n'a pas de lecture de boîte (OAuth personnel) pour les résoudre en conversation", [
   "microsoft-mail-actions:saveDraft", "microsoft-mail-actions:setMessageRead", "microsoft-mail-actions:moveMessage",

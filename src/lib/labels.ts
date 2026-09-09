@@ -1808,7 +1808,17 @@ export const NAVIGATION: NavItem[] = [
   // BUSINESS DEVELOPMENT — l'AVANT-VENTE : ce qu'on étudie et ce qu'on vise. Les ventes
   // réalisées sont passées dans Sales & Marketing : analyser une opportunité et constater un
   // chiffre d'affaires ne sont pas le même métier.
-  { module: "BUSINESS_DEVELOPMENT", label: "Market Intelligence", href: "/business-development", icon: "Lightbulb", group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche"] },
+  // BUSINESS DEVELOPMENT — « Projets » est un SOUS-MODULE, pas un onglet : c'est son propre
+  // écran, avec sa propre question. Le tableau stratégique demande « où en est ce projet ? » ;
+  // « Projets » demande « qu'est-ce que ce projet contient, dossier par dossier ? ». Le
+  // classement se pose dans Regulatory, il se LIT ici.
+  {
+    module: "BUSINESS_DEVELOPMENT", label: "Market Intelligence", href: "/business-development", icon: "Lightbulb",
+    group: "Pôles", pole: "BUSINESS_DEV", match: ["/business-development/marche"],
+    children: [
+      { module: "BUSINESS_DEVELOPMENT", label: "Projets", href: "/business-development/projets", icon: "FolderKanban", group: "Pôles", pole: "BUSINESS_DEV" },
+    ],
+  },
   // L'EXPLORATEUR PRODUITS — module à part, et non plus une sous-page d'Intelligence marché.
   // On ne l'ouvre pas « en analysant le marché » : on l'ouvre parce qu'on cherche UN produit,
   // UNE molécule, UN laboratoire. C'était le geste le plus fréquent du pôle, et il fallait deux

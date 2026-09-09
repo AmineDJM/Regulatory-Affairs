@@ -19,6 +19,7 @@ import { SuppliersManager } from "./suppliers-manager";
 import { UpdateReminderButton } from "./update-reminder";
 import { canSendUpdateReminder } from "@/lib/regulatory/update-reminder";
 import { regulatoryReminderBoard } from "@/lib/queries/regulatory-reminders";
+import { getBdProjectOptions } from "@/lib/queries/bd";
 
 export default async function RegulatoryPage() {
   const user = await requireModule("REGULATORY");
@@ -28,6 +29,9 @@ export default async function RegulatoryPage() {
   // Le cadenas n'appartient qu'au Super Admin — les autres ne voient même pas les dossiers verrouillés.
   const canLock = user.role === "SUPER_ADMIN";
   const { rows, products, suppliers, companies, settings, canSupervise } = await getRegulatoryRows(user);
+  // LES PROJETS BD — le menu « Projet » du tableau. Même porte que le module Business
+  // Development : sans accès, la liste est vide et la colonne retombe en texte.
+  const bdProjects = await getBdProjectOptions(user);
   // LE VERROU, ET RIEN D'AUTRE, SÉPARE LES DEUX ÉCRANS. On filtrait sur l'étape « pipeline » :
   // or un dossier ABOUTI est classé « done » même verrouillé, et réapparaissait donc ici sous
   // l'onglet « Terminé » alors qu'il est censé vivre dans le pipeline. Le suivi des dossiers ne
@@ -142,6 +146,8 @@ export default async function RegulatoryPage() {
         assignableUsers={assignableUsers}
         companies={companies}
         segments={effectiveTherapeuticSegments(settings.regulatoryTherapeuticSegments)}
+        projects={bdProjects}
+        colonnesMasquees={settings.regulatoryHiddenColumns}
         // L'EXPORT PROPOSE L'AUTRE VOLET. Le suivi et le pipeline montrent les mêmes objets sous
         // deux angles ; exporter l'un sans proposer l'autre sortait la moitié du portefeuille
         // sans que rien ne le dise, et l'on recollait deux classeurs à la main. Le pipeline n'est

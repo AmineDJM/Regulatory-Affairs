@@ -9,6 +9,7 @@ import { KpiCard } from "@/components/shared/kpi-card";
 import { getRegulatoryRows } from "@/lib/queries/regulatory-rows";
 import { effectiveTherapeuticSegments } from "@/lib/labels";
 import { RegulatoryTable } from "@/app/(app)/regulatory/regulatory-table";
+import { getBdProjectOptions } from "@/lib/queries/bd";
 import { NewProductButton } from "@/app/(app)/regulatory/new-product";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,10 @@ export default async function BusinessDevelopmentPipelinePage() {
 
   const canCreate = userCan(user, "REGULATORY", "CREATE");
   const { rows, companies, canSupervise, settings, suppliers } = await getRegulatoryRows(user);
+  // Même menu « Projet » que le suivi des dossiers : les deux sous-modules rendent LE MÊME
+  // tableau, et un classement disponible d'un côté seulement serait exactement le genre
+  // d'écart qu'on paie six mois plus tard.
+  const bdProjects = await getBdProjectOptions(user);
   // TOUS LES DOSSIERS VERROUILLÉS, sans exception. On filtrait sur l'étape « pipeline », or
   // `regStage` classe un dossier ABOUTI comme « done » même s'il est verrouillé : un dossier
   // verrouillé dont la décision était tombée disparaissait donc de l'écran censé les lister
@@ -101,6 +106,8 @@ export default async function BusinessDevelopmentPipelinePage() {
           assignableUsers={assignableUsers}
           companies={companies}
           segments={effectiveTherapeuticSegments(settings.regulatoryTherapeuticSegments)}
+          projects={bdProjects}
+          colonnesMasquees={settings.regulatoryHiddenColumns}
           // ET INVERSEMENT : depuis le pipeline, l'export propose d'inclure le suivi des
           // dossiers. Même raison, même geste — un seul classeur pour tout le portefeuille.
           crossExport={

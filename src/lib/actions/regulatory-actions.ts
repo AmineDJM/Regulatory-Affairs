@@ -1263,7 +1263,9 @@ export async function setRegulatoryClassification(formData: FormData): Promise<A
   });
   if (!before) return { ok: false, error: "Dossier introuvable." };
 
-  const data: { companyId?: string | null; therapeuticSegments?: string[]; updatedById: string } = { updatedById: user.id };
+  const data: {
+    companyId?: string | null; therapeuticSegments?: string[]; bdProjectId?: string | null; updatedById: string;
+  } = { updatedById: user.id };
 
   // L'ENTITÉ décide de QUI voit le dossier : la changer, c'est le déplacer d'une société à une
   // autre. Réservée au Super Admin. Les SEGMENTS, eux, restent ouverts — ce sont des étiquettes
@@ -1294,6 +1296,20 @@ export async function setRegulatoryClassification(formData: FormData): Promise<A
     data.therapeuticSegments = [...new Set(picked)];
   }
 
+  // LE PROJET BD — une ÉTIQUETTE de classement, comme les segments : elle n'ouvre ni ne ferme
+  // aucun accès (contrairement à l'entité), donc elle suit le droit de MODIFIER le dossier et
+  // non le privilège structurel. Le projet est vérifié EXISTANT : accepter un identifiant
+  // inconnu rangerait le dossier dans un projet que personne ne pourrait plus retrouver, et
+  // l'écran afficherait une case vide sans rien dire.
+  if (formData.has("bdProjectId")) {
+    const projectId = str(formData, "bdProjectId");
+    if (projectId) {
+      const known = await prisma.bdProject.count({ where: { id: projectId } });
+      if (!known) return { ok: false, error: "Projet inconnu." };
+    }
+    data.bdProjectId = projectId || null;
+  }
+
   await prisma.regulatoryProduct.update({ where: { id }, data });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Regulatory",
@@ -1302,5 +1318,8 @@ export async function setRegulatoryClassification(formData: FormData): Promise<A
   });
   revalidatePath("/regulatory");
   revalidatePath("/regulatory/pipeline");
+  // Le sous-module « Projets » de Business Development LIT ce classement : sans cette ligne, on
+  // range un dossier dans un projet et son tableau ne le montre pas avant la prochaine visite.
+  revalidatePath("/business-development/projets");
   return { ok: true, id };
 }

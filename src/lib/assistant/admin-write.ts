@@ -1,5 +1,6 @@
 import { MODULES } from "@/lib/rbac";
 import { isHideable } from "@/lib/modules-visibility";
+import { COLONNES_REGULATORY, lireColonnesMasquees, enTeteColonne } from "@/lib/vues/colonnes-regulatory";
 
 /**
  * CE QUE L'ASSISTANT A LE DROIT D'ÉCRIRE — la liste blanche, et rien d'autre.
@@ -21,7 +22,7 @@ import { isHideable } from "@/lib/modules-visibility";
 
 // ───────────────────────────── Réglages de la plateforme ─────────────────────────────
 
-export type SettingKind = "number" | "boolean" | "roles" | "modules" | "strings" | "enum";
+export type SettingKind = "number" | "boolean" | "roles" | "modules" | "strings" | "enum" | "regColumns";
 
 export interface SettingSpec {
   key: string;
@@ -66,6 +67,9 @@ export const WRITABLE_SETTINGS: readonly SettingSpec[] = [
     hint: "Priorités, dates cibles et demandes de mise à jour de statut." },
   { key: "regulatoryTherapeuticSegments", label: "Segments thérapeutiques", kind: "strings",
     hint: "La liste proposée par le tableau Regulatory. Vide = la liste par défaut." },
+  { key: "regulatoryHiddenColumns", label: "Colonnes masquées du tableau Regulatory", kind: "regColumns",
+    hint: `Les colonnes retirées du tableau, sur les DEUX sous-modules (Suivi de dossiers et Pipeline). Se donnent par leur nom d'en-tête : ${COLONNES_REGULATORY.map((c) => c.header).join(", ")}. Une liste vide remet toutes les colonnes.`,
+    warning: "La colonne disparaît pour TOUT LE MONDE, dans le Suivi de dossiers comme dans le Pipeline. Les données ne sont pas effacées : elles restent sur la fiche du dossier et reviennent dès que la colonne est remise." },
   { key: "regEnrollmentRoles", label: "Rôles voyant l'onglet Enregistrement (CTD)", kind: "roles",
     hint: "Vide = le Super Admin seul." },
   { key: "driveSpaceCreatorRoles", label: "Rôles pouvant créer des catégories de Drive", kind: "roles",
@@ -137,6 +141,13 @@ export function parseSettingValue(
     }
     case "strings":
       return { ok: true, value: [...new Set(splitList(text))] };
+    case "regColumns": {
+      // LE CATALOGUE FAIT FOI, ET IL EST PARTAGÉ AVEC L'ÉCRAN. Un libellé inconnu ne s'ignore
+      // pas : Adam annoncerait « c'est fait » sur une colonne qui n'a pas bougé, et la référence
+      // ne se masque jamais — sans elle on ne sait plus de quel dossier parle la ligne.
+      const lu = lireColonnesMasquees(text);
+      return lu.ok ? { ok: true, value: lu.cles } : { ok: false, error: lu.error };
+    }
     case "roles": {
       const labels = ctx.roleLabels ?? {};
       const out: string[] = [];

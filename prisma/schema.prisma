@@ -1693,6 +1693,18 @@ model RegulatoryProduct {
   rangeId String?
   range   ProductRange? @relation(fields: [rangeId], references: [id], onDelete: SetNull)
 
+  /// PROJET BD — le classement stratégique du dossier, nommé par la direction dans Business
+  /// Development (sous-module « Projets »).
+  ///
+  /// On RÉUTILISE `BdProject` au lieu d'ouvrir un second registre de projets : deux listes de
+  /// projets divergeraient au premier renommage, et la question « ce dossier appartient-il au
+  /// projet Oncologie 2027 ? » n'aurait plus une seule réponse (§118.5).
+  ///
+  /// `SetNull` à la suppression : perdre le classement d'un dossier est réparable ; perdre le
+  /// dossier avec le projet ne l'est pas.
+  bdProjectId String?
+  bdProject   BdProject? @relation("BdProjectDossiers", fields: [bdProjectId], references: [id], onDelete: SetNull)
+
   responsibleId String?
   responsible   User?   @relation("RegulatoryResponsible", fields: [responsibleId], references: [id])
   assistantId   String?
@@ -1737,6 +1749,7 @@ model RegulatoryProduct {
   canonicalProduct Product?       @relation("ProductRegulatoryProfile", fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([status])
+  @@index([bdProjectId])
   @@index([priority])
   @@index([responsibleId])
   @@index([assistantId])
@@ -3966,9 +3979,12 @@ model BdProject {
   description String?
   comment     String?
 
-  ownerId String?
-  owner   User?     @relation("BdProjectOwner", fields: [ownerId], references: [id])
-  ranges  BdRange[]
+  ownerId  String?
+  owner    User?               @relation("BdProjectOwner", fields: [ownerId], references: [id])
+  ranges   BdRange[]
+  /// LES DOSSIERS RÉGLEMENTAIRES classés dans ce projet — le sous-module « Projets » les
+  /// affiche, un tableau par projet.
+  dossiers RegulatoryProduct[] @relation("BdProjectDossiers")
 
   createdById String?
   updatedById String?
@@ -6883,6 +6899,12 @@ model AppSetting {
   // colonne « Segments »). VIDE = la liste par défaut intégrée. L'administrateur les gère en
   // Administration : le marché d'un groupe pharma n'est pas celui d'un autre.
   regulatoryTherapeuticSegments String[] @default([])
+  /// COLONNES RETIRÉES du tableau Regulatory — sur les DEUX sous-modules (Suivi de dossiers et
+  /// Pipeline), pour tout le monde. Ce n'est pas la préférence d'affichage locale au navigateur
+  /// (« je ne veux pas voir ça sur MON écran ») : c'est « cette colonne n'a pas lieu d'être dans
+  /// cette maison ». Le catalogue des clés vit dans `lib/regulatory/colonnes.ts`, et la référence
+  /// ne s'y masque jamais — sans elle on ne saurait plus de quel dossier on parle.
+  regulatoryHiddenColumns       String[] @default([])
   // Rôles autorisés à CRÉER des « Demandes à Regulatory » (en plus du PRIM, toujours inclus).
   // L'équipe Regulatory RÉPOND mais ne crée pas. Configurable en Administration.
   regRequestCreatorRoles        String[] @default([])
@@ -7910,24 +7932,24 @@ model RegulatorySource {
 
 /// Version datée d'une source : texte original + hash, statut (ACTIVE = fait foi), approbation.
 model RegulatorySourceVersion {
-  id           String          @id @default(cuid())
-  sourceId     String
-  version      String
-  publishedAt  DateTime?
-  effectiveAt  DateTime?
-  status       RegSourceStatus @default(DRAFT)
-  hash         String? // sha-256 du texte original
-  originalText String? // texte intégral (peut être volumineux)
+  id                   String          @id @default(cuid())
+  sourceId             String
+  version              String
+  publishedAt          DateTime?
+  effectiveAt          DateTime?
+  status               RegSourceStatus @default(DRAFT)
+  hash                 String? // sha-256 du texte original
+  originalText         String? // texte intégral (peut être volumineux)
   /// D'où vient le texte : "texte" (natif) ou "ocr" (scan reconnu). Une source océrisée n'est
   /// pas une lecture de la loi : l'écran le dit, et Adam ne la cite pas comme un texte natif.
   extractionMethod     String?
   /// Confiance moyenne de l'OCR (0-100). NULL pour un texte natif.
   extractionConfidence Float?
-  supersedesId String? // version remplacée
-  approvedById String?
-  approvedAt   DateTime?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  supersedesId         String? // version remplacée
+  approvedById         String?
+  approvedAt           DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
   source    RegulatorySource           @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   sections  RegulatorySourceSection[]
@@ -10564,9 +10586,9 @@ model Mission {
   /// honnêtement (« en pause » depuis quand ?) ni le reprendre (reprendre VERS quel état ?).
   /// `pausedFrom` garde le statut d'avant la pause, ce qui rend « reprends-la demain » exact au
   /// lieu d'être une re-déduction qui pourrait diverger.
-  pausedAt        DateTime?
-  pausedReason    String?
-  pausedFrom      String?
+  pausedAt     DateTime?
+  pausedReason String?
+  pausedFrom   String?
 
   /// LA PERSÉVÉRANCE SE JUGE AU PROGRÈS, PAS AU NOMBRE D'ESSAIS (§118.18).
   ///
@@ -10579,8 +10601,8 @@ model Mission {
   /// plus chère. Il se remet à FAUX dès qu'une information neuve arrive — réponse humaine,
   /// événement, modification demandée : c'est la différence entre « il tourne en rond » et
   /// « on ne lui avait rien donné de nouveau ».
-  replanRefus     String?
-  replanBloque    Boolean   @default(false)
+  replanRefus  String?
+  replanBloque Boolean @default(false)
 
   artifacts    MissionArtifact[]
   participants MissionParticipant[]
@@ -10611,11 +10633,11 @@ model Mission {
 /// c'est ce qui empêche de renvoyer 72 e-mails après un crash à la 73ᵉ.
 /// ═══════════════════════════════════════════════════════════════════════════════════════════
 model MissionStep {
-  id                  String    @id @default(cuid())
+  id                  String            @id @default(cuid())
   missionId           String
-  mission             Mission   @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  mission             Mission           @relation(fields: [missionId], references: [id], onDelete: Cascade)
   /// Le regroupement logique — sert à l'affichage ET au replan ciblé.
-  workstream          String    @default("default")
+  workstream          String            @default("default")
   /// LE JALON auquel cette étape appartient. NULLABLE : une mission courte n'a pas de jalons,
   /// et tout le corpus antérieur continue de tourner. C'est cette colonne qui rend la
   /// replanification LOCALE : on recompile les étapes d'UN jalon sans toucher aux autres.
@@ -10628,12 +10650,12 @@ model MissionStep {
   /// La capacité appelée. `null` pour un nœud de contrôle (attente, jonction).
   capability          String?
   /// CAPABILITY | WORKER | WAIT_EVENT | WAIT_INPUT | APPROVAL | QA | ARTIFACT | JOIN
-  nodeType            String    @default("CAPABILITY")
-  input               Json      @default("{}")
+  nodeType            String            @default("CAPABILITY")
+  input               Json              @default("{}")
   /// PENDING | READY | RUNNING | DONE | FAILED | SKIPPED | WAITING | CANCELLED
-  status              String    @default("PENDING")
-  attempt             Int       @default(0)
-  maxAttempts         Int       @default(3)
+  status              String            @default("PENDING")
+  attempt             Int               @default(0)
+  maxAttempts         Int               @default(3)
   /// LA CLÉ D'IDEMPOTENCE (§15) — unique en base, donc garantie par la base et non par la
   /// discipline de l'appelant.
   idempotencyKey      String?
@@ -10658,7 +10680,7 @@ model MissionStep {
   /// de moteur rendrait le payload stocké différent du payload approuvé.
   forEach             Json?
   /// Décidé par le compilateur sur le plan APPROUVÉ, jamais recalculé à l'exécution.
-  needsIdempotencyKey Boolean   @default(false)
+  needsIdempotencyKey Boolean           @default(false)
   /// CE QUE L'ÉTAPE ATTEND — schéma de sortie d'un worker, condition d'achèvement, exigence de
   /// raisonnement, niveau d'accord proposé, format d'artefact. Séparé de `input` À DESSEIN :
   /// `input` est ce que l'humain approuve et ce que la capacité reçoit ; y glisser une directive
@@ -10668,7 +10690,7 @@ model MissionStep {
   /// C'est lui qui rend la persévérance REPRENABLE après une panne — sans lui, le moteur
   /// redemanderait au Drive ce qu'il vient de lui demander.
   recovery            Json?
-  planVersion         Int       @default(1)
+  planVersion         Int               @default(1)
   /// LE PLAN COURANT NE PORTE PLUS CETTE ÉTAPE — il a tourné autour.
   ///
   /// Non nul = l'étape appartient à l'HISTOIRE, plus aux obligations. Elle garde son statut, son
@@ -10679,8 +10701,8 @@ model MissionStep {
   supersededAt        DateTime?
   startedAt           DateTime?
   completedAt         DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
   deps       MissionStepDep[]   @relation("StepDeps")
   dependents MissionStepDep[]   @relation("StepDependents")

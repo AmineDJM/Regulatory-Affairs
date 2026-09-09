@@ -5194,6 +5194,37 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### PARTAGER PAR LA MESSAGERIE, ET LE PROJET BD QUI CLASSE LES DOSSIERS (2026-09)
+
+**Un seul geste, cinq écrans.** « Envoie-moi ce dossier » se faisait hors de l'ERP : on téléchargeait la pièce, on
+ouvrait sa messagerie personnelle, et six semaines plus tard personne ne savait plus de quel dossier venait la
+facture. Un bouton **Partager** entre donc dans Legal, Courriers, Ad&Pro, Regulatory (Suivi de dossiers **et**
+Pipeline) et le Drive — et il entre **une** fois. `partagerParMessagerie` n'écrit pas le message : elle prépare la
+conversation d'arrivée puis appelle `sendMessage`, l'écrivain unique, qui valide les pièces contre les droits Drive
+de l'expéditeur, accorde la lecture aux destinataires, notifie et émet le fait qui réveille une mission en attente.
+
+Ce qu'elle **ajoute** : `sendMessage` valide la FORME d'une référence, il ne vérifie pas que l'expéditeur **voit**
+l'enregistrement — dans la messagerie, la référence est du contenu de son propre message. Ici le partage part d'un
+écran métier et devient un geste de diffusion, alors `canAccessEntity` répond par **enregistrement**, pas par module.
+Et le Drive se contrôle **par nœud**, ce que `canAccessEntity` ne fait pas (`DRIVE_NODE` retombe sur le droit de
+module) : `resolveDriveAccess` — la même porte que celle des pièces jointes. Sans cet appel, le partage d'une PIÈCE
+serait gardé et celui de sa RÉFÉRENCE ne le serait pas.
+
+**Le projet BD classe le dossier.** Chaque dossier réglementaire peut appartenir à un **projet** nommé par la
+direction dans Business Development. On réutilise `BdProject` plutôt que d'ouvrir un second registre : deux listes de
+projets divergent au premier renommage. Le classement se **pose** dans Regulatory (colonne « Projet », des deux
+sous-modules) et se **lit** dans le nouveau sous-module **Business Development › Projets** — un tableau par projet,
+une ligne par dossier. Deux portes qui ne se remplacent pas : `scopeBdProject` décide des projets qu'on voit,
+`regulatoryVisibleWhere` des dossiers qu'on voit dedans (verrou du pipeline et périmètre société compris).
+
+**Et les colonnes du tableau Regulatory deviennent un réglage de la maison.** « Dans Regulatory, supprime la colonne
+classe thérapeutique, garde le segment » : `regulatoryHiddenColumns` retire la colonne sur les **deux** sous-modules,
+pour tout le monde, et survit au vidage du cache — à distinguer du bouton « Colonnes » du tableau, qui reste et qui
+dit « pas sur MON écran ». Le geste se fait en Administration **ou** en le disant à Adam : même réglage, même
+catalogue. Ce catalogue (`lib/vues/colonnes-regulatory.ts`) est **pur et au socle**, parce que trois couches en ont
+besoin sans avoir le droit de s'importer — la conversation valide, l'écran rend, la console propose. La référence ne
+s'y masque jamais : elle identifie la ligne, et sans elle on ne peut plus revenir en arrière depuis le tableau.
+
 ### LE CLASSEUR DISAIT 100, LE DECK DISAIT 999 — et les deux étaient VERIFIED (2026-09)
 
 `identiteDuLivrable` réglait le cas du **replan** : un livrable actualisé est une nouvelle version du même fichier.

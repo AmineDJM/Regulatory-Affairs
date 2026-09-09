@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Loader2, Check, Megaphone, Search, Plus, X, RotateCcw, Eye, EyeOff } from "lucide-react";
-import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegulatoryTherapeuticSegments, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles, setOrgChartViewers, setHiddenModules, setPipelineAccess, setDirectiveAccess } from "@/lib/actions/settings-actions";
+import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegulatoryTherapeuticSegments, setRegulatoryHiddenColumns, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles, setOrgChartViewers, setHiddenModules, setPipelineAccess, setDirectiveAccess } from "@/lib/actions/settings-actions";
 import { describePipelineAudience } from "@/lib/regulatory/pipeline-access";
 import { describeDirectiveAccess } from "@/lib/directives/access";
 import { setRegIntelligenceEnabled } from "@/lib/regulatory/intelligence/actions";
@@ -10,6 +10,7 @@ import { sendBroadcast } from "@/lib/actions/notification-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { THERAPEUTIC_SEGMENTS } from "@/lib/labels";
+import { COLONNES_REGULATORY, COLONNES_INAMOVIBLES } from "@/lib/vues/colonnes-regulatory";
 import { hiddenSummary } from "@/lib/modules-visibility";
 import type { AppSettings } from "@/lib/settings";
 
@@ -346,6 +347,75 @@ export function RegulatorySupervisorForm({ roles, selected }: { roles: Opt[]; se
         {saved ? "Enregistré" : "Enregistrer les superviseurs"}
       </Button>
     </form>
+  );
+}
+
+/**
+ * LES COLONNES DU TABLEAU REGULATORY — celles que la maison retire, pour tout le monde.
+ *
+ * À ne pas confondre avec le bouton « Colonnes » du tableau, qui reste : celui-là est une
+ * préférence de NAVIGATEUR (« pas sur mon écran »). Ici on décide de la maison — sur les DEUX
+ * sous-modules, pour tout le monde, et ça survit au vidage du cache.
+ *
+ * La RÉFÉRENCE ne se propose pas : elle identifie la ligne, et la masquer rendrait le tableau
+ * illisible sans qu'on puisse revenir en arrière depuis le tableau lui-même.
+ *
+ * Adam sait faire le même geste (« supprime la colonne classe thérapeutique ») : c'est le MÊME
+ * réglage et le MÊME catalogue — un autre chemin vers le même levier, jamais un levier caché.
+ */
+export function RegulatoryHiddenColumnsForm({ hidden }: { hidden: string[] }) {
+  const [list, setList] = React.useState<string[]>(hidden);
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const proposables = COLONNES_REGULATORY.filter((c) => !COLONNES_INAMOVIBLES.includes(c.key));
+
+  const toggle = (key: string) =>
+    setList((l) => (l.includes(key) ? l.filter((k) => k !== key) : [...l, key]));
+
+  const save = async () => {
+    setSaving(true); setErr(null);
+    const fd = new FormData();
+    list.forEach((k) => fd.append("columns", k));
+    const res = await setRegulatoryHiddenColumns(fd);
+    setSaving(false);
+    if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 1500); }
+    else setErr(res.error ?? "Enregistrement impossible.");
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        {proposables.map((c) => {
+          const masquee = list.includes(c.key);
+          return (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => toggle(c.key)}
+              aria-pressed={masquee}
+              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                masquee ? "border-destructive/60 bg-destructive/10 text-destructive" : "border-input text-muted-foreground hover:bg-secondary"
+              }`}
+            >
+              {masquee && <X className="h-3 w-3" />} {c.header}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {list.length === 0
+          ? "Toutes les colonnes sont affichées."
+          : `${list.length} colonne(s) retirée(s) du tableau — les données restent sur les fiches et reviennent dès qu'on les remet.`}
+      </p>
+      {err && <p className="text-sm text-destructive">{err}</p>}
+      <div className="flex items-center gap-2">
+        <Button type="button" size="sm" onClick={() => void save()} disabled={saving}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer
+        </Button>
+        {saved && <span className="text-xs text-success">Enregistré</span>}
+      </div>
+    </div>
   );
 }
 
