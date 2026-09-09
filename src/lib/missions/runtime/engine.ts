@@ -1422,6 +1422,15 @@ async function deployerEventail(
     }
     clesVues.add(cle);
     cles.push(cle);
+    /**
+     * L'ENTRÉE DE CETTE FILLE, ET CE QUE L'ÉLÉMENT N'A PAS PU DONNER (§118.71).
+     *
+     * `manquantes` n'est jamais vide par hasard : c'est un chemin que le plan a écrit et que
+     * l'élément ne porte pas. La fille échouera donc à coup sûr — autant le dire AVANT de
+     * payer l'appel de capacité, et le dire avec les champs réellement disponibles plutôt que
+     * de laisser l'outil accuser l'annuaire (règle 20 du planificateur).
+     */
+    const iteration = entreeIteration(step.input, as, element);
     await prisma.missionStep.upsert({
       where: { missionId_key: { missionId: etat.id, key: cle } },
       create: {
@@ -1431,7 +1440,7 @@ async function deployerEventail(
         workstream: step.workstream,
         nodeType: step.nodeType,
         capability: step.capability,
-        input: entreeIteration(step.input, as, element) as never,
+        input: iteration.entree as never,
         maxAttempts: step.maxAttempts,
         // LES FILLES HÉRITENT DE L'EXIGENCE DE CLÉ. Ce sont ELLES qui envoient réellement les
         // trente-trois messages ; l'oublier ici viderait §15 de son sens exactement là où il
@@ -1459,13 +1468,49 @@ async function deployerEventail(
           startedAt: null, completedAt: null, supersededAt: null,
           planVersion: step.planVersion,
           title: `${step.title} — ${identiteIteration(element, i)}`,
-          input: entreeIteration(step.input, as, element) as never,
+          input: iteration.entree as never,
           spec: (step.spec ?? undefined) as never,
           // UNE FILLE RÉARMÉE SUIT SA MÈRE, jalon compris : un replan peut avoir déplacé la
           // mère d'un jalon à l'autre, et une fille restée sur l'ancien serait jugée deux fois.
           milestoneId: mere?.milestoneId ?? null,
         },
       });
+    }
+
+    /**
+     * ── UN CHEMIN QUE L'ÉLÉMENT NE PORTE PAS SE DIT ICI, PAS À L'ARRIVÉE (§118.71) ────────
+     *
+     * Sans cela, `JSON.stringify` efface la clé non résolue, la capacité reçoit une entrée
+     * AMPUTÉE, et son refus accuse la mauvaise cause — mesuré : « Destinataire « (rien) »
+     * introuvable » sur une itération nommée `#Amel Haddad`. Le planificateur suivant est
+     * parti chercher une personne au lieu de corriger un chemin.
+     *
+     * L'échec est DÉFINITIF (tentatives épuisées) : réessayer ne fera pas apparaître un champ
+     * que l'élément n'a pas. Et il ne touche qu'une fille encore devant nous — une itération
+     * déjà ABOUTIE garde son acquis, comme partout ailleurs (§118.33).
+     */
+    if (iteration.manquantes.length > 0) {
+      const dit = iteration.manquantes
+        .map((m) => `{{${m.reference}}}${m.disponibles.length > 0 ? ` (l'élément porte : ${m.disponibles.join(", ")})` : " (l'élément ne porte aucun champ)"}`)
+        .join(" ; ");
+      const majAbsente = await prisma.missionStep.updateMany({
+        where: { missionId: etat.id, key: cle, status: { in: ["PENDING", "READY"] } },
+        data: {
+          // `INVALID_STEP` est LE motif de la référence morte `{{etape.champ}}` — c'est
+          // exactement ce dont il s'agit, un cran plus bas. Inventer un motif de plus le
+          // rendrait invisible à `tenterRecours`, qui rejette d'entrée ce qu'il ne connaît
+          // pas : un manque non classé est un manque invisible (§118.31).
+          status: "FAILED", attempt: step.maxAttempts, errorKind: "INVALID_STEP",
+          error: `l'élément de l'itération ne porte pas ce que le plan lui demande : ${dit}. `
+            + `Corrige le chemin — ou référence l'élément entier avec {{${as}}} s'il EST la valeur.`,
+          completedAt: new Date(),
+        },
+      });
+      if (majAbsente.count > 0) {
+        await journaliser(etat.id, "STEP_FAILED",
+          `Étape « ${step.title} — ${identiteIteration(element, i)} » en échec avant exécution : ${dit}`,
+          { stepKey: cle, errorKind: "INVALID_STEP", retryable: false, manquantes: iteration.manquantes });
+      }
     }
 
     // Les filles héritent des dépendances du modèle, pas du modèle lui-même : dépendre de lui

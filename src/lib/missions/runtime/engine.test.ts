@@ -982,6 +982,87 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
   });
 
   /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   * UNE LISTE DE NOMS EST UNE LISTE DE PERSONNES (§118.71) — mesuré, mission `cmttukkqf…`.
+   *
+   * L'amont rend `["Amel Haddad", "Raihana Cherif"]` ; le plan écrit
+   * `recipientName: "{{p.recipient}}"`. `JSON.stringify` effaçait la clé non résolue, la
+   * capacité recevait une entrée AMPUTÉE, et refusait « Destinataire « (rien) » introuvable »
+   * sur une itération nommée `#Amel Haddad`.
+   * ═════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("un éventail sur une liste de NOMS transmet le nom — la clé ne disparaît pas", async () => {
+    const steps: PlannedStep[] = [
+      { key: "liste", title: "Lister", capability: "directory_list" },
+      {
+        key: "msg", title: "Msg", capability: "send_message",
+        forEach: { from: "liste", path: "destinataires", as: "p" },
+        input: { to: "{{p.recipient}}", body: "Bonjour" }, dependsOn: ["liste"],
+      } as unknown as PlannedStep,
+    ];
+    const id = await creerMission(steps, "éventail sur des noms");
+    const t = traceur({
+      sortie: (c) => (c.stepKey === "liste"
+        ? { destinataires: ["Amel Haddad", "Raihana Cherif"] }
+        : { ok: true }),
+    });
+    await avancer(id, actor, { runner: t.runner });
+
+    const filles = await prisma.missionStep.findMany({
+      where: { missionId: id, key: { startsWith: "msg#" } },
+      select: { key: true, status: true, input: true },
+      orderBy: { key: "asc" },
+    });
+    expect(filles.map((f) => f.key)).toEqual(["msg#Amel Haddad", "msg#Raihana Cherif"]);
+    // CE QUI FERAIT TOMBER CE TEST : redescendre dans un scalaire pour rendre `undefined`.
+    // La clé repartirait au néant et la capacité accuserait de nouveau l'annuaire.
+    for (const f of filles) {
+      const entree = f.input as { to?: unknown; body?: unknown };
+      expect(entree.to, f.key).toBe(f.key.slice("msg#".length));
+      expect(f.status, f.key).toBe("DONE");
+    }
+    // ET L'ENVOI A RÉELLEMENT ÉTÉ APPELÉ, avec le bon destinataire — c'est la seule chose qui
+    // compte pour les deux personnes qui, en live, n'ont jamais reçu leur demande.
+    expect(t.appels.filter((c) => c.stepKey.startsWith("msg#")).map((c) => (c.input as { to?: string }).to).sort())
+      .toEqual(["Amel Haddad", "Raihana Cherif"]);
+  });
+
+  /**
+   * ET SUR UN OBJET, ON NE DEVINE PAS — on échoue AVANT de payer l'appel, en nommant les
+   * champs que l'élément porte vraiment (règle 20 du planificateur, enfin tenue).
+   */
+  it("un chemin absent d'un élément OBJET fait échouer l'itération avant l'appel, en le disant", async () => {
+    const steps: PlannedStep[] = [
+      { key: "liste", title: "Lister", capability: "directory_list" },
+      {
+        key: "msg", title: "Msg", capability: "send_message",
+        forEach: { from: "liste", path: "gens", as: "p" },
+        input: { to: "{{p.recipient}}", body: "Bonjour" }, dependsOn: ["liste"],
+      } as unknown as PlannedStep,
+    ];
+    const id = await creerMission(steps, "éventail chemin faux");
+    const t = traceur({
+      sortie: (c) => (c.stepKey === "liste"
+        ? { gens: [{ nom: "Amel Haddad", email: "amel@x.dz" }] }
+        : { ok: true }),
+    });
+    await avancer(id, actor, { runner: t.runner });
+
+    const fille = await prisma.missionStep.findFirst({
+      where: { missionId: id, key: { startsWith: "msg#" } },
+      select: { key: true, status: true, error: true, attempt: true, maxAttempts: true },
+    });
+    expect(fille?.status).toBe("FAILED");
+    expect(fille?.error).toContain("{{p.recipient}}");
+    expect(fille?.error).toContain("nom, email");
+    expect(fille?.error).toContain("{{p}}");
+    // DÉFINITIF : réessayer ne fera pas apparaître un champ que l'élément n'a pas.
+    expect(fille!.attempt).toBeGreaterThanOrEqual(fille!.maxAttempts);
+    // ET AUCUN APPEL DE CAPACITÉ N'A ÉTÉ PAYÉ pour une itération qui ne pouvait qu'échouer.
+    expect(t.appels.filter((c) => c.stepKey.startsWith("msg#"))).toHaveLength(0);
+  });
+
+  /**
    * ET LE CONTOURNEMENT NE LES EMPORTE PAS. Leur `milestoneId` les fait entrer dans le
    * périmètre de `materialiser` (§118.43) ; un plan ne LISTE jamais une fille, donc sans garde
    * chaque replan la marquerait contournée, elle disparaîtrait du comptage de sa mère, et

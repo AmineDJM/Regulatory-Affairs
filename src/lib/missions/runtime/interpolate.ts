@@ -19,6 +19,13 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
+/** Ce que cette valeur offre RÉELLEMENT — pour qu'un refus montre ce qu'il a lu (§118.34). */
+const cheminsDisponibles = (courant: unknown): string[] => {
+  if (Array.isArray(courant)) return courant.length === 0 ? [] : [`0…${courant.length - 1}`];
+  if (courant && typeof courant === "object") return Object.keys(courant as Record<string, unknown>).slice(0, 12);
+  return [];
+};
+
 const MOTIF = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}/g;
 
 /** Le mot exact `{{x.y}}` et rien d'autre — le cas où l'on remplace la VALEUR, pas le texte. */
@@ -48,34 +55,112 @@ export function lire(source: unknown, chemin: string): unknown {
  * expansions imbriquées écraseraient leurs champs de même nom, et l'on enverrait le message du
  * salarié au fournisseur sans que rien ne le signale.
  */
-export function injecter(valeur: unknown, contexte: Record<string, unknown>): unknown {
+export interface OptionsInjection {
+  /**
+   * COMMENT UN CHEMIN SE LIT — `lire(contexte, chemin)` par défaut.
+   *
+   * L'éventail en pose un autre : sur un élément SCALAIRE, `{{as.champ}}` rend l'élément
+   * lui-même (§118.71). Le passer en paramètre plutôt que de le coder ici garde `injecter`
+   * indifférent à ce qu'il traverse — la tuyauterie entre étapes n'a pas cette règle, et la
+   * lui donner ferait résoudre `{{lecture.texte}}` en « lecture » sur un résultat scalaire.
+   */
+  resoudre?: (chemin: string) => unknown;
+  /** Le carnet des références qui n'ont RIEN rendu. Absent : on ne consigne pas. */
+  absentes?: string[];
+}
+
+export function injecter(
+  valeur: unknown,
+  contexte: Record<string, unknown>,
+  opts: OptionsInjection = {},
+): unknown {
+  const resoudre = opts.resoudre ?? ((chemin: string) => lire(contexte, chemin));
+  const noter = (chemin: string, v: unknown) => {
+    if (v === undefined && opts.absentes && !opts.absentes.includes(chemin)) opts.absentes.push(chemin);
+    return v;
+  };
   if (typeof valeur === "string") {
     const seul = SEUL.exec(valeur);
     // UN CHEMIN SEUL REND LA VALEUR TELLE QUELLE : un identifiant numérique reste un nombre,
     // une liste reste une liste. Les convertir en texte casserait les schémas d'entrée.
-    if (seul) return lire(contexte, seul[1]);
+    if (seul) return noter(seul[1], resoudre(seul[1]));
     return valeur.replace(MOTIF, (brut, chemin: string) => {
-      const v = lire(contexte, chemin);
+      const v = noter(chemin, resoudre(chemin));
       if (v === undefined || v === null) return "";
       return typeof v === "object" ? JSON.stringify(v) : String(v);
     });
   }
-  if (Array.isArray(valeur)) return valeur.map((v) => injecter(v, contexte));
+  if (Array.isArray(valeur)) return valeur.map((v) => injecter(v, contexte, opts));
   if (valeur && typeof valeur === "object") {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(valeur as Record<string, unknown>)) out[k] = injecter(v, contexte);
+    for (const [k, v] of Object.entries(valeur as Record<string, unknown>)) out[k] = injecter(v, contexte, opts);
     return out;
   }
   return valeur;
 }
 
-/** L'entrée d'une itération d'éventail. */
+export interface EntreeIteration {
+  entree: Record<string, unknown>;
+  /** Les références à l'élément qui n'ont RIEN rendu, avec ce que l'élément offre vraiment. */
+  manquantes: { reference: string; disponibles: string[] }[];
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'ENTRÉE D'UNE ITÉRATION D'ÉVENTAIL — et les deux défauts qu'elle portait (§118.71).
+ *
+ * ── MESURÉ LIVE, mission `cmttukkqf…` ──────────────────────────────────────────────────
+ *
+ * L'étape amont rend `destinataires: ["Amel Haddad", "Raihana Cherif"]` — des CHAÎNES. Le plan
+ * écrit `recipientName: "{{regulatory.recipient}}"`, un CHAMP de l'élément. Deux conséquences,
+ * chacune un défaut à part entière :
+ *
+ *   1. `lire` descend dans un scalaire et rend `undefined` ; l'objet reconstruit porte alors
+ *      `recipientName: undefined`, que `JSON.stringify` EFFACE en base. La clé ne vaut pas
+ *      « vide » — elle N'EXISTE PLUS. `send_message` a donc refusé « Destinataire « (rien) »
+ *      introuvable » sur une itération dont la CLÉ D'ÉTAPE s'appelle `#Amel Haddad` : le moteur
+ *      tenait la personne et l'avait perdue entre deux lignes de code. Deux collègues n'ont
+ *      jamais reçu leur demande, l'éventail est sorti 2/2 en échec, le jalon a bloqué.
+ *   2. Le refus désignait la mauvaise cause. La règle 20 du planificateur PROMET qu'un champ
+ *      inventé « échoue à l'exécution en nommant les champs disponibles » ; ici il échouait en
+ *      accusant l'annuaire. Le planificateur suivant est parti chercher une personne, alors
+ *      que la personne était là et que c'est le CHEMIN qui était faux.
+ *
+ * ── CE QU'ON TRADUIT, ET CE QU'ON REFUSE DE DEVINER ────────────────────────────────────
+ *
+ * Sur un élément SCALAIRE, `{{as.nimportequoi}}` rend l'élément. Ce n'est pas un choix parmi
+ * plusieurs lectures : un scalaire n'a AUCUN champ, donc la seule valeur qu'il puisse offrir
+ * est lui-même — et c'est déjà exactement ce que `identiteIteration` en lit pour nommer la
+ * fille. Traduire au lieu de refuser, comme `personnes/designation.ts` (§118.34).
+ *
+ * Sur un élément OBJET, on ne devine RIEN : un champ absent d'un objet qui en porte d'autres
+ * est une vraie erreur de chemin, et la remplacer par l'objet entier mettrait `{"id":…,"nom":…}`
+ * dans un destinataire. On la CONSIGNE avec les champs réellement disponibles, et l'appelant
+ * fait échouer l'itération avant de payer l'appel de capacité.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
 export function entreeIteration(
   modele: Record<string, unknown>,
   nom: string,
   element: unknown,
-): Record<string, unknown> {
-  return injecter(modele, { [nom]: element }) as Record<string, unknown>;
+): EntreeIteration {
+  const scalaire = element === null || typeof element !== "object";
+  const absentes: string[] = [];
+  const entree = injecter(modele, { [nom]: element }, {
+    resoudre: (chemin) => {
+      if (chemin !== nom && !chemin.startsWith(`${nom}.`)) return lire({ [nom]: element }, chemin);
+      const suite = chemin === nom ? "" : chemin.slice(nom.length + 1);
+      if (suite === "") return element;
+      return scalaire ? element : lire(element, suite);
+    },
+    absentes,
+  }) as Record<string, unknown>;
+  return {
+    entree,
+    manquantes: absentes
+      .filter((r) => r === nom || r.startsWith(`${nom}.`))
+      .map((reference) => ({ reference, disponibles: cheminsDisponibles(element) })),
+  };
 }
 
 /**
@@ -179,12 +264,6 @@ export interface DiagnosticReference {
 }
 
 export interface SortieAmont { status: string; result: unknown }
-
-const cheminsDisponibles = (courant: unknown): string[] => {
-  if (Array.isArray(courant)) return courant.length === 0 ? [] : [`0…${courant.length - 1}`];
-  if (courant && typeof courant === "object") return Object.keys(courant as Record<string, unknown>).slice(0, 12);
-  return [];
-};
 
 /**
  * DIAGNOSTIQUE chaque référence d'une valeur contre les sorties de la mission. Les alias
