@@ -48,6 +48,12 @@ next-env.d.ts
 /graphify-out/cache
 /graphify-out/.graphify_root
 /graphify-out/manifest.json
+# `src/graphify-out` est le RÉPERTOIRE DE TRAVAIL de `graphify:refresh` : le CLI écrit dans
+# `<cible>/graphify-out/`, le script replace les sorties à la racine puis l'efface (ligne 25).
+# Il n'existe donc que pendant le rafraîchissement — mais un `git add -A` lancé PENDANT y ramasse
+# le cache d'AST, et c'est arrivé. Un répertoire temporaire visible d'un ajout global doit être
+# ignoré, même s'il se nettoie tout seul.
+/src/graphify-out
 .ocr-cache/
 
 # auto-testeur — rapports générés (régénérables via `npm run autotest`)
