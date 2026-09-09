@@ -381,3 +381,61 @@ export function elaguerFil(
     blocks: c.blocks.filter((b, k) => !b.blockId || dernier.get(b.blockId) === `${i}.${j}.${k}`),
   })).filter((c) => c.blocks.length > 0));
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * CE QU'ON A RANGÉ REDEVIENT-IL UN ÉCRAN ? — la porte d'entrée d'un tour RELU.
+ *
+ * Un tour d'Adam est persisté avec ce qu'il a CONSTRUIT (`AssistantMessage.workspace`), pour
+ * qu'en revenant on retrouve son écran et pas seulement sa phrase. La mémoire range du JSON
+ * sans le typer — elle ne doit pas dépendre d'une forme d'affichage, sans quoi le jour où le
+ * protocole évolue elle refuserait de relire ce qu'elle a écrit. C'est donc ICI qu'on décide
+ * si l'on sait rendre ce qui remonte.
+ *
+ * ── POURQUOI CETTE FONCTION VIT À CÔTÉ D'`elaguerFil` ────────────────────────────────────
+ *
+ * Parce que c'est `elaguerFil` qui consomme le résultat, et qu'elle parcourt `c.blocks`. Une
+ * première version de ce filtre acceptait tout objet : un enregistrement écrit par une autre
+ * version du protocole serait arrivé sans `blocks`, et le fil entier serait tombé sur
+ * `undefined.forEach` — pas un bloc manquant, la CONVERSATION en écran blanc, au retour, pour
+ * une donnée qu'on ne savait pas lire. Un refus à tort coûte plus cher que le défaut qu'on
+ * corrige (§118.27), et un écran blanc est le refus le plus cher qui soit.
+ *
+ * On exige donc EXACTEMENT ce que le rendu consomme, et rien de plus : ce qu'on ne sait pas
+ * lire se relit en texte, comme avant. Les deux fonctions sont dans le même fichier pour que
+ * le banc puisse les faire se rencontrer — c'est leur rencontre qui est la propriété, pas
+ * l'une ou l'autre prise seule (§118.49).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function lireWorkspaceRange(brut: unknown): WorkspaceComposition[] | null {
+  if (!Array.isArray(brut) || brut.length === 0) return null;
+  const bons = brut.filter((c): c is WorkspaceComposition =>
+    !!c && typeof c === "object" && !Array.isArray(c) && Array.isArray((c as { blocks?: unknown }).blocks));
+  return bons.length ? bons : null;
+}
+
+/**
+ * UN TOUR RELU, tel que l'ÉCRAN en a besoin — et pas un octet de plus.
+ *
+ * L'écran rendait `StoredMessage`, le type de la MÉMOIRE. La raison de ne plus le faire est
+ * celle qui vaut déjà dans l'autre sens, écrite en toutes lettres sur `StoredMessage.workspace` :
+ * la mémoire ne doit pas dépendre d'une forme d'affichage — elle refuserait de relire ce qu'elle
+ * a écrit le jour où le protocole change. La réciproque est vraie et coûte le même prix :
+ * l'affichage qui dépend d'une forme de STOCKAGE cesse de compiler le jour où la mémoire ajoute
+ * une colonne. Les deux se rencontrent sur ce qui est vrai des deux côtés — un rôle, un texte,
+ * et ce qui avait été construit ; `StoredMessage` reste compatible par sa STRUCTURE, sans que
+ * personne n'importe l'autre.
+ *
+ * Ce que ce type n'est PAS : la réparation d'un franchissement de frontière. Je l'ai d'abord
+ * cru et écrit — le cliquet est passé de 428 à 429 dans le même lot — puis mesuré : le
+ * franchissement venait d'un `import { Prisma }` ajouté pour UNE conversion de type dans
+ * `assistant-memory.ts`, et il a été retiré là-bas. Le type reste pour son mérite propre, et la
+ * mesure reste écrite ici : une cause plausible qu'on n'a pas vérifiée est plus tenace qu'une
+ * cause absente (§118.76).
+ */
+export interface TourRelu {
+  role: "user" | "assistant";
+  content: string;
+  /** Ce qu'Adam avait construit — `unknown` : c'est `lireWorkspaceRange` qui décide. */
+  workspace?: unknown;
+}

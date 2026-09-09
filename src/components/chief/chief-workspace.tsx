@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChiefHeader } from "./chief-header";
 import type { Destination } from "@/platform/contract";
 import { ChiefHome } from "./chief-home";
+import type { TourRelu } from "@/lib/assistant/workspace/turn";
 import { AssistantChat } from "@/app/(app)/assistant/assistant-chat";
 
 /**
@@ -36,6 +37,8 @@ export interface ChiefWorkspaceProps {
   memoryEnabled: boolean;
   initialPrompt: string | null;
   initialThreadId: string | null;
+  /** Les derniers tours, rendus par le serveur — voir `assistant-chat.tsx`. */
+  initialMessages: TourRelu[] | null;
   initialCallRef: string | null;
   settingsHref: string | null;
   /** Ce qui attend une décision — calculé côté serveur, affiché seulement s'il y en a. */
@@ -56,6 +59,7 @@ export function ChiefWorkspace({
   memoryEnabled,
   initialPrompt,
   initialThreadId,
+  initialMessages,
   initialCallRef,
   settingsHref,
   attention,
@@ -105,6 +109,7 @@ export function ChiefWorkspace({
           executive
           initialPrompt={seed}
           initialThreadId={initialThreadId}
+          initialMessages={initialMessages}
           initialCallRef={initialCallRef}
           emptyState={emptyState}
           historyMode="drawer"

@@ -22,7 +22,8 @@ import type { ProposedAction, AssistantActionPayload, ChatTurn, AssistantResult,
 import type { WorkspaceActionIntent, WorkspaceComposition } from "@/lib/assistant/workspace/protocol";
 import { WorkspaceBlocks, WorkspaceAskProvider } from "@/components/chief/workspace/blocks";
 import { TurnWorkspaceView } from "@/components/chief/workspace/turn-workspace";
-import { composeTurn, elaguerFil, isWorkspaceTurn, phasesOf } from "@/lib/assistant/workspace/turn";
+import { composeTurn, elaguerFil, isWorkspaceTurn, lireWorkspaceRange, phasesOf } from "@/lib/assistant/workspace/turn";
+import type { TourRelu } from "@/lib/assistant/workspace/turn";
 import { matchesConfirmText } from "@/lib/assistant/confirm";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import type { ThreadSummary } from "@/lib/assistant-memory";
@@ -48,6 +49,17 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 export type ActionState = "pending" | "running" | "done" | "cancelled" | "error";
+
+/**
+ * UN TOUR RANGÉ REDEVIENT UN TOUR À L'ÉCRAN — la même traduction aux DEUX endroits qui
+ * rouvrent une conversation : le premier rendu (fourni par le serveur) et l'ouverture d'un
+ * autre fil depuis l'historique. Deux traductions finiraient par diverger, et l'on retrouverait
+ * son écran ou son texte seul selon le chemin emprunté pour y revenir.
+ */
+function repriseDuTour(m: TourRelu): Msg {
+  const ws = lireWorkspaceRange(m.workspace);
+  return { id: nextId(), role: m.role, content: m.content, ...(ws ? { workspace: ws } : {}) };
+}
 
 interface Msg {
   id: number;
@@ -134,7 +146,7 @@ export function LinkifiedText({ text }: { text: string }) {
 
 export function AssistantChat({
   userName, configured, voiceConfigured = false, realtimeVoice = false, memoryEnabled = false,
-  executive = false, initialPrompt = null, initialThreadId = null, initialCallRef = null,
+  executive = false, initialPrompt = null, initialThreadId = null, initialMessages = null, initialCallRef = null,
   emptyState = null, historyMode = "rail", surface = "card", canvas = false,
   historyOpen, onHistoryOpenChange,
 }: {
@@ -150,6 +162,15 @@ export function AssistantChat({
   initialPrompt?: string | null;
   /** LE FIL PRINCIPAL : la conversation continue qui s'ouvre d'office (Chief of Staff). */
   initialThreadId?: string | null;
+  /**
+   * LES DERNIERS TOURS, RENDUS PAR LE SERVEUR — ce qui supprime l'écran vide au retour.
+   *
+   * Avant : la page peignait l'état d'accueil, puis un `useEffect` allait chercher l'historique,
+   * puis les messages apparaissaient. Trois états visibles pour rouvrir une conversation qui
+   * était déjà en base. Fournis ici, les tours sont dans le PREMIER rendu ; le chargement
+   * client ne sert plus qu'à ouvrir un AUTRE fil depuis l'historique.
+   */
+  initialMessages?: TourRelu[] | null;
   /** APPEL DEPUIS UNE FICHE (?call=1&ref=…) : l'appel démarre avec ce dossier en contexte. */
   initialCallRef?: string | null;
   /**
@@ -190,7 +211,7 @@ export function AssistantChat({
   historyOpen?: boolean;
   onHistoryOpenChange?: (open: boolean) => void;
 }) {
-  const [messages, setMessages] = React.useState<Msg[]>([]);
+  const [messages, setMessages] = React.useState<Msg[]>(() => (initialMessages ?? []).map(repriseDuTour));
   const [input, setInput] = React.useState("");
   const [sending, setSending] = React.useState(false);
   /** Les SOURCES consultées pendant la conversation (liens internes), les plus récentes d'abord. */
@@ -207,7 +228,12 @@ export function AssistantChat({
 
   // ── Mémoire personnelle : fil courant + historique de MES conversations.
   //    Le serveur ne renvoie jamais que les fils du demandeur (cf. assistant-memory.ts).
-  const [threadId, setThreadId] = React.useState<string | null>(null);
+  // LE FIL EST OUVERT DÈS LE PREMIER RENDU quand le serveur a fourni ses tours : pas d'écran
+  // d'accueil qui clignote, pas de « Ouverture… », pas d'aller-retour pour relire ce qui était
+  // déjà en base.
+  const [threadId, setThreadId] = React.useState<string | null>(
+    initialMessages && initialMessages.length ? initialThreadId : null,
+  );
   const [threads, setThreads] = React.useState<ThreadSummary[]>([]);
   const [histOpenLocal, setHistOpenLocal] = React.useState(false);
   const histOpen = historyOpen ?? histOpenLocal;
@@ -252,7 +278,8 @@ export function AssistantChat({
       const stored = await myAssistantThread(id);
       if (!stored) { await refreshThreads(); return; } // fil disparu (ou jamais le mien)
       setThreadId(id);
-      setMessages(stored.map((m) => ({ id: nextId(), role: m.role, content: m.content })));
+      // CE QU'ADAM AVAIT CONSTRUIT revient avec le tour (`repriseDuTour`).
+      setMessages(stored.map(repriseDuTour));
     } finally {
       setLoadingThread(false);
     }
@@ -262,6 +289,10 @@ export function AssistantChat({
   // temps au lieu de repartir de zéro. Seuls les derniers échanges sont rechargés (plafond côté
   // serveur) — le passé lointain se retrouve par recall_conversation.
   React.useEffect(() => {
+    // SI LE SERVEUR A DÉJÀ RENDU LES TOURS, il n'y a rien à aller chercher : refaire l'appel
+    // remplacerait l'écran par le même écran, une seconde plus tard. On ne charge que lorsque
+    // la page n'a pas pu fournir l'historique (ancienne page, ou fil vide).
+    if (initialMessages && initialMessages.length) return;
     if (initialThreadId && memoryEnabled) void openThread(initialThreadId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialThreadId, memoryEnabled]);

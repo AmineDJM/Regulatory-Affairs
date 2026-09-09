@@ -5,7 +5,7 @@ import { aiConfigured, sttConfigured } from "@/lib/ai";
 import { realtimeVoiceConfigured, canUseRealtimeVoice } from "@/lib/assistant/voice-realtime";
 import { featureEnabled, FEATURES } from "@/lib/features";
 import { getActionCenter } from "@/lib/queries/action-center";
-import { ensurePrimaryThread } from "@/lib/assistant-memory";
+import { ensurePrimaryThread, getThreadMessages } from "@/lib/assistant-memory";
 import { inProcessPlatform, principalOf } from "@/platform/in-process/adapter";
 import { composerInbox } from "@/platform/in-process/inbox/compose";
 import { aTrancher } from "@/lib/assistant/inbox/model";
@@ -76,6 +76,23 @@ export default async function ChiefOfStaffPage({
   // LE FIL PRINCIPAL : une conversation CONTINUE par personne — elle s'ouvre d'office au lieu
   // de repartir de « chat n°47 ».
   const primaryThreadId = memoryEnabled ? await ensurePrimaryThread(user.id).catch(() => null) : null;
+  /**
+   * LES DERNIERS TOURS, RENDUS ICI — le retour n'est plus un rechargement.
+   *
+   * L'écran peignait l'accueil, puis un aller-retour client allait relire une conversation qui
+   * était DÉJÀ en base, puis la remplaçait : trois états visibles pour rouvrir ce qu'on venait
+   * de quitter. Chargés côté serveur, les tours sont là au premier octet. Le chargement client
+   * reste, pour ouvrir un AUTRE fil depuis l'historique — c'est son seul emploi.
+   */
+  const primaryMessages = primaryThreadId
+    // UNE FENÊTRE, PAS TOUT LE FIL. Le plafond de la mémoire est de 300 messages : les rendre
+    // au premier octet ferait payer six mois de conversation pour revoir les trois derniers
+    // échanges. Quarante suffisent à retrouver où l'on en était ; le passé lointain se retrouve
+    // par l'historique et par `recall_conversation`, qui existent pour ça.
+    // `avecWorkspace` : c'est ICI qu'on rend un écran, donc ici qu'on paie la colonne — la voix,
+    // qui ne lit que le texte, ne la sélectionne pas.
+    ? await getThreadMessages(user.id, primaryThreadId, 40, { avecWorkspace: true }).catch(() => null)
+    : null;
 
   // CE QUI ATTEND UNE DÉCISION. Quatre compteurs bon marché ; le détail vit dans les outils.
   // Chacun devient une PHRASE qu'Adam peut traiter, pas un lien vers un autre écran : on ne
@@ -125,6 +142,7 @@ export default async function ChiefOfStaffPage({
       memoryEnabled={memoryEnabled}
       initialPrompt={initialPrompt}
       initialThreadId={primaryThreadId}
+      initialMessages={primaryMessages}
       initialCallRef={startCall ? ref || "" : null}
       settingsHref={hasGlobalView(user) ? "/chief-of-staff/reglages" : null}
       attention={attention}

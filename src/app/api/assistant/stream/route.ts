@@ -37,7 +37,17 @@ export async function POST(req: Request) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let closed = false;
+      /**
+       * CE QU'ADAM CONSTRUIT PASSE ICI — on le RAMASSE au vol.
+       *
+       * Les blocs de l'espace de travail traversaient ce flux vers le navigateur et n'étaient
+       * écrits nulle part : en revenant, la personne retrouvait le texte du tour et perdait
+       * l'écran. Les collecter au passage ne coûte rien et ne change pas ce qui est envoyé —
+       * c'est le même objet, simplement retenu pour la mémoire du fil.
+       */
+      const construits: unknown[] = [];
       const send = (e: AssistantStreamEvent) => {
+        if (e.type === "workspace") construits.push(e.composition);
         if (closed) return;
         try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`)); } catch { closed = true; }
       };
@@ -99,7 +109,10 @@ export async function POST(req: Request) {
         const lastUser = [...history].reverse().find((t) => t.role === "user")?.content ?? "";
         // Mémorisation du fil (helpers scopés par userId) — jamais bloquante.
         if (memoryOn && result.ok && result.reply) {
-          result.threadId = await rememberExchange(user.id, threadId, lastUser, result.reply);
+          result.threadId = await rememberExchange(
+            user.id, threadId, lastUser, result.reply,
+            construits.length ? construits : undefined,
+          );
         }
         // LA PROVENANCE DU TOUR (F8) — consignée quel que soit le drapeau mémoire : « d'où tu tiens
         // ça ? » doit avoir une réponse même pour un compte sans mémoire personnelle.

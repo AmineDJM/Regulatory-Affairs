@@ -45,7 +45,38 @@ export async function listThreads(userId: string, limit = 30): Promise<ThreadSum
   }));
 }
 
-export interface StoredMessage { role: "user" | "assistant"; content: string; createdAt: string }
+/**
+ * CE QU'UNE COLONNE JSON ACCEPTE — déclaré ICI plutôt qu'importé de Prisma.
+ *
+ * La première version écrivait `as Prisma.InputJsonValue`, et le cliquet de frontière l'a
+ * refusé : 429 franchissements pour un plafond de 428. Il avait raison, et le remède n'est pas
+ * de relever le plafond (§118.72) — importer tout un espace de noms pour UNE conversion de
+ * type est précisément le franchissement qu'il existe pour empêcher. La forme, elle, est
+ * publique et stable : c'est celle de JSON.
+ */
+type ValeurJson = string | number | boolean | null | ValeurJson[] | { [cle: string]: ValeurJson };
+/**
+ * CE QU'ON ÉCRIT — jamais `null` NU. Prisma distingue « écris la valeur JSON null » de
+ * « laisse la colonne vide », et le second est ce qu'on veut : un tour sans espace de
+ * travail n'en a pas, et la colonne absente se relit « rien à rendre ». L'appelant a déjà
+ * écarté `null` et `undefined` avant d'arriver ici ; le type ne fait que le dire.
+ */
+type JsonEcrit = Exclude<ValeurJson, null>;
+
+export interface StoredMessage {
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  /**
+   * CE QU'ADAM AVAIT CONSTRUIT à ce tour — `WorkspaceComposition[]`, tel quel.
+   *
+   * Typé `unknown` ici parce que ce module est la MÉMOIRE, pas l'écran : lui donner le type
+   * du protocole d'espace de travail le ferait dépendre d'une forme d'affichage, et le jour
+   * où cette forme évolue, la mémoire refuserait de relire ce qu'elle a écrit. Elle rend ce
+   * qu'elle a rangé ; c'est l'écran qui sait le lire, et qui ignore ce qu'il ne reconnaît pas.
+   */
+  workspace?: unknown;
+}
 
 /**
  * Messages d'un fil — **uniquement si ce fil appartient au demandeur**.
@@ -56,7 +87,20 @@ export interface StoredMessage { role: "user" | "assistant"; content: string; cr
  * JAMAIS tout l'historique, le passé lointain se retrouve par `searchOwnMessages` et par la
  * mémoire distillée/typée.
  */
-export async function getThreadMessages(userId: string, threadId: string, limit = 300): Promise<StoredMessage[] | null> {
+export async function getThreadMessages(
+  userId: string, threadId: string, limit = 300,
+  /**
+   * FAUT-IL RAPPORTER CE QU'ADAM AVAIT CONSTRUIT ? Par défaut NON, et le défaut est le point.
+   *
+   * Quatre appelants lisent ce fil ; DEUX seulement rendent un écran. Les deux autres — la voix
+   * temps réel (60 tours) et son orchestrateur (12) — n'en lisent que `role` et `content` pour
+   * bâtir un contexte de modèle. Sélectionner la colonne pour tout le monde ferait traverser à
+   * chaque tour de voix les tableaux et les graphiques de soixante tours, pour les jeter : le
+   * genre de coût qu'on ne voit pas parce qu'il ne casse rien. Le défaut à FAUX est ce qui
+   * garantit qu'un appelant futur paie ce qu'il a demandé, pas ce qu'un autre a eu besoin.
+   */
+  opts: { avecWorkspace?: boolean } = {},
+): Promise<StoredMessage[] | null> {
   const thread = await prisma.assistantThread.findFirst({
     where: { id: threadId, userId }, // ← les DEUX conditions, toujours
     select: { id: true },
@@ -68,11 +112,18 @@ export async function getThreadMessages(userId: string, threadId: string, limit 
     // (question + réponse arrivent ensemble) : l'ordre reste strictement chronologique.
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: Math.max(1, limit),
-    select: { role: true, content: true, createdAt: true },
+    select: { role: true, content: true, createdAt: true, ...(opts.avecWorkspace ? { workspace: true as const } : {}) },
   });
   return rows
     .reverse()
-    .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content, createdAt: m.createdAt.toISOString() }));
+    .map((m) => ({
+      role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
+      content: m.content,
+      createdAt: m.createdAt.toISOString(),
+      // On ne rend la clé QUE si elle porte quelque chose : une clé présente à `null` ferait
+      // croire à l'écran qu'un espace de travail existe et qu'il est vide (§118.71).
+      ...(m.workspace == null ? {} : { workspace: m.workspace as unknown }),
+    }));
 }
 
 /**
@@ -222,13 +273,17 @@ export async function createThread(userId: string, firstMessage?: string): Promi
  */
 export async function appendExchange(
   userId: string, threadId: string, userMessage: string, assistantReply: string,
+  workspace?: unknown,
 ): Promise<boolean> {
   const owned = await prisma.assistantThread.findFirst({ where: { id: threadId, userId }, select: { id: true, title: true } });
   if (!owned) return false;
   await prisma.assistantMessage.createMany({
     data: [
       { threadId, userId, role: "user", content: userMessage },
-      { threadId, userId, role: "assistant", content: assistantReply },
+      // `undefined` laisserait Prisma écrire NULL, ce qui est le bon défaut : un tour sans
+      // espace de travail n'en a pas, et une colonne vide se relit comme « rien à rendre ».
+      { threadId, userId, role: "assistant", content: assistantReply,
+        ...(workspace === undefined || workspace === null ? {} : { workspace: workspace as JsonEcrit }) },
     ],
   });
   await prisma.assistantThread.update({

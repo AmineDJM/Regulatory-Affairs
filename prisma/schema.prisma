@@ -689,6 +689,11 @@ model AssistantMessage {
   userId    String
   role      String /// « user » ou « assistant »
   content   String
+  /// CE QU'ADAM A CONSTRUIT à ce tour — tableaux, graphiques, cartes, aperçus de pièces
+  /// (`WorkspaceComposition[]`). Le TEXTE seul était persisté : en revenant, la personne
+  /// retrouvait la phrase et perdait ce qu'elle avait sous les yeux. Un tour d'Adam n'est pas
+  /// une réplique, c'est un écran ; le garder à moitié, c'est ne pas le garder.
+  workspace Json?
   createdAt DateTime        @default(now())
 
   @@index([threadId, createdAt])

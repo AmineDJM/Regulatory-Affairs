@@ -186,16 +186,21 @@ async function maybeCutEpisode(userId: string, threadId: string): Promise<void> 
  */
 export async function rememberExchange(
   userId: string, threadId: string | null, userMessage: string, reply: string,
+  /**
+   * CE QU'ADAM A CONSTRUIT à ce tour (`WorkspaceComposition[]`). Facultatif : la voix et les
+   * chemins sans espace de travail n'en produisent pas, et un tour sans blocs n'en écrit pas.
+   */
+  workspace?: unknown,
 ): Promise<string | null> {
   try {
     let tid = threadId;
     if (tid) {
-      const ok = await appendExchange(userId, tid, userMessage, reply);
+      const ok = await appendExchange(userId, tid, userMessage, reply, workspace);
       if (!ok) tid = null; // fil inconnu ou n'appartenant pas au demandeur → on repart proprement
     }
     if (!tid) {
       tid = await createThread(userId, userMessage);
-      await appendExchange(userId, tid, userMessage, reply);
+      await appendExchange(userId, tid, userMessage, reply, workspace);
     }
     await maybeDistillMemory(userId);
     await maybeCutEpisode(userId, tid);
@@ -545,12 +550,19 @@ export async function myAssistantThreads(): Promise<ThreadSummary[]> {
   }
 }
 
-/** Les messages d'UNE de mes conversations (null si ce n'est pas la mienne). */
+/**
+ * Les messages d'UNE de mes conversations (null si ce n'est pas la mienne).
+ *
+ * Avec CE QU'ADAM Y AVAIT CONSTRUIT : cette porte sert l'ouverture d'un fil depuis l'historique,
+ * c'est-à-dire un ÉCRAN. Rouvrir une conversation en n'en rendant que le texte laisserait deux
+ * façons de la voir selon le chemin emprunté pour y arriver — celle du retour (rendue par le
+ * serveur, blocs compris) et celle de l'historique, amputée.
+ */
 export async function myAssistantThread(threadId: string): Promise<StoredMessage[] | null> {
   try {
     const user = await requireUser();
     if (user.impersonatedBy) return null;
-    return await getThreadMessages(user.id, threadId);
+    return await getThreadMessages(user.id, threadId, undefined, { avecWorkspace: true });
   } catch {
     return null;
   }
