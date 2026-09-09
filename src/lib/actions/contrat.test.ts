@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
+import { Prisma } from "@prisma/client";
 import { join } from "node:path";
 import {
   contratsDuFichier, decrireAction, direContrat, helpersDuFichier, lireArguments,
@@ -242,6 +243,39 @@ describe("CONTRAT D'ACTION — le parc réel, et le cliquet qui ne remonte pas",
     for (const r of refs) expect(r.valeurs, r.nom).toBeNull();
   });
 
+  /**
+   * PLANCHER DE DÉSIGNATION — ce qui empêche l'appel perdu de §118.49.
+   *
+   * `daterLEntree` était écrite, commentée, couverte par un test qui lisait son CORPS ; son
+   * APPEL avait disparu dans une édition, et 2 332 reçus sont sortis sans une seule entrée
+   * datée. Ici la même chose est possible en une ligne : `contrat-scan.ts` cesse de passer
+   * `relationsDuSchema()`, tout se compile, tous les autres essais passent, et Adam redemande
+   * un `cuid` à des humains pour toujours. Un plancher MESURÉ le fait tomber en le nommant.
+   *
+   * Il ne descend jamais sans une raison écrite ici : une relation retirée du schéma est une
+   * décision de revue, pas un effet de bord.
+   */
+  const PLANCHER_DESIGNABLES = 500;
+
+  it("PLANCHER : les références portent le MODÈLE que le schéma désigne — et ce sont de vrais modèles", () => {
+    const modeles = new Set(Prisma.dmmf.datamodel.models.map((m) => m.name));
+    const avecModele = vivants.flatMap((c) => c.champs).filter((x) => x.modele);
+    // (a) Ce qui est annoncé EXISTE. Un modèle inventé ferait chercher dans le vide, ou pire,
+    //     dans une autre table — c'est-à-dire agir sur la mauvaise ligne (§104.7).
+    const inventes = [...new Set(avecModele.map((x) => x.modele!))].filter((m) => !modeles.has(m));
+    expect(inventes, "un `modele` qui n'est pas dans le schéma").toEqual([]);
+    // (b) Et il y en a assez pour que la dérivation soit VIVANTE.
+    expect(
+      avecModele.length,
+      `Champs portant un modèle : ${avecModele.length} (plancher ${PLANCHER_DESIGNABLES}). `
+        + `Une chute veut dire que la table de relations n'arrive plus jusqu'à la dérivation.`,
+    ).toBeGreaterThanOrEqual(PLANCHER_DESIGNABLES);
+    // (c) Seules des RÉFÉRENCES en portent : un champ texte porteur d'un modèle ferait résoudre
+    //     un libellé libre vers une ligne au hasard.
+    for (const ch of avecModele) expect(["reference", "liste"], ch.nom).toContain(ch.type);
+    console.info(`[DESIGNATION] ${avecModele.length} champs portent le modèle qu'ils désignent (plancher ${PLANCHER_DESIGNABLES})`);
+  });
+
   it("la phrase rendue au modèle dit l'ignorance au lieu de la taire", () => {
     const illisible = vivants.find((c) => c.illisible)!;
     expect(direContrat(illisible)).toMatch(/non appelable directement/);
@@ -272,21 +306,21 @@ describe("ARGUMENTS — un appel positionnel se lit tout entier, ou pas du tout"
 
   it("les types simples se lisent, DANS L'ORDRE — c'est l'ordre qui fait l'appel", () => {
     expect(champs("id: string, name: string, path?: string")).toEqual([
-      { nom: "id", type: "reference", obligatoire: true, valeurs: null },
-      { nom: "name", type: "texte", obligatoire: true, valeurs: null },
-      { nom: "path", type: "texte", obligatoire: false, valeurs: null },
+      { nom: "id", type: "reference", obligatoire: true, valeurs: null, modele: null },
+      { nom: "name", type: "texte", obligatoire: true, valeurs: null, modele: null },
+      { nom: "path", type: "texte", obligatoire: false, valeurs: null, modele: null },
     ]);
   });
 
   it("booléen, nombre et liste gardent leur nature — « on » n'est pas un booléen", () => {
-    expect(champs("paused: boolean")).toEqual([{ nom: "paused", type: "booleen", obligatoire: true, valeurs: null }]);
+    expect(champs("paused: boolean")).toEqual([{ nom: "paused", type: "booleen", obligatoire: true, valeurs: null, modele: null }]);
     expect(champs("year: number, month: number")?.map((c) => c.type)).toEqual(["nombre", "nombre"]);
     expect(champs("ids: string[]")?.[0]?.type).toBe("liste");
   });
 
   it("une union de littéraux DONNE ses valeurs admises — on ne les devine pas", () => {
     expect(champs('decision: "GRANTED" | "REFUSED"')).toEqual([
-      { nom: "decision", type: "texte", obligatoire: true, valeurs: ["GRANTED", "REFUSED"] },
+      { nom: "decision", type: "texte", obligatoire: true, valeurs: ["GRANTED", "REFUSED"], modele: null },
     ]);
   });
 

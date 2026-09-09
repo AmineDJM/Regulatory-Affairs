@@ -68,7 +68,10 @@ export const OPS_CATALOG: OpMeta[] = [
     summary:
       "Appelle N'IMPORTE QUELLE action serveur ouverte de l'ERP — la même que le bouton de l'écran, "
       + "avec ses propres contrôles de droits. Carte de confirmation obligatoire. Les gestes qui touchent "
-      + "aux comptes, aux droits ou aux garde-fous sont refusés par conception, Super Admin compris.",
+      + "aux comptes, aux droits ou aux garde-fous sont refusés par conception, Super Admin compris. "
+      + "Les champs de RÉFÉRENCE acceptent un NOM ou une référence lisible (« Nivolex », "
+      + "« REG-2026-041 ») quand l'objet visé a une portée de lecture déclarée : la carte montre "
+      + "alors la ligne retenue, et une désignation ambiguë est refusée avec ses candidats.",
     // La porte est celle de l'ACTION, pas celle-ci : ce pré-filtre laisse passer, et chaque
     // action revérifie. Le refuser ici sur un module fermerait le rattrapage à ceux-là mêmes
     // qui en ont besoin — l'action, elle, sait exactement ce qu'elle exige.

@@ -96,10 +96,10 @@ describe("CHEMIN GÉNÉRIQUE — l'auto-escalade est refusée par CONSTRUCTION",
 describe("CHEMIN GÉNÉRIQUE — une entrée se valide contre son contrat AVANT de partir", () => {
   const c = contrat({
     champs: [
-      { nom: "titre", type: "texte", obligatoire: true, valeurs: null },
-      { nom: "statut", type: "texte", obligatoire: false, valeurs: ["OUVERT", "CLOS"] },
-      { nom: "libre", type: "texte", obligatoire: false, valeurs: null },
-      { nom: "etiquette", type: "liste", obligatoire: false, valeurs: null },
+      { nom: "titre", type: "texte", obligatoire: true, valeurs: null, modele: null },
+      { nom: "statut", type: "texte", obligatoire: false, valeurs: ["OUVERT", "CLOS"], modele: null },
+      { nom: "libre", type: "texte", obligatoire: false, valeurs: null, modele: null },
+      { nom: "etiquette", type: "liste", obligatoire: false, valeurs: null, modele: null },
     ],
   });
 
@@ -251,7 +251,7 @@ describe("enArguments — le rang et la nature, pas seulement la valeur", () => 
     ecrit: false, modelesEcrits: [], audit: false, illisible: null,
   });
   const ch = (nom: string, type: ChampAction["type"]): ChampAction =>
-    ({ nom, type, obligatoire: false, valeurs: null });
+    ({ nom, type, obligatoire: false, valeurs: null, modele: null });
 
   it("un champ absent occupe SON RANG — il n'est pas omis", () => {
     // LE CAS QUI FERAIT TOMBER CETTE ASSERTION : un `filter` sur les valeurs présentes.

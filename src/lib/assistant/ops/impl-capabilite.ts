@@ -1,8 +1,10 @@
 import type { OpImpl, OpProposalDraft } from "./types";
 import {
   CONTRAT_PAR_ID, CONTRATS_ACTIONS, direContrat, chercherCapacites,
-  interdictionGenerique, validerEntree, executerAction, relireApresEcriture, type ContratAction,
+  interdictionGenerique, validerEntree, executerAction, relireApresEcriture,
+  resoudreEntrees, champsDesignables, type ContratAction,
 } from "@/platform/in-process/capacites";
+import { OPS_CATALOG } from "./catalog";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -32,6 +34,36 @@ import {
 
 const MAX_CANDIDATES = 6;
 
+/**
+ * QUELLE OP DÉCLARÉE COUVRE CETTE ACTION ? — ce qui transforme une limite en ROUTE.
+ *
+ * Le chemin générique ne sait désigner par leur nom que les objets dont une PORTÉE de lecture
+ * est déclarée (29 sur 310 modèles) : il ne trouvera jamais « le dossier Campagne » du Drive,
+ * dont l'accès se calcule nœud par nœud et ne s'écrit pas en clause Prisma. Les ops de domaine,
+ * elles, le font depuis toujours — `resolveDriveNode` interroge `resolveDriveAccess` pour chaque
+ * nœud. Le refus les NOMME au lieu de s'arrêter à « donnez l'identifiant » : un refus qui nomme
+ * la faute sans nommer le remède fait payer un aller-retour, et tue parfois la mission (§118.30).
+ *
+ * Et c'est la réponse mesurée à « le chemin générique remplace-t-il les 503 propose écrits à la
+ * main ? » — non : il les COMPLÈTE, et chacun est le bon chemin là où il existe.
+ */
+const OPS_PAR_ACTION: ReadonlyMap<string, { tool: string; op: string; uiLabel: string }[]> = (() => {
+  const m = new Map<string, { tool: string; op: string; uiLabel: string }[]>();
+  for (const meta of OPS_CATALOG) {
+    for (const cle of meta.covers) {
+      m.set(cle, [...(m.get(cle) ?? []), { tool: meta.tool, op: meta.op, uiLabel: meta.uiLabel }]);
+    }
+  }
+  return m;
+})();
+
+const direOpsCouvrantes = (id: string): string => {
+  const ops = OPS_PAR_ACTION.get(id) ?? [];
+  if (ops.length === 0) return "";
+  return ` L'op ${ops.map((o) => `\`${o.tool}/${o.op}\` (« ${o.uiLabel} »)`).join(" ou ")} `
+    + `résout ce nom pour vous.`;
+};
+
 /** Ce que le modèle a écrit dans `champs` — du JSON, ou rien. */
 function lireChamps(brut: string): { ok: true; champs: Record<string, unknown> } | { ok: false; erreur: string } {
   const t = brut.trim();
@@ -47,10 +79,19 @@ function lireChamps(brut: string): { ok: true; champs: Record<string, unknown> }
   }
 }
 
-/** La fiche d'une action, telle qu'un modèle et un humain la lisent tous les deux. */
+/**
+ * LA FICHE D'UNE ACTION, telle qu'un modèle et un humain la lisent tous les deux — et qui DIT
+ * quels champs acceptent un nom. Sans cette phrase, « reference » se lit « donne-moi un
+ * identifiant », et le modèle en invente un ou renonce (§118.19).
+ */
 const fiche = (c: ContratAction): string => {
   const interdit = interdictionGenerique(c);
-  return interdit ? `${c.id} — REFUSÉE : ${interdit}` : direContrat(c);
+  if (interdit) return `${c.id} — REFUSÉE : ${interdit}`;
+  const nommables = champsDesignables(c);
+  const suffixe = nommables.length
+    ? ` — vous pouvez écrire un NOM ou une référence pour ${nommables.map((n) => `${n.champ} (${n.objet})`).join(", ")}`
+    : "";
+  return `${direContrat(c)}${suffixe}`;
 };
 
 /**
@@ -85,7 +126,7 @@ function designer(texte: string): { contrat: ContratAction } | { refus: string }
 
 export const CAPABILITY_OPS_IMPL: Record<string, OpImpl> = {
   run: {
-    async propose(input, _user): Promise<OpProposalDraft | { error: string }> {
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
       const brut = typeof input.action === "string" ? input.action : "";
       const vise = designer(brut);
       if ("refus" in vise) return { error: vise.refus };
@@ -101,15 +142,35 @@ export const CAPABILITY_OPS_IMPL: Record<string, OpImpl> = {
 
       const refus = validerEntree(contrat, lus.champs);
       if (refus.length > 0) {
-        return { error: `${refus.map((r) => r.raison).join(" ")}\nCette action attend : ${direContrat(contrat)}` };
+        return { error: `${refus.map((r) => r.raison).join(" ")}\nCette action attend : ${fiche(contrat)}` };
       }
 
-      const valeurs = Object.entries(lus.champs).filter(([, v]) => v !== undefined && v !== null && v !== "");
+      // « NIVOLEX » LÀ OÙ L'ACTION ATTEND UN `cuid` — la désignation se fait ICI, dans la
+      // proposition, et son résultat part dans les `args`. Résoudre à nouveau à l'exécution
+      // pourrait désigner une AUTRE ligne entre la carte et le clic : ce qu'on confirme doit
+      // être ce qui sera fait (§104.7).
+      const cibles = await resoudreEntrees(user, contrat, lus.champs);
+      if (cibles.refus.length > 0) {
+        return { error: `${cibles.refus.join("\n")}${direOpsCouvrantes(contrat.id)}` };
+      }
+
+      const valeurs = Object.entries(cibles.entree).filter(([, v]) => v !== undefined && v !== null && v !== "");
+      const parChamp = new Map(cibles.substitutions.map((sub) => [sub.champ, sub]));
+      const montrer = (cle: string, v: unknown): string => {
+        const sub = parChamp.get(cle);
+        // CE QU'ON MONTRE EST LA LIGNE, PAS L'IDENTIFIANT : une carte qui affiche
+        // `cmt9k…` demande de confirmer ce qu'on ne peut pas lire (§104.16).
+        if (sub) {
+          const suffixe = sub.cible.sousTitre ? ` — ${sub.cible.sousTitre}` : "";
+          return `« ${sub.texte} » → ${sub.objet} : ${sub.cible.titre}${suffixe}`;
+        }
+        return Array.isArray(v) ? v.join(", ") : String(v);
+      };
       return {
         title: `${contrat.fonction} — ${contrat.porte.moduleFr ?? contrat.fichier.replace(/-actions$/, "")}`,
         fields: [
           { label: "Action", value: contrat.id },
-          ...valeurs.map(([k, v]) => ({ label: k, value: Array.isArray(v) ? v.join(", ") : String(v) })),
+          ...valeurs.map(([k, v]) => ({ label: k, value: montrer(k, v) })),
         ],
         warnings: [
           // La carte DIT ce qui va être touché : c'est ce qu'on confirme, pas une trace qu'on
@@ -117,9 +178,13 @@ export const CAPABILITY_OPS_IMPL: Record<string, OpImpl> = {
           contrat.modelesEcrits.length > 0
             ? `Écrit : ${contrat.modelesEcrits.join(", ")}.`
             : "Aucune écriture en base détectée dans cette action.",
+          // CE QU'ON N'A PAS SU DÉSIGNER SE DIT, avec le geste qui le lève : le silence d'une
+          // fiche se lit comme une permission de deviner (§118.26, §118.30).
+          ...cibles.nonResolus.map((n) =>
+            `« ${n.champ} » a été transmis tel quel : ${n.raison}.${direOpsCouvrantes(contrat.id)}`),
           "Vos droits sont revérifiés par l'action elle-même, exactement comme au clic sur le bouton.",
         ],
-        args: { action: contrat.id, champs: JSON.stringify(lus.champs) },
+        args: { action: contrat.id, champs: JSON.stringify(cibles.entree) },
         successMessage: `${contrat.fonction} exécutée.`,
       };
     },

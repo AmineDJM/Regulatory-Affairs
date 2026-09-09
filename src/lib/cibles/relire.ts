@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
-import { ENTITIES, canReadEntity, type EntityDef } from "@/lib/api/registry/entities";
+import { canReadEntity, type EntityDef } from "@/lib/api/registry/entities";
 import { porteeEntite } from "@/lib/api/registry/portee";
+import { entiteDuModele } from "./modele-entite";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -39,20 +40,6 @@ export interface Relecture {
   id: string;
   /** Les champs de détail de la ligne, tels que l'écran les montre. */
   champs: { nom: string; valeur: string }[];
-}
-
-/**
- * DU NOM DE DÉLÉGUÉ PRISMA À L'ENTITÉ DU REGISTRE.
- *
- * `modelesEcrits` porte `regulatoryProduct` (le délégué) ; `EntityDef.model` porte
- * `RegulatoryProduct` (le modèle). La correspondance est mécanique, donc dérivée — une table
- * écrite à la main serait fausse à la première entité ajoutée, en silence (§118.73).
- */
-function entiteDuModele(modele: string): EntityDef | null {
-  const cible = modele.charAt(0).toLowerCase() + modele.slice(1);
-  const trouvees = ENTITIES.filter((e) => e.model.charAt(0).toLowerCase() + e.model.slice(1) === cible);
-  // PLUSIEURS entités sur un même modèle ne désignent rien : on ne choisit pas (§118.34).
-  return trouvees.length === 1 ? trouvees[0]! : null;
 }
 
 /** L'identifiant écrit — celui que l'action REND d'abord, celui qu'on lui a DONNÉ ensuite. */

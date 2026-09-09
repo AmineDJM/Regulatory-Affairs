@@ -170,7 +170,7 @@ export async function resoudreCible(
  * alphanumériques, sans espace. On ne cherche pas à valider — on cherche à ne PAS interroger
  * la base sur « le dossier de Nivolex ».
  */
-const ressembleAUnId = (q: string): boolean => /^[a-z][a-z0-9]{20,31}$/i.test(q);
+export const ressembleAUnId = (q: string): boolean => /^[a-z][a-z0-9]{20,31}$/i.test(q);
 
 /**
  * LA PHRASE DU REFUS — écrite UNE fois.

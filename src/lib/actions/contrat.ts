@@ -44,6 +44,16 @@
 /** Ce qu'un champ attend. `reference` désigne une autre fiche — le pont vers `resoudreCible`. */
 export type TypeChamp = "texte" | "nombre" | "date" | "booleen" | "liste" | "reference";
 
+/**
+ * CE QUE LE SCHÉMA DIT DES RÉFÉRENCES — `"CareBeneficiary.doctorId" → "MedicalDoctor"`.
+ *
+ * Fournie par l'appelant (`contrat-scan.ts` la lit du DMMF) pour que ce module n'importe rien.
+ * Elle porte AUSSI la clé propre de chaque modèle (`"DriveNode.id" → "DriveNode"`) : ainsi le
+ * champ `id` n'est pas un cas particulier écrit ici, c'est le schéma qui dit qu'une clé
+ * primaire désigne son propre modèle.
+ */
+export type TableRelations = Readonly<Record<string, string>>;
+
 export interface ChampAction {
   nom: string;
   type: TypeChamp;
@@ -51,6 +61,15 @@ export interface ChampAction {
   obligatoire: boolean;
   /** Les valeurs admises quand elles se lisent. `null` = NON LUES (jamais « toutes »). */
   valeurs: readonly string[] | null;
+  /**
+   * LE MODÈLE PRISMA QUE CE CHAMP DÉSIGNE — dit par le SCHÉMA, jamais deviné.
+   *
+   * C'est ce qui permet à une personne d'écrire « Nivolex » là où l'action attend un `cuid`.
+   * `null` = le schéma ne le dit pas à coup sûr, et l'on ne comble pas : substituer
+   * l'identifiant d'un objet à la place d'un autre ferait AGIR SUR LA MAUVAISE LIGNE en
+   * annonçant que c'est fait, le défaut le plus coûteux de tout ce système (§104.7).
+   */
+  modele: string | null;
 }
 
 /** Ce que la source déclare de sa porte. N'AUTORISE RIEN : l'action revérifie à l'exécution. */
@@ -235,6 +254,24 @@ export const HELPERS_PARTAGES: Readonly<Record<string, TypeChamp>> = {
 const estReference = (nom: string): boolean => nom === "id" || /[a-z0-9]Id$/.test(nom);
 
 /**
+ * QUE DÉSIGNE CE CHAMP ? LE SCHÉMA RÉPOND, OU PERSONNE.
+ *
+ * `careBeneficiary.doctorId` pointe vers `MedicalDoctor` parce que la relation Prisma le dit —
+ * pas parce que le nom y ressemble. La tentation du nom a été MESURÉE : elle ajoutait 35 champs
+ * sur 730, et faisait pointer le `messageId` de la messagerie Microsoft vers le modèle `Message`
+ * de l'ERP, deux objets qui n'ont rien à voir. Un champ de plus obtenu en devinant vaut moins
+ * qu'un champ de moins obtenu à coup sûr : ici la conséquence d'une erreur est d'agir sur la
+ * mauvaise ligne (§118.16, §104.7).
+ *
+ * PLUSIEURS modèles écrits qui répondent différemment n'en désignent AUCUN (§118.34).
+ */
+function modeleDesigne(nom: string, modelesEcrits: readonly string[], relations: TableRelations): string | null {
+  const ecrits = [...new Set(modelesEcrits.map((m) => m.charAt(0).toUpperCase() + m.slice(1)))];
+  const via = [...new Set(ecrits.map((m) => relations[`${m}.${nom}`]).filter((x): x is string => Boolean(x)))];
+  return via.length === 1 ? via[0]! : null;
+}
+
+/**
  * Le nom du champ est-il CALCULÉ à l'exécution ? Alors on ne peut rien annoncer.
  *
  * Le test porte sur le premier caractère non blanc après la virgule (ou la parenthèse) : un
@@ -371,6 +408,8 @@ export function decrireAction(
   enums: TableEnums = {},
   /** Les lecteurs de champ RECONNUS dans ce fichier, en plus des quatre helpers partagés. */
   lecteursDuFichier: Readonly<Record<string, TypeChamp>> = {},
+  /** Ce que le schéma dit des références. Vide = aucun champ ne portera de modèle. */
+  relations: TableRelations = {},
 ): ContratAction {
   const { fichier, fonction, signature, corps } = src;
   const base = {
@@ -392,7 +431,12 @@ export function decrireAction(
     }
     const lue = lireArguments(signature);
     return "champs" in lue
-      ? { ...base, appel: "arguments" as const, champs: lue.champs, illisible: null }
+      ? {
+          ...base, appel: "arguments" as const, illisible: null,
+          champs: lue.champs.map((ch) => (ch.type === "reference" || (ch.type === "liste" && estReference(ch.nom))
+            ? { ...ch, modele: modeleDesigne(ch.nom, base.modelesEcrits, relations) }
+            : ch)),
+        }
       : {
           ...base, appel: "arguments" as const, champs: [],
           illisible: `entrée typée (${signature}) — ${lue.refus}`,
@@ -409,7 +453,7 @@ export function decrireAction(
     };
   }
 
-  const champs = lireChamps(corps, enums, lecteurs);
+  const champs = lireChamps(corps, enums, lecteurs, base.modelesEcrits, relations);
   if (champs.length === 0) {
     return {
       ...base, appel, champs: [],
@@ -419,7 +463,13 @@ export function decrireAction(
   return { ...base, appel, champs, illisible: null };
 }
 
-function lireChamps(corps: string, enums: TableEnums, lecteurs: Readonly<Record<string, TypeChamp>>): ChampAction[] {
+function lireChamps(
+  corps: string,
+  enums: TableEnums,
+  lecteurs: Readonly<Record<string, TypeChamp>>,
+  modelesEcrits: readonly string[],
+  relations: TableRelations,
+): ChampAction[] {
   const parNom = new Map<string, ChampAction>();
   /** Le nom de variable sous lequel un champ a été rangé — pour retrouver sa garde et son cast. */
   const variableDe = new Map<string, string>();
@@ -435,7 +485,10 @@ function lireChamps(corps: string, enums: TableEnums, lecteurs: Readonly<Record<
       ? "liste"
       : estReference(nom) ? "reference" : type;
     if (!deja || t !== deja.type) {
-      parNom.set(nom, { nom, type: t, obligatoire: deja?.obligatoire ?? false, valeurs: deja?.valeurs ?? null });
+      parNom.set(nom, {
+        nom, type: t, obligatoire: deja?.obligatoire ?? false, valeurs: deja?.valeurs ?? null,
+        modele: deja?.modele ?? null,
+      });
     }
   };
 
@@ -458,6 +511,11 @@ function lireChamps(corps: string, enums: TableEnums, lecteurs: Readonly<Record<
       champ.valeurs = valeursAdmises(corps, v, enums);
     }
     if (!champ.valeurs) champ.valeurs = valeursAdmisesInline(corps, champ.nom, enums);
+    // Une LISTE de références (`getAll("rowId")`) porte aussi son modèle : la cardinalité et ce
+    // que la valeur désigne sont deux axes, et les confondre a déjà coûté (§118.16).
+    if (champ.type === "reference" || (champ.type === "liste" && estReference(champ.nom))) {
+      champ.modele = modeleDesigne(champ.nom, modelesEcrits, relations);
+    }
   }
   return [...parNom.values()].sort((a, b) => a.nom.localeCompare(b.nom));
 }
@@ -546,11 +604,16 @@ export function constantesDuFichier(source: string): Record<string, string> {
 }
 
 /** Tous les contrats d'un fichier — le point d'entrée pur, testable sur une chaîne. */
-export function contratsDuFichier(fichier: string, source: string, enumsSchema: TableEnums = {}): ContratAction[] {
+export function contratsDuFichier(
+  fichier: string,
+  source: string,
+  enumsSchema: TableEnums = {},
+  relations: TableRelations = {},
+): ContratAction[] {
   const constantes = constantesDuFichier(source);
   const enums = { ...enumsSchema, ...enumsLocaux(source) };
   const lecteurs = helpersDuFichier(source);
-  return decouperActions(fichier, source).map((a) => decrireAction(a, constantes, enums, lecteurs));
+  return decouperActions(fichier, source).map((a) => decrireAction(a, constantes, enums, lecteurs, relations));
 }
 
 /**
@@ -563,7 +626,11 @@ export function direContrat(c: ContratAction): string {
   const champ = (ch: ChampAction) => {
     const marque = ch.obligatoire ? "" : " (facultatif)";
     const val = ch.valeurs ? ` ∈ {${ch.valeurs.join(", ")}}` : "";
-    return `${ch.nom} : ${ch.type}${val}${marque}`;
+    // CE QU'UNE RÉFÉRENCE DÉSIGNE, quand le schéma le dit : sans cette mention, un modèle ne
+    // peut pas savoir qu'il a le droit d'écrire un NOM là où le type dit « reference », et il
+    // invente un identifiant ou renonce. Ce que le code accepte, la fiche doit le dire (§118.19).
+    const quoi = ch.modele ? `→${ch.modele}` : "";
+    return `${ch.nom} : ${ch.type}${quoi}${val}${marque}`;
   };
   return `${c.id} — ${c.champs.map(champ).join(" ; ")}`;
 }
@@ -680,6 +747,9 @@ export function lireArguments(signature: string): LectureArguments {
       type: simple === "texte" && !valeurs && estReference(nom) ? "reference" : simple,
       obligatoire: !optionnel,
       valeurs: valeurs ?? null,
+      // Le modèle désigné ne se lit pas dans la SIGNATURE : il vient du schéma croisé avec les
+      // écritures de l'action, que `decrireAction` seule connaît. Elle le pose juste après.
+      modele: null,
     });
   }
   return champs.length ? { champs } : { refus: "aucun paramètre lisible" };
