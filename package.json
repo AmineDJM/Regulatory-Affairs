@@ -34,6 +34,7 @@
     "sheets:bench": "tsx scripts/bench/sheets-bench.ts",
     "factory:bench": "tsx scripts/bench/factory-bench.ts",
     "audit:reachability": "tsx scripts/audit-runtime-reachability.ts",
+    "actions:contrat": "tsx scripts/actions-contrat.ts",
     "adam:smoke:provider": "tsx scripts/smoke-provider.ts",
     "adam:smoke:deep": "tsx scripts/deep-smoke.ts",
     "fabric:bench": "tsx scripts/fabric-bench.ts",
