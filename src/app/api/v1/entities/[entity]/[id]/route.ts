@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { handle } from "@/lib/api/http";
 import { errors } from "@/lib/api/errors";
-import { getEntity, canReadEntity, entityScopeWhere } from "@/lib/api/registry/entities";
+import { getEntity, canReadEntity } from "@/lib/api/registry/entities";
+import { porteeEntite } from "@/lib/api/registry/portee";
 import { serialize, selectOf } from "@/lib/api/query";
 
 /**
@@ -20,7 +21,7 @@ export const GET = handle<{ entity: string; id: string }>(
 
     const model = (prisma as any)[def.model.charAt(0).toLowerCase() + def.model.slice(1)];
     const row = await model.findFirst({
-      where: { id: params.id, ...entityScopeWhere(ctx.user, def) },
+      where: { id: params.id, ...(await porteeEntite(ctx.user, def)) },
       select: selectOf(def.detailFields),
     });
     if (!row) throw errors.notFound(def.label);

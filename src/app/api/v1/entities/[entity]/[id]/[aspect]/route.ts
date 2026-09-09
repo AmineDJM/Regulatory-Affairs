@@ -2,7 +2,8 @@ import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { handle } from "@/lib/api/http";
 import { errors } from "@/lib/api/errors";
-import { getEntity, canReadEntity, entityScopeWhere } from "@/lib/api/registry/entities";
+import { getEntity, canReadEntity } from "@/lib/api/registry/entities";
+import { porteeEntite } from "@/lib/api/registry/portee";
 import { parsePage, serialize, listResult } from "@/lib/api/query";
 import { workflowOf, availableActionsFor } from "@/lib/api/workflow";
 
@@ -27,7 +28,7 @@ export const GET = handle<{ entity: string; id: string; aspect: string }>(
     mark({ operationId: `get_${def.name}_${params.aspect.replace("-", "_")}`, entityType: def.entityType ?? def.model, entityId: params.id });
 
     const model = (prisma as any)[def.model.charAt(0).toLowerCase() + def.model.slice(1)];
-    const record = await model.findFirst({ where: { id: params.id, ...entityScopeWhere(ctx.user, def) } });
+    const record = await model.findFirst({ where: { id: params.id, ...(await porteeEntite(ctx.user, def)) } });
     if (!record) throw errors.notFound(def.label);
 
     const page = parsePage(req.nextUrl.searchParams);

@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { handle } from "@/lib/api/http";
 import { errors } from "@/lib/api/errors";
 import { readFileByKey } from "@/lib/storage";
-import { ENTITIES, canReadEntity, entityScopeWhere } from "@/lib/api/registry/entities";
+import { ENTITIES, canReadEntity } from "@/lib/api/registry/entities";
+import { porteeEntite } from "@/lib/api/registry/portee";
 
 /**
  * TÉLÉCHARGEMENT CONTRÔLÉ D'UNE PIÈCE.
@@ -27,7 +28,7 @@ export const GET = handle<{ id: string }>(
     if (def) {
       if (!canReadEntity(ctx.user, def)) throw errors.notFound("Document");
       const model = (prisma as any)[def.model.charAt(0).toLowerCase() + def.model.slice(1)];
-      const owner = await model.findFirst({ where: { id: doc.entityId ?? "", ...entityScopeWhere(ctx.user, def) }, select: { id: true } });
+      const owner = await model.findFirst({ where: { id: doc.entityId ?? "", ...(await porteeEntite(ctx.user, def)) }, select: { id: true } });
       if (!owner) throw errors.notFound("Document");
     }
 

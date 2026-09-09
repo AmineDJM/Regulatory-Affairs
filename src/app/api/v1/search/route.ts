@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { handle } from "@/lib/api/http";
-import { ENTITIES, canReadEntity, entityScopeWhere } from "@/lib/api/registry/entities";
+import { ENTITIES, canReadEntity } from "@/lib/api/registry/entities";
+import { porteeEntite } from "@/lib/api/registry/portee";
 import { textSearchWhere, serialize, parsePage } from "@/lib/api/query";
 
 /**
@@ -42,7 +43,7 @@ export const GET = handle(
     const perEntity = Math.max(1, Math.floor(page.limit / Math.max(1, targets.length)));
     const groups = await Promise.all(targets.map(async (def) => {
       const model = (prisma as any)[def.model.charAt(0).toLowerCase() + def.model.slice(1)];
-      const where = { ...entityScopeWhere(ctx.user, def), ...textSearchWhere(def, q), ...dateWhere };
+      const where = { ...(await porteeEntite(ctx.user, def)), ...textSearchWhere(def, q), ...dateWhere };
       const [rows, total] = await Promise.all([
         model.findMany({ where, take: perEntity, orderBy: def.orderBy ?? { id: "desc" } }).catch(() => []),
         model.count({ where }).catch(() => 0),

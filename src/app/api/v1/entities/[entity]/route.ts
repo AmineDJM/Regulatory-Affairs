@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { handle } from "@/lib/api/http";
 import { errors } from "@/lib/api/errors";
-import { getEntity, canReadEntity, entityScopeWhere } from "@/lib/api/registry/entities";
+import { getEntity, canReadEntity } from "@/lib/api/registry/entities";
+import { porteeEntite } from "@/lib/api/registry/portee";
 import { parsePage, parseSort, parseFilters, textSearchWhere, serialize, listResult, selectOf } from "@/lib/api/query";
 
 /**
@@ -26,7 +27,7 @@ export const GET = handle<{ entity: string }>(
     const page = parsePage(sp);
     const allowed = new Set([...def.listFields, ...def.searchFields, ...(def.statusField ? [def.statusField] : [])]);
     const where = {
-      ...entityScopeWhere(ctx.user, def),
+      ...(await porteeEntite(ctx.user, def)),
       ...parseFilters(sp, allowed, RESERVED),
       ...textSearchWhere(def, sp.get("q") ?? ""),
     };
