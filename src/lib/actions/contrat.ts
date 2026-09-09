@@ -70,12 +70,29 @@ export interface ContratAction {
   id: string;
   fichier: string;
   fonction: string;
-  /** Comment on l'appelle. `formulaire` est le cas général (619 des 712). */
-  appel: "formulaire" | "arguments" | "sans-entree";
+  /**
+   * COMMENT ON L'APPELLE — et ce n'est pas cosmétique.
+   *
+   * 98 actions de l'ERP sont des `useActionState` : elles reçoivent l'ÉTAT PRÉCÉDENT avant le
+   * formulaire. Appeler `f(formData)` sur l'une d'elles lui ferait lire un formulaire là où
+   * elle attend un état, et le vrai formulaire n'arriverait jamais — sans erreur, sans effet,
+   * et avec un `{ ok: … }` à l'air normal. Le faux succès parfait, pour une virgule.
+   */
+  appel: "formulaire" | "etat-formulaire" | "arguments" | "sans-entree";
   champs: readonly ChampAction[];
   porte: PorteLue;
   /** L'action écrit-elle en base ? Lu sur les effets réellement présents dans le corps. */
   ecrit: boolean;
+  /**
+   * LES MODÈLES QU'ELLE ÉCRIT, lus sur ses appels Prisma.
+   *
+   * C'est le FAIT sur lequel s'arme l'interdiction d'auto-escalade (`generique.ts`). Une garde
+   * qui reconnaîtrait les actions sensibles à leur NOM raterait `updateUserRole` — aucun des
+   * motifs de `policy/guard.ts` n'attrape ce camel-case — et raterait surtout celle que
+   * quelqu'un nommera autrement demain. Le modèle écrit, lui, ne se renomme pas pour échapper
+   * à une garde.
+   */
+  modelesEcrits: readonly string[];
   /** L'action laisse-t-elle une trace d'audit ? */
   audit: boolean;
   /**
@@ -212,6 +229,14 @@ function lectureDynamique(corps: string): boolean {
 
 /** Une action qui touche la base — lu sur les appels réellement présents. */
 const RE_ECRITURE = /prisma\s*\.\s*[A-Za-z0-9_]+\s*\.\s*(?:create|createMany|update|updateMany|upsert|delete|deleteMany)\b|\$executeRaw|\$transaction/;
+const RE_MODELE_ECRIT = /(?:prisma|tx)\s*\.\s*([A-Za-z0-9_]+)\s*\.\s*(?:create|createMany|update|updateMany|upsert|delete|deleteMany)\b/g;
+
+/** Les modèles Prisma qu'une action ÉCRIT — `prisma.user.update` comme `tx.rowGrant.createMany`. */
+function modelesEcrits(corps: string): string[] {
+  const vus = new Set<string>();
+  for (const m of corps.matchAll(RE_MODELE_ECRIT)) vus.add(m[1]!);
+  return [...vus].sort();
+}
 
 function lirePorte(corps: string, constantes: Readonly<Record<string, string>>): PorteLue {
   let module: string | null = null, verbe: string | null = null, entite: string | null = null;
@@ -239,6 +264,28 @@ function lirePorte(corps: string, constantes: Readonly<Record<string, string>>):
 }
 
 /**
+ * À QUEL RANG L'ACTION REÇOIT-ELLE SON FORMULAIRE ?
+ *
+ * `null` quand elle n'en prend pas, ou quand il arrive APRÈS un argument qu'on ne saurait pas
+ * fournir — deux actions de l'ERP prennent `(id, prev, formData)`, et deviner leur premier
+ * argument reviendrait à choisir la cible à la place d'un humain. On le DIT au lieu de tenter.
+ */
+export function rangDuFormulaire(signature: string): 0 | 1 | null {
+  if (!/FormData/.test(signature)) return null;
+  const params: string[] = [];
+  let profondeur = 0, courant = "";
+  for (const c of signature) {
+    if ("<([{".includes(c)) profondeur++;
+    else if (">)]}".includes(c)) profondeur--;
+    if (c === "," && profondeur === 0) { params.push(courant); courant = ""; continue; }
+    courant += c;
+  }
+  if (courant.trim()) params.push(courant);
+  const rang = params.findIndex((p) => /FormData/.test(p));
+  return rang === 0 || rang === 1 ? (rang as 0 | 1) : null;
+}
+
+/**
  * LE CONTRAT D'UNE ACTION.
  *
  * `constantes` porte les `const X = "…"` du fichier (pour résoudre `userCan(user, MODULE, …)`),
@@ -256,10 +303,12 @@ export function decrireAction(
     fichier, fonction,
     porte: lirePorte(corps, constantes),
     ecrit: RE_ECRITURE.test(corps),
+    modelesEcrits: modelesEcrits(corps),
     audit: /recordAudit\s*\(/.test(corps),
   };
 
-  if (!/FormData/.test(signature)) {
+  const rang = rangDuFormulaire(signature);
+  if (rang === null) {
     // Sans argument : rien à décrire, donc APPELABLE. C'est le cas des bascules (« révoquer
     // toutes les sessions »). Une entrée typée, elle, ne passe pas par un formulaire : Adam ne
     // saurait pas fabriquer l'objet, et le dire vaut mieux que de tenter.
@@ -272,9 +321,11 @@ export function decrireAction(
     };
   }
 
+  const appel = rang === 0 ? "formulaire" as const : "etat-formulaire" as const;
+
   if (lectureDynamique(corps)) {
     return {
-      ...base, appel: "formulaire", champs: [],
+      ...base, appel, champs: [],
       illisible: "les noms de champs sont calculés à l'exécution — la source ne les énonce pas",
     };
   }
@@ -282,11 +333,11 @@ export function decrireAction(
   const champs = lireChamps(corps, enums);
   if (champs.length === 0) {
     return {
-      ...base, appel: "formulaire", champs: [],
+      ...base, appel, champs: [],
       illisible: "aucune lecture de champ trouvée dans le corps — l'entrée attendue reste inconnue",
     };
   }
-  return { ...base, appel: "formulaire", champs, illisible: null };
+  return { ...base, appel, champs, illisible: null };
 }
 
 function lireChamps(corps: string, enums: TableEnums): ChampAction[] {

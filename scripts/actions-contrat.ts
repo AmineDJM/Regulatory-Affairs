@@ -32,6 +32,30 @@ export const CONTRAT_PAR_ID: ReadonlyMap<string, ContratAction> =
 
 writeFileSync(join(process.cwd(), "src", "lib", "actions", "contrat.genere.ts"), entete, "utf8");
 
+/**
+ * LA TABLE D'AIGUILLAGE — un spécificateur STATIQUE par fichier, chargé PARESSEUSEMENT.
+ *
+ * Trois formes étaient possibles et deux sont mauvaises. Un `import()` à chemin calculé fait
+ * fabriquer à l'empaqueteur un module de contexte pour tout le dossier — analysable par
+ * personne. Des imports statiques de tout le parc tireraient chaque dépendance lourde
+ * (`mupdf`, `sharp`, `nodemailer`) dans le paquet de qui touche l'aiguillage. Une table de
+ * fonctions paresseuses à spécificateurs littéraux garde les deux propriétés : l'empaqueteur
+ * voit chaque chemin, et rien n'est chargé tant qu'on n'appelle pas.
+ */
+const fichiers = [...new Set(contrats.map((c) => c.fichier))].sort();
+const aiguillage = `// ⚠️  FICHIER GÉNÉRÉ — ne pas éditer à la main. Voir \`npm run actions:contrat\`.
+//
+// Chaque entrée est un spécificateur LITTÉRAL : l'empaqueteur les voit tous, et rien n'est
+// chargé avant l'appel. \`executer.test.ts\` résout les ${contrats.length} actions et échoue en
+// nommant celle qui a disparu — c'est le contrôle d'appelant que le compilateur ne fait pas ici.
+
+export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<string, unknown>>>> = {
+${fichiers.map((f) => `  ${JSON.stringify(f)}: () => import(${JSON.stringify("./" + f)}) as unknown as Promise<Record<string, unknown>>,`).join("\n")}
+};
+`;
+writeFileSync(join(process.cwd(), "src", "lib", "actions", "aiguillage.genere.ts"), aiguillage, "utf8");
+console.info(`[CONTRAT] aiguillage : ${fichiers.length} modules`);
+
 const appelables = contrats.length - illisibles.length;
 console.info(`[CONTRAT] ${contrats.length} actions — ${appelables} appelables, ${illisibles.length} illisibles`);
 const parCause = new Map<string, number>();

@@ -14,7 +14,10 @@ import { contratsDuFichier, type ContratAction, type TableEnums } from "./contra
 export const DOSSIER_ACTIONS = join(process.cwd(), "src", "lib", "actions");
 
 /** Ce qui vit dans `src/lib/actions/` sans être une action : le contrat lui-même, les types. */
-const HORS_PARC = new Set(["types.ts", "contrat.ts", "contrat-scan.ts", "contrat.genere.ts"]);
+const HORS_PARC = new Set([
+  "types.ts", "contrat.ts", "contrat-scan.ts", "contrat.genere.ts",
+  "generique.ts", "executer.ts", "aiguillage.genere.ts",
+]);
 
 /** Les valeurs admises que le SCHÉMA déclare — un fait de la base, pas une liste écrite. */
 export function enumsDuSchema(): TableEnums {

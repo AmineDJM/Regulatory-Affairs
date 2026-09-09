@@ -22,7 +22,10 @@ const ACTIONS_DIR = join(process.cwd(), "src", "lib", "actions");
 function liveActionKeys(): Set<string> {
   const keys = new Set<string>();
   for (const file of readdirSync(ACTIONS_DIR)) {
-    if (!file.endsWith(".ts") || file.endsWith(".test.ts") || file === "types.ts") continue;
+    // Les modules du CONTRAT vivent dans ce dossier sans être des actions d'écran : ils n'ont
+    // pas de bouton, et les compter ferait échouer la parité sur du code d'infrastructure.
+    if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
+    if (["types.ts", "contrat.ts", "contrat-scan.ts", "contrat.genere.ts", "generique.ts", "executer.ts", "aiguillage.genere.ts"].includes(file)) continue;
     const base = file.replace(/\.ts$/, "");
     const src = readFileSync(join(ACTIONS_DIR, file), "utf8");
     for (const m of src.matchAll(/^export async function ([A-Za-z0-9_]+)/gm)) {
