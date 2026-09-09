@@ -2,6 +2,7 @@ import type { Module } from "@/lib/rbac";
 import type { ClaudeToolDef } from "@/lib/ai";
 import { OPS_BY_TOOL, type OpMeta } from "./catalog";
 import type { OpImpl } from "./types";
+import { CAPABILITY_OPS_IMPL } from "./impl-capabilite";
 import { DRIVE_OPS_IMPL } from "./impl-drive";
 import { TASK_OPS_IMPL } from "./impl-task";
 import { FINANCE_OPS_IMPL } from "./impl-finance";
@@ -70,6 +71,40 @@ function opsSummary(tool: string): string {
 const opEnum = (tool: string): string[] => Object.keys(OPS_BY_TOOL[tool] ?? {});
 
 export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
+  // LE RATTRAPAGE GÉNÉRIQUE. Toutes les autres entrées de cette table décrivent un domaine ;
+  // celle-ci décrit un MÉCANISME — et c'est ce qui la rend capable d'atteindre ce que personne
+  // n'a écrit. Voir `impl-capabilite.ts`.
+  capability_operation: {
+    module: "ADMIN",
+    ops: zipOps("capability_operation", CAPABILITY_OPS_IMPL),
+    def: {
+      name: "capability_operation",
+      description:
+        "RATTRAPAGE — exécute une action serveur QUELCONQUE de l'ERP quand aucun outil dédié ne couvre le geste. "
+        + "N'exécute rien : propose une carte de confirmation. Utiliser SEULEMENT après avoir cherché un outil dédié, "
+        + "qui donnera une meilleure carte. « action » accepte l'identifiant « fichier:fonction » OU, si tu ne le "
+        + "connais pas, une description du geste EN FRANÇAIS — le refus te rendra alors les actions candidates avec "
+        + "leurs champs exacts, et tu rappelleras l'outil avec le bon identifiant. « champs » est un objet JSON dont "
+        + "les clés sont EXACTEMENT celles que le refus ou la fiche annoncent : un champ inventé fait échouer la "
+        + "proposition, jamais une écriture silencieuse. Les gestes touchant aux comptes, aux droits, aux sessions "
+        + "ou aux réglages sont refusés par conception — ils se font depuis l'écran d'administration.",
+      input_schema: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: opEnum("capability_operation"), description: "Toujours « run »." },
+          action: {
+            type: "string",
+            description: "L'identifiant « fichier:fonction » de l'action, ou une description du geste en français.",
+          },
+          champs: {
+            type: "string",
+            description: 'Les entrées de l\'action, en JSON : {"title":"Achat toner","type":"PURCHASE"}. Vide si elle n\'en prend pas.',
+          },
+        },
+        required: ["op", "action"],
+      },
+    },
+  },
   drive_operation: {
     module: "DRIVE",
     ops: zipOps("drive_operation", { ...DRIVE_OPS_IMPL, ...DRIVE3_OPS_IMPL }),

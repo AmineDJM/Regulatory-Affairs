@@ -368,6 +368,11 @@ export const TOOL_DOMAINS_RESTE: Record<string, Domain[]> = {
   // ── Transverses assumés — ils ne relèvent d'aucun domaine et servent partout ────────────
   bulk_action: ["GENERAL"],
   action_plan: ["GENERAL"],
+  // LE RATTRAPAGE GÉNÉRIQUE ne relève d'aucun domaine par construction : il atteint les 550
+  // actions ouvertes de l'ERP, tous modules confondus. Le ranger dans un domaine le rendrait
+  // invisible aux phrases des autres — c'est-à-dire précisément quand aucun outil dédié ne
+  // couvre le geste, le seul cas où il sert (`ops/impl-capabilite.ts`).
+  capability_operation: ["GENERAL"],
 
   // ── LES 30 SCHÉMAS D'OPÉRATIONS PAR DOMAINE ────────────────────────────────────────────
   // Leur nom porte le domaine, mais un classement DÉDUIT du nom serait faux le jour où l'un

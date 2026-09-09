@@ -43,6 +43,39 @@ export interface OpMeta {
 const isSA = (u: CurrentUser) => u.role === "SUPER_ADMIN";
 
 export const OPS_CATALOG: OpMeta[] = [
+  /**
+   * LE CHEMIN GÉNÉRIQUE — la seule op qui ne nomme pas son geste, et pourquoi elle existe.
+   *
+   * Les 520 autres ops déclarent chacune UN geste à la main. C'est ce que le dirigeant a
+   * refusé : « je veux pas la capacité de retirer classe thérapeutique, je veux la capacité de
+   * tout faire ». Celle-ci atteint les 550 actions ouvertes de l'ERP sans qu'aucune ait été
+   * décrite ici — le contrat se DÉRIVE de la source (`actions/contrat.ts`).
+   *
+   * Elle ne REMPLACE pas les ops déclarées : elles portent des alias en français, une
+   * résolution de cible et des cartes taillées pour leur geste, et restent le bon chemin quand
+   * elles existent. Celle-ci est le RATTRAPAGE, pour tout ce que personne n'a écrit.
+   *
+   * `covers: []` est honnête : elle ne rend NATIVE aucune action de l'inventaire de parité.
+   * Y lister les 550 ferait passer le cliquet de parité pour une couverture nominative, alors
+   * qu'il compte des gestes DÉCRITS à un humain — et un catalogue qui se déclare complet cesse
+   * d'être relu.
+   */
+  {
+    tool: "capability_operation", op: "run", module: "Toutes",
+    uiLabel: "Exécuter une action de l'ERP par son contrat",
+    aliases: [],
+    risk: "SENSITIVE",
+    summary:
+      "Appelle N'IMPORTE QUELLE action serveur ouverte de l'ERP — la même que le bouton de l'écran, "
+      + "avec ses propres contrôles de droits. Carte de confirmation obligatoire. Les gestes qui touchent "
+      + "aux comptes, aux droits ou aux garde-fous sont refusés par conception, Super Admin compris.",
+    // La porte est celle de l'ACTION, pas celle-ci : ce pré-filtre laisse passer, et chaque
+    // action revérifie. Le refuser ici sur un module fermerait le rattrapage à ceux-là mêmes
+    // qui en ont besoin — l'action, elle, sait exactement ce qu'elle exige.
+    gate: () => true,
+    gateNote: "chaque action revérifie ses propres droits à l'exécution",
+    covers: [],
+  },
   // ───────────────────────────── DRIVE (écritures) ─────────────────────────────
   {
     tool: "drive_operation", op: "create_folder", module: "Drive",
