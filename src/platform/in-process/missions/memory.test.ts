@@ -113,7 +113,28 @@ suite("MÉMOIRE ÉPISODIQUE — d'un vrai échange à un contexte composé", () 
     if (fournisseurConfigure()) {
       // Une clé est présente : le découpage a réellement appelé un modèle. On ne prétend rien
       // sur le CONTENU — c'est le cas suivant qui le vérifie, avec un substitut contrôlé.
-      expect(episodes, "avec un fournisseur, le seuil atteint doit produire un épisode").toBeGreaterThanOrEqual(0);
+      //
+      // ⚠ CETTE ASSERTION S'ÉCRIVAIT `toBeGreaterThanOrEqual(0)`. Un COMPTE est toujours ≥ 0 :
+      // elle était vraie que le découpage ait produit un épisode ou RIEN DU TOUT, et son
+      // message affirmait pourtant « le seuil atteint doit produire un épisode ». Un contrôle
+      // qui ne peut pas échouer ne protège de rien — il rassure, ce qui est pire (§118.17) —
+      // et celui-ci gardait précisément le compacteur de mémoire, l'un des composants que le
+      // recensement de §118.14 avait trouvés SANS APPELANT DE PRODUCTION. La garde du
+      // mécanisme qu'on a déjà vu mort une fois était elle-même endormie.
+      //
+      // LA PRÉMISSE EST VÉRIFIÉE, PAS SUPPOSÉE : `TOURS_PAR_EPISODE` vaut 12 et ce cas écrit
+      // six échanges, donc DOUZE messages. Le seuil est atteint au message près ; « doit
+      // produire un épisode » est donc bien ce que la branche promet.
+      //
+      // CE QUE JE N'AI PAS PU EXERCER, ET POURQUOI JE LE DIS : ce conteneur n'a aucune clé de
+      // fournisseur, donc cette branche ne tourne pas ici. En posant une clé factice pour la
+      // rendre atteignable, j'ai obtenu 0 épisode — et j'ai failli l'imputer au compacteur. La
+      // cause était ma propre manipulation : `HTTP 401 — Incorrect API key provided`, le
+      // mandataire n'injectant ses identifiants que lorsque le client n'envoie AUCUN en-tête
+      // d'autorisation, ce que le SDK fait toujours. Le compacteur, lui, s'est comporté
+      // exactement comme il doit : il a refusé et a NOMMÉ sa raison. Une expérience qui change
+      // deux choses à la fois ne désigne rien (§118.76) — ici l'assertion ET l'environnement.
+      expect(episodes, "avec un fournisseur, le seuil atteint doit produire un épisode").toBeGreaterThanOrEqual(1);
     } else {
       // SANS FOURNISSEUR, ON NE FABRIQUE RIEN. C'est la propriété qui compte : pas de résumé
       // tronqué « en attendant », pas de souvenir inventé. Le zéro PROUVE que le découpage a été
