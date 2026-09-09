@@ -3395,6 +3395,19 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 
 ---
 
+### Chemin générique — Adam appelle n'importe quelle action de l'ERP
+
+| Fichier | Rôle |
+| --- | --- |
+| `src/lib/actions/contrat.ts` | **Pur.** Dérive le contrat d'une action depuis sa source : champs, types, obligatoires prouvés, valeurs admises, modèles écrits, forme d'appel. Dit son ignorance (`illisible`) au lieu de deviner. |
+| `src/lib/actions/contrat-scan.ts` | La lecture du parc (disque + énums du schéma) — la seule pièce qui touche `fs`. |
+| `src/lib/actions/contrat.genere.json` / `.ts` | L'artefact (données) et son module de chargement. Régénérés par `npm run actions:contrat`, redérivés et comparés par `contrat.test.ts`. |
+| `src/lib/actions/generique.ts` | **Pur.** Ce qui est refusé au chemin générique (auto-escalade, armée sur le modèle ÉCRIT), la validation d'une entrée contre son contrat, la découverte par recouvrement de mots. |
+| `src/lib/actions/executer.ts` | Appelle l'action de l'ÉCRAN. Ne vérifie aucun droit lui-même ; lit l'échec déclaré des actions qui écrivent. |
+| `src/lib/actions/aiguillage.genere.ts` | Table d'aiguillage : un spécificateur littéral par fichier, chargé paresseusement. Écartée du scan Graphify (voir `scripts/graphify-refresh.sh`). |
+| `src/platform/in-process/capacites/` | Le **port** : la seule porte par laquelle Adam atteint tout cela. Réexporte, n'ajoute aucune logique. |
+| `src/lib/assistant/ops/impl-capabilite.ts` | L'op `capability_operation.run` — propose une carte de confirmation, puis exécute. Son refus fait la découverte. |
+
 ### Mission Runtime (`src/lib/missions/`) — façade L2
 
 | Fichier | Rôle |
@@ -5193,6 +5206,40 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### ADAM APPELLE N'IMPORTE QUELLE ACTION DE L'ERP — 550 sur 715, sans une fiche écrite à la main (2026-09)
+
+**Le problème n'était pas la couverture, c'était son PRIX.** 520 déclarations d'op, 503 propose/execute, 117
+résolveurs : environ 1 140 objets écrits à la main pour qu'Adam sache appeler les gestes de l'ERP. Chaque nouvelle
+action demandait sa fiche, et une fiche devient fausse en silence dès qu'on ajoute un champ.
+
+**Une action se DÉCRIT depuis sa source.** `src/lib/actions/contrat.ts` (pur) dérive le contrat de chaque action
+en lisant son code : ses champs, leur type, ceux que le code REFUSE d'omettre, les valeurs admises quand elles se
+lisent, les modèles qu'elle écrit. Mesuré sur le parc : **715 actions, 598 descriptibles (84 %)**, artefact en
+`contrat.genere.json` (une ligne par action, pour qu'un diff nomme celle qui a bougé), redérivé et comparé à chaque
+test. Le cliquet est INVERSÉ — il compte les actions **non** descriptibles vers le bas (117), au lieu de récompenser
+l'écriture de fiches.
+
+**550 actions ouvertes, 48 refusées PAR CONCEPTION.** En comparant la dérivation aux ops déclarées, 118 actions sont
+apparues atteignables seulement par le chemin générique — en tête : `updateUserRole`, `setRowGrants`,
+`superAdminDelete`. Le « gain » était l'auto-escalade. `generique.ts` s'arme sur le **modèle Prisma écrit**, pas sur
+le nom (les motifs de `policy/guard.ts`, écrits pour des identifiants en serpent, laissent passer `updateUserRole`),
+et sa liste est exhaustive au regard du schéma : un modèle de droits ajouté demain fait échouer un test au lieu
+d'ouvrir une porte. Le refus nomme le remède — ces gestes se font depuis l'écran d'administration.
+
+**Ce n'est pas une porte dérobée.** `executer.ts` appelle la server action de l'écran, celle du bouton, avec ses
+propres `requireUser` / `userCan` / `canAccessEntity`. Une action qui déclare son échec (`{ok:false}`) remonte en
+échec (§118.25), et seulement quand elle ÉCRIT. Adam y accède par le contrat de plateforme
+(`platform/in-process/capacites`), jamais par un import direct : le cliquet de frontière a refusé la première
+version, et il avait raison.
+
+**Un seul outil, et son refus fait la découverte.** `capability_operation.run` accepte l'identifiant d'une action OU
+une intention en français ; quand elle ne désigne pas une action unique, le refus liste les candidates avec leurs
+champs exacts. Proposer n'est pas faire : la carte montre l'action, ses valeurs et ce qui sera écrit, et rien n'est
+en base avant confirmation.
+
+**Trouvé en chemin, et corrigé :** « BD › Projets » vivait dans un module retiré du service — écran, actions et
+menu inatteignables pour tout le monde. Le sous-module a été rouvert **seul**, Market Intelligence restant fermé.
 
 ### PARTAGER PAR LA MESSAGERIE, ET LE PROJET BD QUI CLASSE LES DOSSIERS (2026-09)
 
