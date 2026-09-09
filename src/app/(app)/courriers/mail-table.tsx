@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
 import { MAIL_DIRECTION } from "@/lib/labels";
 import { setMailDate } from "@/lib/actions/mail-register-actions";
+import { PartagerButton } from "@/components/shared/partager-button";
 
 /**
  * LE CARNET DE COURRIERS — un tableau qu'on FILTRE, parce qu'on y cherche toujours une pièce
@@ -204,14 +205,24 @@ export function MailTable({ rows, canEdit }: { rows: MailRow[]; canEdit: boolean
                   <td className="px-3 py-2 text-xs text-muted-foreground">{r.partnerName || "—"}</td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">{r.carrier || "—"}</td>
                   <td className="px-3 py-2">
-                    {r.attachments > 0 ? (
-                      <Link href={`/courriers/${r.id}`} title={`${r.attachments} pièce(s) jointe(s)`}
-                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                        <Paperclip className="h-3.5 w-3.5" /> {r.attachments}
-                      </Link>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
+                    <span className="flex items-center gap-2">
+                      {r.attachments > 0 ? (
+                        <Link href={`/courriers/${r.id}`} title={`${r.attachments} pièce(s) jointe(s)`}
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                          <Paperclip className="h-3.5 w-3.5" /> {r.attachments}
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                      {/* Ouvert à QUI VOIT le pli, pas seulement à qui le modifie : « transmets ce
+                          courrier à la Direction » est une lecture qu'on relaie, pas une écriture. */}
+                      <PartagerButton
+                        iconOnly variant="ghost"
+                        refType="MAIL_ENTRY" refId={r.id}
+                        refLabel={r.reference ? `${r.reference} — ${r.title}` : r.title}
+                        href={`/courriers/${r.id}`}
+                      />
+                    </span>
                   </td>
                 </tr>
               );

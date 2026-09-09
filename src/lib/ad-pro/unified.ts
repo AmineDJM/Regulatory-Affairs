@@ -22,6 +22,28 @@ export type AdProKind =
   | "SPONSORING" | "CONGRESS_INTERNATIONAL" | "CONGRESS_NATIONAL" | "EVENT" | "PROMO_MATERIAL"
   | "CONSULTING" | "OTHER";
 
+/**
+ * LA NATURE Ad&Pro → LE TYPE D'ENTITÉ DU REGISTRE COMMUN.
+ *
+ * Cinq des sept noms coïncident, et c'est précisément ce qui rend la table nécessaire : deux
+ * ne coïncident PAS (`CONSULTING` s'appelle `CONSULTING_CONTRACT` dans le registre, `OTHER`
+ * s'appelle `AD_PRO_OTHER`), et un appelant qui « devine » en recopiant le nom se trompera sur
+ * ces deux-là seulement — c'est-à-dire là où l'erreur ne se voit pas en relisant.
+ *
+ * `Record<AdProKind, …>` sans valeur optionnelle : une huitième nature ajoutée à `AdProKind`
+ * fait échouer le typecheck ICI, au lieu de partager un dossier sous un type d'entité faux.
+ * L'import de type est effacé à la compilation — ce module reste PUR.
+ */
+export const AD_PRO_ENTITY_TYPE: Record<AdProKind, import("@prisma/client").EntityType> = {
+  SPONSORING: "SPONSORING",
+  CONGRESS_INTERNATIONAL: "CONGRESS_INTERNATIONAL",
+  CONGRESS_NATIONAL: "CONGRESS_NATIONAL",
+  EVENT: "EVENT",
+  PROMO_MATERIAL: "PROMO_MATERIAL",
+  CONSULTING: "CONSULTING_CONTRACT",
+  OTHER: "AD_PRO_OTHER",
+};
+
 export interface KindSpec {
   kind: AdProKind;
   label: string;

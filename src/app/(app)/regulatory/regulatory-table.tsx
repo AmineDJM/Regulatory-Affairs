@@ -10,6 +10,7 @@ import { setRegulatoryPriority, setRegulatoryResponsible, setRegulatoryClassific
 import { visibleStages, defaultStage, type RegStage } from "@/lib/regulatory/stage";
 import { dossierReceivedLabel, dossierReceivedOptions, DOSSIER_RECEIVED_HINT, DOSSIER_RECEIVED_YES } from "@/lib/regulatory/dossier-received";
 import { setFocusMode, useFocusState } from "@/components/layout/focus-mode";
+import { PartagerButton } from "@/components/shared/partager-button";
 
 export interface RegulatoryRow {
   id: string;
@@ -420,6 +421,15 @@ export function RegulatoryTable({
                   {r.isLocked ? <Lock className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
                 </button>
               ) : null}
+              {/* PARTAGER LE DOSSIER — même geste dans « Suivi de dossiers » et dans « Pipeline »,
+                  qui rendent ce même tableau. Le composant arrête lui-même la bulle : sans cela,
+                  cocher un destinataire naviguerait vers la fiche, panneau ouvert. */}
+              <PartagerButton
+                iconOnly variant="ghost"
+                refType="REGULATORY_PRODUCT" refId={r.id}
+                refLabel={`${r.reference} — ${r.dci}${r.brandName ? ` (${r.brandName})` : ""}`}
+                href={`/regulatory/${r.id}`}
+              />
             </span>
           </td>
         );

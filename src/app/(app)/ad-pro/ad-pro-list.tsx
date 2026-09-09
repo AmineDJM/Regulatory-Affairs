@@ -7,9 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import {
-  AD_PRO_KINDS, AD_PRO_STATE, kindSpec,
+  AD_PRO_KINDS, AD_PRO_STATE, AD_PRO_ENTITY_TYPE, kindSpec,
   type AdProRequest, type AdProState, type AdProKind,
 } from "@/lib/ad-pro/unified";
+import { PartagerButton } from "@/components/shared/partager-button";
 
 /**
  * LA LISTE UNIFIÉE. Ce qui ATTEND une décision est en tête (le tri vient du module pur) — une
@@ -166,7 +167,20 @@ export function AdProList({ rows }: { rows: AdProRequest[] }) {
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{r.requester || "—"}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatDate(r.createdAt)}</td>
-                    <td className="px-3 py-2"><Badge tone={st.tone} dot={false}>{st.label}</Badge></td>
+                    <td className="px-3 py-2">
+                      <span className="flex items-center gap-2">
+                        <Badge tone={st.tone} dot={false}>{st.label}</Badge>
+                        {/* « Envoie la demande de sponsoring de Benali à la Direction » : le geste
+                            part de la LIGNE, sur la nature réelle du dossier — le serveur vérifie
+                            l'accès à CET enregistrement, pas au module. */}
+                        <PartagerButton
+                          iconOnly variant="ghost"
+                          refType={AD_PRO_ENTITY_TYPE[r.kind]} refId={r.id}
+                          refLabel={`${r.reference} — ${r.title}`}
+                          href={r.href}
+                        />
+                      </span>
+                    </td>
                   </tr>
                 );
               })

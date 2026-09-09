@@ -25,6 +25,7 @@ import { legalFields, dateInput } from "../legal-fields";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { EditLegalButton } from "./edit-legal";
 import { RecordDeleteButton } from "@/components/shared/record-delete-button";
+import { PartagerButton } from "@/components/shared/partager-button";
 import { legalReaderWhere, canManageLegalReaders } from "@/lib/legal/readers";
 import { LegalAccessPanel } from "./access-panel";
 import { loadLegalChain } from "@/lib/queries/legal-chain";
@@ -253,6 +254,11 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-start gap-2">
+          <PartagerButton
+            refType="LEGAL_DOCUMENT" refId={doc.id}
+            refLabel={doc.reference ? `${doc.reference} — ${doc.title}` : doc.title}
+            href={`/legal/${doc.id}`}
+          />
           {canEdit && <EditLegalButton id={doc.id} fields={fields} />}
           {/* Le déposant peut retirer son document — suppression réversible (corbeille admin).
               Un contrat effacé par erreur reste récupérable par un administrateur. */}

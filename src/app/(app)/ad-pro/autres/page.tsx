@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
+import { PartagerButton } from "@/components/shared/partager-button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AD_PRO_OTHER_STATUS, EVENTS_TABS } from "@/lib/labels";
 import { adProOtherCreateFields } from "@/lib/ad-pro/create-fields";
@@ -98,7 +99,17 @@ export default async function AdProOtherPage() {
                   <TableCell className="text-muted-foreground">{r.beneficiary || "—"}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.amount != null ? formatCurrency(toNumber(r.amount)) : "—"}</TableCell>
                   <TableCell><StatusBadge map={AD_PRO_OTHER_STATUS} value={r.status} dot={false} /></TableCell>
-                  <TableCell className="text-muted-foreground">{formatDate(r.createdAt.toISOString())}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    <span className="flex items-center gap-2">
+                      {formatDate(r.createdAt.toISOString())}
+                      <PartagerButton
+                        iconOnly variant="ghost"
+                        refType="AD_PRO_OTHER" refId={r.id}
+                        refLabel={`${r.reference} — ${r.title}`}
+                        href={`/ad-pro/autres/${r.id}`}
+                      />
+                    </span>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

@@ -26,6 +26,7 @@ import { DossierMenu } from "./dossier-menu";
 import { deriveStatus, explainStatus } from "@/lib/regulatory/process-status";
 import { EditProductButton } from "../edit-product";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { PartagerButton } from "@/components/shared/partager-button";
 import { BvRequests, type BvItem } from "./bv-requests";
 import { toNumber } from "@/lib/utils";
 import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
@@ -259,6 +260,11 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
           {/* LE DÉPÔT EST EN TÊTE : poser le CTD initial est le geste le plus fréquent du
               module, il ne doit pas se chercher au fond de la colonne de droite. */}
           <div className="flex items-center gap-2">
+            <PartagerButton
+              refType="REGULATORY_PRODUCT" refId={product.id}
+              refLabel={`${product.reference} — ${product.dci}${product.brandName ? ` (${product.brandName})` : ""}`}
+              href={`/regulatory/${product.id}`}
+            />
             {canUpload && <DossierUploadButton productId={product.id} categories={REG_DOC_CATEGORIES} />}
             {/* LES RÉGLAGES DU DOSSIER derrière « ⋯ » : les participants ne méritaient pas une
                 carte entière dans la colonne qu'on lit tous les jours. */}

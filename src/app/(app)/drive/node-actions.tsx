@@ -4,7 +4,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
-  Download, Trash2, RotateCcw, Pencil, Loader2, Check, FolderInput, UserPlus, MoreVertical, User, Scale, Mails,
+  Download, Trash2, RotateCcw, Pencil, Loader2, Check, FolderInput, UserPlus, MoreVertical, User, Scale, Mails, Share2,
 } from "lucide-react";
 import { renameNode, trashNode, restoreNode, deleteNode, moveNode, getDriveNodeShares } from "@/lib/actions/drive-actions";
 import { Sheet } from "@/components/ui/sheet";
@@ -13,6 +13,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { SharePanel, type ShareItem } from "./[id]/share-panel";
 import { SendToLegalSheet } from "./send-to-legal";
 import { SendToMailSheet } from "./send-to-mail";
+import { PartagerSheet } from "@/components/shared/partager-button";
 
 interface MoveTarget { id: string; name: string }
 interface UserLite { id: string; name: string }
@@ -172,6 +173,7 @@ export function NodeActions({ id, name, isFile, canEdit, owner, trash, moveTarge
   // lui disparaissait dans le même clic.
   const [legal, setLegal] = React.useState(false);
   const [mail, setMail] = React.useState(false);
+  const [partage, setPartage] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [moveErr, setMoveErr] = React.useState<string | null>(null);
@@ -208,6 +210,22 @@ export function NodeActions({ id, name, isFile, canEdit, owner, trash, moveTarge
                 label={isFile ? "Télécharger" : "Télécharger (ZIP)"}
                 href={`/api/drive/${id}/raw?dl=1`}
               />
+              {/* PARTAGER PAR LA MESSAGERIE — ouvert à QUI VOIT, pas seulement à qui modifie :
+                  « envoie-moi ce dossier » est une lecture qu'on relaie, et « Gérer l'accès »
+                  juste dessous est un autre geste (accorder un droit durable). Le serveur
+                  confronte la pièce aux droits Drive réels de l'expéditeur avant d'accorder la
+                  lecture aux destinataires.
+
+                  PAS DANS LA CORBEILLE : `parseDriveRefs` écarte les nœuds `isTrashed` — le
+                  message partirait avec sa référence et SANS la pièce, c'est-à-dire un partage
+                  qui a l'air d'avoir marché. Restaurer d'abord, partager ensuite. */}
+              {!trash && (
+                <MenuItem
+                  icon={<Share2 className="h-3.5 w-3.5" />}
+                  label="Partager par messagerie"
+                  onClick={() => { close(); setPartage(true); }}
+                />
+              )}
               {canEdit && !trash && (
                 <>
                   <MenuItem icon={<Pencil className="h-3.5 w-3.5" />} label="Renommer" onClick={() => { close(); setRenaming(true); }} />
@@ -299,6 +317,17 @@ export function NodeActions({ id, name, isFile, canEdit, owner, trash, moveTarge
       {users && <AccessSheet nodeId={id} name={name} users={users} open={sharing} onClose={() => setSharing(false)} />}
 
       {/* Rendus par la LIGNE, hors du menu : c'est ce qui rend l'action opérante. */}
+      {partage && (
+        <PartagerSheet
+          open={partage}
+          onClose={() => setPartage(false)}
+          refType="DRIVE_NODE"
+          refId={id}
+          refLabel={name}
+          driveNodeIds={[id]}
+          href={`/drive/${id}`}
+        />
+      )}
       {isFile && <SendToLegalSheet open={legal} nodeId={id} name={name} onClose={() => setLegal(false)} />}
       {isFile && <SendToMailSheet open={mail} nodeId={id} name={name} onClose={() => setMail(false)} />}
     </div>

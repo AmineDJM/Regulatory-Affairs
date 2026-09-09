@@ -11,6 +11,7 @@ import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, LEGAL_EXPIRY_LEVEL } from "@/lib/labe
 import { renewLegalDocument, cancelLegalDocument } from "@/lib/actions/legal-actions";
 import { setInvoicePaid } from "@/lib/actions/invoice-actions";
 import { moveLegalDocuments } from "@/lib/actions/legal-folder-actions";
+import { PartagerButton } from "@/components/shared/partager-button";
 import { invoiceSettlementState, INVOICE_SETTLEMENT, isInvoice } from "@/lib/labels";
 import {
   EMPTY_FILTERS, URGENT_EXPIRY,
@@ -280,13 +281,25 @@ export function LegalTable({
                     </span>
                   </td>
                   <td className="px-3 py-2">
-                    {r.driveNodeId ? (
-                      // Le fichier vit dans le DRIVE : on y renvoie, on n'en sert pas une copie.
-                      <Link href={`/drive/${r.driveNodeId}`} title={r.driveName ?? undefined}
-                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                        <Paperclip className="h-3 w-3" /> Drive <ExternalLink className="h-3 w-3" />
-                      </Link>
-                    ) : <span className="text-xs text-muted-foreground">—</span>}
+                    <span className="flex items-center gap-2">
+                      {r.driveNodeId ? (
+                        // Le fichier vit dans le DRIVE : on y renvoie, on n'en sert pas une copie.
+                        <Link href={`/drive/${r.driveNodeId}`} title={r.driveName ?? undefined}
+                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                          <Paperclip className="h-3 w-3" /> Drive <ExternalLink className="h-3 w-3" />
+                        </Link>
+                      ) : <span className="text-xs text-muted-foreground">—</span>}
+                      {/* PARTAGER DEPUIS LA LIGNE : le geste courant est « envoie-moi ça », pas
+                          « ouvre la fiche puis envoie-la ». Il est ouvert à QUI VOIT, pas à qui
+                          modifie — d'où sa place ici et non dans la colonne d'actions. */}
+                      <PartagerButton
+                        iconOnly variant="ghost"
+                        refType="LEGAL_DOCUMENT" refId={r.id}
+                        refLabel={r.reference ? `${r.reference} — ${r.title}` : r.title}
+                        href={`/legal/${r.id}`}
+                        driveNodeIds={r.driveNodeId ? [r.driveNodeId] : undefined}
+                      />
+                    </span>
                   </td>
                   {canEdit && (
                     <td className="px-3 py-2">

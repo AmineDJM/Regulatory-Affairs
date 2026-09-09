@@ -21,6 +21,7 @@ import { mailFields, dateInput, dateTimeInput } from "../mail-fields";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { EditMailButton } from "./edit-mail";
 import { RecordDeleteButton } from "@/components/shared/record-delete-button";
+import { PartagerButton } from "@/components/shared/partager-button";
 import { MailPieces } from "./mail-pieces";
 import { EntityLinks } from "@/components/shared/entity-links";
 import { linksOf, linkedViews } from "@/lib/links/store";
@@ -172,6 +173,11 @@ export default async function MailEntryPage({ params }: { params: { id: string }
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-start gap-2">
+          <PartagerButton
+            refType="MAIL_ENTRY" refId={entry.id}
+            refLabel={entry.reference ? `${entry.reference} — ${entry.title}` : entry.title}
+            href={`/courriers/${entry.id}`}
+          />
           {canEdit && <EditMailButton id={entry.id} fields={fields} />}
           {/* Le CRÉATEUR d'un pli peut le retirer, même sans le droit `DELETE` du registre —
               suppression réversible (corbeille de l'administrateur). Ceux qui ont le droit
