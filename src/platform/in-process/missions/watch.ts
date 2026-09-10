@@ -11,7 +11,7 @@ import {
 } from "@/lib/missions/watch/rules";
 import { porteAttentionPour } from "@/platform/in-process/missions/attention";
 import { companyScopedWhere } from "@/lib/company";
-import { legalReaderWhere } from "@/lib/legal/readers";
+import { legalReaderWhere } from "@/lib/lecteurs/legal";
 import { getBudgetOverview, getEnvelopes } from "@/lib/queries/budget";
 import { santeBudget } from "@/lib/finance/intelligence";
 import { canViewDrive, resolveDriveAccess } from "@/lib/drive";

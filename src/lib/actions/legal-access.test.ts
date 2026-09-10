@@ -8,7 +8,7 @@ vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR }));
 
 import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
-import { canReadLegalDocument } from "@/lib/legal/readers";
+import { canReadLegalDocument } from "@/lib/lecteurs/legal";
 import { setLegalReaders } from "./legal-actions";
 
 let dbOk = false;

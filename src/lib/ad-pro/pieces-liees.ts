@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { userCan, type SessionUser } from "@/lib/rbac";
 import { companyScopedWhere } from "@/lib/company";
-import { legalReaderWhere } from "@/lib/legal/readers";
+import { legalReaderWhere } from "@/lib/lecteurs/legal";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { LEGAL_DOC_KIND } from "@/lib/labels";
 import type { AccesPiecesLiees } from "@/components/shared/linked-records";

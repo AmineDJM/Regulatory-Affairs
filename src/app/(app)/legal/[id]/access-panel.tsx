@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { setLegalReaders } from "@/lib/actions/legal-actions";
-import { readersCaption, readersManagerHint } from "@/lib/legal/readers";
+import { readersCaption, readersManagerHint } from "@/lib/lecteurs/legal";
 
 /**
  * LES ACCÈS D'UN DOCUMENT LÉGAL — gérés ICI, sur le document, et nulle part ailleurs.
@@ -29,7 +29,7 @@ import { readersCaption, readersManagerHint } from "@/lib/legal/readers";
  *
  * Le DÉPOSANT et le Super Admin. Pas celui qui a le droit d'écriture sur le module : pouvoir
  * corriger une date d'échéance n'est pas pouvoir s'ouvrir un document qu'on ne devrait pas lire —
- * il suffirait de s'ajouter à la liste. La règle est celle du module `legal/readers.ts`, la MÊME
+ * il suffirait de s'ajouter à la liste. La règle est celle du module `lecteurs/legal.ts`, la MÊME
  * que revérifie l'action : un bouton qu'on voit et qui refuse ensuite fait chercher la panne au
  * lieu de faire demander à la bonne personne. Ceux qui ne gèrent pas voient donc l'état, et le
  * nom de qui s'en occupe.

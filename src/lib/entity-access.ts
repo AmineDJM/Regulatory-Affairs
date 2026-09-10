@@ -1,7 +1,7 @@
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { companyScopedWhere } from "@/lib/company";
-import { legalReaderWhere } from "@/lib/legal/readers";
+import { legalReaderWhere } from "@/lib/lecteurs/legal";
 import { canSee as canSeeTask, canAttach as canAttachTask } from "@/lib/tasks/request-flow";
 import { recruitmentViewer } from "@/lib/recruitment/access";
 import { isOwnBusiness } from "@/lib/ad-pro/attachments";

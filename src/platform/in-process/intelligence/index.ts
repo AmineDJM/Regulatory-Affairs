@@ -22,7 +22,7 @@
 import { prisma } from "@/lib/prisma";
 import { userCan, type SessionUser } from "@/lib/rbac";
 import { companyScopedWhere } from "@/lib/company";
-import { legalReaderWhere } from "@/lib/legal/readers";
+import { legalReaderWhere } from "@/lib/lecteurs/legal";
 import { expiryLevel, type LegalStatus } from "@/lib/legal/lifecycle";
 import { amountDrift } from "@/lib/legal/chain";
 import { comparerClauses, extraireClauses, obligationsDe, risquesDe, LIBELLE_CLAUSE, type Clause } from "@/lib/legal/clauses";

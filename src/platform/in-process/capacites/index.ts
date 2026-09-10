@@ -40,3 +40,14 @@ export {
   resoudreEntrees, champsDesignables,
   type EntreesResolues, type Substitution, type NonResolu,
 } from "@/lib/cibles/resoudre-entrees";
+// LA DÉSIGNATION LIBRE — « la convention Sanofi », « SP-2026-014 » — pour les ops qui ne
+// passent pas par un contrat d'action et doivent désigner elles-mêmes une fiche. Même porte,
+// même portée : `resoudreCible` compose `porteeEntite`, donc une fiche hors périmètre
+// n'apparaît pas même comme candidate.
+export { resoudreCible, direRefus, type Cible, type Resolution } from "@/lib/cibles/resoudre";
+// BRANCHER / DÉTACHER UNE PIÈCE LEGAL EXISTANTE sur une fiche Ad & Pro. Ces deux actions
+// exigent DEUX droits (lire la pièce, modifier la fiche) et les vérifient elles-mêmes ; le
+// port ne fait que les rendre atteignables sans qu'Adam connaisse `actions/` (§118.111).
+export {
+  rattacherLegalAFiche, detacherLegalDeFiche,
+} from "@/lib/actions/ad-pro-rattacher-legal";

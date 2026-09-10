@@ -26,7 +26,7 @@ import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/fold
 import { EditLegalButton } from "./edit-legal";
 import { RecordDeleteButton } from "@/components/shared/record-delete-button";
 import { PartagerButton } from "@/components/shared/partager-button";
-import { legalReaderWhere, canManageLegalReaders } from "@/lib/legal/readers";
+import { legalReaderWhere, canManageLegalReaders } from "@/lib/lecteurs/legal";
 import { LegalAccessPanel } from "./access-panel";
 import { loadLegalChain } from "@/lib/queries/legal-chain";
 import { valeurContractuelleCourante } from "@/lib/pch/market-math";

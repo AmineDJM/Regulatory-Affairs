@@ -106,7 +106,31 @@ const SOCLE = [
   "src/lib/mutations/",
   "src/lib/personnes/",
   "src/lib/vues/",
+  "src/lib/lecteurs/",
 ];
+
+/**
+ * POURQUOI `lecteurs/` EST AU SOCLE — et pourquoi ce n'est pas un plafond relevé.
+ *
+ * `lecteurs/legal.ts` répond à UNE question, sans base de données et sans un seul import :
+ * « cette personne peut-elle ouvrir CE document légal ? » (lecteurs désignés, déposant, Super
+ * Admin, ou aucune restriction déclarée). Le fichier le disait déjà de lui-même — « Module PUR
+ * — testé, sans base de données » — et il vivait sous `legal/`, ce qui était juste tant qu'un
+ * seul domaine le lisait.
+ *
+ * Le déclencheur est celui de `mutations/` et de `storage/`, et ils sont maintenant SIX à en
+ * avoir besoin sans avoir le droit de se parler : les écrans Legal, `entity-access` (qui répond
+ * par ENREGISTREMENT pour tout le parc), la recherche, deux fournisseurs de plateforme
+ * (intelligence, surveillance de missions) et — le franchissement qui a fait tomber le cliquet —
+ * le contexte des pièces liées d'Ad & Pro, qui doit proposer à rattacher exactement les
+ * documents que la personne a le droit de VOIR.
+ *
+ * La seule autre issue était d'en écrire une seconde copie chez Ad & Pro. Elle aurait divergé au
+ * premier changement de la règle, et le symptôme aurait été un document confidentiel proposé au
+ * rattachement sur un écran métier — la version en retard étant celle qui laisse passer (§118.5,
+ * §118.71). Le cliquet n'a donc pas empêché d'avancer : il a nommé le chemin qui n'ajoute pas de
+ * dette (§118.72, §118.97, §118.105).
+ */
 
 /**
  * POURQUOI `mutations/` EST AU SOCLE — et pourquoi ce n'est pas un passe-droit.

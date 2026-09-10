@@ -16,7 +16,7 @@ import { LegalTable, type LegalRow } from "./legal-table";
 import { LegalFolderBar, type FolderRow } from "./folder-bar";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { legalListScope } from "@/lib/legal/list-view";
-import { legalReaderWhere } from "@/lib/legal/readers";
+import { legalReaderWhere } from "@/lib/lecteurs/legal";
 import { legalViewScope, natureFromParam, invoiceTally } from "@/lib/legal/invoices";
 import { formatCurrency } from "@/lib/utils";
 import { ROLE_LABELS, LEGAL_DOC_KIND } from "@/lib/labels";

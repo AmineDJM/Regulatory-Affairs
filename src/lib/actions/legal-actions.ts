@@ -12,7 +12,7 @@ import { canRenew, canCancel, validateDates, proposeRenewalDates } from "@/lib/l
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFormFiles } from "@/lib/documents";
 import { createExpenseOrder } from "@/lib/expense-orders";
-import { normalizeReaderIds, canManageLegalReaders } from "@/lib/legal/readers";
+import { normalizeReaderIds, canManageLegalReaders } from "@/lib/lecteurs/legal";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { legalWriteAllowed } from "@/lib/legal/invoices";
 import { syncInvoiceSettlement } from "@/lib/finance/settle-invoice";

@@ -6,7 +6,7 @@ import {
 } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { hasGlobalView } from "@/lib/rbac";
-import { legalReaderWhere } from "@/lib/legal/readers";
+import { legalReaderWhere } from "@/lib/lecteurs/legal";
 
 export interface SearchResult {
   id: string;

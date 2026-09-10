@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   isRestricted, canReadLegalDocument, legalReaderWhere, normalizeReaderIds, readersCaption,
   canManageLegalReaders, readersManagerHint,
-} from "./readers";
+} from "@/lib/lecteurs/legal";
 
 const ME = "u-me";
 const AUTHOR = "u-author";

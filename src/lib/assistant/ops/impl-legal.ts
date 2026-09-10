@@ -3,10 +3,13 @@ import { toNumber } from "@/lib/utils";
 import {
   renewLegalDocument, cancelLegalDocument, setLegalReaders, sendLegalInvoiceToSettlement,
 } from "@/lib/actions/legal-actions";
-import { rattacherLegalAFiche, detacherLegalDeFiche } from "@/lib/actions/ad-pro-rattacher-legal";
-import { resoudreCible } from "@/lib/cibles/resoudre";
-import { getEntity } from "@/lib/api/registry/entities";
-import type { CurrentUser } from "@/lib/session";
+// PAR LE PORT, jamais par `@/lib/actions/*` ni `@/lib/cibles/*` : `boundary.test.ts` a
+// compté 430 franchissements pour un plafond de 428 et refusé. Le remède est celui que son
+// message nomme — passer par le contrat de plateforme — et c'est exactement la raison
+// écrite dans l'en-tête de ce port (§118.72, §118.97, §118.111).
+import {
+  resoudreCible, rattacherLegalAFiche, detacherLegalDeFiche,
+} from "@/platform/in-process/capacites";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
 import { fieldsOf } from "./helpers";
@@ -90,8 +93,10 @@ const NATURES_RATTACHABLES: { entite: string; entityType: string; libelle: strin
 
 interface FicheHit { entityType: string; entityId: string; label: string; libelle: string }
 
+type ActeurOp = Parameters<OpImpl["propose"]>[1];
+
 async function resolveFicheAdPro(
-  user: CurrentUser,
+  user: ActeurOp,
   raw: string,
   nature: string,
 ): Promise<FicheHit | { error: string }> {
@@ -112,7 +117,9 @@ async function resolveFicheAdPro(
   const trouves: FicheHit[] = [];
   const candidats: string[] = [];
   for (const x of cherchees) {
-    if (!getEntity(x.entite)) continue;
+    // Pas de garde « l'entité est-elle au registre ? » : `resoudreCible` rend déjà une
+    // résolution VIDE sur une entité inconnue. La répéter ici ne protégerait de rien et ferait
+    // traverser la frontière Adam ↔ ERP pour un fait que l'appelé connaît (§118.5).
     const r = await resoudreCible(user, x.entite, q);
     // `titre` porte la référence quand l'objet en a une, `sousTitre` ce qui distingue deux
     // homonymes : les deux, sinon « SP-2026-014 » et « SP-2026-015 » seraient indiscernables
