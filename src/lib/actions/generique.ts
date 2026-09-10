@@ -278,6 +278,75 @@ export function enArguments(
   });
 }
 
+/**
+ * L'ENTRÉE, TRADUITE EN UN OBJET UNIQUE — pour les 13 actions dont la signature ÉNONCE ses
+ * membres (`setInvoicePaid(input: { id: string; paidDate: string | null })`).
+ *
+ * Un membre absent est OMIS, jamais posé à `undefined` : un objet n'a pas de rangs, donc rien
+ * ne glisse, et une clé absente laisse la valeur par défaut de l'action là où une clé posée à
+ * `undefined` écraserait (§118.71 — une clé absente et une clé vide ne disent pas la même
+ * chose). C'est la différence exacte avec `enArguments`, où le rang DOIT être occupé.
+ */
+export function enObjet(
+  c: ContratAction,
+  entree: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const ch of c.champs) {
+    const v = entree[ch.nom];
+    if (v === undefined || v === null || v === "") continue;
+    if (ch.type === "booleen") out[ch.nom] = typeof v === "boolean" ? v : ["true", "1", "on", "oui", "vrai"].includes(String(v).toLowerCase());
+    else if (ch.type === "nombre") out[ch.nom] = typeof v === "number" ? v : Number(String(v).replace(",", "."));
+    else if (ch.type === "liste") out[ch.nom] = (Array.isArray(v) ? v : [v]).map(String);
+    else if (ch.type === "date") out[ch.nom] = v instanceof Date ? v : new Date(String(v));
+    else out[ch.nom] = String(v);
+  }
+  return out;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA LISTE D'ARGUMENTS D'UN APPEL — décidée à UN SEUL endroit.
+ *
+ * La version précédente était une cascade de ternaires dans l'exécuteur, avec un DERNIER CAS
+ * qui appelait `fn(formData)`. Ajouter une forme d'appel sans y penser faisait donc tomber
+ * cette forme dans le cas par défaut : le formulaire arrivait au rang 0 d'une fonction qui
+ * attend un identifiant, et l'action lisait un état là où on lui donne des données — sans
+ * erreur, sans effet, avec un `{ ok: … }` à l'air normal (§118.14 sur une porte de sortie que
+ * personne ne garde, §118.70).
+ *
+ * Ici la forme est EXHAUSTIVE au sens du compilateur : le `satisfies never` final refuse de
+ * compiler si l'on ajoute une forme d'appel sans dire comment on l'appelle.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function argumentsDAppel(
+  c: ContratAction,
+  entree: Readonly<Record<string, unknown>>,
+): unknown[] {
+  switch (c.appel) {
+    case "sans-entree": return [];
+    case "objet": return [enObjet(c, entree)];
+    case "arguments": return enArguments(c, entree);
+    case "formulaire": return [enFormulaire(entree)];
+    // `useActionState` : l'état précédent AVANT le formulaire. `undefined` est exactement ce
+    // qu'un premier envoi lui donne.
+    case "etat-formulaire": return [undefined, enFormulaire(entree)];
+    case "arguments-etat-formulaire": {
+      // Les `avantFormulaire` premiers champs sont POSITIONNELS ; le reste est le formulaire,
+      // duquel on retire les noms déjà passés en argument — une même valeur ne remplit pas
+      // deux places, et le contrat refuse déjà cette collision.
+      const avant = { ...c, champs: c.champs.slice(0, c.avantFormulaire) };
+      const noms = new Set(avant.champs.map((ch) => ch.nom));
+      const reste = Object.fromEntries(Object.entries(entree).filter(([k]) => !noms.has(k)));
+      return [...enArguments(avant, entree), undefined, enFormulaire(reste)];
+    }
+    default: {
+      const jamais: never = c.appel;
+      throw new Error(`Forme d'appel non gérée : ${String(jamais)}`);
+    }
+  }
+}
+
 export function enFormulaire(entree: Readonly<Record<string, unknown>>): FormData {
   const fd = new FormData();
   for (const [cle, v] of Object.entries(entree)) {

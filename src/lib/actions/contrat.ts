@@ -119,8 +119,17 @@ export interface ContratAction {
    * elle attend un état, et le vrai formulaire n'arriverait jamais — sans erreur, sans effet,
    * et avec un `{ ok: … }` à l'air normal. Le faux succès parfait, pour une virgule.
    */
-  appel: "formulaire" | "etat-formulaire" | "arguments" | "sans-entree";
+  appel: "formulaire" | "etat-formulaire" | "arguments" | "arguments-etat-formulaire" | "objet" | "sans-entree";
   champs: readonly ChampAction[];
+  /**
+   * COMBIEN DE CHAMPS SONT DES ARGUMENTS POSITIONNELS, avant le formulaire.
+   *
+   * `editLegalDocument(id, _prev, formData)` : `id` est un ARGUMENT, tout le reste vient du
+   * formulaire. Sans ce compte, l'exécuteur ne saurait pas où s'arrête l'un et où commence
+   * l'autre — et un rang mal rempli DÉCALE les suivants sans qu'aucune erreur ne le dise
+   * (§118.78). Vaut 0 partout ailleurs.
+   */
+  avantFormulaire: number;
   porte: PorteLue;
   /** L'action écrit-elle en base ? Lu sur les effets réellement présents dans le corps. */
   ecrit: boolean;
@@ -223,6 +232,90 @@ export function decouperActions(fichier: string, source: string): SourceAction[]
   return out;
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UNE ACTION QUI DÉLÈGUE SA LECTURE A QUAND MÊME UNE ENTRÉE — cinq actions le disaient en creux.
+ *
+ * `createStockAnnex(formData) { return createStockLocation(formData, "ANNEX"); }` sortait avec
+ * « aucune lecture de champ trouvée dans le corps — l'entrée attendue reste inconnue ». C'était
+ * vrai de SON corps et faux de l'action : la fonction voisine, dans le MÊME fichier, lit `name`
+ * à la ligne suivante. Encore §118.78 : le refus était écrit à trois lignes de ce qu'il
+ * déclarait ignorer.
+ *
+ * ── UN SEUL NIVEAU, ET LE MÊME FICHIER ───────────────────────────────────────────────────
+ *
+ * On ne suit pas une délégation vers un autre module : son texte n'est pas là, et prétendre le
+ * contraire rendrait une liste de champs inventée. On ne suit pas non plus deux niveaux : la
+ * règle « ce qu'on ne relie pas au formulaire à coup sûr ne déclenche rien » vaut ici comme
+ * ailleurs, et un niveau suffit au parc mesuré.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const RE_LOCALE = /^(?:export\s+)?(?:async\s+)?function ([A-Za-z0-9_]+)\s*\(/gm;
+
+export function fonctionsLocales(source: string): Record<string, SourceAction> {
+  const out: Record<string, SourceAction> = {};
+  RE_LOCALE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = RE_LOCALE.exec(source)) !== null) {
+    const params = equilibrer(source, m.index + m[0].length - 1, "(", ")");
+    if (!params) continue;
+    const ouvre = debutDuCorps(source, params.fin);
+    if (ouvre < 0) continue;
+    const corps = equilibrer(source, ouvre, "{", "}");
+    out[m[1]!] = {
+      fichier: "", fonction: m[1]!,
+      signature: params.texte.replace(/\s+/g, " ").trim(),
+      corps: corps ? `{${corps.texte}}` : source.slice(ouvre),
+    };
+  }
+  return out;
+}
+
+/**
+ * À QUELLES FONCTIONS DU FICHIER CETTE ACTION PASSE-T-ELLE SON FORMULAIRE ? Toutes, pas la
+ * première — et c'est une correction, pas un raffinement.
+ *
+ * `updateLegalDocument` lit `id` chez elle PUIS appelle `readFields(formData)`, qui lit le titre,
+ * la nature, les dates et huit autres champs. Une première version ne suivait la délégation que
+ * lorsque le corps ne lisait RIEN : l'action sortait donc « lisible » avec UN SEUL champ. Le
+ * résultat n'est pas un manque, c'est un piège : `validerEntree` refuse tout champ hors contrat,
+ * donc Adam ne pouvait NI passer le titre NI réussir sans lui — une action décrite et
+ * inappelable, le « je ne peux pas » né d'une incohérence interne (§118.83), et une liste de
+ * champs plausible mais fausse (§118.26).
+ *
+ * Le formulaire est le MÊME objet des deux côtés : l'union des clés lues est donc la vérité, et
+ * elle ne peut qu'être plus complète. Un seul niveau, dans le seul fichier dont on a le texte.
+ */
+function deleguesDuCorps(
+  corps: string,
+  formulaires: readonly string[],
+  locales: Readonly<Record<string, SourceAction>>,
+  /** Les LECTEURS du fichier (`num(fd, "k")`) : ce ne sont pas des délégations. */
+  lecteurs: ReadonlySet<string>,
+): SourceAction[] {
+  if (formulaires.length === 0) return [];
+  const ech = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const fd = formulaires.map(ech).join("|");
+  // Le formulaire peut arriver à N'IMPORTE QUEL rang (`readParties(user.id, formData)`) :
+  // exiger le premier faisait manquer la moitié des délégations.
+  const re = new RegExp(`(?<![.\\w$])([A-Za-z0-9_]+)\\s*\\(([^()]*)\\)`, "g");
+  const formulaire = new RegExp(`(?<![.\\w$])(?:${fd})(?![\\w$])`);
+  const out: SourceAction[] = [];
+  for (const m of sansCommentaires(corps).matchAll(re)) {
+    if (!formulaire.test(m[2]!)) continue;
+    // UN LECTEUR N'EST PAS UN DÉLÉGUÉ, et les confondre a coûté 31 actions d'un coup :
+    // `num(fd: FormData, key: string)` reçoit bien le formulaire, mais sa clé EST son
+    // paramètre — c'est ce qui en fait un lecteur. Le suivre comme une délégation faisait
+    // voir une « lecture calculée » dans le corps d'un helper parfaitement ordinaire, et sept
+    // actions de `market-research-actions` devenaient illisibles pour cette seule raison.
+    if (lecteurs.has(m[1]!)) continue;
+    const cible = locales[m[1]!];
+    // Une fonction qui s'appelle elle-même ne dit rien de plus, et la suivre boucle.
+    if (cible && cible.corps !== corps && !out.includes(cible)) out.push(cible);
+  }
+  return out;
+}
+
 // ───────────────────────────────────────────────────────────────────────────────────────────
 // LES VALEURS ADMISES
 // ───────────────────────────────────────────────────────────────────────────────────────────
@@ -272,6 +365,65 @@ function modeleDesigne(nom: string, modelesEcrits: readonly string[], relations:
 }
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UN LECTEUR LOCAL EST UN LECTEUR — quatre actions le prouvaient en creux.
+ *
+ * `setOrderArrival` écrit `const parseDate = (k: string) => { const v = fdStr(formData, k); … }`
+ * puis `parseDate("expectedArrival")`, `parseDate("arrivedDate")`. Les clés sont LITTÉRALES et
+ * à trois lignes de là ; le détecteur de dynamisme, lui, voyait `fdStr(formData, k)` — une clé
+ * non littérale — et déclarait toute l'action incompréhensible. C'est §118.78 une fois de plus :
+ * le refus était écrit à côté de ce qu'il déclarait ne pas savoir lire.
+ *
+ * Quatre actions du parc : `setOrderArrival`, `createTask`, `updateVisit`, `saveAdoptionSettings`.
+ *
+ * ── CE QUI RESTE REFUSÉ, ET C'EST LA MOITIÉ QUI COMPTE ───────────────────────────────────
+ *
+ * Reconnaître le lecteur ne suffit pas : si on l'APPELLE avec une variable (`clean(champ)` dans
+ * une boucle), les clés redeviennent inconnues et l'action redevient illisible. Sans cette
+ * seconde règle, on aurait échangé un refus honnête contre une liste de champs INCOMPLÈTE —
+ * et un champ manquant peut être celui qui aiguille l'écriture (§118.26).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function lecteursLocaux(
+  corps: string,
+  formulaires: readonly string[],
+  lecteursConnus: Readonly<Record<string, TypeChamp>>,
+): { lecteurs: Record<string, TypeChamp>; parametres: Set<string> } {
+  const lecteurs: Record<string, TypeChamp> = {};
+  const parametres = new Set<string>();
+  if (formulaires.length === 0) return { lecteurs, parametres };
+  const ech = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const fd = formulaires.map(ech).join("|");
+  const noms = Object.keys(lecteursConnus).map(ech).join("|");
+  const propre = sansCommentaires(corps);
+
+  const re = /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*(?::[^=]*?)?=>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(propre)) !== null) {
+    const nom = m[1]!;
+    const premier = /^\s*([A-Za-z_$][\w$]*)\s*:\s*string\b/.exec(m[2]!);
+    if (!premier) continue;
+    const cle = premier[1]!;
+    // La FENÊTRE qui suit la flèche : on n'a pas besoin des bornes exactes du corps, seulement
+    // d'y trouver la preuve d'une lecture. Trop large ne fait qu'ajouter du contexte ; on ne
+    // conclut que sur une occurrence qui NOMME à la fois le formulaire et le paramètre.
+    const fenetre = propre.slice(m.index + m[0].length, m.index + m[0].length + 500);
+    const k = ech(cle);
+    const type: TypeChamp | null =
+      new RegExp(`\\b(?:${fd})\\s*\\.\\s*getAll\\s*\\(\\s*${k}\\s*\\)`).test(fenetre) ? "liste"
+      : new RegExp(`\\b(?:${fd})\\s*\\.\\s*(?:get|has)\\s*\\(\\s*${k}\\s*\\)`).test(fenetre) ? "texte"
+      : (() => {
+          const r = new RegExp(`\\b(${noms})\\s*\\(\\s*(?:${fd})\\s*,\\s*${k}\\s*\\)`).exec(fenetre);
+          return r ? lecteursConnus[r[1]!]! : null;
+        })();
+    if (!type) continue;
+    lecteurs[nom] = type;
+    parametres.add(cle);
+  }
+  return { lecteurs, parametres };
+}
+
+/**
  * Le nom du champ est-il CALCULÉ à l'exécution ? Alors on ne peut rien annoncer.
  *
  * Le test porte sur le premier caractère non blanc après la virgule (ou la parenthèse) : un
@@ -280,16 +432,38 @@ function modeleDesigne(nom: string, modelesEcrits: readonly string[], relations:
  * qu'un retour à la ligne n'est pas un guillemet. Un détecteur trop large aurait fermé la
  * porte à 90 % du parc en annonçant l'avoir ouverte.
  */
-function lectureDynamique(corps: string, lecteurs: readonly string[], formulaires: readonly string[]): boolean {
+function lectureDynamique(
+  corps: string,
+  lecteurs: readonly string[],
+  formulaires: readonly string[],
+  /** Les paramètres des lecteurs LOCAUX : une clé qui porte ce nom-là est littérale à l'appel. */
+  parametresLocaux: ReadonlySet<string> = new Set(),
+  /** Les lecteurs LOCAUX eux-mêmes : appelés avec une variable, la clé redevient inconnue. */
+  locaux: readonly string[] = [],
+): boolean {
   const ech = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const noms = lecteurs.map(ech).join("|");
+  /** La clé lue est-elle le PARAMÈTRE d'un lecteur local ? Alors ce n'est pas du dynamisme. */
+  const local = (cle: string | undefined) => Boolean(cle && parametresLocaux.has(cle));
+  const cherche = (re: RegExp, rang: number): boolean => {
+    for (const m of corps.matchAll(re)) if (!local(m[rang])) return true;
+    return false;
+  };
   // (a) UN LECTEUR appelé avec une clé qui n'est pas un littéral.
-  if (new RegExp(`\\b(?:${noms})\\s*\\(\\s*[A-Za-z0-9_]+\\s*,\\s*(?!\\s*")[A-Za-z_\`$]`).test(corps)) return true;
+  if (cherche(new RegExp(`\\b(?:${noms})\\s*\\(\\s*[A-Za-z0-9_]+\\s*,\\s*(?!\\s*")([A-Za-z_\`$][\\w$]*)`, "g"), 1)) return true;
+  // (d) UN LECTEUR LOCAL appelé avec une variable : reconnaître le lecteur ne suffit pas, il
+  //     faut que ses CLÉS soient littérales — sinon on rendrait une liste de champs amputée.
+  // LE RÉCEPTEUR COMPTE, ici comme ailleurs (§118.78) : sans le regard négatif sur le point,
+  // un lecteur local nommé `has` s'accrochait à `supported.has(a)` — un ENSEMBLE, sans le
+  // moindre rapport avec le formulaire — et déclarait l'action illisible. Mesuré sur
+  // `updateVisit`, où c'est exactement ce qui se passait.
+  if (locaux.length > 0
+    && new RegExp(`(?<![.\\w$])(?:${locaux.map(ech).join("|")})\\s*\\(\\s*(?!\\s*")[A-Za-z_\`$]`).test(corps)) return true;
   if (formulaires.length === 0) return false;
   const fd = formulaires.map(ech).join("|");
   // (b) LE FORMULAIRE LUI-MÊME interrogé sur une clé calculée — le récepteur compte : sans lui,
   //     `PROJECT_TEXT.has(field)` (un ENSEMBLE) faisait passer l'action pour dynamique.
-  if (new RegExp(`\\b(?:${fd})\\s*\\.\\s*(?:get|getAll|has)\\s*\\(\\s*(?!\\s*")[A-Za-z_\`$]`).test(corps)) return true;
+  if (cherche(new RegExp(`\\b(?:${fd})\\s*\\.\\s*(?:get|getAll|has)\\s*\\(\\s*(?!\\s*")([A-Za-z_\`$][\\w$]*)`, "g"), 1)) return true;
   // (c) LE FORMULAIRE PARCOURU : on ne sait alors rien annoncer.
   return new RegExp(`\\b(?:${fd})\\s*\\.\\s*(?:entries|keys|forEach)\\s*\\(`).test(corps);
 }
@@ -380,7 +554,15 @@ export function nomsDuFormulaire(signature: string, corps: string): string[] {
   return [...noms];
 }
 
-export function rangDuFormulaire(signature: string): 0 | 1 | null {
+/**
+ * À QUEL RANG L'ACTION REÇOIT-ELLE SON FORMULAIRE ? `null` si elle n'en prend pas.
+ *
+ * Mesuré sur le parc : 100 actions au rang 1 — TOUTES avec l'état précédent de `useActionState`
+ * juste avant — et 2 au rang 2, `(id: string, _prev: ActionResult | undefined, formData)`. Le
+ * rang n'est donc pas une borne arbitraire : c'est la convention React, et le paramètre qui
+ * précède immédiatement le formulaire est TOUJOURS l'état précédent.
+ */
+export function rangDuFormulaire(signature: string): number | null {
   if (!/FormData/.test(signature)) return null;
   const params: string[] = [];
   let profondeur = 0, courant = "";
@@ -392,7 +574,7 @@ export function rangDuFormulaire(signature: string): 0 | 1 | null {
   }
   if (courant.trim()) params.push(courant);
   const rang = params.findIndex((p) => /FormData/.test(p));
-  return rang === 0 || rang === 1 ? (rang as 0 | 1) : null;
+  return rang >= 0 ? rang : null;
 }
 
 /**
@@ -410,11 +592,13 @@ export function decrireAction(
   lecteursDuFichier: Readonly<Record<string, TypeChamp>> = {},
   /** Ce que le schéma dit des références. Vide = aucun champ ne portera de modèle. */
   relations: TableRelations = {},
+  /** Les fonctions du MÊME fichier, pour suivre une délégation d'UN niveau. */
+  locales: Readonly<Record<string, SourceAction>> = {},
 ): ContratAction {
   const { fichier, fonction, signature, corps } = src;
   const base = {
     id: `${fichier}:${fonction}`,
-    fichier, fonction,
+    fichier, fonction, avantFormulaire: 0,
     porte: lirePorte(corps, constantes),
     ecrit: RE_ECRITURE.test(corps),
     modelesEcrits: modelesEcrits(corps),
@@ -429,38 +613,116 @@ export function decrireAction(
     if (signature === "") {
       return { ...base, appel: "sans-entree", champs: [], illisible: null };
     }
-    const lue = lireArguments(signature);
+    // L'OBJET UNIQUE D'ABORD : `lireArguments` le refuserait pour « pas une valeur simple »,
+    // alors que ses membres sont écrits dans la signature (§118.87).
+    const objet = lireObjetUnique(signature);
+    const lue = objet && "champs" in objet ? objet : objet ?? lireArguments(signature);
+    const forme = objet ? "objet" as const : "arguments" as const;
     return "champs" in lue
       ? {
-          ...base, appel: "arguments" as const, illisible: null,
+          ...base, appel: forme, illisible: null,
           champs: lue.champs.map((ch) => (ch.type === "reference" || (ch.type === "liste" && estReference(ch.nom))
             ? { ...ch, modele: modeleDesigne(ch.nom, base.modelesEcrits, relations) }
             : ch)),
         }
       : {
-          ...base, appel: "arguments" as const, champs: [],
+          ...base, appel: forme, champs: [],
           illisible: `entrée typée (${signature}) — ${lue.refus}`,
         };
   }
 
-  const appel = rang === 0 ? "formulaire" as const : "etat-formulaire" as const;
+  // ── CE QUI PRÉCÈDE LE FORMULAIRE ────────────────────────────────────────────────────────
+  //
+  // Le paramètre JUSTE AVANT est l'état précédent de `useActionState` : on le remplit avec
+  // `undefined`, ce qu'un premier envoi lui donne de toute façon. Il doit l'ACCEPTER — sans
+  // cette vérification, un jour quelqu'un écrirait `(id, autreChose, formData)` et l'on
+  // passerait `undefined` à une valeur obligatoire, en silence (§118.78).
+  const params = decouperParametres(sansCommentaires(signature)).map((p) => p.trim()).filter(Boolean);
+  const etat = rang >= 1 ? params[rang - 1] ?? "" : "";
+  if (rang >= 1 && !/\|\s*undefined\b/.test(etat) && !/^\w+\?\s*:/.test(etat)) {
+    return {
+      ...base, appel: "etat-formulaire" as const, champs: [],
+      illisible: `le paramètre « ${etat.split(":")[0]!.trim()} » précède le formulaire sans accepter `
+        + `« undefined » — ce n'est pas l'état précédent d'un formulaire React, et on ne devine pas sa valeur`,
+    };
+  }
+  const avant: ChampAction[] = [];
+  for (const brut of params.slice(0, Math.max(0, rang - 1))) {
+    const lu = lireUnParametre(brut);
+    if (!lu) continue;
+    if ("refus" in lu) {
+      return {
+        ...base, appel: "arguments-etat-formulaire" as const, champs: [],
+        illisible: `entrée mixte (${sansCommentaires(signature).replace(/\s+/g, " ").trim()}) — le paramètre ${lu.refus}`,
+      };
+    }
+    avant.push({ ...lu.champ, modele: modeleDesigne(lu.champ.nom, base.modelesEcrits, relations) });
+  }
+  const appel = rang === 0
+    ? "formulaire" as const
+    : avant.length > 0 ? "arguments-etat-formulaire" as const : "etat-formulaire" as const;
 
   const lecteurs = { ...HELPERS_PARTAGES, ...lecteursDuFichier };
-  if (lectureDynamique(corps, Object.keys(lecteurs), nomsDuFormulaire(signature, corps))) {
+  const formulaires = nomsDuFormulaire(signature, corps);
+  const locaux = lecteursLocaux(corps, formulaires, lecteurs);
+  const tousLecteurs = { ...lecteurs, ...locaux.lecteurs };
+  if (lectureDynamique(corps, Object.keys(lecteurs), formulaires, locaux.parametres, Object.keys(locaux.lecteurs))) {
     return {
       ...base, appel, champs: [],
       illisible: "les noms de champs sont calculés à l'exécution — la source ne les énonce pas",
     };
   }
 
-  const champs = lireChamps(corps, enums, lecteurs, base.modelesEcrits, relations);
-  if (champs.length === 0) {
+  const propres = lireChamps(corps, enums, tousLecteurs, base.modelesEcrits, relations, Object.keys(locaux.lecteurs));
+
+  // CE QUE LES FONCTIONS DU FICHIER LISENT DANS LE MÊME FORMULAIRE (voir `deleguesDuCorps`).
+  //
+  // UN DÉLÉGUÉ DYNAMIQUE N'EFFACE PAS CE QU'ON SAIT — mesuré, et j'avais d'abord tranché dans
+  // l'autre sens. `createRequest` lit son titre, son type et sa société EN CLAIR, puis appelle
+  // `collectAllFields(formData)`, qui ramasse les champs personnalisés `f_*`. Rendre l'action
+  // illisible pour cette raison coûtait une capacité RÉELLE — créer une demande administrative
+  // — pour protéger d'un défaut qui n'existe pas : un champ personnalisé en plus n'a jamais
+  // empêché l'action de réussir. Un refus à tort est pire que le défaut qu'on corrige (§118.27).
+  // On IGNORE donc ce délégué-là, et l'on ne le déclare illisible que s'il ne reste RIEN.
+  let delegueMuet: string | null = null;
+  const parDelegation: ChampAction[] = [];
+  for (const d of deleguesDuCorps(corps, formulaires, locales, new Set(Object.keys(tousLecteurs)))) {
+    const fdD = nomsDuFormulaire(d.signature, d.corps);
+    const locD = lecteursLocaux(d.corps, fdD, lecteurs);
+    if (lectureDynamique(d.corps, Object.keys(lecteurs), fdD, locD.parametres, Object.keys(locD.lecteurs))) {
+      delegueMuet ??= d.fonction;
+      continue;
+    }
+    parDelegation.push(...lireChamps(
+      d.corps, enums, { ...lecteurs, ...locD.lecteurs }, base.modelesEcrits, relations, Object.keys(locD.lecteurs),
+    ));
+  }
+  const vus = new Set<string>();
+  const duFormulaire = [...propres, ...parDelegation]
+    .filter((ch) => (vus.has(ch.nom) ? false : (vus.add(ch.nom), true)))
+    .sort((a, b) => a.nom.localeCompare(b.nom));
+  // UN ARGUMENT ET UN CHAMP DE MÊME NOM ne peuvent pas coexister : l'entrée n'aurait qu'une
+  // valeur pour deux places, et l'on ne saurait pas laquelle la personne a voulu remplir.
+  const collision = avant.map((a) => a.nom).filter((n) => duFormulaire.some((f) => f.nom === n));
+  if (collision.length > 0) {
     return {
       ...base, appel, champs: [],
-      illisible: "aucune lecture de champ trouvée dans le corps — l'entrée attendue reste inconnue",
+      illisible: `« ${collision.join(", ") }» est à la fois un argument et un champ du formulaire — `
+        + `une seule valeur ne peut pas remplir deux places`,
     };
   }
-  return { ...base, appel, champs, illisible: null };
+  const champs = [...avant, ...duFormulaire];
+  if (duFormulaire.length > 0) {
+    return { ...base, appel, champs, avantFormulaire: avant.length, illisible: null };
+  }
+
+  return {
+    ...base, appel, champs: [],
+    illisible: delegueMuet
+      ? `« ${delegueMuet} » lit le formulaire pour cette action et calcule ses noms de champs à `
+        + `l'exécution — rien dans la source n'énonce l'entrée attendue`
+      : "aucune lecture de champ trouvée dans le corps — l'entrée attendue reste inconnue",
+  };
 }
 
 function lireChamps(
@@ -469,6 +731,8 @@ function lireChamps(
   lecteurs: Readonly<Record<string, TypeChamp>>,
   modelesEcrits: readonly string[],
   relations: TableRelations,
+  /** Les lecteurs LOCAUX, appelés avec la seule clé (`parseDate("arrivedDate")`). */
+  locaux: readonly string[] = [],
 ): ChampAction[] {
   const parNom = new Map<string, ChampAction>();
   /** Le nom de variable sous lequel un champ a été rangé — pour retrouver sa garde et son cast. */
@@ -500,6 +764,18 @@ function lireChamps(
   }
   for (const m of corps.matchAll(new RegExp(`\\b(${noms})\\s*\\(\\s*[A-Za-z0-9_]+\\s*,\\s*"([^"]+)"`, "g"))) {
     poser(m[2]!, lecteurs[m[1]!]!);
+  }
+  // LES LECTEURS LOCAUX prennent la CLÉ SEULE : `parseDate("arrivedDate")`. Les faire passer
+  // par les motifs à deux arguments ci-dessus ne les verrait jamais.
+  if (locaux.length > 0) {
+    const nomsLocaux = locaux.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+    for (const m of corps.matchAll(new RegExp(`(?:const|let)\\s+([A-Za-z_0-9]+)\\s*=\\s*(?:await\\s+)?(${nomsLocaux})\\s*\\(\\s*"([^"]+)"`, "g"))) {
+      poser(m[3]!, lecteurs[m[2]!]!);
+      variableDe.set(m[3]!, m[1]!);
+    }
+    for (const m of corps.matchAll(new RegExp(`\\b(${nomsLocaux})\\s*\\(\\s*"([^"]+)"`, "g"))) {
+      poser(m[2]!, lecteurs[m[1]!]!);
+    }
   }
   for (const m of corps.matchAll(/\.getAll\s*\(\s*"([^"]+)"/g)) poser(m[1]!, "liste");
   for (const m of corps.matchAll(/\.(?:get|has)\s*\(\s*"([^"]+)"/g)) poser(m[1]!, "texte");
@@ -613,7 +889,8 @@ export function contratsDuFichier(
   const constantes = constantesDuFichier(source);
   const enums = { ...enumsSchema, ...enumsLocaux(source) };
   const lecteurs = helpersDuFichier(source);
-  return decouperActions(fichier, source).map((a) => decrireAction(a, constantes, enums, lecteurs, relations));
+  const locales = fonctionsLocales(source);
+  return decouperActions(fichier, source).map((a) => decrireAction(a, constantes, enums, lecteurs, relations, locales));
 }
 
 /**
@@ -682,14 +959,20 @@ const TYPES_SIMPLES: Readonly<Record<string, TypeChamp>> = {
  */
 const IDENTITE_ACTEUR = /^(userId|actorId|asUser|onBehalfOf|accountId|sessionUserId|impersonate\w*)$/i;
 
-/** Découpe une liste de paramètres au niveau ZÉRO — un `{ a: string }` ne se coupe pas en deux. */
-function decouperParametres(signature: string): string[] {
+/**
+ * Découpe une liste au niveau ZÉRO — un `{ a: string }` ne se coupe pas en deux.
+ *
+ * `separateurs` vaut « , » pour des paramètres et « ,; » pour les MEMBRES d'un type objet, que
+ * TypeScript accepte séparés par l'un ou l'autre. Deux découpeurs auraient divergé au premier
+ * membre écrit avec l'autre signe (§118.5).
+ */
+function decouperParametres(signature: string, separateurs = ","): string[] {
   const out: string[] = [];
   let prof = 0, cur = "";
   for (const ch of signature) {
     if ("{<([".includes(ch)) prof++;
     else if ("}>)]".includes(ch)) prof--;
-    if (ch === "," && prof === 0) { out.push(cur); cur = ""; continue; }
+    if (separateurs.includes(ch) && prof === 0) { out.push(cur); cur = ""; continue; }
     cur += ch;
   }
   if (cur.trim()) out.push(cur);
@@ -706,43 +989,106 @@ function litterauxUnion(type: string): string[] | null {
 /** Le résultat d'une lecture de signature : des champs, ou la RAISON exacte du refus (§118.30). */
 export type LectureArguments = { champs: ChampAction[] } | { refus: string };
 
-export function lireArguments(signature: string): LectureArguments {
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UN PARAMÈTRE OBJET LITTÉRAL SE LIT — ses membres SONT écrits dans la signature.
+ *
+ * `setInvoicePaid(input: { id: string; paidDate: string | null })` était refusée pour « le type
+ * de « input » n'est pas une valeur simple ». C'est le refus de §118.78 recommencé un cran plus
+ * bas : la source ÉNONCE `id` et `paidDate`, avec leurs types, à l'endroit exact où le refus
+ * disait ne rien savoir. Treize actions du parc sont dans ce cas.
+ *
+ * ── POURQUOI SEULEMENT LE PARAMÈTRE UNIQUE ───────────────────────────────────────────────
+ *
+ * Un appel positionnel est MUET : rien ne signale un rang mal rempli (§118.78). Mélanger des
+ * rangs simples et un objet demanderait de savoir, champ par champ, dans quel rang il va — un
+ * état de plus à tenir juste, pour un gain que le parc ne réclame pas : les treize actions
+ * concernées prennent TOUTES un objet unique. On lit ce cas-là, exactement, et l'on refuse le
+ * reste en le NOMMANT.
+ *
+ * La lecture reste TOUT-OU-RIEN : un membre au type illisible (un objet imbriqué, un type
+ * importé) rend toute la signature illisible. Livrer un objet amputé d'un champ ferait appeler
+ * l'action avec une clé manquante — et une clé absente n'est pas une clé vide (§118.71).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function lireObjetUnique(signature: string): LectureArguments | null {
+  // LES COMMENTAIRES PARTENT D'ABORD, pas membre par membre : une phrase de documentation
+  // contient des virgules, et découper dedans coupait un membre en deux — donc une liste de
+  // champs AMPUTÉE, c'est-à-dire le sens dangereux de l'erreur (§118.78).
+  const propre = sansCommentaires(signature);
+  const params = decouperParametres(propre).map((p) => p.trim()).filter(Boolean);
+  if (params.length !== 1) return null;
+  const m = /^(\w+)\??\s*:\s*\{([\s\S]*)\}\s*$/.exec(params[0]!.replace(/,$/, "").trim());
+  if (!m) return null;
+  const membres = decouperParametres(m[2]!, ",;");
   const champs: ChampAction[] = [];
-  for (const brut of decouperParametres(signature)) {
-    const p = brut.replace(/\/\*[\s\S]*?\*\//g, "").trim().replace(/,$/, "");
-    if (!p) continue;
-    if (p.startsWith("...")) return { refus: `le paramètre « ${p.slice(0, 30)} » est variadique` };
-    // UNE VALEUR PAR DÉFAUT (`now = new Date()`) : le rang existe, mais sa valeur est calculée
-    // à l'appel. La remplir depuis une demande ferait écrire une date choisie par un modèle là
-    // où le code voulait « maintenant ».
-    const avantType = p.split(":")[0] ?? "";
-    if (avantType.includes("=") || /[^=!<>]=[^=>]/.test(p)) {
-      return { refus: `le paramètre « ${avantType.split("=")[0]!.trim()} » a une valeur par défaut` };
-    }
-    const m = /^(\w+)(\?)?\s*:\s*([\s\S]+)$/.exec(p);
-    if (!m) return { refus: `« ${p.slice(0, 40)} » n'est pas un nom simple typé` };
-    const nom = m[1]!;
-    let optionnel = Boolean(m[2]);
-    let type = m[3]!.replace(/\s+/g, " ").trim();
+  for (const brut of membres) {
+    const lu = lireUnParametre(brut);
+    if (!lu) continue;
+    if ("refus" in lu) return { refus: `le membre ${lu.refus} de « ${m[1]} »` };
+    champs.push(lu.champ);
+  }
+  return champs.length ? { champs } : null;
+}
 
-    if (IDENTITE_ACTEUR.test(nom)) {
-      return {
-        refus: `le paramètre « ${nom} » porte l'identité de l'ACTEUR — une action qui reçoit son `
-          + `auteur au lieu de le lire dans la session ne s'appelle que depuis un écran`,
-      };
-    }
-    if (/\|\s*undefined$/.test(type)) { type = type.replace(/\|\s*undefined$/, "").trim(); optionnel = true; }
-    // `| null` dit qu'on accepte l'ABSENCE DE VALEUR, jamais l'absence d'ARGUMENT : sauter le
-    // rang décalerait tous les suivants. Le champ reste donc obligatoire.
-    if (/\|\s*null$/.test(type)) type = type.replace(/\|\s*null$/, "").trim();
+/**
+ * UN PARAMÈTRE (ou un MEMBRE d'objet), lu ou refusé avec sa raison. `null` = rien à lire ici
+ * (une virgule finale, un commentaire seul) — ce n'est pas un refus.
+ */
+export const sansCommentaires = (t: string): string =>
+  t.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
 
-    const valeurs = litterauxUnion(type);
-    const simple = valeurs ? "texte" as const : TYPES_SIMPLES[type];
-    if (!simple) return { refus: `le type de « ${nom} » (${type}) n'est pas une valeur simple` };
-    // MÊME RÈGLE DE RÉFÉRENCE QUE LE FORMULAIRE : `missionId` désigne une mission des deux
-    // côtés. Deux conventions selon la façon d'appeler feraient qu'« arrête la mission de
-    // consolidation » se résoudrait dans un cas et exigerait un cuid dans l'autre.
-    champs.push({
+/**
+ * UNE VALEUR PAR DÉFAUT LITTÉRALE N'EST PAS UN CALCUL.
+ *
+ * `spaceId: string | null = null` dit « facultatif, et voici ce que vaut son absence » — on
+ * peut l'omettre sans rien changer. `now = new Date()` est autre chose : sa valeur est
+ * CALCULÉE à l'appel, et la remplir depuis une demande ferait écrire une date choisie par un
+ * modèle là où le code voulait « maintenant ». La liste des littéraux est FERMÉE, parce qu'un
+ * détecteur qui accepterait « tout ce qui ne ressemble pas à un appel » finirait par laisser
+ * passer une constante importée dont on ne sait rien.
+ */
+const DEFAUT_LITTERAL = /^(null|undefined|true|false|""|''|``|\[\]|\{\}|-?\d+(?:\.\d+)?)$/;
+
+function lireUnParametre(brut: string): { champ: ChampAction } | { refus: string } | null {
+  const p = sansCommentaires(brut).trim().replace(/[,;]$/, "");
+  if (!p) return null;
+  if (p.startsWith("...")) return { refus: `« ${p.slice(0, 30)} » est variadique` };
+  const avantType = p.split(":")[0] ?? "";
+  const egal = p.indexOf("=");
+  if (avantType.includes("=") || /[^=!<>]=[^=>]/.test(p)) {
+    const defaut = egal >= 0 ? p.slice(egal + 1).trim() : "";
+    if (!DEFAUT_LITTERAL.test(defaut)) {
+      return { refus: `« ${avantType.split("=")[0]!.trim()} » a une valeur par défaut CALCULÉE (${defaut.slice(0, 30)})` };
+    }
+    // Littérale : le paramètre est FACULTATIF, et l'omettre rend exactement ce défaut.
+    return lireUnParametre(`${p.slice(0, egal).replace(/:/, "?:")}`);
+  }
+  const m = /^(\w+)(\?)?\s*:\s*([\s\S]+)$/.exec(p);
+  if (!m) return { refus: `« ${p.slice(0, 40)} » n'est pas un nom simple typé` };
+  const nom = m[1]!;
+  let optionnel = Boolean(m[2]);
+  let type = m[3]!.replace(/\s+/g, " ").trim();
+
+  if (IDENTITE_ACTEUR.test(nom)) {
+    return {
+      refus: `« ${nom} » porte l'identité de l'ACTEUR — une action qui reçoit son auteur au lieu `
+        + `de le lire dans la session ne s'appelle que depuis un écran`,
+    };
+  }
+  if (/\|\s*undefined$/.test(type)) { type = type.replace(/\|\s*undefined$/, "").trim(); optionnel = true; }
+  // `| null` dit qu'on accepte l'ABSENCE DE VALEUR, jamais l'absence d'ARGUMENT : sauter le
+  // rang décalerait tous les suivants. Le champ reste donc obligatoire.
+  if (/\|\s*null$/.test(type)) type = type.replace(/\|\s*null$/, "").trim();
+
+  const valeurs = litterauxUnion(type);
+  const simple = valeurs ? "texte" as const : TYPES_SIMPLES[type];
+  if (!simple) return { refus: `« ${nom} » (${type}) n'est pas une valeur simple` };
+  // MÊME RÈGLE DE RÉFÉRENCE QUE LE FORMULAIRE : `missionId` désigne une mission des deux
+  // côtés. Deux conventions selon la façon d'appeler feraient qu'« arrête la mission de
+  // consolidation » se résoudrait dans un cas et exigerait un cuid dans l'autre.
+  return {
+    champ: {
       nom,
       type: simple === "texte" && !valeurs && estReference(nom) ? "reference" : simple,
       obligatoire: !optionnel,
@@ -750,7 +1096,18 @@ export function lireArguments(signature: string): LectureArguments {
       // Le modèle désigné ne se lit pas dans la SIGNATURE : il vient du schéma croisé avec les
       // écritures de l'action, que `decrireAction` seule connaît. Elle le pose juste après.
       modele: null,
-    });
+    },
+  };
+}
+
+export function lireArguments(signature: string): LectureArguments {
+  const champs: ChampAction[] = [];
+  for (const brut of decouperParametres(signature)) {
+    const lu = lireUnParametre(brut);
+    if (!lu) continue;
+    if ("refus" in lu) return { refus: `le paramètre ${lu.refus}` };
+    champs.push(lu.champ);
   }
   return champs.length ? { champs } : { refus: "aucun paramètre lisible" };
 }
+

@@ -107,6 +107,25 @@ describe("LE TEST QUI COMPTE : les transports de PRODUCTION refusent avant d'ouv
     expect((e as SortieInterdite).cible).toBe("deepak@hetero-test.invalid");
   });
 
+  /**
+   * L'E-MAIL PAR API HTTPS — le quatrième émetteur, et celui qui n'avait aucune garde.
+   *
+   * CE QUI FERAIT TOMBER : retirer l'appel à la garde dans `sendSmartEmail`. Le message
+   * partirait alors POUR DE VRAI dès qu'une clé de fournisseur est configurée — et un e-mail
+   * envoyé ne se rappelle pas.
+   */
+  it("`sendSmartEmail` (API HTTPS) n'envoie rien, et l'enregistre", async () => {
+    oublierTentativesSortantes();
+    const { sendSmartEmail } = await import("@/lib/mail-smart");
+    const r = await sendSmartEmail({ to: ["dehors@exemple.dz"], subject: "essai", text: "corps" });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("garde de sortie");
+    const t = tentativesSortantes();
+    expect(t.map((x) => x.acte)).toContain("COURRIEL");
+    expect(t.some((x) => x.cible.includes("dehors@exemple.dz"))).toBe(true);
+    expect(t.some((x) => x.origine === "mail-smart:sendSmartEmail")).toBe(true);
+  });
+
   it("mesure consignée — tentatives de sortie réellement parties pendant la suite", () => {
     /**
      * Le chiffre visé est ZÉRO, et il se lit à l'envers : chaque tentative enregistrée est une

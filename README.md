@@ -3400,10 +3400,11 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 
 | Fichier | Rôle |
 | --- | --- |
-| `src/lib/actions/contrat.ts` | **Pur.** Dérive le contrat d'une action depuis sa source : champs, types, obligatoires prouvés, valeurs admises, modèles écrits, forme d'appel. Dit son ignorance (`illisible`) au lieu de deviner. `lireArguments` traduit aussi les entrées TYPÉES, `helpersDuFichier` DÉRIVE les lecteurs de champ du fichier (14 helpers dans le parc, pas 4) et le détecteur de dynamisme s'arme sur le RÉCEPTEUR nommé par la signature — **669/715 décrites (94 %)** — TOUT-OU-RIEN, parce qu'un appel positionnel mal lu ne dégrade pas, il DÉCALE ; et un paramètre portant l'identité de l'ACTEUR ferme la signature. |
+| `src/lib/actions/contrat.ts` | **Pur.** Dérive le contrat d'une action depuis sa source : champs, types, obligatoires prouvés, valeurs admises, modèle DÉSIGNÉ (relation Prisma), modèles écrits, forme d'appel (6). Dit son ignorance (`illisible`) au lieu de deviner. Lit un OBJET littéral, les LECTEURS LOCAUX, la DÉLÉGATION à une fonction du fichier et les défauts LITTÉRAUX ; le détecteur de dynamisme s'arme sur le RÉCEPTEUR — **691/715 décrites (97 %)** — TOUT-OU-RIEN, parce qu'un appel positionnel mal lu ne dégrade pas, il DÉCALE ; et un paramètre portant l'identité de l'ACTEUR ferme la signature. |
+| `src/lib/cibles/resoudre-entrees.ts` | Le pont « nom humain → ligne de la base » du chemin générique : `resoudreCible` sous la portée de la personne, l'ANNUAIRE pour les personnes, substitution montrée sur la carte, refus avec candidats sur une ambiguïté, passage tel quel DIT quand rien ne se lit à coup sûr. |
 | `src/lib/actions/contrat-scan.ts` | La lecture du parc (disque + énums du schéma) — la seule pièce qui touche `fs`. |
 | `src/lib/actions/contrat.genere.json` / `.ts` | L'artefact (données) et son module de chargement. Régénérés par `npm run actions:contrat`, redérivés et comparés par `contrat.test.ts`. |
-| `src/lib/actions/generique.ts` | **Pur.** Ce qui est refusé au chemin générique — **DEUX faits d'armement** : le modèle ÉCRIT (auto-escalade) et le FICHIER (`SURFACES_HUMAINES` : les attestations de Mission Control et les interrupteurs d'Adam délèguent leur écriture, donc aucun modèle ne les trahit). Plus la validation d'une entrée contre son contrat, `enArguments` (rang + nature), et la découverte par recouvrement de mots. |
+| `src/lib/actions/generique.ts` | **Pur.** Ce qui est refusé au chemin générique — **DEUX faits d'armement** : le modèle ÉCRIT (auto-escalade) et le FICHIER (`SURFACES_HUMAINES` : les attestations de Mission Control et les interrupteurs d'Adam délèguent leur écriture, donc aucun modèle ne les trahit). Plus la validation d'une entrée contre son contrat, `argumentsDAppel` (les 6 formes d'appel décidées en UN endroit exhaustif — un `never` final refuse de compiler si l'on en ajoute une sans dire comment l'appeler), et la découverte par recouvrement de mots. |
 | `src/lib/actions/executer.ts` | Appelle l'action de l'ÉCRAN — par formulaire, par état+formulaire, sans entrée, ou **positionnellement** pour les entrées typées. Ne vérifie aucun droit lui-même ; lit l'échec déclaré des actions qui écrivent. |
 | `src/lib/actions/aiguillage.genere.ts` | Table d'aiguillage : un spécificateur littéral par fichier, chargé paresseusement. Écartée du scan Graphify (voir `scripts/graphify-refresh.sh`). |
 | `src/platform/in-process/capacites/` | Le **port** : la seule porte par laquelle Adam atteint tout cela. Réexporte, n'ajoute aucune logique. |
@@ -5233,10 +5234,25 @@ action demandait sa fiche, et une fiche devient fausse en silence dès qu'on ajo
 
 **Une action se DÉCRIT depuis sa source.** `src/lib/actions/contrat.ts` (pur) dérive le contrat de chaque action
 en lisant son code : ses champs, leur type, ceux que le code REFUSE d'omettre, les valeurs admises quand elles se
-lisent, les modèles qu'elle écrit. Mesuré sur le parc : **715 actions, 598 descriptibles (84 %)**, artefact en
+lisent, les modèles qu'elle écrit. Mesuré sur le parc : **715 actions, 691 descriptibles (97 %)**, artefact en
 `contrat.genere.json` (une ligne par action, pour qu'un diff nomme celle qui a bougé), redérivé et comparé à chaque
-test. Le cliquet est INVERSÉ — il compte les actions **non** descriptibles vers le bas (117), au lieu de récompenser
-l'écriture de fiches.
+test. Le cliquet est INVERSÉ — il compte les actions **non** descriptibles vers le bas (117 → 46 → **24**), au lieu
+de récompenser l'écriture de fiches.
+
+**Quatre façons d'énoncer une entrée, et aucune action n'a été réécrite.** Le lecteur a appris à lire ce que la
+source disait déjà : un paramètre OBJET LITTÉRAL (`input: { id: string; paidDate: string | null }`, 13 actions),
+un LECTEUR LOCAL (`const parseDate = (k: string) => fdStr(formData, k)`, 4), une DÉLÉGATION à une fonction du même
+fichier qui reçoit le formulaire (5), une valeur par défaut LITTÉRALE (`= null`, qui n'est pas un calcul). La
+délégation a trouvé plus que des illisibles : **16 actions déjà « lisibles » portaient une liste AMPUTÉE** —
+`updateLegalDocument` déclarait `id` et rien d'autre, ses douze autres champs vivant chez `readFields` ; décrites
+et INAPPELABLES, puisque la validation refuse tout champ hors contrat.
+
+**« Nivolex » là où l'action attend un `cuid`.** `ChampAction.modele` vient de la relation Prisma, dérivée du DMMF
+(512 champs portent le modèle qu'ils désignent, sous un PLANCHER). Le chemin générique résout alors la désignation
+par `cibles/resoudre.ts` — dans la portée RÉELLE de la personne (`porteeEntite`) —, montre sur la carte la LIGNE
+retenue et non l'identifiant, refuse une désignation ambiguë avec ses candidats, et laisse passer en le DISANT ce
+qu'il ne sait pas désigner. Une PERSONNE se cherche dans l'ANNUAIRE (`directory/resolve.ts`), pas dans la liste
+d'administration des comptes.
 
 **550 actions ouvertes, 48 refusées PAR CONCEPTION.** En comparant la dérivation aux ops déclarées, 118 actions sont
 apparues atteignables seulement par le chemin générique — en tête : `updateUserRole`, `setRowGrants`,
@@ -5747,6 +5763,28 @@ semaine), et un chemin qui contient le mot « bench » sans être un banc ne com
 
 **Ce que ça change dans la doctrine.** Une assertion dont on ne sait pas nommer le cas qui la
 ferait tomber n'est pas une assertion (CLAUDE.md §118.17).
+
+### LE QUATRIÈME ÉMETTEUR N'AVAIT AUCUNE GARDE (2026-09)
+
+**Trouvé en posant la question de §118.80** — *qu'est-ce qui devient atteignable ?* — après avoir
+ouvert 22 actions au chemin générique. Trois surfaces méritaient un regard ; deux étaient gardées
+(`runTestCenter` par son rôle et ses phases, Microsoft Graph par la garde de sortie). La
+troisième, `mail-smart.ts` — **l'e-mail par API HTTPS**, écrit justement parce que les ports SMTP
+sont filtrés — n'appelait rien. Sous `ADAM_SORTIE_INTERDITE`, un banc déclenchant
+`smart-mail-actions:sendMail` aurait envoyé un vrai courriel à une vraie personne.
+
+**Pourquoi les deux règles d'architecture ne le voyaient pas.** La première s'arme sur un IMPORT
+de transport (`nodemailer`, `web-push`), la seconde sur un APPEL reconnu. Ce module n'a ni paquet
+ni interface : il fait un `fetch`. Une garde qui ne s'arme pas sur la forme qu'on lui donne est
+désarmée en ayant l'air armée. La **troisième règle** juge un fait qui ne dépend d'aucune
+bibliothèque : le module appelle le RÉSEAU et exporte une fonction d'ENVOI. Mesuré : 2 modules
+répondent à ce fait, et il en manquait un.
+
+**Et la règle s'est attrapée elle-même.** En documentant la troisième, la deuxième s'est mise à
+« couvrir » `mail-smart.ts` sur un COMMENTAIRE qui citait ses motifs. Les trois règles jugent
+désormais le code, commentaires retirés. Deux sabotages, deux endroits : supprimer l'appel fait
+tomber la règle d'architecture ; le neutraliser (`if (false && …)`) ne la fait pas tomber — c'est
+le banc de transport, qui appelle `sendSmartEmail` et exige le refus, qui l'attrape.
 
 ### UNE MISSION LÉGITIME MOURAIT DE L'ORDRE DES OBJECTIONS DU COMPILATEUR (2026-09)
 

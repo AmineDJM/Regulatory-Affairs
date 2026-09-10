@@ -51,9 +51,24 @@ import { ACTION_CLASSIFICATION } from "@/lib/assistant/action-registry";
  * Un cliquet qui ne peut plus se déclencher ne protège de rien — il rassure, ce qui est pire
  * (§118.17). Il descend donc au chiffre MESURÉ, et c'est ce qui rend le sabotage détectable.
  *
+ * ── 46 → 24 : QUATRE CLASSES DE LECTURE, PAS QUATRE FICHES ───────────────────────────────
+ *
+ * Aucune des vingt-deux actions gagnées n'a été RÉÉCRITE : c'est le LECTEUR qui a appris à lire
+ * ce que la source disait déjà (§118.78, quatrième fois).
+ *   • un paramètre OBJET LITTÉRAL (`input: { id: string; paidDate: string | null }`) — 13 ;
+ *   • un LECTEUR LOCAL (`const parseDate = (k: string) => fdStr(formData, k)`) — 4 ;
+ *   • une DÉLÉGATION à une fonction du même fichier qui reçoit le formulaire — 5 ;
+ *   • une valeur par défaut LITTÉRALE (`spaceId: string | null = null`), qui n'est pas un calcul.
+ *
+ * Et la délégation a trouvé bien plus que des illisibles : SEIZE actions déjà « lisibles »
+ * portaient une liste de champs AMPUTÉE — `updateLegalDocument` déclarait `id` et rien d'autre,
+ * `createInvoice` deux champs sur quatorze. Une liste plausible mais fausse est pire qu'un
+ * refus (§118.26) : `validerEntree` refusant tout champ hors contrat, ces actions étaient
+ * DÉCRITES et INAPPELABLES.
+ *
  * Il ne se relève JAMAIS sans une justification écrite ici, dans la même revue de code.
  */
-const PLAFOND_ILLISIBLES = 46;
+const PLAFOND_ILLISIBLES = 24;
 
 describe("CONTRAT D'ACTION — la dérivation LIT la source, elle ne l'invente pas", () => {
   // Une source ÉCRITE ICI : c'est le seul endroit où je connais la vérité indépendamment du
@@ -360,13 +375,199 @@ describe("ARGUMENTS — un appel positionnel se lit tout entier, ou pas du tout"
     expect(champs("taskId: string, employeeId: string")).not.toBeNull();
   });
 
-  it("le parc réel : les actions à arguments décrites portent des champs, les autres AUCUN", () => {
-    const parArgs = CONTRATS_ACTIONS.filter((c) => c.appel === "arguments");
-    expect(parArgs.length).toBeGreaterThan(60);
-    for (const c of parArgs) {
+  it("le parc réel : les actions à entrée TYPÉE décrites portent des champs, les autres AUCUN", () => {
+    // Les deux formes d'entrée typée : des arguments positionnels, ou un objet unique dont la
+    // signature énonce les membres. Les compter ensemble est le point — la seconde est née en
+    // découpant la première, et ne surveiller que « arguments » aurait laissé 13 actions sans
+    // aucun cliquet le jour où elles ont changé de forme.
+    const typees = CONTRATS_ACTIONS.filter((c) => c.appel === "arguments" || c.appel === "objet");
+    expect(typees.length).toBeGreaterThan(60);
+    for (const c of typees) {
       if (c.illisible) expect(c.champs, `${c.id} annonce des champs alors qu'elle est illisible`).toEqual([]);
       else expect(c.champs.length, `${c.id} est décrite sans un seul champ`).toBeGreaterThan(0);
     }
+  });
+
+  /**
+   * L'INVARIANT DE RANG — ce qui empêche `renameDocument(id, name)` de renommer avec l'id.
+   *
+   * CE QUI FERAIT TOMBER : un `avantFormulaire` qui ne correspond plus au nombre de champs
+   * positionnels, ou une forme d'appel mixte annoncée sans champ positionnel.
+   */
+  it("`avantFormulaire` ne compte QUE des champs positionnels réels", () => {
+    for (const c of CONTRATS_ACTIONS) {
+      if (c.appel === "arguments-etat-formulaire") {
+        expect(c.illisible ? 0 : c.avantFormulaire, `${c.id}`).toBeGreaterThanOrEqual(c.illisible ? 0 : 1);
+      } else {
+        expect(c.avantFormulaire, `${c.id} : seule la forme mixte a des arguments avant le formulaire`).toBe(0);
+      }
+      expect(c.avantFormulaire, `${c.id}`).toBeLessThanOrEqual(c.champs.length);
+    }
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * QUATRE FAÇONS D'ÉNONCER UNE ENTRÉE — et le lecteur les lit toutes, ou le DIT.
+ *
+ * Chacune de ces quatre formes a coûté des actions illisibles jusqu'à ce lot, et aucune ne
+ * demandait de RÉÉCRIRE l'action : la source disait déjà ce que le refus déclarait ignorer
+ * (§118.78). Les sources ci-dessous sont ÉCRITES ICI — c'est le seul endroit où je connais la
+ * vérité indépendamment du code testé.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("CONTRAT D'ACTION — les quatre façons d'énoncer une entrée", () => {
+  const lire = (src: string) => contratsDuFichier("t-actions", `"use server";\n${src}`);
+
+  it("un paramètre OBJET LITTÉRAL énonce ses membres — types, facultatif, valeurs admises", () => {
+    // CE QUI FERAIT TOMBER : refuser l'objet (le défaut d'avant), ou n'en lire qu'une partie —
+    // un membre manquant ferait appeler l'action avec une clé absente (§118.71).
+    const [c] = lire(`export async function poser(input: { id: string; titre?: string; n: number; quand: Date; type: "A" | "B" }): Promise<R> {
+  await prisma.truc.update({ where: { id: input.id }, data: {} });
+  return { ok: true };
+}`);
+    expect(c!.illisible).toBeNull();
+    expect(c!.appel).toBe("objet");
+    expect(c!.champs.map((x) => `${x.nom}:${x.type}${x.obligatoire ? "" : "?"}`))
+      .toEqual(["id:reference", "titre:texte?", "n:nombre", "quand:date", "type:texte"]);
+    expect(c!.champs.find((x) => x.nom === "type")!.valeurs).toEqual(["A", "B"]);
+  });
+
+  it("un objet dont UN membre est illisible refuse TOUT — jamais une liste amputée", () => {
+    const [c] = lire(`export async function poser(input: { id: string; opts: Reglages }): Promise<R> { return { ok: true }; }`);
+    expect(c!.champs).toEqual([]);
+    expect(c!.illisible).toContain("« opts »");
+  });
+
+  it("un LECTEUR LOCAL est un lecteur — ses clés littérales sont des champs", () => {
+    // CE QUI FERAIT TOMBER : voir `fdStr(formData, k)` et déclarer l'action dynamique, alors que
+    // les clés sont écrites deux lignes plus bas. Quatre actions du parc étaient dans ce cas.
+    const [c] = lire(`export async function poser(formData: FormData): Promise<R> {
+  const lireDate = (k: string) => { const v = fdStr(formData, k); return v ? new Date(v) : null; };
+  const gens = (champ: string): string[] => formData.getAll(champ).map(String);
+  await prisma.truc.update({ where: { id: fdStr(formData, "id") }, data: {
+    debut: lireDate("debut"), fin: lireDate("fin"), invites: gens("invites"),
+  } });
+  return { ok: true };
+}`);
+    expect(c!.illisible).toBeNull();
+    expect(c!.champs.map((x) => `${x.nom}:${x.type}`).sort())
+      .toEqual(["debut:texte", "fin:texte", "id:reference", "invites:liste"]);
+  });
+
+  it("un lecteur local appelé avec une VARIABLE rend l'action illisible", () => {
+    // La moitié qui compte : reconnaître le lecteur ne suffit pas. Sans cette règle, on aurait
+    // échangé un refus honnête contre une liste de champs incomplète (§118.26).
+    const [c] = lire(`export async function poser(formData: FormData): Promise<R> {
+  const lit = (k: string) => fdStr(formData, k);
+  for (const champ of CHAMPS) data[champ] = lit(champ);
+  await prisma.truc.update({ where: { id: 1 }, data });
+  return { ok: true };
+}`);
+    expect(c!.champs).toEqual([]);
+    expect(c!.illisible).toContain("calculés à l'exécution");
+  });
+
+  it("un lecteur local nommé comme une méthode ne s'accroche pas à un ENSEMBLE", () => {
+    // §118.78 : le récepteur compte. `autorises.has(x)` n'est pas `has("cle")`.
+    const [c] = lire(`export async function poser(formData: FormData): Promise<R> {
+  const has = (k: string) => formData.has(k);
+  const autorises = new Set(["a", "b"]);
+  const t = fdStr(formData, "t");
+  if (!autorises.has(t)) return { ok: false };
+  await prisma.truc.update({ where: { id: 1 }, data: { ...(has("note") ? { note: fdStr(formData, "note") } : {}) } });
+  return { ok: true };
+}`);
+    expect(c!.illisible).toBeNull();
+    expect(c!.champs.map((x) => x.nom).sort()).toEqual(["note", "t"]);
+  });
+
+  it("les champs lus par une fonction DÉLÉGUÉE du même fichier comptent aussi", () => {
+    // Le défaut que ceci a trouvé n'était PAS un illisible : `updateLegalDocument` sortait
+    // « lisible » avec le seul champ `id`, ses douze autres vivant chez `readFields`. Décrite
+    // et inappelable — `validerEntree` refusant tout champ hors contrat (§118.26).
+    const [c] = lire(`function lireChamps(fd: FormData) {
+  return { titre: fdStr(fd, "titre"), montant: fdNum(fd, "montant") };
+}
+export async function poser(formData: FormData): Promise<R> {
+  const id = fdStr(formData, "id");
+  await prisma.truc.update({ where: { id }, data: lireChamps(formData) });
+  return { ok: true };
+}`);
+    expect(c!.illisible).toBeNull();
+    expect(c!.champs.map((x) => x.nom)).toEqual(["id", "montant", "titre"]);
+  });
+
+  it("un délégué DYNAMIQUE n'efface pas ce qu'on sait — mais seul, il rend illisible", () => {
+    // §118.27 : refuser à tort coûte plus cher. Un champ personnalisé en plus n'a jamais
+    // empêché une action de réussir ; c'est de ne RIEN savoir qui rend l'appel impossible.
+    const [avecPropres] = lire(`function extras(fd: FormData) {
+  const out = {}; for (const k of CLES) out[k] = fd.get(k); return out;
+}
+export async function poser(formData: FormData): Promise<R> {
+  await prisma.truc.create({ data: { titre: fdStr(formData, "titre"), ...extras(formData) } });
+  return { ok: true };
+}`);
+    expect(avecPropres!.illisible).toBeNull();
+    expect(avecPropres!.champs.map((x) => x.nom)).toEqual(["titre"]);
+
+    const [sansRien] = lire(`function extras(fd: FormData) {
+  const out = {}; for (const k of CLES) out[k] = fd.get(k); return out;
+}
+export async function poser(formData: FormData): Promise<R> {
+  await prisma.truc.create({ data: extras(formData) });
+  return { ok: true };
+}`);
+    expect(sansRien!.champs).toEqual([]);
+    expect(sansRien!.illisible).toContain("« extras »");
+  });
+
+  it("une valeur par défaut LITTÉRALE rend le champ facultatif ; une CALCULÉE refuse", () => {
+    // `spaceId: string | null = null` dit « facultatif, et voici ce que vaut son absence » :
+    // l'omettre ne change rien. `now = new Date()` est un CALCUL, et remplir ce rang depuis une
+    // demande ferait écrire une date choisie par un modèle là où le code voulait « maintenant ».
+    const [c] = lire(`export async function poser(nom: string, espace: string | null = null): Promise<R> { return { ok: true }; }`);
+    expect(c!.illisible).toBeNull();
+    expect(c!.champs.map((x) => `${x.nom}${x.obligatoire ? "" : "?"}`)).toEqual(["nom", "espace?"]);
+
+    const [d] = lire(`export async function poser(nom: string, quand = new Date()): Promise<R> { return { ok: true }; }`);
+    expect(d!.champs).toEqual([]);
+    expect(d!.illisible).toContain("CALCULÉE");
+
+    // ET LA LIMITE ASSUMÉE : sans annotation de type, un défaut littéral ne suffit pas — on
+    // devinerait le type d'après la valeur, et `= 0` ne dit pas si l'action veut un nombre ou
+    // un compteur de chaînes. Le refus le DIT au lieu de choisir (§118.26).
+    const [e] = lire(`export async function poser(actif = false): Promise<R> { return { ok: true }; }`);
+    expect(e!.champs).toEqual([]);
+    expect(e!.illisible).toContain("n'est pas un nom simple typé");
+  });
+
+  it("le paramètre qui précède le formulaire doit accepter « undefined »", () => {
+    // Sans cette vérification, `(id, autreChose, formData)` recevrait `undefined` à la place
+    // d'une valeur obligatoire — sans erreur, sans effet (§118.78).
+    const [c] = lire(`export async function poser(id: string, _prev: R | undefined, formData: FormData): Promise<R> {
+  await prisma.truc.update({ where: { id }, data: { titre: fdStr(formData, "titre") } });
+  return { ok: true };
+}`);
+    expect(c!.illisible).toBeNull();
+    expect(c!.appel).toBe("arguments-etat-formulaire");
+    expect(c!.avantFormulaire).toBe(1);
+    expect(c!.champs.map((x) => x.nom)).toEqual(["id", "titre"]);
+
+    const [d] = lire(`export async function poser(id: string, mode: Mode, formData: FormData): Promise<R> {
+  return { ok: true };
+}`);
+    expect(d!.champs).toEqual([]);
+    expect(d!.illisible).toContain("undefined");
+  });
+
+  it("un argument et un champ de MÊME NOM refusent — une valeur ne remplit pas deux places", () => {
+    const [c] = lire(`export async function poser(id: string, _prev: R | undefined, formData: FormData): Promise<R> {
+  await prisma.truc.update({ where: { id: fdStr(formData, "id") ?? id }, data: {} });
+  return { ok: true };
+}`);
+    expect(c!.champs).toEqual([]);
+    expect(c!.illisible).toContain("deux places");
   });
 });
 

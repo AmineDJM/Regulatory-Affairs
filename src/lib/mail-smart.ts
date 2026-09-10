@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { sortieAutorisee } from "@/lib/sortie/garde";
 
 /**
  * COURRIER « SMART » — l'e-mail sans SMTP.
@@ -147,6 +148,27 @@ export function cleanRecipients(list: string[]): string[] {
  * journalise (`OutboundEmail`) et affiche le motif exact en cas de refus.
  */
 export async function sendSmartEmail(input: SendEmailInput): Promise<SendEmailResult> {
+  // ═══════════════════════════════════════════════════════════════════════════════════════
+  // LA GARDE D'ABORD — avant de lire la clé d'API, avant de composer la requête.
+  //
+  // Ce module était le QUATRIÈME émetteur du dépôt et le SEUL sans garde. Les deux règles
+  // d'architecture qui l'auraient dit s'armaient sur un import de transport (`nodemailer`,
+  // `web-push`) ou sur un appel reconnu (`transport.sendMail(`, `implements MailProvider`) :
+  // ici il n'y a ni paquet ni interface, juste un `fetch` HTTPS vers l'API d'un fournisseur.
+  // Une garde qui ne s'arme pas sur la forme qu'on lui donne est désarmée en ayant l'air
+  // armée (§118.17) — la troisième règle juge donc le FAIT « ce module appelle le réseau ET
+  // exporte une fonction d'ENVOI », qui ne dépend d'aucun paquet.
+  //
+  // La variante qui NE LÈVE PAS, parce que le contrat de cette fonction est de ne jamais
+  // lever : elle enregistre la tentative — le banc garde la preuve de ce qui serait parti —
+  // et rend un refus STRUCTURÉ, que l'appelant journalise comme n'importe quel échec.
+  // ═══════════════════════════════════════════════════════════════════════════════════════
+  if (!sortieAutorisee("COURRIEL", (input.to ?? []).join(", ") || "(sans destinataire)", {
+    apercu: `« ${input.subject ?? ""} »`,
+    origine: "mail-smart:sendSmartEmail",
+  })) {
+    return { ok: false, error: "Sorties externes interdites dans cet environnement (garde de sortie)." };
+  }
   const provider = mailProvider();
   const apiKey = (process.env.MAIL_API_KEY ?? "").trim();
   const from = mailFrom();

@@ -156,6 +156,19 @@ function fichiersSources(dir: string = SRC, out: string[] = []): string[] {
 
 const IMPORTS = /(?:^|\n)\s*import\s+(?:type\s+)?(?:[^'"]*?\sfrom\s+)?["']([^"']+)["']/g;
 
+/**
+ * LE CODE SANS SES COMMENTAIRES — et c'est une règle qui s'est attrapée elle-même.
+ *
+ * En documentant la troisième règle, j'ai CITÉ les motifs de la deuxième (`transport.sendMail(`,
+ * `implements MailProvider`) dans un commentaire de `mail-smart.ts`. La deuxième règle s'est
+ * alors déclenchée sur ma PROSE : elle « couvrait » le module pour une raison qui n'existait pas
+ * dans son code. Une règle qui lit ses propres exemples ne mesure pas ce qu'elle croit mesurer —
+ * le même défaut que le cliquet des lecteurs de champ, qui accrochait les exemples de sa
+ * documentation. On juge donc le CODE, et lui seul.
+ */
+const codeSeul = (src: string): string =>
+  src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+
 function importsDe(fichier: string): string[] {
   const src = readFileSync(fichier, "utf8");
   const specs: string[] = [];
@@ -169,7 +182,7 @@ describe("LA GARDE QUI COMPTE : aucun transport n'est atteignable sans la porte"
     for (const f of fichiersSources()) {
       const specs = importsDe(f);
       if (!specs.some((s) => TRANSPORTS.has(s) || [...TRANSPORTS].some((t) => s.startsWith(`${t}/`)))) continue;
-      const src = readFileSync(f, "utf8");
+      const src = codeSeul(readFileSync(f, "utf8"));
       // Importer `nodemailer` pour CONSTRUIRE un MIME sans l'envoyer est légitime (`mail.ts` le
       // fait pour archiver la copie). Ce qui est exigé, c'est que le fichier porte la garde dès
       // lors qu'il peut aussi ouvrir un canal.
@@ -183,11 +196,48 @@ describe("LA GARDE QUI COMPTE : aucun transport n'est atteignable sans la porte"
     // la règle précédente laisserait passer — d'où celle-ci, qui juge l'APPEL, pas l'import.
     const fautifs: string[] = [];
     for (const f of fichiersSources()) {
-      const src = readFileSync(f, "utf8");
+      const src = codeSeul(readFileSync(f, "utf8"));
       if (!APPELS_SORTANTS.test(src)) continue;
       if (!APPEL_GARDE.test(src)) fautifs.push(path.relative(process.cwd(), f));
     }
     expect(fautifs, `ces modules ouvrent un canal SANS appeler la garde :\n  ${fautifs.join("\n  ")}`).toEqual([]);
+  });
+
+  /**
+   * LA TROISIÈME RÈGLE, et c'est un émetteur RÉEL qui l'a exigée.
+   *
+   * `mail-smart.ts` — l'e-mail par API HTTPS, celui qui existe justement parce que les ports
+   * SMTP sont filtrés — était le QUATRIÈME émetteur du dépôt et le SEUL sans garde. Les deux
+   * règles ci-dessus ne pouvaient pas le voir : il n'importe aucun paquet de transport et
+   * n'appelle aucune méthode reconnue, il fait un `fetch`. Une garde qui ne s'arme pas sur la
+   * forme qu'on lui donne est désarmée en ayant l'air armée (§118.17), et c'est le pire des
+   * deux — d'autant qu'un envoi réel pendant un banc est irréversible.
+   *
+   * LE FAIT sur lequel celle-ci s'arme ne dépend d'aucune bibliothèque : le module APPELLE LE
+   * RÉSEAU et EXPORTE une fonction d'ENVOI. Un émetteur ajouté demain avec un fournisseur
+   * qu'on ne connaît pas encore est attrapé sans que personne ait pensé à lui.
+   *
+   * CE QUI FERAIT TOMBER CETTE ASSERTION : supprimer l'APPEL de garde d'un émetteur — joué sur
+   * `mail-smart.ts`, elle tombe en nommant le fichier. Ce qu'elle NE voit pas, parce qu'elle
+   * lit la source : une garde présente mais neutralisée (`if (false && …)`). C'est le rôle du
+   * banc de transport, qui APPELLE la fonction et exige le refus — les deux ensemble, jamais
+   * l'une seule (§118.49 : vérifier un corps sans son appelant ne prouve rien).
+   * Mesure : 2 modules répondent au fait, et les deux sont gardés.
+   */
+  it("tout module qui appelle le RÉSEAU et exporte un ENVOI appelle la garde", () => {
+    const emetteur = /export\s+(?:async\s+)?function\s+(?:send|envoyer|pousser|notifier)[A-Z_]\w*/;
+    const fautifs: string[] = [];
+    let vus = 0;
+    for (const f of fichiersSources()) {
+      const src = codeSeul(readFileSync(f, "utf8"));
+      if (!/\bfetch\s*\(/.test(src) || !emetteur.test(src)) continue;
+      vus += 1;
+      if (!APPEL_GARDE.test(src)) fautifs.push(path.relative(process.cwd(), f));
+    }
+    // Le compte est ASSERTÉ : si le détecteur cessait de reconnaître quoi que ce soit, la
+    // liste des fautifs serait vide et le test passerait sur une garde qui ne regarde plus rien.
+    expect(vus, "le détecteur d'émetteur ne reconnaît plus aucun module").toBeGreaterThanOrEqual(2);
+    expect(fautifs, `ces modules appellent le réseau pour ENVOYER sans garde :\n  ${fautifs.join("\n  ")}`).toEqual([]);
   });
 
   it("la garde elle-même n'importe RIEN — sans quoi elle deviendrait impossible à poser partout", () => {

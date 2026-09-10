@@ -1,7 +1,7 @@
 import type { CurrentUser } from "@/lib/session";
 import { CONTRAT_PAR_ID } from "./contrat.genere";
 import { MODULES_ACTIONS } from "./aiguillage.genere";
-import { interdictionGenerique, validerEntree, enArguments, enFormulaire, type EntreeRefusee } from "./generique";
+import { interdictionGenerique, validerEntree, argumentsDAppel, type EntreeRefusee } from "./generique";
 import type { ContratAction } from "./contrat";
 
 /**
@@ -121,20 +121,12 @@ export async function executerAction(
   }
 
   try {
-    // DEUX FORMES D'APPEL, et le contrat les distingue : 44 actions de l'ERP sont des
+    // SIX FORMES D'APPEL, et le contrat les distingue : 100 actions de l'ERP sont des
     // `useActionState` et reçoivent l'état précédent AVANT le formulaire. Se tromper d'arité
     // ferait passer le FormData en premier argument, et l'action lirait un état là où on lui
-    // donne des données — sans erreur, sans effet.
-    const retour = contrat.appel === "sans-entree"
-      ? await (fn as () => unknown)()
-      // À ARGUMENTS : l'ordre vient du contrat, qui le tient de la signature. Sans cette
-      // branche, une action à entrée typée recevrait un `FormData` au premier rang — et
-      // `deleteDocument(formData)` supprimerait un document dont l'identifiant est un objet.
-      : contrat.appel === "arguments"
-        ? await (fn as (...a: unknown[]) => unknown)(...enArguments(contrat, entree))
-        : contrat.appel === "etat-formulaire"
-          ? await (fn as (p: unknown, f: FormData) => unknown)(undefined, enFormulaire(entree))
-          : await (fn as (f: FormData) => unknown)(enFormulaire(entree));
+    // donne des données — sans erreur, sans effet. Le choix vit dans `argumentsDAppel`, en un
+    // seul endroit exhaustif : une forme ajoutée sans son appel ne compile pas.
+    const retour = await (fn as (...a: unknown[]) => unknown)(...argumentsDAppel(contrat, entree));
     const refuse = echecDeclare(contrat, retour);
     if (refuse) return { ok: false, motif: "refusee", contrat, retour, message: refuse };
     return { ok: true, contrat, retour };
