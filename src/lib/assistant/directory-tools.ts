@@ -169,12 +169,43 @@ export const DIRECTORY_TOOLS: PowerTool[] = [
         },
       });
 
+      /**
+       * ── UNE SEULE FORME, ET C'EST LA VALEUR QUI DIT L'ABSENCE (§118.20) ──────────────
+       *
+       * Cette sortie avait DEUX formes sans un seul champ commun :
+       *   · trouvé  → { total, salaries: [...], note }
+       *   · vide    → { items: [], count: 0, resultat, precision }
+       *
+       * MESURÉ sur la chaîne humaine live (mission `cmtvaa4uv…`). Le planificateur avait écrit
+       * `{{lire:equipes-regulatory.salaries}}` — la forme que la fiche déclare, et la bonne
+       * quand l'annuaire répond. Le service demandé n'a rien rendu, la forme VIDE est sortie,
+       * et le moteur a répondu « l'étape a abouti mais ne rend pas « salaries » — champs
+       * disponibles : count, items, resultat, precision ». Le WORKER en aval est passé FAILED
+       * après deux tentatives, et avec lui DIX étapes sont restées PENDING derrière le mur —
+       * dont les DEUX `send_message` qui étaient tout l'objet du jalon. Trois sous-plans plus
+       * tard, le planificateur avait renoncé à solliciter et se contentait de CONSTATER le
+       * blocage. Un nom de champ, quatre personnes jamais sollicitées.
+       *
+       * Les clés sont donc TOUJOURS les mêmes et c'est la VALEUR qui parle : `salaries: []`,
+       * que le moteur sait déjà traiter (« si la liste amont est vide, l'étape est ignorée »).
+       * `items` et `count` disparaissent : personne ne les lisait (vérifié sur tout le dépôt),
+       * et les garder aurait fait deux noms pour la même chose (§118.5).
+       */
       if (employees.length === 0) {
-        return JSON.stringify({ items: [], count: 0, resultat: "aucun salarié", precision: department ? `Aucun salarié actif dans « ${department} ».` : "Le registre RH est vide." });
+        return JSON.stringify({
+          total: 0,
+          salaries: [],
+          resultat: "aucun salarié",
+          precision: department ? `Aucun salarié actif dans « ${department} ».` : "Le registre RH est vide.",
+          note: "Source : registre RH + annuaire interne.",
+        });
       }
 
       return JSON.stringify({
         total: employees.length,
+        // Les mêmes clés que la branche VIDE : ce qui change est la VALEUR, jamais la forme.
+        resultat: `${employees.length} salarié(s)`,
+        precision: null,
         salaries: employees.map((e) => {
           // L'annuaire d'abord (il porte les adresses vérifiées et les variantes), puis les
           // fiches — mais sans jamais rendre deux fois la même adresse.

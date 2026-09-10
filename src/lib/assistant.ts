@@ -4314,7 +4314,29 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     // configurés en Administration) — revérifiée par l'action canonique à l'exécution.
     const settings = await getAppSettings();
     if (!isRegulatorySupervisor(user, settings.regulatorySupervisorRoles)) {
-      return { error: "La relance de mise à jour est réservée à la supervision Regulatory (Super Admin + rôles configurés)." };
+      /**
+       * LE REFUS NOMME LE REMÈDE DE CELUI QUI LE LIT (§118.69, §118.30).
+       *
+       * Mesuré en live : la première version disait « réservée à la supervision Regulatory » et
+       * s'arrêtait là. Devant un écran, c'est suffisant — la personne sait qu'elle n'a pas ce
+       * bouton. Dans une MISSION, c'est le PLANIFICATEUR qui lit : il a reçu une faute sans
+       * issue, a replanifié SEPT fois autour du même mur, et la mission a fini BLOCKED — 0
+       * livrable, 0,49 $, et un dirigeant à qui l'on avait demandé d'AUTORISER quatre étapes
+       * qui ne pouvaient pas partir. La permission, elle, était juste : l'acteur est DIRECTION.
+       *
+       * Or le geste existe et il est ouvert à cet acteur : une relance traçable est une
+       * NOTIFICATION aux personnes du dossier. On donne donc les DEUX gestes dans l'ordre —
+       * lire la fiche pour obtenir les personnes, puis un message PAR personne. Sans le second,
+       * un plan corrigé écrirait un envoi unique à N destinataires (§118.3).
+       */
+      return {
+        error:
+          "La relance de mise à jour est réservée à la supervision Regulatory (Super Admin + rôles configurés en Administration) — "
+          + `« ${user.name} » (${user.role}) ne la porte pas. Ce n'est PAS une impossibilité : pour obtenir la même chose, `
+          + "lire la fiche du dossier (`inspect_record` sur la référence) pour connaître son responsable, son assistant et ses "
+          + "participants, puis envoyer un message à CHACUN d'eux (`send_message`, une étape par personne — jamais un envoi "
+          + "unique à plusieurs). Seule la relance TRACÉE sur la fiche exige la supervision ; prévenir les personnes, non.",
+      };
     }
     const reference = asStr(input, "reference");
     if (!reference) return { error: "Précisez la référence du dossier (REG-AAAA-NNN)." };

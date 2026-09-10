@@ -29,7 +29,21 @@ let collegue = "";
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
 beforeAll(async () => {
-  const a = await prisma.user.create({ data: { name: `${PREFIXE} Organisateur`, email: `${PREFIXE}org@test.invalid`, passwordHash: "x", role: "DIRECTION", isActive: true } });
+  /**
+   * L'ACTEUR N'A PAS LA VUE GLOBALE, ET C'EST LA MOITIÉ DU BANC.
+   *
+   * La première version prenait `DIRECTION`. Or `DIRECTION` est dans `GLOBAL_VIEW_ROLES`, donc
+   * `scopeWhere` de `lib/calendar.ts` rend `{}` : l'acteur voyait l'agenda de TOUTE la base.
+   * Mesuré en suite complète : un événement créé au même moment par un AUTRE fichier de test —
+   * vitest exécute les fichiers en parallèle — entrait dans le total, et les deux assertions
+   * tombaient (« 2 au lieu de 1 », « 5 au lieu de 4 »). En isolation, 3 fois sur 3 au vert : le
+   * pire genre d'échec, parce qu'il accuse le code au lieu du voisinage (§118.91, §118.83).
+   *
+   * Un `COORDINATOR` passe par la branche CLOISONNÉE — organisateur OU invité — donc le banc ne
+   * voit que ce qu'il a créé, quoi que fassent les autres fichiers. C'est aussi le cas le plus
+   * fréquent en production : presque personne n'a la vue globale.
+   */
+  const a = await prisma.user.create({ data: { name: `${PREFIXE} Organisateur`, email: `${PREFIXE}org@test.invalid`, passwordHash: "x", role: "COORDINATOR", isActive: true } });
   const b = await prisma.user.create({ data: { name: `${PREFIXE} Collègue`, email: `${PREFIXE}col@test.invalid`, passwordHash: "x", role: "COORDINATOR", isActive: true } });
   moi = a.id; collegue = b.id;
   // L'ACCÈS VIENT DU VRAI RÉSOLVEUR : un `access` fabriqué à la main ferait passer la porte

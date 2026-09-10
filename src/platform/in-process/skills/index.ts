@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { ecartDeContrat } from "@/lib/skills/contrat-sortie";
+import { lignesDeclarees } from "@/lib/skills/affichage";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { recordPermissionRefusal } from "@/lib/models/telemetry";
@@ -117,6 +118,38 @@ export function slugDe(texte: string): string {
 
 // ─────────────────────────────── LES MANIFESTES DÉRIVÉS ───────────────────────────────
 
+/**
+ * LES CLÉS QU'UNE CAPACITÉ REND — lues là où elles sont DÉJÀ déclarées.
+ *
+ * Les onze manifestes de connecteur écrivent `sorties.cles` à la main. Un micro-outil et un
+ * playbook, eux, n'en avaient AUCUNE : leur `sorties` ne portait qu'une description. Rien ne
+ * savait donc ce que rendait la capacité qu'Adam venait de créer — ni le contrat de sortie
+ * (§118.58), ni la fiche envoyée au modèle, ni l'écran. Or la déclaration existe dans les deux
+ * cas, ailleurs :
+ *
+ *   • un MICRO-OUTIL passe la porte de qualité avec un schéma de sortie. Quand ce schéma est un
+ *     OBJET, ses clés sont les clés du résultat. Quand c'est une LISTE, ses clés sont celles de
+ *     chaque ÉLÉMENT — les prendre pour des clés de racine ferait dire au contrat qu'une
+ *     capacité n'a pas tenu ce qu'elle n'avait jamais promis là. La distinction n'est pas un
+ *     détail de forme : c'est la différence entre lire et deviner (§118.95).
+ *   • un PLAYBOOK dont la règle enseignée décrit sa `sortie` la décrit par un GABARIT dont les
+ *     clés de premier rang SONT celles du résultat. Sans gabarit, la sortie est celle de la
+ *     dernière étape et on ne la connaît pas : on ne déclare alors rien (§118.26 — dire son
+ *     ignorance plutôt que produire une liste plausible).
+ */
+export function clesDeclareesDuSchema(schema: unknown): string[] | null {
+  if (!isObj(schema)) return null;
+  if (schema.forme !== "objet") return null;
+  const cles = Array.isArray(schema.cles) ? schema.cles.filter((c): c is string => typeof c === "string" && c.trim().length > 0) : [];
+  return cles.length ? cles.slice(0, 12) : null;
+}
+
+export function clesDeclareesDuGabarit(sortie: unknown): string[] | null {
+  if (!isObj(sortie)) return null;
+  const cles = Object.keys(sortie).filter((c) => c.trim().length > 0);
+  return cles.length ? cles.slice(0, 12) : null;
+}
+
 type SkillRow = Prisma.AdamSkillGetPayload<Record<string, never>>;
 
 function manifestDeSkill(r: SkillRow): SkillManifest | null {
@@ -124,7 +157,10 @@ function manifestDeSkill(r: SkillRow): SkillManifest | null {
     id: r.slug, plugin: "adam", version: String(r.version), titre: r.title, description: r.description,
     primitive: "CALCUL", effect: "ANALYZE", domaine: r.domain,
     entrees: isObj(r.inputSchema) && r.inputSchema.type === "object" ? r.inputSchema : { type: "object", properties: {} },
-    sorties: { description: "le résultat du code, validé par la porte de qualité" },
+    sorties: {
+      description: "le résultat du code, validé par la porte de qualité",
+      ...(clesDeclareesDuSchema(r.schemaSortie) ? { cles: clesDeclareesDuSchema(r.schemaSortie) as string[] } : {}),
+    },
     permissions: {}, risques: { niveau: "FAIBLE", irreversible: false, externe: false },
     cout: { latence: "LOW" }, dependances: { config: [] },
     ...(r.schemaSortie || r.attentes ? { validations: { ...(Array.isArray(r.attentes) ? { attentes: r.attentes } : {}), ...(isObj(r.schemaSortie) ? { schema: r.schemaSortie } : {}) } } : {}),
@@ -142,7 +178,10 @@ function manifestDePlaybook(r: RegleVue): SkillManifest | null {
     description: (typeof pb.description === "string" && pb.description ? pb.description : r.statement).slice(0, 600),
     primitive: "ORCHESTRATION", effect: "READ", domaine: domaineListe(typeof pb.domaine === "string" ? pb.domaine : r.domain),
     entrees: isObj(pb.entrees) && pb.entrees.type === "object" ? pb.entrees : { type: "object", properties: {} },
-    sorties: { description: typeof pb.sorties === "string" ? pb.sorties : "la composition des étapes du playbook" },
+    sorties: {
+      description: typeof pb.sorties === "string" ? pb.sorties : "la composition des étapes du playbook",
+      ...(clesDeclareesDuGabarit(pb.sortie) ? { cles: clesDeclareesDuGabarit(pb.sortie) as string[] } : {}),
+    },
     permissions: {}, risques: { niveau: "FAIBLE", irreversible: false, externe: false },
     cout: { latence: "MEDIUM" }, dependances: { config: [] },
     executeur: { type: "playbook", etapes: pb.etapes, ...(isObj(pb.sortie) ? { sortie: pb.sortie } : {}) },
@@ -490,9 +529,19 @@ export async function executer(s: SkillCharge, input: Json, user: CurrentUser, o
    * capacité n'a jamais produite, et le plan croirait tenir une valeur.
    */
   const ecart = ecartDeContrat({ outil: s.nom, clesDeclarees: m.sorties.cles, resultat: sortie.resultat, ok: Boolean(sortie.ok) });
+  /**
+   * ET CE QUE ÇA DONNE À L'ÉCRAN. Le même manifeste, lu pour une seconde question : « où sont
+   * tes lignes ? ». La table de l'espace de travail nomme des outils écrits dans le cœur, où
+   * une capacité dynamique n'entrera jamais — elle rendait donc `null`, en silence, sur
+   * exactement ce que §36 existe pour rendre possible. On ne devine pas : c'est `sorties.cles`
+   * qui autorise, et `tableFromRows` qui dessine (§118.5 : un seul traducteur).
+   */
+  const aff = lignesDeclarees({ titre: m.titre, clesDeclarees: m.sorties.cles, sortie });
   return JSON.stringify({
     ...sortie, outil: s.nom, source: sourceLisible(s), ms,
     ...(ecart ? { _contrat: ecart.phrase, _contratManquantes: ecart.manquantes } : {}),
+    ...(aff.lignes ? { _lignes: aff.lignes } : {}),
+    ...(aff.manque ? { _affichage: aff.manque } : {}),
     ...(sortie.ok && sortie.resultat !== undefined
       ? { _provenance: declarerProvenance([faitCalcule({ outil: s.nom, acteur: user.id, libelle: m.titre, valeur: resumeDe(sortie.resultat), entrees: [sourceLisible(s)], transformation: `skill ${s.source} · ${m.executeur.type}`, formule: JSON.stringify(entree).slice(0, 300) })]) }
       : {}),

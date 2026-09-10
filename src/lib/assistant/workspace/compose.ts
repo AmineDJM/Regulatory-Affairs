@@ -10,6 +10,7 @@ import {
   readColumns, readEditable, readMetrics, readPerson, readRows, readSheet, s, strings,
   TONES, tonOf, type Json,
 } from "./read";
+import { suivreChemin } from "@/lib/skills/affichage";
 import { readGodmodeBlock } from "./compose-godmode";
 import { readDashboardBlock, readVizBlock } from "./viz-block";
 
@@ -547,7 +548,38 @@ function declaredBlocks(data: Json): WorkspaceBlock[] {
     if (parsed) out.push(parsed);
     if (out.length >= 4) break;
   }
+  if (out.length === 0) {
+    const t = fromDeclaredRows(data);
+    if (t) out.push(t);
+  }
   return out;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * `_lignes` — UNE CAPACITÉ QU'ON N'A PAS ÉCRITE, À L'ÉCRAN.
+ *
+ * `TABLE_TOOLS` nomme des outils écrits DANS LE CŒUR. Une capacité dynamique n'y figurera
+ * jamais — connecteur déclaré par manifeste, micro-outil créé par Adam dans le tour, playbook
+ * enseigné — et il n'existe aucun endroit où aller ajouter l'entrée manquante : c'est
+ * exactement ce qui rend un runtime de skills extensible (§118.58). Onze capacités déclarées,
+ * deux d'entre elles rendant des LISTES, ne pouvaient donc rien afficher, en silence.
+ *
+ * CE N'EST PAS L'INFÉRENCE AVEUGLE QU'ON INTERDIT. Rien n'est deviné ici : `_lignes` est posé
+ * par le runtime des skills, qui a lu `sorties.cles` du MANIFESTE et vérifié que la clé porte
+ * bien des lignes. Même modèle de confiance que `_blocs` — une déclaration de code serveur —
+ * et la traduction reste celle de `tableFromRows`, la seule du fichier.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+function fromDeclaredRows(data: Json): WorkspaceBlock | null {
+  const d = data._lignes;
+  if (!isObj(d)) return null;
+  const titre = clip(s(d.titre), 80);
+  const chemin = s(d.chemin);
+  if (!titre || !chemin) return null;
+  const rows = suivreChemin(data, chemin);
+  if (!Array.isArray(rows)) return null;
+  return tableFromRows(titre, rows);
 }
 
 export function composeWorkspace(tool: string, raw: string): WorkspaceComposition | null {

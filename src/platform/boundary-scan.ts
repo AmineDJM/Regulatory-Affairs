@@ -135,6 +135,15 @@ export const NEUTRAL = new Set([
   // tables séparées auraient divergé, et le jour où l'une dit 24 h et l'autre 72, personne ne
   // saurait laquelle fait foi (§118.5).
   "src/lib/fraicheur/ages",
+  // `skills/affichage` répond à UNE question — « où sont les lignes de cette capacité ? » — en
+  // lisant `sorties.cles` du manifeste et le résultat réel, et rend un CHEMIN (« resultat.items »)
+  // ou `null`. Zéro import, sans état, sans base, sans règle métier. Il est ici pour la raison de
+  // `mutations/empreinte`, mot pour mot : les DEUX côtés en ont besoin et n'ont pas le droit de se
+  // parler — le runtime des skills ÉCRIT la déclaration (il a le manifeste), l'espace de travail
+  // d'Adam la LIT pour dessiner (il a `tableFromRows`, le seul traducteur). Le ranger d'un côté
+  // aurait forcé l'autre à relire le chemin à sa façon, et le symptôme d'une divergence serait un
+  // tableau vide sans aucune cause visible (§118.5).
+  "src/lib/skills/affichage",
   // `vues/colonnes-regulatory` est un CATALOGUE D'AFFICHAGE : la clé de chaque colonne du
   // tableau Regulatory, son en-tête français, ses alias, et celles qu'on ne masque jamais. Une
   // table de chaînes et un résolveur de libellé — zéro import, sans état, sans base, sans règle
