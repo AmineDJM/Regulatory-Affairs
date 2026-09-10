@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { resolveRecord } from "@/lib/assistant/time-travel";
 import { REGULATORY_STEP_TYPE } from "@/lib/labels";
 import { startChangeFeed, recentChanges, feedHealth } from "./platform/change-feed";
+import { faitsRecents } from "@/lib/events/ledger";
+import { canAccessEntity } from "@/lib/entity-access";
 
 /**
  * WHAT CHANGED / CATCH ME UP — « qu'est-ce qui a changé sur Pembro depuis lundi ? »,
@@ -15,6 +17,8 @@ import { startChangeFeed, recentChanges, feedHealth } from "./platform/change-fe
  * SIGNIFICATIFS remontent (un mouvement sans résumé ni champ tracé est du bruit technique).
  * Rien n'est inventé : « aucun changement tracé » est une réponse honnête et complète.
  */
+
+type EntityTypeLike = Parameters<typeof canAccessEntity>[1] | null;
 
 const EXEC = (u: CurrentUser): boolean => u.role === "SUPER_ADMIN" || u.role === "DIRECTION";
 
@@ -90,41 +94,121 @@ const repondre = (r: Partial<ReponseChangements> & Pick<ReponseChangements, "por
   JSON.stringify({ ...VIDE, ...r });
 
 /**
- * « QUOI DE NEUF ? » SANS RÉFÉRENCE — servi par le flux d'événements de la frontière.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * « QUOI DE NEUF ? » SANS RÉFÉRENCE — DEUX sources, et il en fallait deux.
  *
- * ATTENTION À CE QUE CETTE RÉPONSE DIT VRAIMENT. Le flux est en mémoire du processus : il voit
- * ce qui s'est passé depuis le démarrage de CE serveur, pas l'histoire complète.
+ * ── LE DÉFAUT MESURÉ ────────────────────────────────────────────────────────────────────
+ *
+ * Cette réponse n'avait qu'UNE source : la projection en mémoire du processus. Elle est honnête
+ * sur elle-même — elle ne voit que ce qui s'est passé depuis le démarrage de CE serveur — mais
+ * c'était la seule, donc l'outil répondait « le flux n'est pas actif : je ne peux pas dire ce
+ * qui a bougé à l'instant » ou « aucun changement depuis le démarrage de ce serveur ». Or Render
+ * redémarre le processus à CHAQUE déploiement, et `BusinessEvent` — le registre canonique — porte
+ * pendant ce temps toute l'activité. Un « je ne peux pas » écrit dans le CODE (§118.63, §118.93).
+ *
+ * ── POURQUOI ON NE REMPLACE PAS, ON FUSIONNE ────────────────────────────────────────────
+ *
+ * Mesuré, et c'est ce qui interdisait le raccourci : les deux sources ne portent PAS les mêmes
+ * faits. Le bus en mémoire est alimenté par `emit` depuis trois fichiers (RH, Regulatory, envois
+ * sortants) ; le registre durable par `recordBusinessEvent` depuis neuf domaines (LEGAL,
+ * FINANCES, VALIDATIONS, PCH, SALES, REGULATORY, LOGISTICS, ADPRO_CONSULTING, DRIVE). Ne garder
+ * que le registre perdrait les faits du bus ; ne garder que le bus perd tout après un
+ * redéploiement. Chacun apporte ce que l'autre n'a pas.
+ *
+ * ── L'AUTORITÉ DE CHAQUE FAIT VOYAGE AVEC LUI ───────────────────────────────────────────
+ *
+ * `source: "registre"` fait foi (durable, inter-processus) ; `source: "flux"` est un INDICE, et
+ * `change-feed.ts` le dit en toutes lettres. Les mélanger sans le dire ferait passer un indice
+ * partiel pour une vérité — exactement ce que ce fichier interdit.
+ *
+ * ── LE CLOISONNEMENT EST PAR ENREGISTREMENT, PAS PAR DOMAINE ────────────────────────────
+ *
+ * `canAccessEntity` répond par ligne. Filtrer par domaine montrerait le dossier confidentiel
+ * d'un service ouvert (§118.71 : une porte gardée à côté d'une porte ouverte). L'outil est
+ * aujourd'hui réservé à la direction, dont l'accès est global — la garde ne coûte donc rien
+ * ici, et elle est juste le jour où cette réserve tombe : une garde qui dépend du filtre de son
+ * appelant est une garde qu'un futur appelant contournera sans le savoir.
+ *
+ * Ce qui n'a pas pu être cloisonné à coup sûr est ÉCARTÉ et COMPTÉ (§118.52) : un filtre
+ * silencieux ne laisse aucune trace de ce qu'il retire, et un dirigeant qui lit « 3 faits »
+ * sur douze doit savoir qu'il en manque neuf.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-function liveFeedAnswer(): string {
+async function liveFeedAnswer(user: CurrentUser, depuis: Date | null): Promise<string> {
+  const since = depuis ?? new Date(Date.now() - 7 * 86_400_000);
   startChangeFeed();
   const health = feedHealth();
-  const changes = recentChanges({ limit: 30 });
 
-  if (!health.started) {
-    return repondre({
-      portee: "flux",
-      precision: "Le flux de changements n'est pas actif sur ce serveur : je ne peux pas dire ce qui a bougé à l'instant. "
-        + "La liste est vide parce que la source est éteinte, PAS parce que rien n'a bougé. Pour un dossier précis, donner sa référence.",
-    });
+  const durables = await faitsRecents({ since, limit: 60 }).catch(() => null);
+  const montres = durables?.faits.length ?? 0;
+  const enMemoire = recentChanges({ limit: 30 });
+
+  type Brut = { quoi: string; sujet: string; libelle: string | null; quand: string; source: "registre" | "flux"; type: EntityTypeLike; id: string | null };
+  const bruts: Brut[] = [
+    ...(durables?.faits ?? []).map((f) => ({
+      quoi: f.type,
+      sujet: f.entityType && f.entityId ? `${f.entityType}/${f.entityId}` : f.sourceDomain,
+      libelle: null,
+      quand: f.occurredAt.toISOString(),
+      source: "registre" as const,
+      type: f.entityType,
+      id: f.entityId,
+    })),
+    ...enMemoire
+      .filter((c) => c.at >= since.toISOString())
+      .map((c) => ({
+        quoi: c.type,
+        sujet: `${c.subjectType}/${c.subjectId}`,
+        libelle: c.label,
+        quand: c.at,
+        source: "flux" as const,
+        // Le sujet du bus n'est pas typé `EntityType` : on ne prétend pas le cloisonner par
+        // enregistrement, on l'écarte si l'on ne sait pas le lire (voir plus bas).
+        type: null as EntityTypeLike,
+        id: c.subjectId,
+      })),
+  ];
+
+  // UN MÊME FAIT VU DEUX FOIS N'EST PAS DEUX FAITS. La clé est le fait lui-même — son type, son
+  // sujet, son instant — et le registre gagne, parce qu'il fait foi.
+  const vus = new Map<string, Brut>();
+  for (const b of bruts) {
+    const cle = `${b.quoi}|${b.sujet}|${b.quand}`;
+    const dejala = vus.get(cle);
+    if (!dejala || (dejala.source === "flux" && b.source === "registre")) vus.set(cle, b);
   }
-  if (changes.length === 0) {
-    return repondre({
-      portee: "flux",
-      depuis: health.oldest,
-      precision: "Aucun changement depuis le démarrage de ce serveur. Ce n'est pas l'histoire complète : pour un dossier précis, donner sa référence.",
-    });
+
+  let ecartes = 0;
+  const lisibles: Brut[] = [];
+  for (const b of [...vus.values()].sort((x, y) => (x.quand < y.quand ? 1 : -1))) {
+    if (!b.type || !b.id) { ecartes += 1; continue; }
+    if (!(await canAccessEntity(user, b.type, b.id, "VIEW"))) { ecartes += 1; continue; }
+    lisibles.push(b);
   }
+
+  // UNE COUPE SILENCIEUSE SE LIT COMME UNE EXHAUSTIVITÉ (§118.60). Mesuré sur la base de
+  // travail : 26 332 faits sur sept jours. « Voici ce qui a bougé » sur les soixante plus
+  // récents ferait lire les dernières minutes comme le bilan de la semaine.
+  const tronque = durables !== null && durables.total > montres;
+  const bornes = [
+    ecartes > 0 ? `${ecartes} fait(s) écarté(s) : hors de votre périmètre ou sans enregistrement lisible` : null,
+    tronque ? `${durables!.total} faits dans la fenêtre, les ${montres} plus récents seulement sont lus — resserrer « since » pour voir une période plus courte en entier` : null,
+  ].filter(Boolean);
+
+  const couverture = durables === null
+    ? "Le registre canonique n'a pas pu être lu (erreur de base) : cette liste ne porte que ce que ce serveur a vu depuis son démarrage. "
+      + "Une liste courte ne prouve donc RIEN sur l'activité réelle."
+    : `${durables.total} fait(s) au registre canonique depuis le ${fr(since)}${health.started ? ", complétés par ce que ce serveur a vu depuis son démarrage" : ""}. `
+      + "« registre » fait foi ; « flux » est un indice de ce processus, pas un journal exhaustif.";
+
   return repondre({
     portee: "flux",
-    depuis: health.oldest,
-    changements: changes.map((c) => ({
-      quoi: c.type,
-      sujet: `${c.subjectType}/${c.subjectId}`,
-      libelle: c.label,
-      quand: c.at,
-    })),
-    precision: "Faits survenus depuis le démarrage de ce serveur — indice de fraîcheur, pas journal exhaustif. "
-      + "Pour le détail d'un de ces sujets, appeler inspect_record ou what_changed avec sa référence.",
+    depuis: since.toISOString(),
+    changements: lisibles.map((b) => ({ quoi: b.quoi, sujet: b.sujet, libelle: b.libelle, quand: b.quand, source: b.source })),
+    borne: bornes.length > 0 ? bornes.join(" ; ") : null,
+    precision: lisibles.length === 0
+      ? `Aucun fait lisible depuis le ${fr(since)}. ${couverture} Pour un dossier précis, donner sa référence.`
+      : `${couverture} Pour le détail d'un de ces sujets, appeler inspect_record ou what_changed avec sa référence.`,
   });
 }
 
@@ -138,12 +222,14 @@ export const WHAT_CHANGED_TOOLS: PowerTool[] = [
         "discussion). Renvoie : les CHANGEMENTS SIGNIFICATIFS tracés depuis la date (qui a fait quoi, champ avant → après), " +
         "les étapes réglementaires franchies (dossier Regulatory), QUI a agi sur la période, et l'ÉTAT ACTUEL en face. " +
         "Couvre demandes de paiement, règlements, documents Legal, dossiers Regulatory, tâches. Lecture seule ; " +
-        "« aucun changement tracé » est une réponse honnête, pas un échec.",
+        "« aucun changement tracé » est une réponse honnête, pas un échec. " +
+        "SANS référence : « quoi de neuf ? » — les faits du REGISTRE CANONIQUE sur la fenêtre (durables, tous serveurs confondus), " +
+        "complétés par ce que ce serveur a vu depuis son démarrage. Chaque fait porte sa source : « registre » fait foi, « flux » est un indice.",
       input_schema: {
         type: "object",
         properties: {
           reference: { type: "string", description: "Référence (PAY-…, REG-…) ou fragment de titre du dossier. OMETTRE pour « quoi de neuf dans l'entreprise, à l'instant ? »." },
-          since: { type: "string", description: "La date de référence : AAAA-MM-JJ, ou un nombre de jours en arrière (ex. « 7 »). Inutile sans référence." },
+          since: { type: "string", description: "La date de référence : AAAA-MM-JJ, ou un nombre de jours en arrière (ex. « 7 »). SANS référence, elle borne la fenêtre du « quoi de neuf » (défaut : 7 jours) — la resserrer (« 1 ») quand la réponse dit qu\u2019elle a été tronquée." },
         },
         required: [],
       },
@@ -151,14 +237,13 @@ export const WHAT_CHANGED_TOOLS: PowerTool[] = [
     allowed: EXEC,
     label: "Changements depuis la date",
     run: async (input, user) => {
-      void user;
       const ref = str(input, "reference");
       const rawSince = str(input, "since");
 
       // SANS RÉFÉRENCE : « quoi de neuf tout court ? ». Cette question-là n'avait aucune réponse
       // rapide — il fallait balayer une dizaine de tables et comparer des horodatages. Le flux
       // d'événements y répond en mémoire, sans base ni réseau.
-      if (ref.length < 2) return liveFeedAnswer();
+      if (ref.length < 2) return liveFeedAnswer(user, parseSince(rawSince));
       const since = parseSince(rawSince);
       // Un refus garde la MÊME forme que la réponse : le planificateur a écrit ses références
       // avant de savoir si la date serait lisible, et une forme différente les tue toutes.

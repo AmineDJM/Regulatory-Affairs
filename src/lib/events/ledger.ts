@@ -262,3 +262,74 @@ export async function timelineOf(
   });
   return rows;
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * « QUOI DE NEUF ? » SANS RÉFÉRENCE — les faits RÉCENTS du registre canonique.
+ *
+ * ── LE DÉFAUT MESURÉ ────────────────────────────────────────────────────────────────────
+ *
+ * `what_changed` sans référence n'avait qu'UNE source : la projection en MÉMOIRE du processus
+ * (`change-feed.ts`), honnête sur elle-même — « je vois ce qui s'est passé depuis le démarrage
+ * de CE serveur ». Elle éteinte, l'outil répondait « je ne peux pas dire ce qui a bougé à
+ * l'instant » ; elle vide, « aucun changement depuis le démarrage de ce serveur ». Or Render
+ * redémarre le processus à CHAQUE déploiement, et pendant ce temps `BusinessEvent` — le registre
+ * canonique (§17) — porte toute la journée. Un « je ne peux pas » écrit dans le CODE, sur l'une
+ * des questions les plus naturelles d'un dirigeant, avec la réponse à un fichier de distance
+ * (§118.63, §118.93).
+ *
+ * ── POURQUOI CE LECTEUR VIT ICI ─────────────────────────────────────────────────────────
+ *
+ * `timelineOf` lit déjà ce registre, mais exige une ENTITÉ. La question « quoi de neuf ? » n'en
+ * a pas. C'est la même table, le même vocabulaire, la même règle de charge utile : un second
+ * module aurait divergé au premier champ ajouté (§118.5).
+ *
+ * ── CE QUE CE LECTEUR NE FAIT PAS ───────────────────────────────────────────────────────
+ *
+ * Il ne filtre AUCUNE permission : ce n'est pas son rôle et il ne connaît pas l'acteur. Le
+ * cloisonnement se fait par ENREGISTREMENT chez l'appelant (`canAccessEntity`), parce qu'un fait
+ * porte l'entité qu'il concerne et que c'est la seule granularité juste — un filtre par domaine
+ * montrerait le dossier confidentiel d'un service ouvert. Il ne rend pas non plus `payload` :
+ * la charge utile se lit largement mais elle n'est pas nécessaire pour dire QUE quelque chose a
+ * bougé, et un libellé suffit à décider s'il faut relire la source.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface FaitRecent {
+  type: string;
+  occurredAt: Date;
+  sourceDomain: string;
+  actorId: string | null;
+  entityType: EntityType | null;
+  entityId: string | null;
+}
+
+/**
+ * LE TOTAL VOYAGE AVEC L'ÉCHANTILLON, et ce n'est pas un ornement.
+ *
+ * MESURÉ sur la base de travail : 26 332 faits sur sept jours, 4 356 sur vingt-quatre heures.
+ * Rendre « les soixante plus récents » sans dire combien il y en a fait lire un échantillon des
+ * dernières minutes comme le bilan de la semaine — la coupe silencieuse se lit comme une
+ * exhaustivité (§118.60). Le compte est une seconde requête, agrégée, sur la même fenêtre.
+ */
+export interface FaitsRecents {
+  faits: FaitRecent[];
+  /** Combien de faits la fenêtre contient RÉELLEMENT — pas combien on en rend. */
+  total: number;
+}
+
+export async function faitsRecents(opts: { since?: Date; limit?: number } = {}): Promise<FaitsRecents> {
+  // BORNÉ DES DEUX CÔTÉS. Sans borne de temps, la première question du matin lirait l'année ;
+  // sans borne de nombre, un import rétroactif remplirait la réponse d'un seul domaine.
+  const since = opts.since ?? new Date(Date.now() - 7 * 86_400_000);
+  const where = { occurredAt: { gte: since } };
+  const [faits, total] = await Promise.all([
+    prisma.businessEvent.findMany({
+      where,
+      orderBy: { occurredAt: "desc" },
+      take: Math.min(Math.max(opts.limit ?? 60, 1), 200),
+      select: { type: true, occurredAt: true, sourceDomain: true, actorId: true, entityType: true, entityId: true },
+    }),
+    prisma.businessEvent.count({ where }),
+  ]);
+  return { faits, total };
+}

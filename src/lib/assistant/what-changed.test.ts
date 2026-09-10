@@ -17,6 +17,24 @@ const exec = (id: string): CurrentUser => ({
   mustChangePassword: false,
 });
 
+/**
+ * UN ACTEUR SANS VUE GLOBALE — sans lui, la garde par enregistrement n'est jamais EXERCÉE.
+ *
+ * Mesuré en jouant le sabotage : retirer l'appel à `canAccessEntity` ne faisait tomber AUCUN
+ * test, parce que l'unique acteur du banc était la DIRECTION, dont l'accès est global — la garde
+ * rendait « vrai » quoi qu'il arrive. Une assertion dont on ne sait pas nommer le cas qui la
+ * ferait tomber n'est pas une assertion (§118.17).
+ *
+ * L'outil est aujourd'hui réservé à la direction ; on appelle donc `run` directement, et c'est
+ * VOULU : la garde ne doit pas dépendre du filtre de son appelant, sinon un futur appelant la
+ * contournera sans le savoir (§118.71, §118.78).
+ */
+const simple = (id: string): CurrentUser => ({
+  id, name: "Délégué", email: `${id}@t.dz`, role: "MEDICAL_DELEGATE",
+  access: { modules: new Map(), rowGrants: new Map() } as unknown as EffectiveAccess,
+  mustChangePassword: false,
+});
+
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
 const suite = dbOk ? describe : describe.skip;
@@ -24,6 +42,7 @@ const suite = dbOk ? describe : describe.skip;
 const TAG = `__wc__${Date.now()}`;
 const REF = `${TAG}-PAY`;
 let ceoId = "";
+let delegueId = "";
 let payId = "";
 
 const tool = POWER_TOOLS.find((t) => t.def.name === "what_changed")!;
@@ -34,6 +53,8 @@ suite("what_changed — le diff tracé depuis une date, l'état actuel en face",
   beforeAll(async () => {
     const ceo = await prisma.user.create({ data: { name: `${TAG} Nadia`, email: `${TAG}c@t.dz`, passwordHash: "x", role: "DIRECTION" } });
     ceoId = ceo.id;
+    const del = await prisma.user.create({ data: { name: `${TAG} Walid`, email: `${TAG}d@t.dz`, passwordHash: "x", role: "MEDICAL_DELEGATE" } });
+    delegueId = del.id;
     const pay = await prisma.paymentRequest.create({
       data: { reference: REF, title: `${TAG} achat imprimerie`, amount: 300_000, payee: "Imprimerie", requesterId: ceoId, status: "SUBMITTED", createdAt: ago(30) },
     });
@@ -136,5 +157,86 @@ suite("what_changed — le diff tracé depuis une date, l'état actuel en face",
     expect(reference).toContain("changements");
     expect(reference).toContain("precision");
     expect(reference).toContain("etapesFranchies");
+  });
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * « QUOI DE NEUF ? » APRÈS UN REDÉMARRAGE — le registre canonique répond.
+   *
+   * LE DÉFAUT MESURÉ : cette réponse n'avait qu'UNE source, la projection en MÉMOIRE du
+   * processus. Elle éteinte, l'outil disait « je ne peux pas dire ce qui a bougé à l'instant » ;
+   * elle vide, « aucun changement depuis le démarrage de ce serveur ». Render redémarre à CHAQUE
+   * déploiement — donc, en production, un « rien n'a bougé » pendant que `BusinessEvent` portait
+   * toute la journée. Un « je ne peux pas » écrit dans le CODE (§118.63, §118.93).
+   *
+   * CE TEST EST EXACTEMENT CE CAS : le fait est écrit en base et le flux en mémoire ne l'a
+   * JAMAIS vu (il n'a pas été publié sur le bus). Le seul chemin qui peut le retrouver est le
+   * registre durable.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("un fait que le flux en mémoire n'a jamais vu remonte quand même — et il DIT qu'il fait foi", async () => {
+    await prisma.businessEvent.create({
+      data: {
+        // MAINTENANT, et c'est le juge qui l'exige : la base de travail porte 26 332 faits sur
+        // sept jours ; un fait daté d'hier tomberait hors des soixante plus récents et ce test
+        // mesurerait le voisinage au lieu de la réparation (§118.91, §118.92).
+        type: `${TAG}_PAYMENT_APPROVED`, sourceDomain: "FINANCES", occurredAt: new Date(),
+        entityType: "PAYMENT_REQUEST", entityId: payId, actorId: ceoId,
+      },
+    });
+
+    const objet = JSON.parse(await tool.run({}, exec(ceoId))) as {
+      changements: { quoi: string; sujet: string; source: string }[];
+      precision: string;
+      depuis: string | null;
+    };
+    const mien = objet.changements.find((c) => c.quoi === `${TAG}_PAYMENT_APPROVED`);
+    expect(mien, "le fait du registre durable doit remonter — c'est tout l'objet de la réparation").toBeTruthy();
+    // L'AUTORITÉ VOYAGE AVEC LE FAIT : un indice partiel présenté comme une vérité est pire
+    // qu'une absence de réponse.
+    expect(mien!.source).toBe("registre");
+    expect(mien!.sujet).toContain(payId);
+    expect(objet.depuis, "la borne de lecture est dite, jamais implicite").toBeTruthy();
+    // Et la phrase ne prétend plus que rien n'a bougé.
+    expect(objet.precision).not.toContain("je ne peux pas dire ce qui a bougé");
+    expect(objet.precision).toContain("registre canonique");
+  });
+
+  it("la coupe se DIT : une liste bornée qui se présente comme complète est un mensonge tranquille", async () => {
+    // Ce qui le ferait tomber : rendre « les soixante plus récents » sans le total. Sur cette
+    // base (26 332 faits sur sept jours), on lirait les dernières minutes comme le bilan de la
+    // semaine — une coupe silencieuse se lit comme une exhaustivité (§118.60).
+    const objet = JSON.parse(await tool.run({}, exec(ceoId))) as {
+      changements: unknown[]; borne: string | null; precision: string;
+    };
+    expect(objet.precision, "le TOTAL de la fenêtre est dit, pas seulement l'échantillon").toMatch(/\d+ fait\(s\) au registre canonique/);
+    const total = Number(/(\d+) fait\(s\) au registre/.exec(objet.precision)?.[1] ?? "0");
+    if (total > objet.changements.length) {
+      expect(objet.borne, "quand la fenêtre déborde, la réponse le DIT et nomme le geste").toContain("plus récents seulement");
+      expect(objet.borne).toContain("since");
+    }
+  });
+
+  it("le cloisonnement est par ENREGISTREMENT, et ce qui est écarté est COMPTÉ", async () => {
+    // Un fait SANS entité lisible ne peut pas être cloisonné par `canAccessEntity` : on ne le
+    // montre pas, et on le DIT (§118.52). Le taire ferait lire « 3 faits » pour douze.
+    await prisma.businessEvent.create({
+      data: { type: `${TAG}_SANS_ENTITE`, sourceDomain: "LEGAL", occurredAt: new Date() },
+    });
+    const objet = JSON.parse(await tool.run({}, exec(ceoId))) as {
+      changements: { quoi: string }[]; borne: string | null;
+    };
+    expect(objet.changements.some((c) => c.quoi === `${TAG}_SANS_ENTITE`), "un fait sans entité n'est pas montré").toBe(false);
+    expect(objet.borne, "ce qui est retiré doit laisser une trace").toContain("écarté");
+  });
+
+  it("un acteur SANS vue globale ne voit pas le fait d'un enregistrement hors de son périmètre", async () => {
+    // Le fait porte une demande de paiement du module Finances. Un délégué médical n'y a pas
+    // accès : `canAccessEntity` répond faux par ENREGISTREMENT, et le fait n'apparaît pas.
+    // CE QUI LE FERAIT TOMBER : retirer la garde — c'est-à-dire montrer à quelqu'un une ligne
+    // qu'il n'a pas le droit de voir, par un geste de simple curiosité.
+    const brut = await tool.run({}, simple(delegueId));
+    const objet = JSON.parse(brut) as { changements: { quoi: string }[]; borne: string | null };
+    expect(objet.changements.some((c) => c.quoi === `${TAG}_PAYMENT_APPROVED`), "hors périmètre : le fait ne doit pas remonter").toBe(false);
+    expect(objet.borne, "et son écartement est compté, pas tu").toContain("écarté");
   });
 });
