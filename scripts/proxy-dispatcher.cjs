@@ -27,13 +27,45 @@
  * `NODE_EXTRA_CA_CERTS`, posé par l'environnement), NI aux variables de mandataire : il les
  * LIT. Sans `HTTPS_PROXY`, il ne fait rien et le dit — se taire laisserait croire qu'il a
  * agi.
+ *
+ * ── LES IDENTIFIANTS VIENNENT DU MANDATAIRE, DONC LA CLÉ EST UN JETON DE PRÉSENCE ────────
+ *
+ * `fournisseurConfigure()` lit `OPENAI_API_KEY` : sans elle, le produit refuse AVANT d'appeler,
+ * et rend « Clé OPENAI_API_KEY non configurée ». Or dans ce conteneur la clé RÉELLE n'existe
+ * nulle part : le mandataire remplace l'en-tête d'autorisation par de vrais identifiants. La
+ * valeur envoyée n'a donc aucune importance — ce qui compte est qu'il y en ait une, pour que le
+ * produit consente à sortir.
+ *
+ * Ce n'est PAS une clé en dur : c'est la conséquence du fait « un mandataire signe pour nous »,
+ * posée au même endroit que le routage qui en découle. Deux garde-fous : on n'écrase JAMAIS une
+ * clé existante (sur une machine qui en a une vraie, c'est elle qui parle), et on ne pose rien
+ * sans mandataire — sans lui, un jeton factice produirait un 401 déguisé en « configuré », et un
+ * diagnostic faux coûte plus cher qu'un refus franc (§118.84).
+ *
+ * ── IL S'INSTALLE PARTOUT, IL NE PARLE QU'UNE FOIS ───────────────────────────────────────
+ *
+ * `tsx` lance des processus enfants (le service esbuild, le chargeur ESM) qui héritent de
+ * `NODE_OPTIONS`, donc du préchargement : chacun DOIT poser son dispatcher — un `fetch` non
+ * routé dans un enfant sortirait en direct — mais la ligne d'annonce, elle, sortait CINQ fois
+ * par banc. Un en-tête répété est du bruit, et le bruit apprend à ne plus lire la sortie
+ * (§118.52) : le drapeau est posé dans l'environnement, donc hérité, donc seul le premier
+ * processus parle.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 const proxy = process.env.HTTPS_PROXY || process.env.https_proxy;
+const dejaDit = process.env.__BANC_MANDATAIRE_ANNONCE === "1";
+process.env.__BANC_MANDATAIRE_ANNONCE = "1";
 if (!proxy) {
-  console.info("[banc] aucun HTTPS_PROXY : `fetch` reste en direct (c'est le cas en production).");
+  if (!dejaDit) console.info("[banc] aucun HTTPS_PROXY : `fetch` reste en direct (c'est le cas en production).");
 } else {
   const { ProxyAgent, setGlobalDispatcher } = require("undici");
   setGlobalDispatcher(new ProxyAgent(proxy));
-  console.info(`[banc] fetch routé par le mandataire ${proxy} — les appels de modèle seront signés par lui.`);
+  let jeton = "";
+  for (const cle of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"]) {
+    if (!process.env[cle]) { process.env[cle] = "mandataire"; jeton += ` ${cle}`; }
+  }
+  if (!dejaDit) {
+    console.info(`[banc] fetch routé par le mandataire ${proxy} — les appels de modèle seront signés par lui.`);
+    if (jeton) console.info(`[banc] jeton de présence posé sur${jeton} : la valeur est remplacée par le mandataire.`);
+  }
 }

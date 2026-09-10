@@ -72,18 +72,55 @@ export const EXECUTIVE_READ_TOOLS: PowerTool[] = [
   },
 
   // ───────────────────────── CALENDRIER ─────────────────────────
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * UNE PÉRIODE, ET PAS SEULEMENT « LA SUITE » — le « je ne peux pas » mesuré (§118.63).
+   *
+   * Campagne live, `defi-autonomie-composition` : « Combien d'heures de réunion ai-je eues ces
+   * 30 derniers jours, et avec qui le plus souvent ? ». Réponse d'Adam :
+   * « INCONNU — le calendrier Google d'ADAM n'est pas connecté ; aucune donnée de réunions sur
+   * les 30 derniers jours n'est donc lisible. »
+   *
+   * C'est FAUX, et de deux façons. L'ERP a son PROPRE agenda (`CalendarEvent`) ; et la fonction
+   * qui lit une FENÊTRE — `getCalendarEvents(user, from, to)` — vit dans le même fichier que
+   * l'appel qui l'utilisait pour UN SEUL JOUR. La capacité était à une ligne. Ce que l'outil
+   * ne savait pas EXPRIMER, le modèle l'a rendu en impossibilité, et il a envoyé le dirigeant
+   * connecter un service tiers pour rien : NON TROUVÉ annoncé comme SOURCE ABSENTE.
+   *
+   * Trois propriétés, et la troisième est celle qui compte :
+   *
+   *   · une PÉRIODE (`du`/`au`), passée comme future — c'est la question qui décide, pas l'outil ;
+   *   · une DURÉE par événement, mais SEULEMENT quand la fin est connue : `endAt` est nullable,
+   *     et supposer soixante minutes fabriquerait un total qui a l'air juste (§118.16) ;
+   *   · un RÉCAPITULATIF calculé par le CODE — total, nombre d'événements, classement des
+   *     personnes rencontrées — plus le COMPTE de ce qui n'a pas pu être totalisé. Sans lui, le
+   *     modèle additionnerait des libellés d'heure à la main, et une coupe muette se lirait
+   *     comme une exhaustivité (§118.52).
+   *
+   * Pourquoi pas `sql_query` : `CalendarEvent` n'est pas dans `TABLES_AUTORISEES`, et ce n'est
+   * pas un oubli — un agenda porte des rendez-vous privés, et son cloisonnement se calcule par
+   * LIGNE (`scopeWhere`), pas en clause de table. On étend donc l'outil qui PORTE la portée,
+   * jamais la porte générique (§118.85).
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
   {
     def: {
       name: "read_calendar",
       description:
-        "Lit le CALENDRIER : prochains rendez-vous et réunions (titre, date/heure d'Alger, lieu, organisateur, invités, lien visio). " +
-        "`date` (AAAA-MM-JJ) pour un jour précis, sinon les prochains événements. " +
-        "À utiliser pour « quelle est ma prochaine réunion ? », « qu'ai-je demain ? », « qui participe ? ».",
+        "Lit le CALENDRIER de l'ERP : rendez-vous et réunions (titre, date/heure d'Alger, durée, lieu, organisateur, invités, lien visio). " +
+        "`date` (AAAA-MM-JJ) pour un jour précis ; `du`+`au` pour une PÉRIODE — PASSÉE comme future " +
+        "(« ces 30 derniers jours », « le mois dernier », « la semaine prochaine ») ; sans rien, les prochains événements. " +
+        "Sur une période, la réponse porte un récapitulatif CALCULÉ : total d'heures, nombre d'événements, " +
+        "et classement des personnes le plus souvent rencontrées — n'additionnez rien à la main. " +
+        "À utiliser pour « quelle est ma prochaine réunion ? », « qu'ai-je demain ? », « qui participe ? », " +
+        "« combien d'heures de réunion le mois dernier ? ».",
       input_schema: {
         type: "object",
         properties: {
-          date: { type: "string", description: "Jour précis AAAA-MM-JJ (heure d'Alger). Omettre pour les prochains événements." },
-          limit: { type: "number", description: "Nombre maximum d'événements (défaut 8, max 20)." },
+          date: { type: "string", description: "Jour précis AAAA-MM-JJ (heure d'Alger)." },
+          du: { type: "string", description: "Début de période AAAA-MM-JJ inclus (heure d'Alger). Peut être dans le PASSÉ." },
+          au: { type: "string", description: "Fin de période AAAA-MM-JJ inclus (heure d'Alger)." },
+          limit: { type: "number", description: "Nombre maximum d'événements détaillés (défaut 8, max 200). Le récapitulatif porte sur TOUTE la période." },
         },
       },
     },
@@ -91,22 +128,90 @@ export const EXECUTIVE_READ_TOOLS: PowerTool[] = [
     label: "Calendrier consulté",
     run: async (input, user) => {
       const date = str(input, "date");
-      const limit = Math.min(Math.max(num(input, "limit") ?? 8, 1), 20);
+      const du = str(input, "du");
+      const au = str(input, "au");
+      const limit = Math.min(Math.max(num(input, "limit") ?? 8, 1), 200);
+
+      const jour = (ymd: string, finDeJournee = false): Date | null => {
+        if (!YMD_RE.test(ymd)) return null;
+        const d = algiersInputToUtc(`${ymd}T00:00`);
+        return d ? (finDeJournee ? new Date(d.getTime() + 86_400_000) : d) : null;
+      };
+
       let events;
-      if (date && YMD_RE.test(date)) {
-        const from = algiersInputToUtc(`${date}T00:00`);
+      let periode: { du: string; au: string } | null = null;
+      if (du || au) {
+        // Une borne manquante n'est pas une période : la deviner choisirait la fenêtre à la
+        // place de la personne, et un total sur la mauvaise fenêtre est un chiffre faux.
+        if (!du || !au) return "Période incomplète : donnez `du` ET `au` (AAAA-MM-JJ), ou `date` pour un seul jour.";
+        const debut = jour(du);
+        const fin = jour(au, true);
+        if (!debut || !fin) return "Période illisible (AAAA-MM-JJ attendu pour `du` et `au`).";
+        if (fin <= debut) return `Période vide : « au » (${au}) doit être le même jour ou après « du » (${du}).`;
+        const JOURS_MAX = 400;
+        if (fin.getTime() - debut.getTime() > JOURS_MAX * 86_400_000) return `Période trop large : ${JOURS_MAX} jours au plus (demandé du ${du} au ${au}).`;
+        events = await getCalendarEvents(user, debut, fin);
+        periode = { du, au };
+      } else if (date && YMD_RE.test(date)) {
+        const from = jour(date);
         if (!from) return "Date illisible (AAAA-MM-JJ).";
         events = await getCalendarEvents(user, from, new Date(from.getTime() + 86_400_000));
+      } else if (date) {
+        return "Date illisible (AAAA-MM-JJ).";
       } else {
         events = await getUpcomingEvents(user, limit);
       }
-      if (events.length === 0) return date ? `Aucun événement le ${date}.` : "Aucun événement à venir.";
-      return JSON.stringify(events.slice(0, limit).map((e) => ({
-        titre: e.title, jour: e.ymd, heure: e.timeLabel || "journée entière",
-        lieu: e.location, organisateur: e.organizerName,
-        invites: e.invitees.map((i) => `${i.name} (${i.status})`),
-        visio: e.meetLink, lien: "/calendar",
-      })));
+
+      if (events.length === 0) {
+        return periode
+          ? `Aucun événement dans l'agenda de l'ERP du ${periode.du} au ${periode.au}. (C'est une ABSENCE constatée dans le calendrier de l'ERP, pas une source indisponible.)`
+          : date ? `Aucun événement le ${date}.` : "Aucun événement à venir.";
+      }
+
+      const detail = events.slice(0, limit).map((e) => {
+        const debut = new Date(e.startAt);
+        const fin = e.endAt ? new Date(e.endAt) : null;
+        const duree = fin && fin > debut ? Math.round((fin.getTime() - debut.getTime()) / 60_000) : null;
+        return {
+          titre: e.title, jour: e.ymd, heure: e.timeLabel || "journée entière",
+          duree_min: duree, lieu: e.location, organisateur: e.organizerName,
+          invites: e.invitees.map((i) => `${i.name} (${i.status})`),
+          visio: e.meetLink, lien: "/calendar",
+        };
+      });
+
+      if (!periode) return JSON.stringify(detail);
+
+      // ── LE RÉCAPITULATIF : calculé ici, sur TOUS les événements de la période ──
+      let minutes = 0;
+      let sansDuree = 0;
+      const rencontres = new Map<string, number>();
+      for (const e of events) {
+        const debut = new Date(e.startAt);
+        const fin = e.endAt ? new Date(e.endAt) : null;
+        if (fin && fin > debut) minutes += (fin.getTime() - debut.getTime()) / 60_000;
+        else sansDuree += 1;
+        for (const nom of [e.organizerName, ...e.invitees.map((i) => i.name)]) {
+          if (!nom || nom === user.name) continue;
+          rencontres.set(nom, (rencontres.get(nom) ?? 0) + 1);
+        }
+      }
+      const classement = [...rencontres.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 10)
+        .map(([nom, n]) => ({ personne: nom, evenements: n }));
+
+      return JSON.stringify({
+        periode,
+        evenements: events.length,
+        total_heures: Math.round((minutes / 60) * 100) / 100,
+        // Ce qui n'a pas pu être totalisé est DIT : une fin d'événement absente n'est pas une
+        // durée nulle, et un total muet se lirait comme complet.
+        evenements_sans_heure_de_fin: sansDuree,
+        ...(sansDuree > 0 ? { note_total: `${sansDuree} événement(s) sans heure de fin ne sont PAS comptés dans le total : leur durée n'est pas connue.` } : {}),
+        rencontres_les_plus_frequentes: classement,
+        detail: detail.length < events.length ? [...detail, { note: `${events.length - detail.length} événement(s) non détaillés (limite ${limit}) — le récapitulatif ci-dessus porte sur les ${events.length}.` }] : detail,
+      });
     },
   },
 

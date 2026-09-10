@@ -21,6 +21,7 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { hasGlobalView, type SessionUser } from "@/lib/rbac";
 
@@ -129,6 +130,44 @@ export async function executerSqlLectureSeule(user: SessionUser, brut: string, o
   }
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UN REFUS DE POSTGRES QU'ON PEUT COMPLÉTER, ON LE COMPLÈTE (§118.30).
+ *
+ * ── LE DÉFAUT MESURÉ ─────────────────────────────────────────────────────────────────────
+ *
+ * Campagne live, défi `defi-sql-comptage` : le modèle écrit `status = 'SANS_STATUT'`, Postgres
+ * répond `invalid input value for enum "TaskStatus": "SANS_STATUT"`. Le refus est JUSTE et
+ * INUTILISABLE : il nomme la faute et pas le remède. Le modèle a redeviné deux fois — trois
+ * appels de `sql_query` sur la même question, pour une information que le schéma porte en clair.
+ *
+ * Les valeurs viennent du DMMF, donc du SCHÉMA : une valeur ajoutée demain est nommée sans que
+ * personne y pense. Une liste écrite à la main serait fausse en silence (§118.73), et sur ce
+ * défaut-là précisément, « fausse » veut dire « le modèle réessaie avec une valeur qui n'existe
+ * plus ».
+ *
+ * ── CE QU'ON NE FAIT PAS ─────────────────────────────────────────────────────────────────
+ *
+ * On ne devine pas les COLONNES d'un `column "x" does not exist` : le message ne dit pas de
+ * quelle table il parle, et proposer les colonnes d'une table au hasard enverrait le modèle
+ * réécrire une requête sur le mauvais objet. Un type d'énumération, lui, est NOMMÉ dans le
+ * message : c'est la différence entre lire et deviner (§118.16).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function valeursDEnumeration(nom: string): readonly string[] | null {
+  const trouve = Prisma.dmmf.datamodel.enums.find((e) => e.name === nom);
+  return trouve ? trouve.values.map((v) => v.name) : null;
+}
+
+/** Complète un refus quand on sait le compléter, et rend le message INCHANGÉ sinon. */
+export function nommerLeRemede(message: string): string {
+  const m = /invalid input value for enum "?([A-Za-z_][A-Za-z0-9_]*)"?:\s*"([^"]*)"/i.exec(message);
+  if (!m) return message;
+  const valeurs = valeursDEnumeration(m[1]);
+  if (!valeurs || valeurs.length === 0) return message;
+  return `${message} — valeurs admises pour ${m[1]} : ${valeurs.join(", ")}.`;
+}
+
 /** Le message qu'on rend : la cause, pas l'enrobage de Prisma (qui commence par une ligne vide). */
 function messageCourt(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
@@ -136,8 +175,9 @@ function messageCourt(e: unknown): string {
   if (/read-only transaction/i.test(msg)) return "écriture refusée : transaction en lecture seule";
   if (/permission denied/i.test(msg)) return "refusé par le rôle du bac à sable (lecture seule)";
   const m = /Message: `([^`]+)`/.exec(msg);
-  if (m) return m[1].slice(0, 300);
-  return (msg.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "erreur").slice(0, 300);
+  // Le remède s'ajoute APRÈS la coupe à 300 : sinon la phrase utile serait la première rognée.
+  if (m) return nommerLeRemede(m[1].slice(0, 300));
+  return nommerLeRemede((msg.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "erreur").slice(0, 300));
 }
 
 /**

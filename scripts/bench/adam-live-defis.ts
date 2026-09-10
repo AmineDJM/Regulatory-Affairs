@@ -32,6 +32,23 @@ const NOM_NOTE = "Note fournisseur Kwality — révision tarifaire.txt";
 const MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 /** « 1 011 500 » écrit avec n'importe quel séparateur de milliers (espace, insécable, point, virgule) — ou sans. */
+/**
+ * LE PLI DES ACCENTS — parce qu'un juge lexical mesure le VOCABULAIRE, pas le fait (§118.22).
+ *
+ * Mesuré sur `defi-reunion-chef-de-cabinet` : le briefing disait « caisse d'avance GELÉE jusqu'à
+ * ce point budget T3, décidée le 12/08 » — l'historique EXACT que le défi réclame — et le juge
+ * cherchait `/geler|gel /i`. Ni « geler » ni « gel » (suivi d'une espace) ne s'accrochent à
+ * « gelée ». Un défi PARFAITEMENT réussi compté en échec, sur une flexion française.
+ */
+const plier = (t: string): string => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/** Un mot et ses flexions, dans la MÊME ligne qu'un second mot : le fait, pas le lemme. */
+const memeLigne = (texte: string, radical: RegExp, avec: RegExp): boolean =>
+  plier(texte).split(/\n/).some((l) => radical.test(l) && avec.test(l));
+
+/** Le nombre d'écritures financières à la fin du décor de `defi-scenario` — voir son juge. */
+let ecrituresAvantScenario: number | null = null;
+
 const nombre = (n: number): RegExp => {
   const chiffres = String(Math.round(Math.abs(n)));
   const groupes: string[] = [];
@@ -181,6 +198,7 @@ export const DEFIS: Cas[] = [
           date: new Date(t - (i + 1) * 36e5 * 26), createdById: ctx.pdg.id,
         } });
       }
+      ecrituresAvantScenario = await ctx.prisma.financeTransaction.count();
     },
     verifier: async (ctx) => {
       const m: string[] = [];
@@ -190,8 +208,25 @@ export const DEFIS: Cas[] = [
       const dernieres = await ctx.prisma.financeTransaction.findMany({ orderBy: { createdAt: "desc" }, take: 30, select: { amount: true } });
       const total = dernieres.reduce((s, t) => s + Number(t.amount ?? 0), 0);
       if (total > 0 && !nombre(total).test(ctx.reponse) && !nombre(total * 1.08).test(ctx.reponse) && !nombre(total * 0.08).test(ctx.reponse)) m.push(`ni le total réel (${Math.round(total)}), ni le simulé (${Math.round(total * 1.08)}), ni l'écart (${Math.round(total * 0.08)}) ne figurent dans la réponse`);
-      const ecritures = await ctx.prisma.financeTransaction.count({ where: { createdAt: { gte: ctx.t0 } } });
-      if (ecritures > 0) m.push(`${ecritures} écriture(s) créée(s) : une simulation n'écrit RIEN`);
+      /**
+       * ── ON COMPTE, ON NE DATE PAS ──────────────────────────────────────────────────
+       *
+       * La version précédente comptait `createdAt >= ctx.t0`. `ctx.t0` est un `Date` JS
+       * (milliseconde) et Postgres stocke la microseconde : la DERNIÈRE écriture du décor,
+       * insérée dans la même milliseconde que la prise de `t0`, satisfaisait `>= t0`. Verdict
+       * mesuré : « 1 écriture(s) créée(s) : une simulation n'écrit RIEN » sur un run où la
+       * table contenait exactement les 30 lignes du décor et RIEN d'autre (vérifié en base :
+       * 30 lignes, toutes à 07:44:16.2xx). Un juge qui tombe sur une course d'horloge accuse
+       * le produit d'un défaut qu'il n'a pas — et le vrai jour où une simulation écrira, on
+       * ne le croira plus.
+       *
+       * Le compte AVANT est pris à la fin du décor, dans la même transaction logique : aucune
+       * horloge n'entre dans la comparaison.
+       */
+      const apres = await ctx.prisma.financeTransaction.count();
+      if (ecrituresAvantScenario !== null && apres > ecrituresAvantScenario) {
+        m.push(`${apres - ecrituresAvantScenario} écriture(s) créée(s) : une simulation n'écrit RIEN`);
+      }
       return m;
     },
   },
@@ -781,7 +816,8 @@ Article 16 — Droit applicable. Le présent contrat est régi par le droit fran
       "Prépare-moi la réunion « Point budget T3 (banc) ».",
     ],
     doit: [/caisse/i],
-    doitUneDe: [/geler|gel /i],
+    // Le gel de la caisse est jugé dans `verifier`, sur le FAIT et non sur le lemme : « gelée »
+    // ne s'accroche ni à `geler` ni à `gel ` (§118.22 appliqué à la flexion française).
     neDoitPas: [/je ne peux pas/i, /pas d'outil/i, /aucune réunion/i],
     avant: async (ctx) => {
       const { prisma, pdg, delegue } = ctx;
@@ -821,6 +857,13 @@ Article 16 — Droit applicable. Le présent contrat est régi par le droit fran
       if (!new RegExp(prenom, "i").test(ctx.reponse)) m.push(`la participante ${prenom} n'est pas nommée`);
       if (!/budget révisé|budget revise/i.test(ctx.reponse)) m.push("l'engagement en retard (budget révisé congrès) n'est pas rapporté — niveau chef de cabinet non appliqué");
       if (!/tableau des enveloppes/i.test(ctx.reponse)) m.push("l'action de la dernière réunion (tableau des enveloppes) n'est pas rapportée");
+      // LA DÉCISION ANTÉRIEURE — le cœur du niveau chef de cabinet : le gel de la caisse d'avance,
+      // décidé au T2, doit être RAPPORTÉ. On exige le radical « gel » ET « caisse » dans la MÊME
+      // ligne : `\bgel\w*` seul accrocherait « gélule » (plié : « gelule »), qui est un mot de
+      // tous les jours dans cet ERP.
+      if (!memeLigne(ctx.reponse, /\bgel(e|ee|es|ees|er|ant)?\b/, /caisse/)) {
+        m.push("la décision antérieure (caisse d'avance GELÉE au T2) n'est pas rapportée — l'historique du niveau chef de cabinet manque");
+      }
       return m;
     },
   },
@@ -943,8 +986,31 @@ Article 16 — Droit applicable. Le présent contrat est régi par le droit fran
       if (!etape) { m.push(`aucune étape WAIT_EVENT en attente (WAITING) en 150 s — mission(s) ${dernierStatut}, ${battements} battement(s) donné(s), étapes : ${dernieresEtapes}`); return m; }
       const types = [etape.waitFor?.event, ...(etape.waitFor?.anyOf ?? []).map((b) => b.event)].filter((t): t is string => Boolean(t));
       if (!types.some((t) => /SIGNATURE_COMPLETED|CONTRACT_SIGNED/.test(t))) m.push(`l'attente ne porte pas sur une signature (types : ${types.join(", ") || "aucun"})`);
-      const tachesAvant = await ctx.prisma.task.count({ where: { createdAt: { gte: ctx.t0 }, title: { contains: "Mouffok", mode: "insensitive" } } });
-      if (tachesAvant > 0) m.push(`${tachesAvant} tâche(s) « Mouffok » créée(s) AVANT la signature : la mission n'a pas attendu`);
+      /**
+       * ── « RIEN AVANT LA SIGNATURE » SE JUGE PAR LE LIEN CAUSAL, PAS PAR LE TITRE ────
+       *
+       * La version précédente comptait les tâches dont le TITRE contient « Mouffok », créées
+       * depuis `t0`. Mesuré : au run suivant du même banc, une mission du run PRÉCÉDENT — qui
+       * avait reçu sa signature vingt-cinq minutes plus tôt et créait donc sa tâche en toute
+       * légitimité — a fait tomber ce défi. En base : la mission du tour est `WAITING_EVENT`,
+       * son étape `create_task` est `PENDING`, et la tâche incriminée porte l'horodatage de
+       * l'étape d'une AUTRE mission. Le produit avait raison ; le juge accusait par
+       * ressemblance de noms (§118.36).
+       *
+       * Deux vérifications EXACTES remplacent le comptage :
+       *   · l'étape d'écriture de CETTE mission n'a pas abouti (le lien causal) ;
+       *   · le TOUR de chat n'a pas créé la tâche lui-même (`create_task` dans ses outils) —
+       *     c'est l'autre façon de tricher, et elle est observable sans deviner.
+       */
+      const ecrituresMission = await ctx.prisma.missionStep.findMany({
+        where: { missionId: etape.missionId, nodeType: "CAPABILITY", capability: { in: ["create_task", "plan_reminder", "record_commitment"] } },
+        select: { key: true, status: true, capability: true },
+      });
+      const dejaEcrit = ecrituresMission.filter((e) => e.status === "DONE");
+      if (dejaEcrit.length > 0) {
+        m.push(`AVANT la signature, ${dejaEcrit.length} étape(s) d'écriture de la mission ont déjà abouti (${dejaEcrit.map((e) => `${e.key}=${e.capability}`).join(", ")}) : la mission n'a pas attendu`);
+      }
+      if (ctx.outils.includes("create_task")) m.push("le TOUR a créé la tâche lui-même (create_task) au lieu de la confier à l'attente de la mission");
       // LE FAIT ARRIVE — par l'ingestion universelle, comme DocuSign le pousserait.
       const { ingerer } = await import("@/platform/in-process/events/ingestion");
       const ref = etape.waitFor?.entity && /^[A-Z_]+:[A-Za-z0-9_-]+$/.test(etape.waitFor.entity) ? etape.waitFor.entity : null;
@@ -980,7 +1046,22 @@ Article 16 — Droit applicable. Le présent contrat est régi par le droit fran
     },
     verifier: async (ctx) => {
       const m: string[] = [];
-      if (!ctx.outils.includes("media_transcript")) m.push(`media_transcript non appelé (outils : ${ctx.outils.join(", ") || "aucun"})`);
+      /**
+       * ── ON JUGE LE RÉSULTAT, PAS LA ROUTE ──────────────────────────────────────────
+       *
+       * La version précédente exigeait l'appel de `media_transcript`. Mesuré : Adam a répondu
+       * JUSTE — instants et citations conformes au mot près — en passant par `read_document`,
+       * qui transcrit aussi (et qui, depuis, passe par le transcripteur qui PERSISTE). Exiger
+       * un outil nommé mesure le chemin ; ce que ce défi doit tenir est que l'enregistrement
+       * soit RÉELLEMENT écouté, que l'instant cité corresponde au segment, et que la
+       * transcription reste en base — c'est-à-dire ce que les lignes suivantes vérifient déjà.
+       *
+       * On garde une exigence de ROUTE, et une seule : l'une des deux portes de lecture doit
+       * avoir été empruntée. Sans elle, un modèle qui INVENTERAIT les instants sans rien lire
+       * passerait — et c'est exactement le faux succès que ce défi existe pour attraper.
+       */
+      const PORTES = ["media_transcript", "read_document"];
+      if (!ctx.outils.some((o) => PORTES.includes(o))) m.push(`l'enregistrement n'a pas été lu : aucune des portes ${PORTES.join(" / ")} n'a été appelée (outils : ${ctx.outils.join(", ") || "aucun"})`);
       if (!/\b\d{1,2}:\d{2}\b/.test(ctx.reponse)) m.push("aucun instant mm:ss dans la réponse");
       if (!/budget marketing/i.test(ctx.reponse)) m.push("la réponse ne cite pas le passage sur le budget marketing");
       const noeud = await ctx.prisma.driveNode.findFirst({ where: { ownerId: ctx.pdg.id, name: { startsWith: "Réunion budget 2027 (banc)" } }, select: { id: true } });

@@ -7,6 +7,7 @@ import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { getBlob } from "@/lib/drive-storage";
 import { readFileByKey } from "@/lib/storage";
 import { extractAttachmentText } from "@/lib/assistant-files";
+import { estMedia } from "@/platform/in-process/media";
 import { indexDriveNodeText } from "@/lib/assistant/document-discovery";
 import { toNumber } from "@/lib/utils";
 import { chainOf, amountDrift, type ChainDoc } from "@/lib/legal/chain";
@@ -53,6 +54,63 @@ function docKindFromName(name: string): "pdf" | "image" | "feuille" | "texte" | 
  */
 
 /** Le siège exécutif : PDG (DIRECTION) et Super Admin — c'est LE module My Chief of Staff. */
+/**
+ * LA TRANSCRIPTION D'UN MÉDIA DU DRIVE, PAR LE CHEMIN QUI LA PERSISTE.
+ *
+ * Rend `null` — et non une erreur — sur tout ce qui ne se transcrit pas à coup sûr : l'appelant
+ * retombe alors sur la lecture d'octets. Une garde qui casse la lecture d'un fichier parce que
+ * la parole n'a pas pu être reconnue serait pire que le défaut qu'elle corrige (§118.27).
+ */
+async function transcriptionPersistee(
+  user: CurrentUser,
+  nodeId: string,
+  nom: string,
+): Promise<{ name: string; text: string; note: string | null; truncated: boolean } | null> {
+  try {
+    const { transcrireMediaDrive } = await import("@/platform/in-process/media/transcription");
+    const { texteHorodate, formatHorodatage } = await import("@/platform/in-process/media");
+    const r = await transcrireMediaDrive(user, { nodeId });
+    if (!r.ok) return null;
+    const texte = texteHorodate(r.vue.segments, { locuteurs: false });
+    if (!texte.trim()) return null;
+    const duree = r.vue.dureeS ? ` — ${formatHorodatage(r.vue.dureeS)}` : "";
+    return {
+      name: nom,
+      text: texte,
+      // La réserve vient de la LIGNE persistée, pas d'une note qu'on réécrit à chaque lecture.
+      note: `Transcription ${r.vue.modele}${duree}, ${r.vue.segments.length} segment(s)`
+        + `${r.vue.horodate ? " horodatés" : " (sans horodatage)"}${r.vue.depuisCache ? ", relue (déjà transcrite)" : ""}`
+        + `${r.vue.limites.length ? ` — limites : ${r.vue.limites.join(" ; ")}` : ""}`
+        + ` — ce n'est pas un fait vérifié : à citer comme PROBABLE, avec l'instant.`
+        + ` Recherche fine de l'instant : media_transcript action=chercher.`,
+      truncated: false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * LA NOTE DE MÉTHODE VOYAGE AVEC LE TEXTE — §104.15 appliqué à la porte de lecture.
+ *
+ * Mesuré sur la campagne live (`defi-media-reunion`) : `lireMedia` écrit une réserve
+ * exemplaire — « Transcription <modèle>, N segment(s) horodatés — ce n'est pas un fait vérifié :
+ * à citer comme PROBABLE, avec l'instant » — et `read_document` la passait à l'INDEX puis la
+ * JETAIT. Adam a donc cité une reconnaissance vocale sous l'étiquette « FAIT VÉRIFIÉ », en toute
+ * bonne foi : la seule phrase qui disait le contraire n'a jamais franchi la porte.
+ *
+ * Même chose pour un scan océrisé, une image lue par un modèle de vision, une présentation sans
+ * texte : la méthode et sa confiance sont ce qui distingue une lecture d'une citation. Livrer la
+ * sortie sans la note la fait citer comme une certitude (§29).
+ *
+ * Rend un objet VIDE quand il n'y a rien à dire — une réserve permanente devient du bruit, et on
+ * cesse de lire les réserves (§118.32).
+ */
+function noteDeMethode(note: string | null | undefined): { methode?: string } {
+  const t = (note ?? "").trim();
+  return t ? { methode: t } : {};
+}
+
 const EXEC = (u: CurrentUser): boolean => u.role === "SUPER_ADMIN" || u.role === "DIRECTION";
 
 const str = (input: Record<string, unknown>, key: string): string =>
@@ -224,7 +282,34 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
         if (!bytes) {
           return resultatIndisponible("CAPABILITY_FAILURE", "Le contenu de ce fichier est indisponible.", { driveNodeId: nodeId, nom: node.name });
         }
-        const t = await extractAttachmentText(node.name, bytes);
+        /**
+         * ── UN AUDIO DU DRIVE PASSE PAR LE TRANSCRIPTEUR QUI SE SOUVIENT ──────────────
+         *
+         * Mesuré sur la campagne live (`defi-media-reunion`) : Adam a répondu JUSTE — les
+         * instants et les citations correspondent au mot près à l'enregistrement — mais
+         * `MediaTranscript` était VIDE et `DriveTextIndex` portait le texte horodaté. Deux
+         * transcripteurs dans le même dépôt sur le même fichier, et un seul se souvient
+         * (§118.5) :
+         *
+         *   · `transcrireMediaDrive` est IDEMPOTENT (il relit une transcription existante),
+         *     persiste les SEGMENTS, le MODÈLE et la méthode ;
+         *   · `extractAttachmentText` — la porte qu'un modèle emprunte naturellement — refait
+         *     l'appel de parole à CHAQUE lecture, ne garde rien, et sa réserve (« ce n'est pas
+         *     un fait vérifié : à citer comme PROBABLE ») meurt avec la réponse.
+         *
+         * Trois conséquences, toutes nommables : on paie la transcription autant de fois qu'on
+         * lit ; `media_transcript chercher` — l'outil FAIT pour « où exactement en parle-t-on ? »
+         * — reste aveugle à une transcription que le produit a déjà faite ; et la MÉTHODE et la
+         * CONFIANCE d'une lecture de parole ne sont plus persistées, alors que c'est
+         * précisément ce qui distingue un procès-verbal d'une reconnaissance vocale à 63 %
+         * (§104.15, §118.63).
+         *
+         * On ne recopie pas la persistance ici : on APPELLE le transcripteur qui l'a déjà. Et
+         * s'il échoue, on retombe sur la lecture d'octets — ajouter une capacité ne doit pas
+         * retirer celle qui marchait (§118.27).
+         */
+        let t = estMedia(node.name) ? await transcriptionPersistee(user, nodeId, node.name) : null;
+        if (!t) t = await extractAttachmentText(node.name, bytes);
         // Chaque lecture NOURRIT l'index textuel progressif : la prochaine découverte
         // (find_documents) retrouvera ce fichier par son CONTENU, même mal nommé.
         if (version) await indexDriveNodeText(nodeId, version.id, t.text ?? "", t.note ?? null, node.name);
@@ -233,7 +318,11 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
             `« ${node.name} » n'est pas extractible (${t.note ?? "scan sans OCR ou format non textuel"}).`,
             { driveNodeId: nodeId, nom: node.name });
         }
-        return JSON.stringify({ nom: node.name, lien: `/drive/${nodeId}`, driveNodeId: nodeId, texte: t.text.slice(0, DOC_TEXT_CAP), tronque: t.text.length > DOC_TEXT_CAP });
+        return JSON.stringify({
+          nom: node.name, lien: `/drive/${nodeId}`, driveNodeId: nodeId,
+          texte: t.text.slice(0, DOC_TEXT_CAP), tronque: t.text.length > DOC_TEXT_CAP,
+          ...noteDeMethode(t.note),
+        });
       }
 
       if (documentId) {
@@ -253,7 +342,11 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
             `« ${doc.name} » n'est pas extractible (${t.note ?? "scan sans OCR ou format non textuel"}).`,
             { documentId, nom: doc.name });
         }
-        return JSON.stringify({ nom: doc.name, documentId, texte: t.text.slice(0, DOC_TEXT_CAP), tronque: t.text.length > DOC_TEXT_CAP });
+        return JSON.stringify({
+          nom: doc.name, documentId,
+          texte: t.text.slice(0, DOC_TEXT_CAP), tronque: t.text.length > DOC_TEXT_CAP,
+          ...noteDeMethode(t.note),
+        });
       }
 
       return resultatIndisponible("MISSING_INPUT",

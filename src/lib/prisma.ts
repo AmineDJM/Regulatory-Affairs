@@ -1,4 +1,125 @@
 import { PrismaClient } from "@prisma/client";
+import { estUnBancDeMesure } from "@/lib/sortie/garde";
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UN BANC N'OUVRE PAS LA BASE DE TRAVAIL — refus à la CONSTRUCTION, avant la première requête.
+ *
+ * ── LE DÉFAUT MESURÉ ─────────────────────────────────────────────────────────────────────
+ *
+ * La garde de sortie (`sortie/garde.ts`) empêche un banc d'ENVOYER quoi que ce soit au monde.
+ * Rien n'empêchait un banc d'ÉCRIRE dans la base de travail. Deux conséquences, mesurées
+ * toutes les deux sur ce conteneur :
+ *
+ *   · `DATABASE_URL` y pointe, par défaut, sur la base de PRODUCTION de Render. Un
+ *     `npx tsx scripts/bench/…` distrait — ou un `npm run office:bench` — semait, écrivait et
+ *     supprimait chez Adventum. Aucune garde ne le voyait.
+ *   · Pointée sur la base de développement, la campagne live échouait sur
+ *     `PaymentRequest.reference PAY-2026-044` : cette base porte 592 demandes de paiement et
+ *     211 comptes marqués « test » — le résidu de la suite unitaire, qui a le droit d'y vivre.
+ *     Le banc accusait son propre semis d'être non idempotent ; la cause était le VOISINAGE.
+ *
+ * ── LE FAIT SUR LEQUEL LA GARDE S'ARME ───────────────────────────────────────────────────
+ *
+ * Le même que la garde de sortie, et pour la même raison (§118.17) : le script d'entrée vit-il
+ * sous `scripts/bench/` ? C'est un fait du LANCEMENT. Une variable qu'un banc futur devrait
+ * penser à poser serait oubliée, et l'oubli est exactement ce contre quoi on se protège.
+ *
+ * La base d'un banc doit alors satisfaire DEUX choses, toutes deux lues dans l'URL :
+ * l'hôte est LOCAL, et le nom de la base CONTIENT « bench ». Deux bases, deux voisinages :
+ * la suite unitaire garde le sien, la campagne live le sien.
+ *
+ * ── POURQUOI REFUSER, ET NON REDIRIGER ───────────────────────────────────────────────────
+ *
+ * Rediriger en silence serait pire que le défaut : un banc qui croit avoir écrit dans la base
+ * qu'on lui a nommée, et dont les vérifications lisent ailleurs, rend un vert qui ne prouve
+ * rien. Le refus, lui, NOMME le remède (§118.30) — le script `npm run` qui porte la bonne base.
+ *
+ * ── LE SECOND ÉTAGE, ET C'EST LUI QUI A ARRÊTÉ UNE CATASTROPHE ───────────────────────────
+ *
+ * La première version de cette garde EXEMPTAIT la suite unitaire, avec une raison qui sonnait
+ * juste : « la suite a le droit d'écrire dans la base de TRAVAIL, c'est son voisinage ».
+ * Mesuré cinq minutes plus tard, dans ce conteneur : `DATABASE_URL` par défaut porte l'hôte
+ * `…oregon-postgres.render.com` et la base `amd_internal_os` — la PRODUCTION d'Adventum. Rien
+ * dans `vitest.config.ts` ne la remplace, et la suite SÈME (592 demandes de paiement, 211
+ * comptes marqués « test » dans la base de développement en témoignent). Autrement dit :
+ * `npm test`, la porte que ce dépôt franchit avant chaque commit, écrivait chez le client.
+ *
+ * L'exemption était juste dans son INTENTION et fausse dans son ÉTENDUE. La règle a donc deux
+ * étages, tous deux lus dans la même URL :
+ *
+ *   · un BANC exige une base LOCALE dont le nom contient « bench » (son propre voisinage) ;
+ *   · un TEST exige une base LOCALE, quel qu'en soit le nom (le voisinage de la suite) ;
+ *   · la PRODUCTION n'est pas concernée : ni banc, ni test, aucune contrainte.
+ *
+ * Et il n'y a PAS de dérogation. Un intégrateur qui voudrait faire tourner la suite contre une
+ * base distante recevra un refus qui nomme le remède — bruyant, corrigé en une minute. Le coût
+ * de l'erreur inverse est une corruption silencieuse des données d'un client : les deux ne se
+ * comparent pas. Ouvrir une porte ici serait une décision de revue de code (§118.39).
+ *
+ * ── CE QUE LA GARDE NE FAIT PAS ──────────────────────────────────────────────────────────
+ *
+ * `office-sabotage.ts` lance `vitest` en enfant, et cet enfant hérite de
+ * `npm_lifecycle_script`, donc du fait « je suis un banc ». Il est jugé comme un TEST, pas
+ * comme un banc — sans quoi la suite unitaire tomberait sur le nom de la base.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** L'hôte est-il cette machine ? Lu dans l'URL, sans résolution DNS : un nom qui ressemble à
+ *  « localhost » sans en être un ne doit pas passer. */
+export function estUneBaseLocale(url: string): boolean {
+  try {
+    return ["localhost", "127.0.0.1", "::1"].includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Le nom d'une base de banc : lu dans l'URL, pas déclaré à côté (§118.5). */
+export function estUneBaseDeBanc(url: string): boolean {
+  if (!estUneBaseLocale(url)) return false;
+  try {
+    return /bench/i.test(new URL(url).pathname.replace(/^\//, ""));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Rend le REFUS (une phrase) ou `null`. Pur : `prisma.ts` l'appelle à la construction, et un
+ * test l'exerce sans ouvrir de connexion — vérifier un corps sans son appelant ne prouverait
+ * rien (§118.49), d'où l'appel juste en dessous.
+ */
+export function refusDeBase(
+  env: NodeJS.ProcessEnv = process.env,
+  argv: readonly string[] = process.argv,
+): string | null {
+  const test = env.NODE_ENV === "test" || Boolean(env.VITEST);
+  const banc = !test && estUnBancDeMesure(env, argv);
+  if (!test && !banc) return null;
+
+  const url = env.DATABASE_URL ?? "";
+  if (banc ? estUneBaseDeBanc(url) : estUneBaseLocale(url)) return null;
+
+  let ou = "(DATABASE_URL absente)";
+  try { const u = new URL(url); ou = `${u.hostname}${u.pathname}`; } catch { if (url) ou = "(URL illisible)"; }
+  const qui = banc
+    ? `un banc de mesure (${(argv[1] ?? env.npm_lifecycle_script ?? "?").split("/").slice(-1)[0]})`
+    : "la suite de tests";
+  const exige = banc
+    ? "hôte local ET nom de base contenant « bench »"
+    : "un hôte local (localhost, 127.0.0.1) — jamais une base distante";
+  const remede = banc
+    ? `lancer le banc par son script npm (ils portent tous DATABASE_URL="${'$'}{BENCH_DATABASE_URL:-postgresql://amd:amd@localhost:5432/amd_bench}"), ou poser cette variable pour un appel direct`
+    : `passer par \`npm test\`, qui porte DATABASE_URL="${'$'}{TEST_DATABASE_URL:-postgresql://amd:amd@localhost:5432/amd_internal_os}" — ou poser TEST_DATABASE_URL si la base locale porte un autre nom`;
+  return (
+    `REFUS — ce processus est ${qui} et sa base est « ${ou} ». Exigé : ${exige}. Remède : ${remede}. `
+    + `La suite SÈME des lignes ; contre une base distante, elle les sème chez le client.`
+  );
+}
+
+const refus = refusDeBase();
+if (refus) throw new Error(refus);
 
 /**
  * POOL DE CONNEXIONS — **12 par défaut**, sans rien à configurer côté hébergeur.

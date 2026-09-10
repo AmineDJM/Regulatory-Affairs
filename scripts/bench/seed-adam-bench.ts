@@ -24,12 +24,14 @@
  * (exportée) — le banc l'importe, il ne la recopie pas.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import fs from "node:fs";
 import path from "node:path";
-
-const prisma = new PrismaClient();
+// Le client PARTAGÉ, et non un second : c'est lui qui porte la garde de base de banc, et un
+// second client la contournerait en silence — une porte gardée à côté d'une porte ouverte
+// (§118.71). L'import suffit à l'armer : il refuse AVANT la première requête.
+import { prisma, estUneBaseDeBanc } from "@/lib/prisma";
 const MANIFEST = path.join(process.cwd(), "bench-out", "adam-bench-manifest.json");
 export const BENCH_PASSWORD = "Bench12345!";
 export const BENCH_DOMAIN = "adventum-bench.dz";
@@ -41,6 +43,13 @@ const at = (d: number, h: number) => { const x = inDays(d); x.setUTCHours(h - 1,
 
 /** La vérité terrain — ce que le banc a le droit d'attendre. */
 export const VERITES = {
+  /**
+   * LE COMPTE TECHNIQUE DU BANC. Quatre bancs cherchent `role: "SUPER_ADMIN"` — dont un par
+   * `orderBy: { createdAt: "asc" }`. Dans une base partagée, ils tombaient sur un administrateur
+   * de PRODUCTION : le banc mesurait avec une identité étrangère à sa propre vérité terrain.
+   * Il est créé EN PREMIER, il porte le domaine du banc, donc les deux retraits le connaissent.
+   */
+  admin: { name: "Racine du banc", email: `super@${BENCH_DOMAIN}` },
   pdg: { name: "Yacine Benali", email: `yacine.benali@${BENCH_DOMAIN}` },
   delegue: { name: "Fatma Zahra Bensaid", email: `fatma.bensaid@${BENCH_DOMAIN}` },
   personnes: {
@@ -77,23 +86,49 @@ function lireManifest(): Manifest | null {
 }
 
 function garde(): void {
+  // La MÊME lecture que `prisma.ts` — hôte local ET nom contenant « bench ». En écrire une
+  // seconde ici donnerait deux vérités qui divergeraient au premier ajustement (§118.5), et
+  // c'est la version en retard qui laisserait passer un semis dans la base de travail.
   const url = process.env.DATABASE_URL ?? "";
-  let host = "";
-  try { host = new URL(url).hostname; } catch { host = ""; }
-  if (!["localhost", "127.0.0.1", "::1"].includes(host)) {
-    throw new Error(`Refus : la base « ${host || "?"} » n'est pas locale. Le jeu du banc ne se sème JAMAIS ailleurs.`);
+  if (!estUneBaseDeBanc(url)) {
+    let ou = "?";
+    try { const u = new URL(url); ou = `${u.hostname}${u.pathname}`; } catch { /* URL illisible */ }
+    throw new Error(
+      `Refus : « ${ou} » n'est pas une base de banc (hôte local + nom contenant « bench »). `
+      + `Le jeu du banc ne se sème JAMAIS ailleurs — lancer BENCH_SEED_ALLOW=1 npm run adam:bench:seed.`,
+    );
   }
   if (process.env.BENCH_SEED_ALLOW !== "1") {
     throw new Error("Refus : BENCH_SEED_ALLOW=1 est exigé pour semer ou retirer le jeu du banc.");
   }
 }
 
-/** Retire, dans l'ordre inverse des dépendances, tout ce que le manifeste connaît. */
+/**
+ * Retire, dans l'ordre inverse des dépendances, tout ce que le manifeste connaît.
+ *
+ * ── UN NETTOYAGE PARTIEL NE DÉTRUIT PAS SA PROPRE TRACE ─────────────────────────────────
+ *
+ * La version précédente avalait chaque échec de suppression dans un `console.warn`, puis
+ * effaçait le manifeste — le SEUL endroit qui savait quelles lignes existaient encore. Résultat
+ * mesuré sur cette base : une société « Pharmagène Algérie » d'un semis d'il y a cinq jours,
+ * orpheline pour toujours, plus un semis qui repart sur un terrain qu'il croit vierge et échoue
+ * sur une contrainte d'unicité dont la cause est ailleurs. Un filtre silencieux ne laisse aucune
+ * trace de ce qu'il retire (§118.52) ; ici il retirait la seule carte du terrain.
+ *
+ * Donc : ce qui résiste RESTE au manifeste, le compte est DIT à la fin, et le fichier ne
+ * disparaît que lorsqu'il n'a plus rien à dire.
+ */
 async function nettoyer(m: Manifest): Promise<void> {
+  const restants: Record<string, string[]> = {};
   const del = async (label: string, fn: (ids: string[]) => Promise<unknown>) => {
     const ids = m.ids[label] ?? [];
     if (ids.length === 0) return;
-    try { await fn(ids); } catch (e) { console.warn(`  · ${label} : suppression partielle (${(e as Error).message.slice(0, 80)})`); }
+    try {
+      await fn(ids);
+    } catch (e) {
+      restants[label] = ids;
+      console.warn(`  · ${label} : ${ids.length} ligne(s) NON retirée(s) — ${(e as Error).message.slice(0, 120)}`);
+    }
   };
   await del("auditLog", (ids) => prisma.auditLog.deleteMany({ where: { id: { in: ids } } }));
   await del("validationRequest", (ids) => prisma.validationRequest.deleteMany({ where: { id: { in: ids } } }));
@@ -125,7 +160,146 @@ async function nettoyer(m: Manifest): Promise<void> {
     return prisma.user.deleteMany({ where: { id: { in: ids } } });
   });
   await del("company", (ids) => prisma.company.deleteMany({ where: { id: { in: ids } } }));
-  fs.rmSync(MANIFEST, { force: true });
+
+  const labels = Object.keys(restants);
+  if (labels.length === 0) {
+    fs.rmSync(MANIFEST, { force: true });
+    return;
+  }
+  const total = labels.reduce((n, l) => n + restants[l]!.length, 0);
+  fs.mkdirSync(path.dirname(MANIFEST), { recursive: true });
+  fs.writeFileSync(MANIFEST, JSON.stringify({ createdAt: m.createdAt, ids: restants } satisfies Manifest, null, 2));
+  console.warn(
+    `  ⚠ ${total} ligne(s) survivent au nettoyage (${labels.join(", ")}). Le manifeste les GARDE :\n`
+    + `    relancer \`--clean\` après avoir levé la cause, sans quoi elles resteront orphelines.`,
+  );
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * RETIRER LE JEU PRÉCÉDENT SANS MANIFESTE — parce que le manifeste est le fichier le plus
+ * volatile du dépôt.
+ *
+ * ── CE QUI A ÉTÉ MESURÉ ──────────────────────────────────────────────────────────────────
+ *
+ * `bench-out/` est ignoré par git, donc perdu au premier conteneur neuf, alors que Postgres
+ * garde ses lignes. Le semis repartait sur un terrain qu'il croyait vierge et échouait sur
+ * `Unique constraint failed on (code)`, puis sur `(email)` — une erreur qui ne ressemble pas à
+ * sa cause, sur la SEULE chose qui rend une campagne live possible (§118.84).
+ *
+ * ── LE FAIT SUR LEQUEL CE RETRAIT S'ARME ─────────────────────────────────────────────────
+ *
+ * `BENCH_DOMAIN` : les comptes du banc, et eux seuls, vivent sur `@adventum-bench.dz`. Ce
+ * n'est pas une variable qu'un semis futur devrait penser à poser — c'est ce que le banc
+ * ÉCRIT (§118.17). Tout ce qu'il fabrique est créé PAR l'un de ces comptes, donc le graphe des
+ * clés étrangères suffit à le retrouver sans inventaire à la main.
+ *
+ * ── CE QU'IL NE TOUCHE JAMAIS ────────────────────────────────────────────────────────────
+ *
+ * Les sociétés et les départements du bootstrap (« Adventum Pharma », « DG », « REG »…) : ils
+ * PRÉEXISTENT et le banc les réutilise. Un retrait qui les emporterait détruirait des données
+ * qui ne sont pas les siennes — l'empreinte réelle dépasserait l'empreinte demandée (§118.16).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+async function retirerParIdentite(): Promise<void> {
+  const comptes = await prisma.user.findMany({
+    where: { email: { endsWith: `@${BENCH_DOMAIN}` } },
+    select: { id: true },
+  });
+  if (comptes.length === 0) return;
+  const ids = comptes.map((u) => u.id);
+  console.log(`Jeu précédent : ${ids.length} compte(s) @${BENCH_DOMAIN} en base — retrait par identité…`);
+
+  const par = async (label: string, fn: () => Promise<{ count: number }>) => {
+    try {
+      const r = await fn();
+      if (r.count > 0) console.log(`  · ${label} : ${r.count}`);
+    } catch (e) {
+      // On DIT ce qui résiste : le semis qui suit échouerait sur une contrainte dont la cause
+      // serait invisible, et c'est exactement le défaut qu'on est en train de fermer.
+      console.warn(`  ⚠ ${label} : ${(e as Error).message.slice(0, 140)}`);
+    }
+  };
+  // L'ORDRE EST CELUI DES DÉPENDANCES, comme le retrait par manifeste juste au-dessus.
+  await par("auditLog", () => prisma.auditLog.deleteMany({ where: { actorId: { in: ids } } }));
+  await par("validationRequest", () => prisma.validationRequest.deleteMany({ where: { requesterId: { in: ids } } }));
+  await par("calendarEvent", () => prisma.calendarEvent.deleteMany({ where: { OR: [{ organizerId: { in: ids } }, { createdById: { in: ids } }] } }));
+  await par("assistantMessage", () => prisma.assistantMessage.deleteMany({ where: { userId: { in: ids } } }));
+  await par("assistantThread", () => prisma.assistantThread.deleteMany({ where: { userId: { in: ids } } }));
+  await par("assistantMemory", () => prisma.assistantMemory.deleteMany({ where: { userId: { in: ids } } }));
+  await par("assistantActionIntent", () => prisma.assistantActionIntent.deleteMany({ where: { userId: { in: ids } } }));
+  await par("adamRule", () => prisma.adamRule.deleteMany({ where: { OR: [{ ownerId: { in: ids } }, { subjectUserId: { in: ids } }] } }));
+  await par("mission", () => prisma.mission.deleteMany({ where: { ownerId: { in: ids } } }));
+  await par("driveTextIndex", () => prisma.driveTextIndex.deleteMany({ where: { node: { OR: [{ ownerId: { in: ids } }, { createdById: { in: ids } }] } } }));
+  await par("fileVersion", () => prisma.fileVersion.deleteMany({ where: { node: { OR: [{ ownerId: { in: ids } }, { createdById: { in: ids } }] } } }));
+  await par("driveNode", () => prisma.driveNode.deleteMany({ where: { OR: [{ ownerId: { in: ids } }, { createdById: { in: ids } }] } }));
+  await par("mailEntry", () => prisma.mailEntry.deleteMany({ where: { OR: [{ createdById: { in: ids } }, { concernedUserId: { in: ids } }] } }));
+  await par("legalDocument", () => prisma.legalDocument.deleteMany({ where: { createdById: { in: ids } } }));
+  await par("paymentRequest", () => prisma.paymentRequest.deleteMany({ where: { requesterId: { in: ids } } }));
+  await par("expenseOrder", () => prisma.expenseOrder.deleteMany({ where: { requestedById: { in: ids } } }));
+  await par("pchTender", () => prisma.pchTender.deleteMany({ where: { createdById: { in: ids } } }));
+  await par("task", () => prisma.task.deleteMany({ where: { createdById: { in: ids } } }));
+  await par("regulatoryDossier", () => prisma.regulatoryDossier.deleteMany({ where: { createdById: { in: ids } } }));
+  await par("regulatoryProduct", () => prisma.regulatoryProduct.deleteMany({ where: { createdById: { in: ids } } }));
+  await par("employee", () => prisma.employee.deleteMany({ where: { userId: { in: ids } } }));
+  await par("userCompanyAccess", () => prisma.userCompanyAccess.deleteMany({ where: { userId: { in: ids } } }));
+  await par("user", () => prisma.user.deleteMany({ where: { id: { in: ids } } }));
+
+  const restants = await prisma.user.count({ where: { email: { endsWith: `@${BENCH_DOMAIN}` } } });
+  if (restants > 0) {
+    throw new Error(
+      `${restants} compte(s) @${BENCH_DOMAIN} survivent au retrait : le semis échouerait sur une `
+      + `contrainte d'unicité dont la cause serait invisible. Lever la dépendance nommée ci-dessus.`,
+    );
+  }
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA REMISE À ZÉRO — ce que ni le manifeste ni l'identité ne peuvent faire.
+ *
+ * ── LE DÉFAUT MESURÉ, ET IL EST STRUCTUREL ───────────────────────────────────────────────
+ *
+ * Le retrait par IDENTITÉ trouve une ligne par son AUTEUR. Or supprimer un compte NULLIFIE ce
+ * lien au lieu de supprimer la ligne (`onDelete: SetNull`) : la ligne devient orpheline, donc
+ * introuvable par le critère même qui l'aurait trouvée. Mesuré sur `amd_bench` : 78
+ * `RegulatoryProduct` sans auteur, dont les huit références du semis — et un semis qui échoue
+ * sur `REG-2026-9011` en accusant sa propre idempotence. La purge détruisait sa poignée, comme
+ * le nettoyage détruisait son manifeste (§118.52), un cran plus bas.
+ *
+ * On ne referme pas ça avec une liste de clés uniques écrite à la main : le schéma en porte
+ * QUATRE-VINGTS, et une liste manuelle est fausse le jour où quelqu'un en ajoute une, en
+ * silence (§118.73). On cherche l'endroit où TOUTES les instances passent (§118.58) : la base
+ * elle-même.
+ *
+ * ── POURQUOI C'EST PERMIS ICI, ET SEULEMENT ICI ──────────────────────────────────────────
+ *
+ * `prisma.ts` refuse d'ouvrir une base qui ne soit pas celle du banc — hôte local, nom
+ * contenant « bench ». La base du banc lui APPARTIENT donc, et la vider est le geste normal
+ * d'un banc reproductible (§118.73 : un run final se juge sur un état de départ identique).
+ * La garde est néanmoins REDEMANDÉE juste avant le `TRUNCATE` : une opération destructrice
+ * porte sa propre raison, elle ne l'emprunte pas à un appelant.
+ *
+ * La liste des tables vient d'`information_schema` — jamais du schéma Prisma recopié : une
+ * table ajoutée demain est vidée sans que personne y pense.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+async function reinitialiser(): Promise<void> {
+  const url = process.env.DATABASE_URL ?? "";
+  if (!estUneBaseDeBanc(url)) throw new Error("Refus : la remise à zéro n'agit que sur une base de banc.");
+
+  const tables = await prisma.$queryRaw<{ tablename: string }[]>`
+    SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`;
+  const cibles = tables.map((t) => t.tablename).filter((t) => !t.startsWith("_prisma"));
+  if (cibles.length === 0) throw new Error("Refus : aucune table trouvée — le schéma n'est pas déployé sur cette base.");
+
+  const liste = cibles.map((t) => `"public"."${t}"`).join(", ");
+  await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${liste} RESTART IDENTITY CASCADE`);
+  // Le manifeste ne décrit plus rien : le garder ferait échouer le retrait suivant sur des
+  // identifiants qui n'existent plus, et un avertissement qui ne veut rien dire fait cesser de
+  // lire les avertissements (§118.32).
+  try { fs.rmSync(MANIFEST); } catch { /* absent : rien à retirer */ }
+  console.log(`Base du banc remise à zéro : ${cibles.length} tables vidées.`);
 }
 
 async function semer(): Promise<void> {
@@ -151,7 +325,22 @@ async function semer(): Promise<void> {
   const adventum = await societe("Adventum Pharma", "Adventum", "#0f766e");
   const pharmagene = await societe("Pharmagène Algérie", "Pharmagène", "#7c3aed");
 
+  /**
+   * LES DÉPARTEMENTS PEUVENT PRÉEXISTER — et `Department.code` est unique GLOBALEMENT.
+   *
+   * Le semis échouait sur `Unique constraint failed on (code)` : le bootstrap crée « DG », « REG »,
+   * « FIN »… sous « Adventum Pharma », et le banc voulait les recréer. Deux conséquences, la
+   * seconde pire que la première : la campagne LIVE entière était injouable, et l'erreur ne
+   * ressemblait pas à sa cause (§118.84 — un banc qui ne peut pas tourner ne produit aucune trace
+   * de ce qu'il n'a pas vérifié).
+   *
+   * La règle des SOCIÉTÉS existait déjà juste au-dessus ; c'est la même, un champ plus loin
+   * (§118.61 : une réparation déplace une hypothèse, il faut retrouver tous ceux qui la lisaient).
+   * Réutilisé ⇒ PAS inscrit au manifeste : le nettoyage ne retire que ce que ce script a créé.
+   */
   const dept = async (name: string, code: string) => {
+    const existant = await prisma.department.findUnique({ where: { code }, select: { id: true } });
+    if (existant) return existant.id;
     const d = await prisma.department.create({ data: { name, code, companyId: adventum.id } });
     return note("department", d.id);
   };
@@ -177,6 +366,10 @@ async function semer(): Promise<void> {
   ];
   const U: Record<string, string> = {};
   const E: Record<string, string> = {};
+  // AVANT tout le monde : le compte technique. Il n'a pas de fiche RH — ce n'est pas un salarié.
+  U.admin = note("user", (await prisma.user.create({
+    data: { name: VERITES.admin.name, email: VERITES.admin.email, passwordHash: hash, role: "SUPER_ADMIN", title: "Super Administrateur (banc)", isActive: true },
+  })).id);
   for (const p of personnes) {
     const u = await prisma.user.create({ data: { name: p.name, email: p.email, passwordHash: hash, role: p.role, title: p.position, departmentId: p.deptId, isActive: true } });
     U[p.key] = note("user", u.id);
@@ -453,13 +646,24 @@ Date limite de dépôt : ${inDays(VERITES.pch.echeanceJours).toLocaleDateString(
 async function main(): Promise<void> {
   garde();
   const clean = process.argv.includes("--clean");
+  const reset = process.argv.includes("--reset");
+  if (reset) {
+    // Rien à retirer ensuite : la base est vide. Enchaîner les purges ferait tourner vingt
+    // requêtes sur des tables qu'on vient de vider.
+    await reinitialiser();
+    if (!clean) await semer();
+    return;
+  }
+  // DEUX RETRAITS, ET IL EN FAUT DEUX. Le manifeste est PRÉCIS (il connaît les lignes créées
+  // sous des sociétés préexistantes, qu'aucune requête d'identité ne retrouverait) ; le retrait
+  // par IDENTITÉ est DURABLE (il survit à la perte de `bench-out/`, ce que le manifeste ne fait
+  // pas). Garder l'un sans l'autre laisse soit des orphelins, soit un semis injouable.
   const existant = lireManifest();
   if (existant) {
     console.log(`Jeu précédent (${existant.createdAt}) : retrait par identifiants…`);
     await nettoyer(existant);
-  } else if (clean) {
-    console.log("Aucun manifeste : rien à retirer.");
   }
+  await retirerParIdentite();
   if (!clean) await semer();
 }
 

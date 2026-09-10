@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionUser } from "@/lib/rbac";
-import { executerSqlLectureSeule, relationsDuPlan, verifierForme, verifierVerrouLectureSeule, LIMITE_LIGNES, DELAI_MS, TABLES_AUTORISEES } from "./sql";
+import { executerSqlLectureSeule, relationsDuPlan, verifierForme, verifierVerrouLectureSeule, LIMITE_LIGNES, DELAI_MS, TABLES_AUTORISEES, nommerLeRemede, valeursDEnumeration } from "./sql";
 
 /**
  * LE BAC SQL — sur la VRAIE base. Ce qu'on prouve : la forme refuse ce qu'elle doit (écritures,
@@ -108,5 +108,40 @@ describe("l'exécution, sur la base", () => {
     expect(r.ok, r.erreur).toBe(true);
     expect(r.relations).toEqual(["Task"]);
     if (r.lignes.length) expect(Object.keys(r.lignes[0])).toEqual(["periode", "n", "cumul", "variation"]);
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UN REFUS QUI NOMME LE REMÈDE — mesuré sur la campagne live, pas imaginé.
+ *
+ * `defi-sql-comptage` : le modèle écrit `status = 'SANS_STATUT'`, Postgres refuse en nommant la
+ * faute et pas le remède, et trois appels de `sql_query` partent sur la même question.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("le refus d'une énumération dit ce qui est admis", () => {
+  it("complète le message de Postgres avec les valeurs du SCHÉMA", () => {
+    const brut = `invalid input value for enum "TaskStatus": "SANS_STATUT"`;
+    const enrichi = nommerLeRemede(brut);
+    expect(enrichi).toContain(brut);
+    expect(enrichi).toContain("valeurs admises pour TaskStatus");
+    // Les valeurs viennent du DMMF : les recopier ici ferait une seconde vérité (§118.5).
+    for (const v of valeursDEnumeration("TaskStatus") ?? []) expect(enrichi).toContain(v);
+    expect(valeursDEnumeration("TaskStatus")?.length ?? 0).toBeGreaterThan(1);
+  });
+
+  it("laisse le message INTACT sur une énumération qu'il ne connaît pas", () => {
+    // Le cas qui ferait tomber l'assertion : compléter avec une liste inventée.
+    const brut = `invalid input value for enum "StatutQuiNExistePas": "X"`;
+    expect(nommerLeRemede(brut)).toBe(brut);
+    expect(valeursDEnumeration("StatutQuiNExistePas")).toBeNull();
+  });
+
+  it("ne touche pas aux refus dont il ne sait rien", () => {
+    for (const m of [
+      `column "statut" does not exist`,
+      `invalid UNION/INTERSECT/EXCEPT ORDER BY clause`,
+      `délai dépassé (5000 ms)`,
+    ]) expect(nommerLeRemede(m)).toBe(m);
   });
 });
