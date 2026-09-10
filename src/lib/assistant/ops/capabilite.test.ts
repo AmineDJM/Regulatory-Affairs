@@ -134,7 +134,12 @@ suite("DE LA CARTE À LA LIGNE EN BASE — le trajet complet", () => {
     // LA CARTE — c'est ce qu'une personne confirme, donc elle doit porter l'essentiel.
     expect(carte.fields.find((f) => f.label === "Action")!.value).toBe("admin-request-actions:createRequest");
     expect(carte.fields.find((f) => f.label === "title")!.value).toBe(`${TAG}Achat toner`);
-    expect(carte.warnings!.join(" ")).toMatch(/Écrit : .*administrativeRequest/);
+    // LA CARTE DIT CE QU'ELLE VA ÉCRIRE, EN FRANÇAIS — pas le nom du modèle Prisma. La
+    // version précédente attendait « administrativeRequest » : c'était la phrase que la
+    // personne validait, dans une langue qu'elle ne parle pas (§104.17, §118.120).
+    const dit = carte.warnings!.join(" ");
+    expect(dit).toMatch(/Écrit : .*Demande au bureau du secrétariat/);
+    expect(dit, "un nom de table ne se lit pas comme un libellé").not.toMatch(/Écrit : .*administrativeRequest/);
     expect(carte.warnings!.join(" ")).toMatch(/revérifiés par l'action elle-même/);
 
     // RIEN N'A ENCORE ÉTÉ ÉCRIT : proposer n'est pas faire.

@@ -4,6 +4,7 @@
 import "@/lib/assistant";
 import { describe, expect, it } from "vitest";
 import { CAPABILITY_OPS_IMPL } from "./impl-capabilite";
+import { direEmpreinteEcriture } from "@/platform/in-process/capacites";
 import {
   CONTRATS_ACTIONS, direContrat, interdictionGenerique,
   type ChampAction, type ContratAction,
@@ -98,8 +99,18 @@ describe("PARC — toute action ouverte se propose, et ce qu'elle promet suffit"
       const dit = (r.warnings ?? []).join(" ");
       // CE QU'ON CONFIRME DOIT DIRE CE QU'ON CONFIRME : sans l'identifiant visé, deux actions
       // voisines rendent la même carte ; sans la phrase d'écriture, on valide à l'aveugle.
+      //
+      // LA PHRASE EST COMPARÉE À SA SOURCE, pas à un motif. La version précédente cherchait
+      // « Écrit : » ; quand la phrase a gagné ses formes « Écrit la table « x » » (§118.120),
+      // 419 cartes ont été déclarées muettes alors qu'elles disaient exactement ce qu'il faut —
+      // un juge qui redérive la forme de ce qu'il vérifie divergera de lui à chaque évolution
+      // (§118.5, §118.61). On exige la phrase que le module PRODUIT pour ce contrat : le motif
+      // ne peut plus prendre du retard, et une carte qui la perd tombe quand même.
+      const attendue = c.ecrit
+        ? direEmpreinteEcriture(c.modelesEcrits)
+        : "Aucune écriture en base détectée dans cette action.";
       if (action !== c.id) muettes.push(`${c.id} : la carte vise « ${action} »`);
-      else if (!/Écrit :|Aucune écriture/.test(dit)) muettes.push(`${c.id} : la carte ne dit pas ce qu'elle touche`);
+      else if (!dit.includes(attendue)) muettes.push(`${c.id} : la carte ne dit pas ce qu'elle touche (attendu « ${attendue} »)`);
       else if (!/revérifiés par l'action/.test(dit)) muettes.push(`${c.id} : la carte ne dit pas que les droits sont revérifiés`);
     }
     expect(muettes.slice(0, 12), `${muettes.length} carte(s) incomplètes`).toEqual([]);

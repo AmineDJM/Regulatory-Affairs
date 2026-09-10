@@ -33,6 +33,7 @@ export { executerAction, type ResultatGenerique } from "@/lib/actions/executer";
 // LA RELECTURE APRÈS ÉCRITURE — « c'est fait » n'est pas une preuve (§104.16). Elle relit
 // par le MÊME chemin que l'écran (`porteeEntite`), donc sous les droits de la personne.
 export { relireApresEcriture, type Relecture } from "@/lib/cibles/relire";
+export { direEmpreinteEcriture, empreinteEcriture, type EmpreinteEcriture } from "@/lib/cibles/modeles-touches";
 // LA DÉSIGNATION AVANT L'ÉCRITURE — « Nivolex » là où l'action attend un `cuid`. Même porte :
 // la recherche passe par `porteeEntite`, donc une personne ne peut pas désigner ce qu'elle ne
 // voit pas, et un refus ne nomme jamais une ligne hors de son périmètre.

@@ -1,7 +1,7 @@
 import type { OpImpl, OpProposalDraft } from "./types";
 import {
   CONTRAT_PAR_ID, CONTRATS_ACTIONS, direContrat, chercherCapacites,
-  interdictionGenerique, validerEntree, executerAction, relireApresEcriture,
+  interdictionGenerique, validerEntree, executerAction, relireApresEcriture, direEmpreinteEcriture,
   resoudreEntrees, champsDesignables, type ContratAction,
 } from "@/platform/in-process/capacites";
 import { OPS_CATALOG } from "./catalog";
@@ -175,8 +175,11 @@ export const CAPABILITY_OPS_IMPL: Record<string, OpImpl> = {
         warnings: [
           // La carte DIT ce qui va être touché : c'est ce qu'on confirme, pas une trace qu'on
           // déplie après coup (§118.55).
-          contrat.modelesEcrits.length > 0
-            ? `Écrit : ${contrat.modelesEcrits.join(", ")}.`
+          // LA PHRASE NOMME les objets métier en FRANÇAIS, compte les tables techniques et DIT
+          // si quelqu'un sera prévenu — elle ne récite plus des noms de modèles Prisma, dont
+          // deux sur trois n'étaient que le journal d'audit (§118.120).
+          contrat.ecrit
+            ? direEmpreinteEcriture(contrat.modelesEcrits)
             : "Aucune écriture en base détectée dans cette action.",
           // CE QU'ON N'A PAS SU DÉSIGNER SE DIT, avec le geste qui le lève : le silence d'une
           // fiche se lit comme une permission de deviner (§118.26, §118.30).
