@@ -23,6 +23,26 @@ command -v graphify >/dev/null 2>&1 || python3 -m pip install --user --quiet gra
 # littéraux existent pour que l'empaqueteur voie chaque chemin sans tirer tout le parc (voir
 # `scripts/actions-contrat.ts`). C'est la CARTE qui a une limite, et une table d'aiguillage
 # générée ne lui apprend rien sur l'architecture — elle la répète.
+#
+# ⚠️ CE QUE CETTE MISE À L'ÉCART CASSE PENDANT SA FENÊTRE, et c'est moi qui l'ai payé.
+#
+# Tant que le scan tourne, le fichier N'EST PAS LÀ. J'ai lancé un `rm -rf .next && npm run build`
+# en parallèle du rafraîchissement : le build a échoué sur
+# « Module not found: Can't resolve './aiguillage.genere' » — chaîne
+# `executer.ts` → `capacites` → `impl-capabilite` → `assistant.ts` → la route de flux. Le code
+# était juste ; c'est mon ordonnancement qui était faux, et le diagnostic ressemblait trait pour
+# trait à une régression de frontière client/serveur, celle que ce dépôt a déjà payée deux fois.
+#
+# La garde s'arme donc sur un FAIT DU PROCESSUS (§118.17), pas sur un commentaire qu'il faudrait
+# penser à lire : si un build tourne, on REFUSE de commencer. L'inverse — un build lancé pendant
+# le scan — n'est pas couvert ici, et c'est assumé : il échoue BRUYAMMENT sur un module
+# introuvable, jamais en silence. Le coût est un build perdu, jamais un faux succès.
+if pgrep -f "next build" >/dev/null 2>&1; then
+  echo "✗ Un build Next tourne. Le scan écarte temporairement la table d'aiguillage et ce build" >&2
+  echo "  échouerait sur « Can't resolve './aiguillage.genere' ». Attendez la fin du build." >&2
+  exit 1
+fi
+
 AIGUILLAGE="src/lib/actions/aiguillage.genere.ts"
 ECART="$(mktemp -d)"
 restaurer() { [ -f "$ECART/aiguillage.genere.ts" ] && mv "$ECART/aiguillage.genere.ts" "$AIGUILLAGE"; rm -rf "$ECART"; }
