@@ -83,104 +83,116 @@ const owner = () => userWith({ DRIVE: ["VIEW", "CREATE"], WORKSPACE: ["VIEW", "C
 const outsider = () => userWith({ DRIVE: ["VIEW"], WORKSPACE: ["VIEW", "UPDATE"] }, "MEDICAL_DELEGATE", outsiderId, `${TAG} Walid`);
 
 suite("ops de domaine & lots — goldens (fixtures partagées)", () => {
+  /**
+   * ── POURQUOI CE DÉCOR EST ÉCRIT EN VAGUES, ET NON EN SUITE ─────────────────────────────
+   *
+   * Mesuré : ce fichier entier tourne en 985 ms SEUL, et son décor a dépassé les 30 000 ms de
+   * `hookTimeout` dans la suite complète — 717 fichiers sur QUATRE cœurs. Le décor n'était pas
+   * lourd (une trentaine de lignes) : il était SÉQUENTIEL, donc son coût était trente attentes
+   * l'une après l'autre, et sous contention chacune se paie plusieurs centaines de millisecondes.
+   *
+   * Relever le plafond aurait été la mauvaise réparation : un plafond de décor existe pour
+   * attraper un décor BLOQUÉ, pas pour mesurer l'humeur de l'ordonnanceur — une assertion de
+   * temps qui dépend de la charge ne mesure pas la propriété qu'elle annonce (§118.83). On
+   * réduit donc le NOMBRE d'attentes : trois vagues, chacune limitée par ses seules clés
+   * étrangères. Ce qui ne dépend de rien part ensemble ; ce qui dépend d'un identifiant attend
+   * la vague qui le produit.
+   */
   beforeAll(async () => {
-    const [o, c, x] = await Promise.all([
+    // VAGUE 1 — tout ce qui ne dépend d'aucun identifiant.
+    const [o, c, x, company, dept, emp, product] = await Promise.all([
       prisma.user.create({ data: { name: `${TAG} Karim`, email: `${TAG}o@t.dz`, passwordHash: "x", role: "DIRECTION" } }),
       prisma.user.create({ data: { name: `${TAG} Lina`, email: `${TAG}c@t.dz`, passwordHash: "x", role: "REGULATORY_ASSISTANT" } }),
       prisma.user.create({ data: { name: `${TAG} Walid`, email: `${TAG}x@t.dz`, passwordHash: "x", role: "MEDICAL_DELEGATE" } }),
+      prisma.company.create({ data: { name: `${TAG} Adventum Pharma` } }),
+      prisma.department.create({ data: { name: `${TAG} Marketing`, code: `${TAG}-MKT` } }),
+      prisma.employee.create({ data: { fullName: `${TAG} Samir Hadjout` } }),
+      prisma.regulatoryProduct.create({
+        data: {
+          reference: `${TAG}-REG-1`, dci: `${TAG} FOSFOMYCINE`, status: "SUBMITTED",
+          steps: { create: [{ type: "DOSSIER_SUBMISSION", order: 4, status: "IN_PROGRESS" }] },
+        },
+      }),
+      prisma.mailEntry.create({
+        data: { title: `${TAG} Convocation ANPP`, reference: `${TAG}-CHR-7`, direction: "INCOMING", sender: "ANPP" },
+      }),
+      prisma.mailEntryFolder.create({ data: { name: `${TAG} Officiel` } }),
+      prisma.supplier.create({ data: { name: `${TAG} LabPartner GmbH` } }),
+      prisma.businessDevelopmentOpportunity.create({ data: { name: `${TAG} Biosimilaire X`, status: "RESEARCH" } }),
+      prisma.expenseOrder.createMany({
+        data: [
+          { reference: `${TAG}-OD-1`, label: `${TAG} Impression brochures`, amount: 250000, status: "PENDING" },
+          { reference: `${TAG}-OD-2`, label: `${TAG} Impression affiches`, amount: 90000, status: "PENDING" },
+        ],
+      }),
+      prisma.sponsoringRequest.create({
+        data: {
+          reference: `${TAG}-SPO-1`, institution: `${TAG} Association cardio`, type: "Table ronde",
+          items: { create: { label: `${TAG} Location de salle`, status: "PENDING", amountEstimated: 180000, submittedAt: new Date(), supplier: "Hôtel El Aurassi" } },
+        },
+      }),
     ]);
     ownerId = o.id; colleagueId = c.id; outsiderId = x.id;
-    const folder = await prisma.driveNode.create({
-      data: { name: `${TAG} Campagne`, type: "FOLDER", ownerId, createdById: ownerId },
-    });
-    folderId = folder.id;
-    const file = await prisma.driveNode.create({
-      data: { name: `${TAG} Rapport ANPP.docx`, type: "FILE", ownerId, createdById: ownerId, parentId: folderId },
-    });
+    companyId = company.id; regProductId = product.id;
+
+    // VAGUE 2 — ce qui n'attend qu'un identifiant de la vague 1.
+    const [folder, task, allot] = await Promise.all([
+      prisma.driveNode.create({ data: { name: `${TAG} Campagne`, type: "FOLDER", ownerId, createdById: ownerId } }),
+      prisma.task.create({
+        data: {
+          title: `${TAG} Préparer la synthèse`, assignedToId: ownerId, createdById: colleagueId,
+          status: "REQUESTED", requestedAt: new Date(),
+        },
+      }),
+      prisma.pettyCashAllotment.create({
+        data: { departmentId: dept.id, period: "2026-08", amount: 50000, holderId: colleagueId },
+      }),
+      prisma.driveNode.create({ data: { name: `${TAG} Rapport ventes.xlsx`, type: "FILE", ownerId, createdById: ownerId } }),
+      prisma.task.create({
+        data: { title: `${TAG} Relire le contrat`, assignedToId: colleagueId, createdById: ownerId, status: "REQUESTED", requestedAt: new Date() },
+      }),
+      prisma.regulatoryVariation.create({
+        data: { productId: product.id, toStatus: "SECONDARY_PACKAGING", status: "EN_ATTENTE" },
+      }),
+      prisma.departmentBudgetRequest.create({
+        data: { departmentId: dept.id, year: 2026, kind: "OPERATING", amount: 300000, status: "PENDING", requestedById: colleagueId },
+      }),
+      prisma.leaveRequest.create({
+        data: {
+          employeeId: emp.id, type: "ANNUAL", status: "PENDING",
+          startDate: new Date("2026-09-07"), endDate: new Date("2026-09-11"), days: 5,
+        },
+      }),
+      prisma.salaryAdvance.create({ data: { employeeId: emp.id, amount: 80000, status: "PENDING", reason: "Rentrée scolaire" } }),
+      prisma.hrDocumentRequest.create({
+        data: { employeeId: emp.id, type: "EXPENSE_REPORT", status: "PENDING", expenseMonth: "2026-08" },
+      }),
+      prisma.meeting.create({
+        data: {
+          title: `${TAG} Point mensuel Regulatory`, slug: `${TAG}-meet`, publicToken: `${TAG}-tok`,
+          organizerId: colleagueId, scheduledAt: new Date("2026-09-02T09:00:00Z"),
+          participants: { create: { userId: ownerId } },
+        },
+      }),
+      prisma.legalDocument.create({
+        data: { title: `${TAG} Contrat de maintenance`, reference: `${TAG}-LEG-1`, kind: "CONTRACT", endDate: new Date("2026-12-31"), createdById: ownerId },
+      }),
+      prisma.legalDocument.create({
+        data: { title: `${TAG} Facture imprimeur`, kind: "INVOICE", amount: 45000, counterparty: "Imprimerie", createdById: ownerId },
+      }),
+    ]);
+    folderId = folder.id; requestedTaskId = task.id;
+
+    // VAGUE 3 — ce qui attend un identifiant de la vague 2.
+    const [file] = await Promise.all([
+      prisma.driveNode.create({
+        data: { name: `${TAG} Rapport ANPP.docx`, type: "FILE", ownerId, createdById: ownerId, parentId: folderId },
+      }),
+      prisma.pettyCashTopUpRequest.create({
+        data: { allotmentId: allot.id, amountRequested: 20000, status: "PENDING", requestedById: colleagueId },
+      }),
+    ]);
     fileId = file.id;
-    await prisma.driveNode.create({
-      data: { name: `${TAG} Rapport ventes.xlsx`, type: "FILE", ownerId, createdById: ownerId },
-    });
-    const task = await prisma.task.create({
-      data: {
-        title: `${TAG} Préparer la synthèse`, assignedToId: ownerId, createdById: colleagueId,
-        status: "REQUESTED", requestedAt: new Date(),
-      },
-    });
-    requestedTaskId = task.id;
-    await prisma.task.create({
-      data: { title: `${TAG} Relire le contrat`, assignedToId: colleagueId, createdById: ownerId, status: "REQUESTED", requestedAt: new Date() },
-    });
-    // ── Fixtures C2 : Finances / Budgets / Regulatory ──
-    const company = await prisma.company.create({ data: { name: `${TAG} Adventum Pharma` } });
-    companyId = company.id;
-    const product = await prisma.regulatoryProduct.create({
-      data: {
-        reference: `${TAG}-REG-1`, dci: `${TAG} FOSFOMYCINE`, status: "SUBMITTED",
-        steps: { create: [{ type: "DOSSIER_SUBMISSION", order: 4, status: "IN_PROGRESS" }] },
-      },
-    });
-    regProductId = product.id;
-    await prisma.regulatoryVariation.create({
-      data: { productId: regProductId, toStatus: "SECONDARY_PACKAGING", status: "EN_ATTENTE" },
-    });
-    await prisma.expenseOrder.createMany({
-      data: [
-        { reference: `${TAG}-OD-1`, label: `${TAG} Impression brochures`, amount: 250000, status: "PENDING" },
-        { reference: `${TAG}-OD-2`, label: `${TAG} Impression affiches`, amount: 90000, status: "PENDING" },
-      ],
-    });
-    const dept = await prisma.department.create({ data: { name: `${TAG} Marketing`, code: `${TAG}-MKT` } });
-    const allot = await prisma.pettyCashAllotment.create({
-      data: { departmentId: dept.id, period: "2026-08", amount: 50000, holderId: colleagueId },
-    });
-    await prisma.pettyCashTopUpRequest.create({
-      data: { allotmentId: allot.id, amountRequested: 20000, status: "PENDING", requestedById: colleagueId },
-    });
-    await prisma.departmentBudgetRequest.create({
-      data: { departmentId: dept.id, year: 2026, kind: "OPERATING", amount: 300000, status: "PENDING", requestedById: colleagueId },
-    });
-    // ── Fixtures C2b : RH + Réunions ──
-    const emp = await prisma.employee.create({ data: { fullName: `${TAG} Samir Hadjout` } });
-    await prisma.leaveRequest.create({
-      data: {
-        employeeId: emp.id, type: "ANNUAL", status: "PENDING",
-        startDate: new Date("2026-09-07"), endDate: new Date("2026-09-11"), days: 5,
-      },
-    });
-    await prisma.salaryAdvance.create({ data: { employeeId: emp.id, amount: 80000, status: "PENDING", reason: "Rentrée scolaire" } });
-    await prisma.hrDocumentRequest.create({
-      data: { employeeId: emp.id, type: "EXPENSE_REPORT", status: "PENDING", expenseMonth: "2026-08" },
-    });
-    await prisma.meeting.create({
-      data: {
-        title: `${TAG} Point mensuel Regulatory`, slug: `${TAG}-meet`, publicToken: `${TAG}-tok`,
-        organizerId: colleagueId, scheduledAt: new Date("2026-09-02T09:00:00Z"),
-        participants: { create: { userId: ownerId } },
-      },
-    });
-    // ── Fixtures C2c : Courriers + Legal + Fournisseur ──
-    await prisma.mailEntry.create({
-      data: { title: `${TAG} Convocation ANPP`, reference: `${TAG}-CHR-7`, direction: "INCOMING", sender: "ANPP" },
-    });
-    await prisma.mailEntryFolder.create({ data: { name: `${TAG} Officiel` } });
-    await prisma.legalDocument.create({
-      data: { title: `${TAG} Contrat de maintenance`, reference: `${TAG}-LEG-1`, kind: "CONTRACT", endDate: new Date("2026-12-31"), createdById: ownerId },
-    });
-    await prisma.legalDocument.create({
-      data: { title: `${TAG} Facture imprimeur`, kind: "INVOICE", amount: 45000, counterparty: "Imprimerie", createdById: ownerId },
-    });
-    await prisma.supplier.create({ data: { name: `${TAG} LabPartner GmbH` } });
-    // ── Fixtures C2d : Ad & Pro + BD ──
-    await prisma.sponsoringRequest.create({
-      data: {
-        reference: `${TAG}-SPO-1`, institution: `${TAG} Association cardio`, type: "Table ronde",
-        items: { create: { label: `${TAG} Location de salle`, status: "PENDING", amountEstimated: 180000, submittedAt: new Date(), supplier: "Hôtel El Aurassi" } },
-      },
-    });
-    await prisma.businessDevelopmentOpportunity.create({
-      data: { name: `${TAG} Biosimilaire X`, status: "RESEARCH" },
-    });
   });
 
   afterAll(async () => {

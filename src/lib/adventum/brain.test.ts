@@ -53,10 +53,26 @@ suite("Adventum Brain — Risk Radar + Autopilot", () => {
     expect(r!.level).toBe("critical"); // 5 j restants → critique
     expect(r!.category).toBe("PCH");
     expect(r!.evidence.length).toBeGreaterThan(0);
-    // Une action Autopilot « tâche » est proposée, ciblant la Finance.
+    /**
+     * L'ACTION VISE LA FINANCE — et c'est le RÔLE qu'on vérifie, pas un identifiant.
+     *
+     * La première version exigeait `assigneeId === financeId`, l'identifiant de SA fixture. Or
+     * `firstActive("FINANCE_BUDGET_MANAGER")` prend le premier gestionnaire ACTIF de toute la
+     * base, trié par nom : dès qu'un autre compte finance existe — un semis de banc, un collègue
+     * réel — c'est lui qui sort, et le test tombait sur une base parfaitement saine. Il mesurait
+     * la POPULATION de la base, pas la promesse du produit (§118.92c).
+     *
+     * On lit donc la promesse : l'action désigne quelqu'un, et ce quelqu'un porte le rôle
+     * Finance. Ce qui la ferait tomber est nommable et réel : assigner la Direction, assigner
+     * l'auteur du risque, ou n'assigner personne — les trois seraient des régressions.
+     */
     const taskAction = r!.actions.find((a) => a.payload?.kind === "task");
     expect(taskAction).toBeTruthy();
-    expect(taskAction!.payload && taskAction!.payload.kind === "task" && taskAction!.payload.assigneeId).toBe(financeId);
+    const cible = taskAction!.payload && taskAction!.payload.kind === "task" ? taskAction!.payload.assigneeId : null;
+    expect(cible, "l'action doit désigner un destinataire").toBeTruthy();
+    const porteur = await prisma.user.findUniqueOrThrow({ where: { id: String(cible) }, select: { role: true, isActive: true } });
+    expect(porteur.role, "l'action « tâche » d'une caution PCH vise la Finance").toBe("FINANCE_BUDGET_MANAGER");
+    expect(porteur.isActive, "on ne confie pas une caution à un compte désactivé").toBe(true);
   });
 
   it("Autopilot : le Super Admin peut exécuter (crée une tâche réelle) ; un non-admin est refusé", async () => {
@@ -72,10 +88,21 @@ suite("Adventum Brain — Risk Radar + Autopilot", () => {
     ACTOR = await actorFor(adminId, "SUPER_ADMIN");
     const res = await runAutopilot(payload);
     expect(res.ok).toBe(true);
+    /**
+     * LE LIEN CAUSAL, pas la ressemblance : la tâche qu'on relit doit porter LA charge utile
+     * qu'on vient d'exécuter. `payload.assigneeId` est ce qui a été confirmé ; la tâche doit
+     * porter exactement cela — comparer à `financeId` reviendrait à re-vérifier le choix du
+     * produit au lieu de vérifier qu'il a fait ce que la carte annonçait (§104.7 : ce qu'on
+     * confirme doit être ce qui est fait).
+     *
+     * La référence du tender est dans le titre et elle est propre à ce banc (`__braintest__`),
+     * donc `contains: ref` ne peut pas accrocher la tâche d'un autre run.
+     */
     const task = await prisma.task.findFirstOrThrow({ where: { title: { contains: ref } } });
     taskId = task.id;
-    expect(task.assignedToId).toBe(financeId);
-    expect(task.createdById).toBe(adminId);
+    const vise = payload.kind === "task" ? payload.assigneeId : null;
+    expect(task.assignedToId, "la tâche créée porte le destinataire de la carte confirmée").toBe(vise);
+    expect(task.createdById, "l'auteur est la personne qui a cliqué, jamais le destinataire").toBe(adminId);
   });
 
   it("Autopilot notify : relance par rôle exécutée par le Super Admin", async () => {

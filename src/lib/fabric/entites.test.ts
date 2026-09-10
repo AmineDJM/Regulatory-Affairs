@@ -48,10 +48,26 @@ describe("résolution d'entités — banc réaliste sur la vraie base (F9)", () 
     ids.sunPharma = await s("Sun Pharmaceutical Industries", "Inde", "info@sunpharma.com");
     const company = await prisma.company.findFirst({ select: { id: true } });
     const p = async (reference: string, dci: string, brandName: string | null, dosage: string, form: string) => (await prisma.regulatoryProduct.create({ data: { reference, dci, brandName, dosage, dosageUnit: "mg", pharmaceuticalForm: form, packaging: "B/30", status: "SUBMITTED", companyId: company?.id ?? null } as never })).id;
-    ids.lenva = await p("PRD-9101", "Lenvatinib", "Lenvima", "10", "Gélule");
+    /**
+     * DES MOLÉCULES RÉELLES, MAIS QUI N'APPARTIENNENT QU'À CE BANC.
+     *
+     * Les personnes, fournisseurs, hôpitaux et médecins portent le marqueur du run (`__er__`) :
+     * leur corpus est à lui, donc ses verdicts mesurent le RÉSOLVEUR. Un DCI et une marque, eux,
+     * ne peuvent pas porter de préfixe sans cesser d'être ce qu'un dirigeant tape — et le corpus
+     * produit était donc PARTAGÉ. Mesuré : le semis du banc de mission porte Lenvatinib
+     * (Lenvatix) et Nivolumab (Nivolex) ; « Lenvatinib » sortait AMBIGU à deux candidats à 1,00,
+     * et le banc accusait le résolveur alors que celui-ci avait RAISON — deux produits portent
+     * bien cette molécule, et une liste de plusieurs ne désigne personne (§118.34). Il mesurait
+     * le VOISINAGE (§118.91).
+     *
+     * On choisit donc des molécules aussi réelles et aussi piégeuses, ABSENTES du semis — et le
+     * cas suivant PROUVE cette exclusivité, pour qu'une contamination future soit diagnostiquée
+     * en une ligne au lieu de soixante.
+     */
+    ids.lenva = await p("PRD-9101", "Ibrutinib", "Imbruvica", "140", "Gélule");
     ids.sofo = await p("PRD-9102", "Sofosbuvir + Velpatasvir", "Epclusa", "400", "Comprimé");
-    ids.pembro = await p("PRD-9103", "Pembrolizumab", "Keytruda", "100", "Solution");
-    ids.nivo = await p("PRD-9104", "Nivolumab", "Opdivo", "100", "Solution");
+    ids.pembro = await p("PRD-9103", "Atezolizumab", "Tecentriq", "1200", "Solution");
+    ids.nivo = await p("PRD-9104", "Durvalumab", "Imfinzi", "500", "Solution");
     const i = async (name: string, type: "CHU" | "EPH" | "CLINIQUE_PRIVEE" | "PHARMACIE", city: string) => (await prisma.medicalInstitution.create({ data: { name: `${P} ${name}`, type, sector: "PUBLIC" as never, city, isActive: true } as never })).id;
     ids.chuTizi = await i("CHU de Tizi-Ouzou", "CHU", "Tizi Ouzou");
     ids.chuOran = await i("CHU d'Oran", "CHU", "Oran");
@@ -67,6 +83,48 @@ describe("résolution d'entités — banc réaliste sur la vraie base (F9)", () 
     const src = readFileSync("src/lib/fabric/entites.ts", "utf8");
     expect(src).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany|\$executeRaw)\(/);
   });
+
+  it("LE CORPUS EST À CE BANC : aucun produit ÉTRANGER ne porte ses molécules ni ses marques", async () => {
+    /**
+     * POURQUOI CETTE ASSERTION EXISTE, et ce qui la ferait tomber.
+     *
+     * Le résolveur lit TOUTE la base — c'est sa vocation, et c'est juste. Un banc qui plante des
+     * noms réalistes dans une base partagée mesure donc la base autant que le code. Quand un
+     * semis voisin porte la même molécule, « Ibrutinib » devient légitimement AMBIGU et les
+     * soixante mentions s'effondrent en accusant le résolveur : la première question devant un
+     * échec de banc n'est pas « qu'est-ce qui est cassé dans le produit ? » mais « qu'est-ce que
+     * le juge a réellement mesuré ? » (§118.92).
+     *
+     * Ce cas répond à la question EN UNE LIGNE. Il tombe le jour où un autre jeu de données
+     * réutilise l'une de ces molécules ou l'une de ces marques — et il nomme alors la
+     * contamination, la référence fautive comprise, au lieu de laisser soixante cas mentir sur
+     * la cause.
+     */
+    const miens = [ids.lenva, ids.sofo, ids.pembro, ids.nivo];
+    const plantes = await prisma.regulatoryProduct.findMany({
+      where: { id: { in: miens } },
+      select: { dci: true, brandName: true },
+    });
+    expect(plantes, "les quatre produits du banc doivent exister").toHaveLength(4);
+    const textes = plantes.flatMap((x) => [x.dci, x.brandName].filter((t): t is string => Boolean(t)));
+    const etrangers = await prisma.regulatoryProduct.findMany({
+      where: {
+        id: { notIn: miens },
+        OR: textes.flatMap((t) => [
+          { dci: { equals: t, mode: "insensitive" as const } },
+          { brandName: { equals: t, mode: "insensitive" as const } },
+        ]),
+      },
+      select: { reference: true, dci: true, brandName: true },
+    });
+    expect(
+      etrangers,
+      `CORPUS CONTAMINÉ — ces produits ÉTRANGERS portent une molécule ou une marque de ce banc, `
+      + `donc ses verdicts « CERTAIN » deviennent AMBIGU à juste titre et ne mesurent plus le résolveur : `
+      + etrangers.map((x) => `${x.reference} (${x.dci}${x.brandName ? ` / ${x.brandName}` : ""})`).join(", ")
+      + ". Remède : donner au banc des molécules qu'aucun autre jeu de données n'emploie.",
+    ).toHaveLength(0);
+  }, 60_000);
 
   it("≥ 95 % de bonnes résolutions sur soixante mentions réalistes, P95 < 300 ms", async () => {
     const cas: Cas[] = [
@@ -102,20 +160,20 @@ describe("résolution d'entités — banc réaliste sur la vraie base (F9)", () 
       { q: `${P} Sun Pharmaceutical`, types: ["FOURNISSEUR"], attendu: "CERTAIN", id: ids.sunPharma },
       { q: `${P} Novartis`, types: ["FOURNISSEUR"], attendu: "INCONNU" },
       // Produits, molécules, marques : DCI, marque, alias, ordre des molécules, référence, faute.
-      { q: "Lenvatinib", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.lenva },
-      { q: "lenvatinib", types: ["MOLECULE"], attendu: "CERTAIN", id: "dci:lenvatinib" },
-      { q: "Lenvima", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.lenva, note: "marque" },
-      { q: "Lenvima", types: ["MARQUE"], attendu: "CERTAIN", id: ids.lenva },
-      { q: "Lenvatinb", types: ["PRODUIT"], attendu: "PROBABLE", id: ids.lenva, note: "faute" },
+      { q: "Ibrutinib", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.lenva },
+      { q: "ibrutinib", types: ["MOLECULE"], attendu: "CERTAIN", id: "dci:ibrutinib" },
+      { q: "Imbruvica", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.lenva, note: "marque" },
+      { q: "Imbruvica", types: ["MARQUE"], attendu: "CERTAIN", id: ids.lenva },
+      { q: "Ibrutinb", types: ["PRODUIT"], attendu: "PROBABLE", id: ids.lenva, note: "faute" },
       { q: "PRD-9101", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.lenva, note: "référence" },
       { q: "Sofosbuvir + Velpatasvir", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.sofo },
       { q: "Velpatasvir/Sofosbuvir", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.sofo, note: "ordre des molécules" },
       { q: "Epclusa", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.sofo },
-      { q: "Keytruda", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.pembro },
-      { q: "Pembrolizumab", types: ["MOLECULE"], attendu: "CERTAIN", id: "dci:pembrolizumab" },
-      { q: "Opdivo", types: ["MARQUE"], attendu: "CERTAIN", id: ids.nivo },
-      { q: "Nivolumab", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.nivo },
-      { q: "le dossier Nivolumab", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.nivo, note: "habillage" },
+      { q: "Tecentriq", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.pembro },
+      { q: "Atezolizumab", types: ["MOLECULE"], attendu: "CERTAIN", id: "dci:atezolizumab" },
+      { q: "Imfinzi", types: ["MARQUE"], attendu: "CERTAIN", id: ids.nivo },
+      { q: "Durvalumab", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.nivo },
+      { q: "le dossier Durvalumab", types: ["PRODUIT"], attendu: "CERTAIN", id: ids.nivo, note: "habillage" },
       { q: "Abcdefgomab", types: ["PRODUIT"], attendu: "INCONNU" },
       // Hôpitaux et institutions : sigle, ville, trait d'union, distracteur.
       { q: `${P} CHU de Tizi-Ouzou`, types: ["HOPITAL"], attendu: "CERTAIN", id: ids.chuTizi },
@@ -133,7 +191,7 @@ describe("résolution d'entités — banc réaliste sur la vraie base (F9)", () 
       { q: `${P} Meriem`, types: ["MEDECIN"], attendu: "AMBIGU", note: "deux Meriem" },
       // Toutes natures : la mention seule doit trouver sa nature.
       { q: `${P} Hetero`, attendu: "CERTAIN", id: ids.hetero, note: "sans type" },
-      { q: "Keytruda", attendu: "CERTAIN", note: "marque ou produit — l'un des deux" },
+      { q: "Tecentriq", attendu: "CERTAIN", note: "marque ou produit — l'un des deux" },
       { q: `${P} Khaled Mansouri`, attendu: "CERTAIN", id: ids.khaled, note: "sans type" },
       { q: `${P} Meriem Haddad`, attendu: "CERTAIN", id: ids.haddad, note: "sans type" },
     ];

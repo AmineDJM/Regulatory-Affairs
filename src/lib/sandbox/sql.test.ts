@@ -95,7 +95,21 @@ describe("l'exécution, sur la base", () => {
   it("le délai coupe une requête trop longue, et la réponse le dit en clair", async () => {
     const r = await executerSqlLectureSeule(direction, "SELECT count(*) FROM generate_series(1, 400000000) g");
     expect(r.ok).toBe(false);
-    expect(r.erreur).toMatch(/délai dépassé/);
+    /**
+     * DEUX DÉLAIS PEUVENT SE DÉCLENCHER, ET LES DEUX DOIVENT PARLER FRANÇAIS.
+     *
+     * La première version n'attendait que le délai de la REQUÊTE. Mesuré : dans la suite
+     * complète, la FILE DE CONNEXIONS expire d'abord (Prisma P2024) — le test tombait sur
+     * `Invalid prisma.$queryRawUnsafe()`, et repassait trois fois sur trois en isolation. Une
+     * assertion dont le verdict dépend de la charge du processeur ne mesure pas la propriété
+     * qu'elle annonce (§118.83).
+     *
+     * Ce qu'on exige est la vraie promesse : quel que soit le délai qui coupe, la réponse est
+     * une PHRASE, jamais l'enveloppe du client de base. Ce qui la ferait tomber : un troisième
+     * genre de délai que `messageCourt` ne reconnaît pas — exactement le défaut qu'on répare.
+     */
+    expect(r.erreur, "un délai doit se dire en clair, jamais en enveloppe Prisma").toMatch(/délai dépassé|serveur saturé/);
+    expect(r.erreur).not.toMatch(/\$queryRawUnsafe|Invalid `prisma/);
     expect(r.ms).toBeLessThan(DELAI_MS + 4_000);
   }, 20_000);
   it("un CTE, une fenêtre et une agrégation par mois passent — le « God Mode » est réel", async () => {

@@ -33,6 +33,28 @@ export default defineConfig({
      * ═════════════════════════════════════════════════════════════════════════════════════
      */
     testTimeout: 20_000,
-    hookTimeout: 30_000,
+    /**
+     * ── LE PLAFOND D'UN DÉCOR RÉPOND À « EST-IL BLOQUÉ ? », JAMAIS À « EST-IL LENT ? » ──
+     *
+     * MESURÉ. `ops-goldens.test.ts` : 985 ms SEUL, et son `beforeAll` a dépassé 30 000 ms dans
+     * la suite complète — 717 fichiers sur QUATRE cœurs. Trente fois plus lent, sans une ligne
+     * de code différente. Le rouge disait « Hook timed out » et ressemblait exactement à une
+     * régression du produit : zéro assertion en échec, 8 220 tests verts, un fichier rouge.
+     *
+     * Un décor de fixtures coûte N ALLERS-RETOURS séquentiels vers Postgres, et sous contention
+     * chacun se paie plusieurs centaines de millisecondes. Recensé : 74 décors portent 6 attentes
+     * séquentielles ou plus, le pire en porte 47 — celui qui est tombé n'était même pas le plus
+     * lourd. Un plafond calé sur l'espoir que la machine soit libre mesure l'humeur de
+     * l'ordonnanceur, pas une propriété du code (§118.83), et refuser à tort coûte plus cher que
+     * le défaut qu'on croit attraper (§118.27) : ici, une suite de six minutes rejouée pour rien.
+     *
+     * Ce que ce plafond garde vraiment : un `await` qui ne rendra JAMAIS la main (un verrou, une
+     * connexion morte, un `await` oublié). N'IMPORTE QUELLE borne finie l'attrape — 30 s ou 120 s,
+     * le test échoue, un peu plus tard. Le bruit d'ordonnancement, lui, ne fait qu'AJOUTER du
+     * temps : c'est pourquoi la borne est généreuse ici, et pourquoi le COÛT STRUCTUREL des décors
+     * est tenu ailleurs, par un cliquet qui compte les allers-retours séquentiels et non les
+     * millisecondes (`src/platform/decors-de-test.test.ts`).
+     */
+    hookTimeout: 120_000,
   },
 });

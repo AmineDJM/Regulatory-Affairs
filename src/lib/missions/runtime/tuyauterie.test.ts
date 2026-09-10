@@ -130,6 +130,57 @@ suite("la tuyauterie {{cle_etape.chemin}} — résolue par le moteur", () => {
     expect(lecture.attempt).toBe(lecture.maxAttempts);
   });
 
+  it("l'amont a répondu par une PHRASE : sa réponse ENTIÈRE remplace le champ demandé, et le journal le DIT", async () => {
+    // LE DÉFAUT MESURÉ. Cinquante-quatre outils du dépôt peuvent répondre par une phrase quand
+    // ils ne trouvent rien — dix-huit d'entre eux sont des capacités de mission. Le planificateur
+    // écrit son champ d'après la forme APPRISE, celle des jours où la capacité trouvait quelque
+    // chose ; le jour de la phrase, le chemin se perdait dans une chaîne, l'étape passait
+    // INVALID_STEP non rejouable, et TOUTE sa descendance restait PENDING (§118.99).
+    const t = traceur((c) => (c.stepKey === "budget"
+      ? "Aucune enveloppe budgétaire ne vous est ouverte."
+      : { ok: true }));
+    const id = await creerMission([
+      { key: "budget", title: "Lire le budget", capability: "inspect_record", input: { reference: "ENV-2026" } },
+      {
+        key: "message", title: "Rendre compte", capability: "send_message",
+        input: { recipientName: "{{budget.totalDzd}}", body: "Le budget dit — {{budget.totalDzd}}" },
+      },
+    ], "phrase entière");
+
+    const r = await avancer(id, actor, { runner: t.runner });
+    expect(r.echouees, "une réponse honnête ne doit tuer aucune branche").toBe(0);
+    // LA CAPACITÉ EST APPELÉE — c'est tout l'enjeu : avant, elle ne l'était pas.
+    const envoi = t.appels.find((a) => a.capability === "send_message")!;
+    expect(envoi.input.recipientName).toBe("Aucune enveloppe budgétaire ne vous est ouverte.");
+    expect(envoi.input.body).toBe("Le budget dit — Aucune enveloppe budgétaire ne vous est ouverte.");
+    const etat = await chargerEtat(id);
+    expect(etat!.steps.find((s) => s.key === "message")!.status).toBe("DONE");
+    // ET CE N'EST PAS SILENCIEUX (§118.52) : le plan a demandé un CHAMP et reçu une PHRASE ; le
+    // compte rendu de la mission a besoin de ce fait pour expliquer pourquoi il parle d'absence.
+    const journal = await prisma.missionEvent.findMany({ where: { missionId: id, kind: "REFERENCE_TRADUITE" }, select: { summary: true } });
+    expect(journal, "une traduction se consigne, une par référence").toHaveLength(1);
+    expect(journal[0].summary).toContain("a répondu par une PHRASE");
+    expect(journal[0].summary).toContain("totalDzd");
+  });
+
+  it("un OBJET auquel il manque LE champ demandé reste une faute de plan — on ne substitue jamais l'objet entier", async () => {
+    // LA MOITIÉ QUI COMPTE (§118.71) : traduire ici mettrait `{"resultats":[…]}` dans un
+    // destinataire. Un objet A des champs ; en descendre le mauvais est une vraie erreur de
+    // chemin, et le refus nomme les champs pour que la replanification corrige.
+    const t = traceur((c) => (c.stepKey === "recherche" ? { resultats: [{ id: "n-1" }] } : { ok: true }));
+    const id = await creerMission([
+      { key: "recherche", title: "Chercher", capability: "search_drive", input: { query: "contrat" } },
+      { key: "lecture", title: "Lire", capability: "inspect_record", input: { reference: "{{recherche.introuvable}}" } },
+    ], "objet sans le champ");
+
+    const r = await avancer(id, actor, { runner: t.runner });
+    expect(r.echouees).toBe(1);
+    const etat = await chargerEtat(id);
+    const lecture = etat!.steps.find((s) => s.key === "lecture")!;
+    expect(lecture.errorKind).toBe("INVALID_STEP");
+    expect(lecture.error).toContain("champs disponibles : resultats");
+  });
+
   it("une échéance d'attente LUE dans les données : l'attente devient concrète en base, et le balayage temporel peut la lire", async () => {
     const t = traceur((c) => (c.stepKey === "analyse" ? { dateEcheance: "2099-03-31", partenaire: "Hetero Labs" } : { ok: true }));
     const id = await creerMission([

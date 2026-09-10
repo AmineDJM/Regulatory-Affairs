@@ -171,13 +171,51 @@ export function nommerLeRemede(message: string): string {
 /** Le message qu'on rend : la cause, pas l'enrobage de Prisma (qui commence par une ligne vide). */
 function messageCourt(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
-  if (/canceling statement due to statement timeout|57014/i.test(msg)) return `délai dépassé (${DELAI_MS} ms)`;
+  /**
+   * DEUX DÉLAIS, DEUX CAUSES, DEUX REMÈDES — et les confondre envoie réécrire une requête juste.
+   *
+   * Le premier est celui de la REQUÊTE : Postgres l'annule parce qu'elle dépasse le budget du bac
+   * (`statement_timeout`, SQLSTATE 57014). La requête est trop lourde ; le remède est de la
+   * resserrer — un filtre, une agrégation, une borne.
+   *
+   * Le second est celui de la FILE DE CONNEXIONS (Prisma P2024) : le serveur est saturé et la
+   * requête n'a jamais commencé. Elle peut être parfaitement bonne. Mesuré : dans la suite
+   * complète, sous 700 fichiers en parallèle, c'est LUI qui se déclenche — et il n'était reconnu
+   * nulle part, donc la personne recevait l'enveloppe brute de Prisma (« Invalid
+   * `prisma.$queryRawUnsafe()` … ») au lieu d'une phrase. Un refus qu'on lit de travers est un
+   * refus qu'on croit moins (§104.17), et celui-là ne nommait ni la faute ni le remède (§118.30).
+   */
+  if (/canceling statement due to statement timeout|57014/i.test(msg)) {
+    return `délai dépassé (${DELAI_MS} ms) : la requête est trop lourde pour le bac à sable — la resserrer (un filtre, une agrégation, une borne) plutôt que la relancer telle quelle`;
+  }
+  if (/connection pool|P2024|Timed out fetching a new connection/i.test(msg)) {
+    return "serveur saturé : aucune connexion libre — la requête n'a PAS commencé, elle n'est donc pas en cause ; réessayer dans un instant";
+  }
   if (/read-only transaction/i.test(msg)) return "écriture refusée : transaction en lecture seule";
   if (/permission denied/i.test(msg)) return "refusé par le rôle du bac à sable (lecture seule)";
   const m = /Message: `([^`]+)`/.exec(msg);
   // Le remède s'ajoute APRÈS la coupe à 300 : sinon la phrase utile serait la première rognée.
   if (m) return nommerLeRemede(m[1].slice(0, 300));
-  return nommerLeRemede((msg.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "erreur").slice(0, 300));
+  /**
+   * LA CAUSE EST LA DERNIÈRE LIGNE, PAS LA PREMIÈRE — et c'était LE défaut.
+   *
+   * Le repli prenait la PREMIÈRE ligne non vide. Or un client de base ouvre son message par son
+   * ENVELOPPE : « Invalid `prisma.$queryRawUnsafe()` invocation: », puis deux lignes vides, puis
+   * la cause. On rendait donc l'enveloppe — un texte qui ne dit RIEN de ce qui s'est passé, dans
+   * une langue que personne ne parle, à l'endroit exact où la personne cherche pourquoi (§104.17).
+   * Mesuré dans la suite complète : c'est ce texte qui sortait quand la file de connexions
+   * expirait, et le banc accusait le délai de la requête.
+   *
+   * On garde la première ligne quand elle n'est PAS une enveloppe : un message de Postgres tient
+   * sur une ligne et c'est bien la sienne. Sinon on prend la DERNIÈRE ligne utile, celle que le
+   * client a écrite sous son propre en-tête.
+   */
+  const lignes = msg.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+  const enveloppe = /^Invalid `[^`]+` invocation/i;
+  const utile = lignes.length > 0 && enveloppe.test(lignes[0])
+    ? lignes.slice(1).reverse().find((l) => !enveloppe.test(l)) ?? lignes[0]
+    : lignes[0];
+  return nommerLeRemede((utile ?? "erreur").slice(0, 300));
 }
 
 /**

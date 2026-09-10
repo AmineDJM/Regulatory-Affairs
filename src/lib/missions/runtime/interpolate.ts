@@ -249,7 +249,45 @@ export function resoudreReference(ref: string, cles: Iterable<string>): { cle: s
   return { cle: meilleure, chemin: ref.length > meilleure.length ? ref.slice(meilleure.length + 1) : "" };
 }
 
-export type EtatReference = "OK" | "ETAPE_INCONNUE" | "ETAPE_NON_ABOUTIE" | "CHEMIN_ABSENT" | "COLLECTION_VIDE";
+export type EtatReference = "OK" | "ETAPE_INCONNUE" | "ETAPE_NON_ABOUTIE" | "CHEMIN_ABSENT" | "COLLECTION_VIDE" | "PHRASE_ENTIERE";
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UNE ÉTAPE QUI A RÉPONDU PAR UNE PHRASE N'A AUCUN CHAMP — donc la phrase EST sa valeur.
+ *
+ * ── LE DÉFAUT MESURÉ ────────────────────────────────────────────────────────────────────
+ *
+ * Cinquante-quatre outils du dépôt peuvent répondre par une PHRASE au lieu d'un objet :
+ * « Aucune enveloppe budgétaire ne vous est ouverte. », « Aucun événement dans l'agenda du …
+ * au … ». C'est la bonne réponse — honnête, lisible, et c'est celle qu'une personne veut. Sur
+ * dix-huit d'entre eux, cette phrase entre AUSSI dans une mission : le planificateur, lui, a
+ * écrit `{{lire:budget.totalDzd}}` en se fiant à la forme APPRISE — celle des jours où la
+ * capacité a trouvé quelque chose. Le chemin se perdait donc dans une chaîne de caractères,
+ * l'étape passait FAILED / INVALID_STEP / retryable:false, et TOUTE sa descendance restait
+ * PENDING. Mesuré sur `directory_list` : dix étapes bloquées, dont les deux `send_message` qui
+ * étaient l'objet du jalon, quatre personnes jamais sollicitées, zéro livrable (§118.99).
+ *
+ * ── CE QU'ON TRADUIT, ET POURQUOI CE N'EST PAS UNE DEVINETTE ────────────────────────────
+ *
+ * C'est §118.71 au niveau de l'ÉTAPE, avec le même raisonnement : une valeur scalaire n'a AUCUN
+ * champ, donc la seule valeur qu'elle puisse offrir est elle-même. Le plan demandait « ce que
+ * cette étape a produit » ; l'étape a produit cette phrase. Le WORKER en aval est un modèle : il
+ * lit « Aucune enveloppe budgétaire ne vous est ouverte. » et le DIT. Échouer, au contraire, tue
+ * une branche entière pour une réponse qui était juste.
+ *
+ * ── CE QU'ON REFUSE DE DEVINER ──────────────────────────────────────────────────────────
+ *
+ * Sur un OBJET, un champ absent parmi d'autres présents reste une vraie faute de chemin : y
+ * substituer l'objet entier mettrait `{"nom":…,"email":…}` dans un destinataire (§118.71). Sur
+ * une LISTE non plus : elle a une forme (des indices), et rendre le tableau entier à la place
+ * d'un champ ferait passer un JSON pour une valeur. Et une phrase VIDE ne traduit rien — il n'y
+ * a pas de valeur à offrir, l'absence reste une absence.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function phraseSansChamp(resultat: unknown): boolean {
+  if (typeof resultat === "string") return resultat.trim() !== "";
+  return typeof resultat === "number" || typeof resultat === "boolean";
+}
 
 export interface DiagnosticReference {
   ref: string;
@@ -292,6 +330,12 @@ export function diagnostiquerReferences(
       out.push({ ref, etape: r.cle, chemin: "", etat: "OK", disponibles: [] });
       continue;
     }
+    // LA PHRASE EST LA VALEUR (voir `phraseSansChamp`). Ce n'est pas un chemin absent : il n'y a
+    // aucun chemin à parcourir, et refuser ici tuerait la descendance d'une étape qui a répondu.
+    if (phraseSansChamp(amont.result)) {
+      out.push({ ref, etape: r.cle, chemin: r.chemin, etat: "PHRASE_ENTIERE", disponibles: [] });
+      continue;
+    }
     let courant: unknown = amont.result;
     let etat: EtatReference = "OK";
     let disponibles: string[] = [];
@@ -331,7 +375,12 @@ export function injecterSorties(valeur: unknown, sorties: ReadonlyMap<string, un
     const r = resoudreReference(ref, sorties.keys());
     if (!r) return undefined;
     const base = sorties.get(r.cle);
-    return r.chemin === "" ? base : lire(base, r.chemin);
+    if (r.chemin === "") return base;
+    // LA MÊME RÈGLE QUE LE DIAGNOSTIC, lue au même endroit : deux lectures du même fait dans
+    // deux fonctions finiraient par ne plus dire la même chose, et le symptôme serait une étape
+    // diagnostiquée résoluble qui reçoit `undefined` (§118.5).
+    if (phraseSansChamp(base)) return base;
+    return lire(base, r.chemin);
   };
   if (typeof valeur === "string") {
     const seul = SEUL_REF.exec(valeur);

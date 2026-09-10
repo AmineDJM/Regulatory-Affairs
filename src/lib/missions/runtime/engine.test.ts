@@ -141,7 +141,21 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     expect(t.appels).toHaveLength(13);
     const etat = await chargerEtat(id);
     expect(etat!.steps.find((s) => s.key === "fin")!.status).toBe("DONE");
-  });
+    /**
+     * QUATORZE ÉTAPES EN BASE — la borne est celle du TRAVAIL, pas une assertion déguisée.
+     *
+     * Ce cas tournait sur la borne par défaut (20 s). Mesuré : il PASSE seul, et il expire dans
+     * la suite complète, où sept cents fichiers se disputent la file de connexions — quatorze
+     * écritures et une jonction n'y tiennent pas. Une borne de temps qui dépend de
+     * l'ordonnanceur ne mesure pas la propriété qu'elle annonce, elle mesure l'humeur du
+     * processeur (§118.83) : une vraie régression s'y perd dans le bruit, un faux échec s'y
+     * invente. Ses voisins, qui font autant de travail, portent déjà 60 s.
+     *
+     * Ce qui reste mesuré, et ne bouge pas : quatorze étapes exécutées, treize appels de
+     * capacité (la jonction n'en appelle aucune), la racine EN PREMIER, la jonction terminée.
+     * Un moteur qui sérialiserait l'éventail, ou qui appellerait la jonction, tombe toujours.
+     */
+  }, 60_000);
 
   /**
    * ═══════════════════════════════════════════════════════════════════════════════════════

@@ -91,8 +91,25 @@ suite("regulatory_workload / regulatory_portfolio — gérer ≠ accéder, parte
   it("vue d'ÉQUIPE sans personne : répartition par responsable + non assignés", async () => {
     const exec = userWith({ REGULATORY: ["VIEW"] }, "DIRECTION", ceoId);
     const out = JSON.parse(await workload.run({}, exec));
-    const amelRow = (out.repartition as { personne: string; dossiersGeres: number }[]).find((r) => r.personne.includes("Amel"));
-    expect(amelRow?.dossiersGeres).toBe(3);
+    /**
+     * ON RECONNAÎT SA PROPRE FIXTURE, PAS « quelqu'un qui s'appelle Amel ».
+     *
+     * La première version cherchait `personne.includes("Amel")`. L'acteur est DIRECTION, donc il
+     * a la vue GLOBALE : la répartition couvre TOUTE la base. Le jour où un autre compte porte
+     * ce prénom — un semis de banc, une vraie collègue — `.find` rendait SA ligne, avec son
+     * propre compte de dossiers, et le test tombait sur une base parfaitement saine. Il mesurait
+     * le VOISINAGE, pas la promesse du produit (§118.92c : on juge par le lien causal, jamais par
+     * ressemblance de noms).
+     *
+     * Le TAG est unique à ce run (`__rr__<horodatage>`), donc la ligne trouvée est celle du
+     * responsable que CE banc a créé, et les trois dossiers comptés sont les trois qu'il a semés.
+     * Ce qui le ferait tomber : le produit cesse d'attribuer un dossier à son responsable
+     * désigné, ou compte un dossier où la personne n'est que participante.
+     */
+    const lignes = out.repartition as { personne: string; dossiersGeres: number }[];
+    const miennes = lignes.filter((r) => r.personne.includes(TAG));
+    expect(miennes, "une seule ligne pour le responsable de ce banc").toHaveLength(1);
+    expect(miennes[0].dossiersGeres).toBe(3);
     expect(out.definition).toMatch(/jamais le simple accès/);
   });
 

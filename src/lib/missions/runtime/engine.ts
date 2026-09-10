@@ -527,7 +527,7 @@ function normaliserDate(u: unknown): unknown {
 function resoudreReferencesEtape(
   etat: EtatMission,
   step: EtatEtape,
-): { step: EtatEtape; sortie?: StepOutcome; attenteResolue: boolean } {
+): { step: EtatEtape; sortie?: StepOutcome; attenteResolue: boolean; phrases?: DiagnosticReference[] } {
   if (!NOEUDS_A_RESOUDRE.has(step.nodeType)) return { step, attenteResolue: false };
   if (referencesDe(step.input).length === 0 && referencesDe(step.waitFor).length === 0) return { step, attenteResolue: false };
 
@@ -573,6 +573,12 @@ function resoudreReferencesEtape(
     return { step, attenteResolue: false, sortie: { status: "SKIPPED", raison: `« ${gab(nonAboutie)} » attend l'étape « ${nonAboutie.etape} », qui n'a pas abouti (${nonAboutie.statut ?? "?"}).` } };
   }
 
+  // LA TRADUCTION EST REMONTÉE, JAMAIS TAISÉE. Un filtre silencieux ne laisse aucune trace de ce
+  // qu'il retire (§118.52) ; ici rien n'est retiré, mais le plan a demandé un CHAMP et reçu une
+  // PHRASE — c'est le genre de fait dont le compte rendu d'une mission a besoin, et le seul
+  // signal qui dise au lecteur pourquoi une consolidation parle d'une absence.
+  const phrases = diagnostics.filter((d) => d.etat === "PHRASE_ENTIERE");
+
   const valeurs = new Map<string, unknown>();
   for (const [k, v] of sorties) if (v.status === "DONE") valeurs.set(k, v.result);
   const input = injecterSorties(step.input, valeurs) as Record<string, unknown>;
@@ -602,7 +608,7 @@ function resoudreReferencesEtape(
       }
     }
   }
-  return { step: { ...step, input, waitFor }, attenteResolue };
+  return { step: { ...step, input, waitFor }, attenteResolue, phrases };
 }
 
 async function executerUneEtape(
@@ -643,6 +649,18 @@ async function executerUneEtape(
   // IGNORE l'étape, une étape amont non aboutie n'invente rien.
   const resolution = resoudreReferencesEtape(etat, step);
   const stepExec = resolution.step;
+  for (const p of resolution.phrases ?? []) {
+    // Le fait, pas une interprétation : quel champ a été demandé, à quelle étape, et ce qu'elle
+    // a répondu à la place. Écrit UNE fois par référence traduite, donc jamais du bruit.
+    await journaliser(
+      etat.id,
+      "REFERENCE_TRADUITE",
+      `« {{${p.ref}}} » : l'étape « ${p.etape} » a répondu par une PHRASE, sans aucun champ — `
+      + `sa réponse entière remplace « ${p.chemin} ». La capacité a bien répondu ; sa réponse `
+      + "n'était pas structurée.",
+      { step: step.key, ref: p.ref, etape: p.etape, chemin: p.chemin },
+    );
+  }
   if (resolution.attenteResolue) {
     // L'ATTENTE DEVIENT CONCRÈTE EN BASE : le balayage temporel lit `waitFor.until` tel quel,
     // et une référence non résolue ne réveillerait jamais personne.
