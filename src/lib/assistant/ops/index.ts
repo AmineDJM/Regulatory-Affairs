@@ -19,6 +19,7 @@ import { LEGAL_OPS_IMPL } from "./impl-legal";
 import { ORG_OPS_IMPL } from "./impl-org";
 import { ADPRO_OPS_IMPL, BD_OPS_IMPL, STOCK_OPS_IMPL } from "./impl-commercial";
 import { REG4_OPS_IMPL, PCH_OPS_IMPL, STOCK4_OPS_IMPL, SALES_OPS_IMPL, LOGISTICS_OPS_IMPL } from "./impl-wave4";
+import { STOCK_RECURRENCE_OPS_IMPL } from "./impl-stock-recurrence";
 import { MEDICAL_OPS_IMPL, RANGE_OPS_IMPL, BD4_OPS_IMPL } from "./impl-wave4b";
 import { EVENT_OPS_IMPL, ADPRO5_OPS_IMPL, CONSULTING_OPS_IMPL } from "./impl-wave5";
 import { CARE_OPS_IMPL, PROMO_OPS_IMPL } from "./impl-wave5b";
@@ -1136,24 +1137,35 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   stock_operation: {
     module: "STOCKS",
-    ops: zipOps("stock_operation", { ...STOCK_OPS_IMPL, ...STOCK4_OPS_IMPL }),
+    ops: zipOps("stock_operation", { ...STOCK_OPS_IMPL, ...STOCK4_OPS_IMPL, ...STOCK_RECURRENCE_OPS_IMPL }),
     def: {
       name: "stock_operation",
       description:
-        "STOCKS PCH — demander un état de stock à une personne, gérer les LIEUX (hôpitaux / annexes PCH, Super Admin) et enregistrer les ÉTATS DATÉS (« à cette date il reste X unités »), par les actions canoniques. "
+        "STOCKS PCH — demander un état de stock à une personne, une fois ou en RÉCURRENCE (« le 1er de chaque mois, demande à ce KAM l'état de ces hôpitaux » : poser, modifier, suspendre, reprendre, retirer), gérer les LIEUX (hôpitaux / annexes PCH, Super Admin) et enregistrer les ÉTATS DATÉS (« à cette date il reste X unités »), par les actions canoniques. "
         + `Champ « op » : ${opsSummary("stock_operation")}.`,
       input_schema: {
         type: "object",
         properties: {
           op: { type: "string", enum: opEnum("stock_operation"), description: "Le geste à faire." },
-          assigneeName: { type: "string", description: "request_state : à qui demander l'état de stock." },
-          hospitals: { type: "string", description: "request_state : hôpitaux ciblés, séparés par des virgules (optionnel)." },
+          assigneeName: { type: "string", description: "request_state / récurrences : à qui demander l'état de stock (son nom)." },
+          hospitals: { type: "string", description: "request_state / récurrences : hôpitaux ciblés, séparés par des virgules. Facultatif — sans aucun, la demande porte sur l'état de stock en général." },
           note: { type: "string", description: "Précision de la demande." },
           location: { type: "string", description: "Nom de l'hôpital / annexe visé(e) (création, suppression, état)." },
           product: { type: "string", description: "États : le produit (DCI ou nom commercial)." },
           kind: { type: "string", description: "record_snapshot : lieu de l'état — PCH (défaut), hôpital, ou annexe." },
           date: { type: "string", description: "États : la date de la mesure (AAAA-MM-JJ)." },
           quantity: { type: "string", description: "record_snapshot : quantité restante (unités, ≥ 0)." },
+          // ── LES RÉCURRENCES ────────────────────────────────────────────────────────────
+          // Une récurrence réutilise `assigneeName`, `hospitals` et `note` : c'est LA MÊME
+          // demande, répétée. Deux jeux de champs pour la même chose feraient écrire
+          // « assigneeName » au geste ponctuel et « person » au récurrent, et le modèle
+          // choisirait mal la moitié du temps.
+          recurrenceName: { type: "string", description: "Récurrences : son NOM — à donner en création, à citer pour modifier / suspendre / retirer." },
+          newName: { type: "string", description: "update_stock_recurrence : nouveau nom (renommage)." },
+          cadence: { type: "string", description: "Récurrences : DAILY, WEEKLY ou MONTHLY (défaut MONTHLY). Pas d'HOURLY — un relevé de stock est un comptage physique qu'une personne va faire." },
+          hourLocal: { type: "string", description: "Récurrences : heure d'Alger, 0 à 23 (défaut 8)." },
+          day: { type: "string", description: "Récurrences : jour de la SEMAINE (0 = dimanche … 6 = jeudi) si WEEKLY, jour du MOIS (1 à 31) si MONTHLY." },
+          status: { type: "string", description: "set_stock_recurrence_status : ACTIVE ou PAUSED. Sans précision, l'état est basculé." },
         },
         required: ["op"],
       },

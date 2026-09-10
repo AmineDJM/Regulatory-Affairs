@@ -1145,6 +1145,9 @@ model User {
   visits                  MedicalVisit[]
   /// LES SECTEURS qui lui sont affectés (KAM / délégué).
   salesSectors            SalesSectorRep[]                 @relation("SalesSectorRepUser")
+  /// LES RÉCURRENCES de demande d'état de stock qui lui sont ADRESSÉES, et celles qu'il a POSÉES.
+  stockRecurrences        StockRequestRecurrence[]         @relation("StockRecurrenceAssignee")
+  stockRecurrencesCreated StockRequestRecurrence[]         @relation("StockRecurrenceAuthor")
   /// SES PLANS DE TOURNÉE, et ceux qu'il doit trancher.
   tourPlans               TourPlan[]                       @relation("TourPlanRep")
   tourPlansToReview       TourPlan[]                       @relation("TourPlanReviewer")
@@ -7498,13 +7501,108 @@ model WorkflowStepEvent {
 /// HÔPITAUX (`HOSPITAL`) des ANNEXES PCH (`ANNEX`, sites de stockage secondaires de la PCH).
 /// Le nom « StockAnnex » est conservé (pas de renommage de table) ; il porte désormais les deux.
 model StockAnnex {
-  id        String          @id @default(cuid())
-  name      String          @unique
-  kind      String          @default("HOSPITAL") // HOSPITAL | ANNEX
-  createdAt DateTime        @default(now())
-  snapshots StockSnapshot[]
+  id          String                           @id @default(cuid())
+  name        String                           @unique
+  kind        String                           @default("HOSPITAL") // HOSPITAL | ANNEX
+  createdAt   DateTime                         @default(now())
+  snapshots   StockSnapshot[]
+  /// LES RÉCURRENCES de demande d'état qui le visent.
+  recurrences StockRequestRecurrenceHospital[]
 
   @@index([kind])
+}
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+/// LA RÉCURRENCE D'UNE DEMANDE D'ÉTAT DE STOCK — ce que le directeur des opérations POSE une
+/// fois, et qui repart tout seul.
+///
+/// ── POURQUOI UN OBJET, ET PAS UNE HABITUDE ────────────────────────────────────────────────
+///
+/// Demander chaque mois l'état de stock de ses hôpitaux à chaque KAM était un geste répété à la
+/// main. Un geste répété à la main est un geste OUBLIÉ un mois sur trois, et personne ne peut
+/// dire lequel : la demande ne vit que dans la mémoire de celui qui la fait. Une promesse qui
+/// ne vit que dans une phrase meurt à la fin du tour (§118.57a) — ici elle devient une ligne.
+///
+/// ── ELLE NE PORTE PAS SES DEMANDES ────────────────────────────────────────────────────────
+///
+/// Ce que chaque déclenchement produit est une `Task` assignée + sa notification, par le MÊME
+/// chemin que le bouton de l'écran (`requestStockState`). Lui donner une table jumelle de
+/// « demandes » aurait fait DEUX vérités sur ce qui a été demandé, et celle de la récurrence
+/// aurait pris du retard au premier correctif (§118.5). Le lien se lit par `Task.module` et par
+/// le journal d'audit, comme pour une demande faite à la main.
+///
+/// ── LA GRAMMAIRE DE RÉCURRENCE EST EMPRUNTÉE, PAS RÉINVENTÉE ──────────────────────────────
+///
+/// Mêmes champs et mêmes valeurs que `ScheduledWorkflow` (récurrence nommée + heure locale +
+/// jour), et le MÊME calcul d'échéance (`lib/scheduler/contract.ts`, module pur). Deux
+/// grammaires de récurrence dans un même produit finiraient par ne pas dire la même chose de
+/// « tous les dimanches à 7 h ».
+/// ═══════════════════════════════════════════════════════════════════════════════════════════
+model StockRequestRecurrence {
+  id String @id @default(cuid())
+
+  /// Ce que le directeur lit dans sa liste — « Relevé mensuel Est ».
+  name String
+
+  /// LE KAM à qui la demande est adressée. `Cascade` : son compte supprimé, la récurrence
+  /// disparaît — une réquisition adressée à personne ne doit pas continuer à tourner.
+  assigneeId String
+  assignee   User   @relation("StockRecurrenceAssignee", fields: [assigneeId], references: [id], onDelete: Cascade)
+
+  /// Le mot que la demande portera. Facultatif : sans lui, le texte canonique suffit.
+  note String?
+
+  /// DAILY | WEEKLY | MONTHLY. `HOURLY` existe dans la grammaire partagée et n'est PAS admis
+  /// ici : demander un comptage physique toutes les heures produirait vingt-quatre tâches par
+  /// jour que personne ne ferait, et un compteur de tâches ignorées n'est pas un pilotage.
+  recurrence String
+  /// Heure locale d'Alger (0-23) du déclenchement.
+  hourLocal  Int    @default(8)
+  /// Jour de la semaine (0 = dimanche) pour WEEKLY ; jour du mois pour MONTHLY.
+  dayOfWeek  Int?
+  dayOfMonth Int?
+
+  /// ACTIVE | PAUSED. Une récurrence en pause garde son historique et sa prochaine échéance :
+  /// la reprendre ne doit pas effacer ce qu'elle a déjà demandé.
+  status String @default("ACTIVE")
+
+  /// La prochaine échéance, en UTC — c'est ELLE qu'on interroge, jamais une expression à
+  /// réévaluer pour chaque récurrence à chaque battement.
+  nextRunAt DateTime
+  lastRunAt DateTime?
+  /// Verrou d'exécution : un battement la prend par `updateMany`, les autres passent leur
+  /// chemin. Sans lui, deux processus concurrents enverraient deux fois la même demande.
+  claimedAt DateTime?
+  /// Combien de fois elle a réellement produit une demande — ce que l'écran affiche, et la
+  /// seule preuve qu'elle n'est pas une promesse muette.
+  runCount  Int       @default(0)
+
+  /// QUI L'A POSÉE. C'est SON autorité qui fait partir la demande, et elle est RELUE à chaque
+  /// déclenchement : une récurrence dont l'auteur a perdu le droit de réquisitionner s'arrête.
+  /// Sans cette relecture, la récurrence serait une permission qui survit à son titulaire.
+  createdById String?
+  createdBy   User?   @relation("StockRecurrenceAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  hospitals StockRequestRecurrenceHospital[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, nextRunAt])
+  @@index([assigneeId])
+}
+
+/// LES HÔPITAUX visés par une récurrence. Une table de liaison et non une liste de texte : un
+/// hôpital renommé doit rester le même hôpital, et un hôpital supprimé doit disparaître de la
+/// récurrence au lieu d'y laisser un nom qui ne désigne plus rien.
+model StockRequestRecurrenceHospital {
+  recurrenceId String
+  recurrence   StockRequestRecurrence @relation(fields: [recurrenceId], references: [id], onDelete: Cascade)
+  annexId      String
+  annex        StockAnnex             @relation(fields: [annexId], references: [id], onDelete: Cascade)
+
+  @@id([recurrenceId, annexId])
+  @@index([annexId])
 }
 
 model StockSnapshot {

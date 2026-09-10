@@ -1,420 +1,441 @@
 # Graph Report - src  (2026-09-10)
 
 ## Corpus Check
-- 2587 files · ~3,127,297 words
+- 2600 files · ~3,148,654 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 18396 nodes · 65441 edges · 421 communities (390 shown, 15 thin omitted)
-- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 483 edges (avg confidence: 0.85)
+- 18487 nodes · 65807 edges · 443 communities (406 shown, 20 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 492 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `5ce0e49a`
+- Built from commit: `9e5c615c`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - prisma.ts
-- utils.ts
 - button.tsx
-- rbac.ts
-- compiler/compile.ts
-- ops/index.ts
-- missions/ports.ts
-- missions/runtime/engine.ts
-- recordAudit
-- hasGlobalView
-- requireModule
-- context/router.ts
-- assistant.ts
-- gateway.ts
-- userCan
-- runtime.ts
-- notifyRoles
-- lib/audit.ts
-- queries/budget.ts
-- mission-runtime-actions.ts
-- lib/labels.ts
-- planner/plan.ts
-- skills/index.ts
-- fdStr
-- pptx/adapter.ts
-- docx/adapter.ts
 - requireUser
-- artifact/runtime/engine.ts
-- adam-tools.ts
-- jobs/runner.ts
-- legal/page.tsx
-- google/config.ts
-- events/router.ts
-- cn
-- outbound.ts
-- artifacts/build.ts
-- links/store.ts
-- dossier-agent.ts
-- CommandeArtefact
-- PATH
-- medical-directory-actions.ts
-- impl-finance-flows.ts
-- workspace/compose.ts
-- calibrate.ts
-- brain-cockpit.tsx
-- create-fields.ts
-- adam-core.test.ts
-- in-process/media/transcription.ts
-- missions/watch.ts
-- spec.ts
-- regCan
-- teach/store.ts
-- payroll-hr-actions.ts
-- fdNum
-- drive-storage.ts
-- fichiers/index.ts
-- mail.ts
-- lecture.ts
-- impl-wave6c.ts
-- regulatory-actions.ts
-- capacites/index.ts
-- object-storage.ts
-- blocks.tsx
-- entities/resolve.test.ts
-- intelligence/index.ts
-- corpus-actions.ts
+- utils.ts
+- runtime.ts
+- notifyUser
+- hasGlobalView
+- compiler/compile.ts
+- missions/runtime/engine.ts
+- ops/index.ts
+- requireModule
+- skills/index.ts
+- lib/labels.ts
+- canAccessEntity
+- (app)/validations/page.tsx
+- company.ts
+- planner/plan.ts
 - [dossierId]/page.tsx
-- sandbox-tools.ts
-- fabric/index.ts
-- voice-realtime.ts
-- pch-tender-line-actions.ts
-- factory.ts
+- jobs/runner.ts
+- drive-storage.ts
+- events/router.ts
+- object-model/model.ts
+- payment-request-actions.ts
+- context/router.ts
+- docx/adapter.ts
+- resolveDriveAccess
+- CommandeArtefact
+- ocr-engine.ts
+- artifact/runtime/engine.ts
+- impl-wave5.ts
+- impl-finance-flows.ts
+- formatDate
+- assistant.ts
 - upload/session.ts
-- in-process/artifact/ports.ts
-- assistant-actions.ts
-- verification/index.ts
-- memory.ts
 - rules/engine.ts
-- orders-table.tsx
-- impl-wave5b.ts
-- objectif/index.ts
-- drive-actions.ts
-- entities.ts
+- spec.ts
+- medical-directory-actions.ts
+- dossier-agent.ts
+- regAudit
+- legal-actions.ts
+- in-process/media/transcription.ts
+- gateway.ts
+- workspace/compose.ts
+- ai/page.tsx
+- create-fields.ts
+- knowledge/contract.ts
+- horizon.ts
+- impl-wave7d.ts
+- platformScope
+- brain-cockpit.tsx
+- impl-wave6c.ts
+- build-facts.ts
+- actions/types.ts
+- teach/store.ts
 - directive-actions.ts
-- manage.ts
-- bd-strategic-table.tsx
-- agent-core.ts
-- models/registry.ts
-- sources/drive.ts
-- in-process/sandbox/index.ts
-- getCurrentUser
-- brand/index.ts
-- care-actions.ts
-- lexicon.ts
+- regulatory-actions.ts
+- workspace/protocol.ts
+- blocks.tsx
+- executeReadTool
+- google/config.ts
+- library-actions.ts
+- extract-text.ts
+- entities/resolve.test.ts
+- in-process/adapter.ts
+- medical-info-actions.ts
 - lib/fabric/provenance.ts
+- intelligence/index.ts
+- provider-smoke.ts
+- mission-runtime-actions.ts
+- missions/watch.ts
+- missions/catalog.ts
+- voice-realtime.ts
+- mission-runtime-panel.tsx
+- verification/index.ts
+- entities.ts
+- objectif/index.ts
+- src/auth.ts
+- memory.ts
+- aiConfigured
+- users/[id]/page.tsx
+- pch-market-actions.ts
+- regulatory-workflow.ts
+- lecture.ts
+- lexicon.ts
+- FindingInput
+- in-process/artifact/ports.ts
+- ad-pro-item-actions.ts
+- care-actions.ts
+- sheets/analyse.ts
+- inbox/compose.ts
+- quality/index.ts
+- pch-tender-line-actions.ts
+- mail.ts
+- lib/ai.ts
+- turn.ts
+- calibrate.ts
+- registre/index.ts
+- calendar.ts
+- outbound.ts
+- brand/index.ts
+- task-actions.ts
+- adam-tools.ts
+- mail/oauth.ts
+- onlyoffice.ts
+- lib/department-budget.ts
+- molecule.ts
+- capacites/index.ts
+- artifact.tsx
+- rerank.ts
+- primitives.ts
+- contrat.ts
+- openai.ts
+- commercial.ts
+- monde/index.ts
+- assistant-chat.tsx
+- impl-wave6b.ts
+- promo-material-actions.ts
+- adam-core.test.ts
+- nl.ts
+- market-research.ts
+- admin-settings-forms.tsx
+- workflow/engine.ts
+- departments.ts
+- pipeline.ts
+- assistant-actions.ts
+- feedback/attachments.test.ts
+- recrutement/[id]/page.tsx
+- annulation/index.ts
+- planche/index.ts
+- fabric/index.ts
+- calcul/index.ts
+- lib/fabric/entites.ts
+- openai-responses.ts
+- moyens-generaux/page.tsx
+- viz-figure.tsx
+- topbar.tsx
+- verite-tools.ts
+- knowledge/worker.ts
+- adoption.ts
+- microsoft-mail-actions.ts
+- composer.tsx
+- promo-circuit-actions.ts
+- product-360.ts
+- api/auth.ts
+- compat.ts
+- distance.ts
 - scheduled.ts
 - demandes/page.tsx
-- view/control.ts
-- assistant-chat.tsx
-- corpus/actions.ts
-- turn.ts
-- legal-actions.ts
-- missions/runner.ts
-- workspace/protocol.ts
-- in-process/adapter.ts
-- congress-request-actions.ts
-- (app)/validations/page.tsx
-- inbox/compose.ts
-- drive/page.tsx
-- meeting-actions.ts
-- aiConfigured
-- ocr-engine.ts
-- artifact.tsx
-- knowledge/contract.ts
-- resolveDriveAccess
-- budget-forms.tsx
-- rerank.ts
-- FindingInput
-- molecule.ts
-- intelligence/actions.ts
-- monde/index.ts
-- calendar.ts
-- general-means.ts
-- mistral-ocr.ts
-- http.ts
-- factory/build.ts
-- stats.ts
-- lib/ai.ts
-- mail/oauth.ts
-- admin-settings-forms.tsx
-- topbar.tsx
-- contrat.ts
-- annulation/index.ts
-- nl.ts
-- planche/index.ts
-- calcul/index.ts
-- viz-figure.tsx
-- verite-tools.ts
-- adoption.ts
-- promo-circuit-actions.ts
-- regAudit
-- departments.ts
-- letterhead-manager.tsx
-- sfe.ts
-- distance.ts
-- in-process/events/ingestion.ts
-- market-research.ts
-- reader.ts
-- attention/policy.ts
-- test-center/runner.ts
-- canonical.ts
-- write.ts
-- lib/events/ingestion.ts
-- reseau/index.ts
-- consulting-actions.ts
-- regulatory-table.tsx
-- juges.ts
-- meetings/index.ts
-- openai-luna.ts
-- feedback/attachments.test.ts
-- extract-text.ts
-- tasks/request-flow.ts
-- regulatory-workflow.ts
-- sheets/evaluate.ts
-- payment-request-actions.ts
+- factory.ts
 - sheets/audit.ts
-- fiche.ts
-- OpenAIGptRealtime21Provider
-- microsoft-mail-actions.ts
-- action-registry.ts
-- products/resolve.ts
-- regulatory/export/route.ts
-- mail-client.tsx
-- office-supply-actions.ts
-- drive-table.tsx
-- impl-tournee.ts
-- mon-espace/page.tsx
-- ctd/classify.ts
-- realtime-voice.ts
-- document-preview.tsx
-- workspace.tsx
-- (app)/layout.tsx
-- tableur.ts
+- stats.ts
+- lib/events/ingestion.ts
+- drive/provider.ts
+- reseau/index.ts
+- scheduler/contract.ts
+- messages.ts
 - platform-audit/engine.ts
+- sheets/diff.ts
+- sheets/evaluate.ts
+- cout/index.ts
+- reconcile.ts
+- tour-plan-actions.ts
+- document-request-actions.ts
+- links/store.ts
+- limites.ts
+- montecarlo.ts
+- graph/provider.ts
+- in-process/events/ingestion.ts
+- test-center/runner.ts
+- workflow-actions.ts
+- office-supply-actions.ts
+- market-360.ts
+- stock-recurrence-actions.ts
+- juges.ts
+- OpenAIGptRealtime21Provider
+- stock-board.tsx
+- products/resolve.ts
+- pdf/adapter.ts
+- realtime-voice.ts
+- drive/page.tsx
+- (app)/layout.tsx
+- story.ts
+- capability-surface.test.ts
+- fichiers/index.ts
 - quality/rules.ts
-- petty-cash-actions.ts
-- upload-manager.tsx
-- purchase-request-actions.ts
+- document-preview.tsx
 - executive-tools.ts
-- registre/index.ts
-- e360-blocks.ts
-- src/auth.ts
-- replay-viewer.tsx
+- upload-manager.tsx
+- in-process/sandbox/index.ts
+- chief-of-staff/page.tsx
+- queries/messaging.ts
+- scopeRegulatory
 - competition.ts
 - payment-authority.ts
-- graph/provider.ts
-- document-mirror.ts
-- drive/upload/route.ts
-- dossier-timeline.tsx
-- ad-pro-item-actions.ts
-- parcours.ts
-- decks/build.ts
-- workflow/engine.ts
-- courrier/proprietaire.ts
-- ocrDocument
-- invariants/registry.ts
-- mail-smart.ts
-- qualite/page.tsx
-- items-panel.tsx
+- canonical.ts
 - regulatory-read.ts
-- event-bus.ts
-- retrieval.ts
-- stages.ts
-- queries/messaging.ts
-- medical-info-actions.ts
-- lifecycle/actions.ts
+- executive-brief-tools.ts
+- lib/fichiers/fichiers.test.ts
+- tableur.ts
+- teach/resolve.ts
+- messaging-actions.ts
+- regulatory-table.tsx
+- word.ts
+- graph/client.ts
+- drive-table.tsx
+- team-tree.tsx
 - admin-write.ts
+- sfe/tournee.ts
+- mail-smart.ts
+- tender-lines.tsx
+- sfe.ts
+- recruitment-actions.ts
+- lifecycle/actions.ts
+- action-registry.ts
+- event-bus.ts
+- operations.ts
+- directory-actions.ts
+- expense-row-actions.tsx
+- supplier/actions.ts
+- department-budget-actions.ts
+- parcours.ts
+- three-sixty.ts
+- workspace/provider.ts
+- clauses.ts
+- meetings/index.ts
+- budget-forms.tsx
+- party-picker.tsx
+- regulatory-reminder-actions.ts
+- calcul-tools.ts
 - reseau-tools.ts
-- contraintes.ts
-- information-medicale/[id]/panels.tsx
-- formula.ts
-- what-if.ts
-- features.ts
+- sfe-sweep.ts
 - state-machines/explorer.ts
 - migration-cert.ts
-- message-thread.tsx
-- dossier.tsx
-- department-budget-actions.ts
-- clauses.ts
-- mail/provider.ts
-- extract-facts.ts
-- sheet-import.ts
-- sfe-sweep.ts
-- openapi.ts
-- tour-schedule.ts
-- expense-row-actions.tsx
-- story.ts
-- calcul-tools.ts
-- situation.ts
-- reply.ts
-- search-everything.ts
-- sfe/tournee.ts
-- chain-card.tsx
-- progress/query.ts
-- simulator/run.ts
-- supplier/actions.ts
-- enregistrement/page.tsx
-- portfolio.ts
-- nav-access.ts
-- sheets/analyse.ts
-- series.ts
+- regulatory/export/route.ts
+- budgets/page.tsx
 - drive-search.ts
-- queries/team-kpis.ts
-- tasks/evidence.ts
+- legal-table.tsx
+- messenger.tsx
+- impl-wave7c.ts
+- legal/lifecycle.ts
+- to-pdf.ts
+- search-everything.ts
+- sheet-import.ts
+- queries/budget.ts
+- enregistrement/page.tsx
+- dossier-timeline.tsx
+- regulatory/page.tsx
+- cible-designee.ts
+- rollout.ts
+- working-set.ts
+- memory-tools.ts
+- what-changed.ts
+- sfe-day.ts
+- manage.ts
 - mail/connection.ts
 - meetings.ts
-- dossier-auto.ts
-- sheets.ts
-- sheets/graph.ts
-- sheets/diff.ts
-- memory-tools.ts
-- workflow/types.ts
+- exports.ts
+- portfolio.ts
+- nav-access.ts
+- sandbox-tools.ts
+- apercu.test.ts
 - ml.ts
-- directory/resolve.ts
-- payment-request.ts
-- stand-in.ts
-- legal/lifecycle.ts
-- list-view.ts
-- quality/engine.test.ts
-- process-intelligence.ts
-- workflow-actions.ts
-- centre-de-validations/page.tsx
-- onboarding-wizard.tsx
-- delivery.ts
-- simplexe.ts
-- metrics.ts
-- domains.ts
-- test-center/types.ts
-- department-budget-table.tsx
-- queries/workflow.ts
-- requestDeclareDecision
-- receipt-lines.tsx
-- deliverables.ts
-- circuit-state.ts
-- scheduler.ts
-- models/throttle.ts
-- empreinte.ts
+- workforce-mass.ts
 - test-center/manifest.ts
-- sortie/garde.ts
-- MicrosoftGraphMailProvider
-- composer.tsx
-- capability-surface.test.ts
-- turn-metrics.ts
-- update-reminder.ts
-- sql.ts
-- training-board.tsx
-- user-invites.ts
-- executive-state.ts
-- ledger-audit.ts
-- porte.ts
-- teach/resolve.ts
+- invariants/registry.ts
+- tasks/evidence.ts
+- test-center/page.tsx
+- drive/[id]/page.tsx
+- purchase-section.tsx
+- models/registry.ts
+- sheets.ts
+- series.ts
 - org-chart-print.ts
-- decide.ts
+- workspace.tsx
+- molecule-panel.tsx
+- tour-schedule.ts
+- receipt-lines.tsx
+- onboarding-wizard.tsx
+- reader.ts
+- delivery.ts
+- budget-general-means.integration.test.ts
+- retrieval.ts
+- metrics.ts
+- models/throttle.ts
+- openai-luna.ts
+- sortie/garde.ts
+- domains.ts
+- messaging/messages/route.ts
+- queries/pch.ts
+- mission-runtime-controls.tsx
+- resoudre.ts
+- stages.ts
+- circuit-state.ts
+- empreinte.ts
+- porte.ts
+- stocks/page.tsx
+- turn-metrics.ts
+- sql.ts
+- MicrosoftGraphMailProvider
+- user-invites.ts
+- directory/resolve.ts
+- ledger-audit.ts
+- product-catalog.ts
+- reports.ts
+- getMailAccount
+- adam-settings-actions.ts
+- paie/page.tsx
 - pickers.ts
 - designation.ts
+- pre-lectures.ts
 - uncertainty.ts
-- continuous-cash.ts
+- contraintes.ts
+- expression.ts
+- stand-in.ts
 - circuits.ts
-- training/for-section.ts
-- python.ts
+- heavy-parse.ts
 - pipeline-access.ts
 - voice-cooldown.ts
 - call-provider.tsx
-- tour-plan-actions.ts
+- mail-actions.ts
 - setTenderLineBusinessUnits
-- expression.ts
+- planning/messages/page.tsx
+- pilotage/page.tsx
+- bundle.ts
 - Analyseur
 - MailProvider
-- heavy-parse.ts
-- process-status.ts
-- ensureDriveFolders
-- office-pins.tsx
-- impl-commercial.ts
-- algeria.ts
 - simple-pdf.ts
-- product-catalog.ts
+- process-intelligence.ts
 - compare-versions.ts
+- pch/export/route.ts
+- radar.ts
+- identity-board.tsx
+- office-pins.tsx
+- investigation.ts
+- algeria.ts
 - boundary-scan.ts
-- lib/messaging.ts
+- fingerprint.ts
+- legal.ts
+- chief-workspace.tsx
 - background-upload.tsx
-- reminder-actions.ts
+- petty-cash.ts
 - structural-fields.ts
-- image.ts
-- three-sixty.ts
+- impl-wave5b.ts
+- viz.ts
 - cibles.ts
 - leave-sheet.ts
-- workstreams.ts
 - js.ts
-- stocks/scopes.ts
-- sendMessage
+- temporal.ts
 - push.ts
 - ai-health.ts
+- product-ranges.ts
 - bu-department.ts
-- departments-manager.tsx
-- cible-designee.ts
+- file-glyph.tsx
+- test-center/types.ts
+- doublons.ts
+- log/route.ts
 - entites/page.tsx
-- ConsultingContractPage
-- payment-dossier.ts
-- imputation.ts
-- box-economics.ts
-- messaging/messages/route.ts
-- Presence
+- regulatory-ia/page.tsx
+- parsers/sheet.ts
+- autonomie-proprietaire.ts
+- regulatory-drive-mirror.ts
 - lettres.ts
+- capabilite.test.ts
 - client-bundle-guard.test.ts
+- confirmation.ts
 - verify.ts
-- semantic.ts
-- queries/graph.test.ts
+- letterhead.ts
+- centre.ts
 - grouping.ts
+- drive-toolbar.tsx
 - forecast-grid.tsx
 - partage-actions.ts
-- apercu.test.ts
-- workspace/sheet.ts
 - auto-category.ts
+- manques.ts
 - money-entity.ts
+- sanitize.ts
 - affichage.ts
 - Adventum Autonomous Test Center — architecture
+- regulatory-corpus/page.tsx
 - VoiceRealtimeProvider
 - MeetingRecorder
 - AssignmentMatrix
-- supplier-auth.ts
-- command-palette.tsx
+- bars.tsx
 - push-register.tsx
-- kinds.ts
-- custom-fields.ts
-- sfe-performance.ts
+- api/workflow.ts
+- Analyseur
+- stock-recurrence.ts
 - usage-stats.ts
-- messagerie/page.tsx
 - use-action.ts
-- settle-budget.ts
 - bv-approval.ts
+- entrees.ts
+- impasse.ts
 - dead-links.test.ts
 - [token]/route.ts
+- access-sheet.tsx
+- toggleMissionStop
 - charts.tsx
 - messages-indicator.tsx
 - menu-portal-guard.test.ts
 - company-docs.ts
+- prisma.test.ts
 - budget-overview.integration.test.ts
 - responsive-guard.test.ts
 - class-collision.test.ts
 - next-auth.d.ts
 - app/layout.tsx
+- CommandPalette
+- notification-chime.tsx
 - facture-reprise.test.ts
+- deadline-sweep.ts
+- office-editor.tsx
 - voice-pipeline.test.ts
+- TtlCache
+- dossier-reprise.test.ts
+- intelligence/lifecycle.ts
 - loading-boundary.test.ts
 - decors-de-test.test.ts
 - pdf-parse.d.ts
 - (app)/courrier/page.tsx
-- DossierMessageItem
-- RegulatoryProcess
 - (portal)/layout.tsx
+- CompanySwitcher
 - ecran.test.ts
 - extract.worker.cjs
 - formes-stables.test.ts
@@ -422,1619 +443,1683 @@
 - { GET, POST }
 
 ## God Nodes (most connected - your core abstractions)
-1. `requireUser()` - 962 edges
-2. `prisma` - 888 edges
-3. `userCan()` - 755 edges
-4. `fdStr()` - 690 edges
-5. `recordAudit()` - 686 edges
-6. `requireModule()` - 276 edges
-7. `hasGlobalView()` - 275 edges
+1. `requireUser()` - 967 edges
+2. `prisma` - 896 edges
+3. `userCan()` - 762 edges
+4. `fdStr()` - 695 edges
+5. `recordAudit()` - 692 edges
+6. `hasGlobalView()` - 279 edges
+7. `requireModule()` - 276 edges
 8. `toNumber()` - 237 edges
-9. `Button` - 232 edges
-10. `CurrentUser` - 229 edges
+9. `Button` - 233 edges
+10. `CurrentUser` - 230 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `run()` --calls--> `resetActivityTime()`  [EXTRACTED]
   src/app/(app)/admin/adoption/adoption-settings.tsx → src/lib/actions/adoption-actions.ts
 - `save()` --calls--> `updateAiSettings()`  [EXTRACTED]
   src/app/(app)/admin/ai/ai-settings-form.tsx → src/lib/actions/ai-settings-actions.ts
+- `Stat()` --calls--> `cn()`  [EXTRACTED]
+  src/app/(app)/admin/connaissance/page.tsx → src/lib/utils.ts
+- `CorbeillePage()` --calls--> `requireUser()`  [EXTRACTED]
+  src/app/(app)/admin/corbeille/page.tsx → src/lib/session.ts
 - `removeOne()` --calls--> `removeProductFromRange()`  [EXTRACTED]
   src/app/(app)/admin/gammes/ranges-manager.tsx → src/lib/actions/product-range-actions.ts
-- `drop()` --calls--> `deleteProductRange()`  [EXTRACTED]
-  src/app/(app)/admin/gammes/ranges-manager.tsx → src/lib/actions/product-range-actions.ts
-- `RoleRow()` --calls--> `setSecondaryRole()`  [EXTRACTED]
-  src/app/(app)/admin/roles-table.tsx → src/lib/actions/admin-actions.ts
 
 ## Import Cycles
-- 3-file cycle: `src/components/chief/workspace/blocks.tsx -> src/components/chief/workspace/blocks/artifact.tsx -> src/components/chief/workspace/primitives.tsx -> src/components/chief/workspace/blocks.tsx`
 - 3-file cycle: `src/components/chief/workspace/blocks.tsx -> src/components/chief/workspace/blocks/decision.tsx -> src/components/chief/workspace/primitives.tsx -> src/components/chief/workspace/blocks.tsx`
+- 3-file cycle: `src/components/chief/workspace/blocks.tsx -> src/components/chief/workspace/blocks/artifact.tsx -> src/components/chief/workspace/primitives.tsx -> src/components/chief/workspace/blocks.tsx`
 - 3-file cycle: `src/components/chief/workspace/blocks.tsx -> src/components/chief/workspace/blocks/entity360.tsx -> src/components/chief/workspace/primitives.tsx -> src/components/chief/workspace/blocks.tsx`
 - 3-file cycle: `src/components/chief/workspace/blocks.tsx -> src/components/chief/workspace/blocks/story.tsx -> src/components/chief/workspace/primitives.tsx -> src/components/chief/workspace/blocks.tsx`
 - 3-file cycle: `src/components/chief/workspace/blocks.tsx -> src/components/chief/workspace/blocks/viz.tsx -> src/components/chief/workspace/primitives.tsx -> src/components/chief/workspace/blocks.tsx`
 - 4-file cycle: `src/lib/actions/adventum-actions.ts -> src/lib/assistant.ts -> src/lib/assistant/ops/index.ts -> src/lib/assistant/ops/impl-wave7d.ts -> src/lib/actions/adventum-actions.ts`
 - 5-file cycle: `src/lib/actions/adventum-actions.ts -> src/lib/assistant.ts -> src/lib/assistant/ops/index.ts -> src/lib/assistant/ops/impl-wave8-files.ts -> src/lib/assistant/ops/impl-wave7d.ts -> src/lib/actions/adventum-actions.ts`
 
-## Communities (421 total, 15 thin omitted)
+## Communities (443 total, 20 thin omitted)
 
 ### Community 0 - "prisma.ts"
 Cohesion: 0.01
-Nodes (222): dynamic, dynamic, dynamic, CheckinConfirm(), CheckinPage(), dynamic, viewerFor(), acteur() (+214 more)
+Nodes (244): dynamic, dynamic, dynamic, dynamic, esc(), GET(), dynamic, dynamic (+236 more)
 
-### Community 1 - "utils.ts"
-Cohesion: 0.02
-Nodes (278): dynamic, dynamic, dynamic, metadata, JournalRow, PurchaseJournal(), TON, ActivityTable() (+270 more)
-
-### Community 2 - "button.tsx"
+### Community 1 - "button.tsx"
 Cohesion: 0.01
-Nodes (251): DriveStorageSettings(), PALETTE, PALETTE, Citation, Source, Version, StoragePanel(), ENV_LABEL (+243 more)
+Nodes (247): SeatCandidate, SeatHolder, AiSettings, AiSettingsForm(), save(), FeatureKey, FEATURES, Toggle() (+239 more)
 
-### Community 3 - "rbac.ts"
-Cohesion: 0.01
-Nodes (259): GET(), AdProOtherPage(), dynamic, GammesPage(), PeoplePanel(), PersonRow, ProductOption, RangesManager() (+251 more)
-
-### Community 4 - "compiler/compile.ts"
+### Community 2 - "requireUser"
 Cohesion: 0.02
-Nodes (219): ADAM_AGENT_NAME, humainPour(), Mandat, tracerAction(), tracesPour(), verifierAvantAgir(), prevenir(), catalogue (+211 more)
+Nodes (327): POST(), dynamic, POST(), dynamic, GET(), POST(), PaymentCentreSeats(), DatabasesPage() (+319 more)
 
-### Community 5 - "ops/index.ts"
-Cohesion: 0.01
-Nodes (232): toggleSupplyArticle(), setOrderArrival(), addRegulatoryComment(), setRegulatoryClassification(), updateRegulatoryStep(), addTaskComment(), OpMeta, ActionResultLike (+224 more)
-
-### Community 6 - "missions/ports.ts"
-Cohesion: 0.02
-Nodes (194): EXECUTIVE_TOOLS, WEB_RESEARCH_TOOLS, emettreMessageRecu(), decider(), NiveauAttention, ArtifactSink, missionsAFaireAvancer(), accepte() (+186 more)
-
-### Community 7 - "missions/runtime/engine.ts"
-Cohesion: 0.02
-Nodes (185): catalogue, CONNUES, KPI, aReparer(), compteRendu(), controlerQualite(), empreinteExecution(), EtapeObservee (+177 more)
-
-### Community 8 - "recordAudit"
+### Community 3 - "utils.ts"
 Cohesion: 0.03
-Nodes (178): OtherDecisionPanel(), PaymentCentreSeats(), ImpersonateButton(), EventDetail(), remove(), respond(), EventForm(), submit() (+170 more)
+Nodes (211): dynamic, dynamic, AccessUser, ModuleAccessGrid(), ModuleSpec, PipelineConfig, PipelineState, UserModuleState (+203 more)
 
-### Community 9 - "hasGlobalView"
-Cohesion: 0.03
-Nodes (160): dynamic, GET(), AdProOtherDetailPage(), ChiefOfStaffPage(), Budget(), CongressDetailView(), CongressIntlDetailPage(), CongressNatDetailPage() (+152 more)
+### Community 4 - "runtime.ts"
+Cohesion: 0.02
+Nodes (239): EXECUTIVE_TOOLS, agentPour(), decider(), demanderApprobation(), NiveauAttention, porteApprobation(), reouvrirSiChange(), ArtifactDeps (+231 more)
+
+### Community 5 - "notifyUser"
+Cohesion: 0.02
+Nodes (241): dynamic, POST(), dynamic, POST(), RuleEditor(), AttachmentValidationBlock(), RequestActions(), TrainingBoard() (+233 more)
+
+### Community 6 - "hasGlobalView"
+Cohesion: 0.02
+Nodes (205): AdProOtherDetailPage(), CourrierAdminPage(), AdminFeedbackPage(), ReplayPage(), AdminSuppliersPage(), Group(), BD_DOC_CATEGORIES, ProjectEditor() (+197 more)
+
+### Community 7 - "compiler/compile.ts"
+Cohesion: 0.02
+Nodes (195): ADAM_AGENT_NAME, Mandat, tracerAction(), tracesPour(), verifierAvantAgir(), prevenir(), catalogue, compiler() (+187 more)
+
+### Community 8 - "missions/runtime/engine.ts"
+Cohesion: 0.02
+Nodes (192): catalogue, CONNUES, creer(), KPI, aReparer(), compteRendu(), controlerQualite(), empreinteExecution() (+184 more)
+
+### Community 9 - "ops/index.ts"
+Cohesion: 0.02
+Nodes (175): MailPieces(), SpaceSettingsButton(), run(), AdProKind, closeSource(), Common, createTarget(), isKind() (+167 more)
 
 ### Community 10 - "requireModule"
 Cohesion: 0.02
-Nodes (149): dynamic, GET(), dynamic, POST(), AccessUser, ModuleAccessGrid(), ModuleSpec, PipelineConfig (+141 more)
+Nodes (170): AdProOtherPage(), JournalAchatsPage(), DiagnosticPage(), scoreColor(), CustomFieldsPage(), dynamic, GammesPage(), PersonRow (+162 more)
 
-### Community 11 - "context/router.ts"
-Cohesion: 0.03
-Nodes (155): MISSIONS, outilsExposes(), BenchReport, CaseResult, isWrite(), ROUTES, runCase(), runRouterBench() (+147 more)
-
-### Community 12 - "assistant.ts"
+### Community 11 - "skills/index.ts"
 Cohesion: 0.02
-Nodes (155): DELETABLE_KINDS, recentActionIntentsContext(), nativeActionHint(), activeUserId(), asNum(), AssistantActionKind, AssistantMetrics, AssistantRunOptions (+147 more)
+Nodes (157): declarerDomaineDynamique(), PowerTool, SKILL_TOOLS, WEB_RESEARCH_TOOLS, sendMail(), base, Cas, ALIAS_CANAL (+149 more)
 
-### Community 13 - "gateway.ts"
-Cohesion: 0.04
-Nodes (130): sanitizeForModel(), AnthropicBlock, baseUrl(), buildAnthropicBody(), callAnthropic(), fromAnthropicBlocks(), headers(), notConfigured() (+122 more)
-
-### Community 14 - "userCan"
-Cohesion: 0.03
-Nodes (139): dynamic, POST(), GET(), POST(), PersonSheet(), save(), ProductPicker(), save() (+131 more)
-
-### Community 15 - "runtime.ts"
-Cohesion: 0.03
-Nodes (128): agentPour(), demanderApprobation(), porteApprobation(), reouvrirSiChange(), ancetres(), JugeReel, EtatBudget, peutReplanifier() (+120 more)
-
-### Community 16 - "notifyRoles"
-Cohesion: 0.03
-Nodes (123): GET(), TrainingBoard(), EmployeeForm(), runAnalyze(), RequestRow(), ExpenseClaimEdit(), ExpenseClaimHrPanel(), CancelButton() (+115 more)
-
-### Community 17 - "lib/audit.ts"
-Cohesion: 0.03
-Nodes (108): PermanentDeleteButton(), PurgeOrphansButton(), run(), EntitiesManager(), toggle(), FieldsManager(), OrgBranch(), save() (+100 more)
-
-### Community 18 - "queries/budget.ts"
-Cohesion: 0.03
-Nodes (104): GET(), BudgetContextBar(), CategoryCard(), BudgetSettings(), BudgetTotalInfo, UserOpt, dynamic, BudgetExpensesPage() (+96 more)
-
-### Community 19 - "mission-runtime-actions.ts"
-Cohesion: 0.03
-Nodes (118): dynamic, MissionRuntimePage(), COULEUR, ICONE, MissionHorizon(), MissionPause(), AccordControls(), ConduiteControls() (+110 more)
-
-### Community 20 - "lib/labels.ts"
+### Community 12 - "lib/labels.ts"
 Cohesion: 0.02
-Nodes (110): ActivityRow, TYPE, AuditPanel(), AuditRow, AuditTable(), FeedbackStatusSelect(), RoleRow(), RoleRowData (+102 more)
+Nodes (127): ActivityRow, ActivityTable(), TYPE, AuditPanel(), AuditRow, AuditTable(), FeedbackStatusSelect(), BudgetRow (+119 more)
 
-### Community 21 - "planner/plan.ts"
+### Community 13 - "canAccessEntity"
 Cohesion: 0.03
-Nodes (109): NODE_TYPES, Candidat, capacitesDeRecherche(), capacitesPourFamilles(), cheminDirect(), cheminDirectFiche(), cheminDirectRecherche(), ContexteDirect (+101 more)
+Nodes (128): GET(), POST(), LinkToDossier(), submit(), stripHtml(), DossierAssign(), DossierMessageForm(), DossierMessageItem() (+120 more)
 
-### Community 22 - "skills/index.ts"
+### Community 14 - "(app)/validations/page.tsx"
 Cohesion: 0.03
-Nodes (112): declarerDomaineDynamique(), SKILL_TOOLS, PreferencesCanaux, declarerMetaDynamique(), Attente, SchemaSortie, ecartDeContrat, lireChemin() (+104 more)
+Nodes (121): CentreBoard(), CentreOrder, CentreDePaiementPage(), dynamic, metadata, CentreRow, Filtre, FILTRES (+113 more)
 
-### Community 23 - "fdStr"
+### Community 15 - "company.ts"
 Cohesion: 0.03
-Nodes (121): ActiveToggle(), ActiveToggle(), Profile, ProfileForm(), RequestOnboardingButton(), ResetPasswordForm(), RevokeAllButton(), RuleControls() (+113 more)
+Nodes (109): GET(), GET(), DELETE(), dynamic, POST(), dynamic, GET(), INLINE_MIME (+101 more)
 
-### Community 24 - "pptx/adapter.ts"
-Cohesion: 0.06
-Nodes (111): appliquerStyleProps(), construireEtat(), dansTableau(), lireImages(), lireParagraphe(), lireStyleRun(), lireTable(), marquesDePage() (+103 more)
-
-### Community 25 - "docx/adapter.ts"
+### Community 16 - "planner/plan.ts"
 Cohesion: 0.03
-Nodes (89): RessourceBinaire, adaptateurDocx, ALIGN_MODELE, ALIGN_OOXML, echapperRegex(), estimerPages(), EtatDocx, niveauDeTitre() (+81 more)
+Nodes (117): rolePourPlanification(), APPROVAL_STRATEGIES, COMPLEXITIES, NODE_TYPES, SCALES, Candidat, capacitesDeRecherche(), capacitesPourFamilles() (+109 more)
 
-### Community 26 - "requireUser"
+### Community 17 - "[dossierId]/page.tsx"
+Cohesion: 0.03
+Nodes (117): AnalysisProgressCard(), ApproveNameButton(), approve(), DeleteDossierButton(), onDelete(), FindingControls(), apply(), toTask() (+109 more)
+
+### Community 18 - "jobs/runner.ts"
+Cohesion: 0.03
+Nodes (113): extractJson(), fetchBatchOutput(), getBatchStatus(), lunaCostUsd(), LunaResult, LunaUsage, submitBatch(), aiChunkChars() (+105 more)
+
+### Community 19 - "drive-storage.ts"
 Cohesion: 0.04
-Nodes (104): CorbeillePage(), SignatureSheet(), save(), DossierAssign(), DossierStatusControls(), SpaceSettingsButton(), DriveCommentItem, DriveComments() (+96 more)
+Nodes (111): GET(), GET(), MIME_BY_EXT, mimeByName(), GET(), dynamic, GET(), dynamic (+103 more)
 
-### Community 27 - "artifact/runtime/engine.ts"
-Cohesion: 0.05
-Nodes (93): dynamic, OfficeLivePage(), ArtifactBlock(), pdfNumerote(), xlsxAvecTableau(), adaptateurPour(), mimeDe(), estAccord() (+85 more)
-
-### Community 28 - "adam-tools.ts"
-Cohesion: 0.03
-Nodes (97): activeOrMessage(), ADAM_MISSION_STATUSES, liveGmailSearch(), POLICY_LABEL, ALGIERS_TZ, BusySlot, cancelEvent(), createEvent() (+89 more)
-
-### Community 29 - "jobs/runner.ts"
+### Community 20 - "events/router.ts"
 Cohesion: 0.04
-Nodes (101): extractJson(), fetchBatchOutput(), getBatchStatus(), lunaCostUsd(), submitBatch(), aiChunkChars(), aiChunkPages(), chunkPageSpan() (+93 more)
+Nodes (99): eteindreRappelsSurEvenement(), formatAlgiersDue(), nextMonthlyWeekday(), nextOccurrence(), RECURRENCE_LABEL, REMINDER_RECURRENCES, ReminderRecurrence, runAssistantReminders() (+91 more)
 
-### Community 30 - "legal/page.tsx"
+### Community 21 - "object-model/model.ts"
+Cohesion: 0.03
+Nodes (83): RessourceBinaire, adaptateurDocx, EtatDocx, docAvecImage(), docDeuxImages(), LOGO, ressources(), docxPagine() (+75 more)
+
+### Community 22 - "payment-request-actions.ts"
 Cohesion: 0.04
-Nodes (79): dynamic, MailEntryPage(), dateInput(), dateTimeInput(), mailFields(), MailFolderBar(), MailFolderRow, MailRow (+71 more)
+Nodes (109): AddPiece(), DossierRequirements(), PaymentDossier(), PieceCard(), actorFor(), envoyer(), fd(), deferExpenseOrder() (+101 more)
 
-### Community 31 - "google/config.ts"
+### Community 23 - "context/router.ts"
+Cohesion: 0.04
+Nodes (103): BenchReport, CaseResult, isWrite(), ROUTES, runCase(), runRouterBench(), Authority, AUTHORITY_WEIGHT (+95 more)
+
+### Community 24 - "docx/adapter.ts"
 Cohesion: 0.05
-Nodes (83): dynamic, GET(), dynamic, GET(), dynamic, POST(), ACTION_POLICY, ADAM_TOOLS (+75 more)
+Nodes (111): ALIGN_MODELE, ALIGN_OOXML, construireEtat(), dansTableau(), echapperRegex(), estimerPages(), lireImages(), lireParagraphe() (+103 more)
 
-### Community 32 - "events/router.ts"
-Cohesion: 0.05
-Nodes (80): envoyerMessageDirect(), ADAM_EMAIL, assurerCompteAgent(), CompteAgent, estCompteSysteme(), idCompteAgent(), peutSeConnecter(), REFUS_COMPTE_SYSTEME (+72 more)
+### Community 25 - "resolveDriveAccess"
+Cohesion: 0.04
+Nodes (96): GET(), mimeOf(), POST(), POST(), GET(), DriveCanvas(), ITEMS, NewKind (+88 more)
 
-### Community 33 - "cn"
+### Community 26 - "CommandeArtefact"
+Cohesion: 0.09
+Nodes (38): EffetCommande, effetEchec(), effetOk(), appliquerStyleProps(), DocxOuvert, libelleParagraphe(), nouveauRun(), poserOnOff() (+30 more)
+
+### Community 27 - "ocr-engine.ts"
 Cohesion: 0.03
-Nodes (77): AdoptionTable(), badgeTone, TONE_BAR, TONE_TEXT, dynamic, metadata, AiSettings, AiSettingsForm() (+69 more)
+Nodes (89): dynamic, GET(), runtime, runAnalyze(), analyzeEmployeeContract(), analyzeTenderDocument(), defaultOcrLangs(), ensureLangData() (+81 more)
 
-### Community 34 - "outbound.ts"
+### Community 28 - "artifact/runtime/engine.ts"
 Cohesion: 0.05
-Nodes (72): CHOICES, Policy, ReglagesForm(), disconnectAdamGoogle(), renewAdamWatch(), requireChief(), setAdamConnectionPaused(), setAdamInboundPaused() (+64 more)
+Nodes (91): dynamic, OfficeLivePage(), ArtifactBlock(), xlsxAvecTableau(), mimeDe(), estAccord(), Chrono, maintenant() (+83 more)
 
-### Community 35 - "artifacts/build.ts"
+### Community 29 - "impl-wave5.ts"
+Cohesion: 0.05
+Nodes (99): OtherDecisionPanel(), BeneficiariesCard(), remove(), requestIds(), submit(), Action, base(), Cat (+91 more)
+
+### Community 30 - "impl-finance-flows.ts"
+Cohesion: 0.04
+Nodes (87): ack(), MONTHS, PayrollCell, PayrollMatrix(), undo(), ym(), addBudgetExpense(), attributeTransaction() (+79 more)
+
+### Community 31 - "formatDate"
 Cohesion: 0.03
-Nodes (73): ArtifactDeps, attendreLaBase(), cleDuLivrable(), composerSpec(), DOSSIER_LIVRABLES, executerArtefact(), fusionner(), identiteDuLivrable() (+65 more)
+Nodes (88): FocusCard(), CategoryCard(), BudgetSettings(), BudgetTotalInfo, UserOpt, MarketResearchListPage(), CentreCard(), ConsultingContractPage() (+80 more)
 
-### Community 36 - "links/store.ts"
+### Community 32 - "assistant.ts"
+Cohesion: 0.04
+Nodes (91): DELETABLE_KINDS, frDate(), recentActionIntentsContext(), nativeActionHint(), activeUserId(), asNum(), AssistantActionKind, AssistantMetrics (+83 more)
+
+### Community 33 - "upload/session.ts"
+Cohesion: 0.04
+Nodes (87): dynamic, runtime, archiveQueue, attachArchive(), clampInt(), enqueueArchive(), flushOriginalArchives(), ingestCore() (+79 more)
+
+### Community 34 - "rules/engine.ts"
+Cohesion: 0.04
+Nodes (76): KIND_LABEL, Pack, Rule, RulePacksAdmin(), seed(), test(), Classification, classifyDocument() (+68 more)
+
+### Community 35 - "spec.ts"
+Cohesion: 0.04
+Nodes (73): SpecDeck, SpecDiapo, diapoTableau(), morceaux(), mots(), paquets(), titreCourt(), titreSuite() (+65 more)
+
+### Community 36 - "medical-directory-actions.ts"
 Cohesion: 0.05
-Nodes (82): d10(), LogisticsRow(), Res, TenderLogistics(), save(), EntityLinkCandidates, EntityLinks(), EntityLinkView (+74 more)
+Nodes (79): GET(), AnnuaireGrid(), SelectCell, TextCell, ImportMappingSheet(), ORIGINE, importDirectorySheet(), previewDirectorySheet() (+71 more)
 
 ### Community 37 - "dossier-agent.ts"
 Cohesion: 0.05
-Nodes (79): DossierChatPanel(), recoverFromThread(), resetThread(), send(), Msg, SUGGESTIONS, Msg, ReserveChatPanel() (+71 more)
+Nodes (74): DossierChatPanel(), recoverFromThread(), resetThread(), send(), Msg, SUGGESTIONS, Msg, ReserveChatPanel() (+66 more)
 
-### Community 38 - "CommandeArtefact"
-Cohesion: 0.10
-Nodes (21): EffetCommande, effetEchec(), effetOk(), DocxOuvert, libelleParagraphe(), pPr(), PdfOuvert, estTitre() (+13 more)
-
-### Community 39 - "PATH"
+### Community 38 - "regAudit"
 Cohesion: 0.05
-Nodes (79): MailPartnersManager(), deactivate(), drop(), submit(), CHANNEL_ICON, CONFIDENCE_LABEL, DirectoryPerson, PeopleDirectory() (+71 more)
+Nodes (71): CorpusAdmin(), doImport(), search(), CorpusPanel(), IngestResults, Src, WatchFindings, regAudit() (+63 more)
 
-### Community 40 - "medical-directory-actions.ts"
+### Community 39 - "legal-actions.ts"
+Cohesion: 0.05
+Nodes (76): DeleteMailButton(), remove(), createInvoice(), deleteInvoice(), laFacture(), peutEcrire(), readFields(), setInvoiceOrder() (+68 more)
+
+### Community 40 - "in-process/media/transcription.ts"
 Cohesion: 0.06
-Nodes (77): GET(), AnnuaireGrid(), SelectCell, TextCell, importDirectorySheet(), previewDirectorySheet(), saveDirectoryCell(), segToPriority (+69 more)
+Nodes (70): texteDeMedia(), transcriptionPersistee(), AttachmentText, buildAttachmentContext(), cap(), extOf(), extractAttachmentText(), extractPptx() (+62 more)
 
-### Community 41 - "impl-finance-flows.ts"
-Cohesion: 0.04
-Nodes (69): deferExpenseOrder(), purgeSettledExpenseOrders(), requestInvoice(), resumeExpenseOrder(), settleExpenseOrder(), syncCompanionOnSettle(), setTreasuryOpeningBalance(), updateTransactionStatus() (+61 more)
+### Community 41 - "gateway.ts"
+Cohesion: 0.05
+Nodes (70): BudgetInput, ADAM_POLICY, AdamPolicy, capabilityFor(), describeRequest(), EFFORTS_5_6, FAMILLES, FOURNISSEUR_5_6 (+62 more)
 
 ### Community 42 - "workspace/compose.ts"
+Cohesion: 0.10
+Nodes (79): composeWorkspace(), declaredBlocks(), fromCalendar(), fromDeclaredRows(), fromDirectoryList(), fromDirectoryLookup(), fromMail(), fromQueue() (+71 more)
+
+### Community 43 - "ai/page.tsx"
+Cohesion: 0.04
+Nodes (71): ADAM_LABEL, ADAM_TONE, AiControlCenterPage(), dynamic, FEATURE_LABEL, metadata, AggNum(), BdStrategicTable() (+63 more)
+
+### Community 44 - "create-fields.ts"
+Cohesion: 0.06
+Nodes (62): AdProList(), EMPTY, Filters, NewRequestPicker(), NewRequestPickerProps, AdProPage(), dynamic, CongressRequestForm() (+54 more)
+
+### Community 45 - "knowledge/contract.ts"
+Cohesion: 0.06
+Nodes (71): capLength(), chunkTable(), chunkText(), chunkUnits(), looksLikeHeading(), MAX_CHUNK_CHARS, MIN_CHUNK_CHARS, renumber() (+63 more)
+
+### Community 46 - "horizon.ts"
+Cohesion: 0.05
+Nodes (70): EtatBudget, peutReplanifier(), REPLANS_PAR_JALON, signatureRefus(), VerdictBudget, Confiance, avancement, cycles() (+62 more)
+
+### Community 47 - "impl-wave7d.ts"
+Cohesion: 0.05
+Nodes (63): PermanentDeleteButton(), PurgeOrphansButton(), run(), EntitiesManager(), toggle(), VersionsManager(), move(), switchTestMode() (+55 more)
+
+### Community 48 - "platformScope"
+Cohesion: 0.04
+Nodes (63): PAYABLE_CATEGORIES, STATUS_BADGES, StepView, ValidationView, EventsPage(), dynamic, FieldReportPage(), NewReportButton() (+55 more)
+
+### Community 49 - "brain-cockpit.tsx"
+Cohesion: 0.05
+Nodes (62): AutopilotConfirm(), CAT_LABEL, FeedTab(), fmtTime(), Kpi(), Kpis, levelEmoji(), LEVELS (+54 more)
+
+### Community 50 - "impl-wave6c.ts"
+Cohesion: 0.06
+Nodes (67): Action, BuCard(), saveBu(), BuRow, BusinessUnitsManager(), EtabOpt, KamLine(), save() (+59 more)
+
+### Community 51 - "build-facts.ts"
+Cohesion: 0.05
+Nodes (59): extractLooseJson(), repairAndParse(), handleFacts(), AiFactDoc, AiFactSchema, AiFactsOutputSchema, AiFn, buildPrompt() (+51 more)
+
+### Community 52 - "actions/types.ts"
+Cohesion: 0.05
+Nodes (61): EventDetail(), remove(), respond(), EventForm(), submit(), InviteResponse(), send(), Resp (+53 more)
+
+### Community 53 - "teach/store.ts"
+Cohesion: 0.05
+Nodes (63): TEACH_TOOLS, lireHeuresSilence(), CANAL_CANONIQUE, Classement, classerEnseignement(), extraireParametres(), Indice, INDICES (+55 more)
+
+### Community 54 - "directive-actions.ts"
+Cohesion: 0.07
+Nodes (59): DirectiveAccessForm(), DirectiveDetailPage(), poids(), MessageForm(), PublishPanel(), ResendButton(), set(), StatusActions() (+51 more)
+
+### Community 55 - "regulatory-actions.ts"
+Cohesion: 0.05
+Nodes (57): StepNote(), save(), SupervisionControls(), requestUpdate(), saveDates(), addRegulatoryComment(), checkDciDuplicate(), createRegulatoryProduct() (+49 more)
+
+### Community 56 - "workspace/protocol.ts"
+Cohesion: 0.06
+Nodes (65): blocCarte(), Acteur, AGREGATS, alertesLocales(), apercu(), composerVue(), isObj(), Json (+57 more)
+
+### Community 57 - "blocks.tsx"
+Cohesion: 0.04
+Nodes (40): CANAL_ICON, Alerte, ALERTE_ICON, AlerteBlock(), Comparison, ComparisonBlock(), DECISION_BLOCKS, ETAPE_ICON (+32 more)
+
+### Community 58 - "executeReadTool"
+Cohesion: 0.05
+Nodes (49): ACTION_INTENT_TOOLS, ActionIntentStatus, cancelActionIntent(), executeIntentGuarded(), INTENT_STATUS_LABEL, IntentExecuteResult, IntentSeed, intentSummary() (+41 more)
+
+### Community 59 - "google/config.ts"
+Cohesion: 0.07
+Nodes (54): dynamic, GET(), dynamic, GET(), ACTION_POLICY, ADAM_TOOLS, SRC, DOCS_BASE (+46 more)
+
+### Community 60 - "library-actions.ts"
+Cohesion: 0.06
+Nodes (56): PrecedentSearch(), ReserveLibraryPanel(), Risk, Similar, LunaCallInput, enrichFinding(), Enrichment, EnrichmentContext (+48 more)
+
+### Community 61 - "extract-text.ts"
+Cohesion: 0.06
+Nodes (48): CaseCard(), CaseDocRow, CaseRow, TrainingPanel(), onCreate(), UpRow, codeFromTitle(), CORPUS_IMPORT_EXTS (+40 more)
+
+### Community 62 - "entities/resolve.test.ts"
+Cohesion: 0.08
+Nodes (55): RelationPredicate, ALIAS_WEIGHT, AliasSource, DECISIVE_GAP, DECISIVE_SCORE, ENTITY_KINDS, EntityCandidate, EntityKind (+47 more)
+
+### Community 63 - "in-process/adapter.ts"
+Cohesion: 0.06
+Nodes (55): missionsEnCours(), AncreType, Arete, marches, produits, voisinage, voisinageMarche(), voisinagePersonne() (+47 more)
+
+### Community 64 - "medical-info-actions.ts"
 Cohesion: 0.09
-Nodes (84): composeWorkspace(), declaredBlocks(), fromCalendar(), fromDeclaredRows(), fromDirectoryList(), fromDirectoryLookup(), fromMail(), fromQueue() (+76 more)
+Nodes (55): AuthorityForm(), AuthorityLocked(), CancelRequestButton(), CreateDeclarationButton(), DeclareDecisionCard(), DirectionValidateButton(), DocIcon, FulfillForm() (+47 more)
 
-### Community 43 - "calibrate.ts"
-Cohesion: 0.05
-Nodes (67): AssistantResult, Calibration, calibrer(), Certitude, certitudeDuFait(), CERTITUDES, chiffres(), Conduite (+59 more)
-
-### Community 44 - "brain-cockpit.tsx"
-Cohesion: 0.05
-Nodes (70): AutopilotConfirm(), BrainCockpit(), CAT_LABEL, FeedTab(), fmtTime(), Kpi(), Kpis, levelEmoji() (+62 more)
-
-### Community 45 - "create-fields.ts"
-Cohesion: 0.05
-Nodes (67): AdProList(), EMPTY, Filters, NewRequestPicker(), NewRequestPickerProps, AdProPage(), dynamic, CongressRequestButton() (+59 more)
-
-### Community 46 - "adam-core.test.ts"
-Cohesion: 0.05
-Nodes (75): RFC-2045, RFC-2047, RFC-3834, RFC-5322, OPEN(), ACTION_PATTERNS, analyzeEmail(), AnalyzeInput (+67 more)
-
-### Community 47 - "in-process/media/transcription.ts"
-Cohesion: 0.06
-Nodes (66): texteDeMedia(), AttachmentText, buildAttachmentContext(), cap(), extOf(), extractAttachmentText(), extractPptx(), IMAGE_MIME (+58 more)
-
-### Community 48 - "missions/watch.ts"
-Cohesion: 0.04
-Nodes (71): eteindreRappelsSurEvenement(), formatAlgiersDue(), nextMonthlyWeekday(), nextOccurrence(), RECURRENCE_LABEL, REMINDER_RECURRENCES, ReminderRecurrence, runAssistantReminders() (+63 more)
-
-### Community 49 - "spec.ts"
-Cohesion: 0.05
-Nodes (65): DeckRendu, esc(), MIMES, para(), rendre(), rendreCsv(), rendreDocx(), rendrePdf() (+57 more)
-
-### Community 50 - "regCan"
-Cohesion: 0.05
-Nodes (60): dynamic, GET(), INLINE_MIME, runtime, dynamic, GET(), runtime, dynamic (+52 more)
-
-### Community 51 - "teach/store.ts"
-Cohesion: 0.05
-Nodes (67): TEACH_TOOLS, canEditCompanyId(), BUDGET_REGLES_DEFAUT, composerBlocRegles(), EN_TETE_BLOC_REGLES, estimerJetons(), filtrerParDomaine(), ligneRegle() (+59 more)
-
-### Community 52 - "payroll-hr-actions.ts"
-Cohesion: 0.06
-Nodes (56): canRunPayroll(), deposerFicheDePaie(), markSalaryPaid(), refreshPayrollMass(), updatePayrollEntry(), ym(), MIME_DOCX, amendImpact (+48 more)
-
-### Community 53 - "fdNum"
-Cohesion: 0.06
-Nodes (61): EditTransactionSheet(), EmploiDuTemps(), ContractPanel(), OrderExecution(), SubmissionPanel(), resetActivityTime(), saveAdoptionSettings(), updateAiSettings() (+53 more)
-
-### Community 54 - "drive-storage.ts"
-Cohesion: 0.06
-Nodes (60): addFile(), ArchiveAttachment, ArchiveBureau, archiveProcessedRequest(), ensureFolder(), deposer(), blobChunkBytes(), blobKey() (+52 more)
-
-### Community 55 - "fichiers/index.ts"
-Cohesion: 0.06
-Nodes (62): Acteur, FICHIERS_TOOLS, mo(), canEditDrive(), Categorie, CONFIANCE_MAX_SANS_CONTENU, extraireEntites(), gestesDeClassement() (+54 more)
-
-### Community 56 - "mail.ts"
-Cohesion: 0.05
-Nodes (67): dynamic, POST(), dynamic, GET(), dynamic, GET(), dynamic, GET() (+59 more)
-
-### Community 57 - "lecture.ts"
-Cohesion: 0.06
-Nodes (61): dynamic, GET(), dynamic, GET(), chargerMupdf(), MIME_PPTX, chercherDansPdf(), Doc (+53 more)
-
-### Community 58 - "impl-wave6c.ts"
-Cohesion: 0.06
-Nodes (65): Action, BuCard(), saveBu(), BuRow, BusinessUnitsManager(), EtabOpt, KamLine(), save() (+57 more)
-
-### Community 59 - "regulatory-actions.ts"
-Cohesion: 0.05
-Nodes (64): DciDuplicateBanner(), DciDuplicateCheck, useDciDuplicate(), ChecklistPanel(), toggle(), StepNote(), save(), SupervisionControls() (+56 more)
-
-### Community 60 - "capacites/index.ts"
+### Community 65 - "lib/fabric/provenance.ts"
 Cohesion: 0.07
-Nodes (58): ChampAction, ContratAction, direContrat(), CONTRAT_PAR_ID, CONTRATS_ACTIONS, TypeChamp, echecDeclare(), executerAction() (+50 more)
+Nodes (58): provenance(), provenance(), provenance(), provenanceCalcul(), sourcesDuResultat(), provenanceVue(), ancresNominales(), ancresNumeriques() (+50 more)
 
-### Community 61 - "object-storage.ts"
-Cohesion: 0.07
-Nodes (65): dynamic, GET(), runtime, RFC-3986, finalizeDirectUploadSession(), abortMultipartUpload(), amzDate(), completeMultipartUpload() (+57 more)
-
-### Community 62 - "blocks.tsx"
-Cohesion: 0.04
-Nodes (41): CANAL_ICON, Alerte, ALERTE_ICON, AlerteBlock(), Comparison, ComparisonBlock(), DECISION_BLOCKS, ETAPE_ICON (+33 more)
-
-### Community 63 - "entities/resolve.test.ts"
-Cohesion: 0.07
-Nodes (56): INVESTIGATION_TOOLS, searchTokens(), RelationPredicate, ALIAS_WEIGHT, AliasSource, DECISIVE_GAP, DECISIVE_SCORE, ENTITY_KINDS (+48 more)
-
-### Community 64 - "intelligence/index.ts"
-Cohesion: 0.07
-Nodes (58): Acteur, blocSignaux(), GRAVITES, INTELLIGENCE_TOOLS, num(), proprietesCommunes, reponse(), arrondi() (+50 more)
-
-### Community 65 - "corpus-actions.ts"
-Cohesion: 0.06
-Nodes (59): CorpusPanel(), IngestResults, Src, WatchFindings, ANPP_WATCH_PAGES, BINDING, CATALOG, CatalogSource (+51 more)
-
-### Community 66 - "[dossierId]/page.tsx"
-Cohesion: 0.06
-Nodes (56): DossierDetailPage(), dynamic, FindingEvidence(), FindingRow, fmtDateTime(), INLINE_EXT, ReserveMap, securityIcon() (+48 more)
-
-### Community 67 - "sandbox-tools.ts"
-Cohesion: 0.05
-Nodes (53): provenance(), EXECUTIVE_READ_TOOLS, provenance(), PowerTool, provenance(), Acteur, blocTableau(), Chargement (+45 more)
-
-### Community 68 - "fabric/index.ts"
+### Community 66 - "intelligence/index.ts"
 Cohesion: 0.08
-Nodes (56): SOURCE_MAP_TOOLS, contexteEntitesResolues(), contientUnJeton(), fournisseurs(), institutions(), jetonsRequete(), medecins(), noter() (+48 more)
+Nodes (54): Acteur, blocSignaux(), GRAVITES, INTELLIGENCE_TOOLS, num(), proprietesCommunes, reponse(), arrondi() (+46 more)
 
-### Community 69 - "voice-realtime.ts"
+### Community 67 - "provider-smoke.ts"
 Cohesion: 0.06
-Nodes (56): dynamic, EVENTS, POST(), runtime, dynamic, maxDuration, POST(), runtime (+48 more)
+Nodes (51): deepSmoke(), Echantillons, genererScenarios(), GenreEcarte, GENRES_TRIVIAUX, inventorier(), mesurerPalier(), MissionProfonde (+43 more)
 
-### Community 70 - "pch-tender-line-actions.ts"
-Cohesion: 0.08
-Nodes (58): dominantOrigin(), enrichLineById(), int(), matchOurProduct(), MODULE, parseBoxSize(), parseLineStatus(), RawLine (+50 more)
-
-### Community 71 - "factory.ts"
+### Community 68 - "mission-runtime-actions.ts"
 Cohesion: 0.06
-Nodes (61): construireDocumentCommercial(), arrondirCentimes(), calculerTotaux(), dateIso(), empreinteDocument(), formaterDzd(), formaterNumero(), fraction() (+53 more)
+Nodes (55): AccordEnAttente, ApercuModification, approuverModeleOperationnel(), DemandeModificationEcran, listerAccordsMission(), prevoirModificationMission(), REFUS, replanifierMissionAction() (+47 more)
 
-### Community 72 - "upload/session.ts"
-Cohesion: 0.06
-Nodes (53): dynamic, POST(), runtime, dynamic, maxDuration, PUT(), runtime, DELETE() (+45 more)
-
-### Community 73 - "in-process/artifact/ports.ts"
+### Community 69 - "missions/watch.ts"
 Cohesion: 0.05
-Nodes (32): AdaptateurArtefact, DesignationImage, DocumentOuvert, extractionEchec(), ExtractionImage, ImageExtraite, Validation, ajouterFlux() (+24 more)
+Nodes (55): watchState, Utilisateur, IssueCondition, ISSUES_CONDITION, AmontObserve, comparerValeurs(), estVide(), evaluerCondition() (+47 more)
 
-### Community 74 - "assistant-actions.ts"
+### Community 70 - "missions/catalog.ts"
+Cohesion: 0.06
+Nodes (52): catalogueAvec(), CONNUES, pdg, Certitude, champsDuSchema(), direSortieCapacite(), DIT_ORIGINE, EtapeAExaminer (+44 more)
+
+### Community 71 - "voice-realtime.ts"
 Cohesion: 0.07
-Nodes (49): dynamic, maxDuration, runtime, dynamic, POST(), runtime, assistantChat(), forgetMyAssistantMemory() (+41 more)
+Nodes (52): dynamic, maxDuration, POST(), runtime, screenActionsContext(), extractSources(), routeOf(), runAssistant() (+44 more)
 
-### Community 75 - "verification/index.ts"
+### Community 72 - "mission-runtime-panel.tsx"
+Cohesion: 0.06
+Nodes (47): dynamic, MissionRuntimePage(), MissionControlList(), MissionControlRow(), MissionsCloses(), COULEUR, ICONE, MissionHorizon() (+39 more)
+
+### Community 73 - "verification/index.ts"
 Cohesion: 0.07
 Nodes (53): Action, ACTIONS, apprendre(), cleDe(), DE_LA_CAUSE, Echec, feuille(), Lecon (+45 more)
 
-### Community 76 - "memory.ts"
-Cohesion: 0.08
-Nodes (45): messagesApres(), Assemblage, BUDGET_MEMOIRE_DEFAUT, composer(), Couche, COUCHES, estimerJetons(), INCOMPRESSIBLES (+37 more)
+### Community 74 - "entities.ts"
+Cohesion: 0.10
+Nodes (46): GET, ASPECTS, GET, GET, GET, RESERVED, blockOf(), GET (+38 more)
 
-### Community 77 - "rules/engine.ts"
-Cohesion: 0.07
-Nodes (48): KIND_LABEL, Pack, Rule, RulePacksAdmin(), seed(), test(), canManage(), PackTestReport (+40 more)
-
-### Community 78 - "orders-table.tsx"
-Cohesion: 0.07
-Nodes (46): CentreBoard(), CentreMessage, CentreOrder, TONE, CentreDePaiementPage(), dynamic, metadata, BudgetChoice (+38 more)
-
-### Community 79 - "impl-wave5b.ts"
-Cohesion: 0.12
-Nodes (48): CancelButton(), PromoActionPanel(), PromoFlags, Props, useRun(), addPromoComment(), audit(), cancelPromoMaterial() (+40 more)
-
-### Community 80 - "objectif/index.ts"
+### Community 75 - "objectif/index.ts"
 Cohesion: 0.07
 Nodes (49): OBJECTIF_TOOLS, auditer(), chemins(), confianceEffective(), Direction, DIRECTIONS, fondement, FONDEMENTS (+41 more)
 
-### Community 81 - "drive-actions.ts"
+### Community 76 - "src/auth.ts"
 Cohesion: 0.07
-Nodes (47): POST(), dynamic, GET(), DocumentEditPage(), dynamic, ENTITY_ROUTE, ConvertPdfButton(), run() (+39 more)
+Nodes (45): NO_CONTENT, POST(), NO_CONTENT, POST(), lastAlertByUser, NO_CONTENT, POST(), asCaptured() (+37 more)
 
-### Community 82 - "entities.ts"
-Cohesion: 0.10
-Nodes (45): GET, ASPECTS, GET, GET, GET, RESERVED, GET, errors (+37 more)
-
-### Community 83 - "directive-actions.ts"
-Cohesion: 0.09
-Nodes (48): MessageForm(), PublishPanel(), ResendButton(), set(), archiveDirective(), AUDIENCES, canManage(), canParticipate() (+40 more)
-
-### Community 84 - "manage.ts"
+### Community 77 - "memory.ts"
 Cohesion: 0.07
-Nodes (50): ALGIERS_OFFSET_HOURS, clamp(), CONSECUTIVE_FAILURES_ALERT, DAY_NAMES, daysInMonth(), describeSchedule(), nextRunAt(), Recurrence (+42 more)
+Nodes (46): IdentifiedMessage, messagesApres(), Assemblage, BUDGET_MEMOIRE_DEFAUT, composer(), Couche, COUCHES, INCOMPRESSIBLES (+38 more)
 
-### Community 85 - "bd-strategic-table.tsx"
+### Community 78 - "aiConfigured"
+Cohesion: 0.07
+Nodes (40): AgentItem, AgentsPanel(), run(), RunState, aiConfigured(), listApplicableAgents(), runAgentAction(), scopeCompanyId() (+32 more)
+
+### Community 79 - "users/[id]/page.tsx"
 Cohesion: 0.05
-Nodes (53): AggNum(), BdStrategicTable(), DATA_COLS, DataCol, downloadCsv(), EditableCell(), fd(), inv3() (+45 more)
+Nodes (41): AccessByModulePage(), badgeTone, TONE_BAR, TONE_TEXT, RoleRow(), RoleRowData, RolesTable(), SECONDARY_OPTIONS (+33 more)
 
-### Community 86 - "agent-core.ts"
+### Community 80 - "pch-market-actions.ts"
 Cohesion: 0.07
-Nodes (39): AgentItem, AgentsPanel(), run(), RunState, listApplicableAgents(), runAgentAction(), scopeCompanyId(), AgentDoc (+31 more)
+Nodes (52): ContractPanel(), OrderExecution(), SubmissionPanel(), addChecklistItem(), addContractLine(), addOrderLine(), CHECKLIST_DEFAUT, createAmendment() (+44 more)
 
-### Community 87 - "models/registry.ts"
+### Community 81 - "regulatory-workflow.ts"
+Cohesion: 0.07
+Nodes (48): AnppExchanges(), Dot(), RegulatoryProcess(), setPresub(), setStep(), STATE_OPTS, BvRequestSheet(), BV_PAIRS (+40 more)
+
+### Community 82 - "lecture.ts"
 Cohesion: 0.08
-Nodes (46): aiSelfTest(), demander(), Bilan, Candidate, choisir(), Choix, cle(), Ecarte (+38 more)
+Nodes (50): pdfNumerote(), chargerMupdf(), construireDeckVerifie(), chercherDansPdf(), Doc, EntreePlanPdf, extrairePages(), LecturePdf (+42 more)
 
-### Community 88 - "sources/drive.ts"
-Cohesion: 0.09
-Nodes (48): capLength(), chunkTable(), chunkText(), chunkUnits(), looksLikeHeading(), renumber(), splitParagraphs(), ExtractedBy (+40 more)
+### Community 83 - "lexicon.ts"
+Cohesion: 0.05
+Nodes (53): matchNativeAction(), resolveNativeAction(), Cas, CORPUS, NON_ACTIONS, PROCHE_DU_DESTRUCTEUR, BUSINESS_SYNONYMS, CIRCUMSTANTIALS (+45 more)
 
-### Community 89 - "in-process/sandbox/index.ts"
+### Community 84 - "FindingInput"
+Cohesion: 0.10
+Nodes (42): accrualStep(), monthsBetweenYm(), FlakyReport, runFlakyDetection(), EXECUTABLE, FuzzReport, runFuzzing(), SAFE (+34 more)
+
+### Community 85 - "in-process/artifact/ports.ts"
+Cohesion: 0.05
+Nodes (41): dynamic, GET(), dynamic, GET(), AdaptateurArtefact, adaptateurPour(), ADAPTATEURS, EXTENSIONS_OFFICE (+33 more)
+
+### Community 86 - "ad-pro-item-actions.ts"
 Cohesion: 0.11
-Nodes (53): Agregat, agreger(), anomalies(), cohortes(), Colonne, croiser(), croissance(), cumul() (+45 more)
+Nodes (49): AdProItemsPanel(), EditItemForm(), ItemLifecycle(), ItemRow, PARENT_PATH, Props, addAdProItem(), AdProModule (+41 more)
 
-### Community 90 - "getCurrentUser"
-Cohesion: 0.06
-Nodes (41): GET(), dynamic, esc(), GET(), dynamic, GET(), dynamic, NO_CONTENT (+33 more)
-
-### Community 91 - "brand/index.ts"
-Cohesion: 0.09
-Nodes (48): GET(), FormulaireLogo(), FormulaireMarque(), MarquePage(), deposerLogo(), enregistrerMarque(), ResultatMarque, ACCENT_DEFAUT (+40 more)
-
-### Community 92 - "care-actions.ts"
+### Community 87 - "care-actions.ts"
 Cohesion: 0.11
 Nodes (47): BeneficiaryRow, CarePanel(), CellRow, Props, QuoteRow, addCareBeneficiary(), addCareCell(), audit() (+39 more)
 
-### Community 93 - "lexicon.ts"
-Cohesion: 0.06
-Nodes (52): resolveNativeAction(), Cas, CORPUS, NON_ACTIONS, PROCHE_DU_DESTRUCTEUR, BUSINESS_SYNONYMS, CIRCUMSTANTIALS, COMPLEMENT_PREPOSITIONS (+44 more)
-
-### Community 94 - "lib/fabric/provenance.ts"
-Cohesion: 0.08
-Nodes (51): sourcesDuResultat(), ancresNominales(), ancresNumeriques(), BaseConfiance, BASES, borne(), CalculFait, CLES_HORODATAGE (+43 more)
-
-### Community 95 - "scheduled.ts"
-Cohesion: 0.08
-Nodes (51): backoffMs(), JobKind, noteChange(), setStage(), ClaimedJob, claimNext(), completeJob(), enqueue() (+43 more)
-
-### Community 96 - "demandes/page.tsx"
-Cohesion: 0.05
-Nodes (47): CourseDTO, CoursesBoard(), cancelCourse(), deadlineLabel(), letter(), CoursesPage(), MissionActions(), Btn() (+39 more)
-
-### Community 97 - "view/control.ts"
-Cohesion: 0.06
-Nodes (43): MissionControlList(), MissionControlRow(), MissionsCloses(), MissionAttentes(), MissionCout(), MissionJournal(), MissionLectures(), NATURE (+35 more)
-
-### Community 98 - "assistant-chat.tsx"
-Cohesion: 0.06
-Nodes (42): ActionCard(), ActionState, AssistantChat(), cleanReply(), DriveFilePicker(), fileToBase64(), groupThreads(), MessageBubble() (+34 more)
-
-### Community 99 - "corpus/actions.ts"
-Cohesion: 0.08
-Nodes (40): CorpusAdmin(), doImport(), search(), CorpusImport(), CaseCard(), TrainingPanel(), onCreate(), canManage() (+32 more)
-
-### Community 100 - "turn.ts"
-Cohesion: 0.06
-Nodes (41): AdamTurn(), Msg, WorkspaceBlocks(), WorkspaceOneBlock(), ALERTE, COMPARAISON, MARCHE_360, MISSION (+33 more)
-
-### Community 101 - "legal-actions.ts"
-Cohesion: 0.08
-Nodes (45): createInvoice(), deleteInvoice(), laFacture(), peutEcrire(), readFields(), setInvoiceOrder(), setInvoicePaid(), updateInvoice() (+37 more)
-
-### Community 102 - "missions/runner.ts"
-Cohesion: 0.08
-Nodes (38): ACTION_INTENT_TOOLS, ActionIntentStatus, cancelActionIntent(), executeIntentGuarded(), frDate(), INTENT_STATUS_LABEL, IntentExecuteResult, IntentSeed (+30 more)
-
-### Community 103 - "workspace/protocol.ts"
-Cohesion: 0.08
-Nodes (48): blocGantt(), COMPOSABLE_TOOLS, VIZ_TYPES, VizArbre, VizArc, VizCarte, VizDonnees, VizLieu (+40 more)
-
-### Community 104 - "in-process/adapter.ts"
-Cohesion: 0.06
-Nodes (46): missionsEnCours(), ActionObservee, BusinessSnapshot, BusinessStoryView, CommandOutcome, ContactEndpoint, DecisionPermission, DocumentExtract (+38 more)
-
-### Community 105 - "congress-request-actions.ts"
-Cohesion: 0.10
-Nodes (48): EditEventButton(), RegistrationsManager(), cancelCongressRequest(), CongressType, createCongressRequest(), entityFor(), EVENT_TYPES, fdList() (+40 more)
-
-### Community 106 - "(app)/validations/page.tsx"
-Cohesion: 0.08
-Nodes (43): MyRequestCard(), ValidationsPage(), NewPaymentButton(), dynamic, PaymentRequestsPage(), SupervisionBoard(), ValidationAttachments(), ValidationDecision() (+35 more)
-
-### Community 107 - "inbox/compose.ts"
+### Community 88 - "sheets/analyse.ts"
 Cohesion: 0.09
-Nodes (45): dynamic, InboxPage(), metadata, dynamic, metadata, dateCourte(), Etat, InboxView() (+37 more)
+Nodes (49): Analyse, analyserClasseur(), CelluleTracee, lirePlage(), resoudreRef(), structureDe(), StructureFeuille, texteValeur() (+41 more)
 
-### Community 108 - "drive/page.tsx"
-Cohesion: 0.10
-Nodes (40): DriveCanvas(), ITEMS, NewKind, DriveSearch(), CreateSpaceButton(), DriveRow, DriveToolbar(), SettingsIcon (+32 more)
-
-### Community 109 - "meeting-actions.ts"
-Cohesion: 0.07
-Nodes (45): EditMeetingButton(), InviteResponse(), send(), Resp, ManageParticipants(), addSelected(), remove(), MeetingMessageItem() (+37 more)
-
-### Community 110 - "aiConfigured"
+### Community 89 - "inbox/compose.ts"
 Cohesion: 0.08
-Nodes (39): aiConfigured(), extractLooseJson(), repairAndParse(), handleFacts(), AiFactDoc, AiFactSchema, AiFactsOutputSchema, AiFn (+31 more)
+Nodes (50): dynamic, InboxPage(), metadata, dateCourte(), Etat, InboxView(), Props, TON (+42 more)
 
-### Community 111 - "ocr-engine.ts"
-Cohesion: 0.07
-Nodes (39): anchorEvidence(), buildPagedContent(), PAGE_SEPARATOR, pageAtOffset(), squash(), defaultOcrLangs(), ensureLangData(), findTrainedData() (+31 more)
-
-### Community 112 - "artifact.tsx"
-Cohesion: 0.06
-Nodes (31): BlocArtefact, BlocDocx(), styleDuBloc(), B, CapaciteArtefact, CAPACITES_ARTEFACT, I, LIBELLE_CAPACITE (+23 more)
-
-### Community 113 - "knowledge/contract.ts"
-Cohesion: 0.07
-Nodes (46): MAX_CHUNK_CHARS, MIN_CHUNK_CHARS, advances(), ChunkKind, Confidence, CONFIDENCE_ACCEPT, CONFIDENCE_VERIFY, ConfidenceVerdict (+38 more)
-
-### Community 114 - "resolveDriveAccess"
+### Community 90 - "quality/index.ts"
 Cohesion: 0.09
-Nodes (41): GET(), GET(), MIME_BY_EXT, mimeByName(), GET(), GET(), AccessSheet(), getDriveNodeShares() (+33 more)
+Nodes (42): dateFr(), QualitePage(), BoutonBalayage(), BoutonsConstat(), QUALITY_TOOLS, corrigerConstat(), ignorerConstat(), IssueDecision (+34 more)
 
-### Community 115 - "budget-forms.tsx"
+### Community 91 - "pch-tender-line-actions.ts"
+Cohesion: 0.09
+Nodes (49): analyzeMoleculeSafe(), dominantOrigin(), enrichLineById(), extractAndSaveLines(), int(), matchOurProduct(), MODULE, parseBoxSize() (+41 more)
+
+### Community 92 - "mail.ts"
+Cohesion: 0.06
+Nodes (54): acquirePooled(), acquireSlot(), addrStr(), appendToSent(), BREAKER_COOLDOWN_MS, BREAKER_THRESHOLD, classifyMailError(), decryptSecret() (+46 more)
+
+### Community 93 - "lib/ai.ts"
+Cohesion: 0.07
+Nodes (40): dynamic, POST(), dynamic, POST(), runtime, dynamic, POST(), dynamic (+32 more)
+
+### Community 94 - "turn.ts"
+Cohesion: 0.06
+Nodes (41): AdamTurn(), WorkspaceBlocks(), WorkspaceOneBlock(), ALERTE, COMPARAISON, MARCHE_360, MISSION, MISSION_APRES (+33 more)
+
+### Community 95 - "calibrate.ts"
+Cohesion: 0.07
+Nodes (41): calibrer(), Certitude, certitudeDuFait(), CERTITUDES, chiffres(), Conduite, CONDUITE_PAR_CERTITUDE, Contradiction (+33 more)
+
+### Community 96 - "registre/index.ts"
+Cohesion: 0.07
+Nodes (44): REGISTRE_TOOLS, AUCUNE_MESURE, ClasseDepense, composerFiche(), COUVERTURE_FRANCHE, dependancesDe(), depenseDe(), detecterManque() (+36 more)
+
+### Community 97 - "calendar.ts"
+Cohesion: 0.07
+Nodes (40): TodayPage(), CalendarView(), colorOf(), CalendarPage(), dynamic, NewMeetingButton(), EXECUTIVE_READ_TOOLS, CalendarEventDTO (+32 more)
+
+### Community 98 - "outbound.ts"
+Cohesion: 0.09
+Nodes (39): assistantIdentityContext(), mailApprovalCard(), sentMessages, transport, prepare(), approveAndExecuteIntent(), authorizeIdentity(), formatIdentity() (+31 more)
+
+### Community 99 - "brand/index.ts"
 Cohesion: 0.10
-Nodes (47): BudgetExpenses(), ACCESS_ROLE_OPTIONS, accessRolesField(), accessUsersField(), AddExpenseRow(), BudgetTotalInfo, BudgetTotalSheet(), CategorySheet() (+39 more)
+Nodes (44): GET(), FormulaireLogo(), FormulaireMarque(), MarquePage(), ACCENT_DEFAUT, Charte, charteDe(), contraste() (+36 more)
 
-### Community 116 - "rerank.ts"
+### Community 100 - "task-actions.ts"
+Cohesion: 0.10
+Nodes (43): TaskDossierPage(), TaskWorkPanel(), RelanceButton(), addTaskComment(), relanceTaskRequest(), reopenTaskWork(), respondTaskRequest(), submitTaskWork() (+35 more)
+
+### Community 101 - "adam-tools.ts"
+Cohesion: 0.06
+Nodes (43): ADAM_MISSION_STATUSES, liveGmailSearch(), noteMissionActivity(), activeMissions(), createMission(), CreateMissionInput, MISSION_STATUS_LABEL, MissionParticipantInput (+35 more)
+
+### Community 102 - "mail/oauth.ts"
+Cohesion: 0.09
+Nodes (41): dynamic, GET(), logFailure(), Stage, dynamic, GET(), DisconnectButton(), dynamic (+33 more)
+
+### Community 103 - "onlyoffice.ts"
+Cohesion: 0.10
+Nodes (39): POST(), dynamic, GET(), DocumentEditPage(), dynamic, ENTITY_ROUTE, ConvertPdfButton(), run() (+31 more)
+
+### Community 104 - "lib/department-budget.ts"
+Cohesion: 0.11
+Nodes (43): AmountCell(), Consumption(), DepartmentBudgetTable(), ExpenseForm(), RequestForm(), RequestList(), DepartmentBudgetsPage(), dynamic (+35 more)
+
+### Community 105 - "molecule.ts"
+Cohesion: 0.10
+Nodes (45): dynamic, metadata, ProductExplorerPage(), SuggestField(), analyzeMarketMolecule(), asForm(), MarketProductSearchResult, marketSuggestions() (+37 more)
+
+### Community 106 - "capacites/index.ts"
+Cohesion: 0.11
+Nodes (40): ChampAction, ContratAction, direContrat(), CONTRAT_PAR_ID, CONTRATS_ACTIONS, echecDeclare(), executerAction(), resoudreFonction() (+32 more)
+
+### Community 107 - "artifact.tsx"
+Cohesion: 0.06
+Nodes (30): BlocArtefact, BlocDocx(), styleDuBloc(), B, CapaciteArtefact, CAPACITES_ARTEFACT, I, LIBELLE_CAPACITE (+22 more)
+
+### Community 108 - "rerank.ts"
 Cohesion: 0.08
 Nodes (41): AUTHORITY, CACHE, CACHE_TTL_MS, cacheClear(), CacheEntry, cacheGet(), cacheKey(), cacheSet() (+33 more)
 
-### Community 117 - "FindingInput"
-Cohesion: 0.12
-Nodes (36): accrualStep(), monthsBetweenYm(), FlakyReport, runFlakyDetection(), EXECUTABLE, FuzzReport, runFuzzing(), SAFE (+28 more)
+### Community 109 - "primitives.ts"
+Cohesion: 0.06
+Nodes (42): OptionsCompilation, AUXILIAIRES, CALCUL_FAUX_AMIS, Certitude, direExigences(), Exigence, exigencesDe(), FAMILLES_FORMAT (+34 more)
 
-### Community 118 - "molecule.ts"
+### Community 110 - "contrat.ts"
 Cohesion: 0.10
-Nodes (44): ProductExplorerPage(), SuggestField(), analyzeMarketMolecule(), asForm(), MarketProductSearchResult, marketSuggestions(), MoleculeAnalysisResult, peutInterrogerLeMarche() (+36 more)
+Nodes (46): constantesDuFichier(), contratsDuFichier(), debutDuCorps(), decouperActions(), decouperParametres(), decrireAction(), deleguesDuCorps(), enumsLocaux() (+38 more)
 
-### Community 119 - "intelligence/actions.ts"
-Cohesion: 0.07
-Nodes (42): ApproveNameButton(), approve(), DeleteDossierButton(), onDelete(), FindingControls(), apply(), toTask(), Props (+34 more)
+### Community 111 - "openai.ts"
+Cohesion: 0.12
+Nodes (40): sanitizeForModel(), AnthropicBlock, baseUrl(), buildAnthropicBody(), callAnthropic(), fromAnthropicBlocks(), headers(), notConfigured() (+32 more)
 
-### Community 120 - "monde/index.ts"
+### Community 112 - "commercial.ts"
+Cohesion: 0.08
+Nodes (41): blocPartie(), blocsCommerciaux(), cap(), construireDocumentCommercial(), DocumentCommercialConstruit, present(), emetteur, tiers (+33 more)
+
+### Community 113 - "monde/index.ts"
 Cohesion: 0.11
 Nodes (42): direCouverture(), jour(), MONDE_TOOLS, auMoment(), avantLeReleve(), Changement, changements(), chronologie() (+34 more)
 
-### Community 121 - "calendar.ts"
-Cohesion: 0.09
-Nodes (39): AssistantPage(), dynamic, CalendarPage(), MorningBrief(), refreshMyBrief(), askClaudeCheap(), sttConfigured(), CalendarEventDTO (+31 more)
-
-### Community 122 - "general-means.ts"
-Cohesion: 0.11
-Nodes (40): DepartmentBudgetTable(), DepartmentBudgetsPage(), dynamic, allocatedOf(), BudgetSetter, canDecideDepartmentBudgetRequest(), canEditAnyKind(), canEditDepartmentBudget() (+32 more)
-
-### Community 123 - "mistral-ocr.ts"
-Cohesion: 0.09
-Nodes (36): dynamic, GET(), runtime, backoffMs(), blankPages(), chunkConcurrency(), chunkPageSize(), clampInt() (+28 more)
-
-### Community 124 - "http.ts"
-Cohesion: 0.10
-Nodes (35): GET, GET, GET, POST, ApiContext, authenticate(), generateApiKey(), hashApiKey() (+27 more)
-
-### Community 125 - "factory/build.ts"
-Cohesion: 0.08
-Nodes (38): blocPartie(), blocsCommerciaux(), cap(), DocumentCommercialConstruit, present(), emetteur, tiers, ajouterJours() (+30 more)
-
-### Community 126 - "stats.ts"
-Cohesion: 0.12
-Nodes (43): arrondi(), ecartType(), mediane(), pearson(), percentile(), pourcent(), rangs(), rigueurVide() (+35 more)
-
-### Community 127 - "lib/ai.ts"
+### Community 114 - "assistant-chat.tsx"
 Cohesion: 0.07
-Nodes (32): dynamic, POST(), dynamic, POST(), runtime, dynamic, POST(), dynamic (+24 more)
+Nodes (39): ActionCard(), ActionState, AssistantChat(), cleanReply(), DriveFilePicker(), fileToBase64(), groupThreads(), MessageBubble() (+31 more)
 
-### Community 128 - "mail/oauth.ts"
-Cohesion: 0.10
-Nodes (36): dynamic, GET(), logFailure(), Stage, dynamic, GET(), ACCESS_MESSAGE, mailAccess (+28 more)
-
-### Community 129 - "admin-settings-forms.tsx"
+### Community 115 - "impl-wave6b.ts"
 Cohesion: 0.08
-Nodes (40): AdminLimitsForm(), BroadcastComposer(), toggle(), CompanyFlag, DIAG_TONE, DiagResult, DirectiveAccessForm(), DriveSpaceCreatorForm() (+32 more)
+Nodes (38): RuleControls(), MessageAttachments(), DoctorPicker(), ReportEditor(), Attachments(), SimpleReportEditor(), MessageAttachments(), formatBytes() (+30 more)
 
-### Community 130 - "topbar.tsx"
+### Community 116 - "promo-material-actions.ts"
+Cohesion: 0.17
+Nodes (37): CancelButton(), PromoActionPanel(), PromoFlags, Props, useRun(), addPromoComment(), audit(), cancelPromoMaterial() (+29 more)
+
+### Community 117 - "adam-core.test.ts"
+Cohesion: 0.08
+Nodes (41): RFC-3834, OPEN(), ACTION_PATTERNS, analyzeEmail(), AnalyzeInput, COMMITMENT_SENDER, COMMITMENT_US, deservesAttention() (+33 more)
+
+### Community 118 - "nl.ts"
+Cohesion: 0.08
+Nodes (37): CIBLE_VIDE, cibleId(), cibleIndex(), cibleRole(), amplitude(), cibleDe(), ContexteDecodage, decoder() (+29 more)
+
+### Community 119 - "market-research.ts"
+Cohesion: 0.08
+Nodes (38): GET(), GET(), MarketResearchDetailPage(), PresentationPanel(), generate(), Res, analyzeMarketResearch(), buildContext() (+30 more)
+
+### Community 120 - "admin-settings-forms.tsx"
+Cohesion: 0.08
+Nodes (41): AdminLimitsForm(), BroadcastComposer(), toggle(), CompanyFlag, DIAG_TONE, DiagResult, DriveSpaceCreatorForm(), FieldReportsOverviewForm() (+33 more)
+
+### Community 121 - "workflow/engine.ts"
 Cohesion: 0.10
-Nodes (31): CompanySwitcher(), choose(), isActive(), MobileTabBar(), PRIMARY, Tile(), badgeFor(), navPaths() (+23 more)
+Nodes (41): Props, BudgetCategoryOption, AD_PRO_BUDGET_MODULES, getWorkflowDefinitions(), getWorkflowForEntity(), loadOutcome(), synthesizeCreationEvent(), WorkflowEventView (+33 more)
 
-### Community 131 - "contrat.ts"
+### Community 122 - "departments.ts"
 Cohesion: 0.10
-Nodes (41): constantesDuFichier(), contratsDuFichier(), debutDuCorps(), decouperActions(), decouperParametres(), decrireAction(), deleguesDuCorps(), enumsLocaux() (+33 more)
+Nodes (34): teamMemberKpis(), buildChain(), buildTree(), DepartmentNode, DepartmentOption, getDepartmentMembers(), getDepartmentPath(), getDepartmentSubtreeIds() (+26 more)
 
-### Community 132 - "annulation/index.ts"
+### Community 123 - "pipeline.ts"
+Cohesion: 0.13
+Nodes (43): Agregat, agreger(), anomalies(), cohortes(), croiser(), croissance(), cumul(), date() (+35 more)
+
+### Community 124 - "assistant-actions.ts"
+Cohesion: 0.10
+Nodes (38): dynamic, maxDuration, runtime, ChiefOfStaffPage(), assistantChat(), forgetMyAssistantMemory(), maybeCutEpisode(), maybeDistillMemory() (+30 more)
+
+### Community 125 - "feedback/attachments.test.ts"
+Cohesion: 0.07
+Nodes (35): dynamic, GET(), canReadFeedback(), canRemoveFeedbackAttachment(), FeedbackViewer, blobs, deposer(), EXE (+27 more)
+
+### Community 126 - "recrutement/[id]/page.tsx"
+Cohesion: 0.10
+Nodes (35): APPROVAL_ICON, APPROVAL_TEXT, DOC_CATEGORIES, dynamic, RecruitmentPage(), AddCandidateButton(), NewRecruitmentButton(), dynamic (+27 more)
+
+### Community 127 - "annulation/index.ts"
 Cohesion: 0.08
 Nodes (35): chg(), jour(), Changement, composer(), CompteRendu, conclure(), Ecarte, EtatActuel (+27 more)
 
-### Community 133 - "nl.ts"
-Cohesion: 0.09
-Nodes (35): cibleId(), cibleIndex(), cibleRole(), amplitude(), cibleDe(), ContexteDecodage, decoder(), IntentionDirecte (+27 more)
-
-### Community 134 - "planche/index.ts"
+### Community 128 - "planche/index.ts"
 Cohesion: 0.11
 Nodes (35): Acteur, KINDS_RENDUS, PLANCHE_TOOLS, Angle, ANGLES, anglesUtiles(), date(), Demande (+27 more)
 
-### Community 135 - "calcul/index.ts"
-Cohesion: 0.13
-Nodes (39): betaIncompleteReguliere(), betaInverse(), cholesky(), departBeta(), esperance(), logGamma(), Loi, LOIS (+31 more)
+### Community 129 - "fabric/index.ts"
+Cohesion: 0.09
+Nodes (32): SOURCE_MAP_TOOLS, creerLoteur(), Loteur, loteurNoeudsDrive(), MesureLoteur, balayerMentions(), cleValide(), dictionnaireCanonique() (+24 more)
 
-### Community 136 - "viz-figure.tsx"
+### Community 130 - "calcul/index.ts"
+Cohesion: 0.08
+Nodes (41): Loi, EchecCsp, SolutionCsp, DetectionAnomalies, Segmentation, ModeleMonteCarlo, ResultatSimulation, ResultatOrdonnancement (+33 more)
+
+### Community 131 - "lib/fabric/entites.ts"
+Cohesion: 0.13
+Nodes (39): contexteEntitesResolues(), contientUnJeton(), fournisseurs(), institutions(), jetonsRequete(), medecins(), noter(), partenaires() (+31 more)
+
+### Community 132 - "openai-responses.ts"
+Cohesion: 0.09
+Nodes (34): BUDGET_POLICY, budgetDeSecours(), facteur(), outputBudget, REPONSE_VISIBLE, RESERVE_RAISONNEMENT, captures, Workload (+26 more)
+
+### Community 133 - "moyens-generaux/page.tsx"
+Cohesion: 0.08
+Nodes (32): DepartmentSwitcher(), ExpensePanel(), dynamic, metadata, MoyensGenerauxPage(), actorFor(), form(), withFile() (+24 more)
+
+### Community 134 - "viz-figure.tsx"
 Cohesion: 0.10
 Nodes (36): Barres(), Bloc, Carte(), Cascade(), couleur(), COULEURS, Courbes(), court() (+28 more)
 
-### Community 137 - "verite-tools.ts"
+### Community 135 - "topbar.tsx"
+Cohesion: 0.10
+Nodes (31): Item, SearchResult, isActive(), MobileTabBar(), PRIMARY, Tile(), badgeFor(), navPaths() (+23 more)
+
+### Community 136 - "verite-tools.ts"
 Cohesion: 0.10
 Nodes (30): Acteur, VERITE_TOOLS, AUTORITE_CLAUSE, AUTORITE_DEFAUT, Candidat, direVerdict(), Ecartee, jours() (+22 more)
+
+### Community 137 - "knowledge/worker.ts"
+Cohesion: 0.11
+Nodes (35): advances(), backoffMs(), IngestStage, JobKind, FREE_TEXT_WORTH_EMBEDDING, ingestFast(), ingestRecord(), IngestResult (+27 more)
 
 ### Community 138 - "adoption.ts"
 Cohesion: 0.08
 Nodes (36): AdoptionSettingsForm(), FIELD_KEY, ResetActivityTimeButton(), run(), TARGET_NAME, AdoptionPage(), ADOPTION_TARGET_FIELDS, ADOPTION_THRESHOLD_FIELDS (+28 more)
 
-### Community 139 - "promo-circuit-actions.ts"
+### Community 139 - "microsoft-mail-actions.ts"
+Cohesion: 0.11
+Nodes (36): AttachmentBar(), Composer(), listStamp(), MailWorkspace(), Pane, Props, deleteMessage(), draftFromForm() (+28 more)
+
+### Community 140 - "composer.tsx"
+Cohesion: 0.10
+Nodes (33): Composer(), DriveRef, Pending, Props, SendPayload, UploadedAttachment, EMOJI_PALETTE, QUICK_REACTIONS (+25 more)
+
+### Community 141 - "promo-circuit-actions.ts"
 Cohesion: 0.11
 Nodes (37): PromoCircuitCard(), Props, useRun(), completePromoTrack(), markQuoteReceived(), path(), readTracks(), refusePromoStep() (+29 more)
 
-### Community 140 - "regAudit"
+### Community 142 - "product-360.ts"
+Cohesion: 0.08
+Nodes (34): AnomalieRattachement, AO_STATUTS_CLOS, AO_STATUTS_CONNUS, aoStatutLu(), Couverture, COUVERTURE_LABELS, GenreAnomalie, LIGNE_STATUTS_CLOS (+26 more)
+
+### Community 143 - "api/auth.ts"
 Cohesion: 0.10
-Nodes (35): PrecedentSearch(), ReserveLibraryPanel(), Risk, Similar, regAudit(), enrichFinding(), Enrichment, EnrichmentContext (+27 more)
+Nodes (28): GET, GET(), authenticate(), generateApiKey(), hashApiKey(), readBearer(), sameHash(), API_ERROR_CODES (+20 more)
 
-### Community 141 - "departments.ts"
-Cohesion: 0.11
-Nodes (30): teamMemberKpis(), buildTree(), getDepartmentMembers(), getDepartmentPath(), getDepartmentSubtreeIds(), getDepartmentTree(), getDepartmentUserIds(), getManagerOf() (+22 more)
-
-### Community 142 - "letterhead-manager.tsx"
+### Community 144 - "compat.ts"
 Cohesion: 0.10
-Nodes (32): ChoiceTile(), LetterheadChoice(), EditSheet(), IconAction(), KINDS, LetterheadManager(), UploadSheet(), updateLetterhead() (+24 more)
+Nodes (32): Calibration, Enjeu, IdSpecialiste, outilsAutorises(), SOCLE, specialiste, SPECIALISTES, specialistesActifs() (+24 more)
 
-### Community 143 - "sfe.ts"
-Cohesion: 0.11
-Nodes (35): MyFieldDay, Cockpit, CockpitRow, loadCockpit(), assignmentEffort(), buildTournee(), CarriedProduct, carriedProducts() (+27 more)
-
-### Community 144 - "distance.ts"
+### Community 145 - "distance.ts"
 Cohesion: 0.12
 Nodes (35): aireKm2(), autour(), barycentre(), cap(), cardinal(), CARDINAUX, coordonneesValides(), dansLaZone() (+27 more)
 
-### Community 145 - "in-process/events/ingestion.ts"
-Cohesion: 0.08
-Nodes (35): dynamic, POST(), runtime, INBOUND_TOOLS, CandidatAssociation, decider(), DecisionAssociation, FaitNormalise (+27 more)
-
-### Community 146 - "market-research.ts"
-Cohesion: 0.10
-Nodes (32): GET(), GET(), analyzeMarketResearch(), buildContext(), extractJson(), buildPresentationPptx(), fmtNum(), fmtPrice() (+24 more)
-
-### Community 147 - "reader.ts"
-Cohesion: 0.11
-Nodes (30): FeuilleIndexee, classeur(), classeurVentes(), classeur(), Cellule, coordDe(), Feuille, feuilleParNom() (+22 more)
-
-### Community 148 - "attention/policy.ts"
+### Community 146 - "scheduled.ts"
 Cohesion: 0.09
-Nodes (30): base, Cas, ALIAS_CANAL, borne(), cadenceMs(), CanalPrefere, Canaux, CANAUX_CONNECTEURS (+22 more)
+Nodes (35): stageEmbed(), lunaEmbed(), lunaEmbedModel(), balayageQualiteSiDu(), activeStamp(), cosine(), embedBacklog(), loadVectors() (+27 more)
 
-### Community 149 - "test-center/runner.ts"
+### Community 147 - "demandes/page.tsx"
+Cohesion: 0.07
+Nodes (31): ApprovalsPage(), CorbeillePage(), CourseDTO, CoursesBoard(), cancelCourse(), deadlineLabel(), letter(), CoursesPage() (+23 more)
+
+### Community 148 - "factory.ts"
+Cohesion: 0.09
+Nodes (38): MIME_PPTX, ajouterJours(), formaterNumero(), LigneCalculee, LigneCommerciale, ModePaiement, PartieCommerciale, TypeDocumentCommercial (+30 more)
+
+### Community 149 - "sheets/audit.ts"
+Cohesion: 0.09
+Nodes (27): AGREGATS, auditerClasseur(), CodeConstat, Collecteur, constantesSuspectes(), Constat, estFormule(), estNombreConstant() (+19 more)
+
+### Community 150 - "stats.ts"
+Cohesion: 0.17
+Nodes (35): arrondi(), ecartType(), mediane(), moyenne(), pearson(), percentile(), pourcent(), rangs() (+27 more)
+
+### Community 151 - "lib/events/ingestion.ts"
+Cohesion: 0.14
+Nodes (35): CATALOGUE, catalogueDe(), estTypeConnu(), normaliserType(), TypeFait, TYPES_CONNUS, typesPour(), confidentielDe() (+27 more)
+
+### Community 152 - "drive/provider.ts"
 Cohesion: 0.10
-Nodes (31): base, Certification, CertificationInput, CertificationResult, computeCertification(), BETTER, classify(), Diff (+23 more)
-
-### Community 150 - "canonical.ts"
-Cohesion: 0.12
-Nodes (34): VerificationDeck, VerificationDocument, calculerTableau(), ChiffreCanon, ColonneCanon, DonneesCanoniques, evaluerFormuleLigne(), FORMAT_MONTANT (+26 more)
-
-### Community 151 - "write.ts"
-Cohesion: 0.11
-Nodes (32): AccessBearer, AccessGrant, allowedCompanyIds(), canEditCompany(), canViewCompany(), chosenCompanyId(), companyAccessWhere(), GROUP_WIDE_ROLES (+24 more)
-
-### Community 152 - "lib/events/ingestion.ts"
-Cohesion: 0.15
-Nodes (34): CATALOGUE, catalogueDe(), estTypeConnu(), normaliserType(), RESUME_POUR_PLANNER, TypeFait, TYPES_CONNUS, typesPour() (+26 more)
+Nodes (35): ALLOWED_HOSTS, buildUrl(), call(), GoogleApiError, googleBinary(), GoogleErrorKind, googleJson(), GoogleRequest (+27 more)
 
 ### Community 153 - "reseau/index.ts"
-Cohesion: 0.14
-Nodes (32): Centralite, centralites(), Communaute, communautes(), intermediarite(), NOEUDS_BRANDES_MAX, pagerank(), proximite() (+24 more)
-
-### Community 154 - "consulting-actions.ts"
 Cohesion: 0.13
-Nodes (33): ConsultingActions(), ContractTask, TaskWorkPanel(), DeleteTaskButton(), addConsultingTask(), audit(), billingOf(), closeConsultingContract() (+25 more)
+Nodes (33): portee(), Centralite, centralites(), Communaute, communautes(), intermediarite(), NOEUDS_BRANDES_MAX, pagerank() (+25 more)
 
-### Community 155 - "regulatory-table.tsx"
-Cohesion: 0.09
-Nodes (30): AssignableUser, CATEGORY_OPTS, Col, COLS, Comportement, COMPORTEMENTS, lbl(), PRIORITY_CLASS (+22 more)
-
-### Community 156 - "juges.ts"
-Cohesion: 0.09
-Nodes (33): MONDE, capaciteDuCorpus(), engendrer(), Exigence, EXIGENCES, Famille, FAMILLES, Gabarit (+25 more)
-
-### Community 157 - "meetings/index.ts"
-Cohesion: 0.11
-Nodes (32): auMoins(), CONTENU_PAR_NIVEAU, LIBELLE_NIVEAU, niveauDepuisRegles(), niveauDepuisTexte(), niveauParDefaut(), NiveauReunion, NIVEAUX (+24 more)
-
-### Community 158 - "openai-luna.ts"
-Cohesion: 0.09
-Nodes (34): BATCH_MULTIPLIER, BatchOutcome, BatchRequest, BatchStatus, BatchSubmitResult, buildBatchJsonl(), buildBatchLine(), callLuna() (+26 more)
-
-### Community 159 - "feedback/attachments.test.ts"
-Cohesion: 0.09
-Nodes (30): dynamic, GET(), canReadFeedback(), canRemoveFeedbackAttachment(), FeedbackViewer, blobs, deposer(), EXE (+22 more)
-
-### Community 160 - "extract-text.ts"
-Cohesion: 0.09
-Nodes (27): dynamic, maxDuration, POST(), runtime, AI_READABLE_EXTRACTION_STATUSES, extractPdf(), extractPdfPages(), ExtractResult (+19 more)
-
-### Community 161 - "tasks/request-flow.ts"
-Cohesion: 0.12
-Nodes (31): TaskDossierPage(), RelanceButton(), CreateTaskInput, T0, ACCEPTED_STATUS, auMs(), awaitingResponse(), canAttach() (+23 more)
-
-### Community 162 - "regulatory-workflow.ts"
-Cohesion: 0.09
-Nodes (31): AnppExchanges(), Dot(), STATE_OPTS, BvRequestSheet(), ANPP_EXCHANGE_AFTER_STEP, BV_PAYMENT_STEPS, BV_REQUEST_STEPS, PRESUB_ANSWER_STEP (+23 more)
-
-### Community 163 - "sheets/evaluate.ts"
-Cohesion: 0.13
-Nodes (34): ALIAS_FR, aplatir(), appeler(), binaire(), chercherIndex(), comparer(), ContexteEvaluation, critere() (+26 more)
-
-### Community 164 - "payment-request-actions.ts"
-Cohesion: 0.16
-Nodes (31): AddPiece(), PaymentDossier(), PieceCard(), actorFor(), ordrePromo(), actorFor(), addPaymentComment(), addPaymentPiece() (+23 more)
-
-### Community 165 - "sheets/audit.ts"
-Cohesion: 0.11
-Nodes (29): analyserClasseur(), structureDe(), AGREGATS, auditerClasseur(), CodeConstat, Collecteur, constantesSuspectes(), Constat (+21 more)
-
-### Community 166 - "fiche.ts"
+### Community 154 - "scheduler/contract.ts"
 Cohesion: 0.10
-Nodes (30): ChampEntree, Primitive, Contrat, AUCUNE_MESURE, composerFiche(), COUVERTURE_FRANCHE, dependancesDe(), depenseDe() (+22 more)
+Nodes (29): ALGIERS_OFFSET_HOURS, clamp(), CONSECUTIVE_FAILURES_ALERT, DAY_NAMES, daysInMonth(), describeSchedule(), nextRunAt(), RECURRENCE_LABEL (+21 more)
 
-### Community 168 - "microsoft-mail-actions.ts"
+### Community 155 - "messages.ts"
+Cohesion: 0.09
+Nodes (35): RFC-2045, RFC-2047, RFC-5322, activeOrMessage(), OutboundAttachmentRef, getActiveGoogleConnection(), markGoogleNeedsReconnect(), getAttachmentBytes() (+27 more)
+
+### Community 156 - "platform-audit/engine.ts"
+Cohesion: 0.10
+Nodes (33): generatePlatformIdeas(), buildPrompt(), fmtFinding(), generateIdeas(), IdeasResult, DesignSignals, Finding, FORMAT_PANEL (+25 more)
+
+### Community 157 - "sheets/diff.ts"
+Cohesion: 0.10
+Nodes (32): formuleAttendue(), alignerLignes(), bornes(), Changement, comparerClasseurs(), GenreChangement, indexer(), LIBELLE_CHANGEMENT (+24 more)
+
+### Community 158 - "sheets/evaluate.ts"
 Cohesion: 0.13
-Nodes (29): AttachmentBar(), Composer(), listStamp(), MailWorkspace(), Pane, Props, deleteMessage(), draftFromForm() (+21 more)
+Nodes (36): ALIAS_FR, aplatir(), appeler(), binaire(), chercherIndex(), comparer(), ContexteEvaluation, critere() (+28 more)
 
-### Community 169 - "action-registry.ts"
-Cohesion: 0.08
-Nodes (25): ACTIONS_DIR, ACTION_CLASSIFICATION, ActionClassification, ActionRisk, actionsForUser(), CATALOG_ERP_ACTIONS, CLASSIFICATION, classify() (+17 more)
+### Community 159 - "cout/index.ts"
+Cohesion: 0.12
+Nodes (30): Bilan, Candidate, choisir(), Choix, cle(), Ecarte, escalader(), FRAICHEUR_MAX_JOURS (+22 more)
 
-### Community 170 - "products/resolve.ts"
+### Community 160 - "reconcile.ts"
+Cohesion: 0.10
+Nodes (32): dynamic, POST(), GMAIL_BASE, ingestMessages(), getProfile(), listMessageIds(), adamConnection(), ensureWatch() (+24 more)
+
+### Community 161 - "tour-plan-actions.ts"
+Cohesion: 0.12
+Nodes (30): OuvrirPlan(), Planificateur(), deciderPlanTournee(), escaladerPlanTournee(), MODULE, ouvrirPlanTournee(), peutEcrirePourLeKam(), planifierVisites() (+22 more)
+
+### Community 162 - "document-request-actions.ts"
+Cohesion: 0.14
+Nodes (29): RespondPanel(), cancelDocumentRequest(), classerDansLegal(), dateOf(), decideDocumentRequest(), nextRef(), requestDocument(), revalidate() (+21 more)
+
+### Community 163 - "links/store.ts"
+Cohesion: 0.14
+Nodes (32): EntityLinks(), addEntityLink(), linkCandidatesFor(), removeEntityLink(), canonicalPair(), DETOURS, isLinkType(), LINK_PAIRS (+24 more)
+
+### Community 164 - "limites.ts"
+Cohesion: 0.09
+Nodes (35): ABSENCE_DE_LA_CHOSE, absenceDiteVerifiee(), AFFIRMATION_NEGATIVE, affirmeUneAbsence(), avertirAbsenceNonProuvable(), avertirPromesseSansObjet(), classerLimite(), complementDeLimite() (+27 more)
+
+### Community 165 - "montecarlo.ts"
+Cohesion: 0.12
+Nodes (33): betaIncompleteReguliere(), betaInverse(), cholesky(), departBeta(), esperance(), logGamma(), normaleStandard(), phi() (+25 more)
+
+### Community 166 - "graph/provider.ts"
+Cohesion: 0.13
+Nodes (28): FOLDER_LABEL, GRAPH_WELL_KNOWN, ORDER, wellKnownFromGraph(), deltaToken(), escapeToHtml(), isRemoved(), Raw (+20 more)
+
+### Community 167 - "in-process/events/ingestion.ts"
+Cohesion: 0.09
+Nodes (32): dynamic, POST(), runtime, INBOUND_TOOLS, RESUME_POUR_PLANNER, CandidatAssociation, DecisionAssociation, FaitNormalise (+24 more)
+
+### Community 168 - "test-center/runner.ts"
+Cohesion: 0.10
+Nodes (28): base, Certification, CertificationInput, CertificationResult, computeCertification(), BETTER, classify(), Diff (+20 more)
+
+### Community 169 - "workflow-actions.ts"
+Cohesion: 0.10
+Nodes (31): WorkflowVersionHistory(), WorkflowVersionRow, blankStep(), WorkflowBuilder(), DefinitionPayload, resetWorkflowDefinition(), ROLE_KEYS, rollbackWorkflowDefinition() (+23 more)
+
+### Community 170 - "office-supply-actions.ts"
+Cohesion: 0.13
+Nodes (32): NormalizePanel(), apply(), scan(), applyCatalogNormalization(), canManageCatalog(), CatalogRewrite, createSupplyArticle(), DENIED (+24 more)
+
+### Community 171 - "market-360.ts"
+Cohesion: 0.15
+Nodes (30): MarketGaps(), MarketProgress(), linksOfMany(), attributionPartielle(), AvenantFaits, ControleCommande, controlerCommande(), deriverNiveau() (+22 more)
+
+### Community 172 - "stock-recurrence-actions.ts"
+Cohesion: 0.18
+Nodes (30): JOURS, RecurrencesPanel(), Res, createStockRecurrence(), deleteStockRecurrence(), hopitauxValides(), peutReclamer(), saisie() (+22 more)
+
+### Community 173 - "juges.ts"
+Cohesion: 0.09
+Nodes (31): MONDE, capaciteDuCorpus(), engendrer(), Exigence, EXIGENCES, Famille, FAMILLES, Gabarit (+23 more)
+
+### Community 175 - "stock-board.tsx"
+Cohesion: 0.15
+Nodes (28): KIND_OPTIONS, LEVEL_TONE, Result, StockBoard(), StockItemRow, StockMovementRow, useRun(), createStockItem() (+20 more)
+
+### Community 176 - "products/resolve.ts"
 Cohesion: 0.13
 Nodes (29): moleculeStem(), aliasKey(), certainMatch(), identityKey(), MatchKind, normalizeDosage(), normalizePackaging(), parseMention() (+21 more)
 
-### Community 171 - "regulatory/export/route.ts"
-Cohesion: 0.12
-Nodes (24): POST(), DOSSIER_RECEIVED_HINT, DOSSIER_RECEIVED_NO, DOSSIER_RECEIVED_YES, DossierReceipt, dossierReceived(), dossierReceivedLabel(), dossierReceivedOptions() (+16 more)
-
-### Community 172 - "mail-client.tsx"
-Cohesion: 0.10
-Nodes (29): ConnectMailbox(), AddressInput(), AttMeta, Composer(), send(), Contact, Envelope, fmtDate() (+21 more)
-
-### Community 173 - "office-supply-actions.ts"
-Cohesion: 0.14
-Nodes (30): NormalizePanel(), apply(), scan(), applyCatalogNormalization(), canManageCatalog(), CatalogRewrite, createSupplyArticle(), DENIED (+22 more)
-
-### Community 174 - "drive-table.tsx"
-Cohesion: 0.14
-Nodes (27): BulkShareSheet(), DriveTable(), DropCategory, MoveTarget, UserLite, collectSubtree(), copyNodes(), moveNode() (+19 more)
-
-### Community 175 - "impl-tournee.ts"
-Cohesion: 0.13
-Nodes (29): OuvrirPlan(), dynamic, metadata, PlanDeTourneePage(), ouvrirPlanTournee(), reglageTournee(), periodeVisee(), planVise() (+21 more)
-
-### Community 176 - "mon-espace/page.tsx"
-Cohesion: 0.11
-Nodes (25): AdvanceItem, MyAdvances(), MonEspacePage(), DocumentRequestPage(), PiecesPage(), ExpenseClaimButton(), MyPortfolioCard(), TrainingRequestButton() (+17 more)
-
-### Community 177 - "ctd/classify.ts"
-Cohesion: 0.10
-Nodes (26): Classification, classifyDocument(), ClassifyInput, codeHay(), dots(), norm(), sanitizeBase(), squash() (+18 more)
+### Community 177 - "pdf/adapter.ts"
+Cohesion: 0.09
+Nodes (14): DesignationImage, DocumentOuvert, extractionEchec(), ExtractionImage, ImageExtraite, Validation, ajouterFlux(), MIME_PDF (+6 more)
 
 ### Community 178 - "realtime-voice.ts"
 Cohesion: 0.12
 Nodes (26): cumulerUsage(), PendingDelivery, ProviderOptions, RealtimeEvent, RealtimeUsage, usageVide(), VoiceProviderCallbacks, VoiceUsageTotals (+18 more)
 
-### Community 179 - "document-preview.tsx"
-Cohesion: 0.10
-Nodes (21): FileViewer(), childrenOf(), extOf(), humanSize(), previewKind(), ZipEntry, ZipList, ZipViewer() (+13 more)
-
-### Community 180 - "workspace.tsx"
-Cohesion: 0.15
-Nodes (25): DocumentWorkspace(), OpenDoc, FileGlyph(), FileGlyphProps, LOOK, FAMILIES, FileFamily, fileGlyph() (+17 more)
-
-### Community 181 - "(app)/layout.tsx"
-Cohesion: 0.10
-Nodes (21): ActivityTracker(), Geo, send(), UAData, ChromeMetrics(), usePublishedHeight(), useTabBarHeight(), ImpersonationBanner() (+13 more)
-
-### Community 182 - "tableur.ts"
+### Community 179 - "drive/page.tsx"
 Cohesion: 0.14
-Nodes (29): decouperLigne(), detecterEncodage(), detecterEntete(), detecterLocale(), detecterSeparateur(), DetectionEncodage, DetectionLocale, DetectionSeparateur (+21 more)
+Nodes (26): CreateSpaceButton(), ExplorerNav(), SpaceLite, UserLite, NewOfficeButton(), DrivePage(), QuickAccessList(), QuickRow (+18 more)
 
-### Community 183 - "platform-audit/engine.ts"
+### Community 180 - "(app)/layout.tsx"
+Cohesion: 0.09
+Nodes (20): AppLayout(), ActivityTracker(), Geo, send(), UAData, ChromeMetrics(), usePublishedHeight(), useTabBarHeight() (+12 more)
+
+### Community 181 - "story.ts"
+Cohesion: 0.12
+Nodes (28): assistantDirectIntent(), DIRECT_INTENTS, directIntent(), DirectIntentDef, DirectIntentName, intentArgs(), intentFor(), intentPhrase() (+20 more)
+
+### Community 182 - "capability-surface.test.ts"
 Cohesion: 0.11
-Nodes (29): buildPrompt(), fmtFinding(), generateIdeas(), IdeasResult, DesignSignals, Finding, FORMAT_PANEL, groupByViewSignature() (+21 more)
+Nodes (26): MISSIONS, outilsExposes(), assistantToolsFor(), BUSINESS_CAPABILITIES, vueTransverse(), capabilitiesFor(), capabilityDoctrine(), CapabilityView (+18 more)
+
+### Community 183 - "fichiers/index.ts"
+Cohesion: 0.12
+Nodes (25): Acteur, FICHIERS_TOOLS, mo(), canEditDrive(), ALIAS, avertissementConversion(), conversion, conversionsDepuis() (+17 more)
 
 ### Community 184 - "quality/rules.ts"
 Cohesion: 0.13
 Nodes (26): clePersonne(), cleProduit(), cleSociete(), DefinitionRegle, EMAIL_RE, emailNormalise(), estAberrant(), joursEntre() (+18 more)
 
-### Community 185 - "petty-cash-actions.ts"
-Cohesion: 0.17
-Nodes (26): CashPanel(), RemittanceList(), allotPettyCash(), canAllot(), closePettyCash(), confirmPettyCashReceipt(), decidePettyCashTopUp(), nextRechargeFor() (+18 more)
+### Community 185 - "document-preview.tsx"
+Cohesion: 0.11
+Nodes (21): FileViewer(), childrenOf(), extOf(), humanSize(), previewKind(), ZipEntry, ZipList, ZipViewer() (+13 more)
 
-### Community 186 - "upload-manager.tsx"
+### Community 186 - "executive-tools.ts"
+Cohesion: 0.11
+Nodes (22): LegalChainCard(), fichierALire(), FichierLivrable, fichiersDe(), referenceLivrable, documentsOf(), EXEC(), executiveBriefing() (+14 more)
+
+### Community 187 - "upload-manager.tsx"
 Cohesion: 0.12
 Nodes (23): CtdUpload(), humanSize(), humanSize(), postJsonWithRetry(), putPartXhr(), UploadCancelled, UploadContext, UploadContextValue (+15 more)
 
-### Community 187 - "purchase-request-actions.ts"
-Cohesion: 0.18
-Nodes (23): MyPurchaseRequests(), MyPurchaseRow, blank(), PurchaseRequestForm(), Row, PurchaseSection(), createPurchaseRequest(), nextRef() (+15 more)
+### Community 188 - "in-process/sandbox/index.ts"
+Cohesion: 0.11
+Nodes (28): Chargement, Colonne, Ignore, Ligne, ResultatPipeline, CANDIDATS, DisponibilitePython, executerPython() (+20 more)
 
-### Community 188 - "executive-tools.ts"
-Cohesion: 0.10
-Nodes (23): fichierALire(), FichierLivrable, fichiersDe(), referenceLivrable, documentsOf(), EXEC(), executiveBriefing(), fr() (+15 more)
+### Community 189 - "chief-of-staff/page.tsx"
+Cohesion: 0.13
+Nodes (23): dynamic, POST(), runtime, VersionsPage(), AssistantPage(), dynamic, dynamic, metadata (+15 more)
 
-### Community 189 - "registre/index.ts"
-Cohesion: 0.10
-Nodes (25): REGISTRE_TOOLS, ClasseDepense, detecterManque(), Ecartee, interroger(), NiveauRisque, Reponse, sommaireRegistre() (+17 more)
+### Community 190 - "queries/messaging.ts"
+Cohesion: 0.11
+Nodes (26): dynamic, GET(), dynamic, GET(), dynamic, MessagesPage(), messagingUserSelect, presenceOf() (+18 more)
 
-### Community 190 - "e360-blocks.ts"
+### Community 191 - "scopeRegulatory"
 Cohesion: 0.12
-Nodes (27): blocMarche360(), blocProduit360(), dzd(), libelle(), LIGNE_STATUT, m(), Ton, TON_DEPUIS_LABELS (+19 more)
+Nodes (26): GET(), SearchPage(), productBulkWhere(), accessibleDocumentWhere(), ALL_ENTITY_TYPES, isAll(), isNone(), DelegatePlanDTO (+18 more)
 
-### Community 191 - "src/auth.ts"
-Cohesion: 0.12
-Nodes (21): NO_CONTENT, POST(), lastAlertByUser, NO_CONTENT, POST(), authConfig, credentialsSchema, { handlers, auth, signIn, signOut } (+13 more)
-
-### Community 192 - "replay-viewer.tsx"
-Cohesion: 0.15
-Nodes (24): NO_CONTENT, POST(), asCaptured(), ICON, ReplayEvent, ReplaySession, ReplayViewer(), labelOf() (+16 more)
-
-### Community 193 - "competition.ts"
+### Community 192 - "competition.ts"
 Cohesion: 0.12
 Nodes (28): fmtPct(), MarketCompetitionPage(), pctTone(), ClassCompetition, ClassCompetitionSummary, classList(), clean(), CompLabRow (+20 more)
 
-### Community 194 - "payment-authority.ts"
+### Community 193 - "payment-authority.ts"
 Cohesion: 0.11
 Nodes (24): authoritiesOf(), HolderConfig, isNominative(), isOrphan(), orphanAuthorities(), SubjectLike, CONFIG, Advice (+16 more)
 
-### Community 195 - "graph/provider.ts"
-Cohesion: 0.15
-Nodes (22): wellKnownFromGraph(), deltaToken(), escapeToHtml(), isRemoved(), Raw, skipToken(), toAddress(), toAddressList() (+14 more)
-
-### Community 196 - "document-mirror.ts"
-Cohesion: 0.15
-Nodes (22): POST(), mirrorDocumentsToDrive(), MirrorFile, referenceFieldFor(), resolveReference(), ensureDriveFolder(), ensureDrivePath(), ALREADY_MIRRORED (+14 more)
-
-### Community 197 - "drive/upload/route.ts"
-Cohesion: 0.15
-Nodes (17): mimeOf(), POST(), POST(), effectiveSpaceId(), GB, makeTtlCache(), quotaVerdict, TtlCache (+9 more)
-
-### Community 198 - "dossier-timeline.tsx"
-Cohesion: 0.19
-Nodes (25): AddStepSheet(), DossierTimeline(), STEP_DOC_CATEGORIES, StepCard(), TimelineStepView, addDossierStep(), deleteDossierStep(), guard() (+17 more)
-
-### Community 199 - "ad-pro-item-actions.ts"
-Cohesion: 0.21
-Nodes (28): ItemLifecycle(), addAdProItem(), AdProModule, approveAdProItemOrder(), audit(), canAllocate(), canEditItems(), CONGRESS_DECIDED (+20 more)
-
-### Community 200 - "parcours.ts"
+### Community 194 - "canonical.ts"
 Cohesion: 0.14
-Nodes (24): BuDeduite, businessUnitDuDemandeur(), DemandeurBu, estDirectionMarketing(), estKam(), estNationalSales(), porte(), ROLE_DIRECTION_MARKETING (+16 more)
+Nodes (27): calculerTableau(), ChiffreCanon, ColonneCanon, DonneesCanoniques, evaluerFormuleLigne(), FORMAT_MONTANT, FORMAT_POURCENTAGE, formaterValeur() (+19 more)
 
-### Community 201 - "decks/build.ts"
-Cohesion: 0.13
-Nodes (18): construireDeckVerifie(), DeckConstruit, mots(), SpecDeck, SpecDiapo, verifierSpecDeck(), compterMots(), controlerAvantLivraison() (+10 more)
-
-### Community 202 - "workflow/engine.ts"
-Cohesion: 0.12
-Nodes (28): isManagerOfUser(), AdvanceInput, AdvanceResult, advanceWorkflowInstance(), auditModule(), autoSkipEligible(), canActOnStep(), countAdProItems() (+20 more)
-
-### Community 203 - "courrier/proprietaire.ts"
-Cohesion: 0.13
-Nodes (23): appendToSent(), sendMail(), ENSEMBLE, estNatureAutonome(), NatureAutonome, natureDuSignal(), NATURES_AUTONOMES, normaliser() (+15 more)
-
-### Community 204 - "ocrDocument"
-Cohesion: 0.13
-Nodes (22): LunaCallInput, canOcr(), ocrDocument(), rasterizePdf(), buildTextExtraction(), buildVisionExtraction(), CATEGORIES, CATEGORY_LABEL (+14 more)
-
-### Community 205 - "invariants/registry.ts"
+### Community 195 - "regulatory-read.ts"
 Cohesion: 0.09
-Nodes (17): MutationOp, MutationOpReport, OPS, Predicate, predicatesFor(), Row, InvariantOutcome, checkRows() (+9 more)
+Nodes (22): EchecCapacite, ECHECS_CAPACITE, resultatIndisponible(), CONFIDENCE_LABEL, DIRECTORY_TOOLS, AssigneeLoad, assigneeRegulatoryLoad(), extraireConnaissanceReglementaire() (+14 more)
 
-### Community 206 - "mail-smart.ts"
-Cohesion: 0.15
-Nodes (23): dynamic, POST(), runtime, sendMail(), SendResult, smartMailStatus, buildProviderCall(), cleanRecipients() (+15 more)
-
-### Community 207 - "qualite/page.tsx"
-Cohesion: 0.18
-Nodes (23): dateFr(), dynamic, metadata, QualitePage(), STATUTS, TON, QUALITY_TOOLS, derniersBalayages() (+15 more)
-
-### Community 208 - "items-panel.tsx"
-Cohesion: 0.14
-Nodes (21): AdProItemsPanel(), EditItemForm(), ItemRow, PARENT_PATH, Props, AD_PRO_PARENTS, AdProParent, breakdown (+13 more)
-
-### Community 209 - "regulatory-read.ts"
-Cohesion: 0.10
-Nodes (20): EchecCapacite, ECHECS_CAPACITE, resultatIndisponible(), CONFIDENCE_LABEL, DIRECTORY_TOOLS, AssigneeLoad, assigneeRegulatoryLoad(), extraireConnaissanceReglementaire() (+12 more)
-
-### Community 210 - "event-bus.ts"
-Cohesion: 0.13
-Nodes (22): ChangeEntry, ChangeQuery, feed, FeedHealth, labelOf(), recentChanges(), resetChangeFeed(), startChangeFeed() (+14 more)
-
-### Community 211 - "retrieval.ts"
+### Community 196 - "executive-brief-tools.ts"
 Cohesion: 0.11
-Nodes (22): KnowledgeSourceType, FREE_TEXT_WORTH_EMBEDDING, cosine(), excerpt(), getCurrentState(), getDocument(), getHistory(), getRelated() (+14 more)
+Nodes (15): alertesExecutivesChaudes(), ETAT_ALERTES, fraicheurDeLecture(), rechaufferAlertes(), AlertCriticality, days(), detectExecutiveAlerts(), ExecutiveAlert (+7 more)
 
-### Community 212 - "stages.ts"
-Cohesion: 0.15
-Nodes (23): Amount, currencyOf(), detectLanguage(), documentDateOf(), extractAmounts(), extractDates(), fold(), MONTHS (+15 more)
+### Community 197 - "lib/fichiers/fichiers.test.ts"
+Cohesion: 0.11
+Nodes (26): Categorie, CONFIANCE_MAX_SANS_CONTENU, extraireEntites(), gestesDeClassement(), Indice, proposerClassement(), Proposition, Regle (+18 more)
 
-### Community 213 - "queries/messaging.ts"
+### Community 198 - "tableur.ts"
+Cohesion: 0.16
+Nodes (27): decouperLigne(), detecterEncodage(), detecterEntete(), detecterLocale(), detecterSeparateur(), DetectionEncodage, DetectionLocale, DetectionSeparateur (+19 more)
+
+### Community 199 - "teach/resolve.ts"
 Cohesion: 0.13
-Nodes (24): dynamic, GET(), dynamic, MessagesPage(), presenceOf(), annotateReceipts(), AttachmentDTO, BookmarkDTO (+16 more)
+Nodes (24): BUDGET_REGLES_DEFAUT, composerBlocRegles(), EN_TETE_BLOC_REGLES, estimerJetons(), filtrerParDomaine(), ligneRegle(), lignesPourPlanificateur(), OptionsBloc (+16 more)
 
-### Community 214 - "medical-info-actions.ts"
-Cohesion: 0.23
-Nodes (23): SlipsCard(), addMedicalInfoComment(), addMedicalInfoSlip(), cancelDocRequest(), canManage(), createMedicalInfoItem(), deliverMedicalInfoSlip(), fulfillDocRequest() (+15 more)
+### Community 200 - "messaging-actions.ts"
+Cohesion: 0.14
+Nodes (25): DOT, MyStatus(), apply(), DENIED, grantDriveRefAccess(), notifyRecipients(), parseAttachments(), ParsedAttachment (+17 more)
 
-### Community 215 - "lifecycle/actions.ts"
+### Community 201 - "regulatory-table.tsx"
+Cohesion: 0.10
+Nodes (23): AssignableUser, CATEGORY_OPTS, Col, COLS, Comportement, COMPORTEMENTS, lbl(), PRIORITY_CLASS (+15 more)
+
+### Community 202 - "word.ts"
+Cohesion: 0.14
+Nodes (25): Alignement, BORDURE(), bornesDuCorps(), composerDocx(), core(), dimensionsImage(), enTeteLogo(), hex() (+17 more)
+
+### Community 203 - "graph/client.ts"
+Cohesion: 0.15
+Nodes (22): buildUrl(), correlationId(), DELTA_EXPIRED, graphBinary(), graphJson(), graphRaw(), GraphRequest, HUMAN (+14 more)
+
+### Community 204 - "drive-table.tsx"
+Cohesion: 0.16
+Nodes (22): BulkShareSheet(), DriveTable(), DropCategory, MoveTarget, UserLite, canPasteInto(), Clipboard, CLIPBOARD_KEY (+14 more)
+
+### Community 205 - "team-tree.tsx"
+Cohesion: 0.14
+Nodes (23): KpiRow(), TeamTree(), TONE_CLASS, CommonCounts, commonKpis(), CoordinationCounts, FieldCounts, JOB_LABEL (+15 more)
+
+### Community 206 - "admin-write.ts"
+Cohesion: 0.14
+Nodes (24): describeChange(), parseRegFieldValue(), ParseResult, parseSettingValue(), regFieldSpec, renderSettingValue(), resolveByLabel(), SettingKind (+16 more)
+
+### Community 207 - "sfe/tournee.ts"
+Cohesion: 0.15
+Nodes (24): periodeVisee(), estJourOuvre(), debutDeSemaine(), echeanceDeSoumission(), enRetardDeSoumission(), estVue(), ETAT_VISITE_LABELS, fenetreDeVue() (+16 more)
+
+### Community 208 - "mail-smart.ts"
+Cohesion: 0.16
+Nodes (22): dynamic, POST(), runtime, sendMail(), SendResult, smartMailStatus, buildProviderCall(), cleanRecipients() (+14 more)
+
+### Community 209 - "tender-lines.tsx"
+Cohesion: 0.14
+Nodes (23): fmt(), LINE_STATUS, LineCard(), save(), Res, SalesBlock(), addOrder(), TenderLines() (+15 more)
+
+### Community 210 - "sfe.ts"
+Cohesion: 0.19
+Nodes (22): AffectationsPage(), dynamic, dynamic, PlanningPage(), ensureCycle(), Cockpit, CockpitRow, assignmentEffort() (+14 more)
+
+### Community 211 - "recruitment-actions.ts"
+Cohesion: 0.21
+Nodes (24): AnswerInfoForm(), CancelRequestButton(), CandidateActions(), ChainDecisionPanel(), CloseRequestButton(), fd(), HrPanel(), OnboardPanel() (+16 more)
+
+### Community 212 - "lifecycle/actions.ts"
 Cohesion: 0.15
 Nodes (20): Event, KINDS, LifecyclePanel(), OB_STATUS, Obligation, addLifecycleEvent(), addObligation(), completeObligation() (+12 more)
 
-### Community 216 - "admin-write.ts"
-Cohesion: 0.15
-Nodes (23): describeChange(), parseRegFieldValue(), ParseResult, parseSettingValue(), regFieldSpec, renderSettingValue(), resolveByLabel(), SettingKind (+15 more)
+### Community 213 - "action-registry.ts"
+Cohesion: 0.09
+Nodes (21): ACTION_CLASSIFICATION, ActionClassification, ActionRisk, CATALOG_ERP_ACTIONS, CLASSIFICATION, classify(), CORE_ERP_ACTIONS, ERP_ACTIONS (+13 more)
 
-### Community 217 - "reseau-tools.ts"
-Cohesion: 0.13
-Nodes (20): Acteur, blocCarte(), blocReseau(), RESEAU_TOOLS, Chemin, CHEMINS_MAX, cheminsMultiples(), composantes() (+12 more)
-
-### Community 218 - "contraintes.ts"
-Cohesion: 0.11
-Nodes (25): chercher(), ContrainteCsp, EchecCsp, NOEUDS_CSP_MAX, nomDe(), ProblemeCsp, Recherche, reduireDomaines() (+17 more)
-
-### Community 219 - "information-medicale/[id]/panels.tsx"
-Cohesion: 0.12
-Nodes (24): StatusActions(), AuthorityForm(), AuthorityLocked(), CancelRequestButton(), CreateDeclarationButton(), DirectionValidateButton(), DocIcon, FulfillForm() (+16 more)
-
-### Community 220 - "formula.ts"
-Cohesion: 0.17
-Nodes (16): formuleAttendue(), afficher(), afficherRef(), analyser(), Analyseur, BP, citerFeuille(), decaler() (+8 more)
-
-### Community 221 - "what-if.ts"
-Cohesion: 0.13
-Nodes (16): alertesExecutivesChaudes(), ETAT_ALERTES, fraicheurDeLecture(), rechaufferAlertes(), AlertCriticality, days(), detectExecutiveAlerts(), ExecutiveAlert (+8 more)
-
-### Community 222 - "features.ts"
+### Community 214 - "event-bus.ts"
 Cohesion: 0.14
-Nodes (20): dynamic, metadata, VersionsPage(), Group(), STAGE, VersionsManager(), move(), switchTestMode() (+12 more)
+Nodes (21): ChangeEntry, ChangeQuery, feed, FeedHealth, labelOf(), resetChangeFeed(), startChangeFeed(), DomainEvent (+13 more)
 
-### Community 223 - "state-machines/explorer.ts"
+### Community 215 - "operations.ts"
+Cohesion: 0.14
+Nodes (18): GET, POST, KIND_LABEL, OrphanRow(), ReconcileTable(), linkProductToDossier(), unlinkProductFromDossier(), describeOperations() (+10 more)
+
+### Community 216 - "directory-actions.ts"
+Cohesion: 0.13
+Nodes (20): CHANNEL_ICON, CONFIDENCE_LABEL, PeopleDirectory(), addEndpoint(), addDirectoryEndpoint(), deactivateDirectoryEndpoint(), ensureDirectoryEntry(), updateDirectoryEntry() (+12 more)
+
+### Community 217 - "expense-row-actions.tsx"
+Cohesion: 0.17
+Nodes (19): BudgetTargetField(), EditableExpense, ExpenseRowActions(), Filtre, FILTRES, CatalogArticle, BudgetTarget, DEPT_BUDGET_LABEL (+11 more)
+
+### Community 218 - "supplier/actions.ts"
+Cohesion: 0.18
+Nodes (20): Question, Req, STATUS, SupplierPanel(), create(), createSupplierRequest(), deleteSupplierRequest(), guard() (+12 more)
+
+### Community 219 - "department-budget-actions.ts"
+Cohesion: 0.22
+Nodes (23): addDepartmentExpense(), AMEND_INCLUDE, canAmendExpense(), cashOf(), grantFor(), headedDepartmentIds(), isMyDepartment(), requestDepartmentBudget() (+15 more)
+
+### Community 220 - "parcours.ts"
+Cohesion: 0.16
+Nodes (21): BuDeduite, businessUnitDuDemandeur(), DemandeurBu, estDirectionMarketing(), estKam(), estNationalSales(), porte(), ROLE_DIRECTION_MARKETING (+13 more)
+
+### Community 221 - "three-sixty.ts"
+Cohesion: 0.10
+Nodes (16): daysSince(), paymentExecutiveState(), PaymentStateInput, RegStepInput, regulatoryExecutiveState(), RegulatoryStateInput, stepLabel(), NOW (+8 more)
+
+### Community 222 - "workspace/provider.ts"
+Cohesion: 0.10
+Nodes (20): DRIVE_BASE, addSlide(), appendToDoc(), columnLetter(), createDoc(), createPresentation(), createSheetFromTable(), createSpreadsheet() (+12 more)
+
+### Community 223 - "clauses.ts"
+Cohesion: 0.11
+Nodes (25): Changement, Clause, Confiance, detecter(), estTitre(), fenetre(), iso(), LIBELLE_CLAUSE (+17 more)
+
+### Community 224 - "meetings/index.ts"
+Cohesion: 0.16
+Nodes (23): auMoins(), CONTENU_PAR_NIVEAU, LIBELLE_NIVEAU, niveauDepuisRegles(), niveauDepuisTexte(), niveauParDefaut(), NiveauReunion, NIVEAUX (+15 more)
+
+### Community 225 - "budget-forms.tsx"
+Cohesion: 0.16
+Nodes (23): BudgetExpenses(), ACCESS_ROLE_OPTIONS, accessRolesField(), accessUsersField(), AddExpenseRow(), BudgetTotalInfo, BudgetTotalSheet(), CategorySheet() (+15 more)
+
+### Community 226 - "party-picker.tsx"
+Cohesion: 0.15
+Nodes (16): ContactsBoard(), CreerContact(), PartyPicker(), CONTACT_KIND_SUGGESTIONS, groupContactsByKind(), matchesContact(), NO_KIND_LABEL, normalizeKind() (+8 more)
+
+### Community 227 - "regulatory-reminder-actions.ts"
+Cohesion: 0.18
+Nodes (20): UpdateReminderButton(), send(), sendRegulatoryUpdateReminder(), regulatoryReminderBoard(), canSendUpdateReminder(), daysSince(), isStaleDossier(), remindedRecently() (+12 more)
+
+### Community 228 - "calcul-tools.ts"
+Cohesion: 0.10
+Nodes (18): Acteur, blocGantt(), blocHistogramme(), CALCUL_TOOLS, Ligne, LOIS_TEXTE, LOIS, ContrainteCsp (+10 more)
+
+### Community 229 - "reseau-tools.ts"
+Cohesion: 0.14
+Nodes (18): Acteur, blocReseau(), RESEAU_TOOLS, Chemin, CHEMINS_MAX, cheminsMultiples(), composantes(), cout() (+10 more)
+
+### Community 230 - "sfe-sweep.ts"
+Cohesion: 0.15
+Nodes (20): loadCockpit(), alertKey(), alertsForRep(), AlertThresholds, DEFAULT_THRESHOLDS, FieldAlert, FieldAlertKind, fieldAlerts() (+12 more)
+
+### Community 231 - "state-machines/explorer.ts"
 Cohesion: 0.18
 Nodes (18): businessObjectCoverage, Matrix, rbacCoverage, deepAudit(), DeepAuditResult, InvariantsReport, runInvariants(), Delegate (+10 more)
 
-### Community 224 - "migration-cert.ts"
+### Community 232 - "migration-cert.ts"
 Cohesion: 0.20
 Nodes (20): assertEphemeralName(), countInEphemeral(), createEphemeralSchema(), destroyEphemeralSchema(), ephemeralSchemaName(), execInEphemeral(), schemaExists(), InfraChecksResult (+12 more)
 
-### Community 225 - "message-thread.tsx"
-Cohesion: 0.16
-Nodes (18): SendPayload, EMOJI_PALETTE, QUICK_REACTIONS, buildInlineRegex(), dayLabel(), escapeRegExp(), inlineNoCode(), PRESENCE_COLOR (+10 more)
+### Community 233 - "regulatory/export/route.ts"
+Cohesion: 0.18
+Nodes (18): POST(), DOSSIER_RECEIVED_HINT, DOSSIER_RECEIVED_NO, DOSSIER_RECEIVED_YES, DossierReceipt, dossierReceived(), dossierReceivedLabel(), dossierReceivedOptions() (+10 more)
 
-### Community 226 - "dossier.tsx"
-Cohesion: 0.15
-Nodes (21): AskPiece(), EVENT_LABEL, EventView, NudgePanel(), PieceView, Runner, ItemAskPanel(), askablePeople() (+13 more)
+### Community 234 - "budgets/page.tsx"
+Cohesion: 0.21
+Nodes (18): BudgetContextBar(), BudgetExpensesPage(), dynamic, BudgetsPage(), dynamic, BudgetSettingsPage(), dynamic, rememberBudgetEnvelope() (+10 more)
 
-### Community 227 - "department-budget-actions.ts"
-Cohesion: 0.23
-Nodes (21): addDepartmentExpense(), AMEND_INCLUDE, canAmendExpense(), cashOf(), grantFor(), headedDepartmentIds(), isMyDepartment(), requestDepartmentBudget() (+13 more)
-
-### Community 228 - "clauses.ts"
-Cohesion: 0.13
-Nodes (23): Changement, Confiance, detecter(), estTitre(), fenetre(), iso(), LIBELLE_CLAUSE, lireDuree() (+15 more)
-
-### Community 229 - "mail/provider.ts"
-Cohesion: 0.16
-Nodes (18): buildUrl(), correlationId(), DELTA_EXPIRED, graphBinary(), graphJson(), graphRaw(), GraphRequest, HUMAN (+10 more)
-
-### Community 230 - "extract-facts.ts"
+### Community 235 - "drive-search.ts"
 Cohesion: 0.17
-Nodes (21): bestStrengthCombo(), comboLinkOk(), CTX, DocFactHit, DOSAGE_FORMS, escapeRe(), ExtractDocInput, extractFactsFromText() (+13 more)
+Nodes (19): DriveSearch(), describePath(), fold(), matchesQuery(), MIN_QUERY, normalizeQuery(), rankHit(), SearchHit (+11 more)
 
-### Community 231 - "sheet-import.ts"
+### Community 236 - "legal-table.tsx"
+Cohesion: 0.18
+Nodes (20): LegalRow, LegalTable(), contains(), describeActiveFilters(), EMPTY_FILTERS, hasActiveFilter(), initialLegalListState(), inMonth() (+12 more)
+
+### Community 237 - "messenger.tsx"
+Cohesion: 0.16
+Nodes (21): ConvAvatar(), ConversationList(), Filter, Props, relativeTime(), Props, bumpConversation(), Messenger() (+13 more)
+
+### Community 238 - "impl-wave7c.ts"
+Cohesion: 0.21
+Nodes (21): AddMembers(), cid(), InfoPanel(), Row(), addMembers(), archiveConversation(), canManage(), deleteMessage() (+13 more)
+
+### Community 239 - "legal/lifecycle.ts"
+Cohesion: 0.19
+Nodes (17): LegalSweepResult, runLegalExpirySweep(), canCancel(), canRenew(), daysBetween(), daysLeft(), effectiveStatus(), expiryLevel (+9 more)
+
+### Community 240 - "to-pdf.ts"
+Cohesion: 0.17
+Nodes (17): BASE_SIZE_PT, columnWidths(), effectiveSizePt(), fontName(), HEADING_SIZE_PT, MAX_SIZE_PT, MIN_SIZE_PT, needsNewPage() (+9 more)
+
+### Community 241 - "search-everything.ts"
+Cohesion: 0.16
+Nodes (19): capabilities(), d10(), EverythingHit, EverythingResult, familyWhere(), FUZZY_TABLES, fuzzyIds(), matchOf() (+11 more)
+
+### Community 242 - "sheet-import.ts"
 Cohesion: 0.22
 Nodes (21): channelOf(), dosageFrom(), fixTypedZero(), FORM_RULES, formOf(), importComments(), isProductRow(), manufacturingOf() (+13 more)
 
-### Community 232 - "sfe-sweep.ts"
+### Community 243 - "queries/budget.ts"
 Cohesion: 0.15
-Nodes (19): alertKey(), alertsForRep(), AlertThresholds, DEFAULT_THRESHOLDS, FieldAlert, FieldAlertKind, fieldAlerts(), FieldAlertSeverity (+11 more)
+Nodes (16): GET(), budgetExportFilename(), buildBudgetWorkbook(), day(), rate(), grand, overview, BudgetCategoryView (+8 more)
 
-### Community 233 - "openapi.ts"
+### Community 244 - "enregistrement/page.tsx"
+Cohesion: 0.14
+Nodes (21): dynamic, dzd(), EnregistrementPage(), metadata, CTD_MODULES, CTD_RULES, CtdModule, DECISION_MENTIONS (+13 more)
+
+### Community 245 - "dossier-timeline.tsx"
+Cohesion: 0.17
+Nodes (20): AddStepSheet(), DossierTimeline(), STEP_DOC_CATEGORIES, TimelineStepView, DOSSIER_STEP_ADDABLE, DOSSIER_STEP_KIND, ADDABLE_KINDS, canRemove() (+12 more)
+
+### Community 246 - "regulatory/page.tsx"
+Cohesion: 0.19
+Nodes (18): RegulatoryPage(), BusinessDevelopmentPipelinePage(), RegulatoryRow, SuppliersManager(), effectiveTherapeuticSegments(), getBdProjectOptions(), getRegulatoryRows(), isRegulatorySupervisor() (+10 more)
+
+### Community 247 - "cible-designee.ts"
+Cohesion: 0.19
+Nodes (18): Candidat, candidatsMontres(), cibleDesigneeDesactivee(), demandeNomme(), estDeictique(), MOTS_DE_CATEGORIE, motsDistinctifs(), normaliser() (+10 more)
+
+### Community 248 - "rollout.ts"
+Cohesion: 0.15
+Nodes (21): bucketOf(), configuredCanaryPercent(), decideRollout(), DEFAULT_CANARY_PERCENT, guardStatus, guardTripped(), MAX_MISSING_TOOL_RATE, MAX_WRONG_TOOL_RATE (+13 more)
+
+### Community 249 - "working-set.ts"
+Cohesion: 0.20
+Nodes (21): Branch, compact(), currentBranch(), detectBranchResume(), emptyWorkingSet(), findBranch(), latest(), MAX_BRANCHES (+13 more)
+
+### Community 250 - "memory-tools.ts"
 Cohesion: 0.13
-Nodes (15): blockOf(), GET, SCALARS, schema(), GET(), API_ERROR_CODES, ApiError, ApiErrorBody (+7 more)
+Nodes (16): excerptAround(), tokensOf(), aliasOf(), AliasPair, expandQueryWithAliases(), foldText(), isMemoryType(), MEMORY_TYPE_LABEL (+8 more)
 
-### Community 234 - "tour-schedule.ts"
-Cohesion: 0.16
-Nodes (19): LigneVue, clePaire(), EmploiDuTemps, LigneEmploiDuTemps, LigneTourneeDirection, loadEmploiDuTemps(), loadPlanTournee(), loadTourneeDirection() (+11 more)
-
-### Community 235 - "expense-row-actions.tsx"
-Cohesion: 0.19
-Nodes (17): BudgetTargetField(), EditableExpense, CatalogArticle, ExistingLine, BudgetTarget, DEPT_BUDGET_LABEL, cashAvailable(), defaultSource() (+9 more)
-
-### Community 236 - "story.ts"
-Cohesion: 0.18
-Nodes (20): assistantDirectIntent(), DIRECT_INTENTS, directIntent(), DirectIntentDef, DirectIntentName, intentArgs(), intentFor(), intentPhrase() (+12 more)
-
-### Community 237 - "calcul-tools.ts"
+### Community 251 - "what-changed.ts"
 Cohesion: 0.11
-Nodes (16): Acteur, blocHistogramme(), CALCUL_TOOLS, Ligne, LOIS_TEXTE, resumerSegmentation(), Ordonnancement, ordonnancer() (+8 more)
+Nodes (17): recentChanges(), AUDIT_SELECT, fr(), line(), parseTimeTravelDate(), ResolvedRecord, resolveRecord(), TIME_TRAVEL_TOOLS (+9 more)
 
-### Community 238 - "situation.ts"
-Cohesion: 0.15
-Nodes (21): balayerMentions(), cleValide(), dictionnaireCanonique(), echapper(), enregistrerMentions(), EntiteDictionnaire, extraireMentions(), plier() (+13 more)
-
-### Community 239 - "reply.ts"
-Cohesion: 0.17
-Nodes (19): MailMessage, buildReplyDraft(), dedupeAddresses(), forwardSubject(), norm(), parseAddressList(), previewOf(), quoteBlock() (+11 more)
-
-### Community 240 - "search-everything.ts"
-Cohesion: 0.17
-Nodes (18): capabilities(), d10(), EverythingResult, familyWhere(), FUZZY_TABLES, fuzzyIds(), matchOf(), MOTS_CREUX (+10 more)
-
-### Community 241 - "sfe/tournee.ts"
-Cohesion: 0.18
-Nodes (19): estJourOuvre(), debutDeSemaine(), echeanceDeSoumission(), enRetardDeSoumission(), estVue(), ETAT_VISITE_LABELS, fenetreDeVue(), finDeJour() (+11 more)
-
-### Community 242 - "chain-card.tsx"
+### Community 252 - "sfe-day.ts"
 Cohesion: 0.19
-Nodes (16): LegalChainCard(), SendToSettlementButton(), amountDrift(), CHAIN_KIND_LABEL, CHAIN_KINDS, ChainDoc, ChainKind, chainOf() (+8 more)
+Nodes (20): loadMyFieldDay(), MyFieldDay, buildTournee(), CarriedProduct, carriedProducts(), daysSince(), monthProgress, PanelDoctor (+12 more)
 
-### Community 243 - "progress/query.ts"
+### Community 253 - "manage.ts"
+Cohesion: 0.17
+Nodes (22): Schedule, WorkflowStatus, assertOwned(), createWorkflow(), CreateWorkflowInput, deleteWorkflow(), fail(), listWorkflows() (+14 more)
+
+### Community 254 - "mail/connection.ts"
+Cohesion: 0.19
+Nodes (14): dynamic, dynamic, GET(), masterKey(), openSecret(), sealSecret(), ActiveConnection, ConnectionStatus (+6 more)
+
+### Community 255 - "meetings.ts"
 Cohesion: 0.16
-Nodes (17): AnalysisProgressCard(), AnalysisProgress, AnalysisProgressInput, clamp01(), computeAnalysisProgress(), formatEta(), pctFrac(), PHASE_LABELS (+9 more)
+Nodes (17): externalBase(), formatDateTime(), MeetingDetailPage(), dynamic, PublicMeetPage(), PublicJoin(), appBaseUrlForMeet(), canViewMeeting() (+9 more)
 
-### Community 244 - "simulator/run.ts"
-Cohesion: 0.16
-Nodes (16): Sim, SimulatorPanel(), run(), VERDICT, runSimulationAction(), AiFn, dossierSummary(), normalizeSimulation() (+8 more)
-
-### Community 245 - "supplier/actions.ts"
-Cohesion: 0.21
-Nodes (17): SupplierPanel(), create(), createSupplierRequest(), deleteSupplierRequest(), guard(), ownsDossier(), regenerateSupplierDraft(), remindSupplier() (+9 more)
-
-### Community 246 - "enregistrement/page.tsx"
+### Community 256 - "exports.ts"
 Cohesion: 0.15
-Nodes (20): dynamic, dzd(), metadata, CTD_MODULES, CTD_RULES, CtdModule, DECISION_MENTIONS, DECISION_RULES (+12 more)
+Nodes (19): RecrutementPage(), buildWorkbook(), canExport(), DATASETS, DatasetSpec, depositBufferToDrive(), ensurePersonalFolder(), ExportDataset (+11 more)
 
-### Community 247 - "portfolio.ts"
+### Community 257 - "portfolio.ts"
 Cohesion: 0.16
 Nodes (17): ProductList(), currentCycle(), EMPTY, getMyPortfolio(), Row, SELECT, selectableProducts(), teamMemberIds() (+9 more)
 
-### Community 248 - "nav-access.ts"
+### Community 258 - "nav-access.ts"
 Cohesion: 0.23
 Nodes (17): acteur(), estCheminMaintenu(), isRetiredModule(), RETIRED_MODULE_KEYS, SOUS_MODULES_MAINTENUS, canOpenModule(), hiddenNotice(), hiddenSummary() (+9 more)
 
-### Community 249 - "sheets/analyse.ts"
-Cohesion: 0.19
-Nodes (20): Analyse, CelluleTracee, lirePlage(), resoudreRef(), StructureFeuille, texteValeur(), Trace, tracee() (+12 more)
+### Community 259 - "sandbox-tools.ts"
+Cohesion: 0.13
+Nodes (15): Acteur, blocTableau(), chargerLignes(), fold(), formaterCellule(), isObj(), lignesDeSortie(), rowsOf() (+7 more)
 
-### Community 250 - "series.ts"
+### Community 260 - "apercu.test.ts"
+Cohesion: 0.15
+Nodes (14): apercuDesSources(), POIDS_APERCU, SourceLue, SOURCES_MIN, TITRE_PAR_DEFAUT, COMPOSABLE_TOOLS, WORKSPACE_LIMITS, WorkspaceColumn (+6 more)
+
+### Community 261 - "ml.ts"
+Cohesion: 0.18
+Nodes (20): generateur(), acp, Anomalie, Composante, detecterAnomalies(), DIMENSIONS_MAX, distance2(), Groupe (+12 more)
+
+### Community 262 - "workforce-mass.ts"
+Cohesion: 0.19
+Nodes (16): basisLabel(), CostBasis, defaultEmployerCost(), entryBasis(), entryCost(), num(), PayrollCostInput, CostSource (+8 more)
+
+### Community 263 - "test-center/manifest.ts"
 Cohesion: 0.16
-Nodes (19): moyenne(), analyserSerie(), autocorrelation(), calibrer(), detecterPeriode(), Etat, holtWinters(), HORIZON_MAX (+11 more)
+Nodes (17): getTestCenterDashboard(), CleanupResult, cleanupRun(), deleteOne(), DELETERS, EXISTS, isNotFound(), recordArtifact() (+9 more)
 
-### Community 251 - "drive-search.ts"
-Cohesion: 0.19
-Nodes (18): describePath(), fold(), matchesQuery(), MIN_QUERY, normalizeQuery(), rankHit(), SearchHit, searchSummary() (+10 more)
+### Community 264 - "invariants/registry.ts"
+Cohesion: 0.13
+Nodes (12): PERMISSIONS, InvariantOutcome, checkRows(), Delegate, INVARIANTS, KNOWN_MODULES, KNOWN_ROLES, BusinessInvariant (+4 more)
 
-### Community 252 - "queries/team-kpis.ts"
-Cohesion: 0.19
-Nodes (19): CommonCounts, commonKpis(), CoordinationCounts, FieldCounts, JOB_LABEL, JobCounts, jobKpis(), jobOf() (+11 more)
-
-### Community 253 - "tasks/evidence.ts"
+### Community 265 - "tasks/evidence.ts"
 Cohesion: 0.14
 Nodes (18): BusinessEventLike, Confidence, DESTINATIONS, domaineDe(), evidenceSentence(), expectationOf(), EXPECTED_EVENTS, ExpectedEvent (+10 more)
 
-### Community 254 - "mail/connection.ts"
-Cohesion: 0.22
-Nodes (14): dynamic, GET(), masterKey(), openSecret(), sealSecret(), ActiveConnection, ConnectionStatus, disconnect() (+6 more)
+### Community 266 - "test-center/page.tsx"
+Cohesion: 0.13
+Nodes (18): CERT, CLEANUP, DifferentialJson, dynamic, fmt(), metadata, pct(), SEV (+10 more)
 
-### Community 255 - "meetings.ts"
+### Community 267 - "drive/[id]/page.tsx"
+Cohesion: 0.15
+Nodes (16): DriveCommentItem, DriveFilePage(), humanSize(), DriveMultiViewPage(), dynamic, CustomFieldsCard(), toDateValue(), fileCustomValue() (+8 more)
+
+### Community 268 - "purchase-section.tsx"
+Cohesion: 0.24
+Nodes (15): MyPurchaseRequests(), MyPurchaseRow, blank(), PurchaseRequestForm(), Row, PurchaseSection(), canWithdraw(), cleanLines() (+7 more)
+
+### Community 269 - "models/registry.ts"
 Cohesion: 0.17
-Nodes (15): dynamic, GET(), dynamic, PublicMeetPage(), PublicJoin(), canViewMeeting(), genPublicToken(), genSlug() (+7 more)
+Nodes (17): aiSelfTest(), demander(), MODEL_ROLES, usageDe(), activeProvider(), ANTHROPIC_FALLBACK, bindingFor(), DEFAULT_MODELS (+9 more)
 
-### Community 256 - "dossier-auto.ts"
-Cohesion: 0.19
-Nodes (19): nudgePaymentRequest(), nextPaymentRef(), openCompanionDossier(), canDecideFromDossier(), canNudge(), companionNotice(), companionPayee(), companionStatusForOrder() (+11 more)
-
-### Community 257 - "sheets.ts"
+### Community 270 - "sheets.ts"
 Cohesion: 0.17
 Nodes (19): MIME_XLSX, comparerFichiersXlsx(), resumerAudit(), SpecClasseur, analyseDe(), auditerClasseurDrive(), cache, CibleClasseur (+11 more)
 
-### Community 258 - "sheets/graph.ts"
-Cohesion: 0.20
-Nodes (17): Matrice, nomsDe(), referencesDe(), construireGraphe(), coordDeId(), dependantsDirects(), feuilleIndex(), idDe() (+9 more)
-
-### Community 259 - "sheets/diff.ts"
-Cohesion: 0.14
-Nodes (18): alignerLignes(), bornes(), Changement, ComparaisonClasseurs, comparerClasseurs(), GenreChangement, indexer(), LIBELLE_CHANGEMENT (+10 more)
-
-### Community 260 - "memory-tools.ts"
-Cohesion: 0.13
-Nodes (14): excerptAround(), tokensOf(), aliasOf(), AliasPair, expandQueryWithAliases(), foldText(), isMemoryType(), MEMORY_TYPE_LABEL (+6 more)
-
-### Community 261 - "workflow/types.ts"
+### Community 271 - "series.ts"
 Cohesion: 0.15
-Nodes (19): readWorkflowState(), resolveWorkflowCategory(), resolveWorkflowRequest(), roleLabel(), WorkflowRequestResolution, WorkflowStateView, WorkflowStepView, DefinitionAdminView (+11 more)
+Nodes (18): analyserSerie(), autocorrelation(), calibrer(), detecterPeriode(), Etat, holtWinters(), HORIZON_MAX, instantTexte() (+10 more)
 
-### Community 262 - "ml.ts"
-Cohesion: 0.19
-Nodes (19): generateur(), acp, Anomalie, Composante, detecterAnomalies(), DIMENSIONS_MAX, distance2(), Groupe (+11 more)
+### Community 272 - "org-chart-print.ts"
+Cohesion: 0.18
+Nodes (14): OrgCanvas(), OrgChartEditor(), OrgNode, OrgWorkspace(), buildOrgChartSvg(), buildPrintDocument(), clip(), escapeXml() (+6 more)
 
-### Community 263 - "directory/resolve.ts"
-Cohesion: 0.19
-Nodes (16): isChannel(), isConfidence(), normalizeEndpointValue(), AddressDecision, askWhichAddress(), CONFIDENCE_WEIGHT, decideAddress(), domainLabel() (+8 more)
+### Community 273 - "workspace.tsx"
+Cohesion: 0.28
+Nodes (16): DocumentWorkspace(), OpenDoc, Bounds, cascade(), clampToBounds(), focus(), MIN_H, MIN_W (+8 more)
 
-### Community 264 - "payment-request.ts"
-Cohesion: 0.15
-Nodes (18): DossierPiece, canApprove(), canResubmit(), isWithFinance(), isWithRequester(), MOVES, PaymentMove, PaymentState (+10 more)
-
-### Community 265 - "stand-in.ts"
-Cohesion: 0.21
-Nodes (17): actsFor(), day(), delegatedActions(), delegationNotice(), delegationsFor(), inactiveReason(), isDelegatable(), isDelegationActive() (+9 more)
-
-### Community 266 - "legal/lifecycle.ts"
-Cohesion: 0.20
-Nodes (16): LegalSweepResult, runLegalExpirySweep(), canCancel(), canRenew(), daysBetween(), daysLeft(), expiryLevel, expiryMessage() (+8 more)
-
-### Community 267 - "list-view.ts"
+### Community 274 - "molecule-panel.tsx"
 Cohesion: 0.17
-Nodes (16): contains(), EMPTY_FILTERS, initialLegalListState(), inMonth(), LegalColumnFilters, LegalListRow, legalListScope(), LegalListState (+8 more)
+Nodes (14): fmtDzd(), FoundList(), MoleculePanel(), arc(), Donut(), DonutSlice, foldTail(), INK (+6 more)
 
-### Community 268 - "quality/engine.test.ts"
-Cohesion: 0.13
-Nodes (15): balayageQualiteSiDu(), balayerQualite(), json(), RapportBalayage, RapportRegle, ids, now, appliquerCorrection() (+7 more)
+### Community 275 - "tour-schedule.ts"
+Cohesion: 0.18
+Nodes (19): LigneVue, clePaire(), EmploiDuTemps, LigneEmploiDuTemps, LigneTourneeDirection, loadEmploiDuTemps(), loadPlanTournee(), loadTourneeDirection() (+11 more)
 
-### Community 269 - "process-intelligence.ts"
-Cohesion: 0.16
-Nodes (18): dynamic, GET(), askClaude(), collectWorkItems(), countMap(), daysSince(), getProcessOverview(), getWorkloadAnalysis() (+10 more)
+### Community 276 - "receipt-lines.tsx"
+Cohesion: 0.27
+Nodes (16): empty(), ExistingLine, ReceiptLines(), Row, readReceipt(), ReceiptDraft, normalizeLines(), parseAmount() (+8 more)
 
-### Community 270 - "workflow-actions.ts"
-Cohesion: 0.16
-Nodes (17): AdminWorkflowsPage(), dynamic, WorkflowVersionHistory(), WorkflowVersionRow, blankStep(), WorkflowBuilder(), DefinitionPayload, resetWorkflowDefinition() (+9 more)
-
-### Community 271 - "centre-de-validations/page.tsx"
-Cohesion: 0.17
-Nodes (16): CentreRow, ValidationCentreBoard(), CentreDeValidationsPage(), dynamic, metadata, declarationValidators(), productManagerOfSource(), centreCounters (+8 more)
-
-### Community 272 - "onboarding-wizard.tsx"
+### Community 277 - "onboarding-wizard.tsx"
 Cohesion: 0.13
 Nodes (13): AssistantPreview(), CourrierPreview(), DossierPreview(), SearchPreview(), GROUP_ORDER, GuideEntry, OnboardingWizard(), finishTo() (+5 more)
 
-### Community 273 - "delivery.ts"
+### Community 278 - "reader.ts"
+Cohesion: 0.17
+Nodes (19): FeuilleIndexee, Feuille, NomDefini, TypeCellule, aplatisseur(), attribut(), dateEnSerie(), decoderXml() (+11 more)
+
+### Community 279 - "delivery.ts"
 Cohesion: 0.19
 Nodes (18): applyDelivery(), DELIVERING_STALE_MS, DeliveryDuty, DeliveryEvent, DeliveryObligation, DeliveryState, dutyFor(), isOutstanding() (+10 more)
 
-### Community 274 - "simplexe.ts"
-Cohesion: 0.13
-Nodes (18): Comparateur, Contrainte, ContrainteResolue, CONTRAINTES_MAX, Modele, NOEUDS_MAX, optimiser(), OptionsOptimisation (+10 more)
+### Community 280 - "budget-general-means.integration.test.ts"
+Cohesion: 0.17
+Nodes (15): consumptionByCategory(), ImputableExpense, ImputableLine, Imputation, imputationsOf(), isFullyClassified(), round2(), unclassifiedTotal() (+7 more)
 
-### Community 275 - "metrics.ts"
+### Community 281 - "retrieval.ts"
+Cohesion: 0.16
+Nodes (19): KnowledgeSourceType, cosine(), excerpt(), getCurrentState(), getDocument(), hitOf(), ItemRow, LEXICAL_STOPWORDS (+11 more)
+
+### Community 282 - "metrics.ts"
 Cohesion: 0.19
 Nodes (16): metricDef, METRICS, MetricValue, PAR_NOM, Portee, Unite, valeurDe(), metriquesEntreprise() (+8 more)
 
-### Community 276 - "domains.ts"
+### Community 283 - "models/throttle.ts"
+Cohesion: 0.24
+Nodes (18): capaciteEffective(), dormir(), entier(), env(), etat, etatPorte, Fenetre, lireDuree() (+10 more)
+
+### Community 284 - "openai-luna.ts"
+Cohesion: 0.15
+Nodes (18): BATCH_MULTIPLIER, BatchOutcome, BatchRequest, BatchStatus, BatchSubmitResult, buildBatchJsonl(), buildBatchLine(), buildLunaBody() (+10 more)
+
+### Community 285 - "sortie/garde.ts"
+Cohesion: 0.17
+Nodes (13): ActeSortant, estUnBancDeMesure(), exigerSortieAutorisee(), oublierTentativesSortantes(), sortieAutorisee(), SortieInterdite, sortiesInterdites(), tentatives (+5 more)
+
+### Community 286 - "domains.ts"
 Cohesion: 0.16
 Nodes (18): BRIDGE, cycleEdges(), domainOf(), DomainReport, DOMAINS, DomainViolation, FACADES, findCycles() (+10 more)
 
-### Community 277 - "test-center/types.ts"
+### Community 287 - "messaging/messages/route.ts"
 Cohesion: 0.15
-Nodes (13): LaunchPanel(), MODES, PHASE1_MODES, runTestCenter(), Severity, guardMode(), GuardResult, resolveEnvironment() (+5 more)
+Nodes (14): dynamic, GET(), dynamic, GET(), dynamic, NO_CONTENT, POST(), touchPresence() (+6 more)
 
-### Community 278 - "department-budget-table.tsx"
-Cohesion: 0.14
-Nodes (16): DepartmentAccessSheet(), ROLE_OPTIONS, UserOpt, AmountCell(), Consumption(), ExpenseForm(), RequestForm(), RequestList() (+8 more)
+### Community 288 - "queries/pch.ts"
+Cohesion: 0.17
+Nodes (17): d10(), LogisticsRow(), Res, TenderLogistics(), save(), NiveauDerive, dec(), fetchTenders() (+9 more)
 
-### Community 279 - "queries/workflow.ts"
+### Community 289 - "mission-runtime-controls.tsx"
+Cohesion: 0.18
+Nodes (17): AccordControls(), ConduiteControls(), ElementControls(), Etat, GENRES, ModificationControls(), appliquer(), voir() (+9 more)
+
+### Community 290 - "resoudre.ts"
+Cohesion: 0.21
+Nodes (16): Cible, direRefus(), ENTITES_RESOLVABLES, designerUnePersonne(), EntreesResolues, NonResolu, porteUneReference(), resoudreEntrees() (+8 more)
+
+### Community 291 - "stages.ts"
 Cohesion: 0.20
-Nodes (15): Props, BudgetCategoryOption, AD_PRO_BUDGET_MODULES, getWorkflowDefinitions(), getWorkflowForEntity(), loadOutcome(), synthesizeCreationEvent(), WorkflowEventView (+7 more)
+Nodes (17): Amount, currencyOf(), detectLanguage(), documentDateOf(), extractAmounts(), extractDates(), fold(), MONTHS (+9 more)
 
-### Community 280 - "requestDeclareDecision"
-Cohesion: 0.19
-Nodes (16): DeclareDecisionCard(), requestDeclareDecision(), canFileWithAuthorities(), canRequestDecision(), canValidateEvent(), DECLARE_INTENT_LABEL, DeclareIntent, declareMessage() (+8 more)
-
-### Community 281 - "receipt-lines.tsx"
-Cohesion: 0.30
-Nodes (15): empty(), ReceiptLines(), Row, readReceipt(), ReceiptDraft, normalizeLines(), parseAmount(), parseLinesField() (+7 more)
-
-### Community 282 - "deliverables.ts"
-Cohesion: 0.14
-Nodes (15): clean(), DELIVERABLE_FORMATS, DELIVERABLE_TOOLS, DeliverableFormat, DeliverableSection, DeliverableSpec, docxP(), docxTable() (+7 more)
-
-### Community 283 - "circuit-state.ts"
+### Community 292 - "circuit-state.ts"
 Cohesion: 0.22
 Nodes (15): DeclarationLike, MedicalCircuitState, SlipRow, MedicalCircuit, DeclareInput, canDeliverSlip(), canEditSlips(), canRequestSlipPayment() (+7 more)
 
-### Community 284 - "scheduler.ts"
-Cohesion: 0.17
-Nodes (13): LatencyClass, classeDe(), ClasseRessource, CLASSES_RESSOURCE, DOMAINES_EXTERNES, EtapeOrdonnancable, Limites, limitesDe() (+5 more)
-
-### Community 285 - "models/throttle.ts"
-Cohesion: 0.25
-Nodes (17): capaciteEffective(), dormir(), entier(), env(), etat, etatPorte, Fenetre, lireDuree() (+9 more)
-
-### Community 286 - "empreinte.ts"
+### Community 293 - "empreinte.ts"
 Cohesion: 0.16
 Nodes (17): Cardinalite, cardinaliteDeLaTete(), CHAMPS_EXPLICITES, CHAMPS_POSSESSIFS, Empreinte, empreinteDeLOutil(), empreinteDemandee(), empreinteDuGroupe() (+9 more)
 
-### Community 287 - "test-center/manifest.ts"
-Cohesion: 0.15
-Nodes (14): getTestCenterDashboard(), CleanupResult, deleteOne(), DELETERS, EXISTS, isNotFound(), recordArtifact(), SUPPORTED_MODELS (+6 more)
-
-### Community 288 - "sortie/garde.ts"
-Cohesion: 0.17
-Nodes (12): ActeSortant, estUnBancDeMesure(), exigerSortieAutorisee(), oublierTentativesSortantes(), SortieInterdite, sortiesInterdites(), tentatives, TentativeSortante (+4 more)
-
-### Community 289 - "MicrosoftGraphMailProvider"
+### Community 294 - "porte.ts"
 Cohesion: 0.18
-Nodes (6): dynamic, GET(), draftBody(), MicrosoftGraphMailProvider, recipients(), MailDraftInput
+Nodes (16): Attente, DemandePorte, Etape, ExecutionBac, finis(), inspecter(), INTERDITS, Langage (+8 more)
 
-### Community 290 - "composer.tsx"
-Cohesion: 0.21
-Nodes (15): Composer(), DriveRef, Pending, Props, UploadedAttachment, DrivePickerValue, driveRefHref(), DriveRefInput (+7 more)
+### Community 295 - "stocks/page.tsx"
+Cohesion: 0.22
+Nodes (15): StocksPage(), SnapshotDTO, getProductOptions(), loadRecurrencesStock(), canRequestStockState(), keepVisibleSnapshots(), ScopedSnapshot, seesSupplyChain() (+7 more)
 
-### Community 291 - "capability-surface.test.ts"
-Cohesion: 0.21
-Nodes (16): assistantToolsFor(), capabilitiesFor(), CapabilityView, hasCapability(), isDirectOn(), isWrite(), Reach, Surface (+8 more)
-
-### Community 292 - "turn-metrics.ts"
+### Community 296 - "turn-metrics.ts"
 Cohesion: 0.18
 Nodes (15): aggregateTurns(), evaluateTurn(), LATENCY_KEYS, ms(), percentile(), STAGE_LABEL, turnLatency(), VOICE_SLO (+7 more)
 
-### Community 293 - "update-reminder.ts"
-Cohesion: 0.20
-Nodes (15): canSendUpdateReminder(), daysSince(), isStaleDossier(), remindedRecently(), REMINDER_COOLDOWN_DAYS, REMINDER_ROLES, REMINDER_STALE_DAYS, reminderAuditSummary() (+7 more)
-
-### Community 294 - "sql.ts"
+### Community 297 - "sql.ts"
 Cohesion: 0.22
 Nodes (16): COLONNES_MASQUEES, DELAI_MS, executerSqlLectureSeule(), LIMITE_LIGNES, messageCourt(), nommerLeRemede(), relationsDuPlan(), ResultatSql (+8 more)
 
-### Community 295 - "training-board.tsx"
-Cohesion: 0.24
-Nodes (14): dynamic, metadata, TrainingParticipantRow, TrainingRow, ATTENDANCE_LABELS, countParticipants(), grantedAmount(), PARTICIPANT_STATE_LABELS (+6 more)
+### Community 298 - "MicrosoftGraphMailProvider"
+Cohesion: 0.19
+Nodes (5): GET(), draftBody(), MicrosoftGraphMailProvider, recipients(), MailDraftInput
 
-### Community 296 - "user-invites.ts"
+### Community 299 - "user-invites.ts"
 Cohesion: 0.20
 Nodes (13): redeemInviteAction(), dynamic, InvitePage(), metadata, REASON_TEXT, SetPasswordForm(), AVATAR_COLORS, createAccountWithInvite() (+5 more)
 
-### Community 297 - "executive-state.ts"
-Cohesion: 0.18
-Nodes (12): daysSince(), paymentExecutiveState(), PaymentStateInput, RegStepInput, regulatoryExecutiveState(), RegulatoryStateInput, stepLabel(), NOW (+4 more)
+### Community 300 - "directory/resolve.ts"
+Cohesion: 0.24
+Nodes (13): AddressDecision, askWhichAddress(), CONFIDENCE_WEIGHT, decideAddress(), domainLabel(), normalizeName(), PersonMatch, rankEndpoints() (+5 more)
 
-### Community 298 - "ledger-audit.ts"
+### Community 301 - "ledger-audit.ts"
 Cohesion: 0.26
 Nodes (13): auditLedger(), auditSummary(), CashRemittance, doubleSettledSources(), duplicateEntries(), jour(), LedgerAudit, LedgerEntry (+5 more)
 
-### Community 299 - "porte.ts"
+### Community 302 - "product-catalog.ts"
 Cohesion: 0.21
-Nodes (14): DemandePorte, Etape, ExecutionBac, finis(), inspecter(), INTERDITS, Langage, lireChemin() (+6 more)
+Nodes (14): bestMatches(), isConfident(), MatchProposal, matchScore(), ProductIdentity, productKey(), STRONG_MATCH, REG (+6 more)
 
-### Community 300 - "teach/resolve.ts"
-Cohesion: 0.25
-Nodes (14): KINDS_CONTRAIGNANTS, RANG_SCOPE, cleDe(), comparerPrecedence(), Conflit, conflitsAvecExistantes(), Ecartee, estApplicable() (+6 more)
+### Community 303 - "reports.ts"
+Cohesion: 0.21
+Nodes (13): buildSimpleDocx(), esc(), MISSING_MARKER, paragraph(), SimplePara, buildFindingsReport(), buildReserveResponseLetter(), GenerateResult (+5 more)
 
-### Community 301 - "org-chart-print.ts"
-Cohesion: 0.24
-Nodes (11): OrgCanvas(), buildOrgChartSvg(), buildPrintDocument(), clip(), escapeXml(), OrgSvg, PRINT_BOX_H, PRINT_BOX_W (+3 more)
+### Community 304 - "getMailAccount"
+Cohesion: 0.20
+Nodes (12): dynamic, GET(), dynamic, GET(), dynamic, GET(), dynamic, GET() (+4 more)
 
-### Community 302 - "decide.ts"
-Cohesion: 0.28
-Nodes (12): BoutonBalayage(), BoutonsConstat(), Geste, corrigerConstat(), ignorerConstat(), IssueDecision, peutAgir(), rouvrirConstat() (+4 more)
+### Community 305 - "adam-settings-actions.ts"
+Cohesion: 0.31
+Nodes (14): CHOICES, Policy, ReglagesForm(), disconnectAdamGoogle(), renewAdamWatch(), requireChief(), setAdamConnectionPaused(), setAdamInboundPaused() (+6 more)
 
-### Community 303 - "pickers.ts"
+### Community 306 - "paie/page.tsx"
+Cohesion: 0.22
+Nodes (11): dynamic, PaiePage(), PayrollRow, refreshPayrollMass(), BudgetRefresh, budgetRefreshes(), massByDepartment(), massByEntity() (+3 more)
+
+### Community 307 - "pickers.ts"
 Cohesion: 0.26
 Nodes (13): referentielFields(), AVAILABLE_PRODUCT_STATUSES, availableProductOptions(), doctorOptionLabel(), doctorOptions(), DoctorRow, isAvailableProduct(), joinMulti() (+5 more)
 
-### Community 304 - "designation.ts"
+### Community 308 - "designation.ts"
 Cohesion: 0.22
 Nodes (14): resolve(), CLES_ADRESSE, CLES_NOM, collectifDesigne(), CONSEIL_COLLECTIF, designationDePersonne(), direCeQuiEstArrive(), estAdresse() (+6 more)
 
-### Community 305 - "uncertainty.ts"
+### Community 309 - "pre-lectures.ts"
+Cohesion: 0.20
+Nodes (14): executerPreLectures(), idDuLien(), LIENS_FICHE, MOTS_VIDES, motsSignificatifs(), OutilPreLecture, planifierPreLectures(), PlanPreLecture (+6 more)
+
+### Community 310 - "uncertainty.ts"
 Cohesion: 0.19
 Nodes (13): ActionRisk, alternativesDisagree(), classifyRisk(), confirmationQuestion(), gateAction(), IRREVERSIBLE_TOOLS, isRisk(), MIN_CONFIDENCE (+5 more)
 
-### Community 306 - "continuous-cash.ts"
+### Community 311 - "contraintes.ts"
 Cohesion: 0.21
-Nodes (11): CashExpense, CashRemittance, continuousCash, enMain(), fundHandle(), LOW_CASH_RATIO, ouverte(), remittanceSpent() (+3 more)
+Nodes (14): chercher(), NOEUDS_CSP_MAX, nomDe(), ProblemeCsp, Recherche, reduireDomaines(), resoudreContraintes(), ResultatCsp (+6 more)
 
-### Community 307 - "circuits.ts"
+### Community 312 - "expression.ts"
+Cohesion: 0.17
+Nodes (14): Compilee, compiler(), compilerSysteme(), CONSTANTES, Evaluateur, evaluer(), Fn, FONCTIONS (+6 more)
+
+### Community 313 - "stand-in.ts"
+Cohesion: 0.27
+Nodes (13): actsFor(), day(), delegatedActions(), delegationNotice(), delegationsFor(), inactiveReason(), isDelegatable(), isDelegationActive() (+5 more)
+
+### Community 314 - "circuits.ts"
 Cohesion: 0.28
 Nodes (14): CIRCUIT_LABEL, circuitOf(), circuitOfDeclaration(), circuitOfKind(), DECLARATION_KIND_LABEL, DECLARATION_KINDS, DeclarationKind, EVENT_SOURCES (+6 more)
 
-### Community 308 - "training/for-section.ts"
-Cohesion: 0.15
-Nodes (10): CaseExtract, OUTCOME_WEIGHT, RankableCaseDoc, rankCaseDocs(), base, RESERVE_TXT, TRACKER_TXT, OUTCOME_LABELS (+2 more)
+### Community 315 - "heavy-parse.ts"
+Cohesion: 0.21
+Nodes (8): clampInt(), HeavyKind, heavyText(), parseHeavyInWorker(), parseInline(), resolveWorkerPath(), workerThresholdBytes(), workerTimeoutMs()
 
-### Community 309 - "python.ts"
-Cohesion: 0.17
-Nodes (14): CANDIDATS, DisponibilitePython, executerPython(), prelude(), PY_CODE_MAX, PY_DELAI_MS, PY_JOURNAL_MAX, PY_MEMOIRE_MO (+6 more)
-
-### Community 310 - "pipeline-access.ts"
+### Community 316 - "pipeline-access.ts"
 Cohesion: 0.23
 Nodes (12): PipelineAccessForm(), canManagePipeline(), canViewPipeline(), describePipelineAudience(), hasRole(), pipelineAccessFor(), PipelineAccessSettings, PipelinePerson (+4 more)
 
-### Community 311 - "voice-cooldown.ts"
+### Community 317 - "voice-cooldown.ts"
 Cohesion: 0.25
 Nodes (11): SdpRejection, CallProvider(), cooldownFor(), cooldownMessage(), DEFAULT_VOICE_COOLDOWN_MS, isRateLimitStatus(), MAX_VOICE_COOLDOWN_MS, MIN_VOICE_COOLDOWN_MS (+3 more)
 
-### Community 312 - "call-provider.tsx"
+### Community 318 - "call-provider.tsx"
 Cohesion: 0.19
 Nodes (13): VoiceCallState, VoiceSessionGrant, VoiceToolUi, CallScreen(), CallScreenProps, fmt(), STATE_LABEL, CallBridge (+5 more)
 
-### Community 313 - "tour-plan-actions.ts"
-Cohesion: 0.32
-Nodes (13): Planificateur(), PraticienVue, deciderPlanTournee(), escaladerPlanTournee(), MODULE, peutEcrirePourLeKam(), planifierVisites(), soumettrePlanTournee() (+5 more)
+### Community 319 - "mail-actions.ts"
+Cohesion: 0.20
+Nodes (14): Composer(), send(), fmtSize(), SignatureSheet(), save(), MailboxStep(), connect(), connectMailbox() (+6 more)
 
-### Community 314 - "setTenderLineBusinessUnits"
+### Community 320 - "setTenderLineBusinessUnits"
 Cohesion: 0.26
 Nodes (12): AllocationsPanel(), toggle(), AllocBu, AllocLine, affecter(), setTenderLineBusinessUnits(), allocationChange, allocationNotice() (+4 more)
 
-### Community 315 - "expression.ts"
-Cohesion: 0.19
-Nodes (13): compiler(), compilerSysteme(), CONSTANTES, Evaluateur, evaluer(), Fn, FONCTIONS, FONCTIONS_CONNUES (+5 more)
+### Community 321 - "planning/messages/page.tsx"
+Cohesion: 0.15
+Nodes (11): MessagesManager(), dynamic, metadata, dynamic, ParametresPage(), num(), SettingsForm(), save() (+3 more)
 
-### Community 318 - "heavy-parse.ts"
+### Community 322 - "pilotage/page.tsx"
 Cohesion: 0.23
-Nodes (8): clampInt(), HeavyKind, heavyText(), parseHeavyInWorker(), parseInline(), resolveWorkerPath(), workerThresholdBytes(), workerTimeoutMs()
+Nodes (12): dynamic, pct(), PilotagePage(), toneOf(), EffortSalesInput, EffortSalesRow, effortSummary(), EffortVerdict (+4 more)
 
-### Community 319 - "process-status.ts"
-Cohesion: 0.25
-Nodes (12): BV_PAIRS, DerivedStatus, deriveStatus(), explainStatus(), hasBlockedStep(), MILESTONES, STATUS_LADDER, statusFromWorkflow() (+4 more)
+### Community 323 - "bundle.ts"
+Cohesion: 0.20
+Nodes (10): executeAssistantBundle(), BundleItem, BundleLevel, bundleMessage(), BundleOutcome, BundleResult, BundleStatus, executeBundle() (+2 more)
 
-### Community 320 - "ensureDriveFolders"
-Cohesion: 0.25
-Nodes (12): makePreflight(), RichUpload(), onImportFolder(), reset(), submit(), onChangeSimple(), ensureDriveFolders(), FINGERPRINT_MAX_BYTES (+4 more)
+### Community 326 - "simple-pdf.ts"
+Cohesion: 0.22
+Nodes (13): A4, BASE_OF, buildSimplePdf(), charWidth(), esc(), HELV_WIDTHS, Line, parsePdfBody() (+5 more)
 
-### Community 321 - "office-pins.tsx"
+### Community 327 - "process-intelligence.ts"
+Cohesion: 0.18
+Nodes (14): collectWorkItems(), countMap(), daysSince(), getProcessOverview(), label(), ModuleStat, PendingValidation, PiAlert (+6 more)
+
+### Community 328 - "compare-versions.ts"
+Cohesion: 0.20
+Nodes (11): buildVersionDiff(), DiffDoc, DiffFact, diffFacts(), diffFiles(), FactDiffEntry, FactStatus, FileDiffEntry (+3 more)
+
+### Community 329 - "pch/export/route.ts"
+Cohesion: 0.26
+Nodes (9): GET(), boxesNeeded(), buildTenderWorkbook(), concentrationLabel(), ORIGIN_LABEL, tenderExportFilename(), TenderExportHeader, TenderExportLine (+1 more)
+
+### Community 330 - "radar.ts"
+Cohesion: 0.24
+Nodes (13): fmtPct(), MarketRadarPage(), RecRow, addMonths(), addYears(), DciDate, ExpirationRow, getDciDates() (+5 more)
+
+### Community 331 - "identity-board.tsx"
+Cohesion: 0.31
+Nodes (10): CopyButton(), IdentityBoard(), IdentityCompany, dynamic, filledCount(), IDENTITY_SECTIONS, identityBlock(), IdentityField (+2 more)
+
+### Community 332 - "office-pins.tsx"
 Cohesion: 0.33
 Nodes (11): OfficeLauncher(), OfficePins(), appOfFile(), OFFICE_APPS, OFFICE_PINS_KEY, officeApp, OfficeAppKey, officeHref() (+3 more)
 
-### Community 322 - "impl-commercial.ts"
-Cohesion: 0.14
-Nodes (6): ADPRO_FR, ADPRO_OPS_IMPL, AdProKind, BD_OPS_IMPL, BD_STATUS_FR, STOCK_OPS_IMPL
+### Community 333 - "investigation.ts"
+Cohesion: 0.20
+Nodes (8): INVESTIGATION_TOOLS, searchTokens(), classifyDocument(), DOC_KIND_LABEL, DocKind, fold(), SIGNALS, SPECIFICITY
 
-### Community 323 - "algeria.ts"
+### Community 334 - "algeria.ts"
 Cohesion: 0.30
 Nodes (12): AVERTISSEMENT_CHEF_LIEU, BORNES_ALGERIE, BY_FOLD, COORDONNEES_WILAYAS, coordonneesDe(), findWilaya(), fold(), isKnownWilaya() (+4 more)
 
-### Community 324 - "simple-pdf.ts"
-Cohesion: 0.23
-Nodes (12): A4, BASE_OF, buildSimplePdf(), charWidth(), esc(), HELV_WIDTHS, Line, PdfBlock (+4 more)
-
-### Community 325 - "product-catalog.ts"
-Cohesion: 0.26
-Nodes (11): bestMatches(), isConfident(), MatchProposal, matchScore(), ProductIdentity, productKey(), STRONG_MATCH, REG (+3 more)
-
-### Community 326 - "compare-versions.ts"
-Cohesion: 0.20
-Nodes (10): DiffDoc, DiffFact, diffFacts(), diffFiles(), FactDiffEntry, FactStatus, FileDiffEntry, FileStatus (+2 more)
-
-### Community 327 - "boundary-scan.ts"
+### Community 335 - "boundary-scan.ts"
 Cohesion: 0.24
 Nodes (9): ADAM_PATHS, BoundaryReport, BRIDGE_PATHS, isAdam(), isBridge(), NEUTRAL, scanBoundary(), Violation (+1 more)
 
-### Community 328 - "lib/messaging.ts"
-Cohesion: 0.28
-Nodes (10): DOT, blobSecret(), messagingUserSelect, signBlob(), CHAT_STATUS_LABEL, CHAT_STATUSES, ChatStatus, normalizeChatStatus() (+2 more)
+### Community 336 - "fingerprint.ts"
+Cohesion: 0.27
+Nodes (11): makePreflight(), RichUpload(), onImportFolder(), reset(), submit(), onChangeSimple(), FINGERPRINT_MAX_BYTES, FINGERPRINT_MIN_BYTES (+3 more)
 
-### Community 329 - "background-upload.tsx"
+### Community 337 - "legal.ts"
+Cohesion: 0.28
+Nodes (10): LegalAccessPanel(), setLegalReaders(), canManageLegalReaders(), canReadLegalDocument(), isRestricted(), LegalDocumentAccess, LegalReaderContext, normalizeReaderIds() (+2 more)
+
+### Community 338 - "chief-workspace.tsx"
+Cohesion: 0.19
+Nodes (9): ChiefHeader(), ChiefHeaderProps, ChiefHome(), ChiefHomeProps, QUICK_ACTIONS, QuickAction, ChiefWorkspace(), ChiefWorkspaceProps (+1 more)
+
+### Community 339 - "background-upload.tsx"
 Cohesion: 0.18
 Nodes (9): BackgroundUploadProvider(), BgCancelled, BgFile, BgJob, BgUploadContext, Ctx, EnqueueSpec, FileStatus (+1 more)
 
-### Community 330 - "reminder-actions.ts"
-Cohesion: 0.28
-Nodes (10): MyReminders(), ReminderRow, submit(), asEntityType(), cancelReminder(), completeReminder(), createReminder(), ownedReminder() (+2 more)
+### Community 340 - "petty-cash.ts"
+Cohesion: 0.29
+Nodes (11): nextRechargeFor(), runPettyCashRechargeReminders(), currentPeriod(), grantedTopUpAmount(), MAX_RECHARGE_DAY, MONTHS_FR, nextRechargeDate(), normalizeRechargeDay() (+3 more)
 
-### Community 331 - "structural-fields.ts"
+### Community 341 - "structural-fields.ts"
 Cohesion: 0.24
 Nodes (10): guardStructural(), STRUCTURAL_FIELDS, STRUCTURAL_LABELS, StructuralChange, structuralChanges(), StructuralField, structuralNotice(), structuralRefusal() (+2 more)
 
-### Community 332 - "image.ts"
-Cohesion: 0.23
-Nodes (7): fini(), lireImage(), lireJpeg(), lireTiff(), MIMES, TypeImage, TYPES_IMAGE
+### Community 342 - "impl-wave5b.ts"
+Cohesion: 0.18
+Nodes (10): BeneficiaryHit, benefWhere(), CareRequest, CELL_STATUS_FR, CellHit, doctorNameMap(), PROMO_TRACK_FR, PromoHit (+2 more)
 
-### Community 333 - "three-sixty.ts"
-Cohesion: 0.15
-Nodes (6): CLES_FOURNISSEUR, CLES_PERSONNE, CLES_PRODUIT, tenureLabel(), THREE_SIXTY_TOOLS, yearsBetween()
+### Community 343 - "viz.ts"
+Cohesion: 0.21
+Nodes (11): graphiqueEtAlertes(), Alerte, INTENTIONS, plier(), recommanderGraphique(), SpecGraphique, parMois, parSociete (+3 more)
 
-### Community 334 - "cibles.ts"
+### Community 344 - "cibles.ts"
 Cohesion: 0.28
 Nodes (11): Cible, cibleDe(), CIBLES, formaterCible(), formaterValeur(), mesurer(), Observation, rendreTableau() (+3 more)
 
-### Community 335 - "leave-sheet.ts"
+### Community 345 - "leave-sheet.ts"
 Cohesion: 0.31
 Nodes (10): leaveFormContext(), buildLeaveSheet(), describeStandIn(), fr(), LeaveSheetEmployee, LeaveSheetLine, LeaveSheetRequest, leaveSheetText() (+2 more)
 
-### Community 336 - "workstreams.ts"
-Cohesion: 0.24
-Nodes (10): askModel(), batchStreams(), DEFAULT_CONCURRENCY, DEFAULT_STREAM_TIMEOUT_MS, fanOut(), FanOutOptions, FanOutResult, runOne() (+2 more)
-
-### Community 337 - "js.ts"
+### Community 346 - "js.ts"
 Cohesion: 0.21
 Nodes (9): executerJs(), JS_CODE_MAX, JS_DELAI_MS, JS_JOURNAL_MAX, JS_MEMOIRE_MO, JS_RESULTAT_MAX, ResultatJs, data (+1 more)
 
-### Community 338 - "stocks/scopes.ts"
-Cohesion: 0.26
-Nodes (11): canRequestStockState(), keepVisibleSnapshots(), ScopedSnapshot, seesSupplyChain(), STOCK_SCOPE_LABEL, StockScope, StockViewer, direction (+3 more)
+### Community 347 - "temporal.ts"
+Cohesion: 0.28
+Nodes (11): alger(), demiJournee(), heureDite(), instant(), InterpretationTemporelle, interpreterExpressionTemporelle(), JOURS, MOIS (+3 more)
 
-### Community 339 - "sendMessage"
-Cohesion: 0.20
-Nodes (11): dynamic, GET(), grantDriveRefAccess(), parseAttachments(), parseDriveRefs(), sendMessage(), validParent(), sanitizeMentionIds() (+3 more)
-
-### Community 340 - "push.ts"
+### Community 348 - "push.ts"
 Cohesion: 0.32
 Nodes (10): dynamic, GET(), ensureVapid(), envKeys(), getKeys(), loadOrCreateKeys(), pushConfigured(), PushPayload (+2 more)
 
-### Community 341 - "ai-health.ts"
+### Community 349 - "ai-health.ts"
 Cohesion: 0.27
 Nodes (6): runAiHealthCheckNow(), AiHealthCheckButton(), run(), AiHealthResult, AiHealthRun, performAiHealthCheck()
 
-### Community 342 - "bu-department.ts"
+### Community 350 - "product-ranges.ts"
+Cohesion: 0.29
+Nodes (9): PeoplePanel(), canSeeProduct(), companyIdsFromRanges(), CompanyRangeTree, describeAttachment(), productRangeWhere(), RangeBearer, RangeGrant (+1 more)
+
+### Community 351 - "bu-department.ts"
 Cohesion: 0.30
 Nodes (9): BusinessUnitBudgetsPage(), BuBudgetLine, buBudgetNotice(), buBudgetView, BuDepartmentCheck, buDepartmentCode(), buDepartmentName(), canAttachBuDepartment() (+1 more)
 
-### Community 343 - "departments-manager.tsx"
-Cohesion: 0.21
-Nodes (10): CompanyOpt, DepartmentsManager(), DeptSheet(), EmpOpt, Result, SheetState, UnassignedPanel(), useRun() (+2 more)
+### Community 352 - "file-glyph.tsx"
+Cohesion: 0.26
+Nodes (9): FileGlyph(), FileGlyphProps, LOOK, FAMILIES, FileFamily, fileGlyph(), FileGlyphSpec, badge() (+1 more)
 
-### Community 344 - "cible-designee.ts"
-Cohesion: 0.35
-Nodes (10): Candidat, cibleDesigneeDesactivee(), demandeNomme(), estDeictique(), MOTS_DE_CATEGORIE, motsDistinctifs(), normaliser(), DOCS (+2 more)
+### Community 353 - "test-center/types.ts"
+Cohesion: 0.27
+Nodes (7): MODES, PHASE1_MODES, guardMode(), GuardResult, PRODUCTION_SAFETY_PHRASE, RunConfig, WRITE_MODES
 
-### Community 345 - "entites/page.tsx"
+### Community 354 - "doublons.ts"
+Cohesion: 0.27
+Nodes (11): choisirLeMaitre(), distanceNoms(), FICHIERS_MAX, GroupeDoublons, instant(), NatureDoublon, orphelins(), radical() (+3 more)
+
+### Community 355 - "log/route.ts"
+Cohesion: 0.29
+Nodes (9): dynamic, EVENTS, POST(), runtime, coutSessionVocale(), num(), tarifsAudio(), UsageVocal (+1 more)
+
+### Community 356 - "entites/page.tsx"
 Cohesion: 0.27
 Nodes (8): EntityRow, OrphansPanel(), dynamic, EntitesPage(), ATTACHABLE_MODELS, getUnattachedInventory(), TABLES, UnattachedGroup
 
-### Community 346 - "ConsultingContractPage"
-Cohesion: 0.35
-Nodes (9): ConsultingContractPage(), billingSuffix(), ConsultingMove, ConsultingState, isAwaitingDecision(), isContractEditable(), isOverdue(), MOVES (+1 more)
+### Community 357 - "regulatory-ia/page.tsx"
+Cohesion: 0.27
+Nodes (9): Breakdown(), dynamic, fmtDateTime(), fmtUsd(), metadata, RegulatoryIaAdminPage(), STEP_LABELS, regulatoryAiSpend (+1 more)
 
-### Community 347 - "payment-dossier.ts"
-Cohesion: 0.38
-Nodes (8): DossierRequirements(), canSubmitDossier(), DossierGate, dossierHint(), GateResult, hasJustifyingPiece(), isBonDeVersement(), JUSTIFYING_KINDS
+### Community 358 - "parsers/sheet.ts"
+Cohesion: 0.42
+Nodes (9): detectSeparator(), emptyCell(), findHeaderRow(), MAX_SHEET_ROWS, parseCsv(), parseCsvLine(), parseWorkbook(), SheetTable (+1 more)
 
-### Community 348 - "imputation.ts"
-Cohesion: 0.36
-Nodes (8): consumptionByCategory(), ImputableExpense, ImputableLine, Imputation, imputationsOf(), isFullyClassified(), round2(), unclassifiedTotal()
-
-### Community 349 - "box-economics.ts"
-Cohesion: 0.38
-Nodes (9): arrondi(), AwardInput, awardResult, boxCount(), boxFromUnitPrice(), lineEconomics, LineEconomicsInput, unitFromBoxPrice() (+1 more)
-
-### Community 350 - "messaging/messages/route.ts"
-Cohesion: 0.31
-Nodes (8): dynamic, GET(), dynamic, GET(), touchPresence(), getTyping(), getSync(), getThreadRefresh()
-
-### Community 351 - "Presence"
+### Community 359 - "autonomie-proprietaire.ts"
 Cohesion: 0.29
-Nodes (10): Props, Props, Props, Props, Presence, ChannelDTO, ConversationDetailDTO, ConversationSummaryDTO (+2 more)
+Nodes (9): ENSEMBLE, estNatureAutonome(), NatureAutonome, natureDuSignal(), NATURES_AUTONOMES, normaliser(), sansConfirmation(), MOI (+1 more)
 
-### Community 352 - "lettres.ts"
+### Community 360 - "regulatory-drive-mirror.ts"
+Cohesion: 0.35
+Nodes (9): cleanPathSegments(), ensureFolder(), EXT_MIME, mimeFromName(), MirrorEntry, mirrorRegulatoryUpload(), MirrorResult, mirrorToProductDrive() (+1 more)
+
+### Community 361 - "lettres.ts"
 Cohesion: 0.31
 Nodes (8): Devise, DINAR, DIZAINES, moinsDeCent(), moinsDeMille(), montantEnLettres(), nombreEnLettres(), UNITES
 
-### Community 353 - "client-bundle-guard.test.ts"
+### Community 362 - "capabilite.test.ts"
+Cohesion: 0.38
+Nodes (7): acteur(), entiteDuModele(), enTexte(), identifiantEcrit(), lireUne(), Relecture, relireApresEcriture()
+
+### Community 363 - "client-bundle-guard.test.ts"
 Cohesion: 0.29
 Nodes (7): estPaquetNode(), importsOf(), isServerAction(), NODE_ONLY_PACKAGES, nodeOnlyPath(), resolve(), SRC
 
-### Community 354 - "verify.ts"
+### Community 364 - "confirmation.ts"
+Cohesion: 0.31
+Nodes (8): classifyReply(), CONFIRM, FILLERS, isSendConfirmation(), REJECT, ReplyIntent, stripAccents(), words()
+
+### Community 365 - "verify.ts"
 Cohesion: 0.38
 Nodes (9): direEcart(), ControleArtefact, controlerClasseur(), evaluerLeClasseur(), normaliserChemin(), ouvrirEtControler(), point(), relationsCassees() (+1 more)
 
-### Community 355 - "semantic.ts"
-Cohesion: 0.33
-Nodes (8): lunaEmbed(), lunaEmbedModel(), activeStamp(), cosine(), embedBacklog(), loadVectors(), SemanticHit, semanticSearchSections()
+### Community 366 - "letterhead.ts"
+Cohesion: 0.31
+Nodes (8): canManageLetterheads(), documentName(), KIND_EXTENSION, LETTERHEAD_MANAGER_ROLES, letterheadsFor(), validateLetterheadFile(), peutReglerProfilDocumentaire(), definirProfilDocumentaire()
 
-### Community 356 - "queries/graph.test.ts"
-Cohesion: 0.36
-Nodes (8): AncreType, Arete, marches, produits, voisinage, voisinageMarche(), voisinagePersonne(), voisinageProduit()
+### Community 367 - "centre.ts"
+Cohesion: 0.29
+Nodes (7): CentreValidationLike, jours(), sitsOnValidationCentre(), sortForCentre(), il_y_a(), ligne(), MAINTENANT
 
-### Community 357 - "grouping.ts"
+### Community 368 - "grouping.ts"
 Cohesion: 0.38
 Nodes (7): GroupableValidation, groupStatus(), groupValidations(), norm(), pieceSummary(), ValidationGroup, ValidationStatusLike
 
-### Community 358 - "forecast-grid.tsx"
+### Community 369 - "drive-toolbar.tsx"
+Cohesion: 0.39
+Nodes (7): DriveToolbar(), SettingsIcon, ToolbarTool, FocusExit(), FocusToggle(), setFocusMode(), useFocusState()
+
+### Community 370 - "forecast-grid.tsx"
 Cohesion: 0.31
 Nodes (7): Draft, fmtDZD(), ForecastGrid(), save(), nOr0(), Row, toDraft()
 
-### Community 359 - "partage-actions.ts"
+### Community 371 - "partage-actions.ts"
 Cohesion: 0.33
 Nodes (7): conversationDArrivee(), fd(), lireIds(), partagerParMessagerie(), PersonneDestinataire, ResultatPartage, ENTITY_TYPE_LABELS
 
-### Community 360 - "apercu.test.ts"
-Cohesion: 0.33
-Nodes (6): apercuDesSources(), POIDS_APERCU, SourceLue, SOURCES_MIN, TITRE_PAR_DEFAUT, WorkspaceItem
-
-### Community 361 - "workspace/sheet.ts"
-Cohesion: 0.47
-Nodes (6): WorkspaceColumn, cellText(), extOf(), parseCsv(), sheetPreview, toSheet()
-
-### Community 362 - "auto-category.ts"
+### Community 372 - "auto-category.ts"
 Cohesion: 0.33
 Nodes (5): CategoryCandidate, EnvelopeCandidate, envelopeCovers(), pickAutoCategory(), time()
 
-### Community 363 - "money-entity.ts"
+### Community 373 - "manques.ts"
+Cohesion: 0.25
+Nodes (8): causer(), classer(), LigneFeuilleDeRoute, manqueConnu(), NATURES_MANQUE, Regle, REGLES, SENS_MANQUE
+
+### Community 374 - "money-entity.ts"
 Cohesion: 0.31
 Nodes (7): canOverrideEntity(), EntityBucket, EntityCheck, EntitySources, firstNonEmpty(), resolveMoneyEntity(), LABELS
 
-### Community 364 - "affichage.ts"
+### Community 375 - "sanitize.ts"
+Cohesion: 0.33
+Nodes (7): ALLOWED_ATTRS, ALLOWED_TAGS, DROP_WITH_CONTENT, escapeText(), htmlToText(), safeUrl(), sanitizeMailHtml()
+
+### Community 376 - "affichage.ts"
 Cohesion: 0.39
 Nodes (7): Affichage, compterLignes(), DeclarationLignes, estObjet(), lignesDeclarees(), RIEN, suivreChemin()
 
-### Community 365 - "Adventum Autonomous Test Center — architecture"
+### Community 377 - "Adventum Autonomous Test Center — architecture"
 Cohesion: 0.22
 Nodes (8): 1. Cartographie de l'existant (réel, vérifié), 2. Risques identifiés (et parades), 3. Architecture (modulaire, typée), 4. Schéma Prisma (phase 1), 5. Plan de phases, 6. Preuve de couverture, 7. Protocole de nettoyage (garanti), Adventum Autonomous Test Center — architecture
 
-### Community 367 - "MeetingRecorder"
+### Community 378 - "regulatory-corpus/page.tsx"
+Cohesion: 0.39
+Nodes (7): dynamic, metadata, RegulatoryCorpusPage(), listCorpusSources(), activeCorpusSize(), listRulePacks(), activeRuleCount()
+
+### Community 380 - "MeetingRecorder"
 Cohesion: 0.39
 Nodes (6): MeetingRecorder(), onFile(), startRecording(), stopStreams(), upload(), pickMime()
 
-### Community 368 - "AssignmentMatrix"
+### Community 381 - "AssignmentMatrix"
 Cohesion: 0.39
 Nodes (7): AssignmentMatrix(), carry(), persist(), removeRow(), setDraft(), key(), nOr0()
 
-### Community 369 - "supplier-auth.ts"
-Cohesion: 0.39
-Nodes (7): SupplierLoginPage(), getSupplierSession(), requireSupplier(), sign(), signingKey(), SupplierSession, verifyToken()
+### Community 382 - "bars.tsx"
+Cohesion: 0.32
+Nodes (7): BarRow, Bars(), COLOR, Meter(), TEXT, toneOf(), STATUS
 
-### Community 370 - "command-palette.tsx"
-Cohesion: 0.29
-Nodes (5): CommandPalette(), go(), onInputKey(), Item, SearchResult
-
-### Community 371 - "push-register.tsx"
+### Community 383 - "push-register.tsx"
 Cohesion: 0.54
 Nodes (7): EnablePushButton(), enable(), getKey(), PushRegister(), subscribe(), supported(), urlB64ToUint8Array()
 
-### Community 372 - "kinds.ts"
-Cohesion: 0.43
-Nodes (5): CONTACT_KIND_SUGGESTIONS, groupContactsByKind(), matchesContact(), NO_KIND_LABEL, normalizeKind()
+### Community 384 - "api/workflow.ts"
+Cohesion: 0.36
+Nodes (7): AvailableAction, genericWorkflow(), label(), regulatoryWorkflow(), workflowOf(), WorkflowStep, WorkflowView
 
-### Community 373 - "custom-fields.ts"
-Cohesion: 0.39
-Nodes (6): fileCustomValue(), FileFieldValue, CUSTOM_ENTITY_TYPES, CustomValues, formatCustomValue(), missingRequiredValues()
+### Community 386 - "stock-recurrence.ts"
+Cohesion: 0.32
+Nodes (7): enDto(), LigneRecurrence, loadRecurrenceStock(), RecurrenceStockDTO, SELECT, Recurrence, StatutRecurrence
 
-### Community 374 - "sfe-performance.ts"
-Cohesion: 0.39
-Nodes (6): EffortSalesInput, EffortSalesRow, effortSummary(), EffortVerdict, effortVsSales(), share()
-
-### Community 375 - "usage-stats.ts"
+### Community 387 - "usage-stats.ts"
 Cohesion: 0.46
 Nodes (7): agreger(), CoutParCle, Ligne, ligneVersCle(), n(), statistiquesCout, totalDepuis()
 
-### Community 376 - "messagerie/page.tsx"
-Cohesion: 0.43
-Nodes (5): DisconnectButton(), dynamic, MessageriePage(), disconnectMicrosoftMail(), getConnectionStatus()
-
-### Community 377 - "use-action.ts"
+### Community 388 - "use-action.ts"
 Cohesion: 0.52
 Nodes (4): useKeyedAction(), ACTION_TIMEOUT_MS, ActionFailure, actionFailureMessage()
 
-### Community 378 - "settle-budget.ts"
-Cohesion: 0.48
-Nodes (5): BUDGET_CLASSIFY_PROMPT, budgetGate, BudgetGateInput, needsBudgetChoice(), pick()
-
-### Community 379 - "bv-approval.ts"
+### Community 389 - "bv-approval.ts"
 Cohesion: 0.43
 Nodes (5): bvChain, bvChainNote(), BvSigners, MANQUE, base
 
-### Community 380 - "dead-links.test.ts"
+### Community 390 - "entrees.ts"
+Cohesion: 0.52
+Nodes (5): BUDGET_BLOC, marque(), PART_MINIMALE, rendreEntrees(), repartir()
+
+### Community 391 - "impasse.ts"
+Cohesion: 0.52
+Nodes (4): estMorteParElleMeme(), EtapeGraphe, etapesEnImpasse(), peutEncoreAvancer()
+
+### Community 392 - "dead-links.test.ts"
 Cohesion: 0.33
 Nodes (4): APP, fichiers(), RACINE, routesConnues()
 
-### Community 381 - "[token]/route.ts"
+### Community 393 - "[token]/route.ts"
 Cohesion: 0.47
 Nodes (3): dynamic, GET(), qrPng()
 
-### Community 382 - "charts.tsx"
+### Community 394 - "access-sheet.tsx"
+Cohesion: 0.40
+Nodes (4): DepartmentAccessSheet(), ROLE_OPTIONS, UserOpt, setDepartmentBudgetAccess()
+
+### Community 395 - "toggleMissionStop"
+Cohesion: 0.47
+Nodes (5): letter(), MissionStops(), toggle(), StopDTO, toggleMissionStop()
+
+### Community 396 - "charts.tsx"
 Cohesion: 0.33
 Nodes (3): DonutSlice, Point, TrendChart()
 
-### Community 383 - "messages-indicator.tsx"
+### Community 397 - "messages-indicator.tsx"
 Cohesion: 0.67
 Nodes (5): getCtx(), MessagesIndicator(), notifyDesktop(), playPing(), unlockAudio()
 
-### Community 385 - "company-docs.ts"
+### Community 399 - "company-docs.ts"
 Cohesion: 0.53
 Nodes (4): COMPANY_DOC_CATEGORIES, CompanyDocCategory, isCompanyDocCategory(), suggestDocumentName()
 
-### Community 386 - "budget-overview.integration.test.ts"
+### Community 400 - "prisma.test.ts"
+Cohesion: 0.53
+Nodes (5): estUneBaseDeBanc(), estUneBaseLocale(), refusDeBase(), BANC, PRODUIT
+
+### Community 401 - "budget-overview.integration.test.ts"
 Cohesion: 0.33
 Nodes (4): DAY, PERIOD_END, PERIOD_START, SUPER
 
-### Community 387 - "responsive-guard.test.ts"
+### Community 402 - "responsive-guard.test.ts"
 Cohesion: 0.40
 Nodes (3): FILES, ROOTS, tsxFiles()
 
-### Community 388 - "class-collision.test.ts"
+### Community 403 - "class-collision.test.ts"
 Cohesion: 0.40
 Nodes (3): familleDeLargeur(), famillesDe(), RACINE
 
-### Community 389 - "next-auth.d.ts"
+### Community 404 - "next-auth.d.ts"
 Cohesion: 0.33
 Nodes (5): JWT, next-auth, next-auth/jwt, Session, User
 
-### Community 390 - "app/layout.tsx"
+### Community 405 - "app/layout.tsx"
 Cohesion: 0.40
 Nodes (3): inter, metadata, viewport
 
-### Community 391 - "facture-reprise.test.ts"
+### Community 406 - "CommandPalette"
+Cohesion: 0.50
+Nodes (3): CommandPalette(), go(), onInputKey()
+
+### Community 407 - "notification-chime.tsx"
+Cohesion: 0.80
+Nodes (4): audio(), desktop(), NotificationChime(), playChime()
+
+### Community 409 - "facture-reprise.test.ts"
 Cohesion: 0.50
 Nodes (3): instructions(), rejouerLaMigration(), SQL
 
-### Community 395 - "pdf-parse.d.ts"
+### Community 410 - "deadline-sweep.ts"
+Cohesion: 0.50
+Nodes (4): MESSAGES, PchDeadlineSweepResult, runPchDeadlineSweep(), doitRappelerDepot()
+
+### Community 411 - "office-editor.tsx"
+Cohesion: 0.67
+Nodes (3): OfficeEditor(), originOf(), Window
+
+### Community 418 - "pdf-parse.d.ts"
 Cohesion: 0.50
 Nodes (3): pdf-parse, pdf-parse/lib/pdf-parse.js, PdfParseResult
 
-### Community 397 - "DossierMessageItem"
-Cohesion: 0.67
-Nodes (3): DossierMessageItem(), remove(), save()
-
-### Community 398 - "RegulatoryProcess"
-Cohesion: 0.67
-Nodes (3): RegulatoryProcess(), setPresub(), setStep()
-
 ## Knowledge Gaps
-- **3635 isolated node(s):** `EMPTY`, `dynamic`, `dynamic`, `dynamic`, `ModuleSpec` (+3630 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 4847 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **15 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **3654 isolated node(s):** `EMPTY`, `dynamic`, `dynamic`, `dynamic`, `ModuleSpec` (+3649 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 4871 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **20 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `prisma` connect `prisma.ts` to `utils.ts`, `button.tsx`, `rbac.ts`, `compiler/compile.ts`, `ops/index.ts`, `missions/ports.ts`, `missions/runtime/engine.ts`, `recordAudit`, `hasGlobalView`, `requireModule`, `context/router.ts`, `assistant.ts`, `userCan`, `runtime.ts`, `notifyRoles`, `lib/audit.ts`, `queries/budget.ts`, `mission-runtime-actions.ts`, `lib/labels.ts`, `planner/plan.ts`, `skills/index.ts`, `fdStr`, `requireUser`, `artifact/runtime/engine.ts`, `adam-tools.ts`, `jobs/runner.ts`, `legal/page.tsx`, `google/config.ts`, `events/router.ts`, `cn`, `outbound.ts`, `artifacts/build.ts`, `links/store.ts`, `dossier-agent.ts`, `PATH`, `medical-directory-actions.ts`, `impl-finance-flows.ts`, `brain-cockpit.tsx`, `create-fields.ts`, `adam-core.test.ts`, `in-process/media/transcription.ts`, `missions/watch.ts`, `regCan`, `teach/store.ts`, `payroll-hr-actions.ts`, `fdNum`, `drive-storage.ts`, `fichiers/index.ts`, `mail.ts`, `impl-wave6c.ts`, `regulatory-actions.ts`, `capacites/index.ts`, `entities/resolve.test.ts`, `intelligence/index.ts`, `corpus-actions.ts`, `[dossierId]/page.tsx`, `sandbox-tools.ts`, `fabric/index.ts`, `voice-realtime.ts`, `pch-tender-line-actions.ts`, `factory.ts`, `upload/session.ts`, `in-process/artifact/ports.ts`, `assistant-actions.ts`, `verification/index.ts`, `memory.ts`, `rules/engine.ts`, `orders-table.tsx`, `impl-wave5b.ts`, `objectif/index.ts`, `drive-actions.ts`, `entities.ts`, `directive-actions.ts`, `manage.ts`, `bd-strategic-table.tsx`, `agent-core.ts`, `sources/drive.ts`, `in-process/sandbox/index.ts`, `getCurrentUser`, `brand/index.ts`, `care-actions.ts`, `lib/fabric/provenance.ts`, `scheduled.ts`, `demandes/page.tsx`, `view/control.ts`, `corpus/actions.ts`, `legal-actions.ts`, `missions/runner.ts`, `in-process/adapter.ts`, `congress-request-actions.ts`, `(app)/validations/page.tsx`, `inbox/compose.ts`, `drive/page.tsx`, `meeting-actions.ts`, `aiConfigured`, `resolveDriveAccess`, `budget-forms.tsx`, `rerank.ts`, `intelligence/actions.ts`, `monde/index.ts`, `calendar.ts`, `general-means.ts`, `http.ts`, `lib/ai.ts`, `admin-settings-forms.tsx`, `annulation/index.ts`, `verite-tools.ts`, `adoption.ts`, `promo-circuit-actions.ts`, `regAudit`, `departments.ts`, `letterhead-manager.tsx`, `sfe.ts`, `in-process/events/ingestion.ts`, `market-research.ts`, `attention/policy.ts`, `test-center/runner.ts`, `write.ts`, `reseau/index.ts`, `consulting-actions.ts`, `meetings/index.ts`, `openai-luna.ts`, `feedback/attachments.test.ts`, `extract-text.ts`, `tasks/request-flow.ts`, `payment-request-actions.ts`, `microsoft-mail-actions.ts`, `products/resolve.ts`, `regulatory/export/route.ts`, `mail-client.tsx`, `office-supply-actions.ts`, `impl-tournee.ts`, `mon-espace/page.tsx`, `(app)/layout.tsx`, `platform-audit/engine.ts`, `quality/rules.ts`, `petty-cash-actions.ts`, `purchase-request-actions.ts`, `executive-tools.ts`, `registre/index.ts`, `e360-blocks.ts`, `src/auth.ts`, `replay-viewer.tsx`, `document-mirror.ts`, `drive/upload/route.ts`, `dossier-timeline.tsx`, `ad-pro-item-actions.ts`, `parcours.ts`, `workflow/engine.ts`, `courrier/proprietaire.ts`, `ocrDocument`, `invariants/registry.ts`, `mail-smart.ts`, `qualite/page.tsx`, `regulatory-read.ts`, `retrieval.ts`, `stages.ts`, `queries/messaging.ts`, `medical-info-actions.ts`, `lifecycle/actions.ts`, `what-if.ts`, `features.ts`, `state-machines/explorer.ts`, `migration-cert.ts`, `department-budget-actions.ts`, `sfe-sweep.ts`, `tour-schedule.ts`, `story.ts`, `situation.ts`, `search-everything.ts`, `chain-card.tsx`, `progress/query.ts`, `simulator/run.ts`, `supplier/actions.ts`, `portfolio.ts`, `nav-access.ts`, `drive-search.ts`, `queries/team-kpis.ts`, `mail/connection.ts`, `meetings.ts`, `memory-tools.ts`, `workflow/types.ts`, `directory/resolve.ts`, `stand-in.ts`, `legal/lifecycle.ts`, `list-view.ts`, `quality/engine.test.ts`, `process-intelligence.ts`, `workflow-actions.ts`, `onboarding-wizard.tsx`, `metrics.ts`, `queries/workflow.ts`, `receipt-lines.tsx`, `deliverables.ts`, `circuit-state.ts`, `test-center/manifest.ts`, `sql.ts`, `training-board.tsx`, `user-invites.ts`, `decide.ts`, `training/for-section.ts`, `tour-plan-actions.ts`, `impl-commercial.ts`, `product-catalog.ts`, `compare-versions.ts`, `lib/messaging.ts`, `reminder-actions.ts`, `three-sixty.ts`, `leave-sheet.ts`, `push.ts`, `ai-health.ts`, `entites/page.tsx`, `semantic.ts`, `queries/graph.test.ts`, `partage-actions.ts`, `supplier-auth.ts`, `custom-fields.ts`, `usage-stats.ts`, `[token]/route.ts`, `budget-overview.integration.test.ts`, `facture-reprise.test.ts`?**
-  _High betweenness centrality (0.199) - this node is a cross-community bridge._
-- **Why does `userCan()` connect `userCan` to `prisma.ts`, `utils.ts`, `button.tsx`, `rbac.ts`, `ops/index.ts`, `recordAudit`, `hasGlobalView`, `requireModule`, `assistant.ts`, `notifyRoles`, `lib/audit.ts`, `queries/budget.ts`, `mission-runtime-actions.ts`, `lib/labels.ts`, `skills/index.ts`, `fdStr`, `requireUser`, `legal/page.tsx`, `cn`, `links/store.ts`, `PATH`, `medical-directory-actions.ts`, `impl-finance-flows.ts`, `brain-cockpit.tsx`, `create-fields.ts`, `adam-core.test.ts`, `missions/watch.ts`, `teach/store.ts`, `payroll-hr-actions.ts`, `fdNum`, `mail.ts`, `impl-wave6c.ts`, `regulatory-actions.ts`, `entities/resolve.test.ts`, `intelligence/index.ts`, `sandbox-tools.ts`, `pch-tender-line-actions.ts`, `factory.ts`, `assistant-actions.ts`, `orders-table.tsx`, `impl-wave5b.ts`, `drive-actions.ts`, `entities.ts`, `directive-actions.ts`, `bd-strategic-table.tsx`, `getCurrentUser`, `care-actions.ts`, `demandes/page.tsx`, `assistant-chat.tsx`, `legal-actions.ts`, `in-process/adapter.ts`, `congress-request-actions.ts`, `(app)/validations/page.tsx`, `inbox/compose.ts`, `drive/page.tsx`, `meeting-actions.ts`, `artifact.tsx`, `resolveDriveAccess`, `budget-forms.tsx`, `molecule.ts`, `monde/index.ts`, `calendar.ts`, `general-means.ts`, `http.ts`, `lib/ai.ts`, `annulation/index.ts`, `adoption.ts`, `departments.ts`, `letterhead-manager.tsx`, `sfe.ts`, `distance.ts`, `market-research.ts`, `write.ts`, `reseau/index.ts`, `consulting-actions.ts`, `payment-request-actions.ts`, `action-registry.ts`, `regulatory/export/route.ts`, `office-supply-actions.ts`, `impl-tournee.ts`, `mon-espace/page.tsx`, `(app)/layout.tsx`, `petty-cash-actions.ts`, `drive/upload/route.ts`, `dossier-timeline.tsx`, `ad-pro-item-actions.ts`, `qualite/page.tsx`, `regulatory-read.ts`, `queries/messaging.ts`, `medical-info-actions.ts`, `what-if.ts`, `department-budget-actions.ts`, `openapi.ts`, `story.ts`, `situation.ts`, `search-everything.ts`, `nav-access.ts`, `process-intelligence.ts`, `department-budget-table.tsx`, `training-board.tsx`, `decide.ts`, `tour-plan-actions.ts`, `setTenderLineBusinessUnits`, `ensureDriveFolders`, `reminder-actions.ts`, `three-sixty.ts`, `sendMessage`, `ai-health.ts`, `bu-department.ts`, `entites/page.tsx`, `ConsultingContractPage`, `messaging/messages/route.ts`, `partage-actions.ts`?**
-  _High betweenness centrality (0.046) - this node is a cross-community bridge._
-- **Why does `requireUser()` connect `requireUser` to `prisma.ts`, `utils.ts`, `button.tsx`, `rbac.ts`, `ops/index.ts`, `recordAudit`, `hasGlobalView`, `requireModule`, `userCan`, `notifyRoles`, `lib/audit.ts`, `queries/budget.ts`, `mission-runtime-actions.ts`, `fdStr`, `artifact/runtime/engine.ts`, `legal/page.tsx`, `google/config.ts`, `cn`, `outbound.ts`, `links/store.ts`, `dossier-agent.ts`, `PATH`, `medical-directory-actions.ts`, `impl-finance-flows.ts`, `brain-cockpit.tsx`, `regCan`, `payroll-hr-actions.ts`, `fdNum`, `impl-wave6c.ts`, `regulatory-actions.ts`, `corpus-actions.ts`, `[dossierId]/page.tsx`, `voice-realtime.ts`, `pch-tender-line-actions.ts`, `assistant-actions.ts`, `rules/engine.ts`, `orders-table.tsx`, `impl-wave5b.ts`, `drive-actions.ts`, `directive-actions.ts`, `bd-strategic-table.tsx`, `agent-core.ts`, `brand/index.ts`, `care-actions.ts`, `demandes/page.tsx`, `assistant-chat.tsx`, `corpus/actions.ts`, `legal-actions.ts`, `congress-request-actions.ts`, `(app)/validations/page.tsx`, `drive/page.tsx`, `meeting-actions.ts`, `resolveDriveAccess`, `budget-forms.tsx`, `molecule.ts`, `intelligence/actions.ts`, `calendar.ts`, `general-means.ts`, `lib/ai.ts`, `mail/oauth.ts`, `admin-settings-forms.tsx`, `promo-circuit-actions.ts`, `regAudit`, `departments.ts`, `letterhead-manager.tsx`, `consulting-actions.ts`, `payment-request-actions.ts`, `microsoft-mail-actions.ts`, `mail-client.tsx`, `office-supply-actions.ts`, `drive-table.tsx`, `impl-tournee.ts`, `mon-espace/page.tsx`, `(app)/layout.tsx`, `petty-cash-actions.ts`, `purchase-request-actions.ts`, `dossier-timeline.tsx`, `ad-pro-item-actions.ts`, `mail-smart.ts`, `qualite/page.tsx`, `medical-info-actions.ts`, `lifecycle/actions.ts`, `information-medicale/[id]/panels.tsx`, `features.ts`, `dossier.tsx`, `department-budget-actions.ts`, `story.ts`, `simulator/run.ts`, `supplier/actions.ts`, `dossier-auto.ts`, `workflow-actions.ts`, `onboarding-wizard.tsx`, `test-center/types.ts`, `department-budget-table.tsx`, `requestDeclareDecision`, `training-board.tsx`, `decide.ts`, `tour-plan-actions.ts`, `setTenderLineBusinessUnits`, `ensureDriveFolders`, `reminder-actions.ts`, `sendMessage`, `ai-health.ts`, `bu-department.ts`, `partage-actions.ts`, `messagerie/page.tsx`?**
-  _High betweenness centrality (0.035) - this node is a cross-community bridge._
+- **Why does `prisma` connect `prisma.ts` to `button.tsx`, `requireUser`, `utils.ts`, `runtime.ts`, `notifyUser`, `hasGlobalView`, `compiler/compile.ts`, `missions/runtime/engine.ts`, `ops/index.ts`, `requireModule`, `skills/index.ts`, `lib/labels.ts`, `canAccessEntity`, `(app)/validations/page.tsx`, `company.ts`, `planner/plan.ts`, `[dossierId]/page.tsx`, `jobs/runner.ts`, `drive-storage.ts`, `events/router.ts`, `payment-request-actions.ts`, `resolveDriveAccess`, `ocr-engine.ts`, `artifact/runtime/engine.ts`, `impl-wave5.ts`, `impl-finance-flows.ts`, `formatDate`, `assistant.ts`, `upload/session.ts`, `rules/engine.ts`, `medical-directory-actions.ts`, `dossier-agent.ts`, `regAudit`, `legal-actions.ts`, `in-process/media/transcription.ts`, `ai/page.tsx`, `create-fields.ts`, `knowledge/contract.ts`, `horizon.ts`, `impl-wave7d.ts`, `platformScope`, `brain-cockpit.tsx`, `impl-wave6c.ts`, `build-facts.ts`, `actions/types.ts`, `teach/store.ts`, `directive-actions.ts`, `regulatory-actions.ts`, `executeReadTool`, `google/config.ts`, `library-actions.ts`, `extract-text.ts`, `entities/resolve.test.ts`, `in-process/adapter.ts`, `medical-info-actions.ts`, `lib/fabric/provenance.ts`, `intelligence/index.ts`, `provider-smoke.ts`, `mission-runtime-actions.ts`, `missions/watch.ts`, `missions/catalog.ts`, `voice-realtime.ts`, `mission-runtime-panel.tsx`, `verification/index.ts`, `entities.ts`, `objectif/index.ts`, `src/auth.ts`, `memory.ts`, `aiConfigured`, `users/[id]/page.tsx`, `pch-market-actions.ts`, `in-process/artifact/ports.ts`, `ad-pro-item-actions.ts`, `care-actions.ts`, `inbox/compose.ts`, `quality/index.ts`, `pch-tender-line-actions.ts`, `mail.ts`, `lib/ai.ts`, `registre/index.ts`, `calendar.ts`, `outbound.ts`, `brand/index.ts`, `task-actions.ts`, `adam-tools.ts`, `onlyoffice.ts`, `lib/department-budget.ts`, `capacites/index.ts`, `rerank.ts`, `monde/index.ts`, `impl-wave6b.ts`, `promo-material-actions.ts`, `adam-core.test.ts`, `market-research.ts`, `admin-settings-forms.tsx`, `workflow/engine.ts`, `departments.ts`, `assistant-actions.ts`, `feedback/attachments.test.ts`, `recrutement/[id]/page.tsx`, `annulation/index.ts`, `fabric/index.ts`, `lib/fabric/entites.ts`, `moyens-generaux/page.tsx`, `verite-tools.ts`, `knowledge/worker.ts`, `adoption.ts`, `microsoft-mail-actions.ts`, `promo-circuit-actions.ts`, `product-360.ts`, `api/auth.ts`, `scheduled.ts`, `demandes/page.tsx`, `factory.ts`, `reseau/index.ts`, `scheduler/contract.ts`, `messages.ts`, `platform-audit/engine.ts`, `reconcile.ts`, `tour-plan-actions.ts`, `document-request-actions.ts`, `links/store.ts`, `in-process/events/ingestion.ts`, `test-center/runner.ts`, `workflow-actions.ts`, `office-supply-actions.ts`, `market-360.ts`, `stock-recurrence-actions.ts`, `stock-board.tsx`, `products/resolve.ts`, `drive/page.tsx`, `(app)/layout.tsx`, `story.ts`, `fichiers/index.ts`, `quality/rules.ts`, `executive-tools.ts`, `in-process/sandbox/index.ts`, `chief-of-staff/page.tsx`, `queries/messaging.ts`, `scopeRegulatory`, `regulatory-read.ts`, `executive-brief-tools.ts`, `messaging-actions.ts`, `team-tree.tsx`, `mail-smart.ts`, `sfe.ts`, `recruitment-actions.ts`, `lifecycle/actions.ts`, `operations.ts`, `directory-actions.ts`, `supplier/actions.ts`, `department-budget-actions.ts`, `parcours.ts`, `three-sixty.ts`, `meetings/index.ts`, `regulatory-reminder-actions.ts`, `sfe-sweep.ts`, `state-machines/explorer.ts`, `migration-cert.ts`, `regulatory/export/route.ts`, `budgets/page.tsx`, `drive-search.ts`, `impl-wave7c.ts`, `legal/lifecycle.ts`, `search-everything.ts`, `queries/budget.ts`, `regulatory/page.tsx`, `memory-tools.ts`, `what-changed.ts`, `sfe-day.ts`, `manage.ts`, `mail/connection.ts`, `meetings.ts`, `exports.ts`, `portfolio.ts`, `nav-access.ts`, `test-center/manifest.ts`, `invariants/registry.ts`, `drive/[id]/page.tsx`, `purchase-section.tsx`, `tour-schedule.ts`, `receipt-lines.tsx`, `onboarding-wizard.tsx`, `budget-general-means.integration.test.ts`, `retrieval.ts`, `metrics.ts`, `queries/pch.ts`, `resoudre.ts`, `stages.ts`, `circuit-state.ts`, `stocks/page.tsx`, `sql.ts`, `user-invites.ts`, `directory/resolve.ts`, `product-catalog.ts`, `reports.ts`, `getMailAccount`, `paie/page.tsx`, `mail-actions.ts`, `planning/messages/page.tsx`, `pilotage/page.tsx`, `process-intelligence.ts`, `compare-versions.ts`, `pch/export/route.ts`, `identity-board.tsx`, `investigation.ts`, `impl-wave5b.ts`, `leave-sheet.ts`, `push.ts`, `ai-health.ts`, `entites/page.tsx`, `regulatory-drive-mirror.ts`, `capabilite.test.ts`, `partage-actions.ts`, `api/workflow.ts`, `stock-recurrence.ts`, `usage-stats.ts`, `[token]/route.ts`, `budget-overview.integration.test.ts`, `facture-reprise.test.ts`, `deadline-sweep.ts`, `dossier-reprise.test.ts`, `intelligence/lifecycle.ts`?**
+  _High betweenness centrality (0.191) - this node is a cross-community bridge._
+- **Why does `userCan()` connect `requireUser` to `prisma.ts`, `button.tsx`, `utils.ts`, `notifyUser`, `hasGlobalView`, `compiler/compile.ts`, `ops/index.ts`, `requireModule`, `skills/index.ts`, `lib/labels.ts`, `canAccessEntity`, `(app)/validations/page.tsx`, `company.ts`, `drive-storage.ts`, `payment-request-actions.ts`, `resolveDriveAccess`, `ocr-engine.ts`, `impl-wave5.ts`, `impl-finance-flows.ts`, `formatDate`, `assistant.ts`, `medical-directory-actions.ts`, `legal-actions.ts`, `ai/page.tsx`, `create-fields.ts`, `horizon.ts`, `impl-wave7d.ts`, `platformScope`, `brain-cockpit.tsx`, `impl-wave6c.ts`, `actions/types.ts`, `teach/store.ts`, `directive-actions.ts`, `regulatory-actions.ts`, `executeReadTool`, `in-process/adapter.ts`, `medical-info-actions.ts`, `intelligence/index.ts`, `mission-runtime-actions.ts`, `missions/watch.ts`, `entities.ts`, `pch-market-actions.ts`, `ad-pro-item-actions.ts`, `care-actions.ts`, `inbox/compose.ts`, `quality/index.ts`, `pch-tender-line-actions.ts`, `lib/ai.ts`, `calendar.ts`, `task-actions.ts`, `onlyoffice.ts`, `lib/department-budget.ts`, `molecule.ts`, `monde/index.ts`, `assistant-chat.tsx`, `impl-wave6b.ts`, `promo-material-actions.ts`, `adam-core.test.ts`, `market-research.ts`, `departments.ts`, `assistant-actions.ts`, `recrutement/[id]/page.tsx`, `annulation/index.ts`, `moyens-generaux/page.tsx`, `adoption.ts`, `api/auth.ts`, `distance.ts`, `demandes/page.tsx`, `factory.ts`, `reseau/index.ts`, `tour-plan-actions.ts`, `links/store.ts`, `office-supply-actions.ts`, `stock-recurrence-actions.ts`, `stock-board.tsx`, `drive/page.tsx`, `(app)/layout.tsx`, `story.ts`, `capability-surface.test.ts`, `queries/messaging.ts`, `scopeRegulatory`, `regulatory-read.ts`, `executive-brief-tools.ts`, `messaging-actions.ts`, `tender-lines.tsx`, `sfe.ts`, `recruitment-actions.ts`, `action-registry.ts`, `operations.ts`, `directory-actions.ts`, `department-budget-actions.ts`, `three-sixty.ts`, `regulatory/export/route.ts`, `search-everything.ts`, `queries/budget.ts`, `regulatory/page.tsx`, `exports.ts`, `nav-access.ts`, `test-center/page.tsx`, `drive/[id]/page.tsx`, `messaging/messages/route.ts`, `mission-runtime-controls.tsx`, `stocks/page.tsx`, `paie/page.tsx`, `setTenderLineBusinessUnits`, `planning/messages/page.tsx`, `pch/export/route.ts`, `identity-board.tsx`, `investigation.ts`, `ai-health.ts`, `bu-department.ts`, `entites/page.tsx`, `partage-actions.ts`, `api/workflow.ts`, `toggleMissionStop`?**
+  _High betweenness centrality (0.059) - this node is a cross-community bridge._
+- **Why does `requireUser()` connect `requireUser` to `prisma.ts`, `button.tsx`, `utils.ts`, `notifyUser`, `hasGlobalView`, `ops/index.ts`, `requireModule`, `canAccessEntity`, `(app)/validations/page.tsx`, `company.ts`, `[dossierId]/page.tsx`, `payment-request-actions.ts`, `resolveDriveAccess`, `ocr-engine.ts`, `artifact/runtime/engine.ts`, `impl-wave5.ts`, `impl-finance-flows.ts`, `formatDate`, `rules/engine.ts`, `medical-directory-actions.ts`, `dossier-agent.ts`, `regAudit`, `legal-actions.ts`, `ai/page.tsx`, `impl-wave7d.ts`, `platformScope`, `brain-cockpit.tsx`, `impl-wave6c.ts`, `actions/types.ts`, `directive-actions.ts`, `regulatory-actions.ts`, `google/config.ts`, `library-actions.ts`, `extract-text.ts`, `medical-info-actions.ts`, `mission-runtime-actions.ts`, `voice-realtime.ts`, `aiConfigured`, `pch-market-actions.ts`, `ad-pro-item-actions.ts`, `care-actions.ts`, `inbox/compose.ts`, `quality/index.ts`, `pch-tender-line-actions.ts`, `lib/ai.ts`, `brand/index.ts`, `task-actions.ts`, `mail/oauth.ts`, `onlyoffice.ts`, `lib/department-budget.ts`, `molecule.ts`, `assistant-chat.tsx`, `impl-wave6b.ts`, `promo-material-actions.ts`, `admin-settings-forms.tsx`, `departments.ts`, `assistant-actions.ts`, `moyens-generaux/page.tsx`, `microsoft-mail-actions.ts`, `promo-circuit-actions.ts`, `platform-audit/engine.ts`, `tour-plan-actions.ts`, `document-request-actions.ts`, `links/store.ts`, `workflow-actions.ts`, `office-supply-actions.ts`, `stock-recurrence-actions.ts`, `stock-board.tsx`, `(app)/layout.tsx`, `story.ts`, `chief-of-staff/page.tsx`, `scopeRegulatory`, `messaging-actions.ts`, `mail-smart.ts`, `tender-lines.tsx`, `recruitment-actions.ts`, `lifecycle/actions.ts`, `operations.ts`, `directory-actions.ts`, `supplier/actions.ts`, `department-budget-actions.ts`, `regulatory-reminder-actions.ts`, `budgets/page.tsx`, `messenger.tsx`, `impl-wave7c.ts`, `test-center/page.tsx`, `onboarding-wizard.tsx`, `mission-runtime-controls.tsx`, `adam-settings-actions.ts`, `mail-actions.ts`, `setTenderLineBusinessUnits`, `bundle.ts`, `legal.ts`, `ai-health.ts`, `bu-department.ts`, `test-center/types.ts`, `log/route.ts`, `partage-actions.ts`, `access-sheet.tsx`, `toggleMissionStop`?**
+  _High betweenness centrality (0.034) - this node is a cross-community bridge._
 - **What connects `EMPTY`, `dynamic`, `dynamic` to the rest of the system?**
-  _3635 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _3654 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `prisma.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.011999684218836347 - nodes in this community are weakly interconnected._
-- **Should `utils.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.020561167686383462 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.012089476045356805 - nodes in this community are weakly interconnected._
 - **Should `button.tsx` be split into smaller, more focused modules?**
-  _Cohesion score 0.013149720439014289 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.014300196791698968 - nodes in this community are weakly interconnected._
+- **Should `requireUser` be split into smaller, more focused modules?**
+  _Cohesion score 0.01901674315467419 - nodes in this community are weakly interconnected._

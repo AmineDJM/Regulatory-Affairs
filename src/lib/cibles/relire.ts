@@ -75,14 +75,42 @@ export async function relireApresEcriture(
   const id = identifiantEcrit(retour, entree);
   if (!id) return null;
 
-  // UN SEUL modèle écrit, sinon on ne sait pas laquelle des lignes montrer. Les actions qui en
-  // touchent plusieurs (une écriture + son journal) sont fréquentes : on prend le PREMIER
-  // modèle qui corresponde à une entité du registre, et si deux correspondent, on renonce.
+  // QUELLE LIGNE MONTRER, quand l'action écrit plusieurs modèles.
+  //
+  // « Un seul modèle écrit, sinon on renonce » a tenu tant que la dérivation ne voyait que le
+  // corps de l'action. Depuis qu'elle suit les délégués IMPORTÉS, une écriture ordinaire déclare
+  // ce qu'elle touche VRAIMENT — `createRequest` rend `administrativeRequest`, `auditLog` et
+  // `notification` — et les trois sont des entités du registre. La relecture renonçait donc sur
+  // le cas le plus banal du parc : une écriture, son journal, sa notification. C'est §118.61 :
+  // une réparation a DÉPLACÉ une donnée, et ce lecteur-ci lisait encore l'ancienne forme.
+  //
+  // Le remède n'est pas une liste de modèles à ignorer — elle serait fausse à la première table
+  // de journal ajoutée, en silence (§118.73). C'est un FAIT, et il est déjà sous la main :
+  // l'identifiant que nous tenons désigne UNE ligne. On demande à chaque candidat s'il porte
+  // cette ligne, DANS LA PORTÉE DE LA PERSONNE ; le journal d'une écriture ne porte jamais
+  // l'identifiant de la ligne écrite. Si deux candidats la portent, on renonce comme avant :
+  // montrer « à peu près la bonne ligne » est pire que ne rien montrer (§118.81).
   const candidats = modelesEcrits.map(entiteDuModele).filter((d): d is EntityDef => d !== null);
-  if (candidats.length !== 1) return null;
-  const def = candidats[0]!;
-  if (!canReadEntity(user, def)) return null;
+  if (candidats.length === 0 || candidats.length > CANDIDATS_MAX) return null;
 
+  const trouvees: Relecture[] = [];
+  for (const def of candidats) {
+    // LA GARDE RESTE AVANT LA LECTURE, candidat par candidat : interroger une table que la
+    // personne n'a pas le droit de lire serait un contournement introduit par un geste de
+    // VÉRIFICATION, c'est-à-dire au pire endroit possible (§118.81).
+    if (!canReadEntity(user, def)) continue;
+    const lue = await lireUne(user, def, id);
+    if (lue) trouvees.push(lue);
+  }
+  if (trouvees.length !== 1) return null;
+  return trouvees[0]!;
+}
+
+/** Combien de modèles écrits on interroge au plus — une action en touche une poignée. */
+const CANDIDATS_MAX = 8;
+
+/** Lit la ligne `id` du modèle `def` dans la portée de la personne. `null` si elle n'y est pas. */
+async function lireUne(user: SessionUser, def: EntityDef, id: string): Promise<Relecture | null> {
   const model = (prisma as unknown as Record<string, {
     findFirst: (a: unknown) => Promise<Record<string, unknown> | null>;
   }>)[def.model.charAt(0).toLowerCase() + def.model.slice(1)];

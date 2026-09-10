@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Prisma } from "@prisma/client";
-import { contratsDuFichier, type ContratAction, type TableEnums, type TableRelations } from "./contrat";
+import { contratsDuFichier, importsProjet, type ContratAction, type TableEnums, type TableRelations } from "./contrat";
 
 /**
  * LA LECTURE DU PARC — la seule pièce qui touche au disque.
@@ -12,6 +12,8 @@ import { contratsDuFichier, type ContratAction, type TableEnums, type TableRelat
  */
 
 export const DOSSIER_ACTIONS = join(process.cwd(), "src", "lib", "actions");
+/** La racine sur laquelle `@/` se résout — la même que celle du `tsconfig`. */
+const RACINE_SRC = join(process.cwd(), "src");
 
 /** Ce qui vit dans `src/lib/actions/` sans être une action : le contrat lui-même, les types. */
 const HORS_PARC = new Set([
@@ -59,14 +61,47 @@ export function fichiersDActions(): string[] {
     .sort();
 }
 
+/**
+ * LE SOURCE DES MODULES `@/lib/...` QU'UN FICHIER IMPORTE.
+ *
+ * Pourquoi c'est ICI et pas dans `contrat.ts` : ce module-là est PUR et ne lit pas le disque —
+ * il reçoit du texte. La lecture appartient au scanner, et l'y garder est ce qui permet de
+ * tester la dérivation sans système de fichiers.
+ *
+ * `@/` se résout sur `src/`, comme le `tsconfig`. Un module introuvable est SILENCIEUSEMENT
+ * ignoré, et c'est voulu : son absence rend simplement les faits d'écriture ceux du corps —
+ * le comportement d'avant ce mécanisme. Jeter une exception ferait échouer la dérivation
+ * entière parce qu'un import pointe vers un fichier `index.ts` d'un dossier, cas que ce
+ * résolveur ne prétend pas couvrir.
+ */
+function sourcesImportees(source: string, cache: Map<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const spec of new Set(Object.values(importsProjet(source)))) {
+    const deja = cache.get(spec);
+    if (deja !== undefined) { if (deja) out[spec] = deja; continue; }
+    const rel = spec.replace(/^@\//, "");
+    let texte = "";
+    for (const chemin of [join(RACINE_SRC, `${rel}.ts`), join(RACINE_SRC, rel, "index.ts")]) {
+      try { texte = readFileSync(chemin, "utf8"); break; } catch { /* module suivant */ }
+    }
+    cache.set(spec, texte);
+    if (texte) out[spec] = texte;
+  }
+  return out;
+}
+
 /** Tous les contrats de l'ERP, dérivés de la source à l'instant où on appelle. */
 export function scannerContrats(): ContratAction[] {
   const enums = enumsDuSchema();
   const relations = relationsDuSchema();
   const out: ContratAction[] = [];
+  // LE SOURCE DES MODULES IMPORTÉS, mis en cache pour tout le scan : plusieurs fichiers
+  // d'actions importent le même écrivain de domaine, et le relire à chaque fois multiplierait
+  // les lectures disque sans rien changer au résultat.
+  const cache = new Map<string, string>();
   for (const f of fichiersDActions()) {
     const source = readFileSync(join(DOSSIER_ACTIONS, f), "utf8");
-    out.push(...contratsDuFichier(f.replace(/\.ts$/, ""), source, enums, relations));
+    out.push(...contratsDuFichier(f.replace(/\.ts$/, ""), source, enums, relations, sourcesImportees(source, cache)));
   }
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }

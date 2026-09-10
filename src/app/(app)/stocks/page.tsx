@@ -6,6 +6,8 @@ import { getProductOptions } from "@/lib/queries/stock";
 import { platformScope } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { StocksView, type SnapshotDTO } from "./stocks-view";
+import { loadRecurrencesStock } from "@/lib/queries/stock-recurrence";
+import { RecurrencesPanel } from "./recurrences-panel";
 
 export default async function StocksPage() {
   const user = await requireModule("STOCKS");
@@ -25,7 +27,7 @@ export default async function StocksPage() {
   // tient la chaîne, jamais à qui y contribue. Le droit de suppression ne l'ouvre plus.
   const canRequest = canRequestStockState(viewer);
 
-  const [products, locations, snapshots, users] = await Promise.all([
+  const [products, locations, snapshots, users, recurrences] = await Promise.all([
     getProductOptions(user),
     prisma.stockAnnex.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, kind: true } }),
     // Portée VALIDÉE contre les droits, comme Finances et Ad & Pro : le cookie d'entité est une
@@ -34,6 +36,10 @@ export default async function StocksPage() {
     // graphique dès qu'on sélectionne une société.
     prisma.stockSnapshot.findMany({ where: await platformScope(user.id), orderBy: { date: "asc" }, take: 5000 }),
     prisma.user.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    // LES RÉCURRENCES ne sont chargées que pour qui peut RÉQUISITIONNER : les envoyer à tout le
+    // monde apprendrait à un délégué qui la Direction fait compter, et où. La garde est la même
+    // que celle du geste (§118.71) — pas un masquage d'écran par-dessus une donnée envoyée.
+    canRequest ? loadRecurrencesStock() : Promise.resolve([]),
   ]);
   // Deux listes de lieux nommés (mêmes règles) : hôpitaux et annexes PCH.
   const hospitals = locations.filter((l) => l.kind !== "ANNEX").map((l) => ({ id: l.id, name: l.name }));
@@ -64,6 +70,16 @@ export default async function StocksPage() {
         canRequest={canRequest}
         scopes={scopes}
       />
+      {/* LES DEMANDES RÉCURRENTES — le même geste, mais qui repart seul. Placé juste après la
+          vue : c'est en regardant les relevés qu'on constate qu'un hôpital n'a rien envoyé
+          depuis deux mois, et donc qu'il faut le demander automatiquement. */}
+      {canRequest && (
+        <RecurrencesPanel
+          recurrences={recurrences}
+          hospitals={hospitals}
+          users={users.map((u) => ({ id: u.id, label: u.name }))}
+        />
+      )}
     </div>
   );
 }

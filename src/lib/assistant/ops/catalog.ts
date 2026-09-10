@@ -1981,6 +1981,56 @@ export const OPS_CATALOG: OpMeta[] = [
     gateNote: "Direction / Super Admin",
     covers: ["stock-snapshot-actions:requestStockState"],
   },
+  // ─────────── LES RÉCURRENCES DE DEMANDE D'ÉTAT — poser, modifier, suspendre, retirer ───────────
+  //
+  // MÊME PORTE que la demande ponctuelle, et c'est délibéré : poser une récurrence n'est pas un
+  // geste plus léger que demander une fois — c'est demander indéfiniment sans repasser par
+  // personne. Une porte plus faible ici serait la porte non gardée à côté de la porte gardée
+  // (§118.71). Et l'autorité de l'auteur est RELUE à chaque déclenchement, si bien qu'une
+  // récurrence posée par quelqu'un qui perd le droit s'arrête d'elle-même.
+  {
+    tool: "stock_operation", op: "create_stock_recurrence", module: "Stocks",
+    uiLabel: "Poser une demande d'état de stock récurrente",
+    aliases: [
+      "demande l'état de stock chaque mois", "récurrence de demande d'état de stock",
+      "demande automatiquement l'état de stock", "relevé de stock mensuel",
+    ],
+    risk: "NORMAL",
+    summary: "Pose une demande d'état de stock RÉCURRENTE (quotidienne, hebdomadaire ou mensuelle) adressée à une personne, sur un ou plusieurs hôpitaux. Chaque échéance crée la même tâche assignée + notification que le bouton de l'écran.",
+    gate: (u) => isSA(u) || userCan(u, "STOCKS", "DELETE"),
+    gateNote: "Direction / Super Admin",
+    covers: ["stock-recurrence-actions:createStockRecurrence"],
+  },
+  {
+    tool: "stock_operation", op: "update_stock_recurrence", module: "Stocks",
+    uiLabel: "Modifier une demande récurrente",
+    aliases: ["modifie la récurrence de stock", "change la cadence du relevé de stock"],
+    risk: "NORMAL",
+    summary: "Modifie une récurrence : cadence, heure, personne, hôpitaux, précision. La sélection d'hôpitaux est REMPLACÉE (décocher retire), et l'échéance se recalcule si la cadence change.",
+    gate: (u) => isSA(u) || userCan(u, "STOCKS", "DELETE"),
+    gateNote: "Direction / Super Admin",
+    covers: ["stock-recurrence-actions:updateStockRecurrence"],
+  },
+  {
+    tool: "stock_operation", op: "set_stock_recurrence_status", module: "Stocks",
+    uiLabel: "Suspendre ou reprendre une demande récurrente",
+    aliases: ["suspends la récurrence de stock", "mets en pause le relevé de stock", "reprends la récurrence de stock"],
+    risk: "NORMAL",
+    summary: "Met une récurrence en pause ou la reprend. La pause garde l'historique et le compteur ; la reprise repart de maintenant et ne rattrape pas les occurrences manquées.",
+    gate: (u) => isSA(u) || userCan(u, "STOCKS", "DELETE"),
+    gateNote: "Direction / Super Admin",
+    covers: ["stock-recurrence-actions:setStockRecurrenceStatus"],
+  },
+  {
+    tool: "stock_operation", op: "delete_stock_recurrence", module: "Stocks",
+    uiLabel: "Retirer une demande récurrente",
+    aliases: ["retire la récurrence de stock", "supprime le relevé de stock récurrent"],
+    risk: "SENSITIVE",
+    summary: "Retire une récurrence : les prochaines demandes s'arrêtent. Les demandes DÉJÀ envoyées restent dans les tâches de leurs destinataires — retirer la récurrence n'efface pas le passé.",
+    gate: (u) => isSA(u) || userCan(u, "STOCKS", "DELETE"),
+    gateNote: "Direction / Super Admin",
+    covers: ["stock-recurrence-actions:deleteStockRecurrence"],
+  },
 
   // ───────────────────────────── INFORMATION MÉDICALE (déclarations autorités) ─────────────────────────────
   {

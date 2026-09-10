@@ -3,8 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { Prisma } from "@prisma/client";
 import { join } from "node:path";
 import {
-  contratsDuFichier, decrireAction, direContrat, helpersDuFichier, lireArguments,
-  HELPERS_PARTAGES, type TableEnums,
+  HELPERS_PARTAGES, contratsDuFichier, decrireAction, direContrat, helpersDuFichier, importsProjet, lireArguments, type TableEnums,
 } from "./contrat";
 import { scannerContrats } from "./contrat-scan";
 import { CONTRATS_ACTIONS, CONTRAT_PAR_ID } from "./contrat.genere";
@@ -673,5 +672,104 @@ describe("LECTEURS DE CHAMP — aucun ne peut passer inaperçu", () => {
       expect(types, `${nom} est déclaré partagé mais n'est pas défini dans types.ts`)
         .toMatch(new RegExp(`(?:function|const)\\s+${nom}\\b`));
     }
+  });
+});
+
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE DÉLÉGUÉ D'UN AUTRE FICHIER — trois faits d'écriture, et RIEN d'autre.
+ *
+ * Ce mécanisme existe parce qu'une action ne PEUT PAS garder son écrivain chez elle : un
+ * `"use server"` n'exporte que des fonctions asynchrones, et chacune devient un point d'entrée
+ * appelable SANS la garde de l'action. Sortir l'écriture dans un module de domaine est donc
+ * obligatoire — et rendre la dérivation aveugle n'était pas une option, parce que `executer.ts`
+ * lit `ecrit` pour décider s'il faut RELIRE la ligne écrite (§118.81).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("les faits d'écriture d'un délégué IMPORTÉ", () => {
+  const ACTION = `"use server";
+import { creerTruc } from "@/lib/domaine/truc";
+import { requireUser } from "@/lib/session";
+
+export async function faireLeTruc(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const nom = fdStr(formData, "nom");
+  return creerTruc({ actorId: user.id, nom });
+}
+`;
+  const MODULE_TRUC = `
+export async function creerTruc(i: { actorId: string; nom: string }) {
+  const t = await prisma.truc.create({ data: { name: i.nom } });
+  await recordAudit({ actorId: i.actorId, action: "CREATE", module: "Truc", entityType: "TRUC", entityId: t.id, summary: "x" });
+  return { ok: true, id: t.id };
+}
+`;
+  // `@/lib/session` ÉCRIT les sessions. C'est le module qui a fait tomber la première version.
+  const MODULE_SESSION = `
+export async function requireUser() { return current(); }
+export async function ouvrirSession(id: string) {
+  return prisma.userSession.create({ data: { userId: id } });
+}
+`;
+
+  const decrire = (sources: Record<string, string>) =>
+    contratsDuFichier("truc-actions", ACTION, {}, {}, sources)[0]!;
+
+  it("l'écriture du délégué importé est CELLE de l'action", () => {
+    const c = decrire({ "@/lib/domaine/truc": MODULE_TRUC });
+    expect(c.ecrit).toBe(true);
+    expect(c.modelesEcrits).toContain("truc");
+    expect(c.audit).toBe(true);
+  });
+
+  it("SANS le source du module, on ne devine RIEN — et le défaut ne s'aggrave pas", () => {
+    // Le comportement d'AVANT ce mécanisme : les faits du corps, et rien de plus. C'est un fait
+    // MANQUANT, jamais un fait faux — la seule des deux erreurs qu'on accepte.
+    const c = decrire({});
+    expect(c.ecrit).toBe(false);
+    expect(c.modelesEcrits).toEqual([]);
+  });
+
+  it("LE MODULE ENTIER N'EST PAS LU — seulement le corps de la fonction appelée", () => {
+    // LE CAS QUI A RUINÉ LA PREMIÈRE VERSION, et il est mesuré : `requireUser` vient d'un module
+    // qui écrit `UserSession`, un modèle que le chemin générique INTERDIT. En lisant le module
+    // entier, 593 actions sur 732 se sont mises à déclarer qu'elles touchaient aux sessions, et
+    // le chemin générique en aurait refusé 604 — un refus à tort infiniment pire que le défaut
+    // qu'on corrige (§118.27).
+    const c = decrire({ "@/lib/domaine/truc": MODULE_TRUC, "@/lib/session": MODULE_SESSION });
+    expect(c.modelesEcrits).not.toContain("userSession");
+    expect(c.modelesEcrits).toContain("truc");
+  });
+
+  it("un import NON APPELÉ n'apporte aucune écriture", () => {
+    const sansAppel = ACTION.replace("return creerTruc({ actorId: user.id, nom });", "return { ok: true, id: nom };");
+    const c = contratsDuFichier("truc-actions", sansAppel, {}, {}, { "@/lib/domaine/truc": MODULE_TRUC })[0]!;
+    expect(c.ecrit).toBe(false);
+  });
+
+  it("un import de TYPE n'écrit rien — et n'est même pas retenu", () => {
+    expect(importsProjet(`import { type Truc, creerTruc } from "@/lib/domaine/truc";`))
+      .toEqual({ creerTruc: "@/lib/domaine/truc" });
+  });
+
+  it("les modèles du délégué importé n'entrent PAS dans l'attribution des CHAMPS", () => {
+    // Deux consommateurs, deux besoins : la garde veut TOUS les modèles, `lireChamps` cherche le
+    // modèle PRIMAIRE et renonce à nommer dès qu'il y a ambiguïté. Les unir a fait perdre 187
+    // champs modélisés au parc (546 → 359) et fait tomber le plancher de désignation.
+    const avecRef = `"use server";
+import { creerTruc } from "@/lib/domaine/truc";
+export async function faireLeTruc(formData: FormData): Promise<ActionResult> {
+  const trucId = fdStr(formData, "trucId");
+  return creerTruc({ actorId: "x", nom: trucId });
+}
+`;
+    const relations = { "Truc.id": "Truc" } as Record<string, string>;
+    const c = contratsDuFichier("truc-actions", avecRef, {}, relations, { "@/lib/domaine/truc": MODULE_TRUC })[0]!;
+    // Le champ garde son modèle : l'union n'a pas brouillé l'attribution.
+    const champ = c.champs.find((x) => x.nom === "trucId");
+    expect(champ?.type).toBe("reference");
+    // Et le contrat DÉCLARE quand même l'écriture du délégué.
+    expect(c.modelesEcrits).toContain("truc");
   });
 });

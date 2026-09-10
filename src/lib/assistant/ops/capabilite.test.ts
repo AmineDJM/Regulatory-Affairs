@@ -19,6 +19,10 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
 import { CAPABILITY_OPS_IMPL } from "./impl-capabilite";
 import { CONTRATS_ACTIONS } from "@/platform/in-process/capacites";
+import { entiteDuModele } from "@/lib/cibles/modele-entite";
+import { relireApresEcriture } from "@/lib/cibles/relire";
+import { porteeEntite } from "@/lib/api/registry/portee";
+import { canReadEntity, ENTITIES } from "@/lib/api/registry/entities";
 import { DOMAIN_TOOLS } from "./index";
 import { OPS_CATALOG } from "./catalog";
 
@@ -170,13 +174,22 @@ suite("DE LA CARTE À LA LIGNE EN BASE — le trajet complet", () => {
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 suite("RELECTURE — la phrase porte ce qui a été CONSTATÉ, ou dit qu'elle n'a rien constaté", () => {
-  let pdgId = "";
+  let pdgId = "", etrangerId = "", assistantId = "";
 
   beforeAll(async () => {
     const pdg = await prisma.user.create({
       data: { name: `${TAG}relu`, email: `${TAG}relu@t.dz`, role: "SUPER_ADMIN", passwordHash: "x" },
     });
     pdgId = pdg.id;
+    // DEUX ACTEURS SANS VUE GLOBALE — sans eux, les gardes de la relecture ne peuvent pas
+    // tomber, et une garde qu'on ne peut pas faire échouer est une décoration (§118.104).
+    const etranger = await prisma.user.create({
+      data: { name: `${TAG}sansmodule`, email: `${TAG}sansmodule@t.dz`, role: "MEDICAL_DELEGATE", passwordHash: "x" },
+    });
+    const assistant = await prisma.user.create({
+      data: { name: `${TAG}assistante`, email: `${TAG}assistante@t.dz`, role: "DIRECTION_ASSISTANT", passwordHash: "x" },
+    });
+    etrangerId = etranger.id; assistantId = assistant.id;
   });
 
   afterAll(async () => {
@@ -205,6 +218,107 @@ suite("RELECTURE — la phrase porte ce qui a été CONSTATÉ, ou dit qu'elle n'
     const ligne = await prisma.administrativeRequest.findFirstOrThrow({ where: { title: `${TAG}Relecture` } });
     expect(fait.message).toContain(ligne.id);
     expect(fait.message).toContain("PURCHASE");
+  });
+
+  it("UNE ÉCRITURE, SON JOURNAL ET SA NOTIFICATION — trois modèles, et la BONNE ligne est relue", async () => {
+    // LE DÉFAUT QUE CE CAS FERME, et il était silencieux.
+    //
+    // La règle était « un seul modèle écrit, sinon on renonce ». Elle a tenu tant que la
+    // dérivation ne lisait que le corps de l'action ; depuis qu'elle suit les délégués IMPORTÉS
+    // (`recordAudit`, `notifyUser`), `createRequest` déclare TROIS modèles — et les trois sont
+    // des entités du registre. La relecture renonçait donc sur le cas le plus banal du parc, et
+    // la phrase retombait sur « je n'ai PAS pu relire » alors que la ligne était là. §118.61 :
+    // une réparation avait déplacé la donnée, et ce lecteur lisait encore l'ancienne forme.
+    //
+    // LE CAS QUI FAIT TOMBER CETTE ASSERTION : rétablir `if (candidats.length !== 1) return null`.
+    const contrat = CONTRATS_ACTIONS.find((c) => c.id === "admin-request-actions:createRequest");
+    expect(contrat, "le contrat dérivé doit exister").toBeDefined();
+    const connus = contrat!.modelesEcrits.filter((m) => entiteDuModele(m) !== null);
+    expect(connus.length, "la prémisse : plusieurs modèles ÉCRITS sont des entités du registre")
+      .toBeGreaterThan(1);
+
+    ACTEUR = await acteur(pdgId, "SUPER_ADMIN");
+    const brouillon = await run.propose(
+      { action: "admin-request-actions:createRequest",
+        champs: JSON.stringify({ title: `${TAG}Trois modèles`, type: "PURCHASE", priority: "LOW" }) },
+      ACTEUR,
+    );
+    const fait = await run.execute((brouillon as Exclude<typeof brouillon, { error: string }>).args, ACTEUR);
+    expect(fait.ok, fait.error).toBe(true);
+
+    const ligne = await prisma.administrativeRequest.findFirstOrThrow({ where: { title: `${TAG}Trois modèles` } });
+    // LA LIGNE MÉTIER, pas la ligne de journal : c'est l'identifiant de la demande qui est relu.
+    expect(fait.message).toContain(ligne.id);
+    expect(fait.message).toContain(`${TAG}Trois modèles`);
+    expect(fait.message).toMatch(/relu dans votre périmètre/);
+    // ET CE N'EST PAS LE JOURNAL : aucun libellé d'audit dans la phrase.
+    expect(fait.message).not.toMatch(/Journal d'audit|AuditLog/i);
+  });
+
+  it("LA RELECTURE REFUSE une ligne HORS PORTÉE — et la garde est exerçable, pas décorative", async () => {
+    // POURQUOI CE CAS EXISTE, et il a été écrit APRÈS deux sabotages passés au vert.
+    //
+    // Les deux cas ci-dessus agissent en Super Admin : sa portée est globale, donc retirer
+    // `canReadEntity` ou `porteeEntite` de la relecture ne faisait tomber AUCUN test — la garde
+    // rendait « vrai » quoi qu'il arrive. C'est le défaut de §118.104, sur le geste le plus
+    // sensible du lot : une VÉRIFICATION qui montrerait une ligne que la personne n'a pas le
+    // droit de voir serait un contournement de permission introduit au pire endroit possible.
+    //
+    // Ce que ce cas juge est le LECTEUR (`relireApresEcriture`) contre un acteur qui n'a
+    // réellement pas accès : la rencontre avec l'exécution est couverte par les deux cas
+    // ci-dessus, et un acteur qui pourrait écrire sans pouvoir relire n'existe pas au parc.
+    ACTEUR = await acteur(pdgId, "SUPER_ADMIN");
+    const brouillon = await run.propose(
+      { action: "admin-request-actions:createRequest",
+        champs: JSON.stringify({ title: `${TAG}Hors portée`, type: "PURCHASE", priority: "LOW" }) },
+      ACTEUR,
+    );
+    const fait = await run.execute((brouillon as Exclude<typeof brouillon, { error: string }>).args, ACTEUR);
+    expect(fait.ok, fait.error).toBe(true);
+    const ligne = await prisma.administrativeRequest.findFirstOrThrow({ where: { title: `${TAG}Hors portée` } });
+
+    // (a) SANS LE MODULE : la garde d'entité referme avant toute requête.
+    const sansModule = await acteur(etrangerId, "MEDICAL_DELEGATE");
+    expect(
+      await relireApresEcriture(sansModule, ["administrativeRequest"], {}, { id: ligne.id }),
+      "un acteur sans le module ne doit rien relire",
+    ).toBeNull();
+
+    // (b) AVEC LE MODULE mais hors de SA portée : la demande est celle de quelqu'un d'autre.
+    const autreDemandeur = await acteur(assistantId, "DIRECTION_ASSISTANT");
+    const vu = await relireApresEcriture(autreDemandeur, ["administrativeRequest"], {}, { id: ligne.id });
+    const aLeDroit = canReadEntity(autreDemandeur, ENTITIES.find((e) => e.name === "admin_request")!);
+    // LA PRÉMISSE EST VÉRIFIÉE : si cet acteur a bien le droit de LIRE l'entité, alors ce qui
+    // décide est la PORTÉE par ligne, et c'est elle qu'on exerce. Sinon c'est (a) une seconde
+    // fois, et il faut le dire plutôt que de croire avoir exercé la portée.
+    if (aLeDroit) {
+      const sienne = await prisma.administrativeRequest.findFirst({
+        where: { AND: [await porteeEntite(autreDemandeur, ENTITIES.find((e) => e.name === "admin_request")!), { id: ligne.id }] },
+        select: { id: true },
+      });
+      if (!sienne) expect(vu, "une ligne hors de la portée de la personne ne se relit pas").toBeNull();
+      else expect(vu, "la ligne EST dans sa portée : la relecture doit la rendre").not.toBeNull();
+    }
+
+    // (c) UNE ENTITÉ DONT LA PORTÉE NE REFUSE RIEN — et c'est le cas GÉNÉRAL.
+    //
+    // Mesuré sur le registre : 23 entités sur 29 rendent une clause VIDE pour un acteur sans le
+    // module (`supplier`, `task`, `document`, `user`, `audit_log`, `notification`…) ; seules six
+    // se refusent elles-mêmes par `{ id: "__none__" }`, dont `admin_request` utilisée en (a) et
+    // (b). Pour les vingt-trois autres, `canReadEntity` est la SEULE garde de la relecture — et
+    // sans un cas qui passe par l'une d'elles, la neutraliser ne faisait tomber aucun test.
+    //
+    // Ici : un délégué médical relit une ligne du modèle `User`, gouverné par ADMINISTRATION,
+    // qu'il n'a pas. La ligne EXISTE (c'est le Super Admin du décor) : ce n'est donc pas une
+    // absence qui ferme, c'est la garde.
+    expect(
+      await relireApresEcriture(sansModule, ["user"], {}, { id: pdgId }),
+      "un délégué ne doit pas relire une ligne de compte : sur les 23 entités à portée vide, "
+      + "`canReadEntity` est la seule garde",
+    ).toBeNull();
+    // LA PRÉMISSE, vérifiée : c'est bien la garde qui ferme, pas la portée.
+    expect(JSON.stringify(await porteeEntite(sansModule, ENTITIES.find((e) => e.name === "user")!)))
+      .not.toMatch(/__none__/);
   });
 
   it("la RELECTURE passe par la portée de la personne — jamais un accès privilégié", async () => {

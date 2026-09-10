@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { declencherRecurrencesStock } from "@/lib/stocks/recurrence-runner";
 import { notifyUser } from "@/lib/notify";
 import { performAiHealthCheck } from "@/lib/ai-health";
 import { runDueRegulatoryJobs } from "@/lib/regulatory/intelligence/jobs/runner";
@@ -108,6 +109,12 @@ export async function runScheduledJobs(): Promise<void> {
     // passé, et prévient À L'ENTRÉE dans une zone d'urgence (90 j, 30 j, dépassement) — pas tous
     // les jours, sinon la personne coupe les notifications et rate la vraie.
     await runLegalExpirySweep().catch(() => undefined);
+    // RÉCURRENCES DE DEMANDE D'ÉTAT DE STOCK : le directeur des opérations pose une fois « le 1er
+    // de chaque mois, Karim relève ses trois hôpitaux », et la demande repart seule. Elle est ICI
+    // et non dans le registre des planifications, dont l'en-tête interdit toute écriture avec
+    // raison (`mutates: false`) : là-bas la clé est choisie par un humain ou proposée par un
+    // modèle, ici l'effet est écrit en revue de code et ne varie pas.
+    await declencherRecurrencesStock().catch((e) => console.error("[scheduled] stock recurrences failed", e));
     // Échéances de DÉPÔT des marchés PCH : responsable + équipe prévenus à J-7, J-2 et au
     // dépassement — le rappel se tait dès que la soumission est déposée.
     await runPchDeadlineSweep().catch(() => undefined);

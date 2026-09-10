@@ -316,6 +316,100 @@ function deleguesDuCorps(
   return out;
 }
 
+/**
+ * LES SYMBOLES IMPORTÉS D'UN MODULE DU PROJET — `{ a, b as c }` depuis `@/lib/...`.
+ *
+ * On ne retient que `@/lib/…` : un import de bibliothèque n'écrit pas dans notre base, et lire
+ * `node_modules` pour s'en assurer coûterait un scan du monde à chaque dérivation.
+ */
+export function importsProjet(source: string): Record<string, string> {
+  const table: Record<string, string> = {};
+  const re = /import\s*\{([^}]*)\}\s*from\s*"(@\/lib\/[^"]+)"/g;
+  for (const m of sansCommentaires(source).matchAll(re)) {
+    for (const brut of m[1]!.split(",")) {
+      const t = brut.trim();
+      if (!t || t.startsWith("type ")) continue; // un TYPE n'écrit rien
+      const nom = (t.includes(" as ") ? t.split(" as ")[1]! : t).trim();
+      if (nom) table[nom] = m[2]!;
+    }
+  }
+  return table;
+}
+
+/**
+ * LES FAITS D'ÉCRITURE D'UN DÉLÉGUÉ IMPORTÉ — et c'est un AUTRE mécanisme que la délégation de
+ * formulaire, exactement comme l'en-tête de `decrireAction` l'annonçait.
+ *
+ * ── POURQUOI IL FALLAIT L'AJOUTER ────────────────────────────────────────────────────────
+ *
+ * `deleguesDuCorps` ne suit un appel que lorsqu'il reçoit le FORMULAIRE — c'est ce qui lui
+ * permet d'en lire les CHAMPS. Une action qui sort son écriture dans un module de domaine
+ * (`creerDemandeEtatStock({ actorId, … })`) ne passe aucun formulaire : elle sortait donc
+ * `ecrit: false`, `modelesEcrits: []`, `audit: false` — c'est-à-dire un MENSONGE sur une action
+ * qui crée une tâche, notifie une personne et journalise.
+ *
+ * Ce que ce mensonge coûte, mesuré : `executer.ts` lit `contrat.ecrit` pour décider s'il faut
+ * RELIRE la ligne écrite (§118.81) — « c'est fait » redevient une parole à croire. 49 actions du
+ * parc étaient déjà dans cet état avant ce mécanisme.
+ *
+ * ── CE QU'IL NE FAIT PAS, ET POURQUOI ────────────────────────────────────────────────────
+ *
+ * Il n'union QUE les trois faits d'écriture, jamais la liste des CHAMPS : les champs restent
+ * gouvernés par la délégation de formulaire, qui seule sait qu'un formulaire a voyagé. Les
+ * mélanger ferait déclarer, sur une action, des champs qu'aucun formulaire ne lui apporte.
+ *
+ * Et il ne suit QU'UN NIVEAU. Une chaîne de délégations est un autre problème : la suivre sans
+ * borne ferait lire la moitié du dépôt pour décrire une action, et le premier cycle
+ * (`a → b → a`) bouclerait. Un niveau non suivi laisse `ecrit: false` — le même défaut, plus
+ * loin — mais jamais un fait FAUX.
+ *
+ * ── IL LIT LE CORPS DE LA FONCTION APPELÉE, JAMAIS LE MODULE ENTIER ──────────────────────
+ *
+ * La première version lisait le module en entier, avec une justification qui sonnait juste : un
+ * écrivain de domaine découpe souvent son écriture en aides internes. Elle était RUINEUSE, et
+ * la mesure l'a dit tout de suite : `requireUser` vient de `@/lib/session`, un module qui écrit
+ * `UserSession` — donc **593 actions sur 732 se sont mises à déclarer qu'elles touchaient aux
+ * sessions**, un modèle que `generique.ts` INTERDIT. Le chemin générique aurait refusé 604
+ * actions sur 732. Un refus à tort est pire que le défaut qu'on corrige (§118.27), et celui-là
+ * aurait fermé presque tout l'ERP à Adam pour réparer la description de 46 actions.
+ *
+ * Ce qu'on lit est donc le CORPS de la fonction effectivement appelée, avec la même mécanique
+ * que la délégation locale. Le prix est nommé : si cette fonction délègue à son tour dans son
+ * propre module, on ne la suit pas. C'est un fait manquant, pas un fait faux — et la seule des
+ * deux erreurs qu'on accepte.
+ */
+export function faitsEcritureImportes(
+  corps: string,
+  imports: Readonly<Record<string, string>>,
+  /** Le source de chaque module importé, par spécificateur. Fourni par le scanner. */
+  sources: Readonly<Record<string, string>>,
+): { ecrit: boolean; modelesEcrits: string[]; audit: boolean } {
+  const vide = { ecrit: false, modelesEcrits: [] as string[], audit: false };
+  const noms = Object.keys(imports);
+  if (noms.length === 0) return vide;
+  const propre = sansCommentaires(corps);
+  const modeles = new Set<string>();
+  let ecrit = false;
+  let audit = false;
+  for (const nom of noms) {
+    const spec = imports[nom]!;
+    const src = sources[spec];
+    if (!src) continue; // module non fourni : on ne devine pas ce qu'il fait
+    // L'APPEL doit être présent dans le corps, et pas seulement l'import : une action qui
+    // importe un écrivain sans l'appeler n'écrit rien.
+    const appel = new RegExp(`(?<![.\\w$])${nom.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\(`);
+    if (!appel.test(propre)) continue;
+    // LE CORPS DE LA FONCTION APPELÉE, et lui seul. Lire le module entier attribuait à chaque
+    // action les écritures de `@/lib/session` par le seul fait qu'elle appelle `requireUser`.
+    const corpsDelegue = fonctionsLocales(src)[nom]?.corps;
+    if (!corpsDelegue) continue; // le symbole n'est pas une fonction de ce module : on ne devine pas
+    if (RE_ECRITURE.test(corpsDelegue)) ecrit = true;
+    for (const m of modelesEcrits(corpsDelegue)) modeles.add(m);
+    if (/recordAudit\s*\(/.test(corpsDelegue)) audit = true;
+  }
+  return { ecrit, modelesEcrits: [...modeles].sort(), audit };
+}
+
 // ───────────────────────────────────────────────────────────────────────────────────────────
 // LES VALEURS ADMISES
 // ───────────────────────────────────────────────────────────────────────────────────────────
@@ -594,6 +688,18 @@ export function decrireAction(
   relations: TableRelations = {},
   /** Les fonctions du MÊME fichier, pour suivre une délégation d'UN niveau. */
   locales: Readonly<Record<string, SourceAction>> = {},
+  /**
+   * LES SYMBOLES IMPORTÉS PAR LE FICHIER (`nom` → `@/lib/...`) et LE SOURCE de chaque module,
+   * par spécificateur. Les imports vivent dans l'EN-TÊTE du fichier et non dans le corps de
+   * l'action : `contratsDuFichier` les résout UNE fois pour tout le fichier, et le scanner —
+   * seul à lire le disque — fournit les sources.
+   *
+   * Vides = aucun délégué importé n'est suivi, et les faits d'écriture restent ceux du corps :
+   * c'est le comportement d'AVANT ce mécanisme, donc le défaut ne s'aggrave jamais de son
+   * absence.
+   */
+  importsFichier: Readonly<Record<string, string>> = {},
+  sourcesImportees: Readonly<Record<string, string>> = {},
 ): ContratAction {
   const { fichier, fonction, signature, corps } = src;
   /**
@@ -690,16 +796,49 @@ export function decrireAction(
   // Le remède est celui que §118.87c a déjà posé pour les CHAMPS : l'union, un seul niveau,
   // dans le seul fichier dont on a le texte. Elle ne peut qu'ÉLARGIR ce qu'on déclare écrire —
   // donc au pire elle refuse davantage, jamais moins.
+  //
+  // ── ET LE DÉLÉGUÉ D'UN AUTRE FICHIER ───────────────────────────────────────────────────
+  //
+  // `deleguesDuCorps` ne suit un appel que lorsqu'il reçoit le FORMULAIRE — c'est ce qui lui
+  // permet d'en lire les champs. Une action qui sort son écriture dans un module de DOMAINE
+  // (`creerDemandeEtatStock({ actorId, … })`) ne passe aucun formulaire, et sortait donc
+  // `ecrit: false` : le mensonge d'au-dessus, par la porte d'à côté. MESURÉ avant d'y toucher :
+  // 49 actions du parc portaient un nom d'écriture et se déclaraient sans écriture.
+  //
+  // `faitsEcritureImportes` est donc un SECOND mécanisme, plus étroit — trois faits, jamais les
+  // champs, un seul niveau. L'écrivain ne peut PAS revenir dans le fichier de l'action : un
+  // `"use server"` n'exporte que des fonctions asynchrones, et chacune devient un point
+  // d'entrée appelable SANS la garde de l'action. Sortir l'écriture était donc obligatoire, et
+  // rendre la dérivation aveugle n'était pas une option.
+  const importes = faitsEcritureImportes(corps, importsFichier, sourcesImportees);
+  //
+  // ── DEUX CONSOMMATEURS, DEUX BESOINS — et les confondre a coûté 187 champs ──────────────
+  //
+  // `modelesEcrits` sert deux questions qui ne veulent pas la même chose :
+  //   · la garde d'auto-escalade veut TOUS les modèles touchés — plus large est plus sûr ;
+  //   · `lireChamps` cherche le modèle PRIMAIRE auquel attribuer une référence — plus large
+  //     est plus AMBIGU, donc il renonce à nommer.
+  //
+  // MESURÉ en unissant les deux : `notification`, `auditLog` et `expenseOrder` entrant dans la
+  // liste, 198 actions ont perdu l'attribution de leurs références et le parc est passé de 546
+  // champs modélisés à 359 — le plancher de désignation (500) est tombé, et avec lui la
+  // capacité d'Adam à viser une ligne par son nom plutôt que par un `cuid` (§118.85).
+  //
+  // Les modèles d'un délégué IMPORTÉ n'entrent donc PAS dans ce que lit `lireChamps` : ils
+  // s'unissent au contrat APRÈS, là où seule la garde les consulte. `ecrit` et `audit`, eux,
+  // sont des booléens sans effet sur l'attribution : ils s'unissent tout de suite.
   const base = {
     ...baseCorps,
-    ecrit: baseCorps.ecrit || delegues.some((d) => RE_ECRITURE.test(d.corps)),
+    ecrit: baseCorps.ecrit || delegues.some((d) => RE_ECRITURE.test(d.corps)) || importes.ecrit,
     modelesEcrits: [...new Set([...baseCorps.modelesEcrits, ...delegues.flatMap((d) => modelesEcrits(d.corps))])],
-    audit: baseCorps.audit || delegues.some((d) => /recordAudit\s*\(/.test(d.corps)),
+    audit: baseCorps.audit || delegues.some((d) => /recordAudit\s*\(/.test(d.corps)) || importes.audit,
   };
+  /** Les modèles à DÉCLARER — l'union complète, une fois l'attribution des champs faite. */
+  const modelesDeclares = [...new Set([...base.modelesEcrits, ...importes.modelesEcrits])].sort();
 
   if (lectureDynamique(corps, Object.keys(lecteurs), formulaires, locaux.parametres, Object.keys(locaux.lecteurs))) {
     return {
-      ...base, appel, champs: [],
+      ...base, modelesEcrits: modelesDeclares, appel, champs: [],
       illisible: "les noms de champs sont calculés à l'exécution — la source ne les énonce pas",
     };
   }
@@ -737,18 +876,18 @@ export function decrireAction(
   const collision = avant.map((a) => a.nom).filter((n) => duFormulaire.some((f) => f.nom === n));
   if (collision.length > 0) {
     return {
-      ...base, appel, champs: [],
+      ...base, modelesEcrits: modelesDeclares, appel, champs: [],
       illisible: `« ${collision.join(", ") }» est à la fois un argument et un champ du formulaire — `
         + `une seule valeur ne peut pas remplir deux places`,
     };
   }
   const champs = [...avant, ...duFormulaire];
   if (duFormulaire.length > 0) {
-    return { ...base, appel, champs, avantFormulaire: avant.length, illisible: null };
+    return { ...base, modelesEcrits: modelesDeclares, appel, champs, avantFormulaire: avant.length, illisible: null };
   }
 
   return {
-    ...base, appel, champs: [],
+    ...base, modelesEcrits: modelesDeclares, appel, champs: [],
     illisible: delegueMuet
       ? `« ${delegueMuet} » lit le formulaire pour cette action et calcule ses noms de champs à `
         + `l'exécution — rien dans la source n'énonce l'entrée attendue`
@@ -916,12 +1055,17 @@ export function contratsDuFichier(
   source: string,
   enumsSchema: TableEnums = {},
   relations: TableRelations = {},
+  /** Le source des modules `@/lib/...` importés par ce fichier — fourni par le scanner. */
+  sourcesImportees: Readonly<Record<string, string>> = {},
 ): ContratAction[] {
   const constantes = constantesDuFichier(source);
   const enums = { ...enumsSchema, ...enumsLocaux(source) };
   const lecteurs = helpersDuFichier(source);
   const locales = fonctionsLocales(source);
-  return decouperActions(fichier, source).map((a) => decrireAction(a, constantes, enums, lecteurs, relations, locales));
+  // UNE FOIS PAR FICHIER : les imports sont un fait de l'en-tête, pas de chaque action.
+  const imports = importsProjet(source);
+  return decouperActions(fichier, source).map((a) =>
+    decrireAction(a, constantes, enums, lecteurs, relations, locales, imports, sourcesImportees));
 }
 
 /**
