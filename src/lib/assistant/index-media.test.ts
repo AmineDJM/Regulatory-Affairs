@@ -128,4 +128,22 @@ suite("l'index de contenu ne confond jamais « rien lu » et « rien dedans »",
     // oublieuse à côté de la première (§118.94).
     expect(src).toContain("transcrireMediaDrive");
   });
+  it("la garde est chez l'ÉCRIVAIN : n'importe quel appelant qui écrit un vide reçoit sa raison", async () => {
+    /**
+     * §118.58 : quand un défaut se répète, chercher l'endroit où TOUTES les instances passent.
+     * `read_document` écrivait `note ?? null`, le dépôt d'une pièce écrit un texte vide sans
+     * note, l'ingestion planifiée passe par ici aussi — trois écrivains, un seul funnel.
+     *
+     * CE QUI LE FERAIT TOMBER : remettre `note ?? null` dans `indexDriveNodeText`. Un futur
+     * appelant écrirait de nouveau une ligne muette, et le document redeviendrait introuvable
+     * par son contenu, en silence.
+     */
+    const { indexDriveNodeText } = await import("@/lib/assistant/document-discovery");
+    const { nodeId, versionId } = await deposer(`${TAG} muet.mp3`, "audio/mpeg", Buffer.from("z"));
+    // L'appel EXACT que faisait le dépôt du banc : texte vide, aucune note.
+    await indexDriveNodeText(nodeId, versionId, "", null, `${TAG} muet.mp3`);
+    const row = await prisma.driveTextIndex.findUnique({ where: { nodeId }, select: { note: true } });
+    expect((row?.note ?? "").trim(), "aucune ligne vide ne sort d'ici sans raison").not.toBe("");
+    expect(row?.note ?? "", "et la raison nomme le format").toMatch(/m[ée]dia|parole/i);
+  }, 30_000);
 });

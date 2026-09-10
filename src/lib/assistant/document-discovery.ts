@@ -50,10 +50,25 @@ export async function indexDriveNodeText(nodeId: string, versionId: string, text
     const capped = text.slice(0, INDEX_TEXT_CAP);
     const docKind = classifyDocument(name ?? "", capped);
     const fold = foldText(capped);
+    /**
+     * ── UNE LIGNE VIDE PORTE TOUJOURS SA RAISON — la garde est ICI, chez l'ÉCRIVAIN ─────
+     *
+     * `nodeText` refuse d'honorer un index vide SANS raison (voir plus bas) : c'est la moitié
+     * LECTURE. La moitié ÉCRITURE doit être au même endroit que TOUS les écrivains, sinon on
+     * répare un appelant à la fois et le suivant arrive par la porte qu'on n'a pas regardée
+     * (§118.58). Recensé : `read_document` écrivait `note ?? null`, le dépôt d'une pièce écrit
+     * un texte vide sans note, et l'ingestion planifiée passe par ici aussi.
+     *
+     * On ne devine RIEN sur le contenu : la raison ne dit que ce qu'on sait à coup sûr — aucun
+     * texte n'a été extrait, et de quel FORMAT il s'agit, parce qu'un `.mp3` et un `.pdf`
+     * n'appellent pas le même geste. Sans elle, la ligne se relit comme « lu, rien dedans »
+     * (§104.15) et le document devient introuvable par son contenu, en silence.
+     */
+    const raison = capped.trim() === "" ? (note?.trim() || raisonIllisible(name ?? "")) : (note ?? null);
     await prisma.driveTextIndex.upsert({
       where: { nodeId },
-      create: { nodeId, versionId, text: capped, textFold: fold, note: note ?? null, docKind },
-      update: { versionId, text: capped, textFold: fold, note: note ?? null, docKind },
+      create: { nodeId, versionId, text: capped, textFold: fold, note: raison, docKind },
+      update: { versionId, text: capped, textFold: fold, note: raison, docKind },
     });
     // LES MENTIONS D'ENTITÉS S'EXTRAIENT ICI (fabric F4) — au même moment que la
     // classification, pour la même raison : le travail se paie quand l'information ENTRE,
