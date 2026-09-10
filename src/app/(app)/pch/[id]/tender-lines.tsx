@@ -30,7 +30,18 @@ const LINE_STATUS: { value: string; label: string }[] = [
 ];
 const fmt = (n: number | null) => (n == null ? "—" : new Intl.NumberFormat("fr-FR").format(n));
 
-export function TenderLines({ tenderId, lines, canEdit, aiConfigured }: { tenderId: string; lines: PchTenderLineDTO[]; canEdit: boolean; aiConfigured: boolean }) {
+export function TenderLines({ tenderId, lines, canEdit, aiConfigured, reserves = {} }: {
+  tenderId: string; lines: PchTenderLineDTO[]; canEdit: boolean; aiConfigured: boolean;
+  /**
+   * « CE PRODUIT EST DÉJÀ ENGAGÉ AILLEURS » — par `productId`, la phrase à afficher.
+   *
+   * La Direction énonce qu'un produit est lié à UN SEUL AO. Le savoir au moment où l'on chiffre
+   * un lot coûte un clic ; l'apprendre après le dépôt coûte une négociation. La phrase vient du
+   * serveur (`queries/pch-engagements.ts`), qui seul peut composer le droit de lire une pièce
+   * Legal — la recalculer ici demanderait de charger les contrats dans le navigateur.
+   */
+  reserves?: Record<string, string>;
+}) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [analyzing, setAnalyzing] = React.useState(false);
@@ -125,14 +136,15 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured }: { tender
         <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">Aucun produit. {canEdit && "Analysez le document ou ajoutez des lignes manuellement."}</p>
       ) : (
         <div className="space-y-2">
-          {lines.map((l) => <LineCard key={l.id} tenderId={tenderId} line={l} canEdit={canEdit} busy={busy} run={run} />)}
+          {lines.map((l) => <LineCard key={l.id} tenderId={tenderId} line={l} canEdit={canEdit} busy={busy} run={run}
+            reserve={l.productId ? reserves[l.productId] : undefined} />)}
         </div>
       )}
     </div>
   );
 }
 
-function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; line: PchTenderLineDTO; canEdit: boolean; busy: boolean; run: (fn: () => Promise<Res>) => void }) {
+function LineCard({ tenderId, line, canEdit, busy, run, reserve }: { tenderId: string; line: PchTenderLineDTO; canEdit: boolean; busy: boolean; run: (fn: () => Promise<Res>) => void; reserve?: string }) {
   const [s, setS] = React.useState({
     designation: line.designation, dci: line.dci ?? "", dosage: line.dosage ?? "", form: line.form ?? "",
     quantityUnits: String(line.quantityUnits || ""), unitsPerBox: line.unitsPerBox != null ? String(line.unitsPerBox) : "",
@@ -193,12 +205,19 @@ function LineCard({ tenderId, line, canEdit, busy, run }: { tenderId: string; li
           {line.refPriceDzd != null && <span className="rounded bg-secondary px-2 py-0.5 text-[0.6875rem]" title={line.refPriceSource ?? undefined}>Prix réf. PCH : {fmt(line.refPriceDzd)} DZD</span>}
           {line.fulfillmentPct != null && <span className="rounded bg-success/15 px-2 py-0.5 text-[0.6875rem] text-success">Vendu : {fmt(line.soldUnits)}/{fmt(line.quantityUnits)} ({line.fulfillmentPct}%)</span>}
         </div>
+        {/* LA RÉSERVE EST RENDUE DANS LES DEUX VUES. La poser seulement sur la vue modifiable
+            l'aurait cachée à qui lit sans pouvoir écrire — c'est-à-dire souvent à la Direction,
+            qui est précisément celle qui arbitre entre deux marchés. */}
+        {reserve && <p className="mt-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[0.6875rem]">{reserve}</p>}
       </div>
     );
   }
 
   return (
     <div className="space-y-2 rounded-lg border border-border bg-card p-3">
+      {/* AVANT LA SAISIE, pas après : on lit qu'un produit court déjà ailleurs au moment de
+          poser son prix, sinon l'information arrive quand l'offre est déjà chiffrée. */}
+      {reserve && <p className="rounded border border-warning/40 bg-warning/10 px-2 py-1 text-xs">{reserve}</p>}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-12">
         <input className={`${inp} sm:col-span-6`} value={s.designation} onChange={(e) => setS({ ...s, designation: e.target.value })} onBlur={save} placeholder="Désignation produit" />
         <input className={`${inp} sm:col-span-3`} value={s.dci} onChange={(e) => setS({ ...s, dci: e.target.value })} onBlur={save} placeholder="DCI" />

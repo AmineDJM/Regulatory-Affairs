@@ -1672,7 +1672,7 @@ export const NAVIGATION: NavItem[] = [
   // Les routes ne changent PAS : seul le rangement change. Un lien de notification écrit il y a
   // six mois reste donc valide, sans redirection.
 
-  // REGULATORY — deux portes, et deux seulement. Une assistante qui suit un dossier n'a pas à
+  // REGULATORY — le suivi d'un dossier a SA porte : une assistante qui suit un dossier n'a pas à
   // traverser toute l'interface d'analyse CTD pour y arriver.
   { module: "REGULATORY", label: "Suivi des dossiers", href: "/regulatory", icon: "FileCheck2", group: "Pôles", pole: "REGULATORY" },
   // Le PIPELINE est un module du pôle REGULATORY, au même rang que le suivi des dossiers : il se
@@ -1683,6 +1683,15 @@ export const NAVIGATION: NavItem[] = [
   // menu menant à un écran vide — et se demandait ce qu'il avait manqué.
   { module: "REGULATORY", label: "Pipeline", href: "/regulatory/pipeline", icon: "GitBranch", group: "Pôles", pole: "REGULATORY", gate: "pipeline" },
   { module: "REGULATORY", label: "Analyse CTD", href: "/regulatory/enregistrement", icon: "ScanSearch", group: "Pôles", pole: "REGULATORY", gate: "regEnrollment" },
+  // INFORMATION MÉDICALE — décision de la Direction (09/2026) : elle passe de Sales & Marketing
+  // au pôle REGULATORY. Une déclaration d'information médicale est un acte réglementaire, pas
+  // un acte de promotion, et la ranger sous la force de vente laissait entendre le contraire.
+  //
+  // SEUL LE PÔLE CHANGE, PAS LES DROITS. `pole` ne sert qu'à `groupIntoPoles` — le regroupement
+  // du menu — et rien du contrôle d'accès ne le lit : la garde reste le MODULE `MEDICAL_INFO`,
+  // avec exactement les mêmes titulaires qu'hier. Déplacer une entrée de menu ne doit jamais
+  // ouvrir ni fermer un écran à quiconque, et c'est vérifié (`navigation.test.ts`).
+  { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles", pole: "REGULATORY" },
 
   // ADMINISTRATION — l'administration de L'ENTREPRISE (à ne pas confondre avec la Console
   // d'Administration, qui est celle du logiciel et vit dans « Système »).
@@ -1812,7 +1821,6 @@ export const NAVIGATION: NavItem[] = [
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/promo-material/stock", "/consulting"] },
-  { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles", pole: "SALES_MARKETING" },
 
   // BUSINESS DEVELOPMENT — l'AVANT-VENTE : ce qu'on étudie et ce qu'on vise. Les ventes
   // réalisées sont passées dans Sales & Marketing : analyser une opportunité et constater un

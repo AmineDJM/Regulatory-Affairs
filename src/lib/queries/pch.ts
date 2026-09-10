@@ -34,6 +34,13 @@ export interface PchTenderLineDTO {
   haveProduct: boolean;
   ourProduct: string | null;
   ourProductId: string | null;
+  /**
+   * LE PRODUIT CANONIQUE (`Product.id`) — distinct de `ourProductId`, qui est l'identifiant
+   * ORPHELIN conservé le temps de la bascule et ne porte aucune relation. C'est celui-ci qui
+   * permet de rapprocher ce lot d'un autre marché : rapprocher par ressemblance de libellé est
+   * exactement ce que l'entité `Product` existe pour éviter (un 40 mg pris pour un 100 mg).
+   */
+  productId: string | null;
   unitPriceDzd: number | null;
   /** NOTRE PRIX DE PARTICIPATION, à la boîte — le chiffre négocié, celui qui fait foi. */
   boxPriceDzd: number | null;
@@ -104,7 +111,7 @@ function toOrderDTO(o: { id: string; lineId: string | null; reference: string | 
   };
 }
 
-type LineRow = { id: string; designation: string; dci: string | null; dosage: string | null; form: string | null; quantityUnits: number; unitsPerBox: number | null; unitLabel: string | null; haveProduct: boolean; ourProduct: string | null; ourProductId: string | null; unitPriceDzd: unknown; boxPriceDzd: unknown; boxCostDzd: unknown; refPriceDzd: unknown; refPriceSource: string | null; suppliersInfo: string | null; competitorCount: number | null; registeredNomenclature: boolean; registeredOurs: boolean; nomLines: number | null; marketEstimateDzd: unknown; marketOrigin: string | null; marketVillePct: unknown; marketHopitalPct: unknown; marketHhi: number | null; competitorsTop: string | null; status: string; awardedUnitPriceDzd: unknown; awardedQuantityUnits: number | null; submittedQuantityUnits: number | null; note: string | null };
+type LineRow = { id: string; designation: string; dci: string | null; dosage: string | null; form: string | null; quantityUnits: number; unitsPerBox: number | null; unitLabel: string | null; haveProduct: boolean; ourProduct: string | null; ourProductId: string | null; productId: string | null; unitPriceDzd: unknown; boxPriceDzd: unknown; boxCostDzd: unknown; refPriceDzd: unknown; refPriceSource: string | null; suppliersInfo: string | null; competitorCount: number | null; registeredNomenclature: boolean; registeredOurs: boolean; nomLines: number | null; marketEstimateDzd: unknown; marketOrigin: string | null; marketVillePct: unknown; marketHopitalPct: unknown; marketHhi: number | null; competitorsTop: string | null; status: string; awardedUnitPriceDzd: unknown; awardedQuantityUnits: number | null; submittedQuantityUnits: number | null; note: string | null };
 function toLineDTO(l: LineRow, sold?: { units: number; orders: number }): PchTenderLineDTO {
   const boxesNeeded = l.unitsPerBox && l.unitsPerBox > 0 ? Math.ceil(l.quantityUnits / l.unitsPerBox) : null;
   const soldUnits = sold?.units ?? 0;
@@ -113,7 +120,8 @@ function toLineDTO(l: LineRow, sold?: { units: number; orders: number }): PchTen
   return {
     id: l.id, designation: l.designation, dci: l.dci, dosage: l.dosage, form: l.form,
     quantityUnits: l.quantityUnits, unitsPerBox: l.unitsPerBox, unitLabel: l.unitLabel, boxesNeeded,
-    haveProduct: l.haveProduct, ourProduct: l.ourProduct, ourProductId: l.ourProductId, unitPriceDzd: dec(l.unitPriceDzd),
+    haveProduct: l.haveProduct, ourProduct: l.ourProduct, ourProductId: l.ourProductId,
+    productId: l.productId, unitPriceDzd: dec(l.unitPriceDzd),
     boxPriceDzd: dec(l.boxPriceDzd), boxCostDzd: dec(l.boxCostDzd),
     refPriceDzd: dec(l.refPriceDzd), refPriceSource: l.refPriceSource,
     suppliersInfo: l.suppliersInfo, competitorCount: l.competitorCount,

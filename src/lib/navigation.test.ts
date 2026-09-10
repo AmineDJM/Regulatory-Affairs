@@ -40,10 +40,39 @@ describe("pôles — projection du RBAC, jamais une source de droit", () => {
   });
 
   it("> 5 sous-modules visibles → replié, à ouvrir au chevron", () => {
-    const sm = groupIntoPoles(accessible(["SALES", "MEDICAL", "SALES_PLANNING", "FIELD_REPORTS", "SPONSORING", "MEDICAL_INFO"]))
-      .find((p) => p.key === "SALES_MARKETING");
-    expect(sm!.children.length).toBeGreaterThan(POLE_OPEN_THRESHOLD);
-    expect(sm?.defaultOpen).toBe(false);
+    // LE PÔLE EST CHOISI PARCE QU'IL A CETTE FORME, pas par habitude. Sales & Marketing portait
+    // ce cas jusqu'à ce qu'« Information médicale » rejoigne Regulatory : il est retombé à cinq
+    // entrées, c'est-à-dire au SEUIL, et l'assertion « > 5 » n'y était plus atteignable.
+    // Administration en compte douze — et le cas d'ouverture juste au-dessus porte sur le MÊME
+    // pôle, ce qui fait que les deux sens éprouvent le seuil et non une propriété d'un pôle.
+    const admin = groupIntoPoles(accessible([
+      "FINANCES", "PAYMENT_CENTRE", "VALIDATION_CENTRE", "LEGAL", "MAIL_REGISTER", "BUDGETS",
+    ])).find((p) => p.key === "ADMINISTRATION");
+    expect(admin!.children.length).toBeGreaterThan(POLE_OPEN_THRESHOLD);
+    expect(admin?.defaultOpen).toBe(false);
+  });
+
+  /**
+   * « INFORMATION MÉDICALE » CHANGE DE PÔLE, ET DE RIEN D'AUTRE (décision Direction 09/2026).
+   *
+   * Le cas qui ferait tomber ces assertions est exactement celui qu'on veut interdire : que le
+   * déplacement d'une entrée de menu ait ouvert ou fermé un écran. `pole` ne sert qu'au
+   * regroupement ; la garde est le module, et elle n'a pas bougé.
+   */
+  it("« Information médicale » est au pôle REGULATORY, et plus à Sales & Marketing", () => {
+    const poles = groupIntoPoles(accessible(["MEDICAL_INFO"]));
+    const reg = poles.find((p) => p.key === "REGULATORY");
+    expect(reg?.children.map((c) => c.label)).toContain("Information médicale");
+    // Et elle a QUITTÉ l'autre pôle : sans cette moitié, une entrée dupliquée passerait.
+    expect(poles.find((p) => p.key === "SALES_MARKETING")).toBeUndefined();
+  });
+
+  it("le déplacement ne donne AUCUN droit : sans le module, l'entrée n'apparaît nulle part", () => {
+    // Le pôle Regulatory est visible pour qui a REGULATORY ; « Information médicale » ne s'y
+    // affiche pas pour autant. Une entrée qui suivrait son PÔLE au lieu de son MODULE serait
+    // une porte ouverte par un simple rangement de menu.
+    const reg = groupIntoPoles(accessible(["REGULATORY"])).find((p) => p.key === "REGULATORY");
+    expect(reg?.children.map((c) => c.label)).not.toContain("Information médicale");
   });
 
   it("le décompte porte sur CE QUE LA PERSONNE VOIT, pas sur le total du pôle", () => {

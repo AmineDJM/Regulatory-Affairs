@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { resolveProductMention } from "@/lib/products/resolve";
 import type { ProductMatch } from "@/lib/products/identity";
+import { rattachementProduit, type RattachementProduit } from "@/lib/pch/rattachement-produit";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -76,6 +77,16 @@ export interface Produit360 {
     personne: string; role: string; territoire: string | null;
     depuis: string | null; jusquA: string | null; quotitePct: number | null; enCours: boolean;
   }[];
+  /**
+   * LE RATTACHEMENT MARCHÉ — un AO, donc un marché PCH, ou un marché plus la ville.
+   *
+   * `marches` juste en dessous reste la LISTE PLATE des lignes d'AO : elle dit « où ce produit
+   * est nommé ». Ce champ-ci dit la CARDINALITÉ que la Direction énonce, et il NOMME les
+   * contradictions au lieu d'en choisir une (`lib/pch/rattachement-produit.ts`). Les deux ne
+   * disent pas la même chose : la liste répond « lesquels », le rattachement répond « lequel
+   * fait foi », et la seconde question est celle qu'on posait sans réponse.
+   */
+  rattachement: RattachementProduit;
   /** LES MARCHÉS PCH où ce produit est nommé. */
   marches: {
     ligneId: string; marche: string; marcheId: string; designation: string;
@@ -193,7 +204,19 @@ export async function produit360ParId(productId: string): Promise<Produit360 | n
         select: {
           id: true, designation: true, status: true, quantityUnits: true,
           unitPriceDzd: true, awardedUnitPriceDzd: true,
-          tender: { select: { id: true, reference: true, title: true } },
+          tender: { select: { id: true, reference: true, title: true, status: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: DETAIL_CAP,
+      },
+      // LES LIGNES DE MARCHÉ — la pièce contractuelle qui SUIT l'appel d'offres. Sans elles, la
+      // chaîne « AO → marché PCH » était illisible : on voyait les AO où le produit est nommé,
+      // jamais le marché qui en découle. On lit le contrat RACINE (`contract`), pas la pièce
+      // porteuse : un avenant appartient au même marché que son contrat de base.
+      contractLines: {
+        select: {
+          id: true, designation: true, tenderLineId: true,
+          contract: { select: { id: true, title: true, reference: true } },
         },
         orderBy: { createdAt: "desc" },
         take: DETAIL_CAP,
@@ -206,13 +229,26 @@ export async function produit360ParId(productId: string): Promise<Produit360 | n
   // 50 lignes remontées donnerait un chiffre d'affaires FAUX dès le 51ᵉ enregistrement, et faux
   // sans le dire — le pire des deux mondes.
   const [
-    ventesTotal, ventesParReglement, ventesParLivraison, ventesBornes, ventesDetail,
+    ventesTotal, ventesParReglement, ventesParLivraison, ventesBornes,
+    ventesSousMarche, ventesDeVille, ventesDetail,
     adproTotal, adproDetail, adproSansPart, visitesTotal, visitesDetail,
   ] = await Promise.all([
     prisma.sale.aggregate({ where: { productId }, _count: { _all: true }, _sum: { quantity: true, revenue: true } }),
     prisma.sale.groupBy({ by: ["paymentStatus"], where: { productId }, _count: { _all: true }, _sum: { revenue: true } }),
     prisma.sale.groupBy({ by: ["deliveryStatus"], where: { productId }, _count: { _all: true }, _sum: { revenue: true } }),
     prisma.sale.aggregate({ where: { productId }, _min: { date: true }, _max: { date: true } }),
+    // LE PARTAGE MARCHÉ / VILLE, COMPTÉ PAR LA BASE. La règle est `venteEstSousMarche` — une
+    // vente rattachée à une ligne d'AO passe par le marché — et la clause en est la traduction
+    // exacte : `not: null` d'un côté, `null` de l'autre, donc les deux sacs sont EXHAUSTIFS et
+    // DISJOINTS. Compter sur le détail borné rendrait un chiffre faux dès la 51ᵉ vente.
+    prisma.sale.aggregate({
+      where: { productId, tenderLineId: { not: null } },
+      _count: { _all: true }, _sum: { quantity: true, revenue: true },
+    }),
+    prisma.sale.aggregate({
+      where: { productId, tenderLineId: null },
+      _count: { _all: true }, _sum: { quantity: true, revenue: true },
+    }),
     prisma.sale.findMany({
       where: { productId },
       select: { id: true, date: true, client: true, quantity: true, revenue: true, paymentStatus: true, deliveryStatus: true },
@@ -285,6 +321,32 @@ export async function produit360ParId(productId: string): Promise<Produit360 | n
       // retourner finit toujours par mentir.
       enCours: a.startedAt <= now && (a.endedAt === null || a.endedAt > now),
     })),
+    rattachement: rattachementProduit({
+      lignesAo: p.tenderLines.map((l) => ({
+        ligneId: l.id, aoId: l.tender.id,
+        aoReference: l.tender.reference, aoTitre: l.tender.title,
+        aoStatut: String(l.tender.status), ligneStatut: String(l.status),
+        designation: l.designation,
+      })),
+      lignesMarche: p.contractLines.map((l) => ({
+        ligneId: l.id, contratId: l.contract.id,
+        contratTitre: l.contract.title, contratReference: l.contract.reference,
+        aoLigneId: l.tenderLineId, designation: l.designation,
+      })),
+      ventes: {
+        sousMarche: {
+          nombre: ventesSousMarche._count._all,
+          quantite: ventesSousMarche._sum.quantity ?? 0,
+          montantDzd: num(ventesSousMarche._sum.revenue),
+        },
+        ville: {
+          nombre: ventesDeVille._count._all,
+          quantite: ventesDeVille._sum.quantity ?? 0,
+          montantDzd: num(ventesDeVille._sum.revenue),
+        },
+      },
+      canal: p.channel,
+    }),
     marches: p.tenderLines.map((l) => ({
       ligneId: l.id, marche: l.tender.title ?? l.tender.reference, marcheId: l.tender.id,
       designation: l.designation, statut: l.status, quantiteUnites: l.quantityUnits,

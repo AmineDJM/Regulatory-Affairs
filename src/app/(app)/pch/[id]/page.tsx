@@ -8,6 +8,7 @@ import { aiConfigured } from "@/lib/ai";
 import { prisma } from "@/lib/prisma";
 import { getPchTenderDetail } from "@/lib/queries/pch";
 import { loadMarket360 } from "@/lib/queries/market-360";
+import { loadEngagementsAilleurs, reserveEngagement } from "@/lib/queries/pch-engagements";
 import { storyMarche } from "@/lib/queries/story";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -57,6 +58,18 @@ export default async function PchTenderPage({ params }: { params: { id: string }
     }),
   ]);
   if (!t || !market) notFound();
+
+  // « CE PRODUIT EST-IL DÉJÀ ENGAGÉ AILLEURS ? » — la cardinalité que la Direction énonce (un
+  // produit, un AO, donc un marché), lue APRÈS le détail parce qu'elle a besoin de ses produits.
+  // Une requête pour tout l'écran, pas une par lot : un AO en porte couramment cinquante.
+  const engagements = await loadEngagementsAilleurs(
+    user, t.id, t.lines.map((l) => l.productId).filter((x): x is string => Boolean(x)),
+  );
+  const reserves: Record<string, string> = {};
+  for (const [pid, e] of engagements) {
+    const phrase = reserveEngagement(e);
+    if (phrase) reserves[pid] = phrase;
+  }
   const canEdit = userCan(user, "PCH", "UPDATE");
   const canDelete = userCan(user, "PCH", "DELETE");
   const canUpload = userCan(user, "PCH", "UPLOAD");
@@ -198,7 +211,7 @@ export default async function PchTenderPage({ params }: { params: { id: string }
 
       <Card>
         <CardContent className="p-4">
-          <TenderLines tenderId={t.id} lines={t.lines} canEdit={canEdit} aiConfigured={aiConfigured()} />
+          <TenderLines tenderId={t.id} lines={t.lines} canEdit={canEdit} aiConfigured={aiConfigured()} reserves={reserves} />
         </CardContent>
       </Card>
 
