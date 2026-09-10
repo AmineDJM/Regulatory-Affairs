@@ -20,7 +20,7 @@ import { blocTableau } from "@/lib/assistant/sandbox-tools";
 import { declarerProvenance, faitCalcule } from "@/platform/in-process/fabric/provenance";
 import {
   type Geste, type Proposition,
-  apercuTexte, appliquerGeste, avertissementConversion, conversion, conversionsDepuis, dossierPour, ecrireCsv,
+  apercuTexte, appliquerGeste, avertissementConversion, capacitesServeur, conversion, conversionsDepuis, dossierPour, ecrireCsv,
   executerLot, formatDe, gesteDejaFait, gestesDeClassement, lireJson, lireTableur, orphelins, preparerLot,
   etatsActuels, proposerClassement, recenser, trouverDoublons,
 } from "@/platform/in-process/fichiers";
@@ -411,7 +411,7 @@ export const FICHIERS_TOOLS: PowerTool[] = [
       if (de === "inconnu") return JSON.stringify({ ok: false, erreur: `Format « ${deBrut} » non reconnu.` });
       const versBrut = str(input, "vers");
       if (!versBrut) {
-        const toutes = conversionsDepuis(de);
+        const toutes = conversionsDepuis(de, capacitesServeur());
         return JSON.stringify({
           ok: true, titre, de,
           possibles: toutes.map((c) => ({ vers: c.vers, nature: c.nature, perd: c.perd, conseil: avertissementConversion(c) })),
@@ -420,7 +420,7 @@ export const FICHIERS_TOOLS: PowerTool[] = [
         });
       }
       const vers = versBrut.includes(".") ? formatDe(versBrut) : formatDe(`x.${versBrut}`);
-      const c = conversion(de, vers);
+      const c = conversion(de, vers, capacitesServeur());
       return JSON.stringify({
         ok: c.nature !== "IMPOSSIBLE",
         titre, de: c.de, vers: c.vers, nature: c.nature,

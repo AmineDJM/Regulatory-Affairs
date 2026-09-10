@@ -13,6 +13,8 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
+import { convertConfigured } from "@/lib/office-convert";
+import type { CapacitesServeur } from "@/lib/formats/conversion";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { canEditDrive, canViewDrive, driveBreadcrumb, resolveDriveAccess } from "@/lib/drive";
@@ -27,7 +29,7 @@ export { type Apercu, type Geste, type GesteType, type RapportLot, type Reçu, C
 export { type Categorie, type Proposition, extraireEntites, gestesDeClassement, proposerClassement } from "@/lib/fichiers/classement";
 export { type Encodage, type Separateur, decouperLigne, detecterEncodage, detecterEntete, detecterLocale, detecterSeparateur, nomSeparateur, versDateIso, versNombre } from "@/lib/formats/detection";
 export { type Colonne, type RapportLecture, type Tableur, ecrireCsv, ecrireJsonl, lireJson, lireTableur } from "@/lib/formats/tableur";
-export { type Conversion, type Format, type Nature, avertissementConversion, conversion, conversionsDepuis, formatDe, FORMATS_ECRIVABLES, FORMATS_LISIBLES } from "@/lib/formats/conversion";
+export { type CapacitesServeur, type Conversion, type Format, type Nature, avertissementConversion, conversion, conversionsDepuis, formatDe, FORMATS_ECRIVABLES, FORMATS_LISIBLES } from "@/lib/formats/conversion";
 
 export const RECENSEMENT_MAX = 12_000;
 /** Le contenu lu pour classer : assez pour reconnaître, pas assez pour peser. */
@@ -212,3 +214,16 @@ export async function etatsActuels(ids: readonly string[]): Promise<{ id: string
 
 /** Le plafond de lecture d'états — un lot plus large se découpe. */
 export const GESTES_LECTURE_MAX = 20_000;
+
+/**
+ * CE QUE CE SERVEUR SAIT FAIRE EN PLUS DES MOTEURS LOCAUX — lu à l'exécution.
+ *
+ * `lib/formats/conversion.ts` est PUR : il ne peut pas regarder la configuration, donc il REÇOIT
+ * le fait. C'est ici qu'il se lit, parce que c'est ici que la frontière autorise à consulter la
+ * configuration du serveur. Sans ce passage, le module gardait son refus « docx→pdf impossible
+ * (LibreOffice absent) » pendant que le Drive convertissait par l'éditeur Office — deux vérités
+ * sur une question, et Adam lisait la pessimiste (§118.121).
+ */
+export function capacitesServeur(): CapacitesServeur {
+  return { editeurOffice: convertConfigured() };
+}

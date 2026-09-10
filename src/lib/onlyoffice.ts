@@ -86,6 +86,17 @@ export function onlyofficeEditable(name: string): boolean {
   return onlyofficeDocType(name) !== null;
 }
 
+/**
+ * LES EXTENSIONS QUE L'ÉDITEUR OUVRE, dérivées de la table — jamais réécrites à la main.
+ *
+ * Un refus doit nommer ce qui EST admis, sinon la personne devine (§118.30). Et la liste vient
+ * de `EXT_TYPE` : écrite à la main, elle serait fausse au premier format ajouté, en silence
+ * (§118.73).
+ */
+export function extensionsEditables(): string[] {
+  return Object.keys(EXT_TYPE).sort();
+}
+
 // ───────────────────────── Jeton de session d'édition ─────────────────────────
 
 export interface EditToken {

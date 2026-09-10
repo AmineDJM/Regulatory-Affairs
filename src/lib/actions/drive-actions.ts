@@ -11,7 +11,7 @@ import { blankOffice, isOfficeKind } from "@/lib/office-templates";
 import { documentName, KIND_LABEL } from "@/lib/office/letterhead";
 import { getMyCompanies } from "@/lib/company";
 import { convertConfigured, convertDocument } from "@/lib/office-convert";
-import { makeEditToken, appBaseUrl, onlyofficeEditable, fileExt } from "@/lib/onlyoffice";
+import { makeEditToken, appBaseUrl, onlyofficeEditable, extensionsEditables, fileExt } from "@/lib/onlyoffice";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
@@ -403,7 +403,14 @@ export async function createOfficeNode(formData: FormData): Promise<ActionResult
 export async function convertNodeToPdf(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "DRIVE", "CREATE")) return DENIED;
-  if (!convertConfigured()) return { ok: false, error: "Conversion PDF indisponible (éditeur Office non configuré)." };
+  // LE REFUS NOMME LE GESTE, pas seulement la cause. « éditeur Office non configuré » laisse la
+  // personne sans savoir qui le configure ni ce qu'elle peut faire en attendant (§118.30).
+  if (!convertConfigured()) {
+    return { ok: false, error:
+      "Conversion PDF indisponible : l'éditeur Office (OnlyOffice) n'est pas configuré sur ce serveur. "
+      + "C'est un réglage d'administration (variables ONLYOFFICE_*) — en attendant, ouvrez le document "
+      + "et enregistrez-le en PDF depuis votre poste." };
+  }
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Fichier introuvable." };
   if ((await resolveDriveAccess(user, id)) === "NONE") return DENIED;
@@ -413,7 +420,14 @@ export async function convertNodeToPdf(formData: FormData): Promise<ActionResult
     include: { versions: { orderBy: { version: "desc" }, take: 1 } },
   });
   if (!node || node.type !== "FILE") return { ok: false, error: "Fichier introuvable." };
-  if (!onlyofficeEditable(node.name)) return { ok: false, error: "Ce type de fichier ne peut pas être converti." };
+  if (!onlyofficeEditable(node.name)) {
+    // ON NOMME LES FORMATS ADMIS, dérivés de la table de l'éditeur : « ce type ne peut pas être
+    // converti » laissait la personne deviner lesquels le peuvent (§118.30, §118.73).
+    const ext = fileExt(node.name);
+    return { ok: false, error:
+      `L'éditeur Office ne sait pas ouvrir un fichier « .${ext || "sans extension"} », donc il ne peut pas l'imprimer en PDF. `
+      + `Formats convertibles : ${extensionsEditables().map((e) => `.${e}`).join(", ")}.` };
+  }
   const version = node.versions[0];
   if (!version) return { ok: false, error: "Aucun contenu à convertir." };
 
