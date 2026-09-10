@@ -818,6 +818,24 @@ export async function finaliserLancementDifere(
  * est mort entre la promesse et la planification. Le battement la retrouve et RELANCE — au
  * plus deux reprises (comptées au journal), sinon FAILED avec le motif : relancer sans fin une
  * planification qui meurt à chaque fois serait une boucle, pas de la persévérance.
+ *
+ * ── « ZÉRO ÉTAPE » EST L'ÉTAT NORMAL D'UNE MISSION LONGUE (§118.46, SECOND LECTEUR) ─────
+ *
+ * Mesuré sur la chaîne humaine, deux runs de suite : la mission est découpée en cinq jalons
+ * (`MILESTONES_PLANNED`), l'enquête tourne — et le filet la déclare PERDUE, parce qu'un jalon
+ * qui n'a pas encore été atteint par la frontière n'a PAS d'étapes. C'est exactement ce que
+ * §118.40 exige : « le plan du jalon N est écrit quand le jalon N-1 a produit ses résultats,
+ * pas avant ». Le filet relançait donc TOUTE la planification — jalons + enquête, payés à
+ * chaque fois — trois fois, puis fermait en `PLANNING_FAILED` une mission parfaitement saine.
+ * Verdict du banc : « FOURNISSEUR INDISPONIBLE : la mission n'a jamais reçu de plan », sur un
+ * fournisseur qui répondait (`PRÊT`, 1,8 s, mesuré une minute plus tard).
+ *
+ * §118.46 avait appris cette leçon à la requête du BATTEMENT ; ce second lecteur gardait
+ * l'ancienne hypothèse. Le fait à lire est le même et il est dans la base : **une mission qui
+ * a des JALONS a été planifiée.** Ses étapes viennent plus tard, du pilote d'horizon
+ * (`conduireHorizon` compile la frontière, §118.40) — et ce pilote la reprend précisément
+ * parce qu'elle est en PLANNING. Le filet reste ARMÉ sur le vrai cas : un talon sans jalons ET
+ * sans étapes est bien un lancement mort.
  */
 export async function rattraperLancementsPerdus(
   chargerProprietaire: (userId: string) => Promise<CurrentUser | null>,
@@ -828,6 +846,8 @@ export async function rattraperLancementsPerdus(
     where: {
       kind: "RUNTIME", status: "PLANNING", updatedAt: { lt: seuil },
       steps: { none: {} },
+      // Un jalon PROUVE que la planification a abouti : les étapes viennent de la frontière.
+      milestones2: { none: {} },
     },
     select: { id: true, ownerId: true, goalRaw: true },
     take: opts.limite ?? 5,

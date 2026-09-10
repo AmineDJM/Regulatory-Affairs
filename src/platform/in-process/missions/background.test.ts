@@ -194,6 +194,44 @@ suite("ARRIÈRE-PLAN — détachement, panne dite, rattrapage, bail, gouvernance
     })).not.toBeNull();
   });
 
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   * UNE MISSION À JALONS N'EST PAS UN LANCEMENT PERDU — §118.46, second lecteur.
+   *
+   * Mesuré sur la chaîne humaine, deux runs de suite : `MILESTONES_PLANNED` (cinq jalons),
+   * l'enquête tourne, ZÉRO étape — parce que le sous-plan du jalon 1 s'écrit quand la
+   * frontière l'atteint (§118.40). Le filet la déclarait perdue, relançait jalons + enquête
+   * trois fois, puis fermait en `PLANNING_FAILED` une mission saine. Le banc accusait alors le
+   * fournisseur, qui répondait « PRÊT » en 1,8 s une minute plus tard.
+   * ═══════════════════════════════════════════════════════════════════════════════════════
+   */
+  it("§118.46 : un talon qui a des JALONS n'est pas repris — ses étapes viennent de la frontière", async () => {
+    const talon = await creerTalon("jalons");
+    await prisma.missionMilestone.create({
+      data: { missionId: talon, ordre: 1, titre: "Pièces sollicitées", resultat: "Les deux dossiers ont reçu une demande.", statut: "PENDING", planVersion: 0 },
+    });
+    // Le talon reste « vieux » : la seule différence avec le cas précédent est le JALON.
+    await prisma.$executeRaw`UPDATE "Mission" SET "updatedAt" = now() - interval '10 minutes' WHERE id = ${talon}`;
+
+    await rattraperLancementsPerdus(async () => pdg, { plusVieuxQueMs: 60_000 });
+
+    expect(await prisma.missionEvent.findFirst({
+      where: { missionId: talon, kind: "PLANNING_RETRY" }, select: { id: true },
+    }), "un talon à jalons ne doit PAS être repris").toBeNull();
+    expect((await prisma.mission.findUnique({ where: { id: talon }, select: { status: true } }))?.status,
+      "et surtout il ne doit pas finir FAILED").toBe("PLANNING");
+  });
+
+  it("le filet reste ARMÉ : sans jalon ET sans étape, le talon est bien repris", async () => {
+    // Le cas que le correctif ci-dessus ne doit pas emporter — sinon la garde est désarmée en
+    // ayant l'air armée (§118.17), et un vrai lancement mort resterait perdu pour toujours.
+    const talon = await creerTalon("sans-jalon");
+    await rattraperLancementsPerdus(async () => pdg, { plusVieuxQueMs: 60_000 });
+    expect(await prisma.missionEvent.findFirst({
+      where: { missionId: talon, kind: "PLANNING_RETRY" }, select: { id: true },
+    })).not.toBeNull();
+  });
+
   it("la persévérance s'arrête à TROIS tentatives : le talon devient FAILED, pas une boucle", async () => {
     const talon = await creerTalon("epuise", 2); // deux reprises déjà consommées
     await rattraperLancementsPerdus(async () => pdg, { plusVieuxQueMs: 60_000 });
