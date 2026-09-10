@@ -56,13 +56,33 @@ export function channelCovers(bu: string, product: string): boolean {
   return bu === "BOTH" || bu === product;
 }
 
-export type BuStepKey = "SUPERVISEUR" | "CANAL" | "KAM" | "PRODUITS";
+export type BuStepKey = "SUPERVISEUR" | "CANAL" | "KAM" | "SECTEURS" | "PRODUITS";
 
 export interface BuSetupInput {
   supervisorId: string | null;
   channel: string;
   repCount: number;
   productCount: number;
+  /**
+   * LES TERRITOIRES DE LA BU — combien de secteurs nommés elle porte, combien sont VIDES, et
+   * combien de ses KAM en ont au moins un.
+   *
+   * Trois nombres et non un seul, parce que trois pannes différentes se cachent derrière « la BU
+   * a des secteurs », et les trois sont SILENCIEUSES — elles ne produisent pas d'erreur, elles
+   * produisent un KAM dont le panel est VIDE, qui ne peut planifier aucune tournée, sans qu'une
+   * seule ligne le dise :
+   *   · aucun secteur : personne ne sait quels hôpitaux la BU couvre ;
+   *   · un secteur SANS établissement : un nom de territoire sans territoire — le KAM qu'on y
+   *     affecte a exactement le même panel vide qu'un KAM sans secteur ;
+   *   · des KAM SANS secteur : la BU est « configurée » et ces personnes-là ne voient rien.
+   *
+   * Le dernier point est celui qui trompe : une BU avec un secteur et cinq KAM dont quatre n'en
+   * ont aucun se lit comme montée. C'est la forme exacte du circuit sans étape rendu comme un
+   * circuit configuré (§118.113).
+   */
+  sectorCount: number;
+  sectorsWithoutInstitution: number;
+  repsWithSector: number;
 }
 
 export interface BuStep {
@@ -72,6 +92,26 @@ export interface BuStep {
   done: boolean;
   /** Ce qu'on perd tant que l'étape manque. Jamais « obligatoire » : la raison, ou rien. */
   why: string;
+}
+
+/**
+ * CE QU'ON PERD, DANS LE CAS QU'ON A. Un motif unique (« les secteurs sont incomplets ») ferait
+ * chercher soi-même laquelle des trois pannes on tient ; c'est le défaut d'un refus qui nomme la
+ * faute sans nommer le remède (§118.30).
+ */
+function secteursWhy(bu: BuSetupInput): string {
+  if (bu.sectorCount === 0) {
+    return "Sans secteur, aucun KAM ne sait quels établissements il couvre : son panel est vide et il ne peut soumettre aucun plan de tournée.";
+  }
+  if (bu.sectorsWithoutInstitution > 0) {
+    const n = bu.sectorsWithoutInstitution;
+    return `${n} secteur${n > 1 ? "s" : ""} ne contient aucun établissement : un nom de territoire sans territoire donne exactement le même panel vide qu'un KAM sans secteur.`;
+  }
+  if (bu.repCount > 0 && bu.repsWithSector < bu.repCount) {
+    const n = bu.repCount - bu.repsWithSector;
+    return `${n} KAM sur ${bu.repCount} n'est affecté à aucun secteur : la BU a l'air montée et ces personnes-là ne voient aucun médecin.`;
+  }
+  return "Un secteur est une sélection d'établissements qui porte un nom (« Est », « Oranais ») : c'est lui qui donne au KAM son panel de médecins et ouvre sa planification sur la bonne ville.";
 }
 
 /**
@@ -98,6 +138,16 @@ export function buSetupSteps(bu: BuSetupInput): BuStep[] {
       label: "Rattacher les KAM",
       done: bu.repCount > 0,
       why: "Une BU sans KAM n'apparaît pas au pilotage : ni panel, ni visites, ni couverture.",
+    },
+    {
+      key: "SECTEURS",
+      label: "Découper les secteurs",
+      // `repCount > 0` est nécessaire : sans KAM, il n'y a pas de territoire COUVERT, et annoncer
+      // l'étape franchie sur une BU vide ferait mentir la jauge par son numérateur (§118.51).
+      // L'étape KAM vient avant et reste la « suivante » dans ce cas — celle-ci dit simplement la
+      // vérité : rien n'est couvert.
+      done: bu.repCount > 0 && bu.sectorsWithoutInstitution === 0 && bu.repsWithSector >= bu.repCount,
+      why: secteursWhy(bu),
     },
     {
       key: "PRODUITS",

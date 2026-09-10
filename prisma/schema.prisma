@@ -1143,6 +1143,8 @@ model User {
   sales                   Sale[]
   doctors                 MedicalDoctor[]
   visits                  MedicalVisit[]
+  /// LES SECTEURS qui lui sont affectés (KAM / délégué).
+  salesSectors            SalesSectorRep[]                 @relation("SalesSectorRepUser")
   delegatePlans           MedicalDelegatePlan[]
   bdOpportunities         BusinessDevelopmentOpportunity[]
   bdProjects              BdProject[]                      @relation("BdProjectOwner")
@@ -3880,6 +3882,8 @@ model MedicalInstitution {
   updatedAt   DateTime          @updatedAt
 
   doctors MedicalDoctor[]
+  /// LES SECTEURS COMMERCIAUX qui couvrent cet établissement.
+  sectors SalesSectorInstitution[]
 
   @@index([type])
   @@index([wilaya])
@@ -8813,6 +8817,8 @@ model BusinessUnit {
   products               PromoProduct[]
   /// LES KAM de la BU — le rattachement direct, sans étage intermédiaire.
   reps                   SalesRepProfile[]
+  /// SES SECTEURS — les territoires nommés sur lesquels ses KAM sont affectés.
+  sectors                SalesSector[]
   tenders                PchTender[]
   /// LES LOTS D'APPEL D'OFFRES qui lui sont affectés, produit par produit.
   tenderLines            PchTenderLineBusinessUnit[]
@@ -8942,6 +8948,79 @@ model SalesRepProfile {
   updatedAt       DateTime      @updatedAt
 
   @@index([businessUnitId])
+}
+
+/// LE SECTEUR — une sélection d'hôpitaux qui porte un NOM (« Est », « Oranais », « Alger »).
+///
+/// POURQUOI IL APPARTIENT À LA BU ET NON AU KAM. La demande dit « pour chaque KAM de la BU, le
+/// secteur est une sélection d'hôpitaux avec un nom » — et c'est bien ce que l'écran montre. Mais
+/// « Est » est un fait du TERRITOIRE, pas de la personne : deux KAM peuvent le couvrir (un senior
+/// et un junior, un remplacement de congés), et un KAM qui part n'emporte pas la carte avec lui.
+/// Porté par le KAM, le même territoire aurait vécu en deux listes de quarante hôpitaux qui
+/// divergent au premier hôpital ajouté (§118.5), et remplacer un KAM aurait demandé de tout
+/// re-sélectionner. Le secteur est donc défini UNE fois, et les KAM y sont AFFECTÉS.
+///
+/// PLUSIEURS SECTEURS PAR KAM. Un KAM peut couvrir « Alger » ET « Est » ; son panel est alors
+/// l'UNION des hôpitaux de ses secteurs. Le forcer à un seul secteur ferait fabriquer un
+/// « Alger+Est » dont les hôpitaux seraient recopiés de deux autres — le défaut qu'on vient
+/// d'éviter, par l'autre porte.
+model SalesSector {
+  id             String       @id @default(cuid())
+  businessUnitId String
+  businessUnit   BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  /// LE NOM QUE LA FORCE DE VENTE EMPLOIE. C'est lui qu'on lit sur un plan de tournée et dans un
+  /// tableau de bord, jamais un identifiant.
+  name           String
+  /// LA VILLE PIVOT du secteur, quand il en a une. Le KAM planifie par ville (« la semaine du 18
+  /// je suis à Oran ») : ceci ouvre son secteur sur la bonne ville sans qu'il ait à la chercher.
+  /// Nul = secteur multi-villes, la ville se lit alors sur chaque hôpital.
+  city           String?
+  color          String?
+  isActive       Boolean      @default(true)
+  createdById    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  institutions SalesSectorInstitution[]
+  reps         SalesSectorRep[]
+
+  /// Deux secteurs « Est » dans la même BU sont une erreur de saisie, pas deux territoires.
+  @@unique([businessUnitId, name])
+  @@index([businessUnitId])
+}
+
+/// UN HÔPITAL DANS UN SECTEUR. Lien pur : si l'établissement disparaît de l'annuaire, le lien
+/// n'a plus d'objet (Cascade) — contrairement à `SalesRepProfile`, qui porte une CONFIGURATION
+/// (capacité, ETP) qu'on ne jette pas avec la personne.
+model SalesSectorInstitution {
+  id            String             @id @default(cuid())
+  sectorId      String
+  sector        SalesSector        @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+  institutionId String
+  institution   MedicalInstitution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime           @default(now())
+
+  @@unique([sectorId, institutionId])
+  @@index([institutionId])
+}
+
+/// LE KAM AFFECTÉ À UN SECTEUR.
+///
+/// La clé est l'UTILISATEUR et non `SalesRepProfile` : un KAM peut être rattaché à sa BU avant
+/// qu'un profil de capacité n'existe pour lui (`hasProfile: false` à l'écran), et exiger le
+/// profil d'abord ferait dépendre l'affectation d'un territoire d'un réglage d'ETP. C'est aussi
+/// la convention de tout ce voisinage (`SalesRepProfile.repId`, `SalesRepMonthlyKpi.repId`,
+/// `PromotionAssignment.repId`).
+model SalesSectorRep {
+  id         String      @id @default(cuid())
+  sectorId   String
+  sector     SalesSector @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+  repId      String
+  rep        User        @relation("SalesSectorRepUser", fields: [repId], references: [id], onDelete: Cascade)
+  assignedAt DateTime    @default(now())
+
+  @@unique([sectorId, repId])
+  @@index([repId])
 }
 
 /// L'INSTANTANÉ MENSUEL D'UN KAM — le mois clos ne se recalcule plus.

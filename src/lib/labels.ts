@@ -1632,6 +1632,10 @@ export const ACTION_LABELS: Record<Action, string> = {
 export const MEDICAL_TABS: NavTab[] = [
   { module: "MEDICAL", label: "Ma journée", href: "/medical/ma-journee" },
   { module: "MEDICAL", label: "Annuaire", href: "/medical/annuaire" },
+  // LES ÉTABLISSEMENTS — le référentiel des hôpitaux. Il existait en base avec ses trois
+  // écritures et AUCUN écran : Adam pouvait en créer, personne devant un écran ne pouvait
+  // (§118.14). C'est aussi lui qui rend les secteurs de la force de vente possibles.
+  { module: "MEDICAL", label: "Établissements", href: "/medical/etablissements" },
 ];
 
 export const NAVIGATION: NavItem[] = [

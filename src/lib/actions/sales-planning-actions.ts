@@ -348,6 +348,164 @@ export async function deleteRepProfile(formData: FormData): Promise<ActionResult
   return { ok: true };
 }
 
+// ─────────────────────────── Secteurs (territoires nommés d'une BU) ───────────────────────────
+
+/**
+ * LE SECTEUR — « Est », « Oranais », « Alger » : une sélection d'établissements qui porte un nom,
+ * et les KAM qui la couvrent.
+ *
+ * ── CRÉER ET MODIFIER SONT DEUX ACTIONS, PAS UN UPSERT ──────────────────────────────────────
+ *
+ * L'identité d'un secteur change de nature selon le geste : à la CRÉATION c'est « cette BU + ce
+ * nom », à la MODIFICATION c'est son identifiant. Un `saveSector` unique aurait donc deux champs
+ * obligatoires dont un seul l'est à la fois — et `actions/contrat.ts`, qui DÉRIVE la fiche depuis
+ * la source, ne peut pas lire cette nuance : il aurait annoncé les deux obligatoires, et
+ * « renomme le secteur Est » se serait fait refuser pour une BU qu'on n'avait pas à redire
+ * (§118.87 : une liste plausible mais fausse est pire qu'un refus). C'est aussi la convention de
+ * tout ce fichier (`create/updateBusinessUnit`, `create/updatePromoProduct`).
+ *
+ * ── LES TROIS PARTS PARTENT ENSEMBLE (nom, établissements, KAM) ──────────────────────────────
+ *
+ * Un secteur créé dont l'enregistrement des établissements échoue est un NOM SANS TERRITOIRE :
+ * le KAM qu'on y affecte a un panel vide, et rien ne le dit. D'où la transaction.
+ *
+ * ── LES LISTES SONT REMPLACÉES, PAS FUSIONNÉES ──────────────────────────────────────────────
+ *
+ * L'écran envoie la sélection COMPLÈTE : décocher un hôpital doit le RETIRER. Fusionner ferait un
+ * secteur qui ne peut que grandir.
+ */
+export async function createSector(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const businessUnitId = fdStr(formData, "businessUnitId");
+  const name = fdStr(formData, "name");
+  if (!businessUnitId) return { ok: false, error: "Le secteur doit appartenir à une Business Unit." };
+  if (!name) return { ok: false, error: "Le nom du secteur est obligatoire (« Est », « Oranais »…)." };
+  const bu = await prisma.businessUnit.findUnique({ where: { id: businessUnitId }, select: { id: true } });
+  if (!bu) return { ok: false, error: "Business Unit introuvable." };
+  return ecrireSecteur(user.id, null, businessUnitId, name, formData);
+}
+
+export async function updateSector(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  const name = fdStr(formData, "name");
+  if (!id) return { ok: false, error: "Identifiant du secteur manquant." };
+  if (!name) return { ok: false, error: "Le nom du secteur est obligatoire (« Est », « Oranais »…)." };
+  const cible = await prisma.salesSector.findUnique({ where: { id }, select: { id: true, businessUnitId: true } });
+  if (!cible) return { ok: false, error: "Secteur introuvable." };
+  return ecrireSecteur(user.id, cible.id, cible.businessUnitId, name, formData);
+}
+
+/**
+ * LE CORPS COMMUN. Non exporté : un fichier `"use server"` n'exporte que des fonctions
+ * asynchrones appelables à distance, et ceci n'en est pas une — c'est la part que les deux gestes
+ * partagent, et l'écrire deux fois la ferait diverger au premier réglage (§118.5).
+ */
+async function ecrireSecteur(
+  actorId: string, sectorId: string | null, businessUnitId: string, name: string, formData: FormData,
+): Promise<ActionResult> {
+  // Les identifiants sont VÉRIFIÉS en base avant d'être écrits : un lien vers un établissement
+  // supprimé entre l'ouverture de l'écran et l'enregistrement partirait en violation de clé
+  // étrangère — une erreur technique là où la vérité est « cet hôpital n'existe plus ».
+  const institutionIds = [...new Set(formData.getAll("institutionIds").map(String).filter(Boolean))];
+  const repIds = [...new Set(formData.getAll("repIds").map(String).filter(Boolean))];
+
+  const [institutions, reps, homonyme] = await Promise.all([
+    institutionIds.length
+      ? prisma.medicalInstitution.findMany({ where: { id: { in: institutionIds } }, select: { id: true } })
+      : Promise.resolve([] as { id: string }[]),
+    repIds.length
+      ? prisma.user.findMany({ where: { id: { in: repIds } }, select: { id: true } })
+      : Promise.resolve([] as { id: string }[]),
+    // UN SEUL SECTEUR « Est » PAR BU. La contrainte d'unicité le tient déjà ; on la lit d'abord
+    // pour rendre une phrase plutôt qu'un code Prisma.
+    prisma.salesSector.findFirst({
+      where: { businessUnitId, name: { equals: name, mode: "insensitive" }, ...(sectorId ? { id: { not: sectorId } } : {}) },
+      select: { id: true },
+    }),
+  ]);
+  if (institutions.length !== institutionIds.length) {
+    return { ok: false, error: `${institutionIds.length - institutions.length} établissement(s) sélectionné(s) n'existent plus dans l'annuaire — rechargez l'écran.` };
+  }
+  if (reps.length !== repIds.length) {
+    return { ok: false, error: `${repIds.length - reps.length} KAM sélectionné(s) n'ont plus de compte — rechargez l'écran.` };
+  }
+  if (homonyme) return { ok: false, error: `Un secteur « ${name} » existe déjà dans cette BU.` };
+
+  const data = {
+    name,
+    city: fdStr(formData, "city"),
+    color: fdStr(formData, "color"),
+    isActive: formData.get("isActive") !== "off",
+  };
+
+  const ecrit = await prisma.$transaction(async (tx) => {
+    const secteur = sectorId
+      ? await tx.salesSector.update({ where: { id: sectorId }, data, select: { id: true } })
+      : await tx.salesSector.create({ data: { ...data, businessUnitId, createdById: actorId }, select: { id: true } });
+    // RETIRER CE QUI N'EST PLUS COCHÉ. Une sélection VIDE retire tout, et c'est bien ce que
+    // Prisma fait : `notIn: []` a été MESURÉ — il supprime la ligne (un `NOT IN` vide est vrai
+    // pour tout le monde). Une première version portait une sentinelle `["__aucun__"]` en
+    // affirmant l'inverse ; le sabotage qui la retirait est passé au vert, et c'est comme ça
+    // qu'on apprend qu'une justification n'avait jamais été vérifiée. On garde la forme simple
+    // et le fait mesuré à côté : une redondance qui repose sur une affirmation fausse coûte plus
+    // qu'elle ne protège (§118.107).
+    await tx.salesSectorInstitution.deleteMany({
+      where: { sectorId: secteur.id, institutionId: { notIn: institutionIds } },
+    });
+    await tx.salesSectorRep.deleteMany({
+      where: { sectorId: secteur.id, repId: { notIn: repIds } },
+    });
+    if (institutionIds.length) {
+      await tx.salesSectorInstitution.createMany({
+        data: institutionIds.map((institutionId) => ({ sectorId: secteur.id, institutionId })),
+        skipDuplicates: true,
+      });
+    }
+    if (repIds.length) {
+      await tx.salesSectorRep.createMany({
+        data: repIds.map((repId) => ({ sectorId: secteur.id, repId })),
+        skipDuplicates: true,
+      });
+    }
+    return secteur.id;
+  });
+
+  await recordAudit({
+    actorId, action: sectorId ? "UPDATE" : "CREATE", module: "Force de vente",
+    summary: `Secteur « ${name} » — ${institutionIds.length} établissement(s), ${repIds.length} KAM`,
+  });
+  revalidatePath(BU_PATH);
+  return { ok: true, id: ecrit };
+}
+
+/**
+ * SUPPRIMER UN SECTEUR. Les liens partent en cascade (ils n'ont plus d'objet) ; les
+ * ÉTABLISSEMENTS et les COMPTES ne bougent pas — on retire un découpage, pas un annuaire.
+ */
+export async function deleteSector(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const secteur = await prisma.salesSector.findUnique({
+    where: { id },
+    select: { name: true, _count: { select: { reps: true } } },
+  });
+  if (!secteur) return { ok: false, error: "Secteur introuvable." };
+  await prisma.salesSector.delete({ where: { id } });
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Force de vente",
+    // Le nombre de KAM qui PERDENT leur territoire est ce qu'on veut relire dans l'audit : c'est
+    // la conséquence, pas la ligne supprimée.
+    summary: `Secteur « ${secteur.name} » supprimé — ${secteur._count.reps} KAM sans territoire`,
+  });
+  revalidatePath(BU_PATH);
+  return { ok: true };
+}
+
 // ─────────────────────────── Affectations (matrice KAM × produit) ───────────────────────────
 export async function saveAssignment(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();

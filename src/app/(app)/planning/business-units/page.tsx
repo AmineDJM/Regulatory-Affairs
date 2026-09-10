@@ -26,7 +26,7 @@ export default async function BusinessUnitsPage() {
   const canConfigure = userCan(user, "SALES_PLANNING", "UPDATE") || hasGlobalView(user);
   if (!canConfigure) redirect("/planning/pilotage");
 
-  const [bus, companies, supervisors, allUsers, kamUsers, profiles, products, dossiers, config] = await Promise.all([
+  const [bus, companies, supervisors, allUsers, kamUsers, profiles, products, dossiers, config, secteurs, etablissements] = await Promise.all([
     prisma.businessUnit.findMany({
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: {
@@ -59,6 +59,25 @@ export default async function BusinessUnitsPage() {
       take: 400,
     }),
     getSfeConfig(),
+    // LES SECTEURS de toutes les BU, avec leurs deux sélections. Chargés en une requête et
+    // groupés à l'affichage, comme les KAM et les produits : une requête par BU dépliée ferait
+    // N allers-retours pour un écran qu'on ouvre pour tout voir.
+    prisma.salesSector.findMany({
+      orderBy: [{ name: "asc" }],
+      select: {
+        id: true, name: true, city: true, color: true, isActive: true, businessUnitId: true,
+        institutions: { select: { institutionId: true } },
+        reps: { select: { repId: true } },
+      },
+    }),
+    // LE RÉFÉRENTIEL DES ÉTABLISSEMENTS, à cocher. Bornée aux ACTIFS : un établissement qu'on a
+    // retiré du service ne se propose plus au découpage — mais ceux DÉJÀ dans un secteur restent
+    // affichés (le secteur porte leurs identifiants, la ligne les nomme).
+    prisma.medicalInstitution.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, city: true, type: true },
+      orderBy: [{ name: "asc" }],
+    }),
   ]);
 
   const profileByRep = new Map(profiles.map((p) => [p.repId, p]));
@@ -100,6 +119,13 @@ export default async function BusinessUnitsPage() {
           id: d.id,
           label: `${d.reference} — ${d.brandName ? `${d.brandName} (${d.dci})` : d.dci}`,
         }))}
+        sectors={secteurs.map((x) => ({
+          id: x.id, name: x.name, city: x.city, color: x.color, isActive: x.isActive,
+          businessUnitId: x.businessUnitId,
+          institutionIds: x.institutions.map((i) => i.institutionId),
+          repIds: x.reps.map((r) => r.repId),
+        }))}
+        etablissements={etablissements.map((e) => ({ id: e.id, name: e.name, city: e.city, type: String(e.type) }))}
       />
     </div>
   );

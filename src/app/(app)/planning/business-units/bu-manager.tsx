@@ -3,12 +3,13 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  AlertTriangle, Check, ChevronDown, ChevronRight, Loader2, Package, Plus, Trash2, UserCog, Users, Wallet,
+  AlertTriangle, Building2, Check, ChevronDown, ChevronRight, Loader2, Map, Package, Pencil, Plus,
+  Trash2, UserCog, Users, Wallet,
 } from "lucide-react";
 import {
   createBusinessUnit, updateBusinessUnit, deleteBusinessUnit, openBusinessUnitBudget,
   createPromoProduct, updatePromoProduct, deletePromoProduct,
-  saveRepProfile,
+  saveRepProfile, createSector, updateSector, deleteSector,
 } from "@/lib/actions/sales-planning-actions";
 import {
   CHANNELS, CHANNEL_LABELS, buSetupProgress, buSetupSteps, channelCovers, channelLabel,
@@ -49,6 +50,21 @@ export interface KamRow {
   capDaysPerMonth: number | null; capVisitsPerDay: number | null; capFieldPct: number | null;
   fteBudget: number; seniority: string | null; isActive: boolean; hasProfile: boolean;
 }
+/**
+ * UN SECTEUR — le territoire nommé d'une BU : « Est », « Oranais », « Alger ».
+ *
+ * C'est LUI qui donne au KAM son panel de médecins (les praticiens des établissements du
+ * secteur) et qui ouvre sa planification sur la bonne ville. Il appartient à la BU et non au KAM
+ * (deux KAM peuvent le couvrir, un KAM qui part n'emporte pas la carte) — voir `SalesSector`.
+ */
+export interface SectorRow {
+  id: string; name: string; city: string | null; color: string | null; isActive: boolean;
+  institutionIds: string[];
+  repIds: string[];
+}
+
+export interface EtabOpt { id: string; name: string; city: string | null; type: string }
+
 export interface ProductRow {
   id: string; name: string; code: string | null; channel: string;
   businessUnitId: string | null; managerId: string | null; isActive: boolean; dossier: string | null;
@@ -58,6 +74,7 @@ type Action = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
 
 export function BusinessUnitsManager({
   businessUnits, companies, supervisors, users, kams, products, dossiers, config,
+  sectors, etablissements,
 }: {
   businessUnits: BuRow[];
   companies: Opt[];
@@ -67,6 +84,10 @@ export function BusinessUnitsManager({
   products: ProductRow[];
   dossiers: { id: string; label: string }[];
   config: { daysPerMonth: number; visitsPerDay: number; fieldPct: number };
+  /** Les secteurs de TOUTES les BU, groupés à l'affichage — comme les KAM et les produits. */
+  sectors: (SectorRow & { businessUnitId: string })[];
+  /** Le référentiel des établissements, à cocher. Vide → l'annuaire est vide, et on le DIT. */
+  etablissements: EtabOpt[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -83,6 +104,7 @@ export function BusinessUnitsManager({
   }, [router]);
 
   const kamsOf = (buId: string | null) => kams.filter((k) => k.businessUnitId === buId);
+  const sectorsOf = (buId: string) => sectors.filter((x) => x.businessUnitId === buId);
   const productsOf = (buId: string | null) => products.filter((p) => p.businessUnitId === buId);
   const orphelinsKam = kamsOf(null);
   const orphelinsProd = productsOf(null);
@@ -157,6 +179,8 @@ export function BusinessUnitsManager({
           run={run}
           kamsInside={kamsOf(bu.id)}
           kamsFree={orphelinsKam}
+          sectorsInside={sectorsOf(bu.id)}
+          etablissements={etablissements}
           productsInside={productsOf(bu.id)}
           productsFree={orphelinsProd}
         />
@@ -191,7 +215,7 @@ export function BusinessUnitsManager({
 
 function BuCard({
   bu, open, onToggle, companies, supervisors, users, dossiers, config, busy, run,
-  kamsInside, kamsFree, productsInside, productsFree,
+  kamsInside, kamsFree, productsInside, productsFree, sectorsInside, etablissements,
 }: {
   bu: BuRow; open: boolean; onToggle: () => void;
   companies: Opt[]; supervisors: Opt[]; users: Opt[];
@@ -199,8 +223,18 @@ function BuCard({
   config: { daysPerMonth: number; visitsPerDay: number; fieldPct: number };
   busy: boolean; run: (a: Action, fd: FormData, refresh?: boolean) => Promise<boolean>;
   kamsInside: KamRow[]; kamsFree: KamRow[]; productsInside: ProductRow[]; productsFree: ProductRow[];
+  sectorsInside: SectorRow[]; etablissements: EtabOpt[];
 }) {
-  const etat = { supervisorId: bu.supervisorId, channel: bu.channel, repCount: kamsInside.length, productCount: productsInside.length };
+  // LES TROIS NOMBRES QUE L'ÉTAPE « SECTEURS » RÉCLAME, et il en faut trois : « la BU a des
+  // secteurs » cache trois pannes distinctes, toutes silencieuses (voir `sfe-setup.ts`).
+  const kamAvecSecteur = new Set(sectorsInside.flatMap((x) => x.repIds));
+  const etat = {
+    supervisorId: bu.supervisorId, channel: bu.channel,
+    repCount: kamsInside.length, productCount: productsInside.length,
+    sectorCount: sectorsInside.length,
+    sectorsWithoutInstitution: sectorsInside.filter((x) => x.institutionIds.length === 0).length,
+    repsWithSector: kamsInside.filter((k) => kamAvecSecteur.has(k.repId)).length,
+  };
   const steps = buSetupSteps(etat);
   const manquantes = steps.filter((s) => !s.done);
   const { done, total } = buSetupProgress(etat);
@@ -347,6 +381,25 @@ function BuCard({
                 </button>
               </form>
             )}
+          </section>
+
+          {/* ── 4. Les secteurs — le TERRITOIRE de chaque KAM ───────────── */}
+          <section className="space-y-2">
+            <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Map className="h-3.5 w-3.5" aria-hidden /> Secteurs de la BU ({sectorsInside.length})
+            </h4>
+            {/* La RAISON dit laquelle des trois pannes on tient — jamais un reproche générique. */}
+            {!steps.find((x) => x.key === "SECTEURS")!.done && (
+              <p className="text-xs text-muted-foreground">{steps.find((x) => x.key === "SECTEURS")!.why}</p>
+            )}
+            <SecteursDeLaBu
+              buId={bu.id}
+              secteurs={sectorsInside}
+              kams={kamsInside}
+              etablissements={etablissements}
+              busy={busy}
+              run={run}
+            />
           </section>
 
           {/* ── 4. Les produits, DEPUIS REGULATORY ──────────────────────── */}
@@ -499,5 +552,227 @@ function ProductLine({ prod, buChannel, users, busy, run }: {
         )}
       </p>
     </div>
+  );
+}
+
+/**
+ * LES SECTEURS D'UNE BU — un nom, des établissements cochés, des KAM affectés.
+ *
+ * ── POURQUOI LE FORMULAIRE PART EN UN SEUL ENVOI ────────────────────────────────────────────
+ *
+ * Le nom, les établissements et les KAM partent ensemble : un secteur créé dont les
+ * établissements n'auraient pas été enregistrés est un NOM SANS TERRITOIRE, dont le KAM affecté
+ * a un panel vide sans qu'une ligne le dise. L'action les écrit dans une transaction.
+ *
+ * ── LES LISTES SONT ENVOYÉES COMPLÈTES ──────────────────────────────────────────────────────
+ *
+ * L'action REMPLACE les deux sélections, c'est ce qui fait que décocher retire. Les cases non
+ * cochées n'envoient rien : c'est exactement la sélection, et une sélection VIDE retire tout.
+ *
+ * ── LE COMPTE AFFICHÉ EST CE QU'ON A COCHÉ ──────────────────────────────────────────────────
+ *
+ * « 12 établissements · 2 KAM » se lit sur la ligne : sans lui, on ouvre les secteurs un par un
+ * pour trouver celui qui est vide — et c'est précisément le vide qui casse une tournée.
+ */
+function SecteursDeLaBu({
+  buId, secteurs, kams, etablissements, busy, run,
+}: {
+  buId: string;
+  secteurs: SectorRow[];
+  kams: KamRow[];
+  etablissements: EtabOpt[];
+  busy: boolean;
+  run: (a: Action, fd: FormData, refresh?: boolean) => Promise<boolean>;
+}) {
+  const [edite, setEdite] = React.useState<SectorRow | null>(null);
+  const [cree, setCree] = React.useState(false);
+  const [filtre, setFiltre] = React.useState("");
+
+  const nomEtab = (id: string) => etablissements.find((e) => e.id === id)?.name ?? "(établissement retiré)";
+  const nomKam = (id: string) => kams.find((k) => k.repId === id)?.name ?? null;
+
+  const supprimer = async (sec: SectorRow) => {
+    const msg = `Supprimer le secteur « ${sec.name} » ?`
+      + (sec.repIds.length > 0
+        ? `\n\n• ${sec.repIds.length} KAM perdent ce territoire : sans autre secteur, leur panel devient vide et ils ne peuvent plus planifier de tournée.`
+        : "\n\nLes établissements et les comptes ne bougent pas — on retire un découpage, pas un annuaire.");
+    if (!window.confirm(msg)) return;
+    const fd = new FormData();
+    fd.set("id", sec.id);
+    void run(deleteSector, fd);
+  };
+
+  const visibles = filtre.trim()
+    ? etablissements.filter((e) => `${e.name} ${e.city ?? ""}`.toLowerCase().includes(filtre.trim().toLowerCase()))
+    : etablissements;
+
+  const ouvert = cree || edite !== null;
+
+  return (
+    <>
+      <div className="space-y-1.5">
+        {secteurs.map((sec) => (
+          <div key={sec.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-sm">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: sec.color ?? "#94a3b8" }} />
+            <span className="font-medium">{sec.name}</span>
+            {sec.city && <Badge tone="neutral" dot={false}>{sec.city}</Badge>}
+            <span className="text-xs text-muted-foreground">
+              {sec.institutionIds.length} établissement(s) · {sec.repIds.length} KAM
+            </span>
+            {/* UN SECTEUR VIDE EST NOMMÉ SUR SA LIGNE : c'est là qu'on le corrige. */}
+            {sec.institutionIds.length === 0 && (
+              <Badge tone="warning" dot={false}>Sans établissement</Badge>
+            )}
+            {sec.repIds.length === 0 && <Badge tone="neutral" dot={false}>Personne ne le couvre</Badge>}
+            <span className="ml-auto flex items-center gap-1">
+              <button
+                type="button" onClick={() => setEdite(sec)} disabled={busy}
+                className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                aria-label={`Modifier le secteur ${sec.name}`}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button" onClick={() => void supprimer(sec)} disabled={busy}
+                className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                aria-label={`Supprimer le secteur ${sec.name}`}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </span>
+            {sec.institutionIds.length > 0 && (
+              <span className="w-full text-xs text-muted-foreground">
+                {sec.institutionIds.slice(0, 6).map(nomEtab).join(", ")}
+                {sec.institutionIds.length > 6 ? ` … +${sec.institutionIds.length - 6}` : ""}
+                {sec.repIds.length > 0 && ` — ${sec.repIds.map(nomKam).filter(Boolean).join(", ")}`}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <button
+        type="button" onClick={() => setCree(true)} disabled={busy}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm hover:bg-secondary disabled:opacity-60"
+      >
+        <Plus className="h-4 w-4" /> Découper un secteur
+      </button>
+
+      <Sheet
+        open={ouvert}
+        onClose={() => { setCree(false); setEdite(null); setFiltre(""); }}
+        title={edite ? `Secteur « ${edite.name} »` : "Découper un secteur"}
+        description="Un nom que la force de vente emploie (« Est », « Oranais », « Alger »), les établissements qu'il couvre, et les KAM qui le parcourent."
+        width="lg"
+      >
+        <form
+          className="space-y-3"
+          action={async (fd) => {
+            if (edite) fd.set("id", edite.id);
+            else fd.set("businessUnitId", buId);
+            const ok = await run(edite ? updateSector : createSector, fd);
+            if (ok) { setCree(false); setEdite(null); setFiltre(""); }
+          }}
+        >
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <input
+              name="name" required defaultValue={edite?.name ?? ""} placeholder="Nom du secteur (Est, Oranais…)"
+              className={`${inputCls} sm:col-span-2`} aria-label="Nom du secteur"
+            />
+            <input
+              name="city" defaultValue={edite?.city ?? ""} placeholder="Ville pivot (facultatif)"
+              className={inputCls} aria-label="Ville pivot du secteur"
+            />
+          </div>
+          {/* La ville pivot n'est pas décorative : c'est elle qui ouvre la planification du KAM
+              sur la bonne ville sans qu'il ait à la chercher. Un secteur multi-villes la laisse
+              vide, et la ville se lit alors sur chaque établissement. */}
+
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              KAM qui couvrent ce secteur
+            </p>
+            {kams.length === 0
+              ? <p className="text-xs text-muted-foreground">Aucun KAM rattaché à cette BU — rattachez-les d&apos;abord, le secteur pourra ensuite leur être affecté.</p>
+              : (
+                <div className="flex flex-wrap gap-2">
+                  {kams.map((k) => (
+                    <label key={k.repId} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2 py-1 text-sm">
+                      <input
+                        type="checkbox" name="repIds" value={k.repId}
+                        defaultChecked={edite?.repIds.includes(k.repId) ?? false}
+                        className="h-4 w-4 rounded border-input"
+                      />
+                      {k.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Établissements du secteur
+              </p>
+              <input
+                value={filtre} onChange={(e) => setFiltre(e.target.value)}
+                placeholder="Filtrer par nom ou ville" className={`${inputCls} w-56`}
+                aria-label="Filtrer les établissements"
+              />
+            </div>
+            {/* L'ANNUAIRE VIDE SE DIT, avec le geste qui le remplit — un cadre de cases vide se
+                lit comme « il n'y a pas d'hôpitaux », alors que la vérité est « personne n'en a
+                encore saisi ». */}
+            {etablissements.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
+                L&apos;annuaire des établissements est vide : un secteur est une sélection d&apos;hôpitaux, il n&apos;y a
+                donc rien à cocher. Ajoutez-les dans <span className="font-medium">Annuaire › Établissements</span>.
+              </p>
+            ) : (
+              <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+                {visibles.length === 0 && (
+                  <p className="px-1 py-2 text-xs text-muted-foreground">Aucun établissement ne correspond à ce filtre.</p>
+                )}
+                {visibles.map((e) => (
+                  <label key={e.id} className="flex items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-secondary">
+                    <input
+                      type="checkbox" name="institutionIds" value={e.id}
+                      defaultChecked={edite?.institutionIds.includes(e.id) ?? false}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                    <span className="min-w-0 truncate">{e.name}</span>
+                    {e.city && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{e.city}</span>}
+                  </label>
+                ))}
+              </div>
+            )}
+            {/* LE FILTRE NE DÉCOCHE PAS ce qu'il masque : les cases filtrées restent montées et
+                partent avec le formulaire. Les démonter ferait qu'un filtre appliqué avant
+                d'enregistrer RETIRERAIT du secteur tout ce qu'on ne voyait plus — une empreinte
+                bien plus large que le geste demandé, et parfaitement silencieuse. */}
+            {filtre.trim() && edite && (
+              <p className="text-xs text-muted-foreground">
+                Le filtre masque des lignes sans les décocher : la sélection enregistrée reste complète.
+              </p>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button" onClick={() => { setCree(false); setEdite(null); setFiltre(""); }}
+              className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
+            >
+              Annuler
+            </button>
+            <button type="submit" disabled={busy} className={btnCls}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              {edite ? "Enregistrer" : "Créer le secteur"}
+            </button>
+          </div>
+        </form>
+      </Sheet>
+    </>
   );
 }

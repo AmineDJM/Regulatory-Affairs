@@ -4,10 +4,14 @@ import {
   createPromoProduct, updatePromoProduct, deletePromoProduct,
   saveForecast, saveSfeSettings,
   saveRepProfile, deleteRepProfile, saveAssignment, deleteAssignment, carryForwardAssignments,
+  createSector, updateSector, deleteSector,
 } from "@/lib/actions/sales-planning-actions";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
 import { runFd, fieldsOf, resolveOne, dzd } from "./helpers";
+// L'ANNUAIRE DES PERSONNES A DÉJÀ SON RÉSOLVEUR (exact → unique → ambiguïté LISTÉE) : en écrire
+// un second pour les KAM d'un secteur donnerait deux annuaires pour une seule question (§118.85).
+import { resolvePeopleList } from "./impl-drive";
 import { PRODUCT_CHANNEL } from "@/lib/labels";
 import { fold } from "./impl-regulatory";
 
@@ -62,6 +66,63 @@ const resolvePromoProduct6 = (raw: string) =>
   resolveOne(raw, "le produit promu (champ « product » — son nom)",
     (q) => prisma.promoProduct.findMany({ where: { name: { contains: q, mode: "insensitive" } }, select: { id: true, name: true }, take: 6 }),
     (p) => p.name);
+
+/** Les clés d'un secteur qui portent PLUSIEURS valeurs (voir `toFd`). */
+const LISTES_SECTEUR = ["institutionIds", "repIds"] as const;
+
+const resolveSector = (raw: string) =>
+  resolveOne(raw, "le secteur (champ « name » — son nom, « Est », « Oranais »)",
+    (q) => prisma.salesSector.findMany({
+      where: { name: { contains: q, mode: "insensitive" } },
+      select: { id: true, name: true, businessUnit: { select: { name: true } } }, take: 6,
+    }),
+    // DEUX BU peuvent porter un secteur « Est » : le libellé d'ambiguïté doit dire LAQUELLE,
+    // sinon la liste des candidats montre deux fois le même mot et n'aide personne.
+    (s) => `${s.name} (BU ${s.businessUnit.name})`);
+
+/**
+ * LES ÉTABLISSEMENTS PAR LEURS NOMS — « le CHU de Constantine, l'EPH d'Annaba ».
+ *
+ * Le chemin GÉNÉRIQUE ne peut pas les désigner : `institutionIds` est une clé de formulaire, pas
+ * un champ de relation Prisma, donc `contrat.ts` ne lui attache aucun modèle et il faudrait
+ * dicter des `cuid` (§118.85). C'est la raison MESURÉE de déclarer cette op plutôt que de laisser
+ * faire le générique (§118.86).
+ *
+ * Un nom introuvable ou ambigu se DIT, avec ses candidats — jamais « le premier des quatre »
+ * (§118.34 : collapser choisirait un territoire à la place d'un humain).
+ */
+async function resolveInstitutionList(raw: string): Promise<{ id: string; name: string }[] | { error: string }> {
+  const parts = raw.split(/[;,]|\bet\b/i).map((x) => x.trim()).filter(Boolean);
+  if (parts.length === 0) return [];
+  const trouves: { id: string; name: string }[] = [];
+  const problemes: string[] = [];
+  for (const p of parts) {
+    const rows = await prisma.medicalInstitution.findMany({
+      where: { name: { contains: p, mode: "insensitive" }, isActive: true },
+      select: { id: true, name: true, city: true }, take: 5,
+    });
+    if (rows.length === 1) trouves.push({ id: rows[0]!.id, name: rows[0]!.name });
+    else if (rows.length === 0) problemes.push(`« ${p} » : aucun établissement actif de ce nom dans l'annuaire`);
+    else problemes.push(`plusieurs « ${p} » : ${rows.map((r) => (r.city ? `${r.name} (${r.city})` : r.name)).join(", ")}`);
+  }
+  if (problemes.length > 0) {
+    return {
+      error: `Établissements non résolus — ${problemes.join(" ; ")}. `
+        + "L'annuaire des établissements se tient dans Annuaire › Établissements ; un hôpital absent s'y ajoute d'abord.",
+    };
+  }
+  return trouves;
+}
+
+/** LES KAM d'un secteur, par le résolveur de personnes DÉJÀ partagé (§118.5). */
+async function resolveSectorReps(raw: string): Promise<{ id: string; name: string }[] | { error: string }> {
+  if (!raw.trim()) return [];
+  // `excludeId` sert au partage (« on ne se partage pas à soi-même ») : ici affecter la personne
+  // qui parle à un secteur est parfaitement légitime, donc aucune exclusion.
+  const { people, problems } = await resolvePeopleList(raw, "");
+  if (problems.length > 0) return { error: `KAM non résolus — ${problems.join(" ; ")}.` };
+  return people;
+}
 
 async function planningUser(raw: string): Promise<{ id: string; name: string } | { error: string }> {
   const q = raw.trim();
@@ -459,6 +520,134 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
       };
     },
     execute: (args) => runFd(deleteRepProfile, args, "Le retrait du profil a été refusé.", { revalidate: ["/planning/business-units"] }),
+  },
+
+  // ───────── Secteurs (territoires nommés d'une BU) ─────────
+  create_sector: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const bu = await resolveBU(opStr(input, "target"));
+      if ("error" in bu) return bu;
+      const nom = opStr(input, "name");
+      if (!nom) return { error: "Précisez le nom du secteur (champ « name » — « Est », « Oranais », « Alger »)." };
+      const etabs = await resolveInstitutionList(opStr(input, "institutions"));
+      if ("error" in etabs) return etabs;
+      const kam = await resolveSectorReps(opStr(input, "person"));
+      if ("error" in kam) return kam;
+      return {
+        title: `Secteur « ${nom} » — BU ${bu.name}`,
+        fields: fieldsOf([
+          ["BU", bu.name],
+          ["Secteur", nom],
+          ["Ville pivot", opStr(input, "location") || null],
+          ["Établissements", etabs.length ? etabs.map((e) => e.name).join(", ") : null],
+          ["KAM affectés", kam.length ? kam.map((k) => k.name).join(", ") : null],
+        ]),
+        // UN SECTEUR SANS ÉTABLISSEMENT est un nom de territoire sans territoire : le KAM qu'on y
+        // affecte a un panel VIDE et ne peut planifier aucune tournée, sans qu'une ligne le dise.
+        // On ne REFUSE pas (découper d'abord, remplir ensuite est un geste légitime) — on le DIT.
+        warnings: [
+          ...(etabs.length === 0 ? ["Aucun établissement : le secteur existera sans territoire, et un KAM qui y est affecté n'aura aucun médecin à visiter."] : []),
+          ...(kam.length === 0 ? ["Aucun KAM affecté : le secteur est découpé, personne ne le couvre encore."] : []),
+        ],
+        args: {
+          businessUnitId: bu.id, name: nom,
+          city: opStr(input, "location") || null,
+          institutionIds: etabs.map((e) => e.id).join(","),
+          repIds: kam.map((k) => k.id).join(","),
+        },
+        successMessage: `Secteur « ${nom} » créé sur la BU ${bu.name}.`,
+        revalidate: ["/planning/business-units"],
+      };
+    },
+    // `listes` NOMME les clés multivaluées : elles sont jointes ci-dessus et recoupées en
+    // plusieurs entrées du formulaire par `toFd`, ce que `getAll` relit exactement.
+    execute: (args) => runFd(createSector, args, "La création du secteur a été refusée.", {
+      revalidate: ["/planning/business-units"], listes: LISTES_SECTEUR,
+    }),
+  },
+
+  update_sector: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const hit = await resolveSector(opStr(input, "name") || opStr(input, "target"));
+      if ("error" in hit) return hit;
+      const cur = await prisma.salesSector.findUnique({
+        where: { id: hit.id },
+        select: {
+          name: true, city: true, color: true, isActive: true,
+          businessUnit: { select: { name: true } },
+          institutions: { select: { institutionId: true, institution: { select: { name: true } } } },
+          reps: { select: { repId: true } },
+        },
+      });
+      if (!cur) return { error: "Secteur introuvable." };
+
+      // FUSION OBLIGATOIRE. L'action REMPLACE les deux listes (c'est ce qui fait qu'un décochage
+      // retire) : sans relire et rejouer l'existant, « renomme le secteur Est en Oranais »
+      // effacerait ses quarante établissements et ses deux KAM — une empreinte réelle bien plus
+      // large que l'empreinte demandée (§118.16).
+      const etabsIn = opStr(input, "institutions");
+      const etabs = etabsIn ? await resolveInstitutionList(etabsIn) : cur.institutions.map((i) => ({ id: i.institutionId, name: i.institution.name }));
+      if ("error" in etabs) return etabs;
+      const kamIn = opStr(input, "person");
+      const kam = kamIn ? await resolveSectorReps(kamIn) : cur.reps.map((r) => ({ id: r.repId, name: "(inchangé)" }));
+      if ("error" in kam) return kam;
+
+      const nouveauNom = opStr(input, "newName") || cur.name;
+      return {
+        title: `Secteur « ${cur.name} » — BU ${cur.businessUnit.name}`,
+        fields: fieldsOf([
+          ["BU", cur.businessUnit.name],
+          ["Nom", nouveauNom === cur.name ? cur.name : `${cur.name} → ${nouveauNom}`],
+          ["Ville pivot", opStr(input, "location") || cur.city || null],
+          ["Établissements", etabsIn ? etabs.map((e) => e.name).join(", ") : `${etabs.length} (inchangés)`],
+          ["KAM affectés", kamIn ? kam.map((k) => k.name).join(", ") : `${kam.length} (inchangés)`],
+        ]),
+        warnings: etabs.length === 0
+          ? ["Aucun établissement après cette modification : les KAM de ce secteur n'auront aucun médecin à visiter."]
+          : [],
+        args: {
+          id: hit.id, name: nouveauNom,
+          city: opStr(input, "location") || cur.city || null,
+          color: cur.color,
+          isActive: cur.isActive ? "on" : "off",
+          institutionIds: etabs.map((e) => e.id).join(","),
+          repIds: kam.map((k) => k.id).join(","),
+        },
+        successMessage: `Secteur « ${nouveauNom} » enregistré.`,
+        revalidate: ["/planning/business-units"],
+      };
+    },
+    execute: (args) => runFd(updateSector, args, "L'enregistrement du secteur a été refusé.", {
+      revalidate: ["/planning/business-units"], listes: LISTES_SECTEUR,
+    }),
+  },
+
+  delete_sector: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const hit = await resolveSector(opStr(input, "name") || opStr(input, "target"));
+      if ("error" in hit) return hit;
+      const cur = await prisma.salesSector.findUnique({
+        where: { id: hit.id },
+        select: { name: true, businessUnit: { select: { name: true } }, _count: { select: { reps: true, institutions: true } } },
+      });
+      if (!cur) return { error: "Secteur introuvable." };
+      return {
+        title: `Supprimer le secteur « ${cur.name} »`,
+        fields: fieldsOf([
+          ["BU", cur.businessUnit.name],
+          ["Établissements couverts", String(cur._count.institutions)],
+          ["KAM affectés", String(cur._count.reps)],
+        ]),
+        // LA CONSÉQUENCE, pas la ligne supprimée : ce sont ces personnes qui perdent leur panel.
+        warnings: cur._count.reps > 0
+          ? [`${cur._count.reps} KAM perdent ce territoire : sans autre secteur, leur panel devient vide et ils ne peuvent plus planifier de tournée.`]
+          : ["Les établissements et les comptes ne bougent pas — on retire un découpage, pas un annuaire."],
+        args: { id: hit.id },
+        successMessage: `Secteur « ${cur.name} » supprimé.`,
+        revalidate: ["/planning/business-units"],
+      };
+    },
+    execute: (args) => runFd(deleteSector, args, "La suppression du secteur a été refusée.", { revalidate: ["/planning/business-units"] }),
   },
 
   // ───────── Affectations KAM × produit ─────────

@@ -11,10 +11,23 @@ type Fd1 = (fd: FormData) => Promise<ActionResultLike>;
 type Fd2 = (prev: ActionResultLike | undefined, fd: FormData) => Promise<ActionResultLike>;
 
 /** FormData depuis les args mémorisés — null/vide = champ absent (l'action applique ses défauts). */
-export function toFd(args: Record<string, string | null>): FormData {
+export function toFd(args: Record<string, string | null>, listes: readonly string[] = []): FormData {
   const fd = new FormData();
   for (const [k, v] of Object.entries(args)) {
-    if (v !== null && v !== "") fd.set(k, v);
+    if (v === null || v === "") continue;
+    // UNE LISTE VOYAGE JOINTE PAR DES VIRGULES ET ARRIVE EN PLUSIEURS ENTRÉES du même nom, ce
+    // que `getAll` relit exactement — comme le chemin générique (`actions/generique.ts` : « une
+    // LISTE devient plusieurs entrées du même nom »).
+    //
+    // POURQUOI PAS UN `string[]` DANS LES ARGS. Élargir le type canonique des args d'op a été
+    // essayé et MESURÉ : 342 points d'appel dans 30 fichiers devenaient responsables d'un cas
+    // qui ne peut pas leur arriver — une empreinte réelle très supérieure à l'empreinte demandée
+    // (§118.16), pour un besoin que la convention DÉJÀ en production couvre (`assign_dossier`
+    // joint ses participants depuis toujours). Ce qui manquait n'était pas le type : c'était que
+    // la jointure et la coupe soient écrites au MÊME endroit — deux découpes à la main finissent
+    // par diverger sur le séparateur (§118.5).
+    if (listes.includes(k)) { for (const une of v.split(",").map((x) => x.trim()).filter(Boolean)) fd.append(k, une); }
+    else fd.set(k, v);
   }
   return fd;
 }
@@ -23,18 +36,24 @@ interface RunOpts {
   link?: string;
   revalidate?: string[];
   message?: string;
+  /**
+   * LES CLÉS QUI PORTENT UNE LISTE — jointes par des virgules dans les args, coupées en
+   * plusieurs entrées du formulaire ici. Nommer les clés plutôt que deviner d'après la valeur
+   * est ce qui empêche « CHU Mustapha, Alger » de devenir deux établissements.
+   */
+  listes?: readonly string[];
 }
 
 /** Exécute une action canonique `(formData)` avec les args mémorisés — reçu OpExecuteResult. */
 export async function runFd(action: Fd1, args: Record<string, string | null>, refusal: string, opts: RunOpts = {}): Promise<OpExecuteResult> {
-  const r = await action(toFd(args));
+  const r = await action(toFd(args, opts.listes));
   if (!r.ok) return { ok: false, error: r.error ?? refusal };
   return { ok: true, ...(r.id ? { createdId: r.id } : {}), ...(opts.message ? { message: opts.message } : {}), ...(opts.link ? { link: opts.link } : {}), ...(opts.revalidate ? { revalidate: opts.revalidate } : {}) };
 }
 
 /** Idem pour une action `(prev, formData)` (useFormState). */
 export async function runFd2(action: Fd2, args: Record<string, string | null>, refusal: string, opts: RunOpts = {}): Promise<OpExecuteResult> {
-  const r = await action(undefined, toFd(args));
+  const r = await action(undefined, toFd(args, opts.listes));
   if (!r.ok) return { ok: false, error: r.error ?? refusal };
   return { ok: true, ...(r.id ? { createdId: r.id } : {}), ...(opts.message ? { message: opts.message } : {}), ...(opts.link ? { link: opts.link } : {}), ...(opts.revalidate ? { revalidate: opts.revalidate } : {}) };
 }

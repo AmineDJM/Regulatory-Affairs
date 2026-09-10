@@ -596,7 +596,12 @@ export function decrireAction(
   locales: Readonly<Record<string, SourceAction>> = {},
 ): ContratAction {
   const { fichier, fonction, signature, corps } = src;
-  const base = {
+  /**
+   * CE QUE LE CORPS DE L'ACTION DIT D'ELLE-MÊME. Les branches SANS formulaire s'en contentent :
+   * `deleguesDuCorps` ne suit une délégation que lorsqu'un formulaire est passé, donc il n'y a
+   * rien à unir là — et suivre un appel quelconque serait un autre mécanisme, pas celui-ci.
+   */
+  const baseCorps = {
     id: `${fichier}:${fonction}`,
     fichier, fonction, avantFormulaire: 0,
     porte: lirePorte(corps, constantes),
@@ -611,7 +616,7 @@ export function decrireAction(
     // toutes les sessions »). Une entrée typée, elle, ne passe pas par un formulaire : Adam ne
     // saurait pas fabriquer l'objet, et le dire vaut mieux que de tenter.
     if (signature === "") {
-      return { ...base, appel: "sans-entree", champs: [], illisible: null };
+      return { ...baseCorps, appel: "sans-entree", champs: [], illisible: null };
     }
     // L'OBJET UNIQUE D'ABORD : `lireArguments` le refuserait pour « pas une valeur simple »,
     // alors que ses membres sont écrits dans la signature (§118.87).
@@ -620,13 +625,13 @@ export function decrireAction(
     const forme = objet ? "objet" as const : "arguments" as const;
     return "champs" in lue
       ? {
-          ...base, appel: forme, illisible: null,
+          ...baseCorps, appel: forme, illisible: null,
           champs: lue.champs.map((ch) => (ch.type === "reference" || (ch.type === "liste" && estReference(ch.nom))
-            ? { ...ch, modele: modeleDesigne(ch.nom, base.modelesEcrits, relations) }
+            ? { ...ch, modele: modeleDesigne(ch.nom, baseCorps.modelesEcrits, relations) }
             : ch)),
         }
       : {
-          ...base, appel: forme, champs: [],
+          ...baseCorps, appel: forme, champs: [],
           illisible: `entrée typée (${signature}) — ${lue.refus}`,
         };
   }
@@ -641,7 +646,7 @@ export function decrireAction(
   const etat = rang >= 1 ? params[rang - 1] ?? "" : "";
   if (rang >= 1 && !/\|\s*undefined\b/.test(etat) && !/^\w+\?\s*:/.test(etat)) {
     return {
-      ...base, appel: "etat-formulaire" as const, champs: [],
+      ...baseCorps, appel: "etat-formulaire" as const, champs: [],
       illisible: `le paramètre « ${etat.split(":")[0]!.trim()} » précède le formulaire sans accepter `
         + `« undefined » — ce n'est pas l'état précédent d'un formulaire React, et on ne devine pas sa valeur`,
     };
@@ -652,11 +657,11 @@ export function decrireAction(
     if (!lu) continue;
     if ("refus" in lu) {
       return {
-        ...base, appel: "arguments-etat-formulaire" as const, champs: [],
+        ...baseCorps, appel: "arguments-etat-formulaire" as const, champs: [],
         illisible: `entrée mixte (${sansCommentaires(signature).replace(/\s+/g, " ").trim()}) — le paramètre ${lu.refus}`,
       };
     }
-    avant.push({ ...lu.champ, modele: modeleDesigne(lu.champ.nom, base.modelesEcrits, relations) });
+    avant.push({ ...lu.champ, modele: modeleDesigne(lu.champ.nom, baseCorps.modelesEcrits, relations) });
   }
   const appel = rang === 0
     ? "formulaire" as const
@@ -666,6 +671,32 @@ export function decrireAction(
   const formulaires = nomsDuFormulaire(signature, corps);
   const locaux = lecteursLocaux(corps, formulaires, lecteurs);
   const tousLecteurs = { ...lecteurs, ...locaux.lecteurs };
+  const delegues = deleguesDuCorps(corps, formulaires, locales, new Set(Object.keys(tousLecteurs)));
+
+  // ── CE QU'UNE DÉLÉGATION ÉCRIT EST CE QUE L'ACTION ÉCRIT ────────────────────────────────
+  //
+  // MESURÉ, et c'était mon propre défaut. `createSector` valide son entrée puis passe le
+  // formulaire à `ecrireSecteur`, qui écrit TROIS tables et enregistre un audit. Le corps de
+  // l'action, lui, n'écrit rien : elle sortait donc `ecrit: false`, `modelesEcrits: []`,
+  // `audit: false` — une action qui écrit trois tables DÉCRITE comme une lecture, en silence.
+  //
+  // Deux coûts nommables, et le second est le vrai. La carte de confirmation doit dire ce que
+  // le geste TOUCHE (§118.83) : elle aurait présenté une écriture comme une consultation. Et
+  // `actions/generique.ts` arme sa garde d'auto-escalade sur le MODÈLE ÉCRIT lu dans la source
+  // (§118.74) : une action qui délègue son écriture est INVISIBLE à cette garde — c'est l'angle
+  // mort du FAIT que §118.78 a déjà payé sur `mission-runtime-actions`, et le refermer là sans
+  // le refermer ici laisserait une porte non gardée à côté d'une porte gardée (§118.71).
+  //
+  // Le remède est celui que §118.87c a déjà posé pour les CHAMPS : l'union, un seul niveau,
+  // dans le seul fichier dont on a le texte. Elle ne peut qu'ÉLARGIR ce qu'on déclare écrire —
+  // donc au pire elle refuse davantage, jamais moins.
+  const base = {
+    ...baseCorps,
+    ecrit: baseCorps.ecrit || delegues.some((d) => RE_ECRITURE.test(d.corps)),
+    modelesEcrits: [...new Set([...baseCorps.modelesEcrits, ...delegues.flatMap((d) => modelesEcrits(d.corps))])],
+    audit: baseCorps.audit || delegues.some((d) => /recordAudit\s*\(/.test(d.corps)),
+  };
+
   if (lectureDynamique(corps, Object.keys(lecteurs), formulaires, locaux.parametres, Object.keys(locaux.lecteurs))) {
     return {
       ...base, appel, champs: [],
@@ -686,7 +717,7 @@ export function decrireAction(
   // On IGNORE donc ce délégué-là, et l'on ne le déclare illisible que s'il ne reste RIEN.
   let delegueMuet: string | null = null;
   const parDelegation: ChampAction[] = [];
-  for (const d of deleguesDuCorps(corps, formulaires, locales, new Set(Object.keys(tousLecteurs)))) {
+  for (const d of delegues) {
     const fdD = nomsDuFormulaire(d.signature, d.corps);
     const locD = lecteursLocaux(d.corps, fdD, lecteurs);
     if (lectureDynamique(d.corps, Object.keys(lecteurs), fdD, locD.parametres, Object.keys(locD.lecteurs))) {

@@ -999,7 +999,8 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
       description:
         "PLANNING FORCE DE VENTE (SFE) — business units, produits promus (canal ville / hôpital / les deux), équipes, profils KAM, prévisions produit × CYCLE MENSUEL, matrice d'affectations KAM × produit (0 visite sans note = retrait), report d'un cycle vers un autre, paramètres SFE globaux. Les « save » de l'écran écrasent avec des DÉFAUTS-PIÈGES : chaque op relit l'existant et le REJOUE (FUSION) — par les actions canoniques. "
         + `Champ « op » : ${opsSummary("planning_operation")}. `
-        + "Le cycle se donne en français (« septembre 2026 » ou 2026-09, champ « date ») ; BU / équipe par « target », produit par « product », KAM par « person ».",
+        + "Le cycle se donne en français (« septembre 2026 » ou 2026-09, champ « date ») ; BU / équipe par « target », produit par « product », KAM par « person ». "
+        + "SECTEURS (territoires nommés d'une BU : « Est », « Oranais ») — c'est le secteur qui donne au KAM son panel de médecins : nom par « name », BU par « target », établissements par « institutions » et KAM par « person » (noms séparés par des virgules).",
       input_schema: {
         type: "object",
         properties: {
@@ -1008,7 +1009,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           name: { type: "string", description: "Nom (création) ou cible (produit / BU / équipe)." },
           newName: { type: "string", description: "Nouveau nom (BU, produit, équipe)." },
           product: { type: "string", description: "Le produit promu visé (nom)." },
-          person: { type: "string", description: "Responsable de BU / superviseur / référent Direction Marketing / KAM (nom ; « aucun » retire)." },
+          person: { type: "string", description: "Responsable de BU / superviseur / référent Direction Marketing / KAM (nom ; « aucun » retire) — SECTEUR : les KAM affectés, noms séparés par des virgules." },
           label: { type: "string", description: "save_rep_profile : la BU du KAM (« aucune » détache) ; create/update_business_unit : le chef de BU ; carry_forward : cycle cible." },
           date: { type: "string", description: "Le cycle mensuel (« septembre 2026 » ou 2026-09) — carry_forward : cycle SOURCE." },
           endDate: { type: "string", description: "carry_forward_assignments : cycle CIBLE." },
@@ -1018,7 +1019,8 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           days: { type: "string", description: "Jours terrain par mois (paramètres / profil KAM)." },
           threshold: { type: "string", description: "Pourcentage : couverture cible (prévision), % terrain (paramètres / profil)." },
           amount: { type: "string", description: "save_forecast : budget (DZD)." },
-          location: { type: "string", description: "save_rep_profile : région." },
+          location: { type: "string", description: "save_rep_profile : région ; secteur : sa ville pivot." },
+          institutions: { type: "string", description: "SECTEUR : les établissements, par leurs NOMS séparés par des virgules (« CHU de Constantine, EPH d'Annaba »). Non cité en modification = liste inchangée." },
           reference: { type: "string", description: "Code (BU, produit, équipe)." },
           note: { type: "string", description: "Note (prévision, profil, affectation)." },
           p1: { type: "string", description: "save_sfe_settings : poids position 1." },

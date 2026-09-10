@@ -291,6 +291,47 @@ describe("CONTRAT D'ACTION — le parc réel, et le cliquet qui ne remonte pas",
     console.info(`[DESIGNATION] ${avecModele.length} champs portent le modèle qu'ils désignent (plancher ${PLANCHER_DESIGNABLES})`);
   });
 
+  /**
+   * CE QU'UNE DÉLÉGATION ÉCRIT EST CE QUE L'ACTION ÉCRIT.
+   *
+   * MESURÉ sur le parc : `createStockAnnex`, `createStockHospital`, `deleteStockAnnex` et
+   * `deleteStockHospital` sortaient `ecrit: false`, `audit: false`, `modelesEcrits: []` — quatre
+   * ÉCRITURES décrites comme des lectures, en silence, parce que leur corps délègue
+   * (`createStockLocation(formData, "ANNEX")`) et que la dérivation ne lisait que le corps.
+   *
+   * Deux coûts, et le second est celui qui compte : la carte de confirmation doit dire ce que le
+   * geste TOUCHE (§118.83), et `actions/generique.ts` arme sa garde d'auto-escalade sur le MODÈLE
+   * ÉCRIT lu dans la source (§118.74) — une action qui délègue son écriture est invisible à cette
+   * garde. C'est l'angle mort du FAIT que §118.78 a payé sur `mission-runtime-actions`, par
+   * l'autre porte.
+   *
+   * LE CAS QUI FERAIT TOMBER CETTE ASSERTION : `decrireAction` cesse d'unir les faits d'écriture
+   * de ses délégués (une ligne), tout compile, la parité passe, les champs restent complets — et
+   * ces quatre actions redeviennent des « lectures ». C'est ce sabotage qui a été joué.
+   */
+  it("une action qui DÉLÈGUE son écriture la déclare quand même — modèles, écriture et audit", () => {
+    const delegantes = [
+      "stock-snapshot-actions:createStockAnnex",
+      "stock-snapshot-actions:createStockHospital",
+      "stock-snapshot-actions:deleteStockAnnex",
+      "stock-snapshot-actions:deleteStockHospital",
+      "sales-planning-actions:createSector",
+      "sales-planning-actions:updateSector",
+    ];
+    for (const id of delegantes) {
+      const c = vivants.find((x) => x.id === id);
+      expect(c, `${id} — action attendue au parc`).toBeTruthy();
+      expect(c!.ecrit, `${id} écrit par délégation`).toBe(true);
+      expect(c!.modelesEcrits.length, `${id} — modèles écrits`).toBeGreaterThan(0);
+      expect(c!.audit, `${id} enregistre un audit par délégation`).toBe(true);
+    }
+    // L'UNION NE PEUT QU'ÉLARGIR : une action qui n'écrit rien et ne délègue rien reste une
+    // lecture. Sans cette moitié, « tout est une écriture » passerait le test ci-dessus.
+    const lectures = vivants.filter((c) => !c.ecrit);
+    expect(lectures.length, "des actions de pure lecture existent encore").toBeGreaterThan(50);
+    for (const c of lectures) expect(c.modelesEcrits, `${c.id} ne déclare pas de modèle écrit`).toEqual([]);
+  });
+
   it("la phrase rendue au modèle dit l'ignorance au lieu de la taire", () => {
     const illisible = vivants.find((c) => c.illisible)!;
     expect(direContrat(illisible)).toMatch(/non appelable directement/);
