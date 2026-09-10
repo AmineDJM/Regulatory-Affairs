@@ -23,7 +23,7 @@ describe("l'autorité se rattache au RÔLE, pas à la personne", () => {
   });
 
   it("le SECOND rôle vaut autant que le premier", () => {
-    // Nommé chef de produit « en plus » de sa fonction : il exerce réellement cette autorité.
+    // Nommé Direction Marketing « en plus » de sa fonction : il exerce réellement cette autorité.
     const a = authoritiesOf({ id: "u", role: "SALES_USER", secondaryRole: "PRODUCT_MANAGER" }, CONFIG);
     expect(a).toContain("PRODUCT_MANAGER");
   });

@@ -33,7 +33,7 @@ function isDirection(user: SessionUser): boolean {
   return hasGlobalView(user) || userCan(user, "SPONSORING", "VALIDATE");
 }
 /** Approbation préliminaire Ad & Pro : **réservée au National Sales** (la demande
- *  émane d'un délégué). Il approuve/refuse et désigne le chef de produit — la
+ *  émane d'un délégué). Il approuve/refuse et désigne le référent Direction Marketing — la
  *  décision définitive reste à la Direction. Ni la Direction ni la Direction
  *  Marketing n'interviennent à l'étape préliminaire. */
 function canDoPreliminary(user: SessionUser): boolean {
@@ -106,9 +106,9 @@ export async function createSponsoring(
   const pmId = fdStr(formData, "productManagerId");
   if (pmId) {
     const okPm = await prisma.user.count({ where: { id: pmId, isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) } });
-    if (!okPm) return { ok: false, error: "Le chef de produit sélectionné est introuvable." };
+    if (!okPm) return { ok: false, error: "Le référent Direction Marketing sélectionné est introuvable." };
   }
-  // La Direction peut demander l'avis d'un chef de produit avant de trancher — ou trancher tout
+  // La Direction peut demander l'avis de la Direction Marketing avant de trancher — ou trancher tout
   // de suite. `adProInit` ignore ce drapeau pour les autres rangs : le choix ne s'attrape pas en
   // forgeant un champ de formulaire.
   const init = adProInit(user, pmId, { viaProductManager: fdStr(formData, "viaProductManager") === "1" });
@@ -190,7 +190,7 @@ async function notifyAdProCreation(init: ReturnType<typeof adProInit>, id: strin
   await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], { type: "SPONSORING_VALIDATION", title: "Sponsoring — à attribuer (National Sales)", body, link });
 }
 
-// ─────────────────── Attribution d'un chef de produit (Direction Marketing) ───────────────────
+// ─────────────────── Attribution de la Direction Marketing (Direction Marketing) ───────────────────
 
 export async function sponsoringPreliminary(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -214,7 +214,7 @@ export async function sponsoringPreliminary(formData: FormData): Promise<ActionR
     await recordAudit({ actorId: user.id, action: "REFUSE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Refus préliminaire — ${req.reference}` });
   } else {
     const productManagerId = fdStr(formData, "productManagerId");
-    if (!productManagerId) return { ok: false, error: "Sélectionnez le chef de produit qui fera l'analyse." };
+    if (!productManagerId) return { ok: false, error: "Sélectionnez le référent Direction Marketing qui fera l'analyse." };
     await prisma.sponsoringRequest.update({
       where: { id },
       data: { status: "PRELIMINARY_APPROVED", productManagerId, preliminaryById: user.id, preliminaryAt: new Date(), preliminaryNote: fdStr(formData, "note"), updatedById: user.id },
@@ -261,7 +261,7 @@ export async function requestThirdPartyInput(formData: FormData): Promise<Action
   return { ok: true };
 }
 
-// ─────────────────── Analyse chef de produit (avis + budget proposé) — confidentiel ───────────────────
+// ─────────────────── Analyse Direction Marketing (avis + budget proposé) — confidentiel ───────────────────
 
 export async function sponsoringAnalysis(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -269,7 +269,7 @@ export async function sponsoringAnalysis(formData: FormData): Promise<ActionResu
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
   if (!req) return { ok: false, error: "Demande introuvable." };
-  if (req.productManagerId !== user.id && !hasGlobalView(user)) return { ok: false, error: "Réservé au chef de produit assigné." };
+  if (req.productManagerId !== user.id && !hasGlobalView(user)) return { ok: false, error: "Réservé au référent Direction Marketing assigné." };
 
   const isAppeal = req.status === "APPEAL_PENDING";
   if (req.status !== "PRELIMINARY_APPROVED" && !isAppeal) return { ok: false, error: "Cette demande n'est pas en phase d'analyse." };
@@ -293,10 +293,10 @@ export async function sponsoringAnalysis(formData: FormData): Promise<ActionResu
   await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED",
     title: isAppeal ? "Sponsoring — décision après appel" : "Sponsoring — validation définitive",
-    body: `${req.reference} — analyse chef de produit ${isAppeal ? "(appel) " : ""}terminée`,
+    body: `${req.reference} — analyse Direction Marketing ${isAppeal ? "(appel) " : ""}terminée`,
     link: `${PATH}/${id}`,
   });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Analyse chef de produit${isAppeal ? " (appel)" : ""} — ${req.reference}` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Analyse Direction Marketing${isAppeal ? " (appel)" : ""} — ${req.reference}` });
   revalidate(id);
   return { ok: true };
 }
@@ -371,7 +371,7 @@ export async function sponsoringFinal(formData: FormData): Promise<ActionResult>
   return { ok: true };
 }
 
-// ───────────────────────────── Appel du délégué (→ nouvel avis chef de produit) ─────────────────────────────
+// ───────────────────────────── Appel du délégué (→ nouvel avis Direction Marketing) ─────────────────────────────
 
 export async function sponsoringAppeal(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -392,7 +392,7 @@ export async function sponsoringAppeal(formData: FormData): Promise<ActionResult
   });
   // Ré-ouvre le circuit (moteur) à l'étape d'analyse pour rester cohérent avec le statut.
   await reopenInstance("SPONSORING", id);
-  // Repart au chef de produit pour un nouvel avis (sans budget) ; la Direction est informée.
+  // Repart à la Direction Marketing pour un nouvel avis (sans budget) ; la Direction est informée.
   if (req.productManagerId) await notifyUser({ userId: req.productManagerId, type: "ASSIGNMENT", title: "Sponsoring — appel à réexaminer", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
   await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "SPONSORING_VALIDATION", title: "Sponsoring — appel du délégué", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Appel du délégué — ${req.reference}` });

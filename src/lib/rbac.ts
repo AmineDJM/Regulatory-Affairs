@@ -88,7 +88,7 @@ const MESSAGING_USER: Action[] = ["VIEW", "CREATE", "UPDATE", "DELETE", "UPLOAD"
 // faire évoluer le statut et répondre dans le fil (UPDATE). Seule la Direction en crée.
 const DIRECTIVES_USER: Action[] = ["VIEW", "UPDATE"];
 // Demandes de support : tout employé peut en soumettre, suivre les siennes et répondre/
-// joindre des pièces (directeur médical / chef de produit pour ce qui les vise). Le scope
+// joindre des pièces (directeur médical / Direction Marketing pour ce qui les vise). Le scope
 // restreint la visibilité aux demandes émises / reçues / prises en charge.
 const SUPPORT_USER: Action[] = ["VIEW", "CREATE", "UPDATE", "UPLOAD"];
 // Dossiers de suivi : tout employé peut créer un dossier (déléguer/suivre un sujet),
@@ -192,7 +192,7 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   MEDICAL_DELEGATE: { WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: CONTRIBUTE, FIELD_REPORTS: CONTRIBUTE, SALES_PLANNING: READ, EVENTS: CONTRIBUTE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"] },
   // National Sales : **toutes les capacités du délégué médical** (créer des demandes
   // de sponsoring / congrès / événements, terrain, annuaire) PLUS l'**approbation
-  // préliminaire** de ces demandes avec choix du chef de produit. Volontairement
+  // préliminaire** de ces demandes avec choix du référent Direction Marketing. Volontairement
   // ABSENT de la carte `assigned` (cf. defaultScope) → portée ALL : il voit TOUTES
   // les demandes à instruire. CONTRIBUTE (sans VALIDATE) : la décision définitive
   // reste à la Direction ; l'étape préliminaire est ouverte par contrôle de rôle.
@@ -818,7 +818,7 @@ export const getAccess = perRequest(
 
     // ── « MON ÉQUIPE » SUIT L'ORGANIGRAMME, PAS LE RÔLE ──
     //
-    // Encadrer n'est pas un rôle : c'est un FAIT de l'organigramme. Un chef de produit, un
+    // Encadrer n'est pas un rôle : c'est un FAIT de l'organigramme. La Direction Marketing, un
     // responsable régulatoire, un directeur commercial encadrent tous quelqu'un sans partager
     // le moindre rôle — et l'on ne peut pas prévoir dans une matrice quels rôles encadrent, ni
     // la corriger à chaque nomination.

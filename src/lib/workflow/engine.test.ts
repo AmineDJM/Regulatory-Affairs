@@ -5,7 +5,8 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
-import { advanceWorkflowInstance, getDefinition } from "./engine";
+import { advanceWorkflowInstance, ensureInstance, getDefinition, orderedSteps } from "./engine";
+import { defaultDefinition } from "./defaults";
 import { getWorkflowForEntity } from "@/lib/queries/workflow";
 
 let dbOk = false;
@@ -249,7 +250,7 @@ suite("Moteur — avis défavorable non éliminatoire + refus final d'événemen
     expect(r.ok).toBe(true);
     const e = await prisma.event.findUniqueOrThrow({ where: { id: eventId } });
     expect(e.requestStatus).toBe("AWAITING_FINAL");
-    // Le montant révisé est consigné : budget chef de produit + montant de travail de l'instance…
+    // Le montant révisé est consigné : budget Direction Marketing + montant de travail de l'instance…
     expect(Number(e.productManagerBudget)).toBe(1_500_000);
     const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "EVENT", entityId: eventId } } });
     expect(Number(inst.amount)).toBe(1_500_000);
@@ -424,7 +425,7 @@ suite("Moteur — auto-accord si le demandeur détient l'autorité de l'étape (
     const mk = (s: string, role: UserRole) => prisma.user.create({ data: { name: `${TAG5}${s}`, email: `${TAG5}${s}@t.dz`, role, passwordHash: "x" } });
     const [ns, reqPm] = await Promise.all([mk("ns", "NATIONAL_SALES"), mk("reqpm", "PRODUCT_MANAGER")]);
     nsId = ns.id; reqPmId = reqPm.id;
-    // Le DEMANDEUR est un chef de produit ; budget au-dessus de tout seuil pour isoler le motif « autorité ».
+    // Le DEMANDEUR est la Direction Marketing ; budget au-dessus de tout seuil pour isoler le motif « autorité ».
     const c = await prisma.congressInternational.create({ data: { name: `${TAG5}Congrès`, requestStatus: "AWAITING_PRELIMINARY", requesterId: reqPmId, estimatedBudget: 90000 } });
     congressId = c.id;
     // Reconfigure temporairement l'étape « marketing » en portée ROLE[PRODUCT_MANAGER] + auto-accord si demandeur.
@@ -445,7 +446,7 @@ suite("Moteur — auto-accord si le demandeur détient l'autorité de l'étape (
   });
 
   it("l'étape dont le demandeur détient déjà le rôle est approuvée automatiquement en son nom (tracé), sans franchir la décision finale", async () => {
-    // Le National Sales approuve le préliminaire et désigne le demandeur (chef de produit) ; l'étape d'analyse,
+    // Le National Sales approuve le préliminaire et désigne le demandeur (Direction Marketing) ; l'étape d'analyse,
     // dont il détient le rôle, est auto-accordée → on se pose directement sur la décision finale (Direction).
     const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", assigneeId: reqPmId, note: "OK" });
     expect(r.ok).toBe(true);
@@ -551,5 +552,90 @@ suite("Moteur — étape validée par le N+1 réel du demandeur", () => {
   it("la hiérarchie AU-DESSUS du N+1 peut aussi trancher (escalade)", async () => {
     const r = await advanceWorkflowInstance({ viewer: viewer(dgUser, "SALES_USER"), entityType: "EVENT", entityId: eventId, action: "APPROVE", note: "escalade" });
     expect(r.ok).toBe(true);
+  });
+});
+
+// ─────────────────── Une définition SANS ÉTAPE n'est pas un circuit ───────────────────
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * MESURÉ EN BASE : une ligne `WorkflowDefinition` avec ZÉRO `WorkflowStep`.
+ *
+ * `getDefinition` ne regardait que la présence de la LIGNE (`if (existing) return existing`) et
+ * rendait donc ce circuit vide comme s'il était configuré. Le prix : `ensureInstance` pose la
+ * demande sur un `currentSlug` qu'aucune étape ne porte — la demande existe, apparaît dans les
+ * listes, n'a AUCUNE étape en échec, et personne, à aucun rôle, ne peut la faire avancer.
+ *
+ * Ce que ce banc EXIGE, et ce qui le ferait tomber :
+ *   • le resemis remet la colonne vertébrale par défaut (mesurée sur `defaults.ts`), avec des
+ *     POSITIONS correctes — passer `stepCreate` sans son index rendait `position: undefined`,
+ *     et un circuit sans ordre n'a pas de première étape ;
+ *   • une définition DÉJÀ pourvue n'est jamais touchée : resemer par-dessus une configuration
+ *     voulue (l'écran d'administration en pose de sur mesure) écraserait la décision d'un humain ;
+ *   • et la demande créée après resemis est RÉELLEMENT actionnable — c'est le seul critère qui
+ *     compte, le reste n'étant que du comptage de lignes (§118.14).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+suite("Moteur — une définition VIDE est resemée, jamais rendue telle quelle", () => {
+  const TAGV = "__wfvide__";
+  let categorie: "CONGRESS_NATIONAL" = "CONGRESS_NATIONAL";
+  let defId = "";
+  // LA RÉFÉRENCE VIENT DE `defaults.ts`, PAS DE LA BASE — et c'est la moitié qui compte.
+  // La première version lisait la colonne vertébrale ATTENDUE dans la base juste avant de la
+  // vider : une base laissée sale par un run précédent devenait donc à la fois l'état de départ
+  // ET l'attendu, et l'assertion ne pouvait plus tomber. C'est §118.91 (« un banc partagé n'est
+  // pas reproductible ») appliqué à mon propre banc, et c'est un sabotage qui l'a montré :
+  // resemer toutes les étapes en `position: 0` passait au vert.
+  const attendu = defaultDefinition("CONGRESS_NATIONAL").steps.map((st) => st.slug);
+
+  beforeAll(async () => {
+    // On part de la définition RÉELLE de la catégorie, puis on la vide — c'est l'état mesuré.
+    const def = await getDefinition(categorie);
+    defId = def.id;
+    await prisma.workflowStep.deleteMany({ where: { definitionId: def.id } });
+  });
+
+  afterAll(async () => {
+    await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: { startsWith: TAGV } } } }).catch(() => {});
+    await prisma.workflowInstance.deleteMany({ where: { entityId: { startsWith: TAGV } } }).catch(() => {});
+    await prisma.congressNational.deleteMany({ where: { name: { startsWith: TAGV } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: TAGV } } }).catch(() => {});
+  });
+
+  it("le circuit vidé est RESEMÉ à la lecture suivante — avec ses positions", async () => {
+    // Le point de départ est bien l'état fautif : zéro étape en base.
+    expect(await prisma.workflowStep.count({ where: { definitionId: defId } }), "le décor doit partir d'un circuit VIDE").toBe(0);
+
+    const def = await getDefinition(categorie);
+    const etapes = orderedSteps(def);
+    expect(etapes.length, "un circuit sans étape ne peut rien approuver").toBeGreaterThan(0);
+    expect(etapes.map((st) => st.slug)).toEqual(attendu);
+    // Les POSITIONS, et non seulement le compte : sans index, `stepCreate` rendait la même
+    // position pour toutes les étapes, et un circuit sans ordre n'a pas de PREMIÈRE étape.
+    // Le tri de `orderedSteps` étant stable, les slugs seraient restés justes — seule cette
+    // ligne fait tomber ce défaut.
+    expect(etapes.map((st) => st.position)).toEqual(attendu.map((_, i) => i));
+  });
+
+  it("une demande créée ensuite est RÉELLEMENT posée sur une étape qui existe", async () => {
+    const dem = await prisma.user.create({
+      data: { name: `${TAGV}kam`, email: `${TAGV}kam@t.dz`, role: "MEDICAL_DELEGATE" as never, passwordHash: "x" },
+    });
+    const c = await prisma.congressNational.create({
+      data: { name: `${TAGV}Séminaire`, requestStatus: "AWAITING_PRELIMINARY", requesterId: dem.id },
+    });
+    const inst = await ensureInstance("CONGRESS_NATIONAL", c.id);
+    expect(inst, "l'instance doit naître").not.toBeNull();
+    const def = await getDefinition(categorie);
+    // LE CRITÈRE : le slug porté par l'instance est un slug que le circuit CONNAÎT. Sans cela,
+    // la demande est vivante et inavançable — aucune étape en échec, aucun signal.
+    expect(orderedSteps(def).map((st) => st.slug)).toContain(inst?.currentSlug ?? "");
+  });
+
+  it("une définition DÉJÀ pourvue n'est pas retouchée — on n'écrase pas une configuration voulue", async () => {
+    const avantLecture = await prisma.workflowStep.findMany({ where: { definitionId: defId }, select: { id: true }, orderBy: { position: "asc" } });
+    await getDefinition(categorie);
+    const apres = await prisma.workflowStep.findMany({ where: { definitionId: defId }, select: { id: true }, orderBy: { position: "asc" } });
+    expect(apres.map((x) => x.id)).toEqual(avantLecture.map((x) => x.id));
   });
 });

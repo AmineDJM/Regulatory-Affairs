@@ -29,6 +29,10 @@ import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
 import { LinkedRecords } from "@/components/shared/linked-records";
+import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
+import { DocumentUpload } from "@/components/documents/document-upload";
+import { onlyofficeConfigured } from "@/lib/onlyoffice";
+import { CONGRESS_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { canAttachToAdPro } from "@/lib/ad-pro/attachments";
 
 export default async function CongressNatDetailPage({ params }: { params: { id: string } }) {
@@ -40,7 +44,7 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
   const canInvolveThirdParty = hasGlobalView(user) || hasRole(user, "NATIONAL_SALES") || detail.productManagerId === user.id;
   // QUI PEUT DÉCIDER DU DOSSIER PEUT Y JOINDRE SA FACTURE. La règle vit dans
   // `ad-pro/attachments.ts`, la MÊME sur les cinq écrans Ad&Pro : chacun l'épelait à sa façon, et
-  // chaque orthographe oubliait quelqu'un — la Direction qui valide, le chef de produit qui
+  // chaque orthographe oubliait quelqu'un — la Direction qui valide, la Direction Marketing qui
   // analyse — qui envoyait alors la facture par mail, dossier vide.
   const attacheur = {
     id: user.id,
@@ -57,6 +61,7 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
     include: { uploadedBy: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
   });
+  const ctxPieces = await contextePiecesLiees(user, "CONGRESS_NATIONAL");
   const docItems: DocItem[] = docs.map((dc) => ({
     id: dc.id, name: dc.name, category: dc.category, version: dc.version, sizeBytes: dc.sizeBytes,
     confidentiality: dc.confidentiality, uploadedBy: dc.uploadedBy?.name ?? null, createdAt: dc.createdAt.toISOString(), hasFile: Boolean(dc.fileKey),
@@ -153,7 +158,19 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
           type de dossier ; il ne manquait que le bloc — et l'on ne pouvait donc RIEN rattacher à
           un congrès ou à un événement. Créés d'ici, ils gardent le lien : c'est le seul moment où
           l'on sait de quoi ils viennent, et le seul où le rattachement ne coûte rien. */}
-      <LinkedRecords entityType="CONGRESS_NATIONAL" entityId={detail.id} reference={detail.name} canCreate={canUpload} />
+      <LinkedRecords
+        entityType="CONGRESS_NATIONAL" entityId={detail.id} reference={detail.name} canCreate={canUpload}
+        acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
+        piecesDeLaDemande={{
+          titre: "Pièces de la prise en charge (demande, programme, pièces d'identité…)",
+          documents: docItems,
+          televerseur: canUpload
+            ? <DocumentUpload entityType="CONGRESS_NATIONAL" entityId={detail.id} categories={[...CONGRESS_DOC_CATEGORIES]} />
+            : undefined,
+          canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
+          path: `/congress-national/${detail.id}`,
+        }}
+      />
 
     </div>
   );

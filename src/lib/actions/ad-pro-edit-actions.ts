@@ -19,7 +19,7 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
  * (table, module RBAC, chemin, statut) tient dans la table `TARGETS` ci-dessous — ajouter un
  * type de demande, c'est ajouter une ligne, pas dupliquer la garde.
  *
- * Les décisions (montant accordé, statut, chef de produit, avis, motifs) ne passent JAMAIS par
+ * Les décisions (montant accordé, statut, Direction Marketing, avis, motifs) ne passent JAMAIS par
  * ici : elles appartiennent au circuit, et la liste blanche de `ad-pro-edit.ts` les exclut.
  */
 

@@ -412,7 +412,7 @@ function DossierRequirements({
         <p className="rounded-lg bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
           <strong className="text-foreground">Bon de versement</strong> — ni bon de commande ni facture ne sont exigés :
           ils n&apos;existent pas pour un versement aux autorités, et la quittance ne vient qu&apos;après. Le bon a déjà
-          été validé en amont (N+1, chef de produit, centre de validations).
+          été validé en amont (N+1, Direction Marketing, centre de validations).
         </p>
       ) : (
         <p className={`rounded-lg px-3 py-2 text-xs ${manque ? "border border-warning/40 bg-warning/5 text-foreground" : "bg-success/10 text-success"}`}>

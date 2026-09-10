@@ -159,7 +159,7 @@ export function canApprove(
   if (t.rejected > 0) return { ok: false, reason: `${t.rejected} pièce(s) refusée(s) — le dossier ne peut pas être payé en l'état.` };
   if (t.toFix > 0) return { ok: false, reason: `${t.toFix} pièce(s) à revoir — attendez la reprise du demandeur.` };
   // Un BON DE VERSEMENT peut n'avoir aucune pièce du tout : exiger une pièce ACCEPTÉE le rendrait
-  // impayable, alors qu'il a déjà été validé en amont (N+1, chef de produit, centre).
+  // impayable, alors qu'il a déjà été validé en amont (N+1, Direction Marketing, centre).
   if (t.accepted === 0 && !isBonDeVersement(request)) return { ok: false, reason: "Aucune pièce validée pour l'instant." };
   return { ok: true };
 }

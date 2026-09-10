@@ -114,18 +114,18 @@ async function congressLikeRisks(th: RiskThresholds): Promise<Risk[]> {
       id: `congress-${c.kind}-${c.id}`, level, category: "CONGRESS", module: c.kind === "ci" ? "Prise en charge Internationale" : "Prise en charge Nationale",
       title: "Congrès bloqué", object: c.name,
       impact: "Validation définitive impossible ; logistique non lancée ; risque de hausse des prix billets/hôtels.",
-      owner: awaitingPm ? "Chef de produit" : "Direction", deadline: null, ageDays: age,
-      probableCause: awaitingPm ? "Analyse du chef de produit non soumise." : "Validation définitive de la Direction en attente.",
-      recommendation: awaitingPm ? "Relancer le chef de produit aujourd'hui." : "Trancher la validation définitive.",
+      owner: awaitingPm ? "Direction Marketing" : "Direction", deadline: null, ageDays: age,
+      probableCause: awaitingPm ? "Analyse de la Direction Marketing non soumise." : "Validation définitive de la Direction en attente.",
+      recommendation: awaitingPm ? "Relancer la Direction Marketing aujourd'hui." : "Trancher la validation définitive.",
       evidence: [
-        `Statut : ${awaitingPm ? "analyse chef de produit" : "validation définitive"}`,
+        `Statut : ${awaitingPm ? "analyse Direction Marketing" : "validation définitive"}`,
         `Sans évolution depuis ${age} j (délai normal ~3 j)`,
-        awaitingPm ? (c.productManagerId ? "Chef de produit assigné, aucun budget proposé" : "Aucun chef de produit assigné") : "Analyse soumise, décision en attente",
+        awaitingPm ? (c.productManagerId ? "Référent Direction Marketing nommé, aucun budget arbitré" : "Aucun budget arbitré par Direction Marketing") : "Arbitrage soumis, décision en attente",
       ],
       href: `${path}/${c.id}`, at: c.updatedAt.toISOString(),
       actions: [
         awaitingPm && c.productManagerId
-          ? { label: "Relancer chef de produit", icon: "Bell", payload: { kind: "notify", userId: c.productManagerId, title: "Analyse de congrès en attente", body: `${c.name} — bloqué depuis ${age} j`, link: `${path}/${c.id}` } }
+          ? { label: "Relancer Direction Marketing", icon: "Bell", payload: { kind: "notify", userId: c.productManagerId, title: "Analyse de congrès en attente", body: `${c.name} — bloqué depuis ${age} j`, link: `${path}/${c.id}` } }
           : { label: "Notifier Direction", icon: "Bell", payload: { kind: "notify", role: "DIRECTION", title: "Congrès en attente de décision", body: `${c.name} — depuis ${age} j`, link: `${path}/${c.id}` } },
         { label: "Créer une relance", icon: "ListChecks", payload: { kind: "task", title: `Débloquer le congrès « ${c.name} » (en attente depuis ${age} j)`, assigneeId: c.productManagerId, priority: level === "critical" ? "CRITICAL" : "HIGH", module: "Congrès" } },
         { label: "Ouvrir dossier", icon: "ExternalLink", href: `${path}/${c.id}` },
@@ -150,14 +150,14 @@ async function sponsoringRisks(th: RiskThresholds): Promise<Risk[]> {
       id: `spo-${s.id}`, level, category: "SPONSORING", module: "Sponsoring",
       title: "Sponsoring bloqué", object: `${s.reference} — ${s.institution}`,
       impact: "Décision retardée ; engagement vis-à-vis de l'institution en suspens.",
-      owner: awaitingPm ? "Chef de produit" : "Direction", deadline: null, ageDays: age,
-      probableCause: awaitingPm ? "Analyse du chef de produit non soumise." : "Décision définitive de la Direction en attente.",
-      recommendation: awaitingPm ? "Relancer le chef de produit." : "Rendre la décision définitive.",
-      evidence: [`Statut : ${awaitingPm ? "analyse chef de produit" : "décision Direction"}`, `Sans évolution depuis ${age} j`],
+      owner: awaitingPm ? "Direction Marketing" : "Direction", deadline: null, ageDays: age,
+      probableCause: awaitingPm ? "Analyse de la Direction Marketing non soumise." : "Décision définitive de la Direction en attente.",
+      recommendation: awaitingPm ? "Relancer la Direction Marketing." : "Rendre la décision définitive.",
+      evidence: [`Statut : ${awaitingPm ? "analyse Direction Marketing" : "décision Direction"}`, `Sans évolution depuis ${age} j`],
       href: `/sponsoring/${s.id}`, at: s.updatedAt.toISOString(),
       actions: [
         awaitingPm && s.productManagerId
-          ? { label: "Relancer chef de produit", icon: "Bell", payload: { kind: "notify", userId: s.productManagerId, title: "Analyse de sponsoring en attente", body: `${s.reference} — depuis ${age} j`, link: `/sponsoring/${s.id}` } }
+          ? { label: "Relancer Direction Marketing", icon: "Bell", payload: { kind: "notify", userId: s.productManagerId, title: "Analyse de sponsoring en attente", body: `${s.reference} — depuis ${age} j`, link: `/sponsoring/${s.id}` } }
           : { label: "Notifier Direction", icon: "Bell", payload: { kind: "notify", role: "DIRECTION", title: "Sponsoring en attente de décision", body: `${s.reference} — depuis ${age} j`, link: `/sponsoring/${s.id}` } },
         { label: "Ouvrir dossier", icon: "ExternalLink", href: `/sponsoring/${s.id}` },
       ],

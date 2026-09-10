@@ -55,7 +55,7 @@ export function CongressRequestForm({ national, doctors, users, canDesignatePM, 
   // La Direction choisit son circuit : trancher tout de suite, ou demander un avis produit.
   const [viaProductManager, setViaProductManager] = React.useState(false);
 
-  // National Sales créant lui-même : il désigne le chef de produit (l'analyse lui est
+  // National Sales créant lui-même : il désigne le référent Direction Marketing (l'analyse lui est
   // confiée) et n'a pas à approuver préliminairement sa propre demande.
   const pmCandidates = React.useMemo(() => users.filter((u) => PM_ROLES.includes(u.role)), [users]);
   const showPmPicker = Boolean(canDesignatePM) && pmCandidates.length > 0;
@@ -144,7 +144,7 @@ export function CongressRequestForm({ national, doctors, users, canDesignatePM, 
           <Field label="Budget estimé (DZD)"><Input name="estimatedBudget" type="number" step="any" placeholder="Estimation du demandeur" /></Field>
         </div>
 
-        {/* National Sales : désignation directe du chef de produit (pas d'auto-approbation
+        {/* National Sales : désignation directe de la Direction Marketing (pas d'auto-approbation
             préliminaire). Direction : le passage par l'analyse est un CHOIX. */}
         {showPmPicker && (
           <div className="space-y-1.5 rounded-lg border border-primary/30 bg-primary/5 p-3">

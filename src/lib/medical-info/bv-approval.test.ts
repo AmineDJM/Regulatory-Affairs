@@ -9,7 +9,7 @@ const base: BvSigners = {
 };
 
 describe("les trois signatures du bon de versement", () => {
-  it("N+1, puis chef de produit, puis le centre — l'ORDRE est le contrôle", () => {
+  it("N+1, puis Direction Marketing, puis le centre — l'ORDRE est le contrôle", () => {
     // En parallèle, le Directeur Général signerait avant que quiconque ait vérifié le montant :
     // sa signature ne vaudrait plus rien, puisqu'elle ne s'appuierait sur aucune vérification.
     const c = bvChain(base);
@@ -22,11 +22,11 @@ describe("les trois signatures du bon de versement", () => {
     const c = bvChain({ ...base, productManagerUserId: null });
     expect(c.validatorIds).toEqual(["n1", "dg"]);
     expect(c.missing).toEqual(["PRODUCT_MANAGER"]);
-    expect(bvChainNote(c)).toContain("chef de produit");
+    expect(bvChainNote(c)).toContain("Direction Marketing");
   });
 
   it("le demandeur ne se valide JAMAIS lui-même", () => {
-    // Un pharmacien qui serait aussi chef de produit du dossier s'auto-validerait, et la
+    // Un pharmacien qui serait aussi référent Direction Marketing du dossier s'auto-validerait, et la
     // marche perdrait son sens.
     const c = bvChain({ ...base, productManagerUserId: "prim" });
     expect(c.validatorIds).toEqual(["n1", "dg"]);
@@ -34,7 +34,7 @@ describe("les trois signatures du bon de versement", () => {
   });
 
   it("la même personne ne signe pas deux fois", () => {
-    // Le chef de produit EST parfois le N+1 : il recevrait deux fois la même demande et devrait
+    // La Direction Marketing EST parfois le N+1 : il recevrait deux fois la même demande et devrait
     // signer deux fois pour la faire avancer.
     const c = bvChain({ ...base, productManagerUserId: "n1" });
     expect(c.validatorIds).toEqual(["n1", "dg"]);

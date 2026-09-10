@@ -81,7 +81,17 @@ suite("Test Center — runner : run de bout en bout (création → nettoyage gar
     expect(run.resourcesCreated).toBe(0);
     expect(run.resourcesDeleted).toBe(0);
     expect(run.cleanupStatus).toBe("NOT_REQUIRED");
-    expect(run.status).toBe(run.criticalCount > 0 ? "FAILED" : "PASSED");
+    // LE VERDICT SE LIT SUR LA MÊME RÈGLE QUE CELLE QUE LE RUNNER APPLIQUE.
+    //
+    // Cette assertion ne lisait que `criticalCount` ; le runner conclut FAILED sur
+    // `criticalCount > 0 || blockingFailures > 0`. Elle mesurait donc la moitié de la règle, et
+    // le prix a été payé : une migration présente sur disque et absente de `_prisma_migrations`
+    // a produit un constat HIGH bloquant, zéro CRITIQUE, et un test rouge qui accusait le
+    // produit au lieu de nommer la vraie cause (§118.92 — « qu'est-ce que le juge a réellement
+    // mesuré ? »). On lit les DEUX compteurs, et l'échec DIT lequel a parlé.
+    const bloquants = (run.summary as { blockingFailures?: number } | null)?.blockingFailures ?? 0;
+    const attendu = run.criticalCount > 0 || bloquants > 0 ? "FAILED" : "PASSED";
+    expect(run.status, `critiques ${run.criticalCount}, bloquants ${bloquants}`).toBe(attendu);
     // Aucun artefact au manifeste pour un audit lecture seule.
     expect(await prisma.testArtifact.count({ where: { testRunId: runId } })).toBe(0);
   }, 60_000);

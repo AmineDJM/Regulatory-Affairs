@@ -13,8 +13,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DocumentUpload } from "@/components/documents/document-upload";
-import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import type { DocItem } from "@/components/documents/document-list";
 import { LinkedRecords } from "@/components/shared/linked-records";
+import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { SPONSORING_STATUS, PRIORITY } from "@/lib/labels";
@@ -45,7 +46,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
 
   // Rôles dans le circuit
   const canDirection = hasGlobalView(user) || userCan(user, "SPONSORING", "VALIDATE");
-  // Étape préliminaire (attribuer le chef de produit) : réservée au National Sales
+  // Étape préliminaire (attribuer la Direction Marketing) : réservée au National Sales
   // (la demande émane d'un délégué). Ni la Direction ni la Direction Marketing n'y interviennent.
   const canPreliminary = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
   const isProductManager = req.productManagerId === user.id;
@@ -56,6 +57,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
     prisma.document.findMany({ where: { entityType: "SPONSORING", entityId: req.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
   ]);
 
+  const ctxPieces = await contextePiecesLiees(user, "SPONSORING");
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
     confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null,
@@ -146,7 +148,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               <Info label="Budget suggéré (délégué)" value={fmt(req.amountProposed)} />
               <Info label="Budget accordé (Direction)" value={fmt(req.amountGranted)} />
               <Info label="Demandeur" value={req.requester?.name} />
-              <Info label="Chef de produit" value={pmUser?.name} />
+              <Info label="Référent Direction Marketing" value={pmUser?.name} />
               <Info label="Validé par" value={req.validatedBy} />
               <div className="col-span-full">
                 <p className="text-xs text-muted-foreground">Description</p>
@@ -188,7 +190,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
             <CardHeader><CardTitle>Circuit de validation</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               {req.appealCount > 0 && (
-                <p className="rounded-lg bg-purple-500/10 px-3 py-2 text-xs text-purple-700">Cette demande a fait l'objet d'un appel ({req.appealCount}×) — réexamen par le chef de produit puis décision de la Direction.</p>
+                <p className="rounded-lg bg-purple-500/10 px-3 py-2 text-xs text-purple-700">Cette demande a fait l'objet d'un appel ({req.appealCount}×) — réexamen par la Direction Marketing puis décision de la Direction.</p>
               )}
               {workflow ? (
                 <WorkflowPanel entityType="SPONSORING" entityId={req.id} view={workflow} />
@@ -205,27 +207,35 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
 
           {/* CE QUI EN DÉCOULE : bon de commande, facture, courrier. Créés d'ici, ils gardent le
               lien vers cette demande — c'est le seul moment où l'on sait de quoi ils viennent. */}
-          <LinkedRecords entityType="SPONSORING" entityId={req.id} reference={req.reference} canCreate={canUpload} />
+          <LinkedRecords
+            entityType="SPONSORING" entityId={req.id} reference={req.reference} canCreate={canUpload}
+            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
+            piecesDeLaDemande={{
+              // LA DEMANDE DU MÉDECIN, APPELÉE PAR SON NOM. Obligatoire à la création, et le
+              // document que tout le circuit lit — la retirer avec le bloc générique l'aurait
+              // rendue invisible sur l'écran même où elle se juge.
+              titre: "Demande(s) du médecin et pièces de la demande",
+              documents: docItems,
+              televerseur: canUpload
+                ? <DocumentUpload entityType="SPONSORING" entityId={req.id} categories={SPONSORING_DOC_CATEGORIES} />
+                : undefined,
+              motif: canUpload
+                ? null
+                : (uploadHint ?? null),
+              canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
+              path: `/sponsoring/${req.id}`,
+            }}
+          />
         </div>
 
         <div className="space-y-5">
-          <Card>
-            <CardHeader className="flex-row items-center justify-between">
-              <CardTitle>Documents</CardTitle>
-              <Badge tone="neutral">{docItems.length}</Badge>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {req.status === "APPROVED" && !documents.some((d) => d.category === "INVOICE") && (
-                <div className="rounded-lg bg-warning/10 px-3 py-2 text-xs font-medium text-warning">
-                  Sponsoring accordé — pensez à joindre la <strong>facture</strong> (catégorie « Facture / Invoice »).
-                </div>
-              )}
-              {canUpload
-                ? <DocumentUpload entityType="SPONSORING" entityId={req.id} categories={SPONSORING_DOC_CATEGORIES} />
-                : uploadHint && <p className="text-xs text-muted-foreground">{uploadHint}</p>}
-              <DocumentList documents={docItems} canDelete={canDelete} canEdit={onlyofficeConfigured() && canUpload} path={`/sponsoring/${req.id}`} />
-            </CardContent>
-          </Card>
+          {/* LE BLOC « DOCUMENTS » GÉNÉRIQUE A DISPARU. On y déposait à la main ce qui aurait dû
+              être une pièce du circuit — la facture du traiteur, le bon de commande, l'offre de
+              service — si bien que la même dépense existait DEUX fois : un fichier posé là, et
+              un engagement dans Legal, aucun des deux ne sachant que l'autre existait.
+              « Engagements, factures et courriers liés » le remplace : chaque pièce y montre SES
+              documents, et la demande du médecin — obligatoire, et le document que tout le
+              circuit lit — garde un emplacement NOMMÉ. */}
           <MissionAssignmentsCard
             entityType="SPONSORING"
             entityId={req.id}

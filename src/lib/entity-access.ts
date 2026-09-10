@@ -108,7 +108,7 @@ const AD_PRO_TYPES: EntityType[] = [
 ];
 
 /**
- * LES PARTIES PRENANTES NOMMÉES d'un dossier Ad&Pro — demandeur, chef de produit, assistante.
+ * LES PARTIES PRENANTES NOMMÉES d'un dossier Ad&Pro — demandeur, Direction Marketing, assistante.
  *
  * Elles instruisent ce dossier-là. Leur refuser d'y joindre la facture ne protège rien : cela
  * sort la pièce de l'ERP, et six semaines plus tard personne ne sait plus à quel événement elle
@@ -169,7 +169,7 @@ export async function canAccessEntity(
 
   // DEMANDE DE PAIEMENT : l'accès ne vient PAS d'un module, mais du CERCLE du dossier.
   //
-  // N'importe qui peut avoir à faire payer une facture — un chef de produit, une assistante, un
+  // N'importe qui peut avoir à faire payer une facture — la Direction Marketing, une assistante, un
   // délégué — sans avoir la moindre raison de voir le grand livre ou la trésorerie. Exiger le
   // module Finances fermerait les pièces à ceux-là mêmes qui doivent les déposer ; exiger le
   // module de validation les fermerait à qui dépose sa première demande.

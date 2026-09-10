@@ -14,7 +14,7 @@ describe("Le formulaire de sponsoring", () => {
   });
 
   it("ne montre AUCUN champ de circuit à qui ne désigne pas", () => {
-    // Un délégué qui verrait « chef de produit » croirait pouvoir court-circuiter son propre
+    // Un délégué qui verrait « Direction Marketing » croirait pouvoir court-circuiter son propre
     // responsable — le champ n'existe pas pour lui.
     const f = sponsoringCreateFields({ productManagers: PM, canDesignatePM: false, canChooseAnalysis: false });
     expect(names(f)).not.toContain("productManagerId");

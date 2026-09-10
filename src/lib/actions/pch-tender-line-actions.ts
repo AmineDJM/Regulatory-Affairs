@@ -104,7 +104,7 @@ export async function updateTenderLine(formData: FormData): Promise<ActionResult
  * l'attribue à ses KAM, par le circuit existant. On ne construit pas un second mécanisme
  * d'attribution — il produirait deux vérités sur « qui porte ce produit ».
  *
- * On n'invente NI le canal, NI le chef de produit, NI les prévisions : ce sont des décisions
+ * On n'invente NI le canal, NI la Direction Marketing, NI les prévisions : ce sont des décisions
  * commerciales qui appartiennent à la BU, pas des valeurs qu'un rattachement peut deviner.
  *
  * RETIRER une BU ne supprime PAS le produit de son portefeuille : il a pu y être ajouté pour

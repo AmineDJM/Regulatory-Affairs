@@ -846,7 +846,7 @@ export const MEDINFO_OPS_IMPL: Record<string, OpImpl> = {
         ]),
         warnings: [
           "Ce dossier n'appelle AUCUN bon de versement : c'est le circuit des événements et prises en charge.",
-          "Ce qu'on fait valider est la LECTURE du pharmacien, pas la question — le responsable, le chef de produit, puis le centre de validations.",
+          "Ce qu'on fait valider est la LECTURE du pharmacien, pas la question — le responsable, la Direction Marketing, puis le centre de validations.",
         ],
         args: { id: decl.id, intent, note: note || null },
         successMessage: `Lecture soumise à validation pour ${decl.reference}.`,
@@ -928,7 +928,7 @@ export const MEDINFO_OPS_IMPL: Record<string, OpImpl> = {
           ["Note", opStr(input, "note") || null],
         ]),
         warnings: [
-          "AUCUN ARGENT N'EST ENGAGÉ ICI : le dépôt part en VALIDATION — le responsable du pharmacien, le chef de produit du dossier, puis le centre de validations.",
+          "AUCUN ARGENT N'EST ENGAGÉ ICI : le dépôt part en VALIDATION — le responsable du pharmacien, le référent Direction Marketing du dossier, puis le centre de validations.",
           "Une seule validation pour le LOT ; le paiement de chaque quittance se demande ensuite SÉPARÉMENT.",
           "La liste des matériels est FIGÉE à partir de cet envoi.",
         ],

@@ -257,7 +257,7 @@ export async function removeCareBeneficiary(_prev: ActionResult | undefined, for
 /**
  * Ajoute une case sur la ligne d'UNE personne — une pièce à fournir ou un élément à acheter.
  *
- * Ajoutable par tous ceux qui ont accès à la demande : le chef de produit découvre souvent
+ * Ajoutable par tous ceux qui ont accès à la demande : la Direction Marketing découvre souvent
  * après coup qu'il faut un visa ou une nuit d'hôtel supplémentaire.
  */
 export async function addCareCell(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {

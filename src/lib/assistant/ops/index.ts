@@ -476,7 +476,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
     def: {
       name: "legal_operation",
       description:
-        "DOCUMENTS LÉGAUX — renouveler (chaîne), annuler, régler les LECTEURS (le déposant choisit, nul autre ne voit), envoyer une facture au règlement, par les actions canoniques. "
+        "DOCUMENTS LÉGAUX — renouveler (chaîne), annuler, régler les LECTEURS (le déposant choisit, nul autre ne voit), envoyer une facture au règlement, BRANCHER une pièce existante sur une fiche Ad & Pro (jamais la recréer) ou l'en détacher, par les actions canoniques. "
         + `Champ « op » : ${opsSummary("legal_operation")}. `
         + "Le document se donne par titre ou référence. (Créer/modifier un document : create_legal_document / update_legal_document.)",
       input_schema: {
@@ -493,6 +493,8 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           name: { type: "string", description: "attach_drive : nom du fichier Drive à déclarer." },
           kind: { type: "string", description: "attach_drive : type (contrat, bon de commande, assurance…)." },
           counterparty: { type: "string", description: "attach_drive : contrepartie." },
+          target: { type: "string", description: "link_record : la FICHE Ad & Pro qui recevra la pièce — sa référence (SP-2026-014) ou son intitulé." },
+          nature: { type: "string", description: "link_record : nature de la fiche si le nom est ambigu — sponsoring, congrès international, prise en charge nationale, événement, autre, consulting." },
           folder: { type: "string", description: "Dossiers Legal : le dossier visé (« aucun » pour déclasser)." },
           newName: { type: "string", description: "rename_folder : nouveau nom." },
           parent: { type: "string", description: "create_folder : dossier parent." },
@@ -573,7 +575,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
     def: {
       name: "adpro_operation",
       description:
-        "AD & PRO — LES CIRCUITS COMPLETS : sponsoring (préliminaire National Sales → analyse chef de produit → décision Direction → appel), congrès / événements (mêmes marches + budget accordé modifiable + personnes prises en charge), POSTES de dépense (ajout, soumission, décision, imputation budgétaire, BC visé puis émis), demandes « autres », correction de fiche par liste blanche, missions, matériel promo (étapes), par les actions canoniques. "
+        "AD & PRO — LES CIRCUITS COMPLETS : sponsoring (préliminaire National Sales → analyse Direction Marketing → décision Direction → appel), congrès / événements (mêmes marches + budget accordé modifiable + personnes prises en charge), POSTES de dépense (ajout, soumission, décision, imputation budgétaire, BC visé puis émis), demandes « autres », correction de fiche par liste blanche, missions, matériel promo (étapes), par les actions canoniques. "
         + `Champ « op » : ${opsSummary("adpro_operation")}. `
         + "Le sponsoring se donne par SPO-… ou institution ; le congrès / événement par « target » (+ « kind » si ambigu) ; le poste par « label » dans son opération.",
       input_schema: {
@@ -589,7 +591,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           note: { type: "string", description: "Motif / note (obligatoire pour les refus)." },
           target: { type: "string", description: "La cible : événement / congrès / sponsoring (nom ou référence)." },
           kind: { type: "string", description: "Type de la cible (événement | sponsoring | congrès international | congrès national) — tranche l'ambiguïté." },
-          person: { type: "string", description: "La personne : chef de produit désigné, tierce personne, personne prise en charge, bénéficiaire d'une demande « autre »." },
+          person: { type: "string", description: "La personne : référent Direction Marketing désigné, tierce personne, personne prise en charge, bénéficiaire d'une demande « autre »." },
           role: { type: "string", description: "Missions : accompagnant / délégué de référence ; personnes prises en charge : rôle libre." },
           message: { type: "string", description: "comment_mission : le message ; create_other_request : alias de notes." },
           mode: { type: "string", description: "add_item : « rallonge » si le poste est EN PLUS du budget accordé ; close_other_request : « annuler »." },
@@ -636,7 +638,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           products: { type: "string", description: "update_event : produits présentés." },
           quantity: { type: "string", description: "update_event : capacité (places)." },
           amount: { type: "string", description: "update_event : budget estimé (DZD)." },
-          person: { type: "string", description: "Participant (prénom + nom) — ou chef de produit pour submit_event_for_approval." },
+          person: { type: "string", description: "Participant (prénom + nom) — ou Direction Marketing pour submit_event_for_approval." },
           role: { type: "string", description: "add_registration : médecin, professeur, chef de service, pharmacien, autre." },
           email: { type: "string", description: "add_registration : e-mail." },
           phone: { type: "string", description: "add_registration : téléphone." },
@@ -1006,7 +1008,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           name: { type: "string", description: "Nom (création) ou cible (produit / BU / équipe)." },
           newName: { type: "string", description: "Nouveau nom (BU, produit, équipe)." },
           product: { type: "string", description: "Le produit promu visé (nom)." },
-          person: { type: "string", description: "Responsable de BU / superviseur / chef de produit / KAM (nom ; « aucun » retire)." },
+          person: { type: "string", description: "Responsable de BU / superviseur / référent Direction Marketing / KAM (nom ; « aucun » retire)." },
           label: { type: "string", description: "save_rep_profile : la BU du KAM (« aucune » détache) ; create/update_business_unit : le chef de BU ; carry_forward : cycle cible." },
           date: { type: "string", description: "Le cycle mensuel (« septembre 2026 » ou 2026-09) — carry_forward : cycle SOURCE." },
           endDate: { type: "string", description: "carry_forward_assignments : cycle CIBLE." },

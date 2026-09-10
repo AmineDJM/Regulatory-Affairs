@@ -107,7 +107,7 @@ export async function deleteEvent(formData: FormData): Promise<ActionResult> {
 /**
  * Soumet un événement existant au **circuit de prise en charge**, identique à celui
  * des congrès : la demande (souvent d'un délégué) part vers le **National Sales**
- * (approbation préliminaire + désignation du chef de produit) → analyse du chef de
+ * (approbation préliminaire + désignation du référent Direction Marketing) → analyse du chef de
  * produit → **Direction** (décision définitive + budget accordé) → **information
  * médicale** (PRIM). Les étapes suivantes sont gérées par `congress-request-actions`
  * avec `type=EVENT` (mêmes composants UI).
@@ -125,7 +125,7 @@ export async function submitEventForApproval(formData: FormData): Promise<Action
   const pmId = fdStr(formData, "productManagerId");
   if (pmId) {
     const okPm = await prisma.user.count({ where: { id: pmId, isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) } });
-    if (!okPm) return { ok: false, error: "Le chef de produit sélectionné est introuvable." };
+    if (!okPm) return { ok: false, error: "Le référent Direction Marketing sélectionné est introuvable." };
   }
   // La Direction, elle, CHOISIT : trancher tout de suite, ou demander d'abord l'avis d'un chef
   // de produit. `adProInit` ignore ce drapeau pour les autres rangs — le choix ne se vole pas.

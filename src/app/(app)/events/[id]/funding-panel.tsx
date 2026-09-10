@@ -16,7 +16,7 @@ interface Props {
   requestSubmitted: boolean; // l'événement est-il déjà entré dans le circuit ?
   canSubmit: boolean;
   workflow: WorkflowView | null;
-  /** Candidats chef de produit (fournis au National Sales qui désigne à la soumission). */
+  /** Candidats Direction Marketing (fournis au National Sales qui désigne à la soumission). */
   pmCandidates?: PmOpt[];
   /** La Direction peut CHOISIR de demander un avis produit avant de trancher (elle n'y est pas tenue). */
   canChooseAnalysis?: boolean;
@@ -40,7 +40,7 @@ export function EventFundingPanel({ eventId, requestSubmitted, canSubmit, workfl
  * SOUMETTRE — le circuit DÉPEND DE QUI SOUMET.
  *
  * Personne n'approuve la demande qu'il émet lui-même : un délégué part du National Sales,
- * le National Sales désigne directement le chef de produit, un chef de produit va droit à la
+ * le National Sales désigne directement la Direction Marketing, la Direction Marketing va droit à la
  * Direction. La Direction, elle, a le CHOIX — trancher tout de suite, ou demander d'abord un
  * avis produit. Ce choix lui appartient : on ne le lui impose pas, on ne le lui retire pas.
  */
@@ -53,7 +53,7 @@ function SubmitButton({
   const [productManagerId, setProductManagerId] = React.useState("");
   const [viaProductManager, setViaProductManager] = React.useState(false);
   const hasPmCandidates = pmCandidates.length > 0;
-  // La Direction ne voit le sélecteur de chef de produit que si elle a demandé cet avis ;
+  // La Direction ne voit le sélecteur de Direction Marketing que si elle a demandé cet avis ;
   // le National Sales, lui, DOIT désigner — c'est son étape.
   const showPmPicker = hasPmCandidates && (!canChooseAnalysis || viaProductManager);
   const pmRequired = hasPmCandidates && (canChooseAnalysis ? viaProductManager : true);

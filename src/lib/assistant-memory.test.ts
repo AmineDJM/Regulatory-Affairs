@@ -47,7 +47,7 @@ suite("Mémoire assistant — cloisonnement strict entre personnes", () => {
   });
 
   it("connaître l'IDENTIFIANT du fil d'un autre ne suffit PAS à le lire", async () => {
-    // Le chef de produit possède l'id exact du fil du directeur : la lecture doit échouer.
+    // La Direction Marketing possède l'id exact du fil du directeur : la lecture doit échouer.
     expect(await getThreadMessages(pmUser, dirThread)).toBeNull();
     // Le propriétaire, lui, le lit normalement.
     const mine = await getThreadMessages(dirUser, dirThread);
@@ -98,7 +98,7 @@ suite("Mémoire assistant — cloisonnement strict entre personnes", () => {
     await forgetEverything(dirUser);
     expect(await listThreads(dirUser)).toHaveLength(0);
     expect(await getMemory(dirUser)).toBeNull();
-    // Le chef de produit conserve les siens.
+    // La Direction Marketing conserve les siens.
     expect((await listThreads(pmUser)).length).toBeGreaterThan(0);
   });
 });

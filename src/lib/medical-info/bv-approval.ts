@@ -6,7 +6,7 @@
  * Trois personnes, trois questions différentes, et c'est pourquoi aucune ne remplace les autres :
  *
  *   1. le **N+1 du pharmacien** — « ce versement relève-t-il bien de son travail ? » ;
- *   2. le **chef de produit du dossier** — « le montant correspond-il à cet événement ? » ; c'est
+ *   2. le **référent Direction Marketing du dossier** — « le montant correspond-il à cet événement ? » ; c'est
  *      lui qui connaît le budget accordé et ce qu'il couvre ;
  *   3. le **centre de validations** (Directeur Général, à défaut Super Admin) — « engage-t-on la
  *      société ? ».
@@ -20,7 +20,7 @@
  *
  * ── CE QU'ON FAIT DES SIGNATAIRES MANQUANTS ─────────────────────────────────────────────────
  *
- * Un pharmacien sans N+1 dans l'organigramme, un événement sans chef de produit : cela arrive, et
+ * Un pharmacien sans N+1 dans l'organigramme, un événement sans Direction Marketing : cela arrive, et
  * ce n'est pas une raison de bloquer le dossier. La marche absente est SAUTÉE, jamais remplacée
  * par quelqu'un d'autre — désigner un remplaçant « au plus proche » ferait signer une personne
  * qui n'a pas la question. Le centre, lui, n'est jamais sauté : sans lui, personne n'engage la
@@ -33,7 +33,7 @@
 export interface BvSigners {
   /** Le N+1 du pharmacien, tel que l'organigramme le résout. */
   managerUserId: string | null;
-  /** Le chef de produit du dossier source (sponsoring, congrès, événement). */
+  /** Le référent Direction Marketing du dossier source (sponsoring, congrès, événement). */
   productManagerUserId: string | null;
   /** Le siège du centre de validations — Directeur Général, à défaut Super Admin. */
   centreUserId: string | null;
@@ -51,11 +51,11 @@ export interface BvChain {
 /**
  * LA CHAÎNE DE SIGNATURES, dans l'ordre, dédoublonnée.
  *
- * Le dédoublonnage n'est pas cosmétique : quand le chef de produit EST le N+1 du pharmacien —
+ * Le dédoublonnage n'est pas cosmétique : quand la Direction Marketing EST le N+1 du pharmacien —
  * cela se produit — la même personne recevrait deux fois la même demande et devrait signer
  * deux fois pour la faire avancer. Elle signe une fois, à sa première place.
  *
- * Le demandeur est écarté partout : un pharmacien qui serait aussi chef de produit du dossier
+ * Le demandeur est écarté partout : un pharmacien qui serait aussi référent Direction Marketing du dossier
  * s'auto-validerait, et la marche perdrait son sens.
  */
 export function bvChain(s: BvSigners): BvChain {
@@ -73,7 +73,7 @@ export function bvChain(s: BvSigners): BvChain {
 
 const MANQUE: Record<BvChain["missing"][number], string> = {
   MANAGER: "aucun responsable hiérarchique",
-  PRODUCT_MANAGER: "aucun chef de produit sur le dossier",
+  PRODUCT_MANAGER: "aucun référent Direction Marketing sur le dossier",
   CENTRE: "aucun Directeur Général ni Super Admin actif",
 };
 

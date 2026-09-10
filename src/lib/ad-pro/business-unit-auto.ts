@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { ROLE_KAM } from "@/lib/workflow/parcours";
+import { estKam, estNationalSales, type RolesPersonne } from "@/lib/personnes/roles-vente";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -40,15 +40,9 @@ export interface BuDeduite {
   raison: string;
 }
 
-interface DemandeurBu {
+interface DemandeurBu extends RolesPersonne {
   id: string;
-  role: string;
-  secondaryRole?: string | null;
 }
-
-const estKamBu = (u: DemandeurBu): boolean => u.role === ROLE_KAM || (u.secondaryRole ?? null) === ROLE_KAM;
-const estNationalSales = (u: DemandeurBu): boolean =>
-  u.role === "NATIONAL_SALES" || (u.secondaryRole ?? null) === "NATIONAL_SALES";
 
 /**
  * La gamme que porte cette personne, ou `null` quand elle ne se lit pas À COUP SÛR.
@@ -58,7 +52,7 @@ const estNationalSales = (u: DemandeurBu): boolean =>
  * un secteur — porte d'abord sa propre gamme de KAM.
  */
 export async function businessUnitDuDemandeur(user: DemandeurBu): Promise<BuDeduite | null> {
-  if (estKamBu(user)) {
+  if (estKam(user)) {
     const fiche = await prisma.salesRepProfile
       .findUnique({
         where: { repId: user.id },

@@ -4,7 +4,7 @@ import type { StateMachine } from "./types";
  * Déclarations des machines à états des objets métier majeurs (§29), calquées sur les enums
  * Prisma et les circuits réellement codés (workflow Ad & Pro, ordres de dépense, validations,
  * congrès, événements, congés). Les points d'entrée multiples reflètent le **routage intelligent**
- * (un chef de produit / la Direction sautent des étapes → l'objet peut naître déjà avancé).
+ * (la Direction Marketing / la Direction sautent des étapes → l'objet peut naître déjà avancé).
  */
 export const STATE_MACHINES: StateMachine[] = [
   {
@@ -66,7 +66,7 @@ export const STATE_MACHINES: StateMachine[] = [
     },
   },
   // Le champ `status` des congrès porte l'enum CongressStatus (cycle d'organisation). Le circuit
-  // d'approbation (préliminaire → chef de produit → définitive) est suivi à part (WorkflowInstance).
+  // d'approbation (préliminaire → Direction Marketing → définitive) est suivi à part (WorkflowInstance).
   ...(["congressInternational", "congressNational"] as const).map((model) => ({
     id: model,
     label: model === "congressInternational" ? "Prise en charge Internationale" : "Prise en charge Nationale",

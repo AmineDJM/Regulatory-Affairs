@@ -162,7 +162,7 @@ export const ENTITIES: EntityDef[] = [
     model: "SponsoringRequest",
     module: "SPONSORING",
     label: "Demande de sponsoring",
-    description: "Demande de parrainage instruite par le circuit Ad & Pro (National Sales → chef de produit → Direction), avec ses postes de dépense et son ordre de paiement.",
+    description: "Demande de parrainage instruite par le circuit Ad & Pro (National Sales → Direction Marketing → Direction), avec ses postes de dépense et son ordre de paiement.",
     scope: moduleOnly,
     listFields: ["id", "reference", "institution", "doctor", "type", "status", "amountRequested", "amountGranted", "companyId", "requestDate", "createdAt"],
     searchFields: ["reference", "institution", "doctor", "description", "comments"],

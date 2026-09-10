@@ -33,8 +33,9 @@ import { toNumber } from "@/lib/utils";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { LinkedRecords } from "@/components/shared/linked-records";
+import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
-import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import type { DocItem } from "@/components/documents/document-list";
 
 export const dynamic = "force-dynamic";
 
@@ -48,10 +49,10 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
   const canValidate = hasGlobalView(user);
   const canSubmit = userCan(user, "EVENTS", "CREATE");
-  // National Sales soumettant lui-même : il désigne le chef de produit (l'analyse lui
+  // National Sales soumettant lui-même : il désigne le référent Direction Marketing (l'analyse lui
   // est confiée) au lieu d'approuver préliminairement sa propre demande.
   const canDesignatePM = canDesignateProductManagerAtCreation(user);
-  // La Direction choisit son circuit : décision directe, ou avis d'un chef de produit d'abord.
+  // La Direction choisit son circuit : décision directe, ou avis de la Direction Marketing d'abord.
   const canChooseAnalysis = canChooseAnalysisAtCreation(user);
   const [items, promoOptions, budgetOptions] = await Promise.all([
     loadAdProItems("EVENT", e.id),
@@ -77,6 +78,9 @@ export default async function EventDetailPage({ params }: { params: { id: string
     prisma.document.findMany({ where: { entityType: "EVENT", entityId: e.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
     getInvolvementThreads("EVENT", e.id),
   ]);
+  // Les droits sur les pièces des engagements/factures/courriers liés + les documents Legal
+  // rattachables. Une seule règle pour les trois écrans Ad & Pro (`ad-pro/pieces-liees.ts`).
+  const ctxPieces = await contextePiecesLiees(user, "EVENTS");
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
     confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null,
@@ -128,30 +132,28 @@ export default async function EventDetailPage({ params }: { params: { id: string
 
       </div>
 
-      {/* DOCUMENTS de l'événement — comme partout ailleurs : convention, programme, photos,
-          facture… Le module portait des chiffres de présence (inscrits, taux) qui n'ont plus
-          cours depuis qu'on ne gère plus les inscriptions ; il lui manquait ce qui sert
-          vraiment, la liste des pièces. */}
-      <Card>
-        <CardHeader><CardTitle>Documents</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          {canUploadDocs
-            ? <DocumentUpload entityType="EVENT" entityId={e.id} />
-            : uploadHint && <p className="text-xs text-muted-foreground">{uploadHint}</p>}
-          <DocumentList
-            documents={docItems}
-            canDelete={userCan(user, "EVENTS", "DELETE") || hasGlobalView(user)}
-            canRename={canUploadDocs}
-            canEdit={onlyofficeConfigured() && canUploadDocs}
-            path={`/events/${e.id}`}
-          />
-        </CardContent>
-      </Card>
+      {/* Le bloc « Documents » générique a disparu : les pièces vivent avec l'engagement, la
+          facture ou le courrier qu'elles justifient — le même fichier n'existe plus à deux
+          endroits qui s'ignorent — et la pièce de l'événement lui-même garde un emplacement
+          nommé dans « Engagements, factures et courriers liés ». */}
       {/* CE QUI EN DÉCOULE : engagement, facture, courrier. Le mécanisme connaissait déjà ce type
           de dossier ; il ne manquait que le bloc — et l'on ne pouvait donc RIEN rattacher à un
           événement. Créés d'ici, ils gardent le lien : c'est le seul moment où l'on sait de quoi
           ils viennent, et le seul où le rattachement ne coûte rien. */}
-      <LinkedRecords entityType="EVENT" entityId={e.id} reference={e.name} canCreate={canUploadDocs} />
+      <LinkedRecords
+        entityType="EVENT" entityId={e.id} reference={e.name} canCreate={canUploadDocs}
+        acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
+        piecesDeLaDemande={{
+          titre: "Pièces de l'événement (convention, programme, photos…)",
+          documents: docItems,
+          televerseur: canUploadDocs ? <DocumentUpload entityType="EVENT" entityId={e.id} /> : undefined,
+          motif: uploadHint,
+          canDelete: userCan(user, "EVENTS", "DELETE") || hasGlobalView(user),
+          canRename: canUploadDocs,
+          canEdit: onlyofficeConfigured() && canUploadDocs,
+          path: `/events/${e.id}`,
+        }}
+      />
 
 
       <Card>

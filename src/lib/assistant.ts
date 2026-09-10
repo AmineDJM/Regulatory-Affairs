@@ -2188,7 +2188,7 @@ async function findPeople(query: string, limit = 8): Promise<PersonMatch[]> {
   const q = query.trim();
   if (!q) return [];
   // Recherche par NOM **ou par FONCTION** (title) : « l'assistante de direction »,
-  // « le chef de produit »… se résolvent par leur intitulé de poste, pas seulement
+  // « la Direction Marketing »… se résolvent par leur intitulé de poste, pas seulement
   // par leur prénom.
   const users = await prisma.user.findMany({
     where: { isActive: true, OR: [{ name: { contains: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }] },

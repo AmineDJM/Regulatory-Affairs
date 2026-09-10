@@ -2,9 +2,7 @@ import type * as React from "react";
 import type { EntityType } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { DocumentUpload } from "@/components/documents/document-upload";
-import { DocumentList, type DocItem } from "@/components/documents/document-list";
-import { onlyofficeConfigured } from "@/lib/onlyoffice";
+import type { DocItem } from "@/components/documents/document-list";
 import { NATIONAL_EVENT_TYPE } from "@/lib/labels";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CongressDetail } from "@/lib/queries/congress";
@@ -17,7 +15,6 @@ import type { InvolvementThread } from "@/lib/queries/involvement";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import type { MissionAssignmentDTO } from "@/lib/queries/missions";
 
-const CONGRESS_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
 export function CongressDetailView({
   detail, workflow, canInvolveThirdParty, entityType, entityId, documents, canUpload, canDelete, path,
@@ -98,13 +95,11 @@ export function CongressDetailView({
 
       {/* Documents + personnes prises en charge + médecins + participants */}
       <div className="space-y-5">
-        <Card>
-          <CardHeader className="flex-row items-center justify-between"><CardTitle>Documents</CardTitle><Badge tone="neutral" dot={false}>{documents.length}</Badge></CardHeader>
-          <CardContent className="space-y-4">
-            {canUpload && <DocumentUpload entityType={entityType} entityId={entityId} categories={CONGRESS_DOC_CATEGORIES} />}
-            <DocumentList documents={documents} canDelete={canDelete} canRename={canUpload} canEdit={onlyofficeConfigured() && canUpload} path={path} />
-          </CardContent>
-        </Card>
+        {/* Le bloc « Documents » générique a disparu ici comme sur les autres fiches Ad & Pro :
+            les pièces vivent désormais avec l'engagement, la facture ou le courrier qu'elles
+            justifient — le même fichier n'existe plus à deux endroits qui s'ignorent — et les
+            pièces de la prise en charge gardent un emplacement NOMMÉ dans « Engagements,
+            factures et courriers liés », que les deux écrans montent en bas de page. */}
 
         <BeneficiariesCard
           entityType={entityType}

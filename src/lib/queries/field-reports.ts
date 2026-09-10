@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { platformScope } from "@/lib/company";
 
 /** Lecture des rapports terrain (vocaux). Un délégué voit les siens ; un manager
- *  / la Direction / un chef de produit **gèrent** tout (édition + validation + synthèse).
+ *  / la Direction / la Direction Marketing **gèrent** tout (édition + validation + synthèse).
  *  Le **superviseur national** (National Sales), lui, **voit** tous les rapports des
  *  délégués (lecture + synthèse), sans les éditer. */
 

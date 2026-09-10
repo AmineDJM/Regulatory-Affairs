@@ -29,7 +29,7 @@ describe("joindre une pièce à un dossier Ad&Pro", () => {
     expect(canAttachToAdPro(viewer({ hasGlobalView: true }), dossier)).toBe(true);
   });
 
-  it("LE CHEF DE PRODUIT ET L'ASSISTANTE aussi — ils instruisent ce dossier-là", () => {
+  it("LE DIRECTION MARKETING ET L'ASSISTANTE aussi — ils instruisent ce dossier-là", () => {
     expect(canAttachToAdPro(viewer({ id: "u-cp" }), dossier)).toBe(true);
     expect(canAttachToAdPro(viewer({ id: "u-ass" }), dossier)).toBe(true);
   });

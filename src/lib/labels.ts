@@ -241,10 +241,10 @@ export const SPONSORING_STATUS: Record<string, Display> = {
   PAID: { label: "Payé", tone: "success" },
   CLOSED: { label: "Clôturé", tone: "neutral" },
   AWAITING_PRELIMINARY: { label: "Attente National Sales", tone: "warning" },
-  PRELIMINARY_APPROVED: { label: "Analyse chef de produit", tone: "info" },
+  PRELIMINARY_APPROVED: { label: "Analyse Direction Marketing", tone: "info" },
   AWAITING_FINAL: { label: "Attente décision Direction", tone: "warning" },
   APPROVED: { label: "Accordé", tone: "success" },
-  APPEAL_PENDING: { label: "Appel — réexamen chef de produit", tone: "purple" },
+  APPEAL_PENDING: { label: "Appel — réexamen Direction Marketing", tone: "purple" },
   AWAITING_FINAL_APPEAL: { label: "Appel — décision Direction", tone: "warning" },
   CANCELLED: { label: "Annulé", tone: "neutral" },
 };
@@ -291,7 +291,7 @@ export const CONGRESS_STATUS: Record<string, Display> = {
 
 export const CONGRESS_REQUEST_STATUS: Record<string, Display> = {
   AWAITING_PRELIMINARY: { label: "Attente National Sales", tone: "warning" },
-  PRELIMINARY_APPROVED: { label: "Analyse chef de produit", tone: "info" },
+  PRELIMINARY_APPROVED: { label: "Analyse Direction Marketing", tone: "info" },
   AWAITING_FINAL: { label: "Attente validation définitive", tone: "warning" },
   APPROVED: { label: "Validé — pris en charge", tone: "success" },
   REJECTED: { label: "Refusé", tone: "danger" },

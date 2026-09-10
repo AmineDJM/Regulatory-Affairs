@@ -806,6 +806,9 @@ G("Legal avancé (édition, dossiers, rattachements Drive, règlement de facture
   "legal-folder-actions:updateLegalFolder", "legal-folder-actions:deleteLegalFolder",
   "legal-folder-actions:moveLegalDocuments",
 ]);
+// Le rattachement d'une pièce Legal existante (`ad-pro-rattacher-legal`) n'est PAS ici : il est
+// couvert par `legal_operation/link_record` et `unlink_record`, donc reclassé NATIVE par le
+// catalogue. Le mettre dans ce bloc l'écraserait en GAP le temps de la lecture, pour rien.
 G("Ad&Pro (postes, décisions, transferts, consulting)", [
   "ad-pro-edit-actions:updateAdProRequest", "ad-pro-item-actions:addAdProItem", "ad-pro-item-actions:updateAdProItem",
   "ad-pro-item-actions:deleteAdProItem", "ad-pro-item-actions:emitItemExpenseOrder",

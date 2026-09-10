@@ -219,7 +219,7 @@ export async function requestDeclareDecision(_prev: ActionResult | undefined, fo
 
   const validateurs = await declarationValidators(user.id, decl.sourceType, decl.sourceId);
   if (validateurs.validatorIds.length === 0) {
-    return { ok: false, error: "Aucun signataire disponible (responsable, chef de produit, Directeur Général) : la demande n'aurait personne à qui aller." };
+    return { ok: false, error: "Aucun signataire disponible (responsable, Direction Marketing, Directeur Général) : la demande n'aurait personne à qui aller." };
   }
 
   const res = await createDirectValidation({
@@ -339,7 +339,7 @@ export async function removeMedicalInfoSlip(formData: FormData): Promise<ActionR
 /**
  * FAIRE VALIDER LE DÉPÔT DES BONS — une fois pour le lot entier.
  *
- * Trois signatures : le N+1 du pharmacien, le chef de produit du dossier, puis le centre de
+ * Trois signatures : le N+1 du pharmacien, le référent Direction Marketing du dossier, puis le centre de
  * validations. Faire signer cinq fois la même décision, une par matériel, n'ajoute aucune
  * sécurité : cela ajoute quatre relances. Ce qui se demande matériel par matériel, c'est le
  * PAIEMENT, et il vient après.
@@ -364,7 +364,7 @@ export async function requestSlipsValidation(_prev: ActionResult | undefined, fo
   const note = fdStr(formData, "note");
   const validateurs = await declarationValidators(user.id, decl.sourceType, decl.sourceId);
   if (validateurs.validatorIds.length === 0) {
-    return { ok: false, error: "Aucun signataire disponible (responsable, chef de produit, Directeur Général) : la demande n'aurait personne à qui aller." };
+    return { ok: false, error: "Aucun signataire disponible (responsable, Direction Marketing, Directeur Général) : la demande n'aurait personne à qui aller." };
   }
 
   const res = await createDirectValidation({
@@ -407,7 +407,7 @@ export async function requestSlipsValidation(_prev: ActionResult | undefined, fo
 }
 
 /**
- * LES TROIS SIGNATAIRES D'UN DOSSIER — le N+1, le chef de produit de la source, le centre.
+ * LES TROIS SIGNATAIRES D'UN DOSSIER — le N+1, la Direction Marketing de la source, le centre.
  *
  * La même chaîne sert aux deux circuits : ce qu'on soumet diffère (une lecture, un dépôt de bons),
  * les personnes qui répondent sont les mêmes, et pour la même raison — l'une connaît le travail,
@@ -431,7 +431,7 @@ async function declarationValidators(requesterId: string, sourceType: string, so
 }
 
 /**
- * LE CHEF DE PRODUIT DU DOSSIER — celui du dossier SOURCE, jamais un « chef de produit » générique.
+ * LE RÉFÉRENT DIRECTION MARKETING DU DOSSIER — celui du dossier SOURCE, jamais un « Direction Marketing » générique.
  *
  * La question qu'on lui pose est « le montant correspond-il à CET événement ? ». Y répondre
  * suppose de connaître le budget accordé et ce qu'il couvre — donc d'être celui qui a instruit

@@ -35,7 +35,7 @@ export type PaymentDomain =
 export type InitiatorProfile =
   /** Délégué médical / KAM : sa demande passe d'abord par sa ligne métier. */
   | "FIELD_REP"
-  /** Chef de produit : il EST la ligne métier, il ne se valide pas lui-même deux fois. */
+  /** Direction Marketing : il EST la ligne métier, il ne se valide pas lui-même deux fois. */
   | "PRODUCT_MANAGER"
   /** Ressources humaines / moyens généraux. */
   | "HR_SUPPLIES"
@@ -54,7 +54,7 @@ export type StepKind = "BUSINESS" | "PAYMENT";
 
 export const AUTHORITY_LABEL: Record<Authority, string> = {
   NATIONAL_SUPERVISOR: "Superviseur national",
-  PRODUCT_MANAGER: "Chef de produit",
+  PRODUCT_MANAGER: "Direction Marketing",
   HR: "Ressources humaines",
   OPERATIONS: "Direction des opérations",
   GENERAL_MANAGEMENT: "Direction générale",
@@ -127,8 +127,8 @@ export function buildPaymentChain(input: ChainInput, threshold = DEFAULT_DG_THRE
     steps.push({
       authority: "PRODUCT_MANAGER",
       kind: "BUSINESS",
-      label: "Validation du chef de produit",
-      reason: "Demande émise par un délégué / KAM : le chef de produit juge la pertinence produit.",
+      label: "Validation de la Direction Marketing",
+      reason: "Demande émise par un délégué / KAM : la Direction Marketing juge la pertinence produit.",
       transferable: false,
     });
   } else if (input.initiator === "HR_SUPPLIES" || input.domain === "SUPPLIES_ADMIN") {
@@ -140,7 +140,7 @@ export function buildPaymentChain(input: ChainInput, threshold = DEFAULT_DG_THRE
       transferable: false,
     });
   }
-  // Le chef de produit qui demande lui-même ne repasse pas par une validation métier : il EST
+  // La Direction Marketing qui demande lui-même ne repasse pas par une validation métier : il EST
   // la ligne métier. Le faire valider par lui-même serait un clic pour rien.
 
   // ─── AUTORISATION DE PAIEMENT — elle, dépend du MONTANT ───
@@ -272,7 +272,7 @@ export function canTransfer(
  * UN AVIS — consultatif, tracé, et surtout NON BLOQUANT.
  *
  * C'est la soupape qui rend la simplification possible : la direction des opérations peut
- * consulter le chef de produit, ou n'importe qui d'autre, sans transformer cette consultation
+ * consulter la Direction Marketing, ou n'importe qui d'autre, sans transformer cette consultation
  * en une étape de plus. L'avis est enregistré et visible ; la chaîne, elle, ne l'attend pas.
  */
 export interface Advice {

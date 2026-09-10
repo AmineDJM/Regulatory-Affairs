@@ -42,7 +42,7 @@ async function mkValidation(validatorId: string, opts: {
 suite("getAccess — accès temporaire de validation", () => {
   beforeAll(async () => {
     requesterId = await mkUser("req", "DIRECTION_ASSISTANT");
-    // Chef de produit : AUCUN accès PCH / Ventes par défaut → parfait pour prouver l'octroi temporaire.
+    // Direction Marketing : AUCUN accès PCH / Ventes par défaut → parfait pour prouver l'octroi temporaire.
     for (const slug of ["none", "label", "link", "row", "done"]) ids[slug] = await mkUser(slug, "PRODUCT_MANAGER");
     // VIEWER : rôle SANS le module VALIDATIONS par défaut → prouve qu'un validateur choisi
     // peut malgré tout ouvrir la page des validations dès qu'une étape l'attend.

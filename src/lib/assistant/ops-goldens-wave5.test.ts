@@ -7,7 +7,7 @@ import { buildProposal, type AssistantActionPayload } from "@/lib/assistant";
 /**
  * GOLDEN OPS VAGUE 5a — Events (FUSION intégrale de la fiche — enums à défauts pièges —,
  * suppression CRITIQUE avec inscriptions comptées, participants par nom), circuit SPONSORING
- * (préliminaire avec chef de produit obligatoire à l'accord, analyse avec budget obligatoire
+ * (préliminaire avec Direction Marketing obligatoire à l'accord, analyse avec budget obligatoire
  * SAUF appel, décision finale CRITIQUE avec montant, appel motivé), circuit CONGRÈS
  * multi-types (« kind » tranche, sponsoring refusé ici), POSTES (résolution par libellé dans
  * l'opération, imputation par nom de catégorie, chaîne BC demande→visa→émission), CONSULTING
@@ -168,7 +168,7 @@ suite("ops vague 5a — Events, circuits Ad&Pro, postes, Consulting", () => {
   });
 
   describe("Sponsoring — le circuit complet", () => {
-    it("decide_sponsoring_preliminary : l'ACCORD exige le chef de produit résolu par nom ; le refus, un motif", async () => {
+    it("decide_sponsoring_preliminary : l'ACCORD exige la Direction Marketing résolu par nom ; le refus, un motif", async () => {
       const noPm = await buildProposal("adpro_operation", {
         op: "decide_sponsoring_preliminary", reference: `${TAG}-SPO-1`, decision: "approuver",
       }, sa());

@@ -33,7 +33,7 @@ import { resolveMissionParent, type MissionParent } from "./impl-wave2b";
 
 /**
  * OPS VAGUE 5a — EVENTS (fiche en FUSION intégrale, circuit de prise en charge, inscriptions),
- * AD & PRO (circuit sponsoring complet : préliminaire National Sales → analyse chef de produit
+ * AD & PRO (circuit sponsoring complet : préliminaire National Sales → analyse Direction Marketing
  * → décision Direction → appel ; circuit congrès/événement ; personnes prises en charge ;
  * POSTES de dépense de bout en bout : devis → validation → budget → BC visé → émission ;
  * demandes « autres » ; correction de fiche par liste blanche), CONSULTING (contrat deux
@@ -181,7 +181,7 @@ export const EVENT_OPS_IMPL: Record<string, OpImpl> = {
       if ("error" in hit) return hit;
       let pmId: string | null = null; let pmName: string | null = null;
       if (opStr(input, "person")) {
-        const pm = await resolvePerson(opStr(input, "person"), "le chef de produit (champ « person »)");
+        const pm = await resolvePerson(opStr(input, "person"), "le référent Direction Marketing (champ « person »)");
         if ("error" in pm) return pm;
         pmId = pm.id; pmName = pm.name;
       }
@@ -189,9 +189,9 @@ export const EVENT_OPS_IMPL: Record<string, OpImpl> = {
         title: `Soumettre « ${hit.name} » au circuit de prise en charge`,
         fields: fieldsOf([
           ["Événement", hit.name],
-          ["Chef de produit désigné", pmName],
+          ["Référent Direction Marketing", pmName],
         ]),
-        warnings: ["Même circuit que les congrès : National Sales (préliminaire) → analyse chef de produit → décision Direction — le routage saute les étapes au niveau du demandeur."],
+        warnings: ["Même circuit que les congrès : National Sales (préliminaire) → analyse Direction Marketing → décision Direction — le routage saute les étapes au niveau du demandeur."],
         args: { id: hit.id, productManagerId: pmId, viaProductManager: pmId ? "1" : null },
         successMessage: `« ${hit.name} » soumis au circuit de prise en charge.`,
         link: `/events/${hit.id}`, revalidate: ["/events"],
@@ -325,7 +325,7 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
       if (decision === "REJECT" && !opStr(input, "note")) return { error: "Le motif de refus est obligatoire (champ « note »)." };
       let pmId: string | null = null; let pmName: string | null = null;
       if (decision === "APPROVE") {
-        const pm = await resolvePerson(opStr(input, "person"), "le chef de produit (champ « person »)");
+        const pm = await resolvePerson(opStr(input, "person"), "le référent Direction Marketing (champ « person »)");
         if ("error" in pm) return pm;
         pmId = pm.id; pmName = pm.name;
       }
@@ -333,7 +333,7 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
         title: `${decision === "APPROVE" ? "Valider (préliminaire)" : "REFUSER"} le sponsoring ${req.reference}`,
         fields: fieldsOf([
           ["Demande", `${req.reference} — ${req.institution}`],
-          ["Chef de produit désigné", pmName],
+          ["Référent Direction Marketing", pmName],
           ["Motif / note", opStr(input, "note") || null],
         ]),
         warnings: ["Approbation préliminaire réservée au National Sales — la décision définitive reste à la Direction."],
@@ -355,7 +355,7 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
       const budget = opStr(input, "amount");
       if (!isAppeal && !budget) return { error: "Le budget proposé est obligatoire (champ « amount », DZD) — sauf en appel." };
       return {
-        title: `Analyse chef de produit — ${req.reference}${isAppeal ? " (APPEL)" : ""}`,
+        title: `Analyse Direction Marketing — ${req.reference}${isAppeal ? " (APPEL)" : ""}`,
         fields: fieldsOf([
           ["Demande", `${req.reference} — ${req.institution}`],
           ["Avis", notes],
@@ -409,9 +409,9 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
           { label: "Demande", value: `${req.reference} — ${req.institution}` },
           { label: "Motif de l'appel", value: reason },
         ],
-        warnings: ["L'appel rouvre le circuit : nouvel avis du chef de produit (sans budget), puis décision de la Direction."],
+        warnings: ["L'appel rouvre le circuit : nouvel avis de la Direction Marketing (sans budget), puis décision de la Direction."],
         args: { id: req.id, reason },
-        successMessage: `Appel enregistré sur ${req.reference} — le chef de produit réexamine.`,
+        successMessage: `Appel enregistré sur ${req.reference} — la Direction Marketing réexamine.`,
         link: `/sponsoring/${req.id}`, revalidate: ["/sponsoring"],
       };
     },
@@ -477,14 +477,14 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
       if (decision === "REJECT" && !opStr(input, "note")) return { error: "Le motif de refus est obligatoire (champ « note »)." };
       let pmId: string | null = null; let pmName: string | null = null;
       if (decision === "APPROVE") {
-        const pm = await resolvePerson(opStr(input, "person"), "le chef de produit (champ « person »)");
+        const pm = await resolvePerson(opStr(input, "person"), "le référent Direction Marketing (champ « person »)");
         if ("error" in pm) return pm;
         pmId = pm.id; pmName = pm.name;
       }
       return {
         title: `${decision === "APPROVE" ? "Valider (préliminaire)" : "REFUSER"} — ${target.label}`,
         fields: fieldsOf([
-          ["Demande", target.label], ["Chef de produit désigné", pmName], ["Motif / note", opStr(input, "note") || null],
+          ["Demande", target.label], ["Référent Direction Marketing", pmName], ["Motif / note", opStr(input, "note") || null],
         ]),
         warnings: ["Approbation préliminaire réservée au National Sales."],
         args: { id: target.entityId, type: target.congressType, decision, productManagerId: pmId, note: opStr(input, "note") || null },
@@ -503,7 +503,7 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
       const notes = opStr(input, "note") || opStr(input, "message");
       if (reject && !notes) return { error: "Indiquez le motif du refus (champ « note »)." };
       return {
-        title: `Analyse chef de produit — ${target.label}${reject ? " (REFUS)" : ""}`,
+        title: `Analyse Direction Marketing — ${target.label}${reject ? " (REFUS)" : ""}`,
         fields: fieldsOf([
           ["Demande", target.label],
           ["Avis", notes || null],
@@ -515,7 +515,7 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
           productManagerNotes: notes || null, productManagerBudget: reject ? null : (opStr(input, "amount") || null),
           note: notes || null,
         },
-        successMessage: reject ? `${target.label} refusé par le chef de produit.` : `Analyse de ${target.label} transmise à la Direction.`,
+        successMessage: reject ? `${target.label} refusé par la Direction Marketing.` : `Analyse de ${target.label} transmise à la Direction.`,
         revalidate: ["/events"],
       };
     },
@@ -958,7 +958,7 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
       return {
         title: `Corriger la fiche — ${parent.label}`,
         fields: [{ label: "Demande", value: parent.label }, ...shown],
-        warnings: ["Liste blanche de l'écran : les DÉCISIONS (montant accordé, statut, chef de produit) ne passent JAMAIS par ici ; après décision, seule la Direction corrige."],
+        warnings: ["Liste blanche de l'écran : les DÉCISIONS (montant accordé, statut, Direction Marketing) ne passent JAMAIS par ici ; après décision, seule la Direction corrige."],
         args: { kind, id: parent.entityId, ...Object.fromEntries(updates) },
         successMessage: `Fiche de ${parent.label} corrigée.`,
         revalidate: ["/sponsoring", "/events"],

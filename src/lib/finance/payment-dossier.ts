@@ -36,7 +36,7 @@
  * reviendrait à exiger la preuve d'un paiement pour autoriser ce paiement. Le BV est donc exempté
  * des deux règles, et de la pièce jointe elle-même.
  *
- * Cette exemption n'est pas un trou : le BV a déjà été validé par le N+1, le chef de produit et
+ * Cette exemption n'est pas un trou : le BV a déjà été validé par le N+1, la Direction Marketing et
  * le centre de validations avant d'arriver ici. Il porte SA garantie, ailleurs.
  *
  * Module PUR — testé sans base.

@@ -3,7 +3,7 @@
  *
  * L'entité répond à « de qui est ce produit » ; la gamme répond à « de quoi relève-t-il ».
  * Rattacher quelqu'un à une ENTITÉ lui ouvre toute la société. Le rattacher à une ou plusieurs
- * GAMMES lui ouvre ces gammes-là, et rien d'autre — c'est ce qui permet à un chef de produit de
+ * GAMMES lui ouvre ces gammes-là, et rien d'autre — c'est ce qui permet à la Direction Marketing de
  * suivre sa gamme sans voir le portefeuille entier, et à quelqu'un de travailler sur deux gammes
  * de deux sociétés différentes.
  *

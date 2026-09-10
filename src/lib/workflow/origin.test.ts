@@ -64,13 +64,13 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
     expect(slugDecisionnaire(u("MEDICAL_DELEGATE"), ["preliminary", "marketing", "final"], 0)).toBe("marketing");
   });
 
-  it("le chef de produit ne passe ni par le National Sales ni par l'analyse → directement à la Direction", () => {
+  it("la Direction Marketing ne passe ni par le National Sales ni par l'analyse → directement à la Direction", () => {
     for (const role of ["PRODUCT_MANAGER", "MEDICAL_PROMOTION_MANAGER"] as UserRole[]) {
       expect(adProOriginRank(u(role))).toBe(2);
       const init = adProInit(u(role), "pm-ignored");
       expect(init.stage).toBe("FINAL");
       expect(init.status).toBe("AWAITING_FINAL");
-      expect(init.productManagerId).toBeNull(); // pas d'analyse chef de produit
+      expect(init.productManagerId).toBeNull(); // pas d'analyse Direction Marketing
       expect(init.preliminaryBySelf).toBe(true);
       expect(canDesignateProductManagerAtCreation(u(role))).toBe(false);
     }
@@ -97,7 +97,7 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
     }
   });
 
-  it("un directeur PEUT demander l'avis d'un chef de produit — sans y être tenu", () => {
+  it("un directeur PEUT demander l'avis de la Direction Marketing — sans y être tenu", () => {
     expect(canChooseAnalysisAtCreation(u("OPERATIONS_DIRECTOR"))).toBe(true);
     const init = adProInit(u("OPERATIONS_DIRECTOR"), "pm-1", { viaProductManager: true });
     expect(init.stage).toBe("ANALYSIS");
@@ -115,9 +115,9 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
  * LA DIRECTION CHOISIT : trancher tout de suite, ou demander d'abord un avis produit.
  *
  * Sa demande allait droit à la décision finale — la sienne — sans possibilité de solliciter le
- * chef de produit. Le choix lui est maintenant offert, sans jamais lui être imposé.
+ * Direction Marketing. Le choix lui est maintenant offert, sans jamais lui être imposé.
  */
-describe("adProInit — la Direction peut demander l'avis du chef de produit", () => {
+describe("adProInit — la Direction peut demander l'avis de la Direction Marketing", () => {
   const direction = { role: "DIRECTION" as const };
   const superAdmin = { role: "SUPER_ADMIN" as const };
 
@@ -125,7 +125,7 @@ describe("adProInit — la Direction peut demander l'avis du chef de produit", (
     expect(adProInit(direction)).toMatchObject({ stage: "FINAL", status: "AWAITING_FINAL", productManagerId: null });
   });
 
-  it("en demandant l'analyse, la demande part chez le chef de produit désigné", () => {
+  it("en demandant l'analyse, la demande part chez le référent Direction Marketing désigné", () => {
     expect(adProInit(direction, "pm_1", { viaProductManager: true })).toMatchObject({
       stage: "ANALYSIS", status: "PRELIMINARY_APPROVED", productManagerId: "pm_1", preliminaryBySelf: true,
     });
@@ -141,7 +141,7 @@ describe("adProInit — la Direction peut demander l'avis du chef de produit", (
     expect(adProInit({ role: "DIRECTION" }, "   ", { viaProductManager: true })).toMatchObject({ stage: "ANALYSIS" });
   });
 
-  it("désigner un chef de produit SANS demander l'analyse ne détourne pas la demande", () => {
+  it("désigner la Direction Marketing SANS demander l'analyse ne détourne pas la demande", () => {
     expect(adProInit(direction, "pm_1")).toMatchObject({ stage: "FINAL", productManagerId: null });
   });
 
@@ -149,7 +149,7 @@ describe("adProInit — la Direction peut demander l'avis du chef de produit", (
     expect(adProInit(superAdmin, "pm_1", { viaProductManager: true })).toMatchObject({ stage: "ANALYSIS" });
   });
 
-  it("un chef de produit ne s'envoie PAS sa propre demande en analyse", () => {
+  it("la Direction Marketing ne s'envoie PAS sa propre demande en analyse", () => {
     expect(adProInit({ role: "PRODUCT_MANAGER" }, "pm_2", { viaProductManager: true })).toMatchObject({ stage: "FINAL" });
   });
 
@@ -175,7 +175,7 @@ describe("qui peut choisir, qui peut désigner", () => {
     expect(canChooseAnalysisAtCreation({ role: "PRODUCT_MANAGER" })).toBe(false);
   });
 
-  it("National Sales ET Direction peuvent désigner le chef de produit, pour des raisons différentes", () => {
+  it("National Sales ET Direction peuvent désigner le référent Direction Marketing, pour des raisons différentes", () => {
     expect(canDesignateProductManagerAtCreation({ role: "NATIONAL_SALES" })).toBe(true);
     expect(canDesignateProductManagerAtCreation({ role: "DIRECTION" })).toBe(true);
     expect(canDesignateProductManagerAtCreation({ role: "PRODUCT_MANAGER" })).toBe(false);

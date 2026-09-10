@@ -234,7 +234,7 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
           ["Produit", name],
           ["Canal", CHANNEL_SHOWN[channel]],
           ["BU", buShown],
-          ["Chef de produit", managerShown],
+          ["Direction Marketing", managerShown],
         ]),
         args: { name, code: opStr(input, "reference") || null, channel, businessUnitId: buId, managerId },
         successMessage: `Produit promu « ${name} » créé.`,
@@ -251,7 +251,7 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
       const cur = await prisma.promoProduct.findUnique({
         where: { id: hit.id }, select: { code: true, channel: true, businessUnitId: true, managerId: true, isActive: true },
       });
-      // FUSION : canal (défaut-piège BOTH), code, BU et chef de produit sont REMPLACÉS — rejoués.
+      // FUSION : canal (défaut-piège BOTH), code, BU et Direction Marketing sont REMPLACÉS — rejoués.
       const channel = CHANNEL_FR(opStr(input, "mode")) ?? cur?.channel ?? "BOTH";
       let buId = cur?.businessUnitId ?? null; let buShown = "(inchangée)";
       if (opStr(input, "target")) {
@@ -273,7 +273,7 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
           ["Produit", opStr(input, "newName") ? `${hit.name} → ${opStr(input, "newName")}` : hit.name],
           ["Canal", CHANNEL_SHOWN[channel]],
           ["BU", buShown],
-          ["Chef de produit", managerShown],
+          ["Direction Marketing", managerShown],
         ]),
         args: {
           id: hit.id, name: opStr(input, "newName") || null,

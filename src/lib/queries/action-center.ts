@@ -160,7 +160,7 @@ export async function getActionCenter(user: SessionUser) {
     }
   }
 
-  // 6b. Congrès / événements à valider (Direction) ou à analyser (chef de produit)
+  // 6b. Congrès / événements à valider (Direction) ou à analyser (Direction Marketing)
   const congressTone = (s: string): { statusLabel: string; statusTone: BadgeTone } => ({
     statusLabel: CONGRESS_REQUEST_STATUS[s]?.label ?? s,
     statusTone: CONGRESS_REQUEST_STATUS[s]?.tone ?? "warning",
@@ -180,7 +180,7 @@ export async function getActionCenter(user: SessionUser) {
     for (const c of list) {
       items.push({
         key: `cong-${c.id}`, title: c.name,
-        subtitle: c.requestStatus === "PRELIMINARY_APPROVED" ? "À analyser (chef de produit)" : c.requestStatus === "AWAITING_FINAL" ? "Validation définitive" : "Validation préliminaire",
+        subtitle: c.requestStatus === "PRELIMINARY_APPROVED" ? "À analyser (Direction Marketing)" : c.requestStatus === "AWAITING_FINAL" ? "Validation définitive" : "Validation préliminaire",
         module: cfg.label, href: `${cfg.href}/${c.id}`, kind: "request", priority: null,
         deadline: null, owner: "", ...congressTone(c.requestStatus),
       });

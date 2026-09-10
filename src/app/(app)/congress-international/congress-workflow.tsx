@@ -33,7 +33,7 @@ function base(type: string, id: string, extra: Record<string, string> = {}) {
   return fd;
 }
 
-/** Validation préliminaire (Direction) : valider + assigner un chef de produit, ou refuser. */
+/** Validation préliminaire (Direction) : valider + assigner la Direction Marketing, ou refuser. */
 export function PreliminaryDecision({ type, id, productManagers }: { type: string; id: string; productManagers: PM[] }) {
   const { pending, err, run } = useRun();
   const [mode, setMode] = React.useState<null | "approve" | "reject">(null);
@@ -60,7 +60,7 @@ export function PreliminaryDecision({ type, id, productManagers }: { type: strin
             <option value="">— Sélectionner —</option>
             {productManagers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </Select>
-          {productManagers.length === 0 && <p className="text-xs text-warning">Aucun compte « Chef de produit » disponible. Créez-en un dans l'administration.</p>}
+          {productManagers.length === 0 && <p className="text-xs text-warning">Aucun compte « Direction Marketing » disponible. Créez-en un dans l'administration.</p>}
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optionnel)…" className="min-h-[56px]" />
         </>
       ) : (
@@ -78,7 +78,7 @@ export function PreliminaryDecision({ type, id, productManagers }: { type: strin
   );
 }
 
-/** Analyse du chef de produit : Approuver (budget facultatif) ou Refuser. */
+/** Analyse de la Direction Marketing : Approuver (budget facultatif) ou Refuser. */
 export function ProductAnalysis({ type, id }: { type: string; id: string }) {
   const { pending, err, run } = useRun();
   const [mode, setMode] = React.useState<null | "approve" | "reject">(null);
@@ -88,7 +88,7 @@ export function ProductAnalysis({ type, id }: { type: string; id: string }) {
   if (!mode) {
     return (
       <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">Analyse du chef de produit : approuvez (en proposant éventuellement un budget) ou refusez la demande.</p>
+        <p className="text-sm text-muted-foreground">Analyse de la Direction Marketing : approuvez (en proposant éventuellement un budget) ou refusez la demande.</p>
         <div className="flex gap-2">
           <Button size="sm" variant="success" onClick={() => setMode("approve")}><Check className="h-4 w-4" /> Approuver</Button>
           <Button size="sm" variant="destructive" onClick={() => setMode("reject")}><X className="h-4 w-4" /> Refuser</Button>
@@ -144,7 +144,7 @@ export function EditGrantedBudget({ type, id, current }: { type: string; id: str
 }
 
 /** Validation définitive (Direction) → ordre de dépense. Le **montant accordé** est
- *  obligatoire (prérempli avec la proposition du chef de produit, modifiable). La
+ *  obligatoire (prérempli avec la proposition de la Direction Marketing, modifiable). La
  *  Direction impute la dépense à une **(sous-)catégorie budgétaire** avant qu'elle ne
  *  parte au comptable (requis dès qu'il existe des (sous-)catégories). */
 export function FinalDecision({ type, id, suggestedAmount, categories = [] }: { type: string; id: string; suggestedAmount?: number | null; categories?: Cat[] }) {
@@ -157,7 +157,7 @@ export function FinalDecision({ type, id, suggestedAmount, categories = [] }: { 
   if (!mode) {
     return (
       <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">Validation définitive après analyse du chef de produit. La validation émet un ordre de dépense vers l'espace comptable.</p>
+        <p className="text-sm text-muted-foreground">Validation définitive après analyse de la Direction Marketing. La validation émet un ordre de dépense vers l'espace comptable.</p>
         <div className="flex gap-2">
           <Button size="sm" variant="success" onClick={() => setMode("approve")}><Check className="h-4 w-4" /> Valider définitivement</Button>
           <Button size="sm" variant="destructive" onClick={() => setMode("reject")}><X className="h-4 w-4" /> Refuser</Button>

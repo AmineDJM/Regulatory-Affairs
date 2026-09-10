@@ -27,7 +27,7 @@ export async function advanceWorkflow(formData: FormData): Promise<ActionResult>
   if (!entityType || !WORKFLOW_ENTITIES.includes(entityType) || !entityId) return { ok: false, error: "Paramètres manquants." };
   if (action !== "APPROVE" && action !== "REJECT" && action !== "COMMENT" && action !== "SKIP") return { ok: false, error: "Action invalide." };
 
-  // PIÈCES JOINTES À L'AVIS : le chef de produit, le National Sales ou la Direction peuvent
+  // PIÈCES JOINTES À L'AVIS : la Direction Marketing, le National Sales ou la Direction peuvent
   // appuyer leur décision sur un document (devis comparatif, note, courrier).
   //
   // Deux précautions dans l'ordre des opérations :

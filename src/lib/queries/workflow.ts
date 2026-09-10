@@ -74,9 +74,9 @@ export interface WorkflowView {
   /** Les détails techniques du circuit (rôles/portées/pouvoirs) ne sont montrés
    *  qu'au Super Admin. */
   isSuperAdmin: boolean;
-  /** L'HISTORIQUE complet (dont l'avis confidentiel du chef de produit + montant
+  /** L'HISTORIQUE complet (dont l'avis confidentiel de la Direction Marketing + montant
    *  révisé) est réservé aux spectateurs « privilégiés » : Super Admin, Direction /
-   *  Directeur des opérations (vue globale), National Sales et le chef de produit
+   *  Directeur des opérations (vue globale), National Sales et la Direction Marketing
    *  désigné. Pour les autres (ex. délégué demandeur) il reste masqué. */
   canViewHistory: boolean;
 }

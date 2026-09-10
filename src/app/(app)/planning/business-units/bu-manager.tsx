@@ -444,7 +444,7 @@ function KamLine({ kam, buId, config, busy, run }: {
   );
 }
 
-/** Une ligne de produit : son dossier d'origine, son canal, son chef de produit. */
+/** Une ligne de produit : son dossier d'origine, son canal, son Direction Marketing. */
 function ProductLine({ prod, buChannel, users, busy, run }: {
   prod: ProductRow; buChannel: string; users: Opt[];
   busy: boolean; run: (a: Action, fd: FormData, refresh?: boolean) => Promise<boolean>;

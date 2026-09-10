@@ -21,7 +21,7 @@ export const SCOPE_LABELS: Record<ActorScope, string> = {
 
 export const SCOPE_HINTS: Record<ActorScope, string> = {
   ROLE: "Seuls les comptes portant l'un des rôles cochés peuvent agir (le Super Admin passe toujours).",
-  ASSIGNEE: "La personne désignée à une étape amont (ex. le chef de produit choisi).",
+  ASSIGNEE: "La personne désignée à une étape amont (ex. le référent Direction Marketing choisi).",
   GLOBAL_VIEW: "Réservé à la Direction des opérations et au Super Admin.",
   REQUESTER: "L'auteur de la demande (ex. le délégué).",
   DEPARTMENT_MANAGER:

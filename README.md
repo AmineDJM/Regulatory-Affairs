@@ -117,7 +117,7 @@ Comprendre l'OS, c'est comprendre le métier qu'il digitalise. Termes récurrent
 | **DZD** | Dinar algérien — devise unique de toute l'application. |
 | **GMP / BPF** | Good Manufacturing Practices / Bonnes Pratiques de Fabrication (échéances qualité fournisseurs). |
 | **IQVIA** | Fournisseur mondial de données de marché pharmaceutique (référentiel prévu, cf. feuille de route). |
-| **National Sales** | Rôle qui **approuve la demande émanant d'un délégué et désigne le chef de produit** (étape préliminaire des circuits Ad & Pro / événements). |
+| **National Sales** | Rôle qui **approuve la demande émanant d'un délégué et désigne le référent Direction Marketing** (étape préliminaire des circuits Ad & Pro / événements). |
 
 ---
 
@@ -188,7 +188,7 @@ jamais identique.
 | Module | Route | Description |
 |---|---|---|
 | **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (19 étapes / 5 phases — CTD déposé sur l'étape 1, check-list de présoumission en étape 2, allers-retours de réserves dans la frise), documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). **UNE DCI DÉJÀ SUIVIE SE DIT PENDANT LA SAISIE** (pipeline comme suivi de dossiers) : le formulaire NOMME les dossiers existants et demande de vérifier qu'il s'agit bien d'un autre dosage, d'une autre forme ou d'un autre produit — on avertit, on n'interdit pas (interdire ferait saisir le doublon sous une DCI mal orthographiée, donc plus rapprochable du premier), et la création repart d'un clic « J'ai vérifié ». La comparaison **trie les molécules d'une association** (« A + B » = « B + A ») et ignore casse et accents. Un dossier **verrouillé au pipeline se COMPTE sans se NOMMER**, avec le geste qui débloque : **« Demander l'accès »** prévient la supervision Regulatory (notification + audit, aucun registre de plus). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. |
-| **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve + **désigne le chef de produit**), **analyse confidentielle du chef de produit**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** a son circuit **court** : devis → demandeur → N+1 → PDG **ou** Super Admin → information médicale, puis **trois chantiers en parallèle** (bon de commande, paiement, visa publicitaire) ; chacun ne voit que **sa** marche, seuls l'administrateur et le PDG voient tout. → [workflows](#-workflows-critiques) · [détails](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
+| **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve + **désigne le référent Direction Marketing**), **analyse confidentielle de la Direction Marketing**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** a son circuit **court** : devis → demandeur → N+1 → PDG **ou** Super Admin → information médicale, puis **trois chantiers en parallèle** (bon de commande, paiement, visa publicitaire) ; chacun ne voit que **sa** marche, seuls l'administrateur et le PDG voient tout. → [workflows](#-workflows-critiques) · [détails](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances/paiements-a-faire` | **DEUX SOUS-MODULES** : **Banque & paiements** (`/finances/paiements-a-faire` — le solde de trésorerie et le détail par compte, puis la file du décaissement, alimentée **exclusivement** par le centre de paiement) et **Comptabilité** (`/finances/comptabilite` — le livre, l'import, les soldes d'ouverture, et ce que le DAF doit encore arbitrer). Le **Dashboard a été supprimé** (2026-09) : il ne portait aucun geste. Cliquer « Finances » mène à « Banque & paiements » ; `/finances` redirige. « Demander l'actualisation des soldes » est réservé au **Super Admin** (écran, action serveur et Adam). Les **factures** ne sont pas ici : ce sont des documents légaux de nature « facture » (`/legal?nature=INVOICE`), et la comptabilité y garde sa porte. Aucun paiement n'arrive ici sans être **autorisé par le centre**, quel que soit son montant. |
 | **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (RBAC `PAYMENT_CENTRE` — PDG + Super Admin) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. **GUICHET UNIQUE** : aucun paiement n'atteint les Finances sans autorisation, **quel que soit le montant et le module** — plus de seuil, plus d'exemption. Une demande de paiement y entre **dès sa soumission**, avant l'instruction des Finances. Quatre issues (autoriser · refuser · révision du montant · argumentation) avec fil d'allers-retours. → [détails](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-le-pdg) |
@@ -216,7 +216,7 @@ jamais identique.
 | **Mon Équipe** | `/mon-equipe` | L'écran de celui qui **encadre** (RBAC `MY_TEAM`, ouvert à tous — l'entrée n'apparaît qu'à qui a réellement des N-1, garde `myTeam`). **Tout l'arbre sous soi** : N-1, N-2, jusqu'en bas (`subtreeOf`, chaque rang = `directReportsOf`, la MÊME fonction qui route les demandes), chacun portant son N+1 et son rang. **Ce qui attend ma décision s'arrête au PREMIER RANG** : le congé d'un N-2 est routé vers SON N+1 (`TeamMember.pending` vaut 0 plus bas). **Au clic sur une personne : quelques KPI SELON SON MÉTIER** (`teamMemberKpis`) — charge de travail pour tous (tâches ouvertes/en retard, demandes en cours, congés pris), puis TERRAIN (visites 30 j, planifiées, médecins, comptes rendus manquants), RÉGLEMENTAIRE (dossiers portés, en retard, étapes), INFORMATION MÉDICALE (à instruire, en attente de pièces, validés 30 j), COORDINATION (courses 30 j, hors délai `n / N`, à faire) ; un métier sans compteur propre le DIT. **La porte n'est PAS le module** (tout le monde l'a) mais la HIÉRARCHIE, revérifiée côté serveur — et un identifiant inconnu reçoit le MÊME refus qu'un hors-équipe. Ce n'est **pas** un mini-module RH : ni salaire, ni évaluation, ni dossier. **Recrutement** est son sous-module dans le menu, avec ses **droits propres**. |
 | **Recrutement** | `/recrutement` | Le poste demandé, de l'idée d'un directeur jusqu'à l'intégration. Un **directeur de département** formule le besoin (poste, missions, compétences, contrat **CDI / CDD / consulting / stage**, fourchette de rémunération, dates, fiche de poste) — le droit de demander suit l'**organigramme**, pas une liste de rôles. Sa **hiérarchie valide marche par marche jusqu'au sommet** (chaîne **figée à la soumission** ; la direction peut trancher à n'importe quelle marche, les marches sautées étant marquées **non consultées**). Les **RH instruisent** et demandent des précisions autant de fois qu'il le faut — la demande **retourne alors au demandeur**. Poste ouvert : **CV reçus** déposés par les RH, **présélection par le demandeur**, **choix de la direction parmi les présélectionnés ou en dehors**, entretiens, recrutement. Puis l'**intégration** (fiche employé pré-remplie) — **sauf pour un consulting**, intervenant externe hors effectif et hors paie. → [circuit](#-journal-des-évolutions-récentes) |
 | **Bureau du secrétariat** | `/demandes` | « Bureau de l'assistante de direction » : **10 types** de demandes, **catalogue d'articles de fourniture**, **demandes multi-cellules**, **fenêtre de 15 min** pour que le demandeur **modifie TOUT ce qu'il a saisi** ou supprime sa demande, **suppression traçable** (corbeille + motif), **flux par demande** (achat → validation Finances → devis/facture → Fin de la demande), validations, ordres de dépense, **espace Courses** (`/demandes/courses` : courses chauffeur **multi-points A/B/C** avec consigne par point, date **et heure max** — heure d'Alger —, pièces jointes, vue chauffeur en checklist), **accusé de réception des originaux de notes de frais** (section dédiée sur `/demandes`, verrouille/déverrouille le traitement RH), demandes terminées **archivées dans le Drive** (« Dossier traité »). → [workflow](#bureau-du-secrétariat--flux-par-demande) |
-| **Demandes de support** | `/support` | Questions / **brochures** / **supports de visite** / PDF adressés au **directeur médical** ou au **chef de produit**, avec fil + pièces jointes. |
+| **Demandes de support** | `/support` | Questions / **brochures** / **supports de visite** / PDF adressés au **directeur médical** ou à la **Direction Marketing**, avec fil + pièces jointes. |
 | **Feedback** | `/feedback` | Retour libre utilisateur → admin, **+ boîte de réception** : les réponses de l'administration s'affichent à l'utilisateur (avec notification). |
 
 > **Menu simplifié** : modules fusionnés en **onglets** — « Mon espace » (Mon travail · Mon espace · Directives),
@@ -249,17 +249,20 @@ Le cœur de l'OS, ce sont les **liens** entre modules. Un même fait métier tra
 ressaisi :
 
 ```
-Délégué crée une demande (Sponsoring / Congrès / Événement)
-   └─▶ National Sales approuve + désigne un Chef de produit
-        └─▶ Chef de produit analyse (avis + budget proposé — CONFIDENTIEL)
-             └─▶ Direction : décision définitive + BUDGET ACCORDÉ (visible)
-                  ├─▶ Information médicale : le PRIM déclare aux autorités (si applicable)
-                  │        └─▶ exige des pièces → déposées par Direction / comptable / délégué
-                  └─▶ ORDRE DE DÉPENSE émis
-                       └─▶ Finances : le comptable RÈGLE (facture obligatoire)
-                            ├─▶ FinanceTransaction (sortie) → met à jour la TRÉSORERIE
-                            └─▶ attribution AUTOMATIQUE à la CATÉGORIE budgétaire du module
-                                 └─▶ consommation de l'ENVELOPPE recalculée (barres de santé)
+QUI demande décide PAR OÙ ça passe — deux parcours, et la dernière étape TRANCHE :
+
+  KAM / délégué       ─▶ National Sales (préliminaire) ─▶ Direction Marketing ⟵ TRANCHE
+  n'importe qui d'autre ────────────────────────────────▶ Direction Marketing ─▶ Direction ⟵ TRANCHE
+
+L'étape qui tranche porte le BUDGET ACCORDÉ et la SOUS-CATÉGORIE budgétaire, puis :
+   └─▶ décision définitive (budget accordé visible du demandeur)
+        ├─▶ Information médicale : le PRIM déclare aux autorités (si applicable)
+        │        └─▶ exige des pièces → déposées par Direction / comptable / délégué
+        └─▶ ORDRE DE DÉPENSE émis
+             └─▶ Finances : le comptable RÈGLE (facture obligatoire)
+                  ├─▶ FinanceTransaction (sortie) → met à jour la TRÉSORERIE
+                  └─▶ attribution AUTOMATIQUE à la CATÉGORIE budgétaire du module
+                       └─▶ consommation de l'ENVELOPPE recalculée (barres de santé)
 ```
 
 Autres connexions notables :
@@ -343,15 +346,15 @@ libellés français viennent de `src/lib/labels.ts`.
 | `DIRECTION` | **Direction** | **Pair quasi-administrateur** : accès complet (gérer + valider) aux pôles, **vue globale** (`hasGlobalView`) donc supervision de toutes les demandes de validation. **Décision définitive** des demandes Ad & Pro (budget accordé). Attribue les dépenses aux enveloppes. Restreignable par overrides. |
 | `GENERAL_MANAGER` | **Directeur Général** | **Tous les pouvoirs métier** (gère et décide sur tous les pôles, signataire des circuits Ad & Pro) mais **délibérément hors vue globale** : il ne supervise **pas** les demandes de validation de tout le monde, et les modules **personnels** (Drive, directives, dossiers, support) restent cloisonnés. Administration, IA et Process Intelligence restent au seul Super Admin. |
 | `OPERATIONS_DIRECTOR` | **Directeur des Opérations** | Rôle **à part**, pas une Direction au rabais : approvisionnement (logistique, PCH, stocks), ventes, moyens généraux, secrétariat. **Lit** ce dont il dépend — réglementaire, budgets, finances, RH — sans le piloter. Pas de vue globale ; les circuits Ad & Pro ne sont pas les siens. |
-| `NATIONAL_SALES` | **National Sales** | **Toutes les capacités du délégué médical** + **approbation préliminaire** des demandes Ad & Pro / événements (approuver / refuser + **désigner le chef de produit**). Portée **ALL** pour voir toutes les demandes à instruire ; **pas** de décision définitive (réservée à la Direction). |
-| `MEDICAL_PROMOTION_MANAGER` | Manager Promotion Médicale | Promotion médicale, module Ad & Pro. **Peut être désigné chef de produit.** N'assure **plus** l'étape préliminaire (désormais National Sales). |
+| `NATIONAL_SALES` | **National Sales** | **Toutes les capacités du délégué médical** + **approbation préliminaire** des demandes Ad & Pro / événements (approuver / refuser + **désigner le référent Direction Marketing**). Portée **ALL** pour voir toutes les demandes à instruire ; **pas** de décision définitive (réservée à la Direction). |
+| `MEDICAL_PROMOTION_MANAGER` | Manager Promotion Médicale | Promotion médicale, module Ad & Pro. **Peut être désigné référent Direction Marketing.** N'assure **plus** l'étape préliminaire (désormais National Sales). |
 | `HEAD_OF_REGULATORY` | Responsable Réglementaire | Regulatory (gestion complète + fournisseurs). |
 | `REGULATORY_ASSISTANT` | Assistante Réglementaire | Regulatory (lignes assignées). |
 | `HEAD_OF_SALES` | Responsable Ventes | Ventes, PCH, Stocks. |
 | `SALES_USER` | Commercial | Ventes / PCH (ses lignes). |
 | `LOGISTICS_MANAGER` | Responsable Logistique | Logistique, PCH, Stocks. |
 | `MEDICAL_DELEGATE` | Délégué Médical | Ses médecins, visites, demandes (scope **ASSIGNED**). Émetteur typique des demandes Ad & Pro / événements. |
-| `PRODUCT_MANAGER` | **Chef de produit** | Analyse congrès / sponsoring / événements (avis + **budget proposé confidentiel**). |
+| `PRODUCT_MANAGER` | **Direction Marketing** | Analyse congrès / sponsoring / événements (avis + **budget proposé confidentiel**). |
 | `BUSINESS_DEVELOPMENT_MANAGER` | Manager Business Development | Business Development (+ Pharmatool). |
 | `FINANCE_BUDGET_MANAGER` | Responsable Finance / Budget | Finances, Budgets, ordres de dépense, **validations Finances**. |
 | `MEDICAL_INFO_PHARMACIST` | Pharmacien resp. information médicale | Déclaration réglementaire des événements validés (PRIM). |
@@ -359,7 +362,7 @@ libellés français viennent de `src/lib/labels.ts`.
 | `COORDINATOR` | Coordination / Coursier | **Missions chauffeur / courses** (adresse Maps, durée, retard) — espace restreint. |
 | `VIEWER` | Lecteur | Lecture limitée. |
 
-> Pense à créer au moins un **National Sales**, un **Chef de produit**, un **Pharmacien information médicale**, une
+> Pense à créer au moins un **National Sales**, un **référent Direction Marketing**, un **Pharmacien information médicale**, une
 > **Assistante de Direction** et un **Responsable Finance** pour que les circuits complets fonctionnent.
 
 ---
@@ -374,22 +377,40 @@ libellés français viennent de `src/lib/labels.ts`.
 
 Le **même** circuit sert le **Sponsoring**, les **Congrès internationaux/nationaux** et les **Événements** :
 
+**Le parcours dépend de QUI demande** (décision de la Direction, 09/2026) :
+
 ```
-Demande (délégué + budget estimé)
-   → NATIONAL SALES : approuve / refuse + DÉSIGNE le Chef de produit        ← étape préliminaire
-   → Analyse + budget proposé (Chef de produit) — approuver / refuser        ← CONFIDENTIEL
-   → (option) tierce personne impliquée via son espace + dossier auto (sans budget)
-   → Décision DÉFINITIVE (Direction : budget accordé + avis, VISIBLES par le délégué)
+Demande d'un KAM (délégué médical)
+   → NATIONAL SALES : approuve / refuse                                     ← étape préliminaire
+   → DIRECTION MARKETING : montant accordé + (sous-)catégorie budgétaire     ← elle TRANCHE
    → [Information médicale : déclaration du pharmacien (PRIM)]               ← uniquement si applicable
-   → Ordre de dépense → Finances / comptable (facture obligatoire à l'accord)
+   → Ordre de dépense → Finances / comptable
+
+Demande de TOUT AUTRE demandeur — le National Sales compris
+   → DIRECTION MARKETING : montant accordé + (sous-)catégorie budgétaire     ← CONFIDENTIEL
+   → DIRECTION : accord ou refus définitif                                   ← elle TRANCHE
+   → [Information médicale (PRIM)] → Ordre de dépense → Finances
+
+   → (option, aux deux parcours) tierce personne impliquée via son espace + dossier auto (sans budget)
 ```
 
-> ⚠️ **Étape préliminaire réservée au National Sales.** C'est lui — et non la Direction, ni la Direction
-> Marketing — qui approuve la demande émanant d'un délégué et **choisit le chef de produit**. La **décision
-> définitive** (budget accordé) reste à la **Direction** et est **visible** par le délégué.
+> ⚠️ **Le BUDGET appartient à Direction Marketing** (ex-« Chef de produit »), plus à la Direction : montant
+> accordé ET choix de la sous-catégorie budgétaire. La Direction accorde ou refuse ce qui a été arbitré.
 
-> ⚠️ **Confidentialité impérative** — l'analyse et le budget proposé par le chef de produit **ne sont JAMAIS
-> visibles par le délégué** : il ne voit que le **budget final accordé + le commentaire de la Direction**.
+> ⚠️ **Étape préliminaire réservée au National Sales**, et elle ne concerne QUE les demandes de KAM : lui seul
+> a un superviseur national au-dessus de sa demande. Il ne DÉSIGNE plus personne — Direction Marketing est
+> portée par un rôle, pas par une personne nommée (un référent reste enregistrable, sans rien conditionner).
+
+> ⚠️ **Confidentialité : un AVIS, pas une DÉCISION.** L'arbitrage de Direction Marketing n'est pas visible du
+> demandeur **tant que la Direction n'a pas tranché**. Quand c'est Direction Marketing qui TRANCHE (demande de
+> KAM), sa décision EST la décision : le budget accordé et son commentaire deviennent visibles — un accord
+> illisible n'est pas un accord.
+
+> **Les deux chaînes sont deux tranches CONTIGUËS d'une seule colonne vertébrale.** Le circuit n'existe donc
+> qu'en un exemplaire par catégorie ; ce qui change est l'ENTRÉE (`workflow/origin.ts`, selon le rang du
+> créateur) et la SORTIE (`WorkflowInstance.finalSlug`, figée à la naissance de l'instance). La table des deux
+> bornes vit à un seul endroit : `src/lib/workflow/parcours.ts` (module pur), lu par la création, le moteur et
+> la vue caviardée — trois lectures séparées finiraient par ne plus se correspondre.
 > Le **Sponsoring** ajoute l'**appel** : après décision, le délégué peut faire appel → nouvel avis du chef de
 > produit → la Direction tranche définitivement. Pour les congrès/événements pris en charge, on saisit la **liste
 > des personnes prises en charge** (avec pièces d'identité) et un **ordre de mission**.
@@ -404,6 +425,43 @@ divergeraient au premier champ ajouté. `lib/ad-pro/create-fields.ts` définit u
 champs lus par les deux portes d'entrée. On ne propose que les natures que la personne peut
 réellement **CRÉER** : un formulaire refusé à l'enregistrement fait arriver le refus après la
 saisie, au pire moment.
+
+**Ce qu'une demande de sponsoring EXIGE (09/2026), et où l'exigence est tenue.** Demande du médecin
+en **pièce jointe scannée (PDF ou Word)** — avec la mention « + Document original obligatoirement au
+bureau du secrétariat » —, **médecin(s)**, **produit(s)**, **wilaya**, **spécialité (menu
+déroulant)**, **type**, **budget demandé par l'intéressé**, **budget suggéré par le délégué**,
+**importance stratégique**. L'écran les marque `required` ; **la garde est l'action serveur**
+(`createSponsoring`), qui refuse en NOMMANT tout ce qui manque en une fois — un champ de formulaire
+se forge, et l'écran n'est pas la seule porte (le chemin générique d'Adam poste la même action).
+`type` et `strategicImportance` n'ont plus de valeur pré-remplie : une demande envoyée sans y
+toucher sortait avec une nature et une priorité que personne n'avait décidées, et c'est sur elles
+que l'arbitrage se fait. La liste des spécialités vient de `MedicalSpecialty` fusionné aux libellés
+hérités des fiches médecins (`lib/ad-pro/pickers.ts`) — jamais d'une liste écrite à la main.
+
+**La Business Unit se DÉDUIT de l'auteur, et c'est aussi une garde** (`lib/ad-pro/business-unit-auto.ts`) :
+un KAM par sa fiche force de vente, un superviseur national par la gamme qu'il supervise. La valeur
+déduite **s'impose côté serveur** — le champ était un menu libre, un KAM de l'oncologie pouvait
+poster la cardiologie et faire peser sa dépense sur le budget Ad&Pro d'une autre équipe. Un
+superviseur de DEUX gammes n'en désigne aucune : la saisie redevient manuelle, et l'écran le dit.
+
+**Les PIÈCES d'une fiche Ad & Pro vivent avec ce qu'elles justifient.** Le bloc « Documents »
+générique a disparu des quatre fiches (sponsoring, prises en charge, événements) : on y déposait à
+la main ce qui aurait dû être une pièce du circuit, si bien que la même facture existait comme
+fichier posé là ET comme engagement dans Legal. « Engagements, factures et courriers liés »
+(`components/shared/linked-records.tsx`) le remplace — chaque pièce liée montre SES documents,
+ouvrables, renommables et supprimables en un clic — et la pièce de la demande elle-même garde un
+emplacement **NOMMÉ** (« Demande(s) du médecin… »), parce que c'est le document que tout le circuit
+lit. Les documents d'une pièce liée sont chargés **sous les droits de SON module** (Legal,
+Courriers), jamais sous ceux de la fiche : `lib/ad-pro/pieces-liees.ts` calcule ces droits UNE fois
+pour les quatre écrans. Un document Legal **existant** se rattache sans être recréé
+(`lib/actions/ad-pro-rattacher-legal.ts`), sous DEUX droits — lire la pièce, modifier la fiche — et
+un document déjà rattaché ailleurs n'est jamais déplacé en silence. **Le même geste existe en
+conversation** (`legal_operation/link_record` et `unlink_record`) : la fiche se donne par sa
+référence ou son intitulé, la désignation passe par le résolveur unique (`lib/cibles/resoudre.ts`,
+donc la portée de l'écran) sur les six natures rattachables, et un nom porté par DEUX fiches — de
+la même nature ou de deux natures différentes — ne rattache RIEN et fait préciser. Le matériel
+promotionnel n'a pas d'entrée au registre d'entités : le refus nomme l'écran qui sait, au lieu de
+deviner une clause de portée.
 
 **Consulting** (`/consulting`, module `CONSULTING`) — un contrat n'est pas une demande qu'on
 approuve puis qu'on oublie : c'est une relation qui court dans le temps. Le modèle porte les deux
@@ -493,7 +551,7 @@ de faire changer un dossier de chemin (`lib/medical-info/circuits.ts`) :
 CIRCUIT ÉVÉNEMENT — prise en charge nationale / internationale, événement, sponsoring
    → MedicalInfoDeclaration (DIM-AAAA-NNN) notifiée au pharmacien
    → il SOUMET sa lecture : « à déclarer au ministère » ou « sans déclaration » (motif EXIGÉ)
-   → trois signatures : son responsable, le chef de produit du dossier, le centre de validations
+   → trois signatures : son responsable, le référent Direction Marketing du dossier, le centre de validations
    → accordée : il réclame les pièces s'il en manque, dépose auprès du ministère de l'Industrie
      pharmaceutique, enregistre la référence
    → il VALIDE  →  la Direction valide  →  l'ordre de dépense part au comptable
@@ -1136,13 +1194,13 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
   (APPROVE|REJECT|OPINION_AGAINST|COMMENT|SKIP|AUTO_SKIP|AUTO_APPROVE_REQUESTER).
 - **Règles clés** : un REJECT **non terminal** = `OPINION_AGAINST` (avis défavorable) et **le flux continue**
   (l'assignation reste requise) ; seul le refus de la **dernière étape** (Direction) est éliminatoire. Sur une étape
-  `SET_AMOUNT` (analyse chef de produit), l'avis défavorable peut porter un **montant révisé OPTIONNEL** (« revu à la
-  hausse ») → consigné en budget chef de produit, en `amount` de l'instance et sur l'événement `OPINION_AGAINST`. Le
+  `SET_AMOUNT` (analyse Direction Marketing), l'avis défavorable peut porter un **montant révisé OPTIONNEL** (« revu à la
+  hausse ») → consigné en budget Direction Marketing, en `amount` de l'instance et sur l'événement `OPINION_AGAINST`. Le
   moteur **projette les statuts legacy** sur les entités (les listes/badges existants continuent de fonctionner). Les
-  étapes `confidential` (analyse chef de produit) sont **caviardées** pour le demandeur. La **méta du workflow**
+  étapes `confidential` (analyse Direction Marketing) sont **caviardées** pour le demandeur. La **méta du workflow**
   (rôles/portées/pouvoirs) reste réservée au **Super Admin** ; l'**historique complet** (dont l'avis confidentiel + le
   montant révisé) est visible des spectateurs **privilégiés** : Super Admin, **Direction / Directeur des opérations**,
-  National Sales et le chef de produit désigné (`canViewHistory`). Les autres n'y ont pas accès.
+  National Sales et le référent Direction Marketing désigné (`canViewHistory`). Les autres n'y ont pas accès.
 - **Anti-bureaucratie — 3 mécanismes par étape (`src/lib/workflow/engine.ts`, tous tracés)** :
   1. **Saut manuel** (`SKIP`) — un acteur habilité peut **sauter une étape intermédiaire** avec **raison obligatoire**
      (tracée + notifiée à l'étape suivante). Jamais sur une désignation ni la décision finale.
@@ -1159,15 +1217,28 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
   étapes qui **ne filtrent rien** (100 % d'`APPROVE`) et les files bloquées.
 - **Routage intelligent à la création (saut d'étapes selon le rang du créateur)** : personne n'approuve une demande
   qu'il émet lui-même. `src/lib/workflow/origin.ts` (`adProOriginRank`, `adProInit`) choisit le **statut de départ** :
-  un **délégué** part du préliminaire (National Sales) ; le **National Sales**, en désignant le chef de produit à la
+  un **délégué** part du préliminaire (National Sales) ; le **National Sales**, en désignant la Direction Marketing à la
   création (sélecteur ajouté aux formulaires sponsoring/congrès/événement), **saute son propre préliminaire** →
-  `PRELIMINARY_APPROVED` ; un **chef de produit**, la **Direction** ou le **Super Admin** **sautent préliminaire + analyse**
+  `PRELIMINARY_APPROVED` ; la **Direction Marketing**, la **Direction** ou le **Super Admin** **sautent préliminaire + analyse**
   → `AWAITING_FINAL` (Direction). Le statut legacy de départ pilote à la fois les actions historiques et le moteur
   (`positionFromLegacy`). Câblé dans `createSponsoring`, `createCongressRequest`, `submitEventForApproval`.
+- **Bornes du PARCOURS (09/2026)** : `src/lib/workflow/parcours.ts` (module PUR) porte la table des deux
+  bornes — entrée et sortie — pour les deux chaînes Ad & Pro. La SORTIE entre dans `nextStepAfter`, l'unique
+  endroit où « y a-t-il une étape après celle-ci ? » se décide : la terminalité, la projection de l'accord
+  définitif, le refus de sauter ou de franchir automatiquement la décision finale et la levée du caviardage en
+  découlent sans être écrits une seconde fois. `WorkflowInstance.finalSlug` porte la borne, **figée à la
+  naissance de l'instance** (le parcours est un fait de la demande, pas du poste qu'occupe son auteur
+  aujourd'hui) ; `null` = la dernière étape de la définition, donc le comportement d'avant. Une **émission
+  financière déclarée sur une étape de la queue coupée est HÉRITÉE** par l'étape qui tranche — sans quoi une
+  demande de KAM sortirait approuvée, budget accordé en base, et Finance ne recevrait rien.
 - **Fichiers** : `src/lib/workflow/engine.ts` (avance/refus/projection ; ⚠ `Event` n'a pas `updatedById` — il est
-  retiré avant update), `defaults.ts` (seed paresseux reproduisant le circuit historique), `origin.ts` (routage à la
-  création), `src/lib/queries/workflow.ts` (vue caviardée), `src/components/workflow/workflow-panel.tsx` (panneau runtime),
-  builder sous `/admin/workflows`.
+  retiré avant update), `parcours.ts` (les deux bornes, pur), `defaults.ts` (seed paresseux de la colonne
+  vertébrale préliminaire → marketing → final), `origin.ts` (rang du créateur → étape de départ),
+  `src/lib/personnes/roles-vente.ts` (socle : qui est un KAM, qui est Direction Marketing),
+  `src/lib/queries/workflow.ts` (vue caviardée, bornée au parcours de l'instance),
+  `src/components/workflow/workflow-panel.tsx` (panneau runtime), builder sous `/admin/workflows`.
+  Bascule de l'existant : migration `20261106090000_adpro_direction_marketing` (la graine ne s'applique QUE là
+  où aucune définition n'existe — la changer seule aurait laissé la production sur l'ancien circuit).
 
 ### RH — pré-remplissage IA du contrat + congés (acquisition & consommation)
 
@@ -2602,7 +2673,7 @@ tables les remplacent — `CareBeneficiary`, `CareCell`, `CareQuote` — pour le
 l'**international**.
 
 **Le routage que décrit le métier existait déjà** : `adProOriginRank` saute toute étape située au
-niveau ou en dessous du rang du demandeur (délégué → National Sales → chef de produit →
+niveau ou en dessous du rang du demandeur (délégué → National Sales → Direction Marketing →
 Direction). Ce lot ajoute ce qui manquait vraiment : **l'examen personne par personne**.
 
 | Règle | Où | Pourquoi |
@@ -3163,7 +3234,7 @@ quoi dire « le responsable du Commercial règle le fonctionnement DE SON dépar
    plus : réécrire « 200 000 demandés » en « 400 000 » après un accord transformerait la décision en autre chose
    que ce qui a été décidé. Seule la **vue globale** garde la main — et l'audit note explicitement
    « **APRÈS DÉCISION** ». Avant décision : le demandeur, ou le droit `UPDATE` du module.
-2. **Les champs de décision ne sont jamais modifiables ici** (montant accordé, statut, chef de produit, avis,
+2. **Les champs de décision ne sont jamais modifiables ici** (montant accordé, statut, Direction Marketing, avis,
    motifs) : ils appartiennent au circuit. D'où une **LISTE BLANCHE** (`EDITABLE_FIELDS`) plutôt qu'une liste
    d'interdits — elle ne se trompe pas quand un champ nouveau apparaît dans le modèle. Le `select` de la requête
    **ET** le formulaire en sont dérivés : le formulaire ne peut pas afficher un champ que le serveur refuserait.
@@ -3173,7 +3244,7 @@ statut) tient dans la table `TARGETS`. L'audit consigne **ce qui CHANGE** (avant
 relire « ville : Alger » n'apprend rien, « ville : Oran → Alger » dit ce qui s'est passé. Les comparaisons ignorent
 les espaces de bordure et l'heure d'une date, sans quoi le journal se remplirait de non-modifications.
 
-**Pièce jointe à un avis.** Le chef de produit, le National Sales et la Direction peuvent joindre un document à leur
+**Pièce jointe à un avis.** La Direction Marketing, le National Sales et la Direction peuvent joindre un document à leur
 décision (devis comparatif, note, courrier), **à toutes les issues** — y compris un simple commentaire. **L'ordre
 des opérations porte la garantie** : les fichiers sont **contrôlés avant** que le circuit n'avance (enregistrer
 l'avis puis refuser la pièce laisserait la décision prise et sa justification perdue), l'**étape courante est lue
@@ -3634,7 +3705,7 @@ PROBABLE, jamais un fait ; l'audio et la vidéo (transcription, diarisation) son
 ### Meeting Intelligence à trois niveaux — mandat 4 §32
 
 Arriver préparé n'est pas lire l'agenda : c'est savoir ce qui s'est dit la dernière fois, ce qui en est sorti,
-ce qui traîne, ce qu'il faudra décider. Mais un chef de produit avant un point de quinze minutes n'a pas besoin
+ce qui traîne, ce qu'il faudra décider. Mais la Direction Marketing avant un point de quinze minutes n'a pas besoin
 du dossier d'un chef de cabinet. Le niveau se **choisit** — et il s'**enseigne**.
 
 - **Trois niveaux, un seul outil** (`pre_meeting_brief` → `platform/in-process/meetings/index.ts`,
@@ -7310,7 +7381,7 @@ contournement obligatoire n'est plus une porte de sortie, c'est le chemin normal
 
 - **Circuit ÉVÉNEMENT** (prises en charge, événements, sponsorings) : le pharmacien SOUMET sa
   lecture — « à déclarer au ministère » ou « sans déclaration », motif exigé — et la fait valider
-  (responsable, chef de produit, centre). Accordée, elle ouvre le dépôt au ministère.
+  (responsable, Direction Marketing, centre). Accordée, elle ouvre le dépôt au ministère.
 - **Circuit MATÉRIEL** : le dossier se sépare en **matériels**, un bon par matériel ; **une** seule
   validation couvre le dépôt du lot, puis le paiement de **chaque quittance se demande
   séparément**. Un refus du centre rouvre ce bon, et lui seul.
@@ -7325,7 +7396,7 @@ d'événement déjà instruits sont réputés décidés). Quatre ops Adam nouvel
 
 « On veut associer une facture à l'événement, mais je n'arrive pas à joindre de PJ. » Deux causes.
 `canAccessEntity(..., "UPLOAD")` réclamait la case `UPLOAD` du module, et elle seule : la Direction
-qui valide, le chef de produit qui analyse ne pouvaient rien déposer — ils envoyaient la facture par
+qui valide, la Direction Marketing qui analyse ne pouvaient rien déposer — ils envoyaient la facture par
 mail, dossier vide. La règle devient **qui peut décider du dossier peut y joindre sa facture**
 (`lib/ad-pro/attachments.ts`, 10 tests), appliquée d'abord **côté serveur** : afficher le bouton
 sans ouvrir la porte n'aurait déplacé le refus qu'après le téléversement. Et le bloc « Engagements,
@@ -7499,7 +7570,7 @@ pour rien, et c'est ainsi qu'on cesse de lire ceux qui comptent.
 l'entreprise qui verse à une autorité sanitaire, et la **quittance n'existe qu'APRÈS le versement** —
 l'exiger avant reviendrait à exiger la preuve d'un paiement pour autoriser ce paiement. Il est donc
 exempté des deux règles et de la pièce jointe. Ce n'est pas un trou : le BV a déjà été validé par le
-N+1, le chef de produit et le centre de validations. L'exemption tient au **rattachement**
+N+1, la Direction Marketing et le centre de validations. L'exemption tient au **rattachement**
 (`entityType = MEDICAL_INFO_DECLARATION`), désormais posé **à la création** et non par une mise à
 jour qui suivait — sinon la quittance serait passée devant une règle qui ne savait pas encore ce
 qu'elle est. Aucune heuristique sur le titre : « bon de versement » écrit dans l'objet d'une demande
@@ -7542,7 +7613,7 @@ alors qu'il porte sur le fond.
 Deux marches, désormais :
 
 1. **Le bon est ACCORDÉ.** Le PRIM demande le versement (montant attendu, note) et **trois
-   signatures** répondent, dans cet ordre : son **N+1**, le **chef de produit du dossier source**
+   signatures** répondent, dans cet ordre : son **N+1**, le **référent Direction Marketing du dossier source**
    (c'est lui qui connaît le budget accordé et ce qu'il couvre), puis le **centre de validations**
    (Directeur Général, à défaut Super Admin). L'ordre EST le contrôle : en parallèle, le DG
    signerait avant que quiconque ait vérifié le montant, et sa signature ne s'appuierait sur rien.
@@ -7552,7 +7623,7 @@ Deux marches, désormais :
    règlent, **scannent la quittance et la déposent** au bureau du PRIM. C'est cette remise — un
    geste, pas un statut déduit — qui ouvre la déclaration aux autorités.
 
-Une marche sans signataire (pas de N+1, pas de chef de produit) est **sautée et DITE** dans la
+Une marche sans signataire (pas de N+1, pas de Direction Marketing) est **sautée et DITE** dans la
 demande, jamais remplacée par quelqu'un d'autre : désigner un remplaçant « au plus proche » ferait
 signer une personne qui n'a pas la question — pire qu'une marche sautée, car la signature existe
 et ne vaut rien. Le demandeur est écarté partout ; la même personne ne signe jamais deux fois.
@@ -7575,7 +7646,7 @@ ferait recommencer un circuit déjà instruit.
 
 ### Mon Équipe — l'écran de celui qui encadre (2026-08)
 
-**Encadrer n'est pas un rôle, c'est un fait de l'organigramme.** Un chef de produit, un
+**Encadrer n'est pas un rôle, c'est un fait de l'organigramme.** La Direction Marketing, un
 responsable régulatoire, un directeur commercial encadrent tous quelqu'un sans partager le moindre
 rôle. Le module est donc ouvert à tous, et c'est une **garde de navigation** qui n'affiche
 l'entrée qu'à ceux qui ont réellement des N-1.
@@ -8172,7 +8243,7 @@ complète tout lien Markdown qui en est un préfixe strict avec candidat UNIQUE 
 jamais le mauvais dossier) — branché sur les DEUX boucles, flux compris (`reset` + réémission,
 comme la passe critique). **(2) « SPO-2026-004 n'existe pas » sur un sponsoring réel** —
 `inspect_record` couvre désormais les sponsorings Ad&Pro (référence, id, institution, médecin,
-circuit Direction→chef de produit→décision, règlement lié, lien exact). **(3) Fiche Regulatory
+circuit Direction→Direction Marketing→décision, règlement lié, lien exact). **(3) Fiche Regulatory
 incohérente** (« Pré-soumission, étapes non démarrées » vs journal « Dépôt fait le 15/07 ») —
 la fiche `inspect_record` lit le **circuit ANPP coché** (`RegulatoryProduct.workflow`, la même
 source que l'écran) avec frise glissante autour de l'étape courante et `avancementCircuit` ;
@@ -10775,7 +10846,7 @@ Parité UI↔Chief : **10,1 % → 22,8 %** (natives 106, couvertes 30, trous ass
   les pièces jointes, les postes et l'avancement du circuit. Deux règles : **ce qui a fondé une décision ne se
   réécrit pas** (après décision, seule la Direction — et l'audit le note « APRÈS DÉCISION »), et **les champs de
   décision ne sont jamais modifiables ici** — d'où une liste blanche dont le formulaire ET la requête sont dérivés.
-  Au passage, le chef de produit, le National Sales et la Direction peuvent **joindre un fichier à leur avis** ;
+  Au passage, la Direction Marketing, le National Sales et la Direction peuvent **joindre un fichier à leur avis** ;
   les pièces sont contrôlées **avant** que le circuit n'avance, pour ne pas laisser une décision prise et sa
   justification perdue. → [référence](#ad--pro--corriger-une-demande-joindre-un-fichier-à-un-avis)
 
@@ -11045,8 +11116,8 @@ Parité UI↔Chief : **10,1 % → 22,8 %** (natives 106, couvertes 30, trous ass
     constats `RESPONSIVE_OVERFLOW`, `SLOW_PAGE`, `OFFLINE_UNHANDLED`, `CONSOLE_ERRORS`.
 - **Ad & Pro — routage intelligent : personne n'approuve sa propre demande.** À la création d'une demande
   (sponsoring / congrès / événement), on **saute** toute étape d'approbation au niveau ou en dessous du rang du
-  créateur. Le **National Sales** désigne directement le chef de produit (sélecteur ajouté aux formulaires) et
-  **saute son préliminaire** ; un **chef de produit**, la **Direction** ou le **Super Admin** **sautent préliminaire
+  créateur. Le **National Sales** désigne directement la Direction Marketing (sélecteur ajouté aux formulaires) et
+  **saute son préliminaire** ; la **Direction Marketing**, la **Direction** ou le **Super Admin** **sautent préliminaire
   ET analyse** → validation définitive Direction. Logique centralisée dans `src/lib/workflow/origin.ts`
   (`adProOriginRank`/`adProInit`, testé) et câblée dans `createSponsoring`, `createCongressRequest`,
   `submitEventForApproval` ; le statut legacy de départ pilote à la fois les actions historiques et le moteur.
@@ -11084,7 +11155,7 @@ Parité UI↔Chief : **10,1 % → 22,8 %** (natives 106, couvertes 30, trous ass
   le défaut du rôle et retombait sur une portée `ASSIGNED` (le sélecteur de portée retombe sur ASSIGNED s'il n'est
   pas repositionné) — or `saveAccessMatrix`/`saveModuleAccess` par défaut à `ASSIGNED`. Le National Sales, qui a
   nativement la portée **ALL** sur les congrès (`defaultScope`), perdait donc sa visibilité et, à l'étape
-  préliminaire, n'étant ni demandeur ni chef de produit, ne voyait plus rien. Correctif dans `getAccess`
+  préliminaire, n'étant ni demandeur ni Direction Marketing, ne voyait plus rien. Correctif dans `getAccess`
   (`src/lib/rbac.ts`) : un override ne peut plus **rétrécir silencieusement** une portée que le rôle possède
   nativement en `ALL` (symétrique de la règle déjà en place pour le rôle secondaire). Test de non-régression
   ajouté (`rbac-access.test.ts`, cas National Sales en rôle principal + override).
@@ -11288,7 +11359,7 @@ Parité UI↔Chief : **10,1 % → 22,8 %** (natives 106, couvertes 30, trous ass
   **regroupées par BU** avec sous-totaux + total, **enregistrement automatique** à la sortie de chaque
   champ, KPIs (FTE cible total, ETP KAM disponibles, visites, capacité/KAM) et navigateur mois précédent/
   suivant. **(2) Catalogue** — gestion des **Business Units** (franchises : société, chef de BU, couleur)
-  et des **produits promus** (BU + chef de produit), un produit étant l'**unité atomique d'affectation**
+  et des **produits promus** (BU + Direction Marketing), un produit étant l'**unité atomique d'affectation**
   (un KAM peut porter des produits de plusieurs BU). **(3) Paramètres** — **100 % configurables** :
   **capacité terrain** (jours/mois × visites/jour × % terrain, avec aperçu de la capacité nette), **poids
   des positions** de détail (P1/P2/P3) et **fréquence cible par palier de potentiel** (Très fort → Très
@@ -11545,7 +11616,7 @@ Parité UI↔Chief : **10,1 % → 22,8 %** (natives 106, couvertes 30, trous ass
   Enfin, **export Excel (.xlsx)** du budget avec le **taux de consommation** par catégorie + une feuille
   « Total enveloppes ». +6 tests (export relu par SheetJS, scoping des options par accès).
 - **Validations, santé du chatbot, dépôt Drive Regulatory & lisibilité.** Cinq sujets. **(1) Accès
-  temporaire de validation** — un validateur (ex. un chef de produit recevant un bon de commande à
+  temporaire de validation** — un validateur (ex. la Direction Marketing recevant un bon de commande à
   valider) obtient, LE TEMPS de décider, une LECTURE du module concerné (résolu depuis le libellé
   stocké OU l'URL de l'objet) + l'accès à la ligne liée, révoqué dès la décision ; et il **voit/prévisualise
   l'original SUR PLACE** dans la carte « À valider ». **(2) Test IA quotidien** — le planificateur interne
@@ -11808,11 +11879,11 @@ Parité UI↔Chief : **10,1 % → 22,8 %** (natives 106, couvertes 30, trous ass
   Admin, avis défavorables non éliminatoires, méta + historique réservés au Super Admin, rôles secondaires
   cumulés partout (`anyRoleFilter`).
 - **Rôle National Sales** — nouveau rôle (capacités du délégué médical + **approbation préliminaire** des demandes
-  Ad & Pro / événements avec **choix du chef de produit**). Portée ALL pour voir toutes les demandes.
-- **Étape préliminaire réservée au National Sales** — le choix du chef de produit ne se fait plus via la Direction
+  Ad & Pro / événements avec **choix de la Direction Marketing**). Portée ALL pour voir toutes les demandes.
+- **Étape préliminaire réservée au National Sales** — le choix de la Direction Marketing ne se fait plus via la Direction
   Marketing ; il est réservé au National Sales (Super Admin en secours). La **décision finale** reste à la Direction.
 - **Workflow de prise en charge étendu aux Événements** — le module Events reçoit le **même circuit** que les
-  congrès (soumission → National Sales → chef de produit → Direction → information médicale → Finances).
+  congrès (soumission → National Sales → Direction Marketing → Direction → information médicale → Finances).
 - **Impliquer une tierce personne** — étendu du sponsoring aux **congrès et événements**, avec **dossier de suivi
   auto-créé** indiquant l'événement (sans budget) et une demande dans l'espace de la personne.
 - **Budgets** — **sous-catégories** (ex. Table ronde sous Événement), **vue consolidée du total des enveloppes**,

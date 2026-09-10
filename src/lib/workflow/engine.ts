@@ -64,8 +64,45 @@ export async function getDefinition(category: WorkflowCategory): Promise<LoadedD
     where: { category },
     include: { steps: { orderBy: { position: "asc" } } },
   });
-  if (existing) return existing;
+  if (existing && existing.steps.length > 0) return existing;
+
   const d = defaultDefinition(category);
+
+  // ── UNE DÉFINITION SANS AUCUNE ÉTAPE N'EST PAS UN CIRCUIT ────────────────────────────────
+  //
+  // Mesuré en base : la ligne `WorkflowDefinition` existait, avec ZÉRO `WorkflowStep`. La garde
+  // était `if (existing) return existing` — elle ne regardait que la présence de la LIGNE, et
+  // rendait donc un circuit vide comme s'il était configuré.
+  //
+  // Ce que cela produit est un faux succès parfait : `ensureInstance` lit `orderedSteps(def)`
+  // vide, pose la demande sur un `currentSlug` qu'AUCUNE étape ne porte, et la demande existe,
+  // apparaît dans les listes, n'a aucune étape en échec — et personne, à aucun rôle, ne peut la
+  // faire avancer. C'est la signature de §118.14 vue cette semaine à l'autre bout du même
+  // moteur (une étape de tête à portée ASSIGNEE : une demande que personne ne peut avancer).
+  //
+  // On RESÈME au lieu de refuser, et c'est la moitié qui compte : un circuit vide n'est jamais
+  // une configuration VOULUE — « aucune validation » signifierait un accord automatique, que ce
+  // moteur ne prononce jamais. Refuser laisserait le module mort ; resemer rend la colonne
+  // vertébrale par défaut, celle que `defaults.ts` décrit, et le geste est idempotent.
+  // Les `WorkflowStepEvent` déjà écrits portent leur `stepSlug` en TEXTE (pas de clé étrangère) :
+  // l'historique d'une instance survit au resemis, il ne se perd pas avec les étapes.
+  if (existing) {
+    try {
+      await prisma.workflowStep.createMany({
+        data: d.steps.map((st, i) => ({ ...stepCreate(st, i), definitionId: existing.id })),
+        skipDuplicates: true,
+      });
+    } catch {
+      // Course : une autre requête vient de resemer → la relecture ci-dessous tranche.
+    }
+    const reseme = await prisma.workflowDefinition.findUnique({
+      where: { category },
+      include: { steps: { orderBy: { position: "asc" } } },
+    });
+    if (reseme && reseme.steps.length > 0) return reseme;
+    throw new Error(`Le circuit ${CATEGORY_LABELS[category]} n'a aucune étape et n'a pas pu être réinitialisé.`);
+  }
+
   try {
     return await prisma.workflowDefinition.create({
       data: { category, name: d.name, description: d.description, steps: { create: d.steps.map(stepCreate) } },
@@ -415,12 +452,12 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
     const next = nextStepAfter(def, step, borne);
 
     if (next) {
-      // Étape INTERMÉDIAIRE (National Sales, chef de produit…) : le refus n'est PAS
+      // Étape INTERMÉDIAIRE (National Sales, Direction Marketing…) : le refus n'est PAS
       // éliminatoire — c'est un AVIS DÉFAVORABLE. Il est consigné et le circuit
       // continue vers l'étape suivante (la décision finale reste à la Direction).
       const assigneeId = input.assigneeId?.trim() || null;
       // Montant révisé OPTIONNEL joint à l'avis défavorable : uniquement si l'étape porte le
-      // pouvoir « fixer un montant » (SET_AMOUNT, ex. analyse chef de produit) et qu'un montant
+      // pouvoir « fixer un montant » (SET_AMOUNT, ex. analyse Direction Marketing) et qu'un montant
       // positif est fourni. Sinon on reste sur le comportement actuel (aucun montant).
       const revisedAmount = step.powers.includes("SET_AMOUNT") && input.amount != null && input.amount > 0 ? input.amount : null;
       if (step.powers.includes("ASSIGN")) {
@@ -678,14 +715,14 @@ async function projectApprove(entityType: EntityType, entityId: string, step: Lo
   const data: Record<string, unknown> = { updatedById: ctx.viewer.id };
   const statusField = LEGACY_FIELD[entityType] ?? "status";
 
-  // Désignation (pouvoir ASSIGN) → chef de produit + méta préliminaire.
+  // Désignation (pouvoir ASSIGN) → Direction Marketing + méta préliminaire.
   if (ctx.assigneeId) {
     data.productManagerId = ctx.assigneeId;
     data.preliminaryById = ctx.viewer.id;
     data.preliminaryAt = now;
     data.preliminaryNote = ctx.note;
   }
-  // Montant proposé (SET_AMOUNT hors étape d'émission) → budget chef de produit.
+  // Montant proposé (SET_AMOUNT hors étape d'émission) → budget Direction Marketing.
   if (!ctx.emitStep && step.powers.includes("SET_AMOUNT") && ctx.amount != null) {
     data.productManagerBudget = ctx.amount;
     data.productManagerNotes = ctx.note;

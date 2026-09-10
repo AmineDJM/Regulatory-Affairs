@@ -14,7 +14,7 @@ import type { FieldReportDetail } from "@/lib/queries/field-reports";
 import { DoctorPicker } from "./doctor-picker";
 
 /**
- * Vue gestionnaire (Direction / chef de produit) : un seul **compte rendu (synthèse)**,
+ * Vue gestionnaire (Direction / Direction Marketing) : un seul **compte rendu (synthèse)**,
  * dictable à la voix, + médecin(s), établissement, spécialité, date, pièces jointes.
  * Plus de catégories structurées — le compte rendu se suffit à lui-même.
  */

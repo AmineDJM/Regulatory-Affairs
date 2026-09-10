@@ -66,7 +66,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
       if (category) fd.set("budgetCategoryId", category);
     }
     // Avis défavorable sur une étape intermédiaire : la désignation reste requise et le
-    // chef de produit peut, DE MANIÈRE OPTIONNELLE, joindre un montant révisé (ex. « montant
+    // Direction Marketing peut, DE MANIÈRE OPTIONNELLE, joindre un montant révisé (ex. « montant
     // revu à la hausse »). Ignoré sur un refus définitif (dernière étape).
     if (action === "REJECT") {
       if (assignee) fd.set("assigneeId", assignee);

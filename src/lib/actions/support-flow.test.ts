@@ -41,7 +41,7 @@ suite("Demandes de support — émission, prise en charge, réponse, accès", ()
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
   });
 
-  it("un délégué adresse une demande à la fonction « chef de produit » (OPEN, rôle notifié)", async () => {
+  it("un délégué adresse une demande à la fonction « Direction Marketing » (OPEN, rôle notifié)", async () => {
     ACTOR = await actorFor(requesterId, "MEDICAL_DELEGATE");
     const fd = new FormData();
     fd.set("subject", `${TAG} Brochure produit X`); fd.set("body", "Besoin de la dernière brochure."); fd.set("category", "BROCHURE"); fd.set("targetRole", "PRODUCT_MANAGER");
@@ -56,12 +56,12 @@ suite("Demandes de support — émission, prise en charge, réponse, accès", ()
     expect(notif).not.toBeNull();
   });
 
-  it("accès : demandeur + chef de produit ciblé voient ; un tiers non", async () => {
+  it("accès : demandeur + Direction Marketing ciblé voient ; un tiers non", async () => {
     const sr = await getSupportRequest(reqId);
     expect(canViewSupport(await actorFor(requesterId, "MEDICAL_DELEGATE"), sr!)).toBe(true);
     expect(canViewSupport(await actorFor(cdpId, "PRODUCT_MANAGER"), sr!)).toBe(true);
     expect(canViewSupport(await actorFor(otherId, "SALES_USER"), sr!)).toBe(false);
-    // Scope liste : un chef de produit voit la demande ciblant son rôle ; un commercial non.
+    // Scope liste : la Direction Marketing voit la demande ciblant son rôle ; un commercial non.
     const cdp = await actorFor(cdpId, "PRODUCT_MANAGER");
     const inScope = await prisma.supportRequest.findFirst({ where: { AND: [{ id: reqId }, scopeSupport(cdp)] }, select: { id: true } });
     expect(inScope?.id).toBe(reqId);
@@ -70,7 +70,7 @@ suite("Demandes de support — émission, prise en charge, réponse, accès", ()
     expect(outScope).toBeNull();
   });
 
-  it("le chef de produit prend en charge puis répond (assigné + statut ANSWERED)", async () => {
+  it("la Direction Marketing prend en charge puis répond (assigné + statut ANSWERED)", async () => {
     ACTOR = await actorFor(cdpId, "PRODUCT_MANAGER");
     const fdTake = new FormData(); fdTake.set("id", reqId);
     expect((await takeSupportRequest(fdTake)).ok).toBe(true);

@@ -3,8 +3,13 @@ import { toNumber } from "@/lib/utils";
 import {
   renewLegalDocument, cancelLegalDocument, setLegalReaders, sendLegalInvoiceToSettlement,
 } from "@/lib/actions/legal-actions";
+import { rattacherLegalAFiche, detacherLegalDeFiche } from "@/lib/actions/ad-pro-rattacher-legal";
+import { resoudreCible } from "@/lib/cibles/resoudre";
+import { getEntity } from "@/lib/api/registry/entities";
+import type { CurrentUser } from "@/lib/session";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
+import { fieldsOf } from "./helpers";
 import { resolvePeopleList } from "./impl-drive";
 
 /**
@@ -46,7 +51,160 @@ const iso = (raw: string): string | null => {
 
 const LEGAL_REVALIDATE = ["/legal"];
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA FICHE SUR LAQUELLE BRANCHER UNE PIÈCE — six natures, UN résolveur.
+ *
+ * L'écran offre ce geste depuis la demande (on coche un document dans une liste déjà filtrée
+ * par les droits) ; en conversation, la personne NOMME la fiche : « rattache la convention
+ * Sanofi à SP-2026-014 ». Il faut donc traduire un texte en ligne de base, et c'est
+ * exactement ce que `resoudreCible` fait pour les 29 objets du registre — on n'écrit pas un
+ * 118ᵉ résolveur à la main (§118.85).
+ *
+ * ── POURQUOI LA NATURE EST FACULTATIVE, ET CE QUE ÇA COÛTE ──────────────────────────────
+ *
+ * `resoudreCible` répond pour UNE entité ; une demande Ad & Pro peut être l'une de six. Sans
+ * nature donnée, on interroge les six et on n'accepte qu'UNE seule correspondance sur
+ * l'ensemble : plusieurs natures qui répondent ne désignent AUCUNE fiche, et en choisir une
+ * rattacherait la pièce au mauvais dossier en annonçant que c'est fait (§104.7). Six requêtes
+ * bornées à la portée de la personne coûtent moins qu'un aller-retour de plus (§118.30), et
+ * la portée est celle de l'ÉCRAN — `resoudreCible` compose `porteeEntite`, donc une fiche hors
+ * périmètre n'apparaît même pas comme candidate. L'ACTEUR arrive par la signature de `propose` :
+ * rouvrir la session ici donnerait un second chemin vers l'identité, et c'est celui qui prendrait
+ * du retard le jour où le runtime agit pour quelqu'un d'autre (§118.5, §118.7).
+ *
+ * `promo_material` n'est PAS de la liste : il n'a pas d'entrée au registre d'entités, donc
+ * aucune portée de lecture déclarée. L'ajouter ici en devinant sa clause reviendrait à écrire
+ * une décision de permission dans un résolveur (§118.86) ; le geste reste offert à l'écran, et
+ * le refus le DIT au lieu de laisser croire que la pièce n'existe pas.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const NATURES_RATTACHABLES: { entite: string; entityType: string; libelle: string }[] = [
+  { entite: "sponsoring", entityType: "SPONSORING", libelle: "sponsoring" },
+  { entite: "congress_international", entityType: "CONGRESS_INTERNATIONAL", libelle: "congrès international" },
+  { entite: "congress_national", entityType: "CONGRESS_NATIONAL", libelle: "prise en charge nationale" },
+  { entite: "event", entityType: "EVENT", libelle: "événement" },
+  { entite: "ad_pro_other", entityType: "AD_PRO_OTHER", libelle: "demande Ad & Pro « autre »" },
+  { entite: "consulting_contract", entityType: "CONSULTING_CONTRACT", libelle: "contrat de consulting" },
+];
+
+interface FicheHit { entityType: string; entityId: string; label: string; libelle: string }
+
+async function resolveFicheAdPro(
+  user: CurrentUser,
+  raw: string,
+  nature: string,
+): Promise<FicheHit | { error: string }> {
+  const q = raw.trim();
+  if (!q) return { error: "Précisez la fiche à laquelle rattacher le document (champ « target » : sa référence ou son intitulé)." };
+
+  const n = nature.trim().toLowerCase();
+  const cherchees = n
+    ? NATURES_RATTACHABLES.filter((x) => x.entite === n || x.entityType.toLowerCase() === n || x.libelle.startsWith(n))
+    : NATURES_RATTACHABLES;
+  if (cherchees.length === 0) {
+    return {
+      error: `Nature « ${nature} » inconnue. Natures rattachables : ${NATURES_RATTACHABLES.map((x) => x.libelle).join(", ")}. `
+        + "Le matériel promotionnel se rattache depuis son écran.",
+    };
+  }
+
+  const trouves: FicheHit[] = [];
+  const candidats: string[] = [];
+  for (const x of cherchees) {
+    if (!getEntity(x.entite)) continue;
+    const r = await resoudreCible(user, x.entite, q);
+    // `titre` porte la référence quand l'objet en a une, `sousTitre` ce qui distingue deux
+    // homonymes : les deux, sinon « SP-2026-014 » et « SP-2026-015 » seraient indiscernables
+    // dans une liste de candidats, et le refus n'aiderait personne à choisir.
+    const nommer = (c: { titre: string; sousTitre: string | null }): string =>
+      c.sousTitre ? `${c.titre} — ${c.sousTitre}` : c.titre;
+    for (const c of r.retenu) trouves.push({ entityType: x.entityType, entityId: c.id, label: nommer(c), libelle: x.libelle });
+    for (const c of r.candidats) candidats.push(`${nommer(c)} (${x.libelle})`);
+  }
+
+  if (trouves.length === 1) return trouves[0];
+  if (trouves.length > 1) {
+    return {
+      error: `« ${q} » désigne ${trouves.length} fiches : ${trouves.map((t) => `${t.label} (${t.libelle})`).join(" ; ")} `
+        + "— précisez la nature (champ « nature ») ou la référence exacte.",
+    };
+  }
+  if (candidats.length > 0) {
+    return { error: `Plusieurs fiches correspondent à « ${q} » : ${candidats.slice(0, 8).join(" ; ")} — précisez.` };
+  }
+  return { error: `Aucune fiche « ${q} » dans votre périmètre (natures cherchées : ${cherchees.map((x) => x.libelle).join(", ")}).` };
+}
+
 export const LEGAL_OPS_IMPL: Record<string, OpImpl> = {
+  link_record: {
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"));
+      if ("error" in doc) return doc;
+      const fiche = await resolveFicheAdPro(user, opStr(input, "target") || opStr(input, "name"), opStr(input, "nature") || opStr(input, "kind"));
+      if ("error" in fiche) return fiche;
+      return {
+        title: `Rattacher « ${doc.title} » à ${fiche.label}`,
+        fields: fieldsOf([
+          ["Document", `${doc.reference ? `${doc.reference} — ` : ""}${doc.title}`],
+          ["Montant", doc.amount === null ? "—" : dzd(doc.amount)],
+          ["Fiche", `${fiche.label} (${fiche.libelle})`],
+        ]),
+        warnings: [
+          "SANS COPIE ET SANS DOUBLON : la pièce existante est BRANCHÉE sur la fiche — aucun second engagement n'est créé.",
+          "Un document déjà rattaché à une AUTRE fiche est refusé et la fiche qui le porte est nommée : détachez-le d'abord.",
+        ],
+        args: { legalId: doc.id, entityType: fiche.entityType, entityId: fiche.entityId },
+        successMessage: `« ${doc.title} » est rattaché·e à ${fiche.label}.`,
+        link: "/legal", revalidate: ["/legal"],
+      };
+    },
+    async execute(args) {
+      const fd = new FormData();
+      fd.set("legalId", args.legalId ?? "");
+      fd.set("entityType", args.entityType ?? "");
+      fd.set("entityId", args.entityId ?? "");
+      const r = await rattacherLegalAFiche(undefined, fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "Le rattachement a été refusé." };
+      return { ok: true, link: "/legal", revalidate: LEGAL_REVALIDATE };
+    },
+  },
+
+  unlink_record: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"));
+      if ("error" in doc) return doc;
+      // On LIT le rattachement courant : une carte qui ne dit pas DE QUOI on détache ferait
+      // valider à l'aveugle, et l'objet de la confirmation est justement ce lien (§118.83).
+      const lien = await prisma.legalDocument.findUnique({
+        where: { id: doc.id },
+        select: { sourceType: true, sourceId: true },
+      });
+      if (!lien?.sourceType || !lien.sourceId) {
+        return { error: `« ${doc.title} » n'est rattaché·e à aucune fiche — il n'y a rien à détacher.` };
+      }
+      const nature = NATURES_RATTACHABLES.find((x) => x.entityType === lien.sourceType);
+      return {
+        title: `Détacher « ${doc.title} »`,
+        fields: fieldsOf([
+          ["Document", `${doc.reference ? `${doc.reference} — ` : ""}${doc.title}`],
+          ["Rattaché·e à", `${nature ? nature.libelle : lien.sourceType} ${lien.sourceId}`],
+        ]),
+        warnings: ["La pièce n'est ni supprimée ni modifiée : elle cesse d'apparaître sur la fiche et redevient rattachable ailleurs."],
+        args: { legalId: doc.id },
+        successMessage: `« ${doc.title} » est détaché·e.`,
+        link: "/legal", revalidate: ["/legal"],
+      };
+    },
+    async execute(args) {
+      const fd = new FormData();
+      fd.set("legalId", args.legalId ?? "");
+      const r = await detacherLegalDeFiche(undefined, fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "Le détachement a été refusé." };
+      return { ok: true, link: "/legal", revalidate: LEGAL_REVALIDATE };
+    },
+  },
+
   renew: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"));

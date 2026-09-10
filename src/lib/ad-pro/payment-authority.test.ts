@@ -55,7 +55,7 @@ describe("Hors Regulatory — le montant décide de l'autorisation de paiement",
 });
 
 describe("La validation MÉTIER dépend du demandeur, jamais du montant", () => {
-  it("demande d'un délégué / KAM : superviseur national puis chef de produit", () => {
+  it("demande d'un délégué / KAM : superviseur national puis Direction Marketing", () => {
     const chain = buildPaymentChain({ domain: "AD_PRO_EXECUTION", initiator: "FIELD_REP", amount: 50_000 });
     expect(chain.map((s) => s.authority)).toEqual(["NATIONAL_SUPERVISOR", "PRODUCT_MANAGER", "OPERATIONS"]);
   });
@@ -67,7 +67,7 @@ describe("La validation MÉTIER dépend du demandeur, jamais du montant", () => 
     ]);
   });
 
-  it("demande d'un CHEF DE PRODUIT : il ne se valide pas lui-même", () => {
+  it("demande d'un DIRECTION MARKETING : il ne se valide pas lui-même", () => {
     const chain = buildPaymentChain({ domain: "AD_PRO_EXECUTION", initiator: "PRODUCT_MANAGER", amount: 50_000 });
     expect(chain.map((s) => s.authority)).toEqual(["OPERATIONS"]);
     expect(chain.map((s) => s.authority)).not.toContain("PRODUCT_MANAGER");
@@ -202,7 +202,7 @@ describe("Avis — consultatif, jamais bloquant", () => {
   });
 
   it("la chaîne d'une dépense d'exécution reste à une seule étape, avis ou pas", () => {
-    // C'est tout l'intérêt : la direction des opérations peut consulter le chef de produit
+    // C'est tout l'intérêt : la direction des opérations peut consulter la Direction Marketing
     // sans transformer cette consultation en une étape de plus.
     const chain = buildPaymentChain({ domain: "AD_PRO_EXECUTION", initiator: "OTHER", amount: 150_000 });
     expect(chain).toHaveLength(1);

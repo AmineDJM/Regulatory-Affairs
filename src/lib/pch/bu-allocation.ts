@@ -21,7 +21,7 @@
  *
  * ── CE QU'ON N'INVENTE PAS ──────────────────────────────────────────────────────────────────
  *
- * Ni le canal (ville / hôpital), ni le chef de produit, ni les prévisions. Le produit entre au
+ * Ni le canal (ville / hôpital), ni la Direction Marketing, ni les prévisions. Le produit entre au
  * portefeuille avec son NOM et son rattachement, et rien d'autre : ce sont des décisions
  * commerciales qui appartiennent à la BU, pas des valeurs qu'un rattachement peut deviner.
  *

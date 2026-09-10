@@ -65,9 +65,9 @@ export async function createCongressRequest(
   const pmId = fdStr(formData, "productManagerId");
   if (pmId) {
     const okPm = await prisma.user.count({ where: { id: pmId, isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) } });
-    if (!okPm) return { ok: false, error: "Le chef de produit sélectionné est introuvable." };
+    if (!okPm) return { ok: false, error: "Le référent Direction Marketing sélectionné est introuvable." };
   }
-  // La Direction peut demander l'avis d'un chef de produit avant de trancher — ou trancher tout
+  // La Direction peut demander l'avis de la Direction Marketing avant de trancher — ou trancher tout
   // de suite. `adProInit` ignore ce drapeau pour les autres rangs.
   const init = adProInit(user, pmId, { viaProductManager: fdStr(formData, "viaProductManager") === "1" });
   const now = new Date();
@@ -132,9 +132,9 @@ export async function createCongressRequest(
 
   await recordAudit({ actorId: user.id, action: "CREATE", module: ML(t), entityType: entityFor(t), entityId: created.id, summary: `Prise en charge « ${name} »${attached.saved > 0 ? ` (${attached.saved} pièce(s) jointe(s))` : ""}` });
   // Notifie l'acteur de l'étape de DÉPART selon le routage à la création :
-  //  · délégué → National Sales (approbation préliminaire + choix chef de produit) ;
-  //  · National Sales ayant désigné → le chef de produit (analyse) ;
-  //  · chef de produit / Direction / Super Admin → la Direction (validation définitive).
+  //  · délégué → National Sales (approbation préliminaire + choix du référent Direction Marketing) ;
+  //  · National Sales ayant désigné → la Direction Marketing (analyse) ;
+  //  · Direction Marketing / Direction / Super Admin → la Direction (validation définitive).
   const link = `${pathFor(t)}/${created.id}`;
   if (init.stage === "ANALYSIS" && init.productManagerId) {
     await notifyUser({ userId: init.productManagerId, type: "ASSIGNMENT", title: `${NOUN(t)} à analyser`, body: name, link });
@@ -147,7 +147,7 @@ export async function createCongressRequest(
   return { ok: true, id: created.id };
 }
 
-// ─────────────────── Attribution d'un chef de produit (Direction Marketing) ───────────────────
+// ─────────────────── Attribution de la Direction Marketing (Direction Marketing) ───────────────────
 
 export async function preliminaryDecision(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -155,7 +155,7 @@ export async function preliminaryDecision(formData: FormData): Promise<ActionRes
   const id = fdStr(formData, "id");
   const decision = fdStr(formData, "decision"); // APPROVE | REJECT
   if (!id || !decision) return { ok: false, error: "Paramètres manquants." };
-  // Approbation préliminaire (approuver/refuser + désigner le chef de produit) :
+  // Approbation préliminaire (approuver/refuser + désigner le référent Direction Marketing) :
   // **réservée au National Sales** (la demande émane d'un délégué). Ni la Direction
   // ni la Direction Marketing n'interviennent à cette étape.
   if (!(hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN")) return { ok: false, error: "Attribution réservée au National Sales." };
@@ -172,7 +172,7 @@ export async function preliminaryDecision(formData: FormData): Promise<ActionRes
     await recordAudit({ actorId: user.id, action: "REFUSE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Refus préliminaire — ${c.name}` });
   } else {
     const productManagerId = fdStr(formData, "productManagerId");
-    if (!productManagerId) return { ok: false, error: "Sélectionnez le chef de produit qui fera l'analyse." };
+    if (!productManagerId) return { ok: false, error: "Sélectionnez le référent Direction Marketing qui fera l'analyse." };
     await updateCongress(t, id, {
       requestStatus: "PRELIMINARY_APPROVED", productManagerId,
       preliminaryById: user.id, preliminaryAt: new Date(), preliminaryNote: fdStr(formData, "note"), updatedById: user.id,
@@ -186,7 +186,7 @@ export async function preliminaryDecision(formData: FormData): Promise<ActionRes
   return { ok: true };
 }
 
-// ───────────────────────────── Analyse chef de produit ─────────────────────────────
+// ───────────────────────────── Analyse Direction Marketing ─────────────────────────────
 
 export async function submitProductAnalysis(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -195,10 +195,10 @@ export async function submitProductAnalysis(formData: FormData): Promise<ActionR
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const c = await loadCongress(t, id);
   if (!c) return { ok: false, error: "Demande introuvable." };
-  if (c.productManagerId !== user.id && !hasGlobalView(user)) return { ok: false, error: "Réservé au chef de produit assigné." };
+  if (c.productManagerId !== user.id && !hasGlobalView(user)) return { ok: false, error: "Réservé au référent Direction Marketing assigné." };
   if (c.requestStatus !== "PRELIMINARY_APPROVED") return { ok: false, error: "Cette demande n'est pas en phase d'analyse." };
 
-  // Le chef de produit peut APPROUVER (et proposer un budget, désormais facultatif)
+  // La Direction Marketing peut APPROUVER (et proposer un budget, désormais facultatif)
   // ou REFUSER la demande.
   const decision = fdStr(formData, "decision") ?? "APPROVE";
   if (decision === "REJECT") {
@@ -207,9 +207,9 @@ export async function submitProductAnalysis(formData: FormData): Promise<ActionR
     await updateCongress(t, id, {
       requestStatus: "REJECTED", rejectionReason: reason, productManagerNotes: reason, updatedById: user.id,
     });
-    if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: `${NOUN(t)} — refusé par le chef de produit`, body: c.name, link: `${pathFor(t)}/${id}` });
-    await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], { type: "GENERIC", title: `${NOUN(t)} refusé par le chef de produit`, body: c.name, link: `${pathFor(t)}/${id}` });
-    await recordAudit({ actorId: user.id, action: "REFUSE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Refus chef de produit — ${c.name}` });
+    if (c.requesterId) await notifyUser({ userId: c.requesterId, type: "GENERIC", title: `${NOUN(t)} — refusé par la Direction Marketing`, body: c.name, link: `${pathFor(t)}/${id}` });
+    await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], { type: "GENERIC", title: `${NOUN(t)} refusé par la Direction Marketing`, body: c.name, link: `${pathFor(t)}/${id}` });
+    await recordAudit({ actorId: user.id, action: "REFUSE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Refus Direction Marketing — ${c.name}` });
     revalidatePath(`${pathFor(t)}/${id}`);
     revalidatePath(pathFor(t));
     return { ok: true };
@@ -225,10 +225,10 @@ export async function submitProductAnalysis(formData: FormData): Promise<ActionR
   await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED",
     title: `${NOUN(t)} — validation définitive`,
-    body: `${c.name} — analyse chef de produit terminée`,
+    body: `${c.name} — analyse Direction Marketing terminée`,
     link: `${pathFor(t)}/${id}`,
   });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Analyse chef de produit — ${c.name}` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Analyse Direction Marketing — ${c.name}` });
   revalidatePath(`${pathFor(t)}/${id}`);
   return { ok: true };
 }

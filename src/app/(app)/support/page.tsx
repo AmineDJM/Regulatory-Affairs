@@ -35,7 +35,7 @@ export default async function SupportPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Demandes de support" description="Adressez vos questions et demandes de supports, brochures ou documents au directeur médical, au chef de produit ou à une autre fonction.">
+      <PageHeader title="Demandes de support" description="Adressez vos questions et demandes de supports, brochures ou documents au directeur médical, à la Direction Marketing ou à une autre fonction.">
         <CreateRecordButton
           label="Nouvelle demande"
           title="Demander un support"

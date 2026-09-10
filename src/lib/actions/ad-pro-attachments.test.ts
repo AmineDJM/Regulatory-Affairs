@@ -75,7 +75,7 @@ suite("Ad&Pro — joindre une pièce", () => {
   });
 
   it("CELUI QUI PEUT MODIFIER LE DOSSIER PEUT L'ALIMENTER — sans droit d'envoi coché", async () => {
-    // Le cœur du défaut : ce chef de produit a `UPDATE` sur le module, pas `UPLOAD`. Il
+    // Le cœur du défaut : ce Direction Marketing a `UPDATE` sur le module, pas `UPLOAD`. Il
     // instruisait le dossier et n'avait aucun moyen d'y déposer la facture.
     const v = await viewerFor(pmId, "PRODUCT_MANAGER");
     expect(userCan(v, "SPONSORING", "UPLOAD"), "le droit UPLOAD ne doit PAS être coché : c'est tout l'intérêt du test").toBe(false);

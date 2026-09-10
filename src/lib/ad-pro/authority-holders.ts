@@ -34,7 +34,7 @@ export interface SubjectLike {
 /**
  * Les autorités qu'une personne porte, à cet instant.
  *
- * Le second rôle compte autant que le premier : quelqu'un nommé chef de produit « en plus » de
+ * Le second rôle compte autant que le premier : quelqu'un nommé référent Direction Marketing « en plus » de
  * sa fonction exerce réellement cette autorité, et l'ignorer bloquerait des chaînes que
  * l'entreprise croit fluides.
  */

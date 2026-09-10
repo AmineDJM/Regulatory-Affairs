@@ -17,7 +17,7 @@ import { typedMemoryContext } from "@/lib/assistant/memory-context";
  *   4. le `userId` vient TOUJOURS de la session serveur, jamais du client.
  *
  * Conséquence : l'assistant du directeur des opérations ne peut pas atteindre celui du
- * chef de produit, littéralement — il n'existe aucun chemin de code pour le faire.
+ * Direction Marketing, littéralement — il n'existe aucun chemin de code pour le faire.
  */
 
 // ───────────────────────────── Fils de conversation ─────────────────────────────

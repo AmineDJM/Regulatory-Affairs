@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * LE PARCOURS D'UNE DEMANDE Ad & Pro — module PUR, aucun import.
+ * LE PARCOURS D'UNE DEMANDE Ad & Pro — module PUR (sa seule dépendance est le SOCLE).
  *
  * ── CE QUE LA DIRECTION A TRANCHÉ ────────────────────────────────────────────────────────
  *
@@ -37,45 +37,23 @@
  */
 
 /**
- * LE RÔLE QUI DÉSIGNE UN KAM, et lui seul.
+ * LES RÔLES viennent du SOCLE (`personnes/roles-vente.ts`) et sont RÉEXPORTÉS ici.
  *
- * `MEDICAL_DELEGATE` est le délégué médical, c'est-à-dire le KAM (`rbac.ts` le dit en toutes
- * lettres là où il ouvre son tableau de bord : « KAM / délégué médical »). Le `NATIONAL_SALES`
- * porte « les capacités du délégué médical + l'approbation préliminaire » : il fait le même
- * métier, mais c'est LUI le superviseur national — sa demande n'a personne au-dessus d'elle
- * dans la force de vente, et la Direction l'a explicitement rangé dans l'autre parcours.
- *
- * On teste le RÔLE et non le rattachement à une BU : un KAM dont la fiche de force de vente
- * n'est pas encore remplie est un KAM quand même, et le faire changer de circuit pour un
- * enregistrement manquant serait une règle métier décidée par un trou de données.
+ * « Est-ce un KAM ? » est une lecture de ce qu'une personne EST : la déduction de la Business
+ * Unit en a besoin autant que ce circuit, et `ad-pro/` n'a pas le droit d'importer `workflow/`
+ * — `domains.test.ts` l'a compté et refusé (70 traversées pour un plafond de 69). La lecture est
+ * donc au socle, à côté de `designation.ts` et `joignabilite.ts`, et ce module la réexporte pour
+ * que ses appelants n'aient pas à savoir d'où elle vient.
  */
-export const ROLE_KAM = "MEDICAL_DELEGATE" as const;
+import { estKam, ROLE_DIRECTION_MARKETING, ROLE_KAM, type RolesPersonne } from "@/lib/personnes/roles-vente";
 
-/** Le rôle qui porte Direction Marketing — anciennement « Chef de produit ». */
-export const ROLE_DIRECTION_MARKETING = "PRODUCT_MANAGER" as const;
+export { ROLE_KAM, ROLE_DIRECTION_MARKETING, estKam };
+export type DemandeurParcours = RolesPersonne;
 
 /** Les slugs de la colonne vertébrale Ad & Pro. */
 export const SLUG_PRELIMINAIRE = "preliminary" as const;
 export const SLUG_MARKETING = "marketing" as const;
 export const SLUG_DIRECTION = "final" as const;
-
-/** Ce qu'il faut savoir du demandeur pour choisir son parcours. */
-export interface DemandeurParcours {
-  role: string;
-  secondaryRole?: string | null;
-}
-
-/**
- * Le demandeur est-il un KAM ?
- *
- * Le rôle SECONDAIRE compte, comme partout ailleurs dans ce produit : quelqu'un qui exerce
- * aussi comme délégué médical est un KAM pour le circuit, et l'ignorer enverrait sa demande
- * directement à Direction Marketing en sautant son superviseur national.
- */
-export function estKam(demandeur: DemandeurParcours | null | undefined): boolean {
-  if (!demandeur) return false;
-  return demandeur.role === ROLE_KAM || (demandeur.secondaryRole ?? null) === ROLE_KAM;
-}
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════

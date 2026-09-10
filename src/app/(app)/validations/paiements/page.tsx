@@ -33,7 +33,7 @@ export const dynamic = "force-dynamic";
  * sous les dossiers du mois dernier. On classe par échéance réelle (`sortByPriority`).
  *
  * ⚠️ La porte n'est PAS le module Finances, et ce n'est pas un oubli. N'importe qui peut avoir
- * à faire payer une facture — un chef de produit, une assistante, un délégué — sans avoir la
+ * à faire payer une facture — la Direction Marketing, une assistante, un délégué — sans avoir la
  * moindre raison de voir le grand livre ou la trésorerie. L'écran est donc gardé par le CERCLE
  * du dossier : chacun voit ses propres demandes, les Finances voient la file à instruire, et
  * rien d'autre ne s'affiche. Exiger le module aurait rendu l'écran invisible à ceux-là mêmes

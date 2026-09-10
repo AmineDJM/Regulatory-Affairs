@@ -33,7 +33,7 @@
  *   1. le droit `UPLOAD` du module — la porte explicite, inchangée ;
  *   2. le DEMANDEUR — c'est son dossier ;
  *   3. qui peut le MODIFIER ou le VALIDER — il en répond ;
- *   4. le CHEF DE PRODUIT désigné sur le dossier — il l'a analysé ;
+ *   4. le DIRECTION MARKETING désigné sur le dossier — il l'a analysé ;
  *   5. la VUE GLOBALE (Direction, Super Admin) — elle voit tout et arbitre.
  *
  * ── CE QUE CETTE RÈGLE NE FAIT PAS ──────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ export interface AdProViewer {
 
 export interface AdProRecord {
   requesterId?: string | null;
-  /** Le chef de produit désigné sur le dossier — il l'a analysé, il peut le documenter. */
+  /** Le référent Direction Marketing désigné sur le dossier — il l'a analysé, il peut le documenter. */
   productManagerId?: string | null;
   /** L'assistante de direction en charge, quand le dossier en désigne une. */
   assistantId?: string | null;

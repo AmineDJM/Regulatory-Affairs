@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/input";
 /**
  * Appel du délégué après décision de la Direction. Le circuit de validation lui-même
  * est désormais piloté par le moteur de workflow configurable (WorkflowPanel) ; l'appel
- * reste une action propre au sponsoring qui ré-ouvre le circuit à l'analyse chef de produit.
+ * reste une action propre au sponsoring qui ré-ouvre le circuit à l'analyse Direction Marketing.
  */
 export function AppealPanel({ id }: { id: string }) {
   const router = useRouter();
@@ -34,7 +34,7 @@ export function AppealPanel({ id }: { id: string }) {
   if (!open) {
     return (
       <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">Vous n'êtes pas d'accord avec la décision ? Vous pouvez faire appel : le dossier repart pour un nouvel examen du chef de produit.</p>
+        <p className="text-sm text-muted-foreground">Vous n'êtes pas d'accord avec la décision ? Vous pouvez faire appel : le dossier repart pour un nouvel examen de la Direction Marketing.</p>
         <Button variant="outline" size="sm" onClick={() => setOpen(true)}><Gavel className="h-4 w-4" /> Faire appel</Button>
       </div>
     );

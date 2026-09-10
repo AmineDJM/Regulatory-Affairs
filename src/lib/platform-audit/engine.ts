@@ -119,7 +119,7 @@ async function probeRoles(): Promise<{ roles: RoleCoverage[]; findings: Finding[
     { role: "SUPER_ADMIN", critical: true, impact: "Sans Super Admin actif, l'administration et le pilotage sont inaccessibles." },
     { role: "DIRECTION", critical: true, impact: "La Direction valide les demandes Ad & Pro et les ordres de dépense." },
     { role: "NATIONAL_SALES", critical: false, impact: "Approbation préliminaire Ad & Pro : sans lui, les demandes de délégués restent bloquées à l'étape préliminaire." },
-    { role: "PRODUCT_MANAGER", critical: false, impact: "Analyse (chef de produit) des demandes Ad & Pro." },
+    { role: "PRODUCT_MANAGER", critical: false, impact: "Analyse (Direction Marketing) des demandes Ad & Pro." },
     { role: "MEDICAL_INFO_PHARMACIST", critical: false, impact: "Émission des déclarations d'information médicale (PRIM) ; sinon repli en ordre de dépense direct." },
     { role: "FINANCE_BUDGET_MANAGER", critical: false, impact: "Règlement des ordres de dépense : sans lui, rien n'est réglé côté Finances." },
     { role: "DIRECTION_ASSISTANT", critical: false, impact: "Pilote le Bureau du secrétariat et le matériel promotionnel." },
