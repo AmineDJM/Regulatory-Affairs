@@ -43,7 +43,9 @@ export const ADAM_PATHS = [
   "src/lib/assistant-",
   "src/lib/comms/",
   "src/components/chief/",
-  "src/app/(chief)/",
+  // Adam n'a plus de groupe de routes à lui : il est un MODULE, dans la coque de l'ERP
+  // (§118.100). Sa page reste du périmètre ADAM et sa dette continue d'être comptée ici.
+  "src/app/(app)/chief-of-staff/",
   "src/app/(app)/assistant/",
   "src/app/api/assistant/",
 ] as const;

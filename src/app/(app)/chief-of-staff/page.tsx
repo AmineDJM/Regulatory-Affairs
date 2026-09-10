@@ -11,6 +11,9 @@ import { composerInbox } from "@/platform/in-process/inbox/compose";
 import { aTrancher } from "@/lib/assistant/inbox/model";
 import { ChiefWorkspace } from "@/components/chief/chief-workspace";
 import { BlockPreviewPlanche } from "@/components/chief/workspace/preview-planche";
+// La feuille de style d'Adam était importée par le layout `(chief)`. Ce layout n'existe plus —
+// Adam est un MODULE — donc elle est importée là où elle sert : sa page.
+import "../../chief.css";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Adam — Chief of Staff" };
@@ -61,17 +64,9 @@ export default async function ChiefOfStaffPage({
     return <BlockPreviewPlanche />;
   }
 
-  // LA PORTE DE SORTIE. `(chief)` retire toute la navigation de l'ERP — c'est ce qui fait d'Adam
-  // un bureau et non un onglet — mais il n'en restait AUCUNE : on quittait Adam par le bouton
-  // « précédent » du navigateur. La liste des destinations arrive par le CONTRAT de plateforme,
-  // jamais par un import direct du menu : c'est l'ERP qui sait qui a le droit d'aller où.
-  const [memoryEnabled, destinations] = await Promise.all([
-    user.impersonatedBy ? Promise.resolve(false) : featureEnabled(FEATURES.ASSISTANT_MEMORY.key, user.id),
-    inProcessPlatform
-      .query(principalOf(user), { kind: "navigation.destinations" })
-      .then((r) => (r.kind === "navigation.destinations" ? r.destinations : []))
-      .catch(() => []),
-  ]);
+  const memoryEnabled = user.impersonatedBy
+    ? false
+    : await featureEnabled(FEATURES.ASSISTANT_MEMORY.key, user.id);
 
   // LE FIL PRINCIPAL : une conversation CONTINUE par personne — elle s'ouvre d'office au lieu
   // de repartir de « chat n°47 ».
@@ -134,6 +129,33 @@ export default async function ChiefOfStaffPage({
     : ({ label: "IA non configurée", tone: "off" } as const);
 
   return (
+    /**
+     * ═══════════════════════════════════════════════════════════════════════════════════════
+     * ADAM EST UN MODULE — et il vit dans la coque de l'ERP.
+     *
+     * CE QUI CHANGE, ET POURQUOI. Le bureau d'Adam avait son propre groupe de routes,
+     * `(chief)`, dont le layout retirait délibérément les neuf éléments de chrome de l'ERP :
+     * menu latéral, barre supérieure, barre d'onglets mobile, palette de commandes, bandeaux.
+     * L'intention était bonne — « entrer chez Adam, pas ouvrir un onglet de plus » — et le prix
+     * était le suivant : il n'y avait AUCUNE façon d'aller dans un autre module. On en sortait
+     * par une icône de 44 px repliée dans un coin, ou par le bouton « précédent » du navigateur.
+     * Le dirigeant l'a tranché : Adam doit s'atteindre et se quitter comme n'importe quel
+     * module, par le menu de gauche.
+     *
+     * CE QUI NE SE PERD PAS. `CHIEF_OF_STAFF` était déjà dans le catalogue de navigation
+     * (`lib/labels.ts`) : le menu latéral le liste sans une ligne de plus, sous sa garde de
+     * module. `UploadProvider` et `CallProvider` — les deux seules pièces que `(chief)` portait
+     * en propre — vivent déjà dans le layout de l'ERP, au même niveau et pour la même raison :
+     * naviguer pendant un appel ne démonte pas la session WebRTC.
+     *
+     * ET LA HAUTEUR. `app-viewport-flush` s'arrête au ras de la barre d'onglets à partir de
+     * hauteurs MESURÉES (`chrome-metrics.tsx`), et les marges négatives neutralisent le padding
+     * de la coque pour que la conversation touche les bords — exactement ce que fait la page
+     * Assistant. Écrire une hauteur en dur mettrait le composeur derrière la barre sur
+     * téléphone, ce qui est déjà arrivé.
+     * ═══════════════════════════════════════════════════════════════════════════════════════
+     */
+    <div className="chief-root app-viewport-flush -mx-3 -mt-3 flex flex-col overflow-hidden sm:-mx-4 sm:-mt-6 lg:-mx-8">
     <ChiefWorkspace
       userName={user.name}
       configured={configured}
@@ -148,7 +170,7 @@ export default async function ChiefOfStaffPage({
       attention={attention}
       inbox={inbox}
       freshness={freshness}
-      destinations={destinations}
     />
+    </div>
   );
 }

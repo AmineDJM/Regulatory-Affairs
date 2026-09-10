@@ -809,9 +809,12 @@ export function AssistantChat({
       )}
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
-        <div className="mx-auto w-full max-w-3xl space-y-6">
+        {/* LE FLUX PORTE LE PLAN DE TRAVAIL, pas la colonne de lecture (globals.css) : c'est
+            chaque CONTENU qui déclare sa mesure — `chat-measure` pour la prose, toute la
+            largeur pour l'espace de travail d'un tour. Une borne unique écrasait la donnée. */}
+        <div className="chat-surface space-y-6">
         {messages.length === 0 && emptyState ? (
-          emptyState
+          <div className="chat-measure">{emptyState}</div>
         ) : messages.length === 0 ? (
           <div className="mx-auto max-w-xl py-8 text-center">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-purple-500 text-primary-foreground shadow-lg">
@@ -848,6 +851,9 @@ export function AssistantChat({
           <div className="flex gap-3">
             <Avatar />
             <div className="min-w-0 flex-1 space-y-1.5">
+              {/* Les PHASES et le TEXTE se lisent ; les BLOCS s'examinent. Deux mesures, et
+                  c'est pour cela que l'espace de travail est HORS de ce conteneur. */}
+              <div className="chat-measure space-y-1.5">
               {/* §18 — LA LATENCE PERÇUE. Des ÉTATS MÉTIER pendant que la mission tourne
                   (« Préparation du message »), jamais la liste des outils appelés. La dernière
                   phase reste marquée EN COURS tant que le tour n'est pas rendu : c'est ce qui
@@ -878,6 +884,7 @@ export function AssistantChat({
                   <Loader2 className="h-3.5 w-3.5 animate-spin" /> L&apos;assistant réfléchit…
                 </p>
               )}
+              </div>
               {streaming?.workspace.map((c, i) => <WorkspaceBlocks key={`${c.source}-${i}`} composition={c} />)}
             </div>
           </div>
@@ -886,7 +893,7 @@ export function AssistantChat({
       </div>
 
       <div className="relative border-t border-border bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4">
-        <div className="mx-auto w-full max-w-3xl">
+        <div className="chat-measure">
         {pickerOpen && <DriveFilePicker onPick={addDriveFile} onClose={() => setPickerOpen(false)} />}
 
         {/* Pièces jointes en attente */}
@@ -1236,7 +1243,7 @@ function AdamTurn({
   // ── LE REPLI VERBAL. Aucun objet à montrer : on rend la phrase, et les éventuelles cartes.
   if (!isWorkspaceTurn(turn)) {
     return (
-      <>
+      <div className="chat-measure space-y-2">
         {text ? (
           bubble ? (
             <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-secondary px-4 py-2.5 text-sm leading-relaxed">
@@ -1247,7 +1254,7 @@ function AdamTurn({
           )
         ) : null}
         {cards(proposals.map((_, i) => i))}
-      </>
+      </div>
     );
   }
 
@@ -1358,7 +1365,7 @@ function MessageBubble({
 
   if (msg.role === "user") {
     return (
-      <div className="flex flex-col items-end gap-1">
+      <div className="chat-measure flex flex-col items-end gap-1">
         {msg.attachmentNames && msg.attachmentNames.length > 0 && (
           <div className="flex max-w-[80%] flex-wrap justify-end gap-1">
             {msg.attachmentNames.map((n, i) => (
@@ -1413,7 +1420,7 @@ function MessageBubble({
   return (
     <div className="flex gap-2.5">
       <Avatar />
-      <div className="min-w-0 max-w-[85%] space-y-2">
+      <div className="min-w-0 flex-1 space-y-2">
         {/* L'ESPACE DE TRAVAIL DE CE TOUR. Il reste attaché au message : remonter dans la
             conversation redonne l'objet au lieu d'un texte qui y fait référence. */}
         <AdamTurn

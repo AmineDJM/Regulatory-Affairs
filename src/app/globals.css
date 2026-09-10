@@ -213,6 +213,34 @@
     min-height: 22rem; /* en paysage sur téléphone, mieux vaut défiler que tout écraser */
   }
 
+  /* ═══════════════════════════════════════════════════════════════════════════════════════
+     DEUX MESURES DANS UNE CONVERSATION — un tableau n'est pas un paragraphe.
+
+     LE DÉFAUT MESURÉ. Le flux de la conversation était borné par UNE seule mesure,
+     `max-w-3xl` (768 px), et les blocs de l'espace de travail vivaient DEDANS. Cette borne est
+     juste pour de la PROSE — au-delà, l'œil perd le début de la ligne suivante — et fausse pour
+     de la DONNÉE : un tableau de treize colonnes, un tableau de bord de six tuiles, un
+     diagramme de Gantt étaient comprimés dans 768 px sur un écran de 2560. « Il ne peut pas
+     tout afficher » n'était pas une limite du protocole (vingt et un types de blocs, dix-sept
+     formes de représentation) : c'était cette ligne. Le lecteur croit voir le tableau, il en
+     voit le quart (§118.60).
+
+     DEUX CLASSES, ET C'EST LE CONTENU QUI CHOISIT. La prose, le composeur et les bulles portent
+     `chat-measure` ; l'espace de travail d'un tour porte le PLAN DE TRAVAIL, qui prend la place
+     que la donnée mérite. Les deux sont centrées sur le même axe : le regard ne saute pas.
+     Une borne unique aurait forcé à choisir entre une prose illisible et une donnée écrasée.
+     ═══════════════════════════════════════════════════════════════════════════════════════ */
+  .chat-measure {
+    width: 100%;
+    max-width: var(--chat-measure, 48rem);
+    margin-inline: auto;
+  }
+  .chat-surface {
+    width: 100%;
+    max-width: var(--chat-surface, 1600px);
+    margin-inline: auto;
+  }
+
   /* Idem pour un écran qui neutralise le padding haut de <main> par une marge négative
      (l'assistant colle son rail au bord) : il commence plus haut, il est donc plus grand. */
   .app-viewport-flush {

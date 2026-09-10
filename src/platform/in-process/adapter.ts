@@ -3,7 +3,6 @@ import { observabiliteMission } from "@/platform/in-process/missions/observabili
 import { resolveDriveAccess } from "@/lib/drive";
 import { retrieve, type AccessFilter } from "@/lib/knowledge/retrieve";
 import { userCan, MODULES, ACTIONS, hasGlobalView, getAccess, type Module, type Action, type SessionUser } from "@/lib/rbac";
-import { navigationFor } from "@/lib/nav-access";
 import type { CurrentUser } from "@/lib/session";
 import { findPeople } from "@/lib/directory/resolve";
 import { estAmbigu, produit360 } from "@/lib/queries/product-360";
@@ -17,7 +16,7 @@ import { subscribe as busSubscribe } from "../event-bus";
 import { missionsEnCours, vueMission } from "@/lib/missions/view/workspace";
 import {
   PLATFORM_CONTRACT_VERSION,
-  type CommandOutcome, type ContactEndpoint, type Destination, type DocumentView, type EventHandler,
+  type CommandOutcome, type ContactEndpoint, type DocumentView, type EventHandler,
   type PendingDecision, type PersonView, type PlatformCommand, type PlatformPort, type PlatformQuery,
   type PlatformQueryResult, type Principal, type RecordView, type Unsubscribe,
 } from "../contract";
@@ -210,8 +209,6 @@ async function runQuery(principal: Principal, q: PlatformQuery): Promise<Platfor
     case "mission.status":
       return etatMission(principal.id, q.mission);
 
-    case "navigation.destinations":
-      return { kind: "navigation.destinations", destinations: await destinationsOf(principal) };
 
     case "record.get":
     case "record.search":
@@ -227,39 +224,6 @@ async function runQuery(principal: Principal, q: PlatformQuery): Promise<Platfor
 // NAVIGATION — où cette personne a le droit d'aller
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 
-/**
- * LES DESTINATIONS OUVERTES À QUELQU'UN, à plat.
- *
- * L'ARBORESCENCE EST APLATIE, et c'est un choix. Le menu de l'ERP replie les sous-modules
- * derrière une flèche parce qu'il vit à demeure dans la colonne de gauche ; ici la liste sert à
- * SORTIR, une fois, vers un endroit précis. Un « Pipeline » caché sous une flèche dans un
- * sélecteur qu'on ouvre pour trois secondes serait un endroit où l'on ne va jamais.
- *
- * Le `Principal` ne porte pas l'objet d'accès — volontairement : Adam n'a pas à connaître la
- * forme des droits de l'ERP. On le re-résout donc ici, du côté ERP, par `getAccess`, qui est
- * mis en cache par requête : dans le cas normal (la session vient d'être ouverte), il ne coûte
- * aucune lecture supplémentaire.
- */
-async function destinationsOf(principal: Principal): Promise<Destination[]> {
-  const access = await getAccess(principal.id, principal.role as UserRole);
-  const user: SessionUser = {
-    id: principal.id,
-    // `getAccess` résout le rôle EN DIRECT depuis la base ; le rôle du principal vient du jeton
-    // et peut être périmé après une promotion. On prend le premier quand il existe.
-    role: access.role ?? (principal.role as UserRole),
-    secondaryRole: access.secondaryRole ?? null,
-    access,
-  };
-  const nav = await navigationFor(user);
-  const flat: Destination[] = [];
-  for (const n of nav) {
-    flat.push({ module: n.module, label: n.label, href: n.href, group: n.group, pole: n.pole ?? null });
-    for (const c of n.children ?? []) {
-      flat.push({ module: c.module, label: c.label, href: c.href, group: n.group, pole: n.pole ?? null });
-    }
-  }
-  return flat;
-}
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 // DOCUMENTS — ouvrir un fichier, avec les droits de son écran d'origine
