@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { businessUnitDuDemandeur } from "@/lib/ad-pro/business-unit-auto";
 import { AVAILABLE_PRODUCT_STATUSES } from "@/lib/ad-pro/pickers";
 import { platformScope, getMyCompanies, companyOptions } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
@@ -170,7 +171,12 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
   // d'être promu — ce n'est pas une maladresse d'écran, c'est une faute réglementaire.
   const needsProducts = has("SPONSORING");
 
-  const [doctors, users, productManagers, companies, products, businessUnits] = await Promise.all([
+  // LE RÉFÉRENTIEL DES SPÉCIALITÉS — la Direction demande un menu déroulant, et sa liste ne
+  // s'écrit pas à la main : `MedicalSpecialty` est le référentiel canonique du produit, et une
+  // liste recopiée ici serait fausse le jour où la Promotion médicale en ajoute une (§118.73).
+  const needsSpecialties = has("SPONSORING");
+
+  const [doctors, users, productManagers, companies, products, businessUnits, specialties, demandeur] = await Promise.all([
     needsDoctors
       ? prisma.medicalDoctor.findMany({
           select: { id: true, name: true, specialty: true, city: true },
@@ -205,12 +211,27 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
       select: { id: true, name: true },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     }),
+    needsSpecialties
+      ? prisma.medicalSpecialty.findMany({ select: { name: true }, orderBy: { name: "asc" } })
+      : Promise.resolve([] as { name: string }[]),
+    // LE DEMANDEUR, pour déduire sa gamme. Chargé ici et non passé en argument : les appelants
+    // n'ont qu'un identifiant, et leur faire porter le rôle multiplierait les endroits où le
+    // rattachement se lit — donc les endroits où il finirait par se lire autrement (§118.5).
+    prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true, secondaryRole: true } }),
 ]);
+
+  const businessUnitDeduite = demandeur ? await businessUnitDuDemandeur(demandeur) : null;
 
   return {
     doctors: doctors.map((d) => ({ id: d.id, name: d.name, specialty: d.specialty ?? "Sans spécialité", city: d.city ?? "" })),
     users: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
     productManagers,
+    specialties,
+    // Les libellés HÉRITÉS des fiches non rattachées : une spécialité portée par quarante
+    // médecins et absente du référentiel doit rester choisissable, sinon une demande légitime
+    // est refusée pour une ligne de table manquante.
+    specialtiesHeritees: doctors.map((d) => d.specialty).filter((x): x is string => Boolean(x && x.trim())),
+    businessUnitDeduite,
     companies,
     products: products.map((p) => ({ id: p.id, brandName: p.brandName, dci: p.dci, status: String(p.status) })),
     businessUnits,

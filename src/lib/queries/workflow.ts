@@ -5,6 +5,7 @@ import { toNumber } from "@/lib/utils";
 import { anyRoleFilter, hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
 import { getBudgetCategoryOptions, type BudgetCategoryOption } from "@/lib/queries/budget";
 import { ensureInstance, getDefinition, orderedSteps, canActOnStep, stepBySlug } from "@/lib/workflow/engine";
+import { estDecisionnaire, queueCoupee, ROLE_DIRECTION_MARKETING } from "@/lib/workflow/parcours";
 import {
   entityToCategory, WORKFLOW_CATEGORIES, CATEGORY_LABELS,
   type ActorScope, type WorkflowCategory, type WorkflowPower,
@@ -142,12 +143,34 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
   const instance = await ensureInstance(entityType, entityId);
   if (!instance) return null;
   const def = await getDefinition(category);
-  const steps = orderedSteps(def);
+  const toutesLesEtapes = orderedSteps(def);
 
-  // Confidentialité : l'avis et le montant des étapes marquées « confidentielles »
-  // (ex. analyse chef de produit) ne sont PAS visibles du demandeur (délégué).
-  const privileged = hasGlobalView(viewer) || viewer.role === "SUPER_ADMIN" || instance.assigneeId === viewer.id || hasRole(viewer, "NATIONAL_SALES");
-  const confidentialSlugs = new Set(steps.filter((s) => s.confidential).map((s) => s.slug));
+  // ─── LE PARCOURS DE CETTE DEMANDE, ET NON LA DÉFINITION ENTIÈRE ───────────────────────
+  //
+  // Une demande de KAM est TRANCHÉE par Direction Marketing : l'étape de la Direction ne la
+  // concerne pas. L'afficher quand même serait le défaut le plus coûteux de cet écran — une
+  // frise qui annonce une validation qui n'aura pas lieu, donc un demandeur qui attend et une
+  // Direction qui croit avoir un dossier à traiter. On coupe la queue, exactement comme le
+  // moteur la coupe (`nextStepAfter` avec la même borne) : deux lectures de la borne, une
+  // seule règle, celle de `parcours.ts` (§118.5).
+  const borne = instance.finalSlug ?? null;
+  const coupees = new Set(queueCoupee(toutesLesEtapes.map((s) => s.slug), borne));
+  const steps = toutesLesEtapes.filter((s) => !coupees.has(s.slug));
+
+  // ─── CONFIDENTIALITÉ : UN AVIS, OUI ; UNE DÉCISION, NON ───────────────────────────────
+  //
+  // L'avis et le montant d'une étape « confidentielle » ne sont pas visibles du demandeur —
+  // sauf quand cette étape est celle qui TRANCHE. Ce n'est pas un assouplissement : la
+  // confidentialité protège une PROPOSITION en cours d'arbitrage, et une proposition cesse
+  // d'en être une quand elle devient la décision. Pour une demande de KAM, Direction Marketing
+  // accorde le budget ; caviarder ce montant-là laisserait le demandeur devant une demande
+  // approuvée dont il ne peut pas lire la somme accordée — un accord illisible n'est pas un
+  // accord.
+  const privileged = hasGlobalView(viewer) || viewer.role === "SUPER_ADMIN" || instance.assigneeId === viewer.id
+    || hasRole(viewer, "NATIONAL_SALES") || hasRole(viewer, ROLE_DIRECTION_MARKETING);
+  const confidentialSlugs = new Set(
+    steps.filter((s) => s.confidential && !estDecisionnaire(s.slug, borne)).map((s) => s.slug),
+  );
 
   const events = await prisma.workflowStepEvent.findMany({ where: { instanceId: instance.id }, orderBy: { createdAt: "asc" } });
 

@@ -7410,6 +7410,20 @@ model WorkflowInstance {
   category         String
   status           String              @default("IN_PROGRESS") // IN_PROGRESS | APPROVED | REJECTED | CANCELLED
   currentSlug      String? // étape en attente d'action ; null si terminal
+  /// L'ÉTAPE QUI TRANCHE POUR CETTE DEMANDE — null = la dernière étape de la définition.
+  ///
+  /// Le parcours Ad&Pro dépend de QUI demande : la demande d'un KAM est filtrée par son
+  /// superviseur national puis TRANCHÉE par Direction Marketing ; celle de tout autre demandeur
+  /// passe Direction Marketing puis Direction. Les deux chaînes sont des tranches CONTIGUËS de
+  /// la même colonne vertébrale : il suffit donc de deux bornes, l'entrée (portée par le statut
+  /// de départ) et cette SORTIE.
+  ///
+  /// La borne est FIXÉE À LA NAISSANCE de l'instance et jamais recalculée : un KAM promu
+  /// National Sales en cours de circuit ne doit pas voir sa demande changer de chaîne, et un
+  /// National Sales redevenu KAM ne doit surtout pas perdre la validation de la Direction qui
+  /// lui était promise. Le parcours est un fait de la DEMANDE, pas une fonction du poste
+  /// qu'occupe son auteur aujourd'hui.
+  finalSlug        String?
   amount           Decimal?            @db.Decimal(14, 2)
   budgetCategoryId String?
   assigneeId       String?

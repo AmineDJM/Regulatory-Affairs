@@ -34,7 +34,9 @@ export const ROLE_LABELS: Record<string, string> = {
   MEDICAL_PROMOTION_MANAGER: "Manager Promotion Médicale",
   MEDICAL_DELEGATE: "Délégué Médical",
   NATIONAL_SALES: "National Sales",
-  PRODUCT_MANAGER: "Chef de produit",
+  // « Chef de produit » renommé DIRECTION MARKETING (décision de la Direction, 09/2026) : le
+  // rôle arbitre désormais le budget Ad&Pro et le choix de la sous-catégorie budgétaire.
+  PRODUCT_MANAGER: "Direction Marketing",
   BUSINESS_DEVELOPMENT_MANAGER: "Manager Business Development",
   FINANCE_BUDGET_MANAGER: "Responsable Finance / Budget",
   MEDICAL_INFO_PHARMACIST: "Pharmacien resp. information médicale",

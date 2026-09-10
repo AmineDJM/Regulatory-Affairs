@@ -61,7 +61,7 @@ function SubmitButton({
   const submit = () =>
     start(async () => {
       setErr(null);
-      if (pmRequired && !productManagerId) { setErr("Désignez le chef de produit qui analysera la demande."); return; }
+      if (pmRequired && !productManagerId) { setErr("Nommez le référent Direction Marketing qui suivra la demande."); return; }
       const fd = new FormData();
       fd.set("id", id);
       if (canChooseAnalysis) fd.set("viaProductManager", viaProductManager ? "1" : "0");
@@ -74,7 +74,7 @@ function SubmitButton({
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">
         Soumettez cet événement au circuit de prise en charge : il suit ensuite les étapes
-        configurées (par défaut : National Sales → chef de produit → Direction → information médicale).
+        configurées (par défaut : National Sales → Direction Marketing → Direction → information médicale).
         Les étapes situées au niveau ou en dessous de votre rang sont franchies automatiquement.
       </p>
       {canChooseAnalysis && (
@@ -82,23 +82,23 @@ function SubmitButton({
           <Label>Circuit</Label>
           <Select value={viaProductManager ? "1" : "0"} onChange={(e) => setViaProductManager(e.target.value === "1")}>
             <option value="0">Décision directe (Direction)</option>
-            <option value="1">Passer d&apos;abord par l&apos;analyse d&apos;un chef de produit</option>
+            <option value="1">Passer d&apos;abord par l&apos;arbitrage de Direction Marketing</option>
           </Select>
           <p className="text-xs text-muted-foreground">
-            Vous pouvez trancher immédiatement, ou demander l&apos;avis d&apos;un chef de produit avant de décider.
+            Vous pouvez trancher immédiatement, ou demander l&apos;arbitrage budgétaire de Direction Marketing avant de décider.
           </p>
         </div>
       )}
       {showPmPicker && (
         <div className="space-y-1.5 rounded-lg border border-primary/30 bg-primary/5 p-3">
-          <Label>Chef de produit (analyse) <span className="text-destructive">*</span></Label>
+          <Label>Référent Direction Marketing</Label>
           <p className="text-xs text-muted-foreground">
             {canChooseAnalysis
-              ? "Le chef de produit instruira la demande, puis elle vous reviendra pour décision."
-              : "Vous soumettez la demande : désignez le chef de produit qui l'analysera — l'étape préliminaire est franchie automatiquement."}
+              ? "Direction Marketing arbitrera le budget, puis la demande vous reviendra pour décision."
+              : "Vous soumettez la demande : elle part chez Direction Marketing, qui arbitre le budget — l'étape préliminaire est franchie automatiquement."}
           </p>
           <Select value={productManagerId} onChange={(e) => setProductManagerId(e.target.value)}>
-            <option value="">— Sélectionner le chef de produit —</option>
+            <option value="">— Référent Direction Marketing (facultatif) —</option>
             {pmCandidates.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </Select>
         </div>

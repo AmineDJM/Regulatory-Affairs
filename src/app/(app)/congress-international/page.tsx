@@ -20,7 +20,7 @@ export default async function CongressInternationalPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Prises en charge Internationales" description="Prise en charge de participants à un événement à l'étranger — congrès, séminaire, formation. Validation préliminaire, analyse chef de produit, décision de la Direction.">
+      <PageHeader title="Prises en charge Internationales" description="Prise en charge de participants à un événement à l'étranger — congrès, séminaire, formation. Validation préliminaire (National Sales), arbitrage budgétaire de Direction Marketing, décision de la Direction.">
         {canCreate && <CongressRequestButton doctors={form.doctors} users={form.users} canDesignatePM={canDesignateProductManagerAtCreation(user)} canChooseAnalysis={canChooseAnalysisAtCreation(user)} />}
       </PageHeader>
 

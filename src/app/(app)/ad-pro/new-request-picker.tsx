@@ -110,6 +110,8 @@ export function NewRequestPicker({ kinds, data, canDesignatePM, canChooseAnalysi
                 fields={sponsoringCreateFields({
                   productManagers: data.productManagers, canDesignatePM, canChooseAnalysis,
                   products: data.products, doctors: data.doctors, businessUnits: data.businessUnits,
+                  businessUnitDeduite: data.businessUnitDeduite,
+                  specialties: data.specialties, specialtiesHeritees: data.specialtiesHeritees,
                 })}
               />
             )}

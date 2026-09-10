@@ -470,7 +470,7 @@ function ProductLine({ prod, buChannel, users, busy, run }: {
           {CHANNELS.map((c) => <option key={c} value={c}>{CHANNEL_LABELS[c as Channel]}</option>)}
         </select>
         <select className={inputCls} defaultValue={prod.managerId ?? ""} onChange={(e) => save({ managerId: e.target.value || null })}>
-          <option value="">— Chef de produit —</option>
+          <option value="">— Référent Direction Marketing —</option>
           {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
         </select>
         <label className="flex items-center gap-1 text-xs text-muted-foreground">

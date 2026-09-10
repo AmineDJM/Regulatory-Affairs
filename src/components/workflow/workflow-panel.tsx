@@ -280,7 +280,7 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
       )}
 
       {/* Historique — visible des spectateurs privilégiés (Super Admin, Direction /
-          Directeur des opérations, National Sales, chef de produit désigné). L'avis et le
+          Directeur des opérations, National Sales, Direction Marketing). L'avis et le
           montant des étapes confidentielles restent masqués pour les autres (déjà caviardés
           côté requête), qui ne voient pas ce bloc du tout. */}
       {view.canViewHistory && view.events.length > 0 && (

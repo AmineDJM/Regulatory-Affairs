@@ -69,8 +69,8 @@ export type FieldDef =
   // serveur revérifie ce qu'il en fait — c'est un contexte que l'utilisateur n'a pas à ressaisir.
   | { type: "hidden"; name: string; value: string }
   | { type: "checkbox"; name: string; label: string; full?: boolean }
-  | { type: "multiselect"; name: string; label: string; options: { value: string; label: string }[]; hint?: string; full?: boolean; defaultValue?: string[]; searchPlaceholder?: string; emptyLabel?: string }
-  | { type: "file"; name: string; label: string; multiple?: boolean; hint?: string; defaultValue?: string | number; full?: boolean; /** Formats proposés par le sélecteur (`.pdf,.png`…) — le serveur revérifie TOUJOURS. */ accept?: string }
+  | { type: "multiselect"; name: string; label: string; options: { value: string; label: string }[]; required?: boolean; hint?: string; full?: boolean; defaultValue?: string[]; searchPlaceholder?: string; emptyLabel?: string }
+  | { type: "file"; name: string; label: string; multiple?: boolean; required?: boolean; hint?: string; defaultValue?: string | number; full?: boolean; /** Formats proposés par le sélecteur (`.pdf,.png`…) — le serveur revérifie TOUJOURS. */ accept?: string }
   // L'EXPLORATEUR DU DRIVE, ouvert par-dessus le formulaire : on désigne un dossier ou un
   // fichier qui existe déjà plutôt que d'en téléverser une copie. Le champ ne transporte qu'un
   // identifiant de nœud — le fichier, lui, ne bouge pas.
@@ -168,6 +168,27 @@ function MultiSelectField({ field }: {
   const [query, setQuery] = React.useState("");
   const [picked, setPicked] = React.useState<string[]>(() => field.defaultValue ?? []);
 
+  /**
+   * « AU MOINS UNE CASE COCHÉE » N'EXISTE PAS EN HTML.
+   *
+   * `required` sur une case veut dire « CETTE case doit être cochée » — le poser sur des cases
+   * qui partagent un nom exigerait qu'on les coche TOUTES (la sémantique de groupe est réservée
+   * aux boutons radio). On passe donc par un témoin qui porte la validité du groupe : il est
+   * focalisable (dimension non nulle, opacité zéro — un élément `display:none` ferait échouer
+   * le rapport de validité du navigateur avec « contrôle non focalisable »), il ne porte aucune
+   * valeur au formulaire, et il n'a qu'un rôle : empêcher l'envoi et DIRE quoi cocher.
+   *
+   * Ce n'est PAS la garde. Un champ de formulaire se forge : l'obligation est tenue par l'action
+   * serveur, qui refuse une demande sans médecin ni produit et nomme ce qui manque. Ce témoin
+   * évite l'aller-retour, il ne le remplace pas.
+   */
+  const temoin = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => {
+    temoin.current?.setCustomValidity(
+      field.required && picked.length === 0 ? `Sélectionnez au moins une entrée pour « ${field.label} ».` : "",
+    );
+  }, [field.required, field.label, picked.length]);
+
   const q = query.trim().toLowerCase();
   const visible = React.useMemo(
     () => (q ? field.options.filter((o) => o.label.toLowerCase().includes(q) || picked.includes(o.value)) : field.options),
@@ -197,7 +218,13 @@ function MultiSelectField({ field }: {
           </span>
         </div>
       )}
-      <div className="mt-1 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-input p-2">
+      <div className="relative mt-1 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-input p-2">
+        {field.required && (
+          <input
+            ref={temoin} type="text" readOnly tabIndex={-1} aria-hidden
+            className="pointer-events-none absolute left-0 top-0 h-px w-px opacity-0"
+          />
+        )}
         {visible.length === 0 ? (
           <p className="px-1.5 py-1 text-xs text-muted-foreground">Aucun résultat pour « {query} ».</p>
         ) : visible.map((o) => (
@@ -399,6 +426,7 @@ export function RecordForm({
                     type="file"
                     name={field.name}
                     multiple={field.multiple}
+                    required={field.required}
                     accept={field.accept}
                     className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
                   />

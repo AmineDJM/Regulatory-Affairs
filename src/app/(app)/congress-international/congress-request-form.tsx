@@ -88,7 +88,7 @@ export function CongressRequestForm({ national, doctors, users, canDesignatePM, 
     // La désignation n'est obligatoire que si l'analyse est réellement demandée : la Direction
     // qui tranche directement n'a personne à désigner.
     const analysisWanted = canChooseAnalysis ? viaProductManager : showPmPicker;
-    if (analysisWanted && !productManagerId) { setErr("Désignez le chef de produit qui analysera la demande."); return; }
+    if (analysisWanted && !productManagerId) { setErr("Nommez le référent Direction Marketing qui suivra la demande."); return; }
     setSaving(true); setErr(null);
     const r = await createCongressRequest(undefined, fd);
     setSaving(false);
@@ -153,16 +153,16 @@ export function CongressRequestForm({ national, doctors, users, canDesignatePM, 
                 <Label>Circuit</Label>
                 <Select value={viaProductManager ? "1" : "0"} onChange={(e) => setViaProductManager(e.target.value === "1")}>
                   <option value="0">Décider maintenant (aucune analyse préalable)</option>
-                  <option value="1">Demander d&apos;abord l&apos;avis d&apos;un chef de produit</option>
+                  <option value="1">Demander d&apos;abord l&apos;arbitrage de Direction Marketing</option>
                 </Select>
               </div>
             )}
             {canChooseAnalysis && !viaProductManager ? null : (
             <>
-            <Label>Chef de produit (analyse) <span className="text-destructive">*</span></Label>
-            <p className="text-xs text-muted-foreground">Désignez le chef de produit qui analysera la demande — l&apos;étape préliminaire est franchie automatiquement.</p>
+            <Label>Référent Direction Marketing</Label>
+            <p className="text-xs text-muted-foreground">La demande part chez Direction Marketing, qui arbitre le budget — l&apos;étape préliminaire est franchie automatiquement.</p>
             <Select value={productManagerId} onChange={(e) => setProductManagerId(e.target.value)}>
-              <option value="">— Sélectionner le chef de produit —</option>
+              <option value="">— Référent Direction Marketing (facultatif) —</option>
               {pmCandidates.map((u) => <option key={u.id} value={u.id}>{u.name} · {ROLE_LABELS[u.role] ?? u.role}</option>)}
             </Select>
             </>

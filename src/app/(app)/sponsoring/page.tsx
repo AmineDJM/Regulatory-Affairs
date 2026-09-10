@@ -7,7 +7,8 @@ import { PageHeader } from "@/components/shared/page-header";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
-import { canChooseAnalysisAtCreation, canDesignateProductManagerAtCreation, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+import { canChooseAnalysisAtCreation, canDesignateProductManagerAtCreation } from "@/lib/workflow/origin";
+import { getAdProCreateData } from "@/lib/queries/ad-pro";
 import { sponsoringCreateFields } from "@/lib/ad-pro/create-fields";
 import { AVAILABLE_PRODUCT_STATUSES } from "@/lib/ad-pro/pickers";
 import { EVENTS_TABS } from "@/lib/labels";
@@ -17,34 +18,30 @@ export default async function SponsoringPage() {
   const user = await requireModule("SPONSORING");
   const canCreate = userCan(user, "SPONSORING", "CREATE");
 
-  // Le National Sales, en créant lui-même une demande, désigne directement le chef de
-  // produit (l'analyse lui est confiée) : il n'a pas à approuver préliminairement.
+  // ─── LES RÉFÉRENTIELS DU FORMULAIRE — UN SEUL CHARGEUR POUR LES DEUX PORTES ────────────
+  //
+  // Cet écran chargeait les siens à la main : produits et médecins, et RIEN d'autre. La Business
+  // Unit — le champ qui dit quel budget Ad&Pro est engagé — n'était donc pas passée, donc le
+  // champ DISPARAISSAIT ici (`businessUnits ?? []`, liste vide ⇒ champ retiré) alors qu'il est
+  // obligatoire depuis le panneau commun d'Ad & Pro. Une demande créée par cette porte sortait
+  // sans gamme, et sa dépense n'était rattachable à aucune équipe — en silence.
+  //
+  // Ajouter l'argument manquant aurait refermé CE trou et laissé le suivant s'ouvrir au prochain
+  // champ ajouté. Les deux portes lisent donc le même chargeur, celui qui SAIT ce que le
+  // formulaire réclame — spécialités et gamme déduite du demandeur comprises (§118.5).
+  const data = await getAdProCreateData(user.id, ["SPONSORING"]);
   const canDesignatePM = canDesignateProductManagerAtCreation(user);
-  const pmCandidates = canDesignatePM
-    ? await prisma.user.findMany({ where: { isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) }, select: { id: true, name: true }, orderBy: { name: "asc" } })
-    : [];
-  // La Direction CHOISIT : trancher tout de suite, ou demander d'abord l'avis d'un chef de
-  // produit. Le National Sales, lui, n'a pas ce choix — l'analyse est son étape suivante.
   const canChooseAnalysis = canChooseAnalysisAtCreation(user);
-  // LES RÉFÉRENTIELS DU FORMULAIRE — produits promouvables et médecins de l'annuaire. Les deux
-  // portes d'entrée (cet écran et le panneau commun d'Ad & Pro) les chargent de la même façon :
-  // un menu peuplé d'un côté et vide de l'autre ferait douter de la liste, pas de la porte.
-  const [produits, medecins] = await Promise.all([
-    prisma.regulatoryProduct.findMany({
-      where: { status: { in: AVAILABLE_PRODUCT_STATUSES as never } },
-      select: { id: true, brandName: true, dci: true, status: true },
-      orderBy: [{ brandName: "asc" }, { dci: "asc" }],
-    }),
-    prisma.medicalDoctor.findMany({
-      select: { id: true, name: true, specialty: true, city: true },
-      orderBy: [{ specialty: "asc" }, { name: "asc" }],
-    }),
-  ]);
-  // Mêmes champs qu'au panneau commun d'Ad & Pro : une seule définition, deux portes d'entrée.
+
   const fields = sponsoringCreateFields({
-    productManagers: pmCandidates, canDesignatePM, canChooseAnalysis,
-    products: produits.map((p) => ({ id: p.id, brandName: p.brandName, dci: p.dci, status: String(p.status) })),
-    doctors: medecins,
+    productManagers: canDesignatePM ? data.productManagers : [],
+    canDesignatePM, canChooseAnalysis,
+    products: data.products,
+    doctors: data.doctors,
+    businessUnits: data.businessUnits,
+    businessUnitDeduite: data.businessUnitDeduite,
+    specialties: data.specialties,
+    specialtiesHeritees: data.specialtiesHeritees,
   });
 
   // Cloisonnement par entité : la vue « Adventum » ne montre que les demandes d'Adventum.

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   AVAILABLE_PRODUCT_STATUSES, isAvailableProduct, productLabel, availableProductOptions,
-  doctorOptionLabel, doctorOptions, joinMulti, splitMulti, readMultiField, MULTI_SEP,
+  doctorOptionLabel, doctorOptions, joinMulti, splitMulti, readMultiField, MULTI_SEP, specialtyOptions,
 } from "./pickers";
 
 const prod = (o: Partial<Parameters<typeof productLabel>[0]> & { dci: string }) => ({
@@ -110,5 +110,28 @@ describe("ce que le formulaire envoie", () => {
     expect(readMultiField([], "Produit hors catalogue")).toBe("Produit hors catalogue");
     expect(readMultiField([], null)).toBeNull();
     expect(readMultiField([], "   ")).toBeNull();
+  });
+});
+
+describe("La spécialité en menu déroulant — référentiel + réalité des fiches", () => {
+  it("le RÉFÉRENTIEL fait autorité sur la casse, et les libellés hérités complètent", () => {
+    // Ce qui le ferait tomber : ne lire que le référentiel. Une spécialité portée par quarante
+    // médecins non rattachés serait alors introuvable dans le menu, et une demande légitime
+    // refusée pour une ligne de table manquante — le référentiel décidant qui peut demander quoi.
+    const o = specialtyOptions([{ name: "Cardiologie" }], ["cardiologie", "Infectiologie", " Oncologie "]);
+    expect(o.map((x) => x.value)).toEqual(["Cardiologie", "Infectiologie", "Oncologie"]);
+  });
+
+  it("« Cardio » et « Cardiologie » restent DEUX entrées — on ne rapproche pas à la place de la Promotion médicale", () => {
+    // La dédoublonnage porte sur la casse et les espaces, exactement la variation que le champ
+    // libre a produite. Rapprocher deux libellés DIFFÉRENTS serait choisir la spécialité d'un
+    // praticien à la place du service qui entretient l'annuaire.
+    const o = specialtyOptions([], ["Cardio", "Cardiologie"]);
+    expect(o.map((x) => x.value)).toEqual(["Cardio", "Cardiologie"]);
+  });
+
+  it("rien à proposer rend une liste VIDE — c'est l'appelant qui décide du repli", () => {
+    expect(specialtyOptions([], [])).toEqual([]);
+    expect(specialtyOptions([], [null, undefined, "  "])).toEqual([]);
   });
 });

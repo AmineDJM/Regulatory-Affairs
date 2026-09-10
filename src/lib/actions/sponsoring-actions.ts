@@ -7,6 +7,7 @@ import { userCan, hasGlobalView, hasRole, anyRoleFilter, type SessionUser } from
 import { prisma } from "@/lib/prisma";
 import { moneyEntityOf } from "@/lib/company";
 import { readMultiField } from "@/lib/ad-pro/pickers";
+import { businessUnitDuDemandeur } from "@/lib/ad-pro/business-unit-auto";
 import { normalizeCity } from "@/lib/geo/algeria";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
@@ -19,6 +20,14 @@ import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/sponsoring";
+
+/**
+ * LES FORMATS D'UNE DEMANDE DU MÉDECIN — un scan ou un courrier, rien d'autre.
+ *
+ * La liste est FERMÉE et vit à côté de son refus : l'`accept` du formulaire ne fait que guider
+ * le sélecteur de fichiers et ne s'applique pas à un envoi qui ne vient pas de cet écran.
+ */
+const FORMATS_DEMANDE_MEDECIN = /\.(pdf|doc|docx)$/i;
 
 function isDirection(user: SessionUser): boolean {
   return hasGlobalView(user) || userCan(user, "SPONSORING", "VALIDATE");
@@ -48,6 +57,51 @@ export async function createSponsoring(
   const institution = fdStr(formData, "institution");
   if (!institution) return { ok: false, error: "L'institution est obligatoire." };
 
+  // ─── LES CHAMPS QUE LA DIRECTION A RENDUS OBLIGATOIRES ────────────────────────────────
+  //
+  // Le formulaire les marque `required`, et ce n'est PAS la garde : un champ de formulaire se
+  // forge, et l'écran n'est pas la seule porte (le chemin générique d'Adam poste la même action).
+  // C'est ici que l'obligation est tenue — et elle NOMME ce qui manque en une fois, pas champ par
+  // champ : un refus par aller-retour ferait ressaisir six fois un formulaire de quinze champs
+  // (§118.18).
+  const medecins = readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor"));
+  const produits = readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product"));
+  const manquants = [
+    !medecins ? "le ou les médecins concernés" : null,
+    !produits ? "le ou les produits concernés" : null,
+    !fdStr(formData, "city") ? "la ville (wilaya)" : null,
+    !fdStr(formData, "specialty") ? "la spécialité" : null,
+    !fdStr(formData, "type") ? "le type" : null,
+    fdNum(formData, "amountRequested") == null ? "le budget demandé par l'intéressé (DZD)" : null,
+    fdNum(formData, "amountProposed") == null ? "le budget suggéré par le délégué (DZD)" : null,
+    !fdStr(formData, "strategicImportance") ? "l'importance stratégique" : null,
+  ].filter((x): x is string => x !== null);
+  if (manquants.length > 0) {
+    return { ok: false, error: `Demande incomplète — il manque : ${manquants.join(", ")}.` };
+  }
+
+  // ─── LA DEMANDE DU MÉDECIN : UNE PIÈCE, ET UN SCAN ────────────────────────────────────
+  //
+  // C'est le document que tout le circuit lit — le National Sales pour juger l'opportunité,
+  // Direction Marketing pour arbitrer le budget. Les formats admis sont ceux d'un scan ou d'un
+  // courrier ; on refuse une image brute non pas par principe mais parce que la Direction a
+  // demandé un PDF ou un Word, et qu'un `accept` de formulaire ne s'applique qu'au sélecteur.
+  const pieces = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (pieces.length === 0) {
+    return {
+      ok: false,
+      error: "La demande du médecin est obligatoire : joignez-la scannée (PDF ou Word). "
+        + "Le document original doit par ailleurs être déposé au bureau du secrétariat.",
+    };
+  }
+  const horsFormat = pieces.filter((f) => !FORMATS_DEMANDE_MEDECIN.test(f.name)).map((f) => f.name);
+  if (horsFormat.length > 0) {
+    return {
+      ok: false,
+      error: `La demande du médecin doit être un scan PDF ou un Word (.pdf, .doc, .docx) — reçu : ${horsFormat.join(", ")}.`,
+    };
+  }
+
   // Routage intelligent : on saute les étapes d'approbation au niveau/en dessous du créateur.
   const pmId = fdStr(formData, "productManagerId");
   if (pmId) {
@@ -58,6 +112,7 @@ export async function createSponsoring(
   // de suite. `adProInit` ignore ce drapeau pour les autres rangs : le choix ne s'attrape pas en
   // forgeant un champ de formulaire.
   const init = adProInit(user, pmId, { viaProductManager: fdStr(formData, "viaProductManager") === "1" });
+  const gammeDeduite = await businessUnitDuDemandeur(user);
   const now = new Date();
 
   const year = new Date().getFullYear();
@@ -67,7 +122,12 @@ export async function createSponsoring(
   const created = await prisma.sponsoringRequest.create({
     data: {
       // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
-      businessUnitId: fdStr(formData, "businessUnitId") || null,
+      //
+      // Là où elle se LIT sur la personne (un KAM par sa fiche force de vente, un superviseur
+      // national par la gamme qu'il supervise), le champ posté n'entre pas en ligne de compte :
+      // il se forge, et une gamme forgée fait peser la dépense sur le budget d'une autre équipe.
+      // Là où elle ne se lit pas, la saisie reste souveraine.
+      businessUnitId: gammeDeduite?.id ?? (fdStr(formData, "businessUnitId") || null),
       reference,
       institution,
       // PLUSIEURS MÉDECINS, PLUSIEURS PRODUITS. Le formulaire envoie une entrée par case cochée ;
@@ -75,7 +135,7 @@ export async function createSponsoring(
       // notification). On joint donc les noms choisis — et la saisie libre reste acceptée pour les
       // écrans anciens et pour le cas où le référentiel est vide : refuser une valeur qu'on n'a
       // pas su proposer, c'est bloquer une demande légitime pour un défaut de table.
-      doctor: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
+      doctor: medecins,
       specialty: fdStr(formData, "specialty"),
       // La ville vient du référentiel des wilayas ; `normalizeCity` remet une saisie ancienne dans
       // sa forme officielle sans jamais effacer ce qu'elle ne sait pas rattacher.
@@ -85,7 +145,7 @@ export async function createSponsoring(
       comments: fdStr(formData, "comments"),
       amountRequested: fdNum(formData, "amountRequested"),
       amountProposed: fdNum(formData, "amountProposed"),
-      product: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product")),
+      product: produits,
       strategicImportance: (fdStr(formData, "strategicImportance") as Priority) ?? "MEDIUM",
       status: init.status as SponsoringStatus,
       requesterId: user.id,

@@ -67,7 +67,7 @@ export function CongressDetailView({
           <CardHeader><CardTitle>Budgets</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-2 gap-3">
             <Budget label="Estimé par le demandeur" value={d.estimatedBudget} />
-            <Budget label="Proposé par le chef de produit" value={d.productManagerBudget} tone="primary" />
+            <Budget label="Arbitré par Direction Marketing" value={d.productManagerBudget} tone="primary" />
           </CardContent>
         </Card>
 

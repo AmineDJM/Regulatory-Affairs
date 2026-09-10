@@ -1,7 +1,7 @@
 import type { FieldDef } from "@/components/shared/create-record-button";
 import { PRIORITY, SPONSORING_TYPES, MATERIAL_TYPE_OPTIONS, CONSULTING_BILLING_OPTIONS } from "@/lib/labels";
 import { wilayaOptions } from "@/lib/geo/algeria";
-import { availableProductOptions, doctorOptions, type DoctorRow, type ProductRow } from "@/lib/ad-pro/pickers";
+import { availableProductOptions, doctorOptions, specialtyOptions, type DoctorRow, type ProductRow, type SpecialtyRow } from "@/lib/ad-pro/pickers";
 
 /**
  * LES CHAMPS DE CRÉATION AD & PRO, ÉCRITS UNE SEULE FOIS.
@@ -29,8 +29,17 @@ export interface AdProCreateData {
   products: ProductRow[];
   /** Collaborateurs actifs : participants, responsable d'événement, assistante de direction. */
   users: UserOption[];
-  /** Chefs de produit désignables pour l'analyse. */
+  /** Référents Direction Marketing nommables à la création. */
   productManagers: PersonOption[];
+  /** Le référentiel des spécialités médicales (`MedicalSpecialty`). */
+  specialties: SpecialtyRow[];
+  /** Les libellés de spécialité HÉRITÉS des fiches médecins non rattachées — la réalité y est. */
+  specialtiesHeritees: string[];
+  /**
+   * La gamme DÉDUITE du demandeur, quand elle se lit à coup sûr (KAM par sa fiche, superviseur
+   * national par la gamme qu'il supervise). `null` ⇒ le choix reste manuel.
+   */
+  businessUnitDeduite: { id: string; name: string; raison: string } | null;
   /** Entités (matériel promotionnel), déjà réduites à des options. */
   companies: { value: string; label: string }[];
   /** LES GAMMES : c'est le budget Ad&Pro de l'une d'elles que la demande engage. */
@@ -46,11 +55,15 @@ export function toPeople(users: readonly UserOption[]): PersonOption[] {
 }
 
 /**
- * Le bloc « circuit » commun aux demandes qui peuvent partir en analyse.
+ * Le bloc « circuit » des demandes qui peuvent partir chez Direction Marketing.
  *
- * Deux créateurs, deux situations : le National Sales DÉSIGNE le chef de produit (c'est son étape,
- * il la remplace), la Direction CHOISIT de demander un avis ou de trancher tout de suite. Un
- * délégué, lui, ne voit rien de ce bloc : sa demande suit le circuit ordinaire.
+ * Deux créateurs, deux situations : le National Sales nomme le RÉFÉRENT Direction Marketing qui
+ * suit la gamme, la Direction CHOISIT de demander un arbitrage budgétaire ou de trancher tout de
+ * suite. Un KAM ne voit rien de ce bloc : sa demande passe d'abord par son superviseur national.
+ *
+ * Le référent est FACULTATIF de bout en bout, et c'est ce qui compte : l'arbitrage est porté par
+ * le rôle Direction Marketing tout entier. L'exiger ferait échouer une demande légitime le jour
+ * où la personne qui suit la gamme est absente de la liste.
  */
 function circuitFields(opts: {
   productManagers: readonly PersonOption[];
@@ -62,22 +75,19 @@ function circuitFields(opts: {
     ? [{
         type: "select", name: "viaProductManager", label: "Circuit", full: true, defaultValue: "0",
         options: [
-          { value: "0", label: "Décider maintenant (aucune analyse préalable)" },
-          { value: "1", label: "Demander d'abord l'avis d'un chef de produit" },
+          { value: "0", label: "Décider maintenant (aucun arbitrage préalable)" },
+          { value: "1", label: "Demander d'abord l'arbitrage budgétaire de Direction Marketing" },
         ],
       }]
     : [];
   return [
-    ...choice,
     {
-      type: "select", name: "productManagerId",
-      label: opts.canChooseAnalysis ? "Chef de produit (si analyse demandée)" : "Chef de produit (analyse)",
-      // Quand le circuit est un choix, la désignation ne peut pas être obligatoire : celui qui
-      // tranche tout de suite n'a personne à désigner.
-      required: !opts.canChooseAnalysis,
-      placeholder: "— Sélectionner le chef de produit —", full: true,
+      type: "select", name: "productManagerId", label: "Référent Direction Marketing (facultatif)",
+      placeholder: "— Aucun référent nommé —", full: true,
       options: opts.productManagers.map((u) => ({ value: u.id, label: u.name })),
+      hint: "La personne qui suit la gamme. L'arbitrage reste ouvert à Direction Marketing dans son ensemble.",
     },
+    ...choice,
   ];
 }
 
@@ -106,7 +116,22 @@ function circuitFields(opts: {
  * dans l'indistinct, et personne ne revient la rattacher. Il DISPARAÎT quand aucune BU n'existe :
  * exiger un choix dans une liste vide n'est pas une règle, c'est une impasse.
  */
-export function businessUnitField(businessUnits: readonly { id: string; name: string }[]): FieldDef[] {
+export function businessUnitField(
+  businessUnits: readonly { id: string; name: string }[],
+  deduite?: { id: string; name: string; raison: string } | null,
+): FieldDef[] {
+  // LA GAMME SE LIT SUR LA PERSONNE : un KAM par sa fiche force de vente, un superviseur
+  // national par la gamme qu'il supervise. Le menu ne propose alors que CELLE-LÀ — et le
+  // serveur l'impose, parce qu'un champ de formulaire se forge et qu'une gamme forgée fait
+  // peser la dépense sur le budget Ad&Pro d'une autre équipe (`business-unit-auto.ts`).
+  if (deduite) {
+    return [{
+      type: "select", name: "businessUnitId", label: "Business Unit", required: true, full: true,
+      options: [{ value: deduite.id, label: deduite.name }],
+      defaultValue: deduite.id,
+      hint: `${deduite.raison} C'est son budget Ad&Pro qui est engagé.`,
+    }];
+  }
   if (businessUnits.length === 0) return [];
   return [{
     type: "select", name: "businessUnitId", label: "Business Unit", required: true, full: true,
@@ -122,22 +147,22 @@ function referentielFields(opts: { products: readonly ProductRow[]; doctors: rea
   return [
     medecins.length > 0
       ? {
-          type: "multiselect", name: "doctorIds", label: "Médecin(s) concerné(s)", full: true,
+          type: "multiselect", name: "doctorIds", label: "Médecin(s) concerné(s)", required: true, full: true,
           options: medecins, searchPlaceholder: "Chercher un médecin de l'annuaire…",
           emptyLabel: "Aucun médecin dans l'annuaire.",
           hint: "Depuis l'annuaire des praticiens. Plusieurs choix possibles.",
         }
-      : { type: "text", name: "doctor", label: "Médecin concerné", full: true, hint: "L'annuaire des praticiens est vide : saisissez le nom." },
+      : { type: "text", name: "doctor", label: "Médecin concerné", required: true, full: true, hint: "L'annuaire des praticiens est vide : saisissez le nom." },
     produits.length > 0
       ? {
-          type: "multiselect", name: "productIds", label: "Produit(s) concerné(s)", full: true,
+          type: "multiselect", name: "productIds", label: "Produit(s) concerné(s)", required: true, full: true,
           options: produits, searchPlaceholder: "Chercher un produit…",
           emptyLabel: "Aucun produit au traitement terminé.",
           hint: "Seuls les produits dont le traitement réglementaire est TERMINÉ — les seuls qu'on ait le droit de promouvoir.",
         }
-      : { type: "text", name: "product", label: "Produit concerné", full: true, hint: "Aucun dossier réglementaire n'est encore au traitement terminé." },
+      : { type: "text", name: "product", label: "Produit concerné", required: true, full: true, hint: "Aucun dossier réglementaire n'est encore au traitement terminé." },
     {
-      type: "select", name: "city", label: "Ville (wilaya)",
+      type: "select", name: "city", label: "Ville (wilaya)", required: true,
       options: wilayaOptions(), placeholder: "— Choisir la wilaya —",
     },
   ];
@@ -150,21 +175,77 @@ export function sponsoringCreateFields(opts: {
   products?: readonly ProductRow[];
   doctors?: readonly DoctorRow[];
   businessUnits?: readonly { id: string; name: string }[];
+  /** La gamme déduite du demandeur — le menu ne propose alors que celle-là. */
+  businessUnitDeduite?: { id: string; name: string; raison: string } | null;
+  /** Le référentiel des spécialités médicales (`MedicalSpecialty`) + les libellés hérités des fiches. */
+  specialties?: readonly SpecialtyRow[];
+  specialtiesHeritees?: readonly (string | null | undefined)[];
 }): FieldDef[] {
   return [
-    ...businessUnitField(opts.businessUnits ?? []),
+    ...businessUnitField(opts.businessUnits ?? [], opts.businessUnitDeduite ?? null),
     ...circuitFields(opts),
     { type: "text", name: "institution", label: "Institution / Association", required: true },
-    { type: "file", name: "files", label: "Demande(s) du médecin", multiple: true, full: true, hint: "Courrier, invitation, programme… Plusieurs fichiers possibles." },
+    // LA DEMANDE DU MÉDECIN — pièce OBLIGATOIRE, et scannée.
+    //
+    // C'est le document que tout le circuit lit : le National Sales pour juger l'opportunité,
+    // Direction Marketing pour arbitrer le budget. Une demande sans elle faisait un aller-retour
+    // par la messagerie à chaque fois. Les formats sont bornés à ceux d'un scan ou d'un courrier
+    // (PDF, Word) — le serveur revérifie, un `accept` ne fait que guider le sélecteur.
+    {
+      type: "file", name: "files", label: "Demande(s) du médecin (scan PDF ou Word)",
+      required: true, multiple: true, full: true, accept: ".pdf,.doc,.docx",
+      hint: "Courrier ou demande du praticien, SCANNÉ (PDF ou Word). Plusieurs fichiers possibles. "
+        + "+ Document original obligatoirement au bureau du secrétariat.",
+    },
     ...referentielFields({ products: opts.products ?? [], doctors: opts.doctors ?? [] }),
-    { type: "text", name: "specialty", label: "Spécialité" },
-    { type: "select", name: "type", label: "Type", options: SPONSORING_TYPES.map((t) => ({ value: t, label: t })), defaultValue: "Congrès" },
-    { type: "number", name: "amountRequested", label: "Budget demandé par l'intéressé (DZD)" },
-    { type: "number", name: "amountProposed", label: "Budget suggéré par le délégué (DZD)" },
-    { type: "select", name: "strategicImportance", label: "Importance stratégique", options: optionsOf(PRIORITY), defaultValue: "MEDIUM" },
+    ...specialtyField(opts.specialties ?? [], opts.specialtiesHeritees ?? []),
+    // TYPE ET IMPORTANCE : un choix EXPLICITE, plus une valeur par défaut.
+    //
+    // Ils avaient tous deux une valeur pré-remplie (« Congrès », « Moyenne ») : une demande
+    // envoyée sans y toucher sortait donc avec une nature et une priorité que personne n'avait
+    // décidées, et c'est sur elles que l'arbitrage se fait.
+    {
+      type: "select", name: "type", label: "Type", required: true,
+      options: SPONSORING_TYPES.map((t) => ({ value: t, label: t })),
+      placeholder: "— Choisir le type —",
+    },
+    { type: "number", name: "amountRequested", label: "Budget demandé par l'intéressé (DZD)", required: true },
+    { type: "number", name: "amountProposed", label: "Budget suggéré par le délégué (DZD)", required: true },
+    {
+      type: "select", name: "strategicImportance", label: "Importance stratégique", required: true,
+      options: optionsOf(PRIORITY), placeholder: "— Choisir l'importance —",
+    },
     { type: "textarea", name: "description", label: "Description de la demande" },
     { type: "textarea", name: "comments", label: "Appréciation personnelle / recommandation" },
   ];
+}
+
+/**
+ * LA SPÉCIALITÉ EN MENU DÉROULANT — et un repli quand le référentiel est muet.
+ *
+ * Le champ était libre : « Cardio », « cardiologie », « CARDIOLOGIE » faisaient trois lignes
+ * dans un regroupement qui devrait en faire une. La liste vient du référentiel `MedicalSpecialty`
+ * fusionné aux libellés hérités des fiches médecins (`pickers.ts`) — jamais d'une liste écrite à
+ * la main, fausse le jour où quelqu'un en ajoute une (§118.73).
+ *
+ * Référentiel ET fiches vides : la saisie redevient LIBRE, obligatoire mais libre. Un menu sans
+ * option est un cul-de-sac, et une demande légitime ne doit pas attendre qu'on peuple une table.
+ */
+function specialtyField(
+  referentiel: readonly SpecialtyRow[],
+  heritees: readonly (string | null | undefined)[],
+): FieldDef[] {
+  const options = specialtyOptions(referentiel, heritees);
+  if (options.length === 0) {
+    return [{
+      type: "text", name: "specialty", label: "Spécialité", required: true,
+      hint: "Le référentiel des spécialités est vide : saisissez-la.",
+    }];
+  }
+  return [{
+    type: "select", name: "specialty", label: "Spécialité", required: true,
+    options, placeholder: "— Choisir la spécialité —",
+  }];
 }
 
 export function promoMaterialCreateFields(opts: {

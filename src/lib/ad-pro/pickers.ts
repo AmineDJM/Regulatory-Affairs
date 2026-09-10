@@ -161,3 +161,56 @@ export function readMultiField(picked: readonly string[], freeText: string | nul
   const t = (freeText ?? "").trim();
   return t || null;
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA SPÉCIALITÉ SE CHOISIT — et sa liste vient de DEUX endroits, parce que la réalité y est.
+ *
+ * Le champ était libre, avec le même effet que les trois autres : « Cardio », « cardiologie »,
+ * « CARDIOLOGIE » et « Cardiologue » font quatre lignes dans un regroupement qui devrait en
+ * faire une. La Direction demande un menu déroulant.
+ *
+ * ── POURQUOI LA LISTE N'EST PAS ÉCRITE À LA MAIN ────────────────────────────────────────
+ *
+ * `MedicalSpecialty` est le référentiel canonique du produit — c'est lui que la Promotion
+ * médicale entretient et que `MedicalDoctor.specialtyRef` désigne. Écrire ici une liste de
+ * spécialités serait une seconde vérité, fausse le jour où quelqu'un en ajoute une, EN SILENCE
+ * (§118.73). On lit donc le référentiel.
+ *
+ * Mais `MedicalDoctor.specialty` existe encore : c'est le libellé LIBRE hérité, porté par les
+ * fiches qu'on n'a pas encore rattachées. Une spécialité écrite sur quarante médecins et absente
+ * du référentiel doit rester choisissable — sinon une demande légitime est refusée pour une
+ * ligne de table manquante, et c'est le référentiel qui décide qui peut demander quoi. Les deux
+ * sources sont donc FUSIONNÉES, le référentiel faisant autorité sur la casse.
+ *
+ * On ne devine aucune correspondance entre les deux : « Cardio » et « Cardiologie » restent deux
+ * entrées si les données les portent toutes les deux. Les rapprocher serait choisir à la place
+ * de la Promotion médicale, dont c'est précisément le travail de rattacher les fiches.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface SpecialtyRow {
+  name: string;
+}
+
+export function specialtyOptions(
+  referentiel: readonly SpecialtyRow[],
+  heritees: readonly (string | null | undefined)[] = [],
+): { value: string; label: string }[] {
+  const out: { value: string; label: string }[] = [];
+  // Comparaison insensible à la casse et aux espaces : c'est exactement la variation que le
+  // champ libre a produite, et garder « Cardiologie » ET « cardiologie » ferait deux lignes
+  // dans un menu censé les réunir.
+  const vues = new Set<string>();
+  const ajouter = (brut: string | null | undefined) => {
+    const t = (brut ?? "").trim();
+    if (!t) return;
+    const cle = t.toLocaleLowerCase("fr");
+    if (vues.has(cle)) return;
+    vues.add(cle);
+    out.push({ value: t, label: t });
+  };
+  // Le référentiel D'ABORD : à casse près, c'est SA graphie qui est retenue.
+  for (const s of referentiel) ajouter(s.name);
+  for (const h of heritees) ajouter(h);
+  return out.sort((a, b) => a.label.localeCompare(b.label, "fr"));
+}

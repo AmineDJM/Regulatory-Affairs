@@ -16,7 +16,7 @@ const TAG = "__wftest__";
 const viewer = (id: string, role: UserRole) => ({ id, role, secondaryRole: null, name: role });
 const asSession = (id: string, role: UserRole): SessionUser => ({ id, role, secondaryRole: null, access: { modules: new Map(), rowGrants: new Map(), secondaryRole: null } });
 
-suite("Moteur de workflow — circuit Ad & Pro de bout en bout (congrès international)", () => {
+suite("Moteur — le parcours d'un KAM : National Sales → Direction Marketing, qui TRANCHE", () => {
   let nsId = "", pmId = "", dirId = "", delegId = "", otherId = "", congressId = "", catId = "";
 
   beforeAll(async () => {
@@ -50,74 +50,164 @@ suite("Moteur de workflow — circuit Ad & Pro de bout en bout (congrès interna
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
   });
 
-  it("le demandeur (délégué) ne peut pas agir à l'étape préliminaire", async () => {
-    const r = await advanceWorkflowInstance({ viewer: viewer(delegId, "MEDICAL_DELEGATE"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", assigneeId: pmId });
+  it("la borne de sortie est POSÉE à la naissance de l'instance : Direction Marketing tranche", async () => {
+    // Ce qui le ferait tomber : dériver la borne du rôle courant au lieu de la figer, ou ne pas
+    // la poser du tout — la demande du KAM repartirait alors vers la Direction, qui n'est pas
+    // dans son parcours.
+    await advanceWorkflowInstance({ viewer: viewer(otherId, "SALES_USER"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "COMMENT", note: "ouvre l'instance" });
+    const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: congressId } } });
+    expect(inst.finalSlug).toBe("marketing");
+  });
+
+  it("le demandeur (KAM) ne peut pas agir à l'étape préliminaire", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(delegId, "MEDICAL_DELEGATE"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE" });
     expect(r.ok).toBe(false);
   });
 
-  it("le National Sales approuve le préliminaire et désigne le chef de produit", async () => {
-    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", assigneeId: pmId, note: "OK" });
+  it("le National Sales approuve le préliminaire — SANS avoir à désigner personne", async () => {
+    // La désignation exigeait de remplir une étape à portée « personne désignée ». Cette étape
+    // est portée par le RÔLE Direction Marketing : exiger une désignation serait une friction
+    // sans destinataire, et le moteur refusait l'approbation tant que personne n'était nommé.
+    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", note: "OK" });
     expect(r.ok).toBe(true);
     const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: congressId } } });
-    expect(inst.currentSlug).toBe("analysis");
-    expect(inst.assigneeId).toBe(pmId);
+    expect(inst.currentSlug).toBe("marketing");
     const c = await prisma.congressInternational.findUniqueOrThrow({ where: { id: congressId } });
     expect(c.requestStatus).toBe("PRELIMINARY_APPROVED");
-    expect(c.productManagerId).toBe(pmId);
   });
 
-  it("un tiers ne peut pas faire l'analyse ; le chef de produit désigné approuve", async () => {
-    const bad = await advanceWorkflowInstance({ viewer: viewer(otherId, "SALES_USER"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", amount: 30000 });
+  it("l'ÉCRAN d'un KAM ne montre PAS l'étape de la Direction — elle n'est pas dans son parcours", async () => {
+    // LE DÉFAUT LE PLUS COÛTEUX DE CET ÉCRAN, s'il revenait : une frise qui annonce une
+    // validation qui n'aura pas lieu — un demandeur qui attend, et une Direction qui croit avoir
+    // un dossier à traiter.
+    const vue = await getWorkflowForEntity(asSession(delegId, "MEDICAL_DELEGATE"), "CONGRESS_INTERNATIONAL", congressId, delegId);
+    expect(vue?.steps.map((st) => st.slug)).toEqual(["preliminary", "marketing"]);
+  });
+
+  it("un tiers n'arbitre pas ; Direction Marketing doit fournir le montant ET la sous-catégorie", async () => {
+    const bad = await advanceWorkflowInstance({ viewer: viewer(otherId, "SALES_USER"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", amount: 30000, budgetCategoryId: catId });
     expect(bad.ok).toBe(false);
-    const ok = await advanceWorkflowInstance({ viewer: viewer(pmId, "PRODUCT_MANAGER"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", amount: 35000, note: "Avis chef de produit — confidentiel" });
-    expect(ok.ok).toBe(true);
-    const c = await prisma.congressInternational.findUniqueOrThrow({ where: { id: congressId } });
-    expect(c.requestStatus).toBe("AWAITING_FINAL");
-    expect(Number(c.productManagerBudget)).toBe(35000);
+    // LE BUDGET A CHANGÉ DE MAIN : ces deux exigences étaient sur l'étape de la Direction.
+    const sansMontant = await advanceWorkflowInstance({ viewer: viewer(pmId, "PRODUCT_MANAGER"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", budgetCategoryId: catId });
+    expect(sansMontant.ok).toBe(false);
+    const sansCategorie = await advanceWorkflowInstance({ viewer: viewer(pmId, "PRODUCT_MANAGER"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", amount: 35000 });
+    expect(sansCategorie.ok).toBe(false);
   });
 
-  it("l'avis confidentiel du chef de produit est masqué au demandeur, visible de la Direction", async () => {
-    const asDelegate = await getWorkflowForEntity(asSession(delegId, "MEDICAL_DELEGATE"), "CONGRESS_INTERNATIONAL", congressId, delegId);
-    const analysisEventD = asDelegate?.events.find((e) => e.stepTitle.includes("Analyse"));
-    expect(analysisEventD?.note).toBe("— confidentiel —");
-    expect(analysisEventD?.amount).toBeNull();
-    const asDir = await getWorkflowForEntity(asSession(dirId, "DIRECTION"), "CONGRESS_INTERNATIONAL", congressId, delegId);
-    const analysisEventDir = asDir?.events.find((e) => e.stepTitle.includes("Analyse"));
-    expect(analysisEventDir?.note).toContain("confidentiel");
-    expect(analysisEventDir?.amount).toBe(35000);
-  });
-
-  it("le National Sales ne peut pas trancher la validation définitive (réservée à la Direction)", async () => {
-    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", amount: 35000, budgetCategoryId: catId });
-    expect(r.ok).toBe(false);
-  });
-
-  it("la validation définitive exige le montant ET la (sous-)catégorie budgétaire", async () => {
-    const noCat = await advanceWorkflowInstance({ viewer: viewer(dirId, "DIRECTION"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", amount: 35000 });
-    expect(noCat.ok).toBe(false);
-  });
-
-  it("la Direction valide définitivement → circuit clôturé + imputation budgétaire", async () => {
-    const r = await advanceWorkflowInstance({ viewer: viewer(dirId, "DIRECTION"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", amount: 42000, budgetCategoryId: catId, note: "Accordé" });
+  it("Direction Marketing tranche → circuit CLÔTURÉ, budget accordé, et la dépense est ÉMISE", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(pmId, "PRODUCT_MANAGER"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", amount: 35000, budgetCategoryId: catId, note: "Accordé par Direction Marketing" });
     expect(r.ok).toBe(true);
     const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: congressId } } });
-    expect(inst.status).toBe("APPROVED");
+    expect(inst.status, "l'étape qui tranche CLÔTURE le circuit").toBe("APPROVED");
     expect(inst.currentSlug).toBeNull();
     const c = await prisma.congressInternational.findUniqueOrThrow({ where: { id: congressId } });
     expect(c.requestStatus).toBe("APPROVED");
-    expect(Number(c.finalAmount)).toBe(42000);
+    expect(Number(c.finalAmount)).toBe(35000);
 
-    // Sans pharmacien PRIM → ordre de dépense direct ; sinon déclaration info médicale.
-    // Dans les deux cas, la (sous-)catégorie choisie par la Direction est portée.
+    // L'ÉMISSION HÉRITÉE DE LA QUEUE COUPÉE. Sans elle, la demande sortirait APPROUVÉE avec son
+    // budget accordé écrit en base et Finance ne recevrait RIEN : l'argent accordé, rien
+    // d'engagé, et aucune étape en échec.
     const order = await prisma.expenseOrder.findFirst({ where: { sourceId: congressId } });
     const decl = await prisma.medicalInfoDeclaration.findFirst({ where: { sourceId: congressId } });
-    expect(Boolean(order) || Boolean(decl)).toBe(true);
+    expect(Boolean(order) || Boolean(decl), "une dépense accordée DOIT être engagée").toBe(true);
     expect(order?.budgetCategoryId ?? decl?.budgetCategoryId).toBe(catId);
+  });
+
+  it("le budget accordé par l'étape qui TRANCHE est VISIBLE du demandeur — un accord illisible n'est pas un accord", async () => {
+    // La confidentialité protège une PROPOSITION en cours d'arbitrage. Quand l'étape tranche, sa
+    // décision EST la décision : caviarder ce montant laisserait le KAM devant une demande
+    // approuvée dont il ne peut pas lire la somme.
+    const vue = await getWorkflowForEntity(asSession(delegId, "MEDICAL_DELEGATE"), "CONGRESS_INTERNATIONAL", congressId, delegId);
+    const arbitrage = vue?.events.find((e) => e.stepTitle.includes("Arbitrage") && e.action === "APPROVE");
+    expect(arbitrage?.amount, "le montant accordé se lit").toBe(35000);
+    expect(arbitrage?.note).toContain("Direction Marketing");
   });
 
   it("le circuit clôturé refuse toute nouvelle action", async () => {
     const r = await advanceWorkflowInstance({ viewer: viewer(dirId, "DIRECTION"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", amount: 1, budgetCategoryId: catId });
     expect(r.ok).toBe(false);
+  });
+});
+
+const TAG1B = "__wfnonkam__";
+
+/**
+ * LA SECONDE CHAÎNE. Une chaîne qui marche ne prouve rien ; deux chaînes qui marchent prouvent le
+ * moteur (§118.21). Celle-ci ne partage RIEN avec la première : un autre demandeur (hors force de
+ * vente), une autre entrée (Direction Marketing au lieu du préliminaire), une autre sortie (la
+ * Direction), et un montant que l'étape qui conclut ne fixe PAS.
+ */
+suite("Moteur — le parcours d'un demandeur NON-KAM : Direction Marketing → Direction", () => {
+  let pmId = "", dirId = "", reqId = "", congressId = "", catId = "";
+
+  beforeAll(async () => {
+    const mk = (s: string, role: UserRole) => prisma.user.create({ data: { name: `${TAG1B}${s}`, email: `${TAG1B}${s}@t.dz`, role, passwordHash: "x" } });
+    const [pm, dir, req] = await Promise.all([mk("pm", "PRODUCT_MANAGER"), mk("dir", "DIRECTION"), mk("req", "DIRECTION_ASSISTANT")]);
+    pmId = pm.id; dirId = dir.id; reqId = req.id;
+    const c = await prisma.congressInternational.create({
+      data: { name: `${TAG1B}Congrès`, requestStatus: "PRELIMINARY_APPROVED", requesterId: reqId, estimatedBudget: 60000 },
+    });
+    congressId = c.id;
+    const env = await prisma.budgetEnvelope.create({
+      data: { name: `${TAG1B}Env`, periodStart: new Date("2026-01-01"), periodEnd: new Date("2026-12-31"), totalAmount: 1000000, modules: ["CONGRESS_INTERNATIONAL"], isActive: true },
+    });
+    const cat = await prisma.budgetCategoryLine.create({ data: { envelopeId: env.id, name: `${TAG1B}Cat`, module: "CONGRESS_INTERNATIONAL", allocated: 500000 } });
+    catId = cat.id;
+  });
+
+  afterAll(async () => {
+    await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: congressId } } }).catch(() => {});
+    await prisma.workflowInstance.deleteMany({ where: { entityId: congressId } }).catch(() => {});
+    await prisma.medicalInfoDeclaration.deleteMany({ where: { sourceId: congressId } }).catch(() => {});
+    await prisma.expenseOrder.deleteMany({ where: { sourceId: congressId } }).catch(() => {});
+    await prisma.congressInternational.deleteMany({ where: { name: { startsWith: TAG1B } } }).catch(() => {});
+    await prisma.budgetCategoryLine.deleteMany({ where: { name: { startsWith: TAG1B } } }).catch(() => {});
+    await prisma.budgetEnvelope.deleteMany({ where: { name: { startsWith: TAG1B } } }).catch(() => {});
+    await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG1B } } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { email: { startsWith: TAG1B } } }).catch(() => {});
+  });
+
+  it("aucune borne : la chaîne va jusqu'à la Direction, et l'écran la MONTRE", async () => {
+    const vue = await getWorkflowForEntity(asSession(reqId, "DIRECTION_ASSISTANT"), "CONGRESS_INTERNATIONAL", congressId, reqId);
+    expect(vue?.currentSlug).toBe("marketing");
+    expect(vue?.steps.map((st) => st.slug)).toEqual(["preliminary", "marketing", "final"]);
+    const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: congressId } } });
+    expect(inst.finalSlug, "un demandeur non-KAM n'a pas de borne : la dernière étape tranche").toBeNull();
+  });
+
+  it("Direction Marketing arbitre → la demande AVANCE vers la Direction, et l'arbitrage reste CONFIDENTIEL", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(pmId, "PRODUCT_MANAGER"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", amount: 55000, budgetCategoryId: catId, note: "Arbitrage confidentiel" });
+    expect(r.ok).toBe(true);
+    const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: congressId } } });
+    expect(inst.status).toBe("IN_PROGRESS");
+    expect(inst.currentSlug).toBe("final");
+    expect(Number(inst.amount), "le montant arbitré devient le montant de TRAVAIL de l'instance").toBe(55000);
+    const c = await prisma.congressInternational.findUniqueOrThrow({ where: { id: congressId } });
+    expect(Number(c.productManagerBudget)).toBe(55000);
+    // AUCUNE ÉMISSION ICI : l'étape n'est pas celle qui tranche, donc rien n'est engagé avant
+    // l'accord de la Direction.
+    expect(await prisma.expenseOrder.count({ where: { sourceId: congressId } })).toBe(0);
+    // Et le montant reste caviardé pour le demandeur : c'est une PROPOSITION, pas une décision.
+    const vue = await getWorkflowForEntity(asSession(reqId, "DIRECTION_ASSISTANT"), "CONGRESS_INTERNATIONAL", congressId, reqId);
+    const arb = vue?.events.find((e) => e.stepTitle.includes("Arbitrage"));
+    expect(arb?.note).toBe("— confidentiel —");
+    expect(arb?.amount).toBeNull();
+  });
+
+  it("la Direction tranche SANS fixer de montant — et le budget accordé est celui de l'instance", async () => {
+    // LE DÉFAUT QUE CE CAS ATTRAPE : la Direction n'a plus le pouvoir « fixer un montant », donc
+    // son approbation n'en porte aucun. Sans repli sur le montant de TRAVAIL, `finalAmount`
+    // restait vide — la demande passait APPROUVÉE, l'ordre de dépense partait avec 55 000 DZD, et
+    // la fiche n'affichait aucun budget accordé.
+    const r = await advanceWorkflowInstance({ viewer: viewer(dirId, "DIRECTION"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", note: "Accordé" });
+    expect(r.ok).toBe(true);
+    const c = await prisma.congressInternational.findUniqueOrThrow({ where: { id: congressId } });
+    expect(c.requestStatus).toBe("APPROVED");
+    expect(Number(c.finalAmount), "le montant accordé est celui qu'a arbitré Direction Marketing").toBe(55000);
+    const order = await prisma.expenseOrder.findFirst({ where: { sourceId: congressId } });
+    const decl = await prisma.medicalInfoDeclaration.findFirst({ where: { sourceId: congressId } });
+    expect(Boolean(order) || Boolean(decl)).toBe(true);
+    expect(Number(order?.amount ?? decl?.amount)).toBe(55000);
   });
 });
 
@@ -142,21 +232,19 @@ suite("Moteur — avis défavorable non éliminatoire + refus final d'événemen
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG2 } } }).catch(() => {});
   });
 
-  it("l'avis défavorable du National Sales n'est PAS éliminatoire : le circuit avance (désignation requise)", async () => {
-    const noAssign = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "EVENT", entityId: eventId, action: "REJECT", note: "avis défavorable" });
-    expect(noAssign.ok).toBe(false); // il doit quand même désigner le chef de produit
-    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "EVENT", entityId: eventId, action: "REJECT", note: "avis défavorable", assigneeId: pmId });
+  it("l'avis défavorable du National Sales n'est PAS éliminatoire : le circuit avance", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "EVENT", entityId: eventId, action: "REJECT", note: "avis défavorable" });
     expect(r.ok).toBe(true);
     const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "EVENT", entityId: eventId } } });
     expect(inst.status).toBe("IN_PROGRESS");
-    expect(inst.currentSlug).toBe("analysis");
+    expect(inst.currentSlug).toBe("marketing");
     const ev = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, action: "OPINION_AGAINST" } });
     expect(ev).not.toBeNull();
   });
 
-  it("l'avis défavorable du chef de produit avance vers la Direction, avec montant révisé optionnel tracé", async () => {
-    // Le chef de produit joint, EN OPTION, un montant révisé (« revu à la hausse ») à son avis
-    // défavorable — l'étape « analysis » porte le pouvoir SET_AMOUNT.
+  it("l'avis défavorable de Direction Marketing avance vers la Direction, avec montant révisé optionnel tracé", async () => {
+    // Direction Marketing joint, EN OPTION, un montant révisé (« revu à la hausse ») à son avis
+    // défavorable — l'étape « marketing » porte le pouvoir SET_AMOUNT.
     const r = await advanceWorkflowInstance({ viewer: viewer(pmId, "PRODUCT_MANAGER"), entityType: "EVENT", entityId: eventId, action: "REJECT", note: "Montant revu à la hausse", amount: 1_500_000 });
     expect(r.ok).toBe(true);
     const e = await prisma.event.findUniqueOrThrow({ where: { id: eventId } });
@@ -166,7 +254,7 @@ suite("Moteur — avis défavorable non éliminatoire + refus final d'événemen
     const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "EVENT", entityId: eventId } } });
     expect(Number(inst.amount)).toBe(1_500_000);
     // …et l'événement d'historique porte ce montant (visible de la Direction).
-    const ev = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, stepSlug: "analysis", action: "OPINION_AGAINST" } });
+    const ev = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, stepSlug: "marketing", action: "OPINION_AGAINST" } });
     expect(ev).not.toBeNull();
     expect(Number(ev!.amount)).toBe(1_500_000);
   });
@@ -184,7 +272,7 @@ suite("Moteur — avis défavorable non éliminatoire + refus final d'événemen
 const TAG3 = "__wfskip__";
 
 suite("Moteur — sauter une étape (tracé & noté, anti-bureaucratie)", () => {
-  let nsId = "", pmId = "", dirId = "", delegId = "", otherId = "", congressId = "";
+  let nsId = "", pmId = "", dirId = "", delegId = "", otherId = "", congressId = "", kamCongressId = "";
 
   beforeAll(async () => {
     const mk = (s: string, role: UserRole) => prisma.user.create({ data: { name: `${TAG3}${s}`, email: `${TAG3}${s}@t.dz`, role, passwordHash: "x" } });
@@ -192,24 +280,35 @@ suite("Moteur — sauter une étape (tracé & noté, anti-bureaucratie)", () => 
       mk("ns", "NATIONAL_SALES"), mk("pm", "PRODUCT_MANAGER"), mk("dir", "DIRECTION"), mk("deleg", "MEDICAL_DELEGATE"), mk("other", "SALES_USER"),
     ]);
     nsId = ns.id; pmId = pm.id; dirId = dir.id; delegId = dg.id; otherId = ot.id;
-    const c = await prisma.congressInternational.create({ data: { name: `${TAG3}Congrès`, requestStatus: "AWAITING_PRELIMINARY", requesterId: delegId, estimatedBudget: 20000 } });
+    // DEMANDEUR NON-KAM : la chaîne va jusqu'à la Direction, donc « marketing » est une étape
+    // INTERMÉDIAIRE — c'est la seule situation où le saut d'étape a un objet. Le cas d'un KAM,
+    // dont l'étape tranche et ne se saute donc pas, est le dernier cas de cette suite.
+    const c = await prisma.congressInternational.create({ data: { name: `${TAG3}Congrès`, requestStatus: "AWAITING_PRELIMINARY", requesterId: dirId, estimatedBudget: 20000 } });
     congressId = c.id;
+    const kamC = await prisma.congressInternational.create({ data: { name: `${TAG3}KAM`, requestStatus: "PRELIMINARY_APPROVED", requesterId: delegId, estimatedBudget: 20000 } });
+    kamCongressId = kamC.id;
   });
 
   afterAll(async () => {
     await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: congressId } } }).catch(() => {});
     await prisma.workflowInstance.deleteMany({ where: { entityId: congressId } }).catch(() => {});
+    await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: kamCongressId } } }).catch(() => {});
+    await prisma.workflowInstance.deleteMany({ where: { entityId: kamCongressId } }).catch(() => {});
     await prisma.congressInternational.deleteMany({ where: { name: { startsWith: TAG3 } } }).catch(() => {});
     await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG3 } } } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG3 } } }).catch(() => {});
   });
 
-  it("on ne peut pas sauter une étape de désignation (préliminaire)", async () => {
-    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "SKIP", note: "raison" });
-    expect(r.ok).toBe(false);
-    // On avance normalement le préliminaire (désigne le chef de produit).
-    const ok = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "APPROVE", assigneeId: pmId, note: "OK" });
-    expect(ok.ok).toBe(true);
+  it("le préliminaire n'est plus une désignation : il se saute AVEC raison, et c'est tracé", async () => {
+    // Il ne se sautait pas parce qu'il DÉSIGNAIT le responsable de la suite : sauter aurait
+    // laissé l'étape suivante sans acteur. Direction Marketing est portée par un RÔLE — plus
+    // rien à protéger. La raison, elle, reste obligatoire.
+    const sansRaison = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "SKIP", note: "" });
+    expect(sansRaison.ok).toBe(false);
+    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "SKIP", note: "Déjà arbitré en réunion" });
+    expect(r.ok).toBe(true);
+    const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: congressId } } });
+    expect(inst.currentSlug).toBe("marketing");
   });
 
   it("le saut exige une raison et n'est ouvert qu'à l'acteur de l'étape", async () => {
@@ -219,13 +318,13 @@ suite("Moteur — sauter une étape (tracé & noté, anti-bureaucratie)", () => 
     expect(thirdParty.ok).toBe(false);
   });
 
-  it("le chef de produit saute son étape avec raison → avance vers la Direction, tracé", async () => {
+  it("Direction Marketing saute son étape avec raison → avance vers la Direction, tracé", async () => {
     const r = await advanceWorkflowInstance({ viewer: viewer(pmId, "PRODUCT_MANAGER"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "SKIP", note: "Rien à redire, on file à la Direction" });
     expect(r.ok).toBe(true);
     const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: congressId } } });
     expect(inst.status).toBe("IN_PROGRESS");
-    expect(inst.currentSlug).not.toBe("analysis"); // on a bien avancé
-    const ev = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, action: "SKIP" } });
+    expect(inst.currentSlug).toBe("final");
+    const ev = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, action: "SKIP", stepSlug: "marketing" } });
     expect(ev).not.toBeNull();
     expect(ev?.note).toContain("Direction");
   });
@@ -234,12 +333,22 @@ suite("Moteur — sauter une étape (tracé & noté, anti-bureaucratie)", () => 
     const r = await advanceWorkflowInstance({ viewer: viewer(dirId, "DIRECTION"), entityType: "CONGRESS_INTERNATIONAL", entityId: congressId, action: "SKIP", note: "raison" });
     expect(r.ok).toBe(false);
   });
+
+  it("SUR UNE DEMANDE DE KAM, l'étape de Direction Marketing NE SE SAUTE PAS : elle TRANCHE", async () => {
+    // Cette garde ne coûte pas une ligne de plus : elle tombe de la borne posée dans
+    // `nextStepAfter` — pas de successeur, donc décision finale, donc saut refusé. Ce qui le
+    // ferait tomber : lire la borne ailleurs que dans « y a-t-il une étape après celle-ci ? ».
+    // On aurait alors une décision d'accord franchie SANS qu'un humain la prenne.
+    const r = await advanceWorkflowInstance({ viewer: viewer(pmId, "PRODUCT_MANAGER"), entityType: "CONGRESS_INTERNATIONAL", entityId: kamCongressId, action: "SKIP", note: "on saute" });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false ? r.error : "").toContain("finale");
+  });
 });
 
 const TAG4 = "__wfauto__";
 
 suite("Moteur — franchissement automatique par seuil de montant (anti-bureaucratie configurable)", () => {
-  let nsId = "", pmId = "", dirId = "", delegId = "", lowId = "", highId = "";
+  let nsId = "", pmId = "", dirId = "", delegId = "", lowId = "", highId = "", kamLowId = "";
 
   beforeAll(async () => {
     const mk = (s: string, role: UserRole) => prisma.user.create({ data: { name: `${TAG4}${s}`, email: `${TAG4}${s}@t.dz`, role, passwordHash: "x" } });
@@ -248,44 +357,60 @@ suite("Moteur — franchissement automatique par seuil de montant (anti-bureaucr
     ]);
     nsId = ns.id; pmId = pm.id; dirId = dir.id; delegId = dg.id;
     // Petit budget estimé (5 000) sous le seuil / gros budget (50 000) au-dessus.
-    const [low, high] = await Promise.all([
-      prisma.congressInternational.create({ data: { name: `${TAG4}Low`, requestStatus: "AWAITING_PRELIMINARY", requesterId: delegId, estimatedBudget: 5000 } }),
-      prisma.congressInternational.create({ data: { name: `${TAG4}High`, requestStatus: "AWAITING_PRELIMINARY", requesterId: delegId, estimatedBudget: 50000 } }),
+    const [low, high, kamLow] = await Promise.all([
+      prisma.congressInternational.create({ data: { name: `${TAG4}Low`, requestStatus: "AWAITING_PRELIMINARY", requesterId: dirId, estimatedBudget: 5000 } }),
+      prisma.congressInternational.create({ data: { name: `${TAG4}High`, requestStatus: "AWAITING_PRELIMINARY", requesterId: dirId, estimatedBudget: 50000 } }),
+      // MÊME PETIT MONTANT, MAIS DEMANDÉ PAR UN KAM : l'étape de Direction Marketing TRANCHE, et
+      // une décision d'accord ne se franchit pas toute seule.
+      prisma.congressInternational.create({ data: { name: `${TAG4}Kam`, requestStatus: "AWAITING_PRELIMINARY", requesterId: delegId, estimatedBudget: 5000 } }),
     ]);
-    lowId = low.id; highId = high.id;
-    // Configure un seuil de 10 000 sur l'étape « analysis » (partagée) — restaurée en afterAll.
+    lowId = low.id; highId = high.id; kamLowId = kamLow.id;
+    // Configure un seuil de 10 000 sur l'étape « marketing » (partagée) — restaurée en afterAll.
     const def = await getDefinition("CONGRESS_INTERNATIONAL");
-    await prisma.workflowStep.updateMany({ where: { definitionId: def.id, slug: "analysis" }, data: { autoSkipMaxAmount: 10000 } });
+    await prisma.workflowStep.updateMany({ where: { definitionId: def.id, slug: "marketing" }, data: { autoSkipMaxAmount: 10000 } });
   });
 
   afterAll(async () => {
     const def = await getDefinition("CONGRESS_INTERNATIONAL").catch(() => null);
-    if (def) await prisma.workflowStep.updateMany({ where: { definitionId: def.id, slug: "analysis" }, data: { autoSkipMaxAmount: null } }).catch(() => {});
-    await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: { in: [lowId, highId] } } } }).catch(() => {});
-    await prisma.workflowInstance.deleteMany({ where: { entityId: { in: [lowId, highId] } } }).catch(() => {});
+    if (def) await prisma.workflowStep.updateMany({ where: { definitionId: def.id, slug: "marketing" }, data: { autoSkipMaxAmount: null } }).catch(() => {});
+    await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: { in: [lowId, highId, kamLowId] } } } }).catch(() => {});
+    await prisma.workflowInstance.deleteMany({ where: { entityId: { in: [lowId, highId, kamLowId] } } }).catch(() => {});
     await prisma.congressInternational.deleteMany({ where: { name: { startsWith: TAG4 } } }).catch(() => {});
     await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG4 } } } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG4 } } }).catch(() => {});
   });
 
-  it("montant estimé ≤ seuil : l'étape « analysis » est franchie automatiquement (tracé) → on se pose sur la décision finale", async () => {
-    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: lowId, action: "APPROVE", assigneeId: pmId, note: "OK" });
+  it("montant estimé ≤ seuil : l'étape « marketing » est franchie automatiquement (tracé) → on se pose sur la décision finale", async () => {
+    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: lowId, action: "APPROVE", note: "OK" });
     expect(r.ok).toBe(true);
     const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: lowId } } });
-    // L'analyse chef de produit a été franchie automatiquement : on est sur la décision finale, PAS clôturé.
+    // L'arbitrage a été franchi automatiquement : on est sur la décision finale, PAS clôturé.
     expect(inst.currentSlug).toBe("final");
     expect(inst.status).toBe("IN_PROGRESS");
-    const auto = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, action: "AUTO_SKIP", stepSlug: "analysis" } });
+    const auto = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, action: "AUTO_SKIP", stepSlug: "marketing" } });
     expect(auto).not.toBeNull();
   });
 
   it("montant estimé > seuil : l'étape n'est PAS franchie automatiquement (validation humaine conservée)", async () => {
-    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: highId, action: "APPROVE", assigneeId: pmId, note: "OK" });
+    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: highId, action: "APPROVE", note: "OK" });
     expect(r.ok).toBe(true);
     const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: highId } } });
-    expect(inst.currentSlug).toBe("analysis");
+    expect(inst.currentSlug).toBe("marketing");
     const auto = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, action: "AUTO_SKIP" } });
     expect(auto).toBeNull();
+  });
+
+  it("MÊME SOUS LE SEUIL, l'étape qui TRANCHE n'est jamais franchie automatiquement — un humain accorde", async () => {
+    // Le seuil anti-bureaucratie et la borne du parcours se rencontrent ici. Sur une demande de
+    // KAM, Direction Marketing accorde le budget : la franchir automatiquement engagerait une
+    // dépense que PERSONNE n'a décidée. Cette garde tombe de `nextStepAfter` — pas de
+    // successeur, donc décision finale, donc jamais de franchissement automatique.
+    const r = await advanceWorkflowInstance({ viewer: viewer(nsId, "NATIONAL_SALES"), entityType: "CONGRESS_INTERNATIONAL", entityId: kamLowId, action: "APPROVE", note: "OK" });
+    expect(r.ok).toBe(true);
+    const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: kamLowId } } });
+    expect(inst.currentSlug, "la demande ATTEND la décision de Direction Marketing").toBe("marketing");
+    expect(inst.status).toBe("IN_PROGRESS");
+    expect(await prisma.workflowStepEvent.count({ where: { instanceId: inst.id, action: "AUTO_SKIP" } })).toBe(0);
   });
 });
 
@@ -302,16 +427,16 @@ suite("Moteur — auto-accord si le demandeur détient l'autorité de l'étape (
     // Le DEMANDEUR est un chef de produit ; budget au-dessus de tout seuil pour isoler le motif « autorité ».
     const c = await prisma.congressInternational.create({ data: { name: `${TAG5}Congrès`, requestStatus: "AWAITING_PRELIMINARY", requesterId: reqPmId, estimatedBudget: 90000 } });
     congressId = c.id;
-    // Reconfigure temporairement l'étape « analysis » en portée ROLE[PRODUCT_MANAGER] + auto-accord si demandeur.
+    // Reconfigure temporairement l'étape « marketing » en portée ROLE[PRODUCT_MANAGER] + auto-accord si demandeur.
     const def = await getDefinition("CONGRESS_INTERNATIONAL");
-    const a = await prisma.workflowStep.findFirstOrThrow({ where: { definitionId: def.id, slug: "analysis" } });
+    const a = await prisma.workflowStep.findFirstOrThrow({ where: { definitionId: def.id, slug: "marketing" } });
     original = { actorScope: a.actorScope, actorRoles: a.actorRoles, autoApproveIfRequester: a.autoApproveIfRequester };
     await prisma.workflowStep.update({ where: { id: a.id }, data: { actorScope: "ROLE", actorRoles: ["PRODUCT_MANAGER"], autoApproveIfRequester: true } });
   });
 
   afterAll(async () => {
     const def = await getDefinition("CONGRESS_INTERNATIONAL").catch(() => null);
-    if (def && original) await prisma.workflowStep.updateMany({ where: { definitionId: def.id, slug: "analysis" }, data: original }).catch(() => {});
+    if (def && original) await prisma.workflowStep.updateMany({ where: { definitionId: def.id, slug: "marketing" }, data: original }).catch(() => {});
     await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: congressId } } }).catch(() => {});
     await prisma.workflowInstance.deleteMany({ where: { entityId: congressId } }).catch(() => {});
     await prisma.congressInternational.deleteMany({ where: { name: { startsWith: TAG5 } } }).catch(() => {});
@@ -327,7 +452,7 @@ suite("Moteur — auto-accord si le demandeur détient l'autorité de l'étape (
     const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: congressId } } });
     expect(inst.currentSlug).toBe("final");
     expect(inst.status).toBe("IN_PROGRESS");
-    const ev = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, action: "AUTO_APPROVE_REQUESTER", stepSlug: "analysis" } });
+    const ev = await prisma.workflowStepEvent.findFirst({ where: { instanceId: inst.id, action: "AUTO_APPROVE_REQUESTER", stepSlug: "marketing" } });
     expect(ev).not.toBeNull();
   });
 });

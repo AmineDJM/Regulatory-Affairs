@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UserRole } from "@prisma/client";
 import { adProInit, adProOriginRank, canChooseAnalysisAtCreation, canDesignateProductManagerAtCreation } from "./origin";
+import { slugDecisionnaire } from "./parcours";
 
 const u = (role: UserRole, secondaryRole: UserRole | null = null) => ({ role, secondaryRole });
 
@@ -15,20 +16,52 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
     expect(canDesignateProductManagerAtCreation(u("MEDICAL_DELEGATE"))).toBe(false);
   });
 
-  it("le National Sales n'a pas à approuver : en désignant le chef de produit, il saute le préliminaire", () => {
+  it("le National Sales n'a pas à approuver sa propre demande : elle part chez Direction Marketing", () => {
     expect(adProOriginRank(u("NATIONAL_SALES"))).toBe(1);
     expect(canDesignateProductManagerAtCreation(u("NATIONAL_SALES"))).toBe(true);
     const init = adProInit(u("NATIONAL_SALES"), "pm-1");
     expect(init.stage).toBe("ANALYSIS");
     expect(init.status).toBe("PRELIMINARY_APPROVED");
-    expect(init.productManagerId).toBe("pm-1");
+    expect(init.productManagerId, "le référent nommé est enregistré").toBe("pm-1");
     expect(init.preliminaryBySelf).toBe(true);
   });
 
-  it("National Sales sans chef de produit désigné → repli sûr sur le préliminaire", () => {
+  it("National Sales SANS référent nommé : la demande part QUAND MÊME chez Direction Marketing", () => {
+    // CE QUI A CHANGÉ, ET POURQUOI. L'ancienne règle le renvoyait au préliminaire — le sien —
+    // faute de désignation, parce que l'étape suivante était portée par « la personne désignée »
+    // et qu'aucune désignation la rendait infranchissable. Elle est portée par le RÔLE Direction
+    // Marketing : il n'y a plus rien à désigner, donc plus de repli à faire, et le National
+    // Sales ne se voit plus demander d'approuver sa propre demande.
     const init = adProInit(u("NATIONAL_SALES"));
-    expect(init.stage).toBe("PRELIMINARY");
-    expect(init.status).toBe("AWAITING_PRELIMINARY");
+    expect(init.stage).toBe("ANALYSIS");
+    expect(init.status).toBe("PRELIMINARY_APPROVED");
+    expect(init.productManagerId).toBeNull();
+    expect(init.preliminaryBySelf).toBe(true);
+  });
+
+  it("TOUT AUTRE DEMANDEUR — ni KAM, ni de la chaîne commerciale — part aussi chez Direction Marketing", () => {
+    // « Si c'est le national sales ou n'importe qui d'autre, ça passe à la Direction Marketing
+    // puis Direction. » Un demandeur hors force de vente n'a pas de superviseur national :
+    // l'étape préliminaire serait un accord demandé à quelqu'un qui n'a pas autorité sur lui.
+    for (const role of ["DIRECTION_ASSISTANT", "FINANCE_BUDGET_MANAGER", "COORDINATOR"] as UserRole[]) {
+      const init = adProInit(u(role));
+      expect(adProOriginRank(u(role)), role).toBe(0);
+      expect(init.stage, role).toBe("ANALYSIS");
+      expect(init.status, role).toBe("PRELIMINARY_APPROVED");
+    }
+  });
+
+  it("SEUL le KAM passe par le préliminaire — et le RANG l'emporte sur le métier", () => {
+    // Le cas qui a dicté la forme de `parcoursAdPro` : un délégué médical qui porte AUSSI la
+    // casquette Direction Marketing est un KAM au sens du texte, mais sa demande ne peut pas
+    // être arbitrée par lui-même. Elle part donc à la Direction, et sa borne de sortie doit
+    // suivre — sinon la vue masquerait l'étape où la demande se trouve.
+    expect(adProInit(u("MEDICAL_DELEGATE")).stage).toBe("PRELIMINARY");
+    const double = u("MEDICAL_DELEGATE", "PRODUCT_MANAGER");
+    expect(adProOriginRank(double)).toBe(2);
+    expect(adProInit(double).stage).toBe("FINAL");
+    expect(slugDecisionnaire(double, ["preliminary", "marketing", "final"], 2), "aucune borne : la Direction tranche").toBeNull();
+    expect(slugDecisionnaire(u("MEDICAL_DELEGATE"), ["preliminary", "marketing", "final"], 0)).toBe("marketing");
   });
 
   it("le chef de produit ne passe ni par le National Sales ni par l'analyse → directement à la Direction", () => {
@@ -98,10 +131,14 @@ describe("adProInit — la Direction peut demander l'avis du chef de produit", (
     });
   });
 
-  it("demander l'analyse SANS désigner personne retombe sur la décision directe", () => {
-    // Une étape sans destinataire bloquerait la demande sans que personne ne soit prévenu.
-    expect(adProInit(direction, null, { viaProductManager: true })).toMatchObject({ stage: "FINAL" });
-    expect(adProInit(direction, "", { viaProductManager: true })).toMatchObject({ stage: "FINAL" });
+  it("demander l'arbitrage SANS nommer de référent envoie QUAND MÊME chez Direction Marketing", () => {
+    // CE QUI A CHANGÉ. L'ancienne règle retombait sur la décision directe : le choix « avec
+    // analyse » n'avait pas d'objet sans une personne DÉSIGNÉE, l'étape étant portée par elle.
+    // Elle est portée par le RÔLE Direction Marketing — l'arbitrage a donc toujours un
+    // destinataire, et retomber sur la décision directe ferait le contraire de ce que la
+    // Direction vient de demander.
+    expect(adProInit({ role: "DIRECTION" }, null, { viaProductManager: true })).toMatchObject({ stage: "ANALYSIS", status: "PRELIMINARY_APPROVED" });
+    expect(adProInit({ role: "DIRECTION" }, "   ", { viaProductManager: true })).toMatchObject({ stage: "ANALYSIS" });
   });
 
   it("désigner un chef de produit SANS demander l'analyse ne détourne pas la demande", () => {
@@ -116,10 +153,13 @@ describe("adProInit — la Direction peut demander l'avis du chef de produit", (
     expect(adProInit({ role: "PRODUCT_MANAGER" }, "pm_2", { viaProductManager: true })).toMatchObject({ stage: "FINAL" });
   });
 
-  it("le National Sales n'a pas ce choix : l'analyse reste son étape suivante obligatoire", () => {
+  it("le National Sales n'a pas ce choix : l'arbitrage de Direction Marketing reste son étape suivante", () => {
     expect(adProInit({ role: "NATIONAL_SALES" }, "pm_1", { viaProductManager: true })).toMatchObject({ stage: "ANALYSIS" });
-    // …et sans désignation, il repart du préliminaire, pas de la décision finale.
-    expect(adProInit({ role: "NATIONAL_SALES" }, null, { viaProductManager: true })).toMatchObject({ stage: "PRELIMINARY" });
+    // …et le drapeau n'y change RIEN, avec ou sans référent : forger « viaProductManager » ne
+    // lui ouvre pas le choix réservé à la Direction, et ne le renvoie pas à son propre
+    // préliminaire non plus.
+    expect(adProInit({ role: "NATIONAL_SALES" }, null, { viaProductManager: true })).toMatchObject({ stage: "ANALYSIS", status: "PRELIMINARY_APPROVED" });
+    expect(adProInit({ role: "NATIONAL_SALES" }, null, { viaProductManager: false })).toMatchObject({ stage: "ANALYSIS" });
   });
 
   it("un délégué reste au circuit complet, quoi qu'il envoie", () => {

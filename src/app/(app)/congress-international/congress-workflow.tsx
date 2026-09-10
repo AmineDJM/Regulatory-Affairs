@@ -55,7 +55,7 @@ export function PreliminaryDecision({ type, id, productManagers }: { type: strin
     <div className="space-y-2">
       {mode === "approve" ? (
         <>
-          <Label>Chef de produit en charge de l'analyse</Label>
+          <Label>Référent Direction Marketing</Label>
           <Select value={pm} onChange={(e) => setPm(e.target.value)}>
             <option value="">— Sélectionner —</option>
             {productManagers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
