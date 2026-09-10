@@ -186,4 +186,61 @@ describe("mesure consignée — formes apprises", () => {
       "les six formes jusque-là écrites à la main sont retrouvées par apprentissage, chemin d'éventail compris");
     expect(ok).toBe(cas.length);
   });
+  describe("la branche « rien trouvé » ne disparaît pas dans la nature dominante", () => {
+    // Huit exécutions qui trouvent, deux qui répondent par une phrase — la vraie vie d'une
+    // capacité de lecture. Recensé : 54 outils du dépôt ont cette double sortie, dont 18
+    // capacités de mission sans contrat déclaré.
+    const melange = [
+      ...Array.from({ length: 8 }, (_, i) => ({ total: i, salaries: [{ id: `e${i}`, nom: "X" }] })),
+      "Aucun salarié ne répond à ce filtre.",
+      "Aucun salarié ne répond à ce filtre.",
+    ];
+
+    it("les exécutions sans champ sont COMPTÉES, et `toujours` se juge sur TOUTES les exécutions", () => {
+      // LE DÉFAUT : `toujours` se calculait sur les seules exécutions OBJET (`objets.length`).
+      // Ces deux champs sortaient donc marqués présents à CHAQUE FOIS, dans la ligne même que
+      // le planificateur lit pour savoir sur quoi il peut compter. Une promesse fausse.
+      const f = formeDe(melange);
+      expect(f.nature).toBe("OBJET");
+      expect(f.observations).toBe(10);
+      expect(f.valeursSimples, "deux réponses en phrase, comptées et non absorbées").toBe(2);
+      expect(f.champs.map((c) => c.toujours), "aucun champ n'est présent dans les DIX exécutions").toEqual([false, false]);
+    });
+
+    it("la ligne du planificateur DIT la branche, avec son compte et le geste SÛR", () => {
+      const dite = direForme(formeDe(melange))!;
+      expect(dite).toContain("2 exécutions sur 10");
+      expect(dite).toContain("répondu par une PHRASE");
+      // §118.26, §118.30 : ce que le code exige, le contexte doit dire comment le satisfaire.
+      // Sans le geste, la phrase serait un reproche sans remède.
+      expect(dite).toContain("réfère l'étape ENTIÈRE");
+    });
+
+    it("aucune exécution sans champ : RIEN n'est dit — une réserve permanente devient du bruit", () => {
+      // Ce qui le ferait tomber : accrocher la réserve à toute forme. On cesserait de la lire
+      // (§118.32), et elle serait alors inutile là où elle compte.
+      const f = formeDe([{ total: 1, salaries: [] }, { total: 2, salaries: [] }]);
+      expect(f.valeursSimples).toBe(0);
+      expect(direForme(f)).not.toContain("PHRASE");
+      expect(f.champs.every((c) => c.toujours), "sur deux objets, les deux champs sont bien constants").toBe(true);
+    });
+
+    it("une capacité qui ne rend QUE des valeurs simples le dit, et nomme la seule référence possible", () => {
+      const f = formeDe(["Aucune enveloppe budgétaire ne vous est ouverte.", 0]);
+      expect(f.nature).toBe("VALEUR");
+      expect(f.valeursSimples).toBe(2);
+      expect(direForme(f)!).toContain("AUCUN champ à référencer");
+      // Et le compilateur ne refuse RIEN sur cette forme : refuser un plan correct parce qu'une
+      // capacité répond par une phrase serait échanger un défaut contre un pire (§118.27).
+      expect(cheminPlausible(f, "totalDzd")).toBeNull();
+    });
+
+    it("pour un ÉLÉMENT de liste, « toujours » se juge sur les ÉLÉMENTS — pas sur les exécutions", () => {
+      // Deux questions, deux dénominateurs : les confondre marquerait occasionnel un champ que
+      // chaque élément porte, et le planificateur cesserait d'écrire l'éventail qui marche.
+      const f = formeDe([{ resultats: [{ id: "a", nom: "A" }, { id: "b", nom: "B" }] }]);
+      expect(f.liste?.chemin).toBe("resultats");
+      expect(f.liste?.elements.every((c) => c.toujours)).toBe(true);
+    });
+  });
 });

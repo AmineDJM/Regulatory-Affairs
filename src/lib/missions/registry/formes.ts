@@ -73,9 +73,30 @@ export interface Forme {
   liste: { chemin: string; elements: Champ[] } | null;
   /** Combien d'exécutions ont servi. ZÉRO = on ne sait pas, et il faut le DIRE. */
   observations: number;
+  /**
+   * COMBIEN D'EXÉCUTIONS ONT RÉPONDU PAR UNE VALEUR SIMPLE — une phrase, un nombre — sans le
+   * moindre champ.
+   *
+   * ── LE DÉFAUT MESURÉ, ET IL ÉTAIT DANS LE MÉCANISME ÉCRIT POUR §118.20 ────────────────
+   *
+   * `formeDe` choisissait UNE nature : dès qu'une seule exécution avait rendu un objet, la
+   * forme était OBJET et les exécutions qui avaient répondu par une PHRASE disparaissaient de
+   * ce que le planificateur lisait. Pire, `toujours` se calculait sur les seules exécutions
+   * OBJET : une capacité qui a répondu par une phrase deux fois sur dix voyait ses champs
+   * annoncés comme présents à CHAQUE FOIS. Une promesse fausse, dans la ligne même que le
+   * planificateur lit pour décider s'il peut écrire une référence.
+   *
+   * Recensé : cinquante-quatre outils du dépôt peuvent répondre par une phrase, dont dix-huit
+   * capacités de mission sans contrat déclaré. C'est le défaut de §118.20 — la forme dépend de
+   * la donnée — reproduit par le mécanisme censé le rendre visible.
+   *
+   * Un COMPTE, pas un booléen : « deux fois sur dix » et « neuf fois sur dix » ne se planifient
+   * pas de la même façon, et un booléen aurait effacé cette différence.
+   */
+  valeursSimples: number;
 }
 
-export const FORME_INCONNUE: Forme = { nature: "VIDE", champs: [], liste: null, observations: 0 };
+export const FORME_INCONNUE: Forme = { nature: "VIDE", champs: [], liste: null, observations: 0, valeursSimples: 0 };
 
 /** Le plafond de champs retenus — un brief part dans un prompt, il ne peut pas tout porter. */
 export const CHAMPS_MAX = 14;
@@ -104,7 +125,15 @@ const estObjet = (v: unknown): v is Record<string, unknown> =>
  * cinquante éléments dont un seul porte `note`, `note` n'est pas un champ sur lequel on peut
  * compter, et le planificateur doit le savoir avant d'écrire `{{x.resultats.0.note}}`.
  */
-function champsDe(objets: readonly Record<string, unknown>[]): Champ[] {
+/**
+ * LE DÉNOMINATEUR DE `toujours` EST LE NOMBRE D'OBSERVATIONS, jamais le nombre d'OBJETS.
+ *
+ * `total` était `objets.length` : une capacité observée dix fois, dont deux réponses en phrase,
+ * voyait ses champs marqués présents à chaque fois — la seule ligne que le planificateur lit
+ * pour savoir sur quoi il peut compter portait une promesse fausse. Le dénominateur est donc
+ * passé par l'appelant, qui seul sait combien d'exécutions ont réellement servi.
+ */
+function champsDe(objets: readonly Record<string, unknown>[], observations: number): Champ[] {
   const vus = new Map<string, { n: number; types: Set<string> }>();
   for (const o of objets) {
     for (const [nom, v] of Object.entries(o)) {
@@ -117,7 +146,7 @@ function champsDe(objets: readonly Record<string, unknown>[]): Champ[] {
       e.types.add(typeDe(v));
     }
   }
-  const total = objets.length;
+  const total = Math.max(observations, objets.length);
   return [...vus.entries()]
     .map(([nom, e]) => ({
       nom,
@@ -151,7 +180,9 @@ function listePrincipale(echantillons: readonly Record<string, unknown>[]): { ch
   }
   if (parChamp.size === 0) return null;
   const [chemin, objets] = [...parChamp.entries()].sort((a, b) => b[1].length - a[1].length)[0]!;
-  return { chemin, elements: champsDe(objets) };
+  // POUR UN ÉLÉMENT DE LISTE, « toujours » se juge sur les ÉLÉMENTS, pas sur les exécutions :
+  // c'est chaque élément qui porte le champ que l'éventail lira.
+  return { chemin, elements: champsDe(objets, objets.length) };
 }
 
 /**
@@ -164,13 +195,17 @@ export function formeDe(sorties: readonly unknown[]): Forme {
   const utiles = sorties.filter((s) => s !== null && s !== undefined).slice(0, OBSERVATIONS_MAX);
   if (utiles.length === 0) return FORME_INCONNUE;
 
+  // LES RÉPONSES SANS AUCUN CHAMP SONT COMPTÉES, jamais absorbées par la nature dominante.
+  const simples = utiles.filter((s) => !estObjet(s) && !Array.isArray(s)).length;
+
   const objets = utiles.filter(estObjet);
   if (objets.length > 0) {
     return {
       nature: "OBJET",
-      champs: champsDe(objets),
+      champs: champsDe(objets, utiles.length),
       liste: listePrincipale(objets),
       observations: utiles.length,
+      valeursSimples: simples,
     };
   }
 
@@ -182,12 +217,13 @@ export function formeDe(sorties: readonly unknown[]): Forme {
       champs: [],
       // Une sortie qui EST une liste se déploie à la racine : le chemin est vide, et l'appelant
       // doit le dire ainsi — c'est le cas de `list_my_tasks`, écrit à la main jusqu'ici.
-      liste: elements.length > 0 ? { chemin: "", elements: champsDe(elements) } : null,
+      liste: elements.length > 0 ? { chemin: "", elements: champsDe(elements, elements.length) } : null,
       observations: utiles.length,
+      valeursSimples: simples,
     };
   }
 
-  return { nature: "VALEUR", champs: [], liste: null, observations: utiles.length };
+  return { nature: "VALEUR", champs: [], liste: null, observations: utiles.length, valeursSimples: simples };
 }
 
 /**
@@ -202,11 +238,29 @@ export function direForme(f: Forme): string | null {
   const nom = (c: Champ) => `${c.nom}${c.toujours ? "" : "?"}`;
   const vu = `vu sur ${f.observations} exécution${f.observations > 1 ? "s" : ""}`;
 
+  /**
+   * ── QUAND UNE PART DES EXÉCUTIONS N'A RENDU AUCUN CHAMP ─────────────────────────────
+   *
+   * Ce n'est pas un détail de forme : c'est la branche « je n'ai rien trouvé » de la capacité,
+   * et c'est celle qui tue les plans. On la dit avec son COMPTE — « 2 fois sur 10 » et « 9 fois
+   * sur 10 » ne se planifient pas pareil — et on nomme le geste SÛR (§118.26, §118.30) :
+   * référencer l'étape ENTIÈRE, que le moteur résout toujours, phrase comprise.
+   */
+  const partSimple = f.valeursSimples > 0
+    ? ` — ATTENTION : ${f.valeursSimples} exécution${f.valeursSimples > 1 ? "s" : ""} sur ${f.observations} `
+      + `${f.valeursSimples > 1 ? "ont" : "a"} répondu par une PHRASE, sans aucun champ (la branche « rien trouvé ») ; `
+      + "pour ce cas, réfère l'étape ENTIÈRE « {{cle}} » plutôt qu'un champ"
+    : "";
+
   if (f.nature === "LISTE") {
     const el = f.liste ? ` de { ${f.liste.elements.map(nom).join(", ")} }` : "";
-    return `rend une LISTE à la racine${el} — éventail sur la racine (${vu})`;
+    return `rend une LISTE à la racine${el} — éventail sur la racine${partSimple} (${vu})`;
   }
-  if (f.nature === "VALEUR") return `rend une valeur simple (${vu})`;
+  if (f.nature === "VALEUR") {
+    // Aucune exécution n'a rendu de champ : il n'y a rien à référencer, et le dire évite au
+    // planificateur d'écrire un chemin que le moteur devra traduire.
+    return `rend une valeur simple — AUCUN champ à référencer, réfère l'étape ENTIÈRE « {{cle}} » (${vu})`;
+  }
   if (f.nature === "OBJET") {
     const racine = f.champs.map(nom).join(", ");
     const ev = f.liste
@@ -238,7 +292,7 @@ export function direForme(f: Forme): string | null {
       ? ` — ATTENTION : AUCUN de ces champs n'est présent à chaque fois ; n'écris de référence sur aucun`
         + (f.liste ? `, passe par l'éventail « ${f.liste.chemin} »` : `, fais-la lire par une étape WORKER`)
       : "";
-    return `rend { ${racine} }${ev}${alerte} (${vu})`;
+    return `rend { ${racine} }${ev}${alerte}${partSimple} (${vu})`;
   }
   return null;
 }
