@@ -39,6 +39,8 @@ export interface AppSettings {
   driveSpaceCreatorRoles: string[];
   /** Rôles autorisés à voir l'onglet « Overview » des Rapports terrain (graphes d'analyse). En plus du Super Admin. */
   fieldReportsOverviewRoles: string[];
+  /** Rôles autorisés à ÉCRIRE les messages pré-définis de la Direction Marketing. En plus du Super Admin. */
+  promoMessageAuthorRoles: string[];
   /** Rôles autorisés à CONSULTER l'organigramme (toutes entités ou la sienne). En plus du Super Admin. */
   orgChartViewerRoles: string[];
   /** Rôles autorisés à voir l'onglet « Enregistrement (CTD) ». VIDE = administrateur seul. */
@@ -87,6 +89,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   regulatoryHiddenColumns: [],
   driveSpaceCreatorRoles: [],
   fieldReportsOverviewRoles: [],
+  promoMessageAuthorRoles: [],
   orgChartViewerRoles: [],
   orgChartViewerUserIds: [],
   // Listes VIDES : par défaut, le pipeline reste ce qu'il était — le Super Admin, et lui seul.
@@ -122,6 +125,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       regulatoryHiddenColumns: row.regulatoryHiddenColumns ?? [],
       driveSpaceCreatorRoles: row.driveSpaceCreatorRoles ?? [],
       fieldReportsOverviewRoles: row.fieldReportsOverviewRoles ?? [],
+      promoMessageAuthorRoles: row.promoMessageAuthorRoles ?? [],
       orgChartViewerRoles: row.orgChartViewerRoles ?? [],
       orgChartViewerUserIds: row.orgChartViewerUserIds ?? [],
       pipelineViewerRoles: row.pipelineViewerRoles ?? [],

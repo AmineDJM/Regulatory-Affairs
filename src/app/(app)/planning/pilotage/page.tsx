@@ -9,6 +9,8 @@ import { loadCockpit } from "@/lib/queries/sfe-cockpit";
 import { effortVsSales, effortSummary } from "@/lib/sfe-performance";
 import { toNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
+import { loadTourneeDirection } from "@/lib/queries/tour-schedule";
+import { STATUT_PLAN_LABELS, type StatutPlan } from "@/lib/sfe/tournee";
 import { Card, CardContent } from "@/components/ui/card";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -70,6 +72,17 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
   }
   const effort = effortVsSales([...effortMap.entries()].map(([productId, v]) => ({ productId, ...v })));
 
+  // ── LES TOURNÉES : « visitées / planifiées » ET « le nombre de visites » ─────────────────
+  //
+  // Le MÊME calcul que l'écran du KAM (`avancementTournee`) : deux écrans qui comptent
+  // séparément divergent, toujours (§118.51), et le symptôme serait un KAM à qui l'on reproche
+  // un taux que son propre écran ne montre pas.
+  const tournees = await loadTourneeDirection(
+    repIds,
+    monthStart,
+    new Date(year, month, 0, 23, 59, 59, 999),
+  );
+
   const prev = month === 1 ? { y: year - 1, m: 12 } : { y: year, m: month - 1 };
   const next = month === 12 ? { y: year + 1, m: 1 } : { y: year, m: month + 1 };
 
@@ -101,6 +114,88 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
         <KpiCard label="Visites planifiées" value={tPlanned} icon="CalendarClock" />
         <KpiCard label="Réalisation" value={`${pct(tReal, tPlanned)}%`} icon="Route" tone={pct(tReal, tPlanned) >= 80 ? "success" : "warning"} />
       </div>
+
+      {/* ── PLANS DE TOURNÉE — CE QUE LA DIRECTION DEMANDE ─────────────────────────────────
+          « visitées / planifiées » et « le nombre de visites ». Le mot « planifiées » ne
+          désigne PAS le même objet que le `plannedVisits` du cockpit ci-dessus : celui-là est
+          une CAPACITÉ cible (jours × visites/jour × part terrain), celui-ci compte les visites
+          NOMMÉES d'un plan de tournée — un praticien, un jour. Les deux sont légitimes ; les
+          afficher côte à côte sans le dire ferait douter des deux. */}
+      <section className="space-y-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Plans de tournée — {monthLabel(year, month)}
+          </h2>
+          <p className="text-sm">
+            <strong className="tabular-nums">{tournees.total.visitees}/{tournees.total.planifiees}</strong> visitées
+            {" "}({tournees.total.tauxRealisation} %) ·{" "}
+            <strong className="tabular-nums">{tournees.total.visitesTotales}</strong> visites au total
+            {tournees.total.imprevues > 0 && <> dont {tournees.total.imprevues} imprévue(s)</>}
+          </p>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          « Planifiées » compte ici les visites NOMMÉES d&apos;un plan de tournée (un praticien, un jour) — ce n&apos;est
+          pas le <em>Planifié</em> du cockpit ci-dessus, qui est une capacité cible. « Le nombre de visites » ajoute les
+          visites imprévues et celles commandées par la Direction, qui n&apos;entrent dans aucun plan validé.
+          {tournees.total.perdues > 0 && (
+            <> {tournees.total.perdues} visite(s) n&apos;ont pas été rapportées dans les 48 h : elles ne sont ni à faire
+            ni faites, et sortent donc du numérateur sans sortir du dénominateur.</>
+          )}
+        </p>
+        {tournees.lignes.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+            Aucun KAM dans votre portée sur ce mois.
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full min-w-[620px] text-sm">
+              <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="px-2 py-1.5 font-medium">KAM</th>
+                  <th className="px-2 py-1.5 font-medium">Gamme</th>
+                  <th className="px-2 py-1.5 font-medium">Plan</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Visitées / planifiées</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Hors délai</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Imprévues</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Nombre de visites</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tournees.lignes.map((l) => (
+                  <tr key={l.repId} className="border-t border-border/60">
+                    <td className="px-2 py-1.5 font-medium">{l.repName}</td>
+                    <td className="px-2 py-1.5 text-muted-foreground">{l.buName ?? "—"}</td>
+                    <td className="px-2 py-1.5">
+                      {/* UN KAM SANS PLAN EST NOMMÉ : sans cette ligne, il compterait 0/0 et se
+                          lirait comme « rien à faire », alors qu'il n'a rien soumis. */}
+                      {l.statutPlan
+                        ? STATUT_PLAN_LABELS[l.statutPlan as StatutPlan]
+                        : <span className="text-warning">aucun plan</span>}
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">
+                      {l.avancement.visitees}/{l.avancement.planifiees}
+                      {l.avancement.planifiees > 0 && (
+                        <span className="ml-1 text-xs text-muted-foreground">({l.avancement.tauxRealisation} %)</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">
+                      {l.avancement.perdues > 0 ? <span className="text-warning">{l.avancement.perdues}</span> : "—"}
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{l.avancement.imprevues || "—"}</td>
+                    <td className="px-2 py-1.5 text-right font-medium tabular-nums">{l.avancement.visitesTotales}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {tournees.sansPlan > 0 && (
+          <p className="text-xs text-warning">
+            {tournees.sansPlan} KAM sur {tournees.lignes.length} n&apos;ont aucun plan de tournée sur ce mois : leur
+            emploi du temps est vide, et rien ne dit où ils sont.
+          </p>
+        )}
+      </section>
 
       {rows.length === 0 ? (
         <EmptyState icon="Users" title="Aucun KAM" description="Aucun KAM dans votre périmètre pour ce cycle." />

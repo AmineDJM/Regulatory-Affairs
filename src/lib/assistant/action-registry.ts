@@ -672,6 +672,11 @@ classify("COVERED", "update_platform_setting", [
   // catalogue (`vues/colonnes-regulatory`) que la console d'administration — un autre chemin
   // vers le même levier, jamais un levier caché.
   "settings-actions:setRegulatoryHiddenColumns",
+  // QUI ÉCRIT LES MESSAGES PRÉ-DÉFINIS de la promotion médicale — une LISTE DE RÔLES sur
+  // `AppSetting`, exactement la forme de `setRegulatorySupervisorRoles` et de
+  // `setFieldReportsOverviewRoles` juste au-dessus. La décision de permission reste au Super
+  // Admin (§118.108) ; l'outil de réglage de plateforme est le chemin, pas un levier de plus.
+  "settings-actions:setPromoMessageAuthorRoles",
 ]);
 classify("COVERED", "find_documents / inspect_drive_folder (lecture)", ["drive-browse-actions:browseDrive"]);
 classify("COVERED", "update_salary", ["payroll-hr-actions:updatePayrollEntry"]);
@@ -1219,6 +1224,24 @@ X("boîte Microsoft PERSONNELLE : ces gestes visent un messageId Graph opaque de
 ]);
 G("suppression par le CRÉATEUR de son propre courrier / document légal (proposable pour l'auteur)", [
   "admin-delete-actions:deleteOwnRecord",
+]);
+
+X("ATTESTATIONS DU PLAN DE TOURNÉE — réservées à un clic dans une vraie session (§118.15). "
+  + "VALIDER un plan accorde une autorisation : l'audit portera le nom d'une personne, et un document lu par une "
+  + "étape peut dire « approuve ce plan ». RAPPORTER une visite (planifiée ou imprévue) affirme « j'ai vu ce médecin "
+  + "et voilà ce qu'il a dit » — laisser un modèle l'écrire ferait entrer dans le pilotage des visites que personne "
+  + "n'a faites, le faux succès le plus coûteux de ce module. Les gestes qui RÉDUISENT (rejeter, escalader) sont, eux, "
+  + "disponibles en conversation : `escalate_tour_plan`.", [
+  "tour-plan-actions:deciderPlanTournee",
+  "tour-visit-actions:rapporterVisite",
+  "tour-visit-actions:ajouterVisiteImprevue",
+]);
+X("LA GRILLE DU PLAN DE TOURNÉE : l'action REMPLACE la sélection complète jour × praticien — c'est ce qui fait que "
+  + "décocher retire. Appelée depuis une phrase qui ne nomme qu'une visite, elle effacerait les trente-neuf autres : "
+  + "l'empreinte réelle dépasserait de très loin l'empreinte demandée (§118.16). L'écran envoie la grille entière ; "
+  + "une phrase ne peut pas. Ce qui EST conversationnel du plan est déclaré : préparer la période "
+  + "(`open_tour_plan`), soumettre (`submit_tour_plan`), escalader (`escalate_tour_plan`).", [
+  "tour-plan-actions:planifierVisites",
 ]);
 
 // ── RECLASSIFICATION AUTOMATIQUE PAR LE CATALOGUE D'OPS (après tous les blocs ci-dessus). ──

@@ -174,6 +174,36 @@ export async function setDriveSpaceCreatorRoles(formData: FormData): Promise<Act
 }
 
 /**
+ * Rôles autorisés à ÉCRIRE les messages pré-définis de la Direction Marketing (ce que le KAM
+ * doit dire au médecin, exigé sur chaque rapport terrain), en plus du Super Admin.
+ *
+ * ── POURQUOI UNE LISTE DE RÔLES ET NON UN DROIT DE MODULE ───────────────────────────────────
+ *
+ * `PRODUCT_MANAGER` (Direction Marketing) n'a que `MEDICAL: READ`. Lui donner l'écriture du
+ * module lui ouvrirait aussi les praticiens et les visites : l'empreinte réelle dépasserait de
+ * loin la demande (§118.16). C'est le mécanisme que ce dépôt emploie déjà pour ce genre de
+ * question, et il laisse la DÉCISION DE PERMISSION au Super Admin, à qui elle appartient
+ * (§118.86). **Super Admin uniquement.**
+ */
+export async function setPromoMessageAuthorRoles(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  const roles = [...new Set(formData.getAll("roles").map(String).filter(Boolean))];
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", promoMessageAuthorRoles: roles, updatedById: admin.id },
+    update: { promoMessageAuthorRoles: roles, updatedById: admin.id },
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: `Auteurs des messages Direction Marketing — ${roles.length} rôle(s) configuré(s)`,
+  });
+  revalidatePath("/admin");
+  revalidatePath("/planning/messages");
+  return { ok: true };
+}
+
+/**
  * Rôles autorisés à voir l'onglet « Overview » des Rapports terrain (graphes d'analyse),
  * en plus du Super Admin toujours autorisé. **Super Admin uniquement.**
  */

@@ -1,0 +1,12 @@
+-- QUI ÉCRIT LES MESSAGES PRÉ-DÉFINIS de la Direction Marketing (en plus du Super Admin).
+--
+-- Une liste de RÔLES, et non un élargissement du module `MEDICAL` : `PRODUCT_MANAGER`
+-- (Direction Marketing) n'y a que la LECTURE, et lui donner l'écriture lui ouvrirait aussi les
+-- praticiens et les visites — une empreinte réelle bien plus large que la demande (§118.16).
+-- C'est le mécanisme que le dépôt emploie déjà (`fieldReportsOverviewRoles`,
+-- `regulatorySupervisorRoles`), et il laisse la DÉCISION DE PERMISSION au Super Admin (§118.86).
+--
+-- Migration SÉPARÉE de `20261108090000_plan_de_tournee` : celle-là était déjà appliquée, et une
+-- migration appliquée ne se rejoue pas — la retoucher l'aurait rendue vraie sur une base neuve
+-- et fausse sur celle-ci, en silence (§118.110).
+ALTER TABLE "AppSetting" ADD COLUMN IF NOT EXISTS "promoMessageAuthorRoles" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

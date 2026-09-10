@@ -1,7 +1,7 @@
 // ⚠️  FICHIER GÉNÉRÉ — ne pas éditer à la main. Voir `npm run actions:contrat`.
 //
 // Chaque entrée est un spécificateur LITTÉRAL : l'empaqueteur les voit tous, et rien n'est
-// chargé avant l'appel. `executer.test.ts` résout les 720 actions et échoue en
+// chargé avant l'appel. `executer.test.ts` résout les 732 actions et échoue en
 // nommant celle qui a disparu — c'est le contrôle d'appelant que le compilateur ne fait pas ici.
 
 export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<string, unknown>>>> = {
@@ -103,6 +103,7 @@ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<strin
   "product-range-actions": () => import("./product-range-actions") as unknown as Promise<Record<string, unknown>>,
   "promo-circuit-actions": () => import("./promo-circuit-actions") as unknown as Promise<Record<string, unknown>>,
   "promo-material-actions": () => import("./promo-material-actions") as unknown as Promise<Record<string, unknown>>,
+  "promo-message-actions": () => import("./promo-message-actions") as unknown as Promise<Record<string, unknown>>,
   "promo-stock-actions": () => import("./promo-stock-actions") as unknown as Promise<Record<string, unknown>>,
   "purchase-request-actions": () => import("./purchase-request-actions") as unknown as Promise<Record<string, unknown>>,
   "recruitment-actions": () => import("./recruitment-actions") as unknown as Promise<Record<string, unknown>>,
@@ -122,6 +123,8 @@ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<strin
   "support-actions": () => import("./support-actions") as unknown as Promise<Record<string, unknown>>,
   "task-actions": () => import("./task-actions") as unknown as Promise<Record<string, unknown>>,
   "test-center-actions": () => import("./test-center-actions") as unknown as Promise<Record<string, unknown>>,
+  "tour-plan-actions": () => import("./tour-plan-actions") as unknown as Promise<Record<string, unknown>>,
+  "tour-visit-actions": () => import("./tour-visit-actions") as unknown as Promise<Record<string, unknown>>,
   "training-actions": () => import("./training-actions") as unknown as Promise<Record<string, unknown>>,
   "validation-actions": () => import("./validation-actions") as unknown as Promise<Record<string, unknown>>,
   "workflow-actions": () => import("./workflow-actions") as unknown as Promise<Record<string, unknown>>,

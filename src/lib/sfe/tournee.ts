@@ -1,0 +1,464 @@
+import { estJourOuvre } from "@/lib/sfe-day";
+
+/**
+ * QUELS JOURS UNE TOURNÉE PEUT EMPLOYER — réexporté depuis `sfe-day`, jamais réécrit.
+ *
+ * Le fait (« la semaine ouvrée algérienne va du dimanche au jeudi ») appartient à `sfe-day`, qui
+ * s'en sert pour le rythme du mois. Ce module en a besoin pour placer une échéance et pour
+ * refuser une visite posée un vendredi ; l'énoncer une seconde fois ferait deux calendriers qui
+ * divergent au premier jour férié ajouté (§118.5). Le réexport donne aux appelants du plan de
+ * tournée UN point d'entrée sans dupliquer la règle.
+ */
+export { estJourOuvre as estJourOuvrePourTournee };
+
+/**
+ * LE PLAN DE TOURNÉE — la période, l'échéance, la validation, et l'état de chaque visite.
+ *
+ * ── CE MODULE EST PUR, ET C'EST LA MOITIÉ QUI COMPTE ────────────────────────────────────────
+ *
+ * Tout ce qui décide — quelle période on planifie, quand la soumission est due, si un rapport
+ * terrain est encore ouvert, si une visite est à faire / faite / perdue, où en est l'avancement —
+ * vit ICI, sans base, sans import lourd, testé sur ses seules entrées. Le CODE décide COMMENT ;
+ * l'écran et les actions ne font que l'appeler.
+ *
+ * ── LE DÉNOMINATEUR EST CALCULÉ UNE FOIS ────────────────────────────────────────────────────
+ *
+ * « visitées / planifiées » se lit sur l'emploi du temps du KAM ET sur le tableau de bord de la
+ * Direction. Deux écrans qui comptent séparément divergent, toujours (§118.51) — d'où
+ * `avancementTournee`, appelée par les deux, et un test qui les compare.
+ *
+ * ── UNE VISITE PERDUE N'EST PAS UNE VISITE EN ATTENTE ───────────────────────────────────────
+ *
+ * La demande dit « gris tant que le rapport n'est pas fait, vert après ». Mais le rapport se
+ * ferme 48 h après la visite : une visite du 3 sans rapport le 10 n'est plus « en attente », elle
+ * est PERDUE — et la laisser grise pour toujours ferait lire un retard rattrapable là où il n'y a
+ * plus rien à rattraper. Trois états, donc, pas deux.
+ */
+
+// ─────────────────────────── La période planifiée ───────────────────────────
+
+/**
+ * LA MAILLE DE PLANIFICATION. Mensuelle par défaut — le Super Admin peut choisir hebdomadaire,
+ * trimestrielle ou semestrielle. La liste est FERMÉE : une maille de plus est une décision de
+ * revue de code, pas une chaîne libre en base.
+ */
+export const GRANULARITES = ["WEEK", "MONTH", "QUARTER", "HALF_YEAR"] as const;
+export type Granularite = (typeof GRANULARITES)[number];
+
+export const GRANULARITE_LABELS: Record<Granularite, string> = {
+  WEEK: "Hebdomadaire",
+  MONTH: "Mensuelle",
+  QUARTER: "Trimestrielle",
+  HALF_YEAR: "Semestrielle",
+};
+
+export const GRANULARITE_DEFAUT: Granularite = "MONTH";
+
+export function estGranularite(v: string): v is Granularite {
+  return (GRANULARITES as readonly string[]).includes(v);
+}
+
+/** Minuit LOCAL du jour donné — les périodes se comparent en JOURS, jamais en instants. */
+export function jour(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+/** Le dernier instant du jour donné (23:59:59.999) : une période INCLUT son dernier jour. */
+export function finDeJour(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+}
+
+/**
+ * LA SEMAINE COMMENCE LE DIMANCHE. Ce n'est pas une préférence : la semaine ouvrée algérienne va
+ * du dimanche au jeudi (`estJourOuvre`), donc une semaine qui commencerait le lundi couperait la
+ * semaine de travail en deux et un plan hebdomadaire porterait sur deux semaines de terrain.
+ */
+export function debutDeSemaine(d: Date): Date {
+  const j = jour(d);
+  return new Date(j.getFullYear(), j.getMonth(), j.getDate() - j.getDay());
+}
+
+/** La période qui CONTIENT cette date, à cette maille — début inclus, fin incluse. */
+export function periodeDe(granularite: Granularite, dans: Date): { debut: Date; fin: Date } {
+  const j = jour(dans);
+  if (granularite === "WEEK") {
+    const debut = debutDeSemaine(j);
+    return { debut, fin: finDeJour(new Date(debut.getFullYear(), debut.getMonth(), debut.getDate() + 6)) };
+  }
+  if (granularite === "MONTH") {
+    const debut = new Date(j.getFullYear(), j.getMonth(), 1);
+    return { debut, fin: finDeJour(new Date(j.getFullYear(), j.getMonth() + 1, 0)) };
+  }
+  const mois = granularite === "QUARTER" ? 3 : 6;
+  const premier = Math.floor(j.getMonth() / mois) * mois;
+  const debut = new Date(j.getFullYear(), premier, 1);
+  return { debut, fin: finDeJour(new Date(j.getFullYear(), premier + mois, 0)) };
+}
+
+/** La période SUIVANTE — celle qu'on planifie quand on est encore dans la précédente. */
+export function periodeSuivante(granularite: Granularite, depuis: Date): { debut: Date; fin: Date } {
+  const courante = periodeDe(granularite, depuis);
+  const lendemain = new Date(courante.fin.getFullYear(), courante.fin.getMonth(), courante.fin.getDate() + 1);
+  return periodeDe(granularite, lendemain);
+}
+
+// ─────────────────────────── L'échéance de soumission ───────────────────────────
+
+/**
+ * COMBIEN DE JOURS AVANT LA FIN DU MOIS QUI PRÉCÈDE LA PÉRIODE. La demande dit « la
+ * planification doit se faire 15 j avant la fin du mois à venir ».
+ *
+ * ⚠ LECTURE ASSUMÉE, et elle est écrite ici parce qu'elle change le comportement : « le mois à
+ * venir » désigne ce qu'on PLANIFIE, et « 15 j avant la fin du mois » désigne QUAND. L'échéance
+ * tombe donc 15 jours avant la fin du mois qui PRÉCÈDE la période — c'est-à-dire AVANT que la
+ * période commence. L'autre lecture (15 jours avant la fin du mois planifié) placerait
+ * l'échéance au milieu de la période, et le KAM planifierait des journées déjà passées : un
+ * plan de tournée soumis le 16 février pour février ne sert plus à rien.
+ */
+export const JOURS_AVANT_ECHEANCE = 15;
+
+/**
+ * L'ÉCHÉANCE DE SOUMISSION d'un plan qui couvre `periodeDebut`.
+ *
+ * On part de la fin du mois PRÉCÉDANT la période et l'on recule de `joursAvant`. Le résultat est
+ * ramené au dernier jour OUVRÉ si l'on tombe un vendredi ou un samedi : une échéance posée un
+ * jour de week-end se lit comme un jour de grâce et se rate (§118.5 — c'est `estJourOuvre` qui
+ * dit le week-end, pas une seconde règle écrite ici).
+ */
+export function echeanceDeSoumission(periodeDebut: Date, joursAvant: number = JOURS_AVANT_ECHEANCE): Date {
+  const finMoisPrecedent = new Date(periodeDebut.getFullYear(), periodeDebut.getMonth(), 0);
+  const brut = new Date(finMoisPrecedent.getFullYear(), finMoisPrecedent.getMonth(), finMoisPrecedent.getDate() - joursAvant);
+  let d = jour(brut);
+  while (!estJourOuvre(d)) d = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1);
+  return finDeJour(d);
+}
+
+// ─────────────────────────── Les délais de 48 h ───────────────────────────
+
+/**
+ * LA FENÊTRE DU RAPPORT TERRAIN — 48 h après la visite, et pas une minute de plus.
+ *
+ * Ce n'est pas un confort : un compte rendu écrit une semaine après est un souvenir, pas un
+ * fait. La borne est DURE côté serveur ; l'écran ne fait que l'afficher.
+ */
+export const HEURES_RAPPORT = 48;
+/** LE MÊME DÉLAI pour resoumettre un plan rejeté — la Direction attend le plan corrigé. */
+export const HEURES_RESOUMISSION = 48;
+
+const MS_H = 3_600_000;
+
+export function limiteRapport(dateVisite: Date): Date {
+  return new Date(dateVisite.getTime() + HEURES_RAPPORT * MS_H);
+}
+
+export function limiteResoumission(rejeteLe: Date): Date {
+  return new Date(rejeteLe.getTime() + HEURES_RESOUMISSION * MS_H);
+}
+
+/**
+ * LE RAPPORT EST-IL ENCORE OUVERT ? Et COMBIEN D'HEURES reste-t-il.
+ *
+ * Les heures restantes voyagent avec la réponse : un refus qui dit seulement « trop tard » fait
+ * découvrir la borne au moment où l'on ne peut plus rien (§118.30), et un écran qui affiche
+ * « 6 h restantes » fait rentrer le rapport le soir même.
+ */
+export function fenetreRapport(dateVisite: Date, maintenant: Date): {
+  ouvert: boolean;
+  limite: Date;
+  heuresRestantes: number;
+} {
+  const limite = limiteRapport(dateVisite);
+  const restant = limite.getTime() - maintenant.getTime();
+  return {
+    ouvert: restant > 0,
+    limite,
+    heuresRestantes: Math.max(0, Math.ceil(restant / MS_H)),
+  };
+}
+
+// ─────────────────────────── L'état d'une visite ───────────────────────────
+
+/**
+ * TROIS ÉTATS, PAS DEUX.
+ *
+ *  · `A_FAIRE` — grise : la visite est prévue, le rapport est encore possible.
+ *  · `FAITE` — verte : le rapport est là.
+ *  · `PERDUE` — la fenêtre de 48 h s'est fermée sans rapport. Ni grise (rien à rattraper) ni
+ *    verte (rien n'a été rapporté) : c'est le seul état qui dise la vérité, et le taire ferait
+ *    lire un retard rattrapable là où le mois est déjà entamé.
+ *  · `ANNULEE` / `REPORTEE` — la visite n'a pas eu lieu et quelqu'un l'a DIT ; elle ne compte
+ *    donc pas comme perdue.
+ */
+export type EtatVisite = "A_FAIRE" | "FAITE" | "PERDUE" | "ANNULEE" | "REPORTEE";
+
+export const ETAT_VISITE_LABELS: Record<EtatVisite, string> = {
+  A_FAIRE: "À faire",
+  FAITE: "Rapport fait",
+  PERDUE: "Rapport non fait — délai dépassé",
+  ANNULEE: "Annulée",
+  REPORTEE: "Reportée",
+};
+
+/**
+ * L'état d'une visite planifiée. `statut` est celui de `MedicalVisit` (`VisitStatus`) : le
+ * moteur ne redéfinit pas les statuts de l'ERP, il les LIT (§118.5).
+ */
+export function etatVisite(input: {
+  statut: string;
+  date: Date;
+  /** Un rapport existe-t-il ? Écrit (`report`) ou vocal (un `FieldReport` rattaché). */
+  rapportFait: boolean;
+  maintenant: Date;
+}): EtatVisite {
+  if (input.statut === "CANCELLED") return "ANNULEE";
+  if (input.statut === "POSTPONED") return "REPORTEE";
+  if (input.rapportFait || input.statut === "COMPLETED") return "FAITE";
+  return fenetreRapport(input.date, input.maintenant).ouvert ? "A_FAIRE" : "PERDUE";
+}
+
+// ─────────────────────────── L'avancement — UN seul calcul ───────────────────────────
+
+export interface VisiteComptable {
+  etat: EtatVisite;
+  /** Une visite IMPRÉVUE ne descend d'aucun plan : elle compte au réalisé, jamais au prévu. */
+  imprevue: boolean;
+}
+
+export interface AvancementTournee {
+  /** Les visites PRÉVUES par un plan — le dénominateur de « visitées / planifiées ». */
+  planifiees: number;
+  /** Celles dont le rapport est fait, parmi les planifiées. */
+  visitees: number;
+  /** Prévues, non rapportées, fenêtre fermée. */
+  perdues: number;
+  /** Prévues, encore ouvertes. */
+  aFaire: number;
+  /** Annulées ou reportées — sorties du dénominateur, et le compte le DIT. */
+  ecartees: number;
+  /** Les visites IMPRÉVUES rapportées : elles gonflent « le nombre de visites », pas le taux. */
+  imprevues: number;
+  /** LE NOMBRE DE VISITES au sens de la Direction : tout ce qui a été réellement fait. */
+  visitesTotales: number;
+  /** visitées / planifiées, en pourcentage entier. 0 planifiée ⇒ 0 (jamais 100). */
+  tauxRealisation: number;
+}
+
+/**
+ * L'AVANCEMENT, CALCULÉ UNE FOIS POUR LES DEUX ÉCRANS.
+ *
+ * Quatre façons de mentir par le dénominateur ont déjà été payées ici (§118.51) ; celles qui
+ * menacent ce compte-ci sont nommées :
+ *  · compter une visite IMPRÉVUE au prévu ferait un taux qui dépasse 100 % et rendrait la
+ *    planification illisible — elle compte au RÉALISÉ, séparément ;
+ *  · garder les ANNULÉES au dénominateur punirait un KAM pour une visite que son manager a
+ *    décommandée ; les retirer SANS LE DIRE ferait disparaître le fait, d'où `ecartees` ;
+ *  · zéro planifiée doit rendre 0 %, jamais 100 % : « rien à faire, donc tout est fait » est le
+ *    faux succès de l'arithmétique.
+ */
+export function avancementTournee(visites: readonly VisiteComptable[]): AvancementTournee {
+  let planifiees = 0, visitees = 0, perdues = 0, aFaire = 0, ecartees = 0, imprevues = 0;
+  let faitesImprevues = 0;
+  for (const v of visites) {
+    if (v.imprevue) {
+      imprevues += 1;
+      if (v.etat === "FAITE") faitesImprevues += 1;
+      continue;
+    }
+    if (v.etat === "ANNULEE" || v.etat === "REPORTEE") { ecartees += 1; continue; }
+    planifiees += 1;
+    if (v.etat === "FAITE") visitees += 1;
+    else if (v.etat === "PERDUE") perdues += 1;
+    else aFaire += 1;
+  }
+  return {
+    planifiees, visitees, perdues, aFaire, ecartees, imprevues,
+    visitesTotales: visitees + faitesImprevues,
+    tauxRealisation: planifiees > 0 ? Math.round((visitees / planifiees) * 100) : 0,
+  };
+}
+
+// ─────────────────────────── Les quatre vues de l'emploi du temps ───────────────────────────
+
+export const VUES = ["AUJOURD_HUI", "DEMAIN", "SEMAINE", "MOIS"] as const;
+export type VueTournee = (typeof VUES)[number];
+
+export const VUE_LABELS: Record<VueTournee, string> = {
+  AUJOURD_HUI: "Aujourd'hui",
+  DEMAIN: "Demain",
+  SEMAINE: "Cette semaine",
+  MOIS: "Ce mois-ci",
+};
+
+export function estVue(v: string): v is VueTournee {
+  return (VUES as readonly string[]).includes(v);
+}
+
+/** La fenêtre [debut, fin] d'une vue — bornes INCLUSES, en jours locaux. */
+export function fenetreDeVue(vue: VueTournee, maintenant: Date): { debut: Date; fin: Date } {
+  const j = jour(maintenant);
+  if (vue === "AUJOURD_HUI") return { debut: j, fin: finDeJour(j) };
+  if (vue === "DEMAIN") {
+    const d = new Date(j.getFullYear(), j.getMonth(), j.getDate() + 1);
+    return { debut: d, fin: finDeJour(d) };
+  }
+  if (vue === "SEMAINE") return periodeDe("WEEK", j);
+  return periodeDe("MONTH", j);
+}
+
+// ─────────────────────────── Le circuit de validation ───────────────────────────
+
+/**
+ * LES ÉTATS D'UN PLAN. `ESCALATED` existe parce que la demande le dit : « le N+1 peut demander
+ * encore à SON N+1 une validation ». Ce n'est pas un `SUBMITTED` de plus — c'est le N+2 qui
+ * décide, et confondre les deux ferait attendre une décision de la personne qui vient de s'en
+ * dessaisir.
+ */
+export const STATUTS_PLAN = ["DRAFT", "SUBMITTED", "ESCALATED", "APPROVED", "REJECTED"] as const;
+export type StatutPlan = (typeof STATUTS_PLAN)[number];
+
+export const STATUT_PLAN_LABELS: Record<StatutPlan, string> = {
+  DRAFT: "Brouillon",
+  SUBMITTED: "Soumis au N+1",
+  ESCALATED: "Escaladé au N+2",
+  APPROVED: "Validé",
+  REJECTED: "Rejeté — à corriger",
+};
+
+/**
+ * QUI PEUT FAIRE QUOI, à cet état. Le module dit la FORME du circuit ; les DROITS restent aux
+ * actions serveur, qui seules connaissent l'acteur (§118.7 : une conversation n'est pas une
+ * porte dérobée, et le module pur n'a pas à connaître de session).
+ */
+export function gestesPossibles(statut: StatutPlan): {
+  modifiable: boolean;
+  soumettable: boolean;
+  decidable: boolean;
+  escaladable: boolean;
+} {
+  return {
+    // UN PLAN VALIDÉ NE SE MODIFIE PLUS : les visites sont parties chez le KAM, et changer sa
+    // tournée sous ses pieds est exactement ce qu'un plan doit empêcher.
+    modifiable: statut === "DRAFT" || statut === "REJECTED",
+    soumettable: statut === "DRAFT" || statut === "REJECTED",
+    decidable: statut === "SUBMITTED" || statut === "ESCALATED",
+    // ON N'ESCALADE QU'UNE FOIS : un plan déjà chez le N+2 ne remonte pas au N+3 — la demande
+    // nomme deux étages, et une chaîne sans fin ferait un plan que personne ne tranche.
+    escaladable: statut === "SUBMITTED",
+  };
+}
+
+/** Le plan est-il en retard sur son échéance de soumission ? */
+export function enRetardDeSoumission(input: {
+  statut: StatutPlan;
+  echeance: Date;
+  maintenant: Date;
+}): boolean {
+  if (input.statut !== "DRAFT" && input.statut !== "REJECTED") return false;
+  return input.maintenant.getTime() > input.echeance.getTime();
+}
+
+/**
+ * CE QUI MANQUE POUR SOUMETTRE — dit avant le clic, en une fois.
+ *
+ * Un refus par champ ferait ressaisir un plan de quarante visites autant de fois qu'il a de
+ * défauts (§118.18). La liste vide vaut « soumettable ».
+ */
+export function bloquantsDeSoumission(input: {
+  statut: StatutPlan;
+  nbVisites: number;
+  /** Des visites posées un jour de week-end : personne ne sort ce jour-là. */
+  nbHorsJoursOuvres: number;
+  /** Des visites posées hors de la période du plan. */
+  nbHorsPeriode: number;
+}): string[] {
+  const out: string[] = [];
+  if (!gestesPossibles(input.statut).soumettable) {
+    out.push(`Un plan « ${STATUT_PLAN_LABELS[input.statut]} » ne se soumet pas.`);
+  }
+  if (input.nbVisites === 0) {
+    out.push("Aucune visite planifiée : un plan vide ne dit pas où le KAM sera, et son N+1 n'aurait rien à valider.");
+  }
+  if (input.nbHorsJoursOuvres > 0) {
+    out.push(`${input.nbHorsJoursOuvres} visite(s) tombent un vendredi ou un samedi — la semaine ouvrée va du dimanche au jeudi.`);
+  }
+  if (input.nbHorsPeriode > 0) {
+    out.push(`${input.nbHorsPeriode} visite(s) sont hors de la période du plan.`);
+  }
+  return out;
+}
+
+// ─────────────────────────── Qui valide — la cascade, écrite UNE fois ───────────────────────────
+
+/** D'où vient le validateur d'un plan. */
+export type SourceReviseur = "BU_SUPERVISEUR" | "N_PLUS_UN_RH";
+
+/**
+ * QUI DOIT TRANCHER LE PLAN D'UN KAM.
+ *
+ * La demande dit « le N+1 valide » — et un KAM a DEUX hiérarchies dans cet ERP : le SUPERVISEUR
+ * de sa BU (`BusinessUnit.supervisorId`, celui à qui remontent déjà ses alertes terrain et qui a
+ * le droit d'éditer ses affectations) et son N+1 d'ORGANIGRAMME (`hr/reporting-line.ts`).
+ *
+ * L'ordre n'est pas arbitraire : un plan de tournée est un acte COMMERCIAL, et la personne qui
+ * peut juger « ces quarante visites sont-elles les bonnes » est celle qui pilote le terrain de
+ * cette gamme. L'organigramme prend le relais quand aucun superviseur n'est désigné — sans ce
+ * repli, un plan resterait sans validateur et le KAM ne pourrait jamais sortir de brouillon,
+ * sans qu'une ligne l'explique.
+ *
+ * ON NE SE VALIDE JAMAIS SOI-MÊME : un KAM qui serait le superviseur de sa propre BU tombe sur
+ * le repli. Rendre `null` plutôt que lui-même est ce qui fait dire « personne ne peut valider »
+ * au lieu de laisser une auto-approbation silencieuse.
+ */
+export function reviseurDuPlan(input: {
+  repId: string;
+  superviseurBuId: string | null;
+  managerRhId: string | null;
+}): { id: string; source: SourceReviseur } | null {
+  if (input.superviseurBuId && input.superviseurBuId !== input.repId) {
+    return { id: input.superviseurBuId, source: "BU_SUPERVISEUR" };
+  }
+  if (input.managerRhId && input.managerRhId !== input.repId) {
+    return { id: input.managerRhId, source: "N_PLUS_UN_RH" };
+  }
+  return null;
+}
+
+/**
+ * À QUI LE N+1 PEUT ESCALADER — son propre N+1, et personne d'autre.
+ *
+ * Deux exclusions, chacune pour une raison nommable : le KAM lui-même (il ne valide pas son plan
+ * en remontant d'un étage), et le réviseur lui-même (une escalade vers soi n'est pas une
+ * escalade, c'est un plan qui n'avance plus).
+ */
+export function escaladeDuPlan(input: {
+  repId: string;
+  reviseurId: string;
+  managerDuReviseurId: string | null;
+}): string | null {
+  const m = input.managerDuReviseurId;
+  if (!m || m === input.repId || m === input.reviseurId) return null;
+  return m;
+}
+
+// ─────────────────────────── Qui écrit les messages pré-définis ───────────────────────────
+
+/**
+ * QUI PEUT ÉCRIRE LES MESSAGES DE LA DIRECTION MARKETING.
+ *
+ * PAS un droit de module, et c'est une décision mesurée : `PRODUCT_MANAGER` (Direction
+ * Marketing) n'a que `MEDICAL: READ`, et lui donner l'écriture du module lui ouvrirait aussi les
+ * praticiens et les visites — une empreinte réelle bien plus large que la demande (§118.16).
+ * C'est donc une LISTE DE RÔLES que le Super Admin pose, comme le dépôt le fait déjà pour la
+ * supervision Regulatory et l'onglet Overview des rapports terrain : la décision de permission
+ * reste à qui elle appartient (§118.86).
+ *
+ * Le rôle SECONDAIRE compte : quelqu'un qui porte Direction Marketing en second doit pouvoir
+ * écrire ces messages, sinon la personne réellement chargée du sujet se fait refuser.
+ */
+export function peutEcrireMessagesPromo(
+  user: { role: string; secondaryRole?: string | null },
+  rolesAutorises: readonly string[],
+): boolean {
+  if (user.role === "SUPER_ADMIN") return true;
+  return rolesAutorises.includes(user.role) || rolesAutorises.includes(user.secondaryRole ?? "");
+}

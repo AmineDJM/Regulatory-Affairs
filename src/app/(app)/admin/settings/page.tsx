@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegulatoryTherapeuticSegmentsForm, RegulatoryHiddenColumnsForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, OrgChartViewersForm, HiddenModulesForm, PipelineAccessForm, DirectiveAccessForm } from "./admin-settings-forms";
+import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegulatoryTherapeuticSegmentsForm, RegulatoryHiddenColumnsForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, PromoMessageAuthorsForm, OrgChartViewersForm, HiddenModulesForm, PipelineAccessForm, DirectiveAccessForm } from "./admin-settings-forms";
 import { MODULES } from "@/lib/rbac";
 import { MODULE_LABELS } from "@/lib/labels";
 import { isHideable } from "@/lib/modules-visibility";
@@ -157,6 +157,20 @@ export default async function AdminSettingsPage() {
         </CardHeader>
         <CardContent>
           <FieldReportsOverviewForm roles={roleOptions} selected={settings.fieldReportsOverviewRoles} />
+        </CardContent>
+      </Card>
+
+      {/* LES AUTEURS DES MESSAGES DE LA DIRECTION MARKETING. Ce n'est pas un confort : chaque
+          rapport terrain EXIGE au moins un message pré-défini, donc tant que personne ne peut en
+          publier, tous les rapports sont refusés (§118.50 — une capacité qu'aucun écran
+          n'accorde n'existe pas). */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><BarChart3 className="h-4 w-4" /> Messages Direction Marketing — Qui peut les écrire</CardTitle>
+          <p className="text-sm text-muted-foreground">Rôles autorisés (en plus du Super Admin) à publier les messages pré-définis que les KAM portent au médecin — ce que chaque rapport terrain exige de citer. Une LISTE DE RÔLES et non un droit de module : Direction Marketing n&apos;a que la lecture sur la promotion médicale, et lui donner l&apos;écriture du module ouvrirait aussi les praticiens et les visites.</p>
+        </CardHeader>
+        <CardContent>
+          <PromoMessageAuthorsForm roles={roleOptions} selected={settings.promoMessageAuthorRoles} />
         </CardContent>
       </Card>
 

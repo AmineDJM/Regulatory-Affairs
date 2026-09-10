@@ -1145,6 +1145,11 @@ model User {
   visits                  MedicalVisit[]
   /// LES SECTEURS qui lui sont affectés (KAM / délégué).
   salesSectors            SalesSectorRep[]                 @relation("SalesSectorRepUser")
+  /// SES PLANS DE TOURNÉE, et ceux qu'il doit trancher.
+  tourPlans               TourPlan[]                       @relation("TourPlanRep")
+  tourPlansToReview       TourPlan[]                       @relation("TourPlanReviewer")
+  tourPlansEscalated      TourPlan[]                       @relation("TourPlanEscalatedTo")
+  tourPlansDecided        TourPlan[]                       @relation("TourPlanDecidedBy")
   delegatePlans           MedicalDelegatePlan[]
   bdOpportunities         BusinessDevelopmentOpportunity[]
   bdProjects              BdProject[]                      @relation("BdProjectOwner")
@@ -3911,6 +3916,17 @@ model MedicalVisit {
   createdAt    DateTime              @default(now())
   updatedAt    DateTime              @updatedAt
   productLinks MedicalVisitProduct[]
+  /// LE PLAN DE TOURNÉE dont cette visite descend. NUL = visite hors plan, ce qui est
+  /// exactement ce qu'une visite IMPRÉVUE veut dire — et c'est pourquoi le dénominateur de
+  /// « visitées / planifiées » se lit sur cette colonne et nulle part ailleurs.
+  tourPlanId   String?
+  tourPlan     TourPlan?             @relation(fields: [tourPlanId], references: [id], onDelete: SetNull)
+  /// QUI L'A VOULUE : le plan, le terrain (imprévue), ou la Direction (« demain va voir Achour »).
+  origin       VisitOrigin           @default(PLAN)
+  /// LES MESSAGES PRÉ-DÉFINIS retenus lors du rapport terrain.
+  messageLinks MedicalVisitMessage[]
+  /// LES RAPPORTS VOCAUX qui documentent cette visite.
+  fieldReports FieldReport[]         @relation("FieldReportVisit")
 
   @@index([delegateId])
   @@index([doctorId])
@@ -6514,6 +6530,17 @@ model FieldReport {
 
   attachments FieldReportAttachment[]
 
+  /// LA VISITE QUE CE RAPPORT DOCUMENTE.
+  ///
+  /// Elle manquait : un rapport vocal et la visite planifiée qu'il raconte vivaient en deux
+  /// lignes sans lien, donc l'emploi du temps du KAM ne pouvait pas passer au VERT sur un
+  /// rapport dicté — la seule façon de « faire » sa visite était de la saisir en écrit. Le
+  /// rapport reste un objet À PART (transcription, audio, analyse, sa propre validation) : on
+  /// ajoute le lien, on ne fond pas les deux (§118.5).
+  visitId String?
+  visit   MedicalVisit? @relation("FieldReportVisit", fields: [visitId], references: [id], onDelete: SetNull)
+
+  @@index([visitId])
   @@index([delegateId])
   @@index([status])
   @@index([doctorId])
@@ -6925,6 +6952,14 @@ model AppSetting {
   // (graphes d'analyse : visites par médecin / hôpital / délégué / spécialité, tendance…).
   // En plus du Super Admin, toujours inclus. Configurable en Administration.
   fieldReportsOverviewRoles     String[] @default([])
+  /// QUI ÉCRIT LES MESSAGES PRÉ-DÉFINIS de la Direction Marketing (en plus du Super Admin).
+  ///
+  /// Une LISTE DE RÔLES et non un élargissement du module `MEDICAL` : `PRODUCT_MANAGER`
+  /// (Direction Marketing) n'y a que la LECTURE, et lui donner l'écriture lui ouvrirait aussi les
+  /// praticiens et les visites — une empreinte réelle bien plus large que la demande (§118.16).
+  /// C'est le mécanisme que le dépôt emploie déjà pour ce genre de question, et il laisse la
+  /// DÉCISION DE PERMISSION au Super Admin, à qui elle appartient (§118.86).
+  promoMessageAuthorRoles       String[] @default([])
   // ORGANIGRAMME — qui a le droit de le CONSULTER (l'édition reste au Super Admin). Les RH en
   // ont besoin au quotidien ; d'autres personnes peuvent y être ajoutées nommément. Un
   // consultant voit toutes les entités ou filtre sur l'une d'elles ; il ne modifie rien.
@@ -8819,6 +8854,8 @@ model BusinessUnit {
   reps                   SalesRepProfile[]
   /// SES SECTEURS — les territoires nommés sur lesquels ses KAM sont affectés.
   sectors                SalesSector[]
+  /// LES MESSAGES PRÉ-DÉFINIS que la Direction Marketing lui a écrits.
+  promoMessages          PromoMessage[]
   tenders                PchTender[]
   /// LES LOTS D'APPEL D'OFFRES qui lui sont affectés, produit par produit.
   tenderLines            PchTenderLineBusinessUnit[]
@@ -8911,6 +8948,11 @@ model SfeSettings {
   positionWeights Json? // { "1": 1, "2": 0.5, "3": 0.25 }
   capacity        Json? // { daysPerMonth: 20, visitsPerDay: 7, fieldPct: 80 }
   frequencyByTier Json? // { VERY_HIGH: 3, HIGH: 2, MEDIUM: 1, LOW: 1, VERY_LOW: 0 }
+  /// LA PLANIFICATION DE TOURNÉE : { granularity: "MONTH", submissionLeadDays: 15 }.
+  ///
+  /// Ici et non dans une nouvelle table de réglages : le Super Admin a déjà UN endroit où il
+  /// règle le moteur SFE, et un second lui donnerait deux écrans pour une seule question (§118.5).
+  tourPlanning    Json?
   updatedById     String?
   updatedAt       DateTime @updatedAt
 }
@@ -9021,6 +9063,150 @@ model SalesSectorRep {
 
   @@unique([sectorId, repId])
   @@index([repId])
+}
+
+// ─────────────────── Force de vente : le PLAN DE TOURNÉE ───────────────────
+
+/// LA MAILLE DE PLANIFICATION. Mensuelle par défaut ; le Super Admin peut choisir hebdomadaire,
+/// trimestrielle ou semestrielle (`SfeSettings.tourPlanning`). Les libellés et le calcul des
+/// périodes vivent dans le module PUR `lib/sfe/tournee.ts`.
+enum TourPlanGranularity {
+  WEEK
+  MONTH
+  QUARTER
+  HALF_YEAR
+}
+
+/// LES ÉTATS D'UN PLAN DE TOURNÉE.
+///
+/// `ESCALATED` n'est pas un `SUBMITTED` de plus : c'est le N+2 qui décide, et confondre les deux
+/// ferait attendre une décision de la personne qui vient de s'en dessaisir.
+enum TourPlanStatus {
+  DRAFT
+  SUBMITTED
+  ESCALATED
+  APPROVED
+  REJECTED
+}
+
+/// D'OÙ VIENT UNE VISITE — et les trois cas sont dans la demande.
+///
+/// `PLAN` : prévue par un plan de tournée validé. `UNPLANNED` : le KAM a rencontré un médecin en
+/// sortant de l'hôpital. `DIRECTION` : « demain va voir Achour » — la Direction l'a commandée.
+///
+/// POURQUOI CE N'EST PAS DÉDUIT DE `tourPlanId`. Une visite sans plan peut être l'un ou l'autre,
+/// et la Direction a besoin de distinguer ce que le terrain a improvisé de ce qu'elle a
+/// elle-même demandé : sans la colonne, « le KAM improvise beaucoup » et « la Direction envoie
+/// beaucoup de monde en urgence » se lisent pareil.
+enum VisitOrigin {
+  PLAN
+  UNPLANNED
+  DIRECTION
+}
+
+/// LE PLAN DE TOURNÉE d'un KAM pour une période — et son circuit de validation.
+///
+/// ── IL NE PORTE PAS SES VISITES ─────────────────────────────────────────────────────────────
+///
+/// Une visite planifiée EST une `MedicalVisit` au statut `PLANNED` : c'est déjà l'objet
+/// canonique de l'ERP (date, praticien, délégué, produits, compte rendu), celui que « Ma
+/// journée » écrit et que le pilotage compte. Lui donner une table jumelle aurait fait deux
+/// dénominateurs possibles pour « visitées / planifiées », et deux dénominateurs divergent
+/// toujours (§118.5, §118.51). Le plan porte donc le PÉRIMÈTRE et la DÉCISION ; les visites
+/// pointent sur lui par `MedicalVisit.tourPlanId`.
+model TourPlan {
+  id          String              @id @default(cuid())
+  /// LE KAM dont c'est la tournée.
+  repId       String
+  rep         User                @relation("TourPlanRep", fields: [repId], references: [id], onDelete: Cascade)
+  /// LA PÉRIODE COUVERTE — début inclus, fin incluse (23:59:59 du dernier jour).
+  periodStart DateTime
+  periodEnd   DateTime
+  granularity TourPlanGranularity @default(MONTH)
+  status      TourPlanStatus      @default(DRAFT)
+
+  /// L'ÉCHÉANCE DE SOUMISSION, figée à la CRÉATION du plan.
+  ///
+  /// Elle est stockée et non recalculée à la lecture : le réglage de maille peut changer entre
+  /// la création et la décision, et un plan jugé « en retard » sur une échéance qui n'existait
+  /// pas quand il a été écrit serait un reproche fabriqué après coup (§118.107 : le parcours est
+  /// un fait de la demande, pas une fonction du réglage du jour).
+  submissionDueAt DateTime
+  submittedAt     DateTime?
+
+  /// LE N+1 QUI DOIT TRANCHER, figé à la soumission — une promotion entre la soumission et la
+  /// décision ne doit pas changer qui décide.
+  reviewerId    String?
+  reviewer      User?     @relation("TourPlanReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  /// LE N+2, quand le N+1 a demandé une validation au-dessus de lui.
+  escalatedToId String?
+  escalatedTo   User?     @relation("TourPlanEscalatedTo", fields: [escalatedToId], references: [id], onDelete: SetNull)
+  escalatedAt   DateTime?
+
+  decidedAt        DateTime?
+  decidedById      String?
+  decidedBy        User?     @relation("TourPlanDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  /// LES COMMENTAIRES DE RECTIFICATION. Un rejet sans motif ne se corrige pas — il se subit.
+  rejectionComment String?
+  /// 48 H POUR RESOUMETTRE, à partir du rejet.
+  resubmitDueAt    DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  visits MedicalVisit[]
+
+  /// UN SEUL PLAN par KAM et par période. Un rejet ne crée pas un second plan : c'est le MÊME
+  /// qui repasse en soumission, sans quoi l'historique de la décision se perdrait.
+  @@unique([repId, periodStart, periodEnd])
+  @@index([repId, status])
+  @@index([reviewerId, status])
+  @@index([escalatedToId, status])
+}
+
+/// UN MESSAGE PRÉ-DÉFINI PAR LA DIRECTION MARKETING — ce que le KAM doit dire au médecin.
+///
+/// La demande l'exige à la création d'un rapport terrain, choisi dans un menu déroulant. Aucun
+/// référentiel de ce genre n'existait : la seule façon de le porter était le texte libre, donc
+/// personne ne pouvait mesurer quel message passe et lequel ne passe pas.
+///
+/// LA PORTÉE SUIT LA CONVENTION DU DÉPÔT : `businessUnitId` nul = message ouvert à toutes les
+/// gammes, `productId` nul = message non lié à un produit. « Vide = ouvert à tous » est déjà la
+/// règle des lecteurs d'annuaire et des lecteurs Legal — en inventer une autre ici ferait deux
+/// façons de dire « pour tout le monde ».
+model PromoMessage {
+  id             String        @id @default(cuid())
+  title          String
+  body           String?
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  productId      String?
+  product        Product?      @relation("PromoMessageProduct", fields: [productId], references: [id], onDelete: SetNull)
+  isActive       Boolean       @default(true)
+  sortOrder      Int           @default(0)
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  visitLinks MedicalVisitMessage[]
+
+  @@index([businessUnitId])
+  @@index([productId])
+}
+
+/// LES MESSAGES RETENUS lors d'un rapport terrain. Lien pur : si le message est retiré du
+/// référentiel, le lien n'a plus d'objet — mais la visite, elle, reste.
+model MedicalVisitMessage {
+  id        String       @id @default(cuid())
+  visitId   String
+  visit     MedicalVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  messageId String
+  message   PromoMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+
+  @@unique([visitId, messageId])
+  @@index([messageId])
 }
 
 /// L'INSTANTANÉ MENSUEL D'UN KAM — le mois clos ne se recalcule plus.
@@ -11706,6 +11892,8 @@ model Product {
   contractLines      PchContractLine[]        @relation("ContractLineProduct")
   sales              Sale[]                   @relation("SaleProduct")
   visitLinks         MedicalVisitProduct[]
+  /// LES MESSAGES PRÉ-DÉFINIS qui portent sur ce produit.
+  promoMessages      PromoMessage[]           @relation("PromoMessageProduct")
   adProAllocations   AdProProductAllocation[]
   assignments        ProductAssignment[]
 

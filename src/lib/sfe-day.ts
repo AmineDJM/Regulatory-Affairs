@@ -151,17 +151,29 @@ export interface MonthProgress {
 
 const pct = (num: number, den: number): number => (den > 0 ? Math.round((num / den) * 100) : 0);
 
+/**
+ * CE JOUR EST-IL OUVRÉ ? — la semaine ouvrée algérienne va du DIMANCHE au JEUDI : vendredi et
+ * samedi sont le week-end. Compter à la française donnerait un rythme faux de deux jours par
+ * semaine.
+ *
+ * EXPORTÉ parce que le PLAN DE TOURNÉE se pose la même question (`sfe/tournee.ts` : quels jours
+ * proposer, où placer une échéance) : deux façons de dire « on ne travaille pas le vendredi »
+ * finiraient par diverger, et le symptôme serait un plan qui propose des visites un jour où
+ * personne ne sort (§118.5).
+ */
+export function estJourOuvre(d: Date): boolean {
+  const jour = d.getDay(); // 0 = dimanche … 5 = vendredi, 6 = samedi
+  return jour !== 5 && jour !== 6;
+}
+
 /** Jours ouvrés (lun-jeu + dim, semaine algérienne) restants dans le mois, aujourd'hui inclus. */
 export function workdaysLeft(today: Date): number {
-  // La semaine ouvrée algérienne va du DIMANCHE au JEUDI : vendredi et samedi sont le
-  // week-end. Compter à la française donnerait un rythme faux de deux jours par semaine.
   const year = today.getFullYear();
   const month = today.getMonth();
   const last = new Date(year, month + 1, 0).getDate();
   let n = 0;
   for (let d = today.getDate(); d <= last; d++) {
-    const jour = new Date(year, month, d).getDay(); // 0 = dimanche … 5 = vendredi, 6 = samedi
-    if (jour !== 5 && jour !== 6) n += 1;
+    if (estJourOuvre(new Date(year, month, d))) n += 1;
   }
   return n;
 }

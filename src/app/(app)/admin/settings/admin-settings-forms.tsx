@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Loader2, Check, Megaphone, Search, Plus, X, RotateCcw, Eye, EyeOff } from "lucide-react";
-import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegulatoryTherapeuticSegments, setRegulatoryHiddenColumns, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles, setOrgChartViewers, setHiddenModules, setPipelineAccess, setDirectiveAccess } from "@/lib/actions/settings-actions";
+import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegulatoryTherapeuticSegments, setRegulatoryHiddenColumns, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles, setPromoMessageAuthorRoles, setOrgChartViewers, setHiddenModules, setPipelineAccess, setDirectiveAccess } from "@/lib/actions/settings-actions";
 import { describePipelineAudience } from "@/lib/regulatory/pipeline-access";
 import { describeDirectiveAccess } from "@/lib/directives/access";
 import { setRegIntelligenceEnabled } from "@/lib/regulatory/intelligence/actions";
@@ -546,6 +546,59 @@ export function DriveSpaceCreatorForm({ roles, selected }: { roles: Opt[]; selec
       <Button type="submit" size="sm" disabled={saving}>
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : null}
         {saved ? "Enregistré" : "Enregistrer les créateurs"}
+      </Button>
+    </form>
+  );
+}
+
+/**
+ * Rôles autorisés à ÉCRIRE les messages pré-définis de la Direction Marketing.
+ *
+ * Le référentiel VIDE fait refuser tous les rapports terrain (ils en exigent au moins un) : ce
+ * réglage n'est donc pas un confort, c'est ce qui rend le module utilisable.
+ */
+export function PromoMessageAuthorsForm({ roles, selected }: { roles: Opt[]; selected: string[] }) {
+  const [picked, setPicked] = React.useState<string[]>(selected);
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  const toggle = (v: string) => setPicked((p) => (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]));
+
+  return (
+    <form
+      action={async () => {
+        setSaving(true);
+        const fd = new FormData();
+        picked.forEach((r) => fd.append("roles", r));
+        const res = await setPromoMessageAuthorRoles(fd);
+        setSaving(false);
+        if (res.ok) { setSaved(true); setTimeout(() => setSaved(false), 1500); }
+      }}
+      className="space-y-3"
+    >
+      <div className="flex flex-wrap gap-2">
+        {roles.filter((r) => r.value !== "SUPER_ADMIN").map((r) => {
+          const on = picked.includes(r.value);
+          return (
+            <button
+              key={r.value}
+              type="button"
+              onClick={() => toggle(r.value)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-secondary"}`}
+            >
+              {r.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Chaque rapport terrain exige au moins un message pré-défini : tant que personne ne peut en publier, tous les
+        rapports sont refusés. Une LISTE DE RÔLES plutôt qu&apos;un droit de module — Direction Marketing n&apos;a que
+        la lecture sur la promotion médicale, et lui donner l&apos;écriture du module ouvrirait aussi les praticiens et
+        les visites.
+      </p>
+      <Button type="submit" size="sm" disabled={saving}>
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : null}
+        {saved ? "Enregistré" : "Enregistrer les auteurs"}
       </Button>
     </form>
   );

@@ -1,8 +1,11 @@
 import Link from "next/link";
-import { ArrowRight, CalendarCheck, Users } from "lucide-react";
+import { ArrowRight, CalendarCheck, CalendarRange, Users } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { loadMyFieldDay } from "@/lib/queries/my-field-day";
+import { loadEmploiDuTemps } from "@/lib/queries/tour-schedule";
+import { estVue, VUE_LABELS, type VueTournee } from "@/lib/sfe/tournee";
+import { EmploiDuTemps } from "./emploi-du-temps";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
@@ -34,14 +37,21 @@ export const metadata = { title: "Ma journée — AMD Internal OS" };
  * sur les jours ouvrés qui restent (semaine algérienne). Un cinquième ne serait plus lu. Ils ne
  * notent personne — ils disent à un homme où il en est de son propre mois.
  */
-export default async function MaJourneePage() {
+export default async function MaJourneePage({ searchParams }: { searchParams?: { vue?: string } }) {
   const user = await requireModule("MEDICAL");
-  const day = await loadMyFieldDay(user.id);
-  const p = day.progress;
   const canLog = userCan(user, "MEDICAL", "CREATE");
+  // LA VUE PAR DÉFAUT EST « AUJOURD'HUI » : c'est la question qu'un homme de terrain se pose en
+  // montant dans sa voiture. Une vue inconnue dans l'adresse retombe dessus plutôt que de rendre
+  // une page vide.
+  const vue: VueTournee = searchParams?.vue && estVue(searchParams.vue) ? searchParams.vue : "AUJOURD_HUI";
+  const [day, edt] = await Promise.all([
+    loadMyFieldDay(user.id),
+    loadEmploiDuTemps(user, vue),
+  ]);
+  const p = day.progress;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5">
+    <div className="mx-auto max-w-4xl space-y-5">
       <PageHeader
         title={`Bonjour ${user.name.split(" ")[0]}`}
         description="Qui voir aujourd'hui, et la visite à noter en trois gestes."
@@ -84,6 +94,35 @@ export default async function MaJourneePage() {
           les produits présentés. Votre superviseur les affecte depuis Prévisions &amp; Force de vente.
         </div>
       )}
+
+      {/* ── L'EMPLOI DU TEMPS — le plan de tournée VALIDÉ, jour par jour ─────────────────────
+          C'est la surface de travail du KAM : gris tant que le rapport n'est pas fait, vert
+          après. Elle vient AVANT la tournée proposée, parce qu'un engagement validé passe devant
+          une suggestion. */}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            <CalendarRange className="h-4 w-4" /> Mon emploi du temps — {VUE_LABELS[vue]}
+          </h2>
+          <Link href="/medical/plan-de-tournee" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+            Mon plan de tournée <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+        {canLog ? (
+          <EmploiDuTemps
+            vue={vue}
+            lignes={edt.lignes.map((l) => ({ ...l, date: l.date.toISOString() }))}
+            avancement={edt.avancementDuMois}
+            produits={edt.produits}
+            produitsIncomplets={edt.produitsIncomplets}
+            messages={edt.messages}
+            sansBu={edt.sansBu}
+            panel={day.panel.map((d) => ({ id: d.id, name: d.name }))}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">Vous n&apos;avez pas le droit de saisir des visites.</p>
+        )}
+      </section>
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">

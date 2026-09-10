@@ -1631,6 +1631,9 @@ export const ACTION_LABELS: Record<Action, string> = {
  */
 export const MEDICAL_TABS: NavTab[] = [
   { module: "MEDICAL", label: "Ma journée", href: "/medical/ma-journee" },
+  // LE PLAN DE TOURNÉE — là où le KAM prépare son mois et où son N+1 le tranche. Il vient
+  // AVANT l'annuaire : un engagement validé passe devant un référentiel qu'on consulte.
+  { module: "MEDICAL", label: "Plan de tournée", href: "/medical/plan-de-tournee" },
   { module: "MEDICAL", label: "Annuaire", href: "/medical/annuaire" },
   // LES ÉTABLISSEMENTS — le référentiel des hôpitaux. Il existait en base avec ses trois
   // écritures et AUCUN écran : Adam pouvait en créer, personne devant un écran ne pouvait

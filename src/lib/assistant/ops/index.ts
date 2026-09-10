@@ -25,6 +25,7 @@ import { CARE_OPS_IMPL, PROMO_OPS_IMPL } from "./impl-wave5b";
 import { BD6_OPS_IMPL, DOSSIER_OPS_IMPL, DIRECTIVE_OPS_IMPL, SUPPORT_OPS_IMPL, REMINDER_OPS_IMPL } from "./impl-wave6";
 import { VALIDATION_OPS_IMPL, FIELD_REPORT_OPS_IMPL, SUPPLY_OPS_IMPL } from "./impl-wave6b";
 import { PLANNING_OPS_IMPL } from "./impl-wave6c";
+import { TOUR_PLAN_OPS_IMPL, TOUR_VISIT_OPS_IMPL, PROMO_MESSAGE_OPS_IMPL } from "./impl-tournee";
 import { ADMIN_REQUEST_OPS_IMPL } from "./impl-wave7";
 import { MEETING7_OPS_IMPL, WORKSPACE7_OPS_IMPL } from "./impl-wave7b";
 import { MESSAGING7_OPS_IMPL, REGREMINDER_OPS_IMPL } from "./impl-wave7c";
@@ -993,14 +994,16 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   planning_operation: {
     module: "SALES_PLANNING",
-    ops: zipOps("planning_operation", PLANNING_OPS_IMPL),
+    ops: zipOps("planning_operation", { ...PLANNING_OPS_IMPL, ...TOUR_PLAN_OPS_IMPL, ...PROMO_MESSAGE_OPS_IMPL }),
     def: {
       name: "planning_operation",
       description:
         "PLANNING FORCE DE VENTE (SFE) — business units, produits promus (canal ville / hôpital / les deux), équipes, profils KAM, prévisions produit × CYCLE MENSUEL, matrice d'affectations KAM × produit (0 visite sans note = retrait), report d'un cycle vers un autre, paramètres SFE globaux. Les « save » de l'écran écrasent avec des DÉFAUTS-PIÈGES : chaque op relit l'existant et le REJOUE (FUSION) — par les actions canoniques. "
         + `Champ « op » : ${opsSummary("planning_operation")}. `
         + "Le cycle se donne en français (« septembre 2026 » ou 2026-09, champ « date ») ; BU / équipe par « target », produit par « product », KAM par « person ». "
-        + "SECTEURS (territoires nommés d'une BU : « Est », « Oranais ») — c'est le secteur qui donne au KAM son panel de médecins : nom par « name », BU par « target », établissements par « institutions » et KAM par « person » (noms séparés par des virgules).",
+        + "SECTEURS (territoires nommés d'une BU : « Est », « Oranais ») — c'est le secteur qui donne au KAM son panel de médecins : nom par « name », BU par « target », établissements par « institutions » et KAM par « person » (noms séparés par des virgules). "
+        + "PLAN DE TOURNÉE — préparer la période (« open_tour_plan », KAM par « person », maille par « mode », période par « date » ; sans date, la période À VENIR), le soumettre à son validateur, ou demander une validation au N+2. Les VISITES elles-mêmes se posent à l'écran : l'action remplace la grille entière, donc une phrase qui n'en nomme qu'une effacerait les autres. VALIDER un plan et RAPPORTER une visite sont des attestations réservées à un clic humain. "
+        + "MESSAGES DE LA DIRECTION MARKETING (ce que le KAM doit dire au médecin, exigé sur chaque rapport terrain) : intitulé par « name », texte par « note », gamme par « target » (vide = toutes).",
       input_schema: {
         type: "object",
         properties: {
@@ -1013,7 +1016,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           label: { type: "string", description: "save_rep_profile : la BU du KAM (« aucune » détache) ; create/update_business_unit : le chef de BU ; carry_forward : cycle cible." },
           date: { type: "string", description: "Le cycle mensuel (« septembre 2026 » ou 2026-09) — carry_forward : cycle SOURCE." },
           endDate: { type: "string", description: "carry_forward_assignments : cycle CIBLE." },
-          mode: { type: "string", description: "BU et produit : terrain / canal (ville / hôpital / les deux) ; affectation : position 1-3 ; profil KAM : séniorité." },
+          mode: { type: "string", description: "BU et produit : terrain / canal (ville / hôpital / les deux) ; affectation : position 1-3 ; profil KAM : séniorité ; PLAN DE TOURNÉE : la maille (WEEK / MONTH / QUARTER / HALF_YEAR)." },
           quantity: { type: "string", description: "Prévision : FTE cible ; profil KAM : FTE budget ; affectation : visites prévues." },
           visits: { type: "string", description: "Visites (prévision produit, capacité/jour, affectation)." },
           days: { type: "string", description: "Jours terrain par mois (paramètres / profil KAM)." },
@@ -1079,14 +1082,15 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   medical_operation: {
     module: "MEDICAL",
-    ops: zipOps("medical_operation", { ...MEDICAL_OPS_IMPL, ...FILE_MEDICAL_OPS_IMPL }),
+    ops: zipOps("medical_operation", { ...MEDICAL_OPS_IMPL, ...FILE_MEDICAL_OPS_IMPL, ...TOUR_VISIT_OPS_IMPL }),
     def: {
       name: "medical_operation",
       description:
         "ANNUAIRE MÉDICAL — praticiens (fiche complète ou cellule de la feuille, suppressions bornées par la portée), visites (planification et compte rendu champ-par-champ), établissements, spécialités, annuaires nommés (rangement + accès désignés), plans de tournée — par les actions canoniques. "
         + `Champ « op » : ${opsSummary("medical_operation")}. `
         + "Le praticien se donne par NOM (« doctor »), la visite par praticien + date, le plan par délégué + date de début. "
-        + "log_visit : la visite QUI A EU LIEU — « products » liste les produits présentés (noms exacts, résolus au catalogue), « followUp » ce qu'il reste à faire.",
+        + "log_visit : la visite QUI A EU LIEU — « products » liste les produits présentés (noms exacts, résolus au catalogue), « followUp » ce qu'il reste à faire. "
+        + "order_visit : « demain va voir Achour » — la Direction COMMANDE une visite à un KAM (« person »), chez un praticien (« doctor »), un jour donné (« date ») : elle arrive dans son emploi du temps comme une visite À FAIRE, hors de son plan validé, et le compte rendu reste à sa charge.",
       input_schema: {
         type: "object",
         properties: {
@@ -1113,6 +1117,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           firstName: { type: "string", description: "add_doctor_row : prénom." },
           date: { type: "string", description: "Visites / plans : la date (AAAA-MM-JJ)." },
           newDate: { type: "string", description: "duplicate_plan : début de la nouvelle période (défaut : mois suivant)." },
+          objective: { type: "string", description: "order_visit : la raison de la visite commandée (« point sur le Nivolex »)." },
           status: { type: "string", description: "update_visit : planifiée / réalisée / annulée / reportée." },
           report: { type: "string", description: "update_visit : compte rendu." },
           feedback: { type: "string", description: "update_visit : retour du médecin." },

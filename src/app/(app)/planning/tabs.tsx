@@ -24,6 +24,10 @@ const TABS: { key: string; label: string; href: string; show: (p: PlanningTabsPr
   { key: "previsions", label: "Prévisions", href: "/planning", show: (p) => p.canConfigure },
   { key: "affectations", label: "Affectations", href: "/planning/affectations", show: (p) => p.canConfigure || !!p.isSupervisor },
   { key: "pilotage", label: "Pilotage", href: "/planning/pilotage", show: () => true },
+  // LES MESSAGES DE LA DIRECTION MARKETING — exigés sur chaque rapport terrain. L'onglet est
+  // visible dès qu'on configure : le référentiel VIDE fait refuser tous les rapports, donc le
+  // cacher à celui qui peut le remplir serait la pire façon de le protéger (§118.50).
+  { key: "messages", label: "Messages", href: "/planning/messages", show: (p) => p.canConfigure },
   { key: "parametres", label: "Paramètres", href: "/planning/parametres", show: (p) => p.canConfigure },
 ];
 
