@@ -146,6 +146,9 @@ export const NEUTRAL = new Set([
   // aurait forcé l'autre à relire le chemin à sa façon, et le symptôme d'une divergence serait un
   // tableau vide sans aucune cause visible (§118.5).
   "src/lib/skills/affichage",
+  // Reconnaître un média à son NOM : l'indexation du Drive, l'adaptateur de média et le client
+  // du moteur de parole se posent la même question, et aucun n'a le droit d'importer les autres.
+  "src/lib/media/formats",
   // `vues/colonnes-regulatory` est un CATALOGUE D'AFFICHAGE : la clé de chaque colonne du
   // tableau Regulatory, son en-tête français, ses alias, et celles qu'on ne masque jamais. Une
   // table de chaînes et un résolveur de libellé — zéro import, sans état, sans base, sans règle

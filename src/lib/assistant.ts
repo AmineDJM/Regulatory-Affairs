@@ -23,7 +23,7 @@
 import { extraireBlocRegles, gardeEnseignement, OUTILS_ENSEIGNEMENT, RAPPEL_ENSEIGNEMENT, DEMENTI_ENSEIGNEMENT } from "@/platform/in-process/teach/bloc";
 import { extraireFaits, faitsDuTour, repondreDouTuTiensCa, resumerFait, type FaitSource } from "@/platform/in-process/fabric/provenance";
 import { routeVoiceUtterance } from "@/lib/assistant/voice/fast-path";
-import { consigneCalcul, consigneSignaux } from "@/lib/assistant/context/router";
+import { consigneCalcul, consigneRepresentation, consigneSignaux } from "@/lib/assistant/context/router";
 import { calibrerTour } from "@/lib/assistant/confidence/tour";
 import type { Calibration } from "@/lib/assistant/confidence/calibrate";
 import { resoudreEntite, resoudreMentions, contexteEntitesResolues } from "@/platform/in-process/fabric/entites";
@@ -4848,7 +4848,7 @@ async function runAssistantImpl(
   const entitesResolues = plan.entites.length
     ? await timedPhase("entites", () => resoudreMentions(plan.entites).then(contexteEntitesResolues).catch(() => null))
     : null;
-  const planCtx = [queryPlanContext(plan), entitesResolues, consigneCalcul(question), consigneSignaux(question)].filter(Boolean).join("\n\n") || null;
+  const planCtx = [queryPlanContext(plan), entitesResolues, consigneCalcul(question), consigneRepresentation(question), consigneSignaux(question)].filter(Boolean).join("\n\n") || null;
   // OBSERVABILITÉ du planner — domaine/intention/suivi UNIQUEMENT (jamais le texte de la
   // question) : le taux de résolution des suivis elliptiques se lit dans les logs.
   if (plan.domaine || plan.intention || plan.suiviElliptique) {
@@ -5389,7 +5389,7 @@ async function runAssistantStreamImpl(
   const entitesResolues = plan.entites.length
     ? await timedPhase("entites", () => resoudreMentions(plan.entites).then(contexteEntitesResolues).catch(() => null))
     : null;
-  const planCtx = [queryPlanContext(plan), entitesResolues, consigneCalcul(question), consigneSignaux(question)].filter(Boolean).join("\n\n") || null;
+  const planCtx = [queryPlanContext(plan), entitesResolues, consigneCalcul(question), consigneRepresentation(question), consigneSignaux(question)].filter(Boolean).join("\n\n") || null;
   // OBSERVABILITÉ du planner — domaine/intention/suivi UNIQUEMENT (jamais le texte de la
   // question) : le taux de résolution des suivis elliptiques se lit dans les logs.
   if (plan.domaine || plan.intention || plan.suiviElliptique) {

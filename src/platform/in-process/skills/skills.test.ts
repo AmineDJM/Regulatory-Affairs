@@ -207,6 +207,28 @@ suite("le runtime des skills — découverte, droit, exécution, cycle des micro
     const refus = await executePowerTool("playbook_ecrit", {}, pdg);
     expect(refus === null || /n'est pas une lecture|une écriture passe par la proposition/.test(refus)).toBe(true);
   }, 90_000);
+  it("la création NOMME le geste suivant : appeler l'outil, pas refaire son calcul de tête", async () => {
+    /**
+     * MESURÉ sur la campagne live (`defi-skill-micro-outil`) : Adam crée l'outil, la porte le
+     * valide, il est exposé DANS LE TOUR — et Adam applique ensuite la règle de tête. La réponse
+     * était juste ; la consigne du tour dit « JAMAIS de tête, même pour une multiplication », et
+     * un outil qu'on vient de bâtir sans l'appeler est une capacité sans appelant (§118.14).
+     *
+     * CE QUI LE FERAIT TOMBER : retirer la phrase. Le retour redirait le nom, l'échéance et le
+     * rapport de porte — et rien de ce qu'il faut FAIRE (§118.19).
+     */
+    const r = await creerMicroSkill(pdg, {
+      nom: "tva geste",
+      description: "TVA 19 % et TTC d'un montant HT.",
+      code: "return { tva: data.ht * 0.19, ttc: data.ht * 1.19 };",
+      exemple: { ht: 100000 },
+      attentes: [{ chemin: "ttc", op: "egal", valeur: 119000 }],
+    });
+    expect(r.ok, `la porte doit exposer l'outil : ${JSON.stringify(r).slice(0, 200)}`).toBe(true);
+    if (!r.ok) return;
+    expect(r.prochain, "le nom exact de l'outil à appeler").toContain(r.outil);
+    expect(r.prochain, "et l'interdiction de refaire le calcul soi-même").toMatch(/de t[êe]te/i);
+  }, 30_000);
 });
 
 suite("les connecteurs de messagerie (§37) — un même geste sous quatre noms, configurés ou dits non configurés", () => {

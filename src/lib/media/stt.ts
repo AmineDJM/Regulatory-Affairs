@@ -17,15 +17,14 @@ import { normaliserSegments, type Segment } from "./transcription";
 export const TAILLE_MAX_STT = 25 * 1024 * 1024;
 export const DELAI_STT_MS = 120_000;
 
-export const MIMES_MEDIA: Readonly<Record<string, string>> = {
-  mp3: "audio/mpeg", mpga: "audio/mpeg", mpeg: "audio/mpeg", m4a: "audio/mp4", wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg", flac: "audio/flac", aac: "audio/aac", opus: "audio/ogg",
-  webm: "video/webm", mp4: "video/mp4", mov: "video/quicktime", m4v: "video/mp4", mkv: "video/x-matroska",
-};
-export const EXTENSIONS_VIDEO: ReadonlySet<string> = new Set(["webm", "mp4", "mov", "m4v", "mkv"]);
-
-export const extensionDe = (nom: string): string => (nom.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "");
-export const estMedia = (nom: string): boolean => Boolean(MIMES_MEDIA[extensionDe(nom)]);
-export const estVideo = (nom: string): boolean => EXTENSIONS_VIDEO.has(extensionDe(nom));
+/**
+ * LA RECONNAISSANCE PAR LE NOM vit au SOCLE (`media/formats.ts`, zéro import) : l'indexation du
+ * Drive en a besoin sans avoir le droit d'importer ce fichier-ci (§118.72). On la RÉEXPORTE
+ * pour ne pas casser les appelants existants — une seconde table divergerait au premier format
+ * ajouté (§118.5).
+ */
+export { MIMES_MEDIA, EXTENSIONS_VIDEO, extensionDe, estMedia, estVideo } from "./formats";
+import { MIMES_MEDIA, extensionDe } from "./formats";
 
 export interface OptionsStt {
   /** `fr` par défaut ; `auto` laisse le moteur détecter. */

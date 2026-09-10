@@ -557,7 +557,12 @@ export interface DemandeSkill {
 export interface Provenance { threadId?: string | null; missionId?: string | null }
 
 export type ResultatCreation =
-  | { ok: true; outil: string; statut: string; version: number; expireLe: string | null; porte: { tests: string; etapes: string[] }; exemple: { entree: unknown; resultat: unknown } }
+  | {
+      ok: true; outil: string; statut: string; version: number; expireLe: string | null;
+      porte: { tests: string; etapes: string[] }; exemple: { entree: unknown; resultat: unknown };
+      /** LE GESTE SUIVANT, en toutes lettres — voir le commentaire au point de retour (§118.19). */
+      prochain: string;
+    }
   | { ok: false; motif: string; issues?: string[]; porte?: { refusePar: string | null; etapes: string[] } };
 
 /** CRÉER un micro-outil : rien n'est exposé sans être passé par la porte de qualité sur l'exemple. */
@@ -604,7 +609,23 @@ export async function creerMicroSkill(user: CurrentUser, d: DemandeSkill, proven
     : await prisma.adamSkill.create({ data: { ...data, ownerId: user.id, slug } });
   CACHE.delete(user.id);
   await recordAudit({ actorId: user.id, action: existant ? "UPDATE" : "CREATE", module: "ASSISTANT", entityId: row.id, summary: `Micro-outil « ${row.title} » (${nom}, v${row.version}) ${existant ? "révisé" : "créé"} — porte ${porte.testsPasses}/${porte.testsTotal}.` }).catch(() => undefined);
-  return { ok: true, outil: nom, statut: row.status, version: row.version, expireLe: row.expiresAt?.toISOString() ?? null, porte: { tests: `${porte.testsPasses}/${porte.testsTotal}`, etapes }, exemple: { entree: d.exemple, resultat: porte.resultat } };
+  /**
+   * ── LA SORTIE NOMME LE GESTE SUIVANT (§118.19) ──────────────────────────────────────────
+   *
+   * MESURÉ sur la campagne live (`defi-skill-micro-outil`) : Adam a créé `skill_tva_19`, la
+   * porte de qualité l'a validé sur l'exemple, l'outil a bien été exposé DANS LE TOUR (le
+   * mécanisme est en place et commenté dans `assistant.ts`)… et Adam a ensuite appliqué la règle
+   * DE TÊTE au montant demandé. La réponse était juste, mais la consigne du tour dit « JAMAIS de
+   * tête, même pour une multiplication » : un outil qu'on vient de bâtir et qu'on n'appelle pas
+   * est une capacité sans appelant (§118.14), et son résultat n'a plus ni provenance ni reçu.
+   *
+   * Le retour disait le NOM, l'échéance et le rapport de porte — il ne disait pas quoi FAIRE
+   * ensuite. Ce que le code rend possible, la sortie doit dire comment l'obtenir : c'est la même
+   * règle que pour un refus qui nomme son remède, appliquée à un SUCCÈS.
+   */
+  const prochain = `Outil disponible IMMÉDIATEMENT dans ce tour : appelle « ${nom} » pour l'appliquer — `
+    + "ne refais pas son calcul de tête, son résultat porte sa provenance et son reçu.";
+  return { ok: true, outil: nom, statut: row.status, version: row.version, expireLe: row.expiresAt?.toISOString() ?? null, porte: { tests: `${porte.testsPasses}/${porte.testsTotal}`, etapes }, exemple: { entree: d.exemple, resultat: porte.resultat }, prochain };
 }
 
 export interface SkillVue {

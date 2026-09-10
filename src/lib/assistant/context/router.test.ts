@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { routeQuery, isConfident } from "./router";
+import { routeQuery, isConfident, domainesSecondaires, consigneCalcul, consigneRepresentation } from "./router";
+import { normalizeUtterance } from "@/lib/assistant/voice/fast-path";
 import { runRouterBench } from "./bench";
 import { GOLDEN_CORPUS } from "./golden-corpus";
 import { HOLDOUT_CORPUS } from "./holdout-corpus";
@@ -302,5 +303,57 @@ describe("provenance (F8) — « d'où tu tiens ça ? » est déterministe, avan
   });
   it("laisse la question causale au raisonnement", () => {
     expect(routeQuery("D'où vient ce retard sur le dossier ?").route).not.toBe("FAST_DETERMINISTIC");
+  });
+});
+describe("une demande de FIGURE atteint le rendu, quel que soit son domaine", () => {
+  /**
+   * ── LE DÉFAUT MESURÉ ──────────────────────────────────────────────────────────────────
+   *
+   * `render_view` vit dans les domaines `DATA` et `GENERAL` ; sur une question REGULATORY,
+   * LEGAL ou MISSION, il n'entre dans la liste courte que si un domaine SECONDAIRE l'ouvre. Or
+   * la seule table qui en ouvrait un était celle du CALCUL. Mesuré sur six façons naturelles de
+   * demander une figure : DEUX passaient, dont une par accident (« par mois », un mot de calcul).
+   * « Tableau de bord », « Gantt », « carte » — les mots qui NOMMENT la chose — étaient absents.
+   */
+  const FIGURES = [
+    "Fais-moi un tableau de bord des dossiers réglementaires.",
+    "Affiche un Gantt du dossier Nivolex.",
+    "Fais-moi une carte des hôpitaux de l'Ouest.",
+    "Montre-moi les dossiers Regulatory par statut.",
+    "Trace l'évolution du budget marketing.",
+    "Visualise la répartition des tâches par statut.",
+  ];
+
+  it("chaque façon de demander une figure ouvre le domaine où vit le rendu", () => {
+    // CE QUI LE FERAIT TOMBER : ajouter une forme à `render_view` sans ajouter son mot ici —
+    // la capacité existerait, et le chemin pour y arriver n'existerait pas (§118.19).
+    const muettes = FIGURES.filter((p) => !domainesSecondaires(normalizeUtterance(p)).includes("DATA"));
+    expect(muettes, "une demande de figure qui n'ouvre pas DATA ne verra jamais render_view").toEqual([]);
+  });
+
+  it("et UNE consigne nomme le rendu — jamais zéro, jamais deux", () => {
+    for (const p of FIGURES) {
+      const consignes = [consigneCalcul(p), consigneRepresentation(p)].filter(Boolean) as string[];
+      // Zéro : l'outil est dans la liste et rien ne dit de l'appeler — c'est ce qui s'est passé.
+      // Deux : la même phrase répétée dans le contexte du tour, et l'on cesse de lire les
+      // consignes (§118.32).
+      expect(consignes.length, `« ${p} » doit recevoir EXACTEMENT une consigne nommant le rendu`).toBe(1);
+      expect(consignes[0]).toContain("render_view");
+    }
+  });
+
+  it("ce qui ne demande NI calcul NI figure ne reçoit rien — une consigne permanente est du bruit", () => {
+    for (const p of ["Bonsoir, ça va ?", "Quel est le statut du dossier Nivolex ?", "Envoie un message à Amel."]) {
+      expect(consigneCalcul(p), `« ${p} » ne calcule rien`).toBeNull();
+      expect(consigneRepresentation(p), `« ${p} » ne demande aucune figure`).toBeNull();
+    }
+  });
+
+  it("la phrase qui nomme le rendu est écrite UNE fois : les deux consignes la partagent", () => {
+    // Deux copies divergeraient au premier ajout de forme, et l'une des deux consignes
+    // enseignerait un rendu périmé (§118.5).
+    const calcul = consigneCalcul("Calcule la moyenne et trace la courbe.")!;
+    const figure = consigneRepresentation("Fais-moi un tableau de bord.")!;
+    expect(calcul).toContain(figure.slice(0, 60));
   });
 });

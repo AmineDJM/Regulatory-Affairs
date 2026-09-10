@@ -7,6 +7,7 @@ import { inProcessPlatform, principalOf } from "@/platform/in-process/adapter";
 import type { DocumentExtract } from "@/platform/contract";
 import { getBlob } from "@/lib/drive-storage";
 import { extractAttachmentText } from "@/lib/assistant-files";
+import { estMedia } from "@/lib/media/formats";
 import { foldText } from "@/lib/assistant/memory-context";
 import { driveSemanticCandidates } from "@/lib/assistant/semantic-drive";
 import { classifyDocument, DOC_KIND_LABEL, type DocKind } from "@/platform/doc-kind";
@@ -111,19 +112,106 @@ async function nodeText(nodeId: string): Promise<NodeText | null> {
   const cached = await prisma.driveTextIndex.findUnique({
     where: { nodeId }, select: { versionId: true, text: true, note: true },
   });
-  if (cached && cached.versionId === version.id) {
+  /**
+   * ── UN INDEX VIDE N'EST PAS UNE LECTURE : C'EST UNE ABSENCE DE LECTURE ──────────────────
+   *
+   * MESURÉ sur la campagne live (`defi-media-reunion`). Le dépôt d'un `.mp3` écrit une ligne
+   * d'index avec un texte VIDE et AUCUNE note — l'extraction d'octets ne sait rien tirer d'un
+   * audio. Le cache rendait alors `{ text: null, note: null }`, c'est-à-dire, pour tout
+   * appelant, « lu, il n'y a rien dedans ». Conséquences en chaîne : la découverte par CONTENU
+   * ne pouvait pas trouver l'enregistrement (son index est vide), la pré-lecture a lu un autre
+   * document, et Adam a répondu — honnêtement — que le contenu audio « n'est pas transcrit ni
+   * lisible ». Trente-deux secondes de parole, un transcripteur qui marche, et une réponse
+   * INCONNU : c'est §104.15 mot pour mot — « répondre « lu, rien dedans » ferait conclure que
+   * le tampon est vierge alors que RIEN n'a été tenté ».
+   *
+   * Un index vide SANS raison n'est donc pas honoré : on re-tente. Un index vide AVEC sa raison
+   * (« illisible », « trop volumineux ») est un acquis — c'est ce qui évite de repayer un scan
+   * illisible à chaque lecture, et c'était la bonne intention du code d'origine.
+   */
+  const videSansRaison = cached !== null && !cached.text.trim() && !(cached.note ?? "").trim();
+  if (cached && cached.versionId === version.id && !videSansRaison) {
     return { name: node.name, text: cached.text || null, note: cached.note, fromIndex: true };
   }
 
   if (node.size > ON_THE_FLY_SIZE_CAP) {
     return { name: node.name, text: null, note: "trop volumineux pour une lecture à la volée", fromIndex: false };
   }
+
+  /**
+   * ── UN MÉDIA SE LIT PAR LA PAROLE, ET LE TEXTE ENTRE DANS L'INDEX ───────────────────────
+   *
+   * `read_document` route déjà un média vers le transcripteur qui PERSISTE (§118.94) ; ce
+   * chemin-ci — celui de l'indexation et de la découverte — ne le faisait pas. Le prix de cet
+   * écart n'est pas seulement une lecture ratée : c'est un enregistrement INTROUVABLE par son
+   * contenu, pour toujours, et payé à chaque lecture par le seul chemin qui savait le lire.
+   *
+   * On appelle donc le MÊME transcripteur ici, et sa sortie entre dans l'index comme n'importe
+   * quel texte : la parole est transcrite UNE fois, puis relue. C'est strictement moins cher
+   * qu'avant, où chaque lecture la refaisait sans rien garder.
+   */
+  const media = await texteDeMedia(nodeId, node.name).catch(() => null);
+  if (media) {
+    await indexDriveNodeText(nodeId, version.id, media.text, media.note, node.name);
+    return { name: node.name, text: media.text, note: media.note, fromIndex: false };
+  }
+
   const bytes = await getBlob(version.blobId).catch(() => null);
   if (!bytes) return { name: node.name, text: null, note: "contenu indisponible", fromIndex: false };
   const t = await extractAttachmentText(node.name, bytes);
   // On indexe MÊME l'échec (texte vide) : inutile de re-tenter un scan illisible à chaque fois.
-  await indexDriveNodeText(nodeId, version.id, t.text ?? "", t.note ?? (t.text ? null : "illisible (scan sans OCR ?)"), node.name);
+  // LA RAISON EST OBLIGATOIRE — sans elle, la ligne se relirait comme « lu, rien dedans » (voir
+  // `videSansRaison` ci-dessus), et le prochain lecteur croirait le document vide.
+  await indexDriveNodeText(nodeId, version.id, t.text ?? "", t.note ?? (t.text ? null : raisonIllisible(node.name)), node.name);
   return { name: node.name, text: t.text || null, note: t.note ?? null, fromIndex: false };
+}
+
+/**
+ * LA RAISON D'UN TEXTE VIDE, jamais un silence. Elle nomme le format lu, parce que « illisible »
+ * sur un `.mp3` et « illisible » sur un `.pdf` n'appellent pas le même geste.
+ */
+function raisonIllisible(nom: string): string {
+  const ext = (/\.([a-z0-9]+)$/i.exec(nom)?.[1] ?? "").toLowerCase();
+  return estMedia(nom)
+    ? `média ${ext || "audio/vidéo"} : la reconnaissance de parole n'a rien rendu (fichier muet, trop court, ou moteur indisponible)`
+    : `aucun texte extrait de ce ${ext || "fichier"} (scan sans OCR, format non textuel, ou fichier vide)`;
+}
+
+/**
+ * LE TEXTE D'UN MÉDIA, par le transcripteur qui PERSISTE — `null` sur tout ce qui n'est pas un
+ * média ou ne se transcrit pas à coup sûr, auquel cas l'appelant retombe sur les octets.
+ *
+ * L'import est dynamique pour la même raison qu'ailleurs : ce module est chargé par des chemins
+ * qui n'ont pas besoin du moteur de parole, et le tirer statiquement l'imposerait à tous.
+ */
+async function texteDeMedia(nodeId: string, nom: string): Promise<{ text: string; note: string } | null> {
+  if (!estMedia(nom)) return null;
+  const compte = await prisma.user.findFirst({
+    // LE SYSTÈME LIT SOUS SON PROPRE COMPTE, comme l'ingestion le fait déjà : ce chemin sert
+    // l'INDEX, pas une réponse à une personne, et le droit de LIRE la pièce a été vérifié par
+    // l'appelant, nœud par nœud (voir l'en-tête de `nodeText`).
+    where: { role: "SUPER_ADMIN", isActive: true }, orderBy: { createdAt: "asc" }, select: { id: true },
+  });
+  if (!compte) return null;
+  const { getAccess } = await import("@/lib/rbac");
+  const { transcrireMediaDrive } = await import("@/platform/in-process/media/transcription");
+  const { texteHorodate, formatHorodatage } = await import("@/platform/in-process/media");
+  const u = await prisma.user.findUnique({ where: { id: compte.id } });
+  if (!u) return null;
+  const acteur = { ...u, access: await getAccess(u.id, u.role) } as unknown as CurrentUser;
+  const r = await transcrireMediaDrive(acteur, { nodeId });
+  if (!r.ok) return null;
+  const text = texteHorodate(r.vue.segments, { locuteurs: false });
+  if (!text.trim()) return null;
+  const duree = r.vue.dureeS ? ` — ${formatHorodatage(r.vue.dureeS)}` : "";
+  // LA MÉTHODE VOYAGE AVEC LE TEXTE (§104.15) : une reconnaissance de parole n'est pas un
+  // procès-verbal, et c'est cette note qui l'empêche d'être citée comme un fait vérifié.
+  return {
+    text,
+    note: `Transcription ${r.vue.modele}${duree}, ${r.vue.segments.length} segment(s)`
+      + `${r.vue.horodate ? " horodatés" : " (sans horodatage)"}`
+      + ` — ce n'est pas un fait vérifié : à citer comme PROBABLE, avec l'instant.`,
+  };
 }
 
 /**

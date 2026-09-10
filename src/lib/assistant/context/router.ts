@@ -321,6 +321,46 @@ const DATA_SECONDAIRE = /\b(analyse|analyser|analyses|analytique|statistique|sta
 // Le banc l'a montré ; on ouvre MISSION en plus, sans détourner la question de sa cible.
 const SURVEILLANCE_SECONDAIRE = /\b(surveille|surveiller|surveillance|surveilles|previens[- ]moi|previens[- ]moi|prevenir|alerte[- ]moi|alertez[- ]moi|tiens[- ]moi au courant|tenez[- ]moi au courant|s.?il y a un probleme|des qu.?(il|elle|ca|cela|le|la|les|un|une) .{0,40}\b(arrive|arrivera|change|changera|repond|repondra|bouge|tombe|passe))\b/;
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE VOCABULAIRE DE LA REPRÉSENTATION — distinct de celui du CALCUL, et il manquait.
+ *
+ * ── LA MESURE ───────────────────────────────────────────────────────────────────────────
+ *
+ * `render_view` vit dans les domaines `DATA` et `GENERAL` ; sur une question dont le domaine
+ * est REGULATORY, LEGAL ou MISSION, il n'entre dans la liste courte que si un domaine SECONDAIRE
+ * l'ouvre. Or `DATA_SECONDAIRE` est le vocabulaire du CALCUL. Mesuré sur six façons naturelles
+ * de demander une figure :
+ *
+ *   « Fais-moi un mini tableau de bord … les réunions par mois … »   → DATA (par « par mois »)
+ *   « Fais-moi un tableau de bord des dossiers réglementaires. »      → RIEN
+ *   « Montre-moi les dossiers Regulatory par statut. »                → RIEN
+ *   « Affiche un Gantt du dossier Nivolex. »                          → RIEN
+ *   « Fais-moi une carte des hôpitaux de l'Ouest. »                   → RIEN
+ *   « Trace l'évolution du budget marketing. »                        → DATA
+ *
+ * Quatre sur six. Et la première ne passait que par ACCIDENT — « par mois » est un mot de
+ * calcul, pas de figure. « Tableau de bord », le terme qui NOMME la chose, était absent de la
+ * table ; « Gantt » et « carte » aussi. La capacité existe, dix-sept formes et le mini-tableau
+ * de bord, et le chemin pour y arriver dépendait d'un mot d'une autre famille.
+ *
+ * ── POURQUOI UNE SECONDE TABLE ET NON UN ÉLARGISSEMENT DE LA PREMIÈRE ───────────────────
+ *
+ * `DATA_SECONDAIRE` gouverne AUSSI `consigneCalcul` — la consigne « tout chiffre dérivé sort
+ * d'un outil ». Y verser « montre-moi », « affiche », « carte » ferait injecter une consigne de
+ * calcul sur des demandes qui ne calculent rien : du bruit dans le contexte de chaque tour, et
+ * on cesse de lire les consignes (§118.32). Deux questions, deux détecteurs — les confondre
+ * casserait l'un des deux (§118.57).
+ *
+ * ── CE QUE CE VOCABULAIRE N'EMPORTE PAS ─────────────────────────────────────────────────
+ *
+ * Il n'emporte pas le domaine : « montre-moi les dossiers Regulatory » reste une question
+ * REGULATORY, et ses lectures métier restent en tête de liste. Il ouvre `DATA` EN PLUS, ce qui
+ * est exactement le mécanisme prévu pour cela.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const REPRESENTATION_SECONDAIRE = /\b(tableau de bord|tableaux de bord|dashboard|gantt|diagramme|diagrammes|camembert|secteurs|heatmap|carte|cartes|cartographie|sankey|entonnoir|histogramme|nuage de points|matrice|frise|chronologie|timeline|organigramme|visualise|visualiser|visualisation|affiche|affiches|affichez|montre[- ]moi|montrez[- ]moi|trace|tracer|dessine|dessiner|schema|schematise)\b/;
+
 /** Une DEMANDE DE SURVEILLANCE (« surveille… », « préviens-moi quand… ») — le geste est `watch_entity`, quel que soit le domaine de la cible. */
 export function estDemandeDeSurveillance(texteNormalise: string): boolean {
   return SURVEILLANCE_SECONDAIRE.test(texteNormalise);
@@ -332,8 +372,39 @@ export function domainesSecondaires(texteNormalise: string): Domain[] {
   // Le GESTE d'abord : « surveille… » ouvre MISSION avant DATA — au plafond du niveau, le dernier
   // domaine secondaire tombe le premier, et c'est l'outil du geste qui tombait.
   if (SURVEILLANCE_SECONDAIRE.test(texteNormalise)) out.push("MISSION");
-  if (DATA_SECONDAIRE.test(texteNormalise)) out.push("DATA");
+  // LA REPRÉSENTATION ouvre le même domaine que le calcul (c'est là que vit `render_view`),
+  // mais par son PROPRE vocabulaire : « fais-moi un tableau de bord » ne calcule rien, et
+  // pourtant il faut la figure.
+  if (DATA_SECONDAIRE.test(texteNormalise) || REPRESENTATION_SECONDAIRE.test(texteNormalise)) out.push("DATA");
   return out;
+}
+
+/**
+ * LA PHRASE QUI NOMME LE RENDU — écrite UNE fois, lue par DEUX consignes.
+ *
+ * Elle vivait à l'intérieur de `consigneCalcul`, donc une demande de figure qui ne calcule rien
+ * (« fais-moi un tableau de bord des dossiers réglementaires ») ne la recevait jamais : l'outil
+ * entrait bien dans la liste courte, et RIEN ne disait de l'appeler. C'est §118.19 — ce que le
+ * code rend possible, le contexte doit dire comment l'obtenir. La recopier dans la seconde
+ * consigne aurait fait deux vérités qui divergent au premier ajout de forme (§118.5).
+ */
+export const CONSIGNE_MONTRER =
+  "Pour MONTRER (graphique, évolution, répartition, tableau de bord, Gantt, réseau, carte, matrice, frise), appelle render_view : "
+  + "le code compose la figure sous la réponse — ne dessine JAMAIS un graphique en texte, ne recopie pas ses chiffres, "
+  + "décris-la en une phrase et cite sa source.";
+
+/**
+ * LA CONSIGNE DE REPRÉSENTATION — pour les demandes qui veulent une FIGURE sans calculer.
+ *
+ * `null` quand la phrase ne demande rien à montrer, et `null` aussi quand `consigneCalcul` va
+ * déjà parler : une consigne répétée deux fois dans le même contexte est du bruit, et on cesse
+ * de lire les consignes (§118.32).
+ */
+export function consigneRepresentation(raw: string): string | null {
+  const texte = normalizeUtterance(stripPreamble(raw));
+  if (!REPRESENTATION_SECONDAIRE.test(texte)) return null;
+  if (consigneCalcul(raw)) return null;
+  return CONSIGNE_MONTRER;
 }
 
 /**
@@ -355,8 +426,8 @@ export function consigneCalcul(raw: string): string | null {
     + "calcul_ordonnancement (chemin critique, marges, ressources, échéance), calcul_statistiques (régression, test, corrélation, segmentation, ACP, anomalies, prévision validée hors échantillon) — "
     + "chacun rend sa RIGUEUR (hypothèses, limites, avertissements) : la REPRENDRE dans la réponse, un chiffre livré sans elle se lit comme une certitude qu'il n'est pas. "
     + "RÉSEAU ET CARTE : « comment X est-il relié à Y », « qui est le point de passage », « qu'est-ce qui tombe si ceci disparaît » se répondent par reseau_entreprise (un CHEMIN nommé, pas une recherche documentaire — l'absence de lien enregistré n'est jamais l'absence de relation) ; « dans quel ordre visiter », « comment découper les territoires », « où poser le dépôt » par carte_territoire. "
-    + "Pour « quel graphique ? », appelle chart_advice. Pour MONTRER (graphique, évolution, répartition, tableau de bord, Gantt, réseau, carte), appelle render_view : le code compose la figure sous la réponse — ne dessine jamais un graphique en texte, ne recopie pas ses chiffres. Cite le résultat rendu par l'outil, avec sa source, "
-    + "et dis quand une hypothèse a été appliquée.";
+    + `Pour « quel graphique ? », appelle chart_advice. ${CONSIGNE_MONTRER} `
+    + "Cite le résultat rendu par l'outil, avec sa source, et dis quand une hypothèse a été appliquée.";
 }
 
 const ETAT_SIGNAUX = /\b(en retard|retards?|bloques?|bloquees?|blocages?|pieces? manquantes?|manquant|manquantes?|manque|echeances?|arrive a echeance|arrivent a echeance|expire|expirent|justificatifs?|depasse|depassement|depassements|qu.?est.?ce qui cloche|cloche|signaux|signal|alertes?|a risque|risques?|rythme|denonc\w*|reconduction|tacite|penalites?|obligations?|bloqueurs?|reserves?|relanc\w*)\b/;
