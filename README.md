@@ -5338,6 +5338,36 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### « DÈS QUE JE DIS ANNUAIRE IL ME SORT L'ANNUAIRE » — un raccourci armé sur un MOT (2026-09)
+
+**Mesuré avant d'être supposé.** Sur dix phrases ordinaires qui contiennent le mot « annuaire », **sept**
+partaient en route rapide et rendaient le registre des salariés : « C'est quoi l'annuaire ? », « l'annuaire est
+pas à jour, qui s'en occupe ? », « est-ce qu'il est relié aux fiches RH ? », « je trouve pas Amel dans
+l'annuaire, vérifie son email ». Les mêmes intentions dites SANS le mot partaient au modèle : le mot était le
+déclencheur.
+
+**Ce que le raccourci retire.** `FAST_READ` appelle la source canonique puis envoie au modèle **zéro schéma
+d'outil** et une seule consigne — reformule ce résultat. Se tromper de porte ne donne pas une lecture inutile de
+plus : cela ôte au modèle tout moyen de faire autrement, en silence.
+
+**Deux défauts, deux natures.** (1) « annuaire » vivait parmi les mots de COORDONNÉES (`adresse`, `numéro`,
+`téléphone`) et dans les mots de DEMANDE : or une coordonnée est une donnée qu'on réclame, tandis qu'« annuaire »
+est le nom du registre, donc le sujet possible de n'importe quelle phrase. Il a son propre marqueur, et la porte
+exige qu'on le DEMANDE — un mot de demande, ou une phrase qui ne dit rien d'autre (« annuaire » seul reste la
+forme la plus courante à l'oral). (2) La garde « un objet nommé rend la main » existait déjà dans le même fichier
+et ne couvrait que la boîte mail et la file de décisions : « peux-tu joindre le PDF au courrier ? » interrogeait
+l'annuaire sur une personne nommée « pdf courrier », « le numéro du dossier ANPP » sur « dossier anpp ».
+Le vocabulaire est désormais **une seule liste** lue de deux façons — avec les personnes pour la boîte, sans elles
+pour l'annuaire, dont elles sont le sujet.
+
+**Rendre la main n'est pas refuser, et c'est mesuré** : sur les dix phrases, **9/10** exposent encore
+`directory_list` ET `directory_lookup`. Le domaine OUVRE des schémas, le raccourci FERME les options : une erreur
+du premier coûte quelques jetons, une erreur du second coûte la réponse.
+
+**Fichiers** : `src/lib/assistant/voice/fast-path.ts`, banc `src/lib/assistant/voice/annuaire-porte.test.ts`
+(29 cas, 8 sabotages). Mesure : 7 phrases mal routées → 0 ; 11 formes légitimes → 11 encore rapides ; 8 faux
+positifs d'objet nommé → 0 ; 519 tests des corpus de routage existants au vert.
+
 ### ADAM APPELLE N'IMPORTE QUELLE ACTION DE L'ERP — 550 sur 715, sans une fiche écrite à la main (2026-09)
 
 **Le problème n'était pas la couverture, c'était son PRIX.** 520 déclarations d'op, 503 propose/execute, 117
