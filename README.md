@@ -5338,6 +5338,41 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
+### « IL A PAS ACCÈS À TOUT L'ERP » — 29 modules sur 43 invisibles au routage (2026-09)
+
+**Mesuré en formant la question depuis le libellé canonique de chaque module.** L'ERP déclare **43 modules**,
+Adam porte **227 outils** en 15 domaines — et **29 modules ne faisaient reconnaître AUCUN domaine**. Le
+résolveur ouvre alors « tous les domaines » et laisse le plafond du niveau borner, mais le rang se calcule sur
+la POSITION du domaine dans une liste figée dont le premier est `MAIL` : « ouvrir tout » valait donc « ouvrir les
+neuf premiers d'une liste figée ». « Combien de visites terrain ce mois-ci ? » et « quel est l'état des stocks à
+l'hôpital Mustapha ? » recevaient `gmail_search`, avec **213 outils sur 227 écartés**.
+
+**Le manque était de ROUTAGE, pas de capacité** : `field_report_operation`, `stock_operation`, `read_stock`,
+`sales_operation`, `logistics_operation`, `care_operation`, `bd_operation` existaient tous.
+
+**Ce qui est dérivé, ce qui est décidé.** Le libellé du module entre automatiquement dans le vocabulaire (un
+renommage suit sans que personne y pense) ; le domaine qui le sert est une décision déclarée **exhaustivement**
+— un module ajouté demain ne compile pas tant que personne n'a dit qui le lit — et les mots supplémentaires
+vivent à côté du module, pas dispersés dans quinze regex où un trou est invisible. La couche ne parle **que si**
+le vocabulaire existant n'a rien reconnu, et **seulement pour ouvrir des outils** : une première version
+élargissait aussi l'étiquette de route et le banc de routage l'a refusée (précision de domaine 0,9367 pour un
+plancher de 0,95, sur huit énoncés) — l'étiquette gouverne le budget de contexte et les pré-lectures, réglés sur
+ce corpus, et c'est l'ouverture des outils qui était cassée.
+
+**Ouvrir le bon domaine ne suffisait pas** : REGULATORY porte 46 outils pour 15 places, et `read_stock` tombait
+au profit d'outils plus tôt dans le registre. Le module déclare donc aussi ses outils, qui passent devant les
+autres de leur domaine, sous un cliquet d'existence — et le filtre des écritures continue de s'appliquer.
+
+**`GENERAL` portait deux sens** : « rien reconnu » pour une question, « utile partout » pour un outil. Le
+résolveur lisait le premier, donc 31 outils déclarés transverses — dont tout le corpus de connaissance et
+`my_overview` — ne pouvaient **jamais** être servis au premier tour. 17 hors des listes inconditionnelles, 12
+après ce lot, sous plancher.
+
+**Fichiers** : `src/lib/assistant/context/modules-domaines.ts` (nouveau), `context/router.ts`,
+`context/tool-resolver.ts`, banc `context/modules-erp.test.ts` (8 cas, 8 sabotages). Mesure : 29 modules sans
+domaine → 0 ; « visites terrain » → `field_report_operation` ; « état des stocks » → `read_stock` +
+`search_hospitals` ; corpus de connaissance servi pour la première fois.
+
 ### « DÈS QUE JE DIS ANNUAIRE IL ME SORT L'ANNUAIRE » — un raccourci armé sur un MOT (2026-09)
 
 **Mesuré avant d'être supposé.** Sur dix phrases ordinaires qui contiennent le mot « annuaire », **sept**

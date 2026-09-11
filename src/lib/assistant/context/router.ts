@@ -1,4 +1,5 @@
 import { CALCUL_EXPLICITE, RESEAU_EXPLICITE, contientDonneesCollees, routeVoiceUtterance, normalizeUtterance, isOutboundMail, type VoiceContext, type VoiceRouteKind } from "@/lib/assistant/voice/fast-path";
+import { signauxDesModules } from "@/lib/assistant/context/modules-domaines";
 import type { BudgetTier } from "./budget";
 
 /**
@@ -246,7 +247,21 @@ const DCI_STEM = /\b[a-z]{4,}(vir|nib|mab|ximab|zumab|prazole|sartan|statine|sta
  * compléments, donc le premier domaine est le domaine PRINCIPAL. Le résolveur s'en sert pour
  * décider ce qu'il garde en premier quand le budget serre.
  */
-export function detectDomains(text: string, known: RouterContext["knownEntities"] = []): Domain[] {
+/**
+ * LES SIGNAUX D'UNE PHRASE — construits À UN SEUL ENDROIT.
+ *
+ * `detectDomains` et `detectDomain` répondent à deux questions (« quels domaines ? » et « lequel
+ * gouverne ? ») et lisaient le même fait deux fois, à l'identique. Deux lectures du même fait
+ * finissent par diverger (§118.5), et le symptôme serait un domaine ouvert par le résolveur mais
+ * absent du routage — donc des outils servis pour une question classée ailleurs.
+ *
+ * LA COUCHE DES MODULES NE PARLE QUE SI RIEN D'AUTRE N'A PARLÉ. Elle n'arbitre jamais contre le
+ * vocabulaire écrit à la main : aucun corpus existant ne change de verdict, et l'empreinte réelle
+ * ne dépasse pas l'empreinte demandée (§118.16). Mesuré : 29 modules sur 43 ne faisaient
+ * reconnaître AUCUN domaine, et le résolveur servait alors les mêmes neuf outils — dont la boîte
+ * mail — quelle que soit la question.
+ */
+function signauxDeLaPhrase(text: string, known: RouterContext["knownEntities"] = []): { domain: Domain; at: number }[] {
   const hits: { domain: Domain; at: number }[] = DOMAIN_SIGNALS
     .map(([domain, re]) => ({ domain, at: text.search(re) }))
     .filter((h) => h.at >= 0);
@@ -256,7 +271,31 @@ export function detectDomains(text: string, known: RouterContext["knownEntities"
   }
   const dci = text.search(DCI_STEM);
   if (dci >= 0) hits.push({ domain: "REGULATORY" as Domain, at: dci });
+  return hits;
+}
 
+/**
+ * LA COUCHE DES MODULES OUVRE DES OUTILS, ELLE N'ARBITRE PAS L'ÉTIQUETTE DE ROUTE.
+ *
+ * Première version : elle était versée dans les signaux communs quand rien n'avait été reconnu,
+ * et j'ai écrit qu'« aucun corpus existant ne change de verdict ». **C'ÉTAIT FAUX, et le banc de
+ * routage l'a dit** : `domainAccuracy` est tombée à 0,9367 pour un plancher de 0,95, sur HUIT
+ * énoncés dont l'attendu était `GENERAL` — « Combien de marchés PCH en cours ? », « Combien de
+ * validations en attente ? », « Quels événements sont prévus ce trimestre ? »…
+ *
+ * Les deux lectures ne servent pas la même décision, et c'est ce que la mesure a révélé :
+ * `detectDomain` (singulier) rend l'ÉTIQUETTE de la route, qui gouverne le budget de contexte,
+ * le palier de raisonnement et les pré-lectures — réglés sur ce corpus. `detectDomains` (pluriel)
+ * décide quels OUTILS s'ouvrent, et c'est cela seul qui était cassé. Élargir la première pour
+ * réparer la seconde aurait dépassé l'empreinte demandée (§118.16), et sur une question de
+ * SYNTHÈSE (« quelle est notre stratégie sur les hôpitaux ? ») elle aurait RÉTRÉCI une route
+ * volontairement large.
+ *
+ * Le plafond du banc n'a donc pas bougé — c'est le remède qui s'est réduit (§118.114).
+ */
+export function detectDomains(text: string, known: RouterContext["knownEntities"] = []): Domain[] {
+  const hits = signauxDeLaPhrase(text, known);
+  if (hits.length === 0) hits.push(...signauxDesModules(text));
   const vus = new Set<Domain>();
   return hits
     .sort((a, b) => a.at - b.at)
@@ -265,18 +304,9 @@ export function detectDomains(text: string, known: RouterContext["knownEntities"
 }
 
 function detectDomain(text: string, known: RouterContext["knownEntities"] = []): { domain: Domain; confidence: number } {
-  const hits = DOMAIN_SIGNALS
-    .map(([domain, re]) => ({ domain, at: text.search(re) }))
-    .filter((h) => h.at >= 0);
-
   // Les entités que la base connaît passent AVANT toute heuristique : si l'entreprise sait que
-  // « ASARI » est un partenaire, aucune terminaison n'a son mot à dire.
-  for (const e of known ?? []) {
-    const at = text.indexOf(normalizeUtterance(e.name));
-    if (at >= 0 && normalizeUtterance(e.name).length >= 3) hits.push({ domain: e.domain, at });
-  }
-  const dci = text.search(DCI_STEM);
-  if (dci >= 0) hits.push({ domain: "REGULATORY" as Domain, at: dci });
+  // « ASARI » est un partenaire, aucune terminaison n'a son mot à dire. Voir `signauxDeLaPhrase`.
+  const hits = signauxDeLaPhrase(text, known);
   if (hits.length === 0) return { domain: "GENERAL", confidence: 0.3 };
   if (hits.length === 1) return { domain: hits[0].domain, confidence: 0.9 };
   // PLUSIEURS DOMAINES : on prend celui dont le mot arrive le PREMIER. En français, le sujet de

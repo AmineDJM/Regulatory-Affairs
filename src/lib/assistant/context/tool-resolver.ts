@@ -1,5 +1,6 @@
 import { estDemandeDeSurveillance, detectDomains, domainesSecondaires, nommeUnGeste, type Domain, type QueryRoute } from "./router";
 import { normalizeUtterance } from "@/lib/assistant/voice/fast-path";
+import { outilsDesModulesNommes } from "@/lib/assistant/context/modules-domaines";
 import { TOOL_DOMAINS_ALL, ALWAYS_ON, EXECUTIVE, CAPABILITIES, DISCOVERY_TOOL, descriptionDecouverte } from "./tool-shortlist";
 
 /**
@@ -231,7 +232,31 @@ export function resolveTools<T extends { name: string }>(
   const texteNormalise = normalizeUtterance(question);
   const veutEcritures = level === "B" || (level === "C" && nommeUnGeste(texteNormalise));
   for (const [nom, ds] of Object.entries(TOOL_DOMAINS_ALL)) {
-    if (!ds.some((d) => effectifs.includes(d))) continue;
+    // UN OUTIL DÉCLARÉ TRANSVERSE EST TRANSVERSE — et il ne l'était pour personne.
+    //
+    // `GENERAL` porte DEUX sens dans ce système, et c'est le défaut : sur une QUESTION il veut
+    // dire « le routeur n'a rien reconnu », sur un OUTIL il veut dire « utile partout, donc
+    // rattaché à GENERAL » (le commentaire de `TOOL_DOMAINS` l'écrit en ces termes). La liste
+    // des domaines de la question est filtrée de `GENERAL` — à raison — puis confrontée aux
+    // domaines des outils : un outil déclaré transverse ne pouvait donc JAMAIS correspondre.
+    //
+    // Mesuré : 31 outils sont déclarés `["GENERAL"]` et rien d'autre, dont 17 hors des listes
+    // inconditionnelles — c'est-à-dire JAMAIS dans une liste de premier tour, quelle que soit la
+    // question. Parmi eux : `recall_conversation`, `episodic_recall`, `list_memories` (Adam
+    // écrit un souvenir — `remember` est au socle — et ne peut pas le relire), tout le corpus de
+    // connaissance (`search_knowledge_corpus`, `read_corpus_document`, `list_corpus_sources`),
+    // `my_overview`, `export_excel`, `create_report`, `action_plan`, `bulk_action` et
+    // `capability_operation` — dont le commentaire dit explicitement qu'il « ne relève d'aucun
+    // domaine par construction » et que « le ranger dans un domaine le rendrait invisible ».
+    // L'intention était juste ; c'est sa LECTURE qui l'annulait.
+    //
+    // Ce que la correction ne fait PAS : leur donner un siège garanti. Ils entrent dans les
+    // candidats, et le rang les place APRÈS les outils du domaine — le plafond les écarte donc
+    // en premier quand il serre, ce qui préserve l'économie mesurée du niveau A. Deux listes
+    // pour la même intention (ici `ALWAYS_ON` sauvait huit transverses sur vingt-cinq) finissent
+    // toujours par diverger (§118.5).
+    const transverse = ds.length > 0 && ds.every((d) => d === "GENERAL");
+    if (!transverse && !ds.some((d) => effectifs.includes(d))) continue;
     if (!veutEcritures && estEcriture(nom, ecritures)) continue;
     garde.add(nom);
   }
@@ -242,6 +267,21 @@ export function resolveTools<T extends { name: string }>(
   // deux ; un geste qui dépend du tirage n'est pas un geste.
   const surveillance = estDemandeDeSurveillance(texteNormalise);
   if (surveillance) for (const n of OUTILS_SURVEILLANCE) garde.add(n);
+
+  // L'OUTIL DU MODULE QUE LA PHRASE NOMME PASSE DEVANT LES AUTRES DU MÊME DOMAINE.
+  //
+  // Ouvrir le bon domaine ne suffit pas : REGULATORY porte 46 outils pour 15 places au niveau A,
+  // et « l'état des stocks à l'hôpital Mustapha » recevait `regulatory_portfolio` et `product_360`
+  // pendant que `read_stock` tombait — non pas par manque de place au sens utile, mais parce que
+  // le rang à l'intérieur d'un domaine est l'ORDRE DU REGISTRE. Même mécanisme que la
+  // surveillance juste au-dessus, et même raison : un geste qui dépend du tirage n'est pas un
+  // geste. Le filtre des ÉCRITURES reste appliqué — nommer un module n'ouvre pas ses gestes à
+  // une question qui ne fait que lire.
+  const outilsDuModule = new Set(outilsDesModulesNommes(texteNormalise));
+  for (const n of outilsDuModule) {
+    if (!veutEcritures && estEcriture(n, ecritures)) continue;
+    garde.add(n);
+  }
 
   // CE QUE LA CONSIGNE DU TOUR NOMME PASSE. Une écriture nommée l'est par une consigne dont le
   // rôle EST de nommer le geste (`nativeActionHint`) : la filtrer ici rétablirait le défaut à
@@ -270,6 +310,8 @@ export function resolveTools<T extends { name: string }>(
     // raccourci existait. Voir `CAPABILITIES` dans `tool-shortlist.ts`.
     if (i >= 0 && (CAPABILITIES as readonly string[]).includes(nom)) return 0.5;
     if (surveillance && (OUTILS_SURVEILLANCE as readonly string[]).includes(nom)) return 0.5;
+    // L'outil du module nommé : après le socle et les capacités, devant tout son domaine.
+    if (outilsDuModule.has(nom)) return 0.6;
     // UN B NOMME SON GESTE : les ÉCRITURES du domaine principal sont la raison même du niveau.
     // Au même rang que ses lectures, elles tombaient les dernières (l'ordre du registre met les
     // lectures avant) dès qu'une lecture de plus entrait dans le domaine — le banc l'a montré le
@@ -279,6 +321,9 @@ export function resolveTools<T extends { name: string }>(
     if (i === 0 && veutEcritures && estEcriture(nom, ecritures)) return 0.9;
     if (i === 0) return 1;
     if (i > 0) return 1 + i;
+    // UN TRANSVERSE PASSE APRÈS TOUS LES DOMAINES ET AVANT LA HAUTEUR : il aide sur n'importe
+    // quelle question, donc jamais devant l'outil qui répond à CELLE-CI.
+    if (ds.length > 0 && ds.every((d) => d === "GENERAL")) return 80;
     return EXECUTIVE.includes(nom) ? 90 : 99;
   };
 
