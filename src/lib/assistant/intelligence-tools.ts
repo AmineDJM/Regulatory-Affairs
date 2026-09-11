@@ -71,6 +71,10 @@ function reponse(user: Acteur, outil: string, l: LectureIntelligence, input: Rec
     filtre: [filtreGravite ? `gravité ${LIBELLE_GRAVITE[filtreGravite]}` : null, code ? `code ${code}` : null].filter(Boolean).join(" · ") || "tout",
     signaux: retenus.slice(0, limite).map((s) => ({
       gravite: s.gravite, code: s.code, titre: s.titre, detail: s.detail, calcul: s.calcul ?? null, echeance: s.echeance ?? null,
+      // LE MARQUEUR VOYAGE AVEC LE SIGNAL. Sans cette ligne, `lireSignauxDeSortie` relirait des
+      // signaux dont le geste déclaré a disparu en route, et le tour ne proposerait jamais rien —
+      // le mécanisme serait écrit, testé, et sans effet en production (§118.14).
+      ...(s.tache ? { tache: true as const } : {}),
       montant: s.montant != null ? Math.round(s.montant) : null, entite: s.entite ?? null, fiche: s.href ?? null, aFaire: s.action ?? null,
     })),
     parEntite: [...parEntite.values()].slice(0, 80),
@@ -154,3 +158,50 @@ export const INTELLIGENCE_TOOLS: PowerTool[] = [
     run: async (input, user) => reponse(user, "finance_intelligence", await signauxFinance(user, { horizonJours: num(input, "horizonJours", 30, 1, 180) }), input),
   },
 ];
+
+/**
+ * LA LECTURE, À CÔTÉ DE SON ÉCRITURE — pour que le tour retrouve ses signaux.
+ *
+ * Le geste déclaré (§118.126) est décidé par du code PUR (`gesteDuTour`), qui a besoin des
+ * signaux STRUCTURÉS ; la boucle, elle, ne garde que la chaîne JSON que `reponse` a écrite.
+ * Deux issues : faire remonter les signaux par un canal parallèle, ou relire la sortie. La
+ * première créerait une seconde vérité sur « ce que ce tour a lu », et c'est celle qui prendrait
+ * du retard au premier champ ajouté (§118.5). La seconde est sûre à UNE condition : que le
+ * lecteur vive DANS le fichier qui écrit, donc que les deux bougent ensemble.
+ *
+ * Il ne jette jamais : une sortie qui n'est pas la nôtre, un JSON illisible, une forme
+ * inattendue rendent une liste VIDE — et une liste vide ne propose rien (§118.16).
+ */
+export function lireSignauxDeSortie(sortie: string): Signal[] {
+  if (!sortie.startsWith("{") || !sortie.includes('"signaux"')) return [];
+  try {
+    const objet = JSON.parse(sortie) as { signaux?: unknown };
+    if (!Array.isArray(objet.signaux)) return [];
+    return objet.signaux.flatMap((brut) => {
+      if (!brut || typeof brut !== "object") return [];
+      const f = brut as Record<string, unknown>;
+      if (typeof f.code !== "string" || typeof f.gravite !== "string" || typeof f.titre !== "string") return [];
+      return [{
+        code: f.code,
+        gravite: f.gravite as Signal["gravite"],
+        titre: f.titre,
+        detail: typeof f.detail === "string" ? f.detail : "",
+        ...(typeof f.calcul === "string" ? { calcul: f.calcul } : {}),
+        ...(typeof f.echeance === "string" ? { echeance: f.echeance } : {}),
+        ...(typeof f.montant === "number" ? { montant: f.montant } : {}),
+        ...(f.entite && typeof f.entite === "object" ? { entite: f.entite as Signal["entite"] } : {}),
+        // LES DEUX NOMS QUI DIFFÈRENT — et c'était la cause de ZÉRO carte (§118.127).
+        // La sortie est écrite pour le MODÈLE, qui lit du français : `action` y devient `aFaire`
+        // et `href` y devient `fiche`. Le prédicat d'avant s'écrivait `(s): s is Signal` sur
+        // trois `typeof` et AFFIRMAIT donc un type qu'il ne prouvait pas : tout signal relu
+        // portait `action: undefined`, et `gesteDuTour` les refusait TOUS — marqueur posé ou non.
+        // On TRADUIT champ par champ (§118.34), et plus aucun cast n'affirme plus qu'il ne lit.
+        ...(typeof f.aFaire === "string" && f.aFaire.length > 0 ? { action: f.aFaire } : {}),
+        ...(typeof f.fiche === "string" ? { href: f.fiche } : {}),
+        ...(f.tache === true ? { tache: true as const } : {}),
+      } satisfies Signal];
+    });
+  } catch {
+    return [];
+  }
+}

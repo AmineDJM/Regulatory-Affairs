@@ -35,7 +35,12 @@ import { toNumber } from "@/lib/utils";
 import type { PaymentRequestStatus, RegDossierStatus } from "@prisma/client";
 import { graviteParJours, isoJour, joursEntre, resumerSignaux, trierSignaux, type DomaineSignal, type Gravite, type Signal } from "@/lib/utils/signaux";
 
-export { LIBELLE_GRAVITE, RANG_GRAVITE, resumerSignaux, trierSignaux, type DomaineSignal, type Gravite, type Signal } from "@/lib/utils/signaux";
+// Le PONT réexporte le vocabulaire du socle pour qu'Adam le consomme sans traverser la
+// frontière — `gesteDuTour` et `isoJour` rejoignent la liste pour le prochain geste (§118.126) :
+// le cliquet a compté 429 pour un plafond de 428 sur un import direct depuis `lib/assistant.ts`,
+// et le remède n'est jamais de relever le plafond (§118.72, §118.114) — c'est de passer par la
+// porte qui existe déjà, celle que `intelligence-tools.ts` emprunte depuis le début.
+export { LIBELLE_GRAVITE, RANG_GRAVITE, gesteDuTour, isoJour, resumerSignaux, trierSignaux, type DomaineSignal, type GesteDuSignal, type Gravite, type Signal } from "@/lib/utils/signaux";
 export { LIBELLE_CLAUSE, type Clause, type Obligation, type TypeClause } from "@/lib/legal/clauses";
 
 // ─────────────────────────── Droits — la même porte que l'écran ───────────────────────────
@@ -156,7 +161,7 @@ export async function signauxLegal(user: SessionUser, opts: { horizonJours?: num
 
     if (gEch && jours !== null && jours <= horizon) {
       if (niveau === "OVERDUE") {
-        signaux.push({ domaine: "LEGAL", code: "contrat_echu_actif", gravite: "CRITIQUE", titre: `Échéance dépassée, toujours « en vigueur » : ${nom(d)}`, detail: `Fin le ${isoJour(d.endDate as Date)}, il y a ${-jours} j — à basculer (expiré, renouvelé) ou à prolonger.`, calcul: `fin − aujourd'hui = ${jours} j`, echeance: isoJour(d.endDate as Date), montant: toNumber(d.amount) || null, entite: ent, href, action: "Mettre à jour le statut ou enregistrer le renouvellement." });
+        signaux.push({ domaine: "LEGAL", code: "contrat_echu_actif", gravite: "CRITIQUE", titre: `Échéance dépassée, toujours « en vigueur » : ${nom(d)}`, detail: `Fin le ${isoJour(d.endDate as Date)}, il y a ${-jours} j — à basculer (expiré, renouvelé) ou à prolonger.`, calcul: `fin − aujourd'hui = ${jours} j`, echeance: isoJour(d.endDate as Date), montant: toNumber(d.amount) || null, entite: ent, href, action: "Mettre à jour le statut ou enregistrer le renouvellement.", tache: true });
       } else if (!tacite) {
         signaux.push({ domaine: "LEGAL", code: "contrat_echeance", gravite: gEch, titre: `Échéance dans ${jours} j : ${nom(d)}`, detail: `Fin le ${isoJour(d.endDate as Date)}${clauses.length ? "" : " — texte non indexé : préavis et reconduction inconnus"}.`, calcul: `fin − aujourd'hui = ${jours} j`, echeance: isoJour(d.endDate as Date), montant: toNumber(d.amount) || null, entite: ent, href, action: "Décider : renouveler, renégocier ou laisser expirer." });
       }
@@ -165,13 +170,13 @@ export async function signauxLegal(user: SessionUser, opts: { horizonJours?: num
       if (denonciation.echeance) {
         const jd = joursSignes(now, new Date(denonciation.echeance));
         if (jd < 0 && (jours ?? 0) >= 0) {
-          signaux.push({ domaine: "LEGAL", code: "reconduction_acquise", gravite: "HAUTE", titre: `Délai de dénonciation passé : ${nom(d)}`, detail: `${denonciation.libelle} — date limite ${denonciation.echeance} (il y a ${-jd} j). ${denonciation.sinon}`, calcul: `fin ${isoJour(d.endDate)} − préavis = ${denonciation.echeance}`, echeance: denonciation.echeance, entite: ent, href, action: "Vérifier si la dénonciation a été notifiée ; sinon la reconduction s'applique." });
+          signaux.push({ domaine: "LEGAL", code: "reconduction_acquise", gravite: "HAUTE", titre: `Délai de dénonciation passé : ${nom(d)}`, detail: `${denonciation.libelle} — date limite ${denonciation.echeance} (il y a ${-jd} j). ${denonciation.sinon}`, calcul: `fin ${isoJour(d.endDate)} − préavis = ${denonciation.echeance}`, echeance: denonciation.echeance, entite: ent, href, action: "Vérifier si la dénonciation a été notifiée ; sinon la reconduction s'applique.", tache: true });
         } else if (jd >= 0 && jd <= horizon) {
           signaux.push({ domaine: "LEGAL", code: "denonciation_a_decider", gravite: graviteParJours(jd, { haute: 14, normale: 45 }), titre: `Dénoncer ou reconduire dans ${jd} j : ${nom(d)}`, detail: `${denonciation.libelle}. ${denonciation.sinon}`, calcul: `fin ${isoJour(d.endDate)} − préavis = ${denonciation.echeance}`, echeance: denonciation.echeance, entite: ent, href, action: "Décision à prendre AVANT la date limite de dénonciation, pas avant la fin du contrat." });
         }
       }
     } else if (tacite && d.endDate && jours !== null && jours >= 0 && jours <= horizon) {
-      signaux.push({ domaine: "LEGAL", code: "tacite_sans_preavis", gravite: "HAUTE", titre: `Reconduction tacite sans préavis lisible : ${nom(d)}`, detail: `Le contrat se reconduit tacitement et le texte ne donne pas de préavis chiffré : la date limite de dénonciation est inconnue.`, calcul: "clause RENOUVELLEMENT tacite ∧ ¬PREAVIS", echeance: isoJour(d.endDate), entite: ent, href, action: "Relire la clause de dénonciation avec le juriste." });
+      signaux.push({ domaine: "LEGAL", code: "tacite_sans_preavis", gravite: "HAUTE", titre: `Reconduction tacite sans préavis lisible : ${nom(d)}`, detail: `Le contrat se reconduit tacitement et le texte ne donne pas de préavis chiffré : la date limite de dénonciation est inconnue.`, calcul: "clause RENOUVELLEMENT tacite ∧ ¬PREAVIS", echeance: isoJour(d.endDate), entite: ent, href, action: "Relire la clause de dénonciation avec le juriste.", tache: true });
     }
     // Les obligations APRÈS TERME (confidentialité, non-concurrence, exclusivité) : elles comptent dès
     // que la fin du contrat entre dans l'horizon, et tant qu'elles courent — pas seulement à leur propre terme.
@@ -283,7 +288,7 @@ export async function signauxFinance(user: SessionUser, opts: { horizonJours?: n
       ], now, horizon).map((s) => (s.entite?.type === "PaymentRequest" && ordres.some((o) => o.id === s.entite?.id) ? { ...s, entite: { ...s.entite, type: "ExpenseOrder" }, href: `/finances/ordres-de-depense?ref=${encodeURIComponent(s.entite.ref ?? "")}` } : s)));
       for (const f of facturesSansBc) {
         const j = joursEntre(f.createdAt, now);
-        signaux.push({ domaine: "FINANCE", code: "facture_sans_bc", gravite: j > 30 ? "NORMALE" : "BASSE", titre: `Facture sans bon de commande : ${f.reference ?? f.title}`, detail: `${f.title}${f.counterparty ? ` (${f.counterparty})` : ""}, déposée il y a ${j} j, sans BC chaîné ni ordre de dépense.`, calcul: "kind = INVOICE ∧ chainFrom = ∅ ∧ ordre = ∅", montant: toNumber(f.amount) || null, entite: { type: "LegalDocument", id: f.id, ref: f.reference }, href: `/legal/${f.id}`, action: "Chaîner la facture à son BC, ou justifier l'achat sans commande." });
+        signaux.push({ domaine: "FINANCE", code: "facture_sans_bc", gravite: j > 30 ? "NORMALE" : "BASSE", titre: `Facture sans bon de commande : ${f.reference ?? f.title}`, detail: `${f.title}${f.counterparty ? ` (${f.counterparty})` : ""}, déposée il y a ${j} j, sans BC chaîné ni ordre de dépense.`, calcul: "kind = INVOICE ∧ chainFrom = ∅ ∧ ordre = ∅", montant: toNumber(f.amount) || null, entite: { type: "LegalDocument", id: f.id, ref: f.reference }, href: `/legal/${f.id}`, action: "Chaîner la facture à son BC, ou justifier l'achat sans commande.", tache: true });
       }
       for (const b of bcSansFacture) {
         const j = joursEntre(b.createdAt, now);
@@ -292,7 +297,7 @@ export async function signauxFinance(user: SessionUser, opts: { horizonJours?: n
       for (const f of facturesChainees) {
         const ecart = amountDrift(toNumber(f.chainFrom?.amount), toNumber(f.amount));
         if (ecart === null || Math.abs(ecart) <= 0.1) continue;
-        signaux.push({ domaine: "FINANCE", code: "ecart_facture_bc", gravite: Math.abs(ecart) > 0.25 ? "HAUTE" : "NORMALE", titre: `Facture ${ecart > 0 ? "supérieure" : "inférieure"} de ${Math.round(Math.abs(ecart) * 100)} % à son ${f.chainFrom?.kind === "QUOTE" ? "devis" : "BC"} : ${f.reference ?? f.title}`, detail: `${fr(toNumber(f.amount))} DZD facturés pour ${fr(toNumber(f.chainFrom?.amount))} DZD ${f.chainFrom?.kind === "QUOTE" ? "au devis" : "commandés"} (${f.chainFrom?.reference ?? ""}).`, calcul: `(facture − amont) / amont = ${(ecart * 100).toFixed(1)} %`, montant: toNumber(f.amount) - toNumber(f.chainFrom?.amount), entite: { type: "LegalDocument", id: f.id, ref: f.reference }, href: `/legal/${f.id}`, action: "Faire justifier l'écart avant règlement." });
+        signaux.push({ domaine: "FINANCE", code: "ecart_facture_bc", gravite: Math.abs(ecart) > 0.25 ? "HAUTE" : "NORMALE", titre: `Facture ${ecart > 0 ? "supérieure" : "inférieure"} de ${Math.round(Math.abs(ecart) * 100)} % à son ${f.chainFrom?.kind === "QUOTE" ? "devis" : "BC"} : ${f.reference ?? f.title}`, detail: `${fr(toNumber(f.amount))} DZD facturés pour ${fr(toNumber(f.chainFrom?.amount))} DZD ${f.chainFrom?.kind === "QUOTE" ? "au devis" : "commandés"} (${f.chainFrom?.reference ?? ""}).`, calcul: `(facture − amont) / amont = ${(ecart * 100).toFixed(1)} %`, montant: toNumber(f.amount) - toNumber(f.chainFrom?.amount), entite: { type: "LegalDocument", id: f.id, ref: f.reference }, href: `/legal/${f.id}`, action: "Faire justifier l'écart avant règlement.", tache: true });
       }
     })()
     : Promise.resolve(void notes.push("ordres, demandes de paiement et factures non lus : sans droit sur le module Finances"));
@@ -343,7 +348,7 @@ export async function signauxRegulatory(user: SessionUser, opts: { horizonJours?
     const nom = `${p.reference} — ${p.brandName ?? p.dci}`;
     const ent = { type: "RegulatoryProduct", id: p.id, ref: p.reference };
     const href = `/regulatory/${p.id}`;
-    if (p.status === "BLOCKED") signaux.push({ domaine: "REGULATORY", code: "dossier_bloque", gravite: "HAUTE", titre: `Dossier bloqué : ${nom}`, detail: `Statut « bloqué » depuis la mise à jour du ${isoJour(p.updatedAt)}.`, calcul: "status = BLOCKED", entite: ent, href, action: "Nommer le blocage et son propriétaire." });
+    if (p.status === "BLOCKED") signaux.push({ domaine: "REGULATORY", code: "dossier_bloque", gravite: "HAUTE", titre: `Dossier bloqué : ${nom}`, detail: `Statut « bloqué » depuis la mise à jour du ${isoJour(p.updatedAt)}.`, calcul: "status = BLOCKED", entite: ent, href, action: "Nommer le blocage et son propriétaire.", tache: true });
     for (const s of p.steps) {
       if (s.status === "DONE") continue;
       const etape = String(s.type).replace(/_/g, " ").toLowerCase();
@@ -351,19 +356,19 @@ export async function signauxRegulatory(user: SessionUser, opts: { horizonJours?
       const retard = s.plannedDate ? joursEntre(s.plannedDate, now) : null;
       if (s.status === "LATE" || (retard !== null && retard > 0)) {
         const j = retard ?? 0;
-        signaux.push({ domaine: "REGULATORY", code: "etape_en_retard", gravite: j > 30 ? "HAUTE" : "NORMALE", titre: `Étape en retard${j > 0 ? ` de ${j} j` : ""} — ${etape} : ${nom}`, detail: `Prévue le ${s.plannedDate ? isoJour(s.plannedDate) : "—"}, toujours « ${s.status === "LATE" ? "en retard" : s.status === "IN_PROGRESS" ? "en cours" : "non commencée"} ».${s.missingDocs ? ` Pièces manquantes : ${tronquer(s.missingDocs, 160)}.` : ""}`, calcul: s.plannedDate ? `aujourd'hui − prévue = ${j} j` : "step.status = LATE", echeance: s.plannedDate ? isoJour(s.plannedDate) : null, entite: ent, href, action: s.missingDocs ? "Obtenir les pièces manquantes, puis refixer la date." : "Refixer la date ou lever ce qui retient l'étape." });
+        signaux.push({ domaine: "REGULATORY", code: "etape_en_retard", gravite: j > 30 ? "HAUTE" : "NORMALE", titre: `Étape en retard${j > 0 ? ` de ${j} j` : ""} — ${etape} : ${nom}`, detail: `Prévue le ${s.plannedDate ? isoJour(s.plannedDate) : "—"}, toujours « ${s.status === "LATE" ? "en retard" : s.status === "IN_PROGRESS" ? "en cours" : "non commencée"} ».${s.missingDocs ? ` Pièces manquantes : ${tronquer(s.missingDocs, 160)}.` : ""}`, calcul: s.plannedDate ? `aujourd'hui − prévue = ${j} j` : "step.status = LATE", echeance: s.plannedDate ? isoJour(s.plannedDate) : null, entite: ent, href, action: s.missingDocs ? "Obtenir les pièces manquantes, puis refixer la date." : "Refixer la date ou lever ce qui retient l'étape.", tache: true });
       } else if (s.status !== "BLOCKED" && s.missingDocs) {
-        signaux.push({ domaine: "REGULATORY", code: "pieces_manquantes", gravite: "NORMALE", titre: `Pièces manquantes — ${etape} : ${nom}`, detail: tronquer(s.missingDocs, 200), calcul: "step.missingDocs ≠ ∅", echeance: s.plannedDate ? isoJour(s.plannedDate) : null, entite: ent, href, action: "Demander les pièces au partenaire (boucle fournisseur)." });
+        signaux.push({ domaine: "REGULATORY", code: "pieces_manquantes", gravite: "NORMALE", titre: `Pièces manquantes — ${etape} : ${nom}`, detail: tronquer(s.missingDocs, 200), calcul: "step.missingDocs ≠ ∅", echeance: s.plannedDate ? isoJour(s.plannedDate) : null, entite: ent, href, action: "Demander les pièces au partenaire (boucle fournisseur).", tache: true });
       }
     }
     if (p.targetSubmissionDate && (p.status === "PRE_SUBMISSION" || p.status === "IN_PREPARATION")) {
       const j = joursSignes(now, p.targetSubmissionDate);
-      if (j < 0) signaux.push({ domaine: "REGULATORY", code: "depot_en_retard", gravite: "HAUTE", titre: `Dépôt en retard de ${-j} j : ${nom}`, detail: `Date cible de dépôt ${isoJour(p.targetSubmissionDate)}, dossier encore « ${LIBELLE_STATUT[p.status] ?? p.status} ».`, calcul: `cible − aujourd'hui = ${j} j`, echeance: isoJour(p.targetSubmissionDate), entite: ent, href, action: "Refixer la cible ou lever ce qui retient le dépôt." });
+      if (j < 0) signaux.push({ domaine: "REGULATORY", code: "depot_en_retard", gravite: "HAUTE", titre: `Dépôt en retard de ${-j} j : ${nom}`, detail: `Date cible de dépôt ${isoJour(p.targetSubmissionDate)}, dossier encore « ${LIBELLE_STATUT[p.status] ?? p.status} ».`, calcul: `cible − aujourd'hui = ${j} j`, echeance: isoJour(p.targetSubmissionDate), entite: ent, href, action: "Refixer la cible ou lever ce qui retient le dépôt.", tache: true });
       else if (j <= horizon) signaux.push({ domaine: "REGULATORY", code: "depot_proche", gravite: graviteParJours(j, { haute: 7, normale: horizon }), titre: `Dépôt cible dans ${j} j : ${nom}`, detail: `Dossier « ${LIBELLE_STATUT[p.status] ?? p.status} », ${p.steps.filter((s) => s.status !== "DONE").length} étape(s) restante(s).`, calcul: `cible − aujourd'hui = ${j} j`, echeance: isoJour(p.targetSubmissionDate), entite: ent, href });
     }
     if (p.externalDeadline && p.externalActionExpected) {
       const j = joursSignes(now, p.externalDeadline);
-      if (j < 0) signaux.push({ domaine: "REGULATORY", code: "fournisseur_en_retard", gravite: "HAUTE", titre: `Partenaire en retard de ${-j} j : ${nom}`, detail: `Attendu : ${tronquer(p.externalActionExpected, 160)}${p.partnerLab ? ` (${p.partnerLab})` : ""}, pour le ${isoJour(p.externalDeadline)}.`, calcul: `échéance partenaire − aujourd'hui = ${j} j`, echeance: isoJour(p.externalDeadline), entite: ent, href, action: "Relancer le partenaire — jamais automatiquement." });
+      if (j < 0) signaux.push({ domaine: "REGULATORY", code: "fournisseur_en_retard", gravite: "HAUTE", titre: `Partenaire en retard de ${-j} j : ${nom}`, detail: `Attendu : ${tronquer(p.externalActionExpected, 160)}${p.partnerLab ? ` (${p.partnerLab})` : ""}, pour le ${isoJour(p.externalDeadline)}.`, calcul: `échéance partenaire − aujourd'hui = ${j} j`, echeance: isoJour(p.externalDeadline), entite: ent, href, action: "Relancer le partenaire — jamais automatiquement.", tache: true });
       else if (j <= 7) signaux.push({ domaine: "REGULATORY", code: "fournisseur_echeance", gravite: "NORMALE", titre: `Partenaire attendu dans ${j} j : ${nom}`, detail: tronquer(p.externalActionExpected, 160), calcul: `échéance partenaire − aujourd'hui = ${j} j`, echeance: isoJour(p.externalDeadline), entite: ent, href });
     }
     if (p.status === "RESPONDING_TO_QUERIES") {
@@ -374,7 +379,7 @@ export async function signauxRegulatory(user: SessionUser, opts: { horizonJours?
       }
     }
     const inactif = joursEntre(p.updatedAt, now);
-    if (inactif >= SANS_ACTIVITE_JOURS) signaux.push({ domaine: "REGULATORY", code: "dossier_sans_activite", gravite: "BASSE", titre: `Sans activité depuis ${inactif} j : ${nom}`, detail: `Statut « ${LIBELLE_STATUT[p.status] ?? p.status} », dernière mise à jour ${isoJour(p.updatedAt)}.`, calcul: `aujourd'hui − updatedAt = ${inactif} j ≥ ${SANS_ACTIVITE_JOURS}`, entite: ent, href, action: "Demander une mise à jour de statut au responsable." });
+    if (inactif >= SANS_ACTIVITE_JOURS) signaux.push({ domaine: "REGULATORY", code: "dossier_sans_activite", gravite: "BASSE", titre: `Sans activité depuis ${inactif} j : ${nom}`, detail: `Statut « ${LIBELLE_STATUT[p.status] ?? p.status} », dernière mise à jour ${isoJour(p.updatedAt)}.`, calcul: `aujourd'hui − updatedAt = ${inactif} j ≥ ${SANS_ACTIVITE_JOURS}`, entite: ent, href, action: "Demander une mise à jour de statut au responsable.", tache: true });
   }
 
   // LES DOSSIERS DE L'ESPACE D'ANALYSE (CTD) : bloqueurs de soumission, réserves ouvertes, fournisseurs, obligations.
@@ -401,17 +406,17 @@ export async function signauxRegulatory(user: SessionUser, opts: { horizonJours?
         const href = `/regulatory/enregistrement/analyse/${d.id}`;
         if (d.status === "ERROR") signaux.push({ domaine: "REGULATORY", code: "dossier_en_erreur", gravite: "HAUTE", titre: `Analyse en erreur : ${nom}`, detail: "Le pipeline d'analyse s'est arrêté sur une erreur ; le dossier n'avance plus.", calcul: "status = ERROR", entite: ent, href, action: "Relancer l'analyse." });
         const r = pret.get(d.id);
-        if (r && r.openBlockers.length) signaux.push({ domaine: "REGULATORY", code: "bloqueurs_soumission", gravite: "HAUTE", titre: `${r.openBlockers.length} bloqueur(s) de soumission : ${nom}`, detail: tronquer(r.openBlockers.map((b) => b.title).join(" ; "), 240), calcul: `constats CRITICAL bloquants ouverts = ${r.openBlockers.length}${r.completeness !== null ? `, complétude ${Math.round(r.completeness)} %` : ""}`, entite: ent, href, action: "Lever chaque bloqueur (correction ou dérogation justifiée) avant le dépôt." });
+        if (r && r.openBlockers.length) signaux.push({ domaine: "REGULATORY", code: "bloqueurs_soumission", gravite: "HAUTE", titre: `${r.openBlockers.length} bloqueur(s) de soumission : ${nom}`, detail: tronquer(r.openBlockers.map((b) => b.title).join(" ; "), 240), calcul: `constats CRITICAL bloquants ouverts = ${r.openBlockers.length}${r.completeness !== null ? `, complétude ${Math.round(r.completeness)} %` : ""}`, entite: ent, href, action: "Lever chaque bloqueur (correction ou dérogation justifiée) avant le dépôt.", tache: true });
         for (const c of d.reserveCycles) {
           const j = joursEntre(c.receivedAt, now);
-          signaux.push({ domaine: "REGULATORY", code: "reserves_sans_reponse", gravite: j > 30 ? "HAUTE" : "NORMALE", titre: `Réserves (cycle ${c.cycle}) sans réponse depuis ${j} j : ${nom}`, detail: `${c.reserveType ?? "Réserves"} reçues le ${isoJour(c.receivedAt)}.`, calcul: `aujourd'hui − réception = ${j} j`, entite: ent, href, action: "Préparer la réponse point par point." });
+          signaux.push({ domaine: "REGULATORY", code: "reserves_sans_reponse", gravite: j > 30 ? "HAUTE" : "NORMALE", titre: `Réserves (cycle ${c.cycle}) sans réponse depuis ${j} j : ${nom}`, detail: `${c.reserveType ?? "Réserves"} reçues le ${isoJour(c.receivedAt)}.`, calcul: `aujourd'hui − réception = ${j} j`, entite: ent, href, action: "Préparer la réponse point par point.", tache: true });
         }
         for (const s of d.supplierRequests) {
           if (s.deadline && s.deadline < now) {
             const j = joursEntre(s.deadline, now);
-            signaux.push({ domaine: "REGULATORY", code: "fournisseur_sans_reponse", gravite: "HAUTE", titre: `Fournisseur en retard de ${j} j : ${nom}`, detail: `${s.subject}${s.supplierName ? ` (${s.supplierName})` : ""}, échéance ${isoJour(s.deadline)}${s.remindedAt ? `, relancé le ${isoJour(s.remindedAt)}` : ", jamais relancé"}.`, calcul: `aujourd'hui − échéance = ${j} j`, echeance: isoJour(s.deadline), entite: ent, href, action: s.remindedAt ? "Escalader au partenaire." : "Relancer (brouillon prêt, envoi humain)." });
+            signaux.push({ domaine: "REGULATORY", code: "fournisseur_sans_reponse", gravite: "HAUTE", titre: `Fournisseur en retard de ${j} j : ${nom}`, detail: `${s.subject}${s.supplierName ? ` (${s.supplierName})` : ""}, échéance ${isoJour(s.deadline)}${s.remindedAt ? `, relancé le ${isoJour(s.remindedAt)}` : ", jamais relancé"}.`, calcul: `aujourd'hui − échéance = ${j} j`, echeance: isoJour(s.deadline), entite: ent, href, action: s.remindedAt ? "Escalader au partenaire." : "Relancer (brouillon prêt, envoi humain).", tache: true });
           } else if (!s.deadline && s.sentAt && joursEntre(s.sentAt, now) >= 14 && !s.remindedAt) {
-            signaux.push({ domaine: "REGULATORY", code: "relance_fournisseur", gravite: "NORMALE", titre: `Demande fournisseur sans réponse depuis ${joursEntre(s.sentAt, now)} j : ${nom}`, detail: `${s.subject}${s.supplierName ? ` (${s.supplierName})` : ""}, envoyée le ${isoJour(s.sentAt)}, sans échéance ni relance.`, calcul: "envoyée ≥ 14 j ∧ ¬relancée", entite: ent, href, action: "Relancer avec une échéance." });
+            signaux.push({ domaine: "REGULATORY", code: "relance_fournisseur", gravite: "NORMALE", titre: `Demande fournisseur sans réponse depuis ${joursEntre(s.sentAt, now)} j : ${nom}`, detail: `${s.subject}${s.supplierName ? ` (${s.supplierName})` : ""}, envoyée le ${isoJour(s.sentAt)}, sans échéance ni relance.`, calcul: "envoyée ≥ 14 j ∧ ¬relancée", entite: ent, href, action: "Relancer avec une échéance.", tache: true });
           }
         }
         for (const o of d.obligations) {

@@ -65,7 +65,15 @@ async function main() {
         if (e.type === "workspace") blocs.push(String((e as { blocks?: unknown[] }).blocks?.length ?? "?"));
       }, {});
       reponse = r.reply ?? "";
-      props = (r.proposals ?? []).map((p) => p.title);
+      // LE DÉTAIL DE LA CARTE, pas seulement son titre : « Créer une tâche » ne dit pas SUR QUOI,
+      // et une carte qui porte le bon titre avec la mauvaise cible est le défaut le plus coûteux
+      // de tout ce produit (§104.7). On imprime ce que la personne LIRA avant de cliquer.
+      props = (r.proposals ?? []).map((p) => {
+        const champs = Object.entries((p.payload ?? {}) as Record<string, unknown>)
+          .filter(([, v]) => v !== null && v !== undefined && v !== "")
+          .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`);
+        return [p.title, ...champs.map((c) => "      · " + c), ...(p.warnings ?? []).map((w) => "      ⚠ " + w)].join("\n");
+      });
       return { resume: summarize(trace), outils: trace.tools.map((t) => t.name), refus: trace.refus, appels: trace.calls.map((c) => ({ m: c.model, e: c.inputTokens, cache: c.cachedInputTokens, s: c.outputTokens, cout: c.costUsd })) };
     });
     const ms = Date.now() - t0;
@@ -81,7 +89,7 @@ async function main() {
       console.log(`    #${String(i + 1).padStart(2)} ${String(a.m).padEnd(22)} entrée ${String(a.e).padStart(7)} (cache ${String(a.cache).padStart(7)} = ${String(part).padStart(3)}%) sortie ${String(a.s).padStart(5)} ${a.cout == null ? "—" : "$" + a.cout.toFixed(4)}`);
     }
     if (blocs.length) console.log(`  BLOCS D'ÉCRAN : ${blocs.join(", ")}`);
-    if (props.length) console.log(`  PROPOSITIONS : ${props.join(" | ")}`);
+    if (props.length) console.log(`  PROPOSITIONS :\n    ${props.join("\n    ")}`);
     // UN GESTE REFUSÉ PAR LE DROIT et un geste JAMAIS TENTÉ ne se distinguent pas dans la réponse :
     // sans cette ligne, « zéro carte » pouvait aussi bien accuser le modèle que la permission (§118.98).
     if (refus.length) console.log(`  REFUS DE DROIT : ${[...new Set(refus)].join(", ")}`);

@@ -116,6 +116,21 @@ export function justificatifsManquants(ordres: readonly OrdreLu[]): Signal[] {
       titre: `${o.regleLe ? "Réglé sans facture" : "Facture exigée, absente"} : ${o.reference}`,
       detail: `${o.libelle} — ${arrondi(o.montant).toLocaleString("fr-FR")} DZD${o.regleLe ? `, réglé le ${iso(new Date(o.regleLe))}` : ""}.`,
       calcul: "factureExigee ∧ ¬factureLiée", montant: o.montant, entite: { type: "ExpenseOrder", id: o.id, ref: o.reference }, href: `/finances/ordres-de-depense?ref=${encodeURIComponent(o.reference)}`,
+      // CE QU'IL Y A À FAIRE, ET LE GESTE DÉCLARÉ (§118.127). Le signal voisin `facture_sans_bc`
+      // — une facture sans BC — porte son action et son marqueur depuis le début ; celui-ci, qui
+      // dit l'inverse (un ordre de dépense sans facture), n'en portait AUCUN. Même famille, même
+      // pas suivant, et deux conduites différentes sans raison énonçable : c'est le défaut que
+      // §118.5 nomme, et il se voyait en live — « 450 000 DZD réglés sans facture liée » sortait
+      // en constat HAUTE et ne proposait rien.
+      // Les deux cas ne demandent PAS la même chose, et la phrase le dit : réglé, la facture est
+      // due et manque au dossier ; pas encore réglé, elle est la CONDITION du règlement.
+      action: o.regleLe
+        ? "Obtenir la facture du fournisseur et la rattacher à l'ordre de dépense."
+        : "Obtenir la facture avant de régler.",
+      // Une TÂCHE est bien le pas suivant : rien ne part, une ligne de suivi existe sur l'ordre
+      // nommé. Ce n'est pas un arbitrage — personne n'a à décider SI la facture est due, le
+      // `factureExigee` du dossier l'a déjà dit.
+      tache: true as const,
     }));
 }
 

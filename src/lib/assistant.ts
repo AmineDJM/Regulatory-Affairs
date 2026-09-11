@@ -126,6 +126,8 @@ import {
 import { executiveBriefing } from "@/lib/assistant/executive-tools";
 import { conversationWorkingSet, isHighStakesQuestion, queryPlan, queryPlanContext } from "@/lib/assistant/reasoning";
 import { persistActionIntents, recentActionIntentsContext, retirerCaduquesAvantLeTour } from "@/lib/assistant/action-intents";
+import { gesteDuTour, isoJour, LIBELLE_GRAVITE } from "@/platform/in-process/intelligence";
+import { lireSignauxDeSortie } from "@/lib/assistant/intelligence-tools";
 import { verdictEmpreinte } from "@/lib/mutations/empreinte";
 import { toNumber } from "@/lib/utils";
 import {
@@ -5106,12 +5108,13 @@ async function runAssistantImpl(
       // La promesse a survécu au rappel : on ne la censure pas, on ajoute la phrase qui manque.
       { const p = avertirPromesseSansObjet(brut, usedTools); if (p) brut = `${brut}\n\n${p}`; }
       const reply = reparerReponse(brut);
+      const gesteCartes = await carteDuProchainGeste(lectures, user, opts.origin ?? "text");
       if (highStakes && reply.length >= CRITIQUE_MIN_DRAFT) {
         const revised = await reviseHighStakes(systemComplet, question, reply, opts.model, cacheKey).catch(() => null);
         trace.push(CRITIQUE_LABEL);
-        return avecProvenance({ configured: true, ok: true, reply: revised ? reparerReponse(revised) : reply, trace });
+        return avecProvenance({ configured: true, ok: true, reply: revised ? reparerReponse(revised) : reply, trace, ...(gesteCartes ? { proposal: gesteCartes[0], proposals: gesteCartes } : {}) });
       }
-      return avecProvenance({ configured: true, ok: true, reply, trace });
+      return avecProvenance({ configured: true, ok: true, reply, trace, ...(gesteCartes ? { proposal: gesteCartes[0], proposals: gesteCartes } : {}) });
     }
 
     // Actions d'écriture demandées → TOUTES interceptées et proposées (rien n'est exécuté) —
@@ -5291,6 +5294,64 @@ export function extractSources(raw: string): { label: string; href: string }[] {
   };
   walk(data, 0);
   return out;
+}
+
+/**
+ * ── LE PROCHAIN GESTE, DÉCIDÉ PAR LE CODE (§118.126) ───────────────────────────────────────
+ *
+ * LE DÉFAUT MESURÉ. « Qu'est-ce qui bloque ? » rendait six blocages nommés, sourcés, liés à
+ * leurs fiches — et ZÉRO proposition, trois passages sur trois. La trace disait pourquoi :
+ * aucun outil d'écriture n'était même APPELÉ (§118.125). Trois niveaux de pression de prompt
+ * n'y ont rien changé. Un constat critique qui ne propose rien est un tableau de bord, et
+ * c'est exactement ce que le dirigeant décrit par « je ne ressens aucune différence ». Le
+ * geste est donc une propriété du LOGICIEL : les modèles décident QUOI, le code décide COMMENT.
+ *
+ * UNE SEULE FONCTION POUR LES DEUX CHEMINS. Le tour en flux et le tour d'un trait rendent la
+ * même conversation ; deux copies de cette règle divergeraient au premier réglage, et c'est la
+ * voix — qui passe par le chemin sans flux — qui aurait perdu le geste (§118.5, §118.71 : une
+ * porte gardée à côté d'une porte ouverte).
+ *
+ * CE QU'ELLE NE FAIT PAS. Elle ne double jamais une carte du modèle (ses deux appelants ne
+ * l'atteignent que si AUCUNE écriture n'a été demandée), elle n'en produit qu'UNE (§118.32),
+ * elle ne lit que ce que le signal DÉCLARE (`gesteDuTour` — jamais la prose, §118.125), et
+ * elle ne FAIT rien : une tâche INSCRIT le pas suivant, elle ne l'exécute pas. C'est ce qui la
+ * rend compatible avec « relancer le partenaire — jamais automatiquement », et c'est le remède
+ * que §118.57a nomme — une promesse qui ne vit que dans une phrase meurt avec le tour.
+ *
+ * ET ELLE PASSE PAR LA MÊME PORTE QUE LE MODÈLE : `buildProposal` puis un intent persisté —
+ * donc les mêmes gardes, la même résolution de cible, le même audit. Écrire une carte à la
+ * main ici en ferait une seconde vérité, et c'est celle-ci qui prendrait du retard au premier
+ * contrôle ajouté (§118.5). Elle ne lève jamais : un geste manqué coûte une proposition, une
+ * exception coûterait la RÉPONSE, que le modèle a déjà produite.
+ */
+async function carteDuProchainGeste(
+  lectures: readonly { outil: string; sortie: string }[],
+  user: CurrentUser,
+  // L'ORIGINE EST LE TYPE EXACT, jamais `string` : c'est la porte par laquelle le geste a été
+  // proposé, et elle est lue par la reprise d'intention. L'élargir aurait annulé le typecheck
+  // au point d'appel (§118.71) et laissé passer une origine qu'aucun écran ne sait relire.
+  origin: Parameters<typeof persistActionIntents>[2],
+): Promise<ProposedAction[] | null> {
+  // AUCUN FILTRE PAR NOM D'OUTIL. Le marqueur `tache` est posé à la SOURCE du signal, là où vit
+  // le savoir métier ; c'est LUI le fait (§118.17), pas une liste de trois noms qui serait fausse
+  // au quatrième outil d'intelligence, en silence (§118.73) — et qui fermerait la porte d'à côté
+  // à un outil remontant LE MÊME constat (§118.71). `lireSignauxDeSortie` refuse déjà toute sortie
+  // qui n'est pas de cette forme : mesuré, les alertes exécutives (`ExecutiveAlert`, qui porte
+  // `criticite` et non `gravite`) en sont exclues sans qu'on ait à les nommer.
+  const geste = gesteDuTour(lectures.flatMap((l) => lireSignauxDeSortie(l.sortie)), isoJour(new Date()));
+  if (!geste) return null;
+  const brouillon = await buildProposal("create_task", {
+    title: geste.intitule,
+    description: geste.pourquoi,
+    ...(geste.echeance ? { dueDate: geste.echeance } : {}),
+  }, user).catch(() => ({ error: "carte du geste indisponible" }));
+  if ("error" in brouillon) return null;
+  // LA CARTE DIT D'OÙ ELLE VIENT. Sans cela, une tâche apparaît sans que la personne sache quel
+  // constat l'a produite — et « c'est fait » redevient une parole à croire (§104.16).
+  brouillon.warnings.push(`Proposé depuis le signal « ${geste.code} » (${LIBELLE_GRAVITE[geste.gravite]}) relevé dans cette réponse — rien n'est créé avant votre confirmation.`);
+  const ids = await persistActionIntents(user.id, [brouillon], origin).catch(() => []);
+  if (ids[0]) brouillon.intentId = ids[0];
+  return [brouillon];
 }
 
 /**
@@ -5777,6 +5838,8 @@ async function runAssistantStreamImpl(
           emit({ type: "reset" });
           emit({ type: "delta", text: reply });
         }
+        const gesteCartes = await carteDuProchainGeste(lectures, user, opts.origin ?? "text");
+
         // Fort enjeu → SECONDE PASSE CRITIQUE. Le brouillon déjà diffusé était une vraie
         // réponse progressive (pas une invention) ; la version relue le remplace (`reset`),
         // et l'étape se DIT dans la trace — le travail en plus est visible, jamais caché.
@@ -5789,10 +5852,10 @@ async function runAssistantStreamImpl(
           if (revised && revised !== reply) {
             emit({ type: "reset" });
             emit({ type: "delta", text: revised });
-            return avecProvenance({ configured: true, ok: true, reply: revised, trace, metrics });
+            return avecProvenance({ configured: true, ok: true, reply: revised, trace, metrics, ...(gesteCartes ? { proposal: gesteCartes[0], proposals: gesteCartes } : {}) });
           }
         }
-        return avecProvenance({ configured: true, ok: true, reply, trace, metrics });
+        return avecProvenance({ configured: true, ok: true, reply, trace, metrics, ...(gesteCartes ? { proposal: gesteCartes[0], proposals: gesteCartes } : {}) });
       }
 
       // Actions d'écriture → TOUTES interceptées et proposées (rien n'est exécuté). Plusieurs
