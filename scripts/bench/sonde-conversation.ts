@@ -33,6 +33,16 @@ const MESSAGES: { id: string; texte: string; amorce?: string }[] = [
   // Un retard réglementaire, lui, attend une PIÈCE ou une RELANCE : si aucune carte n'apparaît ici
   // non plus, la cause n'est pas dans la formulation de l'exception.
   { id: "09-retards", texte: "Quels dossiers réglementaires sont en retard ?" },
+  // ── LES QUATRE PHRASES DU DIRIGEANT, MOT POUR MOT DE SA PLAINTE ────────────────────────
+  // « Il est bête Adam quand je lui parle, il a pas accès à tout l'ERP, des fois dès que je dis
+  // annuaire il me sort l'annuaire sans rien comprendre. » Les deux premières éprouvent la porte
+  // de l'annuaire (§118.129), les deux suivantes l'atteignabilité des modules (§118.130). Elles
+  // restent dans la sonde : une phrase qui a produit un défaut est le seul cas dont on sait qu'il
+  // n'a pas été choisi par nous.
+  { id: "10-mod-annuaire", texte: "C'est quoi l'annuaire ?" },
+  { id: "11-mod-lookup", texte: "Je trouve pas Amel dans l'annuaire, tu peux vérifier son email ?" },
+  { id: "12-mod-visites", texte: "Combien de visites terrain ce mois-ci ?" },
+  { id: "13-mod-stocks", texte: "Quel est l'état des stocks à l'hôpital Mustapha ?" },
 ];
 
 async function main() {
