@@ -58,13 +58,20 @@ async function main() {
     }
     const t0 = Date.now();
     let ttuv: number | null = null;
-    let reponse = ""; let blocs: string[] = []; let props: string[] = [];
+    let reponse = ""; let blocs: string[] = []; let props: string[] = []; let etat: string | null = null;
     const { resume, outils, refus, appels } = await withTurn("text", async (trace) => {
       const r = await runAssistantStream(user, [...historique, { role: "user", content: m.texte }], (e) => {
         if (ttuv === null && (e.type === "workspace" || e.type === "delta")) ttuv = Date.now() - t0;
         if (e.type === "workspace") blocs.push(String((e as { blocks?: unknown[] }).blocks?.length ?? "?"));
       }, {});
       reponse = r.reply ?? "";
+      // UN ÉCHEC DE FOURNISSEUR N'EST PAS UNE RÉPONSE VIDE, et sans cette ligne les deux sont
+      // INDISCERNABLES dans ce journal. Mesuré : un tour de 180 s a rendu `reply: ""` et la sonde
+      // n'a imprimé qu'un blanc — j'ai commencé à chercher un faux succès du produit alors que le
+      // code rendait bien `ok: false` avec « Réponse IA indisponible ». C'est §118.92 appliqué à
+      // mon propre instrument : devant un blanc, la première question est « qu'est-ce que la sonde
+      // a réellement montré ? ».
+      etat = r.ok === false ? `ÉCHEC — ${r.error ?? "sans motif"}` : null;
       // LE DÉTAIL DE LA CARTE, pas seulement son titre : « Créer une tâche » ne dit pas SUR QUOI,
       // et une carte qui porte le bon titre avec la mauvaise cible est le défaut le plus coûteux
       // de tout ce produit (§104.7). On imprime ce que la personne LIRA avant de cliquer.
@@ -94,6 +101,7 @@ async function main() {
     // sans cette ligne, « zéro carte » pouvait aussi bien accuser le modèle que la permission (§118.98).
     if (refus.length) console.log(`  REFUS DE DROIT : ${[...new Set(refus)].join(", ")}`);
     if (!props.length) console.log(`  PROPOSITIONS : AUCUNE${refus.length ? " (voir les refus ci-dessus)" : " — aucun outil d'écriture n'a été appelé"}`);
+    if (etat) console.log(`  ${etat}`);
     console.log(`  RÉPONSE :\n${reponse.split("\n").map((l) => "    " + l).join("\n")}`);
   }
   await prisma.$disconnect();

@@ -121,6 +121,21 @@ export const NEUTRAL = new Set([
   // résout un destinataire, le moteur de missions aussi. Le ranger d'un côté forcerait l'autre
   // à en écrire une seconde version, qui divergerait (§118.5).
   "src/lib/personnes/designation",
+  // `ia/cle-manquante` compose UNE phrase : « IA non configurée. Ajoutez la clé X dans Render… »
+  // à partir du nom que le registre a lu. Zéro import, sans état, sans base, sans règle métier —
+  // et il n'apprend rien à Adam sur l'ERP : il met un nom de variable dans une phrase française.
+  //
+  // Il est ici pour la raison exacte de `mutations/empreinte` et `personnes/designation`, et la
+  // mesure la donne : HUIT importeurs sur TROIS couches qui n'ont pas le droit de se parler — les
+  // pages serveur de l'ERP (réunions, RH), ses composants client (agents Regulatory, présentation
+  // BD, synthèse, fiche salarié) et les écrans d'Adam (assistant, chef de cabinet), plus la route
+  // de synthèse qui fait voyager le nom. Le ranger d'un côté forcerait les autres à réécrire la
+  // phrase, et huit orthographes du même refus divergeraient (§118.5) — c'est précisément le
+  // défaut que §118.128 répare : huit écrans nommaient la clé de mémoire, et sept se trompaient.
+  //
+  // Le chemin est EXACT, pas le dossier : un futur `src/lib/ia/quelque-chose-de-lourd.ts` ne doit
+  // pas se retrouver exempté sans que personne l'ait décidé.
+  "src/lib/ia/cle-manquante",
   // `personnes/joignabilite` lit une déclaration (« email:a@x.dz, b@y.dz ») et rend les
   // adresses valides ; `personnes/autonomie-proprietaire` dit si un geste est couvert par
   // l'autonomie que la personne a accordée pour être jointe. Deux lectures de chaînes et une

@@ -16,7 +16,7 @@ import { getDossier, listVersions, listVersionDocuments, getAssessment, listFind
 import { findingQuality } from "@/lib/regulatory/intelligence/findings/enrich";
 import { buildCoverage, buildRegistrationDocs } from "@/lib/regulatory/intelligence/twin/build-twin";
 import { buildVersionDiff } from "@/lib/regulatory/intelligence/diff/compare-versions";
-import { aiConfigured } from "@/lib/ai";
+import { aiConfigured, cleModeleRequise } from "@/lib/ai";
 import { applicableAgents } from "@/lib/regulatory/intelligence/agents/orchestrator";
 import { listReserveCycles } from "@/lib/regulatory/intelligence/reserves/queries";
 import { prisma } from "@/lib/prisma";
@@ -458,7 +458,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
             <CardTitle className="flex items-center gap-2 text-base"><Bot className="h-4 w-4 text-primary" /> Agents spécialisés — revue de fond (PROJET)</CardTitle>
           </CardHeader>
           <CardContent>
-            <AgentsPanel dossierId={dossier.id} agents={agents} configured={aiConfigured()} />
+            <AgentsPanel dossierId={dossier.id} agents={agents} configured={aiConfigured()} cleIa={cleModeleRequise()} />
           </CardContent>
         </Card>
       )}

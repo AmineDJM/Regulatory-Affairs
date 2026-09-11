@@ -145,12 +145,23 @@ export function LinkifiedText({ text }: { text: string }) {
 }
 
 export function AssistantChat({
-  userName, configured, voiceConfigured = false, realtimeVoice = false, memoryEnabled = false,
+  userName, configured, messageIaNonConfiguree = "IA non configurée.", voiceConfigured = false, realtimeVoice = false, memoryEnabled = false,
   executive = false, initialPrompt = null, initialThreadId = null, initialMessages = null, initialCallRef = null,
   emptyState = null, historyMode = "rail", surface = "card", canvas = false,
   historyOpen, onHistoryOpenChange,
 }: {
   userName: string; configured: boolean;
+  /**
+   * LA PHRASE DU REFUS, COMPOSÉE PAR LE SERVEUR (§118.128) — pas le nom de la clé.
+   *
+   * Le nom se lit dans le registre des modèles, donc côté serveur : un composant client qui
+   * importerait `lib/ai.ts` tirerait la passerelle dans le navigateur. La première version
+   * recevait le NOM et composait la phrase ici, en important le module pur du socle ; le cliquet
+   * de frontière a compté 429 pour un plafond de 428, et le remède n'est jamais de relever le
+   * plafond (§118.72, §118.114). Recevoir la phrase FINIE est plus petit encore : cet écran
+   * n'importe alors plus rien, et la phrase vit toujours à UN seul endroit.
+   */
+  messageIaNonConfiguree?: string;
   /** Dictée disponible (transcription simple, texte éditable avant envoi). */
   voiceConfigured?: boolean;
   /** APPEL temps réel (speech-to-speech) disponible — siège exécutif + clé Realtime. */
@@ -482,7 +493,10 @@ export function AssistantChat({
   /** Ajoute le résultat d'un tour non diffusé (pièces jointes) à la conversation. */
   const appendResult = (res: AssistantResult, workspace: WorkspaceComposition[] = []): string | null => {
     if (!res.configured) {
-      setMessages((m) => [...m, { id: nextId(), role: "assistant", at: Date.now(), content: "IA non configurée." }]);
+      // LE MÊME FAIT, LA MÊME PHRASE. Elle disait « IA non configurée. » tout court pendant que la
+      // bannière, deux cents lignes plus bas, nommait le geste : deux vérités sur le même refus, et
+      // c'est la version muette qui tombait dans la conversation (§118.5, §118.30).
+      setMessages((m) => [...m, { id: nextId(), role: "assistant", at: Date.now(), content: messageIaNonConfiguree }]);
       return null;
     }
     if (res.ok) {
@@ -804,7 +818,7 @@ export function AssistantChat({
       {!configured && (
         <div className="flex items-start gap-2 border-b border-border bg-warning/10 px-4 py-2.5 text-sm text-warning">
           <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>IA non configurée. Ajoutez la clé <code className="font-mono">ANTHROPIC_API_KEY</code> dans Render (Settings → Environment) pour activer l'assistant.</span>
+          <span>{messageIaNonConfiguree}</span>
         </div>
       )}
 

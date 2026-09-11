@@ -1,5 +1,6 @@
 "use client";
 
+import { phraseIaNonConfiguree, courtIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Presentation, Sparkles, Loader2, Download, Trash2, RefreshCw, ChevronDown, ChevronRight, Info } from "lucide-react";
@@ -9,9 +10,11 @@ import type { PresentationDTO } from "@/lib/queries/market-research";
 type Res = { ok: boolean; error?: string; id?: string };
 
 export function PresentationPanel({
-  researchId, presentations, canEdit, aiConfigured, rowCount,
+  researchId, presentations, canEdit, aiConfigured, cleIa = null, rowCount,
 }: {
   researchId: string; presentations: PresentationDTO[]; canEdit: boolean; aiConfigured: boolean; rowCount: number;
+  /** Le nom de la clé manquante, lu côté serveur (§118.128). */
+  cleIa?: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null); // message d'activité
@@ -53,7 +56,7 @@ export function PresentationPanel({
       {disabled && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
           <Info className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{rowCount === 0 ? "Ajoutez au moins une molécule à l'étude avant de générer une présentation." : "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render) pour activer la génération."}</span>
+          <span>{rowCount === 0 ? "Ajoutez au moins une molécule à l'étude avant de générer une présentation." : phraseIaNonConfiguree(cleIa, "la génération de présentation")}</span>
         </div>
       )}
 

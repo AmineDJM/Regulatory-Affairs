@@ -1,5 +1,6 @@
 import { requireModule } from "@/lib/session";
-import { aiConfigured, sttConfigured } from "@/lib/ai";
+import { aiConfigured, sttConfigured, cleModeleRequise } from "@/lib/ai";
+import { phraseIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { featureEnabled, FEATURES } from "@/lib/features";
 import { getDailyBrief } from "@/lib/daily-brief";
 import { MorningBrief } from "@/components/shared/morning-brief";
@@ -29,6 +30,7 @@ export default async function AssistantPage() {
       <AssistantChat
         userName={user.name}
         configured={aiConfigured()}
+        messageIaNonConfiguree={phraseIaNonConfiguree(cleModeleRequise(), "l'assistant")}
         voiceConfigured={sttConfigured()}
         memoryEnabled={memoryEnabled}
       />

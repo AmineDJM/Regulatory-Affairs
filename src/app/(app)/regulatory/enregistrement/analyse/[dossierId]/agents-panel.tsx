@@ -1,5 +1,6 @@
 "use client";
 
+import { phraseIaNonConfiguree, courtIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Bot, ShieldQuestion, CheckCircle2 } from "lucide-react";
@@ -13,7 +14,7 @@ interface RunState { status: "abstained" | "done" | "error"; message: string }
  * constats PROJET (revue humaine requise) ou s'abstient si aucune source active ne fonde une
  * conclusion. Jamais autonome, jamais bloquant.
  */
-export function AgentsPanel({ dossierId, agents, configured }: { dossierId: string; agents: AgentItem[]; configured: boolean }) {
+export function AgentsPanel({ dossierId, agents, configured, cleIa = null }: { dossierId: string; agents: AgentItem[]; configured: boolean; /** Le nom de la clé manquante, lu côté serveur (§118.128). */ cleIa?: string | null }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [results, setResults] = React.useState<Record<string, RunState>>({});
@@ -31,7 +32,7 @@ export function AgentsPanel({ dossierId, agents, configured }: { dossierId: stri
   if (!configured) {
     return (
       <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
-        IA non configurée (ANTHROPIC_API_KEY absente) : les agents spécialisés ne s'exécutent pas et aucune analyse n'est simulée.
+        {courtIaNonConfiguree(cleIa)} : les agents spécialisés ne s'exécutent pas et aucune analyse n'est simulée.
         Les contrôles déterministes (règles, complétude, faits) restent pleinement opérationnels.
       </p>
     );

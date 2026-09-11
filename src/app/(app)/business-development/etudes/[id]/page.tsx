@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, FileSpreadsheet } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
-import { aiConfigured } from "@/lib/ai";
+import { aiConfigured, cleModeleRequise } from "@/lib/ai";
 import { prisma } from "@/lib/prisma";
 import { getMarketResearch, listResearchPresentations, nomenclatureDciOptions } from "@/lib/queries/market-research";
 import { PageHeader } from "@/components/shared/page-header";
@@ -48,7 +48,7 @@ export default async function MarketResearchDetailPage({ params }: { params: { i
 
       <Card>
         <CardContent className="p-4">
-          <PresentationPanel researchId={research.id} presentations={presentations} canEdit={canEdit} aiConfigured={aiConfigured()} rowCount={research.rows.length} />
+          <PresentationPanel researchId={research.id} presentations={presentations} canEdit={canEdit} aiConfigured={aiConfigured()} cleIa={cleModeleRequise()} rowCount={research.rows.length} />
         </CardContent>
       </Card>
     </div>

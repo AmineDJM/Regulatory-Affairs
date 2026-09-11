@@ -102,6 +102,17 @@ export function cleModeleRequise(): "ANTHROPIC_API_KEY" | "OPENAI_API_KEY" {
 }
 
 /**
+ * LE FOURNISSEUR, EN CLAIR — pour qu'un écran n'ait plus à comparer un nom de variable.
+ *
+ * La console d'administration écrivait `cleModeleRequise() === "ANTHROPIC_API_KEY" ? … : …` :
+ * juste, mais elle remettait le littéral dans un `.tsx`, ce qui rend le cliquet de §118.128
+ * inapplicable. Un écran veut le NOM DU FOURNISSEUR ; il le demande.
+ */
+export function fournisseurDeRaisonnement(): "Anthropic" | "OpenAI" {
+  return bindingFor(ROLE_QUALITE).provider === "anthropic" ? "Anthropic" : "OpenAI";
+}
+
+/**
  * ANCIENNES VARIABLES `AI_MODEL` / `AI_MODEL_CHEAP` — dites, pas ignorées en douce.
  *
  * Elles nommaient un modèle pour une passerelle qui ne décide plus. C'est `ADAM_MODEL_WORKER` /

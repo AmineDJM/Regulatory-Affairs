@@ -2,7 +2,7 @@ import { BrainCircuit, KeyRound, CheckCircle2, XCircle, Activity, Mic, HeartPuls
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { aiConfigured, sttConfigured, aiModel, cleModeleRequise } from "@/lib/ai";
+import { aiConfigured, sttConfigured, aiModel, cleModeleRequise, fournisseurDeRaisonnement } from "@/lib/ai";
 import { realtimeVoiceConfigured, REALTIME_VOICE_MODEL } from "@/lib/assistant/voice-realtime";
 import { getLatestAiHealth } from "@/lib/ai-health";
 import { getAiSettings } from "@/lib/ai-settings";
@@ -130,12 +130,14 @@ export default async function AiControlCenterPage() {
         <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {/*
             LE FOURNISSEUR ACTIF, PAS UN NOM GRAVÉ. L'étiquette disait « Claude (Anthropic) » et
-            le défaut « ANTHROPIC_API_KEY absente » sur un déploiement qui tourne chez OpenAI :
-            un administrateur cherchant la panne serait allé poser la mauvaise clé.
+            nommait la clé du mauvais fournisseur sur un déploiement qui tourne chez OpenAI : un
+            administrateur cherchant la panne serait allé poser la mauvaise variable. Le nom vient
+            donc du registre (`cleModeleRequise`), et le littéral ne reparaît dans AUCUN écran —
+            le cliquet de §118.128 le refuse, et il refuserait cette phrase si elle le citait.
           */}
           <KeyStatus
             icon={<KeyRound className="h-4 w-4" />}
-            label={`Modèle de raisonnement (${cleModeleRequise() === "ANTHROPIC_API_KEY" ? "Anthropic" : "OpenAI"})`}
+            label={`Modèle de raisonnement (${fournisseurDeRaisonnement()})`}
             ok={aiConfigured()}
             detail={aiConfigured() ? `Modèle : ${aiModel()}` : `${cleModeleRequise()} absente`}
           />

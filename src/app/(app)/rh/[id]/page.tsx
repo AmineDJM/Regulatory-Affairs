@@ -15,7 +15,7 @@ import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/util
 import { getEmployeeHrDossier } from "@/lib/queries/hr-documents";
 import { getMyCompanies, companyOptions } from "@/lib/company";
 import { getDepartmentOptions, getDepartmentPath, getManagerOf } from "@/lib/departments";
-import { aiConfigured } from "@/lib/ai";
+import { aiConfigured, cleModeleRequise } from "@/lib/ai";
 import { EmployeeForm, type EmployeeFormValues } from "./employee-form";
 import { HrDossier } from "./hr-dossier";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
@@ -192,7 +192,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
             <CardHeader><CardTitle>{canUpdate ? "Dossier employé" : "Informations"}</CardTitle></CardHeader>
             <CardContent>
               {canUpdate ? (
-                <EmployeeForm employee={formValues} managerOptions={managerOptions} departmentOptions={departmentOptions.map((o) => ({ value: o.id, label: o.label }))} userOptions={userOptions} companyOptions={companyOptions(companies)} aiConfigured={aiConfigured()} />
+                <EmployeeForm employee={formValues} managerOptions={managerOptions} departmentOptions={departmentOptions.map((o) => ({ value: o.id, label: o.label }))} userOptions={userOptions} companyOptions={companyOptions(companies)} aiConfigured={aiConfigured()} cleIa={cleModeleRequise()} />
               ) : (
                 <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
                   <Info label="Poste" value={employee.position} />

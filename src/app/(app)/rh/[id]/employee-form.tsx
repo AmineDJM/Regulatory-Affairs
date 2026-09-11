@@ -1,5 +1,6 @@
 "use client";
 
+import { phraseIaNonConfiguree, courtIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Check, Wand2, Sparkles } from "lucide-react";
@@ -57,6 +58,8 @@ interface Props {
   userOptions: Option[];
   companyOptions: Option[];
   aiConfigured: boolean;
+  /** Le nom de la clé manquante, lu côté serveur (§118.128). */
+  cleIa?: string | null;
 }
 
 function TextInput({ name, label, type = "text", defaultValue, full, required }: { name: string; label: string; type?: string; defaultValue?: string; full?: boolean; required?: boolean }) {
@@ -80,7 +83,7 @@ function SelectInput({ name, label, defaultValue, options, placeholder }: { name
   );
 }
 
-export function EmployeeForm({ employee, managerOptions, departmentOptions, userOptions, companyOptions, aiConfigured }: Props) {
+export function EmployeeForm({ employee, managerOptions, departmentOptions, userOptions, companyOptions, aiConfigured, cleIa = null }: Props) {
   const router = useRouter();
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
@@ -117,11 +120,11 @@ export function EmployeeForm({ employee, managerOptions, departmentOptions, user
         <div className="flex flex-wrap items-center gap-2">
           <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff" disabled={!aiConfigured || analyzing}
             className="text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-xs file:font-medium" />
-          <Button type="button" size="sm" onClick={runAnalyze} disabled={!aiConfigured || analyzing} title={aiConfigured ? undefined : "IA non configurée (ANTHROPIC_API_KEY)"}>
+          <Button type="button" size="sm" onClick={runAnalyze} disabled={!aiConfigured || analyzing} title={aiConfigured ? undefined : courtIaNonConfiguree(cleIa)}>
             {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Analyser le contrat
           </Button>
         </div>
-        {!aiConfigured && <p className="text-xs text-amber-700">IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render).</p>}
+        {!aiConfigured && <p className="text-xs text-amber-700">{phraseIaNonConfiguree(cleIa, "l'analyse automatique d'un CV")}</p>}
         {analyzeMsg && <p className={cn("text-xs", analyzeMsg.ok ? "text-success" : "text-destructive")}>{analyzeMsg.text}</p>}
       </div>
 

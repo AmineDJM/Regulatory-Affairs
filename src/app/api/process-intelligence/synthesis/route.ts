@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
-import { askClaude, aiConfigured, aiModel } from "@/lib/ai";
+import { askClaude, aiConfigured, aiModel, cleModeleRequise } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { getProcessOverview, getWorkloadAnalysis } from "@/lib/queries/process-intelligence";
 
@@ -20,7 +20,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ configured: false, error: "Non autorisé." }, { status: 403 });
   }
   if (!aiConfigured()) {
-    return NextResponse.json({ configured: false });
+    // LE NOM DE LA CLÉ VOYAGE AVEC LE REFUS (§118.128) : l'écran est un composant client, il ne
+    // peut pas lire le registre des modèles — et sans ce champ il redirait « ANTHROPIC_API_KEY »
+    // en dur, sur un déploiement qui tourne peut-être chez OpenAI.
+    return NextResponse.json({ configured: false, cleIa: cleModeleRequise() });
   }
   if (!(await aiFeatureEnabled("process_intel"))) {
     return NextResponse.json({ configured: true, error: "La synthèse IA est désactivée dans le Centre de contrôle IA." });

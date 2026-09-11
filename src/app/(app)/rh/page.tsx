@@ -15,7 +15,8 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { CreateRecordButton, type FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { createEmployee, analyzeEmployeeContract } from "@/lib/actions/hr-actions";
-import { aiConfigured } from "@/lib/ai";
+import { aiConfigured, cleModeleRequise } from "@/lib/ai";
+import { phraseIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { getMyCompanies, companyOptions } from "@/lib/company";
 import { CONTRACT_TYPE, HR_REQUEST_TYPE, HR_REQUEST_STATUS, HR_TABS } from "@/lib/labels";
 import { formatCurrency, formatDate, daysUntil } from "@/lib/utils";
@@ -96,7 +97,7 @@ export default async function RhPage() {
               hint: "Téléversez le contrat (PDF ou image) : l'OCR Mistral + l'IA extraient nom, poste, type de contrat, dates, salaire de base, NIN, CNAS… Tout reste modifiable avant l'enregistrement.",
               accept: ".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff",
               disabled: !aiConfigured(),
-              disabledHint: "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render).",
+              disabledHint: phraseIaNonConfiguree(cleModeleRequise(), "l'analyse automatique d'un CV"),
             }} />
         )}
       </PageHeader>

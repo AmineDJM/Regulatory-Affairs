@@ -5,7 +5,8 @@ import { ArrowLeft, Users, Sparkles, ListChecks, FileText, CircleUser, MapPin, M
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { publicMeetUrl, appBaseUrlForMeet, canViewMeeting, canManageMeeting } from "@/lib/meetings";
-import { aiConfigured } from "@/lib/ai";
+import { aiConfigured, cleModeleRequise } from "@/lib/ai";
+import { courtIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -175,7 +176,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
               <CardContent className="space-y-3">
                 <MeetingRecorder meetingId={meeting.id} />
                 <TranscriptPanel meetingId={meeting.id} transcript={meeting.transcript ?? ""} canSummarize={aiConfigured()} />
-                {!aiConfigured() && <p className="text-xs text-muted-foreground">Le compte rendu automatique s'activera une fois l'IA configurée (ANTHROPIC_API_KEY).</p>}
+                {!aiConfigured() && <p className="text-xs text-muted-foreground">Le compte rendu automatique s'activera une fois l'IA configurée — {courtIaNonConfiguree(cleModeleRequise())}.</p>}
               </CardContent>
             </Card>
           )}

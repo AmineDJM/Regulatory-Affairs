@@ -31,6 +31,8 @@ import { AssistantChat } from "@/app/(app)/assistant/assistant-chat";
 export interface ChiefWorkspaceProps {
   userName: string;
   configured: boolean;
+  /** La phrase du refus, composée côté serveur (§118.128). */
+  messageIaNonConfiguree?: string;
   voiceConfigured: boolean;
   realtimeVoice: boolean;
   memoryEnabled: boolean;
@@ -52,6 +54,7 @@ export interface ChiefWorkspaceProps {
 export function ChiefWorkspace({
   userName,
   configured,
+  messageIaNonConfiguree,
   voiceConfigured,
   realtimeVoice,
   memoryEnabled,
@@ -99,6 +102,7 @@ export function ChiefWorkspace({
         <AssistantChat
           userName={userName}
           configured={configured}
+          messageIaNonConfiguree={messageIaNonConfiguree}
           voiceConfigured={voiceConfigured}
           realtimeVoice={realtimeVoice}
           memoryEnabled={memoryEnabled}

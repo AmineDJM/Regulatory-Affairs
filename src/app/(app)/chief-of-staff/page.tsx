@@ -1,7 +1,8 @@
 import { requireModule } from "@/lib/session";
 import { hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { aiConfigured, sttConfigured } from "@/lib/ai";
+import { aiConfigured, sttConfigured, cleModeleRequise } from "@/lib/ai";
+import { phraseIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { realtimeVoiceConfigured, canUseRealtimeVoice } from "@/lib/assistant/voice-realtime";
 import { featureEnabled, FEATURES } from "@/lib/features";
 import { getActionCenter } from "@/lib/queries/action-center";
@@ -159,6 +160,7 @@ export default async function ChiefOfStaffPage({
     <ChiefWorkspace
       userName={user.name}
       configured={configured}
+      messageIaNonConfiguree={phraseIaNonConfiguree(cleModeleRequise(), "l'assistant")}
       voiceConfigured={sttConfigured()}
       realtimeVoice={realtimeVoice}
       memoryEnabled={memoryEnabled}
