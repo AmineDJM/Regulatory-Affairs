@@ -184,12 +184,26 @@ function messageCourt(e: unknown): string {
    * nulle part, donc la personne recevait l'enveloppe brute de Prisma (« Invalid
    * `prisma.$queryRawUnsafe()` … ») au lieu d'une phrase. Un refus qu'on lit de travers est un
    * refus qu'on croit moins (§104.17), et celui-là ne nommait ni la faute ni le remède (§118.30).
+   *
+   * LE TROISIÈME — et son banc avait écrit d'avance ce qui le révélerait. `sql.test.ts` disait
+   * « ce qui la ferait tomber : un troisième genre de délai que `messageCourt` ne reconnaît
+   * pas ». C'est arrivé, dans la suite complète : la TRANSACTION INTERACTIVE qui enveloppe la
+   * lecture expire (« Transaction already closed … the timeout for this transaction was 7000 ms,
+   * however 7638 ms passed ») AVANT que le délai de la requête ne coupe. Le budget dépassé est
+   * alors celui de l'enveloppe, pas celui de la requête — et le remède est le même que pour le
+   * premier (resserrer), parce que c'est bien la requête qui a consommé le temps. Le distinguer
+   * reste utile : la personne verrait sinon un délai de 7 000 ms là où le bac annonce le sien,
+   * et chercherait l'écart.
    */
   if (/canceling statement due to statement timeout|57014/i.test(msg)) {
     return `délai dépassé (${DELAI_MS} ms) : la requête est trop lourde pour le bac à sable — la resserrer (un filtre, une agrégation, une borne) plutôt que la relancer telle quelle`;
   }
   if (/connection pool|P2024|Timed out fetching a new connection/i.test(msg)) {
     return "serveur saturé : aucune connexion libre — la requête n'a PAS commencé, elle n'est donc pas en cause ; réessayer dans un instant";
+  }
+  if (/Transaction already closed|expired transaction|Transaction API error/i.test(msg)) {
+    const budget = /timeout for this transaction was (\d+) ?ms/i.exec(msg)?.[1];
+    return `délai dépassé${budget ? ` (${budget} ms de transaction)` : ""} : la requête a épuisé le temps de sa transaction — la resserrer (un filtre, une agrégation, une borne) plutôt que la relancer telle quelle`;
   }
   if (/read-only transaction/i.test(msg)) return "écriture refusée : transaction en lecture seule";
   if (/permission denied/i.test(msg)) return "refusé par le rôle du bac à sable (lecture seule)";

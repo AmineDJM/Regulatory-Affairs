@@ -517,6 +517,59 @@ export function descriptionDecouverte(ouverts: readonly Domain[] | null, avecEcr
     + "Ne répondez JAMAIS « je n'ai pas d'outil pour cela » sans avoir appelé ceci d'abord.";
 }
 
+
+/**
+ * LES OUTILS QUE LE CONTEXTE DU TOUR **NOMME** — et que le tour doit donc OUVRIR.
+ *
+ * ── LE DÉFAUT, MESURÉ ────────────────────────────────────────────────────────────────────
+ *
+ * `consigneSignaux` dit « l'état des dossiers se lit dans regulatory_intelligence /
+ * legal_intelligence / finance_intelligence ». Sur « quels dossiers sont en retard ? » la liste
+ * courte du domaine REGULATORY en expose UN sur trois ; sur « quels contrats arrivent à
+ * échéance ? », un autre. `consignePeriode` nomme `what_changed` et trois compléments : trois
+ * sont absents. Recensement : **15 noms d'outils cités par une consigne et absents de la liste
+ * courte**, sur les deux consignes les plus exécutives du produit.
+ *
+ * Le modèle fait alors la seule chose honnête : il va les chercher. Mesuré sur « Résume-moi la
+ * semaine » — six appels de `list_more_tools` (DATA, MISSION, ADMIN, SOURCES, QUALITE, puis
+ * TOUT), la liste passe de 54 à 241 schémas, le plafond du fournisseur en écarte 113 — dont
+ * `what_changed`, celui que la consigne nommait — et le prompt passe de 13 700 à 55 286 jetons
+ * d'entrée avec **0 % de cache** : les schémas d'outils appartiennent au préfixe caché, les
+ * changer invalide TOUT. Cet appel-là coûte 0,1133 $ pour 224 jetons de sortie, soit 45 % du
+ * tour ; les huit suivants portent 58 000 jetons au lieu de 10 000. Total : 63 s et 0,2534 $
+ * pour une question qu'un dirigeant pose chaque lundi.
+ *
+ * ── LA RÈGLE ─────────────────────────────────────────────────────────────────────────────
+ *
+ * C'est §118.19 dans l'autre sens : ce que le code EXIGE, le prompt doit dire comment le
+ * satisfaire — donc ce que le prompt NOMME, le tour doit l'EXPOSER. Une consigne qui nomme un
+ * outil absent ne fait pas une suggestion, elle commande une découverte.
+ *
+ * ── POURQUOI UN FAIT DU TEXTE, ET PAS UNE TABLE ──────────────────────────────────────────
+ *
+ * Une liste « consigne → outils » écrite à la main est fausse le jour où quelqu'un ajoute une
+ * phrase, EN SILENCE (§118.73). Un nom d'outil est un identifiant `snake_case` : cette forme
+ * n'apparaît pas dans de la prose française, et c'est elle qu'on lit. Les backticks ne peuvent
+ * pas servir de critère — `consigneSignaux`, la plus appelée, écrit ses trois noms sans eux.
+ *
+ * ── POURQUOI ÉPINGLER N'ACCORDE RIEN ─────────────────────────────────────────────────────
+ *
+ * On n'épingle que ce qui est DÉJÀ dans la liste reçue, elle-même filtrée par
+ * `assistantToolsFor(user)` : un nom inconnu, interdit à cette personne, ou simplement absent
+ * n'ouvre rien. Et la liste courte est une optimisation de COÛT, réversible par
+ * `list_more_tools` : épingler ne fait qu'éviter l'aller-retour que le modèle aurait fait de
+ * toute façon. La question se pose, donc elle est écrite ici.
+ */
+export function outilsNommes(texte: string | null | undefined): string[] {
+  if (!texte) return [];
+  const out = new Set<string>();
+  for (const m of texte.matchAll(/[a-z][a-z0-9]*(?:_[a-z0-9]+)+/g)) {
+    const n = m[0];
+    if (n in TOOL_DOMAINS_ALL || DOMAINES_DYNAMIQUES.has(n)) out.add(n);
+  }
+  return [...out].sort();
+}
+
 /** Les noms d'outils que cette route mérite. Rendu séparément du filtrage, pour être testable. */
 export function shortlistNames(route: Pick<QueryRoute, "route" | "domain" | "secondaires">): string[] {
   // Une route déterministe n'appelle aucun modèle : elle n'a besoin d'aucun schéma.
@@ -556,9 +609,11 @@ export function shortlistNames(route: Pick<QueryRoute, "route" | "domain" | "sec
 export function shortlistTools<T extends { name: string }>(
   tools: T[],
   route: Pick<QueryRoute, "route" | "domain" | "secondaires">,
+  epingles: readonly string[] = [],
 ): (T | typeof DISCOVERY_TOOL)[] {
   if (route.route === "FAST_DETERMINISTIC") return [];
   const names = new Set(shortlistNames(route));
+  for (const n of epingles) names.add(n);
   const kept = tools.filter((t) => names.has(t.name) || (!(t.name in TOOL_DOMAINS) && !DOMAINES_DYNAMIQUES.has(t.name)));
   return [...kept, DISCOVERY_TOOL];
 }
@@ -595,9 +650,10 @@ export function fitToolBudget<T extends { name: string }>(
   tools: T[],
   route: Pick<QueryRoute, "route" | "domain" | "secondaires">,
   max = MAX_TOOLS_PER_CALL,
+  epingles: readonly string[] = [],
 ): (T | typeof DISCOVERY_TOOL)[] {
   if (tools.length <= max) return tools;
-  const court = shortlistTools(tools, route);
+  const court = shortlistTools(tools, route, epingles);
   if (court.length <= max) {
     console.warn(
       `[assistant] ${tools.length} outils dépassent le plafond de ${max} — repli sur la liste `
@@ -625,8 +681,13 @@ export function fitToolBudget<T extends { name: string }>(
   // L'ordre à l'intérieur d'un rang est celui de la liste reçue, donc stable : deux appels
   // identiques envoient la même liste, sans quoi une régression deviendrait irreproductible.
   const socle = new Set<string>(ALWAYS_ON);
+  // UN OUTIL QUE LA CONSIGNE NOMME NE SE COUPE PAS. Sans cette ligne, la coupe ordonnée
+  // écarterait exactement l'outil qu'on vient d'épingler : la réparation serait défaite dans le
+  // cas pour lequel elle existe. Mesuré avant : `what_changed`, nommé par la consigne, figurait
+  // parmi les 113 écartés à la frontière du fournisseur.
+  const epingle = new Set<string>(epingles);
   const rang = (t: { name: string }): number => {
-    if (t.name === DISCOVERY_TOOL.name || socle.has(t.name)) return 0;
+    if (t.name === DISCOVERY_TOOL.name || socle.has(t.name) || epingle.has(t.name)) return 0;
     if (!(t.name in TOOL_DOMAINS) && !DOMAINES_DYNAMIQUES.has(t.name)) return 1;
     return 2;
   };

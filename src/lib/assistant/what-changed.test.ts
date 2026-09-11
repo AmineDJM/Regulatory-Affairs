@@ -210,9 +210,18 @@ suite("what_changed — le diff tracé depuis une date, l'état actuel en face",
     };
     expect(objet.precision, "le TOTAL de la fenêtre est dit, pas seulement l'échantillon").toMatch(/\d+ fait\(s\) au registre canonique/);
     const total = Number(/(\d+) fait\(s\) au registre/.exec(objet.precision)?.[1] ?? "0");
+    // L'ÉCART ENTRE LE TOTAL ET CE QUI EST RENDU A DEUX CAUSES, et ce juge n'en acceptait qu'UNE.
+    // Il exigeait la phrase de TRONCATURE (« les N plus récents ») ; l'autre cause est
+    // l'ÉCARTEMENT par cloisonnement, qui porte sa propre phrase. Mesuré : sept faits écartés,
+    // zéro rendu, aucune troncature — le juge accusait le produit pour un écart parfaitement
+    // expliqué (§118.92 : qu'est-ce que le juge a réellement mesuré ?). La propriété juste est
+    // que l'écart soit EXPLIQUÉ, peu importe laquelle des deux causes l'a produit.
     if (total > objet.changements.length) {
-      expect(objet.borne, "quand la fenêtre déborde, la réponse le DIT et nomme le geste").toContain("plus récents seulement");
-      expect(objet.borne).toContain("since");
+      expect(objet.borne, "un écart entre le total et ce qui est rendu doit être EXPLIQUÉ").not.toBeNull();
+      const tronque = objet.borne!.includes("plus récents seulement");
+      const ecarte = objet.borne!.includes("écarté");
+      expect(tronque || ecarte, `l'écart (${total} au registre, ${objet.changements.length} rendus) n'est expliqué ni par une troncature ni par un écartement : « ${objet.borne} »`).toBe(true);
+      if (tronque) expect(objet.borne, "une troncature doit nommer le geste qui la lève").toContain("since");
     }
   });
 

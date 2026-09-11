@@ -178,7 +178,17 @@ export function resolveTools<T extends { name: string }>(
   tools: T[],
   question: string,
   route: Pick<QueryRoute, "route" | "domain" | "confidence" | "secondaires">,
-  opts: { ecritures?: ReadonlySet<string>; knownEntities?: { name: string; domain: Domain }[] } = {},
+  opts: {
+    ecritures?: ReadonlySet<string>;
+    knownEntities?: { name: string; domain: Domain }[];
+    /**
+     * Les outils que le CONTEXTE DU TOUR nomme (voir `outilsNommes`) : ils passent, et ils ne
+     * tombent pas sous le plafond du niveau. Même forme, même raison que `OUTILS_SURVEILLANCE`
+     * juste en dessous — un outil qu'une consigne nomme et que le plafond écarte fait payer une
+     * découverte, une invalidation de cache, et parfois l'éviction de l'outil nommé lui-même.
+     */
+    epingles?: readonly string[];
+  } = {},
 ): ResolvedTools<T> {
   const ecritures = opts.ecritures ?? new Set<string>();
   const level = classifyRequest(question, route);
@@ -233,6 +243,13 @@ export function resolveTools<T extends { name: string }>(
   const surveillance = estDemandeDeSurveillance(texteNormalise);
   if (surveillance) for (const n of OUTILS_SURVEILLANCE) garde.add(n);
 
+  // CE QUE LA CONSIGNE DU TOUR NOMME PASSE. Une écriture nommée l'est par une consigne dont le
+  // rôle EST de nommer le geste (`nativeActionHint`) : la filtrer ici rétablirait le défaut à
+  // l'étage d'en dessous. Ouvrir n'accorde rien — `tools` est déjà filtré par les droits de la
+  // personne, et un nom absent de cette liste n'ouvre rien.
+  const epingles = new Set<string>(opts.epingles ?? []);
+  for (const n of epingles) garde.add(n);
+
   // ── LA HAUTEUR, pour C seulement. Une question causale ne tient dans aucun domaine : la
   //    borner à un domaine serait l'erreur symétrique de celle qu'on corrige.
   if (level === "C") for (const n of EXECUTIVE) garde.add(n);
@@ -243,6 +260,7 @@ export function resolveTools<T extends { name: string }>(
   //    que si les derniers sont vraiment les moins utiles.
   const rang = (nom: string): number => {
     if ((ALWAYS_ON as readonly string[]).includes(nom)) return 0;
+    if (epingles.has(nom)) return 0;
     const ds = TOOL_DOMAINS_ALL[nom] ?? [];
     const i = effectifs.findIndex((d) => ds.includes(d));
     // UNE CAPACITÉ QUI REMPLACE UNE SÉQUENCE PASSE DEVANT SON DOMAINE — pas devant le socle, et
@@ -275,7 +293,20 @@ export function resolveTools<T extends { name: string }>(
   // LA DÉCOUVERTE COMPTE DANS LE PLAFOND. Elle était ajoutée APRÈS la coupe, donc un niveau B
   // sortait à 31 pour un plafond de 30 — un dépassement d'exactement un, invisible à la lecture
   // et visible au banc. Un plafond qu'on dépasse toujours de un n'est pas un plafond.
-  const cap = Math.max(0, LEVEL_CAP[level] - 1);
+  // ── UN PLAFOND QUI COUPE CE QUE LA CONSIGNE DU MÊME TOUR NOMME NE RÉDUIT RIEN ───────────
+  //
+  // Mesuré : sur « Résume-moi la semaine », les consignes de période et de prochain geste
+  // nomment DIX outils ; avec les cinq du socle, le rang 0 pèse quinze pour un plafond A de
+  // quatorze — et `create_task` et `send_message` tombaient. Le modèle les aurait alors
+  // cherchés par `list_more_tools` : un aller-retour complet et une invalidation du préfixe de
+  // cache (55 286 jetons à 0 %, mesuré au §118.122) pour éviter dix schémas à ~4 000 jetons.
+  // Couper ici ne DÉPLACE pas la dépense, elle la MULTIPLIE. Le plafond cède donc juste assez
+  // pour tenir le socle, les épingles et la découverte — et pas un outil de plus : c'est ce qui
+  // le distingue d'un plafond relevé (§118.114).
+  // Sans épingle, ce plancher vaut la taille du socle et le plafond du niveau l'emporte : la
+  // formule ne change donc RIEN aux tours ordinaires (`tool-resolver.test.ts`, 35 cas, le prouve).
+  const plancherNomme = new Set([...(ALWAYS_ON as readonly string[]), ...epingles]).size;
+  const cap = Math.max(0, Math.max(LEVEL_CAP[level], plancherNomme + 1) - 1);
   const coupes = Math.max(0, retenus.length - cap);
   const finaux = retenus.slice(0, cap);
 

@@ -201,14 +201,48 @@ async function liveFeedAnswer(user: CurrentUser, depuis: Date | null): Promise<s
     : `${durables.total} fait(s) au registre canonique depuis le ${fr(since)}${health.started ? ", complétés par ce que ce serveur a vu depuis son démarrage" : ""}. `
       + "« registre » fait foi ; « flux » est un indice de ce processus, pas un journal exhaustif.";
 
+  /**
+   * LE REGISTRE EST PARTIEL PAR CONSTRUCTION — et c'est à LUI de le dire.
+   *
+   * Mesuré sur le banc, question « Résume-moi la semaine » : le registre porte 8 faits sur la
+   * fenêtre, dont 5 sans enregistrement lisible ; au même instant l'ERP comptait 35 objets
+   * modifiés. `BusinessEvent` ne contient que ce que les domaines ÉMETTENT, et un fait sans
+   * `entityType`/`entityId` n'est pas rendu (on cloisonne par ENREGISTREMENT, jamais par
+   * domaine — §118.104). Une réponse de trois lignes bâtie là-dessus est donc CHEAP, ASSURÉE,
+   * et pauvre : le faux succès exact que ce dépôt ferme partout ailleurs.
+   *
+   * On ne desserre PAS le cloisonnement pour étoffer la réponse — ce serait échanger une
+   * pauvreté contre une fuite. On NOMME le geste qui complète (§118.19, §118.30), et seulement
+   * quand le fait est là : peu de faits rendus, ou des faits écartés. Se taire laisserait
+   * conclure « rien n'a bougé cette semaine » ; le dire toujours ferait du bruit qu'on cesse de
+   * lire (§118.32).
+   *
+   * LE SEUIL PORTE SA RAISON, sinon c'est une constante sans justification (§118.116). Douze,
+   * c'est moins de deux faits par jour sur la fenêtre par défaut : en dessous, le registre ne
+   * peut PAS raconter une semaine d'entreprise, quelle que soit la cause. Au-dessus, il faut
+   * encore qu'aucun fait n'ait été écarté — et sur une semaine chargée cette seconde condition
+   * sera souvent vraie, parce que TOUT fait du flux en mémoire est écarté (il n'est pas typé,
+   * donc pas cloisonnable par enregistrement). Ce n'est pas du bruit : c'est une propriété
+   * permanente de la source, et la taire ferait conclure à une complétude qui n'existe pas.
+   * La phrase ne se tait que sur le cas qui la mérite — beaucoup de faits rendus, aucun écarté.
+   */
+  const ETOFFER_SOUS = 12;
+  const partiel = durables !== null && (lisibles.length < ETOFFER_SOUS || ecartes > 0);
+  const completer = partiel
+    ? " CE REGISTRE NE PORTE QUE LES FAITS ÉMIS, et seuls ceux rattachés à un enregistrement lisible sont rendus : "
+      + "il ne dit donc PAS l'état des dossiers, contrats et budgets. Pour un résumé de période qu'un dirigeant peut utiliser, "
+      + "compléter par regulatory_intelligence, legal_intelligence, finance_intelligence et list_pending_decisions — "
+      + "une liste courte ici n'est pas la preuve que la semaine a été calme."
+    : "";
+
   return repondre({
     portee: "flux",
     depuis: since.toISOString(),
     changements: lisibles.map((b) => ({ quoi: b.quoi, sujet: b.sujet, libelle: b.libelle, quand: b.quand, source: b.source })),
     borne: bornes.length > 0 ? bornes.join(" ; ") : null,
     precision: lisibles.length === 0
-      ? `Aucun fait lisible depuis le ${fr(since)}. ${couverture} Pour un dossier précis, donner sa référence.`
-      : `${couverture} Pour le détail d'un de ces sujets, appeler inspect_record ou what_changed avec sa référence.`,
+      ? `Aucun fait lisible depuis le ${fr(since)}. ${couverture}${completer} Pour un dossier précis, donner sa référence.`
+      : `${couverture}${completer} Pour le détail d'un de ces sujets, appeler inspect_record ou what_changed avec sa référence.`,
   });
 }
 

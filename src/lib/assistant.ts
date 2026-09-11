@@ -23,7 +23,7 @@
 import { extraireBlocRegles, gardeEnseignement, OUTILS_ENSEIGNEMENT, RAPPEL_ENSEIGNEMENT, DEMENTI_ENSEIGNEMENT } from "@/platform/in-process/teach/bloc";
 import { extraireFaits, faitsDuTour, repondreDouTuTiensCa, resumerFait, type FaitSource } from "@/platform/in-process/fabric/provenance";
 import { routeVoiceUtterance } from "@/lib/assistant/voice/fast-path";
-import { consigneCalcul, consigneRepresentation, consigneSignaux } from "@/lib/assistant/context/router";
+import { consigneCalcul, consignePeriode, consigneProchainGeste, consigneRepresentation, consigneSignaux } from "@/lib/assistant/context/router";
 import { calibrerTour } from "@/lib/assistant/confidence/tour";
 import type { Calibration } from "@/lib/assistant/confidence/calibrate";
 import { resoudreEntite, resoudreMentions, contexteEntitesResolues } from "@/platform/in-process/fabric/entites";
@@ -112,7 +112,7 @@ import { recordShadow } from "@/lib/assistant/context/shadow";
 // canary, TOUTES les mutations sur le chemin prouvé. La politique vit dans `rollout.ts` ; ici on
 // ne fait que l'appliquer.
 import { decideRollout, recordOutcome, type RolloutDecision } from "@/lib/assistant/context/rollout";
-import { shortlistTools, fitToolBudget, DISCOVERY_TOOL } from "@/lib/assistant/context/tool-shortlist";
+import { shortlistTools, fitToolBudget, outilsNommes, DISCOVERY_TOOL } from "@/lib/assistant/context/tool-shortlist";
 import { resolveTools } from "@/lib/assistant/context/tool-resolver";
 // L'ESPACE DE TRAVAIL GÉNÉRATIF : la sortie d'une source canonique traduite en blocs TYPÉS.
 // Le modèle n'écrit aucun balisage — c'est ce qui empêche l'écran de redevenir un vidage de JSON.
@@ -4848,7 +4848,20 @@ async function runAssistantImpl(
   const entitesResolues = plan.entites.length
     ? await timedPhase("entites", () => resoudreMentions(plan.entites).then(contexteEntitesResolues).catch(() => null))
     : null;
-  const planCtx = [queryPlanContext(plan), entitesResolues, consigneCalcul(question), consigneRepresentation(question), consigneSignaux(question)].filter(Boolean).join("\n\n") || null;
+  const planCtx = [queryPlanContext(plan), entitesResolues, consigneCalcul(question), consignePeriode(question), consigneRepresentation(question), consigneSignaux(question), consigneProchainGeste(question)].filter(Boolean).join("\n\n") || null;
+  // ── CE QUE NOTRE CONSIGNE NOMME, LE TOUR L'OUVRE (§118.122) ──────────────────────────────
+  // Mesuré : `consigneSignaux` et `consignePeriode` nomment 15 outils que la liste courte de
+  // leurs propres questions n'expose pas. Le modèle va alors les chercher — six appels de
+  // découverte, 54 schémas → 241, le prompt de 13 700 à 55 286 jetons avec 0 % de cache, et
+  // `what_changed` (l'outil que la consigne nommait) écarté au plafond du fournisseur.
+  //
+  // On ne lit QUE ce que notre code ÉCRIT : `planCtx` (plan de requête, entités résolues,
+  // consignes) et l'indice natif. Ni la question, ni le jeu de travail, ni le contexte personnel
+  // — un document peut contenir un nom d'outil, et le contenu d'un document est une DONNÉE,
+  // jamais une instruction (§118.7). La conséquence serait ici un simple surcoût, pas une
+  // faille ; la frontière se tient quand même.
+  const indiceNatif = nativeActionHint(question);
+  const epingles = outilsNommes([planCtx, indiceNatif].filter(Boolean).join("\n"));
   // OBSERVABILITÉ du planner — domaine/intention/suivi UNIQUEMENT (jamais le texte de la
   // question) : le taux de résolution des suivis elliptiques se lit dans les logs.
   if (plan.domaine || plan.intention || plan.suiviElliptique) {
@@ -4870,7 +4883,7 @@ async function runAssistantImpl(
     planCtx,
     // PRIORITÉ AU NATIF : si la demande correspond à un bouton métier de l'ERP, l'indice le
     // nomme (outil + libellé d'écran) — le modèle ne fabrique pas un substitut plus faible.
-    nativeActionHint(question),
+    indiceNatif,
     intentsCtx,
   ]);
   if (contexteTour) messages[messages.length - 1] = { role: "user", content: `${question}${contexteTour}` };
@@ -4903,8 +4916,8 @@ async function runAssistantImpl(
   // ne se déclenchent plus en fonctionnement normal, mais un filet qu'on retire parce qu'il ne
   // sert plus est un filet qu'on regrettera au prochain lot d'outils.
   const tResolv = Date.now();
-  const resolved = resolveTools(allTools, question, rollout.route, { ecritures: RESOLVER_WRITE_NAMES });
-  let tools = fitToolBudget(resolved.tools, rollout.route) as typeof allTools;
+  const resolved = resolveTools(allTools, question, rollout.route, { ecritures: RESOLVER_WRITE_NAMES, epingles });
+  let tools = fitToolBudget(resolved.tools, rollout.route, undefined, epingles) as typeof allTools;
   addPhase("resolveur", Date.now() - tResolv);
   const trace: string[] = [];
   // Ce que la boucle appelle VRAIMENT — la seule vérité contre laquelle comparer la liste courte.
@@ -5389,7 +5402,20 @@ async function runAssistantStreamImpl(
   const entitesResolues = plan.entites.length
     ? await timedPhase("entites", () => resoudreMentions(plan.entites).then(contexteEntitesResolues).catch(() => null))
     : null;
-  const planCtx = [queryPlanContext(plan), entitesResolues, consigneCalcul(question), consigneRepresentation(question), consigneSignaux(question)].filter(Boolean).join("\n\n") || null;
+  const planCtx = [queryPlanContext(plan), entitesResolues, consigneCalcul(question), consignePeriode(question), consigneRepresentation(question), consigneSignaux(question), consigneProchainGeste(question)].filter(Boolean).join("\n\n") || null;
+  // ── CE QUE NOTRE CONSIGNE NOMME, LE TOUR L'OUVRE (§118.122) ──────────────────────────────
+  // Mesuré : `consigneSignaux` et `consignePeriode` nomment 15 outils que la liste courte de
+  // leurs propres questions n'expose pas. Le modèle va alors les chercher — six appels de
+  // découverte, 54 schémas → 241, le prompt de 13 700 à 55 286 jetons avec 0 % de cache, et
+  // `what_changed` (l'outil que la consigne nommait) écarté au plafond du fournisseur.
+  //
+  // On ne lit QUE ce que notre code ÉCRIT : `planCtx` (plan de requête, entités résolues,
+  // consignes) et l'indice natif. Ni la question, ni le jeu de travail, ni le contexte personnel
+  // — un document peut contenir un nom d'outil, et le contenu d'un document est une DONNÉE,
+  // jamais une instruction (§118.7). La conséquence serait ici un simple surcoût, pas une
+  // faille ; la frontière se tient quand même.
+  const indiceNatif = nativeActionHint(question);
+  const epingles = outilsNommes([planCtx, indiceNatif].filter(Boolean).join("\n"));
   // OBSERVABILITÉ du planner — domaine/intention/suivi UNIQUEMENT (jamais le texte de la
   // question) : le taux de résolution des suivis elliptiques se lit dans les logs.
   if (plan.domaine || plan.intention || plan.suiviElliptique) {
@@ -5411,7 +5437,7 @@ async function runAssistantStreamImpl(
     planCtx,
     // PRIORITÉ AU NATIF : si la demande correspond à un bouton métier de l'ERP, l'indice le
     // nomme (outil + libellé d'écran) — le modèle ne fabrique pas un substitut plus faible.
-    nativeActionHint(question),
+    indiceNatif,
     intentsCtx,
   ]);
   if (contexteTour) messages[messages.length - 1] = { role: "user", content: `${question}${contexteTour}` };
@@ -5442,8 +5468,8 @@ async function runAssistantStreamImpl(
   // ne se déclenchent plus en fonctionnement normal, mais un filet qu'on retire parce qu'il ne
   // sert plus est un filet qu'on regrettera au prochain lot d'outils.
   const tResolv = Date.now();
-  const resolved = resolveTools(allTools, question, rollout.route, { ecritures: RESOLVER_WRITE_NAMES });
-  let tools = fitToolBudget(resolved.tools, rollout.route) as typeof allTools;
+  const resolved = resolveTools(allTools, question, rollout.route, { ecritures: RESOLVER_WRITE_NAMES, epingles });
+  let tools = fitToolBudget(resolved.tools, rollout.route, undefined, epingles) as typeof allTools;
   addPhase("resolveur", Date.now() - tResolv);
   const trace: string[] = [];
   const usedTools: string[] = [];

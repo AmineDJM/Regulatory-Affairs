@@ -430,8 +430,109 @@ export function consigneCalcul(raw: string): string | null {
     + "Cite le résultat rendu par l'outil, avec sa source, et dis quand une hypothèse a été appliquée.";
 }
 
-const ETAT_SIGNAUX = /\b(en retard|retards?|bloques?|bloquees?|blocages?|pieces? manquantes?|manquant|manquantes?|manque|echeances?|arrive a echeance|arrivent a echeance|expire|expirent|justificatifs?|depasse|depassement|depassements|qu.?est.?ce qui cloche|cloche|signaux|signal|alertes?|a risque|risques?|rythme|denonc\w*|reconduction|tacite|penalites?|obligations?|bloqueurs?|reserves?|relanc\w*)\b/;
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA QUESTION DE PÉRIODE — « résume-moi la semaine », et pourquoi elle rendait INCONNU.
+ *
+ * Mesuré sur la sonde de conversation, tour `07-semaine` : « Résume-moi la semaine » a appelé
+ * `list_emails`, N'A RIEN TROUVÉ, et répondu « INCONNU — aucune boîte Courrier n'est connectée,
+ * donc aucun e-mail de la semaine à résumer ». 3,2 s et 0,005 $ pour ne rien dire, sur l'une des
+ * questions les plus naturelles d'un dirigeant.
+ *
+ * Le routeur n'était PAS en faute : il a bien classé DEEP_REASONING / GENERAL et exposé 40
+ * outils, `what_changed` compris. La capacité était là, `BusinessEvent` porte toute l'activité,
+ * et §118.104 venait justement de lui apprendre à répondre SANS entité. C'est le MODÈLE qui a
+ * réduit « la semaine » à « mes e-mails », et rien dans la consigne ne lui disait le contraire.
+ *
+ * C'est §118.19 pris en MIROIR : la règle connue dit que ce que le code EXIGE, le prompt doit
+ * dire comment le satisfaire ; ici, ce que le code SAIT FAIRE, le prompt doit dire QUAND s'en
+ * servir. Une capacité qu'on n'appelle jamais ne vaut pas mieux qu'une capacité absente
+ * (§118.14), et le symptôme est le même vu du dirigeant : un « je ne peux pas ».
+ *
+ * ── DEUX TABLES, PAS UN ÉLARGISSEMENT ────────────────────────────────────────────────────
+ *
+ * `DATA_SECONDAIRE` gouverne AUSSI `consigneCalcul` : y verser « la semaine » ferait injecter
+ * une consigne de calcul sur une demande qui ne calcule rien (§118.105b, §118.32 — deux
+ * questions, deux détecteurs). Le vocabulaire ci-dessous est donc FERMÉ et le sien.
+ *
+ * Et il exclut délibérément « aujourd'hui » SEUL : « qu'est-ce que je dois savoir aujourd'hui »
+ * est une question d'ÉTAT (ce qui m'attend), pas de PÉRIODE (ce qui a bougé) — la mesure le
+ * montre, ce tour-là répondait déjà correctement par les signaux. Ouvrir sur ce mot aurait
+ * remplacé une bonne réponse par une autre, ce qui est un échange, pas un gain (§118.27).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const PERIODE_ECOULEE = new RegExp(
+  "\\b("
+  + "quoi de neuf|qu est ce qui a change|qu est ce qui a bouge|ce qui a change|ce qui a bouge"
+  + "|remets? moi a niveau|remise a niveau|recap|recapitulatif|recapitule"
+  + "|(resume|resumez|resume moi|fais) (moi )?(la |le |ma |mon )?(semaine|journee|mois|trimestre|quinzaine)"
+  + "|(la |cette |ma )(semaine|quinzaine) (ecoulee|passee|derniere)"
+  + "|depuis (lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|hier|ce matin|mon retour|mon absence|la derniere fois|notre derniere|vendredi dernier)"
+  + "|ces derniers jours|ces dernieres heures|derniers jours|dernieres 24h|dernieres vingt quatre heures"
+  + "|pendant (mon absence|mes conges|mon deplacement)"
+  + ")\\b",
+);
+
+/**
+ * LA CONSIGNE DE PÉRIODE. `null` quand la question ne porte pas sur un intervalle écoulé.
+ *
+ * La moitié qui compte est la DERNIÈRE phrase : une boîte absente n'est pas une période
+ * illisible. C'est elle qui remplace « INCONNU » par une réponse, et elle dit aussi ce qu'on
+ * NE fait pas — présenter une lacune de source comme la réponse à la question posée.
+ */
+export function consignePeriode(raw: string): string | null {
+  const texte = normalizeUtterance(stripPreamble(raw));
+  if (!PERIODE_ECOULEE.test(texte)) return null;
+  return "PÉRIODE ÉCOULÉE — cette question porte sur ce qui a BOUGÉ dans l'entreprise pendant un intervalle, pas sur l'état du jour. "
+    + "COMMENCE par what_changed SANS référence d'entité : il lit le registre canonique des faits métier (il survit aux redéploiements), "
+    + "porte le TOTAL de la période à côté de l'échantillon rendu, et se resserre par `since`. "
+    + "Ce registre ne porte QUE les faits émis : mesuré, 8 faits là où l'ERP comptait 35 objets modifiés. "
+    + "Il DIT lui-même quand sa couverture est partielle ; quand il le dit, COMPLÈTE par l'état — regulatory_intelligence, "
+    + "legal_intelligence, finance_intelligence, list_pending_decisions — et lance ces lectures ENSEMBLE, en un seul tour, pas l'une après l'autre. "
+    + "Compose ensuite par DOMAINE, cite ce qui a CHANGÉ plutôt que ce qui existe, et nomme les références et les montants tels que les outils les rendent. "
+    + "Une liste courte au registre n'est JAMAIS la preuve que la période a été calme. "
+    + "UNE BOÎTE MAIL N'EST PAS LA PÉRIODE : l'absence de messagerie connectée ne rend JAMAIS la question sans réponse. "
+    + "Si aucune boîte n'est branchée, dis-le comme UNE réserve d'une ligne à la fin — jamais comme la réponse, et jamais « INCONNU » sur une période que le registre sait raconter.";
+}
+
+const ETAT_SIGNAUX = /\b(en retard|retards?|bloques?|bloquees?|blocages?|pieces? manquantes?|manquant|manquantes?|manque|echeances?|arrive a echeance|arrivent a echeance|expire|expirent|justificatifs?|depasse|depassement|depassements|qu.?est.?ce qui cloche|cloche|signaux|signal|alertes?|a risque|risques?|rythme|denonc\w*|reconduction|tacite|penalites?|obligations?|bloqueurs?|reserves?|relanc\w*|sans (bon de commande|bc|justificatif|justificatifs|facture|contrat)|non rapproch\w*|ecarts?)\b/;
 const CIBLES_METIER = /\b(dossiers? reglementaires?|dossiers?|regulatory|anpp|ctd|contrats?|avenants?|factures?|bons? de commande|bc|budgets?|enveloppes?|paiements?|demandes? de paiement|ordres? de depense|tresorerie|finances?|legal|juridique)\b/;
+
+/**
+ * LA QUESTION D'ÉTAT SANS CIBLE — la plus fréquente, et la seule qui n'avait aucune consigne.
+ *
+ * MESURÉ sur les huit tours de la sonde : UN SEUL déclenchait une consigne. « Qu'est-ce qui
+ * bloque ? », « Y'a quoi d'urgent ? », « Qu'est-ce qui cloche ? », « Quels sont les risques ? »,
+ * « Où on en est ? », « Qu'est-ce que je dois savoir aujourd'hui ? » — les six formules les plus
+ * naturelles d'un dirigeant — n'en recevaient AUCUNE. `consigneSignaux` exigeait un mot d'état
+ * ET une cible métier ; le mot d'état était bien là, c'est la CIBLE qui manquait, **parce que la
+ * cible est l'entreprise entière**. Absence de signal ne vaut pas signal d'absence.
+ *
+ * POURQUOI PAS « LE MOT D'ÉTAT SUFFIT ». La double condition a sa raison : « il manque une
+ * virgule », « relance-moi demain », « quelles sont mes obligations de congés » portent un mot
+ * d'état sans rien demander de l'état des dossiers. Les faire passer injecterait trois cents
+ * jetons et dix schémas épinglés dans des tours qui n'en veulent pas — et une consigne qui
+ * arrive partout cesse d'être lue (§118.32).
+ *
+ * DONC UNE TROISIÈME CONDITION, et un vocabulaire FERMÉ : ce sont des FORMES de question, pas
+ * des cibles. Elles se reconnaissent à ce qu'elles interrogent l'état sans nommer d'objet, et
+ * c'est précisément ce qui les rend globales. En ajouter une est une décision de revue de code.
+ */
+const ETAT_GLOBAL = new RegExp(
+  "("
+  + "^(ou (on |en |)en (est|sommes) ?on|ou en est ?on|ou on en est|ou en sommes nous)"
+  + "|qu.?est.?ce qui (bloque|cloche|coince|va mal|ne va pas|cloche|nous bloque)"
+  + "|(y a|il y a|ya|y.a) quoi d.(urgent|important|nouveau)"
+  + "|quoi d.(urgent|important)"
+  + "|qu.?est.?ce qu.il y a d.(urgent|important)"
+  + "|qu.?est.?ce que je dois savoir"
+  + "|quels? (sont|est) (les |le |mes |nos )?(risques?|urgences?|priorites?|blocages?|alertes?|points? d.attention)"
+  + "|ce qui (bloque|cloche|coince)"
+  + "|(fais|donne|donne moi|fais moi) (le |un )?(point|etat des lieux|tour d.horizon)"
+  + "|(point|etat) (de |des |d.)(situation|lieux)"
+  + "|(rien|quelque chose) (d.)?(inquietant|urgent|grave)"
+  + ")",
+);
 
 /**
  * LA CONSIGNE « SIGNAUX PAR LE CODE » (mandat 4 §27), jumelle de `consigneCalcul` : l'ÉTAT des
@@ -447,11 +548,63 @@ export function consigneSignaux(raw: string): string | null {
     return "SURVEILLANCE : « surveille… », « préviens-moi si / quand… », « alerte-moi… » demandent une SURVEILLANCE DURABLE — appelle watch_entity "
       + "(ou expected_document pour un document attendu). Ce n'est ni une alerte immédiate à rédiger, ni une règle à enseigner : sans watch_entity, rien ne surveille.";
   }
-  if (!(ETAT_SIGNAUX.test(texte) && CIBLES_METIER.test(texte))) return null;
+  // Deux portes : un mot d'état SUR une cible métier, ou une FORME de question d'état globale
+  // (la cible est alors l'entreprise, voir `ETAT_GLOBAL`).
+  if (!((ETAT_SIGNAUX.test(texte) && CIBLES_METIER.test(texte)) || ETAT_GLOBAL.test(texte))) return null;
   return "SIGNAUX PAR LE CODE : l'état des dossiers réglementaires, des contrats et des budgets (retards en jours, blocages, pièces manquantes, "
     + "échéances, dénonciation, dépassements, justificatifs, factures sans BC) se lit dans regulatory_intelligence / legal_intelligence / "
     + "finance_intelligence — calculé maintenant, avec son calcul — JAMAIS dans un document retrouvé (une note est une photo datée) ni de mémoire. "
     + "Cite chaque référence et chaque chiffre tels que l'outil les rend ; lis parEntite pour n'oublier aucun dossier.";
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE PROCHAIN GESTE — un constat critique qui ne propose RIEN est un tableau de bord.
+ *
+ * MESURÉ sur la sonde de conversation, les huit tours : **ZÉRO carte d'action**. « Qu'est-ce qui
+ * est bloqué ? » rendait six blocages nommés — un paiement de 2 000 000 DZD exigible dans deux
+ * jours, un dossier en retard de 40 jours en attente de deux pièces précises, un dossier bloqué
+ * sans motif renseigné, un écart facture/BC de 380 000 DZD, un contrat qui expire dans 18 jours —
+ * et pas une seule fois « veux-tu que je… ». La liste était juste, sourcée, liée aux fiches. Et
+ * c'est exactement ce qu'un dirigeant décrit par « je ne ressens aucune différence » : un chef de
+ * cabinet qui rapporte une échéance à deux jours sans proposer le geste suivant n'est pas un
+ * assistant, c'est un écran de plus.
+ *
+ * ── POURQUOI C'ÉTAIT ABSENT, ET POURQUOI IL FALLAIT LES DEUX MOITIÉS ─────────────────────
+ *
+ * Rien ne le DISAIT : `limites.ts` ne couvre que la promesse sans objet durable (§118.57a), et la
+ * voix l'interdit même explicitement. Et rien ne l'OUVRAIT : sur une question qui ne fait que
+ * lire, `tool-resolver.ts` écarte les écritures du domaine — à raison, « décrire les écritures à
+ * quelqu'un qui pose une question, c'est offrir l'occasion de se tromper de geste ». Dire sans
+ * ouvrir aurait fait promettre un geste indisponible : le défaut de §118.122, réintroduit par sa
+ * propre réparation. La consigne NOMME donc ses outils, et l'épinglage (§118.122) les ouvre —
+ * c'est le mécanisme d'à côté qui rend celui-ci possible.
+ *
+ * ── CE QU'ON REFUSE ──────────────────────────────────────────────────────────────────────
+ *
+ * Le vocabulaire est FERMÉ et court, et chaque geste répond à un TYPE de constat. Ouvert, il
+ * ferait proposer n'importe quelle écriture à la fin de n'importe quelle lecture — et une
+ * proposition de trop sur un constat juste coûte la confiance qu'on vient de gagner. Rien ne
+ * part : ce sont des PROPOSITIONS, et la carte de confirmation reste la garde (§118.15). Une
+ * DÉCISION qui appartient à la personne — approuver un paiement, arbitrer — ne se propose pas
+ * comme un geste d'Adam : son geste est le LIEN vers l'écran où elle décide. Et un constat
+ * NON critique n'en porte pas : une proposition sur chaque ligne redevient du bruit (§118.32).
+ */
+export function consigneProchainGeste(raw: string): string | null {
+  // Même déclencheur que l'état et la période : ce sont les questions qui PRODUISENT des
+  // constats. Les relire ici plutôt que recopier leurs expressions évite deux détecteurs qui
+  // divergent (§118.5) — celui du geste cesserait de suivre celui du constat.
+  if (!consigneSignaux(raw) && !consignePeriode(raw)) return null;
+  return "LE PROCHAIN GESTE : un constat critique qui ne propose RIEN est un tableau de bord. "
+    + "UN LIEN VERS UN ÉCRAN N'EST PAS UN GESTE — c'est une lecture de plus : il ne compte pas comme une proposition. "
+    + "Dès qu'un constat attend une PIÈCE, une RELANCE, une INFORMATION manquante ou un RESPONSABLE, propose le geste : "
+    + "retard ou blocage d'un dossier → request_regulatory_status_update (relance tracée) ou send_message à son responsable, en nommant la pièce exacte qui manque ; "
+    + "échéance qui approche → watch_entity pour être prévenu, ou plan_reminder à une date ; "
+    + "justificatif ou motif absent → create_task assignée, ou send_message à qui le détient. "
+    + "Choisis les DEUX constats les plus graves et propose pour eux — pas plus de deux cartes, et AUCUNE sur un constat non critique : "
+    + "une proposition sur chaque ligne redevient du bruit. "
+    + "La seule exception au geste est une DÉCISION qui appartient à la personne (approuver un paiement, arbitrer) : là, le lien vers son écran suffit. "
+    + "Rien ne part sans son clic : proposer n'est pas agir.";
 }
 
 export function routeQuery(raw: string, ctx: RouterContext = {}): QueryRoute {

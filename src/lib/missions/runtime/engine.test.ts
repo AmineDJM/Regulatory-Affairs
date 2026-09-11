@@ -120,8 +120,19 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
 
     const etat = await chargerEtat(id);
     expect(etat!.steps.every((s) => s.status === "DONE")).toBe(true);
-  });
-
+  }, /**
+   * SON PROPRE PLAFOND, ET C'EST UNE BORNE DE BLOCAGE — pas une mesure de vitesse.
+   *
+   * MESURÉ : ~1 s en isolation (3 fois sur 3), et un dépassement des 20 000 s globales dans la
+   * suite complète — 732 fichiers sur QUATRE cœurs. Ce cas-ci fait tourner le VRAI moteur sur
+   * la VRAIE base (trois étapes, leurs reçus, leurs événements) : il paie la contention de la
+   * base en plus de celle du processeur. C'est le défaut nommé juste sous `testTimeout` dans
+   * `vitest.config.ts` — « le test le plus lent fait environ 2 s » n'était plus vrai.
+   *
+   * On ne relève PAS le plafond global : il garderait 8 495 tests moins sévèrement pour en
+   * réparer un (§118.16). Rien n'est masqué — un moteur qui ne rend jamais la main échoue
+   * toujours, un peu plus tard.
+   */ 60_000);
   it("parallélise ce qui est parallélisable, et sérialise ce qui ne l'est pas", async () => {
     const t = traceur();
     const steps: PlannedStep[] = [
