@@ -9,6 +9,7 @@ vi.mock("@/lib/session", () => ({
   requireModule: async () => ACTEUR,
 }));
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
 import {
@@ -16,8 +17,10 @@ import {
 } from "@/lib/actions/tour-plan-actions";
 import { rapporterVisite, ajouterVisiteImprevue, commanderVisite } from "@/lib/actions/tour-visit-actions";
 import { createPromoMessage } from "@/lib/actions/promo-message-actions";
-import { loadEmploiDuTemps, loadPanelPlanifiable, loadTourneeDirection } from "@/lib/queries/tour-schedule";
-import { avancementTournee, periodeSuivante } from "@/lib/sfe/tournee";
+import { saveTourPlanningSettings } from "@/lib/actions/sales-planning-actions";
+import { loadEmploiDuTemps, loadPanelPlanifiable, loadPlanTournee, loadTourneeDirection } from "@/lib/queries/tour-schedule";
+import { avancementTournee, echeanceDeSoumission, periodeSuivante } from "@/lib/sfe/tournee";
+import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -136,6 +139,60 @@ suite("Plan de tournée — écran, validation, rapport, dénominateur", () => {
     expect(p.submissionDueAt.getTime()).toBeLessThan(p.periodStart.getTime());
     const jour = p.submissionDueAt.getDay();
     expect(jour === 5 || jour === 6, "une échéance ne tombe jamais un vendredi ni un samedi").toBe(false);
+  });
+
+  // ── LE RÉGLAGE : écrit par le Super Admin SEUL, lu par l'action qui ouvre ──────────────
+  it("LA MAILLE se règle par le Super Admin seul — et c'est l'action d'ouverture qui la LIT", async () => {
+    // Le réglage était lu à trois endroits et écrit NULLE PART : « configurable » dans la
+    // doctrine, « réglée par le Super Admin » à l'écran du KAM, et aucun formulaire (§118.45).
+    // Deux cas qui feraient tomber ce test : la porte ouverte à la Direction ; et
+    // `ouvrirPlanTournee` retombant sur « MONTH » en dur quand le formulaire ne nomme pas de maille.
+    const avant = await prisma.sfeSettings.findUnique({ where: { id: "global" } });
+    try {
+      ACTEUR = await acteur(patronId, "DIRECTION");
+      const refus = await saveTourPlanningSettings(fd({ granularity: "QUARTER", submissionLeadDays: "20" }));
+      expect(refus.ok).toBe(false);
+      expect(refus.ok === false ? refus.error : "").toContain("Super Admin");
+
+      ACTEUR = await acteur(adminId, "SUPER_ADMIN");
+      const hors = await saveTourPlanningSettings(fd({ granularity: "QUARTER", submissionLeadDays: "900" }));
+      expect(hors.ok, "900 jours est une faute de frappe, pas une politique — refusée en NOMMANT la borne").toBe(false);
+      expect(hors.ok === false ? hors.error : "").toContain("90");
+      const inconnue = await saveTourPlanningSettings(fd({ granularity: "DECADE", submissionLeadDays: "20" }));
+      expect(inconnue.ok).toBe(false);
+      expect(inconnue.ok === false ? inconnue.error : "").toContain("QUARTER");
+
+      const ok = await saveTourPlanningSettings(fd({ granularity: "QUARTER", submissionLeadDays: "20" }));
+      expect(ok.ok, ok.ok === false ? ok.error : "").toBe(true);
+      expect(await lireReglageTournee()).toEqual({ granularite: "QUARTER", joursAvant: 20 });
+      // LES AUTRES PARAMÈTRES SFE N'ONT PAS BOUGÉ : deux actions sur une ligne, chacune ses colonnes.
+      const apres = await prisma.sfeSettings.findUniqueOrThrow({ where: { id: "global" } });
+      expect(apres.capacity).toEqual(avant?.capacity ?? null);
+      expect(apres.positionWeights).toEqual(avant?.positionWeights ?? null);
+      expect(apres.frequencyByTier).toEqual(avant?.frequencyByTier ?? null);
+
+      // L'ACTION D'OUVERTURE LIT LE RÉGLAGE : sans maille dans le formulaire, un plan TRIMESTRIEL,
+      // et son échéance à 20 jours de la fin du mois qui précède le trimestre.
+      ACTEUR = await acteur(kamId, "MEDICAL_DELEGATE");
+      const dans = new Date(periode.debut.getFullYear() + 1, 3, 15); // un 15 avril, loin des plans du banc
+      const r = await ouvrirPlanTournee(fd({ date: dans.toISOString() }));
+      expect(r.ok, r.ok === false ? r.error : "").toBe(true);
+      const plan = await prisma.tourPlan.findUniqueOrThrow({ where: { id: r.ok === true ? (r.id ?? "") : "" } });
+      expect(String(plan.granularity)).toBe("QUARTER");
+      expect(jourIso(plan.periodStart)).toBe(`${dans.getFullYear()}-04-01`);
+      expect(jourIso(plan.periodEnd)).toBe(`${dans.getFullYear()}-06-30`);
+      expect(plan.submissionDueAt).toEqual(echeanceDeSoumission(plan.periodStart, 20));
+    } finally {
+      // ON REMET LE RÉGLAGE ET L'ON RETIRE LE PLAN : la base de travail est partagée, et un
+      // trimestre laissé derrière soi changerait la maille de tous les autres bancs (§118.113).
+      await prisma.tourPlan.deleteMany({ where: { repId: kamId, granularity: "QUARTER" } }).catch(() => {});
+      if (!avant) {
+        await prisma.sfeSettings.delete({ where: { id: "global" } }).catch(() => {});
+      } else {
+        const restaure = avant.tourPlanning == null ? Prisma.DbNull : (avant.tourPlanning as Prisma.InputJsonValue);
+        await prisma.sfeSettings.update({ where: { id: "global" }, data: { tourPlanning: restaure } });
+      }
+    }
   });
 
   it("planifier écrit des `MedicalVisit` PLANNED rattachées au plan", async () => {
@@ -499,6 +556,54 @@ suite("Plan de tournée — écran, validation, rapport, dénominateur", () => {
     // ZÉRO PLANIFIÉE REND 0 %, jamais 100 % : « rien à faire donc tout est fait » est le faux
     // succès de l'arithmétique.
     expect(dir.lignes[0]!.avancement.tauxRealisation).toBe(0);
+  });
+
+  it("LA DIRECTION VOIT LE RETARD : sans plan après l'échéance, brouillon en retard — jamais un plan soumis", async () => {
+    // `enRetardDeSoumission` était écrite, testée, et SANS appelant : l'échéance s'affichait
+    // « à soumettre avant le … » avant comme après son passage (§118.14, §118.49). Le cas qui
+    // ferait tomber l'avant-dernière assertion : juger un plan SOUMIS sur la date du jour — on
+    // reprocherait au KAM le temps de décision de son manager.
+    const retardataire = await prisma.user.create({
+      data: { name: `${TAG}Retardataire`, email: `${TAG}retard@t.dz`, role: "MEDICAL_DELEGATE" as never, passwordHash: "x" },
+    });
+    // Le mois COURANT : son échéance (avant la fin du mois précédent) est passée à coup sûr.
+    const maintenant = new Date();
+    const mois = { debut: new Date(maintenant.getFullYear(), maintenant.getMonth(), 1), fin: new Date(maintenant.getFullYear(), maintenant.getMonth() + 1, 0, 23, 59, 59, 999) };
+
+    const sans = await loadTourneeDirection([retardataire.id], mois.debut, mois.fin, maintenant);
+    expect(sans.lignes[0]!.statutPlan).toBeNull();
+    expect(sans.lignes[0]!.retard.enRetard, "aucun plan après l'échéance = en retard, pas « rien à faire »").toBe(true);
+    expect(sans.lignes[0]!.retard.jours).toBeGreaterThan(0);
+    expect(sans.enRetard).toBe(1);
+
+    const brouillon = await prisma.tourPlan.create({
+      data: {
+        repId: retardataire.id, periodStart: mois.debut, periodEnd: mois.fin, granularity: "MONTH", status: "DRAFT",
+        submissionDueAt: echeanceDeSoumission(mois.debut), createdById: retardataire.id,
+      },
+    });
+    const avecBrouillon = await loadTourneeDirection([retardataire.id], mois.debut, mois.fin, maintenant);
+    expect(avecBrouillon.lignes[0]!.statutPlan).toBe("DRAFT");
+    expect(avecBrouillon.lignes[0]!.retard.enRetard).toBe(true);
+    expect(avecBrouillon.enRetard).toBe(1);
+
+    // SOUMIS — même très tard — plus aucun retard à signaler.
+    await prisma.tourPlan.update({ where: { id: brouillon.id }, data: { status: "SUBMITTED", submittedAt: maintenant } });
+    const soumis = await loadTourneeDirection([retardataire.id], mois.debut, mois.fin, maintenant);
+    expect(soumis.lignes[0]!.retard.enRetard).toBe(false);
+    expect(soumis.enRetard).toBe(0);
+
+    // REJETÉ avec 47 h devant lui : pas en retard — c'est l'échéance de RESOUMISSION qui compte,
+    // et l'écran du KAM lit la MÊME (un seul calcul, §118.51).
+    await prisma.tourPlan.update({
+      where: { id: brouillon.id },
+      data: { status: "REJECTED", resubmitDueAt: new Date(maintenant.getTime() + 47 * 3_600_000) },
+    });
+    const rejete = await loadTourneeDirection([retardataire.id], mois.debut, mois.fin, maintenant);
+    expect(rejete.lignes[0]!.retard.enRetard).toBe(false);
+    expect(rejete.lignes[0]!.retard.echeance.getTime()).toBeGreaterThan(maintenant.getTime());
+    const vue = await loadPlanTournee(brouillon.id, maintenant);
+    expect(vue!.retard).toEqual(rejete.lignes[0]!.retard);
   });
 
   it("une portée VIDE ne divise pas par zéro et ne prétend rien", async () => {

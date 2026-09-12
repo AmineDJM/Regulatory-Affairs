@@ -8,10 +8,11 @@ import { recordAudit } from "@/lib/audit";
 import { getManagerOfUser } from "@/lib/departments";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import {
-  GRANULARITE_DEFAUT, bloquantsDeSoumission, echeanceDeSoumission, escaladeDuPlan, estGranularite,
+  bloquantsDeSoumission, echeanceDeSoumission, escaladeDuPlan, estGranularite,
   estJourOuvrePourTournee, gestesPossibles, limiteResoumission, periodeDe, reviseurDuPlan,
   type Granularite, type StatutPlan,
 } from "@/lib/sfe/tournee";
+import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
 
 /**
  * LE PLAN DE TOURNÉE — écriture, soumission, escalade, décision.
@@ -48,15 +49,6 @@ async function peutEcrirePourLeKam(user: Awaited<ReturnType<typeof requireUser>>
   return canEditRep(user, repId);
 }
 
-/** La maille et le délai réglés par le Super Admin, avec leurs défauts. */
-async function reglageTournee(): Promise<{ granularite: Granularite; joursAvant: number }> {
-  const row = await prisma.sfeSettings.findUnique({ where: { id: "global" }, select: { tourPlanning: true } }).catch(() => null);
-  const t = (row?.tourPlanning as { granularity?: string; submissionLeadDays?: number } | null) ?? null;
-  const g = t?.granularity && estGranularite(t.granularity) ? t.granularity : GRANULARITE_DEFAUT;
-  const j = typeof t?.submissionLeadDays === "number" && t.submissionLeadDays >= 0 ? Math.round(t.submissionLeadDays) : undefined;
-  return { granularite: g, joursAvant: j ?? 15 };
-}
-
 /**
  * OUVRIR (ou retrouver) LE PLAN d'un KAM pour la période qui contient `date`.
  *
@@ -71,7 +63,10 @@ export async function ouvrirPlanTournee(formData: FormData): Promise<ActionResul
   if (!(await peutEcrirePourLeKam(user, repId))) {
     return { ok: false, error: "Ce KAM n'est pas dans votre périmètre — seul lui, le superviseur de sa BU ou la Direction peuvent écrire son plan." };
   }
-  const reglage = await reglageTournee();
+  // LE RÉGLAGE VIENT DU LECTEUR UNIQUE (`sfe/tournee-reglage`) : la page du plan et le tableau de
+  // bord de la Direction lisent le même — trois lectures du même JSON finissaient par lire trois
+  // réglages (§118.5).
+  const reglage = await lireReglageTournee();
   const granularite = ((): Granularite => {
     const g = fdStr(formData, "granularity");
     return g && estGranularite(g) ? g : reglage.granularite;

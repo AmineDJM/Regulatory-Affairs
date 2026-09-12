@@ -8,6 +8,7 @@ import { recordAudit } from "@/lib/audit";
 import { monthLabel, canEditRep } from "@/lib/sfe";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { canAttachBuDepartment, buDepartmentName, buDepartmentCode } from "@/lib/sfe/bu-department";
+import { GRANULARITES, GRANULARITE_LABELS, JOURS_AVANT_ECHEANCE_MAX, estGranularite } from "@/lib/sfe/tournee";
 
 const MODULE = "SALES_PLANNING" as const;
 const PATH = "/planning";
@@ -309,6 +310,61 @@ export async function saveSfeSettings(formData: FormData): Promise<ActionResult>
   });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Force de vente", summary: "Paramètres SFE mis à jour" });
   revalidatePath(`${PATH}/parametres`);
+  return { ok: true };
+}
+
+// ─────────────────────────── Planification de tournée (Super Admin) ───────────────────────────
+/**
+ * LA MAILLE ET LE DÉLAI DE LA PLANIFICATION DE TOURNÉE — réservés au Super Admin.
+ *
+ * La demande le dit en ces termes : « de base c'est mensuel, mais un super admin peut choisir
+ * trimestrielle, semestrielle ou hebdomadaire ». Le réglage était LU — par l'action qui ouvre un
+ * plan, par l'écran du KAM qui annonçait « réglée par le Super Admin » — et ÉCRIT NULLE PART :
+ * `saveSfeSettings` ne touche pas `tourPlanning`, et aucun formulaire ne le portait. Une promesse
+ * d'écran (§118.45), lue par tout le monde et tenue par personne.
+ *
+ * Une action À PART de `saveSfeSettings`, parce que les deux n'ont pas la même porte : les
+ * paramètres SFE sont à qui a le module en écriture (la Direction comprise) ; la maille est au
+ * seul Super Admin, et la fondre dans l'autre l'aurait ouverte à la Direction en silence.
+ *
+ * L'upsert ne touche QUE `tourPlanning` : poids, capacité et fréquences restent ce que
+ * `saveSfeSettings` en a fait, et réciproquement — deux actions sur une même ligne, chacune sur
+ * ses colonnes, aucune n'efface l'autre.
+ */
+export async function saveTourPlanningSettings(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN") {
+    return { ok: false, error: "La maille de planification est réservée au Super Admin — demandez-lui de la régler (Force de vente › Paramètres)." };
+  }
+  const granularity = fdStr(formData, "granularity") ?? "";
+  if (!estGranularite(granularity)) {
+    return {
+      ok: false,
+      error: `Maille inconnue « ${granularity} » — valeurs admises : ${GRANULARITES.map((g) => `${g} (${GRANULARITE_LABELS[g].toLowerCase()})`).join(", ")}.`,
+    };
+  }
+  const jours = num(formData, "submissionLeadDays");
+  if (jours === null || !Number.isInteger(jours) || jours < 0 || jours > JOURS_AVANT_ECHEANCE_MAX) {
+    // LE REFUS NOMME LA BORNE (§118.30) ; on ne tronque pas en silence — écrire 90 quand
+    // l'administrateur a tapé 900 enregistrerait une valeur qu'il n'a pas choisie (§118.16).
+    return {
+      ok: false,
+      error: `Le délai de soumission se compte en jours entiers, de 0 à ${JOURS_AVANT_ECHEANCE_MAX}, avant la fin du mois qui précède la période (15 par défaut).`,
+    };
+  }
+  const tourPlanning = { granularity, submissionLeadDays: jours };
+  await prisma.sfeSettings.upsert({
+    where: { id: "global" },
+    create: { id: "global", tourPlanning, updatedById: user.id },
+    update: { tourPlanning, updatedById: user.id },
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Force de vente",
+    summary: `Planification de tournée : maille ${GRANULARITE_LABELS[granularity].toLowerCase()}, échéance ${jours} j avant la fin du mois précédent`,
+  });
+  revalidatePath(`${PATH}/parametres`);
+  // Les plans à venir se préparent à la nouvelle maille : l'écran du KAM l'annonce.
+  revalidatePath("/medical/plan-de-tournee");
   return { ok: true };
 }
 

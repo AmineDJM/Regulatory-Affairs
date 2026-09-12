@@ -930,7 +930,7 @@ G("BD / marché / PCH / ventes & prévisions (CRUD des modules commerciaux)", [
   "sales-planning-actions:updateBusinessUnit", "sales-planning-actions:deleteBusinessUnit",
   "sales-planning-actions:createPromoProduct", "sales-planning-actions:updatePromoProduct",
   "sales-planning-actions:deletePromoProduct", "sales-planning-actions:saveForecast",
-  "sales-planning-actions:saveSfeSettings",
+  "sales-planning-actions:saveSfeSettings", "sales-planning-actions:saveTourPlanningSettings",
   "sales-planning-actions:saveRepProfile", "sales-planning-actions:deleteRepProfile",
   "sales-planning-actions:saveAssignment", "sales-planning-actions:deleteAssignment",
   "sales-planning-actions:carryForwardAssignments", "logistics-actions:createLogistics",

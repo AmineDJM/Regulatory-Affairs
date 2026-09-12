@@ -1,9 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
 import {
-  avancementTournee, etatVisite, fenetreDeVue, fenetreRapport, periodeDe,
-  type AvancementTournee, type EtatVisite, type VueTournee,
+  avancementTournee, echeanceDeSoumission, etatVisite, fenetreDeVue, fenetreRapport, periodeDe,
+  retardDeSoumission,
+  type AvancementTournee, type EtatVisite, type RetardDeSoumission, type StatutPlan, type VueTournee,
 } from "@/lib/sfe/tournee";
+import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
 
 /**
  * L'EMPLOI DU TEMPS D'UN KAM — ce que l'écran affiche, et ce que la Direction compte.
@@ -201,6 +203,8 @@ export interface PlanTourneeVue {
   escalatedToName: string | null;
   rejectionComment: string | null;
   resubmitDueAt: Date | null;
+  /** Le retard de soumission, calculé UNE fois ici — l'écran l'affiche, il ne le recalcule pas. */
+  retard: RetardDeSoumission;
   /** Les paires déjà planifiées, sous la forme `AAAA-MM-JJ|doctorId` que l'écran renvoie. */
   paires: string[];
   /** Les visites du plan DÉJÀ rapportées : elles ne se déplanifient pas. */
@@ -279,6 +283,9 @@ export async function loadPlanTournee(planId: string, maintenant: Date = new Dat
     escalatedToName: p.escalatedTo?.name ?? null,
     rejectionComment: p.rejectionComment,
     resubmitDueAt: p.resubmitDueAt,
+    retard: retardDeSoumission({
+      statut: String(p.status) as StatutPlan, echeance: p.submissionDueAt, resoumissionAvant: p.resubmitDueAt, maintenant,
+    }),
     paires: p.visits.filter((v) => v.doctorId).map((v) => clePaire(v.date, v.doctorId!)),
     pairesAcquises: acquises.filter((v) => v.doctorId).map((v) => clePaire(v.date, v.doctorId!)),
     avancement: avancementTournee(p.visits.map((v) => ({
@@ -296,6 +303,13 @@ export interface LigneTourneeDirection {
   buName: string | null;
   /** L'état du plan de la période, ou `null` si aucun plan n'existe. */
   statutPlan: string | null;
+  /**
+   * LE RETARD DE SOUMISSION. Un KAM SANS plan se juge comme un brouillon jamais soumis, sur
+   * l'échéance que la période AURAIT eue au réglage du jour : c'est ainsi que la Direction voit
+   * qui n'a rien ouvert alors que l'échéance est passée — et non un 0/0 qui se lit « rien à
+   * faire ». Un plan SOUMIS n'est jamais en retard (le temps de décision n'est pas le sien).
+   */
+  retard: RetardDeSoumission;
   avancement: AvancementTournee;
 }
 
@@ -307,6 +321,8 @@ export interface TourneeDirection {
   total: AvancementTournee;
   /** Combien de KAM de la portée n'ont AUCUN plan sur la période. */
   sansPlan: number;
+  /** Combien de KAM ont un plan ENCORE À SOUMETTRE (ou aucun plan) alors que l'échéance est passée. */
+  enRetard: number;
 }
 
 /**
@@ -339,22 +355,25 @@ export async function loadTourneeDirection(
   maintenant: Date = new Date(),
 ): Promise<TourneeDirection> {
   if (repIds.length === 0) {
-    return { debut, fin, lignes: [], total: avancementTournee([]), sansPlan: 0 };
+    return { debut, fin, lignes: [], total: avancementTournee([]), sansPlan: 0, enRetard: 0 };
   }
-  const [visites, plans, kams] = await Promise.all([
+  const [visites, plans, kams, reglage] = await Promise.all([
     prisma.medicalVisit.findMany({
       where: { delegateId: { in: [...repIds] }, date: { gte: debut, lte: fin } },
       select: { delegateId: true, status: true, date: true, report: true, tourPlanId: true },
     }),
     prisma.tourPlan.findMany({
       where: { repId: { in: [...repIds] }, periodStart: { lte: fin }, periodEnd: { gte: debut } },
-      select: { repId: true, status: true, periodStart: true },
+      select: { repId: true, status: true, periodStart: true, submissionDueAt: true, resubmitDueAt: true },
       orderBy: { periodStart: "desc" },
     }),
     prisma.user.findMany({
       where: { id: { in: [...repIds] } },
       select: { id: true, name: true },
     }),
+    // LE RÉGLAGE DU JOUR ne sert qu'aux KAM SANS plan : un plan existant porte son échéance
+    // figée à la création (§118.107), et c'est elle qu'on juge.
+    lireReglageTournee(),
   ]);
   // LA BU DU KAM SE CHARGE À PART : `SalesRepProfile.repId` est un `String` sans relation vers
   // `User` — la convention de tout ce voisinage (`SalesRepMonthlyKpi`, `PromotionAssignment`).
@@ -376,17 +395,30 @@ export async function loadTourneeDirection(
     });
     parRep.set(v.delegateId, l);
   }
-  const statutParRep = new Map<string, string>();
-  for (const p of plans) if (!statutParRep.has(p.repId)) statutParRep.set(p.repId, String(p.status));
+  // LE PLAN LE PLUS RÉCENT qui touche la fenêtre — un par KAM (`orderBy` décroissant, premier gardé).
+  const planParRep = new Map<string, (typeof plans)[number]>();
+  for (const p of plans) if (!planParRep.has(p.repId)) planParRep.set(p.repId, p);
+  // L'ÉCHÉANCE QU'AURAIT EUE LE PLAN MANQUANT : celle de la période, à la maille réglée, qui
+  // contient le début de la fenêtre. Sans elle, un KAM sans plan ne serait jamais « en retard »
+  // — il n'aurait simplement rien, et rien ne se lit comme rien à faire.
+  const echeanceSansPlan = echeanceDeSoumission(periodeDe(reglage.granularite, debut).debut, reglage.joursAvant);
 
   const lignes: LigneTourneeDirection[] = kams
-    .map((k) => ({
-      repId: k.id,
-      repName: k.name,
-      buName: buParRep.get(k.id) ?? null,
-      statutPlan: statutParRep.get(k.id) ?? null,
-      avancement: avancementTournee(parRep.get(k.id) ?? []),
-    }))
+    .map((k) => {
+      const plan = planParRep.get(k.id) ?? null;
+      return {
+        repId: k.id,
+        repName: k.name,
+        buName: buParRep.get(k.id) ?? null,
+        statutPlan: plan ? String(plan.status) : null,
+        retard: plan
+          ? retardDeSoumission({
+            statut: String(plan.status) as StatutPlan, echeance: plan.submissionDueAt, resoumissionAvant: plan.resubmitDueAt, maintenant,
+          })
+          : retardDeSoumission({ statut: "DRAFT", echeance: echeanceSansPlan, maintenant }),
+        avancement: avancementTournee(parRep.get(k.id) ?? []),
+      };
+    })
     .sort((a, b) => (a.buName ?? "").localeCompare(b.buName ?? "", "fr") || a.repName.localeCompare(b.repName, "fr"));
 
   // LE TOTAL EST LA SOMME DES LIGNES — recalculé à part, il divergerait de ce que la Direction
@@ -405,5 +437,9 @@ export async function loadTourneeDirection(
   // donnerait le même poids à un KAM de 4 visites et à un KAM de 40.
   total.tauxRealisation = total.planifiees > 0 ? Math.round((total.visitees / total.planifiees) * 100) : 0;
 
-  return { debut, fin, lignes, total, sansPlan: lignes.filter((l) => l.statutPlan === null).length };
+  return {
+    debut, fin, lignes, total,
+    sansPlan: lignes.filter((l) => l.statutPlan === null).length,
+    enRetard: lignes.filter((l) => l.retard.enRetard).length,
+  };
 }

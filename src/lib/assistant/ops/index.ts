@@ -1003,7 +1003,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
         + `Champ « op » : ${opsSummary("planning_operation")}. `
         + "Le cycle se donne en français (« septembre 2026 » ou 2026-09, champ « date ») ; BU / équipe par « target », produit par « product », KAM par « person ». "
         + "SECTEURS (territoires nommés d'une BU : « Est », « Oranais ») — c'est le secteur qui donne au KAM son panel de médecins : nom par « name », BU par « target », établissements par « institutions » et KAM par « person » (noms séparés par des virgules). "
-        + "PLAN DE TOURNÉE — préparer la période (« open_tour_plan », KAM par « person », maille par « mode », période par « date » ; sans date, la période À VENIR), le soumettre à son validateur, ou demander une validation au N+2. Les VISITES elles-mêmes se posent à l'écran : l'action remplace la grille entière, donc une phrase qui n'en nomme qu'une effacerait les autres. VALIDER un plan et RAPPORTER une visite sont des attestations réservées à un clic humain. "
+        + "PLAN DE TOURNÉE — préparer la période (« open_tour_plan », KAM par « person », maille par « mode », période par « date » ; sans date, la période À VENIR ; sans maille, celle du réglage en vigueur), le soumettre à son validateur, ou demander une validation au N+2. Le RÉGLAGE global (« set_tour_planning », Super Admin) : la maille par « mode » et l'échéance de soumission en jours par « days ». Les VISITES elles-mêmes se posent à l'écran : l'action remplace la grille entière, donc une phrase qui n'en nomme qu'une effacerait les autres. VALIDER un plan et RAPPORTER une visite sont des attestations réservées à un clic humain. "
         + "MESSAGES DE LA DIRECTION MARKETING (ce que le KAM doit dire au médecin, exigé sur chaque rapport terrain) : intitulé par « name », texte par « note », gamme par « target » (vide = toutes).",
       input_schema: {
         type: "object",
@@ -1020,7 +1020,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           mode: { type: "string", description: "BU et produit : terrain / canal (ville / hôpital / les deux) ; affectation : position 1-3 ; profil KAM : séniorité ; PLAN DE TOURNÉE : la maille (WEEK / MONTH / QUARTER / HALF_YEAR)." },
           quantity: { type: "string", description: "Prévision : FTE cible ; profil KAM : FTE budget ; affectation : visites prévues." },
           visits: { type: "string", description: "Visites (prévision produit, capacité/jour, affectation)." },
-          days: { type: "string", description: "Jours terrain par mois (paramètres / profil KAM)." },
+          days: { type: "string", description: "Jours terrain par mois (paramètres / profil KAM) ; set_tour_planning : jours avant l'échéance de soumission." },
           threshold: { type: "string", description: "Pourcentage : couverture cible (prévision), % terrain (paramètres / profil)." },
           amount: { type: "string", description: "save_forecast : budget (DZD)." },
           location: { type: "string", description: "save_rep_profile : région ; secteur : sa ville pivot." },

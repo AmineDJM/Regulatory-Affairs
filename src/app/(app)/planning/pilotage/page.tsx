@@ -171,6 +171,11 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
                       {l.statutPlan
                         ? STATUT_PLAN_LABELS[l.statutPlan as StatutPlan]
                         : <span className="text-warning">aucun plan</span>}
+                      {/* L'ÉCHÉANCE SE LIT ICI AUSSI : un plan attendu et non soumis est ce que la
+                          Direction relance — sans cette ligne, l'échéance n'existait que chez le KAM. */}
+                      {l.retard.enRetard && (
+                        <span className="ml-1 text-xs font-medium text-destructive">en retard de {l.retard.jours} j</span>
+                      )}
                     </td>
                     <td className="px-2 py-1.5 text-right tabular-nums">
                       {l.avancement.visitees}/{l.avancement.planifiees}
@@ -193,6 +198,12 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
           <p className="text-xs text-warning">
             {tournees.sansPlan} KAM sur {tournees.lignes.length} n&apos;ont aucun plan de tournée sur ce mois : leur
             emploi du temps est vide, et rien ne dit où ils sont.
+          </p>
+        )}
+        {tournees.enRetard > 0 && (
+          <p className="text-xs text-destructive">
+            {tournees.enRetard} KAM sur {tournees.lignes.length} ont dépassé l&apos;échéance de soumission sans plan soumis
+            (brouillon, plan rejeté ou aucun plan) — c&apos;est eux qu&apos;il faut relancer.
           </p>
         )}
       </section>

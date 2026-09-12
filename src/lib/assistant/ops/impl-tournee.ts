@@ -9,9 +9,9 @@
  * droit d'en choisir une.
  */
 import {
-  GRANULARITE_LABELS, STATUT_PLAN_LABELS, avancementTournee, estGranularite, etatVisite,
-  periodeDe, periodeSuivante, type Granularite, type StatutPlan,
-  ouvrirPlanTournee, soumettrePlanTournee, escaladerPlanTournee, commanderVisite,
+  GRANULARITES, GRANULARITE_LABELS, JOURS_AVANT_ECHEANCE_MAX, STATUT_PLAN_LABELS, avancementTournee, estGranularite, etatVisite,
+  periodeDe, periodeSuivante, lireReglageTournee, type Granularite, type StatutPlan,
+  ouvrirPlanTournee, soumettrePlanTournee, escaladerPlanTournee, commanderVisite, saveTourPlanningSettings,
   createPromoMessage, updatePromoMessage, deletePromoMessage,
   chercherKam, chercherPraticien, chercherBusinessUnit, chercherMessagePromo,
   chercherPlansTournee, lireMessagePromo, lireMessagePromoAvantRetrait,
@@ -85,14 +85,18 @@ export const TOUR_PLAN_OPS_IMPL: Record<string, OpImpl> = {
       const kam = kamRaw ? await resolveKam(kamRaw) : null;
       if (kam && "error" in kam) return kam;
       const gRaw = opStr(input, "mode");
-      const granularite: Granularite = gRaw && estGranularite(gRaw.toUpperCase()) ? (gRaw.toUpperCase() as Granularite) : "MONTH";
+      // SANS MAILLE NOMMÉE, LE RÉGLAGE EN VIGUEUR — jamais « MONTH » en dur : l'action retombe
+      // sur le réglage quand le champ manque, et l'op le dit à la carte pour que ce qu'on confirme
+      // soit ce qui sera fait (§118.85).
+      const reglage = await lireReglageTournee();
+      const granularite: Granularite = gRaw && estGranularite(gRaw.toUpperCase()) ? (gRaw.toUpperCase() as Granularite) : reglage.granularite;
       const p = periodeVisee(opStr(input, "date"), granularite);
       return {
         title: kam ? `Plan de tournée de ${kam.label}` : "Mon plan de tournée",
         fields: fieldsOf([
           ["KAM", kam?.label ?? "vous"],
           ["Période", p.dite],
-          ["Maille", GRANULARITE_LABELS[granularite]],
+          ["Maille", `${GRANULARITE_LABELS[granularite]}${gRaw ? "" : " (réglage en vigueur)"}`],
         ]),
         // IDEMPOTENT : rappeler l'op rend le MÊME plan. On le DIT, sinon la carte laisse croire
         // qu'un second plan va naître pour la même période.
@@ -131,6 +135,50 @@ export const TOUR_PLAN_OPS_IMPL: Record<string, OpImpl> = {
       };
     },
     execute: (args) => runFd(soumettrePlanTournee, args, "La soumission du plan a été refusée.", { revalidate: ["/medical/plan-de-tournee"] }),
+  },
+
+  /**
+   * LA MAILLE ET L'ÉCHÉANCE — le réglage que rien n'écrivait.
+   *
+   * FUSION : un champ non cité garde sa valeur, relue à l'instant. L'action revalide la porte
+   * (Super Admin) et les bornes ; l'op ne fait que composer la carte avec ce qui va changer.
+   */
+  set_tour_planning: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const cur = await lireReglageTournee();
+      const gRaw = opStr(input, "mode").trim().toUpperCase();
+      if (gRaw && !estGranularite(gRaw)) {
+        return {
+          error: `Maille inconnue « ${gRaw} » (champ « mode ») — valeurs : ${GRANULARITES.map((g) => `${g} (${GRANULARITE_LABELS[g].toLowerCase()})`).join(", ")}.`,
+        };
+      }
+      const granularite: Granularite = gRaw && estGranularite(gRaw) ? gRaw : cur.granularite;
+      const jRaw = opStr(input, "days").trim();
+      const jours = jRaw ? Number(jRaw.replace(",", ".")) : cur.joursAvant;
+      if (!Number.isInteger(jours) || jours < 0 || jours > JOURS_AVANT_ECHEANCE_MAX) {
+        return { error: `Le délai de soumission (champ « days ») se compte en jours entiers, de 0 à ${JOURS_AVANT_ECHEANCE_MAX} avant la fin du mois qui précède la période.` };
+      }
+      const mailleDite = granularite === cur.granularite
+        ? `${GRANULARITE_LABELS[granularite]} (inchangée)`
+        : `${GRANULARITE_LABELS[cur.granularite]} → ${GRANULARITE_LABELS[granularite]}`;
+      const joursDits = jours === cur.joursAvant
+        ? `${jours} j avant la fin du mois précédent (inchangé)`
+        : `${cur.joursAvant} j → ${jours} j avant la fin du mois précédent`;
+      return {
+        title: "Planification de tournée — maille et échéance",
+        fields: fieldsOf([
+          ["Maille", mailleDite],
+          ["Échéance de soumission", joursDits],
+        ]),
+        warnings: [
+          "Réglage GLOBAL, réservé au Super Admin. Les plans déjà ouverts gardent l'échéance figée à leur création ; seuls les plans à venir suivent la nouvelle maille.",
+        ],
+        args: { granularity: granularite, submissionLeadDays: String(jours) },
+        successMessage: `Planification de tournée réglée : maille ${GRANULARITE_LABELS[granularite].toLowerCase()}, échéance ${jours} j avant la fin du mois précédent.`,
+        revalidate: ["/planning/parametres", "/medical/plan-de-tournee"],
+      };
+    },
+    execute: (args) => runFd(saveTourPlanningSettings, args, "Le réglage de la planification a été refusé.", { revalidate: ["/planning/parametres", "/medical/plan-de-tournee"] }),
   },
 
   escalate_tour_plan: {

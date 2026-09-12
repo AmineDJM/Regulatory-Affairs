@@ -45,7 +45,7 @@ export interface PraticienVue {
  * effacerait un fait au profit d'une intention.
  */
 export function Planificateur({
-  planId, repName, status, periodStart, periodEnd, joursOuvres, submissionDueAt, submittedAt,
+  planId, repName, status, periodStart, periodEnd, joursOuvres, submittedAt, retard,
   reviewerName, escalatedToName, rejectionComment, resubmitDueAt,
   praticiens, pairesInitiales, pairesAcquises, jeSuisLeKam, jePeuxDecider, jePeuxEscalader,
 }: {
@@ -56,8 +56,11 @@ export function Planificateur({
   periodEnd: string;
   /** Les jours OUVRÉS de la période (semaine algérienne) — les seuls où l'on peut poser une visite. */
   joursOuvres: string[];
-  submissionDueAt: string;
   submittedAt: string | null;
+  /** Le retard de soumission, CALCULÉ par le chargeur — l'écran l'affiche, il ne le recalcule pas
+   *  (un `new Date()` au rendu diverge entre serveur et navigateur). `echeance` est celle qui
+   *  compte : la resoumission sur un plan rejeté, la soumission sinon. */
+  retard: { enRetard: boolean; jours: number; echeance: string };
   reviewerName: string | null;
   escalatedToName: string | null;
   rejectionComment: string | null;
@@ -146,9 +149,18 @@ export function Planificateur({
         </span>
         <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
           <Clock className="h-3.5 w-3.5" aria-hidden />
-          {submittedAt
-            ? `Soumis le ${new Date(submittedAt).toLocaleDateString("fr-FR")}`
-            : `À soumettre avant le ${new Date(submissionDueAt).toLocaleDateString("fr-FR")}`}
+          {/* UN PLAN OUVERT (brouillon, rejeté) montre son échéance — ou son RETARD. Un plan rejeté
+              porte encore la date de sa première soumission : la montrer ici dirait « soumis »
+              d'un plan qu'il faut resoumettre. */}
+          {!gestes.soumettable
+            ? (submittedAt ? `Soumis le ${new Date(submittedAt).toLocaleDateString("fr-FR")}` : STATUT_PLAN_LABELS[status])
+            : retard.enRetard
+              ? (
+                <span className="font-medium text-destructive">
+                  En retard de {retard.jours} j — échéance dépassée le {new Date(retard.echeance).toLocaleDateString("fr-FR")}
+                </span>
+              )
+              : `À ${status === "REJECTED" ? "resoumettre" : "soumettre"} avant le ${new Date(retard.echeance).toLocaleDateString("fr-FR")}`}
         </span>
         <span className="w-full text-xs text-muted-foreground">
           <strong className="text-foreground tabular-nums">{paires.size}</strong> visite(s) planifiée(s)

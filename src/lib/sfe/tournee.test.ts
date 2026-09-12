@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  GRANULARITE_LABELS, GRANULARITES, HEURES_RAPPORT, JOURS_AVANT_ECHEANCE, STATUT_PLAN_LABELS,
+  GRANULARITE_LABELS, GRANULARITES, HEURES_RAPPORT, JOURS_AVANT_ECHEANCE, JOURS_AVANT_ECHEANCE_MAX,
+  REGLAGE_TOURNEE_DEFAUT, STATUT_PLAN_LABELS,
   VUE_LABELS, VUES, avancementTournee, bloquantsDeSoumission, debutDeSemaine, echeanceDeSoumission,
   enRetardDeSoumission, estGranularite, estVue, etatVisite, fenetreDeVue, fenetreRapport,
-  gestesPossibles, limiteResoumission, periodeDe, periodeSuivante,
+  gestesPossibles, limiteResoumission, periodeDe, periodeSuivante, reglageDepuisJson, retardDeSoumission,
   type EtatVisite, type VisiteComptable,
 } from "./tournee";
 import { estJourOuvre } from "@/lib/sfe-day";
@@ -84,6 +85,67 @@ describe("l'échéance de soumission — AVANT que la période commence", () => 
     expect(enRetardDeSoumission({ statut: "SUBMITTED", echeance, maintenant: d("2026-01-20T08:00:00") })).toBe(false);
     expect(enRetardDeSoumission({ statut: "APPROVED", echeance, maintenant: d("2026-01-20T08:00:00") })).toBe(false);
     expect(enRetardDeSoumission({ statut: "DRAFT", echeance, maintenant: d("2026-01-10T08:00:00") })).toBe(false);
+  });
+});
+
+describe("le réglage de la planification — lu UNE fois, sans jamais lever", () => {
+  it("un JSON absent, d'une autre forme ou vide rend les défauts de la demande (mensuel, 15 j)", () => {
+    for (const raw of [null, undefined, "MONTH", 42, [], {}]) expect(reglageDepuisJson(raw), String(raw)).toEqual(REGLAGE_TOURNEE_DEFAUT);
+    expect(REGLAGE_TOURNEE_DEFAUT).toEqual({ granularite: "MONTH", joursAvant: 15 });
+  });
+
+  it("une maille et un délai valides sont lus tels quels", () => {
+    expect(reglageDepuisJson({ granularity: "QUARTER", submissionLeadDays: 30 })).toEqual({ granularite: "QUARTER", joursAvant: 30 });
+    expect(reglageDepuisJson({ granularity: "WEEK", submissionLeadDays: 0 })).toEqual({ granularite: "WEEK", joursAvant: 0 });
+  });
+
+  it("une valeur hors borne ou d'un autre type retombe sur le défaut de SON champ, pas des deux", () => {
+    // Le cas qui ferait tomber : un lecteur qui « comble » — lire 90 quand la base porte 900
+    // fabriquerait une politique que personne n'a choisie (§118.16) ; on rend le défaut que la
+    // demande nomme, et seulement pour le champ illisible.
+    expect(reglageDepuisJson({ granularity: "DECADE", submissionLeadDays: 30 })).toEqual({ granularite: "MONTH", joursAvant: 30 });
+    expect(reglageDepuisJson({ granularity: "QUARTER", submissionLeadDays: 900 })).toEqual({ granularite: "QUARTER", joursAvant: 15 });
+    expect(reglageDepuisJson({ granularity: "QUARTER", submissionLeadDays: -1 })).toEqual({ granularite: "QUARTER", joursAvant: 15 });
+    expect(reglageDepuisJson({ granularity: "QUARTER", submissionLeadDays: "30" })).toEqual({ granularite: "QUARTER", joursAvant: 15 });
+    expect(reglageDepuisJson({ granularity: "QUARTER", submissionLeadDays: 12.6 }).joursAvant).toBe(13);
+    expect(JOURS_AVANT_ECHEANCE_MAX).toBe(90);
+  });
+});
+
+describe("le retard de soumission — compté en jours, jamais sur un plan soumis", () => {
+  it("un brouillon passé son échéance porte ses JOURS de retard (une heure entamée compte pour un jour)", () => {
+    const echeance = d("2026-01-15T23:59:59");
+    const r = retardDeSoumission({ statut: "DRAFT", echeance, maintenant: d("2026-01-20T08:00:00") });
+    expect(r.enRetard).toBe(true);
+    expect(r.jours).toBe(5);
+    expect(r.echeance).toEqual(echeance);
+    expect(retardDeSoumission({ statut: "DRAFT", echeance, maintenant: d("2026-01-16T01:00:00") }).jours).toBe(1);
+    expect(retardDeSoumission({ statut: "DRAFT", echeance, maintenant: d("2026-01-10T08:00:00") })).toEqual({ echeance, enRetard: false, jours: 0 });
+  });
+
+  it("un plan REJETÉ se juge sur l'échéance de RESOUMISSION, pas sur la première", () => {
+    // Le cas qui ferait tomber : garder la première échéance — un KAM qui vient de recevoir ses
+    // corrections lirait « en retard de 20 jours » alors qu'il a 48 h devant lui.
+    const premiere = d("2026-01-15T23:59:59");
+    const resoumission = d("2026-02-06T10:00:00");
+    expect(retardDeSoumission({ statut: "REJECTED", echeance: premiere, resoumissionAvant: resoumission, maintenant: d("2026-02-05T10:00:00") }))
+      .toEqual({ echeance: resoumission, enRetard: false, jours: 0 });
+    expect(retardDeSoumission({ statut: "REJECTED", echeance: premiere, resoumissionAvant: resoumission, maintenant: d("2026-02-07T10:00:00") }).jours).toBe(1);
+    // Sans échéance de resoumission (jamais posée), la première reste la référence.
+    expect(retardDeSoumission({ statut: "REJECTED", echeance: premiere, maintenant: d("2026-02-05T10:00:00") }).echeance).toEqual(premiere);
+  });
+
+  it("un plan SOUMIS, ESCALADÉ ou VALIDÉ n'est JAMAIS en retard — le temps de décision n'est pas celui du KAM", () => {
+    // Et l'échéance de resoumission ne se substitue que sur un plan REJETÉ : sur un plan
+    // resoumis, la décision précédente est effacée et l'on ne rejuge rien après coup.
+    const echeance = d("2026-01-15T23:59:59");
+    for (const statut of ["SUBMITTED", "ESCALATED", "APPROVED"] as const) {
+      const r = retardDeSoumission({ statut, echeance, resoumissionAvant: d("2026-01-01T00:00:00"), maintenant: d("2026-03-01T00:00:00") });
+      expect(r, statut).toEqual({ echeance, enRetard: false, jours: 0 });
+    }
+    // `enRetardDeSoumission` est le MÊME jugement, pas une seconde règle.
+    expect(enRetardDeSoumission({ statut: "DRAFT", echeance, maintenant: d("2026-01-20T08:00:00") })).toBe(true);
+    expect(enRetardDeSoumission({ statut: "REJECTED", echeance, resoumissionAvant: d("2026-01-25T00:00:00"), maintenant: d("2026-01-20T08:00:00") })).toBe(false);
   });
 });
 

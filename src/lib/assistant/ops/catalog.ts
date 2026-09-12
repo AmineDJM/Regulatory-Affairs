@@ -4223,6 +4223,15 @@ export const OPS_CATALOG: OpMeta[] = [
     covers: ["sales-planning-actions:saveSfeSettings"],
   },
   {
+    tool: "planning_operation", op: "set_tour_planning", module: "Force de vente",
+    uiLabel: "Maille de planification de tournée",
+    aliases: ["passe la planification de tournée en trimestriel", "plans de tournée hebdomadaires", "échéance de soumission des plans de tournée à 10 jours"],
+    risk: "SENSITIVE",
+    summary: "Règle la MAILLE des plans de tournée (champ « mode » : WEEK / MONTH / QUARTER / HALF_YEAR — mensuelle par défaut) et le DÉLAI de soumission en jours avant la fin du mois qui précède la période (champ « days », 15 par défaut). Réservé au Super Admin ; un champ non cité garde sa valeur (FUSION). Les plans déjà ouverts gardent leur échéance figée à leur création.",
+    gate: isSA,
+    covers: ["sales-planning-actions:saveTourPlanningSettings"],
+  },
+  {
     tool: "planning_operation", op: "save_rep_profile", module: "Force de vente",
     uiLabel: "Profil KAM",
     aliases: ["configure le profil KAM de", "mets le FTE du délégué"],

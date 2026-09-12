@@ -11,9 +11,10 @@ import { MEDICAL_TABS } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { loadPanelPlanifiable, loadPlanTournee } from "@/lib/queries/tour-schedule";
 import {
-  GRANULARITE_DEFAUT, GRANULARITE_LABELS, STATUT_PLAN_LABELS, estGranularite,
-  estJourOuvrePourTournee, periodeSuivante, type Granularite, type StatutPlan,
+  GRANULARITE_LABELS, STATUT_PLAN_LABELS, estJourOuvrePourTournee, periodeSuivante, retardDeSoumission,
+  type StatutPlan,
 } from "@/lib/sfe/tournee";
+import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
 import { OuvrirPlan } from "./ouvrir-plan";
 import { Planificateur } from "./planificateur";
 
@@ -37,10 +38,13 @@ export const metadata = { title: "Plan de tournée — AMD Internal OS" };
  */
 export default async function PlanDeTourneePage({ searchParams }: { searchParams?: { plan?: string } }) {
   const user = await requireModule("MEDICAL");
-  const settings = await getAppSettings();
-  const reglage = await prisma.sfeSettings.findUnique({ where: { id: "global" }, select: { tourPlanning: true } }).catch(() => null);
-  const t = (reglage?.tourPlanning as { granularity?: string } | null) ?? null;
-  const granularite: Granularite = t?.granularity && estGranularite(t.granularity) ? t.granularity : GRANULARITE_DEFAUT;
+  // LE RÉGLAGE VIENT DU LECTEUR UNIQUE — le même que l'action qui ouvre un plan et que le
+  // tableau de bord de la Direction (§118.5).
+  const [settings, reglage] = await Promise.all([getAppSettings(), lireReglageTournee()]);
+  const granularite = reglage.granularite;
+  const maintenant = new Date();
+  const retardDe = (p: { status: string; submissionDueAt: Date; resubmitDueAt: Date | null }) =>
+    retardDeSoumission({ statut: p.status as StatutPlan, echeance: p.submissionDueAt, resoumissionAvant: p.resubmitDueAt, maintenant });
 
   // ── CE QUI M'ATTEND, MOI ────────────────────────────────────────────────────────────────
   const [mesPlans, aDecider] = await Promise.all([
@@ -48,7 +52,10 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
       where: { repId: user.id },
       orderBy: { periodStart: "desc" },
       take: 8,
-      select: { id: true, periodStart: true, periodEnd: true, status: true, submissionDueAt: true, _count: { select: { visits: true } } },
+      select: {
+        id: true, periodStart: true, periodEnd: true, status: true, submissionDueAt: true, resubmitDueAt: true,
+        _count: { select: { visits: true } },
+      },
     }),
     prisma.tourPlan.findMany({
       where: {
@@ -108,8 +115,8 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
             periodStart={plan.periodStart.toISOString()}
             periodEnd={plan.periodEnd.toISOString()}
             joursOuvres={joursOuvres}
-            submissionDueAt={plan.submissionDueAt.toISOString()}
             submittedAt={plan.submittedAt?.toISOString() ?? null}
+            retard={{ enRetard: plan.retard.enRetard, jours: plan.retard.jours, echeance: plan.retard.echeance.toISOString() }}
             reviewerName={plan.reviewerName}
             escalatedToName={plan.escalatedToName}
             rejectionComment={plan.rejectionComment}
@@ -183,11 +190,20 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
                       {STATUT_PLAN_LABELS[p.status as StatutPlan]}
                     </Badge>
                     <span className="text-xs text-muted-foreground">{p._count.visits} visite(s)</span>
-                    {(p.status === "DRAFT" || p.status === "REJECTED") && (
-                      <span className="text-xs text-muted-foreground">
-                        à soumettre avant le {p.submissionDueAt.toLocaleDateString("fr-FR")}
-                      </span>
-                    )}
+                    {/* L'ÉCHÉANCE SE LIT — avant comme après son passage. « À soumettre avant le »
+                        affiché sur un plan en retard de vingt jours est une date décorative. */}
+                    {(p.status === "DRAFT" || p.status === "REJECTED") && (() => {
+                      const r = retardDe(p);
+                      return r.enRetard ? (
+                        <span className="text-xs font-medium text-destructive">
+                          en retard de {r.jours} j — échéance dépassée le {r.echeance.toLocaleDateString("fr-FR")}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          à {p.status === "REJECTED" ? "resoumettre" : "soumettre"} avant le {r.echeance.toLocaleDateString("fr-FR")}
+                        </span>
+                      );
+                    })()}
                     <Link href={`/medical/plan-de-tournee?plan=${p.id}`} className="ml-auto inline-flex items-center gap-1 text-primary hover:underline">
                       Ouvrir <ArrowRight className="h-3.5 w-3.5" />
                     </Link>
@@ -201,8 +217,8 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
               période trimestrielle croit à un bug. */}
           <p className="text-xs text-muted-foreground">
             Maille de planification : <strong className="text-foreground">{GRANULARITE_LABELS[granularite]}</strong> —
-            réglée par le Super Admin (Administration › Réglages). L&apos;échéance de soumission tombe 15 jours avant la
-            fin du mois qui précède la période, ramenée au dernier jour ouvré.
+            réglée par le Super Admin (Force de vente › Paramètres). L&apos;échéance de soumission tombe{" "}
+            {reglage.joursAvant} jour(s) avant la fin du mois qui précède la période, ramenée au dernier jour ouvré.
             {settings.promoMessageAuthorRoles.length === 0 && (
               <> Aucun rôle n&apos;est encore autorisé à publier les messages de la Direction Marketing : les rapports
               terrain les exigent, et ils seront refusés tant que le référentiel est vide.</>

@@ -80,7 +80,20 @@ suite("intelligence métier — Legal, Finance, Regulatory depuis les données r
     expect(l.portee.engagementsActifs).toBeGreaterThanOrEqual(1);
     const den = l.signaux.find((s) => s.code === "denonciation_a_decider" && s.entite?.id === contratId);
     expect(den, JSON.stringify(l.signaux.map((s) => s.code))).toBeTruthy();
-    const fin = dans(200); const limite = new Date(fin); limite.setUTCMonth(limite.getUTCMonth() - 6);
+    // « SIX MOIS AVANT LE TERME » : le même quantième six mois plus tôt, ramené au DERNIER jour du
+    // mois quand il n'existe pas — six mois avant le 31 mars, c'est le 30 septembre. Le juge
+    // s'écrivait `setUTCMonth(mois − 6)`, que JavaScript fait DÉBORDER (« 31 septembre » → 1er
+    // octobre) : il était rouge les jours où « aujourd'hui + 200 » tombe un 31 dont le mois cible en
+    // compte 30 (mesuré le 12/09/2026 : 31/03/2027 − 6 mois attendu au 01/10, rendu au 30/09 par le
+    // produit, qui a raison). Un juge qui mesure un artefact de bibliothèque ne mesure pas la règle
+    // (§118.92) ; la règle vit dans `lib/legal/clauses.ts` et son cas déterministe dans son banc.
+    const fin = dans(200);
+    const limite = new Date(fin);
+    const quantieme = limite.getUTCDate();
+    limite.setUTCDate(1);
+    limite.setUTCMonth(limite.getUTCMonth() - 6);
+    const dernier = new Date(Date.UTC(limite.getUTCFullYear(), limite.getUTCMonth() + 1, 0)).getUTCDate();
+    limite.setUTCDate(Math.min(quantieme, dernier));
     expect(den!.echeance).toBe(iso(limite));
     expect(den!.calcul).toMatch(/− préavis/);
     expect(l.signaux.some((s) => s.code === "risque_penalite" && s.entite?.id === contratId && /plafond/.test(s.detail))).toBe(true);

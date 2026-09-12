@@ -118,6 +118,48 @@ export function periodeSuivante(granularite: Granularite, depuis: Date): { debut
 export const JOURS_AVANT_ECHEANCE = 15;
 
 /**
+ * LE PLAFOND DU DÉLAI. Au-delà de 90 jours, l'échéance d'un plan mensuel tomberait avant même
+ * que la période PRÉCÉDENTE ait commencé — une valeur de ce genre est une faute de frappe, pas
+ * une politique. L'action la REFUSE en nommant la borne (§118.30) ; le lecteur ci-dessous, lui,
+ * retombe sur le défaut, parce qu'une valeur stockée hors borne ne peut venir que d'une écriture
+ * à la main et qu'un écran qui plante sur un réglage ne répare rien.
+ */
+export const JOURS_AVANT_ECHEANCE_MAX = 90;
+
+/**
+ * LE RÉGLAGE DE LA PLANIFICATION — ce que le Super Admin a choisi, ou les défauts.
+ *
+ * Il vivait sous forme de JSON brut (`SfeSettings.tourPlanning`) lu à TROIS endroits, chacun
+ * avec sa propre lecture des défauts, et ÉCRIT NULLE PART : la maille était « configurable »
+ * dans la doctrine, dans la fiche de l'op et à l'écran du KAM (« réglée par le Super Admin »),
+ * et aucun écran ne permettait de la régler — une promesse d'écran (§118.45), lue par tout le
+ * monde et tenue par personne. La lecture vit désormais ICI, une fois, pure ; l'écriture a son
+ * action et son formulaire.
+ */
+export interface ReglageTournee {
+  granularite: Granularite;
+  /** Combien de jours avant la fin du mois qui précède la période l'échéance tombe. */
+  joursAvant: number;
+}
+
+export const REGLAGE_TOURNEE_DEFAUT: ReglageTournee = { granularite: GRANULARITE_DEFAUT, joursAvant: JOURS_AVANT_ECHEANCE };
+
+/**
+ * LIRE LE RÉGLAGE depuis ce que la base porte — sans jamais lever : un JSON absent, d'une autre
+ * forme, ou hors borne rend le DÉFAUT champ par champ. On ne comble pas un champ inconnu par
+ * une valeur plausible : on retombe sur celle que la demande nomme (« mensuel par défaut »).
+ */
+export function reglageDepuisJson(raw: unknown): ReglageTournee {
+  const o = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const g = typeof o.granularity === "string" && estGranularite(o.granularity) ? o.granularity : GRANULARITE_DEFAUT;
+  const j = typeof o.submissionLeadDays === "number" && Number.isFinite(o.submissionLeadDays)
+    ? Math.round(o.submissionLeadDays)
+    : JOURS_AVANT_ECHEANCE;
+  const joursAvant = j >= 0 && j <= JOURS_AVANT_ECHEANCE_MAX ? j : JOURS_AVANT_ECHEANCE;
+  return { granularite: g, joursAvant };
+}
+
+/**
  * L'ÉCHÉANCE DE SOUMISSION d'un plan qui couvre `periodeDebut`.
  *
  * On part de la fin du mois PRÉCÉDANT la période et l'on recule de `joursAvant`. Le résultat est
@@ -347,14 +389,60 @@ export function gestesPossibles(statut: StatutPlan): {
   };
 }
 
-/** Le plan est-il en retard sur son échéance de soumission ? */
+const MS_JOUR = 86_400_000;
+
+/** Ce qu'un écran dit d'un retard de soumission — l'échéance retenue, et les jours. */
+export interface RetardDeSoumission {
+  /** L'échéance qui compte : celle de la RESOUMISSION sur un plan rejeté, celle de la soumission sinon. */
+  echeance: Date;
+  /** Vrai quand le plan est ENCORE à soumettre et que son échéance est passée. */
+  enRetard: boolean;
+  /** Jours entiers de retard (une heure de retard compte pour un jour) — 0 quand il n'y en a pas. */
+  jours: number;
+}
+
+/**
+ * LE RETARD DE SOUMISSION — et ce qu'il ne compte JAMAIS.
+ *
+ * `enRetardDeSoumission` existait, testée, documentée, et n'avait AUCUN appelant de production
+ * (§118.14, §118.49) : l'échéance était stockée, affichée « à soumettre avant le … » avant comme
+ * après son passage, et ni le KAM, ni son N+1, ni la Direction ne voyaient un retard. Une
+ * échéance que rien ne lit n'est pas une échéance, c'est une date décorative.
+ *
+ * Trois règles, et la seconde est la moitié qui compte :
+ *  · Seul un plan OUVERT (brouillon ou rejeté) peut être en retard, jugé sur `maintenant`.
+ *  · Un plan SOUMIS ne l'est jamais : le temps que met son manager à décider n'est pas un retard
+ *    du KAM, et le juger sur la seule date punirait la lenteur de la décision (le test le nomme).
+ *    Un plan resoumis après un rejet efface sa décision précédente — juger la soumission après
+ *    coup contre l'échéance d'origine reprocherait au KAM un retard qu'il n'a pas commis.
+ *  · Sur un plan REJETÉ, l'échéance qui compte est celle de la RESOUMISSION (48 h après le
+ *    rejet) : la première est presque toujours passée au moment du rejet, et la retenir
+ *    afficherait « en retard de 20 jours » à un KAM qui vient de recevoir ses corrections.
+ *
+ * Un plan qui N'EXISTE PAS se juge comme un brouillon : c'est ainsi que la Direction voit un KAM
+ * qui n'a rien ouvert alors que l'échéance de la période est passée.
+ */
+export function retardDeSoumission(input: {
+  statut: StatutPlan;
+  echeance: Date;
+  /** L'échéance de resoumission d'un plan rejeté — `null` tant qu'aucun rejet ne l'a posée. */
+  resoumissionAvant?: Date | null;
+  maintenant: Date;
+}): RetardDeSoumission {
+  const echeance = input.statut === "REJECTED" && input.resoumissionAvant ? input.resoumissionAvant : input.echeance;
+  const ouvert = input.statut === "DRAFT" || input.statut === "REJECTED";
+  const ecart = ouvert ? input.maintenant.getTime() - echeance.getTime() : 0;
+  return { echeance, enRetard: ecart > 0, jours: ecart > 0 ? Math.ceil(ecart / MS_JOUR) : 0 };
+}
+
+/** Le plan est-il en retard sur son échéance de soumission ? (raccourci de `retardDeSoumission`) */
 export function enRetardDeSoumission(input: {
   statut: StatutPlan;
   echeance: Date;
+  resoumissionAvant?: Date | null;
   maintenant: Date;
 }): boolean {
-  if (input.statut !== "DRAFT" && input.statut !== "REJECTED") return false;
-  return input.maintenant.getTime() > input.echeance.getTime();
+  return retardDeSoumission(input).enRetard;
 }
 
 /**

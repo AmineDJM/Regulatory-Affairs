@@ -48,16 +48,21 @@ import { prisma } from "@/lib/prisma";
 // Granularités, périodes, échéances, états d'une visite, avancement. Module PUR, testé à part
 // (`sfe/tournee.test.ts`) : le port ne fait que le rendre atteignable sans traverser.
 export {
-  GRANULARITE_LABELS, STATUT_PLAN_LABELS, avancementTournee, estGranularite, etatVisite,
+  GRANULARITES, GRANULARITE_LABELS, JOURS_AVANT_ECHEANCE_MAX, STATUT_PLAN_LABELS, avancementTournee, estGranularite, etatVisite,
   periodeDe, periodeSuivante,
-  type Granularite, type StatutPlan,
+  type Granularite, type ReglageTournee, type StatutPlan,
 } from "@/lib/sfe/tournee";
+// LE RÉGLAGE EN VIGUEUR — le même lecteur que l'action et les écrans (§118.5) : sans lui, l'op
+// « open_tour_plan » forçait MONTH quand la phrase ne nommait pas de maille, et Adam ouvrait un
+// plan mensuel dans une entreprise réglée au trimestre.
+export { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
 
 // ── LES ÉCRITURES ─────────────────────────────────────────────────────────────────────────
 // Les server actions de l'écran, telles quelles. Les quatre qui restent réservées à un clic
 // humain (décider, rapporter, visite imprévue, remplacer la grille) ne sont PAS ici — leur
 // absence est la garde, et `impl-tournee.ts` dit pourquoi, une raison par action.
 export { ouvrirPlanTournee, soumettrePlanTournee, escaladerPlanTournee } from "@/lib/actions/tour-plan-actions";
+export { saveTourPlanningSettings } from "@/lib/actions/sales-planning-actions";
 export { commanderVisite } from "@/lib/actions/tour-visit-actions";
 export { createPromoMessage, updatePromoMessage, deletePromoMessage } from "@/lib/actions/promo-message-actions";
 
