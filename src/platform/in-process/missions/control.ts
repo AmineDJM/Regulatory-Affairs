@@ -1,6 +1,9 @@
 import type { CurrentUser } from "@/lib/session";
+import { hasGlobalView } from "@/lib/rbac";
+import { recordAudit } from "@/lib/audit";
 import { approbationsEnAttente, decider } from "@/lib/missions/approval/gate";
 import { annuler, mettreEnPause, reprendre } from "@/lib/missions/runtime/control";
+import { ECRAN_REGLAGES_ADAM, suspendreMissions } from "@/lib/interrupteurs/missions";
 import { avancerMission, replanifierMission } from "@/platform/in-process/missions/runtime";
 
 /**
@@ -54,6 +57,48 @@ export async function reprendreMissionAgent(
   if (!r.ok) return { fait: false, statut: r.vers, message: r.message };
   await avancerMission(user, missionId, { maxTours: 25 }).catch(() => undefined);
   return { fait: true, statut: "RUNNING", message: r.message };
+}
+
+/**
+ * « BLOQUE TOUTES LES MISSIONS D'ADAM » — l'interrupteur global, dans le SEUL sens qu'une
+ * conversation a le droit de prendre (§118.132, §118.15).
+ *
+ * POSER réduit : au pire, une injection gèle le moteur, ce qui se voit sur tous les écrans et
+ * se lève d'un clic. LEVER rouvre un moteur : ce geste n'existe PAS ici — il vit dans l'écran
+ * des réglages d'Adam, dont le fichier d'actions est refusé au chemin générique (§118.78). Le
+ * message le dit à la personne au lieu de faire semblant.
+ *
+ * Réservé à la direction : c'est un fait qui vaut pour TOUT LE MONDE. Quelqu'un d'autre reçoit
+ * le geste à sa portée — suspendre son propre parc depuis le Centre de missions.
+ */
+export async function suspendreToutesLesMissions(
+  user: CurrentUser, motif?: string,
+): Promise<GesteMission> {
+  if (!hasGlobalView(user)) {
+    return {
+      fait: false, statut: null,
+      message: "L'interrupteur global des missions est réservé à la direction (PDG / Super Admin) : il gèle "
+        + "les missions de tout le monde. Pour suspendre VOS missions, le Centre de missions "
+        + "(/centre-de-missions) les met toutes en pause en un clic.",
+    };
+  }
+  const r = await suspendreMissions(user.id);
+  if (r.change) {
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Chief of Staff",
+      summary: `Missions d'Adam SUSPENDUES depuis la conversation (interrupteur global)${motif ? ` — ${motif}` : ""}`,
+    }).catch(() => undefined);
+  }
+  return {
+    fait: true, statut: null,
+    message: (r.change
+      ? "Toutes les missions d'Adam sont suspendues : plus rien n'avance, ne se replanifie, ne se lance ni ne "
+        + "notifie, pour tout le monde. Rien n'est perdu — chaque mission repartira où elle en était. "
+      : "Les missions étaient déjà suspendues. ")
+      + `La levée ne se fait pas d'ici : c'est un clic dans les Réglages d'Adam (${ECRAN_REGLAGES_ADAM}). `
+      + "Pour arrêter DÉFINITIVEMENT les missions bloquées (celles de banc, par exemple), le Centre de "
+      + "missions a un bouton « Arrêter les missions bloquées ».",
+  };
 }
 
 export async function arreterMissionAgent(

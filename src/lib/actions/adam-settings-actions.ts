@@ -14,6 +14,7 @@ import {
 } from "@/lib/comms/policy";
 import { disconnectGoogle, setGooglePaused } from "@/lib/google/connection";
 import { adamConnection, ensureWatch } from "@/lib/google/gmail/reconcile";
+import { leverSuspensionMissions, suspendreMissions } from "@/lib/interrupteurs/missions";
 
 /**
  * LES RÉGLAGES D'ADAM — côté SERVEUR, parce que c'est là qu'ils comptent.
@@ -97,6 +98,34 @@ export async function setAdamInboundPaused(paused: boolean): Promise<{ ok: boole
   });
   revalidatePath(PATH);
   return { ok: true };
+}
+
+/**
+ * L'INTERRUPTEUR GLOBAL DES MISSIONS (§118.132) — « bloque toutes les missions d'Adam ».
+ *
+ * Posé : plus AUCUNE mission d'exécution n'avance, ne se replanifie, ne se lance ni ne notifie,
+ * pour tout le monde, jusqu'à la levée — sans toucher à une seule mission (les statuts, les
+ * attentes et les reçus restent tels quels, et chacune repart où elle en était). C'est un
+ * coupe-circuit de la même famille que ceux ci-dessus, et il vit dans le même fichier pour la
+ * même raison : ce fichier est refusé en entier au chemin générique d'Adam (§118.78), donc
+ * Adam ne peut pas LEVER cet interrupteur par une phrase — poser, oui (geste réducteur,
+ * `mission_control` → `suspendre_tout`) ; lever, non (§118.15).
+ */
+export async function setAdamMissionsPaused(paused: boolean): Promise<{ ok: boolean; error?: string; change?: boolean }> {
+  const { error, user } = await requireChief();
+  if (error || !user) return { ok: false, error: error ?? "Non autorisé." };
+  const r = paused ? await suspendreMissions(user.id) : await leverSuspensionMissions();
+  if (r.change) {
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Chief of Staff",
+      summary: paused
+        ? "Missions d'Adam SUSPENDUES (interrupteur global — rien n'avance, rien ne notifie)"
+        : "Missions d'Adam rétablies (interrupteur global levé)",
+    });
+  }
+  revalidatePath(PATH);
+  revalidatePath("/centre-de-missions");
+  return { ok: true, change: r.change };
 }
 
 /** Met la connexion Google en pause sans la révoquer (rien n'est perdu, tout s'arrête). */

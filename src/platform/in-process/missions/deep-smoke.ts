@@ -5,8 +5,7 @@ import { raisonneur } from "@/platform/in-process/missions/reasoner";
 import { RaisonneurInstrumente } from "@/platform/in-process/missions/provider-waterfall";
 import {
   jouer, jetonUnique, preconditionAbsence,
-  type ResultatMission, type Scenario,
-} from "@/platform/in-process/missions/provider-smoke";
+  type ResultatMission, type Scenario, arreterMissionsDeDiagnostic } from "@/platform/in-process/missions/provider-smoke";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -376,7 +375,7 @@ export interface ResultatDeep {
   jetonsSortie: number;
   appelsModele: number;
   latenceTotaleMs: number;
-  nettoyage: { supprimees: number; gardees: boolean };
+  nettoyage: { supprimees: number; gardees: boolean; arretees: number };
   /** Renseigné en mode PALIERS : les mesures de chaque palier, l'arrêt éventuel, la concurrence retenue. */
   paliers: PalierMesure[] | null;
   arretEscalade: string | null;
@@ -438,7 +437,7 @@ export async function deepSmoke(
     horodatage: new Date().toISOString(), jeton, modele: null,
     cible, concurrence, missions: [], ecartes,
     jetonsEntree: 0, jetonsSortie: 0, appelsModele: 0, latenceTotaleMs: 0,
-    nettoyage: { supprimees: 0, gardees: opts.garder === true },
+    nettoyage: { supprimees: 0, gardees: opts.garder === true, arretees: 0 },
     paliers: paliers.length > 0 ? [] : null, arretEscalade: null, concurrenceRetenue: null,
   };
 
@@ -534,9 +533,15 @@ export async function deepSmoke(
     out.concurrenceRetenue = retenue;
   }
 
+  const ids = out.missions.map((m) => m.resultat.missionId).filter((x): x is string => Boolean(x));
   if (!out.nettoyage.gardees) {
-    const ids = out.missions.map((m) => m.resultat.missionId).filter((x): x is string => Boolean(x));
     out.nettoyage.supprimees = await nettoyerMissions(ids);
+  } else {
+    // GARDÉES POUR INSPECTION, PAS POUR TOURNER (§118.132) : une mission de banc laissée
+    // vivante en production est reprise par le battement, replanifiée et NOTIFIÉE à chaque
+    // version de plan. On garde les lignes — c'est ce que « garder » veut dire — et on arrête
+    // le moteur dessus.
+    out.nettoyage.arretees = await arreterMissionsDeDiagnostic(user.id, ids);
   }
   out.latenceTotaleMs = Date.now() - t0;
   return out;
@@ -677,7 +682,7 @@ export function rendreTexteDeep(r: ResultatDeep): string {
   l.push(`  appels modèle            ${r.appelsModele} · jetons ${r.jetonsEntree}/${r.jetonsSortie}`);
   l.push(`  modèle                   ${r.modele ?? "—"} · jeton du run ${r.jeton}`);
   l.push(`  durée totale             ${(r.latenceTotaleMs / 1000).toFixed(1)}s`);
-  l.push(`  nettoyage                ${r.nettoyage.gardees ? "missions GARDÉES (DEEP_SMOKE_GARDER=1)" : `${r.nettoyage.supprimees} mission(s) de ce run supprimée(s)`}`);
+  l.push(`  nettoyage                ${r.nettoyage.gardees ? `missions GARDÉES (DEEP_SMOKE_GARDER=1) — ${r.nettoyage.arretees} arrêtée(s) pour que le battement ne les reprenne pas` : `${r.nettoyage.supprimees} mission(s) de ce run supprimée(s)`}`);
   l.push("");
 
   const carte = carteDeScore(r);

@@ -1,13 +1,17 @@
 import Link from "next/link";
 import { requireModule } from "@/lib/session";
+import { hasGlobalView } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
 import { centreDeMissions } from "@/lib/missions/view/control";
+import { compterPourLesGestesDeMasse } from "@/lib/missions/runtime/control";
+import { ECRAN_REGLAGES_ADAM, lireInterrupteurMissions } from "@/lib/interrupteurs/missions";
 import { listerAccordsMission } from "@/lib/actions/mission-runtime-actions";
 import { depuis } from "@/lib/missions/view/duree";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { MissionControlList, MissionsCloses } from "@/components/missions/mission-control-list";
-import { AccordControls } from "@/components/missions/mission-runtime-controls";
+import { AccordControls, MissionBulkControls } from "@/components/missions/mission-runtime-controls";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Missions d'Adam — AMD Internal OS" };
@@ -37,10 +41,18 @@ export default async function CentreDeMissionsPage() {
   const user = await requireModule("WORKSPACE");
   const maintenant = new Date();
 
-  const [centre, accords] = await Promise.all([
+  const [centre, accords, interrupteur, masse] = await Promise.all([
     centreDeMissions(user.id),
     listerAccordsMission(),
+    // L'INTERRUPTEUR GLOBAL (§118.132) : s'il est posé, l'écran doit le dire AVANT les
+    // compteurs — sinon « 3 en cours » se lit comme trois missions qui avancent.
+    lireInterrupteurMissions(),
+    // Les nombres des boutons de masse viennent du MÊME prédicat que les gestes (§118.51).
+    compterPourLesGestesDeMasse(user.id),
   ]);
+  const poseur = interrupteur.parId
+    ? await prisma.user.findUnique({ where: { id: interrupteur.parId }, select: { name: true } }).catch(() => null)
+    : null;
 
   return (
     <div className="space-y-5">
@@ -48,6 +60,31 @@ export default async function CentreDeMissionsPage() {
         title="Missions d'Adam"
         description="Tout ce qu'Adam exécute pour vous : ce qui attend une décision de votre part en premier, puis ce qui est bloqué, puis ce qui avance. Une mission longue s'y lit en JALONS — pas en étapes du sous-plan en cours, qui ne diraient qu'un septième de l'histoire."
       />
+
+      {interrupteur.suspendues ? (
+        <section
+          role="status"
+          data-testid="centre-suspension"
+          className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+        >
+          <p className="font-medium">
+            Toutes les missions d&apos;Adam sont suspendues
+            {interrupteur.depuis ? ` — ${depuis(interrupteur.depuis.toISOString(), maintenant)}` : ""}
+            {poseur?.name ? `, par ${poseur.name}` : ""}.
+          </p>
+          <p className="mt-1 text-amber-800">
+            Rien n&apos;avance, rien ne se replanifie, rien ne notifie. Chaque mission repartira où elle en
+            était à la levée
+            {hasGlobalView(user) ? (
+              <>
+                {" — "}
+                <Link href={ECRAN_REGLAGES_ADAM} className="font-medium underline">Réglages d&apos;Adam</Link>
+              </>
+            ) : " (par la direction, depuis les Réglages d'Adam)"}
+            .
+          </p>
+        </section>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard
@@ -66,6 +103,9 @@ export default async function CentreDeMissionsPage() {
           hint="Elles ne consomment rien"
         />
       </div>
+
+      {/* ── LES GESTES DE MASSE (§118.132) — le confort du bouton, sur le même prédicat que le geste. */}
+      <MissionBulkControls suspendables={masse.suspendables} bloquees={masse.bloquees} />
 
       {/* ── LES ACCORDS, DÉCIDABLES ICI ────────────────────────────────────────────────
           L'accord est une ATTESTATION : il exige une vraie session humaine (§118.15), donc il

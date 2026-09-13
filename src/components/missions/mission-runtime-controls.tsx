@@ -3,9 +3,9 @@
 import * as React from "react";
 import { Check, Flag, Loader2, Pause, Play, Send, Square, Wand2, X } from "lucide-react";
 import {
-  appliquerModificationMission, arreterMission, changerPrioriteMission,
+  appliquerModificationMission, arreterMesMissionsBloquees, arreterMission, changerPrioriteMission,
   deciderAccordMission, fournirElementMission, mettreMissionEnPause,
-  prevoirModificationMission, reprendreMission,
+  prevoirModificationMission, reprendreMission, suspendreToutesMesMissions,
   type ApercuModification,
 } from "@/lib/actions/mission-runtime-actions";
 
@@ -417,5 +417,65 @@ export function ModificationControls({ missionId }: { missionId: string }) {
 
       {erreur ? <p className="mt-2 text-sm text-rose-700" role="status">{erreur}</p> : null}
     </details>
+  );
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES GESTES DE MASSE DU CENTRE (§118.132) — tout ce qui tourne, tout ce qui est bloqué.
+ *
+ * Le nombre écrit sur le bouton est celui que le clic touchera : il vient du MÊME prédicat que
+ * le geste (`runtime/control.ts`), pas du compteur « Bloquées » d'à côté, qui range FAILED
+ * parmi les missions closes alors que le battement les replanifie encore — d'où « bloquées ou
+ * en échec ». Un bouton qui annonce trois missions et en arrête quatre est le mensonge
+ * d'interface qu'on refuse partout ailleurs (§118.51).
+ *
+ * L'arrêt est DÉFINITIF et se confirme ; la suspension se lève mission par mission. Ni l'un ni
+ * l'autre ne pose l'interrupteur global — celui-là est un geste de direction, dans les
+ * réglages d'Adam.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function MissionBulkControls({ suspendables, bloquees }: { suspendables: number; bloquees: number }) {
+  const { enCours, etat, lancer, pret } = useGeste();
+  if (suspendables === 0 && bloquees === 0) return null;
+  return (
+    <div className="surface p-3" data-testid="mission-bulk-controls">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="mr-auto text-sm text-slate-700">Sur tout votre parc :</p>
+        {suspendables > 0 && (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 disabled:opacity-60"
+            disabled={!pret || enCours !== null}
+            onClick={() => {
+              if (!window.confirm(
+                `Suspendre ${suspendables} mission(s) en cours ? Elles repartiront où elles en étaient quand vous les reprendrez, une par une.`,
+              )) return;
+              void lancer("suspendre-tout", () => suspendreToutesMesMissions());
+            }}
+          >
+            {enCours === "suspendre-tout" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pause className="h-4 w-4" />}
+            Suspendre les {suspendables} mission(s) en cours
+          </button>
+        )}
+        {bloquees > 0 && (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-md border border-rose-300 px-3 py-1.5 text-sm font-medium text-rose-700 disabled:opacity-60"
+            disabled={!pret || enCours !== null}
+            onClick={() => {
+              if (!window.confirm(
+                `Arrêter définitivement ${bloquees} mission(s) bloquée(s) ou en échec ? Ce qui a déjà été fait reste fait — rien n'est défait.`,
+              )) return;
+              void lancer("arreter-bloquees", () => arreterMesMissionsBloquees());
+            }}
+          >
+            {enCours === "arreter-bloquees" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+            Arrêter les {bloquees} mission(s) bloquée(s) ou en échec
+          </button>
+        )}
+      </div>
+      <Message etat={etat} />
+    </div>
   );
 }

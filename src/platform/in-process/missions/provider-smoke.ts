@@ -70,6 +70,7 @@
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import { EFFECT_RANK, capabilityMeta, type Effect } from "@/lib/missions/registry/capability-meta";
+import { annuler } from "@/lib/missions/runtime/control";
 import { effetDuNoeud } from "@/lib/missions/registry/node-effect";
 import { lireRecu } from "@/lib/missions/runtime/receipt";
 import { RESOLVER_WRITE_NAMES } from "@/lib/assistant";
@@ -313,6 +314,14 @@ export interface ResultatSmoke {
   artefactsInattendus: string[];
   scenarios: ResultatMission[];
   latenceTotaleMs: number;
+  /**
+   * LES MISSIONS DE DIAGNOSTIC ARRÊTÉES À LA FIN DU DIAGNOSTIC (§118.132). Ce banc tourne dans
+   * le Shell Render, donc en PRODUCTION : une mission de diagnostic laissée BLOCKED y était
+   * reprise par le battement à chaque passage, replanifiée jusqu'au plafond, et NOTIFIAIT le
+   * dirigeant à chaque version de plan — « Bloqué — Diagnostic — … » sans arrêt. Une mesure
+   * finie ne laisse pas son instrument tourner.
+   */
+  missionsArretees: number;
 }
 
 /**
@@ -812,6 +821,27 @@ export async function jouer(
   return { r, chaine, metriques };
 }
 
+/**
+ * ARRÊTE les missions qu'un diagnostic a lancées, une fois la mesure faite (§118.132).
+ *
+ * Par `annuler`, la porte canonique : même journal (`CLOSED`), même traitement des jalons, même
+ * refus sur une mission terminée. Ce qui a déjà été fait reste fait. Compte les missions qui ont
+ * CHANGÉ d'état — une mission déjà arrêtée ou terminée ne compte pas.
+ */
+export async function arreterMissionsDeDiagnostic(
+  ownerId: string,
+  ids: readonly (string | null)[],
+): Promise<number> {
+  let n = 0;
+  for (const id of ids) {
+    if (!id) continue;
+    const r = await annuler(id, ownerId,
+      "diagnostic terminé — mission de banc arrêtée pour ne pas être reprise par le battement").catch(() => null);
+    if (r?.ok && r.vers === "CANCELLED" && r.depuis !== "CANCELLED") n += 1;
+  }
+  return n;
+}
+
 export async function smokeFournisseur(user: CurrentUser): Promise<ResultatSmoke> {
   const t0 = Date.now();
   const chaine: Chaine = {
@@ -828,7 +858,7 @@ export async function smokeFournisseur(user: CurrentUser): Promise<ResultatSmoke
     capacitesOuvertes: null,
     jeton: jetonUnique(),
     setupValide: true, raisonSetup: null, artefactsInattendus: [],
-    scenarios: [], latenceTotaleMs: 0,
+    scenarios: [], latenceTotaleMs: 0, missionsArretees: 0,
   };
 
   const finir = (): ResultatSmoke => {
@@ -871,6 +901,12 @@ export async function smokeFournisseur(user: CurrentUser): Promise<ResultatSmoke
     chaine.READ_ONLY_EXECUTION = "FAIL";
     out.artefactsInattendus = pollueurs.flatMap((s) => s.artefactsCrees);
   }
+
+  // ── L'INSTRUMENT S'ARRÊTE AVEC LA MESURE (§118.132) ────────────────────────────────────
+  // Après le verdict, et jamais avant : arrêter une mission en cours de mesure fausserait la
+  // mesure. Ce qui est COMPLETED reste COMPLETED (`annuler` le refuse) ; le reste est arrêté
+  // pour que le battement de production ne le reprenne plus.
+  out.missionsArretees = await arreterMissionsDeDiagnostic(user.id, out.scenarios.map((s) => s.missionId));
 
   // LE BANC INVALIDE SE DIT À PART. Ce n'est pas une mission en échec : c'est une vérité terrain
   // fausse, donc une mesure qui n'a pas eu lieu. Les confondre accuserait le moteur.
@@ -938,6 +974,7 @@ export function rendreTexte(r: ResultatSmoke): string {
     + (r.jetonsReflexion !== null ? `  (dont ${r.jetonsReflexion} de réflexion en sortie)` : ""),
     `  capacités ouvertes (plafond) ${val(r.capacitesOuvertes)}`,
     `  latence totale               ${ms(r.latenceTotaleMs)}`,
+    `  missions de banc arrêtées    ${r.missionsArretees} (le battement ne les reprendra pas)`,
     "",
   ];
 

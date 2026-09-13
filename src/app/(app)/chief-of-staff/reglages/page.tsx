@@ -58,6 +58,12 @@ export default async function AdamReglagesPage({
 
   const health = await adamHealth();
   const lvl = LEVEL_UI[health.level];
+  // L'INTERRUPTEUR GLOBAL DES MISSIONS (§118.132) — lu par la santé d'Adam (côté ERP, comme la
+  // connexion Google), posé et levé par le formulaire. L'écran ne lit ni la base ni `lib/missions`.
+  const suspension = health.missions.suspension;
+  const missionsPausedInfo = suspension.active
+    ? `depuis le ${dt(suspension.depuis)}${suspension.par ? ` par ${suspension.par}` : ""}`
+    : null;
   const erreur = searchParams?.erreur ? (ERREURS[searchParams.erreur] ?? "La connexion a échoué.") : null;
 
   return (
@@ -205,6 +211,8 @@ export default async function AdamReglagesPage({
             inboundPaused={health.outbound.inboundPaused}
             connectionPaused={health.connection.paused}
             connected={health.connection.connected || health.connection.status === "paused"}
+            missionsPaused={suspension.active}
+            missionsPausedInfo={missionsPausedInfo}
           />
         </CardContent>
       </Card>

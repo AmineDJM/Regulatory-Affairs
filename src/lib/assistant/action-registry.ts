@@ -1031,6 +1031,22 @@ classify("COVERED", "mission_control (pause / reprise / arrêt / refus d'autoris
    */
   "mission-runtime-actions:prevoirModificationMission",
   "mission-runtime-actions:appliquerModificationMission",
+  /**
+   * LES GESTES DE MASSE (§118.132) — « suspendre toutes mes missions », « arrêter les bloquées » :
+   * le confort du bouton, pas une capacité de plus. Chacun rejoue `pause` / `arreter` sur chaque
+   * mission de la personne, que `mission_control` propose déjà une par une.
+   */
+  "mission-runtime-actions:suspendreToutesMesMissions",
+  "mission-runtime-actions:arreterMesMissionsBloquees",
+]);
+/**
+ * L'INTERRUPTEUR GLOBAL DES MISSIONS (§118.132) — couvert dans le SEUL sens qu'une conversation
+ * a le droit de prendre : POSER (`mission_control` → `suspendre_tout`, direction seulement).
+ * LEVER rouvre un moteur et n'existe que par un clic dans les réglages d'Adam (§118.15) — c'est
+ * la même asymétrie que `set_mail_policy` face au coupe-circuit sortant, et elle est voulue.
+ */
+classify("COVERED", "mission_control (suspendre_tout — sens réducteur seul ; la levée exige l'écran)", [
+  "adam-settings-actions:setAdamMissionsPaused",
 ]);
 // La LECTURE de ses accords en attente est la même information que `mission_status` rend déjà.
 classify("COVERED", "mission_status (l'écran d'une mission dit ce qu'elle attend de vous)", [

@@ -13,6 +13,7 @@ import {
 import {
   EtatEtape, EtatMission, chargerEtat, cleIdempotence, compter, journaliser, transitionner,
 } from "@/lib/missions/runtime/store";
+import { lireInterrupteurMissions, type LecteurInterrupteur } from "@/lib/interrupteurs/missions";
 import {
   diagnostiquerReferences, entreeIteration, identiteIteration, injecterSorties, lire, referencesDe,
   type DiagnosticReference, type SortieAmont,
@@ -107,6 +108,15 @@ export interface StepHandlers {
 export interface EngineDeps {
   runner: CapabilityRunner;
   /**
+   * LE LECTEUR DE L'INTERRUPTEUR GLOBAL DES MISSIONS (§118.132). Défaut : le VRAI
+   * (`lireInterrupteurMissions`, la ligne `AppSetting.global`). Un banc l'injecte pour éprouver la
+   * suspension sans poser l'interrupteur réel — qui est partagé par tous les tests qui tournent
+   * en parallèle sur la même base. Aucun appelant de production ne le remplace ; un test de
+   * point d'appel le vérifie, parce qu'un lecteur remplacé désarmerait l'interrupteur en
+   * silence.
+   */
+  interrupteur?: LecteurInterrupteur;
+  /**
    * LE CATALOGUE, pour la SECONDE vérification de politique (§29).
    *
    * Facultatif, et son absence a une conséquence dite : sans lui, seul le compilateur garde
@@ -172,6 +182,12 @@ export interface TickResult {
    * bail et n'a rien fait (§ bail). Ce n'est ni une pause ni un échec — c'est « pas moi ».
    */
   bailRefuse?: boolean;
+  /**
+   * Vrai quand l'INTERRUPTEUR GLOBAL est posé (§118.132) : ce processus n'a rien exécuté, rien
+   * jugé, rien signalé — et la mission n'a pas changé d'état. Distinct de `bailRefuse` (« pas
+   * moi ») et de `PAUSED` (« pas celle-ci ») : c'est « personne, sur aucune ».
+   */
+  suspenduGlobalement?: boolean;
 }
 
 const estTerminal = (s: StepState): boolean => STEP_TERMINAL.has(s);
@@ -231,6 +247,7 @@ export async function avancer(
 ): Promise<TickResult> {
   const clock = deps.clock ?? systemClock;
   const maxTours = deps.maxTours ?? 200;
+  const lireInterrupteur: LecteurInterrupteur = deps.interrupteur ?? lireInterrupteurMissions;
   const res: TickResult = {
     missionId, status: "RUNNING", executees: 0, echouees: 0,
     deployees: 0, dedupliquees: 0, tours: 0, enPause: false,
@@ -273,6 +290,27 @@ export async function avancer(
     if (etat.status === "PAUSED") {
       res.status = "PAUSED";
       res.enPause = true;
+      return res;
+    }
+
+    /**
+     * ── L'INTERRUPTEUR GLOBAL EST HONORÉ ICI, PAR LE SEUL EXÉCUTANT (§118.132) ────────────
+     *
+     * « Bloque toutes les missions d'Adam. » Battement, clic dans Mission Control, réveil par
+     * événement, reprise après accord : tout chemin d'avancement finit dans cette boucle, donc
+     * c'est ici que la suspension est une PROPRIÉTÉ du système et non une discipline de chaque
+     * appelant. Relu à CHAQUE tour, parce qu'un interrupteur posé pendant une mission de deux
+     * cents tours doit l'arrêter au tour suivant, pas au prochain appel.
+     *
+     * On sort SANS toucher à rien, comme pour PAUSED : c'est ce qui rend la levée exacte —
+     * chaque mission repart de son état réel. Et l'on sort AVANT `conclure` : une mission dont
+     * plus rien ne peut avancer ne se fait pas JUGER sous suspension, donc ne passe pas BLOCKED,
+     * donc ne NOTIFIE pas — c'est précisément la boucle que le dirigeant voulait couper.
+     */
+    if ((await lireInterrupteur()).suspendues) {
+      res.status = etat.status;
+      res.enPause = true;
+      res.suspenduGlobalement = true;
       return res;
     }
 

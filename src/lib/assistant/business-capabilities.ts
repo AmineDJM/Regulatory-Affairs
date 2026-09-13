@@ -507,15 +507,19 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
         + "étapes qui NOMMENT la cible et ce qui en dépend sont reprises ; le reste garde son travail, "
         + "ses reçus et ses effets déjà produits, et ce qui est DÉJÀ parti est nommé, jamais renvoyé. "
         + "Une cible que le plan ne nomme nulle part ne touche à RIEN et le dit : ne devine pas à sa place. "
+        + "« suspendre_tout » BLOQUE TOUTES LES MISSIONS D'ADAM d'un coup (interrupteur global, réservé à la "
+        + "direction) : plus rien n'avance, ne se replanifie ni ne notifie, sans rien perdre — « bloque toutes "
+        + "les missions », « arrête tout Adam », « plus aucune mission ». Aucun `missionId` pour ce geste. La "
+        + "LEVÉE ne se fait que depuis l'écran des réglages d'Adam, jamais par cet outil : dis-le. "
         + "N'ACCORDE JAMAIS une autorisation et ne fournit jamais un élément demandé avec cet outil : "
         + "ces deux gestes-là exigent un clic de la personne sur l'écran de la mission — dis-le-lui.",
       input_schema: {
         type: "object",
         properties: {
-          missionId: { type: "string", description: "L'identifiant de la mission." },
+          missionId: { type: "string", description: "L'identifiant de la mission — obligatoire pour tous les gestes sauf « suspendre_tout »." },
           geste: {
             type: "string",
-            enum: ["pause", "reprendre", "arreter", "refuser", "replanifier", "prioriser", "plafonner_modele", "modifier"],
+            enum: ["pause", "reprendre", "arreter", "refuser", "replanifier", "prioriser", "plafonner_modele", "modifier", "suspendre_tout"],
             description: "Le geste demandé. « prioriser » la fait passer devant (valeur dans `priorite`) ; "
               + "« plafonner_modele » borne ses appels de modèle (« ne dépense plus de modèle dessus ») — "
               + "`plafond` en nombre d'appels, 0 pour geler, absent pour RETIRER le plafond.",
@@ -537,24 +541,28 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
           remplacant: { type: "string", description: "Pour « modifier »/`remplacer` : qui ou quoi prend la place." },
           ajout: { type: "string", description: "Pour « modifier »/`ajouter` : le travail qui s'ajoute, en une phrase." },
         },
-        required: ["missionId", "geste"],
+        required: ["geste"],
       },
     },
     // OUVERT PAR DESSEIN, comme `run_mission` : chaque fonction sous-jacente exige que la mission
-    // appartienne à la personne, et un identifiant deviné ne donne rien.
+    // appartienne à la personne, et un identifiant deviné ne donne rien. L'interrupteur global,
+    // lui, exige la vue globale — vérifiée dans le pont, jamais ici.
     allowed: () => true,
     label: "Mission — reprise en main",
     run: async (input, user) => {
       const missionId = str(input, "missionId");
       const geste = str(input, "geste");
-      if (!missionId) return "Il manque l'identifiant de la mission.";
-
       const motif = str(input, "motif") || undefined;
       // IMPORT DIFFÉRÉ ET PAR LE PONT, pour deux raisons distinctes : le composeur importe ce
       // registre (un import statique fermerait le cycle), et `src/platform/in-process/` est le
       // SEUL endroit d'Adam autorisé à connaître l'ERP — importer `missions/` d'ici ferait
       // franchir la frontière deux fois de plus, ce que le cliquet refuse à juste titre.
       const ctl = await import("@/platform/in-process/missions/control");
+
+      // LE SEUL GESTE SANS MISSION : il porte sur le moteur entier (§118.132), dans le sens qui
+      // RÉDUIT. Le sens qui rouvre n'existe pas dans cet outil — le pont le dit à la personne.
+      if (geste === "suspendre_tout") return JSON.stringify(await ctl.suspendreToutesLesMissions(user, motif));
+      if (!missionId) return "Il manque l'identifiant de la mission.";
 
       if (geste === "pause") return JSON.stringify(await ctl.pauserMission(user, missionId, motif));
       if (geste === "reprendre") return JSON.stringify(await ctl.reprendreMissionAgent(user, missionId));

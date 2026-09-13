@@ -97,7 +97,7 @@ suite("ACCEPTANCE RUN 4 — la couche entière, en local, sur les chemins de pro
     const deepVide: ResultatDeep = {
       horodatage: new Date().toISOString(), jeton: "t", modele: null, cible: 0, concurrence: 0,
       missions: [], ecartes: [], jetonsEntree: 0, jetonsSortie: 0, appelsModele: 0,
-      latenceTotaleMs: 0, nettoyage: { supprimees: 0, gardees: false },
+      latenceTotaleMs: 0, nettoyage: { supprimees: 0, gardees: false, arretees: 0 },
       paliers: null, arretEscalade: null, concurrenceRetenue: null,
     };
     const verdict = verdictRun4(deepVide, resultat);

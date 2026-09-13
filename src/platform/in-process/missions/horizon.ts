@@ -37,6 +37,7 @@
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import type { Reasoner } from "@/lib/missions/ports";
+import { lireInterrupteurMissions } from "@/lib/interrupteurs/missions";
 import { compile } from "@/lib/missions/compiler/compile";
 import { planifier, PLANNER_PROMPT_VERSION, type ContextePlanification } from "@/lib/missions/planner/plan";
 import { decouperEnJalons } from "@/lib/missions/planner/jalons";
@@ -247,6 +248,21 @@ async function conduireHorizonInterne(
     // suspendue — la pause serait une promesse d'écran, pas une propriété du système.
     if (["PAUSED", "CANCELLED", "COMPLETED"].includes(mission.status)) {
       res.arret = `mission ${mission.status}`;
+      res.avancement = avancement(await lireJalons(missionId));
+      return res;
+    }
+
+    /**
+     * ── L'INTERRUPTEUR GLOBAL, AVANT DE COMPILER (§118.132) ────────────────────────────
+     *
+     * Le moteur le lit à chaque tour ; ce pilote, lui, COMPILE un sous-plan — donc PAIE un
+     * planificateur — AVANT d'appeler le moteur. Sans cette ligne, une mission longue
+     * suspendue continuerait d'écrire des sous-plans que personne n'exécuterait : la pause
+     * serait honorée par l'exécution et contournée par la planification (§118.45 : il en
+     * fallait deux, ici aussi).
+     */
+    if ((await (opts.interrupteur ?? lireInterrupteurMissions)()).suspendues) {
+      res.arret = "missions suspendues par la direction (interrupteur global)";
       res.avancement = avancement(await lireJalons(missionId));
       return res;
     }

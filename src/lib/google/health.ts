@@ -3,6 +3,7 @@ import { MissionStatus, OutboundMailStatus } from "@prisma/client";
 import { resolveGoogleConfig, missingGoogleVars, GOOGLE_SCOPES } from "./config";
 import { computeMissingScopes } from "./scopes";
 import { getCommunicationPolicy } from "@/lib/comms/policy";
+import { lireInterrupteurMissions } from "@/lib/interrupteurs/missions";
 import { WATCH_RENEW_BEFORE_MS } from "./gmail/watch";
 
 /**
@@ -69,6 +70,14 @@ export interface AdamHealth {
     waiting: number;
     needsCeo: number;
     readyToSend: number;
+    /**
+     * L'INTERRUPTEUR GLOBAL DES MISSIONS (§118.132) — lu ICI, côté ERP, et servi à l'écran des
+     * réglages d'Adam avec le reste de l'état : l'écran est du périmètre d'Adam, et lui faire
+     * lire la base ou `lib/missions` directement ajoutait deux franchissements de la frontière
+     * que le cliquet a refusés (430 pour 428). L'état d'Adam se lit par sa santé, pas par ses
+     * tables — c'est déjà la règle de ce module pour la connexion Google.
+     */
+    suspension: { active: boolean; depuis: Date | null; par: string | null };
   };
 }
 
@@ -156,6 +165,12 @@ export async function adamHealth(now: Date = new Date()): Promise<AdamHealth> {
   // état volontaire, sans les compter comme des incidents à réparer.
   if (policy?.inboundPaused) issues.push("Coupe-circuit : traitement de la boîte suspendu (volontaire).");
   if (policy?.outboundPaused) issues.push("Coupe-circuit : envoi de courriel suspendu (volontaire).");
+  // L'INTERRUPTEUR GLOBAL DES MISSIONS (§118.132) — même famille : une décision, pas une panne.
+  const missionsSuspendues = await lireInterrupteurMissions().catch(() => null);
+  if (missionsSuspendues?.suspendues) issues.push("Coupe-circuit : toutes les missions d'Adam sont suspendues (volontaire).");
+  const poseur = missionsSuspendues?.parId
+    ? await prisma.user.findUnique({ where: { id: missionsSuspendues.parId }, select: { name: true } }).catch(() => null)
+    : null;
 
   return {
     level,
@@ -203,6 +218,11 @@ export async function adamHealth(now: Date = new Date()): Promise<AdamHealth> {
       waiting: missionCount(MissionStatus.WAITING),
       needsCeo: missionCount(MissionStatus.NEEDS_CEO),
       readyToSend: missionCount(MissionStatus.READY_TO_SEND),
+      suspension: {
+        active: missionsSuspendues?.suspendues === true,
+        depuis: missionsSuspendues?.depuis ?? null,
+        par: poseur?.name ?? null,
+      },
     },
   };
 }

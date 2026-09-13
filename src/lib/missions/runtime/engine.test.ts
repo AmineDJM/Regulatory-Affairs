@@ -1124,7 +1124,14 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     });
     expect(filles).toHaveLength(2);
     for (const f of filles) expect(f.supersededAt, f.key).toBeNull();
-  });
+    /**
+     * PLAFOND LOCAL, MESURÉ (§118.124b) : ce cas fait tourner le VRAI moteur sur la VRAIE base
+     * — un éventail, un jalon, une rematérialisation — en ~1 s seul (le fichier entier en 8,4 s),
+     * et il a dépassé les 20 000 ms globales sous la suite complète (744 fichiers, quatre cœurs,
+     * le fichier en 44,9 s). Le plafond répond à « est-il bloqué ? », jamais à « est-il lent ? » :
+     * un moteur qui ne rend pas la main échoue toujours, un peu plus tard.
+     */
+  }, 60_000);
 
   /**
    * LE MÊME TROU, UN CRAN PLUS BAS. La mère réarmée redéploie et retrouve ses FILLES en échec,

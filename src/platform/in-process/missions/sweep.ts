@@ -61,12 +61,26 @@ export interface BalayageMissions {
   relances: number;
   /** Les missions dont le plan a été RÉÉCRIT parce qu'il ne pouvait plus aboutir (§39-40). */
   replanifiees: number;
+  /**
+   * VRAI quand l'INTERRUPTEUR GLOBAL est posé (§118.132) : le passage n'a rien chargé, rien
+   * conduit, rien relancé, rien notifié. Un battement qui rend des zéros sans le dire
+   * ressemblerait à une base sans mission — il faut pouvoir distinguer « rien à faire » de
+   * « interdit de faire ».
+   */
+  suspendu: boolean;
+}
+
+/** Ce qu'un banc peut injecter dans le balayage. La production n'injecte rien. */
+export interface DependancesBalayage {
+  /** Le lecteur de l'interrupteur global — défaut : le vrai. Voir `lib/interrupteurs/missions.ts`. */
+  interrupteur?: LecteurInterrupteur;
 }
 
 // `proprietaire` vit dans son propre module : la porte d'attention l'emploie aussi, sans dépendre du balayage.
 export { proprietaire } from "@/platform/in-process/missions/proprietaire";
 import { proprietaire } from "@/platform/in-process/missions/proprietaire";
 import { estReplanifiable } from "@/lib/missions/runtime/replan";
+import { lireInterrupteurMissions, type LecteurInterrupteur } from "@/lib/interrupteurs/missions";
 
 export interface ConduiteMission {
   executees: number;
@@ -213,9 +227,28 @@ export async function conduireMission(
  *
  * Ne lève jamais : une mission qui plante ne doit pas emporter le battement, ni les onze autres.
  */
-export async function balayerMissions(): Promise<BalayageMissions> {
-  const out: BalayageMissions = { examinees: 0, avancees: 0, etapesExecutees: 0, relances: 0, replanifiees: 0 };
+export async function balayerMissions(deps: DependancesBalayage = {}): Promise<BalayageMissions> {
+  const out: BalayageMissions = { examinees: 0, avancees: 0, etapesExecutees: 0, relances: 0, replanifiees: 0, suspendu: false };
   if ((process.env.MISSIONS_SWEEP ?? "").toLowerCase() === "off") return out;
+
+  /**
+   * ── L'INTERRUPTEUR GLOBAL, AVANT DE CHARGER QUOI QUE CE SOIT (§118.132) ────────────────
+   *
+   * Le moteur l'honore de son côté (`avancer`) ; si seul lui le faisait, ce battement
+   * continuerait à sélectionner des candidates, à prendre des baux, à RELANCER des attentes
+   * échues et à SIGNALER des transitions — c'est-à-dire à déranger les gens pour des missions
+   * que la direction vient de geler. Le débrayage par variable d'environnement reste : lui
+   * arrête sans base ; celui-ci s'arrête depuis un écran et survit au redéploiement.
+   *
+   * Une lecture qui ÉCHOUE ne suspend rien et ne lève rien : elle se propage et le battement
+   * la journalise, comme toute panne de base. Décider « pas suspendu » sur une erreur ferait
+   * repartir les missions à l'instant exact où l'on ne sait plus lire l'interrupteur.
+   */
+  const interrupteur = await (deps.interrupteur ?? lireInterrupteurMissions)();
+  if (interrupteur.suspendues) {
+    out.suspendu = true;
+    return out;
+  }
 
   // ── 0. LE TEMPS D'ABORD (WAIT_FOR_TIME) ─────────────────────────────────────────────
   //

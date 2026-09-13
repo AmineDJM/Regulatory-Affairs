@@ -64,6 +64,31 @@ export function signatureDuRefus(issues: readonly { code: string }[]): string {
   return [...new Set(issues.map((i) => i.code))].sort().join("|");
 }
 
+/**
+ * LA SIGNATURE D'UN REFUS DU JUGE D'OBJECTIF — un CODE, jamais le verdict (§118.132).
+ *
+ * MESURÉ SUR UNE MISSION DE BANC LAISSÉE EN PRODUCTION : toutes les étapes abouties, le juge
+ * refuse l'objectif, la mission passe BLOCKED et NOTIFIE ; le battement replanifie ; le plan v2
+ * exécute ses sept étapes, le juge refuse à nouveau, BLOCKED, nouvelle notification (la clé de
+ * dédoublonnage porte la version du plan) ; et ainsi de suite jusqu'au plafond de DOUZE plans —
+ * onze notifications « Bloqué » pour une seule mission, onze fois sept étapes payées, et le
+ * dirigeant qui demande à bloquer tout Adam.
+ *
+ * La cause : la replanification déclenchée par le juge passait `refus: null` — « un motif
+ * neuf, il mérite un tour » — À CHAQUE FOIS. Le juge refusait pour la deuxième, la cinquième,
+ * la dixième fois, et le code lisait chaque fois un premier refus. Rien ne pouvait devenir une
+ * RÉPÉTITION, donc rien ne pouvait arrêter la boucle avant le plafond opérationnel.
+ *
+ * On signe donc par le CODE et non par la phrase du verdict — celle-ci est écrite par un modèle
+ * et change à chaque tour ; signer dessus rendrait chaque refus « nouveau », exactement le
+ * défaut que `signatureDuRefus` évite déjà en ignorant les clés d'étapes. Deux refus de juge
+ * sur deux plans successifs, c'est le même mur : le planificateur a eu son tour de correction,
+ * et le troisième plan rendrait la même réponse, plus chère. C'est le critère que les jalons
+ * appliquent déjà (`OBJECTIF_NON_CONSTATE` dans `refusVus`, §118.68) — la mission plate ne
+ * l'appliquait pas.
+ */
+export const REFUS_JUGE = "OBJECTIF_NON_CONSTATE";
+
 export interface EtatReplan {
   planVersion: number;
   replanRefus: string | null;
@@ -79,10 +104,12 @@ export interface VerdictReplan {
 /**
  * A-T-ON LE DROIT D'ÉCRIRE UN PLAN DE PLUS POUR CETTE MISSION (sans jalons) ?
  *
- * `refus` est la signature de ce que le compilateur vient de refuser — `null` quand la
- * replanification est déclenchée par autre chose qu'un refus de compilation (un échec d'étape,
- * un juge qui refuse l'objectif). Dans ce cas il n'y a rien à comparer : c'est un motif NEUF,
- * et il mérite un tour.
+ * `refus` est la signature de ce qui vient d'être refusé — les codes du compilateur, ou
+ * `REFUS_JUGE` quand c'est le juge d'objectif qui a refusé un plan dont toutes les étapes ont
+ * abouti. `null` seulement quand la replanification est déclenchée par un ÉCHEC D'ÉTAPE : là
+ * il n'y a rien à comparer, c'est un motif neuf et il mérite un tour. Un refus de juge n'est
+ * PAS neuf la seconde fois (§118.132) — le passer en `null` a fait tourner une mission de banc
+ * douze plans durant, avec une notification par plan.
  */
 export function peutReplanifierMission(
   etat: EtatReplan,
@@ -114,15 +141,18 @@ export function peutReplanifierMission(
     return {
       autorise: false,
       motif: "REPETITION",
-      phrase: `Le compilateur oppose exactement le même refus qu'au tour précédent (${refus}) : `
-        + `le planificateur n'a rien réparé.`,
+      phrase: refus === REFUS_JUGE
+        ? "Le juge a refusé l'objectif sur deux plans successifs : le plan corrigé n'a rien changé "
+          + "au verdict, et un troisième rendrait la même réponse."
+        : `Le compilateur oppose exactement le même refus qu'au tour précédent (${refus}) : `
+          + `le planificateur n'a rien réparé.`,
     };
   }
   return {
     autorise: true,
     motif: "PROGRES",
     phrase: etat.replanRefus === null
-      ? "Premier refus de compilation : le planificateur mérite la correction."
+      ? "Premier refus de cette nature : le planificateur mérite la correction."
       : `Le refus a changé (${etat.replanRefus} → ${refus}) : quelque chose a été réparé.`,
   };
 }

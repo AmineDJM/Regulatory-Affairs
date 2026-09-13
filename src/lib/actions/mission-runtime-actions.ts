@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { approbationsEnAttente, decider } from "@/lib/missions/approval/gate";
 import { fournirEntree } from "@/lib/missions/events/router";
-import { annuler, mettreEnPause, reprendre } from "@/lib/missions/runtime/control";
+import { annuler, arreterBloquees, mettreEnPause, mettreEnPauseToutes, reprendre } from "@/lib/missions/runtime/control";
 import { vueMission } from "@/lib/missions/view/workspace";
 import { avancerMission, replanifierMission } from "@/platform/in-process/missions/runtime";
 import { prioriserMission } from "@/platform/in-process/missions/control";
@@ -319,6 +319,66 @@ export async function arreterMission(missionId: string, motif?: string): Promise
   if (!userCan(user, "WORKSPACE", "VIEW")) return REFUS;
   const r = await annuler(missionId, user.id, motif?.trim() || undefined);
   return { ok: r.ok, message: r.message, statut: r.vers };
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES GESTES DE MASSE (§118.132) — suspendre tout ce qui tourne, arrêter tout ce qui est bloqué.
+ *
+ * Deux boutons du Centre de missions, et le confort du bouton seulement : chacun rejoue
+ * `mettreEnPause` ou `annuler` sur chaque mission de la personne, donc le même cloisonnement
+ * (`ownerId` dans le `where`), le même journal, les mêmes refus de la machine à états. Le
+ * nombre annoncé sur le bouton et le nombre touché viennent du MÊME prédicat
+ * (`runtime/control.ts`). Ni l'un ni l'autre ne pose l'interrupteur global, qui est un geste de
+ * direction et vit dans les réglages d'Adam.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface ResultatMasse {
+  ok: boolean;
+  message: string;
+  visees: number;
+  faites: number;
+}
+
+const phraseDeMasse = (
+  r: { visees: number; faites: number; deja: number; refusees: { message: string }[] },
+  verbe: { fait: string; deja: string; rien: string; suite: string },
+): string => {
+  if (r.visees === 0) return verbe.rien;
+  const parts = [`${r.faites} mission(s) ${verbe.fait}`];
+  if (r.deja > 0) parts.push(`${r.deja} ${verbe.deja}`);
+  if (r.refusees.length > 0) parts.push(`${r.refusees.length} refusée(s) : ${r.refusees[0]!.message}`);
+  return `${parts.join(", ")}. ${verbe.suite}`;
+};
+
+/** SUSPEND toutes les missions vivantes de la personne. Réversible, mission par mission. */
+export async function suspendreToutesMesMissions(motif?: string): Promise<ResultatMasse> {
+  const user = await requireUser();
+  if (!userCan(user, "WORKSPACE", "VIEW")) return { ...REFUS, visees: 0, faites: 0 };
+  const r = await mettreEnPauseToutes(user.id, motif?.trim() || "suspension de toutes les missions depuis le Centre de missions");
+  return {
+    ok: true, visees: r.visees, faites: r.faites,
+    message: phraseDeMasse(r, {
+      fait: "suspendue(s)", deja: "l'étai(en)t déjà",
+      rien: "Aucune mission à suspendre.",
+      suite: "Elles repartiront où elles en étaient quand vous les reprendrez, une par une.",
+    }),
+  };
+}
+
+/** ARRÊTE définitivement les missions bloquées ou en échec de la personne. */
+export async function arreterMesMissionsBloquees(motif?: string): Promise<ResultatMasse> {
+  const user = await requireUser();
+  if (!userCan(user, "WORKSPACE", "VIEW")) return { ...REFUS, visees: 0, faites: 0 };
+  const r = await arreterBloquees(user.id, motif?.trim() || "arrêt des missions bloquées ou en échec depuis le Centre de missions");
+  return {
+    ok: true, visees: r.visees, faites: r.faites,
+    message: phraseDeMasse(r, {
+      fait: "arrêtée(s)", deja: "l'étai(en)t déjà",
+      rien: "Aucune mission bloquée ou en échec à arrêter.",
+      suite: "Ce qui avait déjà été fait reste fait — rien n'est défait.",
+    }),
+  };
 }
 
 /**

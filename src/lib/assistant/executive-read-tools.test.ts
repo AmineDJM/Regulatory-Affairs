@@ -26,7 +26,14 @@ let acteur: CurrentUser | null = null;
 let moi = "";
 let collegue = "";
 
-const ymd = (d: Date) => d.toISOString().slice(0, 10);
+/**
+ * LE JOUR SE CALCULE DANS LE FUSEAU DE L'OUTIL, PAS EN UTC. `read_calendar` borne un jour à
+ * l'heure d'Alger (`algiersInputToUtc`). Écrit `toISOString().slice(0, 10)`, ce juge donnait le
+ * jour UTC : entre 23 h et minuit UTC, Alger est déjà au lendemain, et « le comité d'il y a dix
+ * jours » tombait hors du jour demandé — rouge une heure par jour, sur une règle juste (mesuré
+ * à 23 h 49 UTC, en isolation comme sous la suite complète ; §118.131, même famille).
+ */
+const ymd = (d: Date) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Africa/Algiers", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
 beforeAll(async () => {
   /**

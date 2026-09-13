@@ -208,7 +208,7 @@ describe("carteDeScore (§71) — les taux qui décident, agrégés par le code"
   const runDe = (missions: MissionProfonde[], sur: Partial<ResultatDeep> = {}): ResultatDeep => ({
     horodatage: "2026-08-29T00:00:00.000Z", jeton: "T", modele: "gpt-x", cible: missions.length,
     concurrence: 3, missions, ecartes: [], jetonsEntree: 1000, jetonsSortie: 500,
-    appelsModele: 0, latenceTotaleMs: 120000, nettoyage: { supprimees: 0, gardees: false },
+    appelsModele: 0, latenceTotaleMs: 120000, nettoyage: { supprimees: 0, gardees: false, arretees: 0 },
     paliers: null, arretEscalade: null, concurrenceRetenue: null,
     ...sur,
   });

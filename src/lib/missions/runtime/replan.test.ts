@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { ECHELLE, ERROR_KINDS, prochaineStrategie, type ErrorKind, type Strategy } from "@/lib/missions/recovery/strategy";
 import { criteresQuiSurvivent } from "@/lib/missions/goal/rules";
 import {
-  ETATS_REPLANIFIABLES, PLANS_MAX_PLAT, estReplanifiable, peutReplanifierMission, signatureDuRefus,
+  ETATS_REPLANIFIABLES, PLANS_MAX_PLAT, REFUS_JUGE, estReplanifiable, peutReplanifierMission, signatureDuRefus,
 } from "@/lib/missions/runtime/replan";
 import { consignerMesure } from "@/lib/evals/registre";
 
@@ -195,5 +195,32 @@ describe("un replan n'abaisse pas la barre — et ne reporte pas une règle deve
   it("le tri ne perd pas la barre en écartant la tuyauterie", () => {
     const anciens = [RECHERCHES, ECRITURE, SORTIE, SEMANTIQUE];
     expect(criteresQuiSurvivent(anciens, new Set(["plan-v2-etape"]))).toEqual([ECRITURE, SEMANTIQUE]);
+  });
+});
+
+describe("un refus de JUGE répété est une RÉPÉTITION — la signature qui manquait (§118.132)", () => {
+  it("premier refus de juge (replanRefus vide) → PROGRÈS : le planificateur mérite sa correction", () => {
+    const v = peutReplanifierMission({ planVersion: 1, replanRefus: null, replanBloque: false }, REFUS_JUGE);
+    expect(v.autorise).toBe(true);
+    expect(v.motif).toBe("PROGRES");
+  });
+
+  it("LE CAS QUI TOURNAIT DOUZE PLANS : le juge refuse le plan corrigé comme le précédent → RÉPÉTITION, fermé", () => {
+    const v = peutReplanifierMission({ planVersion: 2, replanRefus: REFUS_JUGE, replanBloque: false }, REFUS_JUGE);
+    expect(v.autorise).toBe(false);
+    expect(v.motif).toBe("REPETITION");
+    expect(v.phrase).toMatch(/juge a refusé l'objectif sur deux plans successifs/);
+  });
+
+  it("un refus de juge APRÈS un refus de compilation est un mur différent → PROGRÈS", () => {
+    const v = peutReplanifierMission({ planVersion: 2, replanRefus: "MISSING_PRIMITIVE", replanBloque: false }, REFUS_JUGE);
+    expect(v.autorise).toBe(true);
+    expect(v.motif).toBe("PROGRES");
+  });
+
+  it("la signature du juge est un CODE stable, pas une phrase de verdict — sinon rien ne se répète jamais", () => {
+    expect(REFUS_JUGE).toBe("OBJECTIF_NON_CONSTATE");
+    // Le même code que les jalons inscrivent dans `refusVus` (§118.68) : une seule taxinomie.
+    expect(REFUS_JUGE).toMatch(/^[A-Z_]+$/);
   });
 });

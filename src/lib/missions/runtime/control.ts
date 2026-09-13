@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { journaliser, transitionner } from "@/lib/missions/runtime/store";
 import { canTransition, type MissionState } from "@/lib/missions/runtime/state";
@@ -189,4 +190,116 @@ export async function annuler(
     ok: true, depuis, vers: "CANCELLED",
     message: "Mission arrêtée. Ce qui avait déjà été fait reste fait — rien n'est défait.",
   };
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES GESTES DE MASSE D'UNE PERSONNE SUR SON PARC (§118.132).
+ *
+ * « Permets-moi de bloquer toutes les missions d'Adam » — le dirigeant recevait sans arrêt les
+ * notifications de missions de banc laissées vivantes en production, et Mission Control
+ * n'offrait que des gestes UN PAR UN. Deux gestes de masse, et pas un troisième :
+ *
+ *   • SUSPENDRE TOUTES SES MISSIONS VIVANTES — réversible, une par une ou par le bouton de
+ *     reprise de chaque mission ; c'est `mettreEnPause` appliquée à chacune, donc le même
+ *     journal, la même date, le même motif ;
+ *   • ARRÊTER SES MISSIONS BLOQUÉES OU EN ÉCHEC — définitif, et c'est voulu : une mission que
+ *     le juge a refusée deux fois, ou dont le plan ne compile plus, ne repartira pas toute
+ *     seule, et la garder vivante ne sert qu'à la revoir dans les compteurs.
+ *
+ * ── LE PRÉDICAT « BLOQUÉE » VIT ICI, ET L'ÉCRAN LE LIT ──────────────────────────────────
+ *
+ * Le bouton dit « arrêter les N missions bloquées » : N doit être le nombre EXACT de missions
+ * que le clic arrêtera. Deux prédicats — un pour compter, un pour agir — finissent par diverger
+ * (§118.5), et le symptôme serait un bouton qui annonce trois missions et en arrête quatre.
+ * `ouBloquee` est donc l'unique définition ; l'écran compte dessus, le geste agit dessus.
+ *
+ * Il inclut FAILED. L'écran range FAILED parmi les missions closes, mais la machine à états ne
+ * le tient pas pour terminal (FAILED → PLANNING, RUNNING) et le battement le replanifie : une
+ * mission FAILED de banc CONTINUE de coûter. Le libellé le dit — « bloquées ou en échec ».
+ *
+ * ── CE QUE CES GESTES NE FONT PAS ───────────────────────────────────────────────────────
+ *
+ * Ils ne touchent qu'aux missions DE CETTE PERSONNE (`ownerId` dans le `where`, comme partout
+ * dans ce fichier) et ne posent PAS l'interrupteur global — celui-là est un geste de direction
+ * (`lib/interrupteurs/missions.ts`). Et ils ne défont rien : un envoi parti reste parti.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** Les missions VIVANTES d'une personne — celles qu'une suspension de masse touche. */
+export function ouSuspendable(ownerId: string): Prisma.MissionWhereInput {
+  return { ownerId, kind: "RUNTIME", status: { notIn: ["COMPLETED", "CANCELLED", "PAUSED"] } };
+}
+
+/**
+ * Les missions BLOQUÉES OU EN ÉCHEC d'une personne — le prédicat unique du compteur et du geste.
+ * Même lecture que le drapeau `bloquee` du Centre de missions : statut BLOCKED ou FAILED, replan
+ * fermé (§118.42), ou un jalon BLOCKED.
+ */
+export function ouBloquee(ownerId: string): Prisma.MissionWhereInput {
+  return {
+    ownerId,
+    kind: "RUNTIME",
+    status: { notIn: ["COMPLETED", "CANCELLED"] },
+    OR: [
+      { status: { in: ["BLOCKED", "FAILED"] } },
+      { replanBloque: true },
+      { milestones2: { some: { statut: "BLOCKED" } } },
+    ],
+  };
+}
+
+export interface ResultatControleMasse {
+  /** Combien de missions répondaient au prédicat au moment du geste. */
+  visees: number;
+  /** Combien ont effectivement changé d'état. */
+  faites: number;
+  /** Celles qui étaient déjà dans l'état visé — rien n'a été écrit pour elles. */
+  deja: number;
+  /** Celles que la machine à états a refusées, avec sa phrase. */
+  refusees: { id: string; message: string }[];
+}
+
+async function surChacune(
+  ids: readonly string[],
+  geste: (id: string) => Promise<ResultatControle>,
+): Promise<ResultatControleMasse> {
+  const out: ResultatControleMasse = { visees: ids.length, faites: 0, deja: 0, refusees: [] };
+  for (const id of ids) {
+    // UNE MISSION QUI ÉCHOUE N'EMPORTE PAS LES AUTRES : le geste de masse continue, et il DIT
+    // laquelle a refusé. Un geste de masse qui s'arrête à la première erreur laisse la personne
+    // devant un parc à moitié suspendu sans savoir quelle moitié.
+    const r = await geste(id).catch((e): ResultatControle => ({
+      ok: false, depuis: null, vers: null, message: e instanceof Error ? e.message : "erreur",
+    }));
+    if (!r.ok) { out.refusees.push({ id, message: r.message }); continue; }
+    if (r.depuis === r.vers) out.deja += 1;
+    else out.faites += 1;
+  }
+  return out;
+}
+
+/** SUSPEND toutes les missions vivantes de cette personne. Réversible mission par mission. */
+export async function mettreEnPauseToutes(ownerId: string, motif?: string): Promise<ResultatControleMasse> {
+  const cibles = await prisma.mission.findMany({
+    where: ouSuspendable(ownerId), select: { id: true }, orderBy: { createdAt: "asc" },
+  });
+  return surChacune(cibles.map((c) => c.id), (id) => mettreEnPause(id, ownerId, motif));
+}
+
+/** ARRÊTE définitivement les missions bloquées ou en échec de cette personne. */
+export async function arreterBloquees(ownerId: string, motif?: string): Promise<ResultatControleMasse> {
+  const cibles = await prisma.mission.findMany({
+    where: ouBloquee(ownerId), select: { id: true }, orderBy: { createdAt: "asc" },
+  });
+  return surChacune(cibles.map((c) => c.id), (id) => annuler(id, ownerId, motif));
+}
+
+/** Les deux nombres que les boutons de masse affichent — comptés sur les MÊMES prédicats que les gestes. */
+export async function compterPourLesGestesDeMasse(ownerId: string): Promise<{ suspendables: number; bloquees: number }> {
+  const [suspendables, bloquees] = await Promise.all([
+    prisma.mission.count({ where: ouSuspendable(ownerId) }),
+    prisma.mission.count({ where: ouBloquee(ownerId) }),
+  ]);
+  return { suspendables, bloquees };
 }

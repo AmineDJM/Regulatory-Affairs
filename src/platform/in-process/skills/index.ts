@@ -512,7 +512,12 @@ export async function executer(s: SkillCharge, input: Json, user: CurrentUser, o
   }
   const ms = Date.now() - t0;
   if (s.source === "adam" && s.skillId) {
-    prisma.adamSkill.update({ where: { id: s.skillId }, data: { usageCount: { increment: 1 }, lastUsedAt: new Date() } }).catch(() => undefined);
+    // ATTENDU, pas lancé en l'air : sans `await`, le compteur pouvait encore valoir 0 quand la
+    // fiche était relue juste après l'exécution — mesuré sous la suite complète (§118.132). Un
+    // compteur qui dit 0 après un usage est un petit faux succès de comptabilité ; une ligne à
+    // écrire coûte quelques millisecondes. L'échec de l'écriture, lui, ne fait toujours pas
+    // échouer l'outil.
+    await prisma.adamSkill.update({ where: { id: s.skillId }, data: { usageCount: { increment: 1 }, lastUsedAt: new Date() } }).catch(() => undefined);
   }
   if (exigeConfirmation(m)) {
     await recordAudit({ actorId: user.id, action: "EXPORT", module: "ASSISTANT", entityId: s.nom, summary: `Skill « ${m.titre} » (${m.plugin}, ${m.effect}) ${sortie.ok ? "exécuté" : "en échec"} sur accord de la personne.` }).catch(() => undefined);

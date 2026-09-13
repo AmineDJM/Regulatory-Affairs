@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, ShieldCheck, ShieldAlert, Radio, Unplug, RefreshCw } from "lucide-react";
+import { Loader2, ShieldCheck, ShieldAlert, Radio, Unplug, RefreshCw, OctagonPause, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -10,6 +11,7 @@ import {
   setAdamOutboundPaused,
   setAdamInboundPaused,
   setAdamConnectionPaused,
+  setAdamMissionsPaused,
   disconnectAdamGoogle,
   renewAdamWatch,
 } from "@/lib/actions/adam-settings-actions";
@@ -45,12 +47,17 @@ export function ReglagesForm({
   inboundPaused,
   connectionPaused,
   connected,
+  missionsPaused,
+  missionsPausedInfo,
 }: {
   policy: Policy;
   outboundPaused: boolean;
   inboundPaused: boolean;
   connectionPaused: boolean;
   connected: boolean;
+  /** L'interrupteur global des missions (§118.132), et « depuis le … par … » quand il est posé. */
+  missionsPaused: boolean;
+  missionsPausedInfo: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -200,6 +207,40 @@ export function ReglagesForm({
             {busy === "inbound" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
             {inboundPaused ? "Reprendre la lecture" : "Suspendre la lecture"}
           </Button>
+        </div>
+      </section>
+
+      <section className="space-y-3" data-testid="reglages-missions">
+        <h3 className="text-sm font-semibold">Missions d&apos;Adam</h3>
+        <p className="text-xs text-muted-foreground">
+          L&apos;interrupteur global. Suspendues, plus AUCUNE mission n&apos;avance, ne se replanifie, ne se
+          lance ni ne notifie — pour tout le monde, sans rien perdre : chaque mission repart où elle en
+          était à la levée. Adam peut poser cet interrupteur depuis la conversation ; seul ce bouton le lève.
+          {missionsPaused && missionsPausedInfo ? ` Suspendues ${missionsPausedInfo}.` : ""}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant={missionsPaused ? "success" : "outline"}
+            onClick={() =>
+              run("missions", () => setAdamMissionsPaused(!missionsPaused),
+                missionsPaused
+                  ? "Missions rétablies : elles repartent au prochain battement, là où elles en étaient."
+                  : "Toutes les missions d'Adam sont suspendues.")
+            }
+            disabled={busy !== null}
+          >
+            {busy === "missions" ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : missionsPaused ? (
+              <Play className="h-4 w-4" aria-hidden />
+            ) : (
+              <OctagonPause className="h-4 w-4" aria-hidden />
+            )}
+            {missionsPaused ? "Reprendre les missions" : "Suspendre toutes les missions"}
+          </Button>
+          <Link href="/centre-de-missions" className="text-xs text-muted-foreground underline hover:text-foreground">
+            Arrêter définitivement les missions bloquées ou en échec → Centre de missions
+          </Link>
         </div>
       </section>
 

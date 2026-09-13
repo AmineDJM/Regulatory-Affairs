@@ -2,7 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { PLANNER_PROMPT_VERSION } from "@/lib/missions/planner/plan";
 import { prechargerCapacitesDynamiques } from "@/platform/in-process/skills";
 import { assurerFormes } from "@/platform/in-process/missions/formes";
-import { estReplanifiable, peutReplanifierMission, signatureDuRefus } from "@/lib/missions/runtime/replan";
+import { REFUS_JUGE, estReplanifiable, peutReplanifierMission, signatureDuRefus } from "@/lib/missions/runtime/replan";
+import { lireInterrupteurMissions, phraseSuspension, type LecteurInterrupteur } from "@/lib/interrupteurs/missions";
 import { exigencesFermes, formatsLivrablesDemandes } from "@/lib/missions/planner/primitives";
 import { trier } from "@/lib/missions/planner/triage";
 import type { CurrentUser } from "@/lib/session";
@@ -94,6 +95,13 @@ export interface OptionsAssemblage {
    * latitude. Une garantie qui s'arrête au premier plan n'est pas une garantie.
    */
   lectureSeule?: boolean;
+  /**
+   * LE LECTEUR DE L'INTERRUPTEUR GLOBAL DES MISSIONS (§118.132) — défaut : le VRAI, la ligne
+   * `AppSetting.global`. Un banc l'injecte pour éprouver la suspension sans poser l'interrupteur
+   * réel, partagé par tous les tests qui tournent en parallèle. La production ne le pose
+   * JAMAIS ; un test de point d'appel le vérifie.
+   */
+  interrupteur?: LecteurInterrupteur;
 }
 
 /**
@@ -117,6 +125,8 @@ export function assembler(user: CurrentUser, opts: OptionsAssemblage = {}): Asse
     runner,
     catalog: catalogue,
     juge,
+    // L'INTERRUPTEUR GLOBAL — le moteur le relit à chaque tour ; absent, il lit le vrai.
+    ...(opts.interrupteur ? { interrupteur: opts.interrupteur } : {}),
     // CE QUI REND « ESSAIE AILLEURS » EXÉCUTABLE. Sans lui, le barreau `AUTRE_SOURCE` n'a
     // aucune capacité de remplacement à proposer et se saute — l'échelle descend alors vers ce
     // qui agit réellement, au lieu de rejouer le même appel sous un autre nom.
@@ -277,6 +287,17 @@ export function lancerMission(
 ): Promise<ResultatLancement> {
   return withTurn("background", async () => {
     setTurnContext({ userId: user.id, feature: "mission" });
+    /**
+     * ── SOUS SUSPENSION GLOBALE, ON NE LANCE PAS (§118.132) ──────────────────────────────
+     *
+     * Enregistrer une mission que le moteur ne fera pas avancer, c'est payer une planification
+     * pour une promesse qu'on ne tiendra pas — et laisser un talon PLANNING que le filet des
+     * lancements perdus prendrait pour une panne. Le refus vient AVANT tout appel de modèle et
+     * NOMME le geste qui le lève (§118.30). Le pilote d'horizon, qui rappelle `lancerMission`
+     * pour un découpage trop court, s'arrête lui-même avant d'arriver ici.
+     */
+    const interrupteur = await (opts.interrupteur ?? lireInterrupteurMissions)();
+    if (interrupteur.suspendues) return { ok: false, error: phraseSuspension(interrupteur) };
     await prechargerCapacitesDynamiques(user).catch(() => 0);
     await assurerFormes();
     const parJalons = await tenterHorizon(user, objectif, opts);
@@ -1049,16 +1070,27 @@ async function replanifierMissionInterne(
     return { replanifie: false, raison: `Une mission ${m.status} n'a rien à replanifier.` };
   }
   /**
-   * ── LA PORTE D'ENTRÉE : LE PROGRÈS, PLUS UN COMPTEUR (§118.42) ────────────────────────
+   * ── LA PORTE D'ENTRÉE : LE PROGRÈS, PLUS UN COMPTEUR (§118.42, §118.132) ──────────────
    *
-   * On n'entre pas ici avec un refus de compilation en main — il n'existera qu'après l'appel du
-   * planificateur. On vérifie donc les deux verdicts qui ne dépendent PAS du refus : la mission
-   * est-elle déjà déclarée bloquée (le même refus est déjà revenu deux fois), et le plafond
-   * OPÉRATIONNEL est-il atteint. La comparaison de signature, elle, se fait plus bas, quand le
-   * compilateur a parlé.
+   * Deux verdicts ne dépendent PAS de ce qui déclenche cette replanification et se rendent
+   * avant de charger quoi que ce soit : la mission est-elle déjà déclarée bloquée (le même
+   * refus est déjà revenu), et le plafond OPÉRATIONNEL est-il atteint. Le second S'ÉCRIT
+   * (`replanBloque`) : sans cette écriture, une mission au plafond restait candidate du
+   * battement — un `REPLAN_SKIPPED` par minute, pour toujours, sur une mission que personne
+   * ne reprendrait. La comparaison de SIGNATURE, elle, vient plus bas, quand on sait ce qui a
+   * déclenché le tour (un juge, un échec d'étape) ou ce que le compilateur a répondu.
    */
-  const porte = peutReplanifierMission(m, null);
-  if (!porte.autorise) return { replanifie: false, raison: porte.phrase };
+  const porteEtat = peutReplanifierMission(m, null);
+  if (!porteEtat.autorise) {
+    if (porteEtat.motif === "PLAFOND") {
+      await prisma.mission.update({ where: { id: missionId }, data: { replanBloque: true } }).catch(() => undefined);
+      await journaliser(missionId, "REPLAN_BLOCKED",
+        `${porteEtat.phrase} La mission ne sera plus reprise tant qu'une information neuve n'arrivera pas `
+        + `— une réponse, un événement, une consigne, ou une modification demandée depuis l'écran.`,
+        { motif: porteEtat.motif, signature: m.replanRefus, planVersion: m.planVersion });
+    }
+    return { replanifie: false, raison: porteEtat.phrase };
+  }
 
   const etat = await chargerEtat(missionId);
   if (!etat) return { replanifie: false, raison: "État de mission illisible." };
@@ -1086,6 +1118,41 @@ async function replanifierMissionInterne(
   }
 
   /**
+   * ── LA SIGNATURE DE CE QUI DÉCLENCHE CE TOUR (§118.132) ──────────────────────────────
+   *
+   * Ce qui déclenche cette replanification a une SIGNATURE, et elle se compare à celle du tour
+   * précédent AVANT de payer un plan :
+   *
+   *   • un refus du JUGE (toutes les étapes abouties, objectif non constaté) → `REFUS_JUGE`.
+   *     Le juge qui refuse le plan v2 comme il avait refusé le plan v1 est le MÊME mur : le
+   *     planificateur a eu son tour de correction. Passer `null` ici — « un motif neuf » —
+   *     est ce qui a fait tourner une mission de banc douze plans durant, avec une
+   *     notification « Bloqué » par plan, jusqu'à ce que le dirigeant demande à bloquer tout
+   *     Adam ;
+   *   • un ÉCHEC D'ÉTAPE → `null` : il n'y a rien à comparer, c'est bien un motif neuf.
+   *
+   * Le refus du COMPILATEUR, lui, n'existe qu'après l'appel du planificateur : sa comparaison
+   * se fait plus bas, quand il a parlé. Une RÉPÉTITION s'écrit, comme le plafond : c'est ce que
+   * la requête du battement lit.
+   */
+  const refus = objectifManque ? REFUS_JUGE : null;
+  if (refus) {
+    const porteRefus = peutReplanifierMission(m, refus);
+    if (!porteRefus.autorise) {
+      if (porteRefus.motif === "REPETITION") {
+        await prisma.mission.update({
+          where: { id: missionId }, data: { replanBloque: true, replanRefus: refus },
+        }).catch(() => undefined);
+        await journaliser(missionId, "REPLAN_BLOCKED",
+          `${porteRefus.phrase} La mission ne sera plus reprise tant qu'une information neuve n'arrivera pas `
+          + `— une réponse, un événement, une consigne, ou une modification demandée depuis l'écran.`,
+          { motif: porteRefus.motif, signature: refus, planVersion: m.planVersion });
+      }
+      return { replanifie: false, raison: porteRefus.phrase };
+    }
+  }
+
+  /**
    * ── LA PORTE DÉTERMINISTE AVANT LE REPLAN (§13, chantier latence) ────────────────────
    *
    * Un run réel a payé 7,9 s et 5 718 jetons de replanification pour que le planificateur
@@ -1106,9 +1173,15 @@ async function replanifierMissionInterne(
     }).catch(() => null);
     const detail = dernierRefus?.detail as Record<string, unknown> | null | undefined;
     if (detail && "recoursSuggere" in detail && detail.recoursSuggere === null) {
+      // ET LA PORTE S'ÉCRIT : sans `replanBloque`, la mission restait candidate du battement et
+      // cette même ligne se réécrivait à chaque passage, pour toujours (§118.132).
+      await prisma.mission.update({
+        where: { id: missionId }, data: { replanBloque: true, replanRefus: REFUS_JUGE },
+      }).catch(() => undefined);
       await journaliser(missionId, "REPLAN_SKIPPED",
         "Replanification refusée SANS appel de modèle : toutes les étapes sont abouties et le "
-        + "juge n'a suggéré aucun recours — un plan nouveau redécouvrirait la même impasse.",
+        + "juge n'a suggéré aucun recours — un plan nouveau redécouvrirait la même impasse. La "
+        + "mission ne sera plus reprise tant qu'une information neuve n'arrivera pas.",
         { porte: "RECOURS_ABSENT" });
       return {
         replanifie: false,
@@ -1248,10 +1321,16 @@ async function replanifierMissionInterne(
   }
 
   await transitionner(missionId, "PLANNING", "Replanification après échec sans recours");
-  // UN PLAN QUI PASSE EFFACE LE BLOCAGE : la mission a retrouvé un chemin, et le refus dont on
-  // se souvenait ne décrit plus sa situation.
+  /**
+   * UN PLAN QUI PASSE EFFACE LE BLOCAGE — mais GARDE la cause qui a motivé ce plan.
+   *
+   * `replanBloque` retombe : la mission a retrouvé un chemin. `replanRefus`, lui, porte la
+   * signature de ce qui vient d'être replanifié (`REFUS_JUGE`, ou rien sur un échec d'étape) :
+   * c'est la référence de la comparaison suivante. L'effacer — comme avant — faisait lire le
+   * second refus du juge comme un premier, et la boucle ne pouvait pas s'arrêter (§118.132).
+   */
   await prisma.mission.update({
-    where: { id: missionId }, data: { replanRefus: null, replanBloque: false },
+    where: { id: missionId }, data: { replanRefus: refus, replanBloque: false },
   }).catch(() => undefined);
   await materialiser(c.mission, {
     ownerId: user.id,

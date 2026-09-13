@@ -107,6 +107,16 @@ const SOCLE = [
   "src/lib/personnes/",
   "src/lib/vues/",
   "src/lib/lecteurs/",
+  /**
+   * `interrupteurs/` : l'interrupteur global des missions d'Adam (§118.132) — une ligne
+   * `AppSetting` lue et écrite, rien d'autre. Trois couches en ont besoin sans avoir le droit de
+   * se parler : la façade `missions/` (le moteur le relit à chaque tour), le domaine `google/`
+   * (la santé d'Adam le sert à l'écran des réglages), les actions et le pont (poser, lever).
+   * Sous `missions/runtime/`, la santé d'Adam remontait vers une façade — mesuré : 1 inversion
+   * de couche, et le seul autre remède était une seconde lecture de la même ligne chez `google/`,
+   * qui aurait divergé au premier champ ajouté (§118.5).
+   */
+  "src/lib/interrupteurs/",
 ];
 
 /**

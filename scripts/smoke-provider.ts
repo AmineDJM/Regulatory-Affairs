@@ -99,6 +99,7 @@ async function main(): Promise<void> {
     appelsModele: r.appelsModele,
     capacitesOuvertes: r.capacitesOuvertes,
     latenceTotaleMs: r.latenceTotaleMs,
+    missionsArretees: r.missionsArretees,
     scenarios: r.scenarios.map((s) => ({
       genre: s.genre, missionId: s.missionId, statutFinal: s.statutFinal, stable: s.stable,
       setupEchoue: s.setupEchoue,
