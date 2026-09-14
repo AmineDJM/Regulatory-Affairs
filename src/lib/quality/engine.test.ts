@@ -60,8 +60,11 @@ describe("moteur de qualité des données — banc d'anomalies plantées", () =>
     Object.assign(ids, { s1: s1.id, s2: s2.id });
 
     const anyCompany = await prisma.company.findFirst({ select: { id: true } });
-    const p1 = await prisma.regulatoryProduct.create({ data: { reference: `${P}-P1`, dci: "Sofosbuvir + Velpatasvir", dosage: "400", dosageUnit: "mg", pharmaceuticalForm: "Comprimé", packaging: "B/28", status: "SUBMITTED", companyId: anyCompany?.id ?? null, responsibleId: desactive.id, updatedAt: jours(-200) } as never });
-    const p2 = await prisma.regulatoryProduct.create({ data: { reference: `${P}-P2`, dci: "Velpatasvir + Sofosbuvir", dosage: "400", dosageUnit: "MG", pharmaceuticalForm: "comprimé", packaging: "b/28", status: "IN_PREPARATION", companyId: anyCompany?.id ?? null, targetSubmissionDate: jours(60), targetDate: jours(30) } as never });
+    // Les deux molécules sont SYNTHÉTIQUES, exprès : le banc de résolution d'entités (`fabric/entites.test.ts`) exige
+    // qu'aucun autre jeu de données ne porte ses molécules (« Sofosbuvir + Velpatasvir » y vit), et les deux
+    // bancs tournent en parallèle sur la même base — un doublon se juge sur la DCI TRIÉE, n'importe quels deux noms font l'affaire.
+    const p1 = await prisma.regulatoryProduct.create({ data: { reference: `${P}-P1`, dci: "Alphavirine + Betavirine", dosage: "400", dosageUnit: "mg", pharmaceuticalForm: "Comprimé", packaging: "B/28", status: "SUBMITTED", companyId: anyCompany?.id ?? null, responsibleId: desactive.id, updatedAt: jours(-200) } as never });
+    const p2 = await prisma.regulatoryProduct.create({ data: { reference: `${P}-P2`, dci: "Betavirine + Alphavirine", dosage: "400", dosageUnit: "MG", pharmaceuticalForm: "comprimé", packaging: "b/28", status: "IN_PREPARATION", companyId: anyCompany?.id ?? null, targetSubmissionDate: jours(60), targetDate: jours(30) } as never });
     Object.assign(ids, { p1: p1.id, p2: p2.id });
     // `updatedAt` est géré par Prisma : on force l'ancienneté par SQL pour le cas « périmé ».
     await prisma.$executeRawUnsafe(`UPDATE "RegulatoryProduct" SET "updatedAt" = $1 WHERE id = $2`, jours(-200), p1.id);

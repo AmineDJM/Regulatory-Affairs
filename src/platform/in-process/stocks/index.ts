@@ -60,6 +60,44 @@ export {
  */
 export { loadRecurrenceStock as lireRecurrenceStock, type RecurrenceStockDTO } from "@/lib/queries/stock-recurrence";
 
+// ── LA PORTÉE DE STOCK (§118.134) ─────────────────────────────────────────────────
+// Quels hôpitaux, quels produits une personne voit : la décision pure et son chargeur, tels que
+// l'écran et les actions les lisent. Adam n'a PAS une portée à lui — `read_stock` et
+// `record_snapshot` lisent celle-ci, sinon la conversation serait une porte à côté de l'écran.
+export {
+  estRestreinte, etablissementDansPortee, produitDansPortee, releveDansPortee, filtrerReleves,
+  explicationPortee, porteeVide, type PorteeStock,
+} from "@/lib/stocks/portee";
+export { chargerPorteeStock, clauseRelevesDePortee } from "@/lib/queries/stock-portee";
+
+/**
+ * LES ÉTABLISSEMENTS DE L'ANNUAIRE qu'une personne peut désigner pour un relevé — dans SA portée.
+ *
+ * Un KAM qui dit « l'état de stock du CHU d'Oran » ne doit pas se voir proposer un hôpital hors
+ * de son secteur : la carte montre ce qui sera fait, et l'action le refuserait (§118.83, §118.85).
+ * L'étiquette porte la wilaya, parce que deux établissements peuvent porter le même nom.
+ */
+export async function chercherEtablissementDeStock(q: string, portee: import("@/lib/stocks/portee").PorteeStock): Promise<(CandidatStock & { name: string })[]> {
+  if (portee.mode !== "GLOBALE" && portee.institutionIds.length === 0) return [];
+  const rows = await prisma.medicalInstitution.findMany({
+    where: {
+      name: { contains: q, mode: "insensitive" }, isActive: true,
+      ...(portee.mode === "GLOBALE" ? {} : { id: { in: portee.institutionIds } }),
+    },
+    select: { id: true, name: true, wilaya: true }, take: CANDIDATS_MAX, orderBy: { name: "asc" },
+  });
+  return rows.map((e) => ({ id: e.id, name: e.name, label: e.wilaya ? `${e.name} (${e.wilaya})` : e.name }));
+}
+
+/** Un lieu de stock HÉRITÉ (hôpital sans établissement) — visible de la seule vue globale, qui peut encore le relever. */
+export async function chercherLieuHerite(q: string): Promise<CandidatStock[]> {
+  const rows = await prisma.stockAnnex.findMany({
+    where: { name: { contains: q, mode: "insensitive" }, kind: { not: "ANNEX" }, institutionId: null },
+    select: { id: true, name: true }, take: CANDIDATS_MAX,
+  });
+  return rows.map((a) => ({ id: a.id, label: a.name }));
+}
+
 /** Une ligne candidate : son identifiant, et l'étiquette qu'un humain lit. */
 export interface CandidatStock {
   id: string;

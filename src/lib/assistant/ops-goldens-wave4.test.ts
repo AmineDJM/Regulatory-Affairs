@@ -42,6 +42,7 @@ let tenderId = "";
 let lineWonId = "";
 let orderId = "";
 let hospitalId = "";
+let institutionId = "";
 let shipmentId = "";
 
 const sa = () => userWith({
@@ -71,6 +72,7 @@ suite("ops vague 4a — Regulatory reste, PCH, Stocks, Ventes, Logistique", () =
     await prisma.stockSnapshot.deleteMany({ where: { annex: { name: { startsWith: PREFIXE } } } }).catch(() => {});
     await prisma.stockSnapshot.deleteMany({ where: { product: { reference: { startsWith: PREFIXE } } } }).catch(() => {});
     await prisma.stockAnnex.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
+    await prisma.medicalInstitution.deleteMany({ where: { name: { startsWith: PREFIXE } } }).catch(() => {});
     await prisma.pchOrder.deleteMany({ where: { tender: { reference: { startsWith: PREFIXE } } } }).catch(() => {});
     await prisma.pchTenderLine.deleteMany({ where: { tender: { reference: { startsWith: PREFIXE } } } }).catch(() => {});
     await prisma.pchTender.deleteMany({ where: { reference: { startsWith: PREFIXE } } }).catch(() => {});
@@ -135,7 +137,10 @@ suite("ops vague 4a — Regulatory reste, PCH, Stocks, Ventes, Logistique", () =
     });
     orderId = order.id;
 
-    const hosp = await prisma.stockAnnex.create({ data: { name: `${TAG} CHU Mustapha`, kind: "HOSPITAL" } });
+    // UN HÔPITAL DE STOCK EST UN ÉTABLISSEMENT DE L'ANNUAIRE (§118.134) : le lieu est RATTACHÉ.
+    const etab = await prisma.medicalInstitution.create({ data: { name: `${TAG} CHU Mustapha`, wilaya: "Alger" } });
+    institutionId = etab.id;
+    const hosp = await prisma.stockAnnex.create({ data: { name: `${TAG} CHU Mustapha`, kind: "HOSPITAL", institutionId: etab.id } });
     hospitalId = hosp.id;
     await prisma.stockSnapshot.create({
       data: { scope: "HOSPITAL", annexId: hosp.id, productId: product.id, date: new Date("2026-08-20T00:00:00Z"), quantity: 340 },
@@ -269,7 +274,7 @@ suite("ops vague 4a — Regulatory reste, PCH, Stocks, Ventes, Logistique", () =
   });
 
   describe("Stocks — lieux Super Admin + états datés", () => {
-    it("record_snapshot : « hôpital » exige le lieu résolu ; l'état complet part avec annexId + date + quantité", async () => {
+    it("record_snapshot : « hôpital » exige l'établissement résolu dans l'annuaire ; l'état complet part avec institutionId + date + quantité", async () => {
       const noLoc = await buildProposal("stock_operation", {
         op: "record_snapshot", product: `${TAG} RIFAMPICINE`, kind: "hôpital", date: "2026-08-25", quantity: "220",
       }, sa());
@@ -281,7 +286,10 @@ suite("ops vague 4a — Regulatory reste, PCH, Stocks, Ventes, Logistique", () =
       expect("error" in p).toBe(false);
       if ("error" in p) return;
       expect(domainArgs(p).scope).toBe("HOSPITAL");
-      expect(domainArgs(p).annexId).toBe(hospitalId);
+      // L'hôpital est désigné par l'ÉTABLISSEMENT de l'annuaire, jamais par le lieu : c'est
+      // l'action qui retrouve (ou crée) le lieu rattaché — un seul endroit pour ce lien.
+      expect(domainArgs(p).institutionId).toBe(institutionId);
+      expect(domainArgs(p).annexId).toBeNull();
       expect(domainArgs(p).quantity).toBe("220");
       expect(p.warnings.join(" ")).toMatch(/MÊME JOUR/);
     });

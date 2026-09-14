@@ -3896,6 +3896,8 @@ model MedicalInstitution {
   sectors SalesSectorInstitution[]
   /// Les couleurs posées sur ses cellules dans la feuille des établissements (§118.133).
   cellStyles DirectoryCellStyle[]
+  /// SON LIEU DE STOCK, quand des relevés le visent (§118.134) — au plus un.
+  stockLocation StockAnnex?
 
   @@index([type])
   @@index([wilaya])
@@ -7546,6 +7548,14 @@ model StockAnnex {
   id          String                           @id @default(cuid())
   name        String                           @unique
   kind        String                           @default("HOSPITAL") // HOSPITAL | ANNEX
+  /// L'ÉTABLISSEMENT DE L'ANNUAIRE que ce lieu de stock désigne — hôpitaux seulement (§118.134).
+  /// Les hôpitaux du module Stocks SONT ceux de l'annuaire des établissements : c'est ce lien qui
+  /// donne à un KAM les stocks de SON secteur. Nul = lieu HÉRITÉ, nommé à la main avant que
+  /// l'annuaire ne soit la seule source ; il reste lisible par la vue globale et se RATTACHE
+  /// depuis l'écran des stocks (Super Admin) pour que son historique rejoigne l'établissement.
+  /// `SetNull` : un établissement retiré de l'annuaire n'efface pas des relevés.
+  institutionId String?             @unique
+  institution   MedicalInstitution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
   createdAt   DateTime                         @default(now())
   snapshots   StockSnapshot[]
   /// LES RÉCURRENCES de demande d'état qui le visent.

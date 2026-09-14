@@ -2413,10 +2413,10 @@ export const OPS_CATALOG: OpMeta[] = [
   // ───────────────────────────── STOCKS (lieux + états datés) ─────────────────────────────
   {
     tool: "stock_operation", op: "create_hospital", module: "Stocks",
-    uiLabel: "Créer un hôpital",
-    aliases: ["crée l'hôpital", "ajoute un hôpital aux stocks"],
+    uiLabel: "Ajouter un hôpital aux stocks",
+    aliases: ["crée l'hôpital", "ajoute un hôpital aux stocks", "ajoute l'établissement aux lieux de stock", "rattache le lieu de stock à l'annuaire"],
     risk: "SENSITIVE",
-    summary: "Crée un HÔPITAL (lieu nommé des états de stock) — réservé au Super Admin.",
+    summary: "Ajoute un ÉTABLISSEMENT DE L'ANNUAIRE aux lieux de stock (ou rattache un lieu hérité à son établissement) — réservé au Super Admin. Un hôpital absent de l'annuaire se crée d'abord dans Annuaires › Établissements.",
     gate: isSA,
     covers: ["stock-snapshot-actions:createStockHospital"],
   },
@@ -2452,7 +2452,7 @@ export const OPS_CATALOG: OpMeta[] = [
     uiLabel: "Enregistrer un état de stock",
     aliases: ["enregistre l'état de stock", "il reste x unités à l'hôpital", "relevé de stock du produit"],
     risk: "NORMAL",
-    summary: "Enregistre « à cette date, il reste X unités » pour un produit et un lieu (PCH / hôpital / annexe) — un état du même jour est REMPLACÉ (correction normale).",
+    summary: "Enregistre « à cette date, il reste X unités » pour un produit et un lieu (PCH / hôpital de l'annuaire, dans SON secteur et pour un produit de SA BU / annexe) — un état du même jour est REMPLACÉ (correction normale).",
     gate: (u) => userCan(u, "STOCKS", "CREATE") || userCan(u, "STOCKS", "UPDATE"),
     covers: ["stock-snapshot-actions:recordStockSnapshot"],
   },

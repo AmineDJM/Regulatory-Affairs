@@ -22,6 +22,7 @@ import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
 import { runFd, runFd2, fieldsOf, resolveOne, isoDate, dzd } from "./helpers";
 import { resolveRegProduct, matchLabel, fold } from "./impl-regulatory";
+import { chargerPorteeStock, chercherEtablissementDeStock, chercherLieuHerite, estRestreinte } from "@/platform/in-process/stocks";
 
 /**
  * OPS VAGUE 4a — REGULATORY (fournisseurs, déverrouillage global, notes d'étapes du workflow,
@@ -712,27 +713,71 @@ function stockScope(raw: string): { scope: "PCH" | "HOSPITAL" | "ANNEX"; label: 
   return { error: `Lieu « ${raw} » inconnu — valeurs : PCH, hôpital, annexe (champ « kind »).` };
 }
 
+/**
+ * UN HÔPITAL DE STOCK EST UN ÉTABLISSEMENT DE L'ANNUAIRE (§118.134) — exact → unique → ambiguïté
+ * LISTÉE avec la wilaya, parce que deux établissements peuvent porter le même nom et qu'une liste
+ * qui répète deux fois le même mot ne lève rien (§104.7). Rend `null` quand rien ne correspond :
+ * l'appelant dit alors le remède qui vaut pour LUI (créer l'établissement, ou un lieu hérité).
+ */
+async function resoudreEtablissement(
+  raw: string,
+  portee: Awaited<ReturnType<typeof chargerPorteeStock>>,
+): Promise<{ id: string; name: string; label: string } | null | { error: string }> {
+  const q = raw.trim();
+  if (!q) return { error: "Précisez l'hôpital (champ « location »)." };
+  const rows = await chercherEtablissementDeStock(q, portee);
+  if (rows.length === 0) return null;
+  const exact = rows.filter((r) => fold(r.name) === fold(q));
+  if (exact.length === 1) return exact[0];
+  if (rows.length === 1) return rows[0];
+  return { error: `Plusieurs établissements correspondent à « ${q} » : ${rows.map((r) => r.label).join(", ")} — préciser (la wilaya suffit).` };
+}
+
 function locationOps(kind: "HOSPITAL" | "ANNEX"): Record<string, OpImpl> {
   const noun = kind === "HOSPITAL" ? "l'hôpital" : "l'annexe PCH";
   const Noun = kind === "HOSPITAL" ? "Hôpital" : "Annexe PCH";
-  const create = kind === "HOSPITAL" ? createStockHospital : createStockAnnex;
   const remove = kind === "HOSPITAL" ? deleteStockHospital : deleteStockAnnex;
+  const createOp: OpImpl = kind === "HOSPITAL"
+    ? {
+        // AJOUTER UN HÔPITAL AUX STOCKS = le désigner dans l'annuaire des établissements. Un nom
+        // absent de l'annuaire n'est pas créé « à côté » : le refus nomme le geste.
+        async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+          const name = opStr(input, "location") || opStr(input, "name");
+          if (!name) return { error: "Précisez l'établissement de l'annuaire à ajouter aux stocks (champ « location »)." };
+          const portee = await chargerPorteeStock(user);
+          const hit = await resoudreEtablissement(name, portee);
+          if (hit && "error" in hit) return hit;
+          if (!hit) {
+            return { error: `« ${name} » n'est pas dans l'annuaire des établissements. Les hôpitaux du module Stocks sont ceux de l'annuaire : créez-le d'abord (medical_operation / create_institution, ou Annuaires › Établissements), puis ajoutez-le aux stocks.` };
+          }
+          return {
+            title: `Ajouter « ${hit.name} » aux lieux de stock`,
+            fields: [{ label: "Établissement (annuaire)", value: hit.label }],
+            warnings: ["Réservé au Super Admin — l'hôpital devient disponible pour les états de stock, et les KAM dont le secteur le contient le voient."],
+            args: { institutionId: hit.id, name: hit.name },
+            successMessage: `« ${hit.name} » ajouté aux lieux de stock.`,
+            revalidate: ["/stocks"],
+          };
+        },
+        execute: (args) => runFd(createStockHospital, args, "L'ajout de l'hôpital a été refusé.", { revalidate: ["/stocks"] }),
+      }
+    : {
+        async propose(input): Promise<OpProposalDraft | { error: string }> {
+          const name = opStr(input, "location") || opStr(input, "name");
+          if (!name) return { error: `Précisez le nom de ${noun} (champ « location »).` };
+          return {
+            title: `Créer ${noun} « ${name} »`,
+            fields: [{ label: Noun, value: name }],
+            warnings: ["Création réservée au Super Admin — le lieu devient disponible pour les états de stock."],
+            args: { name },
+            successMessage: `${Noun} « ${name} » créé.`,
+            revalidate: ["/stocks"],
+          };
+        },
+        execute: (args) => runFd(createStockAnnex, args, "La création du lieu a été refusée.", { revalidate: ["/stocks"] }),
+      };
   return {
-    [kind === "HOSPITAL" ? "create_hospital" : "create_annex"]: {
-      async propose(input): Promise<OpProposalDraft | { error: string }> {
-        const name = opStr(input, "location") || opStr(input, "name");
-        if (!name) return { error: `Précisez le nom de ${noun} (champ « location »).` };
-        return {
-          title: `Créer ${noun} « ${name} »`,
-          fields: [{ label: Noun, value: name }],
-          warnings: ["Création réservée au Super Admin — le lieu devient disponible pour les états de stock."],
-          args: { name },
-          successMessage: `${Noun} « ${name} » créé.`,
-          revalidate: ["/stocks"],
-        };
-      },
-      execute: (args) => runFd(create, args, "La création du lieu a été refusée.", { revalidate: ["/stocks"] }),
-    },
+    [kind === "HOSPITAL" ? "create_hospital" : "create_annex"]: createOp,
     [kind === "HOSPITAL" ? "delete_hospital" : "delete_annex"]: {
       async propose(input): Promise<OpProposalDraft | { error: string }> {
         const loc = await resolveStockLocation(opStr(input, "location") || opStr(input, "name"), kind);
@@ -758,14 +803,32 @@ export const STOCK4_OPS_IMPL: Record<string, OpImpl> = {
   ...locationOps("ANNEX"),
 
   record_snapshot: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
       const product = await resolveStockProduct(opStr(input, "product") || opStr(input, "name"));
       if ("error" in product) return product;
       const scope = stockScope(opStr(input, "kind"));
       if ("error" in scope) return scope;
-      let annexId: string | null = null; let locationName = scope.label;
-      if (scope.scope !== "PCH") {
-        const loc = await resolveStockLocation(opStr(input, "location"), scope.scope);
+      let annexId: string | null = null; let institutionId: string | null = null; let locationName = scope.label;
+      if (scope.scope === "HOSPITAL") {
+        // L'HÔPITAL EST UN ÉTABLISSEMENT DE L'ANNUAIRE, cherché dans la PORTÉE de la personne :
+        // proposer un hôpital hors de son secteur ferait une carte que l'action refuse (§118.83).
+        // La vue globale peut encore relever un lieu HÉRITÉ (sans établissement), et lui seul.
+        const portee = await chargerPorteeStock(user);
+        const raw = opStr(input, "location");
+        const etab = await resoudreEtablissement(raw, portee);
+        if (etab && "error" in etab) return etab;
+        if (etab) { institutionId = etab.id; locationName = `${scope.label} — ${etab.label}`; }
+        else {
+          const herites = estRestreinte(portee) ? [] : await chercherLieuHerite(raw.trim());
+          if (herites.length === 1) { annexId = herites[0].id; locationName = `${scope.label} — ${herites[0].label} (lieu hérité, hors annuaire)`; }
+          else if (herites.length > 1) return { error: `Plusieurs lieux hérités correspondent à « ${raw} » : ${herites.map((h) => h.label).join(", ")} — préciser.` };
+          else if (!raw.trim()) return { error: "Précisez l'hôpital (champ « location »)." };
+          else if (estRestreinte(portee)) {
+            return { error: `« ${raw} » n'est pas un établissement de ${portee.mode === "BU" ? "votre BU" : "votre secteur"}${portee.secteurs.length ? ` (${portee.secteurs.map((x) => x.nom).join(", ")})` : ""} : vous ne relevez que les hôpitaux de votre périmètre.` };
+          } else return { error: `Aucun établissement « ${raw} » dans l'annuaire des établissements, ni lieu de stock hérité de ce nom.` };
+        }
+      } else if (scope.scope === "ANNEX") {
+        const loc = await resolveStockLocation(opStr(input, "location"), "ANNEX");
         if ("error" in loc) return loc;
         annexId = loc.id; locationName = `${scope.label} — ${loc.name}`;
       }
@@ -782,7 +845,7 @@ export const STOCK4_OPS_IMPL: Record<string, OpImpl> = {
           { label: "Quantité restante", value: `${qty} unité(s)` },
         ],
         warnings: ["Un état existant du MÊME JOUR (produit + lieu) est remplacé — c'est la correction normale."],
-        args: { scope: scope.scope, annexId, productId: product.id, date, quantity: qty },
+        args: { scope: scope.scope, annexId, institutionId, productId: product.id, date, quantity: qty },
         successMessage: `État de stock enregistré — ${product.brandName ?? product.dci} : ${qty} u. (${locationName}).`,
         link: "/stocks", revalidate: ["/stocks"],
       };

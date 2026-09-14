@@ -593,6 +593,8 @@ export type AssistantActionPayload =
       registre: "STOCKS" | "ANNUAIRE";
       name: string;
       annexKind?: "HOSPITAL" | "ANNEX";
+    /** STOCKS : l'établissement de l'annuaire que le lieu désigne (§118.134) — jamais un nom libre. */
+    institutionId?: string | null;
       institutionType?: string | null;
       sector?: string | null;
       wilaya?: string | null;
@@ -1698,7 +1700,7 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
   {
     name: "create_hospital",
     description:
-      "PROPOSE d'AJOUTER un hôpital : `registre`=STOCKS pour la liste des lieux de stock (hôpitaux / annexes PCH du module Stocks), " +
+      "PROPOSE d'AJOUTER un hôpital : `registre`=STOCKS pour la liste des lieux de stock (un hôpital de stock DOIT déjà exister dans l'annuaire des établissements ; les annexes PCH sont des noms libres), " +
       "`registre`=ANNUAIRE pour l'annuaire médical (établissements : CHU, EPH, clinique…). N'exécute rien : confirmation requise. " +
       "Vérifier d'abord avec search_hospitals qu'il n'existe pas déjà.",
     input_schema: {
@@ -3850,14 +3852,25 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
       const kind = asStr(input, "kind").toUpperCase() === "ANNEX" ? "ANNEX" : "HOSPITAL";
       const existing = await prisma.stockAnnex.findFirst({ where: { name: { equals: name, mode: "insensitive" } } });
       if (existing) return { error: `« ${existing.name} » existe déjà dans les lieux de stock.` };
+      // UN HÔPITAL DE STOCK EST UN ÉTABLISSEMENT DE L'ANNUAIRE (§118.134) : on le désigne, on ne
+      // le retape pas. Absent de l'annuaire → le remède est nommé (registre=ANNUAIRE d'abord).
+      let institutionId: string | null = null;
+      if (kind === "HOSPITAL") {
+        const etabs = await prisma.medicalInstitution.findMany({
+          where: { name: { equals: name, mode: "insensitive" }, isActive: true }, select: { id: true, name: true, wilaya: true }, take: 3,
+        });
+        if (etabs.length === 0) return { error: `« ${name} » n'est pas dans l'annuaire des établissements. Les hôpitaux du module Stocks sont ceux de l'annuaire : créez-le d'abord avec registre=ANNUAIRE, puis ajoutez-le aux stocks.` };
+        if (etabs.length > 1) return { error: `Plusieurs établissements s'appellent « ${name} » (${etabs.map((e) => e.wilaya ?? "wilaya inconnue").join(", ")}) : précisez lequel ajouter aux stocks.` };
+        institutionId = etabs[0].id;
+      }
       return {
-        kind: "create_hospital", module: "STOCKS", title: `Ajouter ${kind === "ANNEX" ? "une annexe PCH" : "un hôpital"} aux stocks`, warnings,
+        kind: "create_hospital", module: "STOCKS", title: `Ajouter ${kind === "ANNEX" ? "une annexe PCH" : "un hôpital de l'annuaire"} aux stocks`, warnings,
         fields: [
           { label: "Nom", value: name },
-          { label: "Nature", value: kind === "ANNEX" ? "Annexe PCH" : "Hôpital" },
+          { label: "Nature", value: kind === "ANNEX" ? "Annexe PCH" : "Hôpital (établissement de l'annuaire)" },
           { label: "Registre", value: "Lieux de stock (module Stocks)" },
         ],
-        payload: { kind: "create_hospital", registre: "STOCKS", name, annexKind: kind },
+        payload: { kind: "create_hospital", registre: "STOCKS", name, annexKind: kind, institutionId },
       };
     }
 
@@ -7041,6 +7054,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
       // `createStockHospital` / `createStockAnnex` revérifient : Super Admin uniquement.
       const fd = new FormData();
       fd.set("name", name);
+      if (payload.institutionId) fd.set("institutionId", String(payload.institutionId));
       const r = payload.annexKind === "ANNEX" ? await createStockAnnex(fd) : await createStockHospital(fd);
       if (!r.ok) return { ok: false, error: r.error ?? "L'ajout a été refusé." };
       return { ok: true, message: `« ${name} » ajouté aux lieux de stock.`, link: "/stocks", revalidate: ["/stocks"] };

@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
+import { suivreRenommageEtablissement } from "@/lib/stocks/lieux";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { canonicalWilaya } from "@/lib/medical/wilaya";
@@ -129,7 +130,11 @@ export async function updateInstitution(formData: FormData): Promise<ActionResul
   });
   // Re-synchronise le libellé dénormalisé sur les praticiens rattachés.
   await prisma.medicalDoctor.updateMany({ where: { institutionId: id }, data: { institution: name } });
+  // LE LIEU DE STOCK SUIT : son nom est ce que les demandes d'état, les récurrences et Adam
+  // affichent (§118.134). Deux noms pour le même hôpital finiraient par diverger (§118.5).
+  await suivreRenommageEtablissement(id, name);
   revalidatePath("/medical");
+  revalidatePath("/stocks");
   return { ok: true };
 }
 

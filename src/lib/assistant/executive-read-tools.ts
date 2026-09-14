@@ -4,6 +4,7 @@ import { faitCalcule, declarerProvenance } from "@/platform/in-process/fabric/pr
 import { prisma } from "@/lib/prisma";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { platformScope } from "@/lib/company";
+import { chargerPorteeStock, clauseRelevesDePortee, porteeVide, explicationPortee } from "@/platform/in-process/stocks";
 import { searchEverything } from "@/lib/queries/search-everything";
 import { expandQueryWithAliases } from "@/lib/assistant/memory-context";
 import { getCalendarEvents, getUpcomingEvents, algiersInputToUtc, algiersYmd, algiersTime } from "@/lib/calendar";
@@ -26,9 +27,16 @@ const EXEC = (u: CurrentUser): boolean => u.role === "SUPER_ADMIN" || u.role ===
 const str = (input: Record<string, unknown>, key: string): string =>
   typeof input[key] === "string" ? (input[key] as string).trim() : "";
 
+/**
+ * Un nombre LU, ou `null` quand rien n'a été donné. `Number("")` vaut 0 : une clé absente se lisait
+ * donc comme ZÉRO — `read_stock` sans seuil répondait « Aucun stock ≤ 0 — rien de critique » sur
+ * des stocks bien réels, et `limit` omis donnait UN résultat au lieu de huit (§118.134). Le vide
+ * n'est pas une valeur.
+ */
 const num = (input: Record<string, unknown>, key: string): number | null => {
   const v = input[key];
-  const n = typeof v === "number" ? v : Number(String(v ?? "").replace(/\s/g, "").replace(",", "."));
+  if (v == null || (typeof v === "string" && v.trim() === "")) return null;
+  const n = typeof v === "number" ? v : Number(String(v).replace(/\s/g, "").replace(",", "."));
   return Number.isFinite(n) ? n : null;
 };
 
@@ -318,10 +326,17 @@ export const EXECUTIVE_READ_TOOLS: PowerTool[] = [
       const location = str(input, "location");
       const lowThreshold = num(input, "low_threshold");
 
+      // LA MÊME PORTÉE QU'À L'ÉCRAN (§118.134) : un KAM lit les hôpitaux de son secteur et les
+      // produits de sa BU, un National Sales toute sa BU. Sans cette clause, la conversation
+      // était une porte à côté de l'écran — un KAM y lisait la centrale d'achat et tous les
+      // hôpitaux (§118.71).
+      const portee = await chargerPorteeStock(user);
+      if (porteeVide(portee)) return explicationPortee(portee) ?? "Aucun hôpital ni produit ne relève de votre périmètre de stock.";
       const snaps = await prisma.stockSnapshot.findMany({
         where: {
           AND: [
             await platformScope(user.id),
+            clauseRelevesDePortee(portee),
             product
               ? { product: { OR: [{ brandName: { contains: product, mode: "insensitive" } }, { dci: { contains: product, mode: "insensitive" } }] } }
               : {},
@@ -359,7 +374,8 @@ export const EXECUTIVE_READ_TOOLS: PowerTool[] = [
           : "Aucun relevé ne correspond à ces filtres.";
       }
       return JSON.stringify({
-        note: "Niveaux = DERNIER RELEVÉ daté par produit et par lieu (pas un temps réel).",
+        note: "Niveaux = DERNIER RELEVÉ daté par produit et par lieu (pas un temps réel)."
+          + (portee.mode === "GLOBALE" ? "" : ` Portée : ${portee.mode === "BU" ? "toute votre BU" : "vos secteurs"} (${portee.secteurs.map((x) => x.nom).join(", ") || "aucun secteur"}) et les produits de la BU — les autres hôpitaux ne sont pas lus.`),
         niveaux: rows.slice(0, 60), lien: "/stocks",
       });
     },
