@@ -18,7 +18,7 @@ export interface MyFieldDay {
   /** La tournée proposée du jour — les praticiens en retard de fréquence, les plus utiles d'abord. */
   tournee: TourneeItem[];
   /** Le panel COMPLET, pour saisir une visite hors tournée (le terrain improvise, et c'est normal). */
-  panel: { id: string; name: string; specialty: string | null; institution: string | null; city: string | null }[];
+  panel: { id: string; name: string; specialty: string | null; institution: string | null; wilaya: string | null }[];
   /** Les produits que CE KAM porte CE mois-ci, dans l'ordre de la mallette. */
   produits: CarriedProduct[];
   /** Sa ligne de chiffres du mois. */
@@ -43,7 +43,7 @@ export async function loadMyFieldDay(userId: string, today = new Date()): Promis
     prisma.medicalDoctor.findMany({
       where: { delegateId: userId },
       select: {
-        id: true, name: true, potential: true, specialty: true, institution: true, city: true,
+        id: true, name: true, potential: true, specialty: true, institution: true, wilaya: true,
         lastVisit: true,
       },
       orderBy: { name: "asc" },
@@ -80,7 +80,7 @@ export async function loadMyFieldDay(userId: string, today = new Date()): Promis
 
   const panelDoctors: PanelDoctor[] = doctors.map((d) => ({
     id: d.id, name: d.name, potential: String(d.potential),
-    specialty: d.specialty, institution: d.institution, city: d.city,
+    specialty: d.specialty, institution: d.institution, wilaya: d.wilaya,
     lastVisitAt: d.lastVisit,
     visitsThisMonth: visitsByDoctor.get(d.id) ?? 0,
   }));
@@ -110,7 +110,7 @@ export async function loadMyFieldDay(userId: string, today = new Date()): Promis
 
   return {
     tournee: buildTournee(panelDoctors, config, today),
-    panel: doctors.map((d) => ({ id: d.id, name: d.name, specialty: d.specialty, institution: d.institution, city: d.city })),
+    panel: doctors.map((d) => ({ id: d.id, name: d.name, specialty: d.specialty, institution: d.institution, wilaya: d.wilaya })),
     produits,
     progress: monthProgress({
       done: visitsThisMonth.length,

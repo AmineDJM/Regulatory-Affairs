@@ -152,6 +152,14 @@ export const NEUTRAL = new Set([
   // tables séparées auraient divergé, et le jour où l'une dit 24 h et l'autre 72, personne ne
   // saurait laquelle fait foi (§118.5).
   "src/lib/fraicheur/ages",
+  // `grille/selection` et `grille/couleurs` : l'arithmétique d'une sélection de cellules et la
+  // palette FERMÉE des couleurs d'annuaire (§118.133). Zéro import, sans état, sans base, sans
+  // règle métier. Les DEUX côtés en ont besoin et n'ont pas le droit de se parler : les feuilles
+  // de l'ERP sélectionnent et colorent, l'action serveur valide la clé de palette, et l'op d'Adam
+  // (« colore en jaune la wilaya de… ») doit reconnaître la même palette — une seconde liste
+  // aurait divergé à la première couleur ajoutée (§118.5). Même critère que `mutations/empreinte`.
+  "src/lib/grille/selection",
+  "src/lib/grille/couleurs",
   // `skills/affichage` répond à UNE question — « où sont les lignes de cette capacité ? » — en
   // lisant `sorties.cles` du manifeste et le résultat réel, et rend un CHEMIN (« resultat.items »)
   // ou `null`. Zéro import, sans état, sans base, sans règle métier. Il est ici pour la raison de

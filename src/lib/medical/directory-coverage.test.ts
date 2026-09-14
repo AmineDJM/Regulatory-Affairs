@@ -31,8 +31,10 @@ describe("Annuaire — tout ce que l'écran affiche doit pouvoir s'importer", ()
     // Le cas le plus fréquent, et celui qui était cassé : on exporte l'annuaire, on le corrige
     // dans un tableur, on le réimporte.
     const headers = ANNUAIRE_COLUMNS.map((c) => c.header);
+    // Plus de « Ville » dans la feuille (décision de la Direction, 09/2026) : la wilaya est le
+    // seul découpage, et c'est elle que l'export porte et que l'import relit.
     const row = [
-      "BENALI", "Karim", "12 rue Didouche Mourad", "Alger Centre", "Alger",
+      "BENALI", "Karim", "12 rue Didouche Mourad", "Alger",
       "HIGH", "16000", "0550 12 34 56", "Cardiologie", "Chef de service",
       "k.benali@chu.dz", "HOSPITAL",
     ];
@@ -43,7 +45,7 @@ describe("Annuaire — tout ce que l'écran affiche doit pouvoir s'importer", ()
     expect(r.lastName).toBe("BENALI");
     expect(r.firstName).toBe("Karim");
     expect(r.address).toBe("12 rue Didouche Mourad");
-    expect(r.city).toBe("Alger Centre");
+    expect(r.city).toBeNull();
     expect(r.wilaya).toBe("Alger");
     expect(r.postalCode).toBe("16000");
     expect(r.phone).toBe("0550 12 34 56");

@@ -3,7 +3,10 @@ import {
   createDoctor, updateDoctor, deleteDoctor, createVisit, updateVisit, deleteVisit,
   deleteInstitution, createSpecialty, updateSpecialty, deleteSpecialty, logVisit,
 } from "@/lib/actions/medical-actions";
-import { addDirectoryDoctor, saveDirectoryCell, deleteDirectoryDoctors } from "@/lib/actions/medical-directory-actions";
+import { addDirectoryDoctor, saveDirectoryCell, saveDirectoryCustomCell, deleteDirectoryDoctors } from "@/lib/actions/medical-directory-actions";
+// Par le PORT des capacités, jamais par `actions/` ni `medical/` en direct (frontière Adam ↔ ERP).
+import { colorerCellulesAnnuaire, isAnnuaireField, isEtablissementField } from "@/platform/in-process/capacites";
+import { COULEURS_CELLULE, estCouleurCellule } from "@/lib/grille/couleurs";
 import {
   createMedicalDirectory, updateMedicalDirectory, deleteMedicalDirectory,
   moveDoctorsToDirectory, setDirectoryAccess,
@@ -305,14 +308,16 @@ export const MEDICAL_OPS_IMPL: Record<string, OpImpl> = {
           ["Spécialité", opStr(input, "specialty") || null],
           ["Secteur", sector ? SECTOR_FR.find(([c]) => c === sector)?.[1] ?? null : null],
           ["Établissement", opStr(input, "institution") || null],
-          ["Ville", opStr(input, "city") || null], ["Wilaya / région", opStr(input, "region") || null],
+          ["Wilaya", opStr(input, "wilaya") || opStr(input, "city") || null], ["Région", opStr(input, "region") || null],
           ["Téléphone", opStr(input, "phone") || null], ["E-mail", opStr(input, "email") || null],
           ["Délégué", delegateName],
         ]),
         args: {
           name, title: (title as string | null), specialty: opStr(input, "specialty") || null,
           sector: (sector as string | null), institution: opStr(input, "institution") || null,
-          city: opStr(input, "city") || null, region: opStr(input, "region") || null,
+          // La ville a quitté l'annuaire : ce qu'on disait « ville » se lit comme une wilaya, que
+          // l'action ramène au nom officiel ou refuse.
+          wilaya: opStr(input, "wilaya") || opStr(input, "city") || null, region: opStr(input, "region") || null,
           phone: opStr(input, "phone") || null, email: opStr(input, "email") || null,
           targetProducts: opStr(input, "products") || null, comments: opStr(input, "notes") || null,
           delegateId,
@@ -355,8 +360,10 @@ export const MEDICAL_OPS_IMPL: Record<string, OpImpl> = {
       const name = pick("newName", d.name, "nom") ?? d.name;
       const specialty = pick("specialty", d.specialty, "spécialité");
       const institution = pick("institution", d.institution, "établissement");
-      const city = pick("city", d.city, "ville");
-      const region = pick("region", d.region, "wilaya/région");
+      const wilaya = opStr(input, "wilaya") || opStr(input, "city")
+        ? pick(opStr(input, "wilaya") ? "wilaya" : "city", d.wilaya, "wilaya")
+        : d.wilaya;
+      const region = pick("region", d.region, "région");
       const phone = pick("phone", d.phone, "téléphone");
       const email = pick("email", d.email, "e-mail");
       const targetProducts = pick("products", d.targetProducts, "produits cibles");
@@ -378,7 +385,7 @@ export const MEDICAL_OPS_IMPL: Record<string, OpImpl> = {
         args: {
           id: hit.id, name, title: (title as string | null) ?? d.title,
           specialty, sector: (sector as string | null) ?? d.sector, institution,
-          city, region, phone, email,
+          wilaya, region, phone, email,
           influence: (influence as string | null) ?? d.influence,
           potential: (potential as string | null) ?? d.potential,
           affinity: (affinity as string | null) ?? d.affinity,
@@ -469,7 +476,7 @@ export const MEDICAL_OPS_IMPL: Record<string, OpImpl> = {
       if ("error" in hit) return hit;
       const field = opStr(input, "field");
       const value = opStr(input, "value");
-      if (!field) return { error: "Précisez la colonne (champ « field ») : lastName, firstName, address, city, wilaya, postalCode, phone, email, title, sector, specialty, potential." };
+      if (!field) return { error: "Précisez la colonne (champ « field ») : lastName, firstName, address, wilaya, postalCode, phone, email, title, sector, specialty, potential — ou la clé d'une colonne propre à l'annuaire (« c_… »)." };
       return {
         title: `Cellule « ${field} » de ${hit.name}`,
         fields: [
@@ -484,9 +491,74 @@ export const MEDICAL_OPS_IMPL: Record<string, OpImpl> = {
       };
     },
     async execute(args) {
-      const r = await saveDirectoryCell({ id: args.id ?? "", field: args.field ?? "", value: args.value ?? "" });
+      const field = args.field ?? "";
+      // Une colonne PROPRE à l'annuaire (« c_dernier_congres ») s'écrit par l'action des colonnes
+      // sur mesure, typée par la colonne ; le tronc commun par l'action de la feuille. Même
+      // geste pour la personne, deux écrivains parce que deux validations.
+      const r = field.startsWith("c_")
+        ? await saveDirectoryCustomCell({ id: args.id ?? "", key: field, value: args.value ?? "" })
+        : await saveDirectoryCell({ id: args.id ?? "", field, value: args.value ?? "" });
       if (!r.ok) return { ok: false, error: r.error ?? "L'écriture de la cellule a été refusée." };
       return { ok: true, revalidate: ["/medical"] };
+    },
+  },
+
+  color_directory_cells: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const field = opStr(input, "field");
+      if (!field) return { error: "Précisez la colonne à colorer (champ « field ») : wilaya, phone, specialty… ou la clé d'une colonne propre (« c_… ») ; pour un établissement : name, type, sector, wilaya." };
+      const brut = fold(opStr(input, "color") || "");
+      const effacer = !brut || /^(aucune?|sans|effac|retire|enleve|vide)/.test(brut);
+      const couleur = effacer ? null : COULEURS_CELLULE.find((c) => fold(c.cle) === brut || fold(c.label) === brut)?.cle ?? null;
+      if (!effacer && !couleur) {
+        return { error: `Couleur « ${opStr(input, "color")} » hors palette : ${COULEURS_CELLULE.map((c) => c.label.toLowerCase()).join(", ")} — ou « aucune » pour effacer.` };
+      }
+      const rawDoctors = opStr(input, "doctor") || opStr(input, "people");
+      const rawInstitution = opStr(input, "institution");
+      if (!rawDoctors && !rawInstitution) return { error: "Précisez les praticiens (champ « doctor », noms séparés par des virgules) ou l'établissement (champ « institution »)." };
+
+      const ids: string[] = []; const names: string[] = [];
+      const feuille: "praticiens" | "etablissements" = rawDoctors ? "praticiens" : "etablissements";
+      if (feuille === "praticiens") {
+        if (!isAnnuaireField(field) && !field.startsWith("c_")) return { error: `« ${field} » n'est pas une colonne de la feuille des praticiens.` };
+        for (const part of rawDoctors.split(/[;,]/).map((p) => p.trim()).filter(Boolean)) {
+          const hit = await resolveDoctor(part);
+          if ("error" in hit) return hit;
+          ids.push(hit.id); names.push(hit.name);
+        }
+      } else {
+        if (!isEtablissementField(field)) return { error: `« ${field} » n'est pas une colonne de la feuille des établissements (name, type, sector, wilaya, doctorCount, sectorCount).` };
+        for (const part of rawInstitution.split(/[;,]/).map((p) => p.trim()).filter(Boolean)) {
+          const hit = await resolveInstitution(part);
+          if ("error" in hit) return hit;
+          ids.push(hit.id); names.push(hit.name);
+        }
+      }
+      const libelle = couleur ? COULEURS_CELLULE.find((c) => c.cle === couleur)!.label : "aucune (effacée)";
+      return {
+        title: couleur ? `Colorer en ${libelle.toLowerCase()} — ${names.length} cellule(s)` : `Effacer la couleur — ${names.length} cellule(s)`,
+        fields: [
+          { label: feuille === "praticiens" ? "Praticiens" : "Établissements", value: names.join(", ") },
+          { label: "Colonne", value: field },
+          { label: "Couleur", value: libelle },
+        ],
+        warnings: ["Une couleur est une annotation PARTAGÉE de la feuille : tous ceux qui la voient la verront. Chaque ligne est revérifiée — une fiche hors de votre portée reste telle quelle."],
+        args: { feuille, ids: ids.join(","), field, color: couleur ?? "" },
+        successMessage: couleur ? `Cellule(s) colorée(s) en ${libelle.toLowerCase()}.` : "Couleur effacée.",
+        link: feuille === "praticiens" ? "/medical/annuaire" : "/medical/etablissements", revalidate: ["/medical"],
+      };
+    },
+    async execute(args) {
+      const field = args.field ?? "";
+      const cellules = (args.ids ?? "").split(",").filter(Boolean).map((id) => `${id}:${field}`);
+      const couleur = args.color && estCouleurCellule(args.color) ? args.color : null;
+      const r = await colorerCellulesAnnuaire({
+        feuille: args.feuille === "etablissements" ? "etablissements" : "praticiens",
+        cellules,
+        couleur,
+      });
+      if (!r.ok) return { ok: false, error: r.error ?? "La coloration a été refusée." };
+      return { ok: true, message: r.message, revalidate: ["/medical"] };
     },
   },
 

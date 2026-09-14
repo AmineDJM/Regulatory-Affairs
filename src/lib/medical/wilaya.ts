@@ -175,9 +175,19 @@ export function unresolvedHint(fields: {
     .join(" · ");
 }
 
-/** Une réponse d'IA n'est acceptée que si elle nomme une wilaya RÉELLE. */
-export function acceptAiWilaya(raw: unknown): string | null {
+/**
+ * LE NOM CANONIQUE d'une wilaya écrite à la main — « ALGER », « alger », « Béjaia » sans tréma
+ * rendent le nom officiel ; tout ce qui n'est pas une wilaya rend `null`. C'est la porte d'entrée
+ * des FORMULAIRES et des ops d'Adam : on accepte la casse et les accents approximatifs (refuser
+ * « ALGER » coûterait plus que le défaut, §118.27), jamais une wilaya inventée.
+ */
+export function canonicalWilaya(raw: unknown): string | null {
   const t = String(raw ?? "").trim();
   if (!t) return null;
   return BY_FOLDED.get(foldText(t)) ?? ALIASES[foldText(t)] ?? null;
+}
+
+/** Une réponse d'IA n'est acceptée que si elle nomme une wilaya RÉELLE — même règle. */
+export function acceptAiWilaya(raw: unknown): string | null {
+  return canonicalWilaya(raw);
 }

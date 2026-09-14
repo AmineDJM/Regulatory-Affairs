@@ -3726,6 +3726,8 @@ model MedicalDoctor {
 
   visits       MedicalVisit[]
   fieldReports FieldReport[]
+  /// Les couleurs posées sur ses cellules dans la feuille de l'annuaire (§118.133).
+  cellStyles   DirectoryCellStyle[]
 
   createdById String?
   updatedById String?
@@ -3892,10 +3894,40 @@ model MedicalInstitution {
   doctors MedicalDoctor[]
   /// LES SECTEURS COMMERCIAUX qui couvrent cet établissement.
   sectors SalesSectorInstitution[]
+  /// Les couleurs posées sur ses cellules dans la feuille des établissements (§118.133).
+  cellStyles DirectoryCellStyle[]
 
   @@index([type])
   @@index([wilaya])
   @@index([name])
+}
+
+/// LA COULEUR D'UNE CELLULE D'ANNUAIRE (§118.133).
+///
+/// Une feuille se colore comme dans Excel : « ces praticiens à revoir », « ces hôpitaux déjà
+/// couverts ». La couleur est PARTAGÉE — elle fait partie de la feuille, comme dans un classeur
+/// — et se pose sous le MÊME droit que la cellule qu'elle colore : un délégué ne colore que ses
+/// praticiens (`canAccessEntity`), les établissements demandent le droit de modification du
+/// module. Deux clés étrangères EXCLUSIVES, en cascade : une ligne supprimée emporte ses
+/// couleurs sans nettoyage à penser. La couleur est une CLÉ de la palette fermée
+/// (`lib/grille/couleurs.ts`), jamais un code libre — l'action serveur refuse le reste.
+model DirectoryCellStyle {
+  id            String              @id @default(cuid())
+  doctorId      String?
+  doctor        MedicalDoctor?      @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  institutionId String?
+  institution   MedicalInstitution? @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  /// La colonne — un champ de la feuille (`wilaya`, `phone`…) ou la clé d'une colonne sur mesure.
+  field         String
+  color         String
+  setById       String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@unique([doctorId, field])
+  @@unique([institutionId, field])
+  @@index([doctorId])
+  @@index([institutionId])
 }
 
 model MedicalVisit {

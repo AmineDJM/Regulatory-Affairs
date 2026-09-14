@@ -35,7 +35,7 @@ export interface DayPanelDoctor {
   name: string;
   specialty: string | null;
   institution: string | null;
-  city: string | null;
+  wilaya: string | null;
 }
 
 export function DayClient({
@@ -76,7 +76,7 @@ export function DayClient({
                   <div className="min-w-0">
                     <p className="truncate font-medium">{t.name}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {[t.specialty, t.institution, t.city].filter(Boolean).join(" · ") || "—"}
+                      {[t.specialty, t.institution, t.wilaya].filter(Boolean).join(" · ") || "—"}
                     </p>
                     {/* LA RAISON, chiffrée : un ordre sans justification se subit. */}
                     <p className="mt-1 text-xs text-warning">{t.reason}</p>
@@ -119,7 +119,7 @@ function PickDoctor({
   const [q, setQ] = React.useState("");
   const fold = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
   const found = q.trim()
-    ? panel.filter((d) => fold(`${d.name} ${d.institution ?? ""} ${d.city ?? ""}`).includes(fold(q.trim())))
+    ? panel.filter((d) => fold(`${d.name} ${d.institution ?? ""} ${d.wilaya ?? ""}`).includes(fold(q.trim())))
     : panel;
 
   return (
@@ -141,7 +141,7 @@ function PickDoctor({
                 >
                   <span className="font-medium">{d.name}</span>
                   <span className="block text-xs text-muted-foreground">
-                    {[d.specialty, d.institution, d.city].filter(Boolean).join(" · ") || "—"}
+                    {[d.specialty, d.institution, d.wilaya].filter(Boolean).join(" · ") || "—"}
                   </span>
                 </button>
               </li>

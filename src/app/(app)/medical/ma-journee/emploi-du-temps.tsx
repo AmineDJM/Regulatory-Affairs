@@ -17,7 +17,7 @@ export interface LigneVue {
   date: string;
   doctorName: string;
   institution: string | null;
-  city: string | null;
+  wilaya: string | null;
   specialty: string | null;
   etat: EtatVisite;
   origine: string;
@@ -155,7 +155,7 @@ export function EmploiDuTemps({
                 <td className="px-3 py-2">
                   <span className="font-medium">{l.doctorName}</span>
                   <span className="block text-xs text-muted-foreground">
-                    {[l.specialty, l.institution, l.city].filter(Boolean).join(" · ") || "—"}
+                    {[l.specialty, l.institution, l.wilaya].filter(Boolean).join(" · ") || "—"}
                   </span>
                   {l.origine === "DIRECTION" && (
                     <Badge tone="info" dot={false}>Demandée par la Direction{l.objectif ? ` — ${l.objectif}` : ""}</Badge>

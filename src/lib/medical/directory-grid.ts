@@ -5,11 +5,17 @@ import { DOCTOR_TITLE, MEDICAL_SECTOR, SEGMENT_LEVEL, ALGERIA_WILAYAS } from "@/
  *
  * L'écran de l'annuaire est une FEUILLE que l'on corrige à la main, cellule par cellule. Les
  * colonnes sont celles que la promotion médicale emploie réellement — Nom, Prénom, Adresse,
- * Ville, Wilaya, Potentiel, Code postal, Téléphone, Spécialité, Grade, Mail, Privé/Public — et
- * chaque colonne sait comment elle s'édite : au clavier (texte) ou dans une liste fermée (menu
+ * Wilaya, Potentiel, Code postal, Téléphone, Spécialité, Grade, Mail, Privé/Public — et chaque
+ * colonne sait comment elle s'édite : au clavier (texte) ou dans une liste fermée (menu
  * déroulant). Les listes fermées — wilaya, grade, secteur, potentiel — évitent qu'« Alger » et
  * « ALGER », « Pr » et « Professeur » se comptent séparément : c'est précisément le comptage
  * qu'un annuaire vient chercher.
+ *
+ * LA « VILLE » A QUITTÉ LA FEUILLE (décision de la Direction, 09/2026). Le découpage qui compte
+ * pour une force de vente algérienne est la WILAYA, liste fermée de 58 noms ; la ville était un
+ * texte libre à côté, tapé de trois façons pour le même endroit, et qui ne servait ni au comptage
+ * ni au secteur. Un fichier importé qui porte une colonne « Ville » n'est pas perdu pour autant :
+ * elle sert à DÉDUIRE la wilaya (`directory-sheet.ts`), et c'est la wilaya qu'on garde.
  *
  * Module PUR — aucune base, aucune lecture de fichier. Il décrit les colonnes et VALIDE une
  * valeur avant écriture ; il est testé, et il est partagé tel quel par la grille (client) et par
@@ -18,7 +24,7 @@ import { DOCTOR_TITLE, MEDICAL_SECTOR, SEGMENT_LEVEL, ALGERIA_WILAYAS } from "@/
 
 /** Un champ éditable de l'annuaire — chacun correspond à une colonne de `MedicalDoctor`. */
 export type AnnuaireField =
-  | "lastName" | "firstName" | "address" | "city" | "wilaya" | "potential"
+  | "lastName" | "firstName" | "address" | "wilaya" | "potential"
   | "postalCode" | "phone" | "specialty" | "title" | "email" | "sector";
 
 export type CellEditor = "text" | "select";
@@ -53,7 +59,6 @@ export const ANNUAIRE_COLUMNS: AnnuaireColumn[] = [
   { field: "lastName", header: "Nom", editor: "text", width: 14 },
   { field: "firstName", header: "Prénom", editor: "text", width: 12 },
   { field: "address", header: "Adresse", editor: "text", width: 20 },
-  { field: "city", header: "Ville", editor: "text", width: 12 },
   { field: "wilaya", header: "Wilaya", editor: "select", options: WILAYA_OPTIONS, width: 14 },
   { field: "potential", header: "Potentiel", editor: "select", options: fromMap(SEGMENT_LEVEL), width: 11 },
   { field: "postalCode", header: "Code postal", editor: "text", width: 10 },
@@ -102,9 +107,18 @@ export function validateAnnuaireValue(
     case "sector":
       return SECTOR_VALUES.includes(v) ? { ok: true, value: v } : { ok: false, error: "Secteur invalide." };
     default:
-      // Champs texte : nom, prénom, adresse, ville, code postal, téléphone, spécialité, mail.
+      // Champs texte : nom, prénom, adresse, code postal, téléphone, spécialité, mail.
       return { ok: true, value: v || null };
   }
+}
+
+/** Une colonne PROPRE à un annuaire, telle que la feuille la rend (§118.133). */
+export interface CustomColumnVue {
+  id: string;
+  key: string;
+  label: string;
+  kind: "TEXT" | "NUMBER" | "DATE" | "CHOICE";
+  options: string[];
 }
 
 /** La fiche telle que la grille et l'export la lisent — valeurs brutes (enum non traduits). */
@@ -113,7 +127,6 @@ export interface AnnuaireRow {
   lastName: string | null;
   firstName: string | null;
   address: string | null;
-  city: string | null;
   wilaya: string | null;
   potential: string;
   postalCode: string | null;
@@ -122,6 +135,8 @@ export interface AnnuaireRow {
   title: string;
   email: string | null;
   sector: string;
+  /** Les valeurs des colonnes PROPRES à l'annuaire (`MedicalDoctor.custom`), par clé de colonne. */
+  custom?: Record<string, unknown>;
 }
 
 const optionLabel = (col: AnnuaireColumn, value: string | null): string => {

@@ -29,7 +29,8 @@ export interface LigneEmploiDuTemps {
   doctorId: string | null;
   doctorName: string;
   institution: string | null;
-  city: string | null;
+  /** La WILAYA du praticien — le seul découpage géographique des annuaires (la ville a quitté la feuille). */
+  wilaya: string | null;
   specialty: string | null;
   etat: EtatVisite;
   /** D'où vient la visite : `PLAN`, `UNPLANNED`, `DIRECTION`. */
@@ -104,7 +105,7 @@ export async function loadEmploiDuTemps(
       select: {
         id: true, date: true, status: true, origin: true, objective: true, report: true, doctorId: true,
         tourPlanId: true,
-        doctor: { select: { name: true, institution: true, city: true, specialty: true } },
+        doctor: { select: { name: true, institution: true, wilaya: true, specialty: true } },
         productLinks: { select: { product: { select: { canonicalName: true } } } },
         messageLinks: { select: { message: { select: { title: true } } } },
         fieldReports: { select: { id: true }, take: 1 },
@@ -143,7 +144,7 @@ export async function loadEmploiDuTemps(
       doctorId: v.doctorId,
       doctorName: nomPraticien(v.doctor),
       institution: v.doctor?.institution ?? null,
-      city: v.doctor?.city ?? null,
+      wilaya: v.doctor?.wilaya ?? null,
       specialty: v.doctor?.specialty ?? null,
       etat: etatVisite({
         statut: v.status,
@@ -183,7 +184,7 @@ export interface PraticienPlanifiable {
   name: string;
   specialty: string | null;
   institution: string | null;
-  city: string | null;
+  wilaya: string | null;
   potential: string | null;
   /** Le secteur commercial qui couvre son établissement, quand il y en a un. */
   secteur: string | null;
@@ -244,13 +245,13 @@ export async function loadPanelPlanifiable(repId: string): Promise<PraticienPlan
     },
     orderBy: [{ name: "asc" }],
     select: {
-      id: true, name: true, specialty: true, institution: true, city: true, potential: true,
+      id: true, name: true, specialty: true, institution: true, wilaya: true, potential: true,
       institutionId: true,
     },
   });
   return praticiens.map((d) => ({
     id: d.id, name: d.name, specialty: d.specialty, institution: d.institution,
-    city: d.city, potential: d.potential ? String(d.potential) : null,
+    wilaya: d.wilaya, potential: d.potential ? String(d.potential) : null,
     secteur: d.institutionId ? secteurParEtab.get(d.institutionId) ?? null : null,
   }));
 }

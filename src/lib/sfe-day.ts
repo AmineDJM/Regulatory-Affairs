@@ -41,7 +41,7 @@ export interface PanelDoctor {
   potential: string;
   specialty: string | null;
   institution: string | null;
-  city: string | null;
+  wilaya: string | null;
   /** Dernière visite CONNUE, toutes périodes confondues. Null = jamais vu. */
   lastVisitAt: Date | null;
   /** Visites déjà faites CE MOIS-CI (c'est le cycle sur lequel la fréquence se juge). */
@@ -54,7 +54,7 @@ export interface TourneeItem {
   name: string;
   specialty: string | null;
   institution: string | null;
-  city: string | null;
+  wilaya: string | null;
   potential: string;
   /** Visites attendues ce mois selon le palier (paramétrage Direction). */
   expected: number;
@@ -113,7 +113,7 @@ export function buildTournee(
     if (missing <= 0) continue; // à jour ce mois : il n'a rien à faire dans la tournée
     const since = daysSince(d.lastVisitAt, today);
     items.push({
-      doctorId: d.id, name: d.name, specialty: d.specialty, institution: d.institution, city: d.city,
+      doctorId: d.id, name: d.name, specialty: d.specialty, institution: d.institution, wilaya: d.wilaya,
       potential: d.potential, expected, done: d.visitsThisMonth, missing, daysSince: since,
       reason: reasonFor(expected, d.visitsThisMonth, since),
     });

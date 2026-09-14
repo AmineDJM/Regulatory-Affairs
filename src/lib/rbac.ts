@@ -35,6 +35,13 @@ export const MODULES = [
   // Module À PART de RH, et pas un écran de plus dedans : le DEMANDEUR est un directeur
   // opérationnel qui n'a rien à faire dans la paie ni dans les dossiers du personnel.
   "LEGAL", "MAIL_REGISTER", "RECRUITMENT", "MY_TEAM",
+  // DIRECTORIES : « Annuaires » — le sous-module du pôle Administration qui CENTRALISE tous les
+  // annuaires de l'entreprise (médecins, pharmaciens, établissements, partenaires, personnes,
+  // autres). C'est une PORTE, accordée à tout le monde comme MY_TEAM : chaque onglet reste gardé
+  // par le droit du référentiel qu'il montre (MEDICAL pour les praticiens et les hôpitaux,
+  // WORKSPACE pour les partenaires et les personnes). Une seconde matrice de droits par annuaire
+  // aurait divergé de la première au premier réglage (§118.5).
+  "DIRECTORIES",
   // PAYMENT_CENTRE : le centre d'autorisation des paiements — un module À PART, hors Finances.
   // Il n'appartient qu'au PDG et au Super Admin : celui qui autorise l'argent ne doit pas être
   // dans le même écran que celui qui le décaisse, sinon la séparation des rôles n'est qu'un onglet.
@@ -828,6 +835,15 @@ export const getAccess = perRequest(
     // n'est pas un trou : l'écran d'une personne sans équipe ne contient rien à voir — il ne
     // lit que SES subordonnés, et elle n'en a pas.
     grantImplicit("MY_TEAM", ["VIEW"], null);
+
+    // ── « ANNUAIRES » EST UNE PORTE, PAS UN DROIT ──
+    //
+    // Le concentrateur ne montre RIEN par lui-même : chacun de ses onglets est gardé par le
+    // module du référentiel qu'il affiche, et un onglet interdit n'est pas rendu. Accorder la
+    // porte à tout le monde ne donne donc accès à aucune donnée de plus — cela évite seulement
+    // qu'un droit « Annuaires » à régler dans la console redise, en retard, ce que MEDICAL et
+    // WORKSPACE décident déjà (§118.5, §118.74).
+    grantImplicit("DIRECTORIES", ["VIEW"], null);
 
     // ── INTÉRIM D'UN CONGÉ ──
     //

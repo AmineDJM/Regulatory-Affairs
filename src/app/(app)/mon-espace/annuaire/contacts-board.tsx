@@ -13,26 +13,9 @@ import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { EmptyState } from "@/components/shared/empty-state";
 import { cn } from "@/lib/utils";
 
-export interface ContactRow {
-  id: string;
-  name: string;
-  kind: string | null;
-  contactName: string | null;
-  phone: string | null;
-  phoneAlt: string | null;
-  email: string | null;
-  website: string | null;
-  address: string | null;
-  city: string | null;
-  wilaya: string | null;
-  rc: string | null;
-  nif: string | null;
-  rib: string | null;
-  notes: string | null;
-  isActive: boolean;
-  companyId: string | null;
-  companyLabel: string | null;
-}
+import type { ContactRow } from "@/lib/annuaires/types";
+
+export type { ContactRow };
 
 /**
  * L'ANNUAIRE DE L'ENTREPRISE — l'imprimeur qu'on cherche quand la personne qui le connaît est absente.

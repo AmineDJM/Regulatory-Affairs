@@ -866,7 +866,7 @@ const MODULE_FR: Partial<Record<Module, string>> = {
   LOGISTICS: "Logistique PCH", PCH: "Marchés PCH", STOCKS: "Stocks PCH",
   MEDICAL: "Annuaire", BUSINESS_DEVELOPMENT: "Business Development", PROMO_MATERIAL: "Matériel promotionnel",
   VALIDATIONS: "Demandes de validations", DRIVE: "Drive", ADMIN_REQUESTS: "Bureau du secrétariat",
-  PROCESS_INTELLIGENCE: "Process Intelligence", ADMIN: "Administration",
+  PROCESS_INTELLIGENCE: "Process Intelligence", ADMIN: "Administration", DIRECTORIES: "Annuaires",
 };
 
 // Libellés FR des types de demande RH (self-service) — pour l'outil + la carte de confirmation.
@@ -7049,8 +7049,8 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     fd.set("name", name);
     if (payload.institutionType) fd.set("type", payload.institutionType);
     if (payload.sector) fd.set("sector", payload.sector);
-    if (payload.wilaya) fd.set("wilaya", payload.wilaya);
-    if (payload.city) fd.set("city", payload.city);
+    // La ville a quitté l'annuaire des établissements : la wilaya est le seul découpage.
+    if (payload.wilaya ?? payload.city) fd.set("wilaya", String(payload.wilaya ?? payload.city));
     const r = await createInstitution(fd);
     if (!r.ok) return { ok: false, error: r.error ?? "L'ajout a été refusé." };
     return { ok: true, message: `Établissement « ${name} » ajouté à l'annuaire médical.`, link: "/medical", revalidate: ["/medical"] };
@@ -7059,7 +7059,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
   if (payload?.kind === "update_hospital") {
     const current = await prisma.medicalInstitution.findUnique({
       where: { id: payload.institutionId },
-      select: { id: true, name: true, type: true, sector: true, wilaya: true, city: true, region: true, address: true, phone: true, email: true, notes: true, isActive: true },
+      select: { id: true, name: true, type: true, sector: true, wilaya: true, region: true, address: true, phone: true, email: true, notes: true, isActive: true },
     });
     if (!current) return { ok: false, error: "Cet établissement n'existe plus." };
     const u = payload.updates;
@@ -7069,8 +7069,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     fd.set("name", u.newName ?? current.name);
     fd.set("type", u.type ?? current.type);
     fd.set("sector", u.sector ?? current.sector);
-    fd.set("wilaya", u.wilaya ?? current.wilaya ?? "");
-    fd.set("city", u.city ?? current.city ?? "");
+    fd.set("wilaya", u.wilaya ?? u.city ?? current.wilaya ?? "");
     fd.set("region", current.region ?? "");
     fd.set("address", current.address ?? "");
     fd.set("phone", u.phone ?? current.phone ?? "");

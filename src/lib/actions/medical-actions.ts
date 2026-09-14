@@ -8,6 +8,7 @@ import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
+import { canonicalWilaya } from "@/lib/medical/wilaya";
 
 const SECTORS: MedicalSector[] = ["HOSPITAL", "LIBERAL", "BOTH"];
 const TITLES: DoctorTitle[] = [
@@ -41,6 +42,23 @@ function parseTitle(v: string | null): DoctorTitle {
   return v && TITLES.includes(v as DoctorTitle) ? (v as DoctorTitle) : "AUTRE";
 }
 
+/**
+ * LA WILAYA D'UN FORMULAIRE — le seul découpage géographique des annuaires (décision de la
+ * Direction, 09/2026 : la « ville », texte libre tapé de trois façons pour le même endroit, a
+ * quitté les feuilles). Vide = absence. Une casse ou un accent approximatif est RAMENÉ au nom
+ * officiel ; une wilaya qui n'existe pas est REFUSÉE en nommant le remède — l'écrire telle
+ * quelle ferait entrer « Algr » dans les comptages à côté d'« Alger », sans que personne ne la
+ * revérifie.
+ */
+function parseWilaya(v: string | null): { ok: true; value: string | null } | { ok: false; error: string } {
+  const t = (v ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return { ok: true, value: null };
+  const canon = canonicalWilaya(t);
+  return canon
+    ? { ok: true, value: canon }
+    : { ok: false, error: `Wilaya « ${t} » inconnue : choisissez-la dans la liste des 58 wilayas.` };
+}
+
 const INSTITUTION_TYPES: InstitutionType[] = [
   "CHU", "EPH", "EHS", "CLINIQUE_PRIVEE", "POLYCLINIQUE", "CABINET", "CENTRE_SANTE", "PHARMACIE", "GROSSISTE", "AUTRE",
 ];
@@ -65,13 +83,14 @@ export async function createInstitution(formData: FormData): Promise<ActionResul
   if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé." };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de l'établissement est obligatoire." };
+  const wilaya = parseWilaya(fdStr(formData, "wilaya"));
+  if (!wilaya.ok) return { ok: false, error: wilaya.error };
   const created = await prisma.medicalInstitution.create({
     data: {
       name,
       type: parseInstitutionType(fdStr(formData, "type")),
       sector: parseInstitutionSector(fdStr(formData, "sector")),
-      wilaya: fdStr(formData, "wilaya"),
-      city: fdStr(formData, "city"),
+      wilaya: wilaya.value,
       region: fdStr(formData, "region"),
       address: fdStr(formData, "address"),
       phone: fdStr(formData, "phone"),
@@ -91,14 +110,15 @@ export async function updateInstitution(formData: FormData): Promise<ActionResul
   const id = fdStr(formData, "id");
   const name = fdStr(formData, "name");
   if (!id || !name) return { ok: false, error: "Paramètres manquants." };
+  const wilaya = parseWilaya(fdStr(formData, "wilaya"));
+  if (!wilaya.ok) return { ok: false, error: wilaya.error };
   await prisma.medicalInstitution.update({
     where: { id },
     data: {
       name,
       type: parseInstitutionType(fdStr(formData, "type")),
       sector: parseInstitutionSector(fdStr(formData, "sector")),
-      wilaya: fdStr(formData, "wilaya"),
-      city: fdStr(formData, "city"),
+      wilaya: wilaya.value,
       region: fdStr(formData, "region"),
       address: fdStr(formData, "address"),
       phone: fdStr(formData, "phone"),
@@ -214,6 +234,8 @@ export async function createDoctor(
   const sName = await specialtyName(specialtyId);
   const institutionId = fdStr(formData, "institutionId");
   const iName = await institutionName(institutionId);
+  const wilaya = parseWilaya(fdStr(formData, "wilaya"));
+  if (!wilaya.ok) return { ok: false, error: wilaya.error };
 
   const created = await prisma.medicalDoctor.create({
     data: {
@@ -224,7 +246,7 @@ export async function createDoctor(
       sector: parseSector(fdStr(formData, "sector")),
       institutionId,
       institution: iName ?? fdStr(formData, "institution"),
-      city: fdStr(formData, "city"),
+      wilaya: wilaya.value,
       region: fdStr(formData, "region"),
       phone: fdStr(formData, "phone"),
       email: fdStr(formData, "email"),
@@ -264,6 +286,10 @@ export async function updateDoctor(formData: FormData): Promise<ActionResult> {
   const iName = await institutionName(institutionId);
   // Un manager (vue globale) peut réassigner le délégué ; un délégué reste propriétaire.
   const isManager = user.role !== "MEDICAL_DELEGATE";
+  // La wilaya ne s'efface que si le formulaire la PORTE vide : un appelant qui ne connaît pas
+  // ce champ (une op écrite avant lui) ne doit pas effacer ce que la feuille a saisi.
+  const wilaya = formData.has("wilaya") ? parseWilaya(fdStr(formData, "wilaya")) : { ok: true as const, value: before.wilaya };
+  if (!wilaya.ok) return { ok: false, error: wilaya.error };
 
   await prisma.medicalDoctor.update({
     where: { id },
@@ -275,7 +301,7 @@ export async function updateDoctor(formData: FormData): Promise<ActionResult> {
       sector: parseSector(fdStr(formData, "sector")),
       institutionId,
       institution: iName ?? (institutionId ? before.institution : fdStr(formData, "institution")),
-      city: fdStr(formData, "city"),
+      wilaya: wilaya.value,
       region: fdStr(formData, "region"),
       phone: fdStr(formData, "phone"),
       email: fdStr(formData, "email"),

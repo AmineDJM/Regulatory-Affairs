@@ -387,8 +387,8 @@ export const EXECUTIVE_READ_TOOLS: PowerTool[] = [
       const [institutions, annexes] = await Promise.all([
         userCan(user, "MEDICAL", "VIEW")
           ? prisma.medicalInstitution.findMany({
-              where: { OR: [{ name: { contains: q, mode: "insensitive" } }, { city: { contains: q, mode: "insensitive" } }, { wilaya: { contains: q, mode: "insensitive" } }] },
-              select: { id: true, name: true, type: true, sector: true, city: true, wilaya: true, isActive: true, _count: { select: { doctors: true } } },
+              where: { OR: [{ name: { contains: q, mode: "insensitive" } }, { wilaya: { contains: q, mode: "insensitive" } }] },
+              select: { id: true, name: true, type: true, sector: true, wilaya: true, isActive: true, _count: { select: { doctors: true } } },
               take: 15, orderBy: { name: "asc" },
             })
           : [],
@@ -404,7 +404,7 @@ export const EXECUTIVE_READ_TOOLS: PowerTool[] = [
       return JSON.stringify({
         annuaireMedical: institutions.map((i) => ({
           id: i.id, nom: i.name, type: i.type, secteur: i.sector,
-          ville: i.city ?? i.wilaya, praticiens: i._count.doctors, actif: i.isActive, lien: "/medical",
+          wilaya: i.wilaya, praticiens: i._count.doctors, actif: i.isActive, lien: "/medical/etablissements",
         })),
         lieuxDeStock: annexes.map((a) => ({ id: a.id, nom: a.name, nature: a.kind === "ANNEX" ? "Annexe PCH" : "Hôpital", lien: "/stocks" })),
       });

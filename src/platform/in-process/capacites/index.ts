@@ -52,3 +52,11 @@ export { resoudreCible, direRefus, type Cible, type Resolution } from "@/lib/cib
 export {
   rattacherLegalAFiche, detacherLegalDeFiche,
 } from "@/lib/actions/ad-pro-rattacher-legal";
+// LA FEUILLE DES ANNUAIRES (§118.133) — colorer des cellules, et reconnaître les colonnes des
+// deux feuilles (praticiens, établissements). L'action revérifie les droits LIGNE PAR LIGNE ;
+// les deux gardes de colonnes sont des listes pures. Le port les rend atteignables sans qu'Adam
+// connaisse `actions/` ni `medical/` — le cliquet a compté 432 pour 428 quand l'op les importait
+// en direct, et le remède est celui que son message nomme.
+export { colorerCellulesAnnuaire } from "@/lib/actions/annuaire-couleurs-actions";
+export { isAnnuaireField } from "@/lib/medical/directory-grid";
+export { isEtablissementField } from "@/lib/medical/etablissements-grid";

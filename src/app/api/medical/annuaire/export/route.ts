@@ -15,13 +15,20 @@ import type { AnnuaireRow } from "@/lib/medical/directory-grid";
  * autres. `scopeMedicalDoctors` est la même fonction que celle qui filtre l'écran — un export
  * qui appliquerait sa propre règle finirait par sortir ce que l'écran cache.
  */
-export async function GET() {
+export async function GET(req: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (!userCan(user, "MEDICAL", "VIEW")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
 
+  // LE GRADE, quand l'onglet du module « Annuaires » exporte ce qu'il montre : médecins (tout
+  // grade sauf pharmacien) ou pharmaciens. Absent = toute la feuille, comme avant.
+  const grade = new URL(req.url).searchParams.get("grade");
+  const gradeWhere = grade === "pharmaciens"
+    ? { title: "PHARMACIEN" as const }
+    : grade === "medecins" ? { title: { not: "PHARMACIEN" as const } } : {};
+
   const doctors = await prisma.medicalDoctor.findMany({
-    where: await companyScopedWhere(user.id, scopeMedicalDoctors(user)),
+    where: { ...(await companyScopedWhere(user.id, scopeMedicalDoctors(user))), ...gradeWhere },
     orderBy: [{ name: "asc" }],
     include: { specialtyRef: { select: { name: true } } },
   });
@@ -31,7 +38,6 @@ export async function GET() {
     lastName: d.lastName,
     firstName: d.firstName,
     address: d.address,
-    city: d.city,
     wilaya: d.wilaya,
     potential: d.potential,
     postalCode: d.postalCode,

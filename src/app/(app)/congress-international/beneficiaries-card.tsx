@@ -17,7 +17,7 @@ export interface Beneficiary { id: string; name: string; role?: string; doctorId
 interface Refs {
   doctors: { id: string; name: string; institution: string | null; specialty: string | null }[];
   specialties: { id: string; name: string }[];
-  institutions: { id: string; name: string; city: string | null }[];
+  institutions: { id: string; name: string; wilaya: string | null }[];
 }
 
 type Mode = "directory" | "new" | "free";
@@ -130,7 +130,7 @@ export function BeneficiariesCard({
                 <Input name="name" required placeholder="Nom du médecin" className="col-span-2 text-sm" />
                 <Select name="specialtyId" defaultValue="" className="text-sm"><option value="">— Spécialité —</option>{(refs?.specialties ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>
                 <Select name="sector" defaultValue="LIBERAL" className="text-sm">{Object.entries(MEDICAL_SECTOR).map(([v, x]) => <option key={v} value={v}>{x.label}</option>)}</Select>
-                <Select name="institutionId" defaultValue="" className="col-span-2 text-sm"><option value="">— Établissement —</option>{(refs?.institutions ?? []).map((i) => <option key={i.id} value={i.id}>{i.name}{i.city ? ` · ${i.city}` : ""}</option>)}</Select>
+                <Select name="institutionId" defaultValue="" className="col-span-2 text-sm"><option value="">— Établissement —</option>{(refs?.institutions ?? []).map((i) => <option key={i.id} value={i.id}>{i.name}{i.wilaya ? ` · ${i.wilaya}` : ""}</option>)}</Select>
                 <Input name="role" placeholder="Qualité" className="text-sm" />
                 <Button type="submit" size="sm" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Créer & ajouter</Button>
               </form>

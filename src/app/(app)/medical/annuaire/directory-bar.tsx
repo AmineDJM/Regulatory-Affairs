@@ -12,15 +12,9 @@ import { Sheet } from "@/components/ui/sheet";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-export interface DirectoryRow {
-  id: string;
-  name: string;
-  companyId: string | null;
-  companyLabel: string | null;
-  doctorCount: number;
-  /** Les personnes nommées sur cet annuaire. Vide = ouvert à tout le module. */
-  accessUserIds: string[];
-}
+import type { DirectoryRow } from "@/lib/annuaires/types";
+
+export type { DirectoryRow };
 
 /**
  * LES ANNUAIRES — plusieurs listes nommées, pas une seule.
@@ -36,9 +30,15 @@ export interface DirectoryRow {
  * restent les seules règles d'accès.
  */
 export function DirectoryBar({
-  directories, current, companies, generalCount, canManage, people = [],
+  directories, current, companies, generalCount, canManage, people = [], basePath = "/medical/annuaire",
 }: {
   directories: DirectoryRow[];
+  /**
+   * L'ADRESSE de la feuille sur laquelle la barre est montée. La même barre sert l'onglet Annuaire
+   * de la Promotion médicale et les onglets Médecins / Pharmaciens du module « Annuaires » : un
+   * lien écrit en dur renverrait la personne dans l'autre module à chaque clic.
+   */
+  basePath?: string;
   /** Annuaire ouvert : `null` = tous, `"general"` = ceux qui ne sont dans aucun annuaire. */
   current: string | null;
   companies: { id: string; label: string }[];
@@ -54,7 +54,7 @@ export function DirectoryBar({
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
-  const href = (id: string | null) => (id ? `/medical/annuaire?annuaire=${id}` : "/medical/annuaire");
+  const href = (id: string | null) => (id ? `${basePath}?annuaire=${id}` : basePath);
 
   const remove = async (d: DirectoryRow) => {
     if (!window.confirm(
@@ -65,7 +65,7 @@ export function DirectoryBar({
     const r = await deleteMedicalDirectory(fd);
     setBusy(false);
     if (!r.ok) window.alert(r.error ?? "Échec.");
-    else { if (current === d.id) router.push("/medical/annuaire"); else router.refresh(); }
+    else { if (current === d.id) router.push(basePath); else router.refresh(); }
   };
 
   return (
@@ -83,7 +83,7 @@ export function DirectoryBar({
 
       <div className="flex flex-wrap gap-2">
         <Link
-          href="/medical/annuaire"
+          href={basePath}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition-colors",
             !current ? "border-primary bg-primary/5 font-medium text-primary" : "border-border hover:bg-secondary",
@@ -129,7 +129,7 @@ export function DirectoryBar({
         {/* L'ANNUAIRE GÉNÉRAL a sa porte : sans elle, un praticien saisi vite et jamais rangé
             devient invisible dès qu'on prend l'habitude d'ouvrir un annuaire nommé. */}
         <Link
-          href="/medical/annuaire?annuaire=general"
+          href={`${basePath}?annuaire=general`}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-sm transition-colors",
             current === "general" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:bg-secondary",

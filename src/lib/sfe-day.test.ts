@@ -15,7 +15,7 @@ const AUJOURDHUI = new Date(2026, 8, 10); // jeudi 10 septembre 2026
 const ilYA = (jours: number) => new Date(AUJOURDHUI.getTime() - jours * 86_400_000);
 
 const doc = (id: string, over: Partial<PanelDoctor> = {}): PanelDoctor => ({
-  id, name: id, potential: "MEDIUM", specialty: null, institution: null, city: null,
+  id, name: id, potential: "MEDIUM", specialty: null, institution: null, wilaya: null,
   lastVisitAt: ilYA(40), visitsThisMonth: 0, ...over,
 });
 

@@ -99,11 +99,11 @@ async function resolveInstitutionList(raw: string): Promise<{ id: string; name: 
   for (const p of parts) {
     const rows = await prisma.medicalInstitution.findMany({
       where: { name: { contains: p, mode: "insensitive" }, isActive: true },
-      select: { id: true, name: true, city: true }, take: 5,
+      select: { id: true, name: true, wilaya: true }, take: 5,
     });
     if (rows.length === 1) trouves.push({ id: rows[0]!.id, name: rows[0]!.name });
     else if (rows.length === 0) problemes.push(`« ${p} » : aucun établissement actif de ce nom dans l'annuaire`);
-    else problemes.push(`plusieurs « ${p} » : ${rows.map((r) => (r.city ? `${r.name} (${r.city})` : r.name)).join(", ")}`);
+    else problemes.push(`plusieurs « ${p} » : ${rows.map((r) => (r.wilaya ? `${r.name} (${r.wilaya})` : r.name)).join(", ")}`);
   }
   if (problemes.length > 0) {
     return {

@@ -7,9 +7,16 @@ import {
 describe("Les colonnes exactes de l'annuaire", () => {
   it("porte les en-têtes demandés, dans l'ordre", () => {
     expect(annuaireHeaderRow()).toEqual([
-      "Nom", "Prénom", "Adresse", "Ville", "Wilaya", "Potentiel", "Code postal",
+      "Nom", "Prénom", "Adresse", "Wilaya", "Potentiel", "Code postal",
       "Numéro de téléphone", "Spécialité 1", "Grade", "Mail", "Privé/Public",
     ]);
+  });
+
+  it("la « Ville » n'est plus une colonne de la feuille : la wilaya est le seul découpage", () => {
+    // Décision de la Direction (09/2026) : un texte libre à côté d'une liste fermée de 58 noms
+    // se tapait de trois façons pour le même endroit et ne servait ni au comptage ni au secteur.
+    expect(annuaireHeaderRow()).not.toContain("Ville");
+    expect(isAnnuaireField("city")).toBe(false);
   });
 
   it("les menus déroulants portent leurs options, le texte n'en a pas", () => {
@@ -57,7 +64,7 @@ describe("Valider une valeur avant de l'écrire", () => {
 
 describe("Afficher une cellule — écran et export disent la même chose", () => {
   const row: AnnuaireRow = {
-    id: "d1", lastName: "MOUFFOK", firstName: "Amina", address: "12 rue X", city: "Alger",
+    id: "d1", lastName: "MOUFFOK", firstName: "Amina", address: "12 rue X",
     wilaya: "Alger", potential: "VERY_HIGH", postalCode: "16000", phone: "0550112233",
     specialty: "Cardiologie", title: "PROFESSEUR", email: "a@chu.dz", sector: "HOSPITAL",
   };

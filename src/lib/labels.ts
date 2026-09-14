@@ -1556,6 +1556,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   MAIL_REGISTER: "Courriers",
   RECRUITMENT: "Recrutement",
   MY_TEAM: "Mon Équipe",
+  DIRECTORIES: "Annuaires",
   WORKSPACE: "Espace de travail",
   MESSAGING: "Messagerie",
   REGULATORY: "Regulatory",
@@ -1639,6 +1640,28 @@ export const MEDICAL_TABS: NavTab[] = [
   // écritures et AUCUN écran : Adam pouvait en créer, personne devant un écran ne pouvait
   // (§118.14). C'est aussi lui qui rend les secteurs de la force de vente possibles.
   { module: "MEDICAL", label: "Établissements", href: "/medical/etablissements" },
+];
+
+/**
+ * ANNUAIRES — le sous-module du pôle Administration qui centralise TOUS les annuaires.
+ *
+ * Demande de la Direction (09/2026) : « un module à part dans Administration nommé Annuaires qui
+ * contiendra tous les annuaires (partenaires, médecins, pharmaciens, établissements, et autres),
+ * tous centralisés ». Chaque onglet porte le MODULE du référentiel qu'il montre : c'est lui qui
+ * décide de son affichage (`visibleTabs`), pas la porte « Annuaires » — un onglet Médecins
+ * visible à qui n'a pas la Promotion médicale serait une fuite par le menu.
+ *
+ * Les écrans de chaque onglet rendent les MÊMES composants et lisent les MÊMES chargeurs que les
+ * pages des modules d'origine (`lib/queries/annuaires.ts`) : deux écrans qui chargent
+ * séparément le même annuaire divergent, toujours (§118.5).
+ */
+export const ANNUAIRES_TABS: NavTab[] = [
+  { module: "MEDICAL", label: "Médecins", href: "/annuaires/medecins" },
+  { module: "MEDICAL", label: "Pharmaciens", href: "/annuaires/pharmaciens" },
+  { module: "MEDICAL", label: "Établissements", href: "/annuaires/etablissements" },
+  { module: "WORKSPACE", label: "Partenaires", href: "/annuaires/partenaires" },
+  { module: "WORKSPACE", label: "Personnes", href: "/annuaires/personnes" },
+  { module: "DIRECTORIES", label: "Autres annuaires", href: "/annuaires/autres" },
 ];
 
 export const NAVIGATION: NavItem[] = [
@@ -1791,6 +1814,13 @@ export const NAVIGATION: NavItem[] = [
   },
   // COURRIERS — le carnet entrant/sortant de l'assistante de direction.
   { module: "MAIL_REGISTER", label: "Courriers", href: "/courriers", icon: "Mails", group: "Pôles", pole: "ADMINISTRATION" },
+  // ANNUAIRES — tous les annuaires de l'entreprise en un seul sous-module (décision de la
+  // Direction, 09/2026). L'entrée est visible dès qu'UN onglet l'est, et mène au premier
+  // onglet autorisé : chaque onglet porte le module de son référentiel.
+  {
+    module: "DIRECTORIES", label: "Annuaires", href: "/annuaires", icon: "BookUser", group: "Pôles",
+    pole: "ADMINISTRATION", tabs: ANNUAIRES_TABS, match: ["/annuaires"],
+  },
   // MON ÉQUIPE — l'écran de celui qui ENCADRE, et RECRUTEMENT est passé dessous.
   //
   // Recruter n'est pas une affaire d'Administration : c'est le geste d'un encadrant à qui il

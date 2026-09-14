@@ -81,9 +81,9 @@ suite("Plan de tournée — écran, validation, rapport, dénominateur", () => {
     await prisma.promoProduct.create({ data: { name: `${TAG}Nivolex`, businessUnitId: bu.id, productId: canon.id } });
 
     const [d1, d2, d3] = await Promise.all([
-      prisma.medicalDoctor.create({ data: { name: `${TAG}Dr Achour`, delegateId: kam.id, city: "Alger" } }),
-      prisma.medicalDoctor.create({ data: { name: `${TAG}Dr Benali`, delegateId: kam.id, city: "Alger" } }),
-      prisma.medicalDoctor.create({ data: { name: `${TAG}Dr Cherif`, delegateId: kam.id, city: "Oran" } }),
+      prisma.medicalDoctor.create({ data: { name: `${TAG}Dr Achour`, delegateId: kam.id, wilaya: "Alger" } }),
+      prisma.medicalDoctor.create({ data: { name: `${TAG}Dr Benali`, delegateId: kam.id, wilaya: "Alger" } }),
+      prisma.medicalDoctor.create({ data: { name: `${TAG}Dr Cherif`, delegateId: kam.id, wilaya: "Oran" } }),
     ]);
     doc1 = d1.id; doc2 = d2.id; doc3 = d3.id;
 

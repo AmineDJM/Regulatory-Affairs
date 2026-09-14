@@ -77,7 +77,7 @@ export function uniqueColumnKey(label: string, existing: readonly string[]): str
 export function targetsFor(custom: readonly CustomColumn[]): TargetColumn[] {
   const std: TargetColumn[] = DIRECTORY_COLUMNS.map((c) => ({
     id: `${STD}${c.key}`,
-    label: c.header,
+    label: c.note ? `${c.header} (${c.note})` : c.header,
     kind: "TEXT",
   }));
   const cus: TargetColumn[] = custom.map((c) => ({

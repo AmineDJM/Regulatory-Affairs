@@ -117,6 +117,16 @@ const SOCLE = [
    * qui aurait divergé au premier champ ajouté (§118.5).
    */
   "src/lib/interrupteurs/",
+  /**
+   * `grille/` : la sélection de cellules et la palette des feuilles (§118.133), zéro import ;
+   * `annuaires/` : les TYPES des lignes d'annuaire, zéro import. Les écrans (composants client),
+   * le chargeur serveur (`queries/annuaires`), les actions et l'op d'Adam en ont tous besoin, et
+   * aucun n'a le droit d'importer l'autre — un composant client qui importerait le chargeur
+   * tirerait Prisma dans le navigateur, un chargeur qui importerait un écran remonterait vers
+   * l'application.
+   */
+  "src/lib/grille/",
+  "src/lib/annuaires/",
 ];
 
 /**

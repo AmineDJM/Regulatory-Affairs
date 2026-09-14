@@ -18,27 +18,9 @@ import {
  * boîte part un message signé du PDG. La montrer, c'est permettre de la corriger.
  */
 
-export interface DirectoryPerson {
-  key: string;
-  name: string;
-  jobTitle: string | null;
-  department: string | null;
-  company: string | null;
-  userId: string | null;
-  employeeId: string | null;
-  entryId: string | null;
-  aliases: string[];
-  endpoints: {
-    id: string;
-    channel: "EMAIL" | "PHONE" | "WHATSAPP";
-    value: string;
-    label: string | null;
-    confidence: string;
-    isPrimary: boolean;
-  }[];
-  /** Les adresses connues des fiches ERP, hors annuaire — affichées, jamais dupliquées. */
-  erpEmails: string[];
-}
+import type { DirectoryPerson } from "@/lib/annuaires/types";
+
+export type { DirectoryPerson };
 
 const CONFIDENCE_LABEL: Record<string, string> = {
   VERIFIED_INTERNAL: "vérifiée",

@@ -178,7 +178,8 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
     specialty: r.specialty,
     sector: r.sector as never,
     institution: r.institution,
-    city: r.city,
+    // LA VILLE N'EST PLUS ÉCRITE : elle a quitté la feuille (décision de la Direction, 09/2026).
+    // Ce que le fichier en dit a déjà servi — à DÉDUIRE la wilaya, dans `parseDirectoryRow`.
     region: r.region,
     phone: r.phone,
     email: r.email,
@@ -351,12 +352,84 @@ export async function saveDirectoryCell(input: { id: string; field: string; valu
       data.prescriptionPotential = segToPriority[v as SegmentLevel];
       break;
     default:
-      data[field] = v; // address, city, wilaya, postalCode, phone, email, title, sector
+      data[field] = v; // address, wilaya, postalCode, phone, email, title, sector
   }
 
   await prisma.medicalDoctor.update({ where: { id }, data });
   revalidatePath("/medical/annuaire");
+  revalidatePath("/annuaires");
   revalidatePath("/medical");
+  return { ok: true };
+}
+
+/**
+ * ÉCRITURE D'UNE CELLULE SUR MESURE — les colonnes propres à un annuaire, enfin dans la feuille.
+ *
+ * `MedicalDirectoryColumn` existait, l'import savait les remplir, Adam savait les créer — et
+ * AUCUN écran ne les affichait ni ne les éditait (§118.14). La valeur vit dans
+ * `MedicalDoctor.custom` sous la clé FIGÉE de la colonne ; on la valide selon le TYPE que la
+ * colonne déclare : un nombre reste un nombre (« 12,5 » accepté, « douze » refusé), une date une
+ * date ISO, un choix une des options. Un texte vide EFFACE la clé — une cellule effacée est une
+ * absence, pas une chaîne vide.
+ *
+ * Même garde que le tronc commun : la ligne doit être à la portée de la personne, et la colonne
+ * doit appartenir à l'annuaire de CETTE fiche — écrire la clé d'un autre annuaire fabriquerait
+ * une valeur qu'aucune feuille n'affiche.
+ */
+export async function saveDirectoryCustomCell(input: { id: string; key: string; value: string }): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = String(input.id ?? "").trim();
+  const key = String(input.key ?? "").trim();
+  if (!id) return { ok: false, error: "Fiche introuvable." };
+  if (!key) return { ok: false, error: "Colonne inconnue." };
+  if (!(await canAccessEntity(user, "DOCTOR", id, "UPDATE"))) return { ok: false, error: "Non autorisé à modifier cette fiche." };
+
+  const doctor = await prisma.medicalDoctor.findUnique({ where: { id }, select: { directoryId: true, custom: true } });
+  if (!doctor) return { ok: false, error: "Fiche introuvable." };
+  if (!doctor.directoryId) return { ok: false, error: "Cette fiche est dans l'annuaire général, qui n'a pas de colonne sur mesure." };
+  const col = await prisma.medicalDirectoryColumn.findUnique({
+    where: { directoryId_key: { directoryId: doctor.directoryId, key } },
+    select: { kind: true, options: true, label: true },
+  });
+  if (!col) return { ok: false, error: "Cette colonne n'appartient pas à l'annuaire de la fiche." };
+
+  const raw = String(input.value ?? "").replace(/\s+/g, " ").trim();
+  let value: string | number | null = null;
+  if (raw) {
+    switch (col.kind) {
+      case "NUMBER": {
+        const n = Number(raw.replace(/\s/g, "").replace(",", "."));
+        if (!Number.isFinite(n)) return { ok: false, error: `« ${col.label} » attend un nombre.` };
+        value = n;
+        break;
+      }
+      case "DATE": {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || Number.isNaN(Date.parse(raw))) {
+          return { ok: false, error: `« ${col.label} » attend une date (AAAA-MM-JJ).` };
+        }
+        value = raw;
+        break;
+      }
+      case "CHOICE": {
+        const options = (col.options ?? "").split("|").map((o) => o.trim()).filter(Boolean);
+        if (!options.includes(raw)) return { ok: false, error: `« ${col.label} » n'accepte que : ${options.join(", ")}.` };
+        value = raw;
+        break;
+      }
+      default:
+        value = raw;
+    }
+  }
+
+  const base = (doctor.custom && typeof doctor.custom === "object" && !Array.isArray(doctor.custom)
+    ? doctor.custom
+    : {}) as Record<string, unknown>;
+  const next: Record<string, unknown> = { ...base };
+  if (value === null) delete next[key]; else next[key] = value;
+
+  await prisma.medicalDoctor.update({ where: { id }, data: { custom: next as Prisma.InputJsonObject, updatedById: user.id } });
+  revalidatePath("/medical/annuaire");
+  revalidatePath("/annuaires");
   return { ok: true };
 }
 
@@ -368,9 +441,20 @@ export async function saveDirectoryCell(input: { id: string; field: string; valu
  */
 export async function addDirectoryDoctor(input: {
   lastName: string; firstName: string; specialty: string; wilaya: string;
+  /** Le grade à la création — l'onglet « Pharmaciens » crée un PHARMACIEN, les autres laissent le défaut. */
+  title?: string;
+  /** L'annuaire nommé dans lequel ranger la fiche ; absent = l'annuaire général. */
+  directoryId?: string | null;
 }): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé à alimenter l'annuaire." };
+  const title = input.title ? validateAnnuaireValue("title", input.title) : null;
+  if (title && !title.ok) return { ok: false, error: title.error };
+  const directoryId = input.directoryId ? String(input.directoryId) : null;
+  if (directoryId) {
+    const dir = await prisma.medicalDirectory.findUnique({ where: { id: directoryId }, select: { id: true } });
+    if (!dir) return { ok: false, error: "Annuaire introuvable." };
+  }
 
   const lastName = input.lastName.replace(/\s+/g, " ").trim();
   const firstName = input.firstName.replace(/\s+/g, " ").trim();
@@ -388,7 +472,8 @@ export async function addDirectoryDoctor(input: {
   const created = await prisma.medicalDoctor.create({
     data: {
       name, lastName: lastName || null, firstName: firstName || null,
-      specialty, wilaya: wilaya.value, delegateId, companyId,
+      specialty, wilaya: wilaya.value, delegateId, companyId, directoryId,
+      ...(title && title.ok && title.value ? { title: title.value as never } : {}),
       createdById: user.id, updatedById: user.id,
     },
     select: { id: true },

@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 
 export interface PraticienVue {
   id: string; name: string; specialty: string | null; institution: string | null;
-  city: string | null; potential: string | null; secteur: string | null;
+  wilaya: string | null; potential: string | null; secteur: string | null;
 }
 
 /**
@@ -78,7 +78,7 @@ export function Planificateur({
 
   const [paires, setPaires] = React.useState<Set<string>>(() => new Set(pairesInitiales));
   const [jour, setJour] = React.useState(joursOuvres[0] ?? "");
-  const [ville, setVille] = React.useState("");
+  const [wilaya, setWilaya] = React.useState("");
   const [secteur, setSecteur] = React.useState("");
   const [q, setQ] = React.useState("");
   const [busy, setBusy] = React.useState(false);
@@ -86,8 +86,10 @@ export function Planificateur({
   const [rejet, setRejet] = React.useState(false);
   const [sale, setSale] = React.useState(false);
 
-  const villes = React.useMemo(
-    () => [...new Set(praticiens.map((p) => p.city).filter((c): c is string => Boolean(c)))].sort((a, b) => a.localeCompare(b, "fr")),
+  // LA WILAYA, pas la ville : la ville a quitté les annuaires (texte libre tapé de trois façons
+  // pour le même endroit) ; la wilaya est une liste fermée, donc un filtre qui ne ment pas.
+  const wilayas = React.useMemo(
+    () => [...new Set(praticiens.map((p) => p.wilaya).filter((c): c is string => Boolean(c)))].sort((a, b) => a.localeCompare(b, "fr")),
     [praticiens],
   );
   const secteurs = React.useMemo(
@@ -96,7 +98,7 @@ export function Planificateur({
   );
 
   const visibles = praticiens.filter((p) => {
-    if (ville && p.city !== ville) return false;
+    if (wilaya && p.wilaya !== wilaya) return false;
     if (secteur && p.secteur !== secteur) return false;
     if (!q.trim()) return true;
     return `${p.name} ${p.specialty ?? ""} ${p.institution ?? ""}`.toLowerCase().includes(q.trim().toLowerCase());
@@ -246,13 +248,13 @@ export function Planificateur({
             </div>
           </div>
 
-          {/* LE CADRE : la ville où il sera, ou son secteur. */}
+          {/* LE CADRE : la wilaya où il sera, ou son secteur. */}
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-40">
-              <Label htmlFor="plan-ville">Ville où je serai</Label>
-              <Select id="plan-ville" value={ville} onChange={(e) => setVille(e.target.value)}>
-                <option value="">Toutes les villes</option>
-                {villes.map((v) => <option key={v} value={v}>{v}</option>)}
+              <Label htmlFor="plan-wilaya">Wilaya où je serai</Label>
+              <Select id="plan-wilaya" value={wilaya} onChange={(e) => setWilaya(e.target.value)}>
+                <option value="">Toutes les wilayas</option>
+                {wilayas.map((v) => <option key={v} value={v}>{v}</option>)}
               </Select>
             </div>
             {secteurs.length > 0 && (
@@ -311,9 +313,9 @@ export function Planificateur({
                         </span>
                       </span>
                       <span className="flex shrink-0 flex-col items-end gap-0.5">
-                        {p.city && (
+                        {p.wilaya && (
                           <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <MapPin className="h-3 w-3" aria-hidden /> {p.city}
+                            <MapPin className="h-3 w-3" aria-hidden /> {p.wilaya}
                           </span>
                         )}
                         {p.secteur && <Badge tone="neutral" dot={false}>{p.secteur}</Badge>}

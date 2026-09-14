@@ -892,6 +892,10 @@ G("médical & annuaires (médecins, visites, spécialités, annuaires praticiens
   "medical-actions:updateVisit", "medical-directory-actions:importDirectorySheet",
   "medical-directory-actions:saveDirectoryCell", "medical-directory-actions:addDirectoryDoctor",
   "medical-directory-actions:deleteDirectoryDoctors", "medical-directory-crud-actions:createMedicalDirectory",
+  // La feuille comme un tableur (§118.133) : les colonnes sur mesure s'éditent enfin, et les
+  // cellules se colorent — deux gestes d'écran, le second sur une sélection rectangulaire que
+  // la conversation n'a pas encore de façon naturelle de désigner.
+  "medical-directory-actions:saveDirectoryCustomCell", "annuaire-couleurs-actions:colorerCellulesAnnuaire",
   "medical-directory-crud-actions:updateMedicalDirectory", "medical-directory-crud-actions:deleteMedicalDirectory",
   "medical-directory-crud-actions:moveDoctorsToDirectory", "medical-directory-crud-actions:setDirectoryAccess",
   // Les colonnes propres à un annuaire : Adam ne les pilote pas encore, comme le reste du groupe.

@@ -143,6 +143,9 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   // Mon espace et mon équipe. `my_overview`, `list_my_tasks`, `list_my_requests` ; `read_employee`.
   WORKSPACE: { domaines: ["MISSION"], mots: ["mon espace", "mes taches", "mes demandes", "mon tableau de bord"], outils: ["my_overview", "list_my_tasks", "list_my_requests"] },
   MY_TEAM: { domaines: ["HR", "DIRECTORY"], mots: ["mon equipe", "mes collaborateurs", "mes subordonnes"], outils: ["org_operation"] },
+  // Le concentrateur des annuaires : les personnes, les praticiens et les hôpitaux vivent tous
+  // dans DIRECTORY ; les établissements se cherchent par `search_hospitals`.
+  DIRECTORIES: { domaines: ["DIRECTORY"], mots: ["annuaires", "annuaire des partenaires", "annuaire des medecins", "annuaire des pharmaciens", "annuaire des etablissements", "carnet d adresses"], outils: ["directory_list", "directory_lookup", "search_hospitals"] },
   // Le bureau d'Adam lui-même et ce qu'il porte.
   CHIEF_OF_STAFF: { domaines: ["MISSION"], mots: ["chief of staff", "chef de cabinet"], outils: ["mission_status"] },
   NOTIFICATIONS: { domaines: ["MISSION"], mots: ["notification", "notifications", "alerte", "alertes"], outils: ["create_notification"] },

@@ -104,13 +104,13 @@ export async function addCongressBeneficiary(formData: FormData): Promise<Action
 export async function listBeneficiaryRefs(): Promise<{
   doctors: { id: string; name: string; institution: string | null; specialty: string | null }[];
   specialties: { id: string; name: string }[];
-  institutions: { id: string; name: string; city: string | null }[];
+  institutions: { id: string; name: string; wilaya: string | null }[];
 }> {
   await requireUser();
   const [doctors, specialties, institutions] = await Promise.all([
     prisma.medicalDoctor.findMany({ select: { id: true, name: true, institution: true, specialty: true }, orderBy: { name: "asc" }, take: 2000 }),
     prisma.medicalSpecialty.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.medicalInstitution.findMany({ where: { isActive: true }, select: { id: true, name: true, city: true }, orderBy: { name: "asc" } }),
+    prisma.medicalInstitution.findMany({ where: { isActive: true }, select: { id: true, name: true, wilaya: true }, orderBy: { name: "asc" } }),
   ]);
   return { doctors, specialties, institutions };
 }

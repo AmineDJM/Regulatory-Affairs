@@ -30,6 +30,8 @@ export interface DirectoryColumn {
   header: string;
   /** Autres écritures acceptées à l'import (normalisées : sans accent, sans casse). */
   aliases: string[];
+  /** Ce que la colonne DEVIENT à l'import quand elle n'est plus une colonne de la feuille. */
+  note?: string;
 }
 
 export type DirectoryField =
@@ -52,7 +54,10 @@ export const DIRECTORY_COLUMNS: DirectoryColumn[] = [
   { key: "sector", header: "Secteur", aliases: ["type d exercice", "exercice", "public prive", "prive public", "secteur d activite"] },
   { key: "institution", header: "Établissement", aliases: ["etablissement", "hopital", "clinique", "structure", "officine", "lieu d exercice", "ehs", "chu"] },
   { key: "address", header: "Adresse", aliases: ["adresse", "adresse complete", "rue", "adresse du cabinet", "adresse professionnelle", "lieu"] },
-  { key: "city", header: "Ville", aliases: ["commune", "localite", "agglomeration"] },
+  // LA VILLE N'EST PLUS UNE COLONNE DE LA FEUILLE (décision de la Direction, 09/2026) : un
+  // fichier qui la porte n'est pas perdu pour autant — elle sert à DÉDUIRE la wilaya, et c'est
+  // la wilaya qu'on écrit. La cible reste proposée, en disant ce qu'elle devient.
+  { key: "city", header: "Ville", aliases: ["commune", "localite", "agglomeration"], note: "sert à déduire la wilaya" },
   // LA WILAYA A SA PROPRE COLONNE. Elle était un simple alias de « Ville » : un fichier portant
   // les deux perdait la wilaya, et le comptage par territoire — la raison d'être de ce champ —
   // ne fonctionnait plus.
