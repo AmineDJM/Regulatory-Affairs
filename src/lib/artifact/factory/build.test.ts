@@ -5,20 +5,52 @@ import { papierEnTeteDeDemonstration } from "@/lib/artifact/factory/word";
 import type { SpecDocumentCommercial } from "@/lib/artifact/factory/commercial";
 import type { DocxModel } from "@/lib/artifact/object-model/model";
 
-const emetteur = {
-  nom: "Adventum Pharma", formeJuridique: "SARL", capital: "10 000 000 DZD", adresse: "12 rue des Frères Bouadou, Bir Mourad Raïs, Alger",
-  rc: "16/00-1234567B21", nif: "001916012345678", ai: "16012345678", nis: "001916012345690", telephone: "+213 21 00 00 00", email: "contact@adventum.dz",
-  banque: "BNA — Agence Hydra", rib: "001 00123 0123456789 45",
+/**
+ * LES DEUX PIÈCES DE RÉFÉRENCE de la société (septembre 2026) : la facture 001/FS/26 de
+ * Pharmagène à Biogalenic, et le bon de commande 012/DG/2026 d'Adventum à Insigne Conseil.
+ * Les chiffres sont ceux imprimés sur les originaux — c'est contre eux que la mise en page et
+ * l'arithmétique se jugent, pas contre un jeu d'essai inventé.
+ */
+const pharmagene = {
+  nom: "SARL PHARMAGENE", formeJuridique: "SARL", adresse: "N°123, Lot. BENHEDADI Saïd, 1er étage Chéraga – Alger",
+  rc: "16/00-1010258 B 15", nif: "001516101025823", ai: "16500657343", nis: "001516100000001", telephone: "021 00 00 00",
+  banque: "BNA — Agence Chéraga", rib: "001 00123 0123456789 45",
 };
-const tiers = { nom: "Pharmacie Centrale d'Alger", adresse: "5 boulevard Zighoud Youcef, Alger", nif: "000016098765432", rc: "16/00-7654321A20" };
+const adventum = {
+  nom: "SARL ADVENTUM Pharma", formeJuridique: "SARL", adresse: "N° 14 Rue El Moudjahidine, Sec. 45 GP 15 Lot. 01 RDC Chéraga - Alger",
+  rc: "16/00 1019094 B 23", nif: "002316101909460", ai: "16500570121", nis: "002316500139550", telephone: "020 339 430", email: "info@adventumdz.com",
+};
 
-const spec = (extra: Partial<SpecDocumentCommercial> = {}): SpecDocumentCommercial => ({
-  type: "FACTURE", numero: "FA-2026-0007", date: "2026-09-05", echeance: "2026-10-05", emetteur, tiers,
+const facture = (extra: Partial<SpecDocumentCommercial> = {}): SpecDocumentCommercial => ({
+  type: "FACTURE", numero: "001/FS/26", date: "2026-07-09", emetteur: pharmagene, numeroClient: "00003",
+  tiers: { nom: "Sarl. BIOGALENIC", adresse: "Zone Industrielle, Aissa Ben Hamida\n(Didouche Mourad), Constantine 25210, Algérie", telephone: "031 90 78 89/79 21", rc: "99 B 62900", nif: "099925006290089" },
   lignes: [
-    { designation: "Amoxicilline 1 g — boîte de 12", quantite: 100, prixUnitaire: 250 },
-    { designation: "Paracétamol 500 mg — boîte de 20", quantite: 40, prixUnitaire: 85.5 },
+    { designation: "TRAVAUX DE CONSULTING", section: true, quantite: 0, prixUnitaire: 0 },
+    { designation: "Frais TRIMESTRE 4/2025.", quantite: 3, prixUnitaire: 2_500_000 },
   ],
-  modePaiement: "VIREMENT", conditionsPaiement: "30 jours date de facture", signataire: { nom: "Amine Djouamai", qualite: "Gérant" },
+  modePaiement: "CHEQUE", conditionsPaiement: "ou virement bancaire", couleur: "#8DB4E2",
+  ...extra,
+});
+
+const bonDeCommande = (extra: Partial<SpecDocumentCommercial> = {}): SpecDocumentCommercial => ({
+  type: "BON_DE_COMMANDE", numero: "012/DG/2026", date: "2026-08-06", emetteur: adventum, couleur: "#1F5C99",
+  tiers: { nom: "INSIGNE CONSEIL", adresse: "Bat 10B n°04 Cité les sources.\nBir Mourad Rais", telephone: "021 54 11 56" },
+  contact: { nom: "Mme ABDELAZIZ ASSIA", telephone: "0770530674" }, referenceAmont: "26/0576", referenceAmontDate: "2026-07-20",
+  modePaiement: "CHEQUE", conditionsPaiement: "ou virement bancaire", taxes: [{ libelle: "Taxe Pub", taux: 0.02 }],
+  lignes: [
+    { designation: "Conception ADV", quantite: 1, prixUnitaire: 145_000, details: ["Nombre de page: 25"] },
+    { designation: "Adaptation format papier", quantite: 1, prixUnitaire: 0 },
+    { designation: "Impression ADV", quantite: 1, prixUnitaire: 15_000, details: ["Format A4", "Impression quadri recto verso sur 300g", "Pelliculage mat, finition spirale", "Forfait 10 exemplaires"] },
+    { designation: "Campagne Raltégravir", section: true, quantite: 0, prixUnitaire: 0 },
+    { designation: "Conception et impression d'une fiche posologique", quantite: 500, prixUnitaire: 225, details: ["Format fermé a5, 3 volets ouvert: 15cm x63cm", "Impression quadri recto verso sur 300g", "RCP, max 12 pages, sur 80g pique à l'intérieur"] },
+    { designation: "Conception & impression banner", quantite: 3, prixUnitaire: 33_000 },
+    { designation: "Campagne Dolutégravir", section: true, quantite: 0, prixUnitaire: 0 },
+    { designation: "Conception et impression d'une fiche posologique", quantite: 500, prixUnitaire: 225 },
+    { designation: "Conception & Impression banner", quantite: 3, prixUnitaire: 33_000 },
+    { designation: "Campagne Darunavir", section: true, quantite: 0, prixUnitaire: 0 },
+    { designation: "Conception et impression d'une fiche posologique", quantite: 500, prixUnitaire: 225 },
+    { designation: "Conception & Impression banner", quantite: 3, prixUnitaire: 33_000 },
+  ],
   ...extra,
 });
 
@@ -26,34 +58,102 @@ async function modele(octets: Buffer): Promise<DocxModel> {
   return (await adaptateurDocx.ouvrir(octets)).modele() as DocxModel;
 }
 const texteDe = (m: DocxModel) => [...m.paragraphs.map((p) => p.text), ...m.tables.flatMap((t) => t.cells.map((c) => c.text))].join("\n");
+const NBSP = " ";
 
-describe("le constructeur de pièces commerciales", () => {
-  it("compose une facture complète, la relit et retrouve numéro, tiers, TTC et lettres", async () => {
-    const r = await construireDocumentCommercial(spec());
+describe("le constructeur de pièces commerciales — la mise en page des pièces de référence", () => {
+  it("LA FACTURE (modèle Pharmagène) : numéro de client, « Facturer à », section sans chiffre, SOMME À PAYER, lettres en capitales, mode de paiement", async () => {
+    const r = await construireDocumentCommercial(facture());
     expect(r.verification.bloquants).toEqual([]);
     expect(r.verification.ok).toBe(true);
     expect(r.verification.relu).toMatchObject({ numero: true, tiers: true, ttc: true, lettres: true });
-    expect(r.totaux?.totalTtc).toBe(33_819.8); // 28 420 HT + 5 399,80 de TVA
+    // Les chiffres de l'original : 3 × 2 500 000 = 7 500 000 HT, TVA 19 % = 1 425 000, TTC 8 925 000.
+    expect(r.totaux?.totalHt).toBe(7_500_000);
+    expect(r.totaux?.totalTva).toBe(1_425_000);
+    expect(r.totaux?.totalTtc).toBe(8_925_000);
     expect(r.surPapierEnTete).toBe(false);
     const m = await modele(r.octets);
-    expect(m.paragraphs[0].text).toBe("FACTURE N° FA-2026-0007");
     const texte = texteDe(m);
-    // Le tableau des lignes n'a ni colonne Remise ni colonne TVA : rien à y montrer.
-    const lignes = m.tables.find((t) => t.header[0] === "N°")!;
-    expect(lignes.header).toEqual(["N°", "Désignation", "Qté", "P.U. HT", "Total HT"]);
-    expect(lignes.rows).toBe(3);
-    expect(texte).toContain("TVA 19\u00a0%");
-    expect(texte).toContain("33\u00a0819,80\u00a0DZD");
-    expect(texte).toContain("Trente-trois mille huit cent dix-neuf dinars algériens et quatre-vingts centimes.");
-    expect(texte).toContain("Échéance de règlement");
-    expect(texte).toContain("Banque : BNA — Agence Hydra");
-    expect(texte).toContain("NIF 001916012345678");
+    expect(texte).toContain("SARL PHARMAGENE");
+    expect(texte).toContain("Siège Social : ");
+    expect(texte).toContain("Numéro de client :");
+    expect(texte).toContain("00003");
+    expect(texte).toContain("Numéro de facture :");
+    expect(texte).toContain("001/FS/26");
+    expect(texte).toContain("Date de facture :");
+    expect(texte).toContain("09/07/2026");
+    expect(texte).toContain("Facturer à :");
+    expect(texte).toContain("Tél/Fax : 031 90 78 89/79 21");
+    expect(texte).toContain("RC : 99 B 62900");
+    expect(texte).toContain("NIF : 099925006290089");
+    expect(texte).toContain("AI : —"); // l'original imprime des tirets quand l'AI du client manque
+    expect(texte).toContain("Document Ref :");
+    const lignes = m.tables.find((t) => t.header[0] === "Description")!;
+    expect(lignes.header).toEqual(["Description", "Quantité", "Prix unitaire HT", "Prix total HT"]);
+    expect(lignes.rows).toBe(3); // en-tête + section + ligne chiffrée
+    expect(lignes.cells.find((c) => c.row === 2 && c.col === 1)?.text).toBe("TRAVAUX DE CONSULTING");
+    expect(lignes.cells.find((c) => c.row === 2 && c.col === 4)?.text).toBe("-");
+    expect(lignes.cells.find((c) => c.row === 3 && c.col === 3)?.text).toBe(`2${NBSP}500${NBSP}000,00`);
+    expect(texte).toContain("Arrêtée la présente facture à la somme de :");
+    expect(texte).toContain("HUIT MILLIONS NEUF CENT VINGT-CINQ MILLE DINARS ALGÉRIENS");
+    expect(texte).toContain("SOUS-TOTAL :");
+    expect(texte).toContain("TAUX DE TVA :");
+    expect(texte).toContain(`19${NBSP}%`);
+    expect(texte).toContain("MONTANT TVA :");
+    expect(texte).toContain("TOTAL TTC :");
+    expect(texte).toContain("SOMME À PAYER :");
+    expect(texte).toContain(`8${NBSP}925${NBSP}000,00`);
+    expect(texte).toContain("PAIEMENT PAR CHÈQUE");
+    expect(texte).toContain("OU VIREMENT BANCAIRE");
+    // Sans papier en-tête, le code imprime l'identité en pied ; la banque aussi sur une facture.
+    expect(texte).toContain("RC N° : 16/00-1010258 B 15");
+    expect(texte).toContain("Banque : BNA — Agence Chéraga");
     expect(m.hasHeader).toBe(false);
   });
 
-  it("montre Remise, Unité et TVA seulement quand les lignes en portent", async () => {
-    const r = await construireDocumentCommercial(spec({
-      type: "DEVIS", numero: "DEV-2026-0001", echeance: null, validiteJours: 15,
+  it("LE BON DE COMMANDE (modèle Adventum) : B.C, A / Adresse de livraison, bande Date · Contact · Devis N° · Modalités, détails, sections grisées, Offert, Taxe Pub hors base TVA, totaux dans le tableau", async () => {
+    const r = await construireDocumentCommercial(bonDeCommande());
+    expect(r.verification.bloquants).toEqual([]);
+    expect(r.verification.ok).toBe(true);
+    // Les chiffres de l'original : 794 500 HT, Taxe Pub 2 % = 15 890, TVA 19 % = 150 955 (sur le HT seul), TTC 961 345.
+    expect(r.totaux?.totalHt).toBe(794_500);
+    expect(r.totaux?.taxes).toEqual([{ libelle: "Taxe Pub", taux: 0.02, base: 794_500, montant: 15_890 }]);
+    expect(r.totaux?.totalTva).toBe(150_955);
+    expect(r.totaux?.totalTtc).toBe(961_345);
+    const m = await modele(r.octets);
+    expect(m.paragraphs[0].text).toBe("B.C : N° 012/DG/2026");
+    const texte = texteDe(m);
+    expect(texte).toContain("A :");
+    expect(texte).toContain("Société : INSIGNE CONSEIL");
+    expect(texte).toContain("Adresse : Bat 10B n°04 Cité les sources.");
+    expect(texte).toContain("Adresse de livraison :");
+    expect(texte).toContain("Siège Social : N° 14 Rue El Moudjahidine");
+    expect(texte).toContain("TEL : 020 339 430");
+    const bande = m.tables.find((t) => t.header[0] === "Date")!;
+    expect(bande.header).toEqual(["Date", "Contact", "Devis N°", "Modalités de paiement"]);
+    expect(texte).toContain("Mme ABDELAZIZ ASSIA");
+    expect(texte).toContain("Tel 0770530674");
+    expect(texte).toContain("26/0576");
+    expect(texte).toContain("Du 20/07/2026");
+    expect(texte).toContain("Chèque");
+    const lignes = m.tables.find((t) => t.header[0] === "Désignation")!;
+    expect(lignes.header).toEqual(["Désignation", "Qte", "PU HT", "Total HT"]);
+    expect(texte).toContain("Impression quadri recto verso sur 300g");
+    expect(texte).toContain("Campagne Raltégravir");
+    expect(texte).toContain("Offert");
+    expect(texte).toContain(`145${NBSP}000,00${NBSP}DZD`);
+    expect(texte).toContain(`112${NBSP}500,00${NBSP}DZD`);
+    // Les totaux sont les DERNIÈRES lignes du tableau des lignes, comme sur l'original.
+    const dernieres = lignes.cells.filter((c) => c.row >= lignes.rows - 3).map((c) => c.text);
+    expect(dernieres).toEqual(expect.arrayContaining(["Total HT", `794${NBSP}500,00${NBSP}DZD`, `Taxe Pub 2${NBSP}%`, `15${NBSP}890,00${NBSP}DZD`, `Frais TVA 19${NBSP}%`, `150${NBSP}955,00${NBSP}DZD`, "Montant TTC", `961${NBSP}345,00${NBSP}DZD`]));
+    expect(texte).toContain("Arrêté le présent bon de commande à la somme de :");
+    expect(texte).toContain("Neuf cent soixante et un mille trois cent quarante-cinq dinars algériens");
+    // Sans papier : l'identité d'Adventum en pied.
+    expect(texte).toContain("NIF : 002316101909460");
+  });
+
+  it("montre Unité, Remise et TVA seulement quand les lignes en portent — et le devis emprunte la mise en page du bon de commande", async () => {
+    const r = await construireDocumentCommercial(bonDeCommande({
+      type: "DEVIS", numero: "DEV-2026-0001", validiteJours: 15, referenceAmont: null, referenceAmontDate: null, taxes: null,
       lignes: [
         { designation: "Formation", quantite: 2, unite: "jour", prixUnitaire: 60_000, tva: 0.09, remise: 0.1 },
         { designation: "Support", quantite: 1, prixUnitaire: 10_000 },
@@ -61,33 +161,35 @@ describe("le constructeur de pièces commerciales", () => {
     }));
     expect(r.verification.ok).toBe(true);
     const m = await modele(r.octets);
-    const lignes = m.tables.find((t) => t.header[0] === "N°")!;
-    expect(lignes.header).toEqual(["N°", "Désignation", "Qté", "Unité", "P.U. HT", "Remise", "TVA", "Total HT"]);
+    expect(m.paragraphs[0].text).toBe("DEVIS : N° DEV-2026-0001");
+    const lignes = m.tables.find((t) => t.header[0] === "Désignation")!;
+    expect(lignes.header).toEqual(["Désignation", "Unité", "Qte", "Remise", "TVA", "PU HT", "Total HT"]);
     const texte = texteDe(m);
     expect(texte).toContain("Validité");
-    expect(texte).toContain("15 jours — jusqu'au 20/09/2026");
+    expect(texte).toContain("jusqu'au 21/08/2026");
+    expect(texte).toContain("Client :");
+    expect(texte).toContain("Émetteur :");
     expect(texte).toContain("Bon pour accord");
-    expect(texte).toContain("Arrêté le présent devis à la somme de");
+    expect(texte).toContain("Arrêté le présent devis à la somme de :");
+    expect(texte).toContain(`Frais TVA 9${NBSP}%`);
+    expect(texte).toContain(`Frais TVA 19${NBSP}%`);
   });
 
-  it("pose la pièce sur le papier en-tête : en-tête et pied conservés, identité compactée mais identifiants présents", async () => {
-    const r = await construireDocumentCommercial(spec({ type: "BON_DE_COMMANDE", numero: "BC-2026-0042", echeance: null, livraison: { adresse: "Dépôt de Oued Smar", delai: "sous 10 jours" } }), { base: papierEnTeteDeDemonstration() });
+  it("pose la pièce sur le papier en-tête : en-tête et pied conservés, et le code n'imprime plus l'identité en pied — le papier la porte", async () => {
+    const r = await construireDocumentCommercial(bonDeCommande({ livraison: { adresse: "Dépôt de Oued Smar", delai: "sous 10 jours" } }), { base: papierEnTeteDeDemonstration() });
     expect(r.verification.ok).toBe(true);
     expect(r.surPapierEnTete).toBe(true);
     const m = await modele(r.octets);
     expect(m.hasHeader).toBe(true);
     expect(m.hasFooter).toBe(true);
     const texte = texteDe(m);
-    expect(texte).toContain("FOURNISSEUR");
-    expect(texte).toContain("Adresse de livraison");
-    expect(texte).toContain("Dépôt de Oued Smar");
-    expect(texte).toContain("NIF 001916012345678");
-    // L'adresse du siège n'est pas répétée dans le bloc émetteur : le papier la porte déjà.
-    expect(texte.split("Bir Mourad Raïs").length - 1).toBe(0);
+    expect(texte).toContain("Siège Social : Dépôt de Oued Smar");
+    expect(texte).toContain("Délai : sous 10 jours");
+    expect(texte).not.toContain("RC N° :");
   });
 
   it("refuse une facture dont l'émetteur n'a pas ses mentions — rien n'est composé", async () => {
-    const r = await construireDocumentCommercial(spec({ emetteur: { ...emetteur, nif: null, nis: null } }));
+    const r = await construireDocumentCommercial(facture({ emetteur: { ...pharmagene, nif: null, nis: null } }));
     expect(r.verification.ok).toBe(false);
     expect(r.octets.length).toBe(0);
     expect(r.totaux).toBeNull();
@@ -95,7 +197,7 @@ describe("le constructeur de pièces commerciales", () => {
   });
 
   it("refuse de livrer une pièce où traîne un reste de brouillon, même si tout le reste est juste", async () => {
-    const r = await construireDocumentCommercial(spec({ lignes: [{ designation: "Prestation TODO préciser", quantite: 1, prixUnitaire: 100 }] }));
+    const r = await construireDocumentCommercial(facture({ lignes: [{ designation: "Prestation TODO préciser", quantite: 1, prixUnitaire: 100 }] }));
     expect(r.verification.ok).toBe(false);
     expect(r.verification.bloquants.some((b) => /TODO/.test(b))).toBe(true);
   });

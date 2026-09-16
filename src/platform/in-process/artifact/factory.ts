@@ -41,12 +41,15 @@ import { canEditCompanyId, getMyCompanies, moneyEntityOf, type CompanyLite } fro
 import { getBlob } from "@/lib/drive-storage";
 import { recordAudit } from "@/lib/audit";
 import { docxToPdf } from "@/lib/payslip/to-pdf";
+import { convertConfigured, convertDocument } from "@/lib/office-convert";
+import { appBaseUrl, makeEditToken } from "@/lib/onlyoffice";
 import { portsArtefact } from "@/platform/in-process/artifact/ports";
 import { construireDocumentCommercial } from "@/lib/artifact/factory/build";
+import { empreinteDocument } from "@/lib/artifact/factory/empreinte";
 import {
-  ajouterJours, empreinteDocument, formaterDzd, formaterNumero, LIBELLE_TYPE, NATURE_LEGALE, TAUX_TVA_ADMIS, titreDocument,
-  TYPES_DOCUMENT, verifierSpecCommerciale,
-  type LigneCommerciale, type ModePaiement, type PartieCommerciale, type SpecDocumentCommercial, type TotauxCommerciaux, type TypeDocumentCommercial,
+  ajouterJours, formaterDzd, formaterNumero, LIBELLE_TYPE, NATURE_LEGALE, TAUX_TVA_ADMIS, titreDocument,
+  TYPES_DOCUMENT, validerMotifNumero, verifierSpecCommerciale,
+  type LigneCommerciale, type ModePaiement, type PartieCommerciale, type SpecDocumentCommercial, type TaxeAdditionnelle, type TotauxCommerciaux, type TypeDocumentCommercial,
 } from "@/lib/artifact/factory/commercial";
 import { construireDossier } from "@/lib/artifact/factory/dossier";
 import { charteDe, lireMarque, mentionsDe, resumerMarque, signatairePour, type Charte, type Marque } from "@/lib/brand/model";
@@ -83,6 +86,12 @@ export interface ReglagesDocumentaires {
   letterheadId: string | null;
   signatoryName: string | null;
   signatoryTitle: string | null;
+  /**
+   * LE MOTIF DU NUMÉRO, par nature — « 001/FS/26 » pour les factures, « 012/DG/2026 » pour les
+   * bons de commande : ce que les pièces réelles de la société portent. Vide = le défaut
+   * `{prefixe}-{aaaa}-{n:4}`. Vit dans `settings.numerotation` du profil (extensible sans migration).
+   */
+  numerotation: Partial<Record<TypeDocumentCommercial, string>>;
   /** Vrai si un profil a été enregistré ; faux = ce sont les défauts du code. */
   existe: boolean;
 }
@@ -112,8 +121,21 @@ export interface Habillage {
 
 const REGLAGES_DEFAUT: ReglagesDocumentaires = {
   quotePrefix: "DEV", orderPrefix: "BC", invoicePrefix: "FA", vatRate: 0.19, paymentTerms: null, quoteValidityDays: 30,
-  footerNote: null, letterheadId: null, signatoryName: null, signatoryTitle: null, existe: false,
+  footerNote: null, letterheadId: null, signatoryName: null, signatoryTitle: null, numerotation: {}, existe: false,
 };
+
+/** Les motifs de numérotation lus dans `settings.numerotation` — seuls les motifs VALIDES comptent. */
+function lireNumerotation(settings: Prisma.JsonValue | null | undefined): Partial<Record<TypeDocumentCommercial, string>> {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return {};
+  const brut = (settings as Record<string, unknown>).numerotation;
+  if (!brut || typeof brut !== "object" || Array.isArray(brut)) return {};
+  const out: Partial<Record<TypeDocumentCommercial, string>> = {};
+  for (const type of TYPES_DOCUMENT) {
+    const v = (brut as Record<string, unknown>)[type];
+    if (typeof v === "string" && v.trim() && !validerMotifNumero(v)) out[type] = v.trim();
+  }
+  return out;
+}
 
 const plier = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
@@ -193,8 +215,14 @@ export function manquesDIdentite(profil: ProfilDocumentaire): string[] {
   return out;
 }
 
-/** LE PROFIL DOCUMENTAIRE d'une société : identité légale, réglages, papier en-tête. */
-export async function profilDocumentaire(user: CurrentUser, societe?: string | null): Promise<{ ok: true; profil: ProfilDocumentaire; papierOctets: Buffer | null; logo: Habillage["logo"]; habillage: Habillage } | EchecFabrique> {
+/**
+ * LE PROFIL DOCUMENTAIRE d'une société : identité légale, réglages, papier en-tête.
+ *
+ * `opts.papierEnTeteId` : un papier CHOISI pour cette pièce (le bouton des Finances propose la
+ * bibliothèque de la société) à la place de celui que le profil désigne — jamais le papier d'une
+ * autre société : écrire sur son en-tête, c'est l'engager.
+ */
+export async function profilDocumentaire(user: CurrentUser, societe?: string | null, opts: { papierEnTeteId?: string | null } = {}): Promise<{ ok: true; profil: ProfilDocumentaire; papierOctets: Buffer | null; logo: Habillage["logo"]; habillage: Habillage } | EchecFabrique> {
   const r = await resoudreSociete(user.id, societe);
   if (!r.ok) return r;
   const s = r.societe;
@@ -210,7 +238,7 @@ export async function profilDocumentaire(user: CurrentUser, societe?: string | n
     ? {
       quotePrefix: profil.quotePrefix, orderPrefix: profil.orderPrefix, invoicePrefix: profil.invoicePrefix, vatRate: Number(profil.vatRate),
       paymentTerms: profil.paymentTerms, quoteValidityDays: profil.quoteValidityDays, footerNote: profil.footerNote, letterheadId: profil.letterheadId,
-      signatoryName: profil.signatoryName, signatoryTitle: profil.signatoryTitle, existe: true,
+      signatoryName: profil.signatoryName, signatoryTitle: profil.signatoryTitle, numerotation: lireNumerotation(profil.settings), existe: true,
     }
     // UNE COPIE, jamais la constante : les standards enseignés ci-dessous ÉCRIVENT dans `reglages`.
     // Sans copie, la première société qui appliquait « 60 jours » le laissait dans les défauts du
@@ -240,8 +268,15 @@ export async function profilDocumentaire(user: CurrentUser, societe?: string | n
   appliquer("mentionPied", (v) => (typeof v === "string" && v.trim() ? ((reglages.footerNote = v.trim()), "mention de pied de page") : null));
   // Le papier : celui que le profil désigne s'il est toujours actif, sinon le premier de la
   // société, sinon un papier commun au groupe — jamais celui d'une autre société.
+  const voulu = (opts.papierEnTeteId ?? "").trim();
+  if (voulu && !entetes.some((l) => l.id === voulu)) {
+    // `entetes` ne contient que les en-têtes Word ACTIFS de cette société ou communs au groupe :
+    // « introuvable » couvre donc aussi « appartient à une autre société », sans le révéler.
+    return echec("NOT_FOUND", "Ce papier en-tête n'existe pas, n'est plus actif, ou n'est pas un modèle Word de cette société.");
+  }
+  const choisi = voulu ? entetes.find((l) => l.id === voulu) ?? null : null;
   const designe = reglages.letterheadId ? entetes.find((l) => l.id === reglages.letterheadId) ?? null : null;
-  const papier = designe ?? letterheadsFor(entetes, "word", s.id).find((l) => l.companyId === s.id || l.companyId === null) ?? null;
+  const papier = choisi ?? designe ?? letterheadsFor(entetes, "word", s.id).find((l) => l.companyId === s.id || l.companyId === null) ?? null;
   const papierOctets = papier ? await getBlob(papier.blobId) : null;
   // LA MARQUE (§26) : lue dans `settings.marque` du profil ; la charte effective tranche marque >
   // pastille de la société > défauts. Le logo n'est chargé que s'il servira : sans papier en-tête.
@@ -296,6 +331,8 @@ export interface ModificationsProfil {
   letterheadId?: string | null;
   signatoryName?: string | null;
   signatoryTitle?: string | null;
+  /** Le motif du numéro par nature ; `null` efface (retour au défaut). Voir `MOTIF_NUMERO_DEFAUT`. */
+  numerotation?: Partial<Record<TypeDocumentCommercial, string | null>>;
 }
 
 /** DÉFINIT (ou corrige) le profil documentaire d'une société — les tenants de la papeterie seulement. */
@@ -333,12 +370,32 @@ export async function definirProfilDocumentaire(
     }
     data.letterheadId = opts.letterheadId || null;
   }
+  if (opts.numerotation !== undefined && opts.numerotation !== null) {
+    // Le motif se vérifie AVANT d'écrire : un motif sans séquence numéroterait toutes les pièces
+    // pareil, et le refus nomme le jeton fautif plutôt que de laisser un « 001/FS/26 » bancal.
+    for (const type of TYPES_DOCUMENT) {
+      const v = opts.numerotation[type];
+      if (v === undefined || v === null || v.trim() === "") continue;
+      const refus = validerMotifNumero(v);
+      if (refus) return echec("MISSING_INPUT", `Motif de numérotation des ${LIBELLE_TYPE[type].toLowerCase()}s refusé : ${refus}`);
+    }
+    const actuel = await prisma.companyDocumentProfile.findUnique({ where: { companyId: s.id }, select: { settings: true } });
+    const settings = actuel?.settings && typeof actuel.settings === "object" && !Array.isArray(actuel.settings) ? { ...(actuel.settings as Record<string, unknown>) } : {};
+    const numerotation: Record<string, string> = { ...lireNumerotation(actuel?.settings) };
+    for (const type of TYPES_DOCUMENT) {
+      const v = opts.numerotation[type];
+      if (v === undefined) continue;
+      if (v === null || v.trim() === "") delete numerotation[type]; else numerotation[type] = v.trim();
+    }
+    settings.numerotation = numerotation;
+    data.settings = settings as Prisma.InputJsonValue;
+  }
   await prisma.companyDocumentProfile.upsert({
     where: { companyId: s.id },
     create: { ...(data as Omit<Prisma.CompanyDocumentProfileUncheckedCreateInput, "companyId">), companyId: s.id },
     update: data,
   });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Legal", entityType: "COMPANY", entityId: s.id, summary: `Profil documentaire de ${s.name} réglé : ${Object.keys(data).filter((k) => k !== "updatedById").join(", ") || "aucun changement"}` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Legal", entityType: "COMPANY", entityId: s.id, summary: `Profil documentaire de ${s.name} réglé : ${Object.keys(data).filter((k) => k !== "updatedById").map((k) => (k === "settings" ? "numerotation" : k)).join(", ") || "aucun changement"}` });
   const relu = await profilDocumentaire(user, s.id);
   return relu.ok ? { ok: true, profil: relu.profil } : relu;
 }
@@ -360,9 +417,20 @@ export interface DemandeDocument {
   modePaiement?: ModePaiement | null;
   conditionsPaiement?: string | null;
   objet?: string | null;
+  /** La pièce amont, en clair : « 26/0576 » sous « Devis N° » d'un bon de commande. */
   referenceAmont?: string | null;
+  /** La date de la pièce amont (« Du 20/07/2026 »), ISO. */
+  referenceAmontDate?: string | null;
+  /** Facture : le numéro de client de la société (« 00003 »). */
+  numeroClient?: string | null;
+  /** Bon de commande / devis : l'interlocuteur nommé sur la pièce. */
+  contact?: { nom?: string | null; telephone?: string | null } | null;
+  /** Taxes additionnelles sur le HT, hors base de TVA (« Taxe Pub » 2 %). */
+  taxes?: TaxeAdditionnelle[] | null;
   livraison?: { adresse?: string | null; delai?: string | null } | null;
   notes?: string | null;
+  /** Un papier en-tête Word précis de la société, à la place de celui du profil. */
+  letterheadId?: string | null;
   /** La pièce Legal dont celle-ci découle (le devis d'un BC, le BC d'une facture). */
   chainFromId?: string | null;
   /** Le dossier du Drive personnel. Vide = « Documents Adam ». */
@@ -383,7 +451,8 @@ interface Fabrique {
   spec: SpecDocumentCommercial;
   totaux: ResumeTotaux;
   docx: { nodeId: string; version: number } | null;
-  pdf: { nodeId: string; version: number; pages: number } | null;
+  /** `methode` : « editeur » = imprimé par l'éditeur Office du serveur ; « rendu » = redessiné ici (repli). */
+  pdf: { nodeId: string; version: number; pages: number; methode?: MethodePdf } | null;
   surPapierEnTete: boolean;
   papierEnTeteId: string | null;
   emisPar: string;
@@ -391,8 +460,46 @@ interface Fabrique {
   historique: { version: number; le: string; par: string; resume: string }[];
 }
 
-interface ResumeTotaux { totalHt: number; totalTva: number; timbre: number; totalTtc: number; enLettres: string }
-const resumeTotaux = (t: TotauxCommerciaux): ResumeTotaux => ({ totalHt: t.totalHt, totalTva: t.totalTva, timbre: t.timbre, totalTtc: t.totalTtc, enLettres: t.enLettres });
+interface ResumeTotaux { totalHt: number; totalTva: number; totalTaxes?: number; timbre: number; totalTtc: number; enLettres: string }
+const resumeTotaux = (t: TotauxCommerciaux): ResumeTotaux => ({ totalHt: t.totalHt, totalTva: t.totalTva, totalTaxes: t.totalTaxes, timbre: t.timbre, totalTtc: t.totalTtc, enLettres: t.enLettres });
+
+export type MethodePdf = "editeur" | "rendu";
+
+/** Le nombre de pages d'un PDF, lu dans ses objets — suffisant pour le dire, sans ouvrir un moteur. */
+const compterPagesPdf = (pdf: Buffer): number => {
+  const m = pdf.toString("latin1").match(/\/Type\s*\/Page(?![s\w])/g);
+  return Math.max(1, m ? m.length : 1);
+};
+
+/**
+ * LE PDF DE LA PIÈCE — par l'ÉDITEUR OFFICE du serveur quand il est configuré (l'impression
+ * fidèle du .docx, papier en-tête compris), sinon par le RENDU de ce dépôt (`docxToPdf`), qui
+ * redessine texte, tableaux, en-tête et pied. La méthode VOYAGE avec le fichier : « le PDF
+ * existe » ne dit pas la même chose selon qui l'a imprimé (§118.121), et c'est à l'écran de le
+ * dire. Un échec de l'éditeur retombe sur le rendu : ajouter un chemin ne doit pas retirer celui
+ * qui marchait.
+ */
+async function pdfDeLaPiece(user: CurrentUser, docx: { nodeId: string; version: number }, octets: Buffer): Promise<{ ok: true; pdf: Buffer; pages: number; methode: MethodePdf } | { ok: false; error: string }> {
+  if (convertConfigured()) {
+    try {
+      const token = makeEditToken(docx.nodeId, user.id, 300);
+      const pdf = await convertDocument({ srcUrl: `${appBaseUrl()}/api/onlyoffice/file?token=${token}`, fromExt: "docx", outputType: "pdf", key: `fabrique_${docx.nodeId}_${docx.version}` });
+      if (pdf.length > 0) return { ok: true, pdf, pages: compterPagesPdf(pdf), methode: "editeur" };
+    } catch (e) {
+      console.error("[fabrique] impression PDF par l'éditeur Office échouée — repli sur le rendu du serveur", e);
+    }
+  }
+  const r = await docxToPdf(octets);
+  return r.ok ? { ok: true, pdf: r.pdf, pages: r.pages, methode: "rendu" } : r;
+}
+
+/** La réserve à dire quand le PDF est un rendu du serveur — et rien quand l'éditeur l'a imprimé. */
+const reservePdf = (methode: MethodePdf, surPapierEnTete: boolean): string | null =>
+  methode === "editeur"
+    ? null
+    : surPapierEnTete
+      ? "Le PDF est un rendu du serveur : l'en-tête et le pied du papier y sont redessinés (logo, textes, couleurs), pas imprimés par un traitement de texte — le .docx fait foi pour l'impression officielle."
+      : "Le PDF est un rendu du serveur du .docx ; le .docx fait foi pour l'impression.";
 
 export interface DocumentEmis {
   ok: true;
@@ -407,7 +514,7 @@ export interface DocumentEmis {
   societe: { id: string; nom: string };
   tiers: string;
   docx: { nodeId: string; nom: string; version: number };
-  pdf: { nodeId: string; nom: string; pages: number } | null;
+  pdf: { nodeId: string; nom: string; pages: number; methode: MethodePdf } | null;
   totaux: ResumeTotaux;
   surPapierEnTete: boolean;
   avertissements: string[];
@@ -423,6 +530,7 @@ function fabriqueDe(custom: Prisma.JsonValue | null): Fabrique | null {
 }
 
 const aujourdhui = (): string => new Date().toISOString().slice(0, 10);
+const present = (v: string | null | undefined): v is string => !!v && v.trim() !== "";
 const nomFichier = (numero: string, tiers: string, ext: string): string => `${numero} — ${tiers.trim().replace(/[\\/:*?"<>|]+/g, " ").slice(0, 60)}.${ext}`;
 
 /** La spécification (sans numéro) telle que la fabrique la compose depuis la demande et le profil. */
@@ -434,7 +542,12 @@ function specDepuisDemande(d: DemandeDocument, p: ProfilDocumentaire): Omit<Spec
     date,
     emetteur: p.identite,
     tiers: { ...d.tiers, nom: (d.tiers?.nom ?? "").trim() },
-    lignes: (d.lignes ?? []).map((l) => ({ ...l, designation: String(l.designation ?? "").trim() })),
+    lignes: (d.lignes ?? []).map((l) => ({
+      ...l, designation: String(l.designation ?? "").trim(),
+      // Une SECTION n'a ni quantité ni prix : on n'en invente pas, on les met à zéro et le calcul les ignore.
+      ...(l.section ? { section: true, quantite: 0, prixUnitaire: 0 } : {}),
+      details: Array.isArray(l.details) ? l.details.map((x) => String(x ?? "").trim()).filter(Boolean) : null,
+    })),
     tvaDefaut: d.tvaDefaut ?? p.reglages.vatRate,
     remiseGlobale: d.remiseGlobale ?? null,
     modePaiement: d.modePaiement ?? (d.type === "FACTURE" ? "VIREMENT" : null),
@@ -443,6 +556,10 @@ function specDepuisDemande(d: DemandeDocument, p: ProfilDocumentaire): Omit<Spec
     validiteJours: d.type === "DEVIS" ? validite : null,
     objet: d.objet ?? null,
     referenceAmont: d.referenceAmont ?? null,
+    referenceAmontDate: (d.referenceAmontDate ?? "").trim() || null,
+    numeroClient: (d.numeroClient ?? "").trim() || null,
+    contact: d.contact && (present(d.contact.nom) || present(d.contact.telephone)) ? { nom: d.contact.nom?.trim() || null, telephone: d.contact.telephone?.trim() || null } : null,
+    taxes: Array.isArray(d.taxes) && d.taxes.length ? d.taxes.map((x) => ({ libelle: String(x.libelle ?? "").trim(), taux: Number(x.taux) })) : null,
     livraison: d.livraison ?? null,
     notes: d.notes ?? null,
     // LA MARQUE tranche : le signataire du type de pièce, sinon celui par défaut, sinon celui du
@@ -492,7 +609,7 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
   if (!peutEcrire(user, "CREATE", type)) {
     return echec("MISSING_PERMISSION", `Émettre un${type === "FACTURE" ? "e facture" : type === "DEVIS" ? " devis" : " bon de commande"} exige le droit de créer dans Legal${type === "FACTURE" ? " ou dans Finances" : ""}.`);
   }
-  const p = await profilDocumentaire(user, demande.societe);
+  const p = await profilDocumentaire(user, demande.societe, { papierEnTeteId: demande.letterheadId ?? null });
   if (!p.ok) return p;
   const { profil, papierOctets, habillage } = p;
   if (!(await canEditCompanyId(user.id, profil.societe.id))) return echec("MISSING_PERMISSION", `Vous voyez ${profil.societe.nom} sans pouvoir l'engager : la pièce ne peut pas être émise en son nom.`);
@@ -535,7 +652,7 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
           ok: true, dejaEmis: true, repris: false, legalDocumentId: existant.id, reference: f.numero, type, version: f.version,
           societe: { id: profil.societe.id, nom: profil.societe.nom }, tiers: base.tiers.nom,
           docx: { nodeId: f.docx.nodeId, nom: nomFichier(f.numero, base.tiers.nom, "docx"), version: f.docx.version },
-          pdf: f.pdf ? { nodeId: f.pdf.nodeId, nom: nomFichier(f.numero, base.tiers.nom, "pdf"), pages: f.pdf.pages } : null,
+          pdf: f.pdf ? { nodeId: f.pdf.nodeId, nom: nomFichier(f.numero, base.tiers.nom, "pdf"), pages: f.pdf.pages, methode: f.pdf.methode ?? "rendu" } : null,
           totaux: f.totaux, surPapierEnTete: f.surPapierEnTete, avertissements: [`Une pièce identique existait déjà (${f.numero}) : elle est rendue, aucune nouvelle pièce n'a été émise.`], reglesAppliquees: profil.reglesAppliquees, ms: Date.now() - debut,
         };
       }
@@ -549,7 +666,7 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
   const totaux = essai.totaux;
   const cree = await prisma.$transaction(async (tx) => {
     const seq = await attribuerNumero(tx, profil.societe.id, kind, annee);
-    const numero = formaterNumero(prefixe, annee, seq);
+    const numero = formaterNumero(prefixe, annee, seq, profil.reglages.numerotation[type] ?? null);
     const fabrique: Fabrique = {
       version: 1, etat: "EN_COURS", type, empreinte, societeId: profil.societe.id, numero,
       spec: { ...base, numero }, totaux: resumeTotaux(totaux), docx: null, pdf: null,
@@ -593,11 +710,12 @@ async function terminerEmission(
   let pdf: Fabrique["pdf"] = null;
   const avertissements = [...ctx.avertissements, ...manquesDIdentite(profil)];
   if (!demande.sansPdf) {
-    const conv = await docxToPdf(construit.octets);
+    const conv = await pdfDeLaPiece(user, { nodeId: docx.nodeId, version: docx.version }, construit.octets);
     if (conv.ok) {
       const noeud = await portsArtefact.documents.creerFichier(user.id, { nom: nomFichier(fabrique.numero, spec.tiers.nom, "pdf"), octets: conv.pdf, mime: "application/pdf", dossier });
-      pdf = { nodeId: noeud.nodeId, version: noeud.version, pages: conv.pages };
-      if (construit.surPapierEnTete) avertissements.push("Le PDF rend le texte et les tableaux ; l'en-tête graphique du papier n'y figure pas — le .docx fait foi pour l'impression.");
+      pdf = { nodeId: noeud.nodeId, version: noeud.version, pages: conv.pages, methode: conv.methode };
+      const reserve = reservePdf(conv.methode, construit.surPapierEnTete);
+      if (reserve) avertissements.push(reserve);
     } else avertissements.push(`PDF non produit : ${conv.error}`);
   }
   const finale: Fabrique = { ...fabrique, etat: "EMIS", docx: { nodeId: docx.nodeId, version: docx.version }, pdf, totaux: resumeTotaux(construit.totaux), surPapierEnTete: construit.surPapierEnTete };
@@ -613,14 +731,67 @@ async function terminerEmission(
     ok: true, dejaEmis: false, repris: ctx.repris, legalDocumentId, reference: fabrique.numero, type: spec.type, version: finale.version,
     societe: { id: profil.societe.id, nom: profil.societe.nom }, tiers: spec.tiers.nom,
     docx: { nodeId: docx.nodeId, nom: nomDocx, version: docx.version },
-    pdf: pdf ? { nodeId: pdf.nodeId, nom: nomFichier(fabrique.numero, spec.tiers.nom, "pdf"), pages: pdf.pages } : null,
+    pdf: pdf ? { nodeId: pdf.nodeId, nom: nomFichier(fabrique.numero, spec.tiers.nom, "pdf"), pages: pdf.pages, methode: pdf.methode ?? "rendu" } : null,
     totaux: finale.totaux, surPapierEnTete: construit.surPapierEnTete, avertissements, reglesAppliquees: profil.reglesAppliquees, ms: Date.now() - ctx.debut,
   };
 }
 
+// ─────────────────────────── L'aperçu ───────────────────────────
+
+export interface ApercuDocument {
+  ok: true;
+  societe: { id: string; nom: string };
+  /** Le numéro que la PROCHAINE émission recevra si personne n'émet entre-temps — prévu, pas réservé. */
+  numeroProchain: string;
+  motif: string | null;
+  papierEnTete: { id: string; nom: string } | null;
+  identiteIncomplete: string[];
+  /** La spécification telle qu'elle sera composée, numéro prévu compris. */
+  spec: SpecDocumentCommercial;
+  totaux: TotauxCommerciaux | null;
+  bloquants: string[];
+  avertissements: string[];
+  peutEmettre: boolean;
+  /** Vrai quand le PDF sera imprimé par l'éditeur Office ; faux = rendu du serveur. */
+  pdfParEditeur: boolean;
+}
+
+/**
+ * L'APERÇU d'une pièce : la MÊME composition que l'émission — vérification, calcul, mise en page,
+ * relecture — jouée à blanc, sans consommer de numéro ni écrire une ligne. C'est ce que l'écran
+ * des Finances montre pendant la saisie : totaux, somme en lettres, numéro prévu, papier, et ce
+ * qui bloquerait. Deux compositions (une pour l'aperçu, une pour l'émission) finiraient par
+ * diverger sur un arrondi (§118.5) ; il n'y en a qu'une.
+ */
+export async function previsualiserDocument(user: CurrentUser, demande: DemandeDocument): Promise<ApercuDocument | EchecFabrique> {
+  const type = demande.type;
+  if (!TYPES_DOCUMENT.includes(type)) return echec("MISSING_INPUT", `Type de document inconnu : « ${String(type)} » (DEVIS, BON_DE_COMMANDE, FACTURE).`);
+  if (!peutEcrire(user, "CREATE", type)) {
+    return echec("MISSING_PERMISSION", `Émettre un${type === "FACTURE" ? "e facture" : type === "DEVIS" ? " devis" : " bon de commande"} exige le droit de créer dans Legal${type !== "DEVIS" ? " ou dans Finances" : ""}.`);
+  }
+  const p = await profilDocumentaire(user, demande.societe, { papierEnTeteId: demande.letterheadId ?? null });
+  if (!p.ok) return p;
+  const { profil, habillage } = p;
+  if (!(await canEditCompanyId(user.id, profil.societe.id))) return echec("MISSING_PERMISSION", `Vous voyez ${profil.societe.nom} sans pouvoir l'engager : la pièce ne peut pas être émise en son nom.`);
+  const base = specDepuisDemande(demande, profil);
+  const annee = Number(base.date.slice(0, 4));
+  const kind = NATURE_LEGALE[type];
+  const prefixe = type === "DEVIS" ? profil.reglages.quotePrefix : type === "BON_DE_COMMANDE" ? profil.reglages.orderPrefix : profil.reglages.invoicePrefix;
+  const motif = profil.reglages.numerotation[type] ?? null;
+  const anneeSure = Number.isFinite(annee) ? annee : new Date().getUTCFullYear();
+  const seq = await prisma.documentSequence.findUnique({ where: { companyId_kind_year: { companyId: profil.societe.id, kind, year: anneeSure } }, select: { last: true } });
+  const numeroProchain = formaterNumero(prefixe, anneeSure, (seq?.last ?? 0) + 1, motif);
+  const spec: SpecDocumentCommercial = { ...base, numero: numeroProchain };
+  const commun = { ok: true as const, societe: { id: profil.societe.id, nom: profil.societe.nom }, numeroProchain, motif, papierEnTete: profil.papierEnTete, identiteIncomplete: profil.identiteIncomplete, spec, pdfParEditeur: convertConfigured() };
+  const regles = verifierSpecCommerciale(spec);
+  if (regles.bloquants.length > 0) return { ...commun, totaux: null, bloquants: regles.bloquants, avertissements: [...regles.avertissements, ...manquesDIdentite(profil)], peutEmettre: false };
+  const essai = await construireDocumentCommercial(spec, habillage);
+  return { ...commun, totaux: essai.totaux, bloquants: essai.verification.bloquants, avertissements: [...essai.verification.avertissements, ...manquesDIdentite(profil)], peutEmettre: essai.verification.ok };
+}
+
 // ─────────────────────────── La révision ───────────────────────────
 
-export type ModificationsDocument = Partial<Pick<DemandeDocument, "tiers" | "lignes" | "echeance" | "validiteJours" | "tvaDefaut" | "remiseGlobale" | "modePaiement" | "conditionsPaiement" | "objet" | "referenceAmont" | "livraison" | "notes">>;
+export type ModificationsDocument = Partial<Pick<DemandeDocument, "tiers" | "lignes" | "echeance" | "validiteJours" | "tvaDefaut" | "remiseGlobale" | "modePaiement" | "conditionsPaiement" | "objet" | "referenceAmont" | "referenceAmontDate" | "numeroClient" | "contact" | "taxes" | "livraison" | "notes">>;
 
 /**
  * RÉVISE un devis ou un bon de commande émis : même numéro, nouvelle version du même fichier,
@@ -646,7 +817,7 @@ export async function reviserDocumentDrive(
     ...f.spec,
     emetteur: p.profil.identite,
     tiers: m.tiers ? { ...f.spec.tiers, ...m.tiers, nom: (m.tiers.nom ?? f.spec.tiers.nom).trim() } : f.spec.tiers,
-    lignes: m.lignes ? m.lignes.map((l) => ({ ...l, designation: String(l.designation ?? "").trim() })) : f.spec.lignes,
+    lignes: m.lignes ? m.lignes.map((l) => ({ ...l, designation: String(l.designation ?? "").trim(), ...(l.section ? { section: true, quantite: 0, prixUnitaire: 0 } : {}) })) : f.spec.lignes,
     echeance: m.echeance !== undefined ? m.echeance : f.spec.echeance,
     validiteJours: m.validiteJours !== undefined ? m.validiteJours : f.spec.validiteJours,
     tvaDefaut: m.tvaDefaut !== undefined ? m.tvaDefaut : f.spec.tvaDefaut,
@@ -655,6 +826,10 @@ export async function reviserDocumentDrive(
     conditionsPaiement: m.conditionsPaiement !== undefined ? m.conditionsPaiement : f.spec.conditionsPaiement,
     objet: m.objet !== undefined ? m.objet : f.spec.objet,
     referenceAmont: m.referenceAmont !== undefined ? m.referenceAmont : f.spec.referenceAmont,
+    referenceAmontDate: m.referenceAmontDate !== undefined ? m.referenceAmontDate : f.spec.referenceAmontDate,
+    numeroClient: m.numeroClient !== undefined ? m.numeroClient : f.spec.numeroClient,
+    contact: m.contact !== undefined ? m.contact : f.spec.contact,
+    taxes: m.taxes !== undefined ? m.taxes : f.spec.taxes,
     livraison: m.livraison !== undefined ? m.livraison : f.spec.livraison,
     notes: m.notes !== undefined ? m.notes : f.spec.notes,
   };
@@ -668,15 +843,17 @@ export async function reviserDocumentDrive(
   const ecrit = await portsArtefact.documents.ecrireVersion(user.id, doc.driveNodeId, construit.octets, { mime: MIME_DOCX, resume });
   let pdf = f.pdf;
   const avertissements = [...regles.avertissements, ...construit.verification.avertissements, ...manquesDIdentite(p.profil)];
-  const conv = await docxToPdf(construit.octets);
+  const conv = await pdfDeLaPiece(user, { nodeId: doc.driveNodeId, version: ecrit.version }, construit.octets);
   if (conv.ok) {
     if (pdf) {
       const v = await portsArtefact.documents.ecrireVersion(user.id, pdf.nodeId, conv.pdf, { mime: "application/pdf", resume });
-      pdf = { ...pdf, version: v.version, pages: conv.pages };
+      pdf = { ...pdf, version: v.version, pages: conv.pages, methode: conv.methode };
     } else {
       const n = await portsArtefact.documents.creerFichier(user.id, { nom: nomFichier(f.numero, spec.tiers.nom, "pdf"), octets: conv.pdf, mime: "application/pdf" });
-      pdf = { nodeId: n.nodeId, version: n.version, pages: conv.pages };
+      pdf = { nodeId: n.nodeId, version: n.version, pages: conv.pages, methode: conv.methode };
     }
+    const reserve = reservePdf(conv.methode, construit.surPapierEnTete);
+    if (reserve) avertissements.push(reserve);
   } else avertissements.push(`PDF non produit : ${conv.error}`);
   const finale: Fabrique = {
     ...f, version, spec, totaux: resumeTotaux(construit.totaux), docx: { nodeId: doc.driveNodeId, version: ecrit.version }, pdf, surPapierEnTete: construit.surPapierEnTete,
@@ -695,7 +872,7 @@ export async function reviserDocumentDrive(
     ok: true, dejaEmis: false, repris: false, legalDocumentId: doc.id, reference: f.numero, type: f.type, version,
     societe: { id: p.profil.societe.id, nom: p.profil.societe.nom }, tiers: spec.tiers.nom,
     docx: { nodeId: doc.driveNodeId, nom: nomFichier(f.numero, spec.tiers.nom, "docx"), version: ecrit.version },
-    pdf: pdf ? { nodeId: pdf.nodeId, nom: nomFichier(f.numero, spec.tiers.nom, "pdf"), pages: pdf.pages } : null,
+    pdf: pdf ? { nodeId: pdf.nodeId, nom: nomFichier(f.numero, spec.tiers.nom, "pdf"), pages: pdf.pages, methode: pdf.methode ?? "rendu" } : null,
     totaux: finale.totaux, surPapierEnTete: construit.surPapierEnTete, avertissements, reglesAppliquees: p.profil.reglesAppliquees, ms: Date.now() - debut,
   };
 }

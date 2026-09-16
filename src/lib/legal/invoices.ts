@@ -93,25 +93,43 @@ export function invoiceTally(rows: readonly InvoiceTallyRow[], today: Date = new
  * D'où trois portées, et pas deux. Elle est appliquée PAR LE SERVEUR, dans la requête, et non
  * par un filtre d'écran : un filtre d'écran se retire dans le navigateur.
  */
-export type LegalViewScope = "ALL" | "INVOICES_ONLY" | "NONE";
+export type LegalViewScope = "ALL" | "PURCHASE_CHAIN" | "NONE";
+
+/**
+ * LES NATURES QUE LA COMPTABILITÉ VOIT ET ÉCRIT : les factures, et les bons de commande dont
+ * elles découlent. Décision de la Direction (septembre 2026) : les Finances COMPOSENT les factures
+ * ET les bons de commande de la société — le bon de commande de référence remis avec la facture
+ * est le leur, et l'on ne peut pas émettre une pièce qu'on n'aurait pas le droit de retrouver au
+ * registre. Contrats, baux, conventions, assurances restent fermés : une liste FERMÉE, en un
+ * endroit, lue par la liste, la fiche, l'action serveur et Adam.
+ */
+export const PURCHASE_CHAIN_KINDS: readonly string[] = ["INVOICE", "PURCHASE_ORDER"];
 
 export function legalViewScope(rights: { onLegal: boolean; onFinances: boolean }): LegalViewScope {
   if (rights.onLegal) return "ALL";
-  if (rights.onFinances) return "INVOICES_ONLY";
+  if (rights.onFinances) return "PURCHASE_CHAIN";
   return "NONE";
+}
+
+/** Une pièce est-elle dans la portée de cette personne ? La fiche le vérifie sur la pièce elle-même. */
+export function legalKindVisible(scope: LegalViewScope, kind: string): boolean {
+  if (scope === "ALL") return true;
+  if (scope === "PURCHASE_CHAIN") return PURCHASE_CHAIN_KINDS.includes(kind);
+  return false;
 }
 
 /**
  * PEUT-ON ÉCRIRE CETTE PIÈCE ?
  *
- * La comptabilité tient les FACTURES — les enregistrer, les corriger, marquer leur règlement.
- * Elle ne tient pas le reste du registre. La règle vit ici, elle est donc la même pour l'écran,
+ * La comptabilité tient les FACTURES — les enregistrer, les corriger, marquer leur règlement — et
+ * les BONS DE COMMANDE qu'elle émet (voir `PURCHASE_CHAIN_KINDS`). Elle ne tient pas le reste du
+ * registre. La règle vit ici, elle est donc la même pour l'écran,
  * pour l'action serveur et pour Adam ; trois copies auraient fini par diverger, et la divergence
  * d'un contrôle d'accès s'appelle une faille.
  */
 export function legalWriteAllowed(input: { onLegal: boolean; onFinances: boolean; kind: string }): boolean {
   if (input.onLegal) return true;
-  return input.onFinances && isInvoice(input.kind);
+  return input.onFinances && (isInvoice(input.kind) || PURCHASE_CHAIN_KINDS.includes(input.kind));
 }
 
 /**

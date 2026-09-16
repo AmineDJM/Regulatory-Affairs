@@ -69,6 +69,16 @@ describe("le compositeur Word", () => {
     expect(m.marginTopCm).toBeCloseTo(4, 1);
   });
 
+  it("trace le SEUL filet du bas quand on le lui demande — la règle qui ferme les totaux du bon de commande", () => {
+    const { octets } = composerDocx({
+      blocs: [tableau([["Total HT", "100,00"], ["Montant TTC", "119,00"]], { colonnes: [{ largeurCm: 10 }, { largeurCm: 4 }], bordures: { bas: true }, couleurBordure: "1F5C99" })],
+    });
+    const xml = new PizZip(octets).file("word/document.xml")!.asText();
+    expect(xml).toContain('<w:bottom w:val="single" w:sz="8" w:space="0" w:color="1F5C99"/>');
+    expect(xml).toContain('<w:top w:val="nil"');
+    expect(xml).toContain('<w:insideH w:val="nil"');
+  });
+
   it("refuse un papier en-tête qui n'est pas un document Word", () => {
     const zip = new PizZip();
     zip.file("xl/workbook.xml", "<workbook/>");

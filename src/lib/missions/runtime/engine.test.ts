@@ -821,7 +821,14 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     const r = await avancer(id, actor, { runner: t2.runner });
     expect(t2.appels).toHaveLength(0);
     expect(r.status).toBe("COMPLETED");
-  });
+    /**
+     * PLAFOND LOCAL, MESURÉ (§118.124b, §118.135) : ce cas fait tourner le VRAI moteur sur la VRAIE
+     * base — 70 ms seul (le fichier entier en 6,0 s) — et il a dépassé les 20 000 ms globales sous la
+     * suite complète (754 fichiers, quatre cœurs, le fichier en 61,1 s). Le plafond répond à
+     * « est-il bloqué ? », jamais à « est-il lent ? » : un moteur qui ne rend pas la main échoue
+     * toujours, un peu plus tard.
+     */
+  }, 60_000);
 
   /**
    * ═════════════════════════════════════════════════════════════════════════════════════════
@@ -871,7 +878,14 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     expect(t2.appels.map((c) => c.stepKey).sort()).toEqual(["envoi", "suite"]);
     const fini = await chargerEtat(id);
     expect(fini!.steps.filter((x) => x.status === "DONE").map((x) => x.key).sort()).toEqual(["envoi", "suite"]);
-  });
+    /**
+     * PLAFOND LOCAL, MESURÉ (§118.124b, §118.135) : ce cas fait tourner le VRAI moteur sur la VRAIE
+     * base — 190 ms seul (le fichier entier en 6,0 s) — et il a dépassé les 20 000 ms globales sous la
+     * suite complète (754 fichiers, quatre cœurs, le fichier en 61,1 s). Le plafond répond à
+     * « est-il bloqué ? », jamais à « est-il lent ? » : un moteur qui ne rend pas la main échoue
+     * toujours, un peu plus tard.
+     */
+  }, 60_000);
 
   /**
    * ═════════════════════════════════════════════════════════════════════════════════════════

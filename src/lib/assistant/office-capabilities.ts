@@ -680,7 +680,7 @@ export const OFFICE_TOOLS: PowerTool[] = [
       name: "document_build",
       description:
         "ÉMET une pièce commerciale au nom d'une société du groupe — DEVIS, BON_DE_COMMANDE ou FACTURE — et "
-        + "l'inscrit au registre Legal : numéro attribué par le compteur de la société (« FA-2026-0007 »), "
+        + "l'inscrit au registre Legal : numéro attribué par le compteur de la société au motif de son profil (« FA-2026-0007 », ou « 001/FS/26 » / « 012/DG/2026 » comme ses pièces réelles), mise en page MAISON (celle des pièces de référence de la société : facture avec numéro de client, bande « Facturer à », SOMME À PAYER ; bon de commande avec Contact, Devis N°, lignes de détail, sections, « Offert », Taxe Pub), "
         + "identité légale et papier en-tête de la société appliqués d'office, montants HT / TVA / TTC et somme en "
         + "lettres CALCULÉS par le code, fichier Word (+ PDF) rangé dans le Drive, pièce chaînée à son amont "
         + "(`chainFromId` : le devis d'un BC, le BC d'une facture). Donne les LIGNES (désignation, quantité, prix "
@@ -705,6 +705,12 @@ export const OFFICE_TOOLS: PowerTool[] = [
             },
             required: ["nom"],
           },
+          numeroClient: { type: "string", description: "Facture : le numéro que la société donne à ce client (« 00003 »), imprimé sous « Numéro de client »." },
+          contact: { type: "object", description: "Bon de commande / devis : l'interlocuteur nommé sur la pièce.", properties: { nom: { type: "string" }, telephone: { type: "string" } } },
+          taxes: {
+            type: "array", description: "Taxes ADDITIONNELLES sur le HT, hors base de TVA — « Taxe Pub 2 % » : { libelle: \"Taxe Pub\", taux: 0.02 }.",
+            items: { type: "object", properties: { libelle: { type: "string" }, taux: { type: "number", description: "Fraction : 0.02 = 2 %." } }, required: ["libelle", "taux"] },
+          },
           lignes: {
             type: "array",
             items: {
@@ -713,12 +719,14 @@ export const OFFICE_TOOLS: PowerTool[] = [
                 designation: { type: "string" },
                 quantite: { type: "number" },
                 unite: { type: "string", description: "boîte, unité, jour, kg…" },
-                prixUnitaire: { type: "number", description: "Prix unitaire HORS TAXES, en DZD." },
+                prixUnitaire: { type: "number", description: "Prix unitaire HORS TAXES, en DZD. 0 s'imprime « Offert »." },
                 remise: { type: "number", description: "Remise de ligne en fraction : 0.1 = 10 %." },
                 tva: { type: "number", description: "Taux de TVA en fraction (0, 0.09, 0.19). Vide = le taux par défaut de la société." },
                 reference: { type: "string" },
+                details: { type: "array", items: { type: "string" }, description: "Lignes de détail imprimées SOUS la désignation (« Format A4 », « Impression quadri recto verso sur 300g »)." },
+                section: { type: "boolean", description: "Vrai = un TITRE de section dans le tableau (« Campagne Raltégravir ») : sans quantité ni prix, hors totaux." },
               },
-              required: ["designation", "quantite", "prixUnitaire"],
+              required: ["designation"],
             },
           },
           date: { type: "string", description: "Date d'émission AAAA-MM-JJ. Vide = aujourd'hui." },
@@ -729,7 +737,9 @@ export const OFFICE_TOOLS: PowerTool[] = [
           modePaiement: { type: "string", enum: ["VIREMENT", "CHEQUE", "ESPECES", "AUTRE"] },
           conditionsPaiement: { type: "string", description: "« 30 jours date de facture », « à la commande »." },
           objet: { type: "string" },
-          referenceAmont: { type: "string", description: "En clair sur la pièce : « Suivant devis n° DEV-2026-0012 »." },
+          referenceAmont: { type: "string", description: "En clair sur la pièce : le numéro du devis amont (« 26/0576 ») sous « Devis N° » d'un bon de commande, ou « Suivant devis n° DEV-2026-0012 »." },
+          referenceAmontDate: { type: "string", description: "La date de la pièce amont, AAAA-MM-JJ (« Du 20/07/2026 » sous le numéro du devis)." },
+          letterheadId: { type: "string", description: "Un papier en-tête Word précis de la société, à la place de celui du profil. Vide = celui du profil." },
           chainFromId: { type: "string", description: "Identifiant Legal de la pièce amont (devis → BC → facture)." },
           livraison: { type: "object", properties: { adresse: { type: "string" }, delai: { type: "string" } } },
           notes: { type: "string" },
@@ -796,6 +806,11 @@ export const OFFICE_TOOLS: PowerTool[] = [
           paymentTerms: { type: "string" }, quoteValidityDays: { type: "integer" }, footerNote: { type: "string" },
           letterheadId: { type: "string", description: "Identifiant d'un papier en-tête Word de la société (vide = le premier actif)." },
           signatoryName: { type: "string" }, signatoryTitle: { type: "string" },
+          numerotation: {
+            type: "object",
+            description: "Le MOTIF du numéro par nature — « nos factures s'écrivent 001/FS/26 » : { FACTURE: \"{n:3}/FS/{aa}\", BON_DE_COMMANDE: \"{n:3}/DG/{aaaa}\" }. Jetons : {n}, {n:3}, {aaaa}, {aa}, {prefixe}. null = revenir au défaut {prefixe}-{aaaa}-{n:4}.",
+            properties: { FACTURE: { type: "string" }, BON_DE_COMMANDE: { type: "string" }, DEVIS: { type: "string" } },
+          },
           marque: {
             type: "object",
             description: "La charte à régler (champs optionnels, null efface) : { couleurAccent, couleurSecondaire, policeTitres, policeTexte, adresse, telephone, email, siteWeb, mentionsLegales: [..], signataire: {nom, qualite}, signatairesParType: { DEVIS: {nom, qualite}, FACTURE: … } }.",
@@ -818,7 +833,7 @@ export const OFFICE_TOOLS: PowerTool[] = [
         if (!m.ok) return JSON.stringify({ fait: false, echec: m.echec, message: m.motif, candidats: m.candidats });
         marqueRefus = m.refus; marqueChamps = m.champsModifies;
       }
-      const reglagesDemandes = ["quotePrefix", "orderPrefix", "invoicePrefix", "vatRate", "paymentTerms", "quoteValidityDays", "footerNote", "letterheadId", "signatoryName", "signatoryTitle"].some((k) => input[k] !== undefined);
+      const reglagesDemandes = ["quotePrefix", "orderPrefix", "invoicePrefix", "vatRate", "paymentTerms", "quoteValidityDays", "footerNote", "letterheadId", "signatoryName", "signatoryTitle", "numerotation"].some((k) => input[k] !== undefined);
       const r = geste === "definir" && reglagesDemandes
         ? await definirProfilDocumentaire(user, input as never)
         : await profilDocumentaire(user, str(input, "societe") || null);
@@ -828,7 +843,7 @@ export const OFFICE_TOOLS: PowerTool[] = [
         fait: true, geste, societe: p.societe, identite: p.identite, identiteIncomplete: p.identiteIncomplete, reglages: p.reglages, papierEnTete: p.papierEnTete, reglesAppliquees: p.reglesAppliquees,
         marque: p.marque, charte: p.charte, resumeMarque: p.resumeMarque,
         ...(marqueChamps.length ? { marqueModifiee: marqueChamps } : {}), ...(marqueRefus.length ? { marqueRefus } : {}),
-        message: `${p.societe.nom} : numérotation ${p.reglages.quotePrefix} / ${p.reglages.orderPrefix} / ${p.reglages.invoicePrefix}, TVA ${Math.round(p.reglages.vatRate * 100)} %, devis valables ${p.reglages.quoteValidityDays} jours, papier en-tête ${p.papierEnTete ? `« ${p.papierEnTete.nom} »` : "aucun (pièce composée sans papier)"}${p.identiteIncomplete.length ? ` — identité incomplète pour une facture : ${p.identiteIncomplete.join(", ")}` : ""}.`,
+        message: `${p.societe.nom} : numérotation ${p.reglages.quotePrefix} / ${p.reglages.orderPrefix} / ${p.reglages.invoicePrefix}${Object.keys(p.reglages.numerotation).length ? ` (motifs : ${Object.entries(p.reglages.numerotation).map(([k, v]) => `${k} → ${v}`).join(", ")})` : ""}, TVA ${Math.round(p.reglages.vatRate * 100)} %, devis valables ${p.reglages.quoteValidityDays} jours, papier en-tête ${p.papierEnTete ? `« ${p.papierEnTete.nom} »` : "aucun (pièce composée sans papier)"}${p.identiteIncomplete.length ? ` — identité incomplète pour une facture : ${p.identiteIncomplete.join(", ")}` : ""}.`,
       });
     },
   },

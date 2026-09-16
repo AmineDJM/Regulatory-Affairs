@@ -851,6 +851,12 @@ repartir du menu.
 L'ancienne adresse `/finances/ordres-de-depense` **redirige** — des notifications déjà parties et
 des favoris y pointent.
 
+**Les Finances composent leurs factures et leurs bons de commande** depuis Legal › « Factures et bons de
+commande » (bouton « Composer une pièce ») : une pièce au format de la maison, sur le papier en-tête de la
+société, en Word et en PDF, numérotée par le compteur de la société au motif de son profil — la fabrique
+documentaire d'Adam, par un bouton (voir « Fabrique de documents »). Leur vue de Legal se limite à ces deux
+natures.
+
 ### La chaîne du dossier d'achat — devis → BC → facture → règlement, d'un seul écran
 
 Deux natures ont rejoint Legal : le **DEVIS** et la **FACTURE**. Chaque pièce pointe vers celle
@@ -2125,12 +2131,32 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
   RC, NIF, article d'imposition ou NIS de l'émetteur n'est pas produite — le bloquant nomme le champ, à renseigner une
   fois dans la carte d'identité légale de la société (`CompanyLegalIdentity`). Un devis ou un BC se produit, avec un
   avertissement. Quantité nulle, prix négatif, remise hors [0 ; 1[, date illisible, échéance antérieure : refusés.
-- **La mise en page est du code** (`build.ts` → `word.ts`) : titre, émetteur et tiers face à face, références
-  (date, échéance ou validité, livraison, pièce amont, mode et conditions de paiement), tableau des lignes à colonnes
-  FIXES dont les colonnes Remise / Unité / TVA n'apparaissent que si une ligne en porte, totaux à droite, somme en
-  lettres, conditions, signatures, mentions de pied (identité complète, banque sur une facture). Le fichier produit
-  est ROUVERT par l'adaptateur du Live Office et passe le contrôle avant livraison ; on y vérifie en plus que le
-  numéro, le nom du tiers, le TTC formaté et la somme en lettres se LISENT. Un reste de brouillon (« TODO ») dans
+- **Une taxe additionnelle (« Taxe Pub 2 % ») se calcule sur le HT et reste HORS de la base de TVA** — c'est
+  l'arithmétique du bon de commande de référence : 794 500 HT → 15 890 de taxe, 150 955 de TVA (19 % de 794 500,
+  pas de 810 390), 961 345 TTC. `verifierSpecCommerciale` refuse un taux hors ]0 ; 1[ ou un libellé vide. Une ligne
+  de SECTION (`section: true`) ne compte ni quantité ni prix — un titre de campagne au-dessus de ses lignes — et une
+  pièce qui n'aurait QUE des sections est refusée. Une ligne porte des `details` (précisions sous la désignation), la
+  pièce un `numeroClient`, un `contact` et la date de la pièce amont.
+- **Le numéro suit le MOTIF de la société** (`formaterNumero` ; jetons `{n}`, `{n:3}`, `{aaaa}`, `{aa}`,
+  `{prefixe}` ; défaut `{prefixe}-{aaaa}-{n:4}`) : « {n:3}/FS/{aa} » donne `001/FS/26`, « {n:3}/DG/{aaaa} » donne
+  `012/DG/2026` — les formes exactes des deux pièces de référence. Le motif se règle PAR NATURE dans le profil
+  documentaire (`settings.numerotation` ; outil `document_profile`, ou le panneau « Numérotation » du composeur pour
+  ceux qui tiennent la papeterie) ; un motif sans compteur `{n}` est refusé. Le compteur, lui, ne change pas :
+  société × nature × année.
+- **La mise en page est du code, et c'est celle des pièces de la maison** (`build.ts` → `word.ts`). Deux modèles,
+  relevés sur deux pièces réelles fournies par la Direction. La **FACTURE** (modèle Pharmagène) : émetteur et
+  « Facture » face à face avec numéro de client, numéro et date ; bande « Facturer à : » ; bloc client et RC / NIF /
+  AI (« — » quand une mention manque) ; « Document Ref » ; tableau Description | Quantité | Prix unitaire HT | Prix
+  total HT SANS filets, lignes de section en gras sans chiffre ; en bas la bande « Arrêtée la présente facture à la
+  somme de : », le TTC, la somme en lettres en CAPITALES, SOUS-TOTAL / TAUX DE TVA / MONTANT TVA / (taxes) / (timbre)
+  / TOTAL TTC / SOMME À PAYER ; la phrase de paiement en capitales ; la banque en pied. Le **BON DE COMMANDE** et le
+  **DEVIS** (modèle Adventum) : « B.C : N° 012/DG/2026 », blocs « A : » et « Adresse de livraison : », bande Date |
+  Contact | Devis N° (ou Validité) | Modalités de paiement, tableau Désignation | Qte | PU HT | Total HT avec la
+  désignation en gras et ses DÉTAILS dessous, cellules de section grisées, « Offert » pour un prix nul, montants
+  suivis de DZD, totaux en dernières lignes fermées par un seul filet, « Arrêté le présent bon de commande à la somme
+  de : » et les lettres. Les colonnes Remise / Unité / TVA n'apparaissent que si une ligne en porte. Le fichier
+  produit est ROUVERT par l'adaptateur du Live Office et passe le contrôle avant livraison ; on y vérifie en plus que
+  le numéro, le nom du tiers, le TTC formaté et la somme en lettres se LISENT. Un reste de brouillon (« TODO ») dans
   une désignation bloque la pièce.
 - **Le papier en-tête n'est pas une image collée : c'est le fichier lui-même.** `composerDocx({ base })` ouvre le
   `.docx` de la bibliothèque (`OfficeLetterhead`, type Word, de la société ou commun au groupe), REMPLACE le corps
@@ -2167,8 +2193,24 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
   Word (plan, tableaux, chiffres). `verifierCoherence` compare les TOTAUX du classeur recalculé à ceux que le code a
   calculés (les mêmes qui figurent dans le deck et la note) : un écart, ou zéro total comparable, et `ok` est faux —
   aucun des trois fichiers n'est écrit. Une formule hors grammaire est refusée en le disant.
-- **Mêmes droits que l'écran** : `legalWriteAllowed` (Legal ouvre tout, Finances les factures) et
-  `canEditCompanyId` (voir une société ne suffit pas à l'engager). L'outil `document_build` est FERMÉ par
+- **Le bouton des Finances** (`app/(app)/legal/composer-piece.tsx`, actions `lib/actions/fabrique-actions.ts`) :
+  depuis Legal › « Factures et bons de commande », « Composer une pièce » ouvre un panneau — nature, société, papier
+  en-tête (Word, de la société ou commun au groupe), tiers (nom, adresse, RC, NIF, AI, NIS, numéro de client),
+  références (date, échéance ou validité, pièce amont et sa date, contact, adresse et délai de livraison, mode et
+  conditions de paiement, objet), lignes (désignation, détails, quantité, PU, remise, TVA, lignes de section), taxes
+  additionnelles (préréglage « Taxe Pub 2 % »), notes. L'APERÇU est la composition jouée à blanc côté serveur
+  (`previsualiserDocument`) : numéro prévu au motif, totaux, somme en lettres, papier en-tête, identité incomplète,
+  bloquants — **rien n'est écrit, aucun numéro n'est consommé**, et le panneau prévisualise à chaque frappe.
+  « Émettre » passe par `emettreDocumentDrive`, la même porte qu'Adam, et rend les liens du Word, du PDF et de la
+  fiche Legal en DISANT si le PDF a été imprimé par l'éditeur Office ou rendu par le serveur. Les lignes voyagent en
+  listes parallèles (`ligneDesignation[]`, `ligneQuantite[]`…) : c'est ce que le contrat d'action sait décrire, donc
+  ce que la carte de confirmation d'Adam sait lire — les trois actions sont décrites par dérivation (38 champs pour l'aperçu et l'émission, 3 pour le
+  motif) et couvertes par `document_build` / `document_profile`.
+- **Mêmes droits que l'écran** : `legalWriteAllowed` (Legal ouvre tout ; **les Finances les factures ET les bons de
+  commande** — décision prise avec ce lot : ce sont elles qui émettent le BC de la chaîne d'achat, elles doivent
+  pouvoir le composer ; leur vue de Legal, `legalViewScope` → `PURCHASE_CHAIN`, montre ces deux natures et rien
+  d'autre, et la fiche d'un contrat leur rend `notFound`) et `canEditCompanyId` (voir une société ne suffit pas à
+  l'engager). L'outil `document_build` est FERMÉ par
   `peutEmettrePieces` (`platform/in-process/artifact/factory-access.ts`) : le planificateur ne le voit pas sans le
   droit ; la garde est rejouée dans le pont au moment d'agir. En mission : `document_build` déclaré (`legal`,
   `INTERNAL_REVERSIBLE_WRITE`, rejouable par empreinte, groupable, sous politique de confirmation — un accord pour
@@ -2181,15 +2223,31 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
   qualité arithmétique 25/25, rejouer un appel n'émet rien ; 10 émissions parallèles → BC-2026-0001 à 0010 sans
   collision ; émission interrompue après numérotation terminée sans second numéro ; facture à identité incomplète
   refusée sans consommer de numéro.
-- **Ce qui n'est pas prétendu** : le PDF jumeau (`payslip/to-pdf.ts`, pdfkit) rend le texte et les tableaux, pas
-  l'en-tête graphique du papier — l'outil le dit, le `.docx` fait foi pour l'impression (pas de LibreOffice, §104).
-  Le droit de timbre est une constante du code (taux, plancher, plafond) à réviser si la loi change. Le profil
-  documentaire est la fondation du registre de marque (#26 : logo, polices, modèles de lettres et rapports).
-- **Tests** : `factory/{lettres,commercial,word,build,canonical,dossier}.test.ts` (62 cas, purs) et
-  `platform/in-process/artifact/factory.test.ts` (11 cas sur base réelle : droits, émission, doublon, reprise,
-  identité incomplète, papier en-tête, révision, profil, parallélisme, mission de 25, dossier).
-- **Fichiers** : `lib/artifact/factory/lettres.ts`, `commercial.ts`, `word.ts`, `build.ts`, `canonical.ts`,
-  `dossier.ts` ; `platform/in-process/artifact/factory.ts`, `factory-access.ts` ; outils `document_build`,
+- **Le PDF, et ce qu'il est.** Quand l'éditeur Office du serveur est configuré (`convertConfigured`), c'est LUI
+  qui imprime le Word — la fidélité de l'éditeur. Sinon le jumeau (`payslip/to-pdf.ts`, pdfkit) REDESSINE le document
+  depuis sa structure (`payslip/docx-blocks.ts`) : paragraphes et fragments (graisse, taille, couleur), alignements,
+  espacements, tableaux avec leur grille de colonnes, leurs trames, leurs filets côté par côté et leurs en-têtes
+  répétés à chaque page — et **l'en-tête et le pied du papier** (textes et images PNG/JPEG, en ligne ou ancrées) sur
+  chaque page, les marges du corps calculées pour les laisser respirer. Ce qu'il perd encore, et DIT
+  (`limitesDuRendu` ; `methode: "editeur" | "rendu"` sur la pièce émise ; la phrase du composeur) : polices rendues
+  en Helvetica, formes et zones de texte flottantes, images d'autres formats. Le `.docx` fait foi pour l'impression
+  (pas de LibreOffice, §104). Le droit de timbre est une constante du code (taux, plancher, plafond) à réviser si la
+  loi change. Le profil documentaire est la fondation du registre de marque (#26).
+- **Tests** : `factory/{lettres,commercial,word,build,canonical,dossier}.test.ts` (purs — `build.test.ts` relit
+  les DEUX modèles de référence ligne à ligne, `commercial.test.ts` tient les chiffres des deux pièces, les sections,
+  le refus des taxes hors bornes et le motif de numérotation), `payslip/to-pdf.test.ts` (relu par MuPDF : l'en-tête
+  du papier au-dessus du corps et le pied en bas de page — jugé sur la POSITION, pas sur l'ordre du flux —, le logo
+  embarqué et le pied présent en page 2, un retour à la ligne qui sépare, une ligne centrée qui ne se superpose pas),
+  `platform/in-process/artifact/factory.test.ts` (base réelle : droits, émission, doublon, reprise, identité
+  incomplète, papier en-tête, révision, profil, parallélisme, mission de 25, dossier) et
+  `lib/actions/fabrique-actions.test.ts` (le bouton, par la server action : un commercial qui peut engager la société
+  est refusé et rien n'est écrit ; la papeterie règle le motif, les Finances non ; l'aperçu n'écrit rien ; la facture
+  sort en `001/FS/26` à 8 925 000 TTC et se relit dans le Word ; rejouée, elle ne crée ni pièce ni numéro ; le BC sort
+  à 961 345 TTC ; le devis reste à Legal).
+- **Fichiers** : `lib/artifact/factory/lettres.ts`, `commercial.ts` (pur, sans import Node), `empreinte.ts`,
+  `word.ts`, `build.ts`, `canonical.ts`, `dossier.ts` ; `platform/in-process/artifact/factory.ts`
+  (`previsualiserDocument`, `pdfDeLaPiece`), `factory-access.ts` ; le bouton `app/(app)/legal/composer-piece.tsx` et
+  `lib/actions/fabrique-actions.ts` ; le jumeau `lib/payslip/{docx-blocks,to-pdf}.ts` ; outils `document_build`,
   `document_profile`, `dossier_build` dans `lib/assistant/office-capabilities.ts` ; capacités
   `artifact.document_build`, `artifact.dossier_build` ; migration `20261020090000_fabrique_documentaire`
   (`CompanyDocumentProfile`, `DocumentSequence`) ; banc `scripts/bench/factory-bench.ts`.
@@ -3424,7 +3482,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Adam — chef de cabinet : missions inédites, attention, relances** | `scripts/bench/adam-mission-bench.ts` (neuf missions vagues via `lancerMission`, carte de score par mission, attendus vérifiés en base, coût par mission ; `BENCH_ONLY`, `BENCH_TOURS`) ; `platform/in-process/missions/situation.ts` (enquête) ; `lib/missions/attention/policy.ts` + `platform/in-process/missions/attention.ts` (porte d'attention) ; `platform/in-process/missions/relance.ts` (échelle de relances) ; `lib/messaging.ts` (`envoyerMessageDirect`, l'unique chemin d'écriture d'un message direct ; module SERVEUR — les écrans importent la part pure `lib/messaging-ui.ts`) ; `lib/events/messaging-events.ts` (`MESSAGE_RECEIVED`) ; `lib/missions/registry/capability-meta.ts` (`AUTONOMES`) ; `lib/assistant/watch-tools.ts` (`watch_entity`, `list_watches`, `stop_watch`) ; `prisma/migrations/20261019090000_adam_surveillances`. |
 | **Excel God Mode — lire, vérifier, expliquer, comparer** | `lib/artifact/sheets/reader.ts` (lecteur natif en flux : fflate + TextDecoder en flux, formules partagées traduites, résultats typés, 1,2 M de cellules en 3,5 s) ; `formula.ts` (analyseur Pratt, A1 ↔ R1C1, `decaler`, `traduireFormulePartagee`) ; `graph.ts` (`construireGraphe`, `rayonImpact`, `precedentsDirects`, Kahn à tête d'index) ; `evaluate.ts` (`recalculer`, `evaluerFormule`, ~100 fonctions + `ALIAS_FR`, `nonCalculees` / `nonVerifiees`) ; `audit.ts` (`auditerClasseur`, 16 codes de constat, `resumerAudit`) ; `diff.ts` (`comparerClasseurs` : alignement patience + R1C1 + plages ajustées) ; `build.ts` (`construireClasseurVerifie` : spécification → xlsx relu, recalculé, valeurs écrites, audité) ; `analyse.ts` (façade : `analyserClasseur`, `tracerCellule`, `comparerFichiersXlsx`, `lirePlage`) ; pont `platform/in-process/artifact/sheets.ts` (droits par le port, cache borné en cellules) ; outils `lib/assistant/office-capabilities.ts` (`sheet_audit`, `sheet_trace`, `sheet_diff`, `sheet_read`) ; banc `scripts/bench/sheets-bench.ts` (`npm run sheets:bench`). |
 | **Word / PowerPoint / PDF à grande échelle** | `lib/artifact/adapters/docx/adapter.ts` (`marquesDePage`, `estimerPages`, `niveauDeTitre` : page de chaque paragraphe, `paginationSource`, `plan`) ; `commands/resolve.ts` (`cible.page` : rang dans la page, texte dans la page) ; `adapters/pptx/adapter.ts` (`ajouterDiapo`, `enregistrerDiapo`) ; `decks/build.ts` (`construireDeckVerifie`, `verifierSpecDeck`) ; `pdf/read.ts` (`lireTextePdf`, `chercherDansPdf`, `planPdf`, `extrairePages`, `plagePages`) ; `versions/diff.ts` (`alignerSequences`, `fragmentModifie`) ; `qa/checks.ts` (`controlerAvantLivraison`) ; `runtime/engine.ts` (`controlerSession`) ; pont `platform/in-process/artifact/documents.ts` (`lirePdfDrive` avec OCR borné, `construireDeckDrive`) et `office.ts` (`controlerDocument`, `inspecterDocument`) ; outils `lib/assistant/office-capabilities.ts` (`pdf_read`, `deck_build`, gestes `controler` / `inspecter`). |
-| **Fabrique de documents — devis, BC, factures, dossiers à trois formats** | `lib/artifact/factory/lettres.ts` (`nombreEnLettres`, `montantEnLettres`) ; `commercial.ts` (`calculerTotaux`, `verifierSpecCommerciale`, `formaterNumero`, `empreinteDocument`, `TIMBRE_FISCAL`, `NATURE_LEGALE`) ; `word.ts` (`paragraphe`, `tableau`, `composerDocx` avec papier en-tête conservé à l'octet près, `papierEnTeteDeDemonstration`) ; `build.ts` (`blocsCommerciaux`, `construireDocumentCommercial` : compose, relit, contrôle) ; `canonical.ts` (`evaluerFormuleLigne`, `calculerTableau`, `verifierSpecCanon`, `versClasseur` / `versDeck` / `versDocument`, `verifierCoherence`) ; `dossier.ts` (`construireDossier`) ; pont `platform/in-process/artifact/factory.ts` (`emettreDocumentDrive`, `reviserDocumentDrive`, `profilDocumentaire`, `definirProfilDocumentaire`, `construireDossierDrive`, compteur `DocumentSequence` atomique) et `factory-access.ts` (`peutEmettrePieces`) ; outils `document_build`, `document_profile`, `dossier_build` ; modèles `CompanyDocumentProfile`, `DocumentSequence` ; banc `scripts/bench/factory-bench.ts` (`npm run factory:bench`). |
+| **Fabrique de documents — devis, BC, factures, dossiers à trois formats** | `lib/artifact/factory/lettres.ts` (`nombreEnLettres`, `montantEnLettres`) ; `commercial.ts` (`calculerTotaux`, `verifierSpecCommerciale`, `formaterNumero`, `empreinteDocument`, `TIMBRE_FISCAL`, `NATURE_LEGALE`) ; `word.ts` (`paragraphe`, `tableau`, `composerDocx` avec papier en-tête conservé à l'octet près, `papierEnTeteDeDemonstration`) ; `build.ts` (`blocsCommerciaux`, `construireDocumentCommercial` : compose, relit, contrôle) ; `canonical.ts` (`evaluerFormuleLigne`, `calculerTableau`, `verifierSpecCanon`, `versClasseur` / `versDeck` / `versDocument`, `verifierCoherence`) ; `dossier.ts` (`construireDossier`) ; pont `platform/in-process/artifact/factory.ts` (`emettreDocumentDrive`, `reviserDocumentDrive`, `profilDocumentaire`, `definirProfilDocumentaire`, `construireDossierDrive`, compteur `DocumentSequence` atomique) et `factory-access.ts` (`peutEmettrePieces`) ; outils `document_build`, `document_profile`, `dossier_build` ; modèles `CompanyDocumentProfile`, `DocumentSequence` ; banc `scripts/bench/factory-bench.ts` (`npm run factory:bench`) ; **le bouton des Finances** : `lib/actions/fabrique-actions.ts` (`previsualiserPieceCommerciale`, `emettrePieceCommerciale`, `reglerNumerotationPieces`), écran `app/(app)/legal/composer-piece.tsx` (`ComposerPieceButton`), `lib/artifact/factory/empreinte.ts` ; jumeau PDF `lib/payslip/docx-blocks.ts` (`readDocxBlocks` : blocs, grille, trames, filets, bandes d'en-tête et de pied, images) et `lib/payslip/to-pdf.ts` (`docxToPdf`, `lignesDuParagraphe`, `limitesDuRendu`) ; portée `lib/legal/invoices.ts` (`legalWriteAllowed`, `legalKindVisible`, `PURCHASE_CHAIN_KINDS`). |
 | **Boîte de décision (Executive Inbox)** | `lib/assistant/inbox/model.ts` (genres, urgence, ordre, recommandations, `estGesteValide`) ; `platform/in-process/inbox/compose.ts` (`composerInbox` : huit files mesurées) ; `platform/in-process/inbox/actions.ts` (`agirSurCarte` → actions canoniques) ; `components/chief/inbox/inbox-view.tsx` ; page `(chief)/chief-of-staff/inbox` ; porte dans `chief-home.tsx` ; `e2e/inbox.spec.ts`. |
 | **Provenance au niveau du fait (F8)** | `lib/fabric/provenance.ts` (vocabulaire `FaitSource`, `extraireFaits`, `faitCalcule`, `repondreProvenance`, `resumerFait`) ; `lib/fabric/provenance-store.ts` (`consignerProvenance`, `relireProvenance`, `repondreDouTuTiensCa`) ; pont `platform/in-process/fabric/provenance.ts` ; `voice/fast-path.ts` (forme `PROVENANCE`) ; `assistant.ts` (branche déterministe, `lectures`, `avecProvenance`, `sourcesDuResultat`) ; entrées `api/assistant/stream/route.ts`, `actions/assistant-actions.ts`, `api/assistant/voice/tool/route.ts` ; `executive-read-tools.ts` (`finance_totals._provenance`) ; migration `20261022090000_provenance_faits` ; `e2e/provenance.spec.ts`. |
 | **Qualité des données (§23)** | `lib/quality/model.ts` (vocabulaire pur : familles, criticités, résolutions, clés de rapprochement, e-mails, médiane) ; `rules.ts` (catalogue de 23 règles + détecteurs Prisma bornés) ; `engine.ts` (`balayerQualite`, `balayageQualiteSiDu`, `derniersBalayages`) ; `fix.ts` (correcteurs — liste fermée, audit) ; `read.ts` (`lireConstats`, `compterConstats` sous les droits) ; `decide.ts` (`corrigerConstat`, `ignorerConstat`, `rouvrirConstat`) ; pont `platform/in-process/quality/{index,actions}.ts` ; outil `assistant/quality-tools.ts` (`data_quality`, domaine `QUALITE`) ; cartes dans `platform/in-process/inbox/compose.ts` ; écran `app/(app)/admin/qualite/` ; migration `20261023090000_data_quality` ; `quality/engine.test.ts` (banc d'anomalies plantées). |
@@ -5407,6 +5465,23 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ## 🧾 Journal des évolutions récentes
 
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
+
+### Finances — « Composer une pièce » : factures et bons de commande au format de la maison, en Word et en PDF, sur le papier en-tête (2026-09)
+
+**La demande** : « Permets aux Finances, à travers un bouton, de créer des factures ou des bons de commande en docx ou PDF selon ce format exact ; le papier en-tête, tu l'as déjà selon Pharmagène ou Adventum » — avec deux pièces réelles jointes : la facture 001/FS/26 (Pharmagène → Sarl BIOGALENIC, 3 × 2 500 000 = 7 500 000 HT, TVA 1 425 000, TTC 8 925 000) et le bon de commande 012/DG/2026 (Adventum → INSIGNE CONSEIL, 794 500 HT, Taxe Pub 2 % = 15 890 HORS base TVA, TVA 150 955, TTC 961 345).
+
+**Livré** :
+- **Pas de second générateur** : le bouton TRADUIT un formulaire en demande de fabrique et passe par la porte d'Adam (`emettreDocumentDrive`) — numéro atomique, papier en-tête, montants calculés par le code, pièce au registre Legal, Word + PDF dans le Drive. L'aperçu est la même composition jouée à blanc (`previsualiserDocument`) : **rien n'est écrit, aucun numéro consommé**, mesuré sur les compteurs.
+- **Les deux formats de la maison** dans `build.ts` (facture : modèle Pharmagène ; BC et devis : modèle Adventum — voir la référence), avec ce que les pièces réelles exigeaient et que la fabrique n'avait pas : lignes de SECTION, DÉTAILS sous la désignation, taxes additionnelles hors base TVA, numéro de client, contact, date de la pièce amont, montants suivis de DZD, filet unique sous les totaux (`bordures: { bas: true }`), motif de numérotation par nature (`{n:3}/FS/{aa}` → `001/FS/26`).
+- **Le PDF jumeau redessine désormais le papier en-tête** : bandes d'en-tête et de pied (textes, images PNG/JPEG en ligne ou ancrées) sur chaque page, grille de colonnes, trames et filets lus dans le Word ; l'éditeur Office reste préféré quand il est configuré, et la MÉTHODE voyage avec la pièce (`editeur` | `rendu`) jusqu'à la phrase du composeur.
+- **Décision de permission, à la Direction de la confirmer ou de la défaire** : les Finances écrivent désormais les BONS DE COMMANDE en plus des factures (`legalWriteAllowed`) et voient ces deux natures dans Legal (`legalViewScope` → `PURCHASE_CHAIN`) — parce que ce sont elles qui émettent le BC de la chaîne d'achat. Contrats, baux et courriers leur restent fermés (fiche → `notFound`).
+
+**Ce que le lot a trouvé en chemin, hors de son périmètre** :
+- La dérivation des contrats d'action prenait l'accolade d'un type de retour OBJET NU pour celle du corps (`): { ok: true } | { ok: false } {`) : 5 fonctions du parc étaient découpées ainsi, et `messaging-actions:sendMessage` déclarait une liste de champs amputée de ses trois champs de référence depuis toujours. Réparé dans le lecteur : **0 champ retiré, 79 ajoutés**, 24 illisibles (plafond tenu).
+- La dérivation ne suivait que les délégués de `@/lib/…` : une action qui émet par le pont de plateforme sortait `ecrit: false` — 4 actions (dont `brand-actions`) déclaraient n'écrire rien en écrivant le profil documentaire ou le registre Legal. Le pont est du code du dépôt : suivi.
+- Le lecteur du jumeau PDF lisait les bandes à la RACINE XML au lieu de `w:hdr` / `w:ftr` : bande vide, `null`, PDF sans papier en-tête — en silence. Et deux défauts que seul l'ŒIL a vus sur le rendu : les retours à la ligne perdus dans les cellules, et une ligne centrée à plusieurs fragments imprimée par-dessus elle-même (pdfkit centre chaque fragment séparément).
+
+**Mesuré** : `fabrique-actions.test.ts` 7/7 par la server action (refus d'un commercial qui peut engager la société ; motif réglé par la papeterie et refusé aux Finances ; aperçu sans écriture ; facture `001/FS/26` à 8 925 000 TTC relue dans le Word ; rejeu sans seconde pièce ; BC à 961 345 TTC ; devis refusé aux Finances) ; `to-pdf.test.ts` 15/15 relus par MuPDF (position des bandes, logo embarqué, pied en page 2, retour à la ligne, ligne centrée) ; `build`, `word`, `commercial`, `factory`, `invoices`, `contrat`, `action-parity`, `client-bundle-guard`, `boundary`, `domains`, `use-server-exports` verts ; 9 sabotages rejoués (taxes oubliées du TTC, motif ignoré, Finances sans BC, jumeau sans en-tête, bande lue à la racine, sauts de ligne confiés à pdfkit, type de retour pris pour le corps, délégués du pont ignorés, aperçu qui émet), chacun fait tomber au moins un test, restauration vérifiée par comparaison de fichiers. Suite complète : 8 650 verts, 3 rouges — le garde-fou responsive sur quatre grilles du composeur (corrigé : `grid-cols-1`), et deux cas du moteur de missions au-delà des 20 s sous charge (70 ms et 190 ms seuls ; plafond local mesuré, §118.124b) ; les trois fichiers repassent verts.
 
 ### « LES STOCKS D'UN KAM SONT CEUX DE SON SECTEUR » — les hôpitaux de stock deviennent des établissements de l'annuaire, et la portée suit la BU (2026-09)
 

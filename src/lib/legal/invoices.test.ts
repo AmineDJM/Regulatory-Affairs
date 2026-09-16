@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  invoiceTally, natureFromParam, legalViewScope, legalWriteAllowed,
+  invoiceTally, natureFromParam, legalKindVisible, legalViewScope, legalWriteAllowed,
   type InvoiceTallyRow,
 } from "./invoices";
 // La NATURE et l'ÉTAT DE RÈGLEMENT sont du vocabulaire : ils vivent dans `lib/labels`, lisibles
@@ -95,7 +95,7 @@ describe("qui voit quoi, une fois les deux registres fondus", () => {
   // Centraliser ne doit rien retirer à personne : la comptabilité venait lire ce qui reste
   // à payer, et le registre des engagements ne lui est pas ouvert pour autant.
   it("LA COMPTABILITÉ NE PERD PAS LES FACTURES — et ne gagne pas les baux", () => {
-    expect(legalViewScope({ onLegal: false, onFinances: true })).toBe("INVOICES_ONLY");
+    expect(legalViewScope({ onLegal: false, onFinances: true })).toBe("PURCHASE_CHAIN");
   });
 
   it("ni l'un ni l'autre : rien", () => {
@@ -104,7 +104,15 @@ describe("qui voit quoi, une fois les deux registres fondus", () => {
 
   it("écrire : la comptabilité tient les factures, Legal tient le registre", () => {
     expect(legalWriteAllowed({ onLegal: false, onFinances: true, kind: "INVOICE" })).toBe(true);
+    // Les Finances COMPOSENT aussi les bons de commande (décision de la Direction, 09/2026) — et rien d'autre.
+    expect(legalWriteAllowed({ onLegal: false, onFinances: true, kind: "PURCHASE_ORDER" })).toBe(true);
+    expect(legalWriteAllowed({ onLegal: false, onFinances: true, kind: "QUOTE" })).toBe(false);
+    expect(legalWriteAllowed({ onLegal: false, onFinances: true, kind: "CONTRACT" })).toBe(false);
     expect(legalWriteAllowed({ onLegal: false, onFinances: true, kind: "LEASE" })).toBe(false);
+    expect(legalKindVisible("PURCHASE_CHAIN", "PURCHASE_ORDER")).toBe(true);
+    expect(legalKindVisible("PURCHASE_CHAIN", "LEASE")).toBe(false);
+    expect(legalKindVisible("ALL", "LEASE")).toBe(true);
+    expect(legalKindVisible("NONE", "INVOICE")).toBe(false);
     expect(legalWriteAllowed({ onLegal: true, onFinances: false, kind: "LEASE" })).toBe(true);
     expect(legalWriteAllowed({ onLegal: false, onFinances: false, kind: "INVOICE" })).toBe(false);
   });

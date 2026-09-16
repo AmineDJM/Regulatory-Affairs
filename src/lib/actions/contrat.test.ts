@@ -538,6 +538,34 @@ export async function poser(formData: FormData): Promise<R> {
     expect(c!.champs.map((x) => x.nom)).toEqual(["id", "montant", "titre"]);
   });
 
+  it("un délégué dont le type de retour est un OBJET NU (`): { ok: true; … } | { ok: false; … } {`) est lu jusqu'au bout", () => {
+    // CE QUI FERAIT TOMBER : reprendre l'accolade du TYPE pour celle du corps. Le « corps » de
+    // `lireDemande` devenait alors `{ ok: true; demande: X }`, l'action sortait « aucune lecture
+    // de champ trouvée » à trois lignes de ses trente lectures — et `messaging-actions:sendMessage`
+    // perdait ses trois champs de référence depuis toujours (mesuré : 5 fonctions du parc).
+    const [c] = lire(`function lireDemande(formData: FormData): { ok: true; demande: Demande } | { ok: false; error: string } {
+  const titre = fdStr(formData, "titre");
+  if (!titre) return { ok: false, error: "titre" };
+  return { ok: true, demande: { titre, lignes: formData.getAll("ligne").map(String) } };
+}
+export async function poser(formData: FormData): Promise<R> {
+  const lu = lireDemande(formData);
+  if (!lu.ok) return lu;
+  await prisma.truc.create({ data: lu.demande });
+  return { ok: true };
+}`);
+    expect(c!.illisible).toBeNull();
+    expect(c!.champs.map((x) => `${x.nom}:${x.type}`)).toEqual(["ligne:liste", "titre:texte"]);
+    // Et l'inverse tient : un `Promise<{ … }>` et un type fléché ne sont pas des corps non plus.
+    const [d] = lire(`export async function poser(formData: FormData): Promise<{ ok: boolean; cb: () => { n: number } }> {
+  const id = fdStr(formData, "id");
+  await prisma.truc.update({ where: { id }, data: {} });
+  return { ok: true, cb: () => ({ n: 1 }) };
+}`);
+    expect(d!.illisible).toBeNull();
+    expect(d!.champs.map((x) => x.nom)).toEqual(["id"]);
+  });
+
   it("un délégué DYNAMIQUE n'efface pas ce qu'on sait — mais seul, il rend illisible", () => {
     // §118.27 : refuser à tort coûte plus cher. Un champ personnalisé en plus n'a jamais
     // empêché une action de réussir ; c'est de ne RIEN savoir qui rend l'appel impossible.
@@ -751,6 +779,28 @@ export async function ouvrirSession(id: string) {
   it("un import de TYPE n'écrit rien — et n'est même pas retenu", () => {
     expect(importsProjet(`import { type Truc, creerTruc } from "@/lib/domaine/truc";`))
       .toEqual({ creerTruc: "@/lib/domaine/truc" });
+  });
+
+  it("le PONT de plateforme est du code du dépôt : ses écrivains sont suivis, une bibliothèque non", () => {
+    // CE QUI FERAIT TOMBER : ne retenir que `@/lib/…`. `emettrePieceCommerciale` émet une facture
+    // par `@/platform/in-process/artifact/factory` et sortait `ecrit: false` : la carte de
+    // confirmation disait « aucune écriture en base détectée » sur un geste qui inscrit une pièce
+    // au registre Legal et consomme un numéro (§118.116). Mesuré : 4 actions du parc réparées,
+    // 0 champ changé.
+    expect(importsProjet(`import { emettreDocumentDrive } from "@/platform/in-process/artifact/factory";
+import { z } from "zod";
+import { fdStr } from "@/lib/actions/types";`))
+      .toEqual({ emettreDocumentDrive: "@/platform/in-process/artifact/factory", fdStr: "@/lib/actions/types" });
+    const [c] = contratsDuFichier("fabrique-actions", `"use server";
+import { emettre } from "@/platform/in-process/artifact/factory";
+export async function poser(formData: FormData): Promise<R> {
+  const n = fdStr(formData, "n");
+  return emettre({ n });
+}`, {}, {}, { "@/platform/in-process/artifact/factory": `export async function emettre(d) {
+  return prisma.$transaction(async (tx) => tx.legalDocument.create({ data: d }));
+}` });
+    expect(c!.ecrit).toBe(true);
+    expect(c!.modelesEcrits).toEqual(["legalDocument"]);
   });
 
   it("les modèles du délégué importé n'entrent PAS dans l'attribution des CHAMPS", () => {

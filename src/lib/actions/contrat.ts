@@ -192,15 +192,38 @@ function equilibrer(source: string, ouvre: number, o: string, f: string): { text
  * l'action rendrait alors moins de champs, ce qui ressemble à une action plus simple, jamais à
  * une erreur. On avance donc en suivant la profondeur des chevrons ET des accolades : le corps
  * s'ouvre à la première accolade rencontrée hors de tout type.
+ *
+ * ET UN TYPE OBJET PEUT ÊTRE NU — `): { ok: true; demande: X } | { ok: false; error: string } {`.
+ * Là, aucun chevron ne l'enveloppe : la première version prenait l'accolade du type pour celle
+ * du corps, et le « corps » de la fonction devenait `{ ok: true; demande: X }`. Mesuré sur le
+ * parc : CINQ fonctions locales découpées ainsi, dont `lireDemande` — le délégué qui lit les
+ * trente champs d'une pièce commerciale — et l'action sortait « aucune lecture de champ trouvée »
+ * à trois lignes de ses lectures (§118.78, encore). La règle qui distingue les deux accolades
+ * est syntaxique, pas devinée : une accolade ouvre un TYPE quand ce qui la précède attend un
+ * opérande de type (`:`, `|`, `&`, `,`, `<`, `(`, `[`, `=>`) ; sinon, c'est le corps. Un type
+ * objet reconnu est sauté EN BLOC, chevrons ou pas.
  */
+const ATTEND_UN_TYPE = new Set([":", "|", "&", ",", "<", "(", "[", "=>"]);
+
 function debutDuCorps(source: string, apresParams: number): number {
-  let chevrons = 0;
+  let profondeur = 0; // chevrons, parenthèses et crochets du type de retour
+  let precedent = ""; // le dernier caractère significatif lu (« => » compte pour un)
   for (let i = apresParams; i < source.length; i++) {
-    const c = source[i];
-    if (c === "<") chevrons++;
-    else if (c === ">") { if (chevrons > 0) chevrons--; }
-    else if (c === "{") { if (chevrons === 0) return i; }
-    else if (c === ";" && chevrons === 0) return -1; // une surcharge sans corps
+    const c = source[i]!;
+    if (c === " " || c === "\n" || c === "\r" || c === "\t") continue;
+    if (c === "<" || c === "(" || c === "[") profondeur++;
+    else if (c === ">" || c === ")" || c === "]") {
+      if (profondeur > 0) profondeur--;
+      if (c === ">" && precedent === "=") { precedent = "=>"; continue; }
+    } else if (c === "{") {
+      if (profondeur === 0 && !ATTEND_UN_TYPE.has(precedent)) return i;
+      const bloc = equilibrer(source, i, "{", "}");
+      if (!bloc) return -1;
+      i = bloc.fin - 1;
+      precedent = "}";
+      continue;
+    } else if (c === ";" && profondeur === 0) return -1; // une surcharge sans corps
+    precedent = c;
   }
   return -1;
 }
@@ -317,14 +340,20 @@ function deleguesDuCorps(
 }
 
 /**
- * LES SYMBOLES IMPORTÉS D'UN MODULE DU PROJET — `{ a, b as c }` depuis `@/lib/...`.
+ * LES SYMBOLES IMPORTÉS D'UN MODULE DU PROJET — `{ a, b as c }` depuis `@/lib/...` ou
+ * `@/platform/...`.
  *
- * On ne retient que `@/lib/…` : un import de bibliothèque n'écrit pas dans notre base, et lire
- * `node_modules` pour s'en assurer coûterait un scan du monde à chaque dérivation.
+ * On ne retient que le code du DÉPÔT : un import de bibliothèque n'écrit pas dans notre base, et
+ * lire `node_modules` pour s'en assurer coûterait un scan du monde à chaque dérivation. Le pont
+ * de plateforme (`@/platform/in-process/…`) en fait partie — c'est là que vivent les écrivains
+ * qu'Adam et l'ERP partagent, la fabrique documentaire la première : une action qui émet une
+ * facture par `emettreDocumentDrive` sortait `ecrit: false`, et la carte de confirmation disait
+ * « aucune écriture en base détectée » sur un geste qui inscrit une pièce au registre Legal et
+ * consomme un numéro (§118.116, par l'autre porte).
  */
 export function importsProjet(source: string): Record<string, string> {
   const table: Record<string, string> = {};
-  const re = /import\s*\{([^}]*)\}\s*from\s*"(@\/lib\/[^"]+)"/g;
+  const re = /import\s*\{([^}]*)\}\s*from\s*"(@\/(?:lib|platform)\/[^"]+)"/g;
   for (const m of sansCommentaires(source).matchAll(re)) {
     for (const brut of m[1]!.split(",")) {
       const t = brut.trim();

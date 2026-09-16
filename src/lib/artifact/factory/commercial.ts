@@ -18,11 +18,11 @@
  * société (Legal) — une fois, pour toutes les factures suivantes. Un devis ou un bon de commande
  * sans ces mentions se produit, avec un avertissement.
  *
- * Module PUR : ni base, ni fichier, ni session.
+ * Module PUR : ni base, ni fichier, ni session — et aucun module Node : l'écran de composition
+ * des Finances lit les mêmes constantes. L'EMPREINTE (qui hache) vit dans `empreinte.ts`.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-import { createHash } from "node:crypto";
 import { montantEnLettres } from "@/lib/artifact/factory/lettres";
 
 export const TYPES_DOCUMENT = ["DEVIS", "BON_DE_COMMANDE", "FACTURE"] as const;
@@ -87,6 +87,24 @@ export interface LigneCommerciale {
   /** Taux de TVA de la ligne, en fraction. Absent = le taux par défaut du document. */
   tva?: number | null;
   reference?: string | null;
+  /**
+   * LES LIGNES DE DÉTAIL sous la désignation — « Format A4 », « Impression quadri recto verso sur
+   * 300 g », « Forfait 10 exemplaires » : le bon de commande de référence de la société en porte
+   * jusqu'à cinq par article. Elles se lisent, elles ne se chiffrent pas.
+   */
+  details?: string[] | null;
+  /**
+   * UNE LIGNE DE SECTION — « Campagne Raltégravir » : un titre dans le tableau, sans quantité ni
+   * prix, qui regroupe les lignes qui suivent. Elle n'entre dans aucun total et n'est pas numérotée.
+   */
+  section?: boolean | null;
+}
+
+/** Une taxe ADDITIONNELLE au HT — « Taxe Pub 2 % » sur le BC de référence : hors base de TVA. */
+export interface TaxeAdditionnelle {
+  libelle: string;
+  /** En fraction (0,02 = 2 %). */
+  taux: number;
 }
 
 export interface SpecDocumentCommercial {
@@ -111,6 +129,18 @@ export interface SpecDocumentCommercial {
   objet?: string | null;
   /** « Suivant devis n° DEV-2026-0012 » — la pièce amont, en clair. */
   referenceAmont?: string | null;
+  /** La date de la pièce amont (« Du 20/07/2026 » sous le numéro du devis), ISO. */
+  referenceAmontDate?: string | null;
+  /** Le numéro que la société donne à ce client dans sa comptabilité (« 00003 »). */
+  numeroClient?: string | null;
+  /** L'interlocuteur nommé sur la pièce (« Mme ABDELAZIZ ASSIA — Tel 0770530674 »). */
+  contact?: { nom?: string | null; telephone?: string | null } | null;
+  /**
+   * LES TAXES ADDITIONNELLES, calculées sur le total HT et HORS base de TVA — c'est ainsi que le
+   * bon de commande de référence les porte : 794 500 HT, Taxe Pub 2 % = 15 890, TVA 19 % =
+   * 150 955 (= 19 % de 794 500, pas de 810 390), TTC 961 345.
+   */
+  taxes?: TaxeAdditionnelle[] | null;
   livraison?: { adresse?: string | null; delai?: string | null } | null;
   notes?: string | null;
   signataire?: { nom: string; qualite?: string | null } | null;
@@ -123,7 +153,9 @@ export interface SpecDocumentCommercial {
 }
 
 export interface LigneCalculee extends LigneCommerciale {
+  /** Le rang parmi les lignes CHIFFRÉES ; 0 pour une ligne de section. */
   n: number;
+  section: boolean;
   taux: number;
   /** Quantité × prix unitaire, avant remise. */
   brut: number;
@@ -143,6 +175,9 @@ export interface TotauxCommerciaux {
   totalHt: number;
   tva: { taux: number; base: number; montant: number }[];
   totalTva: number;
+  /** Les taxes additionnelles, chacune avec sa base (le HT) et son montant. */
+  taxes: { libelle: string; taux: number; base: number; montant: number }[];
+  totalTaxes: number;
   timbre: number;
   totalTtc: number;
   enLettres: string;
@@ -161,12 +196,17 @@ const fraction = (v: number | null | undefined): number => (typeof v === "number
 
 export function calculerTotaux(spec: SpecDocumentCommercial): TotauxCommerciaux {
   const tauxDefaut = spec.tvaDefaut === null || spec.tvaDefaut === undefined ? TVA_NORMALE : spec.tvaDefaut;
-  const lignes: LigneCalculee[] = spec.lignes.map((l, i) => {
+  let rang = 0;
+  const lignes: LigneCalculee[] = spec.lignes.map((l) => {
+    // UNE SECTION NE COMPTE PAS : ni dans les totaux, ni dans la numérotation. Lui donner un rang
+    // décalerait « ligne 3 » entre l'écran et le tiers qui relit la pièce.
+    if (l.section) return { ...l, n: 0, section: true, taux: tauxDefaut, brut: 0, remiseMontant: 0, ht: 0 };
     const brut = arrondirCentimes(l.quantite * l.prixUnitaire);
     const remiseMontant = arrondirCentimes(brut * fraction(l.remise));
     const ht = arrondirCentimes(brut - remiseMontant);
     const taux = l.tva === null || l.tva === undefined ? tauxDefaut : l.tva;
-    return { ...l, n: i + 1, taux, brut, remiseMontant, ht };
+    rang += 1;
+    return { ...l, n: rang, section: false, taux, brut, remiseMontant, ht };
   });
   const totalHtBrut = arrondirCentimes(lignes.reduce((s, l) => s + l.brut, 0));
   const remisesLignes = arrondirCentimes(lignes.reduce((s, l) => s + l.remiseMontant, 0));
@@ -178,7 +218,7 @@ export function calculerTotaux(spec: SpecDocumentCommercial): TotauxCommerciaux 
   // LA TVA PAR TAUX : la base de chaque taux est la somme des lignes de ce taux, la remise
   // globale répartie au prorata — c'est ainsi qu'un vérificateur la recalcule.
   const bases = new Map<number, number>();
-  for (const l of lignes) bases.set(l.taux, arrondirCentimes((bases.get(l.taux) ?? 0) + l.ht));
+  for (const l of lignes) if (!l.section) bases.set(l.taux, arrondirCentimes((bases.get(l.taux) ?? 0) + l.ht));
   const tva = [...bases.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([taux, baseBrute]) => {
@@ -186,12 +226,17 @@ export function calculerTotaux(spec: SpecDocumentCommercial): TotauxCommerciaux 
       return { taux, base, montant: arrondirCentimes(base * taux) };
     });
   const totalTva = arrondirCentimes(tva.reduce((s, t) => s + t.montant, 0));
-  const ttcAvantTimbre = arrondirCentimes(totalHt + totalTva);
+  // LES TAXES ADDITIONNELLES : sur le HT, hors base de TVA (voir `SpecDocumentCommercial.taxes`).
+  const taxes = (spec.taxes ?? [])
+    .filter((x) => x && typeof x.taux === "number" && Number.isFinite(x.taux) && x.taux > 0)
+    .map((x) => ({ libelle: String(x.libelle ?? "").trim(), taux: x.taux, base: totalHt, montant: arrondirCentimes(totalHt * x.taux) }));
+  const totalTaxes = arrondirCentimes(taxes.reduce((s, x) => s + x.montant, 0));
+  const ttcAvantTimbre = arrondirCentimes(totalHt + totalTaxes + totalTva);
   const timbre = spec.modePaiement === "ESPECES" && ttcAvantTimbre > 0
     ? Math.min(TIMBRE_FISCAL.max, Math.max(TIMBRE_FISCAL.min, arrondirCentimes(ttcAvantTimbre * TIMBRE_FISCAL.taux)))
     : 0;
   const totalTtc = arrondirCentimes(ttcAvantTimbre + timbre);
-  return { lignes, totalHtBrut, remisesLignes, remiseGlobale, totalHt, tva, totalTva, timbre, totalTtc, enLettres: montantEnLettres(totalTtc) };
+  return { lignes, totalHtBrut, remisesLignes, remiseGlobale, totalHt, tva, totalTva, taxes, totalTaxes, timbre, totalTtc, enLettres: montantEnLettres(totalTtc) };
 }
 
 // ─────────────────────────── Les formats ───────────────────────────
@@ -234,9 +279,43 @@ export function ajouterJours(iso: string, jours: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** « FA-2026-0007 » : préfixe, année, séquence sur quatre chiffres (davantage si elle déborde). */
-export function formaterNumero(prefixe: string, annee: number, sequence: number): string {
-  return `${prefixe.trim().toUpperCase()}-${annee}-${String(sequence).padStart(4, "0")}`;
+/**
+ * LE MOTIF DE NUMÉROTATION — parce que les pièces réelles de la société ne s'écrivent pas
+ * « FA-2026-0007 » : sa facture de référence porte « 001/FS/26 » et son bon de commande
+ * « 012/DG/2026 ». Un motif se lit avec cinq jetons, et rien d'autre :
+ *
+ *   {n}       la séquence, sans zéro devant        {n:3}   la séquence sur 3 chiffres (au moins)
+ *   {aaaa}    l'année sur quatre chiffres           {aa}    l'année sur deux chiffres
+ *   {prefixe} le préfixe de la nature (FA / BC / DEV, ou celui du profil)
+ *
+ * Le défaut reste `{prefixe}-{aaaa}-{n:4}` : ce que toutes les pièces émises jusqu'ici portent.
+ * Le motif vit dans le profil documentaire de la société (`settings.numerotation`), par nature.
+ */
+export const MOTIF_NUMERO_DEFAUT = "{prefixe}-{aaaa}-{n:4}";
+
+const JETON = /\{(n(?::(\d{1,2}))?|aaaa|aa|prefixe)\}/g;
+
+/** Ce qui rend un motif inacceptable, en clair — ou `null` s'il est valide. */
+export function validerMotifNumero(motif: string): string | null {
+  const m = (motif ?? "").trim();
+  if (!m) return "Le motif de numérotation est vide.";
+  if (m.length > 40) return "Le motif de numérotation dépasse 40 caractères.";
+  if (!/\{n(?::\d{1,2})?\}/.test(m)) return "Le motif doit porter la séquence : {n} ou {n:3}.";
+  const inconnus = [...m.matchAll(/\{[^}]*\}/g)].map((x) => x[0]).filter((j) => !/^\{(n(?::\d{1,2})?|aaaa|aa|prefixe)\}$/.test(j));
+  if (inconnus.length) return `Jeton inconnu dans le motif : ${inconnus.join(", ")} (admis : {n}, {n:3}, {aaaa}, {aa}, {prefixe}).`;
+  if (/[\\<>|"*?]/.test(m)) return "Le motif porte un caractère interdit dans un numéro (\\ < > | \" * ?).";
+  return null;
+}
+
+/** « FA-2026-0007 » par défaut ; « 001/FS/26 » ou « 012/DG/2026 » avec le motif de la société. */
+export function formaterNumero(prefixe: string, annee: number, sequence: number, motif?: string | null): string {
+  const m = motif && !validerMotifNumero(motif) ? motif.trim() : MOTIF_NUMERO_DEFAUT;
+  return m.replace(JETON, (_tout, jeton: string, largeur?: string) => {
+    if (jeton === "aaaa") return String(annee);
+    if (jeton === "aa") return String(annee).slice(-2);
+    if (jeton === "prefixe") return prefixe.trim().toUpperCase();
+    return String(sequence).padStart(largeur ? Number(largeur) : 0, "0");
+  });
 }
 
 // ─────────────────────────── La validité ───────────────────────────
@@ -277,9 +356,12 @@ export function verifierSpecCommerciale(spec: SpecDocumentCommercial): Verificat
   if (!Array.isArray(spec.lignes) || spec.lignes.length === 0) bloquants.push(`${quoi} sans aucune ligne.`);
   else {
     if (spec.lignes.length > 400) bloquants.push(`${spec.lignes.length} lignes : au-delà de 400, ce n'est plus une pièce commerciale mais une annexe — la joindre en Excel.`);
+    if (spec.lignes.every((l) => l.section)) bloquants.push(`${quoi} sans aucune ligne chiffrée : il n'y a que des titres de section.`);
     spec.lignes.forEach((l, i) => {
       const n = i + 1;
       if (vide(l.designation)) bloquants.push(`Ligne ${n} : désignation vide.`);
+      // Une SECTION n'a ni quantité ni prix : on ne lui reproche pas de ne pas en avoir.
+      if (l.section) return;
       if (typeof l.quantite !== "number" || !Number.isFinite(l.quantite) || l.quantite <= 0) bloquants.push(`Ligne ${n} : quantité invalide (${String(l.quantite)}).`);
       if (typeof l.prixUnitaire !== "number" || !Number.isFinite(l.prixUnitaire) || l.prixUnitaire < 0) bloquants.push(`Ligne ${n} : prix unitaire invalide (${String(l.prixUnitaire)}).`);
       if (l.remise !== null && l.remise !== undefined && (l.remise < 0 || l.remise >= 1)) bloquants.push(`Ligne ${n} : remise ${l.remise} hors de [0 ; 1[ — une remise s'écrit en fraction (0,1 = 10 %).`);
@@ -291,6 +373,11 @@ export function verifierSpecCommerciale(spec: SpecDocumentCommercial): Verificat
   if (spec.remiseGlobale !== null && spec.remiseGlobale !== undefined && (spec.remiseGlobale < 0 || spec.remiseGlobale >= 1)) bloquants.push(`Remise globale ${spec.remiseGlobale} hors de [0 ; 1[.`);
   if (spec.tvaDefaut !== null && spec.tvaDefaut !== undefined && !TAUX_TVA_ADMIS.some((t) => Math.abs(t - spec.tvaDefaut!) < 1e-9)) bloquants.push(`Taux de TVA par défaut ${spec.tvaDefaut} inconnu en Algérie.`);
   if (spec.modePaiement && !MODES_PAIEMENT.includes(spec.modePaiement)) bloquants.push(`Mode de paiement « ${spec.modePaiement} » inconnu (${MODES_PAIEMENT.join(", ")}).`);
+  if (spec.referenceAmontDate && !dateIso(spec.referenceAmontDate)) bloquants.push(`La date de la pièce amont « ${spec.referenceAmontDate} » n'est pas une date AAAA-MM-JJ.`);
+  (spec.taxes ?? []).forEach((x, i) => {
+    if (vide(x?.libelle)) bloquants.push(`Taxe additionnelle ${i + 1} : libellé vide.`);
+    if (typeof x?.taux !== "number" || !Number.isFinite(x.taux) || x.taux <= 0 || x.taux >= 1) bloquants.push(`Taxe additionnelle ${i + 1} « ${x?.libelle ?? ""} » : taux ${String(x?.taux)} hors de ]0 ; 1[ — un taux s'écrit en fraction (0,02 = 2 %).`);
+  });
 
   // Les mentions d'identité : exigées sur une facture, souhaitées ailleurs.
   const manquantes = MENTIONS_EMETTEUR.filter((m) => vide(spec.emetteur?.[m.cle] as string | null | undefined)).map((m) => m.libelle);
@@ -305,25 +392,6 @@ export function verifierSpecCommerciale(spec: SpecDocumentCommercial): Verificat
   if (spec.type === "DEVIS" && (spec.validiteJours === null || spec.validiteJours === undefined)) avertissements.push("Devis sans durée de validité : 30 jours seront indiqués.");
   if (spec.type === "FACTURE" && vide(spec.modePaiement)) avertissements.push("Facture sans mode de paiement.");
   return { bloquants, avertissements };
-}
-
-// ─────────────────────────── L'empreinte ───────────────────────────
-
-const normaliser = (s: string | null | undefined): string => (s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
-
-/**
- * L'EMPREINTE D'UN CONTENU — ce qui permet de reconnaître « le même bon de commande » émis
- * deux fois par une reprise après panne : même type, même émetteur, même tiers, mêmes lignes,
- * même date. Le numéro n'en fait pas partie, précisément parce qu'il n'est attribué qu'après.
- */
-export function empreinteDocument(spec: Omit<SpecDocumentCommercial, "numero">, societeId: string): string {
-  const corps = {
-    societeId, type: spec.type, date: spec.date, tiers: normaliser(spec.tiers?.nom),
-    lignes: (spec.lignes ?? []).map((l) => [normaliser(l.designation), l.quantite, l.prixUnitaire, l.remise ?? 0, l.tva ?? null]),
-    remiseGlobale: spec.remiseGlobale ?? 0, tvaDefaut: spec.tvaDefaut ?? null, modePaiement: spec.modePaiement ?? null,
-    referenceAmont: normaliser(spec.referenceAmont), objet: normaliser(spec.objet),
-  };
-  return createHash("sha256").update(JSON.stringify(corps)).digest("hex").slice(0, 32);
 }
 
 /** Le titre de la pièce au registre Legal : « Facture n° FA-2026-0007 — Pharmacie Centrale ». */

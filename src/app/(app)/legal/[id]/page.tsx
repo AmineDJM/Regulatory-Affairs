@@ -8,7 +8,7 @@ import { PartyLink } from "@/components/directory/party-link";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { companyScopedWhere } from "@/lib/company";
-import { legalViewScope, legalWriteAllowed } from "@/lib/legal/invoices";
+import { legalKindVisible, legalViewScope, legalWriteAllowed } from "@/lib/legal/invoices";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -100,7 +100,7 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
 
   // La pièce est-elle DANS la portée de cette personne ? Un refus rend 404, comme les autres :
   // dire qu'un document existe, c'est déjà en dire trop.
-  if (portee === "INVOICES_ONLY" && doc.kind !== "INVOICE") notFound();
+  if (!legalKindVisible(portee, String(doc.kind))) notFound();
 
   const canEdit = legalWriteAllowed({
     onLegal: userCan(user, "LEGAL", "UPDATE"),

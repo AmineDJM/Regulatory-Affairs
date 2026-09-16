@@ -105,7 +105,11 @@ suite("la fabrique de documents — émission, registre, Drive, reprise, révisi
     expect(Number(doc!.amount)).toBe(33_412.82);
     expect(doc!.title).toBe(`Facture n° FA-${ANNEE}-0001 — Pharmacie Centrale d'Alger`);
     const m = await modeleDrive(r.docx.nodeId);
-    expect(m.paragraphs[0].text).toBe(`FACTURE N° FA-${ANNEE}-0001`);
+    // LA MISE EN PAGE MAISON (§118.135) : le numéro vit dans le bloc « Numéro de facture », plus dans un titre.
+    const texte = [...m.paragraphs.map((x) => x.text), ...m.tables.flatMap((t) => t.cells.map((c) => c.text))].join("\n");
+    expect(texte).toContain(`FA-${ANNEE}-0001`);
+    expect(texte).toContain("Numéro de facture :");
+    expect(texte).toContain("SOMME À PAYER :");
     expect(m.hasHeader).toBe(false);
     const fiche = await portsArtefact.documents.decrire(user.id, r.pdf!.nodeId);
     expect(fiche?.mime).toBe("application/pdf");
@@ -187,7 +191,7 @@ suite("la fabrique de documents — émission, registre, Drive, reprise, révisi
     expect(f.version).toBe(2);
     expect(f.historique.at(-1)).toMatchObject({ version: 2, resume: "v2 — quantités doublées" });
     // La version 1 reste ouvrable — le Drive est un historique.
-    expect((await modeleDrive(devis.docx.nodeId, 1)).paragraphs[0].text).toBe(`DEVIS N° ${devis.reference}`);
+    expect((await modeleDrive(devis.docx.nodeId, 1)).paragraphs[0].text).toBe(`DEVIS : N° ${devis.reference}`);
 
     const facture = await prisma.legalDocument.findFirst({ where: { companyId, kind: "INVOICE" }, select: { id: true } });
     const refus = await reviserDocumentDrive(user, { legalDocumentId: facture!.id, modifications: { notes: "x" } });
@@ -335,7 +339,7 @@ describe("une pièce qui ne porte pas la charte de la société le DIT", () => {
     societe: { id: "s1", nom: "Adventum Pharma", couleur: "#0f766e" },
     identite: { nom: "Adventum Pharma" },
     identiteIncomplete: ["siège social", "RC", "NIF"],
-    reglages: { quotePrefix: "DEV", orderPrefix: "BC", invoicePrefix: "FA", vatRate: 0.19, paymentTerms: "", quoteValidityDays: 30, footerNote: null, letterheadId: null, signatoryName: null, signatoryTitle: null, existe: false },
+    reglages: { quotePrefix: "DEV", orderPrefix: "BC", invoicePrefix: "FA", vatRate: 0.19, paymentTerms: "", quoteValidityDays: 30, footerNote: null, letterheadId: null, signatoryName: null, signatoryTitle: null, numerotation: {}, existe: false },
     papierEnTete: null,
     reglesAppliquees: [],
     marque: { logo: null } as ProfilDocumentaire["marque"],

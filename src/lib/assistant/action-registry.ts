@@ -647,6 +647,13 @@ classify("COVERED", "create_admin_request", ["admin-request-actions:createReques
 // LE REGISTRE DE MARQUE (§26) : la charte (couleurs, polices, coordonnées, mentions, signataires) se règle en
 // parlant — `document_profile` (geste definir, champ `marque`), même validation, même audit que l'écran.
 classify("COVERED", "document_profile (geste definir, champ marque)", ["brand-actions:enregistrerMarque"]);
+// LE BOUTON DES FINANCES (§118.135) : composer une facture ou un bon de commande au format de la
+// société, sur son papier en-tête — c'est EXACTEMENT ce que `document_build` fait en conversation
+// (« fais-moi une facture Pharmagène pour Biogalenic… »), par la MÊME fabrique et le même registre ;
+// l'aperçu est la lecture à blanc de la même composition, et le motif de numérotation se règle par
+// `document_profile` (champ `numerotation`).
+classify("COVERED", "document_build", ["fabrique-actions:emettrePieceCommerciale", "fabrique-actions:previsualiserPieceCommerciale"]);
+classify("COVERED", "document_profile (geste definir, champ numerotation)", ["fabrique-actions:reglerNumerotationPieces"]);
 classify("COVERED", "create_task (planifiée, circuit demande)", ["task-actions:requestTask"]);
 classify("COVERED", "update_task", ["task-actions:updateTaskStatus", "task-actions:startTask"]);
 classify("COVERED", "create_dossier", ["dossier-actions:createDossier"]);

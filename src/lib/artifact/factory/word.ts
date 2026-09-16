@@ -66,8 +66,14 @@ export interface OptionsTableau {
   entete?: boolean;
   couleurEntete?: string;
   couleurTexteEntete?: string;
-  /** Bordures fines (défaut) ou aucune (blocs d'adresse, signatures). */
-  bordures?: boolean;
+  /**
+   * Bordures fines (défaut), aucune (blocs d'adresse, signatures) — ou CHOISIES côté par côté :
+   * `{ bas: true }` trace le seul filet sous le tableau, comme la règle qui ferme les totaux du bon
+   * de commande de référence de la société.
+   */
+  bordures?: boolean | { haut?: boolean; bas?: boolean; gauche?: boolean; droite?: boolean; interieurH?: boolean; interieurV?: boolean };
+  /** Couleur des bordures (hexadécimale). Défaut : gris clair. */
+  couleurBordure?: string;
   taillePt?: number;
   /** Indices (0 = première ligne) des lignes à mettre en gras. */
   lignesEnGras?: number[];
@@ -136,7 +142,7 @@ function normaliserCellule(c: Cellule): { contenu: Fragment[]; alignement?: Alig
   return { ...c, contenu: typeof c.contenu === "string" ? [{ texte: c.contenu }] : c.contenu };
 }
 
-const BORDURE = (val: "single" | "nil") => `w:val="${val}" w:sz="4" w:space="0" w:color="BFBFBF"`;
+const BORDURE = (val: "single" | "nil", couleur = "BFBFBF", sz = 4) => `w:val="${val}" w:sz="${sz}" w:space="0" w:color="${couleur}"`;
 
 /**
  * UN TABLEAU à colonnes FIXES (largeurs en centimètres), qui ne dépend donc pas de la police du
@@ -146,10 +152,14 @@ const BORDURE = (val: "single" | "nil") => `w:val="${val}" w:sz="4" w:space="0" 
 export function tableau(lignes: Cellule[][], o: OptionsTableau): string {
   const largeurs = o.colonnes.map((c) => twips(c.largeurCm));
   const total = largeurs.reduce((s, w) => s + w, 0);
-  const bordures = o.bordures !== false;
-  const b = BORDURE(bordures ? "single" : "nil");
+  // CHAQUE CÔTÉ décide pour lui : `true`/`false` les règle tous, un objet les nomme un par un.
+  const cotes = typeof o.bordures === "object" && o.bordures !== null
+    ? { haut: !!o.bordures.haut, bas: !!o.bordures.bas, gauche: !!o.bordures.gauche, droite: !!o.bordures.droite, interieurH: !!o.bordures.interieurH, interieurV: !!o.bordures.interieurV }
+    : (() => { const tout = o.bordures !== false; return { haut: tout, bas: tout, gauche: tout, droite: tout, interieurH: tout, interieurV: tout }; })();
+  const couleurBordure = hex(o.couleurBordure, "BFBFBF");
+  const b = (on: boolean) => BORDURE(on ? "single" : "nil", couleurBordure, typeof o.bordures === "object" ? 8 : 4);
   const tblPr = `<w:tblPr><w:tblW w:w="${total}" w:type="dxa"/>${o.position ? `<w:jc w:val="${o.position}"/>` : ""}<w:tblLayout w:type="fixed"/>`
-    + `<w:tblBorders><w:top ${b}/><w:left ${b}/><w:bottom ${b}/><w:right ${b}/><w:insideH ${b}/><w:insideV ${b}/></w:tblBorders>`
+    + `<w:tblBorders><w:top ${b(cotes.haut)}/><w:left ${b(cotes.gauche)}/><w:bottom ${b(cotes.bas)}/><w:right ${b(cotes.droite)}/><w:insideH ${b(cotes.interieurH)}/><w:insideV ${b(cotes.interieurV)}/></w:tblBorders>`
     + `<w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar></w:tblPr>`;
   const grid = `<w:tblGrid>${largeurs.map((w) => `<w:gridCol w:w="${w}"/>`).join("")}</w:tblGrid>`;
   const taille = o.taillePt ?? 10;
