@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { MailSendPolicy } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { hasGlobalView } from "@/lib/rbac";
+import { hasGlobalView, peutPiloterMissionsAdam } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import {
   setMailSendPolicy,
@@ -114,6 +114,9 @@ export async function setAdamInboundPaused(paused: boolean): Promise<{ ok: boole
 export async function setAdamMissionsPaused(paused: boolean): Promise<{ ok: boolean; error?: string; change?: boolean }> {
   const { error, user } = await requireChief();
   if (error || !user) return { ok: false, error: error ?? "Non autorisé." };
+  // Les missions d'Adam — leur interrupteur compris — sont réservées au Super Admin (§118.136).
+  // Le PDG garde l'écran des réglages ; ce bouton-ci ne lui est plus présenté, et l'action le refuse.
+  if (!peutPiloterMissionsAdam(user)) return { ok: false, error: "L'interrupteur des missions d'Adam est réservé au Super Admin." };
   const r = paused ? await suspendreMissions(user.id) : await leverSuspensionMissions();
   if (r.change) {
     await recordAudit({

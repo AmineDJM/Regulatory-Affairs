@@ -1,4 +1,6 @@
 import type { PowerTool } from "@/lib/assistant/power-tools";
+// Par le PONT, pas par `lib/rbac` : un import direct est un franchissement de la frontière (§118.136).
+import { peutPiloterMissionsAdam, REFUS_MISSIONS_ADAM } from "@/platform/in-process/adapter";
 
 /** Le type de la personne, tel que la boîte à outils le reçoit — sans importer la session (frontière). */
 type Utilisateur = Parameters<PowerTool["run"]>[1];
@@ -17,7 +19,13 @@ type Utilisateur = Parameters<PowerTool["run"]>[1];
  * par la boîte à outils entière, et le pont tire la porte d'attention et le registre.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-const EXEC = (u: Utilisateur): boolean => u.role === "SUPER_ADMIN" || u.role === "DIRECTION";
+/**
+ * RÉSERVÉ AU SUPER ADMIN (décision de la Direction, 09/2026). Une surveillance EST une mission
+ * (kind WATCH, même moteur, même journal, même battement) : elle suit le prédicat UNIQUE des
+ * missions d'Adam, `peutPiloterMissionsAdam` — hier, le PDG y avait droit aussi.
+ */
+const EXEC = (u: Utilisateur): boolean => peutPiloterMissionsAdam(u);
+const REFUS_SURVEILLANCE = `${REFUS_MISSIONS_ADAM} Pour être prévenu à une date, propose un rappel (plan_reminder) — et dis-le à la personne.`;
 const str = (input: Record<string, unknown>, key: string): string =>
   typeof input[key] === "string" ? (input[key] as string).trim() : "";
 const num = (input: Record<string, unknown>, key: string): number | null =>
@@ -59,6 +67,7 @@ export const WATCH_TOOLS: PowerTool[] = [
       },
     },
     allowed: EXEC,
+    refus: REFUS_SURVEILLANCE,
     label: "Surveillance créée",
     run: async (input, user) => {
       const reference = str(input, "reference");
@@ -103,6 +112,7 @@ export const WATCH_TOOLS: PowerTool[] = [
       input_schema: { type: "object", properties: {} },
     },
     allowed: EXEC,
+    refus: REFUS_SURVEILLANCE,
     label: "Surveillances listées",
     run: async (_input, user) => {
       const { listerSurveillances } = await import("@/platform/in-process/missions/watch");
@@ -118,6 +128,7 @@ export const WATCH_TOOLS: PowerTool[] = [
       input_schema: { type: "object", properties: { id: { type: "string", description: "Identifiant de la surveillance ou de sa mission-support." } }, required: ["id"] },
     },
     allowed: EXEC,
+    refus: REFUS_SURVEILLANCE,
     label: "Surveillance arrêtée",
     run: async (input, user) => {
       const id = str(input, "id");

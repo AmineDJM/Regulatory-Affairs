@@ -1,7 +1,7 @@
 "use server";
 
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { peutPiloterMissionsAdam, REFUS_MISSIONS_ADAM } from "@/lib/rbac";
 import { approbationsEnAttente, decider } from "@/lib/missions/approval/gate";
 import { fournirEntree } from "@/lib/missions/events/router";
 import { annuler, arreterBloquees, mettreEnPause, mettreEnPauseToutes, reprendre } from "@/lib/missions/runtime/control";
@@ -40,6 +40,14 @@ import { approuver, candidats, modeleFaisantAutorite, LIBELLE_TYPE, type TypeMod
  * désigner une autre. Le reste du produit fonctionne ainsi ; s'en écarter ici aurait créé le
  * seul endroit où l'on fait autrement, c'est-à-dire le seul endroit qu'on oublie de vérifier.
  *
+ * ── RÉSERVÉ AU SUPER ADMIN (décision de la Direction, 09/2026) ───────────────────────────
+ *
+ * Chaque action commence par `peutPiloterMissionsAdam` — le prédicat UNIQUE de `rbac.ts`, celui
+ * que lisent aussi l'écran, le menu, les outils de conversation et le moteur. Avant, la porte
+ * était le module WORKSPACE, c'est-à-dire tout le monde ; le cloisonnement par propriétaire
+ * (`vueMission`, `ownerId` dans chaque `where`) reste en dessous, parce qu'un Super Admin ne
+ * touche pas non plus les missions d'un autre Super Admin par une adresse devinée.
+ *
  * ── CE QUI RESTE VRAI DE L'AUTRE CÔTÉ DE LA PORTE ───────────────────────────────────────
  *
  * Donner un accord ne fait RIEN d'autre que lever la garde. Les étapes autorisées repassent
@@ -66,7 +74,7 @@ export interface AccordEnAttente {
   depuis: string;
 }
 
-const REFUS: ResultatMission = { ok: false, message: "Non autorisé." };
+const REFUS: ResultatMission = { ok: false, message: REFUS_MISSIONS_ADAM };
 
 /**
  * LES ACCORDS QUE CETTE PERSONNE DOIT DONNER.
@@ -76,7 +84,7 @@ const REFUS: ResultatMission = { ok: false, message: "Non autorisé." };
  */
 export async function listerAccordsMission(): Promise<AccordEnAttente[]> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return [];
+  if (!peutPiloterMissionsAdam(user)) return [];
 
   const rows = await approbationsEnAttente(user.id);
   return rows.map((a) => ({
@@ -105,7 +113,7 @@ export async function deciderAccordMission(
   decision: "GRANTED" | "REFUSED",
 ): Promise<ResultatMission> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return REFUS;
+  if (!peutPiloterMissionsAdam(user)) return REFUS;
   if (decision !== "GRANTED" && decision !== "REFUSED") {
     return { ok: false, message: "Décision inconnue." };
   }
@@ -149,7 +157,7 @@ export async function fournirElementMission(
   contenu: string,
 ): Promise<ResultatMission> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return REFUS;
+  if (!peutPiloterMissionsAdam(user)) return REFUS;
 
   const texte = (contenu ?? "").trim();
   if (!texte) return { ok: false, message: "Il n'y a rien à fournir." };
@@ -170,7 +178,7 @@ export async function fournirElementMission(
 /** SUSPEND. Le motif est facultatif ; le journal le garde, et c'est lui qu'on relira. */
 export async function mettreMissionEnPause(missionId: string, motif?: string): Promise<ResultatMission> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return REFUS;
+  if (!peutPiloterMissionsAdam(user)) return REFUS;
   const r = await mettreEnPause(missionId, user.id, motif?.trim() || undefined);
   return { ok: r.ok, message: r.message, statut: r.vers };
 }
@@ -178,7 +186,7 @@ export async function mettreMissionEnPause(missionId: string, motif?: string): P
 /** REPREND — et relance tout de suite, pour la même raison que l'accord. */
 export async function reprendreMission(missionId: string): Promise<ResultatMission> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return REFUS;
+  if (!peutPiloterMissionsAdam(user)) return REFUS;
   const r = await reprendre(missionId, user.id);
   if (!r.ok) return { ok: false, message: r.message, statut: r.vers };
   return { ok: true, statut: await relancer(user, missionId), message: r.message };
@@ -196,7 +204,7 @@ export async function reprendreMission(missionId: string): Promise<ResultatMissi
  */
 export async function replanifierMissionAction(missionId: string): Promise<ResultatMission> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return REFUS;
+  if (!peutPiloterMissionsAdam(user)) return REFUS;
   const r = await replanifierMission(user, missionId);
   if (!r.replanifie) return { ok: false, message: r.raison };
   return { ok: true, statut: await relancer(user, missionId), message: r.raison };
@@ -214,7 +222,7 @@ export async function changerPrioriteMission(
   priorite: number,
 ): Promise<ResultatMission> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return REFUS;
+  if (!peutPiloterMissionsAdam(user)) return REFUS;
   if (!Number.isFinite(priorite)) return { ok: false, message: "Priorité illisible." };
   const r = await prioriserMission(user, missionId, priorite);
   return { ok: r.fait, message: r.message, statut: r.statut };
@@ -261,7 +269,7 @@ export async function prevoirModificationMission(
   demande: DemandeModificationEcran,
 ): Promise<ApercuModification> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return { ok: false, message: REFUS.message, empreinte: null };
+  if (!peutPiloterMissionsAdam(user)) return { ok: false, message: REFUS.message, empreinte: null };
   if (!GENRES_MODIFICATION.includes(demande.genre)) {
     return { ok: false, message: "Modification inconnue.", empreinte: null };
   }
@@ -291,7 +299,7 @@ export async function appliquerModificationMission(
   demande: DemandeModificationEcran,
 ): Promise<ResultatMission & { empreinte: EmpreinteModification | null }> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return { ...REFUS, empreinte: null };
+  if (!peutPiloterMissionsAdam(user)) return { ...REFUS, empreinte: null };
   if (!GENRES_MODIFICATION.includes(demande.genre)) {
     return { ok: false, message: "Modification inconnue.", empreinte: null };
   }
@@ -316,7 +324,7 @@ export async function appliquerModificationMission(
 /** ARRÊTE. Ce qui a déjà été fait reste fait — la fonction sous-jacente le dit aussi. */
 export async function arreterMission(missionId: string, motif?: string): Promise<ResultatMission> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return REFUS;
+  if (!peutPiloterMissionsAdam(user)) return REFUS;
   const r = await annuler(missionId, user.id, motif?.trim() || undefined);
   return { ok: r.ok, message: r.message, statut: r.vers };
 }
@@ -354,7 +362,7 @@ const phraseDeMasse = (
 /** SUSPEND toutes les missions vivantes de la personne. Réversible, mission par mission. */
 export async function suspendreToutesMesMissions(motif?: string): Promise<ResultatMasse> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return { ...REFUS, visees: 0, faites: 0 };
+  if (!peutPiloterMissionsAdam(user)) return { ...REFUS, visees: 0, faites: 0 };
   const r = await mettreEnPauseToutes(user.id, motif?.trim() || "suspension de toutes les missions depuis le Centre de missions");
   return {
     ok: true, visees: r.visees, faites: r.faites,
@@ -369,7 +377,7 @@ export async function suspendreToutesMesMissions(motif?: string): Promise<Result
 /** ARRÊTE définitivement les missions bloquées ou en échec de la personne. */
 export async function arreterMesMissionsBloquees(motif?: string): Promise<ResultatMasse> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return { ...REFUS, visees: 0, faites: 0 };
+  if (!peutPiloterMissionsAdam(user)) return { ...REFUS, visees: 0, faites: 0 };
   const r = await arreterBloquees(user.id, motif?.trim() || "arrêt des missions bloquées ou en échec depuis le Centre de missions");
   return {
     ok: true, visees: r.visees, faites: r.faites,
@@ -427,7 +435,7 @@ export async function listerModelesCandidats(): Promise<
   { id: string; type: string; name: string; fileName: string | null; note: string | null }[]
 > {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return [];
+  if (!peutPiloterMissionsAdam(user)) return [];
   const liste = await candidats(user.id);
   return liste.map((c) => ({ id: c.id, type: c.type, name: c.name, fileName: c.fileName, note: c.note }));
 }
@@ -435,7 +443,7 @@ export async function listerModelesCandidats(): Promise<
 /** APPROUVE un modèle — le seul chemin, et il part d'une session humaine authentifiée. */
 export async function approuverModeleOperationnel(templateId: string): Promise<ResultatMission> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return REFUS;
+  if (!peutPiloterMissionsAdam(user)) return REFUS;
 
   // Le périmètre : on n'approuve que SES modèles. `approuver` filtre déjà par état ; ce
   // contrôle-ci ajoute le propriétaire, que le registre n'a pas à connaître.
@@ -462,7 +470,7 @@ export async function modeleOfficiel(
   type: string,
 ): Promise<{ id: string; name: string; fileName: string | null; libelle: string } | null> {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return null;
+  if (!peutPiloterMissionsAdam(user)) return null;
   const m = await modeleFaisantAutorite(user.id, type as TypeModele);
   if (!m) return null;
   return { id: m.id, name: m.name, fileName: m.fileName, libelle: LIBELLE_TYPE[type as TypeModele] ?? type };

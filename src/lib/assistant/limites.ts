@@ -340,7 +340,9 @@ export const RAPPEL_PROMESSE =
   + "     · « préviens-moi SI / QUAND X change, répond, arrive » → `watch_entity` : rien ne sonne tant que tout va bien ;\n"
   + "     · « quand X arrive, FAIS Y » → `run_mission` : une surveillance prévient, elle n'agit pas ;\n"
   + "     · quelqu'un s'est engagé envers toi → `record_commitment`, suivi jusqu'à son issue.\n"
-  + "  2. Si aucun ne convient, DIS-LE en clair : « je ne pourrai pas revenir vers toi tout seul là-dessus », "
+  + "  2. Si aucun ne convient — ou si `watch_entity` et `run_mission` ne sont PAS dans ta liste (les missions et "
+  + "surveillances d'Adam sont réservées au Super Admin ; ne les cherche pas) — DIS-LE en clair : « je ne pourrai pas "
+  + "revenir vers toi tout seul là-dessus », "
   + "et propose le geste qui le rendrait possible. Ne laisse pas la promesse debout sans rien derrière.";
 
 /**
@@ -348,11 +350,24 @@ export const RAPPEL_PROMESSE =
  * réponse : on ajoute la seule phrase qui manque — celle que la personne doit lire pour ne pas
  * compter sur un suivi qui n'existe pas.
  */
-export function avertirPromesseSansObjet(reponse: string, outilsUtilises: readonly string[]): string | null {
+export function avertirPromesseSansObjet(
+  reponse: string,
+  outilsUtilises: readonly string[],
+  /**
+   * `surveillances` : la personne a-t-elle droit aux surveillances et missions d'Adam (Super
+   * Admin, §118.136) ? Sinon la phrase ne lui propose que ce qu'elle peut obtenir — proposer une
+   * surveillance à qui n'y a pas droit est un remède faux, pire qu'aucun (§118.128).
+   */
+  opts: { surveillances?: boolean } = {},
+): string | null {
   if (!prometUnSuivi(reponse)) return null;
   if (outilsUtilises.some((o) => OUTILS_DURABLES.includes(o))) return null;
-  return "⚠️ Rien n'a été programmé pour ce suivi : aucun rappel, aucune surveillance, aucune mission. "
-    + "Il ne survivra pas à cette conversation — demandez-moi de poser un rappel ou une surveillance si vous voulez que j'y revienne.";
+  const surveillances = opts.surveillances ?? true;
+  return surveillances
+    ? "⚠️ Rien n'a été programmé pour ce suivi : aucun rappel, aucune surveillance, aucune mission. "
+      + "Il ne survivra pas à cette conversation — demandez-moi de poser un rappel ou une surveillance si vous voulez que j'y revienne."
+    : "⚠️ Rien n'a été programmé pour ce suivi : aucun rappel. Il ne survivra pas à cette conversation — "
+      + "demandez-moi de poser un rappel daté si vous voulez que j'y revienne (les surveillances et missions d'Adam sont réservées au Super Admin).";
 }
 
 /**

@@ -58,6 +58,7 @@ const SALARIES = ["Nadia Amrani", "Sofiane Bellil", "Lynda Cheriet"];
 
 let pdg: CurrentUser;
 let autre: CurrentUser;
+let direction: CurrentUser;
 let companyId = "";
 
 /** Le plan brut, tel qu'un fournisseur en mode strict le rendrait. */
@@ -145,7 +146,7 @@ suite("LA MAIN HUMAINE SUR UNE MISSION — accord, élément, pause, reprise, ar
     });
     companyId = c.id;
 
-    const mk = async (nom: string, email: string, role: "SUPER_ADMIN" | "SALES_USER") => {
+    const mk = async (nom: string, email: string, role: "SUPER_ADMIN" | "SALES_USER" | "DIRECTION") => {
       const u = await prisma.user.create({
         data: { name: nom, email, passwordHash: "x", role },
         select: { id: true, name: true, email: true, role: true },
@@ -158,6 +159,7 @@ suite("LA MAIN HUMAINE SUR UNE MISSION — accord, élément, pause, reprise, ar
 
     pdg = await mk(`${TAG} PDG`, `${TAG}pdg@amd.dz`, "SUPER_ADMIN");
     autre = await mk(`${TAG} Autre`, `${TAG}autre@amd.dz`, "SUPER_ADMIN");
+    direction = await mk(`${TAG} Direction`, `${TAG}direction@amd.dz`, "DIRECTION");
     ACTEUR = pdg;
 
     for (const [i, nom] of SALARIES.entries()) {
@@ -449,4 +451,33 @@ suite("LA MAIN HUMAINE SUR UNE MISSION — accord, élément, pause, reprise, ar
     const humain = { userId: "u1", isAgent: false, label: "le PDG" };
     expect(compile(plan, catalogue, humain).ok).toBe(true);
   });
+
+  it("§118.136 — la DIRECTION est refusée par CHAQUE action, avec la phrase de la règle (le module WORKSPACE ne suffit plus)", async () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : rouvrir une action sur `userCan(user, "WORKSPACE", "VIEW")`.
+     * La Direction a la vue globale et le module WORKSPACE : hier, elle passait toutes ces portes.
+     * On joue l'acteur par le vrai chemin (`requireUser` moqué) et l'on rétablit le PDG ensuite,
+     * pour que les cas suivants ne mesurent pas notre décor.
+     */
+    const missionId = await lancer();
+    ACTEUR = direction;
+    try {
+      expect(await listerAccordsMission()).toEqual([]);
+      for (const r of await Promise.all([
+        mettreMissionEnPause(missionId, "essai"),
+        reprendreMission(missionId),
+        arreterMission(missionId, "essai"),
+        replanifierMissionAction(missionId),
+        fournirElementMission(missionId, "attente", "texte"),
+        deciderAccordMission("accord-inexistant", "GRANTED"),
+      ])) {
+        expect(r.ok).toBe(false);
+        expect(r.message).toMatch(/réservées au Super Admin/);
+      }
+    } finally {
+      ACTEUR = pdg;
+    }
+    const m = await prisma.mission.findUnique({ where: { id: missionId }, select: { status: true } });
+    expect(m!.status, "aucun de ces refus ne doit avoir touché la mission").not.toBe("CANCELLED");
+  }, 60_000);
 });

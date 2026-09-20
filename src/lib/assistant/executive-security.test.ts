@@ -6,6 +6,7 @@ import { POWER_TOOLS, powerToolsFor, executePowerTool } from "./power-tools";
 import { buildProposal, performAction, extractSources, ACTION_POLICY, type AssistantActionPayload } from "@/lib/assistant";
 import { watchState } from "./reminders";
 import { PAYMENT_CENTRE_REFUSAL } from "@/lib/payments/authorization";
+import { REFUS_MISSIONS_ADAM } from "@/lib/rbac";
 
 /**
  * L'IA NE DOIT JAMAIS DEVENIR UNE PORTE DÉROBÉE CONTOURNANT LE RBAC.
@@ -119,35 +120,11 @@ describe("outils exécutifs — fermés aux comptes qui n'y ont pas droit", () =
       // `executePowerTool`, qui revérifie le droit de CETTE lecture à l'exécution. Poser un
       // garde ici dupliquerait celui de la source, avec le risque de diverger d'elle.
       "show_table",
-      // mission_status : cloisonné PAR REQUÊTE, comme action_history. La lecture filtre sur le
-      // PROPRIÉTAIRE de la mission — chacun ne voit que les siennes, et connaître l'identifiant
-      // d'une mission d'autrui n'ouvre rien. Exiger un droit de module fermerait à quelqu'un
-      // l'état d'une mission qu'Adam a pourtant menée pour lui.
-      "mission_status",
-      // run_mission : N'ACCORDE RIEN, et c'est structurel plutôt que déclaratif.
-      //
-      // Le catalogue offert au planificateur est `assistantToolsFor(user)` — littéralement la
-      // liste de CETTE personne, calculée par le même code que la conversation. Le compilateur
-      // refuse toute capacité qui n'y est pas (`FORBIDDEN_CAPABILITY`), et chaque effet passe
-      // ensuite par `performAction`, qui revérifie le droit. Un compte sans aucun droit lance
-      // donc une mission qui ne peut rien faire — et le dira, plutôt que d'échouer en silence.
-      //
-      // Poser un garde de module ici demanderait de choisir LEQUEL : une mission est transverse
-      // par nature. Le choisir serait arbitraire, et fermerait à quelqu'un la seule façon de
-      // faire durer un travail que la conversation lui permet déjà de faire en une fois.
-      "run_mission",
-      // mission_control : cloisonné PAR REQUÊTE, et il ne fait QUE réduire.
-      //
-      // Chacune de ses fonctions exige que la mission appartienne au demandeur — le `where` porte
-      // le `ownerId`, donc un identifiant deviné ne donne rien. Et les quatre gestes offerts
-      // (suspendre, reprendre, arrêter, refuser) diminuent tous ce qui va se produire : aucun ne
-      // peut faire arriver quelque chose qui n'était pas déjà autorisé.
-      //
-      // Les deux gestes qui AJOUTENT — accorder une autorisation, fournir un élément — n'y sont
-      // délibérément PAS : ce sont des attestations humaines, elles passent par un clic dans une
-      // vraie session (`mission-runtime-actions.ts`), et `policy/guard.ts` interdit en plus cet
-      // outil à l'agent lui-même.
-      "mission_control",
+      // mission_status / run_mission / mission_control : plus ici depuis §118.136. Ils étaient
+      // ouverts à tous par conception (cloisonnés PAR REQUÊTE sur le propriétaire, le compilateur
+      // refusant toute capacité hors des droits de la personne) ; la Direction a décidé que les
+      // missions d'Adam sont réservées au Super Admin, et c'est `peutPiloterMissionsAdam` qui les
+      // ferme désormais — voir le bloc « missions d'Adam — réservées au Super Admin » plus bas.
       // artifact_open / artifact_edit / artifact_control : MÊME RAISON QUE `show_document`, et
       // elle est structurelle.
       //
@@ -370,3 +347,30 @@ describe("surveillance conditionnelle — relire la source, ne prévenir que le 
 
 // (Le découpage en phrases pour la synthèse TTS a disparu avec l'ancienne chaîne vocale :
 // la voix est désormais une session speech-to-speech temps réel — voir voice-realtime.test.ts.)
+
+describe("missions d'Adam — réservées au Super Admin (§118.136)", () => {
+  const OUTILS = ["run_mission", "mission_status", "mission_control", "watch_entity", "list_watches", "stop_watch"];
+
+  it("la Direction ne voit AUCUN des six outils ; le Super Admin les voit tous", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : rouvrir un de ces outils sur `hasGlobalView` ou `() => true`.
+     * La liste est FERMÉE dans les deux sens — un outil de mission qui manquerait au Super Admin
+     * serait une capacité retirée sans décision, un outil ouvert à la Direction une règle défaite.
+     */
+    const direction = powerToolsFor(userWith({}, "DIRECTION")).map((t) => t.name);
+    const superAdmin = powerToolsFor(userWith({}, "SUPER_ADMIN")).map((t) => t.name);
+    for (const o of OUTILS) {
+      expect(direction, `${o} exposé à la Direction`).not.toContain(o);
+      expect(superAdmin, `${o} absent pour le Super Admin`).toContain(o);
+    }
+  });
+
+  it("appeler run_mission ou watch_entity quand même est refusé À L'EXÉCUTION, et le refus NOMME la règle", async () => {
+    // La liste envoyée au modèle est une suggestion ; seul ce contrôle fait foi. Et le refus dit
+    // la règle plutôt que « ce module ne vous est pas ouvert » — il n'y a pas de module à ouvrir.
+    for (const [name, input] of [["run_mission", { objectif: "x" }], ["watch_entity", { reference: "x" }], ["mission_control", { missionId: "x", geste: "pause" }]] as const) {
+      const r = await executePowerTool(name, input as Record<string, unknown>, userWith({}, "DIRECTION"));
+      expect(r, name).toContain(REFUS_MISSIONS_ADAM);
+    }
+  });
+});

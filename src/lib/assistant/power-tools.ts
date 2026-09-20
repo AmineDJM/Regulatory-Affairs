@@ -74,6 +74,13 @@ export interface PowerTool {
   def: ClaudeToolDef;
   /** Le droit qui ouvre l'outil — une PERMISSION, jamais un rôle en dur. */
   allowed: (user: CurrentUser) => boolean;
+  /**
+   * Le REFUS quand `allowed` dit non — facultatif. Par défaut, « ce module ne vous est pas
+   * ouvert » ; un outil que ferme une RÈGLE et non un module (les missions d'Adam, réservées au
+   * Super Admin) dit la règle et le geste qui reste : un refus qui nomme le remède évite un
+   * aller-retour, et un refus qui nomme un faux remède en coûte deux (§118.30, §118.128).
+   */
+  refus?: string;
   /** Libellé affiché dans la trace (« ce que l'assistant a consulté »). */
   label: string;
   run: (input: Record<string, unknown>, user: CurrentUser) => Promise<string>;
@@ -476,7 +483,7 @@ export async function executePowerTool(
   if (!tool.allowed(user)) {
     // LA DÉCISION DE PERMISSION EST OBSERVÉE (§33) : refusée, nommée, comptée sur le tour.
     recordPermissionRefusal(name);
-    return "Ce module ne vous est pas ouvert : je ne peux pas consulter cette information.";
+    return tool.refus ?? "Ce module ne vous est pas ouvert : je ne peux pas consulter cette information.";
   }
   try {
     return await tool.run(input, user);

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { anyRoleFilter } from "@/lib/rbac";
 import { getAppSettings } from "@/lib/settings";
 import { saveFile, validateUpload } from "@/lib/storage";
+import { rejouerNotifications } from "@/lib/notifications/ecrire";
 import { sendPushToUser } from "@/lib/push";
 import type { DirectiveAudience, DirectiveScope } from "./audience";
 
@@ -100,28 +101,24 @@ export async function sendDirective(directive: {
   const link = `/directives/${directive.id}`;
 
   /**
-   * UNE DIFFUSION LARGE NE DOIT PAS ÊTRE TOUT-OU-RIEN.
+   * UNE DIFFUSION LARGE NE DOIT PAS ÊTRE TOUT-OU-RIEN — et la règle ne vit plus ici.
    *
-   * `createMany` insère en une transaction : il suffit qu'UN compte ait été désactivé ou
-   * supprimé entre la résolution des destinataires et l'insertion pour que la clé étrangère
-   * échoue — et alors les 200 autres personnes ne reçoivent rien, en silence (l'erreur part
-   * dans un `catch`). On écrit donc par lots, et un lot qui casse est rejoué ligne à ligne :
-   * on perd le destinataire disparu, pas la note.
+   * `createMany` insère en une transaction : il suffit qu'UN compte ait été supprimé entre la
+   * résolution des destinataires et l'insertion pour que la clé étrangère échoue — et alors les
+   * 200 autres personnes ne reçoivent rien, en silence. Ce fichier a longtemps porté SEUL le
+   * remède pendant que cinq autres écrivains du dépôt refaisaient le défaut ; le REJEU est
+   * descendu dans `notifications/ecrire`, que les six empruntent désormais (§118.58, §118.71).
+   * L'écriture, elle, reste ici : sortie du corps, elle disparaîtrait de ce que la dérivation
+   * des contrats sait dire de cette action (§118.137).
    */
-  const LOT = 100;
-  const ligne = (userId: string) => ({
+  const lignes = ids.map((userId) => ({
     userId, type: "ASSIGNMENT" as const, title, body, link, popup: directive.popup,
-  });
-  for (let i = 0; i < ids.length; i += LOT) {
-    const lot = ids.slice(i, i + LOT);
-    try {
-      await prisma.notification.createMany({ data: lot.map(ligne) });
-    } catch (err) {
-      console.error("[directive] lot de notifications refusé, reprise ligne à ligne", err);
-      for (const userId of lot) {
-        await prisma.notification.create({ data: ligne(userId) }).catch(() => undefined);
-      }
-    }
+  }));
+  let ecrites = lignes.length;
+  try {
+    await prisma.notification.createMany({ data: lignes });
+  } catch (err) {
+    ecrites = await rejouerNotifications(lignes, err);
   }
 
   // Push (PWA) — best-effort, comme partout ailleurs : un appareil injoignable ne doit pas
@@ -129,7 +126,7 @@ export async function sendDirective(directive: {
   await Promise.all(ids.map((userId) =>
     sendPushToUser(userId, { title, body, url: link }).catch(() => undefined),
   ));
-  return ids.length;
+  return ecrites;
 }
 
 /**

@@ -13,6 +13,7 @@ import {
 import { createTaskRecord } from "@/lib/tasks/create-core";
 import { attachFiles, validateAttachments } from "@/lib/attach-files";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+import { rejouerNotifications } from "@/lib/notifications/ecrire";
 
 /**
  * CRÉER UNE TÂCHE — et le destinataire décide de ce que ce geste veut dire.
@@ -215,14 +216,17 @@ export async function addTaskComment(formData: FormData): Promise<ActionResult> 
     task.assignedToId, task.createdById, ...task.participantIds, ...task.readerIds,
   ].filter((x): x is string => Boolean(x) && x !== user.id))];
   if (circle.length) {
-    await prisma.notification.createMany({
-      data: circle.map((userId) => ({
-        userId, type: "GENERIC" as const,
-        title: `${user.name} a commenté une tâche`,
-        body: `${task.title} — ${body.slice(0, 120)}`,
-        link: `/mon-espace/taches/${id}`,
-      })),
-    }).catch(() => undefined);
+    const lignes = circle.map((userId) => ({
+      userId, type: "GENERIC" as const,
+      title: `${user.name} a commenté une tâche`,
+      body: `${task.title} — ${body.slice(0, 120)}`,
+      link: `/mon-espace/taches/${id}`,
+    }));
+    try {
+      await prisma.notification.createMany({ data: lignes });
+    } catch (err) {
+      await rejouerNotifications(lignes, err);
+    }
   }
 
   revalidatePath(`/mon-espace/taches/${id}`);

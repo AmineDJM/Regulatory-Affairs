@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { requireModule } from "@/lib/session";
-import { hasGlobalView } from "@/lib/rbac";
+import { hasGlobalView, peutPiloterMissionsAdam } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { centreDeMissions } from "@/lib/missions/view/control";
 import { compterPourLesGestesDeMasse } from "@/lib/missions/runtime/control";
@@ -39,6 +40,10 @@ export const metadata = { title: "Missions d'Adam — AMD Internal OS" };
  */
 export default async function CentreDeMissionsPage() {
   const user = await requireModule("WORKSPACE");
+  // RÉSERVÉ AU SUPER ADMIN (décision de la Direction, 09/2026 — `peutPiloterMissionsAdam`). Le
+  // menu n'envoie pas l'entrée aux autres ; une adresse tapée à la main rend la même page qu'une
+  // adresse inexistante : on ne dit pas « il y a un parc, mais pas pour vous ».
+  if (!peutPiloterMissionsAdam(user)) notFound();
   const maintenant = new Date();
 
   const [centre, accords, interrupteur, masse] = await Promise.all([

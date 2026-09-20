@@ -4,6 +4,8 @@ import { prechargerCapacitesDynamiques } from "@/platform/in-process/skills";
 import { assurerFormes } from "@/platform/in-process/missions/formes";
 import { REFUS_JUGE, estReplanifiable, peutReplanifierMission, signatureDuRefus } from "@/lib/missions/runtime/replan";
 import { lireInterrupteurMissions, phraseSuspension, type LecteurInterrupteur } from "@/lib/interrupteurs/missions";
+import { peutPiloterMissionsAdam, REFUS_MISSIONS_ADAM } from "@/lib/rbac";
+import { suspendreMissionHorsDroit } from "@/platform/in-process/missions/habilitation";
 import { exigencesFermes, formatsLivrablesDemandes } from "@/lib/missions/planner/primitives";
 import { trier } from "@/lib/missions/planner/triage";
 import type { CurrentUser } from "@/lib/session";
@@ -285,6 +287,15 @@ export function lancerMission(
   objectif: string,
   opts: LancementOptions = {},
 ): Promise<ResultatLancement> {
+  /**
+   * ── RÉSERVÉ AU SUPER ADMIN (§118.136) — la porte du MOTEUR, pas seulement de l'outil ────────
+   *
+   * `run_mission` n'est plus exposé aux autres, mais un outil filtré est une porte fermée à côté
+   * d'une porte ouverte (§118.71) : ce qui garde le moteur pour tout appelant présent ou futur,
+   * c'est cette ligne. Le refus vient AVANT toute télémétrie, tout modèle et toute écriture, et
+   * il nomme la règle — le même prédicat que l'écran, le menu et les actions.
+   */
+  if (!peutPiloterMissionsAdam(user)) return Promise.resolve({ ok: false, error: REFUS_MISSIONS_ADAM });
   return withTurn("background", async () => {
     setTurnContext({ userId: user.id, feature: "mission" });
     /**
@@ -765,6 +776,8 @@ export async function lancerEnArrierePlan(
   objectif: string,
   opts: LancementOptions = {},
 ): Promise<{ ok: true; missionId: string; titre: string } | { ok: false; error: string }> {
+  // La même porte que `lancerMission` (§118.136) : un talon n'est pas écrit pour quelqu'un qui n'y a pas droit.
+  if (!peutPiloterMissionsAdam(user)) return { ok: false, error: REFUS_MISSIONS_ADAM };
   try {
     const titre = opts.titre ?? titreDe(objectif);
     const id = await creerTalon(user, objectif, titre);
@@ -889,6 +902,9 @@ export async function rattraperLancementsPerdus(
     }
     const user = await chargerProprietaire(talon.ownerId);
     if (!user) continue;
+    // Un talon dont le propriétaire n'a pas (ou plus) le droit aux missions n'est pas replanifié :
+    // il est SUSPENDU, motif au journal (§118.136) — la même relecture d'autorité que le battement.
+    if (!peutPiloterMissionsAdam(user)) { await suspendreMissionHorsDroit(talon.id, talon.ownerId); continue; }
     await journaliser(talon.id, "PLANNING_RETRY",
       "Lancement retrouvé sans plan : la planification reprend (le processus qui la portait s'est arrêté).", {});
     const f = await finaliserLancementDifere(talon.id, user, talon.goalRaw, {});

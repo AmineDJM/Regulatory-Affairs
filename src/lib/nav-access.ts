@@ -1,4 +1,4 @@
-import { accessibleModules, userCan, seesLockedRegulatory, type SessionUser } from "@/lib/rbac";
+import { accessibleModules, userCan, seesLockedRegulatory, peutPiloterMissionsAdam, type SessionUser } from "@/lib/rbac";
 import { estCheminMaintenu } from "@/lib/modules-retired";
 import { NAVIGATION, type NavItem } from "@/lib/labels";
 import { canSeeRegEnrollment } from "@/lib/org-chart-access";
@@ -99,6 +99,10 @@ export async function navigationFor(user: SessionUser): Promise<NavItem[]> {
     // pour celui qui a des N-1 : sans eux, l'écran est vide, on le clique, on ne comprend pas,
     // et l'on finit par demander à l'administrateur ce qui ne marche pas.
     myTeam: await encadreQuelquun(user),
+    // LES MISSIONS D'ADAM sont réservées au Super Admin (§118.136). Le module WORKSPACE est à
+    // tout le monde ; c'est CE prédicat — le même que l'écran, les actions, les outils et le
+    // moteur — qui décide de l'entrée. Une entrée que la page refuserait n'est pas envoyée.
+    adamMissions: peutPiloterMissionsAdam(user),
   };
 
   // Les SOUS-MODULES suivent la même règle que leur parent : chacun a son module et sa garde, et

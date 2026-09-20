@@ -623,7 +623,10 @@ function lirePorte(corps: string, constantes: Readonly<Record<string, string>>):
   // Les autres gardes de l'ERP, telles qu'écrites. La liste est OUVERTE par construction :
   // on relève ce qui ressemble à une garde, et ne pas en reconnaître une ne rend rien faux —
   // l'exécution revérifie de toute façon.
-  for (const g of corps.matchAll(/\b(require[A-Z][A-Za-z]*|assert[A-Z][A-Za-z]*|can[A-Z][A-Za-z]*|has[A-Z][A-Za-z]*|is[A-Z][A-Za-z]*)\s*\(/g)) {
+  // `peut…` : les prédicats de droit écrits en français au socle (`peutPiloterMissionsAdam`,
+  // `peutEmettrePieces`) — sans eux, une action gardée par une RÈGLE et non par un module
+  // sortait avec `gardes: []`, c'est-à-dire l'air de n'être gardée par rien (§118.136).
+  for (const g of corps.matchAll(/\b(require[A-Z][A-Za-z]*|assert[A-Z][A-Za-z]*|can[A-Z][A-Za-z]*|has[A-Z][A-Za-z]*|is[A-Z][A-Za-z]*|peut[A-Z][A-Za-z]*)\s*\(/g)) {
     if (g[1] !== "requireUser") gardes.add(g[1]!);
   }
   return { module, verbe, entite, moduleFr, gardes: [...gardes].sort() };

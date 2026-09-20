@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, CheckCircle2, AlertTriangle, XCircle, Settings2, Mail, Inbox, Radio } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { hasGlobalView } from "@/lib/rbac";
+import { hasGlobalView, peutPiloterMissionsAdam } from "@/lib/rbac";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { adamHealth, type HealthLevel } from "@/lib/google/health";
@@ -61,6 +61,10 @@ export default async function AdamReglagesPage({
   // L'INTERRUPTEUR GLOBAL DES MISSIONS (§118.132) — lu par la santé d'Adam (côté ERP, comme la
   // connexion Google), posé et levé par le formulaire. L'écran ne lit ni la base ni `lib/missions`.
   const suspension = health.missions.suspension;
+  // Les missions d'Adam sont réservées au Super Admin (§118.136) : leur interrupteur et leurs
+  // compteurs ne sont pas montrés à qui ne peut pas en avoir — un bouton qu'une action refuse
+  // n'est pas un bouton.
+  const missionsPilotables = peutPiloterMissionsAdam(user);
   const missionsPausedInfo = suspension.active
     ? `depuis le ${dt(suspension.depuis)}${suspension.par ? ` par ${suspension.par}` : ""}`
     : null;
@@ -213,6 +217,7 @@ export default async function AdamReglagesPage({
             connected={health.connection.connected || health.connection.status === "paused"}
             missionsPaused={suspension.active}
             missionsPausedInfo={missionsPausedInfo}
+            missionsPilotables={missionsPilotables}
           />
         </CardContent>
       </Card>
@@ -227,10 +232,14 @@ export default async function AdamReglagesPage({
             <Stat icon={<CheckCircle2 className="h-4 w-4" aria-hidden />} label="Envoyés (24 h)" value={health.outbound.sent24h} />
             <Stat icon={<XCircle className="h-4 w-4" aria-hidden />} label="Échecs (24 h)" value={health.outbound.failed24h} />
             <Stat icon={<Inbox className="h-4 w-4" aria-hidden />} label="Reçus (24 h)" value={health.ingestion.last24h} />
-            <Stat icon={<Radio className="h-4 w-4" aria-hidden />} label="Missions actives" value={health.missions.active} />
-            <Stat icon={<Radio className="h-4 w-4" aria-hidden />} label="En attente de réponse" value={health.missions.waiting} />
-            <Stat icon={<AlertTriangle className="h-4 w-4" aria-hidden />} label="Attendent une décision" value={health.missions.needsCeo} />
-            <Stat icon={<Mail className="h-4 w-4" aria-hidden />} label="Prêtes à envoyer" value={health.missions.readyToSend} />
+            {missionsPilotables ? (
+              <>
+                <Stat icon={<Radio className="h-4 w-4" aria-hidden />} label="Missions actives" value={health.missions.active} />
+                <Stat icon={<Radio className="h-4 w-4" aria-hidden />} label="En attente de réponse" value={health.missions.waiting} />
+                <Stat icon={<AlertTriangle className="h-4 w-4" aria-hidden />} label="Attendent une décision" value={health.missions.needsCeo} />
+                <Stat icon={<Mail className="h-4 w-4" aria-hidden />} label="Prêtes à envoyer" value={health.missions.readyToSend} />
+              </>
+            ) : null}
           </div>
         </CardContent>
       </Card>

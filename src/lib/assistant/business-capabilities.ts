@@ -1,5 +1,12 @@
 import type { PowerTool } from "@/lib/assistant/power-tools";
-import { inProcessPlatform, principalOf } from "@/platform/in-process/adapter";
+import { inProcessPlatform, principalOf, peutPiloterMissionsAdam, REFUS_MISSIONS_ADAM } from "@/platform/in-process/adapter";
+
+/**
+ * LE REFUS DES OUTILS DE MISSION, écrit pour le MODÈLE (§118.30) : la règle, puis ce qui reste à
+ * sa portée. Sans le second membre, il irait chercher l'outil dans le catalogue — il n'y est pas.
+ */
+const REFUS_MISSIONS_MODELE = `${REFUS_MISSIONS_ADAM} Propose à la place ce qui reste ouvert : un rappel daté `
+  + "(plan_reminder), une tâche assignée (create_task) ou un engagement au registre (record_commitment) — et dis-le à la personne.";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -275,7 +282,8 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
     // lecture filtre sur `ownerId`, donc chacun ne voit que SES missions. Exiger en plus un
     // droit de module fermerait à quelqu'un l'accès à une mission qu'Adam a menée POUR LUI,
     // ce qui ne protège rien et retire une capacité. Le test de sécurité l'exige déclarée.
-    allowed: () => true,
+    allowed: peutPiloterMissionsAdam,
+    refus: REFUS_MISSIONS_MODELE,
     label: "État d'une mission",
     run: async (input, user) => {
       const id = str(input, "mission");
@@ -373,7 +381,8 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
     },
     // OUVERTE PAR DESSEIN — et cela n'accorde rien : voir l'en-tête. Le périmètre d'une mission
     // est le périmètre de la personne, calculé par le même code que la conversation.
-    allowed: () => true,
+    allowed: peutPiloterMissionsAdam,
+    refus: REFUS_MISSIONS_MODELE,
     label: "Mission lancée",
     run: async (input, user) => {
       const objectif = str(input, "objectif");
@@ -507,8 +516,8 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
         + "étapes qui NOMMENT la cible et ce qui en dépend sont reprises ; le reste garde son travail, "
         + "ses reçus et ses effets déjà produits, et ce qui est DÉJÀ parti est nommé, jamais renvoyé. "
         + "Une cible que le plan ne nomme nulle part ne touche à RIEN et le dit : ne devine pas à sa place. "
-        + "« suspendre_tout » BLOQUE TOUTES LES MISSIONS D'ADAM d'un coup (interrupteur global, réservé à la "
-        + "direction) : plus rien n'avance, ne se replanifie ni ne notifie, sans rien perdre — « bloque toutes "
+        + "« suspendre_tout » BLOQUE TOUTES LES MISSIONS D'ADAM d'un coup (interrupteur global — comme tout cet outil, "
+        + "réservé au Super Admin) : plus rien n'avance, ne se replanifie ni ne notifie, sans rien perdre — « bloque toutes "
         + "les missions », « arrête tout Adam », « plus aucune mission ». Aucun `missionId` pour ce geste. La "
         + "LEVÉE ne se fait que depuis l'écran des réglages d'Adam, jamais par cet outil : dis-le. "
         + "N'ACCORDE JAMAIS une autorisation et ne fournit jamais un élément demandé avec cet outil : "
@@ -547,7 +556,8 @@ export const BUSINESS_CAPABILITIES: PowerTool[] = [
     // OUVERT PAR DESSEIN, comme `run_mission` : chaque fonction sous-jacente exige que la mission
     // appartienne à la personne, et un identifiant deviné ne donne rien. L'interrupteur global,
     // lui, exige la vue globale — vérifiée dans le pont, jamais ici.
-    allowed: () => true,
+    allowed: peutPiloterMissionsAdam,
+    refus: REFUS_MISSIONS_MODELE,
     label: "Mission — reprise en main",
     run: async (input, user) => {
       const missionId = str(input, "missionId");

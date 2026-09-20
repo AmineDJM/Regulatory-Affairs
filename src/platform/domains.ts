@@ -127,6 +127,15 @@ const SOCLE = [
    */
   "src/lib/grille/",
   "src/lib/annuaires/",
+  /**
+   * `notifications/` : l'ÉCRITURE des lignes de notification, et rien d'autre — elle n'importe
+   * que la base. Six écrivains en ont besoin sans avoir le droit de se parler : la messagerie
+   * interne (`notify.ts`), les directives, les tâches et deux actions serveur. Le remède qu'elle
+   * porte (un lot refusé se rejoue ligne à ligne, §118.137) n'a de valeur que s'il est le SEUL,
+   * et elle ne peut pas vivre dans `notify.ts` : celui-ci importe le push, donc `web-push`, que
+   * les tâches tireraient alors dans un bundle client.
+   */
+  "src/lib/notifications/",
 ];
 
 /**

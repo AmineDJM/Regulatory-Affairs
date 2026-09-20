@@ -285,6 +285,43 @@ export function isTopManagement(u: UserRole | RoleBearer): boolean {
   return tops.includes(u.role) || (u.secondaryRole != null && tops.includes(u.secondaryRole));
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════
+ * LES MISSIONS D'ADAM SONT RÉSERVÉES AU SUPER ADMIN — décision de la Direction (09/2026).
+ *
+ * Une mission est un moteur durable : elle planifie, exécute, attend, relance, écrit et notifie
+ * SANS session, au nom de son propriétaire, pendant des jours. Une surveillance (`watch_entity`)
+ * est le même moteur avec une seule règle. La Direction a tranché : ce pouvoir-là n'appartient
+ * qu'au compte souverain. Tout le reste d'Adam — lire, agir sur confirmation, rappels datés,
+ * tâches, engagements — reste ouvert selon les droits ordinaires.
+ *
+ * ── UN PRÉDICAT, ET UN SEUL ─────────────────────────────────────────────────────────
+ *
+ * Écrans (`/centre-de-missions`, `/missions/<id>`), actions serveur, outils de conversation,
+ * entrée de menu, moteur (`lancerMission`, `creerSurveillance`), interrupteur et battement le
+ * lisent tous ICI. Deux copies de « qui peut » finiraient par diverger, et le symptôme serait un
+ * écran qui montre une mission qu'une action refuse — ou l'inverse (§118.5, §118.71).
+ *
+ * ── POURQUOI LE RÔLE PRINCIPAL, ET LUI SEUL ─────────────────────────────────────────
+ *
+ * `hasGlobalView` accepte un rôle secondaire : voir tout est une casquette qu'on prête. Piloter
+ * un moteur autonome au nom d'un compte n'en est pas une : le Super Admin est un COMPTE, pas une
+ * fonction déléguée, et une casquette secondaire ne l'ouvre pas.
+ *
+ * ── CE QUE LA RÈGLE FAIT DES MISSIONS DÉJÀ LANCÉES PAR D'AUTRES ────────────────────────
+ *
+ * Le battement relit le propriétaire à chaque passage (§118.119b) : une mission dont le
+ * propriétaire n'est pas Super Admin passe en PAUSE — jamais supprimée, avec son motif au
+ * journal — parce qu'une planification ne doit pas être une permission qui survit à la règle.
+ * ═══════════════════════════════════════════════════════════
+ */
+export function peutPiloterMissionsAdam(u: UserRole | RoleBearer): boolean {
+  return (typeof u === "string" ? u : u.role) === "SUPER_ADMIN";
+}
+
+/** Le refus, écrit UNE fois — écran, action, outil et moteur disent la même phrase. */
+export const REFUS_MISSIONS_ADAM = "Les missions et surveillances d'Adam sont réservées au Super Admin.";
+
 /** L'utilisateur porte-t-il ce rôle, en **principal OU en secondaire** ? */
 export function hasRole(u: RoleBearer, role: UserRole): boolean {
   return u.role === role || u.secondaryRole === role;

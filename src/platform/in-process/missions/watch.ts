@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { EntityType } from "@prisma/client";
-import { userCan } from "@/lib/rbac";
+import { peutPiloterMissionsAdam, REFUS_MISSIONS_ADAM, userCan } from "@/lib/rbac";
+import { proprietaireHabilite, suspendreMissionHorsDroit } from "@/platform/in-process/missions/habilitation";
 import type { CurrentUser } from "@/lib/session";
 import { resoudreEntitesDe } from "@/lib/fabric";
 import { watchState } from "@/lib/assistant/reminders";
@@ -364,6 +365,9 @@ export type ResultatCreation =
  * premier état relu tout de suite (le prochain battement comparera à celui-là).
  */
 export async function creerSurveillance(user: CurrentUser, opts: OptionsSurveillance): Promise<ResultatCreation> {
+  // RÉSERVÉ AU SUPER ADMIN (§118.136) : une surveillance est une mission — même règle, même
+  // prédicat, refus AVANT toute résolution de cible (qui lit la base sous les droits de la personne).
+  if (!peutPiloterMissionsAdam(user)) return { ok: false, raison: REFUS_MISSIONS_ADAM, candidats: [] };
   const { cible, candidats } = await resoudreCible(user, opts.reference, { attendu: opts.attendu ?? null });
   if (!cible) {
     return {
@@ -444,11 +448,15 @@ const ETATS_MISSION_INACTIFS = ["PAUSED", "CANCELLED", "COMPLETED", "FAILED"];
  * clôture. Une surveillance dont la mission-support est suspendue n'est pas relue : la pause est
  * une pause.
  */
-export async function balayerSurveillances(maintenant = new Date(), opts: { max?: number } = {}): Promise<BalayageSurveillances> {
+export async function balayerSurveillances(
+  maintenant = new Date(),
+  /** `seulement` : BANC SEULEMENT — borne le passage à ces surveillances (même raison que `DependancesBalayage.seulement`). */
+  opts: { max?: number; seulement?: readonly string[] } = {},
+): Promise<BalayageSurveillances> {
   const out: BalayageSurveillances = { examinees: 0, signalees: 0, resolues: 0, terminees: 0, erreurs: 0 };
   if ((process.env.MISSIONS_SWEEP ?? "").toLowerCase() === "off") return out;
   const dues = await prisma.adamWatch.findMany({
-    where: { status: "ACTIVE", nextCheckAt: { lte: maintenant }, mission: { status: { notIn: ETATS_MISSION_INACTIFS as never } } },
+    where: { status: "ACTIVE", nextCheckAt: { lte: maintenant }, mission: { status: { notIn: ETATS_MISSION_INACTIFS as never } }, ...(opts.seulement ? { id: { in: [...opts.seulement] } } : {}) },
     orderBy: { nextCheckAt: "asc" }, take: opts.max ?? 50,
   }).catch(() => []);
   const porte = porteAttentionPour();
@@ -462,6 +470,14 @@ export async function balayerSurveillances(maintenant = new Date(), opts: { max?
       if (!owner) {
         // Compte désactivé : la surveillance s'éteint sans bruit — personne pour la recevoir.
         await prisma.adamWatch.update({ where: { id: w.id }, data: { status: "CLOSED", closeReason: "propriétaire inactif", lastCheckedAt: maintenant } });
+        continue;
+      }
+      if (!proprietaireHabilite(owner)) {
+        // Le droit est RELU (§118.136) : la surveillance d'un propriétaire qui n'a pas — ou plus —
+        // le droit aux missions est SUSPENDUE (mission-support en pause, visible dans sa liste
+        // comme telle), jamais close : la pause dit pourquoi, une clôture ne dirait rien. La
+        // requête ci-dessus écarte les missions en pause : elle ne sera pas relue à chaque passage.
+        await suspendreMissionHorsDroit(w.missionId, w.ownerId);
         continue;
       }
       const type = w.targetType as TypeCible;

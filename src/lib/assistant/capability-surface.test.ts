@@ -185,10 +185,11 @@ describe("les capacités métier — la porte est la VUE GLOBALE, pas un module"
   /**
    * LE SUJET DE CE BLOC EST LA PORTE « VUE TRANSVERSE », pas l'inventaire du fichier.
    *
-   * Trois capacités traversent les modules et sont gardées par la vue globale. `mission_status`
-   * n'en fait pas partie : elle est cloisonnée PAR REQUÊTE (chacun ne voit que ses propres
-   * missions), déclarée ouverte par dessein dans `executive-security.test.ts`, et l'inclure ici
-   * ferait échouer un test sur la vue globale pour une capacité qui ne la demande pas.
+   * Trois capacités traversent les modules et sont gardées par la vue globale. Les trois
+   * capacités de MISSION (`mission_status`, `run_mission`, `mission_control`) n'en font pas
+   * partie : elles sont d'une AUTRE famille, plus étroite — réservées au Super Admin par
+   * `peutPiloterMissionsAdam` (§118.136), la vue globale ne suffit pas. Le dernier test de ce
+   * bloc tient les deux familles côte à côte, pour qu'aucune ne s'élargisse en silence.
    */
   const TRANSVERSES = ["business_story", "pch_market_status", "product_economics"];
   const noms = (u: CurrentUser) => BUSINESS_CAPABILITIES
@@ -214,11 +215,28 @@ describe("les capacités métier — la porte est la VUE GLOBALE, pas un module"
     // Le jour où une quatrième capacité passe par la vue globale, ce test tombe et oblige à
     // décider explicitement si elle appartient à cette famille. Sans lui, le filtre ci-dessus
     // masquerait silencieusement toute capacité nouvelle.
+    //
+    // DEUX FAMILLES, DEUX LISTES FERMÉES (§118.136). La vue globale ouvre les trois capacités
+    // transverses ; les trois capacités de mission ne s'ouvrent qu'au Super Admin — une
+    // Direction, qui voit tout, ne les a PAS. Les compter ensemble aurait fait croire qu'une
+    // capacité de mission passe par la vue globale, ou qu'une capacité transverse exige le
+    // Super Admin : les deux seraient faux, et chacun dans le sens qui masque une dérive.
+    const vendeur = avecRole("SALES", ["PCH", "REGULATORY", "FINANCES", "RH", "WORKSPACE"]);
+    const direction = avecRole("DIRECTION", ["PCH", "REGULATORY", "FINANCES", "RH", "WORKSPACE"]);
+    const superAdmin = avecRole("SUPER_ADMIN", ["PCH", "REGULATORY", "FINANCES", "RH", "WORKSPACE"]);
     const gardeesParVueGlobale = BUSINESS_CAPABILITIES
-      .filter((c) => !c.allowed(avecRole("SALES", ["PCH", "REGULATORY", "FINANCES", "RH", "WORKSPACE"])))
+      .filter((c) => !c.allowed(vendeur) && c.allowed(direction))
       .map((c) => c.def.name)
       .sort();
     expect(gardeesParVueGlobale).toEqual(["business_story", "pch_market_status", "product_economics"]);
+    const reserveesAuSuperAdmin = BUSINESS_CAPABILITIES
+      .filter((c) => !c.allowed(direction) && c.allowed(superAdmin))
+      .map((c) => c.def.name)
+      .sort();
+    expect(reserveesAuSuperAdmin).toEqual(["mission_control", "mission_status", "run_mission"]);
+    // Et rien n'est fermé au Super Admin lui-même : une capacité qu'il n'aurait pas serait une
+    // capacité que personne n'a.
+    expect(BUSINESS_CAPABILITIES.filter((c) => !c.allowed(superAdmin)).map((c) => c.def.name)).toEqual([]);
   });
 });
 

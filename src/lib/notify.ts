@@ -2,6 +2,7 @@ import { UserRole as UserRoleValues } from "@prisma/client";
 import type { NotificationType, UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { anyRoleFilter } from "@/lib/rbac";
+import { rejouerNotifications } from "@/lib/notifications/ecrire";
 import { sendPushToUser } from "@/lib/push";
 
 interface NotifyInput {
@@ -58,12 +59,20 @@ export async function broadcastNotification(opts: {
       ids = (await prisma.user.findMany({ where, select: { id: true } })).map((u) => u.id);
     }
     if (ids.length === 0) return 0;
-    await prisma.notification.createMany({
-      data: ids.map((userId) => ({ userId, type: "GENERIC" as NotificationType, title: opts.title, body: opts.body, link: opts.link, popup: opts.popup ?? false })),
-    });
+    // UN DESTINATAIRE DISPARU NE DOIT PAS FAIRE TAIRE TOUT L'ENVOI : le lot est le chemin
+    // rapide, et un lot refusé se rejoue ligne à ligne (§118.137). Le nombre rendu est celui des
+    // lignes RÉELLEMENT écrites, jamais celui des destinataires qu'on espérait joindre — sans
+    // quoi on annoncerait « 200 personnes prévenues » sur 199 (§118.51).
+    const lignes = ids.map((userId) => ({ userId, type: "GENERIC" as NotificationType, title: opts.title, body: opts.body, link: opts.link, popup: opts.popup ?? false }));
+    let ecrites = lignes.length;
+    try {
+      await prisma.notification.createMany({ data: lignes });
+    } catch (err) {
+      ecrites = await rejouerNotifications(lignes, err);
+    }
     // Push (PWA) sur les appareils de chaque destinataire — best-effort.
     await Promise.all(ids.map((userId) => sendPushToUser(userId, { title: opts.title, body: opts.body, url: opts.link ?? "/" })));
-    return ids.length;
+    return ecrites;
   } catch (err) {
     console.error("[notify] broadcast failed", err);
     return 0;
@@ -91,9 +100,16 @@ export async function notifyRoles(
       select: { id: true },
     });
     if (users.length === 0) return;
-    await prisma.notification.createMany({
-      data: users.map((u) => ({ ...input, userId: u.id })),
-    });
+    // UN DESTINATAIRE DISPARU NE DOIT PAS FAIRE TAIRE TOUT L'ENVOI — même règle que le rôle
+    // inventé ci-dessus, par l'autre porte : les comptes sont LUS puis écrits, et l'un d'eux peut
+    // s'effacer entre les deux. Sans le rejeu, la clé étrangère fait rejeter le lot ENTIER et
+    // personne n'est prévenu (§118.137).
+    const lignes = users.map((u) => ({ ...input, userId: u.id }));
+    try {
+      await prisma.notification.createMany({ data: lignes });
+    } catch (err) {
+      await rejouerNotifications(lignes, err);
+    }
     await Promise.all(users.map((u) => sendPushToUser(u.id, { title: input.title, body: input.body, url: input.link ?? "/" })));
   } catch (err) {
     console.error("[notify] failed (roles)", err);

@@ -343,7 +343,7 @@ libellés français viennent de `src/lib/labels.ts`.
 
 | Rôle | Libellé | Portée typique |
 |---|---|---|
-| `SUPER_ADMIN` | Super Admin | Tout + administration (permissions, comptes, sécurité, IA, Brain, enveloppes budgétaires, Vue exacte). Compte **souverain**. |
+| `SUPER_ADMIN` | Super Admin | Tout + administration (permissions, comptes, sécurité, IA, Brain, enveloppes budgétaires, Vue exacte). Compte **souverain**. **Seul compte qui pilote les missions et surveillances d'Adam** (`peutPiloterMissionsAdam`, décision de la Direction 09/2026) : Centre de missions, `run_mission`, `watch_entity`, interrupteur global. |
 | `DIRECTION` | **Direction** | **Pair quasi-administrateur** : accès complet (gérer + valider) aux pôles, **vue globale** (`hasGlobalView`) donc supervision de toutes les demandes de validation. **Décision définitive** des demandes Ad & Pro (budget accordé). Attribue les dépenses aux enveloppes. Restreignable par overrides. |
 | `GENERAL_MANAGER` | **Directeur Général** | **Tous les pouvoirs métier** (gère et décide sur tous les pôles, signataire des circuits Ad & Pro) mais **délibérément hors vue globale** : il ne supervise **pas** les demandes de validation de tout le monde, et les modules **personnels** (Drive, directives, dossiers, support) restent cloisonnés. Administration, IA et Process Intelligence restent au seul Super Admin. |
 | `OPERATIONS_DIRECTOR` | **Directeur des Opérations** | Rôle **à part**, pas une Direction au rabais : approvisionnement (logistique, PCH, stocks), ventes, moyens généraux, secrétariat. **Lit** ce dont il dépend — réglementaire, budgets, finances, RH — sans le piloter. Pas de vue globale ; les circuits Ad & Pro ne sont pas les siens. |
@@ -5464,6 +5464,61 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 ## 🧾 Journal des évolutions récentes
 
+### LES MISSIONS D'ADAM, AU SUPER ADMIN SEUL — un prédicat, onze portes, et l'autorité relue par le battement (2026-09)
+
+**La demande** : « Missions d'Adam etc. doit être dispo que pour le super admin ». **Ce qui était vrai la veille** :
+le Centre de missions et la page d'une mission s'ouvraient à quiconque avait le module WORKSPACE (tout le monde),
+les quinze actions de conduite aussi, `run_mission` / `mission_status` / `mission_control` étaient « ouverts par
+conception » (cloisonnés par propriétaire), les surveillances étaient au PDG + Super Admin, et le battement
+relisait les DROITS de module d'un propriétaire, jamais son droit aux missions.
+
+**Livré** :
+- **Un prédicat, et un seul** — `peutPiloterMissionsAdam(u)` (`lib/rbac.ts`) : le rôle **principal** SUPER_ADMIN,
+  et lui seul (une casquette secondaire ne l'ouvre pas : le Super Admin est un COMPTE, pas une fonction prêtée) ;
+  le refus `REFUS_MISSIONS_ADAM` écrit une fois.
+- **Onze portes qui le lisent** : l'entrée de menu (`gate: "adamMissions"`, résolue dans `nav-access.ts`), les deux
+  pages (`notFound()` avant tout chargement — même page qu'une mission inexistante), les quinze actions de
+  `mission-runtime-actions.ts` (plus aucune ne s'ouvre sur `userCan(WORKSPACE)`), les six outils de conversation
+  (`allowed` + un `refus` qui NOMME la règle et le geste qui reste — rappel, tâche, engagement), le moteur
+  (`lancerMission` avant toute télémétrie, `lancerEnArrierePlan` avant le talon, `creerSurveillance` avant la
+  résolution de cible), l'interrupteur global (poser depuis la conversation, poser et lever depuis l'écran) et
+  le bloc « Missions d'Adam » des Réglages, qui n'est plus présenté à qui ne peut pas en avoir.
+- **L'autorité relue à chaque passage** (`platform/in-process/missions/habilitation.ts`) : le battement, le balayage
+  des surveillances et le filet des lancements perdus rebâtissent le propriétaire, puis passent par
+  `proprietaireHabilite` ; une mission ou une surveillance dont le propriétaire n'a pas — ou plus — le droit passe
+  en **PAUSE** (`pausedReason`, journal `PAUSED` avec `horsDroit`, actorId nul : c'est le moteur qui suspend au nom
+  d'une règle), jamais supprimée ni close ; le bilan du battement compte `suspenduesHorsDroit`.
+- **Le prompt dit la règle** à qui n'a pas les outils, pour qu'il ne les cherche pas (§118.122), et le complément
+  « rien n'a été programmé pour ce suivi » ne propose plus une surveillance à qui n'y a pas droit.
+- **Preuves** : `rbac.test.ts` (le prédicat dans les deux sens, la vue globale ne suffit pas),
+  `executive-security.test.ts` (Direction : aucun des six outils ; Super Admin : les six ; refus à l'exécution qui
+  nomme la règle), `platform/in-process/missions/acces-super-admin.test.ts` (les trois lanceurs refusent la
+  Direction AVANT toute écriture ; un compte rétrogradé voit sa mission mise en pause par le VRAI battement et sa
+  surveillance suspendue par le VRAI balayage ; les points d'appel lus à leur place exacte, §118.49),
+  `mission-runtime-actions.test.ts` (la Direction refusée par chaque action, par le vrai `requireUser`). Le banc
+  navigateur (`e2e/mission-control.spec.ts`) joue désormais un compte Super Admin du seed.
+- **Au passage** : la dérivation des contrats d'action (`lib/actions/contrat.ts`) reconnaît désormais les prédicats de
+  droit écrits en français (`peut…`) comme des gardes — les seize actions du lot nomment `peutPiloterMissionsAdam`, et
+  dix-huit autres du parc nomment enfin `peutEcrire`, `peutReclamer` ou `peutInterrogerLeMarche`.
+
+### UNE DIFFUSION NE SE PERD PLUS POUR UN DESTINATAIRE DISPARU (2026-09)
+
+**Le défaut** : `notifyRoles`, `broadcastNotification`, les tâches, leur cœur de création et les
+directives LISAIENT leurs destinataires puis écrivaient les lignes en UN seul `createMany`. Un
+compte supprimé entre la lecture et l'écriture fait échouer la clé étrangère, donc la requête
+ENTIÈRE, donc **personne** n'était prévenu — l'erreur partant dans un `catch`. Mesuré en suite
+complète : la supervision Regulatory n'a pas reçu une demande d'accès, sans une étape en échec.
+
+**Le remède existait**, dans `directives/recipients.ts` et pour lui seul. Le REJEU descend au socle
+(`src/lib/notifications/ecrire.ts`, zéro import hors base) : le lot reste le chemin rapide, un lot
+refusé se rejoue **ligne à ligne**, et ce qui est perdu est compté et nommé. Le nombre rendu est
+celui des lignes RÉELLEMENT écrites — `broadcastNotification` et la diffusion des directives
+annonçaient les destinataires espérés. L'ÉCRITURE, elle, reste dans le corps de chaque écrivain :
+sortie de là, elle disparaît de ce que `actions/contrat.ts` sait dire d'une action (mesuré : 24
+actions perdaient `notification`, une déclarait n'écrire rien). Un cliquet exige que chaque
+`notification.createMany` de production soit suivi du `catch` qui rejoue. Détail, mesures et
+sabotages : CLAUDE.md §118.137.
+
 Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build` + `tests` avant push) :
 
 ### Finances — « Composer une pièce » : factures et bons de commande au format de la maison, en Word et en PDF, sur le papier en-tête (2026-09)
@@ -5513,7 +5568,7 @@ Sélection des lots livrés récemment (chaque lot est vérifié `tsc` + `build`
 
 **Livré** :
 - **L'interrupteur global** `AppSetting.missionsPaused` (+ `missionsPausedAt`, `missionsPausedById` ; migration `20261110090000_missions_paused`) et son module `lib/interrupteurs/missions.ts` (`lireInterrupteurMissions`, `suspendreMissions`, `leverSuspensionMissions`, `phraseSuspension`). Honoré par **quatre lecteurs** : le moteur (`runtime/engine.ts:avancer`, à chaque tour, AVANT `conclure` — sous suspension rien n'est jugé, donc rien ne passe BLOCKED, donc rien ne notifie), le battement (`sweep.ts:balayerMissions`, rend `suspendu: true` sans rien charger), le pilote d'horizon (`horizon.ts`, avant toute compilation) et le lancement (`lancerMission` refuse avant tout appel de modèle, en nommant l'écran qui lève). Rien n'est touché : chaque mission repart où elle en était à la levée.
-- **Les portes** : bouton « Suspendre toutes les missions / Reprendre les missions » sur **Réglages d'Adam** (`setAdamMissionsPaused`, PDG / Super Admin, audité ; l'état est servi par `adamHealth().missions.suspension`, côté ERP) ; bandeau sur le **Centre de missions** ; geste `suspendre_tout` de `mission_control` dans la conversation — **sens réducteur seul** : Adam peut poser l'interrupteur, jamais le lever (§118.15).
+- **Les portes** : bouton « Suspendre toutes les missions / Reprendre les missions » sur **Réglages d'Adam** (`setAdamMissionsPaused`, **Super Admin seul depuis §118.136** — le PDG garde l'écran, pas ce bloc ; audité ; l'état est servi par `adamHealth().missions.suspension`, côté ERP) ; bandeau sur le **Centre de missions** ; geste `suspendre_tout` de `mission_control` dans la conversation — **sens réducteur seul** : Adam peut poser l'interrupteur, jamais le lever (§118.15).
 - **La boucle coupée à sa racine** : `runtime/replan.ts` porte `REFUS_JUGE` (`OBJECTIF_NON_CONSTATE`), la signature d'un refus de juge ; un plan qui passe garde sa cause dans `replanRefus` ; le second refus de juge est une **RÉPÉTITION** ; RÉPÉTITION, PLAFOND et « aucun recours » **écrivent** `replanBloque`, donc sortent la mission de la sélection du battement. Mesuré par `conduireMission` avec un juge qui refuse toujours : un plan de correction et un seul, **deux notifications au plus**, puis plus rien.
 - **Gestes de masse** sur le Centre de missions : « Suspendre les N missions en cours » et « Arrêter les N missions bloquées ou en échec » (`suspendreToutesMesMissions`, `arreterMesMissionsBloquees` ; prédicats uniques `ouSuspendable` / `ouBloquee` dans `runtime/control.ts` — le nombre affiché est le nombre touché ; FAILED inclus, parce que le battement le replanifie encore).
 - **Les bancs s'arrêtent avec la mesure** : le smoke fournisseur arrête ses missions après le verdict (`arreterMissionsDeDiagnostic`, ligne « missions de banc arrêtées » dans le rapport) ; le deep smoke en mode « garder » les garde arrêtées.
@@ -7014,7 +7069,8 @@ vrai réveil temporel fait partir « relancer » et ignorer « remercier » ; la
 l'inverse ; la garde « alerte si la liste est vide » ne part pas quand la liste a deux noms.
 
 **7. La surveillance durable** (`prisma AdamWatch`, `lib/missions/watch/rules.ts` — pur —, `watch/router.ts`,
-`platform/in-process/missions/watch.ts`, outils `watch_entity` / `list_watches` / `stop_watch`). « Surveille ce
+`platform/in-process/missions/watch.ts`, outils `watch_entity` / `list_watches` / `stop_watch` — **réservés au
+Super Admin** comme toute mission d'Adam, `peutPiloterMissionsAdam`, §118.136). « Surveille ce
 dossier et préviens-moi seulement s'il y a un problème » : une ligne durable + une MISSION-SUPPORT (`kind WATCH`)
 qui apporte le journal, la porte d'attention, la conduite (suspendre, arrêter) et l'écran — rien n'est recréé.
 Un problème est une RÈGLE de code, jamais un jugement de modèle : échéance proche ou dépassée, silence, blocage,
@@ -8753,6 +8809,15 @@ pièce — l'écart du loteur a GRANDI avec le réseau, comme prédit. Rapport f
 (A–V du mandat, états honnêtes) : `docs/INFORMATION_FABRIC.md`.
 
 ### LE CENTRE DE MISSIONS — un moteur qu'on peut enfin CONDUIRE (2026-09)
+
+> **Accès (décision de la Direction, 09/2026) : les missions d'Adam sont réservées au Super Admin.** Le Centre
+> (`/centre-de-missions`), la page d'une mission (`/missions/<id>`), les quinze actions de conduite, les outils
+> `run_mission` / `mission_status` / `mission_control` / `watch_entity` / `list_watches` / `stop_watch`, le
+> moteur (`lancerMission`, `lancerEnArrierePlan`, `creerSurveillance`) et l'interrupteur global lisent UN
+> prédicat, `peutPiloterMissionsAdam` (`lib/rbac.ts`) ; l'entrée de menu porte la garde `adamMissions`. Le
+> battement et le balayage des surveillances relisent l'autorité à chaque passage : une mission dont le
+> propriétaire n'est pas (ou plus) Super Admin passe en **pause** avec son motif au journal, jamais supprimée
+> (`platform/in-process/missions/habilitation.ts`). Voir le journal « Les missions d'Adam, au Super Admin seul ».
 
 **Le trou, dit sans enjoliver.** Le lot précédent a livré l'horizon : jalons, compilation
 paresseuse, fraîcheur des lectures, modification chirurgicale. Tout cela était calculé, testé,

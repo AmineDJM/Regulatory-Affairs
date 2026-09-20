@@ -8,6 +8,8 @@ import {
   canViewEnvelope,
   defaultScope,
   hasGlobalView,
+  peutPiloterMissionsAdam,
+  REFUS_MISSIONS_ADAM,
   scopeMedicalDoctors,
   seesWholeSecretariat,
   scopeRegulatory,
@@ -395,5 +397,37 @@ describe("seesWholeSecretariat — le DRH et les Finances voient tout le bureau"
   // toute l'entreprise : il faut tenir le module, pas seulement le lire.
   it("une simple lecture ne suffit pas", () => {
     expect(seesWholeSecretariat({ rhCanUpdate: false, financeCanUpdate: false })).toBe(false);
+  });
+});
+
+describe("peutPiloterMissionsAdam — les missions d'Adam sont réservées au Super Admin (§118.136)", () => {
+  it("le Super Admin, et lui seul — rôle brut ou porteur de rôles", () => {
+    expect(peutPiloterMissionsAdam("SUPER_ADMIN")).toBe(true);
+    expect(peutPiloterMissionsAdam({ role: "SUPER_ADMIN" })).toBe(true);
+    for (const role of ["DIRECTION", "GENERAL_MANAGER", "DIRECTION_ASSISTANT", "SALES_USER", "VIEWER"] as UserRole[]) {
+      expect(peutPiloterMissionsAdam(role), role).toBe(false);
+      expect(peutPiloterMissionsAdam({ role }), role).toBe(false);
+    }
+  });
+
+  it("la vue globale ne suffit pas : la Direction voit tout, elle ne pilote pas de mission", () => {
+    /**
+     * CE QUI FERAIT TOMBER CE TEST : réécrire le prédicat sur `hasGlobalView`. C'est la tentation
+     * naturelle — c'était la porte d'hier pour les surveillances — et c'est exactement ce que la
+     * Direction a demandé de fermer.
+     */
+    expect(hasGlobalView("DIRECTION")).toBe(true);
+    expect(peutPiloterMissionsAdam("DIRECTION")).toBe(false);
+  });
+
+  it("une casquette secondaire n'ouvre pas les missions : le Super Admin est un COMPTE", () => {
+    expect(peutPiloterMissionsAdam({ role: "DIRECTION", secondaryRole: "SUPER_ADMIN" })).toBe(false);
+    expect(hasGlobalView({ role: "SALES_USER", secondaryRole: "DIRECTION" })).toBe(true); // la vue globale, elle, se prête
+    expect(peutPiloterMissionsAdam({ role: "SALES_USER", secondaryRole: "DIRECTION" })).toBe(false);
+  });
+
+  it("le refus est écrit UNE fois, et il nomme la règle", () => {
+    expect(REFUS_MISSIONS_ADAM).toMatch(/Super Admin/);
+    expect(REFUS_MISSIONS_ADAM).toMatch(/missions et surveillances/);
   });
 });

@@ -18,6 +18,7 @@ import { canIssueDirective } from "@/lib/directives/access";
 import {
   sendDirective, attachDirectiveFiles, resolveRecipientIds, companyIdsOf, scopeOf,
 } from "@/lib/directives/recipients";
+import { rejouerNotifications } from "@/lib/notifications/ecrire";
 
 const PATH = "/directives";
 const STATUSES: DirectiveStatus[] = ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "DONE", "ARCHIVED"];
@@ -362,12 +363,15 @@ export async function postDirectiveMessage(formData: FormData): Promise<ActionRe
     // Une réponse de la Direction se pousse à la personne quand la note est nominative ;
     // au-delà, elle vit dans le fil, que chacun retrouve depuis la directive.
     if (ids.length > 0 && ids.length <= 5) {
-      await prisma.notification.createMany({
-        data: ids.map((userId) => ({
-          userId, type: "GENERIC" as const, title: "Directive — message",
-          body: `${d.reference} — ${d.title}`, link: `${PATH}/${id}`,
-        })),
-      }).catch(() => undefined);
+      const lignes = ids.map((userId) => ({
+        userId, type: "GENERIC" as const, title: "Directive — message",
+        body: `${d.reference} — ${d.title}`, link: `${PATH}/${id}`,
+      }));
+      try {
+        await prisma.notification.createMany({ data: lignes });
+      } catch (err) {
+        await rejouerNotifications(lignes, err);
+      }
     }
   } else if (d.fromId) {
     await notifyUser({ userId: d.fromId, type: "GENERIC", title: "Directive — réponse", body: `${d.reference} — ${d.title}`, link: `${PATH}/${id}` });

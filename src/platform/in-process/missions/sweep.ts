@@ -5,6 +5,7 @@ import { journaliser } from "@/lib/missions/runtime/store";
 import { relancerAttente } from "@/platform/in-process/missions/relance";
 import { porteAttentionPour } from "@/platform/in-process/missions/attention";
 import { avancerMission, rattraperLancementsPerdus, replanifierMission } from "@/platform/in-process/missions/runtime";
+import { proprietaireHabilite, suspendreMissionHorsDroit } from "@/platform/in-process/missions/habilitation";
 
 /**
  * LE BAIL vit dans le moteur (`runtime/bail.ts`) : c'est `avancer` qui le prend et le renouvelle
@@ -68,12 +69,27 @@ export interface BalayageMissions {
    * « interdit de faire ».
    */
   suspendu: boolean;
+  /**
+   * Les missions mises en PAUSE ce passage parce que leur propriétaire n'a pas — ou plus — le
+   * droit aux missions d'Adam (réservées au Super Admin, §118.136). Comptées pour que le rapport
+   * du battement dise ce qu'il a fermé, et pourquoi.
+   */
+  suspenduesHorsDroit: number;
 }
 
 /** Ce qu'un banc peut injecter dans le balayage. La production n'injecte rien. */
 export interface DependancesBalayage {
   /** Le lecteur de l'interrupteur global — défaut : le vrai. Voir `lib/interrupteurs/missions.ts`. */
   interrupteur?: LecteurInterrupteur;
+  /**
+   * BANC SEULEMENT : borne le passage à CES missions, et n'exécute aucune des sections globales
+   * (réveils temporels, filet des lancements perdus, relances). Pourquoi : la suite tourne sur
+   * UNE base partagée, et un banc qui appelle le vrai balayage sans borne conduit les missions
+   * des AUTRES bancs — avec le vrai raisonneur, qui n'a pas de clé ici. Mesuré : trois cas de
+   * `e2e.test.ts` rouges (« toutes les itérations doivent aboutir », « aucun artefact ») pendant
+   * qu'un banc voisin balayait (§118.136, §118.115). La production n'injecte jamais cette borne.
+   */
+  seulement?: readonly string[];
 }
 
 // `proprietaire` vit dans son propre module : la porte d'attention l'emploie aussi, sans dépendre du balayage.
@@ -228,7 +244,7 @@ export async function conduireMission(
  * Ne lève jamais : une mission qui plante ne doit pas emporter le battement, ni les onze autres.
  */
 export async function balayerMissions(deps: DependancesBalayage = {}): Promise<BalayageMissions> {
-  const out: BalayageMissions = { examinees: 0, avancees: 0, etapesExecutees: 0, relances: 0, replanifiees: 0, suspendu: false };
+  const out: BalayageMissions = { examinees: 0, avancees: 0, etapesExecutees: 0, relances: 0, replanifiees: 0, suspendu: false, suspenduesHorsDroit: 0 };
   if ((process.env.MISSIONS_SWEEP ?? "").toLowerCase() === "off") return out;
 
   /**
@@ -256,14 +272,14 @@ export async function balayerMissions(deps: DependancesBalayage = {}): Promise<B
   // mission dont « reviens demain 10 h » vient d'échoir devient candidate DANS CE battement,
   // pas au suivant. La granularité est celle du battement (~60 s) — largement suffisante pour
   // « demain », et aucun minuteur en mémoire à perdre au redéploiement.
-  await reveillerAttentesTemporelles(new Date()).catch(() => []);
+  if (!deps.seulement) await reveillerAttentesTemporelles(new Date()).catch(() => []);
 
   // ── 0bis. LES LANCEMENTS PERDUS — le filet du lancement détaché (§5 durabilité) ───────
   //
   // Une mission-talon PLANNING sans étape dont le processus est mort entre « je m'en occupe »
   // et la planification est RETROUVÉE ici et relancée. La demande n'est jamais perdue : elle
   // vit en base depuis la première seconde.
-  await rattraperLancementsPerdus(proprietaire).catch(() => 0);
+  if (!deps.seulement) await rattraperLancementsPerdus(proprietaire).catch(() => 0);
 
   // ── 1. LES MISSIONS QUI ONT QUELQUE CHOSE À FAIRE ───────────────────────────────────
   //
@@ -271,7 +287,9 @@ export async function balayerMissions(deps: DependancesBalayage = {}): Promise<B
   // étape en attente ou réparable. Interroger « toutes les missions actives » ferait tourner le
   // moteur sur des missions qui dorment en attendant un événement — un travail nul, répété à
   // chaque battement, sur chaque mission longue du produit.
-  const candidates = await missionsAFaireAvancer(MISSIONS_PAR_PASSAGE).catch(() => [] as string[]);
+  const candidates = deps.seulement
+    ? [...deps.seulement]
+    : await missionsAFaireAvancer(MISSIONS_PAR_PASSAGE).catch(() => [] as string[]);
   const missions = candidates.length > 0
     ? await prisma.mission.findMany({
         where: { id: { in: candidates } },
@@ -302,8 +320,20 @@ export async function balayerMissions(deps: DependancesBalayage = {}): Promise<B
       }
 
       if (!cache.has(m.ownerId)) cache.set(m.ownerId, await proprietaire(m.ownerId));
-      const user = cache.get(m.ownerId);
+      const user = cache.get(m.ownerId) ?? null;
       if (!user) continue;
+      /**
+       * ── L'AUTORITÉ EST RELUE À CHAQUE PASSAGE (§118.136, §118.119b) ─────────────────────
+       *
+       * Les missions d'Adam sont réservées au Super Admin. Une mission dont le propriétaire n'a
+       * pas — ou plus — ce droit ne conduit RIEN : elle passe en pause, motif au journal, jamais
+       * supprimée. Sans cette ligne, une planification serait une permission qui survit à la
+       * règle, et le moteur exécuterait au nom de quelqu'un que la règle a exclu.
+       */
+      if (!proprietaireHabilite(user)) {
+        if (await suspendreMissionHorsDroit(m.id, m.ownerId)) out.suspenduesHorsDroit += 1;
+        continue;
+      }
 
       // ── LE BAIL — deux battements concurrents ne paient pas deux fois les mêmes tours ──
       if (!(await prendreBail(m.id))) continue;
@@ -330,7 +360,7 @@ export async function balayerMissions(deps: DependancesBalayage = {}): Promise<B
   // pas répondu. La différence compte : la première formulation conduit à abandonner, la
   // seconde à relancer. On PRÉVIENT le propriétaire, une fois, et la mission continue d'attendre.
   try {
-    const echues = (await attentesEchues(new Date())).slice(0, 20);
+    const echues = deps.seulement ? [] : (await attentesEchues(new Date())).slice(0, 20);
     for (const e of echues) {
       const dejaDit = await prisma.missionEvent.findFirst({
         where: { missionId: e.missionId, kind: "OVERDUE", detail: { path: ["stepKey"], equals: e.stepKey } },

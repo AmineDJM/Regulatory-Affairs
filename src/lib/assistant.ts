@@ -70,7 +70,7 @@ import { composerContexteTour } from "@/lib/assistant/context/tour";
 import { safetyIdentifierFor } from "@/lib/models/openai-responses";
 import type { ReasoningEffort } from "@/lib/models/contract";
 import {
-  userCan, accessibleModules, hasGlobalView, isRegulatorySupervisor, type Module,
+  userCan, accessibleModules, hasGlobalView, isRegulatorySupervisor, peutPiloterMissionsAdam, type Module,
   scopeMedicalDoctors, scopeRegulatory, scopeAdminRequests,
 } from "@/lib/rbac";
 import { updateRequestStatus, assignRequest, addRequestComment } from "@/lib/actions/admin-request-actions";
@@ -2113,7 +2113,13 @@ champs personnalisés (read_workflow / configure_workflow / advance_workflow / m
 réglage se REMPLACE (relire la valeur, proposer la liste complète) ; masquer un module le retire pour tout le monde — le
 dire ; une suppression ou une purge est CRITIQUE (ressaisie de la référence) ; la création de compte reste à l'écran
 (aucun mot de passe ici). Tu PROPOSES, l'utilisateur confirme.
-` : ""}
+` : ""}${peutPiloterMissionsAdam(user) ? "" : `
+MISSIONS ET SURVEILLANCES D'ADAM — RÉSERVÉES AU SUPER ADMIN : tu n'as ni run_mission, ni watch_entity, ni
+mission_status, ni mission_control, et ils ne sont dans aucune liste à découvrir. Si l'on te demande une mission
+durable (« occupe-t'en jusqu'au bout », « dès que X arrive, fais Y ») ou une surveillance (« préviens-moi si… »),
+dis en une phrase que c'est réservé au Super Admin, puis propose ce qui reste à ta portée : un rappel daté
+(plan_reminder), une tâche assignée (create_task) ou un engagement au registre (record_commitment).
+`}
 CONTEXTE :
 ${buildContext(user)}${exec}
 
@@ -5119,7 +5125,7 @@ async function runAssistantImpl(
       }
       if (verdictImp === "ACCEPTER") { const c = complementDeLimite(brut, allTools.length); if (c) brut = `${brut}\n\n${c}`; }
       // La promesse a survécu au rappel : on ne la censure pas, on ajoute la phrase qui manque.
-      { const p = avertirPromesseSansObjet(brut, usedTools); if (p) brut = `${brut}\n\n${p}`; }
+      { const p = avertirPromesseSansObjet(brut, usedTools, { surveillances: peutPiloterMissionsAdam(user) }); if (p) brut = `${brut}\n\n${p}`; }
       const reply = reparerReponse(brut);
       const gesteCartes = await carteDuProchainGeste(lectures, user, opts.origin ?? "text");
       if (highStakes && reply.length >= CRITIQUE_MIN_DRAFT) {
@@ -5842,7 +5848,7 @@ async function runAssistantStreamImpl(
           continue;
         }
         if (verdictImp === "ACCEPTER") { const c = complementDeLimite(redige, allTools.length); if (c) { redige = `${redige}\n\n${c}`; if (streamed) { emit({ type: "reset" }); streamed = false; } } }
-        { const p = avertirPromesseSansObjet(redige, usedTools); if (p) { redige = `${redige}\n\n${p}`; if (streamed) { emit({ type: "reset" }); streamed = false; } } }
+        { const p = avertirPromesseSansObjet(redige, usedTools, { surveillances: peutPiloterMissionsAdam(user) }); if (p) { redige = `${redige}\n\n${p}`; if (streamed) { emit({ type: "reset" }); streamed = false; } } }
         const reparation = reparerReponse(redige);
         const reply = reparation.texte;
         // Rien n'a été diffusé (réponse vide côté modèle) → on envoie le repli d'un trait.

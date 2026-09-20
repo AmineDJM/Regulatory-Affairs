@@ -2,6 +2,7 @@ import type { Priority, TaskStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { taskCreationMode, creationNotices, CREATION_STATUS, type TaskCreationMode } from "@/lib/tasks/request-flow";
+import { rejouerNotifications } from "@/lib/notifications/ecrire";
 
 /**
  * LE CŒUR canonique de la création de tâche — partagé par l'écran ET le Chief of Staff.
@@ -61,11 +62,14 @@ export async function createTaskRecord(
   const notices = creationNotices({ creatorId: actorId, assignedToId: input.assignedToId, participantIds, readerIds, mode });
   const link = `/mon-espace/taches/${created.id}`;
   if (notices.length) {
-    await prisma.notification.createMany({
-      data: notices.map((n) => ({
-        userId: n.userId, type: "ASSIGNMENT" as const, title: n.title, body: input.title, link, popup: n.popup,
-      })),
-    }).catch(() => undefined);
+    const lignes = notices.map((n) => ({
+      userId: n.userId, type: "ASSIGNMENT" as const, title: n.title, body: input.title, link, popup: n.popup,
+    }));
+    try {
+      await prisma.notification.createMany({ data: lignes });
+    } catch (err) {
+      await rejouerNotifications(lignes, err);
+    }
   }
 
   await recordAudit({

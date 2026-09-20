@@ -49,6 +49,7 @@ export function ReglagesForm({
   connected,
   missionsPaused,
   missionsPausedInfo,
+  missionsPilotables,
 }: {
   policy: Policy;
   outboundPaused: boolean;
@@ -58,6 +59,8 @@ export function ReglagesForm({
   /** L'interrupteur global des missions (§118.132), et « depuis le … par … » quand il est posé. */
   missionsPaused: boolean;
   missionsPausedInfo: string | null;
+  /** Les missions d'Adam sont réservées au Super Admin (§118.136) : sans ce droit, pas de section. */
+  missionsPilotables: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -210,6 +213,7 @@ export function ReglagesForm({
         </div>
       </section>
 
+      {missionsPilotables ? (
       <section className="space-y-3" data-testid="reglages-missions">
         <h3 className="text-sm font-semibold">Missions d&apos;Adam</h3>
         <p className="text-xs text-muted-foreground">
@@ -243,6 +247,7 @@ export function ReglagesForm({
           </Link>
         </div>
       </section>
+      ) : null}
 
       {connected && (
         <section className="space-y-3">

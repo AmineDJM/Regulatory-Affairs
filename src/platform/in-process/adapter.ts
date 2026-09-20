@@ -62,6 +62,17 @@ import {
  * n'autorisent rien. `authorize()` et, surtout, l'action canonique elle-même restent seules
  * juges au moment d'exécuter.
  */
+/**
+ * LE PRÉDICAT DES MISSIONS D'ADAM, RÉEXPORTÉ PAR LE PONT (§118.136).
+ *
+ * `peutPiloterMissionsAdam` vit au socle (`lib/rbac.ts`) parce que l'ERP le lit aussi — écrans,
+ * menu, actions, moteur. Les outils de conversation (`business-capabilities.ts`, `watch-tools.ts`)
+ * en ont besoin pour leur garde `allowed`, et un import direct de `lib/rbac` depuis Adam est un
+ * franchissement que le cliquet de frontière compte : mesuré, 430 pour un plafond de 428. Le pont
+ * est le seul endroit d'Adam autorisé à connaître l'ERP ; c'est donc lui qui le tend.
+ */
+export { peutPiloterMissionsAdam, REFUS_MISSIONS_ADAM } from "@/lib/rbac";
+
 export function principalOf(user: CurrentUser): Principal {
   const capabilities = new Set<string>();
   for (const m of MODULES) {

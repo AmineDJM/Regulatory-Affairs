@@ -42,9 +42,11 @@ const MARQUE = "__e2e__ Homologation Nivolex 2027";
 const CIBLE = "Deepak";
 let missionId = "";
 
-async function login(page: Page) {
+// Les missions d'Adam sont réservées au Super Admin (§118.136) : cette spec joue le SEUL compte
+// qui puisse ouvrir le Centre de missions. Le testeur DIRECTION en est exclu — voir le cas dédié.
+async function login(page: Page, email: string = E2E.superAdminEmail) {
   await page.goto("/login");
-  await page.getByLabel(/e-?mail/i).fill(E2E.email);
+  await page.getByLabel(/e-?mail/i).fill(email);
   await page.getByLabel(/mot de passe/i).fill(E2E.password);
   await page.getByRole("button", { name: /connexion|se connecter/i }).click();
   await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 20_000 });
@@ -53,8 +55,8 @@ async function login(page: Page) {
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
-  const u = await prisma.user.findUnique({ where: { email: E2E.email }, select: { id: true } });
-  if (!u) throw new Error("le seed E2E n'a pas posé son utilisateur");
+  const u = await prisma.user.findUnique({ where: { email: E2E.superAdminEmail }, select: { id: true } });
+  if (!u) throw new Error("le seed E2E n'a pas posé son Super Admin");
 
   const m = await prisma.mission.create({
     data: {

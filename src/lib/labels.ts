@@ -1387,9 +1387,11 @@ export interface NavItem {
   /**
    * Garde SUPPLÉMENTAIRE au droit de module, résolue côté serveur dans le layout. Sert aux
    * écrans dont l'ouverture dépend d'un réglage et pas seulement d'un rôle (l'analyse CTD est
-   * débloquée en Administration, rôle par rôle).
+   * débloquée en Administration, rôle par rôle). `adamMissions` : le Centre de missions n'est
+   * envoyé qu'au Super Admin (`peutPiloterMissionsAdam`, §118.136) — le module WORKSPACE est à
+   * tout le monde, la règle n'est pas un module.
    */
-  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam";
+  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions";
   /**
    * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
    * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
@@ -1677,7 +1679,9 @@ export const NAVIGATION: NavItem[] = [
   // journal), et la ranger dans la conversation ferait dépendre son écran de l'assistant, ce
   // que le cliquet de frontière mesure et fait baisser lot après lot. `/missions/<id>` — où
   // pointent toutes ses notifications — reste son adresse ; ceci en est la liste, qui manquait.
-  { module: "WORKSPACE", label: "Missions d'Adam", href: "/centre-de-missions", icon: "Radar", group: "Pilotage", match: ["/centre-de-missions"] },
+  // RÉSERVÉ AU SUPER ADMIN (décision de la Direction, 09/2026) : la garde `adamMissions` lit
+  // `peutPiloterMissionsAdam` dans `nav-access.ts` — l'entrée n'est pas envoyée aux autres.
+  { module: "WORKSPACE", label: "Missions d'Adam", href: "/centre-de-missions", icon: "Radar", group: "Pilotage", match: ["/centre-de-missions"], gate: "adamMissions" },
   // « MY CHIEF OF STAFF » — l'interface exécutive de pilotage, réservée au PDG et au Super
   // Admin (module CHIEF_OF_STAFF). Même moteur que l'assistant, mais les outils d'un chef de
   // cabinet : histoire complète d'un dossier, lecture des documents, bilans, rappels planifiés,

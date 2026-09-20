@@ -1,5 +1,5 @@
 import type { CurrentUser } from "@/lib/session";
-import { hasGlobalView } from "@/lib/rbac";
+import { peutPiloterMissionsAdam } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { approbationsEnAttente, decider } from "@/lib/missions/approval/gate";
 import { annuler, mettreEnPause, reprendre } from "@/lib/missions/runtime/control";
@@ -68,18 +68,18 @@ export async function reprendreMissionAgent(
  * des réglages d'Adam, dont le fichier d'actions est refusé au chemin générique (§118.78). Le
  * message le dit à la personne au lieu de faire semblant.
  *
- * Réservé à la direction : c'est un fait qui vaut pour TOUT LE MONDE. Quelqu'un d'autre reçoit
- * le geste à sa portée — suspendre son propre parc depuis le Centre de missions.
+ * Réservé au Super Admin, comme tout ce qui touche aux missions d'Adam (§118.136) : c'est un
+ * fait qui vaut pour TOUT LE MONDE, et l'outil qui porte ce geste n'est de toute façon exposé
+ * qu'à lui — la garde est ici aussi, pour tout appelant présent ou futur (§118.71).
  */
 export async function suspendreToutesLesMissions(
   user: CurrentUser, motif?: string,
 ): Promise<GesteMission> {
-  if (!hasGlobalView(user)) {
+  if (!peutPiloterMissionsAdam(user)) {
     return {
       fait: false, statut: null,
-      message: "L'interrupteur global des missions est réservé à la direction (PDG / Super Admin) : il gèle "
-        + "les missions de tout le monde. Pour suspendre VOS missions, le Centre de missions "
-        + "(/centre-de-missions) les met toutes en pause en un clic.",
+      message: "L'interrupteur global des missions est réservé au Super Admin, comme toutes les missions d'Adam : "
+        + "il gèle les missions de tout le monde.",
     };
   }
   const r = await suspendreMissions(user.id);

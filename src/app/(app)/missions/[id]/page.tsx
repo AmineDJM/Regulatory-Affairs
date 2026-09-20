@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, MessageSquare } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { peutPiloterMissionsAdam } from "@/lib/rbac";
 import { vueMission } from "@/lib/missions/view/workspace";
 import { MissionRuntimePanel } from "@/components/missions/mission-runtime-panel";
 
@@ -37,6 +38,9 @@ export const dynamic = "force-dynamic";
 
 export default async function MissionRuntimePage({ params }: { params: { id: string } }) {
   const user = await requireModule("WORKSPACE");
+  // RÉSERVÉ AU SUPER ADMIN (§118.136) — même page qu'une mission inexistante, pour la même
+  // raison que le filtre par propriétaire ci-dessus : on ne révèle rien par la différence.
+  if (!peutPiloterMissionsAdam(user)) notFound();
   const vue = await vueMission(params.id, user.id);
   if (!vue) notFound();
 

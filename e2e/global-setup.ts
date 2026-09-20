@@ -13,6 +13,8 @@ import bcrypt from "bcryptjs";
 export const E2E = {
   email: "__e2e__user@test.dz",
   password: "E2e!MotDePasse#2026",
+  /** Le SUPER ADMIN du banc : les missions d'Adam lui sont réservées (§118.136) — le testeur DIRECTION ne les voit plus. */
+  superAdminEmail: "__e2e__superadmin@test.dz",
   /** Le compte qui TIENT la papeterie (assistante de direction) — le registre de marque se règle par lui. */
   papeterieEmail: "__e2e__papeterie@test.dz",
   /** Un compte qui LIT sans régler (simple lecteur, sans société) — le registre de marque doit lui rester fermé. */
@@ -66,6 +68,10 @@ export default async function globalSetup(): Promise<void> {
         passwordHash: await bcrypt.hash(E2E.password, 10),
         role: "DIRECTION",
       },
+    });
+
+    await prisma.user.create({
+      data: { name: "__e2e__ Super Admin", email: E2E.superAdminEmail, passwordHash: await bcrypt.hash(E2E.password, 10), role: "SUPER_ADMIN" },
     });
 
     const papeterie = await prisma.user.create({
