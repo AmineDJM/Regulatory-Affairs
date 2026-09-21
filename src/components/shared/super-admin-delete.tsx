@@ -8,10 +8,22 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 
 /**
- * Bouton « Supprimer définitivement » réservé au Super Admin (n'est rendu que si
- * `enabled`). Sert à nettoyer les enregistrements de test : ouvre une confirmation
- * claire (action irréversible), supprime, puis redirige vers la liste où l'élément
- * a disparu. Le serveur revérifie le rôle — ce bouton n'est qu'une commodité.
+ * Bouton « Supprimer définitivement » réservé au Super Admin (n'est rendu que si `enabled`) :
+ * ouvre une confirmation claire, supprime, puis redirige vers la liste où l'élément a disparu.
+ * Le serveur revérifie le rôle — ce bouton n'est qu'une commodité.
+ *
+ * LA PHRASE DE LA CONFIRMATION DISAIT LE CONTRAIRE DU CODE. Elle annonçait « cette action ne
+ * peut pas être annulée » alors que `superAdminDelete` passe par `snapshotAndSoftDelete`, qui
+ * dépose un instantané dans la corbeille (Administration → Corbeille) d'où le Super Admin
+ * restaure. Deux vérités dans le même geste, et celle que la personne LIT était la fausse
+ * (§118.5) : elle décourageait un rangement parfaitement défaisable, ou — pire — faisait croire
+ * qu'un élément supprimé par erreur était perdu. La phrase dit maintenant ce qui est vrai : le
+ * retrait est total sur tous les écrans, et réversible jusqu'à la destruction réelle.
+ *
+ * `warning` reste la place de ce que la restauration NE rendra PAS : pour un groupe de
+ * messagerie, la cascade emporte membres et messages, donc « restaurable » sans cette réserve
+ * promettrait un retour qui n'aura pas lieu (§104.16). Elle vient du registre (`KindSpec.reserve`),
+ * jamais d'une rédaction propre à l'écran.
  */
 export function SuperAdminDeleteButton({
   kind,
@@ -78,14 +90,14 @@ export function SuperAdminDeleteButton({
         open={open}
         onClose={() => !busy && setOpen(false)}
         title="Supprimer définitivement"
-        description="Action réservée au Super Admin — irréversible."
+        description="Action réservée au Super Admin — réversible depuis la corbeille."
       >
         <div className="space-y-4">
           <div className="flex gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
             <div className="space-y-1">
-              <p className="font-medium">Cette suppression est définitive.</p>
-              <p>L'élément, ses pièces jointes et ses commentaires seront retirés et n'apparaîtront plus nulle part. Cette action ne peut pas être annulée.</p>
+              <p className="font-medium">Cette suppression retire l'élément de tous les écrans.</p>
+              <p>L'élément, ses pièces jointes et ses commentaires n'apparaîtront plus nulle part. Un instantané est déposé dans Administration → Corbeille : le Super Admin peut restaurer, jusqu'à la destruction réelle. Les lignes liées supprimées en cascade, elles, ne reviennent pas.</p>
               {warning && <p className="font-semibold">{warning}</p>}
             </div>
           </div>

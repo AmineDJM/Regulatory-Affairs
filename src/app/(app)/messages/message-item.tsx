@@ -9,6 +9,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import type { MessageDTO } from "@/lib/queries/messaging";
 import { timeOf, renderRich, formatBytes } from "./format";
+import { peutRetirerUnMessage } from "@/lib/messaging-ui";
 import { driveRefHref } from "@/lib/messaging-attachments";
 import { QUICK_REACTIONS, EMOJI_PALETTE } from "./emoji";
 
@@ -17,7 +18,10 @@ interface Props {
   selfId: string;
   showHeader: boolean;
   memberNames: string[];
-  canModerate: boolean;
+  /** Rôle à vue globale de l'ERP (Super Admin, Direction) : modération transverse. */
+  vueGlobale: boolean;
+  /** Je suis propriétaire ou administrateur de cette conversation. */
+  gereLaConversation: boolean;
   onReact: (id: string, emoji: string) => void;
   onReply: (m: MessageDTO) => void;
   onTogglePin: (id: string) => void;
@@ -28,7 +32,7 @@ interface Props {
 }
 
 export function MessageItem({
-  m, selfId, showHeader, memberNames, canModerate,
+  m, selfId, showHeader, memberNames, vueGlobale, gereLaConversation,
   onReact, onReply, onTogglePin, onBookmark, onDelete, onSaveEdit, onJumpToParent,
 }: Props) {
   const isOwn = m.senderId === selfId;
@@ -288,7 +292,10 @@ export function MessageItem({
           </ActionBtn>
           <ActionBtn title="Copier" onClick={copy}>{copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}</ActionBtn>
           {isOwn && <ActionBtn title="Modifier" onClick={() => { setEditValue(m.body); setEditing(true); }}><Pencil className="h-4 w-4" /></ActionBtn>}
-          {(isOwn || canModerate) && (
+          {/* La MÊME règle que `deleteMessage` : trois faits, une seule lecture (§118.5).
+              Avant, l'écran ignorait la vue globale — le Super Admin ne voyait jamais
+              le bouton que l'action aurait accepté (§118.50). */}
+          {peutRetirerUnMessage({ vueGlobale, auteur: isOwn, gereLaConversation }) && (
             <ActionBtn title="Supprimer" onClick={() => { if (window.confirm("Supprimer ce message ?")) onDelete(m.id); }}>
               <Trash2 className="h-4 w-4 text-destructive" />
             </ActionBtn>

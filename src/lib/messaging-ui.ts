@@ -55,3 +55,44 @@ export function preview(body: string, kind: string, hasAttachment: boolean, max 
   if (!clean && hasAttachment) return "📎 Pièce jointe";
   return clean.length > max ? clean.slice(0, max) + "…" : clean;
 }
+
+/**
+ * ─────────────────────────── QUI PEUT RETIRER UN MESSAGE ───────────────────────────
+ *
+ * La règle vivait à DEUX endroits qui ne disaient pas la même chose. L'action serveur
+ * (`deleteMessage`) accepte trois faits : un rôle à VUE GLOBALE, l'AUTEUR du message, ou
+ * quelqu'un qui GÈRE la conversation. L'écran, lui, n'en lisait que deux — `canModerate` se
+ * calculait `myRole === "OWNER" || myRole === "ADMIN"` et ignorait la vue globale. Un Super
+ * Admin qui n'est ni auteur ni propriétaire du groupe ne voyait donc JAMAIS le bouton que
+ * l'action aurait accepté : une capacité écrite, gardée, testée — et inatteignable par
+ * l'écran (§118.50).
+ *
+ * Les trois faits sont donc NOMMÉS ici, une fois, dans le module que le navigateur ET le
+ * serveur ont le droit d'importer. Deux lectures de la même règle finissent par diverger, et
+ * le symptôme est toujours l'un des deux défauts : un bouton qui refuse, ou pas de bouton là
+ * où c'est permis.
+ *
+ * Ce qui N'entre PAS ici : de quel rôle la « vue globale » se lit. L'action passe la CHAÎNE
+ * `user.role` à `hasGlobalView`, donc sans casquette secondaire ; l'écran doit lire exactement
+ * la même chose. L'élargir serait une décision de permission, pas une ligne de code.
+ */
+
+/** Rôle d'un membre dans une conversation (miroir de `ConvMemberRole`, sans importer Prisma). */
+export type RoleConversation = "OWNER" | "ADMIN" | "MEMBER";
+
+/** Gère la conversation : renommer, inviter, retirer, archiver — et modérer les messages. */
+export function peutGererLaConversation(role: RoleConversation | string | null | undefined): boolean {
+  return role === "OWNER" || role === "ADMIN";
+}
+
+/** Les trois faits, et rien d'autre : qui a le droit de retirer CE message. */
+export function peutRetirerUnMessage(faits: {
+  /** Rôle à vue globale de l'ERP (Super Admin, Direction) — modération transverse. */
+  vueGlobale: boolean;
+  /** C'est mon message. */
+  auteur: boolean;
+  /** Je gère cette conversation (propriétaire ou administrateur du groupe). */
+  gereLaConversation: boolean;
+}): boolean {
+  return faits.vueGlobale || faits.auteur || faits.gereLaConversation;
+}

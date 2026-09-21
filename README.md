@@ -2319,7 +2319,7 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
 
 ### Corbeille des suppressions définitives (réversible, Super Admin)
 
-- `superAdminDelete` (bouton « Supprimer définitivement », 25 types d'objets) ne détruit plus : il dépose un
+- `superAdminDelete` (bouton « Supprimer définitivement », **28 types d'objets**) ne détruit plus : il dépose un
   **instantané** dans `DeletedRecord` (ligne principale complète en JSON + pièces jointes + commentaires — les
   **fichiers restent** dans le stockage) puis supprime. **Administration → Corbeille** (`/admin/corbeille`) :
   **Restaurer** (recrée à l'identique — mêmes id/référence — + pièces + commentaires) ou **Détruire** (destruction
@@ -2328,12 +2328,29 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
 - **Registre** : `DELETE_REGISTRY` dans `src/lib/admin-delete-registry.ts` (module PARTAGÉ, hors `"use server"`,
   consommé par `admin-delete-actions.ts` ET par l'assistant) — chaque kind déclare `label`, `module`,
   `redirect`, `entityType` (nettoyage Documents/Comments polymorphes), **`model`** (délégué Prisma pour
-  snapshot/restauration génériques), `describe`, `remove`, et **`searchFields`** (champs texte sur lesquels le
-  Chief of Staff résout une référence humaine). **Ajout d'un type supprimable = 1 entrée** dans ce
+  snapshot/restauration génériques), `describe`, `remove`, **`searchFields`** (champs texte sur lesquels le
+  Chief of Staff résout une référence humaine), **`refuse?`** (ce que ce type refuse de supprimer ET pourquoi —
+  évalué AVANT tout instantané, donc valable pour l'écran comme pour Adam ; sans lui un refus légitime sortait
+  en « introuvable » ou en « des éléments liés bloquent », deux phrases fausses) et **`reserve?`** (ce que la
+  restauration NE rendra PAS, dit dans la phrase de confirmation ET dans la carte d'Adam).
+  **Ajout d'un type supprimable = 1 entrée** dans ce
   registre + un `SuperAdminDeleteButton` sur la page — l'outil `delete_record` de l'assistant le couvre alors
   automatiquement. Types notables : `HR_REQUEST` (la demande seule — jamais
   l'employé, bug corrigé), `VALIDATION_REQUEST`, `EMPLOYEE` (libellé « Supprimer la fiche employé » + avertissement
-  rouge sur le périmètre).
+  rouge sur le périmètre), **`CONVERSATION`** (groupe ou canal de messagerie — `refuse` les tête-à-tête,
+  `reserve` annonce qu'une restauration rend un groupe VIDE puisque membres et messages partent en cascade) et
+  **`NOTIFICATION`** (une notification reçue : supprimée, son destinataire ne la voit plus ; elle se restaure
+  à l'identique).
+- **La phrase de la confirmation disait le contraire du code** : elle annonçait « cette action ne peut pas être
+  annulée » alors que `snapshotAndSoftDelete` dépose l'instantané dans la corbeille. Deux vérités dans le même
+  geste, et celle que la personne LIT était la fausse — elle décourageait un rangement défaisable, ou faisait
+  croire un élément perdu. Corrigée : le retrait est total sur tous les écrans, et réversible jusqu'à la
+  destruction réelle.
+- **Administration → Messagerie & notifications** (`/admin/messagerie`, Super Admin) : la seule porte vers un
+  groupe qu'on n'a pas rejoint — la messagerie se lit par APPARTENANCE, donc un groupe créé par erreur restait
+  vivant faute de pouvoir l'atteindre. **Métadonnées seulement** (type, nom, membres, messages, dernière
+  activité, auteur) : jamais un corps de message, et les tête-à-tête ne sont pas listés puisque le registre les
+  refuse. Les notifications s'y filtrent par destinataire.
 - **Assistant (Chief of Staff)** : outil `delete_record` (Super Admin uniquement) — propose LA MÊME suppression
   (carte CRITIQUE : référence à ressaisir, impact + réversibilité affichés, exclue du « Tout confirmer »),
   résout la cible par référence/nom/id (`lib/assistant/delete-resolve.ts` — jamais de choix silencieux entre
@@ -3655,7 +3672,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **RH — contrats : visibilité et miroir Drive** | Module PUR `lib/hr/document-visibility.ts` (`defaultVisibleToEmployee`, `resolveVisibility`, `shouldMirrorToDrive`) + tests ; `lib/hr-drive-mirror.ts` écrit dans une **catégorie de Drive** « RH — Contrats » ouverte aux seuls rôles RH (`rolesWithModule("RH")`), plus dans un Drive personnel. |
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
 | **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
-| **Transverse** | `lib/archive.ts` (Dossier traité), `lib/admin-delete-registry.ts` (registre partagé des 25 types supprimables) + `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/assistant/action-registry.ts` (registre ZERO-GAP des actions natives + classification des 644 server actions — **534 NATIVE / 34 COVERED / 0 GAP / 76 EXCLUDED motivées**, soit 100 % de parité sur les 568 actions retenues ; 493 ops de domaine sur 30 outils dans `lib/assistant/ops/` —, gardé par `action-parity.test.ts` et audité par `assistant/capability-audit.test.ts`), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
+| **Transverse** | `lib/archive.ts` (Dossier traité), `lib/admin-delete-registry.ts` (registre partagé des 28 types supprimables, `refuse` + `reserve`) + `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/assistant/action-registry.ts` (registre ZERO-GAP des actions natives + classification des 644 server actions — **534 NATIVE / 34 COVERED / 0 GAP / 76 EXCLUDED motivées**, soit 100 % de parité sur les 568 actions retenues ; 493 ops de domaine sur 30 outils dans `lib/assistant/ops/` —, gardé par `action-parity.test.ts` et audité par `assistant/capability-audit.test.ts`), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
 | **Drive / documents** | `lib/drive-storage.ts` (blobs chiffrés), `lib/drive.ts` (accès + `effectiveSpaceId`/`canCreateInSpace`), `lib/drive/explorer.ts` (pur : type lisible, taille, tri, volet), `lib/drive/search.ts` (**pur** : repli des accents, pertinence, chemin lisible — 29 tests) + `lib/queries/drive-search.ts` (périmètre étendu aux sous-arbres visibles, deux passes) + `app/(app)/drive/drive-search.tsx`, `lib/drive/{mirror,mirror-path,document-mirror}.ts` (miroir Drive de tout import), `lib/storage.ts` (Documents + `validateDocumentUpload`), `lib/documents.ts` (`persistUploadedDocument`), `lib/attach-files.ts`, `lib/actions/drive-actions.ts` + `document-actions.ts`, `app/api/drive/upload/route.ts` (quotas) + `app/api/documents/upload/route.ts` (lot/dossier, flux, parallèle), `app/(app)/drive/{drive-table,drive-canvas,explorer-nav,wide-toggle}.tsx`, `components/documents/`. |
 | **Catégories Drive (espaces partagés)** | Modèle `DriveSpace` + `DriveNode.spaceId` ; RBAC `canCreateDriveSpace`/`canViewDriveSpace`/`canManageDriveSpace` (`lib/rbac.ts`, accès implicite module Drive dans `getAccess`) ; `lib/queries/drive.ts` (`getDriveSpacesForUser`, `getDriveTabs`, `getDriveListing(…, spaceId)`) ; `lib/actions/drive-space-actions.ts` (créer/modifier/archiver/supprimer) ; page `app/(app)/drive/espace/[id]/` + `drive-space-manager.tsx` ; réglage `AppSetting.driveSpaceCreatorRoles` (`DriveSpaceCreatorForm` en Administration). Les catégories sont des **Emplacements du volet de navigation** (`ExplorerNav`), plus des onglets — `getDriveTabs` ne sert plus qu'à la page Documents. |
 | **Admin** | `app/(app)/admin/` (`page.tsx` comptes + stockage + activité, `corbeille/`, `drive-storage-settings.tsx`, `access/`, `settings/`…), `lib/actions/admin-actions.ts`, `settings-actions.ts`. |
@@ -5100,6 +5117,19 @@ mis en cache). Le Super Admin n'est pas mesuré.
 - markdown léger, **@mentions**, **réactions**, **réponses citées**, **épinglage**, favoris, édition/suppression,
   **pièces jointes** (Drive chiffré), **présence**, **« en train d'écrire… »**, **accusés de lecture / non-lus**,
   recherche, sourdine, rôles (OWNER/ADMIN/MEMBER).
+- 🛡️ **Qui peut retirer un message : trois faits, une seule lecture.** `peutRetirerUnMessage` +
+  `peutGererLaConversation` vivent dans `lib/messaging-ui.ts` (module PUR, importable par le navigateur) et sont
+  lus par l'action serveur `deleteMessage` **et** par le bouton de l'écran. La règle : un rôle à **vue globale**
+  (Super Admin, Direction), l'**auteur** du message, ou quelqu'un qui **gère** la conversation (OWNER/ADMIN).
+  L'écran n'en lisait que deux — `canModerate` ignorait la vue globale — donc un Super Admin qui n'était ni
+  auteur ni propriétaire du groupe **ne voyait jamais le bouton que l'action aurait accepté**. Qui a **quitté**
+  la conversation ne modère plus ses anciens messages (comportement d'origine, préservé et désormais éprouvé).
+  Le corps d'un message supprimé **n'est plus servi** (`mapMessage` : `body: ""`, réactions et pièces retirées) ;
+  il reste « message supprimé » dans le fil.
+- 🗑️ **Supprimer un groupe ou un canal** : `Administration → Messagerie & notifications` (Super Admin),
+  par le patron canonique réversible (instantané → corbeille → audit, outil `delete_record` d'Adam compris).
+  Un **tête-à-tête est refusé** — c'est l'échange privé de deux personnes. Une restauration rend le groupe
+  **vide** (membres et messages partent en cascade), et la confirmation le DIT.
 - 🔔 **Notification sonore** à la réception d'un message — un bip généré à la volée (Web Audio API), **débloqué au
   premier geste** de l'utilisateur (politique d'autoplay) et qui **retentit même quand l'onglet AMD est en
   arrière-plan** (vous êtes sur un autre site) grâce au **polling continu**.
@@ -5529,6 +5559,76 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### MESSAGERIE & NOTIFICATIONS — LE SUPER ADMIN PEUT ENFIN RETIRER CE QUI N'A PAS À RESTER (2026-09)
+
+Demande du dirigeant en deux temps : « permets au super admin de supprimer des messages et des groupes », puis
+« également la possibilité de supprimer des notifications reçues par des users et donc ils les verront plus ».
+**La mesure a décidé de la forme du lot**, et elle a donné trois réponses différentes pour trois demandes qui se
+ressemblaient.
+
+**LE MESSAGE : LA PERMISSION EXISTAIT, L'ÉCRAN NE LA LISAIT PAS.** `deleteMessage` accepte depuis toujours trois
+faits — un rôle à **vue globale**, l'**auteur**, ou quelqu'un qui **gère** la conversation. L'écran, lui, calculait
+`canModerate = myRole === "OWNER" || myRole === "ADMIN"` et **ignorait la vue globale** : un Super Admin qui n'était
+ni auteur ni propriétaire du groupe ne voyait jamais le bouton que l'action aurait accepté. Une capacité écrite,
+gardée, testée — et inatteignable depuis l'écran. Les trois faits sont désormais NOMMÉS une seule fois, au socle
+(`lib/messaging-ui.ts`, le module que le navigateur **et** le serveur ont le droit d'importer), et un cliquet
+cherche le **point d'appel** des deux côtés : vérifier le corps de la règle ne prouverait rien, puisque le défaut
+n'était pas une règle fausse mais une règle que l'écran ne lisait pas. La lecture reste **exactement** celle de
+l'action (`hasGlobalView(user.role)`, la chaîne, donc sans casquette secondaire) : l'élargir serait une décision de
+permission, pas une ligne de code. Le corps d'un message supprimé n'était déjà plus servi (`mapMessage` le masque),
+donc le geste n'avait pas besoin d'une seconde suppression : il avait besoin d'un bouton.
+
+**LE GROUPE : IL N'EXISTAIT AUCUNE SUPPRESSION, ET AUCUN ENDROIT POUR L'ATTEINDRE.** La messagerie ne savait
+qu'**archiver** — ce qui laisse la conversation vivante pour ses membres — et sa LECTURE est cloisonnée par
+appartenance : un groupe qu'on n'a pas rejoint n'apparaît nulle part. Le geste passe donc par le patron canonique
+(`DELETE_REGISTRY` → `superAdminDelete` → instantané → corbeille → audit, outil `delete_record` d'Adam compris) :
+**deux entrées de registre**, pas une seconde logique de suppression. Et un écran d'administration
+(`/admin/messagerie`) qui montre des **métadonnées seulement** — type, nom, membres, messages, dernière activité,
+auteur. Jamais un corps de message : ouvrir le contenu des conversations privées depuis l'administration serait une
+décision de permission qui appartient à la Direction, et un écran d'administration qui donne accidentellement la
+lecture est une porte dérobée.
+
+**CE QU'UN REFUS DOIT POUVOIR DIRE.** Un **tête-à-tête** ne se supprime pas : c'est l'échange privé de deux
+personnes. Sans crochet dédié, ce refus légitime n'avait que deux sorties, toutes deux fausses — `describe` rendant
+`null` dit « introuvable » d'un objet parfaitement présent, et une exception dans `remove` est avalée par « des
+éléments liés bloquent, détachez-les puis réessayez », un diagnostic inventé sur un geste qu'aucun détachement ne
+débloquera. `KindSpec.refuse?` vit donc dans le cœur partagé, **avant tout instantané**, donc il vaut pour l'écran
+comme pour Adam — dont la carte de confirmation le lit AVANT d'être construite, parce qu'une garde se place avant,
+jamais après le clic.
+
+**LA RÉSERVE ENTRE DANS LA PHRASE.** Supprimer un groupe emporte ses membres et ses messages en cascade, et
+l'instantané ne garde que la ligne principale : **une restauration rend un groupe VIDE**. La réserve générique
+(« les lignes liées en cascade ne sont pas restaurables ») est vraie et illisible ; ici la cascade EST le contenu.
+`KindSpec.reserve?` porte donc la phrase, lue par l'écran ET par la carte d'Adam — deux rédactions de la même
+réserve finiraient par dire deux choses différentes. Le banc l'ÉPROUVE : il supprime un groupe de 2 membres et
+1 message, restaure, et exige **0 membre / 0 message**. Si ce cas passait avec 2 membres, la phrase serait un
+mensonge.
+
+**ET DEUX VÉRITÉS SE CONTREDISAIENT DANS LE MÊME DIALOGUE — c'est mon propre avertissement qui l'a révélé.** La
+confirmation annonçait « **cette action ne peut pas être annulée** » alors que `snapshotAndSoftDelete` dépose
+l'instantané dans la corbeille depuis toujours. Celle que la personne LIT était la fausse : elle décourageait un
+rangement parfaitement défaisable, ou faisait croire un élément perdu. Corrigée pour les **28 types**, avec un
+cliquet qui vérifie d'abord la **prémisse** (l'écriture de `DeletedRecord`) — sans quoi l'assertion n'aurait aucune
+raison d'être.
+
+**DEUX SABOTAGES SONT PASSÉS AU VERT, ET LES DEUX FOIS C'ÉTAIT MON BANC.** (1) Débornier la LISTE de l'écran en
+laissant le COMPTE intact : mon cliquet cherchait la clause n'importe où dans le fichier, donc le littéral restait
+présent. Il juge maintenant **requête par requête**, et un troisième accès ajouté demain devra déclarer sa portée.
+(2) Retirer la porte d'appartenance de `deleteMessage` : aucun cas n'exerçait la seule situation où elle compte —
+quelqu'un qui a **quitté** la conversation et veut retirer son propre ancien message. Mon commentaire l'affirmait ;
+rien ne l'éprouvait. Le cas existe désormais, dans les deux sens (parti → refusé, revenu → accepté).
+
+**Le renommage a fait perdre leur garde déclarée à quatre actions**, et c'est l'artefact régénéré qui l'a dit :
+`canManage` était reconnu comme garde par son préfixe `can…`, `gereLaConversation` ne l'était pas. Ajouter `gere…`
+à la liste des préfixes aurait été pire (`gerer…` — un impératif, donc une action — commence par les mêmes
+lettres) : le prédicat est renommé `peutGererLaConversation`, un nom de prédicat que la dérivation reconnaît déjà.
+Diff final de l'artefact : un renommage, **0 garde perdue**, et `deleteMessage` en **gagne** une.
+
+**Mesure** : typecheck propre, **8 785 tests verts sur 765 fichiers**, build propre depuis un dossier vide,
+artefact des contrats **747 actions / 723 appelables / 24 illisibles** (inchangé), parité **100 % / gap 0**,
+frontière **428** et traversées **69** inchangées, **20 sabotages joués / 20 propriétés tenues** (dont 2 après
+réparation du banc), restauration comparée fichier par fichier après chaque tour.
 
 ### Ad & PRO — LE SERVICE REPREND SON NOM, ET LE PÔLE ENTIER PASSE À LA DIRECTION MARKETING (2026-09)
 

@@ -4005,6 +4005,15 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
       return { error: `Plusieurs éléments « ${spec.label} » correspondent à « ${query} » : ${target.candidates.map((c) => c.name).join(" ; ")} — donner la référence exacte.` };
     }
 
+    // CE QUE CE TYPE REFUSE, lu AVANT de construire la carte : un identifiant interne exact
+    // résout n'importe quel élément (`resolveDeletableTarget`, chemin 1), y compris un que le
+    // registre refuse. Sans cette porte, Adam proposait le geste, la personne le confirmait, et
+    // l'exécution le refusait — une garde se place AVANT, jamais après le clic (§118.83).
+    if (spec.refuse) {
+      const motif = await spec.refuse(target.id);
+      if (motif) return { error: motif };
+    }
+
     // La référence à RESSAISIR pour armer la confirmation : la partie référence du nom affiché
     // (« REG-2026-041 — FOSFOMYCINE » → « REG-2026-041 »), ou le nom entier s'il n'y en a pas.
     const confirmText = target.name.includes(" — ") ? target.name.split(" — ")[0] : target.name;
@@ -4023,6 +4032,8 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
         `NIVEAU CRITIQUE : même suppression que le bouton rouge de la fiche — la confirmation exige de RESSAISIR « ${confirmText} ».`,
         "Un instantané est déposé dans la corbeille (Administration → Corbeille) : le Super Admin peut restaurer l'élément, ses pièces jointes et ses commentaires.",
         "Les lignes liées supprimées en cascade (enfants du schéma) ne sont PAS restaurables.",
+        // La réserve PROPRE à ce type, quand la cascade emporte le contenu même de l'objet.
+        ...(spec.reserve ? [spec.reserve] : []),
         ...warnings,
       ],
       payload: {

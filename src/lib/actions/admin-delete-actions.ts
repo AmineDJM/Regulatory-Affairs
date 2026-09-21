@@ -56,14 +56,23 @@ const CREATOR_DELETE_PERMISSION: Partial<Record<DeletableKind, [Module, Action]>
  */
 async function snapshotAndSoftDelete(kind: DeletableKind, id: string, actorId: string, summary: string): Promise<DeleteResult> {
   const spec = DELETE_REGISTRY[kind];
+
+  // 0) CE QUE CE TYPE REFUSE, avant tout instantané : le refus porte sa raison et le geste qui
+  //    reste. Sans cette porte, un refus légitime sortait soit en « introuvable » (faux : l'objet
+  //    est là), soit en « des éléments liés bloquent » (faux : rien ne se détache).
+  if (spec.refuse) {
+    const motif = await spec.refuse(id);
+    if (motif) return { ok: false, error: motif };
+  }
+
   const name = await spec.describe(id);
   if (name === null) return { ok: false, error: "Élément introuvable (déjà supprimé ?)." };
 
-  // 0) Instantané de la ligne principale (tous les champs scalaires/Json).
+  // 1) Instantané de la ligne principale (tous les champs scalaires/Json).
   const payload = await deleteDelegateOf(spec).findUnique({ where: { id } });
   if (!payload) return { ok: false, error: "Élément introuvable (déjà supprimé ?)." };
 
-  // 1) Instantané puis retrait des Documents/Commentaires polymorphes. Les FICHIERS
+  // 2) Instantané puis retrait des Documents/Commentaires polymorphes. Les FICHIERS
   //    restent dans le stockage : ils ne sont effacés qu'à la destruction réelle.
   let docsSnapshot: Record<string, unknown>[] = [];
   let commentsSnapshot: Record<string, unknown>[] = [];
@@ -74,12 +83,12 @@ async function snapshotAndSoftDelete(kind: DeletableKind, id: string, actorId: s
     await prisma.comment.deleteMany({ where: { entityType: spec.entityType, entityId: id } });
   }
 
-  // 2) Suppression de la ligne principale (les enfants en cascade suivent).
+  // 3) Suppression de la ligne principale (les enfants en cascade suivent).
   try {
     await spec.remove(id);
   } catch (err) {
     console.error("[softDelete] échec suppression", kind, id, err);
-    // Remet les documents/commentaires retirés à l'étape 1 (la ligne principale existe encore).
+    // Remet les documents/commentaires retirés à l'étape 2 (la ligne principale existe encore).
     if (spec.entityType) {
       if (docsSnapshot.length) await prisma.document.createMany({ data: docsSnapshot as never[] }).catch(() => {});
       if (commentsSnapshot.length) await prisma.comment.createMany({ data: commentsSnapshot as never[] }).catch(() => {});
@@ -87,7 +96,7 @@ async function snapshotAndSoftDelete(kind: DeletableKind, id: string, actorId: s
     return { ok: false, error: "Suppression impossible (des éléments liés bloquent). Détachez-les puis réessayez." };
   }
 
-  // 3) Dépôt dans la corbeille (restaurable par le Super Admin).
+  // 4) Dépôt dans la corbeille (restaurable par le Super Admin).
   await prisma.deletedRecord.create({
     data: {
       kind, label: spec.label, name, sourceId: id,

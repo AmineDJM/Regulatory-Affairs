@@ -1231,5 +1231,10 @@ suite("Mission Runtime — le moteur d'exécution durable", () => {
     const etat = await chargerEtat(id);
     expect(etat!.steps).toHaveLength(2);
     expect(etat!.planVersion).toBe(2);
-  });
+    // Plafond LOCAL, comme ses voisins de ce fichier (§118.124b, §118.132) : ce cas fait tourner
+    // le VRAI moteur sur la VRAIE base, donc il paie la contention de la base EN PLUS de celle du
+    // processeur. MESURÉ : 503 ms seul, au-delà des 20 s globales sous 766 fichiers / 4 cœurs. Un
+    // plafond répond à « est-il bloqué ? », jamais à « est-il lent ? » — et l'on ne relève pas le
+    // global, qui garderait 8 800 tests moins sévèrement pour en réparer un.
+  }, 60_000);
 });

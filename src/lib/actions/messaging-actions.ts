@@ -16,6 +16,8 @@ import {
   verifyBlob,
   preview,
   normalizeChatStatus,
+  peutGererLaConversation,
+  peutRetirerUnMessage,
 } from "@/lib/messaging";
 
 /**
@@ -36,10 +38,6 @@ import { fdStr, fdBool, type ActionResult } from "@/lib/actions/types";
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
 
 // ─────────────────────────── Helpers internes ───────────────────────────
-
-function canManage(role: ConvMemberRole): boolean {
-  return role === "OWNER" || role === "ADMIN";
-}
 
 /** Émet un message « système » dans la conversation et remonte sa date. */
 async function systemMessage(conversationId: string, body: string): Promise<void> {
@@ -415,14 +413,22 @@ export async function deleteMessage(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const msg = await prisma.message.findUnique({ where: { id }, select: { senderId: true, conversationId: true } });
   if (!msg) return { ok: false, error: "Message introuvable." };
-  // L'admin (vue globale) peut modérer n'importe quel message ; sinon, l'expéditeur ou un
-  // propriétaire/admin de la conversation.
-  const admin = hasGlobalView(user.role);
-  if (!admin) {
-    const membership = await getActiveMembership(user.id, msg.conversationId);
-    if (!membership) return DENIED;
-    if (msg.senderId !== user.id && !canManage(membership.role)) return DENIED;
-  }
+  // Trois faits, nommés au socle et lus AUSSI par l'écran (`peutRetirerUnMessage`) : sans
+  // cette lecture commune, l'action acceptait ce que le bouton ne proposait pas (§118.50).
+  // La CHAÎNE `user.role` — donc sans casquette secondaire — est ce que l'écran lit lui aussi.
+  const vueGlobale = hasGlobalView(user.role);
+  // Un rôle à vue globale n'a pas à être membre : on n'interroge l'appartenance que quand
+  // elle peut encore changer la décision.
+  const membership = vueGlobale ? null : await getActiveMembership(user.id, msg.conversationId);
+  // Quelqu'un qui a QUITTÉ la conversation ne modère plus ses anciens messages : c'est le
+  // comportement d'origine, et l'élargir serait une décision de permission.
+  if (!vueGlobale && !membership) return DENIED;
+  const autorise = peutRetirerUnMessage({
+    vueGlobale,
+    auteur: msg.senderId === user.id,
+    gereLaConversation: peutGererLaConversation(membership?.role),
+  });
+  if (!autorise) return DENIED;
   await prisma.message.update({ where: { id }, data: { deletedAt: new Date(), isPinned: false } });
   revalidatePath("/messages");
   return { ok: true };
@@ -525,7 +531,7 @@ export async function updateConversation(formData: FormData): Promise<ActionResu
   const conversationId = fdStr(formData, "conversationId");
   if (!conversationId) return { ok: false, error: "Conversation manquante." };
   const m = await getActiveMembership(user.id, conversationId);
-  if (!m || !canManage(m.role)) return DENIED;
+  if (!m || !peutGererLaConversation(m.role)) return DENIED;
   const conv = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { type: true, title: true } });
   if (!conv || conv.type === "DIRECT") return { ok: false, error: "Conversation non modifiable." };
 
@@ -551,7 +557,7 @@ export async function addMembers(formData: FormData): Promise<ActionResult> {
   const conversationId = fdStr(formData, "conversationId");
   if (!conversationId) return { ok: false, error: "Conversation manquante." };
   const m = await getActiveMembership(user.id, conversationId);
-  if (!m || !canManage(m.role)) return DENIED;
+  if (!m || !peutGererLaConversation(m.role)) return DENIED;
   const conv = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { type: true } });
   if (!conv || conv.type === "DIRECT") return { ok: false, error: "Impossible d'ajouter des membres ici." };
 
@@ -587,7 +593,7 @@ export async function removeMember(formData: FormData): Promise<ActionResult> {
   const userId = fdStr(formData, "userId");
   if (!conversationId || !userId) return { ok: false, error: "Paramètres manquants." };
   const m = await getActiveMembership(user.id, conversationId);
-  if (!m || !canManage(m.role)) return DENIED;
+  if (!m || !peutGererLaConversation(m.role)) return DENIED;
   if (userId === user.id) return { ok: false, error: "Utilisez « Quitter » pour partir vous-même." };
   const target = await prisma.conversationMember.findFirst({ where: { conversationId, userId, leftAt: null } });
   if (!target) return { ok: false, error: "Membre introuvable." };
@@ -632,7 +638,7 @@ export async function archiveConversation(formData: FormData): Promise<ActionRes
   const conversationId = fdStr(formData, "conversationId");
   if (!conversationId) return { ok: false, error: "Conversation manquante." };
   const m = await getActiveMembership(user.id, conversationId);
-  if (!m || !canManage(m.role)) return DENIED;
+  if (!m || !peutGererLaConversation(m.role)) return DENIED;
   await prisma.conversation.update({ where: { id: conversationId }, data: { isArchived: fdBool(formData, "archived") } });
   revalidatePath("/messages");
   return { ok: true };

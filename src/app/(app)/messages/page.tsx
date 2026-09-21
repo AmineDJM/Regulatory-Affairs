@@ -1,4 +1,5 @@
 import { requireModule } from "@/lib/session";
+import { hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import {
   getConversationSummaries,
@@ -24,10 +25,13 @@ export default async function MessagesPage({ searchParams }: { searchParams: { c
   const initialDetail = wanted ? await getConversationDetail(user.id, wanted) : null;
   const initialActiveId = initialDetail ? wanted : null;
 
+  // Modération transverse : la CHAÎNE `user.role`, exactement ce que lit `deleteMessage`.
+  // L'écran ne doit ni offrir ni cacher autre chose que ce que l'action accepte.
   return (
     <Messenger
       selfId={user.id}
       selfName={user.name}
+      vueGlobale={hasGlobalView(user.role)}
       selfColor={me?.avatarColor ?? null}
       selfStatus={me?.chatStatus ?? null}
       selfStatusMessage={me?.statusMessage ?? null}

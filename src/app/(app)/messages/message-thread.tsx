@@ -6,7 +6,7 @@ import { startCall } from "@/lib/actions/meeting-actions";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import type { ConversationDetailDTO, ConvMemberDTO, MessageDTO } from "@/lib/queries/messaging";
-import { CHAT_STATUS_LABEL, CHAT_STATUSES, type ChatStatus } from "@/lib/messaging-ui";
+import { CHAT_STATUS_LABEL, CHAT_STATUSES, peutGererLaConversation, type ChatStatus } from "@/lib/messaging-ui";
 import { MessageItem } from "./message-item";
 import { Composer, type SendPayload } from "./composer";
 import { PresenceDot, dayLabel, sameDay, presenceLine } from "./format";
@@ -14,6 +14,8 @@ import { PresenceDot, dayLabel, sameDay, presenceLine } from "./format";
 interface Props {
   detail: ConversationDetailDTO;
   selfId: string;
+  /** Rôle à vue globale de l'ERP : modération transverse, hors appartenance. */
+  vueGlobale: boolean;
   typingUserIds: string[];
   replyTo: MessageDTO | null;
   setReplyTo: (m: MessageDTO | null) => void;
@@ -28,14 +30,14 @@ interface Props {
 }
 
 export function MessageThread({
-  detail, selfId, typingUserIds, replyTo, setReplyTo, onSend,
+  detail, selfId, vueGlobale, typingUserIds, replyTo, setReplyTo, onSend,
   onReact, onTogglePin, onBookmark, onDelete, onSaveEdit, onToggleInfo, onBack,
 }: Props) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const stick = React.useRef(true);
   const [showPinned, setShowPinned] = React.useState(false);
   const memberNames = React.useMemo(() => detail.members.map((m) => m.name), [detail.members]);
-  const canModerate = detail.myRole === "OWNER" || detail.myRole === "ADMIN";
+  const gere = peutGererLaConversation(detail.myRole);
 
   const lastId = detail.messages[detail.messages.length - 1]?.id;
 
@@ -157,7 +159,8 @@ export function MessageThread({
                 selfId={selfId}
                 showHeader={showHeader}
                 memberNames={memberNames}
-                canModerate={canModerate}
+                vueGlobale={vueGlobale}
+                gereLaConversation={gere}
                 onReact={onReact}
                 onReply={setReplyTo}
                 onTogglePin={onTogglePin}

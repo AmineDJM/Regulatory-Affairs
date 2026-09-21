@@ -40,7 +40,9 @@ export type DeletableKind =
   | "CONGRESS_NATIONAL"
   | "VALIDATION_REQUEST"
   | "MAIL_ENTRY"
-  | "LEGAL_DOCUMENT";
+  | "LEGAL_DOCUMENT"
+  | "CONVERSATION"
+  | "NOTIFICATION";
 
 export interface KindSpec {
   label: string; // libellé du type (« dossier réglementaire »)
@@ -51,6 +53,31 @@ export interface KindSpec {
   model: string;
   describe: (id: string) => Promise<string | null>; // nom lisible, ou null si introuvable
   remove: (id: string) => Promise<void>; // suppression de la ligne principale
+  /**
+   * CE QUE LA RESTAURATION NE RENDRA PAS — dit dans la PHRASE, pas dans un champ JSON.
+   *
+   * La corbeille instantane la ligne PRINCIPALE ; ce qui part en cascade ne revient pas. La
+   * réserve générique (« les lignes liées en cascade ne sont pas restaurables ») est vraie et
+   * illisible : pour un groupe de messagerie, la cascade EST le contenu — membres et
+   * historique — donc « restaurable » sans cette phrase promet un retour qui n'aura pas lieu
+   * (§104.16). Lu par l'écran d'administration ET par la carte de confirmation d'Adam : deux
+   * rédactions de la même réserve finiraient par dire deux choses différentes (§118.5).
+   *
+   * Absent = la restauration rend l'élément tel qu'il était (le cas courant).
+   */
+  reserve?: string;
+  /**
+   * CE QUE CE TYPE REFUSE DE SUPPRIMER, et POURQUOI — évalué avant tout instantané.
+   *
+   * Sans lui, un refus légitime n'avait que deux sorties, toutes deux fausses : `describe`
+   * rendant `null` dit « introuvable » d'un objet parfaitement présent, et une exception dans
+   * `remove` est avalée par « des éléments liés bloquent. Détachez-les puis réessayez » — un
+   * diagnostic inventé, sur un geste qu'aucun détachement ne débloquera. Le refus vit donc
+   * ICI, dans le cœur partagé, donc il vaut pour l'écran ET pour Adam (§118.71).
+   *
+   * Rend `null` quand il n'y a rien à refuser. Absent = ce type ne refuse rien (le cas courant).
+   */
+  refuse?: (id: string) => Promise<string | null>;
   /**
    * L'identifiant du créateur, quand ce type peut être supprimé par SON créateur (et pas
    * seulement par le Super Admin). Absent = suppression réservée au Super Admin.
@@ -535,6 +562,84 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     },
     async remove(id) {
       await prisma.legalDocument.delete({ where: { id } });
+    },
+  },
+
+  /**
+   * UN GROUPE ou UN CANAL de la messagerie interne — jamais un tête-à-tête.
+   *
+   * « Supprimer un groupe » n'existait pas : la messagerie ne savait qu'ARCHIVER, et l'archive
+   * laisse la conversation vivante pour ses membres. Le geste passe donc par le patron canonique
+   * (instantané → corbeille → restaurable → audité), comme les 26 autres types.
+   *
+   * CE QUE LA RESTAURATION REND, et c'est la moitié qui compte : la ligne PRINCIPALE seule.
+   * `ConversationMember` et `Message` partent en CASCADE et ne sont pas instantanés — restaurer
+   * rend donc un groupe VIDE, sans membres ni historique. Le dire est obligatoire : une
+   * suppression annoncée réversible qui rend une coquille serait un faux succès (§104.16).
+   */
+  CONVERSATION: {
+    label: "conversation de groupe",
+    module: "Messagerie",
+    redirect: "/admin/messagerie",
+    model: "conversation",
+    reserve: "Les membres et l'historique des messages partent en CASCADE et ne sont pas instantanés : une restauration depuis la corbeille rendrait un groupe VIDE. Les fichiers partagés restent dans le Drive de leur auteur.",
+    // Pas d'`entityType` : `EntityType` n'a aucune valeur pour une conversation, donc aucun
+    // Document ni Commentaire polymorphe n'y est rattaché — rien à instantaner de ce côté.
+    searchFields: ["title"],
+    async describe(id) {
+      const c = await prisma.conversation.findUnique({
+        where: { id },
+        select: { title: true, type: true, _count: { select: { members: true, messages: true } } },
+      });
+      if (!c) return null;
+      const quoi = c.type === "CHANNEL" ? "Canal" : c.type === "GROUP" ? "Groupe" : "Conversation directe";
+      const nom = c.title?.trim() || "sans titre";
+      return `${quoi} « ${nom} » — ${c._count.members} membre(s), ${c._count.messages} message(s)`;
+    },
+    async refuse(id) {
+      const c = await prisma.conversation.findUnique({ where: { id }, select: { type: true } });
+      if (!c) return null; // l'inexistence se dit « introuvable », pas « refusé ».
+      // Un tête-à-tête est l'échange PRIVÉ de deux personnes : le supprimer effacerait leur
+      // correspondance pour les deux, sans qu'aucune l'ait demandé. Seuls les groupes et les
+      // canaux — des espaces d'équipe — se suppriment ici.
+      if (c.type === "DIRECT") {
+        return "Une conversation directe (tête-à-tête) ne se supprime pas : c'est l'échange privé de deux personnes. Seuls les groupes et les canaux peuvent être supprimés ; un message précis se retire depuis la conversation.";
+      }
+      return null;
+    },
+    async remove(id) {
+      // Membres et messages suivent en CASCADE (schéma) ; les pièces jointes du Drive, elles,
+      // sont en `SetNull` — un fichier partagé dans le groupe reste dans le Drive de son auteur.
+      await prisma.conversation.delete({ where: { id } });
+    },
+  },
+
+  /**
+   * UNE NOTIFICATION REÇUE par une personne — elle cesse de la voir.
+   *
+   * Rien ne permettait de retirer une notification : on ne savait que la marquer LUE, ce qui la
+   * laisse dans la liste. Une notification mal rédigée, envoyée à la mauvaise personne ou dont
+   * l'objet a disparu restait donc chez elle pour toujours.
+   *
+   * La suppression reste réversible : la ligne est petite, autonome (destinataire, type, titre,
+   * corps, lien, lu, pop-up, date) et n'a aucun enfant — la corbeille la recrée à l'identique.
+   */
+  NOTIFICATION: {
+    label: "notification",
+    module: "Administration",
+    redirect: "/admin/messagerie",
+    model: "notification",
+    searchFields: ["title"],
+    async describe(id) {
+      const n = await prisma.notification.findUnique({
+        where: { id },
+        select: { title: true, isRead: true, createdAt: true, user: { select: { name: true } } },
+      });
+      if (!n) return null;
+      return `« ${n.title} » — reçue par ${n.user.name} le ${n.createdAt.toLocaleDateString("fr-FR")} (${n.isRead ? "lue" : "non lue"})`;
+    },
+    async remove(id) {
+      await prisma.notification.delete({ where: { id } });
     },
   },
 };

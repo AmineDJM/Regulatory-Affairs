@@ -21,6 +21,8 @@ import { relativeTime } from "./format";
 interface Props {
   selfId: string;
   selfName: string;
+  /** Rôle à vue globale de l'ERP : autorise la modération hors de toute appartenance. */
+  vueGlobale: boolean;
   selfColor: string | null;
   selfStatus: string | null;
   selfStatusMessage: string | null;
@@ -32,7 +34,7 @@ interface Props {
 }
 
 export function Messenger({
-  selfId, selfName, selfColor, selfStatus, selfStatusMessage, initialConversations, initialActiveId, initialDetail, directory, channels,
+  selfId, selfName, vueGlobale, selfColor, selfStatus, selfStatusMessage, initialConversations, initialActiveId, initialDetail, directory, channels,
 }: Props) {
   const [convs, setConvs] = React.useState(initialConversations);
   const [activeId, setActiveId] = React.useState<string | null>(initialActiveId);
@@ -288,6 +290,7 @@ export function Messenger({
           <MessageThread
             detail={detail}
             selfId={selfId}
+            vueGlobale={vueGlobale}
             typingUserIds={typing}
             replyTo={replyTo}
             setReplyTo={setReplyTo}

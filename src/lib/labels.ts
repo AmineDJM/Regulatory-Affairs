@@ -1548,6 +1548,7 @@ export const ADMIN_TABS: NavTab[] = [
   // La couche de connaissance tourne en fond, donc invisible par construction : sans cet écran,
   // une file qui s'engorge ou une dérive vers les modèles chers se découvre sur une facture.
   { module: "ADMIN", label: "Couche de connaissance", href: "/admin/connaissance" },
+  { module: "ADMIN", label: "Messagerie & notifications", href: "/admin/messagerie" },
   { module: "ADMIN", label: "Test Center", href: "/admin/test-center" },
 ];
 
