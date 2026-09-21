@@ -8,8 +8,10 @@ import { isManagerOfUser, getManagerOfUser } from "@/lib/departments";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { toNumber } from "@/lib/utils";
 import { defaultDefinition } from "./defaults";
-import { estDecisionnaire, queueCoupee, slugDecisionnaire } from "./parcours";
+import { estDecisionnaire, seuilFranchissement, queueCoupee, slugDecisionnaire } from "./parcours";
 import { adProOriginRank } from "./origin";
+import { getAppSettings } from "@/lib/settings";
+import { statutDepuisCircuit } from "@/lib/events/statut";
 import {
   CATEGORY_LABELS,
   entityToCategory,
@@ -144,11 +146,22 @@ export function nextStepAfter(def: LoadedDefinition, step: LoadedStep, borne?: s
   return orderedSteps(def).find((s) => s.position > step.position) ?? null;
 }
 
-/** Une étape est-elle éligible au franchissement automatique pour un montant donné ? */
-function autoSkipEligible(step: LoadedStep, amount: number): boolean {
-  if (step.autoSkipMaxAmount == null) return false;
-  const threshold = toNumber(step.autoSkipMaxAmount);
-  if (!(threshold > 0) || !(amount > 0) || amount > threshold) return false;
+/**
+ * Une étape est-elle éligible au franchissement automatique pour un montant donné ?
+ *
+ * Le seuil ne se lit plus SEULEMENT sur l'étape : la porte du Directeur Général (§118.138) est
+ * gouvernée par le seuil GLOBAL des réglages, qui vaut aussi pour le matériel promotionnel — le
+ * recopier dans chaque définition en ferait cinq vérités qui divergent (§118.5). `seuilFranchissement`
+ * arbitre entre les deux, et un seuil écrit à la main sur l'étape l'emporte toujours.
+ */
+function autoSkipEligible(step: LoadedStep, amount: number, seuilDgGlobal: number | null): boolean {
+  const threshold = seuilFranchissement(
+    step.slug,
+    step.autoSkipMaxAmount == null ? null : toNumber(step.autoSkipMaxAmount),
+    seuilDgGlobal,
+  );
+  if (threshold == null) return false;
+  if (!(amount > 0) || amount > threshold) return false;
   // Ne JAMAIS franchir automatiquement une désignation ni une émission financière
   // (sinon plus personne en charge / dépense émise sans décision).
   if (step.powers.includes("ASSIGN") || step.emitDeclaration || step.emitExpenseOrder) return false;
@@ -175,6 +188,10 @@ async function settleAutoSkips(
 ): Promise<LoadedStep | null> {
   let current = landing;
   let guard = 0;
+  // LE SEUIL GLOBAL, lu UNE fois pour tout l'enchaînement (mis en cache par requête). Illisible
+  // (base indisponible) ⇒ `null` ⇒ aucune porte du DG franchie automatiquement : sous l'incertitude
+  // on garde la validation de plus, jamais de moins.
+  const seuilDgGlobal = await getAppSettings().then((s) => s.adProDgThreshold).catch(() => null);
   // Rôle du demandeur — chargé paresseusement (uniquement si une étape « auto-accord si autorité » l'exige).
   let reqRole: { role: UserRole; secondaryRole: UserRole | null } | null | undefined = undefined;
   const requesterHoldsAuthority = async (step: LoadedStep): Promise<boolean> => {
@@ -193,14 +210,14 @@ async function settleAutoSkips(
   };
 
   while (current && guard++ < 50) {
-    const byAmount = autoSkipEligible(current, amount);
+    const byAmount = autoSkipEligible(current, amount, seuilDgGlobal);
     const byRequester = !byAmount && (await requesterHoldsAuthority(current));
     if (!byAmount && !byRequester) break;
     const after = nextStepAfter(def, current, borne);
     if (!after) break; // pas de successeur (décision finale) → on ne franchit pas
     const action = byAmount ? "AUTO_SKIP" : "AUTO_APPROVE_REQUESTER";
     const reason = byAmount
-      ? `Montant ${amount} DZD ≤ seuil ${toNumber(current.autoSkipMaxAmount)} DZD — étape franchie automatiquement.`
+      ? `Montant ${amount} DZD ≤ seuil ${seuilFranchissement(current.slug, current.autoSkipMaxAmount == null ? null : toNumber(current.autoSkipMaxAmount), seuilDgGlobal)} DZD — étape franchie automatiquement.`
       : "Le demandeur détient déjà l'autorité de cette étape — approuvée automatiquement en son nom.";
     await projectApprove(entityType, entityId, current, after, {
       viewer, note: reason, amount: null, assigneeId: null, emitResult: null,
@@ -350,6 +367,40 @@ export async function ensureInstance(entityType: EntityType, entityId: string): 
         })
         .catch((e) => console.error("[workflow] ligne de création non journalisée (non bloquant)", e));
     }
+    // ═══════════════════════════════════════════════════════════════════════════════════════
+    // LES FRANCHISSEMENTS AUTOMATIQUES S'APPLIQUENT AUSSI À L'ÉTAPE D'ENTRÉE (§118.138).
+    //
+    // Ils ne se réglaient qu'EN TRANSIT, après une approbation. Une demande qui ENTRE sur une
+    // étape franchissable y restait donc posée pour toujours : c'est exactement le cas d'un
+    // demandeur non-KAM depuis l'inversion du circuit — il entre par la porte du Directeur
+    // Général, qui doit s'ouvrir seule sous le seuil. Sans cette ligne, sa demande attendrait un
+    // DG qui n'a rien à valider, sans une seule étape en échec et sans que rien ne le dise.
+    //
+    // L'ACTEUR est le DEMANDEUR, faute de quoi rien n'est franchi : c'est lui qui vient de
+    // soumettre, et attribuer le franchissement à personne rendrait la ligne d'historique
+    // illisible. Sans demandeur connu, on ne franchit rien — un montant qu'on ne sait pas
+    // rattacher ne doit pas ouvrir une porte de contrôle.
+    // ═══════════════════════════════════════════════════════════════════════════════════════
+    if (summary?.requesterId && currentSlug) {
+      const depart = stepBySlug(def, currentSlug);
+      const montant = summary.estimatedAmount ?? 0;
+      if (depart && montant > 0) {
+        const demandeur = await prisma.user
+          .findUnique({ where: { id: summary.requesterId }, select: { name: true, role: true, secondaryRole: true } })
+          .catch(() => null);
+        if (demandeur) {
+          const pose = await settleAutoSkips(
+            entityType, entityId, def, created.id, montant, summary.requesterId, depart,
+            { id: summary.requesterId, role: demandeur.role, secondaryRole: demandeur.secondaryRole, name: demandeur.name },
+            finalSlug,
+          );
+          if (pose && pose.slug !== currentSlug) {
+            const avance = await prisma.workflowInstance.update({ where: { id: created.id }, data: { currentSlug: pose.slug } });
+            return avance;
+          }
+        }
+      }
+    }
     return created;
   } catch {
     return prisma.workflowInstance.findUnique({ where: { entityType_entityId: { entityType, entityId } } });
@@ -470,18 +521,28 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
         viewer, note, amount: revisedAmount, assigneeId, emitResult: null,
         nextLegacyStatus: next.legacyStatus ?? null, emitStep: false,
       });
+      // ENCHAÎNE LES FRANCHISSEMENTS AUTOMATIQUES, exactement comme une approbation et un saut
+      // (§118.138). L'avis défavorable était le SEUL des trois gestes d'avance à ne pas les
+      // régler : la demande se posait alors sur une étape franchissable — la porte du Directeur
+      // Général sous le seuil — et y restait, à attendre quelqu'un qui n'a rien à valider. Une
+      // porte gardée à côté d'une porte ouverte, et c'est la même chose qui passe (§118.71).
+      const montantApresAvis = revisedAmount ?? (toNumber(instance.amount) || (summary.estimatedAmount ?? 0));
+      const apresAvis = (await settleAutoSkips(entityType, entityId, def, instance.id, montantApresAvis, summary.requesterId, next, viewer, borne)) ?? next;
       // Le montant révisé devient le montant de TRAVAIL de l'instance (proposition portée à la
-      // décision finale de la Direction + base des franchissements auto par seuil en aval).
-      const rejectInst: Prisma.WorkflowInstanceUpdateInput = { currentSlug: next.slug, status: "IN_PROGRESS" };
+      // décision + base des franchissements auto par seuil en aval).
+      const rejectInst: Prisma.WorkflowInstanceUpdateInput = { currentSlug: apresAvis.slug, status: "IN_PROGRESS" };
       if (revisedAmount != null) rejectInst.amount = revisedAmount;
       await prisma.workflowInstance.update({ where: { id: instance.id }, data: rejectInst });
       await recordEvent(instance.id, step, "OPINION_AGAINST", viewer, note, revisedAmount);
-      if (assigneeId && next.actorScope === "ASSIGNEE") {
-        await notifyUser({ userId: assigneeId, type: "ASSIGNMENT", title: `${CATEGORY_LABELS[category]} — ${next.title} (avis défavorable en amont)`, body: summary.name, link: entityPath(entityType, entityId) });
+      // ON PRÉVIENT L'ÉTAPE OÙ L'ON SE POSE, pas la suivante nominale : après un franchissement
+      // automatique, notifier `next` alerterait quelqu'un qui n'a plus rien à faire, et
+      // laisserait le vrai destinataire sans signal.
+      if (assigneeId && apresAvis.actorScope === "ASSIGNEE") {
+        await notifyUser({ userId: assigneeId, type: "ASSIGNMENT", title: `${CATEGORY_LABELS[category]} — ${apresAvis.title} (avis défavorable en amont)`, body: summary.name, link: entityPath(entityType, entityId) });
       }
-      await notifyStepManager(next, summary.requesterId, `${CATEGORY_LABELS[category]} — ${next.title}`, `${summary.name} — avis défavorable en amont`, entityPath(entityType, entityId));
-      const roles = (next.notifyRoles as UserRole[]).filter(Boolean);
-      if (roles.length) await notifyRoles(roles, { type: "VALIDATION_REQUIRED", title: `${CATEGORY_LABELS[category]} — ${next.title}`, body: `${summary.name} — avis défavorable en amont`, link: entityPath(entityType, entityId) });
+      await notifyStepManager(apresAvis, summary.requesterId, `${CATEGORY_LABELS[category]} — ${apresAvis.title}`, `${summary.name} — avis défavorable en amont`, entityPath(entityType, entityId));
+      const roles = (apresAvis.notifyRoles as UserRole[]).filter(Boolean);
+      if (roles.length) await notifyRoles(roles, { type: "VALIDATION_REQUIRED", title: `${CATEGORY_LABELS[category]} — ${apresAvis.title}`, body: `${summary.name} — avis défavorable en amont`, link: entityPath(entityType, entityId) });
       await recordAudit({ actorId: viewer.id, action: "UPDATE", module: auditModule(entityType), entityType, entityId, summary: `Avis défavorable (${step.title}) — ${summary.name}` });
       return { ok: true, category };
     }
@@ -753,6 +814,20 @@ async function projectApprove(entityType: EntityType, entityId: string, step: Lo
       if (ctx.emitResult?.orderId) data.expenseOrderId = ctx.emitResult.orderId;
     }
   }
+  // L'ÉVÉNEMENT PORTE DEUX CHAMPS, et l'un cessait de suivre l'autre (§118.138).
+  //
+  // `requestStatus` est la décision du CIRCUIT ; `status` est l'état de vie de l'événement, et il
+  // se tapait à la main dans « Modifier » — d'où des événements affichés « Validé » qu'aucune
+  // étape n'avait validés. Le formulaire ne peut plus écrire ces deux valeurs-là
+  // (`lib/events/statut.ts`) ; il fallait donc que le circuit, lui, les écrive : sans cette
+  // ligne, un événement validé serait resté « Brouillon » pour toujours — un refus à tort, plus
+  // coûteux que le défaut corrigé (§118.27). Une seule lecture, celle que `data` vient d'écrire,
+  // pour que les deux branches (intermédiaire et terminale) ne puissent pas diverger.
+  if (entityType === "EVENT") {
+    const impose = statutDepuisCircuit(typeof data.requestStatus === "string" ? data.requestStatus : null);
+    if (impose) data.status = impose;
+  }
+
   // Étape d'émission NON terminale : consigner tout de même le montant accordé.
   if (ctx.emitStep && next) {
     if (entityType === "SPONSORING") data.amountGranted = ctx.amount ?? undefined;
@@ -767,7 +842,15 @@ async function projectReject(entityType: EntityType, entityId: string, viewer: V
   if (entityType === "SPONSORING") {
     await updateEntity(entityType, entityId, { status: "REFUSED", finalDecision: reason, finalById: viewer.id, finalAt: now, validatedBy: viewer.name ?? null, validationDate: now, updatedById: viewer.id });
   } else {
-    await updateEntity(entityType, entityId, { requestStatus: "REJECTED", rejectionReason: reason, finalById: viewer.id, finalAt: now, updatedById: viewer.id });
+    const data: Record<string, unknown> = { requestStatus: "REJECTED", rejectionReason: reason, finalById: viewer.id, finalAt: now, updatedById: viewer.id };
+    // L'ÉVÉNEMENT NE RESTE PAS « EN ATTENTE DE VALIDATION » après un refus définitif : plus rien
+    // n'est attendu, et l'état le dirait faux. Il n'est pas ANNULÉ pour autant — on a refusé la
+    // prise en charge, pas l'événement (§118.138).
+    if (entityType === "EVENT") {
+      const impose = statutDepuisCircuit("REJECTED");
+      if (impose) data.status = impose;
+    }
+    await updateEntity(entityType, entityId, data);
   }
 }
 

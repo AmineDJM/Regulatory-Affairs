@@ -11,11 +11,47 @@ import { prisma } from "@/lib/prisma";
 import { moneyEntityOf } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
+import { statutManuelOuRien, estStatutDuCircuit } from "@/lib/events/statut";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 
 const inEnum = <T extends Record<string, string>>(e: T, v: string | null, fallback: T[keyof T]): T[keyof T] =>
   v && (Object.values(e) as string[]).includes(v) ? (v as T[keyof T]) : fallback;
+
+
+/**
+ * LE STATUT SAISI, ou un REFUS QUI NOMME LE REMÈDE (§118.30, §118.138).
+ *
+ * « Validé » et « En attente de validation » sont des VERDICTS du circuit de prise en charge :
+ * les laisser écrire par le formulaire, c'est ce qui produisait des événements affichés
+ * « Validé » qu'aucune étape n'avait validés. Refuser en silence aurait été pire — la personne
+ * aurait vu son enregistrement passer sans que le champ change, et aurait recommencé.
+ *
+ * `null` (aucun statut envoyé) n'est PAS une erreur : c'est « ne touche pas au champ ». Un
+ * formulaire qui ne porte pas la case ne doit pas remettre un événement en brouillon.
+ */
+function statutSaisi(formData: FormData): { ok: true; statut: string | null } | { ok: false; error: string } {
+  const brut = fdStr(formData, "status");
+  // `=== null` ET PAS `!brut`, et ce n'est pas de la coquetterie : la dérivation de contrats
+  // (`actions/contrat.ts`) déduit « champ OBLIGATOIRE » d'une garde `if (!v)` dans le corps, et
+  // celle-ci est un SUCCÈS — « aucun statut envoyé, on ne touche pas au champ ». Mesuré sur
+  // l'artefact régénéré : avec `!brut`, `status` sortait `obligatoire: true` sur `createEvent`
+  // et `updateEvent`, donc `validerEntree` aurait refusé une création d'événement sans statut —
+  // une action DÉCRITE et INAPPELABLE, le défaut exact de §118.87c.
+  if (brut === null) return { ok: true, statut: null };
+  if (estStatutDuCircuit(brut)) {
+    return {
+      ok: false,
+      error:
+        "« Validé » et « En attente de validation » sont décidés par le circuit de prise en charge, "
+        + "pas saisis à la main : soumettez l'événement au circuit (bloc « Demande de prise en charge ») "
+        + "et l'état suivra la décision.",
+    };
+  }
+  const statut = statutManuelOuRien(brut);
+  if (!statut) return { ok: false, error: `État d'événement inconnu : « ${brut} ».` };
+  return { ok: true, statut };
+}
 
 // ─────────────────────────── Événements ───────────────────────────
 
@@ -24,6 +60,8 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
   if (!userCan(user, "EVENTS", "CREATE")) return { ok: false, error: "Non autorisé." };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
+  const saisi = statutSaisi(formData);
+  if (!saisi.ok) return saisi;
   const created = await prisma.event.create({
     data: {
       // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
@@ -38,7 +76,7 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
       type: inEnum(EventType, fdStr(formData, "type"), "CONGRESS"),
       scope: inEnum(EventScope, fdStr(formData, "scope"), "NATIONAL"),
       format: inEnum(EventFormat, fdStr(formData, "format"), "PRESENTIAL"),
-      status: inEnum(EventStatus, fdStr(formData, "status"), "DRAFT"),
+      status: inEnum(EventStatus, saisi.statut, "DRAFT"),
       startDate: fdDate(formData, "startDate"),
       endDate: fdDate(formData, "endDate"),
       location: fdStr(formData, "location"),
@@ -66,6 +104,8 @@ export async function updateEvent(formData: FormData): Promise<ActionResult> {
   const id = fdStr(formData, "id");
   const name = fdStr(formData, "name");
   if (!id || !name) return { ok: false, error: "Paramètres manquants." };
+  const saisi = statutSaisi(formData);
+  if (!saisi.ok) return saisi;
   await prisma.event.update({
     where: { id },
     data: {
@@ -73,7 +113,9 @@ export async function updateEvent(formData: FormData): Promise<ActionResult> {
       type: inEnum(EventType, fdStr(formData, "type"), "CONGRESS"),
       scope: inEnum(EventScope, fdStr(formData, "scope"), "NATIONAL"),
       format: inEnum(EventFormat, fdStr(formData, "format"), "PRESENTIAL"),
-      status: inEnum(EventStatus, fdStr(formData, "status"), "DRAFT"),
+      // `undefined` = ON NE TOUCHE PAS. Écrire « DRAFT » par défaut ramènerait en brouillon un
+      // événement validé dès qu'un formulaire ne porte pas la case (§118.16).
+      status: saisi.statut ? inEnum(EventStatus, saisi.statut, "DRAFT") : undefined,
       startDate: fdDate(formData, "startDate"),
       endDate: fdDate(formData, "endDate"),
       location: fdStr(formData, "location"),
@@ -129,7 +171,7 @@ export async function submitEventForApproval(formData: FormData): Promise<Action
   }
   // La Direction, elle, CHOISIT : trancher tout de suite, ou demander d'abord l'avis d'un chef
   // de produit. `adProInit` ignore ce drapeau pour les autres rangs — le choix ne se vole pas.
-  const init = adProInit(user, pmId, { viaProductManager: fdStr(formData, "viaProductManager") === "1" });
+  const init = adProInit(user, pmId);
   const now = new Date();
 
   await prisma.event.update({

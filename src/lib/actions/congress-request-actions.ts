@@ -69,7 +69,7 @@ export async function createCongressRequest(
   }
   // La Direction peut demander l'avis de la Direction Marketing avant de trancher — ou trancher tout
   // de suite. `adProInit` ignore ce drapeau pour les autres rangs.
-  const init = adProInit(user, pmId, { viaProductManager: fdStr(formData, "viaProductManager") === "1" });
+  const init = adProInit(user, pmId);
   const now = new Date();
 
   const common = {

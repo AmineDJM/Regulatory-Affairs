@@ -3,7 +3,7 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { INSTITUTION_TYPE, INSTITUTION_SECTOR } from "@/lib/labels";
 import { chargerEtablissements } from "@/lib/queries/annuaires";
-import { EtablissementsTable } from "@/app/(app)/medical/etablissements/etablissements-table";
+import { EtablissementsTable } from "./etablissements-table";
 import { EnTeteAnnuaires } from "../en-tete";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,19 @@ export const metadata = { title: "Annuaires — Établissements — AMD Internal
 
 /**
  * Onglet ÉTABLISSEMENTS du module « Annuaires » : le référentiel des hôpitaux, cliniques et
- * cabinets — le même chargeur et la même feuille que l'onglet de la Promotion médicale.
+ * cabinets. C'est LE SEUL écran du référentiel depuis 09/2026 — l'onglet de la Promotion
+ * médicale a été retiré à la demande de la Direction, et sa route redirige ici (§118.138).
+ *
+ * ── PORTÉE : LE RÉFÉRENTIEL N'EST PAS CLOISONNÉ, ET C'EST DÉJÀ TRANCHÉ ─────────────────────
+ *
+ * `MedicalInstitution` n'a AUCUNE fonction de portée dans `rbac.ts`, et les huit lecteurs du
+ * dépôt l'interrogent sans clause (recherche globale, fabric d'entités, bénéficiaires de
+ * congrès, `getMedicalData`). C'est un référentiel d'ÉTABLISSEMENTS, comme les spécialités : le
+ * nom d'un CHU n'est pas une donnée confidentielle. En inventer une portée ICI donnerait une
+ * neuvième vérité qui divergerait des huit autres (§118.5, §118.85).
+ *
+ * Ce qui EST cloisonné, ce sont les PRATICIENS : le compte affiché par établissement se calcule
+ * donc dans la portée de la personne (`scopeMedicalDoctors`), dans le chargeur partagé.
  */
 export default async function AnnuaireEtablissementsPage() {
   const user = await requireModule("DIRECTORIES");

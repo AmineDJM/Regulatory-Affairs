@@ -57,9 +57,12 @@ export function toPeople(users: readonly UserOption[]): PersonOption[] {
 /**
  * Le bloc « circuit » des demandes qui peuvent partir chez Direction Marketing.
  *
- * Deux créateurs, deux situations : le National Sales nomme le RÉFÉRENT Direction Marketing qui
- * suit la gamme, la Direction CHOISIT de demander un arbitrage budgétaire ou de trancher tout de
- * suite. Un KAM ne voit rien de ce bloc : sa demande passe d'abord par son superviseur national.
+ * On y nomme le RÉFÉRENT Direction Marketing qui suit la gamme. Un KAM ne voit rien de ce bloc :
+ * sa demande passe d'abord par son superviseur national.
+ *
+ * Il n'y a plus de CHOIX de circuit : Direction Marketing tranche toute demande Ad & Pro, donc la
+ * case « demander d'abord son arbitrage » ne changeait plus rien — un réglage sans effet est pire
+ * qu'aucun réglage (§118.14).
  *
  * Le référent est FACULTATIF de bout en bout, et c'est ce qui compte : l'arbitrage est porté par
  * le rôle Direction Marketing tout entier. L'exiger ferait échouer une demande légitime le jour
@@ -68,26 +71,15 @@ export function toPeople(users: readonly UserOption[]): PersonOption[] {
 function circuitFields(opts: {
   productManagers: readonly PersonOption[];
   canDesignatePM: boolean;
-  canChooseAnalysis: boolean;
 }): FieldDef[] {
   if (!opts.canDesignatePM || opts.productManagers.length === 0) return [];
-  const choice: FieldDef[] = opts.canChooseAnalysis
-    ? [{
-        type: "select", name: "viaProductManager", label: "Circuit", full: true, defaultValue: "0",
-        options: [
-          { value: "0", label: "Décider maintenant (aucun arbitrage préalable)" },
-          { value: "1", label: "Demander d'abord l'arbitrage budgétaire de Direction Marketing" },
-        ],
-      }]
-    : [];
   return [
     {
       type: "select", name: "productManagerId", label: "Référent Direction Marketing (facultatif)",
       placeholder: "— Aucun référent nommé —", full: true,
       options: opts.productManagers.map((u) => ({ value: u.id, label: u.name })),
-      hint: "La personne qui suit la gamme. L'arbitrage reste ouvert à Direction Marketing dans son ensemble.",
+      hint: "La personne qui suit la gamme. La décision reste ouverte à Direction Marketing dans son ensemble.",
     },
-    ...choice,
   ];
 }
 
@@ -171,7 +163,6 @@ function referentielFields(opts: { products: readonly ProductRow[]; doctors: rea
 export function sponsoringCreateFields(opts: {
   productManagers: readonly PersonOption[];
   canDesignatePM: boolean;
-  canChooseAnalysis: boolean;
   products?: readonly ProductRow[];
   doctors?: readonly DoctorRow[];
   businessUnits?: readonly { id: string; name: string }[];

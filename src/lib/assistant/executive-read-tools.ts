@@ -420,7 +420,7 @@ export const EXECUTIVE_READ_TOOLS: PowerTool[] = [
       return JSON.stringify({
         annuaireMedical: institutions.map((i) => ({
           id: i.id, nom: i.name, type: i.type, secteur: i.sector,
-          wilaya: i.wilaya, praticiens: i._count.doctors, actif: i.isActive, lien: "/medical/etablissements",
+          wilaya: i.wilaya, praticiens: i._count.doctors, actif: i.isActive, lien: "/annuaires/etablissements",
         })),
         lieuxDeStock: annexes.map((a) => ({ id: a.id, nom: a.name, nature: a.kind === "ANNEX" ? "Annexe PCH" : "Hôpital", lien: "/stocks" })),
       });

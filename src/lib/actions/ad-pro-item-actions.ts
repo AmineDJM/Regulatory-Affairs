@@ -11,6 +11,7 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, ITEM_KINDS, ITEM_KIND_LABELS, type AdProParent } from "@/lib/ad-pro-items";
 import { buildRef } from "@/lib/refs";
+import { montantDeLaDemande } from "@/lib/ad-pro/montant-demande";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 /**
@@ -168,6 +169,60 @@ async function audit(user: SessionUser, parent: AdProParent, id: string, action:
   }).catch(() => undefined);
 }
 
+
+/**
+ * LE MONTANT DE LA DEMANDE SUIT SES RALLONGES ACCORDÉES (§118.138).
+ *
+ * Demande de la Direction : « une fois budget supplémentaire accordé, il doit être mis à jour
+ * dans la demande, le montant ». Jusqu'ici, `decideAdProItem` écrivait `amountGranted` sur le
+ * POSTE et la fiche de l'opération continuait d'afficher l'enveloppe d'origine : la rallonge
+ * existait, était accordée, engagée, payée — et le total de la demande ne la portait pas.
+ *
+ * La BASE est le montant que le circuit a accordé (`WorkflowInstance.amount`), jamais le champ
+ * affiché : celui-ci est ce qu'on écrit, et s'en servir comme base le ferait grossir à chaque
+ * passage. Base inconnue ⇒ on ne touche à rien (une opération sans circuit de financement n'a
+ * pas de montant de demande, et c'est une réponse, pas un trou à combler).
+ *
+ * Best-effort : une décision de poste ne doit pas échouer parce que la projection n'a pas pu
+ * s'écrire. Ce qui compte — la décision et son montant — est déjà en base.
+ */
+async function reprojeterMontantDemande(parent: AdProParent, parentId: string): Promise<void> {
+  try {
+    const [instance, postes] = await Promise.all([
+      prisma.workflowInstance.findUnique({
+        where: { entityType_entityId: { entityType: parent, entityId: parentId } },
+        select: { amount: true },
+      }),
+      prisma.adProItem.findMany({
+        where: { [PARENTS[parent].column]: parentId },
+        select: { budgetKind: true, status: true, amountGranted: true },
+      }),
+    ]);
+    const total = montantDeLaDemande(
+      instance?.amount != null ? toNumber(instance.amount) : null,
+      postes.map((p) => ({
+        budgetKind: p.budgetKind,
+        status: p.status,
+        amountGranted: p.amountGranted != null ? toNumber(p.amountGranted) : null,
+      })),
+    );
+    if (total == null) return;
+    // Le champ diffère selon l'opération — sponsoring et congrès/événements n'ont pas nommé la
+    // même colonne. Une seule écriture, décidée ici, pour qu'elles ne puissent pas diverger.
+    if (parent === "SPONSORING") {
+      await prisma.sponsoringRequest.update({ where: { id: parentId }, data: { amountGranted: total } });
+    } else if (parent === "CONGRESS_NATIONAL") {
+      await prisma.congressNational.update({ where: { id: parentId }, data: { finalAmount: total } });
+    } else if (parent === "CONGRESS_INTERNATIONAL") {
+      await prisma.congressInternational.update({ where: { id: parentId }, data: { finalAmount: total } });
+    } else {
+      await prisma.event.update({ where: { id: parentId }, data: { finalAmount: total } });
+    }
+  } catch (err) {
+    console.error("[ad-pro] montant de la demande non reprojeté (non bloquant)", err);
+  }
+}
+
 /** Charge un poste avec son parent résolu — le point d'entrée de toutes les actions par `id`. */
 async function loadItem(id: string) {
   const item = await prisma.adProItem.findUnique({
@@ -299,6 +354,10 @@ export async function updateAdProItem(_prev: ActionResult | undefined, formData:
       wantsAllocate
         ? `Poste « ${label ?? item.label} » — montant affecté : ${amountGranted != null ? `${amountGranted.toLocaleString("fr-FR")} DZD` : "retiré"}.`
         : `Poste « ${label ?? item.label} » modifié.`);
+    // MÊME PORTE QUE LA DÉCISION : le montant d'une rallonge accordée se corrige aussi ici, et
+    // sa nature de budget peut encore changer tant qu'elle n'est pas tranchée. Laisser cette
+    // porte-là sans reprojection, c'est la porte ouverte à côté de la porte gardée (§118.71).
+    await reprojeterMontantDemande(owner.parent, owner.id);
     revalidate(owner.parent, owner.id);
     return { ok: true, id };
   } catch (err) {
@@ -344,6 +403,9 @@ export async function deleteAdProItem(_prev: ActionResult | undefined, formData:
     // Le matériel promotionnel rattaché n'est PAS supprimé : il a sa vie propre et son circuit.
     await audit(user, owner.parent, owner.id, "DELETE",
       `Poste « ${item.label} » retiré${item.promoMaterialId ? " (le matériel promotionnel rattaché est conservé)" : ""}.`);
+    // Une rallonge accordée qu'on retire doit QUITTER le montant de la demande : sinon la fiche
+    // porterait pour toujours un budget accordé à un poste qui n'existe plus.
+    await reprojeterMontantDemande(owner.parent, owner.id);
     revalidate(owner.parent, owner.id);
     return { ok: true };
   } catch (err) {
@@ -552,6 +614,8 @@ export async function decideAdProItem(_prev: ActionResult | undefined, formData:
     },
   });
   await recordDecision(id, status, note, granted ?? (item.amountGranted != null ? toNumber(item.amountGranted) : null), user.id);
+  // LA DEMANDE SUIT : une rallonge accordée (ou retirée) change le montant de l'opération.
+  await reprojeterMontantDemande(owner.parent, owner.id);
 
   const info = await PARENTS[owner.parent].load(owner.id);
   const label = status === "APPROVED" ? "accordé" : status === "REJECTED" ? "refusé" : "à revoir (budget)";

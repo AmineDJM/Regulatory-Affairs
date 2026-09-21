@@ -10,25 +10,45 @@
  * avancent EN MÊME TEMPS. C'est le vrai gain : le bon de commande, le paiement et le visa
  * publicitaire n'ont aucune raison de s'attendre les uns les autres.
  *
- *   Devis demandé  →  1. demandeur  →  2. N+1  →  3. PDG *ou* Super Admin  →  4. Information
- *   médicale  →  [ bon de commande ‖ demande de paiement ‖ demande de visa ]  →  terminé
+ *   Devis demandé  →  1. demandeur  →  2. Direction Marketing  →  3. Directeur Général (si la
+ *   dépense dépasse le seuil)  →  4. PDG *ou* Super Admin  →  5. Information médicale  →
+ *   [ bon de commande ‖ demande de paiement ‖ demande de visa ]  →  terminé
  *
- * Deux raccourcis voulus :
+ * ── CE QUE LA DIRECTION A TRANCHÉ (09/2026) — §118.138 ──────────────────────────────────
+ *
+ * « Dans le matériel promotionnel, c'est devis demandés, puis validation du demandeur, puis
+ * validation du N+1 (cette étape n'est pas nécessaire si le demandeur est la Direction
+ * Marketing) — et d'ailleurs ce n'est plus le N+1 le validateur, ici c'est la Direction
+ * Marketing. » Et, pour tout Ad&Pro, matériel promotionnel compris : « à partir de 1 000 000 DZD,
+ * la validation du DG », seuil réglable par le Super Admin.
+ *
+ * LE SLUG `REVIEW_MANAGER` NE CHANGE PAS DE NOM. Il est écrit en base dans `circuitState` sur
+ * tous les dossiers en cours ; le renommer obligerait à migrer leur état ET leur historique pour
+ * un gain nul (§118.107). Ce qui change est QUI valide et ce que l'écran affiche. Le champ
+ * `managerId` reste écrit : il dit qui était le N+1 au moment de la demande, et c'est de
+ * l'histoire.
+ *
+ * Trois raccourcis voulus, et chacun porte sa raison :
  *   • qui a DÉJÀ un devis en main le dépose et saute la demande de devis — c'est le cas le plus
  *     fréquent, et le faire passer par une prospection fictive ne trompait personne ;
- *   • la troisième validation est satisfaite par le PDG **ou** le Super Admin, un seul suffit :
+ *   • la Direction Marketing ne valide pas SA PROPRE demande : l'étape est franchie ;
+ *   • la porte du Directeur Général ne s'ouvre qu'au-dessus du seuil. Un montant INCONNU la
+ *     fait s'ouvrir : on ne franchit pas une porte de contrôle sur une absence de donnée ;
+ *   • la validation exécutive est satisfaite par le PDG **ou** le Super Admin, un seul suffit :
  *     exiger les deux, c'est bloquer sur un congé.
  *
  * Module PUR — testé, sans base de données.
  */
+import { ROLE_DIRECTION_MARKETING } from "@/lib/personnes/roles-vente";
 
 /** Les étapes du circuit court. L'ordre de ce tableau EST le circuit. */
 export const PROMO_STEPS = [
   "QUOTE_REQUESTED",     // devis demandé aux agences
   "REVIEW_REQUESTER",    // 1. le demandeur valide le devis reçu
-  "REVIEW_MANAGER",      // 2. le N+1 valide
-  "REVIEW_EXECUTIVE",    // 3. le PDG OU le Super Admin valide (un seul suffit)
-  "REVIEW_MEDICAL_INFO", // 4. l'information médicale valide
+  "REVIEW_MANAGER",      // 2. la DIRECTION MARKETING valide (slug historique, voir l'en-tête)
+  "REVIEW_DG",           // 3. le Directeur Général valide AU-DESSUS DU SEUIL (sinon franchie)
+  "REVIEW_EXECUTIVE",    // 4. le PDG OU le Super Admin valide (un seul suffit)
+  "REVIEW_MEDICAL_INFO", // 5. l'information médicale valide
   "IN_EXECUTION",        // les trois chemins parallèles courent
   "COMPLETED",
 ] as const;
@@ -39,7 +59,8 @@ export type PromoState = PromoStep | "REFUSED";
 export const PROMO_STEP_LABEL: Record<PromoState, string> = {
   QUOTE_REQUESTED: "Devis demandé",
   REVIEW_REQUESTER: "Validation du demandeur",
-  REVIEW_MANAGER: "Validation du N+1",
+  REVIEW_MANAGER: "Validation de la Direction Marketing",
+  REVIEW_DG: "Validation du Directeur Général",
   REVIEW_EXECUTIVE: "Validation PDG / Super Admin",
   REVIEW_MEDICAL_INFO: "Validation information médicale",
   IN_EXECUTION: "En exécution (BC · paiement · visa)",
@@ -58,14 +79,52 @@ export const PROMO_TRACK_LABEL: Record<PromoTrack, string> = {
 };
 
 /** Le rôle attendu à chaque étape de validation. */
-export type Actor = "REQUESTER" | "MANAGER" | "EXECUTIVE" | "MEDICAL_INFO";
+export type Actor = "REQUESTER" | "DIRECTION_MARKETING" | "GENERAL_MANAGER" | "EXECUTIVE" | "MEDICAL_INFO";
 
 const STEP_ACTOR: Partial<Record<PromoStep, Actor>> = {
   REVIEW_REQUESTER: "REQUESTER",
-  REVIEW_MANAGER: "MANAGER",
+  REVIEW_MANAGER: "DIRECTION_MARKETING",
+  REVIEW_DG: "GENERAL_MANAGER",
   REVIEW_EXECUTIVE: "EXECUTIVE",
   REVIEW_MEDICAL_INFO: "MEDICAL_INFO",
 };
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES DEUX ÉTAPES CONDITIONNELLES — et pourquoi elles se décident ICI, dans le module pur.
+ *
+ * Le contexte arrive du dehors (qui demande, combien, quel seuil) : ce module ne lit ni la base
+ * ni les réglages, et c'est ce qui permet de l'éprouver sans décor. Mais la RÈGLE, elle, vit ici
+ * — l'écrire chez l'appelant la ferait exister en deux exemplaires, un pour l'avance et un pour
+ * l'affichage, et l'écran finirait par annoncer une étape que le circuit saute (§118.5).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface ContexteCircuit {
+  /** Le DEMANDEUR porte-t-il la Direction Marketing ? Alors il ne valide pas sa propre demande. */
+  demandeurEstDirectionMarketing: boolean;
+  /** Le montant engagé (devis retenu, à défaut budget global). `null` = inconnu. */
+  montant: number | null;
+  /** Le seuil au-delà duquel le Directeur Général valide. `null`/0 = aucune porte du DG. */
+  seuilDg: number | null;
+}
+
+/**
+ * CETTE ÉTAPE A-T-ELLE LIEU pour ce dossier ?
+ *
+ * Le défaut est OUI : une étape qu'on ne sait pas juger s'exécute. Sauter sur l'incertitude
+ * retirerait une validation que personne n'a décidé de retirer.
+ */
+export function etapeApplicable(step: PromoStep, ctx: ContexteCircuit): boolean {
+  if (step === "REVIEW_MANAGER") return !ctx.demandeurEstDirectionMarketing;
+  if (step === "REVIEW_DG") {
+    // Pas de seuil réglé ⇒ aucune porte du DG. Montant inconnu ⇒ elle s'ouvre : l'erreur coûte
+    // une validation de trop, l'erreur inverse laisse sortir une grosse dépense sans contrôle.
+    if (ctx.seuilDg == null || !(ctx.seuilDg > 0)) return false;
+    if (ctx.montant == null || !(ctx.montant > 0)) return true;
+    return ctx.montant > ctx.seuilDg;
+  }
+  return true;
+}
 
 /**
  * L'étape de départ. Un devis DÉJÀ en main saute la demande de devis.
@@ -77,11 +136,23 @@ export function initialStep(input: { hasQuote: boolean }): PromoStep {
   return input.hasQuote ? "REVIEW_REQUESTER" : "QUOTE_REQUESTED";
 }
 
-/** L'étape suivante dans la chaîne, ou `null` si l'on est au bout. */
-export function nextStep(current: PromoStep): PromoStep | null {
-  const i = PROMO_STEPS.indexOf(current);
+/**
+ * L'étape suivante dans la chaîne, ou `null` si l'on est au bout.
+ *
+ * Les étapes NON APPLICABLES sont franchies d'affilée : un dossier de la Direction Marketing
+ * sous le seuil saute deux étapes d'un coup, et s'arrêter sur la première laisserait le dossier
+ * posé sur une étape que personne ne peut valider — mort, sans une seule ligne d'échec.
+ *
+ * `ctx` est OBLIGATOIRE : lui donner une valeur par défaut ferait passer le prochain appelant
+ * à côté des deux règles sans qu'une ligne ne le dise (§118.131).
+ */
+export function nextStep(current: PromoStep, ctx: ContexteCircuit): PromoStep | null {
+  let i = PROMO_STEPS.indexOf(current);
   if (i < 0 || i >= PROMO_STEPS.length - 1) return null;
-  return PROMO_STEPS[i + 1];
+  for (i += 1; i < PROMO_STEPS.length; i += 1) {
+    if (etapeApplicable(PROMO_STEPS[i], ctx)) return PROMO_STEPS[i];
+  }
+  return null;
 }
 
 /**
@@ -94,7 +165,7 @@ export function nextStep(current: PromoStep): PromoStep | null {
 export function canValidate(
   user: { id: string; role: string },
   state: PromoState,
-  ctx: { requesterId: string | null; managerId: string | null },
+  ctx: { requesterId: string | null; managerId: string | null; secondaryRole?: string | null },
 ): boolean {
   if (state === "REFUSED" || state === "COMPLETED" || state === "IN_EXECUTION") return false;
   if (state === "QUOTE_REQUESTED") return false; // il faut d'abord déposer un devis
@@ -104,7 +175,13 @@ export function canValidate(
   if (user.role === "SUPER_ADMIN") return true;
   switch (actor) {
     case "REQUESTER": return user.id === ctx.requesterId;
-    case "MANAGER": return user.id === ctx.managerId;
+    // LA DIRECTION MARKETING, par son RÔLE et non par un lien hiérarchique : c'est la décision
+    // de la Direction (09/2026). Le rôle secondaire compte — quelqu'un peut porter cette
+    // casquette en plus de la sienne, et le refuser bloquerait un circuit sur une convention
+    // d'attribution de rôle.
+    case "DIRECTION_MARKETING":
+      return user.role === ROLE_DIRECTION_MARKETING || ctx.secondaryRole === ROLE_DIRECTION_MARKETING;
+    case "GENERAL_MANAGER": return user.role === "GENERAL_MANAGER";
     case "EXECUTIVE": return user.role === "DIRECTION";
     case "MEDICAL_INFO": return user.role === "MEDICAL_INFO_PHARMACIST";
   }

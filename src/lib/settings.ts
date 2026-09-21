@@ -2,6 +2,16 @@ import { cache } from "react";
 import { prisma } from "./prisma";
 
 /**
+ * SEUIL Ad & Pro PAR DÉFAUT au-delà duquel le Directeur Général valide en plus (§118.138).
+ *
+ * Il reflète le `@default(1000000)` de la colonne `AppSetting.adProDgThreshold` : c'est le repli
+ * du LECTEUR quand la ligne n'existe pas encore. Les deux doivent dire la même chose, et le banc
+ * des réglages le vérifie — une valeur par défaut que la base et le code écrivent différemment
+ * fait dépendre le circuit de l'existence d'une ligne.
+ */
+export const SEUIL_DG_DEFAUT = 1_000_000;
+
+/**
  * Réglages d'instance modifiables par le Super Admin (limites de taille d'upload…).
  * Lecture côté serveur ; valeurs par défaut si la ligne n'existe pas (ou souci BDD).
  * Mise en cache par requête.
@@ -19,6 +29,15 @@ export interface AppSettings {
   /** Budget total : FIXED (montant figé) ou FLEXIBLE (= somme des enveloppes). */
   budgetTotalMode: BudgetTotalMode;
   budgetFixedTotal: number;
+  /**
+   * SEUIL Ad & Pro au-delà duquel le DIRECTEUR GÉNÉRAL valide en plus (DZD) — §118.138.
+   *
+   * UN seul chiffre pour les quatre circuits configurables ET pour le matériel promotionnel, qui
+   * n'a pas d'étapes en base. Cinq copies auraient divergé au premier ajustement (§118.5), et le
+   * symptôme aurait été une demande d'1,2 M arrêtée à l'un des cinq guichets et pas aux autres.
+   * `0` = aucune porte du DG.
+   */
+  adProDgThreshold: number;
   /** Capacité globale du Drive (Go) — modifiable par le Super Admin. */
   driveCapacityGb: number;
   /** Quota Drive par utilisateur (Go) — modifiable par le Super Admin. */
@@ -81,6 +100,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   maxDriveUploadMb: Number(process.env.MAX_DRIVE_UPLOAD_MB ?? process.env.MAX_UPLOAD_MB ?? "1024"),
   budgetTotalMode: "FLEXIBLE",
   budgetFixedTotal: 0,
+  adProDgThreshold: SEUIL_DG_DEFAUT,
   driveCapacityGb: 100,
   driveUserQuotaGb: 10,
   regEnrollmentEnabled: false,
@@ -117,6 +137,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       maxDriveUploadMb: row.maxDriveUploadMb,
       budgetTotalMode: row.budgetTotalMode === "FIXED" ? "FIXED" : "FLEXIBLE",
       budgetFixedTotal: Number(row.budgetFixedTotal),
+      adProDgThreshold: Number(row.adProDgThreshold),
       driveCapacityGb: row.driveCapacityGb,
       driveUserQuotaGb: row.driveUserQuotaGb,
       regEnrollmentEnabled: row.regEnrollmentEnabled,

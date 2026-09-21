@@ -684,6 +684,11 @@ classify("COVERED", "update_platform_setting", [
   // `setFieldReportsOverviewRoles` juste au-dessus. La décision de permission reste au Super
   // Admin (§118.108) ; l'outil de réglage de plateforme est le chemin, pas un levier de plus.
   "settings-actions:setPromoMessageAuthorRoles",
+  // LE SEUIL Ad & Pro DU DIRECTEUR GÉNÉRAL (§118.138) — un montant sur `AppSetting`, exactement
+  // la forme des réglages au-dessus. « Passe le seuil de validation du DG à 2 millions » est le
+  // MÊME levier que l'écran d'administration, pas un levier caché : la garde Super Admin vit
+  // dans l'action, et `update_platform_setting` est le chemin.
+  "settings-actions:setAdProDgThreshold",
 ]);
 classify("COVERED", "find_documents / inspect_drive_folder (lecture)", ["drive-browse-actions:browseDrive"]);
 classify("COVERED", "update_salary", ["payroll-hr-actions:updatePayrollEntry"]);

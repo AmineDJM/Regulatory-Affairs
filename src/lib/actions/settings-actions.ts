@@ -32,6 +32,56 @@ export async function saveAppSettings(formData: FormData): Promise<ActionResult>
   return { ok: true };
 }
 
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE SEUIL Ad & Pro DU DIRECTEUR GÉNÉRAL — §118.138. **Super Admin uniquement.**
+ *
+ * « À partir de 1 000 000 DZD, la validation du DG, mais ce seuil doit pouvoir être configuré
+ * par le super admin. » UN chiffre, lu par les quatre circuits configurables ET par le matériel
+ * promotionnel : c'est ce qui l'empêche de valoir 1 M ici et 800 000 là (§118.5).
+ *
+ * ── UNE ACTION À PART DE `saveAppSettings`, ET CE N'EST PAS UN DÉTAIL ────────────────────
+ *
+ * Les deux n'ont pas le même objet : l'une règle des tailles de fichier, l'autre le montant à
+ * partir duquel un dirigeant doit signer. Les fondre ferait écrire les deux à chaque
+ * enregistrement de l'une — et une valeur par défaut écraserait le seuil le jour où quelqu'un
+ * n'ajuste que les uploads.
+ *
+ * ── ON REFUSE, ON NE TRONQUE PAS ────────────────────────────────────────────────────────
+ *
+ * Un montant négatif ou illisible est REFUSÉ en nommant la borne. Le ramener silencieusement à
+ * zéro enregistrerait « plus aucun contrôle du DG » — une politique que personne n'a choisie
+ * (§118.16, §118.131). `0` reste écrivable EXPRÈS et signifie « aucune porte du DG » : c'est une
+ * décision, tapée en toutes lettres.
+ */
+export async function setAdProDgThreshold(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+
+  const brut = fdNum(formData, "adProDgThreshold");
+  if (brut === null || !Number.isFinite(brut)) {
+    return { ok: false, error: "Indiquez un montant en DZD (0 = aucune validation du Directeur Général)." };
+  }
+  if (brut < 0) return { ok: false, error: "Un seuil ne peut pas être négatif (0 = aucune validation du Directeur Général)." };
+  const seuil = Math.round(brut);
+
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", adProDgThreshold: seuil, updatedById: admin.id },
+    update: { adProDgThreshold: seuil, updatedById: admin.id },
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    summary: seuil > 0
+      ? `Seuil Ad & Pro de validation du Directeur Général : ${seuil.toLocaleString("fr-FR")} DZD`
+      : "Seuil Ad & Pro : plus aucune validation du Directeur Général",
+  });
+  revalidatePath("/admin");
+  revalidatePath("/ad-pro");
+  return { ok: true };
+}
+
 /** Débloque / masque l'onglet Regulatory « Enregistrement » (analyseur CTD). **Super Admin uniquement.** */
 export async function setRegEnrollmentEnabled(enabled: boolean): Promise<ActionResult> {
   const admin = await requireUser();

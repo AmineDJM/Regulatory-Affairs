@@ -4,9 +4,11 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { getAppSettings } from "@/lib/settings";
+import { ROLE_DIRECTION_MARKETING } from "@/lib/personnes/roles-vente";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import {
-  initialStep, nextStep, canValidate, tracksOpen, allTracksDone, pendingTracks,
+  initialStep, nextStep, canValidate, tracksOpen, allTracksDone, pendingTracks, type ContexteCircuit, type PromoStep,
   PROMO_STEP_LABEL, PROMO_TRACK_LABEL, PROMO_TRACKS,
   type PromoState, type PromoTrack,
 } from "@/lib/promo-material/circuit";
@@ -113,11 +115,45 @@ export async function markQuoteReceived(formData: FormData): Promise<ActionResul
   return { ok: true, message: "Devis enregistré — au tour du demandeur de le valider." };
 }
 
+
+/**
+ * LE CONTEXTE DES DEUX ÉTAPES CONDITIONNELLES (§118.138) — lu en base, décidé dans le module pur.
+ *
+ * « Qui demande » et « combien » vivent sur le dossier ; le SEUIL vit dans les réglages, le même
+ * que celui des quatre circuits Ad & Pro configurables — cinq copies auraient divergé (§118.5).
+ *
+ * Le montant est le devis RETENU, à défaut le budget global : c'est le montant qu'on engage, et
+ * c'est lui que le seuil vise. Ni l'un ni l'autre ⇒ `null` ⇒ la porte du DG s'ouvre, parce qu'on
+ * ne franchit pas une porte de contrôle sur une absence de donnée.
+ */
+async function contexteCircuit(item: {
+  requesterId: string | null;
+  chosenAmount: unknown;
+  amount: unknown;
+}): Promise<ContexteCircuit> {
+  const [demandeur, reglages] = await Promise.all([
+    item.requesterId
+      ? prisma.user.findUnique({ where: { id: item.requesterId }, select: { role: true, secondaryRole: true } }).catch(() => null)
+      : Promise.resolve(null),
+    getAppSettings().catch(() => null),
+  ]);
+  const montant = item.chosenAmount != null ? Number(item.chosenAmount)
+    : item.amount != null ? Number(item.amount)
+    : null;
+  return {
+    demandeurEstDirectionMarketing:
+      demandeur?.role === ROLE_DIRECTION_MARKETING || demandeur?.secondaryRole === ROLE_DIRECTION_MARKETING,
+    montant: montant != null && Number.isFinite(montant) ? montant : null,
+    seuilDg: reglages?.adProDgThreshold ?? null,
+  };
+}
+
 /**
  * Valide l'étape en cours et passe à la suivante.
  *
- * Le contrôle de QUI peut valider vient du module pur : demandeur, N+1, PDG **ou** Super Admin
- * (un seul suffit — exiger les deux, c'est bloquer sur un congé), puis information médicale.
+ * Le contrôle de QUI peut valider vient du module pur : demandeur, Direction Marketing,
+ * Directeur Général au-delà du seuil, PDG **ou** Super Admin (un seul suffit — exiger les deux,
+ * c'est bloquer sur un congé), puis information médicale.
  */
 export async function validatePromoStep(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -126,16 +162,16 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
 
   const item = await prisma.promoMaterial.findUnique({
     where: { id },
-    select: { id: true, title: true, reference: true, circuitState: true, requesterId: true, managerId: true },
+    select: { id: true, title: true, reference: true, circuitState: true, requesterId: true, managerId: true, chosenAmount: true, amount: true },
   });
   if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
 
   const state = item.circuitState as PromoState;
-  if (!canValidate(user, state, { requesterId: item.requesterId, managerId: item.managerId })) {
+  if (!canValidate(user, state, { requesterId: item.requesterId, managerId: item.managerId, secondaryRole: user.secondaryRole })) {
     return { ok: false, error: `Cette étape ne vous revient pas — elle attend : ${PROMO_STEP_LABEL[state]}.` };
   }
 
-  const next = nextStep(state as never);
+  const next = nextStep(state as PromoStep, await contexteCircuit(item));
   if (!next) return { ok: false, error: "Ce dossier est au bout de son circuit." };
 
   await prisma.promoMaterial.update({ where: { id }, data: { circuitState: next, updatedById: user.id } });
@@ -146,8 +182,13 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
   });
 
   // On prévient CELUI QUI DOIT AGIR ENSUITE, pas tout le monde.
-  if (next === "REVIEW_MANAGER" && item.managerId) {
-    await notifyUser({ userId: item.managerId, type: "VALIDATION_REQUIRED", title: "Devis à valider", body: `${item.reference} — ${item.title}`, link: path(id) });
+  if (next === "REVIEW_MANAGER") {
+    // UN RÔLE, PLUS UNE PERSONNE : c'est la Direction Marketing qui valide (décision de la
+    // Direction, 09/2026). Notifier le `managerId` figé à la création préviendrait quelqu'un qui
+    // n'a plus rien à faire ici, et laisserait la vraie validatrice sans signal.
+    await notifyRoles([ROLE_DIRECTION_MARKETING], { type: "VALIDATION_REQUIRED", title: "Devis à valider (Direction Marketing)", body: `${item.reference} — ${item.title}`, link: path(id) });
+  } else if (next === "REVIEW_DG") {
+    await notifyRoles(["GENERAL_MANAGER"], { type: "VALIDATION_REQUIRED", title: "Devis à valider (Directeur Général)", body: `${item.reference} — ${item.title}`, link: path(id) });
   } else if (next === "REVIEW_EXECUTIVE") {
     await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Devis à valider (direction)", body: `${item.reference} — ${item.title}`, link: path(id) });
   } else if (next === "REVIEW_MEDICAL_INFO") {
@@ -180,7 +221,7 @@ export async function refusePromoStep(formData: FormData): Promise<ActionResult>
   });
   if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
   const state = item.circuitState as PromoState;
-  if (!canValidate(user, state, { requesterId: item.requesterId, managerId: item.managerId })) {
+  if (!canValidate(user, state, { requesterId: item.requesterId, managerId: item.managerId, secondaryRole: user.secondaryRole })) {
     return { ok: false, error: "Cette étape ne vous revient pas." };
   }
 

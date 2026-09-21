@@ -5464,6 +5464,93 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 ## 🧾 Journal des évolutions récentes
 
+### Ad & PRO — L'ORDRE S'INVERSE, DIRECTION MARKETING TRANCHE, ET LE DG GARDE LES GROSSES DÉPENSES (2026-09)
+
+**Ce que la Direction a tranché**, en cinq phrases : « la section événement doit être comme sponsoring en terme de
+circuit de validation » ; « toutes les Ad&Pro, hors matériel promotionnel, devront passer par **Direction des
+opérations PUIS Direction Marketing** à la fin, et pas l'inverse comme c'est le cas maintenant — c'est d'ailleurs le
+mot de la Direction Marketing qui est **définitif**, et elle choisit le budget dans lequel l'accorder » ; « pour
+toutes les demandes Ad&Pro, matériel promotionnel compris, **la validation du DG à partir de 1 000 000 DZD**, mais ce
+seuil doit pouvoir être configuré par le super admin » ; « dans le matériel promotionnel, c'est devis demandés puis
+validation du demandeur puis validation du N+1 — **ce n'est plus le N+1 le validateur, c'est la Direction
+Marketing**, et cette étape n'est pas nécessaire si c'est elle qui demande » ; « **des fois un événement n'est pas
+encore validé et pourtant son état est validé, répare ça !** »
+
+**LA COLONNE VERTÉBRALE, DANS SON NOUVEL ORDRE** (`src/lib/workflow/defaults.ts`, quatre étapes pour les quatre
+catégories) :
+
+> Approbation préliminaire (National Sales) → **porte du Directeur Général** (franchie automatiquement et tracée sous
+> le seuil) → Validation (Direction des opérations) → **Décision et budget (Direction Marketing)**, qui TRANCHE,
+> fixe le montant accordé, choisit la sous-catégorie budgétaire et déclenche l'information médicale puis l'ordre de
+> dépense.
+
+Chaque parcours reste une **tranche contiguë** de cette chaîne (`workflow/parcours.ts`, module pur) : un KAM la
+parcourt entière, un demandeur ordinaire ou le National Sales entre par la porte du DG, Direction Marketing y entre
+aussi mais sa chaîne s'arrête chez la Direction — on ne fait pas trancher à quelqu'un sa propre demande —, et la
+Direction, le DG et le Super Admin vont directement à la décision. Deux bornes suffisent, et c'est ce qui fait tenir
+la terminalité, la projection de l'accord, l'héritage des émissions et la levée du caviardage dans un seul endroit.
+
+**POURQUOI « DIRECTION DES OPÉRATIONS » EST LE RÔLE `DIRECTION`.** La demande dit « pas l'inverse comme c'est le cas
+now » : elle décrit un ÉCHANGE entre les deux étapes existantes, pas l'insertion d'un acteur nouveau. Et le libellé du
+rôle `DIRECTION` était littéralement « Direction des opérations » jusqu'à ce que le Directeur des Opérations devienne
+un rôle à part. L'autre lecture exigerait d'OUVRIR les modules Ad & Pro à `OPERATIONS_DIRECTOR`, qui n'en a aucun :
+une décision de permission, qui appartient à la Direction. Si c'est bien elle qui était voulue, il suffit d'ajouter
+`OPERATIONS_DIRECTOR` aux rôles de l'étape `final` — un réglage, pas une réécriture.
+
+**LE SEUIL DU DG EST UN RÉGLAGE, ET UN SEUL** (`AppSetting.adProDgThreshold`, défaut 1 000 000 DZD, Administration ›
+Réglages). Le même chiffre gouverne les quatre circuits configurables ET le matériel promotionnel, qui n'a pas
+d'étapes en base : cinq copies auraient divergé au premier ajustement. Un « Seuil DZD » écrit à la main sur une étape
+l'emporte pour ce circuit — une décision explicite ne se fait pas écraser en silence. Un montant INCONNU fait passer
+par le DG : on ne franchit pas une porte de contrôle sur une absence de donnée.
+
+**TROIS GESTES D'AVANCE, ET IL FALLAIT LES TROIS.** Les franchissements automatiques ne se réglaient qu'après une
+APPROBATION. Ils se règlent maintenant aussi **à la naissance de l'instance** (un demandeur non-KAM ENTRE sur la
+porte du DG : sans cela sa demande y restait pour toujours, à attendre quelqu'un qui n'a rien à valider) et **après un
+avis défavorable** (même situation, par la troisième porte). Une porte gardée à côté d'une porte ouverte, et c'est la
+même chose qui passe.
+
+**MATÉRIEL PROMOTIONNEL** (`src/lib/promo-material/circuit.ts`) : devis demandé → validation du demandeur →
+**validation de la Direction Marketing** (sautée quand c'est elle qui demande) → **Directeur Général au-delà du
+seuil** → PDG ou Super Admin → information médicale → les trois chantiers parallèles. Le slug `REVIEW_MANAGER` ne
+change pas de nom : il est écrit en base sur tous les dossiers en cours, et le renommer obligerait à migrer leur état
+ET leur historique pour un gain nul. Ce qui change est QUI valide.
+
+**« L'ÉTAT EST VALIDÉ ALORS QUE RIEN NE L'A VALIDÉ »** — mesuré : un événement portait **deux vérités** sur la même
+question. `Event.status` se saisissait à la main dans le formulaire « Modifier », et un bloc « Suivi de validation »
+invitait même à le faire (« Faites avancer la validation via Modifier ») ; `Event.requestStatus` portait la décision
+du circuit. La plus flatteuse gagnait, en silence. `src/lib/events/statut.ts` (module pur) ferme les deux moitiés : le
+formulaire ne peut plus écrire « Validé » ni « En attente de validation » — le refus nomme le circuit à emprunter —
+et le circuit, lui, les ÉCRIT. Le bloc manuel a disparu de la fiche ; la seule frise est celle du circuit. Un
+financement refusé ne rend pas l'événement « Annulé » (on n'a refusé que la prise en charge) mais ne le laisse pas
+« En attente » non plus : `DRAFT`, le seul état neutre.
+
+**UN POSTE ACCORDÉ MET À JOUR LE MONTANT DE LA DEMANDE** (`src/lib/ad-pro/montant-demande.ts`, module pur). Seule une
+**rallonge** (`budgetKind: ADDITIONAL`) s'ajoute : un poste inclus est déjà dans l'enveloppe, et l'additionner
+compterait la dépense deux fois. Le total se **recalcule** depuis la base accordée par le circuit
+(`WorkflowInstance.amount`) — jamais depuis le champ affiché, qui est ce qu'on écrit — ce qui le rend idempotent : un
+poste se décide plusieurs fois, et une addition au fil de l'eau doublerait la rallonge. Branché aux **trois** portes
+qui changent une rallonge : décider, corriger, retirer.
+
+**DEUX ÉCRANS ALLÉGÉS.** L'onglet « Établissements » quitte Promotion médicale — le référentiel ne vit plus qu'à un
+endroit, Administration › Annuaires › Établissements — et l'ancienne adresse **redirige** (les liens déjà envoyés
+restent valides ; mesuré avant de le faire : le module `DIRECTORIES` est accordé à tout le monde et l'onglet du
+concentrateur est gardé par la même porte `MEDICAL:VIEW`, donc personne ne perd rien). Et « Demande RH » quitte le
+Bureau du secrétariat : la carte de création disparaît, l'action serveur et les deux outils d'Adam refusent le type —
+mais le LIBELLÉ survit, parce que les demandes déjà posées le portent.
+
+**CE QUE CE LOT DÉCIDE ET QUI REVIENT À LA DIRECTION** : `PRODUCT_MANAGER` (Direction Marketing) reçoit
+`SPONSORING: MANAGE` et `PROMO_MATERIAL: MANAGE`. Sans eux elle ne peut pas même OUVRIR la demande qu'on lui demande
+de décider, et le circuit s'arrêterait sur une étape que son unique titulaire ne voit pas. C'est une décision de
+permission, nommée ici pour être relue.
+
+**Migration** `20261116090000_adpro_ordre_marketing_final` : elle réordonne les définitions **déjà en base** (changer
+la graine seule aurait laissé la production sur l'ancien circuit, en silence), insère la porte du DG, déplace les
+émissions financières de la Direction vers l'étape qui fixe le montant, et **épargne les circuits qu'un Super Admin a
+remodelés** — renuméroter leurs positions déplacerait SON étape derrière l'étape décisive, donc la rendrait
+inatteignable. Sa première version a échoué sur la contrainte d'unicité `(definitionId, position)`, mesurée en tentant
+le déploiement et non devinée : les rangs se libèrent maintenant avant l'insertion.
+
+
 ### LES MISSIONS D'ADAM, AU SUPER ADMIN SEUL — un prédicat, onze portes, et l'autorité relue par le battement (2026-09)
 
 **La demande** : « Missions d'Adam etc. doit être dispo que pour le super admin ». **Ce qui était vrai la veille** :

@@ -2,18 +2,28 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * LE PARCOURS D'UNE DEMANDE Ad & Pro — module PUR (sa seule dépendance est le SOCLE).
  *
- * ── CE QUE LA DIRECTION A TRANCHÉ ────────────────────────────────────────────────────────
+ * ── CE QUE LA DIRECTION A TRANCHÉ (09/2026) ─────────────────────────────────────────────
  *
- * Une demande de sponsoring, de prise en charge ou autre ne suit pas la même chaîne selon QUI
- * la pose :
+ * « Toutes les Ad&Pro, hors matériel promotionnel, devront passer par Direction des opérations
+ * PUIS Direction Marketing à la fin, et pas l'inverse comme c'est le cas maintenant. C'est
+ * d'ailleurs le mot de la Direction Marketing qui est définitif, et elle choisit le budget dans
+ * lequel l'accorder. » Et, orthogonalement : « à partir de 1 000 000 DZD, la validation du DG. »
  *
- *   • un **KAM** (délégué médical) : National Sales → **Direction Marketing**, qui TRANCHE ;
- *   • **tout autre demandeur** — le National Sales compris : **Direction Marketing** → **Direction**.
+ * L'ORDRE S'INVERSE donc, et la DÉCISION change de main :
  *
- * Les deux parcours passent par Direction Marketing, à qui appartiennent désormais le budget et
- * le choix de la sous-catégorie budgétaire. Ce qui change est ce qu'il y a AUTOUR : le KAM a son
- * superviseur national en amont et personne en aval ; celui qui n'a pas de superviseur national
- * a la Direction en aval.
+ *     préliminaire (National Sales)  →  DG (au-delà du seuil)  →  Direction  →  DIRECTION
+ *     MARKETING, qui TRANCHE, fixe le montant accordé et choisit la sous-catégorie budgétaire.
+ *
+ * ── POURQUOI « DIRECTION DES OPÉRATIONS » EST LE RÔLE `DIRECTION` ET NON `OPERATIONS_DIRECTOR`
+ *
+ * La demande dit « pas l'inverse comme c'est le cas now » : elle décrit un ÉCHANGE entre les
+ * deux étapes qui existent, pas l'insertion d'un acteur nouveau. Et le libellé du rôle
+ * `DIRECTION` était littéralement « Direction des opérations » jusqu'à ce que le Directeur des
+ * Opérations devienne un rôle à part (voir `labels.ts`) : c'est le vocabulaire de la maison.
+ * L'autre lecture — le rôle `OPERATIONS_DIRECTOR` — exigerait de lui OUVRIR les modules Ad & Pro,
+ * qu'il n'a pas du tout aujourd'hui : une décision de PERMISSION, qui appartient à la Direction
+ * et pas à un lot de code (§118.86). Si c'était bien elle qui était voulue, il suffit d'ajouter
+ * `OPERATIONS_DIRECTOR` aux `actorRoles` de l'étape `final` — un réglage, pas une réécriture.
  *
  * ── POURQUOI CE MODULE EXISTE, ET POURQUOI IL EST PUR ───────────────────────────────────
  *
@@ -26,13 +36,13 @@
  *
  * ── LA PROPRIÉTÉ QUI PORTE TOUT LE RESTE ────────────────────────────────────────────────
  *
- * Le parcours est une TRONCATURE, pas un tamis : les deux chaînes sont des tranches CONTIGUËS
- * de la même colonne vertébrale. On n'a donc besoin que de deux bornes — l'entrée (déjà tenue
- * par `adProInit`) et la SORTIE, qui manquait. C'est ce qui permet de tout faire tenir dans
- * `nextStepAfter` : dès que « l'étape suivante » connaît la borne, la terminalité, la projection
- * de l'accord définitif, le refus de franchir automatiquement la décision finale et la levée du
- * caviardage suivent SANS être écrits une seconde fois. Un tamis à trous aurait demandé de
- * reprendre chacun de ces quatre endroits.
+ * Le parcours est une TRONCATURE, pas un tamis : chaque chaîne est une tranche CONTIGUË de la
+ * même colonne vertébrale. On n'a donc besoin que de deux bornes — l'entrée (portée par le
+ * statut de départ) et la SORTIE. C'est ce qui permet de tout faire tenir dans `nextStepAfter` :
+ * dès que « l'étape suivante » connaît la borne, la terminalité, la projection de l'accord
+ * définitif, le refus de franchir automatiquement la décision finale et la levée du caviardage
+ * suivent SANS être écrits une seconde fois. Un tamis à trous aurait demandé de reprendre chacun
+ * de ces quatre endroits.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -50,10 +60,13 @@ import { estKam, ROLE_DIRECTION_MARKETING, ROLE_KAM, type RolesPersonne } from "
 export { ROLE_KAM, ROLE_DIRECTION_MARKETING, estKam };
 export type DemandeurParcours = RolesPersonne;
 
-/** Les slugs de la colonne vertébrale Ad & Pro. */
+/** Les slugs de la colonne vertébrale Ad & Pro, DANS L'ORDRE où on les traverse. */
 export const SLUG_PRELIMINAIRE = "preliminary" as const;
-export const SLUG_MARKETING = "marketing" as const;
+/** La porte du Directeur Général — franchie automatiquement sous le seuil (§118.138). */
+export const SLUG_DG = "dg" as const;
 export const SLUG_DIRECTION = "final" as const;
+export const SLUG_MARKETING = "marketing" as const;
+
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -62,11 +75,10 @@ export const SLUG_DIRECTION = "final" as const;
  * Écrire l'entrée dans `origin.ts` et la sortie ici aurait suffi à produire le défaut suivant,
  * qui a été trouvé en raisonnant sur un cas réel avant de l'écrire : un délégué médical qui
  * porte AUSSI la casquette Direction Marketing (rôle secondaire) est un KAM au sens du texte,
- * mais sa demande ne peut pas être arbitrée par lui-même — elle part donc à la Direction. Une
- * sortie décidée sur le seul fait « c'est un KAM » l'aurait bornée à Direction Marketing, donc
- * à une étape SITUÉE AVANT celle où la demande se trouve : la vue aurait masqué l'étape courante
- * et l'écran n'aurait plus montré aucune action à prendre. Le rang et le métier ne se confondent
- * pas ; ils sont lus ensemble, ici.
+ * mais sa demande ne peut pas être arbitrée par lui-même. Une sortie décidée sur le seul fait
+ * « c'est un KAM » l'aurait bornée à une étape SITUÉE AVANT celle où la demande se trouve : la
+ * vue aurait masqué l'étape courante et l'écran n'aurait plus montré aucune action à prendre.
+ * Le rang et le métier ne se confondent pas ; ils sont lus ensemble, ici.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 export interface Parcours {
@@ -74,7 +86,7 @@ export interface Parcours {
   entree: string;
   /**
    * Le slug de l'étape qui TRANCHE, ou `null` quand c'est la dernière de la définition.
-   * `null` est le repli délibéré : rien à borner, donc exactement le comportement d'avant.
+   * `null` est le repli délibéré : rien à borner, donc la chaîne complète.
    */
   sortie: string | null;
 }
@@ -84,40 +96,32 @@ export function parcoursAdPro(args: {
   rang: number;
   /** Le demandeur exerce-t-il comme KAM (délégué médical) ? */
   kam: boolean;
-  /** La Direction demande-t-elle l'arbitrage de Direction Marketing avant de trancher ? */
-  viaMarketing?: boolean;
 }): Parcours {
-  // LA DIRECTION tranche. Elle peut demander l'arbitrage de Direction Marketing d'abord — c'est
-  // un CHOIX, jamais une obligation : sa demande irait sinon droit à sa propre décision.
-  if (args.rang >= 3) {
-    return args.viaMarketing
-      ? { entree: SLUG_MARKETING, sortie: null }
-      : { entree: SLUG_DIRECTION, sortie: null };
-  }
-  // DIRECTION MARKETING elle-même : on ne fait pas arbitrer à quelqu'un sa propre demande.
-  if (args.rang === 2) return { entree: SLUG_DIRECTION, sortie: null };
-  // LE NATIONAL SALES : son propre préliminaire n'a pas d'objet ; Direction Marketing arbitre,
-  // la Direction tranche.
-  if (args.rang === 1) return { entree: SLUG_MARKETING, sortie: null };
-  // LE KAM : son superviseur national filtre, Direction Marketing TRANCHE — la Direction n'est
-  // pas dans son parcours.
-  if (args.kam) return { entree: SLUG_PRELIMINAIRE, sortie: SLUG_MARKETING };
-  // TOUT AUTRE DEMANDEUR : aucun superviseur national au-dessus de lui, donc pas de
-  // préliminaire ; Direction Marketing arbitre, la Direction tranche.
-  return { entree: SLUG_MARKETING, sortie: null };
+  // LA DIRECTION, LE DG, LE DIRECTEUR DES OPÉRATIONS, LE SUPER ADMIN — personne au-dessus d'eux.
+  // Leur demande n'a ni préliminaire, ni porte du DG (le DG est à ce rang), ni validation de la
+  // Direction (c'est eux) : il ne reste que la décision de Direction Marketing, qui TRANCHE et
+  // choisit le budget. Faire valider leur propre étape par eux-mêmes n'aurait rien mesuré.
+  if (args.rang >= 3) return { entree: SLUG_MARKETING, sortie: null };
+  // DIRECTION MARKETING elle-même : on ne fait pas arbitrer à quelqu'un sa propre demande. Sa
+  // chaîne s'arrête donc UNE étape plus tôt — la Direction tranche à sa place. La porte du DG
+  // reste devant : une rallonge d'un million ne se décide pas plus bas parce qu'elle vient d'en
+  // haut.
+  if (args.rang === 2) return { entree: SLUG_DG, sortie: SLUG_DIRECTION };
+  // LE NATIONAL SALES : son propre préliminaire n'a pas d'objet, le reste de la chaîne est entier.
+  if (args.rang === 1) return { entree: SLUG_DG, sortie: null };
+  // LE KAM : son superviseur national filtre d'abord, puis la chaîne complète.
+  if (args.kam) return { entree: SLUG_PRELIMINAIRE, sortie: null };
+  // TOUT AUTRE DEMANDEUR : aucun superviseur national au-dessus de lui, donc pas de préliminaire.
+  return { entree: SLUG_DG, sortie: null };
 }
 
 /**
  * LA BORNE DE SORTIE, telle que le MOTEUR et la VUE la lisent — depuis le seul demandeur.
  *
- * Le drapeau « arbitrage demandé » de la Direction ne change PAS la sortie (elle tranche dans
- * les deux cas), ce qui est exactement ce qui permet de recalculer la borne sans lui : le moteur
- * ouvre l'instance parfois des jours après la création, et ce drapeau n'est nulle part en base.
- *
  * On n'exige pas que l'étape existe dans la définition : on la nomme si elle est là, et on se
- * taît sinon. Un circuit remodelé par le Super Admin qui n'a plus d'étape « marketing » retombe
- * donc sur le comportement d'avant — une garde qui refuse ce qu'elle ne comprend pas est
- * désactivée dans la semaine (§118.16).
+ * tait sinon. Un circuit remodelé par le Super Admin qui n'a plus d'étape « final » retombe donc
+ * sur la chaîne entière — une garde qui refuse ce qu'elle ne comprend pas est désactivée dans la
+ * semaine (§118.16).
  */
 export function slugDecisionnaire(
   demandeur: DemandeurParcours | null | undefined,
@@ -139,13 +143,52 @@ export function estDecisionnaire(slugEtape: string, borne: string | null): boole
 }
 
 /**
+ * LE SEUIL EFFECTIF d'une étape — ce en dessous de quoi elle est franchie automatiquement.
+ *
+ * Deux sources, et l'ORDRE entre elles est la moitié de la règle :
+ *   • un seuil posé À LA MAIN sur l'étape (champ « Seuil DZD » du constructeur de circuits)
+ *     l'emporte TOUJOURS. Le Super Admin qui l'a écrit a pris une décision pour CE circuit ; la
+ *     valeur globale ne doit pas l'écraser en silence ;
+ *   • à défaut, et pour la seule porte du DG, le seuil GLOBAL des réglages. C'est lui que la
+ *     demande vise — « ce seuil doit pouvoir être configuré par le super admin », au singulier —
+ *     et c'est lui que lit aussi le matériel promotionnel, qui n'a pas d'étapes en base.
+ *
+ * Toute autre étape sans seuil écrit n'en a pas : rendre ici une valeur par défaut ferait
+ * franchir automatiquement des étapes que personne n'a demandé de franchir.
+ */
+export function seuilFranchissement(
+  slug: string,
+  seuilDeLEtape: number | null | undefined,
+  seuilDgGlobal: number | null | undefined,
+): number | null {
+  if (seuilDeLEtape != null && seuilDeLEtape > 0) return seuilDeLEtape;
+  if (slug !== SLUG_DG) return null;
+  return seuilDgGlobal != null && seuilDgGlobal > 0 ? seuilDgGlobal : null;
+}
+
+/**
+ * LE DIRECTEUR GÉNÉRAL DOIT-IL VALIDER ce montant ? Lecture unique, partagée par le circuit
+ * Ad & Pro (qui la traduit en franchissement automatique d'étape) et par le matériel
+ * promotionnel (qui n'a pas d'étapes en base et pose la question directement).
+ *
+ * Un montant INCONNU (null, 0, négatif) fait passer par le DG : on ne franchit pas une porte de
+ * contrôle sur une absence de donnée. L'erreur coûte une validation de trop ; l'erreur inverse
+ * laisserait sortir une dépense d'un million sans que personne en haut l'ait vue.
+ */
+export function dgRequis(montant: number | null | undefined, seuil: number | null | undefined): boolean {
+  if (seuil == null || !(seuil > 0)) return false;
+  if (montant == null || !(montant > 0)) return true;
+  return montant > seuil;
+}
+
+/**
  * LES ÉTAPES QUE CETTE INSTANCE N'ATTEINDRA JAMAIS — la queue coupée par la borne.
  *
  * Sert à UNE chose, et elle est nécessaire : une émission financière déclarée sur une étape de
- * la queue doit être HONORÉE par l'étape qui tranche. Sans cela, une demande de KAM sort
- * APPROUVÉE, avec son budget accordé écrit en base, et Finance ne reçoit RIEN — l'argent est
- * accordé et rien n'est engagé, sans une seule étape en échec. Le faux succès parfait, sur la
- * seule chose que la dépense attend.
+ * la queue doit être HONORÉE par l'étape qui tranche. Sans cela, une demande sort APPROUVÉE,
+ * avec son budget accordé écrit en base, et Finance ne reçoit RIEN — l'argent est accordé et
+ * rien n'est engagé, sans une seule étape en échec. Le faux succès parfait, sur la seule chose
+ * que la dépense attend.
  *
  * On ne DÉPLACE pas les drapeaux dans la définition : le Super Admin les a posés là où il les
  * voulait, et une définition réécrite par le code serait une seconde vérité (§118.5). C'est

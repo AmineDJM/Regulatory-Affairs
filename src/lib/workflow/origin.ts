@@ -66,19 +66,16 @@ export function canDesignateProductManagerAtCreation(user: OriginUser): boolean 
 }
 
 /**
- * Le créateur peut-il CHOISIR de passer par l'arbitrage de Direction Marketing plutôt que de
- * trancher directement ?
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * IL N'Y A PLUS DE CHOIX DE CIRCUIT — et c'est la conséquence directe du nouvel ordre.
  *
- * Réservé à la Direction et au Super Admin (rang 3), et à eux seuls : ce sont les seuls dont la
- * demande irait sinon droit à la décision finale — la leur. Leur laisser le choix, c'est pouvoir
- * demander un arbitrage budgétaire sans y être tenu.
- *
- * Le National Sales n'a pas ce choix : l'arbitrage de Direction Marketing est son étape suivante
- * obligatoire, la Direction tranchant ensuite.
+ * `canChooseAnalysisAtCreation` offrait à la Direction de demander l'arbitrage de Direction
+ * Marketing AVANT de trancher elle-même. Direction Marketing tranchant désormais TOUTE demande
+ * Ad & Pro (décision de la Direction, 09/2026), ce choix n'a plus d'objet : la case aurait été
+ * un réglage d'écran qui ne change rien, c'est-à-dire un mensonge fait à la personne qui la
+ * coche (§118.14, §118.50). Elle est retirée, avec le champ `viaProductManager` qu'elle posait.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-export function canChooseAnalysisAtCreation(user: OriginUser): boolean {
-  return adProOriginRank(user) === 3;
-}
 
 export type AdProStage = "PRELIMINARY" | "ANALYSIS" | "FINAL";
 export type AdProStatus = "AWAITING_PRELIMINARY" | "PRELIMINARY_APPROVED" | "AWAITING_FINAL";
@@ -97,28 +94,34 @@ export interface AdProInit {
  * Étape de DÉPART d'une demande Ad & Pro, et son statut legacy.
  *
  * Les deux parcours tenus par `parcoursAdPro` :
- *   • KAM → préliminaire (National Sales) puis Direction Marketing, qui TRANCHE ;
- *   • tout autre demandeur → Direction Marketing puis Direction.
+ *   • KAM → préliminaire (National Sales), puis la chaîne entière ;
+ *   • Direction / DG / Super Admin → directement Direction Marketing, qui TRANCHE ;
+ *   • tout autre demandeur → porte du DG (franchie sous le seuil), Direction, Direction Marketing.
  *
  * Le rang l'emporte sur le métier : un délégué médical qui porte aussi Direction Marketing ne
- * s'arbitre pas sa propre demande — elle part à la Direction.
+ * s'arbitre pas sa propre demande — c'est la Direction qui tranche la sienne.
  */
 export function adProInit(
   user: OriginUser,
   productManagerId?: string | null,
-  opts?: { viaProductManager?: boolean },
 ): AdProInit {
   const rang = adProOriginRank(user);
-  const { entree } = parcoursAdPro({ rang, kam: estKam(user), viaMarketing: opts?.viaProductManager === true });
+  const { entree } = parcoursAdPro({ rang, kam: estKam(user) });
   const referent = productManagerId?.trim() || null;
 
+  // LE KAM entre par son superviseur national.
   if (entree === SLUG_PRELIMINAIRE) {
     return { stage: "PRELIMINARY", status: "AWAITING_PRELIMINARY", productManagerId: null, preliminaryBySelf: false };
   }
+  // LA DIRECTION (et le rang qui l'accompagne) entre directement chez Direction Marketing, qui
+  // TRANCHE : tout ce qui précède est soit son propre accord, soit une porte dont elle est la
+  // clé. `FINAL` nomme ici l'étape DÉCISIVE, et c'est bien Direction Marketing.
   if (entree === SLUG_MARKETING) {
-    return { stage: "ANALYSIS", status: "PRELIMINARY_APPROVED", productManagerId: referent, preliminaryBySelf: true };
+    return { stage: "FINAL", status: "AWAITING_FINAL", productManagerId: referent, preliminaryBySelf: true };
   }
-  return { stage: "FINAL", status: "AWAITING_FINAL", productManagerId: null, preliminaryBySelf: true };
+  // TOUS LES AUTRES entrent par la porte du Directeur Général, franchie automatiquement sous le
+  // seuil : le statut legacy est celui de la chaîne « préliminaire faite, décision à venir ».
+  return { stage: "ANALYSIS", status: "PRELIMINARY_APPROVED", productManagerId: referent, preliminaryBySelf: true };
 }
 
 export { PRODUCT_MANAGER_ROLES, DIRECTOR_ROLES };

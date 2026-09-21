@@ -23,7 +23,6 @@ export interface CongressFormProps {
   doctors: DoctorOpt[];
   users: UserOpt[];
   canDesignatePM?: boolean;
-  canChooseAnalysis?: boolean;
 }
 
 interface CongressRequestFormProps extends CongressFormProps {
@@ -41,7 +40,7 @@ interface CongressRequestFormProps extends CongressFormProps {
  * commun d'Ad & Pro, où la nature vient d'être choisie — on y ouvrirait sinon un panneau
  * par-dessus le panneau.
  */
-export function CongressRequestForm({ national, doctors, users, canDesignatePM, canChooseAnalysis, onDone, onCancel, cancelLabel = "Annuler" }: CongressRequestFormProps) {
+export function CongressRequestForm({ national, doctors, users, canDesignatePM, onDone, onCancel, cancelLabel = "Annuler" }: CongressRequestFormProps) {
   const router = useRouter();
   const formRef = React.useRef<HTMLFormElement>(null);
   const [saving, setSaving] = React.useState(false);
@@ -52,8 +51,6 @@ export function CongressRequestForm({ national, doctors, users, canDesignatePM, 
   const [pickedUsers, setPickedUsers] = React.useState<Set<string>>(new Set());
   const [userQuery, setUserQuery] = React.useState("");
   const [productManagerId, setProductManagerId] = React.useState("");
-  // La Direction choisit son circuit : trancher tout de suite, ou demander un avis produit.
-  const [viaProductManager, setViaProductManager] = React.useState(false);
 
   // National Sales créant lui-même : il désigne le référent Direction Marketing (l'analyse lui est
   // confiée) et n'a pas à approuver préliminairement sa propre demande.
@@ -83,12 +80,8 @@ export function CongressRequestForm({ national, doctors, users, canDesignatePM, 
     pickedDoctors.forEach((id) => fd.append("invitedDoctorIds", id));
     pickedUsers.forEach((id) => fd.append("participantIds", id));
     if (showPmPicker) fd.set("productManagerId", productManagerId);
-    if (canChooseAnalysis) fd.set("viaProductManager", viaProductManager ? "1" : "0");
     if (!String(fd.get("name") ?? "").trim()) { setErr("Le nom de l'événement est obligatoire."); return; }
-    // La désignation n'est obligatoire que si l'analyse est réellement demandée : la Direction
-    // qui tranche directement n'a personne à désigner.
-    const analysisWanted = canChooseAnalysis ? viaProductManager : showPmPicker;
-    if (analysisWanted && !productManagerId) { setErr("Nommez le référent Direction Marketing qui suivra la demande."); return; }
+    if (showPmPicker && !productManagerId) { setErr("Nommez le référent Direction Marketing qui suivra la demande."); return; }
     setSaving(true); setErr(null);
     const r = await createCongressRequest(undefined, fd);
     setSaving(false);
@@ -144,29 +137,16 @@ export function CongressRequestForm({ national, doctors, users, canDesignatePM, 
           <Field label="Budget estimé (DZD)"><Input name="estimatedBudget" type="number" step="any" placeholder="Estimation du demandeur" /></Field>
         </div>
 
-        {/* National Sales : désignation directe de la Direction Marketing (pas d'auto-approbation
-            préliminaire). Direction : le passage par l'analyse est un CHOIX. */}
+        {/* Le RÉFÉRENT Direction Marketing : la personne qui suit la gamme. Ce n'est pas elle qui
+            décide — Direction Marketing tranche en tant que direction —, c'est un enregistrement. */}
         {showPmPicker && (
           <div className="space-y-1.5 rounded-lg border border-primary/30 bg-primary/5 p-3">
-            {canChooseAnalysis && (
-              <div className="space-y-1.5 pb-1.5">
-                <Label>Circuit</Label>
-                <Select value={viaProductManager ? "1" : "0"} onChange={(e) => setViaProductManager(e.target.value === "1")}>
-                  <option value="0">Décider maintenant (aucune analyse préalable)</option>
-                  <option value="1">Demander d&apos;abord l&apos;arbitrage de Direction Marketing</option>
-                </Select>
-              </div>
-            )}
-            {canChooseAnalysis && !viaProductManager ? null : (
-            <>
             <Label>Référent Direction Marketing</Label>
-            <p className="text-xs text-muted-foreground">La demande part chez Direction Marketing, qui arbitre le budget — l&apos;étape préliminaire est franchie automatiquement.</p>
+            <p className="text-xs text-muted-foreground">La décision et le budget appartiennent à Direction Marketing, qui tranche en dernier.</p>
             <Select value={productManagerId} onChange={(e) => setProductManagerId(e.target.value)}>
               <option value="">— Référent Direction Marketing (facultatif) —</option>
               {pmCandidates.map((u) => <option key={u.id} value={u.id}>{u.name} · {ROLE_LABELS[u.role] ?? u.role}</option>)}
             </Select>
-            </>
-            )}
           </div>
         )}
 

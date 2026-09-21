@@ -192,7 +192,7 @@ export const EVENT_OPS_IMPL: Record<string, OpImpl> = {
           ["Référent Direction Marketing", pmName],
         ]),
         warnings: ["Même circuit que les congrès : National Sales (préliminaire) → analyse Direction Marketing → décision Direction — le routage saute les étapes au niveau du demandeur."],
-        args: { id: hit.id, productManagerId: pmId, viaProductManager: pmId ? "1" : null },
+        args: { id: hit.id, productManagerId: pmId },
         successMessage: `« ${hit.name} » soumis au circuit de prise en charge.`,
         link: `/events/${hit.id}`, revalidate: ["/events"],
       };

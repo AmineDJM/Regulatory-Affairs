@@ -23,7 +23,6 @@ export interface NewRequestPickerProps {
   kinds: KindSpec[];
   data: AdProCreateData;
   canDesignatePM: boolean;
-  canChooseAnalysis: boolean;
 }
 
 /**
@@ -46,7 +45,7 @@ export interface NewRequestPickerProps {
  * `CongressRequestForm`, `CreateEventForm`), jamais une copie qui divergerait au premier champ
  * ajouté.
  */
-export function NewRequestPicker({ kinds, data, canDesignatePM, canChooseAnalysis }: NewRequestPickerProps) {
+export function NewRequestPicker({ kinds, data, canDesignatePM }: NewRequestPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [kind, setKind] = React.useState<AdProKind | null>(null);
 
@@ -108,7 +107,7 @@ export function NewRequestPicker({ kinds, data, canDesignatePM, canChooseAnalysi
                 action={createSponsoring}
                 redirectBase="/sponsoring"
                 fields={sponsoringCreateFields({
-                  productManagers: data.productManagers, canDesignatePM, canChooseAnalysis,
+                  productManagers: data.productManagers, canDesignatePM,
                   products: data.products, doctors: data.doctors, businessUnits: data.businessUnits,
                   businessUnitDeduite: data.businessUnitDeduite,
                   specialties: data.specialties, specialtiesHeritees: data.specialtiesHeritees,
@@ -116,10 +115,10 @@ export function NewRequestPicker({ kinds, data, canDesignatePM, canChooseAnalysi
               />
             )}
             {spec.kind === "CONGRESS_INTERNATIONAL" && (
-              <CongressRequestForm {...nav} doctors={data.doctors} users={data.users} canDesignatePM={canDesignatePM} canChooseAnalysis={canChooseAnalysis} />
+              <CongressRequestForm {...nav} doctors={data.doctors} users={data.users} canDesignatePM={canDesignatePM} />
             )}
             {spec.kind === "CONGRESS_NATIONAL" && (
-              <CongressRequestForm {...nav} national doctors={data.doctors} users={data.users} canDesignatePM={canDesignatePM} canChooseAnalysis={canChooseAnalysis} />
+              <CongressRequestForm {...nav} national doctors={data.doctors} users={data.users} canDesignatePM={canDesignatePM} />
             )}
             {spec.kind === "EVENT" && <CreateEventForm {...nav} responsibles={people} />}
             {spec.kind === "PROMO_MATERIAL" && (

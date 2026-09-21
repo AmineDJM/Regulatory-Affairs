@@ -7,7 +7,7 @@ const find = (fields: { name: string }[], name: string) => fields.find((f) => f.
 
 describe("Le formulaire de sponsoring", () => {
   it("demande toujours l'institution et accepte plusieurs pièces", () => {
-    const f = sponsoringCreateFields({ productManagers: [], canDesignatePM: false, canChooseAnalysis: false });
+    const f = sponsoringCreateFields({ productManagers: [], canDesignatePM: false });
     expect(find(f, "institution")).toMatchObject({ required: true });
     // La demande du médecin est LA pièce que tout le circuit va lire : elle se joint dès l'origine.
     expect(find(f, "files")).toMatchObject({ type: "file", multiple: true });
@@ -16,13 +16,13 @@ describe("Le formulaire de sponsoring", () => {
   it("ne montre AUCUN champ de circuit à qui ne désigne pas", () => {
     // Un délégué qui verrait « Direction Marketing » croirait pouvoir court-circuiter son propre
     // responsable — le champ n'existe pas pour lui.
-    const f = sponsoringCreateFields({ productManagers: PM, canDesignatePM: false, canChooseAnalysis: false });
+    const f = sponsoringCreateFields({ productManagers: PM, canDesignatePM: false });
     expect(names(f)).not.toContain("productManagerId");
     expect(names(f)).not.toContain("viaProductManager");
   });
 
   it("n'offre pas de désigner quand il n'y a personne à désigner", () => {
-    const f = sponsoringCreateFields({ productManagers: [], canDesignatePM: true, canChooseAnalysis: true });
+    const f = sponsoringCreateFields({ productManagers: [], canDesignatePM: true });
     expect(names(f)).not.toContain("productManagerId");
   });
 
@@ -32,21 +32,20 @@ describe("Le formulaire de sponsoring", () => {
     // sans elle. Direction Marketing est une DIRECTION, portée par un rôle — exiger un référent
     // ferait échouer une demande légitime le jour où la personne qui suit la gamme est absente
     // de la liste, sur un champ qui ne conditionne plus rien.
-    const f = sponsoringCreateFields({ productManagers: PM, canDesignatePM: true, canChooseAnalysis: false });
+    const f = sponsoringCreateFields({ productManagers: PM, canDesignatePM: true });
     expect((find(f, "productManagerId") as unknown as { required?: boolean }).required).toBeUndefined();
     expect((find(f, "productManagerId") as unknown as { label: string }).label).toContain("facultatif");
     expect(names(f)).not.toContain("viaProductManager");
   });
 
-  it("la Direction CHOISIT son circuit : arbitrage de Direction Marketing, ou décision immédiate", () => {
-    const f = sponsoringCreateFields({ productManagers: PM, canDesignatePM: true, canChooseAnalysis: true });
-    expect(find(f, "viaProductManager")).toMatchObject({ defaultValue: "0" });
-    expect((find(f, "productManagerId") as unknown as { required?: boolean }).required).toBeUndefined();
-  });
-
-  it("le référent passe AVANT le choix de circuit — on nomme la personne, puis on décide du chemin", () => {
-    const f = sponsoringCreateFields({ productManagers: PM, canDesignatePM: true, canChooseAnalysis: true });
-    expect(names(f).slice(0, 2)).toEqual(["productManagerId", "viaProductManager"]);
+  it("IL N'Y A PLUS DE CHOIX DE CIRCUIT — le champ a disparu, pour tout le monde (§118.138)", () => {
+    // Direction Marketing TRANCHE désormais toute demande Ad & Pro : la case « demander d'abord
+    // son arbitrage » ne changeait plus rien. Ce qui le ferait tomber : réintroduire le champ
+    // sans réintroduire son effet — un réglage d'écran sans effet est un mensonge fait à la
+    // personne qui le coche (§118.14, §118.50).
+    const f = sponsoringCreateFields({ productManagers: PM, canDesignatePM: true });
+    expect(names(f)).not.toContain("viaProductManager");
+    expect(names(f)[0], "le référent reste le premier champ du bloc").toBe("productManagerId");
   });
 
   // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -57,7 +56,7 @@ describe("Le formulaire de sponsoring", () => {
     // Ce qui le ferait tomber : rendre la pièce facultative. C'est le document que tout le
     // circuit lit — le National Sales pour juger l'opportunité, Direction Marketing pour
     // arbitrer le budget — et sans lui chaque demande repartait par la messagerie.
-    const f = sponsoringCreateFields({ productManagers: [], canDesignatePM: false, canChooseAnalysis: false });
+    const f = sponsoringCreateFields({ productManagers: [], canDesignatePM: false });
     const piece = find(f, "files");
     expect(piece).toMatchObject({ type: "file", required: true, multiple: true, accept: ".pdf,.doc,.docx" });
     expect((piece as unknown as { hint?: string }).hint).toContain("bureau du secrétariat");
@@ -65,7 +64,7 @@ describe("Le formulaire de sponsoring", () => {
 
   it("médecins, produits et wilaya sont OBLIGATOIRES — dans le référentiel comme en saisie libre", () => {
     const avec = sponsoringCreateFields({
-      productManagers: [], canDesignatePM: false, canChooseAnalysis: false,
+      productManagers: [], canDesignatePM: false,
       doctors: [{ id: "d1", name: "Dr Benali", specialty: "Cardiologie", city: "Alger" }],
       products: [{ id: "p1", brandName: "Nivolex", dci: "nivolumab", status: "DECISION_OBTAINED" }],
     });
@@ -74,14 +73,14 @@ describe("Le formulaire de sponsoring", () => {
     expect(find(avec, "city")).toMatchObject({ type: "select", required: true });
     // LE REPLI EN SAISIE LIBRE RESTE OBLIGATOIRE, LUI AUSSI : un référentiel vide ne dispense
     // pas de nommer le médecin — il change seulement la façon de le nommer.
-    const sans = sponsoringCreateFields({ productManagers: [], canDesignatePM: false, canChooseAnalysis: false });
+    const sans = sponsoringCreateFields({ productManagers: [], canDesignatePM: false });
     expect(find(sans, "doctor")).toMatchObject({ type: "text", required: true });
     expect(find(sans, "product")).toMatchObject({ type: "text", required: true });
   });
 
   it("la spécialité est un MENU DÉROULANT nourri par le référentiel ET les fiches héritées", () => {
     const f = sponsoringCreateFields({
-      productManagers: [], canDesignatePM: false, canChooseAnalysis: false,
+      productManagers: [], canDesignatePM: false,
       specialties: [{ name: "Cardiologie" }], specialtiesHeritees: ["Infectiologie", "cardiologie"],
     });
     const spec = find(f, "specialty") as unknown as { type: string; required: boolean; options: { value: string }[] };
@@ -96,7 +95,7 @@ describe("Le formulaire de sponsoring", () => {
   it("référentiel de spécialités VIDE : la saisie redevient libre, mais reste obligatoire", () => {
     // Un menu sans option est un cul-de-sac : ce qui le ferait tomber est un `select` vide, qui
     // rendrait toute demande impossible à envoyer.
-    const f = sponsoringCreateFields({ productManagers: [], canDesignatePM: false, canChooseAnalysis: false });
+    const f = sponsoringCreateFields({ productManagers: [], canDesignatePM: false });
     expect(find(f, "specialty")).toMatchObject({ type: "text", required: true });
   });
 
@@ -104,7 +103,7 @@ describe("Le formulaire de sponsoring", () => {
     // LE DÉFAUT MESURÉ : « Type » valait « Congrès » et « Importance stratégique » valait
     // « Moyenne » par défaut. Une demande envoyée sans y toucher sortait donc avec une nature et
     // une priorité que personne n'avait décidées — et c'est sur elles que l'arbitrage se fait.
-    const f = sponsoringCreateFields({ productManagers: [], canDesignatePM: false, canChooseAnalysis: false });
+    const f = sponsoringCreateFields({ productManagers: [], canDesignatePM: false });
     for (const nom of ["type", "strategicImportance"]) {
       const champ = find(f, nom) as unknown as { required?: boolean; defaultValue?: string; placeholder?: string };
       expect(champ.required, nom).toBe(true);
@@ -120,7 +119,7 @@ describe("Le formulaire de sponsoring", () => {
     // un KAM pourrait faire peser sa dépense sur le budget Ad&Pro d'une autre gamme — le
     // serveur l'impose de son côté, mais l'écran ne doit pas proposer ce qu'il refusera.
     const f = sponsoringCreateFields({
-      productManagers: [], canDesignatePM: false, canChooseAnalysis: false,
+      productManagers: [], canDesignatePM: false,
       businessUnits: [{ id: "bu1", name: "Oncologie" }, { id: "bu2", name: "Cardiologie" }],
       businessUnitDeduite: { id: "bu1", name: "Oncologie", raison: "Votre gamme — rattachement de votre fiche force de vente." },
     });
@@ -132,7 +131,7 @@ describe("Le formulaire de sponsoring", () => {
 
   it("Business Unit NON déduite : le choix reste manuel sur la liste entière", () => {
     const f = sponsoringCreateFields({
-      productManagers: [], canDesignatePM: false, canChooseAnalysis: false,
+      productManagers: [], canDesignatePM: false,
       businessUnits: [{ id: "bu1", name: "Oncologie" }, { id: "bu2", name: "Cardiologie" }],
       businessUnitDeduite: null,
     });

@@ -102,7 +102,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     state: circuitState,
     tracksDone: tracksDone as string[],
     showFull: seesFullCircuit(user),
-    canAct: circuitState ? canValidate(user, circuitState, { requesterId: pm.requesterId, managerId: pm.managerId }) : false,
+    canAct: circuitState ? canValidate(user, circuitState, { requesterId: pm.requesterId, managerId: pm.managerId, secondaryRole: user.secondaryRole }) : false,
     canDrive: flags.isMarketing || flags.isAssistant || isDirection || user.role === "SUPER_ADMIN",
     waitingLabel: circuitState ? waitingOn(circuitState, tracksDone) : "—",
     progressStep: circuitProgress.step,

@@ -136,8 +136,8 @@ export async function colorerCellulesAnnuaire(input: {
   });
 
   revalidatePath("/medical/annuaire");
-  revalidatePath("/medical/etablissements");
   revalidatePath("/annuaires");
+  revalidatePath("/annuaires/etablissements");
 
   const verbe = couleur === null ? "effacée" : "colorée";
   return {

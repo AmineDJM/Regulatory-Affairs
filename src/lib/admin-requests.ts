@@ -1,6 +1,21 @@
 import type { VisibleFieldDef } from "@/components/shared/create-record-button";
 
-/** Catalogue des types de demande (cartes de l'assistant de création). */
+/**
+ * Catalogue des types de demande (cartes de l'assistant de création).
+ *
+ * ── « DEMANDE RH » N'Y EST PLUS (décision de la Direction, 09/2026 — §118.138) ───────────
+ *
+ * « Enlève les demandes RH depuis le bureau du secrétariat. » Une absence, un justificatif, une
+ * information RH se demandent dans le module RH, qui a ses circuits, ses pièces et ses droits ;
+ * les faire transiter par le secrétariat créait une seconde file pour la même chose, sans aucun
+ * de ces circuits.
+ *
+ * CE QUI N'EST PAS RETIRÉ, et c'est la moitié qui compte : la valeur `HR_SIMPLE` reste dans
+ * l'énumération Prisma et dans `ADMIN_REQUEST_TYPE` (`labels.ts`). Les demandes DÉJÀ posées la
+ * portent : retirer le libellé afficherait « HR_SIMPLE » en clair sur leur fiche, et retirer la
+ * valeur de l'énumération rendrait leur ligne illisible. On ferme la porte d'ENTRÉE, on ne
+ * réécrit pas l'histoire.
+ */
 export const REQUEST_TYPES: { value: string; label: string; icon: string; description: string }[] = [
   { value: "TRAVEL", label: "Déplacement / Hôtel / Billet", icon: "Plane", description: "Billet, hôtel, mission, congrès, invité, aéroport" },
   { value: "MAIL", label: "Courrier / Document officiel", icon: "Mail", description: "Courrier PCH/ANPP, lettre, invitation, envoi & suivi" },
@@ -10,7 +25,6 @@ export const REQUEST_TYPES: { value: string; label: string; icon: string; descri
   { value: "PAYMENT", label: "Paiement / Facture", icon: "Banknote", description: "Prestataire, agence, fournisseur, remboursement" },
   { value: "DRIVER", label: "Mission chauffeur", icon: "Car", description: "Déposer / récupérer, aéroport, PCH/ANPP" },
   { value: "GUEST_VISA", label: "Visa / Professeur / Invité", icon: "UserCheck", description: "Invitation, visa, venue & suivi d'un invité" },
-  { value: "HR_SIMPLE", label: "Demande RH", icon: "Users", description: "Absence, justificatif, info RH (transverse)" },
   { value: "OTHER", label: "Autre", icon: "CircleHelp", description: "Demande libre en texte normal" },
 ];
 
@@ -89,6 +103,8 @@ export const REQUEST_TYPE_FIELDS: Record<string, VisibleFieldDef[]> = {
     { type: "select", name: "typeAide", label: "Type d'aide", options: [{ value: "visa", label: "Visa" }, { value: "billet", label: "Billet" }, { value: "hotel", label: "Hôtel" }, { value: "invitation", label: "Invitation" }, { value: "formulaire", label: "Formulaire" }, { value: "autre", label: "Autre" }] },
     { type: "text", name: "evenement", label: "Événement lié" },
   ],
+  // HR_SIMPLE garde ses champs : ils servent à RELIRE les demandes déjà posées (`fieldLabels`).
+  // Les supprimer afficherait « typeDemande » en clair sur une fiche d'archive.
   HR_SIMPLE: [
     { type: "text", name: "typeDemande", label: "Type de demande" },
     { type: "date", name: "dateDebut", label: "Date début" },

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Video } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, anyRoleFilter } from "@/lib/rbac";
-import { canDesignateProductManagerAtCreation, canChooseAnalysisAtCreation, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+import { canDesignateProductManagerAtCreation, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { prisma } from "@/lib/prisma";
 import { getEventDetail } from "@/lib/queries/events";
 import { PageHeader } from "@/components/shared/page-header";
@@ -21,7 +21,6 @@ import { getEntityMissions } from "@/lib/queries/missions";
 import { getWorkflowForEntity } from "@/lib/queries/workflow";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
-import { ValidationStepper, type VStep, type VStepState } from "@/components/shared/validation-stepper";
 import { BackLink } from "@/components/shared/back-link";
 import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
@@ -53,7 +52,6 @@ export default async function EventDetailPage({ params }: { params: { id: string
   // est confiée) au lieu d'approuver préliminairement sa propre demande.
   const canDesignatePM = canDesignateProductManagerAtCreation(user);
   // La Direction choisit son circuit : décision directe, ou avis de la Direction Marketing d'abord.
-  const canChooseAnalysis = canChooseAnalysisAtCreation(user);
   const [items, promoOptions, budgetOptions] = await Promise.all([
     loadAdProItems("EVENT", e.id),
     promoMaterialOptions(),
@@ -156,20 +154,14 @@ export default async function EventDetailPage({ params }: { params: { id: string
       />
 
 
-      <Card>
-        <CardHeader><CardTitle>Suivi de validation</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-          <ValidationStepper steps={eventValidationSteps(e.status)} />
-          <div className="space-y-3 text-sm">
-            <Info label="Statut actuel" value={EVENT_STATUS[e.status]?.label ?? e.status} />
-            <Info label="Budget estimé / validé" value={e.estimatedBudget !== null ? formatCurrency(e.estimatedBudget) : "À renseigner"} />
-            <Info label="Responsable interne" value={e.responsibleName} />
-            {canManage && ["DRAFT", "AWAITING_VALIDATION"].includes(e.status) && (
-              <p className="rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">Faites avancer la validation via « Modifier » : passez le statut à « Attente validation » puis « Validé » (pensez à renseigner le budget).</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      {/* LE BLOC « SUIVI DE VALIDATION » A ÉTÉ RETIRÉ (demande de la Direction, 09/2026).
+          Il montrait une frise « Brouillon → En attente → Validé » dérivée de `Event.status`,
+          c'est-à-dire d'un champ que le formulaire « Modifier » écrivait à la main — et il
+          invitait même à le faire (« Faites avancer la validation via Modifier »). Un événement
+          pouvait donc s'afficher « Validé » sans qu'aucune étape ne l'ait validé : deux vérités
+          sur la même question, et c'est la plus flatteuse qui gagnait (§118.5, §118.138).
+          La SEULE frise de validation est désormais celle du circuit, juste en dessous, et
+          `lib/events/statut.ts` interdit au formulaire d'écrire un verdict. */}
 
       <Card>
         <CardHeader>
@@ -185,7 +177,6 @@ export default async function EventDetailPage({ params }: { params: { id: string
             canSubmit={canSubmit}
             workflow={workflow}
             pmCandidates={canDesignatePM ? pmCandidates : []}
-            canChooseAnalysis={canChooseAnalysis}
           />
           {(canManage || canMarketing || canValidate) && (
             <div className="mt-4 border-t border-border pt-3">
@@ -242,24 +233,4 @@ export default async function EventDetailPage({ params }: { params: { id: string
 
 function Info({ label, value }: { label: string; value: string | null | undefined }) {
   return <div><p className="text-xs text-muted-foreground">{label}</p><p className="font-medium">{value || "—"}</p></div>;
-}
-
-/** Frise du circuit de validation d'un événement, dérivée de son statut. */
-function eventValidationSteps(status: string): VStep[] {
-  if (status === "CANCELLED") {
-    return [
-      { label: "Brouillon", state: "done" },
-      { label: "Validation par la Direction", state: "rejected" },
-      { label: "Annulé", state: "rejected" },
-    ];
-  }
-  const cur = status === "DRAFT" ? 0 : status === "AWAITING_VALIDATION" ? 1 : 2; // VALIDATED et au-delà
-  const base = ["Brouillon", "En attente de validation (Direction)", "Validé"];
-  return base.map((label, i): VStep => {
-    let state: VStepState;
-    if (i < cur) state = "done";
-    else if (i > cur) state = "todo";
-    else state = i === 2 ? "done" : "current";
-    return { label, state };
-  });
 }

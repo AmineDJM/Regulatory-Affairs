@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
-import { canChooseAnalysisAtCreation, canDesignateProductManagerAtCreation } from "@/lib/workflow/origin";
+import { canDesignateProductManagerAtCreation } from "@/lib/workflow/origin";
 import { getAdProCreateData } from "@/lib/queries/ad-pro";
 import { sponsoringCreateFields } from "@/lib/ad-pro/create-fields";
 import { AVAILABLE_PRODUCT_STATUSES } from "@/lib/ad-pro/pickers";
@@ -31,11 +31,10 @@ export default async function SponsoringPage() {
   // formulaire réclame — spécialités et gamme déduite du demandeur comprises (§118.5).
   const data = await getAdProCreateData(user.id, ["SPONSORING"]);
   const canDesignatePM = canDesignateProductManagerAtCreation(user);
-  const canChooseAnalysis = canChooseAnalysisAtCreation(user);
 
   const fields = sponsoringCreateFields({
     productManagers: canDesignatePM ? data.productManagers : [],
-    canDesignatePM, canChooseAnalysis,
+    canDesignatePM,
     products: data.products,
     doctors: data.doctors,
     businessUnits: data.businessUnits,

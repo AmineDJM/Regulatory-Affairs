@@ -417,7 +417,12 @@ interface BatchCell {
   budget?: string;
 }
 
-const REQ_TYPES: AdminRequestType[] = ["TRAVEL", "MAIL", "SIGNATURE", "PURCHASE", "QUOTE", "PAYMENT", "DRIVER", "GUEST_VISA", "HR_SIMPLE", "OTHER"];
+/**
+ * LES TYPES QU'ON PEUT ENCORE CRÉER. `HR_SIMPLE` n'y est plus (§118.138) : les demandes RH se
+ * posent dans le module RH. La valeur reste dans l'énumération Prisma pour les demandes déjà
+ * posées — c'est la porte d'ENTRÉE qu'on ferme, pas l'historique.
+ */
+const REQ_TYPES: AdminRequestType[] = ["TRAVEL", "MAIL", "SIGNATURE", "PURCHASE", "QUOTE", "PAYMENT", "DRIVER", "GUEST_VISA", "OTHER"];
 const PRIORITIES: Priority[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
 
 /**

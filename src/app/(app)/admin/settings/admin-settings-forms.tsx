@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Loader2, Check, Megaphone, Search, Plus, X, RotateCcw, Eye, EyeOff } from "lucide-react";
-import { saveAppSettings, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegulatoryTherapeuticSegments, setRegulatoryHiddenColumns, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles, setPromoMessageAuthorRoles, setOrgChartViewers, setHiddenModules, setPipelineAccess, setDirectiveAccess } from "@/lib/actions/settings-actions";
+import { saveAppSettings, setAdProDgThreshold, setRegEnrollmentEnabled, setRegulatorySupervisorRoles, setRegulatoryTherapeuticSegments, setRegulatoryHiddenColumns, setDriveSpaceCreatorRoles, setFieldReportsOverviewRoles, setPromoMessageAuthorRoles, setOrgChartViewers, setHiddenModules, setPipelineAccess, setDirectiveAccess } from "@/lib/actions/settings-actions";
 import { describePipelineAudience } from "@/lib/regulatory/pipeline-access";
 import { describeDirectiveAccess } from "@/lib/directives/access";
 import { setRegIntelligenceEnabled } from "@/lib/regulatory/intelligence/actions";
@@ -49,6 +49,53 @@ export function AdminLimitsForm({ settings }: { settings: AppSettings }) {
         <Button type="submit" disabled={saving}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}
           {saved ? "Enregistré" : "Enregistrer les limites"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+
+/**
+ * LE SEUIL Ad & Pro AU-DELÀ DUQUEL LE DIRECTEUR GÉNÉRAL VALIDE (§118.138).
+ *
+ * Un seul champ, et c'est l'essentiel : le MÊME chiffre gouverne les quatre circuits
+ * configurables et le matériel promotionnel. La phrase le dit en toutes lettres — un réglage
+ * dont on ne sait pas ce qu'il touche ne se règle pas, il se laisse tel quel.
+ */
+export function AdProDgThresholdForm({ settings }: { settings: AppSettings }) {
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  return (
+    <form
+      action={async (fd) => {
+        setSaving(true); setError(null);
+        const r = await setAdProDgThreshold(fd);
+        setSaving(false);
+        if (r.ok) { setSaved(true); setTimeout(() => setSaved(false), 1500); }
+        else setError(r.error ?? "Échec.");
+      }}
+      className="space-y-3"
+    >
+      <div className="space-y-1">
+        <Label htmlFor="adProDgThreshold">Seuil de validation du Directeur Général (DZD)</Label>
+        <Input
+          id="adProDgThreshold" name="adProDgThreshold" type="number" min="0" step="1000"
+          defaultValue={settings.adProDgThreshold}
+        />
+        <p className="text-xs text-muted-foreground">
+          Au-delà de ce montant, le Directeur Général valide EN PLUS — sur les quatre circuits Ad &amp; Pro
+          (sponsoring, prises en charge nationales et internationales, événements) ET sur le matériel
+          promotionnel. En dessous, son étape est franchie automatiquement et tracée. <strong>0</strong> = aucune
+          validation du Directeur Général.
+        </p>
+      </div>
+      {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+      <div className="flex justify-end">
+        <Button type="submit" disabled={saving}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}
+          {saved ? "Enregistré" : "Enregistrer le seuil"}
         </Button>
       </div>
     </form>

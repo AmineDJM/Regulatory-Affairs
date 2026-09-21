@@ -1638,10 +1638,12 @@ export const MEDICAL_TABS: NavTab[] = [
   // AVANT l'annuaire : un engagement validé passe devant un référentiel qu'on consulte.
   { module: "MEDICAL", label: "Plan de tournée", href: "/medical/plan-de-tournee" },
   { module: "MEDICAL", label: "Annuaire", href: "/medical/annuaire" },
-  // LES ÉTABLISSEMENTS — le référentiel des hôpitaux. Il existait en base avec ses trois
-  // écritures et AUCUN écran : Adam pouvait en créer, personne devant un écran ne pouvait
-  // (§118.14). C'est aussi lui qui rend les secteurs de la force de vente possibles.
-  { module: "MEDICAL", label: "Établissements", href: "/medical/etablissements" },
+  // PLUS D'ONGLET « ÉTABLISSEMENTS » ICI (décision de la Direction, 09/2026 — §118.138) : « on
+  // les crée et on les gère depuis les Annuaires ». Le référentiel des hôpitaux ne vit donc plus
+  // qu'à UN endroit, Administration › Annuaires › Établissements. Deux portes vers le même
+  // référentiel n'était pas une fuite — les deux lisaient le même chargeur — mais c'était deux
+  // endroits où chercher, et la Direction a tranché lequel garder. `/medical/etablissements`
+  // REDIRIGE (les liens déjà envoyés restent valides).
 ];
 
 /**

@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { MODULES, getAccess, userCan, type SessionUser } from "@/lib/rbac";
-import { MODULE_LABELS, NAVIGATION, ANNUAIRES_TABS } from "@/lib/labels";
+import { MODULE_LABELS, NAVIGATION, ANNUAIRES_TABS, MEDICAL_TABS, ADMIN_REQUEST_TYPE } from "@/lib/labels";
+import { REQUEST_TYPES, fieldLabels } from "@/lib/admin-requests";
 import { SERVICE_DU_MODULE } from "@/lib/assistant/context/modules-domaines";
 import { visibleTabs } from "@/lib/nav-tabs";
 import { prisma } from "@/lib/prisma";
@@ -55,10 +56,15 @@ describe("Annuaires — le module et son entrée de menu", () => {
   });
 });
 
+/**
+ * L'ONGLET ÉTABLISSEMENTS DE PROMOTION MÉDICALE A ÉTÉ RETIRÉ (décision de la Direction, 09/2026
+ * — §118.138) : « on les crée et on les gère depuis les Annuaires ». Il n'y a donc plus DEUX
+ * portes vers ce référentiel, mais UNE — et sa paire a quitté la liste ci-dessous. Le cas
+ * dédié, plus bas, vérifie que l'ancienne adresse redirige au lieu de disparaître.
+ */
 describe("Annuaires — les deux portes lisent le même chargeur (point d'appel, §118.49)", () => {
   const cas: [string, string, string][] = [
     ["src/app/(app)/medical/annuaire/page.tsx", "src/app/(app)/annuaires/feuille-praticiens.tsx", "chargerFeuillePraticiens"],
-    ["src/app/(app)/medical/etablissements/page.tsx", "src/app/(app)/annuaires/etablissements/page.tsx", "chargerEtablissements"],
     ["src/app/(app)/mon-espace/annuaire/page.tsx", "src/app/(app)/annuaires/partenaires/page.tsx", "chargerPartenaires"],
     ["src/app/(app)/mon-espace/annuaire/page.tsx", "src/app/(app)/annuaires/personnes/page.tsx", "chargerPersonnes"],
   ];
@@ -104,5 +110,70 @@ suite("Annuaires — la porte est ouverte à tous, et n'ouvre rien de plus", () 
     const tabs = await visibleTabs(kam, ANNUAIRES_TABS);
     const visibles = tabs.filter((t) => t.show).map((t) => t.label);
     expect(visibles).toEqual(expect.arrayContaining(["Médecins", "Pharmaciens", "Établissements", "Partenaires", "Personnes"]));
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE RÉFÉRENTIEL DES ÉTABLISSEMENTS N'A PLUS QU'UN ÉCRAN (§118.138).
+ *
+ * « Dans Promotion médicale, enlève l'onglet des établissements, vu qu'on les crée et qu'on les
+ * gère depuis les Annuaires. » Chaque cas nomme ce qui le ferait tomber (§118.17).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("Établissements — un seul écran, et l'ancienne adresse REDIRIGE", () => {
+  it("l'onglet a quitté Promotion médicale, et il reste dans les Annuaires", () => {
+    // Ce qui le ferait tomber : le laisser dans `MEDICAL_TABS`. La Direction aurait demandé de
+    // retirer une porte et on en aurait gardé deux.
+    expect(MEDICAL_TABS.map((t) => t.label)).not.toContain("Établissements");
+    expect(ANNUAIRES_TABS.map((t) => t.label), "l'écran qui RESTE").toContain("Établissements");
+  });
+
+  it("`/medical/etablissements` REDIRIGE — les liens déjà envoyés restent valides", () => {
+    // Ce qui le ferait tomber : supprimer la page. Les notifications, favoris et liens collés
+    // en conversation tomberaient sur un 404, pour un écran qui existe deux dossiers plus loin.
+    const src = lire("src/app/(app)/medical/etablissements/page.tsx");
+    expect(src).toMatch(/redirect\("\/annuaires\/etablissements"\)/);
+    // LA GARDE RESTE POSÉE AVANT la redirection : sans elle, cette route serait un
+    // contournement de la porte qu'elle remplace.
+    expect(src, "la porte MEDICAL est vérifiée avant de rediriger").toMatch(/requireModule\("MEDICAL"\)[\s\S]*redirect\(/);
+  });
+
+  it("les liens d'Adam pointent vers l'écran QUI EXISTE, pas vers la redirection", () => {
+    // Un lien vers une redirection marche, mais il fait payer un aller-retour à chaque clic et
+    // il devient faux le jour où la redirection disparaît.
+    for (const f of ["src/lib/assistant/ops/impl-wave4b.ts", "src/lib/assistant/executive-read-tools.ts"]) {
+      const src = lire(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+      expect(src, `${f} ne doit plus lier /medical/etablissements`).not.toContain('"/medical/etablissements"');
+    }
+  });
+});
+
+/**
+ * LES DEMANDES RH ONT QUITTÉ LE BUREAU DU SECRÉTARIAT (§118.138) — la porte d'ENTRÉE, pas
+ * l'historique.
+ */
+describe("Bureau du secrétariat — plus de « Demande RH »", () => {
+  it("le catalogue de création ne la propose plus", () => {
+    // Une absence, un justificatif, une information RH se demandent dans le module RH, qui a
+    // ses circuits, ses pièces et ses droits.
+    expect(REQUEST_TYPES.map((t) => t.value)).not.toContain("HR_SIMPLE");
+  });
+
+  it("les chemins d'ÉCRITURE la refusent — écran ET conversation", () => {
+    // §118.71 : retirer la carte sans fermer l'action laisserait une porte ouverte à côté de la
+    // porte fermée, et Adam continuerait d'en créer.
+    for (const f of ["src/lib/actions/admin-request-actions.ts", "src/lib/assistant.ts"]) {
+      const src = lire(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+      expect(src, `${f} ne doit plus accepter HR_SIMPLE en création`).not.toContain('"HR_SIMPLE"');
+    }
+  });
+
+  it("MAIS le LIBELLÉ survit — les demandes déjà posées la portent", () => {
+    // Ce qui le ferait tomber : retirer l'entrée de `ADMIN_REQUEST_TYPE`. La fiche d'une
+    // demande d'archive afficherait « HR_SIMPLE » en clair. On ferme une porte, on ne réécrit
+    // pas l'histoire.
+    expect(ADMIN_REQUEST_TYPE.HR_SIMPLE).toBe("Demande RH");
+    expect(Object.keys(fieldLabels("HR_SIMPLE")).length, "et ses champs restent lisibles").toBeGreaterThan(0);
   });
 });

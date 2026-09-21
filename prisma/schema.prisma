@@ -6967,6 +6967,13 @@ model AppSetting {
   // (= somme des enveloppes actives). Réglé par le Super Admin.
   budgetTotalMode               String   @default("FLEXIBLE")
   budgetFixedTotal              Decimal  @default(0) @db.Decimal(14, 2)
+  /// SEUIL Ad & Pro AU-DELÀ DUQUEL LE DIRECTEUR GÉNÉRAL VALIDE EN PLUS (§118.138).
+  /// Décision de la Direction (09/2026) : « toutes les demandes Ad&Pro, matériel promotionnel
+  /// compris, passent par la validation du DG à partir de 1 000 000 DZD, mais ce seuil doit
+  /// pouvoir être configuré par le super admin. » UN seul chiffre, lu par les quatre circuits
+  /// configurables ET par le matériel promotionnel, qui n'a pas d'étapes en base : cinq copies
+  /// auraient divergé au premier ajustement (§118.5). 0 = aucune porte du DG.
+  adProDgThreshold              Decimal  @default(1000000) @db.Decimal(14, 2)
   // Onglet Regulatory « Enregistrement » (analyseur de dossier CTD) — masqué tant que
   // le Super Admin ne l'a pas débloqué.
   regEnrollmentEnabled          Boolean  @default(false)

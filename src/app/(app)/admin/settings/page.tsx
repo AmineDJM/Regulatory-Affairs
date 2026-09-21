@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { ROLE_LABELS } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminLimitsForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegulatoryTherapeuticSegmentsForm, RegulatoryHiddenColumnsForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, PromoMessageAuthorsForm, OrgChartViewersForm, HiddenModulesForm, PipelineAccessForm, DirectiveAccessForm } from "./admin-settings-forms";
+import { AdminLimitsForm, AdProDgThresholdForm, BroadcastComposer, MailDiagnosticPanel, RegEnrollmentToggle, RegIntelligenceToggles, RegulatorySupervisorForm, RegulatoryTherapeuticSegmentsForm, RegulatoryHiddenColumnsForm, DriveSpaceCreatorForm, FieldReportsOverviewForm, PromoMessageAuthorsForm, OrgChartViewersForm, HiddenModulesForm, PipelineAccessForm, DirectiveAccessForm } from "./admin-settings-forms";
 import { MODULES } from "@/lib/rbac";
 import { MODULE_LABELS } from "@/lib/labels";
 import { isHideable } from "@/lib/modules-visibility";
@@ -49,6 +49,16 @@ export default async function AdminSettingsPage() {
         </CardHeader>
         <CardContent>
           <AdminLimitsForm settings={settings} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4" /> Ad &amp; Pro — seuil de validation du Directeur Général</CardTitle>
+          <p className="text-sm text-muted-foreground">Le montant à partir duquel le Directeur Général valide en plus, sur TOUTES les demandes Ad &amp; Pro, matériel promotionnel compris. S&apos;applique immédiatement, y compris aux demandes en cours.</p>
+        </CardHeader>
+        <CardContent>
+          <AdProDgThresholdForm settings={settings} />
         </CardContent>
       </Card>
 

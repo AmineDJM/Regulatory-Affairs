@@ -545,7 +545,7 @@ export const MEDICAL_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Une couleur est une annotation PARTAGÉE de la feuille : tous ceux qui la voient la verront. Chaque ligne est revérifiée — une fiche hors de votre portée reste telle quelle."],
         args: { feuille, ids: ids.join(","), field, color: couleur ?? "" },
         successMessage: couleur ? `Cellule(s) colorée(s) en ${libelle.toLowerCase()}.` : "Couleur effacée.",
-        link: feuille === "praticiens" ? "/medical/annuaire" : "/medical/etablissements", revalidate: ["/medical"],
+        link: feuille === "praticiens" ? "/medical/annuaire" : "/annuaires/etablissements", revalidate: ["/medical", "/annuaires"],
       };
     },
     async execute(args) {

@@ -1,59 +1,34 @@
+import { redirect } from "next/navigation";
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
-import { INSTITUTION_TYPE, INSTITUTION_SECTOR, MEDICAL_TABS } from "@/lib/labels";
-import { PageHeader } from "@/components/shared/page-header";
-import { ModuleTabs } from "@/components/shared/module-tabs";
-import { visibleTabs } from "@/lib/nav-tabs";
-import { chargerEtablissements } from "@/lib/queries/annuaires";
-import { EtablissementsTable } from "./etablissements-table";
 
 export const dynamic = "force-dynamic";
 
 /**
- * ÉTABLISSEMENTS — l'annuaire des hôpitaux, cliniques et cabinets.
+ * `/medical/etablissements` N'EST PLUS UN ÉCRAN — c'est une REDIRECTION.
  *
- * `MedicalInstitution` et ses trois écritures existaient depuis toujours ; leurs seuls
- * importeurs étaient `assistant.ts` et le catalogue d'ops — Adam savait s'en servir, AUCUN écran
- * ne le pouvait (§118.14). C'est cette porte-là.
+ * Décision de la Direction (09/2026) : « Dans Promotion médicale, enlève l'onglet des
+ * établissements, vu qu'on les crée et qu'on les gère depuis les Annuaires. » L'onglet a donc
+ * quitté `MEDICAL_TABS` et le référentiel ne vit plus qu'à UN endroit — Administration ›
+ * Annuaires › Établissements, où il est édité, coloré et rattaché aux secteurs.
  *
- * ── PORTÉE : LE RÉFÉRENTIEL N'EST PAS CLOISONNÉ, ET C'EST DÉJÀ TRANCHÉ ─────────────────────
+ * ── POURQUOI LA ROUTE SURVIT ────────────────────────────────────────────────────────────
  *
- * `MedicalInstitution` n'a AUCUNE fonction de portée dans `rbac.ts`, et les huit lecteurs du
- * dépôt l'interrogent sans clause (recherche globale, fabric d'entités, bénéficiaires de
- * congrès, `getMedicalData`). C'est un référentiel d'ÉTABLISSEMENTS, comme les spécialités : le
- * nom d'un CHU n'est pas une donnée confidentielle. En inventer une portée ICI donnerait une
- * troisième vérité qui divergerait des huit autres (§118.5, §118.85).
+ * Elle vit dans des favoris, dans des notifications déjà envoyées et dans des liens collés en
+ * conversation — c'est exactement la raison pour laquelle `/medical` est déjà un aiguillage et
+ * pas une page. Un lien écrit il y a six mois reste valide, sans qu'on ait rien à réécrire.
  *
- * Ce qui EST cloisonné, ce sont les PRATICIENS : le compte affiché par établissement se calcule
- * donc dans la portée de la personne (`scopeMedicalDoctors`) — dans le chargeur partagé avec le
- * module « Annuaires » (`lib/queries/annuaires.ts`), pour que les deux écrans comptent pareil.
+ * ── ET POURQUOI CE N'EST PAS UNE PERTE D'ACCÈS ──────────────────────────────────────────
+ *
+ * Mesuré avant de rediriger : le module `DIRECTORIES` est accordé IMPLICITEMENT à tout le monde
+ * (`rbac.ts` : « Annuaires est une porte, pas un droit »), et l'onglet Établissements du
+ * concentrateur est gardé par `MEDICAL:VIEW` — exactement la porte qui gardait celui-ci.
+ * Personne ne perd donc rien ; sans cette mesure, la redirection aurait pu fermer l'écran à qui
+ * l'utilisait (§118.27).
+ *
+ * La garde reste posée ICI, avant la redirection : renvoyer sans vérifier ferait de cette route
+ * un contournement de la porte qu'elle remplace.
  */
-export default async function EtablissementsPage() {
-  const user = await requireModule("MEDICAL");
-  const canCreate = userCan(user, "MEDICAL", "CREATE");
-  const canEdit = userCan(user, "MEDICAL", "UPDATE");
-  const canDelete = userCan(user, "MEDICAL", "DELETE");
-
-  const feuille = await chargerEtablissements(user);
-
-  return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Établissements"
-        description="CHU, EPH, EHS, cliniques, polycliniques, cabinets — le référentiel auquel se rattachent les praticiens et sur lequel se découpent les secteurs de la force de vente."
-      />
-      <ModuleTabs tabs={await visibleTabs(user, MEDICAL_TABS)} />
-      <EtablissementsTable
-        rows={feuille.rows}
-        couleurs={feuille.couleurs}
-        // Les libellés viennent du référentiel commun : les réécrire ici en ferait deux jeux de
-        // mots pour un seul énuméré, qui divergent à la première retouche (§118.5).
-        types={Object.entries(INSTITUTION_TYPE).map(([value, label]) => ({ value, label }))}
-        sectors={Object.entries(INSTITUTION_SECTOR).map(([value, d]) => ({ value, label: d.label }))}
-        canCreate={canCreate}
-        canEdit={canEdit}
-        canDelete={canDelete}
-      />
-    </div>
-  );
+export default async function EtablissementsRedirectPage() {
+  await requireModule("MEDICAL");
+  redirect("/annuaires/etablissements");
 }

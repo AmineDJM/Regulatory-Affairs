@@ -1403,7 +1403,7 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
       properties: {
         type: {
           type: "string",
-          enum: ["TRAVEL", "MAIL", "SIGNATURE", "PURCHASE", "QUOTE", "PAYMENT", "DRIVER", "GUEST_VISA", "HR_SIMPLE", "OTHER"],
+          enum: ["TRAVEL", "MAIL", "SIGNATURE", "PURCHASE", "QUOTE", "PAYMENT", "DRIVER", "GUEST_VISA", "OTHER"],
         },
         title: { type: "string", description: "Titre court de la demande." },
         description: { type: "string", description: "Tous les détails (passager, trajet, montant estimé…)." },
@@ -3150,7 +3150,8 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
 
   if (toolName === "create_admin_request") {
     const type = asStr(input, "type").toUpperCase();
-    const validTypes = ["TRAVEL", "MAIL", "SIGNATURE", "PURCHASE", "QUOTE", "PAYMENT", "DRIVER", "GUEST_VISA", "HR_SIMPLE", "OTHER"];
+    // Plus de `HR_SIMPLE` : une demande RH se pose dans le module RH (§118.138).
+    const validTypes = ["TRAVEL", "MAIL", "SIGNATURE", "PURCHASE", "QUOTE", "PAYMENT", "DRIVER", "GUEST_VISA", "OTHER"];
     const title = asStr(input, "title");
     if (!validTypes.includes(type)) return { error: "Type de demande invalide." };
     if (!title) return { error: "Titre de demande manquant." };
@@ -6575,7 +6576,8 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
 
   if (payload?.kind === "create_admin_request") {
     if (!userCan(user, "ADMIN_REQUESTS", "CREATE")) return { ok: false, error: "Vous n'avez pas le droit de créer une demande administrative." };
-    const validTypes: AdminRequestType[] = ["TRAVEL", "MAIL", "SIGNATURE", "PURCHASE", "QUOTE", "PAYMENT", "DRIVER", "GUEST_VISA", "HR_SIMPLE", "OTHER"];
+    // Plus de `HR_SIMPLE` : une demande RH se pose dans le module RH (§118.138).
+    const validTypes: AdminRequestType[] = ["TRAVEL", "MAIL", "SIGNATURE", "PURCHASE", "QUOTE", "PAYMENT", "DRIVER", "GUEST_VISA", "OTHER"];
     const type = (payload.type ?? "").toUpperCase() as AdminRequestType;
     const title = (payload.title ?? "").trim();
     if (!validTypes.includes(type)) return { ok: false, error: "Type de demande invalide." };

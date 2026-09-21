@@ -1,37 +1,39 @@
 import type { StepInput, WorkflowCategory } from "./types";
 import { CATEGORY_LABELS } from "./types";
-import { ROLE_DIRECTION_MARKETING, SLUG_DIRECTION, SLUG_MARKETING, SLUG_PRELIMINAIRE } from "./parcours";
+import {
+  ROLE_DIRECTION_MARKETING,
+  SLUG_DG, SLUG_DIRECTION, SLUG_MARKETING, SLUG_PRELIMINAIRE,
+} from "./parcours";
 
 /**
- * Définitions **par défaut** du circuit Ad & Pro : préliminaire National Sales → arbitrage et
- * budget de Direction Marketing → validation définitive de la Direction. Semées à la volée
- * (lazy) si aucune définition n'existe pour la catégorie ; le Super Admin peut ensuite tout
- * modifier depuis Administration.
+ * Définitions **par défaut** du circuit Ad & Pro : préliminaire National Sales → porte du
+ * Directeur Général (au-delà du seuil) → validation de la Direction → **décision et budget de
+ * Direction Marketing**, qui TRANCHE. Semées à la volée (lazy) si aucune définition n'existe
+ * pour la catégorie ; le Super Admin peut ensuite tout modifier depuis Administration.
  *
  * ── CE QUE CETTE GRAINE NE FAIT PAS, ET C'EST ESSENTIEL ─────────────────────────────────
  *
- * Elle ne s'applique QUE là où rien n'existe. Les quatre définitions déjà en base ne sont pas
+ * Elle ne s'applique QUE là où rien n'existe. Les définitions déjà en base ne sont pas
  * réécrites — c'est ce qui protège les circuits que le Super Admin a remodelés. La bascule de
- * l'existant vers Direction Marketing est donc une MIGRATION
- * (`20261106090000_adpro_direction_marketing`), pas un changement de graine : changer la graine
- * seule aurait laissé la production sur l'ancien circuit, en silence.
+ * l'existant vers le nouvel ordre est donc une MIGRATION
+ * (`20260921120000_adpro_ordre_marketing_final`), pas un changement de graine : changer la
+ * graine seule aurait laissé la production sur l'ancien circuit, en silence (§118.107).
  *
- * ── LES DEUX PARCOURS, ET POURQUOI TROIS ÉTAPES SUFFISENT ───────────────────────────────
+ * ── LES PARCOURS, ET POURQUOI QUATRE ÉTAPES SUFFISENT ───────────────────────────────────
  *
- * Une demande de KAM parcourt les étapes 1 → 2 (Direction Marketing tranche) ; celle de tout
- * autre demandeur, 2 → 3 (la Direction tranche). Deux tranches CONTIGUËS d'une seule colonne
- * vertébrale : `parcours.ts` porte les bornes, la définition reste unique. Deux définitions
- * auraient divergé au premier réglage (§118.5).
+ * Chaque chaîne est une tranche CONTIGUË de cette colonne vertébrale : `parcours.ts` porte les
+ * deux bornes, la définition reste unique. Deux définitions auraient divergé au premier réglage
+ * (§118.5).
  */
 
-/** Les trois étapes « colonne vertébrale » communes aux 4 catégories. */
+/** Les quatre étapes « colonne vertébrale » communes aux 4 catégories. */
 function defaultSpine(): StepInput[] {
   return [
     {
       slug: SLUG_PRELIMINAIRE,
       title: "Approbation préliminaire (National Sales)",
       description:
-        "Le National Sales approuve ou refuse la demande de son KAM avant qu'elle n'atteigne Direction Marketing.",
+        "Le National Sales approuve ou refuse la demande de son KAM avant qu'elle n'entre dans la chaîne de validation.",
       actorScope: "ROLE",
       actorRoles: ["NATIONAL_SALES"],
       // PLUS DE DÉSIGNATION : l'étape suivante est portée par un RÔLE et non par une personne
@@ -42,40 +44,57 @@ function defaultSpine(): StepInput[] {
       legacyStatus: "AWAITING_PRELIMINARY",
     },
     {
-      slug: SLUG_MARKETING,
-      title: "Arbitrage et budget (Direction Marketing)",
+      slug: SLUG_DG,
+      title: "Validation du Directeur Général (grosses dépenses)",
       description:
-        "Direction Marketing arbitre la demande : montant accordé + (sous-)catégorie budgétaire obligatoires. "
-        + "Avis confidentiel tant que la Direction n'a pas tranché ; pour une demande de KAM, c'est ICI que la "
-        + "décision est prise et le budget accordé devient visible du demandeur.",
-      // UNE DIRECTION, PAS UNE PERSONNE DÉSIGNÉE. Le parcours de tout demandeur non-KAM
-      // COMMENCE à cette étape : une portée `ASSIGNEE` y laisserait une demande que personne ne
-      // peut faire avancer, morte à sa première étape et sans une seule ligne d'échec.
+        // LE CHIFFRE NE S'ÉCRIT PAS ICI : il vit dans les réglages, et le recopier dans une
+        // description figerait la valeur du jour du semis dans un texte que personne ne penserait
+        // à corriger — une seconde vérité, en prose (§118.5, §118.116).
+        "Au-delà du seuil réglé en Administration › Réglages, le Directeur Général valide en plus. "
+        + "En dessous, l'étape est franchie automatiquement et tracée — personne n'a rien à faire. "
+        + "Un « Seuil DZD » écrit sur cette étape l'emporte pour ce circuit.",
+      actorScope: "ROLE",
+      actorRoles: ["GENERAL_MANAGER"],
+      powers: ["APPROVE", "REJECT", "COMMENT"],
+      // PAS de seuil écrit ici : le seuil GLOBAL des réglages gouverne cette étape (voir
+      // `seuilFranchissement`). L'y recopier en ferait une seconde vérité, figée au jour du
+      // semis, que personne ne penserait à remettre à jour (§118.5).
+      autoSkipMaxAmount: null,
+      notifyRoles: ["GENERAL_MANAGER", "SUPER_ADMIN"],
+      legacyStatus: "PRELIMINARY_APPROVED",
+    },
+    {
+      slug: SLUG_DIRECTION,
+      title: "Validation (Direction des opérations)",
+      description:
+        "La Direction donne son accord sur l'opération. Le montant et la sous-catégorie budgétaire ne se "
+        + "décident PAS ici : ils appartiennent à Direction Marketing, qui tranche ensuite.",
+      actorScope: "GLOBAL_VIEW",
+      actorRoles: ["DIRECTION"],
+      powers: ["APPROVE", "REJECT", "COMMENT"],
+      notifyRoles: ["DIRECTION", "SUPER_ADMIN"],
+      legacyStatus: "PRELIMINARY_APPROVED",
+    },
+    {
+      slug: SLUG_MARKETING,
+      title: "Décision et budget (Direction Marketing)",
+      description:
+        "Direction Marketing TRANCHE : montant accordé + (sous-)catégorie budgétaire obligatoires. "
+        + "Sa décision est définitive et lance l'information médicale (PRIM) puis l'ordre de dépense.",
+      // UNE DIRECTION, PAS UNE PERSONNE DÉSIGNÉE. Une portée `ASSIGNEE` laisserait une demande
+      // que personne ne peut faire avancer, morte à son étape décisive et sans une seule ligne
+      // d'échec.
       actorScope: "ROLE",
       actorRoles: [ROLE_DIRECTION_MARKETING],
       powers: ["APPROVE", "REJECT", "SET_AMOUNT", "SET_CATEGORY", "COMMENT"],
       requireAmount: true,
       requireCategory: true,
-      notifyRoles: [ROLE_DIRECTION_MARKETING],
-      // Confidentiel TANT QUE ce n'est pas cette étape qui tranche : quand elle tranche (demande
-      // de KAM), sa décision EST la décision, et un budget accordé se lit (voir `parcours.ts`).
-      confidential: true,
-      legacyStatus: "PRELIMINARY_APPROVED",
-    },
-    {
-      slug: SLUG_DIRECTION,
-      title: "Validation définitive (Direction)",
-      description:
-        "La Direction tranche : accord ou refus sur le budget arbitré par Direction Marketing. La validation "
-        + "lance l'information médicale (PRIM) puis l'ordre de dépense.",
-      actorScope: "GLOBAL_VIEW",
-      actorRoles: ["DIRECTION"],
-      // LE BUDGET N'EST PLUS ICI. La Direction accorde ou refuse ce que Direction Marketing a
-      // arbitré ; le montant accordé est celui de l'instance, et l'émission le lit là.
-      powers: ["APPROVE", "REJECT", "COMMENT"],
+      notifyRoles: [ROLE_DIRECTION_MARKETING, "SUPER_ADMIN"],
+      // PLUS CONFIDENTIEL : cette étape ne rend plus un AVIS en attente d'une décision d'en
+      // haut, elle EST la décision. Un budget accordé se lit par celui à qui on l'accorde.
+      confidential: false,
       emitDeclaration: true,
       emitExpenseOrder: true,
-      notifyRoles: ["DIRECTION", "SUPER_ADMIN"],
       legacyStatus: "AWAITING_FINAL",
     },
   ];
