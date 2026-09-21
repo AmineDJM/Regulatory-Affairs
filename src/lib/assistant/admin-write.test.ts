@@ -138,7 +138,20 @@ describe("rendu — ce que l'on lit sur la carte de confirmation", () => {
   });
 
   it("les codes sont traduits quand on donne les libellés", () => {
-    expect(renderSettingValue(["DIRECTION"], ROLE_LABELS)).toBe("Direction");
+    // « Direction des opérations » depuis la décision de la Direction (09/2026). Le libellé est
+    // lu sur `ROLE_LABELS`, donc le cas suit un renommage sans qu'on y pense ; on l'écrit en
+    // clair parce que c'est ce qu'une personne LIT sur la carte de confirmation.
+    expect(renderSettingValue(["DIRECTION"], ROLE_LABELS)).toBe("Direction des opérations");
+  });
+
+  it("un rôle se désigne encore par son CODE, que le libellé ait changé ou non", () => {
+    // MESURÉ avant de renommer : `resolveByLabel` normalise le code AUTANT que le libellé, donc
+    // « Direction » (le mot que le dirigeant emploie à l'oral) continue de résoudre par le code
+    // `DIRECTION`. Sans cette propriété, rallonger un libellé aurait fermé en silence la façon
+    // la plus courante de nommer ce service — un refus à tort, plus coûteux que le défaut
+    // qu'on corrigeait (§118.27). Ce qui le ferait tomber : restreindre la résolution au libellé.
+    expect(parseSettingValue("regulatorySupervisorRoles", "Direction", ctx)).toEqual({ ok: true, value: ["DIRECTION"] });
+    expect(parseSettingValue("regulatorySupervisorRoles", "Direction des opérations", ctx)).toEqual({ ok: true, value: ["DIRECTION"] });
   });
 
   it("un changement se lit « avant → après »", () => {

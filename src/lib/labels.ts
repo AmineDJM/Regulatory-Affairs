@@ -20,10 +20,16 @@ interface Display {
 
 export const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: "Super Admin",
-  // « Direction » tout court : le libellé disait « Direction des opérations », or le Directeur
-  // des Opérations est désormais un rôle à part — deux entrées portant le même nom dans un menu
-  // déroulant de rôles, c'est la garantie d'attribuer le mauvais.
-  DIRECTION: "Direction",
+  // « DIRECTION DES OPÉRATIONS » — rétabli sur décision de la Direction (09/2026). Le libellé
+  // avait été raccourci en « Direction » par crainte d'une confusion avec le Directeur des
+  // Opérations, devenu un rôle à part. La crainte était fondée et le remède était trop large :
+  // ce sont DEUX vocabulaires, jamais confondus (§118.112a) — « Direction des opérations » nomme
+  // un SERVICE, « Directeur des Opérations » nomme une PERSONNE, et c'est le service qui tranche
+  // les demandes Ad&Pro. Ce qui protège désormais du doublon n'est pas un libellé amputé mais un
+  // FAIT vérifié : `role-labels.test.ts` exige que les 19 libellés soient distincts deux à deux,
+  // y compris après normalisation (casse, accents, espaces). Une garde mesurée vaut mieux qu'un
+  // mot qu'on rogne — le mot rogné, lui, ne disait plus ce que le métier appelle ce service.
+  DIRECTION: "Direction des opérations",
   GENERAL_MANAGER: "Directeur Général",
   OPERATIONS_DIRECTOR: "Directeur des Opérations",
   HEAD_OF_REGULATORY: "Responsable Réglementaire",

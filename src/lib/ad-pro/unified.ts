@@ -15,8 +15,10 @@
  * Ce que ce module apporte : un vocabulaire commun (l'ÉTAT d'une demande, quelle que soit sa
  * nature) et la liste unifiée. Chaque ligne renvoie vers son écran d'origine, qui reste maître.
  *
- * Module PUR — testé.
+ * Module PUR — testé. Le seul import est un import de TYPE (effacé à la compilation).
  */
+
+import type { Module } from "@/lib/rbac";
 
 export type AdProKind =
   | "SPONSORING" | "CONGRESS_INTERNATIONAL" | "CONGRESS_NATIONAL" | "EVENT" | "PROMO_MATERIAL"
@@ -61,8 +63,16 @@ export interface KindSpec {
    * rafraîchissement ne rouvre pas le formulaire sans fin.
    */
   createHref: string;
-  /** Module RBAC qui gouverne cette nature. */
-  module: string;
+  /**
+   * Module RBAC qui gouverne cette nature.
+   *
+   * TYPÉ `Module` et non `string` : c'est ce qui fait de cette liste le registre canonique du
+   * pôle Ad & Pro — un nom de module mal orthographié ne compile plus, et le cliquet de
+   * permissions (`pole.test.ts`) peut s'y adosser sans redériver la liste ailleurs (§118.5).
+   * L'import de TYPE est effacé à la compilation : ce module reste PUR, et `lib/rbac` est au
+   * SOCLE, donc un domaine qui le lit ne traverse aucune frontière (`domains.ts`).
+   */
+  module: Module;
 }
 
 export const AD_PRO_KINDS: KindSpec[] = [

@@ -5464,6 +5464,60 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 ## 🧾 Journal des évolutions récentes
 
+### Ad & PRO — LE SERVICE REPREND SON NOM, ET LE PÔLE ENTIER PASSE À LA DIRECTION MARKETING (2026-09)
+
+**Trois corrections de la Direction** sur le lot précédent : « transforme Direction en **Direction des
+opérations** » ; « **Direction Marketing reçoit la gestion de Ad&Pro**, pas que sponsoring et matériel
+promotionnel » ; « je vois toujours établissements dans promotion médicale ».
+
+**LE LIBELLÉ ROGNÉ ÉTAIT UNE GARDE QUE PERSONNE NE TENAIT.** `DIRECTION` s'affichait « Direction » tout court : le
+libellé avait été raccourci par crainte d'une confusion avec `OPERATIONS_DIRECTOR` (« Directeur des Opérations »),
+devenu un rôle à part. La crainte était fondée — deux entrées de même nom dans un menu déroulant de rôles sont la
+garantie d'attribuer le mauvais — et le remède était un **mot amputé**, c'est-à-dire rien du tout : aucun code ne
+vérifiait l'unicité, et le mot ne disait plus ce que le métier appelle ce service. Le libellé est rétabli, et ce qui
+protège désormais est un FAIT vérifié à chaque `npm test` (`src/lib/role-labels.test.ts`) : les **19 libellés** sont
+distincts deux à deux après normalisation (casse, accents, espaces), et **chacun des 19 rôles** de l'énumération en
+porte un — deux questions, deux assertions, parce qu'une garde qui n'exige que l'unicité laisserait un rôle
+s'afficher sous son nom d'énumération. « Direction des opérations » nomme un **service**, « Directeur des
+Opérations » nomme une **personne** : deux vocabulaires, jamais confondus.
+
+Vérifié avant de renommer plutôt que supposé : `resolveByLabel` normalise le **code** autant que le libellé, donc
+« Direction » — le mot que le dirigeant emploie à l'oral — continue de résoudre vers `DIRECTION` dans la
+conversation. Rallonger un libellé n'a fermé aucune façon de nommer ce service.
+
+**LA MOITIÉ DU PÔLE MANQUAIT À CELLE QUI LE TRANCHE.** Le pôle Ad & Pro compte **sept** natures ; la Direction
+Marketing n'en avait que cinq (`SPONSORING`, `CONGRESS_INTERNATIONAL`, `CONGRESS_NATIONAL`, `EVENTS`,
+`PROMO_MATERIAL`). `CONSULTING` et `AD_PRO_OTHER` lui étaient fermés — elle décidait donc de demandes qu'elle ne
+pouvait pas ouvrir, et le ciblage des notifications (`rolesWithModule`) ne la trouvait pas dessus. Les sept modules
+sont désormais à elle en **MANAGE**.
+
+Réparer deux modules à la main ne protège pas le huitième. Le cliquet s'arme donc sur le **registre canonique** des
+natures (`AD_PRO_KINDS` de `src/lib/ad-pro/unified.ts`), l'endroit où toutes les instances passent :
+`src/lib/ad-pro/pole.test.ts` exige que chaque module nommé par ce registre soit ouvert à la Direction Marketing en
+VIEW / CREATE / UPDATE / VALIDATE, **et nomme le module fautif**. La permission reste **écrite** dans `rbac.ts`
+comme pour tous les autres rôles — la dériver accorderait MANAGE sur une huitième nature dont personne n'aurait
+décidé, et le socle n'a de toute façon pas le droit de lire `lib/ad-pro/`. Au passage, `KindSpec.module` est typé
+`Module` au lieu de `string` : un nom de module mal orthographié dans le registre ne compile plus.
+
+**« JE VOIS TOUJOURS ÉTABLISSEMENTS » — MESURÉ, ET CE N'EST PAS UN SECOND ONGLET.** `MEDICAL_TABS` est la **seule**
+source de cet onglet (trois pages la lisent, `/medical` n'est qu'une redirection), et l'onglet en est retiré depuis
+le lot précédent. L'onglet visible est celui de la version **déployée** : la branche de déploiement portait encore
+le commit d'avant. Le référentiel des hôpitaux ne vit qu'à un endroit — Administration › Annuaires ›
+Établissements — et `/medical/etablissements` redirige, pour que les liens déjà envoyés restent valides.
+
+**Vérification** : typecheck propre · `npm test` vert · build propre depuis un dossier vide · artefact des contrats
+d'action régénéré et **identique** (746 actions, 722 appelables, 24 illisibles) · **13 sabotages, 13 chutes**,
+chacune sur son témoin nommé.
+
+Deux enseignements de méthode, tous deux payés dans ce lot. **Un sabotage se vérifie comme une réparation** : deux
+de mes sabotages sont passés au vert et la cause n'était pas le code — `str.replace(motif, …, 1)` frappait la
+**première** occurrence du fichier, c'est-à-dire la ligne d'un AUTRE rôle, et `PRODUCT_MANAGER` n'était jamais
+touché. Ancrés dans le bon bloc, les deux tombent. **Et une normalisation qu'on ne peut pas exercer n'est pas une
+assertion** : mesuré, les 19 libellés d'aujourd'hui sont distincts avec comme sans normalisation, donc la retirer du
+cliquet ne l'aurait pas fait tomber. Elle est désormais exercée sur des paires construites, et le dire valait mieux
+que de laisser croire à une vérification qui n'avait pas eu lieu.
+
+
 ### Ad & PRO — L'ORDRE S'INVERSE, DIRECTION MARKETING TRANCHE, ET LE DG GARDE LES GROSSES DÉPENSES (2026-09)
 
 **Ce que la Direction a tranché**, en cinq phrases : « la section événement doit être comme sponsoring en terme de

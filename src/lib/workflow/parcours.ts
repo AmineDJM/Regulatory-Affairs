@@ -14,16 +14,22 @@
  *     préliminaire (National Sales)  →  DG (au-delà du seuil)  →  Direction  →  DIRECTION
  *     MARKETING, qui TRANCHE, fixe le montant accordé et choisit la sous-catégorie budgétaire.
  *
- * ── POURQUOI « DIRECTION DES OPÉRATIONS » EST LE RÔLE `DIRECTION` ET NON `OPERATIONS_DIRECTOR`
+ * ── « DIRECTION DES OPÉRATIONS » EST LE RÔLE `DIRECTION` — LECTURE CONFIRMÉE ────────────
  *
- * La demande dit « pas l'inverse comme c'est le cas now » : elle décrit un ÉCHANGE entre les
- * deux étapes qui existent, pas l'insertion d'un acteur nouveau. Et le libellé du rôle
- * `DIRECTION` était littéralement « Direction des opérations » jusqu'à ce que le Directeur des
- * Opérations devienne un rôle à part (voir `labels.ts`) : c'est le vocabulaire de la maison.
- * L'autre lecture — le rôle `OPERATIONS_DIRECTOR` — exigerait de lui OUVRIR les modules Ad & Pro,
- * qu'il n'a pas du tout aujourd'hui : une décision de PERMISSION, qui appartient à la Direction
- * et pas à un lot de code (§118.86). Si c'était bien elle qui était voulue, il suffit d'ajouter
- * `OPERATIONS_DIRECTOR` aux `actorRoles` de l'étape `final` — un réglage, pas une réécriture.
+ * Cette lecture était une DÉDUCTION lors du premier lot, et elle a été soumise à la Direction en
+ * nommant le réglage d'une ligne qui la retournerait. La Direction a répondu « transforme
+ * Direction en Direction des opérations » : c'est le rôle `DIRECTION` qu'elle désigne, et son
+ * libellé a été rétabli en conséquence (`labels.ts`, `role-labels.test.ts`). La déduction
+ * d'origine tenait sur deux faits — « pas l'inverse comme c'est le cas now » décrit un ÉCHANGE
+ * entre les deux étapes existantes et non l'insertion d'un acteur, et le libellé de ce rôle était
+ * littéralement « Direction des opérations » avant d'être raccourci.
+ *
+ * Ce que l'autre lecture aurait coûté reste écrit, parce qu'il faudra le savoir si la Direction
+ * change d'avis : le rôle `OPERATIONS_DIRECTOR` n'a AUCUN module Ad & Pro, donc le choisir
+ * exigerait de lui en ouvrir — une décision de PERMISSION, qui appartient à la Direction et pas à
+ * un lot de code (§118.86). Le geste serait alors d'ajouter `OPERATIONS_DIRECTOR` aux
+ * `actorRoles` de l'étape `final` ET de lui accorder les modules du pôle : un réglage et une
+ * décision, pas une réécriture.
  *
  * ── POURQUOI CE MODULE EXISTE, ET POURQUOI IL EST PUR ───────────────────────────────────
  *

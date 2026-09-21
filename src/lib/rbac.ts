@@ -214,8 +214,24 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   // `PROMO_MATERIAL` sont donc ouverts : sans eux elle ne peut pas même OUVRIR la demande
   // qu'on lui demande de décider, et le circuit s'arrêterait sur une étape que son unique
   // titulaire ne voit pas. C'est une décision de PERMISSION, nommée ici pour être relue.
+  // DIRECTION MARKETING — LE PÔLE Ad & Pro EN ENTIER (décision de la Direction, 09/2026).
+  //
+  // « Direction marketing reçoit la gestion de Ad&Pro, pas que sponsoring et matériel
+  // promotionnel » : elle TRANCHE désormais toute demande Ad&Pro et choisit la sous-catégorie
+  // budgétaire, donc lui ouvrir cinq natures sur sept lui donnait un pouvoir de décision sur des
+  // demandes qu'elle ne pouvait pas ouvrir. `CONSULTING` et `AD_PRO_OTHER` manquaient.
+  //
+  // Les sept modules sont ÉCRITS ici, comme pour tous les autres rôles — une permission est une
+  // DÉCISION, jamais une dérivation (§118.130) : dériver depuis `AD_PRO_KINDS` accorderait MANAGE
+  // sur une huitième nature dont personne n'aurait décidé. Ce qui empêche l'omission de repasser
+  // en silence (§118.73) est un CLIQUET armé sur le registre canonique : `ad-pro/pole.test.ts`
+  // exige que l'ensemble des modules nommés par `AD_PRO_KINDS` soit exactement celui accordé ici,
+  // et il nomme le module fautif. Le socle ne peut pas lire `lib/ad-pro/` (ce serait une fuite de
+  // socle, `domains.ts`) — le test, lui, a le droit, et c'est le bon endroit pour le constat.
   PRODUCT_MANAGER: {
-    WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, SPONSORING: MANAGE, CONGRESS_INTERNATIONAL: MANAGE, CONGRESS_NATIONAL: MANAGE, EVENTS: MANAGE, PROMO_MATERIAL: MANAGE, MEDICAL: READ, FIELD_REPORTS: READ, BUDGETS: READ, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
+    WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER,
+    SPONSORING: MANAGE, CONGRESS_INTERNATIONAL: MANAGE, CONGRESS_NATIONAL: MANAGE, EVENTS: MANAGE, PROMO_MATERIAL: MANAGE, CONSULTING: MANAGE, AD_PRO_OTHER: MANAGE,
+    MEDICAL: READ, FIELD_REPORTS: READ, BUDGETS: READ, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
   },
   BUSINESS_DEVELOPMENT_MANAGER: {
     WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, BUSINESS_DEVELOPMENT: MANAGE, PRODUCT_EXPLORER: MANAGE, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
