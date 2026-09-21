@@ -1322,6 +1322,7 @@ model User {
   businessEvents             BusinessEvent[]          @relation("BusinessEventActor")
   productAliases             ProductAlias[]           @relation("ProductAliasAuthor")
   productAssignments         ProductAssignment[]      @relation("ProductAssignmentUser")
+  adProGateVisas             AdProGateVisa[]          @relation("adProGateVisaDecidedBy")
 
   @@index([role])
   @@index([departmentId])
@@ -3891,11 +3892,11 @@ model MedicalInstitution {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
-  doctors MedicalDoctor[]
+  doctors       MedicalDoctor[]
   /// LES SECTEURS COMMERCIAUX qui couvrent cet établissement.
-  sectors SalesSectorInstitution[]
+  sectors       SalesSectorInstitution[]
   /// Les couleurs posées sur ses cellules dans la feuille des établissements (§118.133).
-  cellStyles DirectoryCellStyle[]
+  cellStyles    DirectoryCellStyle[]
   /// SON LIEU DE STOCK, quand des relevés le visent (§118.134) — au plus un.
   stockLocation StockAnnex?
 
@@ -6943,12 +6944,12 @@ model DeletedRecord {
 }
 
 model AppSetting {
-  id                            String   @id @default("global")
+  id                            String    @id @default("global")
   /// ARRÊT D'URGENCE DES ACTIONS EXTERNES DE L'IA. Vrai = plus AUCUNE action de l'assistant qui
   /// touche le monde réel (messages, e-mails, tâches pour autrui, mutations métier, relances
   /// planifiées) — même confirmée. Les lectures, analyses et rappels pour soi continuent.
   /// Réglé par le Super Admin (écran Réglages ou update_platform_setting).
-  aiExternalActionsDisabled     Boolean  @default(false)
+  aiExternalActionsDisabled     Boolean   @default(false)
   /// SUSPENSION GLOBALE DES MISSIONS D'ADAM (§118.132). Vrai = AUCUNE mission d'exécution
   /// n'avance, ne se replanifie, ne se lance ni ne notifie — pour tout le monde, jusqu'à la
   /// levée. Ce n'est pas `PAUSED` posé sur chaque mission : c'est un interrupteur du MOTEUR,
@@ -6956,56 +6957,56 @@ model AppSetting {
   /// missions repartent exactement où elles en étaient — rien n'a été touché.
   /// Posé depuis l'écran des réglages d'Adam ou par le geste RÉDUCTEUR de `mission_control` ;
   /// LEVÉ depuis l'écran seulement (§118.15 : Adam ne relève pas ses propres barrières).
-  missionsPaused                Boolean  @default(false)
+  missionsPaused                Boolean   @default(false)
   missionsPausedAt              DateTime?
   missionsPausedById            String?
-  maxUploadMb                   Int      @default(200) // pièces jointes des modules (Documents/messagerie/RH) — ZIP de dossier
-  maxDriveUploadMb              Int      @default(1024) // fichiers du Drive (~1 Go, stockage en tranches)
-  driveCapacityGb               Int      @default(100) // capacité globale du Drive (modifiable Super Admin)
-  driveUserQuotaGb              Int      @default(10) // quota par utilisateur (modifiable Super Admin)
+  maxUploadMb                   Int       @default(200) // pièces jointes des modules (Documents/messagerie/RH) — ZIP de dossier
+  maxDriveUploadMb              Int       @default(1024) // fichiers du Drive (~1 Go, stockage en tranches)
+  driveCapacityGb               Int       @default(100) // capacité globale du Drive (modifiable Super Admin)
+  driveUserQuotaGb              Int       @default(10) // quota par utilisateur (modifiable Super Admin)
   // Budget total au-dessus des enveloppes : FIXED (montant figé) ou FLEXIBLE
   // (= somme des enveloppes actives). Réglé par le Super Admin.
-  budgetTotalMode               String   @default("FLEXIBLE")
-  budgetFixedTotal              Decimal  @default(0) @db.Decimal(14, 2)
+  budgetTotalMode               String    @default("FLEXIBLE")
+  budgetFixedTotal              Decimal   @default(0) @db.Decimal(14, 2)
   /// SEUIL Ad & Pro AU-DELÀ DUQUEL LE DIRECTEUR GÉNÉRAL VALIDE EN PLUS (§118.138).
   /// Décision de la Direction (09/2026) : « toutes les demandes Ad&Pro, matériel promotionnel
   /// compris, passent par la validation du DG à partir de 1 000 000 DZD, mais ce seuil doit
   /// pouvoir être configuré par le super admin. » UN seul chiffre, lu par les quatre circuits
   /// configurables ET par le matériel promotionnel, qui n'a pas d'étapes en base : cinq copies
   /// auraient divergé au premier ajustement (§118.5). 0 = aucune porte du DG.
-  adProDgThreshold              Decimal  @default(1000000) @db.Decimal(14, 2)
+  adProDgThreshold              Decimal   @default(1000000) @db.Decimal(14, 2)
   // Onglet Regulatory « Enregistrement » (analyseur de dossier CTD) — masqué tant que
   // le Super Admin ne l'a pas débloqué.
-  regEnrollmentEnabled          Boolean  @default(false)
+  regEnrollmentEnabled          Boolean   @default(false)
   /// MODULES MASQUÉS — retirés de la plateforme sans toucher aux droits ni aux données.
   /// Ce n'est pas une permission : c'est « ce module n'est pas en service ici, pour personne ».
   /// Le Super Admin continue de les voir (signalés), sans quoi il ne pourrait plus les rallumer.
-  hiddenModules                 String[] @default([])
+  hiddenModules                 String[]  @default([])
   // Rôles « superviseurs Regulatory » (en plus du Super Admin, toujours inclus) : fixent
   // la priorité et les dates cibles, reçoivent les notifications (nouveau dossier / dépôt),
   // et peuvent demander des mises à jour de statut. Configurable en Administration.
-  regulatorySupervisorRoles     String[] @default([])
+  regulatorySupervisorRoles     String[]  @default([])
   // Segments thérapeutiques que le tableau Regulatory propose (menu déroulant multi-choix de la
   // colonne « Segments »). VIDE = la liste par défaut intégrée. L'administrateur les gère en
   // Administration : le marché d'un groupe pharma n'est pas celui d'un autre.
-  regulatoryTherapeuticSegments String[] @default([])
+  regulatoryTherapeuticSegments String[]  @default([])
   /// COLONNES RETIRÉES du tableau Regulatory — sur les DEUX sous-modules (Suivi de dossiers et
   /// Pipeline), pour tout le monde. Ce n'est pas la préférence d'affichage locale au navigateur
   /// (« je ne veux pas voir ça sur MON écran ») : c'est « cette colonne n'a pas lieu d'être dans
   /// cette maison ». Le catalogue des clés vit dans `lib/regulatory/colonnes.ts`, et la référence
   /// ne s'y masque jamais — sans elle on ne saurait plus de quel dossier on parle.
-  regulatoryHiddenColumns       String[] @default([])
+  regulatoryHiddenColumns       String[]  @default([])
   // Rôles autorisés à CRÉER des « Demandes à Regulatory » (en plus du PRIM, toujours inclus).
   // L'équipe Regulatory RÉPOND mais ne crée pas. Configurable en Administration.
-  regRequestCreatorRoles        String[] @default([])
+  regRequestCreatorRoles        String[]  @default([])
   // Rôles autorisés à CRÉER des « catégories » de Drive (espaces partagés type « Promotion
   // Médicale » présentés en onglets à côté de Drive/Documents). En plus du Super Admin,
   // toujours inclus. Configurable en Administration.
-  driveSpaceCreatorRoles        String[] @default([])
+  driveSpaceCreatorRoles        String[]  @default([])
   // Rôles autorisés (par le Super Admin) à voir l'onglet « Overview » des Rapports terrain
   // (graphes d'analyse : visites par médecin / hôpital / délégué / spécialité, tendance…).
   // En plus du Super Admin, toujours inclus. Configurable en Administration.
-  fieldReportsOverviewRoles     String[] @default([])
+  fieldReportsOverviewRoles     String[]  @default([])
   /// QUI ÉCRIT LES MESSAGES PRÉ-DÉFINIS de la Direction Marketing (en plus du Super Admin).
   ///
   /// Une LISTE DE RÔLES et non un élargissement du module `MEDICAL` : `PRODUCT_MANAGER`
@@ -7013,33 +7014,33 @@ model AppSetting {
   /// praticiens et les visites — une empreinte réelle bien plus large que la demande (§118.16).
   /// C'est le mécanisme que le dépôt emploie déjà pour ce genre de question, et il laisse la
   /// DÉCISION DE PERMISSION au Super Admin, à qui elle appartient (§118.86).
-  promoMessageAuthorRoles       String[] @default([])
+  promoMessageAuthorRoles       String[]  @default([])
   // ORGANIGRAMME — qui a le droit de le CONSULTER (l'édition reste au Super Admin). Les RH en
   // ont besoin au quotidien ; d'autres personnes peuvent y être ajoutées nommément. Un
   // consultant voit toutes les entités ou filtre sur l'une d'elles ; il ne modifie rien.
-  orgChartViewerRoles           String[] @default([])
-  orgChartViewerUserIds         String[] @default([])
+  orgChartViewerRoles           String[]  @default([])
+  orgChartViewerUserIds         String[]  @default([])
   /// ENREGISTREMENT (CTD) — l'onglet est réservé à l'ADMINISTRATEUR par défaut (liste vide) ;
   /// l'admin peut l'ouvrir à des rôles précis depuis la console.
-  regEnrollmentRoles            String[] @default([])
+  regEnrollmentRoles            String[]  @default([])
   /// PIPELINE (dossiers VERROUILLÉS) — deux droits distincts, réglés en Administration.
   /// CONSULTER : voir les dossiers à l'étude, partout (pipeline, recherche, sélecteurs).
   /// CADENAS : ouvrir un dossier, donc le publier à toute l'entreprise — l'acte est irréversible
   /// dans les faits (ce qui a été lu a été lu), il se donne à moins de monde. Le Super Admin
   /// détient toujours les deux. Voir `lib/regulatory/pipeline-access.ts`.
-  pipelineViewerRoles           String[] @default([])
-  pipelineViewerUserIds         String[] @default([])
-  pipelineManagerRoles          String[] @default([])
-  pipelineManagerUserIds        String[] @default([])
+  pipelineViewerRoles           String[]  @default([])
+  pipelineViewerUserIds         String[]  @default([])
+  pipelineManagerRoles          String[]  @default([])
+  pipelineManagerUserIds        String[]  @default([])
   /// DIRECTIVES (notes de service) — deux droits distincts, réglés en Administration.
   /// LIRE : recevoir et consulter les directives publiées qui vous concernent. ÉMETTRE :
   /// rédiger une note et la soumettre à la direction générale. Le Super Admin et le Directeur
   /// Général détiennent toujours les deux — ce sont eux qui publient.
   /// Voir `lib/directives/access.ts`.
-  directiveReaderRoles          String[] @default([])
-  directiveReaderUserIds        String[] @default([])
-  directiveIssuerRoles          String[] @default([])
-  directiveIssuerUserIds        String[] @default([])
+  directiveReaderRoles          String[]  @default([])
+  directiveReaderUserIds        String[]  @default([])
+  directiveIssuerRoles          String[]  @default([])
+  directiveIssuerUserIds        String[]  @default([])
   /// LE SERVICE DES MOYENS GÉNÉRAUX — un seul, pour toute la société.
   ///
   /// Les moyens généraux ne sont pas « ceux de mon département » : c'est UN service qui achète
@@ -7052,7 +7053,7 @@ model AppSetting {
   // La clé privée reste côté serveur ; la publique est servie via /api/push/key.
   vapidPublicKey                String?
   vapidPrivateKey               String?
-  updatedAt                     DateTime @updatedAt
+  updatedAt                     DateTime  @updatedAt
   updatedById                   String?
 }
 
@@ -7552,21 +7553,21 @@ model WorkflowStepEvent {
 /// HÔPITAUX (`HOSPITAL`) des ANNEXES PCH (`ANNEX`, sites de stockage secondaires de la PCH).
 /// Le nom « StockAnnex » est conservé (pas de renommage de table) ; il porte désormais les deux.
 model StockAnnex {
-  id          String                           @id @default(cuid())
-  name        String                           @unique
-  kind        String                           @default("HOSPITAL") // HOSPITAL | ANNEX
+  id            String                           @id @default(cuid())
+  name          String                           @unique
+  kind          String                           @default("HOSPITAL") // HOSPITAL | ANNEX
   /// L'ÉTABLISSEMENT DE L'ANNUAIRE que ce lieu de stock désigne — hôpitaux seulement (§118.134).
   /// Les hôpitaux du module Stocks SONT ceux de l'annuaire des établissements : c'est ce lien qui
   /// donne à un KAM les stocks de SON secteur. Nul = lieu HÉRITÉ, nommé à la main avant que
   /// l'annuaire ne soit la seule source ; il reste lisible par la vue globale et se RATTACHE
   /// depuis l'écran des stocks (Super Admin) pour que son historique rejoigne l'établissement.
   /// `SetNull` : un établissement retiré de l'annuaire n'efface pas des relevés.
-  institutionId String?             @unique
-  institution   MedicalInstitution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
-  createdAt   DateTime                         @default(now())
-  snapshots   StockSnapshot[]
+  institutionId String?                          @unique
+  institution   MedicalInstitution?              @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  createdAt     DateTime                         @default(now())
+  snapshots     StockSnapshot[]
   /// LES RÉCURRENCES de demande d'état qui le visent.
-  recurrences StockRequestRecurrenceHospital[]
+  recurrences   StockRequestRecurrenceHospital[]
 
   @@index([kind])
 }
@@ -9985,6 +9986,48 @@ model AdProOtherRequest {
   @@index([status])
   @@index([requesterId])
   @@index([companyId])
+}
+
+/// LE VISA DU CENTRE DE VALIDATION AD & PRO — pour les natures qui n'ont pas d'étape de circuit.
+///
+/// Cinq des sept natures Ad & Pro portent DÉJÀ la porte du Directeur Général : l'étape `dg` d'un
+/// `WorkflowInstance` pour les quatre circuits configurables, `REVIEW_DG` pour le matériel
+/// promotionnel. Le consulting et les « autres demandes » n'en avaient AUCUNE — mesuré sur leurs
+/// machines à états : rien n'y consultait le seuil, donc un contrat de 5 M DZD sortait sans que
+/// personne en haut l'ait vu. Un centre qui les laisserait passer serait une porte ouverte à côté
+/// d'une porte gardée (§118.71).
+///
+/// UNE table et non deux jeux de colonnes : les deux natures ont besoin des mêmes cinq faits, et
+/// une troisième qui arriverait demain aussi. Deux jeux de colonnes auraient divergé au premier
+/// champ ajouté (§118.5).
+///
+/// LE SEUIL EST FIGÉ DANS LE VISA (`threshold`) : sans lui, baisser le seuil rendrait toute
+/// décision passée inexplicable — on ne saurait plus pourquoi ce dossier-là est passé par le
+/// centre (§118.41 : une lecture qui ne se date pas conclut sur une vérité périmée).
+///
+/// `status` est du TEXTE et non un enum Prisma, comme `WorkflowInstance.status` : PENDING |
+/// APPROVED | REFUSED. Ajouter une valeur à un enum Postgres demande une migration en deux temps
+/// (`ALTER TYPE ... ADD VALUE` ne peut pas être utilisée dans la transaction qui la crée), et ce
+/// vocabulaire est celui du centre, pas celui des natures.
+model AdProGateVisa {
+  id          String     @id @default(cuid())
+  entityType  EntityType
+  entityId    String
+  status      String     @default("PENDING")
+  /// Le seuil EN VIGUEUR au moment où la porte s'est ouverte — figé, jamais relu.
+  threshold   Decimal    @db.Decimal(14, 2)
+  /// Le budget total qui a déclenché la porte. `null` = non renseigné (la porte s'ouvre quand même).
+  amount      Decimal?   @db.Decimal(14, 2)
+  decidedById String?
+  decidedBy   User?      @relation("adProGateVisaDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt   DateTime?
+  /// Le motif, obligatoire au REFUS : un refus sans motif est une impasse pour le demandeur.
+  note        String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([entityType, entityId])
+  @@index([status])
 }
 
 // ═══════════════════════ DEMANDE DE PIÈCE ═══════════════════════

@@ -4,6 +4,7 @@ import type { AdProOtherStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { poserVisaAdPro, blocageCentreAdPro } from "@/lib/ad-pro/visa";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
@@ -74,10 +75,26 @@ export async function createAdProOtherRequest(_prev: ActionResult | undefined, f
       }),
     );
 
-    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
-      type: "VALIDATION_REQUIRED", title: "Demande Ad & Pro — autre",
-      body: `${req.reference} — ${title}`, link: `${PATH}/${req.id}`,
-    });
+    // ── LA PORTE DU CENTRE DE VALIDATION AD & PRO ────────────────────────────────────────────
+    // Ici la porte se pose à la CRÉATION et non à une soumission : cette nature naît directement
+    // « en attente de décision » — il n'existe pas d'étape de brouillon où le montant se
+    // stabiliserait. C'est le moment où la demande est ÉNONCÉE, et c'est le seul qu'on ait.
+    //
+    // Elle n'avait AUCUNE porte avant ce lot : une demande « autre » de 3 M DZD était tranchée
+    // par la Direction sans que le centre la voie (§118.71).
+    const visaAutre = await poserVisaAdPro("AD_PRO_OTHER", req.id, fdNum(formData, "amount") ?? null);
+
+    if (visaAutre === "PENDING") {
+      await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
+        type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro — demande au-dessus du seuil",
+        body: `${req.reference} — ${title}`, link: "/centre-ad-pro",
+      });
+    } else {
+      await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+        type: "VALIDATION_REQUIRED", title: "Demande Ad & Pro — autre",
+        body: `${req.reference} — ${title}`, link: `${PATH}/${req.id}`,
+      });
+    }
     await audit(user, req.id, "CREATE", `Demande « autre » créée — ${req.reference}`);
     revalidate(req.id);
     return { ok: true, id: req.id };
@@ -99,6 +116,10 @@ export async function decideAdProOtherRequest(formData: FormData): Promise<Actio
     const req = await prisma.adProOtherRequest.findUnique({ where: { id } });
     if (!req) return { ok: false, error: "Demande introuvable." };
     if (req.status !== "AWAITING_DECISION") return { ok: false, error: "Cette demande a déjà été tranchée." };
+
+    // LA PORTE DU CENTRE PASSE AVANT LA DÉCISION — sinon elle existe en base et ne garde rien.
+    const blocage = await blocageCentreAdPro("AD_PRO_OTHER", id);
+    if (blocage) return { ok: false, error: blocage };
 
     await prisma.adProOtherRequest.update({
       where: { id },

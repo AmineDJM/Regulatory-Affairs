@@ -33,6 +33,7 @@ RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Cale
 - [Workflows critiques](#-workflows-critiques)
 - [**Référence détaillée des circuits & mécanismes transverses**](#-référence-détaillée-des-circuits--mécanismes-transverses)
   - [**Centre de paiement — l'autorisation du PDG**](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-le-pdg)
+  - [**Centre de validation Ad & Pro — le seuil et les sept natures**](#centre-de-validation-ad--pro--toute-demande-au-dessus-du-seuil-y-passe)
   - [Chaîne du dossier d'achat (Legal)](#la-chaîne-du-dossier-dachat--devis--bc--facture--règlement-dun-seul-écran)
   - [My Chief of Staff — interface exécutive](#my-chief-of-staff--linterface-exécutive-pdg--super-admin)
   - [Matériel promotionnel — circuit court](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle)
@@ -192,6 +193,7 @@ jamais identique.
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances/paiements-a-faire` | **DEUX SOUS-MODULES** : **Banque & paiements** (`/finances/paiements-a-faire` — le solde de trésorerie et le détail par compte, puis la file du décaissement, alimentée **exclusivement** par le centre de paiement) et **Comptabilité** (`/finances/comptabilite` — le livre, l'import, les soldes d'ouverture, et ce que le DAF doit encore arbitrer). Le **Dashboard a été supprimé** (2026-09) : il ne portait aucun geste. Cliquer « Finances » mène à « Banque & paiements » ; `/finances` redirige. « Demander l'actualisation des soldes » est réservé au **Super Admin** (écran, action serveur et Adam). Les **factures** ne sont pas ici : ce sont des documents légaux de nature « facture » (`/legal?nature=INVOICE`), et la comptabilité y garde sa porte. Aucun paiement n'arrive ici sans être **autorisé par le centre**, quel que soit son montant. |
 | **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (RBAC `PAYMENT_CENTRE` — PDG + Super Admin) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. **GUICHET UNIQUE** : aucun paiement n'atteint les Finances sans autorisation, **quel que soit le montant et le module** — plus de seuil, plus d'exemption. Une demande de paiement y entre **dès sa soumission**, avant l'instruction des Finances. Quatre issues (autoriser · refuser · révision du montant · argumentation) avec fil d'allers-retours. → [détails](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-le-pdg) |
+| **Centre de validation Ad & Pro** | `/centre-ad-pro` | **Module À PART** (RBAC `AD_PRO_CENTRE` — **Direction Générale + Super Admin**, et personne d'autre : la Direction et la Direction Marketing ARBITRENT déjà les demandes dans leur circuit, leur ouvrir le centre reviendrait à s'autoriser elles-mêmes le dépassement qu'elles ont proposé). **Toute demande Ad & Pro dont le budget total dépasse le seuil y passe** — les SEPT natures du pôle, mesurées : 5 avaient déjà une porte (l'étape `dg` des quatre circuits configurables, l'étape `REVIEW_DG` du matériel promotionnel), **le consulting et les « autres demandes » n'en avaient AUCUNE** et un engagement de 5 M DZD sortait sans que personne en haut l'ait vu. **Le seuil se règle DEPUIS le centre** (le même chiffre qu'Administration › Réglages — un seul réglage, cinq lecteurs). Le centre est une **LENTILLE**, pas une seconde autorisation : il montre les trois formes de porte au même endroit et décide là où la porte est un VISA ; pour une étape de circuit il renvoie au dossier, parce qu'une décision se prend devant ses pièces. → [détails](#centre-de-validation-ad--pro--toute-demande-au-dessus-du-seuil-y-passe) |
 | **My Chief of Staff** | `/chief-of-staff` | **L'interface exécutive du PDG et du Super Admin** (module `CHIEF_OF_STAFF`) : piloter l'entreprise en langage naturel, **au clavier ou à la voix** (conversation vocale avec interruption). Recherche fédérée `search_everything` (~30 familles, tolérante aux accents/fautes), histoire complète d'un dossier (`inspect_record` : timeline, validateurs, chaîne devis→BC→facture→règlement — paiements, Legal, Regulatory, factures, courriers, projets, tâches), lecture des documents du Drive, calendrier + disponibilités, stocks, hôpitaux, paie, agrégats financiers, **signaux d'alerte proactifs**, **point exécutif**, **rapport consolidé .docx**, rappels récurrents (rôle ou personne nommée), et les **actions** — trancher un paiement, réassigner une tâche, chaîner une facture, **modifier un salaire (confirmation renforcée)** — toujours confirmées et auditées. → [architecture](docs/CHIEF_OF_STAFF_ARCHITECTURE.md) |
 | **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
 | **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **L'ACCÈS SE RÈGLE DEPUIS LA CONSOLE, ET NULLE PART AILLEURS** : le module s'accordait implicitement à quiconque tenait les RH en écriture — la console affichait « Aucun accès » sur cette ligne et la personne l'avait quand même, si bien que le retirer ne changeait rien. La règle est **supprimée** : matrice du rôle, ou attribution nominative dans la console (`rbac-console-authority.test.ts` tient les deux sens depuis la vraie table d'overrides). **L'entrée de MENU porte le même module que la page** (`GENERAL_MEANS`, plus `WORKSPACE`) : elle était restée sur le module ouvert à tous du temps où l'on demandait un achat ici, si bien qu'un compte bloqué continuait de la voir — et en concluait que la console ne marchait pas. **LES MOYENS GÉNÉRAUX SONT CEUX DE TOUT LE MONDE** : un SEUL service, désigné par le Super Admin (`AppSetting.generalMeansDepartmentId`), sur lequel chacun atterrit — le découpage par département reste la façon dont l'argent est **imputé**, et il ne se pilote plus que depuis le compte Super Admin (sélecteur de département, lien « Budgets par département », désignation du service). **Chaque demande d'achat est copiée ENTIÈREMENT dans un journal à part** (`/admin/achats`, Super Admin seul) à chaque geste — dépôt, validation, refus, retrait : on ajoute, on n'efface jamais, si bien qu'une demande retirée y garde sa trace complète ; les **ressources humaines** pilotent le module (elles voient et dotent tous les départements, via un sélecteur), l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) et elle est **CONTINUE** : chaque remise s'ajoute au fond et garde sa date, aucune ne clôt la précédente — solder est un geste, et il porte sur le fond entier. La personne qui la détient **confirme avoir reçu** chaque somme — rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**. Les dépenses tiennent en **une seule liste, en tableau, filtrable sur « caisse d'avance »**. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. **Annuaire d'entreprise** (`/mon-espace/annuaire`) : tous les contacts extérieurs de la société — agence de voyage, livreurs, agence marketing, imprimeur, transitaire… — par catégorie, cherchables, avec téléphone et e-mail cliquables. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
@@ -769,6 +771,69 @@ ensuite). C'est une **dimension transverse** appliquée à tout le logiciel :
   `src/components/layout/company-switcher.tsx`, `src/components/shared/company-badge.tsx`.
 - ⚠ **Ne pas confondre** avec l'enum polymorphe `EntityType` (type d'objet pour Documents/Commentaires/accès) : la
   société est le modèle **`Company`** (libellé UI « Entité »).
+
+
+### Centre de validation Ad & Pro — toute demande au-dessus du seuil y passe
+
+**Un module À PART** (`/centre-ad-pro`, RBAC `AD_PRO_CENTRE` — **Direction Générale + Super
+Admin**). Le siège est une décision d'organisation, pas une conséquence technique : la Direction
+et la Direction Marketing **arbitrent déjà** les demandes Ad & Pro dans leur circuit, et leur
+ouvrir le centre reviendrait à ce qu'elles s'autorisent elles-mêmes le dépassement qu'elles ont
+proposé. Le prédicat est `siegeAuCentreAdPro`, le refus `REFUS_CENTRE_AD_PRO` — écrit **une fois**,
+dit à l'identique par l'écran, l'action et l'op.
+
+**LA MESURE DE DÉPART, ET C'EST ELLE QUI A DÉCIDÉ DU LOT.** Le pôle compte **SEPT** natures. Cinq
+avaient déjà une porte au-dessus du seuil : l'étape `dg` des quatre circuits configurables
+(sponsoring, congrès international, congrès national, événements) et l'étape `REVIEW_DG` du
+matériel promotionnel. **Le consulting et les « autres demandes » n'en avaient AUCUNE** — rien,
+dans leur machine à états, ne consultait `adProDgThreshold`, donc un engagement de 5 M DZD sortait
+sans que personne en haut l'ait vu. Ces deux-là reçoivent un **VISA** (`AdProGateVisa`), et
+`FORME_PORTE: Record<AdProKind, FormePorte>` fait qu'une huitième nature **ne compilera pas** tant
+que personne n'aura dit quelle porte la garde.
+
+**LE CENTRE EST UNE LENTILLE, PAS UNE SECONDE AUTORISATION.** La forme du centre de paiement — une
+couche d'autorisation centrale de plus — ferait valider le DG **DEUX FOIS** pour les cinq natures
+qui portent déjà l'étape `dg`. Le centre montre donc les **trois** formes de porte au même endroit,
+et il **décide** là où la porte est un visa ; pour une étape de circuit, il renvoie au dossier,
+parce qu'une décision se prend devant ses pièces, sa catégorie budgétaire et le fil des avis
+(§104.7 : jamais valider en regardant un autre enregistrement). Unifier les sept sur une seule
+forme a été **mesuré et refusé** : cela orphelinerait les instances vivantes posées sur
+`currentSlug = 'dg'` et perdrait l'`autoSkipMaxAmount` par circuit — une régression déguisée en
+simplification (§118.86).
+
+**LE SEUIL SE RÈGLE DEPUIS LE CENTRE**, et c'est **le même chiffre** qu'Administration › Réglages :
+une seule action (`setAdProDgThreshold`), **cinq lecteurs**, les deux écrans revalidés. Cinq copies
+auraient divergé au premier ajustement, et le symptôme aurait été une demande d'1,2 M arrêtée à
+l'un des guichets et pas aux autres (§118.5). La **règle** vit au SOCLE (`lib/seuils/ad-pro.ts`,
+zéro import) parce que `tasks` et `adpro` sont deux domaines qui n'ont pas le droit de se parler —
+**c'est exactement pourquoi elle était écrite deux fois**, et `dgRequis` le PROMETTAIT dans sa
+propre prose alors que son seul importeur du dépôt était son propre test (§118.14, §118.49,
+§118.116). Trois lectures, chacune avec sa raison : « à partir de X » se lit **strictement**
+au-dessus de X (au seuil exact, la demande est conforme à ce que la maison s'autorise sans
+arbitrage) ; un **seuil nul DÉSARME** la porte ; un **montant inconnu l'OUVRE** — on ne franchit
+pas un contrôle sur une absence de donnée.
+
+**CE QUE LE VISA GARDE.** Il est **idempotent** (clé `(entityType, entityId)`) et ne **RÉOUVRE
+jamais** une décision tranchée : une resoumission après refus n'efface pas la décision du centre.
+Il **FIGE** le seuil qui l'a déclenché (§118.41) — sans quoi baisser le seuil rendrait la décision
+passée inexplicable, le centre affichant « 2 M au-dessus de 5 M ». Un **refus exige son motif**,
+c'est celui que le demandeur lira. Et le centre affiche le **nombre de lignes sans montant** à côté
+du total engagé : additionner les montants connus et présenter la somme comme « total » serait une
+coupe silencieuse (§118.60).
+
+**LA CONVERSATION.** `adpro_operation/decide_gate_visa` offre les deux directions, comme
+`decide_other_request` — sa voisine SENSITIVE, offerte ainsi depuis toujours. Trois faits **mesurés**
+l'autorisent : le registre des capacités de mission est une liste **fermée de 62 entrées sans
+aucune capacité `*_operation`**, donc aucun chemin où le moteur exécuterait ce visa sans carte ; en
+conversation toute op passe par la **carte de confirmation**, que §118.126 a tranchée comme « une
+action confirmée » ; et le **siège est revérifié** par l'action de l'écran. La cible se résout sur
+la **liste du centre elle-même**, jamais par une seconde requête (§118.5).
+
+**Fichiers** : `lib/seuils/ad-pro.ts` (socle) ; `lib/ad-pro/{centre,visa}.ts` ;
+`lib/queries/ad-pro-centre.ts` ; `lib/actions/ad-pro-centre-actions.ts` ;
+`app/(app)/centre-ad-pro/{page,centre-board}.tsx` ; migration
+`20261117090000_centre_validation_ad_pro`. **Bancs** : 6 + 14 + 12 tests, dont un de bout en bout
+par les **vrais points d'entrée**, et **15 sabotages** dont le bilan est au journal.
 
 ### Centre de paiement — rien ne sort, quel que soit le montant, sans le PDG
 
@@ -3554,6 +3619,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Siège nommé au centre de paiement** | `PaymentCentreSeat` (userId unique, `grantedById`, `grantedAt`, `note` obligatoire) ; règle dans `sitsOnPaymentCentre` ; résolution **une fois par requête** dans `getAccess` → `EffectiveAccess.paymentCentreSeat` (la règle est SYNCHRONE et appelée depuis l'écran, l'action, l'assistant et la recherche — elle ne peut pas lire la base), qui ouvre AUSSI le module `PAYMENT_CENTRE` (un droit qu'on n'atteint qu'en connaissant l'URL n'est pas un droit accordé) ; actions `grantPaymentCentreSeat` / `revokePaymentCentreSeat` (`lib/actions/payment-centre-seat-actions.ts`, **Super Admin seul** — siéger ne donne pas le droit d'élargir le cercle) ; écran `app/(app)/admin/access/payment-centre-seats.tsx`, qui montre les deux titres ENSEMBLE (rôle + désignation). **EXCLUDED de la parité Adam** : accorder cette autorisation, c'est donner le pouvoir d'engager l'argent de la société (§118-15). Refusés : compte système, compte désactivé, et ceux qui y siègent déjà par leur rôle. Migration `20261007090000_…`. |
 | **Règlement — trois états** | Module PUR `lib/finance/settlement.ts` (`settlementState` · `checkDeferral` · `deferralNote` · `sortForSettlement`, 22 tests) : **non payé** (défaut) / **reporté à une date** / **payé**. Le report est une **DATE** (`ExpenseOrder.deferredUntil|deferredReason|deferredById|deferredAt`), jamais un statut — il **expire seul**, sans que personne ait à y penser, et l'ordre reste **dans la file**. Actions : `deferExpenseOrder` / `resumeExpenseOrder` (`lib/actions/expense-actions.ts`) ; ops Adam `defer_payment` / `resume_payment`. **SUPPRIMÉS** (écran + action + op) : `cancelExpenseOrder`, `requestBudgetRevision`, `resolveBudgetRevision` — l'ordre arrive autorisé par le centre, le rouvrir à la caisse défait une décision prise ailleurs (§118-7 : pas de porte dérobée). Migration `20261006090000_…` : les ordres `REVISION_REQUESTED` repassent `PENDING`, motif recopié en notes. |
 | **Centre de paiement (guichet unique)** | Module PUR `lib/payments/authorization.ts` (`needsCentralAuthorization` — **toujours vrai**, `initialCentralStatus`, **`canDisburse`** — le verrou réel —, `visibleToFinance`, `isHighValue` + `CENTRAL_AUTH_THRESHOLD_DZD` = 50 000 **en marqueur, plus en filtre**, `sitsOnPaymentCentre` (**`SUPER_ADMIN`, `DIRECTION`, ou un SIÈGE NOMMÉ** — pas le DG par son rôle), `PAYMENT_CENTRE_REFUSAL` (le refus, écrit une seule fois), `applyDecision`, `applyResubmission`, `blockedReason`) + `authorization.test.ts` (18 tests) ; `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` ; `createExpenseOrder` calcule le statut d'entrée et notifie `DIRECTION` + `SUPER_ADMIN` (`lib/expense-orders.ts`) ; **la demande de paiement crée son ordre à la SOUMISSION** (`lib/actions/payment-request-actions.ts`) ; garde dans `markExpenseOrderPaid` (`lib/actions/expense-actions.ts`) ; `lib/actions/payment-centre-actions.ts` ; `app/(app)/centre-de-paiement/`. Migrations `20260824150000_payment_centre` puis `20261002140000_centre_guichet_unique`. |
+| **Centre de validation Ad & Pro** | **Règle du seuil au SOCLE** `lib/seuils/ad-pro.ts` (`porteDgRequise`, `motifPorteDg` — zéro import, parce que `tasks` et `adpro` sont deux domaines qui n'ont pas le droit de se parler : **c'est exactement pourquoi la règle était écrite DEUX fois**, `dgRequis` dans `workflow/parcours.ts` et la même arithmétique recopiée dans `promo-material/circuit.ts`) + `seuils/ad-pro.test.ts` ; module PUR `lib/ad-pro/centre.ts` (`siegeAuCentreAdPro`, `REFUS_CENTRE_AD_PRO`, **`FORME_PORTE: Record<AdProKind, FormePorte>`** — `ETAPE_CIRCUIT` / `ETAPE_PROMO` / `VISA_CENTRE`, exhaustif par le typecheck —, `NATURES_A_VISA` DÉRIVÉ, `visaAutoriseAAvancer`, `motifBlocageVisa`, `trierCentre`, `compteursCentre` avec **`sansMontant`**) + `ad-pro/centre.test.ts` (14 tests) ; **`AdProGateVisa`** (`@@unique([entityType, entityId])`, `threshold` FIGÉ §118.41) ; `lib/ad-pro/visa.ts` (`poserVisaAdPro` idempotente et qui ne RÉOUVRE jamais un visa tranché, `blocageCentreAdPro`) ; lecteur UNIQUE `lib/queries/ad-pro-centre.ts` ; portes posées dans `consulting-actions.ts` (soumission) et `ad-pro-other-actions.ts` (création) ; `lib/actions/ad-pro-centre-actions.ts` ; seuil réglable depuis les DEUX écrans par la MÊME action (`settings-actions.ts:setAdProDgThreshold`) ; `app/(app)/centre-ad-pro/` ; op de conversation `adpro_operation/decide_gate_visa` ; banc de bout en bout `lib/actions/ad-pro-centre-flow.test.ts` (12 tests, vrais points d'entrée). Migration `20261117090000_centre_validation_ad_pro`. |
 | **Matériel promo — circuit court** | Module PUR `lib/promo-material/circuit.ts` (`PROMO_STEPS` (7), `PROMO_TRACKS` (`PURCHASE_ORDER`/`PAYMENT`/`AD_VISA`), `initialStep` — saute la demande de devis si le devis est déjà là —, `canValidate` (N+1 réel : `Employee.managerId`, à défaut `departmentRef.head`), **`seesFullCircuit`** (Super Admin + PDG **uniquement**), `tracksOpen`, `allTracksDone`, `pendingTracks`, `progress`, `waitingOn`) + `circuit.test.ts` (23 tests) ; `lib/actions/promo-circuit-actions.ts`. |
 | **Rejeu de session (support)** | Module PUR `lib/replay/capture.ts` (`FORBIDDEN_FIELD` — mot de passe / secret / jeton / IBAN / RIB / CVV / carte —, `FORBIDDEN_INPUT_TYPE` — `password`, `hidden` —, `fieldIsRecordable`, `isSensitiveLabel`, `cleanLabel`, `scrubDetail`, **`makeEvent` : la porte d'entrée UNIQUE**, `coalesce`, `describeEvent`, `stamp`, `firstErrorIndex`) + `capture.test.ts` (20 tests) ; modèle `SessionEvent` ; `components/layout/session-recorder.tsx` (monté dans `app/(app)/layout.tsx`, `sendBeacon`, **ne lit jamais `.value`**) ; `app/api/replay/route.ts` (**re-masque côté serveur**, 204 systématique, lot plafonné à 200) ; `app/(app)/admin/replay/{page,replay-viewer}.tsx` (**`SUPER_ADMIN` seul**). |
 | **Courriers — dossiers & pièces multiples** | Modèles `MailFolder` (arbre, `MailEntry.folderId` en `ON DELETE SET NULL`) et `MailEntryPiece` (intitulé + **destinataire propre** + fichier téléversé **ou** nœud Drive référencé) ; `lib/actions/mail-folder-actions.ts`, `lib/actions/mail-piece-actions.ts` ; `app/(app)/courriers/mail-folder-bar.tsx`, `app/(app)/courriers/[id]/mail-pieces.tsx`. |
@@ -9045,6 +9111,98 @@ avant et après**. Zéro sortie réelle, garde armée.
 `npm run bench:horizon` — `PHASE=1` puis `PHASE=2` dans un **processus neuf**. « Ça survit à un
 redémarrage » ne se démontre pas dans le processus qui vient de tout écrire : il mesurerait sa
 propre mémoire.
+
+### LE CENTRE DE VALIDATION AD & PRO — deux natures sur sept n'avaient AUCUNE porte (2026-09)
+
+**Demande de la Direction** : « un centre de validation Ad&Pro pour le PDG et super admin, on gère
+depuis là-bas le seuil à partir duquel il faut une validation qui passe par ce centre ; toute
+demande Ad&Pro dont le budget total est au-dessus du seuil nécessite de passer par là ».
+
+**LA MESURE A DÉCIDÉ DU LOT, ET ELLE A TROUVÉ UN VRAI DÉFAUT.** Le pôle compte SEPT natures ; cinq
+portaient déjà une porte au-dessus du seuil (l'étape `dg` des quatre circuits configurables,
+`REVIEW_DG` du matériel promotionnel). **Le consulting et les « autres demandes » n'en avaient
+AUCUNE** : rien, dans leurs machines à états, ne consultait `adProDgThreshold`, donc un engagement
+de 5 M DZD sortait sans que personne en haut l'ait vu — une porte ouverte à côté de cinq portes
+gardées (§118.71). Elles reçoivent un **VISA** (`AdProGateVisa`), et `FORME_PORTE:
+Record<AdProKind, FormePorte>` fait qu'une huitième nature **ne compile pas** tant que personne
+n'a dit quelle porte la garde (§118.130).
+
+**LA FORME DU CENTRE : UNE LENTILLE, PAS UNE SECONDE AUTORISATION.** Reprendre la forme du centre
+de paiement — une couche d'autorisation centrale — ferait valider le DG **deux fois** pour les cinq
+natures qui portent déjà l'étape `dg`. Le centre montre donc les trois formes de porte au même
+endroit et **décide** là où la porte est un visa ; pour une étape de circuit, il renvoie au
+dossier, parce qu'une décision se prend devant ses pièces (§104.7). Unifier les sept sur une seule
+forme a été **mesuré et refusé** : les instances vivantes posées sur `currentSlug = 'dg'`
+deviendraient orphelines et l'`autoSkipMaxAmount` par circuit serait perdu — une régression
+déguisée en simplification (§118.86).
+
+**LA RÈGLE ÉTAIT ÉCRITE DEUX FOIS, ET SA PROSE LE PROMETTAIT.** `dgRequis` annonçait « lecture
+unique, partagée par le circuit Ad & Pro et par le matériel promotionnel » — et son **seul
+importeur du dépôt était son propre test** (§118.14, §118.49), pendant que `etapeApplicable`
+recopiait la même arithmétique. La cause est structurelle : `tasks` et `adpro` sont deux domaines
+qui n'ont pas le droit de se parler. La règle descend donc au **SOCLE** (`lib/seuils/ad-pro.ts`,
+zéro import), `dgRequis` en devient un **réexport**, et le banc exige l'**identité de la fonction**
+— une copie qui s'accorde aujourd'hui divergerait demain, et le symptôme serait un matériel
+promotionnel de 1,2 M franchissant la porte qu'un sponsoring du même montant respecte (§118.5,
+§118.116 : un commentaire qui affirme un partage que le code n'a pas est une dette).
+
+**LE SEUIL SE RÈGLE DEPUIS LE CENTRE**, par la **MÊME** action que l'écran d'administration, avec
+les deux écrans revalidés. Un chiffre, cinq lecteurs.
+
+**TROIS DÉFAUTS DE MES PROPRES JUGES, ET LES TROIS ONT LA MÊME LEÇON** (§118.92). (a) Le banc du
+seuil comparait « 1 200 000 » avec une espace ORDINAIRE : `toLocaleString("fr-FR")` sépare par
+U+202F, et le test a échoué sur une phrase **parfaitement juste** — un juge qui redérive la forme
+de ce qu'il vérifie divergera de sa source (§118.120), donc il la lit de la même source. (b) Deux
+assertions écrivaient `AD_PRO_OTHER` là où la NATURE s'appelle `OTHER` (`AD_PRO_OTHER` est son
+type d'ENTITÉ) — §118.107 avait déjà payé exactement ça sur EVENTS/EVENT. (c) L'assertion du seuil
+FIGÉ **ne pouvait pas tomber** : le visa venait d'être posé avec le réglage en vigueur, donc le
+seuil figé et le réglage du jour étaient le même nombre et toutes les façons fausses de le lire
+étaient vraies — §118.117 mot pour mot, et c'est le sabotage qui l'a dit.
+
+**QUINZE SABOTAGES.** Quatorze tombent individuellement — garde de visa retirée de chacune des deux
+décisions, siège élargi à la Direction, PENDING qui laisse passer, seuil inclusif, montant inconnu
+qui franchit, `sansMontant` retiré, `dgRequis` redevenu une copie, formulaire de seuil retiré du
+centre, porte du réglage ouverte à tous, consulting qui reperd sa porte (le défaut d'origine),
+centre non rafraîchi, op qui cesse de couvrir l'action, seuil du jour au lieu du seuil figé. Le
+quinzième — l'idempotence du visa — est tenu par **deux gardes indépendantes** (le retour anticipé
+et `update: {}`) : chacune retirée seule laisse l'autre debout, **retirées ensemble le banc tombe**.
+Le fait est écrit à côté d'elles, parce qu'une redondance doit porter sa raison MESURÉE (§118.116).
+**Et trois sabotages ont d'abord été mal faits, pas verts** : `str.replace(…, 1)` frappait l'IMPORT
+au lieu de l'appel (§118.139, troisième fois de la session), une ancre était inventée, et un
+sabotage ne reproduisait que la MOITIÉ du défaut (§118.134).
+
+**CE QUI N'A PAS PU ÊTRE EXERCÉ, ET C'EST ÉCRIT À CÔTÉ** (§118.82) : aucun chemin de production ne
+rappelle `poserVisaAdPro` sur une entité dont le visa est tranché — mesuré sur la machine à états,
+`AWAITING_VALIDATION` n'accepte pas `SUBMIT`, et la nature « autre » pose son visa à la création.
+La garde protège un appelant futur et la course entre deux soumissions ; elle est exercée sur le
+module, et le banc le DIT plutôt que de laisser croire à une vérification par la porte normale.
+
+**CE QUE LE LOT A OUVERT, ET QUELLE GARDE LE VOIT** (§118.80). Le cliquet de parité a refusé —
+`gap = 0` est l'invariant — et il ne signalait pas une dette : il nommait une **capacité
+manquante**. L'op `adpro_operation/decide_gate_visa` offre les deux directions, comme sa voisine
+`decide_other_request`, sur trois faits **mesurés** : le registre des capacités de mission est une
+liste **fermée de 62 entrées sans aucune capacité `*_operation`** (donc aucun chemin où le moteur
+exécuterait ce visa sans carte), toute op de conversation passe par la **carte de confirmation**
+(§118.126), et le **siège est revérifié** par l'action de l'écran (§118.74). Le chemin générique
+refuse **81 actions avant comme après** — l'élargissement n'a coûté aucune capacité, et le vérifier
+valait plus que le supposer (§118.27).
+
+**TROUVÉ EN RÉGÉNÉRANT L'ARTEFACT ET EN LISANT LE DIFF** (§118.137) : la dérivation ne reconnaissait
+une garde qu'aux préfixes `require…`, `can…`, `has…`, `is…`, `peut…`. Trois gardes RÉELLES du parc
+sortaient donc avec `gardes: []`, c'est-à-dire l'air de n'être gardées par rien — le siège du
+centre de **PAIEMENT** (`sitsOnPaymentCentre`, en production depuis toujours), le cadenas d'un
+dossier confidentiel (`holdsRegulatoryLock`, **nommé par §118.80, constaté et laissé**) et le mien.
+`allowed…` reste **délibérément dehors** : la même mesure a trouvé
+`allowedGeneralMeansCategoryIds`, qui rend une liste d'identifiants et non un droit (§118.79a). Ce
+n'est pas un fait de sécurité qui change — c'est ce que la **carte de confirmation** sait dire à une
+personne avant qu'elle clique.
+
+**Mesure** : typecheck propre, **8 761 tests verts sur 762 fichiers (0 rouge)**, build propre depuis
+un dossier vide avec `/centre-ad-pro` bâtie, artefact des contrats régénéré (**747 actions, 723
+appelables, 24 illisibles** — 1 ajoutée, **0 champ perdu, 0 garde perdue, 0 devenue illisible**, 7
+améliorées), parité **100 % / gap 0**, frontière **428** et traversées **69** inchangées (le
+prédicat de siège passe par le PONT, pas en import direct — §118.114 : le remède est plus petit que
+le plafond qu'on aurait relevé), migration `20261117090000_centre_validation_ad_pro` déployée.
 
 ### LE PLANIFICATEUR ET LE REPLANIFICATEUR — huit défauts, tous mesurés sur des missions réelles (2026-09)
 

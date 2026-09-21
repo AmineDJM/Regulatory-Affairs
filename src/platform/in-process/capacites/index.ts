@@ -57,6 +57,22 @@ export {
 // les deux gardes de colonnes sont des listes pures. Le port les rend atteignables sans qu'Adam
 // connaisse `actions/` ni `medical/` — le cliquet a compté 432 pour 428 quand l'op les importait
 // en direct, et le remède est celui que son message nomme.
+/**
+ * LE CENTRE DE VALIDATION AD & PRO — le siège, la liste, la décision.
+ *
+ * `siegeAuCentreAdPro` est le prédicat qui dit QUI siège (Direction Générale, Super Admin) et
+ * `REFUS_CENTRE_AD_PRO` la phrase que l'écran, l'action et l'op disent à l'identique : trois
+ * formulations du même interdit donneraient trois compréhensions de ce qui s'est passé.
+ *
+ * Il passe par ICI et non en import direct depuis `@/lib/ad-pro/` : ce serait un franchissement
+ * de frontière de plus, et le plafond est à marge ZÉRO (§118.114, §118.127f, §118.136). La liste
+ * du centre est le MÊME lecteur que l'écran (§118.5) — une op qui chercherait les visas de son
+ * côté finirait par ne pas voir les mêmes lignes.
+ */
+export { siegeAuCentreAdPro, REFUS_CENTRE_AD_PRO, type LigneCentre, type FormePorte } from "@/lib/ad-pro/centre";
+export { demandesAuCentreAdPro } from "@/lib/queries/ad-pro-centre";
+export { deciderVisaCentreAdPro } from "@/lib/actions/ad-pro-centre-actions";
+
 export { colorerCellulesAnnuaire } from "@/lib/actions/annuaire-couleurs-actions";
 export { isAnnuaireField } from "@/lib/medical/directory-grid";
 export { isEtablissementField } from "@/lib/medical/etablissements-grid";

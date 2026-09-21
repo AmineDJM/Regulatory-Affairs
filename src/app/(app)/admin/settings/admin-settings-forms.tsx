@@ -85,10 +85,11 @@ export function AdProDgThresholdForm({ settings }: { settings: AppSettings }) {
           defaultValue={settings.adProDgThreshold}
         />
         <p className="text-xs text-muted-foreground">
-          Au-delà de ce montant, le Directeur Général valide EN PLUS — sur les quatre circuits Ad &amp; Pro
-          (sponsoring, prises en charge nationales et internationales, événements) ET sur le matériel
-          promotionnel. En dessous, son étape est franchie automatiquement et tracée. <strong>0</strong> = aucune
-          validation du Directeur Général.
+          Au-delà de ce montant, la demande passe par le <strong>Centre de validation Ad &amp; Pro</strong> —
+          sur les <strong>sept</strong> natures du pôle, sans exception : sponsoring, prises en charge nationales
+          et internationales, événements, matériel promotionnel, consulting et autres demandes. En dessous, la
+          porte est franchie automatiquement et tracée. <strong>0</strong> = aucune validation du centre.
+          Ce même seuil se règle depuis le centre.
         </p>
       </div>
       {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}

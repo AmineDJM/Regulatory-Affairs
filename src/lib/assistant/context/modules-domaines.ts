@@ -132,6 +132,7 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   // Les circuits de validation. `validation_operation` et `advance_workflow` sont MISSION/ADMIN.
   VALIDATIONS: { domaines: ["MISSION", "ADMIN"], mots: ["demande de validation", "demandes de validation", "a valider", "circuit"], outils: ["validation_operation", "read_workflow"] },
   VALIDATION_CENTRE: { domaines: ["MISSION", "ADMIN"], mots: ["centre de validation", "file de validation"], outils: ["validation_operation", "read_workflow"] },
+  AD_PRO_CENTRE: { domaines: ["FINANCE", "MISSION"], mots: ["centre de validation ad pro", "seuil ad pro", "arbitrage ad pro"], outils: ["adpro_operation", "read_workflow"] },
   PAYMENT_CENTRE: { domaines: ["FINANCE"], mots: ["centre de paiement", "a payer", "echeancier"], outils: ["decide_payment", "request_treasury_update"] },
   // Les demandes internes. `create_admin_request`, `support_operation`, `directive_operation`.
   ADMIN_REQUESTS: { domaines: ["ADMIN", "MISSION"], mots: ["secretariat", "demande administrative", "attestation", "ordre de mission"], outils: ["create_admin_request"] },

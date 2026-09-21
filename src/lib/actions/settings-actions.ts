@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
+import { siegeAuCentreAdPro, REFUS_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { DEFAULT_APP_SETTINGS } from "@/lib/settings";
@@ -57,7 +58,14 @@ export async function saveAppSettings(formData: FormData): Promise<ActionResult>
  */
 export async function setAdProDgThreshold(formData: FormData): Promise<ActionResult> {
   const admin = await requireUser();
-  if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  // LE SEUIL SE RÈGLE DEPUIS LE CENTRE — décision de la Direction (09/2026) : « on gère depuis
+  // là le seuil à partir duquel il faut une validation qui passe par ce centre (géré par le PDG
+  // et super admin) ». La porte s'élargit donc du Super Admin seul au SIÈGE du centre.
+  //
+  // UNE SEULE ACTION pour DEUX écrans (Administration › Réglages et le centre), et non une
+  // seconde écriture : deux actions sur le même `AppSetting` auraient divergé sur la borne, sur
+  // l'audit ou sur la phrase de refus, et c'est la copie en retard qui aurait fait foi (§118.5).
+  if (!siegeAuCentreAdPro(admin)) return { ok: false, error: REFUS_CENTRE_AD_PRO };
 
   const brut = fdNum(formData, "adProDgThreshold");
   if (brut === null || !Number.isFinite(brut)) {
@@ -78,6 +86,8 @@ export async function setAdProDgThreshold(formData: FormData): Promise<ActionRes
       : "Seuil Ad & Pro : plus aucune validation du Directeur Général",
   });
   revalidatePath("/admin");
+  // Les DEUX écrans qui portent ce réglage : Administration › Réglages et le centre.
+  revalidatePath("/centre-ad-pro");
   revalidatePath("/ad-pro");
   return { ok: true };
 }

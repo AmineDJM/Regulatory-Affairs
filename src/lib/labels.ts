@@ -1599,6 +1599,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   AD_PRO_OTHER: "Ad & Pro — autres demandes",
   VALIDATIONS: "Demandes de validations",
   VALIDATION_CENTRE: "Centre de validations",
+  AD_PRO_CENTRE: "Centre de validation Ad & Pro",
   DIRECTIVES: "Directives",
   SUPPORT: "Demandes de support",
   DOSSIERS: "Projets",
@@ -1789,6 +1790,11 @@ export const NAVIGATION: NavItem[] = [
   // propres dossiers et les blocs de suivi, et l'on découvrait une signature attendue depuis six
   // jours en cherchant autre chose.
   { module: "VALIDATION_CENTRE", label: "Centre de validations", href: "/centre-de-validations", icon: "Gavel", group: "Pôles", pole: "ADMINISTRATION" },
+  // LE CENTRE DE VALIDATION AD & PRO — le TROISIÈME centre (décision de la Direction, 09/2026).
+  // Toute demande Ad & Pro dont le budget total dépasse le seuil s'y arrête, et le SEUIL se
+  // règle depuis cet écran. Il siège avec les deux autres centres et non dans Ad & Pro : celui
+  // qui arbitre une dépense de 1,2 M ne doit pas être dans l'écran de celui qui la demande.
+  { module: "AD_PRO_CENTRE", label: "Centre de validation Ad & Pro", href: "/centre-ad-pro", icon: "Scale", group: "Pôles", pole: "ADMINISTRATION" },
   // LES DEMANDES DE PAIEMENT n'ont PLUS d'entrée de menu : la demande se fait depuis les
   // Demandes de validations (bouton « Demande de paiement »), et une fois le bon à payer donné,
   // le dossier passe par le centre de paiement puis atterrit dans les Règlements à effectuer.

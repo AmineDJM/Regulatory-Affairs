@@ -21,6 +21,7 @@ import {
   createAdProOtherRequest, decideAdProOtherRequest, closeAdProOtherRequest,
 } from "@/lib/actions/ad-pro-other-actions";
 import { updateAdProRequest } from "@/lib/actions/ad-pro-edit-actions";
+import { demandesAuCentreAdPro, deciderVisaCentreAdPro } from "@/platform/in-process/capacites";
 import {
   createConsultingContract, requestConsultingValidation, decideConsultingContract,
   closeConsultingContract, addConsultingTask, toggleConsultingTask, deleteConsultingTask,
@@ -972,6 +973,75 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
       return { ok: true, revalidate: ["/sponsoring", "/events"] };
     },
   },
+  /**
+   * LE VISA DU CENTRE — la cible se résout sur la LISTE DU CENTRE, pas sur une requête à part.
+   *
+   * `demandesAuCentreAdPro()` est le lecteur que l'écran utilise : la carte ne peut donc pas
+   * proposer une ligne que le centre ne montre plus (§118.5). Elle rend les TROIS formes de
+   * porte ; seule `VISA_CENTRE` se tranche ici — les deux autres sont des ÉTAPES de circuit,
+   * qui se décident devant le dossier, et le refus le NOMME plutôt que de se taire (§118.30).
+   *
+   * Un REFUS sans motif est refusé AVANT la carte : l'action l'exigerait de toute façon, et
+   * faire découvrir l'exigence après le clic coûterait un aller-retour pour rien (§118.18).
+   */
+  decide_gate_visa: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const decision = decisionOf(opStr(input, "decision"));
+      if (!decision) {
+        return { error: "Précisez la décision (champ « decision ») : autoriser le dépassement, ou refuser." };
+      }
+      const note = opStr(input, "note");
+      if (decision === "REJECT" && !note) {
+        return { error: "Un REFUS de dépassement se motive (champ « note ») : c'est ce motif que le demandeur lira." };
+      }
+
+      const lignes = await demandesAuCentreAdPro();
+      const cible = await resolveOne(
+        opStr(input, "reference") || opStr(input, "label"),
+        "la demande qui attend au centre (champ « reference » — référence ou intitulé)",
+        async (q) => {
+          const f = fold(q);
+          return lignes.filter((l) => fold(l.reference ?? "").includes(f) || fold(l.intitule).includes(f));
+        },
+        (l) => `${l.reference ?? "(sans référence)"} — ${l.intitule}`,
+      );
+      if ("error" in cible) return cible;
+
+      if (cible.forme !== "VISA_CENTRE") {
+        return {
+          error: `« ${cible.reference ?? cible.intitule} » ne se tranche pas par un visa : sa porte est une ÉTAPE `
+            + `de son circuit, qui se décide devant le dossier (${cible.href}) — avec ses pièces, sa catégorie `
+            + `budgétaire et le fil des avis.`,
+        };
+      }
+
+      return {
+        title: `${decision === "APPROVE" ? "AUTORISER" : "REFUSER"} le dépassement de seuil — ${cible.reference ?? cible.intitule}`,
+        fields: fieldsOf([
+          ["Demande", `${cible.reference ?? "(sans référence)"} — ${cible.intitule}`],
+          ["Demandeur", cible.demandeur],
+          ["Budget total", cible.montant == null ? "non renseigné" : dzd(cible.montant)],
+          ["Seuil en vigueur", cible.seuil == null ? "aucun seuil actif" : dzd(cible.seuil)],
+          ["Motif", note || null],
+        ]),
+        warnings: [
+          decision === "APPROVE"
+            ? "AUTORISER laisse la demande poursuivre son circuit au-delà du seuil — l'audit portera votre nom."
+            : "REFUSER arrête la demande au centre : elle ne poursuit pas son circuit.",
+        ],
+        args: {
+          entityType: cible.entityType,
+          entityId: cible.entityId,
+          approve: decision === "APPROVE" ? "1" : "0",
+          note: note || null,
+        },
+        successMessage: `Dépassement ${decision === "APPROVE" ? "autorisé" : "refusé"} — ${cible.reference ?? cible.intitule}.`,
+        revalidate: ["/centre-ad-pro"],
+      };
+    },
+    execute: (args) => runFd(deciderVisaCentreAdPro, args, "La décision du centre a été refusée.", { revalidate: ["/centre-ad-pro"] }),
+  },
+
 };
 
 /** Champs corrigeables (entrée op → champ formulaire → libellé) — liste blanche côté action. */

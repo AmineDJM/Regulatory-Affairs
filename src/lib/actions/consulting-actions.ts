@@ -12,6 +12,8 @@ import { companyIdForNew } from "@/lib/company";
 import { attachFiles } from "@/lib/attach-files";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { nextConsultingStatus, isContractEditable } from "@/lib/ad-pro/consulting";
+import { poserVisaAdPro, blocageCentreAdPro } from "@/lib/ad-pro/visa";
+import { toNumber } from "@/lib/utils";
 import { recordEvent } from "@/lib/events/ledger";
 
 const PATH = "/consulting";
@@ -173,8 +175,26 @@ export async function requestConsultingValidation(formData: FormData): Promise<A
       where: { id }, data: { status: next as ConsultingStatus, validatorId, updatedById: user.id },
     });
 
+    // ── LA PORTE DU CENTRE DE VALIDATION AD & PRO ────────────────────────────────────────────
+    // Un contrat de consulting n'avait AUCUNE porte au-dessus du seuil : mesuré sur sa machine à
+    // états, rien n'y consultait `adProDgThreshold`, donc un engagement de 5 M DZD sortait sans
+    // que personne en haut l'ait vu. Un centre qui laisserait passer cette nature serait une
+    // porte ouverte à côté d'une porte gardée (§118.71).
+    //
+    // À la SOUMISSION et pas à la création : un brouillon change de montant jusqu'à la dernière
+    // minute, et faire arbitrer le centre sur un chiffre provisoire le ferait travailler sur une
+    // demande que son auteur n'a pas encore envoyée.
+    const visa = await poserVisaAdPro("CONSULTING_CONTRACT", id, c.amount == null ? null : toNumber(c.amount));
+
     const body = `${c.reference} — ${c.title} (${c.counterparty})`;
-    if (validatorId) {
+    if (visa === "PENDING") {
+      // On prévient le CENTRE, pas le validateur : c'est lui qui a la main, et prévenir les deux
+      // ferait croire au validateur qu'il peut trancher — il se heurterait au blocage (§118.30).
+      await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
+        type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro — contrat de consulting au-dessus du seuil",
+        body, link: "/centre-ad-pro",
+      });
+    } else if (validatorId) {
       await notifyUser({ userId: validatorId, type: "VALIDATION_REQUIRED", title: "Contrat de consulting à valider", body, link: `${PATH}/${id}` });
     } else {
       await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Contrat de consulting à valider", body, link: `${PATH}/${id}` });
@@ -202,6 +222,12 @@ export async function decideConsultingContract(formData: FormData): Promise<Acti
     // n'importe qui se nommerait validateur de son propre contrat.
     const mayDecide = userCan(user, "CONSULTING", "VALIDATE") && (c.validatorId === null || c.validatorId === user.id || isDirection(user));
     if (!mayDecide) return { ok: false, error: "La décision revient au validateur désigné." };
+
+    // LA PORTE DU CENTRE PASSE AVANT LA DÉCISION. Sans cette ligne, le validateur désigné
+    // trancherait un engagement que le centre n'a pas encore arbitré — la porte existerait en
+    // base et ne garderait rien (§118.14).
+    const blocage = await blocageCentreAdPro("CONSULTING_CONTRACT", id);
+    if (blocage) return { ok: false, error: blocage };
 
     const next = nextConsultingStatus(c.status, approve ? "APPROVE" : "REFUSE");
     if (!next) return { ok: false, error: "Ce contrat n'attend pas de décision." };

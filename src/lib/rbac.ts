@@ -50,6 +50,12 @@ export const MODULES = [
   // DIRECTEUR GÉNÉRAL et au Super Admin — pas au PDG, dont le centre est celui de l'argent :
   // donner les deux à la même personne referait l'écran fourre-tout qu'on vient de découper.
   "VALIDATION_CENTRE",
+  // AD_PRO_CENTRE : le TROISIÈME centre — l'arbitrage des dépenses de promotion au-dessus du
+  // seuil, et le RÉGLAGE de ce seuil. Directeur Général + Super Admin (`siegeAuCentreAdPro`).
+  // Un module à part et non un onglet d'Ad & Pro : celui qui arbitre une dépense de 1,2 M ne
+  // doit pas être dans le même écran que celui qui la demande, sinon la séparation des rôles
+  // n'est qu'un onglet — le raisonnement du centre de paiement, mot pour mot.
+  "AD_PRO_CENTRE",
   // CHIEF_OF_STAFF : « My Chief of Staff » — l'interface exécutive de pilotage (PDG + Super
   // Admin). Le même moteur que l'assistant, mais avec les outils de chef de cabinet : histoire
   // complète d'un dossier, lecture des documents du Drive, bilan d'une personne, rappels
@@ -160,6 +166,10 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     // attend de lui, tous modules confondus. Il ne lui donne aucun droit nouveau — il rassemble
     // ce qui lui était déjà adressé, et que l'écran commun des validations noyait.
     VALIDATION_CENTRE: MANAGE,
+    // LE CENTRE DE VALIDATION AD & PRO — décision de la Direction (09/2026). Le Directeur
+    // Général y arbitre les demandes au-dessus du seuil et RÈGLE ce seuil. Le siège réel est la
+    // règle pure `siegeAuCentreAdPro` : le module ouvre la porte, la règle dit qui s'assied.
+    AD_PRO_CENTRE: MANAGE,
     NOTIFICATIONS: ["VIEW"],
   },
   // DIRECTEUR DES OPÉRATIONS — rôle À PART, pas une Direction au rabais.

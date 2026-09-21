@@ -1,6 +1,7 @@
 import type { CurrentUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { canManageLetterheads } from "@/lib/office/letterhead";
+import { siegeAuCentreAdPro } from "@/platform/in-process/capacites";
 
 /**
  * CATALOGUE DES OPS DE DOMAINE — la couche SYSTÉMIQUE qui ferme les trous de parité en série.
@@ -3234,6 +3235,59 @@ export const OPS_CATALOG: OpMeta[] = [
     summary: "Valide ou refuse une demande « autre » (Direction) — motif tracé.",
     gate: (u) => userCan(u, "AD_PRO_OTHER", "VALIDATE") || hasGlobalView(u),
     covers: ["ad-pro-other-actions:decideAdProOtherRequest"],
+  },
+  /**
+   * LE VISA DU CENTRE DE VALIDATION AD & PRO — et pourquoi ce geste-là est OFFERT ici.
+   *
+   * §118.15 réserve à un clic dans une vraie session les gestes qui sont des ATTESTATIONS :
+   * accorder une autorisation, fournir une pièce. Autoriser un dépassement de seuil en est
+   * une — l'audit portera le nom d'une personne. La question n'est donc pas si cette op est
+   * commode, c'est si le chemin qui l'emprunte fait bien signer un humain.
+   *
+   * Trois faits MESURÉS le disent, et c'est pourquoi l'op existe :
+   *
+   *  1. Le registre des capacités de MISSION est une liste FERMÉE de 62 entrées et ne contient
+   *     AUCUNE capacité `*_operation` : une mission ne peut pas atteindre une op, donc il n'y a
+   *     pas de chemin où le moteur exécuterait ce visa sans carte. C'est exactement ce que
+   *     `policy/guard.ts` protège pour `mission_control`, et ce visa n'y entre pas par ailleurs
+   *     — y ajouter un motif pour une capacité qui n'existe pas dans ce registre serait du code
+   *     mort (§118.14), et élargir ses motifs, qui servent les capacités de mission, serait
+   *     l'erreur que §118.74 nomme.
+   *  2. En conversation, toute op passe par la carte de confirmation, et §118.126 a tranché :
+   *     « une carte qui exige un clic EST une action confirmée ». La carte porte le montant ET
+   *     le seuil côte à côte — la personne voit précisément ce que le contrôle existe pour lui
+   *     faire regarder.
+   *  3. Le siège est REVÉRIFIÉ par l'action de l'écran (`siegeAuCentreAdPro`), que l'exécuteur
+   *     appelle telle quelle : la conversation n'est pas une porte dérobée (§118.7), et y
+   *     réécrire la vérification en ferait une seconde vérité en retard (§118.74).
+   *
+   * Et le geste INVERSE serait plus coûteux que le défaut : REFUSER un dépassement est un geste
+   * qui RÉDUIT, que §118.15 déclare sans danger et disponible dans la conversation. Exclure
+   * l'action entière l'aurait emporté avec l'autorisation, pour un « je ne peux pas » que rien
+   * n'oblige (§118.27). Les deux directions sont donc offertes, comme `decide_other_request` —
+   * la décision Ad & Pro voisine, SENSITIVE elle aussi, offerte ainsi depuis toujours.
+   *
+   * La cible se résout sur la LISTE DU CENTRE elle-même (`demandesAuCentreAdPro`) et non par une
+   * seconde requête : une op qui chercherait les visas de son côté finirait par ne pas voir les
+   * mêmes que l'écran (§118.5), et le symptôme serait une carte proposée sur une ligne que le
+   * centre ne montre plus.
+   */
+  {
+    tool: "adpro_operation", op: "decide_gate_visa", module: "Centre de validation Ad & Pro",
+    uiLabel: "Trancher le dépassement de seuil",
+    aliases: [
+      "autorise le dépassement de seuil", "refuse le dépassement de seuil",
+      "valide le visa du centre ad pro", "refuse le visa ad pro",
+    ],
+    risk: "SENSITIVE",
+    summary: "AUTORISE ou REFUSE le franchissement du seuil Ad & Pro pour une demande qui l'attend au "
+      + "centre de validation (Direction Générale ou Super Admin, revérifié par l'action). La demande se "
+      + "donne par sa référence ou son intitulé (champ « reference ») ; la décision par « decision » "
+      + "(autoriser / refuser) ; un REFUS exige son motif (champ « note »). Un visa déjà tranché est "
+      + "REFUSÉ en nommant sa décision : on ne rejoue pas une attestation.",
+    gate: (u) => siegeAuCentreAdPro(u),
+    gateNote: "siège au centre de validation Ad & Pro (Direction Générale ou Super Admin)",
+    covers: ["ad-pro-centre-actions:deciderVisaCentreAdPro"],
   },
   {
     tool: "adpro_operation", op: "close_other_request", module: "Ad & Pro → Autres",

@@ -108,6 +108,16 @@ const SOCLE = [
   "src/lib/vues/",
   "src/lib/lecteurs/",
   /**
+   * `seuils/` : le seuil Ad & Pro au-delà duquel la Direction Générale valide — UNE règle
+   * arithmétique, zéro import. TROIS couches en ont besoin sans avoir le droit de se parler :
+   * le domaine `tasks` (`workflow/parcours.ts`, les quatre circuits configurables), le domaine
+   * `adpro` (`promo-material/circuit.ts`, qui n'a pas d'étapes en base, et `ad-pro/centre.ts`),
+   * plus l'écran du centre et les actions. `tasks` et `adpro` ne peuvent pas s'importer : c'est
+   * littéralement ce qui a fait écrire la règle DEUX FOIS (§118.138), et le symptôme aurait été
+   * un matériel promotionnel franchissant la porte qu'un sponsoring du même montant respecte.
+   */
+  "src/lib/seuils/",
+  /**
    * `interrupteurs/` : l'interrupteur global des missions d'Adam (§118.132) — une ligne
    * `AppSetting` lue et écrite, rien d'autre. Trois couches en ont besoin sans avoir le droit de
    * se parler : la façade `missions/` (le moteur le relit à chaque tour), le domaine `google/`

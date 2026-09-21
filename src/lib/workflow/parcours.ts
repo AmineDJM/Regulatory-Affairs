@@ -173,19 +173,21 @@ export function seuilFranchissement(
 }
 
 /**
- * LE DIRECTEUR GÉNÉRAL DOIT-IL VALIDER ce montant ? Lecture unique, partagée par le circuit
- * Ad & Pro (qui la traduit en franchissement automatique d'étape) et par le matériel
- * promotionnel (qui n'a pas d'étapes en base et pose la question directement).
+ * LE DIRECTEUR GÉNÉRAL DOIT-IL VALIDER ce montant ? RÉEXPORTÉ DU SOCLE.
  *
- * Un montant INCONNU (null, 0, négatif) fait passer par le DG : on ne franchit pas une porte de
- * contrôle sur une absence de donnée. L'erreur coûte une validation de trop ; l'erreur inverse
- * laisserait sortir une dépense d'un million sans que personne en haut l'ait vue.
+ * Cette fonction PROMETTAIT ici une « lecture unique, partagée par le circuit Ad & Pro et par le
+ * matériel promotionnel », et c'était faux deux fois : son seul importeur du dépôt était son
+ * propre test (§118.14, §118.49), et `promo-material/circuit.ts` recopiait la même arithmétique
+ * dans `etapeApplicable` parce que le domaine `adpro` n'a pas le droit d'importer le domaine
+ * `tasks` (`platform/domains.ts`). Deux copies qui s'accordaient par chance, et un commentaire
+ * qui affirmait un partage que le code n'avait pas (§118.116).
+ *
+ * La règle vit désormais au SOCLE (`lib/seuils/ad-pro.ts`, zéro import), lue par les trois
+ * couches qui en ont besoin sans avoir le droit de se parler : ce circuit, le matériel
+ * promotionnel, et le CENTRE DE VALIDATION Ad & Pro. Le nom est conservé ici parce qu'il est
+ * celui que ce circuit emploie ; il ne désigne plus qu'une seule implémentation.
  */
-export function dgRequis(montant: number | null | undefined, seuil: number | null | undefined): boolean {
-  if (seuil == null || !(seuil > 0)) return false;
-  if (montant == null || !(montant > 0)) return true;
-  return montant > seuil;
-}
+export { porteDgRequise as dgRequis } from "@/lib/seuils/ad-pro";
 
 /**
  * LES ÉTAPES QUE CETTE INSTANCE N'ATTEINDRA JAMAIS — la queue coupée par la borne.

@@ -626,7 +626,20 @@ function lirePorte(corps: string, constantes: Readonly<Record<string, string>>):
   // `peut…` : les prédicats de droit écrits en français au socle (`peutPiloterMissionsAdam`,
   // `peutEmettrePieces`) — sans eux, une action gardée par une RÈGLE et non par un module
   // sortait avec `gardes: []`, c'est-à-dire l'air de n'être gardée par rien (§118.136).
-  for (const g of corps.matchAll(/\b(require[A-Z][A-Za-z]*|assert[A-Z][A-Za-z]*|can[A-Z][A-Za-z]*|has[A-Z][A-Za-z]*|is[A-Z][A-Za-z]*|peut[A-Z][A-Za-z]*)\s*\(/g)) {
+  //
+  // `sits…`, `siege…`, `holds…` : les prédicats de SIÈGE et de VERROU. Mesuré sur les fichiers
+  // `"use server"` du parc — trois gardes réelles qu'aucun préfixe ne voyait : le siège du centre
+  // de PAIEMENT (`sitsOnPaymentCentre`, en production depuis toujours), celui du centre Ad & Pro
+  // (`siegeAuCentreAdPro`) et le cadenas d'un dossier confidentiel (`holdsRegulatoryLock`) — cette
+  // dernière NOMMÉE par §118.80, constatée et laissée. Ce n'est pas un fait de sécurité qui change
+  // (l'action garde exactement les mêmes gardes) : c'est ce que la CARTE de confirmation sait dire
+  // à la personne avant qu'elle clique (§118.80, §118.120).
+  //
+  // `allowed…` et `autorise…` sont DÉLIBÉRÉMENT dehors : la même mesure a trouvé
+  // `allowedGeneralMeansCategoryIds`, qui rend une LISTE D'IDENTIFIANTS et non un droit. On relève
+  // une garde sur un fait, jamais sur un nom plausible (§118.79a) — l'inscrire ferait annoncer une
+  // garde là où il n'y a qu'une lecture de catégories.
+  for (const g of corps.matchAll(/\b(require[A-Z][A-Za-z]*|assert[A-Z][A-Za-z]*|can[A-Z][A-Za-z]*|has[A-Z][A-Za-z]*|is[A-Z][A-Za-z]*|peut[A-Z][A-Za-z]*|sits[A-Z][A-Za-z]*|siege[A-Z][A-Za-z]*|holds[A-Z][A-Za-z]*)\s*\(/g)) {
     if (g[1] !== "requireUser") gardes.add(g[1]!);
   }
   return { module, verbe, entite, moduleFr, gardes: [...gardes].sort() };

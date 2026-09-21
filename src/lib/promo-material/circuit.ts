@@ -39,6 +39,8 @@
  *
  * Module PUR — testé, sans base de données.
  */
+
+import { porteDgRequise } from "@/lib/seuils/ad-pro";
 import { ROLE_DIRECTION_MARKETING } from "@/lib/personnes/roles-vente";
 
 /** Les étapes du circuit court. L'ordre de ce tableau EST le circuit. */
@@ -117,11 +119,13 @@ export interface ContexteCircuit {
 export function etapeApplicable(step: PromoStep, ctx: ContexteCircuit): boolean {
   if (step === "REVIEW_MANAGER") return !ctx.demandeurEstDirectionMarketing;
   if (step === "REVIEW_DG") {
-    // Pas de seuil réglé ⇒ aucune porte du DG. Montant inconnu ⇒ elle s'ouvre : l'erreur coûte
-    // une validation de trop, l'erreur inverse laisse sortir une grosse dépense sans contrôle.
-    if (ctx.seuilDg == null || !(ctx.seuilDg > 0)) return false;
-    if (ctx.montant == null || !(ctx.montant > 0)) return true;
-    return ctx.montant > ctx.seuilDg;
+    // LA RÈGLE VIENT DU SOCLE, elle n'est plus recopiée ici. Elle l'était — les six lignes
+    // ci-dessous reproduisaient mot pour mot `dgRequis` de `workflow/parcours.ts`, parce que le
+    // domaine `adpro` n'a pas le droit d'importer le domaine `tasks`. Elles s'accordaient, et
+    // elles auraient divergé au premier ajustement : le symptôme aurait été un matériel
+    // promotionnel de 1,2 M franchissant la porte qu'un sponsoring du même montant respecte
+    // (§118.5). `lib/seuils/ad-pro.ts` est au socle, donc lisible des deux domaines.
+    return porteDgRequise(ctx.montant, ctx.seuilDg);
   }
   return true;
 }
