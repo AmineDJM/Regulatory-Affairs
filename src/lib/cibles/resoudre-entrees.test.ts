@@ -159,9 +159,16 @@ suite("Désignation par le nom, dans le chemin générique", () => {
    * le modèle `Message` de l'ERP — deux objets sans aucun rapport (§118.16).
    */
   it("ce que le schéma ne dit pas ne se devine pas", async () => {
-    const c = CONTRAT_PAR_ID.get("ad-pro-item-actions:requestAdProItemQuote");
-    expect(c?.champs.find((x) => x.nom === "id")?.modele).toBeNull();
-    const r = await proposer("ad-pro-item-actions:requestAdProItemQuote", { id: "un nom quelconque" });
+    // LA PRÉMISSE D'ABORD : l'action doit EXISTER. Ce cas visait
+    // `requestAdProItemQuote`, renommée en `demanderPieceSecretariat` le jour où le devis et la
+    // facture sont devenus deux natures d'un seul geste. Il n'a échoué que parce que
+    // `toBeNull()` distingue `undefined` d'un `null` — un `toBeFalsy()` l'aurait laissé au vert
+    // sur une action DISPARUE, c'est-à-dire en ne mesurant plus rien (§118.104, §118.120).
+    const ACTION = "ad-pro-item-actions:demanderPieceSecretariat";
+    const c = CONTRAT_PAR_ID.get(ACTION);
+    expect(c, `« ${ACTION} » doit exister — sinon ce cas ne mesure rien`).toBeTruthy();
+    expect(c!.champs.find((x) => x.nom === "id")?.modele).toBeNull();
+    const r = await proposer(ACTION, { id: "un nom quelconque" });
     if ("error" in r) { expect(r.error).toBe(""); return; }
     expect(JSON.parse(r.args.champs ?? "{}").id).toBe("un nom quelconque");
     expect((r.warnings ?? []).join(" ")).toContain("le schéma ne dit pas");

@@ -85,3 +85,10 @@ export { porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
 // LA SECTION DISCUSSION d'une demande Ad & Pro — l'écrivain unique des sept natures. L'op le
 // lisait en direct : 429 franchissements pour un plafond de 428, et le plafond ne se relève pas.
 export { addAdProComment } from "@/lib/actions/ad-pro-discussion-actions";
+// Les DEUX natures de pièce qu'on fait établir par le secrétariat (devis, facture) : le
+// vocabulaire est PUR et vit au socle, mais Adam n'a pas le droit d'importer `@/lib/ad-pro/`
+// en direct — il passe par cette porte, comme pour le centre de validation ci-dessus.
+export {
+  PIECE_SECRETARIAT, NATURES_PIECE_SECRETARIAT, peutDemanderPiece, titrePiece,
+  type NaturePieceSecretariat,
+} from "@/lib/ad-pro/pieces-secretariat";

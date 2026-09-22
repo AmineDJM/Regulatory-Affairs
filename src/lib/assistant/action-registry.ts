@@ -831,7 +831,7 @@ G("Ad&Pro (postes, décisions, transferts, consulting)", [
   "ad-pro-item-actions:deleteAdProItem", "ad-pro-item-actions:emitItemExpenseOrder",
   "ad-pro-item-actions:linkPromoMaterial",
   "ad-pro-item-actions:submitAdProItem", "ad-pro-item-actions:decideAdProItem", "ad-pro-item-actions:setAdProItemBudget",
-  "ad-pro-item-actions:requestAdProItemQuote", "ad-pro-item-actions:requestAdProItemOrder",
+  "ad-pro-item-actions:demanderPieceSecretariat", "ad-pro-item-actions:requestAdProItemOrder",
   "ad-pro-item-actions:approveAdProItemOrder", "ad-pro-other-actions:createAdProOtherRequest",
   "ad-pro-other-actions:decideAdProOtherRequest", "ad-pro-other-actions:closeAdProOtherRequest",
   "ad-pro-transfer-actions:transferAdProRequest", "consulting-actions:createConsultingContract",

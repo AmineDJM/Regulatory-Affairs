@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { breakdown, canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, plannedGaps, ITEM_KINDS, ITEM_KIND_LABELS } from "./ad-pro-items";
+import { breakdown, canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, plannedGaps, ITEM_KINDS, ITEM_KIND_LABELS ,
+  parentDuPoste, PARENT_COLONNE, PARENT_ENTITE, AD_PRO_PARENTS} from "./ad-pro-items";
 
 /**
  * La ventilation décide de ce que la Direction voit et de ce que les Finances paient. Une
@@ -300,5 +301,47 @@ describe("les natures de poste — l'ordre d'affichage est EXHAUSTIF", () => {
     // Le libellé de TRAVEL disait « Déplacement / hébergement » — faux depuis qu'ACCOMMODATION
     // existe. Une prose qui contredit le code est pire que pas de prose (§118.112b).
     expect(ITEM_KIND_LABELS.TRAVEL).not.toContain("hébergement");
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * DE QUI CE POSTE DÉPEND-IL ? — la question que l'ACCÈS doit poser.
+ *
+ * Un poste n'a pas de droits à lui. Le rattacher à un module écrit à la main était une
+ * devinette, et elle était FAUSSE (`ENTITY_MODULE` annonçait `SPONSORING` pour TOUS les postes).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("le PARENT d'un poste — jamais deviné, jamais plausible", () => {
+  const vide = {
+    sponsoringId: null, congressNationalId: null, congressInternationalId: null,
+    eventId: null, trainingId: null,
+  };
+
+  it("chacun des quatre parents se lit par SA colonne", () => {
+    for (const p of AD_PRO_PARENTS) {
+      const c = { ...vide, [PARENT_COLONNE[p]]: `id-${p}` };
+      expect(parentDuPoste(c), `« ${p} » doit se lire`).toEqual({ parent: p, id: `id-${p}` });
+      // L'entité du parent est ce qui porte les droits — un parent sans entité rendrait
+      // l'accès indécidable.
+      expect(PARENT_ENTITE[p], p).toBeTruthy();
+    }
+  });
+
+  it("aucun parent, ou PLUSIEURS, rend null — on ne choisit pas à la place d'un humain", () => {
+    // Les deux cas sont interdits par la contrainte `AdProItem_one_parent`, donc les rencontrer
+    // signifie qu'on ne sait PAS lire la ligne. Retenir le premier ferait juger l'accès d'un
+    // poste sur une opération qui n'est pas la sienne (§104.7).
+    expect(parentDuPoste(vide)).toBeNull();
+    expect(parentDuPoste({ ...vide, sponsoringId: "a", eventId: "b" })).toBeNull();
+  });
+
+  it("le parent DORMANT (une formation) rend null, et c'est une ignorance déclarée", () => {
+    // `AdProItem.trainingId` existe au schéma et n'a AUCUN lecteur dans le dépôt — recensé.
+    // Aucune entité du registre ne porte les droits d'une formation : rendre un parent
+    // plausible ici ferait juger l'accès sur un objet qui n'est pas celui-là (§118.26).
+    expect(parentDuPoste({ ...vide, trainingId: "f1" })).toBeNull();
+    // Et un poste qui porterait les DEUX n'est pas « une opération avec un détail en plus ».
+    expect(parentDuPoste({ ...vide, sponsoringId: "a", trainingId: "f1" })).toBeNull();
   });
 });

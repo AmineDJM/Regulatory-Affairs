@@ -142,12 +142,70 @@ export const SURFACES_HUMAINES: Readonly<Record<string, string>> = {
     + "en a le droit. Ce réglage se fait depuis l'écran des réglages d'Adam",
 };
 
-/** Filet SECONDAIRE : ce que le nom d'une action dit quand ses écritures n'ont pas été lues. */
+/**
+ * LES MOTS D'UN IDENTIFIANT — `updateUserRole` → `update`, `user`, `role`.
+ *
+ * On coupe sur les tirets bas, les chiffres ET les bosses de casse, parce que le parc écrit ses
+ * actions en camel et §118.74 a déjà payé l'erreur inverse : des motifs en serpent (`_role`,
+ * `role_`) passés sur du camel LAISSAIENT passer `updateUserRole`, une garde désarmée en ayant
+ * l'air armée.
+ */
+function motsDuNom(nom: string): string[] {
+  return nom
+    .split(/[_\d]+|(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/)
+    .filter(Boolean)
+    .map((m) => m.toLowerCase());
+}
+
+/**
+ * Filet SECONDAIRE : ce que le nom d'une action dit quand ses écritures n'ont pas été lues.
+ *
+ * LE VOCABULAIRE SE COMPARE À UN MOT, JAMAIS À UNE SOUS-CHAÎNE. Mesuré : `secret` cherché
+ * n'importe où refusait `demanderPieceSecretariat` — une demande de devis au bureau du
+ * SECRÉTARIAT, écriture métier parfaitement ordinaire, classée « désigne un droit ou un
+ * identifiant » parce qu'un mot français contient six lettres anglaises. C'est un « je ne peux
+ * pas » écrit dans le CODE (§118.63), et un refus à tort coûte plus cher que le défaut qu'il
+ * prétend éviter (§118.27).
+ *
+ * Mesure du remède sur le parc entier : **22 actions refusées par la sous-chaîne, 21 par le
+ * mot — et l'écart est exactement le faux positif**, aucune vraie prise perdue. La règle reste
+ * un FILET : ce qui touche vraiment aux droits est attrapé plus haut, sur le MODÈLE ÉCRIT lu
+ * dans la source (§118.74), qui ne dépend d'aucune façon de nommer.
+ *
+ * Les inflexions sont admises (`grants`, `roleId`, `tokens`) : un pluriel ou un suffixe
+ * d'identifiant nomme la même chose, et les exclure rouvrirait `setRowGrants`.
+ */
 const MOTIFS_NOM = [
-  { test: /role|permission|grant|access|rbac|password|credential|token|secret/i, raison: "un droit ou un identifiant" },
-  { test: /superadmin|super_admin/i, raison: "un pouvoir de Super Admin" },
-  { test: /featureflag|killswitch|guard|bypass/i, raison: "un garde-fou" },
+  { mots: ["role", "permission", "grant", "access", "rbac", "password", "credential", "token", "secret"], raison: "un droit ou un identifiant" },
+  { mots: ["superadmin"], raison: "un pouvoir de Super Admin" },
+  { mots: ["featureflag", "killswitch", "guard", "bypass"], raison: "un garde-fou" },
 ];
+
+/**
+ * Le mot du vocabulaire porté par ce nom, ou `null` — jamais une ressemblance partielle.
+ *
+ * ON COMPARE AUSSI LES PAIRES ADJACENTES, et c'est ce qui manquait à la première version :
+ * `superAdminDelete` se coupe en `super` + `admin` + `delete`, donc aucun mot seul ne vaut
+ * `superadmin` — la garde que §118.74 nomme en premier laissait passer l'action qu'elle est
+ * écrite pour attraper. Trouvé en MESURANT par la vraie fonction, pas par relecture : ma
+ * première mesure ne passait qu'UN des trois vocabulaires et concluait sur la règle entière
+ * (§118.92 — la question n'est pas « est-ce cassé ? » mais « qu'est-ce que la sonde a
+ * réellement mesuré ? »). Les composés du vocabulaire — `superadmin`, `featureflag`,
+ * `killswitch` — s'écrivent tous en deux mots dans le parc.
+ */
+function motInterdit(nom: string, vocabulaire: readonly string[]): string | null {
+  const mots = motsDuNom(nom);
+  const paires = mots.slice(0, -1).map((m, i) => m + mots[i + 1]!);
+  for (const mot of [...mots, ...paires]) {
+    for (const v of vocabulaire) {
+      if (mot === v) return v;
+      // Inflexions : pluriel, participe, suffixe d'identifiant. `secretariat` n'en est pas une.
+      const reste = mot.startsWith(v) ? mot.slice(v.length) : null;
+      if (reste !== null && ["s", "es", "ed", "id", "ids"].includes(reste)) return v;
+    }
+  }
+  return null;
+}
 
 /**
  * CE CONTRAT EST-IL HORS DU CHEMIN GÉNÉRIQUE ? Rend `null` quand il est permis, sinon la
@@ -170,7 +228,7 @@ export function interdictionGenerique(c: ContratAction): string | null {
     }
   }
   for (const m of MOTIFS_NOM) {
-    if (m.test.test(c.fonction)) {
+    if (motInterdit(c.fonction, m.mots)) {
       return `Le nom de cette action désigne ${m.raison}, et le chemin générique n'y touche pas. `
         + `Ce geste se fait depuis l'écran d'administration.`;
     }

@@ -3187,13 +3187,16 @@ export const OPS_CATALOG: OpMeta[] = [
   },
   {
     tool: "adpro_operation", op: "request_item_quote", module: "Ad & Pro → Postes",
-    uiLabel: "Demander le devis (secrétariat)",
-    aliases: ["demande un devis pour le poste", "ouvre une demande de devis au secrétariat"],
+    uiLabel: "Demander une pièce au secrétariat (devis / facture)",
+    aliases: [
+      "demande un devis pour le poste", "ouvre une demande de devis au secrétariat",
+      "réclame la facture du poste", "demande la facture au secrétariat",
+    ],
     risk: "NORMAL",
-    summary: "Ouvre une DEMANDE ADMINISTRATIVE (Bureau du secrétariat) pour obtenir le devis d'un poste — refuse si une demande est déjà ouverte.",
+    summary: "Ouvre une DEMANDE ADMINISTRATIVE (Bureau du secrétariat) pour un poste — DEVIS ou FACTURE, avec le message qui porte le contenu et les références. Refuse si une demande de la même nature est déjà ouverte, et la facture exige que le bon de commande ait été demandé.",
     gate: () => true,
     gateNote: "accès à l'opération (revérifié par l'action)",
-    covers: ["ad-pro-item-actions:requestAdProItemQuote"],
+    covers: ["ad-pro-item-actions:demanderPieceSecretariat"],
   },
   {
     tool: "adpro_operation", op: "request_item_order", module: "Ad & Pro → Postes",

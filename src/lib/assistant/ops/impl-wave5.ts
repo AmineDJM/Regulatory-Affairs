@@ -15,13 +15,16 @@ import {
 } from "@/lib/actions/congress-beneficiary-actions";
 import {
   addAdProItem, updateAdProItem, deleteAdProItem, emitItemExpenseOrder, linkPromoMaterial,
-  submitAdProItem, setAdProItemBudget, requestAdProItemQuote, requestAdProItemOrder, approveAdProItemOrder,
+  submitAdProItem, setAdProItemBudget, demanderPieceSecretariat, requestAdProItemOrder, approveAdProItemOrder,
 } from "@/lib/actions/ad-pro-item-actions";
 import {
   createAdProOtherRequest, decideAdProOtherRequest, closeAdProOtherRequest,
 } from "@/lib/actions/ad-pro-other-actions";
 import { updateAdProRequest } from "@/lib/actions/ad-pro-edit-actions";
-import { demandesAuCentreAdPro, deciderVisaCentreAdPro } from "@/platform/in-process/capacites";
+import {
+  demandesAuCentreAdPro, deciderVisaCentreAdPro,
+  PIECE_SECRETARIAT, NATURES_PIECE_SECRETARIAT, type NaturePieceSecretariat,
+} from "@/platform/in-process/capacites";
 import {
   createConsultingContract, requestConsultingValidation, decideConsultingContract,
   closeConsultingContract, addConsultingTask, toggleConsultingTask, deleteConsultingTask,
@@ -795,16 +798,30 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const found = await resolveItem(input);
       if ("error" in found) return found;
+      // LA NATURE EST LUE, JAMAIS DEVINÉE. Un défaut silencieux sur « DEVIS » ferait ouvrir un
+      // devis quand la personne a dit « facture » — et la carte annoncerait l'autre pièce.
+      const brut = (opStr(input, "nature") || "DEVIS").toUpperCase();
+      const nature = (NATURES_PIECE_SECRETARIAT as string[]).includes(brut)
+        ? (brut as NaturePieceSecretariat)
+        : null;
+      if (!nature) {
+        return { error: `Nature de pièce inconnue : « ${brut} ». Attendu : ${NATURES_PIECE_SECRETARIAT.join(" ou ")}.` };
+      }
+      const spec = PIECE_SECRETARIAT[nature];
       return {
-        title: `Demander le devis du poste « ${found.label} » au secrétariat`,
-        fields: fieldsOf([["Poste", `${found.label} — ${found.parentLabel}`], ["Précision", opStr(input, "note") || null]]),
-        warnings: ["Ouvre une DEMANDE ADMINISTRATIVE (Bureau du secrétariat) — les devis déposés y seront joints au poste."],
-        args: { id: found.id, note: opStr(input, "note") || null },
-        successMessage: `Demande de devis ouverte pour « ${found.label} ».`,
+        title: `Demander ${spec.libelle.toLowerCase() === "facture" ? "la facture" : "le devis"} du poste « ${found.label} » au secrétariat`,
+        fields: fieldsOf([
+          ["Poste", `${found.label} — ${found.parentLabel}`],
+          ["Pièce", spec.libelle],
+          ["Message", opStr(input, "note") || null],
+        ]),
+        warnings: [`Ouvre une DEMANDE ADMINISTRATIVE (Bureau du secrétariat) — les pièces déposées y seront jointes au poste.${nature === "FACTURE" ? " La facture se réclame APRÈS la demande d'émission du bon de commande." : ""}`],
+        args: { id: found.id, nature, note: opStr(input, "note") || null },
+        successMessage: `Demande de ${spec.libelle.toLowerCase()} ouverte pour « ${found.label} ».`,
         revalidate: ["/sponsoring", "/demandes"],
       };
     },
-    execute: (args) => runFd2(requestAdProItemQuote, args, "La demande de devis a été refusée.", { revalidate: ["/sponsoring"] }),
+    execute: (args) => runFd2(demanderPieceSecretariat, args, "La demande de pièce a été refusée.", { revalidate: ["/sponsoring"] }),
   },
 
   request_item_order: {

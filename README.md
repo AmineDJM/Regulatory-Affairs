@@ -3134,6 +3134,46 @@ Ajout du poste (nature, montant estimé, INCLUS dans le budget accordé ou RALLO
         → l'ordre de dépense naît avec sa catégorie budgétaire déjà renseignée
 ```
 
+**Le poste porte ses PROPRES pièces jointes, et son accès vient de SON OPÉRATION.**
+`canAccessEntity` rattachait tous les postes au module `SPONSORING`, écrit à la main — une
+devinette, et elle était FAUSSE : mesuré, `MEDICAL_DELEGATE` et `MEDICAL_PROMOTION_MANAGER` sont
+les **deux seuls rôles** qui portent `EVENTS` et `CONGRESS_NATIONAL` **sans** `SPONSORING`, donc
+les auteurs typiques d'un événement ne pouvaient ni joindre une pièce ni commenter le poste de
+LEUR propre demande. Un poste n'a pas de droits à lui : il DÉLÈGUE à son opération
+(`parentDuPoste`, pur, exhaustif sur les cinq clés étrangères), et rend `null` sur tout ce qui ne
+se lit pas à coup sûr — zéro parent, plusieurs parents, ou le parent **dormant** `trainingId`,
+qui n'a aucun lecteur dans le dépôt.
+
+**Devis, bon de commande et facture ne sont PAS le même geste — mesuré avant d'être codé.** Le
+devis et la facture sont des pièces qu'on fait **établir** ou qu'on **réclame** : une demande au
+bureau du secrétariat, avec sa référence, sa file, ses pièces jointes et son cycle — tout cela
+existe déjà. Le bon de commande, lui, **engage de l'argent** : il porte le visa de la Direction
+puis l'émission d'un ordre de dépense par les Finances (`orderStage`), et en faire une quatrième
+demande de secrétariat aurait créé une SECONDE vérité sur « le BC de ce poste » (§118.5). Un
+seul écrivain pour les deux natures de secrétariat (`demanderPieceSecretariat`), l'enchaînement
+dans un module pur (`lib/ad-pro/pieces-secretariat.ts`) : **le devis n'est pas un préalable**
+(« on peut également demander un devis, pas que un BC » dit qu'on peut en demander un EN PLUS),
+la **facture vient après le bon de commande** — la réclamer avant fabriquerait à la main
+l'anomalie `facture_sans_bc` que le contrôle financier lève ailleurs —, et une demande déjà
+ouverte de la MÊME nature ferme la sienne, la nature voisine restant ouverte.
+
+**Le message du demandeur et la note de la Direction sont deux paroles.** « Quand on demande
+l'émission d'un BC, on écrit un message avec les différents contenus, les références » : ce
+message vivait dans `orderNote`, que le visa **écrasait** — et la colonne avait, mesuré, **trois
+écrivains et aucun lecteur**, donc rien ne signalait la perte (§118.45). `orderDecisionNote`
+porte désormais le visa ou le refus, et les deux sont AFFICHÉES sur la carte du poste.
+**L'assistante de direction est prévenue de la demande d'émission** — c'est elle qui établit la
+pièce ; elle n'était prévenue de rien. On ajoute un destinataire, on ne retire aucune garde : le
+visa de la Direction reste ce qui engage.
+
+**Le rattachement se fait par le lien CANONIQUE** (`linkedEntityType` / `linkedEntityId`), celui
+que `/demandes/[id]` lit déjà pour savoir qu'une dépense vient d'Ad & Pro et ne doit **pas** être
+imputée une seconde fois au budget d'un département. Les demandes de devis de poste ne le
+posaient pas — double comptage possible, sans la moindre erreur visible — et la liste de cet
+écran, écrite à la main, oubliait `CONSULTING_CONTRACT`, `AD_PRO_OTHER` et `AD_PRO_ITEM` : elle
+se dérive maintenant du registre canonique (§118.73). **Le même geste existe en conversation**
+(`adpro_operation/request_item_quote`, les deux natures).
+
 | Règle | Où | Pourquoi |
 |---|---|---|
 | Un poste **inclus** ventile l'enveloppe ; un poste **supplémentaire** est une rallonge | `breakdown()` (pure, testée) | Une rallonge assumée n'est pas un dépassement subi : les mêler ferait prendre une décision pour l'autre. La question est posée **à l'ajout**. |

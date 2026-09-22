@@ -5,6 +5,7 @@ import { legalReaderWhere } from "@/lib/lecteurs/legal";
 import { canSee as canSeeTask, canAttach as canAttachTask } from "@/lib/tasks/request-flow";
 import { recruitmentViewer } from "@/lib/recruitment/access";
 import { isOwnBusiness } from "@/lib/ad-pro/attachments";
+import { parentDuPoste, PARENT_ENTITE } from "@/lib/ad-pro-items";
 import { getMyCompanies } from "@/lib/company";
 import {
   userCan, hasGlobalView, scopeRegulatory, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeBdProject, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser, canViewBdProjects, canManageBdProjects,
@@ -151,6 +152,31 @@ export async function canAccessEntity(
     // saurait plus laquelle a servi à la décision.
     if (r.askedToId !== user.id) return false;
     return action === "VIEW" || (r.status !== "ACCEPTED" && r.status !== "CANCELLED");
+  }
+
+  // POSTE DE DÉPENSE : l'accès ne vient PAS d'un module, il vient de SON OPÉRATION.
+  //
+  // Un poste n'existe pas tout seul — il est le stand d'un congrès, le traiteur d'un événement,
+  // l'hôtellerie d'un sponsoring. Le rattacher à un module écrit à la main était une devinette,
+  // et elle était FAUSSE : `ENTITY_MODULE` annonce `SPONSORING` pour tous les postes, or le
+  // délégué médical et le manager promotion médicale — mesuré, les deux seuls rôles qui portent
+  // `EVENTS` et `CONGRESS_NATIONAL` sans `SPONSORING` — sont précisément les auteurs typiques
+  // d'un événement ou d'un congrès national. Le demandeur ne pouvait donc rien joindre ni
+  // commenter sur le poste de SA propre demande, alors que l'opération, elle, lui est ouverte :
+  // une porte fermée juste à côté d'une porte ouverte, sur la même chose (§118.71).
+  //
+  // On DÉLÈGUE, on ne recopie pas : la règle d'une opération Ad & Pro est déjà écrite plus bas
+  // (parties prenantes, demandeur, droits de module) et la redire ici en ferait une seconde
+  // vérité qui prendrait du retard au premier ajustement (§118.5).
+  if (entityType === "AD_PRO_ITEM") {
+    const poste = await prisma.adProItem.findUnique({
+      where: { id: entityId },
+      select: { sponsoringId: true, congressNationalId: true, congressInternationalId: true, eventId: true, trainingId: true },
+    });
+    if (!poste) return false;
+    const parent = parentDuPoste(poste);
+    if (!parent) return false;
+    return canAccessEntity(user, PARENT_ENTITE[parent.parent], parent.id, action);
   }
 
   // PROJET BD : l'accès ne vient PAS du module, parce que le module est RETIRÉ du service

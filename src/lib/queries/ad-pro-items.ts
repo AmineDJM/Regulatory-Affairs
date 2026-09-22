@@ -3,7 +3,8 @@ import { toNumber } from "@/lib/utils";
 import { getBudgetCategoryOptions } from "@/lib/queries/budget";
 import type { SessionUser } from "@/lib/rbac";
 import type { ItemRow } from "@/components/ad-pro/items-panel";
-import type { AdProParent } from "@/lib/ad-pro-items";
+import { PARENT_COLONNE, type AdProParent } from "@/lib/ad-pro-items";
+import { NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, type NaturePieceSecretariat } from "@/lib/ad-pro/pieces-secretariat";
 
 /**
  * CHARGEMENT DES POSTES D'UNE OPÉRATION AD & PRO — un seul endroit pour les quatre modules.
@@ -18,20 +19,12 @@ import type { AdProParent } from "@/lib/ad-pro-items";
  * par famille, jamais une par poste.
  */
 
-const PARENT_COLUMN: Record<AdProParent, "sponsoringId" | "congressNationalId" | "congressInternationalId" | "eventId"> = {
-  SPONSORING: "sponsoringId",
-  CONGRESS_NATIONAL: "congressNationalId",
-  CONGRESS_INTERNATIONAL: "congressInternationalId",
-  EVENT: "eventId",
-};
-
 export async function loadAdProItems(parent: AdProParent, parentId: string): Promise<ItemRow[]> {
   const rawItems = await prisma.adProItem.findMany({
-    where: { [PARENT_COLUMN[parent]]: parentId },
+    where: { [PARENT_COLONNE[parent]]: parentId },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
     include: {
       budgetCategory: { select: { name: true, envelope: { select: { name: true } } } },
-      adminRequest: { select: { reference: true } },
       decisions: {
         orderBy: { at: "desc" },
         take: 12,
@@ -43,14 +36,45 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
 
   const promoIds = rawItems.map((i) => i.promoMaterialId).filter((x): x is string => Boolean(x));
   const orderIds = rawItems.map((i) => i.expenseOrderId).filter((x): x is string => Boolean(x));
-  const [promoRows, orderRows] = await Promise.all([
+  const itemIds = rawItems.map((i) => i.id);
+  const [promoRows, orderRows, demandeRows, docRows] = await Promise.all([
     promoIds.length
       ? prisma.promoMaterial.findMany({ where: { id: { in: promoIds } }, select: { id: true, reference: true, title: true, status: true } })
       : Promise.resolve([]),
     orderIds.length
       ? prisma.expenseOrder.findMany({ where: { id: { in: orderIds } }, select: { id: true, reference: true, status: true } })
       : Promise.resolve([]),
+    // LES DEMANDES DE PIÈCE, par le lien CANONIQUE — devis ET facture. En lire une par poste
+    // ferait N allers-retours sur un écran qu'on ouvre pour tout voir (§118.102b).
+    prisma.administrativeRequest.findMany({
+      where: { linkedEntityType: "AD_PRO_ITEM", linkedEntityId: { in: itemIds }, deletedAt: null },
+      select: { id: true, reference: true, type: true, status: true, linkedEntityId: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    // LES PIÈCES JOINTES d'un poste : on en rend le COMPTE, pas la liste — l'écran ne les
+    // déplie qu'à la demande, et charger les métadonnées de toutes les pièces de tous les
+    // postes pour afficher un chiffre coûterait une requête pour rien.
+    prisma.document.groupBy({
+      by: ["entityId"],
+      where: { entityType: "AD_PRO_ITEM", entityId: { in: itemIds } },
+      _count: { _all: true },
+    }),
   ]);
+  const natureDuType = new Map<string, NaturePieceSecretariat>(
+    NATURES_PIECE_SECRETARIAT.map((n) => [String(PIECE_SECRETARIAT[n].type), n]),
+  );
+  const demandesParPoste = new Map<string, ItemRow["demandes"]>();
+  for (const d of demandeRows) {
+    const nature = natureDuType.get(String(d.type));
+    // Une demande d'une AUTRE nature rattachée au poste (un déplacement, une signature) n'est
+    // pas une pièce commerciale : on ne la range pas de force dans une case qui n'est pas la
+    // sienne — la montrer comme un devis ferait croire le devis demandé (§118.26).
+    if (!nature || !d.linkedEntityId) continue;
+    const liste = demandesParPoste.get(d.linkedEntityId) ?? [];
+    liste.push({ id: d.id, reference: d.reference, nature, status: String(d.status) });
+    demandesParPoste.set(d.linkedEntityId, liste);
+  }
+  const docsParPoste = new Map(docRows.map((d) => [d.entityId, d._count._all]));
   const promoById = new Map(promoRows.map((p) => [p.id, { reference: p.reference, title: p.title, status: String(p.status) }]));
   const orderById = new Map(orderRows.map((o) => [o.id, { reference: o.reference, status: String(o.status) }]));
 
@@ -69,9 +93,11 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     decidedAt: i.decidedAt?.toISOString() ?? null,
     budgetCategoryId: i.budgetCategoryId,
     budgetCategoryLabel: i.budgetCategory ? `${i.budgetCategory.envelope.name} › ${i.budgetCategory.name}` : null,
-    adminRequestId: i.adminRequestId,
-    adminRequestRef: i.adminRequest?.reference ?? null,
+    demandes: demandesParPoste.get(i.id) ?? [],
+    documentCount: docsParPoste.get(i.id) ?? 0,
     orderStage: i.orderStage,
+    orderNote: i.orderNote,
+    orderDecisionNote: i.orderDecisionNote,
     decisions: i.decisions.map((d) => ({
       decision: d.decision,
       note: d.note,

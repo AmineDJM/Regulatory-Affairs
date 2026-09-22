@@ -18,8 +18,13 @@ import {
   addAdProItem, updateAdProItem, deleteAdProItem,
   emitItemExpenseOrder, linkPromoMaterial,
   submitAdProItem, decideAdProItem, setAdProItemBudget,
-  requestAdProItemQuote, requestAdProItemOrder, approveAdProItemOrder,
+  demanderPieceSecretariat, requestAdProItemOrder, approveAdProItemOrder,
 } from "@/lib/actions/ad-pro-item-actions";
+import {
+  NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, peutDemanderPiece, type NaturePieceSecretariat,
+} from "@/lib/ad-pro/pieces-secretariat";
+import { DocumentUpload } from "@/components/documents/document-upload";
+import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 
 export interface ItemRow {
   id: string;
@@ -42,11 +47,16 @@ export interface ItemRow {
   /** Budget (catégorie d'enveloppe) qui portera la dépense, choisi après accord. */
   budgetCategoryId: string | null;
   budgetCategoryLabel: string | null;
-  /** Demande administrative ouverte pour obtenir le devis. */
-  adminRequestId: string | null;
-  adminRequestRef: string | null;
+  /** Les demandes de pièce ouvertes au secrétariat pour ce poste (devis, facture). */
+  demandes: { id: string; reference: string; nature: NaturePieceSecretariat; status: string }[];
+  /** Combien de pièces jointes le poste porte — le détail se déplie à la demande. */
+  documentCount: number;
   /** Émission du bon de commande : demande → visa Direction → Finances. */
   orderStage: AdProItemOrderStage;
+  /** Le message du DEMANDEUR : contenu du bon de commande, références, fournisseur. */
+  orderNote: string | null;
+  /** La note de la Direction sur son visa ou son refus — elle n'écrase plus la précédente. */
+  orderDecisionNote: string | null;
   /** Historique des allers-retours avec la Direction (le plus récent en tête). */
   decisions: { decision: AdProItemStatus; note: string | null; amount: number | null; at: string; by: string | null }[];
 }
@@ -608,6 +618,15 @@ function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOption
   const [note, setNote] = React.useState("");
   const [showHistory, setShowHistory] = React.useState(false);
   const [deciding, setDeciding] = React.useState(false);
+  // LE MESSAGE D'UNE DEMANDE DE PIÈCE — « on écrit un message avec les différents contenus, les
+  // références ». Il est porté par la nature en cours de rédaction : deux champs séparés
+  // laisseraient un brouillon de devis partir dans une demande de facture.
+  const [redige, setRedige] = React.useState<NaturePieceSecretariat | "BC" | null>(null);
+  const [message, setMessage] = React.useState("");
+  const [piecesOuvertes, setPiecesOuvertes] = React.useState(false);
+  const naturesOuvertes = item.demandes
+    .filter((d) => d.status !== "DONE" && d.status !== "CANCELLED")
+    .map((d) => d.nature);
 
   const submit = canSubmitItem({ status: item.status, amountEstimated: item.amountEstimated, amountGranted: item.amountGranted });
   const order = canRequestPurchaseOrder({
@@ -623,29 +642,87 @@ function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOption
 
   return (
     <div className="space-y-2 rounded-lg border border-border/70 bg-secondary/20 p-2.5">
-      {/* ── Devis : ouvrir une demande administrative, puis y joindre les devis ── */}
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-        {item.adminRequestId ? (
-          <>
-            <span className="text-muted-foreground">Devis demandé au secrétariat :</span>
-            <Link href={`/demandes/${item.adminRequestId}`} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
-              {item.adminRequestRef ?? "voir la demande"} <ExternalLink className="h-3 w-3" />
-            </Link>
-            <span className="text-muted-foreground">— joignez-y les devis reçus, ils font partie du dossier du poste.</span>
-          </>
-        ) : canEdit && item.status !== "APPROVED" ? (
-          <button
-            type="button"
-            disabled={busy === `quote:${item.id}`}
-            onClick={() => void run(`quote:${item.id}`, () => requestAdProItemQuote(undefined, fdOf()), "Demande de devis ouverte au secrétariat.")}
-            className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 font-medium hover:bg-secondary"
-          >
-            {busy === `quote:${item.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
-            Demander un devis (secrétariat)
-          </button>
-        ) : (
-          <span className="text-muted-foreground">Aucune demande de devis.</span>
+      {/* ── Demander une pièce au secrétariat : devis, puis facture après le bon de commande ──
+          Le devis et la facture sont la MÊME démarche (une demande au bureau du secrétariat,
+          avec son message) : deux boutons écrits à la main auraient divergé sur ce message,
+          qui est précisément ce que le circuit doit transporter. */}
+      <div className="space-y-1.5 text-xs">
+        {item.demandes.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            {item.demandes.map((d) => (
+              <Link
+                key={d.id} href={`/demandes/${d.id}`}
+                className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-0.5 font-medium text-primary hover:bg-secondary"
+              >
+                {PIECE_SECRETARIAT[d.nature].libelle} {d.reference} <ExternalLink className="h-3 w-3" />
+              </Link>
+            ))}
+            <span className="text-muted-foreground">— joignez-y les pièces reçues.</span>
+          </div>
+        )}
+        {canEdit && (
+          <div className="flex flex-wrap items-center gap-2">
+            {NATURES_PIECE_SECRETARIAT.map((nature) => {
+              const garde = peutDemanderPiece(nature, { ouvertes: naturesOuvertes, bcDemande: item.orderStage !== "NONE" });
+              return (
+                <button
+                  key={nature} type="button"
+                  disabled={!garde.ok || busy === `piece:${item.id}`}
+                  title={garde.ok ? undefined : garde.raison}
+                  onClick={() => { setRedige(redige === nature ? null : nature); setMessage(""); }}
+                  className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 font-medium hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  {PIECE_SECRETARIAT[nature].bouton}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {/* Le message part AVEC la demande : le demander après coup obligerait l'assistante à
+            revenir vers le demandeur pour savoir ce qu'elle doit établir. */}
+        {canEdit && redige && redige !== "BC" && (
+          <div className="space-y-1.5 rounded-lg border border-border bg-background p-2">
+            <textarea
+              value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
+              placeholder={PIECE_SECRETARIAT[redige].aide}
+              className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm" disabled={busy === `piece:${item.id}`}
+                onClick={() => void run(
+                  `piece:${item.id}`,
+                  () => demanderPieceSecretariat(undefined, fdOf({ nature: redige, note: message })),
+                  `Demande de ${PIECE_SECRETARIAT[redige].libelle.toLowerCase()} ouverte au secrétariat.`,
+                ).then(() => { setRedige(null); setMessage(""); })}
+              >
+                {busy === `piece:${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                Envoyer au secrétariat
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setRedige(null); setMessage(""); }}>Annuler</Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── LES PIÈCES DU POSTE — « on peut mettre une PJ ou plusieurs à chaque poste ».
+          Elles vivent SUR le poste et pas sur l'opération : la facture du traiteur et celle de
+          l'agence sont deux pièces de deux postes, et les poser au même endroit oblige à
+          rouvrir chacune pour savoir laquelle justifie quoi. */}
+      <div className="space-y-1.5 text-xs">
+        <button
+          type="button" onClick={() => setPiecesOuvertes((v) => !v)}
+          className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground"
+        >
+          <Receipt className="h-3.5 w-3.5" />
+          Pièces du poste{item.documentCount > 0 ? ` (${item.documentCount})` : ""}
+        </button>
+        {piecesOuvertes && (
+          <div className="rounded-lg border border-border bg-background p-2">
+            <DocumentUpload entityType="AD_PRO_ITEM" entityId={item.id} categories={[...AD_PRO_DOC_CATEGORIES]} compact />
+          </div>
         )}
       </div>
 
@@ -779,9 +856,9 @@ function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOption
           {canEdit && (item.orderStage === "NONE" || item.orderStage === "REFUSED") && (
             <Button
               size="sm" variant="outline" disabled={!order.ok || busy === `po:${item.id}`} title={order.reason}
-              onClick={() => void run(`po:${item.id}`, () => requestAdProItemOrder(undefined, fdOf()), "Émission du bon de commande demandée.")}
+              onClick={() => { setRedige(redige === "BC" ? null : "BC"); setMessage(""); }}
             >
-              {busy === `po:${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              <Send className="h-4 w-4" />
               Demander l&apos;émission du BC
             </Button>
           )}
@@ -816,6 +893,47 @@ function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOption
             </Button>
           )}
         </div>
+      )}
+
+      {/* LE MESSAGE QUI PART AVEC LA DEMANDE D'ÉMISSION — « on écrit un message avec les
+          différents contenus, les références ». C'est ce que l'assistante de direction lit pour
+          ÉTABLIR le bon de commande : sans lui, elle doit rappeler le demandeur. */}
+      {canEdit && redige === "BC" && item.status === "APPROVED" && (
+        <div className="space-y-1.5 rounded-lg border border-border bg-background p-2 text-xs">
+          <textarea
+            value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
+            placeholder="Contenu du bon de commande, références, coordonnées du fournisseur — ce que l'assistante doit y porter."
+            className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm" disabled={!order.ok || busy === `po:${item.id}`} title={order.reason}
+              onClick={() => void run(
+                `po:${item.id}`,
+                () => requestAdProItemOrder(undefined, fdOf({ note: message })),
+                "Émission du bon de commande demandée.",
+              ).then(() => { setRedige(null); setMessage(""); })}
+            >
+              {busy === `po:${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Envoyer la demande
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => { setRedige(null); setMessage(""); }}>Annuler</Button>
+          </div>
+        </div>
+      )}
+
+      {/* LES DEUX PAROLES, CÔTE À CÔTE. Elles vivaient dans le même champ, donc chaque visa
+          effaçait le message du demandeur — et rien ne les affichait, ce qui rendait la perte
+          indétectable (§118.45). */}
+      {item.status === "APPROVED" && item.orderNote && (
+        <p className="rounded-lg bg-secondary/40 px-2.5 py-1.5 text-xs text-foreground">
+          <strong>Demande d&apos;émission :</strong> {item.orderNote}
+        </p>
+      )}
+      {item.status === "APPROVED" && item.orderDecisionNote && (
+        <p className="rounded-lg bg-warning/10 px-2.5 py-1.5 text-xs text-foreground">
+          <strong>Direction ({ITEM_ORDER_STAGE_LABELS[item.orderStage].label}) :</strong> {item.orderDecisionNote}
+        </p>
       )}
     </div>
   );

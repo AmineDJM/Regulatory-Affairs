@@ -10,6 +10,10 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, ITEM_KINDS, ITEM_KIND_LABELS, type AdProParent } from "@/lib/ad-pro-items";
+import {
+  PIECE_SECRETARIAT, NATURES_PIECE_SECRETARIAT, peutDemanderPiece, titrePiece,
+  type NaturePieceSecretariat,
+} from "@/lib/ad-pro/pieces-secretariat";
 import { buildRef } from "@/lib/refs";
 import { montantDeLaDemande } from "@/lib/ad-pro/montant-demande";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
@@ -661,25 +665,61 @@ export async function setAdProItemBudget(_prev: ActionResult | undefined, formDa
   return { ok: true, id };
 }
 
-// ───────────────────────── Devis : demande administrative ─────────────────────────
+// ───────────────────────── Devis et facture : demandes au secrétariat ─────────────────────────
+
+/** Les demandes de pièce OUVERTES d'un poste, lues par le lien CANONIQUE. */
+async function piecesOuvertes(itemId: string): Promise<NaturePieceSecretariat[]> {
+  const rows = await prisma.administrativeRequest.findMany({
+    where: {
+      linkedEntityType: "AD_PRO_ITEM", linkedEntityId: itemId, deletedAt: null,
+      status: { notIn: ["DONE", "CANCELLED"] },
+    },
+    select: { type: true },
+  });
+  const types = new Set(rows.map((r) => String(r.type)));
+  return NATURES_PIECE_SECRETARIAT.filter((n) => types.has(String(PIECE_SECRETARIAT[n].type)));
+}
 
 /**
- * Ouvre une DEMANDE ADMINISTRATIVE (Bureau du secrétariat) pour obtenir le devis d'un poste.
- * Le secrétariat travaille avec ses outils habituels ; les devis déposés sur la demande sont
- * ensuite joints au poste, qui part alors en validation. Un seul aller au lieu de trois.
+ * DEMANDER UNE PIÈCE COMMERCIALE AU BUREAU DU SECRÉTARIAT — un seul écrivain, deux natures.
+ *
+ * « On peut demander un devis pas que un BC […] après le BC, une facture. » Le devis et la
+ * facture sont la MÊME démarche — une demande au secrétariat, avec un message qui porte le
+ * contenu et les références — et ce message est ce que le dirigeant a nommé le premier. Le
+ * bon de commande, lui, garde son circuit : il ENGAGE, donc il porte un visa (§118.5).
+ *
+ * Le rattachement se fait par le lien CANONIQUE (`linkedEntityType` / `linkedEntityId`), pas par
+ * une colonne dédiée : c'est lui que l'écran des demandes lit déjà pour savoir qu'une dépense
+ * vient d'Ad & Pro et ne doit PAS être imputée une seconde fois au budget d'un département.
+ * Mesuré : la demande de devis d'un poste ne le posait pas, donc l'assistante pouvait imputer
+ * chez elle une dépense que l'enveloppe de l'opération porte déjà — un double comptage sans
+ * aucune erreur visible.
  */
-export async function requestAdProItemQuote(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+export async function demanderPieceSecretariat(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
+  const brut = fdStr(formData, "nature") ?? "DEVIS";
+  const nature = (NATURES_PIECE_SECRETARIAT as string[]).includes(brut)
+    ? (brut as NaturePieceSecretariat)
+    : null;
   if (!id) return { ok: false, error: "Poste non précisé." };
+  if (!nature) return { ok: false, error: `Nature de pièce inconnue : ${brut}. Attendu : ${NATURES_PIECE_SECRETARIAT.join(", ")}.` };
   const found = await loadItem(id);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
-  if (item.adminRequestId) return { ok: false, error: "Une demande de devis est déjà ouverte pour ce poste." };
+
+  const garde = peutDemanderPiece(nature, {
+    ouvertes: await piecesOuvertes(id),
+    bcDemande: item.orderStage !== "NONE",
+  });
+  if (!garde.ok) return { ok: false, error: garde.raison };
 
   const info = await PARENTS[owner.parent].load(owner.id);
   if (!info) return { ok: false, error: "Opération introuvable." };
+  const spec = PIECE_SECRETARIAT[nature];
+  // LE MESSAGE DE LA PERSONNE EN TÊTE : c'est ce qu'elle a écrit, et ce que l'assistante lit en
+  // premier. Les rappels du moteur (prestataire, enveloppe) viennent après, jamais à sa place.
   const note = fdStr(formData, "note");
 
   try {
@@ -687,34 +727,41 @@ export async function requestAdProItemQuote(_prev: ActionResult | undefined, for
     const request = await prisma.administrativeRequest.create({
       data: {
         reference,
-        type: "QUOTE",
-        title: `Devis — ${ITEM_KIND_LABELS[item.kind]} : ${item.label} (${info.ref})`,
+        type: spec.type,
+        title: titrePiece(nature, `${ITEM_KIND_LABELS[item.kind]} : ${item.label}`, info.ref),
         description: [
-          `Demande de devis pour un poste de l'opération ${info.ref}.`,
+          note,
+          `Poste de l'opération ${info.ref}.`,
           item.supplier ? `Prestataire pressenti : ${item.supplier}.` : null,
           item.amountEstimated != null ? `Enveloppe estimée : ${toNumber(item.amountEstimated).toLocaleString("fr-FR")} DZD.` : null,
-          note,
         ].filter(Boolean).join("\n"),
         priority: "HIGH",
         requesterId: user.id,
         status: "NEW",
+        linkedEntityType: "AD_PRO_ITEM",
+        linkedEntityId: item.id,
       },
       select: { id: true, reference: true },
     });
-    await prisma.adProItem.update({ where: { id }, data: { adminRequestId: request.id, updatedById: user.id } });
+    // `adminRequestId` reste le RACCOURCI du devis (relation `AdProItemQuoteRequest`, posée
+    // avant le lien canonique) : on ne le LIT plus nulle part, mais l'écrire garde le
+    // `onDelete: SetNull` utile et évite une migration de colonne pour rien.
+    if (nature === "DEVIS") {
+      await prisma.adProItem.update({ where: { id }, data: { adminRequestId: request.id, updatedById: user.id } });
+    }
     await notifyRoles(["DIRECTION_ASSISTANT", "SUPER_ADMIN"], {
       type: "ASSIGNMENT",
-      title: "Demande de devis",
+      title: `Demande de ${spec.libelle.toLowerCase()}`,
       body: `${request.reference} — ${item.label} (${info.ref})`,
       link: `/demandes/${request.id}`,
     }).catch(() => undefined);
-    await audit(user, owner.parent, owner.id, "UPDATE", `Demande de devis ${request.reference} ouverte pour le poste « ${item.label} ».`);
+    await audit(user, owner.parent, owner.id, "UPDATE", `Demande de ${spec.libelle.toLowerCase()} ${request.reference} ouverte pour le poste « ${item.label} ».`);
     revalidate(owner.parent, owner.id);
     revalidatePath("/demandes");
     return { ok: true, id: request.id };
   } catch (err) {
-    console.error("[ad-pro-item] demande de devis impossible", err);
-    return { ok: false, error: "La demande de devis n'a pas pu être créée." };
+    console.error("[ad-pro-item] demande de pièce impossible", err);
+    return { ok: false, error: `La demande de ${spec.libelle.toLowerCase()} n'a pas pu être créée.` };
   }
 }
 
@@ -754,10 +801,22 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
     data: { orderStage: "REQUESTED", orderRequestedAt: new Date(), orderRequestedById: user.id, orderNote: note, updatedById: user.id },
   });
   const info = await PARENTS[owner.parent].load(owner.id);
+  const cible = `${info?.ref ?? ""} — « ${item.label} » (${toNumber(item.amountGranted!).toLocaleString("fr-FR")} DZD)`;
   await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED",
     title: "Bon de commande à viser",
-    body: `${info?.ref ?? ""} — « ${item.label} » (${toNumber(item.amountGranted!).toLocaleString("fr-FR")} DZD)`,
+    body: cible,
+    link: `${PARENTS[owner.parent].path}/${owner.id}`,
+  }).catch(() => undefined);
+  // L'ASSISTANTE DE DIRECTION ÉTABLIT LE BON DE COMMANDE — « demander l'établissement d'un BC
+  // qui arrivera à l'assistante de direction pour chaque poste ». Elle n'était prévenue de rien :
+  // la demande partait à la Direction pour son visa, et l'assistante apprenait après coup qu'il
+  // fallait rédiger la pièce. On AJOUTE un destinataire, on ne retire aucune garde — le visa de
+  // la Direction reste ce qui engage, et c'est un geste distinct de l'établissement du document.
+  await notifyRoles(["DIRECTION_ASSISTANT"], {
+    type: "ASSIGNMENT",
+    title: "Bon de commande à établir",
+    body: cible,
     link: `${PARENTS[owner.parent].path}/${owner.id}`,
   }).catch(() => undefined);
   await audit(user, owner.parent, owner.id, "UPDATE", `Émission du bon de commande demandée pour le poste « ${item.label} ».`);
@@ -768,6 +827,11 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
 /**
  * VISA de la Direction sur la demande d'émission — puis les Finances émettent. Deux marches,
  * parce que ce sont deux responsabilités : la Direction engage, les Finances paient.
+ *
+ * La note de la Direction a son PROPRE champ. Elle vivait dans `orderNote`, où le demandeur
+ * avait écrit le contenu du bon de commande et ses références : chaque visa l'EFFAÇAIT, et
+ * personne ne s'en apercevait — mesuré, la colonne avait trois écrivains et aucun lecteur.
+ * L'assistante devait donc redemander à la main ce que le circuit avait déjà transporté.
  */
 export async function approveAdProItemOrder(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -782,7 +846,7 @@ export async function approveAdProItemOrder(_prev: ActionResult | undefined, for
 
   const note = fdStr(formData, "note");
   if (decision === "REFUSE") {
-    await prisma.adProItem.update({ where: { id }, data: { orderStage: "REFUSED", orderNote: note, updatedById: user.id } });
+    await prisma.adProItem.update({ where: { id }, data: { orderStage: "REFUSED", orderDecisionNote: note, updatedById: user.id } });
     await audit(user, owner.parent, owner.id, "UPDATE", `Émission du bon de commande REFUSÉE pour « ${item.label} »${note ? ` — ${note}` : ""}.`);
     revalidate(owner.parent, owner.id);
     return { ok: true, id };
@@ -790,7 +854,7 @@ export async function approveAdProItemOrder(_prev: ActionResult | undefined, for
 
   await prisma.adProItem.update({
     where: { id },
-    data: { orderStage: "DIRECTION_OK", orderDirectionAt: new Date(), orderDirectionById: user.id, orderNote: note, updatedById: user.id },
+    data: { orderStage: "DIRECTION_OK", orderDirectionAt: new Date(), orderDirectionById: user.id, orderDecisionNote: note, updatedById: user.id },
   });
   const info = await PARENTS[owner.parent].load(owner.id);
   await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], {

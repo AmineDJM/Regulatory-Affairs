@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { CommentThread, type CommentItem } from "@/components/shared/comment-thread";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { PROMO_MATERIAL_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
+import { AD_PRO_ENTITY_TYPE } from "@/lib/ad-pro/unified";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { AttachmentValidationBlock } from "./attachment-validation";
@@ -56,8 +57,14 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   const departments = await prisma.department.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } });
   // Ce qui vient d'Ad & Pro est déjà porté par le budget de l'opération : l'imputer une
   // seconde fois le compterait deux fois.
-  const fromAdPro = ["SPONSORING", "CONGRESS_NATIONAL", "CONGRESS_INTERNATIONAL", "EVENT", "PROMO_MATERIAL"]
-    .includes(req.linkedEntityType ?? "");
+  // LA LISTE SE DÉRIVE DU REGISTRE CANONIQUE des sept natures du pôle, plus le POSTE.
+  //
+  // Écrite à la main, elle oubliait `CONSULTING_CONTRACT`, `AD_PRO_OTHER` et `AD_PRO_ITEM` —
+  // donc une demande de devis ou de facture ouverte depuis un poste pouvait être imputée une
+  // seconde fois au budget d'un département, alors que l'enveloppe de l'opération la porte
+  // déjà. Aucune erreur visible, et le double comptage ne se lit que sur le budget (§118.73).
+  const fromAdPro = [...Object.values(AD_PRO_ENTITY_TYPE), "AD_PRO_ITEM" as const]
+    .includes((req.linkedEntityType ?? "") as never);
   const alreadyImputed = (await prisma.departmentBudgetExpense.count({ where: { adminRequestId: req.id } })) > 0;
 
   // L'Assistante de Direction tient le bureau du secrétariat : elle gère et modère toute demande.

@@ -2247,7 +2247,14 @@ model AdProItem {
   orderRequestedById String?
   orderDirectionAt   DateTime?
   orderDirectionById String?
+  /// LE MESSAGE DU DEMANDEUR, écrit au moment où il demande l'émission : contenu du bon de
+  /// commande, références, coordonnées du fournisseur. C'est ce que l'assistante de direction
+  /// lit pour l'ÉTABLIR, et ce que la Direction lit pour le viser. Il ne se réécrit jamais.
   orderNote          String?
+  /// LA NOTE DE LA DIRECTION sur son visa ou son refus. Elle vivait dans `orderNote`, donc
+  /// chaque visa EFFAÇAIT le message du demandeur — mesuré : trois écrivains, aucun lecteur,
+  /// et la seule chose que le circuit devait transmettre disparaissait (§118.45).
+  orderDecisionNote  String?
 
   decisions AdProItemDecision[]
 

@@ -18,6 +18,64 @@ export type AdProParent = "SPONSORING" | "CONGRESS_NATIONAL" | "CONGRESS_INTERNA
 
 export const AD_PRO_PARENTS: AdProParent[] = ["SPONSORING", "CONGRESS_NATIONAL", "CONGRESS_INTERNATIONAL", "EVENT"];
 
+/**
+ * LA COLONNE DE CHAQUE PARENT, et l'ENTITÉ qu'elle désigne.
+ *
+ * `AdProItem` porte CINQ clés étrangères nullables, dont exactement une est renseignée
+ * (contrainte `AdProItem_one_parent`). Quatre désignent une opération du pôle ; la cinquième,
+ * `trainingId`, est une colonne DORMANTE — recensé, elle n'a AUCUN lecteur dans le dépôt, les
+ * postes d'une formation n'existant pas encore.
+ */
+export const PARENT_COLONNE: Record<AdProParent, "sponsoringId" | "congressNationalId" | "congressInternationalId" | "eventId"> = {
+  SPONSORING: "sponsoringId",
+  CONGRESS_NATIONAL: "congressNationalId",
+  CONGRESS_INTERNATIONAL: "congressInternationalId",
+  EVENT: "eventId",
+};
+
+/** Le type d'entité de chaque parent — c'est LUI qui porte les droits, jamais le poste. */
+export const PARENT_ENTITE: Record<AdProParent, "SPONSORING" | "CONGRESS_NATIONAL" | "CONGRESS_INTERNATIONAL" | "EVENT"> = {
+  SPONSORING: "SPONSORING",
+  CONGRESS_NATIONAL: "CONGRESS_NATIONAL",
+  CONGRESS_INTERNATIONAL: "CONGRESS_INTERNATIONAL",
+  EVENT: "EVENT",
+};
+
+/** Les cinq clés étrangères d'un poste, telles qu'elles sortent de la base. */
+export interface ColonnesParent {
+  sponsoringId?: string | null;
+  congressNationalId?: string | null;
+  congressInternationalId?: string | null;
+  eventId?: string | null;
+  trainingId?: string | null;
+}
+
+/**
+ * DE QUI CE POSTE DÉPEND-IL ? — la question que l'accès doit poser, et la seule.
+ *
+ * Un poste n'a pas de droits à lui : il n'existe que porté par une opération, et c'est cette
+ * opération qui dit qui peut la voir, y joindre une pièce, la commenter. Le rattacher à un
+ * MODULE écrit à la main serait une devinette — mesuré, c'en était une : `ENTITY_MODULE`
+ * annonçait `SPONSORING` pour TOUS les postes, or le délégué médical et le manager promotion
+ * médicale — les deux auteurs typiques d'un événement ou d'un congrès national — n'ont PAS ce
+ * module. Ils ne pouvaient donc rien joindre au poste de LEUR propre demande.
+ *
+ * On rend `null` sur tout ce qui ne se lit pas à coup sûr : aucun parent (donnée impossible que
+ * la contrainte interdit), plusieurs parents (idem), ou le parent DORMANT `trainingId`, dont
+ * aucune entité du registre ne porte les droits. Rendre un parent plausible ferait juger l'accès
+ * d'un poste sur une opération qui n'est pas la sienne (§104.7).
+ */
+export function parentDuPoste(c: ColonnesParent): { parent: AdProParent; id: string } | null {
+  const trouves = AD_PRO_PARENTS
+    .map((p) => ({ parent: p, id: c[PARENT_COLONNE[p]] ?? null }))
+    .filter((x): x is { parent: AdProParent; id: string } => Boolean(x.id));
+  if (trouves.length !== 1) return null;
+  // Un poste rattaché À LA FOIS à une opération et à une formation n'est pas « une opération
+  // avec un détail en plus » : c'est une donnée qu'on ne sait pas lire.
+  if (c.trainingId) return null;
+  return trouves[0];
+}
+
 /** Libellés métier. `PROMO_MATERIAL` est distingué : il renvoie vers un autre circuit. */
 export const ITEM_KIND_LABELS: Record<AdProItemKind, string> = {
   STAND: "Stand",

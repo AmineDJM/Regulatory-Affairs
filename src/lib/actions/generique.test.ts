@@ -45,6 +45,40 @@ describe("CHEMIN GÉNÉRIQUE — l'auto-escalade est refusée par CONSTRUCTION",
     expect(interdictionGenerique(parLeNom)).toMatch(/un droit ou un identifiant/);
   });
 
+  it("le filet du NOM compare des MOTS, jamais des sous-chaînes", () => {
+    /*
+     * LE DÉFAUT MESURÉ : `secret` cherché n'importe où refusait `demanderPieceSecretariat` — une
+     * demande de devis au bureau du SECRÉTARIAT, écriture métier ordinaire, classée « désigne un
+     * droit ou un identifiant » parce qu'un mot français contient six lettres anglaises. Un
+     * « je ne peux pas » écrit dans le CODE (§118.63).
+     *
+     * Mesuré sur le parc entier au moment de la réparation : **82 actions refusées par la
+     * sous-chaîne, 81 par le mot — l'écart est EXACTEMENT ce faux positif, aucune vraie prise
+     * perdue.**
+     */
+    expect(
+      interdictionGenerique(contrat({ fonction: "demanderPieceSecretariat", modelesEcrits: ["administrativeRequest"] })),
+      "« Secrétariat » n'est pas « secret »",
+    ).toBeNull();
+    // …et les mots français voisins du vocabulaire restent permis, dans les deux sens.
+    for (const nom of ["accuserReception", "tokeniserRien"]) {
+      expect(interdictionGenerique(contrat({ fonction: nom, modelesEcrits: [] })), nom).toBeNull();
+    }
+  });
+
+  it("…et un COMPOSÉ du vocabulaire se lit à travers la casse — `superAdminDelete`", () => {
+    /*
+     * L'AUTRE MOITIÉ, sans laquelle la réparation ci-dessus aurait DÉSARMÉ la garde : le camel
+     * sépare `super` et `admin`, donc aucun mot seul ne vaut `superadmin`. La première version
+     * de la règle laissait passer l'action que §118.74 nomme en PREMIER — trouvé en mesurant par
+     * la vraie fonction, après que ma propre sonde eut mesuré un seul des trois vocabulaires et
+     * conclu sur la règle entière (§118.92).
+     */
+    for (const nom of ["superAdminDelete", "super_admin_reset", "setFeatureFlag", "killSwitchOn", "updateUserRole", "setRowGrants"]) {
+      expect(interdictionGenerique(contrat({ fonction: nom, modelesEcrits: [] })), nom).not.toBeNull();
+    }
+  });
+
   it("SABOTAGE — retirer un modèle de la liste rouvre la porte (l'assertion peut tomber)", () => {
     // §118.17 : une assertion dont on ne sait pas nommer le cas qui la ferait tomber n'en est
     // pas une. Voici ce cas : une action qui écrit un modèle ABSENT de la liste passe.
