@@ -14,6 +14,7 @@ import { notifyRoles, notifyUser } from "@/lib/notify";
 import { statutManuelOuRien, estStatutDuCircuit } from "@/lib/events/statut";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+import { readMultiField } from "@/lib/ad-pro/pickers";
 
 const inEnum = <T extends Record<string, string>>(e: T, v: string | null, fallback: T[keyof T]): T[keyof T] =>
   v && (Object.values(e) as string[]).includes(v) ? (v as T[keyof T]) : fallback;
@@ -55,11 +56,75 @@ function statutSaisi(formData: FormData): { ok: true; statut: string | null } | 
 
 // ─────────────────────────── Événements ───────────────────────────
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * CE QUE LA DIRECTION A RENDU OBLIGATOIRE SUR UN ÉVÉNEMENT (22/09/2026) — §118.142.
+ *
+ * « Mets la création de la demande quasi tout obligatoire comme sponsoring […] vraiment avec
+ * budget obligatoire. » Le formulaire les marque `required`, et ce n'est PAS la garde : un champ
+ * de formulaire se forge, et l'écran n'est pas la seule porte (le chemin générique d'Adam poste
+ * la même action). C'est ICI que l'obligation est tenue.
+ *
+ * ELLE NOMME TOUT CE QUI MANQUE EN UNE FOIS. Un refus par aller-retour ferait ressaisir quinze
+ * champs une fois par champ manquant (§118.18) — et c'est le formulaire le plus long du pôle.
+ *
+ * LE BUDGET EST LA PIÈCE MAÎTRESSE, et ce n'est pas une question de complétude : sans lui, le
+ * moteur lit un montant de ZÉRO, refuse de franchir une porte de contrôle sur un montant inconnu
+ * (à juste titre, §118.132) et la porte du Directeur Général reste ouverte sur un événement de
+ * 80 000 DZD. La plainte « le DG n'a pas à valider en dessous du seuil » se ferme ici.
+ *
+ * LA LISTE EST LA MÊME POUR LA CRÉATION ET LA MODIFICATION : un formulaire qui exige à la
+ * création et laisse vider à la modification n'exige rien du tout — il suffit d'enregistrer deux
+ * fois. `updateEvent` lit donc la même fonction.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+/**
+ * LE NOM EST GARDÉ À PART, et ce n'est pas une incohérence — c'est le CONTRAT D'ACTION.
+ *
+ * `actions/contrat.ts` DÉDUIT « champ obligatoire » d'une garde `if (!v)` lue dans le corps ; il
+ * ne sait pas lire une liste rendue par une fonction. En basculant tous les champs dans
+ * `champsManquants`, le nom est sorti `obligatoire: false` de l'artefact régénéré — mesuré, pas
+ * supposé (§118.137). La carte de confirmation d'Adam ne l'aurait plus demandé, et CHAQUE appel
+ * aurait été refusé pour un champ que le contrat déclarait facultatif.
+ *
+ * Le nom reste donc gardé par une ligne que la dérivation LIT, et il quitte la liste : un champ
+ * gardé deux fois donnerait deux messages pour la même absence. La propriété « tout ce qui
+ * manque, en une fois » (§118.18) vaut pour les quatorze autres — et le nom est précisément le
+ * champ qu'aucun formulaire ne laisse passer, `required` en HTML depuis toujours.
+ */
+function champsManquants(formData: FormData): string[] {
+  const medecins = readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor"));
+  const produits = readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "products"));
+  const budget = fdNum(formData, "estimatedBudget");
+  return [
+    !fdStr(formData, "type") ? "le type" : null,
+    !fdStr(formData, "scope") ? "la portée" : null,
+    !fdStr(formData, "format") ? "le format" : null,
+    !fdDate(formData, "startDate") ? "la date de début" : null,
+    !fdDate(formData, "endDate") ? "la date de fin" : null,
+    !fdStr(formData, "location") ? "le lieu / la salle" : null,
+    !fdStr(formData, "city") ? "la ville (wilaya)" : null,
+    !fdStr(formData, "country") ? "le pays" : null,
+    !fdStr(formData, "specialty") ? "la spécialité" : null,
+    !medecins ? "le ou les médecins concernés" : null,
+    !produits ? "le ou les produits concernés" : null,
+    // UN BUDGET DE ZÉRO N'EST PAS UN BUDGET RENSEIGNÉ : c'est exactement la valeur que le moteur
+    // lit sur un champ vide, et celle qui laisse la porte du DG ouverte.
+    budget == null || budget <= 0 ? "le budget estimé (DZD, supérieur à zéro)" : null,
+    !fdStr(formData, "responsibleId") ? "le responsable interne" : null,
+    !fdStr(formData, "description") ? "la description" : null,
+  ].filter((x): x is string => x !== null);
+}
+
 export async function createEvent(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "EVENTS", "CREATE")) return { ok: false, error: "Non autorisé." };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
+  const manquants = champsManquants(formData);
+  if (manquants.length > 0) {
+    return { ok: false, error: `Demande incomplète — il manque : ${manquants.join(", ")}.` };
+  }
   const saisi = statutSaisi(formData);
   if (!saisi.ok) return saisi;
   const created = await prisma.event.create({
@@ -83,7 +148,10 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
       city: fdStr(formData, "city"),
       country: fdStr(formData, "country"),
       specialty: fdStr(formData, "specialty"),
-      products: fdStr(formData, "products"),
+      // MÉDECINS ET PRODUITS : plusieurs de chaque, joints par le MÊME lecteur que le sponsoring
+      // (`ad-pro/pickers.ts`). Deux découpes à la main finiraient par diverger sur le séparateur.
+      doctor: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
+      products: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "products")),
       description: fdStr(formData, "description"),
       capacity: fdNum(formData, "capacity") ? Math.round(fdNum(formData, "capacity")!) : null,
       estimatedBudget: fdNum(formData, "estimatedBudget"),
@@ -104,11 +172,18 @@ export async function updateEvent(formData: FormData): Promise<ActionResult> {
   const id = fdStr(formData, "id");
   const name = fdStr(formData, "name");
   if (!id || !name) return { ok: false, error: "Paramètres manquants." };
+  // LA MÊME LISTE QU'À LA CRÉATION : exiger à la création et laisser vider à la modification
+  // n'exige rien du tout — il suffirait d'enregistrer une seconde fois.
+  const manquants = champsManquants(formData);
+  if (manquants.length > 0) {
+    return { ok: false, error: `Demande incomplète — il manque : ${manquants.join(", ")}.` };
+  }
   const saisi = statutSaisi(formData);
   if (!saisi.ok) return saisi;
   await prisma.event.update({
     where: { id },
     data: {
+      businessUnitId: fdStr(formData, "businessUnitId") || undefined,
       name,
       type: inEnum(EventType, fdStr(formData, "type"), "CONGRESS"),
       scope: inEnum(EventScope, fdStr(formData, "scope"), "NATIONAL"),
@@ -122,7 +197,8 @@ export async function updateEvent(formData: FormData): Promise<ActionResult> {
       city: fdStr(formData, "city"),
       country: fdStr(formData, "country"),
       specialty: fdStr(formData, "specialty"),
-      products: fdStr(formData, "products"),
+      doctor: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
+      products: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "products")),
       description: fdStr(formData, "description"),
       capacity: fdNum(formData, "capacity") ? Math.round(fdNum(formData, "capacity")!) : null,
       estimatedBudget: fdNum(formData, "estimatedBudget"),

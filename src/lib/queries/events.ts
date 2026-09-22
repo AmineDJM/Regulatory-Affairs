@@ -62,6 +62,10 @@ export interface EventDetail {
   country: string | null;
   specialty: string | null;
   products: string | null;
+  /** LES PRATICIENS CONCERNÉS — noms joints, choisis dans l'annuaire (§118.142). */
+  doctor: string | null;
+  /** LA GAMME qui porte la demande — c'est SON budget Ad&Pro qui est engagé. */
+  businessUnitId: string | null;
   description: string | null;
   capacity: number | null;
   estimatedBudget: number | null;
@@ -162,6 +166,7 @@ export async function getEventDetail(id: string): Promise<EventDetail | null> {
     id: e.id, name: e.name, type: e.type, scope: e.scope, format: e.format, status: e.status,
     startDate: e.startDate?.toISOString() ?? null, endDate: e.endDate?.toISOString() ?? null,
     location: e.location, city: e.city, country: e.country, specialty: e.specialty, products: e.products,
+    doctor: e.doctor, businessUnitId: e.businessUnitId,
     description: e.description, capacity: e.capacity, estimatedBudget: e.estimatedBudget ? toNumber(e.estimatedBudget) : null,
     meetingLink: e.meetingLink, responsibleId: e.responsibleId, responsibleName: e.responsible?.name ?? null,
     requestStatus: e.requestStatus, requesterId: e.requesterId, requesterName: nameOf(e.requesterId),

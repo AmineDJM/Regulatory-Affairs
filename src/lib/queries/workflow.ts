@@ -5,7 +5,7 @@ import { toNumber } from "@/lib/utils";
 import { anyRoleFilter, hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
 import { getBudgetCategoryOptions, type BudgetCategoryOption } from "@/lib/queries/budget";
 import { ensureInstance, getDefinition, orderedSteps, canActOnStep, stepBySlug } from "@/lib/workflow/engine";
-import { estDecisionnaire, queueCoupee, ROLE_DIRECTION_MARKETING } from "@/lib/workflow/parcours";
+import { estDecisionnaire, etapesNonAtteintes, ROLE_DIRECTION_MARKETING } from "@/lib/workflow/parcours";
 import {
   entityToCategory, WORKFLOW_CATEGORIES, CATEGORY_LABELS,
   type ActorScope, type WorkflowCategory, type WorkflowPower,
@@ -150,12 +150,19 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
   // Une demande de KAM est TRANCHÉE par Direction Marketing : l'étape de la Direction ne la
   // concerne pas. L'afficher quand même serait le défaut le plus coûteux de cet écran — une
   // frise qui annonce une validation qui n'aura pas lieu, donc un demandeur qui attend et une
-  // Direction qui croit avoir un dossier à traiter. On coupe la queue, exactement comme le
-  // moteur la coupe (`nextStepAfter` avec la même borne) : deux lectures de la borne, une
-  // seule règle, celle de `parcours.ts` (§118.5).
+  // Direction qui croit avoir un dossier à traiter. On retire exactement ce que le moteur
+  // n'atteindra pas (`nextStepAfter` avec la MÊME borne et le MÊME tamis) : deux lectures des
+  // deux faits, une seule règle, celle de `parcours.ts` (§118.5).
+  //
+  // ET CE N'EST PLUS SEULEMENT UNE QUEUE. Depuis la règle du 22/09/2026, une étape peut être
+  // hors route AU MILIEU : un KAM ne passe pas par la Direction des opérations, alors que
+  // Direction Marketing — la dernière étape — le concerne bien. Ne couper que la queue aurait
+  // affiché à ce demandeur une validation de la Direction qu'il n'atteindra jamais, c'est-à-dire
+  // le défaut que ce paragraphe existe pour fermer, une position plus tôt.
   const borne = instance.finalSlug ?? null;
-  const coupees = new Set(queueCoupee(toutesLesEtapes.map((s) => s.slug), borne));
-  const steps = toutesLesEtapes.filter((s) => !coupees.has(s.slug));
+  const ignorees = instance.skippedSlugs ?? [];
+  const horsRoute = new Set(etapesNonAtteintes(toutesLesEtapes.map((s) => s.slug), borne, ignorees));
+  const steps = toutesLesEtapes.filter((s) => !horsRoute.has(s.slug));
 
   // ─── CONFIDENTIALITÉ : UN AVIS, OUI ; UNE DÉCISION, NON ───────────────────────────────
   //

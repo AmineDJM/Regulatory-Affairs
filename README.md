@@ -380,40 +380,68 @@ libellés français viennent de `src/lib/labels.ts`.
 
 Le **même** circuit sert le **Sponsoring**, les **Congrès internationaux/nationaux** et les **Événements** :
 
-**Le parcours dépend de QUI demande** (décision de la Direction, 09/2026) :
+**Le parcours dépend de QUI demande — TROIS branches** (décision de la Direction, 22/09/2026) :
 
 ```
 Demande d'un KAM (délégué médical)
-   → NATIONAL SALES : approuve / refuse                                     ← étape préliminaire
+   → NATIONAL SALES : approuve / refuse                                     ← son superviseur, et LUI SEUL
+   → [porte du DG : au-delà du seuil réglé — franchie seule en dessous]
    → DIRECTION MARKETING : montant accordé + (sous-)catégorie budgétaire     ← elle TRANCHE
    → [Information médicale : déclaration du pharmacien (PRIM)]               ← uniquement si applicable
    → Ordre de dépense → Finances / comptable
 
-Demande de TOUT AUTRE demandeur — le National Sales compris
-   → DIRECTION MARKETING : montant accordé + (sous-)catégorie budgétaire     ← CONFIDENTIEL
-   → DIRECTION : accord ou refus définitif                                   ← elle TRANCHE
-   → [Information médicale (PRIM)] → Ordre de dépense → Finances
+Demande du NATIONAL SALES lui-même
+   → [porte du DG]
+   → DIRECTION DES OPÉRATIONS : accord sur l'opération (SANS chiffrer)       ← le filtre au-dessus de lui
+   → DIRECTION MARKETING : montant + catégorie                               ← elle TRANCHE
 
-   → (option, aux deux parcours) tierce personne impliquée via son espace + dossier auto (sans budget)
+Demande de TOUT AUTRE demandeur
+   → [porte du DG]
+   → DIRECTION MARKETING : montant + catégorie                               ← DIRECT, elle TRANCHE
+
+   → (option, aux trois parcours) tierce personne impliquée via son espace + dossier auto (sans budget)
 ```
+
+> ⚠️ **La porte du DG est ORTHOGONALE aux trois branches** : franchie automatiquement (et tracée) sous le
+> seuil réglé, elle vaut pour tout le monde au-dessus — une rallonge d'un million ne se décide pas plus bas
+> parce qu'elle vient d'en haut.
 
 > ⚠️ **Le BUDGET appartient à Direction Marketing** (ex-« Chef de produit »), plus à la Direction : montant
 > accordé ET choix de la sous-catégorie budgétaire. La Direction accorde ou refuse ce qui a été arbitré.
 
 > ⚠️ **Étape préliminaire réservée au National Sales**, et elle ne concerne QUE les demandes de KAM : lui seul
 > a un superviseur national au-dessus de sa demande. Il ne DÉSIGNE plus personne — Direction Marketing est
-> portée par un rôle, pas par une personne nommée (un référent reste enregistrable, sans rien conditionner).
+> portée par un rôle, pas par une personne nommée.
+
+> ⚠️ **Plus de « Référent Direction Marketing » à nommer sur une nouvelle demande** (22/09/2026 : « ça va
+> DIRECT chez le directeur/directrice du département marketing »). Le menu ne conditionnait déjà plus rien et
+> demandait au demandeur de désigner quelqu'un dans une direction qu'il ne connaît pas. Le CHAMP
+> `productManagerId` survit : il reste lu (droits de la fiche, déclaration PRIM) et accepté par les actions
+> serveur — le référent se configurera **par Business Unit**, et d'ici là rien ne l'écrit, ses lecteurs se
+> dégradant dans le sens sûr (un droit de moins, jamais un droit de plus).
 
 > ⚠️ **Confidentialité : un AVIS, pas une DÉCISION.** L'arbitrage de Direction Marketing n'est pas visible du
 > demandeur **tant que la Direction n'a pas tranché**. Quand c'est Direction Marketing qui TRANCHE (demande de
 > KAM), sa décision EST la décision : le budget accordé et son commentaire deviennent visibles — un accord
 > illisible n'est pas un accord.
 
-> **Les deux chaînes sont deux tranches CONTIGUËS d'une seule colonne vertébrale.** Le circuit n'existe donc
-> qu'en un exemplaire par catégorie ; ce qui change est l'ENTRÉE (`workflow/origin.ts`, selon le rang du
-> créateur) et la SORTIE (`WorkflowInstance.finalSlug`, figée à la naissance de l'instance). La table des deux
-> bornes vit à un seul endroit : `src/lib/workflow/parcours.ts` (module pur), lu par la création, le moteur et
-> la vue caviardée — trois lectures séparées finiraient par ne plus se correspondre.
+> **LE PARCOURS EST UN TAMIS, plus une troncature.** Le circuit n'existe qu'en un exemplaire par catégorie ;
+> ce qui change est l'ENTRÉE (`workflow/origin.ts`, selon le rang du créateur), la BORNE de sortie
+> (`WorkflowInstance.finalSlug`) et le TAMIS (`WorkflowInstance.skippedSlugs`) — les deux derniers **figés à
+> la naissance de l'instance**, pour qu'un changement de règle ou de poste ne réécrive pas une chaîne en cours.
+>
+> Deux champs et non un, parce qu'ils répondent à deux questions : la borne dit OÙ la chaîne s'arrête, le tamis
+> ce qu'elle NE TRAVERSE PAS. Le tamis ne se déduit pas de la borne — un KAM et un demandeur ordinaire
+> tranchent tous DEUX chez Direction Marketing (donc aucune borne) et ne traversent pourtant pas les mêmes
+> étapes. Et aucun ordre d'étapes ne rend les trois tranches contiguës à la fois : un KAM traverse
+> `preliminary` sans `final`, un National Sales `final` sans `preliminary`.
+>
+> La table des branches vit à un seul endroit : `src/lib/workflow/parcours.ts` (module pur), lu par la
+> création, le moteur et la vue caviardée — trois lectures séparées finiraient par ne plus se correspondre.
+> Une étape hors route n'est PAS « franchie automatiquement » : elle n'est pas SUR la route, donc rien n'est
+> tracé à son nom. Et une émission financière portée par une étape sautée est **héritée par l'étape qui
+> conclut** (lecture unique : « y a-t-il une suite ? ») — sans quoi la demande sortirait approuvée, budget
+> accordé écrit en base, et Finance ne recevrait RIEN.
 > Le **Sponsoring** ajoute l'**appel** : après décision, le délégué peut faire appel → nouvel avis du chef de
 > produit → la Direction tranche définitivement. Pour les congrès/événements pris en charge, on saisit la **liste
 > des personnes prises en charge** (avec pièces d'identité) et un **ordre de mission**.
@@ -446,6 +474,44 @@ un KAM par sa fiche force de vente, un superviseur national par la gamme qu'il s
 déduite **s'impose côté serveur** — le champ était un menu libre, un KAM de l'oncologie pouvait
 poster la cardiologie et faire peser sa dépense sur le budget Ad&Pro d'une autre équipe. Un
 superviseur de DEUX gammes n'en désigne aucune : la saisie redevient manuelle, et l'écran le dit.
+
+**Un ÉVÉNEMENT exige la même chose qu'un sponsoring (22/09/2026), et le budget ferme une SECONDE
+plainte.** Mesuré avant de corriger : seul le NOM portait `required`. La ville, la spécialité et les
+produits étaient en saisie libre, il n'existait aucun champ pour les médecins, et le budget était
+facultatif. Le formulaire lit désormais les **mêmes référentiels purs** que le sponsoring
+(`ad-pro/pickers.ts`, `geo/algeria.ts`) : wilaya en menu déroulant, spécialité depuis
+`MedicalSpecialty` + libellés hérités, **plusieurs médecins** de l'annuaire, **plusieurs produits**
+au traitement réglementaire terminé, gamme déduite, et **budget obligatoire (> 0)**.
+
+> ⚠️ **Le budget facultatif était la cause de « le DG n'a pas à valider en dessous du seuil ».** La
+> chaîne, bout à bout : budget non saisi ⇒ `estimatedBudget` nul ⇒ le moteur lit un montant de ZÉRO ⇒
+> `settleAutoSkips` refuse de franchir une porte de contrôle sur un montant inconnu ⇒ la porte du DG reste
+> ouverte sur un événement de 80 000 DZD. Cette garde est JUSTE — on ne franchit pas une porte de contrôle
+> sur un trou — donc le remède n'est pas de l'assouplir, c'est de rendre le budget obligatoire. **Les deux
+> plaintes n'en faisaient qu'une.**
+
+La garde est l'action serveur (`createEvent` **et** `updateEvent` lisent la même liste — exiger à la
+création et laisser vider à la modification n'exige rien du tout), qui refuse en NOMMANT tout ce qui
+manque en une fois. Le NOM garde sa garde propre, parce que `actions/contrat.ts` déduit
+« obligatoire » d'un `if (!v)` lu dans le corps et ne sait pas lire une liste rendue par une
+fonction : tout basculer l'aurait fait sortir `obligatoire: false` de l'artefact, et la carte de
+confirmation d'Adam ne l'aurait plus demandé alors que l'action l'exige. Le STATUT, lui, ne se
+saisit plus pendant qu'un circuit de prise en charge gouverne l'événement.
+
+**Les CATÉGORIES de pièces jointes d'une demande Ad & Pro sont COMMERCIALES**
+(`lib/ad-pro/doc-categories.ts`). Sur la fiche d'un événement, le menu de classement proposait
+« CTD complet », « Module 1 », « Certificat GMP », « CPP » — la nomenclature d'un dossier
+d'enregistrement de médicament, sur l'écran où l'on dépose une facture de traiteur. Cause : le
+téléverseur n'y recevait AUCUNE liste, et son repli est la table `DOCUMENT_CATEGORY` entière, dont
+la première entrée est `CTD_FULL`. Recensé : **six fiches du pôle, trois ne passaient rien**
+(événement, consulting, « autre demande »), et le sponsoring portait une copie LOCALE identique mot
+pour mot à celle des congrès. La liste est désormais unique — demande, convention, programme,
+**devis**, **bon de commande**, **facture**, justificatif, photos, présentation, rapport
+post-événement — et le **matériel promotionnel** garde la sienne (chaîne d'ACHAT : visa
+publicitaire, bordereau, bon de livraison) : les fondre ferait proposer un visa publicitaire sur un
+congrès. Un **cliquet** exige que tout `DocumentUpload` dont l'`entityType` est une entité du pôle
+porte sa liste, et il s'arme sur le registre CANONIQUE des natures — une septième nature ajoutée
+demain ne peut pas se retrouver sans liste, en silence.
 
 **Les PIÈCES d'une fiche Ad & Pro vivent avec ce qu'elles justifient.** Le bloc « Documents »
 générique a disparu des quatre fiches (sponsoring, prises en charge, événements) : on y déposait à

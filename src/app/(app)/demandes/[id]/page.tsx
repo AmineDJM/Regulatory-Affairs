@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { CommentThread, type CommentItem } from "@/components/shared/comment-thread";
 import { DocumentUpload } from "@/components/documents/document-upload";
+import { PROMO_MATERIAL_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { AttachmentValidationBlock } from "./attachment-validation";
@@ -27,7 +28,6 @@ import { PromoActionPanel } from "../../promo-material/[id]/promo-panels";
 import { BackLink } from "@/components/shared/back-link";
 
 const REQ_DOC_CATEGORIES = ["QUOTE", "INVOICE", "REQUEST_LETTER", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
-const PROMO_DOC_CATEGORIES = ["QUOTE", "PURCHASE_ORDER", "PAYMENT_SLIP", "PAYMENT_RECEIPT", "PROMO_MATERIAL_FILE", "AD_VISA", "INVOICE", "DELIVERY_NOTE", "SUPPORTING_DOC", "OTHER"];
 
 export default async function RequestDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("ADMIN_REQUESTS");
@@ -220,7 +220,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                   <>
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-muted-foreground">Pièces du dossier (devis, bon de commande, facture…)</p>
-                      <DocumentUpload entityType="PROMO_MATERIAL" entityId={promo.id} categories={PROMO_DOC_CATEGORIES} />
+                      <DocumentUpload entityType="PROMO_MATERIAL" entityId={promo.id} categories={[...PROMO_MATERIAL_DOC_CATEGORIES]} />
                       <DocumentList documents={promoDocItems} canDelete canEdit={onlyofficeConfigured()} path={`/demandes/${req.id}`} />
                     </div>
                     <PromoActionPanel

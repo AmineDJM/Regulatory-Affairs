@@ -3,11 +3,10 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Check, X, Loader2 } from "lucide-react";
-import { preliminaryDecision, submitProductAnalysis, finalDecision, updateGrantedBudget } from "@/lib/actions/congress-request-actions";
+import { submitProductAnalysis, finalDecision, updateGrantedBudget } from "@/lib/actions/congress-request-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 
-type PM = { id: string; name: string };
 type Cat = { id: string; label: string; isSub: boolean };
 type Action = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
 
@@ -33,50 +32,6 @@ function base(type: string, id: string, extra: Record<string, string> = {}) {
   return fd;
 }
 
-/** Validation préliminaire (Direction) : valider + assigner la Direction Marketing, ou refuser. */
-export function PreliminaryDecision({ type, id, productManagers }: { type: string; id: string; productManagers: PM[] }) {
-  const { pending, err, run } = useRun();
-  const [mode, setMode] = React.useState<null | "approve" | "reject">(null);
-  const [pm, setPm] = React.useState("");
-  const [note, setNote] = React.useState("");
-
-  if (!mode) {
-    return (
-      <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">Validation préliminaire de la Direction.</p>
-        <div className="flex gap-2">
-          <Button size="sm" variant="success" onClick={() => setMode("approve")}><Check className="h-4 w-4" /> Valider (préliminaire)</Button>
-          <Button size="sm" variant="destructive" onClick={() => setMode("reject")}><X className="h-4 w-4" /> Refuser</Button>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-2">
-      {mode === "approve" ? (
-        <>
-          <Label>Référent Direction Marketing</Label>
-          <Select value={pm} onChange={(e) => setPm(e.target.value)}>
-            <option value="">— Sélectionner —</option>
-            {productManagers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </Select>
-          {productManagers.length === 0 && <p className="text-xs text-warning">Aucun compte « Direction Marketing » disponible. Créez-en un dans l'administration.</p>}
-          <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optionnel)…" className="min-h-[56px]" />
-        </>
-      ) : (
-        <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Motif du refus (obligatoire)…" className="min-h-[56px]" />
-      )}
-      {err && <p className="text-xs text-destructive">{err}</p>}
-      <div className="flex gap-2">
-        <Button size="sm" variant={mode === "reject" ? "destructive" : "primary"} disabled={pending || (mode === "approve" && !pm) || (mode === "reject" && !note.trim())}
-          onClick={() => run(base(type, id, { decision: mode === "approve" ? "APPROVE" : "REJECT", productManagerId: pm, note }), preliminaryDecision, () => setMode(null))}>
-          {pending && <Loader2 className="h-4 w-4 animate-spin" />} Confirmer
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => { setMode(null); setNote(""); }}>Annuler</Button>
-      </div>
-    </div>
-  );
-}
 
 /** Analyse de la Direction Marketing : Approuver (budget facultatif) ou Refuser. */
 export function ProductAnalysis({ type, id }: { type: string; id: string }) {

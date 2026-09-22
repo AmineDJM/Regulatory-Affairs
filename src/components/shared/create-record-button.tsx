@@ -162,7 +162,16 @@ interface RecordFormProps {
  * Les cases sont de VRAIES cases nommées : le formulaire les envoie sans JavaScript de notre
  * part, et le serveur lit `formData.getAll(name)` comme avant.
  */
-function MultiSelectField({ field }: {
+/**
+ * LE CHOIX MULTIPLE, EXPORTÉ — parce que deux formulaires en ont besoin et qu'un seul le portait.
+ *
+ * Le formulaire d'un ÉVÉNEMENT est dessiné à la main (il sert aussi à la MODIFICATION, avec les
+ * mêmes champs) et la Direction y demande plusieurs médecins et plusieurs produits. Recopier ce
+ * widget là-bas aurait dupliqué la seule partie délicate — le témoin de validité de groupe, que
+ * HTML ne sait pas exprimer — et les deux copies auraient divergé sur la seule chose qui compte :
+ * empêcher l'envoi quand rien n'est coché (§118.5).
+ */
+export function MultiSelectField({ field }: {
   field: Extract<FieldDef, { type: "multiselect" }>;
 }) {
   const [query, setQuery] = React.useState("");

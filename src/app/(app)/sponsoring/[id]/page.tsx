@@ -16,6 +16,7 @@ import { DocumentUpload } from "@/components/documents/document-upload";
 import type { DocItem } from "@/components/documents/document-list";
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
+import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { SPONSORING_STATUS, PRIORITY } from "@/lib/labels";
@@ -34,7 +35,6 @@ import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
 
-const SPONSORING_DOC_CATEGORIES = ["REQUEST_LETTER", "PROGRAM", "QUOTE", "INVOICE", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
 export default async function SponsoringDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("SPONSORING");
@@ -217,7 +217,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               titre: "Demande(s) du médecin et pièces de la demande",
               documents: docItems,
               televerseur: canUpload
-                ? <DocumentUpload entityType="SPONSORING" entityId={req.id} categories={SPONSORING_DOC_CATEGORIES} />
+                ? <DocumentUpload entityType="SPONSORING" entityId={req.id} categories={[...AD_PRO_DOC_CATEGORIES]} />
                 : undefined,
               motif: canUpload
                 ? null

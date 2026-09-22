@@ -1,6 +1,5 @@
 import { requireModule } from "@/lib/session";
 import { userCan, type Module } from "@/lib/rbac";
-import { canDesignateProductManagerAtCreation } from "@/lib/workflow/origin";
 import { getAdProRequests, getAdProCreateData } from "@/lib/queries/ad-pro";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -50,7 +49,6 @@ export default async function AdProPage() {
         <NewRequestPicker
           kinds={kinds}
           data={createData}
-          canDesignatePM={canDesignateProductManagerAtCreation(user)}
         />
       </PageHeader>
 

@@ -28,7 +28,7 @@ import { LinkedRecords } from "@/components/shared/linked-records";
 import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { CONGRESS_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
+import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { canAttachToAdPro } from "@/lib/ad-pro/attachments";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
 import { loadAdProItems, adProBudgetOptions } from "@/lib/queries/ad-pro-items";
@@ -166,7 +166,7 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
           titre: "Pièces de la prise en charge (demande, programme, pièces d'identité…)",
           documents: docItems,
           televerseur: canUpload
-            ? <DocumentUpload entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} categories={[...CONGRESS_DOC_CATEGORIES]} />
+            ? <DocumentUpload entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} categories={[...AD_PRO_DOC_CATEGORIES]} />
             : undefined,
           canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
           path: `/congress-international/${detail.id}`,

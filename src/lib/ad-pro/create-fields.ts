@@ -29,8 +29,6 @@ export interface AdProCreateData {
   products: ProductRow[];
   /** Collaborateurs actifs : participants, responsable d'événement, assistante de direction. */
   users: UserOption[];
-  /** Référents Direction Marketing nommables à la création. */
-  productManagers: PersonOption[];
   /** Le référentiel des spécialités médicales (`MedicalSpecialty`). */
   specialties: SpecialtyRow[];
   /** Les libellés de spécialité HÉRITÉS des fiches médecins non rattachées — la réalité y est. */
@@ -54,34 +52,25 @@ export function toPeople(users: readonly UserOption[]): PersonOption[] {
   return users.map((u) => ({ id: u.id, name: u.name }));
 }
 
-/**
- * Le bloc « circuit » des demandes qui peuvent partir chez Direction Marketing.
+/*
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * IL N'Y A PLUS DE « RÉFÉRENT DIRECTION MARKETING » À NOMMER SUR UNE NOUVELLE DEMANDE.
  *
- * On y nomme le RÉFÉRENT Direction Marketing qui suit la gamme. Un KAM ne voit rien de ce bloc :
- * sa demande passe d'abord par son superviseur national.
+ * Décision de la Direction (22/09/2026) : « on n'a pas besoin d'un référent Direction Marketing,
+ * ça va DIRECT chez le directeur/directrice du département marketing. »
  *
- * Il n'y a plus de CHOIX de circuit : Direction Marketing tranche toute demande Ad & Pro, donc la
- * case « demander d'abord son arbitrage » ne changeait plus rien — un réglage sans effet est pire
- * qu'aucun réglage (§118.14).
+ * Le champ ne conditionnait déjà plus rien — l'arbitrage est porté par le RÔLE Direction
+ * Marketing tout entier, et l'étape le dit dans sa portée. Il ne restait qu'un menu facultatif
+ * de plus sur un formulaire que la Direction vient de rendre quasi entièrement obligatoire, et
+ * qui demandait au demandeur de désigner quelqu'un dans une direction qu'il ne connaît pas.
  *
- * Le référent est FACULTATIF de bout en bout, et c'est ce qui compte : l'arbitrage est porté par
- * le rôle Direction Marketing tout entier. L'exiger ferait échouer une demande légitime le jour
- * où la personne qui suit la gamme est absente de la liste.
+ * CE QUE CE RETRAIT LAISSE EN PLACE, et c'est délibéré : `productManagerId` reste LU (droits de
+ * la fiche, déclaration d'information médicale) et reste ACCEPTÉ par les actions serveur. Le
+ * référent se configurera PAR BUSINESS UNIT (« chaque BU aura son ou ses référents de la
+ * direction marketing depuis la configuration des BU ») ; d'ici là, plus rien ne l'écrit et ses
+ * lecteurs se dégradent dans le sens sûr — un droit de moins, jamais un droit de plus.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-function circuitFields(opts: {
-  productManagers: readonly PersonOption[];
-  canDesignatePM: boolean;
-}): FieldDef[] {
-  if (!opts.canDesignatePM || opts.productManagers.length === 0) return [];
-  return [
-    {
-      type: "select", name: "productManagerId", label: "Référent Direction Marketing (facultatif)",
-      placeholder: "— Aucun référent nommé —", full: true,
-      options: opts.productManagers.map((u) => ({ value: u.id, label: u.name })),
-      hint: "La personne qui suit la gamme. La décision reste ouverte à Direction Marketing dans son ensemble.",
-    },
-  ];
-}
 
 /**
  * LES TROIS CHAMPS QUI SE CHOISISSENT AU LIEU DE SE TAPER — produits, médecins, ville.
@@ -161,8 +150,6 @@ function referentielFields(opts: { products: readonly ProductRow[]; doctors: rea
 }
 
 export function sponsoringCreateFields(opts: {
-  productManagers: readonly PersonOption[];
-  canDesignatePM: boolean;
   products?: readonly ProductRow[];
   doctors?: readonly DoctorRow[];
   businessUnits?: readonly { id: string; name: string }[];
@@ -174,7 +161,6 @@ export function sponsoringCreateFields(opts: {
 }): FieldDef[] {
   return [
     ...businessUnitField(opts.businessUnits ?? [], opts.businessUnitDeduite ?? null),
-    ...circuitFields(opts),
     { type: "text", name: "institution", label: "Institution / Association", required: true },
     // LA DEMANDE DU MÉDECIN — pièce OBLIGATOIRE, et scannée.
     //

@@ -67,8 +67,8 @@
  * tentant. Le prix mesuré : retirer l'étape `dg` de quatre définitions en base, donc DÉPLACER
  * les instances qui s'y trouvent à cet instant (elles seraient orphelines d'un `currentSlug` que
  * plus aucune étape ne porte — le circuit mort de §118.113), perdre le réglage par circuit
- * (`autoSkipMaxAmount` surchargé par le Super Admin), et toucher `parcours.ts`, `queueCoupee`,
- * les bornes et leurs bancs. Une régression déguisée en simplification (§118.86).
+ * (`autoSkipMaxAmount` surchargé par le Super Admin), et toucher `parcours.ts`, son tamis, ses
+ * bornes et leurs bancs. Une régression déguisée en simplification (§118.86).
  *
  * Module PUR — testé, sans base ni session. Son seul import est le SOCLE.
  * ═══════════════════════════════════════════════════════════════════════════════════════════

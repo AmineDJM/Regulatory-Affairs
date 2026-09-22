@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  dgRequis, estDecisionnaire, estKam, parcoursAdPro, queueCoupee, seuilFranchissement, slugDecisionnaire,
+  dgRequis, estDecisionnaire, estIgnoree, estKam, etapesNonAtteintes, parcoursAdPro, parcoursEffectif,
+  seuilFranchissement,
   SLUG_DG, SLUG_DIRECTION, SLUG_MARKETING, SLUG_PRELIMINAIRE,
 } from "./parcours";
 import { WORKFLOW_CATEGORIES } from "./types";
@@ -11,25 +12,37 @@ import { WORKFLOW_CATEGORIES } from "./types";
 const SPINE = [SLUG_PRELIMINAIRE, SLUG_DG, SLUG_DIRECTION, SLUG_MARKETING];
 
 /**
- * LES DEUX PARCOURS Ad & Pro. Chaque cas nomme la situation qui le ferait tomber — une assertion
+ * LES TROIS BRANCHES Ad & Pro. Chaque cas nomme la situation qui le ferait tomber — une assertion
  * dont on ne sait pas nommer ce cas n'est pas une assertion (§118.17).
  */
 describe("le parcours d'une demande Ad & Pro dépend de qui la pose", () => {
-  it("un KAM : son superviseur national filtre, puis la chaîne ENTIÈRE", () => {
-    // Ce qui le ferait tomber : borner sa sortie sur `marketing` comme avant l'inversion. Sa
-    // demande s'arrêterait AVANT la Direction des opérations, que la Direction a placée devant.
-    expect(parcoursAdPro({ rang: 0, kam: true })).toEqual({ entree: SLUG_PRELIMINAIRE, sortie: null });
+  it("un KAM : son superviseur national filtre, et LUI SEUL", () => {
+    // Ce qui le ferait tomber : laisser `final` sur sa route, comme avant le 22/09/2026. La
+    // Direction des opérations validerait une demande que la Direction a voulu lui épargner, et
+    // le demandeur attendrait un guichet de plus.
+    expect(parcoursAdPro({ rang: 0, kam: true }))
+      .toEqual({ entree: SLUG_PRELIMINAIRE, decision: null, ignorees: [SLUG_DIRECTION] });
   });
 
-  it("tout autre demandeur, National Sales compris : porte du DG, Direction, puis Direction Marketing", () => {
-    expect(parcoursAdPro({ rang: 1, kam: true })).toEqual({ entree: SLUG_DG, sortie: null });
-    expect(parcoursAdPro({ rang: 0, kam: false })).toEqual({ entree: SLUG_DG, sortie: null });
+  it("le National Sales lui-même : la Direction des opérations, pas son propre préliminaire", () => {
+    // Ce qui le ferait tomber : garder `preliminary`. Il s'approuverait lui-même — une
+    // validation qui ne mesure rien. Ou retirer `final` : plus aucun filtre au-dessus de lui.
+    expect(parcoursAdPro({ rang: 1, kam: true }))
+      .toEqual({ entree: SLUG_DG, decision: null, ignorees: [SLUG_PRELIMINAIRE] });
+  });
+
+  it("tout autre demandeur : DIRECT chez Direction Marketing, aucun filtre hiérarchique", () => {
+    // Ce qui le ferait tomber : garder `final`. Un chef de service verrait sa demande partir
+    // chez la Direction des opérations, que la Direction a explicitement retirée de sa route.
+    expect(parcoursAdPro({ rang: 0, kam: false }))
+      .toEqual({ entree: SLUG_DG, decision: null, ignorees: [SLUG_PRELIMINAIRE, SLUG_DIRECTION] });
   });
 
   it("Direction Marketing ne TRANCHE pas sa propre demande — la Direction le fait à sa place", () => {
-    // Ce qui le ferait tomber : `sortie: null`. La demande de Direction Marketing reviendrait à
-    // Direction Marketing, c'est-à-dire à elle-même : une validation qui ne mesure rien.
-    expect(parcoursAdPro({ rang: 2, kam: false })).toEqual({ entree: SLUG_DG, sortie: SLUG_DIRECTION });
+    // Ce qui le ferait tomber : `decision: null`. La demande de Direction Marketing reviendrait à
+    // Direction Marketing, c'est-à-dire à elle-même.
+    expect(parcoursAdPro({ rang: 2, kam: false }))
+      .toEqual({ entree: SLUG_DG, decision: SLUG_DIRECTION, ignorees: [SLUG_PRELIMINAIRE] });
   });
 
   it("la porte du DG reste DEVANT Direction Marketing quand c'est elle qui demande", () => {
@@ -40,15 +53,49 @@ describe("le parcours d'une demande Ad & Pro dépend de qui la pose", () => {
 
   it("la Direction, le DG, le Super Admin : il ne reste que la décision de Direction Marketing", () => {
     // Tout ce qui précède est soit leur propre accord, soit une porte dont ils sont la clé.
-    expect(parcoursAdPro({ rang: 3, kam: false })).toEqual({ entree: SLUG_MARKETING, sortie: null });
+    expect(parcoursAdPro({ rang: 3, kam: false }))
+      .toEqual({ entree: SLUG_MARKETING, decision: null, ignorees: [SLUG_PRELIMINAIRE, SLUG_DG, SLUG_DIRECTION] });
   });
 
   it("LE RANG L'EMPORTE SUR LE MÉTIER — le cas qui a dicté la forme de ce module", () => {
     // Un délégué médical qui porte AUSSI Direction Marketing est un KAM au sens du texte, mais
     // sa demande ne peut pas être tranchée par lui-même. Une sortie décidée sur le seul fait
     // « c'est un KAM » l'aurait laissée revenir à son propre bureau.
-    expect(parcoursAdPro({ rang: 2, kam: true })).toEqual({ entree: SLUG_DG, sortie: SLUG_DIRECTION });
-    expect(parcoursAdPro({ rang: 3, kam: true })).toEqual({ entree: SLUG_MARKETING, sortie: null });
+    expect(parcoursAdPro({ rang: 2, kam: true }))
+      .toEqual({ entree: SLUG_DG, decision: SLUG_DIRECTION, ignorees: [SLUG_PRELIMINAIRE] });
+    expect(parcoursAdPro({ rang: 3, kam: true }).entree).toBe(SLUG_MARKETING);
+  });
+
+  it("LA PROPRIÉTÉ QUI A REMPLACÉ LA CONTIGUÏTÉ : l'entrée n'est JAMAIS ignorée", () => {
+    // La garantie que le tamis ne peut pas rendre une demande mort-née. Sans elle, une branche
+    // ajoutée demain pourrait poser la demande sur une étape que son propre parcours saute :
+    // personne pour la franchir, aucune étape en échec, le module mort (§118.113).
+    //
+    // C'est aussi la seule chose qui remplace la contiguïté perdue. La contiguïté était
+    // VÉRIFIABLE par construction ; celle-ci se vérifie par un test, donc il faut le tenir.
+    for (const rang of [0, 1, 2, 3, 4]) {
+      for (const kam of [true, false]) {
+        const p = parcoursAdPro({ rang, kam });
+        expect(p.ignorees, `rang ${rang} kam=${kam} : l'entrée ${p.entree} est sautée par son propre parcours`)
+          .not.toContain(p.entree);
+        if (p.decision !== null) {
+          expect(p.ignorees, `rang ${rang} kam=${kam} : la borne ${p.decision} est sautée par son propre parcours`)
+            .not.toContain(p.decision);
+        }
+      }
+    }
+  });
+
+  it("le tamis ne nomme QUE des étapes de la colonne vertébrale", () => {
+    // Ce qui le ferait tomber : y écrire un slug inventé. Il ne sauterait rien aujourd'hui, et
+    // sauterait l'étape le jour où quelqu'un lui donne ce nom — un saut que personne n'a décidé.
+    for (const rang of [0, 1, 2, 3]) {
+      for (const kam of [true, false]) {
+        for (const slug of parcoursAdPro({ rang, kam }).ignorees) {
+          expect(SPINE, `rang ${rang} kam=${kam}`).toContain(slug);
+        }
+      }
+    }
   });
 
   it("le rôle SECONDAIRE compte : un collègue qui exerce aussi comme délégué est un KAM", () => {
@@ -99,21 +146,36 @@ describe("le seuil de franchissement", () => {
   });
 });
 
-describe("la borne de sortie — et ce qu'elle laisse passer", () => {
-  it("elle NOMME l'étape quand la définition la porte", () => {
-    expect(slugDecisionnaire({ role: "PRODUCT_MANAGER" }, SPINE, 2)).toBe(SLUG_DIRECTION);
-    expect(slugDecisionnaire({ role: "MEDICAL_DELEGATE" }, SPINE, 0), "un KAM parcourt tout").toBeNull();
+describe("le parcours EFFECTIF — les deux faits, filtrés contre la définition réelle", () => {
+  it("il NOMME la borne et le tamis quand la définition les porte", () => {
+    expect(parcoursEffectif({ role: "PRODUCT_MANAGER" }, SPINE, 2))
+      .toEqual({ entree: SLUG_DG, decision: SLUG_DIRECTION, ignorees: [SLUG_PRELIMINAIRE] });
+    expect(parcoursEffectif({ role: "MEDICAL_DELEGATE" }, SPINE, 0))
+      .toEqual({ entree: SLUG_PRELIMINAIRE, decision: null, ignorees: [SLUG_DIRECTION] });
   });
 
-  it("un circuit REMODELÉ qui n'a plus l'étape bornée retombe sur le comportement d'avant", () => {
+  it("un circuit REMODELÉ qui n'a plus ces étapes retombe sur la chaîne ENTIÈRE", () => {
     // Une garde qui refuse ce qu'elle ne comprend pas est désactivée dans la semaine (§118.16).
-    expect(slugDecisionnaire({ role: "PRODUCT_MANAGER" }, ["etape-a", "etape-b"], 2)).toBeNull();
-    expect(slugDecisionnaire({ role: "PRODUCT_MANAGER" }, [], 2)).toBeNull();
+    // Ce qui le ferait tomber : garder le tamis non filtré. Une étape absente aujourd'hui, mais
+    // AJOUTÉE demain par un Super Admin, serait sautée en silence — sa décision défaite sans une
+    // ligne pour le dire, alors qu'une validation de trop se voit et se franchit (§118.27).
+    expect(parcoursEffectif({ role: "PRODUCT_MANAGER" }, ["etape-a", "etape-b"], 2))
+      .toEqual({ entree: SLUG_DG, decision: null, ignorees: [] });
+    expect(parcoursEffectif({ role: "PRODUCT_MANAGER" }, [], 2))
+      .toEqual({ entree: SLUG_DG, decision: null, ignorees: [] });
   });
 
-  it("un demandeur INCONNU ne borne rien : on ne raccourcit jamais un circuit sur une absence de donnée", () => {
-    expect(slugDecisionnaire(null, SPINE, 0)).toBeNull();
-    expect(slugDecisionnaire(undefined, SPINE, 0)).toBeNull();
+  it("un circuit PARTIEL ne garde que ce qu'il porte vraiment", () => {
+    // Un circuit sans porte du DG : le tamis d'un demandeur ordinaire ne doit nommer que `final`.
+    expect(parcoursEffectif({ role: "FINANCE_MANAGER" }, [SLUG_DIRECTION, SLUG_MARKETING], 0).ignorees)
+      .toEqual([SLUG_DIRECTION]);
+  });
+
+  it("un demandeur INCONNU : `estKam` rend faux, donc le parcours d'un demandeur ordinaire", () => {
+    // On ne raccourcit jamais une DÉCISION sur une absence de donnée — et le moteur, lui, ne
+    // fabrique aucun parcours sans demandeur (il écrit `null` et la chaîne entière s'applique).
+    expect(parcoursEffectif(null, SPINE, 0).decision).toBeNull();
+    expect(parcoursEffectif(undefined, SPINE, 0).decision).toBeNull();
   });
 
   it("« cette étape tranche-t-elle ? » se lit à UN endroit, et se taît sans borne", () => {
@@ -121,20 +183,49 @@ describe("la borne de sortie — et ce qu'elle laisse passer", () => {
     expect(estDecisionnaire(SLUG_MARKETING, SLUG_DIRECTION)).toBe(false);
     expect(estDecisionnaire(SLUG_MARKETING, null), "sans borne, aucune étape ne tranche prématurément").toBe(false);
   });
+
+  it("« cette étape est-elle hors route ? » se lit à UN endroit, et se taît sur un tamis vide", () => {
+    expect(estIgnoree(SLUG_DIRECTION, [SLUG_DIRECTION])).toBe(true);
+    expect(estIgnoree(SLUG_DIRECTION, [])).toBe(false);
+    expect(estIgnoree(SLUG_DG, [SLUG_PRELIMINAIRE, SLUG_DIRECTION])).toBe(false);
+  });
 });
 
-describe("la queue coupée — ce que la demande n'atteindra jamais", () => {
+describe("les étapes non atteintes — la queue coupée ET le tamis", () => {
   it("elle nomme les étapes situées APRÈS la borne", () => {
-    expect(queueCoupee(SPINE, SLUG_DIRECTION)).toEqual([SLUG_MARKETING]);
-    expect(queueCoupee(SPINE, SLUG_PRELIMINAIRE)).toEqual([SLUG_DG, SLUG_DIRECTION, SLUG_MARKETING]);
+    expect(etapesNonAtteintes(SPINE, SLUG_DIRECTION, [])).toEqual([SLUG_MARKETING]);
+    expect(etapesNonAtteintes(SPINE, SLUG_PRELIMINAIRE, [])).toEqual([SLUG_DG, SLUG_DIRECTION, SLUG_MARKETING]);
   });
 
-  it("sans borne, ou sur une borne inconnue, RIEN n'est coupé", () => {
+  it("elle nomme AUSSI les étapes sautées au MILIEU — le cas que la queue seule ratait", () => {
+    // LE CAS QUI COMPTE, et c'est celui d'un KAM : AUCUNE borne (Direction Marketing est la
+    // dernière étape) et pourtant `final` sautée. Ce qui le ferait tomber : revenir à la queue
+    // seule. Un Super Admin qui aurait posé l'ordre de dépense sur l'étape de la Direction
+    // verrait l'émission se perdre — budget accordé, rien d'engagé, aucune étape en échec.
+    expect(etapesNonAtteintes(SPINE, null, [SLUG_DIRECTION])).toEqual([SLUG_DIRECTION]);
+    expect(etapesNonAtteintes(SPINE, null, [SLUG_PRELIMINAIRE, SLUG_DIRECTION]))
+      .toEqual([SLUG_PRELIMINAIRE, SLUG_DIRECTION]);
+  });
+
+  it("queue et tamis se RÉUNISSENT sans doublon, dans l'ordre de la colonne", () => {
+    expect(etapesNonAtteintes(SPINE, SLUG_DIRECTION, [SLUG_PRELIMINAIRE, SLUG_MARKETING]))
+      .toEqual([SLUG_PRELIMINAIRE, SLUG_MARKETING]);
+  });
+
+  it("l'étape qui TRANCHE n'est jamais rendue, même sur une paire incohérente", () => {
+    // Elle EST atteinte : c'est elle qui hérite. La paire serait fautive (une borne qui figure
+    // aussi dans son propre tamis), mais rien ne doit faire hériter une étape d'elle-même — le
+    // montant serait émis deux fois au même endroit.
+    expect(etapesNonAtteintes(SPINE, SLUG_DIRECTION, [SLUG_DIRECTION])).toEqual([SLUG_MARKETING]);
+  });
+
+  it("sans borne ni tamis, ou sur une borne inconnue, RIEN n'est retiré", () => {
     // Ce qui le ferait tomber : rendre la définition entière sur une borne inconnue. L'écran
     // n'afficherait plus AUCUNE étape, et le moteur hériterait d'émissions qui ne sont pas dues.
-    expect(queueCoupee(SPINE, null)).toEqual([]);
-    expect(queueCoupee(SPINE, "etape-qui-n-existe-pas")).toEqual([]);
-    expect(queueCoupee(SPINE, SLUG_MARKETING), "la dernière étape ne coupe rien").toEqual([]);
+    expect(etapesNonAtteintes(SPINE, null, [])).toEqual([]);
+    expect(etapesNonAtteintes(SPINE, "etape-qui-n-existe-pas", [])).toEqual([]);
+    expect(etapesNonAtteintes(SPINE, SLUG_MARKETING, []), "la dernière étape ne coupe rien").toEqual([]);
+    expect(etapesNonAtteintes(SPINE, null, ["etape-qui-n-existe-pas"])).toEqual([]);
   });
 });
 

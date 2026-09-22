@@ -45,25 +45,24 @@ export function adProOriginRank(user: OriginUser): number {
   return 0;
 }
 
-/**
- * Le créateur peut-il nommer un RÉFÉRENT Direction Marketing à la création ?
+/*
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * `canDesignateProductManagerAtCreation` A ÉTÉ RETIRÉ (§118.142).
  *
- * Ce n'est plus une désignation dont dépend l'étape suivante — l'arbitrage est porté par le
- * RÔLE Direction Marketing tout entier — mais l'enregistrement de la personne qui suit la
- * gamme. Il est offert à ceux dont la demande entre RÉELLEMENT chez Direction Marketing : le
- * National Sales (rang 1) et la Direction quand elle demande un arbitrage (rang 3). Un KAM ne
- * le voit pas — sa demande passe d'abord par son superviseur national — et Direction Marketing
- * ne se nomme pas référente de sa propre demande.
+ * Décision de la Direction (22/09/2026) : « on n'a pas besoin d'un référent Direction Marketing,
+ * ça va DIRECT chez le directeur/directrice du département marketing. » Ce prédicat n'avait
+ * qu'un seul rôle — décider si le MENU du référent s'affichait sur une nouvelle demande. Le menu
+ * retiré, il n'avait plus aucun appelant de production, et un prédicat qu'aucun code n'interroge
+ * est du code mort qui a l'air d'une règle (§118.14).
  *
- * Que ce champ ne CONDITIONNE plus rien est la moitié qui compte : l'étape d'arbitrage était
- * portée par « la personne désignée », or le parcours de tout demandeur non-KAM COMMENCE là.
- * Une désignation absente y aurait laissé une demande que personne ne peut faire avancer,
- * morte à sa première étape et sans une seule ligne d'échec.
+ * Le champ `productManagerId` lui SURVIT : il reste lu (droits de la fiche, déclaration
+ * d'information médicale) et accepté par les actions serveur. Le référent se configurera par
+ * BUSINESS UNIT (« chaque BU aura son ou ses référents de la direction marketing depuis la
+ * configuration des BU ») ; d'ici là rien ne l'écrit, et ses lecteurs se dégradent dans le sens
+ * sûr — un droit de moins, jamais un droit de plus.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-export function canDesignateProductManagerAtCreation(user: OriginUser): boolean {
-  const rank = adProOriginRank(user);
-  return rank === 1 || rank === 3;
-}
+
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════

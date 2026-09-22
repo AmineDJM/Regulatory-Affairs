@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { UserRole } from "@prisma/client";
 import * as origin from "./origin";
-import { adProInit, adProOriginRank, canDesignateProductManagerAtCreation } from "./origin";
-import { slugDecisionnaire, SLUG_DG, SLUG_DIRECTION, SLUG_MARKETING, SLUG_PRELIMINAIRE } from "./parcours";
+import { adProInit, adProOriginRank } from "./origin";
+import { parcoursEffectif, SLUG_DG, SLUG_DIRECTION, SLUG_MARKETING, SLUG_PRELIMINAIRE } from "./parcours";
 
 const u = (role: UserRole, secondaryRole: UserRole | null = null) => ({ role, secondaryRole });
 
@@ -17,12 +17,10 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
     expect(init.status).toBe("AWAITING_PRELIMINARY");
     expect(init.productManagerId).toBeNull();
     expect(init.preliminaryBySelf).toBe(false);
-    expect(canDesignateProductManagerAtCreation(u("MEDICAL_DELEGATE"))).toBe(false);
   });
 
   it("le National Sales n'approuve pas sa propre demande : elle entre par la porte du DG", () => {
     expect(adProOriginRank(u("NATIONAL_SALES"))).toBe(1);
-    expect(canDesignateProductManagerAtCreation(u("NATIONAL_SALES"))).toBe(true);
     const init = adProInit(u("NATIONAL_SALES"), "pm-1");
     expect(init.stage).toBe("ANALYSIS");
     expect(init.status).toBe("PRELIMINARY_APPROVED");
@@ -60,8 +58,12 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
     const double = u("MEDICAL_DELEGATE", "PRODUCT_MANAGER");
     expect(adProOriginRank(double)).toBe(2);
     expect(adProInit(double).stage).toBe("ANALYSIS");
-    expect(slugDecisionnaire(double, SPINE, 2), "la Direction tranche à sa place").toBe(SLUG_DIRECTION);
-    expect(slugDecisionnaire(u("MEDICAL_DELEGATE"), SPINE, 0), "un KAM parcourt tout").toBeNull();
+    expect(parcoursEffectif(double, SPINE, 2).decision, "la Direction tranche à sa place").toBe(SLUG_DIRECTION);
+    // Un KAM n'a AUCUNE borne (Direction Marketing est la dernière étape) et saute pourtant la
+    // Direction des opérations : c'est exactement ce que la borne seule ne pouvait pas dire.
+    const kam = parcoursEffectif(u("MEDICAL_DELEGATE"), SPINE, 0);
+    expect(kam.decision, "Direction Marketing tranche, et c'est la dernière étape").toBeNull();
+    expect(kam.ignorees, "le national sales valide, la Direction des opérations non").toEqual([SLUG_DIRECTION]);
   });
 
   it("Direction Marketing entre par la porte du DG et NE TRANCHE PAS sa propre demande", () => {
@@ -71,8 +73,7 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
       expect(init.stage, role).toBe("ANALYSIS");
       expect(init.status, role).toBe("PRELIMINARY_APPROVED");
       expect(init.preliminaryBySelf, role).toBe(true);
-      expect(canDesignateProductManagerAtCreation(u(role))).toBe(false);
-      expect(slugDecisionnaire(u(role), SPINE, 2), role).toBe(SLUG_DIRECTION);
+      expect(parcoursEffectif(u(role), SPINE, 2).decision, role).toBe(SLUG_DIRECTION);
     }
   });
 
@@ -108,21 +109,21 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
 });
 
 /**
- * LE RÉFÉRENT SE DÉSIGNE, LE CIRCUIT NE SE CHOISIT PLUS.
+ * PLUS PERSONNE NE DÉSIGNE DE RÉFÉRENT, ET LE CIRCUIT NE SE CHOISIT PLUS.
  *
- * `canChooseAnalysisAtCreation` a été RETIRÉE avec le champ `viaProductManager` : Direction
- * Marketing tranchant désormais toute demande Ad & Pro, la case « demander d'abord son
- * arbitrage » ne changeait plus rien — un réglage d'écran sans effet est un mensonge fait à la
- * personne qui le coche (§118.14, §118.50).
+ * Deux réglages retirés pour la même raison — ils ne changeaient plus rien.
+ * `canChooseAnalysisAtCreation` est partie avec `viaProductManager` quand Direction Marketing
+ * est devenue l'étape qui TRANCHE toute demande Ad & Pro (§118.138) ;
+ * `canDesignateProductManagerAtCreation` est partie avec le menu du référent, sur décision de
+ * la Direction (22/09/2026 : « ça va DIRECT chez le directeur/directrice du département
+ * marketing »). Un réglage d'écran sans effet est un mensonge fait à qui le règle (§118.14,
+ * §118.50).
+ *
+ * `adProInit` CONTINUE d'accepter un référent : les actions serveur le prennent encore, et le
+ * référent se configurera par Business Unit. Ce qui a disparu est le MENU, pas le champ — et
+ * ces deux cas tiennent la nuance.
  */
-describe("qui peut désigner le référent Direction Marketing", () => {
-  it("le National Sales et la Direction — pas celle qui décide, ni le demandeur ordinaire", () => {
-    expect(canDesignateProductManagerAtCreation({ role: "NATIONAL_SALES" })).toBe(true);
-    expect(canDesignateProductManagerAtCreation({ role: "DIRECTION" })).toBe(true);
-    expect(canDesignateProductManagerAtCreation({ role: "PRODUCT_MANAGER" })).toBe(false);
-    expect(canDesignateProductManagerAtCreation({ role: "MEDICAL_DELEGATE" })).toBe(false);
-  });
-
+describe("le référent Direction Marketing, quand une action en fournit encore un", () => {
   it("le référent nommé est enregistré là où il a un sens, et ignoré ailleurs", () => {
     expect(adProInit({ role: "DIRECTION" }, "pm_1").productManagerId).toBe("pm_1");
     expect(adProInit({ role: "MEDICAL_DELEGATE" }, "pm_1").productManagerId, "un KAM entre par son superviseur").toBeNull();

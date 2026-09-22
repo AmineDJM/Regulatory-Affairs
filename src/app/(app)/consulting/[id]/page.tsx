@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DocumentUpload } from "@/components/documents/document-upload";
+import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { CONSULTING_STATUS, CONSULTING_BILLING } from "@/lib/labels";
 import { billingSuffix, isOverdue, isContractEditable, isAwaitingDecision, totalCommitment } from "@/lib/ad-pro/consulting";
@@ -134,7 +135,7 @@ export default async function ConsultingContractPage({ params }: { params: { id:
           <Card>
             <CardHeader><CardTitle>Pièces (contrat signé, avenants, factures, livrables…)</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              {canUpload && <DocumentUpload entityType="CONSULTING_CONTRACT" entityId={contract.id} />}
+              {canUpload && <DocumentUpload entityType="CONSULTING_CONTRACT" entityId={contract.id} categories={[...AD_PRO_DOC_CATEGORIES]} />}
               <DocumentList
                 documents={docItems}
                 canDelete={userCan(user, "CONSULTING", "DELETE") || hasGlobalView(user.role)}

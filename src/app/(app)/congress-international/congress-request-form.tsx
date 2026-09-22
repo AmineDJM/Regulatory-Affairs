@@ -16,13 +16,11 @@ const WILAYA_OPTIONS = wilayaOptions();
 export interface DoctorOpt { id: string; name: string; specialty: string; city: string }
 export interface UserOpt { id: string; name: string; role: string }
 
-const PM_ROLES = ["PRODUCT_MANAGER", "MEDICAL_PROMOTION_MANAGER"];
 
 export interface CongressFormProps {
   national?: boolean;
   doctors: DoctorOpt[];
   users: UserOpt[];
-  canDesignatePM?: boolean;
 }
 
 interface CongressRequestFormProps extends CongressFormProps {
@@ -40,7 +38,7 @@ interface CongressRequestFormProps extends CongressFormProps {
  * commun d'Ad & Pro, où la nature vient d'être choisie — on y ouvrirait sinon un panneau
  * par-dessus le panneau.
  */
-export function CongressRequestForm({ national, doctors, users, canDesignatePM, onDone, onCancel, cancelLabel = "Annuler" }: CongressRequestFormProps) {
+export function CongressRequestForm({ national, doctors, users, onDone, onCancel, cancelLabel = "Annuler" }: CongressRequestFormProps) {
   const router = useRouter();
   const formRef = React.useRef<HTMLFormElement>(null);
   const [saving, setSaving] = React.useState(false);
@@ -50,12 +48,6 @@ export function CongressRequestForm({ national, doctors, users, canDesignatePM, 
   const [pickedDoctors, setPickedDoctors] = React.useState<Set<string>>(new Set());
   const [pickedUsers, setPickedUsers] = React.useState<Set<string>>(new Set());
   const [userQuery, setUserQuery] = React.useState("");
-  const [productManagerId, setProductManagerId] = React.useState("");
-
-  // National Sales créant lui-même : il désigne le référent Direction Marketing (l'analyse lui est
-  // confiée) et n'a pas à approuver préliminairement sa propre demande.
-  const pmCandidates = React.useMemo(() => users.filter((u) => PM_ROLES.includes(u.role)), [users]);
-  const showPmPicker = Boolean(canDesignatePM) && pmCandidates.length > 0;
 
   const specialties = React.useMemo(() => [...new Set(doctors.map((d) => d.specialty))].sort(), [doctors]);
   const doctorsInSpecialty = React.useMemo(() => doctors.filter((d) => d.specialty === specialty), [doctors, specialty]);
@@ -79,9 +71,7 @@ export function CongressRequestForm({ national, doctors, users, canDesignatePM, 
     fd.set("type", national ? "NATIONAL" : "INTL");
     pickedDoctors.forEach((id) => fd.append("invitedDoctorIds", id));
     pickedUsers.forEach((id) => fd.append("participantIds", id));
-    if (showPmPicker) fd.set("productManagerId", productManagerId);
     if (!String(fd.get("name") ?? "").trim()) { setErr("Le nom de l'événement est obligatoire."); return; }
-    if (showPmPicker && !productManagerId) { setErr("Nommez le référent Direction Marketing qui suivra la demande."); return; }
     setSaving(true); setErr(null);
     const r = await createCongressRequest(undefined, fd);
     setSaving(false);
@@ -136,19 +126,6 @@ export function CongressRequestForm({ national, doctors, users, canDesignatePM, 
           )}
           <Field label="Budget estimé (DZD)"><Input name="estimatedBudget" type="number" step="any" placeholder="Estimation du demandeur" /></Field>
         </div>
-
-        {/* Le RÉFÉRENT Direction Marketing : la personne qui suit la gamme. Ce n'est pas elle qui
-            décide — Direction Marketing tranche en tant que direction —, c'est un enregistrement. */}
-        {showPmPicker && (
-          <div className="space-y-1.5 rounded-lg border border-primary/30 bg-primary/5 p-3">
-            <Label>Référent Direction Marketing</Label>
-            <p className="text-xs text-muted-foreground">La décision et le budget appartiennent à Direction Marketing, qui tranche en dernier.</p>
-            <Select value={productManagerId} onChange={(e) => setProductManagerId(e.target.value)}>
-              <option value="">— Référent Direction Marketing (facultatif) —</option>
-              {pmCandidates.map((u) => <option key={u.id} value={u.id}>{u.name} · {ROLE_LABELS[u.role] ?? u.role}</option>)}
-            </Select>
-          </div>
-        )}
 
         {/* Médecins invités : spécialité → liste */}
         <div className="space-y-2 rounded-lg border border-border p-3">

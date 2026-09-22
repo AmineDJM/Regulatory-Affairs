@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Video } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, anyRoleFilter } from "@/lib/rbac";
-import { canDesignateProductManagerAtCreation, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { prisma } from "@/lib/prisma";
 import { getEventDetail } from "@/lib/queries/events";
 import { PageHeader } from "@/components/shared/page-header";
@@ -33,6 +32,8 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
+import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
+import { getAdProCreateData } from "@/lib/queries/ad-pro";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import type { DocItem } from "@/components/documents/document-list";
 
@@ -48,14 +49,15 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
   const canValidate = hasGlobalView(user);
   const canSubmit = userCan(user, "EVENTS", "CREATE");
-  // National Sales soumettant lui-même : il désigne le référent Direction Marketing (l'analyse lui
-  // est confiée) au lieu d'approuver préliminairement sa propre demande.
-  const canDesignatePM = canDesignateProductManagerAtCreation(user);
-  // La Direction choisit son circuit : décision directe, ou avis de la Direction Marketing d'abord.
-  const [items, promoOptions, budgetOptions] = await Promise.all([
+  // LES MÊMES RÉFÉRENTIELS QU'À LA CRÉATION. Le formulaire de modification porte les mêmes champs
+  // obligatoires (`champsManquants` est lu par les deux actions) : sans les menus, la personne
+  // devrait ressaisir en texte libre ce qu'elle avait choisi dans l'annuaire — et l'action la
+  // refuserait pour un champ qu'elle ne sait plus proposer.
+  const [items, promoOptions, budgetOptions, adPro] = await Promise.all([
     loadAdProItems("EVENT", e.id),
     promoMaterialOptions(),
     adProBudgetOptions(user),
+    canManage ? getAdProCreateData(user.id, ["EVENT"]) : Promise.resolve(null),
   ]);
   const canAllocateItems = hasGlobalView(user) || userCan(user, "EVENTS", "VALIDATE");
 
@@ -66,13 +68,10 @@ export default async function EventDetailPage({ params }: { params: { id: string
     { requesterId: e.requesterId ?? null, decided: eventDecided },
   );
   const eventEditValues = canEditEventRequest ? await adProEditValues("EVENT", e.id) : null;
-  const [responsibles, missions, workflow, pmCandidates, documents, involvementThreads] = await Promise.all([
+  const [responsibles, missions, workflow, documents, involvementThreads] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     getEntityMissions("EVENT", e.id),
     getWorkflowForEntity(user, "EVENT", e.id, null),
-    canDesignatePM
-      ? prisma.user.findMany({ where: { isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) }, select: { id: true, name: true }, orderBy: { name: "asc" } })
-      : Promise.resolve([]),
     prisma.document.findMany({ where: { entityType: "EVENT", entityId: e.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
     getInvolvementThreads("EVENT", e.id),
   ]);
@@ -103,7 +102,18 @@ export default async function EventDetailPage({ params }: { params: { id: string
       <BackLink href="/events"><ArrowLeft className="h-4 w-4" /> Events</BackLink>
       <PageHeader title={e.name} description={`${EVENT_TYPE[e.type]} · ${EVENT_SCOPE[e.scope]} · ${EVENT_FORMAT[e.format]}`}>
         <StatusBadge map={EVENT_STATUS} value={e.status} />
-        {canManage && <EditEventButton event={e} responsibles={responsibles} canDelete={canDelete} />}
+        {canManage && (
+          <EditEventButton
+            event={e}
+            responsibles={responsibles}
+            referentiels={adPro ? {
+              doctors: adPro.doctors, products: adPro.products,
+              specialties: adPro.specialties, specialtiesHeritees: adPro.specialtiesHeritees,
+              businessUnits: adPro.businessUnits, businessUnitDeduite: adPro.businessUnitDeduite,
+            } : undefined}
+            canDelete={canDelete}
+          />
+        )}
         {/* Le DEMANDEUR corrige sa demande tant qu'elle n'est pas tranchée (les gestionnaires
             ont déjà l'édition complète juste au-dessus — inutile de doubler leur bouton). */}
         {!canManage && canEditEventRequest && eventEditValues && (
@@ -144,7 +154,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
         piecesDeLaDemande={{
           titre: "Pièces de l'événement (convention, programme, photos…)",
           documents: docItems,
-          televerseur: canUploadDocs ? <DocumentUpload entityType="EVENT" entityId={e.id} /> : undefined,
+          televerseur: canUploadDocs ? <DocumentUpload entityType="EVENT" entityId={e.id} categories={[...AD_PRO_DOC_CATEGORIES]} /> : undefined,
           motif: uploadHint,
           canDelete: userCan(user, "EVENTS", "DELETE") || hasGlobalView(user),
           canRename: canUploadDocs,
@@ -176,7 +186,6 @@ export default async function EventDetailPage({ params }: { params: { id: string
             requestSubmitted={!!e.requestStatus}
             canSubmit={canSubmit}
             workflow={workflow}
-            pmCandidates={canDesignatePM ? pmCandidates : []}
           />
           {(canManage || canMarketing || canValidate) && (
             <div className="mt-4 border-t border-border pt-3">

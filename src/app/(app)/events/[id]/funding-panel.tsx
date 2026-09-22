@@ -7,19 +7,12 @@ import { submitEventForApproval } from "@/lib/actions/event-actions";
 import { WorkflowPanel } from "@/components/workflow/workflow-panel";
 import type { WorkflowView } from "@/lib/queries/workflow";
 import { Button } from "@/components/ui/button";
-import { Select, Label } from "@/components/ui/input";
-
-interface PmOpt { id: string; name: string }
 
 interface Props {
   eventId: string;
   requestSubmitted: boolean; // l'événement est-il déjà entré dans le circuit ?
   canSubmit: boolean;
   workflow: WorkflowView | null;
-  /** Candidats Direction Marketing (fournis au National Sales qui désigne à la soumission). */
-  pmCandidates?: PmOpt[];
-  /** La Direction peut CHOISIR de demander un avis produit avant de trancher (elle n'y est pas tenue). */
-  canChooseAnalysis?: boolean;
 }
 
 /**
@@ -27,45 +20,35 @@ interface Props {
  * circuit de prise en charge. Une fois soumis, le circuit est piloté par le moteur de
  * workflow configurable (WorkflowPanel).
  */
-export function EventFundingPanel({ eventId, requestSubmitted, canSubmit, workflow, pmCandidates, canChooseAnalysis = false }: Props) {
+export function EventFundingPanel({ eventId, requestSubmitted, canSubmit, workflow }: Props) {
   if (!requestSubmitted) {
     if (!canSubmit) return <p className="text-sm text-muted-foreground">Cet événement n'est pas soumis à un circuit de prise en charge (financement).</p>;
-    return <SubmitButton id={eventId} pmCandidates={pmCandidates ?? []} canChooseAnalysis={canChooseAnalysis} />;
+    return <SubmitButton id={eventId} />;
   }
   if (!workflow) return <p className="text-sm text-muted-foreground">Circuit indisponible.</p>;
   return <WorkflowPanel entityType="EVENT" entityId={eventId} view={workflow} />;
 }
 
 /**
- * SOUMETTRE — le circuit DÉPEND DE QUI SOUMET.
+ * SOUMETTRE — le circuit DÉPEND DE QUI SOUMET, et le formulaire n'a rien à en dire.
  *
- * Personne n'approuve la demande qu'il émet lui-même : un délégué part du National Sales,
- * le National Sales désigne directement la Direction Marketing, la Direction Marketing va droit à la
- * Direction. La Direction, elle, a le CHOIX — trancher tout de suite, ou demander d'abord un
- * avis produit. Ce choix lui appartient : on ne le lui impose pas, on ne le lui retire pas.
+ * Personne n'approuve la demande qu'il émet lui-même : `parcoursAdPro` lit le RANG du demandeur
+ * et pose la demande sur la bonne étape. Ce panneau ne portait plus que deux réglages qui ne
+ * changeaient rien — le référent Direction Marketing, retiré des nouvelles demandes par décision
+ * de la Direction (22/09/2026), et le choix « passer d'abord par l'arbitrage », dont l'effet
+ * serveur avait déjà disparu quand Direction Marketing est devenue l'étape qui TRANCHE toute
+ * demande Ad & Pro (§118.138). Un réglage sans effet est un mensonge fait à qui le règle.
  */
-function SubmitButton({
-  id, pmCandidates, canChooseAnalysis,
-}: { id: string; pmCandidates: PmOpt[]; canChooseAnalysis: boolean }) {
+function SubmitButton({ id }: { id: string }) {
   const router = useRouter();
   const [pending, start] = React.useTransition();
   const [err, setErr] = React.useState<string | null>(null);
-  const [productManagerId, setProductManagerId] = React.useState("");
-  const [viaProductManager, setViaProductManager] = React.useState(false);
-  const hasPmCandidates = pmCandidates.length > 0;
-  // La Direction ne voit le sélecteur de Direction Marketing que si elle a demandé cet avis ;
-  // le National Sales, lui, DOIT désigner — c'est son étape.
-  const showPmPicker = hasPmCandidates && (!canChooseAnalysis || viaProductManager);
-  const pmRequired = hasPmCandidates && (canChooseAnalysis ? viaProductManager : true);
 
   const submit = () =>
     start(async () => {
       setErr(null);
-      if (pmRequired && !productManagerId) { setErr("Nommez le référent Direction Marketing qui suivra la demande."); return; }
       const fd = new FormData();
       fd.set("id", id);
-      if (canChooseAnalysis) fd.set("viaProductManager", viaProductManager ? "1" : "0");
-      if (showPmPicker && productManagerId) fd.set("productManagerId", productManagerId);
       const r = await submitEventForApproval(fd);
       if (!r.ok) { setErr(r.error ?? "Erreur."); return; }
       router.refresh();
@@ -74,35 +57,11 @@ function SubmitButton({
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">
         Soumettez cet événement au circuit de prise en charge : il suit ensuite les étapes
-        configurées (par défaut : National Sales → Direction Marketing → Direction → information médicale).
-        Les étapes situées au niveau ou en dessous de votre rang sont franchies automatiquement.
+        configurées. Le parcours dépend de QUI soumet : un délégué passe par son superviseur
+        national, le National Sales par la Direction des opérations, tout autre demandeur va
+        directement chez Direction Marketing, qui tranche. Les étapes situées au niveau ou en
+        dessous de votre rang sont franchies automatiquement.
       </p>
-      {canChooseAnalysis && (
-        <div className="space-y-1.5 rounded-lg border border-border bg-secondary/40 p-3">
-          <Label>Circuit</Label>
-          <Select value={viaProductManager ? "1" : "0"} onChange={(e) => setViaProductManager(e.target.value === "1")}>
-            <option value="0">Décision directe (Direction)</option>
-            <option value="1">Passer d&apos;abord par l&apos;arbitrage de Direction Marketing</option>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            Vous pouvez trancher immédiatement, ou demander l&apos;arbitrage budgétaire de Direction Marketing avant de décider.
-          </p>
-        </div>
-      )}
-      {showPmPicker && (
-        <div className="space-y-1.5 rounded-lg border border-primary/30 bg-primary/5 p-3">
-          <Label>Référent Direction Marketing</Label>
-          <p className="text-xs text-muted-foreground">
-            {canChooseAnalysis
-              ? "Direction Marketing arbitrera le budget, puis la demande vous reviendra pour décision."
-              : "Vous soumettez la demande : elle part chez Direction Marketing, qui arbitre le budget — l'étape préliminaire est franchie automatiquement."}
-          </p>
-          <Select value={productManagerId} onChange={(e) => setProductManagerId(e.target.value)}>
-            <option value="">— Référent Direction Marketing (facultatif) —</option>
-            {pmCandidates.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </Select>
-        </div>
-      )}
       {err && <p className="text-xs text-destructive">{err}</p>}
       <Button size="sm" onClick={submit} disabled={pending}>
         {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Soumettre pour prise en charge

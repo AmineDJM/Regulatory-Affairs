@@ -10,6 +10,56 @@ import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { EVENT_TYPE, EVENT_SCOPE, EVENT_FORMAT, EVENT_STATUS } from "@/lib/labels";
 import { createEvent, updateEvent, deleteEvent } from "@/lib/actions/event-actions";
 import type { EventDetail } from "@/lib/queries/events";
+import { MultiSelectField } from "@/components/shared/create-record-button";
+import { wilayaOptions } from "@/lib/geo/algeria";
+import {
+  availableProductOptions, doctorOptions, specialtyOptions, splitMulti,
+  type DoctorRow, type ProductRow, type SpecialtyRow,
+} from "@/lib/ad-pro/pickers";
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES RÉFÉRENTIELS D'UN ÉVÉNEMENT — les mêmes que ceux d'un sponsoring, et c'est le point.
+ *
+ * Décision de la Direction (22/09/2026) : « dans événements de Ad&Pro, mets la création de la
+ * demande quasi tout obligatoire comme sponsoring, et le choix de la ville, médecins etc. selon
+ * annuaires, menu déroulant etc. comme sponsoring vraiment avec budget obligatoire. »
+ *
+ * Mesuré avant de corriger : SEUL `name` portait `required`. La ville, la spécialité et les
+ * produits étaient en saisie LIBRE, il n'y avait aucun champ pour les médecins, et le BUDGET
+ * était facultatif.
+ *
+ * ── LE BUDGET FACULTATIF ÉTAIT LA CAUSE D'UNE AUTRE PLAINTE, ET C'EST LA MESURE QUI LE DIT ──
+ *
+ * « Le DG n'a pas à valider un événement Ad&Pro alors que le seuil est en dessous de
+ * 1 000 000 DZD. » La chaîne, bout à bout : budget non saisi ⇒ `estimatedBudget` nul ⇒ le moteur
+ * lit un montant de ZÉRO ⇒ `settleAutoSkips` refuse de franchir une porte de contrôle sur un
+ * montant inconnu (`!(amount > 0)`) ⇒ la porte du DG reste ouverte. Cette garde est JUSTE — on
+ * ne franchit pas une porte de contrôle sur un trou (§118.132) — donc le remède n'est pas de
+ * l'assouplir, c'est de rendre le budget obligatoire. Les deux plaintes n'en faisaient qu'une.
+ *
+ * ── UN SEUL FORMULAIRE POUR CRÉER ET POUR MODIFIER ──────────────────────────────────────
+ *
+ * Ce composant sert les deux, et il se monte à DEUX endroits (l'écran Événements et le panneau
+ * commun d'Ad & Pro). En passer un au socle `FieldDef` et laisser l'autre dessiné à la main
+ * aurait fait deux listes de champs pour la même entité — la garantie qu'un champ ajouté d'un
+ * côté manque de l'autre (c'est l'en-tête de `ad-pro/create-fields.ts`, lu à l'envers). Les
+ * référentiels, eux, viennent des MÊMES lecteurs purs que le sponsoring : `ad-pro/pickers.ts`
+ * et `geo/algeria.ts`. Une liste de wilayas recopiée ici serait fausse au premier ajout.
+ *
+ * RÉFÉRENTIEL VIDE ⇒ SAISIE LIBRE, mais toujours obligatoire. Un menu sans option est un
+ * cul-de-sac, et une demande légitime ne doit pas attendre qu'on peuple une table (§118.108).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface EventReferentiels {
+  doctors?: readonly DoctorRow[];
+  products?: readonly ProductRow[];
+  specialties?: readonly SpecialtyRow[];
+  specialtiesHeritees?: readonly (string | null | undefined)[];
+  businessUnits?: readonly { id: string; name: string }[];
+  /** La gamme DÉDUITE du demandeur — le menu ne propose alors que celle-là (§118.108). */
+  businessUnitDeduite?: { id: string; name: string; raison: string } | null;
+}
 
 type Result = { ok: boolean; error?: string; id?: string };
 const d10 = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
@@ -18,26 +68,136 @@ function W({ label, full, children }: { label: string; full?: boolean; children:
   return <div className={full ? "col-span-2 space-y-1.5" : "space-y-1.5"}><Label>{label}</Label>{children}</div>;
 }
 
-function EventFields({ e, responsibles }: { e?: EventDetail; responsibles: { id: string; name: string }[] }) {
+function EventFields({ e, responsibles, referentiels = {} }: {
+  e?: EventDetail;
+  responsibles: { id: string; name: string }[];
+  /**
+   * NE JAMAIS NOMMER CETTE PROP `ref` : React l'INTERCEPTE sur un composant de fonction, elle
+   * n'arrive pas dans les props, et tous les menus retombent alors sur leur saisie libre — un
+   * défaut parfaitement silencieux, qui ressemble à un référentiel vide.
+   */
+  referentiels?: EventReferentiels;
+}) {
+  const medecins = doctorOptions(referentiels.doctors ?? []);
+  const produits = availableProductOptions(referentiels.products ?? []);
+  const specialites = specialtyOptions(referentiels.specialties ?? [], referentiels.specialtiesHeritees ?? []);
+  const wilayas = wilayaOptions();
+  const gammes = referentiels.businessUnits ?? [];
+  const deduite = referentiels.businessUnitDeduite ?? null;
   return (
     <div className="grid grid-cols-2 gap-3">
       <W full label="Nom de l'événement"><Input name="name" defaultValue={e?.name} required placeholder="Ex. Symposium Cardiologie 2027" /></W>
-      <W label="Type"><Select name="type" defaultValue={e?.type ?? "CONGRESS"}>{Object.entries(EVENT_TYPE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></W>
-      <W label="Portée"><Select name="scope" defaultValue={e?.scope ?? "NATIONAL"}>{Object.entries(EVENT_SCOPE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></W>
-      <W label="Format"><Select name="format" defaultValue={e?.format ?? "PRESENTIAL"}>{Object.entries(EVENT_FORMAT).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></W>
-      <W label="Statut"><Select name="status" defaultValue={e?.status ?? "DRAFT"}>{Object.entries(EVENT_STATUS).map(([v, x]) => <option key={v} value={v}>{x.label}</option>)}</Select></W>
-      <W label="Début"><Input type="date" name="startDate" defaultValue={d10(e?.startDate ?? null)} /></W>
-      <W label="Fin"><Input type="date" name="endDate" defaultValue={d10(e?.endDate ?? null)} /></W>
-      <W label="Lieu / salle"><Input name="location" defaultValue={e?.location ?? ""} /></W>
-      <W label="Ville"><Input name="city" defaultValue={e?.city ?? ""} /></W>
-      <W label="Pays"><Input name="country" defaultValue={e?.country ?? ""} /></W>
-      <W label="Spécialité"><Input name="specialty" defaultValue={e?.specialty ?? ""} /></W>
+      {/* LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé. Déduite du
+          demandeur quand elle se lit à coup sûr, et le serveur l'impose de son côté : un champ
+          de formulaire se forge, et une gamme forgée fait peser la dépense sur une autre équipe. */}
+      {deduite ? (
+        <W full label="Business Unit">
+          <Select name="businessUnitId" defaultValue={deduite.id} required>
+            <option value={deduite.id}>{deduite.name}</option>
+          </Select>
+          <p className="text-xs text-muted-foreground">{deduite.raison} C&apos;est son budget Ad&amp;Pro qui est engagé.</p>
+        </W>
+      ) : gammes.length > 0 ? (
+        <W full label="Business Unit">
+          <Select name="businessUnitId" defaultValue={e?.businessUnitId ?? ""} required>
+            <option value="">— Choisir la gamme —</option>
+            {gammes.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </Select>
+        </W>
+      ) : null}
+      {/* TYPE, PORTÉE, FORMAT : un choix EXPLICITE, plus une valeur pré-remplie. C'est sur eux que
+          l'arbitrage se fait, et une valeur par défaut EST une décision prise à la place du
+          demandeur (§118.108). À la MODIFICATION la valeur existe, donc le repère ne gêne pas. */}
+      <W label="Type">
+        <Select name="type" defaultValue={e?.type ?? ""} required>
+          <option value="">— Choisir le type —</option>
+          {Object.entries(EVENT_TYPE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </Select>
+      </W>
+      <W label="Portée">
+        <Select name="scope" defaultValue={e?.scope ?? ""} required>
+          <option value="">— Choisir la portée —</option>
+          {Object.entries(EVENT_SCOPE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </Select>
+      </W>
+      <W label="Format">
+        <Select name="format" defaultValue={e?.format ?? ""} required>
+          <option value="">— Choisir le format —</option>
+          {Object.entries(EVENT_FORMAT).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </Select>
+      </W>
+      {/* LE STATUT NE SE SAISIT QUE SUR UN ÉVÉNEMENT EXISTANT, et jamais pendant qu'un circuit de
+          prise en charge le gouverne (§118.138 : deux vérités sur l'état, la plus flatteuse
+          gagnait). À la création il n'y a rien à corriger — l'événement naît en brouillon. */}
+      {e && !e.requestStatus && (
+        <W label="Statut"><Select name="status" defaultValue={e.status}>{Object.entries(EVENT_STATUS).map(([v, x]) => <option key={v} value={v}>{x.label}</option>)}</Select></W>
+      )}
+      <W label="Début"><Input type="date" name="startDate" defaultValue={d10(e?.startDate ?? null)} required /></W>
+      <W label="Fin"><Input type="date" name="endDate" defaultValue={d10(e?.endDate ?? null)} required /></W>
+      <W label="Lieu / salle"><Input name="location" defaultValue={e?.location ?? ""} required /></W>
+      {/* LA VILLE VIENT DU RÉFÉRENTIEL DES WILAYAS — elle s'écrivait en huit orthographes. */}
+      <W label="Ville (wilaya)">
+        <Select name="city" defaultValue={e?.city ?? ""} required>
+          <option value="">— Choisir la wilaya —</option>
+          {wilayas.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
+        </Select>
+      </W>
+      <W label="Pays"><Input name="country" defaultValue={e?.country ?? "Algérie"} required /></W>
+      {specialites.length > 0 ? (
+        <W label="Spécialité">
+          <Select name="specialty" defaultValue={e?.specialty ?? ""} required>
+            <option value="">— Choisir la spécialité —</option>
+            {specialites.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </Select>
+        </W>
+      ) : (
+        <W label="Spécialité"><Input name="specialty" defaultValue={e?.specialty ?? ""} required placeholder="Le référentiel est vide : saisissez-la." /></W>
+      )}
       <W label="Capacité max."><Input type="number" name="capacity" defaultValue={e?.capacity ?? ""} /></W>
-      <W label="Budget estimé (DZD)"><Input type="number" step="any" name="estimatedBudget" defaultValue={e?.estimatedBudget ?? ""} /></W>
-      <W full label="Produits concernés"><Input name="products" defaultValue={e?.products ?? ""} /></W>
+      {/* LE BUDGET EST OBLIGATOIRE, et c'est ce qui ferme la plainte du DG (voir l'en-tête). */}
+      <W label="Budget estimé (DZD)">
+        <Input type="number" step="any" min="0" name="estimatedBudget" defaultValue={e?.estimatedBudget ?? ""} required />
+      </W>
+      {/* MÉDECINS ET PRODUITS : PLUSIEURS de chaque, choisis dans le réel. Repli en saisie libre
+          quand le référentiel est muet — obligatoire, mais libre. */}
+      <div className="col-span-2">
+        {medecins.length > 0 ? (
+          <MultiSelectField field={{
+            type: "multiselect", name: "doctorIds", label: "Médecin(s) concerné(s)", required: true, full: true,
+            options: medecins, defaultValue: splitMulti(e?.doctor ?? null),
+            searchPlaceholder: "Chercher un médecin de l'annuaire…",
+            emptyLabel: "Aucun médecin dans l'annuaire.",
+            hint: "Depuis l'annuaire des praticiens. Plusieurs choix possibles.",
+          }} />
+        ) : (
+          <W full label="Médecin(s) concerné(s)">
+            <Input name="doctor" defaultValue={e?.doctor ?? ""} required placeholder="L'annuaire des praticiens est vide : saisissez le ou les noms." />
+          </W>
+        )}
+      </div>
+      <div className="col-span-2">
+        {produits.length > 0 ? (
+          <MultiSelectField field={{
+            type: "multiselect", name: "productIds", label: "Produit(s) concerné(s)", required: true, full: true,
+            options: produits, defaultValue: splitMulti(e?.products ?? null),
+            searchPlaceholder: "Chercher un produit…",
+            emptyLabel: "Aucun produit au traitement terminé.",
+            hint: "Seuls les produits dont le traitement réglementaire est TERMINÉ — les seuls qu'on ait le droit de promouvoir.",
+          }} />
+        ) : (
+          <W full label="Produit(s) concerné(s)">
+            <Input name="products" defaultValue={e?.products ?? ""} required placeholder="Aucun dossier réglementaire n'est encore au traitement terminé." />
+          </W>
+        )}
+      </div>
       <W full label="Lien Meet / Zoom / Teams (webinar/hybride)"><Input name="meetingLink" defaultValue={e?.meetingLink ?? ""} placeholder="https://meet.google.com/…" /></W>
-      <W label="Responsable interne"><Select name="responsibleId" defaultValue={e?.responsibleId ?? ""}><option value="">—</option>{responsibles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</Select></W>
-      <W full label="Description"><Textarea name="description" defaultValue={e?.description ?? ""} rows={3} /></W>
+      <W label="Responsable interne">
+        <Select name="responsibleId" defaultValue={e?.responsibleId ?? ""} required>
+          <option value="">— Choisir le responsable —</option>
+          {responsibles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </Select>
+      </W>
+      <W full label="Description"><Textarea name="description" defaultValue={e?.description ?? ""} rows={3} required /></W>
     </div>
   );
 }
@@ -46,8 +206,10 @@ function EventFields({ e, responsibles }: { e?: EventDetail; responsibles: { id:
  * LE FORMULAIRE SEUL, sans son bouton ni son panneau — il se monte aussi bien sur l'écran Events
  * que dans le panneau commun d'Ad & Pro, où la nature vient d'être choisie.
  */
-export function CreateEventForm({ responsibles, onDone, onCancel, cancelLabel = "Annuler" }: {
+export function CreateEventForm({ responsibles, referentiels, onDone, onCancel, cancelLabel = "Annuler" }: {
   responsibles: { id: string; name: string }[];
+  /** Annuaires et gammes — sans eux, chaque menu retombe sur sa saisie libre (voir l'en-tête). */
+  referentiels?: EventReferentiels;
   onDone: () => void;
   onCancel: () => void;
   cancelLabel?: string;
@@ -57,14 +219,17 @@ export function CreateEventForm({ responsibles, onDone, onCancel, cancelLabel = 
   const [err, setErr] = React.useState<string | null>(null);
   return (
     <form action={async (fd) => { setSaving(true); setErr(null); const r: Result = await createEvent(fd); setSaving(false); if (r.ok && r.id) { onDone(); router.push(`/events/${r.id}`); } else setErr(r.error ?? "Erreur."); }} className="space-y-4">
-      <EventFields responsibles={responsibles} />
+      <EventFields responsibles={responsibles} referentiels={referentiels} />
       {err && <p className="text-sm text-destructive">{err}</p>}
       <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onCancel}>{cancelLabel}</Button><Button type="submit" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Créer</Button></div>
     </form>
   );
 }
 
-export function CreateEventButton({ responsibles }: { responsibles: { id: string; name: string }[] }) {
+export function CreateEventButton({ responsibles, referentiels }: {
+  responsibles: { id: string; name: string }[];
+  referentiels?: EventReferentiels;
+}) {
   const [open, setOpen] = React.useState(false);
   // Lien direct `?new=1` vers ce formulaire — voir `useAutoOpen`.
   useAutoOpen("new", () => setOpen(true));
@@ -72,13 +237,18 @@ export function CreateEventButton({ responsibles }: { responsibles: { id: string
     <>
       <Button size="sm" onClick={() => setOpen(true)}><Plus className="h-4 w-4" /> Nouvel événement</Button>
       <Sheet open={open} onClose={() => setOpen(false)} title="Nouvel événement" width="lg">
-        <CreateEventForm responsibles={responsibles} onDone={() => setOpen(false)} onCancel={() => setOpen(false)} />
+        <CreateEventForm responsibles={responsibles} referentiels={referentiels} onDone={() => setOpen(false)} onCancel={() => setOpen(false)} />
       </Sheet>
     </>
   );
 }
 
-export function EditEventButton({ event, responsibles, canDelete }: { event: EventDetail; responsibles: { id: string; name: string }[]; canDelete: boolean }) {
+export function EditEventButton({ event, responsibles, referentiels, canDelete }: {
+  event: EventDetail;
+  responsibles: { id: string; name: string }[];
+  referentiels?: EventReferentiels;
+  canDelete: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -88,7 +258,7 @@ export function EditEventButton({ event, responsibles, canDelete }: { event: Eve
       <Button variant="outline" size="sm" onClick={() => { setErr(null); setOpen(true); }}><Pencil className="h-4 w-4" /> Modifier</Button>
       <Sheet open={open} onClose={() => setOpen(false)} title="Modifier l'événement" width="lg">
         <form action={async (fd) => { fd.set("id", event.id); setSaving(true); setErr(null); const r: Result = await updateEvent(fd); setSaving(false); if (r.ok) { setOpen(false); router.refresh(); } else setErr(r.error ?? "Erreur."); }} className="space-y-4">
-          <EventFields e={event} responsibles={responsibles} />
+          <EventFields e={event} responsibles={responsibles} referentiels={referentiels} />
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex items-center justify-between">
             {canDelete ? <Button type="button" variant="ghost" className="text-destructive" onClick={() => { if (window.confirm("Supprimer cet événement et ses inscriptions ?")) { const fd = new FormData(); fd.set("id", event.id); deleteEvent(fd).then((r) => { if (r.ok) router.push("/events"); }); } }}><Trash2 className="h-4 w-4" /> Supprimer</Button> : <span />}

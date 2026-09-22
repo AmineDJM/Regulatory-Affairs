@@ -3,8 +3,7 @@ import { businessUnitDuDemandeur } from "@/lib/ad-pro/business-unit-auto";
 import { AVAILABLE_PRODUCT_STATUSES } from "@/lib/ad-pro/pickers";
 import { platformScope, getMyCompanies, companyOptions } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
-import { userCan, anyRoleFilter, type SessionUser } from "@/lib/rbac";
-import { PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+import { userCan, type SessionUser } from "@/lib/rbac";
 import { adProState, sortAdPro, type AdProKind, type AdProRequest } from "@/lib/ad-pro/unified";
 import type { AdProCreateData } from "@/lib/ad-pro/create-fields";
 
@@ -164,7 +163,6 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
   // mémoire, qui ne se rapproche d'aucune fiche de l'annuaire, si bien qu'on ne sait jamais
   // combien de fois on a pris en charge la même personne.
   const needsDoctors = has("CONGRESS_INTERNATIONAL") || has("CONGRESS_NATIONAL") || has("SPONSORING");
-  const needsProductManagers = needsDoctors || has("SPONSORING");
   const needsPeople = kinds.length > 0;
   // LES PRODUITS PROMOUVABLES : ceux dont le traitement réglementaire est TERMINÉ. Proposer un
   // dossier en cours ferait préparer la promotion d'un médicament qui n'a pas encore le droit
@@ -176,7 +174,7 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
   // liste recopiée ici serait fausse le jour où la Promotion médicale en ajoute une (§118.73).
   const needsSpecialties = has("SPONSORING");
 
-  const [doctors, users, productManagers, companies, products, businessUnits, specialties, demandeur] = await Promise.all([
+  const [doctors, users, companies, products, businessUnits, specialties, demandeur] = await Promise.all([
     needsDoctors
       ? prisma.medicalDoctor.findMany({
           select: { id: true, name: true, specialty: true, city: true },
@@ -186,12 +184,6 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
     needsPeople
       ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } })
       : Promise.resolve([] as { id: string; name: string; role: string }[]),
-    needsProductManagers
-      ? prisma.user.findMany({
-          where: { isActive: true, ...anyRoleFilter(PRODUCT_MANAGER_ROLES) },
-          select: { id: true, name: true }, orderBy: { name: "asc" },
-        })
-      : Promise.resolve([] as { id: string; name: string }[]),
     has("PROMO_MATERIAL") || has("CONSULTING") || has("OTHER")
       // Les entités PROPOSÉES sont celles de la personne : sans quoi le formulaire laisserait
       // rattacher une demande à une société qu'elle n'a pas le droit de voir.
@@ -225,7 +217,6 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
   return {
     doctors: doctors.map((d) => ({ id: d.id, name: d.name, specialty: d.specialty ?? "Sans spécialité", city: d.city ?? "" })),
     users: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
-    productManagers,
     specialties,
     // Les libellés HÉRITÉS des fiches non rattachées : une spécialité portée par quarante
     // médecins et absente du référentiel doit rester choisissable, sinon une demande légitime

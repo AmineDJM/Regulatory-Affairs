@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { platformScope } from "@/lib/company";
-import { anyRoleFilter, scopeCongressIntl, scopeCongressNational, type SessionUser } from "@/lib/rbac";
+import { scopeCongressIntl, scopeCongressNational, type SessionUser } from "@/lib/rbac";
 import { toNumber } from "@/lib/utils";
 
 export type CongressType = "INTL" | "NATIONAL";
@@ -114,16 +114,20 @@ export async function getCongressDetail(type: CongressType, user: SessionUser, i
 
 export type CongressDetail = NonNullable<Awaited<ReturnType<typeof getCongressDetail>>>;
 
-/** Données pour le formulaire de demande : médecins (groupés par spécialité), users, chefs de produit. */
+/**
+ * Données pour le formulaire de demande : médecins (groupés par spécialité) et collaborateurs.
+ *
+ * LA LISTE DES RÉFÉRENTS DIRECTION MARKETING A DISPARU AVEC SON MENU (§118.142) : une requête
+ * dont plus aucun écran ne lit le résultat est une requête payée pour rien, et un champ qu'aucun
+ * formulaire n'affiche n'a pas à être chargé.
+ */
 export async function getCongressFormData() {
-  const [doctors, users, productManagers] = await Promise.all([
+  const [doctors, users] = await Promise.all([
     prisma.medicalDoctor.findMany({ select: { id: true, name: true, specialty: true, city: true }, orderBy: [{ specialty: "asc" }, { name: "asc" }] }),
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
-    prisma.user.findMany({ where: { isActive: true, ...anyRoleFilter(["PRODUCT_MANAGER", "MEDICAL_PROMOTION_MANAGER"]) }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
   return {
     doctors: doctors.map((d) => ({ id: d.id, name: d.name, specialty: d.specialty ?? "Sans spécialité", city: d.city ?? "" })),
     users: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
-    productManagers: productManagers.map((u) => ({ id: u.id, name: u.name })),
   };
 }

@@ -10,6 +10,7 @@ import { BackLink } from "@/components/shared/back-link";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocumentUpload } from "@/components/documents/document-upload";
+import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { AD_PRO_OTHER_STATUS } from "@/lib/labels";
 import { OtherDecisionPanel } from "./decision-panel";
@@ -93,7 +94,7 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
           <Card>
             <CardHeader><CardTitle>Pièces jointes</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              {canUpload && <DocumentUpload entityType="AD_PRO_OTHER" entityId={req.id} />}
+              {canUpload && <DocumentUpload entityType="AD_PRO_OTHER" entityId={req.id} categories={[...AD_PRO_DOC_CATEGORIES]} />}
               <DocumentList
                 documents={docItems}
                 canDelete={userCan(user, "AD_PRO_OTHER", "DELETE") || hasGlobalView(user.role)}

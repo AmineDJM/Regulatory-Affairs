@@ -22,7 +22,6 @@ export interface NewRequestPickerProps {
   /** Natures que cette personne a le droit de CRÉER — pas seulement de consulter. */
   kinds: KindSpec[];
   data: AdProCreateData;
-  canDesignatePM: boolean;
 }
 
 /**
@@ -45,7 +44,7 @@ export interface NewRequestPickerProps {
  * `CongressRequestForm`, `CreateEventForm`), jamais une copie qui divergerait au premier champ
  * ajouté.
  */
-export function NewRequestPicker({ kinds, data, canDesignatePM }: NewRequestPickerProps) {
+export function NewRequestPicker({ kinds, data }: NewRequestPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [kind, setKind] = React.useState<AdProKind | null>(null);
 
@@ -107,7 +106,6 @@ export function NewRequestPicker({ kinds, data, canDesignatePM }: NewRequestPick
                 action={createSponsoring}
                 redirectBase="/sponsoring"
                 fields={sponsoringCreateFields({
-                  productManagers: data.productManagers, canDesignatePM,
                   products: data.products, doctors: data.doctors, businessUnits: data.businessUnits,
                   businessUnitDeduite: data.businessUnitDeduite,
                   specialties: data.specialties, specialtiesHeritees: data.specialtiesHeritees,
@@ -115,12 +113,22 @@ export function NewRequestPicker({ kinds, data, canDesignatePM }: NewRequestPick
               />
             )}
             {spec.kind === "CONGRESS_INTERNATIONAL" && (
-              <CongressRequestForm {...nav} doctors={data.doctors} users={data.users} canDesignatePM={canDesignatePM} />
+              <CongressRequestForm {...nav} doctors={data.doctors} users={data.users} />
             )}
             {spec.kind === "CONGRESS_NATIONAL" && (
-              <CongressRequestForm {...nav} national doctors={data.doctors} users={data.users} canDesignatePM={canDesignatePM} />
+              <CongressRequestForm {...nav} national doctors={data.doctors} users={data.users} />
             )}
-            {spec.kind === "EVENT" && <CreateEventForm {...nav} responsibles={people} />}
+            {spec.kind === "EVENT" && (
+              <CreateEventForm
+                {...nav}
+                responsibles={people}
+                referentiels={{
+                  doctors: data.doctors, products: data.products,
+                  specialties: data.specialties, specialtiesHeritees: data.specialtiesHeritees,
+                  businessUnits: data.businessUnits, businessUnitDeduite: data.businessUnitDeduite,
+                }}
+              />
+            )}
             {spec.kind === "PROMO_MATERIAL" && (
               <RecordForm
                 {...nav}

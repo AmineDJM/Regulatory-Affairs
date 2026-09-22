@@ -1,0 +1,37 @@
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+-- Ad & Pro — LE PARCOURS DEVIENT UN TAMIS (§118.142)
+--
+-- Décision de la Direction (22/09/2026), qui REVIENT sur le lot précédent : « le national sales
+-- ne valide QUE si c'est un KAM qui a fait la demande ; si c'est lui-même, ça passe par le
+-- directeur des opérations ; et si c'est quelqu'un d'autre, ça part direct chez la direction
+-- marketing. »
+--
+-- ── POURQUOI UNE COLONNE, ET PAS UNE DÉDUCTION ───────────────────────────────────────────
+--
+-- `finalSlug` ne suffit plus. Un KAM et un demandeur ordinaire tranchent tous DEUX chez
+-- Direction Marketing — donc la même borne, aucune — et ne traversent pourtant pas les mêmes
+-- étapes : le premier passe par son superviseur national, le second par personne. Le parcours
+-- n'est plus une TRONCATURE (deux bornes suffisaient) mais un TAMIS, et aucun ordre d'étapes ne
+-- rend les trois tranches contiguës à la fois : un KAM traverse `preliminary` sans `final`, un
+-- National Sales `final` sans `preliminary`.
+--
+-- ── CE QU'ELLE NE FAIT PAS, ET C'EST LA MOITIÉ DE LA MIGRATION ───────────────────────────
+--
+-- ELLE NE REMPLIT RIEN. Le défaut `ARRAY[]` reproduit EXACTEMENT la sémantique d'avant : sous
+-- l'ancienne règle, chaque branche traversait toutes les étapes entre son entrée et sa borne.
+-- Une instance en vol garde donc la chaîne qui lui avait été PROMISE.
+--
+-- Rétro-remplir aurait retiré une validation à des demandes déjà soumises — un KAM dont la
+-- demande attend la Direction des opérations la verrait disparaître de sa route, et la demande
+-- atteindrait la décision sans que le validateur annoncé l'ait vue. C'est le sens dangereux :
+-- le parcours est FIGÉ À LA NAISSANCE précisément pour qu'un changement de règle (ou de poste)
+-- ne réécrive pas une chaîne en cours (voir la note de `finalSlug` dans le schéma).
+--
+-- Rien d'autre ne bouge : ni les définitions (la colonne vertébrale est la même, ce sont les
+-- PARCOURS qui changent), ni les montants, ni les décisions déjà prises.
+--
+-- Idempotente : `IF NOT EXISTS`.
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+
+ALTER TABLE "WorkflowInstance"
+  ADD COLUMN IF NOT EXISTS "skippedSlugs" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

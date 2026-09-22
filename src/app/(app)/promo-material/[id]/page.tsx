@@ -16,6 +16,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { DocumentUpload } from "@/components/documents/document-upload";
+import { PROMO_MATERIAL_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import { CommentThread } from "@/components/shared/comment-thread";
@@ -32,7 +33,6 @@ import { BackLink } from "@/components/shared/back-link";
 
 export const dynamic = "force-dynamic";
 
-const PROMO_DOC_CATEGORIES = ["QUOTE", "PURCHASE_ORDER", "PAYMENT_SLIP", "PAYMENT_RECEIPT", "PROMO_MATERIAL_FILE", "AD_VISA", "INVOICE", "DELIVERY_NOTE", "SUPPORTING_DOC", "OTHER"];
 
 export default async function PromoMaterialDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("PROMO_MATERIAL");
@@ -153,7 +153,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
             <CardHeader><CardTitle>Documents (devis, BC, quittance, matériel, visa, facture…)</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               {canUpload
-                ? <DocumentUpload entityType="PROMO_MATERIAL" entityId={pm.id} categories={PROMO_DOC_CATEGORIES} />
+                ? <DocumentUpload entityType="PROMO_MATERIAL" entityId={pm.id} categories={[...PROMO_MATERIAL_DOC_CATEGORIES]} />
                 : uploadHint && <p className="text-xs text-muted-foreground">{uploadHint}</p>}
               <DocumentList documents={docItems} canDelete={canDelete} canRename={canUpload} canEdit={onlyofficeConfigured() && canUpload} path={`/promo-material/${pm.id}`} />
             </CardContent>

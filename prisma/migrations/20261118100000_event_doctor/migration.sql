@@ -1,0 +1,26 @@
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+-- Ad & Pro — UN ÉVÉNEMENT DÉSIGNE DES MÉDECINS (§118.142)
+--
+-- Décision de la Direction (22/09/2026) : « dans la nouvelle demande dans Ad&Pro (hors matériel
+-- promotionnel), on doit pouvoir sélectionner un ou plusieurs médecins et un ou plusieurs
+-- produits concernés. »
+--
+-- `Event.products` existait déjà (texte libre) ; il n'y avait AUCUN champ pour les praticiens.
+--
+-- ── POURQUOI DU TEXTE, ET NON UNE TABLE DE LIAISON ──────────────────────────────────────
+--
+-- C'est la convention DÉJÀ en production sur `SponsoringRequest.doctor` : la valeur écrite vient
+-- du référentiel (`ad-pro/pickers.ts` joint les noms choisis par un séparateur lisible), mais la
+-- colonne reste un TEXTE, lu comme tel par la liste, la fiche, le libellé de l'ordre de dépense,
+-- la notification et l'export. En faire une relation ici obligerait à réécrire tous ces points
+-- de lecture pour un lien qu'aucun écran ne suit — et surtout à porter DEUX conventions dans le
+-- même pôle, ce qui finirait par les faire diverger (§118.5).
+--
+-- La LIMITE est assumée et elle est la même que pour le sponsoring : renommer un praticien dans
+-- l'annuaire ne renomme pas les demandes passées. C'est le comportement voulu — une demande dit
+-- ce qui a été demandé À L'ÉPOQUE.
+--
+-- Idempotente : `IF NOT EXISTS`.
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+
+ALTER TABLE "Event" ADD COLUMN IF NOT EXISTS "doctor" TEXT;

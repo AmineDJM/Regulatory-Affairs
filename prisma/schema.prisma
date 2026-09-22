@@ -6677,6 +6677,11 @@ model Event {
   country         String?
   specialty       String?
   products        String?
+  /// LES PRATICIENS CONCERNÉS — noms joints, choisis dans l'annuaire (`ad-pro/pickers.ts`).
+  /// Même convention que `SponsoringRequest.doctor` : la valeur vient du référentiel, la colonne
+  /// reste un TEXTE parce que la liste, la fiche, l'ordre de dépense, la notification et l'export
+  /// la lisent tous comme tel. Porter deux conventions dans le même pôle les ferait diverger.
+  doctor          String?
   description     String?
   capacity        Int?
   estimatedBudget Decimal?      @db.Decimal(14, 2)
@@ -7506,11 +7511,13 @@ model WorkflowInstance {
   currentSlug      String? // étape en attente d'action ; null si terminal
   /// L'ÉTAPE QUI TRANCHE POUR CETTE DEMANDE — null = la dernière étape de la définition.
   ///
-  /// Le parcours Ad&Pro dépend de QUI demande : la demande d'un KAM est filtrée par son
-  /// superviseur national puis TRANCHÉE par Direction Marketing ; celle de tout autre demandeur
-  /// passe Direction Marketing puis Direction. Les deux chaînes sont des tranches CONTIGUËS de
-  /// la même colonne vertébrale : il suffit donc de deux bornes, l'entrée (portée par le statut
-  /// de départ) et cette SORTIE.
+  /// Le parcours Ad&Pro dépend de QUI demande. Ce champ disait « les deux chaînes sont des
+  /// tranches CONTIGUËS de la même colonne vertébrale, il suffit donc de deux bornes » : c'est
+  /// FAUX depuis la règle du 22/09/2026 (un KAM traverse `preliminary` sans `final`, un National
+  /// Sales `final` sans `preliminary`). Aucun ordre d'étapes ne rend ces deux tranches contiguës
+  /// à la fois, donc le parcours est un TAMIS et il faut DEUX champs : celui-ci dit OÙ la chaîne
+  /// s'arrête, `skippedSlugs` dit ce qu'elle NE TRAVERSE PAS. Les fondre en un seul les ferait
+  /// diverger — une demande s'arrêterait là où l'écran annonce qu'elle continue (§118.5).
   ///
   /// La borne est FIXÉE À LA NAISSANCE de l'instance et jamais recalculée : un KAM promu
   /// National Sales en cours de circuit ne doit pas voir sa demande changer de chaîne, et un
@@ -7518,6 +7525,17 @@ model WorkflowInstance {
   /// lui était promise. Le parcours est un fait de la DEMANDE, pas une fonction du poste
   /// qu'occupe son auteur aujourd'hui.
   finalSlug        String?
+  /// LES ÉTAPES DE LA COLONNE VERTÉBRALE QUE CETTE DEMANDE NE TRAVERSE PAS.
+  ///
+  /// GELÉ À LA NAISSANCE pour la même raison que `finalSlug`, et il ne se DÉDUIT pas de lui : un
+  /// KAM et un demandeur ordinaire tranchent tous deux chez Direction Marketing (donc même
+  /// borne : aucune) et ne traversent pourtant pas les mêmes étapes — le premier passe par son
+  /// superviseur national, le second par personne.
+  ///
+  /// Une étape ignorée n'est pas « franchie automatiquement » : elle n'est pas SUR la route,
+  /// donc rien n'est tracé à son nom. Tracer un franchissement que personne n'a demandé ferait
+  /// lire au demandeur qu'un validateur a laissé passer sa demande.
+  skippedSlugs     String[]
   amount           Decimal?            @db.Decimal(14, 2)
   budgetCategoryId String?
   assigneeId       String?

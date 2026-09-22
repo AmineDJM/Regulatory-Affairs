@@ -8,7 +8,7 @@ import { isManagerOfUser, getManagerOfUser } from "@/lib/departments";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { toNumber } from "@/lib/utils";
 import { defaultDefinition } from "./defaults";
-import { estDecisionnaire, seuilFranchissement, queueCoupee, slugDecisionnaire } from "./parcours";
+import { estDecisionnaire, etapesNonAtteintes, estIgnoree, parcoursEffectif, seuilFranchissement } from "./parcours";
 import { adProOriginRank } from "./origin";
 import { getAppSettings } from "@/lib/settings";
 import { statutDepuisCircuit } from "@/lib/events/statut";
@@ -140,10 +140,25 @@ export function stepBySlug(def: LoadedDefinition, slug: string | null): LoadedSt
  * quatre fois aurait donné quatre occasions de ne plus dire la même chose (§118.5).
  *
  * `borne` absente ou inconnue de la définition ⇒ comportement d'avant, à l'identique.
+ *
+ * LE TAMIS ENTRE ICI POUR LA MÊME RAISON QUE LA BORNE. Depuis la règle du 22/09/2026, le parcours
+ * n'est plus une troncature : une étape peut être hors route AU MILIEU (un KAM ne passe pas par la
+ * Direction des opérations). Écrire le saut ailleurs qu'ici aurait laissé l'une des quatre
+ * questions le rater — et celle qui l'aurait raté le plus visiblement est la terminalité : la
+ * demande se serait posée sur une étape que personne n'a le droit ni la raison de franchir, sans
+ * une seule ligne en échec (§118.113).
+ *
+ * `ignorees` est un TAMIS et non une borne : on saute chaque étape qui y figure et l'on CONTINUE.
+ * S'arrêter à la première ignorée amputerait la chaîne de tout ce qui la suit.
  */
-export function nextStepAfter(def: LoadedDefinition, step: LoadedStep, borne?: string | null): LoadedStep | null {
+export function nextStepAfter(
+  def: LoadedDefinition,
+  step: LoadedStep,
+  borne?: string | null,
+  ignorees: readonly string[] = [],
+): LoadedStep | null {
   if (estDecisionnaire(step.slug, borne ?? null)) return null;
-  return orderedSteps(def).find((s) => s.position > step.position) ?? null;
+  return orderedSteps(def).find((s) => s.position > step.position && !estIgnoree(s.slug, ignorees)) ?? null;
 }
 
 /**
@@ -184,7 +199,7 @@ function autoSkipEligible(step: LoadedStep, amount: number, seuilDgGlobal: numbe
 async function settleAutoSkips(
   entityType: EntityType, entityId: string, def: LoadedDefinition,
   instanceId: string, amount: number, requesterId: string | null, landing: LoadedStep | null, viewer: Viewer,
-  borne: string | null,
+  borne: string | null, ignorees: readonly string[],
 ): Promise<LoadedStep | null> {
   let current = landing;
   let guard = 0;
@@ -213,7 +228,7 @@ async function settleAutoSkips(
     const byAmount = autoSkipEligible(current, amount, seuilDgGlobal);
     const byRequester = !byAmount && (await requesterHoldsAuthority(current));
     if (!byAmount && !byRequester) break;
-    const after = nextStepAfter(def, current, borne);
+    const after = nextStepAfter(def, current, borne, ignorees);
     if (!after) break; // pas de successeur (décision finale) → on ne franchit pas
     const action = byAmount ? "AUTO_SKIP" : "AUTO_APPROVE_REQUESTER";
     const reason = byAmount
@@ -335,12 +350,17 @@ export async function ensureInstance(entityType: EntityType, entityId: string): 
         .findUnique({ where: { id: summary.requesterId }, select: { role: true, secondaryRole: true } })
         .catch(() => null)
     : null;
-  const finalSlug = demandeur
-    ? slugDecisionnaire(demandeur, orderedSteps(def).map((st) => st.slug), adProOriginRank(demandeur))
+  //
+  // LES DEUX FAITS SE LISENT D'UN SEUL APPEL. Ils viennent de la même branche : en tirer un sans
+  // l'autre laisserait une demande s'arrêter là où la vue annonce qu'elle continue (§118.5).
+  const parcours = demandeur
+    ? parcoursEffectif(demandeur, orderedSteps(def).map((st) => st.slug), adProOriginRank(demandeur))
     : null;
+  const finalSlug = parcours?.decision ?? null;
+  const skippedSlugs = parcours ? [...parcours.ignorees] : [];
   try {
     const created = await prisma.workflowInstance.create({
-      data: { definitionId: def.id, entityType, entityId, category, currentSlug, status, finalSlug },
+      data: { definitionId: def.id, entityType, entityId, category, currentSlug, status, finalSlug, skippedSlugs },
     });
     // LA PREMIÈRE LIGNE DE L'HISTORIQUE : QUI a demandé, et QUAND.
     //
@@ -392,7 +412,7 @@ export async function ensureInstance(entityType: EntityType, entityId: string): 
           const pose = await settleAutoSkips(
             entityType, entityId, def, created.id, montant, summary.requesterId, depart,
             { id: summary.requesterId, role: demandeur.role, secondaryRole: demandeur.secondaryRole, name: demandeur.name },
-            finalSlug,
+            finalSlug, skippedSlugs,
           );
           if (pose && pose.slug !== currentSlug) {
             const avance = await prisma.workflowInstance.update({ where: { id: created.id }, data: { currentSlug: pose.slug } });
@@ -487,6 +507,11 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
   // « avis défavorable » enverrait la demande refusée d'un KAM attendre une Direction qu'elle
   // n'atteindra jamais), et l'étape qui tranche ne se saute pas.
   const borne = instance.finalSlug ?? null;
+  // LE TAMIS, gelé à la naissance lui aussi. Une instance née avant la règle du 22/09/2026 porte
+  // une liste VIDE — donc exactement la chaîne qui lui avait été promise, sans étape retirée
+  // rétroactivement. Amputer un circuit en vol ferait atteindre la décision à une demande dont
+  // l'écran annonçait qu'un validateur la verrait encore (§118.16).
+  const ignorees = instance.skippedSlugs ?? [];
 
   // COMMENT : simple trace + commentaire sur l'entité, sans avancer.
   if (action === "COMMENT") {
@@ -500,7 +525,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
   if (action === "REJECT") {
     if (!step.powers.includes("REJECT")) return { ok: false, error: "Le refus n'est pas autorisé à cette étape." };
     if (!note) return { ok: false, error: "Le motif du refus est obligatoire." };
-    const next = nextStepAfter(def, step, borne);
+    const next = nextStepAfter(def, step, borne, ignorees);
 
     if (next) {
       // Étape INTERMÉDIAIRE (National Sales, Direction Marketing…) : le refus n'est PAS
@@ -527,7 +552,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
       // Général sous le seuil — et y restait, à attendre quelqu'un qui n'a rien à valider. Une
       // porte gardée à côté d'une porte ouverte, et c'est la même chose qui passe (§118.71).
       const montantApresAvis = revisedAmount ?? (toNumber(instance.amount) || (summary.estimatedAmount ?? 0));
-      const apresAvis = (await settleAutoSkips(entityType, entityId, def, instance.id, montantApresAvis, summary.requesterId, next, viewer, borne)) ?? next;
+      const apresAvis = (await settleAutoSkips(entityType, entityId, def, instance.id, montantApresAvis, summary.requesterId, next, viewer, borne, ignorees)) ?? next;
       // Le montant révisé devient le montant de TRAVAIL de l'instance (proposition portée à la
       // décision + base des franchissements auto par seuil en aval).
       const rejectInst: Prisma.WorkflowInstanceUpdateInput = { currentSlug: apresAvis.slug, status: "IN_PROGRESS" };
@@ -562,7 +587,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
   // C'est tracé (WorkflowStepEvent « SKIP » + audit) et notifié à l'étape suivante. Interdit sur la
   // décision finale (pas d'étape suivante) et sur une étape de désignation (sinon plus personne en charge).
   if (action === "SKIP") {
-    const next = nextStepAfter(def, step, borne);
+    const next = nextStepAfter(def, step, borne, ignorees);
     if (!next) return { ok: false, error: "L'étape de décision finale ne peut pas être sautée." };
     if (step.powers.includes("ASSIGN")) return { ok: false, error: "Cette étape désigne le responsable de la suite : elle ne peut pas être sautée." };
     if (!note) return { ok: false, error: "Indiquez la raison du saut d'étape (elle est tracée et notifiée)." };
@@ -574,7 +599,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
     });
     // Enchaîne d'éventuels franchissements automatiques par seuil de montant.
     const skipKnownAmount = toNumber(instance.amount) || (summary.estimatedAmount ?? 0);
-    const landed = (await settleAutoSkips(entityType, entityId, def, instance.id, skipKnownAmount, summary.requesterId, next, viewer, borne)) ?? next;
+    const landed = (await settleAutoSkips(entityType, entityId, def, instance.id, skipKnownAmount, summary.requesterId, next, viewer, borne, ignorees)) ?? next;
     await prisma.workflowInstance.update({ where: { id: instance.id }, data: { currentSlug: landed.slug, status: "IN_PROGRESS" } });
     await recordEvent(instance.id, step, "SKIP", viewer, note, null);
 
@@ -593,22 +618,34 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
   if (!step.powers.includes("APPROVE")) return { ok: false, error: "Cette étape ne permet pas d'approuver." };
 
   const ordonnees = orderedSteps(def);
-  const tranche = estDecisionnaire(step.slug, borne);
-  // L'ÉMISSION HÉRITÉE DE LA QUEUE COUPÉE.
+  // L'ÉTAPE SUIVANTE, LUE ICI ET UNE SEULE FOIS — c'est elle qui dit si cette étape CONCLUT.
   //
-  // Une demande de KAM s'arrête à Direction Marketing ; l'émission financière est déclarée sur
-  // l'étape de la Direction, qu'elle n'atteindra jamais. Sans cet héritage, la demande sort
-  // APPROUVÉE avec son budget accordé écrit en base et Finance ne reçoit RIEN : l'argent est
-  // accordé, rien n'est engagé, et aucune étape n'est en échec. On ne réécrit pas la définition
-  // pour autant (§118.5) — le Super Admin a posé ses drapeaux où il les voulait ; c'est
-  // l'EXÉCUTION qui hérite, et seulement quand la queue est réellement coupée.
-  const coupees = tranche
-    ? queueCoupee(ordonnees.map((s) => s.slug), borne)
+  // Elle était calculée plus bas, et l'héritage d'émission se gouvernait sur la BORNE
+  // (`estDecisionnaire`). Depuis que le parcours est un TAMIS, les deux ne coïncident plus : un
+  // KAM n'a AUCUNE borne (Direction Marketing est la dernière étape de la définition) et saute
+  // pourtant la Direction des opérations. Un Super Admin qui aurait posé l'ordre de dépense sur
+  // cette étape-là aurait vu l'émission se perdre — budget accordé, rien d'engagé, aucune étape
+  // en échec, exactement le silence que l'héritage existe pour fermer.
+  //
+  // « Y a-t-il une suite ? » est déjà l'unique lecture qui réunit la borne ET le tamis. On s'en
+  // sert donc, au lieu d'en écrire une seconde qui divergerait (§118.5, §118.61).
+  const next = nextStepAfter(def, step, borne, ignorees);
+  const conclut = next === null;
+  // L'ÉMISSION HÉRITÉE DE TOUT CE QUI N'EST PAS ATTEINT — la queue coupée ET le tamis.
+  //
+  // Une demande de KAM s'arrête à Direction Marketing ; l'émission financière peut être déclarée
+  // sur une étape qu'elle n'atteindra jamais. Sans cet héritage, la demande sort APPROUVÉE avec
+  // son budget accordé écrit en base et Finance ne reçoit RIEN : l'argent est accordé, rien n'est
+  // engagé, et aucune étape n'est en échec. On ne réécrit pas la définition pour autant (§118.5)
+  // — le Super Admin a posé ses drapeaux où il les voulait ; c'est l'EXÉCUTION qui hérite, et
+  // seulement à l'étape qui CONCLUT, une fois qu'il est sûr que rien d'autre ne viendra.
+  const nonAtteintes = conclut
+    ? etapesNonAtteintes(ordonnees.map((s) => s.slug), borne, ignorees)
         .map((slug) => ordonnees.find((s) => s.slug === slug))
         .filter((s): s is LoadedStep => Boolean(s))
     : [];
-  const emitDeclarationDue = step.emitDeclaration || coupees.some((s) => s.emitDeclaration);
-  const emitExpenseOrderDue = step.emitExpenseOrder || coupees.some((s) => s.emitExpenseOrder);
+  const emitDeclarationDue = step.emitDeclaration || nonAtteintes.some((s) => s.emitDeclaration);
+  const emitExpenseOrderDue = step.emitExpenseOrder || nonAtteintes.some((s) => s.emitExpenseOrder);
   const emitStep = emitDeclarationDue || emitExpenseOrderDue;
   const amount = input.amount ?? null;
   const budgetCategoryId = input.budgetCategoryId?.trim() || null;
@@ -652,7 +689,6 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
   }
 
   // Projection « legacy » : écrit les champs de l'entité source attendus par l'UI.
-  const next = nextStepAfter(def, step, borne);
   await projectApprove(entityType, entityId, step, next, {
     viewer, note, amount, assigneeId, emitResult,
     nextLegacyStatus: next?.legacyStatus ?? null,
@@ -669,7 +705,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
   // Franchissements AUTOMATIQUES par seuil de montant (anti-bureaucratie) à partir de l'étape suivante.
   // Montant de référence : montant de travail de l'instance, à défaut l'estimation du demandeur.
   const knownAmount = toNumber(liveInstance.amount) || (summary.estimatedAmount ?? 0);
-  const landed = await settleAutoSkips(entityType, entityId, def, instance.id, knownAmount, summary.requesterId, next, viewer, borne);
+  const landed = await settleAutoSkips(entityType, entityId, def, instance.id, knownAmount, summary.requesterId, next, viewer, borne, ignorees);
 
   // Avance l'instance (ou clôture).
   await prisma.workflowInstance.update({

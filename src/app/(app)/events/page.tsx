@@ -12,15 +12,25 @@ import { Badge } from "@/components/ui/badge";
 import { EVENT_TYPE, EVENT_FORMAT, EVENT_STATUS, EVENTS_TABS } from "@/lib/labels";
 import { formatDate } from "@/lib/utils";
 import { CreateEventButton } from "./event-form";
+import { getAdProCreateData } from "@/lib/queries/ad-pro";
 
 export const dynamic = "force-dynamic";
 
 export default async function EventsPage() {
   const user = await requireModule("EVENTS");
   const canCreate = userCan(user, "EVENTS", "CREATE");
-  const [events, responsibles] = await Promise.all([
+  // LES RÉFÉRENTIELS DU FORMULAIRE — le MÊME chargeur que le panneau commun d'Ad & Pro, appelé
+  // avec la seule nature de cet écran. Recopier ici les quatre requêtes (annuaire, produits au
+  // traitement terminé, spécialités, gammes) ferait un second chargeur qui prendrait du retard
+  // au premier référentiel ajouté (§118.5) — et ce sont exactement les menus que la Direction
+  // vient de rendre obligatoires : sans eux, chacun retombe sur sa saisie libre.
+  //
+  // Chargés SEULEMENT si la personne peut créer : la lecture coûte quatre requêtes, et un écran
+  // en lecture seule n'ouvre aucun formulaire.
+  const [events, responsibles, adPro] = await Promise.all([
     getEvents(user.id),
     canCreate ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : Promise.resolve([]),
+    canCreate ? getAdProCreateData(user.id, ["EVENT"]) : Promise.resolve(null),
   ]);
 
   const upcoming = events.filter((e) => e.startDate && new Date(e.startDate) >= new Date() && e.status !== "CANCELLED").length;
@@ -30,7 +40,16 @@ export default async function EventsPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Events" description="Congrès, séminaires, staffs, webinars — billetterie, QR codes, check-in et présence.">
-        {canCreate && <CreateEventButton responsibles={responsibles} />}
+        {canCreate && (
+          <CreateEventButton
+            responsibles={responsibles}
+            referentiels={adPro ? {
+              doctors: adPro.doctors, products: adPro.products,
+              specialties: adPro.specialties, specialtiesHeritees: adPro.specialtiesHeritees,
+              businessUnits: adPro.businessUnits, businessUnitDeduite: adPro.businessUnitDeduite,
+            } : undefined}
+          />
+        )}
       </PageHeader>
       <ModuleTabs tabs={EVENTS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />
 
