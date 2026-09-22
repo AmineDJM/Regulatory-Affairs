@@ -80,6 +80,19 @@ export async function getCongressDetail(type: CongressType, user: SessionUser, i
     id: c.id,
     name: c.name,
     specialty: c.specialty ?? "",
+    /*
+     * LES PRODUITS PROMUS — deux noms de colonne pour le même fait, sur deux modèles frères
+     * (`products` à l'international, `promotedProducts` au national). On ne renomme pas une
+     * colonne qui a des lecteurs ; on lit celle que chaque modèle porte.
+     *
+     * Le champ existait des DEUX côtés et n'avait AUCUN lecteur : ni écrit, ni affiché. Une
+     * colonne que rien ne montre est du code mort (§118.14, §118.50), et l'ajouter à la seule
+     * ÉCRITURE aurait laissé le demandeur cocher trois produits qu'il ne reverrait jamais.
+     */
+    products: (type === "INTL"
+      ? (c as { products?: string | null }).products
+      : (c as { promotedProducts?: string | null }).promotedProducts) ?? "",
+    businessUnitId: c.businessUnitId,
     location: type === "INTL"
       ? [(c as { country?: string | null }).country, (c as { city?: string | null }).city].filter(Boolean).join(", ")
       : [(c as { city?: string | null }).city, (c as { hostInstitution?: string | null }).hostInstitution].filter(Boolean).join(" · "),
@@ -114,20 +127,17 @@ export async function getCongressDetail(type: CongressType, user: SessionUser, i
 
 export type CongressDetail = NonNullable<Awaited<ReturnType<typeof getCongressDetail>>>;
 
-/**
- * Données pour le formulaire de demande : médecins (groupés par spécialité) et collaborateurs.
+/*
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * `getCongressFormData` A ÉTÉ RETIRÉE — elle n'avait plus aucun lecteur de production.
  *
- * LA LISTE DES RÉFÉRENTS DIRECTION MARKETING A DISPARU AVEC SON MENU (§118.142) : une requête
- * dont plus aucun écran ne lit le résultat est une requête payée pour rien, et un champ qu'aucun
- * formulaire n'affiche n'a pas à être chargé.
+ * Elle chargeait les médecins et les collaborateurs pour le formulaire de demande. Depuis que ce
+ * formulaire propose AUSSI les produits promouvables, les spécialités du référentiel et les
+ * gammes (décision de la Direction, 22/09/2026), ses deux appelants lisent le chargeur COMMUN du
+ * pôle — `queries/ad-pro.ts:getAdProCreateData` — qui rend les cinq référentiels d'un seul appel.
+ *
+ * La garder aurait fait DEUX lectures du même fait, dont une plus pauvre : deux listes de
+ * médecins qui divergent à la première colonne ajoutée (§118.5), et une requête payée par tout
+ * le monde au bénéfice de personne (§118.14).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-export async function getCongressFormData() {
-  const [doctors, users] = await Promise.all([
-    prisma.medicalDoctor.findMany({ select: { id: true, name: true, specialty: true, city: true }, orderBy: [{ specialty: "asc" }, { name: "asc" }] }),
-    prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
-  ]);
-  return {
-    doctors: doctors.map((d) => ({ id: d.id, name: d.name, specialty: d.specialty ?? "Sans spécialité", city: d.city ?? "" })),
-    users: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
-  };
-}

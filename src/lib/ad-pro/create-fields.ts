@@ -2,6 +2,7 @@ import type { FieldDef } from "@/components/shared/create-record-button";
 import { PRIORITY, SPONSORING_TYPES, MATERIAL_TYPE_OPTIONS, CONSULTING_BILLING_OPTIONS } from "@/lib/labels";
 import { wilayaOptions } from "@/lib/geo/algeria";
 import { availableProductOptions, doctorOptions, specialtyOptions, type DoctorRow, type ProductRow, type SpecialtyRow } from "@/lib/ad-pro/pickers";
+import type { AdProKind } from "@/lib/ad-pro/unified";
 
 /**
  * LES CHAMPS DE CRÉATION AD & PRO, ÉCRITS UNE SEULE FOIS.
@@ -73,20 +74,6 @@ export function toPeople(users: readonly UserOption[]): PersonOption[] {
  */
 
 /**
- * LES TROIS CHAMPS QUI SE CHOISISSENT AU LIEU DE SE TAPER — produits, médecins, ville.
- *
- * Ils étaient libres, et la colonne devenait inexploitable : un produit écrit de six façons (et
- * parfois un dossier réglementaire EN COURS, dont la promotion est interdite), un médecin nommé de
- * mémoire qui ne se rapproche d'aucune fiche, une ville en huit orthographes.
- *
- * On choisit désormais dans le réel, et PLUSIEURS de chaque : une prise en charge concerne souvent
- * deux praticiens et trois produits, et n'en accepter qu'un faisait écrire le reste dans la
- * description — où rien ne le compte.
- *
- * Le repli en saisie libre reste offert quand le référentiel est vide : un menu sans option est un
- * cul-de-sac, et une demande légitime ne doit pas attendre qu'on peuple une table.
- */
-/**
  * LA BUSINESS UNIT QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
  *
  * Sans ce champ, la dépense pesait sur un total commercial que personne ne pouvait répartir :
@@ -122,26 +109,123 @@ export function businessUnitField(
   }];
 }
 
-function referentielFields(opts: { products: readonly ProductRow[]; doctors: readonly DoctorRow[] }): FieldDef[] {
-  const produits = availableProductOptions(opts.products);
+/**
+ * QUELLE NATURE DÉSIGNE DES PRATICIENS ET DES PRODUITS — la décision, écrite une fois.
+ *
+ * Décision de la Direction (22/09/2026) : « dans la nouvelle demande dans Ad&Pro (HORS matériel
+ * promotionnel), on doit pouvoir sélectionner un ou plusieurs médecins et un ou plusieurs
+ * produits concernés. » Une seule nature est exclue, nommément ; les six autres sont concernées.
+ *
+ * `Record<AdProKind, …>` SANS valeur optionnelle : une huitième nature ajoutée à `AdProKind`
+ * fait échouer le typecheck ICI, au lieu de sortir en silence sans ces deux champs — c'est
+ * exactement le trou que ce lot referme, mesuré sur QUATRE natures sur six (§118.130).
+ *
+ * TROIS ÉTATS ET NON UN BOOLÉEN, parce que « pas de champ » et « champ facultatif » ne sont pas
+ * la même décision et que l'exception doit porter sa raison (§118.130) :
+ *
+ *  · OBLIGATOIRE — la demande N'A PAS DE SENS sans eux : un sponsoring et un événement
+ *    promotionnels se justifient PAR le praticien sollicité et le produit promu, et c'est sur ce
+ *    couple que l'arbitrage budgétaire se fait. La Direction les a rendus obligatoires (§118.142).
+ *
+ *  · FACULTATIF — le champ existe, on ne le REFUSE pas vide. « On doit POUVOIR sélectionner »
+ *    n'est pas « on doit sélectionner », et exiger un praticien sur un contrat de consulting
+ *    réglementaire — qui n'en a aucun — serait un refus à tort, plus coûteux que le défaut qu'on
+ *    corrige (§118.27). Pour les deux prises en charge, la raison est plus précise : les
+ *    personnes prises en charge s'ajoutent SUR LA FICHE (`careBeneficiaries`), et le panneau le
+ *    dit ; les médecins cochés à la création sont les praticiens INVITÉS, pas les bénéficiaires.
+ *    Les exiger bloquerait une création parfaitement légitime.
+ *
+ *  · { sans } — la nature ne désigne NI praticien NI produit, avec la raison à côté. Une
+ *    exception qui se compte, jamais un trou.
+ */
+export type ExigenceReferentiels = "OBLIGATOIRE" | "FACULTATIF" | { sans: string };
+
+export const REFERENTIELS_PAR_NATURE: Record<AdProKind, ExigenceReferentiels> = {
+  SPONSORING: "OBLIGATOIRE",
+  EVENT: "OBLIGATOIRE",
+  CONGRESS_INTERNATIONAL: "FACULTATIF",
+  CONGRESS_NATIONAL: "FACULTATIF",
+  CONSULTING: "FACULTATIF",
+  OTHER: "FACULTATIF",
+  PROMO_MATERIAL: {
+    sans: "Le matériel promotionnel est produit par une agence : il porte une campagne et un type "
+      + "de support, pas un praticien sollicité. La Direction l'a exclu nommément.",
+  },
+};
+
+/** La nature propose-t-elle les deux référentiels ? Lu par le chargeur, qui ne lit que l'utile. */
+export function natureDesigneMedecinsEtProduits(kind: AdProKind): boolean {
+  return typeof REFERENTIELS_PAR_NATURE[kind] === "string";
+}
+
+/**
+ * LE MÉDECIN ET LE PRODUIT CONCERNÉS — deux menus, et un repli quand le référentiel est muet.
+ *
+ * Ils étaient libres, et la colonne devenait inexploitable : un produit écrit de six façons (et
+ * parfois un dossier réglementaire EN COURS, dont la promotion est interdite), un médecin nommé
+ * de mémoire qui ne se rapproche d'aucune fiche.
+ *
+ * On choisit désormais dans le réel, et PLUSIEURS de chaque : une prise en charge concerne
+ * souvent deux praticiens et trois produits, et n'en accepter qu'un faisait écrire le reste dans
+ * la description — où rien ne le compte.
+ *
+ * Le repli en saisie libre reste offert quand le référentiel est vide : un menu sans option est
+ * un cul-de-sac, et une demande légitime ne doit pas attendre qu'on peuple une table. Il PORTE
+ * ALORS le nom singulier (`doctor`, `product`), celui de la colonne — c'est `readMultiField` qui
+ * réunit les deux chemins côté serveur, une seule fois (§118.5).
+ */
+/**
+ * Les deux champs sont DÉCLARÉS SÉPARÉMENT — et ce n'est pas de la décoration.
+ *
+ * Les formulaires des prises en charge sont écrits à la main (ils ont un choix de médecins par
+ * spécialité que `FieldDef` ne sait pas exprimer) et n'ont besoin QUE du produit. Prendre
+ * `medecinsEtProduitsFields(...)[1]` marcherait aujourd'hui et désignerait le mauvais champ le
+ * jour où l'on en ajoute un troisième au milieu.
+ */
+export function champMedecins(opts: { doctors: readonly DoctorRow[]; obligatoire: boolean }): FieldDef {
   const medecins = doctorOptions(opts.doctors);
+  const req = opts.obligatoire;
+  const facultatif = req ? "" : " Facultatif.";
+  return medecins.length > 0
+    ? {
+        type: "multiselect", name: "doctorIds", label: "Médecin(s) concerné(s)", required: req, full: true,
+        options: medecins, searchPlaceholder: "Chercher un médecin de l'annuaire…",
+        emptyLabel: "Aucun médecin dans l'annuaire.",
+        hint: `Depuis l'annuaire des praticiens. Plusieurs choix possibles.${facultatif}`,
+      }
+    : { type: "text", name: "doctor", label: "Médecin concerné", required: req, full: true, hint: `L'annuaire des praticiens est vide : saisissez le nom.${facultatif}` };
+}
+
+export function champProduits(opts: { products: readonly ProductRow[]; obligatoire: boolean }): FieldDef {
+  const produits = availableProductOptions(opts.products);
+  const req = opts.obligatoire;
+  const facultatif = req ? "" : " Facultatif.";
+  return produits.length > 0
+    ? {
+        type: "multiselect", name: "productIds", label: "Produit(s) concerné(s)", required: req, full: true,
+        options: produits, searchPlaceholder: "Chercher un produit…",
+        emptyLabel: "Aucun produit au traitement terminé.",
+        hint: `Seuls les produits dont le traitement réglementaire est TERMINÉ — les seuls qu'on ait le droit de promouvoir.${facultatif}`,
+      }
+    : { type: "text", name: "product", label: "Produit concerné", required: req, full: true, hint: `Aucun dossier réglementaire n'est encore au traitement terminé.${facultatif}` };
+}
+
+export function medecinsEtProduitsFields(opts: {
+  products: readonly ProductRow[];
+  doctors: readonly DoctorRow[];
+  /** `false` ⇒ les champs existent et ne sont pas exigés (voir `REFERENTIELS_PAR_NATURE`). */
+  obligatoire: boolean;
+}): FieldDef[] {
   return [
-    medecins.length > 0
-      ? {
-          type: "multiselect", name: "doctorIds", label: "Médecin(s) concerné(s)", required: true, full: true,
-          options: medecins, searchPlaceholder: "Chercher un médecin de l'annuaire…",
-          emptyLabel: "Aucun médecin dans l'annuaire.",
-          hint: "Depuis l'annuaire des praticiens. Plusieurs choix possibles.",
-        }
-      : { type: "text", name: "doctor", label: "Médecin concerné", required: true, full: true, hint: "L'annuaire des praticiens est vide : saisissez le nom." },
-    produits.length > 0
-      ? {
-          type: "multiselect", name: "productIds", label: "Produit(s) concerné(s)", required: true, full: true,
-          options: produits, searchPlaceholder: "Chercher un produit…",
-          emptyLabel: "Aucun produit au traitement terminé.",
-          hint: "Seuls les produits dont le traitement réglementaire est TERMINÉ — les seuls qu'on ait le droit de promouvoir.",
-        }
-      : { type: "text", name: "product", label: "Produit concerné", required: true, full: true, hint: "Aucun dossier réglementaire n'est encore au traitement terminé." },
+    champMedecins({ doctors: opts.doctors, obligatoire: opts.obligatoire }),
+    champProduits({ products: opts.products, obligatoire: opts.obligatoire }),
+  ];
+}
+
+/** Le couple de référentiels PLUS la ville — la forme du sponsoring, qui porte une wilaya. */
+function referentielFields(opts: { products: readonly ProductRow[]; doctors: readonly DoctorRow[] }): FieldDef[] {
+  return [
+    ...medecinsEtProduitsFields({ products: opts.products, doctors: opts.doctors, obligatoire: true }),
     {
       type: "select", name: "city", label: "Ville (wilaya)", required: true,
       options: wilayaOptions(), placeholder: "— Choisir la wilaya —",
@@ -208,7 +292,7 @@ export function sponsoringCreateFields(opts: {
  * Référentiel ET fiches vides : la saisie redevient LIBRE, obligatoire mais libre. Un menu sans
  * option est un cul-de-sac, et une demande légitime ne doit pas attendre qu'on peuple une table.
  */
-function specialtyField(
+export function specialtyField(
   referentiel: readonly SpecialtyRow[],
   heritees: readonly (string | null | undefined)[],
 ): FieldDef[] {
@@ -258,9 +342,12 @@ export function promoMaterialCreateFields(opts: {
 export function consultingCreateFields(opts: {
   companies: readonly { value: string; label: string }[];
   businessUnits?: readonly { id: string; name: string }[];
+  businessUnitDeduite?: { id: string; name: string; raison: string } | null;
+  products?: readonly ProductRow[];
+  doctors?: readonly DoctorRow[];
 }): FieldDef[] {
   return [
-    ...businessUnitField(opts.businessUnits ?? []),
+    ...businessUnitField(opts.businessUnits ?? [], opts.businessUnitDeduite ?? null),
     { type: "text", name: "title", label: "Intitulé du contrat", required: true, full: true, placeholder: "Ex. Accompagnement réglementaire 2026" },
     { type: "text", name: "counterparty", label: "Consultant / cabinet", required: true, placeholder: "L'autre partie au contrat" },
     { type: "text", name: "counterpartyContact", label: "Contact (e-mail, téléphone)" },
@@ -270,6 +357,10 @@ export function consultingCreateFields(opts: {
     { type: "number", name: "amount", label: "Rémunération (DZD)" },
     { type: "select", name: "billing", label: "Rythme de la rémunération", options: CONSULTING_BILLING_OPTIONS, defaultValue: "ONE_OFF" },
     { type: "textarea", name: "scope", label: "Objet de la mission", full: true, placeholder: "Ce pour quoi on paie." },
+    // LE PRATICIEN ET LE PRODUIT CONCERNÉS — facultatifs ici, et la raison est dans le registre :
+    // un accompagnement réglementaire n'a pas de praticien, et exiger un choix qui n'existe pas
+    // aurait refusé une demande légitime.
+    ...medecinsEtProduitsFields({ products: opts.products ?? [], doctors: opts.doctors ?? [], obligatoire: false }),
     // Le contrat signé, les CV, une proposition commerciale : ils existent AU MOMENT où l'on
     // saisit le contrat. Renvoyer leur dépôt « à l'écran suivant », c'est les voir manquer une
     // fois sur deux.
@@ -290,12 +381,19 @@ export function consultingCreateFields(opts: {
 export function adProOtherCreateFields(opts: {
   companies: readonly { value: string; label: string }[];
   businessUnits?: readonly { id: string; name: string }[];
+  businessUnitDeduite?: { id: string; name: string; raison: string } | null;
+  products?: readonly ProductRow[];
+  doctors?: readonly DoctorRow[];
 }): FieldDef[] {
   return [
-    ...businessUnitField(opts.businessUnits ?? []),
+    ...businessUnitField(opts.businessUnits ?? [], opts.businessUnitDeduite ?? null),
     { type: "text", name: "title", label: "Objet de la demande", required: true, full: true, placeholder: "En une phrase" },
     { type: "textarea", name: "description", label: "Description", required: true, full: true, placeholder: "Ce que vous demandez, pour qui, et pourquoi." },
     { type: "text", name: "beneficiary", label: "Pour qui / avec qui" },
+    // Facultatifs, par définition de la nature : « autre » ne sait pas d'avance de quoi il s'agit.
+    // Le champ EXISTE quand même — sans lui, le praticien et le produit repartaient dans la
+    // description, où rien ne les compte.
+    ...medecinsEtProduitsFields({ products: opts.products ?? [], doctors: opts.doctors ?? [], obligatoire: false }),
     { type: "number", name: "amount", label: "Montant estimé (DZD)" },
     { type: "select", name: "companyId", label: "Entité", options: [...opts.companies], placeholder: "— Entité —" },
   ];

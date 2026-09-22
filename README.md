@@ -469,6 +469,45 @@ toucher sortait avec une nature et une priorité que personne n'avait décidées
 que l'arbitrage se fait. La liste des spécialités vient de `MedicalSpecialty` fusionné aux libellés
 hérités des fiches médecins (`lib/ad-pro/pickers.ts`) — jamais d'une liste écrite à la main.
 
+**Médecin(s) et produit(s) sur les SIX natures hors matériel promotionnel (09/2026).** Décision de
+la Direction : « on doit pouvoir sélectionner un ou plusieurs médecins et un ou plusieurs produits
+concernés ». Mesuré nature par nature avant d'écrire : le sponsoring et l'événement les avaient ;
+les deux prises en charge avaient les médecins (par **identifiants** d'annuaire, que la fiche résout
+en lignes de praticiens) et **aucun produit**, alors que la colonne existait des deux côtés sans
+aucun lecteur ; le consulting et « autre demande » n'avaient **ni l'un ni l'autre**. Quatre natures
+sur six. La décision vit désormais dans un `Record<AdProKind, …>` exhaustif
+(`REFERENTIELS_PAR_NATURE`, `lib/ad-pro/create-fields.ts`) : une huitième nature **ne compile pas**
+tant que personne n'a dit son cas, et le chargeur commun (`getAdProCreateData`) interroge cette
+décision au lieu d'une liste de natures écrite à la main — c'est ainsi que l'événement s'était
+retrouvé, sur SON écran, avec trois menus retombés en saisie libre en silence, alors qu'ils
+fonctionnaient depuis le panneau d'Ad & Pro. Trois états et non un booléen : **OBLIGATOIRE**
+(sponsoring, événement — la demande n'a pas de sens sans eux), **FACULTATIF** (les deux prises en
+charge, le consulting, « autre » — « on doit POUVOIR sélectionner » n'est pas « on doit
+sélectionner », et exiger un praticien sur un accompagnement réglementaire serait un refus à tort),
+et une **exemption qui porte sa raison** pour le matériel promotionnel. Les deux prises en charge
+GARDENT leur mécanisme par identifiants pour les médecins : le remplacer par un libellé joint serait
+perdre une référence pour gagner une uniformité de nom.
+
+**La gamme, et le champ requis dont le choix était JETÉ.** Le consulting et « autre demande »
+posaient depuis toujours un menu « Business Unit » **obligatoire**, et ni le modèle ni l'action ne
+l'avaient : le choix imposé au demandeur disparaissait, ce qui est pire qu'un champ absent — il fait
+croire que la dépense est rattachée. Le formulaire des deux prises en charge, lui, ne l'envoyait
+même pas alors que l'action le lisait déjà. Les quatre natures portent maintenant
+`businessUnitId`, écrit par leur action, et la fiche d'une prise en charge **affiche** les produits
+(une colonne que rien ne montre est du code mort). Le formulaire des prises en charge n'a plus
+**deux** champs de spécialité — un menu de filtre sans nom et un texte libre nommé, qui obligeait à
+choisir puis à retaper —, et sa liste vient de la fonction canonique.
+
+**Un seul NOM de champ pour les six natures.** Le repli en saisie libre du produit s'appelait
+`products` sur l'événement (le nom de SA colonne) et `product` sur le sponsoring (le nom de LA
+SIENNE) : les deux marchaient, chaque action lisant la clé de son propre formulaire, et la sixième
+aurait fini par lire celle de la cinquième. `CHAMPS_MEDECINS` / `CHAMPS_PRODUITS`
+(`lib/ad-pro/pickers.ts`) portent les noms ; la LECTURE, elle, reste dans chaque action avec ses
+clés littérales — un lecteur partagé inter-fichiers a été écrit puis retiré, parce que la dérivation
+des contrats d'action ne lit pas les clés d'un délégué importé et que trois actions ont perdu leurs
+quatre champs déclarés (mesuré sur l'artefact régénéré). C'est un cliquet
+(`lib/ad-pro/referentiels.test.ts`) qui exige que les six emploient exactement ces noms.
+
 **La Business Unit se DÉDUIT de l'auteur, et c'est aussi une garde** (`lib/ad-pro/business-unit-auto.ts`) :
 un KAM par sa fiche force de vente, un superviseur national par la gamme qu'il supervise. La valeur
 déduite **s'impose côté serveur** — le champ était un menu libre, un KAM de l'oncologie pouvait

@@ -93,8 +93,10 @@ function statutSaisi(formData: FormData): { ok: true; statut: string | null } | 
  * champ qu'aucun formulaire ne laisse passer, `required` en HTML depuis toujours.
  */
 function champsManquants(formData: FormData): string[] {
+  // Clés LITTÉRALES : voir `ad-pro/pickers.ts` — la dérivation des contrats ne suit pas les
+  // clés d'un délégué importé, et le repli du produit s'appelle désormais `product` partout.
   const medecins = readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor"));
-  const produits = readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "products"));
+  const produits = readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product"));
   const budget = fdNum(formData, "estimatedBudget");
   return [
     !fdStr(formData, "type") ? "le type" : null,
@@ -122,6 +124,10 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
   const manquants = champsManquants(formData);
+  const couple = {
+    medecins: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
+    produits: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product")),
+  };
   if (manquants.length > 0) {
     return { ok: false, error: `Demande incomplète — il manque : ${manquants.join(", ")}.` };
   }
@@ -148,10 +154,10 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
       city: fdStr(formData, "city"),
       country: fdStr(formData, "country"),
       specialty: fdStr(formData, "specialty"),
-      // MÉDECINS ET PRODUITS : plusieurs de chaque, joints par le MÊME lecteur que le sponsoring
-      // (`ad-pro/pickers.ts`). Deux découpes à la main finiraient par diverger sur le séparateur.
-      doctor: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
-      products: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "products")),
+      // MÉDECINS ET PRODUITS : plusieurs de chaque, lus par le MÊME lecteur que les cinq autres
+      // natures (`ad-pro/pickers.ts`). Deux découpes à la main finiraient par diverger.
+      doctor: couple.medecins,
+      products: couple.produits,
       description: fdStr(formData, "description"),
       capacity: fdNum(formData, "capacity") ? Math.round(fdNum(formData, "capacity")!) : null,
       estimatedBudget: fdNum(formData, "estimatedBudget"),
@@ -175,6 +181,10 @@ export async function updateEvent(formData: FormData): Promise<ActionResult> {
   // LA MÊME LISTE QU'À LA CRÉATION : exiger à la création et laisser vider à la modification
   // n'exige rien du tout — il suffirait d'enregistrer une seconde fois.
   const manquants = champsManquants(formData);
+  const couple = {
+    medecins: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
+    produits: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product")),
+  };
   if (manquants.length > 0) {
     return { ok: false, error: `Demande incomplète — il manque : ${manquants.join(", ")}.` };
   }
@@ -197,8 +207,8 @@ export async function updateEvent(formData: FormData): Promise<ActionResult> {
       city: fdStr(formData, "city"),
       country: fdStr(formData, "country"),
       specialty: fdStr(formData, "specialty"),
-      doctor: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
-      products: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "products")),
+      doctor: couple.medecins,
+      products: couple.produits,
       description: fdStr(formData, "description"),
       capacity: fdNum(formData, "capacity") ? Math.round(fdNum(formData, "capacity")!) : null,
       estimatedBudget: fdNum(formData, "estimatedBudget"),

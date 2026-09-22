@@ -64,6 +64,9 @@ export async function createSponsoring(
   // C'est ici que l'obligation est tenue — et elle NOMME ce qui manque en une fois, pas champ par
   // champ : un refus par aller-retour ferait ressaisir six fois un formulaire de quinze champs
   // (§118.18).
+  // LES CLÉS SONT LITTÉRALES, et elles le restent : la dérivation des contrats d'action ne
+  // lit pas les clés d'un délégué IMPORTÉ, et un champ non déclaré est un champ que le chemin
+  // générique d'Adam se fait refuser (§118.87c). Le NOM est partagé et tenu par un cliquet.
   const medecins = readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor"));
   const produits = readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product"));
   const manquants = [

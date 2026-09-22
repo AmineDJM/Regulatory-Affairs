@@ -15,6 +15,7 @@ import { involveThirdParty } from "@/lib/third-party";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFiles } from "@/lib/attach-files";
+import { readMultiField } from "@/lib/ad-pro/pickers";
 
 // Le **même** circuit de prise en charge sert les prises en charge internationales/nationaux
 // ET les événements (module Events) : on paramètre tout par `type`.
@@ -72,6 +73,26 @@ export async function createCongressRequest(
   const init = adProInit(user, pmId);
   const now = new Date();
 
+  /*
+   * LES PRODUITS CONCERNÉS — le champ manquait, et la colonne existait des deux côtés.
+   *
+   * Décision de la Direction (22/09/2026) : on doit pouvoir sélectionner un ou plusieurs
+   * produits sur toutes les natures Ad & Pro hors matériel promotionnel. Mesuré avant d'écrire :
+   * `CongressInternational.products` et `CongressNational.promotedProducts` existent depuis
+   * toujours, aucun formulaire ne les envoyait, et `products` n'avait AUCUN lecteur — le §118.14
+   * dans sa forme la plus nue.
+   *
+   * DEUX NOMS DE COLONNE POUR LE MÊME FAIT, sur deux modèles frères : on ne renomme pas (une
+   * colonne a des lecteurs, et l'empreinte dépasserait la demande, §118.16) — on écrit celle que
+   * chaque branche porte, à l'endroit où la création branche DÉJÀ par modèle.
+   *
+   * LES MÉDECINS, EUX, NE CHANGENT PAS DE MÉCANISME : `invitedDoctorIds` porte de vraies
+   * RÉFÉRENCES que la fiche résout en lignes d'annuaire (`queries/congress.ts`). Les remplacer
+   * par un libellé joint serait perdre une référence pour gagner une uniformité — exactement
+   * l'échange que ce dépôt refuse.
+   */
+  const produits = readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product"));
+
   const common = {
     name,
     eventType,
@@ -103,6 +124,7 @@ export async function createCongressRequest(
             // La ville vient du référentiel des wilayas ; une saisie ancienne reprend sa forme
             // officielle, et ce qu'on ne sait pas rattacher est conservé tel quel.
             city: normalizeCity(fdStr(formData, "city")),
+            products: produits,
             startDate: fdDate(formData, "startDate"),
             endDate: fdDate(formData, "endDate"),
           },
@@ -119,6 +141,9 @@ export async function createCongressRequest(
             // officielle, et ce qu'on ne sait pas rattacher est conservé tel quel.
             city: normalizeCity(fdStr(formData, "city")),
             hostInstitution: fdStr(formData, "hostInstitution"),
+            // Le modèle national nomme cette colonne `promotedProducts` — voir le commentaire
+            // ci-dessus : deux noms, un seul fait, aucun renommage.
+            promotedProducts: produits,
             date: fdDate(formData, "date"),
           },
         });

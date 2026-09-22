@@ -163,6 +163,36 @@ export function readMultiField(picked: readonly string[], freeText: string | nul
 }
 
 /**
+ * LES DEUX NOMS DE CHAMP DU COUPLE « MÉDECIN(S) + PRODUIT(S) » — écrits une fois, pour six
+ * natures.
+ *
+ * ── LE DÉFAUT QU'ILS FERMENT ────────────────────────────────────────────────────────────
+ *
+ * Chaque action épelait ces clés pour elle-même, et le prix était déjà là, MESURÉ : le
+ * formulaire de l'événement nommait son repli `products` (le nom de SA colonne) pendant que le
+ * sponsoring nommait le sien `product` (le nom de LA SIENNE). Les deux marchaient — chaque
+ * action lisait la clé que son propre formulaire envoyait — et la sixième aurait fini par lire
+ * la clé de la cinquième (§118.5). Le nom d'un champ de FORMULAIRE n'a aucune raison de suivre
+ * le nom d'une COLONNE : c'est une convention d'écran, elle vit ici.
+ *
+ * ── POURQUOI CE N'EST PAS UN LECTEUR PARTAGÉ ────────────────────────────────────────────
+ *
+ * La première version de ce lot exportait `lireCoupleReferentiel(formData)`, appelé par les six
+ * actions. Mesuré sur l'artefact des contrats régénéré : TROIS actions ont perdu leurs QUATRE
+ * champs déclarés. `actions/contrat.ts` ne suit une délégation de formulaire que dans le MÊME
+ * fichier (`deleguesDuCorps` lit `locales`) ; un délégué IMPORTÉ ne contribue que des faits
+ * d'ÉCRITURE. `validerEntree` aurait donc refusé `doctorIds` venu du chemin générique d'Adam :
+ * une action DÉCRITE et INAPPELABLE (§118.87c), et le remède — lire les délégués d'un second
+ * niveau — a déjà été mesuré comme trop large ailleurs (§118.119f).
+ *
+ * La lecture reste donc DANS chaque action, avec ses clés littérales, et c'est un CLIQUET
+ * (`ad-pro/referentiels.test.ts`) qui exige que les six emploient exactement ces noms — la
+ * garde passe de « un seul lecteur » à « un seul NOM, vérifié chez chaque lecteur ».
+ */
+export const CHAMPS_MEDECINS = { coches: "doctorIds", libre: "doctor" } as const;
+export const CHAMPS_PRODUITS = { coches: "productIds", libre: "product" } as const;
+
+/**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * LA SPÉCIALITÉ SE CHOISIT — et sa liste vient de DEUX endroits, parce que la réalité y est.
  *

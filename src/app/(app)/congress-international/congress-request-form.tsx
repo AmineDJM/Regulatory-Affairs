@@ -10,6 +10,9 @@ import { Sheet } from "@/components/ui/sheet";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { wilayaOptions } from "@/lib/geo/algeria";
 import { NATIONAL_EVENT_TYPE, ROLE_LABELS } from "@/lib/labels";
+import { MultiSelectField } from "@/components/shared/create-record-button";
+import { businessUnitField, champProduits, specialtyField } from "@/lib/ad-pro/create-fields";
+import type { ProductRow, SpecialtyRow } from "@/lib/ad-pro/pickers";
 
 const WILAYA_OPTIONS = wilayaOptions();
 
@@ -21,6 +24,16 @@ export interface CongressFormProps {
   national?: boolean;
   doctors: DoctorOpt[];
   users: UserOpt[];
+  /**
+   * LES RÉFÉRENTIELS — produits promouvables, spécialités, gammes. Facultatifs dans le TYPE et
+   * non dans l'écran : les trois points de montage les passent tous, et un défaut vide fait
+   * retomber chaque champ sur son repli plutôt que d'échouer au rendu.
+   */
+  products?: ProductRow[];
+  specialties?: SpecialtyRow[];
+  specialtiesHeritees?: string[];
+  businessUnits?: { id: string; name: string }[];
+  businessUnitDeduite?: { id: string; name: string; raison: string } | null;
 }
 
 interface CongressRequestFormProps extends CongressFormProps {
@@ -38,7 +51,10 @@ interface CongressRequestFormProps extends CongressFormProps {
  * commun d'Ad & Pro, où la nature vient d'être choisie — on y ouvrirait sinon un panneau
  * par-dessus le panneau.
  */
-export function CongressRequestForm({ national, doctors, users, onDone, onCancel, cancelLabel = "Annuler" }: CongressRequestFormProps) {
+export function CongressRequestForm({
+  national, doctors, users, onDone, onCancel, cancelLabel = "Annuler",
+  products = [], specialties = [], specialtiesHeritees = [], businessUnits = [], businessUnitDeduite = null,
+}: CongressRequestFormProps) {
   const router = useRouter();
   const formRef = React.useRef<HTMLFormElement>(null);
   const [saving, setSaving] = React.useState(false);
@@ -49,7 +65,34 @@ export function CongressRequestForm({ national, doctors, users, onDone, onCancel
   const [pickedUsers, setPickedUsers] = React.useState<Set<string>>(new Set());
   const [userQuery, setUserQuery] = React.useState("");
 
-  const specialties = React.useMemo(() => [...new Set(doctors.map((d) => d.specialty))].sort(), [doctors]);
+  /*
+   * LA SPÉCIALITÉ EST UN SEUL FAIT — le formulaire en portait DEUX.
+   *
+   * Il y avait un menu « Choisir une spécialité » SANS `name` (un simple filtre de la liste des
+   * médecins) et, trois lignes plus haut, un champ texte libre « Spécialité (thème) » nommé
+   * `specialty`. La personne choisissait donc « Cardiologie » pour voir ses praticiens, puis
+   * devait la RETAPER pour que la demande la porte — et deux orthographes entraient en base pour
+   * la même spécialité, ce que le référentiel existe précisément pour éviter.
+   *
+   * La liste vient de la fonction canonique (`specialtyField` → `specialtyOptions`) : référentiel
+   * `MedicalSpecialty` fusionné aux libellés HÉRITÉS des fiches non rattachées. Une liste
+   * construite ici à partir des seuls médecins chargés serait une seconde vérité, plus pauvre
+   * (§118.5). Référentiel ET fiches vides : le champ redevient une saisie libre, et le filtre
+   * disparaît avec la liste — filtrer sur une liste vide ne montrerait aucun médecin.
+   */
+  const champSpecialite = React.useMemo(
+    () => specialtyField(specialties, specialtiesHeritees)[0],
+    [specialties, specialtiesHeritees],
+  );
+  const optionsSpecialite = React.useMemo(
+    () => (champSpecialite.type === "select" ? champSpecialite.options : []),
+    [champSpecialite],
+  );
+  const champProduit = React.useMemo(() => champProduits({ products, obligatoire: false }), [products]);
+  const champGamme = React.useMemo(
+    () => businessUnitField(businessUnits, businessUnitDeduite)[0] ?? null,
+    [businessUnits, businessUnitDeduite],
+  );
   const doctorsInSpecialty = React.useMemo(() => doctors.filter((d) => d.specialty === specialty), [doctors, specialty]);
   const doctorById = React.useMemo(() => new Map(doctors.map((d) => [d.id, d])), [doctors]);
   const userById = React.useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
@@ -82,7 +125,21 @@ export function CongressRequestForm({ national, doctors, users, onDone, onCancel
   return (
     <form ref={formRef} action={submit} className="space-y-5">
         {/* Infos générales */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {/* LA GAMME QUI PORTE LA DEMANDE — le champ MANQUAIT sur ce formulaire, alors que
+              l'action le lisait déjà : les deux prises en charge sortaient donc sans gamme, et
+              leur dépense n'était rattachable à aucune équipe (§118.108, §118.140). La décision
+              (options, obligation, gamme déduite du demandeur, disparition quand aucune gamme
+              n'existe) vient du module partagé — seul le rendu est local. */}
+          {champGamme && champGamme.type === "select" && (
+            <Field full label={champGamme.label} required={champGamme.required}>
+              <Select name={champGamme.name} required={champGamme.required} defaultValue={typeof champGamme.defaultValue === "string" ? champGamme.defaultValue : ""}>
+                {!champGamme.defaultValue && <option value="">{champGamme.placeholder ?? "— Choisir —"}</option>}
+                {champGamme.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </Select>
+              {champGamme.hint && <p className="mt-1 text-[0.6875rem] text-muted-foreground">{champGamme.hint}</p>}
+            </Field>
+          )}
           <Field full label="Nom de l'événement" required><Input name="name" required placeholder="Ex. ECCMID 2026" /></Field>
           <Field full label="Demande(s) du médecin">
             <input name="files" type="file" multiple
@@ -94,7 +151,19 @@ export function CongressRequestForm({ national, doctors, users, onDone, onCancel
               {Object.entries(NATIONAL_EVENT_TYPE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </Select>
           </Field>
-          <Field label="Spécialité (thème)"><Input name="specialty" placeholder="Ex. Infectiologie" /></Field>
+          {/* UN SEUL CHAMP DE SPÉCIALITÉ, et c'est lui qui filtre les médecins plus bas : le
+              formulaire en portait deux (un menu de filtre sans nom, un texte libre nommé),
+              donc on choisissait puis on RETAPAIT. */}
+          <Field label="Spécialité (thème)">
+            {optionsSpecialite.length > 0 ? (
+              <Select name="specialty" value={specialty} onChange={(e) => setSpecialty(e.target.value)}>
+                <option value="">— Choisir la spécialité —</option>
+                {optionsSpecialite.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </Select>
+            ) : (
+              <Input name="specialty" value={specialty} onChange={(e) => setSpecialty(e.target.value)} placeholder="Ex. Infectiologie" />
+            )}
+          </Field>
           {national ? (
             <>
               <Field label="Pays"><Input name="country" placeholder="Algérie" /></Field>
@@ -125,16 +194,29 @@ export function CongressRequestForm({ national, doctors, users, onDone, onCancel
             </>
           )}
           <Field label="Budget estimé (DZD)"><Input name="estimatedBudget" type="number" step="any" placeholder="Estimation du demandeur" /></Field>
+          {/* LE OU LES PRODUITS CONCERNÉS — le champ demandé par la Direction, et la colonne
+              existait des deux côtés sans que rien ne l'écrive (§118.14). Le champ vient du
+              module partagé : seuls les dossiers réglementaires au traitement TERMINÉ sont
+              proposés, parce que promouvoir un dossier en cours est une faute réglementaire. */}
+          {champProduit.type === "multiselect" ? (
+            <Field full label={champProduit.label}>
+              <MultiSelectField field={champProduit} />
+            </Field>
+          ) : champProduit.type === "text" ? (
+            <Field full label={champProduit.label}>
+              <Input name={champProduit.name} placeholder="Nom du produit" />
+              {champProduit.hint && <p className="mt-1 text-[0.6875rem] text-muted-foreground">{champProduit.hint}</p>}
+            </Field>
+          ) : null}
         </div>
 
         {/* Médecins invités : spécialité → liste */}
         <div className="space-y-2 rounded-lg border border-border p-3">
           <Label>Médecins invités</Label>
-          <p className="text-xs text-muted-foreground">Choisissez une spécialité (issue de l&apos;Annuaire), puis sélectionnez les médecins.</p>
-          <Select value={specialty} onChange={(e) => setSpecialty(e.target.value)}>
-            <option value="">— Choisir une spécialité —</option>
-            {specialties.map((s) => <option key={s} value={s}>{s}</option>)}
-          </Select>
+          <p className="text-xs text-muted-foreground">
+            La liste suit la <strong>spécialité</strong> choisie plus haut. Facultatif : les personnes
+            prises en charge s&apos;ajoutent ensuite sur la fiche.
+          </p>
           {specialty && (
             <div className="max-h-44 space-y-1 overflow-auto rounded-md bg-muted/30 p-2">
               {doctorsInSpecialty.length === 0 ? (
@@ -217,7 +299,10 @@ export function CongressRequestButton(props: CongressFormProps) {
 
 function Field({ label, full, required, children }: { label: string; full?: boolean; required?: boolean; children: React.ReactNode }) {
   return (
-    <div className={full ? "col-span-2 space-y-1.5" : "space-y-1.5"}>
+    // `sm:col-span-2` ET NON `col-span-2` : la grille passe à UNE colonne sous le point de
+    // rupture (le garde-fou responsive l'exige), et un `col-span-2` non préfixé y déborderait
+    // donc de sa grille — un défilement latéral sur mobile, exactement ce que la règle ferme.
+    <div className={full ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}>
       <Label>{label}{required && <span className="ml-0.5 text-destructive">*</span>}</Label>
       {children}
     </div>

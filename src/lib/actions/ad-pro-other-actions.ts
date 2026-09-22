@@ -10,6 +10,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { companyIdForNew } from "@/lib/company";
+import { readMultiField } from "@/lib/ad-pro/pickers";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/ad-pro/autres";
@@ -57,11 +58,22 @@ export async function createAdProOtherRequest(_prev: ActionResult | undefined, f
     if (!description) return { ok: false, error: "Décrivez la demande — c'est sur cette description que la décision se prendra." };
 
     const companyId = fdStr(formData, "companyId") || (await companyIdForNew(user.id));
+    // PRATICIEN ET PRODUIT concernés, FACULTATIFS par définition de la nature : « autre » ne sait
+    // pas d'avance de quoi il s'agit. Sans ces champs, ils repartaient dans la description.
+    const couple = {
+      medecins: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
+      produits: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product")),
+    };
 
     const req = await createWithRetry(async () =>
       prisma.adProOtherRequest.create({
         data: {
           reference: await nextRef(),
+          // LA GAMME — même défaut qu'au consulting, même remède : le menu était OBLIGATOIRE et
+          // rien ne l'écrivait (§118.140).
+          businessUnitId: fdStr(formData, "businessUnitId") || null,
+          doctor: couple.medecins,
+          product: couple.produits,
           title,
           description,
           beneficiary: fdStr(formData, "beneficiary"),

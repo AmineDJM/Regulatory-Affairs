@@ -8,7 +8,7 @@ vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR }));
 import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
 import { createEvent, updateEvent } from "./event-actions";
-import { MULTI_SEP } from "@/lib/ad-pro/pickers";
+import { CHAMPS_MEDECINS, CHAMPS_PRODUITS, MULTI_SEP } from "@/lib/ad-pro/pickers";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -107,7 +107,13 @@ suite("Un événement Ad & Pro — les champs que la Direction a rendus obligato
     expect(sansProduit.ok === false ? sansProduit.error : "").toContain("produits");
     // LE REPLI EN SAISIE LIBRE COMPTE AUTANT : un référentiel vide ne dispense pas de nommer le
     // praticien, il change seulement la façon de le nommer.
-    const libre = await createEvent(complet({ name: `${TAG}Libre`, responsibleId: responsableId, doctor: "Dr Hors Annuaire", products: "Produit hors catalogue" }));
+    // LES NOMS DE CHAMP VIENNENT DU MODULE, pas d'un littéral recopié : le repli du produit
+    // s'appelait `products` (le nom de la COLONNE) et s'appelle désormais `product` partout, et
+    // un juge qui redérive la forme de ce qu'il vérifie divergerait de sa source (§118.120).
+    const libre = await createEvent(complet({
+      name: `${TAG}Libre`, responsibleId: responsableId,
+      [CHAMPS_MEDECINS.libre]: "Dr Hors Annuaire", [CHAMPS_PRODUITS.libre]: "Produit hors catalogue",
+    }));
     expect(libre.ok, libre.ok === false ? libre.error : "").toBe(true);
   });
 

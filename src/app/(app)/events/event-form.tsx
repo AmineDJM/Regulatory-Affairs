@@ -186,7 +186,7 @@ function EventFields({ e, responsibles, referentiels = {} }: {
           }} />
         ) : (
           <W full label="Produit(s) concerné(s)">
-            <Input name="products" defaultValue={e?.products ?? ""} required placeholder="Aucun dossier réglementaire n'est encore au traitement terminé." />
+            <Input name="product" defaultValue={e?.products ?? ""} required placeholder="Aucun dossier réglementaire n'est encore au traitement terminé." />
           </W>
         )}
       </div>

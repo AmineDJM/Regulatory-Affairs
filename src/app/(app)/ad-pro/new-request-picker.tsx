@@ -49,6 +49,12 @@ export function NewRequestPicker({ kinds, data }: NewRequestPickerProps) {
   const [kind, setKind] = React.useState<AdProKind | null>(null);
 
   const people = React.useMemo(() => toPeople(data.users), [data.users]);
+  // LES RÉFÉRENTIELS, ÉCRITS UNE FOIS : quatre formulaires les reçoivent, et les recopier ici
+  // quatre fois serait quatre chances d'en oublier un (§118.5).
+  const referentiels = React.useMemo(() => ({
+    products: data.products, specialties: data.specialties, specialtiesHeritees: data.specialtiesHeritees,
+    businessUnits: data.businessUnits, businessUnitDeduite: data.businessUnitDeduite,
+  }), [data.products, data.specialties, data.specialtiesHeritees, data.businessUnits, data.businessUnitDeduite]);
   const spec = kind ? kinds.find((k) => k.kind === kind) : undefined;
 
   if (kinds.length === 0) return null;
@@ -113,10 +119,10 @@ export function NewRequestPicker({ kinds, data }: NewRequestPickerProps) {
               />
             )}
             {spec.kind === "CONGRESS_INTERNATIONAL" && (
-              <CongressRequestForm {...nav} doctors={data.doctors} users={data.users} />
+              <CongressRequestForm {...nav} doctors={data.doctors} users={data.users} {...referentiels} />
             )}
             {spec.kind === "CONGRESS_NATIONAL" && (
-              <CongressRequestForm {...nav} national doctors={data.doctors} users={data.users} />
+              <CongressRequestForm {...nav} national doctors={data.doctors} users={data.users} {...referentiels} />
             )}
             {spec.kind === "EVENT" && (
               <CreateEventForm
@@ -142,7 +148,11 @@ export function NewRequestPicker({ kinds, data }: NewRequestPickerProps) {
                 {...nav}
                 action={createConsultingContract}
                 redirectBase="/consulting"
-                fields={consultingCreateFields({ companies: data.companies, businessUnits: data.businessUnits })}
+                fields={consultingCreateFields({
+                  companies: data.companies, businessUnits: data.businessUnits,
+                  businessUnitDeduite: data.businessUnitDeduite,
+                  products: data.products, doctors: data.doctors,
+                })}
               />
             )}
             {spec.kind === "OTHER" && (
@@ -150,7 +160,11 @@ export function NewRequestPicker({ kinds, data }: NewRequestPickerProps) {
                 {...nav}
                 action={createAdProOtherRequest}
                 redirectBase="/ad-pro/autres"
-                fields={adProOtherCreateFields({ companies: data.companies, businessUnits: data.businessUnits })}
+                fields={adProOtherCreateFields({
+                  companies: data.companies, businessUnits: data.businessUnits,
+                  businessUnitDeduite: data.businessUnitDeduite,
+                  products: data.products, doctors: data.doctors,
+                })}
               />
             )}
           </div>

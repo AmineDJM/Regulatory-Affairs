@@ -5,7 +5,7 @@ import { platformScope, getMyCompanies, companyOptions } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import { userCan, type SessionUser } from "@/lib/rbac";
 import { adProState, sortAdPro, type AdProKind, type AdProRequest } from "@/lib/ad-pro/unified";
-import type { AdProCreateData } from "@/lib/ad-pro/create-fields";
+import { natureDesigneMedecinsEtProduits, type AdProCreateData } from "@/lib/ad-pro/create-fields";
 
 /**
  * LA LISTE UNIFIÉE DES DEMANDES AD & PRO.
@@ -159,20 +159,36 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
  */
 export async function getAdProCreateData(userId: string, kinds: readonly AdProKind[]): Promise<AdProCreateData> {
   const has = (k: AdProKind) => kinds.includes(k);
-  // LE SPONSORING DÉSIGNE LUI AUSSI DES MÉDECINS. Il les tapait à la main — un praticien nommé de
-  // mémoire, qui ne se rapproche d'aucune fiche de l'annuaire, si bien qu'on ne sait jamais
-  // combien de fois on a pris en charge la même personne.
-  const needsDoctors = has("CONGRESS_INTERNATIONAL") || has("CONGRESS_NATIONAL") || has("SPONSORING");
+  /*
+   * CE QU'ON CHARGE SE LIT SUR LE REGISTRE, PAS SUR UNE LISTE DE NATURES ÉCRITE ICI.
+   *
+   * La version d'avant s'écrivait `has("CONGRESS_INTERNATIONAL") || has("CONGRESS_NATIONAL") ||
+   * has("SPONSORING")`, et le prix était MESURÉ : `getAdProCreateData(id, ["EVENT"])` rendait
+   * **0 médecin, 0 produit, 0 spécialité** — donc, sur l'écran Events et sur la fiche d'un
+   * événement, les trois menus que la Direction venait d'exiger retombaient en SAISIE LIBRE, en
+   * silence, alors qu'ils fonctionnaient depuis le panneau d'Ad & Pro (qui, lui, passe aussi
+   * SPONSORING). Une porte gardée à côté d'une porte ouverte, et c'est la même chose qui passe
+   * (§118.71, §118.108) — le défaut exact que le lot précédent avait laissé derrière lui.
+   *
+   * On interroge donc la décision canonique (`REFERENTIELS_PAR_NATURE`) : une nature ajoutée
+   * demain y déclare son cas, et son chargement suit sans que personne y pense (§118.130).
+   *
+   * LES PRODUITS PROMOUVABLES restent ceux dont le traitement réglementaire est TERMINÉ :
+   * proposer un dossier en cours ferait préparer la promotion d'un médicament qui n'a pas encore
+   * le droit d'être promu — ce n'est pas une maladresse d'écran, c'est une faute réglementaire.
+   */
+  const needsReferentiels = kinds.some((k) => natureDesigneMedecinsEtProduits(k));
+  const needsDoctors = needsReferentiels;
+  const needsProducts = needsReferentiels;
   const needsPeople = kinds.length > 0;
-  // LES PRODUITS PROMOUVABLES : ceux dont le traitement réglementaire est TERMINÉ. Proposer un
-  // dossier en cours ferait préparer la promotion d'un médicament qui n'a pas encore le droit
-  // d'être promu — ce n'est pas une maladresse d'écran, c'est une faute réglementaire.
-  const needsProducts = has("SPONSORING");
 
   // LE RÉFÉRENTIEL DES SPÉCIALITÉS — la Direction demande un menu déroulant, et sa liste ne
   // s'écrit pas à la main : `MedicalSpecialty` est le référentiel canonique du produit, et une
   // liste recopiée ici serait fausse le jour où la Promotion médicale en ajoute une (§118.73).
-  const needsSpecialties = has("SPONSORING");
+  //
+  // La spécialité suit les MÉDECINS et non les produits : elle sert à classer un praticien, et
+  // c'est aussi elle qui FILTRE la liste des médecins sur le formulaire des prises en charge.
+  const needsSpecialties = needsReferentiels;
 
   const [doctors, users, companies, products, businessUnits, specialties, demandeur] = await Promise.all([
     needsDoctors

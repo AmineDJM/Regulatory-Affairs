@@ -10,6 +10,7 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { companyIdForNew } from "@/lib/company";
 import { attachFiles } from "@/lib/attach-files";
+import { readMultiField } from "@/lib/ad-pro/pickers";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { nextConsultingStatus, isContractEditable } from "@/lib/ad-pro/consulting";
 import { poserVisaAdPro, blocageCentreAdPro } from "@/lib/ad-pro/visa";
@@ -94,6 +95,13 @@ export async function createConsultingContract(_prev: ActionResult | undefined, 
       .split("\n").map((t) => t.trim()).filter(Boolean).slice(0, 60);
 
     const companyId = fdStr(formData, "companyId") || (await companyIdForNew(user.id));
+    // LE PRATICIEN ET LE PRODUIT CONCERNÉS — lus par le lecteur canonique des six natures.
+    // Facultatifs ici (`REFERENTIELS_PAR_NATURE`) : un accompagnement réglementaire n'a pas de
+    // praticien, et exiger un choix qui n'existe pas serait un refus à tort (§118.27).
+    const couple = {
+      medecins: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
+      produits: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product")),
+    };
 
     // La référence se recalcule à CHAQUE tentative : c'est ce qui rend le réessai utile quand
     // deux contrats partent en même temps.
@@ -101,6 +109,12 @@ export async function createConsultingContract(_prev: ActionResult | undefined, 
       prisma.consultingContract.create({
         data: {
           reference: await nextRef(),
+          // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé. Le
+          // formulaire l'exigeait depuis que les gammes existent ; ni le modèle ni cette action
+          // ne l'avaient, donc le choix imposé au demandeur était JETÉ (§118.140).
+          businessUnitId: fdStr(formData, "businessUnitId") || null,
+          doctor: couple.medecins,
+          product: couple.produits,
           title,
           counterparty,
           counterpartyContact: fdStr(formData, "counterpartyContact"),

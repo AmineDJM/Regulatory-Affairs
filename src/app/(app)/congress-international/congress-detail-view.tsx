@@ -52,6 +52,9 @@ export function CongressDetailView({
           <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
             {d.eventType && <Info label="Type" value={NATIONAL_EVENT_TYPE[d.eventType] ?? d.eventType} />}
             <Info label="Spécialité / thème" value={d.specialty} />
+            {/* LES PRODUITS PROMUS : le demandeur les choisit dans le référentiel, donc la fiche
+                les rend — sans quoi il coche et ne revoit rien (§118.50). */}
+            <Info label="Produit(s) concerné(s)" value={d.products} />
             <Info label="Lieu" value={d.location} />
             <Info label="Date" value={d.date ? formatDate(d.date) : null} />
             {d.endDate && <Info label="Date fin" value={formatDate(d.endDate)} />}

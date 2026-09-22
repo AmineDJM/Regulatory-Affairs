@@ -9041,6 +9041,8 @@ model BusinessUnit {
   congressInternationaux CongressInternational[]     @relation("AdProCongressInternational")
   events                 Event[]                     @relation("AdProEvent")
   promoMaterials         PromoMaterial[]             @relation("AdProPromoMaterial")
+  consultings            ConsultingContract[]        @relation("AdProConsulting")
+  autresDemandes         AdProOtherRequest[]         @relation("AdProOther")
 
   @@index([companyId])
   @@index([supervisorId])
@@ -9906,6 +9908,19 @@ enum ConsultingBilling {
 /// personne physique ou cabinet. Le contrat porte ce qui se négocie : une période, une
 /// rémunération, des tâches attendues, et les pièces signées.
 model ConsultingContract {
+  /// LA BUSINESS UNIT qui porte cette demande — c'est SON budget Ad&Pro qui est engagé.
+  /// Le formulaire la demandait, OBLIGATOIRE, depuis que les gammes existent ; la colonne
+  /// n'existait pas et l'action ne la lisait pas, si bien que le choix imposé au demandeur
+  /// était JETÉ — un champ requis sans effet, ce qui est pire qu'un champ absent (§118.140).
+  businessUnitId      String?
+  businessUnit        BusinessUnit?     @relation("AdProConsulting", fields: [businessUnitId], references: [id], onDelete: SetNull)
+  /// Le ou les praticiens concernés, FACULTATIFS ici (un accompagnement réglementaire n'en a
+  /// aucun). Même convention que `SponsoringRequest.doctor` : la valeur vient du référentiel,
+  /// la colonne garde le LIBELLÉ affichable, plusieurs séparés par « · » (`readMultiField`).
+  doctor              String?
+  /// Le ou les produits concernés — mêmes conventions, et seuls les dossiers réglementaires
+  /// au traitement TERMINÉ sont proposés.
+  product             String?
   id                  String            @id @default(cuid())
   reference           String            @unique // CONS-2026-001
   title               String
@@ -9980,6 +9995,14 @@ enum AdProOtherStatus {
 /// Sans elle, une dépense de promotion inhabituelle se déclare « en sponsoring » faute de
 /// mieux — et l'on perd à la fois la lisibilité du sponsoring et la trace de la dépense.
 model AdProOtherRequest {
+  /// LA BUSINESS UNIT qui porte cette demande — même défaut qu'au-dessus, même remède :
+  /// le formulaire l'exigeait, rien ne l'écrivait.
+  businessUnitId String?
+  businessUnit   BusinessUnit?    @relation("AdProOther", fields: [businessUnitId], references: [id], onDelete: SetNull)
+  /// Praticien(s) et produit(s) concernés, FACULTATIFS : « autre » ne sait pas d'avance de quoi
+  /// il s'agit. Sans ces colonnes, ils repartaient dans la description, où rien ne les compte.
+  doctor         String?
+  product        String?
   id          String           @id @default(cuid())
   reference   String           @unique // AUT-2026-001
   title       String
