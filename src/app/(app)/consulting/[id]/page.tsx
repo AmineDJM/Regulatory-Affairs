@@ -16,6 +16,7 @@ import { DocumentList, type DocItem } from "@/components/documents/document-list
 import { CONSULTING_STATUS, CONSULTING_BILLING } from "@/lib/labels";
 import { billingSuffix, isOverdue, isContractEditable, isAwaitingDecision, totalCommitment } from "@/lib/ad-pro/consulting";
 import { ConsultingActions, type ContractTask } from "./actions-panel";
+import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
 
 export const dynamic = "force-dynamic";
 
@@ -158,6 +159,8 @@ export default async function ConsultingContractPage({ params }: { params: { id:
           tasks={taskItems}
         />
       </div>
-    </div>
+          {/* LA SECTION DISCUSSION — le fil CANONIQUE, monté sur les sept natures du pôle. */}
+      <AdProDiscussionCard entityType="CONSULTING_CONTRACT" entityId={contract.id} user={user} />
+</div>
   );
 }

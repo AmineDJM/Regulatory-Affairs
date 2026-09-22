@@ -34,6 +34,7 @@ import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
+import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
 
 
 export default async function SponsoringDetailPage({ params }: { params: { id: string } }) {
@@ -255,7 +256,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
         </div>
       </div>
       <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
-    </div>
+          {/* LA SECTION DISCUSSION — le fil CANONIQUE, monté sur les sept natures du pôle. */}
+      <AdProDiscussionCard entityType="SPONSORING" entityId={req.id} user={user} />
+</div>
   );
 }
 

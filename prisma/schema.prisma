@@ -2126,6 +2126,17 @@ enum AdProItemKind {
   CONSULTING
   CATERING
   VENUE
+  /// Les QUATRE natures que la Direction a nommées (22/09/2026). Elles existaient dans les faits
+  /// et se saisissaient en « Autre » ou en « Prestation » : un poste qu'on ne sait pas nommer se
+  /// ventile mal, et le compte rendu de fin d'opération ne dit plus de quoi le montant est fait.
+  ///
+  /// `ACCOMMODATION` se distingue de `TRAVEL` (dont le libellé disait « Déplacement /
+  /// hébergement » — une prose qui contredisait désormais le code) et `DINNER` de `CATERING` :
+  /// un traiteur est un fournisseur de l'événement, un dîner est une prise en charge.
+  ASSOCIATION_SUPPORT // Sponsoring association
+  TICKETING // Prise en charge de la billetterie
+  ACCOMMODATION // Prise en charge de l'hôtellerie
+  DINNER // Prise en charge des dîners
   OTHER
 }
 

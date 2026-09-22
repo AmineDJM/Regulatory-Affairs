@@ -25,6 +25,7 @@ import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
 import { LinkedRecords } from "@/components/shared/linked-records";
+import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
 import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
@@ -172,6 +173,9 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
           path: `/congress-international/${detail.id}`,
         }}
       />
+
+      {/* LA SECTION DISCUSSION — le fil CANONIQUE, monté sur les sept natures du pôle. */}
+      <AdProDiscussionCard entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} user={user} />
 
     </div>
   );

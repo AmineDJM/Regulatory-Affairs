@@ -14,6 +14,7 @@ import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { AD_PRO_OTHER_STATUS } from "@/lib/labels";
 import { OtherDecisionPanel } from "./decision-panel";
+import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
 
 export const dynamic = "force-dynamic";
 
@@ -113,6 +114,8 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
           canClose={(mine || mayDecide) && open && req.status !== "AWAITING_DECISION"}
         />
       </div>
-    </div>
+          {/* LA SECTION DISCUSSION — le fil CANONIQUE, monté sur les sept natures du pôle. */}
+      <AdProDiscussionCard entityType="AD_PRO_OTHER" entityId={req.id} user={user} />
+</div>
   );
 }

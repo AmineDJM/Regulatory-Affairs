@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { entityHref, noHrefReason } from "./entity-href";
+import { AD_PRO_ENTITY_TYPE } from "./ad-pro/unified";
 
 describe("où s'ouvre un objet", () => {
   it("les origines RÉELLES des ordres de dépense s'ouvrent toutes", () => {
@@ -35,6 +36,22 @@ describe("où s'ouvre un objet", () => {
     expect(entityHref(null, "x")).toBeNull();
     expect(entityHref("MAIL_ENTRY", null)).toBeNull();
     expect(entityHref("MAIL_ENTRY", "")).toBeNull();
+  });
+
+  it("LES SEPT NATURES du pôle Ad & Pro ont une adresse — pas six sur sept", () => {
+    /*
+     * `AD_PRO_OTHER` n'avait AUCUN cas alors que son écran existe depuis qu'elle existe : tout
+     * lien vers une « autre demande » rendait `null`, et l'appelant affichait la phrase des
+     * objets sans adresse. Un « je ne peux pas » écrit dans le CODE, sur une fiche qu'un clic
+     * ouvre (§118.63) — six portes ouvertes à côté d'une fermée (§118.71).
+     *
+     * Ce cas boucle sur le registre CANONIQUE des natures : une huitième nature ajoutée demain
+     * sans adresse fait tomber ce test en la nommant, au lieu de rendre `null` en silence.
+     */
+    for (const [kind, entite] of Object.entries(AD_PRO_ENTITY_TYPE)) {
+      expect(entityHref(entite, "x1"), `la nature « ${kind} » (${entite}) doit avoir une adresse`).toBeTruthy();
+    }
+    expect(entityHref("AD_PRO_OTHER", "o1")).toBe("/ad-pro/autres/o1");
   });
 
   it("l'absence de lien s'EXPLIQUE, elle ne se subit pas", () => {

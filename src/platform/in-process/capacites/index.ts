@@ -81,3 +81,7 @@ export { isEtablissementField } from "@/lib/medical/etablissements-grid";
 // L'op lisait `rbac` et `workflow/origin` en direct : 430 franchissements pour un plafond de
 // 428. Le prédicat vit au SOCLE (`personnes/referents-gamme`), le pont le porte (§118.114).
 export { porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
+
+// LA SECTION DISCUSSION d'une demande Ad & Pro — l'écrivain unique des sept natures. L'op le
+// lisait en direct : 429 franchissements pour un plafond de 428, et le plafond ne se relève pas.
+export { addAdProComment } from "@/lib/actions/ad-pro-discussion-actions";

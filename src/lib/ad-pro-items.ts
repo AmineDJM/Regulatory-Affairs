@@ -23,16 +23,35 @@ export const ITEM_KIND_LABELS: Record<AdProItemKind, string> = {
   STAND: "Stand",
   SYMPOSIUM: "Symposium",
   PROMO_MATERIAL: "Matériel promotionnel",
+  ASSOCIATION_SUPPORT: "Sponsoring association",
   SERVICE: "Prestation",
   CONSULTING: "Consulting",
   CATERING: "Traiteur",
+  DINNER: "Prise en charge des dîners",
   VENUE: "Location de salle",
-  TRAVEL: "Déplacement / hébergement",
+  ACCOMMODATION: "Prise en charge de l'hôtellerie",
+  TICKETING: "Prise en charge de la billetterie",
+  // « Déplacement / hébergement » jusqu'ici : l'hôtellerie ayant sa propre nature, ce libellé
+  // annonçait une chose que la nature d'à côté fait désormais — une prose qui contredit le code
+  // est pire que pas de prose (§118.112b).
+  TRAVEL: "Déplacement",
   OTHER: "Autre",
 };
 
-/** Ordre d'affichage : ce qui coûte le plus cher et se décide en premier, en tête. */
-export const ITEM_KINDS: AdProItemKind[] = ["STAND", "SYMPOSIUM", "PROMO_MATERIAL", "VENUE", "CATERING", "CONSULTING", "SERVICE", "TRAVEL", "OTHER"];
+/**
+ * ORDRE D'AFFICHAGE — ce qui coûte le plus cher et se décide en premier, en tête.
+ *
+ * CETTE LISTE EST ÉCRITE À LA MAIN, et c'est pour cela qu'un cliquet la garde
+ * (`ad-pro-items.test.ts`) : `ITEM_KIND_LABELS` est un `Record<AdProItemKind, …>`, donc une
+ * nature ajoutée à l'énumération sans libellé NE COMPILE PAS. L'ordre, lui, est un simple
+ * tableau : une nature ajoutée sans y figurer compile parfaitement et devient INVISIBLE dans le
+ * menu de saisie, en silence. Le test exige donc que les deux portent exactement le même
+ * ensemble (§118.130).
+ */
+export const ITEM_KINDS: AdProItemKind[] = [
+  "STAND", "SYMPOSIUM", "PROMO_MATERIAL", "ASSOCIATION_SUPPORT", "VENUE", "CATERING", "DINNER",
+  "ACCOMMODATION", "TICKETING", "CONSULTING", "SERVICE", "TRAVEL", "OTHER",
+];
 
 export const ITEM_STATUS_LABELS: Record<AdProItemStatus, { label: string; tone: "neutral" | "info" | "warning" | "success" | "danger" }> = {
   DRAFT: { label: "Brouillon", tone: "neutral" },

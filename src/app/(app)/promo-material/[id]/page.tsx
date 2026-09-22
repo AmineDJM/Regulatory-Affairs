@@ -5,8 +5,6 @@ import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getPromoMaterial, canViewPromo, promoNames } from "@/lib/queries/promo-material";
-import { addPromoComment } from "@/lib/actions/promo-material-actions";
-import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
@@ -19,7 +17,7 @@ import { DocumentUpload } from "@/components/documents/document-upload";
 import { PROMO_MATERIAL_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
-import { CommentThread } from "@/components/shared/comment-thread";
+import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PROMO_MATERIAL_STATUS } from "@/lib/labels";
@@ -76,17 +74,12 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
   const uploadHint = canUpload ? null : attachHint(attacheur, dossierAdPro);
   const canDelete = userCan(user, "PROMO_MATERIAL", "DELETE") || isDirection;
 
-  const [documents, comments] = await Promise.all([
+  const [documents] = await Promise.all([
     prisma.document.findMany({ where: { entityType: "PROMO_MATERIAL", entityId: pm.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
-    prisma.comment.findMany({ where: { entityType: "PROMO_MATERIAL", entityId: pm.id }, include: { author: { select: { name: true } } }, orderBy: { createdAt: "asc" } }),
   ]);
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
     confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null, createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
-  }));
-  const commentItems = comments.map((c) => ({
-    id: c.id, author: c.author?.name ?? "Utilisateur", authorId: c.authorId, body: c.body,
-    createdAt: c.createdAt.toISOString(), editedAt: c.editedAt?.toISOString() ?? null,
   }));
   const amount = pm.chosenAmount != null ? toNumber(pm.chosenAmount) : pm.amount != null ? toNumber(pm.amount) : null;
 
@@ -165,12 +158,14 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
               l'on sait de quoi ils viennent, et le seul où le rattachement ne coûte rien. */}
           <LinkedRecords entityType="PROMO_MATERIAL" entityId={pm.id} reference={pm.reference} canCreate={canUpload} />
 
-          <Card>
-            <CardHeader><CardTitle>Commentaires & échanges</CardTitle></CardHeader>
-            <CardContent>
-              <CommentThread comments={commentItems} action={addPromoComment} hiddenFields={{ promoId: pm.id }} currentUserId={user.id} canModerate={flags.isAssistant || isDirection} updateAction={updateComment} deleteAction={deleteComment} path={`/promo-material/${pm.id}`} />
-            </CardContent>
-          </Card>
+          {/* LA SECTION DISCUSSION — la MÊME que sur les six autres natures du pôle.
+              Le matériel promotionnel était le SEUL des sept à porter un fil, et il le portait
+              en propre : son titre, sa phrase, son écrivain et sa porte de modération étaient
+              écrits ici. Sept blocs auraient divergé au premier ajustement, et c'est le bloc de
+              l'écran qu'on ne relit pas qui aurait pris du retard (§118.5). Le composant
+              partagé charge le fil, compose la carte, et garde sur `canModerateEntity` — donc
+              par ENREGISTREMENT, là où la version d'ici lisait deux drapeaux de rôle. */}
+          <AdProDiscussionCard entityType="PROMO_MATERIAL" entityId={pm.id} user={user} />
         </div>
 
         <div className="space-y-5">

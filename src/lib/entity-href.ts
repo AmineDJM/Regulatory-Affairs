@@ -52,6 +52,12 @@ export function entityHref(type: string | null | undefined, id: string | null | 
     // La liste du module est l'adresse honnête, comme `/finances/paiements-a-faire` pour un ordre.
     case "AD_PRO_ITEM": return "/ad-pro";
     case "CONSULTING_CONTRACT": return `/consulting/${id}`;
+    // LA SEPTIÈME NATURE DU PÔLE Ad & Pro, et son écran EXISTE depuis qu'elle existe
+    // (`src/app/(app)/ad-pro/autres/[id]/page.tsx`). Elle n'avait AUCUN cas ici : tout lien vers
+    // une « autre demande » rendait `null`, et l'écran affichait la phrase des objets sans
+    // adresse — un « je ne peux pas » écrit dans le CODE, sur une fiche qu'un clic ouvre
+    // (§118.63). Trouvé en montant le fil de discussion sur les sept natures.
+    case "AD_PRO_OTHER": return `/ad-pro/autres/${id}`;
     case "RECRUITMENT_REQUEST": return `/recrutement/${id}`;
     case "TRAINING": return "/formations";
 

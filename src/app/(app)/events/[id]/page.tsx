@@ -36,6 +36,7 @@ import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { getAdProCreateData } from "@/lib/queries/ad-pro";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import type { DocItem } from "@/components/documents/document-list";
+import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
 
 export const dynamic = "force-dynamic";
 
@@ -236,7 +237,9 @@ export default async function EventDetailPage({ params }: { params: { id: string
         path={`/events/${e.id}`}
       />
 
-    </div>
+          {/* LA SECTION DISCUSSION — le fil CANONIQUE, monté sur les sept natures du pôle. */}
+      <AdProDiscussionCard entityType="EVENT" entityId={e.id} user={user} />
+</div>
   );
 }
 

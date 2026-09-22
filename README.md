@@ -571,6 +571,24 @@ la même nature ou de deux natures différentes — ne rattache RIEN et fait pr�
 promotionnel n'a pas d'entrée au registre d'entités : le refus nomme l'écran qui sait, au lieu de
 deviner une clause de portée.
 
+**Une DISCUSSION au bas de chaque demande du pôle — et il n'a fallu créer aucun mécanisme.**
+Le modèle `Comment` (entité + identifiant + auteur + `editedAt`) est le fil canonique de l'ERP et
+`components/shared/comment-thread.tsx` sait déjà l'écrire, le modifier et le supprimer. Recensé
+avant de coder : **une** des sept natures le montait (le matériel promotionnel), les **six** autres
+n'avaient aucun endroit où écrire « le devis est arrivé, on peut demander le BC » — donc cela
+partait en messagerie, hors de la demande, et la référence se perdait. §118.71 à un contre six.
+`components/ad-pro/discussion-card.tsx` monte le fil sur les sept, et le matériel promotionnel
+**perd son montage local** : deux façons d'afficher le même fil auraient divergé sur la modération.
+L'écrivain est **UNE** action (`lib/actions/ad-pro-discussion-actions.ts`) bornée aux sept entités
+du registre canonique — un `entityType` libre en ferait une porte d'écriture sur toute entité de
+l'ERP — et la garde est `canAccessEntity(…, "VIEW")`, par **enregistrement**, jamais par module :
+mesuré, l'assistante de direction n'a pas le module `PROMO_MATERIAL` et voit pourtant le dossier
+qui la concerne, donc le contrôle par module lui fermait un fil qu'elle a le droit de lire
+(`addPromoComment` portait ce défaut et lit désormais la même garde). Modérer est
+`canModerateEntity`, c'est-à-dire le droit de **modifier la fiche** : écrire un troisième prédicat
+aurait fait une seconde vérité. **Le même geste existe en conversation**
+(`legal_operation/comment_ad_pro`), par le résolveur unique et donc sous la portée de l'écran.
+
 **Consulting** (`/consulting`, module `CONSULTING`) — un contrat n'est pas une demande qu'on
 approuve puis qu'on oublie : c'est une relation qui court dans le temps. Le modèle porte les deux
 parties (l'entité qui signe, le prestataire), la période, la rémunération **avec son rythme**
@@ -3085,6 +3103,18 @@ et **internationales**, **événements**.
 couple (type, id) : une colonne polymorphe ne peut pas porter de contrainte, donc supprimer un
 congrès laisserait ses postes orphelins. Ici la cascade est garantie par la base, et une
 contrainte `AdProItem_one_parent` impose qu'exactement un parent soit renseigné.
+
+**Treize natures de poste, et quatre nommées par la Direction** (`ITEM_KIND_LABELS`,
+`lib/ad-pro-items.ts`) : **sponsoring association**, **prise en charge de la billetterie**,
+**prise en charge de l'hôtellerie**, **prise en charge des dîners**, aux côtés du stand, du
+symposium, du matériel promotionnel, de la location de salle, du traiteur, du consulting, de la
+prestation, du déplacement et d'« autre ». Deux distinctions sont **portées par le code, pas par
+l'usage** : `ACCOMMODATION` (l'hôtellerie) quitte `TRAVEL`, dont le libellé disait
+« Déplacement / hébergement » alors que la nature ne sait pas se scinder — une prose qui promet un
+partage que le code n'a pas ; et `DINNER` (les dîners d'un congrès, facturés au restaurant) n'est
+pas `CATERING` (le traiteur d'un stand), parce que ce sont deux fournisseurs et donc deux bons de
+commande. Une nature ajoutée entre dans l'ordre d'affichage **et** dans les valeurs d'énumération
+que la fiche d'action d'Adam déclare, sans qu'on touche à rien : la dérivation les lit à la source.
 
 **Chaque poste se valide INDÉPENDAMMENT** (doctrine révisée — auparavant un poste n'était qu'une
 ventilation sans circuit propre). Consulting, traiteur, location de salle ne se décident pas

@@ -1683,6 +1683,23 @@ export const OPS_CATALOG: OpMeta[] = [
     covers: ["ad-pro-rattacher-legal:rattacherLegalAFiche"],
   },
   {
+    tool: "legal_operation", op: "comment_ad_pro", module: "Ad & Pro",
+    uiLabel: "Écrire dans la discussion de la demande",
+    aliases: [
+      "écris dans la discussion du sponsoring", "commente la demande Ad&Pro",
+      "pose un mot sur le fil de la prise en charge", "note sur le fil de l'événement",
+    ],
+    risk: "NORMAL",
+    summary: "Écrit un message HORODATÉ dans la section Discussion d'une demande Ad & Pro — les SEPT "
+      + "natures du pôle (sponsoring, congrès international ou national, événement, matériel promotionnel, "
+      + "consulting, autre demande). La demande se donne par sa référence ou son intitulé (champ « target »). "
+      + "C'est le fil que tous ses acteurs lisent, et d'où partent les demandes de devis, de bon de commande "
+      + "et de facture. La porte est celle de l'ENREGISTREMENT : une demande qu'on ne peut pas lire est refusée.",
+    gate: () => true,
+    gateNote: "accès à la DEMANDE elle-même (revérifié par l'action, par enregistrement)",
+    covers: ["ad-pro-discussion-actions:addAdProComment"],
+  },
+  {
     tool: "legal_operation", op: "unlink_record", module: "Legal",
     uiLabel: "Détacher la pièce de sa fiche",
     aliases: ["détache ce contrat de la demande", "retire la facture de la prise en charge"],

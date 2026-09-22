@@ -14,6 +14,7 @@ import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
 import { fieldsOf } from "./helpers";
 import { resolvePeopleList } from "./impl-drive";
+import { addAdProComment } from "@/platform/in-process/capacites";
 
 /**
  * OPS LEGAL — renouveler (chaîne de documents), annuler, régler les LECTEURS (le déposant
@@ -174,6 +175,42 @@ export const LEGAL_OPS_IMPL: Record<string, OpImpl> = {
       const r = await rattacherLegalAFiche(undefined, fd);
       if (!r.ok) return { ok: false, error: r.error ?? "Le rattachement a été refusé." };
       return { ok: true, link: "/legal", revalidate: LEGAL_REVALIDATE };
+    },
+  },
+
+  /**
+   * LA DISCUSSION D'UNE DEMANDE Ad & Pro — le MÊME fil que l'écran, par la MÊME porte.
+   *
+   * Elle vit sur l'outil Legal parce que `resolveFicheAdPro` y est déjà : c'est le seul
+   * résolveur du dépôt qui sait désigner l'une des SEPT natures du pôle depuis une référence ou
+   * un intitulé. En écrire un second pour l'occasion en ferait deux qui choisissent
+   * différemment, et le symptôme serait un message posé sur la mauvaise demande (§104.7).
+   */
+  comment_ad_pro: {
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const fiche = await resolveFicheAdPro(user, opStr(input, "target") || opStr(input, "name"), opStr(input, "nature") || opStr(input, "kind"));
+      if ("error" in fiche) return fiche;
+      const body = opStr(input, "message") || opStr(input, "note") || opStr(input, "body");
+      if (!body) return { error: "Écrivez le message à poser sur le fil (champ « message »)." };
+      return {
+        title: `Écrire dans la discussion de ${fiche.label}`,
+        fields: fieldsOf([["Demande", `${fiche.label} (${fiche.libelle})`], ["Message", body]]),
+        warnings: [
+          "Le fil est LU par tous les acteurs de la demande — demandeur, Direction Marketing, Direction.",
+        ],
+        args: { entityType: fiche.entityType, entityId: fiche.entityId, body },
+        successMessage: `Message posé sur le fil de ${fiche.label}.`,
+        revalidate: [],
+      };
+    },
+    async execute(args) {
+      const fd = new FormData();
+      fd.set("entityType", args.entityType ?? "");
+      fd.set("entityId", args.entityId ?? "");
+      fd.set("body", args.body ?? "");
+      const r = await addAdProComment(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "Le message a été refusé." };
+      return { ok: true, revalidate: [] };
     },
   },
 

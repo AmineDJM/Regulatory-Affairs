@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { canAccessEntity } from "@/lib/entity-access";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
@@ -490,7 +491,22 @@ export async function addPromoComment(formData: FormData): Promise<ActionResult>
   const id = fdStr(formData, "promoId");
   const body = fdStr(formData, "body");
   if (!id || !body) return { ok: false, error: "Commentaire vide." };
-  if (!userCan(user, "PROMO_MATERIAL", "VIEW")) return { ok: false, error: "Action non autorisée." };
+  /*
+   * LA PORTE EST CELLE DE L'ENREGISTREMENT, PLUS CELLE DU MODULE.
+   *
+   * Elle gardait sur `userCan(user, "PROMO_MATERIAL", "VIEW")`. Depuis que le fil du dossier est
+   * le fil CANONIQUE du pôle Ad & Pro (`ad-pro-discussion-actions.ts`), deux écrivains visent la
+   * même table avec deux portes différentes — et le symptôme d'une divergence de porte est le
+   * pire qui soit : l'écran refuse, la conversation accepte (§118.71).
+   *
+   * `canAccessEntity` répond par ENREGISTREMENT et n'est pas simplement « plus strict » : il
+   * ouvre AUSSI le dossier à l'Assistante de Direction, qui pilote ce circuit depuis les demandes
+   * administratives SANS avoir le module. Mesuré avant d'écrire — et c'est ce qui rend ce
+   * remplacement juste dans les deux sens, pas seulement plus sévère.
+   */
+  if (!(await canAccessEntity(user, "PROMO_MATERIAL", id, "VIEW"))) {
+    return { ok: false, error: "Ce dossier ne vous est pas ouvert." };
+  }
   await prisma.comment.create({ data: { entityType: "PROMO_MATERIAL", entityId: id, body, authorId: user.id } });
   revalidate(id);
   return { ok: true };

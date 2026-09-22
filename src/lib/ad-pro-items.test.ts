@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { breakdown, canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, plannedGaps } from "./ad-pro-items";
+import { breakdown, canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, plannedGaps, ITEM_KINDS, ITEM_KIND_LABELS } from "./ad-pro-items";
 
 /**
  * La ventilation décide de ce que la Direction voit et de ce que les Finances paient. Une
@@ -261,5 +261,44 @@ describe("budgetKindLocked — on ne réécrit pas ce sur quoi la Direction s'es
     expect(budgetKindLocked({ status: "REVISION" })).toBe(false);
     expect(budgetKindLocked({ status: "APPROVED" })).toBe(true);
     expect(budgetKindLocked({ status: "REJECTED" })).toBe(true);
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES NATURES DE POSTE — le cliquet qui garde la liste écrite à la main.
+ *
+ * `ITEM_KIND_LABELS` est un `Record<AdProItemKind, …>` : une nature ajoutée à l'énumération sans
+ * libellé NE COMPILE PAS. `ITEM_KINDS`, l'ordre d'affichage, est un simple tableau : une nature
+ * ajoutée sans y figurer compile parfaitement et devient INVISIBLE dans le menu de saisie, en
+ * silence — donc INSAISISSABLE, ce qui est exactement le défaut qu'on vient de fermer pour
+ * quatre natures que le métier nommait déjà (§118.130).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("les natures de poste — l'ordre d'affichage est EXHAUSTIF", () => {
+  it("toute nature portant un libellé figure dans l'ordre d'affichage, et réciproquement", () => {
+    const labellisees = Object.keys(ITEM_KIND_LABELS).sort();
+    const affichees = [...ITEM_KINDS].sort();
+    // Ce qui le ferait tomber : ajouter `DINNER` à l'énumération et au Record sans l'ajouter à
+    // l'ordre — la nature existerait en base et aucun écran ne permettrait de la choisir.
+    expect(affichees, "une nature absente de l'ordre est insaisissable dans le menu").toEqual(labellisees);
+    // …et l'autre sens : un nom mal orthographié dans l'ordre afficherait une entrée vide.
+    for (const k of ITEM_KINDS) {
+      expect(ITEM_KIND_LABELS[k], `« ${k} » doit porter un libellé non vide`).toBeTruthy();
+    }
+  });
+
+  it("les QUATRE natures que la Direction a nommées sont là, et distinctes de leurs voisines", () => {
+    // §118.144 : ce que la Direction nomme, l'écran doit l'offrir. Et le cas qui compte est la
+    // DISTINCTION — un traiteur n'est pas un dîner pris en charge, un déplacement n'est pas
+    // l'hôtellerie : les confondre reventilerait le montant sous le mauvais poste.
+    for (const k of ["ASSOCIATION_SUPPORT", "TICKETING", "ACCOMMODATION", "DINNER"] as const) {
+      expect(ITEM_KINDS, `« ${k} » doit être choisissable`).toContain(k);
+    }
+    const libelles = Object.values(ITEM_KIND_LABELS);
+    expect(new Set(libelles).size, "deux natures de même libellé feraient choisir la mauvaise").toBe(libelles.length);
+    // Le libellé de TRAVEL disait « Déplacement / hébergement » — faux depuis qu'ACCOMMODATION
+    // existe. Une prose qui contredit le code est pire que pas de prose (§118.112b).
+    expect(ITEM_KIND_LABELS.TRAVEL).not.toContain("hébergement");
   });
 });
