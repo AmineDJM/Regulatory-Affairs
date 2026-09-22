@@ -10,6 +10,7 @@ import {
   createBusinessUnit, updateBusinessUnit, deleteBusinessUnit, openBusinessUnitBudget,
   createPromoProduct, updatePromoProduct, deletePromoProduct,
   saveRepProfile, createSector, updateSector, deleteSector,
+  addBuMarketingReferent, removeBuMarketingReferent,
 } from "@/lib/actions/sales-planning-actions";
 import {
   CHANNELS, CHANNEL_LABELS, buSetupProgress, buSetupSteps, channelCovers, channelLabel,
@@ -72,9 +73,12 @@ export interface ProductRow {
 
 type Action = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
 
+/** Une personne désignée référente Direction Marketing d'une gamme. */
+export interface ReferentRow { id: string; userId: string; name: string; porteLeRole: boolean; businessUnitId: string }
+
 export function BusinessUnitsManager({
   businessUnits, companies, supervisors, users, kams, products, dossiers, config,
-  sectors, etablissements,
+  sectors, etablissements, referents, referentsEligibles,
 }: {
   businessUnits: BuRow[];
   companies: Opt[];
@@ -88,6 +92,10 @@ export function BusinessUnitsManager({
   sectors: (SectorRow & { businessUnitId: string })[];
   /** Le référentiel des établissements, à cocher. Vide → l'annuaire est vide, et on le DIT. */
   etablissements: EtabOpt[];
+  /** Les référents de TOUTES les gammes, groupés à l'affichage — comme les KAM et les secteurs. */
+  referents: ReferentRow[];
+  /** Les personnes qui PORTENT le rôle Direction Marketing : les seules désignables. */
+  referentsEligibles: Opt[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -105,6 +113,7 @@ export function BusinessUnitsManager({
 
   const kamsOf = (buId: string | null) => kams.filter((k) => k.businessUnitId === buId);
   const sectorsOf = (buId: string) => sectors.filter((x) => x.businessUnitId === buId);
+  const referentsOf = (buId: string) => referents.filter((x) => x.businessUnitId === buId);
   const productsOf = (buId: string | null) => products.filter((p) => p.businessUnitId === buId);
   const orphelinsKam = kamsOf(null);
   const orphelinsProd = productsOf(null);
@@ -181,6 +190,8 @@ export function BusinessUnitsManager({
           kamsFree={orphelinsKam}
           sectorsInside={sectorsOf(bu.id)}
           etablissements={etablissements}
+          referentsInside={referentsOf(bu.id)}
+          referentsEligibles={referentsEligibles}
           productsInside={productsOf(bu.id)}
           productsFree={orphelinsProd}
         />
@@ -216,6 +227,7 @@ export function BusinessUnitsManager({
 function BuCard({
   bu, open, onToggle, companies, supervisors, users, dossiers, config, busy, run,
   kamsInside, kamsFree, productsInside, productsFree, sectorsInside, etablissements,
+  referentsInside, referentsEligibles,
 }: {
   bu: BuRow; open: boolean; onToggle: () => void;
   companies: Opt[]; supervisors: Opt[]; users: Opt[];
@@ -224,6 +236,8 @@ function BuCard({
   busy: boolean; run: (a: Action, fd: FormData, refresh?: boolean) => Promise<boolean>;
   kamsInside: KamRow[]; kamsFree: KamRow[]; productsInside: ProductRow[]; productsFree: ProductRow[];
   sectorsInside: SectorRow[]; etablissements: EtabOpt[];
+  /** Les référents Direction Marketing DE CETTE GAMME, et les personnes éligibles à l'être. */
+  referentsInside: ReferentRow[]; referentsEligibles: Opt[];
 }) {
   // LES TROIS NOMBRES QUE L'ÉTAPE « SECTEURS » RÉCLAME, et il en faut trois : « la BU a des
   // secteurs » cache trois pannes distinctes, toutes silencieuses (voir `sfe-setup.ts`).
@@ -234,6 +248,10 @@ function BuCard({
     sectorCount: sectorsInside.length,
     sectorsWithoutInstitution: sectorsInside.filter((x) => x.institutionIds.length === 0).length,
     repsWithSector: kamsInside.filter((k) => kamAvecSecteur.has(k.repId)).length,
+    // LES DEUX NOMBRES DE L'ÉTAPE « RÉFÉRENTS », pour la même raison : aucun référent et un
+    // référent sans le rôle sont DEUX pannes distinctes, et toutes deux silencieuses.
+    referentCount: referentsInside.length,
+    referentsSansRole: referentsInside.filter((r) => !r.porteLeRole).length,
   };
   const steps = buSetupSteps(etat);
   const manquantes = steps.filter((s) => !s.done);
@@ -402,7 +420,64 @@ function BuCard({
             />
           </section>
 
-          {/* ── 4. Les produits, DEPUIS REGULATORY ──────────────────────── */}
+          {/* ── 5. Les référents DIRECTION MARKETING ────────────────────── */}
+          <section className="space-y-2">
+            <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Users className="h-3.5 w-3.5" aria-hidden /> Référents Direction Marketing ({referentsInside.length})
+            </h4>
+            {/* La RAISON dit laquelle des deux pannes on tient — jamais un reproche générique. */}
+            {!steps.find((x) => x.key === "REFERENTS")!.done && (
+              <p className="text-xs text-muted-foreground">{steps.find((x) => x.key === "REFERENTS")!.why}</p>
+            )}
+            <div className="space-y-1.5">
+              {referentsInside.map((r) => (
+                <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-sm">
+                  <span className="min-w-0 flex-1 truncate">{r.name}</span>
+                  {/* CE QUI MANQUE SE DIT SUR LA LIGNE : une désignation cible la notification,
+                      elle n'accorde aucun droit — le taire ferait attendre un arbitrage de
+                      quelqu'un qui ne peut pas le rendre. */}
+                  {!r.porteLeRole && (
+                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[0.6875rem] text-amber-700 dark:text-amber-400">
+                      ne porte plus le rôle — prévenu, sans pouvoir trancher
+                    </span>
+                  )}
+                  <button
+                    type="button" disabled={busy}
+                    onClick={() => { const fd = new FormData(); fd.set("id", r.id); void run(removeBuMarketingReferent, fd); }}
+                    className="rounded-lg border border-input px-2 py-1 text-xs hover:bg-secondary disabled:opacity-60"
+                  >
+                    Retirer
+                  </button>
+                </div>
+              ))}
+            </div>
+            {referentsEligibles.filter((u) => !referentsInside.some((r) => r.userId === u.id)).length > 0 ? (
+              <form
+                className="flex flex-wrap items-center gap-2"
+                action={(fd) => { fd.set("businessUnitId", bu.id); void run(addBuMarketingReferent, fd); }}
+              >
+                <select name="userId" required className={inputCls} defaultValue="">
+                  <option value="" disabled>— Désigner un référent —</option>
+                  {referentsEligibles
+                    .filter((u) => !referentsInside.some((r) => r.userId === u.id))
+                    .map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+                <button type="submit" disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm hover:bg-secondary disabled:opacity-60">
+                  <Plus className="h-4 w-4" /> Désigner
+                </button>
+              </form>
+            ) : (
+              // ON NE PROPOSE QUE DES PERSONNES QUI PORTENT LE RÔLE, et quand il n'y en a
+              // aucune on le DIT avec le geste : un menu vide est un cul-de-sac.
+              <p className="text-xs text-muted-foreground">
+                {referentsEligibles.length === 0
+                  ? "Personne ne porte le rôle Direction Marketing : attribuez-le depuis Administration › Comptes, puis revenez désigner."
+                  : "Toutes les personnes de la Direction Marketing sont déjà référentes de cette gamme."}
+              </p>
+            )}
+          </section>
+
+          {/* ── 6. Les produits, DEPUIS REGULATORY ──────────────────────── */}
           <section className="space-y-2">
             <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               <Package className="h-3.5 w-3.5" aria-hidden /> Produits de la BU ({productsInside.length})

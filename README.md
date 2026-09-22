@@ -118,7 +118,7 @@ Comprendre l'OS, c'est comprendre le métier qu'il digitalise. Termes récurrent
 | **DZD** | Dinar algérien — devise unique de toute l'application. |
 | **GMP / BPF** | Good Manufacturing Practices / Bonnes Pratiques de Fabrication (échéances qualité fournisseurs). |
 | **IQVIA** | Fournisseur mondial de données de marché pharmaceutique (référentiel prévu, cf. feuille de route). |
-| **National Sales** | Rôle qui **approuve la demande émanant d'un délégué et désigne le référent Direction Marketing** (étape préliminaire des circuits Ad & Pro / événements). |
+| **National Sales** | Rôle qui **approuve la demande émanant d'un délégué** (étape préliminaire des circuits Ad & Pro) — et **seulement** dans ce cas : sa propre demande passe par la Direction des opérations, celle de tout autre part directement chez la Direction Marketing. Il ne **désigne plus** de référent : les référents Direction Marketing se configurent **par Business Unit** (Force de vente › Business Units). |
 
 ---
 
@@ -189,7 +189,7 @@ jamais identique.
 | Module | Route | Description |
 |---|---|---|
 | **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (19 étapes / 5 phases — CTD déposé sur l'étape 1, check-list de présoumission en étape 2, allers-retours de réserves dans la frise), documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). **UNE DCI DÉJÀ SUIVIE SE DIT PENDANT LA SAISIE** (pipeline comme suivi de dossiers) : le formulaire NOMME les dossiers existants et demande de vérifier qu'il s'agit bien d'un autre dosage, d'une autre forme ou d'un autre produit — on avertit, on n'interdit pas (interdire ferait saisir le doublon sous une DCI mal orthographiée, donc plus rapprochable du premier), et la création repart d'un clic « J'ai vérifié ». La comparaison **trie les molécules d'une association** (« A + B » = « B + A ») et ignore casse et accents. Un dossier **verrouillé au pipeline se COMPTE sans se NOMMER**, avec le geste qui débloque : **« Demander l'accès »** prévient la supervision Regulatory (notification + audit, aucun registre de plus). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. |
-| **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve + **désigne le référent Direction Marketing**), **analyse confidentielle de la Direction Marketing**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** a son circuit **court** : devis → demandeur → N+1 → PDG **ou** Super Admin → information médicale, puis **trois chantiers en parallèle** (bon de commande, paiement, visa publicitaire) ; chacun ne voit que **sa** marche, seuls l'administrateur et le PDG voient tout. → [workflows](#-workflows-critiques) · [détails](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
+| **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve la demande d'un KAM, et elle seule), **référents Direction Marketing configurés par Business Unit**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** a son circuit **court** : devis → demandeur → N+1 → PDG **ou** Super Admin → information médicale, puis **trois chantiers en parallèle** (bon de commande, paiement, visa publicitaire) ; chacun ne voit que **sa** marche, seuls l'administrateur et le PDG voient tout. → [workflows](#-workflows-critiques) · [détails](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances/paiements-a-faire` | **DEUX SOUS-MODULES** : **Banque & paiements** (`/finances/paiements-a-faire` — le solde de trésorerie et le détail par compte, puis la file du décaissement, alimentée **exclusivement** par le centre de paiement) et **Comptabilité** (`/finances/comptabilite` — le livre, l'import, les soldes d'ouverture, et ce que le DAF doit encore arbitrer). Le **Dashboard a été supprimé** (2026-09) : il ne portait aucun geste. Cliquer « Finances » mène à « Banque & paiements » ; `/finances` redirige. « Demander l'actualisation des soldes » est réservé au **Super Admin** (écran, action serveur et Adam). Les **factures** ne sont pas ici : ce sont des documents légaux de nature « facture » (`/legal?nature=INVOICE`), et la comptabilité y garde sa porte. Aucun paiement n'arrive ici sans être **autorisé par le centre**, quel que soit son montant. |
 | **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (RBAC `PAYMENT_CENTRE` — PDG + Super Admin) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. **GUICHET UNIQUE** : aucun paiement n'atteint les Finances sans autorisation, **quel que soit le montant et le module** — plus de seuil, plus d'exemption. Une demande de paiement y entre **dès sa soumission**, avant l'instruction des Finances. Quatre issues (autoriser · refuser · révision du montant · argumentation) avec fil d'allers-retours. → [détails](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-le-pdg) |
@@ -350,7 +350,7 @@ libellés français viennent de `src/lib/labels.ts`.
 | `GENERAL_MANAGER` | **Directeur Général** | **Tous les pouvoirs métier** (gère et décide sur tous les pôles, signataire des circuits Ad & Pro) mais **délibérément hors vue globale** : il ne supervise **pas** les demandes de validation de tout le monde, et les modules **personnels** (Drive, directives, dossiers, support) restent cloisonnés. Administration, IA et Process Intelligence restent au seul Super Admin. |
 | `OPERATIONS_DIRECTOR` | **Directeur des Opérations** | Rôle **à part**, pas une Direction au rabais : approvisionnement (logistique, PCH, stocks), ventes, moyens généraux, secrétariat. **Lit** ce dont il dépend — réglementaire, budgets, finances, RH — sans le piloter. Pas de vue globale ; les circuits Ad & Pro ne sont pas les siens. |
 | `NATIONAL_SALES` | **National Sales** | **Toutes les capacités du délégué médical** + **approbation préliminaire** des demandes Ad & Pro / événements (approuver / refuser + **désigner le référent Direction Marketing**). Portée **ALL** pour voir toutes les demandes à instruire ; **pas** de décision définitive (réservée à la Direction). |
-| `MEDICAL_PROMOTION_MANAGER` | Manager Promotion Médicale | Promotion médicale, module Ad & Pro. **Peut être désigné référent Direction Marketing.** N'assure **plus** l'étape préliminaire (désormais National Sales). |
+| `MEDICAL_PROMOTION_MANAGER` | Manager Promotion Médicale | Promotion médicale, module Ad & Pro, **configuration de la force de vente** (donc des référents d'une gamme). Ne peut **pas** être désigné référent Direction Marketing : l'étape qui TRANCHE ne nomme que `PRODUCT_MANAGER`, et l'inscrire serait une attente sans pouvoir. N'assure **plus** l'étape préliminaire (désormais National Sales). |
 | `HEAD_OF_REGULATORY` | Responsable Réglementaire | Regulatory (gestion complète + fournisseurs). |
 | `REGULATORY_ASSISTANT` | Assistante Réglementaire | Regulatory (lignes assignées). |
 | `HEAD_OF_SALES` | Responsable Ventes | Ventes, PCH, Stocks. |
@@ -365,7 +365,7 @@ libellés français viennent de `src/lib/labels.ts`.
 | `COORDINATOR` | Coordination / Coursier | **Missions chauffeur / courses** (adresse Maps, durée, retard) — espace restreint. |
 | `VIEWER` | Lecteur | Lecture limitée. |
 
-> Pense à créer au moins un **National Sales**, un **référent Direction Marketing**, un **Pharmacien information médicale**, une
+> Pense à créer au moins un **National Sales**, un **Direction Marketing** (à désigner ensuite référent d'au moins une gamme), un **Pharmacien information médicale**, une
 > **Assistante de Direction** et un **Responsable Finance** pour que les circuits complets fonctionnent.
 
 ---
@@ -3003,6 +3003,42 @@ Fichiers : `lib/sales-portfolio.ts` (pur + `sales-portfolio.test.ts`, 15 tests),
 `lib/queries/portfolio.ts`, `components/planning/my-portfolio-card.tsx` (serveur, dans
 `/mon-espace`). Paramétrage : `/planning` → onglets **Catalogue** (gamme par produit) et
 **Affectations** (matrice par cycle).
+
+### Force de vente — les référents Direction Marketing d'une gamme
+
+**LA DÉCISION.** « Chaque BU aura son ou ses référents de la direction marketing depuis la
+configuration des BU, mais le directeur du département marketing recevra **également** l'accès et
+la notif et pourra modifier, valider. » Le menu « Référent Direction Marketing (facultatif) » des
+nouvelles demandes a disparu au lot précédent ; la désignation vit désormais **là où se configure
+la gamme** (`/planning/business-units`, section 5), et plus dans chaque formulaire.
+
+**CE QUE LA DÉSIGNATION FAIT — ET CE QU'ELLE NE FAIT PAS.** Elle **CIBLE** la notification : une
+demande Ad & Pro de la gamme Oncologie prévient **nommément** ses référents au lieu d'arroser tout
+le rôle. Elle n'**ACCORDE** rien — le pouvoir de trancher reste gouverné par le rôle de l'étape
+(`WorkflowStep.actorRoles`), inchangé. Une désignation posée depuis un écran de configuration
+**commerciale** qui ouvrirait un pouvoir d'**arbitrage** serait une porte de permission à côté de
+la porte gardée : l'écran ne propose donc que des personnes qui **portent déjà** le rôle, et
+l'action refuse les autres en nommant le remède (**Administration › Comptes**).
+
+| Règle | Où | Pourquoi |
+|---|---|---|
+| Le rôle reste prévenu, les référents s'y **ajoutent** | `aPrevenirPourLaGamme()` (pure) | C'est ainsi que « le directeur du département recevra **également** » est tenu sans avoir à deviner qui est le directeur. Une gamme **sans** référent retombe exactement sur le comportement d'avant — la table se déploie vide sans priver personne. |
+| Seule l'étape qui **nomme** le rôle concerne la gamme | `laGammeEstConcernee()` (pure) | Mesuré de bout en bout : la route d'un National Sales traverse la porte du DG **puis** la Direction des opérations, donc la première version dérangeait le référent **deux fois** avant l'étape qui le concerne. La règle s'arme sur le `notifyRoles` de l'étape, lu dans la définition — une étape marketing ajoutée demain prévient les référents **sans que personne y pense**. |
+| **UN** référent inscrit la demande à son nom ; **PLUSIEURS** n'en inscrivent aucun | `referentUnique()` (pure) | `productManagerId` a sept lecteurs et n'avait plus **aucun** écrivain. Collapser sur le premier choisirait l'arbitre d'un budget par l'**ordre d'insertion en base**. |
+| La gamme qu'on **écrit** est celle dont on prend le référent | `createSponsoring`, `createCongressRequest`, `submitEventForApproval` | Défaut mesuré : la soumission d'un événement lisait la gamme dans le **formulaire**, que son seul écran n'envoie pas — **aucun** événement ne recevait jamais son référent. Et le sponsoring écrivait la gamme **déduite** du demandeur tout en cherchant le référent sur le formulaire : l'arbitre de la gamme A sur une demande déposée sous la gamme B. |
+| Le rôle est **relu** à chaque affichage | `/planning/business-units` + `referentAInscrire()` | Une désignation n'est pas une permission qui survit à son motif : muté, le référent reste **prévenu** (c'est une notification, pas un pouvoir) et cesse d'être **inscriptible**. L'écran le DIT par ligne — « ne porte plus le rôle ». |
+| Le rôle qui tranche est **`PRODUCT_MANAGER` seul** | `porteLeRoleQuiTranche()` (socle) | L'étape décisive ne nomme que celui-là — mesuré dans `workflow/defaults.ts`, et un cas du banc tient cette prémisse. `MEDICAL_PROMOTION_MANAGER` configure les référents mais ne peut pas en être un : l'inscrire ferait une attente sans pouvoir. Le geste, si la Direction élargit l'étape, est d'ajouter le rôle à ses `actorRoles` **et** ici. |
+| Le montage d'une BU compte **six** étapes | `sfe-setup.ts` (`REFERENTS`) | Une BU avec un référent qui **ne porte pas** le rôle ne franchit pas l'étape : elle a l'air montée, et la personne désignée est prévenue sans rien pouvoir trancher. |
+
+**Où.** `lib/personnes/referents-gamme.ts` (**socle**, pur — quatre couches en ont besoin sans
+avoir le droit de se parler : l'écran, les trois actions de création, le moteur de circuit et les
+ops d'Adam ; écrit d'abord sous `lib/ad-pro/`, il y créait un **cycle** `adpro ↔ tasks`),
+`lib/ad-pro/referent-de-la-gamme.ts` (la lecture en base), `workflow/engine.ts`
+(`prevenirEtapeAtteinte` — **un seul** point de notification pour les trois endroits où une étape
+est atteinte), `actions/sales-planning-actions.ts` (`addBuMarketingReferent` /
+`removeBuMarketingReferent`, idempotentes), `planning/business-units/bu-manager.tsx` (section 5).
+**En conversation** : `add_marketing_referent` / `remove_marketing_referent`, dont la carte DIT que
+le geste cible la notification et n'accorde aucun droit.
 
 ### Prise en charge — personnes, besoins et devis
 

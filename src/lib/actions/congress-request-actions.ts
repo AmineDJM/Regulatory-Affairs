@@ -13,6 +13,7 @@ import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { involveThirdParty } from "@/lib/third-party";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFiles } from "@/lib/attach-files";
 import { readMultiField } from "@/lib/ad-pro/pickers";
@@ -71,6 +72,11 @@ export async function createCongressRequest(
   // La Direction peut demander l'avis de la Direction Marketing avant de trancher — ou trancher tout
   // de suite. `adProInit` ignore ce drapeau pour les autres rangs.
   const init = adProInit(user, pmId);
+  // LA GAMME SE LIT UNE FOIS : le référent vient de la gamme qu'on ÉCRIT, jamais d'une lecture
+  // parallèle du formulaire. Les deux coïncident ici, et c'est précisément le genre d'accord qui
+  // se défait le jour où la gamme se déduit du demandeur, en silence (§118.5).
+  const gammeDeLaDemande = fdStr(formData, "businessUnitId") || null;
+  const referentGamme = await referentAInscrire(gammeDeLaDemande);
   const now = new Date();
 
   /*
@@ -109,7 +115,18 @@ export async function createCongressRequest(
       // consulte Adventum ne doit pas imputer sa demande à Adventum. La Direction corrige en
       // validant, au seul moment où quelqu'un a le dossier entier sous les yeux.
       companyId: await moneyEntityOf(user.id),
-    ...(init.productManagerId ? { productManagerId: init.productManagerId } : {}),
+      // LE RÉFÉRENT DE LA GAMME, quand la gamme n'en a qu'UN (§118.144).
+    //
+    // `productManagerId` a sept lecteurs — droits de la fiche, déclaration d'information
+    // médicale, garde de l'analyse — et n'avait plus AUCUN écrivain depuis que le menu de
+    // création a été retiré : un champ que tout le monde lit et que personne n'écrit. Il vient
+    // désormais de la configuration de la gamme, et SEULEMENT quand elle désigne une personne
+    // à coup sûr : plusieurs référents n'en désignent aucun, parce que collapser choisirait
+    // l'arbitre d'un budget par l'ordre d'insertion en base (§118.34).
+    //
+    // Le ROUTAGE n'est pas touché : la demande part où le tamis dit qu'elle part, elle porte
+    // simplement le nom de son référent.
+    ...(init.productManagerId || referentGamme ? { productManagerId: init.productManagerId || referentGamme! } : {}),
     ...(init.preliminaryBySelf ? { preliminaryById: user.id, preliminaryAt: now } : {}),
   };
 
@@ -118,7 +135,7 @@ export async function createCongressRequest(
       ? await prisma.congressInternational.create({
           data: {
       // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
-      businessUnitId: fdStr(formData, "businessUnitId") || null,
+      businessUnitId: gammeDeLaDemande,
             ...common,
             country: fdStr(formData, "country"),
             // La ville vient du référentiel des wilayas ; une saisie ancienne reprend sa forme
@@ -132,7 +149,7 @@ export async function createCongressRequest(
       : await prisma.congressNational.create({
           data: {
       // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
-      businessUnitId: fdStr(formData, "businessUnitId") || null,
+      businessUnitId: gammeDeLaDemande,
             ...common,
             // Une prise en charge « nationale » peut se tenir hors d'Algérie : le pays reste
             // demandé des deux côtés, simplement facultatif.

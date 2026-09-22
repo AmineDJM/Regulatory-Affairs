@@ -5,6 +5,7 @@ import {
   saveForecast, saveSfeSettings,
   saveRepProfile, deleteRepProfile, saveAssignment, deleteAssignment, carryForwardAssignments,
   createSector, updateSector, deleteSector,
+  addBuMarketingReferent, removeBuMarketingReferent,
 } from "@/lib/actions/sales-planning-actions";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
@@ -14,6 +15,7 @@ import { runFd, fieldsOf, resolveOne, dzd } from "./helpers";
 import { resolvePeopleList } from "./impl-drive";
 import { PRODUCT_CHANNEL } from "@/lib/labels";
 import { fold } from "./impl-regulatory";
+import { porteLeRoleQuiTranche } from "@/platform/in-process/capacites";
 
 /**
  * OPS VAGUE 6c — PLANNING FORCE DE VENTE (SFE) : business units, produits promus (canal
@@ -648,6 +650,81 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
       };
     },
     execute: (args) => runFd(deleteSector, args, "La suppression du secteur a été refusée.", { revalidate: ["/planning/business-units"] }),
+  },
+
+  // ───────── Référents Direction Marketing d'une gamme ─────────
+  //
+  // CE QUE CES DEUX GESTES FONT : ils CIBLENT la notification des demandes Ad & Pro de la gamme.
+  // Ils n'ACCORDENT rien — la carte le DIT, parce que « désigner un référent » se lit comme
+  // « donner un pouvoir » et que ce n'en est pas un (`lib/ad-pro/referents.ts`).
+  add_marketing_referent: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const bu = await resolveBU(opStr(input, "target") || opStr(input, "businessUnit"));
+      if ("error" in bu) return bu;
+      const who = await planningUser(opStr(input, "person") || opStr(input, "name"));
+      if ("error" in who) return who;
+      // LA PORTE EST AVANT LA CARTE, jamais un geste offert puis retiré (§118.83) : quelqu'un
+      // qui ne porte pas le rôle serait prévenu sans pouvoir trancher.
+      // LA PORTE PASSE PAR LE PONT : lire `rbac` et `workflow/origin` en direct a fait passer la
+      // frontière de 428 à 430, et le plafond ne se relève pas (§118.114). Le prédicat vit au
+      // SOCLE et le pont le réexporte — c'est le remède que le message d'échec nomme.
+      const fiche = await prisma.user.findUnique({
+        where: { id: who.id }, select: { isActive: true, role: true, secondaryRole: true },
+      });
+      if (!fiche?.isActive || !porteLeRoleQuiTranche(fiche)) {
+        return {
+          error: `${who.name} ne porte pas le rôle Direction Marketing : cette désignation cible la notification, `
+            + "elle n'accorde aucun droit. Attribuez d'abord le rôle depuis Administration › Comptes.",
+        };
+      }
+      const deja = await prisma.businessUnitMarketingReferent.count({ where: { businessUnitId: bu.id, userId: who.id } });
+      const autres = await prisma.businessUnitMarketingReferent.count({ where: { businessUnitId: bu.id } });
+      return {
+        title: `${who.name} — référent Direction Marketing de ${bu.name}`,
+        fields: fieldsOf([["Gamme", bu.name], ["Référent", who.name], ["Déjà référents", String(autres)]]),
+        warnings: deja > 0
+          ? [`${who.name} est DÉJÀ référent de cette gamme : le geste ne changera rien.`]
+          : [
+              "Cette désignation CIBLE la notification : les demandes Ad & Pro de cette gamme la préviendront "
+              + "nommément, EN PLUS du rôle Direction Marketing (que la direction du département reçoit).",
+              autres === 0
+                ? "Première désignation : les demandes de cette gamme seront désormais inscrites à son nom."
+                : `Ils seront ${autres + 1} : les demandes sont alors inscrites au nom d'AUCUN d'eux — désigner `
+                  + "l'arbitre à leur place se ferait par l'ordre d'insertion en base.",
+            ],
+        args: { businessUnitId: bu.id, userId: who.id },
+        successMessage: `${who.name} est référent Direction Marketing de ${bu.name}.`,
+        revalidate: ["/planning/business-units"],
+      };
+    },
+    execute: (args) => runFd(addBuMarketingReferent, args, "La désignation du référent a été refusée.", { revalidate: ["/planning/business-units"] }),
+  },
+
+  remove_marketing_referent: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const bu = await resolveBU(opStr(input, "target") || opStr(input, "businessUnit"));
+      if ("error" in bu) return bu;
+      const who = await planningUser(opStr(input, "person") || opStr(input, "name"));
+      if ("error" in who) return who;
+      const ligne = await prisma.businessUnitMarketingReferent.findUnique({
+        where: { businessUnitId_userId: { businessUnitId: bu.id, userId: who.id } },
+        select: { id: true },
+      });
+      if (!ligne) return { error: `${who.name} n'est pas référent de la gamme ${bu.name}.` };
+      const restants = await prisma.businessUnitMarketingReferent.count({ where: { businessUnitId: bu.id } }) - 1;
+      return {
+        title: `Retirer ${who.name} des référents de ${bu.name}`,
+        fields: fieldsOf([["Gamme", bu.name], ["Référent retiré", who.name], ["Référents restants", String(restants)]]),
+        // LA CONSÉQUENCE, pas la ligne supprimée.
+        warnings: restants === 0
+          ? ["Plus aucun référent : les demandes de cette gamme ne préviendront plus personne nommément — elles repartiront sur le rôle entier."]
+          : ["Le rôle Direction Marketing reste prévenu : on retire une désignation, pas un droit."],
+        args: { id: ligne.id },
+        successMessage: `${who.name} n'est plus référent de ${bu.name}.`,
+        revalidate: ["/planning/business-units"],
+      };
+    },
+    execute: (args) => runFd(removeBuMarketingReferent, args, "Le retrait du référent a été refusé.", { revalidate: ["/planning/business-units"] }),
   },
 
   // ───────── Affectations KAM × produit ─────────

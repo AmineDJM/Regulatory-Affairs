@@ -1323,6 +1323,7 @@ model User {
   productAliases             ProductAlias[]           @relation("ProductAliasAuthor")
   productAssignments         ProductAssignment[]      @relation("ProductAssignmentUser")
   adProGateVisas             AdProGateVisa[]          @relation("adProGateVisaDecidedBy")
+  marketingReferentOf            BusinessUnitMarketingReferent[] @relation("AdProMarketingReferentOf")
 
   @@index([role])
   @@index([departmentId])
@@ -9043,6 +9044,7 @@ model BusinessUnit {
   promoMaterials         PromoMaterial[]             @relation("AdProPromoMaterial")
   consultings            ConsultingContract[]        @relation("AdProConsulting")
   autresDemandes         AdProOtherRequest[]         @relation("AdProOther")
+  marketingReferents     BusinessUnitMarketingReferent[] @relation("AdProMarketingReferents")
 
   @@index([companyId])
   @@index([supervisorId])
@@ -9994,6 +9996,37 @@ enum AdProOtherStatus {
 /// LA DEMANDE QUI N'ENTRE DANS AUCUNE CASE.
 /// Sans elle, une dépense de promotion inhabituelle se déclare « en sponsoring » faute de
 /// mieux — et l'on perd à la fois la lisibilité du sponsoring et la trace de la dépense.
+/// LES RÉFÉRENTS DIRECTION MARKETING D'UNE GAMME.
+///
+/// Décision de la Direction (22/09/2026) : « chaque BU aura son ou ses référents de la direction
+/// marketing depuis la configuration des BU, mais le directeur du département marketing recevra
+/// ÉGALEMENT l'accès et la notif et pourra modifier, valider ».
+///
+/// CE QUE CETTE DÉSIGNATION FAIT, ET CE QU'ELLE NE FAIT PAS. Elle CIBLE la notification : les
+/// demandes Ad & Pro d'une gamme préviennent nommément ses référents, au lieu d'arroser tout le
+/// rôle. Elle n'ACCORDE aucun droit : le pouvoir de trancher reste gouverné par le rôle de
+/// l'étape (`WorkflowStep.actorRoles`), et l'écran ne propose que des personnes qui le portent
+/// déjà. Une désignation qui accorderait un droit serait une porte de permission ouverte depuis
+/// un écran de configuration commerciale.
+///
+/// C'est aussi ce qui donne enfin un ÉCRIVAIN à `productManagerId` (§118.142 : le champ avait
+/// sept lecteurs et personne ne l'écrivait) — mais seulement quand la gamme a UN SEUL référent :
+/// plusieurs n'en désignent aucun, parce que collapser choisirait l'arbitre à la place d'un
+/// humain (§118.34).
+model BusinessUnitMarketingReferent {
+  id             String       @id @default(cuid())
+  businessUnitId String
+  businessUnit   BusinessUnit @relation("AdProMarketingReferents", fields: [businessUnitId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation("AdProMarketingReferentOf", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  /// Une personne n'est référente d'une gamme qu'une fois : sans cette contrainte, un double clic
+  /// la ferait notifier deux fois et compter deux fois à l'écran.
+  @@unique([businessUnitId, userId])
+  @@index([userId])
+}
+
 model AdProOtherRequest {
   /// LA BUSINESS UNIT qui porte cette demande — même défaut qu'au-dessus, même remède :
   /// le formulaire l'exigeait, rien ne l'écrivait.

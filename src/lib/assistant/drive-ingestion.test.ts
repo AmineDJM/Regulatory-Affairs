@@ -104,10 +104,22 @@ suite("ingestion Drive — le contenu rend trouvable ce que le nom cache", () =>
     // Second passage : plus aucun candidat non indexé parmi nos fixtures.
     const remaining = await prisma.driveNode.count({ where: { id: { in: [nodeId, orphanNodeId] }, textIndex: null } });
     expect(remaining).toBe(0);
-    // 0,9 s seul ; la RÉPARATION du PDF cassé par mupdf et le balayage de 50 nœuds ont dépassé les
-    // 5 s par défaut sous la charge d'une suite complète en parallèle (mesuré). Le budget dit le travail
-    // réel, il ne cache pas une boucle : le second passage est mesuré par `remaining`.
-  }, 20_000);
+    /*
+     * LE PLAFOND RÉPOND À « EST-IL BLOQUÉ ? », JAMAIS À « EST-IL LENT ? » (§118.124b).
+     *
+     * Mesuré à nouveau, parce que les 20 s posées la dernière fois n'ont pas tenu : ce cas SEUL
+     * fait **140, 143, 144 et 144 ms** sur quatre lectures, et le fichier entier 638 ms à chaud —
+     * mais 20 438 ms au premier lancement après un démarrage du cluster Postgres, qui rejoue son
+     * journal (le même écart que §118.141g). Sous 772 fichiers et QUATRE cœurs, il a dépassé les
+     * 20 s : un cas qui travaille 140 ms et attend 20 s ne mesure pas son propre coût, il mesure
+     * la contention de la base EN PLUS de celle du processeur.
+     *
+     * On ne relève donc pas le plafond GLOBAL — il garderait 8 869 tests moins sévèrement pour en
+     * réparer un (§118.16). Rien n'est masqué : un balayage qui ne rend jamais la main échoue
+     * toujours, un peu plus tard, et la BOUCLE — le vrai risque de ce cas — est mesurée par
+     * `remaining`, pas par le temps.
+     */
+  }, 60_000);
 
   it("débrayage : ASSISTANT_DRIVE_INGESTION=off → aucun travail", async () => {
     const prev = process.env.ASSISTANT_DRIVE_INGESTION;

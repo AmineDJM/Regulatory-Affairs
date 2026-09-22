@@ -1,6 +1,9 @@
 import type { EntityType, Prisma, UserRole, WorkflowInstance, WorkflowStep } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { notifyRoles, notifyUser } from "@/lib/notify";
+import {
+  aPrevenirPourLaGamme, laGammeEstConcernee, porteLeRoleQuiTranche, type ReferentMarketing,
+} from "@/lib/personnes/referents-gamme";
 import { recordAudit } from "@/lib/audit";
 import { anyRoleFilter, hasGlobalView, hasRole } from "@/lib/rbac";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
@@ -566,8 +569,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
         await notifyUser({ userId: assigneeId, type: "ASSIGNMENT", title: `${CATEGORY_LABELS[category]} — ${apresAvis.title} (avis défavorable en amont)`, body: summary.name, link: entityPath(entityType, entityId) });
       }
       await notifyStepManager(apresAvis, summary.requesterId, `${CATEGORY_LABELS[category]} — ${apresAvis.title}`, `${summary.name} — avis défavorable en amont`, entityPath(entityType, entityId));
-      const roles = (apresAvis.notifyRoles as UserRole[]).filter(Boolean);
-      if (roles.length) await notifyRoles(roles, { type: "VALIDATION_REQUIRED", title: `${CATEGORY_LABELS[category]} — ${apresAvis.title}`, body: `${summary.name} — avis défavorable en amont`, link: entityPath(entityType, entityId) });
+      await prevenirEtapeAtteinte(entityType, entityId, apresAvis, { title: `${CATEGORY_LABELS[category]} — ${apresAvis.title}`, body: `${summary.name} — avis défavorable en amont`, link: entityPath(entityType, entityId) }, summary.requesterId);
       await recordAudit({ actorId: viewer.id, action: "UPDATE", module: auditModule(entityType), entityType, entityId, summary: `Avis défavorable (${step.title}) — ${summary.name}` });
       return { ok: true, category };
     }
@@ -608,8 +610,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
       await notifyUser({ userId: instance.assigneeId, type: "ASSIGNMENT", title: skipTitle, body: summary.name, link: entityPath(entityType, entityId) });
     }
     await notifyStepManager(landed, summary.requesterId, skipTitle, summary.name, entityPath(entityType, entityId));
-    const skipRoles = (landed.notifyRoles as UserRole[]).filter(Boolean);
-    if (skipRoles.length) await notifyRoles(skipRoles, { type: "VALIDATION_REQUIRED", title: skipTitle, body: summary.name, link: entityPath(entityType, entityId) });
+    await prevenirEtapeAtteinte(entityType, entityId, landed, { title: skipTitle, body: summary.name, link: entityPath(entityType, entityId) }, summary.requesterId);
     await recordAudit({ actorId: viewer.id, action: "UPDATE", module: auditModule(entityType), entityType, entityId, summary: `Étape sautée : « ${step.title} » — ${summary.name} (raison : ${note})` });
     return { ok: true, category };
   }
@@ -721,8 +722,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
       await notifyUser({ userId: assigneeId, type: "ASSIGNMENT", title: `${CATEGORY_LABELS[category]} — ${landed.title}`, body: summary.name, link: entityPath(entityType, entityId) });
     }
     await notifyStepManager(landed, summary.requesterId, `${CATEGORY_LABELS[category]} — ${landed.title}`, summary.name, entityPath(entityType, entityId));
-    const roles = (landed.notifyRoles as UserRole[]).filter(Boolean);
-    if (roles.length) await notifyRoles(roles, { type: "VALIDATION_REQUIRED", title: `${CATEGORY_LABELS[category]} — ${landed.title}`, body: summary.name, link: entityPath(entityType, entityId) });
+    await prevenirEtapeAtteinte(entityType, entityId, landed, { title: `${CATEGORY_LABELS[category]} — ${landed.title}`, body: summary.name, link: entityPath(entityType, entityId) }, summary.requesterId);
   } else if (summary.requesterId) {
     await notifyUser({ userId: summary.requesterId, type: "GENERIC", title: `${CATEGORY_LABELS[category]} — pris en charge`, body: summary.name, link: entityPath(entityType, entityId) });
   }
@@ -898,6 +898,79 @@ async function projectReject(entityType: EntityType, entityId: string, viewer: V
  * n'aurait aucun destinataire : personne ne saurait qu'il y a quelque chose à valider.
  * Best-effort : ne fait jamais échouer la progression.
  */
+/**
+ * PRÉVENIR L'ÉTAPE QUI VIENT D'ÊTRE ATTEINTE — le rôle, ET les référents de la gamme.
+ *
+ * ── POURQUOI UN SEUL POINT ──────────────────────────────────────────────────────────────
+ *
+ * Une étape est « atteinte » à TROIS endroits de ce moteur : après une approbation, après un
+ * saut, et après un avis défavorable qui renvoie plus loin. Les trois appelaient `notifyRoles`
+ * pour leur compte. Ajouter les référents à deux sur trois aurait laissé une porte muette à côté
+ * de deux portes qui parlent (§118.71) — et c'est le chemin le plus rare, celui de l'avis
+ * défavorable, qui serait resté silencieux. Un cliquet interdit désormais un `notifyRoles` nu
+ * dans ce fichier.
+ *
+ * ── CE QUE LES RÉFÉRENTS AJOUTENT, ET CE QU'ILS NE RETIRENT PAS ─────────────────────────
+ *
+ * Les rôles de l'étape sont TOUJOURS prévenus : c'est ainsi que « le directeur du département
+ * marketing recevra ÉGALEMENT l'accès et la notif » est tenu sans avoir à deviner qui est le
+ * directeur. Les référents de la gamme s'y AJOUTENT, nommément. Une gamme sans référent retombe
+ * donc exactement sur le comportement d'avant (§118.16).
+ *
+ * Un échec de notification ne casse JAMAIS le franchissement : l'étape a été décidée, et la
+ * refuser parce qu'un envoi a raté ferait perdre la décision (§118.137).
+ */
+async function prevenirEtapeAtteinte(
+  entityType: EntityType,
+  entityId: string,
+  etape: LoadedStep,
+  msg: { title: string; body: string; link: string },
+  requesterId: string | null,
+): Promise<void> {
+  const roles = (etape.notifyRoles as UserRole[]).filter(Boolean);
+  if (roles.length) await notifyRoles(roles, { type: "VALIDATION_REQUIRED", ...msg });
+  // LES RÉFÉRENTS DE LA GAMME s'AJOUTENT au rôle — et seulement là où l'étape NOMME ce rôle.
+  // La décision est pure (`laGammeEstConcernee`) : l'écrire ici en lisant le slug ferait une
+  // seconde vérité, fausse au premier circuit remanié (§118.5, §118.73).
+  if (!laGammeEstConcernee(roles)) return;
+  try {
+    const referents = await referentsDeLaDemande(entityType, entityId);
+    for (const userId of aPrevenirPourLaGamme({ referents, demandeurId: requesterId })) {
+      await notifyUser({ userId, type: "VALIDATION_REQUIRED", ...msg });
+    }
+  } catch (err) {
+    console.error("[workflow] notification des référents Direction Marketing impossible", err);
+  }
+}
+
+/**
+ * LES RÉFÉRENTS DE LA GAMME QUE PORTE CETTE DEMANDE.
+ *
+ * La gamme vit sur la LIGNE de la demande (`businessUnitId`), pas sur l'instance de circuit : le
+ * moteur est générique, et y recopier la gamme ferait une seconde vérité qui prendrait du retard
+ * au premier rattachement corrigé (§118.5). On la lit donc là où elle est.
+ *
+ * Le rôle est relu EN MÊME TEMPS : une désignation ne garantit pas que la personne porte encore
+ * le rôle, et prévenir quelqu'un qui ne peut plus trancher est une attente sans pouvoir.
+ */
+async function referentsDeLaDemande(entityType: EntityType, entityId: string): Promise<ReferentMarketing[]> {
+  const ligne =
+    entityType === "SPONSORING" ? await prisma.sponsoringRequest.findUnique({ where: { id: entityId }, select: { businessUnitId: true } })
+      : entityType === "CONGRESS_INTERNATIONAL" ? await prisma.congressInternational.findUnique({ where: { id: entityId }, select: { businessUnitId: true } })
+        : entityType === "CONGRESS_NATIONAL" ? await prisma.congressNational.findUnique({ where: { id: entityId }, select: { businessUnitId: true } })
+          : await prisma.event.findUnique({ where: { id: entityId }, select: { businessUnitId: true } });
+  if (!ligne?.businessUnitId) return [];
+  const lignes = await prisma.businessUnitMarketingReferent.findMany({
+    where: { businessUnitId: ligne.businessUnitId, user: { isActive: true } },
+    select: { userId: true, user: { select: { name: true, role: true, secondaryRole: true } } },
+  });
+  return lignes.map((r) => ({
+    userId: r.userId,
+    name: r.user.name,
+    porteLeRole: porteLeRoleQuiTranche(r.user),
+  }));
+}
+
 async function notifyStepManager(step: LoadedStep, requesterId: string | null, title: string, body: string, link: string): Promise<void> {
   const scope = step.actorScope as ActorScope;
   if (scope !== "DEPARTMENT_MANAGER" && scope !== "DEPARTMENT_HEAD") return;

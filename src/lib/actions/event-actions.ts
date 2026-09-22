@@ -13,6 +13,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { statutManuelOuRien, estStatutDuCircuit } from "@/lib/events/statut";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { readMultiField } from "@/lib/ad-pro/pickers";
 
@@ -245,7 +246,7 @@ export async function submitEventForApproval(formData: FormData): Promise<Action
   if (!userCan(user, "EVENTS", "CREATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  const ev = await prisma.event.findUnique({ where: { id }, select: { id: true, name: true, requestStatus: true, requesterId: true } });
+  const ev = await prisma.event.findUnique({ where: { id }, select: { id: true, name: true, requestStatus: true, requesterId: true, businessUnitId: true } });
   if (!ev) return { ok: false, error: "Événement introuvable." };
   if (ev.requestStatus) return { ok: false, error: "Une demande de prise en charge est déjà en cours pour cet événement." };
 
@@ -258,6 +259,20 @@ export async function submitEventForApproval(formData: FormData): Promise<Action
   // La Direction, elle, CHOISIT : trancher tout de suite, ou demander d'abord l'avis d'un chef
   // de produit. `adProInit` ignore ce drapeau pour les autres rangs — le choix ne se vole pas.
   const init = adProInit(user, pmId);
+  /*
+   * LA GAMME VIENT DE LA LIGNE, PAS DU FORMULAIRE — et c'est un défaut mesuré, pas une précaution.
+   *
+   * Cette action SOUMET un événement qui EXISTE déjà ; elle lisait pourtant
+   * `fdStr(formData, "businessUnitId")`, et le seul appelant du dépôt (`funding-panel.tsx`)
+   * n'envoie que `id`. La lecture rendait donc `""`, `referentAInscrire` rendait `null`, et le
+   * référent n'était JAMAIS inscrit sur un événement — un mécanisme écrit, testé, et sans effet
+   * par sa porte réelle (§118.14). Vu en relisant le diff de l'artefact régénéré, qui a montré
+   * `submitEventForApproval` gagner un champ `businessUnitId` qu'aucun écran ne remplit (§118.137).
+   *
+   * La ligne fait FOI : la gamme d'un événement est un fait de l'enregistrement, et lui préférer
+   * une valeur de formulaire laisserait forger la gamme dont on prend le référent.
+   */
+  const referentGamme = await referentAInscrire(ev.businessUnitId);
   const now = new Date();
 
   await prisma.event.update({
@@ -266,7 +281,18 @@ export async function submitEventForApproval(formData: FormData): Promise<Action
       requestStatus: init.status as CongressRequestStatus,
       requesterId: ev.requesterId ?? user.id,
       status: "AWAITING_VALIDATION",
-      ...(init.productManagerId ? { productManagerId: init.productManagerId } : {}),
+      // LE RÉFÉRENT DE LA GAMME, quand la gamme n'en a qu'UN (§118.144).
+      //
+      // `productManagerId` a sept lecteurs — droits de la fiche, déclaration d'information
+      // médicale, garde de l'analyse — et n'avait plus AUCUN écrivain depuis que le menu de
+      // création a été retiré : un champ que tout le monde lit et que personne n'écrit. Il vient
+      // désormais de la configuration de la gamme, et SEULEMENT quand elle désigne une personne
+      // à coup sûr : plusieurs référents n'en désignent aucun, parce que collapser choisirait
+      // l'arbitre d'un budget par l'ordre d'insertion en base (§118.34).
+      //
+      // Le ROUTAGE n'est pas touché : la demande part où le tamis dit qu'elle part, elle porte
+      // simplement le nom de son référent.
+      ...(init.productManagerId || referentGamme ? { productManagerId: init.productManagerId || referentGamme! } : {}),
       ...(init.preliminaryBySelf ? { preliminaryById: user.id, preliminaryAt: now } : {}),
     },
   });

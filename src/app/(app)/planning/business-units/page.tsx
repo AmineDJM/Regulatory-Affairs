@@ -1,3 +1,4 @@
+import type { UserRole } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView, anyRoleFilter } from "@/lib/rbac";
@@ -5,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getSfeConfig } from "@/lib/sfe";
 import { PageHeader } from "@/components/shared/page-header";
 import { PlanningTabs } from "../tabs";
+import { ROLES_QUI_TRANCHENT, porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
 import { BusinessUnitsManager } from "./bu-manager";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +28,7 @@ export default async function BusinessUnitsPage() {
   const canConfigure = userCan(user, "SALES_PLANNING", "UPDATE") || hasGlobalView(user);
   if (!canConfigure) redirect("/planning/pilotage");
 
-  const [bus, companies, supervisors, allUsers, kamUsers, profiles, products, dossiers, config, secteurs, etablissements] = await Promise.all([
+  const [bus, companies, supervisors, allUsers, kamUsers, profiles, products, dossiers, config, secteurs, etablissements, referents, marketing] = await Promise.all([
     prisma.businessUnit.findMany({
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: {
@@ -78,8 +80,30 @@ export default async function BusinessUnitsPage() {
       select: { id: true, name: true, city: true, type: true },
       orderBy: [{ name: "asc" }],
     }),
+    // LES RÉFÉRENTS DIRECTION MARKETING de toutes les gammes, en une requête et groupés à
+    // l'affichage — comme les KAM, les secteurs et les produits.
+    //
+    // ON CHARGE LE RÔLE AVEC LA PERSONNE : une désignation ne garantit pas que le rôle est
+    // TOUJOURS là. Quelqu'un peut avoir changé de poste depuis, et la ligne doit alors le DIRE
+    // (« prévenu, sans pouvoir trancher ») plutôt que laisser attendre un arbitrage que cette
+    // personne ne peut plus rendre. Le rôle se relit à chaque affichage, jamais au moment de la
+    // désignation (§118.136 : une désignation n'est pas une permission qui survit à son motif).
+    prisma.businessUnitMarketingReferent.findMany({
+      select: {
+        id: true, businessUnitId: true, userId: true,
+        user: { select: { name: true, role: true, secondaryRole: true, isActive: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    // LES PERSONNES DÉSIGNABLES : celles qui portent DÉJÀ le rôle. Un menu qui proposerait
+    // n'importe qui ferait fabriquer, depuis un écran de configuration commerciale, une attente
+    // sans pouvoir — et l'action serveur refuserait après le clic, au pire moment.
+    prisma.user.findMany({
+      where: { isActive: true, ...anyRoleFilter([...ROLES_QUI_TRANCHENT] as UserRole[]) },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
-
   const profileByRep = new Map(profiles.map((p) => [p.repId, p]));
 
   return (
@@ -93,6 +117,18 @@ export default async function BusinessUnitsPage() {
         businessUnits={bus.map((b) => ({ ...b, channel: String(b.channel) }))}
         companies={companies.map((c) => ({ id: c.id, name: c.shortName || c.name }))}
         supervisors={supervisors}
+        referents={referents
+          // Un compte DÉSACTIVÉ n'est plus prévenu de rien : l'afficher ferait croire la gamme
+          // couverte par quelqu'un qui ne se connecte plus.
+          .filter((r) => r.user.isActive)
+          .map((r) => ({
+            id: r.id, businessUnitId: r.businessUnitId, userId: r.userId, name: r.user.name,
+            // LE RÔLE SE LIT SUR LA LIGNE, pas par recoupement avec la liste des désignables :
+            // deux lectures de « qui peut trancher » finiraient par diverger, et le symptôme
+            // serait un badge qui contredit le refus de l'action (§118.5).
+            porteLeRole: porteLeRoleQuiTranche(r.user),
+          }))}
+        referentsEligibles={marketing}
         users={allUsers}
         config={{ daysPerMonth: config.capacity.daysPerMonth, visitsPerDay: config.capacity.visitsPerDay, fieldPct: config.capacity.fieldPct }}
         kams={kamUsers.map((u) => {

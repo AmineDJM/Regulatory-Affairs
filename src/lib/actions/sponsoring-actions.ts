@@ -17,6 +17,7 @@ import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { involveThirdParty } from "@/lib/third-party";
 import { reopenInstance } from "@/lib/workflow/engine";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/sponsoring";
@@ -115,7 +116,20 @@ export async function createSponsoring(
   // de suite. `adProInit` ignore ce drapeau pour les autres rangs : le choix ne s'attrape pas en
   // forgeant un champ de formulaire.
   const init = adProInit(user, pmId);
+  /*
+   * LA GAMME SE LIT UNE FOIS, ET LE RÉFÉRENT VIENT DE CELLE QU'ON ÉCRIT.
+   *
+   * La première version lisait la gamme DEUX fois : la ligne recevait `gammeDeduite ?? le
+   * formulaire` (la gamme d'un KAM est IMPOSÉE côté serveur, §118.108) et le référent était
+   * cherché sur le FORMULAIRE seul. Les deux lectures pouvaient donc désigner des gammes
+   * différentes, et l'on inscrivait l'arbitre de la gamme A sur une demande déposée sous la
+   * gamme B — le défaut de §104.7 appliqué à une personne : la carte annonce une chose, la base
+   * en porte une autre. Trouvé en RELISANT le diff de l'artefact régénéré (§118.137), pas à la
+   * relecture du code.
+   */
   const gammeDeduite = await businessUnitDuDemandeur(user);
+  const gammeDeLaDemande = gammeDeduite?.id ?? (fdStr(formData, "businessUnitId") || null);
+  const referentGamme = await referentAInscrire(gammeDeLaDemande);
   const now = new Date();
 
   const year = new Date().getFullYear();
@@ -130,7 +144,7 @@ export async function createSponsoring(
       // national par la gamme qu'il supervise), le champ posté n'entre pas en ligne de compte :
       // il se forge, et une gamme forgée fait peser la dépense sur le budget d'une autre équipe.
       // Là où elle ne se lit pas, la saisie reste souveraine.
-      businessUnitId: gammeDeduite?.id ?? (fdStr(formData, "businessUnitId") || null),
+      businessUnitId: gammeDeLaDemande,
       reference,
       institution,
       // PLUSIEURS MÉDECINS, PLUSIEURS PRODUITS. Le formulaire envoie une entrée par case cochée ;
@@ -159,7 +173,18 @@ export async function createSponsoring(
       // consulte Adventum ne doit pas imputer sa demande à Adventum. La Direction corrige en
       // validant, au seul moment où quelqu'un a le dossier entier sous les yeux.
       companyId: await moneyEntityOf(user.id),
-      ...(init.productManagerId ? { productManagerId: init.productManagerId } : {}),
+      // LE RÉFÉRENT DE LA GAMME, quand la gamme n'en a qu'UN (§118.144).
+      //
+      // `productManagerId` a sept lecteurs — droits de la fiche, déclaration d'information
+      // médicale, garde de l'analyse — et n'avait plus AUCUN écrivain depuis que le menu de
+      // création a été retiré : un champ que tout le monde lit et que personne n'écrit. Il vient
+      // désormais de la configuration de la gamme, et SEULEMENT quand elle désigne une personne
+      // à coup sûr : plusieurs référents n'en désignent aucun, parce que collapser choisirait
+      // l'arbitre d'un budget par l'ordre d'insertion en base (§118.34).
+      //
+      // Le ROUTAGE n'est pas touché : la demande part où le tamis dit qu'elle part, elle porte
+      // simplement le nom de son référent.
+      ...(init.productManagerId || referentGamme ? { productManagerId: init.productManagerId || referentGamme! } : {}),
       ...(init.preliminaryBySelf ? { preliminaryById: user.id, preliminaryAt: now } : {}),
     },
   });

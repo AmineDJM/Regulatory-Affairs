@@ -56,7 +56,7 @@ export function channelCovers(bu: string, product: string): boolean {
   return bu === "BOTH" || bu === product;
 }
 
-export type BuStepKey = "SUPERVISEUR" | "CANAL" | "KAM" | "SECTEURS" | "PRODUITS";
+export type BuStepKey = "SUPERVISEUR" | "CANAL" | "KAM" | "SECTEURS" | "PRODUITS" | "REFERENTS";
 
 export interface BuSetupInput {
   supervisorId: string | null;
@@ -83,6 +83,17 @@ export interface BuSetupInput {
   sectorCount: number;
   sectorsWithoutInstitution: number;
   repsWithSector: number;
+  /**
+   * LES RÉFÉRENTS DIRECTION MARKETING de la gamme (22/09/2026).
+   *
+   * Deux nombres et non un, pour la même raison que les secteurs : « la gamme a un référent »
+   * cache DEUX pannes distinctes, toutes deux silencieuses. Aucun référent — les demandes Ad &
+   * Pro de cette gamme ne préviennent personne nommément, elles repartent sur le rôle entier et
+   * chacun suppose que quelqu'un d'autre s'en occupe. Un référent qui ne PORTE pas le rôle — il
+   * est prévenu et ne peut rien trancher, une attente sans pouvoir.
+   */
+  referentCount: number;
+  referentsSansRole: number;
 }
 
 export interface BuStep {
@@ -112,6 +123,21 @@ function secteursWhy(bu: BuSetupInput): string {
     return `${n} KAM sur ${bu.repCount} n'est affecté à aucun secteur : la BU a l'air montée et ces personnes-là ne voient aucun médecin.`;
   }
   return "Un secteur est une sélection d'établissements qui porte un nom (« Est », « Oranais ») : c'est lui qui donne au KAM son panel de médecins et ouvre sa planification sur la bonne ville.";
+}
+
+/** Même principe que `secteursWhy` : la raison DANS LE CAS qu'on tient, jamais « incomplet ». */
+function referentsWhyBu(bu: BuSetupInput): string {
+  if (bu.referentCount === 0) {
+    return "Aucun référent Direction Marketing : les demandes Ad & Pro de cette gamme ne préviennent personne "
+      + "nommément — elles repartent sur le rôle entier, et chacun suppose que quelqu'un d'autre s'en occupe.";
+  }
+  if (bu.referentsSansRole > 0) {
+    const n = bu.referentsSansRole;
+    return `${n} référent${n > 1 ? "s" : ""} ne porte pas le rôle Direction Marketing : ${n > 1 ? "ils seront prévenus" : "il sera prévenu"} `
+      + "et ne pourra rien trancher — une désignation cible la notification, elle n'accorde aucun droit.";
+  }
+  return "Les demandes Ad & Pro de cette gamme préviennent nommément ses référents, en plus du rôle "
+    + "— c'est ainsi que la direction du département les reçoit également.";
 }
 
 /**
@@ -148,6 +174,12 @@ export function buSetupSteps(bu: BuSetupInput): BuStep[] {
       // vérité : rien n'est couvert.
       done: bu.repCount > 0 && bu.sectorsWithoutInstitution === 0 && bu.repsWithSector >= bu.repCount,
       why: secteursWhy(bu),
+    },
+    {
+      key: "REFERENTS",
+      label: "Désigner les référents Direction Marketing",
+      done: bu.referentCount > 0 && bu.referentsSansRole === 0,
+      why: referentsWhyBu(bu),
     },
     {
       key: "PRODUITS",

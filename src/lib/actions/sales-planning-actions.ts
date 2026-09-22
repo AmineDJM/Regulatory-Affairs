@@ -1,14 +1,16 @@
 "use server";
 
+import type { UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, anyRoleFilter } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { monthLabel, canEditRep } from "@/lib/sfe";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { canAttachBuDepartment, buDepartmentName, buDepartmentCode } from "@/lib/sfe/bu-department";
 import { GRANULARITES, GRANULARITE_LABELS, JOURS_AVANT_ECHEANCE_MAX, estGranularite } from "@/lib/sfe/tournee";
+import { ROLES_QUI_TRANCHENT } from "@/lib/personnes/referents-gamme";
 
 const MODULE = "SALES_PLANNING" as const;
 const PATH = "/planning";
@@ -628,5 +630,75 @@ export async function carryForwardAssignments(formData: FormData): Promise<Actio
   }
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", summary: `Report de ${copied} affectation(s)` });
   revalidatePath(`${PATH}/affectations`);
+  return { ok: true };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// LES RÉFÉRENTS DIRECTION MARKETING D'UNE GAMME (22/09/2026)
+//
+// « Chaque BU aura son ou ses référents de la direction marketing depuis la configuration des
+// BU, mais le directeur du département marketing recevra également l'accès et la notif ».
+//
+// CE QUE CES DEUX GESTES FONT : ils CIBLENT la notification des demandes Ad & Pro de la gamme.
+// Ils n'ACCORDENT rien — le pouvoir de trancher reste gouverné par le rôle de l'étape, et l'on
+// n'accepte que des personnes qui le portent DÉJÀ. Une désignation posée depuis un écran de
+// configuration commerciale qui ouvrirait un pouvoir d'arbitrage serait une porte de permission
+// à côté de la porte gardée (`lib/personnes/referents-gamme.ts` porte la raison complète).
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+export async function addBuMarketingReferent(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const businessUnitId = fdStr(formData, "businessUnitId");
+  const userId = fdStr(formData, "userId");
+  if (!businessUnitId) return { ok: false, error: "Le référent appartient à une Business Unit." };
+  if (!userId) return { ok: false, error: "Indiquez la personne à désigner comme référente." };
+  const bu = await prisma.businessUnit.findUnique({ where: { id: businessUnitId }, select: { id: true, name: true } });
+  if (!bu) return { ok: false, error: "Business Unit introuvable." };
+  // LA PERSONNE DOIT PORTER LE RÔLE, et le refus NOMME le remède : sans le rôle, elle serait
+  // prévenue et ne pourrait rien trancher — une attente sans pouvoir, que l'écran de
+  // configuration commerciale ne doit pas pouvoir fabriquer (§118.30).
+  const cible = await prisma.user.findFirst({
+    where: { id: userId, isActive: true, ...anyRoleFilter([...ROLES_QUI_TRANCHENT] as UserRole[]) },
+    select: { id: true, name: true },
+  });
+  if (!cible) {
+    return {
+      ok: false,
+      error: "Un référent doit porter le rôle Direction Marketing : cette désignation cible la notification, "
+        + "elle n'accorde aucun droit. Attribuez d'abord le rôle depuis Administration › Comptes.",
+    };
+  }
+  // Un double clic ne doit pas la faire notifier deux fois : la contrainte d'unicité le dit en
+  // base, `skipDuplicates` le rend silencieux plutôt qu'une erreur technique.
+  const { count } = await prisma.businessUnitMarketingReferent.createMany({
+    data: [{ businessUnitId, userId }],
+    skipDuplicates: true,
+  });
+  if (count === 0) return { ok: true }; // déjà référente — le geste est idempotent, pas en échec
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Force de vente",
+    summary: `Référent Direction Marketing ajouté — ${cible.name} sur la gamme ${bu.name}`,
+  });
+  revalidatePath("/planning/business-units");
+  return { ok: true };
+}
+
+export async function removeBuMarketingReferent(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant de la désignation manquant." };
+  const ligne = await prisma.businessUnitMarketingReferent.findUnique({
+    where: { id },
+    select: { id: true, businessUnitId: true, businessUnit: { select: { name: true } }, user: { select: { name: true } } },
+  });
+  if (!ligne) return { ok: true }; // déjà retirée : le geste est idempotent
+  await prisma.businessUnitMarketingReferent.delete({ where: { id } });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Force de vente",
+    summary: `Référent Direction Marketing retiré — ${ligne.user.name} de la gamme ${ligne.businessUnit.name}`,
+  });
+  revalidatePath("/planning/business-units");
   return { ok: true };
 }

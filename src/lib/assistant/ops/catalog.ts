@@ -4343,6 +4343,27 @@ export const OPS_CATALOG: OpMeta[] = [
     covers: ["sales-planning-actions:deleteSector"],
   },
   {
+    tool: "planning_operation", op: "add_marketing_referent", module: "Force de vente",
+    uiLabel: "Désigner un référent Direction Marketing",
+    aliases: [
+      "désigne le référent marketing", "référent direction marketing de la BU",
+      "qui suit les demandes Ad&Pro de la gamme",
+    ],
+    risk: "NORMAL",
+    summary: "Désigne une personne référente DIRECTION MARKETING d'une gamme (BU par son nom dans « target », personne dans « person »). La désignation CIBLE la notification : les demandes Ad & Pro de cette gamme la préviennent nommément, EN PLUS du rôle (que la direction du département reçoit). Elle n'ACCORDE aucun droit — quelqu'un qui ne porte pas le rôle Direction Marketing est REFUSÉ, avec le geste qui le donne. Un seul référent fait inscrire les demandes à son nom ; plusieurs n'en désignent aucun.",
+    gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+    covers: ["sales-planning-actions:addBuMarketingReferent"],
+  },
+  {
+    tool: "planning_operation", op: "remove_marketing_referent", module: "Force de vente",
+    uiLabel: "Retirer un référent Direction Marketing",
+    aliases: ["retire le référent marketing", "enlève le référent de la gamme"],
+    risk: "NORMAL",
+    summary: "Retire une personne des référents Direction Marketing d'une gamme. La carte DIT ce qu'il reste : plus aucun référent signifie que les demandes de cette gamme ne préviennent plus personne nommément et repartent sur le rôle entier. Le rôle, lui, garde tous ses droits — on retire une désignation, pas un droit.",
+    gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+    covers: ["sales-planning-actions:removeBuMarketingReferent"],
+  },
+  {
     tool: "planning_operation", op: "open_tour_plan", module: "Force de vente",
     uiLabel: "Préparer un plan de tournée",
     aliases: ["prépare mon plan de tournée", "ouvre le plan de tournée de", "plan de tournée du mois prochain"],

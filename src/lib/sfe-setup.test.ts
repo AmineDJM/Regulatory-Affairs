@@ -7,6 +7,7 @@ import {
 const vide = {
   supervisorId: null, channel: "BOTH", repCount: 0, productCount: 0,
   sectorCount: 0, sectorsWithoutInstitution: 0, repsWithSector: 0,
+  referentCount: 0, referentsSansRole: 0,
 };
 
 describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
@@ -16,8 +17,8 @@ describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
     expect(buSetupComplete(vide)).toBe(false);
   });
 
-  it("l'ordre est celui du montage : superviseur → terrain → KAM → secteurs → produits", () => {
-    expect(buSetupSteps(vide).map((s) => s.key)).toEqual(["SUPERVISEUR", "CANAL", "KAM", "SECTEURS", "PRODUITS"]);
+  it("l'ordre est celui du montage : superviseur → terrain → KAM → secteurs → référents → produits", () => {
+    expect(buSetupSteps(vide).map((s) => s.key)).toEqual(["SUPERVISEUR", "CANAL", "KAM", "SECTEURS", "REFERENTS", "PRODUITS"]);
   });
 
   it("chaque étape dit CE QU'ON PERD tant qu'elle manque — jamais « obligatoire »", () => {
@@ -38,16 +39,37 @@ describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
   it("une BU complète ne réclame plus rien", () => {
     const pleine = {
       supervisorId: "u1", channel: "HOSPITAL", repCount: 4, productCount: 3,
-      sectorCount: 2, sectorsWithoutInstitution: 0, repsWithSector: 4,
+      sectorCount: 2, sectorsWithoutInstitution: 0, repsWithSector: 4, referentCount: 1, referentsSansRole: 0,
     };
     expect(nextBuStep(pleine)).toBeNull();
     expect(buSetupComplete(pleine)).toBe(true);
-    expect(buSetupProgress(pleine)).toEqual({ done: 5, total: 5 });
+    expect(buSetupProgress(pleine)).toEqual({ done: 6, total: 6 });
+  });
+
+  it("un référent qui NE PORTE PAS le rôle ne franchit PAS l'étape", () => {
+    /*
+     * LE CAS QU'UN SABOTAGE A NOMMÉ : ramener l'étape à `referentCount > 0` ne faisait tomber
+     * AUCUN test, parce que tous mes décors portaient `referentsSansRole: 0` — une assertion sur
+     * une conjonction ne prouve rien tant que le jeu d'essai n'exerce qu'un seul de ses termes
+     * (§118.117).
+     *
+     * La panne qu'il couvre est silencieuse : une gamme affiche un référent, l'écran la compte
+     * montée, et la personne désignée est prévenue sans pouvoir rien trancher.
+     */
+    const avecUnMute = { ...vide, supervisorId: "u1", referentCount: 1, referentsSansRole: 1 };
+    expect(buSetupSteps(avecUnMute).find((s) => s.key === "REFERENTS")?.done).toBe(false);
+    expect(buSetupSteps({ ...avecUnMute, referentsSansRole: 0 }).find((s) => s.key === "REFERENTS")?.done).toBe(true);
+    // …et la RAISON dit laquelle des deux pannes on tient, jamais « incomplet » (§118.30).
+    expect(buSetupSteps(avecUnMute).find((s) => s.key === "REFERENTS")?.why).toContain("ne porte pas le rôle");
+    expect(buSetupSteps({ ...vide, supervisorId: "u1" }).find((s) => s.key === "REFERENTS")?.why)
+      .toContain("Aucun référent");
   });
 
   it("la jauge compte les étapes franchies, dans l'ordre ou non", () => {
-    expect(buSetupProgress(vide)).toEqual({ done: 1, total: 5 });
-    expect(buSetupProgress({ ...vide, productCount: 5 })).toEqual({ done: 2, total: 5 });
+    // Le TOTAL est SIX depuis que les référents Direction Marketing d'une gamme se configurent
+    // ici : une BU montée sans référent ne prévient personne nommément (§118.144).
+    expect(buSetupProgress(vide)).toEqual({ done: 1, total: 6 });
+    expect(buSetupProgress({ ...vide, productCount: 5 })).toEqual({ done: 2, total: 6 });
   });
 });
 
@@ -68,20 +90,20 @@ describe("les secteurs d'une BU — un KAM sans territoire a un panel VIDE", () 
   it("UN SECTEUR VIDE compte pour rien — un nom de territoire sans territoire", () => {
     // Ce cas est celui qui ferait passer une garde écrite « sectorCount > 0 » : deux secteurs
     // existent, l'un ne contient aucun établissement, et le KAM qu'on y affecte ne voit rien.
-    const e = etape({ repCount: 2, sectorCount: 2, sectorsWithoutInstitution: 1, repsWithSector: 2 });
+    const e = etape({ repCount: 2, sectorCount: 2, sectorsWithoutInstitution: 1, repsWithSector: 2, referentCount: 1, referentsSansRole: 0 });
     expect(e.done).toBe(false);
     expect(e.why).toContain("1 secteur ne contient aucun établissement");
   });
 
   it("UN KAM SANS SECTEUR fait tomber l'étape, même si la BU a des secteurs pleins", () => {
     // Le cas qui trompe : la BU a l'air montée, quatre personnes ne voient aucun médecin.
-    const e = etape({ repCount: 5, sectorCount: 1, sectorsWithoutInstitution: 0, repsWithSector: 1 });
+    const e = etape({ repCount: 5, sectorCount: 1, sectorsWithoutInstitution: 0, repsWithSector: 1, referentCount: 1, referentsSansRole: 0 });
     expect(e.done).toBe(false);
     expect(e.why).toContain("4 KAM sur 5");
   });
 
   it("tous les KAM couverts par des secteurs pleins : l'étape est franchie", () => {
-    const e = etape({ repCount: 2, sectorCount: 1, sectorsWithoutInstitution: 0, repsWithSector: 2 });
+    const e = etape({ repCount: 2, sectorCount: 1, sectorsWithoutInstitution: 0, repsWithSector: 2, referentCount: 1, referentsSansRole: 0 });
     expect(e.done).toBe(true);
   });
 

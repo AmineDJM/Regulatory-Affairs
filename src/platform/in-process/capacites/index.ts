@@ -76,3 +76,8 @@ export { deciderVisaCentreAdPro } from "@/lib/actions/ad-pro-centre-actions";
 export { colorerCellulesAnnuaire } from "@/lib/actions/annuaire-couleurs-actions";
 export { isAnnuaireField } from "@/lib/medical/directory-grid";
 export { isEtablissementField } from "@/lib/medical/etablissements-grid";
+
+// LE RÔLE QUI TRANCHE une demande Ad & Pro — lu par l'op qui désigne un référent de gamme.
+// L'op lisait `rbac` et `workflow/origin` en direct : 430 franchissements pour un plafond de
+// 428. Le prédicat vit au SOCLE (`personnes/referents-gamme`), le pont le porte (§118.114).
+export { porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
