@@ -9,7 +9,7 @@ import type { NavItem } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { useScrollLock } from "@/lib/use-scroll-lock";
 import { useTabBarHeight } from "@/components/layout/chrome-metrics";
-import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, FLAT_GROUPS } from "@/lib/navigation";
+import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, FLAT_GROUPS, pastillesDesEntrees, modulesDeLEntree } from "@/lib/navigation";
 
 /**
  * BARRE D'ONGLETS MOBILE — navigation principale sur téléphone (l'app installée depuis
@@ -149,14 +149,20 @@ export function MobileTabBar({
     searching || activePole === key || (expanded[key] ?? defaultOpen);
 
   /** La grille de tuiles d'une section — un module par tuile, ses sous-modules dessous. */
-  const renderTiles = (list: NavItem[]) => (
+  // LA MÊME RÈGLE QUE LA BARRE LATÉRALE (§118.154) : un module se compte une fois par liste, et
+  // jamais sous un parent qui le compte déjà — sinon Finances et ses trois sous-menus affichent
+  // chacun les mêmes notifications. Une seule fonction pour les deux menus.
+  const renderTiles = (list: NavItem[]) => {
+    const pastilles = pastillesDesEntrees(list, moduleBadges);
+    return (
     <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-      {list.map((item) => {
+      {list.map((item, rang) => {
         const kids = item.children ?? [];
         const opened = searching || expanded[item.href] === true;
+        const pastillesEnfants = pastillesDesEntrees(kids, moduleBadges, modulesDeLEntree(item));
         return (
           <React.Fragment key={item.href}>
-            <Tile item={item} pathname={pathname} badge={moduleBadges[item.module] ?? 0}>
+            <Tile item={item} pathname={pathname} badge={pastilles[rang]}>
               {/* LA FLÈCHE, SUR MOBILE AUSSI — les sous-modules ne doivent pas être
                   réservés à l'ordinateur : c'est au téléphone qu'on cherche vite. */}
               {kids.length > 0 && (
@@ -171,14 +177,15 @@ export function MobileTabBar({
                 </button>
               )}
             </Tile>
-            {kids.length > 0 && opened && kids.map((c) => (
-              <Tile key={c.href} item={c} pathname={pathname} badge={moduleBadges[c.module] ?? 0} nested />
+            {kids.length > 0 && opened && kids.map((c, i) => (
+              <Tile key={c.href} item={c} pathname={pathname} badge={pastillesEnfants[i]} nested />
             ))}
           </React.Fragment>
         );
       })}
     </div>
-  );
+    );
+  };
 
   return (
     <>
@@ -215,7 +222,7 @@ export function MobileTabBar({
                 <div className="space-y-2">
                   {poles.map((pole) => {
                     const opened = isPoleOpen(pole.key, pole.defaultOpen);
-                    const badge = pole.children.reduce((a, c) => a + (moduleBadges[c.module] ?? 0), 0);
+                    const badge = pastillesDesEntrees(pole.children, moduleBadges).reduce((a, n) => a + n, 0);
                     return (
                       <div key={pole.key} className="overflow-hidden rounded-2xl border border-border bg-card">
                         <button

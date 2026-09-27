@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
+import { moneyEntityOf } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
@@ -79,6 +80,12 @@ interface ParentInfo {
   closedByClosure?: boolean;
   /** Qui a demandé l'opération — prévenu des décisions prises sur ses postes. */
   requesterId?: string | null;
+  /**
+   * La société de l'opération — celle que porte toute pièce demandée pour un de ses postes. Sans
+   * elle, la demande au secrétariat naissait sans société et n'apparaissait dans AUCUNE vue
+   * cloisonnée du bureau (§118.154).
+   */
+  companyId?: string | null;
 }
 
 type AdProModule = "SPONSORING" | "CONGRESS_NATIONAL" | "CONGRESS_INTERNATIONAL" | "EVENTS";
@@ -110,14 +117,14 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
     load: async (id) => {
       const r = await prisma.sponsoringRequest.findUnique({
         where: { id },
-        select: { id: true, reference: true, institution: true, status: true, requesterId: true, closedAt: true },
+        select: { id: true, reference: true, institution: true, status: true, requesterId: true, closedAt: true, companyId: true },
       });
       if (!r) return null;
       const etat = etatPostesSponsoring(r.status, r.closedAt);
       return {
         id: r.id, ref: r.reference, beneficiary: r.institution,
         decided: etat.decide, tardif: etat.tardif, clos: etat.clos, closedByClosure: etat.closParLaCloture,
-        requesterId: r.requesterId,
+        requesterId: r.requesterId, companyId: r.companyId,
       };
     },
   },
@@ -128,12 +135,12 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
     load: async (id) => {
       const r = await prisma.congressNational.findUnique({
         where: { id },
-        select: { id: true, name: true, hostInstitution: true, requestStatus: true, requesterId: true },
+        select: { id: true, name: true, hostInstitution: true, requestStatus: true, requesterId: true, companyId: true },
       });
       // Le congrès n'a pas de référence : son nom est ce qui l'identifie sur une pièce.
       if (!r) return null;
       const decided = CONGRESS_DECIDED.includes(r.requestStatus);
-      return { id: r.id, ref: r.name, beneficiary: r.hostInstitution ?? r.name, decided, tardif: decided, clos: false, requesterId: r.requesterId };
+      return { id: r.id, ref: r.name, beneficiary: r.hostInstitution ?? r.name, decided, tardif: decided, clos: false, requesterId: r.requesterId, companyId: r.companyId };
     },
   },
   CONGRESS_INTERNATIONAL: {
@@ -143,11 +150,11 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
     load: async (id) => {
       const r = await prisma.congressInternational.findUnique({
         where: { id },
-        select: { id: true, name: true, requestStatus: true, requesterId: true },
+        select: { id: true, name: true, requestStatus: true, requesterId: true, companyId: true },
       });
       if (!r) return null;
       const decided = CONGRESS_DECIDED.includes(r.requestStatus);
-      return { id: r.id, ref: r.name, beneficiary: r.name, decided, tardif: decided, clos: false, requesterId: r.requesterId };
+      return { id: r.id, ref: r.name, beneficiary: r.name, decided, tardif: decided, clos: false, requesterId: r.requesterId, companyId: r.companyId };
     },
   },
   EVENT: {
@@ -157,13 +164,13 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
     load: async (id) => {
       const r = await prisma.event.findUnique({
         where: { id },
-        select: { id: true, name: true, requestStatus: true, requesterId: true, status: true },
+        select: { id: true, name: true, requestStatus: true, requesterId: true, status: true, companyId: true },
       });
       if (!r) return null;
       // Un événement peut être organisé SANS circuit de financement (requestStatus null) : il est
       // alors piloté directement, donc ses postes ne sont pas bloqués par une décision absente.
       const decided = r.requestStatus == null ? r.status !== "DRAFT" && r.status !== "CANCELLED" : CONGRESS_DECIDED.includes(r.requestStatus);
-      return { id: r.id, ref: r.name, beneficiary: r.name, decided, tardif: decided, clos: false, requesterId: r.requesterId };
+      return { id: r.id, ref: r.name, beneficiary: r.name, decided, tardif: decided, clos: false, requesterId: r.requesterId, companyId: r.companyId };
     },
   },
 };
@@ -832,6 +839,10 @@ export async function demanderPieceSecretariat(_prev: ActionResult | undefined, 
         ].filter(Boolean).join("\n"),
         priority: "HIGH",
         requesterId: user.id,
+        // La société de l'OPÉRATION, sinon celle où travaille son demandeur (`moneyEntityOf`) : une
+        // opération d'avant le rattachement a `companyId` nul, et sa pièce naîtrait invisible du
+        // bureau du secrétariat, cloisonné par société (§118.154).
+        companyId: info.companyId ?? (await moneyEntityOf(info.requesterId ?? user.id)),
         status: "NEW",
         linkedEntityType: "AD_PRO_ITEM",
         linkedEntityId: item.id,

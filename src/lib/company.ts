@@ -189,8 +189,12 @@ export async function myCompanyWhere(userId: string): Promise<{ companyId?: stri
 /**
  * LE FILTRE À POSER DANS LES MODULES TRANSVERSES (budget, Ad & Pro, finances, demandes).
  *
- * Voir `platformScopeWhere` pour la règle exacte : portée validée contre les droits, et les
- * enregistrements pas encore rattachés restent visibles pour ne pas disparaître de partout.
+ * Voir `platformScopeWhere` pour la règle exacte : portée validée contre les droits, et, appliqué
+ * SEUL, il exclut un enregistrement NON rattaché (`companyId` nul) de toute vue cloisonnée — seuls
+ * les rôles qui voient tout le groupe le lisent, en vue « Toutes les entités ». `companyScopedWhere`
+ * (plus bas) le compose et y AJOUTE exprès les lignes sans entité. Cette phrase annonçait l'inverse
+ * — l'exception levée depuis longtemps — et un écrivain qui s'y fiait créait une demande au
+ * secrétariat que personne ne voyait (§118.154).
  *
  * S'utilise en composition, jamais en remplacement d'un filtre métier :
  *   `where: { AND: [ scopeSponsoring(user), await platformScope(user.id) ] }`

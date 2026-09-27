@@ -924,7 +924,8 @@ ensuite). C'est une **dimension transverse** appliquée à tout le logiciel :
 
 - **Modèle** : `Company` (`name` unique, `shortName`, `color`, `isActive`, `sortOrder`) — entièrement **dynamique**
   (création / renommage / couleur / désactivation dans **Administration → Entités**, `src/app/(app)/admin/entites/`).
-  Chaque enregistrement clé porte un `companyId?` **nullable** (non rattaché = visible en vue « Toutes »).
+  Chaque enregistrement clé porte un `companyId?` **nullable** — un non-rattaché est gardé par certaines listes et
+  exclu par d'autres, selon le filtre qu'elles appliquent (voir les filtres ci-dessous).
 - **Domaines rattachés** (`companyId` + relation `company`) — **toute la plateforme** : `RegulatoryProduct`,
   `PchTender`, `Employee`, `PromoMaterial`, `MedicalDoctor`, `FinanceTransaction`, `MedicalInfoDeclaration`,
   `StockSnapshot`, `LogisticsOrder`, `Sale`, `Department`, **`SponsoringRequest`, `CongressNational`,
@@ -935,15 +936,23 @@ ensuite). C'est une **dimension transverse** appliquée à tout le logiciel :
 - **Sélecteur de portée** (barre supérieure, `CompanySwitcher`) : « Toutes les entités » ou une entité précise.
   Mémorisé dans le cookie `amd-company`. ⚠️ **Le cookie est une demande, jamais une autorisation** : il est validé
   contre les droits réels (`resolveScope`) avant tout usage.
-- **Deux filtres, deux usages** (`src/lib/company.ts` → `src/lib/company-access.ts`, fonctions **pures testées**) :
+- **Les filtres et leurs usages** (`src/lib/company.ts` → `src/lib/company-access.ts`, fonctions **pures testées**) :
   - `myCompanyWhere(userId)` / `companyAccessWhere` — domaines **historiquement** rattachés (Regulatory, ventes…).
     « Toutes les entités » signifie « toutes celles auxquelles j'ai droit », **jamais** toutes celles qui existent ;
     aucun droit ⇒ `{ companyId: { in: [] } }`, jamais `{}`.
   - `platformScope(userId)` / `platformScopeWhere` — domaines **récemment** rattachés (budget, Ad & Pro, finances,
-    demandes). Identique, à une exception **délibérée** près : un enregistrement **non rattaché reste visible dans
-    toutes les vues**. Ces tables ont vécu sans entité ; les filtrer strictement les rendrait invisibles depuis
-    toutes les vues d'un salarié mono-entité (que `resolveScope` borne d'office à sa société) — ce serait de la
-    perte de travail, pas du cloisonnement. Second garde-fou : **moins de deux entités ⇒ aucun filtre**.
+    demandes). **Même règle, sans exception** : l'exception qui laissait les lignes non rattachées visibles partout a
+    été levée — elle montrait le travail d'une société dans la vue d'une autre. **Appliqué seul** (listes Ad & Pro,
+    budget, bureau du secrétariat `getRequestList`), il exclut une ligne sans entité de toute vue cloisonnée : seuls
+    les rôles qui voient tout le groupe la lisent, en vue « Toutes les entités ». D'où l'obligation, pour tout
+    écrivain de ces tables, de poser l'entité (un cliquet la tient pour les demandes au secrétariat, §118.154).
+  - `companyScopedWhere(userId, base)` — la même portée **composée en `AND`**, plus les lignes sans entité, gardées
+    EXPRÈS pour qu'on les rattache (Legal, Courriers, centre de paiement, comptabilité, ventes, logistique,
+    recrutement, stock promotionnel…) : une ligne sans entité n'est le secret d'aucune société. Les deux filtres
+    ne répondent donc pas pareil à « une ligne sans entité est-elle visible ? » : chacun porte sa raison dans son
+    commentaire, et c'est l'écran qui choisit le sien.
+  - Ce qui reste sans entité est listé et se rattache en masse depuis **Administration → Entités**
+    (`queries/unattached.ts`). Second garde-fou : **moins de deux entités ⇒ aucun filtre**.
 - **À la création** : `companyIdForNew(userId)` = la portée en cours, à défaut la société d'appartenance du créateur,
   à défaut `null` (on ne devine pas). Un **ordre de dépense** hérite de l'entité de **sa demande source**, pas de son
   demandeur, qui peut avoir changé d'entité. Un **transfert entre modules Ad & Pro conserve l'entité**.
@@ -6065,6 +6074,30 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### LES PASTILLES DU MENU, ET LES DEMANDES AU SECRÉTARIAT QUI NAISSAIENT SANS SOCIÉTÉ (2026-09)
+
+Suite des parcours par rôle. **Les pastilles du menu ne se répètent plus.** Une pastille compte les notifications non
+lues d'un module, et plusieurs entrées portent le même module : dans le menu des Finances, « 3 » s'affichait sur
+Finances, Banque & paiements, Comptabilité ET Bons de commande — les mêmes trois notifications, quatre fois, et « Bons
+de commande 3 » quand aucun bon n'attendait de signature. Chaque module est désormais compté une fois : sur l'entrée
+parente, jamais répété sur ses sous-menus ; un sous-menu d'un autre module garde sa propre pastille. Même règle dans la
+barre latérale et dans le menu mobile.
+
+**Une demande au secrétariat porte toujours une société.** Le bureau du secrétariat n'affiche que les demandes de la
+société de chacun ; une demande née sans société n'apparaissait donc chez personne. C'était le cas de la demande de
+devis d'un dossier de matériel promotionnel créé avant le rattachement automatique, de la pièce (devis, BC, facture)
+demandée pour un poste Ad & Pro, et des demandes créées en LOT — dont l'auteur lui-même ne retrouvait pas ses propres
+demandes. La demande prend la société de l'opération, à défaut celle où travaille son demandeur ; un lot prend la même
+société qu'une demande créée seule. Un contrôle automatique exige désormais la société sur toute création de demande
+au secrétariat.
+
+**Ce qui reste, nommé.** Le « Bureau de Donna » (`/demandes/assistant`) n'applique pas le filtre par société, contrairement
+à la liste du secrétariat : deux écrans du même module ne répondent pas pareil à « quelles demandes vois-je ? » — une
+décision de périmètre, pas une ligne de code.
+
+**Mesure** : 9 271 tests verts sur 805 fichiers, typecheck et build propres, 18 sabotages joués et tous détectés,
+frontière Adam ↔ ERP à 427 (inchangée). Détail au §118.154 de `CLAUDE.md`.
 
 ### DANS LA PEAU DE CHAQUE EMPLOYÉ — CE QUE LES PARCOURS PAR RÔLE ONT TROUVÉ, ET ADAM RÉSERVÉ AU SUPER ADMIN (2026-09)
 

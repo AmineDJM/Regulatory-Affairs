@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import type { NavItem } from "@/lib/labels";
-import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, type NavPoleKey } from "@/lib/navigation";
+import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, type NavPoleKey, pastillesDesEntrees, modulesDeLEntree } from "@/lib/navigation";
 import { OfficePins } from "./office-pins";
 
 interface SidebarProps {
@@ -16,11 +16,8 @@ interface SidebarProps {
   moduleBadges?: Record<string, number>;
 }
 
-/** Nombre de notifications non lues d'une entrée (module + ses onglets fusionnés). */
-function badgeFor(item: NavItem, badges: Record<string, number>): number {
-  const mods = item.tabs ? [...new Set([item.module, ...item.tabs.map((t) => t.module)])] : [item.module];
-  return mods.reduce((a, m) => a + (badges[m] ?? 0), 0);
-}
+// Les pastilles se calculent par LISTE d'entrées sœurs (`pastillesDesEntrees`) : une entrée seule
+// ne sait pas si sa sœur ou son parent compte déjà son module (§118.154).
 
 /** Tous les chemins qui rendent une entrée « active », ses sous-modules compris. */
 export function navPaths(item: NavItem): string[] {
@@ -94,7 +91,7 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
     try { window.localStorage.setItem(OPEN_POLES_KEY, JSON.stringify(merged)); } catch { /* refusé : sans mémoire */ }
   };
 
-  const renderItem = (item: NavItem, nested = false, depth = 0) => {
+  const renderItem = (item: NavItem, nested = false, depth = 0, badge = 0) => {
     const paths = [item.href, ...(item.match ?? [])];
     const active = paths.some((p) => pathname === p || pathname.startsWith(p + "/"));
     const kids = item.children ?? [];
@@ -120,7 +117,7 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
             <span className="truncate">{item.label}</span>
             {item.href === "/messages"
               ? <MessagesNavBadge initial={messagingUnread} />
-              : (() => { const b = badgeFor(item, moduleBadges); return b > 0 ? <NavBadge count={b} /> : null; })()}
+              : badge > 0 ? <NavBadge count={badge} /> : null}
           </Link>
           {/* LA FLÈCHE DES SOUS-MODULES — séparée du lien : on doit pouvoir ouvrir le parent
               SANS déplier, et déplier sans quitter la page où l'on est. */}
@@ -137,7 +134,11 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
           )}
         </div>
         {kids.length > 0 && opened && (
-          <ul className="mt-0.5 space-y-0.5">{kids.map((c) => renderItem(c, true, depth + 1))}</ul>
+          <ul className="mt-0.5 space-y-0.5">{(() => {
+            // Le parent compte déjà son module : un sous-menu du même module ne le recompte pas.
+            const pastilles = pastillesDesEntrees(kids, moduleBadges, modulesDeLEntree(item));
+            return kids.map((c, i) => renderItem(c, true, depth + 1, pastilles[i]));
+          })()}</ul>
         )}
       </li>
     );
@@ -147,7 +148,10 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
     groupItems.length === 0 ? null : (
       <div key={group}>
         <p className="px-3 pb-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-sidebar-muted">{group}</p>
-        <ul className="space-y-0.5">{groupItems.map((i) => renderItem(i))}</ul>
+        <ul className="space-y-0.5">{(() => {
+          const pastilles = pastillesDesEntrees(groupItems, moduleBadges);
+          return groupItems.map((i, k) => renderItem(i, false, 0, pastilles[k]));
+        })()}</ul>
       </div>
     )
   );
@@ -179,7 +183,8 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
                 const opened = isOpen(pole.key, pole.defaultOpen);
                 const anyActive = pole.children.some((c) => navPaths(c)
                   .some((p) => pathname === p || pathname.startsWith(p + "/")));
-                const badge = pole.children.reduce((a, c) => a + badgeFor(c, moduleBadges), 0);
+                const pastilles = pastillesDesEntrees(pole.children, moduleBadges);
+                const badge = pastilles.reduce((a, n) => a + n, 0);
                 return (
                   <li key={pole.key}>
                     <button
@@ -203,7 +208,7 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
                         rendu client doit être identique à celui du serveur. */}
                     {(opened || !restored) && (
                       <ul className={cn("mt-0.5 space-y-0.5", !opened && !restored ? "hidden" : "")}>
-                        {pole.children.map((c) => renderItem(c, true))}
+                        {pole.children.map((c, k) => renderItem(c, true, 0, pastilles[k]))}
                       </ul>
                     )}
                   </li>

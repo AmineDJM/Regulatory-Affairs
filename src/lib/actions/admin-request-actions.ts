@@ -454,6 +454,10 @@ export async function createRequestBatch(
   const assignedToId = fdStr(formData, "assignedToId");
   const departmentId = fdStr(formData, "departmentId");
   const createdIds: string[] = [];
+  // LA MÊME SOCIÉTÉ QUE LA CRÉATION UNITAIRE (`createRequest`, plus haut dans ce fichier) : le lot
+  // créait ses demandes sans société, donc invisibles dans toute vue cloisonnée du bureau — même
+  // pour leur auteur (§118.154). Lue une fois : toutes les cellules d'un envoi sont du même auteur.
+  const companyId = await companyIdForNew(user.id);
 
   for (const c of clean) {
     const type = (REQ_TYPES.includes(c.type as AdminRequestType) ? c.type : "OTHER") as AdminRequestType;
@@ -479,6 +483,7 @@ export async function createRequestBatch(
           departmentId,
           fields,
           batchId,
+          companyId,
           requesterId: user.id,
           createdById: user.id,
         },

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
+import { moneyEntityOf } from "@/lib/company";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
@@ -107,6 +108,14 @@ export async function demanderDevisPromo(formData: FormData): Promise<ActionResu
   if (pm.circuitState !== "QUOTE_TO_REQUEST") return { ok: false, error: "Les devis de ce dossier sont déjà demandés." };
   const note = fdStr(formData, "note");
 
+  // LA SOCIÉTÉ DE LA DEMANDE — celle du dossier, sinon celle où TRAVAILLE le demandeur. Un dossier
+  // né avant que la création porte son entité a `companyId` nul ; sa demande au secrétariat
+  // héritait de ce nul, et une ligne sans société n'apparaît dans AUCUNE vue cloisonnée
+  // (`platformScopeWhere`) : l'assistante ne la voyait pas dans son bureau, alors qu'elle avait
+  // été prévenue et que le dossier affichait « devis demandés » (§118.154). La société de la
+  // PERSONNE et non celle de l'écran (`moneyEntityOf`) : un devis engage une dépense.
+  const societe = pm.companyId ?? (await moneyEntityOf(pm.requesterId ?? user.id));
+
   // LA DEMANDE AU SECRÉTARIAT D'ABORD, LA BASCULE ENSUITE. Dans l'ordre inverse, une création qui
   // échoue (collision de référence épuisée, base indisponible) laissait le dossier sur « devis
   // demandés » sans aucune demande ni personne prévenue : une étape que personne ne peut faire
@@ -126,7 +135,7 @@ export async function demanderDevisPromo(formData: FormData): Promise<ActionResu
       status: "NEW",
       requesterId: pm.requesterId ?? user.id,
       assignedToId: pm.assistantId,
-      companyId: pm.companyId,
+      companyId: societe,
       linkedEntityType: "PROMO_MATERIAL",
       linkedEntityId: pm.id,
     },

@@ -79,6 +79,44 @@ export function itemsOfGroup(items: NavItem[], group: NavItem["group"]): NavItem
   return items.filter((i) => i.group === group && !i.pole);
 }
 
+/** Les modules dont une entrée porte les notifications : le sien, et ceux de ses onglets fusionnés. */
+export function modulesDeLEntree(entree: Pick<NavItem, "module" | "tabs">): string[] {
+  return entree.tabs ? [...new Set([entree.module, ...entree.tabs.map((t) => t.module)])] : [entree.module];
+}
+
+/**
+ * LES PASTILLES D'UNE LISTE D'ENTRÉES SŒURS — chaque module compté UNE fois (§118.154).
+ *
+ * La pastille d'une entrée compte les notifications non lues de SON module. Or plusieurs entrées
+ * portent le même module : Finances et ses trois sous-menus, les trois écrans du pôle Regulatory,
+ * Mon Équipe et son premier sous-menu. Mesuré dans la peau des Finances : « 3 » sur Finances ET
+ * sur Banque & paiements, Comptabilité et Bons de commande — les mêmes trois notifications
+ * affichées quatre fois, et « Bons de commande 3 » quand aucun bon n'attendait de signature. Une
+ * pastille dit « trois choses ICI » : répétée, elle ment trois fois sur quatre, et le pôle replié
+ * additionnait les répétitions.
+ *
+ * La règle : un module se compte sur la PREMIÈRE entrée de la liste qui le porte, et jamais sur
+ * une entrée dont le PARENT le compte déjà (`dejaComptes`). Rien n'est retiré — le total est celui
+ * des notifications, il cesse seulement d'être multiplié. Une seule fonction pour la barre latérale
+ * et le tiroir mobile : deux calculs de la même pastille finiraient par afficher deux nombres.
+ */
+export function pastillesDesEntrees(
+  entrees: Pick<NavItem, "module" | "tabs">[],
+  badges: Record<string, number>,
+  dejaComptes: Iterable<string> = [],
+): number[] {
+  const vus = new Set<string>(dejaComptes);
+  return entrees.map((entree) => {
+    let n = 0;
+    for (const m of modulesDeLEntree(entree)) {
+      if (vus.has(m)) continue;
+      vus.add(m);
+      n += badges[m] ?? 0;
+    }
+    return n;
+  });
+}
+
 /**
  * Le pôle qui contient un chemin — pour ouvrir automatiquement le bon tiroir à l'arrivée sur une
  * page. Sans cela, arriver sur `/pch` par un lien de notification laisserait le pôle replié et
