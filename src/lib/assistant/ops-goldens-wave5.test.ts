@@ -37,7 +37,6 @@ const TAG = `${PREFIXE}${Date.now()}`;
 const domainArgs = (p: { payload: unknown }) => (p.payload as Extract<AssistantActionPayload, { kind: "domain_op" }>).args;
 
 let saId = "";
-let pmUserId = "";
 let eventId = "";
 let regId = "";
 let spoId = "";
@@ -84,11 +83,11 @@ suite("ops vague 5a — Events, circuits Ad&Pro, postes, Consulting", () => {
   afterAll(balayer);
 
   beforeAll(async () => {
-    const [s, pm] = await Promise.all([
+    const [s] = await Promise.all([
       prisma.user.create({ data: { name: `${TAG} Amine`, email: `${TAG}s@t.dz`, passwordHash: "x", role: "SUPER_ADMIN" } }),
       prisma.user.create({ data: { name: `${TAG} Nadia CDP`, email: `${TAG}p@t.dz`, passwordHash: "x", role: "PRODUCT_MANAGER" } }),
     ]);
-    saId = s.id; pmUserId = pm.id;
+    saId = s.id;
 
     const event = await prisma.event.create({
       data: {
@@ -107,6 +106,21 @@ suite("ops vague 5a — Events, circuits Ad&Pro, postes, Consulting", () => {
       data: { reference: `${TAG}-SPO-1`, institution: `${TAG} Association cardio Blida`, type: "Sponsoring", status: "AWAITING_PRELIMINARY", amountRequested: 300_000 },
     });
     spoId = spo.id;
+    // DEUX SPONSORINGS PRÉ-VALIDÉS (§118.151) : l'un dont le seul poste est encore à décider (la
+    // clôture doit le NOMMER), l'autre dont le seul poste est refusé (clôturable, à 0 DZD — vrai :
+    // la tenue a été pré-validée, rien n'a été financé).
+    await prisma.sponsoringRequest.create({
+      data: {
+        reference: `${TAG}-SPO-2`, institution: `${TAG} Société de pneumologie`, type: "Sponsoring", status: "PRE_VALIDATED",
+        items: { create: { kind: "ASSOCIATION_SUPPORT", label: `${TAG} Sponsoring direct pneumo`, amountEstimated: 120_000, status: "DRAFT", position: 1 } },
+      },
+    });
+    await prisma.sponsoringRequest.create({
+      data: {
+        reference: `${TAG}-SPO-3`, institution: `${TAG} Association diabète`, type: "Sponsoring", status: "PRE_VALIDATED",
+        items: { create: { kind: "INDIRECT_SUPPORT", label: `${TAG} Prise en charge diabète`, amountEstimated: 80_000, status: "REJECTED", position: 1 } },
+      },
+    });
 
     const congress = await prisma.congressNational.create({
       data: { name: `${TAG} Congrès SAHA 2026`, requestStatus: "AWAITING_FINAL", productManagerBudget: 500_000 },
@@ -167,52 +181,37 @@ suite("ops vague 5a — Events, circuits Ad&Pro, postes, Consulting", () => {
     });
   });
 
-  describe("Sponsoring — le circuit complet", () => {
-    it("decide_sponsoring_preliminary : l'ACCORD exige la Direction Marketing résolu par nom ; le refus, un motif", async () => {
-      const noPm = await buildProposal("adpro_operation", {
-        op: "decide_sponsoring_preliminary", reference: `${TAG}-SPO-1`, decision: "approuver",
-      }, sa());
-      expect("error" in noPm).toBe(true);
-
-      const p = await buildProposal("adpro_operation", {
-        op: "decide_sponsoring_preliminary", reference: `${TAG}-SPO-1`, decision: "approuver", person: "Nadia CDP",
-      }, sa());
-      expect("error" in p).toBe(false);
-      if (!("error" in p)) {
-        expect(domainArgs(p).productManagerId).toBe(pmUserId);
-        expect(domainArgs(p).decision).toBe("APPROVE");
-      }
-
-      const noReason = await buildProposal("adpro_operation", {
-        op: "decide_sponsoring_preliminary", reference: `${TAG}-SPO-1`, decision: "refuser",
-      }, sa());
-      expect("error" in noReason && noReason.error).toMatch(/motif/i);
+  describe("Sponsoring — la validation finale et la clôture (§118.151)", () => {
+    it("close_sponsoring : une demande encore dans son circuit n'est PAS clôturable — le refus dit pourquoi", async () => {
+      const p = await buildProposal("adpro_operation", { op: "close_sponsoring", reference: `${TAG}-SPO-1` }, sa());
+      expect("error" in p && p.error).toMatch(/pré-validée/);
     });
 
-    it("analyze_sponsoring : avis obligatoire, budget obligatoire (hors appel)", async () => {
-      const noBudget = await buildProposal("adpro_operation", {
-        op: "analyze_sponsoring", reference: `${TAG}-SPO-1`, note: "Bonne visibilité produit",
-      }, sa());
-      expect("error" in noBudget && noBudget.error).toMatch(/budget/i);
-      const p = await buildProposal("adpro_operation", {
-        op: "analyze_sponsoring", reference: `${TAG}-SPO-1`, note: "Bonne visibilité produit", amount: "250000",
-      }, sa());
-      expect("error" in p).toBe(false);
-      if (!("error" in p)) expect(domainArgs(p).productManagerBudget).toBe("250000");
+    it("close_sponsoring : un poste encore à décider bloque la clôture, et le refus le NOMME", async () => {
+      const p = await buildProposal("adpro_operation", { op: "close_sponsoring", reference: `${TAG}-SPO-2` }, sa());
+      expect("error" in p && p.error).toMatch(/à décider/);
+      expect("error" in p && p.error).toContain(`${TAG} Sponsoring direct pneumo`);
     });
 
-    it("decide_sponsoring_final : CRITIQUE — l'accord EXIGE le montant ; la déclaration PRIM est annoncée", async () => {
-      const noAmount = await buildProposal("adpro_operation", {
-        op: "decide_sponsoring_final", reference: `${TAG}-SPO-1`, decision: "accorder",
-      }, sa());
-      expect("error" in noAmount && noAmount.error).toMatch(/budget final/i);
-      const p = await buildProposal("adpro_operation", {
-        op: "decide_sponsoring_final", reference: `${TAG}-SPO-1`, decision: "accorder", amount: "200000",
-      }, sa());
-      expect("error" in p).toBe(false);
-      if (!("error" in p)) {
-        expect(domainArgs(p).amountGranted).toBe("200000");
-        expect(p.warnings.join(" ")).toMatch(/information médicale/);
+    it("close_sponsoring : tout est décidé ⇒ la carte montre le total qui sera écrit (0 DZD si tout est refusé)", async () => {
+      const p = await buildProposal("adpro_operation", { op: "close_sponsoring", reference: `${TAG}-SPO-3` }, sa());
+      expect("error" in p, "error" in p ? p.error : "").toBe(false);
+      if ("error" in p) return;
+      expect(p.fields.map((f) => `${f.label}=${f.value}`).join(" | ")).toMatch(/Montant accordé[^|]*=\s*0\s*DZD/);
+      expect(p.warnings.join(" ")).toMatch(/FIGE/);
+    });
+
+    it("reopen_sponsoring : le motif est obligatoire, et l'on ne rouvre que ce qui est clôturé", async () => {
+      const sansMotif = await buildProposal("adpro_operation", { op: "reopen_sponsoring", reference: `${TAG}-SPO-3` }, sa());
+      expect("error" in sansMotif && sansMotif.error).toMatch(/motif/i);
+      const pasClos = await buildProposal("adpro_operation", { op: "reopen_sponsoring", reference: `${TAG}-SPO-3`, note: "facture corrigée" }, sa());
+      expect("error" in pasClos && pasClos.error).toMatch(/pas clôturée/);
+    });
+
+    it("les anciennes décisions HORS circuit n'existent plus — Adam conduit le circuit par le moteur", async () => {
+      for (const op of ["decide_sponsoring_preliminary", "analyze_sponsoring", "decide_sponsoring_final"]) {
+        const p = await buildProposal("adpro_operation", { op, reference: `${TAG}-SPO-1`, decision: "accorder", amount: "1" }, sa());
+        expect("error" in p, `${op} ne doit plus construire de carte`).toBe(true);
       }
     });
   });
@@ -233,7 +232,8 @@ suite("ops vague 5a — Events, circuits Ad&Pro, postes, Consulting", () => {
       const p = await buildProposal("adpro_operation", {
         op: "decide_congress_final", target: `${TAG}-SPO-1`, kind: "sponsoring", decision: "valider", amount: "100",
       }, sa());
-      expect("error" in p && p.error).toMatch(/propres ops/);
+      // Le refus NOMME le chemin qui existe : le moteur de circuit, puis la clôture (§118.63).
+      expect("error" in p && p.error).toMatch(/advance_workflow/);
     });
 
     it("update_item : le poste se résout par LIBELLÉ dans son opération ; seuls les champs donnés partent", async () => {

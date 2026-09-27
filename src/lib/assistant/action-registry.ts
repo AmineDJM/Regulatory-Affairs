@@ -856,8 +856,8 @@ G("circuit matériel promo (devis→BAT→paiement, étapes après création)", 
   "promo-stock-actions:deleteStockMovement",
 ]);
 G("sponsoring / congrès / prises en charge (décisions et étapes après création)", [
-  "sponsoring-actions:sponsoringPreliminary", "sponsoring-actions:requestThirdPartyInput",
-  "sponsoring-actions:sponsoringAnalysis", "sponsoring-actions:sponsoringFinal", "sponsoring-actions:sponsoringAppeal",
+  "sponsoring-actions:requestThirdPartyInput", "sponsoring-actions:sponsoringAppeal",
+  "sponsoring-actions:cloturerSponsoring", "sponsoring-actions:rouvrirSponsoring",
   "congress-request-actions:preliminaryDecision", "congress-request-actions:submitProductAnalysis",
   "congress-request-actions:finalDecision", "congress-request-actions:updateGrantedBudget",
   "congress-request-actions:requestThirdPartyInput", "congress-request-actions:cancelCongressRequest",

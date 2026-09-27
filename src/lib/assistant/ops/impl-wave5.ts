@@ -3,7 +3,7 @@ import {
   updateEvent, deleteEvent, submitEventForApproval, addRegistration, setRegistrationStatus, deleteRegistration,
 } from "@/lib/actions/event-actions";
 import {
-  sponsoringPreliminary, sponsoringAnalysis, sponsoringFinal, sponsoringAppeal,
+  sponsoringAppeal, cloturerSponsoring, rouvrirSponsoring,
   requestThirdPartyInput as sponsoringThirdParty,
 } from "@/lib/actions/sponsoring-actions";
 import {
@@ -25,6 +25,7 @@ import {
   demandesAuCentreAdPro, deciderVisaCentreAdPro, setAdProDgThreshold, setBcValidationThreshold, DEFAULT_APP_SETTINGS,
   PIECE_SECRETARIAT, NATURES_PIECE_SECRETARIAT, type NaturePieceSecretariat,
   resoudreCible, direRefus, LIBELLE_POLE, poleDe, poleOppose, type PoleConsulting,
+  bilanCloture,
 } from "@/platform/in-process/capacites";
 import {
   createConsultingContract, requestConsultingValidation, decideConsultingContract,
@@ -38,8 +39,8 @@ import { resolveMissionParent, type MissionParent } from "./impl-wave2b";
 
 /**
  * OPS VAGUE 5a — EVENTS (fiche en FUSION intégrale, circuit de prise en charge, inscriptions),
- * AD & PRO (circuit sponsoring complet : préliminaire National Sales → analyse Direction Marketing
- * → décision Direction → appel ; circuit congrès/événement ; personnes prises en charge ;
+ * AD & PRO (sponsoring : validation finale et clôture, réouverture, appel — le circuit lui-même se
+ * conduit par `advance_workflow`, §118.151 ; circuit congrès/événement ; personnes prises en charge ;
  * POSTES de dépense de bout en bout : devis → validation → budget → BC visé → émission ;
  * demandes « autres » ; correction de fiche par liste blanche), CONSULTING (contrat deux
  * parties, validation désignée, tâches attendues). Toujours par les ACTIONS CANONIQUES.
@@ -308,7 +309,9 @@ async function resolveSponsoring(raw: string): Promise<SponsoringHit | { error: 
 async function resolveCongressTarget(kindRaw: string, labelRaw: string): Promise<(MissionParent & { congressType: string }) | { error: string }> {
   const parent = await resolveMissionParent(kindRaw || "congrès ou événement", labelRaw);
   if ("error" in parent) return parent;
-  if (parent.entityType === "SPONSORING") return { error: "Un SPONSORING se décide par ses propres ops (decide_sponsoring_…)." };
+  if (parent.entityType === "SPONSORING") {
+    return { error: "Un SPONSORING suit son circuit par `advance_workflow` (approuver / refuser l'étape en cours), puis se clôture par `close_sponsoring`." };
+  }
   const congressType = parent.entityType === "EVENT" ? "EVENT" : parent.entityType === "CONGRESS_NATIONAL" ? "NATIONAL" : "INTL";
   return { ...parent, congressType };
 }
@@ -321,85 +324,70 @@ const decisionOf = (raw: string): "APPROVE" | "REJECT" | null => {
 };
 
 export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
-  decide_sponsoring_preliminary: {
+  // LES ANCIENNES DÉCISIONS HORS CIRCUIT ONT DISPARU (§118.151). `decide_sponsoring_preliminary`,
+  // `analyze_sponsoring` et `decide_sponsoring_final` écrivaient le statut sans le moteur : la
+  // dernière accordait un montant GLOBAL en sautant la pré-validation de la tenue, les postes et
+  // la clôture — une porte ouverte à côté de la porte gardée (§118.71). Le circuit se conduit par
+  // `advance_workflow` (le moteur, ses gardes, son tamis) ; la fin se prononce ici.
+
+  close_sponsoring: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const req = await resolveSponsoring(opStr(input, "reference") || opStr(input, "label"));
       if ("error" in req) return req;
-      const decision = decisionOf(opStr(input, "decision"));
-      if (!decision) return { error: "Précisez la décision (champ « decision ») : approuver ou refuser." };
-      if (decision === "REJECT" && !opStr(input, "note")) return { error: "Le motif de refus est obligatoire (champ « note »)." };
-      let pmId: string | null = null; let pmName: string | null = null;
-      if (decision === "APPROVE") {
-        const pm = await resolvePerson(opStr(input, "person"), "le référent Direction Marketing (champ « person »)");
-        if ("error" in pm) return pm;
-        pmId = pm.id; pmName = pm.name;
-      }
+      // LE BILAN AVANT LA CARTE : une carte qui propose une clôture que l'action refusera est un
+      // geste offert puis retiré (§118.83). Le refus dit TOUT ce qui manque, en une fois.
+      const postes = await prisma.adProItem.findMany({
+        where: { sponsoringId: req.id },
+        select: { label: true, status: true, amountGranted: true, budgetCategoryId: true },
+        orderBy: { position: "asc" },
+      });
+      const bilan = bilanCloture(req.status, postes.map((p) => ({
+        label: p.label, status: p.status, budgetCategoryId: p.budgetCategoryId,
+        amountGranted: p.amountGranted != null ? Number(p.amountGranted) : null,
+      })));
+      if (!bilan.cloturable) return { error: `Clôture impossible pour ${req.reference} — ${bilan.manques.join(" ; ")}.` };
+      const note = opStr(input, "note") || null;
       return {
-        title: `${decision === "APPROVE" ? "Valider (préliminaire)" : "REFUSER"} le sponsoring ${req.reference}`,
+        title: `VALIDER ET CLÔTURER le sponsoring ${req.reference}`,
         fields: fieldsOf([
           ["Demande", `${req.reference} — ${req.institution}`],
-          ["Référent Direction Marketing", pmName],
-          ["Motif / note", opStr(input, "note") || null],
+          ["Postes accordés", String(bilan.accordes)],
+          ["Postes refusés", bilan.refuses > 0 ? String(bilan.refuses) : null],
+          ["Montant accordé (somme des postes accordés)", dzd(bilan.total)],
+          ["Note", note],
         ]),
-        warnings: ["Approbation préliminaire réservée au National Sales — la décision définitive reste à la Direction."],
-        args: { id: req.id, decision, productManagerId: pmId, note: opStr(input, "note") || null },
-        successMessage: `Sponsoring ${req.reference} ${decision === "APPROVE" ? `validé (préliminaire) — analyse confiée à ${pmName}` : "refusé"}.`,
+        warnings: [
+          "La clôture FIGE les postes, leurs montants et leurs budgets : le total devient le montant accordé de la demande.",
+          "Les BC et factures des postes accordés continuent leur chemin ; pour corriger un poste, il faudra rouvrir la demande.",
+        ],
+        args: { id: req.id, note },
+        successMessage: `Sponsoring ${req.reference} validé et clôturé — ${dzd(bilan.total)}.`,
         link: `/sponsoring/${req.id}`, revalidate: ["/sponsoring"],
       };
     },
-    execute: (args) => runFd(sponsoringPreliminary, args, "La décision préliminaire a été refusée.", { revalidate: ["/sponsoring"] }),
+    execute: (args) => runFd(cloturerSponsoring, args, "La clôture a été refusée.", { revalidate: ["/sponsoring"] }),
   },
 
-  analyze_sponsoring: {
+  reopen_sponsoring: {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const req = await resolveSponsoring(opStr(input, "reference") || opStr(input, "label"));
       if ("error" in req) return req;
-      const notes = opStr(input, "note") || opStr(input, "message");
-      if (!notes) return { error: "Votre avis est obligatoire (champ « note »)." };
-      const isAppeal = req.status === "APPEAL_PENDING";
-      const budget = opStr(input, "amount");
-      if (!isAppeal && !budget) return { error: "Le budget proposé est obligatoire (champ « amount », DZD) — sauf en appel." };
+      const reason = opStr(input, "note") || opStr(input, "message");
+      if (!reason) return { error: "Le motif de la réouverture est obligatoire (champ « note »)." };
+      if (req.status !== "CLOSED") return { error: `${req.reference} n'est pas clôturée : il n'y a rien à rouvrir.` };
       return {
-        title: `Analyse Direction Marketing — ${req.reference}${isAppeal ? " (APPEL)" : ""}`,
+        title: `ROUVRIR le sponsoring clôturé ${req.reference}`,
         fields: fieldsOf([
           ["Demande", `${req.reference} — ${req.institution}`],
-          ["Avis", notes],
-          ["Budget proposé", !isAppeal && budget ? dzd(Number(budget)) : null],
+          ["Motif", reason],
         ]),
-        warnings: isAppeal ? ["En APPEL, l'avis part SANS budget — la Direction tranchera."] : ["L'analyse part à la Direction pour décision définitive."],
-        args: { id: req.id, productManagerNotes: notes, productManagerBudget: isAppeal ? null : budget },
-        successMessage: `Analyse de ${req.reference} transmise à la Direction.`,
+        warnings: ["La demande repasse en « tenue pré-validée » : son montant accordé est retiré jusqu'à la prochaine clôture."],
+        args: { id: req.id, reason },
+        successMessage: `Sponsoring ${req.reference} rouvert — ses postes se modifient à nouveau.`,
         link: `/sponsoring/${req.id}`, revalidate: ["/sponsoring"],
       };
     },
-    execute: (args) => runFd(sponsoringAnalysis, args, "L'analyse a été refusée.", { revalidate: ["/sponsoring"] }),
-  },
-
-  decide_sponsoring_final: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const req = await resolveSponsoring(opStr(input, "reference") || opStr(input, "label"));
-      if ("error" in req) return req;
-      const decision = decisionOf(opStr(input, "decision"));
-      if (!decision) return { error: "Précisez la décision (champ « decision ») : accorder ou refuser." };
-      const amount = opStr(input, "amount");
-      if (decision === "APPROVE" && !amount) return { error: "Le budget final accordé est obligatoire (champ « amount », DZD)." };
-      if (decision === "REJECT" && !opStr(input, "note")) return { error: "Le motif de refus est obligatoire (champ « note »)." };
-      return {
-        title: `${decision === "APPROVE" ? "ACCORDER" : "REFUSER"} définitivement le sponsoring ${req.reference}`,
-        fields: fieldsOf([
-          ["Demande", `${req.reference} — ${req.institution}`],
-          ["Budget accordé", decision === "APPROVE" && amount ? dzd(Number(amount)) : null],
-          ["Motif / note", opStr(input, "note") || null],
-        ]),
-        warnings: decision === "APPROVE"
-          ? ["Décision de la DIRECTION — l'accord crée la déclaration d'information médicale AVANT l'ordre de dépense."]
-          : ["Décision définitive de la Direction — le demandeur peut faire appel."],
-        args: { id: req.id, decision, amountGranted: decision === "APPROVE" ? amount : null, note: opStr(input, "note") || null },
-        successMessage: `Sponsoring ${req.reference} ${decision === "APPROVE" ? `accordé (${dzd(Number(amount))})` : "refusé (définitif)"}.`,
-        link: `/sponsoring/${req.id}`, revalidate: ["/sponsoring"],
-      };
-    },
-    execute: (args) => runFd(sponsoringFinal, args, "La décision définitive a été refusée.", { revalidate: ["/sponsoring"] }),
+    execute: (args) => runFd(rouvrirSponsoring, args, "La réouverture a été refusée.", { revalidate: ["/sponsoring"] }),
   },
 
   appeal_sponsoring: {
@@ -414,9 +402,9 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
           { label: "Demande", value: `${req.reference} — ${req.institution}` },
           { label: "Motif de l'appel", value: reason },
         ],
-        warnings: ["L'appel rouvre le circuit : nouvel avis de la Direction Marketing (sans budget), puis décision de la Direction."],
+        warnings: ["L'appel rouvre le circuit de validation de la demande — il repasse par ses étapes."],
         args: { id: req.id, reason },
-        successMessage: `Appel enregistré sur ${req.reference} — la Direction Marketing réexamine.`,
+        successMessage: `Appel enregistré sur ${req.reference} — le circuit est rouvert.`,
         link: `/sponsoring/${req.id}`, revalidate: ["/sponsoring"],
       };
     },

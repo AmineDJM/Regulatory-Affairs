@@ -135,30 +135,70 @@ async function congressLikeRisks(th: RiskThresholds): Promise<Risk[]> {
   return out;
 }
 
+/**
+ * QUI UN SPONSORING ATTEND — lu sur son CIRCUIT, pas sur son statut projeté (§118.151).
+ *
+ * Le statut hérité ne suffit pas : `PRELIMINARY_APPROVED` couvre DEUX étapes (la porte du DG et la
+ * Direction des opérations), et `AWAITING_FINAL` n'est plus la décision définitive de la Direction
+ * — c'est la pré-validation de la TENUE par la Direction Marketing. La carte disait « Rendre la
+ * décision définitive » à la Direction pour une demande qui attendait la Direction Marketing : une
+ * relance envoyée à la mauvaise personne, et la bonne jamais prévenue. L'étape COURANTE de l'instance
+ * dit où la demande attend ; sans instance lisible, on retombe sur le statut, en le disant moins
+ * précisément plutôt qu'en nommant quelqu'un au hasard.
+ */
+export interface AttenteSponsoring { owner: string; cause: string; recommendation: string; role: UserRole }
+
+export function attenteSponsoring(statut: string, etapeCourante: string | null | undefined): AttenteSponsoring {
+  if (statut === "AWAITING_FINAL_APPEAL") {
+    return { owner: "Direction", cause: "Décision définitive sur l'appel du demandeur en attente.", recommendation: "Rendre la décision sur l'appel.", role: "DIRECTION" };
+  }
+  if (etapeCourante === "dg") {
+    return { owner: "Directeur Général", cause: "Validation du Directeur Général en attente (montant au-dessus du seuil).", recommendation: "Relancer le Directeur Général.", role: "GENERAL_MANAGER" };
+  }
+  if (etapeCourante === "final") {
+    return { owner: "Direction des opérations", cause: "Validation de la Direction des opérations en attente.", recommendation: "Relancer la Direction des opérations.", role: "DIRECTION" };
+  }
+  if (etapeCourante === "marketing" || statut === "AWAITING_FINAL") {
+    return { owner: "Direction Marketing", cause: "Pré-validation de la tenue par la Direction Marketing en attente.", recommendation: "Relancer la Direction Marketing.", role: "PRODUCT_MANAGER" };
+  }
+  return { owner: "Circuit de validation", cause: "Étape de validation intermédiaire en attente (Directeur Général ou Direction des opérations).", recommendation: "Ouvrir la demande et relancer le valideur de l'étape en cours.", role: "DIRECTION" };
+}
+
 async function sponsoringRisks(th: RiskThresholds): Promise<Risk[]> {
   const rows = await prisma.sponsoringRequest.findMany({
     where: { status: { in: ["PRELIMINARY_APPROVED", "AWAITING_FINAL", "AWAITING_FINAL_APPEAL"] } },
     select: { id: true, reference: true, institution: true, status: true, updatedAt: true, productManagerId: true },
   });
+  // Une lecture pour toutes les demandes, pas une par demande (§118.102b).
+  const instances = rows.length
+    ? await prisma.workflowInstance.findMany({
+      where: { entityType: "SPONSORING", entityId: { in: rows.map((r) => r.id) } },
+      select: { entityId: true, currentSlug: true },
+    })
+    : [];
+  const etape = new Map(instances.map((i) => [i.entityId, i.currentSlug]));
   const out: Risk[] = [];
   for (const s of rows) {
     const age = daysSince(s.updatedAt) ?? 0;
     if (age < th.sponsoringStaleDays) continue;
-    const awaitingPm = s.status === "PRELIMINARY_APPROVED";
+    const attente = attenteSponsoring(s.status, etape.get(s.id));
     const level: RiskLevel = age >= 10 ? "high" : "medium";
+    // Le référent de la gamme est prévenu NOMMÉMENT quand c'est la Direction Marketing qu'on attend ;
+    // sinon, le rôle qui tient l'étape.
+    const cibleNommee = attente.role === "PRODUCT_MANAGER" && s.productManagerId ? s.productManagerId : null;
     out.push({
       id: `spo-${s.id}`, level, category: "SPONSORING", module: "Sponsoring",
       title: "Sponsoring bloqué", object: `${s.reference} — ${s.institution}`,
       impact: "Décision retardée ; engagement vis-à-vis de l'institution en suspens.",
-      owner: awaitingPm ? "Direction Marketing" : "Direction", deadline: null, ageDays: age,
-      probableCause: awaitingPm ? "Analyse de la Direction Marketing non soumise." : "Décision définitive de la Direction en attente.",
-      recommendation: awaitingPm ? "Relancer la Direction Marketing." : "Rendre la décision définitive.",
-      evidence: [`Statut : ${awaitingPm ? "analyse Direction Marketing" : "décision Direction"}`, `Sans évolution depuis ${age} j`],
+      owner: attente.owner, deadline: null, ageDays: age,
+      probableCause: attente.cause,
+      recommendation: attente.recommendation,
+      evidence: [`En attente : ${attente.owner}`, `Sans évolution depuis ${age} j`],
       href: `/sponsoring/${s.id}`, at: s.updatedAt.toISOString(),
       actions: [
-        awaitingPm && s.productManagerId
-          ? { label: "Relancer Direction Marketing", icon: "Bell", payload: { kind: "notify", userId: s.productManagerId, title: "Analyse de sponsoring en attente", body: `${s.reference} — depuis ${age} j`, link: `/sponsoring/${s.id}` } }
-          : { label: "Notifier Direction", icon: "Bell", payload: { kind: "notify", role: "DIRECTION", title: "Sponsoring en attente de décision", body: `${s.reference} — depuis ${age} j`, link: `/sponsoring/${s.id}` } },
+        cibleNommee
+          ? { label: `Relancer ${attente.owner}`, icon: "Bell", payload: { kind: "notify", userId: cibleNommee, title: "Sponsoring en attente de votre pré-validation", body: `${s.reference} — depuis ${age} j`, link: `/sponsoring/${s.id}` } }
+          : { label: `Relancer ${attente.owner}`, icon: "Bell", payload: { kind: "notify", role: attente.role, title: "Sponsoring en attente de validation", body: `${s.reference} — depuis ${age} j`, link: `/sponsoring/${s.id}` } },
         { label: "Ouvrir dossier", icon: "ExternalLink", href: `/sponsoring/${s.id}` },
       ],
     });

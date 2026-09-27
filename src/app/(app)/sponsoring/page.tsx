@@ -69,7 +69,10 @@ export default async function SponsoringPage() {
             autoOpenParam="new"
             label="Nouvelle demande"
             title="Nouvelle demande de sponsoring"
-            description="Joignez dès maintenant la ou les demandes du médecin — c'est la pièce que tout le circuit va lire. Au-delà de 100 000 DZD, la demande est routée vers la Direction."
+            // « Au-delà de 100 000 DZD, la demande est routée vers la Direction » : c'était la règle
+            // d'un circuit disparu — le seuil vit dans les réglages (§118.132) et il ne route plus
+            // rien vers la Direction. La phrase dit ce qui se passe AUJOURD'HUI (§118.151).
+            description="Joignez dès maintenant la ou les demandes du médecin — c'est la pièce que tout le circuit va lire. Le sponsoring devient le premier poste de la demande ; une fois la tenue pré-validée par la Direction Marketing, les autres postes s'ajoutent, puis la validation finale clôture."
             action={createSponsoring}
             redirectBase="/sponsoring"
             fields={fields}

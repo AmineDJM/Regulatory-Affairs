@@ -60,7 +60,10 @@ export function canEditAdProRequest(editor: AdProEditor, target: AdProEditTarget
  * (paiement, clôture) ne rouvre pas la saisie.
  */
 const DECIDED_STATUS: Record<AdProKind, readonly string[]> = {
-  SPONSORING: ["APPROVED", "REFUSED", "ACCEPTED", "PAID", "CLOSED"],
+  // `PRE_VALIDATED` (§118.151) : la TENUE est décidée — réécrire l'institution ou les montants
+  // demandés après coup ferait diverger la demande de ce qui a été pré-validé. La vue globale
+  // garde la main, comme pour toute demande tranchée.
+  SPONSORING: ["APPROVED", "REFUSED", "ACCEPTED", "PAID", "CLOSED", "PRE_VALIDATED"],
   CONGRESS_NATIONAL: ["APPROVED", "REFUSED", "COMPLETED"],
   CONGRESS_INTERNATIONAL: ["APPROVED", "REFUSED", "COMPLETED"],
   // Matériel promotionnel : « décidé » = l'agence est choisie. Au-delà, le bon de commande, le
@@ -102,8 +105,8 @@ export const EDITABLE_FIELDS: Record<AdProKind, readonly EditableField[]> = {
     { key: "specialty", label: "Spécialité", type: "text" },
     { key: "city", label: "Ville", type: "text" },
     { key: "product", label: "Produit concerné", type: "text" },
-    { key: "amountRequested", label: "Budget demandé (intéressé)", type: "number" },
-    { key: "amountProposed", label: "Budget suggéré (délégué)", type: "number" },
+    { key: "amountRequested", label: "Sponsoring demandé par le médecin (DZD)", type: "number" },
+    { key: "amountProposed", label: "Sponsoring suggéré par le délégué (DZD)", type: "number" },
     { key: "description", label: "Description", type: "textarea" },
     { key: "comments", label: "Appréciation / recommandation", type: "textarea" },
   ],

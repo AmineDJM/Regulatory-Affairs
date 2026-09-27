@@ -1,6 +1,6 @@
 "use server";
 
-import type { PaymentRequestStatus } from "@prisma/client";
+import type { PaymentRequestStatus, SponsoringStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
@@ -16,6 +16,7 @@ import { budgetGate } from "@/lib/finance/settle-budget";
 import { dossierHrefByOrder } from "@/lib/expense-orders";
 import { companionStatusForOrder } from "@/lib/finance/dossier-auto";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { STATUTS_SOLDES_PAR_UN_REGLEMENT } from "@/lib/ad-pro/cloture-sponsoring";
 
 /**
  * LE DOSSIER COMPAGNON PASSE À « SOLDÉ » quand son ordre est réglé, et le fil le dit.
@@ -156,7 +157,13 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
 
   // Mark the originating record as settled.
   if (order.sourceType === "SPONSORING" && order.sourceId) {
-    await prisma.sponsoringRequest.update({ where: { id: order.sourceId }, data: { status: "PAID" } }).catch(() => undefined);
+    // Seul un accord à montant GLOBAL se solde par un règlement — pas une demande dont les POSTES
+    // portent la dépense (pré-validée, ou clôturée par sa validation finale). Écriture
+    // CONDITIONNELLE : le statut se lit et s'écrit dans la même instruction (§118.151).
+    await prisma.sponsoringRequest.updateMany({
+      where: { id: order.sourceId, status: { in: [...STATUTS_SOLDES_PAR_UN_REGLEMENT] as SponsoringStatus[] } },
+      data: { status: "PAID" },
+    }).catch(() => undefined);
   } else if (order.sourceType === "SALARY_ADVANCE" && order.sourceId) {
     await prisma.salaryAdvance.update({
       where: { id: order.sourceId }, data: { status: "PAID", paidDate: new Date(), transactionId: tx.id },

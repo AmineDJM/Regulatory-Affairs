@@ -58,6 +58,13 @@ export interface WorkflowActionView {
 export interface WorkflowOutcome {
   grantedAmount: number | null;
   expenseOrder: { reference: string; status: string; amount: number } | null;
+  /**
+   * SPONSORING sous la règle de la tenue (§118.151) : le circuit se termine sur une TENUE
+   * pré-validée, et l'argent se fixe à la clôture, poste par poste. Sans ce fait, le panneau disait
+   * « Approuvé — en cours de traitement (information médicale / Finances) », c'est-à-dire l'étape
+   * suivante d'un accord à montant global, qui n'existe plus ici.
+   */
+  tenue?: "PRE_VALIDEE" | "CLOTUREE" | null;
 }
 
 export interface WorkflowView {
@@ -88,10 +95,12 @@ const AD_PRO_BUDGET_MODULES = ["SPONSORING", "CONGRESS_INTERNATIONAL", "CONGRESS
 async function loadOutcome(entityType: EntityType, entityId: string): Promise<WorkflowOutcome> {
   let grantedAmount: number | null = null;
   let orderId: string | null = null;
+  let tenue: WorkflowOutcome["tenue"] = null;
   if (entityType === "SPONSORING") {
-    const r = await prisma.sponsoringRequest.findUnique({ where: { id: entityId }, select: { amountGranted: true, expenseOrderId: true } });
+    const r = await prisma.sponsoringRequest.findUnique({ where: { id: entityId }, select: { amountGranted: true, expenseOrderId: true, status: true, closedAt: true } });
     grantedAmount = r?.amountGranted != null ? toNumber(r.amountGranted) : null;
     orderId = r?.expenseOrderId ?? null;
+    tenue = r?.status === "PRE_VALIDATED" ? "PRE_VALIDEE" : r?.status === "CLOSED" && r.closedAt ? "CLOTUREE" : null;
   } else {
     const sel = { finalAmount: true, expenseOrderId: true } as const;
     const r =
@@ -102,7 +111,7 @@ async function loadOutcome(entityType: EntityType, entityId: string): Promise<Wo
     orderId = r?.expenseOrderId ?? null;
   }
   const order = orderId ? await prisma.expenseOrder.findUnique({ where: { id: orderId }, select: { reference: true, status: true, amount: true } }) : null;
-  return { grantedAmount, expenseOrder: order ? { reference: order.reference, status: order.status, amount: toNumber(order.amount) } : null };
+  return { grantedAmount, expenseOrder: order ? { reference: order.reference, status: order.status, amount: toNumber(order.amount) } : null, tenue };
 }
 
 /**

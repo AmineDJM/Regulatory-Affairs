@@ -100,11 +100,55 @@ function defaultSpine(): StepInput[] {
   ];
 }
 
+/**
+ * LE SPONSORING NE TRANCHE PAS L'ARGENT À CETTE ÉTAPE — il tranche la TENUE (§118.151).
+ *
+ * « Une fois validé par le National Sales et le Directeur des opérations, la Direction Marketing
+ * pré-valide ou refuse la tenue de l'événement. Si elle pré-valide, on passe aux postes — devis,
+ * BC, factures — puis, l'événement complété, elle valide tout, met chaque poste dans un budget,
+ * et clôture » (Direction, 09/2026).
+ *
+ * L'étape garde son SLUG (`marketing`) : le parcours, les bornes, le caviardage, la prévention
+ * des référents et les instances déjà posées dessus la désignent par lui (§118.107, §118.144).
+ * Ce qui change est ce qu'elle DÉCIDE : plus de montant ni de catégorie budgétaire — l'argent se
+ * décide poste par poste, puis à la clôture (`ad-pro/cloture-sponsoring.ts`) — et plus d'ordre de
+ * dépense global : ce sont les postes qui portent la dépense, et un ordre global en plus la ferait
+ * payer deux fois. La déclaration d'information médicale part toujours ici : c'est l'ÉVÉNEMENT
+ * qui se déclare, et il est décidé ici — la clôture vient APRÈS l'événement, trop tard pour le
+ * déclarer.
+ *
+ * Les quatre catégories partagent le reste de la colonne vertébrale ; seul le sponsoring suit
+ * cette règle, parce que seule la Direction l'a énoncée pour lui. Les mêmes valeurs sont écrites
+ * par la migration `20261129090000_sponsoring_pre_validation_postes_cloture` sur l'étape déjà en
+ * base : un test exige qu'elles restent identiques, sinon la graine (bases neuves) et la
+ * migration (production) feraient deux circuits sous le même nom (§118.5).
+ */
+export const ETAPE_PRE_VALIDATION_SPONSORING: StepInput = {
+  slug: SLUG_MARKETING,
+  title: "Pré-validation de la tenue (Direction Marketing)",
+  description:
+    "La Direction Marketing pré-valide ou refuse la TENUE de l'événement. Pré-validée, la demande passe aux postes "
+    + "(devis, BC, factures), puis à la validation finale qui range chaque poste dans un budget et clôture la demande.",
+  actorScope: "ROLE",
+  actorRoles: [ROLE_DIRECTION_MARKETING],
+  powers: ["APPROVE", "REJECT", "COMMENT"],
+  requireAmount: false,
+  requireCategory: false,
+  notifyRoles: [ROLE_DIRECTION_MARKETING, "SUPER_ADMIN"],
+  confidential: false,
+  emitDeclaration: true,
+  emitExpenseOrder: false,
+  legacyStatus: "AWAITING_FINAL",
+};
+
 export function defaultDefinition(category: WorkflowCategory): { name: string; description: string; steps: StepInput[] } {
+  const colonne = defaultSpine();
   return {
     name: `Circuit ${CATEGORY_LABELS[category]}`,
     description:
       "Circuit de prise en charge Ad & Pro. Modifiable de bout en bout par le Super Admin (rôles, pouvoirs, étapes).",
-    steps: defaultSpine(),
+    steps: category === "SPONSORING"
+      ? colonne.map((e) => (e.slug === SLUG_MARKETING ? ETAPE_PRE_VALIDATION_SPONSORING : e))
+      : colonne,
   };
 }

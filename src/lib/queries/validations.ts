@@ -205,7 +205,16 @@ export interface CrossValidationItem {
   link: string;
 }
 
-const SPO_STAGE: Record<string, string> = { AWAITING_PRELIMINARY: "Préliminaire", AWAITING_FINAL: "Définitive", AWAITING_FINAL_APPEAL: "Définitive (appel)" };
+// LES ÉTAPES D'UN SPONSORING TELLES QU'ELLES SONT AUJOURD'HUI (§118.151) : `AWAITING_FINAL` est
+// l'étape de la Direction Marketing, qui pré-valide la TENUE ; `PRE_VALIDATED` est la suite —
+// les postes se décident et se rangent dans leurs budgets, puis la validation finale clôture.
+// Absente de ce tableau, une demande pré-validée n'était « à faire » nulle part.
+const SPO_STAGE: Record<string, string> = {
+  AWAITING_PRELIMINARY: "Préliminaire",
+  AWAITING_FINAL: "Pré-validation de la tenue",
+  AWAITING_FINAL_APPEAL: "Définitive (appel)",
+  PRE_VALIDATED: "Postes, puis validation finale et clôture",
+};
 const CONG_STAGE: Record<string, string> = { AWAITING_PRELIMINARY: "Préliminaire", AWAITING_FINAL: "Définitive" };
 
 /**
@@ -256,7 +265,7 @@ export async function getCrossModuleValidations(user: SessionUser): Promise<Cros
   // 2) Sponsoring en attente de Direction.
   if (global || userCan(user, "SPONSORING", "VALIDATE")) {
     const spo = await prisma.sponsoringRequest.findMany({
-      where: { status: { in: ["AWAITING_PRELIMINARY", "AWAITING_FINAL", "AWAITING_FINAL_APPEAL"] } },
+      where: { status: { in: ["AWAITING_PRELIMINARY", "AWAITING_FINAL", "AWAITING_FINAL_APPEAL", "PRE_VALIDATED"] } },
       include: { requester: { select: { name: true } } }, orderBy: { createdAt: "asc" }, take: 100,
     });
     for (const s of spo) out.push({

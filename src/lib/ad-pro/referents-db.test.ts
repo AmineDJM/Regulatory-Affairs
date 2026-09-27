@@ -27,6 +27,20 @@ async function actorFor(id: string, role: SessionUser["role"]): Promise<CurrentU
 }
 
 /**
+ * LE JUGE COMPTE PAR LE LIEN CAUSAL, jamais par destinataire seul (§118.36, §118.92).
+ *
+ * Les référents de ce banc portent le rôle Direction Marketing, et la suite tourne en parallèle
+ * sur UNE base : toute notification PAR RÔLE émise au même instant par un autre fichier (une
+ * pré-validation, un poste soumis…) atterrit chez eux. Compter « les notifications de dmId »
+ * mesurait donc le voisinage — mesuré : 3 passages sur 3 verts seul, rouge dans la suite, sur
+ * « expected 1 to be 0 ». Ce qui compte est une notification sur CETTE demande : le moteur pose
+ * `link: /sponsoring/<id>` sur chacune.
+ */
+function notifsSurLaDemande(userId: string, demandeId: string): Promise<number> {
+  return prisma.notification.count({ where: { userId, link: { contains: demandeId } } });
+}
+
+/**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * LES RÉFÉRENTS PAR GAMME, ÉPROUVÉS PAR LES VRAIS POINTS D'ENTRÉE.
  *
@@ -247,6 +261,7 @@ suite("Ad & Pro — les référents Direction Marketing d'une gamme", () => {
     fd.set("city", "Oran");
     fd.set("amountRequested", "2000000");
     fd.set("amountProposed", "2000000");
+    fd.set("nature", "DIRECT");
     fd.set("strategicImportance", "HIGH");
     fd.set(CHAMPS_MEDECINS.libre, `${TAG}Dr Deux`);
     fd.set(CHAMPS_PRODUITS.libre, `${TAG}Produit Deux`);
@@ -270,9 +285,9 @@ suite("Ad & Pro — les référents Direction Marketing d'une gamme", () => {
     });
     expect(inst.currentSlug, "la prémisse : l'étape de la Direction Marketing est atteinte").toBe("marketing");
 
-    expect(await prisma.notification.count({ where: { userId: perduId } }),
+    expect(await notifsSurLaDemande(perduId, id),
       "désigné puis muté : il reste prévenu NOMMÉMENT — c'est le seul chemin, son rôle ne le porte plus").toBeGreaterThanOrEqual(1);
-    expect(await prisma.notification.count({ where: { userId: temoinId } }),
+    expect(await notifsSurLaDemande(temoinId, id),
       "même rôle, JAMAIS désigné : rien. C'est ce zéro qui prouve que le premier vient de la désignation").toBe(0);
   });
 
@@ -303,6 +318,7 @@ suite("Ad & Pro — les référents Direction Marketing d'une gamme", () => {
     fd.set("city", "Alger");
     fd.set("amountRequested", "2000000");
     fd.set("amountProposed", "2000000");
+    fd.set("nature", "DIRECT");
     fd.set("strategicImportance", "HIGH");
     fd.set(CHAMPS_MEDECINS.libre, `${TAG}Dr Test`);
     fd.set(CHAMPS_PRODUITS.libre, `${TAG}Produit`);
@@ -340,7 +356,7 @@ suite("Ad & Pro — les référents Direction Marketing d'une gamme", () => {
       select: { currentSlug: true },
     });
     expect(apresFinal.currentSlug, "la route du National Sales passe par la Direction des opérations").toBe("final");
-    expect(await prisma.notification.count({ where: { userId: dmId } }),
+    expect(await notifsSurLaDemande(dmId, id),
       "l'étape Direction des opérations ne nomme pas le rôle marketing : le référent n'est pas dérangé").toBe(0);
 
     const av = await advanceWorkflowInstance({
@@ -356,12 +372,12 @@ suite("Ad & Pro — les référents Direction Marketing d'une gamme", () => {
     });
     expect(inst.currentSlug, "le franchissement doit atteindre l'étape Direction Marketing").toBe("marketing");
     // LE RÉFÉRENT, NOMMÉMENT.
-    expect(await prisma.notification.count({ where: { userId: dmId } }),
+    expect(await notifsSurLaDemande(dmId, id),
       "le référent de la gamme doit être prévenu nommément").toBeGreaterThanOrEqual(1);
     // ET LE RÔLE : `dm2` n'est PLUS référent (retiré au cas précédent) et porte le rôle — il
     // reçoit donc par le RÔLE. C'est la moitié « recevra ÉGALEMENT » de la décision, et sans ce
     // second compte un remplacement du rôle par les référents passerait inaperçu.
-    expect(await prisma.notification.count({ where: { userId: dm2Id } }),
+    expect(await notifsSurLaDemande(dm2Id, id),
       "le rôle Direction Marketing reste prévenu (la direction du département)").toBeGreaterThanOrEqual(1);
   });
 });

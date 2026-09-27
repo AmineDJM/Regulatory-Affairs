@@ -15,6 +15,8 @@ import { estDecisionnaire, etapesNonAtteintes, estIgnoree, parcoursEffectif, seu
 import { adProOriginRank } from "./origin";
 import { getAppSettings } from "@/lib/settings";
 import { statutDepuisCircuit } from "@/lib/events/statut";
+import { AD_PRO_PARENTS, PARENT_COLONNE, type AdProParent } from "@/lib/ad-pro-items";
+import { issueTerminaleSponsoring } from "./issue-sponsoring";
 import {
   CATEGORY_LABELS,
   entityToCategory,
@@ -316,7 +318,9 @@ async function loadEntity(entityType: EntityType, entityId: string): Promise<Ent
 function positionFromLegacy(steps: LoadedStep[], legacy: string | null): { currentSlug: string | null; status: string } {
   const ordered = [...steps].sort((a, b) => a.position - b.position);
   if (!legacy) return { currentSlug: ordered[0]?.slug ?? null, status: "IN_PROGRESS" };
-  if (["APPROVED", "VALIDATED", "PAID", "CLOSED", "COMPLETED", "ACCEPTED"].includes(legacy)) return { currentSlug: null, status: "APPROVED" };
+  // `PRE_VALIDATED` (§118.151) : le CIRCUIT est terminé — la tenue est décidée —, la demande vit
+  // ensuite par ses postes puis sa clôture, qui ne sont pas des étapes du circuit.
+  if (["APPROVED", "VALIDATED", "PAID", "CLOSED", "COMPLETED", "ACCEPTED", "PRE_VALIDATED"].includes(legacy)) return { currentSlug: null, status: "APPROVED" };
   if (["REJECTED", "REFUSED", "CANCELLED"].includes(legacy)) return { currentSlug: null, status: "REJECTED" };
   const match = ordered.find((s) => s.legacyStatus === legacy);
   if (match) return { currentSlug: match.slug, status: "IN_PROGRESS" };
@@ -648,6 +652,10 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
   const emitDeclarationDue = step.emitDeclaration || nonAtteintes.some((s) => s.emitDeclaration);
   const emitExpenseOrderDue = step.emitExpenseOrder || nonAtteintes.some((s) => s.emitExpenseOrder);
   const emitStep = emitDeclarationDue || emitExpenseOrderDue;
+  // UN SPONSORING DONT CETTE ÉTAPE PRÉ-VALIDE LA TENUE (§118.151) : l'argent se décidera APRÈS,
+  // poste par poste puis à la clôture. La déclaration d'information médicale ne peut pas attendre
+  // jusque-là — la clôture vient une fois l'événement passé, trop tard pour le déclarer.
+  const argentDecideApres = entityType === "SPONSORING" && conclut && issueTerminaleSponsoring(step) === "PRE_VALIDATED";
   const amount = input.amount ?? null;
   const budgetCategoryId = input.budgetCategoryId?.trim() || null;
   const assigneeId = input.assigneeId?.trim() || null;
@@ -685,7 +693,7 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
   let emitResult: { declarationId: string | null; orderId: string | null } | null = null;
   if (emitStep) {
     emitResult = await emitFinancials(entityType, entityId,
-      { emitDeclaration: emitDeclarationDue, emitExpenseOrder: emitExpenseOrderDue },
+      { emitDeclaration: emitDeclarationDue, emitExpenseOrder: emitExpenseOrderDue, argentDecideApres },
       liveInstance, summary, viewer);
   }
 
@@ -724,7 +732,12 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
     await notifyStepManager(landed, summary.requesterId, `${CATEGORY_LABELS[category]} — ${landed.title}`, summary.name, entityPath(entityType, entityId));
     await prevenirEtapeAtteinte(entityType, entityId, landed, { title: `${CATEGORY_LABELS[category]} — ${landed.title}`, body: summary.name, link: entityPath(entityType, entityId) }, summary.requesterId);
   } else if (summary.requesterId) {
-    await notifyUser({ userId: summary.requesterId, type: "GENERIC", title: `${CATEGORY_LABELS[category]} — pris en charge`, body: summary.name, link: entityPath(entityType, entityId) });
+    // « Pris en charge » annoncerait un financement : une tenue PRÉ-VALIDÉE n'en accorde aucun
+    // encore. Le demandeur doit lire ce qui l'attend — les postes, puis la clôture (§118.151).
+    const titreFin = argentDecideApres
+      ? `${CATEGORY_LABELS[category]} — tenue pré-validée : les postes se préparent`
+      : `${CATEGORY_LABELS[category]} — pris en charge`;
+    await notifyUser({ userId: summary.requesterId, type: "GENERIC", title: titreFin, body: summary.name, link: entityPath(entityType, entityId) });
   }
 
   await recordAudit({ actorId: viewer.id, action: next ? "UPDATE" : "VALIDATE", module: auditModule(entityType), entityType, entityId, summary: `${step.title} — ${summary.name}${emitResult?.orderId ? " (ordre de dépense émis)" : emitResult?.declarationId ? " (déclaration info médicale)" : ""}` });
@@ -736,25 +749,41 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
 async function emitFinancials(
   entityType: EntityType,
   entityId: string,
-  /** Les émissions DUES à cette approbation — celles de l'étape, plus celles héritées de la queue coupée. */
-  step: { emitDeclaration: boolean; emitExpenseOrder: boolean },
+  /**
+   * Les émissions DUES à cette approbation — celles de l'étape, plus celles héritées de la queue
+   * coupée — et `argentDecideApres` : l'étape décide la TENUE, pas l'argent (§118.151).
+   */
+  step: { emitDeclaration: boolean; emitExpenseOrder: boolean; argentDecideApres?: boolean },
   instance: LoadedInstance,
   summary: EntitySummary,
   viewer: Viewer,
 ): Promise<{ declarationId: string | null; orderId: string | null } | null> {
   const amount = toNumber(instance.amount);
-  if (!(amount > 0)) return null;
+  // SANS MONTANT FIXÉ, RIEN NE PART — sauf la déclaration d'une tenue pré-validée.
+  //
+  // La règle d'avant tient pour tout ce qui ENGAGE de l'argent : aucun ordre de dépense sur un
+  // montant que personne n'a décidé (§118.16). Mais une tenue pré-validée n'engage rien encore, et
+  // l'événement doit être déclaré AVANT d'avoir lieu : attendre la clôture, qui vient après
+  // l'événement, reviendrait à ne jamais le déclarer à temps. La déclaration part donc sans
+  // montant fixé, avec l'estimation que portent ses postes — une information, pas un engagement :
+  // son montant ne sert qu'à l'ordre global que la Direction émettait à la validation de la
+  // déclaration, et cet ordre-là n'est plus émis quand des postes portent la dépense
+  // (`validateDeclarationByDirection`).
+  if (!(amount > 0) && !step.argentDecideApres) return null;
   const budgetCategoryId = instance.budgetCategoryId ?? null;
   const requestedById = summary.requesterId ?? viewer.id;
 
   const pharmacist = await prisma.user.findFirst({ where: { ...anyRoleFilter(["MEDICAL_INFO_PHARMACIST"]), isActive: true }, select: { id: true } });
   if (pharmacist && step.emitDeclaration) {
+    const montantDeclare = await montantADeclarer(entityType, entityId, amount);
     const decl = await createMedicalInfoDeclaration({
       sourceType: entityType, sourceId: entityId, label: summary.label,
-      beneficiary: summary.beneficiary, amount, requesterId: requestedById, budgetCategoryId,
+      beneficiary: summary.beneficiary, amount: montantDeclare, requesterId: requestedById, budgetCategoryId,
     });
     return { declarationId: decl.id, orderId: null };
   }
+  // Un ordre de dépense n'est JAMAIS émis sur un montant que personne n'a fixé.
+  if (!(amount > 0)) return null;
   if (step.emitExpenseOrder) {
     // ANTI-DOUBLE COMPTAGE : si l'opération est VENTILÉE EN POSTES, chaque poste émet sa propre
     // pièce (bénéficiaires distincts : l'organisateur, l'agence, le prestataire). Émettre EN PLUS
@@ -776,21 +805,66 @@ async function emitFinancials(
 }
 
 /**
- * Combien de postes (AdProItem) portent la dépense de cette opération ? Un poste refusé ne
- * compte pas : il ne paiera jamais rien, donc il ne doit pas empêcher l'ordre global.
+ * LES POSTES QUI PORTENT LA DÉPENSE D'UNE OPÉRATION — la seule lecture, partagée (§118.151).
+ *
+ * Un poste refusé ne compte pas : il ne paiera jamais rien. Deux questions en dépendent et elles
+ * ne vivent pas au même endroit : « faut-il un ordre GLOBAL en plus ? » (ici, et à la validation
+ * d'une déclaration d'information médicale, `validateDeclarationByDirection`) et « quelle
+ * estimation déclarer pour une tenue pré-validée ? ». Deux comptages écrits à part finiraient par
+ * ne plus compter les mêmes postes, et le symptôme serait un ordre global émis À CÔTÉ des postes :
+ * la même dépense payée deux fois (§118.5).
+ *
+ * La colonne du parent vient de `PARENT_COLONNE`, la table que la garde d'accès d'un poste lit
+ * déjà — pas d'une cascade de ternaires recopiée.
+ *
+ * Elle ne rattrape PAS ses erreurs : c'est à l'appelant de dire dans quel sens il se trompe.
  */
+export async function postesPortantLaDepense(
+  entityType: EntityType, entityId: string,
+): Promise<{ nombre: number; montantEstime: number }> {
+  if (!(AD_PRO_PARENTS as readonly string[]).includes(entityType)) return { nombre: 0, montantEstime: 0 };
+  const colonne = PARENT_COLONNE[entityType as AdProParent];
+  const lignes = await prisma.adProItem.findMany({
+    where: { [colonne]: entityId, status: { not: "REJECTED" } },
+    select: { amountEstimated: true, amountGranted: true },
+  });
+  return {
+    nombre: lignes.length,
+    // Le montant ACCORDÉ quand il existe, sinon l'estimation du demandeur.
+    montantEstime: lignes.reduce((t, l) => t + (l.amountGranted != null ? toNumber(l.amountGranted) : toNumber(l.amountEstimated)), 0),
+  };
+}
+
+/** Combien de postes portent la dépense — une panne de comptage ne bloque pas la validation en cours. */
 async function countAdProItems(entityType: EntityType, entityId: string): Promise<number> {
-  const where =
-    entityType === "SPONSORING" ? { sponsoringId: entityId }
-      : entityType === "CONGRESS_NATIONAL" ? { congressNationalId: entityId }
-        : entityType === "CONGRESS_INTERNATIONAL" ? { congressInternationalId: entityId }
-          : entityType === "EVENT" ? { eventId: entityId }
-            : null;
-  if (!where) return 0;
   try {
-    return await prisma.adProItem.count({ where: { ...where, status: { not: "REJECTED" } } });
+    return (await postesPortantLaDepense(entityType, entityId)).nombre;
   } catch {
     return 0; // une panne de comptage ne doit pas bloquer la validation en cours
+  }
+}
+
+/**
+ * LE MONTANT QU'UNE DÉCLARATION D'INFORMATION MÉDICALE PORTE (§118.151).
+ *
+ * Le montant FIXÉ par le circuit quand il y en a un ; sinon — une tenue pré-validée, dont l'argent
+ * se décide après — l'estimation que portent ses postes ; `null` s'ils ne portent rien. Exportée
+ * pour être éprouvée par la base réelle : la branche qui l'appelle n'existe que lorsqu'un
+ * pharmacien est actif, ce qu'un banc ne peut pas poser sans troubler les bancs voisins.
+ */
+export async function montantADeclarer(entityType: EntityType, entityId: string, montantFixe: number): Promise<number | null> {
+  return montantFixe > 0 ? montantFixe : montantEstimeDesPostes(entityType, entityId);
+}
+
+/** L'estimation déclarée d'une tenue pré-validée : ce que portent ses postes, `null` s'ils ne portent rien. */
+async function montantEstimeDesPostes(entityType: EntityType, entityId: string): Promise<number | null> {
+  try {
+    const { montantEstime } = await postesPortantLaDepense(entityType, entityId);
+    return montantEstime > 0 ? montantEstime : null;
+  } catch {
+    // Une déclaration sans montant reste une déclaration : le pharmacien déclare l'événement, et
+    // aucun ordre ne peut en naître (`validateDeclarationByDirection` n'émet rien sur un montant nul).
+    return null;
   }
 }
 
@@ -832,13 +906,21 @@ async function projectApprove(entityType: EntityType, entityId: string, step: Lo
     // Étape terminale : approbation définitive.
     const accorde = ctx.amount ?? ctx.montantDeTravail ?? null;
     if (entityType === "SPONSORING") {
-      data.status = "APPROVED";
-      data.amountGranted = accorde ?? undefined;
+      // LA TENUE, OU L'ARGENT (§118.151) — ce que l'étape qui conclut a réellement décidé.
+      //
+      // Pré-validée, la demande n'a encore AUCUN montant accordé ni validation signée : écrire
+      // l'un ou l'autre ferait lire un budget accordé là où il n'y a qu'un accord de principe.
+      // Le montant et la validation s'écriront à la CLÔTURE, sur le total des postes accordés.
+      const issue = issueTerminaleSponsoring(step);
+      data.status = issue;
       data.finalDecision = ctx.note;
       data.finalById = ctx.viewer.id;
       data.finalAt = now;
-      data.validatedBy = ctx.viewer.name ?? null;
-      data.validationDate = now;
+      if (issue === "APPROVED") {
+        data.amountGranted = accorde ?? undefined;
+        data.validatedBy = ctx.viewer.name ?? null;
+        data.validationDate = now;
+      }
       if (ctx.emitResult?.orderId) data.expenseOrderId = ctx.emitResult.orderId;
     } else {
       data.requestStatus = "APPROVED";

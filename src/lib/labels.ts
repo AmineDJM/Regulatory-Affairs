@@ -248,12 +248,29 @@ export const SPONSORING_STATUS: Record<string, Display> = {
   PAID: { label: "Payé", tone: "success" },
   CLOSED: { label: "Clôturé", tone: "neutral" },
   AWAITING_PRELIMINARY: { label: "Attente National Sales", tone: "warning" },
-  PRELIMINARY_APPROVED: { label: "Analyse Direction Marketing", tone: "info" },
-  AWAITING_FINAL: { label: "Attente décision Direction", tone: "warning" },
+  // LES DEUX LIBELLÉS DU MILIEU DU CIRCUIT SUIVENT CE QUE LES ÉTAPES FONT AUJOURD'HUI (§118.151).
+  // `PRELIMINARY_APPROVED` est l'état projeté aux portes du DG et de la Direction des opérations,
+  // `AWAITING_FINAL` celui de l'étape de la Direction Marketing, qui pré-valide la TENUE. Les
+  // anciens libellés (« Analyse Direction Marketing », « Attente décision Direction ») décrivaient
+  // le circuit d'avant l'inversion : une prose qui contredit le code est pire que pas de prose.
+  PRELIMINARY_APPROVED: { label: "En validation (DG / Direction des opérations)", tone: "info" },
+  AWAITING_FINAL: { label: "Pré-validation Direction Marketing", tone: "warning" },
+  // LA TENUE EST DÉCIDÉE, L'ARGENT NE L'EST PAS ENCORE : les postes se préparent (devis, BC,
+  // factures), puis la validation finale les range dans un budget et clôture la demande.
+  PRE_VALIDATED: { label: "Tenue pré-validée — postes en cours", tone: "info" },
   APPROVED: { label: "Accordé", tone: "success" },
   APPEAL_PENDING: { label: "Appel — réexamen Direction Marketing", tone: "purple" },
   AWAITING_FINAL_APPEAL: { label: "Appel — décision Direction", tone: "warning" },
   CANCELLED: { label: "Annulé", tone: "neutral" },
+};
+
+/**
+ * LA NATURE D'UN SPONSORING (§118.151) — choisie à la création, elle décide le poste qui naît avec
+ * la demande. Le libellé dit OÙ VA L'ARGENT, parce que c'est ce que la personne doit trancher.
+ */
+export const SPONSORING_NATURE: Record<"DIRECT" | "INDIRECT", string> = {
+  DIRECT: "Direct — versé à l'association",
+  INDIRECT: "Indirect — prise en charge de prestations / de médecins",
 };
 
 /** Types de sponsoring proposés en menu déroulant (valeur = libellé stocké). */

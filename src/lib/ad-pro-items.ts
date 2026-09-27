@@ -81,7 +81,11 @@ export const ITEM_KIND_LABELS: Record<AdProItemKind, string> = {
   STAND: "Stand",
   SYMPOSIUM: "Symposium",
   PROMO_MATERIAL: "Matériel promotionnel",
-  ASSOCIATION_SUPPORT: "Sponsoring association",
+  // LE SPONSORING, DIRECT OU INDIRECT (§118.151) — la nature que la Direction fait préciser à la
+  // création, et que le poste créé avec la demande porte. Direct : l'argent va à l'association.
+  // Indirect : la société prend en charge des prestations ou des médecins.
+  ASSOCIATION_SUPPORT: "Sponsoring direct (association)",
+  INDIRECT_SUPPORT: "Sponsoring indirect (prise en charge)",
   SERVICE: "Prestation",
   CONSULTING: "Consulting",
   CATERING: "Traiteur",
@@ -107,7 +111,7 @@ export const ITEM_KIND_LABELS: Record<AdProItemKind, string> = {
  * ensemble (§118.130).
  */
 export const ITEM_KINDS: AdProItemKind[] = [
-  "STAND", "SYMPOSIUM", "PROMO_MATERIAL", "ASSOCIATION_SUPPORT", "VENUE", "CATERING", "DINNER",
+  "STAND", "SYMPOSIUM", "PROMO_MATERIAL", "ASSOCIATION_SUPPORT", "INDIRECT_SUPPORT", "VENUE", "CATERING", "DINNER",
   "ACCOMMODATION", "TICKETING", "CONSULTING", "SERVICE", "TRAVEL", "OTHER",
 ];
 

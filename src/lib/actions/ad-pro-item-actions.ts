@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { AdProItemKind, AdProItemStatus, AdProItemBudgetKind } from "@prisma/client";
+import type { AdProItemKind, AdProItemStatus, AdProItemBudgetKind, UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -22,6 +22,8 @@ import { getAppSettings } from "@/lib/settings";
 import { validationRequiseBC, motifSousLeSeuil } from "@/lib/bons-de-commande/regle";
 import { signalerSiASigner } from "@/lib/bons-de-commande/etat";
 import { CHEMIN_BC_A_SIGNER } from "@/lib/bons-de-commande/aiguillage";
+import { ROLE_DIRECTION_MARKETING } from "@/lib/workflow/parcours";
+import { etatPostesSponsoring } from "@/lib/ad-pro/cloture-sponsoring";
 
 /**
  * POSTES D'UNE OPÉRATION AD & PRO — actions serveur, pour les QUATRE opérations du pôle :
@@ -58,6 +60,23 @@ interface ParentInfo {
   beneficiary: string;
   /** L'opération est-elle ACCORDÉE ? On n'engage pas une dépense avant. */
   decided: boolean;
+  /**
+   * Un poste ajouté MAINTENANT l'est-il APRÈS la décision sur l'argent ? Jusqu'ici c'était
+   * `decided` : accordée, l'opération avait son montant, et tout poste de plus dépassait
+   * l'enveloppe. Un sponsoring PRÉ-VALIDÉ (§118.151) est décidé — l'événement aura lieu, ses
+   * postes engagent — sans avoir encore d'enveloppe : ajouter des postes y est l'étape même que
+   * la Direction a décrite (« on passe aux ajouts de postes »), pas un ajout tardif. Le marquer
+   * tardif afficherait un dépassement sur chaque poste que la procédure demande d'ajouter.
+   */
+  tardif: boolean;
+  /**
+   * CLÔTURÉE : la validation finale a arrêté ses postes, leurs montants et leurs budgets, et le
+   * total accordé de la demande en est la somme (§118.151). Les réécrire en silence ferait
+   * diverger ce total de ses postes. `closedByClosure` distingue la clôture (qui se rouvre) d'une
+   * demande close par un transfert (qui vit désormais ailleurs).
+   */
+  clos: boolean;
+  closedByClosure?: boolean;
   /** Qui a demandé l'opération — prévenu des décisions prises sur ses postes. */
   requesterId?: string | null;
 }
@@ -73,8 +92,14 @@ interface ParentSpec {
   load: (id: string) => Promise<ParentInfo | null>;
 }
 
-/** Statuts à partir desquels l'opération est ACCORDÉE : on peut alors engager la dépense. */
-const SPONSORING_DECIDED = ["APPROVED", "ACCEPTED", "PAID", "CLOSED"];
+/*
+ * Les statuts d'un SPONSORING qui le disent décidé, tardif ou clos vivent dans
+ * `ad-pro/cloture-sponsoring.ts` (`etatPostesSponsoring`), lu AUSSI par l'écran : la page en
+ * portait une copie écrite à la main, sans `PRE_VALIDATED`, et cachait donc « Émettre l'ordre »
+ * sur chaque poste d'un sponsoring pré-validé pendant que cette action l'aurait accepté (§118.5).
+ * `PRE_VALIDATED` y est « décidé » : la tenue est décidée, et c'est précisément là que les postes
+ * passent par devis, BC et facture — laissé dehors, aucun poste ne pourrait être payé.
+ */
 const CONGRESS_DECIDED = ["APPROVED", "COMPLETED"];
 
 const PARENTS: Record<AdProParent, ParentSpec> = {
@@ -85,9 +110,15 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
     load: async (id) => {
       const r = await prisma.sponsoringRequest.findUnique({
         where: { id },
-        select: { id: true, reference: true, institution: true, status: true, requesterId: true },
+        select: { id: true, reference: true, institution: true, status: true, requesterId: true, closedAt: true },
       });
-      return r ? { id: r.id, ref: r.reference, beneficiary: r.institution, decided: SPONSORING_DECIDED.includes(r.status), requesterId: r.requesterId } : null;
+      if (!r) return null;
+      const etat = etatPostesSponsoring(r.status, r.closedAt);
+      return {
+        id: r.id, ref: r.reference, beneficiary: r.institution,
+        decided: etat.decide, tardif: etat.tardif, clos: etat.clos, closedByClosure: etat.closParLaCloture,
+        requesterId: r.requesterId,
+      };
     },
   },
   CONGRESS_NATIONAL: {
@@ -100,7 +131,9 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
         select: { id: true, name: true, hostInstitution: true, requestStatus: true, requesterId: true },
       });
       // Le congrès n'a pas de référence : son nom est ce qui l'identifie sur une pièce.
-      return r ? { id: r.id, ref: r.name, beneficiary: r.hostInstitution ?? r.name, decided: CONGRESS_DECIDED.includes(r.requestStatus), requesterId: r.requesterId } : null;
+      if (!r) return null;
+      const decided = CONGRESS_DECIDED.includes(r.requestStatus);
+      return { id: r.id, ref: r.name, beneficiary: r.hostInstitution ?? r.name, decided, tardif: decided, clos: false, requesterId: r.requesterId };
     },
   },
   CONGRESS_INTERNATIONAL: {
@@ -112,7 +145,9 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
         where: { id },
         select: { id: true, name: true, requestStatus: true, requesterId: true },
       });
-      return r ? { id: r.id, ref: r.name, beneficiary: r.name, decided: CONGRESS_DECIDED.includes(r.requestStatus), requesterId: r.requesterId } : null;
+      if (!r) return null;
+      const decided = CONGRESS_DECIDED.includes(r.requestStatus);
+      return { id: r.id, ref: r.name, beneficiary: r.name, decided, tardif: decided, clos: false, requesterId: r.requesterId };
     },
   },
   EVENT: {
@@ -128,7 +163,7 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
       // Un événement peut être organisé SANS circuit de financement (requestStatus null) : il est
       // alors piloté directement, donc ses postes ne sont pas bloqués par une décision absente.
       const decided = r.requestStatus == null ? r.status !== "DRAFT" && r.status !== "CANCELLED" : CONGRESS_DECIDED.includes(r.requestStatus);
-      return { id: r.id, ref: r.name, beneficiary: r.name, decided, requesterId: r.requesterId };
+      return { id: r.id, ref: r.name, beneficiary: r.name, decided, tardif: decided, clos: false, requesterId: r.requesterId };
     },
   },
 };
@@ -176,6 +211,34 @@ async function audit(user: SessionUser, parent: AdProParent, id: string, action:
   await recordAudit({
     actorId: user.id, module: PARENTS[parent].module, entityType: parent, entityId: id, action, summary: detail,
   }).catch(() => undefined);
+}
+
+/**
+ * UNE OPÉRATION CLÔTURÉE ARRÊTE SES POSTES — et le refus nomme le geste qui rouvre (§118.151).
+ *
+ * La clôture a validé chaque poste, l'a rangé dans un budget, et a écrit leur somme comme montant
+ * accordé de la demande. Ajouter, retirer, rechiffrer, redécider ou réimputer un poste ensuite
+ * ferait diverger ce total de ses postes, en silence. Ce qui continue, en revanche, c'est
+ * l'EXÉCUTION de ce qui a été validé : demande et visa du BC, émission, facture — sans quoi la
+ * clôture laisserait en plan un poste accordé dont le BC n'était pas encore parti.
+ *
+ * Le refus nomme la réouverture quand elle existe, et seulement alors : une demande close par un
+ * TRANSFERT vit désormais dans un autre module, et lui promettre un « Rouvrir » serait un remède
+ * qui n'existe pas (§118.63).
+ */
+async function refusSiClos(parent: AdProParent, parentId: string): Promise<string | null> {
+  const info = await PARENTS[parent].load(parentId);
+  if (!info) return "Opération introuvable.";
+  return refusPostesClos(info);
+}
+
+/** La phrase du refus, pour un appelant qui tient déjà l'opération chargée. */
+function refusPostesClos(info: ParentInfo): string | null {
+  if (!info.clos) return null;
+  return info.closedByClosure
+    ? "Cette demande est clôturée : ses postes, leurs montants et leurs budgets sont arrêtés. "
+      + "Pour corriger, la Direction Marketing la rouvre depuis sa fiche (« Rouvrir la demande »), puis la clôture à nouveau."
+    : "Cette demande est close (transférée vers un autre module) : ses postes ne se modifient plus ici.";
 }
 
 
@@ -262,6 +325,8 @@ export async function addAdProItem(_prev: ActionResult | undefined, formData: Fo
 
   const info = await PARENTS[parentRaw].load(parentId);
   if (!info) return { ok: false, error: "Opération introuvable." };
+  const clos = refusPostesClos(info);
+  if (clos) return { ok: false, error: clos };
 
   const kind = (fdStr(formData, "kind") ?? "OTHER") as AdProItemKind;
   if (!(kind in ITEM_KIND_LABELS)) return { ok: false, error: "Nature de poste inconnue." };
@@ -276,7 +341,7 @@ export async function addAdProItem(_prev: ActionResult | undefined, formData: Fo
     // Un poste ajouté APRÈS la décision est autorisé — c'est le choix retenu — mais il est
     // marqué. C'est ce marqueur qui expliquera un dépassement d'enveloppe à l'écran, au lieu
     // de laisser croire à une erreur de saisie.
-    const late = info.decided;
+    const late = info.tardif;
     const where = { [PARENTS[parentRaw].column]: parentId } as Record<string, string>;
     const last = await prisma.adProItem.findFirst({ where, orderBy: { position: "desc" }, select: { position: true } });
 
@@ -335,6 +400,14 @@ export async function updateAdProItem(_prev: ActionResult | undefined, formData:
 
   const label = fdStr(formData, "label");
 
+  // CLÔTURÉE : ce qui DÉCRIT la dépense (libellé, précisions, fournisseur) se corrige encore — le
+  // fournisseur sert au BC qui peut rester à émettre. Ce qui la CHIFFRE ou la QUALIFIE non : la
+  // clôture a arrêté ces valeurs, et le total de la demande en est la somme.
+  if (wantsAllocate || formData.has("amountEstimated") || fdStr(formData, "kind") || fdStr(formData, "budgetKind")) {
+    const clos = await refusSiClos(owner.parent, owner.id);
+    if (clos) return { ok: false, error: clos };
+  }
+
   // NATURE et NATURE DE BUDGET — modifiables aussi, mais pas n'importe quand.
   // La nature (stand, prestation…) décrit la dépense : elle se corrige à tout moment.
   // La nature de BUDGET (inclus / rallonge) est ce sur quoi la Direction s'est prononcée :
@@ -384,6 +457,8 @@ export async function deleteAdProItem(_prev: ActionResult | undefined, formData:
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  const clos = await refusSiClos(owner.parent, owner.id);
+  if (clos) return { ok: false, error: clos };
 
   // UN POSTE PAYÉ NE S'EFFACE PAS EN SILENCE — mais il doit pouvoir être retiré.
   //
@@ -556,6 +631,8 @@ export async function submitAdProItem(_prev: ActionResult | undefined, formData:
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  const clos = await refusSiClos(owner.parent, owner.id);
+  if (clos) return { ok: false, error: clos };
 
   const check = canSubmitItem({
     status: item.status,
@@ -573,7 +650,14 @@ export async function submitAdProItem(_prev: ActionResult | undefined, formData:
   await recordDecision(id, "PENDING", note, amount != null ? toNumber(amount) : null, user.id);
 
   const info = await PARENTS[owner.parent].load(owner.id);
-  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+  // LE SPONSORING : C'EST LA DIRECTION MARKETING QUI VALIDE SES POSTES (§118.151) — « elle peut
+  // tout valider et mettre chaque poste dans un budget ». La prévenir en plus de la Direction, et
+  // non à sa place : la Direction garde le droit de décider un poste (vue globale), et la retirer
+  // de la notification ferait taire un validateur qui existe toujours.
+  const valideurs: UserRole[] = owner.parent === "SPONSORING"
+    ? [ROLE_DIRECTION_MARKETING, "DIRECTION", "SUPER_ADMIN"]
+    : ["DIRECTION", "SUPER_ADMIN"];
+  await notifyRoles(valideurs, {
     type: "VALIDATION_REQUIRED",
     title: "Poste à valider",
     body: `${info?.ref ?? "Opération"} — ${ITEM_KIND_LABELS[item.kind]} « ${item.label} »${amount != null ? ` (${toNumber(amount).toLocaleString("fr-FR")} DZD)` : ""}`,
@@ -600,6 +684,8 @@ export async function decideAdProItem(_prev: ActionResult | undefined, formData:
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canAllocate(user, owner.parent)) return { ok: false, error: "Seule la Direction décide d'un poste." };
+  const clos = await refusSiClos(owner.parent, owner.id);
+  if (clos) return { ok: false, error: clos };
   if (item.status === "APPROVED" && item.orderStage === "ISSUED") {
     return { ok: false, error: "Le bon de commande de ce poste a été émis : sa décision ne peut plus changer." };
   }
@@ -653,6 +739,8 @@ export async function setAdProItemBudget(_prev: ActionResult | undefined, formDa
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canAllocate(user, owner.parent)) return { ok: false, error: "Seule la Direction impute un poste à un budget." };
+  const clos = await refusSiClos(owner.parent, owner.id);
+  if (clos) return { ok: false, error: clos };
   if (item.status !== "APPROVED") return { ok: false, error: "Le poste doit d'abord être accordé." };
 
   const budgetCategoryId = fdStr(formData, "budgetCategoryId");

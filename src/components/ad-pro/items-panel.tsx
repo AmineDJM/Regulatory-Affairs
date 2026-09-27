@@ -70,6 +70,18 @@ interface Props {
   /** Enveloppe accordée par la Direction (DZD), ou null si elle n'a pas encore tranché. */
   amountGranted: number | null;
   decided: boolean;
+  /**
+   * Un poste ajouté MAINTENANT l'est-il après la décision sur l'ARGENT (§118.151) ? Par défaut,
+   * `decided`. Un sponsoring dont la TENUE est pré-validée est décidé sans avoir d'enveloppe :
+   * y ajouter des postes est l'étape même de la procédure, pas un dépassement à signaler.
+   */
+  tardif?: boolean;
+  /**
+   * La demande est CLÔTURÉE : postes, montants, décisions et budgets sont arrêtés (§118.151).
+   * Ce qui EXÉCUTE ce qui a été validé reste offert — pièces, bon de commande, émission — sans
+   * quoi la clôture laisserait en plan un poste accordé dont le BC n'était pas encore parti.
+   */
+  fige?: boolean;
   canEdit: boolean;
   /** Affecter les montants et engager la dépense : Direction uniquement. */
   canAllocate: boolean;
@@ -122,9 +134,14 @@ const PARENT_PATH: Record<AdProParent, string> = {
 };
 
 export function AdProItemsPanel({
-  parent, parentId, items, amountGranted, decided, canEdit, canAllocate, promoOptions, plan,
+  parent, parentId, items, amountGranted, decided, tardif = decided, fige = false, canEdit: canEditBrut, canAllocate: canAllocateBrut, promoOptions, plan,
   budgetOptions = [], canIssueOrder = false, canViserBC = false,
 }: Props) {
+  // CLÔTURÉE : on ne décrit, ne chiffre, ne décide et ne réimpute plus — l'action le refuserait
+  // (`refusSiClos`), et un bouton qu'une action refuse n'est pas un bouton. Les gestes
+  // d'EXÉCUTION (pièces, BC, émission) gardent leurs droits d'origine, passés à part.
+  const canEdit = canEditBrut && !fige;
+  const canAllocate = canAllocateBrut && !fige;
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
@@ -160,7 +177,13 @@ export function AdProItemsPanel({
     <div className="space-y-4">
       {/* ── La ventilation, avant la liste : c'est la question qu'on se pose en arrivant. ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Figure label="Enveloppe accordée" value={b.envelopeDzd != null ? formatCurrency(b.envelopeDzd) : "—"} hint={b.envelopeDzd == null ? "Direction non tranchée" : undefined} />
+        <Figure
+          label="Enveloppe accordée"
+          value={b.envelopeDzd != null ? formatCurrency(b.envelopeDzd) : "—"}
+          // DÉCIDÉE SANS ENVELOPPE : une tenue pré-validée (§118.151) n'a pas « rien de tranché »,
+          // elle a un montant qui se fixera à la validation finale — le dire évite de lire un oubli.
+          hint={b.envelopeDzd == null ? (decided && !tardif ? "fixée à la validation finale" : "Direction non tranchée") : undefined}
+        />
         <Figure label="Estimé par le demandeur" value={formatCurrency(b.estimatedDzd)} hint={`${b.itemCount} poste(s)`} />
         <Figure
           label="Affecté aux postes"
@@ -178,6 +201,16 @@ export function AdProItemsPanel({
           />
         )}
       </div>
+
+      {fige && (
+        <p className="flex items-start gap-2 rounded-xl border border-border bg-secondary/40 p-3 text-sm text-muted-foreground">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+          <span>
+            Demande <strong className="text-foreground">clôturée</strong> : les postes, leurs montants et leurs budgets sont arrêtés.
+            Les bons de commande et factures des postes accordés suivent leur cours ; pour corriger un poste, rouvrez la demande.
+          </span>
+        </p>
+      )}
 
       {/* Une RALLONGE assumée n'est pas un dépassement subi : deux lignes distinctes, deux décisions. */}
       {(b.additionalDzd > 0 || b.pendingDzd > 0) && (
@@ -335,8 +368,9 @@ export function AdProItemsPanel({
                 {/* ── Le cycle du poste : devis → validation → budget → bon de commande ── */}
                 <ItemLifecycle
                   item={it}
-                  canEdit={canEdit}
-                  canAllocate={canAllocate}
+                  canEdit={canEditBrut}
+                  canAllocate={canAllocateBrut}
+                  fige={fige}
                   canViserBC={canViserBC}
                   canIssueOrder={canIssueOrder}
                   budgetOptions={budgetOptions}
@@ -351,7 +385,7 @@ export function AdProItemsPanel({
                     <Badge tone="success" dot={false}>
                       <Receipt className="mr-1 h-3 w-3" /> {it.expenseOrder.reference} · {it.expenseOrder.status}
                     </Badge>
-                  ) : canAllocate ? (
+                  ) : canAllocateBrut ? (
                     <Button
                       size="sm" variant="outline" disabled={!emit.ok || busy === `emit:${it.id}`}
                       title={emit.reason}
@@ -365,7 +399,7 @@ export function AdProItemsPanel({
                       Émettre l&apos;ordre de dépense
                     </Button>
                   ) : null}
-                  {!it.expenseOrder && canAllocate && !emit.ok && (
+                  {!it.expenseOrder && canAllocateBrut && !emit.ok && (
                     <span className="text-[0.6875rem] text-muted-foreground">{emit.reason}</span>
                   )}
                   {/* RETIRER — libre tant qu'aucun ordre n'est parti aux Finances ; réservé à la
@@ -407,7 +441,7 @@ export function AdProItemsPanel({
           <AddItemForm
             parent={parent}
             parentId={parentId}
-            decided={decided}
+            decided={tardif}
             busy={busy === "add"}
             onCancel={() => setAdding(false)}
             onSubmit={(fd) => void run("add", async () => {
@@ -615,10 +649,12 @@ function Figure({ label, value, hint, tone }: { label: string; value: string; hi
  * avant l'accord, ni de demander un bon de commande sans budget. Un écran qui affiche des
  * boutons inertes fait perdre plus de temps qu'il n'en fait gagner.
  */
-function ItemLifecycle({ item, canEdit, canAllocate, canViserBC, canIssueOrder, budgetOptions, busy, run, parentLink }: {
+function ItemLifecycle({ item, canEdit, canAllocate, fige, canViserBC, canIssueOrder, budgetOptions, busy, run, parentLink }: {
   item: ItemRow;
   canEdit: boolean;
   canAllocate: boolean;
+  /** Demande clôturée : soumettre, décider et réimputer ne se proposent plus (§118.151). */
+  fige: boolean;
   canViserBC: boolean;
   canIssueOrder: boolean;
   budgetOptions: { id: string; label: string }[];
@@ -761,7 +797,7 @@ function ItemLifecycle({ item, canEdit, canAllocate, canViserBC, canIssueOrder, 
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        {canEdit && (item.status === "DRAFT" || item.status === "REVISION" || item.status === "REJECTED") && (
+        {canEdit && !fige && (item.status === "DRAFT" || item.status === "REVISION" || item.status === "REJECTED") && (
           <Button
             size="sm" variant="outline" disabled={!submit.ok || busy === `submit:${item.id}`} title={submit.reason}
             onClick={() => void run(`submit:${item.id}`, () => submitAdProItem(undefined, fdOf()), "Poste soumis à la Direction.")}
@@ -770,12 +806,12 @@ function ItemLifecycle({ item, canEdit, canAllocate, canViserBC, canIssueOrder, 
             {item.status === "DRAFT" ? "Soumettre à la Direction" : "Resoumettre"}
           </Button>
         )}
-        {canEdit && !submit.ok && item.status !== "PENDING" && item.status !== "APPROVED" && (
+        {canEdit && !fige && !submit.ok && item.status !== "PENDING" && item.status !== "APPROVED" && (
           <span className="text-[0.6875rem] text-muted-foreground">{submit.reason}</span>
         )}
 
         {/* La Direction tranche : accorder / revoir / refuser — autant de fois qu'il le faut. */}
-        {canAllocate && item.status === "PENDING" && (
+        {canAllocate && !fige && item.status === "PENDING" && (
           deciding ? (
             <div className="w-full space-y-2 rounded-lg border border-border bg-background p-2.5">
               <input
@@ -842,7 +878,7 @@ function ItemLifecycle({ item, canEdit, canAllocate, canViserBC, canIssueOrder, 
       {item.status === "APPROVED" && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Wallet className="h-3.5 w-3.5 text-muted-foreground" />
-          {canAllocate && item.orderStage !== "ISSUED" ? (
+          {canAllocate && !fige && item.orderStage !== "ISSUED" ? (
             <select
               value={item.budgetCategoryId ?? ""}
               onChange={(e) => void run(`budget:${item.id}`, () => setAdProItemBudget(undefined, fdOf({ budgetCategoryId: e.target.value })), "Budget choisi.")}

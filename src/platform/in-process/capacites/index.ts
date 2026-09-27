@@ -111,3 +111,9 @@ export {
 // cette porte, comme pour le centre de validation ci-dessus. La DÉSIGNATION du contrat, elle,
 // passe par `resoudreCible` — la portée du registre borne les lignes aux pôles lisibles.
 export { LIBELLE_POLE, poleDe, poleOppose, type PoleConsulting } from "@/lib/lecteurs/consulting";
+
+// LA CLÔTURE D'UN SPONSORING (§118.151) — le BILAN, lu par l'op d'Adam avant de montrer sa carte :
+// une carte qui propose une clôture que l'action refusera est un geste offert puis retiré
+// (§118.83). La règle est PURE et vit dans `ad-pro/` ; Adam n'a pas le droit de l'importer en
+// direct, il passe par cette porte, comme pour les pièces du secrétariat ci-dessus.
+export { bilanCloture, type BilanCloture } from "@/lib/ad-pro/cloture-sponsoring";

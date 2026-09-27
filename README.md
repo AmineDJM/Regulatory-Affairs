@@ -189,7 +189,7 @@ jamais identique.
 | Module | Route | Description |
 |---|---|---|
 | **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (19 étapes / 5 phases — CTD déposé sur l'étape 1, check-list de présoumission en étape 2, allers-retours de réserves dans la frise), documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). **UNE DCI DÉJÀ SUIVIE SE DIT PENDANT LA SAISIE** (pipeline comme suivi de dossiers) : le formulaire NOMME les dossiers existants et demande de vérifier qu'il s'agit bien d'un autre dosage, d'une autre forme ou d'un autre produit — on avertit, on n'interdit pas (interdire ferait saisir le doublon sous une DCI mal orthographiée, donc plus rapprochable du premier), et la création repart d'un clic « J'ai vérifié ». La comparaison **trie les molécules d'une association** (« A + B » = « B + A ») et ignore casse et accents. Un dossier **verrouillé au pipeline se COMPTE sans se NOMMER**, avec le geste qui débloque : **« Demander l'accès »** prévient la supervision Regulatory (notification + audit, aucun registre de plus). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. |
-| **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve la demande d'un KAM, et elle seule), **référents Direction Marketing configurés par Business Unit**, **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** a son circuit **court** : devis → demandeur → N+1 → PDG **ou** Super Admin → information médicale, puis **trois chantiers en parallèle** (bon de commande, paiement, visa publicitaire) ; chacun ne voit que **sa** marche, seuls l'administrateur et le PDG voient tout. → [workflows](#-workflows-critiques) · [détails](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
+| **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve la demande d'un KAM, et elle seule), **référents Direction Marketing configurés par Business Unit**, **sponsoring en trois temps** (la Direction Marketing **pré-valide la tenue**, les **postes** se préparent — devis, BC, factures —, puis **validation finale : chaque poste dans un budget, clôture**, la somme des postes accordés devenant le montant accordé), **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** a son circuit **court** : devis → demandeur → N+1 → PDG **ou** Super Admin → information médicale, puis **trois chantiers en parallèle** (bon de commande, paiement, visa publicitaire) ; chacun ne voit que **sa** marche, seuls l'administrateur et le PDG voient tout. → [workflows](#-workflows-critiques) · [détails](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances/paiements-a-faire` | **DEUX SOUS-MODULES** : **Banque & paiements** (`/finances/paiements-a-faire` — le solde de trésorerie et le détail par compte, puis la file du décaissement, alimentée **exclusivement** par le centre de paiement) et **Comptabilité** (`/finances/comptabilite` — le livre, l'import, les soldes d'ouverture, et ce que le DAF doit encore arbitrer). Le **Dashboard a été supprimé** (2026-09) : il ne portait aucun geste. Cliquer « Finances » mène à « Banque & paiements » ; `/finances` redirige. « Demander l'actualisation des soldes » est réservé au **Super Admin** (écran, action serveur et Adam). Les **factures** ne sont pas ici : ce sont des documents légaux de nature « facture » (`/legal?nature=INVOICE`), et la comptabilité y garde sa porte. Aucun paiement n'arrive ici sans être **autorisé par le centre**, quel que soit son montant. |
 | **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (RBAC `PAYMENT_CENTRE` — PDG + Super Admin) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. **GUICHET UNIQUE** : aucun paiement n'atteint les Finances sans autorisation, **quel que soit le montant et le module** — plus de seuil, plus d'exemption. Une demande de paiement y entre **dès sa soumission**, avant l'instruction des Finances. Quatre issues (autoriser · refuser · révision du montant · argumentation) avec fil d'allers-retours. → [détails](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-le-pdg) |
@@ -346,10 +346,10 @@ libellés français viennent de `src/lib/labels.ts`.
 | Rôle | Libellé | Portée typique |
 |---|---|---|
 | `SUPER_ADMIN` | Super Admin | Tout + administration (permissions, comptes, sécurité, IA, Brain, enveloppes budgétaires, Vue exacte). Compte **souverain**. **Seul compte qui pilote les missions et surveillances d'Adam** (`peutPiloterMissionsAdam`, décision de la Direction 09/2026) : Centre de missions, `run_mission`, `watch_entity`, interrupteur global. |
-| `DIRECTION` | **Direction** | **Pair quasi-administrateur** : accès complet (gérer + valider) aux pôles, **vue globale** (`hasGlobalView`) donc supervision de toutes les demandes de validation. **Décision définitive** des demandes Ad & Pro (budget accordé). Attribue les dépenses aux enveloppes. Restreignable par overrides. |
+| `DIRECTION` | **Direction des opérations** | **Pair quasi-administrateur** : accès complet (gérer + valider) aux pôles, **vue globale** (`hasGlobalView`) donc supervision de toutes les demandes de validation. **Décision définitive** des demandes Ad & Pro (budget accordé). Attribue les dépenses aux enveloppes. Restreignable par overrides. |
 | `GENERAL_MANAGER` | **Directeur Général** | **Tous les pouvoirs métier** (gère et décide sur tous les pôles, signataire des circuits Ad & Pro) mais **délibérément hors vue globale** : il ne supervise **pas** les demandes de validation de tout le monde, et les modules **personnels** (Drive, directives, dossiers, support) restent cloisonnés. Administration, IA et Process Intelligence restent au seul Super Admin. |
 | `OPERATIONS_DIRECTOR` | **Directeur des Opérations** | Rôle **à part**, pas une Direction au rabais : approvisionnement (logistique, PCH, stocks), ventes, moyens généraux, secrétariat. **Lit** ce dont il dépend — réglementaire, budgets, finances, RH — sans le piloter. Pas de vue globale ; les circuits Ad & Pro ne sont pas les siens. |
-| `NATIONAL_SALES` | **National Sales** | **Toutes les capacités du délégué médical** + **approbation préliminaire** des demandes Ad & Pro / événements (approuver / refuser + **désigner le référent Direction Marketing**). Portée **ALL** pour voir toutes les demandes à instruire ; **pas** de décision définitive (réservée à la Direction). |
+| `NATIONAL_SALES` | **National Sales** | **Toutes les capacités du délégué médical** + **approbation préliminaire** des demandes Ad & Pro / événements de ses KAM (approuver / refuser ; il ne désigne plus de référent Direction Marketing — les référents se configurent par gamme). Portée **ALL** pour voir toutes les demandes à instruire ; **pas** de décision définitive (réservée à la Direction). |
 | `MEDICAL_PROMOTION_MANAGER` | Manager Promotion Médicale | Promotion médicale, module Ad & Pro, **configuration de la force de vente** (donc des référents d'une gamme). Ne peut **pas** être désigné référent Direction Marketing : l'étape qui TRANCHE ne nomme que `PRODUCT_MANAGER`, et l'inscrire serait une attente sans pouvoir. N'assure **plus** l'étape préliminaire (désormais National Sales). |
 | `HEAD_OF_REGULATORY` | Responsable Réglementaire | Regulatory (gestion complète + fournisseurs). |
 | `REGULATORY_ASSISTANT` | Assistante Réglementaire | Regulatory (lignes assignées). |
@@ -442,9 +442,53 @@ Demande de TOUT AUTRE demandeur
 > tracé à son nom. Et une émission financière portée par une étape sautée est **héritée par l'étape qui
 > conclut** (lecture unique : « y a-t-il une suite ? ») — sans quoi la demande sortirait approuvée, budget
 > accordé écrit en base, et Finance ne recevrait RIEN.
-> Le **Sponsoring** ajoute l'**appel** : après décision, le délégué peut faire appel → nouvel avis du chef de
-> produit → la Direction tranche définitivement. Pour les congrès/événements pris en charge, on saisit la **liste
+> Le **Sponsoring** ajoute l'**appel** : après la décision — sous la règle de la tenue, un REFUS (une tenue
+> pré-validée ne se conteste pas : ses postes se discutent un à un) —, le délégué peut faire appel → nouvel avis
+> de la Direction Marketing → la Direction tranche définitivement. Pour les congrès/événements pris en charge, on saisit la **liste
 > des personnes prises en charge** (avec pièces d'identité) et un **ordre de mission**.
+
+#### Sponsoring — la tenue d'abord, l'argent à la fin (27/09/2026)
+
+La Direction : « quand quelqu'un crée une demande, on ne lui demande pas un budget suggéré ou quoi : on lui demande
+un **sponsoring demandé par le médecin** et un **sponsoring suggéré par le délégué**. Ce sponsoring s'ajoute
+automatiquement dans un **poste** — on précise s'il est **direct** (versé à l'association) ou **indirect** (prise en
+charge de prestations / de médecins). Une fois validée par le National Sales et la Direction des opérations, la
+Direction Marketing **pré-valide ou refuse la tenue** de l'événement. Pré-validée, on passe aux **postes** (stand,
+prises en charge…) : devis à l'assistante de direction, BC, factures. Une fois l'événement complété, la Direction
+Marketing **valide tout, met chaque poste dans un budget, valide et clôture**. »
+
+```
+Création : demandé par le médecin + suggéré par le délégué + NATURE (direct / indirect)
+   → le POSTE naît avec la demande : « Sponsoring direct (association) » ou « Sponsoring indirect
+     (prise en charge) », chiffré au montant SUGGÉRÉ, la demande du médecin écrite dans le poste
+   → circuit inchangé (tamis à trois branches, porte du DG au-delà du seuil)
+   → DIRECTION MARKETING : pré-valide ou refuse la TENUE — aucun montant accordé, aucun ordre global
+        → statut « Tenue pré-validée — postes en cours » ; la déclaration PRIM part (estimation des postes)
+   → POSTES : ajout (stand, billetterie, hôtellerie…), devis au secrétariat, décision poste par poste,
+     BC → centre de validation Ad&Pro → émission → facture → paiement (centre de paiement)
+   → VALIDATION FINALE ET CLÔTURE (Direction Marketing) : tout poste décidé, chaque poste accordé rangé
+     dans un budget et chiffré → la SOMME des postes accordés devient le montant accordé → « Clôturée »
+   → (si besoin) ROUVRIR, motif obligatoire → la demande repasse « pré-validée », ses postes se rouvrent
+```
+
+> ⚠️ **Qui clôture : celui qui a pré-validé la tenue — jamais le demandeur.** Par défaut la Direction Marketing ;
+> sur une demande que la Direction Marketing a elle-même déposée, sa route s'arrête chez la Direction des
+> opérations (§118.142) : c'est donc la Direction qui pré-valide ET qui clôture. Le Super Admin, toujours.
+> Tout refusé est clôturable à **0 DZD** (la tenue a eu lieu, rien n'a été financé) ; aucun poste, non.
+
+> ⚠️ **Clôturée, la demande est ARRÊTÉE, pas l'exécution.** Postes, montants, décisions et budgets sont figés
+> (chaque refus nomme « Rouvrir la demande ») ; mais un BC déjà accordé s'émet encore, une facture se dépose, un
+> paiement se règle — et le règlement d'un POSTE ne fait jamais passer la demande à « payée » (seul un accord
+> global de l'ancien circuit se solde par son ordre). Une tenue pré-validée ne se TRANSFÈRE plus vers un autre
+> module : ses postes resteraient accrochés à une demande close.
+
+> ⚠️ **Ce qui ne change pas.** La règle ne vaut que pour le SPONSORING : congrès et événements gardent la décision
+> à montant. Et l'issue se lit sur la CONFIGURATION de l'étape qui conclut (`workflow/issue-sponsoring.ts`) : une
+> étape qui fixe un montant (`requireAmount` ou le pouvoir « Fixer un montant ») accorde de l'argent comme avant —
+> un circuit qu'un Super Admin a remodelé garde son comportement, et la migration ne touche que l'étape encore à
+> sa graine d'origine. Les demandes déjà APPROUVÉES restent approuvées, à leur montant.
+
+#### Sept natures, une seule porte
 
 **Sept natures, une seule porte.** Sponsoring, prise en charge internationale, prise en charge
 nationale, événement, matériel promotionnel, **consulting** et **autre** : pour celui qui demande,
@@ -3262,6 +3306,12 @@ couvrent pourtant plusieurs choses, payées à plusieurs personnes. `AdProItem` 
 **postes** — pour les **quatre** opérations du pôle : sponsoring, prises en charge **nationales**
 et **internationales**, **événements**.
 
+**Un sponsoring NAÎT avec son poste (27/09/2026).** « Sponsoring direct (association) » ou « Sponsoring
+indirect (prise en charge) » selon la nature choisie à la création, chiffré au montant suggéré par le
+délégué ; la tenue pré-validée, ses postes ne sont PAS « tardifs » (les ajouter EST l'étape) ; la validation
+finale exige chaque poste décidé et chaque poste accordé rangé dans un budget, puis écrit leur somme comme
+montant accordé et fige les postes. Détail : [Sponsoring — la tenue d'abord](#sponsoring--la-tenue-dabord-largent-à-la-fin-27092026).
+
 **Une table pour les quatre modules**, avec **quatre clés étrangères nullables** plutôt qu'un
 couple (type, id) : une colonne polymorphe ne peut pas porter de contrainte, donc supprimer un
 congrès laisserait ses postes orphelins. Ici la cascade est garantie par la base, et une
@@ -5936,6 +5986,46 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### SPONSORING — LA TENUE D'ABORD, LES POSTES ENSUITE, L'ARGENT À LA CLÔTURE (2026-09)
+
+La Direction : un sponsoring se demande par ce que **le médecin demande** et ce que **le délégué suggère** ; il naît
+dans un **poste** (direct à l'association, ou indirect — prise en charge) ; la Direction Marketing **pré-valide la
+tenue** ; on prépare les postes (devis, BC, factures) ; puis elle **valide tout, range chaque poste dans un budget et
+clôture**.
+
+**CE QUE LA PERSONNE VOIT.** À la création, deux montants aux libellés de la Direction et un choix « direct /
+indirect » ; la demande naît avec son poste, que la fiche montre sous « Postes de la demande ». La dernière étape du
+circuit s'appelle désormais « Pré-validation de la tenue (Direction Marketing) » et ne demande plus de montant. Une
+fois pré-validée, un bloc **« Validation finale et clôture »** dit ce qui manque encore — nommément, en une fois —,
+affiche le total qui sera accordé, et porte le bouton « Valider et clôturer » ; clôturée, il montre qui, quand,
+combien, et le geste **« Rouvrir la demande »** (motif obligatoire). Adam le fait aussi, par une carte à confirmer
+(« clôture le sponsoring SPO-2026-014 »).
+
+**CE QUI A ÉTÉ PROTÉGÉ, parce que chaque changement déplaçait une vérité ailleurs.** (1) Aucun ordre GLOBAL n'est émis
+sur une tenue pré-validée — ni par le circuit, ni par la validation de la déclaration d'information médicale — : les
+postes portent la dépense, et un ordre de plus la paierait deux fois. (2) Régler l'ordre d'un POSTE passait la
+demande entière à « payée » : une demande clôturée serait repassée à « payée », une pré-validée aurait sauté sa
+clôture. Seul un accord global de l'ancien circuit se solde désormais par son règlement. (3) La déclaration PRIM part
+à la pré-validation — l'événement se déclare AVANT d'avoir lieu — avec l'estimation de ses postes (accordé s'il est
+fixé, estimé sinon, refusés exclus), puisqu'aucun montant n'est encore accordé. (4) Deux clics simultanés ne
+clôturent qu'une fois. (5) Une tenue pré-validée ou des postes déjà engagés ferment le transfert vers un autre module.
+(6) Le panneau du circuit dit l'étape suivante réelle (« les postes se préparent », puis « validée et clôturée ») au
+lieu de « en cours de traitement (information médicale / Finances) », et la carte de risque d'un sponsoring bloqué
+relance la personne qu'on attend VRAIMENT — lue sur l'étape courante du circuit, plus sur un statut qui couvre deux
+étapes (elle relançait « la Direction » pour une pré-validation de la Direction Marketing).
+
+**CE QUI NE CHANGE PAS.** Congrès et événements gardent la décision à montant. Un circuit remodelé par un Super Admin
+qui fixe encore un montant accorde comme avant ; la migration ne touche que l'étape de la Direction Marketing du
+sponsoring encore à sa graine. Les trois anciennes décisions de sponsoring d'Adam (préliminaire, analyse, définitive),
+qui n'avaient plus de porte depuis le circuit dynamique, sont retirées ; la clôture et la réouverture les remplacent.
+
+**Mesure** : banc de flux de 17 cas par les vrais points d'entrée (création, circuit, pré-validation, postes,
+clôture refusée puis réussie, gel, exécution après clôture, déclaration, réouverture, clics simultanés, demande de
+la Direction Marketing elle-même, transfert, ancien circuit) ; cliquet de 18 points d'appel ; 22 sabotages joués,
+**22 tombent**, restauration vérifiée octet pour octet. Artefact des contrats 753 actions / 729 appelables / 24
+illisibles ; parité 100 % ; frontière 428, traversées 69, fournisseurs 42, cycles 0 — mesurés au chiffre près.
+Détail au §118.151 de `CLAUDE.md`.
 
 ### CONSULTING — UN CONTRAT PASSE D'AD & PRO AUX RH, PAR UN GESTE ET SANS RIEN PERDRE (2026-09)
 

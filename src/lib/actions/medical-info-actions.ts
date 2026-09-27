@@ -2,7 +2,7 @@
 
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
-import type { MedicalInfoStatus } from "@prisma/client";
+import type { EntityType, MedicalInfoStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, anyRoleFilter, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -33,8 +33,38 @@ import { centreValidatorFrom } from "@/lib/validations/centre";
 import { createDirectValidation } from "@/lib/validation";
 import { getManagerOfUser } from "@/lib/departments";
 import { toNumber } from "@/lib/utils";
+import { postesPortantLaDepense } from "@/lib/workflow/engine";
 
 const PATH = "/information-medicale";
+
+/**
+ * QUI PORTE LA DÉPENSE D'UN ÉVÉNEMENT DÉCLARÉ ? — l'ordre GLOBAL, ou ses POSTES (§118.151).
+ *
+ * La Direction émettait ici un ordre de dépense du montant de la déclaration, sans regarder les
+ * postes. Or un poste émet sa PROPRE pièce (BC, puis facture, puis ordre) : une opération ventilée
+ * payait donc deux fois la même dépense — une fois par l'ordre global, une fois par ses postes.
+ * Le moteur de circuit s'en gardait déjà dans son autre branche (pas de pharmacien, `emitFinancials`) ;
+ * celle-ci ne s'en gardait pas, et depuis que chaque sponsoring naît avec son poste, le défaut
+ * serait devenu SYSTÉMATIQUE.
+ *
+ * Deux faits font dire « les postes » :
+ *   · des postes non refusés existent — la lecture est celle du moteur (`postesPortantLaDepense`),
+ *     pas un second comptage qui divergerait ;
+ *   · le sponsoring suit la règle de la TENUE : pré-validé ou clôturé par sa validation finale. Là,
+ *     le montant déclaré n'est qu'une ESTIMATION — l'argent se décide poste par poste —, et un ordre
+ *     bâti dessus serait un ordre sur un montant que personne n'a accordé. Même si tous ses postes
+ *     ont été refusés : c'est alors qu'il n'y a RIEN à payer, pas qu'il faut payer l'estimation.
+ *
+ * Aucune erreur n'est rattrapée : une lecture qui échoue fait échouer la validation, qui se refait
+ * d'un clic. Se tromper dans l'autre sens émettrait un ordre de trop — de l'argent qui sort.
+ */
+async function laDepenseEstPorteeParLesPostes(sourceType: EntityType, sourceId: string): Promise<boolean> {
+  if (sourceType === "SPONSORING") {
+    const s = await prisma.sponsoringRequest.findUnique({ where: { id: sourceId }, select: { status: true, closedAt: true } });
+    if (s && (s.status === "PRE_VALIDATED" || s.closedAt != null)) return true;
+  }
+  return (await postesPortantLaDepense(sourceType, sourceId)).nombre > 0;
+}
 
 /** Le pharmacien responsable (ou la Direction / un admin) pilote la déclaration. */
 function canManage(user: SessionUser): boolean {
@@ -789,9 +819,11 @@ export async function validateDeclarationByDirection(formData: FormData): Promis
     await prisma.comment.create({ data: { entityType: "MEDICAL_INFO_DECLARATION", entityId: id, body: comment, authorId: user.id } });
   }
 
-  // Émission de l'ordre de dépense (si un budget a été accordé) → part au comptable.
+  // Émission de l'ordre de dépense (si un budget a été accordé) → part au comptable — SAUF quand
+  // ce sont les postes qui portent la dépense : ils émettent chacun leur pièce (§118.151).
   const amount = Number(decl.amount ?? 0);
-  const order = amount > 0
+  const parLesPostes = amount > 0 && (await laDepenseEstPorteeParLesPostes(decl.sourceType, decl.sourceId));
+  const order = amount > 0 && !parLesPostes
     ? await createExpenseOrder({
         label: decl.label,
         amount,
@@ -816,7 +848,7 @@ export async function validateDeclarationByDirection(formData: FormData): Promis
   }
   if (decl.requesterId) await notifyUser({ userId: decl.requesterId, type: "GENERIC", title: "Information médicale — événement validé par la Direction", body: `${decl.reference} — ${decl.label}`, link: `${PATH}/${id}` });
   if (decl.pharmacistId && decl.pharmacistId !== user.id) await notifyUser({ userId: decl.pharmacistId, type: "GENERIC", title: "Information médicale — validé par la Direction", body: `${decl.reference} — ${decl.label}`, link: `${PATH}/${id}` });
-  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Information médicale", entityType: "MEDICAL_INFO_DECLARATION", entityId: id, summary: `Validation Direction — ${decl.reference}${order ? ` (ordre ${order.reference})` : ""}` });
+  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Information médicale", entityType: "MEDICAL_INFO_DECLARATION", entityId: id, summary: `Validation Direction — ${decl.reference}${order ? ` (ordre ${order.reference})` : parLesPostes ? " (dépense portée par les postes — aucun ordre global)" : ""}` });
   revalidate(id);
   revalidatePath("/finances/paiements-a-faire");
   revalidatePath("/comptabilite");

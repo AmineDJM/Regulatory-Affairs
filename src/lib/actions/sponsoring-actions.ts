@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { Priority, SponsoringStatus } from "@prisma/client";
+import type { AdProItemKind, Priority, SponsoringNature, SponsoringStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, anyRoleFilter, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -13,12 +13,15 @@ import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { attachFiles } from "@/lib/attach-files";
 import { notifyRoles, notifyUser } from "@/lib/notify";
-import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { involveThirdParty } from "@/lib/third-party";
 import { reopenInstance } from "@/lib/workflow/engine";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { ITEM_KIND_LABELS } from "@/lib/ad-pro-items";
+import { toNumber } from "@/lib/utils";
+import { porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
+import { bilanCloture, peutCloturer, quiCloture, refusCloture, type QuiCloture } from "@/lib/ad-pro/cloture-sponsoring";
 
 const PATH = "/sponsoring";
 
@@ -30,9 +33,24 @@ const PATH = "/sponsoring";
  */
 const FORMATS_DEMANDE_MEDECIN = /\.(pdf|doc|docx)$/i;
 
-function isDirection(user: SessionUser): boolean {
-  return hasGlobalView(user) || userCan(user, "SPONSORING", "VALIDATE");
-}
+/**
+ * LA NATURE D'UN SPONSORING DÉCIDE LE POSTE QUI NAÎT AVEC LUI (§118.151).
+ *
+ * « Ce sponsoring s'ajoute automatiquement dans un poste, car dans les postes on voit tous les
+ * postes relatifs à cette demande ; on précisera si c'est un sponsoring direct (à l'association)
+ * ou indirect (prise en charge de prestations / de médecins) » (Direction, 09/2026).
+ *
+ * La table est FERMÉE et exhaustive (`Record<SponsoringNature, …>`) : une troisième nature ajoutée
+ * au schéma ne compile pas tant que personne n'a dit quel poste elle ouvre.
+ */
+const POSTE_DE_LA_NATURE: Record<SponsoringNature, AdProItemKind> = {
+  DIRECT: "ASSOCIATION_SUPPORT",
+  INDIRECT: "INDIRECT_SUPPORT",
+};
+const NATURES_SPONSORING = Object.keys(POSTE_DE_LA_NATURE) as SponsoringNature[];
+
+const dzd = (n: number) => `${n.toLocaleString("fr-FR")} DZD`;
+
 /** Approbation préliminaire Ad & Pro : **réservée au National Sales** (la demande
  *  émane d'un délégué). Il approuve/refuse et désigne le référent Direction Marketing — la
  *  décision définitive reste à la Direction. Ni la Direction ni la Direction
@@ -70,18 +88,28 @@ export async function createSponsoring(
   // générique d'Adam se fait refuser (§118.87c). Le NOM est partagé et tenu par un cliquet.
   const medecins = readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor"));
   const produits = readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product"));
+  const natureLue = fdStr(formData, "nature") as SponsoringNature | null;
+  const nature = natureLue && NATURES_SPONSORING.includes(natureLue) ? natureLue : null;
+  const demandeParLeMedecin = fdNum(formData, "amountRequested");
+  const suggereParLeDelegue = fdNum(formData, "amountProposed");
   const manquants = [
     !medecins ? "le ou les médecins concernés" : null,
     !produits ? "le ou les produits concernés" : null,
     !fdStr(formData, "city") ? "la ville (wilaya)" : null,
     !fdStr(formData, "specialty") ? "la spécialité" : null,
     !fdStr(formData, "type") ? "le type" : null,
-    fdNum(formData, "amountRequested") == null ? "le budget demandé par l'intéressé (DZD)" : null,
-    fdNum(formData, "amountProposed") == null ? "le budget suggéré par le délégué (DZD)" : null,
+    // Les deux montants que la Direction a nommés — ceux d'une DEMANDE, pas d'un budget : le
+    // budget se décide poste par poste puis à la clôture (§118.151).
+    demandeParLeMedecin == null ? "le sponsoring demandé par le médecin (DZD)" : null,
+    suggereParLeDelegue == null ? "le sponsoring suggéré par le délégué (DZD)" : null,
+    !nature ? "la nature du sponsoring (direct à l'association, ou indirect — prise en charge)" : null,
     !fdStr(formData, "strategicImportance") ? "l'importance stratégique" : null,
   ].filter((x): x is string => x !== null);
   if (manquants.length > 0) {
     return { ok: false, error: `Demande incomplète — il manque : ${manquants.join(", ")}.` };
+  }
+  if ((demandeParLeMedecin ?? 0) < 0 || (suggereParLeDelegue ?? 0) < 0) {
+    return { ok: false, error: "Un montant de sponsoring ne peut pas être négatif." };
   }
 
   // ─── LA DEMANDE DU MÉDECIN : UNE PIÈCE, ET UN SCAN ────────────────────────────────────
@@ -160,8 +188,9 @@ export async function createSponsoring(
       type: fdStr(formData, "type") ?? "Sponsoring",
       description: fdStr(formData, "description"),
       comments: fdStr(formData, "comments"),
-      amountRequested: fdNum(formData, "amountRequested"),
-      amountProposed: fdNum(formData, "amountProposed"),
+      amountRequested: demandeParLeMedecin,
+      amountProposed: suggereParLeDelegue,
+      nature,
       product: produits,
       strategicImportance: (fdStr(formData, "strategicImportance") as Priority) ?? "MEDIUM",
       status: init.status as SponsoringStatus,
@@ -186,6 +215,31 @@ export async function createSponsoring(
       // simplement le nom de son référent.
       ...(init.productManagerId || referentGamme ? { productManagerId: init.productManagerId || referentGamme! } : {}),
       ...(init.preliminaryBySelf ? { preliminaryById: user.id, preliminaryAt: now } : {}),
+      // LE POSTE NAÎT AVEC LA DEMANDE, dans la MÊME écriture (§118.151).
+      //
+      // Créé à part, il pourrait manquer : une demande sans son poste est exactement ce que la
+      // Direction ne veut plus voir — « dans les postes on voit tous les postes relatifs à cette
+      // demande », et le sponsoring lui-même en est le premier. Une création imbriquée est
+      // atomique : les deux lignes existent ensemble, ou aucune.
+      //
+      // Chiffré à ce que SUGGÈRE LE DÉLÉGUÉ — c'est une recommandation, et c'est la Direction
+      // Marketing qui accordera ; la demande du médecin est dite dans le poste pour que l'écart se
+      // lise sans ouvrir la demande. Un sponsoring direct se verse à l'association : elle est le
+      // bénéficiaire du poste. Un sponsoring indirect paie des prestataires que personne ne connaît
+      // encore : le bénéficiaire reste vide plutôt que deviné.
+      items: {
+        create: {
+          kind: POSTE_DE_LA_NATURE[nature!],
+          label: `${ITEM_KIND_LABELS[POSTE_DE_LA_NATURE[nature!]]} — ${institution}`,
+          notes: `Sponsoring demandé par le médecin : ${dzd(demandeParLeMedecin!)} · suggéré par le délégué : ${dzd(suggereParLeDelegue!)}.`,
+          supplier: nature === "DIRECT" ? institution : null,
+          amountEstimated: suggereParLeDelegue,
+          budgetKind: "INCLUDED",
+          position: 1,
+          createdById: user.id,
+          updatedById: user.id,
+        },
+      },
     },
   });
 
@@ -197,7 +251,7 @@ export async function createSponsoring(
   });
   if (attached.error) return { ok: false, error: attached.error };
 
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Sponsoring", entityType: "SPONSORING", entityId: created.id, summary: `Demande ${reference} — ${institution}${attached.saved > 0 ? ` (${attached.saved} pièce(s) jointe(s))` : ""}` });
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Sponsoring", entityType: "SPONSORING", entityId: created.id, summary: `Demande ${reference} — ${institution} — sponsoring ${nature === "DIRECT" ? "direct" : "indirect"}, poste créé avec la demande${attached.saved > 0 ? ` (${attached.saved} pièce(s) jointe(s))` : ""}` });
   await notifyAdProCreation(init, created.id, `${reference} — ${institution}`);
 
   revalidatePath(PATH);
@@ -218,42 +272,172 @@ async function notifyAdProCreation(init: ReturnType<typeof adProInit>, id: strin
   await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], { type: "SPONSORING_VALIDATION", title: "Sponsoring — à attribuer (National Sales)", body, link });
 }
 
-// ─────────────────── Attribution de la Direction Marketing (Direction Marketing) ───────────────────
+// ───────────────────────── Validation finale et clôture (§118.151) ─────────────────────────
 
-export async function sponsoringPreliminary(formData: FormData): Promise<ActionResult> {
+/**
+ * QUI TIENT LA CLÔTURE DE CETTE DEMANDE — lu sur le parcours GELÉ de son instance.
+ *
+ * La borne `finalSlug` dit où la chaîne s'est arrêtée : à la Direction des opérations quand la
+ * demande venait de la Direction Marketing elle-même, à la Direction Marketing sinon. Une demande
+ * sans instance (antérieure au moteur) retombe sur la Direction Marketing, la règle générale.
+ */
+async function quiClotureLaDemande(id: string): Promise<QuiCloture> {
+  const instance = await prisma.workflowInstance.findUnique({
+    where: { entityType_entityId: { entityType: "SPONSORING", entityId: id } },
+    select: { finalSlug: true },
+  });
+  return quiCloture(instance?.finalSlug ?? null);
+}
+
+function faitsCloturant(user: SessionUser, requesterId: string | null) {
+  return {
+    estSuperAdmin: user.role === "SUPER_ADMIN",
+    porteLeRoleQuiTranche: porteLeRoleQuiTranche(user),
+    aLaVueGlobale: hasGlobalView(user),
+    estLeDemandeur: requesterId != null && requesterId === user.id,
+  };
+}
+
+/**
+ * VALIDER ET CLÔTURER — « une fois l'événement complété, la Direction Marketing valide tout, met
+ * chaque poste dans un budget, valide et clôture » (Direction, 09/2026).
+ *
+ * Le geste ne décide aucun poste à la place de personne : il VÉRIFIE que tout l'a été
+ * (`bilanCloture`, qui dit tout ce qui manque en une fois), puis FIGE — le total des postes
+ * accordés devient le montant accordé de la demande, et ses postes ne se réécrivent plus
+ * (`refusSiClos`, côté postes). Ce qui a été validé continue de s'exécuter : un BC encore à
+ * émettre, une facture encore à recevoir ne sont pas bloqués par la clôture.
+ *
+ * L'écriture est CONDITIONNELLE (`status: PRE_VALIDATED`) : deux clics simultanés ne clôturent
+ * qu'une fois, et une demande rouverte ou modifiée entre la lecture et l'écriture n'est pas
+ * clôturée sur un bilan périmé.
+ */
+export async function cloturerSponsoring(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!canDoPreliminary(user)) return { ok: false, error: "Approbation préliminaire réservée au National Sales." };
   const id = fdStr(formData, "id");
-  const decision = fdStr(formData, "decision"); // APPROVE | REJECT
-  if (!id || !decision) return { ok: false, error: "Paramètres manquants." };
-
-  const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
+  if (!id) return { ok: false, error: "Demande non précisée." };
+  const req = await prisma.sponsoringRequest.findUnique({
+    where: { id },
+    select: { id: true, reference: true, institution: true, status: true, requesterId: true },
+  });
   if (!req) return { ok: false, error: "Demande introuvable." };
-  if (req.status !== "AWAITING_PRELIMINARY") return { ok: false, error: "Cette demande n'est pas en attente de validation préliminaire." };
 
-  if (decision === "REJECT") {
-    const reason = fdStr(formData, "note");
-    if (!reason) return { ok: false, error: "Le motif de refus est obligatoire." };
-    await prisma.sponsoringRequest.update({
-      where: { id },
-      data: { status: "REFUSED", finalDecision: reason, preliminaryById: user.id, preliminaryAt: new Date(), validatedBy: user.name, validationDate: new Date(), updatedById: user.id },
-    });
-    if (req.requesterId) await notifyUser({ userId: req.requesterId, type: "SPONSORING_VALIDATION", title: "Sponsoring refusé", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
-    await recordAudit({ actorId: user.id, action: "REFUSE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Refus préliminaire — ${req.reference}` });
-  } else {
-    const productManagerId = fdStr(formData, "productManagerId");
-    if (!productManagerId) return { ok: false, error: "Sélectionnez le référent Direction Marketing qui fera l'analyse." };
-    await prisma.sponsoringRequest.update({
-      where: { id },
-      data: { status: "PRELIMINARY_APPROVED", productManagerId, preliminaryById: user.id, preliminaryAt: new Date(), preliminaryNote: fdStr(formData, "note"), updatedById: user.id },
-    });
-    await notifyUser({ userId: productManagerId, type: "ASSIGNMENT", title: "Sponsoring à analyser", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
-    if (req.requesterId) await notifyUser({ userId: req.requesterId, type: "SPONSORING_VALIDATION", title: "Sponsoring validé (préliminaire)", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
-    await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Validation préliminaire — ${req.reference}` });
+  const qui = await quiClotureLaDemande(id);
+  if (!peutCloturer(faitsCloturant(user, req.requesterId), qui)) return { ok: false, error: refusCloture(qui) };
+
+  const postes = await prisma.adProItem.findMany({
+    where: { sponsoringId: id },
+    select: { label: true, status: true, amountGranted: true, budgetCategoryId: true },
+    orderBy: { position: "asc" },
+  });
+  const bilan = bilanCloture(req.status, postes.map((p) => ({
+    label: p.label,
+    status: p.status,
+    amountGranted: p.amountGranted != null ? toNumber(p.amountGranted) : null,
+    budgetCategoryId: p.budgetCategoryId,
+  })));
+  if (!bilan.cloturable) return { ok: false, error: `Clôture impossible — ${bilan.manques.join(" ; ")}.` };
+
+  const note = fdStr(formData, "note");
+  const now = new Date();
+  const fait = await prisma.sponsoringRequest.updateMany({
+    where: { id, status: "PRE_VALIDATED" },
+    data: {
+      status: "CLOSED",
+      amountGranted: bilan.total,
+      closedAt: now,
+      closedById: user.id,
+      closingNote: note,
+      validatedBy: user.name ?? null,
+      validationDate: now,
+      updatedById: user.id,
+    },
+  });
+  if (fait.count === 0) return { ok: false, error: "La demande a changé entre-temps (déjà clôturée ?) : rechargez la fiche." };
+
+  const montant = `${bilan.total.toLocaleString("fr-FR")} DZD`;
+  const detail = `${bilan.accordes} poste(s) accordé(s)${bilan.refuses > 0 ? `, ${bilan.refuses} refusé(s)` : ""} — total ${montant}`;
+  if (req.requesterId && req.requesterId !== user.id) {
+    await notifyUser({
+      userId: req.requesterId, type: "SPONSORING_VALIDATION",
+      title: bilan.total > 0 ? "Sponsoring validé et clôturé" : "Sponsoring clôturé sans dépense",
+      body: `${req.reference} — ${req.institution} : ${detail}`,
+      link: `${PATH}/${id}`,
+    }).catch(() => undefined);
+  }
+  await recordAudit({
+    actorId: user.id, action: "VALIDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id,
+    summary: `Validation finale et clôture — ${req.reference} : ${detail}${note ? ` (${note})` : ""}`,
+  });
+  revalidate(id);
+  return { ok: true, id };
+}
+
+/**
+ * ROUVRIR UNE DEMANDE CLÔTURÉE — le remède que le refus des postes nomme.
+ *
+ * Une facture arrive pour un autre montant, un poste a été oublié : sans ce geste, la clôture
+ * serait une impasse, et « corrigez » renverrait vers une action qui n'existe pas (§118.63). Même
+ * autorité que la clôture, et un MOTIF obligatoire : défaire une validation se justifie.
+ *
+ * Le montant accordé et la validation sont RETIRÉS, pas conservés : rouverte, la demande revient
+ * à l'état où l'argent se décide encore, et afficher l'ancien total à côté de postes qu'on est en
+ * train de modifier ferait lire un accord qui n'existe plus. L'historique garde tout (audit).
+ * Une demande close par un TRANSFERT ne se rouvre pas ici : elle vit dans un autre module.
+ */
+export async function rouvrirSponsoring(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande non précisée." };
+  const motif = fdStr(formData, "reason");
+  if (!motif) return { ok: false, error: "Le motif de la réouverture est obligatoire." };
+  const req = await prisma.sponsoringRequest.findUnique({
+    where: { id },
+    select: { id: true, reference: true, institution: true, status: true, requesterId: true, closedAt: true, amountGranted: true },
+  });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (req.status !== "CLOSED" || req.closedAt == null) {
+    return { ok: false, error: "Seule une demande clôturée par sa validation finale se rouvre." };
+  }
+  const qui = await quiClotureLaDemande(id);
+  if (!peutCloturer(faitsCloturant(user, req.requesterId), qui)) return { ok: false, error: refusCloture(qui) };
+
+  const fait = await prisma.sponsoringRequest.updateMany({
+    where: { id, status: "CLOSED", closedAt: { not: null } },
+    data: {
+      status: "PRE_VALIDATED",
+      amountGranted: null, closedAt: null, closedById: null, closingNote: null,
+      validatedBy: null, validationDate: null,
+      updatedById: user.id,
+    },
+  });
+  if (fait.count === 0) return { ok: false, error: "La demande a changé entre-temps : rechargez la fiche." };
+
+  const ancien = req.amountGranted != null ? ` (montant clôturé : ${toNumber(req.amountGranted).toLocaleString("fr-FR")} DZD)` : "";
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id,
+    summary: `Clôture rouverte — ${req.reference}${ancien} — motif : ${motif}`,
+  });
+  if (req.requesterId && req.requesterId !== user.id) {
+    await notifyUser({
+      userId: req.requesterId, type: "SPONSORING_VALIDATION", title: "Sponsoring rouvert",
+      body: `${req.reference} — ${req.institution} : ${motif}`, link: `${PATH}/${id}`,
+    }).catch(() => undefined);
   }
   revalidate(id);
-  return { ok: true };
+  return { ok: true, id };
 }
+
+// ─────────────── Les anciennes décisions HORS circuit ont disparu (§118.151) ───────────────
+//
+// `sponsoringPreliminary`, `sponsoringAnalysis` et `sponsoringFinal` écrivaient le statut d'un
+// sponsoring DIRECTEMENT, sans le moteur de circuit : préliminaire, analyse, puis un accord avec
+// montant global et déclaration. Seul Adam les atteignait encore (aucun écran). Depuis que la
+// Direction Marketing PRÉ-VALIDE la tenue et que l'argent se décide poste par poste puis à la
+// clôture, `sponsoringFinal` était une porte ouverte à côté de la porte gardée (§118.71) : un
+// accord global qui sautait la pré-validation, les postes et la clôture, et payait la dépense une
+// seconde fois à côté des postes. Adam conduit le circuit par `advance_workflow` — le moteur, ses
+// gardes, son tamis — et clôture par `close_sponsoring`.
 
 // ─────────────────── Implication d'une tierce personne (via son espace) ───────────────────
 
@@ -286,116 +470,6 @@ export async function requestThirdPartyInput(formData: FormData): Promise<Action
   if (!res.ok) return { ok: false, error: res.error };
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Tierce personne impliquée — ${req.reference}` });
   revalidate(id);
-  return { ok: true };
-}
-
-// ─────────────────── Analyse Direction Marketing (avis + budget proposé) — confidentiel ───────────────────
-
-export async function sponsoringAnalysis(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Identifiant manquant." };
-  const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
-  if (!req) return { ok: false, error: "Demande introuvable." };
-  if (req.productManagerId !== user.id && !hasGlobalView(user)) return { ok: false, error: "Réservé au référent Direction Marketing assigné." };
-
-  const isAppeal = req.status === "APPEAL_PENDING";
-  if (req.status !== "PRELIMINARY_APPROVED" && !isAppeal) return { ok: false, error: "Cette demande n'est pas en phase d'analyse." };
-
-  const notes = fdStr(formData, "productManagerNotes");
-  if (!notes) return { ok: false, error: "Votre avis est obligatoire." };
-
-  // En appel, l'avis est rendu SANS budget (la Direction tranchera).
-  const budget = isAppeal ? null : fdNum(formData, "productManagerBudget");
-  if (!isAppeal && budget === null) return { ok: false, error: "Le budget proposé est obligatoire." };
-
-  await prisma.sponsoringRequest.update({
-    where: { id },
-    data: {
-      status: isAppeal ? "AWAITING_FINAL_APPEAL" : "AWAITING_FINAL",
-      productManagerNotes: notes,
-      ...(isAppeal ? {} : { productManagerBudget: budget }),
-      updatedById: user.id,
-    },
-  });
-  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
-    type: "VALIDATION_REQUIRED",
-    title: isAppeal ? "Sponsoring — décision après appel" : "Sponsoring — validation définitive",
-    body: `${req.reference} — analyse Direction Marketing ${isAppeal ? "(appel) " : ""}terminée`,
-    link: `${PATH}/${id}`,
-  });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Analyse Direction Marketing${isAppeal ? " (appel)" : ""} — ${req.reference}` });
-  revalidate(id);
-  return { ok: true };
-}
-
-// ─────────────────── Décision définitive (Direction : budget final + commentaire) ───────────────────
-
-export async function sponsoringFinal(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  if (!isDirection(user)) return { ok: false, error: "Validation réservée à la Direction." };
-  const id = fdStr(formData, "id");
-  const decision = fdStr(formData, "decision"); // APPROVE | REJECT
-  if (!id || !decision) return { ok: false, error: "Paramètres manquants." };
-
-  const req = await prisma.sponsoringRequest.findUnique({ where: { id } });
-  if (!req) return { ok: false, error: "Demande introuvable." };
-  if (req.status !== "AWAITING_FINAL" && req.status !== "AWAITING_FINAL_APPEAL") {
-    return { ok: false, error: "Cette demande n'est pas en attente de décision définitive." };
-  }
-
-  if (decision === "REJECT") {
-    const reason = fdStr(formData, "note");
-    if (!reason) return { ok: false, error: "Le motif de refus est obligatoire." };
-    await prisma.sponsoringRequest.update({
-      where: { id },
-      data: { status: "REFUSED", finalDecision: reason, amountGranted: 0, finalById: user.id, finalAt: new Date(), validatedBy: user.name, validationDate: new Date(), updatedById: user.id },
-    });
-    if (req.requesterId) await notifyUser({ userId: req.requesterId, type: "SPONSORING_VALIDATION", title: "Sponsoring refusé (définitif)", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
-    await recordAudit({ actorId: user.id, action: "REFUSE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Refus définitif — ${req.reference}` });
-    revalidate(id);
-    return { ok: true };
-  }
-
-  const amountGranted = fdNum(formData, "amountGranted");
-  if (amountGranted === null || amountGranted < 0) return { ok: false, error: "Le budget final accordé est obligatoire." };
-
-  // (Sous-)catégorie budgétaire choisie par la Direction : la dépense sera imputée
-  // à cette (sous-)catégorie au règlement (au lieu de l'attribution automatique).
-  // Facultatif côté serveur, requis dans l'UI dès qu'il existe des (sous-)catégories.
-  const budgetCategoryId = fdStr(formData, "budgetCategoryId");
-  if (budgetCategoryId) {
-    const okCat = await prisma.budgetCategoryLine.count({ where: { id: budgetCategoryId } });
-    if (okCat === 0) return { ok: false, error: "La (sous-)catégorie budgétaire choisie est introuvable." };
-  }
-
-  // Validation définitive → étape « information médicale » (déclaration aux autorités
-  // par le pharmacien responsable) AVANT l'émission de l'ordre de dépense au comptable.
-  const decl = await createMedicalInfoDeclaration({
-    sourceType: "SPONSORING",
-    sourceId: id,
-    label: `Sponsoring ${req.reference} — ${req.institution}`,
-    beneficiary: req.institution,
-    amount: amountGranted,
-    requesterId: req.requesterId ?? user.id,
-    budgetCategoryId,
-  });
-
-  await prisma.sponsoringRequest.update({
-    where: { id },
-    data: {
-      status: "APPROVED",
-      amountGranted,
-      finalDecision: fdStr(formData, "note"),
-      finalById: user.id, finalAt: new Date(),
-      validatedBy: user.name, validationDate: new Date(),
-      updatedById: user.id,
-    },
-  });
-  if (req.requesterId) await notifyUser({ userId: req.requesterId, type: "SPONSORING_VALIDATION", title: "Sponsoring accordé", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
-  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Validation définitive — ${req.reference} (déclaration ${decl.reference})` });
-  revalidate(id);
-  revalidatePath("/information-medicale");
   return { ok: true };
 }
 

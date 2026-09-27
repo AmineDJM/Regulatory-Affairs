@@ -46,6 +46,8 @@ suite("Une demande de sponsoring INCOMPLÈTE est refusée par le serveur", () =>
     fd.set("type", "Congrès");
     fd.set("amountRequested", "120000");
     fd.set("amountProposed", "90000");
+    // LA NATURE DU SPONSORING (§118.151) — elle décide le poste qui naît avec la demande.
+    fd.set("nature", "DIRECT");
     fd.set("strategicImportance", "HIGH");
     fd.append("files", fichierScan());
     return fd;
@@ -95,14 +97,16 @@ suite("Une demande de sponsoring INCOMPLÈTE est refusée par le serveur", () =>
     expect(r.ok).toBe(false);
     expect(r.error).toContain("wilaya");
     expect(r.error).toContain("spécialité");
-    expect(r.error).toContain("budget demandé");
+    // Le libellé que la Direction a nommé : un SPONSORING demandé, pas un « budget » (§118.151).
+    expect(r.error).toContain("sponsoring demandé par le médecin");
   });
 
   it.each([
     ["doctorIds", "médecins"],
     ["productIds", "produits"],
     ["type", "le type"],
-    ["amountProposed", "budget suggéré"],
+    ["amountProposed", "sponsoring suggéré par le délégué"],
+    ["nature", "nature du sponsoring"],
     ["strategicImportance", "importance stratégique"],
   ])("sans « %s », la demande est refusée en nommant « %s »", async (champ, attendu) => {
     const fd = complet();
@@ -147,6 +151,44 @@ suite("Une demande de sponsoring INCOMPLÈTE est refusée par le serveur", () =>
     expect(cree.doctor).toBe("Dr Benali");
     expect(cree.product).toBe("Nivolex");
     expect(cree.status, "un KAM part de l'approbation préliminaire de son superviseur national").toBe("AWAITING_PRELIMINARY");
+    expect(cree.nature).toBe("DIRECT");
+    // LE POSTE NAÎT AVEC LA DEMANDE (§118.151) — un seul, dans la même écriture, et il porte ce
+    // que la Direction a nommé : le sponsoring direct, chiffré à ce que SUGGÈRE le délégué, versé
+    // à l'association, avec la demande du médecin dite dans ses précisions.
+    const postes = await prisma.adProItem.findMany({ where: { sponsoringId: cree.id } });
+    expect(postes, "une demande sans son poste est ce que la Direction ne veut plus voir").toHaveLength(1);
+    expect(postes[0].kind).toBe("ASSOCIATION_SUPPORT");
+    expect(Number(postes[0].amountEstimated)).toBe(90_000);
+    expect(postes[0].supplier, "le sponsoring direct se verse à l'association").toBe(`${TAG}CHU Alger`);
+    expect(postes[0].notes).toContain("120");
+    expect(postes[0].status, "le poste se décide ensuite, comme tout poste").toBe("DRAFT");
+    expect(postes[0].addedAfterDecision).toBe(false);
+  });
+
+  it("INDIRECT : le poste est une prise en charge, sans bénéficiaire deviné", async () => {
+    // Un sponsoring indirect paie des prestataires que personne ne connaît encore : le
+    // bénéficiaire reste VIDE plutôt que d'être rempli par l'association, qui ne recevra rien.
+    ACTEUR = { id: kamId, role: "MEDICAL_DELEGATE", secondaryRole: null, access: await getAccess(kamId, "MEDICAL_DELEGATE") } as unknown as SessionUser;
+    const fd = complet();
+    fd.set("institution", `${TAG}Société indirecte`);
+    fd.set("nature", "INDIRECT");
+    const r = await createSponsoring(undefined, fd);
+    expect(r.ok, r.ok === false ? r.error : "").toBe(true);
+    const cree = await prisma.sponsoringRequest.findFirstOrThrow({ where: { institution: `${TAG}Société indirecte` }, include: { items: true } });
+    expect(cree.nature).toBe("INDIRECT");
+    expect(cree.items).toHaveLength(1);
+    expect(cree.items[0].kind).toBe("INDIRECT_SUPPORT");
+    expect(cree.items[0].supplier).toBeNull();
+  });
+
+  it("une nature INVENTÉE est refusée comme une nature absente — jamais un poste deviné", async () => {
+    const fd = complet();
+    fd.set("institution", `${TAG}Nature forgée`);
+    fd.set("nature", "MIXTE");
+    const r = await createSponsoring(undefined, fd);
+    expect(r.ok).toBe(false);
+    expect(r.ok === false ? r.error : "").toContain("nature du sponsoring");
+    expect(await prisma.sponsoringRequest.count({ where: { institution: `${TAG}Nature forgée` } })).toBe(0);
   });
 
   it("un demandeur SANS gamme déductible garde la main : sa saisie est retenue", async () => {

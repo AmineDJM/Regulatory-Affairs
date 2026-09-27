@@ -262,8 +262,24 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
         </p>
       )}
 
+      {/* Issue d'un SPONSORING sous la règle de la tenue : l'étape suivante est la préparation des
+          postes, puis la clôture — pas « l'information médicale / les Finances » d'un accord global. */}
+      {view.outcome?.tenue && (
+        <div className="rounded-lg border border-border bg-secondary/30 p-3 text-sm">
+          {view.outcome.tenue === "PRE_VALIDEE" ? (
+            <p>Tenue pré-validée — les postes se préparent (devis, BC, factures), puis la validation finale range chaque poste dans un budget et clôture la demande.</p>
+          ) : (
+            <p>
+              Validée et clôturée
+              {view.outcome.grantedAmount != null && <> — montant accordé <span className="font-semibold">{formatCurrency(view.outcome.grantedAmount)}</span></>}.
+              {" "}Les paiements suivent poste par poste.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Issue */}
-      {view.outcome && (view.outcome.grantedAmount != null || view.outcome.expenseOrder) && (
+      {view.outcome && !view.outcome.tenue && (view.outcome.grantedAmount != null || view.outcome.expenseOrder) && (
         <div className="rounded-lg border border-border bg-secondary/30 p-3 text-sm">
           {view.outcome.grantedAmount != null && <p>Montant accordé : <span className="font-semibold">{formatCurrency(view.outcome.grantedAmount)}</span></p>}
           {view.outcome.expenseOrder ? (

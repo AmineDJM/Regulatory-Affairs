@@ -1,5 +1,5 @@
 import type { FieldDef } from "@/components/shared/create-record-button";
-import { PRIORITY, SPONSORING_TYPES, MATERIAL_TYPE_OPTIONS, CONSULTING_BILLING_OPTIONS } from "@/lib/labels";
+import { PRIORITY, SPONSORING_TYPES, SPONSORING_NATURE, MATERIAL_TYPE_OPTIONS, CONSULTING_BILLING_OPTIONS } from "@/lib/labels";
 import { wilayaOptions } from "@/lib/geo/algeria";
 import { availableProductOptions, doctorOptions, specialtyOptions, type DoctorRow, type ProductRow, type SpecialtyRow } from "@/lib/ad-pro/pickers";
 import type { AdProKind } from "@/lib/ad-pro/unified";
@@ -270,8 +270,21 @@ export function sponsoringCreateFields(opts: {
       options: SPONSORING_TYPES.map((t) => ({ value: t, label: t })),
       placeholder: "— Choisir le type —",
     },
-    { type: "number", name: "amountRequested", label: "Budget demandé par l'intéressé (DZD)", required: true },
-    { type: "number", name: "amountProposed", label: "Budget suggéré par le délégué (DZD)", required: true },
+    // LE SPONSORING DEMANDÉ ET LE SPONSORING SUGGÉRÉ — pas un « budget » (§118.151).
+    //
+    // « On ne lui demande pas un budget suggéré ou quoi : on lui demande un sponsoring demandé par
+    // le médecin et un sponsoring suggéré par le délégué » (Direction, 09/2026). Le budget se
+    // décide APRÈS — poste par poste, puis à la validation finale — et c'est ce libellé qui le dit.
+    // La NATURE vient avec : c'est elle qui décide le poste créé automatiquement avec la demande.
+    {
+      type: "select", name: "nature", label: "Nature du sponsoring", required: true, full: true,
+      options: Object.entries(SPONSORING_NATURE).map(([value, label]) => ({ value, label })),
+      placeholder: "— Direct ou indirect —",
+      hint: "Le sponsoring s'ajoute automatiquement comme premier POSTE de la demande, chiffré à ce que suggère le délégué. "
+        + "Les autres postes (stand, prises en charge…) s'ajoutent après la pré-validation de la tenue.",
+    },
+    { type: "number", name: "amountRequested", label: "Sponsoring demandé par le médecin (DZD)", required: true },
+    { type: "number", name: "amountProposed", label: "Sponsoring suggéré par le délégué (DZD)", required: true },
     {
       type: "select", name: "strategicImportance", label: "Importance stratégique", required: true,
       options: optionsOf(PRIORITY), placeholder: "— Choisir l'importance —",

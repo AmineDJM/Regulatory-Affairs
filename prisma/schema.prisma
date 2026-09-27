@@ -155,6 +155,18 @@ enum SponsoringStatus {
   APPEAL_PENDING // appel du délégué → nouvel avis du chef de produit (sans budget)
   AWAITING_FINAL_APPEAL // avis d'appel rendu → décision définitive (Direction)
   CANCELLED
+  /// TENUE PRÉ-VALIDÉE par la Direction Marketing (§118.151) : l'événement aura lieu, et les
+  /// postes se préparent — devis, BC, factures. L'argent n'est pas encore validé : il le sera
+  /// poste par poste, puis à la validation finale qui CLÔTURE la demande (`CLOSED`).
+  PRE_VALIDATED
+}
+
+/// LA NATURE D'UN SPONSORING (§118.151) — et donc le poste créé avec la demande.
+/// DIRECT : l'argent va à l'association ; INDIRECT : la société prend en charge des prestations
+/// ou des médecins. Nulle sur les demandes nées avant la règle.
+enum SponsoringNature {
+  DIRECT
+  INDIRECT
 }
 
 enum BudgetCategory {
@@ -2083,6 +2095,13 @@ model SponsoringRequest {
   validatedBy         String?
   validationDate      DateTime?
   comments            String? // appréciation / recommandation du délégué
+  /// Direct (à l'association) ou indirect (prise en charge) — décide le poste créé avec la demande (§118.151).
+  nature              SponsoringNature?
+  /// VALIDATION FINALE ET CLÔTURE (§118.151) — la Direction Marketing, une fois l'événement complété :
+  /// chaque poste décidé et rangé dans un budget, le total accordé écrit dans `amountGranted`.
+  closedAt            DateTime?
+  closedById          String?
+  closingNote         String?
 
   // Circuit de validation (calqué sur les congrès) — préliminaire (Direction) →
   // analyse chef de produit (avis + budget proposé, CONFIDENTIELS vis-à-vis du délégué)
@@ -2138,6 +2157,9 @@ enum AdProItemKind {
   TICKETING // Prise en charge de la billetterie
   ACCOMMODATION // Prise en charge de l'hôtellerie
   DINNER // Prise en charge des dîners
+  /// Le SPONSORING INDIRECT (§118.151) : la société ne verse rien à l'association, elle prend en
+  /// charge des prestations ou des médecins. Pendant d'`ASSOCIATION_SUPPORT` (le sponsoring direct).
+  INDIRECT_SUPPORT
   OTHER
 }
 

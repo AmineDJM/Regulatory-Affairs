@@ -162,9 +162,19 @@ export const AD_PRO_STATE: Record<AdProState, { label: string; tone: "neutral" |
 const REFUSED = ["REFUSED", "CANCELLED", "REJECTED"];
 /** Statuts qui closent une demande. */
 const DONE = ["PAID", "CLOSED", "COMPLETED", "SETTLED", "PAYMENT_DONE", "MATERIAL_DELIVERED", "ARCHIVED", "DONE", "EXPIRED"];
-/** Statuts « validée, en cours d'exécution ». */
+/**
+ * Statuts « validée, en cours d'exécution ».
+ *
+ * `PRE_VALIDATED` y est (§118.151) : la tenue d'un sponsoring est décidée et ses postes
+ * s'exécutent — devis, BC, factures — jusqu'à la clôture. Hors de cette liste, il retombait dans
+ * « en attente de décision », en tête de liste, alors que plus rien n'attend un arbitre.
+ *
+ * `PRELIMINARY_APPROVED` en est SORTI, dans le même lot : c'est l'état projeté aux portes du DG et
+ * de la Direction des opérations, donc une demande qui ATTEND encore une décision. L'afficher
+ * « Validée » faisait lire un accord là où il n'y avait qu'une étape franchie.
+ */
 const APPROVED = [
-  "ACCEPTED", "APPROVED", "VALIDATED", "PRELIMINARY_APPROVED", "ORGANIZED", "PREPARATION", "ACTIVE",
+  "ACCEPTED", "APPROVED", "VALIDATED", "PRE_VALIDATED", "ORGANIZED", "PREPARATION", "ACTIVE",
   "REGISTRATION_OPEN", "FULL", "AGENCY_CHOSEN", "BC_VALIDATED", "BC_SENT", "PAYMENT_INITIATED",
   "MATERIAL_PRODUCED",
 ];

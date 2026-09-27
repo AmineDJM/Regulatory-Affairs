@@ -19,7 +19,7 @@ import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { SPONSORING_STATUS, PRIORITY } from "@/lib/labels";
+import { SPONSORING_STATUS, SPONSORING_NATURE, PRIORITY } from "@/lib/labels";
 import { WorkflowPanel } from "@/components/workflow/workflow-panel";
 import { AppealPanel } from "./decision-panel";
 import { ThirdPartyButton } from "./third-party-button";
@@ -36,6 +36,11 @@ import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
+import {
+  bilanCloture, etatPostesSponsoring, peutCloturer, quiCloture as quiClotureDe, LIBELLE_QUI_CLOTURE,
+} from "@/lib/ad-pro/cloture-sponsoring";
+import { porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
+import { ClosurePanel } from "./closure-panel";
 
 
 export default async function SponsoringDetailPage({ params }: { params: { id: string } }) {
@@ -89,7 +94,32 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
     promoMaterialOptions(),
     adProBudgetOptions(user),
   ]);
-  const decided = ["APPROVED", "ACCEPTED", "PAID", "CLOSED"].includes(req.status);
+  // DÉCIDÉE, TARDIVE, CLÔTURÉE — la MÊME lecture que les actions sur les postes (§118.151). La page
+  // portait sa propre liste, sans la tenue pré-validée : « Émettre l'ordre » disparaissait sur
+  // chaque poste d'un sponsoring pré-validé pendant que l'action l'aurait accepté (§118.5).
+  const etatPostes = etatPostesSponsoring(req.status, req.closedAt);
+  const decided = etatPostes.decide;
+
+  // LA VALIDATION FINALE : le bilan que l'action relira au clic, et qui la tient — lu sur le
+  // parcours GELÉ de l'instance (la borne dit si la Direction a tranché à la place de la
+  // Direction Marketing, quand la demande venait d'elle).
+  const [instanceBorne, closer] = await Promise.all([
+    prisma.workflowInstance.findUnique({
+      where: { entityType_entityId: { entityType: "SPONSORING", entityId: req.id } },
+      select: { finalSlug: true },
+    }),
+    req.closedById ? prisma.user.findUnique({ where: { id: req.closedById }, select: { name: true } }) : Promise.resolve(null),
+  ]);
+  const qui = quiClotureDe(instanceBorne?.finalSlug ?? null);
+  const bilan = bilanCloture(req.status, items.map((it) => ({
+    label: it.label, status: it.status, amountGranted: it.amountGranted, budgetCategoryId: it.budgetCategoryId,
+  })));
+  const peutAgirSurLaCloture = peutCloturer({
+    estSuperAdmin: user.role === "SUPER_ADMIN",
+    porteLeRoleQuiTranche: porteLeRoleQuiTranche(user),
+    aLaVueGlobale: hasGlobalView(user),
+    estLeDemandeur: req.requesterId === user.id,
+  }, qui);
 
   const [missions, canManageMissions, missionUsers, workflow, involvementThreads] = await Promise.all([
     getEntityMissions("SPONSORING", req.id),
@@ -146,9 +176,15 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               <Info label="Type" value={req.type} />
               <Info label="Ville" value={req.city} />
               <Info label="Produit" value={req.product} />
-              <Info label="Budget demandé (intéressé)" value={fmt(req.amountRequested)} />
-              <Info label="Budget suggéré (délégué)" value={fmt(req.amountProposed)} />
-              <Info label="Budget accordé (Direction)" value={fmt(req.amountGranted)} />
+              {/* LE SPONSORING DEMANDÉ ET LE SPONSORING SUGGÉRÉ — ce que la Direction a nommé, et pas
+                  un « budget » : l'argent se décide poste par poste, puis à la clôture (§118.151). */}
+              <Info label="Sponsoring demandé (médecin)" value={fmt(req.amountRequested)} />
+              <Info label="Sponsoring suggéré (délégué)" value={fmt(req.amountProposed)} />
+              <Info label="Nature" value={req.nature ? SPONSORING_NATURE[req.nature] : null} />
+              <Info
+                label={etatPostes.closParLaCloture ? "Montant accordé (clôture)" : "Montant accordé"}
+                value={fmt(req.amountGranted) ?? (req.status === "PRE_VALIDATED" ? "fixé à la validation finale" : null)}
+              />
               <Info label="Demandeur" value={req.requester?.name} />
               <Info label="Référent Direction Marketing" value={pmUser?.name} />
               <Info label="Validé par" value={req.validatedBy} />
@@ -165,11 +201,14 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
             </CardContent>
           </Card>
 
-          {/* Ce que couvre RÉELLEMENT le sponsoring : appui, stand, matériel, prestation.
-              Les postes ne déclenchent AUCUN circuit propre — ils ventilent l'enveloppe. */}
+          {/* LES POSTES DE LA DEMANDE — « dans les postes on voit tous les postes relatifs à cette
+              demande » (§118.151). Le premier est le sponsoring lui-même, créé avec la demande
+              (direct : versé à l'association ; indirect : prise en charge) ; les autres s'ajoutent
+              après la pré-validation de la tenue. Chacun se décide à part, puis la validation
+              finale les range dans leurs budgets et clôture. */}
           <Card>
             <CardHeader>
-              <CardTitle>Ce que couvre ce sponsoring</CardTitle>
+              <CardTitle>Postes de la demande</CardTitle>
             </CardHeader>
             <CardContent>
               <AdProItemsPanel
@@ -178,6 +217,8 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
                 items={items}
                 amountGranted={req.amountGranted != null ? toNumber(req.amountGranted) : null}
                 decided={decided}
+                tardif={etatPostes.tardif}
+                fige={etatPostes.clos}
                 canEdit={userCan(user, "SPONSORING", "CREATE") || userCan(user, "SPONSORING", "UPDATE") || canDirection}
                 canAllocate={canDirection}
                 promoOptions={promoOptions}
@@ -207,6 +248,32 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               )}
             </CardContent>
           </Card>
+
+          {/* VALIDATION FINALE ET CLÔTURE (§118.151) — après la pré-validation de la tenue, quand
+              les postes sont décidés et rangés dans leurs budgets. Une demande close par un
+              TRANSFERT n'a rien à valider ici : elle vit dans un autre module. */}
+          {(req.status !== "CLOSED" || etatPostes.closParLaCloture) && (
+            <Card>
+              <CardHeader><CardTitle>Validation finale et clôture</CardTitle></CardHeader>
+              <CardContent>
+                <ClosurePanel
+                  id={req.id}
+                  statut={req.status}
+                  bilan={bilan}
+                  peutAgir={peutAgirSurLaCloture}
+                  quiCloture={LIBELLE_QUI_CLOTURE[qui]}
+                  cloture={etatPostes.closParLaCloture && req.closedAt
+                    ? {
+                        le: formatDateTime(req.closedAt),
+                        par: closer?.name ?? null,
+                        note: req.closingNote,
+                        montant: req.amountGranted != null ? toNumber(req.amountGranted) : null,
+                      }
+                    : null}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           {/* CE QUI EN DÉCOULE : bon de commande, facture, courrier. Créés d'ici, ils gardent le
               lien vers cette demande — c'est le seul moment où l'on sait de quoi ils viennent. */}

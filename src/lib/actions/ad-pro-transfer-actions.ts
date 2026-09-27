@@ -64,19 +64,36 @@ interface Common {
   comments: string | null;
   /** Entité de la demande d'origine — un transfert de module ne change pas de société. */
   companyId: string | null;
-  /** L'argent est-il déjà engagé ? Si oui, on ne transfère pas. */
-  engaged: boolean;
+  /**
+   * Pourquoi la demande ne se transfère plus — `null` quand elle se transfère. L'argent engagé
+   * (un ordre de dépense) ferme le transfert depuis toujours ; sous la règle de la tenue
+   * (§118.151), les POSTES d'un sponsoring engagent aussi — un BC demandé, un ordre émis — et le
+   * transfert ne les emporte pas : ils resteraient accrochés à une demande close, en silence.
+   */
+  engagement: string | null;
 }
+
+const ENGAGE_PAR_ORDRE = "Un ordre de dépense a été émis sur cette demande : elle ne peut plus être transférée.";
 
 async function readSource(kind: AdProKind, id: string): Promise<Common | null> {
   if (kind === "SPONSORING") {
     const r = await prisma.sponsoringRequest.findUnique({ where: { id } });
     if (!r) return null;
+    const postesEngages = await prisma.adProItem.count({
+      where: { sponsoringId: id, OR: [{ expenseOrderId: { not: null } }, { orderStage: { in: ["REQUESTED", "DIRECTION_OK", "ISSUED"] } }] },
+    });
+    const engagement = r.expenseOrderId ? ENGAGE_PAR_ORDRE
+      : r.status === "PRE_VALIDATED" || r.closedAt != null
+        ? "La tenue de cet événement a été pré-validée et ses postes se préparent : la demande ne se transfère plus. "
+          + "Pour l'arrêter, refusez ses postes puis clôturez-la."
+        : postesEngages > 0
+          ? `${postesEngages} poste(s) de cette demande engagent déjà la dépense (bon de commande ou ordre) : elle ne peut plus être transférée.`
+          : null;
     return {
       title: r.institution, institution: r.institution, specialty: r.specialty,
       estimatedBudget: r.amountRequested != null ? toNumber(r.amountRequested) : null,
       requesterId: r.requesterId, productManagerId: r.productManagerId, comments: r.comments,
-      companyId: r.companyId, engaged: Boolean(r.expenseOrderId),
+      companyId: r.companyId, engagement,
     };
   }
   if (kind === "CONGRESS_NATIONAL") {
@@ -86,7 +103,7 @@ async function readSource(kind: AdProKind, id: string): Promise<Common | null> {
       title: r.name, institution: r.hostInstitution, specialty: r.specialty,
       estimatedBudget: r.estimatedBudget != null ? toNumber(r.estimatedBudget) : null,
       requesterId: r.requesterId, productManagerId: r.productManagerId, comments: r.finalNote,
-      companyId: r.companyId, engaged: Boolean(r.expenseOrderId),
+      companyId: r.companyId, engagement: r.expenseOrderId ? ENGAGE_PAR_ORDRE : null,
     };
   }
   const r = await prisma.congressInternational.findUnique({ where: { id } });
@@ -95,7 +112,7 @@ async function readSource(kind: AdProKind, id: string): Promise<Common | null> {
     title: r.name, institution: null, specialty: r.specialty,
     estimatedBudget: r.estimatedBudget != null ? toNumber(r.estimatedBudget) : null,
     requesterId: r.requesterId, productManagerId: r.productManagerId, comments: r.finalNote,
-    companyId: r.companyId, engaged: Boolean(r.expenseOrderId),
+    companyId: r.companyId, engagement: r.expenseOrderId ? ENGAGE_PAR_ORDRE : null,
   };
 }
 
@@ -181,9 +198,7 @@ export async function transferAdProRequest(_prev: ActionResult | undefined, form
 
   const src = await readSource(fromRaw, sourceId);
   if (!src) return { ok: false, error: "Demande introuvable." };
-  if (src.engaged) {
-    return { ok: false, error: "Un ordre de dépense a été émis sur cette demande : elle ne peut plus être transférée." };
-  }
+  if (src.engagement) return { ok: false, error: src.engagement };
 
   try {
     const targetId = await createTarget(toRaw, src, user.id, `${LABELS[fromRaw]} (${src.title})`);
