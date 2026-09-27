@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { requireModule } from "@/lib/session";
+import { requireUser, requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency, formatDate } from "@/lib/utils";
@@ -17,6 +17,10 @@ import { CONSULTING_STATUS, CONSULTING_BILLING } from "@/lib/labels";
 import { billingSuffix, isOverdue, isContractEditable, isAwaitingDecision, totalCommitment } from "@/lib/ad-pro/consulting";
 import { ConsultingActions, type ContractTask } from "./actions-panel";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
+import {
+  MODULE_DU_POLE, CHEMIN_LISTE_POLE, LIBELLE_POLE, poleDe, poleOppose, transfertAutorise,
+} from "@/lib/lecteurs/consulting";
+import { TransferPanel } from "./transfer-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +42,19 @@ function Info({ label, value }: { label: string; value: string | null | undefine
  * fait douter de tout le reste de l'écran.
  */
 export default async function ConsultingContractPage({ params }: { params: { id: string } }) {
-  const user = await requireModule("CONSULTING");
+  // LA PORTE EST CELLE DU PÔLE DU CONTRAT (§118.150), pas « Consulting » en dur : un contrat passé
+  // aux RH n'est plus lisible par la promotion — sa rémunération comprise — et il doit l'être
+  // par les RH qui le suivent. Sans le module de son pôle, le contrat n'existe pas pour cette
+  // personne : la même page qu'un contrat inexistant, parce qu'une redirection trahirait qu'il
+  // existe, et où (§118.136).
+  const user = await requireUser();
+  const tete = await prisma.consultingContract.findUnique({ where: { id: params.id }, select: { pole: true } });
+  const pole = poleDe(tete?.pole);
+  const moduleDuContrat = MODULE_DU_POLE[pole];
+  if (!tete || !userCan(user, moduleDuContrat, "VIEW")) notFound();
+  // Les gardes d'écran habituelles du module — mot de passe à changer, module masqué.
+  await requireModule(moduleDuContrat);
+
   const contract = await prisma.consultingContract.findUnique({
     where: { id: params.id },
     include: { company: { select: { name: true } }, tasks: { orderBy: { position: "asc" } } },
@@ -55,10 +71,16 @@ export default async function ConsultingContractPage({ params }: { params: { id:
 
   const names = new Map(people.map((p) => [p.id, p.name]));
   const mine = contract.requesterId === user.id || contract.createdById === user.id || hasGlobalView(user.role);
-  const mayValidate = userCan(user, "CONSULTING", "VALIDATE")
+  const mayValidate = userCan(user, moduleDuContrat, "VALIDATE")
     && (contract.validatorId === null || contract.validatorId === user.id || hasGlobalView(user.role));
   const editable = isContractEditable(contract.status);
-  const canUpload = (userCan(user, "CONSULTING", "UPLOAD") || mine) && editable;
+  const canUpload = (userCan(user, moduleDuContrat, "UPLOAD") || mine) && editable;
+  // TRANSFÉRER : modifier des DEUX côtés (`transfertAutorise`), la même règle que l'action.
+  const versPole = poleOppose(pole);
+  const canTransfer = transfertAutorise({
+    modifieDepart: userCan(user, moduleDuContrat, "UPDATE"),
+    modifieArrivee: userCan(user, MODULE_DU_POLE[versPole], "UPDATE"),
+  });
 
   const amount = contract.amount == null ? null : toNumber(contract.amount);
   const total = totalCommitment({
@@ -79,9 +101,13 @@ export default async function ConsultingContractPage({ params }: { params: { id:
 
   return (
     <div className="space-y-5">
-      <BackLink href="/consulting"><ArrowLeft className="h-4 w-4" /> Consulting</BackLink>
+      <BackLink href={CHEMIN_LISTE_POLE[pole]}>
+        <ArrowLeft className="h-4 w-4" /> {pole === "RH" ? "Consultants (RH)" : "Consulting"}
+      </BackLink>
       <PageHeader title={contract.title} description={`Réf. ${contract.reference} · ${contract.counterparty}`}>
         <StatusBadge map={CONSULTING_STATUS} value={contract.status} />
+        {/* LA MAISON DU CONTRAT, dite en toutes lettres : c'est elle qui décide qui le voit. */}
+        <Badge tone={pole === "RH" ? "purple" : "neutral"} dot={false}>Suivi par {LIBELLE_POLE[pole]}</Badge>
         {isOverdue(contract) && <Badge tone="danger" dot={false}>terme dépassé</Badge>}
       </PageHeader>
 
@@ -139,7 +165,7 @@ export default async function ConsultingContractPage({ params }: { params: { id:
               {canUpload && <DocumentUpload entityType="CONSULTING_CONTRACT" entityId={contract.id} categories={[...AD_PRO_DOC_CATEGORIES]} />}
               <DocumentList
                 documents={docItems}
-                canDelete={userCan(user, "CONSULTING", "DELETE") || hasGlobalView(user.role)}
+                canDelete={userCan(user, moduleDuContrat, "DELETE") || hasGlobalView(user.role)}
                 canRename={canUpload}
                 canEdit={onlyofficeConfigured() && canUpload}
                 path={`/consulting/${contract.id}`}
@@ -154,9 +180,12 @@ export default async function ConsultingContractPage({ params }: { params: { id:
           canSubmit={mine && contract.status === "DRAFT"}
           canDecide={mayValidate && isAwaitingDecision(contract.status)}
           canClose={(mine || mayValidate) && (contract.status === "ACTIVE" || contract.status === "DRAFT" || contract.status === "AWAITING_VALIDATION")}
-          canEditTasks={(mine || userCan(user, "CONSULTING", "UPDATE")) && editable}
+          canEditTasks={(mine || userCan(user, moduleDuContrat, "UPDATE")) && editable}
           validators={people.filter((p) => p.id !== user.id)}
           tasks={taskItems}
+          transfer={canTransfer ? (
+            <TransferPanel id={contract.id} depuis={LIBELLE_POLE[pole]} vers={versPole} versLibelle={LIBELLE_POLE[versPole]} />
+          ) : null}
         />
       </div>
           {/* LA SECTION DISCUSSION — le fil CANONIQUE, monté sur les sept natures du pôle. */}

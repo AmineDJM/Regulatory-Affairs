@@ -3,6 +3,7 @@ import {
   userCan, scopeRegulatory, scopeSales, scopeMedicalDoctors, scopeMedicalVisits,
   scopeAdminRequests, scopeMedicalInfo, type SessionUser, type Module,
 } from "@/lib/rbac";
+import { polesLisibles } from "@/lib/lecteurs/consulting";
 
 /**
  * REGISTRE DES OBJETS MÉTIER exposés par l'API.
@@ -32,6 +33,15 @@ export interface EntityDef {
   description: string;
   /** Portée par ligne — LA fonction de l'ERP, pas une copie. `null` = pas de filtre par ligne. */
   scope: ((user: SessionUser) => Record<string, unknown>) | null;
+  /**
+   * LES AUTRES MODULES QUI OUVRENT CET OBJET, quand le module qui garde une ligne dépend de la
+   * LIGNE (§118.150 : un contrat de consulting est gardé par Ad & Pro ou par les RH selon son
+   * pôle). Ouvrir l'objet n'ouvre pas toutes ses lignes : `scope` doit alors borner chacune au
+   * module de la personne. Sans ce champ, les RH — qui voient ces contrats à l'écran — se
+   * verraient refuser l'objet entier par l'API et par Adam : un « je ne peux pas » écrit dans
+   * le registre (§118.63).
+   */
+  lisiblePar?: Module[];
   /** Champs rendus en liste (courts) — une liste de 200 objets ne charge pas tout. */
   listFields: string[];
   /** Champs rendus en détail. Vide = tous les champs scalaires du modèle. */
@@ -223,8 +233,14 @@ export const ENTITIES: EntityDef[] = [
     model: "ConsultingContract",
     module: "CONSULTING",
     label: "Contrat de consulting",
-    description: "Engagement passé avec un consultant ou un cabinet : objet de la mission, période, rémunération et son rythme, tâches attendues, pièces signées. Cycle de vie propre — brouillon, en validation, actif, expiré, annulé.",
-    scope: moduleOnly,
+    description: "Engagement passé avec un consultant ou un cabinet : objet de la mission, période, rémunération et son rythme, tâches attendues, pièces signées. Cycle de vie propre — brouillon, en validation, actif, expiré, annulé. Suivi par Ad & Pro ou par les RH (pôle).",
+    // LE PÔLE PAR LIGNE (§118.150) : le module suffisait tant que tout contrat relevait d'Ad & Pro.
+    // Un contrat passé aux RH n'est plus lisible par la promotion — sa rémunération comprise — et
+    // la porte générique ne doit pas le rendre là où l'écran le cache (§118.71). La lecture du
+    // pôle est celle de l'écran et de la garde d'accès : `polesLisibles`, une fois.
+    scope: (user) => ({ pole: { in: polesLisibles((m) => userCan(user, m, "VIEW")) } }),
+    // Les RH ouvrent l'objet aussi — pour leurs lignes à eux, que la portée ci-dessus borne.
+    lisiblePar: ["RH"],
     listFields: ["id", "reference", "title", "counterparty", "status", "amount", "billing", "startDate", "endDate", "companyId", "requesterId", "createdAt"],
     searchFields: ["reference", "title", "counterparty", "scope", "notes"],
     referenceField: "reference",
@@ -464,7 +480,7 @@ export function entityNames(): string[] {
  * Un objet d'administration exige en plus la portée `erp.admin` côté route.
  */
 export function canReadEntity(user: SessionUser, def: EntityDef): boolean {
-  return userCan(user, def.module, "VIEW");
+  return [def.module, ...(def.lisiblePar ?? [])].some((m) => userCan(user, m, "VIEW"));
 }
 
 /** Filtre Prisma correspondant à la portée de l'utilisateur sur cet objet. */

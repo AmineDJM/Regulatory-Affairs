@@ -5,7 +5,8 @@ import { recordAudit } from "@/lib/audit";
 import { notifyRoles } from "@/lib/notify";
 import { createDirectValidation } from "@/lib/validation";
 import { centreValidatorFrom } from "@/lib/validations/centre";
-import { AD_PRO_ENTITY_TYPE } from "@/lib/ad-pro/unified";
+import { TYPES_ENTITE_AD_PRO } from "@/lib/ad-pro/unified";
+import { poleDe } from "@/lib/lecteurs/consulting";
 import { getAppSettings } from "@/lib/settings";
 import {
   centreDeLOrigine, etatDepuisPoste, etatDepuisValidation, etatDepuisVisa, gesteAiguillage,
@@ -54,12 +55,11 @@ export const MODULE_BC = "Bons de commande";
  * LES TYPES D'ENTITÉ QUI FONT D'UN BC UN BC « AD & PRO » — dérivés du registre canonique.
  *
  * Les sept natures, plus le POSTE d'une opération, qui n'est pas une nature mais en fait partie.
- * Une huitième nature ajoutée au registre entre ici sans que personne y pense (§118.73).
+ * Une huitième nature ajoutée au registre entre ici sans que personne y pense (§118.73). La liste
+ * vit UNE fois, dans le registre : le secrétariat pose la même question pour l'imputation, et la
+ * recopie qu'il en avait faite à la main avait déjà divergé (§118.150).
  */
-export const TYPES_AD_PRO: ReadonlySet<string> = new Set<string>([
-  ...Object.values(AD_PRO_ENTITY_TYPE),
-  "AD_PRO_ITEM",
-]);
+export const TYPES_AD_PRO: ReadonlySet<string> = TYPES_ENTITE_AD_PRO;
 
 // ───────────────────────── L'origine ─────────────────────────
 
@@ -143,6 +143,34 @@ export async function origineDuBC(doc: {
     courant = await suivant(courant);
   }
   return { chemin, posteId };
+}
+
+/**
+ * LE CENTRE QUE DÉSIGNE L'ORIGINE D'UN BC — lu par l'aiguillage ET par la fiche Legal, une fois.
+ *
+ * Le TYPE d'un maillon ne suffit plus : un contrat de consulting passé aux RH (§118.150) reste un
+ * `CONSULTING_CONTRACT`, mais ce n'est plus une dépense de promotion — ses bons de commande vont
+ * au centre de validations, comme ceux de toute fiche hors Ad & Pro. « Tout BC passe par le centre
+ * Ad & Pro si la demande vient d'Ad & Pro, sinon par le centre normal » : c'est le PÔLE du contrat
+ * qui dit d'où vient la demande, pas le nom de sa table.
+ *
+ * Le pôle se lit sur la LIGNE, en une requête pour tout le chemin. Un contrat qu'on ne relit pas
+ * garde le défaut du schéma (Ad & Pro) : les deux centres valident, et se tromper de centre coûte
+ * un transfert, jamais un BC qui part sans avoir été vu.
+ */
+export async function centreVouluDuBC(origine: OrigineBC): Promise<CentreBC> {
+  const contrats = [...new Set(origine.chemin.filter((m) => m.type === "CONSULTING_CONTRACT").map((m) => m.id))];
+  const horsAdPro = new Set<string>();
+  if (contrats.length > 0) {
+    const lignes = await prisma.consultingContract
+      .findMany({ where: { id: { in: contrats } }, select: { id: true, pole: true } })
+      .catch(() => []);
+    for (const l of lignes) if (poleDe(l.pole) !== "AD_PRO") horsAdPro.add(l.id);
+  }
+  return centreDeLOrigine(
+    origine.chemin.filter((m) => !(m.type === "CONSULTING_CONTRACT" && horsAdPro.has(m.id))).map((m) => m.type),
+    TYPES_AD_PRO,
+  );
 }
 
 // ───────────────────────── La lecture des portes ─────────────────────────
@@ -498,7 +526,7 @@ export async function aiguillerBC(
     }
 
     const origine = await origineDuBC(doc);
-    const centreVoulu = centreDeLOrigine(origine.chemin.map((m) => m.type), TYPES_AD_PRO);
+    const centreVoulu = await centreVouluDuBC(origine);
     const actuelle = await porteDuBC(doc.id);
     const etapeAvant = etapeBC({ porte: actuelle, validationRequise: requise, signe: signeALEntree !== null, dansLeCircuit: dejaDansLeCircuit });
     const geste = gesteAiguillage({
@@ -570,6 +598,67 @@ export async function aiguillerBC(
     console.error("[bons-de-commande] aiguillage impossible", docId, err);
     return { porte: null, geste: null, enEchec: true };
   }
+}
+
+// ───────────────────────── La fiche d'origine qui change de pôle ─────────────────────────
+
+/** Un centre est une file courte ; au-delà, on borne et on le DIT (§118.60). */
+export const LOT_ORIGINE = 300;
+
+export interface BilanReaiguillage {
+  /** BC en attente dont l'origine passe par la fiche, relus par la règle unique. */
+  relus: number;
+  /** Ceux dont la porte en attente a changé de centre. */
+  transferes: number;
+  /** Vrai quand la lecture des files a été bornée : la phrase le dit au lieu de se croire exhaustive. */
+  tronque: boolean;
+}
+
+/**
+ * UNE FICHE D'ORIGINE A CHANGÉ DE PÔLE — les BC EN ATTENTE qui en descendent changent de centre.
+ *
+ * Transférer un contrat de consulting aux RH (§118.150) change le centre que ses bons de commande
+ * doivent traverser. Sans ce geste, un BC en attente au centre Ad & Pro y resterait, arbitré par
+ * le centre de la promotion alors que la règle de la Direction l'envoie au centre de validations —
+ * l'écran de la fiche dirait « RH » et la file dirait « Ad & Pro » (§118.61 : qui lisait l'ancien
+ * pôle ?).
+ *
+ * On ne touche QUE ce qui ATTEND : une porte DÉCIDÉE ne se rejuge pas parce que la fiche a changé
+ * de pôle (`gesteAiguillage` y veille), et une signature des Finances ne tombe pas. Les candidats
+ * sont les BC en attente dans l'un des deux centres — deux files courtes, pas le registre Legal —
+ * et c'est `aiguillerBC`, la règle unique, qui décide pour chacun : réécrire ici le transfert en
+ * ferait une seconde vérité (§118.5).
+ */
+export async function reaiguillerLesBCDe(fiche: MaillonOrigine, acteurId: string): Promise<BilanReaiguillage> {
+  const bilan: BilanReaiguillage = { relus: 0, transferes: 0, tronque: false };
+  const [visas, validations] = await Promise.all([
+    prisma.adProGateVisa.findMany({
+      where: { entityType: "LEGAL_DOCUMENT", status: "PENDING" },
+      select: { entityId: true }, orderBy: { createdAt: "asc" }, take: LOT_ORIGINE + 1,
+    }),
+    prisma.validationRequest.findMany({
+      where: { entityType: "LEGAL_DOCUMENT", objectType: OBJET_BC, status: "PENDING" },
+      select: { entityId: true }, orderBy: { createdAt: "asc" }, take: LOT_ORIGINE + 1,
+    }),
+  ]);
+  bilan.tronque = visas.length > LOT_ORIGINE || validations.length > LOT_ORIGINE;
+  const ids = [...new Set([
+    ...visas.slice(0, LOT_ORIGINE).map((v) => v.entityId),
+    ...validations.slice(0, LOT_ORIGINE).map((v) => v.entityId).filter((x): x is string => Boolean(x)),
+  ])];
+  if (ids.length === 0) return bilan;
+  const docs = await prisma.legalDocument.findMany({
+    where: { id: { in: ids }, kind: "PURCHASE_ORDER" },
+    select: { id: true, sourceType: true, sourceId: true, chainFromId: true },
+  });
+  for (const d of docs) {
+    const origine = await origineDuBC(d);
+    if (!origine.chemin.some((m) => m.type === fiche.type && m.id === fiche.id)) continue;
+    bilan.relus += 1;
+    const r = await aiguillerBC(d.id, { acteurId });
+    if (r.geste === "TRANSFEREE") bilan.transferes += 1;
+  }
+  return bilan;
 }
 
 // ───────────────────────── Le seuil qui change ─────────────────────────

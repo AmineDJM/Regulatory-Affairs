@@ -4,7 +4,7 @@ import type { PaymentRequestStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
-import { ENTITY_MODULE } from "@/lib/entity-access";
+import { ENTITY_MODULE, moduleDeLEntite } from "@/lib/entity-access";
 import { pickAutoCategory } from "@/lib/budget/auto-category";
 import { prisma } from "@/lib/prisma";
 import { nextFinanceRef } from "@/lib/finance/next-ref";
@@ -102,7 +102,9 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
     if (exists === 0) budgetCategoryId = null;
   }
   if (!budgetCategoryId && order.sourceType) {
-    const sourceModule = ENTITY_MODULE[order.sourceType];
+    // Le module de la SOURCE, lu sur la ligne quand il en dépend — un consultant passé aux RH se
+    // paie sur une enveloppe RH (§118.150) ; l'écran des paiements lit la même réponse.
+    const sourceModule = order.sourceId ? await moduleDeLEntite(order.sourceType, order.sourceId) : ENTITY_MODULE[order.sourceType];
     if (sourceModule) {
       // Deux chances, dans l'ordre : une catégorie qui déclare le module, puis — c'est la
       // nouveauté qui branche les bordereaux de versement — la première catégorie d'une

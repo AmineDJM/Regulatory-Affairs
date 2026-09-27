@@ -1,9 +1,9 @@
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { userCan, type SessionUser } from "@/lib/rbac";
+import type { SessionUser } from "@/lib/rbac";
 import { REG_STEPS, regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { REGULATORY_STATUS } from "@/lib/labels";
-import type { EntityDef } from "./registry/entities";
+import { canReadEntity, type EntityDef } from "./registry/entities";
 
 /**
  * LE WORKFLOW, VU PAR UN AGENT.
@@ -209,9 +209,12 @@ export function availableActionsFor(user: SessionUser, clientScopes: string[], d
   };
 
   const base = `/api/v1/entities/${def.name}/${id}`;
-  add(`get_${def.name}`, `Lire ${def.label.toLowerCase()}`, "GET", base, ["erp.read"], userCan(user, def.module, "VIEW"));
-  add(`get_${def.name}_history`, "Lire l'historique", "GET", `${base}/history`, ["erp.read"], userCan(user, def.module, "VIEW"));
-  add(`list_${def.name}_documents`, "Lister les pièces jointes", "GET", `${base}/documents`, ["erp.documents.read"], userCan(user, def.module, "VIEW"));
-  add(`get_${def.name}_workflow`, "Lire le circuit et ses blocages", "GET", `${base}/workflow`, ["erp.read"], userCan(user, def.module, "VIEW"));
+  // La lecture se juge comme aux routes qui la servent (`canReadEntity`) : un objet ouvert par
+  // plusieurs modules (§118.150) ne doit pas s'annoncer refusé ici et se lire là.
+  const lit = canReadEntity(user, def);
+  add(`get_${def.name}`, `Lire ${def.label.toLowerCase()}`, "GET", base, ["erp.read"], lit);
+  add(`get_${def.name}_history`, "Lire l'historique", "GET", `${base}/history`, ["erp.read"], lit);
+  add(`list_${def.name}_documents`, "Lister les pièces jointes", "GET", `${base}/documents`, ["erp.documents.read"], lit);
+  add(`get_${def.name}_workflow`, "Lire le circuit et ses blocages", "GET", `${base}/workflow`, ["erp.read"], lit);
   return out;
 }

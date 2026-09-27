@@ -62,7 +62,9 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
       : [],
     can("CONSULTING")
       ? prisma.consultingContract.findMany({
-          where: scope, orderBy: { createdAt: "desc" }, take: LIMIT,
+          // Le pôle Ad & Pro seulement : un contrat passé aux RH n'est plus une demande de
+          // promotion, et cette liste ne doit pas le rendre à qui n'a que la promotion (§118.150).
+          where: { AND: [scope, { pole: "AD_PRO" }] }, orderBy: { createdAt: "desc" }, take: LIMIT,
           select: { id: true, reference: true, title: true, counterparty: true, status: true, createdAt: true, amount: true, requesterId: true },
         }).catch(() => [])
       : [],

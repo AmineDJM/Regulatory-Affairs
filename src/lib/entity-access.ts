@@ -6,6 +6,7 @@ import { canSee as canSeeTask, canAttach as canAttachTask } from "@/lib/tasks/re
 import { recruitmentViewer } from "@/lib/recruitment/access";
 import { isOwnBusiness } from "@/lib/ad-pro/attachments";
 import { parentDuPoste, PARENT_ENTITE } from "@/lib/ad-pro-items";
+import { MODULE_DU_POLE, poleDe } from "@/lib/lecteurs/consulting";
 import { annuaireDuPraticien } from "@/lib/annuaires/acces";
 import { getMyCompanies } from "@/lib/company";
 import {
@@ -111,6 +112,46 @@ const AD_PRO_TYPES: EntityType[] = [
 ];
 
 /**
+ * LE MODULE QUI GARDE UN ENREGISTREMENT — celui de `ENTITY_MODULE`, sauf quand il dépend de la LIGNE.
+ *
+ * Un CONTRAT DE CONSULTING n'a pas de module fixe : son PÔLE dit lequel le garde (§118.150).
+ * Lire `CONSULTING` en dur laisserait la promotion ouvrir le contrat d'un consultant passé aux
+ * RH — sa rémunération comprise — et fermerait ce même contrat aux RH qui le suivent : la porte
+ * ouverte à côté de la porte fermée (§118.71). L'imputation budgétaire automatique d'un paiement
+ * lit la même réponse : un consultant RH se paie sur une enveloppe RH, pas sur celle d'Ad & Pro.
+ */
+export async function moduleDeLEntite(entityType: EntityType, entityId: string): Promise<Module> {
+  return (await modulesDesEntites([{ entityType, entityId }])).get(`${entityType}:${entityId}`) ?? ENTITY_MODULE[entityType];
+}
+
+/**
+ * LA MÊME RÉPONSE, EN LOT — clé `TYPE:id`. Un écran de cent paiements fait UNE lecture des pôles,
+ * jamais cent (§118.102b) ; et c'est la même fonction que l'action serveur, sans quoi l'écran
+ * proposerait un classement que le serveur ne ferait pas.
+ */
+export async function modulesDesEntites(
+  entites: readonly { entityType: EntityType; entityId: string }[],
+): Promise<Map<string, Module>> {
+  const res = new Map<string, Module>();
+  const contrats = entites.filter((e) => e.entityType === "CONSULTING_CONTRACT").map((e) => e.entityId);
+  // L'échec de cette lecture n'est PAS avalé : retomber sur le défaut du schéma (Ad & Pro) ouvrirait
+  // à la promotion, sur une simple panne de lecture, le contrat qu'on vient de confier aux RH. Une
+  // garde ne se trompe que dans le sens qui ferme — l'erreur remonte, et l'appelant refuse (§118.150).
+  const poles = contrats.length
+    ? await prisma.consultingContract
+        .findMany({ where: { id: { in: [...new Set(contrats)] } }, select: { id: true, pole: true } })
+    : [];
+  const poleDuContrat = new Map(poles.map((c) => [c.id, poleDe(c.pole)]));
+  for (const e of entites) {
+    res.set(
+      `${e.entityType}:${e.entityId}`,
+      e.entityType === "CONSULTING_CONTRACT" ? MODULE_DU_POLE[poleDuContrat.get(e.entityId) ?? "AD_PRO"] : ENTITY_MODULE[e.entityType],
+    );
+  }
+  return res;
+}
+
+/**
  * LES PARTIES PRENANTES NOMMÉES d'un dossier Ad&Pro — demandeur, Direction Marketing, assistante.
  *
  * Elles instruisent ce dossier-là. Leur refuser d'y joindre la facture ne protège rien : cela
@@ -138,7 +179,7 @@ export async function canAccessEntity(
   entityId: string,
   action: Action = "VIEW",
 ): Promise<boolean> {
-  const module = ENTITY_MODULE[entityType];
+  const module = await moduleDeLEntite(entityType, entityId);
 
   // DEMANDE DE PIÈCE : l'accès ne vient PAS du module de l'objet visé. Celui à qui l'on réclame
   // une facture n'a pas forcément accès au poste de dépense — et il ne doit pas y avoir accès

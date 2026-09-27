@@ -3412,7 +3412,9 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["valide le contrat de consulting", "refuse le contrat de consulting"],
     risk: "CRITICAL",
     summary: "VALIDE (le contrat devient ACTIF) ou REFUSE (annulé, motif tracé) — le validateur désigné, qui doit déjà avoir le droit VALIDATE ; personne ne valide son propre engagement.",
-    gate: (u) => userCan(u, "CONSULTING", "VALIDATE") || hasGlobalView(u),
+    // Un contrat passé aux RH se valide par les RH (§118.150) : l'approximation de la porte doit
+    // les inclure, sinon la carte serait refusée à un validateur que l'action accepte.
+    gate: (u) => userCan(u, "CONSULTING", "VALIDATE") || userCan(u, "RH", "VALIDATE") || hasGlobalView(u),
     covers: ["consulting-actions:decideConsultingContract"],
   },
   {
@@ -3454,6 +3456,20 @@ export const OPS_CATALOG: OpMeta[] = [
     gate: () => true,
     gateNote: "porteur ou droit Modifier (revérifié par l'action)",
     covers: ["consulting-actions:deleteConsultingTask"],
+  },
+  {
+    tool: "consulting_operation", op: "transfer_contract", module: "Consulting",
+    uiLabel: "Transférer le contrat (Ad & Pro ⇄ RH)",
+    aliases: [
+      "transfère le contrat de consulting aux RH", "passe ce consultant en RH",
+      "ramène le contrat dans Ad & Pro", "mets ce consulting en ressources humaines",
+    ],
+    risk: "SENSITIVE",
+    summary: "Transfère un contrat de consulting d'un PÔLE à l'autre — Ad & Pro ⇄ Ressources humaines (champ « pole » : RH ou AD_PRO ; sans lui, vers l'autre pôle) — sans rien perdre : référence, tâches, pièces, validation et historique suivent. Retire la validation en attente au centre Ad & Pro, réaiguille les bons de commande en attente ; le geste inverse le ramène.",
+    // La règle de l'action, mot pour mot (`transfertAutorise`) : MODIFIER les deux modules — la
+    // carte n'est jamais offerte à qui l'action refuserait (§118.83). Un test compare les deux.
+    gate: (u) => userCan(u, "CONSULTING", "UPDATE") && userCan(u, "RH", "UPDATE"),
+    covers: ["consulting-actions:transfererConsulting"],
   },
   // ───────────── VAGUE 5b — PRISES EN CHARGE (congrès) : décision PAR PERSONNE ─────────────
   {

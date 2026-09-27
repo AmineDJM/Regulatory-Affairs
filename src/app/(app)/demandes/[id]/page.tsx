@@ -13,7 +13,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { CommentThread, type CommentItem } from "@/components/shared/comment-thread";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { PROMO_MATERIAL_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
-import { AD_PRO_ENTITY_TYPE } from "@/lib/ad-pro/unified";
+import { dejaPorteParSaFiche } from "@/lib/ad-pro/unified";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { AttachmentValidationBlock } from "./attachment-validation";
@@ -64,8 +64,9 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   // donc une demande de devis ou de facture ouverte depuis un poste pouvait être imputée une
   // seconde fois au budget d'un département, alors que l'enveloppe de l'opération la porte
   // déjà. Aucune erreur visible, et le double comptage ne se lit que sur le budget (§118.73).
-  const fromAdPro = [...Object.values(AD_PRO_ENTITY_TYPE), "AD_PRO_ITEM" as const]
-    .includes((req.linkedEntityType ?? "") as never);
+  // La MÊME fonction que l'action qui clôt la demande : écrite deux fois, la liste de l'action
+  // (à la main, cinq natures) laissait l'écran masquer l'imputation que l'action exigeait (§118.150).
+  const fromAdPro = dejaPorteParSaFiche(req.linkedEntityType);
   const alreadyImputed = (await prisma.departmentBudgetExpense.count({ where: { adminRequestId: req.id } })) > 0;
 
   // L'Assistante de Direction tient le bureau du secrétariat : elle gère et modère toute demande.

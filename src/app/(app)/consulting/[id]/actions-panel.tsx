@@ -20,7 +20,7 @@ export interface ContractTask { id: string; label: string; dueDate: string | nul
  * c'est promettre une action qui échouera, et faire douter de tout le reste de l'écran.
  */
 export function ConsultingActions({
-  id, status, canSubmit, canDecide, canClose, canEditTasks, validators, tasks,
+  id, status, canSubmit, canDecide, canClose, canEditTasks, validators, tasks, transfer = null,
 }: {
   id: string;
   status: string;
@@ -30,6 +30,8 @@ export function ConsultingActions({
   canEditTasks: boolean;
   validators: { id: string; name: string }[];
   tasks: ContractTask[];
+  /** Le transfert de pôle (§118.150) — rendu par la page, qui seule sait si la personne y a droit. */
+  transfer?: React.ReactNode;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -163,6 +165,8 @@ export function ConsultingActions({
           </div>
         )}
       </div>
+
+      {transfer}
 
       {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
     </div>

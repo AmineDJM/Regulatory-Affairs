@@ -104,3 +104,10 @@ export {
   PIECE_SECRETARIAT, NATURES_PIECE_SECRETARIAT, peutDemanderPiece, titrePiece,
   type NaturePieceSecretariat,
 } from "@/lib/ad-pro/pieces-secretariat";
+
+// LE PÔLE D'UN CONTRAT DE CONSULTING (§118.150) — Ad & Pro ou Ressources humaines. La règle est
+// PURE et vit au socle (`lecteurs/consulting`) ; l'op qui transfère un contrat en lit le libellé
+// et le pôle opposé, et Adam n'a pas le droit d'importer le socle métier en direct : il passe par
+// cette porte, comme pour le centre de validation ci-dessus. La DÉSIGNATION du contrat, elle,
+// passe par `resoudreCible` — la portée du registre borne les lignes aux pôles lisibles.
+export { LIBELLE_POLE, poleDe, poleOppose, type PoleConsulting } from "@/lib/lecteurs/consulting";

@@ -10,7 +10,7 @@ import { settlementState, sortForSettlement } from "@/lib/finance/settlement";
 import { dossierHrefByOrder } from "@/lib/expense-orders";
 import { needsBudgetChoice } from "@/lib/finance/settle-budget";
 import { pickAutoCategory } from "@/lib/budget/auto-category";
-import { ENTITY_MODULE } from "@/lib/entity-access";
+import { ENTITY_MODULE, modulesDesEntites } from "@/lib/entity-access";
 import { getFinanceData } from "@/lib/queries/finance";
 import { TreasuryUpdateRequestButton } from "../treasury-update-request";
 import { OrdersTable, type OrderRow, type BudgetChoice } from "./orders-table";
@@ -109,8 +109,16 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
     id: c.id,
     label: `${envelopeName.get(c.envelopeId) ?? "Budget"} · ${c.name}`,
   }));
+  // Le module de chaque SOURCE, en une lecture — la même réponse que l'action serveur
+  // (`moduleDeLEntite`) : un consultant passé aux RH se classe sur une enveloppe RH (§118.150).
+  const modulesSources = await modulesDesEntites(sourceFilters);
   const autoOf = (o: (typeof orders)[number]): string | null =>
-    o.sourceType ? pickAutoCategory(ENTITY_MODULE[o.sourceType], envelopes, categoryLines) : null;
+    o.sourceType
+      ? pickAutoCategory(
+          (o.sourceId ? modulesSources.get(`${o.sourceType}:${o.sourceId}`) : undefined) ?? ENTITY_MODULE[o.sourceType],
+          envelopes, categoryLines,
+        )
+      : null;
 
   const toRow = (o: (typeof orders)[number]): OrderRow => ({
     id: o.id, reference: o.reference, label: o.label, beneficiary: o.beneficiary,

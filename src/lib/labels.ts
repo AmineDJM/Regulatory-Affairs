@@ -1503,6 +1503,9 @@ export const HR_TABS: NavTab[] = [
   { module: "RH", label: "Équipe", href: "/rh/equipe" },
   { module: "RH", label: "Congés", href: "/rh/conges" },
   { module: "RH", label: "Départements", href: "/rh/departements" },
+  // Les contrats des consultants suivis par les RH (§118.150) — les mêmes contrats qu'Ad & Pro ›
+  // Consulting, au pôle RH : c'est ici qu'arrive un contrat transféré depuis Ad & Pro.
+  { module: "RH", label: "Consultants", href: "/rh/consultants" },
 ];
 // « Ad & Pro » : sponsoring + congrès (international/national) + événements +
 // matériel promotionnel, sous un seul module. Le matériel promotionnel a été
@@ -1821,7 +1824,7 @@ export const NAVIGATION: NavItem[] = [
   {
     module: "RH", label: "Ressources humaines", href: "/rh", icon: "UsersRound", group: "Pôles",
     pole: "ADMINISTRATION", tabs: HR_TABS,
-    match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/paie", "/formations"],
+    match: ["/rh/equipe", "/rh/conges", "/rh/departements", "/rh/consultants", "/rh/paie", "/formations"],
     children: [
       { module: "RH", label: "Paie", href: "/rh/paie", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION", gate: "payroll" },
     ],

@@ -178,8 +178,11 @@ export async function demandesAuCentreAdPro(): Promise<LigneCentre[]> {
   // (§118.102b). C'est exactement ce que fait `getAdProRequests` : on ne réinvente pas sa façon.
   const idsVisaTous = visas.map((v) => v.entityId);
   const [contrats, autres] = await Promise.all([
+    // Le pôle Ad & Pro seulement : le transfert aux RH retire la porte en attente, et un visa
+    // qui aurait survécu ne doit pas faire arbitrer par le centre de la PROMOTION un contrat qui
+    // n'en relève plus — sans fiche, la ligne est écartée plus bas (§118.150).
     prisma.consultingContract.findMany({
-      where: { id: { in: idsVisaTous } },
+      where: { id: { in: idsVisaTous }, pole: "AD_PRO" },
       select: { id: true, reference: true, title: true, requesterId: true },
     }).catch(() => []),
     prisma.adProOtherRequest.findMany({

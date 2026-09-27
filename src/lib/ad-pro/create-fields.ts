@@ -372,6 +372,25 @@ export function consultingCreateFields(opts: {
 }
 
 /**
+ * LE CONTRAT D'UN CONSULTANT SUIVI PAR LES RH (§118.150) — le même contrat, sans ce qui fait
+ * d'un contrat une dépense de PROMOTION.
+ *
+ * Ni gamme, ni praticien, ni produit : ce sont des faits d'Ad & Pro, et un contrat RH ne pèse sur
+ * aucun budget Ad & Pro. Les proposer ici ferait remplir des champs que l'action JETTE pour ce
+ * pôle — le défaut exact du menu de gamme qui a coûté §118.140. Le pôle voyage en champ caché :
+ * c'est l'action qui décide, sur le droit de CRÉER dans le module de ce pôle, jamais le formulaire.
+ */
+export function consultingRhCreateFields(opts: {
+  companies: readonly { value: string; label: string }[];
+}): FieldDef[] {
+  const PROMOTION = new Set(["businessUnitId", "doctorIds", "doctor", "productIds", "product"]);
+  return [
+    { type: "hidden", name: "pole", value: "RH" },
+    ...consultingCreateFields({ companies: opts.companies }).filter((f) => !PROMOTION.has(f.name)),
+  ];
+}
+
+/**
  * LA DEMANDE « AUTRE » — volontairement courte.
  *
  * Elle n'a pas de champs propres, par définition : c'est la DESCRIPTION qui portera tout, puisque

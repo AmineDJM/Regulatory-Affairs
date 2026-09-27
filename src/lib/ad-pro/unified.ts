@@ -46,6 +46,37 @@ export const AD_PRO_ENTITY_TYPE: Record<AdProKind, import("@prisma/client").Enti
   OTHER: "AD_PRO_OTHER",
 };
 
+/**
+ * LES TYPES D'ENTITÉ QUI RATTACHENT UNE PIÈCE À AD & PRO — les sept natures, plus le POSTE d'une
+ * opération, qui n'est pas une nature mais en fait partie. Dérivés du registre ci-dessus : une
+ * huitième nature entre ici sans que personne y pense (§118.73).
+ *
+ * Trois lecteurs posaient cette question, et le troisième l'écrivait À LA MAIN : l'action qui
+ * clôt une demande du secrétariat ne connaissait que CINQ natures, quand la page de la même
+ * demande en lisait huit (§118.150). Sur un achat lié à un POSTE, la page masquait donc les
+ * champs d'imputation — « déjà porté par l'opération » — et l'action refusait de terminer faute
+ * de département : une impasse, sans une ligne d'erreur ailleurs que dans ce refus.
+ */
+export const TYPES_ENTITE_AD_PRO: ReadonlySet<string> = new Set<string>([
+  ...Object.values(AD_PRO_ENTITY_TYPE),
+  "AD_PRO_ITEM",
+]);
+
+/**
+ * UNE DEMANDE DU SECRÉTARIAT DÉJÀ PORTÉE PAR SA FICHE — ne s'impute pas une seconde fois aux
+ * moyens généraux d'un département.
+ *
+ * La question n'est PAS « est-ce de la promotion ? » mais « qui porte déjà cette dépense ? » : une
+ * opération Ad & Pro par son enveloppe, un contrat de consulting par SES ordres de dépense. D'où
+ * un contrat passé aux RH (§118.150) qui reste dans la liste — sa rémunération se paie toujours
+ * par le contrat, et l'imputer à un département la compterait deux fois, exactement comme avant
+ * le transfert. C'est la page ET l'action qui lisent cette fonction : deux lectures divergeraient,
+ * et la divergence a déjà coûté une impasse.
+ */
+export function dejaPorteParSaFiche(linkedEntityType: string | null | undefined): boolean {
+  return linkedEntityType != null && TYPES_ENTITE_AD_PRO.has(linkedEntityType);
+}
+
 export interface KindSpec {
   kind: AdProKind;
   label: string;

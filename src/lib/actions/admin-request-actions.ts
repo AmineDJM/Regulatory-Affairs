@@ -20,6 +20,7 @@ import { createExpenseOrder } from "@/lib/expense-orders";
 import { createDirectValidation } from "@/lib/validation";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+import { dejaPorteParSaFiche } from "@/lib/ad-pro/unified";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
 
@@ -718,8 +719,11 @@ export async function finishRequest(formData: FormData): Promise<ActionResult> {
   //
   // EXCEPTION : ce qui vient d'Ad & Pro est déjà porté par le budget de l'opération (poste,
   // ordre de dépense). L'imputer une seconde fois le compterait deux fois.
-  const fromAdPro = ["SPONSORING", "CONGRESS_NATIONAL", "CONGRESS_INTERNATIONAL", "EVENT", "PROMO_MATERIAL"]
-    .includes(req.linkedEntityType ?? "");
+  //
+  // La liste était écrite À LA MAIN ici — cinq natures — pendant que la page de la même demande
+  // en lisait huit : sur un achat lié à un POSTE, l'écran masquait l'imputation et cette action
+  // l'exigeait, donc la demande ne pouvait plus être terminée (§118.150). Une seule fonction.
+  const fromAdPro = dejaPorteParSaFiche(req.linkedEntityType);
   const departmentId = fdStr(formData, "budgetDepartmentId");
   const amount = fdNum(formData, "budgetAmount");
   const alreadyImputed = await prisma.departmentBudgetExpense.count({ where: { adminRequestId: id } });

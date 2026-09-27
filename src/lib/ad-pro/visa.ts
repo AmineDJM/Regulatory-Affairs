@@ -71,6 +71,19 @@ export async function poserVisaAdPro(
   return "PENDING";
 }
 
+/**
+ * RETIRER UNE PORTE QUI ATTEND — jamais une décision prise.
+ *
+ * Quand la demande quitte le périmètre du centre (un contrat de consulting transféré aux RH,
+ * §118.150), ce qui attendait n'a plus d'objet : le centre de la promotion n'arbitre pas un
+ * contrat qui ne relève plus d'elle. Une décision déjà RENDUE, elle, reste — c'est de l'histoire,
+ * pas une attente. Rend le nombre de portes retirées, pour que l'appelant le DISE.
+ */
+export async function retirerVisaEnAttente(entityType: EntityType, entityId: string): Promise<number> {
+  const r = await prisma.adProGateVisa.deleteMany({ where: { entityType, entityId, status: "PENDING" } });
+  return r.count;
+}
+
 export async function lireVisaAdPro(
   entityType: EntityType,
   entityId: string,

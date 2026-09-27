@@ -9942,6 +9942,15 @@ enum ConsultingBilling {
   ON_DELIVERY
 }
 
+/// LE PÔLE qui porte un contrat de consulting (§118.150) — et donc QUI le voit et le gère.
+/// `AD_PRO` : une dépense de promotion, suivie dans Ad & Pro › Consulting. `RH` : un consultant
+/// engagé comme un membre de l'équipe, suivi dans RH › Consultants. Le même contrat change de pôle
+/// par un GESTE (transfert), sans rien perdre : référence, tâches, pièces, validation, historique.
+enum ConsultingPole {
+  AD_PRO
+  RH
+}
+
 /// CONTRAT DE CONSULTING — un engagement entre DEUX PARTIES.
 /// Notre partie est une entité du groupe (`companyId`) ; l'autre est le prestataire,
 /// personne physique ou cabinet. Le contrat porte ce qui se négocie : une période, une
@@ -9962,6 +9971,9 @@ model ConsultingContract {
   product             String?
   id                  String            @id @default(cuid())
   reference           String            @unique // CONS-2026-001
+  /// Le pôle qui porte le contrat — Ad & Pro par défaut ; les RH après un transfert (§118.150).
+  /// C'est lui qui dit quel MODULE garde le contrat : `lecteurs/consulting.ts` le traduit, une fois.
+  pole                ConsultingPole    @default(AD_PRO)
   title               String
   /// L'AUTRE PARTIE : consultant, cabinet, expert.
   counterparty        String
@@ -9999,6 +10011,7 @@ model ConsultingContract {
   @@index([requesterId])
   @@index([validatorId])
   @@index([companyId])
+  @@index([pole])
 }
 
 /// UNE TÂCHE ATTENDUE DU PRESTATAIRE.

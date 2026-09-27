@@ -34,8 +34,8 @@ import { MarketContext } from "./market-context";
 import { LegalChainCard } from "./chain-card";
 import { EntityLinks } from "@/components/shared/entity-links";
 import { linksOf, linkedViews } from "@/lib/links/store";
-import { porteDuBC, origineDuBC, TYPES_AD_PRO } from "@/lib/bons-de-commande/aiguillage";
-import { centreDeLOrigine, blocageParLeBC } from "@/lib/bons-de-commande/regle";
+import { porteDuBC, origineDuBC, centreVouluDuBC } from "@/lib/bons-de-commande/aiguillage";
+import { blocageParLeBC } from "@/lib/bons-de-commande/regle";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 import { sitsOnValidationCentre } from "@/lib/validations/centre";
 import { BonDeCommandeGate } from "./bc-gate";
@@ -224,7 +224,9 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     ? await Promise.all([etatDuBC(doc.id), origineDuBC(doc)])
     : [null, null];
   const porte = etatBC?.porte ?? null;
-  const centreAttendu = origine ? centreDeLOrigine(origine.chemin.map((m) => m.type), TYPES_AD_PRO) : "VALIDATION";
+  // Le centre que désigne l'origine — la MÊME lecture que l'aiguillage, pôle du contrat compris :
+  // la fiche ne peut pas annoncer le centre Ad & Pro pour un BC que la règle envoie ailleurs (§118.150).
+  const centreAttendu = origine ? await centreVouluDuBC(origine) : "VALIDATION";
   const centreDeLaPorte = porte?.centre ?? centreAttendu;
   const siegeAuCentre = centreDeLaPorte === "AD_PRO" ? siegeAuCentreAdPro(user) : sitsOnValidationCentre(user);
 

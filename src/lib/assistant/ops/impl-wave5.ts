@@ -24,10 +24,11 @@ import { updateAdProRequest } from "@/lib/actions/ad-pro-edit-actions";
 import {
   demandesAuCentreAdPro, deciderVisaCentreAdPro, setAdProDgThreshold, setBcValidationThreshold, DEFAULT_APP_SETTINGS,
   PIECE_SECRETARIAT, NATURES_PIECE_SECRETARIAT, type NaturePieceSecretariat,
+  resoudreCible, direRefus, LIBELLE_POLE, poleDe, poleOppose, type PoleConsulting,
 } from "@/platform/in-process/capacites";
 import {
   createConsultingContract, requestConsultingValidation, decideConsultingContract,
-  closeConsultingContract, addConsultingTask, toggleConsultingTask, deleteConsultingTask,
+  closeConsultingContract, addConsultingTask, toggleConsultingTask, deleteConsultingTask, transfererConsulting,
 } from "@/lib/actions/consulting-actions";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
@@ -1193,14 +1194,48 @@ const resolveOther = (raw: string) =>
 
 // ─────────────────────────── CONSULTING ───────────────────────────
 
-const resolveContract = (raw: string) =>
-  resolveOne(raw, "le contrat de consulting (champ « reference » — CONS-…, intitulé ou consultant)",
-    (q) => prisma.consultingContract.findMany({
-      where: { OR: [{ reference: { contains: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }, { counterparty: { contains: q, mode: "insensitive" } }] },
-      select: { id: true, reference: true, title: true, counterparty: true, status: true },
-      orderBy: { createdAt: "desc" }, take: 6,
-    }),
-    (c) => `${c.reference} — ${c.title} (${c.counterparty})`);
+/** L'acteur, lu sur la SIGNATURE de `propose` — jamais un second chemin vers l'identité (§118.111). */
+type Acteur = Parameters<OpImpl["propose"]>[1];
+
+/**
+ * LE CONTRAT DÉSIGNÉ — par le résolveur canonique (§118.85), donc SOUS LA PORTÉE du registre.
+ *
+ * La recherche se faisait en direct dans la table, sans acteur : n'importe qui atteignant l'op
+ * recevait, dans la liste des candidats d'une désignation ambiguë, l'intitulé et le consultant
+ * de contrats qu'il n'a pas le droit de lire. Depuis que le module qui garde un contrat dépend
+ * de son PÔLE (§118.150), c'était la porte ouverte à côté de la fiche fermée : la promotion
+ * retrouvait par une phrase le contrat qu'on venait de confier aux RH. Le registre borne les
+ * lignes aux pôles que la personne lit, et compose le cloisonnement par entité (§118.71).
+ */
+async function resolveContract(raw: string, user: Acteur) {
+  const texte = raw.trim();
+  if (!texte) return { error: "Précisez le contrat de consulting (champ « reference » — CONS-…, intitulé ou consultant)." } as const;
+  const r = await resoudreCible(user, "consulting_contract", texte);
+  const refus = direRefus(r);
+  if (refus) return { error: refus } as const;
+  const c = await prisma.consultingContract.findUnique({
+    where: { id: r.retenu[0].id },
+    select: { id: true, reference: true, title: true, counterparty: true, status: true, pole: true },
+  });
+  return c ?? ({ error: `Aucun contrat de consulting « ${texte} » dans votre périmètre.` } as const);
+}
+
+/**
+ * LE PÔLE QUE LA PHRASE NOMME — « aux RH », « en ressources humaines », « dans Ad & Pro ».
+ * `null` quand elle n'en nomme aucun (le transfert va alors vers l'AUTRE pôle : il n'y en a que
+ * deux) ; `"INCONNU"` quand elle nomme quelque chose qu'on ne lit pas à coup sûr — deviner une
+ * destination serait pire que la redemander (§104.5).
+ */
+function poleNomme(raw: string): PoleConsulting | null | "INCONNU" {
+  const t = fold(raw).replace(/[^a-z0-9]+/g, " ").trim();
+  if (!t) return null;
+  const rh = /\b(rh|ressources humaines|ressource humaine|hr)\b/.test(t);
+  const adPro = /\b(ad pro|adpro|ad et pro|promotion)\b/.test(t);
+  // Les DEUX nommés (« du consultant RH vers Ad & Pro ») : la phrase décrit un trajet, et en
+  // retenir un serait choisir la destination à la place de la personne.
+  if (rh === adPro) return "INCONNU";
+  return rh ? "RH" : "AD_PRO";
+}
 
 async function resolveContractTask(contractId: string, contractLabel: string, raw: string) {
   const rows = await prisma.consultingTask.findMany({
@@ -1250,8 +1285,8 @@ export const CONSULTING_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   submit_contract: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const c = await resolveContract(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const c = await resolveContract(opStr(input, "reference") || opStr(input, "label"), user);
       if ("error" in c) return c;
       let validatorId: string | null = null; let validatorName: string | null = null;
       if (opStr(input, "person")) {
@@ -1275,8 +1310,8 @@ export const CONSULTING_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   decide_contract: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const c = await resolveContract(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const c = await resolveContract(opStr(input, "reference") || opStr(input, "label"), user);
       if ("error" in c) return c;
       const decision = decisionOf(opStr(input, "decision"));
       if (!decision) return { error: "Précisez la décision (champ « decision ») : valider ou refuser." };
@@ -1293,8 +1328,8 @@ export const CONSULTING_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   close_contract: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const c = await resolveContract(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const c = await resolveContract(opStr(input, "reference") || opStr(input, "label"), user);
       if ("error" in c) return c;
       const cancel = /annul|romp|r[ée]sili/i.test(opStr(input, "decision")) || /annul|romp|r[ée]sili/i.test(opStr(input, "mode"));
       return {
@@ -1310,8 +1345,8 @@ export const CONSULTING_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   add_contract_task: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const c = await resolveContract(opStr(input, "reference"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const c = await resolveContract(opStr(input, "reference"), user);
       if ("error" in c) return c;
       const label = opStr(input, "label") || opStr(input, "name");
       if (!label) return { error: "Décrivez la tâche attendue (champ « label »)." };
@@ -1330,8 +1365,8 @@ export const CONSULTING_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   toggle_contract_task: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const c = await resolveContract(opStr(input, "reference"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const c = await resolveContract(opStr(input, "reference"), user);
       if ("error" in c) return c;
       const task = await resolveContractTask(c.id, c.reference, opStr(input, "label") || opStr(input, "name"));
       if ("error" in task) return task;
@@ -1347,8 +1382,8 @@ export const CONSULTING_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   delete_contract_task: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const c = await resolveContract(opStr(input, "reference"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const c = await resolveContract(opStr(input, "reference"), user);
       if ("error" in c) return c;
       const task = await resolveContractTask(c.id, c.reference, opStr(input, "label") || opStr(input, "name"));
       if ("error" in task) return task;
@@ -1362,5 +1397,55 @@ export const CONSULTING_OPS_IMPL: Record<string, OpImpl> = {
       };
     },
     execute: (args) => runFd(deleteConsultingTask, args, "La suppression de la tâche a été refusée.", { revalidate: ["/consulting"] }),
+  },
+
+  /**
+   * TRANSFÉRER UN CONTRAT D'UN PÔLE À L'AUTRE (§118.150) — Ad & Pro ⇄ Ressources humaines.
+   *
+   * La porte est dans le catalogue (`gate` : modifier les DEUX modules, la règle de l'action) :
+   * la carte n'est jamais offerte à qui l'action refuserait (§118.83). La carte dit ce qui BOUGE
+   * et ce qui ne bouge PAS avant le clic ; l'action rend ce qu'elle a réellement déplacé
+   * (validation retirée, BC réaiguillés, désignation tombée), et c'est cette phrase qui revient.
+   */
+  transfer_contract: {
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const c = await resolveContract(opStr(input, "reference") || opStr(input, "label"), user);
+      if ("error" in c) return c;
+      const depart = poleDe(c.pole);
+      const nomme = poleNomme(opStr(input, "pole") || opStr(input, "decision") || opStr(input, "mode"));
+      if (nomme === "INCONNU") {
+        return { error: "Vers quel pôle ? Les deux pôles d'un contrat de consulting sont Ad & Pro et Ressources humaines (champ « pole » : AD_PRO ou RH)." };
+      }
+      const vers = nomme ?? poleOppose(depart);
+      if (vers === depart) return { error: `Le contrat ${c.reference} relève déjà de ${LIBELLE_POLE[vers]}.` };
+      return {
+        title: `Transférer le contrat ${c.reference} de ${LIBELLE_POLE[depart]} vers ${LIBELLE_POLE[vers]}`,
+        fields: fieldsOf([
+          ["Contrat", `${c.reference} — ${c.title} (${c.counterparty})`],
+          ["Pôle actuel", LIBELLE_POLE[depart]],
+          ["Nouveau pôle", LIBELLE_POLE[vers]],
+        ]),
+        warnings: [
+          `Le contrat quitte la liste de ${LIBELLE_POLE[depart]} : ceux qui n'ont que ce module ne le verront plus.`,
+          "Rien n'est perdu : référence, tâches, pièces, validation et historique suivent le contrat — le geste inverse le ramène.",
+          ...(depart === "AD_PRO" && c.status === "AWAITING_VALIDATION"
+            ? ["S'il attend encore le centre Ad & Pro (au-dessus du seuil), sa validation y est retirée : un contrat RH ne passe pas par le centre de la promotion."]
+            : []),
+        ],
+        args: { id: c.id, vers },
+        successMessage: `Contrat ${c.reference} transféré vers ${LIBELLE_POLE[vers]}.`,
+        link: `/consulting/${c.id}`, revalidate: ["/consulting", "/rh/consultants"],
+      };
+    },
+    // L'action dit ce qu'elle a DÉPLACÉ — validation retirée, bons de commande réaiguillés,
+    // désignation tombée. `runFd` jetterait ce message : on le rend tel quel.
+    async execute(args) {
+      const r = await transfererConsulting(toFd(args));
+      if (!r.ok) return { ok: false, error: r.error ?? "Le transfert a été refusé." };
+      return {
+        ok: true, ...(r.id ? { createdId: r.id } : {}), ...(r.message ? { message: r.message } : {}),
+        revalidate: ["/consulting", "/rh/consultants"],
+      };
+    },
   },
 };
