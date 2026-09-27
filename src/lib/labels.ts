@@ -1,3 +1,4 @@
+import type { AnnuaireAccordable } from "./annuaires/acces";
 import type { Action, Module } from "./rbac";
 
 /**
@@ -1371,6 +1372,12 @@ export interface NavTab {
   label: string;
   href: string;
   /**
+   * L'ANNUAIRE que cet onglet montre (§118.147). Présent = l'onglet s'affiche selon la règle de
+   * l'accès par annuaire — le module de son référentiel OU l'annuaire coché dans la console —,
+   * et plus selon le seul `module`. Absent = la règle ordinaire du module.
+   */
+  annuaire?: AnnuaireAccordable;
+  /**
    * Nouveauté livrée derrière un drapeau de version (`src/lib/features.ts`) : l'onglet
    * n'apparaît qu'aux comptes qui la voient (stade TEST → testeurs, stade PROD → tout le
    * monde). Absent = onglet visible dès que le module est autorisé.
@@ -1668,11 +1675,11 @@ export const MEDICAL_TABS: NavTab[] = [
  * séparément le même annuaire divergent, toujours (§118.5).
  */
 export const ANNUAIRES_TABS: NavTab[] = [
-  { module: "MEDICAL", label: "Médecins", href: "/annuaires/medecins" },
-  { module: "MEDICAL", label: "Pharmaciens", href: "/annuaires/pharmaciens" },
-  { module: "MEDICAL", label: "Établissements", href: "/annuaires/etablissements" },
-  { module: "WORKSPACE", label: "Partenaires", href: "/annuaires/partenaires" },
-  { module: "WORKSPACE", label: "Personnes", href: "/annuaires/personnes" },
+  { module: "MEDICAL", label: "Médecins", href: "/annuaires/medecins", annuaire: "MEDECINS" },
+  { module: "MEDICAL", label: "Pharmaciens", href: "/annuaires/pharmaciens", annuaire: "PHARMACIENS" },
+  { module: "MEDICAL", label: "Établissements", href: "/annuaires/etablissements", annuaire: "ETABLISSEMENTS" },
+  { module: "WORKSPACE", label: "Partenaires", href: "/annuaires/partenaires", annuaire: "PARTENAIRES" },
+  { module: "WORKSPACE", label: "Personnes", href: "/annuaires/personnes", annuaire: "PERSONNES" },
   { module: "DIRECTORIES", label: "Autres annuaires", href: "/annuaires/autres" },
 ];
 

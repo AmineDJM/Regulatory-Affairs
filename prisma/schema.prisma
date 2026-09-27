@@ -4307,6 +4307,12 @@ model UserAccess {
   canExport   Boolean     @default(false)
   canUpload   Boolean     @default(false)
   scope       AccessScope @default(ASSIGNED)
+  /// LES SECTIONS qu'un accès PERSONNALISÉ ouvre à l'intérieur du module — aujourd'hui les
+  /// ANNUAIRES du module `DIRECTORIES` (« l'annuaire des établissements à part, partenaires… »,
+  /// décision de la Direction 09/2026). Vide = aucune section en plus de ce que les modules de la
+  /// personne lui ouvrent déjà. Les clés valides vivent dans `lib/annuaires/acces.ts` ; une clé
+  /// inconnue est ignorée à la lecture, jamais interprétée.
+  sections    String[]    @default([])
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 

@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { peutAnnuaire } from "@/lib/rbac";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
@@ -36,9 +36,12 @@ export const metadata = { title: "Annuaire de l'entreprise — AMD Internal OS" 
 export default async function CompanyContactsPage() {
   // LIRE : l'espace de travail, c'est-à-dire tout le monde. ÉCRIRE : les Moyens généraux.
   const user = await requireModule("WORKSPACE");
-  const canCreate = userCan(user, "GENERAL_MEANS", "CREATE");
-  const canEdit = userCan(user, "GENERAL_MEANS", "UPDATE");
-  const canDelete = userCan(user, "GENERAL_MEANS", "DELETE");
+  // LA MÊME RÈGLE que l'onglet Partenaires du module Annuaires (§118.147) : les Moyens généraux,
+  // OU l'annuaire des partenaires ouvert en écriture depuis la console. Deux écrans du même
+  // carnet avec deux règles d'écriture laisseraient corriger ici ce qu'on refuse là-bas (§118.5).
+  const canCreate = peutAnnuaire(user, "PARTENAIRES", "CREATE");
+  const canEdit = peutAnnuaire(user, "PARTENAIRES", "UPDATE");
+  const canDelete = peutAnnuaire(user, "PARTENAIRES", "DELETE");
 
   const [tabs, partenaires, people] = await Promise.all([
     visibleTabs(user, WORKSPACE_TABS),

@@ -8,12 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { AnnuairesCoches } from "@/components/admin/annuaires-coches";
 
 export interface UserModuleState {
   mode: "DEFAULT" | "CUSTOM" | "BLOCKED";
   actions: Record<string, boolean>;
   scope: "ALL" | "ASSIGNED";
   roleSummary: string;
+  /** Les annuaires qu'ouvre un accès personnalisé au module Annuaires (§118.147). */
+  sections?: string[];
 }
 export interface AccessUser {
   id: string;
@@ -69,6 +72,8 @@ export interface PipelineConfig {
 }
 
 const PIPELINE_MODULE = "REGULATORY";
+/** Le module dont un accès personnalisé se découpe PAR ANNUAIRE (§118.147). */
+const MODULE_ANNUAIRES = "DIRECTORIES";
 
 export function ModuleAccessGrid({
   modules, users, actionLabels, pipeline,
@@ -85,7 +90,7 @@ export function ModuleAccessGrid({
   // (Re)charge les états du module sélectionné.
   React.useEffect(() => {
     const next: Record<string, UserModuleState> = {};
-    for (const u of users) next[u.id] = { ...u.byModule[module], actions: { ...u.byModule[module]?.actions } };
+    for (const u of users) next[u.id] = { ...u.byModule[module], actions: { ...u.byModule[module]?.actions }, sections: [...(u.byModule[module]?.sections ?? [])] };
     setRows(next);
   }, [module, users]);
 
@@ -124,6 +129,9 @@ export function ModuleAccessGrid({
             for (const a of cols) if (r.actions[a]) fd.set(`act_${u.id}_${a}`, "on");
             // Drive & Projets : portée toujours cloisonnée (privé), jamais « tout ».
             fd.set(`scope_${u.id}`, module === "DRIVE" || module === "DOSSIERS" ? "ASSIGNED" : r.scope);
+            // Les annuaires : lus depuis l'ÉTAT, comme les gestes — un compte que la recherche
+            // masque garde ses annuaires au lieu de les perdre à l'enregistrement.
+            if (module === MODULE_ANNUAIRES) for (const c of r.sections ?? []) fd.set(`sect_${u.id}_${c}`, "on");
           }
         }
         await saveModuleAccess(fd);
@@ -185,6 +193,20 @@ export function ModuleAccessGrid({
         </div>
       )}
 
+      {module === MODULE_ANNUAIRES && (
+        <div className="flex items-start gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <p>
+            <strong>Accès par annuaire</strong> — en « Personnalisé », cochez les annuaires à ouvrir :
+            chacun s&apos;ouvre <em>en entier</em> avec les gestes cochés (Créer, Modifier, Supprimer),
+            sans donner le module de son référentiel. Ouvrir les établissements à quelqu&apos;un ne lui
+            ouvre pas toute la Promotion médicale. L&apos;ouverture <strong>s&apos;ajoute</strong> à ce que le
+            rôle donne déjà : décocher ne retire pas un annuaire tenu par la Promotion médicale ou les
+            Moyens généraux.
+          </p>
+        </div>
+      )}
+
       {showPipeline && (
         <div className="flex items-start gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm">
           <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -210,6 +232,7 @@ export function ModuleAccessGrid({
               {cols.length === 0 && <TableHead>Capacités</TableHead>}
               {showPipeline && <TableHead className="text-center">Voit le pipeline</TableHead>}
               {showPipeline && <TableHead className="text-center">Tient le cadenas</TableHead>}
+              {module === MODULE_ANNUAIRES && <TableHead>Annuaires ouverts</TableHead>}
               <TableHead>Portée</TableHead>
             </TableRow>
           </TableHeader>
@@ -285,6 +308,17 @@ export function ModuleAccessGrid({
                       </>
                     );
                   })()}
+                  {module === MODULE_ANNUAIRES && (
+                    <TableCell>
+                      <AnnuairesCoches
+                        prefixe={`sect_${u.id}`}
+                        sections={r.sections ?? []}
+                        actif={custom}
+                        compact
+                        onChange={(sections) => update(u.id, { sections })}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell>
                     {module === "DRIVE" || module === "DOSSIERS" ? (
                       <span className="text-xs text-muted-foreground" title="Confidentialité stricte : l'utilisateur ne voit que ses propres fichiers / projets et ceux qu'on lui a partagés ou confiés.">Privé (assignées)</span>

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { peutAnnuaire } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { estCouleurCellule, cleCellule, lireCleCellule, type CibleCellule } from "@/lib/grille/couleurs";
@@ -20,7 +20,7 @@ import type { ActionResult } from "@/lib/actions/types";
  * par tous ceux qui la voient — donc elle se POSE sous le même droit que la cellule qu'elle
  * colore : un délégué colore ses praticiens et pas ceux des autres (`canAccessEntity`, la même
  * garde que `saveDirectoryCell`) ; les établissements, référentiel sans portée, demandent le
- * droit de modification du module, comme leur formulaire.
+ * droit de modification de LEUR annuaire, comme leur formulaire (§118.147).
  *
  * ── LE VOCABULAIRE EST FERMÉ DES DEUX CÔTÉS ─────────────────────────────────────────────
  *
@@ -61,7 +61,13 @@ export async function colorerCellulesAnnuaire(input: {
   const user = await requireUser();
   const feuille = input.feuille as FeuilleAnnuaire;
   if (feuille !== "praticiens" && feuille !== "etablissements") return refus("Feuille inconnue.");
-  if (!userCan(user, "MEDICAL", "UPDATE")) return refus("Colorer la feuille demande le droit de modification sur la Promotion médicale.");
+  // LA PORTE est celle de l'ANNUAIRE (§118.147), pas du module : la feuille des établissements
+  // se colore sous le droit de modifier cet annuaire ; celle des praticiens sous l'un des deux
+  // annuaires de praticiens — et chaque LIGNE est revérifiée plus bas dans l'annuaire de son grade.
+  const porte = feuille === "etablissements"
+    ? peutAnnuaire(user, "ETABLISSEMENTS", "UPDATE")
+    : peutAnnuaire(user, "MEDECINS", "UPDATE") || peutAnnuaire(user, "PHARMACIENS", "UPDATE");
+  if (!porte) return refus("Colorer la feuille demande le droit de modification sur cet annuaire (Promotion médicale, ou accès ouvert depuis Administration › Comptes).");
 
   const couleur = input.couleur === null || input.couleur === "" ? null : input.couleur;
   if (couleur !== null && !estCouleurCellule(couleur)) return refus("Couleur hors de la palette.");

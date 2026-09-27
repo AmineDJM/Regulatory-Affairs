@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { ACTION_LABELS } from "@/lib/labels";
+import { AnnuairesCoches } from "@/components/admin/annuaires-coches";
 
 /**
  * Les colonnes sont les MÊMES pour toutes les lignes (c'est un tableau), mais les cases d'une
@@ -29,7 +30,15 @@ export interface ModuleAccessRow {
   roleSummary: string; // human description of the role default
   /** Module retiré du service : les droits s'enregistrent mais n'ouvrent rien (sauf Super Admin). */
   hidden?: boolean;
+  /**
+   * Les ANNUAIRES qu'ouvre un accès personnalisé au module Annuaires (§118.147). Vide ailleurs :
+   * seul ce module a des sections.
+   */
+  sections?: string[];
 }
+
+/** Le module dont un accès personnalisé se découpe PAR ANNUAIRE. */
+const MODULE_ANNUAIRES = "DIRECTORIES";
 
 export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAccessRow[] }) {
   const [state, setState] = React.useState(rows);
@@ -68,7 +77,8 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
             {state.map((r) => {
               const custom = r.mode === "CUSTOM";
               return (
-                <TableRow key={r.module}>
+                <React.Fragment key={r.module}>
+                <TableRow>
                   <TableCell>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="font-medium">{r.label}</span>
@@ -136,6 +146,19 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
                     )}
                   </TableCell>
                 </TableRow>
+                {r.module === MODULE_ANNUAIRES && (
+                  <TableRow>
+                    <TableCell colSpan={ACTION_COLS.length + 3} className="bg-secondary/20">
+                      <AnnuairesCoches
+                        prefixe={`sect_${r.module}`}
+                        sections={r.sections ?? []}
+                        actif={custom}
+                        onChange={(sections) => update(r.module, { sections })}
+                      />
+                    </TableCell>
+                  </TableRow>
+                )}
+                </React.Fragment>
               );
             })}
           </TableBody>
@@ -155,3 +178,4 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
     </form>
   );
 }
+

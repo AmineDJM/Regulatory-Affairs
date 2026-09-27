@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { userCan, type SessionUser } from "@/lib/rbac";
+import { userCan, peutAnnuaire, annuaireOuvertParConsole, type SessionUser } from "@/lib/rbac";
 import { chargerFeuillePraticiens, type FiltreGrade } from "@/lib/queries/annuaires";
 import { AnnuaireGrid } from "@/app/(app)/medical/annuaire/annuaire-grid";
 import { DirectoryBar } from "@/app/(app)/medical/annuaire/directory-bar";
@@ -20,14 +20,22 @@ export async function FeuillePraticiensHub({
   grade: Exclude<FiltreGrade, null>;
   annuaire: string | null;
 }) {
-  // La PORTE est le module du référentiel, pas celle d'« Annuaires » : l'onglet n'est rendu qu'à
-  // qui a la Promotion médicale, et son adresse tapée à la main refuse de la même façon.
-  if (!userCan(user, "MEDICAL", "VIEW")) redirect("/dashboard?denied=MEDICAL");
-  const canImport = userCan(user, "MEDICAL", "CREATE");
-  const canEdit = userCan(user, "MEDICAL", "UPDATE");
-  const canDelete = userCan(user, "MEDICAL", "DELETE");
+  // LA PORTE est celle de l'ANNUAIRE (§118.147) : le module du référentiel (la Promotion
+  // médicale), OU l'annuaire coché pour cette personne dans la console. L'onglet n'est rendu qu'à
+  // qui passe l'une des deux, et son adresse tapée à la main refuse de la même façon.
+  const cle = grade === "pharmaciens" ? "PHARMACIENS" : "MEDECINS";
+  if (!peutAnnuaire(user, cle, "VIEW")) redirect("/dashboard?denied=MEDICAL");
+  const canImport = peutAnnuaire(user, cle, "CREATE");
+  const canEdit = peutAnnuaire(user, cle, "UPDATE");
+  const canDelete = peutAnnuaire(user, cle, "DELETE");
+  // LA STRUCTURE — annuaires nommés, leurs accès, leurs colonnes — reste la Promotion médicale :
+  // ouvrir la modification des FICHES n'ouvre pas le droit de réorganiser le référentiel.
+  const canManageStructure = userCan(user, "MEDICAL", "UPDATE");
 
-  const feuille = await chargerFeuillePraticiens(user, { annuaire, grade, canManage: canEdit });
+  const feuille = await chargerFeuillePraticiens(user, {
+    annuaire, grade, canManage: canManageStructure,
+    entier: annuaireOuvertParConsole(user, cle, "VIEW"),
+  });
   if (!feuille) notFound();
 
   const basePath = grade === "pharmaciens" ? "/annuaires/pharmaciens" : "/annuaires/medecins";
@@ -43,13 +51,14 @@ export async function FeuillePraticiensHub({
         current={annuaire}
         companies={feuille.companies}
         generalCount={feuille.generalCount}
-        canManage={canEdit}
+        canManage={canManageStructure}
         people={feuille.people}
         basePath={basePath}
       />
       <AnnuaireGrid
         rows={feuille.rows} couleurs={feuille.couleurs} customColumns={feuille.customColumns}
-        canEdit={canEdit} canImport={canImport} canDelete={canDelete} specialties={feuille.specialties}
+        canEdit={canEdit} canImport={canImport} canImportFile={userCan(user, "MEDICAL", "CREATE")} canDelete={canDelete} specialties={feuille.specialties}
+        canManageColumns={canManageStructure}
         directoryId={feuille.openDirectoryId}
         directoryName={feuille.directoryName}
         titreParDefaut={grade === "pharmaciens" ? "PHARMACIEN" : undefined}

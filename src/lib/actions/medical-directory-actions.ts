@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { Prisma, type Priority, type SegmentLevel } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, peutAnnuaire } from "@/lib/rbac";
+import { annuaireDuPraticien } from "@/lib/annuaires/acces";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -447,9 +448,15 @@ export async function addDirectoryDoctor(input: {
   directoryId?: string | null;
 }): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé à alimenter l'annuaire." };
+  // LE GRADE D'ABORD : c'est lui qui range la fiche dans l'annuaire des médecins ou des
+  // pharmaciens, donc lui qui dit quel droit s'applique (§118.147). Lire le droit avant lui
+  // jugerait la création d'un pharmacien sur l'annuaire des médecins.
   const title = input.title ? validateAnnuaireValue("title", input.title) : null;
   if (title && !title.ok) return { ok: false, error: title.error };
+  const annuaire = annuaireDuPraticien(title && title.ok ? title.value : null);
+  if (!peutAnnuaire(user, annuaire, "CREATE")) {
+    return { ok: false, error: `Non autorisé à alimenter l'annuaire des ${annuaire === "PHARMACIENS" ? "pharmaciens" : "médecins"} (Promotion médicale, ou accès ouvert depuis Administration › Comptes).` };
+  }
   const directoryId = input.directoryId ? String(input.directoryId) : null;
   if (directoryId) {
     const dir = await prisma.medicalDirectory.findUnique({ where: { id: directoryId }, select: { id: true } });
@@ -500,8 +507,11 @@ export async function addDirectoryDoctor(input: {
  */
 export async function deleteDirectoryDoctors(ids: string[]): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "MEDICAL", "DELETE")) {
-    return { ok: false, error: "Suppression réservée (droit Supprimer sur l'Annuaire)." };
+  // La porte : l'un des deux annuaires de praticiens en suppression (§118.147). Elle ne suffit
+  // pas — chaque ligne est revérifiée plus bas, dans l'annuaire de SON grade : ouvrir l'annuaire
+  // des médecins ne fait pas supprimer un pharmacien pris dans la même sélection.
+  if (!peutAnnuaire(user, "MEDECINS", "DELETE") && !peutAnnuaire(user, "PHARMACIENS", "DELETE")) {
+    return { ok: false, error: "Suppression réservée (droit Supprimer sur l'annuaire des praticiens)." };
   }
   const unique = [...new Set(ids.filter(Boolean))];
   if (unique.length === 0) return { ok: false, error: "Aucune ligne sélectionnée." };

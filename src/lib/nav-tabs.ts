@@ -1,4 +1,4 @@
-import { userCan, type SessionUser } from "@/lib/rbac";
+import { userCan, peutAnnuaire, type SessionUser } from "@/lib/rbac";
 import { featureEnabled } from "@/lib/features";
 import type { NavTab } from "@/lib/labels";
 import type { ModuleTab } from "@/components/shared/module-tabs";
@@ -16,7 +16,11 @@ export async function visibleTabs(user: SessionUser, tabs: NavTab[]): Promise<Mo
     tabs.map(async (t) => ({
       label: t.label,
       href: t.href,
-      show: userCan(user, t.module, "VIEW") && (t.feature ? await featureEnabled(t.feature, user.id) : true),
+      // Un onglet d'ANNUAIRE suit la règle de l'accès par annuaire (§118.147) : le module de son
+      // référentiel OU l'annuaire coché dans la console. Lire le seul `module` cacherait
+      // l'onglet à la personne à qui on vient précisément de l'ouvrir.
+      show: (t.annuaire ? peutAnnuaire(user, t.annuaire, "VIEW") : userCan(user, t.module, "VIEW"))
+        && (t.feature ? await featureEnabled(t.feature, user.id) : true),
     })),
   );
 }

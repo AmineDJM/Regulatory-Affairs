@@ -84,6 +84,8 @@ export default async function AdminUserPage({ params }: { params: { id: string }
       module, label: MODULE_LABEL[module] ?? module, mode, actions, scope,
       hidden: hors.has(module),
       available: spec?.actions ?? [], rowScoped: spec?.rowScoped ?? false, roleSummary,
+      // Les annuaires ne se portent que sur un accès PERSONNALISÉ (§118.147) : ailleurs, rien.
+      sections: ov?.canView ? ov.sections : [],
     };
   });
 

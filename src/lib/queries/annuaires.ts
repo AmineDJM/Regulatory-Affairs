@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { scopeMedicalDoctors, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { companyScopedWhere, getMyCompanies, companyLabel } from "@/lib/company";
@@ -30,6 +31,30 @@ import type { DirectoryRow, EtablissementRow, ContactRow, DirectoryPerson } from
 
 // ── LA FEUILLE DES PRATICIENS ───────────────────────────────────────────────────────────────
 
+/**
+ * QUI OUVRE UN ANNUAIRE NOMMÉ — la règle de la feuille, écrite UNE fois pour l'écran ET l'export.
+ *
+ * Elle vivait dans le chargeur seul, et l'EXPORT ne l'appliquait pas : la feuille cachait les
+ * praticiens d'un annuaire fermé (« Infectiologues », réservé à trois personnes), le classeur
+ * les sortait. Trouvé en branchant l'accès par annuaire sur cette route (§118.147) — une porte
+ * gardée à côté d'une porte ouverte, et c'est la même chose qui passait (§118.71).
+ */
+function ouvreAnnuaireNomme(user: SessionUser) {
+  const privileged = user.role === "SUPER_ADMIN" || hasGlobalView(user.role);
+  return (d: { createdById: string | null; access: { userId: string }[] }) =>
+    privileged || d.access.length === 0 || d.createdById === user.id || d.access.some((a) => a.userId === user.id);
+}
+
+/** Les praticiens des annuaires NOMMÉS fermés à cette personne, en clause — l'export la lit. */
+export async function clauseAnnuairesFermes(user: SessionUser): Promise<Prisma.MedicalDoctorWhereInput> {
+  const annuaires = await prisma.medicalDirectory.findMany({
+    select: { id: true, createdById: true, access: { select: { userId: true } } },
+  });
+  const ouvre = ouvreAnnuaireNomme(user);
+  const fermes = annuaires.filter((d) => !ouvre(d)).map((d) => d.id);
+  return fermes.length > 0 ? { OR: [{ directoryId: null }, { directoryId: { notIn: fermes } }] } : {};
+}
+
 /** Médecins = tout grade sauf PHARMACIEN ; pharmaciens = ce grade seul ; `null` = tous. */
 export type FiltreGrade = "medecins" | "pharmaciens" | null;
 
@@ -50,7 +75,15 @@ export interface FeuillePraticiens {
 
 export async function chargerFeuillePraticiens(
   user: SessionUser,
-  opts: { annuaire?: string | null; grade?: FiltreGrade; canManage: boolean },
+  opts: {
+    annuaire?: string | null; grade?: FiltreGrade; canManage: boolean;
+    /**
+     * L'ANNUAIRE OUVERT PAR LA CONSOLE (§118.147) : il s'ouvre EN ENTIER — un référentiel, pas un
+     * portefeuille. C'est la PAGE qui le dit (ce module ne décide aucun droit) ; absent = la
+     * portée du module, celle d'un délégué qui ne voit que ses praticiens.
+     */
+    entier?: boolean;
+  },
 ): Promise<FeuillePraticiens | null> {
   // L'annuaire ouvert : « general » = ceux qui ne sont rangés nulle part, un identifiant = cet
   // annuaire, absent = tous les praticiens du périmètre.
@@ -64,12 +97,11 @@ export async function chargerFeuillePraticiens(
       ? { title: { not: "PHARMACIEN" as const } }
       : {};
 
-  const scope = await companyScopedWhere(user.id, scopeMedicalDoctors(user));
+  const scope = await companyScopedWhere(user.id, opts.entier ? {} : scopeMedicalDoctors(user));
 
   // L'ACCÈS PAR ANNUAIRE. Liste d'accès vide = ouvert à tout le module ; des noms = fermé à tous
   // les autres, hors vue globale. On tranche AVANT de charger les praticiens : un annuaire fermé
   // ne doit fuir ni par sa pastille, ni par ses praticiens dans la vue « Tous ».
-  const privileged = user.role === "SUPER_ADMIN" || hasGlobalView(user.role);
   const allDirectories = await prisma.medicalDirectory.findMany({
     select: {
       id: true, name: true, companyId: true, createdById: true,
@@ -78,8 +110,7 @@ export async function chargerFeuillePraticiens(
     },
     orderBy: { name: "asc" },
   });
-  const canOpenDirectory = (d: { createdById: string | null; access: { userId: string }[] }) =>
-    privileged || d.access.length === 0 || d.createdById === user.id || d.access.some((a) => a.userId === user.id);
+  const canOpenDirectory = ouvreAnnuaireNomme(user);
   const visibleDirectoryRows = allDirectories.filter(canOpenDirectory);
   const hiddenIds = allDirectories.filter((d) => !canOpenDirectory(d)).map((d) => d.id);
   // Ouvrir un annuaire fermé par son adresse ne marche pas plus que par sa pastille.
@@ -188,7 +219,19 @@ export interface FeuilleEtablissements {
  * spécialités. Ce qui EST cloisonné, ce sont les PRATICIENS — le compte affiché par établissement
  * se calcule donc dans la portée de la personne (`scopeMedicalDoctors`).
  */
-export async function chargerEtablissements(user: SessionUser): Promise<FeuilleEtablissements> {
+export async function chargerEtablissements(
+  user: SessionUser,
+  opts: {
+    /**
+     * COMPTER LES PRATICIENS EN ENTIER (§118.147). Quelqu'un à qui la console n'a ouvert que les
+     * établissements n'a AUCUN praticien dans sa portée de module : compter dans cette portée lui
+     * afficherait « 0 » partout — et surtout ne l'avertirait pas, au moment de supprimer un CHU,
+     * que quarante praticiens y sont rattachés. Un nombre n'est pas une identité : le compte
+     * entier ne lui montre aucun praticien.
+     */
+    compteEntier?: boolean;
+  } = {},
+): Promise<FeuilleEtablissements> {
   const [institutions, doctorCounts, sectorCounts] = await Promise.all([
     prisma.medicalInstitution.findMany({
       orderBy: [{ name: "asc" }],
@@ -196,7 +239,7 @@ export async function chargerEtablissements(user: SessionUser): Promise<FeuilleE
     }),
     prisma.medicalDoctor.groupBy({
       by: ["institutionId"],
-      where: { ...scopeMedicalDoctors(user), institutionId: { not: null } },
+      where: { ...(opts.compteEntier ? {} : scopeMedicalDoctors(user)), institutionId: { not: null } },
       _count: { _all: true },
     }),
     // DANS COMBIEN DE SECTEURS COMMERCIAUX il entre : c'est ce que la suppression ampute.

@@ -51,7 +51,8 @@ export default async function AccessByModulePage() {
       } else {
         for (const a of def) if (a !== "VIEW") actions[a as Action] = true;
       }
-      byModule[module] = { mode, actions, scope, roleSummary };
+      // Les annuaires ne se portent que sur un accès PERSONNALISÉ (§118.147) : ailleurs, rien.
+      byModule[module] = { mode, actions, scope, roleSummary, sections: ov?.canView ? ov.sections : [] };
     }
     return { id: u.id, name: u.name, role: ROLE_LABELS[u.role] ?? u.role, byModule };
   });

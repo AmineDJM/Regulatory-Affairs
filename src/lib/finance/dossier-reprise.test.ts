@@ -164,6 +164,24 @@ suite("Reprise : le dossier manquant des ordres déjà émis", () => {
     for (const r of refs) expect(r).toMatch(new RegExp(`^PAY-${annee}-\\d{3,}$`));
   });
 
+  it("LA RÉFÉRENCE GARDE TOUS SES CHIFFRES — `lpad` TRONQUE au-delà de sa cible", async () => {
+    /*
+     * `lpad('1013', 3, '0')` rend « 101 » : Postgres tronque une chaîne plus longue que la
+     * longueur demandée. Au-delà de 999 dossiers dans l'année, la reprise retombait donc sur une
+     * référence EXISTANTE et échouait sur l'unicité — trouvé quand la base locale a franchi
+     * 1 000 dossiers (§118.147). Le cas ci-dessus ne l'attrapait qu'à CETTE condition, c'est-à-
+     * dire au hasard de l'état de la base. Celui-ci évalue l'expression RÉELLE du fichier (sans
+     * ses commentaires) sur des numéros choisis : il tombe sur le défaut quel que soit l'état.
+     */
+    const brut = readFileSync(SQL, "utf8").split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
+    const m = brut.match(/'PAY-' \|\| n\.an \|\| '-' \|\| ([^\n]+),\n/);
+    expect(m, "l'expression de numérotation doit se trouver dans la migration").not.toBeNull();
+    const rows = await prisma.$queryRawUnsafe<{ ref: string }[]>(
+      `SELECT 'PAY-' || n.an || '-' || ${m![1]} AS ref FROM (VALUES (2026, 7), (2026, 999), (2026, 1013)) AS n(an, n) ORDER BY n.n`,
+    );
+    expect(rows.map((r) => r.ref)).toEqual(["PAY-2026-007", "PAY-2026-999", "PAY-2026-1013"]);
+  });
+
   it("LE FIL NE S'OUVRE PAS VIDE — l'historique blanc laisse croire qu'il ne s'est rien passé", async () => {
     const d = await prisma.paymentRequest.findFirstOrThrow({ where: { expenseOrderId: ordrePromo } });
     const ev = await prisma.paymentRequestEvent.findMany({ where: { requestId: d.id } });

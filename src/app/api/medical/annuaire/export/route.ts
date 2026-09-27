@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
-import { userCan, scopeMedicalDoctors } from "@/lib/rbac";
+import { userCan, scopeMedicalDoctors, peutAnnuaire, annuaireOuvertParConsole } from "@/lib/rbac";
+import { clauseAnnuairesFermes } from "@/lib/queries/annuaires";
 import { prisma } from "@/lib/prisma";
 import { companyScopedWhere } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
@@ -18,17 +19,30 @@ import type { AnnuaireRow } from "@/lib/medical/directory-grid";
 export async function GET(req: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
-  if (!userCan(user, "MEDICAL", "VIEW")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-
   // LE GRADE, quand l'onglet du module « Annuaires » exporte ce qu'il montre : médecins (tout
   // grade sauf pharmacien) ou pharmaciens. Absent = toute la feuille, comme avant.
   const grade = new URL(req.url).searchParams.get("grade");
+  const cle = grade === "pharmaciens" ? "PHARMACIENS" : grade === "medecins" ? "MEDECINS" : null;
+  // LA PORTE est celle de l'écran qui exporte (§118.147) : l'onglet d'un annuaire lit la règle
+  // de l'accès par annuaire, la feuille entière de la Promotion médicale lit son module.
+  const voit = cle ? peutAnnuaire(user, cle, "VIEW") : userCan(user, "MEDICAL", "VIEW");
+  if (!voit) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   const gradeWhere = grade === "pharmaciens"
     ? { title: "PHARMACIEN" as const }
     : grade === "medecins" ? { title: { not: "PHARMACIEN" as const } } : {};
+  // Un annuaire ouvert par la console s'ouvre en entier — la même portée que l'écran.
+  const entier = cle ? annuaireOuvertParConsole(user, cle, "VIEW") : false;
 
   const doctors = await prisma.medicalDoctor.findMany({
-    where: { ...(await companyScopedWhere(user.id, scopeMedicalDoctors(user))), ...gradeWhere },
+    // LES CLAUSES SE COMPOSENT EN `AND` : la portée d'un délégué et l'exclusion des annuaires
+    // fermés sont deux `OR`, et les étaler dans le même objet ferait écraser l'une par l'autre.
+    where: {
+      AND: [
+        await companyScopedWhere(user.id, entier ? {} : scopeMedicalDoctors(user)),
+        gradeWhere,
+        await clauseAnnuairesFermes(user),
+      ],
+    },
     orderBy: [{ name: "asc" }],
     include: { specialtyRef: { select: { name: true } } },
   });

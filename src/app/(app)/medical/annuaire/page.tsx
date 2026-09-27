@@ -53,7 +53,8 @@ export default async function AnnuairePage({ searchParams }: { searchParams?: { 
       />
       <AnnuaireGrid
         rows={feuille.rows} couleurs={feuille.couleurs} customColumns={feuille.customColumns}
-        canEdit={canEdit} canImport={canImport} canDelete={canDelete} specialties={feuille.specialties}
+        canEdit={canEdit} canImport={canImport} canImportFile={canImport} canDelete={canDelete} specialties={feuille.specialties}
+        canManageColumns={canEdit}
         directoryId={feuille.openDirectoryId}
         directoryName={feuille.directoryName}
       />

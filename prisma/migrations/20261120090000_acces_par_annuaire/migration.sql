@@ -1,0 +1,11 @@
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+-- L'ACCÈS PAR ANNUAIRE (§118.147) — « quand je donne accès au module Annuaires à quelqu'un, je
+-- dois pouvoir lui donner des accès par annuaire : les établissements à part, les partenaires… »
+--
+-- Une colonne, et rien d'autre : les SECTIONS qu'un accès personnalisé ouvre à l'intérieur de son
+-- module. Le défaut est la liste VIDE, qui reproduit EXACTEMENT le comportement d'avant — aucun
+-- accès existant ne s'élargit ni ne se rétrécit par cette migration.
+--
+-- Idempotente : relancée, elle ne fait rien.
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+ALTER TABLE "UserAccess" ADD COLUMN IF NOT EXISTS "sections" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

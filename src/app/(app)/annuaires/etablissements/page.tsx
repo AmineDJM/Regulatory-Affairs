@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { peutAnnuaire, userCan } from "@/lib/rbac";
 import { INSTITUTION_TYPE, INSTITUTION_SECTOR } from "@/lib/labels";
 import { chargerEtablissements } from "@/lib/queries/annuaires";
 import { EtablissementsTable } from "./etablissements-table";
@@ -27,8 +27,12 @@ export const metadata = { title: "Annuaires — Établissements — AMD Internal
  */
 export default async function AnnuaireEtablissementsPage() {
   const user = await requireModule("DIRECTORIES");
-  if (!userCan(user, "MEDICAL", "VIEW")) redirect("/dashboard?denied=MEDICAL");
-  const feuille = await chargerEtablissements(user);
+  // LA PORTE est celle de l'ANNUAIRE (§118.147) : la Promotion médicale, OU l'annuaire des
+  // établissements coché pour cette personne dans la console — sans lui ouvrir tout le module.
+  if (!peutAnnuaire(user, "ETABLISSEMENTS", "VIEW")) redirect("/dashboard?denied=MEDICAL");
+  // Qui ne voit AUCUN praticien par son module compte les rattachements en entier : sinon il lit
+  // « 0 » partout, et supprimer un CHU ne l'avertirait de rien.
+  const feuille = await chargerEtablissements(user, { compteEntier: !userCan(user, "MEDICAL", "VIEW") });
   return (
     <div className="space-y-5">
       <EnTeteAnnuaires
@@ -40,9 +44,9 @@ export default async function AnnuaireEtablissementsPage() {
         couleurs={feuille.couleurs}
         types={Object.entries(INSTITUTION_TYPE).map(([value, label]) => ({ value, label }))}
         sectors={Object.entries(INSTITUTION_SECTOR).map(([value, d]) => ({ value, label: d.label }))}
-        canCreate={userCan(user, "MEDICAL", "CREATE")}
-        canEdit={userCan(user, "MEDICAL", "UPDATE")}
-        canDelete={userCan(user, "MEDICAL", "DELETE")}
+        canCreate={peutAnnuaire(user, "ETABLISSEMENTS", "CREATE")}
+        canEdit={peutAnnuaire(user, "ETABLISSEMENTS", "UPDATE")}
+        canDelete={peutAnnuaire(user, "ETABLISSEMENTS", "DELETE")}
       />
     </div>
   );

@@ -72,7 +72,11 @@ INSERT INTO "PaymentRequest" (
 )
 SELECT
   'pcomp_' || n."id",
-  'PAY-' || n.an || '-' || lpad(n.n::text, 3, '0'),
+  -- `lpad` TRONQUE une chaîne plus longue que sa cible : `lpad('1013', 3, '0')` rend « 101 ».
+  -- Au-delà de 999 dossiers dans l'année, la référence retombait sur une référence EXISTANTE et
+  -- l'insertion échouait (trouvé en rejouant ce fichier sur une base de 1 012 dossiers,
+  -- §118.147). Trois chiffres au MOINS, jamais au plus — comme `buildRef` côté application.
+  'PAY-' || n.an || '-' || (CASE WHEN length(n.n::text) >= 3 THEN n.n::text ELSE lpad(n.n::text, 3, '0') END),
   n."label",
   n."notes",
   n."amount",

@@ -7,6 +7,7 @@ import { getAppSettings } from "./settings"; // settings n'importe que prisma �
 import { pipelineAccessFor } from "./regulatory/pipeline-access";
 import { carrierAccess } from "./regulatory/assignment";
 import { NAVIGATION, NAV_LEGACY_LABELS } from "./labels"; // labels n'importe de rbac QUE le type `Module` → aucun cycle runtime
+import { lireSections, peutAnnuaire as regleAnnuaire, ouvertParSection, type AnnuaireAccordable, type FaitsAnnuaire, type GesteAnnuaire } from "./annuaires/acces"; // module PUR, zéro import → aucun cycle
 
 // `cache` is a React Server Components API; fall back to identity outside an
 // RSC render (e.g. unit tests) so the module loads everywhere.
@@ -610,6 +611,11 @@ function moduleFromValidation(moduleLabel: string | null, link: string | null): 
 export interface EffectiveModuleAccess {
   actions: Set<Action>;
   scope: AccessScope;
+  /**
+   * LES SECTIONS qu'un accès PERSONNALISÉ ouvre à l'intérieur du module — aujourd'hui les
+   * annuaires cochés sur le module Annuaires (§118.147). Absent = aucune section en plus.
+   */
+  sections?: ReadonlySet<string>;
 }
 export interface EffectiveAccess {
   modules: Map<Module, EffectiveModuleAccess>;
@@ -753,7 +759,11 @@ export const getAccess = perRequest(
       // TOUTES les demandes de congrès à pré-valider).
       if (!blocked && secondaryRole && secondaryRole !== role) addRoleDefaults(secondaryRole);
 
-      if (hasView && !blocked) modules.set(module, { actions, scope });
+      // LES SECTIONS ne viennent QUE d'un accès personnalisé : un rôle n'en porte pas, et un
+      // accès bloqué n'en ouvre aucune. Les clés sont relues par la règle pure — une clé
+      // inconnue en base est écartée, jamais interprétée.
+      const sections = ov?.canView ? lireSections(ov.sections) : [];
+      if (hasView && !blocked) modules.set(module, { actions, scope, ...(sections.length ? { sections: new Set(sections) } : {}) });
     }
 
     // ── Confidentialité STRICTE du Drive et des Projets (Dossiers) ──────────────
@@ -1027,6 +1037,36 @@ export const getAccess = perRequest(
 /** Does the user's effective access permit this action on this module? */
 export function userCan(user: SessionUser, module: Module, action: Action): boolean {
   return user.access.modules.get(module)?.actions.has(action) ?? false;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'ACCÈS PAR ANNUAIRE (§118.147) — la règle pure vit au socle (`annuaires/acces.ts`) ; ici on
+ * ne fait que lui porter les faits d'une personne. UNE lecture, pour les onglets, les pages, les
+ * chargeurs, les actions et la conversation : une porte qui recopierait la règle à sa façon
+ * finirait par ouvrir ce qu'une autre ferme (§118.5, §118.71).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function faitsAnnuaire(user: SessionUser): FaitsAnnuaire {
+  return {
+    peut: (module, geste) => userCan(user, module as Module, geste),
+    sections: user.access.modules.get("DIRECTORIES")?.sections ?? new Set<string>(),
+    tientPersonnesParRole: [user.role, user.secondaryRole ?? null].some((r) => r === "SUPER_ADMIN" || r === "DIRECTION"),
+  };
+}
+
+/** Cette personne peut-elle faire ce geste dans cet annuaire — par son module OU par la console ? */
+export function peutAnnuaire(user: SessionUser, cle: AnnuaireAccordable, geste: GesteAnnuaire): boolean {
+  return regleAnnuaire(faitsAnnuaire(user), cle, geste);
+}
+
+/**
+ * L'annuaire lui est-il ouvert PAR LA CONSOLE ? C'est ce qui décide de la PORTÉE des lignes : un
+ * annuaire ouvert par la console s'ouvre en entier (un référentiel, pas un portefeuille), là où
+ * le module garde la portée de son métier (les praticiens d'un délégué).
+ */
+export function annuaireOuvertParConsole(user: SessionUser, cle: AnnuaireAccordable, geste: GesteAnnuaire): boolean {
+  return ouvertParSection(faitsAnnuaire(user), cle, geste);
 }
 
 /**

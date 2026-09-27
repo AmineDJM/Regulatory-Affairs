@@ -6,9 +6,11 @@ import { canSee as canSeeTask, canAttach as canAttachTask } from "@/lib/tasks/re
 import { recruitmentViewer } from "@/lib/recruitment/access";
 import { isOwnBusiness } from "@/lib/ad-pro/attachments";
 import { parentDuPoste, PARENT_ENTITE } from "@/lib/ad-pro-items";
+import { annuaireDuPraticien } from "@/lib/annuaires/acces";
 import { getMyCompanies } from "@/lib/company";
 import {
   userCan, hasGlobalView, scopeRegulatory, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeBdProject, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser, canViewBdProjects, canManageBdProjects,
+  annuaireOuvertParConsole,
 } from "@/lib/rbac";
 
 /** Maps a polymorphic entity type to its owning module. */
@@ -327,6 +329,19 @@ export async function canAccessEntity(
     if (!a) return false;
     if (a.userId === user.id) return action !== "DELETE";
     return canAccessEntity(user, a.entityType, a.entityId, action === "VIEW" ? "VIEW" : "UPDATE");
+  }
+
+  // ── L'ANNUAIRE OUVERT PAR LA CONSOLE (§118.147) ─────────────────────────────────────────
+  //
+  // Un praticien appartient à l'annuaire des médecins ou des pharmaciens, selon son GRADE. Quand
+  // la console a ouvert cet annuaire à la personne, il lui est ouvert EN ENTIER, avec les gestes
+  // cochés — sans le module de la Promotion médicale, dont la portée par délégué ne s'applique
+  // donc pas ici. On ne lit la fiche que si une section est ouverte : pour tous les autres, ce
+  // passage ne coûte rien.
+  if (entityType === "DOCTOR" && (user.access.modules.get("DIRECTORIES")?.sections?.size ?? 0) > 0
+    && (action === "VIEW" || action === "CREATE" || action === "UPDATE" || action === "DELETE")) {
+    const fiche = await prisma.medicalDoctor.findUnique({ where: { id: entityId }, select: { title: true } });
+    if (fiche && annuaireOuvertParConsole(user, annuaireDuPraticien(fiche.title), action)) return true;
   }
 
   if (!userCan(user, module, action)) return false;

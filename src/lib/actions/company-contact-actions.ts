@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { peutAnnuaire } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { getMyCompanies, companyIdForNew } from "@/lib/company";
@@ -51,7 +51,9 @@ async function companyAllowed(userId: string, companyId: string | null): Promise
 
 export async function createCompanyContact(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "GENERAL_MEANS", "CREATE")) return { ok: false, error: "Non autorisé." };
+  // L'ANNUAIRE DES PARTENAIRES (§118.147) : les Moyens généraux, OU l'annuaire ouvert en écriture
+  // pour cette personne depuis la console — la même règle que les deux écrans qui le montrent.
+  if (!peutAnnuaire(user, "PARTENAIRES", "CREATE")) return { ok: false, error: "Non autorisé." };
   const data = readContact(formData);
   if (!data.name) return { ok: false, error: "Le nom du contact est obligatoire." };
 
@@ -73,7 +75,9 @@ export async function createCompanyContact(_prev: ActionResult | undefined, form
 
 export async function updateCompanyContact(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "GENERAL_MEANS", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  // L'ANNUAIRE DES PARTENAIRES (§118.147) : les Moyens généraux, OU l'annuaire ouvert en écriture
+  // pour cette personne depuis la console — la même règle que les deux écrans qui le montrent.
+  if (!peutAnnuaire(user, "PARTENAIRES", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Contact introuvable." };
   const existing = await prisma.companyContact.findUnique({ where: { id }, select: { name: true, companyId: true } });
@@ -118,7 +122,9 @@ export async function updateCompanyContact(formData: FormData): Promise<ActionRe
  */
 export async function deleteCompanyContact(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "GENERAL_MEANS", "DELETE")) return { ok: false, error: "Non autorisé." };
+  // L'ANNUAIRE DES PARTENAIRES (§118.147) : les Moyens généraux, OU l'annuaire ouvert en écriture
+  // pour cette personne depuis la console — la même règle que les deux écrans qui le montrent.
+  if (!peutAnnuaire(user, "PARTENAIRES", "DELETE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Contact introuvable." };
   const existing = await prisma.companyContact.findUnique({ where: { id }, select: { name: true, companyId: true } });

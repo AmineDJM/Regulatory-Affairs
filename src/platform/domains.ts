@@ -133,7 +133,11 @@ const SOCLE = [
    * le chargeur serveur (`queries/annuaires`), les actions et l'op d'Adam en ont tous besoin, et
    * aucun n'a le droit d'importer l'autre — un composant client qui importerait le chargeur
    * tirerait Prisma dans le navigateur, un chargeur qui importerait un écran remonterait vers
-   * l'application.
+   * l'application. Et la RÈGLE de l'accès par annuaire (`annuaires/acces.ts`, §118.147), zéro
+   * import elle aussi : `rbac.ts` la lit — le socle ne lit que le socle —, la console
+   * d'administration (composant client) coche ses annuaires, et les pages, les actions et la
+   * conversation l'interrogent par `rbac`. Écrite ailleurs, elle aurait deux lecteurs sans droit
+   * de se parler, donc deux copies.
    */
   "src/lib/grille/",
   "src/lib/annuaires/",

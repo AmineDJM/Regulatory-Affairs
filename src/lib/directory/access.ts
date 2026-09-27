@@ -1,5 +1,5 @@
 import type { CurrentUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { peutAnnuaire } from "@/lib/rbac";
 
 /**
  * QUI TIENT L'ANNUAIRE — et pourquoi ce n'est pas tout le monde.
@@ -22,13 +22,17 @@ export function canReadDirectory(user: CurrentUser): boolean {
   return Boolean(user.id);
 }
 
-/** Écrire dans l'annuaire — ajouter, corriger, désactiver une coordonnée. */
+/**
+ * Écrire dans l'annuaire — ajouter, corriger, désactiver une coordonnée.
+ *
+ * La règle vit dans `annuaires/acces.ts` (§118.147), à l'identique de ce qu'elle était ici : le
+ * Super Admin et la Direction par leur rôle, l'assistante de direction et les RH par leur MODULE
+ * (Moyens généraux, RH) — plus, désormais, quiconque s'est vu ouvrir l'annuaire des PERSONNES en
+ * modification depuis la console. La recopier ici en ferait deux vérités, et c'est celle de
+ * l'écran qu'on ne relit pas qui prendrait du retard (§118.5).
+ */
 export function canEditDirectory(user: CurrentUser): boolean {
-  if (user.role === "SUPER_ADMIN" || user.role === "DIRECTION") return true;
-  if (user.secondaryRole === "SUPER_ADMIN" || user.secondaryRole === "DIRECTION") return true;
-  // L'assistante de direction et les RH tiennent l'annuaire au quotidien : le droit suit le
-  // MODULE (celui de leur écran), pas une liste de noms à maintenir à la main.
-  return userCan(user, "GENERAL_MEANS", "UPDATE") || userCan(user, "RH", "UPDATE");
+  return peutAnnuaire(user, "PERSONNES", "UPDATE");
 }
 
 /**

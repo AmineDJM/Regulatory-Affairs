@@ -287,7 +287,7 @@ function GridTable({
 }
 
 export function AnnuaireGrid({
-  rows, couleurs, customColumns, canEdit, canImport, canDelete, specialties, directoryId, directoryName,
+  rows, couleurs, customColumns, canEdit, canImport, canImportFile, canDelete, canManageColumns, specialties, directoryId, directoryName,
   titreParDefaut, exportHref = "/api/medical/annuaire/export",
 }: {
   rows: AnnuaireRow[];
@@ -296,6 +296,23 @@ export function AnnuaireGrid({
   /** Les colonnes propres à l'annuaire ouvert (vide pour l'annuaire général ou la vue « Tous »). */
   customColumns: CustomColumnVue[];
   canEdit: boolean; canImport: boolean; canDelete: boolean; specialties: string[];
+  /**
+   * IMPORTER UN FICHIER — distinct d'AJOUTER UNE LIGNE (`canImport`) depuis l'accès par annuaire
+   * (§118.147). Un import crée des fiches de TOUT grade et les range dans les annuaires nommés :
+   * c'est une opération de STRUCTURE, gardée par la Promotion médicale. Ajouter une fiche à la
+   * main, lui, se fait dans l'annuaire que la personne tient — y compris celui qu'on lui a ouvert
+   * depuis la console. Un seul drapeau pour les deux aurait montré « Importer » à qui l'action
+   * refusera, ou retiré la ligne d'ajout à qui l'annuaire est ouvert.
+   */
+  canImportFile: boolean;
+  /**
+   * GÉRER LES COLONNES de l'annuaire nommé — la STRUCTURE, pas les lignes. Distinct de `canEdit`
+   * depuis l'accès par annuaire (§118.147) : on peut s'être vu ouvrir la modification des fiches
+   * depuis la console sans tenir la Promotion médicale, et l'action serveur qui crée une colonne
+   * reste celle de ce module. Montrer le bouton à qui l'action refusera serait une porte vers un
+   * refus.
+   */
+  canManageColumns: boolean;
   /**
    * L'ANNUAIRE OUVERT — `null` = l'annuaire général.
    *
@@ -532,7 +549,7 @@ export function AnnuaireGrid({
               <Rows3 className="h-3.5 w-3.5" /> Par spécialité
             </button>
           </div>
-          {canEdit && directoryId && (
+          {canManageColumns && directoryId && (
             <Button size="sm" variant={colonnesOuvertes ? "secondary" : "outline"} onClick={() => setColonnesOuvertes((v) => !v)}>
               <Columns3 className="h-3.5 w-3.5" /> Colonnes{customColumns.length > 0 ? ` (${customColumns.length})` : ""}
             </Button>
@@ -544,7 +561,7 @@ export function AnnuaireGrid({
           >
             <FileSpreadsheet className="h-3.5 w-3.5" /> Exporter
           </a>
-          {canImport && (
+          {canImportFile && (
             <>
               <input
                 ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
@@ -616,7 +633,7 @@ export function AnnuaireGrid({
             Entrée valide et descend, Tab valide et avance, Échap annule. Wilaya, grade, secteur et potentiel se
             choisissent dans un menu. Les cellules sélectionnées se <strong>colorent</strong> et se{" "}
             <strong>copient</strong> (Ctrl+C) depuis la barre qui apparaît.
-            {canImport && <> L&apos;<strong>import</strong> accepte un fichier existant ; l&apos;<strong>export</strong> reprend les colonnes de la feuille.</>}
+            {canImportFile && <> L&apos;<strong>import</strong> accepte un fichier existant ; l&apos;<strong>export</strong> reprend les colonnes de la feuille.</>}
           </span>
         </p>
       )}

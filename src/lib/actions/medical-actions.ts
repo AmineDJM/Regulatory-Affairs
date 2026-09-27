@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { DoctorTitle, InfluenceLevel, InstitutionSector, InstitutionType, MedicalSector, Priority, SegmentLevel, VisitStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, peutAnnuaire } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { suivreRenommageEtablissement } from "@/lib/stocks/lieux";
@@ -81,7 +81,9 @@ async function institutionName(id: string | null): Promise<string | null> {
 
 export async function createInstitution(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé." };
+  // L'ANNUAIRE DES ÉTABLISSEMENTS (§118.147) : la Promotion médicale, OU l'annuaire ouvert en
+  // « create » pour cette personne depuis la console — la même règle que l'écran.
+  if (!peutAnnuaire(user, "ETABLISSEMENTS", "CREATE")) return { ok: false, error: "Non autorisé." };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de l'établissement est obligatoire." };
   const wilaya = parseWilaya(fdStr(formData, "wilaya"));
@@ -107,7 +109,9 @@ export async function createInstitution(formData: FormData): Promise<ActionResul
 
 export async function updateInstitution(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "MEDICAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  // L'ANNUAIRE DES ÉTABLISSEMENTS (§118.147) : la Promotion médicale, OU l'annuaire ouvert en
+  // « update » pour cette personne depuis la console — la même règle que l'écran.
+  if (!peutAnnuaire(user, "ETABLISSEMENTS", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   const name = fdStr(formData, "name");
   if (!id || !name) return { ok: false, error: "Paramètres manquants." };
@@ -140,7 +144,9 @@ export async function updateInstitution(formData: FormData): Promise<ActionResul
 
 export async function deleteInstitution(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "MEDICAL", "DELETE")) return { ok: false, error: "Non autorisé." };
+  // L'ANNUAIRE DES ÉTABLISSEMENTS (§118.147) : la Promotion médicale, OU l'annuaire ouvert en
+  // « delete » pour cette personne depuis la console — la même règle que l'écran.
+  if (!peutAnnuaire(user, "ETABLISSEMENTS", "DELETE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
   // FK SetNull : les praticiens rattachés basculent en « Sans établissement » (non supprimés).

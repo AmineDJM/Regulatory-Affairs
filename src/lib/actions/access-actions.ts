@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { clearAttempts } from "@/lib/login-throttle";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { ANNUAIRES_ACCORDABLES, lireSections } from "@/lib/annuaires/acces";
 
 /** Only a Super Admin (ADMIN/UPDATE) may manage accounts & access. */
 async function requireAdmin() {
@@ -29,6 +30,17 @@ async function requireAdmin() {
  */
 function supportedActions(module: Module): Set<string> {
   return new Set(actionsOfModule(module, PERMISSIONS as unknown as PermissionMatrix, ACTIONS));
+}
+
+/**
+ * LES ANNUAIRES COCHÉS sur un accès PERSONNALISÉ au module Annuaires (§118.147) — et rien
+ * ailleurs : aucun autre module n'a de sections, et un accès BLOQUÉ n'ouvre rien. La lecture
+ * passe par `lireSections`, qui écarte toute clé inconnue : un formulaire forgé n'ouvre pas un
+ * annuaire qui n'existe pas.
+ */
+function annuairesCoches(module: Module, mode: string, formData: FormData, prefixe: string): string[] {
+  if (module !== "DIRECTORIES" || mode !== "CUSTOM") return [];
+  return lireSections(ANNUAIRES_ACCORDABLES.filter((c) => formData.get(`${prefixe}_${c}`) === "on"));
 }
 
 /**
@@ -52,6 +64,7 @@ export async function saveAccessMatrix(formData: FormData): Promise<ActionResult
     const supported = supportedActions(module);
     const get = (a: string) => !blocked && supported.has(a) && formData.get(`act_${module}_${a}`) === "on";
     const scope = (fdStr(formData, `scope_${module}`) as AccessScope) ?? "ASSIGNED";
+    const sections = annuairesCoches(module, mode, formData, `sect_${module}`);
     await prisma.userAccess.upsert({
       where: { userId_module: { userId, module } },
       create: {
@@ -59,13 +72,13 @@ export async function saveAccessMatrix(formData: FormData): Promise<ActionResult
         canView: !blocked,
         canCreate: get("CREATE"), canUpdate: get("UPDATE"), canDelete: get("DELETE"),
         canValidate: get("VALIDATE"), canExport: get("EXPORT"), canUpload: get("UPLOAD"),
-        scope,
+        scope, sections,
       },
       update: {
         canView: !blocked,
         canCreate: get("CREATE"), canUpdate: get("UPDATE"), canDelete: get("DELETE"),
         canValidate: get("VALIDATE"), canExport: get("EXPORT"), canUpload: get("UPLOAD"),
-        scope,
+        scope, sections,
       },
     });
   }
@@ -101,6 +114,7 @@ export async function saveModuleAccess(formData: FormData): Promise<ActionResult
     const blocked = mode === "BLOCKED";
     const get = (a: string) => !blocked && supported.has(a) && formData.get(`act_${userId}_${a}`) === "on";
     const scope = (fdStr(formData, `scope_${userId}`) as AccessScope) ?? "ASSIGNED";
+    const sections = annuairesCoches(module, mode, formData, `sect_${userId}`);
     await prisma.userAccess.upsert({
       where: { userId_module: { userId, module } },
       create: {
@@ -108,13 +122,13 @@ export async function saveModuleAccess(formData: FormData): Promise<ActionResult
         canView: !blocked,
         canCreate: get("CREATE"), canUpdate: get("UPDATE"), canDelete: get("DELETE"),
         canValidate: get("VALIDATE"), canExport: get("EXPORT"), canUpload: get("UPLOAD"),
-        scope,
+        scope, sections,
       },
       update: {
         canView: !blocked,
         canCreate: get("CREATE"), canUpdate: get("UPDATE"), canDelete: get("DELETE"),
         canValidate: get("VALIDATE"), canExport: get("EXPORT"), canUpload: get("UPLOAD"),
-        scope,
+        scope, sections,
       },
     });
   }

@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { peutAnnuaire } from "@/lib/rbac";
 import { chargerPartenaires } from "@/lib/queries/annuaires";
 import { ContactsBoard } from "@/app/(app)/mon-espace/annuaire/contacts-board";
 import { EnTeteAnnuaires } from "../en-tete";
@@ -10,7 +10,8 @@ export const metadata = { title: "Annuaires — Partenaires — AMD Internal OS"
 /**
  * Onglet PARTENAIRES du module « Annuaires » : les contacts externes de la société — agence de
  * voyage, livreur, transitaire, imprimeur, traiteur. Tout le monde LIT (c'est un carnet
- * d'adresses) ; l'écriture reste celle des Moyens généraux, comme dans « Mon espace ».
+ * d'adresses) ; l'écriture reste celle des Moyens généraux, comme dans « Mon espace » — ou de qui
+ * s'est vu ouvrir cet annuaire en écriture depuis la console (§118.147).
  */
 export default async function AnnuairePartenairesPage() {
   const user = await requireModule("DIRECTORIES");
@@ -24,9 +25,9 @@ export default async function AnnuairePartenairesPage() {
       <ContactsBoard
         contacts={partenaires.contacts}
         companies={partenaires.companies}
-        canCreate={userCan(user, "GENERAL_MEANS", "CREATE")}
-        canEdit={userCan(user, "GENERAL_MEANS", "UPDATE")}
-        canDelete={userCan(user, "GENERAL_MEANS", "DELETE")}
+        canCreate={peutAnnuaire(user, "PARTENAIRES", "CREATE")}
+        canEdit={peutAnnuaire(user, "PARTENAIRES", "UPDATE")}
+        canDelete={peutAnnuaire(user, "PARTENAIRES", "DELETE")}
       />
     </div>
   );
