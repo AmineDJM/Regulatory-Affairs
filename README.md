@@ -36,7 +36,8 @@ RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Cale
   - [**Centre de validation Ad & Pro — le seuil et les sept natures**](#centre-de-validation-ad--pro--toute-demande-au-dessus-du-seuil-y-passe)
   - [Chaîne du dossier d'achat (Legal)](#la-chaîne-du-dossier-dachat--devis--bc--facture--règlement-dun-seul-écran)
   - [My Chief of Staff — interface exécutive](#my-chief-of-staff--linterface-exécutive-pdg--super-admin)
-  - [Matériel promotionnel — circuit court](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle)
+  - [**Matériel promotionnel — circuit 2 : devis retranscrits, lignes retenues, BC générés**](#matériel-promotionnel--circuit-2--devis-retranscrits-lignes-retenues-bc-générés)
+  - [Matériel promotionnel — circuit court (dossiers d'avant)](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle)
   - [Rejeu de session — support technique](#rejeu-de-session--rembobiner-ce-quune-personne-a-fait)
   - [Recrutement — de la demande à l'intégration](#recrutement--de-la-demande-dun-directeur-jusquà-lintégration)
   - [Congés — l'intérimaire qui tient la place](#congés--lintérimaire-qui-tient-la-place)
@@ -189,7 +190,7 @@ jamais identique.
 | Module | Route | Description |
 |---|---|---|
 | **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (19 étapes / 5 phases — CTD déposé sur l'étape 1, check-list de présoumission en étape 2, allers-retours de réserves dans la frise), documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). **UNE DCI DÉJÀ SUIVIE SE DIT PENDANT LA SAISIE** (pipeline comme suivi de dossiers) : le formulaire NOMME les dossiers existants et demande de vérifier qu'il s'agit bien d'un autre dosage, d'une autre forme ou d'un autre produit — on avertit, on n'interdit pas (interdire ferait saisir le doublon sous une DCI mal orthographiée, donc plus rapprochable du premier), et la création repart d'un clic « J'ai vérifié ». La comparaison **trie les molécules d'une association** (« A + B » = « B + A ») et ignore casse et accents. Un dossier **verrouillé au pipeline se COMPTE sans se NOMMER**, avec le geste qui débloque : **« Demander l'accès »** prévient la supervision Regulatory (notification + audit, aucun registre de plus). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. |
-| **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve la demande d'un KAM, et elle seule), **référents Direction Marketing configurés par Business Unit**, **sponsoring en trois temps** (la Direction Marketing **pré-valide la tenue**, les **postes** se préparent — devis, BC, factures —, puis **validation finale : chaque poste dans un budget, clôture**, la somme des postes accordés devenant le montant accordé), **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** a son circuit **court** : devis → demandeur → N+1 → PDG **ou** Super Admin → information médicale, puis **trois chantiers en parallèle** (bon de commande, paiement, visa publicitaire) ; chacun ne voit que **sa** marche, seuls l'administrateur et le PDG voient tout. → [workflows](#-workflows-critiques) · [détails](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
+| **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve la demande d'un KAM, et elle seule), **référents Direction Marketing configurés par Business Unit**, **sponsoring en trois temps** (la Direction Marketing **pré-valide la tenue**, les **postes** se préparent — devis, BC, factures —, puis **validation finale : chaque poste dans un budget, clôture**, la somme des postes accordés devenant le montant accordé), **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** suit le **circuit 2** : validation de la demande (directrice marketing pour le marketing, N+1 plafonné au directeur des opérations sinon, personne pour la directrice ni pour le directeur des opérations) → devis **retranscrits ligne à ligne** par l'assistante → le demandeur **retient des lignes** de plusieurs devis → Direction Marketing → **DG au-dessus du seuil** → **BC générés par la plateforme** (un par fournisseur, centre Ad & Pro au-dessus du seuil BC, signature des Finances) → **facture obligatoire par BC** → **paiement au centre de paiement** avec la **demande de visa ou de déclaration** à l'information médicale. Les dossiers d'avant gardent leur circuit court. → [circuit 2](#matériel-promotionnel--circuit-2--devis-retranscrits-lignes-retenues-bc-générés) · [circuit court](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances/paiements-a-faire` | **DEUX SOUS-MODULES** : **Banque & paiements** (`/finances/paiements-a-faire` — le solde de trésorerie et le détail par compte, puis la file du décaissement, alimentée **exclusivement** par le centre de paiement) et **Comptabilité** (`/finances/comptabilite` — le livre, l'import, les soldes d'ouverture, et ce que le DAF doit encore arbitrer). Le **Dashboard a été supprimé** (2026-09) : il ne portait aucun geste. Cliquer « Finances » mène à « Banque & paiements » ; `/finances` redirige. « Demander l'actualisation des soldes » est réservé au **Super Admin** (écran, action serveur et Adam). Les **factures** ne sont pas ici : ce sont des documents légaux de nature « facture » (`/legal?nature=INVOICE`), et la comptabilité y garde sa porte. Aucun paiement n'arrive ici sans être **autorisé par le centre**, quel que soit son montant. |
 | **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (RBAC `PAYMENT_CENTRE` — PDG + Super Admin) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. **GUICHET UNIQUE** : aucun paiement n'atteint les Finances sans autorisation, **quel que soit le montant et le module** — plus de seuil, plus d'exemption. Une demande de paiement y entre **dès sa soumission**, avant l'instruction des Finances. Quatre issues (autoriser · refuser · révision du montant · argumentation) avec fil d'allers-retours. → [détails](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-le-pdg) |
@@ -361,7 +362,7 @@ libellés français viennent de `src/lib/labels.ts`.
 | `BUSINESS_DEVELOPMENT_MANAGER` | Manager Business Development | Business Development (+ Pharmatool). |
 | `FINANCE_BUDGET_MANAGER` | Responsable Finance / Budget | Finances, Budgets, ordres de dépense, **validations Finances**. |
 | `MEDICAL_INFO_PHARMACIST` | Pharmacien resp. information médicale | Déclaration réglementaire des événements validés (PRIM). |
-| `DIRECTION_ASSISTANT` | **Assistante de Direction** | **Bureau du secrétariat** (gère les demandes, pilote le Matériel promotionnel **sans accès au module**). |
+| `DIRECTION_ASSISTANT` | **Assistante de Direction** | **Bureau du secrétariat** (gère les demandes, **retranscrit les devis** du matériel promotionnel ligne à ligne et pilote son exécution — BC, factures — **sans accès au module**). |
 | `COORDINATOR` | Coordination / Coursier | **Missions chauffeur / courses** (adresse Maps, durée, retard) — espace restreint. |
 | `VIEWER` | Lecteur | Lecture limitée. |
 
@@ -1421,7 +1422,80 @@ Fichiers : `src/lib/google/` (config, oauth, client, connection, health, `gmail/
 email-intelligence), `src/lib/assistant/adam-tools.ts` (19 outils), `src/app/api/google/`
 (connect, callback, pubsub).
 
+### Matériel promotionnel — circuit 2 : devis retranscrits, lignes retenues, BC générés
+
+La demande de la Direction, dans ses mots : le demandeur fait sa demande ; **il demande les devis**, qui partent à
+**l'assistante de direction** ; elle a **un tableau à elle** pour les **retranscrire** (référence, unité, prix
+unitaire, prix total, par fournisseur) ; le demandeur **valide un devis entier ou des lignes de plusieurs devis** ;
+la **Direction Marketing** valide (pas si c'est elle qui demande), le **DG au-delà du seuil Ad & Pro** ; puis le
+demandeur **génère ses bons de commande automatiquement**, un par fournisseur retenu, **produits par la plateforme** ;
+il peut les **modifier ou les supprimer**, les **envoyer**, et il **doit déposer la ou les factures**, chacune associée
+à son BC, pour **demander le paiement** ; à chaque paiement, la **demande de visa publicitaire ou la déclaration au
+ministère** part chez l'information médicale.
+
+| Étape (`circuitState`) | Qui | Ce qui se passe |
+|---|---|---|
+| `REVIEW_REQUEST` | le validateur **figé à la création** | directrice marketing pour un membre de la Direction Marketing ; sinon le **N+1** de l'organigramme, **jamais au-delà du directeur des opérations** ; **personne** pour la directrice elle-même ni pour le directeur des opérations (l'étape n'existe pas) |
+| `QUOTE_TO_REQUEST` | le demandeur | « Demander les devis » → une demande au secrétariat (`AdministrativeRequest` QUOTE, liée au dossier) |
+| `QUOTE_REQUESTED` | l'assistante (jamais le demandeur) | retranscrit chaque devis : fournisseur de l'annuaire, n°, date, TVA, taxe additionnelle **hors base de TVA**, total imprimé, **scan obligatoire**, lignes référence / unité / quantité / prix unitaire ; « Retranscription terminée » refuse tant qu'un devis manque de scan, de lignes, ou ne retombe pas sur son total (± 1 DZD) |
+| `REVIEW_REQUESTER` | le demandeur | coche des lignes de **plusieurs devis** ; valider **fige** le montant retenu (TTC des lignes cochées, **chaque devis avec SA taxe**) ; « demander une correction » renvoie à l'assistante avec le motif |
+| `REVIEW_MANAGER` | la Direction Marketing | sautée quand c'est elle qui demande |
+| `REVIEW_DG` | le Directeur Général | au-dessus du **seuil Ad & Pro** (même réglage que le centre) ; un montant inconnu **ouvre** la porte |
+| `IN_EXECUTION` | le demandeur, l'assistante, la Direction | BC générés → centre Ad & Pro au-dessus du **seuil BC** → **signature des Finances** → envoi → factures → paiement |
+
+**Ce que le code garantit, et qu'aucune case ne peut contourner.** Le **BC est composé par la fabrique** d'après les
+lignes VALIDÉES — jamais d'un formulaire : la délégation (les validations du dossier, nommées à la fabrique et
+reprises par l'audit) ne peut pas devenir une porte pour émettre n'importe quel BC au nom de la société. **On ne
+facture pas, on n'envoie pas un BC que les Finances n'ont pas signé.** Les factures d'un BC **ne dépassent jamais son
+montant** (± 1 DZD, dépôts sérialisés par BC). Le paiement passe par la **porte commune** (`canSendToSettlement` →
+`createExpenseOrder` → **centre de paiement**), sérialisé par facture ; la demande à l'information médicale part
+**avec** lui, **sans montant** — l'information médicale n'émet pas un second paiement pour le même matériel.
+
+**Qui retranscrit.** Une assistante de direction ACTIVE (rôle principal ou secondaire), jamais le demandeur : le
+menu de création ne propose qu'elles, et l'action refuse tout autre choix — le menu proposait tous les comptes actifs,
+et le demandeur pouvait nommer un collègue pour recopier les prix qu'il retiendra ensuite. Sans choix, toutes les
+assistantes sont prévenues quand les devis sont demandés.
+
+**La société qui s'engage.** Celle du dossier ; à défaut, celle où travaille le **demandeur** (fiche salarié, puis
+département) — jamais celle de la personne qui clique. Le droit nominatif d'« engager » une société
+(`UserCompanyAccess.canEdit`, que seul le Super Admin a sur tout le groupe) **cède à la délégation**, pour la seule
+société nommée et parmi celles que la personne peut **lire** : sans cela, ni le demandeur ni l'assistante — salariés,
+sans droit nominatif — ne pouvaient générer le BC que la Direction avait validé.
+
+**Les fichiers du BC.** Émis dans le Drive de celui qui génère, ils s'ouvrent pour tous les lecteurs de la **pièce**
+par `/api/legal/<id>/fichier` (Word ou PDF) — le demandeur, les Finances, l'information médicale. Une **révision
+déléguée** (livraison, délai, interlocuteur, notes — **jamais les lignes**) écrit la nouvelle version du fichier de
+**la pièce**, et d'elle seule : le port vérifie que le fichier est bien celui de la pièce nommée. Ce qui n'est pas
+nommé **garde sa valeur** ; `null` efface.
+
+**Qui ouvre la fiche** (`peutOuvrirLeDossierPromo`) : la vue globale, le module en portée « tout », et les **parties
+prenantes** — demandeur, assistante, validateur figé, directrice marketing, le secrétariat, le pharmacien qui instruit
+la demande de visa d'un paiement du dossier. Le N+1 d'un délégué n'a pas le module : il ouvre quand même la fiche
+qu'on lui demande de valider.
+
+**Par la conversation** (`promo_operation`) : demander les devis, retirer un devis, clore la retranscription, retenir
+des lignes (« tout le devis Atlas et la ligne Kakémono de Stands Sahel, valide » ; « Fournisseur : ligne » lève
+l'homonymie, jamais « la première des deux »), demander une correction, générer / modifier / annuler / marquer envoyé
+un BC, déposer une facture (fichier du Drive), demander le paiement, adresser la demande de visa. Le dossier se
+désigne **sous la porte de la fiche** : un candidat que la personne ne peut pas ouvrir n'est pas même listé. **Seule
+la retranscription d'un devis reste un geste d'écran** — les prix recopiés deviennent le BC puis le paiement, et un
+document lu est une donnée, jamais la main qui écrit ce qui sera payé.
+
+- **Modules PURS** : `lib/promo-material/circuit.ts` (colonne ordonnée + tamis `etapeApplicable`, règles d'acteur
+  `demandeLesDevis` / `retranscritLesDevis` / `choisitLesLignes` / `piloteLExecution`), `devis.ts` (totaux en
+  centimes), `execution.ts` (verdicts des chantiers), `validateurs.ts` (la règle du validateur de la demande).
+- **Actions** : `promo-devis-actions.ts` (6), `promo-execution-actions.ts` (7), `promo-circuit-actions.ts` (transitions,
+  bascule d'un dossier d'avant). Le dossier se désigne par **`promoMaterialId`** (le corps écrit une table fille : `id`
+  y désignerait la mauvaise table pour le chemin générique).
+- **Lectures** : `queries/promo-circuit.ts`, `queries/promo-execution.ts`, `queries/legal-fichier.ts`.
+- **Pont d'Adam** : `platform/in-process/promo/` ; ops `assistant/ops/impl-promo-circuit2.ts`.
+- **Bancs** : `circuit-v2.test.ts` (29), `promo-circuit-v2-flow.test.ts` (20, de bout en bout par les vrais points
+  d'entrée, opérations d'Adam comprises), `platform/in-process/promo/designation.test.ts` (10). Migration
+  `20261130090000_promo_devis_lignes`.
+
 ### Matériel promotionnel — cinq marches, puis trois chantiers en parallèle
+
+> **Circuit d'avant.** Les dossiers ouverts avant le circuit 2 gardent la chaîne qui leur avait été promise ; ils peuvent être **basculés** sur le circuit 2 (« Basculer sur le nouveau circuit »), jamais l'inverse.
 
 Le circuit d'avant comptait seize marches en file indienne : une brochure attendait trois semaines,
 et personne ne savait sur quelle marche elle dormait. Il en reste **cinq** :
@@ -5986,6 +6060,54 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### MATÉRIEL PROMOTIONNEL — DEVIS RETRANSCRITS, LIGNES RETENUES, BC GÉNÉRÉS PAR LA PLATEFORME (2026-09)
+
+La Direction : le demandeur fait sa demande, **demande les devis** (ils partent à l'assistante de direction), elle les
+**retranscrit dans un tableau interne** (référence, unité, prix unitaire, prix total, par fournisseur), le demandeur
+**valide un devis entier ou des lignes de plusieurs devis**, la **Direction Marketing** valide (sauf si c'est elle qui
+demande), le **DG au-delà du seuil Ad & Pro** ; puis le demandeur **génère ses bons de commande automatiquement** — un
+par fournisseur retenu, produits par la plateforme —, peut les modifier, les supprimer, les envoyer, **doit déposer la
+ou les factures** (chacune rattachée à son BC) pour demander le paiement ; et à chaque paiement part chez
+l'information médicale la **demande de visa publicitaire ou la déclaration au ministère**. La demande elle-même est
+validée par la directrice marketing pour un membre du marketing, sinon par le **N+1, jamais au-delà du directeur des
+opérations** — et par personne quand c'est lui qui demande.
+
+**CE QUE LA PERSONNE VOIT.** Une demande neuve naît sur ce circuit (« Suivi du circuit » sur la fiche). L'assistante a
+sa carte « Devis » : fournisseur de l'annuaire, n°, TVA, taxe additionnelle hors base de TVA, scan obligatoire, et les
+lignes ; « Retranscription terminée » refuse tant qu'un devis ne retombe pas sur son total imprimé. Le demandeur coche
+des lignes de plusieurs devis et voit le TTC qu'il fixera. Après les validations, la carte « Exécution » : « Générer
+les bons de commande », puis, par BC, modifier (ce qui est laissé vide garde sa valeur), annuler, marquer envoyé,
+déposer une facture, demander le paiement, adresser la demande de visa. Tout, sauf la retranscription, se fait aussi
+en conversation (« retiens tout le devis Atlas et la ligne Kakémono de Stands Sahel, valide »), par une carte à
+confirmer. Les dossiers d'avant gardent leur chaîne et peuvent être basculés (« Basculer sur le nouveau circuit »).
+
+**CE QUI A ÉTÉ TROUVÉ EN CHEMIN, et que la relecture n'aurait pas dit.** (1) **Personne ne pouvait générer le BC** :
+la fabrique exigeait le droit nominatif d'engager la société, que seul le Super Admin a sur tout le groupe — sous
+délégation, la société est désormais NOMMÉE par le dossier (celle du dossier, sinon celle où travaille le demandeur,
+jamais celle de qui clique) et doit être lisible par l'émetteur. (2) **Modifier le délai d'un BC effaçait son
+adresse** : ce qui n'est pas nommé garde maintenant sa valeur, `null` efface. (3) **La révision par l'assistante
+d'un BC émis par le demandeur était refusée** (le fichier vit dans le Drive de l'émetteur) : l'écriture est permise
+sur le fichier de CETTE pièce, et d'elle seule. (4) **Deux anciens résolveurs d'Adam listaient en candidats des
+dossiers qu'on n'a pas le droit d'ouvrir** : ils passent par la même porte que la fiche. (5) La carte « démarrer le
+circuit » promettait encore « devis en main : demande sautée » — réécrite. (6) Le dossier se désigne par
+`promoMaterialId` et non `id` : les actions écrivant des tables filles, `id` y aurait désigné la mauvaise table pour
+le chemin générique — vu en lisant le diff de l'artefact des contrats. (7) **Le menu « Assistante de direction »
+proposait tous les comptes actifs** : le demandeur pouvait nommer un collègue pour recopier les prix qu'il retiendrait
+ensuite ; le menu ne liste plus que les assistantes, et l'action refuse tout autre choix, soi-même compris. (8) **Adam
+annonçait « prospection d'agences lancée »** à la création : faux sur le circuit 2 — la phrase dit maintenant que la
+demande attend sa validation, puis que les devis se demandent depuis la fiche.
+
+**CE QUI NE CHANGE PAS.** Les dossiers ouverts avant restent sur le circuit d'avant (le banc de l'ancien circuit le
+garde) ; la retranscription d'un devis reste un geste d'écran — les prix recopiés deviennent le BC puis le paiement,
+et un document lu par Adam est une donnée, jamais la main qui écrit ce qui sera payé.
+
+**Mesure** : bancs de 29 (règles pures), 20 (de bout en bout par les vrais points d'entrée, opérations d'Adam
+comprises) et 10 (désignation) cas ; **24 sabotages, 24 tombent**, restauration vérifiée octet pour octet ; suite
+complète 9 202 tests sur 795 fichiers, 0 rouge. Artefact des
+contrats 766 actions / 742 appelables / 24 illisibles ; parité 100 %, écart 0 ; frontière Adam ↔ ERP **428 → 427**,
+traversées **69 → 68** (le même déplacement : l'op d'Adam lit les étapes par le pont), fournisseurs 42, cycles 0 —
+mesurés au chiffre près. Détail au §118.152 de `CLAUDE.md`.
 
 ### SPONSORING — LA TENUE D'ABORD, LES POSTES ENSUITE, L'ARGENT À LA CLÔTURE (2026-09)
 

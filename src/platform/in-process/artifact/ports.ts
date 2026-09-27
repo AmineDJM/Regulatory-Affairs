@@ -69,6 +69,14 @@ async function ficheDeNode(nodeId: string): Promise<FicheDocument | null> {
   };
 }
 
+/** Ce fichier est-il le Word ou le PDF que la fabrique a produits pour CETTE pièce ? */
+async function estLeFichierDeLaPiece(legalDocumentId: string, nodeId: string): Promise<boolean> {
+  const doc = await prisma.legalDocument.findUnique({ where: { id: legalDocumentId }, select: { driveNodeId: true, custom: true } });
+  if (!doc) return false;
+  const f = (doc.custom as { fabrique?: { docx?: { nodeId?: string } | null; pdf?: { nodeId?: string } | null } } | null)?.fabrique;
+  return [doc.driveNodeId, f?.docx?.nodeId, f?.pdf?.nodeId].some((id) => id === nodeId);
+}
+
 const documents: PortDocuments = {
   async decrire(userId, nodeId) {
     const u = await personne(userId);
@@ -93,7 +101,14 @@ const documents: PortDocuments = {
     if (!u) throw new Error("compte introuvable ou désactivé");
     // ÉCRIRE exige le droit d'écrire. C'est la ligne qui empêche la conversation d'être une
     // porte dérobée : sans elle, « Adam, modifie ce contrat » contournerait le Drive.
-    if (!canEditDrive(await resolveDriveAccess(u, nodeId))) {
+    //
+    // UNE SEULE EXCEPTION, et elle se prouve ici : la révision DÉLÉGUÉE d'une pièce de la
+    // fabrique (§118.152). Le fichier d'un BC vit dans le Drive de celle qui l'a émis ; le
+    // demandeur du dossier, qui le pilote, n'y a aucun droit — sa modification échouait sur une
+    // exception. L'appelant nomme la PIÈCE, et le port vérifie que ce fichier est bien le SIEN
+    // (son Word ou son PDF) : la délégation ouvre la pièce, jamais le Drive d'une autre personne.
+    const parLaPiece = opts.piece ? await estLeFichierDeLaPiece(opts.piece, nodeId) : false;
+    if (!parLaPiece && !canEditDrive(await resolveDriveAccess(u, nodeId))) {
       throw new Error("vous n'avez pas le droit de modifier ce document");
     }
     const { blobId, size } = await putBlob(octets);

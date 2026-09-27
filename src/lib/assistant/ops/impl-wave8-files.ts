@@ -29,13 +29,13 @@ import { resolveRecordOfType } from "./impl-wave7d";
  * Aucun octet n'est mémorisé dans l'intention : seulement la référence du fichier.
  */
 
-interface DriveFileHit { id: string; name: string; size: number; mimeType: string | null }
+export interface DriveFileHit { id: string; name: string; size: number; mimeType: string | null }
 
-const kb = (n: number): string => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.round(n / 1024))} Ko`);
+export const kb = (n: number): string => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.round(n / 1024))} Ko`);
 const extOf = (name: string): string => (name.split(".").pop() ?? "").toLowerCase();
 
 /** Un fichier du Drive par NOM : les MIENS d'abord, sinon les fichiers accessibles (bornés, filtrés par droit). */
-async function resolveDriveFile(user: CurrentUser, raw: string): Promise<DriveFileHit | { error: string }> {
+export async function resolveDriveFile(user: CurrentUser, raw: string): Promise<DriveFileHit | { error: string }> {
   const q = raw.trim();
   if (!q) return { error: "Nommez le fichier (champ « file ») — un fichier du Drive (glissé dans la conversation ou déposé)." };
   const pick = (rows: DriveFileHit[]): DriveFileHit | null => {
@@ -72,7 +72,7 @@ async function resolveDriveFile(user: CurrentUser, raw: string): Promise<DriveFi
 }
 
 /** Reconstruit un File réel depuis le Drive à l'EXÉCUTION — droits revérifiés, dernière version. */
-async function driveNodeToFile(user: CurrentUser, nodeId: string): Promise<File | { error: string }> {
+export async function driveNodeToFile(user: CurrentUser, nodeId: string): Promise<File | { error: string }> {
   if (!canViewDrive(await resolveDriveAccess(user, nodeId))) return { error: "Ce fichier du Drive ne vous est plus accessible." };
   const node = await prisma.driveNode.findUnique({ where: { id: nodeId }, select: { name: true, type: true, mimeType: true, isTrashed: true } });
   if (!node || node.type !== "FILE" || node.isTrashed) return { error: "Fichier du Drive introuvable (déplacé ou supprimé ?)." };

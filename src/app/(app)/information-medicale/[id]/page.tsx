@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/session";
 import { hasGlobalView, userCan, scopeCongressIntl, scopeCongressNational } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getDeclaration, canViewDeclaration, sourceLink } from "@/lib/queries/medical-info";
+import { peutOuvrirLeDossierPromo } from "@/lib/queries/promo-circuit";
 import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -47,11 +48,32 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
   const isValidated = decl.status === "VALIDATED";
   const isAwaitingDirection = decl.status === "AWAITING_DIRECTION";
   const isDirection = hasGlobalView(user.role);
-  const link = sourceLink(decl.sourceType, decl.sourceId);
+  // UN PAIEMENT DE MATÉRIEL PROMOTIONNEL (§118.152) : la source déclarée est la FACTURE (une pièce
+  // Legal), mais ce que le pharmacien instruit — le support à faire viser — vit sur le DOSSIER de
+  // matériel promotionnel dont elle découle. On remonte la chaîne une fois : le lien, les pièces et
+  // le libellé désignent le dossier, sans quoi la fiche disait « Document juridique » et ne menait
+  // nulle part.
+  const promoSource = decl.sourceType === "LEGAL_DOCUMENT"
+    ? await (async () => {
+        const piece = await prisma.legalDocument.findUnique({ where: { id: decl.sourceId }, select: { sourceType: true, sourceId: true, reference: true } });
+        if (piece?.sourceType !== "PROMO_MATERIAL" || !piece.sourceId) return null;
+        const pm = await prisma.promoMaterial.findUnique({
+          where: { id: piece.sourceId },
+          select: { id: true, reference: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true },
+        });
+        return pm ? { pm, facture: piece.reference } : null;
+      })()
+    : null;
+  const link = promoSource ? `/promo-material/${promoSource.pm.id}` : sourceLink(decl.sourceType, decl.sourceId);
+  const sourceLabel = promoSource
+    ? `Matériel promotionnel ${promoSource.pm.reference}${promoSource.facture ? ` — facture ${promoSource.facture}` : ""}`
+    : (ENTITY_TYPE_LABELS[decl.sourceType] ?? decl.sourceType);
   // On ne montre le lien vers l'événement source que s'il est RÉELLEMENT ouvrable
   // par cet utilisateur (sinon la page source renvoyait un 404 — hors portée).
   let canOpenSource = false;
-  if (link) {
+  if (promoSource) {
+    canOpenSource = await peutOuvrirLeDossierPromo(user, promoSource.pm);
+  } else if (link) {
     if (hasGlobalView(user.role)) canOpenSource = true;
     else if (decl.sourceType === "SPONSORING") canOpenSource = userCan(user, "SPONSORING", "VIEW");
     else if (decl.sourceType === "CONGRESS_INTERNATIONAL")
@@ -79,9 +101,12 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
       include: { author: { select: { name: true } } },
       orderBy: { createdAt: "asc" },
     }),
-    // Pièces déjà jointes à l'événement source (congrès / sponsoring), consultables ici.
+    // Pièces déjà jointes à l'événement source (congrès / sponsoring), consultables ici. Pour un
+    // paiement de matériel promotionnel : la facture ET les pièces du dossier (maquettes, BAT…).
     prisma.document.findMany({
-      where: { entityType: decl.sourceType, entityId: decl.sourceId },
+      where: promoSource
+        ? { OR: [{ entityType: decl.sourceType, entityId: decl.sourceId }, { entityType: "PROMO_MATERIAL", entityId: promoSource.pm.id }] }
+        : { entityType: decl.sourceType, entityId: decl.sourceId },
       include: { uploadedBy: { select: { name: true } } },
       orderBy: { createdAt: "desc" },
     }),
@@ -123,7 +148,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
             {" · "}
             {isDeclarationKind(decl.declarationKind)
               ? DECLARATION_KIND_LABEL[decl.declarationKind]
-              : (ENTITY_TYPE_LABELS[decl.sourceType] ?? decl.sourceType)}
+              : sourceLabel}
             {amount != null && <> · {formatCurrency(amount)}</>}
           </p>
         </div>
@@ -140,7 +165,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
           <Card>
             <CardHeader><CardTitle>Événement déclaré</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <Row label="Type" value={ENTITY_TYPE_LABELS[decl.sourceType] ?? decl.sourceType} />
+              <Row label="Type" value={sourceLabel} />
               <Row label="Demandeur (à la source)" value={requesterUser?.name ?? "—"} />
               <Row label="Budget accordé" value={amount != null ? formatCurrency(amount) : "—"} />
               <Row label="Bénéficiaire" value={decl.beneficiary ?? "—"} />
@@ -151,7 +176,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
               {link && canOpenSource && (
                 <div className="pt-1">
                   <Link href={link} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
-                    <ExternalLink className="h-3.5 w-3.5" /> Voir l'événement source
+                    <ExternalLink className="h-3.5 w-3.5" /> {promoSource ? "Voir le dossier de matériel promotionnel" : "Voir l'événement source"}
                   </Link>
                 </div>
               )}
@@ -201,8 +226,8 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
           {sourceDocItems.length > 0 && (
             <Card>
               <CardHeader className="flex-row items-center justify-between">
-                <CardTitle>Documents de l'événement</CardTitle>
-                <span className="text-xs text-muted-foreground">{ENTITY_TYPE_LABELS[decl.sourceType] ?? decl.sourceType}</span>
+                <CardTitle>{promoSource ? "Pièces du dossier (support, facture)" : "Documents de l'événement"}</CardTitle>
+                <span className="text-xs text-muted-foreground">{sourceLabel}</span>
               </CardHeader>
               <CardContent>
                 <DocumentList documents={sourceDocItems} canDelete={false} path={`/information-medicale/${decl.id}`} />

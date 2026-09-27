@@ -4,15 +4,19 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { getAppSettings } from "@/lib/settings";
 import { ROLE_DIRECTION_MARKETING } from "@/lib/personnes/roles-vente";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import {
-  initialStep, nextStep, canValidate, tracksOpen, allTracksDone, pendingTracks, type ContexteCircuit, type PromoStep,
-  PROMO_STEP_LABEL, PROMO_TRACK_LABEL, PROMO_TRACKS,
-  type PromoState, type PromoTrack,
+  initialStep, nextStep, canValidate, tracksOpen, allTracksDone, pendingTracks, type PromoStep,
+  libelleEtape, libelleChantier, PROMO_TRACKS, piloteLExecution,
+  type PromoState, type PromoTrack, type VersionCircuit,
 } from "@/lib/promo-material/circuit";
 import { promoManagerOf } from "@/lib/queries/promo-material";
+import {
+  contexteDuDossier, validateursDeLaDemande, validateursMarketing, devisDuDossier, devisLu,
+} from "@/lib/queries/promo-circuit";
+import { totauxDeLaSelection, formatDzd } from "@/lib/promo-material/devis";
+import { verdictDuChantierPromo } from "@/lib/queries/promo-execution";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { hasGlobalView } from "@/lib/rbac";
 import { etatsDesBC } from "@/lib/bons-de-commande/etat";
@@ -20,15 +24,17 @@ import { chantierBCClos } from "@/lib/bons-de-commande/regle";
 import { chantierPaiementClos, etatDeLOrdre, type PieceDeReglement } from "@/lib/payments/reglement";
 
 /**
- * LE CIRCUIT COURT DU MATÉRIEL PROMOTIONNEL.
+ * LE CIRCUIT DU MATÉRIEL PROMOTIONNEL — les transitions de validation, et les chantiers.
  *
- * Cinq étapes au lieu de seize, puis trois chantiers qui avancent EN PARALLÈLE — bon de commande,
- * demande de paiement, demande de visa publicitaire. Ces trois-là n'ont aucune raison de
- * s'attendre, et c'est en les mettant en file indienne que l'ancien circuit faisait durer un
- * poster deux mois.
+ * Deux versions (`promo-material/circuit.ts`) : le circuit court d'origine, que gardent les
+ * dossiers déjà en vol, et le circuit par devis retranscrits (§118.152). Toutes les règles (qui
+ * valide quoi, ce qui suit quoi, quand les chantiers s'ouvrent) viennent du module pur ; le
+ * contexte d'un dossier est lu par `queries/promo-circuit.ts`, le MÊME chargeur que la fiche.
+ * Ces actions vérifient QUI agit, écrivent, et préviennent.
  *
- * Toutes les règles (qui valide quoi, ce qui suit quoi, quand les chantiers s'ouvrent) viennent du
- * module pur `promo-material/circuit`. Ces actions vérifient QUI agit, écrivent, et préviennent.
+ * `validatePromoStep` est l'UNIQUE écrivain des transitions de validation : le choix des lignes
+ * du demandeur (`promo-devis-actions.ts`) lui délègue son avance, et Adam y passe par son op.
+ * Deux chemins d'avance finiraient par prévenir des personnes différentes pour la même étape.
  */
 
 const PATH = "/promo-material";
@@ -109,10 +115,14 @@ function readTracks(raw: string | null): PromoTrack[] {
 }
 
 /**
- * Démarre le circuit court sur un dossier.
+ * BASCULE un dossier d'avant la réforme sur le circuit ACTUEL (circuit 2, §118.152).
  *
- * Avec un devis DÉJÀ en main, on saute la demande de devis : c'est le cas le plus fréquent, et le
- * faire passer par une prospection fictive n'ajoutait qu'un clic et un mensonge dans l'historique.
+ * Il démarre exactement comme une demande nouvelle : le validateur de la demande est figé
+ * maintenant (N+1 plafonné, ou directrice marketing), puis les devis sont demandés et
+ * retranscrits. Le dossier ancien n'avait jamais été validé par personne : l'y dispenser le
+ * ferait passer, à la bascule, à côté de la seule validation que la nouvelle règle impose avant
+ * la dépense. Le champ `hasQuote` n'a plus d'effet — un devis en main se remet à l'assistante,
+ * qui le retranscrit comme les autres.
  */
 export async function startPromoCircuit(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -120,27 +130,41 @@ export async function startPromoCircuit(formData: FormData): Promise<ActionResul
   if (!id) return { ok: false, error: "Dossier introuvable." };
 
   const item = await prisma.promoMaterial.findUnique({
-    where: { id }, select: { id: true, title: true, requesterId: true, circuitState: true },
+    where: { id }, select: { id: true, title: true, reference: true, requesterId: true, circuitState: true },
   });
   if (!item) return { ok: false, error: "Dossier introuvable." };
   if (item.circuitState) return { ok: false, error: "Le circuit est déjà lancé sur ce dossier." };
+  if (!(user.id === item.requesterId || hasGlobalView(user.role))) {
+    return { ok: false, error: "Seuls le demandeur et la Direction basculent ce dossier sur le nouveau circuit." };
+  }
 
   const requesterId = item.requesterId ?? user.id;
-  const hasQuote = fdStr(formData, "hasQuote") === "1";
-  const state = initialStep({ hasQuote });
+  const figes = await validateursDeLaDemande(requesterId);
+  const validation = figes.validateur.kind !== "AUCUNE";
+  const state = initialStep({ ctx: { version: 2, validationDemande: validation, demandeurEstDirectionMarketing: figes.demandeurEstCheffe, montant: null, seuilDg: null } });
   const managerId = await promoManagerOf(requesterId);
 
-  await prisma.promoMaterial.update({
-    where: { id },
-    data: { circuitState: state, managerId, requesterId, updatedById: user.id },
+  const bascule = await prisma.promoMaterial.updateMany({
+    where: { id, circuitState: null },
+    data: {
+      circuitState: state, circuitVersion: 2, managerId, requesterId, updatedById: user.id,
+      requestValidation: validation,
+      requestValidatorId: figes.validateur.kind === "PERSONNE" ? figes.validateur.userId : null,
+      marketingValidatorId: figes.directriceId,
+    },
   });
+  if (bascule.count === 0) return { ok: false, error: "Le circuit vient d'être lancé sur ce dossier." };
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
     entityType: "PROMO_MATERIAL", entityId: id,
-    summary: `Circuit lancé — ${PROMO_STEP_LABEL[state]}${hasQuote ? " (devis déjà en main : demande de devis sautée)" : ""}`,
+    summary: `Dossier basculé sur le nouveau circuit — ${libelleEtape(state, 2)}. ${figes.validateur.motif}`,
   });
+  // PRÉVENIR CELUI QUI VALIDE LA DEMANDE — la personne figée, ou la Direction des opérations.
+  const avis = { type: "VALIDATION_REQUIRED" as const, title: "Matériel promotionnel — demande à valider", body: `${item.reference} — ${item.title}`, link: path(id) };
+  if (figes.validateur.kind === "PERSONNE") await notifyUser({ userId: figes.validateur.userId, ...avis });
+  else if (figes.validateur.kind === "PLAFOND") await notifyRoles(["DIRECTION"], avis);
   revalidatePath(path(id));
-  return { ok: true, message: hasQuote ? "Circuit lancé — le devis étant en main, la demande de devis est sautée." : "Circuit lancé." };
+  return { ok: true, message: `Dossier basculé sur le nouveau circuit — ${libelleEtape(state, 2)}.` };
 }
 
 /**
@@ -158,10 +182,16 @@ export async function markQuoteReceived(formData: FormData): Promise<ActionResul
 
   const item = await prisma.promoMaterial.findUnique({
     where: { id },
-    select: { id: true, title: true, reference: true, circuitState: true, requesterId: true, assistantId: true },
+    select: { id: true, title: true, reference: true, circuitState: true, circuitVersion: true, requesterId: true, assistantId: true },
   });
   if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
   if (item.circuitState !== "QUOTE_REQUESTED") return { ok: false, error: "Ce dossier n'attend pas de devis." };
+  // AU CIRCUIT 2, « devis reçu » n'est pas un clic : c'est la fin de la RETRANSCRIPTION, qui
+  // exige le fournisseur, le scan et les lignes de chaque devis (§118.152). Le laisser passer ici
+  // ouvrirait le choix du demandeur sur un tableau vide.
+  if (item.circuitVersion === 2) {
+    return { ok: false, error: "Au nouveau circuit, les devis se RETRANSCRIVENT : l'assistante les saisit ligne à ligne sur la fiche, puis déclare la retranscription terminée." };
+  }
 
   const allowed = user.id === item.requesterId || user.id === item.assistantId
     || user.role === "DIRECTION" || user.role === "SUPER_ADMIN";
@@ -188,95 +218,119 @@ export async function markQuoteReceived(formData: FormData): Promise<ActionResul
 }
 
 
+/** Ce que la lecture d'un dossier doit charger pour valider ou refuser son étape. */
+const SELECT_ETAPE = {
+  id: true, title: true, reference: true, circuitState: true, circuitVersion: true,
+  requesterId: true, managerId: true, requestValidatorId: true, requestValidation: true, marketingValidatorId: true,
+  chosenAmount: true, amount: true,
+} as const;
+
 /**
- * LE CONTEXTE DES DEUX ÉTAPES CONDITIONNELLES (§118.138) — lu en base, décidé dans le module pur.
- *
- * « Qui demande » et « combien » vivent sur le dossier ; le SEUIL vit dans les réglages, le même
- * que celui des quatre circuits Ad & Pro configurables — cinq copies auraient divergé (§118.5).
- *
- * Le montant est le devis RETENU, à défaut le budget global : c'est le montant qu'on engage, et
- * c'est lui que le seuil vise. Ni l'un ni l'autre ⇒ `null` ⇒ la porte du DG s'ouvre, parce qu'on
- * ne franchit pas une porte de contrôle sur une absence de donnée.
+ * LES VALIDATEURS DE L'ÉTAPE EN COURS, pour `canValidate` — la personne figée de la demande, et,
+ * à l'étape de la Direction Marketing du circuit 2, la directrice du demandeur ou les cheffes lues
+ * maintenant. Le circuit 1 garde le RÔLE (la décision de 09/2026, §118.138).
  */
-async function contexteCircuit(item: {
-  requesterId: string | null;
-  chosenAmount: unknown;
-  amount: unknown;
-}): Promise<ContexteCircuit> {
-  const [demandeur, reglages] = await Promise.all([
-    item.requesterId
-      ? prisma.user.findUnique({ where: { id: item.requesterId }, select: { role: true, secondaryRole: true } }).catch(() => null)
-      : Promise.resolve(null),
-    getAppSettings().catch(() => null),
-  ]);
-  const montant = item.chosenAmount != null ? Number(item.chosenAmount)
-    : item.amount != null ? Number(item.amount)
-    : null;
+async function validateursDeLEtape(
+  item: { circuitState: string | null; circuitVersion: number; requesterId: string | null; managerId: string | null; requestValidatorId: string | null; marketingValidatorId: string | null },
+  secondaryRole: string | null | undefined,
+) {
   return {
-    demandeurEstDirectionMarketing:
-      demandeur?.role === ROLE_DIRECTION_MARKETING || demandeur?.secondaryRole === ROLE_DIRECTION_MARKETING,
-    montant: montant != null && Number.isFinite(montant) ? montant : null,
-    seuilDg: reglages?.adProDgThreshold ?? null,
+    requesterId: item.requesterId,
+    managerId: item.managerId,
+    requestValidatorId: item.requestValidatorId,
+    validateursMarketing: item.circuitVersion === 2 && item.circuitState === "REVIEW_MANAGER" ? await validateursMarketing(item) : null,
+    secondaryRole,
   };
 }
 
 /**
  * Valide l'étape en cours et passe à la suivante.
  *
- * Le contrôle de QUI peut valider vient du module pur : demandeur, Direction Marketing,
- * Directeur Général au-delà du seuil, PDG **ou** Super Admin (un seul suffit — exiger les deux,
- * c'est bloquer sur un congé), puis information médicale.
+ * Le contrôle de QUI peut valider vient du module pur ; le contexte (version, montant, seuil) du
+ * MÊME chargeur que la fiche. Au circuit 2, valider le choix du demandeur FIGE le montant retenu
+ * (TTC des lignes cochées) et les fournisseurs : c'est ce montant que la Direction Marketing
+ * valide, et ce que le seuil du DG juge.
+ *
+ * La transition est CONDITIONNELLE (`updateMany` sur l'état lu) : deux validateurs qui cliquent
+ * ensemble ne font pas avancer le dossier deux fois, ni ne préviennent deux fois l'étape suivante.
  */
 export async function validatePromoStep(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Dossier introuvable." };
 
-  const item = await prisma.promoMaterial.findUnique({
-    where: { id },
-    select: { id: true, title: true, reference: true, circuitState: true, requesterId: true, managerId: true, chosenAmount: true, amount: true },
-  });
+  const item = await prisma.promoMaterial.findUnique({ where: { id }, select: SELECT_ETAPE });
   if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
 
   const state = item.circuitState as PromoState;
-  if (!canValidate(user, state, { requesterId: item.requesterId, managerId: item.managerId, secondaryRole: user.secondaryRole })) {
-    return { ok: false, error: `Cette étape ne vous revient pas — elle attend : ${PROMO_STEP_LABEL[state]}.` };
+  const version: VersionCircuit = item.circuitVersion === 2 ? 2 : 1;
+  if (!canValidate(user, state, await validateursDeLEtape(item, user.secondaryRole))) {
+    return { ok: false, error: `Cette étape ne vous revient pas — elle attend : ${libelleEtape(state, version)}.` };
   }
 
-  const next = nextStep(state as PromoStep, await contexteCircuit(item));
+  // LE CHOIX DU DEMANDEUR (circuit 2) : sans ligne retenue, il n'y a rien à valider — et le montant
+  // retenu devient celui du dossier, avec les fournisseurs dont une ligne est retenue.
+  let fige: { chosenAmount: number; chosenAgency: string } | null = null;
+  if (version === 2 && state === "REVIEW_REQUESTER") {
+    const devis = (await devisDuDossier(id)).map(devisLu);
+    const totaux = totauxDeLaSelection(devis);
+    if (totaux.lignes === 0) return { ok: false, error: "Retenez au moins une ligne de devis avant de valider votre choix." };
+    const fournisseurs = devis.filter((d) => d.lines.some((l) => l.selected)).map((d) => d.supplierName);
+    fige = { chosenAmount: totaux.ttc, chosenAgency: fournisseurs.join(", ") };
+  }
+
+  const ctx = await contexteDuDossier(item);
+  const next = nextStep(state as PromoStep, ctx);
   if (!next) return { ok: false, error: "Ce dossier est au bout de son circuit." };
 
-  await prisma.promoMaterial.update({ where: { id }, data: { circuitState: next, updatedById: user.id } });
+  const avance = await prisma.promoMaterial.updateMany({
+    where: { id, circuitState: state },
+    data: { circuitState: next, updatedById: user.id, ...(fige ?? {}) },
+  });
+  if (avance.count === 0) return { ok: false, error: "Ce dossier vient de changer d'étape — rechargez la fiche." };
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
     entityType: "PROMO_MATERIAL", entityId: id,
-    summary: `${PROMO_STEP_LABEL[state]} — validé. Étape suivante : ${PROMO_STEP_LABEL[next]}`,
+    summary: `${libelleEtape(state, version)} — validé${fige ? ` (montant retenu ${formatDzd(fige.chosenAmount)} TTC — ${fige.chosenAgency})` : ""}. Étape suivante : ${libelleEtape(next, version)}`,
   });
 
   // On prévient CELUI QUI DOIT AGIR ENSUITE, pas tout le monde.
-  if (next === "REVIEW_MANAGER") {
-    // UN RÔLE, PLUS UNE PERSONNE : c'est la Direction Marketing qui valide (décision de la
-    // Direction, 09/2026). Notifier le `managerId` figé à la création préviendrait quelqu'un qui
-    // n'a plus rien à faire ici, et laisserait la vraie validatrice sans signal.
-    await notifyRoles([ROLE_DIRECTION_MARKETING], { type: "VALIDATION_REQUIRED", title: "Devis à valider (Direction Marketing)", body: `${item.reference} — ${item.title}`, link: path(id) });
+  const avis = { type: "VALIDATION_REQUIRED" as const, body: `${item.reference} — ${item.title}`, link: path(id) };
+  if (next === "QUOTE_TO_REQUEST" && item.requesterId) {
+    await notifyUser({ userId: item.requesterId, ...avis, type: "GENERIC", title: "Demande validée — demandez les devis au secrétariat" });
+  } else if (next === "REVIEW_MANAGER") {
+    // UNE PERSONNE quand on la sait (la directrice du demandeur, ou les cheffes) ; sinon le RÔLE.
+    const nommees = version === 2 ? await validateursMarketing(item) : null;
+    if (nommees) {
+      for (const userId of nommees) await notifyUser({ userId, ...avis, title: "Devis à valider (Direction Marketing)" });
+    } else {
+      await notifyRoles([ROLE_DIRECTION_MARKETING], { ...avis, title: "Devis à valider (Direction Marketing)" });
+    }
   } else if (next === "REVIEW_DG") {
-    await notifyRoles(["GENERAL_MANAGER"], { type: "VALIDATION_REQUIRED", title: "Devis à valider (Directeur Général)", body: `${item.reference} — ${item.title}`, link: path(id) });
+    await notifyRoles(["GENERAL_MANAGER"], { ...avis, title: "Devis à valider (Directeur Général)" });
   } else if (next === "REVIEW_EXECUTIVE") {
-    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Devis à valider (direction)", body: `${item.reference} — ${item.title}`, link: path(id) });
+    await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { ...avis, title: "Devis à valider (direction)" });
   } else if (next === "REVIEW_MEDICAL_INFO") {
-    await notifyRoles(["MEDICAL_INFO_PHARMACIST"], { type: "VALIDATION_REQUIRED", title: "Matériel à valider", body: `${item.reference} — ${item.title}`, link: path(id) });
+    await notifyRoles(["MEDICAL_INFO_PHARMACIST"], { ...avis, title: "Matériel à valider" });
   } else if (next === "IN_EXECUTION" && item.requesterId) {
     // Les TROIS chantiers s'ouvrent d'un coup : c'est le moment où le circuit cesse d'être une file.
     await notifyUser({
       userId: item.requesterId, type: "GENERIC",
       title: "Validations obtenues — vous pouvez lancer",
-      body: `${item.reference} — bon de commande, demande de paiement et demande de visa peuvent partir en parallèle.`,
+      body: version === 2
+        ? `${item.reference} — générez les bons de commande : la plateforme les compose d'après les lignes validées.`
+        : `${item.reference} — bon de commande, demande de paiement et demande de visa peuvent partir en parallèle.`,
       link: path(id),
     });
   }
 
   revalidatePath(path(id));
-  return { ok: true, message: `Validé. ${next === "IN_EXECUTION" ? "Les trois chantiers sont ouverts." : `Au tour de : ${PROMO_STEP_LABEL[next]}.`}` };
+  return {
+    ok: true,
+    message: `Validé. ${next === "IN_EXECUTION"
+      ? (version === 2 ? "Les validations sont obtenues : générez les bons de commande." : "Les trois chantiers sont ouverts.")
+      : `Au tour de : ${libelleEtape(next, version)}.`}`,
+  };
 }
 
 /** Refuse le dossier — le circuit s'arrête, avec son motif. */
@@ -287,21 +341,20 @@ export async function refusePromoStep(formData: FormData): Promise<ActionResult>
   if (!id) return { ok: false, error: "Dossier introuvable." };
   if (!reason) return { ok: false, error: "Dites pourquoi : un refus sans motif fait recommencer à l'identique." };
 
-  const item = await prisma.promoMaterial.findUnique({
-    where: { id },
-    select: { id: true, title: true, reference: true, circuitState: true, requesterId: true, managerId: true },
-  });
+  const item = await prisma.promoMaterial.findUnique({ where: { id }, select: SELECT_ETAPE });
   if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
   const state = item.circuitState as PromoState;
-  if (!canValidate(user, state, { requesterId: item.requesterId, managerId: item.managerId, secondaryRole: user.secondaryRole })) {
+  const version: VersionCircuit = item.circuitVersion === 2 ? 2 : 1;
+  if (!canValidate(user, state, await validateursDeLEtape(item, user.secondaryRole))) {
     return { ok: false, error: "Cette étape ne vous revient pas." };
   }
 
-  await prisma.promoMaterial.update({ where: { id }, data: { circuitState: "REFUSED", updatedById: user.id } });
+  const refus = await prisma.promoMaterial.updateMany({ where: { id, circuitState: state }, data: { circuitState: "REFUSED", updatedById: user.id } });
+  if (refus.count === 0) return { ok: false, error: "Ce dossier vient de changer d'étape — rechargez la fiche." };
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
     entityType: "PROMO_MATERIAL", entityId: id,
-    summary: `Refusé à l'étape « ${PROMO_STEP_LABEL[state]} » — ${reason.slice(0, 200)}`,
+    summary: `Refusé à l'étape « ${libelleEtape(state, version)} » — ${reason.slice(0, 200)}`,
   });
   if (item.requesterId) {
     await notifyUser({ userId: item.requesterId, type: "GENERIC", title: "Matériel promotionnel refusé", body: `${item.reference} — ${reason.slice(0, 200)}`, link: path(id) });
@@ -325,14 +378,15 @@ export async function completePromoTrack(formData: FormData): Promise<ActionResu
 
   const item = await prisma.promoMaterial.findUnique({
     where: { id },
-    select: { id: true, title: true, reference: true, circuitState: true, tracksDone: true, requesterId: true },
+    select: { id: true, title: true, reference: true, circuitState: true, circuitVersion: true, tracksDone: true, requesterId: true },
   });
   if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
+  const version: VersionCircuit = item.circuitVersion === 2 ? 2 : 1;
   // QUI PILOTE LES CHANTIERS — la même règle que l'écran (`canDrive` de la fiche) : le demandeur,
   // l'assistante de direction, la Direction. Cette action ne vérifiait QUE la session : n'importe
   // quel compte pouvait clore le chantier « paiement » d'un dossier qui n'était pas le sien, et
   // l'op d'Adam annonçait « revérifié par l'action » sur une vérification qui n'existait pas.
-  const pilote = item.requesterId === user.id || user.role === "DIRECTION_ASSISTANT" || hasGlobalView(user.role);
+  const pilote = piloteLExecution({ id: user.id, role: user.role, secondaryRole: user.secondaryRole, vueGlobale: hasGlobalView(user.role) }, item);
   if (!pilote) return { ok: false, error: "Seuls le demandeur, l'assistante de direction et la Direction pilotent les chantiers de ce dossier." };
   if (!tracksOpen(item.circuitState as PromoState)) {
     return { ok: false, error: "Les chantiers ne s'ouvrent qu'une fois toutes les validations obtenues." };
@@ -340,6 +394,14 @@ export async function completePromoTrack(formData: FormData): Promise<ActionResu
 
   const done = readTracks(item.tracksDone);
   if (done.includes(track as PromoTrack)) return { ok: true, message: "Ce chantier est déjà clos." };
+
+  // AU CIRCUIT 2, CHAQUE CHANTIER SE CONSTATE SUR SES PIÈCES (§118.152) : un BC SIGNÉ par devis
+  // retenu ; au moins une facture par BC, toutes réglées ; une demande de visa ou de déclaration
+  // par paiement. Le verdict dit TOUT ce qui manque, nommé — puis les gardes communes s'appliquent.
+  if (version === 2) {
+    const verdict = await verdictDuChantierPromo(id, track as PromoTrack);
+    if (!verdict.ok) return { ok: false, error: verdict.raison };
+  }
 
   // LE CHANTIER « BON DE COMMANDE » EXIGE UN BC VALIDÉ PAR SON CENTRE (§118.148). Il se refermait
   // d'un clic, sans pièce, sans qu'aucun centre ait rien vu — la règle de la Direction dit que tout
@@ -380,8 +442,8 @@ export async function completePromoTrack(formData: FormData): Promise<ActionResu
     actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
     entityType: "PROMO_MATERIAL", entityId: id,
     summary: finished
-      ? `${PROMO_TRACK_LABEL[track as PromoTrack]} clos — dossier TERMINÉ`
-      : `${PROMO_TRACK_LABEL[track as PromoTrack]} clos — reste : ${pendingTracks(nextDone).map((t) => PROMO_TRACK_LABEL[t]).join(", ")}`,
+      ? `${libelleChantier(track as PromoTrack, version)} clos — dossier TERMINÉ`
+      : `${libelleChantier(track as PromoTrack, version)} clos — reste : ${pendingTracks(nextDone).map((t) => libelleChantier(t, version)).join(", ")}`,
   });
 
   revalidatePath(path(id));
@@ -389,6 +451,6 @@ export async function completePromoTrack(formData: FormData): Promise<ActionResu
     ok: true,
     message: finished
       ? "Dernier chantier clos — le dossier est terminé."
-      : `Clos. Reste : ${pendingTracks(nextDone).map((t) => PROMO_TRACK_LABEL[t]).join(", ")}.`,
+      : `Clos. Reste : ${pendingTracks(nextDone).map((t) => libelleChantier(t, version)).join(", ")}.`,
   };
 }

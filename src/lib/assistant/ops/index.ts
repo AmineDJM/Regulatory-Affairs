@@ -23,6 +23,7 @@ import { STOCK_RECURRENCE_OPS_IMPL } from "./impl-stock-recurrence";
 import { MEDICAL_OPS_IMPL, RANGE_OPS_IMPL, BD4_OPS_IMPL } from "./impl-wave4b";
 import { EVENT_OPS_IMPL, ADPRO5_OPS_IMPL, CONSULTING_OPS_IMPL } from "./impl-wave5";
 import { CARE_OPS_IMPL, PROMO_OPS_IMPL } from "./impl-wave5b";
+import { PROMO2_OPS_IMPL } from "./impl-promo-circuit2";
 import { BD6_OPS_IMPL, DOSSIER_OPS_IMPL, DIRECTIVE_OPS_IMPL, SUPPORT_OPS_IMPL, REMINDER_OPS_IMPL } from "./impl-wave6";
 import { VALIDATION_OPS_IMPL, FIELD_REPORT_OPS_IMPL, SUPPLY_OPS_IMPL } from "./impl-wave6b";
 import { PLANNING_OPS_IMPL } from "./impl-wave6c";
@@ -718,11 +719,11 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
   },
   promo_operation: {
     module: "PROMO_MATERIAL",
-    ops: zipOps("promo_operation", PROMO_OPS_IMPL),
+    ops: zipOps("promo_operation", { ...PROMO_OPS_IMPL, ...PROMO2_OPS_IMPL }),
     def: {
       name: "promo_operation",
       description:
-        "MATÉRIEL PROMOTIONNEL — le CIRCUIT COURT (lancement à N+1 figé, devis reçu sur pièce exigée, chantiers parallèles BC / paiement / visa), les marches du circuit long (devis déposés, agence retenue, BC aux Finances puis validé puis envoyé, bordereau de paiement, paiement, matériel réalisé, examen Direction, conformité + visa, BAT, livraison, facture, règlement-clôture), commentaires, annulation, et le STOCK à MOUVEMENTS (articles, entrées / distributions / pertes / corrections — jamais un champ quantité) — par les actions canoniques. "
+        "MATÉRIEL PROMOTIONNEL — le CIRCUIT 2 (devis demandés au secrétariat et retranscrits ligne à ligne, lignes retenues par le demandeur, bons de commande GÉNÉRÉS par la plateforme, factures par BC, paiement au centre de paiement avec la demande de visa ou de déclaration), la bascule d'un dossier d'avant sur ce circuit, le CIRCUIT COURT d'avant (devis reçu sur pièce exigée, chantiers parallèles BC / paiement / visa), les marches du circuit long (devis déposés, agence retenue, BC aux Finances puis validé puis envoyé, bordereau de paiement, paiement, matériel réalisé, examen Direction, conformité + visa, BAT, livraison, facture, règlement-clôture), commentaires, annulation, et le STOCK à MOUVEMENTS (articles, entrées / distributions / pertes / corrections — jamais un champ quantité) — par les actions canoniques. "
         + `Champ « op » : ${opsSummary("promo_operation")}. `
         + "Le dossier se donne par référence MP-… ou titre (« reference ») ; l'article de stock par son nom (« name »).",
       input_schema: {
@@ -731,21 +732,27 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           op: { type: "string", enum: opEnum("promo_operation"), description: "Le geste à faire." },
           reference: { type: "string", description: "Le dossier visé (MP-… ou titre)." },
           label: { type: "string", description: "Synonyme de « reference » (ou de « name » pour le stock)." },
-          supplier: { type: "string", description: "choose_promo_agency : l'agence retenue." },
+          supplier: { type: "string", description: "choose_promo_agency : l'agence retenue. Circuit 2 : le FOURNISSEUR qui désigne un devis (et son BC) — choose_promo_lines : un ou plusieurs (virgules), chacun retient tout son devis." },
           name: { type: "string", description: "Stock : l'article visé / à créer." },
           newName: { type: "string", description: "update_stock_item : nouveau nom de l'article." },
-          amount: { type: "string", description: "Montant (DZD) — agence retenue, règlement final." },
+          amount: { type: "string", description: "Montant (DZD) — agence retenue, règlement final, facture déposée (deposit_promo_invoice)." },
           quantity: { type: "string", description: "Stock : quantité (mouvement, ou stock initial à la création)." },
           threshold: { type: "string", description: "Stock : seuil d'alerte." },
           unit: { type: "string", description: "Stock : unité (boîte, pièce…)." },
           location: { type: "string", description: "Stock : emplacement." },
-          person: { type: "string", description: "record_stock_movement : destinataire de la distribution." },
-          date: { type: "string", description: "Mouvement de stock : date (AAAA-MM-JJ)." },
-          mode: { type: "string", description: "start_promo_circuit : « devis en main » saute la demande ; record_stock_movement : entrée / distribution / perte / correction." },
+          person: { type: "string", description: "record_stock_movement : destinataire de la distribution ; update_promo_bc : l'interlocuteur du BC." },
+          date: { type: "string", description: "Mouvement de stock, facture déposée : date (AAAA-MM-JJ)." },
+          mode: { type: "string", description: "record_stock_movement : entrée / distribution / perte / correction ; choose_promo_lines : « valider » soumet le choix ; paiement / information médicale : « visa » (demande de visa publicitaire) ou « déclaration » (au ministère)." },
           track: { type: "string", description: "complete_promo_track : bon de commande / demande de paiement / visa publicitaire." },
+          lines: { type: "string", description: "choose_promo_lines : les LIGNES retenues, séparées par « ; » — « Fournisseur : ligne » quand deux devis portent la même référence." },
+          invoiceRef: { type: "string", description: "Circuit 2 : la référence de la facture (dépôt, paiement, information médicale)." },
+          file: { type: "string", description: "deposit_promo_invoice : le fichier de la facture — nom d'un fichier de votre Drive (glissé dans la conversation ou déposé)." },
+          address: { type: "string", description: "generate_promo_bcs / update_promo_bc : adresse de livraison." },
+          delay: { type: "string", description: "generate_promo_bcs / update_promo_bc : délai de livraison." },
+          phone: { type: "string", description: "update_promo_bc : téléphone de l'interlocuteur." },
           message: { type: "string", description: "comment_promo : le commentaire ; confirm_promo_conformity : référence de l'autorité." },
-          note: { type: "string", description: "Commentaire d'étape / n° de BC / référence du visa / motif du mouvement." },
-          notes: { type: "string", description: "Stock : notes de la fiche article." },
+          note: { type: "string", description: "Commentaire d'étape / n° de BC / référence du visa / motif du mouvement ; circuit 2 : message au secrétariat, ce qui est à corriger, motif d'annulation ou de modification d'un BC." },
+          notes: { type: "string", description: "Stock : notes de la fiche article ; BC du circuit 2 : notes imprimées sur le bon de commande." },
         },
         required: ["op"],
       },

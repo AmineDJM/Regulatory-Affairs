@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { scopePromoMaterial, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
+import { scopePromoMaterial, type SessionUser } from "@/lib/rbac";
 import { companyScopedWhere, type CompanyLite } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 
@@ -10,6 +10,8 @@ export interface PromoListItem {
   status: string;
   /** L'état du circuit COURT — quand il est présent, c'est LUI que la liste affiche. */
   circuitState: string | null;
+  /** La version du circuit — le libellé d'une étape en dépend (`libelleEtape`). */
+  circuitVersion: number;
   materialType: string | null;
   company: CompanyLite | null;
   chosenAgency: string | null;
@@ -53,6 +55,7 @@ export async function getPromoMaterials(user: SessionUser): Promise<PromoListIte
   return rows.map((r) => ({
     id: r.id, reference: r.reference, title: r.title, status: r.status,
     circuitState: r.circuitState,
+    circuitVersion: r.circuitVersion,
     materialType: r.materialType,
     company: r.company,
     chosenAgency: r.chosenAgency,
@@ -69,15 +72,6 @@ export async function getPromoMaterial(id: string) {
 
 export type PromoDetail = NonNullable<Awaited<ReturnType<typeof getPromoMaterial>>>;
 
-/** Visible par : vue globale, le demandeur Marketing, l'assistante assignée, ou
- *  tout détenteur du module avec portée ALL (finances / information médicale…). */
-export function canViewPromo(user: SessionUser, pm: PromoDetail): boolean {
-  if (hasGlobalView(user.role)) return true;
-  if (!userCan(user, "PROMO_MATERIAL", "VIEW")) return false;
-  const m = user.access.modules.get("PROMO_MATERIAL");
-  if (m?.scope === "ALL") return true;
-  return pm.requesterId === user.id || pm.assistantId === user.id;
-}
 
 export async function promoNames(pm: PromoDetail): Promise<{ requester: string; assistant: string }> {
   const names = await resolveNames([pm.requesterId, pm.assistantId]);

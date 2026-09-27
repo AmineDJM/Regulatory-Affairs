@@ -9,6 +9,7 @@ import { parentDuPoste, PARENT_ENTITE } from "@/lib/ad-pro-items";
 import { MODULE_DU_POLE, poleDe } from "@/lib/lecteurs/consulting";
 import { annuaireDuPraticien } from "@/lib/annuaires/acces";
 import { getMyCompanies } from "@/lib/company";
+import { peutOuvrirLeDossierPromo } from "@/lib/queries/promo-circuit";
 import {
   userCan, hasGlobalView, scopeRegulatory, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeBdProject, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser, canViewBdProjects, canManageBdProjects,
   annuaireOuvertParConsole,
@@ -383,6 +384,39 @@ export async function canAccessEntity(
     && (action === "VIEW" || action === "CREATE" || action === "UPDATE" || action === "DELETE")) {
     const fiche = await prisma.medicalDoctor.findUnique({ where: { id: entityId }, select: { title: true } });
     if (fiche && annuaireOuvertParConsole(user, annuaireDuPraticien(fiche.title), action)) return true;
+  }
+
+  // ── LES PIÈCES D'UN MATÉRIEL PROMOTIONNEL (§118.152) ─────────────────────────────────────
+  //
+  // Le bon de commande qu'un dossier du nouveau circuit a fait GÉNÉRER, et la facture qui en
+  // découle, sont des pièces Legal rattachées au dossier (`sourceType` PROMO_MATERIAL). Leur
+  // demandeur n'a pas le module Legal — c'est pourtant lui qui a déposé la facture et qui doit
+  // pouvoir la rouvrir, comme l'assistante qui suit le dossier et le pharmacien qui instruit sa
+  // demande de visa. On les ouvre en LECTURE à qui ouvre le dossier (la MÊME règle que la fiche),
+  // et à rien de plus : ce n'est pas une porte vers les contrats — seules les pièces nées de CE
+  // dossier passent ici, les droits d'écriture de Legal restent ceux de Legal.
+  // LE DOSSIER LUI-MÊME, en LECTURE, pour les mêmes personnes que la fiche (§118.152) : le N+1 qui
+  // valide la demande, la directrice marketing qui valide le devis, le pharmacien qui instruit le
+  // visa n'ont pas forcément le module. La fiche leur est ouverte ; sans cette porte, ses pièces
+  // (scans des devis, maquettes) et son fil de discussion leur répondaient « accès refusé » sur
+  // l'écran même où on leur demande de décider.
+  if (entityType === "PROMO_MATERIAL" && action === "VIEW" && !userCan(user, module, action)) {
+    const pm = await prisma.promoMaterial.findUnique({
+      where: { id: entityId },
+      select: { id: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true },
+    });
+    if (pm && (await peutOuvrirLeDossierPromo(user, pm))) return true;
+  }
+
+  if (entityType === "LEGAL_DOCUMENT" && action === "VIEW" && !userCan(user, module, action)) {
+    const piece = await prisma.legalDocument.findUnique({ where: { id: entityId }, select: { sourceType: true, sourceId: true } });
+    if (piece?.sourceType === "PROMO_MATERIAL" && piece.sourceId) {
+      const pm = await prisma.promoMaterial.findUnique({
+        where: { id: piece.sourceId },
+        select: { id: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true },
+      });
+      if (pm && (await peutOuvrirLeDossierPromo(user, pm))) return true;
+    }
   }
 
   if (!userCan(user, module, action)) return false;

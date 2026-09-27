@@ -50,8 +50,17 @@ import { scanDomains, formatDomains, cycleEdges, DOMAINS } from "./domains";
  * test de frontière a nommé le bon remède : « le besoin est vraiment nouveau → l'ajouter au
  * CONTRAT ». Il avait raison, et c'est exactement à cela que sert un cliquet — non pas empêcher
  * d'avancer, mais faire chercher le chemin qui n'ajoute pas de dette.
+ *
+ * 69 → 68 (2026-09-27, matériel promotionnel circuit 2, §118.152) : l'op d'Adam qui lit l'étape
+ * d'un dossier de matériel promotionnel (`assistant/ops/impl-commercial.ts`) importait le
+ * vocabulaire d'étapes d'Ad & Pro (`promo-material/circuit`) en direct ; elle le lit désormais par
+ * le pont `in-process/promo/`, dans le vocabulaire du circuit DU dossier (un dossier d'avant et un
+ * dossier du circuit 2 ne nomment pas leurs étapes pareil). Mesuré par différence avec une copie
+ * de HEAD : une traversée de moins, aucune de plus. Le même déplacement a fait baisser la
+ * frontière Adam ↔ ERP (428 → 427). Plafond ramené au chiffre mesuré — laissé à 69, il ne
+ * pourrait plus signaler la première traversée neuve.
  */
-const CROSSING_CEILING = 69;
+const CROSSING_CEILING = 68;
 const PROVIDER_CEILING = 42;
 
 const report = scanDomains(process.cwd());

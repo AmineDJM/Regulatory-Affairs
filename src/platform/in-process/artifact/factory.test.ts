@@ -373,6 +373,37 @@ suite("la fabrique de documents — émission, registre, Drive, reprise, révisi
     expect(note.paragraphs[0].text).toBe("Revue commerciale T3");
     for (const n of [r.classeur.nodeId, r.deck.nodeId, r.note.nodeId]) expect(await portsArtefact.documents.decrire(user.id, n)).toBeTruthy();
   }, 90_000);
+
+  // PLACÉ APRÈS LES CAS DE NUMÉROTATION : il émet un BC, donc consomme un numéro de la série, et
+  // « numérote sans collision » attend une série qui commence à 0001. Écrit d'abord plus haut, il
+  // a fait échouer son voisin — BC-0002 à BC-0011 au lieu de 0001 à 0010 — pour une raison qui
+  // n'était pas la sienne : un cas qui consomme le compteur d'un autre échoue pour lui (§118.149h).
+  it("réviser la LIVRAISON d'un BC ne change que ce qui est nommé : le délai seul garde l'adresse, `null` efface (§118.152)", async () => {
+    // Le formulaire « Modifier le BC » n'est pas pré-rempli, et Adam ne nomme que ce qui change :
+    // remplacer l'objet entier effaçait l'adresse de qui ne changeait que le délai — la pièce
+    // révisée partait sans elle, sans un mot.
+    const bc = await emettreDocumentDrive(user, demande({
+      type: "BON_DE_COMMANDE", echeance: null, tiers: { nom: "Imprimerie Atlas", adresse: "Alger", nif: "0001" },
+      livraison: { adresse: "Dépôt de Oued Smar", delai: "10 jours" }, contact: { nom: "Mme Abdelaziz", telephone: "0770 00 00 00" },
+    }));
+    expect(bc.ok, JSON.stringify(bc)).toBe(true);
+    if (!bc.ok) return;
+    const lire = async () => {
+      const d = await prisma.legalDocument.findUniqueOrThrow({ where: { id: bc.legalDocumentId }, select: { custom: true } });
+      return (d.custom as { fabrique: { spec: { livraison?: { adresse?: string | null; delai?: string | null } | null; contact?: { nom?: string | null; telephone?: string | null } | null } } }).fabrique.spec;
+    };
+    const r1 = await reviserDocumentDrive(user, { legalDocumentId: bc.legalDocumentId, modifications: { livraison: { delai: "15 jours" } }, motif: "délai" });
+    expect(r1.ok, JSON.stringify(r1)).toBe(true);
+    const apres = await lire();
+    expect(apres.livraison).toEqual({ adresse: "Dépôt de Oued Smar", delai: "15 jours" });
+    expect(apres.contact).toEqual({ nom: "Mme Abdelaziz", telephone: "0770 00 00 00" });
+    // Le téléphone seul : l'interlocuteur reste.
+    await reviserDocumentDrive(user, { legalDocumentId: bc.legalDocumentId, modifications: { contact: { telephone: "0550 11 11 11" } } });
+    expect((await lire()).contact).toEqual({ nom: "Mme Abdelaziz", telephone: "0550 11 11 11" });
+    // `null` EFFACE — c'est le seul geste qui retire une valeur.
+    await reviserDocumentDrive(user, { legalDocumentId: bc.legalDocumentId, modifications: { livraison: null } });
+    expect((await lire()).livraison).toBeNull();
+  }, 90_000);
 });
 
 /**

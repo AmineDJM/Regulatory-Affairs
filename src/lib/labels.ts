@@ -1224,18 +1224,6 @@ export const PROMO_MATERIAL_FLOW: string[] = [
   "VISA_OBTAINED", "BAT_PRINTING", "FINAL_MATERIAL", "INVOICED", "SETTLED",
 ];
 
-/** Le circuit COURT du matériel promotionnel (voir `lib/promo-material/circuit.ts`). */
-export const PROMO_CIRCUIT_STATUS: Record<string, Display> = {
-  QUOTE_REQUESTED: { label: "Devis demandé", tone: "warning" },
-  REVIEW_REQUESTER: { label: "Validation du demandeur", tone: "info" },
-  REVIEW_MANAGER: { label: "Validation du N+1", tone: "info" },
-  REVIEW_EXECUTIVE: { label: "Validation PDG / Super Admin", tone: "purple" },
-  REVIEW_MEDICAL_INFO: { label: "Validation info médicale", tone: "purple" },
-  IN_EXECUTION: { label: "En exécution (BC · paiement · visa)", tone: "info" },
-  COMPLETED: { label: "Terminé", tone: "success" },
-  REFUSED: { label: "Refusé", tone: "danger" },
-};
-
 /** Nature du matériel promotionnel (enum MaterialType) — libellés + ordre du menu. */
 export const MATERIAL_TYPE: Record<string, string> = {
   PRESENTOIRE: "Présentoir",

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   PROMO_STEPS, PROMO_TRACKS, initialStep, nextStep, canValidate, seesFullCircuit,
   visibleSteps, tracksOpen, allTracksDone, pendingTracks, progress, waitingOn, etapeApplicable,
-  type PromoState, type ContexteCircuit,
+  etapesDuDossier, type PromoState, type ContexteCircuit,
 } from "./circuit";
 
 const ctx = { requesterId: "u-req", managerId: "u-mgr" };
@@ -11,7 +11,7 @@ const ctx = { requesterId: "u-req", managerId: "u-mgr" };
  * seuil. Les deux étapes conditionnelles se comportent alors comme avant le lot §118.138 — et
  * c'est ce qui permet de garder les cas historiques tels quels.
  */
-const CTX: ContexteCircuit = { demandeurEstDirectionMarketing: false, montant: 120_000, seuilDg: 1_000_000 };
+const CTX: ContexteCircuit = { version: 1, demandeurEstDirectionMarketing: false, montant: 120_000, seuilDg: 1_000_000 };
 const requester = { id: "u-req", role: "HEAD_OF_SALES" };
 const marketing = { id: "u-mkt", role: "PRODUCT_MANAGER" };
 const dg = { id: "u-dg", role: "GENERAL_MANAGER" };
@@ -33,7 +33,9 @@ describe("Le circuit court — cinq étapes au lieu de seize", () => {
   });
 
   it("reste court — c'était tout le problème de l'ancien", () => {
-    expect(PROMO_STEPS.length).toBeLessThanOrEqual(8);
+    // La COLONNE porte les étapes des deux versions ; chaque dossier n'en traverse qu'une partie.
+    expect(etapesDuDossier(CTX).length).toBeLessThanOrEqual(8);
+    expect(etapesDuDossier({ ...CTX, version: 2, validationDemande: true }).length).toBeLessThanOrEqual(8);
   });
 });
 
@@ -73,13 +75,13 @@ describe("Direction Marketing ne valide pas sa propre demande, et le DG ne s'ouv
   it("DEUX étapes sautées D'AFFILÉE — le cas qui a dicté la boucle", () => {
     // S'arrêter sur la première laisserait le dossier posé sur une étape que personne ne peut
     // valider : mort, et sans une seule ligne d'échec.
-    const sienEtPetit: ContexteCircuit = { demandeurEstDirectionMarketing: true, montant: 10_000, seuilDg: 1_000_000 };
+    const sienEtPetit: ContexteCircuit = { version: 1, demandeurEstDirectionMarketing: true, montant: 10_000, seuilDg: 1_000_000 };
     expect(nextStep("REVIEW_REQUESTER", sienEtPetit)).toBe("REVIEW_EXECUTIVE");
   });
 
   it("toute AUTRE étape reste applicable — le défaut est OUI", () => {
     for (const s of ["QUOTE_REQUESTED", "REVIEW_REQUESTER", "REVIEW_EXECUTIVE", "REVIEW_MEDICAL_INFO"] as const) {
-      expect(etapeApplicable(s, { demandeurEstDirectionMarketing: true, montant: null, seuilDg: null }), s).toBe(true);
+      expect(etapeApplicable(s, { version: 1, demandeurEstDirectionMarketing: true, montant: null, seuilDg: null }), s).toBe(true);
     }
   });
 });
@@ -189,15 +191,18 @@ describe("Les trois chemins parallèles", () => {
 
 describe("Ce que la barre d'avancement raconte", () => {
   it("avance à chaque validation", () => {
-    expect(progress("QUOTE_REQUESTED", []).step).toBe(1);
-    // L'index suit la POSITION dans la chaîne : la porte du DG s'est insérée avant elle.
-    expect(progress("REVIEW_MEDICAL_INFO", []).step).toBe(PROMO_STEPS.indexOf("REVIEW_MEDICAL_INFO") + 1);
-    expect(progress("COMPLETED", []).step).toBe(PROMO_STEPS.length);
+    expect(progress("QUOTE_REQUESTED", [], CTX).step).toBe(1);
+    // L'index suit la POSITION dans la chaîne DU DOSSIER : la porte du DG, sautée ici sous le
+    // seuil, ne compte pas — un dénominateur qui compte des étapes non traversées ment (§118.51).
+    const v1 = etapesDuDossier(CTX);
+    expect(progress("REVIEW_MEDICAL_INFO", [], CTX).step).toBe(v1.indexOf("REVIEW_MEDICAL_INFO") + 1);
+    expect(progress("COMPLETED", [], CTX).step).toBe(v1.length);
+    expect(v1).not.toContain("REVIEW_DG");
   });
 
   it("en exécution, elle suit les chantiers clos — pas un palier figé", () => {
-    const none = progress("IN_EXECUTION", []).step;
-    const two = progress("IN_EXECUTION", ["PAYMENT", "AD_VISA"]).step;
+    const none = progress("IN_EXECUTION", [], CTX).step;
+    const two = progress("IN_EXECUTION", ["PAYMENT", "AD_VISA"], CTX).step;
     expect(two).toBeGreaterThan(none);
   });
 

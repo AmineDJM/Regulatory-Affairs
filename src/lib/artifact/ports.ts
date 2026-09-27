@@ -47,7 +47,17 @@ export interface PortDocuments {
     userId: string,
     nodeId: string,
     octets: Buffer,
-    opts: { mime: string; resume: string },
+    opts: {
+      mime: string;
+      resume: string;
+      /**
+       * La pièce Legal dont ce fichier EST le fichier — posée par le code serveur seul (révision
+       * DÉLÉGUÉE d'une pièce de la fabrique, §118.152), jamais par une entrée de modèle. L'écriture
+       * n'exige alors pas le droit d'écrire dans le Drive de celui qui a émis la pièce : c'est la
+       * pièce qui se révise, sous la délégation que l'appelant a vérifiée — et seulement SON fichier.
+       */
+      piece?: string;
+    },
   ): Promise<VersionEcrite>;
   /** Crée un NOUVEAU fichier (« enregistrer sous », §23). Rend son identifiant Drive. */
   creerFichier(

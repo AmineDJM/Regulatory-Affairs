@@ -3,7 +3,7 @@ import { businessUnitDuDemandeur } from "@/lib/ad-pro/business-unit-auto";
 import { AVAILABLE_PRODUCT_STATUSES } from "@/lib/ad-pro/pickers";
 import { platformScope, getMyCompanies, companyOptions } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
-import { userCan, type SessionUser } from "@/lib/rbac";
+import { userCan, anyRoleFilter, type SessionUser } from "@/lib/rbac";
 import { adProState, sortAdPro, type AdProKind, type AdProRequest } from "@/lib/ad-pro/unified";
 import { natureDesigneMedecinsEtProduits, type AdProCreateData } from "@/lib/ad-pro/create-fields";
 
@@ -192,7 +192,7 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
   // c'est aussi elle qui FILTRE la liste des médecins sur le formulaire des prises en charge.
   const needsSpecialties = needsReferentiels;
 
-  const [doctors, users, companies, products, businessUnits, specialties, demandeur] = await Promise.all([
+  const [doctors, users, companies, products, businessUnits, specialties, demandeur, assistants] = await Promise.all([
     needsDoctors
       ? prisma.medicalDoctor.findMany({
           select: { id: true, name: true, specialty: true, city: true },
@@ -228,6 +228,12 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
     // n'ont qu'un identifiant, et leur faire porter le rôle multiplierait les endroits où le
     // rattachement se lit — donc les endroits où il finirait par se lire autrement (§118.5).
     prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true, secondaryRole: true } }),
+    // QUI RETRANSCRIT LES DEVIS d'un matériel promotionnel (§118.152) : une assistante de
+    // direction, en rôle principal OU secondaire (`anyRoleFilter`, la lecture canonique) — et
+    // non tout compte actif, que le demandeur aurait pu nommer pour recopier ses propres prix.
+    has("PROMO_MATERIAL")
+      ? prisma.user.findMany({ where: { isActive: true, ...anyRoleFilter(["DIRECTION_ASSISTANT"]) }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } })
+      : Promise.resolve([] as { id: string; name: string; role: string }[]),
 ]);
 
   const businessUnitDeduite = demandeur ? await businessUnitDuDemandeur(demandeur) : null;
@@ -235,6 +241,7 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
   return {
     doctors: doctors.map((d) => ({ id: d.id, name: d.name, specialty: d.specialty ?? "Sans spécialité", city: d.city ?? "" })),
     users: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
+    assistants: assistants.map((u) => ({ id: u.id, name: u.name, role: u.role })),
     specialties,
     // Les libellés HÉRITÉS des fiches non rattachées : une spécialité portée par quarante
     // médecins et absente du référentiel doit rester choisissable, sinon une demande légitime

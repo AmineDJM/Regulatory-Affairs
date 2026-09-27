@@ -1568,7 +1568,7 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
   {
     name: "create_promo_material_request",
     description:
-      "PROPOSE une demande de MATÉRIEL PROMOTIONNEL (Ad & Pro) : lance la prospection d'agences via l'assistante de direction. N'exécute rien : confirmation requise. Réservé au Marketing (module Matériel promotionnel).",
+      "PROPOSE une demande de MATÉRIEL PROMOTIONNEL (Ad & Pro). La demande naît sur le circuit par devis retranscrits : elle est d'abord VALIDÉE (N+1, ou directrice marketing pour un membre du marketing) ; le demandeur demande ENSUITE les devis au secrétariat depuis la fiche. Aucun devis n'est demandé à la création. N'exécute rien : confirmation requise. Réservé aux porteurs du module Matériel promotionnel (création).",
     input_schema: {
       type: "object",
       properties: {
@@ -3437,7 +3437,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
   }
 
   if (toolName === "create_promo_material_request") {
-    if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { error: "La demande de matériel promotionnel est réservée au Marketing." };
+    if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { error: "Votre profil n'a pas le droit de créer une demande de matériel promotionnel (module Matériel promotionnel) : l'accès se règle en Administration › Comptes." };
     const title = asStr(input, "title").trim();
     if (!title) return { error: "L'intitulé du matériel est obligatoire." };
     const amountRaw = input.amount;
@@ -6833,7 +6833,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
   }
 
   if (payload?.kind === "create_promo_material_request") {
-    if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { ok: false, error: "La demande de matériel promotionnel est réservée au Marketing." };
+    if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { ok: false, error: "Votre profil n'a pas le droit de créer une demande de matériel promotionnel (module Matériel promotionnel) : l'accès se règle en Administration › Comptes." };
     const title = (payload.title ?? "").trim();
     if (!title) return { ok: false, error: "L'intitulé du matériel est obligatoire." };
     const fd = new FormData();
@@ -6843,7 +6843,11 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     if (payload.amount != null) fd.set("amount", String(payload.amount));
     const r = await createPromoMaterial(undefined, fd);
     if (!r.ok) return { ok: false, error: r.error ?? "La demande de matériel promotionnel n'a pas pu être créée." };
-    return { ok: true, message: `Demande de matériel promotionnel « ${title} » créée (prospection d'agences lancée).`, revalidate: ["/demandes"] };
+    // LA PHRASE DIT CE QUI S'EST PASSÉ (§118.152). Elle annonçait « prospection d'agences
+    // lancée » : c'était vrai du circuit d'avant, faux du circuit 2 — la demande attend sa
+    // validation, et les devis se demandent ensuite depuis la fiche. Une phrase qui annonce un
+    // effet qui n'a pas eu lieu est un faux succès, et c'est elle que la personne croit.
+    return { ok: true, message: `Demande de matériel promotionnel « ${title} » créée : elle attend d'abord sa validation (N+1, ou directrice marketing) ; vous demanderez ensuite les devis au secrétariat depuis sa fiche.`, revalidate: ["/promo-material"] };
   }
 
   if (payload?.kind === "decide_payment") {

@@ -25,6 +25,7 @@ import { resultatIndisponible } from "@/lib/assistant/capability-failure";
 import { resultatListe, resultatVide } from "@/lib/assistant/empty-result";
 import { fichierALire, fichiersDe } from "@/lib/assistant/artifact-ref";
 import { invoiceSettlementState, INVOICE_SETTLEMENT } from "@/lib/labels";
+import { libelleEtape } from "@/platform/in-process/promo";
 
 /** Le pictogramme d'un document, déduit du nom — le protocole n'en connaît que cinq. */
 function docKindFromName(name: string): "pdf" | "image" | "feuille" | "texte" | "autre" {
@@ -587,14 +588,16 @@ export const EXECUTIVE_TOOLS: PowerTool[] = [
       // 4) Matériel promotionnel.
       const promo = await prisma.promoMaterial.findFirst({
         where: { OR: [{ id: ref }, { reference: { equals: ref, mode: "insensitive" } }, { title: { contains: ref, mode: "insensitive" } }] },
-        select: { id: true, reference: true, title: true, circuitState: true, tracksDone: true, status: true, chosenAgency: true, amount: true, chosenAmount: true },
+        select: { id: true, reference: true, title: true, circuitState: true, circuitVersion: true, tracksDone: true, status: true, chosenAgency: true, amount: true, chosenAmount: true },
       });
       if (promo) {
         const [timeline, docs] = await Promise.all([auditOf("PROMO_MATERIAL", promo.id), documentsOf("PROMO_MATERIAL", promo.id)]);
         return fiche({
           type: "Matériel promotionnel",
           reference: promo.reference, titre: promo.title,
-          circuit: promo.circuitState ?? promo.status,
+          // L'étape EN CLAIR, dans le vocabulaire de son circuit — un code d'état brut
+          // (« REVIEW_REQUESTER ») se recopie tel quel dans une réponse que personne ne lit.
+          circuit: promo.circuitState ? libelleEtape(promo.circuitState as Parameters<typeof libelleEtape>[0], promo.circuitVersion === 2 ? 2 : 1) : promo.status,
           chantiersClos: promo.tracksDone ?? "",
           agence: promo.chosenAgency,
           montantDzd: Math.round(toNumber(promo.chosenAmount ?? promo.amount ?? 0)) || null,

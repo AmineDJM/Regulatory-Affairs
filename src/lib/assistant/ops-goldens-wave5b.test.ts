@@ -246,14 +246,21 @@ suite("ops vague 5b — prises en charge, matériel promotionnel, stock", () => 
   });
 
   describe("matériel promotionnel — circuit court et marches", () => {
-    it("start_promo_circuit : « devis en main » saute la demande de devis (hasQuote)", async () => {
+    it("start_promo_circuit : BASCULE sur le circuit 2 — « devis en main » ne promet plus de sauter la demande (§118.152)", async () => {
+      // La carte d'avant envoyait `hasQuote` et annonçait « la demande de devis est sautée ». Le
+      // circuit 2 ne lit plus ce champ : un devis déjà reçu se remet à l'assistante et se
+      // retranscrit comme les autres. Une carte qui annonce un effet que le clic ne produira pas
+      // est une fausse promesse (§118.83) — d'où les DEUX moitiés : le champ ne part plus, et la
+      // carte dit ce qui arrivera réellement au devis qu'on a en main.
       const p = await buildProposal("promo_operation", {
         op: "start_promo_circuit", reference: `${TAG}-MP-1`, mode: "devis déjà en main",
       }, sa());
       expect("error" in p).toBe(false);
       if (!("error" in p)) {
         expect(domainArgs(p).id).toBe(promoId);
-        expect(domainArgs(p).hasQuote).toBe("1");
+        expect(domainArgs(p).hasQuote, "la bascule n'envoie plus le raccourci du circuit d'avant").toBeUndefined();
+        expect(p.title).toMatch(/nouveau circuit/i);
+        expect(p.warnings.join(" ")).toMatch(/devis déjà en main se remet à l'assistante/);
       }
     });
 

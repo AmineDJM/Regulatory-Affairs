@@ -3,7 +3,7 @@
 import type { MaterialType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { canAccessEntity } from "@/lib/entity-access";
 import { recordAudit } from "@/lib/audit";
@@ -11,8 +11,9 @@ import { notifyRoles, notifyUser } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { persistUploadedDocument } from "@/lib/documents";
 import { buildRef, createWithRetry } from "@/lib/refs";
-import { initialStep } from "@/lib/promo-material/circuit";
+import { initialStep, libelleEtape } from "@/lib/promo-material/circuit";
 import { promoManagerOf } from "@/lib/queries/promo-material";
+import { validateursDeLaDemande } from "@/lib/queries/promo-circuit";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
 import { getAppSettings } from "@/lib/settings";
@@ -51,12 +52,6 @@ async function nextPromoRef(): Promise<string> {
   return buildRef("MP", year, refs.map((r) => r.reference));
 }
 
-async function nextRequestRef(): Promise<string> {
-  const year = new Date().getFullYear();
-  const refs = await prisma.administrativeRequest.findMany({ where: { reference: { startsWith: `REQ-${year}-` } }, select: { reference: true } });
-  return buildRef("REQ", year, refs.map((r) => r.reference));
-}
-
 function revalidate(id: string) {
   revalidatePath(PATH);
   revalidatePath(`${PATH}/${id}`);
@@ -86,6 +81,21 @@ async function load(id: string) {
 }
 
 /**
+ * L'ANCIEN PARCOURS NE PILOTE PAS UN DOSSIER DU CIRCUIT PAR DEVIS RETRANSCRITS (§118.152).
+ *
+ * Ces actions font avancer `status` — seize marches en file indienne, avec leur propre bon de
+ * commande, leur propre bordereau, leur propre ordre de dépense. Un dossier du circuit 2 a déjà
+ * tout cela, autrement : ses BC générés d'après les lignes validées, ses factures par BC, ses
+ * paiements au centre. Les laisser courir côte à côte ferait deux vérités sur le même dossier —
+ * et deux ordres de dépense pour la même commande. L'écran n'offre déjà plus ces gestes ; l'action
+ * les REFUSE, parce qu'Adam et le chemin générique n'ont pas d'écran (§118.71).
+ */
+const REFUS_NOUVEAU_CIRCUIT = "Ce dossier suit le circuit par devis retranscrits : il se pilote depuis la carte « Suivi du circuit » de sa fiche (devis, choix des lignes, bons de commande générés, factures et paiements).";
+function refusNouveauCircuit(pm: { circuitVersion: number }): string | null {
+  return pm.circuitVersion === 2 ? REFUS_NOUVEAU_CIRCUIT : null;
+}
+
+/**
  * CET ORDRE EST-IL RÉGLÉ ? — et sinon, la phrase qui dit où il attend (§118.148).
  *
  * Un dossier ne se déclare « payé » que sur un ordre PAYÉ : le paiement se décide au centre de
@@ -104,11 +114,26 @@ async function ordreNonRegle(orderId: string | null): Promise<string | null> {
 
 // ───────────────────────── 1. Marketing : création (prospection) ─────────────────────────
 
-/** Marketing demande la prospection d'agences ; l'assistante la reçoit. */
+/**
+ * CRÉER UNE DEMANDE DE MATÉRIEL PROMOTIONNEL — au circuit par devis retranscrits (§118.152).
+ *
+ * La demande naît au circuit 2. Son VALIDATEUR est figé maintenant, par la règle de la Direction
+ * (`promo-material/validateurs.ts`) : la directrice marketing pour un membre de la Direction
+ * Marketing, sinon le N+1 — jamais au-delà du directeur des opérations ; personne pour la
+ * directrice marketing elle-même ni pour un demandeur au plafond. Figé pour la raison de
+ * `managerId` : un organigramme qui change ne transfère pas une validation en attente à quelqu'un
+ * qui n'a rien suivi.
+ *
+ * Aucun devis n'est demandé ici : c'est le demandeur qui les demande, une fois la demande validée
+ * (`demanderDevisPromo`). Demander des devis sur une demande que personne n'a encore acceptée
+ * ferait travailler le secrétariat et les agences pour rien.
+ */
 export async function createPromoMaterial(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { ok: false, error: "Création réservée au Marketing." };
+    // UN REFUS DIT LA VRAIE RAISON. Il disait « réservée au Marketing » — faux : délégués, KAM et
+    // National Sales créent aussi (droit du module) ; celui qui est refusé n'a pas le droit du module.
+    if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { ok: false, error: "Votre profil n'a pas le droit de créer une demande de matériel promotionnel (module Matériel promotionnel) : l'accès se règle en Administration › Comptes." };
     const title = fdStr(formData, "title");
     if (!title) return { ok: false, error: "Le titre / la campagne est obligatoire." };
 
@@ -118,60 +143,57 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
     const materialType = fdStr(formData, "materialType");
     const companyId = fdStr(formData, "companyId");
 
-    // LE CIRCUIT COURT démarre À LA CRÉATION — plus personne ne passe par les seize marches.
-    // Un devis déjà en main saute la demande de devis ; le N+1 est figé maintenant, par
-    // l'organigramme (changer de chef en cours de route ne change pas qui doit valider CE dossier).
-    const hasQuote = Boolean(fdStr(formData, "hasQuote"));
-    const circuitState = initialStep({ hasQuote });
+    // QUI RETRANSCRIT LES PRIX (§118.152) : une assistante de direction ACTIVE, et jamais le
+    // demandeur lui-même. Le menu de l'écran proposait tout compte actif — le demandeur pouvait
+    // nommer un collègue pour recopier les prix qu'il retiendra ensuite, c'est-à-dire contourner
+    // par un menu déroulant la séparation des tâches que la retranscription existe pour garantir.
+    // Le menu ne liste plus que les assistantes ; ce contrôle-ci est la garde, parce qu'un menu
+    // n'en est pas une (une requête forgée l'ignore). Sans choix, toutes sont prévenues.
+    if (assistantId) {
+      if (assistantId === user.id) {
+        return { ok: false, error: "Vous ne pouvez pas retranscrire les devis de votre propre demande : laissez le choix vide (toutes les assistantes de direction sont prévenues) ou nommez-en une autre." };
+      }
+      const assistante = await prisma.user.findUnique({ where: { id: assistantId }, select: { isActive: true, role: true, secondaryRole: true } });
+      if (!assistante || !assistante.isActive || !hasRole(assistante, "DIRECTION_ASSISTANT")) {
+        return { ok: false, error: "La personne choisie pour retranscrire les devis n'est pas une assistante de direction active : laissez le choix vide (toutes les assistantes de direction sont prévenues) ou choisissez-en une dans la liste." };
+      }
+    }
+
+    const figes = await validateursDeLaDemande(user.id);
+    const validation = figes.validateur.kind !== "AUCUNE";
+    const circuitState = initialStep({ ctx: { version: 2, validationDemande: validation, demandeurEstDirectionMarketing: figes.demandeurEstCheffe, montant: null, seuilDg: null } });
     const managerId = await promoManagerOf(user.id);
 
-    // Demande administrative liée : l'assistante de direction pilote ses étapes
-    // (devis, BC, transmission, facture) depuis « Demandes administratives ».
-    // Références dérivées du max existant + réessai en cas de collision concurrente.
-    // Les deux créations sont atomiques (transaction) : en cas de collision sur la
-    // 2ᵉ, la 1ʳᵉ est annulée — pas de demande administrative orpheline au réessai.
-    const pm = await createWithRetry(() =>
-      prisma.$transaction(async (tx) => {
-        const req = await tx.administrativeRequest.create({
-          data: {
-            reference: await nextRequestRef(),
-            title: `Matériel promotionnel — ${title}`,
-            type: "QUOTE",
-            status: "NEW",
-            description: description ?? "Demande de prospection d'agences (matériel promotionnel).",
-            requesterId: user.id,
-            assignedToId: assistantId,
-          },
-        });
-        return tx.promoMaterial.create({
-          data: {
-            reference: await nextPromoRef(),
-            title,
-            description,
-            materialType: materialType ? (materialType as MaterialType) : null,
-            companyId: companyId || null,
-            // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
-            businessUnitId: fdStr(formData, "businessUnitId") || null,
-            amount: amount ?? null,
-            assistantId,
-            status: "PROSPECTION_REQUESTED",
-            circuitState,
-            managerId,
-            requesterId: user.id,
-            adminRequestId: req.id,
-            createdById: user.id,
-            updatedById: user.id,
-          },
-        });
-      }),
-    );
+    const pm = await createWithRetry(async () => prisma.promoMaterial.create({
+      data: {
+        reference: await nextPromoRef(),
+        title,
+        description,
+        materialType: materialType ? (materialType as MaterialType) : null,
+        companyId: companyId || null,
+        // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
+        businessUnitId: fdStr(formData, "businessUnitId") || null,
+        amount: amount ?? null,
+        assistantId,
+        status: "PROSPECTION_REQUESTED",
+        circuitState,
+        circuitVersion: 2,
+        requestValidation: validation,
+        requestValidatorId: figes.validateur.kind === "PERSONNE" ? figes.validateur.userId : null,
+        marketingValidatorId: figes.directriceId,
+        managerId,
+        requesterId: user.id,
+        createdById: user.id,
+        updatedById: user.id,
+      },
+    }));
 
-    // Avec un devis en main, on ne demande pas de prospection : le dossier attend la validation
-    // du demandeur, pas l'assistante.
-    if (!hasQuote) await notifyAssistant(pm, "Matériel promotionnel — devis à demander aux agences");
-    await audit(user, pm.id, "CREATE", `Matériel promotionnel créé — ${pm.reference}${hasQuote ? " (devis déjà en main : demande de devis sautée)" : ""}`);
+    // PRÉVENIR CELUI QUI VALIDE LA DEMANDE — la personne figée, ou la Direction des opérations.
+    const avis = { type: "VALIDATION_REQUIRED" as const, title: "Matériel promotionnel — demande à valider", body: `${pm.reference} — ${pm.title}`, link: `${PATH}/${pm.id}` };
+    if (figes.validateur.kind === "PERSONNE") await notifyUser({ userId: figes.validateur.userId, ...avis });
+    else if (figes.validateur.kind === "PLAFOND") await notifyRoles(["DIRECTION"], avis);
+    await audit(user, pm.id, "CREATE", `Matériel promotionnel créé — ${pm.reference}. ${figes.validateur.motif} Étape : ${libelleEtape(circuitState, 2)}.`);
     revalidate(pm.id);
-    revalidatePath("/demandes");
     return { ok: true, id: pm.id };
   } catch (err) {
     console.error("[promo] createPromoMaterial failed", err);
@@ -187,6 +209,8 @@ export async function submitQuotes(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!isAssistant(user)) return { ok: false, error: "Réservé à l'assistante de direction." };
   if (pm.status !== "PROSPECTION_REQUESTED") return { ok: false, error: "Étape déjà passée." };
 
@@ -205,6 +229,8 @@ export async function chooseAgency(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!isMarketing(user, pm)) return { ok: false, error: "Réservé au Marketing (demandeur)." };
   if (pm.status !== "QUOTES_UPLOADED") return { ok: false, error: "Les devis doivent d'abord être déposés." };
   const agency = fdStr(formData, "chosenAgency");
@@ -244,6 +270,8 @@ export async function submitBcForFinance(formData: FormData): Promise<ActionResu
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!isAssistant(user)) return { ok: false, error: "Réservé à l'assistante de direction." };
   if (pm.status !== "AGENCY_CHOSEN") return { ok: false, error: "Étape déjà passée." };
 
@@ -295,6 +323,8 @@ export async function remindFinance(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!(isAssistant(user) || isMarketing(user, pm))) return { ok: false, error: "Non autorisé." };
   if (pm.status !== "BC_FINANCE_REVIEW") return { ok: false, error: "Aucune validation de bon de commande en attente." };
 
@@ -322,6 +352,8 @@ export async function validateBc(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!siegeAuCentreAdPro(user)) return { ok: false, error: REFUS_BC_CENTRE_AD_PRO };
   if (pm.status !== "BC_FINANCE_REVIEW") return { ok: false, error: "Aucun bon de commande à valider." };
 
@@ -341,6 +373,8 @@ export async function confirmBcSent(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!isAssistant(user)) return { ok: false, error: "Réservé à l'assistante de direction." };
   if (pm.status !== "BC_VALIDATED") return { ok: false, error: "Le bon de commande doit d'abord être validé par le centre de validation Ad & Pro." };
 
@@ -360,6 +394,8 @@ export async function initiatePayment(formData: FormData): Promise<ActionResult>
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!isMedicalInfo(user)) return { ok: false, error: "Réservé à l'information médicale." };
   // RATTRAPAGE : un bordereau initié SANS ordre (montant alors inconnu) se réinitie — sans quoi le
   // dossier resterait bloqué, puisque « Paiement effectué » exige désormais un ordre réglé.
@@ -395,6 +431,8 @@ export async function confirmPayment(formData: FormData): Promise<ActionResult> 
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!isFinance(user)) return { ok: false, error: "Réservé aux finances." };
   if (pm.status !== "PAYMENT_INITIATED") return { ok: false, error: "Aucun bordereau de paiement en attente." };
   // « PAIEMENT EFFECTUÉ » SE CONSTATE SUR L'ORDRE, il ne se déclare pas (§118.148). Le dossier
@@ -419,6 +457,8 @@ export async function submitMaterial(formData: FormData): Promise<ActionResult> 
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!isMarketing(user, pm)) return { ok: false, error: "Réservé au Marketing." };
   if (pm.status !== "PAYMENT_DONE") return { ok: false, error: "Le paiement doit d'abord être effectué." };
 
@@ -437,6 +477,8 @@ export async function directionReview(formData: FormData): Promise<ActionResult>
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!isDirection(user)) return { ok: false, error: "Réservé à la Direction." };
   if (pm.status !== "MATERIAL_PRODUCED") return { ok: false, error: "Aucun matériel à examiner." };
 
@@ -456,6 +498,8 @@ export async function confirmConformity(formData: FormData): Promise<ActionResul
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!isMedicalInfo(user)) return { ok: false, error: "Réservé à l'information médicale." };
   if (pm.status !== "CONFORMITY_REVIEW") return { ok: false, error: "Aucune vérification en attente." };
 
@@ -477,6 +521,8 @@ export async function startBat(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!isMarketing(user, pm)) return { ok: false, error: "Réservé au Marketing." };
   if (pm.status !== "VISA_OBTAINED") return { ok: false, error: "Le visa publicitaire doit d'abord être obtenu." };
 
@@ -492,6 +538,8 @@ export async function submitFinalMaterial(formData: FormData): Promise<ActionRes
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!isMarketing(user, pm)) return { ok: false, error: "Réservé au Marketing." };
   if (pm.status !== "BAT_PRINTING") return { ok: false, error: "Lancez d'abord le BAT / l'impression." };
 
@@ -510,6 +558,8 @@ export async function recordInvoice(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!(isAssistant(user) || isMarketing(user, pm))) return { ok: false, error: "Non autorisé." };
   if (pm.status !== "FINAL_MATERIAL") return { ok: false, error: "Le matériel final doit d'abord être déposé." };
 
@@ -526,6 +576,8 @@ export async function settle(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const nouveau = refusNouveauCircuit(pm);
+  if (nouveau) return { ok: false, error: nouveau };
   if (!isFinance(user)) return { ok: false, error: "Réservé aux finances." };
   if (pm.status !== "INVOICED") return { ok: false, error: "Aucune facture à régler." };
 
@@ -595,9 +647,21 @@ export async function cancelPromoMaterial(formData: FormData): Promise<ActionRes
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
   if (!(isMarketing(user, pm) || isAssistant(user) || isDirection(user))) return { ok: false, error: "Non autorisé." };
-  if (pm.status === "SETTLED" || pm.status === "CANCELLED") return { ok: false, error: "Dossier déjà clôturé." };
+  if (pm.status === "SETTLED" || pm.status === "CANCELLED" || pm.circuitState === "COMPLETED") return { ok: false, error: "Dossier déjà clôturé." };
+  // UN BC GÉNÉRÉ ENGAGE LA SOCIÉTÉ (§118.152) : annuler le dossier en le laissant vivant laisserait
+  // une commande sans dossier. On le dit, avec le geste qui le permet.
+  if (pm.circuitVersion === 2) {
+    const bcs = await prisma.promoQuote.count({ where: { promoMaterialId: id, purchaseOrderId: { not: null } } });
+    if (bcs > 0) return { ok: false, error: `${bcs} bon${bcs > 1 ? "s" : ""} de commande ${bcs > 1 ? "ont été générés" : "a été généré"} pour ce dossier : supprimez-${bcs > 1 ? "les" : "le"} d'abord depuis la carte « Exécution », sans quoi une commande resterait engagée sur un dossier annulé.` };
+  }
 
-  await prisma.promoMaterial.update({ where: { id }, data: { status: "CANCELLED", updatedById: user.id } });
+  // L'ANNULATION ARRÊTE AUSSI LE CIRCUIT. Sans cette ligne, un dossier annulé restait sur son étape
+  // de circuit — la fiche l'affichait en attente d'un validateur, et ce validateur pouvait encore
+  // le faire avancer. L'état terminal du circuit est le seul que toutes ses actions refusent.
+  await prisma.promoMaterial.update({
+    where: { id },
+    data: { status: "CANCELLED", ...(pm.circuitState ? { circuitState: "REFUSED" } : {}), updatedById: user.id },
+  });
   if (pm.adminRequestId) await prisma.administrativeRequest.update({ where: { id: pm.adminRequestId }, data: { status: "CANCELLED" } }).catch(() => {});
   await audit(user, id, "UPDATE", "Dossier annulé");
   revalidate(id);

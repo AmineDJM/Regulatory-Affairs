@@ -104,8 +104,14 @@ import { scanBoundary, ADAM_PATHS, BRIDGE_PATHS, NEUTRAL } from "./boundary-scan
  * `session` (type) et `rbac` (`hasGlobalView`) — DEUX franchissements, mesurés à 430. Le type de
  * l'acteur se dérive de `PowerTool.run`, le garde de la vue globale arrive par le pont
  * (`in-process/sandbox/aVueGlobale`). Solde : 0.
+ *
+ * 428 → 427 (2026-09-27, matériel promotionnel circuit 2 §118.152) : les douze gestes du circuit 2
+ * entrent en conversation par le pont `in-process/promo/` (désignation sous la porte de la fiche,
+ * actions réexportées) — aucun franchissement neuf. Et l'op qui valide ou refuse une étape lisait
+ * le vocabulaire d'étapes (`promo-material/circuit`) en direct : elle le lit désormais par le même
+ * pont, dans le vocabulaire du circuit du dossier. Solde : −1.
  */
-const DEBT_CEILING = 428;
+const DEBT_CEILING = 427;
 
 describe("frontière Adam ↔ ERP", () => {
   const report = scanBoundary();

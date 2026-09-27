@@ -28,8 +28,16 @@ export interface AdProCreateData {
   doctors: DoctorOption[];
   /** Les produits dont le traitement réglementaire est TERMINÉ — les seuls promouvables. */
   products: ProductRow[];
-  /** Collaborateurs actifs : participants, responsable d'événement, assistante de direction. */
+  /** Collaborateurs actifs : participants, responsable d'événement. */
   users: UserOption[];
+  /**
+   * LES ASSISTANTES DE DIRECTION ACTIVES — celles qui retranscrivent les devis d'un matériel
+   * promotionnel (§118.152). Pas « tous les collaborateurs » : le menu proposait chaque compte
+   * actif, et le demandeur pouvait nommer n'importe quel collègue pour recopier les prix qu'il
+   * retiendra ensuite — la séparation des tâches que la retranscription existe pour garantir,
+   * contournée par un menu déroulant. Vide quand la nature n'est pas demandée.
+   */
+  assistants: UserOption[];
   /** Le référentiel des spécialités médicales (`MedicalSpecialty`). */
   specialties: SpecialtyRow[];
   /** Les libellés de spécialité HÉRITÉS des fiches médecins non rattachées — la réalité y est. */
@@ -334,10 +342,11 @@ export function promoMaterialCreateFields(opts: {
     { type: "select", name: "companyId", label: "Entité", options: [...opts.companies], placeholder: "— Entité —" },
     { type: "textarea", name: "description", label: "Brief / description", full: true },
     { type: "number", name: "amount", label: "Budget estimé (DZD)" },
-    { type: "select", name: "assistantId", label: "Assistante de direction", options: opts.assistants.map((a) => ({ value: a.id, label: a.name })), placeholder: "— À notifier (Direction) —" },
-    // Le cas le plus fréquent : on a appelé l'imprimeur AVANT d'ouvrir l'ERP. Cocher saute la
-    // demande de devis — le circuit démarre directement sur la validation du devis en main.
-    { type: "checkbox", name: "hasQuote", label: "J'ai déjà un devis en main (saute la demande de devis)", full: true },
+    // QUI RETRANSCRIRA LES DEVIS (§118.152). Sans choix, toutes les assistantes de direction sont
+    // prévenues quand les devis sont demandés. La case « devis déjà en main » n'existe plus : au
+    // nouveau circuit, un devis qu'on a déjà se remet à l'assistante et se retranscrit comme les
+    // autres — le sauter ferait choisir des lignes que personne n'a recopiées.
+    { type: "select", name: "assistantId", label: "Assistante de direction (retranscrit les devis)", options: opts.assistants.map((a) => ({ value: a.id, label: a.name })), placeholder: "— Toutes les assistantes de direction —" },
   ];
 }
 

@@ -17,6 +17,7 @@ import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
 import { runFd, runFd2, fieldsOf, resolveOne, isoDate, dzd } from "./helpers";
 import { matchLabel, fold } from "./impl-regulatory";
+import { designerDossierPromo } from "@/platform/in-process/promo";
 
 /**
  * OPS VAGUE 5b — PRISES EN CHARGE (décision PAR PERSONNE, besoins par personne, devis qui
@@ -444,24 +445,16 @@ export const CARE_OPS_IMPL: Record<string, OpImpl> = {
 
 // ─────────────────────────── MATÉRIEL PROMOTIONNEL ───────────────────────────
 
-interface PromoHit { id: string; reference: string; title: string; status: string }
+interface PromoHit { id: string; reference: string; title: string }
 
-async function resolvePromo(raw: string): Promise<PromoHit | { error: string }> {
-  const q = raw.trim();
-  if (!q) return { error: "Précisez le dossier de matériel promotionnel (champ « reference » — MP-AAAA-NNN ou titre)." };
-  const exact = await prisma.promoMaterial.findFirst({
-    where: { reference: { equals: q, mode: "insensitive" } },
-    select: { id: true, reference: true, title: true, status: true },
-  });
-  if (exact) return exact;
-  const rows = await prisma.promoMaterial.findMany({
-    where: { OR: [{ reference: { contains: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }] },
-    select: { id: true, reference: true, title: true, status: true },
-    orderBy: { createdAt: "desc" }, take: 6,
-  });
-  if (rows.length === 1) return rows[0];
-  if (rows.length === 0) return { error: `Aucun dossier de matériel promotionnel « ${q} ».` };
-  return { error: `Plusieurs dossiers correspondent : ${rows.map((p) => `${p.reference} — ${p.title}`).join(" ; ")} — donner la référence exacte.` };
+/**
+ * LE DOSSIER, SOUS LA PORTE DE LA FICHE (§118.152). La version d'avant cherchait dans la table
+ * sans regarder qui demandait : une désignation ambiguë listait la référence et le TITRE de
+ * dossiers que la personne n'a pas le droit d'ouvrir (§118.150d). Une seule désignation pour les
+ * deux circuits — deux résolveurs du même dossier finiraient par choisir différemment (§118.5).
+ */
+async function resolvePromo(user: Parameters<OpImpl["propose"]>[1], raw: string): Promise<PromoHit | { error: string }> {
+  return designerDossierPromo(user, raw);
 }
 
 /** Marche simple du circuit long : résolution + statut attendu annoncé, args {id} (+ extras). */
@@ -474,8 +467,8 @@ function promoStep(opts: {
   success: (pm: PromoHit) => string;
 }): OpImpl {
   return {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const pm = await resolvePromo(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const pm = await resolvePromo(user, opStr(input, "reference") || opStr(input, "label"));
       if ("error" in pm) return pm;
       return {
         title: opts.title(pm),
@@ -506,8 +499,8 @@ export const PROMO_OPS_IMPL: Record<string, OpImpl> = {
   }),
 
   choose_promo_agency: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const pm = await resolvePromo(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const pm = await resolvePromo(user, opStr(input, "reference") || opStr(input, "label"));
       if ("error" in pm) return pm;
       const agency = opStr(input, "supplier") || opStr(input, "name");
       if (!agency) return { error: "Précisez l'agence retenue (champ « supplier »)." };
@@ -621,8 +614,8 @@ export const PROMO_OPS_IMPL: Record<string, OpImpl> = {
   }),
 
   settle_promo: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const pm = await resolvePromo(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const pm = await resolvePromo(user, opStr(input, "reference") || opStr(input, "label"));
       if ("error" in pm) return pm;
       return {
         title: `Règlement final — ${pm.reference}`,
@@ -652,8 +645,8 @@ export const PROMO_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   comment_promo: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const pm = await resolvePromo(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const pm = await resolvePromo(user, opStr(input, "reference") || opStr(input, "label"));
       if ("error" in pm) return pm;
       const body = opStr(input, "message") || opStr(input, "note");
       if (!body) return { error: "Écrivez le commentaire (champ « message »)." };
@@ -669,8 +662,8 @@ export const PROMO_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   cancel_promo: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const pm = await resolvePromo(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const pm = await resolvePromo(user, opStr(input, "reference") || opStr(input, "label"));
       if ("error" in pm) return pm;
       return {
         title: `ANNULER le dossier ${pm.reference}`,
@@ -685,23 +678,26 @@ export const PROMO_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   start_promo_circuit: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const pm = await resolvePromo(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const pm = await resolvePromo(user, opStr(input, "reference") || opStr(input, "label"));
       if ("error" in pm) return pm;
-      const hasQuote = /devis (d[ée]j[àa]|en main)|avec devis|oui/i.test(opStr(input, "mode"));
+      // LA BASCULE SUR LE CIRCUIT 2 (§118.152). La carte d'avant promettait « devis en main : la
+      // demande est sautée » — l'action ne lit plus ce champ : un devis en main se remet à
+      // l'assistante et se retranscrit comme les autres. Une carte qui annonce un effet que le clic
+      // ne produira pas est une fausse promesse (§118.83).
       return {
-        title: `Lancer le CIRCUIT COURT — ${pm.reference}`,
-        fields: [
-          { label: "Dossier", value: `${pm.reference} — ${pm.title}` },
-          { label: "Devis en main", value: hasQuote ? "Oui — la demande de devis est sautée" : "Non — demande de devis d'abord" },
+        title: `Basculer sur le nouveau circuit — ${pm.reference}`,
+        fields: [{ label: "Dossier", value: `${pm.reference} — ${pm.title}` }],
+        warnings: [
+          "Refusé si le circuit est déjà lancé. Le validateur de la demande est figé maintenant : la directrice marketing pour un membre du marketing, sinon le N+1 (jamais au-delà du directeur des opérations).",
+          "Les devis se demandent ensuite au secrétariat et se retranscrivent ligne à ligne ; un devis déjà en main se remet à l'assistante.",
         ],
-        warnings: ["Refuse si le circuit est déjà lancé — le N+1 est figé maintenant, par l'organigramme."],
-        args: { id: pm.id, hasQuote: hasQuote ? "1" : null },
-        successMessage: `Circuit court lancé sur ${pm.reference}${hasQuote ? " (devis en main : étape sautée)" : ""}.`,
+        args: { id: pm.id },
+        successMessage: `${pm.reference} basculé sur le nouveau circuit.`,
         revalidate: ["/promo-material"],
       };
     },
-    execute: (args) => runFd(startPromoCircuit, args, "Le lancement du circuit a été refusé.", { revalidate: ["/promo-material"] }),
+    execute: (args) => runFd(startPromoCircuit, args, "La bascule sur le nouveau circuit a été refusée.", { revalidate: ["/promo-material"] }),
   },
 
   mark_promo_quote_received: promoStep({
@@ -712,8 +708,8 @@ export const PROMO_OPS_IMPL: Record<string, OpImpl> = {
   }),
 
   complete_promo_track: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const pm = await resolvePromo(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const pm = await resolvePromo(user, opStr(input, "reference") || opStr(input, "label"));
       if ("error" in pm) return pm;
       const m = matchLabel(opStr(input, "track") || opStr(input, "label"), PROMO_TRACK_FR);
       if (typeof m === "object") return m;

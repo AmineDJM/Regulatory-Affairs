@@ -140,7 +140,7 @@ export function NewRequestPicker({ kinds, data }: NewRequestPickerProps) {
                 {...nav}
                 action={createPromoMaterial}
                 redirectBase="/promo-material"
-                fields={promoMaterialCreateFields({ companies: data.companies, assistants: people, businessUnits: data.businessUnits })}
+                fields={promoMaterialCreateFields({ companies: data.companies, assistants: toPeople(data.assistants), businessUnits: data.businessUnits })}
               />
             )}
             {spec.kind === "CONSULTING" && (

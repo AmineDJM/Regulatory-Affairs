@@ -1304,39 +1304,39 @@ model User {
   meetingTaskProposals  MeetingTaskProposal[] @relation("MeetingTaskAssignee")
   meetingMessages       MeetingMessage[]      @relation("MeetingMsgAuthor")
 
-  reminders                  Reminder[]               @relation("UserReminders")
+  reminders                  Reminder[]                      @relation("UserReminders")
   /// Entités auxquelles cette personne a accès (voir / modifier). Distinct de son entité
   /// d'appartenance, portée par sa fiche Employee.
   companyAccess              UserCompanyAccess[]
   rangeAccess                UserProductRange[]
   legalDocReads              LegalDocumentReader[]
-  directoryAccess            MedicalDirectoryAccess[] @relation("MedicalDirectoryAccessUser")
-  assistantReminders         AssistantReminder[]      @relation("AssistantReminderUser")
-  assistantRemindersTargeted AssistantReminder[]      @relation("AssistantReminderTarget")
-  scheduledWorkflows         ScheduledWorkflow[]      @relation("ScheduledWorkflowOwner")
-  assistantMemoryItems       AssistantMemoryItem[]    @relation("AssistantMemoryItems")
-  executiveDecisions         ExecutiveDecision[]      @relation("ExecutiveDecisions")
-  executiveObjectives        ExecutiveObjective[]     @relation("ExecutiveObjectives")
-  executiveCommitments       ExecutiveCommitment[]    @relation("ExecutiveCommitments")
-  adamWatches                AdamWatch[]              @relation("AdamWatches")
-  adamRulesOwned             AdamRule[]               @relation("AdamRulesOwned")
-  adamRulesSubject           AdamRule[]               @relation("AdamRulesSubject")
-  adamSkills                 AdamSkill[]              @relation("AdamSkills")
-  assistantArtifacts         AssistantArtifact[]      @relation("AssistantArtifacts")
-  artifactSessions           ArtifactSession[]        @relation("ArtifactSessions")
-  assistantActionIntents     AssistantActionIntent[]  @relation("AssistantActionIntents")
-  userInvites                UserInvite[]             @relation("UserInvites")
-  adProItemDecisions         AdProItemDecision[]      @relation("AdProItemDecider")
-  apiClients                 ApiClient[]              @relation("ApiClientActAs")
-  docRequestsAsked           DocumentRequest[]        @relation("DocRequestAsker")
-  docRequestsToMe            DocumentRequest[]        @relation("DocRequestAsked")
+  directoryAccess            MedicalDirectoryAccess[]        @relation("MedicalDirectoryAccessUser")
+  assistantReminders         AssistantReminder[]             @relation("AssistantReminderUser")
+  assistantRemindersTargeted AssistantReminder[]             @relation("AssistantReminderTarget")
+  scheduledWorkflows         ScheduledWorkflow[]             @relation("ScheduledWorkflowOwner")
+  assistantMemoryItems       AssistantMemoryItem[]           @relation("AssistantMemoryItems")
+  executiveDecisions         ExecutiveDecision[]             @relation("ExecutiveDecisions")
+  executiveObjectives        ExecutiveObjective[]            @relation("ExecutiveObjectives")
+  executiveCommitments       ExecutiveCommitment[]           @relation("ExecutiveCommitments")
+  adamWatches                AdamWatch[]                     @relation("AdamWatches")
+  adamRulesOwned             AdamRule[]                      @relation("AdamRulesOwned")
+  adamRulesSubject           AdamRule[]                      @relation("AdamRulesSubject")
+  adamSkills                 AdamSkill[]                     @relation("AdamSkills")
+  assistantArtifacts         AssistantArtifact[]             @relation("AssistantArtifacts")
+  artifactSessions           ArtifactSession[]               @relation("ArtifactSessions")
+  assistantActionIntents     AssistantActionIntent[]         @relation("AssistantActionIntents")
+  userInvites                UserInvite[]                    @relation("UserInvites")
+  adProItemDecisions         AdProItemDecision[]             @relation("AdProItemDecider")
+  apiClients                 ApiClient[]                     @relation("ApiClientActAs")
+  docRequestsAsked           DocumentRequest[]               @relation("DocRequestAsker")
+  docRequestsToMe            DocumentRequest[]               @relation("DocRequestAsked")
   paymentCentreMessages      PaymentCentreMessage[]
   sessionEvents              SessionEvent[]
-  businessEvents             BusinessEvent[]          @relation("BusinessEventActor")
-  productAliases             ProductAlias[]           @relation("ProductAliasAuthor")
-  productAssignments         ProductAssignment[]      @relation("ProductAssignmentUser")
-  adProGateVisas             AdProGateVisa[]          @relation("adProGateVisaDecidedBy")
-  marketingReferentOf            BusinessUnitMarketingReferent[] @relation("AdProMarketingReferentOf")
+  businessEvents             BusinessEvent[]                 @relation("BusinessEventActor")
+  productAliases             ProductAlias[]                  @relation("ProductAliasAuthor")
+  productAssignments         ProductAssignment[]             @relation("ProductAssignmentUser")
+  adProGateVisas             AdProGateVisa[]                 @relation("adProGateVisaDecidedBy")
+  marketingReferentOf        BusinessUnitMarketingReferent[] @relation("AdProMarketingReferentOf")
 
   @@index([role])
   @@index([departmentId])
@@ -2069,26 +2069,26 @@ model SponsoringRequest {
   /// Sans elle, la dépense pesait sur un total commercial que personne ne pouvait
   /// répartir : « combien la gamme oncologie a-t-elle dépensé ? » n'avait pas de réponse.
   businessUnitId      String?
-  businessUnit        BusinessUnit?    @relation("AdProSponsoringRequest", fields: [businessUnitId], references: [id], onDelete: SetNull)
+  businessUnit        BusinessUnit?     @relation("AdProSponsoringRequest", fields: [businessUnitId], references: [id], onDelete: SetNull)
   custom              Json? // admin-defined dynamic fields
-  id                  String           @id @default(cuid())
+  id                  String            @id @default(cuid())
   companyId           String? // entité de rattachement (Adventum / Pharmagène / …)
-  company             Company?         @relation(fields: [companyId], references: [id])
-  reference           String           @unique
-  requestDate         DateTime         @default(now())
+  company             Company?          @relation(fields: [companyId], references: [id])
+  reference           String            @unique
+  requestDate         DateTime          @default(now())
   requesterId         String?
-  requester           User?            @relation(fields: [requesterId], references: [id])
+  requester           User?             @relation(fields: [requesterId], references: [id])
   institution         String // institution / service / association
   doctor              String? // médecin concerné
   specialty           String?
   city                String?
   type                String // type de sponsoring
   description         String?
-  amountRequested     Decimal?         @db.Decimal(12, 2)
-  amountProposed      Decimal?         @db.Decimal(12, 2)
-  amountGranted       Decimal?         @db.Decimal(12, 2)
-  status              SponsoringStatus @default(RECEIVED)
-  strategicImportance Priority         @default(MEDIUM)
+  amountRequested     Decimal?          @db.Decimal(12, 2)
+  amountProposed      Decimal?          @db.Decimal(12, 2)
+  amountGranted       Decimal?          @db.Decimal(12, 2)
+  status              SponsoringStatus  @default(RECEIVED)
+  strategicImportance Priority          @default(MEDIUM)
   product             String? // produit concerné
   expectedRoi         String?
   finalDecision       String? // commentaire final de la Direction (visible par le délégué)
@@ -3896,6 +3896,8 @@ model CompanyContact {
 
   /// Ses moyens de contact vérifiés (annuaire interne).
   directoryEntry DirectoryEntry? @relation("ContactDirectory")
+  /// Les devis de matériel promotionnel où il est le fournisseur (§118.152).
+  promoQuotes    PromoQuote[]    @relation("PromoQuoteSupplier")
 
   @@index([companyId])
   @@index([isActive])
@@ -6278,6 +6280,30 @@ model PromoMaterial {
   /// virgules. Le dossier n'est terminé que lorsque les trois y figurent.
   tracksDone   String?
 
+  /// LA VERSION DU CIRCUIT (§118.152). 1 = le circuit court d'origine — les dossiers déjà en vol
+  /// gardent la chaîne qui leur avait été PROMISE (§118.142) ; 2 = la demande validée, les devis
+  /// RETRANSCRITS en lignes, le choix ligne à ligne, les BC générés par la plateforme, une facture
+  /// par BC, et une demande de visa ou de déclaration à chaque paiement. Voir `promo-material/circuit.ts`.
+  circuitVersion       Int          @default(1)
+  /// LE VALIDATEUR DE LA DEMANDE (étape 0 du circuit 2), figé à la création : la directrice
+  /// marketing pour un membre de la Direction Marketing, sinon le N+1 — jamais au-delà du directeur
+  /// des opérations. Nul alors que l'étape a lieu = la Direction des opérations valide (le plafond).
+  /// Figé pour la raison de `managerId` : un organigramme qui change ne transfère pas une
+  /// validation en attente à quelqu'un qui n'a rien suivi.
+  requestValidatorId   String?
+  /// La demande passe-t-elle par une validation hiérarchique ? Figé à la création, comme son
+  /// validateur : faux pour la directrice marketing elle-même et pour un demandeur au plafond.
+  requestValidation    Boolean      @default(false)
+  /// LA DIRECTRICE MARKETING DE CE DEMANDEUR, quand il appartient à la Direction Marketing (figée) :
+  /// c'est elle qui valide son devis. Nulle pour les autres : la ou les cheffes de la Direction
+  /// Marketing valident, lues à l'étape.
+  marketingValidatorId String?
+  /// Quand, et par qui, les devis ont été demandés au secrétariat.
+  quotesRequestedAt    DateTime?
+  quotesRequestedById  String?
+  /// Les devis RETRANSCRITS par l'assistante de direction — un par agence ou partenaire.
+  quotes               PromoQuote[]
+
   createdById String?
   updatedById String?
   createdAt   DateTime @default(now())
@@ -6286,6 +6312,74 @@ model PromoMaterial {
   @@index([status])
   @@index([requesterId])
   @@index([assistantId])
+}
+
+/// UN DEVIS REÇU, RETRANSCRIT (§118.152) — le tableau interne de l'entreprise, par fournisseur.
+///
+/// L'assistante de direction recopie le devis de l'agence ligne à ligne : référence, unité,
+/// quantité, prix unitaire. Le TOTAL n'est jamais saisi : il se calcule (§118.59 — un total écrit
+/// à la main est une photographie qu'on ne peut pas vérifier). Le total ANNONCÉ sur le papier, lui,
+/// se saisit à part, pour que l'écart se VOIE : c'est ce qui attrape une ligne oubliée.
+///
+/// Le FOURNISSEUR est choisi dans l'annuaire de l'entreprise (`CompanyContact`) : c'est lui qui
+/// porte l'adresse, le RC et le NIF que le bon de commande imprimera — un nom tapé à la main ne
+/// ferait qu'un bon de commande sans identité.
+model PromoQuote {
+  id                    String           @id @default(cuid())
+  promoMaterialId       String
+  promoMaterial         PromoMaterial    @relation(fields: [promoMaterialId], references: [id], onDelete: Cascade)
+  position              Int              @default(0)
+  supplierId            String?
+  supplier              CompanyContact?  @relation("PromoQuoteSupplier", fields: [supplierId], references: [id], onDelete: SetNull)
+  /// Le nom affiché, tenu à jour depuis l'annuaire — il survit à un contact supprimé.
+  supplierName          String
+  /// Le numéro du devis du fournisseur (« 26/0576 »), repris sous « Devis N° » du bon de commande.
+  reference             String?
+  quoteDate             DateTime?
+  /// Le taux de TVA du devis, en pour cent. 19 par défaut ; 0 pour un devis exonéré.
+  tvaRate               Decimal          @default(19) @db.Decimal(5, 2)
+  /// Une taxe ADDITIONNELLE au HT, hors base de TVA — la « Taxe Pub 2 % » d'un support
+  /// publicitaire (§118.135). Nulle = aucune. Elle entre dans le montant engagé, donc dans le seuil.
+  extraTaxLabel         String?
+  extraTaxRate          Decimal?         @db.Decimal(5, 2)
+  /// Le total HT imprimé sur le devis — pour CONTRÔLER la retranscription, jamais pour calculer.
+  announcedTotal        Decimal?         @db.Decimal(14, 2)
+  /// Le scan du devis (pièce du dossier) — une retranscription sans sa source ne se vérifie pas.
+  documentId            String?
+  note                  String?
+  lines                 PromoQuoteLine[]
+  /// LE BON DE COMMANDE généré pour CE devis (pièce Legal). Nul = pas encore généré, ou annulé.
+  purchaseOrderId       String?
+  /// Le BC est-il parti chez le fournisseur ? Seul un BC SIGNÉ part (§118.149).
+  purchaseOrderSentAt   DateTime?
+  purchaseOrderSentById String?
+  createdById           String?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  @@index([promoMaterialId])
+  @@index([purchaseOrderId])
+}
+
+/// UNE LIGNE DE DEVIS — ce que le demandeur RETIENT, ou non, une à une.
+model PromoQuoteLine {
+  id        String     @id @default(cuid())
+  quoteId   String
+  quote     PromoQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  position  Int        @default(0)
+  /// La référence ou la désignation de l'article, telle que sur le devis.
+  reference String
+  /// L'unité de compte (« pièce », « lot de 50 », « m² ») — facultative.
+  unit      String?
+  quantity  Decimal    @db.Decimal(14, 3)
+  /// Le prix unitaire HORS TAXES.
+  unitPrice Decimal    @db.Decimal(14, 2)
+  /// Retenue par le demandeur : c'est ce qui entre dans le montant validé et dans le bon de commande.
+  selected  Boolean    @default(false)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([quoteId])
 }
 
 /// STOCK DE MATÉRIEL PROMOTIONNEL — l'article, tel qu'on le range et qu'on le compte.
@@ -9096,13 +9190,13 @@ model BusinessUnit {
   /// LES LOTS D'APPEL D'OFFRES qui lui sont affectés, produit par produit.
   tenderLines            PchTenderLineBusinessUnit[]
   /// LES DEMANDES Ad&Pro qui engagent son budget.
-  sponsorings            SponsoringRequest[]         @relation("AdProSponsoringRequest")
-  congressNationaux      CongressNational[]          @relation("AdProCongressNational")
-  congressInternationaux CongressInternational[]     @relation("AdProCongressInternational")
-  events                 Event[]                     @relation("AdProEvent")
-  promoMaterials         PromoMaterial[]             @relation("AdProPromoMaterial")
-  consultings            ConsultingContract[]        @relation("AdProConsulting")
-  autresDemandes         AdProOtherRequest[]         @relation("AdProOther")
+  sponsorings            SponsoringRequest[]             @relation("AdProSponsoringRequest")
+  congressNationaux      CongressNational[]              @relation("AdProCongressNational")
+  congressInternationaux CongressInternational[]         @relation("AdProCongressInternational")
+  events                 Event[]                         @relation("AdProEvent")
+  promoMaterials         PromoMaterial[]                 @relation("AdProPromoMaterial")
+  consultings            ConsultingContract[]            @relation("AdProConsulting")
+  autresDemandes         AdProOtherRequest[]             @relation("AdProOther")
   marketingReferents     BusinessUnitMarketingReferent[] @relation("AdProMarketingReferents")
 
   @@index([companyId])
@@ -10108,16 +10202,16 @@ model AdProOtherRequest {
   /// il s'agit. Sans ces colonnes, ils repartaient dans la description, où rien ne les compte.
   doctor         String?
   product        String?
-  id          String           @id @default(cuid())
-  reference   String           @unique // AUT-2026-001
-  title       String
-  description String?
+  id             String           @id @default(cuid())
+  reference      String           @unique // AUT-2026-001
+  title          String
+  description    String?
   /// Pour qui / avec qui : praticien, association, prestataire…
-  beneficiary String?
-  amount      Decimal?         @db.Decimal(14, 2)
-  companyId   String?
-  company     Company?         @relation(fields: [companyId], references: [id])
-  status      AdProOtherStatus @default(AWAITING_DECISION)
+  beneficiary    String?
+  amount         Decimal?         @db.Decimal(14, 2)
+  companyId      String?
+  company        Company?         @relation(fields: [companyId], references: [id])
+  status         AdProOtherStatus @default(AWAITING_DECISION)
 
   requesterId  String?
   decidedById  String?

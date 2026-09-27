@@ -31,7 +31,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma, type EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
@@ -161,7 +161,7 @@ export async function resoudreSociete(userId: string, societe?: string | null): 
   const partiels = exacts.length ? exacts : miennes.filter((c) => plier(c.name).includes(p) || (c.shortName && plier(c.shortName).includes(p)));
   if (partiels.length === 1) return { ok: true, societe: partiels[0] };
   if (partiels.length > 1) return echec("MISSING_INPUT", `${partiels.length} sociétés correspondent à « ${voulu} » : laquelle ?`, { candidats: partiels.map((c) => ({ id: c.id, nom: c.name })) });
-  return echec("NOT_FOUND", `Aucune société « ${voulu} » parmi celles que vous pouvez engager (${miennes.map((c) => c.name).join(", ")}).`);
+  return echec("NOT_FOUND", `Aucune société « ${voulu} » parmi celles qui vous sont ouvertes (${miennes.map((c) => c.name).join(", ")}).`);
 }
 
 const MENTIONS_FACTURE: { cle: keyof PartieCommerciale; libelle: string }[] = [
@@ -626,20 +626,65 @@ function peutEcrire(user: CurrentUser, verbe: "CREATE" | "UPDATE", type: TypeDoc
 }
 
 /**
+ * CE QU'UN APPELANT DU SERVEUR — et lui seul — peut ajouter à une émission.
+ *
+ * Ces options ne vivent PAS dans `DemandeDocument` : la capacité d'Adam passe l'entrée du modèle
+ * telle quelle comme demande (`office-capabilities.ts`), et un champ de la demande serait donc
+ * écrivable par un document lu, par un mail, par une phrase. Un second argument, lui, n'existe que
+ * pour le code qui l'écrit.
+ *
+ *  • `source` : l'objet métier qui a fait naître la pièce (`LegalDocument.sourceType/sourceId`).
+ *    C'est lui qui aiguille le BC vers le centre de validation d'Ad & Pro, et lui qui fait
+ *    compter la pièce dans les chantiers du dossier.
+ *  • `delegation` : la RÈGLE MÉTIER qui autorise l'émission à la place du droit d'écrire dans
+ *    Legal ou dans Finances — nommée, parce que l'audit la reprend. Le demandeur d'un matériel
+ *    promotionnel validé n'a pas le module Legal, et c'est pourtant lui que la Direction charge
+ *    de générer ses bons de commande (§118.152) : ce qui l'y autorise, ce sont les validations
+ *    obtenues sur son dossier — vérifiées par l'appelant, et par lui seul.
+ *
+ * ── LA SOCIÉTÉ SOUS DÉLÉGATION, et pourquoi le droit d'« engager » y cède ─────────────────
+ * Le droit d'ENGAGER une société (`canEditCompanyId`) est une autorisation NOMINATIVE que
+ * l'administration pose sur une entité voisine ; l'appartenance à une société n'en donne AUCUN,
+ * et seul le Super Admin l'a sur tout le groupe. Mesuré au banc (§118.152) : un demandeur de la
+ * Direction Marketing et une assistante de direction, salariés de la société, ne pouvaient pas
+ * générer le BC que la Direction avait validé — « Vous voyez la société sans pouvoir
+ * l'engager », c'est-à-dire un « je ne peux pas » écrit dans le code, sur le geste que la
+ * Direction leur confie (§118.63). Sous délégation, ce sont donc les validations du dossier qui
+ * tiennent lieu de ce droit, et pour UNE société seulement :
+ *  • celle que l'APPELANT nomme — la société du dossier, jamais un repli sur celle de la personne
+ *    qui clique : sans société nommée, l'émission déléguée est refusée ;
+ *  • parmi celles que la personne peut LIRE (`resoudreSociete`) : la délégation remplace le droit
+ *    d'écrire, jamais celui de voir. Quelqu'un que le groupe tient hors d'une entité n'émet pas
+ *    en son nom, quelle que soit la validation obtenue.
+ * Ce que la pièce engage ensuite reste gardé plus loin : le centre de validation au-dessus du
+ * seuil, puis la signature des Finances (§118.149) — c'est elle, et non l'émission, qui fait
+ * d'un BC un engagement de la société.
+ */
+export interface OptionsEmission {
+  source?: { type: EntityType; id: string } | null;
+  delegation?: string | null;
+}
+
+/**
  * ÉMET une pièce : vérifie, compose à blanc, reconnaît un doublon, numérote avec la pièce au
  * registre, écrit le fichier (et son PDF), termine la pièce.
  */
-export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDocument): Promise<DocumentEmis | EchecFabrique> {
+export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDocument, opts: OptionsEmission = {}): Promise<DocumentEmis | EchecFabrique> {
   const debut = Date.now();
   const type = demande.type;
   if (!TYPES_DOCUMENT.includes(type)) return echec("MISSING_INPUT", `Type de document inconnu : « ${String(type)} » (DEVIS, BON_DE_COMMANDE, FACTURE).`);
-  if (!peutEcrire(user, "CREATE", type)) {
+  if (!opts.delegation && !peutEcrire(user, "CREATE", type)) {
     return echec("MISSING_PERMISSION", `Émettre un${type === "FACTURE" ? "e facture" : type === "DEVIS" ? " devis" : " bon de commande"} exige le droit de créer dans Legal${type === "FACTURE" ? " ou dans Finances" : ""}.`);
+  }
+  // Sous délégation, la société est celle que l'APPELANT nomme (celle du dossier) : pas de repli
+  // sur la société de la personne qui clique — la délégation vaut pour UNE société, pas pour toutes.
+  if (opts.delegation && !(demande.societe ?? "").trim()) {
+    return echec("MISSING_INPUT", "Cette émission est autorisée par un dossier qui ne nomme aucune société : rattachez le dossier à la société qui commande, puis relancez.");
   }
   const p = await profilDocumentaire(user, demande.societe, { papierEnTeteId: demande.letterheadId ?? null });
   if (!p.ok) return p;
   const { profil, papierOctets, habillage } = p;
-  if (!(await canEditCompanyId(user.id, profil.societe.id))) return echec("MISSING_PERMISSION", `Vous voyez ${profil.societe.nom} sans pouvoir l'engager : la pièce ne peut pas être émise en son nom.`);
+  if (!opts.delegation && !(await canEditCompanyId(user.id, profil.societe.id))) return echec("MISSING_PERMISSION", `Vous voyez ${profil.societe.nom} sans pouvoir l'engager : la pièce ne peut pas être émise en son nom.`);
 
   const base = specDepuisDemande(demande, profil);
   const provisoire: SpecDocumentCommercial = { ...base, numero: "PROVISOIRE" };
@@ -692,7 +737,7 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
           reglesAppliquees: profil.reglesAppliquees, porteBC: porteExistante, reserveBonDeCommande: reserveExistante, ms: Date.now() - debut,
         };
       }
-      return terminerEmission(user, existant.id, { ...f, spec: { ...base, numero: f.numero } }, habillage, demande, profil, { repris: true, debut, avertissements: essai.verification.avertissements });
+      return terminerEmission(user, existant.id, { ...f, spec: { ...base, numero: f.numero } }, habillage, demande, profil, { repris: true, debut, avertissements: essai.verification.avertissements, delegation: opts.delegation ?? null });
     }
   }
 
@@ -719,6 +764,8 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
         amount: new Prisma.Decimal(totaux.totalTtc),
         direction: type === "FACTURE" ? "IN" : null,
         chainFromId: demande.chainFromId ?? null,
+        sourceType: opts.source?.type ?? null,
+        sourceId: opts.source?.id ?? null,
         notes: `${LIBELLE_TYPE[type]} émis${type === "FACTURE" ? "e" : ""} par Adam — TTC ${formaterDzd(totaux.totalTtc)}.`,
         createdById: user.id, updatedById: user.id,
         custom: { fabrique } as unknown as Prisma.InputJsonValue,
@@ -727,13 +774,13 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
     });
     return { id: doc.id, fabrique };
   });
-  return terminerEmission(user, cree.id, cree.fabrique, habillage, demande, profil, { repris: false, debut, avertissements: essai.verification.avertissements });
+  return terminerEmission(user, cree.id, cree.fabrique, habillage, demande, profil, { repris: false, debut, avertissements: essai.verification.avertissements, delegation: opts.delegation ?? null });
 }
 
 /** Compose la pièce numérotée, l'écrit dans le Drive (+ PDF), et clôt l'émission au registre. */
 async function terminerEmission(
   user: CurrentUser, legalDocumentId: string, fabrique: Fabrique, habillage: Habillage, demande: DemandeDocument, profil: ProfilDocumentaire,
-  ctx: { repris: boolean; debut: number; avertissements: string[] },
+  ctx: { repris: boolean; debut: number; avertissements: string[]; delegation?: string | null },
 ): Promise<DocumentEmis | EchecFabrique> {
   const spec = fabrique.spec;
   const construit = await construireDocumentCommercial(spec, habillage);
@@ -761,7 +808,7 @@ async function terminerEmission(
   });
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: legalDocumentId,
-    summary: `${LIBELLE_TYPE[spec.type]} ${fabrique.numero} émis${spec.type === "FACTURE" ? "e" : ""} par Adam pour ${spec.tiers.nom} — ${formaterDzd(construit.totaux.totalTtc)}${ctx.repris ? " (émission interrompue terminée)" : ""}`,
+    summary: `${LIBELLE_TYPE[spec.type]} ${fabrique.numero} émis${spec.type === "FACTURE" ? "e" : ""} par Adam pour ${spec.tiers.nom} — ${formaterDzd(construit.totaux.totalTtc)}${ctx.repris ? " (émission interrompue terminée)" : ""}${ctx.delegation ? ` — autorisé par : ${ctx.delegation}` : ""}`,
   });
   // TOUT BON DE COMMANDE PASSE PAR UN CENTRE DE VALIDATION (§118.148). La porte est posée APRÈS
   // la composition : le centre doit pouvoir OUVRIR la pièce qu'il valide, et elle n'existe
@@ -847,6 +894,7 @@ export type ModificationsDocument = Partial<Pick<DemandeDocument, "tiers" | "lig
  */
 export async function reviserDocumentDrive(
   user: CurrentUser, opts: { legalDocumentId: string; modifications: ModificationsDocument; motif?: string | null },
+  emission: Pick<OptionsEmission, "delegation"> = {},
 ): Promise<DocumentEmis | EchecFabrique> {
   const debut = Date.now();
   const doc = await prisma.legalDocument.findUnique({ where: { id: opts.legalDocumentId }, select: { id: true, companyId: true, kind: true, status: true, custom: true, driveNodeId: true } });
@@ -854,8 +902,10 @@ export async function reviserDocumentDrive(
   if (!doc || !f) return echec("NOT_FOUND", "Cette pièce n'existe pas, ou n'a pas été émise par la fabrique (seules celles-ci se révisent).");
   if (f.type === "FACTURE") return echec("CAPABILITY_FAILURE", `La facture ${f.numero} est émise : une facture ne se réécrit pas. Émettre un avoir ou une nouvelle facture.`);
   if (doc.status !== "ACTIVE") return echec("CAPABILITY_FAILURE", `La pièce ${f.numero} est ${doc.status === "CANCELLED" ? "annulée" : "close"} : elle ne se révise plus.`);
-  if (!peutEcrire(user, "UPDATE", f.type)) return echec("MISSING_PERMISSION", "Réviser cette pièce exige le droit de modifier dans Legal.");
-  if (!(await canEditCompanyId(user.id, doc.companyId))) return echec("MISSING_PERMISSION", "Cette pièce appartient à une société que vous ne pouvez pas engager.");
+  if (!emission.delegation && !peutEcrire(user, "UPDATE", f.type)) return echec("MISSING_PERMISSION", "Réviser cette pièce exige le droit de modifier dans Legal.");
+  // Sous délégation, le droit d'engager cède aux validations du dossier (voir `OptionsEmission`) ;
+  // le droit de VOIR la société reste exigé plus bas, par `profilDocumentaire`.
+  if (!emission.delegation && !(await canEditCompanyId(user.id, doc.companyId))) return echec("MISSING_PERMISSION", "Cette pièce appartient à une société que vous ne pouvez pas engager.");
   if (!doc.driveNodeId || !f.docx) return echec("CAPABILITY_FAILURE", `La pièce ${f.numero} n'a pas de fichier : relancer son émission avant de la réviser.`);
   const p = await profilDocumentaire(user, doc.companyId);
   if (!p.ok) return p;
@@ -875,9 +925,12 @@ export async function reviserDocumentDrive(
     referenceAmont: m.referenceAmont !== undefined ? m.referenceAmont : f.spec.referenceAmont,
     referenceAmontDate: m.referenceAmontDate !== undefined ? m.referenceAmontDate : f.spec.referenceAmontDate,
     numeroClient: m.numeroClient !== undefined ? m.numeroClient : f.spec.numeroClient,
-    contact: m.contact !== undefined ? m.contact : f.spec.contact,
+    // CE QUI N'EST PAS NOMMÉ GARDE SA VALEUR, champ par champ (§118.152). Remplacer l'objet entier
+    // effaçait l'adresse de livraison de qui ne changeait que le délai — et la pièce révisée
+    // partait sans elle, sans un mot. Une clé ABSENTE garde sa valeur ; `null` l'efface.
+    contact: m.contact !== undefined ? (m.contact === null ? null : { ...(f.spec.contact ?? {}), ...m.contact }) : f.spec.contact,
     taxes: m.taxes !== undefined ? m.taxes : f.spec.taxes,
-    livraison: m.livraison !== undefined ? m.livraison : f.spec.livraison,
+    livraison: m.livraison !== undefined ? (m.livraison === null ? null : { ...(f.spec.livraison ?? {}), ...m.livraison }) : f.spec.livraison,
     notes: m.notes !== undefined ? m.notes : f.spec.notes,
   };
   const regles = verifierSpecCommerciale(spec);
@@ -887,13 +940,15 @@ export async function reviserDocumentDrive(
 
   const version = f.version + 1;
   const resume = `v${version}${opts.motif?.trim() ? ` — ${opts.motif.trim()}` : ""}`;
-  const ecrit = await portsArtefact.documents.ecrireVersion(user.id, doc.driveNodeId, construit.octets, { mime: MIME_DOCX, resume });
+  // Sous délégation, la PIÈCE se révise : son fichier vit dans le Drive de qui l'a émise (§118.152).
+  const piece = emission.delegation ? doc.id : undefined;
+  const ecrit = await portsArtefact.documents.ecrireVersion(user.id, doc.driveNodeId, construit.octets, { mime: MIME_DOCX, resume, piece });
   let pdf = f.pdf;
   const avertissements = [...regles.avertissements, ...construit.verification.avertissements, ...manquesDIdentite(p.profil)];
   const conv = await pdfDeLaPiece(user, { nodeId: doc.driveNodeId, version: ecrit.version }, construit.octets);
   if (conv.ok) {
     if (pdf) {
-      const v = await portsArtefact.documents.ecrireVersion(user.id, pdf.nodeId, conv.pdf, { mime: "application/pdf", resume });
+      const v = await portsArtefact.documents.ecrireVersion(user.id, pdf.nodeId, conv.pdf, { mime: "application/pdf", resume, piece });
       pdf = { ...pdf, version: v.version, pages: conv.pages, methode: conv.methode };
     } else {
       const n = await portsArtefact.documents.creerFichier(user.id, { nom: nomFichier(f.numero, spec.tiers.nom, "pdf"), octets: conv.pdf, mime: "application/pdf" });
@@ -914,7 +969,7 @@ export async function reviserDocumentDrive(
       custom: { fabrique: finale } as unknown as Prisma.InputJsonValue,
     },
   });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: doc.id, summary: `${LIBELLE_TYPE[f.type]} ${f.numero} révisé par Adam (${resume}) — ${formaterDzd(construit.totaux.totalTtc)}` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: doc.id, summary: `${LIBELLE_TYPE[f.type]} ${f.numero} révisé par Adam (${resume}) — ${formaterDzd(construit.totaux.totalTtc)}${emission.delegation ? ` — autorisé par : ${emission.delegation}` : ""}` });
   // UN BC RÉVISÉ SE RÉAIGUILLE (§118.148) : montant RELEVÉ après validation, il retourne au
   // centre ; corrigé à la demande du centre, il y est renvoyé. Le montant d'avant est celui de la
   // version précédente — c'est lui que le centre avait sous les yeux.

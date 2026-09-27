@@ -8,6 +8,7 @@ import { globalSearch } from "@/lib/queries/search";
 import { toNumber } from "@/lib/utils";
 import { emptySearchNote } from "@/lib/queries/search-redirect";
 import { invoiceSettlementState, INVOICE_SETTLEMENT } from "@/lib/labels";
+import { libelleEtape, type PromoState } from "@/lib/promo-material/circuit";
 
 /**
  * RECHERCHE FÉDÉRÉE « search_everything » — le geste réflexe du Chief of Staff.
@@ -288,7 +289,7 @@ export async function searchEverythingStrict(user: SessionUser, q: string, take 
     userCan(user, "PROMO_MATERIAL", "VIEW")
       ? prisma.promoMaterial.findMany({
           where: { AND: [entity as Where, ...matchOf(terms, ["title", "reference", "chosenAgency"])] } as Prisma.PromoMaterialWhereInput,
-          select: { id: true, reference: true, title: true, status: true, circuitState: true },
+          select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true },
           take, orderBy: { createdAt: "desc" },
         }).catch(() => [])
       : [],
@@ -382,7 +383,9 @@ export async function searchEverythingStrict(user: SessionUser, q: string, take 
   for (const r of promos) {
     hits.push({
       famille: "Matériel promotionnel", titre: `${r.reference} — ${r.title}`,
-      reference: r.reference, statut: r.circuitState ?? r.status, detail: "", lien: `/promo-material/${r.id}`,
+      reference: r.reference,
+      statut: r.circuitState ? libelleEtape(r.circuitState as PromoState, r.circuitVersion === 2 ? 2 : 1) : r.status,
+      detail: "", lien: `/promo-material/${r.id}`,
     });
   }
   for (const r of projets) {

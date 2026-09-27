@@ -11,6 +11,7 @@ import { useAction } from "@/components/shared/use-action";
 import { signerBonDeCommande } from "@/lib/actions/bc-signature-actions";
 import { LIBELLE_CENTRE_BC } from "@/lib/bons-de-commande/regle";
 import type { LigneBCFinances } from "@/lib/queries/bons-de-commande";
+import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
 
 /**
  * LA FILE DES FINANCES — chaque BC avec ce qu'il faut pour le signer en connaissance de cause :
@@ -133,11 +134,18 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
         <Link href={`/legal/${l.id}`} className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1.5 text-sm hover:bg-secondary">
           <ExternalLink className="h-3.5 w-3.5" aria-hidden /> Ouvrir la fiche
         </Link>
-        {l.driveNodeId && (
+        {/* LIRE AVANT DE SIGNER. Le fichier émis vit dans le Drive personnel de celui qui a émis le
+            BC : l'ouvrir par le Drive répondait 403 aux Finances. Il s'ouvre sous la porte de la
+            PIÈCE ; un fichier rattaché à la main garde la porte du Drive (§118.152). */}
+        {l.fichiers.pdf || l.fichiers.docx ? (
+          <a href={lienFichierEmis(l.id, l.fichiers.pdf ? "pdf" : "docx")} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1.5 text-sm hover:bg-secondary">
+            Lire la pièce
+          </a>
+        ) : l.driveNodeId ? (
           <a href={`/api/drive/${l.driveNodeId}/raw`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1.5 text-sm hover:bg-secondary">
             Lire la pièce
           </a>
-        )}
+        ) : null}
         {peutSigner && !fait && (
           <Button
             size="sm" disabled={saving}

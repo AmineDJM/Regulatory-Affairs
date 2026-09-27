@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
-import { PROMO_STEP_LABEL, type PromoState } from "@/lib/promo-material/circuit";
 import { decideAdProItem } from "@/lib/actions/ad-pro-item-actions";
 import { transferAdProRequest } from "@/lib/actions/ad-pro-transfer-actions";
 import { validatePromoStep, refusePromoStep } from "@/lib/actions/promo-circuit-actions";
@@ -8,6 +7,7 @@ import { createBD, updateBDStatus } from "@/lib/actions/bd-actions";
 import { requestStockState } from "@/lib/actions/stock-snapshot-actions";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
+import { designerDossierPromo } from "@/platform/in-process/promo";
 
 /**
  * OPS COMMERCIALES — la longue traîne Ad & Pro (postes de dépense, transferts entre modules,
@@ -71,28 +71,17 @@ async function findAdProSource(raw: string): Promise<{ kind: AdProKind; id: stri
   return hits[0];
 }
 
-async function resolvePromoDossier(raw: string): Promise<{ id: string; reference: string; title: string; state: string } | { error: string }> {
-  const q = raw.trim();
-  if (!q) return { error: "Précisez la référence ou le titre du dossier de matériel promo (champ « reference »)." };
-  const rows = await prisma.promoMaterial.findMany({
-    where: {
-      circuitState: { not: null },
-      OR: [{ reference: { equals: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }],
-    },
-    select: { id: true, reference: true, title: true, circuitState: true },
-    orderBy: { createdAt: "desc" },
-    take: 6,
-  });
-  if (rows.length === 0) return { error: `Aucun dossier promo en circuit « ${q} ».` };
-  const exact = rows.filter((r) => r.reference.toLowerCase() === q.toLowerCase());
-  const pick = exact.length === 1 ? exact[0] : rows.length === 1 ? rows[0] : null;
-  if (!pick) {
-    return { error: `Plusieurs dossiers promo correspondent à « ${q} » : ${rows.map((r) => `${r.reference} — ${r.title}`).join(" ; ")} — préciser la référence.` };
-  }
-  return { id: pick.id, reference: pick.reference, title: pick.title, state: pick.circuitState as string };
+/**
+ * LE DOSSIER DONT ON VALIDE OU REFUSE L'ÉTAPE — désigné sous la porte de la FICHE (§118.152), et
+ * nommé dans le vocabulaire de SON circuit : un dossier du circuit 2 n'a pas les étapes de celui
+ * d'avant, et la carte qu'on confirme doit dire l'étape que l'écran affiche.
+ */
+async function resolvePromoDossier(user: Parameters<OpImpl["propose"]>[1], raw: string): Promise<{ id: string; reference: string; title: string; etape: string } | { error: string }> {
+  const d = await designerDossierPromo(user, raw);
+  if ("error" in d) return d;
+  if (!d.circuitState || !d.etape) return { error: `Le circuit n'est pas lancé sur ${d.reference}.` };
+  return { id: d.id, reference: d.reference, title: d.title, etape: d.etape };
 }
-
-const promoStepLabel = (state: string): string => PROMO_STEP_LABEL[state as PromoState] ?? state;
 
 const BD_STATUS_FR: Record<string, string> = {
   IDEA: "Idée", RESEARCH: "Recherche", CONTACTED: "Contacté", NDA: "NDA",
@@ -205,19 +194,19 @@ export const ADPRO_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   validate_promo_step: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const dossier = await resolvePromoDossier(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const dossier = await resolvePromoDossier(user, opStr(input, "reference") || opStr(input, "label"));
       if ("error" in dossier) return dossier;
       return {
-        title: `Valider l'étape « ${promoStepLabel(dossier.state)} » — ${dossier.reference}`,
+        title: `Valider l'étape « ${dossier.etape} » — ${dossier.reference}`,
         fields: [
           { label: "Dossier", value: `${dossier.reference} — ${dossier.title}` },
-          { label: "Étape courante", value: promoStepLabel(dossier.state) },
+          { label: "Étape courante", value: dossier.etape },
         ],
         warnings: ["L'étape décide qui peut valider : si elle ne vous revient pas, l'exécution refusera en le disant. La personne de l'étape suivante est notifiée."],
         args: { id: dossier.id, reference: dossier.reference },
-        successMessage: `Étape « ${promoStepLabel(dossier.state)} » validée sur ${dossier.reference}.`,
-        revalidate: ["/materiel-promotionnel"],
+        successMessage: `Étape « ${dossier.etape} » validée sur ${dossier.reference}.`,
+        revalidate: ["/promo-material"],
       };
     },
     async execute(args) {
@@ -225,27 +214,27 @@ export const ADPRO_OPS_IMPL: Record<string, OpImpl> = {
       fd.set("id", args.id ?? "");
       const r = await validatePromoStep(fd);
       if (!r.ok) return { ok: false, error: r.error ?? "La validation de l'étape a été refusée." };
-      return { ok: true, revalidate: ["/materiel-promotionnel"] };
+      return { ok: true, revalidate: ["/promo-material"] };
     },
   },
 
   refuse_promo_step: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
       const reason = opStr(input, "note");
       if (!reason) return { error: "Donnez le motif du refus (champ « note ») — un refus sans motif ne dit pas quoi corriger." };
-      const dossier = await resolvePromoDossier(opStr(input, "reference") || opStr(input, "label"));
+      const dossier = await resolvePromoDossier(user, opStr(input, "reference") || opStr(input, "label"));
       if ("error" in dossier) return dossier;
       return {
-        title: `Refuser l'étape « ${promoStepLabel(dossier.state)} » — ${dossier.reference}`,
+        title: `Refuser l'étape « ${dossier.etape} » — ${dossier.reference}`,
         fields: [
           { label: "Dossier", value: `${dossier.reference} — ${dossier.title}` },
-          { label: "Étape courante", value: promoStepLabel(dossier.state) },
+          { label: "Étape courante", value: dossier.etape },
           { label: "Motif", value: reason },
         ],
         warnings: ["Le dossier revient en arrière ; le demandeur est notifié avec le motif."],
         args: { id: dossier.id, reason, reference: dossier.reference },
         successMessage: `Étape refusée sur ${dossier.reference} — le demandeur est prévenu.`,
-        revalidate: ["/materiel-promotionnel"],
+        revalidate: ["/promo-material"],
       };
     },
     async execute(args) {
@@ -254,7 +243,7 @@ export const ADPRO_OPS_IMPL: Record<string, OpImpl> = {
       fd.set("reason", args.reason ?? "");
       const r = await refusePromoStep(fd);
       if (!r.ok) return { ok: false, error: r.error ?? "Le refus de l'étape a été refusé." };
-      return { ok: true, revalidate: ["/materiel-promotionnel"] };
+      return { ok: true, revalidate: ["/promo-material"] };
     },
   },
 };

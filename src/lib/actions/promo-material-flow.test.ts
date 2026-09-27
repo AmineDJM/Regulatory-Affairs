@@ -76,6 +76,14 @@ suite("Matériel promotionnel — circuit complet (Marketing → Assistante → 
     const pm = await prisma.promoMaterial.findUniqueOrThrow({ where: { id: pmId } });
     expect(pm.status).toBe("PROSPECTION_REQUESTED");
     expect(pm.requesterId).toBe(mkt);
+
+    // UNE DEMANDE NEUVE NAÎT SUR LE CIRCUIT 2 (§118.152) — et les gestes de CE banc la refusent,
+    // à raison : elle se pilote depuis « Suivi du circuit ». Ce banc garde ce qu'il a toujours
+    // gardé, le circuit d'AVANT, que servent encore les dossiers ouverts avant la bascule. Le
+    // dossier est donc ramené à ce que la création d'alors produisait (version 1, devis à
+    // demander) : c'est l'état exact d'un dossier en vol en production, pas un raccourci de banc.
+    expect(pm.circuitVersion, "une demande neuve naît sur le circuit par devis retranscrits").toBe(2);
+    await prisma.promoMaterial.update({ where: { id: pmId }, data: { circuitVersion: 1, circuitState: "QUOTE_REQUESTED" } });
   });
 
   it("un acteur hors rôle ne peut pas faire avancer l'étape", async () => {

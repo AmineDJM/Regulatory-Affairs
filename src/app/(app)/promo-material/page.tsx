@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, anyRoleFilter } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getPromoMaterials } from "@/lib/queries/promo-material";
 import { createPromoMaterial } from "@/lib/actions/promo-material-actions";
@@ -12,7 +12,8 @@ import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { promoMaterialCreateFields } from "@/lib/ad-pro/create-fields";
-import { PROMO_MATERIAL_STATUS, PROMO_CIRCUIT_STATUS, EVENTS_TABS, MATERIAL_TYPE } from "@/lib/labels";
+import { PROMO_MATERIAL_STATUS, EVENTS_TABS, MATERIAL_TYPE } from "@/lib/labels";
+import { libelleEtape, type PromoState } from "@/lib/promo-material/circuit";
 import { CompanyBadge } from "@/components/shared/company-badge";
 import { getMyCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -24,9 +25,11 @@ export default async function PromoMaterialPage() {
   const canCreate = userCan(user, "PROMO_MATERIAL", "CREATE");
   const [items, companies] = await Promise.all([getPromoMaterials(user), getMyCompanies(user.id)]);
 
-  // Liste des assistantes possibles (pour assigner la demande) : réservée au créateur.
+  // LES ASSISTANTES DE DIRECTION (§118.152) — et elles seules. Ce menu proposait tout compte
+  // actif : le demandeur pouvait nommer un collègue pour recopier les prix qu'il retiendra
+  // ensuite. L'action refuse aussi tout autre choix — le menu n'est pas la garde.
   const assistants = canCreate
-    ? await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+    ? await prisma.user.findMany({ where: { isActive: true, ...anyRoleFilter(["DIRECTION_ASSISTANT"]) }, select: { id: true, name: true }, orderBy: { name: "asc" } })
     : [];
   // Mêmes champs qu'au panneau commun d'Ad & Pro : une seule définition, deux portes d'entrée.
   // LES GAMMES ACTIVES — c'est le budget Ad&Pro de l'une d'elles que la demande engage.
@@ -44,10 +47,10 @@ export default async function PromoMaterialPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Matériel promotionnel" description="Circuit court : devis → validation du demandeur → N+1 → PDG / Super Admin → information médicale, puis bon de commande, paiement et visa publicitaire en parallèle.">
+      <PageHeader title="Matériel promotionnel" description="Demande validée (N+1 ou directrice marketing) → devis retranscrits par l'assistante → choix des lignes → Direction Marketing (et Directeur Général au-dessus du seuil) → bons de commande générés, factures et paiements, visa publicitaire ou déclaration à chaque paiement.">
         {canCreate && (
           <CreateRecordButton
-            autoOpenParam="new" label="Nouvelle demande" title="Demande de matériel promotionnel" description="Marketing — demande de prospection d'agences." width="md" action={createPromoMaterial} redirectBase="/promo-material" fields={createFields} />
+            autoOpenParam="new" label="Nouvelle demande" title="Demande de matériel promotionnel" description="Votre demande est d'abord validée (N+1, ou directrice marketing) ; vous demanderez ensuite les devis au secrétariat." width="md" action={createPromoMaterial} redirectBase="/promo-material" fields={createFields} />
         )}
       </PageHeader>
 
@@ -60,7 +63,7 @@ export default async function PromoMaterialPage() {
       </div>
 
       {items.length === 0 ? (
-        <EmptyState icon="Megaphone" title="Aucun dossier" description={canCreate ? "Créez une demande de prospection d'agences pour démarrer." : "Les dossiers de matériel promotionnel apparaîtront ici."} />
+        <EmptyState icon="Megaphone" title="Aucun dossier" description={canCreate ? "Créez une demande de matériel promotionnel pour démarrer." : "Les dossiers de matériel promotionnel apparaîtront ici."} />
       ) : (
         <div className="surface overflow-x-auto p-0">
           <Table>
@@ -84,8 +87,12 @@ export default async function PromoMaterialPage() {
                   <TableCell>
                     {/* Un dossier au circuit court affiche l'état du circuit ; un dossier
                         d'avant la réforme garde son ancien statut. */}
-                    {i.circuitState
-                      ? <StatusBadge map={PROMO_CIRCUIT_STATUS} value={i.circuitState} dot={false} />
+                    {/* LE LIBELLÉ D'UNE ÉTAPE VIENT DU CIRCUIT (`libelleEtape`), comme sur la fiche : une
+                        table recopiée ici disait encore « Validation du N+1 » pour l'étape de la
+                        Direction Marketing, et ne connaissait pas celle du Directeur Général. Un
+                        dossier annulé se lit « Annulé », pas « Refusé ». */}
+                    {i.circuitState && i.status !== "CANCELLED"
+                      ? <StatusBadge map={{ [i.circuitState]: { label: libelleEtape(i.circuitState as PromoState, i.circuitVersion === 2 ? 2 : 1), tone: i.circuitState === "REFUSED" ? "danger" : i.circuitState === "COMPLETED" ? "success" : "info" } }} value={i.circuitState} dot={false} />
                       : <StatusBadge map={PROMO_MATERIAL_STATUS} value={i.status} dot={false} />}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(i.createdAt)}</TableCell>

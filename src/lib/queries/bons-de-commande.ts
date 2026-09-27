@@ -8,6 +8,7 @@ import { legalViewScope } from "@/lib/legal/invoices";
 import { getAppSettings } from "@/lib/settings";
 import { etatsDesBC } from "@/lib/bons-de-commande/etat";
 import type { EtapeBC, PorteBC } from "@/lib/bons-de-commande/regle";
+import { fichiersEmis } from "@/lib/legal/fichiers-emis";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -64,6 +65,9 @@ export interface LigneBCFinances {
   creePar: string | null;
   creeLe: string;
   driveNodeId: string | null;
+  /** Le Word et le PDF que la FABRIQUE a produits — ils s'ouvrent sous la porte de la pièce
+   *  (`lienFichierEmis`), pas du Drive personnel de celui qui l'a émise (§118.152). */
+  fichiers: { docx: boolean; pdf: boolean };
   etape: EtapeBC;
   porte: PorteBC | null;
   validationRequise: boolean;
@@ -88,7 +92,7 @@ export async function fileBonsDeCommande(user: CurrentUser, opts: { signesRecent
   const visibles = await bcVisiblesWhere(user);
   if (!visibles) return null;
   const select = {
-    id: true, reference: true, title: true, counterparty: true, createdAt: true, driveNodeId: true,
+    id: true, reference: true, title: true, counterparty: true, createdAt: true, driveNodeId: true, custom: true,
     company: { select: { name: true, shortName: true } },
     createdBy: { select: { name: true } },
   } as const;
@@ -114,6 +118,7 @@ export async function fileBonsDeCommande(user: CurrentUser, opts: { signesRecent
       id: d.id, reference: d.reference, title: d.title, counterparty: d.counterparty, montant: e.montant,
       societe: d.company ? (d.company.shortName || d.company.name) : null,
       creePar: d.createdBy?.name ?? null, creeLe: d.createdAt.toISOString(), driveNodeId: d.driveNodeId,
+      fichiers: (() => { const f = fichiersEmis(d.custom); return { docx: Boolean(f.docx), pdf: Boolean(f.pdf) }; })(),
       etape: e.etape, porte: e.porte, validationRequise: e.validationRequise,
       signeLe: e.signeLe?.toISOString() ?? null, signePar: e.signePar?.name ?? null,
     };

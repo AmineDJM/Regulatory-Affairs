@@ -41,6 +41,7 @@ import { sitsOnValidationCentre } from "@/lib/validations/centre";
 import { BonDeCommandeGate } from "./bc-gate";
 import { etatDuBC } from "@/lib/bons-de-commande/etat";
 import { peutSignerBC } from "@/lib/queries/bons-de-commande";
+import { fichiersEmis, lienFichierEmis } from "@/lib/legal/fichiers-emis";
 
 export const dynamic = "force-dynamic";
 
@@ -217,6 +218,8 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   // LA PORTE DU BON DE COMMANDE (§118.148) — lue par le MÊME lecteur que le centre et que le
   // refus d'envoi au règlement : trois lectures de « ce BC est-il validé ? » divergeraient.
   const estBC = doc.kind === "PURCHASE_ORDER";
+  // Les fichiers que la FABRIQUE a produits pour cette pièce (`custom.fabrique`) — voir `fichiers-emis`.
+  const emis = fichiersEmis(doc.custom);
   // L'ÉTAT DE BOUT EN BOUT (§118.149) — porte, seuil, signature — par le MÊME lecteur que la file
   // des Finances et que l'action de signature : la fiche ne peut pas dire « à signer » d'un BC que
   // l'action refuserait.
@@ -360,7 +363,26 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
                   <p className="whitespace-pre-wrap">{doc.notes}</p>
                 </div>
               )}
-              {doc.driveNode && (
+              {emis.docx || emis.pdf ? (
+                <div className="col-span-2 sm:col-span-3">
+                  <p className="text-xs text-muted-foreground">Pièce émise par la plateforme</p>
+                  {/* LE FICHIER ÉMIS S'OUVRE SOUS LA PORTE DE LA PIÈCE (§118.152). Il vit dans le Drive
+                      personnel de celui qui l'a émis : y renvoyer répondait 403 à tous les autres
+                      lecteurs de la pièce — les Finances qui la signent, le centre qui la valide. */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {emis.pdf && (
+                      <a href={lienFichierEmis(doc.id, "pdf")} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+                        <Paperclip className="h-3.5 w-3.5" /> PDF <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                    {emis.docx && (
+                      <a href={lienFichierEmis(doc.id, "docx", true)} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+                        <Paperclip className="h-3.5 w-3.5" /> Word
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ) : doc.driveNode && (
                 <div className="col-span-2 sm:col-span-3">
                   <p className="text-xs text-muted-foreground">Pièce de référence (dans le Drive)</p>
                   {/* Le fichier vit dans le DRIVE : on y renvoie, on n'en sert pas une copie. */}

@@ -19,7 +19,20 @@ interface CreateDeclarationInput {
   requesterId?: string | null;
   /** (Sous-)catégorie budgétaire choisie par la Direction à la validation définitive. */
   budgetCategoryId?: string | null;
+  /**
+   * LA NATURE, quand la source ne la dit pas (§118.152). Le paiement d'un matériel promotionnel
+   * part avec une demande de visa publicitaire OU une déclaration au ministère : la source (une
+   * facture) ne décrit pas le chemin, c'est le choix du demandeur qui le décide. `null` = la
+   * source décide, comme avant.
+   */
+  declarationKind?: "MIP" | "AD_VISA" | null;
 }
+
+/** Le titre de la notification du PRIM — il dit ce qu'on lui demande, pas « un événement » quand c'est un visa. */
+const TITRE_PAR_NATURE: Record<"MIP" | "AD_VISA", string> = {
+  AD_VISA: "Information médicale — visa publicitaire à demander",
+  MIP: "Information médicale — déclaration au ministère à faire",
+};
 
 /**
  * Intercale l'étape « information médicale » juste après la validation définitive de
@@ -52,12 +65,13 @@ export async function createMedicalInfoDeclaration(input: CreateDeclarationInput
       requesterId: input.requesterId ?? null,
       budgetCategoryId: input.budgetCategoryId ?? null,
       pharmacistId: pharmacist?.id ?? null,
+      declarationKind: input.declarationKind ?? null,
     },
   });
 
   await notifyRoles(["MEDICAL_INFO_PHARMACIST", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED",
-    title: "Information médicale — événement à déclarer",
+    title: input.declarationKind ? TITRE_PAR_NATURE[input.declarationKind] : "Information médicale — événement à déclarer",
     body: `${decl.reference} — ${input.label}`,
     link: `/information-medicale/${decl.id}`,
   });
